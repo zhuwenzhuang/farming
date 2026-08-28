@@ -79,6 +79,26 @@ async function openHumanCaseChat(page: Page, workspace: string) {
 }
 
 test.describe('ACP human-like browser matrix', () => {
+  test('keeps ACP Session metadata bounded unless raw Entries are explicitly requested', async ({ page, workspaceRoot }) => {
+    const workspace = path.join(workspaceRoot, 'acp-session-metadata-default')
+    fs.mkdirSync(workspace, { recursive: true })
+    const agentId = await createAcpAgent(page, workspace)
+    await openFarming(page)
+    await agentRow(page, agentId).click()
+    await sendAcpMessage(page, 'markdown typography')
+    await expect(page.getByText('Typography baseline.', { exact: true })).toBeVisible()
+
+    const metadataResponse = await page.request.get(`/farming/api/agents/${agentId}/acp-session`)
+    expect(metadataResponse.ok()).toBeTruthy()
+    const metadata = await metadataResponse.json() as { session?: { entries?: unknown[] } }
+    expect(metadata.session?.entries).toEqual([])
+
+    const rawResponse = await page.request.get(`/farming/api/agents/${agentId}/acp-session?includeEntries=1`)
+    expect(rawResponse.ok()).toBeTruthy()
+    const raw = await rawResponse.json() as { session?: { entries?: unknown[] } }
+    expect(raw.session?.entries?.length).toBeGreaterThan(0)
+  })
+
   test('classifies ACP authentication without a duplicate session error', {
     tag: ['@critical-behavior', '@behavior-CODE-ACP-STRUCTURED-ERRORS'],
   }, async ({ page, workspaceRoot }) => {
@@ -174,7 +194,7 @@ test.describe('ACP human-like browser matrix', () => {
     await expect(page.getByText('farming-inline.html', { exact: true })).toHaveCount(0)
   })
 
-  test('renders workspace and external local image links as bounded inline previews', async ({ page, workspaceRoot }) => {
+  test('renders workspace and external local image links as bounded inline previews', { tag: '@iphone-human' }, async ({ page, workspaceRoot }) => {
     const workspace = path.join(workspaceRoot, 'acp-local-image-link')
     fs.mkdirSync(workspace, { recursive: true })
     const imagePath = path.join(workspace, 'screenshot.png')
@@ -185,6 +205,8 @@ test.describe('ACP human-like browser matrix', () => {
 
     const agentId = await createCodexAcpAgent(page, workspace)
     await openFarming(page)
+    const compactLayout = await page.locator('body').evaluate(element => element.classList.contains('code-compact-layout'))
+    if (compactLayout) await page.getByTestId('code-mobile-menu').click()
     await agentRow(page, agentId).click()
     await expect(page.getByTestId('code-acp-composer-input')).toBeEditable({ timeout: 20_000 })
     await sendAcpMessage(page, `local image link ${imagePath}`)
@@ -195,9 +217,40 @@ test.describe('ACP human-like browser matrix', () => {
     const box = await preview.boundingBox()
     expect(box?.width ?? 0).toBeLessThanOrEqual(520)
     expect(box?.height ?? 0).toBeLessThanOrEqual(320)
-    await preview.click()
     const imageTrigger = page.locator('.code-agent-transcript-markdown-image-link')
+    const triggerBox = await imageTrigger.boundingBox()
+    expect(triggerBox?.width ?? 0).toBeGreaterThanOrEqual(44)
+    expect(triggerBox?.height ?? 0).toBeGreaterThanOrEqual(44)
     const imageOverlay = page.getByTestId('code-agent-transcript-image-overlay')
+    if (compactLayout) {
+      await imageTrigger.evaluate(element => {
+        const touchList = (...touches: Array<{ identifier: number; clientX: number; clientY: number }>) => Object.assign(touches, {
+          item: (index: number) => touches[index] || null,
+        })
+        const emit = (
+          type: string,
+          touches: ReturnType<typeof touchList>,
+          changedTouches: ReturnType<typeof touchList>,
+        ) => {
+          const event = new Event(type, { bubbles: true, cancelable: true })
+          Object.defineProperties(event, {
+            touches: { value: touches },
+            changedTouches: { value: changedTouches },
+          })
+          element.dispatchEvent(event)
+        }
+        const start = { identifier: 7, clientX: 20, clientY: 20 }
+        const moved = { identifier: 7, clientX: 20, clientY: 40 }
+        emit('touchstart', touchList(start), touchList())
+        emit('touchmove', touchList(moved), touchList())
+        emit('touchmove', touchList(start), touchList())
+        emit('touchend', touchList(), touchList(start))
+      })
+      await expect(imageOverlay).toHaveCount(0)
+      await imageTrigger.tap()
+    } else {
+      await imageTrigger.click()
+    }
     const closeImage = imageOverlay.getByRole('button', { name: 'Close image preview' })
     await expect(imageOverlay).toBeVisible()
     await expect(closeImage).toBeFocused()
@@ -1088,8 +1141,8 @@ test.describe('ACP human-like browser matrix', () => {
       await expect(page.getByTestId('code-acp-composer-send')).toBeVisible()
     })
     await test.step('06 accept ordinary text input', async () => {
-      await page.getByTestId('code-acp-composer-input').fill('rich timeline')
-      await expect(page.getByTestId('code-acp-composer-input')).toHaveValue('rich timeline')
+      await page.getByTestId('code-acp-composer-input').fill('rich timeline inspect active plan')
+      await expect(page.getByTestId('code-acp-composer-input')).toHaveValue('rich timeline inspect active plan')
     })
     const transcriptMediaResponse = page.waitForResponse(response => (
       response.url().includes(`/api/agents/${agentId}/acp-media/`)
@@ -1100,7 +1153,7 @@ test.describe('ACP human-like browser matrix', () => {
       await expect(page.getByTestId('code-acp-composer-input')).toHaveValue('')
     })
     await test.step('08 render the optimistic user message once', async () => {
-      await expect(page.getByText('rich timeline', { exact: true })).toHaveCount(1)
+      await expect(page.getByText('rich timeline inspect active plan', { exact: true })).toHaveCount(1)
     })
     await test.step('08b render the active plan on the dark appearance surface', async () => {
       await page.locator('body').evaluate(body => { body.dataset.appearance = 'dark' })
@@ -1287,8 +1340,27 @@ test.describe('ACP human-like browser matrix', () => {
       const imageTurn = page.locator('.code-agent-transcript-turn').filter({ hasText: 'image attachment' }).last()
       const image = imageTurn.getByTestId('code-agent-transcript-user-images').locator('img')
       await expect(image).toHaveCount(1)
-      await image.click()
+      const imageTrigger = imageTurn.getByTestId('code-agent-transcript-user-images').getByRole('button')
+      await expect(imageTrigger).toHaveAccessibleName(/^Open /)
+      const triggerBox = await imageTrigger.boundingBox()
+      expect(triggerBox?.width ?? 0).toBeGreaterThanOrEqual(44)
+      expect(triggerBox?.height ?? 0).toBeGreaterThanOrEqual(44)
+      if (compactLayout) {
+        await imageTrigger.tap({ position: {
+          x: (triggerBox?.width ?? 44) / 2,
+          y: (triggerBox?.height ?? 44) / 2,
+        } })
+      } else {
+        await imageTrigger.click({ position: {
+          x: (triggerBox?.width ?? 44) / 2,
+          y: (triggerBox?.height ?? 44) / 2,
+        } })
+      }
       await expect(page.getByTestId('code-agent-transcript-image-overlay')).toBeVisible()
+      const closePreview = page.getByRole('button', { name: 'Close image preview' })
+      const closeBox = await closePreview.boundingBox()
+      expect(closeBox?.width ?? 0).toBeGreaterThanOrEqual(44)
+      expect(closeBox?.height ?? 0).toBeGreaterThanOrEqual(44)
       await page.keyboard.press('Escape')
       await expect(page.getByTestId('code-agent-transcript-image-overlay')).toHaveCount(0)
     })

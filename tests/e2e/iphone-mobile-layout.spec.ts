@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { expect, openFarming, terminalCheckpointOutput, test } from './fixtures'
+import { expect, interceptWorkspaceRequests, openFarming, terminalCheckpointOutput, test } from './fixtures'
 
 const IPHONE_AUDIT_DIR = path.resolve('.tmp/iphone-real-agent-audit')
 
@@ -75,10 +75,162 @@ test.describe('iPhone mobile layout', () => {
     expect(previewMetrics.rightOverflow).toBeLessThanOrEqual(1)
 
     const showSource = page.getByRole('button', { name: 'Show source' })
+    const showSourceTarget = await showSource.evaluate(element => {
+      const rect = element.getBoundingClientRect()
+      const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)
+      return { width: rect.width, height: rect.height, centerHits: hit === element || element.contains(hit) }
+    })
+    expect(showSourceTarget.width).toBeGreaterThanOrEqual(44)
+    expect(showSourceTarget.height).toBeGreaterThanOrEqual(44)
+    expect(showSourceTarget.centerHits).toBe(true)
     await showSource.tap()
     await expect(page.getByTestId('code-file-monaco')).toBeVisible()
-    await page.getByRole('button', { name: 'Open preview' }).tap()
+    const sourceActions = [
+      page.getByTestId('code-file-editor-back'),
+      page.getByRole('button', { name: 'Open preview' }),
+    ]
+    for (const action of sourceActions) {
+      await expect(action).toBeVisible()
+      const target = await action.evaluate(element => {
+        const rect = element.getBoundingClientRect()
+        const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)
+        return { width: rect.width, height: rect.height, centerHits: hit === element || element.contains(hit) }
+      })
+      expect(target.width).toBeGreaterThanOrEqual(44)
+      expect(target.height).toBeGreaterThanOrEqual(44)
+      expect(target.centerHits).toBe(true)
+    }
+    await sourceActions[1]!.tap()
     await expect(page.getByTestId('code-file-html-preview')).toBeVisible()
+  })
+
+  test('preserves a mobile editor draft and resolves an external save conflict through touch controls', async ({ page, workspaceRoot }, testInfo) => {
+    test.skip(testInfo.project.name !== 'iphone-webkit', 'Runs only in the iPhone WebKit project')
+    testInfo.setTimeout(120_000)
+    await page.setViewportSize({ width: 320, height: 720 })
+    const projectDir = path.join(workspaceRoot, 'iphone-file-save-conflict')
+    const filePath = path.join(projectDir, 'editable.md')
+    fs.mkdirSync(projectDir, { recursive: true })
+    fs.writeFileSync(filePath, 'seed mobile text\n')
+    const saves: Array<{ overwrite: boolean }> = []
+    await interceptWorkspaceRequests(page, request => {
+      if (request.operation === 'save-file' && request.path === 'editable.md') {
+        saves.push({ overwrite: request.overwrite === true })
+      }
+    })
+
+    await openFarming(page)
+    await createControlAgent(page, 'bash', projectDir)
+    await page.getByTestId('code-mobile-menu').tap()
+    const project = page.getByTestId('code-project-group').filter({ hasText: 'iphone-file-save-conflict' })
+    const files = project.getByTestId('code-files-section')
+    const filesToggle = files.getByRole('button', { name: /^Files$/ })
+    if (await filesToggle.getAttribute('aria-expanded') === 'false') await filesToggle.tap()
+    await files.locator('[data-testid="code-file-row"][data-file-path="editable.md"]').tap()
+    await page.getByRole('button', { name: 'Show Markdown source' }).tap()
+    await expect(page.getByTestId('code-file-monaco')).toBeVisible()
+
+    await page.evaluate(() => window.__farmingFileEditorTest?.insertText('SAVED_FROM_MOBILE\n'))
+    const save = page.getByRole('button', { name: 'Save file' })
+    const actionBar = page.locator('.code-file-editor-tab-strip > .code-file-editor-actions')
+    const actionButtons = actionBar.getByRole('button')
+    const actionCount = await actionButtons.count()
+    expect(actionCount).toBeGreaterThanOrEqual(6)
+    const overflow = await actionBar.evaluate(element => ({
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+    }))
+    expect(overflow.scrollWidth).toBeGreaterThan(overflow.clientWidth)
+    for (const index of [...Array(actionCount).keys()].reverse()) {
+      const action = actionButtons.nth(index)
+      await action.evaluate(element => element.scrollIntoView({ block: 'nearest', inline: 'center' }))
+      await expect.poll(() => action.evaluate(element => {
+        const rect = element.getBoundingClientRect()
+        const scroller = element.closest<HTMLElement>('.code-file-editor-actions')
+        const scrollerRect = scroller?.getBoundingClientRect()
+        const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)
+        return {
+          width: rect.width,
+          height: rect.height,
+          centerInsideScroller: Boolean(
+            scrollerRect
+            && rect.left + rect.width / 2 >= scrollerRect.left
+            && rect.left + rect.width / 2 <= scrollerRect.right
+          ),
+          centerHits: hit === element || element.contains(hit),
+        }
+      })).toEqual({
+        width: 44,
+        height: 44,
+        centerInsideScroller: true,
+        centerHits: true,
+      })
+    }
+    await save.tap()
+    await expect.poll(() => saves.length).toBe(1)
+    await expect.poll(() => fs.readFileSync(filePath, 'utf8')).toContain('SAVED_FROM_MOBILE')
+
+    await page.evaluate(() => window.__farmingFileEditorTest?.insertText('LOCAL_DRAFT_SURVIVES_RELOAD\n'))
+    await expect.poll(() => page.evaluate(() => window.__farmingFileEditorTest?.getValue() ?? ''))
+      .toContain('LOCAL_DRAFT_SURVIVES_RELOAD')
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    await page.getByRole('button', { name: 'Show Markdown source' }).tap()
+    await expect(page.getByTestId('code-file-monaco')).toBeVisible()
+    await expect.poll(() => page.evaluate(() => window.__farmingFileEditorTest?.getValue() ?? ''))
+      .toContain('LOCAL_DRAFT_SURVIVES_RELOAD')
+
+    fs.writeFileSync(filePath, 'EXTERNAL_MOBILE_CHANGE\n')
+    const changedOnDisk = page.getByTestId('code-file-editor').getByTitle('Changed on disk')
+    const watcherDetectedConflict = await expect(changedOnDisk).toBeVisible({ timeout: 2_000 })
+      .then(() => true, () => false)
+    if (!watcherDetectedConflict) {
+      await page.getByRole('button', { name: 'Save file' }).tap()
+      await expect.poll(() => saves.length).toBe(2)
+    }
+    await expect(changedOnDisk).toBeVisible()
+    await expect.poll(() => page.evaluate(() => window.__farmingFileEditorTest?.getValue() ?? ''))
+      .toContain('LOCAL_DRAFT_SURVIVES_RELOAD')
+
+    const conflictActions = [
+      page.getByRole('button', { name: 'Reload file' }),
+      page.getByRole('button', { name: 'Overwrite changed file' }),
+    ]
+    for (const action of conflictActions) {
+      const target = await action.evaluate(element => {
+        const rect = element.getBoundingClientRect()
+        const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)
+        return { width: rect.width, height: rect.height, centerHits: hit === element || element.contains(hit) }
+      })
+      expect(target.width).toBeGreaterThanOrEqual(44)
+      expect(target.height).toBeGreaterThanOrEqual(44)
+      expect(target.centerHits).toBe(true)
+    }
+    for (const appearance of ['light', 'dark', 'paper'] as const) {
+      await page.locator('body').evaluate((body, value) => {
+        document.documentElement.dataset.appearance = value
+        body.dataset.appearance = value
+      }, appearance)
+      const layout = await page.getByTestId('code-file-editor').evaluate(element => {
+        const rect = element.getBoundingClientRect()
+        return {
+          left: rect.left,
+          right: rect.right,
+          documentWidth: document.documentElement.scrollWidth,
+          viewportWidth: window.innerWidth,
+        }
+      })
+      expect(layout.left).toBeGreaterThanOrEqual(0)
+      expect(layout.right).toBeLessThanOrEqual(layout.viewportWidth + 1)
+      expect(layout.documentWidth).toBe(layout.viewportWidth)
+      await captureIphoneAudit(page, `iphone-file-conflict-${appearance}.png`)
+    }
+    const savesBeforeOverwrite = saves.length
+    await conflictActions[1]!.tap()
+    await expect.poll(() => saves.length).toBe(savesBeforeOverwrite + 1)
+    expect(saves[0]).toEqual({ overwrite: false })
+    expect(saves.at(-1)).toEqual({ overwrite: true })
+    await expect.poll(() => fs.readFileSync(filePath, 'utf8')).toContain('LOCAL_DRAFT_SURVIVES_RELOAD')
+    await expect(page.getByTestId('code-file-editor').getByTitle('Changed on disk')).toHaveCount(0)
   })
 
   test('keeps a long ACP model label outside the iPhone send-button hit target', async ({ page, workspaceRoot }, testInfo) => {
@@ -689,6 +841,20 @@ test.describe('iPhone mobile layout', () => {
     await expect(copyShareAction).toHaveText(/Copied|已复制/)
     const fullControlAction = mobileShareSheet.getByTestId('code-mobile-share-full-control-action')
     await expect(fullControlAction).toBeVisible()
+    for (const control of [closeShareButton, copyShareAction, fullControlAction]) {
+      const touchTarget = await control.evaluate(element => {
+        const rect = element.getBoundingClientRect()
+        const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)
+        return {
+          width: rect.width,
+          height: rect.height,
+          centerHitsControl: hit === element || element.contains(hit),
+        }
+      })
+      expect(touchTarget.width).toBeGreaterThanOrEqual(44)
+      expect(touchTarget.height).toBeGreaterThanOrEqual(44)
+      expect(touchTarget.centerHitsControl).toBe(true)
+    }
     await fullControlAction.click()
     await expect(fullControlAction).toHaveText(/Copied|已复制/)
     await expect(mobileShareSheet.getByRole('heading', { name: /Add to Home Screen|添加到主屏幕/ })).toBeVisible()
@@ -770,6 +936,26 @@ test.describe('iPhone mobile layout', () => {
     await expect(files.locator('.code-file-tree-viewport')).toHaveAttribute('data-visible-row-count', '1400')
     await expect.poll(() => files.locator('[data-testid="code-file-row"]').count()).toBeLessThan(100)
 
+    const expectVisibleFileRows = async (expectedHeight: number) => {
+      await expect.poll(() => files.locator('[data-testid="code-file-row"]').evaluateAll(rows => {
+        const sample = rows.slice(0, 8).map(row => row.getBoundingClientRect())
+        return {
+          heights: sample.map(rect => Math.round(rect.height)),
+          steps: sample.slice(1).map((rect, index) => Math.round(rect.top - sample[index]!.top)),
+        }
+      })).toEqual({
+        heights: Array(8).fill(expectedHeight),
+        steps: Array(7).fill(expectedHeight),
+      })
+    }
+    await expectVisibleFileRows(44)
+    await page.setViewportSize({ width: 1024, height: 800 })
+    await expectVisibleFileRows(24)
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.getByTestId('code-mobile-menu').tap()
+    await expect(project).toBeVisible()
+    await expectVisibleFileRows(44)
+
     const scrollMetrics = await files.evaluate(async element => {
       const scroller = element.closest<HTMLElement>('.code-project-list')
       const viewport = element.querySelector<HTMLElement>('.code-file-tree-viewport')
@@ -830,6 +1016,9 @@ test.describe('iPhone mobile layout', () => {
       const hit = document.elementFromPoint(x, y)
       return {
         path: row.getAttribute('data-file-path') || '',
+        rowHeight: row.getBoundingClientRect().height,
+        width: rect.width,
+        height: rect.height,
         x,
         y,
         hitWithinAction: hit === action || action.contains(hit),
@@ -838,6 +1027,9 @@ test.describe('iPhone mobile layout', () => {
       }
     })
     expect(actionTarget?.path).toBeTruthy()
+    expect(actionTarget?.rowHeight).toBeGreaterThanOrEqual(44)
+    expect(actionTarget?.width).toBeGreaterThanOrEqual(44)
+    expect(actionTarget?.height).toBeGreaterThanOrEqual(44)
     expect(actionTarget?.hitWithinAction, JSON.stringify(actionTarget)).toBe(true)
     await page.touchscreen.tap(actionTarget!.x, actionTarget!.y)
     const menu = page.getByTestId('code-file-context-menu')

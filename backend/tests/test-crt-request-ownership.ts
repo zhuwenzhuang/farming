@@ -266,6 +266,8 @@ async function testLateControlsCannotReplaceNewAgentOrRetargetPatch() {
 
   setTwoAcpAgents(harness, 'agent-b', 2);
   const second = harness.evaluate("refreshStructuredSessionControls('agent-b', true, 2)");
+  assert.match(harness.requests[0].url, /\/agents\/agent-a\/acp-session\?includeEntries=0$/);
+  assert.match(harness.requests[1].url, /\/agents\/agent-b\/acp-session\?includeEntries=0$/);
   harness.requests[1].deferred.resolve(response({ session: { owner: 'agent-b', updatedAt: 'b' } }));
   await second;
   harness.requests[0].deferred.resolve(response({ session: { owner: 'agent-a', updatedAt: 'a' } }));

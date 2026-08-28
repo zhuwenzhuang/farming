@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { getBackendConnectionSnapshot } from '@/lib/backend-live-status'
+import { isCompactViewport, isTouchInputViewport } from '@/lib/responsive-mode'
 import type { WorkspaceFileOpenTarget } from '@/lib/workspace-file-search'
 import type { WorkspaceFileTreeNode } from '@/lib/workspace-file-tree'
 import {
@@ -39,10 +40,35 @@ import { useWorkspaceFileSectionController } from './useWorkspaceFileSectionCont
 import { useWorkspaceFileTreeController } from './useWorkspaceFileTreeController'
 import { useWorkspaceFileTreeKeyboard } from './useWorkspaceFileTreeKeyboard'
 
-const FILE_ROW_HEIGHT = 24
+const DESKTOP_FILE_ROW_HEIGHT = 24
+const MOBILE_TOUCH_FILE_ROW_HEIGHT = 44
 const FILES_REFRESH_MINIMUM_PENDING_MS = 350
 const FILES_REFRESH_SUCCESS_VISIBLE_MS = 1400
 const EMPTY_FILE_PATHS = new Set<string>()
+
+function currentFileRowHeight() {
+  return isCompactViewport() && isTouchInputViewport()
+    ? MOBILE_TOUCH_FILE_ROW_HEIGHT
+    : DESKTOP_FILE_ROW_HEIGHT
+}
+
+function useResponsiveFileRowHeight() {
+  const [rowHeight, setRowHeight] = useState(currentFileRowHeight)
+  useEffect(() => {
+    const compactQuery = window.matchMedia('(max-width: 980px)')
+    const touchQuery = window.matchMedia('(any-pointer: coarse)')
+    const syncRowHeight = () => setRowHeight(currentFileRowHeight())
+    compactQuery.addEventListener('change', syncRowHeight)
+    touchQuery.addEventListener('change', syncRowHeight)
+    window.addEventListener('resize', syncRowHeight)
+    return () => {
+      compactQuery.removeEventListener('change', syncRowHeight)
+      touchQuery.removeEventListener('change', syncRowHeight)
+      window.removeEventListener('resize', syncRowHeight)
+    }
+  }, [])
+  return rowHeight
+}
 
 interface ProjectFilesSectionProps {
   projectId: string
@@ -158,6 +184,7 @@ export function ProjectFilesSection({
   readOnly = false,
   copy,
 }: ProjectFilesSectionProps) {
+  const fileRowHeight = useResponsiveFileRowHeight()
   const stableEditorDirtyFilePaths = useStableFilePathSet(editorDirtyFilePaths)
   const stableEditorExternalChangedFilePaths = useStableFilePathSet(editorExternalChangedFilePaths)
   const {
@@ -204,7 +231,7 @@ export function ProjectFilesSection({
     setTreePathOpen,
     toggleTreePathOpen,
   } = useWorkspaceFileTreeController({
-    rowHeight: FILE_ROW_HEIGHT,
+    rowHeight: fileRowHeight,
     visibleTreeRowCount,
     openDirectoryPaths,
     treeData,
@@ -589,7 +616,7 @@ export function ProjectFilesSection({
     rootDirectoryError: directories['']?.error ?? null,
     rootDirectoryHasItems: Boolean(directories['']?.items.length),
     rootDirectoryLoading: Boolean(directories['']?.loading),
-    rowHeight: FILE_ROW_HEIGHT,
+    rowHeight: fileRowHeight,
     readOnly,
     treeData,
     treeHeight,

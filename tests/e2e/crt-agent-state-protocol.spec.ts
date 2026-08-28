@@ -320,7 +320,7 @@ test('CRT keeps a focused Pi session title and read state synchronized', async (
       body: JSON.stringify({ transcript: { updatedAt: 'initial', entries: [] } }),
     })
   ))
-  await page.route(new RegExp(`/farming/api/agents/${agentId}/acp-session$`), route => (
+  await page.route(new RegExp(`/farming/api/agents/${agentId}/acp-session\\?includeEntries=0$`), route => (
     route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify({ session: { availableCommands: [], configOptions: [] } }),

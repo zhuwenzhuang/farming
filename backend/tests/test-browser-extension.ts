@@ -381,6 +381,197 @@ async function testBrowserResourceManager() {
     options: [],
     message: 'Choose a local Chromium browser or prepare the isolated Browser runtime',
   });
+  let pureReadOnlyBrowserSaves = 0;
+  let pureReadOnlyBrowserProbes = 0;
+  const pureReadOnlyBrowserManager = new BrowserResourceManager({
+    configDir,
+    getBrowserSettings: () => ({ browserSource: 'system', browserExecutablePath: '' }),
+    saveBrowserSelection: () => {
+      pureReadOnlyBrowserSaves += 1;
+    },
+    discoverBrowserOptions: () => [{ kind: 'chrome', path: '/detected/pure-read-only-chrome' }],
+    discoverExecutable: async selection => {
+      pureReadOnlyBrowserProbes += 1;
+      return { kind: 'chrome', path: selection.executablePath, agentBrowserPath: '/fake/agent-browser' };
+    },
+  });
+  await pureReadOnlyBrowserManager.refreshCapability(undefined, {
+    persistDefaultSelection: false,
+    reuseVerified: true,
+  });
+  assert.strictEqual(pureReadOnlyBrowserSaves, 0);
+  assert.strictEqual(
+    pureReadOnlyBrowserManager.capability().selection.executablePath,
+    '/detected/pure-read-only-chrome',
+    'a first read-only probe must return its effective default without persisting Config settings',
+  );
+  const [firstSources, concurrentSources] = await Promise.all([
+    pureReadOnlyBrowserManager.sourceCapabilities({ reuseVerified: true }),
+    pureReadOnlyBrowserManager.sourceCapabilities({ reuseVerified: true }),
+  ]);
+  assert.deepStrictEqual(concurrentSources, firstSources);
+  assert.strictEqual(
+    pureReadOnlyBrowserProbes,
+    4,
+    'concurrent capability snapshots must share one current-source probe plus three source probes',
+  );
+  await pureReadOnlyBrowserManager.sourceCapabilities({ reuseVerified: true });
+  assert.strictEqual(
+    pureReadOnlyBrowserProbes,
+    4,
+    'an unchanged capability snapshot must reuse verified per-source results',
+  );
+  await pureReadOnlyBrowserManager.dispose();
+  let transientSystemProbes = 0;
+  const transientSourceManager = new BrowserResourceManager({
+    configDir,
+    getBrowserSettings: () => ({
+      browserSource: 'system',
+      browserExecutablePath: '/detected/transient-chrome',
+    }),
+    discoverBrowserOptions: () => [{ kind: 'chrome', path: '/detected/transient-chrome' }],
+    discoverExecutable: async selection => {
+      if (selection.source !== 'system') return null;
+      transientSystemProbes += 1;
+      return transientSystemProbes === 1
+        ? {
+            kind: 'chrome',
+            path: selection.executablePath,
+            error: 'temporary Browser verification failure',
+          }
+        : {
+            kind: 'chrome',
+            path: selection.executablePath,
+            agentBrowserPath: '/fake/agent-browser',
+          };
+    },
+  });
+  const transientSources = await transientSourceManager.sourceCapabilities({ reuseVerified: true });
+  assert.strictEqual(transientSources.find(source => source.source === 'system')?.available, false);
+  const recoveredSources = await transientSourceManager.sourceCapabilities({ reuseVerified: true });
+  assert.strictEqual(recoveredSources.find(source => source.source === 'system')?.available, true);
+  await transientSourceManager.sourceCapabilities({ reuseVerified: true });
+  assert.strictEqual(
+    transientSystemProbes,
+    2,
+    'a retryable source failure must be retried once and the recovered result may then be cached',
+  );
+  await transientSourceManager.dispose();
+  let readOnlyBrowserSelectionSaves = 0;
+  let readOnlyBrowserSettings = {
+    browserSource: 'system',
+    browserExecutablePath: '',
+  };
+  let releaseConcurrentBrowserProbe;
+  const concurrentBrowserProbe = new Promise(resolve => {
+    releaseConcurrentBrowserProbe = resolve;
+  });
+  const readOnlyBrowserManager = new BrowserResourceManager({
+    configDir,
+    getBrowserSettings: () => readOnlyBrowserSettings,
+    saveBrowserSelection: selection => {
+      readOnlyBrowserSelectionSaves += 1;
+      readOnlyBrowserSettings = {
+        browserSource: selection.source,
+        browserExecutablePath: selection.executablePath,
+      };
+    },
+    discoverBrowserOptions: () => [{ kind: 'chrome', path: '/detected/read-only-chrome' }],
+    discoverExecutable: async selection => {
+      await concurrentBrowserProbe;
+      return { kind: 'chrome', path: selection.executablePath, agentBrowserPath: '/fake/agent-browser' };
+    },
+  });
+  const readOnlyRefresh = readOnlyBrowserManager.refreshCapability(undefined, {
+    persistDefaultSelection: false,
+    reuseVerified: true,
+  });
+  await Promise.resolve();
+  assert.strictEqual(
+    readOnlyBrowserSelectionSaves,
+    0,
+    'a read-only capability probe must not persist the discovered default Browser',
+  );
+  const concurrentOwnerRefresh = readOnlyBrowserManager.refreshCapability(undefined, {
+    persistDefaultSelection: true,
+    reuseVerified: true,
+  });
+  assert.strictEqual(
+    readOnlyBrowserSelectionSaves,
+    0,
+    'a conflicting Owner refresh waits for the in-flight read-only probe instead of racing its shared state',
+  );
+  releaseConcurrentBrowserProbe();
+  await Promise.all([readOnlyRefresh, concurrentOwnerRefresh]);
+  assert.strictEqual(
+    readOnlyBrowserSelectionSaves,
+    1,
+    'the queued Owner refresh must still persist the discovered default Browser exactly once',
+  );
+  assert.strictEqual(
+    readOnlyBrowserManager.capability().selection.executablePath,
+    '/detected/read-only-chrome',
+  );
+  await readOnlyBrowserManager.dispose();
+  let staleDefaultSelectionSaves = 0;
+  let concurrentBrowserSettings = {
+    browserSource: 'system',
+    browserExecutablePath: '',
+  };
+  let releaseStaleProbe;
+  const staleProbe = new Promise(resolve => {
+    releaseStaleProbe = resolve;
+  });
+  const staleSelectionManager = new BrowserResourceManager({
+    configDir,
+    getBrowserSettings: () => concurrentBrowserSettings,
+    saveBrowserSelection: selection => {
+      staleDefaultSelectionSaves += 1;
+      concurrentBrowserSettings = {
+        browserSource: selection.source,
+        browserExecutablePath: selection.executablePath,
+      };
+    },
+    discoverBrowserOptions: () => [{ kind: 'chrome', path: '/detected/stale-chrome' }],
+    discoverExecutable: async selection => {
+      await staleProbe;
+      return {
+        kind: selection.source === 'extension' ? 'chrome-extension' : 'chrome',
+        path: selection.executablePath,
+        agentBrowserPath: '/fake/agent-browser',
+      };
+    },
+  });
+  const staleReadOnlyRefresh = staleSelectionManager.refreshCapability(undefined, {
+    persistDefaultSelection: false,
+    reuseVerified: true,
+  });
+  await Promise.resolve();
+  const staleOwnerRefresh = staleSelectionManager.refreshCapability(undefined, {
+    persistDefaultSelection: true,
+    reuseVerified: true,
+  });
+  concurrentBrowserSettings = {
+    browserSource: 'extension',
+    browserExecutablePath: '',
+  };
+  const updatedOwnerRefresh = staleSelectionManager.refreshCapability(undefined, {
+    persistDefaultSelection: true,
+    reuseVerified: true,
+  });
+  releaseStaleProbe();
+  await Promise.all([staleReadOnlyRefresh, staleOwnerRefresh, updatedOwnerRefresh]);
+  assert.strictEqual(
+    staleDefaultSelectionSaves,
+    0,
+    'a queued implicit refresh must not overwrite a newer Owner Browser selection',
+  );
+  assert.deepStrictEqual(concurrentBrowserSettings, {
+    browserSource: 'extension',
+    browserExecutablePath: '',
+  });
+  assert.strictEqual(staleSelectionManager.capability().selection.source, 'extension');
+  await staleSelectionManager.dispose();
   let migratedBrowserSettings = {
     browserSource: 'system',
     browserExecutablePath: '',
@@ -1918,7 +2109,9 @@ async function testBrowserRouterAgentOwnership() {
   const calls = [];
   const manager = {
     requireEnabled() {},
-    refreshCapability: async () => {},
+    refreshCapability: async (_selection, options) => {
+      calls.push({ kind: 'refresh-capability', options });
+    },
     capability: () => ({ enabled: true }),
     sourceCapabilities: async () => [],
     prepareBrowserExtension: () => {
@@ -1995,6 +2188,10 @@ async function testBrowserRouterAgentOwnership() {
     }),
   };
   const app = express();
+  app.use((req, _res, next) => {
+    req.authAccessMode = req.headers['x-test-access'] === 'read-only' ? 'read-only' : 'owner';
+    next();
+  });
   app.use('/api/browsers', createBrowserRouter(manager, rootRegistry, agentStateReader));
   const server = http.createServer(app);
   await new Promise((resolve, reject) => {
@@ -2014,6 +2211,22 @@ async function testBrowserRouterAgentOwnership() {
     return { status: response.status, body: await response.json() };
   };
   try {
+    const readOnlyCapability = await request('/api/browsers/capability', {
+      headers: { 'X-Test-Access': 'read-only' },
+    });
+    assert.strictEqual(readOnlyCapability.status, 200);
+    assert.deepStrictEqual(calls.at(-1), {
+      kind: 'refresh-capability',
+      options: { persistDefaultSelection: false, reuseVerified: true },
+    });
+
+    const ownerCapability = await request('/api/browsers/capability');
+    assert.strictEqual(ownerCapability.status, 200);
+    assert.deepStrictEqual(calls.at(-1), {
+      kind: 'refresh-capability',
+      options: { persistDefaultSelection: true, reuseVerified: true },
+    });
+
     const expired = await request('/api/browsers', {
       headers: { 'X-Farming-Agent-Id': 'agent_missing' },
     });

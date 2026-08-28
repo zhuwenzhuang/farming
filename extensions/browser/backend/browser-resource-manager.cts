@@ -65,6 +65,10 @@ type BrowserSelection = {
   source: string;
 };
 type CapabilityRefreshOptions = {
+  persistDefaultSelection?: boolean;
+  reuseVerified?: boolean;
+};
+type SourceCapabilityRefreshOptions = {
   reuseVerified?: boolean;
 };
 type BrowserSettings = {
@@ -483,8 +487,16 @@ class BrowserResourceManager extends EventEmitter {
   runtimeCapability: BrowserCapability | null = null;
   browserOptions: BrowserOption[] = [];
   isolatedBrowserCapability: Record<string, unknown> | null = null;
+  effectiveBrowserSelection: BrowserSelection | null = null;
   capabilityProbeSignature = '';
   capabilityRefreshPromise: Promise<BrowserCapability | null> | null = null;
+  capabilityRefreshKey = '';
+  sourceCapabilitiesCache: {
+    signature: string;
+    sources: Array<Record<string, unknown>>;
+  } | null = null;
+  sourceCapabilitiesPromise: Promise<Array<Record<string, unknown>>> | null = null;
+  sourceCapabilitiesPromiseKey = '';
   viewerInputMetrics = {
     admitted: 0,
     coalescedMoves: 0,
@@ -732,7 +744,7 @@ class BrowserResourceManager extends EventEmitter {
     const executable = this.runtimeCapability;
     const runnable = executable && !executable.error;
     const enabled = this.isEnabled() === true;
-    const selection = this.browserSelection();
+    const selection = this.effectiveBrowserSelection || this.browserSelection();
     return {
       enabled,
       available: enabled && Boolean(runnable),
@@ -749,30 +761,80 @@ class BrowserResourceManager extends EventEmitter {
     };
   }
 
-  async sourceCapabilities(): Promise<Array<Record<string, unknown>>> {
+  async sourceCapabilities(
+    options: SourceCapabilityRefreshOptions = {},
+  ): Promise<Array<Record<string, unknown>>> {
     const settings = this.getBrowserSettings();
     const systemOptions = this.discoverBrowserOptions();
-    const systemPath = String(settings.browserExecutablePath || systemOptions[0]?.path || '');
-    const isolatedCapability = this.isolatedBrowserProvider
-      ? await this.isolatedBrowserProvider.capability()
-      : null;
+    const systemPath = String(
+      settings.browserExecutablePath
+      || (this.effectiveBrowserSelection?.source === 'system'
+        ? this.effectiveBrowserSelection.executablePath
+        : '')
+      || systemOptions[0]?.path
+      || '',
+    );
+    const isolatedCapability = this.isolatedBrowserCapability;
+    const signature = this.browserCapabilitySignature(
+      { source: 'system', executablePath: systemPath },
+      systemOptions,
+      isolatedCapability,
+    );
+    if (options.reuseVerified && this.sourceCapabilitiesCache?.signature === signature) {
+      return this.sourceCapabilitiesCache.sources;
+    }
+    if (
+      options.reuseVerified
+      && this.sourceCapabilitiesPromise
+      && this.sourceCapabilitiesPromiseKey === signature
+    ) return this.sourceCapabilitiesPromise;
     const selections: BrowserSelection[] = [
       { source: 'system', executablePath: systemPath },
       { source: 'extension', executablePath: '' },
       { source: 'isolated', executablePath: '' },
     ];
-    const probes = await Promise.all(selections.map(async selection => {
-      const probe = await this.probeCapability(selection, systemOptions, isolatedCapability);
-      const runtime = probe.runtimeCapability;
-      return {
-        source: selection.source,
-        available: Boolean(runtime && !runtime.error),
-        kind: String(runtime?.kind || ''),
-        path: String(runtime?.path || ''),
-        message: String(runtime?.error || ''),
-      };
-    }));
-    return probes;
+    const refresh = async () => {
+      const probes = await Promise.all(selections.map(async selection => {
+        const probe = await this.probeCapability(selection, systemOptions, isolatedCapability);
+        const runtime = probe.runtimeCapability;
+        return {
+          source: selection.source,
+          available: Boolean(runtime && !runtime.error),
+          kind: String(runtime?.kind || ''),
+          path: String(runtime?.path || ''),
+          message: String(runtime?.error || ''),
+        };
+      }));
+      const extensionReady = this.browserExtensionRelay?.capability().connected === true
+        && Boolean(this.browserExtensionRelay?.cdpUrl());
+      const hasRetryableFailure = probes.some(probe => {
+        if (probe.available === true) return false;
+        if (probe.source === 'system') return Boolean(systemPath);
+        if (probe.source === 'extension') return extensionReady;
+        if (probe.source === 'isolated') return isolatedCapability?.available === true;
+        return false;
+      });
+      this.sourceCapabilitiesCache = hasRetryableFailure ? null : { signature, sources: probes };
+      return probes;
+    };
+    const previous = this.sourceCapabilitiesPromise;
+    const sourceCapabilitiesPromise = (async () => {
+      if (previous) {
+        try {
+          await previous;
+        } catch {
+          // A changed authoritative signature still needs its own fresh probe.
+        }
+      }
+      return refresh();
+    })().finally(() => {
+      if (this.sourceCapabilitiesPromise !== sourceCapabilitiesPromise) return;
+      this.sourceCapabilitiesPromise = null;
+      this.sourceCapabilitiesPromiseKey = '';
+    });
+    this.sourceCapabilitiesPromise = sourceCapabilitiesPromise;
+    this.sourceCapabilitiesPromiseKey = signature;
+    return sourceCapabilitiesPromise;
   }
 
   browserSelection(settings: BrowserSettings = this.getBrowserSettings()): BrowserSelection {
@@ -868,19 +930,33 @@ class BrowserResourceManager extends EventEmitter {
     selection?: BrowserSelection,
     options: CapabilityRefreshOptions = {},
   ): Promise<BrowserCapability | null> {
-    if (options.reuseVerified && this.capabilityRefreshPromise) {
+    const persistDefaultSelection = options.persistDefaultSelection !== false;
+    const requestedSelection = selection || this.browserSelection();
+    const refreshKey = JSON.stringify({
+      persistDefaultSelection,
+      selection: requestedSelection,
+    });
+    if (
+      options.reuseVerified
+      && this.capabilityRefreshPromise
+      && this.capabilityRefreshKey === refreshKey
+    ) {
       return this.capabilityRefreshPromise;
     }
     const refresh = async () => {
+      // Implicit refreshes read Config only after receiving queue ownership. A capability
+      // request queued before an Owner settings update must not restore its stale selection.
       let desiredSelection = selection || this.browserSelection();
       const browserOptions = this.discoverBrowserOptions();
       if (!selection && desiredSelection.source === 'system' && !desiredSelection.executablePath) {
         const defaultBrowser = browserOptions[0];
         if (defaultBrowser) {
-          this.saveBrowserSelection({
-            source: 'system',
-            executablePath: defaultBrowser.path,
-          });
+          if (persistDefaultSelection) {
+            this.saveBrowserSelection({
+              source: 'system',
+              executablePath: defaultBrowser.path,
+            });
+          }
           desiredSelection = {
             ...desiredSelection,
             executablePath: defaultBrowser.path,
@@ -897,6 +973,7 @@ class BrowserResourceManager extends EventEmitter {
       );
       if (options.reuseVerified && signature === this.capabilityProbeSignature) {
         this.browserOptions = browserOptions;
+        this.effectiveBrowserSelection = desiredSelection;
         if (cachedIsolatedCapability !== undefined) {
           this.isolatedBrowserCapability = cachedIsolatedCapability;
         }
@@ -908,8 +985,10 @@ class BrowserResourceManager extends EventEmitter {
         cachedIsolatedCapability,
       );
       this.browserOptions = browserOptions;
+      this.effectiveBrowserSelection = desiredSelection;
       this.isolatedBrowserCapability = probe.isolatedBrowserCapability;
       this.runtimeCapability = probe.runtimeCapability;
+      if (this.capabilityProbeSignature !== signature) this.sourceCapabilitiesCache = null;
       this.capabilityProbeSignature = this.browserCapabilitySignature(
         desiredSelection,
         probe.browserOptions,
@@ -917,11 +996,24 @@ class BrowserResourceManager extends EventEmitter {
       );
       return this.runtimeCapability;
     };
-    if (!options.reuseVerified) return refresh();
-    this.capabilityRefreshPromise = refresh().finally(() => {
+    const previous = this.capabilityRefreshPromise;
+    const capabilityRefreshPromise = (async () => {
+      if (previous) {
+        try {
+          await previous;
+        } catch {
+          // A newer requested selection must still receive its own probe.
+        }
+      }
+      return refresh();
+    })().finally(() => {
+      if (this.capabilityRefreshPromise !== capabilityRefreshPromise) return;
       this.capabilityRefreshPromise = null;
+      this.capabilityRefreshKey = '';
     });
-    return this.capabilityRefreshPromise;
+    this.capabilityRefreshPromise = capabilityRefreshPromise;
+    this.capabilityRefreshKey = refreshKey;
+    return capabilityRefreshPromise;
   }
 
   async prepareIsolatedBrowser(): Promise<unknown> {

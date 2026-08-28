@@ -1,6 +1,7 @@
 const express = require('express');
 
 interface ExpressRequest {
+  authAccessMode?: 'none' | 'owner' | 'read-only';
   body?: { assetName?: unknown } | null;
   query: Record<string, unknown>;
 }
@@ -26,7 +27,7 @@ interface ExpressFactory {
 }
 
 interface FarmingUpdateServicePort {
-  check(options: { force: boolean }): Promise<unknown>;
+  check(options: { force: boolean; observeOnly: boolean }): Promise<unknown>;
   startInstall(options: { assetName: string }): Promise<unknown>;
   applyPreparedUpdate(): Promise<unknown>;
 }
@@ -45,7 +46,11 @@ function createUpdateRouter(updateService: FarmingUpdateServicePort): ExpressRou
 
   router.get('/', async (req, res) => {
     try {
-      const update = await updateService.check({ force: req.query.force === '1' });
+      const observeOnly = req.authAccessMode === 'read-only';
+      const update = await updateService.check({
+        force: !observeOnly && req.query.force === '1',
+        observeOnly,
+      });
       res.json({ update });
     } catch (caught) {
       const error = caughtError(caught);

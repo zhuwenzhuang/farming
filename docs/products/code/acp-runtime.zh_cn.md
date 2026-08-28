@@ -177,6 +177,10 @@ Browser Delivery 使用严格 Checkpoint + Delta 契约：
 - 发现缺口、Identity 变化或 Reset 时必须请求 Replacement Checkpoint；
 - 其它 Agent 或旧 Revision 的迟到响应不能抢回当前 Chat。
 
+ACP Session 读取接口默认只返回控制 Metadata，不包含 Transcript Entry。只有明确需要原始、
+可能很大的 Entry 集合时，调用方才使用 `includeEntries=1`；产品界面统一通过有界 Transcript
+接口取得会话正文。
+
 每个 Browser Connection 都会显式声明当前可见 Agent，以及它拥有结构化 Transcript 的有界
 Retained ACP Chat 集合。ACP Revision Notification 只投递给 Interest 匹配的 Connection。
 切换 Focus、新增 Retained Interest 或重连时，会把当前绝对 Cursor（Agent、Provider Session、

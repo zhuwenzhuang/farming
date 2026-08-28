@@ -1,3 +1,5 @@
+import fs from 'node:fs'
+import path from 'node:path'
 import { expect, test } from './fixtures'
 
 test('failed reconnects eventually leave the initial loading state', {
@@ -54,7 +56,9 @@ test('terminal authentication and protocol failures do not resume on recovery ev
   await protocolPage.close()
 })
 
-test('a stuck initial mobile WebSocket is replaced after its bounded connect deadline', async ({ page }) => {
+test('a stuck initial mobile WebSocket is replaced after its bounded connect deadline', {
+  tag: ['@iphone-human'],
+}, async ({ page }) => {
   await page.addInitScript(() => {
     const NativeEvent = window.Event
     const NativeCloseEvent = window.CloseEvent
@@ -238,4 +242,53 @@ test('mobile resume probes before replacing a zombie and never replays uncertain
   await page.getByTestId('code-acp-composer-send').click()
   await expect.poll(() => composerInputCount).toBe(2)
   await expect(composer).toHaveValue('')
+})
+
+test('a real mobile offline transition retains draft input and requires an explicit send after recovery', {
+  tag: ['@iphone-human'],
+}, async ({ context, page, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'mobile-real-offline')
+  const markerPath = path.join(workspace, 'offline-marker.txt')
+  fs.mkdirSync(workspace, { recursive: true })
+  const agentResponse = await page.request.post('/farming/api/control/agents', {
+    data: { command: 'bash', workspace, agentRuntimeMode: 'terminal' },
+  })
+  expect(agentResponse.ok()).toBeTruthy()
+  const { agentId } = await agentResponse.json() as { agentId: string }
+
+  try {
+    await page.goto('/farming/')
+    await page.getByTestId('code-mobile-menu').click()
+    await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+    await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${agentId}"]`)).toBeVisible()
+
+    const command = "printf 'ONLINE_AFTER_RECOVERY\\n' > offline-marker.txt"
+    const composer = page.getByTestId('code-composer-input')
+    await context.setOffline(true)
+    const disconnectResponse = await fetch(new URL('/farming/api/control/e2e/close-websockets', page.url()), {
+      method: 'POST',
+    })
+    expect(disconnectResponse.ok).toBe(true)
+    const offlineStatus = page.getByTestId('connection-status')
+    await expect(offlineStatus).toBeVisible({ timeout: 12_000 })
+    await expect(offlineStatus).toHaveClass(/(?:connecting|lost)/)
+    await composer.fill(command)
+    const send = page.getByTestId('code-composer-send')
+    if (await send.isEnabled()) await send.click()
+    await expect(composer).toHaveValue(command)
+    await page.waitForTimeout(800)
+    expect(fs.existsSync(markerPath)).toBe(false)
+
+    await context.setOffline(false)
+    await page.evaluate(() => window.dispatchEvent(new Event('online')))
+    await expect(page.getByTestId('connection-status')).toHaveCount(0, { timeout: 12_000 })
+    await expect(composer).toHaveValue(command)
+    expect(fs.existsSync(markerPath)).toBe(false)
+    await send.click()
+    await expect.poll(() => fs.existsSync(markerPath)).toBe(true)
+    await expect(composer).toHaveValue('')
+    expect(fs.readFileSync(markerPath, 'utf8')).toBe('ONLINE_AFTER_RECOVERY\n')
+  } finally {
+    await context.setOffline(false)
+  }
 })

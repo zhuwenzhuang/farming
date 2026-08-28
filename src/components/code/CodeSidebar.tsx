@@ -196,6 +196,7 @@ const ProjectFilesSection = lazy(() => import('../files/ProjectFilesSection').th
 })))
 
 interface CodeSidebarProps {
+  readOnly: boolean
   sidebarCollapsed: boolean
   navigationModalOpen: boolean
   navigationDialogRef: RefObject<HTMLElement | null>
@@ -310,6 +311,7 @@ function trapFocusInContainer(event: ReactKeyboardEvent<HTMLElement>, container:
 }
 
 export function CodeSidebar({
+  readOnly,
   sidebarCollapsed,
   navigationModalOpen,
   navigationDialogRef,
@@ -907,6 +909,7 @@ export function CodeSidebar({
           <ProjectSection
             key={project.id}
             project={project}
+            readOnly={readOnly}
             agentInventoryComplete={agentInventoryComplete}
             collapsed={collapsedProjectIds.has(project.id) && !normalizedSearch}
             forceAgentsExpanded={Boolean(normalizedSearch)}
@@ -1872,6 +1875,7 @@ function currentWorktreeName(worktrees: WorkspaceGitWorktrees | null) {
 
 interface ProjectSectionProps {
   project: ProjectGroup
+  readOnly: boolean
   agentInventoryComplete: boolean
   collapsed: boolean
   forceAgentsExpanded: boolean
@@ -2019,6 +2023,7 @@ function ProjectSection(props: ProjectSectionProps) {
 
 const ProjectSectionContent = memo(function ProjectSectionContent({
   project,
+  readOnly,
   followUpCount,
   agentInventoryComplete,
   collapsed,
@@ -2728,7 +2733,7 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
                 onDeleteEntries={onDeleteWorkspaceEntries}
                 onRefreshOpenFiles={onRefreshProjectOpenFiles}
                 refreshToken={branchSwitchRevision}
-                readOnly={globalRootProject}
+                readOnly={readOnly || globalRootProject}
                 copy={copy}
               />
             </Suspense>

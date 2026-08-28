@@ -30,6 +30,12 @@ request deadlines, and result authorization. One compatible server may be
 reused within the same Config, language, and Project-root boundary. Different
 Config instances do not share mutable Language Server state.
 
+Language Server admission is owner-only. A read-only share does not bind the
+editor providers or send capability and semantic requests, and the backend
+rejects a forged request before it reaches the manager. This is required even
+though the results are viewing-oriented because admission can install a managed
+runtime, write caches, and start a Project-scoped process.
+
 ## File And Result Authority
 
 Requests are authorized against the exact Project root. Symlink escapes and

@@ -351,8 +351,15 @@ same WebSocket. It is not converted into polling.
 - Authentication and owner/read-only mode come from the negotiated WebSocket.
 - Each request resolves `rootId` through the current root registry; a browser
   path never selects an arbitrary server filesystem root.
-- Read-only connections may issue read, Git-inspection, watch, preview-viewing,
-  and Language Server requests, but not filesystem or branch mutations.
+- Read-only connections may issue read, Git-inspection, watch, and
+  preview-viewing requests, but not filesystem, branch, or Language Server
+  requests. Although Language Server results are viewing-oriented, admitting a
+  request can install a managed runtime, create caches, and start a process, so
+  that lifecycle remains owner-only.
+- Static preview sessions are quota-isolated by Owner/read-only authority and
+  by the authenticated read-only credential. A viewer may recycle only its own
+  oldest previews and cannot delete or evict another viewer's or the Owner's
+  sessions. Preview asset reads fail closed across Owner/read-only authority.
 - Exact external-file access remains unavailable to read-only shares and keeps
   its explicit local authorization boundary.
 - Symlink escape checks, path normalization, Git-safe arguments, preview CSP,

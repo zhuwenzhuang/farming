@@ -8,6 +8,7 @@ const port = Number(process.env.FARMING_PLAYWRIGHT_PORT || 4173)
 const baseURL = `http://127.0.0.1:${port}`
 const includeInternalTests = process.env.FARMING_PLAYWRIGHT_INTERNAL === '1'
 const useRealCodex = process.env.FARMING_E2E_REAL_CODEX === '1'
+const useMobileAuth = process.env.FARMING_PLAYWRIGHT_AUTH === '1'
 // CI builds the frontend once in the Check job and hands dist/ to every browser
 // shard, so the shards set this to skip a rebuild they would only repeat. Local
 // runs leave it unset and keep building their own bundle first.
@@ -52,7 +53,8 @@ const playwrightServerEnv = {
   ...process.env,
   PORT: String(port),
   FARMING_BASE_PATH: '/farming',
-  FARMING_DISABLE_AUTH: '1',
+  FARMING_DISABLE_AUTH: useMobileAuth ? '0' : '1',
+  ...(useMobileAuth ? { FARMING_TOKEN: 'mobile-auth-owner-fixture-token' } : {}),
   FARMING_NATIVE_PTY_HOST_PERSIST: '0',
   FARMING_E2E_REAL_CODEX: useRealCodex ? '1' : '0',
   FARMING_E2E_FAKE_EXECUTABLES: useRealCodex ? '0' : '1',
@@ -110,6 +112,33 @@ export default defineConfig({
       name: 'iphone-human-webkit',
       testMatch: /(acp-human-cases|backend-connection-status|background-chat-continuity|human-story)\.spec\.ts/,
       grep: /@iphone-human/,
+      use: {
+        ...devices['iPhone 14 Pro'],
+        browserName: 'webkit',
+      },
+    },
+    {
+      name: 'android-human-chromium',
+      testMatch: /(acp-human-cases|backend-connection-status|background-chat-continuity|human-story)\.spec\.ts/,
+      grep: /@iphone-human/,
+      use: {
+        ...devices['Pixel 7'],
+        browserName: 'chromium',
+        launchOptions: chromiumLaunchOptions,
+      },
+    },
+    {
+      name: 'mobile-auth-chromium',
+      testMatch: /mobile-auth-readonly\.spec\.ts/,
+      use: {
+        ...devices['Pixel 7'],
+        browserName: 'chromium',
+        launchOptions: chromiumLaunchOptions,
+      },
+    },
+    {
+      name: 'mobile-auth-webkit',
+      testMatch: /mobile-auth-readonly\.spec\.ts/,
       use: {
         ...devices['iPhone 14 Pro'],
         browserName: 'webkit',

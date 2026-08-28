@@ -55,4 +55,76 @@ assert.strictEqual(manager.get(fourth.id), fourth);
 manager.dispose();
 assert.strictEqual(manager.get(fourth.id), null);
 
+let partitionedId = 1;
+const partitionedManager = new PreviewSessionManager({
+  maxSessions: 2,
+  maxReadOnlySessions: 3,
+  maxReadOnlySessionsPerScope: 2,
+  now: () => 5_000,
+  randomUUID: () => `partitioned-${partitionedId++}`,
+});
+const previewInput = {
+  rootId: 'root-1',
+  workspaceRoot: '/workspace',
+  authorizedRoot: '/workspace',
+  entryPath: 'index.html',
+  baseDirectory: '',
+};
+const ownerA = partitionedManager.createStatic(previewInput);
+const ownerB = partitionedManager.createStatic(previewInput);
+const viewerA1 = partitionedManager.createStatic({
+  ...previewInput,
+  accessMode: 'read-only',
+  scopeId: 'viewer-a',
+});
+const viewerA2 = partitionedManager.createStatic({
+  ...previewInput,
+  accessMode: 'read-only',
+  scopeId: 'viewer-a',
+});
+const viewerA3 = partitionedManager.createStatic({
+  ...previewInput,
+  accessMode: 'read-only',
+  scopeId: 'viewer-a',
+});
+assert.strictEqual(
+  partitionedManager.get(viewerA1.id, { accessMode: 'read-only' }),
+  null,
+  'a read-only scope may evict only its own oldest preview',
+);
+assert.strictEqual(partitionedManager.get(viewerA2.id, { accessMode: 'read-only' }), viewerA2);
+assert.strictEqual(partitionedManager.get(viewerA3.id, { accessMode: 'read-only' }), viewerA3);
+const viewerB1 = partitionedManager.createStatic({
+  ...previewInput,
+  accessMode: 'read-only',
+  scopeId: 'viewer-b',
+});
+assert.throws(
+  () => partitionedManager.createStatic({
+    ...previewInput,
+    accessMode: 'read-only',
+    scopeId: 'viewer-c',
+  }),
+  (error: Error & { statusCode?: number }) => error.statusCode === 503 && /capacity/.test(error.message),
+  'a new read-only scope must not evict another viewer when the shared read-only reserve is full',
+);
+assert.strictEqual(partitionedManager.get(ownerA.id), ownerA);
+assert.strictEqual(partitionedManager.get(ownerB.id), ownerB);
+assert.strictEqual(partitionedManager.get(viewerB1.id, { accessMode: 'read-only' }), viewerB1);
+assert.strictEqual(
+  partitionedManager.delete(ownerB.id, { accessMode: 'read-only', scopeId: 'viewer-a' }),
+  false,
+  'a read-only viewer must not delete an Owner preview',
+);
+assert.strictEqual(
+  partitionedManager.delete(viewerB1.id, { accessMode: 'read-only', scopeId: 'viewer-a' }),
+  false,
+  'one read-only scope must not delete another viewer preview',
+);
+const ownerC = partitionedManager.createStatic(previewInput);
+assert.strictEqual(partitionedManager.get(ownerA.id), null, 'Owner capacity remains an independent FIFO');
+assert.strictEqual(partitionedManager.get(ownerB.id), ownerB);
+assert.strictEqual(partitionedManager.get(ownerC.id), ownerC);
+assert.strictEqual(partitionedManager.get(viewerA2.id, { accessMode: 'read-only' }), viewerA2);
+
 console.log('preview session manager assertions passed');

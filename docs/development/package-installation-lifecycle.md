@@ -96,6 +96,11 @@ This transition depends on command success, registry identity, and operation
 ownership; it must never parse npm log wording or error text. The update reaches
 `Failed` only after the authoritative attempt also fails.
 
+Update status opened through a read-only share is observation-only: a requested
+forced refresh is ignored, persisted operation recovery is projected without
+committing it, and immutable installation directories are not prepared. Owner
+or startup recovery remains responsible for durable reconciliation.
+
 ## Installation Boundaries
 
 - **Source checkout** follows the repository and package-manager workflow of

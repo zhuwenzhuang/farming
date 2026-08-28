@@ -146,6 +146,7 @@ interface WebSocketClient {
   focusedAgentId?: string | null;
   previewHydrationPending?: boolean;
   previewHydrationTimer?: ReturnType<typeof setTimeout> | null;
+  previewScopeId?: string;
   previewScope?: 'none' | 'focused' | 'all';
   previewScopeDeclared?: boolean;
   protocolVersion?: number;
@@ -230,7 +231,7 @@ import { createWebSocketFocusScopeHandlers } from './websocket-focus-scope-handl
 import { createWebSocketAgentLifecycleHandlers } from './websocket-agent-lifecycle-handlers.cjs';
 import { createWebSocketAcpHandlers } from './websocket-acp-handlers.cjs';
 import { createWebSocketWorkspaceRequestHandlers } from './websocket-workspace-request-handlers.cjs';
-import { TokenAuth } from './auth.cjs';
+import { TokenAuth, authenticatedAccessScopeId } from './auth.cjs';
 import { readOnlyClientMessageAllowed } from './read-only-access.cjs';
 import { getLocalIPs, getPrimaryLocalIP } from './network.cjs';
 import { listAvailableAgents, resolveTerminalCodexExecutable } from './executable-discovery.cjs';
@@ -559,7 +560,7 @@ const workspaceFileWatchController = createWorkspaceFileWatchController({
 const websocketWorkspaceRequestHandlers = createWebSocketWorkspaceRequestHandlers<WebSocketClient>({
   openState: WebSocket.OPEN,
   maxMessageBytes: MAX_INLINE_WORKSPACE_MESSAGE_BYTES,
-  executeWorkspace: (request, accessMode, signal) => executeWorkspaceFileRequest(
+  executeWorkspace: (request, accessMode, signal, previewScopeId) => executeWorkspaceFileRequest(
     agentManager as Parameters<typeof executeWorkspaceFileRequest>[0],
     workspaceFileService,
     request,
@@ -567,6 +568,7 @@ const websocketWorkspaceRequestHandlers = createWebSocketWorkspaceRequestHandler
       accessMode: accessMode === 'read-only' ? 'read-only' : 'owner',
       maxInlineResponseBytes: MAX_INLINE_WORKSPACE_MESSAGE_BYTES - 32 * 1024,
       previewSessionManager: workspacePreviewSessionManager,
+      previewScopeId,
       rootRegistry: workspaceRootRegistry,
       signal,
     },
@@ -1269,7 +1271,7 @@ app.get(routePath(BASE_PATH, '/api/agents/:agentId/acp-session'), async (req, re
     res.json({
       session: await agentManager.getAcpSessionForRead(req.params.agentId, {
         includeUpdates: req.query.includeUpdates === '1',
-        includeEntries: req.query.includeEntries !== '0',
+        includeEntries: req.query.includeEntries === '1',
       }),
     });
   } catch (caught) {
@@ -2018,6 +2020,7 @@ wss.on('connection', (ws, req) => {
 
   ws.accessMode = accessMode;
   ws.connectionId = crypto.randomUUID();
+  ws.previewScopeId = authenticatedAccessScopeId(tokenAuth.extractToken(req), accessMode);
   const connectedAt = Date.now();
   const remoteAddress = String(req.socket?.remoteAddress || 'unknown');
   const origin = String(req.headers.origin || '').slice(0, 200);

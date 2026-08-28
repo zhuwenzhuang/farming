@@ -169,6 +169,30 @@
       }
     },
     {
+      "id": "CODE-MOBILE-SHARE-AUTHORITY",
+      "surface": "ui",
+      "promise": "Mobile Owner QR redemption remains single-use while read-only links remove their query credential, survive reload, reject mutations and runtime side effects, isolate preview capacity, and can only delegate read-only access.",
+      "owner": "docs/products/code/share-access-model.md",
+      "evidence": {
+        "node": [
+          "backend/tests/test-auth-token-file.ts",
+          "backend/tests/test-browser-extension.ts",
+          "backend/tests/test-preview-session-manager.ts",
+          "backend/tests/test-qr-share-router.ts",
+          "backend/tests/test-read-only-access.ts",
+          "backend/tests/test-update-service.ts",
+          "backend/tests/test-websocket-workspace-request-handlers.ts",
+          "backend/tests/test-workspace-file-router.ts"
+        ],
+        "playwright": [
+          {
+            "file": "tests/e2e/mobile-auth-readonly.spec.ts",
+            "title": "enforces Owner and read-only authority across real mobile authentication"
+          }
+        ]
+      }
+    },
+    {
       "id": "CODE-ACP-STRUCTURED-ERRORS",
       "surface": "ui",
       "promise": "ACP authentication failures remain in the structured turn and authentication card without a duplicate generic session error.",

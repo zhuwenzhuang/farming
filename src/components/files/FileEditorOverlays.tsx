@@ -89,6 +89,7 @@ export function FileEditorOverlays({
         <FileEditorSaveConfirmDialog
           label={pendingCloseLabel}
           saving={pendingCloseSaving}
+          allowSave={!readOnly}
           copy={copy}
           onConfirmSave={() => void onConfirmSaveAndClose()}
           onDiscard={onDiscardAndClose}

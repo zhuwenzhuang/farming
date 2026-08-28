@@ -529,7 +529,7 @@ test.describe('mobile Farming Code user story', () => {
     expect(metrics.scrollerGapToComposer).toBeGreaterThanOrEqual(0)
   })
 
-  test('returns to a remote shell, opens files, and uses touch-accessible blame', async ({ page, workspaceRoot }) => {
+  test('returns to a remote shell, opens files, and uses touch-accessible blame', { tag: '@iphone-human' }, async ({ page, workspaceRoot }) => {
     const projectDir = path.join(workspaceRoot, 'mobile-project')
     fs.mkdirSync(projectDir, { recursive: true })
     fs.writeFileSync(path.join(projectDir, 'README.md'), [
@@ -616,7 +616,7 @@ test.describe('mobile Farming Code user story', () => {
     await expect(composerInput).toHaveValue(`echo ${marker}`)
     await page.keyboard.press('Enter')
     await expect(composerInput).toHaveValue(`echo ${marker}\n`)
-    await page.getByTestId('code-composer-send').tap()
+    await page.getByTestId('code-composer-send').click()
     await expect(composerInput).toHaveValue('')
     await expect.poll(async () => {
       return terminalCheckpointOutput(page, agentId)

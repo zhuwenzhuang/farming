@@ -244,6 +244,11 @@ Browser delivery uses a strict checkpoint-and-delta contract:
 - a late response for another Agent or older revision cannot take over the
   visible Chat.
 
+The ACP Session read endpoint returns control metadata without transcript
+Entries by default. A caller that intentionally needs the raw, potentially
+large Entry collection must opt in with `includeEntries=1`; product interfaces
+use the bounded transcript APIs for conversation content.
+
 Each browser connection explicitly identifies its currently visible Agent and
 the bounded set of retained ACP Chats whose structured transcripts it owns.
 ACP revision notifications are delivered only to connections with matching

@@ -27,8 +27,8 @@ async function fetchJson(baseUrl: string, pathname: string, options: RequestInit
   return { response, body: await response.json() };
 }
 
-async function fetchRaw(baseUrl: string, pathname: string) {
-  const response = await fetch(`${baseUrl}${pathname}`);
+async function fetchRaw(baseUrl: string, pathname: string, options: RequestInit = {}) {
+  const response = await fetch(`${baseUrl}${pathname}`, options);
   return { response, buffer: Buffer.from(await response.arrayBuffer()) };
 }
 
@@ -103,12 +103,30 @@ async function run() {
     assert.deepStrictEqual(largeRead.transfer, { kind: 'http' });
     assert.strictEqual(largeRead.content, '');
 
-    await assert.rejects(
-      executeWorkspaceFileRequest(agentManager, service, {
-        operation: 'delete-entry', rootId: 'agent-main', path: 'README.md',
-      }, { accessMode: 'read-only' }),
-      (error: Error) => /read-only/.test(error.message),
-    );
+    for (const mutation of [
+      { operation: 'save-file', rootId: 'agent-main', path: 'README.md', content: 'changed\n', baseSha1: '' },
+      { operation: 'move-entry', rootId: 'agent-main', sourcePath: 'README.md', targetDirectory: 'site' },
+      { operation: 'create-entry', rootId: 'agent-main', parentPath: '', name: 'blocked.md', entryType: 'file' },
+      { operation: 'rename-entry', rootId: 'agent-main', path: 'README.md', name: 'blocked.md' },
+      { operation: 'delete-entry', rootId: 'agent-main', path: 'README.md' },
+      {
+        operation: 'switch-branch',
+        rootId: 'agent-main',
+        branch: 'blocked',
+        expectedBranch: 'main',
+        expectedHead: 'a'.repeat(40),
+        operationId: 'blocked-switch',
+      },
+    ]) {
+      await assert.rejects(
+        executeWorkspaceFileRequest(agentManager, service, mutation, { accessMode: 'read-only' }),
+        (error: Error & { statusCode?: number }) => error.statusCode === 403 && /read-only/.test(error.message),
+        `${mutation.operation} must be rejected before reaching its mutation handler`,
+      );
+    }
+    assert.strictEqual(fs.readFileSync(path.join(workspace, 'README.md'), 'utf8'), 'hello farming\n');
+    assert.strictEqual(fs.existsSync(path.join(workspace, 'blocked.md')), false);
+    assert.strictEqual(branchRequest, null);
     await assert.rejects(
       executeWorkspaceFileRequest(agentManager, service, {
         operation: 'tree-decorations',
@@ -163,8 +181,23 @@ async function run() {
     const preview = await executeWorkspaceFileRequest(agentManager, service, {
       operation: 'create-preview', rootId: 'agent-main', path: 'site/index.html',
     }, requestOptions);
+    const readOnlyPreview = await executeWorkspaceFileRequest(agentManager, service, {
+      operation: 'create-preview', rootId: 'agent-main', path: 'site/index.html',
+    }, { ...requestOptions, accessMode: 'read-only', previewScopeId: 'viewer-a' });
+    const crossAuthorityDelete = await executeWorkspaceFileRequest(agentManager, service, {
+      operation: 'delete-preview', rootId: 'agent-main', previewId: preview.id,
+    }, { ...requestOptions, accessMode: 'read-only', previewScopeId: 'viewer-a' });
+    assert.strictEqual(crossAuthorityDelete.deleted, false);
+    const crossViewerDelete = await executeWorkspaceFileRequest(agentManager, service, {
+      operation: 'delete-preview', rootId: 'agent-main', previewId: readOnlyPreview.id,
+    }, { ...requestOptions, accessMode: 'read-only', previewScopeId: 'viewer-b' });
+    assert.strictEqual(crossViewerDelete.deleted, false);
 
     const app = express();
+    app.use((req, _res, next) => {
+      req.authAccessMode = req.headers['x-test-access'] === 'read-only' ? 'read-only' : 'owner';
+      next();
+    });
     app.use('/api/files', createWorkspaceFileRouter(agentManager, service, {
       previewSessionManager: previewSessions,
     }));
@@ -201,6 +234,18 @@ async function run() {
       const css = await fetchRaw(baseUrl, `/api/files/previews/${preview.id}/base/assets/site.css`);
       assert.strictEqual(css.response.status, 200);
       assert.match(css.buffer.toString('utf8'), /green/);
+      const hiddenOwnerPreview = await fetchRaw(
+        baseUrl,
+        `/api/files/previews/${preview.id}/base/index.html`,
+        { headers: { 'X-Test-Access': 'read-only' } },
+      );
+      assert.strictEqual(hiddenOwnerPreview.response.status, 404);
+      const visibleReadOnlyPreview = await fetchRaw(
+        baseUrl,
+        `/api/files/previews/${readOnlyPreview.id}/base/index.html`,
+        { headers: { 'X-Test-Access': 'read-only' } },
+      );
+      assert.strictEqual(visibleReadOnlyPreview.response.status, 200);
 
       const save = await fetchJson(baseUrl, '/api/files/file', {
         method: 'PUT',

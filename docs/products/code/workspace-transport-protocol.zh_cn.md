@@ -292,8 +292,13 @@ Language Server Refresh 继续作为同一 WS 上有序、Project-scoped 的 Ser
 
 - Authentication 与 Owner/Read-only Mode 来自协商后的 WebSocket。
 - 每个请求都通过当前 Root Registry 解析 `rootId`；Browser Path 不能选择任意 Server Filesystem Root。
-- Read-only Connection 可以执行 Read、Git Inspection、Watch、Preview Viewing 与 Language
-  Server Request，但不能执行 Filesystem 或 Branch Mutation。
+- Read-only Connection 可以执行 Read、Git Inspection、Watch 与 Preview Viewing Request，
+  但不能执行 Filesystem、Branch 或 Language Server Request。Language Server Result 虽然面向
+  查看，但一次 Request 可能安装托管 Runtime、创建 Cache 并启动 Process，因此其生命周期只对
+  Owner 开放。
+- Static Preview Session 按 Owner/Read-only Authority 以及已认证的 Read-only Credential
+  隔离配额。Viewer 只能回收自己最旧的 Preview，不能删除或驱逐其他 Viewer 或 Owner 的 Session；
+  Preview Asset Read 在 Owner/Read-only Authority 不匹配时 Fail Closed。
 - Exact External-file Access 继续对 Read-only Share 禁用，并保留明确的 Local Authorization Boundary。
 - Symlink Escape Check、Path Normalization、Git-safe Argument、Preview CSP 与 Language Server
   Result Filtering 继续留在各自 Service Owner 中。

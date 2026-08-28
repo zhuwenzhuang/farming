@@ -11,6 +11,8 @@ async function run() {
     'watch-acp-transcripts',
     'unwatch-workspace-files',
     'watch-workspace-files',
+    'workspace-request',
+    'workspace-cancel',
   ]) {
     assert.strictEqual(readOnlyClientMessageAllowed(type), true, `${type} should remain view-only`);
   }
@@ -25,6 +27,7 @@ async function run() {
     'clear-terminal',
     'archive-agent',
     'restart-main-agent',
+    'language-server-request',
   ]) {
     assert.strictEqual(readOnlyClientMessageAllowed(type), false, `${type} must be rejected`);
   }

@@ -9,9 +9,10 @@ interface Deferred<Value> {
 }
 
 interface TestClient {
-  accessMode: 'owner';
+  accessMode: 'owner' | 'read-only';
   bufferedAmount: number;
   messages: Array<Record<string, unknown>>;
+  previewScopeId: string;
   readyState: number;
   send(body: string): void;
 }
@@ -24,11 +25,12 @@ function deferred<Value>(): Deferred<Value> {
   return { promise, resolve };
 }
 
-function client(): TestClient {
+function client(options: { accessMode?: 'owner' | 'read-only'; previewScopeId?: string } = {}): TestClient {
   return {
-    accessMode: 'owner',
+    accessMode: options.accessMode || 'owner',
     bufferedAmount: 0,
     messages: [],
+    previewScopeId: options.previewScopeId || 'owner-preview-scope',
     readyState: OPEN,
     send(body) { this.messages.push(JSON.parse(body)); },
   };
@@ -45,8 +47,9 @@ async function run(): Promise<void> {
   const handlers = createWebSocketWorkspaceRequestHandlers<TestClient>({
     openState: OPEN,
     maxMessageBytes: 1024,
-    async executeWorkspace(request, accessMode, signal) {
+    async executeWorkspace(request, accessMode, signal, previewScopeId) {
       assert.strictEqual(accessMode, 'owner');
+      assert.strictEqual(previewScopeId, 'owner-preview-scope');
       const key = `${request.operation}:${'rootId' in request ? request.rootId : request.previewId}`;
       started.push(key);
       signal.addEventListener('abort', () => aborted.push(key), { once: true });
@@ -60,6 +63,47 @@ async function run(): Promise<void> {
       return { code: 'TEST', message: error instanceof Error ? error.message : 'failed' };
     },
   });
+
+  {
+    const forwardedScopes: Array<[string | undefined, string | undefined]> = [];
+    const previewHandlers = createWebSocketWorkspaceRequestHandlers<TestClient>({
+      openState: OPEN,
+      maxMessageBytes: 1024,
+      async executeWorkspace(_request, accessMode, _signal, previewScopeId) {
+        forwardedScopes.push([accessMode, previewScopeId]);
+        return { previewScopeId };
+      },
+      async executeLanguageServer() { return { result: null }; },
+      error(error) { return { code: 'TEST', message: error instanceof Error ? error.message : 'failed' }; },
+    });
+    const viewerA = client({ accessMode: 'read-only', previewScopeId: 'token-scope-a' });
+    const viewerB = client({ accessMode: 'read-only', previewScopeId: 'token-scope-b' });
+    previewHandlers.workspaceRequest(viewerA, {
+      type: 'workspace-request',
+      requestId: 'preview-a',
+      request: { operation: 'create-preview', rootId: 'root-a', path: 'index.html' },
+    });
+    previewHandlers.workspaceRequest(viewerB, {
+      type: 'workspace-request',
+      requestId: 'preview-b',
+      request: { operation: 'delete-preview', previewId: 'preview-a' },
+    });
+    await flush();
+    assert.deepStrictEqual(forwardedScopes, [
+      ['read-only', 'token-scope-a'],
+      ['read-only', 'token-scope-b'],
+    ]);
+    assert.strictEqual(
+      (viewerA.messages.at(-1)?.result as { previewScopeId?: string }).previewScopeId,
+      'token-scope-a',
+    );
+    assert.strictEqual(
+      (viewerB.messages.at(-1)?.result as { previewScopeId?: string }).previewScopeId,
+      'token-scope-b',
+    );
+    previewHandlers.close(viewerA);
+    previewHandlers.close(viewerB);
+  }
 
   {
     const socket = client();

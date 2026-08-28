@@ -1081,8 +1081,8 @@ test('keeps narrow Chat copyable and wraps long user text inside its bubble', { 
   await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
 
   const input = page.getByTestId('code-acp-composer-input')
-  const iosInput = await page.locator('body').evaluate(element => element.classList.contains('code-mobile-ios'))
-  await expect(input).toHaveCSS('font-size', iosInput ? '16px' : '14px')
+  const touchInput = await page.locator('body').evaluate(element => element.classList.contains('code-mobile-touch'))
+  await expect(input).toHaveCSS('font-size', touchInput ? '16px' : '14px')
   await input.fill(`image attachment ${'amap_order_id,'.repeat(120)}`)
   await page.getByTestId('code-acp-composer-send').click()
 

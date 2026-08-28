@@ -5,6 +5,7 @@ import type { CodeCopy } from '../code/copy'
 interface FileEditorSaveConfirmDialogProps {
   label: string
   saving: boolean
+  allowSave: boolean
   copy: CodeCopy
   onConfirmSave: () => void
   onDiscard: () => void
@@ -14,6 +15,7 @@ interface FileEditorSaveConfirmDialogProps {
 export function FileEditorSaveConfirmDialog({
   label,
   saving,
+  allowSave,
   copy,
   onConfirmSave,
   onDiscard,
@@ -91,9 +93,11 @@ export function FileEditorSaveConfirmDialog({
         <h2 id="code-file-save-confirm-title">{copy.saveBeforeCloseTitle(label)}</h2>
         <p id="code-file-save-confirm-description">{copy.saveBeforeCloseDescription}</p>
         <div className="code-file-save-confirm-actions">
-          <button type="button" className="primary" onClick={onConfirmSave} disabled={saving}>
-            {saving ? copy.savingFile : copy.save}
-          </button>
+          {allowSave ? (
+            <button type="button" className="primary" onClick={onConfirmSave} disabled={saving}>
+              {saving ? copy.savingFile : copy.save}
+            </button>
+          ) : null}
           <button type="button" onClick={onDiscard} disabled={saving}>
             {copy.dontSave}
           </button>

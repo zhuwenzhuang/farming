@@ -81,11 +81,14 @@ function activeComposerSend(page: Page) {
 
 async function sendComposerText(page: Page, text: string, useTap = true) {
   const input = activeComposerInput(page)
+  const send = activeComposerSend(page)
   if (useTap) await input.tap()
   else await input.click()
   await page.keyboard.insertText(text)
   await expect(input).toHaveValue(text)
-  await page.keyboard.press('Enter')
+  await expect(send).toHaveAttribute('data-action', 'send', { timeout: 60_000 })
+  if (useTap) await send.tap()
+  else await send.click()
   await expect(input).toHaveValue('')
 }
 

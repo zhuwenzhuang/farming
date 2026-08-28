@@ -91,6 +91,14 @@ Chat 回复操作区和文件查看页提供同一只读长链接的直接复制
 主 WebSocket 只允许协议协商、健康检查、状态刷新、查看焦点切换和文件监视订阅。
 启动 Agent、终端或 Chat 输入、权限响应、中断、缩放、清屏、归档和重启消息都会在进入
 生命周期或会话所有者之前被拒绝。
+工作区文件读取、搜索、Git 查看和文件监视消息仍然可用；修改控件不会出现，打开现有
+Agent 的文件也不得触发 Project 挂载修改。
+Language Server Request 同样不会发送且会被后端拒绝：即使是语义读取，也可能安装托管
+Runtime、创建 Cache 或启动后端 Process，这会违反只读能力的无副作用边界。
+Read-only Browser Capability Probe 不会持久化探测到的默认值；Read-only Update Check
+忽略强制刷新，只投影 Recovery State 而不提交状态或准备 Installation Directory。
+Static Preview Capacity 与删除按 Authority 和 Read-only Credential 隔离，因此 Viewer
+不能驱逐或删除 Owner 或其他 Viewer 的 Session。
 
 前端在 WebSocket 握手确认访问模式前暂存普通客户端消息。拥有者握手成功后继续发送；只读
 握手只发送查看白名单内的消息。终端为了适配视口自动产生的 `resize-agent` 在只读页面中静默

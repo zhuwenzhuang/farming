@@ -8,6 +8,7 @@ import type {
 interface WorkspaceRequestClient {
   accessMode?: 'owner' | 'read-only' | 'none';
   bufferedAmount?: number;
+  previewScopeId?: string;
   readyState: number;
   send(data: string): void;
 }
@@ -19,6 +20,7 @@ interface WorkspaceRequestPorts {
     request: WorkspaceRequest,
     accessMode: WorkspaceRequestClient['accessMode'],
     signal: AbortSignal,
+    previewScopeId?: string,
   ): Promise<unknown>;
   executeLanguageServer(request: LanguageServerRequestMessage['request'], signal: AbortSignal): Promise<{
     result: unknown;
@@ -213,7 +215,12 @@ function createWebSocketWorkspaceRequestHandlers<Client extends WorkspaceRequest
       started: false,
       async run() {
         try {
-          const result = await ports.executeWorkspace(message.request, client.accessMode, controller.signal);
+          const result = await ports.executeWorkspace(
+            message.request,
+            client.accessMode,
+            controller.signal,
+            client.previewScopeId,
+          );
           if (scheduled.cancelled || controller.signal.aborted) return;
           send(client, { type: 'workspace-result', requestId: message.requestId, ok: true, result });
         } catch (error: unknown) {

@@ -49,6 +49,7 @@ export interface LanguageNavigatorState {
 }
 
 interface UseLanguageServerControllerOptions {
+  enabled: boolean
   openFile: OpenWorkspaceFile
   openFiles: OpenWorkspaceFile[]
   editorRef: MutableRefObject<monaco.editor.IStandaloneCodeEditor | null>
@@ -150,6 +151,7 @@ function capabilityIncludesWorkspace(capability: LanguageServerCapability, works
 }
 
 export function useLanguageServerController({
+  enabled,
   openFile,
   openFiles,
   editorRef,
@@ -185,10 +187,14 @@ export function useLanguageServerController({
   }, [openFile.agentId, openFile.file.path])
 
   useEffect(() => {
-    bindLanguageServerModels(openFiles)
-  }, [openFiles])
+    bindLanguageServerModels(enabled ? openFiles : [])
+  }, [enabled, openFiles])
 
   useEffect(() => {
+    if (!enabled) {
+      setLanguageServerEditorOpener(null)
+      return
+    }
     setLanguageServerEditorOpener((binding, selection) => onOpenFilePath(binding.rootId, binding.filePath, {
       lineNumber: selection && 'startLineNumber' in selection ? selection.startLineNumber : selection?.lineNumber,
       column: selection && 'startColumn' in selection ? selection.startColumn : selection?.column,
@@ -197,9 +203,14 @@ export function useLanguageServerController({
       transient: true,
     }))
     return () => setLanguageServerEditorOpener(null)
-  }, [onOpenFilePath])
+  }, [enabled, onOpenFilePath])
 
   useEffect(() => {
+    if (!enabled) {
+      setCapability(null)
+      setNavigator(CLOSED_STATE)
+      return
+    }
     let active = true
     void fetchLanguageServerCapability().then(value => {
       if (active) setCapability(value)
@@ -207,10 +218,10 @@ export function useLanguageServerController({
       if (active) setCapability(null)
     })
     return () => { active = false }
-  }, [])
+  }, [enabled])
 
   useEffect(() => {
-    if (capability?.enabled === false || (capability?.status !== 'connected' && capability?.status !== 'ready')) return
+    if (!enabled || capability?.enabled === false || (capability?.status !== 'connected' && capability?.status !== 'ready')) return
     let active = true
     const timeout = window.setTimeout(() => {
       void refreshLanguageServerDiagnostics(openFile).catch(() => {
@@ -221,10 +232,11 @@ export function useLanguageServerController({
       active = false
       window.clearTimeout(timeout)
     }
-  }, [capability?.enabled, capability?.status, openFile])
+  }, [capability?.enabled, capability?.status, enabled, openFile])
 
   const available = Boolean(
-    (capability?.status === 'connected' || capability?.status === 'ready')
+    enabled
+    && (capability?.status === 'connected' || capability?.status === 'ready')
     && capability.enabled !== false
     && capabilityIncludesWorkspace(capability, openFile.workspaceRoot)
     && !openFile.dirty

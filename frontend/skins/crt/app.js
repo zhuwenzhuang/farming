@@ -5643,7 +5643,7 @@ async function refreshStructuredSessionControls(agentId = focusedAgentId, force 
         return;
     structuredSessionControlsLoading = true;
     try {
-        const response = await fetch(farmingApiPath(`/agents/${encodeURIComponent(agentId)}/acp-session`));
+        const response = await fetch(farmingApiPath(`/agents/${encodeURIComponent(agentId)}/acp-session?includeEntries=0`));
         const body = await response.json().catch(() => null);
         if (!isCurrentStructuredSession(agentId, generation))
             return;

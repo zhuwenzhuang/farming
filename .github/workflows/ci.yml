@@ -269,11 +269,11 @@ jobs:
           if-no-files-found: ignore
           retention-days: 3
 
-  # The iphone-webkit project was defined but never gated, so mobile layout and
-  # WebKit regressions could only be caught by hand. It is a single spec with no
-  # screenshot baselines, so it runs unsharded next to the Chromium matrix.
+  # Keep the focused iPhone layout suite and tagged human journeys behind real
+  # WebKit and Android-shaped Chromium gates. The authenticated share contract
+  # runs separately because its isolated server intentionally enables auth.
   mobile:
-    name: iPhone WebKit
+    name: Mobile browsers
     needs: frontend
     runs-on: ubuntu-latest
     steps:
@@ -320,24 +320,30 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-webkit-${{ steps.playwright.outputs.version }}
+          key: ${{ runner.os }}-playwright-mobile-${{ steps.playwright.outputs.version }}
 
-      - name: Install WebKit system dependencies
-        run: npx playwright install-deps webkit
+      - name: Install mobile browser system dependencies
+        run: npx playwright install-deps webkit chromium
 
-      - name: Install WebKit for mobile checks
-        run: npx playwright install webkit
+      - name: Install browsers for mobile checks
+        run: npx playwright install webkit chromium
 
-      - name: Run iPhone WebKit checks
-        run: npx playwright test --project=iphone-webkit
+      - name: Run mobile browser checks
+        run: npx playwright test --project=iphone-webkit --project=iphone-human-webkit --project=android-human-chromium
         env:
           FARMING_PLAYWRIGHT_SKIP_BUILD: '1'
 
-      - name: Upload iPhone WebKit failure evidence
+      - name: Run authenticated mobile share contract
+        run: npx playwright test --project=mobile-auth-webkit
+        env:
+          FARMING_PLAYWRIGHT_AUTH: '1'
+          FARMING_PLAYWRIGHT_SKIP_BUILD: '1'
+
+      - name: Upload mobile browser failure evidence
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: iphone-webkit-failure
+          name: mobile-browser-failure
           path: |
             test-results
             playwright-report

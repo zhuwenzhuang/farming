@@ -48,6 +48,10 @@ async function verifyUpdateRouterBehavior() {
     },
   };
   const app = express();
+  app.use((req, _res, next) => {
+    req.authAccessMode = req.headers['x-test-access'] === 'read-only' ? 'read-only' : 'owner';
+    next();
+  });
   app.use('/api/update', createUpdateRouter(service));
   const server = await new Promise<HttpServer>(resolve => {
     const listener = app.listen(0, () => resolve(listener));
@@ -60,11 +64,17 @@ async function verifyUpdateRouterBehavior() {
     assert.deepStrictEqual(await checked.json(), {
       update: { available: true, checkedAt: '2026-08-08T00:00:00.000Z' },
     });
-    assert.deepStrictEqual(calls.at(-1), ['check', { force: true }]);
+    assert.deepStrictEqual(calls.at(-1), ['check', { force: true, observeOnly: false }]);
 
     const regularCheck = await fetch(baseUrl);
     assert.strictEqual(regularCheck.status, 200);
-    assert.deepStrictEqual(calls.at(-1), ['check', { force: false }]);
+    assert.deepStrictEqual(calls.at(-1), ['check', { force: false, observeOnly: false }]);
+
+    const readOnlyCheck = await fetch(`${baseUrl}?force=1`, {
+      headers: { 'X-Test-Access': 'read-only' },
+    });
+    assert.strictEqual(readOnlyCheck.status, 200);
+    assert.deepStrictEqual(calls.at(-1), ['check', { force: false, observeOnly: true }]);
 
     const install = await fetch(`${baseUrl}/install`, {
       body: JSON.stringify({ assetName: '2.3.0' }),
@@ -384,6 +394,7 @@ async function run() {
   );
 
   const npmSpawned = [];
+  let npmFetchCalls = 0;
   const packageInstallationsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-package-installations-'));
   const npmService = new FarmingUpdateService({
     rootDir: npmRoot,
@@ -393,6 +404,7 @@ async function run() {
     platform: 'darwin',
     arch: 'arm64',
     fetchJson: async url => {
+      npmFetchCalls += 1;
       assert.strictEqual(String(url), 'https://registry.npmjs.org/farming-code');
       return npmMetadata;
     },
@@ -403,7 +415,37 @@ async function run() {
     },
   });
 
+  await npmService.npmMetadata({ force: true });
+  assert.strictEqual(npmFetchCalls, 1);
+  const observeOnlyStateFile = path.join(npmConfigDir, 'farming-update.json');
+  fs.writeFileSync(observeOnlyStateFile, JSON.stringify({
+    format: 'farming-update-operation-v1',
+    operationId: '00000000-0000-4000-8000-000000000099',
+    method: 'npm',
+    phase: 'restarting',
+    version: '2.2.5',
+    previousVersion: '2.2.4',
+    restartingAt: '2026-08-08T00:00:00.000Z',
+  }));
+  const observeOnlyStateBytes = fs.readFileSync(observeOnlyStateFile);
+  const observedNpmStatus = await npmService.check({ force: true, observeOnly: true });
+  assert.strictEqual(npmFetchCalls, 1, 'a read-only update observation must ignore force and reuse fresh metadata');
+  assert.strictEqual(observedNpmStatus.state.phase, 'succeeded');
+  assert.deepStrictEqual(
+    fs.readFileSync(observeOnlyStateFile),
+    observeOnlyStateBytes,
+    'a read-only update observation must not reconcile the persisted operation',
+  );
+  assert.strictEqual(
+    fs.existsSync(npmService.packageInstallation.versionsDir),
+    false,
+    'a read-only update observation must not prepare the immutable installation directories',
+  );
+  assert.strictEqual(fs.existsSync(npmService.packageInstallation.stagingDir), false);
+  assert.strictEqual(fs.existsSync(npmService.packageInstallation.usageDir), false);
+
   const npmStatus = await npmService.check({ force: true });
+  assert.strictEqual(npmFetchCalls, 2, 'an Owner forced update check must refresh metadata');
   assert.strictEqual(npmStatus.method, 'npm');
   assert.strictEqual(npmStatus.current.type, 'npm');
   assert.strictEqual(npmStatus.current.installDir, npmRoot);
@@ -413,6 +455,10 @@ async function run() {
   assert(npmStatus.target.installationRoot.startsWith(fs.realpathSync.native(packageInstallationsDir)));
   assert.strictEqual(npmStatus.target.activePackageRoot, fs.realpathSync.native(npmRoot));
   assert.deepStrictEqual(npmStatus.versions.map(version => version.version), ['2.3.0', '2.2.6', '2.2.5']);
+  assert.strictEqual(JSON.parse(fs.readFileSync(observeOnlyStateFile, 'utf8')).phase, 'succeeded');
+  assert.strictEqual(fs.existsSync(npmService.packageInstallation.versionsDir), true);
+  assert.strictEqual(fs.existsSync(npmService.packageInstallation.stagingDir), true);
+  assert.strictEqual(fs.existsSync(npmService.packageInstallation.usageDir), true);
 
   const newerNpmPrefix = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-newer-npm-update-prefix-'));
   const newerNpmRoot = path.join(newerNpmPrefix, 'lib', 'node_modules', 'farming-code');

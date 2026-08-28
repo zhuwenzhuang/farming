@@ -104,14 +104,19 @@ interface PreviewSession {
 
 interface PreviewSessionManagerLike {
   createStatic(options: {
+    accessMode?: 'owner' | 'read-only';
     authorizedRoot: string;
     baseDirectory: string;
     entryPath: string;
     rootId: string;
+    scopeId?: string;
     workspaceRoot: string;
   }): PreviewSession;
-  delete(sessionId: string): boolean;
-  get(sessionId: string): PreviewSession | null;
+  delete(
+    sessionId: string,
+    authority?: { accessMode?: 'owner' | 'read-only'; scopeId?: string },
+  ): boolean;
+  get(sessionId: string, authority?: { accessMode?: 'owner' | 'read-only' }): PreviewSession | null;
 }
 
 interface HttpRequest {
@@ -164,6 +169,7 @@ interface RouterOptions {
 interface WorkspaceRequestOptions extends RouterOptions {
   accessMode?: 'owner' | 'read-only';
   maxInlineResponseBytes?: number;
+  previewScopeId?: string;
   signal?: AbortSignal;
 }
 
@@ -552,7 +558,9 @@ async function executeWorkspaceFileRequest(
       const { root, rootId } = resolveRequestRoot(request);
       await fileService.readFile(root, entryPath, { allowedExternalRoots: [] });
       const session = previewSessions.createStatic({
+        accessMode: options.accessMode === 'read-only' ? 'read-only' : 'owner',
         rootId,
+        scopeId: options.previewScopeId,
         workspaceRoot: root,
         authorizedRoot: realPathIfPresent(authorizedRoot || root),
         entryPath,
@@ -561,7 +569,12 @@ async function executeWorkspaceFileRequest(
       return { id: session.id, kind: session.kind, expiresAt: session.expiresAt };
     }
     case 'delete-preview':
-      return { deleted: previewSessions.delete(request.previewId) };
+      return {
+        deleted: previewSessions.delete(request.previewId, {
+          accessMode: options.accessMode === 'read-only' ? 'read-only' : 'owner',
+          scopeId: options.previewScopeId,
+        }),
+      };
     case 'save-file': {
       assertWritableWorkspaceAgent(request.rootId);
       const { kind, root } = resolveRequestRoot(request);
@@ -781,7 +794,9 @@ function createWorkspaceFileRouter(
 
   router.get('/previews/:sessionId/:scope/*', async (req: HttpRequest, res: HttpResponse) => {
     try {
-      const session = previewSessions.get(req.params.sessionId);
+      const session = previewSessions.get(req.params.sessionId, {
+        accessMode: req.authAccessMode === 'read-only' ? 'read-only' : 'owner',
+      });
       if (!session) throw new WorkspaceFileError('preview session not found or expired', 404);
       const scope = req.params.scope;
       if (scope !== 'base' && scope !== 'root') {

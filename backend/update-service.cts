@@ -78,6 +78,7 @@ interface NpmVersion {
 interface CheckOptions {
   force?: boolean;
   assetName?: unknown;
+  observeOnly?: boolean;
 }
 
 interface RuntimeTarget {
@@ -501,18 +502,23 @@ class FarmingUpdateService {
     };
   }
 
-  currentInstallState(): UpdateInstallState {
+  currentInstallState(options: { commit?: boolean } = {}): UpdateInstallState {
+    const commit = options.commit !== false;
+    const clear = () => commit ? this.clearInstallState() : { phase: 'idle' };
+    const persist = <T extends UpdateInstallState>(state: T): T => (
+      commit ? this.persistInstallState(state) : state
+    );
     const persisted = readJsonFile(this.updateStateFile);
     const current = this.currentVersion();
     const currentVersion = normalizeVersion(current.releaseVersion || current.packageVersion);
-    if (!persisted) return this.clearInstallState();
+    if (!persisted) return clear();
     const state = persisted as UpdateInstallState;
-    if (state.method !== this.installMethod) return this.clearInstallState();
+    if (state.method !== this.installMethod) return clear();
 
     const isCurrentFormat = state.format === UPDATE_OPERATION_FORMAT
       && typeof state.operationId === 'string'
       && state.operationId.length > 0;
-    if (!isCurrentFormat && state.phase !== 'restarting') return this.clearInstallState();
+    if (!isCurrentFormat && state.phase !== 'restarting') return clear();
 
     const normalized = isCurrentFormat ? state : {
       ...state,
@@ -522,7 +528,7 @@ class FarmingUpdateService {
     if (
       normalized.installationId
       && (!this.packageInstallation || normalized.installationId !== this.packageInstallation.installationId)
-    ) return this.clearInstallState();
+    ) return clear();
 
     const targetVersion = normalizeVersion(normalized.version);
     const previousVersion = normalizeVersion(normalized.previousVersion);
@@ -532,7 +538,7 @@ class FarmingUpdateService {
         && hasComparableVersion(targetVersion)
         && currentVersion === targetVersion
       ) {
-        return this.persistInstallState({
+        return persist({
           ...normalized,
           phase: 'succeeded',
           error: '',
@@ -545,34 +551,34 @@ class FarmingUpdateService {
           (previousVersion && currentVersion !== previousVersion)
           || (!previousVersion && hasComparableVersion(targetVersion) && compareVersions(currentVersion, targetVersion) > 0)
         )
-      ) return this.clearInstallState();
+      ) return clear();
       const restartingAt = Date.parse(String(
         normalized.restartingAt || normalized.preparedAt || normalized.startedAt || '',
       ));
       if (!Number.isFinite(restartingAt) || this.now() - restartingAt >= RESTART_RECOVERY_TIMEOUT_MS) {
-        return this.persistInstallState({
+        return persist({
           ...normalized,
           phase: 'failed',
           error: `Farming did not restart into version ${targetVersion || normalized.version || 'unknown'} within 2 minutes; retry the update`,
           completedAt: new Date(this.now()).toISOString(),
         });
       }
-      return isCurrentFormat ? normalized : this.persistInstallState(normalized);
+      return isCurrentFormat ? normalized : persist(normalized);
     }
 
     if (normalized.phase === 'rolling-back') {
       if (currentVersion && previousVersion && currentVersion === previousVersion) {
-        return this.persistInstallState({
+        return persist({
           ...normalized,
           phase: 'rolled-back',
           version: previousVersion,
           completedAt: new Date(this.now()).toISOString(),
         });
       }
-      if (currentVersion && targetVersion && currentVersion !== targetVersion) return this.clearInstallState();
+      if (currentVersion && targetVersion && currentVersion !== targetVersion) return clear();
       const startedAt = Date.parse(String(normalized.restartingAt || normalized.startedAt || ''));
       if (!Number.isFinite(startedAt) || this.now() - startedAt >= RESTART_RECOVERY_TIMEOUT_MS) {
-        return this.persistInstallState({
+        return persist({
           ...normalized,
           phase: 'failed',
           error: normalized.error || 'Farming rollback did not complete within 2 minutes; restart Farming manually',
@@ -583,11 +589,11 @@ class FarmingUpdateService {
     }
 
     if (['installing', 'preparing-runtimes'].includes(normalized.phase)) {
-      if (previousVersion && currentVersion && previousVersion !== currentVersion) return this.clearInstallState();
+      if (previousVersion && currentVersion && previousVersion !== currentVersion) return clear();
       const startedAt = Date.parse(String(normalized.startedAt || ''));
-      if (!Number.isFinite(startedAt)) return this.clearInstallState();
+      if (!Number.isFinite(startedAt)) return clear();
       if (this.now() - startedAt >= ACTIVE_UPDATE_TIMEOUT_MS) {
-        return this.persistInstallState({
+        return persist({
           ...normalized,
           phase: 'failed',
           error: 'Farming update preparation did not complete within 30 minutes; retry the update',
@@ -598,11 +604,11 @@ class FarmingUpdateService {
     }
 
     if (normalized.phase === 'ready-to-restart') {
-      if (!previousVersion || !currentVersion || previousVersion !== currentVersion) return this.clearInstallState();
+      if (!previousVersion || !currentVersion || previousVersion !== currentVersion) return clear();
       const expectedCurrentImageId = String(normalized.expectedCurrentImageId || '').trim();
       if (expectedCurrentImageId && this.packageInstallation) {
         const selectedPointer = readCurrentPackagePointer(this.packageInstallation);
-        if (!selectedPointer || selectedPointer.imageId !== expectedCurrentImageId) return this.clearInstallState();
+        if (!selectedPointer || selectedPointer.imageId !== expectedCurrentImageId) return clear();
       }
       return normalized;
     }
@@ -617,11 +623,11 @@ class FarmingUpdateService {
         !versionStillRelevant
         || !Number.isFinite(completedAt)
         || this.now() - completedAt >= TERMINAL_UPDATE_RETENTION_MS
-      ) return this.clearInstallState();
+      ) return clear();
       return normalized;
     }
 
-    return this.clearInstallState();
+    return clear();
   }
 
   clearInstallState(): UpdateInstallState {
@@ -659,10 +665,14 @@ class FarmingUpdateService {
   }
 
   async npmStatus(options: CheckOptions = {}) {
+    const observeOnly = options.observeOnly === true;
     const current = this.currentVersion();
     const currentVersion = normalizeVersion(current.releaseVersion || current.packageVersion);
-    const metadata = await this.npmMetadata(options);
-    const target = await this.npmUpdateTarget();
+    const metadata = await this.npmMetadata({
+      ...options,
+      force: observeOnly ? false : options.force,
+    });
+    const target = await this.npmUpdateTarget({ ensureDirectories: !observeOnly });
     const versions = npmVersionsFromMetadata(metadata, currentVersion);
     const registryLatestVersion = normalizeVersion(metadata && metadata['dist-tags'] && metadata['dist-tags'].latest);
     const latestVersion = [currentVersion, registryLatestVersion, versions[0]?.version || '']
@@ -702,11 +712,11 @@ class FarmingUpdateService {
       available,
       installable: Boolean(selected && target.proven),
       checkedAt: new Date(this.now()).toISOString(),
-      state: this.currentInstallState(),
+      state: this.currentInstallState({ commit: !observeOnly }),
     };
   }
 
-  async npmUpdateTarget(): Promise<NpmUpdateTarget> {
+  async npmUpdateTarget(options: { ensureDirectories?: boolean } = {}): Promise<NpmUpdateTarget> {
     const runningPackageRoot = String(this.npmPackageRoot || '').trim();
     const installation = this.packageInstallation;
     if (!path.isAbsolute(runningPackageRoot) || !installation) {
@@ -721,7 +731,7 @@ class FarmingUpdateService {
         error: 'npm update target does not match the active immutable package identity',
       };
     }
-    ensurePackageInstallationDirectories(installation);
+    if (options.ensureDirectories !== false) ensurePackageInstallationDirectories(installation);
     return {
       proven: true,
       installationId: installation.installationId,
@@ -731,7 +741,7 @@ class FarmingUpdateService {
     };
   }
 
-  unsupportedStatus() {
+  unsupportedStatus(options: CheckOptions = {}) {
     const current = this.currentVersion();
     const reason = installMethodBlockedReason(this.installMethod);
     return {
@@ -753,13 +763,13 @@ class FarmingUpdateService {
       available: false,
       installable: false,
       checkedAt: new Date(this.now()).toISOString(),
-      state: this.currentInstallState(),
+      state: this.currentInstallState({ commit: options.observeOnly !== true }),
     };
   }
 
   async check(options: CheckOptions = {}) {
     if (this.installMethod === 'npm') return this.npmStatus(options);
-    return this.unsupportedStatus();
+    return this.unsupportedStatus(options);
   }
 
   async startInstall(options: CheckOptions = {}): Promise<UpdateInstallState> {

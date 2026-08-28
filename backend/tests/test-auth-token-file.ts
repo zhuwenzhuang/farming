@@ -4,6 +4,7 @@ const os = require('os');
 const path = require('path');
 const {
   TokenAuth,
+  authenticatedAccessScopeId,
   bearerAuthorizationHeader,
   encodeCookieToken,
   farmingAuthCookieName,
@@ -65,6 +66,7 @@ function run() {
 
     const readOnlyExpiresAt = Date.now() + 60_000;
     const readOnlyToken = auth.createReadOnlyToken({ expiresAt: readOnlyExpiresAt });
+    const otherReadOnlyToken = auth.createReadOnlyToken({ expiresAt: readOnlyExpiresAt });
     assert.strictEqual(auth.verify(readOnlyToken), false, 'a share token must not become an owner token');
     assert.strictEqual(auth.verifyReadOnlyToken(readOnlyToken, readOnlyExpiresAt - 1), true);
     assert.strictEqual(auth.verifyReadOnlyToken(readOnlyToken, readOnlyExpiresAt), false);
@@ -72,6 +74,21 @@ function run() {
     assert.strictEqual(auth.accessForToken(token), 'owner');
     assert.strictEqual(auth.accessForToken(readOnlyToken), 'read-only');
     assert.strictEqual(auth.accessForToken(`${readOnlyToken}x`), 'none');
+    assert.strictEqual(
+      authenticatedAccessScopeId(readOnlyToken, 'read-only'),
+      authenticatedAccessScopeId(readOnlyToken, 'read-only'),
+      'the same authenticated credential must retain one stable preview scope across reconnects',
+    );
+    assert.notStrictEqual(
+      authenticatedAccessScopeId(readOnlyToken, 'read-only'),
+      authenticatedAccessScopeId(otherReadOnlyToken, 'read-only'),
+      'distinct read-only credentials must receive distinct preview scopes',
+    );
+    assert.throws(
+      () => authenticatedAccessScopeId('', 'read-only'),
+      /exact authenticated credential/,
+      'a read-only connection must never fall back to a shared anonymous preview scope',
+    );
     assert.strictEqual(
       auth.webSocketAccess({
         url: `/farming/ws?token=${encodeURIComponent(readOnlyToken)}`,

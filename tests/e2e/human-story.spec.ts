@@ -30,11 +30,14 @@ async function terminalCellCenter(page: import('@playwright/test').Page, agentId
 }
 
 async function selectTerminalAgentOnCompactLayout(page: import('@playwright/test').Page, agentId: string) {
-  const row = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
+  const row = page.locator(
+    `[data-agent-id="${agentId}"]:is([data-testid="code-agent-row"], [data-testid="code-project-agent-compact"], [data-testid="code-pinned-agent-compact"], [data-testid="code-agent-rail-item"]):visible`,
+  ).first()
   const compactLayout = await page.locator('body').evaluate(element => element.classList.contains('code-compact-layout'))
   if (compactLayout) {
     await expect(page.getByTestId('code-mobile-menu')).toBeVisible()
     await page.getByTestId('code-mobile-menu').click()
+    await page.waitForTimeout(250)
   }
   await expect(row).toBeVisible()
   await row.click()
@@ -130,13 +133,8 @@ test.describe('human Farming Agent story', () => {
       return [params.get('ftarget'), params.get('agent'), params.get('fra')]
     }).toEqual([null, null, null])
 
-    const firstAgentRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${firstAgentId}"]`)
-    if (compactLayout) {
-      await page.getByTestId('code-mobile-menu').click()
-    }
-    await expect(firstAgentRow).toBeVisible()
-    await firstAgentRow.click()
-    await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${firstAgentId}"]`)).toBeVisible()
+    await page.waitForTimeout(300)
+    await selectTerminalAgentOnCompactLayout(page, firstAgentId)
     await page.reload({ waitUntil: 'domcontentloaded' })
     await expectTerminalAgentSelected(page, firstAgentId, compactLayout)
 

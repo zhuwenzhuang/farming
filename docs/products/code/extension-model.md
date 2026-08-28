@@ -210,6 +210,11 @@ Session state to the current owner. The name is local routing state rather than
 a separate permission credential. Farming does not inject or host a second
 Browser/Computer MCP implementation.
 
+A Browser capability read always probes the effective selection. When a system
+Browser has not yet been selected, an Owner read may persist the discovered
+default; a read-only share uses it only for that response and never changes
+Config settings.
+
 Browser stop and delete transitions are bounded. A cleanup failure ends in a
 terminal failed state that retains the exact Resource and process identity for
 an explicit retry; it must not remain indefinitely in stopping. Isolated

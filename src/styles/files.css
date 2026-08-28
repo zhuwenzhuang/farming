@@ -1749,7 +1749,7 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
 }
 
 .code-file-save-confirm-actions button {
-  height: 38px;
+  min-height: 44px;
   border: 1px solid var(--code-border);
   border-radius: 9px;
   background: var(--code-bg-muted);
@@ -1890,6 +1890,16 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
 
   body.code-mode.code-compact-layout .code-file-row-actions {
       display: grid;
+    }
+
+  body.code-mode.code-compact-layout.code-mobile-touch .code-file-row {
+      min-height: 44px;
+    }
+
+  body.code-mode.code-compact-layout.code-mobile-touch .code-file-row-actions {
+      width: 44px;
+      height: 44px;
+      border-radius: 8px;
     }
 
 }

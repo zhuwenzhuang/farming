@@ -6,6 +6,7 @@ import type { ShareNoticeAnchor } from '../code/share-notice'
 
 interface FileEditorHeaderProps extends Omit<FileEditorTabsProps, 'actions'> {
   editorMode: WorkspaceEditorFileMode
+  readOnly: boolean
   statusText: string | null
   onRevealInExplorer: (agentId: string, filePath: string, kind: 'directory' | 'file') => void
   onSave: (overwrite?: boolean) => void
@@ -30,6 +31,7 @@ export function FileEditorHeader({
   openFile,
   openFiles,
   editorMode,
+  readOnly,
   copy,
   statusText,
   onBackToAgent,
@@ -65,6 +67,7 @@ export function FileEditorHeader({
   const actions = workspaceEditorActionState(openFile, editorMode, {
     canPreviewMarkdown,
     canPreviewSource,
+    readOnly,
     statusText,
     showBreadcrumbs,
   })

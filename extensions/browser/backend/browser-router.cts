@@ -158,9 +158,12 @@ function createBrowserRouter(
   router.get('/capability', async (_req, res) => {
     try {
       requestAgentBinding(agentStateReader, _req);
-      await manager.refreshCapability(undefined, { reuseVerified: true });
+      await manager.refreshCapability(undefined, {
+        persistDefaultSelection: _req.authAccessMode !== 'read-only',
+        reuseVerified: true,
+      });
       const capability = manager.capability();
-      const sources = await manager.sourceCapabilities();
+      const sources = await manager.sourceCapabilities({ reuseVerified: true });
       const anySourceAvailable = sources.some(source => source.available === true);
       res.json({
         ...capability,

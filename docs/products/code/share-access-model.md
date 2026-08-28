@@ -117,6 +117,17 @@ The primary WebSocket admits only protocol negotiation, health/state refresh,
 view focus, and file-watch subscription messages. Agent start, terminal or Chat
 input, permission responses, interruption, resize, clear, archive, and restart
 messages are rejected before reaching lifecycle or session owners.
+Workspace file reads, search, Git inspection, and file-watch messages remain
+available, while mutation controls are absent and opening an existing Agent file
+must not trigger a Project-mount mutation.
+Language Server requests are also withheld and rejected: even a semantic read
+may install a managed runtime, create caches, or start a backend process, which
+would violate the read-only capability's no-side-effect boundary.
+Read-only Browser capability probes do not persist a discovered default, and
+read-only update checks ignore forced refresh while projecting recovery state
+without committing it or preparing installation directories. Static preview
+capacity and deletion are isolated by authority and read-only credential, so a
+viewer cannot evict or delete Owner or another viewer sessions.
 
 The frontend queues ordinary client messages until the WebSocket handshake confirms
 the access mode. It flushes them for an owner and only flushes view-safe messages for

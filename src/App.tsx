@@ -1372,6 +1372,7 @@ export function App() {
       )}
       <CodeWorkspace
         agents={displayedAgents}
+        readOnly={ws.accessMode !== 'owner'}
         agentInventoryComplete={ws.agentInventoryComplete}
         projectAgentSummaries={ws.projectAgentSummaries}
         taskHistory={ws.taskHistory}

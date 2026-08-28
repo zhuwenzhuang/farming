@@ -29,6 +29,11 @@ Backend 拥有 Server Discovery、Project Root 选择、进程生命周期、Req
 Authorization。同一 Config、Language 与 Project Root 边界内可以复用一份兼容 Server；不同
 Config Instance 不共享可变 Language Server 状态。
 
+Language Server 只允许 Owner 使用。只读分享不会绑定 Editor Provider，也不会发送 Capability
+或 Semantic Request；伪造的 Request 会在到达 Manager 前被 Backend 拒绝。虽然结果面向查看，
+但一次准入仍可能安装托管 Runtime、写入 Cache 并启动 Project-scoped Process，因此必须采用
+这一权限边界。
+
 ## 文件与结果权威
 
 Request 必须按精确 Project Root 授权；Symlink Escape 和 Project 外 Result Location 必须拒绝。

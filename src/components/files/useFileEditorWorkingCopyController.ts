@@ -42,6 +42,7 @@ export function useFileEditorWorkingCopyController({
   resolveFile,
 }: UseFileEditorWorkingCopyControllerOptions) {
   const saveOpenWorkspaceFile = useCallback(async (fileToSave: OpenWorkspaceFile, overwrite = false) => {
+    if (readOnly) return false
     if (isWorkspaceWorkingCopyPreview(fileToSave)) return true
     const target = {
       agentId: fileToSave.agentId,
@@ -97,7 +98,7 @@ export function useFileEditorWorkingCopyController({
       ))
       return false
     }
-  }, [onUpdateOpenFile])
+  }, [onUpdateOpenFile, readOnly])
 
   const saveFile = useCallback(async (overwrite = false) => {
     if (readOnly) return

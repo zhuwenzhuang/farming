@@ -172,10 +172,12 @@ function workspaceLabel(workspaceRoot: string | undefined) {
 function FileEditorFallback({
   openFile,
   onChangeDraft,
+  readOnly,
   copy,
 }: {
   openFile: OpenWorkspaceFile
   onChangeDraft: (draft: string) => void
+  readOnly: boolean
   copy: CodeCopy
 }) {
   const segments = pathSegments(openFile.file.path)
@@ -250,6 +252,7 @@ function FileEditorFallback({
         autoCapitalize="none"
         value={openFile.draft}
         onChange={event => onChangeDraft(event.currentTarget.value)}
+        readOnly={readOnly}
         spellCheck={false}
         data-lpignore="true"
         data-1p-ignore="true"
@@ -263,6 +266,7 @@ function FileEditorFallback({
 
 interface CodeMainAreaProps {
   inert?: boolean
+  readOnly: boolean
   activeView: WorkspaceView
   activeBrowserResource: BrowserResource | null
   browserController: BrowserResourcesController
@@ -561,6 +565,7 @@ function EmptyWorkspaceGuide({
 
 export function CodeMainArea({
   inert,
+  readOnly,
   activeView,
   activeBrowserResource,
   browserController,
@@ -1035,6 +1040,7 @@ export function CodeMainArea({
         ReadyFileEditorPane ? (
           <ReadyFileEditorPane
             openFile={openWorkspaceFile}
+            globalReadOnly={readOnly}
             openFiles={openWorkspaceFiles}
             retainedFiles={retainedWorkspaceFileModels}
             onChangeDraft={onChangeWorkspaceFileDraft}
@@ -1058,7 +1064,7 @@ export function CodeMainArea({
             copy={copy}
           />
         ) : (
-          <FileEditorFallback openFile={openWorkspaceFile} onChangeDraft={onChangeWorkspaceFileDraft} copy={copy} />
+          <FileEditorFallback openFile={openWorkspaceFile} onChangeDraft={onChangeWorkspaceFileDraft} readOnly={readOnly} copy={copy} />
         )
       ) : null}
 

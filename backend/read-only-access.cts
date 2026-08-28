@@ -9,7 +9,6 @@ const READ_ONLY_CLIENT_MESSAGE_TYPES = new Set([
   'watch-workspace-files',
   'workspace-request',
   'workspace-cancel',
-  'language-server-request',
 ]);
 
 function readOnlyClientMessageAllowed(type: unknown): boolean {

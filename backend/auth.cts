@@ -62,6 +62,17 @@ const LEGACY_COOKIE_NAME = 'farming_token';
 const READ_ONLY_TOKEN_PREFIX = 'farming-ro-v1';
 const SAFE_READ_ONLY_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
+function authenticatedAccessScopeId(token: unknown, accessMode: AuthAccessMode): string {
+  const credential = String(token || '');
+  if (!credential && accessMode === 'read-only') {
+    throw new Error('read-only access requires an exact authenticated credential');
+  }
+  return crypto
+    .createHash('sha256')
+    .update(credential || 'farming-owner-auth-disabled')
+    .digest('base64url');
+}
+
 function normalizeBasePath(basePath: unknown): string {
   const normalized = String(basePath || '');
   if (!normalized || normalized === '/') return '';
@@ -444,6 +455,7 @@ class TokenAuth {
 export {
   type AuthAccessMode,
   TokenAuth,
+  authenticatedAccessScopeId,
   bearerAuthorizationHeader,
   decodeCookieToken,
   encodeCookieToken,

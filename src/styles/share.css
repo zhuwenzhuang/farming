@@ -352,8 +352,8 @@
 }
 
 .code-mobile-share-header button {
-  width: 30px;
-  height: 30px;
+  width: 44px;
+  height: 44px;
   border: 0;
   border-radius: 999px;
   background: transparent;
@@ -412,7 +412,7 @@
 }
 
 .code-mobile-share-link-row button {
-  min-height: 36px;
+  min-height: 44px;
   display: inline-flex;
   align-items: center;
   gap: 6px;

@@ -277,10 +277,10 @@ export function workspaceEditorSurfaceState(options: WorkspaceEditorSurfaceState
 export function workspaceEditorActionState(
   file: WorkspaceWorkingCopyReference,
   mode: WorkspaceEditorFileMode,
-  options: { canPreviewMarkdown?: boolean; canPreviewSource?: boolean; statusText: string | null; showBreadcrumbs: boolean }
+  options: { canPreviewMarkdown?: boolean; canPreviewSource?: boolean; readOnly?: boolean; statusText: string | null; showBreadcrumbs: boolean }
 ): WorkspaceEditorActionState {
   const showStatus = Boolean(options.statusText)
-  const showSave = mode.canEditText && shouldShowWorkspaceWorkingCopySaveAction(file)
+  const showSave = !options.readOnly && mode.canEditText && shouldShowWorkspaceWorkingCopySaveAction(file)
   const showDiff = mode.canShowDiff
   const showMarkdownPreview = Boolean(options.canPreviewMarkdown)
   const showSourcePreview = Boolean(options.canPreviewSource)
@@ -290,7 +290,7 @@ export function workspaceEditorActionState(
     || Boolean(options.canPreviewMarkdown)
     || Boolean(options.canPreviewSource)
   )
-  const showOverwrite = mode.canEditText && shouldShowWorkspaceWorkingCopyOverwriteAction(file)
+  const showOverwrite = !options.readOnly && mode.canEditText && shouldShowWorkspaceWorkingCopyOverwriteAction(file)
   return {
     showBar: options.showBreadcrumbs || showStatus || showSave || showDiff || showMarkdownPreview || showSourcePreview || showWordWrap || showReload || showOverwrite,
     showStatus,

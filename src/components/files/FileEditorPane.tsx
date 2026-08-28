@@ -55,6 +55,7 @@ export type { OpenWorkspaceFile, WorkspaceFileCursor } from '@/lib/workspace-ope
 
 interface FileEditorPaneProps {
   openFile: OpenWorkspaceFile
+  globalReadOnly?: boolean
   openFiles: OpenWorkspaceFile[]
   retainedFiles: OpenWorkspaceFile[]
   onChangeDraft: (draft: string) => void
@@ -154,6 +155,7 @@ function clampLanguageServerDockWidth(workbenchWidth: number, width: number) {
 
 export function FileEditorPane({
   openFile,
+  globalReadOnly = false,
   openFiles,
   retainedFiles,
   onChangeDraft,
@@ -218,7 +220,7 @@ export function FileEditorPane({
   const markdownSplitOpen = markdownReadingOpen && markdownSplitByFileKey[activeFileKey] === true
   const markdownPreviewOpen = markdownReadingOpen && !markdownSplitOpen
   const sourceVisualPreviewOpen = canPreviewSource && sourcePreviewOpen
-  const readOnly = !editorMode.canEditText || isGlobalWorkspaceFilesAgentId(openFile.agentId) || openFile.file.readOnly === true
+  const readOnly = globalReadOnly || !editorMode.canEditText || isGlobalWorkspaceFilesAgentId(openFile.agentId) || openFile.file.readOnly === true
   const largeTextPreview = openFile.file.preview?.kind === 'large-text'
     ? openFile.file.preview
     : null
@@ -299,6 +301,7 @@ export function FileEditorPane({
   })
 
   const languageServer = useLanguageServerController({
+    enabled: globalReadOnly !== true,
     openFile,
     openFiles,
     editorRef,
@@ -596,6 +599,7 @@ export function FileEditorPane({
               openFile={openFile}
               openFiles={openFiles}
               editorMode={editorMode}
+              readOnly={readOnly}
               copy={copy}
               statusText={statusText}
               onBackToAgent={onBackToAgent}

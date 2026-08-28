@@ -168,6 +168,9 @@ Browser 与 Computer 可以安全共享轻量 Backend Capability Service，同�
 是本地路由状态，不是额外权限 Credential。Farming 不注入或托管第二套 Browser/Computer
 MCP 实现。
 
+Browser Capability Read 始终探测实际生效的 Selection。尚未选择 System Browser 时，Owner
+Read 可以持久化探测到的默认值；Read-only Share 只把它用于本次响应，绝不修改 Config Setting。
+
 Browser 的 Stop 与 Delete Transition 必须有界。Cleanup 失败时必须进入 Terminal Failed
 State，并保留精确 Resource 与 Process Identity 供显式重试，不能无限停留在 Stopping。
 即使 Runtime Close 失败，Isolated Browser 关闭 Last Binding 时仍须释放 Lease；此后只有

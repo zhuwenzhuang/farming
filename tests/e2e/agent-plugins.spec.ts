@@ -667,7 +667,7 @@ test('Plugins keeps built-in capabilities aligned without page overflow on narro
         document.body.dataset.appearance = value
       }, appearance)
       const cards = panel.locator('.code-plugin-card')
-      await expect(cards).toHaveCount(3)
+      await expect(cards).toHaveCount(4)
       await expect(cards.first()).toBeVisible()
       const layout = await panel.evaluate(element => {
         const view = element.closest('.code-plugins-view') as HTMLElement | null

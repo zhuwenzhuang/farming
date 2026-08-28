@@ -348,6 +348,7 @@ type AgentFlagUpdateResponse = AgentFlagUpdateResult | boolean | void
 
 interface CodeWorkspaceProps {
   agents: Agent[]
+  readOnly: boolean
   agentInventoryComplete: boolean
   projectAgentSummaries: ProjectAgentSummary[]
   taskHistory: TaskHistoryEntry[]
@@ -526,6 +527,7 @@ function uniqueTerminalFileSearchMatches(matches: WorkspaceFileSearchMatch[]) {
 
 export function CodeWorkspace({
   agents,
+  readOnly,
   agentInventoryComplete,
   projectAgentSummaries,
   taskHistory,
@@ -3232,7 +3234,10 @@ export function CodeWorkspace({
         projectFilesWorkspaceId(workspace) === projectFilesWorkspaceId(identity.workspaceRoot!)
       )),
     )
-    if (identity.workspaceRoot && !projectAlreadyMounted) {
+    // A read-only share may expose an active Agent whose workspace is not in the
+    // guest's persisted Project list. Opening that Agent's file is observational
+    // and must not attempt the owner-only Project mount mutation first.
+    if (identity.workspaceRoot && !projectAlreadyMounted && !readOnly) {
       try {
         const mountedWorkspace = await mountProject(identity.workspaceRoot, signal)
         if (!requestLease.isCurrent()) return
@@ -3282,25 +3287,27 @@ export function CodeWorkspace({
       })
     }
     closeSidebarForMobile()
-  }, [clearSearch, closeContextMenu, closeSidebarForMobile, createWorkspaceOpenFileRequest, mountProject, onWorkspaceViewChange, projectWorkspaces, resolveWorkspaceFileIdentity, setMainPaneMode, workspaceOpenFiles])
+  }, [clearSearch, closeContextMenu, closeSidebarForMobile, createWorkspaceOpenFileRequest, mountProject, onWorkspaceViewChange, projectWorkspaces, readOnly, resolveWorkspaceFileIdentity, setMainPaneMode, workspaceOpenFiles])
 
   const beginProjectFileOpenIntent = useCallback(() => (
     workspaceFileOpenRequestRef.current.begin()
   ), [])
 
   const resolveAbsoluteWorkspaceFileTarget = useCallback(async (absolutePath: string, sourceAgentId?: string) => {
-    try {
-      const workspace = await requestProjectMountForFile(absolutePath)
-      const filePath = workspace ? workspaceRelativePath(absolutePath, workspace) : null
-      if (workspace && filePath) {
-        return {
-          identity: resolveWorkspaceFileIdentity(projectFilesWorkspaceId(workspace), sourceAgentId),
-          filePath,
-          globalRoot: false,
+    if (!readOnly) {
+      try {
+        const workspace = await requestProjectMountForFile(absolutePath)
+        const filePath = workspace ? workspaceRelativePath(absolutePath, workspace) : null
+        if (workspace && filePath) {
+          return {
+            identity: resolveWorkspaceFileIdentity(projectFilesWorkspaceId(workspace), sourceAgentId),
+            filePath,
+            globalRoot: false,
+          }
         }
+      } catch {
+        // Preserve the bounded global-file fallback when Git repository discovery fails.
       }
-    } catch {
-      // Preserve the bounded global-file fallback when Git repository discovery fails.
     }
     const filePath = normalizeGlobalWorkspaceFilePath(absolutePath)
     if (!filePath) return null
@@ -3309,7 +3316,7 @@ export function CodeWorkspace({
       filePath,
       globalRoot: true,
     }
-  }, [requestProjectMountForFile, resolveWorkspaceFileIdentity])
+  }, [readOnly, requestProjectMountForFile, resolveWorkspaceFileIdentity])
 
   const restoreWorkspaceAgent = useCallback((agentId: string) => {
     openTerminalFromWorkspace(agentId, { focusTerminal: false })
@@ -5541,6 +5548,7 @@ export function CodeWorkspace({
       style={workspaceStyle}
     >
       <CodeSidebar
+        readOnly={readOnly}
         sidebarCollapsed={sidebarCollapsed}
         navigationModalOpen={mobileNavigationModalOpen}
         navigationDialogRef={mobileNavigationDialogRef}
@@ -5801,6 +5809,7 @@ export function CodeWorkspace({
 
       <CodeMainArea
         inert={mobileNavigationModalOpen}
+        readOnly={readOnly}
         activeView={activeView}
         activeBrowserResource={mainPaneMode === 'browser' ? activeBrowserResource : null}
         browserController={browserResources}

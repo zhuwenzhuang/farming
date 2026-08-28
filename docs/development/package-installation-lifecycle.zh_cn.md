@@ -72,6 +72,10 @@ Operator 配置的 npm Registry；该命令失败后，Helper 只删除自己拥
 指定权威 Update Registry 重试一次。这个转换只依赖命令是否成功、Registry 身份和 Operation
 Ownership，绝不能解析 npm 日志文案或错误文本。只有权威来源的尝试也失败，更新才进入 `Failed`。
 
+通过 Read-only Share 打开的更新状态只用于观察：忽略强制刷新请求，只投影 Persisted Operation
+Recovery 而不提交状态，也不准备 Immutable Installation Directory。持久对账仍由 Owner 或启动
+恢复路径负责。
+
 ## 安装形态边界
 
 - **Source Checkout** 遵循该仓库的源码与 Package Manager 工作流。

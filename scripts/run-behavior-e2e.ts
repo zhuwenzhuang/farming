@@ -34,27 +34,34 @@ async function resolveBehaviorE2ePort(
 async function main(): Promise<void> {
   const port = await resolveBehaviorE2ePort(process.env);
   const playwrightCli = path.join(path.dirname(require.resolve('@playwright/test/package.json')), 'cli.js');
-  const child = spawn(process.execPath, [
-    playwrightCli,
-    'test',
-    '--project=chromium',
-    '--workers=1',
-    '--retries=0',
-    '--grep',
-    '@critical-behavior',
-  ], {
-    cwd: path.join(__dirname, '..'),
-    env: { ...process.env, FARMING_PLAYWRIGHT_PORT: String(port) },
-    stdio: 'inherit',
-  });
-  const exitCode = await new Promise<number>((resolve, reject) => {
-    child.once('error', reject);
-    child.once('exit', (code, signal) => {
-      if (signal) reject(new Error(`Critical behavior browser tests exited from ${signal}`));
-      else resolve(code ?? 1);
+  const run = async (args: string[], env: NodeJS.ProcessEnv): Promise<number> => {
+    const child = spawn(process.execPath, [playwrightCli, 'test', ...args], {
+      cwd: path.join(__dirname, '..'),
+      env,
+      stdio: 'inherit',
     });
+    return new Promise<number>((resolve, reject) => {
+      child.once('error', reject);
+      child.once('exit', (code, signal) => {
+        if (signal) reject(new Error(`Critical behavior browser tests exited from ${signal}`));
+        else resolve(code ?? 1);
+      });
+    });
+  };
+  const commonArgs = ['--workers=1', '--retries=0', '--grep', '@critical-behavior'];
+  const baseEnv = { ...process.env, FARMING_PLAYWRIGHT_PORT: String(port) };
+  const primaryExitCode = await run(['--project=chromium', ...commonArgs], baseEnv);
+  if (primaryExitCode !== 0) {
+    process.exitCode = primaryExitCode;
+    return;
+  }
+
+  const authPort = await availableLoopbackPort();
+  process.exitCode = await run(['--project=mobile-auth-chromium', ...commonArgs], {
+    ...process.env,
+    FARMING_PLAYWRIGHT_AUTH: '1',
+    FARMING_PLAYWRIGHT_PORT: String(authPort),
   });
-  process.exitCode = exitCode;
 }
 
 if (require.main === module) {

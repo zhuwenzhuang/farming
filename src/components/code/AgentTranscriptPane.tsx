@@ -185,6 +185,15 @@ interface TranscriptFileOpenContextValue {
 }
 
 const TranscriptFileOpenContext = createContext<TranscriptFileOpenContextValue>({})
+
+interface TranscriptImagePreview {
+  label: string
+  url: string
+}
+
+type OpenTranscriptImagePreview = (preview: TranscriptImagePreview, trigger: HTMLButtonElement) => void
+
+const TranscriptImagePreviewContext = createContext<OpenTranscriptImagePreview | null>(null)
 const TRANSCRIPT_REMARK_PLUGINS = [remarkGfm, remarkMath]
 const TRANSCRIPT_REHYPE_PLUGINS = [rehypeKatex, rehypeHighlight]
 const EMPTY_SUBAGENT_STATES: AgentTranscriptSubagentState[] = []
@@ -420,70 +429,137 @@ function AgentTranscriptImages({
   testId: string
   fallbackAlt: string
 }) {
-  const [preview, setPreview] = useState<AgentTranscriptUserImage | null>(null)
-  const triggerRef = useRef<HTMLButtonElement | null>(null)
-  const closeRef = useRef<HTMLButtonElement | null>(null)
-  const overlayRef = useModalFocusScope<HTMLDivElement>({
-    open: Boolean(preview),
-    initialFocusRef: closeRef,
-    returnFocusRef: triggerRef,
-    onEscape: () => setPreview(null),
-  })
   if (images.length <= 0) return null
   return (
-    <>
-      <div className={className} data-testid={testId}>
-        {images.map(image => (
-          <button
-            key={image.id}
-            type="button"
-            className="code-agent-transcript-image-trigger"
-            aria-label={`Open ${image.alt || fallbackAlt}`}
-            onClick={event => {
-              triggerRef.current = event.currentTarget
-              setPreview(image)
-            }}
-          >
-            <img
-              src={image.url}
-              alt={image.alt || fallbackAlt}
-              loading="lazy"
-              decoding="async"
-            />
-          </button>
-        ))}
-      </div>
-      {preview ? createPortal(
-        <div
-          ref={overlayRef}
-          className="code-agent-transcript-image-overlay"
-          data-testid="code-agent-transcript-image-overlay"
-          role="dialog"
-          aria-modal="true"
-          aria-label={preview.alt || fallbackAlt}
-          onClick={() => setPreview(null)}
+    <div className={className} data-testid={testId}>
+      {images.map(image => (
+        <AgentTranscriptImageTrigger
+          key={image.id}
+          className="code-agent-transcript-image-trigger"
+          label={image.alt || fallbackAlt}
+          url={image.url}
         >
-          <button
-            ref={closeRef}
-            type="button"
-            className="code-agent-transcript-image-close"
-            aria-label="Close image preview"
-            onClick={event => {
-              event.stopPropagation()
-              setPreview(null)
-            }}
-          >
-            <CloseGlyph />
-          </button>
           <img
-            src={preview.url}
-            alt={preview.alt || fallbackAlt}
-            onClick={event => event.stopPropagation()}
+            src={image.url}
+            alt={image.alt || fallbackAlt}
+            loading="lazy"
+            decoding="async"
           />
-        </div>,
-        document.body,
-      ) : null}
-    </>
+        </AgentTranscriptImageTrigger>
+      ))}
+    </div>
+  )
+}
+
+function AgentTranscriptImageTrigger({
+  children,
+  className,
+  label,
+  url,
+}: {
+  children: ReactNode
+  className: string
+  label: string
+  url: string
+}) {
+  const openPreview = useContext(TranscriptImagePreviewContext)
+  const triggerRef = useRef<HTMLButtonElement | null>(null)
+  useLayoutEffect(() => {
+    const trigger = triggerRef.current
+    if (!trigger || !openPreview) return undefined
+    let touchStart: {
+      id: number
+      x: number
+      y: number
+      cancelled: boolean
+      scrollElement: HTMLElement | null
+      scrollLeft: number
+      scrollTop: number
+    } | null = null
+    let lastTouchActivationAt = 0
+    const activate = () => openPreview({ label, url }, trigger)
+    // Mobile WebKit can omit the synthesized click when a live transcript
+    // reconciles during a touch. Own the complete tap gesture at the button;
+    // mouse and keyboard activation continue to use the native click.
+    const handleTouchStart = (event: TouchEvent) => {
+      if (event.touches.length !== 1) {
+        touchStart = null
+        return
+      }
+      const touch = event.touches.item(0)
+      if (!touch) return
+      const scrollElement = trigger.closest<HTMLElement>('.code-agent-transcript-scroll')
+      touchStart = {
+        id: touch.identifier,
+        x: touch.clientX,
+        y: touch.clientY,
+        cancelled: false,
+        scrollElement,
+        scrollLeft: scrollElement?.scrollLeft ?? 0,
+        scrollTop: scrollElement?.scrollTop ?? 0,
+      }
+    }
+    const handleTouchMove = (event: TouchEvent) => {
+      const started = touchStart
+      if (!started || started.cancelled) return
+      const touch = Array.from(event.touches).find(candidate => candidate.identifier === started.id)
+      const scrollMoved = Boolean(
+        started.scrollElement
+        && (
+          Math.abs(started.scrollElement.scrollLeft - started.scrollLeft) > 1
+          || Math.abs(started.scrollElement.scrollTop - started.scrollTop) > 1
+        )
+      )
+      if (!touch || scrollMoved || Math.hypot(touch.clientX - started.x, touch.clientY - started.y) > 12) {
+        started.cancelled = true
+      }
+    }
+    const handleTouchEnd = (event: TouchEvent) => {
+      const started = touchStart
+      touchStart = null
+      if (!started || started.cancelled) return
+      const touch = Array.from(event.changedTouches).find(candidate => candidate.identifier === started.id)
+      const scrollMoved = Boolean(
+        started.scrollElement
+        && (
+          Math.abs(started.scrollElement.scrollLeft - started.scrollLeft) > 1
+          || Math.abs(started.scrollElement.scrollTop - started.scrollTop) > 1
+        )
+      )
+      if (!touch || scrollMoved || Math.hypot(touch.clientX - started.x, touch.clientY - started.y) > 12) return
+      event.preventDefault()
+      lastTouchActivationAt = Date.now()
+      activate()
+    }
+    const handleTouchCancel = () => {
+      touchStart = null
+    }
+    const handleClick = () => {
+      if (Date.now() - lastTouchActivationAt < 700) return
+      activate()
+    }
+    trigger.addEventListener('touchstart', handleTouchStart, { passive: true })
+    trigger.addEventListener('touchmove', handleTouchMove, { passive: true })
+    trigger.addEventListener('touchend', handleTouchEnd, { passive: false })
+    trigger.addEventListener('touchcancel', handleTouchCancel)
+    trigger.addEventListener('click', handleClick)
+    return () => {
+      trigger.removeEventListener('touchstart', handleTouchStart)
+      trigger.removeEventListener('touchmove', handleTouchMove)
+      trigger.removeEventListener('touchend', handleTouchEnd)
+      trigger.removeEventListener('touchcancel', handleTouchCancel)
+      trigger.removeEventListener('click', handleClick)
+    }
+  }, [label, openPreview, url])
+  return (
+    <button
+      ref={triggerRef}
+      type="button"
+      className={className}
+      aria-label={`Open ${label}`}
+    >
+      {children}
+    </button>
   )
 }
 
@@ -492,53 +568,14 @@ function AgentTranscriptUserImages({ images }: { images: AgentTranscriptUserImag
 }
 
 function AgentTranscriptMarkdownImage({ url, label }: { url: string; label: string }) {
-  const [open, setOpen] = useState(false)
-  const triggerRef = useRef<HTMLButtonElement | null>(null)
-  const closeRef = useRef<HTMLButtonElement | null>(null)
-  const overlayRef = useModalFocusScope<HTMLDivElement>({
-    open,
-    initialFocusRef: closeRef,
-    returnFocusRef: triggerRef,
-    onEscape: () => setOpen(false),
-  })
   return (
-    <>
-      <button
-        ref={triggerRef}
-        type="button"
-        className="code-agent-transcript-markdown-image-link"
-        aria-label={`Open ${label}`}
-        onClick={() => setOpen(true)}
-      >
-        <img src={url} alt={label} loading="lazy" decoding="async" />
-      </button>
-      {open ? createPortal(
-        <div
-          ref={overlayRef}
-          className="code-agent-transcript-image-overlay"
-          data-testid="code-agent-transcript-image-overlay"
-          role="dialog"
-          aria-modal="true"
-          aria-label={label}
-          onClick={() => setOpen(false)}
-        >
-          <button
-            ref={closeRef}
-            type="button"
-            className="code-agent-transcript-image-close"
-            aria-label="Close image preview"
-            onClick={event => {
-              event.stopPropagation()
-              setOpen(false)
-            }}
-          >
-            <CloseGlyph />
-          </button>
-          <img src={url} alt={label} onClick={event => event.stopPropagation()} />
-        </div>,
-        document.body,
-      ) : null}
-    </>
+    <AgentTranscriptImageTrigger
+      className="code-agent-transcript-markdown-image-link"
+      label={label}
+      url={url}
+    >
+      <img src={url} alt={label} loading="lazy" decoding="async" />
+    </AgentTranscriptImageTrigger>
   )
 }
 
@@ -3134,6 +3171,20 @@ export function AgentTranscriptPane({
   const [turnLimit, setTurnLimit] = useState(() => initialTranscriptTurnLimit(source))
   const [loadingOlder, setLoadingOlder] = useState(false)
   const [showJumpToBottom, setShowJumpToBottom] = useState(false)
+  const [imagePreview, setImagePreview] = useState<TranscriptImagePreview | null>(null)
+  const imagePreviewTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const imagePreviewCloseRef = useRef<HTMLButtonElement | null>(null)
+  const closeImagePreview = useCallback(() => setImagePreview(null), [])
+  const imagePreviewOverlayRef = useModalFocusScope<HTMLDivElement>({
+    open: Boolean(imagePreview),
+    initialFocusRef: imagePreviewCloseRef,
+    returnFocusRef: imagePreviewTriggerRef,
+    onEscape: closeImagePreview,
+  })
+  const openImagePreview = useCallback<OpenTranscriptImagePreview>((preview, trigger) => {
+    imagePreviewTriggerRef.current = trigger
+    setImagePreview(preview)
+  }, [])
   const [gitDiffState, setGitDiffState] = useState<{
     owner: string
     target: TranscriptGitDiffTarget
@@ -4066,6 +4117,9 @@ export function AgentTranscriptPane({
   useEffect(() => () => {
     onActivePlanChange?.(undefined)
   }, [onActivePlanChange])
+  useEffect(() => {
+    setImagePreview(null)
+  }, [agentId])
   useLayoutEffect(() => {
     const previousStatuses = previousTurnStatusesRef.current
     const completedTurnIds = turns
@@ -4107,7 +4161,8 @@ export function AgentTranscriptPane({
   }, [onReadLatest, readingAnchorAgentId])
 
   return (
-    <TranscriptFileOpenContext.Provider value={transcriptFileOpenContext}>
+    <TranscriptImagePreviewContext.Provider value={openImagePreview}>
+      <TranscriptFileOpenContext.Provider value={transcriptFileOpenContext}>
       <div
         className="code-agent-transcript"
         data-testid="code-agent-transcript"
@@ -4224,6 +4279,37 @@ export function AgentTranscriptPane({
         </button>
       ) : null}
       </div>
-    </TranscriptFileOpenContext.Provider>
+      {imagePreview ? createPortal(
+        <div
+          ref={imagePreviewOverlayRef}
+          className="code-agent-transcript-image-overlay"
+          data-testid="code-agent-transcript-image-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-label={imagePreview.label}
+          onClick={closeImagePreview}
+        >
+          <button
+            ref={imagePreviewCloseRef}
+            type="button"
+            className="code-agent-transcript-image-close"
+            aria-label="Close image preview"
+            onClick={event => {
+              event.stopPropagation()
+              closeImagePreview()
+            }}
+          >
+            <CloseGlyph />
+          </button>
+          <img
+            src={imagePreview.url}
+            alt={imagePreview.label}
+            onClick={event => event.stopPropagation()}
+          />
+        </div>,
+        document.body,
+      ) : null}
+      </TranscriptFileOpenContext.Provider>
+    </TranscriptImagePreviewContext.Provider>
   )
 }
