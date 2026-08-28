@@ -107,6 +107,9 @@ Workspace 前进/返回把 Plugins
 Location 作为一等 History Entry；打开来源文件后返回时，恢复原来的 Tab、Agent Home、
 Extension Kind、Query、Detail 与 Scroll Position。
 
+在目录树空白区域打开的上下文菜单会继承当前目录树选择，创建操作以该选择为目标；只有目录树
+没有当前选择或焦点时，才以 Project 根目录为目标。
+
 共享 Project Scroll Surface 上的每个程序化 Reveal 只持有一个 Generation Lease。更新的文件或
 Agent Reveal，以及直接的 Pointer、Wheel 或 Keyboard 意图，会在旧 Owner 再次写入滚动位置前
 撤销其 Lease。目标实测位置满足后 Reveal 立即停止；固定延迟的重复回放不能覆盖后续导航或用户输入。
@@ -178,6 +181,13 @@ Directory Tree 不渲染屏外祖先的随滚动联动副本；真实的 Virtual
 文本使用轻量 Editor。Markdown 与静态 HTML 可以在同一 File Identity 中切换 Source 与有界
 Preview。Image、PDF、Binary 与 Oversized Text 使用 Read-only Viewer。所有 Viewer 共用同一
 Project Authorization，不能形成独立 File Access Path。
+Markdown Preview 在切换 Source 或文件时按文件记住 Scroll Position。PDF Preview 保留有界数量的
+Browser Viewer Context，使页码、Zoom 与 Scroll State 在普通文件切换后保持不变。
+
+Markdown Preview 支持 GFM 与数学公式，并对 Pandoc 空锚点、保留源码列对齐且支持无表头闭合线
+形式的定宽简单表格、紧凑 Display-math Fence 和 Pandoc 数学间距提供有界兼容。兼容转换只作用于
+渲染 Preview，绝不改写文件源码。不受支持的公式保留为可读源码而不是生成破损输出，任意 Raw
+HTML 仍保持禁用。
 
 大型 Markdown Preview 按主要 Heading 与有界 Block 数分段，保留普通连续滚动，同时只挂载
 Viewport 附近的 Section，并用已测量或估算的空间表示远处 Section。大型文档不执行语法高亮，

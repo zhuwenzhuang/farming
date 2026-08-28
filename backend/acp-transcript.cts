@@ -23,6 +23,7 @@ interface TranscriptOptions extends DataRecord {
   maxInlineDetailChars?: number;
   maxInlinePatchDiffChars?: number;
   maxInlineToolDetailChars?: number;
+  maxInlineMessageChars?: number;
   mediaPathPrefix?: string;
 }
 
@@ -42,6 +43,8 @@ const MAX_RENDERED_DIFF_CHARS = 64 * 1024;
 const MAX_INLINE_TOOL_DETAIL_CHARS = 4 * 1024;
 const MAX_TRANSCRIPT_INLINE_TOOL_DETAIL_CHARS = 64 * 1024;
 const MAX_TRANSCRIPT_INLINE_PATCH_DIFF_CHARS = 64 * 1024;
+const MAX_TRANSCRIPT_INLINE_MESSAGE_CHARS = 2 * 1024 * 1024;
+const MAX_TRANSCRIPT_CONTENT_BLOCKS = 128;
 const MAX_TRANSCRIPT_MEDIA_BYTES = 25 * 1024 * 1024;
 const MAX_TRANSCRIPT_MEDIA_BASE64_CHARS = Math.ceil(MAX_TRANSCRIPT_MEDIA_BYTES / 3) * 4;
 const MAX_EMBEDDED_RESOURCE_TEXT_CHARS = 4 * 1024;
@@ -51,6 +54,10 @@ const MAX_COLLABORATION_PATH_CHARS = 512;
 const MAX_COLLABORATION_MESSAGE_CHARS = 160;
 const MAX_TRANSCRIPT_LOCATIONS = 20;
 const MAX_TRANSCRIPT_LOCATION_PATH_CHARS = 1024;
+const ACP_TRANSCRIPT_PROJECTION_VERSION = 1;
+const MAX_TRANSCRIPT_PATCH_ANALYSIS_CHARS = 2 * 1024 * 1024;
+const MAX_TRANSCRIPT_SUMMARY_VALUE_CHARS = 16 * 1024;
+const MAX_TRANSCRIPT_SUMMARY_COLLECTION_ITEMS = 32;
 const TRANSCRIPT_MEDIA_MIME_TYPES = new Set<string>([
   'audio/aac',
   'audio/flac',
@@ -92,22 +99,103 @@ function patchLineStats(oldText: string, newText: string): { added: number; remo
   }, { added: 0, removed: 0 });
 }
 
+function textLineCount(value: string): number {
+  if (!value) return 0;
+  let lines = 1;
+  for (let index = 0; index < value.length; index += 1) {
+    if (value.charCodeAt(index) === 10) lines += 1;
+  }
+  return lines;
+}
+
 function patchChanges(content: unknown, options: TranscriptOptions = {}) {
   return diffBlocks(content).map(block => {
     const path = String(block.path || '').trim();
     const oldText = block.oldText == null ? '' : String(block.oldText);
     const newText = block.newText == null ? '' : String(block.newText);
-    const stats = patchLineStats(oldText, newText);
+    const boundedAnalysis = oldText.length + newText.length <= MAX_TRANSCRIPT_PATCH_ANALYSIS_CHARS;
+    const stats = boundedAnalysis
+      ? patchLineStats(oldText, newText)
+      : {
+          added: textLineCount(newText),
+          removed: textLineCount(oldText),
+        };
     return {
       path,
       kind: diffAction(block).toLowerCase(),
       added: stats.added,
       removed: stats.removed,
-      ...(options.includeDiff === true
+      ...(options.includeDiff === true && boundedAnalysis
         ? { diff: boundedDiffText(createTwoFilesPatch(path, path, oldText, newText, 'before', 'after', { context: 3 })) }
         : {}),
+      ...(!boundedAnalysis ? { statsTruncated: true } : {}),
     };
   });
+}
+
+function boundedSummaryValue(
+  value: unknown,
+  budget = { remaining: MAX_TRANSCRIPT_SUMMARY_VALUE_CHARS },
+  depth = 0,
+  truncation?: { truncated: boolean },
+): unknown {
+  if (value === null || value === undefined || typeof value === 'boolean' || typeof value === 'number') return value;
+  if (typeof value === 'string') {
+    const length = Math.max(0, Math.min(value.length, budget.remaining));
+    budget.remaining -= length;
+    if (length < value.length) truncation && (truncation.truncated = true);
+    return value.slice(0, length);
+  }
+  if (depth >= 5 || budget.remaining <= 0) {
+    truncation && (truncation.truncated = true);
+    return '[Open to load full detail]';
+  }
+  if (Array.isArray(value)) {
+    if (value.length > MAX_TRANSCRIPT_SUMMARY_COLLECTION_ITEMS) {
+      truncation && (truncation.truncated = true);
+    }
+    return value.slice(0, MAX_TRANSCRIPT_SUMMARY_COLLECTION_ITEMS)
+      .map(item => boundedSummaryValue(item, budget, depth + 1, truncation));
+  }
+  if (!isDataRecord(value)) {
+    const text = String(value);
+    const length = Math.max(0, Math.min(text.length, budget.remaining));
+    budget.remaining -= length;
+    if (length < text.length) truncation && (truncation.truncated = true);
+    return text.slice(0, length);
+  }
+  const result: DataRecord = {};
+  const entries = Object.entries(value);
+  if (entries.length > MAX_TRANSCRIPT_SUMMARY_COLLECTION_ITEMS) {
+    truncation && (truncation.truncated = true);
+  }
+  for (const [key, item] of entries.slice(0, MAX_TRANSCRIPT_SUMMARY_COLLECTION_ITEMS)) {
+    if (budget.remaining <= 0) {
+      truncation && (truncation.truncated = true);
+      break;
+    }
+    result[key] = boundedSummaryValue(item, budget, depth + 1, truncation);
+  }
+  return result;
+}
+
+function transcriptToolSummaryEntry(entry: DataRecord): DataRecord {
+  const contentBudget = { remaining: MAX_TRANSCRIPT_SUMMARY_VALUE_CHARS };
+  const content = (Array.isArray(entry.content) ? entry.content : [])
+    .slice(0, MAX_TRANSCRIPT_SUMMARY_COLLECTION_ITEMS)
+    .flatMap((block: unknown) => {
+      if (!isDataRecord(block) || block.type === 'terminal') return [];
+      if (block.type === 'diff') {
+        return [{ type: 'text', text: `Diff: ${String(block.path || '').slice(0, 1024)} [Open to load full detail]` }];
+      }
+      return [boundedSummaryValue(block, contentBudget)];
+    });
+  return {
+    ...entry,
+    content,
+    rawInput: boundedSummaryValue(entry.rawInput),
+    rawOutput: boundedSummaryValue(entry.rawOutput),
+  };
 }
 
 function patchReviewChanges(content: unknown) {
@@ -354,13 +442,12 @@ function decodeAcpTranscriptMedia(block: unknown): DecodedTranscriptMedia | null
 
 function compactTranscriptMedia(block: DataRecord, entry: DataRecord, options: TranscriptOptions = {}) {
   const mediaPathPrefix = String(options.mediaPathPrefix || '').replace(/\/+$/, '');
-  if (!mediaPathPrefix) return JSON.parse(JSON.stringify(block));
   const hasInlineData = typeof block?.data === 'string' && block.data.length > 0;
   if (!hasInlineData) return JSON.parse(JSON.stringify(block));
   const mediaId = transcriptMediaId(block);
   const projected = { ...block };
   delete projected.data;
-  if (!mediaId) return projected;
+  if (!mediaPathPrefix || !mediaId) return { ...projected, dataOmitted: true };
   projected.url = `${mediaPathPrefix}/${encodeURIComponent(String(entry?.id || ''))}/${mediaId}`;
   return projected;
 }
@@ -460,7 +547,46 @@ function transcriptEntryForClient(entry: DataRecord, options: TranscriptOptions 
       summary: '',
     };
   }
-  return transcriptEntryWithCompactMedia(entry, options);
+  const projected = transcriptEntryWithCompactMedia(entry, options);
+  if (!isDataRecord(projected) || !Array.isArray(projected.content)) return projected;
+  const requestedBudget = Number(options.maxInlineMessageChars);
+  const budget = {
+    remaining: Number.isFinite(requestedBudget)
+      ? Math.max(0, Math.floor(requestedBudget))
+      : MAX_TRANSCRIPT_INLINE_MESSAGE_CHARS,
+  };
+  const truncation = { truncated: projected.content.length > MAX_TRANSCRIPT_CONTENT_BLOCKS };
+  const content = projected.content.slice(0, MAX_TRANSCRIPT_CONTENT_BLOCKS).map((block: unknown) => {
+    if (!isDataRecord(block)) return boundedSummaryValue(block, budget, 0, truncation);
+    if (block.type === 'text') {
+      const text = String(block.text || '');
+      const length = Math.min(text.length, budget.remaining);
+      budget.remaining -= length;
+      if (length < text.length) truncation.truncated = true;
+      return { ...block, text: text.slice(0, length) };
+    }
+    if (block.type === 'content' && isDataRecord(block.content) && block.content.type === 'text') {
+      const text = String(block.content.text || '');
+      const length = Math.min(text.length, budget.remaining);
+      budget.remaining -= length;
+      if (length < text.length) truncation.truncated = true;
+      return { ...block, content: { ...block.content, text: text.slice(0, length) } };
+    }
+    const media = transcriptMediaValue(block);
+    if (media) return block;
+    return boundedSummaryValue(block, budget, 0, truncation);
+  });
+  if (truncation.truncated) content.push({ type: 'text', text: '[Message truncated to fit transcript response]' });
+  return { ...projected, content };
+}
+
+function transcriptMessageChars(value: unknown): number {
+  if (typeof value === 'string') return value.length;
+  if (Array.isArray(value)) {
+    return value.reduce((total, item) => total + transcriptMessageChars(item), 0);
+  }
+  if (!isDataRecord(value)) return 0;
+  return Object.values(value).reduce<number>((total, item) => total + transcriptMessageChars(item), 0);
 }
 
 function generatedMediaTool(entry: DataRecord) {
@@ -535,7 +661,7 @@ function transcriptCodexToolMeta(entry: DataRecord): DataRecord | null {
 
 function acpTranscriptToolEntry(entry: DataRecord, options: TranscriptOptions = {}) {
   if (!entry || entry.type !== 'tool') return entry;
-  const detail = detailForTool(entry);
+  const detail = detailForTool(transcriptToolSummaryEntry(entry));
   const requestedInlineDetailChars = Number(options.maxInlineDetailChars);
   const inlineDetailChars = Number.isFinite(requestedInlineDetailChars)
     ? Math.max(0, Math.min(MAX_INLINE_TOOL_DETAIL_CHARS, Math.floor(requestedInlineDetailChars)))
@@ -553,6 +679,7 @@ function acpTranscriptToolEntry(entry: DataRecord, options: TranscriptOptions = 
     kind: change.kind,
     added: change.added,
     removed: change.removed,
+    ...(change.statsTruncated === true ? { statsTruncated: true } : {}),
     ...(includeInlineDiffs && change.diff ? { diff: change.diff } : {}),
     ...(decisions[change.path]
       ? { decision: decisions[change.path] }
@@ -611,6 +738,7 @@ function acpTranscriptEntries(entries: unknown, options: TranscriptOptions = {})
     ? Math.max(0, Math.floor(requestedBudget))
     : MAX_TRANSCRIPT_INLINE_TOOL_DETAIL_CHARS;
   let remainingInlinePatchDiffChars = MAX_TRANSCRIPT_INLINE_PATCH_DIFF_CHARS;
+  let remainingInlineMessageChars = MAX_TRANSCRIPT_INLINE_MESSAGE_CHARS;
   const source = Array.isArray(entries) ? entries : [];
   const projected = new Array(source.length);
 
@@ -619,7 +747,15 @@ function acpTranscriptEntries(entries: unknown, options: TranscriptOptions = {})
   for (let index = source.length - 1; index >= 0; index -= 1) {
     const entry = source[index];
     if (entry?.type !== 'tool') {
-      projected[index] = transcriptEntryForClient(entry, options);
+      const projectedEntry = transcriptEntryForClient(entry, {
+        ...options,
+        maxInlineMessageChars: remainingInlineMessageChars,
+      });
+      remainingInlineMessageChars = Math.max(
+        0,
+        remainingInlineMessageChars - transcriptMessageChars(projectedEntry.content),
+      );
+      projected[index] = projectedEntry;
       continue;
     }
     const projectedEntry = acpTranscriptToolEntry(entry, {
@@ -651,6 +787,7 @@ const acpToolReviewChanges = (entry: unknown): unknown =>
   patchReviewChanges(dataRecord(entry).content);
 
 export {
+  ACP_TRANSCRIPT_PROJECTION_VERSION,
   acpTranscriptEntries,
   acpTranscriptMedia,
   acpToolChanges,

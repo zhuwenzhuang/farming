@@ -4407,6 +4407,31 @@ class AcpRuntime extends EventEmitter {
     return this.getTranscriptEntry(agentId, entryId);
   }
 
+  getTranscriptEntryForSessionRead(agentId: string, sessionId: string, entryId: string, subagentOnly = false) {
+    const binding = this.requireBinding(agentId);
+    const id = String(sessionId || '');
+    if (subagentOnly) {
+      if (id === binding.sessionId) return null;
+      const referenced = [binding.sessionState, ...binding.subagentStates.values()].some(candidateState => (
+        candidateState.entries.some((candidate: TranscriptEntry) => (
+          String(candidate?._meta?.subagent_session_info?.session_id || '') === id
+        ))
+      ));
+      if (!referenced) return null;
+    }
+    const state = id === binding.sessionId
+      ? binding.sessionState
+      : binding.subagentStates.get(id);
+    if (!state) return null;
+    const entries = state.entries.filter((candidate: TranscriptEntry) => (
+      String(candidate?.id || '') === String(entryId || '')
+    ));
+    if (entries.length !== 1) return null;
+    const [entry] = entries;
+    if (!entry || state.isInternalEntry(entry)) return null;
+    return entry;
+  }
+
   getPatchDecision(agentId: string, toolCallId: string, requestedPath: string) {
     const binding = this.requireBinding(agentId);
     return binding.patchDecisions.get(`${String(toolCallId || '')}\n${String(requestedPath || '')}`) || '';

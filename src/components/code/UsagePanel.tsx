@@ -108,6 +108,7 @@ function formatAuthStatus(provider: UsageProviderSummary) {
 }
 
 function providerHasUsableTokenInfo(provider: UsageProviderSummary) {
+  if (provider.quota.available) return true
   if (provider.tokenUsage.available === false) return false
   const eventCount = Number(provider.tokenUsage.eventCount)
   const totalTokens = Number(provider.tokenUsage.totalTokens)
@@ -210,6 +211,14 @@ function formatDynamicQuotaSummary(usageSummary: UsageSummary | null, now: numbe
     if (reset) parts.push(reset)
   })
   return parts.join(' · ')
+}
+
+function formatMobileQuotaSummary(providers: UsageProviderSummary[]) {
+  const provider = providers.find(item => item.provider === 'codex' && item.quota.available)
+    ?? providers.find(item => item.quota.available)
+  if (!provider) return 'Activity'
+  const windows = providerQuotaLimits(provider).map(item => item.label)
+  return windows.length > 0 ? windows.join(' · ') : provider.providerName
 }
 
 function formatCollapsedUsageSummary(
@@ -879,6 +888,7 @@ function UsageActivityDialog({
   onClose: () => void
 }) {
   const [inspection, setInspection] = useState<UsageHeatmapInspection | null>(null)
+  const providers = visibleUsageProviders(usageSummary)
   const dailyPoints = validUsageDailyPoints(usageSummary)
   const peakDay = dailyPoints?.reduce<UsageDailyPoint | null>((peak, point) => (
     !peak || point.totalTokens > peak.totalTokens ? point : peak
@@ -927,14 +937,19 @@ function UsageActivityDialog({
       >
         <header className="code-usage-detail-header">
           <div>
-            <span className="code-usage-detail-eyebrow">Local provider tokens</span>
-            <h2 id="code-usage-detail-title">Usage activity</h2>
+            <span className="code-usage-detail-eyebrow">Provider limits and local tokens</span>
+            <h2 id="code-usage-detail-title">Usage</h2>
           </div>
           <button type="button" className="code-usage-detail-close" aria-label="Close usage activity" onClick={onClose}>
             <CloseGlyph />
           </button>
         </header>
-        <div className="code-usage-detail-chart">
+        {providers.length > 0 && (
+          <div className="code-usage-mobile-quota" data-testid="code-usage-mobile-quota">
+            {providers.map(provider => <ProviderUsage key={provider.provider} provider={provider} />)}
+          </div>
+        )}
+        {dailyPoints ? <div className="code-usage-detail-chart">
           {dailyPoints && (
             <DailyUsageHeatmap
               points={dailyPoints}
@@ -953,8 +968,10 @@ function UsageActivityDialog({
           <div className="code-usage-detail-readout" data-testid="code-usage-detail-readout">
             {yearReadout}
           </div>
-        </div>
-        <div className="code-usage-detail-analysis" data-testid="code-usage-detail-analysis">
+        </div> : (
+          <p className="code-usage-mobile-activity-empty">Local token activity is not available yet.</p>
+        )}
+        {dailyPoints && <div className="code-usage-detail-analysis" data-testid="code-usage-detail-analysis">
           <UsageAnalysisCard label="Last 7 days" value={formatCompactNumber(currentSevenDayTotal)} />
           <UsageAnalysisCard
             label="Previous 7 days"
@@ -969,7 +986,7 @@ function UsageActivityDialog({
           <UsageAnalysisCard label="Active days" value={`${activeDays}`} detail="within 52 weeks" />
           <UsageAnalysisCard label="7-day cache share" value={`${cacheShare}%`} detail="read and write tokens" />
           <UsageAnalysisCard label="52-week tokens" value={formatCompactNumber(annualTotal)} />
-        </div>
+        </div>}
       </section>
     </div>,
     document.body,
@@ -1053,7 +1070,9 @@ export function UsagePanel({
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false)
   const hasLiveSystemStats = useHasBackendSystemStats()
   if (!usageSummary && !mainAgent && !hasLiveSystemStats) return null
-  const mobileDetailAvailable = Boolean(usageSummary && validUsageDailyPoints(usageSummary))
+  const mobileDetailAvailable = Boolean(usageSummary && (
+    providers.length > 0 || validUsageDailyPoints(usageSummary)
+  ))
 
   return (
     <div
@@ -1073,9 +1092,9 @@ export function UsagePanel({
           data-testid="code-mobile-usage-open"
           onClick={() => setMobileDetailOpen(true)}
         >
-          <span>Usage activity</span>
+          <span>Usage</span>
           <span>
-            52 Weeks
+            {formatMobileQuotaSummary(providers)}
             <ChevronRightGlyph />
           </span>
         </button>

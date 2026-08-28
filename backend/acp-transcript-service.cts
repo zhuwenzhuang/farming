@@ -8,7 +8,10 @@ import type {
 import type { AgentRecord } from './agent-manager-record-types.js';
 import { runtimeBindingOf } from './agent-runtime-binding.cjs';
 import { AcpPreparedTranscriptCache } from './acp-prepared-transcript-cache.cjs';
-import { acpTranscriptEntries } from './acp-transcript.cjs';
+import {
+  ACP_TRANSCRIPT_PROJECTION_VERSION,
+  acpTranscriptEntries,
+} from './acp-transcript.cjs';
 
 type UnknownRecord = Record<string, unknown>;
 type TranscriptResponse = { payload?: UnknownRecord; serialized?: string };
@@ -89,6 +92,7 @@ class AcpTranscriptService {
       agentId,
       sessionId: identity.sessionId,
       runtimeEpoch: identity.runtimeEpoch,
+      projectionRevision: identity.projectionRevision,
       maxTurns: Number(options.maxTurns) || 0,
       sinceRevision: Number.isFinite(Number(options.sinceRevision)) ? Number(options.sinceRevision) : null,
       mediaPathPrefix: String(options.mediaPathPrefix || ''),
@@ -119,6 +123,7 @@ class AcpTranscriptService {
     if (
       identityBefore.sessionId !== identityAfter.sessionId
       || identityBefore.runtimeEpoch !== identityAfter.runtimeEpoch
+      || identityBefore.projectionRevision !== identityAfter.projectionRevision
       || String(transcript.sessionId || '') !== identityAfter.sessionId
     ) {
       throw new Error('ACP Transcript identity changed during read');
@@ -193,13 +198,20 @@ class AcpTranscriptService {
     const entries = Array.isArray(transcript.entries)
       ? transcript.entries.filter(isTranscriptEntry)
       : [];
+    const projectionVersion = Number(transcript.transcriptProjectionVersion || 0);
+    if (projectionVersion !== 0 && projectionVersion !== ACP_TRANSCRIPT_PROJECTION_VERSION) {
+      throw new Error(`Unsupported ACP Transcript projection version: ${projectionVersion}`);
+    }
+    const { transcriptProjectionVersion: _projectionVersion, ...session } = transcript;
     return {
-      ...transcript,
-      entries: acpTranscriptEntries(entries, {
-        mediaPathPrefix: typeof options.mediaPathPrefix === 'string'
-          ? options.mediaPathPrefix
-          : undefined,
-      }),
+      ...session,
+      entries: projectionVersion === ACP_TRANSCRIPT_PROJECTION_VERSION
+        ? entries
+        : acpTranscriptEntries(entries, {
+            mediaPathPrefix: typeof options.mediaPathPrefix === 'string'
+              ? options.mediaPathPrefix
+              : undefined,
+          }),
     };
   }
 
@@ -208,6 +220,7 @@ class AcpTranscriptService {
     sessionId: string;
     runtimeEpoch: string;
     revision: number;
+    projectionRevision: number;
   }): boolean {
     const agent = this.getAgent(identity.agentId);
     const runtimeBinding = runtimeBindingOf(agent, 'acp');
@@ -217,6 +230,7 @@ class AcpTranscriptService {
       && String(agent.providerSessionId || '') === identity.sessionId
       && this.runtime.bindingEpoch(identity.agentId) === identity.runtimeEpoch
       && Number(runtimeBinding.sessionRevision || 0) === identity.revision
+      && this.runtime.transcriptProjectionRevision(identity.agentId) === identity.projectionRevision
       && runtimeBinding.state === 'idle'
     );
   }
@@ -232,7 +246,11 @@ class AcpTranscriptService {
     if (!sessionId || !runtimeEpoch) {
       throw new Error('ACP Transcript identity is unavailable');
     }
-    return { sessionId, runtimeEpoch };
+    return {
+      sessionId,
+      runtimeEpoch,
+      projectionRevision: this.runtime.transcriptProjectionRevision(agentId),
+    };
   }
 }
 

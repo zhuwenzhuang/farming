@@ -1,9 +1,22 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { requestQrShareTicket } from '../src/lib/qr-share-ticket'
+import { requestQrShareTicket, revokeQrShareTicket } from '../src/lib/qr-share-ticket'
 import type { WorkspaceShareTarget } from '../src/lib/workspace-share-target'
 
 const FAILURE_MESSAGE = 'Could not create a share link'
+const completeTicket = (overrides: Record<string, unknown> = {}) => ({
+  code: 'SHARE1',
+  expiresAt: Date.now() + 300_000,
+  ttlMs: 300_000,
+  shortPath: '/j/SHARE1',
+  shortUrl: 'https://host/j/SHARE1',
+  longUrl: 'https://host/long',
+  fullAccessUrl: 'https://host/full',
+  shortUrlAccessMode: 'owner',
+  longUrlAccessMode: 'read-only',
+  tokenLabel: 'owner-token',
+  ...overrides,
+})
 
 const fileTarget: WorkspaceShareTarget = {
   kind: 'file',
@@ -15,7 +28,7 @@ test('a ticket request posts JSON to the share ticket route', async () => {
   const calls: Array<{ url: string; method: string; headers: Record<string, string>; body: string }> = []
   await requestQrShareTicket(fileTarget, FAILURE_MESSAGE, async (url, init) => {
     calls.push({ url, method: init.method, headers: init.headers, body: init.body })
-    return { ok: true, status: 200, async json() { return { longUrl: 'https://host/s/long' } } }
+    return { ok: true, status: 200, async json() { return completeTicket({ longUrl: 'https://host/s/long' }) } }
   })
 
   assert.equal(calls.length, 1)
@@ -28,7 +41,7 @@ test('a ticket request sends the exact target body and omits an absent target', 
   const bodies: string[] = []
   const request = async (_url: string, init: { body: string }) => {
     bodies.push(init.body)
-    return { ok: true, status: 200, async json() { return { longUrl: 'https://host/s/long' } } }
+    return { ok: true, status: 200, async json() { return completeTicket({ longUrl: 'https://host/s/long' }) } }
   }
 
   await requestQrShareTicket(fileTarget, FAILURE_MESSAGE, request)
@@ -38,35 +51,54 @@ test('a ticket request sends the exact target body and omits an absent target', 
   assert.deepEqual(bodies, [JSON.stringify({ target: fileTarget }), '{}', '{}'])
 })
 
-test('a ticket prefers the long URL and falls back to the short URL', async () => {
-  const both = await requestQrShareTicket(null, FAILURE_MESSAGE, async () => ({
+test('a ticket preserves owner and delegated access modes', async () => {
+  const owner = await requestQrShareTicket(null, FAILURE_MESSAGE, async () => ({
     ok: true,
     status: 200,
-    async json() { return { longUrl: 'https://host/long', shortUrl: 'https://host/s' } },
+    async json() { return completeTicket() },
   }))
-  const shortOnly = await requestQrShareTicket(null, FAILURE_MESSAGE, async () => ({
+  const delegated = await requestQrShareTicket(null, FAILURE_MESSAGE, async () => ({
     ok: true,
     status: 200,
-    async json() { return { shortUrl: 'https://host/s' } },
+    async json() {
+      return completeTicket({
+        shortUrlAccessMode: 'read-only',
+        fullAccessUrl: undefined,
+        tokenLabel: '',
+      })
+    },
   }))
 
-  assert.equal(both, 'https://host/long')
-  assert.equal(shortOnly, 'https://host/s')
+  assert.equal(owner.longUrl, 'https://host/long')
+  assert.equal(owner.shortUrlAccessMode, 'owner')
+  assert.equal(owner.fullAccessUrl, 'https://host/full')
+  assert.equal(delegated.shortUrlAccessMode, 'read-only')
+  assert.equal(delegated.fullAccessUrl, undefined)
+  assert.equal(delegated.tokenLabel, '')
 })
 
 test('a ticket ignores malformed response fields at the transport boundary', async () => {
-  const validFallback = await requestQrShareTicket(null, FAILURE_MESSAGE, async () => ({
-    ok: true,
-    status: 200,
-    async json() { return { longUrl: 123, shortUrl: 'https://host/s' } },
-  }))
-  assert.equal(validFallback, 'https://host/s')
-
   await assert.rejects(
     requestQrShareTicket(null, FAILURE_MESSAGE, async () => ({
       ok: true,
       status: 200,
-      async json() { return { longUrl: 123, shortUrl: {}, error: { message: 'unsafe' } } },
+      async json() { return completeTicket({ longUrl: 123, error: { message: 'unsafe' } }) },
+    })),
+    new RegExp(FAILURE_MESSAGE),
+  )
+  await assert.rejects(
+    requestQrShareTicket(null, FAILURE_MESSAGE, async () => ({
+      ok: true,
+      status: 200,
+      async json() { return completeTicket({ fullAccessUrl: undefined }) },
+    })),
+    new RegExp(FAILURE_MESSAGE),
+  )
+  await assert.rejects(
+    requestQrShareTicket(null, FAILURE_MESSAGE, async () => ({
+      ok: true,
+      status: 200,
+      async json() { return completeTicket({ shortUrlAccessMode: 'read-only' }) },
     })),
     new RegExp(FAILURE_MESSAGE),
   )
@@ -97,4 +129,16 @@ test('a rejected or URL-less ticket response reports the server error or the vie
     })),
     new RegExp(FAILURE_MESSAGE),
   )
+})
+
+test('ticket revocation targets only the encoded short code', async () => {
+  const calls: Array<{ url: string; method: string }> = []
+  await revokeQrShareTicket({ code: 'owner/code with spaces' }, async (url, init) => {
+    calls.push({ url, method: init.method })
+  })
+
+  assert.deepEqual(calls, [{
+    url: '/api/share/qr-ticket/owner%2Fcode%20with%20spaces',
+    method: 'DELETE',
+  }])
 })

@@ -19,14 +19,16 @@ function git(cwd: string, args: string[]) {
 function createRepositoryFile(workspaceRoot: string, name: string) {
   const repository = path.join(workspaceRoot, name)
   const filePath = path.join(repository, 'compiler', 'src', 'SmartOpen.java')
+  const queryFilePath = path.join(repository, 'compiler', 'src', 'SmartOpen.q')
   fs.mkdirSync(path.dirname(filePath), { recursive: true })
   fs.writeFileSync(filePath, 'class SmartOpen {\n  int value = 1;\n}\n')
+  fs.writeFileSync(queryFilePath, 'select\n  1\n;\n')
   git(repository, ['init'])
   git(repository, ['config', 'user.email', 'farming-e2e@example.test'])
   git(repository, ['config', 'user.name', 'Farming E2E'])
   git(repository, ['add', '.'])
   git(repository, ['commit', '-m', 'Seed smart external file'])
-  return { filePath, repository }
+  return { filePath, queryFilePath, repository }
 }
 
 async function expectBlameAvailable(page: Parameters<typeof openFarming>[0]) {
@@ -174,7 +176,7 @@ test('promotes an external terminal file link to its nearest Git Project', async
 test('promotes an external Chat file link to its nearest Git Project', async ({ page, workspaceRoot }) => {
   const launcherWorkspace = path.join(workspaceRoot, 'chat-link-launcher')
   fs.mkdirSync(launcherWorkspace, { recursive: true })
-  const { filePath, repository } = createRepositoryFile(workspaceRoot, 'chat link git project 发布')
+  const { queryFilePath: filePath, repository } = createRepositoryFile(workspaceRoot, 'chat link git project 发布')
   const agentId = await createChatAgent(page, launcherWorkspace)
   const identityResponse = await page.request.get(
     `/farming/api/agents/${encodeURIComponent(agentId)}/acp-transcript?maxTurns=5&media=external-v1`,
@@ -253,7 +255,7 @@ test('promotes an external Chat file link to its nearest Git Project', async ({ 
               type: 'message',
               role: 'assistant',
               _meta: { codex: { phase: 'final_answer' } },
-              content: [{ type: 'text', text: `[SmartOpen.java:2](${encodeURI(filePath)}:2)` }],
+              content: [{ type: 'text', text: `[SmartOpen.q:2](${encodeURI(filePath)}:2)` }],
             },
           ],
         },
@@ -263,11 +265,11 @@ test('promotes an external Chat file link to its nearest Git Project', async ({ 
 
   await openFarming(page)
   await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
-  const fileLink = page.locator('.code-agent-transcript-markdown-file-link', { hasText: 'SmartOpen.java:2' })
+  const fileLink = page.locator('.code-agent-transcript-markdown-file-link', { hasText: 'SmartOpen.q:2' })
   await expect(fileLink).toBeVisible()
   await fileLink.click()
   await expect(page.locator('[data-testid="code-project-title"][data-project-id="/"]')).toBeVisible()
-  const activeTab = page.locator('[role="tab"][aria-selected="true"]', { hasText: 'SmartOpen.java' })
+  const activeTab = page.locator('[role="tab"][aria-selected="true"]', { hasText: 'SmartOpen.q' })
   await expect(activeTab).toHaveAttribute('title', filePath.replace(/^\/+/, ''))
 
   forceGlobalFallback = false
@@ -281,7 +283,7 @@ test('promotes an external Chat file link to its nearest Git Project', async ({ 
   }), { timeout: 5_000 }).toEqual(expect.arrayContaining([
     'POST /farming/api/projects/mount-file 200',
   ]))
-  await expect.poll(() => workspaceFileReads).toContainEqual({ path: 'compiler/src/SmartOpen.java' })
+  await expect.poll(() => workspaceFileReads).toContainEqual({ path: 'compiler/src/SmartOpen.q' })
   const mounted = navigationResponses.slice(responseStart).find(response => (
     response.request().method() === 'POST'
     && new URL(response.url()).pathname.endsWith('/api/projects/mount-file')
@@ -291,7 +293,7 @@ test('promotes an external Chat file link to its nearest Git Project', async ({ 
 
   const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(repository) })
   await expect(project).toBeVisible()
-  await expect(activeTab).toHaveAttribute('title', 'compiler/src/SmartOpen.java')
+  await expect(activeTab).toHaveAttribute('title', 'compiler/src/SmartOpen.q')
   await expect(page.getByTestId('code-file-editor-back')).toBeVisible()
   await expect(page.getByTestId('code-resource-agent-toggle')).toBeVisible()
   const sourceAgentRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)

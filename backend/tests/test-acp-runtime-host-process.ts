@@ -10,10 +10,21 @@ const { AcpRuntimeHostProcess } = require('../acp-runtime-host-process.cts');
 const { promptContentHash } = require('../acp-runtime-host-service.cts');
 const { acpRuntimeHostSocketPath } = require('../acp-runtime-host-path.cts');
 
+const HOST_RESPONSE_CAP_BYTES = 16 * 1024 * 1024;
+
+function assertHostResponseFits(result, message) {
+  assert(
+    Buffer.byteLength(JSON.stringify({ id: 1, ok: true, result })) < HOST_RESPONSE_CAP_BYTES,
+    message,
+  );
+}
+
 class FakeRuntime extends EventEmitter {
   constructor() {
     super();
     this.sessions = new Map();
+    this.transcriptEntries = [];
+    this.subagentTranscriptEntries = new Map();
     this.promptCalls = 0;
     this.promptCompletion = null;
     this.inputCalls = 0;
@@ -25,6 +36,31 @@ class FakeRuntime extends EventEmitter {
 
   getSession(agentId) {
     return { ...this.sessions.get(agentId) };
+  }
+
+  getTranscriptSessionForRead(agentId) {
+    return {
+      ...this.getSession(agentId),
+      entries: this.transcriptEntries,
+    };
+  }
+
+  getTranscriptEntryForSessionRead(agentId, sessionId, entryId, subagentOnly = false) {
+    if (subagentOnly && this.sessions.get(agentId)?.sessionId === sessionId) return null;
+    const entries = this.sessions.get(agentId)?.sessionId === sessionId
+      ? this.transcriptEntries
+      : (this.subagentTranscriptEntries.get(sessionId) || []);
+    const matches = entries.filter(entry => entry.id === entryId);
+    return matches.length === 1 ? matches[0] : null;
+  }
+
+  getSubagentTranscriptSessionForRead(_agentId, sessionId) {
+    const entries = this.subagentTranscriptEntries.get(sessionId);
+    return entries ? { sessionId, revision: 1, entries } : null;
+  }
+
+  getToolEntryForRead(_agentId, toolCallId) {
+    return this.transcriptEntries.find(entry => entry.id === toolCallId && entry.type === 'tool') || null;
   }
 
   async prepareAgent(options) {
@@ -169,6 +205,360 @@ async function main() {
     params: { prompt: [{ type: 'text', text: '通用谓词解析器' }] },
   }]);
   await splitUtf8Host.dispose();
+
+  const transcriptConfigDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-acp-runtime-host-transcript-'));
+  const transcriptSocketPath = path.join(transcriptConfigDir, 'host.sock');
+  const transcriptRuntime = new FakeRuntime();
+  const screenshotBytes = Buffer.alloc(24 * 1024, 1);
+  transcriptRuntime.subagentTranscriptEntries.set('session-child', [{
+    id: 'child-screenshot',
+    type: 'message',
+    role: 'assistant',
+    content: [{ type: 'image', mimeType: 'image/png', data: screenshotBytes.toString('base64') }],
+  }]);
+  transcriptRuntime.transcriptEntries = [{
+    id: 'large-mobile-screenshot',
+    type: 'tool',
+    kind: 'other',
+    title: 'Inspect mobile screenshot',
+    status: 'completed',
+    content: [{
+      type: 'image',
+      mimeType: 'image/png',
+      data: screenshotBytes.toString('base64'),
+    }],
+  }, {
+    id: 'large-tool-detail',
+    type: 'tool',
+    kind: 'other',
+    title: 'Inspect large output',
+    status: 'completed',
+    rawOutput: { formatted_output: 'x'.repeat(40 * 1024) },
+    content: [],
+  }, {
+    id: 'large-review-change',
+    type: 'tool',
+    kind: 'edit',
+    title: 'Edit a large file',
+    status: 'completed',
+    content: [{
+      type: 'diff',
+      path: 'large.ts',
+      oldText: 'before\n'.repeat(4 * 1024),
+      newText: 'after\n'.repeat(4 * 1024),
+    }],
+  }];
+  assert(
+    Buffer.byteLength(JSON.stringify(transcriptRuntime.transcriptEntries)) > 96 * 1024,
+    'the raw transcript fixture must exceed the Host response limit',
+  );
+  const transcriptHost = new AcpRuntimeHostProcess({
+    configDir: transcriptConfigDir,
+    socketPath: transcriptSocketPath,
+    runtime: transcriptRuntime,
+    exitOnShutdown: false,
+    maxResponseBytes: 96 * 1024,
+  });
+  let transcriptClient;
+  try {
+    await transcriptHost.start();
+    transcriptClient = await connect(transcriptSocketPath);
+    await transcriptClient.request('registerController', { identity: { id: 'server-transcript', generation: 1 } });
+    await transcriptClient.request('prepareAgent', {
+      options: {
+        agentId: 'agent-transcript',
+        capabilityRuntimeEpoch: 'binding-transcript',
+        sessionId: 'session-transcript',
+      },
+    });
+    const projected = await transcriptClient.request('getTranscriptSessionForRead', {
+      agentId: 'agent-transcript',
+      options: {
+        maxTurns: 5,
+        mediaPathPrefix: '/farming/api/agents/agent-transcript/acp-media',
+      },
+    });
+    assert.strictEqual(projected.entries[0].content[0].data, undefined);
+    assert.match(
+      projected.entries[0].content[0].url,
+      /^\/farming\/api\/agents\/agent-transcript\/acp-media\/large-mobile-screenshot\/[a-f0-9]{64}$/,
+    );
+    assert.strictEqual(Object.prototype.hasOwnProperty.call(projected.entries[0], 'rawOutput'), false);
+    assert.strictEqual(projected.transcriptProjectionVersion, 1);
+    assert(
+      Buffer.byteLength(JSON.stringify(projected)) < 96 * 1024,
+      'the Runtime Host must project a bounded transcript before enforcing its response limit',
+    );
+    const mediaId = projected.entries[0].content[0].url.split('/').at(-1);
+    const mediaChunks = [];
+    let mediaOffset = 0;
+    for (;;) {
+      const chunk = await transcriptClient.request('getTranscriptMediaChunkForRead', {
+        agentId: 'agent-transcript',
+        sessionId: 'session-transcript',
+        entryId: 'large-mobile-screenshot',
+        mediaId,
+        offset: mediaOffset,
+        maxBytes: 4 * 1024,
+      });
+      assert(chunk, 'projected transcript media must remain available through bounded Host chunks');
+      mediaChunks.push(Buffer.from(chunk.dataBase64, 'base64'));
+      if (chunk.nextOffset == null) break;
+      assert(chunk.nextOffset > mediaOffset);
+      mediaOffset = chunk.nextOffset;
+    }
+    assert.deepStrictEqual(Buffer.concat(mediaChunks), screenshotBytes);
+
+    let serializedDetail = '';
+    let detailOffset = 0;
+    for (;;) {
+      const page = await transcriptClient.request('getToolDetailPageForRead', {
+        agentId: 'agent-transcript',
+        toolCallId: 'large-tool-detail',
+        offset: detailOffset,
+        maxChars: 4 * 1024,
+      });
+      assert(page, 'large tool detail must remain available through bounded Host pages');
+      serializedDetail += page.serializedDetail;
+      if (page.nextOffset == null) break;
+      assert(page.nextOffset > detailOffset);
+      detailOffset = page.nextOffset;
+    }
+    const detailPayload = JSON.parse(serializedDetail);
+    assert(detailPayload.detail.includes('x'.repeat(32 * 1024)));
+
+    const childProjected = await transcriptClient.request('getSubagentTranscriptSessionForRead', {
+      agentId: 'agent-transcript',
+      sessionId: 'session-child',
+      options: {
+        maxTurns: 12,
+        mediaPathPrefix: '/farming/api/agents/agent-transcript/acp-subagents/session-child/acp-media',
+      },
+    });
+    assert.strictEqual(childProjected.entries[0].content[0].data, undefined);
+    assert.match(
+      childProjected.entries[0].content[0].url,
+      /^\/farming\/api\/agents\/agent-transcript\/acp-subagents\/session-child\/acp-media\/child-screenshot\/[a-f0-9]{64}$/,
+    );
+    const primaryRejectedAsSubagent = await transcriptClient.request('getTranscriptMediaChunkForRead', {
+      agentId: 'agent-transcript',
+      sessionId: 'session-transcript',
+      entryId: 'large-mobile-screenshot',
+      mediaId,
+      offset: 0,
+      maxBytes: 4 * 1024,
+      subagentOnly: true,
+    });
+    assert.strictEqual(
+      primaryRejectedAsSubagent,
+      null,
+      'a subagent-only media read must reject the primary Session',
+    );
+    const childMediaId = childProjected.entries[0].content[0].url.split('/').at(-1);
+    const childMedia = await transcriptClient.request('getTranscriptMediaChunkForRead', {
+      agentId: 'agent-transcript',
+      sessionId: 'session-child',
+      entryId: 'child-screenshot',
+      mediaId: childMediaId,
+      offset: 0,
+      maxBytes: 4 * 1024,
+      subagentOnly: true,
+    });
+    assert(childMedia, 'a child Session must remain readable through subagent-only media routing');
+
+    let serializedReviewChanges = '';
+    let reviewOffset = 0;
+    for (;;) {
+      const page = await transcriptClient.request('getToolReviewChangesPageForRead', {
+        agentId: 'agent-transcript',
+        toolCallId: 'large-review-change',
+        offset: reviewOffset,
+        maxChars: 4 * 1024,
+      });
+      assert(page, 'large review changes must remain available through bounded Host pages');
+      serializedReviewChanges += page.serializedChanges;
+      if (page.nextOffset == null) break;
+      assert(page.nextOffset > reviewOffset);
+      reviewOffset = page.nextOffset;
+    }
+    const reviewChanges = JSON.parse(serializedReviewChanges);
+    assert.strictEqual(reviewChanges[0].oldText, 'before\n'.repeat(4 * 1024));
+    assert.strictEqual(reviewChanges[0].newText, 'after\n'.repeat(4 * 1024));
+  } finally {
+    transcriptClient?.close();
+    await transcriptHost.dispose();
+    fs.rmSync(transcriptConfigDir, { recursive: true, force: true });
+  }
+
+  const hardCapConfigDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-acp-runtime-host-hard-cap-'));
+  const hardCapSocketPath = path.join(hardCapConfigDir, 'host.sock');
+  const hardCapRuntime = new FakeRuntime();
+  const hardCapHost = new AcpRuntimeHostProcess({
+    configDir: hardCapConfigDir,
+    socketPath: hardCapSocketPath,
+    runtime: hardCapRuntime,
+    exitOnShutdown: false,
+  });
+  let hardCapClient;
+  try {
+    await hardCapHost.start();
+    hardCapClient = await connect(hardCapSocketPath);
+    await hardCapClient.request('registerController', { identity: { id: 'server-hard-cap', generation: 1 } });
+    await hardCapClient.request('prepareAgent', {
+      options: {
+        agentId: 'agent-hard-cap',
+        capabilityRuntimeEpoch: 'binding-hard-cap',
+        sessionId: 'session-hard-cap',
+      },
+    });
+
+    let oversizedMediaData = Buffer.alloc(13 * 1024 * 1024, 3).toString('base64');
+    hardCapRuntime.transcriptEntries = [{
+      id: 'oversized-inline-media',
+      type: 'message',
+      role: 'assistant',
+      content: [{ type: 'image', mimeType: 'image/png', data: oversizedMediaData }],
+    }];
+    assert(
+      Buffer.byteLength(JSON.stringify(hardCapRuntime.transcriptEntries)) > HOST_RESPONSE_CAP_BYTES,
+      'the no-prefix media fixture must exceed the real Host response cap',
+    );
+    const boundedInlineMedia = await hardCapClient.request('getTranscriptSessionForRead', {
+      agentId: 'agent-hard-cap',
+      options: { maxTurns: 5 },
+    });
+    assertHostResponseFits(
+      boundedInlineMedia,
+      'a no-prefix 13 MiB media transcript must fit below the real Host response cap',
+    );
+    assert(Number(boundedInlineMedia.transcriptTransportTruncatedEntries) > 0);
+    assert.strictEqual(boundedInlineMedia.entries[0].transcriptTransportTruncated, true);
+    oversizedMediaData = '';
+
+    let oversizedResourceDescription = 'r'.repeat(17 * 1024 * 1024);
+    hardCapRuntime.transcriptEntries = [{
+      id: 'oversized-resource-link',
+      type: 'tool',
+      kind: 'other',
+      title: 'Inspect resource',
+      status: 'completed',
+      content: [{
+        type: 'resource_link',
+        name: 'large resource',
+        uri: 'https://example.invalid/large',
+        description: oversizedResourceDescription,
+      }],
+    }];
+    const boundedResource = await hardCapClient.request('getTranscriptSessionForRead', {
+      agentId: 'agent-hard-cap',
+      options: {
+        maxTurns: 5,
+        mediaPathPrefix: '/farming/api/agents/agent-hard-cap/acp-media',
+      },
+    });
+    assertHostResponseFits(
+      boundedResource,
+      'an external-media transcript with a large resource link must fit below the real Host response cap',
+    );
+    assert(Number(boundedResource.transcriptTransportTruncatedEntries) > 0);
+    oversizedResourceDescription = '';
+
+    hardCapRuntime.transcriptEntries = [{
+      id: 'small-entry-with-large-plan',
+      type: 'message',
+      role: 'assistant',
+      content: [{ type: 'text', text: 'done' }],
+    }];
+    hardCapRuntime.sessions.get('agent-hard-cap').plan = { explanation: 'p'.repeat(17 * 1024 * 1024) };
+    const boundedPlan = await hardCapClient.request('getTranscriptSessionForRead', {
+      agentId: 'agent-hard-cap',
+      options: { maxTurns: 5 },
+    });
+    assertHostResponseFits(
+      boundedPlan,
+      'a transcript with oversized Session metadata must fit below the real Host response cap',
+    );
+    assert.strictEqual(boundedPlan.planTransportTruncated, true);
+    assert.deepStrictEqual(boundedPlan.plan, {});
+    delete hardCapRuntime.sessions.get('agent-hard-cap').plan;
+
+    const aggregateDescription = 'a'.repeat(2 * 1024 * 1024);
+    hardCapRuntime.transcriptEntries = Array.from({ length: 10 }, (_, index) => ({
+      id: `aggregate-tool-${index}`,
+      type: 'tool',
+      kind: 'other',
+      title: `Aggregate tool ${index}`,
+      status: 'completed',
+      content: [{
+        type: 'resource_link',
+        name: `resource-${index}`,
+        uri: `https://example.invalid/${index}`,
+        description: aggregateDescription,
+      }],
+    }));
+    assert(
+      Buffer.byteLength(JSON.stringify(hardCapRuntime.transcriptEntries)) > HOST_RESPONSE_CAP_BYTES,
+      'the aggregate transcript fixture must exceed the real Host response cap',
+    );
+    const boundedAggregate = await hardCapClient.request('getTranscriptSessionForRead', {
+      agentId: 'agent-hard-cap',
+      options: {
+        maxTurns: 5,
+        mediaPathPrefix: '/farming/api/agents/agent-hard-cap/acp-media',
+      },
+    });
+    assertHostResponseFits(
+      boundedAggregate,
+      'an aggregate transcript must fit below the real Host response cap',
+    );
+    assert(Number(boundedAggregate.transcriptTransportTruncatedEntries) > 0);
+
+    const repeatedOldText = 'before'.repeat(2_858);
+    const repeatedNewText = 'after'.repeat(3_334);
+    hardCapRuntime.transcriptEntries = [{
+      id: 'five-hundred-changes',
+      type: 'tool',
+      kind: 'edit',
+      title: 'Edit 500 files',
+      status: 'completed',
+      content: Array.from({ length: 500 }, (_, index) => ({
+        type: 'diff',
+        path: `file-${index}.ts`,
+        oldText: repeatedOldText,
+        newText: repeatedNewText,
+      })),
+    }];
+    let pagedSerializedDetail = '';
+    let pagedDetailOffset = 0;
+    let detailPages = 0;
+    for (;;) {
+      const page = await hardCapClient.request('getToolDetailPageForRead', {
+        agentId: 'agent-hard-cap',
+        toolCallId: 'five-hundred-changes',
+        offset: pagedDetailOffset,
+        maxChars: 1024 * 1024,
+      });
+      assert(page, 'the 500-change tool detail must remain readable');
+      assertHostResponseFits(page, 'every serialized tool detail page must fit below the Host response cap');
+      assert(String(page.serializedDetail || '').length <= 1024 * 1024);
+      pagedSerializedDetail += page.serializedDetail;
+      detailPages += 1;
+      if (page.nextOffset == null) break;
+      assert(page.nextOffset > pagedDetailOffset);
+      pagedDetailOffset = page.nextOffset;
+    }
+    assert(detailPages > 1, '500 exact changes must cross more than one serializedDetail page');
+    assert(
+      Buffer.byteLength(pagedSerializedDetail) > HOST_RESPONSE_CAP_BYTES,
+      'the reconstructed 500-change detail must exceed one unpaged Host response',
+    );
+    const pagedDetailPayload = JSON.parse(pagedSerializedDetail);
+    assert.strictEqual(pagedDetailPayload.changes.length, 500);
+  } finally {
+    hardCapClient?.close();
+    await hardCapHost.dispose();
+    fs.rmSync(hardCapConfigDir, { recursive: true, force: true });
+  }
 
   const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-acp-runtime-host-process-'));
   const socketPath = path.join(configDir, 'host.sock');

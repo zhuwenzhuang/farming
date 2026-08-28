@@ -441,6 +441,30 @@ test('ACP model matrix responds locally, settles once, and morphs Advanced witho
   await expect(fast).toBeEnabled({ timeout: 2_000 })
   expect(fastPatchCount - fastPatchCountBeforeClick).toBe(1)
 
+  const desktopViewport = page.viewportSize()!
+  await page.setViewportSize({ width: 390, height: 844 })
+  await fast.hover()
+  for (const appearance of ['light', 'dark', 'paper']) {
+    await page.locator('body').evaluate((body, value) => {
+      body.dataset.appearance = value
+    }, appearance)
+    const emphasis = await page.locator('body').evaluate(body => {
+      const emphasisProbe = document.createElement('span')
+      emphasisProbe.style.color = 'var(--code-text-on-emphasis)'
+      body.append(emphasisProbe)
+      const color = getComputedStyle(emphasisProbe).color
+      emphasisProbe.remove()
+      return color
+    })
+    await expect(fast).toHaveCSS('color', emphasis)
+    await expect(fast.locator(':scope > span:nth-child(2)')).toHaveCSS('color', emphasis)
+    await expect.poll(() => fast.evaluate(button => getComputedStyle(button).backgroundImage))
+      .toContain('linear-gradient')
+  }
+  await page.setViewportSize(desktopViewport)
+  await expect.poll(async () => Math.round((await menu.boundingBox())?.width ?? 0))
+    .toBe(350)
+
   const matrixBox = await menu.boundingBox()
   expect(matrixBox?.width).toBeCloseTo(350, 0)
   const matrixStage = page.locator('.code-model-matrix-stage')

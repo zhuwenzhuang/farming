@@ -257,6 +257,8 @@ test('keeps a restored production-sized file projection responsive offscreen', a
   const fileRows = files.locator('[data-testid="code-file-row"][data-file-type="file"]')
   await expect(files.locator('.code-file-tree-viewport')).toHaveAttribute('data-visible-row-count', String(fileCount + 1))
   await expect.poll(() => fileRows.count()).toBeLessThan(100)
+  const treeWindow = files.locator('.code-file-tree-window')
+  await expect(treeWindow).toHaveCSS('position', 'absolute')
   const containment = await files.locator('.code-file-tree-row-frame').evaluateAll(frames => (
     [frames[0], frames[Math.floor(frames.length / 2)], frames.at(-1)].map(frame => ({
       contentVisibility: frame ? getComputedStyle(frame).contentVisibility : '',
@@ -273,6 +275,7 @@ test('keeps a restored production-sized file projection responsive offscreen', a
   })
   expect(scrollWork.maximumScrollTop).toBeGreaterThan(0)
   expect(scrollWork.fileRowLayoutReads).toBe(0)
+  await expect(treeWindow).not.toHaveCSS('transform', 'none')
   await expect(files.getByTestId('code-file-sticky-stack')).toHaveCount(0)
 
   const editor = page.getByTestId('code-file-editor')
@@ -1212,7 +1215,18 @@ test('completes file-menu copy, share, and refresh actions with focus recovery',
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ longUrl: `https://share.example.test/${target.kind ?? 'unknown'}` }),
+      body: JSON.stringify({
+        code: `FILE-${String(target.kind ?? 'unknown').toUpperCase()}`,
+        expiresAt: Date.now() + 5 * 60 * 1000,
+        ttlMs: 5 * 60 * 1000,
+        shortPath: `/j/FILE-${String(target.kind ?? 'unknown').toUpperCase()}`,
+        shortUrl: `https://share.example.test/j/FILE-${String(target.kind ?? 'unknown').toUpperCase()}`,
+        longUrl: `https://share.example.test/${target.kind ?? 'unknown'}`,
+        fullAccessUrl: `https://share.example.test/${target.kind ?? 'unknown'}?mode=owner`,
+        shortUrlAccessMode: 'owner',
+        longUrlAccessMode: 'read-only',
+        tokenLabel: 'file-tree-owner-token',
+      }),
     })
   })
 

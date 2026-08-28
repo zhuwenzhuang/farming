@@ -105,6 +105,14 @@ restart, rollback, and explicit failure for missing dependencies. A partial or
 uncertain start must not create a second daemon or lose the last known good
 installation.
 
+Phone foreground, `pageshow`/back-forward-cache restoration, and `online`
+events must reconcile the current WebSocket with a bounded business-health
+probe. A healthy open socket stays in place; only the same socket generation
+whose probe or initial connection deadline fails is replaced. Authentication
+and protocol close codes remain terminal. Composer drafts survive recovery,
+and an input with an uncertain outcome is never replayed without an explicit
+user retry.
+
 ### Agent Lifecycle And Configuration
 
 Verify executable discovery, exact Agent Home selection, new Agent creation,

@@ -124,7 +124,31 @@ test.describe('iPhone mobile layout', () => {
       expect(target?.width).toBeGreaterThanOrEqual(44)
       expect(target?.height).toBeGreaterThanOrEqual(44)
     }
+    await modelPicker.tap()
+    const modelMenu = page.getByTestId('code-acp-model-menu')
+    await expect(modelMenu).toBeVisible()
+    const modelMenuBounds = await modelMenu.evaluate(element => {
+      const rect = element.getBoundingClientRect()
+      const viewport = window.visualViewport
+      const left = viewport?.offsetLeft ?? 0
+      const top = viewport?.offsetTop ?? 0
+      return {
+        left: rect.left,
+        right: rect.right,
+        top: rect.top,
+        bottom: rect.bottom,
+        viewportLeft: left,
+        viewportRight: left + (viewport?.width ?? window.innerWidth),
+        viewportTop: top,
+        viewportBottom: top + (viewport?.height ?? window.innerHeight),
+      }
+    })
+    expect(modelMenuBounds.left).toBeGreaterThanOrEqual(modelMenuBounds.viewportLeft - 1)
+    expect(modelMenuBounds.right).toBeLessThanOrEqual(modelMenuBounds.viewportRight + 1)
+    expect(modelMenuBounds.top).toBeGreaterThanOrEqual(modelMenuBounds.viewportTop - 1)
+    expect(modelMenuBounds.bottom).toBeLessThanOrEqual(modelMenuBounds.viewportBottom + 1)
     await captureIphoneAudit(page, 'iphone-webkit-long-model-label.png')
+    await page.keyboard.press('Escape')
     await send.click()
     await expect(input).toHaveValue('')
   })
@@ -204,6 +228,8 @@ test.describe('iPhone mobile layout', () => {
     await input.tap()
     await input.fill('rich timeline')
     await page.keyboard.press('Enter')
+    await expect(input).toHaveValue('rich timeline\n')
+    await page.getByTestId('code-acp-composer-send').tap()
     await expect(page.getByText('Rich ACP timeline complete.', { exact: true })).toBeVisible({ timeout: 30_000 })
     await input.tap()
     await page.keyboard.insertText('/')
@@ -544,6 +570,10 @@ test.describe('iPhone mobile layout', () => {
     await page.keyboard.insertText(`echo ${readyMarker}`)
     await expect(input).toHaveValue(`echo ${readyMarker}`)
     await page.keyboard.press('Enter')
+    await expect(input).toHaveValue(`echo ${readyMarker}\n`)
+    const sendButton = page.getByTestId('code-composer-send')
+    if (testInfo.project.name === 'iphone-webkit') await sendButton.tap()
+    else await sendButton.click()
     await expect(input).toHaveValue('')
     await expect.poll(async () => {
       return terminalCheckpointOutput(page, agentId)
@@ -601,11 +631,34 @@ test.describe('iPhone mobile layout', () => {
   test('opens the mobile share sheet from a successful authenticated ticket response', async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== 'iphone-webkit', 'Runs only in the iPhone WebKit project')
     const readOnlyUrl = 'https://share.example.test/farming?token=read-only'
-    await page.route('**/api/share/qr-ticket', route => route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ longUrl: readOnlyUrl }),
-    }))
+    const fullAccessUrl = 'https://share.example.test/farming?token=full-control'
+    let revokeCount = 0
+    await page.route('**/api/share/qr-ticket**', route => {
+      if (route.request().method() === 'DELETE') {
+        revokeCount += 1
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ revoked: true }),
+        })
+      }
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          code: 'IPHONE-SHARE',
+          expiresAt: Date.now() + 5 * 60 * 1000,
+          ttlMs: 5 * 60 * 1000,
+          shortPath: '/j/IPHONE-SHARE',
+          shortUrl: 'https://share.example.test/j/IPHONE-SHARE',
+          longUrl: readOnlyUrl,
+          fullAccessUrl,
+          shortUrlAccessMode: 'owner',
+          longUrlAccessMode: 'read-only',
+          tokenLabel: 'iphone share token',
+        }),
+      })
+    })
     await openFarming(page)
 
     await page.getByTestId('code-mobile-more').click()
@@ -626,21 +679,178 @@ test.describe('iPhone mobile layout', () => {
     const closeShareButton = mobileShareDialog.getByRole('button', { name: /Cancel|取消/ })
     await expect(closeShareButton).toBeFocused()
     await expect(mobileShareSheet.getByRole('heading', { name: /Share page|分享页面/ })).toBeVisible()
-    await expect(mobileShareSheet.getByRole('heading', { name: /Send this page|转发当前页面/ })).toBeVisible()
-    await expect(mobileShareSheet.locator('.code-mobile-share-link')).toHaveText(readOnlyUrl)
+    await expect(mobileShareSheet.getByRole('heading', { name: /Copy read-only share link|复制只读分享链接/ })).toBeVisible()
+    await expect(mobileShareSheet.locator('.code-mobile-share-link').first()).toHaveText(readOnlyUrl)
+    await expect(mobileShareSheet.getByTestId('code-mobile-share-qr')).toBeVisible()
+    await expect(mobileShareSheet.getByText(/full-control passphrase|完整控制口令/).first()).toBeVisible()
     const copyShareAction = mobileShareSheet.getByTestId('code-mobile-share-copy-action')
     await expect(copyShareAction).toBeVisible()
     await copyShareAction.click()
     await expect(copyShareAction).toHaveText(/Copied|已复制/)
+    const fullControlAction = mobileShareSheet.getByTestId('code-mobile-share-full-control-action')
+    await expect(fullControlAction).toBeVisible()
+    await fullControlAction.click()
+    await expect(fullControlAction).toHaveText(/Copied|已复制/)
     await expect(mobileShareSheet.getByRole('heading', { name: /Add to Home Screen|添加到主屏幕/ })).toBeVisible()
     await expect(mobileShareSheet.getByText(/system browser or Chrome|系统浏览器或 Chrome/)).toBeVisible()
     await expect(mobileShareSheet.getByText(/tap •••|点 •••/i)).toBeVisible()
     await expect(mobileShareSheet.locator('.code-mobile-install-step')).toHaveCount(2)
     await expect(mobileShareSheet.getByTestId('code-mobile-share-system-action')).toHaveCount(0)
     await expect(mobileShareSheet.locator('.code-mobile-share-sheet')).toHaveCSS('color', 'rgb(255, 255, 255)')
+    await captureIphoneAudit(page, 'iphone-webkit-share-owner.png')
     await page.keyboard.press('Escape')
     await expect(mobileShareSheet).toHaveCount(0)
+    await expect.poll(() => revokeCount).toBe(1)
     await expect(page.getByTestId('code-mobile-more')).toBeFocused()
+  })
+
+  test('keeps delegated mobile sharing read-only and hides owner access', async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'iphone-webkit', 'Runs only in the iPhone WebKit project')
+    let revokeCount = 0
+    await page.route('**/api/share/qr-ticket**', route => {
+      if (route.request().method() === 'DELETE') {
+        revokeCount += 1
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ revoked: true }) })
+      }
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          code: 'IPHONE-READ-ONLY',
+          expiresAt: Date.now() + 4 * 60 * 1000,
+          ttlMs: 5 * 60 * 1000,
+          shortPath: '/j/IPHONE-READ-ONLY',
+          shortUrl: 'https://share.example.test/j/IPHONE-READ-ONLY',
+          longUrl: 'https://share.example.test/farming?token=delegated-read-only',
+          shortUrlAccessMode: 'read-only',
+          longUrlAccessMode: 'read-only',
+          tokenLabel: '',
+        }),
+      })
+    })
+    await openFarming(page)
+
+    await page.getByTestId('code-mobile-more').click()
+    await page.getByRole('menuitem', { name: /Share current page|分享当前页面/ }).click()
+    const sheet = page.getByTestId('code-mobile-share-sheet')
+    await expect(sheet).toBeVisible()
+    await expect(sheet.getByText(/read-only link for this page|当前页面的只读链接/).first()).toBeVisible()
+    await expect(sheet.getByTestId('code-mobile-share-qr')).toBeVisible()
+    await expect(sheet.getByTestId('code-mobile-share-full-control-action')).toHaveCount(0)
+    await expect(sheet.getByRole('heading', { name: /Copy full-control|复制完整控制/ })).toHaveCount(0)
+    await captureIphoneAudit(page, 'iphone-webkit-share-read-only.png')
+    await page.keyboard.press('Escape')
+    await expect(sheet).toHaveCount(0)
+    await expect.poll(() => revokeCount).toBe(1)
+  })
+
+  test('keeps a production-sized Files tree steady while touch scrolling beside full Agent rows', async ({ page, workspaceRoot }, testInfo) => {
+    test.skip(testInfo.project.name !== 'iphone-webkit', 'Runs only in the iPhone WebKit project')
+    testInfo.setTimeout(120_000)
+    const projectDir = path.join(workspaceRoot, 'iphone-large-files')
+    fs.mkdirSync(projectDir, { recursive: true })
+    for (let index = 0; index < 1_400; index += 1) {
+      fs.writeFileSync(path.join(projectDir, `file-${String(index).padStart(4, '0')}.ts`), `export const value = ${index}\n`)
+    }
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, 'maxTouchPoints', { value: 5, configurable: true })
+    })
+    await openFarming(page)
+    await createControlAgent(page, 'bash', projectDir)
+    await createControlAgent(page, 'bash', projectDir)
+    await createControlAgent(page, 'bash', projectDir)
+    await page.getByTestId('code-mobile-menu').tap()
+
+    const project = page.getByTestId('code-project-group').filter({ hasText: 'iphone-large-files' })
+    await expect(project.locator('[data-testid="code-agent-row"][data-agent-id]')).toHaveCount(3, { timeout: 30_000 })
+    await expect(project.getByTestId('code-project-agent-strip')).toHaveCount(0)
+    const files = project.getByTestId('code-files-section')
+    const filesToggle = files.getByRole('button', { name: /^Files$/ })
+    if (await filesToggle.getAttribute('aria-expanded') === 'false') await filesToggle.tap()
+    await expect(files.locator('.code-file-tree-viewport')).toHaveAttribute('data-visible-row-count', '1400')
+    await expect.poll(() => files.locator('[data-testid="code-file-row"]').count()).toBeLessThan(100)
+
+    const scrollMetrics = await files.evaluate(async element => {
+      const scroller = element.closest<HTMLElement>('.code-project-list')
+      const viewport = element.querySelector<HTMLElement>('.code-file-tree-viewport')
+      const treeWindow = element.querySelector<HTMLElement>('.code-file-tree-window')
+      if (!scroller || !viewport || !treeWindow) throw new Error('Large Files viewport is incomplete')
+      const nextFrame = () => new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+      scroller.scrollTop = Math.min(4_000, scroller.scrollHeight - scroller.clientHeight)
+      await nextFrame()
+      const samples: number[] = []
+      const windowDrift: number[] = []
+      const onScroll = () => {
+        const viewportRect = viewport.getBoundingClientRect()
+        const scrollerRect = scroller.getBoundingClientRect()
+        const maxOffset = Math.max(0, viewport.offsetHeight - treeWindow.offsetHeight)
+        const expectedOffset = Math.max(0, Math.min(maxOffset, scrollerRect.top - viewportRect.top))
+        samples.push(scroller.scrollTop)
+        windowDrift.push(Math.abs(treeWindow.getBoundingClientRect().top - (viewportRect.top + expectedOffset)))
+      }
+      scroller.addEventListener('scroll', onScroll)
+      for (let step = 0; step < 13; step += 1) {
+        scroller.scrollTop += 48
+        await nextFrame()
+      }
+      scroller.removeEventListener('scroll', onScroll)
+      const release = scroller.scrollTop
+      await nextFrame()
+      await nextFrame()
+      return {
+        maximum: scroller.scrollHeight - scroller.clientHeight,
+        samples,
+        release,
+        settled: scroller.scrollTop,
+        maxWindowDrift: Math.max(0, ...windowDrift),
+      }
+    })
+    expect(scrollMetrics.maximum).toBeGreaterThan(30_000)
+    expect(scrollMetrics.samples.length).toBeGreaterThanOrEqual(10)
+    expect(scrollMetrics.samples.every((value, index, values) => index === 0 || value > values[index - 1]!)).toBe(true)
+    expect(Math.abs(scrollMetrics.settled - scrollMetrics.release)).toBeLessThanOrEqual(1)
+    expect(scrollMetrics.maxWindowDrift).toBeLessThanOrEqual(1)
+
+    const actionTarget = await files.locator('[data-testid="code-file-row"]').evaluateAll(rows => {
+      const scroller = rows[0]?.closest<HTMLElement>('.code-project-list')
+      const filesHeader = rows[0]?.closest('[data-testid="code-files-section"]')
+        ?.querySelector<HTMLElement>('.code-files-header')
+      const lowerBound = scroller?.getBoundingClientRect().bottom ?? innerHeight
+      const upperBound = filesHeader?.getBoundingClientRect().bottom ?? 0
+      const visibleRows = rows.filter(row => {
+        const rect = row.getBoundingClientRect()
+        return rect.top >= upperBound && rect.bottom <= lowerBound
+      })
+      const row = visibleRows[Math.floor(visibleRows.length / 2)]
+      const action = row?.querySelector<HTMLElement>('.code-file-row-actions')
+      if (!row || !action) return null
+      const rect = action.getBoundingClientRect()
+      const x = rect.left + rect.width / 2
+      const y = rect.top + rect.height / 2
+      const hit = document.elementFromPoint(x, y)
+      return {
+        path: row.getAttribute('data-file-path') || '',
+        x,
+        y,
+        hitWithinAction: hit === action || action.contains(hit),
+        hitTag: hit?.tagName || '',
+        hitClass: hit instanceof HTMLElement ? hit.className : '',
+      }
+    })
+    expect(actionTarget?.path).toBeTruthy()
+    expect(actionTarget?.hitWithinAction, JSON.stringify(actionTarget)).toBe(true)
+    await page.touchscreen.tap(actionTarget!.x, actionTarget!.y)
+    const menu = page.getByTestId('code-file-context-menu')
+    await expect(menu).toBeVisible()
+    const menuBounds = await menu.evaluate(element => {
+      const rect = element.getBoundingClientRect()
+      return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, width: innerWidth, height: innerHeight }
+    })
+    expect(menuBounds.left).toBeGreaterThanOrEqual(7)
+    expect(menuBounds.right).toBeLessThanOrEqual(menuBounds.width - 7)
+    expect(menuBounds.top).toBeGreaterThanOrEqual(7)
+    expect(menuBounds.bottom).toBeLessThanOrEqual(menuBounds.height - 7)
+    await captureIphoneAudit(page, 'iphone-webkit-large-files-menu.png')
   })
 
   test('completes file creation, rename, and deletion through compact touch actions', async ({ page, workspaceRoot }, testInfo) => {
@@ -651,6 +861,39 @@ test.describe('iPhone mobile layout', () => {
     fs.writeFileSync(path.join(projectDir, 'README.md'), '# Touch file operations\n')
     await page.addInitScript(() => {
       Object.defineProperty(navigator, 'maxTouchPoints', { value: 5, configurable: true })
+      const copiedTexts: string[] = []
+      ;(window as typeof window & { __mobileCopiedTexts?: string[] }).__mobileCopiedTexts = copiedTexts
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: { writeText: async (text: string) => { copiedTexts.push(text) } },
+      })
+    })
+    let shareTicketPosts = 0
+    let shareTicketDeletes = 0
+    let lastShareTarget: Record<string, unknown> | null = null
+    await page.route('**/api/share/qr-ticket**', route => {
+      if (route.request().method() === 'DELETE') {
+        shareTicketDeletes += 1
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ revoked: true }) })
+      }
+      shareTicketPosts += 1
+      lastShareTarget = (route.request().postDataJSON() as { target?: Record<string, unknown> }).target ?? null
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          code: 'FILE-MENU-SHARE',
+          expiresAt: Date.now() + 5 * 60 * 1000,
+          ttlMs: 5 * 60 * 1000,
+          shortPath: '/j/FILE-MENU-SHARE',
+          shortUrl: 'https://share.example.test/j/FILE-MENU-SHARE',
+          longUrl: 'https://share.example.test/farming?token=file-menu-read-only',
+          shortUrlAccessMode: 'owner',
+          longUrlAccessMode: 'read-only',
+          tokenLabel: 'file menu token',
+          fullAccessUrl: 'https://share.example.test/farming?token=file-menu-owner',
+        }),
+      })
     })
 
     await openFarming(page)
@@ -665,6 +908,68 @@ test.describe('iPhone mobile layout', () => {
     const readmeRow = files.locator('[data-testid="code-file-row"][data-file-path="README.md"]')
     await readmeRow.getByRole('button', { name: /File actions for README\.md|README\.md 的文件操作/ }).tap()
     const menu = page.getByTestId('code-file-context-menu')
+    const menuBounds = await menu.evaluate(element => {
+      const rect = element.getBoundingClientRect()
+      const visualViewport = window.visualViewport
+      return {
+        left: rect.left,
+        right: rect.right,
+        top: rect.top,
+        bottom: rect.bottom,
+        viewportLeft: visualViewport?.offsetLeft ?? 0,
+        viewportRight: (visualViewport?.offsetLeft ?? 0) + (visualViewport?.width ?? window.innerWidth),
+        viewportTop: visualViewport?.offsetTop ?? 0,
+        viewportBottom: (visualViewport?.offsetTop ?? 0) + (visualViewport?.height ?? window.innerHeight),
+      }
+    })
+    expect(menuBounds.left).toBeGreaterThanOrEqual(menuBounds.viewportLeft + 7)
+    expect(menuBounds.right).toBeLessThanOrEqual(menuBounds.viewportRight - 7)
+    expect(menuBounds.top).toBeGreaterThanOrEqual(menuBounds.viewportTop + 7)
+    expect(menuBounds.bottom).toBeLessThanOrEqual(menuBounds.viewportBottom - 7)
+
+    const agentCountBeforeLaunch = await page.locator('[data-testid="code-agent-row"][data-agent-id]').count()
+    await menu.getByTestId('file-new-agent-submenu-trigger').tap()
+    const agentSubmenu = page.getByTestId('file-new-agent-submenu')
+    await expect(agentSubmenu).toBeVisible()
+    await expect(page.getByTestId('input-dialog')).toHaveCount(0)
+    const submenuBounds = await agentSubmenu.evaluate(element => {
+      const rect = element.getBoundingClientRect()
+      return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, width: window.innerWidth, height: window.innerHeight }
+    })
+    expect(submenuBounds.left).toBeGreaterThanOrEqual(8)
+    expect(submenuBounds.right).toBeLessThanOrEqual(submenuBounds.width - 8)
+    expect(submenuBounds.top).toBeGreaterThanOrEqual(8)
+    expect(submenuBounds.bottom).toBeLessThanOrEqual(submenuBounds.height - 8)
+    await agentSubmenu.getByTestId('agent-launch-bash').tap()
+    await expect(menu).toBeHidden()
+    await expect.poll(() => page.locator('[data-testid="code-agent-row"][data-agent-id]').count()).toBeGreaterThan(agentCountBeforeLaunch)
+    if (await page.getByTestId('code-sidebar').getAttribute('class').then(value => value?.includes('collapsed'))) {
+      await page.getByTestId('code-mobile-menu').tap()
+    }
+
+    await readmeRow.getByRole('button', { name: /File actions for README\.md|README\.md 的文件操作/ }).tap()
+    await menu.getByRole('menuitem', { name: /Refresh|刷新/ }).tap()
+    await expect(menu).toBeHidden()
+    await expect(readmeRow).toBeFocused()
+
+    await readmeRow.getByRole('button', { name: /File actions for README\.md|README\.md 的文件操作/ }).tap()
+    await menu.getByRole('menuitem', { name: /Copy Relative Path|复制相对路径/ }).tap()
+    await expect(menu).toBeHidden()
+    await expect.poll(() => page.evaluate(() => (
+      (window as typeof window & { __mobileCopiedTexts?: string[] }).__mobileCopiedTexts?.at(-1) || ''
+    ))).toBe('README.md')
+
+    await readmeRow.getByRole('button', { name: /File actions for README\.md|README\.md 的文件操作/ }).tap()
+    await menu.getByRole('menuitem', { name: /Copy Share URL|拷贝分享 URL/ }).tap()
+    await expect(menu).toBeHidden()
+    await expect.poll(() => shareTicketPosts).toBe(1)
+    expect(lastShareTarget).toMatchObject({ kind: 'file', filePath: 'README.md' })
+    await expect.poll(() => shareTicketDeletes).toBe(1)
+    await expect.poll(() => page.evaluate(() => (
+      (window as typeof window & { __mobileCopiedTexts?: string[] }).__mobileCopiedTexts?.at(-1) || ''
+    ))).toBe('https://share.example.test/farming?token=file-menu-read-only')
+
+    await readmeRow.getByRole('button', { name: /File actions for README\.md|README\.md 的文件操作/ }).tap()
     await menu.getByRole('menuitem', { name: /New File|新建文件/ }).tap()
     const createDialog = page.getByTestId('code-file-operation-dialog')
     const createInput = createDialog.getByTestId('code-file-operation-input')
@@ -892,6 +1197,8 @@ test.describe('iPhone mobile layout', () => {
     await expect(composerInput).toHaveValue(`echo ${tapInputMarker}`)
     await expect(page.getByTestId('code-composer-send')).toBeEnabled()
     await page.keyboard.press('Enter')
+    await expect(composerInput).toHaveValue(`echo ${tapInputMarker}\n`)
+    await page.getByTestId('code-composer-send').tap()
     await expect(composerInput).toHaveValue('')
     await expect.poll(async () => {
       return terminalCheckpointOutput(page, agentId)
@@ -1009,9 +1316,9 @@ test.describe('iPhone mobile layout', () => {
       await filesToggle.click()
     }
     const projectGroup = filesSection.locator('xpath=ancestor::section[contains(@class, "code-project-group")]')
-    await expect(projectGroup.getByTestId('code-project-agent-strip')).toBeVisible()
-    await expect(projectGroup.getByTestId('code-project-agent-compact')).toHaveCount(3)
-    await expect(projectGroup.locator('[data-testid="code-agent-row"][data-agent-id]')).toHaveCount(0)
+    await expect(projectGroup.getByTestId('code-project-agent-strip')).toHaveCount(0)
+    await expect(projectGroup.getByTestId('code-project-agent-compact')).toHaveCount(0)
+    await expect(projectGroup.locator('[data-testid="code-agent-row"][data-agent-id]')).toHaveCount(3)
     const mobileReadmeRow = filesSection.locator('[data-testid="code-file-row"][data-file-path="README.md"]')
     await expect(mobileReadmeRow).toBeVisible()
     const mobileFileActions = mobileReadmeRow.getByRole('button', { name: /File actions for README\.md|README\.md 的文件操作/ })

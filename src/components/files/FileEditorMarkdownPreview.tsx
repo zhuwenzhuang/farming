@@ -36,6 +36,11 @@ import {
   splitLargeMarkdownSections,
   type LargeMarkdownSection,
 } from '@/lib/large-markdown-sections'
+import {
+  normalizeMarkdownPreviewSource,
+  rehypeGuardInvalidKatex,
+  remarkMarkdownPreviewCompatibility,
+} from '@/lib/markdown-preview-compatibility'
 import { rawWorkspaceFileUrl } from '@/lib/workspace-files'
 import { decodeMermaidCharacterReferences } from '@/lib/mermaid-source'
 import { markdownTextContent, mermaidCodeBlockSource } from '@/lib/react-markdown-content'
@@ -48,6 +53,8 @@ interface FileEditorMarkdownPreviewProps {
   activeTabDomId: string
   openFile: OpenWorkspaceFile
   onOpenFilePath: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void> | void
+  initialScrollTop?: number
+  onScrollTopChange?: (scrollTop: number) => void
   copy: CodeCopy
   previewRefreshRevision?: number
 }
@@ -77,6 +84,9 @@ const LARGE_MARKDOWN_PREVIEW_CHARACTERS = 256 * 1024
 const LARGE_MARKDOWN_SECTION_BLOCKS = 40
 const LARGE_MARKDOWN_OVERSCAN_PX = 1_200
 const LARGE_MARKDOWN_INITIAL_SECTIONS = 2
+const MARKDOWN_REMARK_PLUGINS = [remarkGfm, remarkMath, remarkMarkdownPreviewCompatibility]
+const MARKDOWN_REHYPE_PLUGINS = [rehypeGuardInvalidKatex, rehypeKatex]
+const MARKDOWN_HIGHLIGHT_REHYPE_PLUGINS = [rehypeGuardInvalidKatex, rehypeKatex, rehypeHighlight]
 const MarkdownPreviewContext = createContext<MarkdownPreviewContextValue | null>(null)
 
 type LargeMarkdownRenderRange = {
@@ -458,8 +468,8 @@ const LargeMarkdownVirtualSection = memo(function LargeMarkdownVirtualSection({
     >
       <MarkdownPreviewContext.Provider value={sectionContext}>
         <ReactMarkdown
-          remarkPlugins={[remarkGfm, remarkMath]}
-          rehypePlugins={[rehypeKatex]}
+          remarkPlugins={MARKDOWN_REMARK_PLUGINS}
+          rehypePlugins={MARKDOWN_REHYPE_PLUGINS}
           components={MARKDOWN_COMPONENTS}
           skipHtml
         >
@@ -976,23 +986,85 @@ export const FileEditorMarkdownPreview = forwardRef<HTMLElement, FileEditorMarkd
   activeTabDomId,
   openFile,
   onOpenFilePath,
+  initialScrollTop = 0,
+  onScrollTopChange,
   copy,
   previewRefreshRevision = 0,
 }, ref) {
   const previewPanelRef = useRef<HTMLElement | null>(null)
+  const restoringScrollRef = useRef(false)
+  const appliedScrollTopRef = useRef(0)
+  const finishScrollRestoreRef = useRef<(() => void) | null>(null)
   useImperativeHandle(ref, () => previewPanelRef.current as HTMLElement, [])
   const source = openFile.draft ?? openFile.file.content ?? ''
   const markdownDocument = splitMarkdownFrontMatter(source)
+  const previewSource = useMemo(
+    () => normalizeMarkdownPreviewSource(markdownDocument.body),
+    [markdownDocument.body],
+  )
   const isLargeDocument = markdownDocument.body.length > LARGE_MARKDOWN_PREVIEW_CHARACTERS
   const largeDocumentSections = useMemo(
     () => isLargeDocument
-      ? splitLargeMarkdownSections(markdownDocument.body, LARGE_MARKDOWN_SECTION_BLOCKS)
+      ? splitLargeMarkdownSections(previewSource, LARGE_MARKDOWN_SECTION_BLOCKS)
       : [],
-    [isLargeDocument, markdownDocument.body],
+    [isLargeDocument, previewSource],
   )
   const nextHeadingId = createHeadingIdFactory()
   const contextValue = { openFile, onOpenFilePath, copy, nextHeadingId, previewRefreshRevision }
   const previewIdentity = `${openFile.agentId}:${openFile.file.path}`
+
+  useLayoutEffect(() => {
+    const panel = previewPanelRef.current
+    if (!panel) return undefined
+    const target = Math.max(0, initialScrollTop)
+    restoringScrollRef.current = true
+    panel.style.setProperty('overflow-anchor', 'none')
+    let frameId: number | null = null
+    let timeoutId: number | null = null
+    let observer: ResizeObserver | null = null
+
+    const finishRestore = () => {
+      if (!restoringScrollRef.current) return
+      restoringScrollRef.current = false
+      panel.style.removeProperty('overflow-anchor')
+      onScrollTopChange?.(panel.scrollTop)
+      if (frameId !== null) window.cancelAnimationFrame(frameId)
+      if (timeoutId !== null) window.clearTimeout(timeoutId)
+      observer?.disconnect()
+    }
+    const applyRestore = () => {
+      panel.scrollTop = target
+      appliedScrollTopRef.current = panel.scrollTop
+    }
+    const acceptUserPosition = () => finishRestore()
+    finishScrollRestoreRef.current = finishRestore
+
+    applyRestore()
+    frameId = window.requestAnimationFrame(applyRestore)
+    timeoutId = window.setTimeout(finishRestore, 1_000)
+    const article = panel.querySelector('.code-markdown-preview')
+    if (article && typeof ResizeObserver !== 'undefined') {
+      observer = new ResizeObserver(applyRestore)
+      observer.observe(article)
+    }
+    panel.addEventListener('wheel', acceptUserPosition, { passive: true })
+    panel.addEventListener('pointerdown', acceptUserPosition, { passive: true })
+    panel.addEventListener('touchstart', acceptUserPosition, { passive: true })
+    panel.addEventListener('keydown', acceptUserPosition)
+
+    return () => {
+      if (frameId !== null) window.cancelAnimationFrame(frameId)
+      if (timeoutId !== null) window.clearTimeout(timeoutId)
+      observer?.disconnect()
+      panel.removeEventListener('wheel', acceptUserPosition)
+      panel.removeEventListener('pointerdown', acceptUserPosition)
+      panel.removeEventListener('touchstart', acceptUserPosition)
+      panel.removeEventListener('keydown', acceptUserPosition)
+      finishScrollRestoreRef.current = null
+      restoringScrollRef.current = false
+      panel.style.removeProperty('overflow-anchor')
+    }
+  }, [initialScrollTop, onScrollTopChange, previewIdentity])
 
   return (
     <section
@@ -1003,6 +1075,16 @@ export const FileEditorMarkdownPreview = forwardRef<HTMLElement, FileEditorMarkd
       aria-labelledby={activeTabDomId}
       aria-label={copy.markdownPreviewFor(openFile.file.path)}
       tabIndex={-1}
+      onScroll={event => {
+        const scrollTop = event.currentTarget.scrollTop
+        if (restoringScrollRef.current) {
+          if (Math.abs(scrollTop - appliedScrollTopRef.current) > 1) {
+            finishScrollRestoreRef.current?.()
+          }
+          return
+        }
+        onScrollTopChange?.(scrollTop)
+      }}
     >
       <MarkdownPreviewContext.Provider value={contextValue}>
         <article
@@ -1041,12 +1123,12 @@ export const FileEditorMarkdownPreview = forwardRef<HTMLElement, FileEditorMarkd
                 />
               ) : (
                 <ReactMarkdown
-                  remarkPlugins={[remarkGfm, remarkMath]}
-                  rehypePlugins={[rehypeKatex, rehypeHighlight]}
+                  remarkPlugins={MARKDOWN_REMARK_PLUGINS}
+                  rehypePlugins={MARKDOWN_HIGHLIGHT_REHYPE_PLUGINS}
                   components={MARKDOWN_COMPONENTS}
                   skipHtml
                 >
-                  {markdownDocument.body}
+                  {previewSource}
                 </ReactMarkdown>
               )}
             </LocalRenderFault>

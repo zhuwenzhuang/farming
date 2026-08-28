@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type {
   ChangeEvent,
   ClipboardEvent,
@@ -21,7 +21,7 @@ import {
   PlusGlyph,
   ReplyGlyph,
 } from '@/components/IconGlyphs'
-import { isTouchInputViewport } from '@/lib/responsive-mode'
+import { isCompactViewport, isTouchInputViewport } from '@/lib/responsive-mode'
 import { codexModelDisplayName } from './model'
 import type { AgentComposerCapabilities, ComposerAgentKind, SlashCommandOption } from './capabilities'
 import {
@@ -71,7 +71,11 @@ function composerModePlaceholder(copy: CodeCopy, mode: ComposerMode, agentKind: 
 }
 
 function isMobileComposerViewport() {
-  return typeof window !== 'undefined' && isTouchInputViewport()
+  return typeof window !== 'undefined' && isCompactViewport() && isTouchInputViewport()
+}
+
+function isCompactComposerViewport() {
+  return typeof window !== 'undefined' && isCompactViewport()
 }
 
 function compactComposerModelLabel(label: string) {
@@ -261,12 +265,14 @@ export function CodeComposer({
   }))
   const hasModelMatrix = Boolean(modelMatrixFamily(matrixModels, agentModel))
   const [mobileComposerViewport, setMobileComposerViewport] = useState(isMobileComposerViewport)
+  const [compactComposerViewport, setCompactComposerViewport] = useState(isCompactComposerViewport)
   const [recordingElapsedSeconds, setRecordingElapsedSeconds] = useState(0)
   const [textareaFocused, setTextareaFocused] = useState(false)
   const [textareaSelectionStart, setTextareaSelectionStart] = useState(draft.length)
   const [mobileDictationHintVisible, setMobileDictationHintVisible] = useState(false)
   const [dismissedSlashTriggerId, setDismissedSlashTriggerId] = useState<string | null>(null)
   const [activeSlashIndex, setActiveSlashIndex] = useState(0)
+  const [mobileModelMenuRight, setMobileModelMenuRight] = useState<string | undefined>(undefined)
   // iOS already provides dictation from the native keyboard. Only render the
   // web control on a touch viewport when the browser actually exposes a
   // usable SpeechRecognition implementation; otherwise it is dead weight in
@@ -276,6 +282,7 @@ export function CodeComposer({
     && (!mobileComposerViewport || speechSupported)
   const slashCommandRefs = useRef(new Map<string, HTMLButtonElement>())
   const composerRef = useRef<HTMLElement | null>(null)
+  const modelMenuAnchorRef = useRef<HTMLDivElement | null>(null)
   const compositionActiveRef = useRef(false)
   const lastCompositionEndAtRef = useRef(0)
   const latestDraftRef = useRef(draft)
@@ -389,10 +396,39 @@ export function CodeComposer({
     setDismissedSlashTriggerId(null)
   }, [active])
 
+  useLayoutEffect(() => {
+    if (!modelMenuOpen || !mobileComposerViewport) {
+      setMobileModelMenuRight(undefined)
+      return undefined
+    }
+    const updatePosition = () => {
+      const anchor = modelMenuAnchorRef.current
+      const composer = composerRef.current
+      if (!anchor || !composer) return
+      const visualViewport = window.visualViewport
+      const viewportRight = (visualViewport?.offsetLeft ?? 0) + (visualViewport?.width ?? window.innerWidth)
+      const desiredRight = Math.min(composer.getBoundingClientRect().right, viewportRight - 8)
+      const anchorRight = anchor.getBoundingClientRect().right
+      setMobileModelMenuRight(`${anchorRight - desiredRight}px`)
+    }
+    updatePosition()
+    window.addEventListener('resize', updatePosition)
+    window.visualViewport?.addEventListener('resize', updatePosition)
+    window.visualViewport?.addEventListener('scroll', updatePosition)
+    return () => {
+      window.removeEventListener('resize', updatePosition)
+      window.visualViewport?.removeEventListener('resize', updatePosition)
+      window.visualViewport?.removeEventListener('scroll', updatePosition)
+    }
+  }, [mobileComposerViewport, modelMenuOpen])
+
   useEffect(() => {
     if (typeof window === 'undefined') return undefined
     const query = window.matchMedia('(max-width: 980px)')
-    const updateMobileViewport = () => setMobileComposerViewport(isMobileComposerViewport())
+    const updateMobileViewport = () => {
+      setCompactComposerViewport(isCompactComposerViewport())
+      setMobileComposerViewport(isMobileComposerViewport())
+    }
     updateMobileViewport()
     window.addEventListener('resize', updateMobileViewport)
     query.addEventListener('change', updateMobileViewport)
@@ -560,7 +596,7 @@ export function CodeComposer({
           data-testid="code-composer-input"
           ref={textareaRef}
           rows={1}
-          enterKeyHint="send"
+          enterKeyHint={compactComposerViewport ? 'enter' : 'send'}
           name="farming-chat-message"
           inputMode="text"
           autoComplete="off"
@@ -688,7 +724,7 @@ export function CodeComposer({
               }
             }
 
-            if (!shouldSubmitComposerEnter(event, compositionActive, lastCompositionEndAtRef.current)) return
+            if (!shouldSubmitComposerEnter(event, compositionActive, lastCompositionEndAtRef.current, Date.now(), !compactComposerViewport)) return
             event.preventDefault()
             event.stopPropagation()
             onSubmit(composerDraftForSubmit(event.currentTarget.value, latestDraftRef.current))
@@ -886,7 +922,7 @@ export function CodeComposer({
             </div>
               )}
               {showModelPicker && (
-            <div className="code-composer-menu-anchor model-picker">
+            <div className="code-composer-menu-anchor model-picker" ref={modelMenuAnchorRef}>
               <button
                 type="button"
                 className="code-composer-model-picker"
@@ -917,6 +953,7 @@ export function CodeComposer({
                   role="menu"
                   data-testid="code-model-menu"
                   ref={modelMenuRef}
+                  style={mobileModelMenuRight === undefined ? undefined : { right: mobileModelMenuRight }}
                   onKeyDown={onComposerMenuKeyDown}
                   onBlur={onComposerMenuBlur}
                   onMouseDown={event => event.preventDefault()}

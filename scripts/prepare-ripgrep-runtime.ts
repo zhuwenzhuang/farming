@@ -27,11 +27,16 @@ const yauzl = require('yauzl') as {
 };
 
 const projectRoot = path.resolve(__dirname, '..');
-const configuredCacheRoot = process.env.FARMING_RIPGREP_CACHE;
-if (configuredCacheRoot && !path.isAbsolute(configuredCacheRoot)) {
-  throw new Error('FARMING_RIPGREP_CACHE must be an absolute path');
+
+export function managedRipgrepArchiveCacheRoot(
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  const configured = String(env.FARMING_RIPGREP_ARCHIVE_CACHE || '').trim();
+  if (configured && !path.isAbsolute(configured)) {
+    throw new Error('FARMING_RIPGREP_ARCHIVE_CACHE must be an absolute path');
+  }
+  return configured || path.join(projectRoot, 'node_modules', '.cache', 'farming', 'ripgrep');
 }
-const cacheRoot = configuredCacheRoot || path.join(projectRoot, 'node_modules', '.cache', 'farming', 'ripgrep');
 
 function requestedPlatforms(argv = process.argv): string[] {
   const index = argv.indexOf('--platform');
@@ -49,6 +54,7 @@ function sha256(filename: string): string {
 async function downloadArchive(platformKey: string): Promise<string> {
   const artifact = MANAGED_RIPGREP_ARTIFACTS[platformKey];
   if (!artifact) throw new Error(`Farming does not provide ripgrep for ${platformKey}`);
+  const cacheRoot = managedRipgrepArchiveCacheRoot();
   fs.mkdirSync(cacheRoot, { recursive: true });
   const archive = path.join(cacheRoot, artifact.archiveName);
   if (fs.existsSync(archive) && sha256(archive) === artifact.sha256) return archive;

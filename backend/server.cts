@@ -491,9 +491,11 @@ const agentManager = new AgentManager(
   tokenFile: tokenAuth.getTokenFile(),
   authDisabled: !authEnabled,
   cliBinDir: resolveCliBinDir(),
-  transcriptMediaPathPrefix: agentId => routePath(
+  transcriptMediaPathPrefix: (agentId, sessionId) => routePath(
     BASE_PATH,
-    `/api/agents/${encodeURIComponent(agentId)}/acp-media`,
+    sessionId
+      ? `/api/agents/${encodeURIComponent(agentId)}/acp-subagents/${encodeURIComponent(sessionId)}/acp-media`
+      : `/api/agents/${encodeURIComponent(agentId)}/acp-media`,
   ),
   sharedConfigService,
   agentResourceOwnerReplacement: {
@@ -1331,6 +1333,34 @@ app.get(routePath(BASE_PATH, '/api/agents/:agentId/acp-media/:entryId/:mediaId')
       req.params.agentId,
       req.params.entryId,
       req.params.mediaId
+    );
+    const decoded = decodeAcpTranscriptMedia(media);
+    if (!decoded) {
+      res.status(415).json({ error: 'unsupported ACP transcript media' });
+      return;
+    }
+    res.setHeader('Cache-Control', 'private, max-age=31536000, immutable');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.type(decoded.mimeType).send(decoded.content);
+  } catch (caught) {
+    const error = caughtError(caught);
+    const message = error && error.message ? error.message : 'Failed to read ACP transcript media';
+    const status = message === 'Agent not found'
+      || message === 'ACP transcript entry not found'
+      || message === 'ACP transcript media not found'
+      ? 404
+      : 409;
+    res.status(status).json({ error: message });
+  }
+});
+
+app.get(routePath(BASE_PATH, '/api/agents/:agentId/acp-subagents/:sessionId/acp-media/:entryId/:mediaId'), async (req, res) => {
+  try {
+    const media = await agentManager.getAcpTranscriptMedia(
+      req.params.agentId,
+      req.params.entryId,
+      req.params.mediaId,
+      req.params.sessionId,
     );
     const decoded = decodeAcpTranscriptMedia(media);
     if (!decoded) {

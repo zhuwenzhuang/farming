@@ -261,6 +261,23 @@ changed or the returned transcript names another Session. Transcript revision
 may advance during the read; continuously progressing Agents do not wait for a
 quiet revision before returning a self-consistent result.
 
+The Runtime Host projects transcript pages before they cross the Host response
+boundary. Large tool payloads become bounded summaries and inline media becomes
+an on-demand reference while the Host retains the exact entry. Response-size
+enforcement therefore applies to the browser-facing projection, not to an
+unprojected Provider payload that the Server has not yet had a chance to bound.
+The projection carries an explicit version and participates in the Runtime Host
+build identity, so a Server cannot silently attach to a Host with different
+projection semantics.
+
+On-demand reads preserve the same boundary. Media is selected and validated in
+the Host, then transferred in bounded chunks; tool detail and review changes are
+derived in the Host and transferred in bounded pages. The Server fences every
+multi-page read by Session and Runtime epoch before assembling the existing HTTP
+response. Subagent media uses a Session-scoped route so an Entry identity cannot
+resolve against the wrong transcript. A raw transcript Entry is never the
+cross-process payload for these browser APIs.
+
 Provider replay is authoritative. Local checkpoints accelerate projection and
 preserve reset fences, but cannot replace a full load unless the provider can
 prove freshness. An uncertain Prompt leaves the checkpoint dirty.

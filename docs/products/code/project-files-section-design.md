@@ -143,6 +143,10 @@ entry and restores
 its tab, Agent Home, extension kind, query, detail, and scroll position after
 opening a source file.
 
+A context menu opened on empty tree space inherits the current tree selection
+for create operations. It targets the Project root only when the tree has no
+current selection or focus.
+
 Every programmatic reveal on the shared Project scroll surface holds one
 generation lease. A newer file or Agent reveal, or direct pointer, wheel, or
 keyboard intent, revokes the older lease before it can write another scroll
@@ -237,6 +241,16 @@ Text uses the lightweight editor. Markdown and static HTML may switch between
 source and bounded preview within the same file identity. Images, PDFs, binary
 files, and oversized text use read-only viewers. Every Viewer uses the same
 Project authorization; it must not create a separate file-access path.
+Markdown previews remember their per-file scroll position when switching source
+or files. PDF previews retain a bounded set of browser viewer contexts so the
+viewer page, zoom, and scroll state survive ordinary file switching.
+
+Markdown preview accepts GFM and math plus bounded compatibility for Pandoc
+empty anchors, fixed-width simple tables with their source-defined alignment
+and headerless closing-rule form, compact display-math fences, and Pandoc math
+spacing. Compatibility applies only to the rendered preview and never rewrites
+file source. Unsupported math remains visible as source instead of producing
+broken output, and arbitrary raw HTML remains disabled.
 
 Large Markdown preview is segmented at major headings and a bounded block
 count. It preserves ordinary continuous scrolling while mounting only the

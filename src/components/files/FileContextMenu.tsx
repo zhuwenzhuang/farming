@@ -50,7 +50,8 @@ export function FileContextMenu({
   if (!fileMenu) return null
 
   const targetReadOnly = fileMenu.item?.readOnly === true
-  const canCreateInTarget = !readOnly && !targetReadOnly
+  const createTargetReadOnly = fileMenu.createTarget?.readOnly === true
+  const canCreateInTarget = !readOnly && !createTargetReadOnly
   const canChangeTargetEntry = !readOnly && (!targetReadOnly || fileMenu.item?.symbolicLink === true)
 
   return (

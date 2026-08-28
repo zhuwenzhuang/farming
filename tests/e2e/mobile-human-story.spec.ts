@@ -615,6 +615,8 @@ test.describe('mobile Farming Code user story', () => {
     await page.keyboard.insertText(`echo ${marker}`)
     await expect(composerInput).toHaveValue(`echo ${marker}`)
     await page.keyboard.press('Enter')
+    await expect(composerInput).toHaveValue(`echo ${marker}\n`)
+    await page.getByTestId('code-composer-send').tap()
     await expect(composerInput).toHaveValue('')
     await expect.poll(async () => {
       return terminalCheckpointOutput(page, agentId)

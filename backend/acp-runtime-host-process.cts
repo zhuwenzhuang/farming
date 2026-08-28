@@ -7,6 +7,15 @@ import * as path from 'path';
 import { StringDecoder } from 'node:string_decoder';
 import { AcpRuntime } from './acp-runtime.cjs';
 import { AcpRuntimeHostService } from './acp-runtime-host-service.cjs';
+import {
+  ACP_TRANSCRIPT_PROJECTION_VERSION,
+  acpTranscriptEntries,
+  acpTranscriptMedia,
+  acpToolChanges,
+  acpToolDetail,
+  acpToolReviewChanges,
+  decodeAcpTranscriptMedia,
+} from './acp-transcript.cjs';
 import { acpRuntimeHostIdentity } from './acp-runtime-host-identity.cjs';
 import { acpRuntimeHostSocketPath } from './acp-runtime-host-path.cjs';
 import { configInstanceFingerprint } from './config-instance.cjs';
@@ -73,6 +82,10 @@ interface HostMutationOperation {
 const DEFAULT_MAX_REQUEST_BYTES = 16 * 1024 * 1024;
 const DEFAULT_MAX_BUFFERED_BYTES = 16 * 1024 * 1024;
 const DEFAULT_IDLE_EXIT_MS = 60000;
+const MAX_TRANSCRIPT_MEDIA_CHUNK_BYTES = 4 * 1024 * 1024;
+const MAX_TOOL_DETAIL_PAGE_CHARS = 1024 * 1024;
+const MAX_TRANSCRIPT_METADATA_BYTES = 1024 * 1024;
+const MAX_TRANSCRIPT_METADATA_FIELD_BYTES = 256 * 1024;
 
 function errorCode(error: unknown): string {
   return typeof error === 'object' && error !== null && 'code' in error
@@ -82,6 +95,129 @@ function errorCode(error: unknown): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error || 'ACP runtime host request failed');
+}
+
+function serializedBytes(value: unknown): number {
+  try {
+    const serialized = JSON.stringify(value);
+    return typeof serialized === 'string' ? Buffer.byteLength(serialized) : 0;
+  } catch {
+    return Number.POSITIVE_INFINITY;
+  }
+}
+
+function compactTranscriptTransportEntry(value: unknown): UnknownRecord {
+  const entry = value && typeof value === 'object' && !Array.isArray(value)
+    ? value as UnknownRecord
+    : {};
+  const type = String(entry.type || 'message').slice(0, 64);
+  const marker = '[Entry detail omitted to fit the transcript transport boundary]';
+  if (type === 'tool') {
+    return {
+      id: String(entry.id || '').slice(0, 1024),
+      type,
+      title: String(entry.title || '').slice(0, 1024),
+      kind: String(entry.kind || 'other').slice(0, 64),
+      status: String(entry.status || '').slice(0, 64),
+      content: [],
+      transcriptDetail: marker,
+      transcriptDetailTruncated: true,
+      transcriptTransportTruncated: true,
+    };
+  }
+  return {
+    id: String(entry.id || '').slice(0, 1024),
+    type,
+    ...(entry.role ? { role: String(entry.role).slice(0, 64) } : {}),
+    ...(entry.status ? { status: String(entry.status).slice(0, 64) } : {}),
+    content: [{ type: 'text', text: marker }],
+    transcriptTransportTruncated: true,
+  };
+}
+
+function boundedTranscriptMetadata(session: UnknownRecord, maxBytes: number): UnknownRecord {
+  const result: UnknownRecord = {};
+  let remaining = Math.max(0, Math.min(MAX_TRANSCRIPT_METADATA_BYTES, maxBytes));
+  for (const [key, field] of Object.entries(session)) {
+    if (key === 'entries' || key === 'transcriptProjectionVersion') continue;
+    const fieldBytes = serializedBytes(field);
+    if (fieldBytes <= Math.min(MAX_TRANSCRIPT_METADATA_FIELD_BYTES, remaining)) {
+      result[key] = field;
+      remaining -= fieldBytes;
+      continue;
+    }
+    result[key] = Array.isArray(field) ? [] : field && typeof field === 'object' ? {} : String(field || '').slice(0, 4096);
+    result[`${key}TransportTruncated`] = true;
+  }
+  return result;
+}
+
+function fitTranscriptEntriesForTransport(entries: unknown[], availableBytes: number) {
+  const fitted = new Array(entries.length);
+  let remaining = Math.max(0, availableBytes);
+  let truncatedEntries = 0;
+  let omittedEntries = 0;
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const entry = entries[index];
+    const entryBytes = serializedBytes(entry) + 1;
+    if (entryBytes <= remaining) {
+      fitted[index] = entry;
+      remaining -= entryBytes;
+      continue;
+    }
+    const compact = compactTranscriptTransportEntry(entry);
+    const compactBytes = serializedBytes(compact) + 1;
+    if (compactBytes <= remaining) {
+      fitted[index] = compact;
+      remaining -= compactBytes;
+      truncatedEntries += 1;
+    } else {
+      fitted[index] = null;
+      omittedEntries += 1;
+    }
+  }
+  const result = fitted.filter(Boolean);
+  if (omittedEntries > 0) {
+    result.unshift({
+      id: 'transcript-transport-omission',
+      type: 'message',
+      role: 'assistant',
+      content: [{ type: 'text', text: `[${omittedEntries} older transcript entries omitted to fit the transport boundary]` }],
+      transcriptTransportTruncated: true,
+    });
+  }
+  return { entries: result, truncatedEntries: truncatedEntries + omittedEntries };
+}
+
+function projectTranscriptSessionForTransport(
+  value: unknown,
+  options: UnknownRecord = {},
+  maxResponseBytes = DEFAULT_MAX_REQUEST_BYTES,
+): unknown {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+  const session = value as UnknownRecord;
+  const metadataBudget = Math.max(4096, Math.min(MAX_TRANSCRIPT_METADATA_BYTES, Math.floor(maxResponseBytes / 4)));
+  const metadata = boundedTranscriptMetadata(session, metadataBudget);
+  const entries = acpTranscriptEntries(session.entries, {
+    mediaPathPrefix: typeof options.mediaPathPrefix === 'string'
+      ? options.mediaPathPrefix
+      : undefined,
+  });
+  const base = {
+    ...metadata,
+    transcriptProjectionVersion: ACP_TRANSCRIPT_PROJECTION_VERSION,
+    entries: [],
+  };
+  const responseReserve = Math.max(4096, Math.min(64 * 1024, Math.floor(maxResponseBytes / 16)));
+  const availableBytes = Math.max(0, maxResponseBytes - serializedBytes(base) - responseReserve);
+  const fitted = fitTranscriptEntriesForTransport(entries, availableBytes);
+  return {
+    ...base,
+    entries: fitted.entries,
+    ...(fitted.truncatedEntries > 0
+      ? { transcriptTransportTruncatedEntries: fitted.truncatedEntries }
+      : {}),
+  };
 }
 
 class AcpRuntimeHostProcess {
@@ -387,18 +523,125 @@ class AcpRuntimeHostProcess {
         return this.runtime.getSessionRequestOptions(String(params.agentId || ''));
       case 'getSessionForRead':
         return this.runtime.getSessionForRead(String(params.agentId || ''), params.options as UnknownRecord);
-      case 'getTranscriptSessionForRead':
-        return this.runtime.getTranscriptSessionForRead(String(params.agentId || ''), params.options as UnknownRecord);
-      case 'getSubagentTranscriptSessionForRead':
-        return this.runtime.getSubagentTranscriptSessionForRead(
+      case 'getTranscriptSessionForRead': {
+        const options = params.options && typeof params.options === 'object'
+          ? params.options as UnknownRecord
+          : {};
+        const session = await this.runtime.getTranscriptSessionForRead(
+          String(params.agentId || ''),
+          options,
+        );
+        return projectTranscriptSessionForTransport(session, options, this.maxResponseBytes);
+      }
+      case 'getSubagentTranscriptSessionForRead': {
+        const options = params.options && typeof params.options === 'object'
+          ? params.options as UnknownRecord
+          : {};
+        const session = await this.runtime.getSubagentTranscriptSessionForRead(
           String(params.agentId || ''),
           String(params.sessionId || ''),
-          params.options as UnknownRecord,
+          options,
         );
+        return projectTranscriptSessionForTransport(session, options, this.maxResponseBytes);
+      }
       case 'getTranscriptEntryForRead':
-        return this.runtime.getTranscriptEntryForRead(String(params.agentId || ''), String(params.entryId || ''));
+        throw new Error('ACP Runtime Host transcript entries require a bounded media or detail read');
+      case 'getTranscriptMediaChunkForRead': {
+        const agentId = String(params.agentId || '');
+        const sessionId = String(params.sessionId || '');
+        const entryId = String(params.entryId || '');
+        const mediaId = String(params.mediaId || '');
+        const offset = Math.max(0, Math.floor(Number(params.offset) || 0));
+        const maxBytes = Math.max(1, Math.min(
+          MAX_TRANSCRIPT_MEDIA_CHUNK_BYTES,
+          Math.floor(Number(params.maxBytes) || MAX_TRANSCRIPT_MEDIA_CHUNK_BYTES),
+        ));
+        const entry = this.runtime.getTranscriptEntryForSessionRead(
+          agentId,
+          sessionId,
+          entryId,
+          params.subagentOnly === true,
+        );
+        if (!entry) return null;
+        const media = acpTranscriptMedia(entry, mediaId);
+        const decoded = decodeAcpTranscriptMedia(media);
+        if (!media || !decoded || offset > decoded.content.length) return null;
+        const contentHash = crypto.createHash('sha256').update(decoded.content).digest('hex');
+        const end = Math.min(decoded.content.length, offset + maxBytes);
+        return {
+          sessionId,
+          entryId,
+          mediaId,
+          type: String(media.type || ''),
+          mimeType: decoded.mimeType,
+          totalBytes: decoded.content.length,
+          contentHash,
+          offset,
+          dataBase64: decoded.content.subarray(offset, end).toString('base64'),
+          nextOffset: end < decoded.content.length ? end : null,
+        };
+      }
       case 'getToolEntryForRead':
-        return this.runtime.getToolEntryForRead(String(params.agentId || ''), String(params.toolCallId || ''));
+        throw new Error('ACP Runtime Host tool entries require a bounded detail read');
+      case 'getToolDetailPageForRead': {
+        const agentId = String(params.agentId || '');
+        const toolCallId = String(params.toolCallId || '');
+        const offset = Math.max(0, Math.floor(Number(params.offset) || 0));
+        const maxChars = Math.max(1, Math.min(
+          MAX_TOOL_DETAIL_PAGE_CHARS,
+          Math.floor(Number(params.maxChars) || MAX_TOOL_DETAIL_PAGE_CHARS),
+        ));
+        const entry = await this.runtime.getToolEntryForRead(agentId, toolCallId);
+        if (!entry) return null;
+        const session = this.runtime.getSession(agentId, { includeEntries: false, includeUpdates: false });
+        const subagentSessionId = String(entry?._meta?.subagent_session_info?.session_id || '');
+        const serializedDetail = JSON.stringify({
+          detail: acpToolDetail(entry),
+          changes: acpToolChanges(entry),
+          terminals: (Array.isArray(entry.content) ? entry.content : [])
+            .filter((block: UnknownRecord) => block.type === 'terminal')
+            .map((block: UnknownRecord) => ({
+              terminalId: String(block.terminalId || ''),
+              ...(block.terminal ? { terminal: block.terminal } : {}),
+            })),
+          ...(subagentSessionId ? { subagentSessionId } : {}),
+        });
+        const detailHash = crypto.createHash('sha256').update(serializedDetail).digest('hex');
+        const end = Math.min(serializedDetail.length, offset + maxChars);
+        return {
+          sessionId: String(session.sessionId || ''),
+          toolCallId,
+          offset,
+          serializedDetail: serializedDetail.slice(offset, end),
+          totalChars: serializedDetail.length,
+          detailHash,
+          nextOffset: end < serializedDetail.length ? end : null,
+        };
+      }
+      case 'getToolReviewChangesPageForRead': {
+        const agentId = String(params.agentId || '');
+        const toolCallId = String(params.toolCallId || '');
+        const offset = Math.max(0, Math.floor(Number(params.offset) || 0));
+        const maxChars = Math.max(1, Math.min(
+          MAX_TOOL_DETAIL_PAGE_CHARS,
+          Math.floor(Number(params.maxChars) || MAX_TOOL_DETAIL_PAGE_CHARS),
+        ));
+        const entry = await this.runtime.getToolEntryForRead(agentId, toolCallId);
+        if (!entry) return null;
+        const session = this.runtime.getSession(agentId, { includeEntries: false, includeUpdates: false });
+        const serializedChanges = JSON.stringify(acpToolReviewChanges(entry));
+        const changesHash = crypto.createHash('sha256').update(serializedChanges).digest('hex');
+        const end = Math.min(serializedChanges.length, offset + maxChars);
+        return {
+          sessionId: String(session.sessionId || ''),
+          toolCallId,
+          offset,
+          serializedChanges: serializedChanges.slice(offset, end),
+          totalChars: serializedChanges.length,
+          changesHash,
+          nextOffset: end < serializedChanges.length ? end : null,
+        };
+      }
       case 'respondPermission':
         return this.runtime.respondPermission(
           String(params.agentId || ''),

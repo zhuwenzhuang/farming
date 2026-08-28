@@ -116,6 +116,50 @@ test('an ACP Transcript read allows revision progress while Session identity sta
   }
 });
 
+test('an ACP Transcript read rejects a projection revision change during the read', async () => {
+  const agent = {
+    id: 'agent-a',
+    providerSessionId: 'session-a',
+    runtimeBinding: runtimeBinding(8),
+  };
+  let projectionRevision = 4;
+  let releaseRead!: () => void;
+  const readGate = new Promise<void>(resolve => { releaseRead = resolve; });
+  let readStarted!: () => void;
+  const started = new Promise<void>(resolve => { readStarted = resolve; });
+  const runtime = {
+    bindingEpoch: () => 'epoch-a',
+    getSession: () => ({ sessionId: 'session-a', revision: 8 }),
+    transcriptProjectionRevision: () => projectionRevision,
+    transcriptSettled: () => true,
+    async getTranscriptSessionForRead() {
+      readStarted();
+      await readGate;
+      return {
+        sessionId: 'session-a',
+        revision: 8,
+        entries: [],
+      };
+    },
+  };
+  const service = new AcpTranscriptService({
+    getAgent: () => agent as never,
+    mediaPathPrefix: () => '/media',
+    requireLiveAgent: () => agent as never,
+    runtime: runtime as never,
+  });
+
+  try {
+    const read = service.get('agent-a', { maxTurns: 6 });
+    await started;
+    projectionRevision += 1;
+    releaseRead();
+    await assert.rejects(read, /identity changed during read/i);
+  } finally {
+    service.dispose();
+  }
+});
+
 test('an ACP Transcript read rejects a transcript from another Session', async () => {
   const agent = {
     id: 'agent-a',
@@ -147,6 +191,94 @@ test('an ACP Transcript read rejects a transcript from another Session', async (
       service.get('agent-a', { maxTurns: 6 }),
       /identity changed during read/i,
     );
+  } finally {
+    service.dispose();
+  }
+});
+
+test('a Runtime Host projection crosses the Server without a second lossy projection', async () => {
+  const agent = {
+    id: 'agent-a',
+    providerSessionId: 'session-a',
+    runtimeBinding: runtimeBinding(8),
+  };
+  const projectedTool = {
+    id: 'tool-a',
+    type: 'tool',
+    title: 'Projected tool',
+    kind: 'other',
+    status: 'completed',
+    content: [{ type: 'image', mimeType: 'image/png', url: '/media/tool-a/hash' }],
+    transcriptDetail: 'bounded detail',
+    transcriptDetailTruncated: true,
+    transcriptPatchSummary: '',
+    transcriptChanges: [],
+    generatedMedia: false,
+    explicitOutputMedia: true,
+    internal: false,
+  };
+  const runtime = {
+    bindingEpoch: () => 'epoch-a',
+    getSession: () => ({ sessionId: 'session-a', revision: 8 }),
+    transcriptProjectionRevision: () => 0,
+    transcriptSettled: () => true,
+    async getTranscriptSessionForRead() {
+      return {
+        sessionId: 'session-a',
+        revision: 8,
+        transcriptProjectionVersion: 1,
+        entries: [projectedTool],
+      };
+    },
+  };
+  const service = new AcpTranscriptService({
+    getAgent: () => agent as never,
+    mediaPathPrefix: () => '/media',
+    requireLiveAgent: () => agent as never,
+    runtime: runtime as never,
+  });
+
+  try {
+    const payload = await service.get('agent-a', { maxTurns: 6 });
+    assert.deepEqual((payload.transcript as { entries: unknown[] }).entries, [projectedTool]);
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(payload.transcript, 'transcriptProjectionVersion'),
+      false,
+    );
+  } finally {
+    service.dispose();
+  }
+});
+
+test('an unknown Runtime Host transcript projection version is rejected', async () => {
+  const agent = {
+    id: 'agent-a',
+    providerSessionId: 'session-a',
+    runtimeBinding: runtimeBinding(8),
+  };
+  const runtime = {
+    bindingEpoch: () => 'epoch-a',
+    getSession: () => ({ sessionId: 'session-a', revision: 8 }),
+    transcriptProjectionRevision: () => 0,
+    transcriptSettled: () => true,
+    async getTranscriptSessionForRead() {
+      return {
+        sessionId: 'session-a',
+        revision: 8,
+        transcriptProjectionVersion: 999,
+        entries: [],
+      };
+    },
+  };
+  const service = new AcpTranscriptService({
+    getAgent: () => agent as never,
+    mediaPathPrefix: () => '/media',
+    requireLiveAgent: () => agent as never,
+    runtime: runtime as never,
+  });
+
+  try {
+    await assert.rejects(service.get('agent-a', { maxTurns: 6 }), /projection version/i);
   } finally {
     service.dispose();
   }

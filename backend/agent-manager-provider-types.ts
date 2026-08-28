@@ -518,8 +518,29 @@ export interface AcpRuntimeContract {
   ): Promise<Record<string, unknown> | null>;
   getTranscriptEntry(agentId: string, entryId: string): AcpTranscriptEntry | null;
   getTranscriptEntryForRead(agentId: string, entryId: string): Promise<AcpTranscriptEntry | null>;
+  getTranscriptMediaChunkForRead?(
+    agentId: string,
+    sessionId: string,
+    entryId: string,
+    mediaId: string,
+    offset: number,
+    maxBytes: number,
+    subagentOnly?: boolean,
+  ): Promise<Record<string, unknown> | null>;
   getToolEntry(agentId: string, toolCallId: string): AcpTranscriptEntry | null;
   getToolEntryForRead(agentId: string, toolCallId: string): Promise<AcpTranscriptEntry | null>;
+  getToolDetailPageForRead?(
+    agentId: string,
+    toolCallId: string,
+    offset: number,
+    maxChars: number,
+  ): Promise<Record<string, unknown> | null>;
+  getToolReviewChangesPageForRead?(
+    agentId: string,
+    toolCallId: string,
+    offset: number,
+    maxChars: number,
+  ): Promise<Record<string, unknown> | null>;
   transcriptProjectionRevision(agentId: string): number;
   getSessionRequestOptions(agentId: string): AcpSessionRequestOptions;
   bindingCheckpoint(binding: AcpBindingContract): AcpBindingCheckpointView;

@@ -95,6 +95,7 @@ import {
   isExternalTranscriptHref,
   isTranscriptFileLineHref,
   normalizeTranscriptHref,
+  transcriptFileTargetFromHref,
   transcriptFileTargetFromText,
   transcriptImageFilePath,
 } from '@/lib/transcript-file-links'
@@ -2665,7 +2666,7 @@ function AgentTranscriptTurnView({
   const effectiveProcessOpen = processOpen
   const markdownComponents = useMemo<Components>(() => ({
     a: ({ href, children, onClick, ...props }) => {
-      const target = href ? transcriptFileTargetFromText(href, workspaceRoot) : null
+      const target = href ? transcriptFileTargetFromHref(href, workspaceRoot) : null
       const imageUrl = target
         && transcriptImageFilePath(target.filePath)
         ? target.target.globalRoot === true

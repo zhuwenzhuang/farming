@@ -118,16 +118,22 @@ async function stopServerProcess(child: ReturnType<typeof startServerProcess> | 
 async function fetchJson(
   baseUrl: string,
   pathname: string,
-  options: RequestInit = {},
+  options: RequestInit & { timeoutMs?: number } = {},
 ): Promise<{ body: UnknownRecord; response: Response }> {
-  const response = await fetch(`${baseUrl}${pathname}`, {
-    ...options,
-    signal: options.signal || AbortSignal.timeout(5_000),
-    headers: {
-      'Content-Type': 'application/json',
-      ...(options.headers || {}),
-    },
-  });
+  const { timeoutMs = 5_000, ...requestOptions } = options;
+  let response: Response;
+  try {
+    response = await fetch(`${baseUrl}${pathname}`, {
+      ...requestOptions,
+      signal: requestOptions.signal || AbortSignal.timeout(timeoutMs),
+      headers: {
+        'Content-Type': 'application/json',
+        ...(requestOptions.headers || {}),
+      },
+    });
+  } catch (error) {
+    throw new Error(`${String(requestOptions.method || 'GET')} ${pathname} failed during ${currentPhase}`, { cause: error });
+  }
   const body: unknown = await response.json().catch(() => ({}));
   return { response, body: isRecord(body) ? body : {} };
 }
@@ -283,6 +289,7 @@ async function run(): Promise<void> {
     currentPhase = 'creating ACP Agent';
     const created = await fetchJson(firstBaseUrl, '/api/control/agents', {
       method: 'POST',
+      timeoutMs: 15_000,
       body: JSON.stringify({
         command: 'codex',
         workspace,

@@ -18,6 +18,7 @@ import type { WorkspaceFileOpenTarget } from '@/lib/workspace-file-search'
 import type { WorkspaceFileOperationState } from '@/lib/workspace-file-operation-model'
 import type { WorkspaceFileTreeNode as FileExplorerNode } from '@/lib/workspace-file-tree'
 import type { WorkspaceFileDecorationStore } from '@/lib/workspace-file-decorations'
+import { workspaceFileTreeKeyboardTargetPath } from '@/lib/workspace-file-view-model'
 import type { CodeCopy } from '../code/copy'
 import { FileTreeRow } from './FileTreeRow'
 
@@ -47,7 +48,13 @@ export interface FileTreeViewProps {
   onCancelPendingFileFocus: () => void
   onCloseFileOperation: () => void
   onFocusFileTreeTarget: (item: FileExplorerNode | null) => void
-  onOpenFileContextMenu: (x: number, y: number, item: FileExplorerNode | null) => void
+  onOpenFileContextMenu: (
+    x: number,
+    y: number,
+    item: FileExplorerNode | null,
+    focusFirstItem?: boolean,
+    createTarget?: FileExplorerNode | null,
+  ) => void
   onOpenFilePath: (filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void>
   onRememberFileOperationName: (name: string) => void
   onToggleDirectory: (path: string) => boolean
@@ -317,29 +324,36 @@ const FileTreeViewContent = memo(function FileTreeViewContent({
     const treeWindow = treeWindowRef.current
     if (!viewport || !scroller || !treeWindow) return undefined
     let frameId = 0
-    const synchronize = () => {
-      frameId = 0
+    const synchronizeWindow = () => {
       const viewportRect = viewport.getBoundingClientRect()
       const scrollerRect = scroller.getBoundingClientRect()
       const maxOffset = Math.max(0, treeHeight - treeWindowHeight)
       const offset = Math.max(0, Math.min(maxOffset, scrollerRect.top - viewportRect.top))
       virtualScrollOffsetRef.current = offset
       treeWindow.style.transform = `translateY(${offset}px)`
-      treeRef.current?.list.current?.scrollTo(offset)
+      return offset
+    }
+    const synchronize = () => {
+      frameId = 0
+      treeRef.current?.list.current?.scrollTo(synchronizeWindow())
     }
     const scheduleSynchronize = () => {
       if (frameId) return
       frameId = window.requestAnimationFrame(synchronize)
     }
+    const handleScrollerScroll = () => {
+      synchronizeWindow()
+      scheduleSynchronize()
+    }
     synchronize()
-    scroller.addEventListener('scroll', scheduleSynchronize, { passive: true })
+    scroller.addEventListener('scroll', handleScrollerScroll, { passive: true })
     window.addEventListener('resize', scheduleSynchronize)
     const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(scheduleSynchronize)
     observer?.observe(viewport)
     return () => {
       if (frameId) window.cancelAnimationFrame(frameId)
       observer?.disconnect()
-      scroller.removeEventListener('scroll', scheduleSynchronize)
+      scroller.removeEventListener('scroll', handleScrollerScroll)
       window.removeEventListener('resize', scheduleSynchronize)
     }
   }, [treeHeight, treeRef, treeViewportRef, treeWindowHeight])
@@ -366,8 +380,19 @@ const FileTreeViewContent = memo(function FileTreeViewContent({
     if ((event.target as HTMLElement | null)?.closest('[data-file-path]')) return
     event.preventDefault()
     onCancelPendingFileFocus()
-    onOpenFileContextMenu(event.clientX, event.clientY, null)
-  }, [onCancelPendingFileFocus, onOpenFileContextMenu])
+    const selectedPath = treeViewportRef.current
+      ?.querySelector<HTMLElement>('[data-file-path].selected')
+      ?.dataset.filePath
+    const tree = treeRef.current
+    const focusedNode = tree?.focusedNode && !tree.focusedNode.isRoot ? tree.focusedNode : null
+    const targetPath = workspaceFileTreeKeyboardTargetPath({
+      selectedPath,
+      focusedPath: focusedNode?.data.path,
+      lastFocusedPath: lastFocusedFilePathRef.current,
+    })
+    const targetItem = targetPath ? tree?.get(targetPath)?.data ?? null : null
+    onOpenFileContextMenu(event.clientX, event.clientY, null, false, targetItem)
+  }, [lastFocusedFilePathRef, onCancelPendingFileFocus, onOpenFileContextMenu, treeRef, treeViewportRef])
 
   const handleViewportClickCapture = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
     const row = (event.target as HTMLElement | null)?.closest<HTMLElement>('[data-file-path]')

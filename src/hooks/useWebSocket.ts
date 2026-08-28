@@ -70,7 +70,10 @@ import {
 const LAST_MESSAGE_STATE_THROTTLE_MS = 1000
 const BUSINESS_HEALTH_INTERVAL_MS = 10_000
 const BUSINESS_HEALTH_DEADLINE_MS = 8_000
+const FOREGROUND_BUSINESS_HEALTH_DEADLINE_MS = 2_500
 const BUSINESS_HEALTH_RETRY_MS = 2_000
+const WEBSOCKET_CONNECT_DEADLINE_MS = 8_000
+const WEBSOCKET_CLOSE_DEADLINE_MS = 1_000
 const AGENT_STATE_SNAPSHOT_PAGE_DEADLINE_MS = 30_000
 let languageServerRefreshModulePromise: Promise<typeof import('../../extensions/language-server/frontend/monaco-providers')> | null = null
 
@@ -549,10 +552,13 @@ export function useWebSocket() {
     resetAgentLiveStates()
     let reconnectTimer: ReturnType<typeof setTimeout>
     let disposed = false
+    let reconnectBlocked = false
     let activeSocket: WebSocket | null = null
     let lastMessageStateUpdateAt = 0
     let businessProbeTimer: ReturnType<typeof setTimeout> | null = null
     let businessProbeDeadline: ReturnType<typeof setTimeout> | null = null
+    let socketConnectDeadline: ReturnType<typeof setTimeout> | null = null
+    let socketCloseDeadline: ReturnType<typeof setTimeout> | null = null
     let agentStateSnapshotDeadline: ReturnType<typeof setTimeout> | null = null
     let pendingBusinessProbeId = ''
     let businessProbeSequence = 0
@@ -603,6 +609,16 @@ export function useWebSocket() {
       businessProbeDeadline = null
     }
 
+    function clearSocketConnectDeadline() {
+      if (socketConnectDeadline) clearTimeout(socketConnectDeadline)
+      socketConnectDeadline = null
+    }
+
+    function clearSocketCloseDeadline() {
+      if (socketCloseDeadline) clearTimeout(socketCloseDeadline)
+      socketCloseDeadline = null
+    }
+
     function scheduleBusinessProbe(ws: WebSocket, delay: number) {
       if (businessProbeTimer) clearTimeout(businessProbeTimer)
       businessProbeTimer = setTimeout(() => {
@@ -611,7 +627,11 @@ export function useWebSocket() {
       }, delay)
     }
 
-    function sendBusinessProbe(ws: WebSocket) {
+    function sendBusinessProbe(
+      ws: WebSocket,
+      deadlineMs = BUSINESS_HEALTH_DEADLINE_MS,
+      replaceOnTimeout = false,
+    ) {
       if (
         disposed
         || wsRef.current !== ws
@@ -632,8 +652,12 @@ export function useWebSocket() {
           businessStatus: 'unresponsive',
           businessCheckedAt: Date.now(),
         })
-        scheduleBusinessProbe(ws, BUSINESS_HEALTH_RETRY_MS)
-      }, BUSINESS_HEALTH_DEADLINE_MS)
+        if (replaceOnTimeout) {
+          replaceConnection(ws, 'Business health probe timed out')
+        } else {
+          scheduleBusinessProbe(ws, BUSINESS_HEALTH_RETRY_MS)
+        }
+      }, deadlineMs)
     }
 
     function resetBusinessProbeObservation() {
@@ -646,21 +670,65 @@ export function useWebSocket() {
       })
     }
 
-    function handlePageVisibilityChange() {
-      const ws = activeSocket
-      resetBusinessProbeObservation()
-      if (document.visibilityState !== 'hidden' && ws?.readyState === WebSocket.OPEN) {
-        sendBusinessProbe(ws)
+    function replaceConnection(ws: WebSocket, reason: string) {
+      if (disposed || reconnectBlocked || wsRef.current !== ws) return
+      clearSocketCloseDeadline()
+      try {
+        ws.close(4000, reason)
+      } catch {
+        // The bounded fallback below owns cleanup if the mobile browser has
+        // already discarded the native socket behind this JavaScript object.
       }
+      socketCloseDeadline = setTimeout(() => {
+        socketCloseDeadline = null
+        if (disposed || wsRef.current !== ws) return
+        const closeHandler = ws.onclose
+        ws.onclose = null
+        closeHandler?.call(ws, new CloseEvent('close', { code: 4000, reason, wasClean: false }))
+      }, WEBSOCKET_CLOSE_DEADLINE_MS)
+    }
+
+    function recoverForegroundConnection() {
+      resetBusinessProbeObservation()
+      const ws = wsRef.current
+      if (ws?.readyState === WebSocket.OPEN) {
+        sendBusinessProbe(ws, FOREGROUND_BUSINESS_HEALTH_DEADLINE_MS, true)
+        return
+      }
+      if (ws) return
+      connect()
+    }
+
+    function handlePageVisibilityChange() {
+      if (document.visibilityState === 'hidden') {
+        resetBusinessProbeObservation()
+        return
+      }
+      recoverForegroundConnection()
+    }
+
+    function handlePageShow() {
+      recoverForegroundConnection()
+    }
+
+    function handleOnline() {
+      recoverForegroundConnection()
     }
 
     document.addEventListener('visibilitychange', handlePageVisibilityChange)
+    window.addEventListener('pageshow', handlePageShow)
+    window.addEventListener('online', handleOnline)
 
     function connect() {
       // ACP transcript revisions and terminal output arrive on this socket.
       // Keep it alive in hidden tabs so Chat keeps progressing and returning
       // to the page does not manufacture a disconnected/reconnecting state.
-      if (disposed) return
+      if (disposed || reconnectBlocked) return
+      const currentSocket = wsRef.current
+      if (
+        currentSocket
+        && (currentSocket.readyState === WebSocket.OPEN || currentSocket.readyState === WebSocket.CONNECTING)
+      ) return
       setTerminalSessionTransportReady(false)
       setWorkspaceRequestTransportReady(false)
       accessModeRef.current = 'unknown'
@@ -677,12 +745,19 @@ export function useWebSocket() {
       const ws = new WebSocket(wsUrl)
       activeSocket = ws
       wsRef.current = ws
+      clearSocketConnectDeadline()
+      socketConnectDeadline = setTimeout(() => {
+        socketConnectDeadline = null
+        if (disposed || wsRef.current !== ws || ws.readyState === WebSocket.OPEN) return
+        replaceConnection(ws, 'WebSocket connection timed out')
+      }, WEBSOCKET_CONNECT_DEADLINE_MS)
       // Actionable upgrade guidance shown when this connection ends with a
       // protocol-mismatch close instead of the generic refresh hint.
       let protocolMismatchNotice = ''
 
       ws.onopen = () => {
         if (disposed || wsRef.current !== ws) return
+        clearSocketConnectDeadline()
         lastMessageStateUpdateAt = Date.now()
         setState(prev => ({
           ...prev,
@@ -1204,6 +1279,7 @@ export function useWebSocket() {
 
       ws.onclose = (event) => {
         if (disposed || wsRef.current !== ws) return
+        clearSocketCloseDeadline()
         setTerminalSessionTransportReady(false)
         setWorkspaceRequestTransportReady(false)
         const terminalError = event.code === 4001
@@ -1211,6 +1287,7 @@ export function useWebSocket() {
           : event.code === 4002
             ? (protocolMismatchNotice || 'Farming frontend and backend versions differ. Refresh this page.')
             : null
+        clearSocketConnectDeadline()
         resetBusinessProbeObservation()
         clearAgentStateSnapshotDeadline()
         accessModeRef.current = 'unknown'
@@ -1235,6 +1312,7 @@ export function useWebSocket() {
           browserResources: null,
           computerResources: null,
         }))
+        reconnectBlocked = Boolean(terminalError)
         updateBackendConnectionStatus({ reconnecting: terminalError === null })
         markBackendDisconnected()
         window.dispatchEvent(new CustomEvent('farming:backend-disconnected', {
@@ -1257,7 +1335,11 @@ export function useWebSocket() {
       setTerminalSessionTransportReady(false)
       setWorkspaceRequestTransportReady(false)
       clearTimeout(reconnectTimer)
+      clearSocketConnectDeadline()
+      clearSocketCloseDeadline()
       document.removeEventListener('visibilitychange', handlePageVisibilityChange)
+      window.removeEventListener('pageshow', handlePageShow)
+      window.removeEventListener('online', handleOnline)
       clearBusinessProbeTimers()
       clearAgentStateSnapshotDeadline()
       if (wsRef.current === activeSocket) {

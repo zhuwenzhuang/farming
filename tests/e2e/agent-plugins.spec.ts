@@ -11,6 +11,24 @@ import {
 } from './fixtures'
 import { selectCodeOption } from './code-select'
 
+const mobilePluginAuditDir = process.env.FARMING_MOBILE_PLUGIN_AUDIT_DIR
+
+async function captureMobilePluginAudit(page: import('@playwright/test').Page, name: string) {
+  if (!mobilePluginAuditDir) return
+  fs.mkdirSync(mobilePluginAuditDir, { recursive: true })
+  for (const [cardName, testId] of [
+    ['browser', 'code-plugin-browser'],
+    ['computer', 'code-plugin-computer'],
+    ['language-server', 'code-plugin-language-server'],
+  ] as const) {
+    await page.getByTestId(testId).screenshot({
+      path: path.join(mobilePluginAuditDir, `${name}-${cardName}.png`),
+      animations: 'disabled',
+      scale: 'css',
+    })
+  }
+}
+
 test('Plugins treats each Agent Home as an independent ordered Agent configuration', async ({ page, workspaceRoot }) => {
   await openFarming(page)
   const currentSettingsResponse = await page.request.get('/farming/api/settings')
@@ -628,4 +646,117 @@ test('Plugins shows a read-only extension catalog from one exact Agent Home', {
   await panel.getByRole('button', { name: 'Refresh', exact: true }).click()
   await panel.getByTestId('code-plugin-extension-kind-hook').click()
   await expect(panel.getByText('SessionStart', { exact: true })).toBeVisible()
+})
+
+test('Plugins keeps built-in capabilities aligned without page overflow on narrow screens', async ({ page }) => {
+  await openFarming(page)
+  await page.getByTestId('code-nav-plugins').click()
+  const panel = page.getByTestId('code-plugins-panel')
+  await expect(panel.getByTestId('code-plugin-tab-farming')).toHaveAttribute('aria-selected', 'true')
+
+  for (const viewport of [
+    { width: 720, height: 900 },
+    { width: 390, height: 844 },
+    { width: 320, height: 720 },
+  ]) {
+    await page.setViewportSize(viewport)
+    for (const appearance of ['light', 'dark', 'paper'] as const) {
+      await panel.locator('.code-plugins-panel-header').scrollIntoViewIfNeeded()
+      await page.evaluate(value => {
+        document.documentElement.dataset.appearance = value
+        document.body.dataset.appearance = value
+      }, appearance)
+      const cards = panel.locator('.code-plugin-card')
+      await expect(cards).toHaveCount(3)
+      await expect(cards.first()).toBeVisible()
+      const layout = await panel.evaluate(element => {
+        const view = element.closest('.code-plugins-view') as HTMLElement | null
+        const tabs = element.querySelector<HTMLElement>('.code-plugin-tabs')
+        const cardElements = Array.from(element.querySelectorAll<HTMLElement>('.code-plugin-card'))
+        return {
+          pageWidth: document.documentElement.scrollWidth,
+          viewportWidth: window.innerWidth,
+          viewClientWidth: view?.clientWidth ?? 0,
+          viewScrollWidth: view?.scrollWidth ?? 0,
+          tabsOverflow: tabs ? getComputedStyle(tabs).overflowX : '',
+          tabsClientWidth: tabs?.clientWidth ?? 0,
+          tabsScrollWidth: tabs?.scrollWidth ?? 0,
+          cards: cardElements.map(card => {
+            const rect = card.getBoundingClientRect()
+            const icon = card.querySelector('.code-plugin-card-icon')?.getBoundingClientRect()
+            const copy = card.querySelector('.code-plugin-card-copy')?.getBoundingClientRect()
+            const toggle = card.querySelector('.code-plugin-toggle')?.getBoundingClientRect()
+            return {
+              left: rect.left,
+              right: rect.right,
+              width: rect.width,
+              iconLeft: icon?.left ?? -1,
+              copyLeft: copy?.left ?? -1,
+              toggleLeft: toggle?.left ?? -1,
+              toggleRight: toggle?.right ?? -1,
+            }
+          }),
+        }
+      })
+      expect(layout.pageWidth).toBeLessThanOrEqual(layout.viewportWidth)
+      expect(layout.viewScrollWidth).toBeLessThanOrEqual(layout.viewClientWidth + 1)
+      expect(layout.tabsOverflow).toBe('auto')
+      if (viewport.width <= 320) expect(layout.tabsScrollWidth).toBeGreaterThan(layout.tabsClientWidth)
+      expect(Math.max(...layout.cards.map(card => card.width)) - Math.min(...layout.cards.map(card => card.width)))
+        .toBeLessThanOrEqual(1)
+      expect(new Set(layout.cards.map(card => Math.round(card.iconLeft))).size).toBe(1)
+      expect(new Set(layout.cards.map(card => Math.round(card.copyLeft))).size).toBe(1)
+      for (const card of layout.cards) {
+        expect(card.left).toBeGreaterThanOrEqual(0)
+        expect(card.right).toBeLessThanOrEqual(layout.viewportWidth)
+        expect(Math.abs(card.toggleLeft - card.copyLeft)).toBeLessThanOrEqual(1)
+        expect(card.toggleRight).toBeLessThanOrEqual(card.right)
+      }
+      await captureMobilePluginAudit(page, `plugins-${viewport.width}px-${appearance}`)
+    }
+  }
+
+  await page.setViewportSize({ width: 320, height: 720 })
+  await panel.getByTestId('code-plugin-tab-extensions').click()
+  const extensionSearch = panel.getByRole('searchbox', { name: 'Search extensions' })
+  await extensionSearch.fill('long-extension-query-'.repeat(20))
+  const extensionLayout = await panel.evaluate(element => {
+    const view = element.closest('.code-plugins-view') as HTMLElement | null
+    const header = element.querySelector('.code-plugin-extensions-header')?.getBoundingClientRect()
+    const tools = element.querySelector('.code-plugin-extension-tools')?.getBoundingClientRect()
+    const search = element.querySelector('.code-plugin-extension-search')?.getBoundingClientRect()
+    return {
+      viewClientWidth: view?.clientWidth ?? 0,
+      viewScrollWidth: view?.scrollWidth ?? 0,
+      headerRight: header?.right ?? Number.POSITIVE_INFINITY,
+      toolsRight: tools?.right ?? Number.POSITIVE_INFINITY,
+      searchRight: search?.right ?? Number.POSITIVE_INFINITY,
+    }
+  })
+  expect(extensionLayout.viewScrollWidth).toBeLessThanOrEqual(extensionLayout.viewClientWidth + 1)
+  expect(extensionLayout.headerRight).toBeLessThanOrEqual(320)
+  expect(extensionLayout.toolsRight).toBeLessThanOrEqual(320)
+  expect(extensionLayout.searchRight).toBeLessThanOrEqual(320)
+
+  await page.setViewportSize({ width: 1024, height: 800 })
+  await panel.getByTestId('code-plugin-tab-farming').click()
+  const desktopCard = panel.getByTestId('code-plugin-browser')
+  const desktopLayout = await desktopCard.evaluate(card => {
+    const icon = card.querySelector('.code-plugin-card-icon')?.getBoundingClientRect()
+    const copy = card.querySelector('.code-plugin-card-copy')?.getBoundingClientRect()
+    const toggle = card.querySelector('.code-plugin-toggle')?.getBoundingClientRect()
+    return {
+      iconTop: icon?.top ?? -1,
+      copyTop: copy?.top ?? -1,
+      copyRight: copy?.right ?? Number.POSITIVE_INFINITY,
+      toggleTop: toggle?.top ?? -1,
+      toggleLeft: toggle?.left ?? -1,
+      pageWidth: document.documentElement.scrollWidth,
+      viewportWidth: window.innerWidth,
+    }
+  })
+  expect(Math.abs(desktopLayout.iconTop - desktopLayout.copyTop)).toBeLessThanOrEqual(1)
+  expect(Math.abs(desktopLayout.toggleTop - desktopLayout.copyTop)).toBeLessThanOrEqual(1)
+  expect(desktopLayout.toggleLeft).toBeGreaterThanOrEqual(desktopLayout.copyRight)
+  expect(desktopLayout.pageWidth).toBeLessThanOrEqual(desktopLayout.viewportWidth)
 })

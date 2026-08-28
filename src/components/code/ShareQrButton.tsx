@@ -4,6 +4,11 @@ import { appPath } from '@/lib/base-path'
 import { CheckGlyph, ShareGlyph } from '@/components/IconGlyphs'
 import { writeClipboardText } from '@/lib/clipboard'
 import {
+  requestQrShareTicket,
+  revokeQrShareTicket,
+  type QrShareTicket,
+} from '@/lib/qr-share-ticket'
+import {
   workspaceShareTargetKey,
   workspaceShareTargetWithCurrentReadingAnchor,
   type WorkspaceShareTarget,
@@ -14,19 +19,6 @@ const CLOSE_DWELL_MS = 140
 const POPOVER_WIDTH = 264
 const POPOVER_HEIGHT = 430
 const QR_QUIET_ZONE = 4
-
-type ShareTicket = {
-  code: string
-  expiresAt: number
-  ttlMs: number
-  shortPath: string
-  shortUrl: string
-  longUrl: string
-  fullAccessUrl?: string
-  shortUrlAccessMode: 'owner' | 'read-only'
-  longUrlAccessMode: 'read-only'
-  tokenLabel: string
-}
 
 type QrCodeFactory = typeof qrcode
 type QrCodeModule = {
@@ -43,21 +35,21 @@ function resolveQrCodeFactory(module: QrCodeModule | QrCodeFactory) {
   throw new Error('QR renderer failed to load')
 }
 
-function preloadQrCodeFactory() {
+export function preloadQrCodeFactory() {
   if (!qrCodeFactoryPromise) {
     qrCodeFactoryPromise = import('qrcode-generator').then(module => resolveQrCodeFactory(module as QrCodeModule))
   }
   return qrCodeFactoryPromise
 }
 
-function formatCountdown(ms: number) {
+export function formatCountdown(ms: number) {
   const seconds = Math.max(0, Math.ceil(ms / 1000))
   const minutes = Math.floor(seconds / 60)
   const remainder = seconds % 60
   return `${minutes}:${String(remainder).padStart(2, '0')}`
 }
 
-function shareTicketIsFresh(ticket: ShareTicket | null, now: number) {
+function shareTicketIsFresh(ticket: QrShareTicket | null, now: number) {
   return Boolean(ticket && ticket.expiresAt > now + 1000)
 }
 
@@ -69,11 +61,6 @@ export function tokenDisplayLines(value: string) {
     .map(part => part.trim())
     .filter(Boolean)
   return parts
-}
-
-async function revokeShareTicket(ticket: ShareTicket | null) {
-  if (!ticket?.code) return
-  await fetch(appPath(`/api/share/qr-ticket/${encodeURIComponent(ticket.code)}`), { method: 'DELETE' }).catch(() => {})
 }
 
 function isFinderModule(row: number, column: number, moduleCount: number) {
@@ -107,7 +94,7 @@ function finderPattern(x: number, y: number, key: string) {
   )
 }
 
-function FarmingQrCode({ value, badgeUrl, qrCodeFactory }: { value: string; badgeUrl: string; qrCodeFactory: QrCodeFactory }) {
+export function FarmingQrCode({ value, badgeUrl, qrCodeFactory }: { value: string; badgeUrl: string; qrCodeFactory: QrCodeFactory }) {
   const rawId = useId().replace(/:/g, '')
   const qr = useMemo(() => {
     const next = qrCodeFactory(0, 'H')
@@ -189,7 +176,7 @@ export function ShareQrButton({
 }) {
   const [open, setOpen] = useState(false)
   const [pinned, setPinned] = useState(false)
-  const [ticket, setTicket] = useState<ShareTicket | null>(null)
+  const [ticket, setTicket] = useState<QrShareTicket | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [copied, setCopied] = useState(false)
@@ -202,7 +189,7 @@ export function ShareQrButton({
   const tokenMeasureRef = useRef<HTMLSpanElement | null>(null)
   const closeTimerRef = useRef<number | null>(null)
   const requestSeqRef = useRef(0)
-  const ticketRef = useRef<ShareTicket | null>(null)
+  const ticketRef = useRef<QrShareTicket | null>(null)
   const handledOpenRequestRef = useRef(0)
   const [singleLineTokenFits, setSingleLineTokenFits] = useState(true)
   const [qrCodeFactory, setQrCodeFactory] = useState<QrCodeFactory | null>(null)
@@ -254,18 +241,12 @@ export function ShareQrButton({
     setLoading(true)
     setError('')
     try {
-      const target = workspaceShareTargetWithCurrentReadingAnchor(shareTarget)
-      const response = await fetch(appPath('/api/share/qr-ticket'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(target ? { target } : {}),
-      })
-      const body = await response.json() as ShareTicket | { error?: string }
-      if (!response.ok || !('shortUrl' in body)) {
-        throw new Error('error' in body && body.error ? body.error : copy.shareLinkFailed)
-      }
+      const body = await requestQrShareTicket(
+        workspaceShareTargetWithCurrentReadingAnchor(shareTarget),
+        copy.shareLinkFailed,
+      )
       if (requestSeq !== requestSeqRef.current) {
-        await revokeShareTicket(body)
+        await revokeQrShareTicket(body)
         return null
       }
       setTicket(body)
@@ -285,7 +266,7 @@ export function ShareQrButton({
     }
   }, [copy.shareLinkFailed, shareTarget])
 
-  const copyShareTicket = useCallback(async (nextTicket: ShareTicket) => {
+  const copyShareTicket = useCallback(async (nextTicket: QrShareTicket) => {
     const ok = await writeClipboardText(nextTicket.longUrl)
     if (!ok) {
       setError(copy.copyFailed)
@@ -323,7 +304,7 @@ export function ShareQrButton({
     const current = ticketRef.current
     ticketRef.current = null
     setTicket(null)
-    void revokeShareTicket(current)
+    void revokeQrShareTicket(current)
   }, [clearCloseTimer])
 
   const openPopover = useCallback((nextPinned: boolean, force = false) => {
@@ -378,7 +359,7 @@ export function ShareQrButton({
     setTicket(null)
     setCopied(false)
     setFullAccessCopied(false)
-    void revokeShareTicket(current)
+    void revokeQrShareTicket(current)
   }, [shareTargetSignature])
 
   useLayoutEffect(() => {
@@ -428,7 +409,7 @@ export function ShareQrButton({
   useEffect(() => () => {
     clearCloseTimer()
     requestSeqRef.current += 1
-    void revokeShareTicket(ticketRef.current)
+    void revokeQrShareTicket(ticketRef.current)
   }, [clearCloseTimer])
 
   const expired = Boolean(ticket && ticket.expiresAt <= now)

@@ -1682,7 +1682,7 @@ function run() {
   });
   assert.deepStrictEqual(workspaceFileContextMenuPosition(500, 500, fileNode, 600, 580, 4), {
     x: 372,
-    y: 196,
+    y: 310,
   });
 
   console.log('test-workspace-file-models passed');

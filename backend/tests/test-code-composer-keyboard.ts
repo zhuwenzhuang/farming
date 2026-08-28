@@ -79,6 +79,16 @@ function run() {
     false,
     'Shift+Enter should stay available for multiline input'
   );
+  assert.strictEqual(
+    shouldSubmitComposerEnter(keyEvent(), false, 0, 1300, false),
+    false,
+    'plain Enter should not submit from the compact touch Composer'
+  );
+  assert.strictEqual(
+    shouldSubmitComposerEnter(keyEvent({ ctrlKey: true }), false, 0, 1300, false),
+    false,
+    'modified Enter should still leave sending to the button on the compact touch Composer'
+  );
 
   assert.strictEqual(
     composerDraftForSubmit('', '测试'),

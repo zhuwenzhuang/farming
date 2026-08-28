@@ -2091,3 +2091,164 @@
 .code-plugin-card {
   color: var(--code-text);
 }
+
+@media (max-width: 720px) {
+  .code-plugins-view {
+    padding: calc(52px + env(safe-area-inset-top)) 14px 24px;
+  }
+
+  .code-plugins-panel,
+  .code-plugin-tab-panel,
+  .code-plugin-section,
+  .code-plugin-card,
+  .code-plugin-card-copy {
+    min-width: 0;
+  }
+
+  .code-plugins-panel-header,
+  .code-plugin-section-header,
+  .code-plugin-agent-sections-header,
+  .code-plugin-extensions-header,
+  .code-plugin-extension-tools {
+    min-width: 0;
+    flex-wrap: wrap;
+  }
+
+  .code-plugin-tabs,
+  .code-plugin-extension-home-tabs,
+  .code-plugin-extension-kind-tabs {
+    width: 100%;
+    max-width: 100%;
+    overscroll-behavior-x: contain;
+  }
+
+  .code-plugin-tabs {
+    flex: 0 1 auto;
+  }
+
+  .code-plugin-extension-home-tabs,
+  .code-plugin-extension-kind-tabs {
+    margin-right: 0;
+    padding-right: 3px;
+  }
+
+  .code-plugin-extension-search,
+  .code-plugin-extension-tools {
+    width: 100%;
+  }
+
+  .code-plugin-extension-tools > button {
+    flex: 1 1 auto;
+  }
+
+  .code-plugin-card {
+    width: 100%;
+    grid-template-columns: 36px minmax(0, 1fr);
+    gap: 10px 12px;
+    padding: 14px;
+  }
+
+  .code-plugin-card-icon {
+    width: 36px;
+    height: 36px;
+  }
+
+  .code-plugin-card-icon svg {
+    width: 20px;
+    height: 20px;
+  }
+
+  .code-plugin-card-copy,
+  .code-plugin-browser-sources,
+  .code-plugin-browser-source,
+  .code-plugin-browser-source-copy,
+  .code-plugin-browser-source-actions {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .code-plugin-card-copy {
+    width: auto;
+    max-width: none;
+    grid-column: 2;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .code-plugin-card-title,
+  .code-plugin-browser-source-heading {
+    min-width: 0;
+    flex-wrap: wrap;
+  }
+
+  .code-plugin-card p,
+  .code-plugin-card small,
+  .code-plugin-error,
+  .code-plugin-browser-source-copy,
+  .code-plugin-computer-settings,
+  .code-plugin-desktop-targets {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .code-plugin-toggle {
+    grid-column: 2;
+    justify-self: start;
+    min-height: 36px;
+  }
+
+  .code-plugin-browser-settings,
+  .code-plugin-browser-settings .code-plugin-select,
+  .code-plugin-browser-settings input {
+    width: 100%;
+  }
+
+  .code-plugin-browser-source {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .code-plugin-browser-source-copy > small,
+  .code-plugin-browser-source-heading > strong,
+  .code-plugin-browser-source-heading > small {
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .code-plugin-browser-source-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: start;
+  }
+
+  .code-plugin-browser-source .code-plugin-browser-install {
+    width: fit-content;
+    max-width: 100%;
+    height: auto;
+    min-height: 36px;
+    padding-block: 7px;
+    white-space: normal;
+    text-align: center;
+  }
+
+  .code-plugin-language-server-table-footer {
+    align-items: flex-start;
+    flex-direction: column;
+    padding-block: 8px;
+  }
+}
+
+@media (max-width: 360px) {
+  .code-plugins-view {
+    padding-inline: 10px;
+  }
+
+  .code-plugin-card {
+    padding: 12px;
+  }
+
+  .code-plugin-tabs > button,
+  .code-plugin-extension-home-tabs > button,
+  .code-plugin-extension-kind-tabs > button {
+    padding-inline: 9px;
+  }
+}

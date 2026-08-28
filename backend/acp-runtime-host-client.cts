@@ -76,7 +76,8 @@ function responseError(value: unknown): Error & UnknownRecord {
 function mutationMethod(method: string): boolean {
   return ![
     'ping', 'recover', 'getSession', 'getSessionForRead', 'getTranscriptSessionForRead',
-    'getSubagentTranscriptSessionForRead', 'getTranscriptEntryForRead', 'getToolEntryForRead',
+    'getSubagentTranscriptSessionForRead', 'getTranscriptEntryForRead', 'getTranscriptMediaChunkForRead',
+    'getToolEntryForRead', 'getToolDetailPageForRead', 'getToolReviewChangesPageForRead',
     'listSessions', 'getSessionRequestOptions',
   ].includes(method);
 }

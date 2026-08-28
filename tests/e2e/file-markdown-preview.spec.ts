@@ -49,6 +49,32 @@ test('renders Markdown files by default and keeps preview, source, and split con
     '',
     '$E = mc^2$',
     '',
+    '    Step Operation',
+    '  ------ ------------------------------------------------',
+    '       1 $Recluster(boundaries)$',
+    '       2 **if** $|\\mathcal{P}| > 0$ **then**',
+    '  ------ ------------------------------------------------',
+    '',
+    '----  ----',
+    'left  right',
+    'more  cells',
+    '----  ----',
+    '',
+    '$$\\phi(a,b) ≔ \\begin{cases}',
+    '0 & a = b\\mspace{6mu}\\text{ or }a > b, \\\\',
+    '1 & a \\ne b.',
+    '\\end{cases}$$',
+    '',
+    '$$',
+    'a\\mspace{6mu}b',
+    '$$',
+    '',
+    'Inline spacing: $a\\mspace{3mu}b$.',
+    '',
+    '[Jump to reference](#ref-1)',
+    '',
+    '[]{#ref-1} [1] Rendered reference',
+    '',
     '```mermaid',
     'flowchart LR',
     '  Plan --> Build',
@@ -58,8 +84,18 @@ test('renders Markdown files by default and keeps preview, source, and split con
     '',
     '![Preview asset](preview%20image.svg)',
     '',
+    'Unmatched display fence remains readable:',
+    '$$',
+    'After unmatched display fence',
+    '',
     '<script>window.markdownPreviewUnsafe = true</script>',
     '',
+    ...Array.from({ length: 80 }, (_, index) => [
+      `## Reading section ${index + 1}`,
+      '',
+      `Keep the reader anchored at section ${index + 1} after switching files or views.`,
+      '',
+    ].join('\n')),
   ].join('\n'))
 
   await openFarming(page)
@@ -73,11 +109,35 @@ test('renders Markdown files by default and keeps preview, source, and split con
   await expect(preview.getByRole('heading', { name: 'Farming Preview' })).toBeVisible()
   await expect(preview.locator('.code-markdown-frontmatter')).toContainText('Markdown guide')
   await expect(preview.locator('table').nth(1)).toContainText('Preview')
-  await expect(preview.locator('.katex')).toBeVisible()
+  await expect(preview.locator('table').nth(2)).toContainText('Recluster(boundaries)')
+  await expect(preview.locator('table').nth(2).locator('tr')).toHaveCount(3)
+  await expect(preview.locator('table').nth(2).locator('th').nth(0)).toHaveCSS('text-align', 'right')
+  await expect(preview.locator('table').nth(2).locator('th').nth(1)).toHaveCSS('text-align', 'left')
+  await expect(preview.locator('table').nth(3)).toContainText('left')
+  await expect(preview.locator('table').nth(3)).toContainText('cells')
+  await expect(preview.locator('.katex').first()).toBeVisible()
+  await expect(preview.locator('.katex-display')).toHaveCount(2)
+  await expect(preview).toContainText('After unmatched display fence')
+  await expect(preview).toContainText('Reading section 80')
+  await expect(preview.locator('#ref-1.code-markdown-pandoc-anchor')).toHaveCount(1)
+  await expect(preview).not.toContainText('[]{#ref-1}')
+  await expect(preview.locator('.katex-error, .code-markdown-math-error')).toHaveCount(0)
+  await expect(preview.getByText('undefined', { exact: true })).toHaveCount(0)
   await expect(preview.locator('.code-markdown-mermaid-canvas > svg')).toBeVisible({ timeout: 20_000 })
   await expect.poll(() => preview.getByRole('img', { name: 'Preview asset' }).evaluate((image: HTMLImageElement) => image.naturalWidth)).toBe(8)
   await expect(preview.locator('script')).toHaveCount(0)
   expect(await page.evaluate(() => (window as typeof window & { markdownPreviewUnsafe?: boolean }).markdownPreviewUnsafe)).toBeUndefined()
+
+  for (const appearance of ['light', 'dark', 'paper'] as const) {
+    await page.locator('body').evaluate((body, value) => { body.dataset.appearance = value }, appearance)
+    const screenshot = testInfo.outputPath(`file-markdown-pandoc-${appearance}.png`)
+    await preview.screenshot({ path: screenshot })
+    await testInfo.attach(`file-markdown-pandoc-${appearance}`, {
+      path: screenshot,
+      contentType: 'image/png',
+    })
+  }
+  await page.locator('body').evaluate(body => { body.dataset.appearance = 'light' })
 
   const main = page.getByTestId('code-main')
   const agentToggle = editor.getByRole('button', { name: 'Show Agent beside resource' })
@@ -138,6 +198,14 @@ test('renders Markdown files by default and keeps preview, source, and split con
   await expect(page.getByTestId('code-terminal-grid')).toBeHidden()
   await page.locator('body').evaluate(body => { body.dataset.appearance = 'light' })
 
+  const rememberedScrollTop = await preview.evaluate(element => {
+    const panel = element as HTMLElement
+    panel.scrollTop = Math.round((panel.scrollHeight - panel.clientHeight) * 0.6)
+    panel.dispatchEvent(new Event('scroll'))
+    return panel.scrollTop
+  })
+  expect(rememberedScrollTop).toBeGreaterThan(500)
+
   await editor.getByRole('button', { name: 'Show Markdown source' }).click()
   await expect(editor.getByTestId('code-file-markdown-preview')).toHaveCount(0)
   await expect(editor.getByTestId('code-file-monaco')).toBeVisible()
@@ -145,6 +213,19 @@ test('renders Markdown files by default and keeps preview, source, and split con
   await editor.getByRole('button', { name: 'Open Markdown preview to side' }).click()
   await expect(editor.getByTestId('code-file-markdown-preview')).toBeVisible()
   await expect(editor.getByTestId('code-file-monaco')).toBeVisible()
+  await expect.poll(async () => Math.abs(
+    await editor.getByTestId('code-file-markdown-preview').evaluate(element => (element as HTMLElement).scrollTop)
+      - rememberedScrollTop,
+  )).toBeLessThanOrEqual(10)
+
+  await openProjectFile(page, 'file-markdown-preview', 'docs/next document.md')
+  await expect(editor.getByRole('tab', { selected: true })).toContainText('next document.md')
+  await openProjectFile(page, 'file-markdown-preview', 'docs/guide.md')
+  await expect(editor.getByRole('tab', { selected: true })).toContainText('guide.md')
+  await expect.poll(async () => Math.abs(
+    await editor.getByTestId('code-file-markdown-preview').evaluate(element => (element as HTMLElement).scrollTop)
+      - rememberedScrollTop,
+  )).toBeLessThanOrEqual(10)
 
   await preview.getByRole('link', { name: 'Open next document' }).click()
   await expect(editor.getByRole('tab', { selected: true })).toContainText('next document.md')
@@ -172,6 +253,15 @@ test('keeps oversized Markdown responsive with continuous virtual scrolling', as
     '',
     '- Input rows use the probe-side denominator.',
     '- Filtered rows use the corresponding LocalDF counter.',
+    '',
+    'Step Operation',
+    '---- ------------------------------------------------',
+    '1    $Recluster(boundaries)$',
+    '---- ------------------------------------------------',
+    '',
+    '$$a\\mspace{6mu}b$$',
+    '',
+    '[]{#large-reference} [1] Large preview reference',
     '',
     ...Array.from({ length: queryCount }, (_, queryIndex) => [
       `## Query ${queryIndex + 1}`,
@@ -236,6 +326,10 @@ test('keeps oversized Markdown responsive with continuous virtual scrolling', as
   const documentHeading = initialSections.getByRole('heading', { name: 'Large report' })
   await expect(documentHeading).toBeVisible()
   await expect(documentHeading).toHaveAttribute('id', 'large-report')
+  await expect(initialSections.locator('table')).toContainText('Recluster(boundaries)')
+  await expect(initialSections.locator('.katex-display')).toHaveCount(1)
+  await expect(initialSections.locator('#large-reference.code-markdown-pandoc-anchor')).toHaveCount(1)
+  await expect(initialSections.locator('.katex-error, .code-markdown-math-error')).toHaveCount(0)
   expect(await initialSections.count()).toBeLessThan(30)
   expect(await preview.locator('*').count()).toBeLessThan(1_000)
 

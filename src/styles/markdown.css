@@ -482,6 +482,11 @@
   padding: 4px 0;
 }
 
+.code-markdown-preview code.code-markdown-math-error {
+  color: var(--code-warning);
+  white-space: pre-wrap;
+}
+
 .code-markdown-preview .code-markdown-frontmatter {
   width: auto;
   min-width: min(100%, 360px);

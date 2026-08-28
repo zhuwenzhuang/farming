@@ -149,10 +149,18 @@ async function run() {
     });
     runtime.emitSession(binding);
     const secondRead = manager.getAcpTranscript(agentId, concurrentOptions);
+    const firstRejected = assert.rejects(
+      firstRead,
+      /ACP Transcript identity changed during read/,
+      'a read projected across a Session update must reject its stale identity',
+    );
     releaseBuild();
-    const [firstConcurrent, secondConcurrent] = await Promise.all([firstRead, secondRead]);
-    assert.strictEqual(concurrentBuilds, 1, 'identical transcript reads must share one in-flight build');
-    assert.deepStrictEqual(secondConcurrent, firstConcurrent);
+    const [, secondConcurrent] = await Promise.all([firstRejected, secondRead]);
+    assert.strictEqual(concurrentBuilds, 2, 'the updated projection must not share a stale in-flight build');
+    assert(
+      secondConcurrent.transcript.entries.some((entry: { id?: string }) => entry.id === 'coalesced-live-update'),
+      'the replacement read should include the update that invalidated the first projection',
+    );
 
     manager.forgetStoppedAgentRecord(agentId, { emitUpdate: false });
     assert.strictEqual(manager.acpTranscriptService.stats().entries, 0);

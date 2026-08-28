@@ -12,11 +12,27 @@ const {
   managedRipgrepPath,
   materializeStandaloneRipgrep,
 } = require('../ripgrep-runtime.cjs') as typeof import('../ripgrep-runtime.cjs');
+const {
+  managedRipgrepArchiveCacheRoot,
+} = require('../../scripts/prepare-ripgrep-runtime.ts') as typeof import('../../scripts/prepare-ripgrep-runtime');
 
 function run(): void {
   assert.strictEqual(canonicalManagedRipgrepPlatform('linux-x64-musl'), 'linux-x64');
   assert.strictEqual(canonicalManagedRipgrepPlatform('linux-arm64-musl'), 'linux-arm64');
   assert.strictEqual(currentManagedRipgrepPlatform(), `${process.platform}-${process.arch}`);
+  const configuredArchiveCache = path.join(os.tmpdir(), 'farming-ripgrep-cache');
+  assert.strictEqual(
+    managedRipgrepArchiveCacheRoot({ FARMING_RIPGREP_ARCHIVE_CACHE: configuredArchiveCache }),
+    configuredArchiveCache,
+  );
+  assert.throws(
+    () => managedRipgrepArchiveCacheRoot({ FARMING_RIPGREP_ARCHIVE_CACHE: 'relative-cache' }),
+    /must be an absolute path/,
+  );
+  assert.match(
+    managedRipgrepArchiveCacheRoot({}),
+    /node_modules[\\/]\.cache[\\/]farming[\\/]ripgrep$/,
+  );
 
   const packageRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-rg-runtime-'));
   try {

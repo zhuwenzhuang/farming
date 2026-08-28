@@ -551,6 +551,7 @@ const EXPECTED_API_ROUTE_MANIFEST = [
   'GET /api/agents/:agentId/acp-transcript',
   'POST /api/agents/:agentId/acp-transcript/prepare',
   'GET /api/agents/:agentId/acp-media/:entryId/:mediaId',
+  'GET /api/agents/:agentId/acp-subagents/:sessionId/acp-media/:entryId/:mediaId',
   'GET /api/agents/:agentId/acp-tool-details/:toolCallId',
   'POST /api/agents/:agentId/acp-terminals/:terminalId/kill',
   'POST /api/agents/:agentId/acp-terminals/:terminalId/input',
