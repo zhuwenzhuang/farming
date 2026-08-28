@@ -72,6 +72,7 @@ export const TRANSCRIPT_SPECIAL_FILENAMES = new Set([
 export function isExternalTranscriptHref(href: string) {
   const trimmed = href.trim()
   if (trimmed.startsWith('//')) return true
+  if (/^[a-z]:[\\/]/i.test(trimmed) || /^file:\/\/\//i.test(trimmed)) return false
   if (isTranscriptFileLineHref(trimmed)) return false
   return /^[a-z][a-z\d+.-]*:/i.test(trimmed)
     || isBareDomainTranscriptHref(trimmed)
