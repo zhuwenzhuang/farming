@@ -184,9 +184,10 @@ Project Authorization，不能形成独立 File Access Path。
 Markdown Preview 在切换 Source 或文件时按文件记住 Scroll Position。PDF Preview 保留有界数量的
 Browser Viewer Context，使页码、Zoom 与 Scroll State 在普通文件切换后保持不变。
 
-Markdown Preview 支持 GFM 与数学公式，并对 Pandoc 空锚点、定宽简单表格、紧凑 Display-math
-Fence 和 Pandoc 数学间距提供有界兼容。兼容转换只作用于渲染 Preview，绝不改写文件源码。
-不受支持的公式保留为可读源码而不是生成破损输出，任意 Raw HTML 仍保持禁用。
+Markdown Preview 支持 GFM 与数学公式，并对 Pandoc 空锚点、保留源码列对齐且支持无表头闭合线
+形式的定宽简单表格、紧凑 Display-math Fence 和 Pandoc 数学间距提供有界兼容。兼容转换只作用于
+渲染 Preview，绝不改写文件源码。不受支持的公式保留为可读源码而不是生成破损输出，任意 Raw
+HTML 仍保持禁用。
 
 大型 Markdown Preview 按主要 Heading 与有界 Block 数分段，保留普通连续滚动，同时只挂载
 Viewport 附近的 Section，并用已测量或估算的空间表示远处 Section。大型文档不执行语法高亮，

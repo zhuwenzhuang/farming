@@ -49,11 +49,11 @@ test('renders Markdown files by default and keeps preview, source, and split con
     '',
     '$E = mc^2$',
     '',
-    'Step Operation',
-    '---- ------------------------------------------------',
-    '1    $Recluster(boundaries)$',
-    '2    **if** $|\\mathcal{P}| > 0$ **then**',
-    '---- ------------------------------------------------',
+    '    Step Operation',
+    '  ------ ------------------------------------------------',
+    '       1 $Recluster(boundaries)$',
+    '       2 **if** $|\\mathcal{P}| > 0$ **then**',
+    '  ------ ------------------------------------------------',
     '',
     '----  ----',
     'left  right',
@@ -111,6 +111,8 @@ test('renders Markdown files by default and keeps preview, source, and split con
   await expect(preview.locator('table').nth(1)).toContainText('Preview')
   await expect(preview.locator('table').nth(2)).toContainText('Recluster(boundaries)')
   await expect(preview.locator('table').nth(2).locator('tr')).toHaveCount(3)
+  await expect(preview.locator('table').nth(2).locator('th').nth(0)).toHaveCSS('text-align', 'right')
+  await expect(preview.locator('table').nth(2).locator('th').nth(1)).toHaveCSS('text-align', 'left')
   await expect(preview.locator('table').nth(3)).toContainText('left')
   await expect(preview.locator('table').nth(3)).toContainText('cells')
   await expect(preview.locator('.katex').first()).toBeVisible()

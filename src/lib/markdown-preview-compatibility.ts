@@ -20,8 +20,11 @@ type MutableHastNode = {
 }
 
 type SimpleTableColumns = {
+  ends: number[]
   starts: number[]
 }
+
+type TableAlignment = 'center' | 'default' | 'left' | 'right'
 
 type MathFence = {
   outputIndex: number
@@ -33,15 +36,21 @@ const PANDOC_MATH_SPACE_PATTERN = /\\mspace\{([+-]?(?:\d+(?:\.\d*)?|\.\d+)mu)\}/
 
 function tableColumns(separator: string): SimpleTableColumns | null {
   if (!/^ {0,3}-{3,}(?:[ \t]+-{3,})+[ \t]*$/.test(separator)) return null
-  const starts = [...separator.matchAll(/-{3,}/g)]
-    .map(match => match.index)
-    .filter((start): start is number => start !== undefined)
-  return starts.length >= 2 ? { starts } : null
+  const spans: Array<{ end: number; start: number }> = []
+  for (const match of separator.matchAll(/-{3,}/g)) {
+    if (match.index === undefined) continue
+    spans.push({ end: match.index + match[0].length, start: match.index })
+  }
+  return spans.length >= 2
+    ? {
+        ends: spans.map(span => span.end),
+        starts: spans.map(span => span.start),
+      }
+    : null
 }
 
-function sameTableColumns(left: SimpleTableColumns, right: SimpleTableColumns) {
-  return left.starts.length === right.starts.length
-    && left.starts.every((start, index) => start === right.starts[index])
+function isSimpleTableClosingSeparator(line: string) {
+  return /^ {0,3}-+(?:[ \t]+-+)*[ \t]*$/.test(line)
 }
 
 function characterDisplayWidth(character: string) {
@@ -100,6 +109,30 @@ function fixedWidthCells(line: string, starts: readonly number[]) {
 function headerCells(line: string, starts: readonly number[]) {
   const tokens = line.trim().split(/[ \t]+/)
   return tokens.length === starts.length ? tokens : fixedWidthCells(line, starts)
+}
+
+function tableAlignments(line: string, columns: SimpleTableColumns): TableAlignment[] {
+  return columns.starts.map((start, index) => {
+    const raw = displayColumnSlice(line, start, columns.starts[index + 1])
+    if (!raw.trim()) return 'default'
+    const leading = raw.match(/^\s*/u)?.[0] ?? ''
+    const trailing = raw.match(/\s*$/u)?.[0] ?? ''
+    const textStart = start + displayWidth(leading)
+    const textEnd = start + displayWidth(raw) - displayWidth(trailing)
+    const flushLeft = textStart === start
+    const flushRight = textEnd === columns.ends[index]
+    if (!flushLeft && flushRight) return 'right'
+    if (flushLeft && !flushRight) return 'left'
+    if (!flushLeft && !flushRight) return 'center'
+    return 'default'
+  })
+}
+
+function gfmTableSeparator(alignment: TableAlignment) {
+  if (alignment === 'left') return ':---'
+  if (alignment === 'right') return '---:'
+  if (alignment === 'center') return ':---:'
+  return '---'
 }
 
 function escapeTableCell(value: string) {
@@ -184,6 +217,17 @@ function normalizedCompactDisplayMath(lines: readonly string[], start: number) {
 
 export function normalizeMarkdownPreviewSource(source: string) {
   const lines = source.replace(/\r\n/g, '\n').split('\n')
+  const nextBlankLines = Array<number>(lines.length + 1).fill(lines.length)
+  const nextTableClosingLines = Array<number>(lines.length + 1).fill(lines.length)
+  let nextBlankLine = lines.length
+  let nextTableClosingLine = lines.length
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const line = lines[index] ?? ''
+    if (!line.trim()) nextBlankLine = index
+    if (isSimpleTableClosingSeparator(line)) nextTableClosingLine = index
+    nextBlankLines[index] = nextBlankLine
+    nextTableClosingLines[index] = nextTableClosingLine
+  }
   const output: string[] = []
   let fence: { marker: string; length: number } | null = null
   let mathFence: MathFence | null = null
@@ -230,34 +274,35 @@ export function normalizeMarkdownPreviewSource(source: string) {
     }
     const headerIndex = index - 1
     const header = headerIndex >= 0 ? lines[headerIndex] ?? '' : ''
+    const atBlockStart = index === 0 || !lines[index - 1]?.trim()
     const hasHeader = Boolean(header.trim())
       && (headerIndex === 0 || !lines[headerIndex - 1]?.trim())
 
-    let blockEnd = index + 1
-    while (blockEnd < lines.length && lines[blockEnd]?.trim()) blockEnd += 1
-    const block = lines.slice(index + 1, blockEnd)
-    const closingIndex = block.findIndex(candidate => {
-      const closingColumns = tableColumns(candidate)
-      return Boolean(closingColumns && sameTableColumns(columns, closingColumns))
-    })
-    const hasClosingSeparator = closingIndex >= 0
-    const body = hasClosingSeparator ? block.slice(0, closingIndex) : block
-    if (body.length === 0) {
+    const bodyStart = index + 1
+    const blockEnd = nextBlankLines[bodyStart] ?? lines.length
+    const closingLine = nextTableClosingLines[bodyStart] ?? lines.length
+    const hasClosingSeparator = closingLine < blockEnd
+    const hasHeaderlessTable = !hasHeader && atBlockStart && hasClosingSeparator
+    const bodyEnd = hasClosingSeparator ? closingLine : blockEnd
+    if (bodyEnd === bodyStart) {
       output.push(line)
       continue
     }
 
-    if (!hasHeader && !hasClosingSeparator) {
+    if (!hasHeader && !hasHeaderlessTable) {
       output.push(line)
       continue
     }
     if (hasHeader) output.pop()
+    const alignments = tableAlignments(hasHeader ? header : lines[bodyStart] ?? '', columns)
     output.push(gfmTableRow(hasHeader
       ? headerCells(header, columns.starts)
       : columns.starts.map(() => '')))
-    output.push(gfmTableRow(columns.starts.map(() => '---')))
-    body.forEach(row => output.push(gfmTableRow(fixedWidthCells(row, columns.starts))))
-    index = hasClosingSeparator ? index + closingIndex + 1 : blockEnd - 1
+    output.push(gfmTableRow(alignments.map(gfmTableSeparator)))
+    for (let rowIndex = bodyStart; rowIndex < bodyEnd; rowIndex += 1) {
+      output.push(gfmTableRow(fixedWidthCells(lines[rowIndex] ?? '', columns.starts)))
+    }
+    index = hasClosingSeparator ? closingLine : blockEnd - 1
   }
 
   if (mathFence) {

@@ -246,10 +246,11 @@ or files. PDF previews retain a bounded set of browser viewer contexts so the
 viewer page, zoom, and scroll state survive ordinary file switching.
 
 Markdown preview accepts GFM and math plus bounded compatibility for Pandoc
-empty anchors, fixed-width simple tables, compact display-math fences, and
-Pandoc math spacing. Compatibility applies only to the rendered preview and
-never rewrites file source. Unsupported math remains visible as source instead
-of producing broken output, and arbitrary raw HTML remains disabled.
+empty anchors, fixed-width simple tables with their source-defined alignment
+and headerless closing-rule form, compact display-math fences, and Pandoc math
+spacing. Compatibility applies only to the rendered preview and never rewrites
+file source. Unsupported math remains visible as source instead of producing
+broken output, and arbitrary raw HTML remains disabled.
 
 Large Markdown preview is segmented at major headings and a bounded block
 count. It preserves ordinary continuous scrolling while mounting only the

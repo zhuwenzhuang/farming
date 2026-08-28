@@ -186,6 +186,20 @@ test('keeps protected Markdown content out of heading and definition discovery',
   assert.match(sections.find(section => section.source.includes('shortcut'))?.renderSource ?? '', /example\.com\/shortcut/)
 })
 
+test('keeps separator-rich large Markdown normalization linear and non-destructive', () => {
+  const pattern = ['header', '--- ---', 'value'] as const
+  const source = [
+    'paragraph',
+    ...Array.from({ length: 50_000 }, (_, index) => pattern[index % pattern.length]),
+  ].join('\n')
+  const startedAt = performance.now()
+  const normalized = normalizeMarkdownPreviewSource(source)
+  const elapsedMs = performance.now() - startedAt
+
+  assert.equal(normalized, source)
+  assert(elapsedMs < 1_000, `separator-rich Markdown normalization took ${elapsedMs.toFixed(1)}ms`)
+})
+
 test('normalizes Pandoc simple tables without changing fenced examples', () => {
   const source = [
     '  策略                   键：固定   键：动态（手动）                                        键：动态（工作负载）',
@@ -208,8 +222,12 @@ test('normalizes Pandoc simple tables without changing fenced examples', () => {
     '  Name    Value',
     '  ------  ------',
     '  first   second',
-    '  ------  ------',
+    '  ----------------',
     'Following paragraph',
+    '',
+    'Oxide      石英',
+    '-------  ------',
+    'SiO2        100',
     '',
     '-------------------------------------------------',
     '  Centered Header                 Default Header',
@@ -229,10 +247,12 @@ test('normalizes Pandoc simple tables without changing fenced examples', () => {
   assert.match(normalized, /\| 策略 \| 键：固定 \| 键：动态（手动） \| 键：动态（工作负载） \|/)
   assert.match(normalized, /\| 新数据 \|  \| Iceberg、Delta Lake \| Databricks \|/)
   assert.match(normalized, /\| 2 \| \*\*if\*\* \$\\vert\{\}\\mathcal\{P\}\\vert\{\} > 0\$ \*\*then\*\* \|/)
+  assert.match(normalized, /\| ---: \| :--- \|\n\| 1 \| \$Recluster/)
   assert.doesNotMatch(normalized, /\| ------- \| ------ \| ---------- \| ------- \|/)
-  assert.match(normalized, /\|  \|  \|  \|  \|\n\| --- \| --- \| --- \| --- \|\n\| 12 \| 12 \| 12 \| 12 \|/)
+  assert.match(normalized, /\|  \|  \|  \|  \|\n\| ---: \| :--- \| :---: \| ---: \|\n\| 12 \| 12 \| 12 \| 12 \|/)
   assert.match(normalized, /\| 123 \| 123 \| 123 \| 123 \|\nTable: Headerless values/)
   assert.match(normalized, /\| first \| second \|\nFollowing paragraph/)
+  assert.match(normalized, /\| Oxide \| 石英 \|\n\| :--- \| ---: \|\n\| SiO2 \| 100 \|/)
   assert.match(normalized, /Centered Header[\s\S]*-----------[\s\S]*continuation[\s\S]*-------------------------------------------------/)
   assert.match(normalized, /```text\nHeader One\n------ -----\nvalue  value\n```/)
 })
