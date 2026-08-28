@@ -72,7 +72,9 @@ export const TRANSCRIPT_SPECIAL_FILENAMES = new Set([
 export function isExternalTranscriptHref(href: string) {
   const trimmed = href.trim()
   if (isTranscriptFileLineHref(trimmed)) return false
-  return /^[a-z][a-z\d+.-]*:/i.test(trimmed) || isBareDomainTranscriptHref(trimmed)
+  return trimmed.startsWith('//')
+    || /^[a-z][a-z\d+.-]*:/i.test(trimmed)
+    || isBareDomainTranscriptHref(trimmed)
 }
 
 export function isTranscriptFileLineHref(href: string) {
@@ -100,7 +102,7 @@ function transcriptFileBasenameLooksValid(pathText: string) {
   return TRANSCRIPT_FILE_EXTENSIONS.has((extensionMatch[1] || '').toLowerCase())
 }
 
-function exactTranscriptPathTarget(text: string) {
+function exactTranscriptPathTarget(text: string, requireKnownFileType = true) {
   // Markdown hrefs encode spaces, while inline-code literals may keep them.
   // Preserve the whole structured value through lexical path parsing, then
   // decode exactly once before resolving it against the filesystem.
@@ -113,15 +115,14 @@ function exactTranscriptPathTarget(text: string) {
   ))
   if (!exact?.pathTarget) return null
   const decodedPath = decodeFileUrlPath(exact.pathTarget.path)
-  if (!transcriptFileBasenameLooksValid(decodedPath)) return null
+  if (requireKnownFileType && !transcriptFileBasenameLooksValid(decodedPath)) return null
   return { ...exact.pathTarget, path: decodedPath }
 }
 
-/** Resolve one already-bounded Markdown href or inline-code literal, not free-form prose. */
-export function transcriptFileTargetFromText(text: string, workspaceRoot?: string) {
+function resolveTranscriptFileTarget(text: string, workspaceRoot: string | undefined, requireKnownFileType: boolean) {
   const trimmed = text.trim()
   if (!trimmed || trimmed.startsWith('#') || isBareDomainTranscriptHref(trimmed)) return null
-  const pathTarget = exactTranscriptPathTarget(trimmed)
+  const pathTarget = exactTranscriptPathTarget(trimmed, requireKnownFileType)
   if (!pathTarget) return null
   const filePath = terminalTargetFilePath(pathTarget.path, workspaceRoot || '')
   if (!filePath && !pathTarget.path.startsWith('/')) return null
@@ -142,6 +143,17 @@ export function transcriptFileTargetFromText(text: string, workspaceRoot?: strin
       ...(!filePath && globalFilePath ? { globalRoot: true } : {}),
     },
   }
+}
+
+/** Resolve an explicit Markdown href whose structure already establishes file identity. */
+export function transcriptFileTargetFromHref(href: string, workspaceRoot?: string) {
+  if (isExternalTranscriptHref(href)) return null
+  return resolveTranscriptFileTarget(href, workspaceRoot, false)
+}
+
+/** Resolve one bounded inline-code literal while avoiding speculative file links. */
+export function transcriptFileTargetFromText(text: string, workspaceRoot?: string) {
+  return resolveTranscriptFileTarget(text, workspaceRoot, true)
 }
 
 export function transcriptImageFilePath(filePath: string) {

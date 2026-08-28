@@ -11,6 +11,7 @@ import {
   isTranscriptFileLineHref,
   normalizeTranscriptHref,
   stripCandidateLocationSuffix,
+  transcriptFileTargetFromHref,
   transcriptFileTargetFromText,
   transcriptImageFilePath,
 } from '../src/lib/transcript-file-links'
@@ -78,6 +79,24 @@ test('transcript file targets resolve absolute paths inside the workspace', () =
   })
 })
 
+test('explicit Markdown file hrefs do not depend on a file-type whitelist', () => {
+  assert.deepEqual(transcriptFileTargetFromHref('/apsarapangu/disk6/wenzhuang/test/regress/query.q:11', WORKSPACE_ROOT), {
+    filePath: 'apsarapangu/disk6/wenzhuang/test/regress/query.q',
+    target: { lineNumber: 11, column: undefined, endColumn: undefined, globalRoot: true },
+  })
+  assert.deepEqual(transcriptFileTargetFromHref('regress/query.q:11', WORKSPACE_ROOT), {
+    filePath: 'regress/query.q',
+    target: { lineNumber: 11, column: undefined, endColumn: undefined },
+  })
+  assert.deepEqual(transcriptFileTargetFromHref('/repo/bin/tool:3', WORKSPACE_ROOT), {
+    filePath: 'bin/tool',
+    target: { lineNumber: 3, column: undefined, endColumn: undefined },
+  })
+  assert.equal(transcriptFileTargetFromHref('https://example.com/query.q', WORKSPACE_ROOT), null)
+  assert.equal(transcriptFileTargetFromHref('//example.com/query.q', WORKSPACE_ROOT), null)
+  assert.equal(transcriptFileTargetFromHref('#result', WORKSPACE_ROOT), null)
+})
+
 test('transcript file targets fall back to global workspace files outside the workspace', () => {
   assert.deepEqual(transcriptFileTargetFromText('/opt/external/app.ts:7', WORKSPACE_ROOT), {
     filePath: 'opt/external/app.ts',
@@ -124,6 +143,7 @@ test('transcript file targets reject external, unknown, and unqualified referenc
   assert.equal(transcriptFileTargetFromText('../outside/x.ts', WORKSPACE_ROOT), null)
   assert.equal(transcriptFileTargetFromText('~/notes.md', WORKSPACE_ROOT), null)
   assert.equal(transcriptFileTargetFromText('foo.unknownext', WORKSPACE_ROOT), null)
+  assert.equal(transcriptFileTargetFromText('regress/query.q:11', WORKSPACE_ROOT), null)
   assert.equal(transcriptFileTargetFromText('#anchor', WORKSPACE_ROOT), null)
   assert.equal(transcriptFileTargetFromText('', WORKSPACE_ROOT), null)
   assert.equal(transcriptFileTargetFromText('   ', WORKSPACE_ROOT), null)
@@ -183,6 +203,7 @@ test('external transcript hrefs keep file-line references internal', () => {
   assert.equal(isExternalTranscriptHref('example.com/page'), true)
   assert.equal(isExternalTranscriptHref('mailto:a@b.c'), true)
   assert.equal(isExternalTranscriptHref('ftp://x/y'), true)
+  assert.equal(isExternalTranscriptHref('//example.com/query.q'), true)
   assert.equal(isExternalTranscriptHref('src/foo.ts:12'), false)
   assert.equal(isExternalTranscriptHref('src/foo.ts'), false)
   assert.equal(isExternalTranscriptHref('example.com/x.ts:12'), false)
