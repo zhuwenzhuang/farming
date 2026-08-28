@@ -47,6 +47,7 @@ export function useWorkspaceFileMenuController({
     y: number,
     item: WorkspaceFileTreeNode | null,
     focusFirstItem = false,
+    createTarget: WorkspaceFileTreeNode | null = item,
   ) => {
     cancelPendingFileFocus()
     setOpenFileError(null)
@@ -55,6 +56,7 @@ export function useWorkspaceFileMenuController({
     setFileMenu({
       ...position,
       item,
+      createTarget,
       focusFirstItem,
     })
   }, [agentLaunchOptionCount, cancelPendingFileFocus, clearFileOperation, setOpenFileError])
@@ -76,8 +78,11 @@ export function useWorkspaceFileMenuController({
   const startFileMenuOperation = useCallback((kind: WorkspaceFileOperationKind, item: WorkspaceFileTreeNode | null = fileMenu?.item ?? null) => {
     cancelPendingFileFocus()
     setFileMenu(null)
-    startFileOperation(kind, item)
-  }, [cancelPendingFileFocus, fileMenu?.item, startFileOperation])
+    const operationItem = kind === 'new-file' || kind === 'new-folder'
+      ? fileMenu?.createTarget ?? item
+      : item
+    startFileOperation(kind, operationItem)
+  }, [cancelPendingFileFocus, fileMenu?.createTarget, fileMenu?.item, startFileOperation])
 
   const refreshFileMenuTarget = useCallback(() => {
     if (!agentId) return

@@ -18,6 +18,7 @@ import type { WorkspaceFileOpenTarget } from '@/lib/workspace-file-search'
 import type { WorkspaceFileOperationState } from '@/lib/workspace-file-operation-model'
 import type { WorkspaceFileTreeNode as FileExplorerNode } from '@/lib/workspace-file-tree'
 import type { WorkspaceFileDecorationStore } from '@/lib/workspace-file-decorations'
+import { workspaceFileTreeKeyboardTargetPath } from '@/lib/workspace-file-view-model'
 import type { CodeCopy } from '../code/copy'
 import { FileTreeRow } from './FileTreeRow'
 
@@ -47,7 +48,13 @@ export interface FileTreeViewProps {
   onCancelPendingFileFocus: () => void
   onCloseFileOperation: () => void
   onFocusFileTreeTarget: (item: FileExplorerNode | null) => void
-  onOpenFileContextMenu: (x: number, y: number, item: FileExplorerNode | null) => void
+  onOpenFileContextMenu: (
+    x: number,
+    y: number,
+    item: FileExplorerNode | null,
+    focusFirstItem?: boolean,
+    createTarget?: FileExplorerNode | null,
+  ) => void
   onOpenFilePath: (filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void>
   onRememberFileOperationName: (name: string) => void
   onToggleDirectory: (path: string) => boolean
@@ -366,8 +373,19 @@ const FileTreeViewContent = memo(function FileTreeViewContent({
     if ((event.target as HTMLElement | null)?.closest('[data-file-path]')) return
     event.preventDefault()
     onCancelPendingFileFocus()
-    onOpenFileContextMenu(event.clientX, event.clientY, null)
-  }, [onCancelPendingFileFocus, onOpenFileContextMenu])
+    const selectedPath = treeViewportRef.current
+      ?.querySelector<HTMLElement>('[data-file-path].selected')
+      ?.dataset.filePath
+    const tree = treeRef.current
+    const focusedNode = tree?.focusedNode && !tree.focusedNode.isRoot ? tree.focusedNode : null
+    const targetPath = workspaceFileTreeKeyboardTargetPath({
+      selectedPath,
+      focusedPath: focusedNode?.data.path,
+      lastFocusedPath: lastFocusedFilePathRef.current,
+    })
+    const targetItem = targetPath ? tree?.get(targetPath)?.data ?? null : null
+    onOpenFileContextMenu(event.clientX, event.clientY, null, false, targetItem)
+  }, [lastFocusedFilePathRef, onCancelPendingFileFocus, onOpenFileContextMenu, treeRef, treeViewportRef])
 
   const handleViewportClickCapture = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
     const row = (event.target as HTMLElement | null)?.closest<HTMLElement>('[data-file-path]')

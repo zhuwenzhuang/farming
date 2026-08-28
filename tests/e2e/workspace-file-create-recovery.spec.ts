@@ -28,6 +28,78 @@ async function openWorkspaceFiles(page: Page, workspaceRoot: string) {
   return files
 }
 
+test('keeps background context-menu creation in the current tree directory', async ({ page }) => {
+  const workspaceRoot = path.join(PLAYWRIGHT_WORKSPACE_ROOT, 'workspace-create-current-directory')
+  const currentDirectory = path.join(workspaceRoot, 'current')
+  fs.rmSync(workspaceRoot, { recursive: true, force: true })
+  fs.mkdirSync(currentDirectory, { recursive: true })
+  fs.mkdirSync(path.join(workspaceRoot, 'other'), { recursive: true })
+
+  const files = await openWorkspaceFiles(page, workspaceRoot)
+  const currentRow = files.locator('[data-testid="code-file-row"][data-file-path="current"]')
+  await currentRow.click()
+  await expect(currentRow).toHaveClass(/selected/)
+
+  await files.locator('.code-file-tree-viewport').dispatchEvent('contextmenu', {
+    clientX: 320,
+    clientY: 480,
+    bubbles: true,
+    cancelable: true,
+  })
+  const fileMenu = page.getByTestId('code-file-context-menu')
+  await expect(fileMenu).toBeVisible()
+  await fileMenu.getByRole('menuitem', { name: 'New File' }).click()
+  const newFileInput = page.getByTestId('code-file-operation-input')
+  await newFileInput.fill('created-here.txt')
+  await newFileInput.press('Enter')
+
+  await expect(page.getByTestId('code-file-operation-input')).toHaveCount(0)
+  await expect(files.locator('[data-testid="code-file-row"][data-file-path="current/created-here.txt"]')).toBeVisible()
+  expect(fs.existsSync(path.join(currentDirectory, 'created-here.txt'))).toBe(true)
+  expect(fs.existsSync(path.join(workspaceRoot, 'created-here.txt'))).toBe(false)
+})
+
+test('keeps background creation unavailable for an inherited read-only target', async ({ page }) => {
+  const workspaceRoot = path.join(PLAYWRIGHT_WORKSPACE_ROOT, 'workspace-create-read-only-target')
+  fs.rmSync(workspaceRoot, { recursive: true, force: true })
+  fs.mkdirSync(path.join(workspaceRoot, 'read-only'), { recursive: true })
+
+  await interceptWorkspaceRequests(page, request => {
+    if (request.operation !== 'tree' || request.path) return
+    return {
+      onResult: response => {
+        if (!response.ok || !response.result || typeof response.result !== 'object') return response
+        const result = response.result as { items?: Array<Record<string, unknown>> }
+        return {
+          ...response,
+          result: {
+            ...result,
+            items: result.items?.map(item => item.path === 'read-only'
+              ? { ...item, readOnly: true }
+              : item),
+          },
+        }
+      },
+    }
+  })
+
+  const files = await openWorkspaceFiles(page, workspaceRoot)
+  const readOnlyRow = files.locator('[data-testid="code-file-row"][data-file-path="read-only"]')
+  await readOnlyRow.click()
+  await expect(readOnlyRow).toHaveClass(/selected/)
+
+  await files.locator('.code-file-tree-viewport').dispatchEvent('contextmenu', {
+    clientX: 320,
+    clientY: 480,
+    bubbles: true,
+    cancelable: true,
+  })
+  const fileMenu = page.getByTestId('code-file-context-menu')
+  await expect(fileMenu).toBeVisible()
+  await expect(fileMenu.getByRole('menuitem', { name: 'New File' })).toHaveCount(0)
+  await expect(fileMenu.getByRole('menuitem', { name: 'New Folder' })).toHaveCount(0)
+})
+
 test('converges uncertain file and directory creation from an authoritative parent reread', async ({ page }) => {
   const workspaceRoot = path.join(PLAYWRIGHT_WORKSPACE_ROOT, 'workspace-create-recovery')
   const parentPath = path.join(workspaceRoot, 'existing')
