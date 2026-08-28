@@ -48,7 +48,12 @@ import {
   workspaceNavigationShortcutDirection,
   type WorkspaceNavigationEntry,
 } from '@/lib/workspace-navigation-history'
-import { requestQrShareTicket, requestReadOnlyShareLink } from '@/lib/qr-share-ticket'
+import {
+  requestQrShareTicket,
+  requestReadOnlyShareLink,
+  revokeQrShareTicket,
+  type QrShareTicket,
+} from '@/lib/qr-share-ticket'
 import type { ShareNoticeAnchor } from './code/share-notice'
 import {
   clearWorkspaceShareTargetSearch,
@@ -801,7 +806,8 @@ export function CodeWorkspace({
   const [shareTargetRestoreTick, setShareTargetRestoreTick] = useState(0)
   const [lastProjectWorkspace, setLastProjectWorkspace] = useState<string | undefined>(undefined)
   const [settingsPanelOpen, setSettingsPanelOpen] = useState(false)
-  const [mobileShareUrl, setMobileShareUrl] = useState('')
+  const [mobileShareTicket, setMobileShareTicket] = useState<QrShareTicket | null>(null)
+  const mobileShareTicketRef = useRef<QrShareTicket | null>(null)
   const [instanceName, setInstanceName] = useState('Farming')
   const [renameDialog, setRenameDialog] = useState<RenameDialogState | null>(null)
   const [archiveExitDialog, setArchiveExitDialog] = useState<{
@@ -981,8 +987,15 @@ export function CodeWorkspace({
   const createMobileShareLink = useCallback(async (target: WorkspaceShareTarget | null | undefined) => {
     const lease = mobileShareRequestFenceRef.current.begin()
     try {
-      const url = await requestQrShareTicket(target, copy.shareLinkFailed)
-      if (lease.isCurrent()) setMobileShareUrl(url)
+      const ticket = await requestQrShareTicket(target, copy.shareLinkFailed)
+      if (!lease.isCurrent()) {
+        await revokeQrShareTicket(ticket)
+        return
+      }
+      const previous = mobileShareTicketRef.current
+      mobileShareTicketRef.current = ticket
+      setMobileShareTicket(ticket)
+      if (previous && previous.code !== ticket.code) void revokeQrShareTicket(previous)
     } catch (error) {
       if (!lease.isCurrent()) return
       if (error instanceof DOMException && error.name === 'AbortError') return
@@ -1026,11 +1039,17 @@ export function CodeWorkspace({
   }, [copy])
   const clearMobileShareLink = useCallback(() => {
     mobileShareRequestFenceRef.current.invalidate()
-    setMobileShareUrl('')
+    const ticket = mobileShareTicketRef.current
+    mobileShareTicketRef.current = null
+    setMobileShareTicket(null)
+    void revokeQrShareTicket(ticket)
   }, [])
   useEffect(() => () => {
     mobileShareRequestFenceRef.current.invalidate()
     directShareRequestFenceRef.current.invalidate()
+    const ticket = mobileShareTicketRef.current
+    mobileShareTicketRef.current = null
+    void revokeQrShareTicket(ticket)
   }, [])
   const currentInfoLoadFailedRef = useRef(copy.currentInfoLoadFailed)
   currentInfoLoadFailedRef.current = copy.currentInfoLoadFailed
@@ -5144,7 +5163,7 @@ export function CodeWorkspace({
         return
       }
 
-      if (event.key === 'Escape' && mobileShareUrl) return
+      if (event.key === 'Escape' && mobileShareTicket) return
 
       if (event.key === 'Escape' && activeView !== 'projects') {
         event.preventDefault()
@@ -5183,7 +5202,7 @@ export function CodeWorkspace({
 
     window.addEventListener('keydown', handleKeyDown, true)
     return () => window.removeEventListener('keydown', handleKeyDown, true)
-  }, [activeView, approvalMenuOpen, archiveExitDialog, clearSearch, closeActiveComposerMenus, closeArchiveExitDialog, closeContextMenu, closeContextMenuAndRestoreFocus, closeDeleteWorktreeDialog, closeRemoveProjectDialog, closeRenameDialog, contextMenu, contextMenuRef, deleteWorktreeDialog, dialogOpen, focusComposerTextarea, focusWorkspaceFilesSearch, handleContextMenuNavigation, keyboardShortcutsEnabled, mobileNavigationModalOpen, mobileShareUrl, modelMenuOpen, navigateWorkspaceHistory, onWorkspaceViewChange, openSearch, plusMenuOpen, projectFileSearchId, projectFileSearchIdForShortcutTarget, removeProjectDialog, renameDialog, reopenLastClosedWorkspaceFile, toggleSidebar])
+  }, [activeView, approvalMenuOpen, archiveExitDialog, clearSearch, closeActiveComposerMenus, closeArchiveExitDialog, closeContextMenu, closeContextMenuAndRestoreFocus, closeDeleteWorktreeDialog, closeRemoveProjectDialog, closeRenameDialog, contextMenu, contextMenuRef, deleteWorktreeDialog, dialogOpen, focusComposerTextarea, focusWorkspaceFilesSearch, handleContextMenuNavigation, keyboardShortcutsEnabled, mobileNavigationModalOpen, mobileShareTicket, modelMenuOpen, navigateWorkspaceHistory, onWorkspaceViewChange, openSearch, plusMenuOpen, projectFileSearchId, projectFileSearchIdForShortcutTarget, removeProjectDialog, renameDialog, reopenLastClosedWorkspaceFile, toggleSidebar])
 
   useEffect(() => {
     const dialog = renameDialogStateRef.current
@@ -5539,7 +5558,7 @@ export function CodeWorkspace({
         appearancePreference={uiPreferences.appearance}
         restReminderEntryBlocked={
           settingsPanelOpen
-          || Boolean(mobileShareUrl)
+          || Boolean(mobileShareTicket)
           || Boolean(renameDialog)
           || Boolean(archiveExitDialog)
           || Boolean(removeProjectDialog)
@@ -5654,11 +5673,11 @@ export function CodeWorkspace({
         onUpdateUiPreferences={onUpdateUiPreferences}
       />
 
-      {mobileShareUrl && !mobileNavigationModalOpen && (
+      {mobileShareTicket && !mobileNavigationModalOpen && (
         <MobileShareSheet
           copy={copy}
           title={mobileHeaderTitle}
-          url={mobileShareUrl}
+          ticket={mobileShareTicket}
           onClose={clearMobileShareLink}
           returnFocusRef={mobileOptionsTriggerRef}
         />

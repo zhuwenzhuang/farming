@@ -92,6 +92,12 @@ Session，包括失败路径。不得使用宽范围 Recursive Cleaner 补偿。
 Local/Remote Connection、Reconnect、Update Prepare、Restart、Rollback 与 Missing Dependency
 显式失败。Partial 或 Uncertain Start 不能创建第二个 Daemon，也不能丢失 Last Known Good Installation。
 
+手机回到前台、`pageshow`/Back-forward Cache 恢复和 `online` 事件必须通过有界的
+Business-health Probe 对账当前 WebSocket。健康的 Open Socket 保持不变；只有 Probe 或首次连接
+Deadline 失败且仍属于同一 Socket Generation 时才替换连接。Authentication 与 Protocol Close
+Code 保持终止态。Composer Draft 跨恢复保留；结果不确定的 Input 必须由用户显式重试，Browser
+不能自动重放。
+
 ### Agent Lifecycle 与 Configuration
 
 验证 Executable Discovery、精确 Agent Home Selection、New Agent、Duplicate Request、Title、

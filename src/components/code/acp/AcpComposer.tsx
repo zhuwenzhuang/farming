@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type CSSProperties, type KeyboardEvent, type MouseEvent, type RefObject } from 'react'
 import { ArrowUpGlyph, CloseGlyph, PencilGlyph, PlusGlyph, ReplyGlyph } from '@/components/IconGlyphs'
+import { isCompactViewport } from '@/lib/responsive-mode'
 import type { AcpPendingElicitation, AcpPendingPermission, AgentContextWindowUsage } from '@/types/agent'
 import { ComposerAttachments, type ComposerAttachmentView } from '../ComposerAttachments'
 import type { AgentComposerPendingFollowUp } from '../composer-state'
@@ -163,7 +164,8 @@ export function AcpComposer({
   const [openMenu, setOpenMenu] = useState<AcpComposerMenu>(null)
   const [modelPane, setModelPane] = useState<'model' | 'speed' | null>(null)
   const [dismissedPromptSuggestionId, setDismissedPromptSuggestionId] = useState('')
-  const { session, error: sessionError, updatingId, authenticatingId, loggingOut, authoritative: sessionAuthoritative, configDeferred, configOptionsDeferred, modeDeferred, setMode, setConfigOption, setConfigOptions, authenticate, logout } = useAcpSession(
+  const [compactComposerViewport, setCompactComposerViewport] = useState(isCompactViewport)
+  const { session, error: sessionError, updatingId, authenticatingId, authoritative: sessionAuthoritative, configDeferred, configOptionsDeferred, modeDeferred, setMode, setConfigOption, setConfigOptions, authenticate } = useAcpSession(
     agentId,
     active,
     `${runtimeState}:${sessionRevision || 0}:${sessionUpdatedAt || ''}`,
@@ -209,6 +211,19 @@ export function AcpComposer({
 
   useEffect(() => setActiveCommandIndex(0), [commandTrigger?.query, commandTrigger?.trigger, filteredCommands.length])
   useEffect(() => setDismissedPromptSuggestionId(''), [agentId])
+  useEffect(() => {
+    const compactQuery = window.matchMedia('(max-width: 980px)')
+    const updateMobileViewport = () => {
+      setCompactComposerViewport(isCompactViewport())
+    }
+    updateMobileViewport()
+    window.addEventListener('resize', updateMobileViewport)
+    compactQuery.addEventListener('change', updateMobileViewport)
+    return () => {
+      window.removeEventListener('resize', updateMobileViewport)
+      compactQuery.removeEventListener('change', updateMobileViewport)
+    }
+  }, [])
   useEffect(() => {
     if (sessionAuthoritative) return
     setOpenMenu(null)
@@ -345,7 +360,7 @@ export function AcpComposer({
         return
       }
     }
-    if (!shouldSubmitComposerEnter(event, compositionActiveRef.current, lastCompositionEndAtRef.current)) return
+    if (!shouldSubmitComposerEnter(event, compositionActiveRef.current, lastCompositionEndAtRef.current, Date.now(), !compactComposerViewport)) return
     event.preventDefault()
     event.stopPropagation()
     onSubmit(
@@ -545,6 +560,7 @@ export function AcpComposer({
           data-testid="code-acp-composer-input"
           ref={textareaRef}
           rows={1}
+          enterKeyHint={compactComposerViewport ? 'enter' : 'send'}
           name="farming-acp-chat-message"
           inputMode="text"
           autoComplete="off"
@@ -633,21 +649,6 @@ export function AcpComposer({
                   <span>{copy.attachFile}</span>
                   <small>{copy.fileContext}</small>
                 </button>
-                {session?.capabilities?.auth?.logout ? (
-                  <button
-                    type="button"
-                    role="menuitem"
-                    data-testid="code-acp-logout"
-                    disabled={loggingOut || !sessionAuthoritative}
-                    onClick={() => {
-                      setOpenMenu(null)
-                      void logout()
-                    }}
-                  >
-                    <span>{loggingOut ? copy.acpSigningOut : copy.acpSignOut}</span>
-                    <small>{copy.acpSignOutDescription}</small>
-                  </button>
-                ) : null}
                 <button type="button" role="menuitem" data-testid="code-acp-composer-goal-mode" onClick={() => { setOpenMenu(null); onActivateComposerMode('goal') }}>
                   <span>{copy.goalMode}</span>
                   <small>{copy.setObjective}</small>

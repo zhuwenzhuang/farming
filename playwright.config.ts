@@ -108,7 +108,7 @@ export default defineConfig({
     },
     {
       name: 'iphone-human-webkit',
-      testMatch: /(acp-human-cases|background-chat-continuity|human-story)\.spec\.ts/,
+      testMatch: /(acp-human-cases|backend-connection-status|background-chat-continuity|human-story)\.spec\.ts/,
       grep: /@iphone-human/,
       use: {
         ...devices['iPhone 14 Pro'],

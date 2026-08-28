@@ -25,11 +25,13 @@ async function expectFocusCycleWithinDrawer(page: Page, drawer: Locator, shortcu
 
 test('mobile navigation is a modal keyboard loop and desktop navigation remains usable', async ({ page }, testInfo) => {
   let shareTicketPosts = 0
+  let shareTicketDeletes = 0
   let delayNextShareTicket = false
   let releaseDelayedShareTicket: (() => void) | null = null
   let resolveDelayedShareTicketStarted: (() => void) | null = null
-  await page.route('**/api/share/qr-ticket', async route => {
+  await page.route('**/api/share/qr-ticket**', async route => {
     if (route.request().method() === 'DELETE') {
+      shareTicketDeletes += 1
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ revoked: true }) })
       return
     }
@@ -141,6 +143,7 @@ test('mobile navigation is a modal keyboard loop and desktop navigation remains 
   }))
   await expect(page.getByTestId('code-mobile-share-sheet')).toHaveCount(0)
   await expect(drawer).toBeVisible()
+  await expect.poll(() => shareTicketDeletes).toBe(1)
 
   const backgroundOptionsBox = await backgroundOptions.boundingBox()
   expect(backgroundOptionsBox).not.toBeNull()
@@ -180,7 +183,16 @@ test('mobile share owns focus and Escape without closing the underlying view', a
     status: 200,
     contentType: 'application/json',
     body: JSON.stringify({
+      code: 'MOBILEFOCUS',
+      expiresAt: Date.now() + 5 * 60 * 1000,
+      ttlMs: 5 * 60 * 1000,
+      shortPath: '/j/MOBILEFOCUS',
+      shortUrl: 'https://share.example.test/j/MOBILEFOCUS',
       longUrl: 'https://share.example.test/farming?token=read-only',
+      fullAccessUrl: 'https://share.example.test/farming?token=full-control',
+      shortUrlAccessMode: 'owner',
+      longUrlAccessMode: 'read-only',
+      tokenLabel: 'mobile focus token',
     }),
   }))
   await page.setViewportSize({ width: 390, height: 844 })
@@ -204,14 +216,18 @@ test('mobile share owns focus and Escape without closing the underlying view', a
   const sheet = page.getByTestId('code-mobile-share-sheet')
   const dialog = sheet.getByRole('dialog')
   const closeButton = dialog.getByRole('button', { name: /Cancel|取消/ })
-  const copyButton = dialog.getByTestId('code-mobile-share-copy-action')
   await expect(closeButton).toBeFocused()
 
-  await copyButton.focus()
-  await page.keyboard.press('Tab')
+  const focusable = dialog.locator('button:not(:disabled)')
+  const focusableCount = await focusable.count()
+  expect(focusableCount).toBeGreaterThanOrEqual(3)
+  for (let index = 0; index < focusableCount; index += 1) {
+    await page.keyboard.press('Tab')
+    expect(await dialog.evaluate(element => element.contains(document.activeElement))).toBe(true)
+  }
   await expect(closeButton).toBeFocused()
   await page.keyboard.press('Shift+Tab')
-  await expect(copyButton).toBeFocused()
+  await expect(focusable.last()).toBeFocused()
 
   await page.keyboard.press('Escape')
   await expect(sheet).toHaveCount(0)

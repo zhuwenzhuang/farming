@@ -339,15 +339,29 @@ body.code-resizing-sidebar .code-sidebar-resizer {
   cursor: pointer;
 }
 
-.code-pinned-dynamic-toggle:hover,
 .code-pinned-dynamic-toggle:focus-visible {
   background: var(--code-bg-hover);
   color: var(--code-text);
   outline: none;
 }
 
+@media (hover: hover) and (pointer: fine) {
+  .code-pinned-dynamic-toggle:hover {
+    background: var(--code-bg-hover);
+    color: var(--code-text);
+  }
+}
+
 .code-pinned-dynamic-toggle.active {
+  background: var(--code-accent-soft);
   color: var(--code-accent);
+}
+
+@media (hover: none) {
+  .code-pinned-dynamic-toggle:not(.active):hover {
+    background: transparent;
+    color: var(--code-text-subtle);
+  }
 }
 
 .code-pinned-dynamic-icon,
@@ -384,6 +398,12 @@ body.code-resizing-sidebar .code-sidebar-resizer {
 
 .code-pinned-list {
   padding-left: 0;
+}
+
+@media (max-width: 980px) {
+  body.code-mode.code-compact-layout .code-pinned-list {
+    margin-left: 12px;
+  }
 }
 
 .code-project-group {

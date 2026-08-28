@@ -122,6 +122,60 @@ test('shows the quota reset countdown in the collapsed Code Usage summary', asyn
   await expect(page.getByTestId('code-usage-summary')).toHaveText('Codex · Weekly 24% · reset 2d 3h')
 })
 
+test('keeps Codex 5h and weekly quota reachable on mobile without token history', async ({ page }) => {
+  await page.route(/\/api\/usage(?:\?|$)/, async route => {
+    const sampledAt = Date.now()
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        usage: {
+          sampledAt,
+          windowMs: 5 * 60 * 1000,
+          providers: [{
+            provider: 'codex',
+            providerName: 'Codex',
+            auth: { available: true, status: 'Logged in using ChatGPT', source: 'codex login status' },
+            quota: {
+              available: true,
+              source: 'codex token_count events',
+              primary: { usedPercent: 35, windowMinutes: 5 * 60, resetsAt: sampledAt + 60 * 60_000 },
+              secondary: { usedPercent: 72, windowMinutes: 7 * 24 * 60, resetsAt: sampledAt + 3 * 24 * 60 * 60_000 },
+            },
+            tokenUsage: {
+              available: false,
+              totalTokens: 0,
+              tokensPerMinute: 0,
+              windowMs: 5 * 60 * 1000,
+              eventCount: 0,
+              sampledAt,
+              source: 'no local token history',
+            },
+          }],
+          agentUsage: null,
+          systemStats: null,
+        },
+      }),
+    })
+  })
+
+  await page.setViewportSize({ width: 390, height: 844 })
+  await openFarming(page)
+  await page.getByTestId('code-mobile-menu').click()
+  const openUsage = page.getByTestId('code-mobile-usage-open')
+  await expect(openUsage).toBeVisible()
+  await expect(openUsage).toContainText('Weekly · 5h')
+  await openUsage.click()
+
+  const quota = page.getByTestId('code-usage-mobile-quota')
+  await expect(quota).toContainText('Codex')
+  await expect(quota).toContainText('5h')
+  await expect(quota).toContainText('65% left')
+  await expect(quota).toContainText('Weekly')
+  await expect(quota).toContainText('28% left')
+  await expect(page.getByText('Local token activity is not available yet.')).toBeVisible()
+})
+
 test('keeps Code Usage to real token sources and renders a compact activity heatmap', async ({ page }) => {
   const sampledAt = Date.now()
   const bucketMs = 60 * 60 * 1000

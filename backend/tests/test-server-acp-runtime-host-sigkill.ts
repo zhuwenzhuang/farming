@@ -137,12 +137,22 @@ function persistedRuntimeProcess(configDir: string, agentId: string): UnknownRec
   return null;
 }
 
-async function fetchJson(baseUrl: string, pathname: string, options: RequestInit = {}) {
-  const response = await fetch(`${baseUrl}${pathname}`, {
-    ...options,
-    signal: AbortSignal.timeout(5_000),
-    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
-  });
+async function fetchJson(
+  baseUrl: string,
+  pathname: string,
+  options: RequestInit & { timeoutMs?: number } = {},
+) {
+  const { timeoutMs = 5_000, ...requestOptions } = options;
+  let response: Response;
+  try {
+    response = await fetch(`${baseUrl}${pathname}`, {
+      ...requestOptions,
+      signal: requestOptions.signal || AbortSignal.timeout(timeoutMs),
+      headers: { 'Content-Type': 'application/json', ...(requestOptions.headers || {}) },
+    });
+  } catch (error) {
+    throw new Error(`${String(requestOptions.method || 'GET')} ${pathname} failed`, { cause: error });
+  }
   const parsed: unknown = await response.json().catch(() => ({}));
   return { response, body: isRecord(parsed) ? parsed : {} };
 }
@@ -180,6 +190,7 @@ async function main() {
 
     const created = await fetchJson(baseUrl, '/api/control/agents', {
       method: 'POST',
+      timeoutMs: 15_000,
       body: JSON.stringify({
         command: 'codex',
         workspace,

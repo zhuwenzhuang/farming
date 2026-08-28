@@ -116,6 +116,51 @@ async function run() {
 
   {
     const scheduler = manualScheduler();
+    const resolvers = new Map<number, (value: Record<string, unknown>) => void>();
+    const baseIdentity = {
+      agentId: 'projection-cas',
+      sessionId: 'session-projection-cas',
+      runtimeEpoch: 'epoch-projection-cas',
+      revision: 7,
+    };
+    const cache = new AcpPreparedTranscriptCache({
+      quietMs: 0,
+      schedule: scheduler.schedule,
+      cancel: scheduler.cancel,
+      defer: scheduler.defer,
+      prepare: ({ projectionRevision }: { projectionRevision: number }) => new Promise(resolve => (
+        resolvers.set(projectionRevision, resolve)
+      )),
+      validate: () => true,
+    });
+    const firstIdentity = { ...baseIdentity, projectionRevision: 1 };
+    const secondIdentity = { ...baseIdentity, projectionRevision: 2 };
+    cache.observe({ ...firstIdentity, eligible: true });
+    scheduler.flushTimers();
+    scheduler.flushDeferred();
+    cache.observe({ ...secondIdentity, eligible: true });
+    scheduler.flushTimers();
+    assert.strictEqual(
+      cache.publishOnDemand(firstIdentity, { projectionRevision: 1, entries: [] }),
+      false,
+      'on-demand publication must reject a stale projection revision',
+    );
+    resolvers.get(1)?.({ projectionRevision: 1, entries: [] });
+    await flushMicrotasks();
+    assert.strictEqual(
+      cache.get(firstIdentity),
+      null,
+      'an in-flight stale projection revision must not publish after a newer observation',
+    );
+    scheduler.flushDeferred();
+    resolvers.get(2)?.({ projectionRevision: 2, entries: [] });
+    await flushMicrotasks();
+    assert.strictEqual(cache.get(secondIdentity)?.projectionRevision, 2);
+    cache.dispose();
+  }
+
+  {
+    const scheduler = manualScheduler();
     const pending: Array<() => void> = [];
     const revisions = new Map<string, number>();
     const cache = new AcpPreparedTranscriptCache({

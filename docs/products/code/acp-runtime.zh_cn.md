@@ -189,6 +189,17 @@ HTTP Transcript Read 在跨进程读取前后分别采样权威 Session 与 Runt
 变化或返回 Transcript 指向其它 Session 时拒绝该响应。读取期间 Transcript Revision 可以继续
 前进；持续工作的 Agent 不需要等待 Revision 静止，仍可返回 Identity 自洽的结果。
 
+Runtime Host 会在 Transcript Page 跨越 Host Response Boundary 之前完成投影。大 Tool Payload
+会变成有界 Summary，Inline Media 会变成按需引用，精确 Entry 仍由 Host 保留。因此响应大小
+限制约束的是面向 Browser 的投影，而不是 Server 尚未来得及裁剪的原始 Provider Payload。
+投影携带显式 Version，并参与 Runtime Host Build Identity；Server 不会静默复用投影语义不同
+的旧 Host。
+
+按需读取也遵守同一边界。Media 在 Host 内按 Entry 和 Hash 选择、校验，再分块传输；Tool
+Detail 和 Review Changes 在 Host 内派生，再分页传输。Server 组装现有 HTTP Response 前会用
+Session 和 Runtime Epoch 约束整个多页读取。Subagent Media 使用带 Session Scope 的独立路由，
+避免 Entry Identity 落到错误 Transcript；这些 Browser API 不再让原始 Transcript Entry 跨进程。
+
 Provider Replay 是权威来源。Local Checkpoint 可以加速投影并保留 Reset Fence，但除非 Provider
 能证明 Freshness，否则不能替代完整 Load。结果不确定的 Prompt 会让 Checkpoint 保持 Dirty。
 

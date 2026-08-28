@@ -1,8 +1,11 @@
 import { createPortal } from 'react-dom'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { RefObject } from 'react'
+import { appPath } from '@/lib/base-path'
 import { writeClipboardText } from '@/lib/clipboard'
+import type { QrShareTicket } from '@/lib/qr-share-ticket'
 import type { CodeCopy } from './copy'
+import { FarmingQrCode, formatCountdown, preloadQrCodeFactory } from './ShareQrButton'
 
 function isStandaloneWebApp() {
   if (typeof window === 'undefined') return false
@@ -39,19 +42,22 @@ function CopyActionIcon() {
 export function MobileShareSheet({
   copy,
   title,
-  url,
+  ticket,
   onClose,
   returnFocusRef,
 }: {
   copy: CodeCopy
   title: string
-  url: string
+  ticket: QrShareTicket
   onClose: () => void
   returnFocusRef: RefObject<HTMLElement | null>
 }) {
   const standalone = isStandaloneWebApp()
-  const [copied, setCopied] = useState(false)
+  const [copied, setCopied] = useState<'read-only' | 'full-control' | null>(null)
   const [copyFailed, setCopyFailed] = useState(false)
+  const [now, setNow] = useState(() => Date.now())
+  const [qrCodeFactory, setQrCodeFactory] = useState<Awaited<ReturnType<typeof preloadQrCodeFactory>> | null>(null)
+  const [qrCodeFailed, setQrCodeFailed] = useState(false)
   const dialogRef = useRef<HTMLElement | null>(null)
   const closeButtonRef = useRef<HTMLButtonElement | null>(null)
 
@@ -99,19 +105,40 @@ export function MobileShareSheet({
   }, [onClose, returnFocusRef])
 
   useEffect(() => {
+    let cancelled = false
+    void preloadQrCodeFactory()
+      .then(factory => {
+        if (!cancelled) setQrCodeFactory(() => factory)
+      })
+      .catch(() => {
+        if (!cancelled) setQrCodeFailed(true)
+      })
+    return () => { cancelled = true }
+  }, [])
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [])
+
+  useEffect(() => {
     if (!copied && !copyFailed) return undefined
     const timer = window.setTimeout(() => {
-      setCopied(false)
+      setCopied(null)
       setCopyFailed(false)
     }, 1800)
     return () => window.clearTimeout(timer)
   }, [copied, copyFailed])
 
-  const copyLink = useCallback(async () => {
+  const copyLink = useCallback(async (url: string, mode: 'read-only' | 'full-control') => {
     const success = await writeClipboardText(url)
-    setCopied(success)
+    setCopied(success ? mode : null)
     setCopyFailed(!success)
-  }, [url])
+  }, [])
+
+  const expired = ticket.expiresAt <= now
+  const countdown = formatCountdown(ticket.expiresAt - now)
+  const badgeUrl = appPath('/farming-2/app-icon-v2-180.png')
 
   return createPortal(
     <div className="code-mobile-share-backdrop" data-testid="code-mobile-share-sheet" role="presentation" onPointerDown={onClose}>
@@ -129,18 +156,52 @@ export function MobileShareSheet({
         </header>
         <section className="code-mobile-share-choice code-mobile-share-forward">
           <div className="code-mobile-share-choice-copy">
-            <h3>{copy.mobileForwardTitle}</h3>
-            <p>{copy.mobileForwardHint}</p>
+            <h3>{copy.copyReadOnlyShareLink}</h3>
+            <p>{copy.shareLinkVisibility}</p>
           </div>
           <div className="code-mobile-share-link-row">
-            <span className="code-mobile-share-link" title={title}>{url}</span>
-            <button type="button" data-testid="code-mobile-share-copy-action" onClick={() => void copyLink()}>
+            <span className="code-mobile-share-link" title={title}>{ticket.longUrl}</span>
+            <button type="button" data-testid="code-mobile-share-copy-action" onClick={() => void copyLink(ticket.longUrl, 'read-only')}>
               <CopyActionIcon />
-              <span>{copied ? copy.mobileShareCopied : copy.mobileShareCopyAction}</span>
+              <span>{copied === 'read-only' ? copy.mobileShareCopied : copy.mobileShareCopyAction}</span>
             </button>
           </div>
           {copyFailed && <span className="code-mobile-share-status" role="status">{copy.copyFailed}</span>}
         </section>
+        <section className="code-mobile-share-choice code-mobile-share-qr-choice">
+          <div className="code-mobile-share-choice-copy">
+            <h3>{copy.scanToOpenOnPhone}</h3>
+            <p>{ticket.shortUrlAccessMode === 'owner' ? copy.shareQrFullAccessWarning : copy.shareQrReadOnlyWarning}</p>
+          </div>
+          <div className="code-share-qr-frame code-mobile-share-qr-frame" data-expired={expired ? 'true' : 'false'}>
+            <div className="code-share-qr-canvas" data-testid="code-mobile-share-qr">
+              {qrCodeFactory ? (
+                <FarmingQrCode value={ticket.shortUrl} badgeUrl={badgeUrl} qrCodeFactory={qrCodeFactory} />
+              ) : (
+                <div className="code-share-qr-loading">{qrCodeFailed ? copy.shareLinkFailed : copy.loading}</div>
+              )}
+            </div>
+            <div className="code-share-countdown">{expired ? copy.shareLinkExpired : countdown}</div>
+            <div className="code-share-qr-access-note" data-access-mode={ticket.shortUrlAccessMode}>
+              {ticket.shortUrlAccessMode === 'owner' ? copy.shareQrFullAccessWarning : copy.shareQrReadOnlyWarning}
+            </div>
+          </div>
+        </section>
+        {ticket.shortUrlAccessMode === 'owner' && (
+          <section className="code-mobile-share-choice code-mobile-share-full-control">
+            <div className="code-mobile-share-choice-copy">
+              <h3>{copy.copyFullAccessShareLink}</h3>
+              <p>{copy.shareQrFullAccessWarning}</p>
+            </div>
+            <div className="code-mobile-share-link-row">
+              <span className="code-mobile-share-link" title={ticket.tokenLabel || title}>{ticket.fullAccessUrl}</span>
+              <button type="button" data-testid="code-mobile-share-full-control-action" onClick={() => void copyLink(ticket.fullAccessUrl, 'full-control')}>
+                <CopyActionIcon />
+                <span>{copied === 'full-control' ? copy.mobileShareCopied : copy.mobileShareCopyAction}</span>
+              </button>
+            </div>
+          </section>
+        )}
         <section className="code-mobile-share-choice code-mobile-share-install-guide">
           <h3>{copy.mobileInstallTitle}</h3>
           {standalone ? (

@@ -1,7 +1,11 @@
 import { useCallback, useRef, useState } from 'react'
-import { appPath } from '@/lib/base-path'
 import { writeClipboardText } from '@/lib/clipboard'
-import { workspaceShareAbsolutePath, workspaceShareProjectLabel } from '@/lib/workspace-share-target'
+import { requestReadOnlyShareLink } from '@/lib/qr-share-ticket'
+import {
+  workspaceShareAbsolutePath,
+  workspaceShareProjectLabel,
+  type WorkspaceShareTarget,
+} from '@/lib/workspace-share-target'
 import {
   workspaceFileContextMenuPosition,
   workspaceFileOperationTargetDirectory,
@@ -112,21 +116,17 @@ export function useWorkspaceFileMenuController({
     setFileMenu(null)
     focusFileTreeTarget(item)
     setOpenFileError(null)
+    let shareLink: Awaited<ReturnType<typeof requestReadOnlyShareLink>> | null = null
     try {
-      const target = item.type === 'directory'
+      const target: WorkspaceShareTarget = item.type === 'directory'
         ? { kind: 'folder', agentId, folderPath: item.path, absolutePath: workspaceShareAbsolutePath(projectWorkspace, item.path), projectLabel: workspaceShareProjectLabel(projectWorkspace) }
         : { kind: 'file', agentId, filePath: item.path, absolutePath: workspaceShareAbsolutePath(projectWorkspace, item.path), projectLabel: workspaceShareProjectLabel(projectWorkspace) }
-      const response = await fetch(appPath('/api/share/qr-ticket'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ target }),
-      })
-      const body = await response.json() as { longUrl?: string; error?: string }
-      if (!response.ok || !body.longUrl || !await writeClipboardText(body.longUrl)) {
-        throw new Error(body.error || shareLinkFailed)
-      }
+      shareLink = await requestReadOnlyShareLink(target, shareLinkFailed)
+      if (!await writeClipboardText(shareLink.url)) throw new Error('Copy failed')
     } catch (error) {
       setOpenFileError(error instanceof Error ? error.message : shareLinkFailed)
+    } finally {
+      await shareLink?.revokeUnusedTicket()
     }
   }, [agentId, fileMenu?.item, focusFileTreeTarget, projectWorkspace, setOpenFileError, shareLinkFailed])
 

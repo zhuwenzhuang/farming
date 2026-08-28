@@ -1,7 +1,8 @@
 import { useCallback, useRef, useState } from 'react'
-import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from 'react'
+import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react'
 import { ChevronRightGlyph } from '@/components/IconGlyphs'
 import { agentDisplayName } from '@/lib/format'
+import { isTouchInputViewport } from '@/lib/responsive-mode'
 import type { AgentLaunchOption } from './agent-launch-options'
 import { AgentLaunchIcon } from './AgentLaunchIcon'
 
@@ -24,6 +25,7 @@ export function AgentLaunchSubmenu({
 }: AgentLaunchSubmenuProps) {
   const [open, setOpen] = useState(false)
   const [side, setSide] = useState<'left' | 'right'>('right')
+  const [panelTop, setPanelTop] = useState(-5)
   const rootRef = useRef<HTMLDivElement | null>(null)
   const triggerRef = useRef<HTMLButtonElement | null>(null)
   const panelRef = useRef<HTMLDivElement | null>(null)
@@ -41,13 +43,26 @@ export function AgentLaunchSubmenu({
     clearCloseTimer()
     const rect = trigger?.getBoundingClientRect()
     const expectedWidth = 156
-    if (rect && rect.right + expectedWidth + 12 > window.innerWidth) {
+    const visualViewport = window.visualViewport
+    const viewportLeft = visualViewport?.offsetLeft ?? 0
+    const viewportRight = viewportLeft + (visualViewport?.width ?? window.innerWidth)
+    if (rect && rect.right + expectedWidth + 12 > viewportRight) {
       setSide('left')
     } else {
       setSide('right')
     }
+    if (rect) {
+      const expectedHeight = Math.min(options.length * 34 + 10, (visualViewport?.height ?? window.innerHeight) - 24)
+      const viewportTop = visualViewport?.offsetTop ?? 0
+      const viewportBottom = viewportTop + (visualViewport?.height ?? window.innerHeight)
+      const clampedTop = Math.max(
+        viewportTop + 12,
+        Math.min(rect.top - 5, viewportBottom - expectedHeight - 12),
+      )
+      setPanelTop(clampedTop - rect.top)
+    }
     setOpen(true)
-  }, [clearCloseTimer, hasOptions])
+  }, [clearCloseTimer, hasOptions, options.length])
 
   const scheduleClose = useCallback(() => {
     clearCloseTimer()
@@ -58,6 +73,7 @@ export function AgentLaunchSubmenu({
   }, [clearCloseTimer])
 
   const handlePointerEnter = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.pointerType !== 'mouse') return
     openSubmenu(event.currentTarget.querySelector<HTMLElement>('button'))
   }, [openSubmenu])
 
@@ -76,6 +92,15 @@ export function AgentLaunchSubmenu({
       focusFirstOption()
     }
   }, [focusFirstOption, hasOptions, openSubmenu])
+
+  const handleTriggerClick = useCallback((event: ReactMouseEvent<HTMLButtonElement>) => {
+    if (hasOptions && event.detail > 0 && isTouchInputViewport()) {
+      if (open) setOpen(false)
+      else openSubmenu(event.currentTarget)
+      return
+    }
+    onOpenDialog()
+  }, [hasOptions, onOpenDialog, open, openSubmenu])
 
   const handlePanelKeyDown = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
     if (event.key !== 'ArrowLeft') return
@@ -106,7 +131,7 @@ export function AgentLaunchSubmenu({
         data-testid={testId}
         aria-haspopup={hasOptions ? 'menu' : undefined}
         aria-expanded={hasOptions ? open : undefined}
-        onClick={onOpenDialog}
+        onClick={handleTriggerClick}
         onKeyDown={handleTriggerKeyDown}
       >
         <span>{label}</span>
@@ -117,6 +142,7 @@ export function AgentLaunchSubmenu({
           ref={panelRef}
           className={`code-agent-launch-submenu-panel ${side}`}
           data-testid={submenuTestId}
+          style={{ top: panelTop }}
           role="menu"
           onPointerEnter={() => clearCloseTimer()}
           onPointerLeave={scheduleClose}

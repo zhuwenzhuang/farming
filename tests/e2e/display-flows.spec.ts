@@ -4051,6 +4051,8 @@ test.describe('display-backed agent flows', () => {
     const mobileComposerInput = page.getByTestId('code-composer-input')
     await mobileComposerInput.fill(`echo ${mobileMarker}`)
     await mobileComposerInput.press('Enter')
+    await expect(mobileComposerInput).toHaveValue(`echo ${mobileMarker}\n`)
+    await page.getByTestId('code-composer-send').click()
     await expect(mobileComposerInput).toHaveValue('')
     await expect.poll(() => terminalCheckpointOutput(page, agentId)).toContain(mobileMarker)
 

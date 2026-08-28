@@ -324,29 +324,36 @@ const FileTreeViewContent = memo(function FileTreeViewContent({
     const treeWindow = treeWindowRef.current
     if (!viewport || !scroller || !treeWindow) return undefined
     let frameId = 0
-    const synchronize = () => {
-      frameId = 0
+    const synchronizeWindow = () => {
       const viewportRect = viewport.getBoundingClientRect()
       const scrollerRect = scroller.getBoundingClientRect()
       const maxOffset = Math.max(0, treeHeight - treeWindowHeight)
       const offset = Math.max(0, Math.min(maxOffset, scrollerRect.top - viewportRect.top))
       virtualScrollOffsetRef.current = offset
       treeWindow.style.transform = `translateY(${offset}px)`
-      treeRef.current?.list.current?.scrollTo(offset)
+      return offset
+    }
+    const synchronize = () => {
+      frameId = 0
+      treeRef.current?.list.current?.scrollTo(synchronizeWindow())
     }
     const scheduleSynchronize = () => {
       if (frameId) return
       frameId = window.requestAnimationFrame(synchronize)
     }
+    const handleScrollerScroll = () => {
+      synchronizeWindow()
+      scheduleSynchronize()
+    }
     synchronize()
-    scroller.addEventListener('scroll', scheduleSynchronize, { passive: true })
+    scroller.addEventListener('scroll', handleScrollerScroll, { passive: true })
     window.addEventListener('resize', scheduleSynchronize)
     const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(scheduleSynchronize)
     observer?.observe(viewport)
     return () => {
       if (frameId) window.cancelAnimationFrame(frameId)
       observer?.disconnect()
-      scroller.removeEventListener('scroll', scheduleSynchronize)
+      scroller.removeEventListener('scroll', handleScrollerScroll)
       window.removeEventListener('resize', scheduleSynchronize)
     }
   }, [treeHeight, treeRef, treeViewportRef, treeWindowHeight])

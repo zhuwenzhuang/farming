@@ -238,6 +238,24 @@ assert.strictEqual(
   'older tool detail should become a compact lazy-loading envelope after the page budget is spent'
 );
 
+const oversizedPatchProjection = acpTranscriptEntries([{
+  id: 'oversized-patch',
+  type: 'tool',
+  kind: 'edit',
+  title: 'Edit a very large generated file',
+  status: 'completed',
+  rawOutput: { formatted_output: 'y'.repeat(3 * 1024 * 1024) },
+  content: [{
+    type: 'diff',
+    path: 'generated.ts',
+    oldText: 'before\n'.repeat(200_000),
+    newText: 'after\n'.repeat(200_000),
+  }],
+}], { maxInlineToolDetailChars: 8 * 1024 })[0];
+assert.strictEqual(oversizedPatchProjection.transcriptChanges[0].statsTruncated, true);
+assert.strictEqual(oversizedPatchProjection.transcriptChanges[0].diff, undefined);
+assert(JSON.stringify(oversizedPatchProjection).length < 16 * 1024);
+
 const compactSubagentTool = acpTranscriptToolEntry({
   id: 'subagent-tool',
   type: 'tool',

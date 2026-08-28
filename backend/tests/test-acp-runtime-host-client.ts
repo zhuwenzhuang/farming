@@ -179,7 +179,10 @@ async function main() {
       forcedMethods.push(method);
       if (method === 'ping') {
         return {
-          runtimeIdentity: { protocolVersion: 1, buildId: acpRuntimeHostIdentity().buildId },
+          runtimeIdentity: {
+            protocolVersion: acpRuntimeHostIdentity().protocolVersion,
+            buildId: acpRuntimeHostIdentity().buildId,
+          },
           configInstanceFingerprint: configInstanceFingerprint(forcedConfigDir),
           bindingCount: 1,
           pid: process.pid,

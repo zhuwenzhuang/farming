@@ -1088,3 +1088,23 @@
 .code-usage-mobile-date-picker input {
   background: var(--code-bg-hover-strong);
 }
+
+.code-usage-mobile-quota {
+  display: grid;
+  gap: 8px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--code-border);
+}
+
+.code-usage-mobile-quota .code-usage-provider {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.code-usage-mobile-activity-empty {
+  margin: 0;
+  padding: 18px 16px;
+  color: var(--code-text-muted);
+  font-size: 13px;
+}

@@ -1422,7 +1422,7 @@ function PinnedSection({
           onClick={onToggleDynamicPinning}
         >
           <span className="code-pinned-dynamic-icon" aria-hidden="true">
-            <BellGlyph />
+            <BellGlyph filled={dynamicPinningEnabled} />
           </span>
           {hasUnread && (
             <span
@@ -2089,7 +2089,6 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
     initialProjectViewState.agentsCollapsed ?? false,
   )
   const [paginationExcludedAgentIds, setPaginationExcludedAgentIds] = useState<Set<string>>(() => new Set())
-  const [projectFilesExpanded, setProjectFilesExpanded] = useState(false)
   const [projectSourceAgentId, setProjectSourceAgentId] = useState<string | null>(() => (
     stableProjectSourceAgentId(null, project.agents)
   ))
@@ -2135,8 +2134,7 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
     .filter(agent => agent.pinned || dynamicallyPinnedAgentIds.has(agent.id))
     .map(agent => agent.id)
   const showAgentsSection = sortedAgents.length > 0 || visibleAgentSessions.length > 0 || (project.hiddenAgentSessionCount ?? 0) > 0
-  const filesCompressAgents = projectFilesExpanded && isCompactViewport() && sortedAgents.length > 1
-  const compactProjectAgents = (compactAgents || filesCompressAgents) && sortedAgents.length > 0
+  const compactProjectAgents = compactAgents && sortedAgents.length > 0
   const visibleProjectAgents = compactProjectAgents
     ? sortedAgents
     : visibleAgentsWithForcedRows(
@@ -2227,10 +2225,6 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
   const selectOpenProjectWorkspaceFile = useCallback((filesId: string, filePath: string, target?: WorkspaceFileOpenTarget) => (
     onSelectOpenWorkspaceFile(filesId, filePath, withProjectSourceAgent(target))
   ), [onSelectOpenWorkspaceFile, withProjectSourceAgent])
-
-  const handleFilesCollapsedChange = useCallback((filesCollapsed: boolean) => {
-    setProjectFilesExpanded(!filesCollapsed)
-  }, [])
 
   const {
     agentDrag,
@@ -2725,7 +2719,6 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
                 onMoveEntries={onMoveWorkspaceEntries}
                 onDeleteEntries={onDeleteWorkspaceEntries}
                 onRefreshOpenFiles={onRefreshProjectOpenFiles}
-                onFilesCollapsedChange={handleFilesCollapsedChange}
                 refreshToken={branchSwitchRevision}
                 readOnly={globalRootProject}
                 copy={copy}

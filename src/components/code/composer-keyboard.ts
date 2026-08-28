@@ -39,10 +39,12 @@ export function shouldSubmitComposerEnter(
   compositionActive: boolean,
   lastCompositionEndAt: number,
   now = Date.now(),
+  enterSubmits = true,
 ) {
   if (event.key !== 'Enter' || event.shiftKey) return false
   if (isComposerImeCompositionEvent(event, compositionActive)) return false
   if (shouldSuppressComposerEnterAfterComposition(event, lastCompositionEndAt, now)) return false
+  if (!enterSubmits) return false
   if (event.ctrlKey || event.metaKey || event.altKey) {
     return (event.ctrlKey === true || event.metaKey === true) && event.altKey !== true
   }

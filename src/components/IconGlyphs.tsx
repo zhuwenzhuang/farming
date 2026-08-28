@@ -2,10 +2,10 @@ import type { SVGProps } from 'react'
 
 type IconGlyphProps = SVGProps<SVGSVGElement>
 
-export function BellGlyph(props: IconGlyphProps) {
+export function BellGlyph({ filled = false, ...props }: IconGlyphProps & { filled?: boolean }) {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false" {...props}>
-      <path d="M2.75 11.5h10.5c-.95-1.12-1.5-2.35-1.5-5a3.75 3.75 0 0 0-7.5 0c0 2.65-.55 3.88-1.5 5Z" />
+      <path d="M2.75 11.5h10.5c-.95-1.12-1.5-2.35-1.5-5a3.75 3.75 0 0 0-7.5 0c0 2.65-.55 3.88-1.5 5Z" fill={filled ? 'currentColor' : 'none'} />
       <path d="M6.5 13.5a1.5 1.5 0 0 0 3 0" />
     </svg>
   )

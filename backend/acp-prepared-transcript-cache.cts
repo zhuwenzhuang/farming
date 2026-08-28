@@ -194,6 +194,7 @@ export class AcpPreparedTranscriptCache {
         current.sessionId !== identity.sessionId
         || current.runtimeEpoch !== identity.runtimeEpoch
         || current.revision !== identity.revision
+        || current.projectionRevision !== identity.projectionRevision
       )
     ) return false;
     return this.publish(identity, transcript);
@@ -263,6 +264,7 @@ export class AcpPreparedTranscriptCache {
           || record.sessionId !== job.sessionId
           || record.runtimeEpoch !== job.runtimeEpoch
           || record.revision !== job.revision
+          || record.projectionRevision !== job.projectionRevision
       ) continue;
       this.active += 1;
       this.inFlightAgents.add(job.agentId);
@@ -277,6 +279,7 @@ export class AcpPreparedTranscriptCache {
               || current.sessionId !== job.sessionId
               || current.runtimeEpoch !== job.runtimeEpoch
               || current.revision !== job.revision
+              || current.projectionRevision !== job.projectionRevision
               || !this.validate(job)
             ) return;
             this.publish(job, transcript);

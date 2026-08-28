@@ -46,6 +46,8 @@ body.code-mode {
   --code-bg-surface: var(--code-bg-canvas);
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
   font-size: 14px;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
   background: var(--code-bg-canvas);
   color: var(--code-text);
   text-shadow: none;
@@ -3653,9 +3655,9 @@ body.code-mode .input-dialog .dialog-header {
   }
 
   body.code-mode.code-compact-layout .code-instance-name {
-    min-height: 44px;
+    min-height: 24px;
     grid-template-columns: minmax(0, 1fr) 16px;
-    padding: 5px 8px;
+    padding: 2px 8px;
     font-size: 12px;
   }
 

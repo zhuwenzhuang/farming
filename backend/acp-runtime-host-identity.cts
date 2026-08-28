@@ -4,7 +4,7 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 
-const ACP_RUNTIME_HOST_PROTOCOL_VERSION = 1;
+const ACP_RUNTIME_HOST_PROTOCOL_VERSION = 2;
 const ACP_RUNTIME_HOST_RUNTIME_FILES = Object.freeze([
   'acp-checkpoint-store.cjs',
   'acp-runtime.cjs',
@@ -16,7 +16,9 @@ const ACP_RUNTIME_HOST_RUNTIME_FILES = Object.freeze([
   'acp-runtime-host-runtime.cjs',
   'acp-runtime-host-service.cjs',
   'acp-runtime-host-state.cjs',
+  'acp-transcript.cjs',
   'acp-turn-summary.cjs',
+  'codex-transcript-sanitizer.cjs',
 ]);
 
 interface AcpRuntimeHostIdentity {

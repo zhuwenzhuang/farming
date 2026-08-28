@@ -320,6 +320,19 @@
   box-shadow: var(--code-shadow-raised);
 }
 
+.code-mobile-share-qr-frame {
+  width: min(100%, 244px);
+  justify-self: center;
+}
+
+.code-mobile-share-qr-frame .code-share-qr-canvas {
+  width: 100%;
+}
+
+.code-mobile-share-full-control .code-mobile-share-link-row {
+  background: color-mix(in srgb, var(--code-warning) 12%, var(--code-bg-inset));
+}
+
 .code-mobile-share-header {
   display: flex;
   align-items: center;

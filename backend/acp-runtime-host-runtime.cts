@@ -427,6 +427,27 @@ class AcpRuntimeHostRuntime extends EventEmitter implements AcpRuntimeContract {
     );
   }
 
+  async getTranscriptMediaChunkForRead(
+    agentId: string,
+    sessionId: string,
+    entryId: string,
+    mediaId: string,
+    offset: number,
+    maxBytes: number,
+    subagentOnly = false,
+  ): Promise<UnknownRecord | null> {
+    await this.initialize();
+    return this.client.request<UnknownRecord | null>('getTranscriptMediaChunkForRead', {
+      agentId,
+      sessionId,
+      entryId,
+      mediaId,
+      offset,
+      maxBytes,
+      subagentOnly,
+    });
+  }
+
   getToolEntry(agentId: string, toolCallId: string): AcpTranscriptEntry | null {
     void agentId;
     void toolCallId;
@@ -439,6 +460,36 @@ class AcpRuntimeHostRuntime extends EventEmitter implements AcpRuntimeContract {
       'getToolEntryForRead',
       { agentId, toolCallId },
     );
+  }
+
+  async getToolDetailPageForRead(
+    agentId: string,
+    toolCallId: string,
+    offset: number,
+    maxChars: number,
+  ): Promise<UnknownRecord | null> {
+    await this.initialize();
+    return this.client.request<UnknownRecord | null>('getToolDetailPageForRead', {
+      agentId,
+      toolCallId,
+      offset,
+      maxChars,
+    });
+  }
+
+  async getToolReviewChangesPageForRead(
+    agentId: string,
+    toolCallId: string,
+    offset: number,
+    maxChars: number,
+  ): Promise<UnknownRecord | null> {
+    await this.initialize();
+    return this.client.request<UnknownRecord | null>('getToolReviewChangesPageForRead', {
+      agentId,
+      toolCallId,
+      offset,
+      maxChars,
+    });
   }
 
   transcriptProjectionRevision(agentId: string): number {
