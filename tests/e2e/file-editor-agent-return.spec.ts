@@ -105,6 +105,7 @@ test('keeps file editing available when a local preview render fails and recover
   await sourceToggle.click()
   const previewError = editor.getByTestId('code-file-preview-render-error')
   await expect(previewError).toBeVisible()
+  await expect(previewError).toHaveCount(1)
   await expect(editor.getByRole('tab', { selected: true })).toContainText('README.md')
   await expect(editor.locator('.code-file-editor-dirty')).toBeVisible()
   await expect(page.getByTestId('app-error-fallback')).toHaveCount(0)
@@ -113,6 +114,7 @@ test('keeps file editing available when a local preview render fails and recover
     window.__farmingLocalRenderFaults = []
   })
   await previewError.getByRole('button', { name: 'Retry' }).click()
+  await expect(previewError).toHaveCount(0)
   await expect(editor.getByTestId('code-file-markdown-preview')).toContainText('Retry keeps this draft.')
 
   await page.evaluate(() => {

@@ -21,6 +21,7 @@ import type { WorkspaceFileWatchReadyReason } from '@/hooks/useWebSocket'
 import { CheckGlyph } from '@/components/IconGlyphs'
 import { appPath } from '@/lib/base-path'
 import { getStartupSearch } from '@/lib/auth-url'
+import type { WebSocketAccessMode } from '@/lib/websocket-access'
 import { readRecentClipboardWrite, writeClipboardText } from '@/lib/clipboard'
 import { isAcpRuntime, isStructuredRuntime } from '@/lib/agent-runtime'
 import {
@@ -174,7 +175,7 @@ import {
   type AgentComposerState,
 } from './code/composer-state'
 import { codeCopyForLanguage } from './code/copy'
-import { scheduleFocusRetries, scheduleFocusUntil } from './code/focus-retry'
+import { scheduleFocusRetries, scheduleFocusUntil, scheduleUserCancelableFocusRetries } from './code/focus-retry'
 import {
   buildComposerControlState,
   composerAgentStartOptions,
@@ -348,6 +349,7 @@ type AgentFlagUpdateResponse = AgentFlagUpdateResult | boolean | void
 
 interface CodeWorkspaceProps {
   agents: Agent[]
+  accessMode: WebSocketAccessMode
   readOnly: boolean
   agentInventoryComplete: boolean
   projectAgentSummaries: ProjectAgentSummary[]
@@ -527,6 +529,7 @@ function uniqueTerminalFileSearchMatches(matches: WorkspaceFileSearchMatch[]) {
 
 export function CodeWorkspace({
   agents,
+  accessMode,
   readOnly,
   agentInventoryComplete,
   projectAgentSummaries,
@@ -1580,7 +1583,7 @@ export function CodeWorkspace({
     return document.activeElement === row
   }, [])
   const focusAgentRow = useCallback((agentId: string) => {
-    scheduleFocusRetries(() => {
+    scheduleUserCancelableFocusRetries(() => {
       focusAgentRowNow(agentId)
     }, { delays: [80, 180] })
   }, [focusAgentRowNow])
@@ -1591,7 +1594,7 @@ export function CodeWorkspace({
     })
   }, [])
   const focusProjectTitle = useCallback((projectId: string) => {
-    scheduleFocusRetries(() => {
+    scheduleUserCancelableFocusRetries(() => {
       const titles = Array.from(workspaceRef.current?.querySelectorAll<HTMLButtonElement>('[data-testid="code-project-title"]') ?? [])
       const title = titles.find(candidate => candidate.dataset.projectId === projectId)
       if (!title) return
@@ -3980,7 +3983,7 @@ export function CodeWorkspace({
   }, [])
 
   useEffect(() => {
-    if (!pendingShareTarget) return undefined
+    if (!pendingShareTarget || accessMode === 'unknown') return undefined
     let cancelled = false
     let retryTimer: number | null = null
     const sharedPath = pendingShareTarget.kind === 'agent'
@@ -4021,7 +4024,7 @@ export function CodeWorkspace({
       cancelled = true
       if (retryTimer !== null) window.clearTimeout(retryTimer)
     }
-  }, [clearWorkspaceShareLocation, copy, pendingShareTarget, shareTargetRestoreTick])
+  }, [accessMode, clearWorkspaceShareLocation, copy, pendingShareTarget, shareTargetRestoreTick])
 
   const restoreWorkspaceNavigationEntry = useCallback(async (entry: WorkspaceNavigationEntry) => {
     if (entry.kind === 'plugins') {
@@ -4201,10 +4204,13 @@ export function CodeWorkspace({
     if (!target) return
     if (target.kind === 'agent') focusAgentRow(target.agentId)
     if (target.kind === 'project') {
-      scheduleFocusRetries(() => {
-        if (target.returnFocusTarget?.isConnected) target.returnFocusTarget.focus({ preventScroll: true })
-        else focusProjectTitle(target.projectId)
-      }, { runNow: false, animationFrame: false, delays: [80, 180, 360] })
+      if (target.returnFocusTarget?.isConnected) {
+        scheduleUserCancelableFocusRetries(() => {
+          target.returnFocusTarget?.focus({ preventScroll: true })
+        }, { runNow: false, animationFrame: false, delays: [80, 180, 360] })
+      } else {
+        focusProjectTitle(target.projectId)
+      }
     }
   }, [focusAgentRow, focusProjectTitle, renameDialog])
 
@@ -4228,10 +4234,13 @@ export function CodeWorkspace({
       errorMessage: copy.copyFailed,
     })
     setRenameDialog(null)
-    scheduleFocusRetries(() => {
-      if (renameDialog.returnFocusTarget?.isConnected) renameDialog.returnFocusTarget.focus({ preventScroll: true })
-      else focusProjectTitle(renameDialog.projectId)
-    }, { runNow: false, animationFrame: false, delays: [80, 180, 360] })
+    if (renameDialog.returnFocusTarget?.isConnected) {
+      scheduleUserCancelableFocusRetries(() => {
+        renameDialog.returnFocusTarget?.focus({ preventScroll: true })
+      }, { runNow: false, animationFrame: false, delays: [80, 180, 360] })
+    } else {
+      focusProjectTitle(renameDialog.projectId)
+    }
   }, [copy.copyFailed, focusAgentRow, focusProjectTitle, mutateProject, onRenameAgent, projectNames, renameDialog])
 
   const copyContextMenuValue = useCallback(async (value: string, focusTarget?: SearchTarget) => {

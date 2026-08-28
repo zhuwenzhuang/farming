@@ -62,14 +62,16 @@ declare global {
 
 export function LocalRenderFault({
   children,
+  enabled = true,
   identity,
   surface,
 }: {
   children: ReactNode
+  enabled?: boolean
   identity: string
   surface: LocalRenderFaultSurface
 }) {
-  if (typeof window !== 'undefined' && window.__FARMING_E2E__) {
+  if (enabled && typeof window !== 'undefined' && window.__FARMING_E2E__) {
     const faults = window.__farmingLocalRenderFaults
     if (faults?.includes(surface) || faults?.includes(`${surface}:${identity}`)) {
       throw new Error(`Injected ${surface} render failure`)

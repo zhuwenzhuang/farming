@@ -140,6 +140,7 @@ export function FileEditorSurface({
     && (surface.showEditorOverlays || surface.showMarkdownPreview)
   const previewIdentity = `${openFile.agentId}:${openFile.file.path}`
   const previewResetKey = filePreviewResetKey(openFile)
+  const visualPreviewVisible = surface.showSourcePreview || editorMode.visualPreview
 
   return (
     <>
@@ -230,19 +231,25 @@ export function FileEditorSurface({
       )}
       <LocalErrorBoundary
         label="file visual preview"
-        resetKey={`${previewResetKey}\u0000${surface.showSourcePreview ? 'open' : 'closed'}`}
+        resetKey={`${previewResetKey}\u0000${visualPreviewVisible ? 'open' : 'closed'}`}
         fallback={(_error, retry) => (
-          <FilePreviewRenderError activeTabDomId={activeTabDomId} copy={copy} onRetry={retry} />
+          visualPreviewVisible
+            ? <FilePreviewRenderError activeTabDomId={activeTabDomId} copy={copy} onRetry={retry} />
+            : null
         )}
       >
-        <LocalRenderFault surface="file-preview" identity={`${previewIdentity}:visual`}>
+        <LocalRenderFault
+          enabled={visualPreviewVisible}
+          surface="file-preview"
+          identity={`${previewIdentity}:visual`}
+        >
           <FileEditorPreviewPanel
             openFile={openFile}
             activeTabDomId={activeTabDomId}
             copy={copy}
             sourcePreviewOpen={surface.showSourcePreview}
             previewRefreshRevision={previewRefreshRevision}
-            visible={surface.showSourcePreview || editorMode.visualPreview}
+            visible={visualPreviewVisible}
           />
         </LocalRenderFault>
       </LocalErrorBoundary>

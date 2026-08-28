@@ -1142,7 +1142,9 @@ test.describe('iPhone mobile layout', () => {
     await readmeRow.getByRole('button', { name: /File actions for README\.md|README\.md 的文件操作/ }).tap()
     await menu.getByRole('menuitem', { name: /Refresh|刷新/ }).tap()
     await expect(menu).toBeHidden()
-    await expect(readmeRow).toBeFocused()
+    await expect(files.locator('[role="tree"]')).toBeFocused()
+    await expect(readmeRow).toHaveClass(/\bfocused\b/)
+    await expect(readmeRow).toHaveClass(/\bselected\b/)
 
     await readmeRow.getByRole('button', { name: /File actions for README\.md|README\.md 的文件操作/ }).tap()
     await menu.getByRole('menuitem', { name: /Copy Relative Path|复制相对路径/ }).tap()

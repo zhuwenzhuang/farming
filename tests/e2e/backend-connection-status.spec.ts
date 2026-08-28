@@ -257,6 +257,7 @@ test('a real mobile offline transition retains draft input and requires an expli
   const { agentId } = await agentResponse.json() as { agentId: string }
 
   try {
+    await page.setViewportSize({ width: 390, height: 844 })
     await page.goto('/farming/')
     await page.getByTestId('code-mobile-menu').click()
     await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()

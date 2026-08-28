@@ -11,6 +11,11 @@ export interface FocusRetryOptions {
   runNow?: boolean
 }
 
+export interface FocusRetryIntentTarget {
+  addEventListener(type: 'pointerdown' | 'keydown', listener: EventListener, capture?: boolean): void
+  removeEventListener(type: 'pointerdown' | 'keydown', listener: EventListener, capture?: boolean): void
+}
+
 function browserFocusRetryScheduler(): FocusRetryScheduler {
   return window
 }
@@ -35,6 +40,35 @@ export function scheduleFocusRetries(
     if (frame !== undefined) scheduler.cancelAnimationFrame(frame)
     timers.forEach(timer => scheduler.clearTimeout(timer))
   }
+}
+
+export function scheduleUserCancelableFocusRetries(
+  focus: () => void,
+  options: FocusRetryOptions = {},
+  intentTarget: FocusRetryIntentTarget = window,
+  scheduler: FocusRetryScheduler = browserFocusRetryScheduler(),
+) {
+  let cancelRetries = () => {}
+  let cleanupTimer: number | undefined
+  let cleaned = false
+  const cleanup = () => {
+    if (cleaned) return
+    cleaned = true
+    cancelRetries()
+    intentTarget.removeEventListener('pointerdown', cleanup, true)
+    intentTarget.removeEventListener('keydown', cleanup, true)
+    if (cleanupTimer !== undefined) scheduler.clearTimeout(cleanupTimer)
+  }
+
+  // Return-focus handlers run below the Window capture boundary. Registering
+  // there cannot observe the key/pointer event currently being dispatched,
+  // but it will cancel restoration for the user's next input immediately.
+  intentTarget.addEventListener('pointerdown', cleanup, true)
+  intentTarget.addEventListener('keydown', cleanup, true)
+  cancelRetries = scheduleFocusRetries(focus, options, scheduler)
+  const finalRetryDelay = Math.max(0, ...(options.delays ?? []))
+  cleanupTimer = scheduler.setTimeout(cleanup, finalRetryDelay + 40)
+  return cleanup
 }
 
 export function scheduleFocusUntil(

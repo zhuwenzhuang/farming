@@ -121,11 +121,16 @@ test('uses one surface-based sidebar focus language across Light, Dark, and Pape
     await expectFocusedSurface(page, instanceName, '--code-bg-hover')
 
     const projectList = page.getByTestId('code-project-list')
-    // Dialog focus restoration deliberately retries on two later frames. Let
-    // that bounded restoration settle before proving an explicit new focus
-    // target, otherwise a slower CI runner can move focus back mid-assertion.
-    await page.waitForTimeout(250)
+    const projectListBounds = await projectList.boundingBox()
+    expect(projectListBounds).not.toBeNull()
+    await page.mouse.click(
+      projectListBounds!.x + 4,
+      projectListBounds!.y + projectListBounds!.height - 4,
+    )
     await projectList.focus()
+    // A delayed dialog focus-restoration retry must not steal a newer explicit
+    // user focus target, including after its final 360 ms retry window.
+    await page.waitForTimeout(400)
     await expectFocusedSurface(page, projectList, '--code-bg-hover')
 
     await fileRow.click({ button: 'right' })
