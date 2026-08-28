@@ -94,6 +94,7 @@ test('explicit Markdown file hrefs do not depend on a file-type whitelist', () =
   })
   assert.equal(transcriptFileTargetFromHref('https://example.com/query.q', WORKSPACE_ROOT), null)
   assert.equal(transcriptFileTargetFromHref('//example.com/query.q', WORKSPACE_ROOT), null)
+  assert.equal(transcriptFileTargetFromHref('//example.com/query.ts:12', WORKSPACE_ROOT), null)
   assert.equal(transcriptFileTargetFromHref('#result', WORKSPACE_ROOT), null)
 })
 
@@ -204,6 +205,7 @@ test('external transcript hrefs keep file-line references internal', () => {
   assert.equal(isExternalTranscriptHref('mailto:a@b.c'), true)
   assert.equal(isExternalTranscriptHref('ftp://x/y'), true)
   assert.equal(isExternalTranscriptHref('//example.com/query.q'), true)
+  assert.equal(isExternalTranscriptHref('//example.com/query.ts:12'), true)
   assert.equal(isExternalTranscriptHref('src/foo.ts:12'), false)
   assert.equal(isExternalTranscriptHref('src/foo.ts'), false)
   assert.equal(isExternalTranscriptHref('example.com/x.ts:12'), false)
