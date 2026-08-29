@@ -163,6 +163,11 @@ Base/Head 截图，并覆盖 Settings、Search、History 与 Plugins 视图。Co
 Visibility、Scroll 或 Geometry 任一发生变化，都必须丢弃临时图片且不得写入 Manifest。
 重试必须重新运行完整场景，不能把 Proof 已失败的 Capture 提升为有效证据。
 
+手机尺寸证据截取 Visual Viewport，而不是 Full-page Surface。具名 Agent、可见 Terminal 或
+Chat Marker、Composer State、Drawer State、Touch Target，以及所有会改变结果位置的 Surface，
+都必须在 Capture 前后重新验证。Browser 输出 RGBA PNG 时，视觉审查要先把图片合成到声明的
+外观背景上；错误渲染 Alpha Channel 的预览不能作为产品像素缺失的证据。
+
 ### Scale 与 Soak
 
 运行大量 Live 与 Historical Agent；目标子系统面向该规模时，至少执行一次 100+ Session 场景。

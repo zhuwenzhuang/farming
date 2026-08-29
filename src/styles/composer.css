@@ -2888,8 +2888,7 @@ body.code-mode .code-composer textarea:disabled {
     background: var(--code-bg-surface) !important;
     border-color: var(--code-border) !important;
     box-shadow: var(--code-shadow-raised);
-    backdrop-filter: blur(22px) saturate(1.18);
-    -webkit-backdrop-filter: blur(22px) saturate(1.18);
+    isolation: isolate;
     transition:
       bottom 160ms ease,
       height 160ms ease,

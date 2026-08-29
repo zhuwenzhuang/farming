@@ -194,6 +194,14 @@ boundary. If identity, readiness, visibility, scroll, or geometry changes, the
 temporary image is discarded and no manifest entry is written. A retry reruns
 the complete scenario; it must not promote a capture whose proof failed.
 
+Phone-sized evidence captures the visual viewport rather than a full-page
+surface. The named Agent, visible Terminal or Chat marker, Composer state,
+drawer state, touch targets, and every surface that can move the result must be
+revalidated before and after capture. When a browser emits an RGBA PNG, visual
+review first composites it onto the declared appearance background; a preview
+that renders the alpha channel incorrectly is not evidence that product pixels
+are missing.
+
 ### Scale And Soak
 
 Exercise many live and historical Agents, including at least one 100+ Session

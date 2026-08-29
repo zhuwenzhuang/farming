@@ -18,7 +18,7 @@ import type {
 } from '@/types/agent'
 import type { WorkspaceFileEventMessage } from '@/types/messages'
 import type { WorkspaceFileWatchReadyReason } from '@/hooks/useWebSocket'
-import { CheckGlyph } from '@/components/IconGlyphs'
+import { CheckGlyph, MenuGlyph, MoreHorizontalGlyph } from '@/components/IconGlyphs'
 import { appPath } from '@/lib/base-path'
 import { getStartupSearch } from '@/lib/auth-url'
 import type { WebSocketAccessMode } from '@/lib/websocket-access'
@@ -5897,7 +5897,7 @@ export function CodeWorkspace({
             aria-label={copy.openNavigation}
             onClick={openMobileSidebar}
           >
-            <span aria-hidden="true" />
+            <MenuGlyph />
           </button>
         )}
         <div className="code-mobile-topbar-title">
@@ -5917,7 +5917,7 @@ export function CodeWorkspace({
           aria-label={copy.openOptions}
           onClick={openOptionsMenu}
         >
-          <span aria-hidden="true" />
+          <MoreHorizontalGlyph />
         </button>
       </div>
 

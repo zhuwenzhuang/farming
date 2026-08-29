@@ -3224,23 +3224,9 @@ body.code-mode .code-workspace {
     justify-self: end;
   }
 
-  .code-mobile-topbar-button.menu span,
-.code-mobile-topbar-button.menu::before,
-.code-mobile-topbar-button.menu::after {
+  .code-mobile-topbar-button.menu svg {
     width: 18px;
-    height: 2px;
-    position: absolute;
-    border-radius: 999px;
-    background: currentColor;
-    content: '';
-  }
-
-  .code-mobile-topbar-button.menu::before {
-    transform: translateY(-6px);
-  }
-
-  .code-mobile-topbar-button.menu::after {
-    transform: translateY(6px);
+    height: 18px;
   }
 
   .code-mobile-topbar-button.back span {
@@ -3251,23 +3237,9 @@ body.code-mode .code-workspace {
     transform: translateX(2px) rotate(45deg);
   }
 
-  .code-mobile-topbar-button.more span,
-.code-mobile-topbar-button.more::before,
-.code-mobile-topbar-button.more::after {
-    width: 4px;
-    height: 4px;
-    position: absolute;
-    border-radius: 999px;
-    background: currentColor;
-    content: '';
-  }
-
-  .code-mobile-topbar-button.more::before {
-    transform: translateX(-8px);
-  }
-
-  .code-mobile-topbar-button.more::after {
-    transform: translateX(8px);
+  .code-mobile-topbar-button.more svg {
+    width: 20px;
+    height: 20px;
   }
 
   .code-mobile-topbar-title {
@@ -3403,13 +3375,14 @@ body.code-mode.code-compact-layout .code-workspace.sidebar-collapsed {
 
   body.code-mode.code-compact-layout .code-mobile-topbar {
     height: 32px;
-    position: fixed;
-    top: calc(var(--app-visual-offset-top, 0px) + max(2px, env(safe-area-inset-top)));
-    left: var(--app-visual-offset-left, 0px);
+    position: absolute;
+    top: max(2px, env(safe-area-inset-top));
+    left: 0;
     right: auto;
-    width: var(--app-visual-width, 100vw);
-    max-width: var(--app-visual-width, 100vw);
+    width: 100%;
+    max-width: 100%;
     z-index: 50;
+    isolation: isolate;
     display: grid;
     grid-template-columns: 44px minmax(0, 1fr) 44px;
     align-items: center;
@@ -3450,23 +3423,9 @@ body.code-mode.code-compact-layout .code-workspace.sidebar-collapsed {
     justify-self: end;
   }
 
-  body.code-mode.code-compact-layout .code-mobile-topbar-button.menu span,
-body.code-mode.code-compact-layout .code-mobile-topbar-button.menu::before,
-body.code-mode.code-compact-layout .code-mobile-topbar-button.menu::after {
+  body.code-mode.code-compact-layout .code-mobile-topbar-button.menu svg {
     width: 18px;
-    height: 2px;
-    position: absolute;
-    border-radius: 999px;
-    background: currentColor;
-    content: '';
-  }
-
-  body.code-mode.code-compact-layout .code-mobile-topbar-button.menu::before {
-    transform: translateY(-6px);
-  }
-
-  body.code-mode.code-compact-layout .code-mobile-topbar-button.menu::after {
-    transform: translateY(6px);
+    height: 18px;
   }
 
   body.code-mode.code-compact-layout .code-mobile-topbar-button.back span {
@@ -3477,23 +3436,9 @@ body.code-mode.code-compact-layout .code-mobile-topbar-button.menu::after {
     transform: translateX(2px) rotate(45deg);
   }
 
-  body.code-mode.code-compact-layout .code-mobile-topbar-button.more span,
-body.code-mode.code-compact-layout .code-mobile-topbar-button.more::before,
-body.code-mode.code-compact-layout .code-mobile-topbar-button.more::after {
-    width: 4px;
-    height: 4px;
-    position: absolute;
-    border-radius: 999px;
-    background: currentColor;
-    content: '';
-  }
-
-  body.code-mode.code-compact-layout .code-mobile-topbar-button.more::before {
-    transform: translateX(-8px);
-  }
-
-  body.code-mode.code-compact-layout .code-mobile-topbar-button.more::after {
-    transform: translateX(8px);
+  body.code-mode.code-compact-layout .code-mobile-topbar-button.more svg {
+    width: 20px;
+    height: 20px;
   }
 
   body.code-mode.code-compact-layout .code-mobile-topbar-title {
@@ -3536,7 +3481,7 @@ body.code-mode.code-compact-layout .code-mobile-topbar-button.more::after {
 
   body.code-mode.code-compact-layout.code-mobile-markdown-reading .code-mobile-topbar {
     height: 48px;
-    top: calc(var(--app-visual-offset-top, 0px) + max(6px, env(safe-area-inset-top)));
+    top: max(6px, env(safe-area-inset-top));
     grid-template-columns: 52px minmax(0, 1fr) 52px;
     padding: 0 8px;
   }
@@ -3551,8 +3496,8 @@ body.code-mode.code-compact-layout .code-mobile-topbar-button.more::after {
     background: var(--code-bg-raised);
     color: var(--code-text-muted);
     box-shadow: var(--code-shadow-soft);
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
   }
 
   body.code-mode.code-compact-layout.code-mobile-markdown-reading .code-mobile-topbar-button.more {
@@ -3689,7 +3634,7 @@ body.code-mode .input-dialog .dialog-header {
 
   body.code-mode.code-compact-layout .code-mobile-topbar {
     height: 44px;
-    top: calc(var(--app-visual-offset-top, 0px) + max(2px, env(safe-area-inset-top)));
+    top: max(2px, env(safe-area-inset-top));
     padding-inline: 6px;
   }
 
