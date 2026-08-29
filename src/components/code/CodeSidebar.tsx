@@ -752,12 +752,14 @@ export function CodeSidebar({
             type="button"
             className="code-nav-item primary"
             data-testid="code-new-agent"
+            aria-label={copy.newAgent}
+            title={copy.newAgent}
             onClick={event => onNewAgent(agentCreationWorkspace, undefined, event.currentTarget)}
           >
             <span className="code-nav-icon">
               <NewAgentGlyph />
             </span>
-            <span>{copy.newAgent}</span>
+            <span className="code-nav-label">{copy.newAgent}</span>
             {keyboardShortcutsEnabled && <kbd>N</kbd>}
           </button>
           <ShareQrButton

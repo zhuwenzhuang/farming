@@ -1477,12 +1477,19 @@ body.code-resizing-sidebar .code-sidebar-resizer {
     }
 
   body.code-mode.code-compact-layout .code-nav-top-row {
-      grid-template-columns: minmax(0, 1fr) 44px 44px 44px 44px;
-      gap: 6px;
+      display: flex;
+      justify-content: space-between;
+      gap: 0;
     }
 
   body.code-mode.code-compact-layout .code-nav-top-row .code-sidebar-focus-toggle {
       display: none;
+    }
+
+  body.code-mode.code-compact-layout .code-nav-top-row > button {
+      flex: 0 0 44px;
+      width: 44px;
+      height: 44px;
     }
 
   body.code-mode.code-compact-layout .code-nav-item {
@@ -1493,7 +1500,16 @@ body.code-resizing-sidebar .code-sidebar-resizer {
     }
 
   body.code-mode.code-compact-layout .code-nav-top-row .code-nav-item {
+      width: 44px;
+      height: 44px;
       min-height: 44px;
+      grid-template-columns: 1fr;
+      justify-items: center;
+      padding: 0;
+    }
+
+  body.code-mode.code-compact-layout .code-nav-top-row .code-nav-item .code-nav-label {
+      display: none;
     }
 
   body.code-mode.code-compact-layout .code-sidebar-toggle {

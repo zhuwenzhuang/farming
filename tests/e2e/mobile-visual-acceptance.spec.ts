@@ -159,6 +159,8 @@ test('audits compact Composer and sidebar geometry across mobile widths and appe
     Object.defineProperty(navigator, 'maxTouchPoints', { value: 5, configurable: true })
   })
   await openFarming(page)
+  await expect(page.getByTestId('code-new-agent').locator('.code-nav-label')).toHaveText('New Agent')
+  await expect(page.getByTestId('code-new-agent').locator('.code-nav-label')).toBeVisible()
   const violations: string[] = []
 
   for (const viewport of VIEWPORTS) {
@@ -172,6 +174,34 @@ test('audits compact Composer and sidebar geometry across mobile widths and appe
 
       const sidebarViolationStart = violations.length
       await openSidebar(page)
+      const newAgentAction = page.getByTestId('code-new-agent')
+      await expect(newAgentAction).toHaveAccessibleName('New Agent')
+      await expect(newAgentAction).toHaveCSS('width', '44px')
+      await expect(newAgentAction).toHaveCSS('height', '44px')
+      await expect(newAgentAction.locator('.code-nav-label')).toBeHidden()
+      const topRowGeometry = await page.locator('.code-nav-top-row').evaluate(row => {
+        const rowRect = row.getBoundingClientRect()
+        const controls = [...row.querySelectorAll<HTMLElement>('button')]
+          .map(control => {
+            const rect = control.getBoundingClientRect()
+            return { left: rect.left, right: rect.right, width: rect.width, height: rect.height }
+          })
+          .filter(control => control.width > 0 && control.height > 0)
+          .sort((left, right) => left.left - right.left)
+        return {
+          row: { left: rowRect.left, right: rowRect.right, scrollWidth: row.scrollWidth, clientWidth: row.clientWidth },
+          controls,
+        }
+      })
+      expect(topRowGeometry.controls).toHaveLength(5)
+      expect(topRowGeometry.row.scrollWidth).toBeLessThanOrEqual(topRowGeometry.row.clientWidth)
+      topRowGeometry.controls.forEach((control, index) => {
+        expect(control.width).toBeCloseTo(44, 3)
+        expect(control.height).toBeCloseTo(44, 3)
+        expect(control.left).toBeGreaterThanOrEqual(topRowGeometry.row.left)
+        expect(control.right).toBeLessThanOrEqual(topRowGeometry.row.right)
+        if (index > 0) expect(control.left).toBeGreaterThanOrEqual(topRowGeometry.controls[index - 1]!.right)
+      })
       const pinnedRow = page.getByTestId('code-pinned-section')
         .locator(`[data-testid="code-agent-row"][data-agent-id="${pinnedId}"]`)
       const ordinaryRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${ordinaryId}"]`)
