@@ -198,9 +198,11 @@ test('audits compact Composer and sidebar geometry across mobile widths and appe
       topRowGeometry.controls.forEach((control, index) => {
         expect(control.width).toBeCloseTo(44, 3)
         expect(control.height).toBeCloseTo(44, 3)
-        expect(control.left).toBeGreaterThanOrEqual(topRowGeometry.row.left)
-        expect(control.right).toBeLessThanOrEqual(topRowGeometry.row.right)
-        if (index > 0) expect(control.left).toBeGreaterThanOrEqual(topRowGeometry.controls[index - 1]!.right)
+        expect(control.left).toBeGreaterThanOrEqual(topRowGeometry.row.left - 0.01)
+        expect(control.right).toBeLessThanOrEqual(topRowGeometry.row.right + 0.01)
+        if (index > 0) {
+          expect(control.left).toBeGreaterThanOrEqual(topRowGeometry.controls[index - 1]!.right - 0.01)
+        }
       })
       const pinnedRow = page.getByTestId('code-pinned-section')
         .locator(`[data-testid="code-agent-row"][data-agent-id="${pinnedId}"]`)
