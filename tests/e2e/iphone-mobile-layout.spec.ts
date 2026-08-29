@@ -692,7 +692,22 @@ test.describe('iPhone mobile layout', () => {
     const more = page.locator(`[data-testid="code-agent-row"][data-agent-id="${secondAgentId}"]`).getByTestId('code-agent-row-more')
     await expect(more).toHaveCSS('width', '44px')
     await expect(more).toHaveCSS('height', '44px')
-    await captureIphoneAudit(page, testInfo, 'iphone-webkit-agent-drawer.png')
+    const mobileUsage = page.getByTestId('code-mobile-usage-open')
+    const assertDrawerReady = async () => {
+      await expect(page.getByTestId('code-sidebar')).not.toHaveClass(/collapsed/)
+      await expect(more).toBeVisible()
+      await expect(mobileUsage).toBeVisible({ timeout: 30_000 })
+      await expect(mobileUsage).toContainText('Usage')
+      await expect(mobileUsage).toHaveCSS('min-height', '44px')
+    }
+    await assertDrawerReady()
+    await captureIphoneAudit(
+      page,
+      testInfo,
+      'iphone-webkit-agent-drawer.png',
+      assertDrawerReady,
+      'The open iPhone drawer includes two touch-switchable Agents and the loaded mobile Usage row',
+    )
     await page.getByTestId('code-mobile-sidebar-backdrop').tap({ position: { x: 380, y: 400 } })
     await expect(page.getByTestId('code-sidebar')).toHaveClass(/collapsed/)
   })
