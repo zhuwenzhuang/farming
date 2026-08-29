@@ -1335,6 +1335,7 @@ test.describe('iPhone mobile layout', () => {
     const renameInput = createdRow.getByTestId('code-file-operation-input')
     await expect(renameInput).toBeFocused()
     await renameInput.fill('touch-renamed.txt')
+    await expect(renameInput).toHaveValue('touch-renamed.txt')
     await captureIphoneAudit(page, testInfo, 'file-rename-inline.png')
     await renameInput.press('Enter')
     const renamedRow = files.locator('[data-testid="code-file-row"][data-file-path="touch-renamed.txt"]')

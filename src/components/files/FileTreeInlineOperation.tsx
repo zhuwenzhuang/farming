@@ -35,10 +35,12 @@ export function FileTreeInlineOperation({
   useLayoutEffect(() => {
     const input = inputRef.current
     if (!input) return
+    const initialValue = input.value
+    const initialSelectionEnd = workspaceFileOperationSelectionEnd(fileOperationRef.current)
     const focusAndSelectName = () => {
       input.focus({ preventScroll: true })
-      if (document.activeElement === input) {
-        input.setSelectionRange(0, workspaceFileOperationSelectionEnd(fileOperationRef.current))
+      if (document.activeElement === input && input.value === initialValue) {
+        input.setSelectionRange(0, initialSelectionEnd)
       }
     }
     focusAndSelectName()
