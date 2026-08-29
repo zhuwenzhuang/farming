@@ -30,6 +30,7 @@ import { AcpComposer } from './acp/AcpComposer'
 import { HistoryPanel } from './HistoryPanel'
 import type { ShareNoticeAnchor } from './share-notice'
 import { SearchPanel } from './SearchPanel'
+import type { GlobalWorkspaceFileSearchMatch } from './useGlobalWorkspaceFileSearch'
 import {
   ChevronDownGlyph,
   ChevronUpGlyph,
@@ -295,6 +296,13 @@ interface CodeMainAreaProps {
   visibleSearchTargetCount: number
   selectedSearchAgentId: string | null
   selectedSearchSessionHandle: string | null
+  selectedSearchFileKey: string | null
+  globalFileSearchMatches: GlobalWorkspaceFileSearchMatch[]
+  globalFileSearchFailedProjectCount: number
+  globalFileSearchIncomplete: boolean
+  globalFileSearchQueryTooLong: boolean
+  globalFileOpenError: string | null
+  globalFileOpeningKey: string | null
   searchInputRef: RefObject<HTMLInputElement | null>
   archivedRuns: TaskHistoryEntry[]
   archivedAgents: Agent[]
@@ -336,6 +344,8 @@ interface CodeMainAreaProps {
   onSessionOutput: (agentId: string, handler: (data: string, replace?: boolean, outputSeq?: number | null, runtimeEpoch?: string, stateRevision?: number | null, cols?: number, rows?: number, kind?: 'output' | 'resize' | 'clear') => void) => () => void
   onOpenSearchAgent: (agentId: string) => void
   onOpenSearchSession: (session: AgentSessionHistoryItem) => void
+  onOpenSearchFile: (match: GlobalWorkspaceFileSearchMatch) => void
+  onRetryGlobalFileSearch: () => void
   onSearchQueryChange: (value: string) => void
   onSearchKeyDown: (event: ReactKeyboardEvent<HTMLInputElement>) => void
   onCloseSearch: () => void
@@ -594,6 +604,13 @@ export function CodeMainArea({
   visibleSearchTargetCount,
   selectedSearchAgentId,
   selectedSearchSessionHandle,
+  selectedSearchFileKey,
+  globalFileSearchMatches,
+  globalFileSearchFailedProjectCount,
+  globalFileSearchIncomplete,
+  globalFileSearchQueryTooLong,
+  globalFileOpenError,
+  globalFileOpeningKey,
   searchInputRef,
   archivedRuns,
   archivedAgents,
@@ -628,6 +645,8 @@ export function CodeMainArea({
   onSessionOutput,
   onOpenSearchAgent,
   onOpenSearchSession,
+  onOpenSearchFile,
+  onRetryGlobalFileSearch,
   onSearchQueryChange,
   onSearchKeyDown,
   onCloseSearch,
@@ -963,6 +982,13 @@ export function CodeMainArea({
               resultCount={visibleSearchTargetCount}
               selectedAgentId={selectedSearchAgentId}
               selectedSessionHandle={selectedSearchSessionHandle}
+              selectedFileKey={selectedSearchFileKey}
+              fileMatches={globalFileSearchMatches}
+              fileSearchFailedProjectCount={globalFileSearchFailedProjectCount}
+              fileSearchIncomplete={globalFileSearchIncomplete}
+              queryTooLong={globalFileSearchQueryTooLong}
+              fileOpenError={globalFileOpenError}
+              openingFileKey={globalFileOpeningKey}
               inputRef={searchInputRef}
               onQueryChange={onSearchQueryChange}
               onKeyDown={onSearchKeyDown}
@@ -970,6 +996,8 @@ export function CodeMainArea({
               onBack={onCloseSearch}
               onOpenAgent={onOpenSearchAgent}
               onOpenSession={onOpenSearchSession}
+              onOpenFile={onOpenSearchFile}
+              onRetryFileSearch={onRetryGlobalFileSearch}
               copy={copy}
             />
           ) : activeView === 'history' ? (

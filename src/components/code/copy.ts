@@ -328,6 +328,12 @@ export interface CodeCopy {
   resumeSessionAria: (title: string) => string
   resultsCount: (count: number) => string
   noMatchingAgents: string
+  noMatchingSearchResults: string
+  fileSearchUnavailable: (count: number) => string
+  fileSearchIncomplete: string
+  searchQueryTooLong: string
+  searchFileOpenFailed: (path: string) => string
+  openingFile: string
   searchHint: string
   searchEmptyTitle: string
   searchEmptyDescription: string
@@ -689,7 +695,7 @@ const EN_COPY: CodeCopy = {
   codexGoalSave: 'Save goal',
   codexGoalClear: 'Clear',
   codexGoalSaving: 'Saving...',
-  searchProjectsOrAgents: 'Search projects or agents',
+  searchProjectsOrAgents: 'Search projects, agents, or files',
   clearSearch: 'Clear search',
   projectsAndAgents: 'Projects and agents',
   noAgentsYet: 'No agents yet.',
@@ -937,9 +943,15 @@ const EN_COPY: CodeCopy = {
   resumeSessionAria: title => `Resume ${title}`,
   resultsCount: count => `${count} results`,
   noMatchingAgents: 'No matching agents',
-  searchHint: 'Search by Agent title, session title, or project.',
+  noMatchingSearchResults: 'No matching projects, agents, sessions, or files',
+  fileSearchUnavailable: count => `File search unavailable in ${count} ${count === 1 ? 'project' : 'projects'}.`,
+  fileSearchIncomplete: 'More file matches may be available.',
+  searchQueryTooLong: 'Search queries must be 4,096 characters or fewer.',
+  searchFileOpenFailed: path => `Unable to open ${path}. The file may have moved or is no longer accessible.`,
+  openingFile: 'Opening file…',
+  searchHint: 'Search by Agent title, session title, project, or file path.',
   searchEmptyTitle: 'Start a search',
-  searchEmptyDescription: 'Type an Agent title, session title, or project name or path.',
+  searchEmptyDescription: 'Type an Agent title, session title, Project name, or file path.',
   agents: 'Agents',
   files: 'Files',
   changes: 'Changes',
@@ -1298,7 +1310,7 @@ const ZH_COPY: CodeCopy = {
   codexGoalSave: '保存目标',
   codexGoalClear: '清除',
   codexGoalSaving: '保存中...',
-  searchProjectsOrAgents: '搜索项目或 Agent',
+  searchProjectsOrAgents: '搜索项目、Agent 或文件',
   clearSearch: '清空搜索',
   projectsAndAgents: '项目与 Agent',
   noAgentsYet: '还没有 Agent。',
@@ -1582,9 +1594,15 @@ const ZH_COPY: CodeCopy = {
   resumeSessionAria: title => `恢复 ${title}`,
   resultsCount: count => `${count} 个结果`,
   noMatchingAgents: '没有匹配的 Agent',
-  searchHint: '可按 Agent 标题、会话标题或项目搜索。',
+  noMatchingSearchResults: '没有匹配的项目、Agent、会话或文件',
+  fileSearchUnavailable: count => `${count} 个项目的文件搜索暂不可用。`,
+  fileSearchIncomplete: '可能还有更多文件匹配结果。',
+  searchQueryTooLong: '搜索内容不能超过 4,096 个字符。',
+  searchFileOpenFailed: path => `无法打开 ${path}。文件可能已移动或不再可访问。`,
+  openingFile: '正在打开文件…',
+  searchHint: '可按 Agent 标题、会话标题、Project 或文件路径搜索。',
   searchEmptyTitle: '开始搜索',
-  searchEmptyDescription: '输入 Agent 标题、会话标题，或项目名称、路径。',
+  searchEmptyDescription: '输入 Agent 标题、会话标题、Project 名称或文件路径。',
   agents: 'Agent',
   files: '文件',
   changes: '变更',

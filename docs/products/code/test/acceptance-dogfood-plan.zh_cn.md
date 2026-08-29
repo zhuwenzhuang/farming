@@ -152,6 +152,17 @@ Tab、Home、Kind、Detail 与 Scroll Location。
 Restore、Menu Dismiss、Accessible Name、Phone Navigation、Software Keyboard、Refresh 与 Remote
 Reconnect。缺失 Telemetry 应省略或解释，不能虚构。
 
+可见的 Code 变更还要在 Linux Chromium 上为 Light、Dark、Paper 三种外观生成确定性的
+Base/Head 截图，并覆盖 Settings、Search、History 与 Plugins 视图。Computed Style 断言保护
+语义角色与对比度；跨外观截图保护那些即使单个 CSS 值都合法，组合后仍可能出错的构图、
+层级、间距、边框及其他视觉关系。
+
+只有在截图前后，具名场景都保持权威且稳定时，验收截图才能写入证据。Journey 必须证明场景
+特定的 Runtime 或 UI 状态、必要的可见控件，以及会影响结果位置的交互表面；Capture 还要
+跨越截图边界比较 Visual Viewport、页面滚动和声明为稳定的几何状态。Identity、Readiness、
+Visibility、Scroll 或 Geometry 任一发生变化，都必须丢弃临时图片且不得写入 Manifest。
+重试必须重新运行完整场景，不能把 Proof 已失败的 Capture 提升为有效证据。
+
 ### Scale 与 Soak
 
 运行大量 Live 与 Historical Agent；目标子系统面向该规模时，至少执行一次 100+ Session 场景。

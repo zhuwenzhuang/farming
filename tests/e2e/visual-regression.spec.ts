@@ -407,6 +407,11 @@ test.describe('PR visual regression capture', () => {
     const codexHome = path.join(visualRoot, 'appearance-agent-home')
     fs.mkdirSync(codexHome, { recursive: true })
     const agentId = await createAgent(page, 'bash', workspace, 'terminal')
+    const searchFilePath = 'src/mobile/ThemeSearchTarget.ts'
+    fs.mkdirSync(path.join(workspace, 'src/mobile'), { recursive: true })
+    fs.writeFileSync(path.join(workspace, searchFilePath), 'export const themeSearchTarget = true\n')
+    const mountResponse = await page.request.post('/farming/api/projects/mount', { data: { workspace } })
+    expect(mountResponse.ok()).toBeTruthy()
     await setAgentTitle(page, agentId, 'Theme review Agent')
     await page.route(/\/farming\/api\/agent-sessions(?:\?.*)?$/, route => route.fulfill({
       contentType: 'application/json',
@@ -458,8 +463,8 @@ test.describe('PR visual regression capture', () => {
 
       await page.getByTestId('code-nav-search').click()
       const search = page.getByTestId('code-search-panel')
-      await search.getByRole('searchbox').fill('Theme review Agent')
-      await expect(search.getByTestId('code-search-result')).toContainText('Theme review Agent')
+      await search.getByRole('combobox').fill(searchFilePath)
+      await expect(search.getByTestId('code-global-file-search-result')).toContainText(searchFilePath)
       await captureScenario(page, `appearance-${appearance}-search`)
 
       await page.getByTestId('code-nav-history').click()

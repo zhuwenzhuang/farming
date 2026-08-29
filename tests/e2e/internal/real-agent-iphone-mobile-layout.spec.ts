@@ -14,7 +14,7 @@ let realAgentEvidence: ReturnType<typeof createAcceptanceEvidence> | null = null
 type PublicAgent = {
   id: string
   command?: string
-  runtimeBinding?: { kind?: string }
+  runtimeBinding?: { kind?: string, state?: string }
   status?: string
   acpState?: string
 }
@@ -49,16 +49,70 @@ async function createAgent(page: Page, command: string, runtime: 'terminal' | 'c
   await waitForAgent(page, agentId, agent => (
     agent.status === 'running'
     && agent.runtimeBinding?.kind === (runtime === 'chat' ? 'acp' : 'terminal')
+    && (runtime !== 'chat' || agent.runtimeBinding.state === 'idle')
   ))
   return agentId
 }
 
-async function activateAgent(page: Page, agentId: string) {
+async function assertCenterHitTarget(locator: ReturnType<Page['locator']>) {
+  await expect.poll(async () => locator.evaluate(element => {
+    const rect = element.getBoundingClientRect()
+    const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)
+    return rect.width > 0 && rect.height > 0 && Boolean(hit && (hit === element || element.contains(hit)))
+  }), {
+    message: 'Composer center should be the topmost touch target',
+  }).toBe(true)
+}
+
+async function assertMobileDrawerClosed(page: Page) {
+  const sidebar = page.getByTestId('code-sidebar')
+  await expect(sidebar).toHaveClass(/collapsed/)
+  await expect(page.getByTestId('code-mobile-sidebar-backdrop')).toHaveCount(0)
+  await expect(page.locator('.code-context-menu:visible')).toHaveCount(0)
+
+  const geometry = () => sidebar.evaluate(element => {
+    const rect = element.getBoundingClientRect()
+    const workspaceLeft = document.querySelector<HTMLElement>('[data-testid="code-workspace"]')
+      ?.getBoundingClientRect().left ?? 0
+    return {
+      left: Math.round(rect.left * 10) / 10,
+      right: Math.round(rect.right * 10) / 10,
+      width: Math.round(rect.width * 10) / 10,
+      transform: getComputedStyle(element).transform,
+      runningAnimations: element.getAnimations().filter(animation => animation.playState === 'running').length,
+      closed: rect.right <= workspaceLeft - 1,
+    }
+  })
+  await expect.poll(async () => {
+    const current = await geometry()
+    return current.closed && current.runningAnimations === 0
+  }, {
+    message: 'Mobile sidebar should finish translating outside the viewport',
+  }).toBe(true)
+  const before = await geometry()
+  await page.evaluate(() => new Promise<void>(resolve => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+  }))
+  expect(await geometry()).toEqual(before)
+}
+
+async function activateAgent(page: Page, agentId: string, runtime: 'terminal' | 'chat') {
   const row = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
-  await page.getByTestId('code-mobile-menu').click()
+  await page.getByTestId('code-mobile-menu').tap()
   await expect(row).toBeVisible({ timeout: 30_000 })
-  await row.click()
-  await expect(page.getByTestId('code-sidebar')).toHaveClass(/collapsed/)
+  await row.locator('.code-agent-row-copy').tap()
+  const activePane = page.locator(`[data-testid="code-agent-work-pane"][data-agent-id="${agentId}"]`)
+  await expect(activePane).toHaveClass(/active/)
+  await expect(activePane).toBeVisible()
+  await assertMobileDrawerClosed(page)
+  if (runtime === 'chat') {
+    await waitForAgent(page, agentId, agent => (
+      agent.runtimeBinding?.kind === 'acp' && agent.runtimeBinding.state === 'idle'
+    ))
+  }
+  const input = activeComposerInput(page)
+  await expect(input).toBeVisible({ timeout: 60_000 })
+  await assertCenterHitTarget(input)
 }
 
 async function waitForTerminal(page: Page, agentId: string) {
@@ -149,8 +203,17 @@ async function assertCompactVisualBounds(page: Page) {
   expect(metrics.composerBottom).toBeLessThanOrEqual(metrics.viewportHeight)
 }
 
-async function capture(page: Page, testInfo: TestInfo, name: string) {
-  await assertCompactVisualBounds(page)
+async function capture(
+  page: Page,
+  testInfo: TestInfo,
+  name: string,
+  assertReady?: () => Promise<void>,
+) {
+  const assertCaptureReady = async () => {
+    await assertCompactVisualBounds(page)
+    await assertReady?.()
+  }
+  await assertCaptureReady()
   await page.waitForTimeout(350)
   if (!realAgentEvidence) throw new Error('Real Agent iPhone evidence recorder was not initialized')
   const screenshotPath = await realAgentEvidence.capture({
@@ -159,6 +222,7 @@ async function capture(page: Page, testInfo: TestInfo, name: string) {
     screenshotName: name,
     scenario: name.replace(/\.png$/i, ''),
     settledAssertion: 'Real Agent scenario reached its asserted state and compact visual bounds passed',
+    assertReady: assertCaptureReady,
     proofLocator: page.getByTestId('code-main'),
     expectedTestId: 'code-main',
     fullPage: true,
@@ -200,7 +264,7 @@ test.describe('real Agent iPhone visual audit', () => {
     await expect(page.locator('body')).toHaveClass(/code-mobile-touch/)
 
     const bashAgentId = await createAgent(page, 'bash', 'terminal')
-    await activateAgent(page, bashAgentId)
+    await activateAgent(page, bashAgentId, 'terminal')
     await waitForTerminal(page, bashAgentId)
     await capture(page, testInfo, '01-bash-terminal-idle-light.png')
 
@@ -223,7 +287,7 @@ test.describe('real Agent iPhone visual audit', () => {
     await bashInput.fill('')
 
     const codexAgentId = await createAgent(page, 'codex', 'chat')
-    await activateAgent(page, codexAgentId)
+    await activateAgent(page, codexAgentId, 'chat')
     await expect(page.getByTestId('code-agent-transcript')).toBeVisible({ timeout: 60_000 })
     await expect(page.getByTestId('code-agent-transcript').getByRole('status')).toContainText('No conversation yet.')
     await capture(page, testInfo, '05-codex-chat-empty-light.png')
@@ -243,10 +307,24 @@ test.describe('real Agent iPhone visual audit', () => {
     await capture(page, testInfo, '08-codex-chat-dense-dark.png')
 
     const openCodeAgentId = await createAgent(page, 'opencode', 'chat')
-    await activateAgent(page, openCodeAgentId)
-    await expect(page.getByTestId('code-agent-transcript')).toBeVisible({ timeout: 60_000 })
-    await expect(page.getByTestId('code-agent-transcript').getByRole('status')).toContainText('No conversation yet.')
-    await capture(page, testInfo, '09-opencode-chat-empty-dark.png')
+    await activateAgent(page, openCodeAgentId, 'chat')
+    const assertOpenCodeEmptyReady = async () => {
+      await waitForAgent(page, openCodeAgentId, agent => (
+        agent.runtimeBinding?.kind === 'acp' && agent.runtimeBinding.state === 'idle'
+      ))
+      const transcript = page.getByTestId('code-agent-transcript')
+      const emptyState = transcript.locator('.code-agent-transcript-blank')
+      await expect(transcript).toBeVisible({ timeout: 60_000 })
+      await expect(emptyState).toHaveCount(1)
+      await expect(emptyState).toHaveText('No conversation yet.')
+      await expect(page.getByTestId('code-acp-composer')).toBeVisible()
+      await expect(page.getByTestId('code-acp-model-picker')).toBeVisible()
+      await expect(activeComposerInput(page)).toBeVisible()
+      await assertMobileDrawerClosed(page)
+      await assertCenterHitTarget(activeComposerInput(page))
+    }
+    await assertOpenCodeEmptyReady()
+    await capture(page, testInfo, '09-opencode-chat-empty-dark.png', assertOpenCodeEmptyReady)
 
     await page.getByTestId('code-acp-composer-file-input').setInputFiles(path.join(AUDIT_WORKSPACE, 'attachment.png'))
     const attachment = page.getByTestId('code-composer-attachment')

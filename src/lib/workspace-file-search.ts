@@ -21,25 +21,37 @@ export interface TextRange {
   end: number
 }
 
+function positiveSafePosition(value: string | undefined) {
+  if (value === undefined) return undefined
+  const position = Number(value)
+  return Number.isSafeInteger(position) && position > 0 ? position : null
+}
+
 export function parseWorkspaceFileJumpQuery(query: string): WorkspaceFileJumpQuery | null {
   const value = query.trim().replace(/^\.\/+/, '')
   if (!value) return null
 
   const hashMatch = value.match(/^(.+?)#L(\d+)(?:C(\d+))?$/i)
   if (hashMatch) {
+    const lineNumber = positiveSafePosition(hashMatch[2])
+    const column = positiveSafePosition(hashMatch[3])
+    if (lineNumber == null || column === null) return null
     return {
       path: hashMatch[1] || '',
-      lineNumber: Number(hashMatch[2]),
-      column: hashMatch[3] ? Number(hashMatch[3]) : undefined,
+      lineNumber,
+      column,
     }
   }
 
   const colonMatch = value.match(/^(.+?):(\d+)(?::(\d+))?$/)
   if (!colonMatch) return null
+  const lineNumber = positiveSafePosition(colonMatch[2])
+  const column = positiveSafePosition(colonMatch[3])
+  if (lineNumber == null || column === null) return null
   return {
     path: colonMatch[1] || '',
-    lineNumber: Number(colonMatch[2]),
-    column: colonMatch[3] ? Number(colonMatch[3]) : undefined,
+    lineNumber,
+    column,
   }
 }
 

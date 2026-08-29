@@ -637,6 +637,18 @@ async function run() {
       const directoryPathSearch = await service.search(workspace, 'src/', { limit: 5 });
       assert(directoryPathSearch.matches.some(match => match.path === 'src/App.tsx'));
       assert(!directoryPathSearch.matches.some(match => match.path === 'src'));
+      fs.mkdirSync(path.join(workspace, 'authorized-search-scope'), { recursive: true });
+      fs.writeFileSync(path.join(workspace, 'outside-search-scope.txt'), 'must stay hidden\n');
+      const scopedPathSearch = await service.search(workspace, 'outside-search-scope.txt', {
+        path: 'authorized-search-scope',
+        scope: 'file-path',
+      });
+      assert.deepStrictEqual(scopedPathSearch.matches, []);
+      const traversalPathSearch = await service.search(workspace, '../outside-search-scope.txt', {
+        path: 'authorized-search-scope',
+        scope: 'file-path',
+      });
+      assert.deepStrictEqual(traversalPathSearch.matches, []);
       if (fs.existsSync(path.join(workspace, 'readme-link.md'))) {
         const symlinkPathSearch = await service.search(workspace, 'readme-link.md');
         assert.strictEqual(symlinkPathSearch.matches[0].path, 'readme-link.md');
@@ -663,6 +675,27 @@ async function run() {
         assert(pathOnlySearch.matches.every(match => match.kind === 'path'));
         assert.strictEqual(pathOnlySearch.truncated, true);
         assert.strictEqual(contentSearchWasCalled, false);
+
+        const pathScopeMiss = await pathOnlyService.search(workspace, 'external', {
+          limit: 2,
+          scope: 'file-path',
+        });
+        assert.deepStrictEqual(pathScopeMiss.matches, []);
+        assert.strictEqual(pathScopeMiss.truncated, false);
+        assert.strictEqual(contentSearchWasCalled, false);
+
+        const manyDirectoriesRoot = path.join(workspace, 'many-directories');
+        fs.mkdirSync(manyDirectoriesRoot, { recursive: true });
+        for (let index = 0; index < 24; index += 1) {
+          fs.mkdirSync(path.join(manyDirectoriesRoot, `target-${String(index).padStart(2, '0')}`), { recursive: true });
+        }
+        fs.writeFileSync(path.join(manyDirectoriesRoot, 'target-file.ts'), 'export {}\n');
+        const filePathScope = await pathOnlyService.search(workspace, 'target', {
+          limit: 2,
+          scope: 'file-path',
+        });
+        assert(filePathScope.matches.some(match => match.path === 'many-directories/target-file.ts'));
+        assert(filePathScope.matches.every(match => match.entryType === 'file'));
       } finally {
         await pathOnlyService.dispose();
       }

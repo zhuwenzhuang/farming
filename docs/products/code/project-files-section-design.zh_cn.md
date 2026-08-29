@@ -79,6 +79,18 @@ Terminal Text 属于另一条词法边界：除非显式 Link 或 Literal 已经
 Files Identity 来自 Canonical Workspace，不能依赖当前碰巧引用它的 Agent。可选 Source Agent
 Association 可以跨 Project 保留，以支持从文件返回来源 Agent，但不属于文件 Ownership。
 
+Global Search 以有界并发、结果数量与取消机制查询当前已挂载且非 Main 的 Project 权威文件索引。
+文件结果展示 Project、同名冲突时扩展到最短唯一后缀的 Workspace Label，以及完整 Workspace
+Relative Path，使同名且相对路径相同的文件仍能明确区分。用户可以输入
+Workspace Relative Path，或输入属于其中一个已挂载 Project 的 Absolute Path，并可附带行列位置。
+点击结果或按 Enter 后，必须通过普通 Project File-open Transaction 打开该精确 Identity、在
+Explorer 中 Reveal，并在来源 Agent 仍存在时保留为移动端 Back Target。Search 不得扩大到全局
+文件系统，也不得在用户选择后用 Fuzzy Match 替代精确文件。如果文件在 Search 与 Open 之间移动
+或变得不可访问，Search 保持可见并展示明确失败，用户可以修改查询或重新搜索。修改或关闭
+Search、启动 Agent、跟随通知、移除目标 Project 都会取消进行中的 Read。Per-project 与 Global
+Deadline 必须收敛到可 Retry 的明确 Failed 或 Incomplete 状态；语义未变化的 Project 刷新不得
+重启这些 Deadline。
+
 ## Directory 与 Navigation State
 
 Directory Loading 只有 Absent、Loading、Loaded、Failed。Workspace Identity 变化会使 Pending

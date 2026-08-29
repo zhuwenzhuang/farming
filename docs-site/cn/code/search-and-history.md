@@ -4,11 +4,16 @@
 
 ## 全局搜索
 
-打开 Search，输入 Agent 标题、Project 名称或相关关键词。结果会区分当前 Agent 与 History，帮助你回到正确上下文。
+打开 Search，输入 Agent 标题、Project 名称、文件名或文件路径。文件结果会同时显示所属 Project、
+同名 Project 的可区分 Workspace Label 与完整相对路径，因此同名文件不会混淆。选择结果或按 Enter 会精确打开文件，并在 Project Tree
+中定位。已挂载 Project 内的绝对路径还可以附带 `:行:列` 或 `#L行C列`，直接跳转到目标位置。
 
 <ThemeImage light="/cn/assets/search.png" dark="/cn/assets/search-dark.png" paper="/cn/assets/search-paper.png" alt="搜索当前工作" />
 
 打开 Search 时，Farming 会重新读取当前可用的数据。加载失败或超时时，界面会显示明确错误，不会把之前的结果当成最新状态。
+如果文件在搜索后、打开前被移动，Farming 会保留 Search 并显示失败路径，不会改开另一个匹配项。
+关闭或修改 Search 会取消正在进行的文件打开；超时会收敛到可重试的明确未完成或失败状态，
+不会一直停在加载中。
 
 ## History
 

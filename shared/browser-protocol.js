@@ -9,8 +9,8 @@ exports.protocolCompatible = protocolCompatible;
 exports.claimProtocolUpgradeReload = claimProtocolUpgradeReload;
 const agent_state_semantics_js_1 = require("./agent-state-semantics.js");
 const agent_state_wire_js_1 = require("./agent-state-wire.js");
-exports.PROTOCOL_VERSION = 15;
-exports.MIN_PROTOCOL_VERSION = 15;
+exports.PROTOCOL_VERSION = 16;
+exports.MIN_PROTOCOL_VERSION = 16;
 exports.MAX_INLINE_WORKSPACE_MESSAGE_BYTES = 1024 * 1024;
 exports.PROJECT_ATTENTION_SCORE_MAX = agent_state_semantics_js_1.PROJECT_ATTENTION_SCORE_MAX;
 const SERVER_MESSAGE_TYPES = new Set([
@@ -136,7 +136,8 @@ function workspaceRequest(value) {
                 && boundedStringField(value, 'query', 4096)
                 && boundedStringField(value, 'path', 4096, true)
                 && optionalBooleanField(value, 'includeIgnored')
-                && optionalNonNegativeIntegerField(value, 'limit');
+                && optionalNonNegativeIntegerField(value, 'limit')
+                && (value.scope === undefined || value.scope === 'all' || value.scope === 'file-path');
         case 'blame':
         case 'blame-capability':
         case 'diff':

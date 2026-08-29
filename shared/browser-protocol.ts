@@ -2,8 +2,8 @@ import { PROJECT_ATTENTION_SCORE_MAX as projectAttentionScoreMax } from './agent
 import { isAgentStateWire } from './agent-state-wire.js'
 import type { AgentStateWire } from './agent-state-wire.js'
 
-export const PROTOCOL_VERSION = 15
-export const MIN_PROTOCOL_VERSION = 15
+export const PROTOCOL_VERSION = 16
+export const MIN_PROTOCOL_VERSION = 16
 export const MAX_INLINE_WORKSPACE_MESSAGE_BYTES = 1024 * 1024
 export const PROJECT_ATTENTION_SCORE_MAX = projectAttentionScoreMax
 
@@ -139,7 +139,7 @@ export type WorkspaceRequest =
   | { operation: 'create-entry'; rootId: string; parentPath: string; name: string; entryType: 'file' | 'directory' }
   | { operation: 'rename-entry'; rootId: string; path: string; name: string; expectedVersion?: string }
   | { operation: 'delete-entry'; rootId: string; path: string; expectedVersion?: string }
-  | { operation: 'search'; rootId: string; query: string; path?: string; includeIgnored?: boolean; limit?: number }
+  | { operation: 'search'; rootId: string; query: string; path?: string; includeIgnored?: boolean; limit?: number; scope?: 'all' | 'file-path' }
   | { operation: 'blame'; rootId: string; path: string }
   | { operation: 'blame-capability'; rootId: string; path: string }
   | { operation: 'diff'; rootId: string; path: string }
@@ -624,6 +624,7 @@ function workspaceRequest(value: unknown): value is WorkspaceRequest {
         && boundedStringField(value, 'path', 4096, true)
         && optionalBooleanField(value, 'includeIgnored')
         && optionalNonNegativeIntegerField(value, 'limit')
+        && (value.scope === undefined || value.scope === 'all' || value.scope === 'file-path')
     case 'blame':
     case 'blame-capability':
     case 'diff':

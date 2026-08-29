@@ -50,6 +50,17 @@ async function run() {
     fs.writeFileSync(path.join(workspace, 'binary.bin'), Buffer.from([0, 1, 2, 3]));
     fs.writeFileSync(path.join(workspace, 'site', 'index.html'), '<link rel="stylesheet" href="assets/site.css"><h1>Preview</h1>\n');
     fs.writeFileSync(path.join(workspace, 'site', 'assets', 'site.css'), 'h1 { color: green; }\n');
+    const outsideAllowedSearchFile = path.join(tempRoot, 'outside-allowed-search.txt');
+    fs.writeFileSync(outsideAllowedSearchFile, 'global metadata must stay hidden\n');
+    const outsideSearchDirectory = path.join(tempRoot, 'outside-search-directory');
+    fs.mkdirSync(outsideSearchDirectory, { recursive: true });
+    fs.writeFileSync(path.join(outsideSearchDirectory, 'secret.txt'), 'symlink metadata must stay hidden\n');
+    const outsideSearchLink = path.join(workspace, 'outside-search-link');
+    try {
+      fs.symlinkSync(outsideSearchDirectory, outsideSearchLink);
+    } catch {
+      // Some environments disallow symlinks; skip the symlink-specific assertion there.
+    }
 
     const agentManager = {
       configManager: {
@@ -165,17 +176,39 @@ async function run() {
     const searchAbort = new AbortController();
     const originalSearch = service.search.bind(service);
     let routedSearchSignal: AbortSignal | undefined;
-    service.search = async (_root, query, options: { signal?: AbortSignal } = {}) => {
+    let routedSearchScope: string | undefined;
+    service.search = async (_root, query, options: { signal?: AbortSignal; scope?: string } = {}) => {
       routedSearchSignal = options.signal as AbortSignal | undefined;
+      routedSearchScope = options.scope;
       return { query, path: '.', matches: [], truncated: false };
     };
     try {
       await executeWorkspaceFileRequest(agentManager, service, {
-        operation: 'search', rootId: 'agent-main', query: 'hello',
+        operation: 'search', rootId: 'agent-main', query: 'hello', scope: 'file-path',
       }, { ...requestOptions, signal: searchAbort.signal });
       assert.strictEqual(routedSearchSignal, searchAbort.signal);
+      assert.strictEqual(routedSearchScope, 'file-path');
     } finally {
       service.search = originalSearch;
+    }
+
+    const globalScopedSearch = await executeWorkspaceFileRequest(agentManager, service, {
+      operation: 'search',
+      rootId: 'wroot_global',
+      path: workspace.replace(/^[/\\]+/, ''),
+      query: outsideAllowedSearchFile.replace(/^[/\\]+/, ''),
+      scope: 'file-path',
+    }, requestOptions);
+    assert.deepStrictEqual(globalScopedSearch.matches, []);
+    if (fs.existsSync(outsideSearchLink)) {
+      const globalScopedSymlinkSearch = await executeWorkspaceFileRequest(agentManager, service, {
+        operation: 'search',
+        rootId: 'wroot_global',
+        path: workspace.replace(/^[/\\]+/, ''),
+        query: 'outside-search-link/secret.txt',
+        scope: 'file-path',
+      }, requestOptions);
+      assert.deepStrictEqual(globalScopedSymlinkSearch.matches, []);
     }
 
     const preview = await executeWorkspaceFileRequest(agentManager, service, {

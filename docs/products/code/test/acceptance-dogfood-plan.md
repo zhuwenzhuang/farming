@@ -185,6 +185,15 @@ Plugins views. Computed-style assertions protect semantic roles and contrast;
 the cross-appearance captures protect composition, hierarchy, spacing, borders,
 and other visual relationships that remain individually valid CSS values.
 
+An acceptance screenshot is committed as evidence only when its named scenario
+is authoritative and stable immediately before and after capture. The journey
+must prove the scenario-specific runtime or UI state, required visible controls,
+and any interaction surface whose position affects the result. Capture compares
+the visual viewport, page scroll, and declared stable geometry across that
+boundary. If identity, readiness, visibility, scroll, or geometry changes, the
+temporary image is discarded and no manifest entry is written. A retry reruns
+the complete scenario; it must not promote a capture whose proof failed.
+
 ### Scale And Soak
 
 Exercise many live and historical Agents, including at least one 100+ Session

@@ -15,10 +15,12 @@ type CaptureOptions = {
   screenshotName: string
   scenario: string
   settledAssertion: string
+  assertReady?: () => Promise<void>
   theme?: string
   proofLocator?: Locator
   expectedTestId?: string
   expectedHeading?: string | RegExp
+  stableLocators?: Locator[]
   target?: Locator
   fullPage?: boolean
 }
@@ -218,6 +220,81 @@ function baseUrlClass(rawUrl: string) {
   return `${protocol}-public-network`
 }
 
+function roundedLayoutValue(value: number) {
+  return Math.round(value * 1000) / 1000
+}
+
+async function captureState(page: Page, stableLocators: Locator[]) {
+  const viewportAndScroll = await page.evaluate(() => {
+    const rounded = (value: number) => Math.round(value * 1000) / 1000
+    const visualViewport = window.visualViewport
+    return {
+      windowScroll: {
+        x: rounded(window.scrollX),
+        y: rounded(window.scrollY),
+      },
+      documentScroll: {
+        x: rounded(document.documentElement.scrollLeft),
+        y: rounded(document.documentElement.scrollTop),
+      },
+      bodyScroll: {
+        x: rounded(document.body.scrollLeft),
+        y: rounded(document.body.scrollTop),
+      },
+      visualViewport: visualViewport ? {
+        offsetLeft: rounded(visualViewport.offsetLeft),
+        offsetTop: rounded(visualViewport.offsetTop),
+        pageLeft: rounded(visualViewport.pageLeft),
+        pageTop: rounded(visualViewport.pageTop),
+        width: rounded(visualViewport.width),
+        height: rounded(visualViewport.height),
+        scale: rounded(visualViewport.scale),
+      } : null,
+    }
+  })
+  const stableGeometry = []
+  for (let index = 0; index < stableLocators.length; index += 1) {
+    const locator = stableLocators[index]!
+    const count = await locator.count()
+    if (count !== 1) {
+      throw new Error(`Acceptance screenshot stable locator ${index + 1} matched ${count} elements`)
+    }
+    const geometry = await locator.evaluate(element => {
+      const rect = element.getBoundingClientRect()
+      const style = getComputedStyle(element)
+      return {
+        rect: {
+          x: rect.x,
+          y: rect.y,
+          width: rect.width,
+          height: rect.height,
+        },
+        transform: style.transform,
+        position: style.position,
+        scroll: {
+          left: element.scrollLeft,
+          top: element.scrollTop,
+          width: element.scrollWidth,
+          height: element.scrollHeight,
+          clientWidth: element.clientWidth,
+          clientHeight: element.clientHeight,
+        },
+      }
+    })
+    stableGeometry.push({
+      rect: Object.fromEntries(Object.entries(geometry.rect).map(([key, value]) => (
+        [key, roundedLayoutValue(value)]
+      ))),
+      transform: geometry.transform,
+      position: geometry.position,
+      scroll: Object.fromEntries(Object.entries(geometry.scroll).map(([key, value]) => (
+        [key, roundedLayoutValue(value)]
+      ))),
+    })
+  }
+  return { ...viewportAndScroll, stableGeometry }
+}
+
 export function createAcceptanceEvidence(outputDir: string, options: AcceptanceEvidenceOptions) {
   fs.mkdirSync(outputDir, { recursive: true })
   const manifestPath = path.join(outputDir, options.manifestFileName)
@@ -266,10 +343,12 @@ export function createAcceptanceEvidence(outputDir: string, options: AcceptanceE
       screenshotName,
       scenario,
       settledAssertion,
+      assertReady,
       theme,
       proofLocator,
       expectedTestId,
       expectedHeading,
+      stableLocators = [],
       target,
       fullPage = false,
     }: CaptureOptions) {
@@ -288,11 +367,30 @@ export function createAcceptanceEvidence(outputDir: string, options: AcceptanceE
         throw new Error(`Acceptance screenshot ${screenshotName} is missing its Playwright identity`)
       }
       const repositoryBefore = repositoryIdentity()
-      if (proofLocator) {
+      const assertProof = async (postCapture = false) => {
+        if (!proofLocator) return
+        if (postCapture) {
+          if (!await proofLocator.isVisible()) {
+            throw new Error(`Acceptance screenshot ${screenshotName} proof is no longer visible`)
+          }
+          if (expectedTestId && await proofLocator.getAttribute('data-testid') !== expectedTestId) {
+            throw new Error(`Acceptance screenshot ${screenshotName} proof test ID changed`)
+          }
+          if (
+            expectedHeading
+            && !await proofLocator.getByRole('heading', { name: expectedHeading }).isVisible()
+          ) {
+            throw new Error(`Acceptance screenshot ${screenshotName} proof heading is no longer visible`)
+          }
+          return
+        }
         await expect(proofLocator).toBeVisible()
-        if (expectedTestId) await expect(proofLocator).toHaveAttribute('data-testid', expectedTestId)
+        if (expectedTestId) {
+          await expect(proofLocator).toHaveAttribute('data-testid', expectedTestId)
+        }
         if (expectedHeading) {
-          await expect(proofLocator.getByRole('heading', { name: expectedHeading })).toBeVisible()
+          await expect(proofLocator.getByRole('heading', { name: expectedHeading }))
+            .toBeVisible()
         }
       }
       await page.evaluate(() => new Promise<void>(resolve => {
@@ -303,6 +401,7 @@ export function createAcceptanceEvidence(outputDir: string, options: AcceptanceE
       writeSequence += 1
       const temporaryScreenshotPath = `${screenshotPath}.${process.pid}.${writeSequence}.tmp.png`
       try {
+        let stateBeforeCapture: Awaited<ReturnType<typeof captureState>>
         if (target) {
           await expect(target).toBeVisible()
           const centerTargetInScrollableAncestors = () => target.evaluate(element => {
@@ -363,6 +462,9 @@ export function createAcceptanceEvidence(outputDir: string, options: AcceptanceE
               `Acceptance screenshot ${screenshotName} target is outside the viewport: ${JSON.stringify(targetBox)}`,
             )
           }
+          await assertReady?.()
+          await assertProof()
+          stateBeforeCapture = await captureState(page, stableLocators)
           const pageOffset = await page.evaluate(() => ({ x: window.scrollX, y: window.scrollY }))
           await page.screenshot({
             path: temporaryScreenshotPath,
@@ -375,14 +477,6 @@ export function createAcceptanceEvidence(outputDir: string, options: AcceptanceE
             animations: 'disabled',
             scale: 'css',
           })
-          await expect(target).toBeVisible()
-          if (proofLocator) {
-            await expect(proofLocator).toBeVisible()
-            if (expectedTestId) await expect(proofLocator).toHaveAttribute('data-testid', expectedTestId)
-            if (expectedHeading) {
-              await expect(proofLocator.getByRole('heading', { name: expectedHeading })).toBeVisible()
-            }
-          }
           const finalBox = await target.boundingBox()
           expect(finalBox && [finalBox.x, finalBox.y, finalBox.width, finalBox.height]
             .map(value => Math.round(value * 10) / 10),
@@ -391,6 +485,9 @@ export function createAcceptanceEvidence(outputDir: string, options: AcceptanceE
               .map(value => Math.round(value * 10) / 10),
           )
         } else {
+          await assertReady?.()
+          await assertProof()
+          stateBeforeCapture = await captureState(page, stableLocators)
           await page.screenshot({
             path: temporaryScreenshotPath,
             fullPage,
@@ -398,6 +495,17 @@ export function createAcceptanceEvidence(outputDir: string, options: AcceptanceE
             scale: 'css',
           })
         }
+
+        await assertReady?.()
+        await assertProof(true)
+        if (target && !await target.isVisible()) {
+          throw new Error(`Acceptance screenshot ${screenshotName} target is no longer visible`)
+        }
+        const stateAfterCapture = await captureState(page, stableLocators)
+        expect(
+          stateAfterCapture,
+          `Acceptance screenshot ${screenshotName} capture state changed`,
+        ).toEqual(stateBeforeCapture)
 
         const repositoryAfter = repositoryIdentity()
         if (!sameRepositoryIdentity(repositoryBefore, repositoryAfter)) {

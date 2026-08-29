@@ -629,6 +629,7 @@ async function executeWorkspaceFileRequest(
         includeIgnored: request.includeIgnored === true,
         path: request.path || '',
         limit: request.limit,
+        scope: request.scope,
         timeoutMs: settings.searchTimeoutMs,
         signal: options.signal,
       });

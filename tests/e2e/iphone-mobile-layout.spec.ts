@@ -9,7 +9,13 @@ const IPHONE_AUDIT_DIR = path.resolve(
 )
 let iphoneEvidence: ReturnType<typeof createAcceptanceEvidence> | null = null
 
-async function captureIphoneAudit(page: Page, testInfo: TestInfo, name: string) {
+async function captureIphoneAudit(
+  page: Page,
+  testInfo: TestInfo,
+  name: string,
+  assertReady?: () => Promise<void>,
+  settledAssertion = 'Scenario-specific assertions immediately before capture passed and the mobile main surface is visible',
+) {
   iphoneEvidence ??= createAcceptanceEvidence(IPHONE_AUDIT_DIR, {
     manifestFileName: 'manifest-iphone-mobile-layout.json',
   })
@@ -18,11 +24,90 @@ async function captureIphoneAudit(page: Page, testInfo: TestInfo, name: string) 
     testInfo,
     screenshotName: name,
     scenario: name.replace(/\.png$/i, ''),
-    settledAssertion: 'Scenario-specific assertions immediately before capture passed and the mobile main surface is visible',
+    settledAssertion,
+    assertReady,
     proofLocator: page.getByTestId('code-main'),
     expectedTestId: 'code-main',
     fullPage: true,
   })
+}
+
+type PublicControlAgent = {
+  id: string
+  runtimeBinding?: { kind?: string, state?: string }
+}
+
+async function controlAgents(page: Page) {
+  const response = await page.request.get('/farming/api/control/agents')
+  expect(response.ok()).toBeTruthy()
+  const body = await response.json() as { agents?: PublicControlAgent[] }
+  return body.agents ?? []
+}
+
+async function waitForAcpIdle(page: Page, agentId: string) {
+  await expect.poll(async () => {
+    const agent = (await controlAgents(page)).find(candidate => candidate.id === agentId)
+    return agent?.runtimeBinding?.kind === 'acp' && agent.runtimeBinding.state === 'idle'
+  }, {
+    message: `Agent ${agentId} should have an authoritative idle ACP binding`,
+    timeout: 30_000,
+  }).toBe(true)
+}
+
+async function assertCenterHitTarget(locator: ReturnType<Page['locator']>) {
+  await expect.poll(async () => locator.evaluate(element => {
+    const rect = element.getBoundingClientRect()
+    const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)
+    return rect.width > 0 && rect.height > 0 && Boolean(hit && (hit === element || element.contains(hit)))
+  }), {
+    message: 'Composer center should be the topmost touch target',
+  }).toBe(true)
+}
+
+async function assertMobileDrawerClosed(page: Page) {
+  const sidebar = page.getByTestId('code-sidebar')
+  await expect(sidebar).toHaveClass(/collapsed/)
+  await expect(page.getByTestId('code-mobile-sidebar-backdrop')).toHaveCount(0)
+  await expect(page.locator('.code-context-menu:visible')).toHaveCount(0)
+
+  const geometry = () => sidebar.evaluate(element => {
+    const rect = element.getBoundingClientRect()
+    const workspaceLeft = document.querySelector<HTMLElement>('[data-testid="code-workspace"]')
+      ?.getBoundingClientRect().left ?? 0
+    return {
+      left: Math.round(rect.left * 10) / 10,
+      right: Math.round(rect.right * 10) / 10,
+      width: Math.round(rect.width * 10) / 10,
+      transform: getComputedStyle(element).transform,
+      runningAnimations: element.getAnimations().filter(animation => animation.playState === 'running').length,
+      closed: rect.right <= workspaceLeft - 1,
+    }
+  })
+  await expect.poll(async () => {
+    const current = await geometry()
+    return current.closed && current.runningAnimations === 0
+  }, {
+    message: 'Mobile sidebar should finish translating outside the viewport',
+  }).toBe(true)
+  const before = await geometry()
+  await page.evaluate(() => new Promise<void>(resolve => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+  }))
+  expect(await geometry()).toEqual(before)
+}
+
+async function activateMobileAgent(page: Page, agentId: string) {
+  const row = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
+  await page.getByTestId('code-mobile-menu').tap()
+  await expect(row).toBeVisible({ timeout: 30_000 })
+  await row.locator('.code-agent-row-copy').tap()
+  const activePane = page.locator(`[data-testid="code-agent-work-pane"][data-agent-id="${agentId}"]`)
+  await expect(activePane).toHaveClass(/active/)
+  await expect(activePane).toBeVisible()
+  await assertMobileDrawerClosed(page)
+  const input = page.getByTestId('code-acp-composer-input')
+  await expect(input).toBeVisible({ timeout: 30_000 })
+  await assertCenterHitTarget(input)
 }
 
 async function createControlAgent(
@@ -460,8 +545,7 @@ test.describe('iPhone mobile layout', () => {
     await openFarming(page)
 
     const agentId = await createControlAgent(page, 'opencode', projectDir, 'chat')
-    await page.getByTestId('code-mobile-menu').tap()
-    await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).tap()
+    await activateMobileAgent(page, agentId)
     const input = page.getByTestId('code-acp-composer-input')
     const send = page.getByTestId('code-acp-composer-send')
     await expect(page.getByTestId('code-acp-model-picker')).toBeVisible({ timeout: 30_000 })
@@ -478,9 +562,19 @@ test.describe('iPhone mobile layout', () => {
     await expect(page.getByText('Mobile interrupt waiting.', { exact: true })).toBeVisible()
     await captureIphoneAudit(page, testInfo, 'iphone-webkit-acp-running.png')
     await send.tap()
-    await expect(page.getByText('Mobile interrupt stopped.', { exact: true })).toBeVisible({ timeout: 15_000 })
-    await expect(send).not.toHaveAttribute('data-action', 'interrupt')
-    await captureIphoneAudit(page, testInfo, 'iphone-webkit-acp-stopped.png')
+    const assertStoppedReady = async () => {
+      await expect(page.getByText('Mobile interrupt stopped.', { exact: true })).toBeVisible({ timeout: 15_000 })
+      await expect(send).not.toHaveAttribute('data-action', 'interrupt')
+      await waitForAcpIdle(page, agentId)
+    }
+    await assertStoppedReady()
+    await captureIphoneAudit(
+      page,
+      testInfo,
+      'iphone-webkit-acp-stopped.png',
+      assertStoppedReady,
+      'The stopped transcript text is visible and the authoritative ACP binding is idle',
+    )
   })
 
   test('keeps every ACP permission action visible and tappable on iPhone', async ({ page, workspaceRoot }, testInfo) => {

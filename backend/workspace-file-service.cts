@@ -1117,16 +1117,23 @@ function ancestorDirectoryPaths(filePath: unknown): string[] {
   return ancestors;
 }
 
-function pathSearchMatchesForFile(filePath: unknown, query: unknown, includeIgnored = false): PathSearchMatch[] {
+function pathSearchMatchesForFile(
+  filePath: unknown,
+  query: unknown,
+  includeIgnored = false,
+  includeDirectories = true,
+): PathSearchMatch[] {
   const allowPathMatch = isLikelyPathQuery(query);
   const matches = [];
   const fileMatch = pathSearchMatchForPath(filePath, query, 'file', allowPathMatch);
   if (fileMatch) matches.push(fileMatch);
-  ancestorDirectoryPaths(filePath).forEach((directoryPath) => {
-    if (isSearchIgnoredRelativePath(directoryPath, includeIgnored)) return;
-    const directoryMatch = pathSearchMatchForPath(directoryPath, query, 'directory', allowPathMatch);
-    if (directoryMatch) matches.push(directoryMatch);
-  });
+  if (includeDirectories) {
+    ancestorDirectoryPaths(filePath).forEach((directoryPath) => {
+      if (isSearchIgnoredRelativePath(directoryPath, includeIgnored)) return;
+      const directoryMatch = pathSearchMatchForPath(directoryPath, query, 'directory', allowPathMatch);
+      if (directoryMatch) matches.push(directoryMatch);
+    });
+  }
   return matches;
 }
 
@@ -1706,6 +1713,7 @@ class WorkspaceFileService {
     timeout: number,
     stopAtLimit = false,
     signal?: AbortSignal,
+    includeDirectories = true,
   ): Promise<PathSearchResult> {
     const args = [
       '--files',
@@ -1768,7 +1776,7 @@ class WorkspaceFileService {
       const processLine = (line: unknown) => {
         const filePath = normalizeSearchResultPath(line);
         if (!filePath || isSearchIgnoredRelativePath(filePath)) return;
-        for (const match of pathSearchMatchesForFile(filePath, query)) {
+        for (const match of pathSearchMatchesForFile(filePath, query, false, includeDirectories)) {
           if (seenMatchPaths.has(match.path)) continue;
           seenMatchPaths.add(match.path);
           scoredMatches.push(match);
@@ -1831,8 +1839,19 @@ class WorkspaceFileService {
     timeout: number,
     stopAtLimit = false,
     signal?: AbortSignal,
+    includeDirectories = true,
   ): Promise<PathSearchResult> {
-    return await this.streamPathMatches(this.rgPath, root, searchPath, query, limit, timeout, stopAtLimit, signal);
+    return await this.streamPathMatches(
+      this.rgPath,
+      root,
+      searchPath,
+      query,
+      limit,
+      timeout,
+      stopAtLimit,
+      signal,
+      includeDirectories,
+    );
   }
 
   async collectDirectoryNameMatchCandidates(
@@ -1911,14 +1930,30 @@ class WorkspaceFileService {
     };
   }
 
-  async directPathMatchCandidate(root: string, query: unknown, includeIgnored = false, signal?: AbortSignal) {
+  async directPathMatchCandidate(
+    root: string,
+    searchPath: string,
+    searchRoot: string,
+    query: unknown,
+    includeIgnored = false,
+    signal?: AbortSignal,
+  ) {
     signal?.throwIfAborted();
     if (!isLikelyPathQuery(query)) return null;
-    const candidatePath = normalizeSearchResultPath(String(query || '').trim().replace(/^\.\/+/, ''));
-    if (!candidatePath || candidatePath.includes('\0') || isSearchIgnoredRelativePath(candidatePath, includeIgnored)) return null;
+    let candidatePath;
     try {
-      const { target, relativePath } = await this.resolvePath(root, candidatePath);
+      candidatePath = normalizeUserPath(String(query || '').trim().replace(/^\.\/+/, ''));
+    } catch {
+      return null;
+    }
+    if (!candidatePath || candidatePath.includes('\0') || isSearchIgnoredRelativePath(candidatePath, includeIgnored)) return null;
+    const scopedCandidatePath = searchPath && searchPath !== '.'
+      ? path.join(searchPath, candidatePath)
+      : candidatePath;
+    try {
+      const { target, relativePath } = await this.resolvePath(root, scopedCandidatePath);
       signal?.throwIfAborted();
+      if (!isInside(searchRoot, target)) return null;
       if (!relativePath || isSearchIgnoredRelativePath(relativePath, includeIgnored)) return null;
       const stat = await fsp.stat(target);
       signal?.throwIfAborted();
@@ -3162,7 +3197,7 @@ class WorkspaceFileService {
     if (typeof query !== 'string' || !query.trim()) {
       throw new WorkspaceFileError('query is required', 400);
     }
-    const { root, relativePath } = await this.resolvePath(workspaceRoot, options.path || '');
+    const { root, relativePath, target: searchRoot } = await this.resolvePath(workspaceRoot, options.path || '');
     const limit = Math.max(1, Math.min(500, Number(options.limit) || this.searchLimit));
     const searchPath = relativePath || '.';
     const timeout = Math.max(1000, Number(options.timeoutMs) || this.searchTimeoutMs);
@@ -3171,6 +3206,7 @@ class WorkspaceFileService {
     const remainingMs = () => Math.max(1, deadline - Date.now());
     signal?.throwIfAborted();
     const includeIgnored = options.includeIgnored === true;
+    const filePathOnly = options.scope === 'file-path';
     const likelyPathQuery = isLikelyPathQuery(query);
     const result = (matches: unknown[], truncated: boolean) => ({
       query,
@@ -3184,7 +3220,9 @@ class WorkspaceFileService {
 
     if (includeIgnored) {
       try {
-        const directPathMatch = likelyPathQuery ? await this.directPathMatchCandidate(root, query, true, signal) : null;
+        const directPathMatch = likelyPathQuery
+          ? await this.directPathMatchCandidate(root, searchPath, searchRoot, query, true, signal)
+          : null;
         if (directPathMatch) {
           return result([directPathMatch], false);
         }
@@ -3209,7 +3247,9 @@ class WorkspaceFileService {
     }
 
     try {
-      const directPathMatch = likelyPathQuery ? await this.directPathMatchCandidate(root, query, false, signal) : null;
+      const directPathMatch = likelyPathQuery
+        ? await this.directPathMatchCandidate(root, searchPath, searchRoot, query, false, signal)
+        : null;
       if (directPathMatch) {
         return result([directPathMatch], false);
       }
@@ -3222,8 +3262,11 @@ class WorkspaceFileService {
         remainingMs(),
         likelyPathQuery,
         signal,
+        !filePathOnly,
       );
-      const directoryNameSearch = Date.now() >= deadline
+      const directoryNameSearch = filePathOnly
+        ? { matches: [], truncated: false }
+        : Date.now() >= deadline
         ? { matches: [], truncated: true }
         : await this.collectDirectoryNameMatchCandidates(root, searchPath, query, limit, deadline, signal);
       pathMatchCandidates = dedupePathMatches([
@@ -3244,6 +3287,9 @@ class WorkspaceFileService {
     }
 
     if (pathMatchCandidates.length >= limit || pathMatchCandidates.length > 0 && likelyPathQuery) {
+      return result(pathMatchCandidates, searchOutputTruncated || pathMatchCandidates.length >= limit);
+    }
+    if (filePathOnly) {
       return result(pathMatchCandidates, searchOutputTruncated || pathMatchCandidates.length >= limit);
     }
     if (Date.now() >= deadline) {

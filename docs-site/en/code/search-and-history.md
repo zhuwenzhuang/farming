@@ -4,11 +4,20 @@ Search finds current Projects, Agents, and files. History finds Sessions that ha
 
 ## Global Search
 
-Search by Agent title, Project name, or related terms. Results distinguish current Agents from History.
+Search by Agent title, Project name, file name, or file path. File results show
+their Project, a distinguishing workspace label when Projects share a name, and
+the complete relative path, so same-named files remain distinct.
+Select a result or press Enter to open that exact file and reveal it in the
+Project tree. A mounted Project's absolute path may also include `:line:column`
+or `#LlineCcolumn` to jump to a location.
 
 <ThemeImage light="/cn/assets/search.png" dark="/cn/assets/search-dark.png" paper="/cn/assets/search-paper.png" alt="Search current work" />
 
 Opening Search triggers a fresh read of available data. A timeout or failure is shown explicitly instead of presenting stale results as current.
+If a file moves between Search and opening, Farming keeps Search visible and
+reports the failed path instead of opening a different match.
+Closing or changing Search cancels an in-progress file open. A timeout ends in
+an explicit incomplete or failed state with Retry instead of loading forever.
 
 ## History
 

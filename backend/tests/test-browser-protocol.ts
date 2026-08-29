@@ -128,6 +128,16 @@ assert.strictEqual(validateClientMessage({
 }).ok, true);
 assert.strictEqual(validateClientMessage({
   type: 'workspace-request',
+  requestId: 'workspace-search-path',
+  request: { operation: 'search', rootId: 'root-1', query: 'src/App.tsx', scope: 'file-path' },
+}).ok, true);
+assert.strictEqual(validateClientMessage({
+  type: 'workspace-request',
+  requestId: 'workspace-search-invalid',
+  request: { operation: 'search', rootId: 'root-1', query: 'src/App.tsx', scope: 'content' },
+}).ok, false);
+assert.strictEqual(validateClientMessage({
+  type: 'workspace-request',
   requestId: 'workspace-decorations-1',
   request: { operation: 'tree-decorations', rootId: 'root-1', path: 'src', entryPaths: ['src/App.tsx'] },
 }).ok, true);

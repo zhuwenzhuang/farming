@@ -89,8 +89,15 @@ test('audits compact Composer and sidebar geometry across mobile widths and appe
     manifestFileName: 'manifest-mobile-visual-acceptance.json',
   })
   const workspace = path.join(workspaceRoot, 'mobile-visual-acceptance')
+  const firstSearchWorkspace = path.join(workspaceRoot, 'visual-root-a', 'org', 'team', 'shared-project')
+  const secondSearchWorkspace = path.join(workspaceRoot, 'visual-root-b', 'org', 'team', 'shared-project')
+  const longSearchPath = 'src/mobile/a-very-long-directory-name/another-long-segment/VisualSearchTarget.ts'
   fs.mkdirSync(workspace, { recursive: true })
   fs.writeFileSync(path.join(workspace, 'README.md'), '# Mobile visual acceptance\n')
+  fs.mkdirSync(path.dirname(path.join(firstSearchWorkspace, longSearchPath)), { recursive: true })
+  fs.mkdirSync(path.dirname(path.join(secondSearchWorkspace, longSearchPath)), { recursive: true })
+  fs.writeFileSync(path.join(firstSearchWorkspace, longSearchPath), 'VISUAL_SEARCH_FIRST\n')
+  fs.writeFileSync(path.join(secondSearchWorkspace, longSearchPath), 'VISUAL_SEARCH_SECOND\n')
 
   const pinnedId = await createAgent(
     page,
@@ -105,6 +112,8 @@ test('audits compact Composer and sidebar geometry across mobile widths and appe
     'Ordinary mobile Codex',
   )
   const chatId = await createAgent(page, 'opencode', workspace, 'Mobile ACP Chat', 'chat')
+  const mountResponse = await page.request.post('/farming/api/projects/mount', { data: { workspace } })
+  expect(mountResponse.ok(), await mountResponse.text()).toBeTruthy()
   const pinResponse = await page.request.patch(`/farming/api/agents/${pinnedId}`, {
     data: { pinned: true },
   })
@@ -235,6 +244,40 @@ test('audits compact Composer and sidebar geometry across mobile widths and appe
           proofLocator: page.getByTestId('code-sidebar'),
           expectedTestId: 'code-sidebar',
         })
+      }
+
+      for (const searchWorkspace of [firstSearchWorkspace, secondSearchWorkspace]) {
+        const response = await page.request.post('/farming/api/projects/mount', { data: { workspace: searchWorkspace } })
+        expect(response.ok(), await response.text()).toBeTruthy()
+      }
+      await page.getByTestId('code-nav-search').click()
+      const globalSearchInput = page.getByTestId('code-search-box').getByRole('combobox')
+      await globalSearchInput.fill(longSearchPath)
+      const fileSearchResults = page.getByTestId('code-global-file-search-result')
+      await expect(fileSearchResults).toHaveCount(2, { timeout: 30_000 })
+      await expect(fileSearchResults.filter({ hasText: 'visual-root-a/org/team/shared-project' })).toBeVisible()
+      await expect(fileSearchResults.filter({ hasText: 'visual-root-b/org/team/shared-project' })).toBeVisible()
+      for (const result of await fileSearchResults.all()) {
+        const box = await result.boundingBox()
+        expect(box).not.toBeNull()
+        expect(box!.height).toBeGreaterThanOrEqual(48)
+        expect(box!.x).toBeGreaterThanOrEqual(0)
+        expect(box!.x + box!.width).toBeLessThanOrEqual(viewport.width)
+      }
+      await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 2)).toBe(true)
+      await evidence.capture({
+        page,
+        testInfo,
+        screenshotName: `${viewport.name}-${appearance}-file-search.png`,
+        scenario: 'mobile global file path search',
+        settledAssertion: 'Global Search shows two touch-sized long-path results whose same-name Projects remain visibly distinguishable without viewport overflow',
+        theme: appearance,
+        proofLocator: page.getByTestId('code-global-file-search-results'),
+        expectedTestId: 'code-global-file-search-results',
+      })
+      for (const searchWorkspace of [firstSearchWorkspace, secondSearchWorkspace]) {
+        const response = await page.request.post('/farming/api/projects/remove', { data: { workspace: searchWorkspace } })
+        expect(response.ok(), await response.text()).toBeTruthy()
       }
 
       await openAgent(page, ordinaryId)

@@ -102,6 +102,23 @@ Agent currently happens to reference it. An optional source-Agent association
 may cross Project boundaries to support returning from a file to its originating
 Agent, but it is not file ownership.
 
+Global Search queries the authoritative file indexes of the currently mounted,
+non-Main Projects with bounded concurrency, result counts, and cancellation.
+File results expose the Project, a workspace label that expands to the shortest
+unique suffix for same-name collisions, and the complete workspace-relative
+path, so equal basenames and equal relative paths remain distinct. A workspace-relative path, or an absolute path that
+is contained by one of those mounted Projects, may include a line and column.
+Click or Enter opens that exact identity through the ordinary Project file-open
+transaction, reveals it in the Explorer, and preserves the Agent that opened
+Search as the mobile Back target when it still exists. Search never broadens to
+the global filesystem or substitutes a fuzzy match after selection. If the file
+moves or becomes inaccessible between search and open, Search remains visible
+with an explicit failure and permits a fresh query. Changing or closing Search,
+starting an Agent, following a notification, or removing the target Project
+cancels an in-flight read. Per-Project and global deadlines converge to explicit
+failed or incomplete states with Retry; semantically unchanged Project refreshes
+must not restart those deadlines.
+
 ## Directory And Navigation State
 
 Directory loading is absent, loading, loaded, or failed. A workspace identity

@@ -228,6 +228,13 @@ Browser-native Viewer 需要 Resource URL。
 Search、History、Symbols、References、Diagnostics 等结构化集合使用分页、数量上限或显式
 Truncation，不通过静默创建 Bulk Transfer 规避边界。
 
+Workspace Search Request 可以声明 File-path Scope。该 Scope 只执行有界 Path Index 阶段，
+绝不继续扫描文件内容；Global Search 跨已挂载 Project 查询文件 Identity 时使用它，普通 All
+Scope 则保留 Project Files 的内容搜索能力。两种 Scope 共用相同的 Root Authorization、
+Cancellation、Timeout 与显式 Truncation 契约。Scoped Path Search 必须针对已授权 Search Root
+解析 Direct Candidate，并拒绝任何 Real Target 位于该 Root 之外的结果，包括经 Symbolic Link
+到达的目标。
+
 Server 不能因为 `bufferedAmount` 过高就静默丢弃 RPC Result。它应停止接收 Background Work、
 维持有界 Pending-result Budget，并在制造无界内存前对新 Workspace Request 显式返回 `BUSY`。
 持续 Transport Backpressure 变成可见连接失败，并进入正常 Reconnect 流程。

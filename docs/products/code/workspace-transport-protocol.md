@@ -267,6 +267,15 @@ Search, History, symbols, references, diagnostics, and similar structured
 collections use pagination, count limits, or explicit truncation rather than
 silently creating a bulk transfer.
 
+A Workspace search request may declare a file-path scope. That scope performs
+the bounded path-index phase and never falls through to content scanning. It is
+used when Global Search needs file identities across mounted Projects, while
+the ordinary all scope retains Project Files content-search behavior. Both
+scopes keep the same root authorization, cancellation, timeout, and explicit
+truncation contract. A scoped path search resolves direct candidates against
+the authorized search root and rejects any real target outside it, including a
+target reached through a symbolic link.
+
 The server never silently drops an RPC result because `bufferedAmount` is high.
 It stops admitting background work, keeps a bounded pending-result budget, and
 fails new Workspace requests explicitly with `BUSY` before unbounded memory is

@@ -198,8 +198,8 @@ test('a stuck initial mobile WebSocket is replaced after its bounded connect dea
         if (message.type === 'protocol-hello') {
           emit({
             type: 'protocol-hello',
-            protocolVersion: 15,
-            minProtocolVersion: 15,
+            protocolVersion: 16,
+            minProtocolVersion: 16,
             accessMode: 'owner',
           })
         } else if (message.type === 'business-health-probe') {
@@ -208,7 +208,7 @@ test('a stuck initial mobile WebSocket is replaced after its bounded connect dea
             requestId: message.requestId,
             status: 'ready',
             serverEpoch: 'stuck-connect-recovered',
-            protocolVersion: 15,
+            protocolVersion: 16,
             agentCount: 0,
             mainAgentId: null,
           })

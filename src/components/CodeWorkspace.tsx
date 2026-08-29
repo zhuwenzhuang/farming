@@ -71,6 +71,7 @@ import {
 import { importSharedReadingAnchor } from '@/lib/reading-anchor'
 import { isCompactViewport, isIOSLikeTouchViewport, isTouchInputViewport } from '@/lib/responsive-mode'
 import {
+  fetchWorkspaceFile,
   fetchWorkspaceTree,
   searchWorkspaceFiles,
   type WorkspaceFile,
@@ -243,6 +244,10 @@ import {
 import { useAgentComposerState } from './code/useAgentComposerState'
 import { useComposerProviderCatalog } from './code/useComposerProviderCatalog'
 import { useMainPageSessionMembershipController } from './code/useMainPageSessionMembershipController'
+import {
+  useGlobalWorkspaceFileSearch,
+  type GlobalWorkspaceFileSearchMatch,
+} from './code/useGlobalWorkspaceFileSearch'
 import {
   throwIfProjectMountAborted,
   useProjectMembershipController,
@@ -431,6 +436,11 @@ const CODEX_TERMINAL_PROFILE_REQUEST_TIMEOUT_MS = 35_000
 const WORKSPACE_OPEN_FILES_RESTORE_TIMEOUT_MS = 15_000
 const ARCHIVE_UNDO_REQUEST_TIMEOUT_MS = 35_000
 const ARCHIVE_UNDO_RECONCILE_DELAYS_MS = [0, 1_000, 5_000, 35_000] as const
+
+type WorkspaceSearchTarget = SearchTarget | {
+  kind: 'file'
+  match: GlobalWorkspaceFileSearchMatch
+}
 
 
 function shouldUseNativeMobileDictation() {
@@ -751,6 +761,11 @@ export function CodeWorkspace({
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchSelectionIndex, setSearchSelectionIndex] = useState(0)
+  const [globalFileOpenError, setGlobalFileOpenError] = useState<string | null>(null)
+  const [globalFileOpeningKey, setGlobalFileOpeningKey] = useState<string | null>(null)
+  const searchSourceAgentIdRef = useRef<string | null>(null)
+  const globalFileOpenAbortRef = useRef<AbortController | null>(null)
+  const globalFileOpenMatchRef = useRef<GlobalWorkspaceFileSearchMatch | null>(null)
   const {
     projectWorkspaces,
     projectWorkspacesLoaded,
@@ -766,6 +781,8 @@ export function CodeWorkspace({
     remoteProjectWorkspaces,
     remotePinnedProjectWorkspaces,
   )
+  const projectWorkspacesRef = useRef(projectWorkspaces)
+  projectWorkspacesRef.current = projectWorkspaces
   const [agentLaunchOptions, setAgentLaunchOptions] = useState<AgentLaunchOption[]>([])
   const agentLaunchOptionsRequestFenceRef = useRef(new LatestRequestFence())
   const {
@@ -911,6 +928,13 @@ export function CodeWorkspace({
   const sidebarAutoCollapsedRef = useRef(
     initialWorkspaceViewState.sidebarCollapsed !== true && shouldCollapseSidebarInitially(),
   )
+  const cancelGlobalFileOpen = useCallback(() => {
+    globalFileOpenAbortRef.current?.abort()
+    globalFileOpenAbortRef.current = null
+    globalFileOpenMatchRef.current = null
+    setGlobalFileOpeningKey(null)
+    workspaceFileOpenRequestRef.current.invalidate()
+  }, [])
   const mobileNavigationViewportRef = useRef(mobileNavigationViewport)
   const mobileNavigationDialogRef = useRef<HTMLElement>(null)
   const mobileNavigationTriggerRef = useRef<HTMLButtonElement>(null)
@@ -1250,6 +1274,25 @@ export function CodeWorkspace({
   )
   const normalizedSearch = searchQuery.trim().toLowerCase()
   const hasSearchQuery = normalizedSearch.length > 0
+  const globalFileSearchProjects = useMemo(() => {
+    if (!projectWorkspacesLoaded) return []
+    const projectByWorkspace = new Map(projectListProjects.map(project => [project.workspace, project]))
+    return projectWorkspaces
+      .filter(workspace => Boolean(workspace) && workspace !== '/')
+      .map(workspace => {
+        const project = projectByWorkspace.get(workspace)
+        return {
+          id: project?.id ?? workspace,
+          name: project?.name ?? basename(workspace),
+          workspace,
+        }
+      })
+  }, [projectListProjects, projectWorkspaces, projectWorkspacesLoaded])
+  const globalFileSearch = useGlobalWorkspaceFileSearch({
+    active: projectWorkspacesLoaded && (activeView === 'search' || searchOpen) && hasSearchQuery,
+    projects: globalFileSearchProjects,
+    query: searchQuery,
+  })
   const displayedProjects = useMemo(() => {
     const sourceProjects = (activeView === 'search' || searchOpen) && hasSearchQuery ? searchableProjects : projects
     return displayedProjectsForSearch(
@@ -1271,9 +1314,12 @@ export function CodeWorkspace({
     () => visibleSearchTargetsForProjects(displayedProjects, collapsedProjectIds, normalizedSearch),
     [collapsedProjectIds, displayedProjects, normalizedSearch]
   )
-  const visibleSearchTargets = useMemo<SearchTarget[]>(
-    () => hasSearchQuery ? visibleProjectListTargets : [],
-    [hasSearchQuery, visibleProjectListTargets]
+  const visibleSearchTargets = useMemo<WorkspaceSearchTarget[]>(
+    () => hasSearchQuery ? [
+      ...visibleProjectListTargets,
+      ...globalFileSearch.matches.map(match => ({ kind: 'file' as const, match })),
+    ] : [],
+    [globalFileSearch.matches, hasSearchQuery, visibleProjectListTargets]
   )
   const agentShortcutKeys = useMemo(() => {
     const shortcuts = new Map<string, string>()
@@ -1630,7 +1676,7 @@ export function CodeWorkspace({
   })
   useEffect(() => {
     if (!notificationRevealRequest) return
-    workspaceFileOpenRequestRef.current.invalidate()
+    cancelGlobalFileOpen()
     closeContextMenu()
     setSearchOpen(false)
     setSearchQuery('')
@@ -1645,6 +1691,7 @@ export function CodeWorkspace({
     onWorkspaceViewChange('projects')
   }, [
     autoCollapseSidebar,
+    cancelGlobalFileOpen,
     clearMobileShareLink,
     closeContextMenu,
     notificationRevealRequest,
@@ -1684,6 +1731,9 @@ export function CodeWorkspace({
   const selectedSearchAgentId = selectedSearchTarget?.kind === 'agent' ? selectedSearchTarget.id : null
   const selectedSearchSessionHandle = selectedSearchTarget?.kind === 'agent-session'
     ? agentSessionId(selectedSearchTarget)
+    : null
+  const selectedSearchFileKey = selectedSearchTarget?.kind === 'file'
+    ? selectedSearchTarget.match.key
     : null
   const activeProjectWorkspace = activeAgent ? projectWorkspaceForAgent(activeAgent) : undefined
   const projectFileSearchId = useMemo(() => {
@@ -2440,6 +2490,8 @@ export function CodeWorkspace({
   const openSearch = useCallback(() => {
     closeContextMenu()
     closeActiveComposerMenus()
+    searchSourceAgentIdRef.current = activeTerminalIdRef.current
+    setGlobalFileOpenError(null)
     expandSidebar()
     onWorkspaceViewChange('search')
     setSearchOpen(true)
@@ -2503,7 +2555,7 @@ export function CodeWorkspace({
     workspace: string,
     options?: { projectWorkspace?: string; codexApprovalMode?: string; agentRuntimeMode?: 'terminal' | 'chat' | 'acp'; dangerouslySkipPermissions?: boolean; providerHomeId?: string; additionalDirectories?: string[]; mcpServers?: Array<Record<string, unknown>> },
   ) => {
-    workspaceFileOpenRequestRef.current.invalidate()
+    cancelGlobalFileOpen()
     setSearchQuery('')
     setSearchOpen(false)
     setSearchSelectionIndex(0)
@@ -2513,7 +2565,7 @@ export function CodeWorkspace({
     const provider = agentKindForCommand(command)
     const startOptions = composerAgentStartOptions(provider, composerProviderProfiles, options)
     onStartAgent(command, workspace, startOptions)
-  }, [composerProviderProfiles, onStartAgent, onWorkspaceViewChange, setMainPaneMode])
+  }, [cancelGlobalFileOpen, composerProviderProfiles, onStartAgent, onWorkspaceViewChange, setMainPaneMode])
 
   const loadAgentLaunchOptions = useCallback(() => {
     const requestLease = agentLaunchOptionsRequestFenceRef.current.begin()
@@ -2663,10 +2715,30 @@ export function CodeWorkspace({
   }, [dialogOpen])
 
   const clearSearch = useCallback(() => {
+    cancelGlobalFileOpen()
     setSearchQuery('')
     setSearchOpen(false)
     setSearchSelectionIndex(0)
-  }, [])
+    setGlobalFileOpenError(null)
+    searchSourceAgentIdRef.current = null
+  }, [cancelGlobalFileOpen])
+
+  const updateSearchQuery = useCallback((value: string) => {
+    cancelGlobalFileOpen()
+    setGlobalFileOpenError(null)
+    setSearchQuery(value)
+  }, [cancelGlobalFileOpen])
+
+  useEffect(() => {
+    const match = globalFileOpenMatchRef.current
+    if (!match) return
+    const stillMounted = projectWorkspaces.some(workspace => (
+      projectFilesWorkspaceId(workspace) === match.rootId
+    ))
+    if (stillMounted) return
+    cancelGlobalFileOpen()
+    setGlobalFileOpenError(copy.searchFileOpenFailed(match.path))
+  }, [cancelGlobalFileOpen, copy, projectWorkspaces])
 
   const closeSearchView = useCallback(() => {
     clearSearch()
@@ -2847,38 +2919,6 @@ export function CodeWorkspace({
 
     setSearchSelectionIndex(index => (index + direction + visibleSearchTargets.length) % visibleSearchTargets.length)
   }, [visibleSearchTargets.length])
-
-  const openSelectedSearchTarget = useCallback(() => {
-    if (!selectedSearchTarget) return
-
-    openVisibleTarget(selectedSearchTarget)
-    clearSearch()
-  }, [clearSearch, openVisibleTarget, selectedSearchTarget])
-
-  const handleSearchInputKeyDown = useCallback((event: ReactKeyboardEvent<HTMLInputElement>) => {
-    if (event.key === 'Escape') {
-      event.preventDefault()
-      closeSearchView()
-      return
-    }
-
-    if (event.key === 'ArrowDown') {
-      event.preventDefault()
-      moveSearchSelection(1)
-      return
-    }
-
-    if (event.key === 'ArrowUp') {
-      event.preventDefault()
-      moveSearchSelection(-1)
-      return
-    }
-
-    if (event.key === 'Enter') {
-      event.preventDefault()
-      openSelectedSearchTarget()
-    }
-  }, [closeSearchView, moveSearchSelection, openSelectedSearchTarget])
 
   const updateSidebarWidth = useCallback((clientX: number) => {
     const workspaceRect = workspaceRef.current?.getBoundingClientRect()
@@ -3810,6 +3850,85 @@ export function CodeWorkspace({
       }
     }
   }, [focusWorkspaceFilesSearch, openProjectFile, resolveAbsoluteWorkspaceFileTarget, resolveWorkspaceFile, resolveWorkspaceFileIdentity, revealWorkspaceFileInExplorer, selectOpenWorkspaceFile])
+
+  const openGlobalSearchFile = useCallback(async (match: GlobalWorkspaceFileSearchMatch) => {
+    if (globalFileOpenMatchRef.current?.key === match.key) return
+    cancelGlobalFileOpen()
+    setGlobalFileOpenError(null)
+    const intentLease = workspaceFileOpenRequestRef.current.begin()
+    const abortController = new AbortController()
+    globalFileOpenAbortRef.current = abortController
+    globalFileOpenMatchRef.current = match
+    setGlobalFileOpeningKey(match.key)
+    const requestedSourceAgentId = searchSourceAgentIdRef.current
+    const sourceAgentId = requestedSourceAgentId && workspaceNavigationAgentIds.has(requestedSourceAgentId)
+      ? requestedSourceAgentId
+      : undefined
+    const target: WorkspaceFileOpenTarget = {
+      revealInTree: true,
+      ...(sourceAgentId ? { sourceAgentId } : {}),
+      ...(match.lineNumber ? {
+        lineNumber: match.lineNumber,
+        ...(match.column ? { column: match.column } : {}),
+      } : {}),
+    }
+    const identity = resolveWorkspaceFileIdentity(match.rootId, sourceAgentId)
+    const rootIsMounted = () => projectWorkspacesRef.current.some(workspace => (
+      projectFilesWorkspaceId(workspace) === match.rootId
+    ))
+    try {
+      if (!rootIsMounted()) throw new Error('Project is no longer mounted')
+      const file = await fetchWorkspaceFile(identity.filesId, match.path, { signal: abortController.signal })
+      if (!intentLease.isCurrent() || abortController.signal.aborted) return
+      if (!rootIsMounted()) throw new Error('Project is no longer mounted')
+      await openProjectFile(identity.filesId, file, target, abortController.signal, intentLease)
+    } catch {
+      if (!intentLease.isCurrent() || abortController.signal.aborted) return
+      setGlobalFileOpenError(copy.searchFileOpenFailed(match.path))
+    } finally {
+      if (globalFileOpenAbortRef.current === abortController) {
+        globalFileOpenAbortRef.current = null
+        globalFileOpenMatchRef.current = null
+        setGlobalFileOpeningKey(null)
+      }
+    }
+  }, [cancelGlobalFileOpen, copy, openProjectFile, resolveWorkspaceFileIdentity, workspaceNavigationAgentIds])
+
+  const openSelectedSearchTarget = useCallback(() => {
+    if (!selectedSearchTarget) return
+    if (selectedSearchTarget.kind === 'file') {
+      void openGlobalSearchFile(selectedSearchTarget.match)
+      return
+    }
+    openVisibleTarget(selectedSearchTarget)
+    clearSearch()
+  }, [clearSearch, openGlobalSearchFile, openVisibleTarget, selectedSearchTarget])
+
+  const handleSearchInputKeyDown = useCallback((event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      closeSearchView()
+      return
+    }
+
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      moveSearchSelection(1)
+      return
+    }
+
+    if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      moveSearchSelection(-1)
+      return
+    }
+
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      openSelectedSearchTarget()
+    }
+  }, [closeSearchView, moveSearchSelection, openSelectedSearchTarget])
 
   const openAgentHomeConfiguration = useCallback(async (target: AgentHomeFileTarget) => {
     const intentLease = workspaceFileOpenRequestRef.current.begin()
@@ -5843,10 +5962,17 @@ export function CodeWorkspace({
         displayedProjects={searchResultProjects}
         searchQuery={searchQuery}
         searchHasQuery={hasSearchQuery}
-        searchLoading={agentSessionSearchLoading}
+        searchLoading={agentSessionSearchLoading || globalFileSearch.loading}
         visibleSearchTargetCount={visibleSearchTargets.length}
         selectedSearchAgentId={selectedSearchAgentId}
         selectedSearchSessionHandle={selectedSearchSessionHandle}
+        selectedSearchFileKey={selectedSearchFileKey}
+        globalFileSearchMatches={globalFileSearch.matches}
+        globalFileSearchFailedProjectCount={globalFileSearch.failedProjectCount}
+        globalFileSearchIncomplete={globalFileSearch.truncated}
+        globalFileSearchQueryTooLong={globalFileSearch.queryTooLong}
+        globalFileOpenError={globalFileOpenError}
+        globalFileOpeningKey={globalFileOpeningKey}
         searchInputRef={searchInputRef}
         archivedRuns={visibleArchivedRuns}
         archivedAgents={visibleArchivedAgents}
@@ -6053,7 +6179,9 @@ export function CodeWorkspace({
           clearSearch()
           onWorkspaceViewChange('projects')
         }}
-        onSearchQueryChange={setSearchQuery}
+        onOpenSearchFile={match => void openGlobalSearchFile(match)}
+        onRetryGlobalFileSearch={globalFileSearch.retry}
+        onSearchQueryChange={updateSearchQuery}
         onSearchKeyDown={handleSearchInputKeyDown}
         onCloseSearch={closeSearchView}
         onBackToProjects={() => openWorkspaceView('projects')}

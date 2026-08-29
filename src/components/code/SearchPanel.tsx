@@ -1,5 +1,6 @@
 import { useEffect, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from 'react'
 import { ArrowLeftGlyph, CloseGlyph, SearchGlyph } from '@/components/IconGlyphs'
+import { iconForFilePath } from '@/lib/file-icons'
 import { agentDisplayName } from '@/lib/format'
 import { formatWorkspaceForDisplay } from '@/lib/workspace-options'
 import type { Agent } from '@/types/agent'
@@ -13,6 +14,20 @@ import {
 import { buildAgentRowDisplayState } from './agent-row-state'
 import type { CodeCopy } from './copy'
 import type { AgentSessionHistoryItem, ProjectGroup } from './types'
+import {
+  GLOBAL_FILE_SEARCH_QUERY_MAX_LENGTH,
+  type GlobalWorkspaceFileSearchMatch,
+} from './useGlobalWorkspaceFileSearch'
+
+const SEARCH_RESULTS_ID = 'code-global-search-results'
+
+function searchResultId(kind: 'agent' | 'session' | 'file', identity: string) {
+  return `code-global-search-${kind}-${encodeURIComponent(identity)}`
+}
+
+function searchGroupId(identity: string) {
+  return `code-global-search-group-${encodeURIComponent(identity)}`
+}
 
 interface SearchPanelProps {
   query: string
@@ -22,6 +37,13 @@ interface SearchPanelProps {
   resultCount: number
   selectedAgentId: string | null
   selectedSessionHandle: string | null
+  selectedFileKey: string | null
+  fileMatches: GlobalWorkspaceFileSearchMatch[]
+  fileSearchFailedProjectCount: number
+  fileSearchIncomplete: boolean
+  queryTooLong: boolean
+  fileOpenError: string | null
+  openingFileKey: string | null
   inputRef: RefObject<HTMLInputElement | null>
   onQueryChange: (value: string) => void
   onKeyDown: (event: ReactKeyboardEvent<HTMLInputElement>) => void
@@ -29,6 +51,8 @@ interface SearchPanelProps {
   onBack: () => void
   onOpenAgent: (agentId: string) => void
   onOpenSession: (session: AgentSessionHistoryItem) => void
+  onOpenFile: (match: GlobalWorkspaceFileSearchMatch) => void
+  onRetryFileSearch: () => void
   copy: CodeCopy
 }
 
@@ -40,6 +64,13 @@ export function SearchPanel({
   resultCount,
   selectedAgentId,
   selectedSessionHandle,
+  selectedFileKey,
+  fileMatches,
+  fileSearchFailedProjectCount,
+  fileSearchIncomplete,
+  queryTooLong,
+  fileOpenError,
+  openingFileKey,
   inputRef,
   onQueryChange,
   onKeyDown,
@@ -47,8 +78,26 @@ export function SearchPanel({
   onBack,
   onOpenAgent,
   onOpenSession,
+  onOpenFile,
+  onRetryFileSearch,
   copy,
 }: SearchPanelProps) {
+  const selectedResultId = selectedFileKey
+    ? searchResultId('file', selectedFileKey)
+    : selectedAgentId
+      ? searchResultId('agent', selectedAgentId)
+      : selectedSessionHandle
+        ? searchResultId('session', selectedSessionHandle)
+        : undefined
+
+  useEffect(() => {
+    if (!selectedResultId) return
+    inputRef.current?.ownerDocument.getElementById(selectedResultId)?.scrollIntoView({
+      block: 'nearest',
+      inline: 'nearest',
+    })
+  }, [inputRef, selectedResultId])
+
   useEffect(() => {
     const input = inputRef.current
     if (!input) return
@@ -80,13 +129,14 @@ export function SearchPanel({
         <input
           ref={inputRef}
           type="text"
-          role="searchbox"
+          role="combobox"
           name="farming-workspace-search"
           inputMode="search"
           autoComplete="off"
           autoCorrect="off"
           autoCapitalize="none"
           spellCheck={false}
+          maxLength={GLOBAL_FILE_SEARCH_QUERY_MAX_LENGTH}
           enterKeyHint="search"
           data-lpignore="true"
           data-1p-ignore="true"
@@ -97,6 +147,11 @@ export function SearchPanel({
           onKeyDown={onKeyDown}
           placeholder={copy.searchProjectsOrAgents}
           aria-label={copy.searchProjectsOrAgents}
+          aria-autocomplete="list"
+          aria-controls={resultCount > 0 ? SEARCH_RESULTS_ID : undefined}
+          aria-expanded={resultCount > 0}
+          aria-activedescendant={resultCount > 0 ? selectedResultId : undefined}
+          aria-invalid={queryTooLong || undefined}
         />
         {query && (
           <button type="button" onClick={onClearSearch} aria-label={copy.clearSearch}>
@@ -104,19 +159,59 @@ export function SearchPanel({
           </button>
         )}
       </div>
-      {hasQuery && loading && resultCount === 0 ? (
+      {fileOpenError ? (
+        <div className="code-search-file-status error" data-testid="code-global-file-open-error" role="alert">
+          {fileOpenError}
+        </div>
+      ) : null}
+      {hasQuery && queryTooLong ? (
+        <div className="code-search-file-status error" data-testid="code-search-query-too-long" role="alert">
+          {copy.searchQueryTooLong}
+        </div>
+      ) : hasQuery && loading && resultCount === 0 ? (
         <div className="code-empty-workspace" data-testid="code-search-loading">
           <h2>{copy.searching}</h2>
         </div>
+      ) : hasQuery && resultCount === 0 && fileSearchFailedProjectCount > 0 ? (
+        <div className="code-empty-workspace" data-testid="code-global-file-search-error" role="alert">
+          <h2>{copy.fileSearchUnavailable(fileSearchFailedProjectCount)}</h2>
+          {fileSearchIncomplete ? (
+            <p data-testid="code-global-file-search-incomplete">{copy.fileSearchIncomplete}</p>
+          ) : null}
+          <button type="button" className="code-search-retry" onClick={onRetryFileSearch}>{copy.retry}</button>
+        </div>
+      ) : hasQuery && resultCount === 0 && fileSearchIncomplete ? (
+        <div className="code-empty-workspace" data-testid="code-global-file-search-incomplete" role="status">
+          <h2>{copy.fileSearchIncomplete}</h2>
+          <button type="button" className="code-search-retry" onClick={onRetryFileSearch}>{copy.retry}</button>
+        </div>
       ) : hasQuery && resultCount === 0 ? (
         <div className="code-empty-workspace" data-testid="code-empty-search">
-          <h2>{copy.noMatchingAgents}</h2>
+          <h2>{copy.noMatchingSearchResults}</h2>
         </div>
       ) : hasQuery ? (
-        <div className="code-search-results">
-          {displayedProjects.map(project => (
-            <section key={project.id} className="code-search-result-group">
-              <h3 title={project.workspace ? formatWorkspaceForDisplay(project.workspace) : project.name}>{project.name}</h3>
+        <>
+          <div
+            className="code-search-results"
+            id={SEARCH_RESULTS_ID}
+            role="listbox"
+            aria-label={copy.resultsCount(resultCount)}
+          >
+            {displayedProjects.map(project => {
+              const groupLabelId = searchGroupId(`project-${project.id}`)
+              return (
+                <section
+                  key={project.id}
+                  className="code-search-result-group"
+                  role="group"
+                  aria-labelledby={groupLabelId}
+                >
+                  <h3
+                    id={groupLabelId}
+                    title={project.workspace ? formatWorkspaceForDisplay(project.workspace) : project.name}
+                  >
+                    {project.name}
+                  </h3>
               {project.agents.map(agent => (
                 <AgentSearchResult
                   key={agent.id}
@@ -124,6 +219,7 @@ export function SearchPanel({
                   projectName={project.name}
                   projectWorkspace={project.workspace}
                   selected={agent.id === selectedAgentId}
+                  optionId={searchResultId('agent', agent.id)}
                   onOpen={() => onOpenAgent(agent.id)}
                 />
               ))}
@@ -138,6 +234,9 @@ export function SearchPanel({
                   <button
                     key={sessionHandle}
                     type="button"
+                    id={searchResultId('session', sessionHandle)}
+                    role="option"
+                    aria-selected={sessionHandle === selectedSessionHandle}
                     className={`code-search-result code-session-result ${sessionHandle === selectedSessionHandle ? 'active' : ''}`}
                     data-testid="code-session-search-result"
                     onClick={() => onOpenSession(session)}
@@ -150,12 +249,90 @@ export function SearchPanel({
                   </button>
                 )
               })}
-            </section>
-          ))}
-        </div>
+                </section>
+              )
+            })}
+            {fileMatches.length > 0 ? (
+              <section
+                className="code-search-result-group"
+                data-testid="code-global-file-search-results"
+                role="group"
+                aria-labelledby={searchGroupId('files')}
+              >
+                <h3 id={searchGroupId('files')}>{copy.files}</h3>
+                {fileMatches.map(match => {
+                  const opening = match.key === openingFileKey
+                  return (
+                    <button
+                      key={match.key}
+                      type="button"
+                      id={searchResultId('file', match.key)}
+                      role="option"
+                      aria-selected={match.key === selectedFileKey}
+                      aria-busy={opening || undefined}
+                      disabled={opening}
+                      className={`code-search-result code-search-file-result ${match.key === selectedFileKey ? 'active' : ''}`}
+                      data-testid="code-global-file-search-result"
+                      title={`${match.projectName} · ${formatWorkspaceForDisplay(match.workspace)} · ${match.path}`}
+                      aria-label={`${copy.file}: ${match.projectName} · ${formatWorkspaceForDisplay(match.workspace)} · ${match.path}`}
+                      onClick={() => onOpenFile(match)}
+                    >
+                      <img className="code-file-type-icon code-search-file-icon" src={iconForFilePath(match.path)} alt="" aria-hidden="true" />
+                      <span className="code-search-result-copy">
+                        <strong>{fileName(match.path)}</strong>
+                        <SearchResultProjectName
+                          name={match.projectName}
+                          workspace={match.workspace}
+                          workspacePeers={fileMatches
+                            .filter(candidate => candidate.projectName === match.projectName && candidate.path === match.path)
+                            .map(candidate => candidate.workspace)}
+                          showWorkspace
+                        />
+                        <span className="code-search-file-path">{opening ? copy.openingFile : match.path}</span>
+                      </span>
+                    </button>
+                  )
+                })}
+              </section>
+            ) : null}
+          </div>
+          {fileSearchFailedProjectCount > 0 ? (
+            <div className="code-search-file-status error" data-testid="code-global-file-search-partial" role="status">
+              <span>{copy.fileSearchUnavailable(fileSearchFailedProjectCount)}</span>
+              <button type="button" className="code-search-retry" onClick={onRetryFileSearch}>{copy.retry}</button>
+            </div>
+          ) : null}
+          {fileSearchIncomplete ? (
+            <div className="code-search-file-status" data-testid="code-global-file-search-incomplete" role="status">
+              {copy.fileSearchIncomplete}
+            </div>
+          ) : null}
+        </>
       ) : null}
     </div>
   )
+}
+
+function fileName(filePath: string) {
+  const normalized = filePath.replace(/\\/g, '/').replace(/\/+$/, '')
+  return normalized.split('/').pop() || normalized
+}
+
+function compactWorkspaceForSearch(workspace: string, peers: readonly string[] = []) {
+  const formatted = formatWorkspaceForDisplay(workspace).replace(/\\/g, '/').replace(/\/+$/, '')
+  const segments = formatted.split('/').filter(Boolean)
+  if (segments.length === 0) return formatted
+  const peerSegments = peers
+    .map(peer => formatWorkspaceForDisplay(peer).replace(/\\/g, '/').replace(/\/+$/, '').split('/').filter(Boolean))
+    .filter(peer => peer.join('/') !== segments.join('/'))
+  let suffixLength = Math.min(3, segments.length)
+  while (suffixLength < segments.length) {
+    const suffix = segments.slice(-suffixLength).join('/')
+    if (peerSegments.every(peer => peer.slice(-suffixLength).join('/') !== suffix)) break
+    suffixLength += 1
+  }
+  const label = segments.slice(-suffixLength).join('/')
+  return suffixLength < segments.length ? `…/${label}` : label
 }
 
 function AgentSearchResult({
@@ -163,12 +340,14 @@ function AgentSearchResult({
   projectName,
   projectWorkspace,
   selected,
+  optionId,
   onOpen,
 }: {
   agent: Agent
   projectName: string
   projectWorkspace: string
   selected: boolean
+  optionId: string
   onOpen: () => void
 }) {
   const rowState = buildAgentRowDisplayState({ kind: 'agent', agent })
@@ -177,6 +356,9 @@ function AgentSearchResult({
   return (
     <button
       type="button"
+      id={optionId}
+      role="option"
+      aria-selected={selected}
       className={`code-search-result ${rowState.statusIndicatorVisible ? '' : 'no-status'} ${selected ? 'active' : ''}`}
       data-testid="code-search-result"
       title={rowState.rowTitle || rowState.title}
@@ -194,7 +376,17 @@ function AgentSearchResult({
   )
 }
 
-function SearchResultProjectName({ name, workspace }: { name: string; workspace: string }) {
+function SearchResultProjectName({
+  name,
+  workspace,
+  workspacePeers = [],
+  showWorkspace = false,
+}: {
+  name: string
+  workspace: string
+  workspacePeers?: readonly string[]
+  showWorkspace?: boolean
+}) {
   if (!name) return null
   return (
     <span
@@ -202,7 +394,7 @@ function SearchResultProjectName({ name, workspace }: { name: string; workspace:
       data-testid="code-search-result-project"
       title={workspace ? formatWorkspaceForDisplay(workspace) : name}
     >
-      {name}
+      {name}{showWorkspace && workspace ? ` · ${compactWorkspaceForSearch(workspace, workspacePeers)}` : ''}
     </span>
   )
 }
