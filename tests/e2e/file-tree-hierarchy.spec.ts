@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
-import type { Locator, Page } from '@playwright/test'
+import type { Locator, Page, TestInfo } from '@playwright/test'
 import {
   expect,
   openFarming,
@@ -9,6 +9,7 @@ import {
   startAgentFromOpenDialog,
   test,
 } from './fixtures'
+import { createAcceptanceEvidence } from './acceptance-evidence'
 
 const TARGET_FILE = [
   'odps-sql',
@@ -91,12 +92,29 @@ async function installWorkspaceRequestGate(page: Page) {
   }
 }
 
-async function captureFileOperationAudit(page: Page, name: string) {
-  fs.mkdirSync(FILE_OPERATION_AUDIT_DIR, { recursive: true })
-  await page.locator('.code-sidebar').screenshot({
-    path: path.join(FILE_OPERATION_AUDIT_DIR, name),
-    animations: 'disabled',
-    scale: 'css',
+async function captureFileOperationAudit(
+  evidence: ReturnType<typeof createAcceptanceEvidence>,
+  page: Page,
+  testInfo: TestInfo,
+  name: string,
+  theme: string,
+  scenario: string,
+  proofLocator: Locator,
+  expectedTestId: string,
+  captureOptions: {
+    target?: Locator
+  } = {},
+) {
+  await evidence.capture({
+    page,
+    testInfo,
+    screenshotName: name,
+    scenario,
+    settledAssertion: `${expectedTestId} is visible after the file operation reached its asserted interaction state`,
+    theme,
+    proofLocator,
+    expectedTestId,
+    ...captureOptions,
   })
 }
 
@@ -1088,7 +1106,10 @@ test('keeps directory mutations and keyboard file operations authoritative', asy
   await expect.poll(() => fs.existsSync(path.join(workspace, 'keyboard', 'gamma.ts'))).toBe(false)
 })
 
-test('keeps file operation states distinguishable across light, dark, and paper', async ({ page, workspaceRoot }) => {
+test('keeps file operation states distinguishable across light, dark, and paper', async ({ page, workspaceRoot }, testInfo) => {
+  const evidence = createAcceptanceEvidence(FILE_OPERATION_AUDIT_DIR, {
+    manifestFileName: 'manifest-file-operation-visual-audit.json',
+  })
   const workspace = path.join(workspaceRoot, 'file-operation-appearance')
   fs.mkdirSync(workspace, { recursive: true })
   fs.writeFileSync(path.join(workspace, '.gitignore'), '*.ignored\n')
@@ -1121,7 +1142,32 @@ test('keeps file operation states distinguishable across light, dark, and paper'
     await refreshItem.hover()
     const hoveredMenuItemBackground = await refreshItem.evaluate(element => getComputedStyle(element).backgroundColor)
     expect(hoveredMenuItemBackground).not.toBe(restingMenuItemBackground)
-    await captureFileOperationAudit(page, `${appearance}-file-menu.png`)
+    const menuBounds = await menu.evaluate(element => {
+      const rect = element.getBoundingClientRect()
+      return {
+        left: rect.left,
+        right: rect.right,
+        top: rect.top,
+        bottom: rect.bottom,
+        viewportWidth: window.innerWidth,
+        viewportHeight: window.innerHeight,
+      }
+    })
+    expect(menuBounds.left).toBeGreaterThanOrEqual(0)
+    expect(menuBounds.top).toBeGreaterThanOrEqual(0)
+    expect(menuBounds.right).toBeLessThanOrEqual(menuBounds.viewportWidth)
+    expect(menuBounds.bottom).toBeLessThanOrEqual(menuBounds.viewportHeight)
+    await captureFileOperationAudit(
+      evidence,
+      page,
+      testInfo,
+      `${appearance}-file-menu.png`,
+      appearance,
+      'Files context menu on a selected file',
+      menu,
+      'code-file-context-menu',
+      { target: menu },
+    )
 
     await menu.getByRole('menuitem', { name: 'Rename' }).click()
     const renameInput = normalRow.getByTestId('code-file-operation-input')
@@ -1141,7 +1187,17 @@ test('keeps file operation states distinguishable across light, dark, and paper'
     expect(palette).not.toBeNull()
     expect(palette?.ignoredColor).not.toBe(palette?.normalColor)
     expect(palette?.inputBackground).not.toBe(palette?.rowBackground)
-    await captureFileOperationAudit(page, `${appearance}-file-rename.png`)
+    await captureFileOperationAudit(
+      evidence,
+      page,
+      testInfo,
+      `${appearance}-file-rename.png`,
+      appearance,
+      'Files inline rename input',
+      renameInput,
+      'code-file-operation-input',
+      { target: page.locator('.code-sidebar') },
+    )
     await renameInput.press('Escape')
     await expect(renameInput).toHaveCount(0)
   }

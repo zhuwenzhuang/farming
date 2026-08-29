@@ -2230,6 +2230,72 @@
     text-align: center;
   }
 
+  .code-plugin-language-server-table-scroll {
+    overflow-x: visible;
+  }
+
+  .code-plugin-language-server-table {
+    min-width: 0;
+    display: block;
+    table-layout: auto;
+  }
+
+  .code-plugin-language-server-table thead {
+    width: 1px;
+    height: 1px;
+    position: absolute;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .code-plugin-language-server-table tbody {
+    display: block;
+  }
+
+  .code-plugin-language-server-table tbody tr {
+    display: grid;
+    padding-block: 4px;
+    border-bottom: 1px solid var(--code-border);
+  }
+
+  .code-plugin-language-server-table tbody tr:last-child {
+    border-bottom: 0;
+  }
+
+  .code-plugin-language-server-table td {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: minmax(72px, 0.42fr) minmax(0, 1fr);
+    align-items: start;
+    gap: 10px;
+    padding: 7px 10px;
+    border-bottom: 0;
+  }
+
+  .code-plugin-language-server-table td::before {
+    content: attr(data-label);
+    color: var(--code-text-subtle);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+    font-weight: 600;
+    line-height: 18px;
+  }
+
+  .code-plugin-language-server-language,
+  .code-plugin-language-server-command,
+  .code-plugin-language-server-projects {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .code-plugin-language-server-runtime-status {
+    max-width: 100%;
+    white-space: normal;
+  }
+
   .code-plugin-language-server-table-footer {
     align-items: flex-start;
     flex-direction: column;

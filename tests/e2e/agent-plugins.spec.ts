@@ -1,30 +1,46 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import type { Route, WebSocketRoute } from '@playwright/test'
+import type { Route, TestInfo, WebSocketRoute } from '@playwright/test'
 import {
   expect,
   interceptWorkspaceRequests,
+  mockLanguageServerTransport,
   openFarming,
   openNewAgentDialog,
   startAgentFromOpenDialog,
   test,
 } from './fixtures'
 import { selectCodeOption } from './code-select'
+import { createAcceptanceEvidence } from './acceptance-evidence'
 
-const mobilePluginAuditDir = process.env.FARMING_MOBILE_PLUGIN_AUDIT_DIR
+const mobilePluginAuditDir = path.resolve(
+  process.env.FARMING_MOBILE_PLUGIN_AUDIT_DIR || '.tmp/mobile-plugin-audit',
+)
 
-async function captureMobilePluginAudit(page: import('@playwright/test').Page, name: string) {
-  if (!mobilePluginAuditDir) return
-  fs.mkdirSync(mobilePluginAuditDir, { recursive: true })
-  for (const [cardName, testId] of [
-    ['browser', 'code-plugin-browser'],
-    ['computer', 'code-plugin-computer'],
-    ['language-server', 'code-plugin-language-server'],
+async function captureMobilePluginAudit(
+  evidence: ReturnType<typeof createAcceptanceEvidence>,
+  page: import('@playwright/test').Page,
+  testInfo: TestInfo,
+  name: string,
+  theme: string,
+) {
+  for (const [cardName, testId, heading, settledAssertion] of [
+    ['browser', 'code-plugin-browser', 'Browser', 'Browser capability and connector reads settled to Enabled'],
+    ['computer', 'code-plugin-computer', /Computer Use/, 'Computer capability read settled to Enabled'],
+    ['language-server', 'code-plugin-language-server', 'Language Server', 'Language Server capability response rendered the expected runtime inventory'],
   ] as const) {
-    await page.getByTestId(testId).screenshot({
-      path: path.join(mobilePluginAuditDir, `${name}-${cardName}.png`),
-      animations: 'disabled',
-      scale: 'css',
+    const card = page.getByTestId(testId)
+    await evidence.capture({
+      page,
+      testInfo,
+      screenshotName: `${name}-${cardName}.png`,
+      scenario: `mobile Plugins ${cardName} card`,
+      settledAssertion,
+      theme,
+      proofLocator: card,
+      expectedTestId: testId,
+      expectedHeading: heading,
+      target: card,
     })
   }
 }
@@ -648,11 +664,106 @@ test('Plugins shows a read-only extension catalog from one exact Agent Home', {
   await expect(panel.getByText('SessionStart', { exact: true })).toBeVisible()
 })
 
-test('Plugins keeps built-in capabilities aligned without page overflow on narrow screens', async ({ page }) => {
+test('Plugins keeps built-in capabilities aligned without page overflow on narrow screens', async ({ page }, testInfo) => {
+  const evidence = createAcceptanceEvidence(mobilePluginAuditDir, {
+    manifestFileName: 'manifest-mobile-plugin-audit.json',
+  })
+  let browserCapabilityReads = 0
+  let browserExtensionReads = 0
+  let computerCapabilityReads = 0
+  let languageServerCapabilityReads = 0
+  await page.route('**/api/browsers/capability', route => {
+    browserCapabilityReads += 1
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        enabled: true,
+        available: true,
+        browser: { kind: 'chromium', path: '/opt/farming-fixture/chromium' },
+        sources: [{
+          source: 'system',
+          available: true,
+          kind: 'chromium',
+          path: '/opt/farming-fixture/chromium',
+          message: 'Available',
+        }],
+        extension: { installed: false, connected: false, integrity: 'missing' },
+        isolated: { available: false, dockerAvailable: false, imageReady: false },
+        message: 'Available',
+      }),
+    })
+  })
+  await page.route('**/api/browsers/extension', route => {
+    browserExtensionReads += 1
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ installed: false, connected: false, integrity: 'missing' }),
+    })
+  })
+  await page.route('**/api/computers/capability', route => {
+    computerCapabilityReads += 1
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        available: true,
+        enabled: true,
+        dockerAvailable: true,
+        imageReady: true,
+        image: 'farming-fixture/cua',
+        imageDigest: 'sha256:fixture',
+        driverVersion: 'fixture',
+        compatibilityMode: false,
+        error: '',
+      }),
+    })
+  })
+  const longProjectName = 'mobile-layout-project-with-a-long-production-shaped-name'
+  await mockLanguageServerTransport(page, () => {
+    languageServerCapabilityReads += 1
+    return {
+      result: {
+        status: 'connected',
+        source: 'managed',
+        detail: '1 built-in language definition · 1 active server · 1 project',
+        features: ['definition', 'diagnostics'],
+        workspaces: [`file:///workspaces/${longProjectName}`],
+        connections: [],
+        languages: [{
+          id: 'typescript',
+          language: 'TypeScript / JavaScript',
+          server: 'typescript-language-server-with-a-long-runtime-name',
+          status: 'running',
+          projects: [`file:///workspaces/${longProjectName}`],
+        }],
+      },
+    }
+  })
   await openFarming(page)
   await page.getByTestId('code-nav-plugins').click()
   const panel = page.getByTestId('code-plugins-panel')
   await expect(panel.getByTestId('code-plugin-tab-farming')).toHaveAttribute('aria-selected', 'true')
+  const browserCard = panel.getByTestId('code-plugin-browser')
+  const computerCard = panel.getByTestId('code-plugin-computer')
+  const languageServerCard = panel.getByTestId('code-plugin-language-server')
+  const languageServerRow = languageServerCard.getByTestId('code-plugin-language-server-language-typescript')
+  await expect.poll(() => browserCapabilityReads).toBeGreaterThanOrEqual(1)
+  await expect.poll(() => browserExtensionReads).toBeGreaterThanOrEqual(1)
+  await expect.poll(() => computerCapabilityReads).toBeGreaterThanOrEqual(1)
+  await expect.poll(() => languageServerCapabilityReads).toBeGreaterThanOrEqual(1)
+  await expect(browserCard.locator('.code-plugin-status')).toHaveText('Enabled')
+  await expect(computerCard.locator('.code-plugin-status')).toHaveText('Enabled')
+  await expect(languageServerCard.locator('.code-plugin-status')).toContainText('1 running')
+  await expect(panel).not.toContainText(/Checking…|Discovering…/)
+  await expect(languageServerRow).toContainText('TypeScript / JavaScript')
+  await expect(languageServerRow).toContainText('typescript-language-server-with-a-long-runtime-name')
+  await expect(languageServerRow).toContainText('Running')
+  await expect(languageServerRow).toContainText(longProjectName)
+  await expect(languageServerCard.getByRole('table')).toBeVisible()
+  await expect(languageServerCard.getByRole('columnheader')).toHaveCount(4)
+  await expect(languageServerRow.getByRole('cell')).toHaveCount(4)
 
   for (const viewport of [
     { width: 720, height: 900 },
@@ -712,7 +823,48 @@ test('Plugins keeps built-in capabilities aligned without page overflow on narro
         expect(Math.abs(card.toggleLeft - card.copyLeft)).toBeLessThanOrEqual(1)
         expect(card.toggleRight).toBeLessThanOrEqual(card.right)
       }
-      await captureMobilePluginAudit(page, `plugins-${viewport.width}px-${appearance}`)
+      const languageServerLayout = await languageServerRow.evaluate(row => {
+        const rowRect = row.getBoundingClientRect()
+        const table = row.closest('table') as HTMLTableElement | null
+        const scroller = row.closest('.code-plugin-language-server-table-scroll') as HTMLElement | null
+        const cells = Array.from(row.querySelectorAll<HTMLTableCellElement>('td'))
+        return {
+          tableDisplay: table ? getComputedStyle(table).display : '',
+          tableMinWidth: table ? getComputedStyle(table).minWidth : '',
+          scrollerClientWidth: scroller?.clientWidth ?? 0,
+          scrollerScrollWidth: scroller?.scrollWidth ?? Number.POSITIVE_INFINITY,
+          labels: cells.map(cell => cell.dataset.label),
+          cells: cells.map(cell => {
+            const rect = cell.getBoundingClientRect()
+            return {
+              display: getComputedStyle(cell).display,
+              left: rect.left,
+              right: rect.right,
+              scrollWidth: cell.scrollWidth,
+              clientWidth: cell.clientWidth,
+            }
+          }),
+          rowLeft: rowRect.left,
+          rowRight: rowRect.right,
+        }
+      })
+      expect(languageServerLayout.tableDisplay).toBe('block')
+      expect(languageServerLayout.tableMinWidth).toBe('0px')
+      expect(languageServerLayout.scrollerScrollWidth).toBeLessThanOrEqual(languageServerLayout.scrollerClientWidth + 1)
+      expect(languageServerLayout.labels).toEqual(['Language', 'Language Server', 'Status', 'Project'])
+      for (const cell of languageServerLayout.cells) {
+        expect(cell.display).toBe('grid')
+        expect(cell.left).toBeGreaterThanOrEqual(languageServerLayout.rowLeft)
+        expect(cell.right).toBeLessThanOrEqual(languageServerLayout.rowRight)
+        expect(cell.scrollWidth).toBeLessThanOrEqual(cell.clientWidth + 1)
+      }
+      await captureMobilePluginAudit(
+        evidence,
+        page,
+        testInfo,
+        `plugins-${viewport.width}px-${appearance}`,
+        appearance,
+      )
     }
   }
 
@@ -740,6 +892,22 @@ test('Plugins keeps built-in capabilities aligned without page overflow on narro
 
   await page.setViewportSize({ width: 1024, height: 800 })
   await panel.getByTestId('code-plugin-tab-farming').click()
+  const desktopLanguageServerLayout = await languageServerRow.evaluate(row => {
+    const table = row.closest('table') as HTMLTableElement | null
+    const heading = table?.querySelector('thead')
+    return {
+      tableDisplay: table ? getComputedStyle(table).display : '',
+      tableMinWidth: table ? getComputedStyle(table).minWidth : '',
+      headingDisplay: heading ? getComputedStyle(heading).display : '',
+      rowDisplay: getComputedStyle(row).display,
+    }
+  })
+  expect(desktopLanguageServerLayout).toEqual({
+    tableDisplay: 'table',
+    tableMinWidth: '620px',
+    headingDisplay: 'table-header-group',
+    rowDisplay: 'table-row',
+  })
   const desktopCard = panel.getByTestId('code-plugin-browser')
   const desktopLayout = await desktopCard.evaluate(card => {
     const icon = card.querySelector('.code-plugin-card-icon')?.getBoundingClientRect()

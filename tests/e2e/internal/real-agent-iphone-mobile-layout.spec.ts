@@ -2,10 +2,14 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { Page, TestInfo } from '@playwright/test'
 import { expect, openFarming, test } from '../fixtures'
+import { createAcceptanceEvidence } from '../acceptance-evidence'
 
 const IPHONE_VIEWPORT = { width: 390, height: 844 }
-const AUDIT_DIR = path.join(process.cwd(), '.tmp', 'iphone-real-agent-audit')
+const AUDIT_DIR = path.resolve(
+  process.env.FARMING_REAL_AGENT_IPHONE_AUDIT_DIR || '.tmp/real-agent-iphone-audit',
+)
 const AUDIT_WORKSPACE = path.join(process.cwd(), '.tmp', 'real-agent-iphone-workspace')
+let realAgentEvidence: ReturnType<typeof createAcceptanceEvidence> | null = null
 
 type PublicAgent = {
   id: string
@@ -148,12 +152,16 @@ async function assertCompactVisualBounds(page: Page) {
 async function capture(page: Page, testInfo: TestInfo, name: string) {
   await assertCompactVisualBounds(page)
   await page.waitForTimeout(350)
-  const screenshotPath = path.join(AUDIT_DIR, name)
-  await page.screenshot({
-    path: screenshotPath,
+  if (!realAgentEvidence) throw new Error('Real Agent iPhone evidence recorder was not initialized')
+  const screenshotPath = await realAgentEvidence.capture({
+    page,
+    testInfo,
+    screenshotName: name,
+    scenario: name.replace(/\.png$/i, ''),
+    settledAssertion: 'Real Agent scenario reached its asserted state and compact visual bounds passed',
+    proofLocator: page.getByTestId('code-main'),
+    expectedTestId: 'code-main',
     fullPage: true,
-    animations: 'disabled',
-    scale: 'css',
   })
   await testInfo.attach(name, { path: screenshotPath, contentType: 'image/png' })
 }
@@ -166,13 +174,16 @@ test.describe('real Agent iPhone visual audit', () => {
     if (process.env.FARMING_E2E_REAL_CODEX !== '1') {
       throw new Error('The real iPhone Agent audit cannot run with fake executables')
     }
+    realAgentEvidence = createAcceptanceEvidence(AUDIT_DIR, {
+      manifestFileName: 'manifest-real-agent-iphone-mobile-layout.json',
+    })
     fs.mkdirSync(AUDIT_DIR, { recursive: true })
     fs.rmSync(AUDIT_WORKSPACE, { recursive: true, force: true })
     fs.mkdirSync(AUDIT_WORKSPACE, { recursive: true })
     fs.writeFileSync(path.join(AUDIT_WORKSPACE, 'README.md'), '# Real Agent iPhone visual audit\n')
-    fs.writeFileSync(
+    fs.copyFileSync(
+      path.resolve('public/farming-2/app-icon-v2-180.png'),
       path.join(AUDIT_WORKSPACE, 'attachment.png'),
-      Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=', 'base64'),
     )
   })
 

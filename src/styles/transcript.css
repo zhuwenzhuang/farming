@@ -197,6 +197,37 @@
   color: var(--code-text-subtle);
 }
 
+.code-agent-transcript-load-error {
+  align-content: center;
+  gap: 10px;
+  height: 100%;
+  padding: 20px;
+  box-sizing: border-box;
+  text-align: center;
+}
+
+.code-agent-transcript-load-error button {
+  justify-self: center;
+  min-height: 32px;
+  padding: 5px 12px;
+  border: 1px solid color-mix(in srgb, var(--code-warning) 28%, transparent);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--code-warning);
+  cursor: pointer;
+  font: inherit;
+}
+
+.code-agent-transcript-load-error button:hover,
+.code-agent-transcript-load-error button:focus-visible {
+  background: var(--code-warning-soft);
+  outline: none;
+}
+
+.code-compact-layout .code-agent-transcript-load-error button {
+  min-height: 44px;
+}
+
 .code-agent-transcript-blank {
   width: 100%;
   max-width: 980px;

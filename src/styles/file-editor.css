@@ -881,6 +881,14 @@ body.code-mode .code-file-editor-fallback-textarea {
     overscroll-behavior-x: contain;
   }
 
+  body.code-mode.code-compact-layout.code-mobile-touch .code-file-editor:not(.markdown-reading) .code-file-editor-tab-strip > .code-file-editor-actions:has(.overwrite) {
+    gap: 1px;
+  }
+
+  body.code-mode.code-compact-layout.code-mobile-touch .code-file-editor:not(.markdown-reading) .code-file-editor-tab-strip > .code-file-editor-actions:has(.overwrite) .code-file-editor-status {
+    display: none;
+  }
+
   body.code-mode.code-compact-layout.code-mobile-touch .code-file-editor-action {
     width: 44px;
     height: 44px;

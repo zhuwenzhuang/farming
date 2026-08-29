@@ -333,6 +333,10 @@ test.describe('ACP human-like browser matrix', () => {
     })
     expect(otherAgentResponse.ok()).toBeTruthy()
     const { agentId: otherAgentId } = await otherAgentResponse.json() as { agentId: string }
+    await openFarming(page)
+    await agentRow(page, agentId).click()
+    await sendAcpMessage(page, 'markdown typography')
+    await expect(page.getByText('Typography baseline.', { exact: true })).toBeVisible()
     const identityResponse = await page.request.get(
       `/farming/api/agents/${encodeURIComponent(agentId)}/acp-transcript?maxTurns=5&media=external-v1`,
     )
@@ -346,11 +350,12 @@ test.describe('ACP human-like browser matrix', () => {
     expect(identity.runtimeEpoch).toBeTruthy()
     const fixtureRevision = Math.max(11, Number(identity.toRevision) || 0) + 1_000_000
     let attempts = 0
+    let allowRecovery = false
     await page.route(
       new RegExp(`/farming/api/agents/${agentId}/acp-transcript(?:\\?.*)?$`),
       async route => {
         attempts += 1
-        if (attempts < 4) {
+        if (!allowRecovery) {
           await route.abort('connectionreset')
           return
         }
@@ -391,24 +396,26 @@ test.describe('ACP human-like browser matrix', () => {
       },
     )
 
-    await openFarming(page)
+    await agentRow(page, otherAgentId).click()
+    await page.reload()
     await agentRow(page, agentId).click()
     await page.evaluate(() => {
       window.dispatchEvent(new Event('farming:backend-disconnected'))
       window.dispatchEvent(new Event('farming:backend-connected'))
     })
-    await expect(page.getByText('This session’s Chat history could not be loaded.', { exact: true }))
-      .toBeVisible({ timeout: 10_000 })
-    expect(attempts).toBe(3)
-
-    await page.evaluate(() => {
-      window.dispatchEvent(new Event('farming:backend-disconnected'))
-      window.dispatchEvent(new Event('farming:backend-connected'))
+    const loadError = page.getByTestId('code-agent-transcript-load-error')
+    await expect(loadError).toContainText('This session’s Chat history could not be loaded.', {
+      timeout: 10_000,
     })
+    expect(attempts).toBeGreaterThanOrEqual(3)
+    expect(attempts).toBeLessThanOrEqual(6)
+
+    allowRecovery = true
+    await loadError.getByRole('button', { name: 'Retry' }).click()
     await expect(page.getByText('Transcript transport recovered.', { exact: true })).toBeVisible({
       timeout: 10_000,
     })
-    expect(attempts).toBe(4)
+    const recoveredAtAttempt = attempts
     await expect(page.getByText('Failed to fetch', { exact: true })).toHaveCount(0)
 
     await agentRow(page, otherAgentId).click()
@@ -417,10 +424,9 @@ test.describe('ACP human-like browser matrix', () => {
     )).toBeVisible()
     await agentRow(page, agentId).click()
     await expect(page.getByText('Transcript transport recovered.', { exact: true })).toBeVisible()
-    expect(attempts).toBe(4)
+    expect(attempts).toBe(recoveredAtAttempt)
     await expect(page.getByText('Transcript transport recovered.', { exact: true })).toBeVisible()
-    await expect(page.getByText('This session’s Chat history could not be loaded.', { exact: true }))
-      .toHaveCount(0)
+    await expect(page.getByTestId('code-agent-transcript-load-error')).toHaveCount(0)
   })
 
   test('shows a lightweight missing-final-reply line rebuilt from the ACP transcript', async ({ page, workspaceRoot }, testInfo) => {

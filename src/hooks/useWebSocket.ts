@@ -670,11 +670,11 @@ export function useWebSocket() {
       })
     }
 
-    function replaceConnection(ws: WebSocket, reason: string) {
+    function replaceConnection(ws: WebSocket, reason: string, closeCode = 4000) {
       if (disposed || reconnectBlocked || wsRef.current !== ws) return
       clearSocketCloseDeadline()
       try {
-        ws.close(4000, reason)
+        ws.close(closeCode, reason)
       } catch {
         // The bounded fallback below owns cleanup if the mobile browser has
         // already discarded the native socket behind this JavaScript object.
@@ -684,7 +684,7 @@ export function useWebSocket() {
         if (disposed || wsRef.current !== ws) return
         const closeHandler = ws.onclose
         ws.onclose = null
-        closeHandler?.call(ws, new CloseEvent('close', { code: 4000, reason, wasClean: false }))
+        closeHandler?.call(ws, new CloseEvent('close', { code: closeCode, reason, wasClean: false }))
       }, WEBSOCKET_CLOSE_DEADLINE_MS)
     }
 
@@ -695,7 +695,15 @@ export function useWebSocket() {
         sendBusinessProbe(ws, FOREGROUND_BUSINESS_HEALTH_DEADLINE_MS, true)
         return
       }
-      if (ws) return
+      if (ws?.readyState === WebSocket.CONNECTING) return
+      if (ws) {
+        // Mobile browsers can update readyState after suspending a page but
+        // omit or indefinitely delay the matching close event. Reuse the
+        // bounded replacement path so a stale CLOSING/CLOSED object cannot
+        // keep wsRef occupied forever on resume.
+        replaceConnection(ws, 'WebSocket was closed while the page was suspended')
+        return
+      }
       connect()
     }
 
@@ -814,7 +822,11 @@ export function useWebSocket() {
                 protocolMismatchNotice = msg.protocolVersion < MIN_PROTOCOL_VERSION
                   ? `This page requires a newer Farming backend (protocol ${MIN_PROTOCOL_VERSION}, backend has ${msg.protocolVersion}). Update and restart the Farming backend.`
                   : 'The Farming backend is newer than this page. Refresh this page to load the updated interface.'
-                ws.close(4002, `Unsupported Farming protocol version ${msg.protocolVersion}`)
+                replaceConnection(
+                  ws,
+                  `Unsupported Farming protocol version ${msg.protocolVersion}`,
+                  4002,
+                )
               } else {
                 setTerminalSessionTransportReady(true)
                 setWorkspaceRequestTransportReady(

@@ -96,7 +96,8 @@ Local/Remote Connection、Reconnect、Update Prepare、Restart、Rollback 与 Mi
 Business-health Probe 对账当前 WebSocket。健康的 Open Socket 保持不变；只有 Probe 或首次连接
 Deadline 失败且仍属于同一 Socket Generation 时才替换连接。Authentication 与 Protocol Close
 Code 保持终止态。Composer Draft 跨恢复保留；结果不确定的 Input 必须由用户显式重试，Browser
-不能自动重放。
+不能自动重放。如果 Browser 把保留的 Socket 标为 Closing 或 Closed 却遗漏 Close Event，回到
+前台时仍必须通过同一条有界 Close 路径替换它。
 
 ### Agent Lifecycle 与 Configuration
 

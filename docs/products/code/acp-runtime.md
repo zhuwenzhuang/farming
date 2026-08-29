@@ -440,7 +440,15 @@ replace the empty state with transient startup copy. A startup-time transcript
 read failure for a fresh Session cannot replace that empty state; an actual
 Runtime failure remains visible through the authoritative Runtime and Composer
 state. Explicit history restores may show bounded synchronization feedback
-until their first authoritative transcript settles.
+until their first authoritative transcript settles. When an expected history
+read exhausts its bounded retries, Chat shows an explicit read-only Retry
+action. Retry starts a fresh checkpoint read; it never replays a Prompt or any
+other mutation. Once the authoritative Session or Runtime epoch changes, a
+cached transcript from the previous identity is quarantined immediately and
+must never render under the replacement Agent identity. Empty `202` responses,
+identity-mismatched checkpoints, and delta gaps all use bounded checkpoint
+retries and converge to the same explicit Retry state instead of an unbounded
+loading or request loop.
 
 A live Chat Agent uses only an explicit user rename or an Agent-managed adaptive
 title above its stable provider name. Provider Session titles derived from the

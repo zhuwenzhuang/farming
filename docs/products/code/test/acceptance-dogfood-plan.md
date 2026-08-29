@@ -111,7 +111,9 @@ probe. A healthy open socket stays in place; only the same socket generation
 whose probe or initial connection deadline fails is replaced. Authentication
 and protocol close codes remain terminal. Composer drafts survive recovery,
 and an input with an uncertain outcome is never replayed without an explicit
-user retry.
+user retry. If the browser reports the retained socket as closing or closed but
+omits its close event, foreground reconciliation must still replace it through
+the same bounded close path.
 
 ### Agent Lifecycle And Configuration
 

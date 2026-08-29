@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { ACP_TRANSCRIPT_UNSETTLED_RETRY_LADDER_LENGTH } from '../src/lib/transcript-fetch-policy'
 import {
   attachAcpTranscriptSession,
   getAcpTranscriptSessionSnapshot,
   observeAcpTranscriptRevision,
+  refreshAcpTranscriptSession,
   reconnectAcpTranscriptSessions,
   resetAcpTranscriptSessionPoolForTests,
   retainAcpTranscriptSessions,
@@ -155,6 +157,34 @@ test('an exhausted recovery checkpoint exposes a transport error and can reconne
     await waitFor(() => getAcpTranscriptSessionSnapshot('agent-recovery').transcript?.revision === 1)
     assert.equal(attempts, 4)
     assert.equal(getAcpTranscriptSessionSnapshot('agent-recovery').error, null)
+    release()
+  } finally {
+    resetAcpTranscriptSessionPoolForTests()
+    globalThis.fetch = previousFetch
+  }
+})
+
+test('an explicit retry clears a terminal read error and starts a fresh checkpoint', async () => {
+  const previousFetch = globalThis.fetch
+  const urls: string[] = []
+  globalThis.fetch = async input => {
+    const url = String(input)
+    urls.push(url)
+    if (urls.length === 1) return new Response('unavailable', { status: 503 })
+    return jsonResponse(envelope('agent-manual-retry', 1))
+  }
+  try {
+    retainAcpTranscriptSessions(['agent-manual-retry'])
+    const release = attachAcpTranscriptSession('agent-manual-retry')
+    await waitFor(() => getAcpTranscriptSessionSnapshot('agent-manual-retry').error === 'response')
+
+    refreshAcpTranscriptSession('agent-manual-retry', true)
+    assert.equal(getAcpTranscriptSessionSnapshot('agent-manual-retry').loading, true)
+    assert.equal(getAcpTranscriptSessionSnapshot('agent-manual-retry').error, null)
+    await waitFor(() => getAcpTranscriptSessionSnapshot('agent-manual-retry').transcript?.revision === 1)
+
+    assert.equal(urls.length, 2)
+    assert.doesNotMatch(urls[1] ?? '', /sinceRevision=/)
     release()
   } finally {
     resetAcpTranscriptSessionPoolForTests()
@@ -360,8 +390,8 @@ test('a late delta from the previous identity cannot replace the observed Sessio
     releaseOldDelta()
     await waitFor(() => urls.length === 3)
 
-    assert.equal(getAcpTranscriptSessionSnapshot('agent-h').transcript?.sessionId, 'session-old')
-    assert.equal(getAcpTranscriptSessionSnapshot('agent-h').transcript?.revision, 1)
+    assert.equal(getAcpTranscriptSessionSnapshot('agent-h').transcript, null)
+    assert.equal(getAcpTranscriptSessionSnapshot('agent-h').loading, true)
     assert.doesNotMatch(urls[2] ?? '', /sinceRevision=/)
 
     releaseNewCheckpoint()
@@ -369,5 +399,134 @@ test('a late delta from the previous identity cannot replace the observed Sessio
   } finally {
     resetAcpTranscriptSessionPoolForTests()
     globalThis.fetch = previousFetch
+  }
+})
+
+test('a replacement Session returning 202 fails closed after bounded checkpoint retries', async () => {
+  const previousFetch = globalThis.fetch
+  const previousSetTimeout = globalThis.setTimeout
+  let calls = 0
+  globalThis.fetch = async () => {
+    calls += 1
+    if (calls === 1) {
+      return jsonResponse(envelope('agent-202-replacement', 8, {
+        answer: 'OLD SECRET HISTORY',
+        sessionId: 'session-old',
+        runtimeEpoch: 'epoch-old',
+      }))
+    }
+    return new Response(null, { status: 202 })
+  }
+  try {
+    retainAcpTranscriptSessions(['agent-202-replacement'])
+    const release = attachAcpTranscriptSession('agent-202-replacement')
+    await waitFor(() => getAcpTranscriptSessionSnapshot('agent-202-replacement').transcript?.revision === 8)
+    globalThis.setTimeout = ((handler: TimerHandler, timeout?: number, ...args: unknown[]) => (
+      previousSetTimeout(handler, Math.min(Number(timeout) || 0, 1), ...args)
+    )) as typeof setTimeout
+
+    observeAcpTranscriptRevision({
+      agentId: 'agent-202-replacement',
+      sessionId: 'session-new',
+      runtimeEpoch: 'epoch-new',
+      revision: 1,
+      updatedAt: '2026-08-19T00:00:09.000Z',
+    })
+    await waitFor(() => getAcpTranscriptSessionSnapshot('agent-202-replacement').error === 'response')
+
+    const snapshot = getAcpTranscriptSessionSnapshot('agent-202-replacement')
+    assert.equal(snapshot.loading, false)
+    assert.equal(snapshot.transcript, null)
+    assert.equal(calls, ACP_TRANSCRIPT_UNSETTLED_RETRY_LADDER_LENGTH + 2)
+    await new Promise(resolve => previousSetTimeout(resolve, 25))
+    assert.equal(calls, ACP_TRANSCRIPT_UNSETTLED_RETRY_LADDER_LENGTH + 2)
+    release()
+  } finally {
+    resetAcpTranscriptSessionPoolForTests()
+    globalThis.fetch = previousFetch
+    globalThis.setTimeout = previousSetTimeout
+  }
+})
+
+test('a replacement Session rejects repeated stale checkpoints with a bounded terminal error', async () => {
+  const previousFetch = globalThis.fetch
+  const previousSetTimeout = globalThis.setTimeout
+  let calls = 0
+  globalThis.fetch = async () => {
+    calls += 1
+    return jsonResponse(envelope('agent-stale-checkpoint', 8, {
+      answer: 'OLD SECRET HISTORY',
+      sessionId: 'session-old',
+      runtimeEpoch: 'epoch-old',
+    }))
+  }
+  try {
+    retainAcpTranscriptSessions(['agent-stale-checkpoint'])
+    const release = attachAcpTranscriptSession('agent-stale-checkpoint')
+    await waitFor(() => getAcpTranscriptSessionSnapshot('agent-stale-checkpoint').transcript?.revision === 8)
+    globalThis.setTimeout = ((handler: TimerHandler, timeout?: number, ...args: unknown[]) => (
+      previousSetTimeout(handler, Math.min(Number(timeout) || 0, 1), ...args)
+    )) as typeof setTimeout
+
+    observeAcpTranscriptRevision({
+      agentId: 'agent-stale-checkpoint',
+      sessionId: 'session-new',
+      runtimeEpoch: 'epoch-new',
+      revision: 1,
+      updatedAt: '2026-08-19T00:00:09.000Z',
+    })
+    await waitFor(() => getAcpTranscriptSessionSnapshot('agent-stale-checkpoint').error === 'response')
+
+    const snapshot = getAcpTranscriptSessionSnapshot('agent-stale-checkpoint')
+    assert.equal(snapshot.loading, false)
+    assert.equal(snapshot.transcript, null)
+    assert.equal(calls, ACP_TRANSCRIPT_UNSETTLED_RETRY_LADDER_LENGTH + 2)
+    await new Promise(resolve => previousSetTimeout(resolve, 25))
+    assert.equal(calls, ACP_TRANSCRIPT_UNSETTLED_RETRY_LADDER_LENGTH + 2)
+    release()
+  } finally {
+    resetAcpTranscriptSessionPoolForTests()
+    globalThis.fetch = previousFetch
+    globalThis.setTimeout = previousSetTimeout
+  }
+})
+
+test('a repeated delta gap stops retrying and exposes a retryable terminal error', async () => {
+  const previousFetch = globalThis.fetch
+  const previousSetTimeout = globalThis.setTimeout
+  let calls = 0
+  globalThis.fetch = async () => {
+    calls += 1
+    if (calls === 1) return jsonResponse(envelope('agent-gap', 1))
+    return jsonResponse(envelope('agent-gap', 3, { fromRevision: 2 }))
+  }
+  try {
+    retainAcpTranscriptSessions(['agent-gap'])
+    const release = attachAcpTranscriptSession('agent-gap')
+    await waitFor(() => getAcpTranscriptSessionSnapshot('agent-gap').transcript?.revision === 1)
+    globalThis.setTimeout = ((handler: TimerHandler, timeout?: number, ...args: unknown[]) => (
+      previousSetTimeout(handler, Math.min(Number(timeout) || 0, 1), ...args)
+    )) as typeof setTimeout
+
+    observeAcpTranscriptRevision({
+      agentId: 'agent-gap',
+      sessionId: 'session-agent-gap',
+      runtimeEpoch: 'epoch-agent-gap',
+      revision: 3,
+      updatedAt: '2026-08-19T00:00:03.000Z',
+    })
+    await waitFor(() => getAcpTranscriptSessionSnapshot('agent-gap').error === 'response')
+
+    const snapshot = getAcpTranscriptSessionSnapshot('agent-gap')
+    assert.equal(snapshot.loading, false)
+    assert.equal(snapshot.transcript?.revision, 1)
+    assert.equal(calls, ACP_TRANSCRIPT_UNSETTLED_RETRY_LADDER_LENGTH + 2)
+    await new Promise(resolve => previousSetTimeout(resolve, 25))
+    assert.equal(calls, ACP_TRANSCRIPT_UNSETTLED_RETRY_LADDER_LENGTH + 2)
+    release()
+  } finally {
+    resetAcpTranscriptSessionPoolForTests()
+    globalThis.fetch = previousFetch
+    globalThis.setTimeout = previousSetTimeout
   }
 })

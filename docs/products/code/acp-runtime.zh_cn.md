@@ -321,7 +321,12 @@ Transcript 投影并可在刷新后重建，不增加恢复操作或独立通知
 新建 Chat 在 Session 连接期间持续显示稳定的空对话状态。Session 启动不属于 Active Turn，
 不得启用 Steer，也不应使用短暂的启动文案替换空状态。新 Session 启动期间的 Transcript
 读取失败不能替换该空状态；真实 Runtime Failure 仍通过权威 Runtime 与 Composer State 显示。
-显式 History Restore 可以在首份权威 Transcript 稳定前显示有界的同步反馈。
+显式 History Restore 可以在首份权威 Transcript 稳定前显示有界的同步反馈。当预期存在历史的
+读取耗尽有界重试后，Chat 显示显式的只读“重试”操作；重试会重新读取完整 Checkpoint，绝不
+重放 Prompt 或任何其他 Mutation。一旦权威 Session 或 Runtime Epoch 改变，旧身份的缓存
+Transcript 必须立即隔离，绝不能显示在替换后的 Agent 身份下。空 `202`、身份不匹配的
+Checkpoint 与 Delta Gap 都使用有界 Checkpoint 重试，最终进入同一个显式“重试”状态，不能
+永久 Loading 或形成无界请求循环。
 
 Live Chat Agent 只允许显式用户重命名或 Agent-managed Adaptive Title 覆盖稳定 Provider 名称。
 由第一条 Prompt 派生的 Provider Session Title 属于 History Metadata，不能重命名 Live Agent；

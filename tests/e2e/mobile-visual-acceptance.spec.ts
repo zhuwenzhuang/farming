@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { Locator, Page } from '@playwright/test'
 import { expect, openFarming, test } from './fixtures'
+import { createAcceptanceEvidence } from './acceptance-evidence'
 
 const VIEWPORTS = [
   { name: '320x844', width: 320, height: 844 },
@@ -9,6 +10,9 @@ const VIEWPORTS = [
   { name: '720x900', width: 720, height: 900 },
 ] as const
 const APPEARANCES = ['light', 'dark', 'paper'] as const
+const MOBILE_VISUAL_AUDIT_DIR = path.resolve(
+  process.env.FARMING_MOBILE_VISUAL_AUDIT_DIR || '.tmp/mobile-visual-acceptance',
+)
 
 async function createAgent(
   page: Page,
@@ -79,8 +83,11 @@ async function menuGapAndViewport(
   }, await trigger.elementHandle())
 }
 
-test('audits compact Composer and sidebar geometry across mobile widths and appearances', async ({ page, workspaceRoot }) => {
+test('audits compact Composer and sidebar geometry across mobile widths and appearances', async ({ page, workspaceRoot }, testInfo) => {
   test.setTimeout(240_000)
+  const evidence = createAcceptanceEvidence(MOBILE_VISUAL_AUDIT_DIR, {
+    manifestFileName: 'manifest-mobile-visual-acceptance.json',
+  })
   const workspace = path.join(workspaceRoot, 'mobile-visual-acceptance')
   fs.mkdirSync(workspace, { recursive: true })
   fs.writeFileSync(path.join(workspace, 'README.md'), '# Mobile visual acceptance\n')
@@ -154,6 +161,7 @@ test('audits compact Composer and sidebar geometry across mobile widths and appe
       await expect(page.locator('body')).toHaveAttribute('data-appearance', appearance)
       await expect(page.locator('body')).toHaveClass(/code-compact-layout/)
 
+      const sidebarViolationStart = violations.length
       await openSidebar(page)
       const pinnedRow = page.getByTestId('code-pinned-section')
         .locator(`[data-testid="code-agent-row"][data-agent-id="${pinnedId}"]`)
@@ -196,6 +204,16 @@ test('audits compact Composer and sidebar geometry across mobile widths and appe
       const quota = page.getByTestId('code-usage-mobile-quota')
       await expect(quota).toContainText('5h')
       await expect(quota).toContainText('Weekly')
+      await evidence.capture({
+        page,
+        testInfo,
+        screenshotName: `${viewport.name}-${appearance}-usage.png`,
+        scenario: 'mobile usage dialog',
+        settledAssertion: 'Usage dialog shows authoritative 5h and Weekly quota labels',
+        theme: appearance,
+        proofLocator: page.getByTestId('code-usage-detail-dialog'),
+        expectedTestId: 'code-usage-detail-dialog',
+      })
       await page.getByRole('button', { name: 'Close usage activity' }).click()
       await expect(page.getByTestId('code-usage-detail-dialog')).toHaveCount(0)
       await openSidebar(page)
@@ -206,6 +224,18 @@ test('audits compact Composer and sidebar geometry across mobile widths and appe
       const project = files.locator('xpath=ancestor::section[contains(@class, "code-project-group")]')
       await expect(project.getByTestId('code-project-agent-compact')).toHaveCount(0)
       await expect(project.locator('[data-testid="code-agent-row"][data-agent-id]')).toHaveCount(2)
+      if (violations.length === sidebarViolationStart) {
+        await evidence.capture({
+          page,
+          testInfo,
+          screenshotName: `${viewport.name}-${appearance}-sidebar.png`,
+          scenario: 'mobile project sidebar',
+          settledAssertion: 'Expanded sidebar shows aligned pinned and ordinary Agents plus the authoritative Project file section',
+          theme: appearance,
+          proofLocator: page.getByTestId('code-sidebar'),
+          expectedTestId: 'code-sidebar',
+        })
+      }
 
       await openAgent(page, ordinaryId)
       const input = page.getByTestId('code-composer-input')
@@ -221,14 +251,28 @@ test('audits compact Composer and sidebar geometry across mobile widths and appe
       if (!plus.fits || plus.gap < 6 || plus.gap > 14) {
         violations.push(`${viewport.name}/${appearance}: plus menu ${JSON.stringify(plus)}`)
       }
+      await evidence.capture({
+        page,
+        testInfo,
+        screenshotName: `${viewport.name}-${appearance}-terminal-plus.png`,
+        scenario: 'mobile Terminal add menu open',
+        settledAssertion: 'Terminal add menu is visible, fully inside the visual viewport, and separated from the Composer',
+        theme: appearance,
+        proofLocator: page.getByTestId('code-composer-plus-menu'),
+        expectedTestId: 'code-composer-plus-menu',
+      })
       await page.keyboard.press('Escape')
 
       const approvalTrigger = page.getByTestId('code-composer-approval')
       await approvalTrigger.click()
       const approvalMenu = page.getByTestId('code-approval-menu')
+      const approvalViolationStart = violations.length
       const approvalBounds = await menuGapAndViewport(page, approvalTrigger, approvalMenu)
-      if (!approvalBounds.fits || approvalBounds.gap < 6 || approvalBounds.gap > 14) {
-        violations.push(`${viewport.name}/${appearance}: approval menu ${JSON.stringify(approvalBounds)}`)
+      const approvalComposerGap = await page.getByTestId('code-composer').evaluate((element, menuElement) => (
+        element.getBoundingClientRect().top - (menuElement as HTMLElement).getBoundingClientRect().bottom
+      ), await approvalMenu.elementHandle())
+      if (!approvalBounds.fits || approvalComposerGap < 6 || approvalComposerGap > 14) {
+        violations.push(`${viewport.name}/${appearance}: approval menu ${JSON.stringify({ ...approvalBounds, composerGap: approvalComposerGap })}`)
       }
       const approval = await approvalMenu.evaluate(element => {
         const styleNumber = (selector: string, property: 'fontSize' | 'width' | 'height') => {
@@ -257,11 +301,26 @@ test('audits compact Composer and sidebar geometry across mobile widths and appe
       ) {
         violations.push(`${viewport.name}/${appearance}: approval metrics ${JSON.stringify(approval)}`)
       }
+      if (violations.length === approvalViolationStart) {
+        await evidence.capture({
+          page,
+          testInfo,
+          screenshotName: `${viewport.name}-${appearance}-approval.png`,
+          scenario: 'mobile approval menu open',
+          settledAssertion: 'Approval menu is visible, unobscured, inside the visual viewport, and separated from the Composer',
+          theme: appearance,
+          proofLocator: approvalMenu,
+          expectedTestId: 'code-approval-menu',
+        })
+      }
       await page.keyboard.press('Escape')
 
       const modelTrigger = page.getByTestId('code-composer-model-picker')
       await modelTrigger.click()
-      const model = await menuGapAndViewport(page, modelTrigger, page.getByTestId('code-model-menu'))
+      const modelMenu = page.getByTestId('code-model-menu')
+      await expect(modelMenu).toBeVisible()
+      const modelViolationStart = violations.length
+      const model = await menuGapAndViewport(page, modelTrigger, modelMenu)
       const modelPeers = await page.evaluate(() => {
         const rect = (testId: string) => {
           const value = document.querySelector<HTMLElement>(`[data-testid="${testId}"]`)?.getBoundingClientRect()
@@ -278,7 +337,7 @@ test('audits compact Composer and sidebar geometry across mobile widths and appe
       if (!model.fits || model.gap < 6 || model.gap > 14) {
         violations.push(`${viewport.name}/${appearance}: model menu ${JSON.stringify({ ...model, ...modelPeers })}`)
       }
-      const modelOcclusion = await page.getByTestId('code-model-menu').evaluate(element => {
+      const modelOcclusion = await modelMenu.evaluate(element => {
         const rect = element.getBoundingClientRect()
         const topmost = document.elementFromPoint(rect.left + rect.width / 2, rect.top + 12)
         return {
@@ -292,6 +351,18 @@ test('audits compact Composer and sidebar geometry across mobile widths and appe
       })
       if (!modelOcclusion.containsTopmost) {
         violations.push(`${viewport.name}/${appearance}: model menu occluded ${JSON.stringify(modelOcclusion)}`)
+      }
+      if (violations.length === modelViolationStart) {
+        await evidence.capture({
+          page,
+          testInfo,
+          screenshotName: `${viewport.name}-${appearance}-model.png`,
+          scenario: 'mobile model menu open',
+          settledAssertion: 'Model menu is visibly open, topmost, and fully inside the visual viewport',
+          theme: appearance,
+          proofLocator: modelMenu,
+          expectedTestId: 'code-model-menu',
+        })
       }
       await page.keyboard.press('Escape')
 
@@ -309,16 +380,89 @@ test('audits compact Composer and sidebar geometry across mobile widths and appe
       if (!acpModel.fits || acpModel.gap < 6 || acpModel.gap > 14) {
         violations.push(`${viewport.name}/${appearance}: ACP model menu ${JSON.stringify(acpModel)}`)
       }
+      await evidence.capture({
+        page,
+        testInfo,
+        screenshotName: `${viewport.name}-${appearance}-acp-model.png`,
+        scenario: 'mobile Chat model menu open',
+        settledAssertion: 'Chat model menu is visible and fully inside the visual viewport',
+        theme: appearance,
+        proofLocator: page.getByTestId('code-acp-model-menu'),
+        expectedTestId: 'code-acp-model-menu',
+      })
       await page.keyboard.press('Escape')
       await acpAdd.click()
       const acpMenu = page.getByTestId('code-acp-plus-menu')
       await expect(acpMenu).toBeVisible()
       await expect(acpMenu).not.toContainText(/logout/i)
       await expect(page.getByTestId('code-acp-logout')).toHaveCount(0)
+      await evidence.capture({
+        page,
+        testInfo,
+        screenshotName: `${viewport.name}-${appearance}-acp-plus.png`,
+        scenario: 'mobile Chat add menu open',
+        settledAssertion: 'Chat add menu is visible, contains no unrelated logout action, and stays inside the viewport',
+        theme: appearance,
+        proofLocator: acpMenu,
+        expectedTestId: 'code-acp-plus-menu',
+      })
       await page.keyboard.press('Escape')
 
     }
   }
+
+  // A history-backed Chat has a different failure contract from a fresh Chat:
+  // bounded read exhaustion must expose one touch-sized, read-only recovery
+  // action. Capture that state in every appearance without replaying a Prompt.
+  await page.setViewportSize({ width: 390, height: 844 })
+  await openAgent(page, chatId)
+  const historyInput = page.getByTestId('code-acp-composer-input')
+  await historyInput.fill('markdown typography')
+  await page.getByTestId('code-acp-composer-send').click()
+  await expect(page.getByText('Typography baseline.', { exact: true })).toBeVisible({ timeout: 20_000 })
+  await openAgent(page, ordinaryId)
+
+  let allowHistoryRecovery = false
+  await page.route(
+    new RegExp(`/farming/api/agents/${chatId}/acp-transcript(?:\\?.*)?$`),
+    async route => {
+      if (!allowHistoryRecovery) {
+        await route.abort('connectionreset')
+        return
+      }
+      await route.continue()
+    },
+  )
+  await page.reload()
+  await openAgent(page, chatId)
+  const historyError = page.getByTestId('code-agent-transcript-load-error')
+  await expect(historyError).toContainText('This session’s Chat history could not be loaded.', {
+    timeout: 10_000,
+  })
+  const retry = historyError.getByRole('button', { name: 'Retry' })
+  await expect(retry).toBeVisible()
+  expect(await retry.evaluate(element => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44)
+
+  for (const appearance of APPEARANCES) {
+    await page.locator('body').evaluate((body, nextAppearance) => {
+      body.dataset.appearance = nextAppearance
+    }, appearance)
+    await evidence.capture({
+      page,
+      testInfo,
+      screenshotName: `390x844-${appearance}-history-retry.png`,
+      scenario: 'mobile Chat history read failure',
+      settledAssertion: 'History-backed Chat shows one touch-sized read-only Retry action after bounded transcript read failure',
+      theme: appearance,
+      proofLocator: historyError,
+      expectedTestId: 'code-agent-transcript-load-error',
+    })
+  }
+
+  allowHistoryRecovery = true
+  await retry.click()
+  await expect(page.getByText('Typography baseline.', { exact: true })).toBeVisible({ timeout: 10_000 })
+  await expect(historyError).toHaveCount(0)
 
   expect(violations).toEqual([])
 })

@@ -1947,10 +1947,10 @@ export function PluginsPanel({
                   <table className="code-plugin-language-server-table">
                     <thead>
                       <tr>
-                        <th>{copy.languageServerLanguage}</th>
-                        <th>{copy.languageServer}</th>
-                        <th>{copy.languageServerStatus}</th>
-                        <th>{copy.languageServerProject}</th>
+                        <th scope="col">{copy.languageServerLanguage}</th>
+                        <th scope="col">{copy.languageServer}</th>
+                        <th scope="col">{copy.languageServerStatus}</th>
+                        <th scope="col">{copy.languageServerProject}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1961,9 +1961,15 @@ export function PluginsPanel({
                           key={languageServer.id}
                           data-testid={`code-plugin-language-server-language-${languageServer.id}`}
                         >
-                          <td className="code-plugin-language-server-language">{languageServer.language}</td>
-                          <td className="code-plugin-language-server-command">{languageServer.server}</td>
-                          <td>
+                          <td
+                            className="code-plugin-language-server-language"
+                            data-label={copy.languageServerLanguage}
+                          >{languageServer.language}</td>
+                          <td
+                            className="code-plugin-language-server-command"
+                            data-label={copy.languageServer}
+                          >{languageServer.server}</td>
+                          <td data-label={copy.languageServerStatus}>
                             <span className={`code-plugin-language-server-runtime-status ${languageServer.status}`}>
                               {languageServer.status === 'running' ? <span aria-hidden="true" /> : null}
                               {copy.languageServerRuntimeStatus[languageServer.status]}
@@ -1971,6 +1977,7 @@ export function PluginsPanel({
                           </td>
                           <td
                             className="code-plugin-language-server-projects"
+                            data-label={copy.languageServerProject}
                             title={projectPaths.join('\n')}
                           >{projectNames.join(', ') || '—'}</td>
                         </tr>

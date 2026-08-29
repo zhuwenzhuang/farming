@@ -56,14 +56,10 @@ test('terminal authentication and protocol failures do not resume on recovery ev
   await protocolPage.close()
 })
 
-test('a stuck initial mobile WebSocket is replaced after its bounded connect deadline', {
-  tag: ['@iphone-human'],
-}, async ({ page }) => {
+test('a lost mobile close event preserves protocol mismatch as a terminal failure', async ({ page }) => {
   await page.addInitScript(() => {
     const NativeEvent = window.Event
-    const NativeCloseEvent = window.CloseEvent
     const NativeMessageEvent = window.MessageEvent
-    let socketCount = 0
     class MockWebSocket extends EventTarget {
       static readonly CONNECTING = 0
       static readonly OPEN = 1
@@ -87,6 +83,93 @@ test('a stuck initial mobile WebSocket is replaced after its bounded connect dea
       constructor(url: string | URL) {
         super()
         this.url = String(url)
+        const count = Number.parseInt(sessionStorage.getItem('protocol-mismatch-socket-count') || '0', 10) + 1
+        sessionStorage.setItem('protocol-mismatch-socket-count', String(count))
+        window.setTimeout(() => {
+          this.readyState = MockWebSocket.OPEN
+          this.onopen?.(new NativeEvent('open'))
+        }, 0)
+      }
+
+      close() {
+        // Model a suspended mobile browser that updates readyState but drops
+        // the native close event entirely.
+        this.readyState = MockWebSocket.CLOSING
+      }
+
+      send(data: string | ArrayBufferLike | Blob | ArrayBufferView) {
+        if (this.readyState !== MockWebSocket.OPEN || typeof data !== 'string') return
+        const message = JSON.parse(data) as { type?: string }
+        if (message.type !== 'protocol-hello') return
+        this.onmessage?.(new NativeMessageEvent('message', {
+          data: JSON.stringify({
+            type: 'protocol-hello',
+            protocolVersion: 14,
+            minProtocolVersion: 14,
+            accessMode: 'owner',
+          }),
+        }))
+      }
+    }
+    Object.defineProperty(window, 'WebSocket', { configurable: true, value: MockWebSocket })
+  })
+
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/farming/')
+  await expect.poll(() => page.evaluate(() => Number.parseInt(
+    sessionStorage.getItem('protocol-mismatch-socket-count') || '0',
+    10,
+  )), { timeout: 8_000 }).toBe(1)
+  const status = page.getByTestId('connection-status')
+  await expect(status).toHaveClass(/lost/, { timeout: 12_000 })
+  const terminalSocketCount = await page.evaluate(() => Number.parseInt(
+    sessionStorage.getItem('protocol-mismatch-socket-count') || '0',
+    10,
+  ))
+  await page.evaluate(() => {
+    window.dispatchEvent(new Event('online'))
+    window.dispatchEvent(new Event('pageshow'))
+  })
+  await page.waitForTimeout(1_500)
+  expect(await page.evaluate(() => Number.parseInt(
+    sessionStorage.getItem('protocol-mismatch-socket-count') || '0',
+    10,
+  ))).toBe(terminalSocketCount)
+})
+
+test('a stuck initial mobile WebSocket is replaced after its bounded connect deadline', {
+  tag: ['@iphone-human'],
+}, async ({ page }) => {
+  await page.addInitScript(() => {
+    const NativeEvent = window.Event
+    const NativeCloseEvent = window.CloseEvent
+    const NativeMessageEvent = window.MessageEvent
+    let socketCount = 0
+    let currentSocket: MockWebSocket | null = null
+    class MockWebSocket extends EventTarget {
+      static readonly CONNECTING = 0
+      static readonly OPEN = 1
+      static readonly CLOSING = 2
+      static readonly CLOSED = 3
+      readonly CONNECTING = 0
+      readonly OPEN = 1
+      readonly CLOSING = 2
+      readonly CLOSED = 3
+      binaryType: BinaryType = 'blob'
+      bufferedAmount = 0
+      extensions = ''
+      protocol = ''
+      readyState = MockWebSocket.CONNECTING
+      url: string
+      onclose: ((event: CloseEvent) => void) | null = null
+      onerror: ((event: Event) => void) | null = null
+      onmessage: ((event: MessageEvent) => void) | null = null
+      onopen: ((event: Event) => void) | null = null
+
+      constructor(url: string | URL) {
+        super()
+        this.url = String(url)
+        currentSocket = this
         socketCount += 1
         ;(window as typeof window & { __stuckSocketCount?: number }).__stuckSocketCount = socketCount
         if (socketCount === 1) return
@@ -133,6 +216,10 @@ test('a stuck initial mobile WebSocket is replaced after its bounded connect dea
       }
     }
     Object.defineProperty(window, 'WebSocket', { configurable: true, value: MockWebSocket })
+    ;(window as typeof window & { __silentlyCloseCurrentSocket?: () => void })
+      .__silentlyCloseCurrentSocket = () => {
+        if (currentSocket) currentSocket.readyState = MockWebSocket.CLOSED
+      }
   })
 
   await page.setViewportSize({ width: 390, height: 844 })
@@ -140,6 +227,16 @@ test('a stuck initial mobile WebSocket is replaced after its bounded connect dea
   await expect.poll(() => page.evaluate(() => (
     (window as typeof window & { __stuckSocketCount?: number }).__stuckSocketCount || 0
   )), { timeout: 12_000 }).toBeGreaterThan(1)
+  await expect(page.getByTestId('connection-status')).toHaveCount(0, { timeout: 5_000 })
+
+  await page.evaluate(() => {
+    ;(window as typeof window & { __silentlyCloseCurrentSocket?: () => void })
+      .__silentlyCloseCurrentSocket?.()
+    window.dispatchEvent(new Event('pageshow'))
+  })
+  await expect.poll(() => page.evaluate(() => (
+    (window as typeof window & { __stuckSocketCount?: number }).__stuckSocketCount || 0
+  )), { timeout: 5_000 }).toBeGreaterThan(2)
   await expect(page.getByTestId('connection-status')).toHaveCount(0, { timeout: 5_000 })
 })
 

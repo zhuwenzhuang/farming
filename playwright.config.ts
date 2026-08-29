@@ -59,6 +59,7 @@ const playwrightServerEnv = {
   FARMING_E2E_REAL_CODEX: useRealCodex ? '1' : '0',
   FARMING_E2E_FAKE_EXECUTABLES: useRealCodex ? '0' : '1',
   FARMING_E2E_FAKE_ACP_AGENT: useRealCodex ? '0' : '1',
+  FARMING_ANONYMIZE_SHELL_PROMPT: '1',
   FARMING_BROWSER_EXECUTABLE: browserResourceExecutablePath,
   ...(managedAgentBrowserPath ? { FARMING_AGENT_BROWSER_BIN: managedAgentBrowserPath } : {}),
   FARMING_BROWSER_NO_SANDBOX: process.env.CI ? '1' : '0',

@@ -3438,9 +3438,7 @@ export function AgentTranscriptPane({
       setLoading(snapshot.loading)
       setLoadingOlder(snapshot.loadingOlder)
       setTurnLimit(current => current === snapshot.turnLimit ? current : snapshot.turnLimit)
-      const visibleError = snapshot.error
-        && !snapshot.transcript?.available
-        && (snapshot.error === 'transport' || expectHistoryRef.current)
+      const visibleError = snapshot.error && expectHistoryRef.current
       setError(visibleError ? copy.agentTranscriptUnavailable : '')
       if (snapshot.loading) return
       const pooledTranscript = snapshot.transcript
@@ -4159,6 +4157,13 @@ export function AgentTranscriptPane({
     setShowJumpToBottom(false)
     onReadLatest?.()
   }, [onReadLatest, readingAnchorAgentId])
+  const handleTranscriptRetry = useCallback(() => {
+    if (source === 'acp') {
+      refreshAcpTranscriptSession(agentId, true)
+      return
+    }
+    transcriptRefreshRef.current?.()
+  }, [agentId, source])
 
   return (
     <TranscriptImagePreviewContext.Provider value={openImagePreview}>
@@ -4168,7 +4173,14 @@ export function AgentTranscriptPane({
         data-testid="code-agent-transcript"
       >
       {error ? (
-        <div className="code-agent-transcript-state" role="status">{error}</div>
+        <div
+          className="code-agent-transcript-state code-agent-transcript-load-error"
+          data-testid="code-agent-transcript-load-error"
+          role="alert"
+        >
+          <span>{error}</span>
+          <button type="button" onClick={handleTranscriptRetry}>{copy.retry}</button>
+        </div>
       ) : showFreshAcpEmpty ? (
         <div className="code-agent-transcript-blank" role="status">{copy.agentTranscriptEmpty}</div>
       ) : loading || awaitingAcpHistory || awaitingInitialReveal ? (

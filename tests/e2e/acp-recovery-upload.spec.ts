@@ -55,7 +55,7 @@ test('keeps transcript reads pending when Archive is followed by another connect
     (response.agentId === firstAgentId || response.agentId === secondAgentId)
     && response.status === 409
   ))).toEqual([])
-  await expect(page.getByText('Chat history is unavailable for this session.', { exact: true })).toHaveCount(0)
+  await expect(page.getByTestId('code-agent-transcript-load-error')).toHaveCount(0)
 })
 
 test('keeps a fresh Chat in its empty state when the startup transcript read fails', async ({ page, workspaceRoot }) => {
@@ -71,12 +71,41 @@ test('keeps a fresh Chat in its empty state when the startup transcript read fai
   await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
   await expect.poll(() => transcriptRequests).toBeGreaterThanOrEqual(1)
   await expect(page.locator('.code-agent-transcript-blank')).toHaveText('No conversation yet.')
-  await expect(page.getByText('Chat history is unavailable for this session.', { exact: true })).toHaveCount(0)
+  await expect(page.getByTestId('code-agent-transcript-load-error')).toHaveCount(0)
 
   // Keep a retry-silence interval: a fresh Chat must stay empty after its startup read failure.
   await page.waitForTimeout(1_200)
   await expect(page.locator('.code-agent-transcript-blank')).toHaveText('No conversation yet.')
-  await expect(page.getByText('Chat history is unavailable for this session.', { exact: true })).toHaveCount(0)
+  await expect(page.getByTestId('code-agent-transcript-load-error')).toHaveCount(0)
+  await page.unroute(transcriptRoute)
+})
+
+test('keeps a fresh Chat empty after bounded network-level transcript failures', async ({ page, workspaceRoot }) => {
+  const agentId = await createCodexChat(page, path.join(workspaceRoot, 'acp-fresh-empty-transport-failure'))
+  let transcriptRequests = 0
+  const transcriptRoute = new RegExp(`/farming/api/agents/${agentId}/acp-transcript(?:\\?.*)?$`)
+  await page.route(transcriptRoute, async route => {
+    transcriptRequests += 1
+    await route.abort('connectionreset')
+  })
+
+  await openFarming(page)
+  await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+  await expect.poll(() => transcriptRequests, { timeout: 5_000 }).toBeGreaterThanOrEqual(3)
+  await expect(page.locator('.code-agent-transcript-blank')).toHaveText('No conversation yet.')
+  await expect(page.getByTestId('code-agent-transcript-load-error')).toHaveCount(0)
+
+  // Transport exhaustion must not turn a newly created empty Chat into a
+  // misleading history-loss warning or start an unbounded polling loop. One
+  // retained identity checkpoint may have been queued behind the attached
+  // Pane, so assert eventual silence instead of coupling to one request count.
+  await page.waitForTimeout(3_000)
+  const settledRequestCount = transcriptRequests
+  await page.waitForTimeout(1_200)
+  expect(settledRequestCount).toBeLessThanOrEqual(6)
+  expect(transcriptRequests).toBe(settledRequestCount)
+  await expect(page.locator('.code-agent-transcript-blank')).toHaveText('No conversation yet.')
+  await expect(page.getByTestId('code-agent-transcript-load-error')).toHaveCount(0)
   await page.unroute(transcriptRoute)
 })
 
@@ -109,7 +138,7 @@ test('retries a transient ACP transcript transport failure before restoring an e
   })
   await expect.poll(() => transcriptRequests, { timeout: 5_000 }).toBe(3)
   await expect(page.getByText('Rich ACP timeline complete.', { exact: true })).toBeVisible()
-  await expect(page.getByText('Chat history is unavailable for this session.', { exact: true })).toHaveCount(0)
+  await expect(page.getByTestId('code-agent-transcript-load-error')).toHaveCount(0)
   await page.unroute(transcriptRoute)
 })
 

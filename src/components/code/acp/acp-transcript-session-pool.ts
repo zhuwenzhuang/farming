@@ -126,6 +126,26 @@ function attachmentCheckpointPending(
   return record.attachments > 0 && (record.forceCheckpoint || observedIdentityPending)
 }
 
+function transcriptIdentityIsCurrent(
+  record: AcpTranscriptSessionRecord,
+  transcript = record.snapshot.transcript,
+) {
+  if (!transcript) return false
+  if (!record.latestSessionId || !record.latestRuntimeEpoch) return true
+  return Boolean(
+    transcript.envelopeVersion === 1
+    && transcript.sessionId === record.latestSessionId
+    && transcript.runtimeEpoch === record.latestRuntimeEpoch
+  )
+}
+
+function currentTranscriptIsDisplayable(record: AcpTranscriptSessionRecord) {
+  return Boolean(
+    record.snapshot.transcript?.available
+    && transcriptIdentityIsCurrent(record)
+  )
+}
+
 function clearRecordTimer(record: AcpTranscriptSessionRecord) {
   if (record.timer === null) return
   clearTimeout(record.timer)
@@ -218,6 +238,35 @@ function scheduleRecord(
   }, delay)
 }
 
+function retryRequiredCheckpoint(record: AcpTranscriptSessionRecord) {
+  const retryDelay = acpTranscriptUnsettledRetryDelayMs(record.unsettledRetryAttempt, false)
+  if (retryDelay !== undefined) {
+    record.unsettledRetryAttempt = Math.min(
+      record.unsettledRetryAttempt + 1,
+      ACP_TRANSCRIPT_UNSETTLED_RETRY_LADDER_LENGTH,
+    )
+    record.forceCheckpoint = true
+    updateSnapshot(record, {
+      transcript: transcriptIdentityIsCurrent(record) ? record.snapshot.transcript : null,
+      loading: !currentTranscriptIsDisplayable(record),
+      loadingOlder: false,
+      error: null,
+    })
+    scheduleRecord(record, { delayMs: retryDelay })
+    return
+  }
+
+  record.unsettledRetryAttempt = 0
+  record.forceCheckpoint = false
+  record.refreshRequested = false
+  updateSnapshot(record, {
+    transcript: transcriptIdentityIsCurrent(record) ? record.snapshot.transcript : null,
+    loading: false,
+    loadingOlder: false,
+    error: 'response',
+  })
+}
+
 async function loadRecord(record: AcpTranscriptSessionRecord) {
   record.inFlight = true
   record.refreshRequested = false
@@ -248,14 +297,33 @@ async function loadRecord(record: AcpTranscriptSessionRecord) {
     ), { signal: controller.signal })
     responseReceived = true
     if (response.status === 202) {
-      updateSnapshot(record, { loading: true, loadingOlder: false, error: null })
+      updateSnapshot(record, {
+        transcript: transcriptIdentityIsCurrent(record) ? record.snapshot.transcript : null,
+        loading: !currentTranscriptIsDisplayable(record),
+        loadingOlder: false,
+        error: null,
+      })
       const retryDelay = acpTranscriptUnsettledRetryDelayMs(record.unsettledRetryAttempt, false)
       if (retryDelay !== undefined) {
         record.unsettledRetryAttempt = Math.min(
           record.unsettledRetryAttempt + 1,
           ACP_TRANSCRIPT_UNSETTLED_RETRY_LADDER_LENGTH,
         )
+        record.forceCheckpoint ||= checkpointRequested
         scheduleRecord(record, { delayMs: retryDelay })
+      } else {
+        // A 202 without any authoritative Turns is a transient state, but it
+        // still needs a bounded terminal outcome. Leaving `loading` true after
+        // the retry ladder makes the Pane spin forever with no future trigger.
+        record.unsettledRetryAttempt = 0
+        record.forceCheckpoint = false
+        record.refreshRequested = false
+        updateSnapshot(record, {
+          transcript: transcriptIdentityIsCurrent(record) ? record.snapshot.transcript : null,
+          loading: false,
+          loadingOlder: false,
+          error: 'response',
+        })
       }
       return
     }
@@ -277,11 +345,7 @@ async function loadRecord(record: AcpTranscriptSessionRecord) {
         || nextTranscript.runtimeEpoch !== record.latestRuntimeEpoch
       )
     ) {
-      record.forceCheckpoint = true
-      record.refreshRequested = true
-      if (record.attachments > 0) {
-        updateSnapshot(record, { loading: true, loadingOlder: false, error: null })
-      }
+      retryRequiredCheckpoint(record)
       return
     }
     if (nextTranscript.envelopeVersion === 1) {
@@ -291,8 +355,7 @@ async function loadRecord(record: AcpTranscriptSessionRecord) {
     }
     const mergeResult = mergeAcpTranscript(record.snapshot.transcript, nextTranscript)
     if (mergeResult.needsCheckpoint) {
-      record.forceCheckpoint = true
-      record.refreshRequested = true
+      retryRequiredCheckpoint(record)
       return
     }
     const merged = mergeResult.transcript
@@ -347,11 +410,13 @@ async function loadRecord(record: AcpTranscriptSessionRecord) {
       return
     }
     record.retryAttempt = 0
-    const hasAvailableTranscript = record.snapshot.transcript?.available === true
+    const hasDisplayableTranscript = currentTranscriptIsDisplayable(record)
+    const checkpointFailure = checkpointRequested || attachmentCheckpointPending(record)
     updateSnapshot(record, {
+      transcript: hasDisplayableTranscript ? record.snapshot.transcript : null,
       loading: false,
       loadingOlder: false,
-      error: hasAvailableTranscript
+      error: hasDisplayableTranscript && !checkpointFailure
         ? null
         : (responseReceived ? 'response' : 'transport'),
     })
@@ -360,16 +425,13 @@ async function loadRecord(record: AcpTranscriptSessionRecord) {
       record.inFlight = false
       record.controller = null
       const revision = Number(record.snapshot.transcript?.revision)
-      const transcriptIdentityIsCurrent = Boolean(
-        record.snapshot.transcript?.envelopeVersion === 1
-        && record.snapshot.transcript.sessionId === record.latestSessionId
-        && record.snapshot.transcript.runtimeEpoch === record.latestRuntimeEpoch
-      )
+      const currentTranscriptMatchesIdentity = transcriptIdentityIsCurrent(record)
       if (
         record.refreshRequested
         || record.forceCheckpoint
         || (
-          transcriptIdentityIsCurrent
+          record.snapshot.error === null
+          && currentTranscriptMatchesIdentity
           && Number.isInteger(record.latestRevision)
           && record.latestRevision > revision
         )
@@ -377,7 +439,9 @@ async function loadRecord(record: AcpTranscriptSessionRecord) {
         const requestedDelay = record.requestedDelayMs
         record.requestedDelayMs = Number.POSITIVE_INFINITY
         scheduleRecord(record, {
-          immediate: record.forceCheckpoint || requestedDelay === 0,
+          immediate: requestedDelay === 0 || (
+            record.forceCheckpoint && !Number.isFinite(requestedDelay)
+          ),
           ...(Number.isFinite(requestedDelay) && requestedDelay > 0
             ? { delayMs: requestedDelay }
             : {}),
@@ -427,7 +491,14 @@ export function observeAcpTranscriptRevision(
   const initialCheckpointInFlight = record.inFlight && current === null
   if (identityChanged || (!currentIdentityMatches && !initialCheckpointInFlight)) {
     record.forceCheckpoint = true
-    if (record.attachments > 0) {
+    if (identityChanged) {
+      updateSnapshot(record, {
+        transcript: null,
+        loading: record.attachments > 0,
+        loadingOlder: false,
+        error: null,
+      })
+    } else if (record.attachments > 0) {
       updateSnapshot(record, { loading: true, loadingOlder: false, error: null })
     }
     scheduleRecord(record, { immediate: true })
@@ -486,6 +557,16 @@ export function getAcpTranscriptSessionSnapshot(agentId: string) {
 export function refreshAcpTranscriptSession(agentId: string, checkpoint = false) {
   const record = recordFor(agentId)
   record.forceCheckpoint ||= checkpoint
+  if (checkpoint) {
+    // Explicit retry is a new bounded read attempt. Clear the previous
+    // terminal presentation immediately, and do not inherit an exhausted
+    // retry ladder from the failed attempt.
+    record.retryAttempt = 0
+    record.unsettledRetryAttempt = 0
+    if (record.attachments > 0) {
+      updateSnapshot(record, { loading: true, loadingOlder: false, error: null })
+    }
+  }
   scheduleRecord(record, { immediate: checkpoint })
 }
 

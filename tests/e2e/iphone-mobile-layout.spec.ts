@@ -1,16 +1,27 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import type { Page, TestInfo } from '@playwright/test'
 import { expect, interceptWorkspaceRequests, openFarming, terminalCheckpointOutput, test } from './fixtures'
+import { createAcceptanceEvidence } from './acceptance-evidence'
 
-const IPHONE_AUDIT_DIR = path.resolve('.tmp/iphone-real-agent-audit')
+const IPHONE_AUDIT_DIR = path.resolve(
+  process.env.FARMING_IPHONE_MOBILE_AUDIT_DIR || '.tmp/iphone-mobile-layout-audit',
+)
+let iphoneEvidence: ReturnType<typeof createAcceptanceEvidence> | null = null
 
-async function captureIphoneAudit(page: import('@playwright/test').Page, name: string) {
-  fs.mkdirSync(IPHONE_AUDIT_DIR, { recursive: true })
-  await page.screenshot({
-    path: path.join(IPHONE_AUDIT_DIR, name),
+async function captureIphoneAudit(page: Page, testInfo: TestInfo, name: string) {
+  iphoneEvidence ??= createAcceptanceEvidence(IPHONE_AUDIT_DIR, {
+    manifestFileName: 'manifest-iphone-mobile-layout.json',
+  })
+  await iphoneEvidence.capture({
+    page,
+    testInfo,
+    screenshotName: name,
+    scenario: name.replace(/\.png$/i, ''),
+    settledAssertion: 'Scenario-specific assertions immediately before capture passed and the mobile main surface is visible',
+    proofLocator: page.getByTestId('code-main'),
+    expectedTestId: 'code-main',
     fullPage: true,
-    animations: 'disabled',
-    scale: 'css',
   })
 }
 
@@ -191,6 +202,22 @@ test.describe('iPhone mobile layout', () => {
     await expect.poll(() => page.evaluate(() => window.__farmingFileEditorTest?.getValue() ?? ''))
       .toContain('LOCAL_DRAFT_SURVIVES_RELOAD')
 
+    const conflictToolbar = await actionBar.evaluate(element => {
+      element.scrollLeft = 0
+      const scrollerRect = element.getBoundingClientRect()
+      const buttons = [...element.querySelectorAll<HTMLElement>('button')].map(button => {
+        const rect = button.getBoundingClientRect()
+        return { left: rect.left, right: rect.right }
+      })
+      return {
+        clientWidth: element.clientWidth,
+        scrollWidth: element.scrollWidth,
+        allButtonsInside: buttons.every(button => button.left >= scrollerRect.left && button.right <= scrollerRect.right),
+      }
+    })
+    expect(conflictToolbar.scrollWidth).toBeLessThanOrEqual(conflictToolbar.clientWidth + 1)
+    expect(conflictToolbar.allButtonsInside).toBe(true)
+
     const conflictActions = [
       page.getByRole('button', { name: 'Reload file' }),
       page.getByRole('button', { name: 'Overwrite changed file' }),
@@ -198,11 +225,18 @@ test.describe('iPhone mobile layout', () => {
     for (const action of conflictActions) {
       const target = await action.evaluate(element => {
         const rect = element.getBoundingClientRect()
+        const scrollerRect = element.closest<HTMLElement>('.code-file-editor-actions')?.getBoundingClientRect()
         const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)
-        return { width: rect.width, height: rect.height, centerHits: hit === element || element.contains(hit) }
+        return {
+          width: rect.width,
+          height: rect.height,
+          fullyInsideScroller: Boolean(scrollerRect && rect.left >= scrollerRect.left && rect.right <= scrollerRect.right),
+          centerHits: hit === element || element.contains(hit),
+        }
       })
       expect(target.width).toBeGreaterThanOrEqual(44)
       expect(target.height).toBeGreaterThanOrEqual(44)
+      expect(target.fullyInsideScroller).toBe(true)
       expect(target.centerHits).toBe(true)
     }
     for (const appearance of ['light', 'dark', 'paper'] as const) {
@@ -222,7 +256,7 @@ test.describe('iPhone mobile layout', () => {
       expect(layout.left).toBeGreaterThanOrEqual(0)
       expect(layout.right).toBeLessThanOrEqual(layout.viewportWidth + 1)
       expect(layout.documentWidth).toBe(layout.viewportWidth)
-      await captureIphoneAudit(page, `iphone-file-conflict-${appearance}.png`)
+      await captureIphoneAudit(page, testInfo, `iphone-file-conflict-${appearance}.png`)
     }
     const savesBeforeOverwrite = saves.length
     await conflictActions[1]!.tap()
@@ -299,7 +333,7 @@ test.describe('iPhone mobile layout', () => {
     expect(modelMenuBounds.right).toBeLessThanOrEqual(modelMenuBounds.viewportRight + 1)
     expect(modelMenuBounds.top).toBeGreaterThanOrEqual(modelMenuBounds.viewportTop - 1)
     expect(modelMenuBounds.bottom).toBeLessThanOrEqual(modelMenuBounds.viewportBottom + 1)
-    await captureIphoneAudit(page, 'iphone-webkit-long-model-label.png')
+    await captureIphoneAudit(page, testInfo, 'iphone-webkit-long-model-label.png')
     await page.keyboard.press('Escape')
     await send.click()
     await expect(input).toHaveValue('')
@@ -310,7 +344,7 @@ test.describe('iPhone mobile layout', () => {
     const projectDir = path.join(workspaceRoot, 'iphone-image-attachment')
     fs.mkdirSync(projectDir, { recursive: true })
     const imagePath = path.join(projectDir, 'attachment.png')
-    fs.writeFileSync(imagePath, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=', 'base64'))
+    fs.copyFileSync(path.resolve('public/farming-2/app-icon-v2-180.png'), imagePath)
     await page.addInitScript(() => {
       Object.defineProperty(navigator, 'maxTouchPoints', { value: 5, configurable: true })
     })
@@ -356,7 +390,7 @@ test.describe('iPhone mobile layout', () => {
     expect(geometry.remove.height).toBeGreaterThanOrEqual(44)
     expect(geometry.removeIsHit).toBe(true)
 
-    await captureIphoneAudit(page, 'iphone-webkit-image-attachment.png')
+    await captureIphoneAudit(page, testInfo, 'iphone-webkit-image-attachment.png')
     await remove.click()
     await expect(attachment).toHaveCount(0)
     await expect(composer).not.toHaveClass(/has-attachments/)
@@ -401,7 +435,7 @@ test.describe('iPhone mobile layout', () => {
     })
     await expect(input).toHaveValue('/')
     await expect(page.getByTestId('code-acp-command-review')).toBeVisible()
-    await captureIphoneAudit(page, 'iphone-webkit-ime-slash-menu.png')
+    await captureIphoneAudit(page, testInfo, 'iphone-webkit-ime-slash-menu.png')
 
     await input.evaluate(element => {
       element.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '中' }))
@@ -442,11 +476,11 @@ test.describe('iPhone mobile layout', () => {
     await expect(processSummary).toBeVisible()
     await processSummary.tap()
     await expect(page.getByText('Mobile interrupt waiting.', { exact: true })).toBeVisible()
-    await captureIphoneAudit(page, 'iphone-webkit-acp-running.png')
+    await captureIphoneAudit(page, testInfo, 'iphone-webkit-acp-running.png')
     await send.tap()
     await expect(page.getByText('Mobile interrupt stopped.', { exact: true })).toBeVisible({ timeout: 15_000 })
     await expect(send).not.toHaveAttribute('data-action', 'interrupt')
-    await captureIphoneAudit(page, 'iphone-webkit-acp-stopped.png')
+    await captureIphoneAudit(page, testInfo, 'iphone-webkit-acp-stopped.png')
   })
 
   test('keeps every ACP permission action visible and tappable on iPhone', async ({ page, workspaceRoot }, testInfo) => {
@@ -525,7 +559,7 @@ test.describe('iPhone mobile layout', () => {
       expect(control.centerHitsControl, `${control.label} center hit`).toBe(true)
     }
 
-    await captureIphoneAudit(page, 'iphone-webkit-acp-permission-request.png')
+    await captureIphoneAudit(page, testInfo, 'iphone-webkit-acp-permission-request.png')
     await permission.evaluate(element => { element.scrollTop = element.scrollHeight })
     await expect(permission.getByTestId('code-acp-permission-risk')).toBeInViewport()
     await expect(actions.getByRole('button', { name: 'Cancel' })).toBeInViewport()
@@ -534,7 +568,7 @@ test.describe('iPhone mobile layout', () => {
       const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)
       return hit === element || element.contains(hit)
     })).toBe(true)
-    await captureIphoneAudit(page, 'iphone-webkit-acp-permission-risk.png')
+    await captureIphoneAudit(page, testInfo, 'iphone-webkit-acp-permission-risk.png')
     await actions.getByRole('button', { name: 'Cancel' }).tap()
     await expect(permission).toBeHidden()
   })
@@ -564,7 +598,7 @@ test.describe('iPhone mobile layout', () => {
     const more = page.locator(`[data-testid="code-agent-row"][data-agent-id="${secondAgentId}"]`).getByTestId('code-agent-row-more')
     await expect(more).toHaveCSS('width', '44px')
     await expect(more).toHaveCSS('height', '44px')
-    await captureIphoneAudit(page, 'iphone-webkit-agent-drawer.png')
+    await captureIphoneAudit(page, testInfo, 'iphone-webkit-agent-drawer.png')
     await page.getByTestId('code-mobile-sidebar-backdrop').tap({ position: { x: 380, y: 400 } })
     await expect(page.getByTestId('code-sidebar')).toHaveClass(/collapsed/)
   })
@@ -603,7 +637,8 @@ test.describe('iPhone mobile layout', () => {
       id => (window.__farmingTerminalTest?.getRows(id, 10_000) ?? []).join('\n'),
       agentId,
     ), { timeout: 15_000 }).toContain('MOBILE_RELOAD_UI_OK')
-    await captureIphoneAudit(page, 'iphone-webkit-terminal-after-reload.png')
+    await page.evaluate(async id => window.__farmingTerminalTest?.resumeLive(id), agentId)
+    await captureIphoneAudit(page, testInfo, 'iphone-webkit-terminal-after-reload.png')
   })
 
   test('keeps the shared compact layout usable after iPhone landscape rotation', async ({ page, workspaceRoot }, testInfo) => {
@@ -653,7 +688,8 @@ test.describe('iPhone mobile layout', () => {
       id => (window.__farmingTerminalTest?.getRows(id, 10_000) ?? []).join('\n'),
       agentId,
     ), { timeout: 15_000 }).toContain('IPHONE_LANDSCAPE_OK')
-    await captureIphoneAudit(page, 'iphone-webkit-landscape.png')
+    await page.evaluate(async id => window.__farmingTerminalTest?.resumeLive(id), agentId)
+    await captureIphoneAudit(page, testInfo, 'iphone-webkit-landscape.png')
   })
 
   test('uses the same compact structure at 390px for desktop and iPhone input modes', async ({ page, workspaceRoot }, testInfo) => {
@@ -730,8 +766,9 @@ test.describe('iPhone mobile layout', () => {
     await expect.poll(async () => {
       return terminalCheckpointOutput(page, agentId)
     }, { timeout: 30_000 }).toContain(readyMarker)
+    await page.evaluate(async id => window.__farmingTerminalTest?.resumeLive(id), agentId)
 
-    await captureIphoneAudit(page, `${testInfo.project.name}-390px-compact-parity.png`)
+    await captureIphoneAudit(page, testInfo, `${testInfo.project.name}-390px-compact-parity.png`)
   })
 
   test('settles the standalone composer at its product-defined viewport gap', async ({ page, workspaceRoot }, testInfo) => {
@@ -834,6 +871,7 @@ test.describe('iPhone mobile layout', () => {
     await expect(mobileShareSheet.getByRole('heading', { name: /Copy read-only share link|复制只读分享链接/ })).toBeVisible()
     await expect(mobileShareSheet.locator('.code-mobile-share-link').first()).toHaveText(readOnlyUrl)
     await expect(mobileShareSheet.getByTestId('code-mobile-share-qr')).toBeVisible()
+    await expect(mobileShareSheet.locator('.code-share-qr-svg')).toBeVisible()
     await expect(mobileShareSheet.getByText(/full-control passphrase|完整控制口令/).first()).toBeVisible()
     const copyShareAction = mobileShareSheet.getByTestId('code-mobile-share-copy-action')
     await expect(copyShareAction).toBeVisible()
@@ -863,7 +901,7 @@ test.describe('iPhone mobile layout', () => {
     await expect(mobileShareSheet.locator('.code-mobile-install-step')).toHaveCount(2)
     await expect(mobileShareSheet.getByTestId('code-mobile-share-system-action')).toHaveCount(0)
     await expect(mobileShareSheet.locator('.code-mobile-share-sheet')).toHaveCSS('color', 'rgb(255, 255, 255)')
-    await captureIphoneAudit(page, 'iphone-webkit-share-owner.png')
+    await captureIphoneAudit(page, testInfo, 'iphone-webkit-share-owner.png')
     await page.keyboard.press('Escape')
     await expect(mobileShareSheet).toHaveCount(0)
     await expect.poll(() => revokeCount).toBe(1)
@@ -902,9 +940,10 @@ test.describe('iPhone mobile layout', () => {
     await expect(sheet).toBeVisible()
     await expect(sheet.getByText(/read-only link for this page|当前页面的只读链接/).first()).toBeVisible()
     await expect(sheet.getByTestId('code-mobile-share-qr')).toBeVisible()
+    await expect(sheet.locator('.code-share-qr-svg')).toBeVisible()
     await expect(sheet.getByTestId('code-mobile-share-full-control-action')).toHaveCount(0)
     await expect(sheet.getByRole('heading', { name: /Copy full-control|复制完整控制/ })).toHaveCount(0)
-    await captureIphoneAudit(page, 'iphone-webkit-share-read-only.png')
+    await captureIphoneAudit(page, testInfo, 'iphone-webkit-share-read-only.png')
     await page.keyboard.press('Escape')
     await expect(sheet).toHaveCount(0)
     await expect.poll(() => revokeCount).toBe(1)
@@ -1042,7 +1081,7 @@ test.describe('iPhone mobile layout', () => {
     expect(menuBounds.right).toBeLessThanOrEqual(menuBounds.width - 7)
     expect(menuBounds.top).toBeGreaterThanOrEqual(7)
     expect(menuBounds.bottom).toBeLessThanOrEqual(menuBounds.height - 7)
-    await captureIphoneAudit(page, 'iphone-webkit-large-files-menu.png')
+    await captureIphoneAudit(page, testInfo, 'iphone-webkit-large-files-menu.png')
   })
 
   test('completes file creation, rename, and deletion through compact touch actions', async ({ page, workspaceRoot }, testInfo) => {
@@ -1168,7 +1207,7 @@ test.describe('iPhone mobile layout', () => {
     const createDialog = page.getByTestId('code-file-operation-dialog')
     const createInput = createDialog.getByTestId('code-file-operation-input')
     await createInput.fill('touch-created.txt')
-    await captureIphoneAudit(page, 'file-create-dialog.png')
+    await captureIphoneAudit(page, testInfo, 'file-create-dialog.png')
     await createDialog.getByRole('button', { name: /Save|保存/ }).tap()
     await expect.poll(() => fs.existsSync(path.join(projectDir, 'touch-created.txt'))).toBe(true)
     await expect(createDialog).toHaveCount(0)
@@ -1187,7 +1226,7 @@ test.describe('iPhone mobile layout', () => {
     const renameInput = createdRow.getByTestId('code-file-operation-input')
     await expect(renameInput).toBeFocused()
     await renameInput.fill('touch-renamed.txt')
-    await captureIphoneAudit(page, 'file-rename-inline.png')
+    await captureIphoneAudit(page, testInfo, 'file-rename-inline.png')
     await renameInput.press('Enter')
     const renamedRow = files.locator('[data-testid="code-file-row"][data-file-path="touch-renamed.txt"]')
     await expect(renamedRow).toBeVisible()
@@ -1207,7 +1246,7 @@ test.describe('iPhone mobile layout', () => {
     await menu.getByRole('menuitem', { name: /Delete|删除/ }).tap()
     const deleteDialog = page.getByTestId('code-file-operation-dialog')
     await expect(deleteDialog).toContainText('touch-renamed.txt')
-    await captureIphoneAudit(page, 'file-delete-confirmation.png')
+    await captureIphoneAudit(page, testInfo, 'file-delete-confirmation.png')
     await deleteDialog.getByRole('button', { name: /Delete|删除/ }).tap()
     await expect(renamedRow).toHaveCount(0)
     expect(fs.existsSync(path.join(projectDir, 'touch-renamed.txt'))).toBe(false)
@@ -1226,7 +1265,7 @@ test.describe('iPhone mobile layout', () => {
     const folderRenameInput = folderRow.getByTestId('code-file-operation-input')
     await expect(folderRenameInput).toBeFocused()
     await folderRenameInput.fill('touch-folder-renamed')
-    await captureIphoneAudit(page, 'folder-rename-inline.png')
+    await captureIphoneAudit(page, testInfo, 'folder-rename-inline.png')
     await folderRenameInput.press('Enter')
     const renamedFolderRow = files.locator('[data-testid="code-file-row"][data-file-path="touch-folder-renamed"]')
     await expect(renamedFolderRow).toBeVisible()
