@@ -163,6 +163,7 @@ class FakeDocker {
   releaseTool: (() => void) | null;
   blockRemove: boolean;
   releaseRemove: (() => void) | null;
+  missingErrorContainerId: string;
 
   constructor(viewerPort) {
     this.viewerPort = viewerPort;
@@ -180,6 +181,7 @@ class FakeDocker {
     this.releaseTool = null;
     this.blockRemove = false;
     this.releaseRemove = null;
+    this.missingErrorContainerId = CONTAINER_ID;
   }
 
   run = async (args, options: { timeoutMs?: number; maxBuffer?: number } = {}) => {
@@ -206,7 +208,11 @@ class FakeDocker {
       return { stdout: `${CONTAINER_ID}\n`, stderr: '' };
     }
     if (args[0] === 'inspect') {
-      if (this.removed) throw new Error('No such container');
+      if (this.removed) {
+        const error = new Error(`Command failed: docker inspect ${CONTAINER_ID}\nError: No such object: ${this.missingErrorContainerId}`) as Error & { stderr?: string };
+        error.stderr = `Error: No such object: ${this.missingErrorContainerId}`;
+        throw error;
+      }
       return {
         stdout: JSON.stringify([{
           Id: CONTAINER_ID,
@@ -364,6 +370,13 @@ async function run() {
     );
     assert.strictEqual(fake.labels['farming.dev/resource'], created.id);
     assert.strictEqual(fake.labels['farming.dev/owner-agent'], 'agent_owner');
+    fake.labels['farming.dev/owner-agent'] = 'agent_wrong_owner';
+    await assert.rejects(
+      manager.inspectOwnedContainer(manager.privateResource(created.id)),
+      error => error.code === 'COMPUTER_CONTAINER_OWNER_MISMATCH',
+      'an existing container with mismatched ownership labels must remain fail-closed',
+    );
+    fake.labels['farming.dev/owner-agent'] = 'agent_owner';
     const currentConfigLabel = fake.labels['farming.dev/config'];
     fake.labels['farming.dev/config'] = crypto.createHash('sha256')
       .update(tempDir)
@@ -765,6 +778,96 @@ async function run() {
       () => manager.get(deleteCandidate.id),
       error => error.code === 'COMPUTER_NOT_FOUND',
     );
+
+    const externallyRemovedCandidate = manager.create({
+      ownerAgentId: 'agent_externally_removed',
+      projectRootId: 'root_project',
+      workspace,
+      name: 'Externally Removed Candidate',
+    });
+    await manager.start(externallyRemovedCandidate.id);
+    await manager.stop(externallyRemovedCandidate.id);
+    fake.removed = true;
+    await manager.reconcileAgentLifecycle([
+      { id: 'agent_owner', status: 'running' },
+      { id: 'agent_externally_removed', status: 'stopped' },
+    ]);
+    assert.throws(
+      () => manager.get(externallyRemovedCandidate.id),
+      error => error.code === 'COMPUTER_NOT_FOUND',
+      'a missing owned container must converge to an absent Resource instead of blocking lifecycle reconciliation',
+    );
+
+    const restartConfigDir = path.join(tempDir, 'restart-config');
+    const restartFake = new FakeDocker(viewerPort);
+    const beforeRestart = new ComputerResourceManager({
+      configDir: restartConfigDir,
+      isEnabled: () => true,
+      getSettings: () => settings,
+      dockerRunner: restartFake.run,
+    });
+    beforeRestart.store.init();
+    const persistedRunning = beforeRestart.create({
+      ownerAgentId: 'agent_restart',
+      projectRootId: 'root_project',
+      workspace,
+      name: 'Restart Recovery Candidate',
+    });
+    await beforeRestart.start(persistedRunning.id);
+    restartFake.removed = true;
+    const afterRestart = new ComputerResourceManager({
+      configDir: restartConfigDir,
+      isEnabled: () => true,
+      getSettings: () => settings,
+      dockerRunner: restartFake.run,
+    });
+    await afterRestart.init();
+    const recoveredMissing = afterRestart.privateResource(persistedRunning.id);
+    assert.strictEqual(recoveredMissing.status, 'stopped');
+    assert.strictEqual(recoveredMissing.containerId, '');
+    assert.strictEqual(recoveredMissing.containerName, '');
+    assert.strictEqual(recoveredMissing.vncPassword, '');
+    assert.strictEqual(recoveredMissing.viewerPort, 0);
+    assert.strictEqual(recoveredMissing.sessionId, '');
+    assert.strictEqual(recoveredMissing.error, '');
+    const restartedMissing = await afterRestart.start(persistedRunning.id);
+    assert.strictEqual(restartedMissing.status, 'running');
+    assert.strictEqual(
+      restartFake.calls.filter(args => args[0] === 'create').length,
+      2,
+      'restart recovery must create and revalidate a fresh owned container',
+    );
+    await afterRestart.delete(persistedRunning.id);
+
+    const mismatchedMissingConfigDir = path.join(tempDir, 'mismatched-missing-config');
+    const mismatchedMissingFake = new FakeDocker(viewerPort);
+    const beforeMismatchedMissing = new ComputerResourceManager({
+      configDir: mismatchedMissingConfigDir,
+      isEnabled: () => true,
+      getSettings: () => settings,
+      dockerRunner: mismatchedMissingFake.run,
+    });
+    beforeMismatchedMissing.store.init();
+    const mismatchedMissing = beforeMismatchedMissing.create({
+      ownerAgentId: 'agent_mismatched_missing',
+      projectRootId: 'root_project',
+      workspace,
+      name: 'Mismatched Missing Candidate',
+    });
+    await beforeMismatchedMissing.start(mismatchedMissing.id);
+    mismatchedMissingFake.removed = true;
+    mismatchedMissingFake.missingErrorContainerId = 'f'.repeat(64);
+    const afterMismatchedMissing = new ComputerResourceManager({
+      configDir: mismatchedMissingConfigDir,
+      isEnabled: () => true,
+      getSettings: () => settings,
+      dockerRunner: mismatchedMissingFake.run,
+    });
+    await afterMismatchedMissing.init();
+    const rejectedMissing = afterMismatchedMissing.privateResource(mismatchedMissing.id);
+    assert.strictEqual(rejectedMissing.status, 'failed');
+    assert.strictEqual(rejectedMissing.containerId, CONTAINER_ID);
+    assert.match(rejectedMissing.error, /No such object/);
 
     const lifecycleCandidate = manager.create({
       ownerAgentId: 'agent_other',

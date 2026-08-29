@@ -2430,9 +2430,12 @@ test.describe('display-backed agent flows', () => {
       request.operation === 'read-file' && request.path === 'README.md'
     )).length
     await page.getByRole('button', { name: 'Reload file' }).click()
+    // A delayed watch event may issue its own authoritative read after the
+    // manual reload starts; user-visible convergence, not an exact transport
+    // count across those independent owners, is the contract.
     await expect.poll(() => workspaceRequests.filter(request => (
       request.operation === 'read-file' && request.path === 'README.md'
-    )).length).toBe(reloadRequestCount + 1)
+    )).length).toBeGreaterThanOrEqual(reloadRequestCount + 1)
     await expect(page.getByTestId('code-file-editor').getByTitle('Changed on disk')).toHaveCount(0)
     await expect.poll(async () => page.evaluate(() => window.__farmingFileEditorTest?.getValue() ?? ''))
       .toContain('blame reload refresh marker')

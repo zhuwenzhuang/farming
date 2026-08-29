@@ -142,6 +142,19 @@ interface AgentLifecycleState {
   lifecycleOperation?: { type?: string };
 }
 
+function isMissingDockerContainer(error: unknown, containerId: string): boolean {
+  if (!containerId) return false;
+  const record = error && typeof error === 'object' ? error as Record<string, unknown> : {};
+  const details = [record.message, record.stderr, record.stdout]
+    .map(value => String(value || ''))
+    .join('\n');
+  const exactContainerId = containerId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(
+    `No such (?:object|container):?\\s*${exactContainerId}(?:\\s|$)`,
+    'i',
+  ).test(details);
+}
+
 function replacementAgentOwner(
   ownerAgentId: string,
   workspace: string,
@@ -378,6 +391,18 @@ class ComputerResourceManager extends EventEmitter {
           error: '',
         });
       } catch (caught) {
+        if (isMissingDockerContainer(caught, resource.containerId)) {
+          this.patch(resource.id, {
+            status: 'stopped',
+            containerId: '',
+            containerName: '',
+            vncPassword: '',
+            viewerPort: 0,
+            sessionId: '',
+            error: '',
+          });
+          continue;
+        }
         const error = caught as Error & { killed?: boolean };
         this.patch(resource.id, {
           status: 'failed',
@@ -712,8 +737,20 @@ class ComputerResourceManager extends EventEmitter {
       try {
         let containerId = resource.containerId;
         if (containerId) {
-          await this.inspectOwnedContainer(resource);
-        } else {
+          try {
+            await this.inspectOwnedContainer(resource);
+          } catch (caught) {
+            if (!isMissingDockerContainer(caught, containerId)) throw caught;
+            resource = this.patch(id, {
+              containerId: '',
+              viewerPort: 0,
+              sessionId: '',
+              error: '',
+            }, true);
+            containerId = '';
+          }
+        }
+        if (!containerId) {
           const labels = this.containerLabels(resource);
           const create = await this.docker([
             'create',
@@ -776,7 +813,7 @@ class ComputerResourceManager extends EventEmitter {
     this.holdStopAdmission(id);
     return this.enqueue(id, async () => {
       const resource = this.privateResource(id);
-      if (!resource.containerId || resource.status === 'stopped') {
+      if (!resource.containerId) {
         return this.patch(id, {
           status: 'stopped',
           viewerPort: 0,
@@ -805,6 +842,20 @@ class ComputerResourceManager extends EventEmitter {
           error: '',
         });
       } catch (caught) {
+        if (isMissingDockerContainer(caught, resource.containerId)) {
+          return this.patch(id, {
+            status: 'stopped',
+            containerId: '',
+            containerName: '',
+            vncPassword: '',
+            viewerPort: 0,
+            sessionId: '',
+            controlOwner: 'agent',
+            controlEpoch: resource.controlEpoch + 1,
+            needsObserve: false,
+            error: '',
+          });
+        }
         const error = caught as Error;
         this.patch(id, { status: 'failed', error: error.message || 'Computer stop failed' });
         throw error;

@@ -44,6 +44,13 @@ Farming verifies exact ownership before destructive actions. The Viewer is
 served through the authenticated Farming boundary rather than exposed as a
 public desktop endpoint.
 
+If Docker authoritatively reports that the persisted exact container identity
+no longer exists, recovery clears that stale runtime identity. An active
+Resource becomes stopped and may create a fresh owned container on its next
+start; ordinary lifecycle cleanup removes an inactive or orphaned Resource.
+Any existing container with mismatched identity or ownership labels still
+fails closed.
+
 The Resource owns one driver session identity and desktop capture scope. Inside
 the Resource's serialized action queue, Farming idempotently refreshes that
 exact session before every desktop-session tool call, including an explicit

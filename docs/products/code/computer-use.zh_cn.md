@@ -36,6 +36,11 @@ Replacement Lineage 与精确 Project Workspace 恢复未完成的 Ownership Tra
 破坏性操作前必须验证精确 Ownership。Viewer 通过带鉴权的 Farming Boundary 提供，而不是
 暴露公开 Desktop Endpoint。
 
+若 Docker 权威确认持久化的精确 Container Identity 已不存在，恢复流程会清除这项陈旧的
+Runtime Identity。仍活跃的 Resource 会进入 Stopped，下一次 Start 时可创建新的自有 Container；
+普通 Lifecycle Cleanup 会删除不活跃或孤立的 Resource。任何仍存在但 Identity 或 Ownership
+Label 不匹配的 Container 仍然失败封闭。
+
 Resource 拥有唯一的 driver session 身份和 desktop capture scope。在 Resource 的串行 Action
 Queue 内，Farming 会在每个 Desktop Session Tool（包括显式 `start_session`）之前幂等刷新这个
 确切 Session。调用方提供的 Session 身份和 Capture Scope 都不能替换 Resource 所有的值。
