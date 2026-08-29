@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import type { Page } from '@playwright/test'
+import type { Locator, Page } from '@playwright/test'
 import {
   expect,
   fileEditorPosition,
@@ -8,7 +8,43 @@ import {
   openFarming,
   test,
 } from './fixtures'
+import { createAcceptanceEvidence } from './acceptance-evidence'
 import { projectFilesWorkspaceId } from '../../src/lib/project-workspaces'
+
+const GLOBAL_FILE_SEARCH_MOBILE_AUDIT_DIR = path.resolve(
+  process.env.FARMING_GLOBAL_FILE_SEARCH_MOBILE_AUDIT_DIR || '.tmp/global-file-search-mobile-audit',
+)
+
+async function assertRawTouchTarget(
+  locator: Locator,
+  viewport: { width: number, height: number },
+  minimum: { width: number, height: number },
+) {
+  await expect(locator).toBeVisible()
+  const geometry = await locator.evaluate(element => {
+    const rect = element.getBoundingClientRect()
+    const hit = document.elementFromPoint(
+      rect.left + rect.width / 2,
+      rect.top + rect.height / 2,
+    )
+    return {
+      left: rect.left,
+      right: rect.right,
+      top: rect.top,
+      bottom: rect.bottom,
+      width: rect.width,
+      height: rect.height,
+      centerHits: Boolean(hit && (hit === element || element.contains(hit))),
+    }
+  })
+  expect(geometry.width).toBeGreaterThanOrEqual(minimum.width)
+  expect(geometry.height).toBeGreaterThanOrEqual(minimum.height)
+  expect(geometry.left).toBeGreaterThanOrEqual(0)
+  expect(geometry.top).toBeGreaterThanOrEqual(0)
+  expect(geometry.right).toBeLessThanOrEqual(viewport.width)
+  expect(geometry.bottom).toBeLessThanOrEqual(viewport.height)
+  expect(geometry.centerHits).toBe(true)
+}
 
 async function createControlAgent(page: Page, workspace: string) {
   const response = await page.request.post('/farming/api/control/agents', {
@@ -534,7 +570,8 @@ test.describe('mobile global file path search', () => {
     viewport: { width: 390, height: 844 },
   })
 
-  test('opens a long path from a touch-sized result and returns to the source Agent', async ({ page, workspaceRoot }) => {
+  test('opens a long path from a touch-sized result and returns to the source Agent', async ({ page, workspaceRoot }, testInfo) => {
+    testInfo.setTimeout(120_000)
     const sourceWorkspace = path.join(workspaceRoot, 'global-search-mobile-source')
     const firstWorkspace = path.join(workspaceRoot, 'mobile-root-a', 'org', 'team', 'shared-project')
     const secondWorkspace = path.join(workspaceRoot, 'mobile-root-b', 'org', 'team', 'shared-project')
@@ -561,12 +598,53 @@ test.describe('mobile global file path search', () => {
     const result = results.filter({ hasText: 'mobile-root-b/org/team/shared-project' })
     await expect(firstResult).toBeVisible()
     await expect(result).toBeVisible()
-    const box = await result.boundingBox()
-    expect(box).not.toBeNull()
-    expect(box!.height).toBeGreaterThanOrEqual(48)
-    expect(box!.x).toBeGreaterThanOrEqual(0)
-    expect(box!.x + box!.width).toBeLessThanOrEqual(390)
+    const viewport = page.viewportSize()
+    expect(viewport).toEqual({ width: 390, height: 844 })
+    const searchBox = page.getByTestId('code-search-box')
+    const clearSearch = searchBox.getByRole('button', { name: 'Clear search' })
+    await assertRawTouchTarget(searchBox, viewport!, { width: 44, height: 44 })
+    await assertRawTouchTarget(clearSearch, viewport!, { width: 44, height: 44 })
+    await assertRawTouchTarget(firstResult, viewport!, { width: 44, height: 48 })
+    await assertRawTouchTarget(result, viewport!, { width: 44, height: 48 })
     await expect(result).toHaveAttribute('title', `${path.basename(secondWorkspace)} · ${secondWorkspace} · ${filePath}`)
+    await clearSearch.tap()
+    await expect(searchBox).toHaveCount(0)
+    const reopenedSearchInput = await openGlobalSearch(page, true)
+    await expect(reopenedSearchInput).toHaveValue('')
+    await reopenedSearchInput.fill(`${filePath}#L1C5`)
+    await expect(results).toHaveCount(2, { timeout: 30_000 })
+
+    if (testInfo.project.name === 'iphone-webkit') {
+      const evidence = createAcceptanceEvidence(GLOBAL_FILE_SEARCH_MOBILE_AUDIT_DIR, {
+        manifestFileName: 'manifest-global-file-search-mobile.json',
+      })
+      const assertFileSearchReady = async () => {
+        await expect(reopenedSearchInput).toHaveValue(`${filePath}#L1C5`)
+        await expect(results).toHaveCount(2)
+        await expect(firstResult).toBeVisible()
+        await expect(result).toBeVisible()
+        await expect(result).toHaveAttribute('title', `${path.basename(secondWorkspace)} · ${secondWorkspace} · ${filePath}`)
+        await assertRawTouchTarget(searchBox, viewport!, { width: 44, height: 44 })
+        await assertRawTouchTarget(clearSearch, viewport!, { width: 44, height: 44 })
+        await assertRawTouchTarget(firstResult, viewport!, { width: 44, height: 48 })
+        await assertRawTouchTarget(result, viewport!, { width: 44, height: 48 })
+        await expect.poll(() => page.evaluate(() => (
+          document.documentElement.scrollWidth <= window.innerWidth + 2
+          && document.body.scrollWidth <= window.innerWidth + 2
+        ))).toBe(true)
+      }
+      await evidence.capture({
+        page,
+        testInfo,
+        screenshotName: 'iphone-webkit-390x844-long-path-file-search.png',
+        scenario: 'iPhone WebKit long-path Global Search with duplicate Project names',
+        settledAssertion: 'The exact long path and line-column suffix produce two distinguishable, viewport-contained touch results after Clear closes Search and a new Search is reopened and refilled by touch',
+        assertReady: assertFileSearchReady,
+        proofLocator: page.getByTestId('code-global-file-search-results'),
+        expectedTestId: 'code-global-file-search-results',
+        stableLocators: [searchBox, clearSearch, firstResult, result],
+      })
+    }
     await result.tap()
 
     await expect(page.getByTestId('code-search-box')).toHaveCount(0)

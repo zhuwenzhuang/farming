@@ -264,8 +264,8 @@
     }
 
   body.code-mode.code-compact-layout .code-search-panel-input {
-      min-height: 42px;
-      padding: 5px 10px;
+      min-height: 44px;
+      padding: 0 0 0 10px;
       border: 0;
       border-radius: 14px;
       background: var(--code-bg-hover);
@@ -280,6 +280,13 @@
 
   body.code-mode.code-compact-layout .code-search-panel-input input {
       font-size: 15px;
+    }
+
+  body.code-mode.code-compact-layout .code-search-panel-input button {
+      width: 44px;
+      height: 44px;
+      border-radius: 0 14px 14px 0;
+      background: transparent;
     }
 
   body.code-mode.code-compact-layout .code-search-retry {

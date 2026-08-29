@@ -14,6 +14,39 @@ const MOBILE_VISUAL_AUDIT_DIR = path.resolve(
   process.env.FARMING_MOBILE_VISUAL_AUDIT_DIR || '.tmp/mobile-visual-acceptance',
 )
 
+test.use({ hasTouch: true })
+
+async function assertRawMobileTarget(
+  locator: Locator,
+  viewport: { width: number, height: number },
+  minimum: { width: number, height: number },
+) {
+  await expect(locator).toBeVisible()
+  const geometry = await locator.evaluate(element => {
+    const rect = element.getBoundingClientRect()
+    const hit = document.elementFromPoint(
+      rect.left + rect.width / 2,
+      rect.top + rect.height / 2,
+    )
+    return {
+      left: rect.left,
+      right: rect.right,
+      top: rect.top,
+      bottom: rect.bottom,
+      width: rect.width,
+      height: rect.height,
+      centerHits: Boolean(hit && (hit === element || element.contains(hit))),
+    }
+  })
+  expect(geometry.width).toBeGreaterThanOrEqual(minimum.width)
+  expect(geometry.height).toBeGreaterThanOrEqual(minimum.height)
+  expect(geometry.left).toBeGreaterThanOrEqual(0)
+  expect(geometry.top).toBeGreaterThanOrEqual(0)
+  expect(geometry.right).toBeLessThanOrEqual(viewport.width)
+  expect(geometry.bottom).toBeLessThanOrEqual(viewport.height)
+  expect(geometry.centerHits).toBe(true)
+}
+
 async function createAgent(
   page: Page,
   command: string,
@@ -283,20 +316,44 @@ test('audits compact Composer and sidebar geometry across mobile widths and appe
         expect(response.ok(), await response.text()).toBeTruthy()
       }
       await page.getByTestId('code-nav-search').click()
-      const globalSearchInput = page.getByTestId('code-search-box').getByRole('combobox')
+      const searchBox = page.getByTestId('code-search-box')
+      const globalSearchInput = searchBox.getByRole('combobox')
       await globalSearchInput.fill(longSearchPath)
       const fileSearchResults = page.getByTestId('code-global-file-search-result')
       await expect(fileSearchResults).toHaveCount(2, { timeout: 30_000 })
       await expect(fileSearchResults.filter({ hasText: 'visual-root-a/org/team/shared-project' })).toBeVisible()
       await expect(fileSearchResults.filter({ hasText: 'visual-root-b/org/team/shared-project' })).toBeVisible()
+      const clearSearch = searchBox.getByRole('button', { name: 'Clear search' })
+      await assertRawMobileTarget(searchBox, viewport, { width: 44, height: 44 })
+      await assertRawMobileTarget(clearSearch, viewport, { width: 44, height: 44 })
       for (const result of await fileSearchResults.all()) {
-        const box = await result.boundingBox()
-        expect(box).not.toBeNull()
-        expect(box!.height).toBeGreaterThanOrEqual(48)
-        expect(box!.x).toBeGreaterThanOrEqual(0)
-        expect(box!.x + box!.width).toBeLessThanOrEqual(viewport.width)
+        await assertRawMobileTarget(result, viewport, { width: 44, height: 48 })
       }
+      await clearSearch.tap()
+      await expect(searchBox).toHaveCount(0)
+      await openSidebar(page)
+      await page.getByTestId('code-nav-search').tap()
+      await expect(searchBox).toBeVisible()
+      await expect(globalSearchInput).toHaveValue('')
+      await globalSearchInput.fill(longSearchPath)
+      await expect(fileSearchResults).toHaveCount(2, { timeout: 30_000 })
       await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 2)).toBe(true)
+      const assertFileSearchReady = async () => {
+        await expect(page.locator('body')).toHaveAttribute('data-appearance', appearance)
+        await expect(globalSearchInput).toHaveValue(longSearchPath)
+        await expect(fileSearchResults).toHaveCount(2)
+        await expect(fileSearchResults.filter({ hasText: 'visual-root-a/org/team/shared-project' })).toBeVisible()
+        await expect(fileSearchResults.filter({ hasText: 'visual-root-b/org/team/shared-project' })).toBeVisible()
+        await assertRawMobileTarget(searchBox, viewport, { width: 44, height: 44 })
+        await assertRawMobileTarget(clearSearch, viewport, { width: 44, height: 44 })
+        for (const result of await fileSearchResults.all()) {
+          await assertRawMobileTarget(result, viewport, { width: 44, height: 48 })
+        }
+        await expect.poll(() => page.evaluate(() => (
+          document.documentElement.scrollWidth <= window.innerWidth + 2
+          && document.body.scrollWidth <= window.innerWidth + 2
+        ))).toBe(true)
+      }
       await evidence.capture({
         page,
         testInfo,
@@ -304,8 +361,15 @@ test('audits compact Composer and sidebar geometry across mobile widths and appe
         scenario: 'mobile global file path search',
         settledAssertion: 'Global Search shows two touch-sized long-path results whose same-name Projects remain visibly distinguishable without viewport overflow',
         theme: appearance,
+        assertReady: assertFileSearchReady,
         proofLocator: page.getByTestId('code-global-file-search-results'),
         expectedTestId: 'code-global-file-search-results',
+        stableLocators: [
+          searchBox,
+          clearSearch,
+          fileSearchResults.nth(0),
+          fileSearchResults.nth(1),
+        ],
       })
       for (const searchWorkspace of [firstSearchWorkspace, secondSearchWorkspace]) {
         const response = await page.request.post('/farming/api/projects/remove', { data: { workspace: searchWorkspace } })
