@@ -52,6 +52,13 @@ async function expectFocusedSurface(page: Page, locator: Locator, role: string) 
   await expect(locator).toHaveCSS('background-color', await resolvedColor(page, role))
 }
 
+async function expectFocusedContainerWithoutSurface(locator: Locator) {
+  await expect(locator).toBeFocused()
+  await expect(locator).toHaveCSS('outline-style', 'none')
+  await expect(locator).toHaveCSS('box-shadow', 'none')
+  await expect(locator).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+}
+
 async function captureFullPage(page: Page, testInfo: TestInfo, appearance: Appearance) {
   const screenshotPath = testInfo.outputPath(`sidebar-focus-${appearance}-full.png`)
   const screenshot = await page.screenshot({
@@ -127,11 +134,11 @@ test('uses one surface-based sidebar focus language across Light, Dark, and Pape
       projectListBounds!.x + 4,
       projectListBounds!.y + projectListBounds!.height - 4,
     )
-    await projectList.focus()
+    await expectFocusedContainerWithoutSurface(projectList)
     // A delayed dialog focus-restoration retry must not steal a newer explicit
     // user focus target, including after its final 360 ms retry window.
     await page.waitForTimeout(400)
-    await expectFocusedSurface(page, projectList, '--code-bg-hover')
+    await expectFocusedContainerWithoutSurface(projectList)
 
     await fileRow.click({ button: 'right' })
     const fileMenu = page.getByTestId('code-file-context-menu')

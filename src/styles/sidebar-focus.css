@@ -22,10 +22,6 @@ body.code-mode .code-sidebar :is(
   color: var(--code-text);
 }
 
-body.code-mode .code-sidebar .code-project-list:focus {
-  background: var(--code-bg-hover);
-}
-
 body.code-mode .code-sidebar .code-file-row:focus {
   background: transparent;
   color: var(--code-text);

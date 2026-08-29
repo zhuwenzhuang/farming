@@ -282,7 +282,6 @@ body.code-resizing-sidebar .code-sidebar-resizer {
 }
 
 .code-project-list:focus-visible {
-  background: var(--code-bg-hover);
   outline: 0;
 }
 
