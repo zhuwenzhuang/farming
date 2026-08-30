@@ -64,6 +64,20 @@
       }
     },
     {
+      "id": "BROWSER-RETAINED-RESOURCE-VISIBILITY",
+      "surface": "ui",
+      "promise": "Retained Browser rows remain visible and manageable when the Browser runtime is unavailable; creation and start are disabled while rename and delete remain available.",
+      "owner": "docs/products/code/extension-model.md",
+      "evidence": {
+        "playwright": [
+          {
+            "file": "tests/e2e/browser-resources.spec.ts",
+            "title": "keeps retained Browser rows manageable while the runtime is unavailable"
+          }
+        ]
+      }
+    },
+    {
       "id": "CODE-PLUGINS-MANAGED-RUNTIME",
       "surface": "ui",
       "promise": "Agent Homes use the Farming-managed ACP runtime without exposing a redundant executable selector.",

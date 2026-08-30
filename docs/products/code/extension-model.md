@@ -92,6 +92,8 @@ reuse, while `delete` stops the runtime and removes both. The Agent-facing CLI
 must expose both operations so temporary verification Resources can be deleted
 by exact id instead of accumulating as stopped inventory. An Agent lifecycle
 stop or archive uses deletion; Chat/Terminal replacement is explicitly exempt.
+Current runtime unavailability disables Browser creation and start, but does not
+hide retained rows or disable their local rename and exact delete actions.
 
 Every Browser Resource has an active Agent owner and an authorized Project
 workspace. Creation without an exact active Agent owner is rejected before a

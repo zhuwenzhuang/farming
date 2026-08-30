@@ -77,6 +77,8 @@ Browser 和 Computer Resource 会按精确 ID 删除，避免临时 Row、Profil
 Runtime，再同时删除 Row 与 Profile。面向 Agent 的 CLI 必须同时暴露这两个操作，使临时验证
 Resource 能按精确 ID 删除，而不是长期累积为 Stopped Inventory。Agent 生命周期中的停止或
 归档使用删除；Chat/Terminal Replacement 明确不触发删除。
+当前 Runtime 不可用时，Browser 创建与启动会禁用，但已保留的 Row 不能被隐藏，其本地重命名
+和按精确身份删除的操作仍须可用。
 
 每个 Browser Resource 都必须有一个活跃 Agent Owner 与一个已授权 Project Workspace。
 无法证明精确活跃 Agent Owner 的创建请求必须在持久化 Row 前被拒绝。Browser Resource 只在
