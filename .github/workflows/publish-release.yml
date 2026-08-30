@@ -19,6 +19,11 @@ on:
         description: 'Exact successful commit-status context created by the release acceptance coordinator'
         required: true
         type: string
+      failed_publication_run_id:
+        description: 'Optional failed Publish Release run that already made the GitHub Release public'
+        required: false
+        default: ''
+        type: string
 
 permissions:
   actions: read
@@ -51,14 +56,20 @@ jobs:
           echo "tag=v${version}" >> "${GITHUB_OUTPUT}"
 
       - name: Checkout exact candidate
+        if: inputs.failed_publication_run_id == ''
         uses: actions/checkout@v4
         with:
           ref: ${{ inputs.candidate_sha }}
+
+      - name: Checkout recovery verifier
+        if: inputs.failed_publication_run_id != ''
+        uses: actions/checkout@v4
 
       - name: Verify exact preparation run
         env:
           CANDIDATE_SHA: ${{ inputs.candidate_sha }}
           PREPARATION_RUN_ID: ${{ inputs.preparation_run_id }}
+          FAILED_PUBLICATION_RUN_ID: ${{ inputs.failed_publication_run_id }}
         shell: bash
         run: |
           set -euo pipefail
@@ -66,7 +77,7 @@ jobs:
             echo "candidate_sha must be a full lowercase commit SHA." >&2
             exit 1
           fi
-          if [[ "${GITHUB_SHA}" != "${CANDIDATE_SHA}" ]]; then
+          if [[ -z "${FAILED_PUBLICATION_RUN_ID}" && "${GITHUB_SHA}" != "${CANDIDATE_SHA}" ]]; then
             echo "Publish Release must be dispatched from the exact candidate SHA: workflow=${GITHUB_SHA}, candidate=${CANDIDATE_SHA}" >&2
             exit 1
           fi
@@ -94,6 +105,38 @@ jobs:
           }
           NODE
 
+          if [[ -n "${FAILED_PUBLICATION_RUN_ID}" ]]; then
+            if [[ ! "${FAILED_PUBLICATION_RUN_ID}" =~ ^[1-9][0-9]*$ ]]; then
+              echo "failed_publication_run_id must be a positive GitHub Actions run ID." >&2
+              exit 1
+            fi
+            publication_run="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${FAILED_PUBLICATION_RUN_ID}")"
+            publication_jobs="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${FAILED_PUBLICATION_RUN_ID}/jobs?per_page=100")"
+            failed_workflow_id="$(RUN_JSON="${publication_run}" node -p 'JSON.parse(process.env.RUN_JSON).workflow_id')"
+            failed_workflow_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/${failed_workflow_id}")"
+            RUN_JSON="${publication_run}" JOBS_JSON="${publication_jobs}" WORKFLOW_JSON="${failed_workflow_json}" node <<'NODE'
+          const run = JSON.parse(process.env.RUN_JSON);
+          const jobs = JSON.parse(process.env.JOBS_JSON).jobs || [];
+          const workflow = JSON.parse(process.env.WORKFLOW_JSON);
+          if (workflow.path !== '.github/workflows/publish-release.yml') throw new Error(`Unexpected failed workflow: ${workflow.path}`);
+          if (run.event !== 'workflow_dispatch' || run.conclusion !== 'failure') throw new Error(`Publication run is not a failed dispatch: ${run.event}/${run.conclusion}`);
+          if (run.head_sha !== process.env.CANDIDATE_SHA) throw new Error(`Publication run SHA mismatch: ${run.head_sha}`);
+          const job = jobs.find(entry => entry.name === 'Publish verified release');
+          if (!job) throw new Error('Failed publication job is missing');
+          const requiredSteps = new Map([
+            ['Verify exact preparation run', 'success'],
+            ['Require successful candidate push workflows', 'success'],
+            ['Require successful automated and Computer Use acceptance', 'success'],
+            ['Publish the matching draft release', 'success'],
+            ['Verify public tag, assets, and manifest', 'failure'],
+          ]);
+          for (const [name, conclusion] of requiredSteps) {
+            const step = (job.steps || []).find(entry => entry.name === name);
+            if (step?.conclusion !== conclusion) throw new Error(`Publication step ${name} is ${step?.conclusion || 'missing'}, expected ${conclusion}`);
+          }
+          NODE
+          fi
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -112,6 +155,7 @@ jobs:
           github-token: ${{ github.token }}
 
       - name: Verify release notes
+        if: inputs.failed_publication_run_id == ''
         id: notes
         env:
           RELEASE_VERSION: ${{ steps.version.outputs.value }}
@@ -143,6 +187,7 @@ jobs:
           echo "codename=${codename}" >> "${GITHUB_OUTPUT}"
 
       - name: Download Linux release assets
+        if: inputs.failed_publication_run_id == ''
         uses: actions/download-artifact@v4
         with:
           pattern: farming-linux-${{ steps.version.outputs.value }}-*
@@ -152,6 +197,7 @@ jobs:
           github-token: ${{ github.token }}
 
       - name: Download macOS release assets
+        if: inputs.failed_publication_run_id == ''
         uses: actions/download-artifact@v4
         with:
           pattern: farming-macos-${{ steps.version.outputs.value }}-*
@@ -161,6 +207,7 @@ jobs:
           github-token: ${{ github.token }}
 
       - name: Generate checksums and manifest
+        if: inputs.failed_publication_run_id == ''
         env:
           FARMING_RELEASE_VERSION: ${{ steps.version.outputs.value }}
         shell: bash
@@ -244,13 +291,14 @@ jobs:
           rm release-metadata-*.json
 
       - name: Require successful candidate push workflows
+        if: inputs.failed_publication_run_id == ''
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: scripts/watch-candidate-workflows.sh "${GITHUB_SHA}" "${GITHUB_REPOSITORY}" 0 once
 
       - name: Upload candidate workflow failure evidence
-        if: failure()
+        if: failure() && inputs.failed_publication_run_id == ''
         uses: actions/upload-artifact@v4
         with:
           name: candidate-workflow-failure-${{ github.sha }}
@@ -261,6 +309,7 @@ jobs:
       - name: Require successful automated and Computer Use acceptance
         env:
           ACCEPTANCE_CONTEXT: ${{ inputs.acceptance_context }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
@@ -274,7 +323,7 @@ jobs:
             echo "acceptance_context has an invalid campaign identifier." >&2
             exit 1
           fi
-          commit_status="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/status")"
+          commit_status="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${CANDIDATE_SHA}/status")"
           acceptance_state="$(
             STATUS_JSON="${commit_status}" CONTEXT="${ACCEPTANCE_CONTEXT}" node <<'NODE'
           const payload = JSON.parse(process.env.STATUS_JSON);
@@ -286,9 +335,10 @@ jobs:
             echo "Release acceptance is not successful: context=${ACCEPTANCE_CONTEXT}, state=${acceptance_state}" >&2
             exit 1
           fi
-          echo "Release acceptance succeeded for ${GITHUB_SHA}: ${ACCEPTANCE_CONTEXT}"
+          echo "Release acceptance succeeded for ${CANDIDATE_SHA}: ${ACCEPTANCE_CONTEXT}"
 
       - name: Create or refresh draft release
+        if: inputs.failed_publication_run_id == ''
         env:
           RELEASE_TAG: ${{ steps.version.outputs.tag }}
           RELEASE_VERSION: ${{ steps.version.outputs.value }}
@@ -353,6 +403,7 @@ jobs:
           fi
 
       - name: Publish the matching draft release
+        if: inputs.failed_publication_run_id == ''
         env:
           RELEASE_VERSION: ${{ steps.version.outputs.value }}
         shell: bash
@@ -373,12 +424,13 @@ jobs:
 
       - name: Verify public tag, assets, and manifest
         env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
           RELEASE_VERSION: ${{ steps.version.outputs.value }}
         shell: bash
         run: |
           set -euo pipefail
           tag="v${RELEASE_VERSION}"
-          candidate_sha="${GITHUB_SHA}"
+          candidate_sha="${CANDIDATE_SHA}"
           remote_tag_sha="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" "refs/tags/${tag}^{}" | awk '{print $1}')"
           if [[ "${remote_tag_sha}" != "${candidate_sha}" ]]; then
             echo "Public tag ${tag} does not identify this candidate: tag=${remote_tag_sha:-missing}, candidate=${candidate_sha}" >&2
@@ -434,6 +486,7 @@ jobs:
 
       - name: Verify and publish npm package with provenance
         env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
           FARMING_RELEASE_VERSION: ${{ steps.version.outputs.value }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
         shell: bash
@@ -443,7 +496,7 @@ jobs:
             printf '//registry.npmjs.org/:_authToken=%s\n' "${NPM_TOKEN}" > "${HOME}/.npmrc"
           fi
           version="${FARMING_RELEASE_VERSION}"
-          candidate_sha="${GITHUB_SHA}"
+          candidate_sha="${CANDIDATE_SHA}"
           package_tarball="npm-package/farming-code-${version}.tgz"
           digest_file="${package_tarball}.sha256"
           test -f "${package_tarball}"

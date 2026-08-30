@@ -14,10 +14,6 @@ function run() {
     path.join(process.cwd(), '.github/workflows/publish-release.yml'),
     'utf8',
   );
-  const recoveryWorkflowSource = fs.readFileSync(
-    path.join(process.cwd(), '.github/workflows/resume-npm-release.yml'),
-    'utf8',
-  );
   const releaseWorkflowSource = `${preparationWorkflowSource}\n${publicationWorkflowSource}`;
   assert(releaseWorkflowSource.includes('node --import tsx scripts/verify-release-bundle.ts'));
   assert(publicationWorkflowSource.includes('release-metadata-${file.slice'));
@@ -71,12 +67,12 @@ function run() {
   assert(!publicationJob.includes('for attempt in {1..120}'));
   assert(!publicationJob.includes('sleep 5'));
 
-  const candidateWorkflowGateOffset = publicationJob.indexOf('Require successful candidate push workflows');
-  const acceptanceGateOffset = publicationJob.indexOf('Require successful automated and Computer Use acceptance');
-  const draftOffset = publicationJob.indexOf('Create or refresh draft release');
-  const githubPublishOffset = publicationJob.indexOf('Publish the matching draft release');
-  const githubVerifyOffset = publicationJob.indexOf('Verify public tag, assets, and manifest');
-  const npmPublishOffset = publicationJob.indexOf('Verify and publish npm package with provenance');
+  const candidateWorkflowGateOffset = publicationJob.indexOf('\n      - name: Require successful candidate push workflows');
+  const acceptanceGateOffset = publicationJob.indexOf('\n      - name: Require successful automated and Computer Use acceptance');
+  const draftOffset = publicationJob.indexOf('\n      - name: Create or refresh draft release');
+  const githubPublishOffset = publicationJob.indexOf('\n      - name: Publish the matching draft release');
+  const githubVerifyOffset = publicationJob.indexOf('\n      - name: Verify public tag, assets, and manifest');
+  const npmPublishOffset = publicationJob.indexOf('\n      - name: Verify and publish npm package with provenance');
   assert(
     candidateWorkflowGateOffset >= 0
       && candidateWorkflowGateOffset < acceptanceGateOffset
@@ -90,7 +86,6 @@ function run() {
 
   const preparationWorkflow = YAML.parse(preparationWorkflowSource);
   const publicationWorkflow = YAML.parse(publicationWorkflowSource);
-  const recoveryWorkflow = YAML.parse(recoveryWorkflowSource);
   assert.deepStrictEqual(preparationWorkflow.permissions, { contents: 'read' });
   assert.deepStrictEqual(
     publicationWorkflow.permissions,
@@ -99,6 +94,8 @@ function run() {
   for (const input of ['release_version', 'candidate_sha', 'preparation_run_id', 'acceptance_context']) {
     assert.strictEqual(publicationWorkflow.on.workflow_dispatch.inputs[input].required, true);
   }
+  assert.strictEqual(publicationWorkflow.on.workflow_dispatch.inputs.failed_publication_run_id.required, false);
+  assert.strictEqual(publicationWorkflow.on.workflow_dispatch.inputs.failed_publication_run_id.default, '');
   assert.strictEqual(preparationWorkflow.on.workflow_dispatch.inputs.acceptance_context, undefined);
   assert.deepStrictEqual(
     preparationWorkflow.jobs['build-linux'].strategy.matrix.kind,
@@ -144,19 +141,27 @@ function run() {
     publicationWorkflow.jobs['publish-release'].permissions,
     { actions: 'read', contents: 'write', 'id-token': 'write', statuses: 'read' },
   );
-  assert.deepStrictEqual(
-    recoveryWorkflow.jobs['resume-npm'].permissions,
-    { actions: 'read', contents: 'read', 'id-token': 'write', statuses: 'read' },
-  );
-  for (const input of ['release_version', 'candidate_sha', 'preparation_run_id', 'acceptance_context', 'failed_publication_run_id']) {
-    assert.strictEqual(recoveryWorkflow.on.workflow_dispatch.inputs[input].required, true);
-  }
-  assert(recoveryWorkflowSource.includes("workflow.path !== '.github/workflows/publish-release.yml'"));
-  assert(recoveryWorkflowSource.includes("['Verify public tag, assets, and manifest', 'failure']"));
-  assert(recoveryWorkflowSource.includes('node scripts/verify-public-release-assets.mjs public-release'));
-  assert(recoveryWorkflowSource.includes('npm publish "./${package_tarball}" --access public --provenance'));
+  assert(publicationWorkflowSource.includes("if: inputs.failed_publication_run_id == ''"));
+  assert(publicationWorkflowSource.includes("if: inputs.failed_publication_run_id != ''"));
+  assert(publicationWorkflowSource.includes("workflow.path !== '.github/workflows/publish-release.yml'"));
+  assert(publicationWorkflowSource.includes("['Verify public tag, assets, and manifest', 'failure']"));
   const publicationSteps = publicationWorkflow.jobs['publish-release'].steps;
   const publicationStepIndex = (name: string) => publicationSteps.findIndex(step => step.name === name);
+  const publicationStep = (name: string) => publicationSteps.find(step => step.name === name);
+  for (const name of [
+    'Verify release notes',
+    'Download Linux release assets',
+    'Download macOS release assets',
+    'Generate checksums and manifest',
+    'Require successful candidate push workflows',
+    'Create or refresh draft release',
+    'Publish the matching draft release',
+  ]) {
+    assert.strictEqual(publicationStep(name)?.if, "inputs.failed_publication_run_id == ''");
+  }
+  assert.strictEqual(publicationStep('Checkout recovery verifier')?.if, "inputs.failed_publication_run_id != ''");
+  assert.strictEqual(publicationStep('Verify public tag, assets, and manifest')?.env.CANDIDATE_SHA, '${{ inputs.candidate_sha }}');
+  assert.strictEqual(publicationStep('Verify and publish npm package with provenance')?.env.CANDIDATE_SHA, '${{ inputs.candidate_sha }}');
   assert(
     publicationStepIndex('Verify exact preparation run') < publicationStepIndex('Download verified npm tarball')
       && publicationStepIndex('Download verified npm tarball') < publicationStepIndex('Require successful candidate push workflows'),
