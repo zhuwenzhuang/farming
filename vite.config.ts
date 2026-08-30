@@ -11,6 +11,15 @@ export default defineConfig(({ mode }) => {
 
   return {
     base: normalizedBase,
+    experimental: {
+      renderBuiltUrl(filename, { hostType }) {
+        if (hostType !== 'js') return undefined
+        const assetPath = `/${filename.replace(/^\/+/, '')}`
+        return {
+          runtime: `(globalThis.__FARMING_BASE_PATH__||"")+${JSON.stringify(assetPath)}`,
+        }
+      },
+    },
     plugins: [react()],
     define: {
       __FARMING_PACKAGE_VERSION__: JSON.stringify(packageJson.version || ''),
