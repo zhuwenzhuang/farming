@@ -2,6 +2,12 @@ const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+
+// `fs` is a require() value here, not a type namespace; reference fs types
+// through explicit import('fs') aliases.
+type FsPathLike = import('fs').PathLike;
+type FsMode = import('fs').Mode;
+
 const {
   TokenAuth,
   authenticatedAccessScopeId,
@@ -431,7 +437,7 @@ function run() {
     const swapTargetFile = path.join(swapTargetDir, 'victim');
     fs.writeFileSync(swapTargetFile, 'victim-content', { mode: 0o644 });
     const originalChmodSync = fs.chmodSync;
-    fs.chmodSync = (target: fs.PathLike, mode: fs.Mode) => {
+    fs.chmodSync = (target: FsPathLike, mode: FsMode) => {
       if (String(target).startsWith('/proc/self/fd/')) {
         // Attacker replaces the visible path with a symlink right before the
         // secured mode change lands.
@@ -466,7 +472,7 @@ function run() {
     fs.writeFileSync(victimFile, 'victim-data', { mode: 0o644 });
     const originalOpenSync = fs.openSync;
     fs.openSync = ((...openArgs: unknown[]) => {
-      const [target, flags] = openArgs as [fs.PathLike, number | string];
+      const [target, flags] = openArgs as [FsPathLike, number | string];
       if (String(target) === victimSwapTokenFile && flags === (fs.constants.O_WRONLY | fs.constants.O_NOFOLLOW)) {
         fs.unlinkSync(victimSwapTokenFile);
         fs.linkSync(victimFile, victimSwapTokenFile);
@@ -494,7 +500,7 @@ function run() {
     const raceCreateTokenFile = path.join(raceCreateDir, '.session-token');
     const raceVictimFile = path.join(raceCreateDir, 'race-victim');
     fs.openSync = ((...openArgs: unknown[]) => {
-      const [target, flags] = openArgs as [fs.PathLike, number | string];
+      const [target, flags] = openArgs as [FsPathLike, number | string];
       if (
         String(target) === raceCreateTokenFile
         && typeof flags === 'number'
