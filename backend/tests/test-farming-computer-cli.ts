@@ -10,6 +10,9 @@ const farmingCli = path.join(__dirname, '..', 'farming-app-cli.cjs');
 const manifest = require('../../extensions/computer/backend/cua-tools.json');
 const { TOOL_TOPICS, describeTool, markTransportTimeoutUncertain } = require(computerCli);
 
+// Exact CLI transport-error envelope properties exercised below.
+type TransportTimeoutError = Error & { uncertain?: boolean; actionStarted?: boolean };
+
 function listen(server) {
   return new Promise((resolve, reject) => {
     server.once('error', reject);
@@ -67,7 +70,7 @@ async function run() {
   // A transport timeout on a mutating lifecycle command has an uncertain
   // outcome and the error envelope must say to observe before any retry.
   for (const lifecycleCommand of ['open', 'stop']) {
-    const timeoutError = new Error('Computer request timed out');
+    const timeoutError: TransportTimeoutError = new Error('Computer request timed out');
     markTransportTimeoutUncertain(timeoutError, lifecycleCommand);
     assert.strictEqual(
       timeoutError.uncertain,
@@ -76,7 +79,7 @@ async function run() {
     );
   }
   for (const readOnlyCommand of ['capability', 'list', 'help', 'describe']) {
-    const timeoutError = new Error('Computer request timed out');
+    const timeoutError: TransportTimeoutError = new Error('Computer request timed out');
     markTransportTimeoutUncertain(timeoutError, readOnlyCommand);
     assert.strictEqual(
       timeoutError.uncertain,
@@ -85,16 +88,16 @@ async function run() {
     );
   }
   {
-    const mutatingToolError = new Error('Computer request timed out');
+    const mutatingToolError: TransportTimeoutError = new Error('Computer request timed out');
     markTransportTimeoutUncertain(mutatingToolError, 'click');
     assert.strictEqual(mutatingToolError.uncertain, true, 'a timed-out mutating tool call must be marked uncertain');
-    const readOnlyToolError = new Error('Computer request timed out');
+    const readOnlyToolError: TransportTimeoutError = new Error('Computer request timed out');
     markTransportTimeoutUncertain(readOnlyToolError, 'get_desktop_state');
     assert.strictEqual(readOnlyToolError.uncertain, undefined, 'a timed-out bounded observation must not be marked uncertain');
-    const notStartedError = Object.assign(new Error('Computer request timed out'), { actionStarted: false });
+    const notStartedError: TransportTimeoutError = Object.assign(new Error('Computer request timed out'), { actionStarted: false });
     markTransportTimeoutUncertain(notStartedError, 'click');
     assert.strictEqual(notStartedError.uncertain, undefined, 'a request proven not sent has no uncertain outcome');
-    const unrelatedError = new Error('Computer is stopping');
+    const unrelatedError: TransportTimeoutError = new Error('Computer is stopping');
     markTransportTimeoutUncertain(unrelatedError, 'stop');
     assert.strictEqual(unrelatedError.uncertain, undefined, 'non-timeout errors keep their own semantics');
   }
