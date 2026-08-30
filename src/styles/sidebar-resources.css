@@ -20,7 +20,7 @@
   align-items: center;
   gap: 8px;
   padding: 2px 2px 1px 0;
-  background: var(--code-bg-chrome);
+  background: var(--code-navigation-surface);
   color: var(--code-text-subtle);
   font-size: 13px;
   font-weight: 500;
@@ -123,7 +123,7 @@
 }
 
 .code-sidebar-resource-row {
-  --code-sidebar-resource-row-action-surface: var(--code-bg-chrome);
+  --code-sidebar-resource-row-action-surface: var(--code-navigation-surface);
   --code-sidebar-resource-row-action-overlay: transparent;
   min-width: 0;
   min-height: 32px;
@@ -135,24 +135,25 @@
   padding: 3px 4px 3px 5px;
   border-radius: 8px;
   color: var(--code-text-muted);
-  cursor: default;
+  cursor: pointer;
   font-size: 13px;
   line-height: 16px;
 }
 
 .code-sidebar-resource-row:hover {
-  --code-sidebar-resource-row-action-overlay: var(--code-bg-hover);
-  background: var(--code-bg-hover);
+  --code-sidebar-resource-row-action-overlay: var(--code-active-item-surface);
+  background: var(--code-active-item-surface);
   color: var(--code-text);
 }
 
 .code-sidebar-resource-row.active {
-  --code-sidebar-resource-row-action-overlay: var(--code-bg-selected);
-  background: var(--code-bg-selected);
-  color: var(--code-accent);
+  --code-sidebar-resource-row-action-overlay: var(--code-active-item-surface);
+  background: var(--code-active-item-surface);
+  color: var(--code-text);
 }
 
 .code-sidebar-resource-row:focus-visible {
+  --code-sidebar-resource-row-action-surface: var(--code-active-item-surface);
   --code-sidebar-resource-row-action-overlay: var(--code-active-item-surface);
   background: var(--code-active-item-surface);
   color: var(--code-text);

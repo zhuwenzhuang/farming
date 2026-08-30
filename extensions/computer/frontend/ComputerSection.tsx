@@ -211,7 +211,10 @@ export function ComputerSection({
             tabIndex={0}
             onClick={() => onOpen(resource)}
             onKeyDown={event => {
-              if (event.key === 'Enter' || event.key === ' ') onOpen(resource)
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault()
+                onOpen(resource)
+              }
             }}
           >
             <span className={`farming-computer-resource-icon code-sidebar-resource-icon ${resource.status}`} aria-hidden="true"><DesktopGlyph /></span>
