@@ -6294,6 +6294,20 @@ class AgentManager extends EventEmitter {
     }
     const agent = this.agents.get(agentId);
     if (!agent) return Promise.reject(new Error('Agent not found'));
+    const existingCommand = normalizedComposerCommands(agent.composerCommands)
+      .find(command => command.requestId === requestId);
+    if (existingCommand && existingCommand.state !== 'failed') {
+      // Idempotent replay resolution precedes Terminal admission. An accepted,
+      // in-flight, intent, or unknown request performs no new PTY write, so an
+      // active uncertain-input fence must not hide its durable outcome. The
+      // coordinator still validates the content hash before returning it.
+      return this.composerAdmissionCoordinator.request({
+        agent,
+        delivery: options.delivery,
+        message,
+        requestId,
+      });
+    }
     let terminalAdmission: TerminalInputAdmission | undefined;
     if (runtimeKind(agent) === 'terminal') {
       // Capture the Terminal admission context synchronously at request time.
@@ -6727,6 +6741,7 @@ class AgentManager extends EventEmitter {
         ...(typeof options.expectedTerminalRuntimeEpoch === 'string' && options.expectedTerminalRuntimeEpoch
           ? { expectedRuntimeEpoch: options.expectedTerminalRuntimeEpoch }
           : {}),
+        throwOnUncertain: true,
       });
       // A fence or epoch rejection is a proven zero-write outcome and must
       // fail the delivery explicitly instead of reporting a submission.

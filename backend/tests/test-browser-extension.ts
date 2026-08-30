@@ -415,13 +415,13 @@ async function testBrowserResourceManager() {
   assert.deepStrictEqual(concurrentSources, firstSources);
   assert.strictEqual(
     pureReadOnlyBrowserProbes,
-    4,
-    'concurrent capability snapshots must share one current-source probe plus three source probes',
+    2,
+    'concurrent capability snapshots must share the current-source probes and skip unavailable runtimes',
   );
   await pureReadOnlyBrowserManager.sourceCapabilities({ reuseVerified: true });
   assert.strictEqual(
     pureReadOnlyBrowserProbes,
-    4,
+    2,
     'an unchanged capability snapshot must reuse verified per-source results',
   );
   await pureReadOnlyBrowserManager.dispose();

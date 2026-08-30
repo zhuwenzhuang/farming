@@ -294,6 +294,7 @@ const FileTreeViewContent = memo(function FileTreeViewContent({
     filePath: string
     timeStamp: number
   } | null>(null)
+  const treeWindowRef = useRef<HTMLDivElement | null>(null)
   const virtualScrollOffsetRef = useRef(0)
   const [treeWindowHeight, setTreeWindowHeight] = useState(() => (
     Math.max(rowHeight, Math.min(treeHeight, rowHeight * FILE_TREE_INITIAL_VIEWPORT_ROWS))

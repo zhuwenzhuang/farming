@@ -54,7 +54,7 @@ function run() {
   assert(publicationJob.includes('gh release edit "${tag}" --repo "${GITHUB_REPOSITORY}" --draft=false'));
   assert(publicationJob.includes('https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${tag}'));
   assert(publicationJob.includes('GitHub Release is missing assets'));
-  assert(publicationJob.includes('Public release asset checksum mismatch'));
+  assert(publicationJob.includes('node scripts/verify-public-release-assets.mjs'));
   assert(publicationJob.includes('npm install --global npm@latest'));
   assert(publicationJob.includes('sha256sum --check'));
   assert(publicationJob.includes('npm publish "./${package_tarball}"'));

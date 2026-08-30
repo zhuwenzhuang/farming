@@ -94,7 +94,10 @@ async function run() {
         ? input.map(part => typeof part === 'string' ? part : String(part?.text || '')).join('')
         : String(input || '');
       if (text.includes(uncertainTerminalMessage) && uncertainTerminalMessage) {
-        throw new Error('simulated lost PTY acknowledgement after write');
+        throw Object.assign(
+          new Error('simulated lost PTY acknowledgement after write'),
+          { terminalMutationUncertain: true },
+        );
       }
       return { sent: true };
     },
@@ -305,18 +308,26 @@ async function run() {
     assert.strictEqual(intentRetry.body.uncertain, true);
     assert.strictEqual(terminalInputs.length, writesBeforeIntent, 'a recovered intent must not be replayed');
 
+    assert.strictEqual(
+      manager.releaseTerminalInputFence(terminalAgent.id, { runtimeEpoch: terminalAgent.runtimeEpoch }),
+      true,
+      'an explicit checkpoint must reconcile the uncertain write before later legacy input',
+    );
     uncertainTerminalMessage = 'legacy nonpersistent input';
     console.error = () => {};
     try {
-      const legacyResult = await manager.sendComposerMessage(terminalAgent.id, uncertainTerminalMessage);
-      assert.deepStrictEqual(legacyResult, { kind: 'terminal' });
+      await assert.rejects(
+        manager.sendComposerMessage(terminalAgent.id, uncertainTerminalMessage),
+        error => error.uncertain === true && /delivery could not be confirmed/.test(error.message),
+        'a non-persistent Terminal Composer write must expose its uncertain outcome',
+      );
     } finally {
       console.error = originalConsoleError;
     }
     assert.strictEqual(
       terminalInputs.filter(call => JSON.stringify(call.input).includes(uncertainTerminalMessage)).length,
       1,
-      'legacy nonpersistent Terminal Composer delivery keeps its previous best-effort behavior',
+      'an uncertain non-persistent Terminal Composer delivery must write at most once',
     );
 
     const acpMessagePath = `/api/control/agents/${acpAgent.id}/messages`;

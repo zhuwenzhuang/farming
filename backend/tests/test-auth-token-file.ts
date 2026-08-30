@@ -369,14 +369,24 @@ function run() {
     const unreadableTokenFile = path.join(unreadableDir, '.session-token');
     fs.writeFileSync(unreadableTokenFile, 'unreadable-persisted-token', { mode: 0o600 });
     fs.chmodSync(unreadableTokenFile, 0o000);
-    const unreadableAuth = new TokenAuth({ basePath: '/farming', farmingDir: unreadableDir });
-    assert.strictEqual(
-      unreadableAuth.getToken(),
-      'unreadable-persisted-token',
-      'an owned but unreadable token file must be mode-repaired before reading',
-    );
-    assert.strictEqual(fs.statSync(unreadableTokenFile).mode & 0o777, 0o600);
-    unreadableAuth.cleanup({ removeTokenFile: true });
+    if (process.platform === 'linux') {
+      const unreadableAuth = new TokenAuth({ basePath: '/farming', farmingDir: unreadableDir });
+      assert.strictEqual(
+        unreadableAuth.getToken(),
+        'unreadable-persisted-token',
+        'an owned but unreadable token file must be mode-repaired before reading',
+      );
+      assert.strictEqual(fs.statSync(unreadableTokenFile).mode & 0o777, 0o600);
+      unreadableAuth.cleanup({ removeTokenFile: true });
+    } else {
+      assert.throws(
+        () => new TokenAuth({ basePath: '/farming', farmingDir: unreadableDir }),
+        /cannot safely repair it on this platform/i,
+        'platforms without a swap-safe unreadable-file repair must fail closed with actionable guidance',
+      );
+      fs.chmodSync(unreadableTokenFile, 0o600);
+      fs.rmSync(unreadableTokenFile);
+    }
 
     // A restrictive umask must not strip the owner-only mode at creation.
     const umaskDir = path.join(configDir, 'umask-config');
@@ -449,9 +459,10 @@ function run() {
     try {
       assert.throws(
         () => new TokenAuth({ basePath: '/farming', farmingDir: swapDir }),
-        (error: Error) => /must be a regular file/.test(error.message)
-          || /changed identity/.test(error.message),
-        'a symlink swap during mode repair must fail startup closed',
+        (error: Error) => process.platform === 'linux'
+          ? /must be a regular file/.test(error.message) || /changed identity/.test(error.message)
+          : /cannot safely repair it on this platform/i.test(error.message),
+        'an unreadable token path must fail closed, including a Linux symlink swap during repair',
       );
     } finally {
       fs.chmodSync = originalChmodSync;
