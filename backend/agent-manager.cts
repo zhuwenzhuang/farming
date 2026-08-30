@@ -7278,7 +7278,9 @@ class AgentManager extends EventEmitter {
       }
       if (result.reason === 'runtime-epoch-mismatch') {
         throw Object.assign(
-          new Error('Terminal runtime epoch advanced before the input reached the terminal'),
+          // Composer/profile delivery wording is the established visible
+          // contract for this rejection.
+          new Error('Terminal runtime epoch advanced before Composer input reached the terminal'),
           {
             code: 'TERMINAL_INPUT_EPOCH_REJECTED',
             composerRecordExact,
