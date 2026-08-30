@@ -1390,6 +1390,69 @@ test.describe('iPhone mobile layout', () => {
     expect(fs.existsSync(path.join(projectDir, 'touch-folder-renamed'))).toBe(false)
   })
 
+  test('keeps one outer Files scroll surface during continuous mobile scroll', async ({ page, workspaceRoot }, testInfo) => {
+    test.skip(testInfo.project.name !== 'iphone-webkit', 'Runs only in the iPhone WebKit project')
+    const projectDir = path.join(workspaceRoot, 'iphone-large-file-tree')
+    const largeDir = path.join(projectDir, 'odps_src')
+    fs.mkdirSync(largeDir, { recursive: true })
+    for (let index = 0; index < 180; index += 1) {
+      fs.writeFileSync(path.join(largeDir, `mobile-file-${String(index).padStart(3, '0')}.sql`), `select ${index};\n`)
+    }
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, 'maxTouchPoints', { value: 5, configurable: true })
+    })
+    await openFarming(page)
+    await createControlAgent(page, 'bash', projectDir)
+    await page.getByTestId('code-mobile-menu').tap()
+    const files = page.getByTestId('code-project-group').filter({ hasText: 'iphone-large-file-tree' }).getByTestId('code-files-section')
+    const filesToggle = files.getByRole('button', { name: /^Files$/ })
+    if (await filesToggle.getAttribute('aria-expanded') === 'false') await filesToggle.tap()
+    await files.locator('[data-testid="code-file-row"][data-file-path="odps_src"]').tap()
+    await expect(files.locator('[data-testid="code-file-row"][data-file-path="odps_src/mobile-file-000.sql"]')).toBeVisible()
+
+    const samples = await files.locator('.code-file-tree-viewport').evaluate(async viewportElement => {
+      const viewport = viewportElement as HTMLElement
+      const scroller = viewport.closest('.code-project-list') as HTMLElement | null
+      const treeWindow = viewport.querySelector('.code-file-tree-window') as HTMLElement | null
+      const tree = viewport.querySelector('.code-file-tree') as HTMLElement | null
+      if (!scroller || !treeWindow || !tree) throw new Error('Large file tree scroll surfaces are incomplete')
+      const outerScrollTop = scroller.scrollTop
+      const target = Math.min(scroller.scrollHeight - scroller.clientHeight, outerScrollTop + 1_600)
+      scroller.scrollTo({ top: target, behavior: 'smooth' })
+      const frames: Array<{
+        innerActual: number
+        innerOverflow: string
+        outerDelta: number
+        outerOverflow: string
+        windowPosition: string
+        windowTopDelta: number
+      }> = []
+      for (let frame = 0; frame < 36; frame += 1) {
+        await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+        const scrollerRect = scroller.getBoundingClientRect()
+        const windowRect = treeWindow.getBoundingClientRect()
+        frames.push({
+          innerActual: tree.scrollTop,
+          innerOverflow: getComputedStyle(tree).overflowY,
+          outerDelta: Math.abs(scroller.scrollTop - outerScrollTop),
+          outerOverflow: getComputedStyle(scroller).overflowY,
+          windowPosition: getComputedStyle(treeWindow).position,
+          windowTopDelta: Math.abs(windowRect.top - scrollerRect.top),
+        })
+      }
+      return frames
+    })
+    expect(samples.some(sample => sample.outerDelta > 400)).toBe(true)
+    expect(samples.some(sample => sample.innerActual > 400)).toBe(true)
+    expect(samples.every(sample => sample.innerOverflow === 'hidden')).toBe(true)
+    expect(samples.every(sample => sample.outerOverflow === 'auto')).toBe(true)
+    expect(samples.every(sample => sample.windowPosition === 'sticky')).toBe(true)
+    const activeSamples = samples.filter(sample => sample.outerDelta > 200)
+    expect(activeSamples.length).toBeGreaterThan(0)
+    expect(Math.max(...activeSamples.map(sample => sample.windowTopDelta))).toBeLessThanOrEqual(1)
+    await captureIphoneAudit(page, 'iphone-webkit-large-file-tree-scroll.png')
+  })
+
   test('keeps composer, mic, and terminal surfaces usable under iPhone WebKit emulation', async ({ page, workspaceRoot }, testInfo) => {
     test.skip(testInfo.project.name !== 'iphone-webkit', 'Runs only in the iPhone WebKit project')
 

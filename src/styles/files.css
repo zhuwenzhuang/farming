@@ -856,7 +856,7 @@ body.code-mode .code-file-change-group-toggle {
 }
 
 .code-file-tree-window {
-  position: absolute;
+  position: sticky;
   top: 0;
   left: 0;
   right: 0;
