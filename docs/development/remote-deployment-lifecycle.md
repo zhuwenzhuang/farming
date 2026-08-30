@@ -48,13 +48,22 @@ one install path may stop only the exact Server proven by the selected Config.
 | Prepared | Native modules load through the artifact compatibility runtime and fixed runtimes are prepared with `--no-activate`. | Failure leaves the current Server live. |
 | Activating | The exact old Server stops, its Config is checkpointed, a working copy is created on the same filesystem, a symlink atomically selects the prepared image, and the new Server starts against the working copy. | A stop or checkpoint failure leaves selection and durable Config state unchanged. A selection or start failure enters rollback. |
 | Verifying | Authenticated HTTP, versioned WebSocket, PTY Host, ACP Host, and one fresh empty Chat are exercised through internal smoke Agents that stay out of interactive browser inventories, then those exact Agents are removed. | Any failure enters rollback without replaying an uncertain mutation. |
-| Succeeded | Current and rollback selections are recorded and only safe old images outside retention are removed. | Cleanup failure does not invalidate the running image and remains visible. |
+| Succeeded | Current and rollback selections are recorded, and only safe old images outside retention and without a live same-user reference are removed. | Cleanup failure does not invalidate the running image and remains visible. Uncertain live-reference evidence skips all cleanup. |
 | Rolling back | The failed image stops, its working Config copy is isolated, the pre-activation Config checkpoint is restored, the prior image is selected, and its Server starts. | Success ends as a visible failed deployment with the prior image and its compatible Config state restored; rollback failure retains exact snapshots and requires operator action. |
 
 Only one activation owns a deployment root. Another activation fails immediately
 while the lock owner is live. Preparation is idempotent by artifact checksum;
 activation is not replayed after an ambiguous transport outcome. The operator
 must first reconcile the current symlink and Config-owned Server state.
+
+Retention keeps the current and previous images, the images inside the recency
+budget, and images referenced by already-running same-user processes whose
+command lines carry image-root-qualified paths (for example the CLI entrypoint,
+bundled glibc loader, or backend entrypoints). The live-reference scan is a
+snapshot observation, not an atomic lease: current and previous selections
+protect normal new starts, the scan protects already-running old Config
+Servers observed at scan time, and uncertain observation skips all cleanup with
+a visible warning.
 
 ## Safety And Liveness
 

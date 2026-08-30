@@ -501,6 +501,84 @@ fi
 
 CURRENT_ROOT="$(readlink -f "${REMOTE_DIR}")"
 PREVIOUS_PROTECTED="$(readlink -f "${PREVIOUS_LINK}" 2>/dev/null || true)"
+
+# Resolve which images are still referenced by live processes before pruning.
+# A Farming Server started from a remote image carries image-root-qualified
+# command-line arguments (for example the CLI entrypoint, the bundled glibc
+# loader, or backend entrypoints), so an exact /proc cmdline scan proves live
+# usage for any Config instance, independent of image version or working
+# directory. One deployment root belongs to one operating user, so process
+# ownership is decided from the /proc entry's uid; if ownership or command-line
+# evidence cannot be proven, the scan reports uncertainty and cleanup is
+# skipped instead of guessed. Production always scans /proc.
+#
+# Concurrency boundary: this is a snapshot scan, not an atomic lease. The
+# current/previous pointers protect normal new starts of the selected Config;
+# the live-reference scan protects already-running Servers of other Configs
+# observed at scan time; uncertain observation skips all cleanup.
+LIVE_REFERENCE_OUTPUT="$(node - "${IMAGES_DIR}" <<'NODE'
+const fs = require('fs');
+const path = require('path');
+
+const imagesDir = path.resolve(process.argv[2]);
+const imagesPrefix = imagesDir + path.sep;
+const referenced = new Set();
+let uncertain = false;
+const ownUid = typeof process.geteuid === 'function' ? process.geteuid() : -1;
+if (ownUid < 0) uncertain = true;
+let procEntries = [];
+try {
+  procEntries = fs.readdirSync('/proc');
+} catch {
+  uncertain = true;
+}
+for (const entry of procEntries) {
+  if (!/^\d+$/.test(entry)) continue;
+  if (entry === String(process.pid)) continue;
+  if (uncertain) break;
+  let procStat;
+  try {
+    procStat = fs.statSync(path.join('/proc', entry));
+  } catch (error) {
+    const code = error && typeof error === 'object' ? error.code : '';
+    if (code === 'ENOENT' || code === 'ESRCH') continue;
+    uncertain = true;
+    break;
+  }
+  if (procStat.uid !== ownUid) continue;
+  let cmdline;
+  try {
+    cmdline = fs.readFileSync(path.join('/proc', entry, 'cmdline'));
+  } catch (error) {
+    const code = error && typeof error === 'object' ? error.code : '';
+    if (code === 'ENOENT' || code === 'ESRCH') continue;
+    uncertain = true;
+    break;
+  }
+  for (const arg of cmdline.toString('utf8').split('\0')) {
+    if (arg.startsWith(imagesPrefix)) {
+      const topLevel = arg.slice(imagesPrefix.length).split(path.sep)[0];
+      if (topLevel && topLevel !== '..') referenced.add(path.join(imagesDir, topLevel));
+    }
+  }
+}
+if (uncertain) process.stdout.write('UNCERTAIN\n');
+for (const imageRoot of [...referenced].sort()) {
+  process.stdout.write(`${imageRoot}\n`);
+}
+NODE
+)" || LIVE_REFERENCE_OUTPUT="UNCERTAIN"
+
+LIVE_REFERENCED_IMAGES=()
+LIVE_REFERENCE_UNCERTAIN="false"
+while IFS= read -r reference_line; do
+  if [ "${reference_line}" = "UNCERTAIN" ]; then
+    LIVE_REFERENCE_UNCERTAIN="true"
+  elif [ -n "${reference_line}" ]; then
+    LIVE_REFERENCED_IMAGES+=("${reference_line}")
+  fi
+done <<< "${LIVE_REFERENCE_OUTPUT}"
+
 retained=0
 CLEANUP_WARNING="false"
 while IFS= read -r candidate; do
@@ -509,6 +587,14 @@ while IFS= read -r candidate; do
     retained=$((retained + 1))
     continue
   fi
+  if [ "${LIVE_REFERENCE_UNCERTAIN}" = "true" ]; then
+    continue
+  fi
+  for live_referenced_image in ${LIVE_REFERENCED_IMAGES[@]+"${LIVE_REFERENCED_IMAGES[@]}"}; do
+    if [ "${candidate}" = "${live_referenced_image}" ]; then
+      continue 2
+    fi
+  done
   if [ -f "${candidate}/.farming-deployment.json" ] && [[ "${candidate}" == "${IMAGES_DIR}/"* ]]; then
     chmod -R u+rwX "${candidate}" 2>/dev/null || true
     if ! rm -rf "${candidate}"; then
@@ -517,6 +603,11 @@ while IFS= read -r candidate; do
     fi
   fi
 done < <(find "${IMAGES_DIR}" -mindepth 1 -maxdepth 1 -type d -print0 | xargs -0 -r ls -1dt 2>/dev/null || true)
+
+if [ "${LIVE_REFERENCE_UNCERTAIN}" = "true" ]; then
+  echo "Warning: live image references could not be proven; old image cleanup was skipped." >&2
+  CLEANUP_WARNING="true"
+fi
 
 rm -f "${ARTIFACT}"
 node - "${IMAGE_ID}" "${EXPECTED_GIT_SHA}" "${IMAGE_ROOT}" "${CLEANUP_WARNING}" <<'NODE'

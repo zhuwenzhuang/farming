@@ -40,12 +40,18 @@ Config 状态和部署 image 不共享所有权身份。更新一个安装路径
 | Prepared | 通过 artifact 自带兼容运行时加载原生模块，并用 `--no-activate` 准备固定 runtime。 | 失败时当前 Server 继续运行。 |
 | Activating | 精确停止旧 Server，为其 Config 建立 checkpoint，在同一文件系统创建工作副本，原子切换 symlink，并让新 Server 使用工作副本启动。 | 停止或 checkpoint 失败不改变选择和持久 Config 状态；切换或启动失败进入回滚。 |
 | Verifying | 通过不进入交互式浏览器 Agent 清单的内部 smoke Agent 验证认证 HTTP、版本化 WebSocket、PTY Host、ACP Host 和一个全新空 Chat，随后删除这些确切 Agent。 | 任一步失败都进入回滚，不重放结果不确定的 mutation。 |
-| Succeeded | 记录 current 与 rollback 选择，只清理保留策略外且可证明安全的旧 image。 | 清理失败不会否定运行中的 image，但必须可见。 |
+| Succeeded | 记录 current 与 rollback 选择，只清理保留策略外、且没有存活同用户进程引用的可证明安全旧 image。 | 清理失败不会否定运行中的 image，但必须可见；存活引用证据不确定时跳过全部清理。 |
 | Rolling back | 停止失败 image，隔离其 Config 工作副本，恢复 activation 前的 Config checkpoint，选择旧 image，并启动旧 Server。 | 成功则部署失败，但旧 image 与兼容的旧 Config 状态一同恢复；回滚失败时保留确切快照并要求人工处理。 |
 
 一个部署根目录同时只能有一个 activation。锁的 owner 存活时，另一个 activation 立即
 失败。Artifact preparation 按 checksum 幂等；连接结果不确定时不得重放 activation，
 必须先核对 current symlink 和 Config 拥有的 Server 状态。
+
+Retention 保留 current 与 previous image、recency 预算内的 image，以及仍被存活同用户进程
+引用的 image（其命令行携带 image 根路径，例如 CLI 入口、捆绑的 glibc loader 或 backend
+入口）。存活引用扫描是一次快照观测，而不是原子租约：current 与 previous 选择保护正常的新
+启动，扫描保护扫描时刻已在运行的旧 Config Server，观测不确定时跳过全部清理并给出可见
+警告。
 
 ## Safety 与 Liveness
 
