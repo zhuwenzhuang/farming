@@ -1,0 +1,161 @@
+name: Resume npm Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: 'Existing public release version without a v prefix'
+        required: true
+        type: string
+      candidate_sha:
+        description: 'Full exact commit SHA identified by the public release tag'
+        required: true
+        type: string
+      preparation_run_id:
+        description: 'Successful Release Preparation workflow run ID for this candidate'
+        required: true
+        type: string
+      acceptance_context:
+        description: 'Exact successful release acceptance commit-status context'
+        required: true
+        type: string
+      failed_publication_run_id:
+        description: 'Failed Publish Release run that already made the GitHub Release public'
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+  statuses: read
+
+jobs:
+  resume-npm:
+    name: Verify public release and resume npm publication
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      statuses: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_VERSION: ${{ inputs.release_version }}
+      CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+      PREPARATION_RUN_ID: ${{ inputs.preparation_run_id }}
+      ACCEPTANCE_CONTEXT: ${{ inputs.acceptance_context }}
+      FAILED_PUBLICATION_RUN_ID: ${{ inputs.failed_publication_run_id }}
+    steps:
+      - name: Checkout recovery verifier
+        uses: actions/checkout@v4
+
+      - name: Verify failed publication and exact candidate evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "${RELEASE_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]
+          [[ "${CANDIDATE_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${PREPARATION_RUN_ID}" =~ ^[1-9][0-9]*$ ]]
+          [[ "${FAILED_PUBLICATION_RUN_ID}" =~ ^[1-9][0-9]*$ ]]
+          expected_context_prefix="farming/release-acceptance/${RELEASE_VERSION}/"
+          [[ "${ACCEPTANCE_CONTEXT}" == "${expected_context_prefix}"* ]]
+
+          publication_run="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${FAILED_PUBLICATION_RUN_ID}")"
+          publication_jobs="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${FAILED_PUBLICATION_RUN_ID}/jobs?per_page=100")"
+          workflow_id="$(RUN_JSON="${publication_run}" node -p 'JSON.parse(process.env.RUN_JSON).workflow_id')"
+          workflow_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow_id}")"
+          RUN_JSON="${publication_run}" JOBS_JSON="${publication_jobs}" WORKFLOW_JSON="${workflow_json}" node <<'NODE'
+          const run = JSON.parse(process.env.RUN_JSON);
+          const jobs = JSON.parse(process.env.JOBS_JSON).jobs || [];
+          const workflow = JSON.parse(process.env.WORKFLOW_JSON);
+          if (workflow.path !== '.github/workflows/publish-release.yml') throw new Error(`Unexpected failed workflow: ${workflow.path}`);
+          if (run.event !== 'workflow_dispatch' || run.conclusion !== 'failure') throw new Error(`Publication run is not a failed dispatch: ${run.event}/${run.conclusion}`);
+          if (run.head_sha !== process.env.CANDIDATE_SHA) throw new Error(`Publication run SHA mismatch: ${run.head_sha}`);
+          const job = jobs.find(entry => entry.name === 'Publish verified release');
+          if (!job) throw new Error('Failed publication job is missing');
+          const requiredSteps = new Map([
+            ['Verify exact preparation run', 'success'],
+            ['Require successful candidate push workflows', 'success'],
+            ['Require successful automated and Computer Use acceptance', 'success'],
+            ['Publish the matching draft release', 'success'],
+            ['Verify public tag, assets, and manifest', 'failure'],
+          ]);
+          for (const [name, conclusion] of requiredSteps) {
+            const step = (job.steps || []).find(entry => entry.name === name);
+            if (step?.conclusion !== conclusion) throw new Error(`Publication step ${name} is ${step?.conclusion || 'missing'}, expected ${conclusion}`);
+          }
+          NODE
+
+          preparation_run="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${PREPARATION_RUN_ID}")"
+          PREP_JSON="${preparation_run}" node <<'NODE'
+          const run = JSON.parse(process.env.PREP_JSON);
+          if (run.event !== 'workflow_dispatch' || run.status !== 'completed' || run.conclusion !== 'success') {
+            throw new Error(`Preparation run is not successful: ${run.event}/${run.status}/${run.conclusion}`);
+          }
+          if (run.head_sha !== process.env.CANDIDATE_SHA) throw new Error(`Preparation run SHA mismatch: ${run.head_sha}`);
+          NODE
+
+          status_json="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${CANDIDATE_SHA}/status")"
+          STATUS_JSON="${status_json}" node <<'NODE'
+          const status = JSON.parse(process.env.STATUS_JSON);
+          const match = (status.statuses || []).find(entry => entry.context === process.env.ACCEPTANCE_CONTEXT);
+          if (match?.state !== 'success') throw new Error(`Release acceptance is ${match?.state || 'missing'}`);
+          NODE
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: https://registry.npmjs.org
+
+      - name: Install current npm CLI
+        run: npm install --global npm@latest
+
+      - name: Download verified npm tarball
+        uses: actions/download-artifact@v4
+        with:
+          name: farming-npm-${{ inputs.release_version }}
+          path: npm-package
+          run-id: ${{ inputs.preparation_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Verify existing public tag, release, and assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="v${RELEASE_VERSION}"
+          remote_tag_sha="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" "refs/tags/${tag}^{}" | awk '{print $1}')"
+          [[ "${remote_tag_sha}" == "${CANDIDATE_SHA}" ]]
+          release_json="$(gh release view "${tag}" --repo "${GITHUB_REPOSITORY}" --json isDraft,isPrerelease)"
+          RELEASE_JSON="${release_json}" node <<'NODE'
+          const release = JSON.parse(process.env.RELEASE_JSON);
+          if (release.isDraft) throw new Error('GitHub Release is still a draft');
+          NODE
+          mkdir public-release
+          gh release download "${tag}" --repo "${GITHUB_REPOSITORY}" --dir public-release
+          node scripts/verify-public-release-assets.mjs public-release "${CANDIDATE_SHA}" "${RELEASE_VERSION}"
+
+      - name: Verify and publish npm package with provenance
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "${NPM_TOKEN}" ]]; then
+            printf '//registry.npmjs.org/:_authToken=%s\n' "${NPM_TOKEN}" > "${HOME}/.npmrc"
+          fi
+          package_tarball="npm-package/farming-code-${RELEASE_VERSION}.tgz"
+          digest_file="${package_tarball}.sha256"
+          test -f "${package_tarball}"
+          test -f "${digest_file}"
+          (cd npm-package && sha256sum --check "$(basename "${digest_file}")")
+          if npm view "farming-code@${RELEASE_VERSION}" version >/dev/null 2>&1; then
+            bash scripts/verify-npm-release-source.sh "farming-code@${RELEASE_VERSION}" "${CANDIDATE_SHA}"
+            configured_registry="$(npm config get registry)"
+            bash scripts/reconcile-npm-registry-tarball.sh "${package_tarball}" "farming-code@${RELEASE_VERSION}" --registry "${configured_registry}"
+            exit 0
+          fi
+          dist_tag=latest
+          [[ "${RELEASE_VERSION}" == *-* ]] && dist_tag=next
+          npm publish "./${package_tarball}" --access public --provenance --tag "${dist_tag}" --loglevel=error
+          bash scripts/verify-npm-release-source.sh "farming-code@${RELEASE_VERSION}" "${CANDIDATE_SHA}"

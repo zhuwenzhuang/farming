@@ -14,6 +14,10 @@ function run() {
     path.join(process.cwd(), '.github/workflows/publish-release.yml'),
     'utf8',
   );
+  const recoveryWorkflowSource = fs.readFileSync(
+    path.join(process.cwd(), '.github/workflows/resume-npm-release.yml'),
+    'utf8',
+  );
   const releaseWorkflowSource = `${preparationWorkflowSource}\n${publicationWorkflowSource}`;
   assert(releaseWorkflowSource.includes('node --import tsx scripts/verify-release-bundle.ts'));
   assert(publicationWorkflowSource.includes('release-metadata-${file.slice'));
@@ -55,6 +59,7 @@ function run() {
   assert(publicationJob.includes('https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${tag}'));
   assert(publicationJob.includes('GitHub Release is missing assets'));
   assert(publicationJob.includes('node scripts/verify-public-release-assets.mjs'));
+  assert(publicationJob.includes('supplementalPublicFiles'));
   assert(publicationJob.includes('npm install --global npm@latest'));
   assert(publicationJob.includes('sha256sum --check'));
   assert(publicationJob.includes('npm publish "./${package_tarball}"'));
@@ -85,6 +90,7 @@ function run() {
 
   const preparationWorkflow = YAML.parse(preparationWorkflowSource);
   const publicationWorkflow = YAML.parse(publicationWorkflowSource);
+  const recoveryWorkflow = YAML.parse(recoveryWorkflowSource);
   assert.deepStrictEqual(preparationWorkflow.permissions, { contents: 'read' });
   assert.deepStrictEqual(
     publicationWorkflow.permissions,
@@ -138,6 +144,17 @@ function run() {
     publicationWorkflow.jobs['publish-release'].permissions,
     { actions: 'read', contents: 'write', 'id-token': 'write', statuses: 'read' },
   );
+  assert.deepStrictEqual(
+    recoveryWorkflow.jobs['resume-npm'].permissions,
+    { actions: 'read', contents: 'read', 'id-token': 'write', statuses: 'read' },
+  );
+  for (const input of ['release_version', 'candidate_sha', 'preparation_run_id', 'acceptance_context', 'failed_publication_run_id']) {
+    assert.strictEqual(recoveryWorkflow.on.workflow_dispatch.inputs[input].required, true);
+  }
+  assert(recoveryWorkflowSource.includes("workflow.path !== '.github/workflows/publish-release.yml'"));
+  assert(recoveryWorkflowSource.includes("['Verify public tag, assets, and manifest', 'failure']"));
+  assert(recoveryWorkflowSource.includes('node scripts/verify-public-release-assets.mjs public-release'));
+  assert(recoveryWorkflowSource.includes('npm publish "./${package_tarball}" --access public --provenance'));
   const publicationSteps = publicationWorkflow.jobs['publish-release'].steps;
   const publicationStepIndex = (name: string) => publicationSteps.findIndex(step => step.name === name);
   assert(

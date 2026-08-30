@@ -39,6 +39,9 @@ function buildPublicReleaseAssets(expectedAssets, options: SyntheticReleaseOptio
       : `farming app bundle ${asset.platform} ${asset.arch} ${asset.compatibilityProfile || 'standard'}`;
     assets.set(asset.file, Buffer.from(`${detail}\n`));
   }
+  for (const file of ['LICENSE', 'LICENSE.pi-acp', 'LICENSE.pi-acp-sdk', 'LICENSE.pi-acp-zod', 'THIRD_PARTY_NOTICES.md']) {
+    assets.set(file, Buffer.from(`${file} fixture\n`));
+  }
 
   // Content selection happens before checksum/manifest generation; a large
   // asset simulates a production-sized app bundle.
@@ -50,7 +53,7 @@ function buildPublicReleaseAssets(expectedAssets, options: SyntheticReleaseOptio
   }
 
   const checksumName = `farming_${VERSION}_checksums.txt`;
-  let checksumLines = [...assets.entries()].map(([name, buffer]) => `${sha256Hex(buffer)}  ${name}`);
+  let checksumLines = expectedAssets.map(({ file }) => `${sha256Hex(assets.get(file))}  ${file}`);
   if (options.dropChecksumEntry) {
     checksumLines = checksumLines.filter(line => !line.endsWith(`  ${options.dropChecksumEntry}`));
   }
@@ -69,9 +72,9 @@ function buildPublicReleaseAssets(expectedAssets, options: SyntheticReleaseOptio
     if (asset.type === 'app-bundle') {
       entry.packageVersion = VERSION;
       entry.gitSha = CANDIDATE_SHA;
-      entry.compatibilityProfile = asset.compatibilityProfile || '';
+      entry.compatibilityProfile = asset.compatibilityProfile;
       entry.bundledNodeModules = true;
-      entry.bundledGlibcRuntime = Boolean(asset.compatibilityProfile);
+      entry.bundledGlibcRuntime = asset.compatibilityProfile === 'linux-x64-legacy-glibc228';
     }
     manifestAssets.push(entry);
   }
@@ -148,6 +151,13 @@ async function run() {
       `farming_${VERSION}_linux_arm64`,
     ].sort());
     assert.strictEqual(verifier.checksumFileName(VERSION), `farming_${VERSION}_checksums.txt`);
+    assert.deepStrictEqual(verifier.supplementalPublicFiles(), [
+      'LICENSE',
+      'LICENSE.pi-acp',
+      'LICENSE.pi-acp-sdk',
+      'LICENSE.pi-acp-zod',
+      'THIRD_PARTY_NOTICES.md',
+    ]);
 
     const verify = releaseDir => verifier.verifyPublicReleaseAssets({
       releaseDir,
@@ -237,6 +247,16 @@ async function run() {
     assert.ok(
       unlistedResult.errors.some(message => message.includes(`farming_${VERSION}_darwin_amd64`)),
       `errors must reject the unverified asset: ${unlistedResult.errors.join('; ')}`,
+    );
+
+    const missingNotice = stageWorkflowRelease(
+      path.join(temporaryRoot, 'missing-notice'),
+      buildPublicReleaseAssets(expectedAssets, { removeFile: 'THIRD_PARTY_NOTICES.md' }),
+    );
+    const missingNoticeResult = verify(missingNotice.releaseDir);
+    assert.ok(
+      missingNoticeResult.errors.some(message => message.includes('THIRD_PARTY_NOTICES.md')),
+      `errors must report the missing public notice: ${missingNoticeResult.errors.join('; ')}`,
     );
 
     // Regression: the release directory holds public assets only. The workflow

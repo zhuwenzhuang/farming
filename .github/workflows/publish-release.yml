@@ -394,13 +394,14 @@ jobs:
           release_index="${RUNNER_TEMP}/public-release-index.tsv"
           RELEASE_JSON="${release_json}" RELEASE_VERSION="${RELEASE_VERSION}" node --input-type=module - "${release_index}" <<'NODE'
           import fs from 'node:fs';
-          import { checksumFileName, expectedPublicAssets } from './scripts/verify-public-release-assets.mjs';
+          import { checksumFileName, expectedPublicAssets, supplementalPublicFiles } from './scripts/verify-public-release-assets.mjs';
           const [releaseIndex] = process.argv.slice(2);
           const version = process.env.RELEASE_VERSION;
           const release = JSON.parse(process.env.RELEASE_JSON);
           if (release.draft) throw new Error(`GitHub Release v${version} is still a draft`);
           const required = [
             ...expectedPublicAssets(version).map(asset => asset.file),
+            ...supplementalPublicFiles(),
             checksumFileName(version),
             'manifest.json',
           ];

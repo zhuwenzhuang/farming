@@ -32,20 +32,33 @@ const CLI_TARGETS = [
 export const FILE_HASH_CHUNK_SIZE = 1024 * 1024;
 
 const APP_BUNDLE_TARGETS = [
-  { platform: 'linux', arch: 'x64', compatibilityProfile: '', fileSuffix: '' },
+  { platform: 'linux', arch: 'x64', compatibilityProfile: 'standard', fileSuffix: '' },
   {
     platform: 'linux',
     arch: 'x64',
     compatibilityProfile: 'linux-x64-legacy-glibc228',
     fileSuffix: '-legacy-glibc228',
   },
-  { platform: 'darwin', arch: 'x64', compatibilityProfile: '', fileSuffix: '' },
-  { platform: 'darwin', arch: 'arm64', compatibilityProfile: '', fileSuffix: '' },
+  { platform: 'darwin', arch: 'x64', compatibilityProfile: 'standard', fileSuffix: '' },
+  { platform: 'darwin', arch: 'arm64', compatibilityProfile: 'standard', fileSuffix: '' },
+];
+
+const SUPPLEMENTAL_PUBLIC_FILES = [
+  'LICENSE',
+  'LICENSE.pi-acp',
+  'LICENSE.pi-acp-sdk',
+  'LICENSE.pi-acp-zod',
+  'THIRD_PARTY_NOTICES.md',
 ];
 
 /** Authoritative checksum file name for one release version. */
 export function checksumFileName(version) {
   return `farming_${version}_checksums.txt`;
+}
+
+/** Public legal notices shipped beside the executable release assets. */
+export function supplementalPublicFiles() {
+  return [...SUPPLEMENTAL_PUBLIC_FILES];
 }
 
 /** Enumerates every public platform asset one Farming release must publish. */
@@ -228,6 +241,13 @@ export function verifyPublicReleaseAssets({ releaseDir, candidateSha, releaseVer
     manifestAssets.delete(expected.file);
   }
 
+  for (const file of SUPPLEMENTAL_PUBLIC_FILES) {
+    const filePath = path.join(releaseDir, file);
+    if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+      errors.push(`Supplemental public release file is missing: ${file}`);
+    }
+  }
+
   for (const [file] of manifestAssets) {
     errors.push(`Public manifest lists an unexpected asset: ${file}`);
   }
@@ -239,6 +259,7 @@ export function verifyPublicReleaseAssets({ releaseDir, candidateSha, releaseVer
   }
 
   const knownNames = new Set(expectedPublicAssets(version).map(asset => asset.file));
+  for (const file of SUPPLEMENTAL_PUBLIC_FILES) knownNames.add(file);
   knownNames.add(checksumFileName(version));
   knownNames.add('manifest.json');
   let entries = [];
