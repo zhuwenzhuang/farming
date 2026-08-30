@@ -1,5 +1,50 @@
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import type { Locator, Page } from '@playwright/test'
 import { expect, openFarming, test } from './fixtures'
+
+const { PNG: ScreenshotPng } = require('playwright-core/lib/utilsBundle') as {
+  PNG: { sync: { read(buffer: Buffer): { data: Buffer; width: number; height: number } } }
+}
+
+type Appearance = 'light' | 'dark' | 'paper'
+
+async function setAppearance(page: Page, appearance: Appearance) {
+  await page.emulateMedia({
+    colorScheme: appearance === 'dark' ? 'dark' : 'light',
+    reducedMotion: 'reduce',
+  })
+  await page.evaluate((nextAppearance) => {
+    document.documentElement.dataset.appearance = nextAppearance
+    document.body.dataset.appearance = nextAppearance
+  }, appearance)
+  await expect(page.locator('body')).toHaveAttribute('data-appearance', appearance)
+}
+
+async function collapsedSidebarIsolation(page: Page): Promise<{ inert: boolean; ariaHidden: string | null }> {
+  return page.getByTestId('code-sidebar').evaluate(element => ({
+    inert: (element as HTMLElement).inert === true,
+    ariaHidden: element.getAttribute('aria-hidden'),
+  }))
+}
+
+async function activeElementInsideSidebar(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    const sidebar = document.querySelector('[data-testid="code-sidebar"]')
+    return Boolean(sidebar && document.activeElement && sidebar.contains(document.activeElement))
+  })
+}
+
+function assertNotBlankCapture(screenshot: Buffer, label: string) {
+  const image = ScreenshotPng.sync.read(screenshot)
+  const distinct = new Set<number>()
+  for (let offset = 0; offset < image.data.length; offset += 4) {
+    distinct.add(((image.data[offset] ?? 0) << 16) | ((image.data[offset + 1] ?? 0) << 8) | (image.data[offset + 2] ?? 0))
+    if (distinct.size > 24) break
+  }
+  expect(distinct.size, `${label} must not be a blank capture`).toBeGreaterThan(8)
+}
 
 async function expectFocusCycleWithinDrawer(page: Page, drawer: Locator, shortcut: 'Tab' | 'Shift+Tab') {
   const initialFocus = await page.evaluateHandle(() => document.activeElement)
@@ -255,4 +300,123 @@ test('mobile share owns focus and Escape without closing the underlying view', a
   await expect(sheet).toHaveCount(0)
   await expect(search).toBeVisible()
   await expect(optionsTrigger).toBeFocused()
+})
+test('compact closed navigation drawer is isolated from keyboard and accessibility exposure', async ({ page }) => {
+  await page.setViewportSize({ width: 404, height: 844 })
+  await openFarming(page)
+
+  const sidebar = page.getByTestId('code-sidebar')
+  await expect(sidebar).toHaveClass(/collapsed/)
+  const box = await sidebar.boundingBox()
+  expect(box, 'the closed compact drawer must have a layout box').not.toBeNull()
+  if (!box) throw new Error('Closed compact drawer has no layout box')
+  expect(box.x, 'the closed compact drawer must be translated offscreen').toBeLessThan(0)
+
+  // The closed drawer is removed from the tab order and the accessibility
+  // tree, including its New Agent, project rows, rest reminder, and footer.
+  const isolation = await collapsedSidebarIsolation(page)
+  expect(isolation.inert, 'the closed compact drawer must be inert').toBe(true)
+  expect(isolation.ariaHidden, 'the closed compact drawer must be aria-hidden').toBe('true')
+  await expect(page.getByRole('button', { name: /New Agent|新建 Agent/ })).toHaveCount(0)
+
+  // Keyboard evidence: tabbing from the navigation trigger never reaches a
+  // sidebar control while the drawer is closed.
+  const trigger = page.getByTestId('code-mobile-menu')
+  await trigger.focus()
+  for (let step = 0; step < 24; step += 1) {
+    await page.keyboard.press('Tab')
+    expect(await activeElementInsideSidebar(page), `tab stop ${step + 1} must stay outside the closed drawer`).toBe(false)
+  }
+})
+
+test('opening the drawer removes isolation and closing restores trigger focus', async ({ page }) => {
+  await page.setViewportSize({ width: 404, height: 844 })
+  await openFarming(page)
+
+  const trigger = page.getByTestId('code-mobile-menu')
+  await trigger.focus()
+  await page.keyboard.press('Enter')
+  const drawer = page.getByRole('dialog', { name: /Projects and agents|项目与 Agent/ })
+  await expect(drawer).toBeVisible()
+  const openIsolation = await collapsedSidebarIsolation(page)
+  expect(openIsolation.inert, 'the open drawer must not be inert').toBe(false)
+  expect(openIsolation.ariaHidden, 'the open drawer must not be aria-hidden').not.toBe('true')
+  await expect(drawer.getByRole('button', { name: /Close navigation|关闭导航/ })).toBeFocused()
+
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('code-sidebar')).toHaveClass(/collapsed/)
+  await expect(trigger).toBeFocused()
+  const closedIsolation = await collapsedSidebarIsolation(page)
+  expect(closedIsolation.inert, 'the closed drawer must be inert again').toBe(true)
+  expect(closedIsolation.ariaHidden, 'the closed drawer must be aria-hidden again').toBe('true')
+})
+
+test('desktop collapsed rail stays keyboard-usable and viewport transitions clear isolation', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await openFarming(page)
+
+  const sidebar = page.getByTestId('code-sidebar')
+  await page.getByTestId('code-sidebar-toggle').click()
+  await expect(sidebar).toHaveClass(/collapsed/)
+  let isolation = await collapsedSidebarIsolation(page)
+  expect(isolation.inert, 'the desktop collapsed rail must stay interactive').toBe(false)
+  expect(isolation.ariaHidden, 'the desktop collapsed rail must not be hidden').not.toBe('true')
+  const railNewAgent = page.getByTestId('code-new-agent')
+  await railNewAgent.focus()
+  await expect(railNewAgent).toBeFocused()
+
+  // Compact transition: the drawer auto-closes and becomes isolated.
+  await page.setViewportSize({ width: 404, height: 844 })
+  await expect(sidebar).toHaveClass(/collapsed/)
+  isolation = await collapsedSidebarIsolation(page)
+  expect(isolation.inert, 'the auto-closed compact drawer must be isolated').toBe(true)
+  expect(isolation.ariaHidden).toBe('true')
+
+  // Back to desktop: the visible rail clears the isolation.
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await expect(page.getByTestId('code-mobile-topbar')).toBeHidden()
+  isolation = await collapsedSidebarIsolation(page)
+  expect(isolation.inert, 'the compact-to-desktop transition must clear inert').toBe(false)
+  expect(isolation.ariaHidden, 'the compact-to-desktop transition must clear aria-hidden').not.toBe('true')
+  await railNewAgent.focus()
+  await expect(railNewAgent).toBeFocused()
+})
+
+test('collapsed sidebar surfaces render in Light, Dark, and Paper across regular and compact', async ({ page }, testInfo) => {
+  const screenshotDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-sidebar-a11y-'))
+  try {
+    const capture = async (locator: Locator, name: string) => {
+      await page.evaluate(async () => {
+        await document.fonts.ready
+        await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+      })
+      const screenshot = await locator.screenshot({ animations: 'disabled', scale: 'css' })
+      assertNotBlankCapture(screenshot, name)
+      const filePath = path.join(screenshotDir, `${name}.png`)
+      fs.writeFileSync(filePath, screenshot)
+      await testInfo.attach(`${name}.png`, { path: filePath, contentType: 'image/png' })
+    }
+
+    // Compact: closed drawer over the workspace topbar.
+    await page.setViewportSize({ width: 404, height: 844 })
+    await openFarming(page)
+    await expect(page.getByTestId('code-sidebar')).toHaveClass(/collapsed/)
+    for (const appearance of ['light', 'dark', 'paper'] as const) {
+      await setAppearance(page, appearance)
+      await capture(page.locator('body'), `compact-collapsed-${appearance}`)
+    }
+
+    // Regular: desktop collapsed rail.
+    await page.setViewportSize({ width: 1280, height: 800 })
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    await expect(page.getByTestId('app-shell')).toBeVisible()
+    await page.getByTestId('code-sidebar-toggle').click()
+    await expect(page.getByTestId('code-sidebar')).toHaveClass(/collapsed/)
+    for (const appearance of ['light', 'dark', 'paper'] as const) {
+      await setAppearance(page, appearance)
+      await capture(page.locator('body'), `regular-rail-${appearance}`)
+    }
+  } finally {
+    fs.rmSync(screenshotDir, { recursive: true, force: true })
+  }
 })

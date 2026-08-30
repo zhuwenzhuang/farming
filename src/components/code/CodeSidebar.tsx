@@ -199,6 +199,7 @@ interface CodeSidebarProps {
   readOnly: boolean
   sidebarCollapsed: boolean
   navigationModalOpen: boolean
+  navigationViewport: boolean
   navigationDialogRef: RefObject<HTMLElement | null>
   hoverPreviewsPaused: boolean
   emptyHomeActionRequest: { kind: 'share' | 'focus'; nonce: number } | null
@@ -314,6 +315,7 @@ export function CodeSidebar({
   readOnly,
   sidebarCollapsed,
   navigationModalOpen,
+  navigationViewport,
   navigationDialogRef,
   hoverPreviewsPaused,
   emptyHomeActionRequest,
@@ -723,6 +725,12 @@ export function CodeSidebar({
   // The FILES-pressure compression path made single-agent projects collapse to "1",
   // which saved no space and made the expanded sidebar harder to scan.
   const agentCompressionActive = sidebarCollapsed
+  // On the mobile navigation viewport a collapsed sidebar is the closed
+  // drawer: it is translated fully offscreen. Isolate it from the tab order
+  // and the accessibility tree so its controls (New Agent, project rows,
+  // rest reminder, footer) are not reachable while invisible. The desktop
+  // collapsed rail stays visible and interactive.
+  const mobileDrawerClosed = navigationViewport && sidebarCollapsed
 
   return (
     <aside
@@ -732,6 +740,8 @@ export function CodeSidebar({
       role={navigationModalOpen ? 'dialog' : undefined}
       aria-modal={navigationModalOpen ? true : undefined}
       aria-label={navigationModalOpen ? copy.projectsAndAgents : undefined}
+      inert={mobileDrawerClosed || undefined}
+      aria-hidden={mobileDrawerClosed || undefined}
       onMouseLeave={resetAgentPreview}
       onPointerDownCapture={hideAgentPreview}
       onContextMenuCapture={hideAgentPreview}

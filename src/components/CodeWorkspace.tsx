@@ -5679,6 +5679,7 @@ export function CodeWorkspace({
         readOnly={readOnly}
         sidebarCollapsed={sidebarCollapsed}
         navigationModalOpen={mobileNavigationModalOpen}
+        navigationViewport={mobileNavigationViewport}
         navigationDialogRef={mobileNavigationDialogRef}
         hoverPreviewsPaused={Boolean(projectMenu)}
         emptyHomeActionRequest={emptyHomeSidebarActionRequest}
