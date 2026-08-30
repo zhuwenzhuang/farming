@@ -12,6 +12,9 @@ const {
   createComputerRouter,
 } = require('../../extensions/computer/backend/computer-router.cjs');
 const {
+  IsolatedBrowserProvider,
+} = require('../../extensions/computer/backend/isolated-browser-provider.cjs');
+const {
   COMPUTER_AGENT_HTTP_TIMEOUT_MS,
   COMPUTER_IMAGE,
   COMPUTER_TOOL_REQUEST_TIMEOUT_MS,
@@ -169,6 +172,7 @@ class FakeDocker {
   failInspectTimes: number;
   containerName: string;
   noViewerPort: boolean;
+  daemonDown: boolean;
 
   constructor(viewerPort) {
     this.viewerPort = viewerPort;
@@ -192,6 +196,7 @@ class FakeDocker {
     this.failInspectTimes = 0;
     this.containerName = '';
     this.noViewerPort = false;
+    this.daemonDown = false;
   }
 
   run = async (args, options: { timeoutMs?: number; maxBuffer?: number } = {}) => {
@@ -215,6 +220,11 @@ class FakeDocker {
       timeoutError.killed = true;
       timeoutError.signal = 'SIGKILL';
       throw timeoutError;
+    }
+    if (this.daemonDown) {
+      const daemonError: Error & { code?: string } = new Error('Cannot connect to the Docker daemon');
+      daemonError.code = 'ENOENT';
+      throw daemonError;
     }
     if (args[0] === 'version') return { stdout: '20.10.18\n', stderr: '' };
     if (args[0] === 'pull') return { stdout: 'pulled\n', stderr: '' };
@@ -824,9 +834,152 @@ async function testComputerUncertainTransitionReconciliation() {
   }
 }
 
+async function testComputerCapabilityFreshAndCachedReads() {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-computer-capability-'));
+  const settings = { computerCompatibilityMode: false, computerImage: COMPUTER_IMAGE };
+  let clock = 0;
+  const fake = new FakeDocker(59999);
+  const manager = new ComputerResourceManager({
+    configDir: tempDir,
+    isEnabled: () => true,
+    getSettings: () => settings,
+    dockerRunner: fake.run,
+    capabilityNavCacheMs: 1000,
+    capabilityCacheNow: () => clock,
+  });
+  manager.store.init();
+  const probeCount = () => fake.calls.filter(args => args[0] === 'version').length;
+  try {
+    // Ordinary reads are current-state reads: each runs a fresh bounded probe.
+    const alive = await manager.capability();
+    assert.strictEqual(alive.available, true);
+    assert.strictEqual(probeCount(), 1);
+    // False-positive fix: the daemon dies, and the ordinary read reflects the
+    // authoritative failure immediately with an explicit in-band error.
+    fake.daemonDown = true;
+    const dead = await manager.capability();
+    assert.strictEqual(dead.dockerAvailable, false);
+    assert.strictEqual(dead.available, false);
+    assert(dead.error, 'an unavailable probe must report an explicit error');
+    assert.strictEqual(probeCount(), 2, 'an ordinary capability read must re-probe');
+    // False-negative fix: the daemon recovers, and the ordinary read reflects
+    // availability immediately.
+    fake.daemonDown = false;
+    const recovered = await manager.capability();
+    assert.strictEqual(recovered.available, true);
+    assert.strictEqual(probeCount(), 3);
+    // Concurrent fresh reads coalesce into one bounded probe.
+    const [concurrentA, concurrentB] = await Promise.all([
+      manager.capability(),
+      manager.capability(),
+    ]);
+    assert.strictEqual(concurrentA.available, true);
+    assert.strictEqual(concurrentB.available, true);
+    assert.strictEqual(probeCount(), 4, 'concurrent fresh reads must coalesce into one probe');
+    // The bounded-age background opt-in serves cached evidence inside the
+    // window and re-probes once it lapses.
+    const cached = await manager.cachedCapability();
+    assert.strictEqual(cached.available, true);
+    assert.strictEqual(probeCount(), 4, 'bounded-age reuse must not probe');
+    clock += 1001;
+    const aged = await manager.cachedCapability();
+    assert.strictEqual(aged.available, true);
+    assert.strictEqual(probeCount(), 5, 'expired bounded-age reuse must probe again');
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+}
+
+async function testComputerCapabilityEndpointCurrentStateReads() {
+  const viewer = http.createServer((_request, response) => {
+    response.statusCode = 200;
+    response.end('viewer');
+  });
+  const viewerPort = await listen(viewer);
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-computer-capability-api-'));
+  const settings = { computerCompatibilityMode: false, computerImage: COMPUTER_IMAGE };
+  const fake = new FakeDocker(viewerPort);
+  const manager = new ComputerResourceManager({
+    configDir: tempDir,
+    isEnabled: () => true,
+    getSettings: () => settings,
+    dockerRunner: fake.run,
+  });
+  manager.store.init();
+  const app = express();
+  app.use('/api/computers', createComputerRouter(manager, { resolve: () => null }, undefined));
+  const api = http.createServer(app);
+  const apiPort = await listen(api);
+  try {
+    // The canonical endpoint (ordinary GET, no freshness query) reflects the
+    // authoritative Docker state immediately in both directions.
+    let response = await requestJson(apiPort, 'GET', '/api/computers/capability', undefined);
+    assert.strictEqual(response.status, 200);
+    assert.strictEqual(response.body.available, true);
+    fake.daemonDown = true;
+    response = await requestJson(apiPort, 'GET', '/api/computers/capability', undefined);
+    assert.strictEqual(response.status, 200);
+    assert.strictEqual(response.body.dockerAvailable, false);
+    assert.strictEqual(response.body.available, false);
+    assert(response.body.error, 'the endpoint must report the explicit probe failure');
+    fake.daemonDown = false;
+    response = await requestJson(apiPort, 'GET', '/api/computers/capability', undefined);
+    assert.strictEqual(response.status, 200);
+    assert.strictEqual(response.body.available, true);
+  } finally {
+    await close(api);
+    await close(viewer);
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+}
+
+async function testIsolatedBrowserCapabilityFollowsComputerState() {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-isolated-capability-'));
+  const settings = { computerCompatibilityMode: false, computerImage: COMPUTER_IMAGE };
+  const fake = new FakeDocker(59998);
+  const manager = new ComputerResourceManager({
+    configDir: tempDir,
+    isEnabled: () => true,
+    getSettings: () => settings,
+    dockerRunner: fake.run,
+  });
+  manager.store.init();
+  const provider = new IsolatedBrowserProvider({
+    configDir: tempDir,
+    computerResourceManager: manager,
+    chromiumInstaller: {
+      browserOption: () => null,
+      install: async () => null,
+      status: () => ({ state: 'ready' }),
+    },
+    dockerRunner: fake.run,
+  });
+  try {
+    // The isolated Browser source presents Computer availability as current
+    // evidence: ordinary reads follow Docker state changes immediately.
+    let capability = await provider.capability();
+    assert.strictEqual(capability.dockerAvailable, true);
+    assert.strictEqual(capability.available, true);
+    fake.daemonDown = true;
+    capability = await provider.capability();
+    assert.strictEqual(capability.dockerAvailable, false);
+    assert.strictEqual(capability.available, false);
+    assert(capability.error, 'the isolated source must surface the explicit failure');
+    fake.daemonDown = false;
+    capability = await provider.capability();
+    assert.strictEqual(capability.dockerAvailable, true);
+    assert.strictEqual(capability.available, true);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+}
+
 async function run() {
   testComputerResourceRevisionOrdering();
   await testComputerUncertainTransitionReconciliation();
+  await testComputerCapabilityFreshAndCachedReads();
+  await testComputerCapabilityEndpointCurrentStateReads();
+  await testIsolatedBrowserCapabilityFollowsComputerState();
   assert(
     COMPUTER_TOOL_REQUEST_TIMEOUT_MS + 1_000 < COMPUTER_AGENT_HTTP_TIMEOUT_MS,
     'the server deadline and cleanup grace must finish before the Agent HTTP transport timeout',

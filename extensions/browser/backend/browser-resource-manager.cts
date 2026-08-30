@@ -68,6 +68,9 @@ type CapabilityRefreshOptions = {
   persistDefaultSelection?: boolean;
   reuseVerified?: boolean;
 };
+type CapabilitySnapshotOptions = {
+  persistDefaultSelection?: boolean;
+};
 type SourceCapabilityRefreshOptions = {
   reuseVerified?: boolean;
 };
@@ -497,6 +500,8 @@ class BrowserResourceManager extends EventEmitter {
   } | null = null;
   sourceCapabilitiesPromise: Promise<Array<Record<string, unknown>>> | null = null;
   sourceCapabilitiesPromiseKey = '';
+  capabilitySnapshotPromise: Promise<Record<string, unknown>> | null = null;
+  capabilitySnapshotKey = '';
   viewerInputMetrics = {
     admitted: 0,
     coalescedMoves: 0,
@@ -880,17 +885,16 @@ class BrowserResourceManager extends EventEmitter {
     runtimeCapability: BrowserCapability | null;
   }> {
     const browserOptions = discoveredOptions || this.discoverBrowserOptions();
-    const selectedOption = browserOptions.find(option => option.path === selection.executablePath);
     const isolatedBrowserCapability = discoveredIsolatedCapability !== undefined
       ? discoveredIsolatedCapability
       : this.isolatedBrowserProvider
         ? await this.isolatedBrowserProvider.capability()
         : null;
-    let runtimeCapability = await this.discoverExecutable({
-      source: selection.source,
-      executablePath: selection.executablePath,
-      executableKind: selectedOption?.kind,
-    });
+    // Each source performs exactly one authoritative final runtime probe; a
+    // disabled/unavailable isolated source performs none beyond the shared
+    // Computer capability observation. No wasted preliminary probe can hide a
+    // health flip inside a source.
+    let runtimeCapability: BrowserCapability | null;
     if (selection.source === 'extension') {
       const extension = this.browserExtensionRelay?.capability() || {};
       const cdpUrl = this.browserExtensionRelay?.cdpUrl() || '';
@@ -907,23 +911,144 @@ class BrowserResourceManager extends EventEmitter {
           error: 'Install and pair Farming Browser Connector, then keep Chrome running',
         };
       }
-    }
-    if (
-      selection.source === 'isolated'
-      && isolatedBrowserCapability?.available === true
-    ) {
-      runtimeCapability = await this.discoverExecutable({ source: 'isolated' });
-    }
-    if (selection.source === 'isolated' && isolatedBrowserCapability?.available !== true) {
-      runtimeCapability = {
-        kind: 'isolated-computer',
-        path: '',
-        error: isolatedBrowserCapability?.dockerAvailable === true
-          ? 'Prepare the isolated Browser runtime before selecting it'
-          : 'Docker is required for the isolated Browser',
-      };
+    } else if (selection.source === 'isolated') {
+      if (isolatedBrowserCapability?.available === true) {
+        runtimeCapability = await this.discoverExecutable({ source: 'isolated' });
+      } else {
+        runtimeCapability = {
+          kind: 'isolated-computer',
+          path: '',
+          error: isolatedBrowserCapability?.dockerAvailable === true
+            ? 'Prepare the isolated Browser runtime before selecting it'
+            : 'Docker is required for the isolated Browser',
+        };
+      }
+    } else {
+      const selectedOption = browserOptions.find(option => option.path === selection.executablePath);
+      runtimeCapability = await this.discoverExecutable({
+        source: selection.source,
+        executablePath: selection.executablePath,
+        executableKind: selectedOption?.kind,
+      });
     }
     return { browserOptions, isolatedBrowserCapability, runtimeCapability };
+  }
+
+  // One coherent fresh snapshot for the canonical capability read: each
+  // source is observed exactly once, the selected top-level fields and the
+  // per-source list are derived from those same observations, and concurrent
+  // canonical reads coalesce only on the same in-flight pass. A completed
+  // snapshot is never reused; the next canonical read observes again.
+  capabilitySnapshot(options: CapabilitySnapshotOptions = {}): Promise<Record<string, unknown>> {
+    const persistDefaultSelection = options.persistDefaultSelection !== false;
+    const snapshotKey = JSON.stringify({ persistDefaultSelection });
+    if (this.capabilitySnapshotPromise && this.capabilitySnapshotKey === snapshotKey) {
+      return this.capabilitySnapshotPromise;
+    }
+    const previous = this.capabilitySnapshotPromise;
+    const capabilitySnapshotPromise = (async () => {
+      if (previous) {
+        try {
+          await previous;
+        } catch {
+          // A differently authorized read still needs its own fresh snapshot.
+        }
+      }
+      return this.takeCapabilitySnapshot({ persistDefaultSelection });
+    })().finally(() => {
+      if (this.capabilitySnapshotPromise !== capabilitySnapshotPromise) return;
+      this.capabilitySnapshotPromise = null;
+      this.capabilitySnapshotKey = '';
+    });
+    this.capabilitySnapshotPromise = capabilitySnapshotPromise;
+    this.capabilitySnapshotKey = snapshotKey;
+    return capabilitySnapshotPromise;
+  }
+
+  private async takeCapabilitySnapshot(
+    options: CapabilitySnapshotOptions,
+  ): Promise<Record<string, unknown>> {
+    const settings = this.getBrowserSettings();
+    let desiredSelection = this.browserSelection(settings);
+    const browserOptions = this.discoverBrowserOptions();
+    if (desiredSelection.source === 'system' && !desiredSelection.executablePath) {
+      const defaultBrowser = browserOptions[0];
+      if (defaultBrowser) {
+        if (options.persistDefaultSelection !== false) {
+          this.saveBrowserSelection({
+            source: 'system',
+            executablePath: defaultBrowser.path,
+          });
+        }
+        desiredSelection = {
+          ...desiredSelection,
+          executablePath: defaultBrowser.path,
+        };
+      }
+    }
+    const systemPath = String(settings.browserExecutablePath || browserOptions[0]?.path || '');
+    const isolatedBrowserCapability = this.isolatedBrowserProvider
+      ? await this.isolatedBrowserProvider.capability()
+      : null;
+    const selections: BrowserSelection[] = [
+      { source: 'system', executablePath: systemPath },
+      { source: 'extension', executablePath: '' },
+      { source: 'isolated', executablePath: '' },
+    ];
+    const observations = await Promise.all(selections.map(async selection => ({
+      selection,
+      probe: await this.probeCapability(selection, browserOptions, isolatedBrowserCapability),
+    })));
+    const observedBySource = new Map<string, BrowserCapability | null>();
+    for (const { selection, probe } of observations) {
+      observedBySource.set(selection.source, probe.runtimeCapability);
+    }
+    const runtimeCapability = observedBySource.get(desiredSelection.source) ?? null;
+    this.browserOptions = browserOptions;
+    this.isolatedBrowserCapability = isolatedBrowserCapability;
+    this.runtimeCapability = runtimeCapability;
+    this.effectiveBrowserSelection = desiredSelection;
+    this.sourceCapabilitiesCache = null;
+    this.capabilityProbeSignature = this.browserCapabilitySignature(
+      desiredSelection,
+      browserOptions,
+      isolatedBrowserCapability,
+    );
+    const sources = selections.map(selection => {
+      const runtime = observedBySource.get(selection.source) ?? null;
+      return {
+        source: selection.source,
+        available: Boolean(runtime && !runtime.error),
+        kind: String(runtime?.kind || ''),
+        path: String(runtime?.path || ''),
+        message: String(runtime?.error || ''),
+      };
+    });
+    // The response composes from the frozen selection and local observations
+    // of this pass — never a fresh settings read — so the top-level selected
+    // fields and the source list are internally coherent.
+    const enabled = this.isEnabled() === true;
+    const runnable = Boolean(runtimeCapability && !runtimeCapability.error);
+    const anySourceAvailable = sources.some(source => source.available === true);
+    const selectedMessage = String(
+      runtimeCapability?.error
+      || (runnable ? '' : 'Choose a local Chromium browser or prepare the isolated Browser runtime'),
+    );
+    return {
+      enabled,
+      available: enabled && anySourceAvailable,
+      browser: runnable ? { kind: runtimeCapability?.kind, path: runtimeCapability?.path } : null,
+      selection: desiredSelection,
+      options: browserOptions.map(option => ({ kind: option.kind, path: option.path })),
+      ...(isolatedBrowserCapability ? { isolated: isolatedBrowserCapability } : {}),
+      ...(this.browserExtensionRelay ? { extension: this.browserExtensionRelay.capability() } : {}),
+      sources,
+      message: !enabled
+        ? 'Browser extension is disabled'
+        : anySourceAvailable
+          ? ''
+          : selectedMessage,
+    };
   }
 
   async refreshCapability(

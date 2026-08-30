@@ -158,23 +158,13 @@ function createBrowserRouter(
   router.get('/capability', async (_req, res) => {
     try {
       requestAgentBinding(agentStateReader, _req);
-      await manager.refreshCapability(undefined, {
+      // The capability view claims current availability: one coherent fresh
+      // snapshot per canonical response. Each source is observed exactly
+      // once, the selected fields derive from that same pass, and same-access
+      // concurrent reads coalesce only on the in-flight snapshot.
+      res.json(await manager.capabilitySnapshot({
         persistDefaultSelection: _req.authAccessMode !== 'read-only',
-        reuseVerified: true,
-      });
-      const capability = manager.capability();
-      const sources = await manager.sourceCapabilities({ reuseVerified: true });
-      const anySourceAvailable = sources.some(source => source.available === true);
-      res.json({
-        ...capability,
-        available: capability.enabled === true && anySourceAvailable,
-        sources,
-        message: capability.enabled !== true
-          ? capability.message
-          : anySourceAvailable
-            ? ''
-            : capability.message,
-      });
+      }));
     } catch (error) {
       sendError(res, error);
     }

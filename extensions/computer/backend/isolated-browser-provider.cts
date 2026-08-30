@@ -27,7 +27,7 @@ interface ComputerResourceManagerLike {
     workspace: string;
     executablePath: string;
   }): Promise<{ cdpUrl: string; leaseKey: string }>;
-  capability(refresh?: boolean): Promise<Record<string, unknown>>;
+  capability(): Promise<Record<string, unknown>>;
   prepare(): Promise<unknown>;
   releaseBrowser(leaseKey: string): Promise<void>;
   verifyBrowserExecutable(executablePath: string): Promise<string>;
@@ -95,8 +95,10 @@ class IsolatedBrowserProvider {
     });
   }
 
-  async capability(refresh = false): Promise<Record<string, unknown>> {
-    const computer = await this.computerResourceManager.capability(refresh);
+  async capability(): Promise<Record<string, unknown>> {
+    // The isolated Browser source presents Computer availability as current
+    // evidence, so it reads the fresh authoritative Computer capability.
+    const computer = await this.computerResourceManager.capability();
     const chromiumValue = this.chromiumInstaller.status();
     const chromium = chromiumValue && typeof chromiumValue === 'object'
       ? chromiumValue as Record<string, unknown>
@@ -119,7 +121,7 @@ class IsolatedBrowserProvider {
     this.preparePromise = (async () => {
       await this.computerResourceManager.prepare();
       await this.chromiumInstaller.install();
-      return this.capability(true);
+      return this.capability();
     })().finally(() => {
       this.preparePromise = null;
     });

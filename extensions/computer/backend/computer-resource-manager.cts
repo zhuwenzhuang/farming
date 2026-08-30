@@ -17,6 +17,7 @@ import {
   type WorkspaceArtifact,
 } from '../../../backend/workspace-artifacts.cjs';
 import { isSameOrDescendantPath } from '../../../backend/path-containment.cjs';
+import { AsyncCache } from '../../../backend/async-cache.cjs';
 import { COMPUTER_CONTAINER_CPUS, COMPUTER_CONTAINER_MEMORY, COMPUTER_CONTAINER_PIDS, COMPUTER_CONTAINER_SHM_SIZE, COMPUTER_DRIVER_BIN, COMPUTER_DRIVER_VERSION, COMPUTER_IMAGE, COMPUTER_IMAGE_INDEX_DIGEST, COMPUTER_TOOL_REQUEST_TIMEOUT_MS, COMPUTER_USER } from './computer-constants.cjs';
 import { ComputerResourceStore, publicResource } from './computer-resource-store.cjs';
 
@@ -83,6 +84,12 @@ const SESSION_REFRESH_TIMEOUT_MS = 5_000;
 const SCREENSHOT_CLEANUP_GRACE_MS = 1_000;
 const DOCKER_TIMEOUT_MS = 90_000;
 const START_TIMEOUT_MS = 45_000;
+// Docker daemon and image availability change outside Farming. A capability
+// read is a current-state boundary, so the canonical read always runs a fresh
+// bounded authoritative probe; cached evidence is only reusable through the
+// explicit bounded-age opt-in for background navigation, never as current
+// evidence.
+const CAPABILITY_NAV_CACHE_MS = 30_000;
 // A timed-out start/stop has an uncertain outcome. The reconciliation read and
 // any bounded readiness completion share this budget so the transition still
 // reaches a terminal state instead of hanging on the ambiguous outcome.
@@ -134,6 +141,8 @@ interface ComputerManagerOptions {
   getSettings?: () => Record<string, unknown>;
   dockerRunner?: DockerRunner;
   uncertainReconcileBudgetMs?: number;
+  capabilityNavCacheMs?: number;
+  capabilityCacheNow?: () => number;
 }
 
 interface AgentLifecycleState {
@@ -351,7 +360,8 @@ class ComputerResourceManager extends EventEmitter {
   readonly viewerSockets = new Map<string, Set<ViewerSocket>>();
   readonly browserLeases = new Map<string, number>();
   readonly agentOwnerReplacementHolds = new Set<string>();
-  capabilityCache: Record<string, unknown> | null = null;
+  readonly capabilityCache: AsyncCache<Record<string, unknown>>;
+  readonly capabilityNavCacheMs: number;
   readonly uncertainReconcileBudgetMs: number;
   preparePromise: Promise<unknown> | null = null;
 
@@ -383,6 +393,31 @@ class ComputerResourceManager extends EventEmitter {
         stderr: String(result.stderr || ''),
       };
     });
+    this.capabilityNavCacheMs = typeof options.capabilityNavCacheMs === 'number'
+      && Number.isFinite(options.capabilityNavCacheMs)
+      ? Math.max(0, options.capabilityNavCacheMs)
+      : CAPABILITY_NAV_CACHE_MS;
+    this.capabilityCache = new AsyncCache(
+      async () => {
+        const probe = await this.probeSettings(this.getSettings());
+        return {
+          available: probe.dockerAvailable && probe.imageReady,
+          ...probe,
+          imageDigest: COMPUTER_IMAGE_INDEX_DIGEST,
+          driverVersion: COMPUTER_DRIVER_VERSION,
+          compatibilityMode: this.compatibilityMode(),
+        };
+      },
+      {
+        // Freshness is decided per read by explicit force/maxAge options; the
+        // cache itself has no serving TTL, so it only coalesces concurrent
+        // probes. Probe failures are reported inside the payload, keeping the
+        // read bounded and explicitly failed instead of rejecting.
+        ttlMs: 0,
+        staleMs: 0,
+        ...(options.capabilityCacheNow ? { now: options.capabilityCacheNow } : {}),
+      },
+    );
   }
 
   async init(): Promise<void> {
@@ -661,20 +696,21 @@ class ComputerResourceManager extends EventEmitter {
     return this.store.snapshot();
   }
 
-  async capability(refresh = false) {
-    if (this.capabilityCache && !refresh) {
-      return { ...this.capabilityCache, enabled: this.isEnabled() };
-    }
-    const probe = await this.probeSettings(this.getSettings());
-    this.capabilityCache = {
-      available: probe.dockerAvailable && probe.imageReady,
-      enabled: this.isEnabled(),
-      ...probe,
-      imageDigest: COMPUTER_IMAGE_INDEX_DIGEST,
-      driverVersion: COMPUTER_DRIVER_VERSION,
-      compatibilityMode: this.compatibilityMode(),
-    };
-    return this.capabilityCache;
+  // Current-state read: always runs a fresh bounded authoritative probe
+  // (concurrent probes coalesce). This is the read the capability API, UI,
+  // CLI, and cross-resource consumers (the isolated Browser source) present
+  // as current evidence.
+  async capability(): Promise<Record<string, unknown>> {
+    const probe = await this.capabilityCache.get('capability', { force: true });
+    return { ...(probe || {}), enabled: this.isEnabled() };
+  }
+
+  // Background/navigation reuse: may serve bounded-age cached evidence and is
+  // an explicit opt-in. It must never be presented as current state by the
+  // capability API, UI, or CLI.
+  async cachedCapability(maxAgeMs = this.capabilityNavCacheMs): Promise<Record<string, unknown>> {
+    const probe = await this.capabilityCache.get('capability', { maxAgeMs });
+    return { ...(probe || {}), enabled: this.isEnabled() };
   }
 
   async probeSettings(settings: Record<string, unknown>) {
@@ -734,8 +770,8 @@ class ComputerResourceManager extends EventEmitter {
           { compatibilityRequired },
         );
       }
-      this.capabilityCache = null;
-      return this.capability(true);
+      this.capabilityCache.invalidate();
+      return this.capability();
     })().finally(() => {
       this.preparePromise = null;
     });

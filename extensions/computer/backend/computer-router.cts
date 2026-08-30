@@ -120,7 +120,9 @@ function createComputerRouter(
   router.get('/capability', async (req: any, res: any) => {
     try {
       requestAgentBinding(agentStateReader, req);
-      res.json(await manager.capability(req.query?.refresh === '1'));
+      // The capability view claims current availability: it always performs
+      // the fresh bounded authoritative probe (no query-dependent freshness).
+      res.json(await manager.capability());
     } catch (caught) {
       sendError(res, caught);
     }

@@ -22,6 +22,9 @@ const {
   normalizeUrl,
 } = require('../../extensions/browser/backend/browser-resource-manager.cjs');
 const {
+  IsolatedBrowserProvider,
+} = require('../../extensions/computer/backend/isolated-browser-provider.cjs');
+const {
   createBrowserRouter,
 } = require('../../extensions/browser/backend/browser-router.cjs');
 const { configInstanceFingerprint } = require('../config-instance.cjs');
@@ -2109,11 +2112,10 @@ async function testBrowserRouterAgentOwnership() {
   const calls = [];
   const manager = {
     requireEnabled() {},
-    refreshCapability: async (_selection, options) => {
-      calls.push({ kind: 'refresh-capability', options });
+    capabilitySnapshot: async options => {
+      calls.push({ kind: 'capability-snapshot', options });
+      return { enabled: true, sources: [] };
     },
-    capability: () => ({ enabled: true }),
-    sourceCapabilities: async () => [],
     prepareBrowserExtension: () => {
       calls.push({ kind: 'prepare-extension' });
       return { installed: true, connected: false };
@@ -2216,15 +2218,15 @@ async function testBrowserRouterAgentOwnership() {
     });
     assert.strictEqual(readOnlyCapability.status, 200);
     assert.deepStrictEqual(calls.at(-1), {
-      kind: 'refresh-capability',
-      options: { persistDefaultSelection: false, reuseVerified: true },
+      kind: 'capability-snapshot',
+      options: { persistDefaultSelection: false },
     });
 
     const ownerCapability = await request('/api/browsers/capability');
     assert.strictEqual(ownerCapability.status, 200);
     assert.deepStrictEqual(calls.at(-1), {
-      kind: 'refresh-capability',
-      options: { persistDefaultSelection: true, reuseVerified: true },
+      kind: 'capability-snapshot',
+      options: { persistDefaultSelection: true },
     });
 
     const expired = await request('/api/browsers', {
@@ -2355,10 +2357,246 @@ function testBrowserPackaging() {
   assert(packageJson.files.includes('backend/farming-agent-bootstrap.md'));
 }
 
+async function testBrowserCapabilityCurrentStateReads() {
+  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-browser-capability-'));
+  let browserHealthy = true;
+  let probes = 0;
+  const manager = new BrowserResourceManager({
+    configDir,
+    getBrowserSettings: () => ({
+      browserSource: 'system',
+      browserExecutablePath: '/detected/chrome',
+    }),
+    saveBrowserSelection: () => {},
+    discoverBrowserOptions: () => [{ kind: 'chrome', path: '/detected/chrome' }],
+    discoverExecutable: selection => {
+      probes += 1;
+      return browserHealthy
+        ? { kind: 'chrome', path: selection.executablePath, agentBrowserPath: '/fake/agent-browser' }
+        : null;
+    },
+  });
+  await manager.init();
+  try {
+    assert.strictEqual(manager.capability().available, true);
+    const probesAfterInit = probes;
+    // The runtime health flips while the signature evidence (selection, file
+    // identity, relay state) stays unchanged.
+    browserHealthy = false;
+    // Background navigation reuse is opt-in: an unchanged signature may reuse
+    // the verified probe.
+    await manager.refreshCapability(undefined, { reuseVerified: true });
+    assert.strictEqual(
+      probes,
+      probesAfterInit,
+      'background reuseVerified must not re-probe while the signature is unchanged',
+    );
+    // The ordinary current-state read re-probes and reflects the flip.
+    await manager.refreshCapability();
+    assert.strictEqual(
+      manager.capability().available,
+      false,
+      'the fresh current-state read must reflect the flipped runtime health',
+    );
+    assert(probes > probesAfterInit, 'the fresh read must run the authoritative probe');
+
+    // The canonical endpoint performs that fresh read itself: an ordinary GET
+    // without any freshness query reflects the flipped health.
+    const app = express();
+    app.use('/api/browsers', createBrowserRouter(manager, {
+      resolve: () => ({ rootId: 'wroot_project', canonicalPath: '/tmp/project', kind: 'project' }),
+    }, undefined));
+    const server = http.createServer(app);
+    await new Promise((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(0, '127.0.0.1', resolve);
+    });
+    try {
+      const origin = `http://127.0.0.1:${server.address().port}`;
+      const read = async () => {
+        const response = await fetch(`${origin}/api/browsers/capability`, {
+          headers: { 'Content-Type': 'application/json' },
+        });
+        return { status: response.status, body: await response.json() };
+      };
+      let response = await read();
+      assert.strictEqual(response.status, 200);
+      assert.strictEqual(response.body.available, false, 'the canonical GET must report the unhealthy runtime');
+      browserHealthy = true;
+      response = await read();
+      assert.strictEqual(response.status, 200);
+      assert.strictEqual(
+        response.body.available,
+        true,
+        'the canonical GET must reflect the recovered runtime without any query',
+      );
+    } finally {
+      await new Promise(resolve => server.close(resolve));
+    }
+  } finally {
+    await manager.dispose().catch(() => {});
+    fs.rmSync(configDir, { recursive: true, force: true });
+  }
+}
+
+async function testBrowserCapabilitySnapshotCoherence() {
+  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-browser-snapshot-'));
+  const probeCounts: Record<string, number> = {};
+  let systemHealthy = true;
+  let probeLatch: Promise<void> | null = null;
+  let computerProbes = 0;
+  const fakeComputerManager = {
+    acquireBrowser: async () => ({ cdpUrl: 'ws://fake', leaseKey: 'lease' }),
+    capability: async () => {
+      computerProbes += 1;
+      return {
+        dockerAvailable: true,
+        imageReady: true,
+        image: '',
+        imageDigest: '',
+        error: '',
+        compatibilityMode: false,
+      };
+    },
+    prepare: async () => null,
+    releaseBrowser: async () => {},
+    verifyBrowserExecutable: async (executablePath: string) => executablePath,
+  };
+  const isolatedProvider = new IsolatedBrowserProvider({
+    configDir,
+    computerResourceManager: fakeComputerManager,
+    chromiumInstaller: {
+      browserOption: () => null,
+      install: async () => null,
+      status: () => ({ state: 'ready' }),
+    },
+    dockerRunner: async () => ({ stdout: '', stderr: '' }),
+  });
+  const manager = new BrowserResourceManager({
+    configDir,
+    isolatedBrowserProvider: isolatedProvider,
+    getBrowserSettings: () => ({
+      browserSource: 'system',
+      browserExecutablePath: '/detected/chrome',
+    }),
+    saveBrowserSelection: () => {},
+    discoverBrowserOptions: () => [{ kind: 'chrome', path: '/detected/chrome' }],
+    discoverExecutable: async selection => {
+      probeCounts[selection.source] = (probeCounts[selection.source] || 0) + 1;
+      if (probeLatch) await probeLatch;
+      if (selection.source === 'system') {
+        return systemHealthy
+          ? { kind: 'chrome', path: selection.executablePath, agentBrowserPath: '/fake/agent-browser' }
+          : null;
+      }
+      if (selection.source === 'isolated') {
+        return { kind: 'isolated-computer', path: '/isolated/chrome', agentBrowserPath: '/fake/agent-browser' };
+      }
+      return null;
+    },
+  });
+  await manager.init();
+  const baselineSystemProbes = probeCounts.system || 0;
+  const baselineIsolatedProbes = probeCounts.isolated || 0;
+  const baselineExtensionProbes = probeCounts.extension || 0;
+  const baselineComputerProbes = computerProbes;
+  const app = express();
+  app.use('/api/browsers', createBrowserRouter(manager, {
+    resolve: () => ({ rootId: 'wroot_project', canonicalPath: '/tmp/project', kind: 'project' }),
+  }, undefined));
+  const server = http.createServer(app);
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  const read = async () => {
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/browsers/capability`, {
+      headers: { 'Content-Type': 'application/json' },
+    });
+    return { status: response.status, body: await response.json() };
+  };
+  try {
+    // One coherent snapshot: one observation per source, one Computer probe,
+    // and the top-level selected fields derived from the same observations.
+    let response = await read();
+    assert.strictEqual(response.status, 200);
+    let body = response.body;
+    assert.strictEqual(body.available, true);
+    assert.strictEqual(body.browser.path, '/detected/chrome');
+    let systemSource = body.sources.find(source => source.source === 'system');
+    let isolatedSource = body.sources.find(source => source.source === 'isolated');
+    assert.strictEqual(systemSource.available, true);
+    assert.strictEqual(systemSource.path, '/detected/chrome', 'the source entry must share the selected observation');
+    assert.strictEqual(isolatedSource.available, true);
+    assert.strictEqual(probeCounts.system, baselineSystemProbes + 1, 'one system observation per canonical read');
+    assert.strictEqual(probeCounts.isolated, baselineIsolatedProbes + 1, 'one isolated observation per canonical read');
+    assert.strictEqual(probeCounts.extension || 0, baselineExtensionProbes,
+      'an unpaired extension source performs no runtime probe');
+    assert.strictEqual(computerProbes, baselineComputerProbes + 1, 'one Computer probe per canonical read');
+
+    // Sequential canonical reads observe again; completed evidence is never reused.
+    response = await read();
+    assert.strictEqual(response.status, 200);
+    assert.strictEqual(probeCounts.system, baselineSystemProbes + 2);
+    assert.strictEqual(probeCounts.isolated, baselineIsolatedProbes + 2);
+    assert.strictEqual(computerProbes, baselineComputerProbes + 2);
+
+    // A health flip between reads stays coherent inside the response: the
+    // top-level selected fields and the source list agree.
+    systemHealthy = false;
+    response = await read();
+    body = response.body;
+    assert.strictEqual(body.browser, null, 'the selected runtime must reflect the same observation');
+    systemSource = body.sources.find(source => source.source === 'system');
+    assert.strictEqual(systemSource.available, false);
+    isolatedSource = body.sources.find(source => source.source === 'isolated');
+    assert.strictEqual(isolatedSource.available, true);
+    assert.strictEqual(body.available, true, 'another source is still available');
+    assert.strictEqual(body.message, '');
+
+    // Concurrent canonical reads coalesce on the same in-flight snapshot.
+    let releaseProbes = () => {};
+    probeLatch = new Promise(resolve => {
+      releaseProbes = resolve;
+    });
+    const concurrent = Promise.all([read(), read(), read()]);
+    await new Promise(resolve => setTimeout(resolve, 50));
+    systemHealthy = true;
+    releaseProbes();
+    probeLatch = null;
+    const results = await concurrent;
+    for (const result of results) {
+      assert.strictEqual(result.status, 200);
+      assert.strictEqual(result.body.available, true);
+    }
+    assert.strictEqual(
+      probeCounts.system,
+      baselineSystemProbes + 4,
+      'concurrent canonical reads must coalesce into one observation pass',
+    );
+    assert.strictEqual(
+      probeCounts.isolated,
+      baselineIsolatedProbes + 4,
+      'concurrent canonical reads must coalesce into one isolated observation',
+    );
+    assert.strictEqual(
+      computerProbes,
+      baselineComputerProbes + 4,
+      'concurrent canonical reads must coalesce into one Computer probe',
+    );
+  } finally {
+    await new Promise(resolve => server.close(resolve));
+    await manager.dispose().catch(() => {});
+    fs.rmSync(configDir, { recursive: true, force: true });
+  }
+}
+
 Promise.resolve()
   .then(testInternalCdpDiscoveryConfiguration)
   .then(testManagedAgentBrowserDiscovery)
   .then(testBrowserResourceManager)
+  .then(testBrowserCapabilityCurrentStateReads)
+  .then(testBrowserCapabilitySnapshotCoherence)
   .then(testExistingChromeTabManagement)
   .then(testAgentOwnedBrowserIsolationAndLifecycle)
   .then(testAgentBrowserNamedSessionEnsure)

@@ -1939,8 +1939,7 @@ app.use(routePath(BASE_PATH, '/api/settings'), createSettingsMutationRouter({
   },
   refreshBrowserCapability: () => browserResourceManager.refreshCapability(),
   refreshComputerCapability: async () => {
-    computerResourceManager.capabilityCache = null;
-    await computerResourceManager.capability(true);
+    await computerResourceManager.capability();
   },
   resetAllComputerContainers: () => computerResourceManager.resetAllContainers(),
   stopAllBrowsers: () => browserResourceManager.stopAll(),
