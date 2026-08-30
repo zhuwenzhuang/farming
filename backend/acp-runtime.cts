@@ -1271,6 +1271,7 @@ class AcpRuntime extends EventEmitter {
     'dispose' | 'flush' | 'load' | 'markDirty' | 'schedule' | 'write'
   > | null;
   declare reconnectOperations: Map<string, Promise<Record<string, unknown>>>;
+  declare reconnectReservations: Map<string, number>;
   declare disposing: boolean;
   declare disposePromise: Promise<void> | null;
   declare disposed: boolean;
@@ -1314,6 +1315,7 @@ class AcpRuntime extends EventEmitter {
     this.runtimeStarts = new Map();
     this.activeSessionOwners = new Map();
     this.reconnectOperations = new Map();
+    this.reconnectReservations = new Map();
     this.disposing = false;
     this.disposePromise = null;
     this.disposed = false;
@@ -1676,13 +1678,28 @@ class AcpRuntime extends EventEmitter {
    *   [key: string]: unknown,
    * }} [options]
    */
-  async prepareAgent(options: PrepareAgentOptions = {}) {
+  // A reconnect-owned prepare must be admitted only while its exact
+  // reservation still owns the Agent slot. Checked at admission and again
+  // immediately before registration; otherwise fail closed without
+  // registering, so an external unregister/delete wins over the reconnect.
+  assertReconnectSlotOwnership(agentId: string, internal: { reconnectReservation?: number }) {
+    if (internal.reconnectReservation === undefined) return;
+    if (this.reconnectReservations.get(agentId) !== internal.reconnectReservation) {
+      throw new Error('ACP reconnect reservation no longer owns this Agent slot');
+    }
+  }
+
+  async prepareAgent(
+    options: PrepareAgentOptions = {},
+    internal: { reconnectReservation?: number } = {},
+  ) {
     if (this.disposing || this.disposed) {
       throw new Error('ACP runtime is shutting down');
     }
     const agentId = String(options.agentId || '');
     if (!agentId) throw new Error('ACP Agent id is required');
     if (this.bindings.has(agentId)) throw new Error('ACP Agent is already registered');
+    this.assertReconnectSlotOwnership(agentId, internal);
     const provider = String(options.provider || '').trim().toLowerCase();
     const capabilityRuntimeEpoch = String(options.capabilityRuntimeEpoch || '').trim();
     if (capabilityRuntimeEpoch && !/^[A-Za-z0-9._:-]{1,160}$/.test(capabilityRuntimeEpoch)) {
@@ -1823,7 +1840,18 @@ class AcpRuntime extends EventEmitter {
       retryableReconnect: false,
       updatedAt: new Date().toISOString(),
     };
+    // Re-validate immediately before registration: steps between admission
+    // and this point may have transferred slot ownership.
+    this.assertReconnectSlotOwnership(agentId, internal);
     this.bindings.set(agentId, binding);
+    if (internal.reconnectReservation === undefined) {
+      // An external prepare supersedes any reconnect reservation for this
+      // Agent: the fresh identity now owns the slot. A reconnect-owned
+      // candidate preserves the same reservation through startup and its
+      // expected cleanup, so the outer reconnect failure path can still
+      // restore the old retryable binding.
+      this.reconnectReservations.delete(agentId);
+    }
 
     this.emitRuntime(binding);
 
@@ -2127,6 +2155,8 @@ class AcpRuntime extends EventEmitter {
       this.emitRuntime(binding);
       this.emitSession(binding);
       void this.flushDeferredSessionChanges(binding);
+      // A successful prepare consumes any reconnect reservation it carried.
+      this.reconnectReservations.delete(agentId);
       return {
         sessionId: binding.sessionId,
         historyMode,
@@ -3698,6 +3728,12 @@ class AcpRuntime extends EventEmitter {
       throw new Error('ACP Agent reconnect requires a safe exact provider session id');
     }
     if (binding.activeTurn) throw new Error('ACP Agent cannot reconnect while a turn is active');
+    // The reconnect reserves the Agent slot at admission time. Its own
+    // expected-binding unregister preserves the reservation; an external
+    // unregister/delete and any newly registered binding invalidate it, so
+    // the failure path can only re-register a vacancy it still owns.
+    const reconnectReservation = (this.reconnectReservations.get(agentId) || 0) + 1;
+    this.reconnectReservations.set(agentId, reconnectReservation);
 
     const revisionBase = Number(binding.sessionState?.revision || 0);
     let restartOptions: PrepareAgentOptions = {
@@ -3731,16 +3767,38 @@ class AcpRuntime extends EventEmitter {
       if (!oldProcessStopped) throw new Error('ACP Agent reconnect could not stop the previous process');
       if (typeof options.onProcessStopped === 'function') await options.onProcessStopped();
       restartOptions = await this.refreshRuntimeMcpServers(binding, restartOptions);
-      const prepared = await this.prepareAgent(restartOptions);
+      const prepared = await this.prepareAgent(restartOptions, { reconnectReservation });
       return { reconnected: true, ...prepared };
     } catch (error) {
       const failure = asErrorLike(error);
       if (oldProcessStopped && failure.runtimeCleanupVerified === true && typeof options.onProcessStopped === 'function') {
         await options.onProcessStopped();
       }
-      let failedBinding = this.bindings.get(agentId);
-      if (!failedBinding) {
-        failedBinding = binding;
+      // The bindings map is the owning boundary for the Agent slot. A stale
+      // reconnect failure must fail closed: it may only describe the binding
+      // it started from, never a fresh owner that settled in the reconnect
+      // window (for example a concurrent replacement), and it must not
+      // overwrite that fresh authoritative state or claim its identity.
+      const currentBinding = this.bindings.get(agentId);
+      if (currentBinding && currentBinding !== binding) {
+        throw error;
+      }
+      if (
+        !currentBinding
+        && this.reconnectReservations.get(agentId) !== reconnectReservation
+      ) {
+        // An external unregister/delete invalidated the reservation, even on
+        // an already-empty slot: the deleted Agent must stay absent instead
+        // of being resurrected by the stale failure.
+        throw error;
+      }
+      // The reconnect ends here; its reservation cannot outlive the failure.
+      this.reconnectReservations.delete(agentId);
+      const failedBinding = currentBinding || binding;
+      if (!currentBinding) {
+        // The reconnect itself emptied the slot when it stopped the old
+        // process. Re-register the failed binding so the failure stays
+        // visible and retryable for this exact Agent.
         this.bindings.set(agentId, failedBinding);
       }
       failedBinding.exited = true;
@@ -4760,6 +4818,13 @@ class AcpRuntime extends EventEmitter {
   }
 
   unregisterAgent(agentId: string, expectedBinding: AcpBinding | null = null) {
+    // Any ownership claim that is not the exact expected-binding operation
+    // invalidates a reconnect reservation, even when the slot is already
+    // empty: an external delete/kill arriving after a reconnect removed the
+    // old binding must not be resurrected by the stale failure path.
+    if (!(expectedBinding && this.bindings.get(agentId) === expectedBinding)) {
+      this.reconnectReservations.delete(agentId);
+    }
     const binding = this.bindings.get(agentId);
     if (expectedBinding && binding !== expectedBinding) return;
     if (!binding) return;
@@ -4803,6 +4868,12 @@ class AcpRuntime extends EventEmitter {
   }
 
   async unregisterAgentAndWait(agentId: string, expectedBinding: AcpBinding | null = null) {
+    // Same reservation rule as unregisterAgent: only the exact
+    // expected-binding operation preserves a reconnect reservation; any
+    // other ownership claim invalidates it even when the slot is empty.
+    if (!(expectedBinding && this.bindings.get(agentId) === expectedBinding)) {
+      this.reconnectReservations.delete(agentId);
+    }
     const binding = this.bindings.get(agentId);
     if (expectedBinding && binding !== expectedBinding) return false;
     if (!binding) return false;
