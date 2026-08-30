@@ -8,6 +8,7 @@ const { spawn } = require('child_process');
 const {
   discoverLegacyConfigProcesses,
   hardStopConfigProcesses,
+  killOwnedProcessGroup,
   registerConfigProcessGroup,
 } = require('../config-process-ownership.cjs');
 const { configInstanceFingerprint } = require('../config-instance.cjs');
@@ -35,6 +36,88 @@ function writeProcFixture(procRoot, pid, options) {
 }
 
 async function run() {
+  {
+    const expected = {
+      pid: 30001,
+      processGroupId: 30001,
+      startedAt: 'exact-terminal-owner',
+    };
+    const signals = [];
+    assert.throws(
+      () => killOwnedProcessGroup({ ...expected, processGroupId: 30002 }),
+      /process-group leader identity/,
+    );
+    assert.deepStrictEqual(killOwnedProcessGroup(expected, {
+      readProcessIdentity: () => expected,
+      signalProcessGroup(processGroupId, signal) {
+        signals.push({ processGroupId, signal });
+      },
+    }), { killed: true });
+    assert.deepStrictEqual(signals, [{ processGroupId: 30001, signal: 'SIGKILL' }]);
+
+    signals.length = 0;
+    assert.deepStrictEqual(killOwnedProcessGroup(expected, {
+      readProcessIdentity: () => ({ ...expected, startedAt: 'reused-pid' }),
+      signalProcessGroup(processGroupId, signal) {
+        signals.push({ processGroupId, signal });
+      },
+    }), { killed: false, identityMismatch: true });
+    assert.deepStrictEqual(signals, [], 'a reused Terminal process-group leader must not be signalled');
+
+    assert.deepStrictEqual(killOwnedProcessGroup(expected, {
+      readProcessIdentity: () => null,
+      processExists: () => true,
+      signalProcessGroup() {
+        throw new Error('unreachable');
+      },
+    }), { killed: false, identityUnavailable: true });
+
+    assert.deepStrictEqual(killOwnedProcessGroup(expected, {
+      readProcessIdentity: () => null,
+      processExists: () => false,
+      signalProcessGroup() {
+        throw Object.assign(new Error('missing group'), { code: 'ESRCH' });
+      },
+    }), { killed: false, alreadyExited: true });
+
+    const zombieDescendantSignals = [];
+    const zombieDescendants = await hardStopConfigProcesses('/tmp/farming-zombie-descendant-config', {
+      readProcessIdentity: () => expected,
+      isProcessZombie: () => true,
+      inspectProcessGroup: () => 'live',
+      processExists: () => true,
+      signalProcessGroup(processGroupId, signal) {
+        zombieDescendantSignals.push({ processGroupId, signal });
+      },
+      waitForProcessGroupExit: async () => true,
+      discoverLegacyProcesses: async () => [{
+        ...expected,
+        role: 'terminal',
+        configInstanceFingerprint: configInstanceFingerprint('/tmp/farming-zombie-descendant-config'),
+      }],
+    });
+    assert.deepStrictEqual(zombieDescendantSignals, [{ processGroupId: 30001, signal: 'SIGKILL' }]);
+    assert.deepStrictEqual(zombieDescendants, { stopped: 1, refused: 0 });
+
+    const orphanDescendantSignals = [];
+    const orphanDescendants = await hardStopConfigProcesses('/tmp/farming-orphan-descendant-config', {
+      readProcessIdentity: () => null,
+      inspectProcessGroup: () => 'live',
+      processExists: () => false,
+      signalProcessGroup(processGroupId, signal) {
+        orphanDescendantSignals.push({ processGroupId, signal });
+      },
+      waitForProcessGroupExit: async () => true,
+      discoverLegacyProcesses: async () => [{
+        ...expected,
+        role: 'terminal',
+        configInstanceFingerprint: configInstanceFingerprint('/tmp/farming-orphan-descendant-config'),
+      }],
+    });
+    assert.deepStrictEqual(orphanDescendantSignals, [{ processGroupId: 30001, signal: 'SIGKILL' }]);
+    assert.deepStrictEqual(orphanDescendants, { stopped: 1, refused: 0 });
+  }
+
   {
     const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-legacy-proc-config.'));
     const otherConfigDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-legacy-proc-other.'));

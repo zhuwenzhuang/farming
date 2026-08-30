@@ -57,14 +57,23 @@ the current operating-system identity, and sends `SIGKILL` directly. Computer
 containers are selected by persisted container id and exact Config ownership
 labels and receive Docker's `KILL` signal. Missing or mismatched proof is a
 visible failure; stop never scans or signals every process owned by the user.
-A zombie process is already terminated and cannot execute or receive a useful
-signal. Stop therefore reconciles an exact zombie identity as exited and
-removes its ownership record instead of requiring the no-longer-readable
-process environment or reporting an ownership refusal. Because identity and
+A zombie process-group leader is already terminated and cannot execute or
+receive a useful signal, but that fact alone does not prove its descendants
+stopped. Stop inspects the complete group: an exited-only group is reconciled
+without a signal, while live descendants still receive the exact group
+`SIGKILL`. Because identity and
 environment checks are separate operating-system observations, Stop also
 rechecks an apparent mismatch once before refusing: disappearance or zombie
 state is reconciled as exited, while a still-live mismatch remains a visible
 failure and is never signalled.
+
+Stopping one Terminal follows the same hard-stop ownership rule. The native
+and local PTY engines signal the complete process group with `SIGKILL`, never
+only its leader PID, so background descendants cannot outlive the Agent row.
+They revalidate the recorded leader identity immediately before signalling;
+an identity mismatch or an existing leader whose identity cannot be read fails
+visibly without signalling. The exit path applies the same group cleanup before
+releasing the durable ownership record.
 
 ## Runtime And Authentication Isolation
 

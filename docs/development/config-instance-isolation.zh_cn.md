@@ -46,11 +46,18 @@ Server 必须在初始化 Config 自有 Runtime 前原子发布所有权。已�
 持久化 Runtime/Resource 身份，重新校验当前操作系统进程身份，然后直接发送 `SIGKILL`。
 Computer Container 必须通过持久化 Container ID 与精确 Config Ownership Label 选中，并接收
 Docker `KILL` 信号。证明缺失或不匹配时显式失败；Stop 绝不能扫描或终止当前用户的所有进程。
-僵尸进程已经终止，不能继续执行，也无法接收有意义的信号。因此 Stop 会把精确匹配的僵尸
-身份收敛为已退出并删除其 Ownership Record，而不会要求读取已经不可用的进程环境或误报
-Ownership 拒绝。由于身份与环境检查是两次独立的操作系统观察，Stop 在拒绝表面不匹配前还
+进程组 Leader 成为僵尸后已经不能执行或接收有意义的信号，但这不能单独证明其 Descendant
+也已停止。Stop 必须检查完整进程组：只有 Exited-only Group 才能无信号收敛；仍有 Live
+Descendant 时必须继续向精确进程组发送 `SIGKILL`。由于身份与环境检查是两次独立的操作系统
+观察，Stop 在拒绝表面不匹配前还
 必须复核一次：进程已经消失或成为僵尸时收敛为已退出；仍然存活且身份不匹配时才显式失败，
 并且绝不向它发送信号。
+
+停止单个 Terminal 也遵循同一 Hard-stop Ownership 规则。Native 与 Local PTY Engine 必须对
+完整进程组直接发送 `SIGKILL`，不能只杀 Leader PID，确保后台 Descendant 不会在 Agent Row
+消失后继续存活。发送信号前必须立即复核已记录的 Leader Identity；Identity 不匹配，或 Leader
+仍存在但无法读取其 Identity 时，必须显式失败且不得发送信号。Exit 路径也必须先执行相同的
+进程组清理，再释放持久 Ownership Record。
 
 ## Runtime 与鉴权隔离
 

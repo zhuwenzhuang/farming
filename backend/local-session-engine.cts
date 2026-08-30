@@ -18,6 +18,7 @@ import type { TerminalScreenWorkerState as ScreenState } from './terminal-screen
 import type { TerminalReducerFlowControl } from './terminal-reducer-flow-control.cjs';
 import { TerminalNotificationParser } from './terminal-notification-parser.cjs';
 import {
+  killOwnedProcessGroup,
   registerConfigProcessGroup,
   unregisterConfigProcessGroup,
 } from './config-process-ownership.cjs';
@@ -418,10 +419,10 @@ class LocalSessionEngine extends SessionEngine {
 
     if (ptyProcess.pid && process.platform !== 'win32') {
       const processIdentity = readServerProcessIdentity(ptyProcess.pid);
-      if (!processIdentity) {
+      if (!processIdentity || processIdentity.processGroupId !== ptyProcess.pid) {
         ptyProcess.kill('SIGKILL');
         await screenWorker.dispose().catch(() => {});
-        throw new Error('Terminal process could not publish its exact process ownership');
+        throw new Error('Terminal process could not publish its exact process-group ownership');
       }
       session.processIdentity = processIdentity;
       registerConfigProcessGroup(this.configDir, 'terminal', processIdentity);
@@ -487,7 +488,10 @@ class LocalSessionEngine extends SessionEngine {
     }
     if (session.exitFinalizationPromise) return session.exitFinalizationPromise;
     if (session.processIdentity) {
-      unregisterConfigProcessGroup(this.configDir, 'terminal', session.processIdentity);
+      const cleanup = killOwnedProcessGroup(session.processIdentity);
+      if (!cleanup.identityMismatch && !cleanup.identityUnavailable) {
+        unregisterConfigProcessGroup(this.configDir, 'terminal', session.processIdentity);
+      }
     }
     const finalization = this.finalizeSessionExit(session, code);
     session.exitFinalizationPromise = finalization;
@@ -956,16 +960,15 @@ class LocalSessionEngine extends SessionEngine {
 
     session.status = 'stopping';
     session.killRequestedAt = Date.now();
-    session.process.kill('SIGTERM');
-
-    const killTimer = setTimeout(() => {
-      const latest = this.sessions.get(sessionId);
-      if (latest !== session || latest.status === 'exited' || !latest.process) {
-        return;
+    if (session.processIdentity) {
+      const cleanup = killOwnedProcessGroup(session.processIdentity);
+      if (cleanup.identityMismatch || cleanup.identityUnavailable) {
+        session.status = 'running';
+        throw new Error('Terminal process-group ownership changed; refusing to signal it');
       }
-      latest.process.kill('SIGKILL');
-    }, 1500);
-    if (typeof killTimer.unref === 'function') killTimer.unref();
+    } else {
+      session.process.kill('SIGKILL');
+    }
   }
 
   async getSessionState(sessionId: string): Promise<TerminalSessionState | null> {

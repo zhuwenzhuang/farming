@@ -233,6 +233,7 @@ import * as terminalRuntimeCleanupModule from './terminal-runtime-cleanup.cjs';
 const { probeUnixSocket } = terminalRuntimeCleanupModule;
 import * as nativePtyHostIdentityModule from './native-pty-host-identity.cjs';
 import {
+  killOwnedProcessGroup,
   registerConfigProcessGroup,
   unregisterConfigProcessGroup,
 } from './config-process-ownership.cjs';
@@ -270,7 +271,6 @@ const OUTPUT_LIMIT = 10000;
 const DEFAULT_COLS = 80;
 const DEFAULT_ROWS = 30;
 const OWNER_CHECK_INTERVAL_MS = 1000;
-const DISPOSE_PTY_GRACE_MS = 800;
 const DEFAULT_IDLE_EXIT_MS = 60000;
 const DEFAULT_CLIENT_MAX_BUFFERED_BYTES = 16 * 1024 * 1024;
 const DEFAULT_CLIENT_MAX_REQUEST_BYTES = 16 * 1024 * 1024;
@@ -991,7 +991,7 @@ class NativePtyHost {
 
     if (ptyProcess.pid && process.platform !== 'win32') {
       const processIdentity = readServerProcessIdentity(ptyProcess.pid);
-      if (!processIdentity) {
+      if (!processIdentity || processIdentity.processGroupId !== ptyProcess.pid) {
         try {
           ptyProcess.kill('SIGKILL');
         } catch {
@@ -999,7 +999,7 @@ class NativePtyHost {
         }
         cleanupShellBusyIntegration(normalized.shellBusyIntegration);
         await screenWorker.dispose().catch(() => {});
-        throw new Error('Terminal process could not publish its exact process ownership');
+        throw new Error('Terminal process could not publish its exact process-group ownership');
       }
       session.processIdentity = processIdentity;
       registerConfigProcessGroup(this.configDir, 'terminal', processIdentity);
@@ -1252,7 +1252,10 @@ class NativePtyHost {
     ) return Promise.resolve();
     if (session.exitFinalizationPromise) return session.exitFinalizationPromise;
     if (session.processIdentity) {
-      unregisterConfigProcessGroup(this.configDir, 'terminal', session.processIdentity);
+      const cleanup = killOwnedProcessGroup(session.processIdentity);
+      if (!cleanup.identityMismatch && !cleanup.identityUnavailable) {
+        unregisterConfigProcessGroup(this.configDir, 'terminal', session.processIdentity);
+      }
     }
     const finalization = this.finalizeSessionExit(sessionId, code, session);
     session.exitFinalizationPromise = finalization;
@@ -1570,13 +1573,15 @@ class NativePtyHost {
     if (session.status === 'exited') return { killed: false };
     session.status = 'stopping';
     session.killRequestedAt = Date.now();
-    session.process.kill('SIGTERM');
-    const timer = setTimeout(() => {
-      const latest = this.sessions.get(sessionId);
-      if (latest !== session || latest.status === 'exited' || !latest.process) return;
-      latest.process.kill('SIGKILL');
-    }, 1500);
-    if (typeof timer.unref === 'function') timer.unref();
+    if (session.processIdentity) {
+      const cleanup = killOwnedProcessGroup(session.processIdentity);
+      if (cleanup.identityMismatch || cleanup.identityUnavailable) {
+        session.status = 'running';
+        throw new Error('Terminal process-group ownership changed; refusing to signal it');
+      }
+    } else {
+      session.process.kill('SIGKILL');
+    }
     return { killed: true };
   }
 
@@ -1858,19 +1863,17 @@ class NativePtyHost {
   ): Promise<void> {
     if (!session || !session.process || session.status === 'exited') return;
     session.status = 'stopping';
-    try {
-      session.process.kill('SIGTERM');
-    } catch {
-      return;
-    }
-
-    await new Promise<void>(resolve => setTimeout(resolve, DISPOSE_PTY_GRACE_MS));
-    if (session.status === 'exited') return;
-
-    try {
-      session.process.kill('SIGKILL');
-    } catch {
-      // ignore dispose races
+    if (session.processIdentity) {
+      const cleanup = killOwnedProcessGroup(session.processIdentity);
+      if (cleanup.identityMismatch || cleanup.identityUnavailable) {
+        throw new Error('Terminal process-group ownership changed; refusing to signal it');
+      }
+    } else {
+      try {
+        session.process.kill('SIGKILL');
+      } catch {
+        // ignore dispose races
+      }
     }
   }
 

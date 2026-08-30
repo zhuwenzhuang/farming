@@ -63,32 +63,23 @@ async function run() {
   assert.strictEqual(replacement.stateProofAvailable, true);
   assert.deepStrictEqual(events, [], 'callbacks from an old native PTY must not mutate or exit its replacement');
 
-  let delayedKill = null;
+  let stoppingKillCount = 0;
   let replacementKillCount = 0;
-  const originalSetTimeout = global.setTimeout;
-  global.setTimeout = ((callback: (...args: unknown[]) => void) => {
-    delayedKill = callback;
-    return { unref() {} };
-  }) as typeof setTimeout;
-  try {
-    const stoppingSession = {
-      id: 'reused-kill-session-id',
-      status: 'running',
-      process: { kill() {} },
-    };
-    const killReplacement = {
-      id: stoppingSession.id,
-      status: 'running',
-      process: { kill() { replacementKillCount += 1; } },
-    };
-    host.sessions.set(stoppingSession.id, stoppingSession);
-    await host.killSession(stoppingSession.id);
-    host.sessions.set(stoppingSession.id, killReplacement);
-    delayedKill();
-    assert.strictEqual(replacementKillCount, 0, 'an old SIGKILL timer must not kill a replacement runtime');
-  } finally {
-    global.setTimeout = originalSetTimeout;
-  }
+  const stoppingSession = {
+    id: 'reused-kill-session-id',
+    status: 'running',
+    process: { kill() { stoppingKillCount += 1; } },
+  };
+  const killReplacement = {
+    id: stoppingSession.id,
+    status: 'running',
+    process: { kill() { replacementKillCount += 1; } },
+  };
+  host.sessions.set(stoppingSession.id, stoppingSession);
+  await host.killSession(stoppingSession.id);
+  host.sessions.set(stoppingSession.id, killReplacement);
+  assert.strictEqual(stoppingKillCount, 1, 'hard stop must signal the exact admitted runtime once');
+  assert.strictEqual(replacementKillCount, 0, 'hard stop must not signal a replacement runtime');
   console.log('✓ Native PTY callbacks are fenced by the exact session instance');
 }
 

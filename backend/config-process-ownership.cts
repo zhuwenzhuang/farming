@@ -15,6 +15,8 @@ type ProcessIdentity = {
   startedAt: string;
 };
 
+type ProcessGroupState = 'live' | 'exited-only' | 'missing' | 'unknown';
+
 type OwnershipRecord = ProcessIdentity & {
   configInstanceFingerprint: string;
   role: string;
@@ -24,8 +26,16 @@ type HardStopOptions = {
   discoverLegacyProcesses?: () => Promise<OwnershipRecord[]>;
   readProcessIdentity?: (pid: number) => ProcessIdentity | null | Promise<ProcessIdentity | null>;
   isProcessZombie?: (pid: number) => boolean;
+  inspectProcessGroup?: (processGroupId: number) => ProcessGroupState;
+  processExists?: (pid: number) => boolean;
   signalProcessGroup?: (processGroupId: number, signal: NodeJS.Signals) => void;
   waitForProcessGroupExit?: (processGroupId: number) => Promise<boolean>;
+};
+
+type OwnedProcessGroupKillOptions = {
+  processExists?: (pid: number) => boolean;
+  readProcessIdentity?: (pid: number) => ProcessIdentity | null;
+  signalProcessGroup?: (processGroupId: number, signal: NodeJS.Signals) => void;
 };
 
 const PROCESS_OWNERSHIP_VERSION = 1;
@@ -117,6 +127,49 @@ function matchingIdentity(expected: ProcessIdentity, actual: ProcessIdentity | n
   );
 }
 
+function processExists(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ESRCH') return false;
+    if ((error as NodeJS.ErrnoException).code === 'EPERM') return true;
+    throw error;
+  }
+}
+
+function killOwnedProcessGroup(
+  rawIdentity: unknown,
+  options: OwnedProcessGroupKillOptions = {},
+) {
+  const expected = normalizeIdentity(rawIdentity);
+  if (!expected) throw new Error('Process-group kill requires an exact process identity');
+  if (expected.processGroupId !== expected.pid) {
+    throw new Error('Process-group kill requires the recorded process-group leader identity');
+  }
+  if (process.platform === 'win32') return { killed: false, unsupported: true };
+  const readIdentity = options.readProcessIdentity || readServerProcessIdentity;
+  const current = readIdentity(expected.pid);
+  if (current && !matchingIdentity(expected, current)) {
+    return { killed: false, identityMismatch: true };
+  }
+  const leaderExists = options.processExists || processExists;
+  if (!current && leaderExists(expected.pid)) {
+    return { killed: false, identityUnavailable: true };
+  }
+  const signal = options.signalProcessGroup
+    || ((processGroupId: number, value: NodeJS.Signals) => process.kill(-processGroupId, value));
+  try {
+    signal(expected.processGroupId, 'SIGKILL');
+    return { killed: true };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ESRCH') {
+      return { killed: false, alreadyExited: true };
+    }
+    throw error;
+  }
+}
+
 function processHasConfigEnvironment(pid: number, configDir: string): boolean {
   try {
     const entry = fs.readFileSync(`/proc/${pid}/environ`, 'utf8')
@@ -184,6 +237,36 @@ function procProcessGroupId(procDir: string, expectedPid: number): number | null
   if (Number(prefix) !== expectedPid || fields.length < 3) return null;
   const processGroupId = Number(fields[2]);
   return Number.isSafeInteger(processGroupId) && processGroupId > 0 ? processGroupId : null;
+}
+
+function classifyProcessGroupStats(statLines: string[], processGroupId: number): ProcessGroupState {
+  let matchedExitedMember = false;
+  for (const statLine of statLines) {
+    const commandEnd = statLine.lastIndexOf(')');
+    if (commandEnd < 0) continue;
+    const fields = statLine.slice(commandEnd + 2).trim().split(/\s+/);
+    const state = fields[0] || '';
+    if (Number(fields[2]) !== processGroupId) continue;
+    if (!['Z', 'X', 'x'].includes(state)) return 'live';
+    matchedExitedMember = true;
+  }
+  return matchedExitedMember ? 'exited-only' : 'missing';
+}
+
+function inspectLinuxProcessGroup(processGroupId: number): ProcessGroupState {
+  if (process.platform !== 'linux') return 'unknown';
+  let processIds: string[];
+  try {
+    processIds = fs.readdirSync('/proc').filter(name => /^\d+$/.test(name));
+  } catch {
+    return 'unknown';
+  }
+  const statLines: string[] = [];
+  for (const processId of processIds) {
+    const stat = readBoundedFile(`/proc/${processId}/stat`, 64 * 1024)?.toString('utf8');
+    if (stat) statLines.push(stat);
+  }
+  return classifyProcessGroupStats(statLines, processGroupId);
 }
 
 function exactManagedRootCarrier(
@@ -389,6 +472,8 @@ function safeJsonFiles(directory: string, accept: (file: string) => boolean): st
 async function defaultWaitForProcessGroupExit(processGroupId: number): Promise<boolean> {
   const deadline = Date.now() + HARD_STOP_WAIT_MS;
   while (Date.now() <= deadline) {
+    const state = inspectLinuxProcessGroup(processGroupId);
+    if (state === 'missing' || state === 'exited-only') return true;
     try {
       process.kill(-processGroupId, 0);
     } catch (error) {
@@ -403,6 +488,8 @@ async function defaultWaitForProcessGroupExit(processGroupId: number): Promise<b
 async function hardStopConfigProcesses(configDir: string, options: HardStopOptions = {}) {
   const readIdentity = options.readProcessIdentity || readServerProcessIdentity;
   const isZombie = options.isProcessZombie || processIsZombie;
+  const inspectGroup = options.inspectProcessGroup || inspectLinuxProcessGroup;
+  const leaderExists = options.processExists || processExists;
   const signal = options.signalProcessGroup || ((processGroupId, value) => process.kill(-processGroupId, value));
   const waitForExit = options.waitForProcessGroupExit || defaultWaitForProcessGroupExit;
   const registered = readOwnershipRecords(configDir);
@@ -430,11 +517,22 @@ async function hardStopConfigProcesses(configDir: string, options: HardStopOptio
     let observedLiveIdentity = false;
     for (const item of items) {
       const actual = await readIdentity(item.record.pid);
-      if (!actual) continue;
+      if (!actual) {
+        if (leaderExists(item.record.pid)) {
+          observedLiveIdentity = true;
+          continue;
+        }
+        if (inspectGroup(item.record.processGroupId) === 'live') {
+          record = item.record;
+          break;
+        }
+        continue;
+      }
       // A zombie has already terminated and cannot execute or be killed. Its
-      // environment is no longer reliable on Linux, so treating it as an
-      // unowned live process creates a false refusal during hard-stop races.
-      if (isZombie(item.record.pid)) continue;
+      // environment is no longer reliable on Linux. The process group can
+      // nevertheless still own live descendants, which remain hard-stop
+      // targets until the whole group is exited-only or missing.
+      if (isZombie(item.record.pid) && inspectGroup(item.record.processGroupId) !== 'live') continue;
       observedLiveIdentity = true;
       if (matchingIdentity(item.record, actual)) {
         record = item.record;
@@ -538,6 +636,7 @@ export {
   hardStopConfigProcesses,
   hardStopConfigComputerContainers,
   discoverLegacyConfigProcesses,
+  killOwnedProcessGroup,
   registerConfigProcessGroup,
   unregisterConfigProcessGroup,
 };
