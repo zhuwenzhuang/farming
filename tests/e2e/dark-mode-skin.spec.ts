@@ -85,6 +85,17 @@ async function expectPageTitleStyle(locator: import('@playwright/test').Locator)
   await expect(locator).toHaveCSS('line-height', '24px')
 }
 
+async function expectTokenFocusRing(locator: import('@playwright/test').Locator) {
+  await expect.poll(() => locator.evaluate(element => {
+    const probe = document.createElement('span')
+    probe.style.color = 'var(--code-focus-ring)'
+    element.ownerDocument.body.appendChild(probe)
+    const focusRing = getComputedStyle(probe).color
+    probe.remove()
+    return getComputedStyle(element).borderTopColor === focusRing
+  })).toBe(true)
+}
+
 async function chooseAppearance(page: import('@playwright/test').Page, appearance: 'Light' | 'Dark' | 'Paper') {
   await page.getByTestId('code-sidebar-options').click()
   const settingsPanel = page.getByTestId('code-settings-panel')
@@ -259,8 +270,8 @@ test.describe('Farming Code appearance skins', () => {
     const searchBox = page.getByTestId('code-search-box')
     await expect(searchBox.locator('input')).toBeFocused()
     await expect(searchBox).toHaveCSS('background-color', 'rgb(239, 237, 231)')
-    await expect(searchBox).toHaveCSS('border-color', 'rgba(0, 0, 0, 0)')
-    await expect(searchBox).toHaveCSS('box-shadow', 'none')
+    await expectTokenFocusRing(searchBox)
+    await expect(searchBox).not.toHaveCSS('box-shadow', 'none')
     await page.getByTestId('code-search-back').click()
 
     await page.getByTestId('code-sidebar-options').click()
@@ -292,8 +303,8 @@ test.describe('Farming Code appearance skins', () => {
     await expect(workspaceInput).toHaveCSS('border-style', 'solid')
     await expect(workspaceInput).toHaveCSS('border-radius', '8px')
     await workspaceInput.focus()
-    await expect(workspaceInput).toHaveCSS('border-color', 'rgba(0, 0, 0, 0)')
-    await expect(workspaceInput).toHaveCSS('box-shadow', 'rgba(0, 0, 0, 0) 0px 0px 0px 3px')
+    await expectTokenFocusRing(workspaceInput)
+    await expect(workspaceInput).not.toHaveCSS('box-shadow', 'none')
     await expect(workspaceInput).toHaveCSS('outline-style', 'none')
     await page.getByTestId('input-dialog-close').click()
 
@@ -496,14 +507,7 @@ test.describe('Farming Code appearance skins', () => {
     const searchInput = searchBox.locator('input')
     await searchInput.fill(path.basename(projectDir))
     await expect(searchInput).toBeFocused()
-    await expect.poll(() => searchBox.evaluate(element => {
-      const probe = document.createElement('span')
-      probe.style.color = 'var(--code-focus-ring)'
-      element.appendChild(probe)
-      const focusRing = getComputedStyle(probe).color
-      probe.remove()
-      return getComputedStyle(element).borderColor === focusRing
-    })).toBe(true)
+    await expectTokenFocusRing(searchBox)
     await expect(page.getByTestId('code-search-result').first()).toBeVisible()
     await expectDarkSurface(page.getByTestId('code-search-result').first(), 'search result')
     const searchTitle = page.getByTestId('code-search-panel').locator('.code-search-panel-header h2')

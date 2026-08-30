@@ -617,7 +617,8 @@ test('keeps a deeply scrolled directory anchored while pointer expansion loads i
   const desktopViewport = page.viewportSize()
   await page.setViewportSize({ width: 720, height: 900 })
   await expect(page.locator('body')).toHaveClass(/code-compact-layout/)
-  await page.locator('.code-sidebar').evaluate(element => element.classList.remove('collapsed'))
+  await page.getByTestId('code-mobile-menu').click()
+  await expect(page.getByTestId('code-mobile-sidebar-backdrop')).toBeVisible()
   const compactFileName = files.locator('[data-file-path="velox/fixture.ts"] .code-file-name')
   await expect(compactFileName).toBeVisible()
   await expect.poll(() => files.locator('[data-file-path="velox/fixture.ts"] .code-file-label')
@@ -841,7 +842,9 @@ test('keeps file row slots stable for rename, links, statuses, loading, and comp
   await assertStableSlots()
 
   const assertRenameKeepsLabelOrigin = async (row: Locator) => {
-    await row.click({ button: 'right' })
+    const actions = row.locator('.code-file-row-actions')
+    if (await actions.isVisible()) await actions.click()
+    else await row.click({ button: 'right' })
     await page.getByTestId('code-file-context-menu').getByRole('menuitem', { name: 'Rename' }).click()
     const renameInput = row.getByTestId('code-file-operation-input')
     await expect(renameInput).toBeFocused()
@@ -993,7 +996,9 @@ test('keeps file row slots stable for rename, links, statuses, loading, and comp
 
   await page.setViewportSize({ width: 720, height: 900 })
   await expect(page.locator('body')).toHaveClass(/code-compact-layout/)
-  await page.locator('.code-sidebar').evaluate(element => element.classList.remove('collapsed'))
+  await page.getByTestId('code-mobile-back').click()
+  await page.getByTestId('code-mobile-menu').click()
+  await expect(page.getByTestId('code-mobile-sidebar-backdrop')).toBeVisible()
   await expect(linkedRow).toBeVisible()
   await assertStableSlots()
   await assertRenameKeepsLabelOrigin(regularRow)
