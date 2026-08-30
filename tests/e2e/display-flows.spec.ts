@@ -2715,17 +2715,11 @@ test.describe('display-backed agent flows', () => {
     await expect(childFiles.locator('.code-file-search-result').filter({ hasText: 'file-30.txt' }).first()).toBeVisible()
     await fileSearchInput.press('Enter')
     await fileSearchInput.fill('')
-    await expect.poll(async () => page.getByTestId('code-project-list').evaluate((projectList, targetPath) => {
-      const target = projectList
-        .querySelector<HTMLElement>(`[data-testid="code-file-row"][data-file-path="${targetPath}"]`)
-      if (!target) return false
-      const projectListBox = projectList.getBoundingClientRect()
-      const targetBox = target.getBoundingClientRect()
-      projectList.scrollTop += targetBox.top - projectListBox.top
-      projectList.dispatchEvent(new Event('scroll', { bubbles: true }))
-      const nextTargetBox = target.getBoundingClientRect()
-      return nextTargetBox.top >= projectListBox.top - 1 && nextTargetBox.bottom <= projectListBox.bottom + 1
-    }, 'deep/nested/inner/file-30.txt')).toBe(true)
+    // Opening from Search owns the reveal. Mutating the shared Project scroller
+    // here would race the virtual tree and test a state the user cannot create.
+    await expect(childFiles.locator(
+      '[data-testid="code-file-row"].active[data-file-path="deep/nested/inner/file-30.txt"]',
+    )).toBeVisible()
     await fileSearchInput.fill('deep/nested/inner/file-35.txt:1')
     await fileSearchInput.press('Enter')
     await expect(activeFileTabName(page)).toHaveText('file-35.txt')
