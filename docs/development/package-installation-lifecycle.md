@@ -86,7 +86,16 @@ fallback; the same version and executable verification applies afterward.
 
 Preparation and publication are separate transitions. A target prepared from a
 stale selection must not overwrite a newer deployment. Detached work may commit
-state only while it still owns the same update operation.
+state only while it still owns the same update operation. Ownership commits,
+authoritative Server persists, and state removal serialize through an
+exclusive update-state lock carrying the holder's exact process identity; a
+claim is broken only when that identity is proven dead, and writers that
+bypass the lock are outside this guarantee. If a mutation completes but its
+claim cannot be proven released, the operation fails visibly and the same
+process retains that exact claim for a bounded release retry before its next
+mutation. A process restart instead makes the old identity reclaimable through
+the ordinary dead-holder path; neither recovery path replays the completed
+state mutation.
 
 For npm updates, metadata from the update registry proves the exact target
 version and integrity. Preparation first honors the operator's configured npm

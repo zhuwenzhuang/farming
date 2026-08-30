@@ -65,7 +65,12 @@ npm Image 将精确版本的 Codex 与 Claude Native Carrier 声明为受平台�
 - **Rolled back / Failed**：已经恢复旧版本，或需要可见的人工处理。
 
 Prepare 与 Publication 是独立转换。基于旧 Selection 准备的目标不能覆盖更新部署；Detached
-工作只有在仍拥有同一个 Update Operation 时才能提交状态。
+工作只有在仍拥有同一个 Update Operation 时才能提交状态。所有权提交、Server 的权威持久化
+与状态删除都通过一个携带持有者精确进程身份的排他 Update State 锁串行化；只有当该身份被
+证明已死亡时才会破除其声明，绕过该锁的写入不在此保证范围内。若状态变更已经完成但无法
+证明其 Claim 已释放，本次操作会可见失败；同一进程会保留该精确 Claim，并在下一次状态变更
+前有界重试释放。进程重启后则由常规的死亡持有者路径回收旧 Claim；两条恢复路径都不会重放
+已经完成的状态变更。
 
 对于 npm 更新，Update Registry 的元数据负责证明精确目标版本与 Integrity。Prepare 首先尊重
 Operator 配置的 npm Registry；该命令失败后，Helper 只删除自己拥有的 Staging Prefix，并显式

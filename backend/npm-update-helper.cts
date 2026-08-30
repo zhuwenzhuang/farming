@@ -14,6 +14,11 @@ import {
 } from './package-installation.cjs';
 import type { ActivatePackageImageResult, PackageInstallationContext } from './package-installation.cjs';
 import { canonicalConfigDir } from './config-instance.cjs';
+import {
+  commitUpdateOperationState,
+  readUpdateOperationOwnership,
+  writeJsonAtomic,
+} from './update-operation-state.cjs';
 
 type NpmUpdateAction = 'prepare' | 'apply';
 
@@ -91,34 +96,34 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function writeJsonAtomic(filePath: string, value: unknown): void {
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  const temporaryPath = `${filePath}.${process.pid}.tmp`;
-  fs.writeFileSync(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
-  fs.renameSync(temporaryPath, filePath);
-}
-
 class SupersededUpdateOperationError extends Error {}
 
-function operationOwnsState(payload: NpmUpdatePayload): boolean {
-  try {
-    const state = JSON.parse(fs.readFileSync(payload.stateFile, 'utf8')) as Record<string, unknown>;
-    return state.format === 'farming-update-operation-v1'
-      && state.operationId === payload.operationId;
-  } catch {
-    return false;
-  }
+const UPDATE_OPERATION_STATE_FORMAT = 'farming-update-operation-v1';
+
+function expectedOwnership(payload: NpmUpdatePayload): { format: string; operationId: string } {
+  return { format: UPDATE_OPERATION_STATE_FORMAT, operationId: payload.operationId };
 }
 
+function operationOwnsState(payload: NpmUpdatePayload): boolean {
+  const ownership = readUpdateOperationOwnership(payload.stateFile);
+  return Boolean(
+    ownership
+    && ownership.format === UPDATE_OPERATION_STATE_FORMAT
+    && ownership.operationId === payload.operationId,
+  );
+}
+
+// Ownership observation and state publication form one atomic decision under
+// the shared update-state claim, so a superseded operation can never publish
+// over the operation that replaced it.
 function writeOperationState(
   payload: NpmUpdatePayload,
   phase: string,
   extra: Record<string, unknown> = {},
 ): void {
-  if (!operationOwnsState(payload)) {
+  if (!commitUpdateOperationState(payload.stateFile, expectedOwnership(payload), stateFor(payload, phase, extra))) {
     throw new SupersededUpdateOperationError(`Update operation ${payload.operationId} is no longer current`);
   }
-  writeJsonAtomic(payload.stateFile, stateFor(payload, phase, extra));
 }
 
 function writeOperationStateIfOwned(
@@ -126,9 +131,7 @@ function writeOperationStateIfOwned(
   phase: string,
   extra: Record<string, unknown> = {},
 ): boolean {
-  if (!operationOwnsState(payload)) return false;
-  writeJsonAtomic(payload.stateFile, stateFor(payload, phase, extra));
-  return true;
+  return commitUpdateOperationState(payload.stateFile, expectedOwnership(payload), stateFor(payload, phase, extra));
 }
 
 function appendLog(logPath: string, message: string): void {
@@ -269,7 +272,7 @@ function stateFor(
   extra: Record<string, unknown> = {},
 ): NpmUpdateState {
   return {
-    format: 'farming-update-operation-v1',
+    format: UPDATE_OPERATION_STATE_FORMAT,
     operationId: payload.operationId,
     method: 'npm',
     phase,

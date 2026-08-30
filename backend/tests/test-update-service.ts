@@ -1,4 +1,6 @@
 const assert = require('assert');
+const { spawn } = require('child_process');
+const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -18,13 +20,49 @@ const {
   publishPreparedPackageImage,
   publishRunningPackageImage,
 } = require('../package-installation.cjs');
+const {
+  acquireUpdateStateLock,
+  releaseUpdateStateLock,
+} = require('../update-operation-state.cjs');
+const { readServerProcessIdentity } = require('../server-process-identity.cjs');
 
 type HttpServer = import('http').Server;
+type ChildProcess = import('child_process').ChildProcess;
 
 function serverPort(server: HttpServer): number {
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('expected a TCP listener');
   return address.port;
+}
+
+// Exact cleanup contract: attach the exit listener first, recheck state,
+// send an exact SIGKILL, reject on timeout, and guarantee the postcondition
+// "terminated". Fixture removal happens only after this resolves, so it can
+// never race a dying process or proceed while a live child remains.
+async function killChildConfirmed(child: ChildProcess): Promise<void> {
+  let notifyExit = () => {};
+  const exitSignal = new Promise<void>(resolve => {
+    notifyExit = resolve;
+  });
+  child.once('exit', () => notifyExit());
+  if (child.exitCode === null && child.signalCode === null) {
+    child.kill('SIGKILL');
+  }
+  // Recheck after attaching: exit may already have been emitted.
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`Timed out waiting for child PID ${child.pid} to terminate`)),
+      2000,
+    );
+    exitSignal.then(() => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
+  if (child.exitCode === null && child.signalCode === null) {
+    throw new Error(`Child PID ${child.pid} did not terminate`);
+  }
 }
 
 async function verifyUpdateRouterBehavior() {
@@ -311,6 +349,219 @@ async function run() {
   });
   fs.rmSync(path.join(removedStateConfig, 'farming-update.json'));
   assert.strictEqual(removedStateService.currentInstallState().phase, 'idle');
+
+  // Update-state lock failures must never desynchronize in-memory state from
+  // disk, and clear must fail explicitly while another holder owns the claim.
+  const lockRootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-update-lock-consistency-root-'));
+  const lockConfigDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-update-lock-consistency-config-'));
+  try {
+  fs.writeFileSync(path.join(lockRootDir, 'package.json'), JSON.stringify({
+    name: 'farming-code',
+    version: '2.2.29',
+  }));
+  const lockService = new FarmingUpdateService({
+    rootDir: lockRootDir,
+    configDir: lockConfigDir,
+    installMethod: 'npm',
+  });
+  const lockStateFile = path.join(lockConfigDir, 'farming-update.json');
+  lockService.persistInstallState({
+    method: 'npm',
+    phase: 'installing',
+    version: '2.2.30',
+    previousVersion: '2.2.29',
+    startedAt: new Date().toISOString(),
+  });
+  const heldClaim = acquireUpdateStateLock(lockStateFile);
+  try {
+    const persistStart = Date.now();
+    assert.throws(
+      () => lockService.persistInstallState({
+        method: 'npm',
+        phase: 'ready-to-restart',
+        version: '2.2.30',
+        previousVersion: '2.2.29',
+      }),
+      (error: Error & { code?: string }) => /update state lock/i.test(error.message)
+        && error.code === 'FARMING_UPDATE_STATE_LOCK',
+      'a locked state file must fail the persist visibly',
+    );
+    assert(
+      Date.now() - persistStart < 1000,
+      'the Server must make a single non-waiting claim attempt, never poll',
+    );
+    assert.strictEqual(lockService.installState.phase, 'installing', 'memory must follow disk only after a committed write');
+    assert.strictEqual(JSON.parse(fs.readFileSync(lockStateFile, 'utf8')).phase, 'installing');
+    const clearStart = Date.now();
+    assert.throws(
+      () => lockService.clearInstallState(),
+      (error: Error & { code?: string }) => /update state lock/i.test(error.message)
+        && error.code === 'FARMING_UPDATE_STATE_LOCK',
+      'clear must fail explicitly while the claim is held, not report idle',
+    );
+    assert(
+      Date.now() - clearStart < 1000,
+      'a contended clear must fail immediately without blocking the event loop',
+    );
+    assert.strictEqual(lockService.installState.phase, 'installing');
+    assert(fs.existsSync(lockStateFile), 'a held claim must keep the state file untouched');
+  } finally {
+    assert.strictEqual(releaseUpdateStateLock(lockStateFile, heldClaim), true);
+  }
+
+  // A read-only Config clear is still tolerated: only filesystem permission
+  // failures may fall back to the in-memory idle presentation.
+  const originalRmSync = fs.rmSync;
+  fs.rmSync = ((...rmArgs: Parameters<typeof originalRmSync>) => {
+    const target = rmArgs[0];
+    if (String(target) === lockStateFile) {
+      const error = new Error(`EROFS: read-only file system, unlink '${target}'`) as NodeJS.ErrnoException;
+      error.code = 'EROFS';
+      throw error;
+    }
+    return originalRmSync(...rmArgs);
+  }) as typeof originalRmSync;
+  try {
+    assert.strictEqual(lockService.clearInstallState().phase, 'idle');
+  } finally {
+    fs.rmSync = originalRmSync;
+  }
+  assert(fs.existsSync(lockStateFile), 'a read-only Config keeps its persisted state file');
+  } finally {
+    fs.rmSync(lockRootDir, { recursive: true, force: true });
+    fs.rmSync(lockConfigDir, { recursive: true, force: true });
+  }
+
+  // Server crash recovery without any polling participant: the single
+  // non-waiting attempt performs one exact synchronous reclaim of a
+  // proven-dead helper claim, one immediate retry, and persists. Every
+  // contended variant fails immediately without polling.
+  const recoveryRootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-update-server-recovery-root-'));
+  const recoveryConfigDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-update-server-recovery-config-'));
+  fs.writeFileSync(path.join(recoveryRootDir, 'package.json'), JSON.stringify({
+    name: 'farming-code',
+    version: '2.2.29',
+  }));
+  const recoveryService = new FarmingUpdateService({
+    rootDir: recoveryRootDir,
+    configDir: recoveryConfigDir,
+    installMethod: 'npm',
+  });
+  const recoveryStateFile = path.join(recoveryConfigDir, 'farming-update.json');
+  const recoveryLockDir = `${recoveryStateFile}.lock`;
+  const deadHelper = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+  try {
+    await new Promise((resolve, reject) => {
+      deadHelper.once('spawn', resolve);
+      deadHelper.once('error', reject);
+    });
+    const deadHelperIdentity = readServerProcessIdentity(deadHelper.pid);
+    assert(deadHelperIdentity, 'recovery fixture must expose a process identity');
+    deadHelper.kill('SIGKILL');
+    await new Promise(resolve => deadHelper.once('exit', resolve));
+    const deadHelperClaim = {
+      format: 'farming-update-state-lock-v1',
+      pid: deadHelperIdentity.pid,
+      processGroupId: deadHelperIdentity.processGroupId,
+      startedAt: deadHelperIdentity.startedAt,
+      token: '00000000-0000-4000-8000-00000000dead-helper',
+      createdAt: new Date().toISOString(),
+    };
+    const writeDeadClaim = () => {
+      fs.mkdirSync(recoveryLockDir, { recursive: true });
+      fs.writeFileSync(path.join(recoveryLockDir, 'owner.json'), `${JSON.stringify(deadHelperClaim, null, 2)}\n`);
+    };
+
+    // Proven-dead helper claim: recovered synchronously, persist succeeds.
+    writeDeadClaim();
+    const recoveryStart = Date.now();
+    recoveryService.persistInstallState({
+      method: 'npm',
+      phase: 'installing',
+      version: '2.2.30',
+      previousVersion: '2.2.29',
+      startedAt: new Date().toISOString(),
+    });
+    assert(Date.now() - recoveryStart < 1200, 'dead-claim recovery must stay inside the non-waiting attempt');
+    assert.strictEqual(recoveryService.installState.phase, 'installing');
+    assert.strictEqual(JSON.parse(fs.readFileSync(recoveryStateFile, 'utf8')).phase, 'installing');
+    assert.strictEqual(fs.existsSync(recoveryLockDir), false, 'the recovered claim must be gone');
+
+    // Unverifiable claim: immediate visible failure, no polling.
+    fs.mkdirSync(recoveryLockDir, { recursive: true });
+    fs.writeFileSync(path.join(recoveryLockDir, 'owner.json'), '{"format":"farming-update-state-lock-v1"}\n');
+    const unverifiableStart = Date.now();
+    assert.throws(
+      () => recoveryService.persistInstallState({
+        method: 'npm',
+        phase: 'ready-to-restart',
+        version: '2.2.30',
+        previousVersion: '2.2.29',
+      }),
+      (error: Error & { code?: string }) => /unverifiable/.test(error.message)
+        && error.code === 'FARMING_UPDATE_STATE_LOCK',
+      'an unverifiable claim must fail the Server immediately',
+    );
+    assert(Date.now() - unverifiableStart < 1000);
+    assert.strictEqual(recoveryService.installState.phase, 'installing');
+    fs.rmSync(recoveryLockDir, { recursive: true, force: true });
+
+    // Crashed reclaim marker: immediate visible failure, claim untouched.
+    writeDeadClaim();
+    fs.mkdirSync(path.join(
+      recoveryLockDir,
+      `.reclaim-${crypto.createHash('sha256').update(deadHelperClaim.token).digest('hex')}`,
+    ), { recursive: true });
+    const crashedMarkerStart = Date.now();
+    assert.throws(
+      () => recoveryService.persistInstallState({
+        method: 'npm',
+        phase: 'ready-to-restart',
+        version: '2.2.30',
+        previousVersion: '2.2.29',
+      }),
+      (error: Error & { code?: string }) => /could not be recovered without waiting/.test(error.message)
+        && error.code === 'FARMING_UPDATE_STATE_LOCK',
+      'a crashed reclaim marker must fail the Server immediately',
+    );
+    assert(Date.now() - crashedMarkerStart < 1000);
+    assert(fs.existsSync(path.join(recoveryLockDir, 'owner.json')), 'the dead claim must survive the failed recovery');
+    fs.rmSync(recoveryLockDir, { recursive: true, force: true });
+
+    // Reclaim rename failure: immediate visible failure, claim untouched.
+    writeDeadClaim();
+    const originalRenameSync = fs.renameSync;
+    fs.renameSync = (...renameArgs) => {
+      if (String(renameArgs[0]) === recoveryLockDir) {
+        const error = new Error(`EACCES: permission denied, rename '${renameArgs[0]}'`) as NodeJS.ErrnoException;
+        error.code = 'EACCES';
+        throw error;
+      }
+      return originalRenameSync(...renameArgs);
+    };
+    try {
+      const reclaimFailureStart = Date.now();
+      assert.throws(
+        () => recoveryService.persistInstallState({
+          method: 'npm',
+          phase: 'ready-to-restart',
+          version: '2.2.30',
+          previousVersion: '2.2.29',
+        }),
+        (error: Error & { code?: string }) => /could not be recovered without waiting/.test(error.message)
+          && error.code === 'FARMING_UPDATE_STATE_LOCK',
+        'a failed reclaim must fail the Server immediately',
+      );
+      assert(Date.now() - reclaimFailureStart < 1000);
+    } finally {
+      fs.renameSync = originalRenameSync;
+    }
+    assert(fs.existsSync(path.join(recoveryLockDir, 'owner.json')), 'the dead claim must survive the failed reclaim');
+  } finally {
+    await killChildConfirmed(deadHelper);
+    fs.rmSync(recoveryRootDir, { recursive: true, force: true });
+    fs.rmSync(recoveryConfigDir, { recursive: true, force: true });
+  }
 
   for (const installMethod of ['app-bundle', 'source-deploy', 'source', 'standalone-cli']) {
     const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), `farming-${installMethod}-update-root-`));

@@ -17,6 +17,11 @@ import {
   resolvePackageInstallationContext,
 } from './package-installation.cjs';
 import type { PackageInstallationContext } from './package-installation.cjs';
+import {
+  commitUpdateOperationState,
+  removeUpdateOperationState,
+  UPDATE_STATE_LOCK_ERROR_CODE,
+} from './update-operation-state.cjs';
 
 interface ServerProcessIdentity {
   pid: number;
@@ -631,12 +636,26 @@ class FarmingUpdateService {
   }
 
   clearInstallState(): UpdateInstallState {
-    this.installState = { phase: 'idle' };
     try {
-      fs.rmSync(this.updateStateFile, { force: true });
-    } catch {
+      // Removal shares the update-state claim with conditional helper commits
+      // and authoritative persists, so a clear cannot race a concurrent write.
+      // Zero timeout: the Server makes a single non-waiting claim attempt and
+      // performs no lock-contention polling or sleep; the attempt count is
+      // explicitly bounded (brief synchronous filesystem/inspection work
+      // remains).
+      removeUpdateOperationState(this.updateStateFile, { lockTimeoutMs: 0 });
+    } catch (error) {
+      const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : '';
+      if (code === UPDATE_STATE_LOCK_ERROR_CODE) {
+        // Lock contention or timeout is not a read-only Config. Reporting
+        // idle while the disk state is still owned would lie about the
+        // update, so surface the bounded failure instead.
+        throw error;
+      }
+      if (!['EROFS', 'EACCES', 'EPERM', 'ENOENT'].includes(code)) throw error;
       // A read-only Config still presents authoritative runtime/package state.
     }
+    this.installState = { phase: 'idle' };
     return this.installState;
   }
 
@@ -646,11 +665,19 @@ class FarmingUpdateService {
       format: UPDATE_OPERATION_FORMAT,
       operationId: state.operationId || crypto.randomUUID(),
     };
-    this.installState = persisted;
     fs.mkdirSync(this.configDir, { recursive: true });
-    const temporaryPath = `${this.updateStateFile}.${process.pid}.tmp`;
-    fs.writeFileSync(temporaryPath, `${JSON.stringify(persisted, null, 2)}\n`, { mode: 0o600 });
-    fs.renameSync(temporaryPath, this.updateStateFile);
+    // The Server is the authoritative writer: it persists without an
+    // ownership condition, but under the same exclusive claim the helpers
+    // use, so a detached helper can never publish between the Server's
+    // ownership decision and this publication. Zero timeout: a single
+    // non-waiting claim attempt; contention fails visibly. The precise
+    // property is no lock-contention polling or sleep with a bounded attempt
+    // count; the attempt still performs a few synchronous filesystem and
+    // process-inspection steps, so it blocks briefly but boundedly.
+    commitUpdateOperationState(this.updateStateFile, null, persisted as Record<string, unknown>, { lockTimeoutMs: 0 });
+    // In-memory state follows the disk only after the committed write, so a
+    // lock failure never desynchronizes the Server from persisted state.
+    this.installState = persisted;
     return persisted as T;
   }
 
