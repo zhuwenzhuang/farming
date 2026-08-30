@@ -1498,7 +1498,9 @@ class ComputerResourceManager extends EventEmitter {
         // and reset, which verify the recorded identity before any removal.
         return completeStop({ containerId: '' });
       }
-      failUncertain(error.message || 'the container state could not be read');
+      // Type-only `return` of the never-typed helper: makes the terminal catch
+      // path explicit for definite-assignment analysis.
+      return failUncertain(error.message || 'the container state could not be read');
     }
     if (recordValue(inspect.State).Running === true) {
       failUncertain('the container is still running');
@@ -1573,7 +1575,9 @@ class ComputerResourceManager extends EventEmitter {
           { retryable: true },
         );
       }
-      failUncertain(`Uncertain start outcome; the container state could not be read: ${error.message || 'transport timeout'}`);
+      // Type-only `return` of the never-typed helper: makes the terminal catch
+      // path explicit for definite-assignment analysis.
+      return failUncertain(`Uncertain start outcome; the container state could not be read: ${error.message || 'transport timeout'}`);
     }
     if (recordValue(inspect.State).Running !== true) {
       // Observing not-running right after the timeout does not prove the
