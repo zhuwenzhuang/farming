@@ -47,6 +47,7 @@ interface UpdateStateLockClaim {
 interface ExpectedUpdateOperation {
   format?: string;
   operationId: string;
+  phase?: string;
 }
 
 interface UpdateStateCommitOptions {
@@ -542,11 +543,17 @@ function recoverPendingLockRelease(
   );
 }
 
-function readUpdateOperationOwnership(stateFile: string): { format: string; operationId: string } | null {
+function readUpdateOperationOwnership(
+  stateFile: string,
+): { format: string; operationId: string; phase: string } | null {
   try {
     const value = JSON.parse(fs.readFileSync(stateFile, 'utf8')) as Record<string, unknown>;
     if (typeof value.operationId !== 'string' || !value.operationId) return null;
-    return { format: String(value.format || ''), operationId: value.operationId };
+    return {
+      format: String(value.format || ''),
+      operationId: value.operationId,
+      phase: String(value.phase || ''),
+    };
   } catch {
     return null;
   }
@@ -572,7 +579,8 @@ function commitUpdateOperationState(
       const ownership = readUpdateOperationOwnership(stateFile);
       owns = ownership !== null
         && ownership.operationId === expected.operationId
-        && (expected.format === undefined || ownership.format === expected.format);
+        && (expected.format === undefined || ownership.format === expected.format)
+        && (expected.phase === undefined || ownership.phase === expected.phase);
     }
     if (owns) {
       writeJsonAtomic(stateFile, state);

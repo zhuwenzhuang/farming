@@ -65,12 +65,18 @@ npm Image 将精确版本的 Codex 与 Claude Native Carrier 声明为受平台�
 - **Rolled back / Failed**：已经恢复旧版本，或需要可见的人工处理。
 
 Prepare 与 Publication 是独立转换。基于旧 Selection 准备的目标不能覆盖更新部署；Detached
-工作只有在仍拥有同一个 Update Operation 时才能提交状态。所有权提交、Server 的权威持久化
+工作只有在仍拥有同一个 Update Operation 时，才能提交状态或跨越 Publication、Stop、Activation、
+Start 边界。所有权敏感 Effect 必须在 Update State Claim 下重新校验，并在 Effect 全程保留该
+Claim，使超时 Fence 无法在校验后插入。所有权提交、Server 的权威持久化
 与状态删除都通过一个携带持有者精确进程身份的排他 Update State 锁串行化；只有当该身份被
 证明已死亡时才会破除其声明，绕过该锁的写入不在此保证范围内。若状态变更已经完成但无法
 证明其 Claim 已释放，本次操作会可见失败；同一进程会保留该精确 Claim，并在下一次状态变更
 前有界重试释放。进程重启后则由常规的死亡持有者路径回收旧 Claim；两条恢复路径都不会重放
 已经完成的状态变更。
+
+准备、重启或回滚越过截止时间本身也是一次所有权转换。Server 仅在精确操作与所观察 Phase
+仍然匹配时，用新的操作身份原子发布终态失败；仍携带已超时身份的迟到 Detached Helper 提交
+会被拒绝，用户重试会启动另一个新操作，绝不与迟到 Helper 共享所有权。
 
 对于 npm 更新，Update Registry 的元数据负责证明精确目标版本与 Integrity。Prepare 首先尊重
 Operator 配置的 npm Registry；该命令失败后，Helper 只删除自己拥有的 Staging Prefix，并显式
@@ -116,4 +122,5 @@ Launcher 或 Helper 崩溃后，新 Server 会用实际运行版本对账 Update
 验证必须覆盖：在 npm 生命周期脚本禁用时安装、首次安装无启动下载、多个 Config 并行、服务
 不中断的更新准备、配置 Registry 失败后不检查错误文本并从干净 Staging 切换到权威 Registry、
 陈旧 Selection 竞争、精确 Rollback、Cleanup 失败、外部 npm 替换，以及各安装形态的边界。
-聚焦的 npm 更新状态机测试属于 Release Preparation Gate，不能只作为普通 Unit Test。
+聚焦的 npm 更新状态机测试属于 Release Preparation Gate，不能只作为普通 Unit Test。确定性的
+超时覆盖必须证明：迟到的 Detached Helper 提交不能覆盖终态超时结果。

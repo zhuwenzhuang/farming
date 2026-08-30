@@ -793,6 +793,84 @@ async function run() {
   let b2BodyError: unknown = null;
   let b2CleanupError: Error | null = null;
   try {
+  // A Server timeout replaces the operation identity while a detached apply
+  // helper is inside its pre-stop delay. The late helper must revalidate under
+  // the shared claim before crossing the stop/activate/start effect boundary.
+  const timeoutFenceRoot = trackedRoot('farming-update-timeout-effect-fence.');
+  const timeoutFenceServer = trackedChild(spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+    stdio: 'ignore',
+  }));
+  await new Promise((resolve, reject) => {
+    timeoutFenceServer.once('spawn', resolve);
+    timeoutFenceServer.once('error', reject);
+  });
+  const timeoutFenceIdentity = await readServerProcessIdentity(timeoutFenceServer.pid);
+  assert(timeoutFenceIdentity, 'timeout-fence fixture must expose the old Server identity');
+  const timeoutFencePrepared = await prepareFixture(timeoutFenceRoot);
+  const timeoutFencePayload = applyPayloadFor(timeoutFencePrepared, {
+    operationId: OPERATION_A,
+    serverPid: timeoutFenceServer.pid,
+    serverProcessIdentity: timeoutFenceIdentity,
+  });
+  const preparedForOperationA = {
+    ...JSON.parse(fs.readFileSync(timeoutFencePayload.stateFile, 'utf8')),
+    operationId: OPERATION_A,
+  };
+  fs.writeFileSync(timeoutFencePayload.stateFile, `${JSON.stringify(preparedForOperationA)}\n`);
+  const timeoutFenceRun = runNpmUpdate(timeoutFencePayload);
+  const timeoutFenceDeadline = Date.now() + 2000;
+  while (Date.now() < timeoutFenceDeadline) {
+    const current = JSON.parse(fs.readFileSync(timeoutFencePayload.stateFile, 'utf8'));
+    if (current.operationId === OPERATION_A && current.phase === 'restarting') break;
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+  const timeoutPreStopState = JSON.parse(fs.readFileSync(timeoutFencePayload.stateFile, 'utf8'));
+  assert.strictEqual(timeoutPreStopState.operationId, OPERATION_A);
+  assert.strictEqual(
+    timeoutPreStopState.phase,
+    'restarting',
+    'the detached helper must reach its pre-stop restarting state before the timeout fence',
+  );
+  const timeoutTerminalState = {
+    format: OPERATION_FORMAT,
+    operationId: OPERATION_B,
+    timedOutOperationId: OPERATION_A,
+    method: 'npm',
+    phase: 'failed',
+    version: timeoutFencePayload.targetVersion,
+    previousVersion: timeoutFencePayload.previousVersion,
+    error: 'pre-stop update timed out',
+    completedAt: new Date().toISOString(),
+  };
+  assert.strictEqual(
+    commitUpdateOperationState(timeoutFencePayload.stateFile, { format: OPERATION_FORMAT, operationId: OPERATION_A }, timeoutTerminalState),
+    true,
+  );
+  await settleBounded(timeoutFenceRun, 'the timeout-fenced detached apply helper');
+  assert.strictEqual(
+    isProcessRunning(timeoutFenceServer.pid),
+    true,
+    'a timeout-fenced detached helper must not stop the old Server',
+  );
+  assert.deepStrictEqual(JSON.parse(fs.readFileSync(timeoutFencePayload.stateFile, 'utf8')), timeoutTerminalState);
+  assert.strictEqual(
+    readCurrentPackagePointer(resolvePackageInstallationContext(
+      timeoutFencePayload.activePackageRoot,
+      {
+        FARMING_PACKAGE_INSTALLATION_ID: timeoutFencePayload.installationId,
+        FARMING_PACKAGE_INSTALLATION_ROOT: timeoutFencePayload.installationRoot,
+        FARMING_BOOTSTRAP_PACKAGE_ROOT: timeoutFencePayload.bootstrapPackageRoot,
+      },
+    )).imageId,
+    timeoutFencePayload.runningImageId,
+    'a timeout-fenced detached helper must not activate its target Image',
+  );
+  assert.strictEqual(
+    fs.existsSync(`${timeoutFencePrepared.callsFile}.starts`),
+    false,
+    'a timeout-fenced detached helper must not start either Image',
+  );
+
   // A conditional commit must fail closed when this process cannot prove its
   // own identity, and must not leave any claim behind.
   const identityRoot = trackedRoot('farming-update-lock-identity.');

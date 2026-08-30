@@ -15,8 +15,10 @@ import {
 import type { ActivatePackageImageResult, PackageInstallationContext } from './package-installation.cjs';
 import { canonicalConfigDir } from './config-instance.cjs';
 import {
+  acquireUpdateStateLock,
   commitUpdateOperationState,
   readUpdateOperationOwnership,
+  releaseUpdateStateLock,
   writeJsonAtomic,
 } from './update-operation-state.cjs';
 
@@ -104,13 +106,60 @@ function expectedOwnership(payload: NpmUpdatePayload): { format: string; operati
   return { format: UPDATE_OPERATION_STATE_FORMAT, operationId: payload.operationId };
 }
 
-function operationOwnsState(payload: NpmUpdatePayload): boolean {
+function operationOwnsState(payload: NpmUpdatePayload, expectedPhase?: string): boolean {
   const ownership = readUpdateOperationOwnership(payload.stateFile);
   return Boolean(
     ownership
     && ownership.format === UPDATE_OPERATION_STATE_FORMAT
-    && ownership.operationId === payload.operationId,
+    && ownership.operationId === payload.operationId
+    && (expectedPhase === undefined || ownership.phase === expectedPhase),
   );
+}
+
+// Irreversible effects cannot be repaired by rejecting a later state commit.
+// Hold the same exact-identity claim from ownership validation through the
+// effect so a Server timeout cannot revoke the operation in between.
+async function runWhileOperationOwned<T>(
+  payload: NpmUpdatePayload,
+  expectedPhase: string,
+  action: () => T | Promise<T>,
+): Promise<T> {
+  const claim = acquireUpdateStateLock(payload.stateFile);
+  let result: T | undefined;
+  let actionFailed = false;
+  let actionError: unknown;
+  try {
+    if (!operationOwnsState(payload, expectedPhase)) {
+      throw new SupersededUpdateOperationError(`Update operation ${payload.operationId} is no longer current`);
+    }
+    result = await action();
+  } catch (error) {
+    actionFailed = true;
+    actionError = error;
+  }
+
+  let releaseFailed = false;
+  let releaseError: unknown;
+  try {
+    if (!releaseUpdateStateLock(payload.stateFile, claim)) {
+      releaseFailed = true;
+      releaseError = new Error(
+        `Update operation ${payload.operationId} could not release its ownership claim after a protected effect`,
+      );
+    }
+  } catch (error) {
+    releaseFailed = true;
+    releaseError = error;
+  }
+  if (actionFailed && releaseFailed) {
+    throw new AggregateError(
+      [actionError, releaseError],
+      `Update operation ${payload.operationId} failed and could not release its ownership claim`,
+    );
+  }
+  if (actionFailed) throw actionError;
+  if (releaseFailed) throw releaseError;
+  return result as T;
 }
 
 // Ownership observation and state publication form one atomic decision under
@@ -466,11 +515,15 @@ async function prepareNpmUpdate(payload: NpmUpdatePayload): Promise<void> {
       env: commandEnvironment(),
       logPath: payload.logPath,
     });
-    const targetImage = publishPreparedPackageImage(
-      context,
-      String(payload.stagingPackageRoot),
-      payload.targetVersion,
-      payload.targetIntegrity,
+    const targetImage = await runWhileOperationOwned(
+      payload,
+      'preparing-runtimes',
+      () => publishPreparedPackageImage(
+        context,
+        String(payload.stagingPackageRoot),
+        payload.targetVersion,
+        payload.targetIntegrity,
+      ),
     );
     fs.rmSync(String(payload.stagingPrefix), { recursive: true, force: true });
     const preparedAt = new Date().toISOString();
@@ -511,8 +564,10 @@ async function prepareNpmUpdate(payload: NpmUpdatePayload): Promise<void> {
 }
 
 async function applyNpmUpdate(payload: NpmUpdatePayload): Promise<void> {
-  let stoppedOldServer = false;
-  let activation: ActivatePackageImageResult | null = null;
+  const transition: {
+    stoppedOldServer: boolean;
+    activation: ActivatePackageImageResult | null;
+  } = { stoppedOldServer: false, activation: null };
   try {
     const context = installationContext(payload);
     const runningImage = readPackageImageRef(String(payload.runningPackageRoot));
@@ -531,10 +586,12 @@ async function applyNpmUpdate(payload: NpmUpdatePayload): Promise<void> {
       preparedAt: payload.preparedAt,
     });
     await new Promise<void>(resolve => setTimeout(resolve, 1_000));
-    await stopProcess(Number(payload.serverPid), payload.serverProcessIdentity);
-    stoppedOldServer = true;
-    activation = activatePackageImage(context, targetImage, String(payload.expectedCurrentImageId));
-    await startServer(payload, targetImage.packageRoot);
+    await runWhileOperationOwned(payload, 'restarting', async () => {
+      await stopProcess(Number(payload.serverPid), payload.serverProcessIdentity);
+      transition.stoppedOldServer = true;
+      transition.activation = activatePackageImage(context, targetImage, String(payload.expectedCurrentImageId));
+      await startServer(payload, targetImage.packageRoot);
+    });
 
     writeOperationStateIfOwned(payload, 'succeeded', {
       preparedAt: payload.preparedAt,
@@ -546,7 +603,7 @@ async function applyNpmUpdate(payload: NpmUpdatePayload): Promise<void> {
     const message = errorMessage(error);
     appendLog(payload.logPath, `Update apply failed: ${message}`);
 
-    if (stoppedOldServer || !isProcessRunning(Number(payload.serverPid))) {
+    if (transition.stoppedOldServer || !isProcessRunning(Number(payload.serverPid))) {
       try {
         const context = installationContext(payload);
         const runningImage = readPackageImageRef(String(payload.runningPackageRoot));
@@ -558,9 +615,9 @@ async function applyNpmUpdate(payload: NpmUpdatePayload): Promise<void> {
           error: message,
         });
         let selectionRollbackError = '';
-        if (activation?.changed && activation.previous) {
+        if (transition.activation?.changed && transition.activation.previous) {
           try {
-            const previousImage = packageImageForPointer(context, activation.previous);
+            const previousImage = packageImageForPointer(context, transition.activation.previous);
             if (!previousImage) throw new Error('Previous Farming package selection is unavailable', { cause: error });
             activatePackageImage(context, previousImage, String(payload.targetImageId));
           } catch (selectionError: unknown) {

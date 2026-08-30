@@ -22,6 +22,7 @@ const {
 } = require('../package-installation.cjs');
 const {
   acquireUpdateStateLock,
+  commitUpdateOperationState,
   releaseUpdateStateLock,
 } = require('../update-operation-state.cjs');
 const { readServerProcessIdentity } = require('../server-process-identity.cjs');
@@ -328,6 +329,91 @@ async function run() {
   });
   assert.strictEqual(invalidActiveOperation.state.phase, 'idle');
   assert.strictEqual(invalidActiveOperation.persisted, null);
+
+  const timeoutFenceNow = Date.parse('2026-07-31T08:00:00.000Z');
+  const timeoutCases = [
+    { phase: 'installing', currentVersion: '2.2.29', startedAt: '2026-07-31T07:29:59.000Z' },
+    { phase: 'preparing-runtimes', currentVersion: '2.2.29', startedAt: '2026-07-31T07:29:59.000Z' },
+    { phase: 'restarting', currentVersion: '2.2.29', startedAt: '2026-07-31T07:57:59.000Z' },
+    { phase: 'rolling-back', currentVersion: '2.2.30', startedAt: '2026-07-31T07:57:59.000Z' },
+  ];
+  for (const [index, timeoutCase] of timeoutCases.entries()) {
+    const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), `farming-update-timeout-fence-root-${index}-`));
+    const configDir = fs.mkdtempSync(path.join(os.tmpdir(), `farming-update-timeout-fence-config-${index}-`));
+    try {
+      fs.writeFileSync(path.join(rootDir, 'package.json'), JSON.stringify({
+        name: 'farming-code',
+        version: timeoutCase.currentVersion,
+      }));
+      const stateFile = path.join(configDir, 'farming-update.json');
+      const operationId = `00000000-0000-4000-8000-0000000001${String(index).padStart(2, '0')}`;
+      const originalState = {
+        format: 'farming-update-operation-v1',
+        operationId,
+        method: 'npm',
+        phase: timeoutCase.phase,
+        version: '2.2.30',
+        previousVersion: '2.2.29',
+        startedAt: timeoutCase.startedAt,
+        restartingAt: timeoutCase.phase === 'restarting' ? timeoutCase.startedAt : undefined,
+      };
+      fs.writeFileSync(stateFile, JSON.stringify(originalState));
+      const service = new FarmingUpdateService({
+        rootDir,
+        configDir,
+        installMethod: 'npm',
+        now: () => timeoutFenceNow,
+      });
+
+      const timedOut = service.currentInstallState();
+      assert.strictEqual(timedOut.phase, 'failed');
+      assert.notStrictEqual(
+        timedOut.operationId,
+        operationId,
+        `${timeoutCase.phase} timeout must revoke the detached helper operation identity`,
+      );
+      assert.strictEqual(timedOut.timedOutOperationId, operationId);
+      assert.strictEqual(
+        commitUpdateOperationState(
+          stateFile,
+          { format: 'farming-update-operation-v1', operationId },
+          { ...originalState, phase: 'ready-to-restart' },
+        ),
+        false,
+        `${timeoutCase.phase} detached helper must not publish after timeout`,
+      );
+      assert.deepStrictEqual(JSON.parse(fs.readFileSync(stateFile, 'utf8')), timedOut);
+      if (index === 0) {
+        const progressedState = JSON.parse(JSON.stringify({
+          ...originalState,
+          phase: 'ready-to-restart',
+        }));
+        fs.writeFileSync(stateFile, JSON.stringify(progressedState));
+        assert.deepStrictEqual(
+          service.fenceTimedOutInstallState(originalState, 'stale timeout decision', true),
+          progressedState,
+          'a stale timeout decision must not replace a completed phase of the same operation',
+        );
+        assert.deepStrictEqual(JSON.parse(fs.readFileSync(stateFile, 'utf8')), progressedState);
+
+        const replacementState = JSON.parse(JSON.stringify({
+          ...originalState,
+          operationId: '00000000-0000-4000-8000-0000000001ff',
+          startedAt: '2026-07-31T07:59:00.000Z',
+        }));
+        fs.writeFileSync(stateFile, JSON.stringify(replacementState));
+        assert.deepStrictEqual(
+          service.fenceTimedOutInstallState(originalState, 'stale timeout decision', true),
+          replacementState,
+          'a stale timeout decision must reconcile the replacement instead of fencing it',
+        );
+        assert.deepStrictEqual(JSON.parse(fs.readFileSync(stateFile, 'utf8')), replacementState);
+      }
+    } finally {
+      fs.rmSync(rootDir, { recursive: true, force: true });
+      fs.rmSync(configDir, { recursive: true, force: true });
+    }
+  }
 
   const removedStateRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-removed-update-root-'));
   const removedStateConfig = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-removed-update-config-'));
@@ -644,8 +730,14 @@ async function run() {
     [['2.3.0', true], ['2.2.6', false]],
   );
 
-  const npmSpawned = [];
   let npmFetchCalls = 0;
+  const npmSpawned: Array<{
+    command: string;
+    args: readonly string[];
+    options: import('child_process').SpawnOptions;
+    unrefed: boolean;
+    errorListener: ((error: Error) => void) | null;
+  }> = [];
   const packageInstallationsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-package-installations-'));
   const npmService = new FarmingUpdateService({
     rootDir: npmRoot,
@@ -660,9 +752,20 @@ async function run() {
       return npmMetadata;
     },
     spawn: (command, args, options) => {
-      const record = { command, args, options, unrefed: false };
+      const record: (typeof npmSpawned)[number] = {
+        command,
+        args,
+        options,
+        unrefed: false,
+        errorListener: null,
+      };
       npmSpawned.push(record);
-      return { unref() { record.unrefed = true; } };
+      return {
+        once(event, listener) {
+          if (event === 'error') record.errorListener = listener;
+        },
+        unref() { record.unrefed = true; },
+      };
     },
   });
 
@@ -748,6 +851,21 @@ async function run() {
   let targetImage;
   try {
     npmInstallState = await npmService.startInstall({ assetName: '2.2.6' });
+    const prepareTimeoutFence = npmService.persistInstallState({
+      ...npmInstallState,
+      operationId: '00000000-0000-4000-8000-0000000002f0',
+      timedOutOperationId: npmInstallState.operationId,
+      phase: 'failed',
+      error: 'prepare timed out',
+      completedAt: new Date().toISOString(),
+    });
+    npmSpawned[0].errorListener?.(new Error('late detached prepare spawn error'));
+    assert.deepStrictEqual(
+      JSON.parse(fs.readFileSync(path.join(npmConfigDir, 'farming-update.json'), 'utf8')),
+      prepareTimeoutFence,
+      'a late prepare spawn callback must not overwrite a timeout fence',
+    );
+    npmService.persistInstallState(npmInstallState);
     runningImage = publishRunningPackageImage(npmService.packageInstallation, npmRoot);
     const currentPointer = initializeCurrentPackageImage(npmService.packageInstallation, runningImage);
     fs.mkdirSync(npmInstallState.stagingPackageRoot, { recursive: true });
@@ -775,6 +893,21 @@ async function run() {
     assert.strictEqual(persistedPreparedState.format, 'farming-update-operation-v1');
     assert.strictEqual(persistedPreparedState.operationId, npmInstallState.operationId);
     npmApplyState = await npmService.applyPreparedUpdate();
+    const applyTimeoutFence = npmService.persistInstallState({
+      ...npmApplyState,
+      operationId: '00000000-0000-4000-8000-0000000002f1',
+      timedOutOperationId: npmApplyState.operationId,
+      phase: 'failed',
+      error: 'restart timed out',
+      completedAt: new Date().toISOString(),
+    });
+    npmSpawned[1].errorListener?.(new Error('late detached apply spawn error'));
+    assert.deepStrictEqual(
+      JSON.parse(fs.readFileSync(path.join(npmConfigDir, 'farming-update.json'), 'utf8')),
+      applyTimeoutFence,
+      'a late apply spawn callback must not overwrite a timeout fence',
+    );
+    npmService.persistInstallState(npmApplyState);
   } finally {
     if (previousNodeBin === undefined) delete process.env.FARMING_NODE_BIN;
     else process.env.FARMING_NODE_BIN = previousNodeBin;

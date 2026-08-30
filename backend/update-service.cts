@@ -104,6 +104,7 @@ interface CurrentVersion {
 interface UpdateInstallState extends JsonObject {
   format?: string;
   operationId?: string;
+  timedOutOperationId?: string;
   phase: string;
   method?: string;
   version?: string;
@@ -513,6 +514,18 @@ class FarmingUpdateService {
     const persist = <T extends UpdateInstallState>(state: T): T => (
       commit ? this.persistInstallState(state) : state
     );
+    const fenceTimedOut = (
+      state: UpdateInstallState,
+      error: string,
+      ownsPersistedOperation: boolean,
+    ): UpdateInstallState => commit
+      ? this.fenceTimedOutInstallState(state, error, ownsPersistedOperation)
+      : {
+        ...state,
+        phase: 'failed',
+        error,
+        completedAt: new Date(this.now()).toISOString(),
+      };
     const persisted = readJsonFile(this.updateStateFile);
     const current = this.currentVersion();
     const currentVersion = normalizeVersion(current.releaseVersion || current.packageVersion);
@@ -561,12 +574,11 @@ class FarmingUpdateService {
         normalized.restartingAt || normalized.preparedAt || normalized.startedAt || '',
       ));
       if (!Number.isFinite(restartingAt) || this.now() - restartingAt >= RESTART_RECOVERY_TIMEOUT_MS) {
-        return persist({
-          ...normalized,
-          phase: 'failed',
-          error: `Farming did not restart into version ${targetVersion || normalized.version || 'unknown'} within 2 minutes; retry the update`,
-          completedAt: new Date(this.now()).toISOString(),
-        });
+        return fenceTimedOut(
+          normalized,
+          `Farming did not restart into version ${targetVersion || normalized.version || 'unknown'} within 2 minutes; retry the update`,
+          isCurrentFormat,
+        );
       }
       return isCurrentFormat ? normalized : persist(normalized);
     }
@@ -583,12 +595,11 @@ class FarmingUpdateService {
       if (currentVersion && targetVersion && currentVersion !== targetVersion) return clear();
       const startedAt = Date.parse(String(normalized.restartingAt || normalized.startedAt || ''));
       if (!Number.isFinite(startedAt) || this.now() - startedAt >= RESTART_RECOVERY_TIMEOUT_MS) {
-        return persist({
-          ...normalized,
-          phase: 'failed',
-          error: normalized.error || 'Farming rollback did not complete within 2 minutes; restart Farming manually',
-          completedAt: new Date(this.now()).toISOString(),
-        });
+        return fenceTimedOut(
+          normalized,
+          normalized.error || 'Farming rollback did not complete within 2 minutes; restart Farming manually',
+          isCurrentFormat,
+        );
       }
       return normalized;
     }
@@ -598,12 +609,11 @@ class FarmingUpdateService {
       const startedAt = Date.parse(String(normalized.startedAt || ''));
       if (!Number.isFinite(startedAt)) return clear();
       if (this.now() - startedAt >= ACTIVE_UPDATE_TIMEOUT_MS) {
-        return persist({
-          ...normalized,
-          phase: 'failed',
-          error: 'Farming update preparation did not complete within 30 minutes; retry the update',
-          completedAt: new Date(this.now()).toISOString(),
-        });
+        return fenceTimedOut(
+          normalized,
+          'Farming update preparation did not complete within 30 minutes; retry the update',
+          isCurrentFormat,
+        );
       }
       return normalized;
     }
@@ -657,6 +667,67 @@ class FarmingUpdateService {
     }
     this.installState = { phase: 'idle' };
     return this.installState;
+  }
+
+  fenceTimedOutInstallState(
+    state: UpdateInstallState,
+    error: string,
+    ownsPersistedOperation: boolean,
+  ): UpdateInstallState {
+    const timedOutOperationId = ownsPersistedOperation ? String(state.operationId || '') : '';
+    const fenced: UpdateInstallState = {
+      ...state,
+      operationId: crypto.randomUUID(),
+      ...(timedOutOperationId ? { timedOutOperationId } : {}),
+      phase: 'failed',
+      error,
+      completedAt: new Date(this.now()).toISOString(),
+    };
+    fs.mkdirSync(this.configDir, { recursive: true });
+    const written = commitUpdateOperationState(
+      this.updateStateFile,
+      timedOutOperationId
+        ? {
+          format: UPDATE_OPERATION_FORMAT,
+          operationId: timedOutOperationId,
+          phase: String(state.phase || ''),
+        }
+        : null,
+      fenced as Record<string, unknown>,
+      { lockTimeoutMs: 0 },
+    );
+    if (!written) {
+      // Another operation replaced the one whose deadline we observed. Read
+      // that authoritative state instead of fencing its detached helper.
+      return this.currentInstallState();
+    }
+    // The new identity is a terminal ownership fence. Detached helpers still
+    // carrying timedOutOperationId can no longer pass their conditional commit.
+    this.installState = fenced;
+    return fenced;
+  }
+
+  persistInstallStateIfOwned<T extends UpdateInstallState>(
+    state: T,
+    expectedPhase: string,
+  ): T | null {
+    const operationId = String(state.operationId || '');
+    if (!operationId) return null;
+    const persisted = {
+      ...state,
+      format: UPDATE_OPERATION_FORMAT,
+      operationId,
+    };
+    fs.mkdirSync(this.configDir, { recursive: true });
+    const written = commitUpdateOperationState(
+      this.updateStateFile,
+      { format: UPDATE_OPERATION_FORMAT, operationId, phase: expectedPhase },
+      persisted as Record<string, unknown>,
+      { lockTimeoutMs: 0 },
+    );
+    if (!written) return null;
+    this.installState = persisted;
+    return persisted as T;
   }
 
   persistInstallState<T extends UpdateInstallState>(state: T): T {
@@ -910,29 +981,24 @@ class FarmingUpdateService {
         FARMING_NPM_UPDATE_PAYLOAD: JSON.stringify(payload),
       },
     };
-    let child;
-    try {
-      child = this.spawn(helperInvocation.command, helperInvocation.args, spawnOptions);
-    } catch (error: unknown) {
+    const persistSpawnFailure = (error: unknown) => {
       fs.rmSync(stagingPrefix, { recursive: true, force: true });
-      this.persistInstallState({
+      this.persistInstallStateIfOwned({
         ...state,
         phase: 'failed',
         error: errorMessage(error),
         completedAt: new Date(this.now()).toISOString(),
-      });
+      }, 'installing');
+    };
+    let child;
+    try {
+      child = this.spawn(helperInvocation.command, helperInvocation.args, spawnOptions);
+    } catch (error: unknown) {
+      persistSpawnFailure(error);
       throw error;
     }
     if (child && typeof child.once === 'function') {
-      child.once('error', (error: Error) => {
-        fs.rmSync(stagingPrefix, { recursive: true, force: true });
-        this.persistInstallState({
-          ...state,
-          phase: 'failed',
-          error: errorMessage(error),
-          completedAt: new Date(this.now()).toISOString(),
-        });
-      });
+      child.once('error', persistSpawnFailure);
     }
     if (child && typeof child.unref === 'function') child.unref();
     return state;
@@ -1037,11 +1103,13 @@ class FarmingUpdateService {
       stdio: 'ignore',
       env,
     };
-    const restorePreparedState = (error: Error): UpdateInstallState => this.persistInstallState({
-      ...prepared,
-      phase: 'ready-to-restart',
-      error: errorMessage(error),
-    });
+    const restorePreparedState = (error: Error): void => {
+      this.persistInstallStateIfOwned({
+        ...prepared,
+        phase: 'ready-to-restart',
+        error: errorMessage(error),
+      }, 'restarting');
+    };
     let child;
     try {
       child = this.spawn(helperInvocation.command, helperInvocation.args, spawnOptions);

@@ -86,7 +86,10 @@ fallback; the same version and executable verification applies afterward.
 
 Preparation and publication are separate transitions. A target prepared from a
 stale selection must not overwrite a newer deployment. Detached work may commit
-state only while it still owns the same update operation. Ownership commits,
+state or cross a publication, stop, activation, or start boundary only while it
+still owns the same update operation. Ownership-sensitive effects revalidate
+under the update-state claim and retain that claim through the effect, so a
+timeout fence cannot interleave after validation. Ownership commits,
 authoritative Server persists, and state removal serialize through an
 exclusive update-state lock carrying the holder's exact process identity; a
 claim is broken only when that identity is proven dead, and writers that
@@ -96,6 +99,13 @@ process retains that exact claim for a bounded release retry before its next
 mutation. A process restart instead makes the old identity reclaimable through
 the ordinary dead-holder path; neither recovery path replays the completed
 state mutation.
+
+Crossing a preparation, restart, or rollback deadline is itself an ownership
+transition. The Server conditionally replaces the timed-out operation with a
+terminal failure only while the exact operation and observed phase still match;
+the failure carries a new operation identity. Any late detached helper commit
+still carrying the timed-out identity is rejected, and a user retry starts
+another new operation instead of sharing ownership with the late helper.
 
 For npm updates, metadata from the update registry proves the exact target
 version and integrity. Preparation first honors the operator's configured npm
@@ -153,4 +163,6 @@ preparation while serving traffic, a configured registry failure followed by a
 clean authoritative-registry retry without inspecting error text, stale
 selection races, exact rollback, failed cleanup, external npm replacement, and
 each supported installation form's boundary. The focused npm update state-machine
-test is a release-preparation gate, not only an ordinary unit test.
+test is a release-preparation gate, not only an ordinary unit test. Deterministic
+timeout coverage must prove that late detached-helper commits cannot replace the
+terminal timeout state.
