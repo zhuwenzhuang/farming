@@ -20,6 +20,20 @@ function runtimeBinding(revision: number) {
   };
 }
 
+async function waitForReadStart(readStarted: Promise<void>) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      readStarted,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error('Timed out waiting for ACP Transcript read')), 1_000);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 test('an ACP Transcript read rejects a Session identity change during the read', async () => {
   const agent = {
     id: 'agent-a',
@@ -280,6 +294,60 @@ test('an unknown Runtime Host transcript projection version is rejected', async 
   try {
     await assert.rejects(service.get('agent-a', { maxTurns: 6 }), /projection version/i);
   } finally {
+    service.dispose();
+  }
+});
+
+test('a projection correction does not coalesce with an older in-flight read', async () => {
+  const agent = {
+    id: 'agent-a',
+    providerSessionId: 'session-a',
+    runtimeBinding: runtimeBinding(8),
+  };
+  let projectionRevision = 1;
+  const releases: Array<() => void> = [];
+  const starts: Array<() => void> = [];
+  const firstStarted = new Promise<void>(resolve => { starts.push(resolve); });
+  const secondStarted = new Promise<void>(resolve => { starts.push(resolve); });
+  let readCount = 0;
+  const runtime = {
+    bindingEpoch: () => 'epoch-a',
+    getSession: () => ({ sessionId: 'session-a', revision: 8 }),
+    transcriptProjectionRevision: () => projectionRevision,
+    transcriptSettled: () => true,
+    async getTranscriptSessionForRead() {
+      starts[readCount]?.();
+      readCount += 1;
+      const observedProjectionRevision = projectionRevision;
+      await new Promise<void>(resolve => { releases.push(resolve); });
+      return {
+        sessionId: 'session-a',
+        revision: 8,
+        entries: [{ id: `projection-${observedProjectionRevision}` }],
+      };
+    },
+  };
+  const service = new AcpTranscriptService({
+    getAgent: () => agent as never,
+    mediaPathPrefix: () => '/media',
+    requireLiveAgent: () => agent as never,
+    runtime: runtime as never,
+  });
+
+  try {
+    const staleRead = service.get('agent-a', { maxTurns: 6 });
+    await waitForReadStart(firstStarted);
+    projectionRevision = 2;
+    const correctedRead = service.get('agent-a', { maxTurns: 6 });
+    await waitForReadStart(secondStarted);
+    assert.equal(releases.length, 2);
+    releases[1]?.();
+    const corrected = await correctedRead;
+    assert.equal(corrected.toRevision, 8);
+    releases[0]?.();
+    await assert.rejects(staleRead, /identity changed during read/i);
+  } finally {
+    releases.forEach(release => release());
     service.dispose();
   }
 });

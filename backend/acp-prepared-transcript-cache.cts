@@ -47,6 +47,17 @@ function cacheKey(identity: PreparedTranscriptIdentity) {
   return `${identity.agentId}\u0000${identity.sessionId}\u0000${identity.runtimeEpoch}\u0000${identity.revision}\u0000${identity.projectionRevision}`;
 }
 
+function sameIdentity(
+  left: PreparedTranscriptIdentity,
+  right: PreparedTranscriptIdentity,
+) {
+  return left.agentId === right.agentId
+    && left.sessionId === right.sessionId
+    && left.runtimeEpoch === right.runtimeEpoch
+    && left.revision === right.revision
+    && left.projectionRevision === right.projectionRevision;
+}
+
 function serialize(value: unknown) {
   try {
     return JSON.stringify(value);
@@ -103,11 +114,7 @@ export class AcpPreparedTranscriptCache {
       || !Number.isFinite(input.projectionRevision)
     ) return;
     const previous = this.records.get(input.agentId);
-    const identityChanged = !previous
-      || previous.sessionId !== input.sessionId
-      || previous.runtimeEpoch !== input.runtimeEpoch
-      || previous.revision !== input.revision
-      || previous.projectionRevision !== input.projectionRevision;
+    const identityChanged = !previous || !sameIdentity(previous, input);
     if (identityChanged) this.dropAgentEntries(input.agentId);
     if (
       !identityChanged
@@ -188,15 +195,7 @@ export class AcpPreparedTranscriptCache {
   publishOnDemand(identity: PreparedTranscriptIdentity, transcript: PreparedTranscript) {
     if (!this.validate(identity)) return false;
     const current = this.records.get(identity.agentId);
-    if (
-      current
-      && (
-        current.sessionId !== identity.sessionId
-        || current.runtimeEpoch !== identity.runtimeEpoch
-        || current.revision !== identity.revision
-        || current.projectionRevision !== identity.projectionRevision
-      )
-    ) return false;
+    if (current && !sameIdentity(current, identity)) return false;
     return this.publish(identity, transcript);
   }
 
@@ -258,13 +257,10 @@ export class AcpPreparedTranscriptCache {
       if (!job) return;
       const record = this.records.get(job.agentId);
       if (
-        !record
-        || !record.eligible
-        || record.generation !== job.generation
-          || record.sessionId !== job.sessionId
-          || record.runtimeEpoch !== job.runtimeEpoch
-          || record.revision !== job.revision
-          || record.projectionRevision !== job.projectionRevision
+          !record
+          || !record.eligible
+          || record.generation !== job.generation
+          || !sameIdentity(record, job)
       ) continue;
       this.active += 1;
       this.inFlightAgents.add(job.agentId);
@@ -273,13 +269,10 @@ export class AcpPreparedTranscriptCache {
           .then(transcript => {
             const current = this.records.get(job.agentId);
             if (
-              !current
-              || !current.eligible
-              || current.generation !== job.generation
-              || current.sessionId !== job.sessionId
-              || current.runtimeEpoch !== job.runtimeEpoch
-              || current.revision !== job.revision
-              || current.projectionRevision !== job.projectionRevision
+                !current
+                || !current.eligible
+                || current.generation !== job.generation
+              || !sameIdentity(current, job)
               || !this.validate(job)
             ) return;
             this.publish(job, transcript);

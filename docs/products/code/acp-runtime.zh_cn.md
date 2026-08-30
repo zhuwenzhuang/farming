@@ -217,6 +217,12 @@ Provider Replay 是权威来源。Local Checkpoint 可以加速投影并保留 R
 它可以取消，受 Revision Fence 保护，并对 Entry 数、单响应大小、总 Cache 与 Active Work
 分别设界。失败或淘汰时回退到同一条权威 On-demand Read。
 
+Prepared 与 In-flight Projection 必须由完整 Projection Identity 围栏：Agent、Provider Session、
+Runtime Epoch、Session Revision 与 Projection Revision。即使 Transcript Revision 未变化，
+Runtime-only 或 Replay Correction 也必须使旧工作失效。Browser 只有在 Completed Turn 的完整
+结构化投影未变化时才能复用其对象；任意嵌套 Tool、Media、Resource 或其它字段发生权威修订时，
+都必须替换当前可见 Turn。
+
 首份稳定 ACP Transcript 只包含最新 5 个 Turn。用户向上阅读时，再按有界批次加载更早的
 Turn，避免打开长 Chat 时把全部 Markdown 与工具历史放入首屏渲染路径。
 

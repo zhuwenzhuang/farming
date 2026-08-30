@@ -92,6 +92,7 @@ class AcpTranscriptService {
       agentId,
       sessionId: identity.sessionId,
       runtimeEpoch: identity.runtimeEpoch,
+      revision: identity.revision,
       projectionRevision: identity.projectionRevision,
       maxTurns: Number(options.maxTurns) || 0,
       sinceRevision: Number.isFinite(Number(options.sinceRevision)) ? Number(options.sinceRevision) : null,

@@ -301,6 +301,14 @@ a quiet period. It is cancellable, revision-fenced, and bounded by entry count,
 response size, total cache size, and active work. Failure or eviction falls back
 to the same authoritative on-demand read.
 
+Prepared and in-flight projections are fenced by the complete projection
+identity: Agent, provider Session, runtime epoch, Session revision, and
+projection revision. A runtime-only or replay correction invalidates older work
+even when the Transcript revision is unchanged. The browser may reuse a
+completed Turn object only when its complete structured projection is unchanged;
+an authoritative correction to any nested Tool, Media, Resource, or other field
+must replace the visible Turn.
+
 The first settled ACP transcript response contains only the five newest Turns.
 Older Turns load in bounded pages as the reader moves upward, so opening a long
 Chat does not make its full Markdown and tool history part of first paint.

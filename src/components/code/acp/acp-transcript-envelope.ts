@@ -12,31 +12,33 @@ function record(value: unknown): DataRecord {
     : {}
 }
 
+function projectedValueUnchanged(current: unknown, next: unknown): boolean {
+  if (Object.is(current, next)) return true
+  if (!current || !next || typeof current !== 'object' || typeof next !== 'object') return false
+  if (Array.isArray(current) || Array.isArray(next)) {
+    return Array.isArray(current)
+      && Array.isArray(next)
+      && current.length === next.length
+      && current.every((value, index) => projectedValueUnchanged(value, next[index]))
+  }
+  const currentRecord = current as Record<string, unknown>
+  const nextRecord = next as Record<string, unknown>
+  const currentKeys = Object.keys(currentRecord)
+  const nextKeys = Object.keys(nextRecord)
+  return currentKeys.length === nextKeys.length
+    && currentKeys.every(key => (
+      Object.prototype.hasOwnProperty.call(nextRecord, key)
+      && projectedValueUnchanged(currentRecord[key], nextRecord[key])
+    ))
+}
+
 function completedTranscriptTurnUnchanged(
   current: AgentTranscriptTurn,
   next: AgentTranscriptTurn,
 ) {
-  const currentLastItem = current.processItems[current.processItems.length - 1]
-  const nextLastItem = next.processItems[next.processItems.length - 1]
   return current.status !== 'inProgress'
     && next.status !== 'inProgress'
-    && current.status === next.status
-    && current.userMessage === next.userMessage
-    && current.finalMessage === next.finalMessage
-    && current.startedAt === next.startedAt
-    && current.completedAt === next.completedAt
-    && current.durationMs === next.durationMs
-    && current.userImages?.length === next.userImages?.length
-    && current.userAudios?.length === next.userAudios?.length
-    && current.userFiles?.length === next.userFiles?.length
-    && current.resultImages?.length === next.resultImages?.length
-    && current.resultAudios?.length === next.resultAudios?.length
-    && current.resultFiles?.length === next.resultFiles?.length
-    && current.processItems.length === next.processItems.length
-    && currentLastItem?.id === nextLastItem?.id
-    && currentLastItem?.status === nextLastItem?.status
-    && currentLastItem?.title === nextLastItem?.title
-    && currentLastItem?.detail === nextLastItem?.detail
+    && projectedValueUnchanged(current, next)
 }
 
 export function preserveCompletedTranscriptTurns(

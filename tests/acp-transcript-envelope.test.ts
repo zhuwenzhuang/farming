@@ -188,3 +188,61 @@ test('rebuilds the missing-final-reply status from a refreshed transcript projec
   assert.equal(refreshed.accepted, true)
   assert.equal(refreshed.transcript?.turns[0]?.status, 'missingFinalReply')
 })
+
+test('applies an authoritative correction inside a completed Turn', () => {
+  const correctedEntries = (detail: string) => [
+    {
+      id: 'corrected-user',
+      type: 'message',
+      role: 'user',
+      content: [{ type: 'text', text: 'Inspect the result' }],
+    },
+    {
+      id: 'corrected-tool',
+      type: 'tool',
+      title: 'Inspect result',
+      status: 'completed',
+      transcriptDetail: detail,
+    },
+    {
+      id: 'stable-tool',
+      type: 'tool',
+      title: 'Verify result',
+      status: 'completed',
+      transcriptDetail: 'stable detail',
+    },
+    {
+      id: 'corrected-answer',
+      type: 'message',
+      role: 'assistant',
+      _meta: { codex: { phase: 'final_answer' } },
+      content: [{ type: 'text', text: 'Done' }],
+    },
+  ]
+  const original = projectAcpTranscriptResponse(response({
+    toRevision: 30,
+    replace: true,
+    entries: correctedEntries('stale detail'),
+    label: 'corrected',
+  }), 'agent-a')
+  const corrected = projectAcpTranscriptResponse(response({
+    toRevision: 31,
+    replace: true,
+    entries: correctedEntries('authoritative detail'),
+    label: 'corrected',
+  }), 'agent-a')
+  const refreshed = mergeAcpTranscript(original, corrected)
+
+  assert.equal(refreshed.accepted, true)
+  assert.equal(refreshed.transcript?.turns[0]?.processItems[0]?.detail, 'authoritative detail')
+  assert.notStrictEqual(refreshed.transcript?.turns[0], original.turns[0])
+
+  const unchanged = projectAcpTranscriptResponse(response({
+    toRevision: 32,
+    replace: true,
+    entries: correctedEntries('authoritative detail'),
+    label: 'corrected',
+  }), 'agent-a')
+  const stable = mergeAcpTranscript(refreshed.transcript, unchanged)
+  assert.strictEqual(stable.transcript?.turns[0], refreshed.transcript?.turns[0])
+})

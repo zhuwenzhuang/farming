@@ -238,6 +238,30 @@ async function run() {
 
   {
     const scheduler = manualScheduler();
+    const current = {
+      agentId: 'projection-owner',
+      sessionId: 'session-projection-owner',
+      runtimeEpoch: 'epoch-projection-owner',
+      revision: 4,
+      projectionRevision: 2,
+    };
+    const cache = new AcpPreparedTranscriptCache({
+      schedule: scheduler.schedule,
+      cancel: scheduler.cancel,
+      defer: scheduler.defer,
+      prepare: () => ({ entries: [] }),
+      validate: () => true,
+    });
+    cache.observe({ ...current, eligible: true });
+    assert.strictEqual(cache.publishOnDemand(
+      { ...current, projectionRevision: 1 },
+      { revision: current.revision, entries: [{ id: 'stale-projection' }] },
+    ), false, 'a projection-only owner change must reject an older on-demand publication');
+    cache.dispose();
+  }
+
+  {
+    const scheduler = manualScheduler();
     const identity = {
       agentId: 'stable-deadline',
       sessionId: 'session-stable-deadline',
