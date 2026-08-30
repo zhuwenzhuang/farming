@@ -2119,6 +2119,13 @@ const websocketHandshakeHealthHandlers = createWebSocketHandshakeHealthHandlers(
 const websocketTerminalHandlers = createWebSocketTerminalHandlers({
   openState: WebSocket.OPEN,
   getAgentSessionView: agentId => agentManager.getAgentSessionView(agentId),
+  checkpointReconciled: (agentId, session) => {
+    // Fence reconciliation is limited to this connection's explicit
+    // terminal-checkpoint-request (viewer attach/reconnect/resume/gap
+    // recovery) answered with the live runtime epoch. Background preview,
+    // attach-checkpoint prefetch, and other view reads never reconcile.
+    agentManager.releaseTerminalInputFence(agentId, (session || {}) as Record<string, unknown>);
+  },
   sendInput: (agentId, inputParts) => agentManager.sendInput(agentId, inputParts),
   requestResize: (agentId, cols, rows) => agentManager.requestAgentSessionResize(agentId, cols, rows),
   clearBuffer: agentId => agentManager.clearAgentSessionBuffer(agentId),

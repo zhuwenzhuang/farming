@@ -88,6 +88,9 @@ async function run() {
         } else if (Array.isArray(input) && input[0]?.text === 'after profile') {
           profilePreview += '\n• Fast mode is on.';
         }
+        // Real Terminal engines always answer with a TerminalInputResult;
+        // profile delivery is explicit about unconfirmed writes.
+        return { sent: true };
       },
     });
     manager.agents.set('agent-profile', {

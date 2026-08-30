@@ -34,6 +34,13 @@ interface NativePtyHostError extends Error {
   socketPaths?: string[];
   socketPath?: string;
   hostLogPath?: string;
+  /**
+   * Explicit uncertainty signal for mutation requests (sendInput, resize):
+   * the request timed out or the transport failed after dispatch, so the
+   * mutation may or may not have reached the PTY. A host-answered rejection
+   * never carries this marker; it is proven by the host response.
+   */
+  terminalMutationUncertain?: boolean;
 }
 
 interface NativePtyControllerIdentity {
@@ -923,6 +930,8 @@ class NativePtyHostClient extends EventEmitter {
     if (this.disposed) return;
     const error = new Error('Native pty host disconnected') as NativePtyHostError;
     error.code = 'ECONNRESET';
+    // Pending mutation requests were dispatched without a host answer.
+    error.terminalMutationUncertain = true;
     this.pending.forEach(({ reject, timer }) => {
       clearTimeout(timer);
       reject(error);
@@ -1033,6 +1042,9 @@ class NativePtyHostClient extends EventEmitter {
           `Native pty host request timed out: ${method}`,
         ) as NativePtyHostError;
         error.code = 'ETIMEDOUT';
+        // The request was dispatched and never answered; a mutation may or
+        // may not have reached the PTY.
+        error.terminalMutationUncertain = true;
         this.resetSocketAfterRequestError();
         reject(error);
       }, timeoutMs);
@@ -1052,6 +1064,9 @@ class NativePtyHostClient extends EventEmitter {
         if (isConnectRetryable(error)) {
           this.resetSocketAfterRequestError();
         }
+        // The payload write failed or the socket went away after dispatch:
+        // the mutation outcome is uncertain.
+        (error as NativePtyHostError).terminalMutationUncertain = true;
         pending.reject(error);
       });
     });

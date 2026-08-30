@@ -348,9 +348,21 @@ type AgentStartCallback = (
 ) => void;
 
 interface TerminalInputOptions extends UnknownRecord {
+  admissionPhase?: number;
   expectedRuntimeEpoch?: string;
   markUserInput?: boolean;
   throwOnUncertain?: boolean;
+}
+
+interface TerminalInputFenceState {
+  active: boolean;
+  phase: number;
+  runtimeEpoch: string;
+}
+
+interface TerminalInputAdmission {
+  admissionPhase: number;
+  expectedRuntimeEpoch: string;
 }
 
 interface ComposerMessageOptions extends UnknownRecord {
@@ -375,6 +387,7 @@ interface ComposerSubmissionResult extends Record<string, unknown> {
 interface ComposerSendOptions extends ComposerMessageOptions {
   assertDeliveryOwner?: () => void;
   expectedTerminalAgent?: AgentRecord;
+  expectedTerminalAdmissionPhase?: number;
   expectedTerminalRuntimeEpoch?: string;
   onSubmitted?: (result: ComposerSubmissionResult) => void;
   requireConfirmedTerminalDelivery?: boolean;
@@ -388,6 +401,7 @@ interface CodexTerminalProfileRequest extends Record<string, unknown> {
 }
 
 interface CodexTerminalProfileOptions {
+  admission?: TerminalInputAdmission;
   onInputSafe?: () => void;
   signal?: AbortSignal;
   timeoutMs?: number;
@@ -1272,6 +1286,21 @@ function isSessionNotAvailableError(error: unknown) {
     /Native PTY host (?:failed to start or connect|is not reachable)/i.test(message);
 }
 
+/**
+ * Provider-neutral uncertainty signal for Terminal mutations. Engines set
+ * `terminalMutationUncertain` when a dispatched write or interrupt was not
+ * answered (request timeout, transport failure after dispatch). A
+ * host-answered rejection never carries the marker: it is proven zero-write.
+ * Classification never keys off error text.
+ */
+function isUncertainTerminalMutationError(error: unknown): boolean {
+  return Boolean(
+    error
+    && typeof error === 'object'
+    && (error as ErrorRecord).terminalMutationUncertain === true,
+  );
+}
+
 function isRunningAgentRuntimeStatus(status: unknown) {
   return String(status || '').toLowerCase() === 'running';
 }
@@ -1313,6 +1342,7 @@ class AgentManager extends EventEmitter {
   declare usageRateTracker: AgentUsageRateTracker;
   declare terminalResizeCoordinator: TerminalResizeCoordinator;
   declare inputCoordinator: AgentInputCoordinator;
+  declare terminalInputFences: Map<AgentId, TerminalInputFenceState>;
   declare composerAdmissionCoordinator: AgentComposerAdmissionCoordinator;
   declare terminalProviderControlCoordinator: TerminalProviderControlCoordinator;
   declare terminalStartupCoordinator: TerminalStartupCoordinator;
@@ -1378,6 +1408,7 @@ class AgentManager extends EventEmitter {
     const deleted = this.agents.delete(agentId);
     if (deleted) {
       this.acpTranscriptCursorIdentities.delete(agentId);
+      this.terminalInputFences.delete(agentId);
       this.agentOrderAllocator.remove(agent);
       this.agentWorktreeRefreshQueue.forget(agentId);
     }
@@ -1522,6 +1553,7 @@ class AgentManager extends EventEmitter {
     this.inputCoordinator = new AgentInputCoordinator({
       isShuttingDown: () => this.shutdownState.isShuttingDown(),
     });
+    this.terminalInputFences = new Map();
     this.composerAdmissionCoordinator = new AgentComposerAdmissionCoordinator({
       captureDeliveryOwner: agent => {
         const expectedAgent = agent;
@@ -1570,11 +1602,28 @@ class AgentManager extends EventEmitter {
         prompt,
         requestId,
         retryDefinitiveFailure,
+        terminalAdmission: requestedTerminalAdmission,
       }) => {
         const persistentTerminalDelivery = runtimeKind(agent) === 'terminal';
-        const terminalRuntimeEpoch = persistentTerminalDelivery
-          ? String(agent.runtimeEpoch || '')
-          : '';
+        // The admission context is captured synchronously at request time
+        // (sendPersistentComposerMessage) and carried through the coordinator
+        // unchanged: the fence phase and runtime epoch must reflect the
+        // request admission, not the moment the queued delivery runs.
+        let terminalAdmission: TerminalInputAdmission = { admissionPhase: 0, expectedRuntimeEpoch: '' };
+        if (persistentTerminalDelivery) {
+          if (requestedTerminalAdmission) {
+            terminalAdmission = requestedTerminalAdmission;
+          } else {
+            try {
+              terminalAdmission = this.captureTerminalInputAdmission(agent.id);
+            } catch (error) {
+              // The uncertain-input fence is active: reject at the admission
+              // boundary with a proven zero-write failure instead of queueing
+              // Composer delivery behind the uncertain PTY boundary.
+              return Promise.reject(error);
+            }
+          }
+        }
         if (!persistentTerminalDelivery) {
           if (delivery === 'steer') {
             return this.sendComposerMessageNow(agent.id, prompt, {
@@ -1607,7 +1656,8 @@ class AgentManager extends EventEmitter {
           () => this.sendComposerMessageNow(agent.id, prompt, {
             assertDeliveryOwner: assertCurrentOwner,
             expectedTerminalAgent: agent,
-            expectedTerminalRuntimeEpoch: terminalRuntimeEpoch,
+            expectedTerminalAdmissionPhase: terminalAdmission.admissionPhase,
+            expectedTerminalRuntimeEpoch: terminalAdmission.expectedRuntimeEpoch,
             onSubmitted: result => onSubmitted(result),
             requireConfirmedTerminalDelivery: true,
           }),
@@ -6202,7 +6252,32 @@ class AgentManager extends EventEmitter {
     input: TerminalInput,
     options: TerminalInputOptions = {},
   ): Promise<TerminalInputResult | undefined> {
-    return this.enqueueInputOperation(agentId, () => this.sendInputNow(agentId, input, options));
+    let admission: TerminalInputAdmission;
+    try {
+      admission = this.captureTerminalInputAdmission(agentId);
+    } catch {
+      // An earlier Terminal write has an uncertain outcome. New input is
+      // rejected at the admission boundary with a proven zero-write result
+      // until an authoritative checkpoint reconciles the PTY state; it is
+      // never queued behind that boundary.
+      return { status: 'input-rejected', reason: 'uncertain-input-fence' };
+    }
+    // Terminal input admitted without an explicit runtime epoch is bound to
+    // the runtime observed at admission time. The queued operation must not
+    // cross a runtime replacement that happens before it reaches the PTY.
+    const expectedRuntimeEpoch = typeof options.expectedRuntimeEpoch === 'string' && options.expectedRuntimeEpoch
+      ? options.expectedRuntimeEpoch
+      : admission.expectedRuntimeEpoch;
+    return this.enqueueInputOperation(
+      agentId,
+      () => this.sendInputNow(agentId, input, {
+        ...options,
+        expectedRuntimeEpoch,
+        admissionPhase: typeof options.admissionPhase === 'number'
+          ? options.admissionPhase
+          : admission.admissionPhase,
+      }),
+    );
   }
 
   sendPersistentComposerMessage(
@@ -6219,11 +6294,24 @@ class AgentManager extends EventEmitter {
     }
     const agent = this.agents.get(agentId);
     if (!agent) return Promise.reject(new Error('Agent not found'));
+    let terminalAdmission: TerminalInputAdmission | undefined;
+    if (runtimeKind(agent) === 'terminal') {
+      // Capture the Terminal admission context synchronously at request time.
+      // A request admitted before an uncertain write keeps this immutable
+      // context even if a checkpoint reconciles the fence before the queued
+      // delivery eventually runs.
+      try {
+        terminalAdmission = this.captureTerminalInputAdmission(agentId);
+      } catch (error) {
+        return Promise.reject(error as Error);
+      }
+    }
     return this.composerAdmissionCoordinator.request({
       agent,
       delivery: options.delivery,
       message,
       requestId,
+      ...(terminalAdmission ? { terminalAdmission } : {}),
     });
   }
 
@@ -6254,9 +6342,17 @@ class AgentManager extends EventEmitter {
         }),
       );
     }
+    // Capture the fence phase and runtime epoch at admission time, before the
+    // delivery is queued, so a fence advance between admission and delivery
+    // cannot be hidden from the delivery-time check.
+    const admission = this.captureTerminalInputAdmission(agentId);
     return this.enqueueInputOperation(
       agentId,
-      () => this.sendComposerMessageNow(agentId, message, { delivery: options.delivery }),
+      () => this.sendComposerMessageNow(agentId, message, {
+        delivery: options.delivery,
+        expectedTerminalAdmissionPhase: admission.admissionPhase,
+        expectedTerminalRuntimeEpoch: admission.expectedRuntimeEpoch,
+      }),
     );
   }
 
@@ -6317,8 +6413,18 @@ class AgentManager extends EventEmitter {
     if (!control.canResolveFromPreview(previewText)) return Promise.resolve(false);
 
     const attemptKey = runtimeEpoch || `started:${Number(agent.startedAt) || 0}`;
-    return this.terminalProviderControlCoordinator.resolveIdentityOnce(agentId, attemptKey, () => (
-      this.enqueueInputOperation(agentId, async () => {
+    return this.terminalProviderControlCoordinator.resolveIdentityOnce(agentId, attemptKey, () => {
+      let admission: TerminalInputAdmission;
+      try {
+        admission = this.captureTerminalInputAdmission(agentId);
+      } catch {
+        // The uncertain-input fence is active: the identity probe must not
+        // write provider control traffic across the boundary. Leave the
+        // attempt reusable so resolution can retry after reconciliation.
+        this.terminalProviderControlCoordinator.resetIdentityAttempt(agentId, attemptKey);
+        return Promise.resolve(false);
+      }
+      return this.enqueueInputOperation(agentId, async () => {
         const current = this.agents.get(agentId);
         if (
           current !== agent
@@ -6354,12 +6460,16 @@ class AgentManager extends EventEmitter {
           },
           sendInput: async (input: TerminalInput) => {
             const result = await this.sendInputNow(agentId, input, {
+              admissionPhase: admission.admissionPhase,
               expectedRuntimeEpoch: runtimeEpoch,
               markUserInput: false,
               throwOnUncertain: true,
             });
             if (!result) throw new Error(`${control.displayName} Terminal is not available`);
             if ('status' in result && result.status === 'input-rejected') {
+              if (result.reason === 'uncertain-input-fence') {
+                throw new Error(`${control.displayName} Terminal input is fenced before identity resolution`);
+              }
               throw new Error(`${control.displayName} Terminal runtime changed before identity resolution`);
             }
             return result;
@@ -6378,8 +6488,8 @@ class AgentManager extends EventEmitter {
           error instanceof Error ? error.message : String(error),
         );
         return false;
-      })
-    ));
+      });
+    });
   }
 
   async resolveProviderTerminalIdentityFromCurrentView(agentId: AgentId): Promise<boolean> {
@@ -6420,11 +6530,17 @@ class AgentManager extends EventEmitter {
     profile: CodexTerminalProfileRequest,
     options: CodexTerminalProfileOptions = {},
   ): Promise<unknown> {
+    // Admission happens when the profile request is accepted, not when the
+    // queued mutation eventually runs: a fence advance (uncertain write and
+    // later checkpoint) between queueing and execution must not rebrand this
+    // request as a post-reconciliation admission.
+    const admission = this.captureTerminalInputAdmission(agentId);
     return this.terminalProviderControlCoordinator.runProfileMutation(agentId, () => (
       this.enqueueInputOperationUntilReleased(
         agentId,
         (releaseInput: () => void) => this.setCodexTerminalProfileNow(agentId, profile, {
           ...options,
+          admission,
           onInputSafe: releaseInput,
         }),
       )
@@ -6452,6 +6568,11 @@ class AgentManager extends EventEmitter {
       throw new Error('Wait for the active Codex Terminal turn to finish before changing its model');
     }
 
+    // System control traffic is admitted at the outer setCodexTerminalProfile
+    // call. Direct Now callers (tests, tooling) still capture here so the
+    // profile sequence can never cross an uncertain PTY boundary or a runtime
+    // replacement.
+    const admission = options.admission ?? this.captureTerminalInputAdmission(agentId);
     const applied = await profileControl.apply({
       profile,
       timeoutMs: options.timeoutMs,
@@ -6467,11 +6588,19 @@ class AgentManager extends EventEmitter {
       // make a fresh Terminal look user-authored, because that would remove
       // the safe fresh-session path into ACP Chat before the provider has
       // materialized a resumable history record.
-      sendInput: async (input: TerminalInput) => this.sendInputNow(
-        agentId,
-        input,
-        { markUserInput: false },
-      ),
+      sendInput: async (input: TerminalInput) => {
+        const result = await this.sendInputNow(
+          agentId,
+          input,
+          {
+            admissionPhase: admission.admissionPhase,
+            expectedRuntimeEpoch: admission.expectedRuntimeEpoch,
+            markUserInput: false,
+          },
+        );
+        this.throwTerminalDeliveryRejection(result, agent, agentId);
+        return result;
+      },
     });
     agent.codexTerminalProfile = {
       model: applied.model,
@@ -6585,32 +6714,23 @@ class AgentManager extends EventEmitter {
     const input: TerminalInput = [{ type: 'paste', text }, '\r'];
     if (options.requireConfirmedTerminalDelivery === true) {
       const result = await this.sendInputNow(agentId, input, {
+        admissionPhase: options.expectedTerminalAdmissionPhase,
         expectedRuntimeEpoch: options.expectedTerminalRuntimeEpoch,
         throwOnUncertain: true,
       });
       if (!result || !('sent' in result) || result.sent !== true) {
-        if (
-          result
-          && 'status' in result
-          && result.status === 'input-rejected'
-          && result.reason === 'runtime-epoch-mismatch'
-        ) {
-          // Terminal engines reject a stale runtime epoch before the PTY write,
-          // so this exact rejection proves the message had no provider effect.
-          throw Object.assign(
-            new Error('Terminal runtime epoch advanced before Composer input reached the terminal'),
-            {
-              code: 'COMPOSER_TERMINAL_INPUT_EPOCH_REJECTED',
-              composerRecordExact: this.agents.get(agentId) === agent,
-              composerZeroEffect: true,
-            },
-          );
-        }
-        const reason = result && 'reason' in result ? result.reason : 'Terminal runtime is unavailable';
-        throw new Error(reason);
+        this.throwTerminalDeliveryRejection(result, agent, agentId);
       }
     } else {
-      await this.sendInputNow(agentId, input);
+      const result = await this.sendInputNow(agentId, input, {
+        admissionPhase: options.expectedTerminalAdmissionPhase,
+        ...(typeof options.expectedTerminalRuntimeEpoch === 'string' && options.expectedTerminalRuntimeEpoch
+          ? { expectedRuntimeEpoch: options.expectedTerminalRuntimeEpoch }
+          : {}),
+      });
+      // A fence or epoch rejection is a proven zero-write outcome and must
+      // fail the delivery explicitly instead of reporting a submission.
+      this.throwTerminalDeliveryRejection(result, agent, agentId);
     }
     const submitted: ComposerSubmissionResult = { kind: 'terminal' };
     options.onSubmitted?.(submitted);
@@ -7070,11 +7190,124 @@ class AgentManager extends EventEmitter {
     return this.acpRuntime.setSessionConfigOptions(agentId, changes);
   }
 
+  /**
+   * Returns the Agent's current uncertain-input fence state, or null when no
+   * fence applies. A fence recorded for a replaced Terminal runtime is stale
+   * and is dropped here: input that crossed the replacement is rejected
+   * through its captured admission epoch instead.
+   */
+  currentTerminalInputFence(agentId: AgentId): TerminalInputFenceState | null {
+    const record = this.terminalInputFences.get(agentId);
+    if (!record) return null;
+    const agent = this.agents.get(agentId);
+    if (agent && String(agent.runtimeEpoch || '') !== record.runtimeEpoch) {
+      this.terminalInputFences.delete(agentId);
+      return null;
+    }
+    return record;
+  }
+
+  /**
+   * An authoritative Terminal checkpoint read reconciles the live PTY state.
+   * Advance the fence phase and deactivate it so only input admitted after
+   * this reconciliation can reach the terminal; input admitted earlier stays
+   * rejected because its captured phase no longer matches.
+   */
+  reconcileTerminalInputFence(agentId: AgentId): void {
+    const record = this.currentTerminalInputFence(agentId);
+    // Idempotent while inactive: ordinary attach checkpoints during a clean
+    // period must not invalidate input that was admitted in that period.
+    if (!record || record.active !== true) return;
+    this.terminalInputFences.set(agentId, {
+      phase: record.phase + 1,
+      active: false,
+      runtimeEpoch: record.runtimeEpoch,
+    });
+  }
+
+  /**
+   * Capture the Terminal admission context at the moment input is admitted.
+   * Throws an explicit proven zero-write failure while the uncertain-input
+   * fence is active, so no user or system control flow is even queued behind
+   * an uncertain PTY boundary.
+   */
+  captureTerminalInputAdmission(agentId: AgentId): TerminalInputAdmission {
+    const agent = this.agents.get(agentId);
+    if (!agent || runtimeKind(agent) !== 'terminal') {
+      return { admissionPhase: 0, expectedRuntimeEpoch: '' };
+    }
+    const fence = this.currentTerminalInputFence(agentId);
+    if (fence?.active === true) {
+      throw Object.assign(
+        new Error('Terminal input is fenced after an uncertain write until an authoritative checkpoint reconciles it'),
+        {
+          code: 'TERMINAL_INPUT_UNCERTAIN_FENCE',
+          composerRecordExact: true,
+          composerZeroEffect: true,
+        },
+      );
+    }
+    return {
+      admissionPhase: this.terminalInputFences.get(agentId)?.phase ?? 0,
+      expectedRuntimeEpoch: String(agent.runtimeEpoch || ''),
+    };
+  }
+
+  /**
+   * Turn any non-delivered Terminal input result into an explicit zero-write
+   * failure. Fence and epoch rejections both happen before any PTY write, so
+   * callers must never report them as a successful submission.
+   */
+  throwTerminalDeliveryRejection(
+    result: TerminalInputResult | undefined,
+    agent: AgentRecord,
+    agentId: AgentId,
+  ): void {
+    if (result && 'sent' in result && result.sent === true) return;
+    const composerRecordExact = this.agents.get(agentId) === agent;
+    if (result && 'status' in result && result.status === 'input-rejected') {
+      if (result.reason === 'uncertain-input-fence') {
+        throw Object.assign(
+          new Error('Terminal input is fenced after an uncertain write until an authoritative checkpoint reconciles it'),
+          {
+            code: 'TERMINAL_INPUT_UNCERTAIN_FENCE',
+            composerRecordExact,
+            composerZeroEffect: true,
+          },
+        );
+      }
+      if (result.reason === 'runtime-epoch-mismatch') {
+        throw Object.assign(
+          new Error('Terminal runtime epoch advanced before the input reached the terminal'),
+          {
+            code: 'TERMINAL_INPUT_EPOCH_REJECTED',
+            composerRecordExact,
+            composerZeroEffect: true,
+          },
+        );
+      }
+      if (result.reason === 'terminal-write-rejected') {
+        // A definitive host/engine rejection before the PTY write: proven
+        // zero-write, never uncertain.
+        throw Object.assign(
+          new Error('Terminal input was not sent: the terminal rejected the write'),
+          {
+            code: 'TERMINAL_INPUT_WRITE_REJECTED',
+            composerRecordExact,
+            composerZeroEffect: true,
+          },
+        );
+      }
+    }
+    throw new Error('Terminal runtime is unavailable');
+  }
+
   async sendInputNow(
     agentId: AgentId,
     input: TerminalInput,
     {
       markUserInput = true,
+      admissionPhase,
       expectedRuntimeEpoch = '',
       throwOnUncertain = false,
     }: TerminalInputOptions = {},
@@ -7082,6 +7315,20 @@ class AgentManager extends EventEmitter {
     const agent = this.agents.get(agentId);
     if (!agent) return;
     if (runtimeKind(agent) !== 'terminal') return;
+    const fence = this.currentTerminalInputFence(agentId);
+    if (
+      fence
+      && (
+        fence.active === true
+        // Input admitted before the latest uncertain write or before the
+        // latest authoritative reconciliation is rejected even when the
+        // fence is no longer active: a cleared fence only admits input that
+        // was admitted after the reconciliation.
+        || (typeof admissionPhase === 'number' && admissionPhase !== fence.phase)
+      )
+    ) {
+      return { status: 'input-rejected', reason: 'uncertain-input-fence' };
+    }
     if (expectedRuntimeEpoch && agent.runtimeEpoch !== expectedRuntimeEpoch) {
       return { status: 'input-rejected', reason: 'runtime-epoch-mismatch' };
     }
@@ -7104,6 +7351,10 @@ class AgentManager extends EventEmitter {
       this.emit('agent-update', { agentId, patch: { terminalInputReceived: true } });
     }
 
+    // Bind the write to the exact record and runtime epoch observed at
+    // dispatch time; an uncertain outcome must never fence a replacement
+    // runtime that was installed while the write was in flight.
+    const dispatchedRuntimeEpoch = String(agent.runtimeEpoch || '');
     try {
       const result = await engine.sendInput(agentId, input, { expectedRuntimeEpoch });
       if (submittedUserInput) {
@@ -7117,6 +7368,32 @@ class AgentManager extends EventEmitter {
       if (isSessionNotAvailableError(error)) {
         this.markAgentSessionDead(agentId, error);
       }
+      if (!isUncertainTerminalMutationError(error)) {
+        // Proven zero-write: a host-answered rejection (for example a native
+        // session frozen for rotation, thrown before the PTY write) or a
+        // pre-dispatch connection failure. Session loss may still mark the
+        // Agent dead above, but the input result is a definitive rejection:
+        // it must not fence the queue and must not be reported as uncertain.
+        return { status: 'input-rejected', reason: 'terminal-write-rejected' };
+      }
+      // The write outcome is uncertain: it may or may not have reached the
+      // PTY. Advance the per-Agent fence phase and activate it: every input
+      // admitted before this boundary (captured phase) is rejected from here
+      // on, and no new input is admitted until an explicit Terminal
+      // checkpoint reconciles the PTY state.
+      if (
+        this.agents.get(agentId) === agent
+        && String(agent.runtimeEpoch || '') === dispatchedRuntimeEpoch
+      ) {
+        const previousFence = this.currentTerminalInputFence(agentId);
+        this.terminalInputFences.set(agentId, {
+          phase: (previousFence?.phase ?? 0) + 1,
+          active: true,
+          runtimeEpoch: dispatchedRuntimeEpoch,
+        });
+      }
+      // A replaced runtime supersedes the old uncertainty: stale queued work
+      // is already rejected through its captured admission epoch.
       if (throwOnUncertain) {
         throw composerAdmissionError(
           `Terminal input may have been accepted, but delivery could not be confirmed: ${error.message || error}`,
@@ -7130,6 +7407,7 @@ class AgentManager extends EventEmitter {
   markAgentSessionDead(agentId: AgentId, error: unknown): void {
     const agent = this.agents.get(agentId);
     if (!agent || agent.status === 'dead') return;
+    this.terminalInputFences.delete(agentId);
     const message = error instanceof Error
       ? error.message
       : String(error || 'Session not available');
@@ -7149,26 +7427,105 @@ class AgentManager extends EventEmitter {
     this.assertAgentOperationAdmission();
     const agent = this.agents.get(agentId);
     if (!agent) return;
+    if (isAcpAgent(agent)) {
+      await this.acpRuntime.cancel(agentId);
+      return;
+    }
+    let dispatchedRuntimeEpoch = '';
     try {
-      if (isAcpAgent(agent)) {
-        await this.acpRuntime.cancel(agentId);
-        return;
+      // Explicit Terminal interrupt state transitions:
+      // - while the uncertain-input fence is active a previous write or
+      //   interrupt has an unknown outcome; do not blindly send another
+      //   interrupt, throw a visible typed rejection instead.
+      // - the interrupt is admitted against the runtime epoch observed now,
+      //   so a runtime replacement is proven zero-effect at the engine.
+      // - an interrupt failure that is not proven zero-effect fences the
+      //   queue: a timed-out Ctrl-C is uncertain and later input must not
+      //   cross it.
+      let admission: TerminalInputAdmission;
+      try {
+        admission = this.captureTerminalInputAdmission(agentId);
+      } catch {
+        throw Object.assign(
+          new Error('Terminal interrupt was not sent: an earlier write has an uncertain outcome until the terminal checkpoint recovers'),
+          { code: 'TERMINAL_INPUT_UNCERTAIN_FENCE', composerZeroEffect: true },
+        );
       }
       const engine = this.engineBridge.getEngine(agent.engineName);
       if (!engine) return;
 
       const input = interruptInputForAgent(agent);
+      const interruptOptions: InterruptOptions = {
+        ...options,
+        expectedRuntimeEpoch: typeof options.expectedRuntimeEpoch === 'string' && options.expectedRuntimeEpoch
+          ? options.expectedRuntimeEpoch
+          : admission.expectedRuntimeEpoch,
+      };
+      // Bind the interrupt to the exact record and epoch admitted above; an
+      // uncertain outcome must never fence a replacement runtime installed
+      // while the interrupt was in flight.
+      dispatchedRuntimeEpoch = String(interruptOptions.expectedRuntimeEpoch || agent.runtimeEpoch || '');
+      let result: TerminalInputResult | undefined;
       if (engine.interruptSession) {
-        return await engine.interruptSession(agentId, input, options);
+        result = await engine.interruptSession(agentId, input, interruptOptions);
       } else {
-        return await engine.sendInput(agentId, input, options);
+        result = await engine.sendInput(agentId, input, interruptOptions);
       }
+      if (result && 'status' in result && result.status === 'input-rejected') {
+        // A proven zero-effect rejection at the engine boundary. Throw a typed
+        // failure so the lifecycle handler surfaces it visibly.
+        if (result.reason === 'runtime-epoch-mismatch') {
+          throw Object.assign(
+            new Error('Terminal interrupt was not sent: the terminal runtime changed'),
+            { code: 'TERMINAL_INPUT_EPOCH_REJECTED', composerZeroEffect: true },
+          );
+        }
+        throw Object.assign(
+          new Error('Terminal interrupt was not sent: the terminal rejected the write'),
+          { code: 'TERMINAL_INPUT_WRITE_REJECTED', composerZeroEffect: true },
+        );
+      }
+      return result;
     } catch (caughtError: unknown) {
       const error = caughtError as ErrorRecord;
       console.error('Failed to interrupt agent:', error);
+      // Typed rejections thrown above already carry their visible contract.
+      if (typeof error.code === 'string' && error.code.startsWith('TERMINAL_INPUT_')) {
+        throw error;
+      }
       if (isSessionNotAvailableError(error)) {
         this.markAgentSessionDead(agentId, error);
+        throw Object.assign(
+          new Error('Terminal interrupt was not sent: the terminal session is not available'),
+          { code: 'TERMINAL_INPUT_WRITE_REJECTED', composerZeroEffect: true },
+        );
       }
+      if (!isUncertainTerminalMutationError(error)) {
+        // A definitive host rejection before the PTY write: proven
+        // zero-write. It must not fence the queue.
+        throw Object.assign(
+          new Error('Terminal interrupt was not sent: the terminal rejected the write'),
+          { code: 'TERMINAL_INPUT_WRITE_REJECTED', composerZeroEffect: true },
+        );
+      }
+      if (
+        this.agents.get(agentId) === agent
+        && String(agent.runtimeEpoch || '') === dispatchedRuntimeEpoch
+      ) {
+        const previousFence = this.currentTerminalInputFence(agentId);
+        this.terminalInputFences.set(agentId, {
+          phase: (previousFence?.phase ?? 0) + 1,
+          active: true,
+          runtimeEpoch: dispatchedRuntimeEpoch,
+        });
+      }
+      // A replaced runtime supersedes the old uncertainty; stale queued work
+      // is already rejected through its captured admission epoch. The
+      // uncertain outcome stays visible through the thrown failure.
+      throw Object.assign(
+        new Error('Terminal interrupt delivery could not be confirmed. Check the terminal state and retry.'),
+        { code: 'TERMINAL_INPUT_UNCONFIRMED', uncertain: true },
+      );
     }
   }
 
@@ -7189,12 +7546,41 @@ class AgentManager extends EventEmitter {
       return null;
     }
     try {
-      return await this.engineBridge.getSessionAttachCheckpoint(agent.engineName, agentId);
+      const checkpoint = await this.engineBridge.getSessionAttachCheckpoint(agent.engineName, agentId);
+      // A generic attach-checkpoint read may be served for background attach
+      // or prefetch and is therefore not an explicit viewer reconciliation:
+      // it must not clear the uncertain-input fence. Only the explicit
+      // terminal-checkpoint-request path (releaseTerminalInputFence, with
+      // exact live runtime-epoch evidence) reconciles the fence.
+      return checkpoint;
     } catch (caughtError: unknown) {
       const error = caughtError as ErrorRecord;
       console.error('Failed to read agent terminal attach checkpoint:', error);
       return null;
     }
+  }
+
+  /**
+   * Reconcile the uncertain-input fence from an explicit authoritative
+   * checkpoint observation. The evidence must carry the live Terminal
+   * runtime epoch of this exact Agent: an automatic preview or view read
+   * without that proof is not a reconciliation. Returns true when a fence
+   * was reconciled.
+   */
+  releaseTerminalInputFence(agentId: AgentId, evidence: UnknownRecord = {}): boolean {
+    const evidenceEpoch = typeof evidence.runtimeEpoch === 'string' ? evidence.runtimeEpoch : '';
+    if (!evidenceEpoch) return false;
+    const agent = this.agents.get(agentId);
+    if (!agent || runtimeKind(agent) !== 'terminal') return false;
+    if (String(agent.runtimeEpoch || '') !== evidenceEpoch) return false;
+    const record = this.terminalInputFences.get(agentId);
+    if (!record) return false;
+    if (record.runtimeEpoch !== evidenceEpoch) {
+      this.terminalInputFences.delete(agentId);
+      return false;
+    }
+    this.reconcileTerminalInputFence(agentId);
+    return true;
   }
 
   requestAgentSessionResize(agentId: AgentId, cols: number, rows: number): boolean {

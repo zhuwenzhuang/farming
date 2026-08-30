@@ -85,11 +85,24 @@ async function run() {
     console.error = (...args) => {
       consoleErrors.push(args);
     };
+    let interruptFailure = null;
     try {
-      await manager.interruptAgent('agent-missing-session');
+      // A session-loss interrupt is a proven zero-write rejection: it must
+      // surface as a visible typed failure instead of being swallowed.
+      await assert.rejects(
+        manager.interruptAgent('agent-missing-session'),
+        error => {
+          interruptFailure = error;
+          return error.code === 'TERMINAL_INPUT_WRITE_REJECTED';
+        },
+      );
     } finally {
       console.error = originalConsoleError;
     }
+    assert.ok(
+      interruptFailure && /Terminal interrupt was not sent/.test(String(interruptFailure.message)),
+      'a session-loss interrupt must surface a visible zero-write rejection',
+    );
 
     const missingSessionAgent = manager.agents.get('agent-missing-session');
     assert.strictEqual(missingSessionAgent.status, 'dead');

@@ -28,6 +28,17 @@ interface ComposerDeliveryRequest {
   prompt: ComposerContentPart[];
   requestId: string;
   retryDefinitiveFailure: boolean;
+  terminalAdmission?: TerminalAdmissionContext;
+}
+
+/**
+ * Opaque Terminal admission context captured at request time. The
+ * coordinator passes it through unchanged; ownership and semantics belong
+ * to the AgentManager delivery port.
+ */
+interface TerminalAdmissionContext {
+  admissionPhase: number;
+  expectedRuntimeEpoch: string;
 }
 
 export interface ComposerDeliveryOwner {
@@ -52,6 +63,7 @@ export interface AgentComposerAdmissionRequest {
   delivery?: ComposerDelivery;
   message: unknown;
   requestId: string;
+  terminalAdmission?: TerminalAdmissionContext;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -166,6 +178,7 @@ export class AgentComposerAdmissionCoordinator {
     delivery: requestedDelivery,
     message,
     requestId,
+    terminalAdmission,
   }: AgentComposerAdmissionRequest): Promise<unknown> {
     if (!/^[A-Za-z0-9._:-]{1,160}$/.test(requestId)) {
       return Promise.reject(new Error('Composer requestId is invalid'));
@@ -292,6 +305,7 @@ export class AgentComposerAdmissionCoordinator {
           prompt,
           requestId,
           retryDefinitiveFailure: existing?.state === 'failed',
+          terminalAdmission,
         });
       })
       .then(result => {

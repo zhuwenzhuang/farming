@@ -113,6 +113,17 @@ Farming does not add speculative replay or input acknowledgement. Multiple
 authorized views may write to the same PTY; the backend serializes writes in
 arrival order.
 
+A Terminal write whose outcome cannot be confirmed is uncertain and is never
+replayed. Such a write activates a per-runtime input fence: user input,
+queued input, system control traffic, and interrupts admitted before the
+fence stay rejected, and no new input is admitted while the fence is active.
+Only an explicit Terminal checkpoint request answered with the exact current
+runtime epoch of that Terminal reconciles the fence, and only for input
+admitted after that reconciliation. A Terminal runtime replacement supersedes
+the old fence; input admitted under the replaced runtime is rejected by its
+captured epoch. A rejected raw WebSocket input is surfaced to the writing
+client through a validated visible error instead of being dropped silently.
+
 IME composition completes in the terminal input surface before committed text
 is sent. Fallback handling must not duplicate ordinary ASCII input.
 

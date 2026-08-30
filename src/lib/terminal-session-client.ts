@@ -143,3 +143,33 @@ export function settleTerminalSessionCheckpoint(message: TerminalCheckpointResul
   })
   return true
 }
+
+const FENCE_RECONCILIATION_TIMEOUT_MS = 10000
+const fenceReconciliationInFlight = new Set<string>()
+
+/**
+ * Explicit viewer-observed reconciliation after an uncertain-input fence
+ * error. It requests the current checkpoint for the exact Agent through the
+ * ordinary checkpoint machinery; only that explicit request, answered with
+ * the live runtime epoch, reconciles the fence on the backend. Bounded: one
+ * in-flight reconciliation per Agent, aborted after a short deadline so a
+ * lost reply never wedges the path.
+ */
+export function requestTerminalFenceReconciliation(agentId: string): void {
+  if (!agentId || fenceReconciliationInFlight.has(agentId)) return
+  fenceReconciliationInFlight.add(agentId)
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), FENCE_RECONCILIATION_TIMEOUT_MS)
+  // The deadline is a liveness backstop; it must never hold the event loop.
+  const timerHandle = timer as ReturnType<typeof setTimeout> & { unref?: () => void }
+  if (typeof timerHandle.unref === 'function') timerHandle.unref()
+  void requestTerminalSessionCheckpoint(agentId, controller.signal)
+    .catch(() => {
+      // A failed reconciliation stays visible through the fence error; the
+      // next input failure or reconnect retries it.
+    })
+    .finally(() => {
+      clearTimeout(timer)
+      fenceReconciliationInFlight.delete(agentId)
+    })
+}

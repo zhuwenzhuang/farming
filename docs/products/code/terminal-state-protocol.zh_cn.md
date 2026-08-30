@@ -89,6 +89,14 @@ Layout 与 Renderer Integration，但不能各自维护第二套 Ordering 或 Ch
 Terminal Input 是 Renderer Raw Input Stream，只写入 PTY 一次。Farming 不增加 Speculative Replay
 或 Input ACK。多个已授权 Viewer 可以输入同一 PTY；Backend 按到达顺序串行写入。
 
+结果无法确认的 Terminal Write 属于不确定结果，绝不会被 Replay。此类写入会激活对应 Runtime 的
+Input Fence：在 Fence 之前 Admission 的 User Input、Queued Input、System Control Traffic 与
+Interrupt 保持被拒绝状态，Fence Active 期间也不允许新的 Input Admission。只有携带该 Terminal
+精确当前 Runtime Epoch 应答的显式 Terminal Checkpoint Request 才能 Reconcile Fence，并且只对
+该 Reconcile 之后 Admission 的 Input 生效。Terminal Runtime 替换优先于旧 Fence；在旧 Runtime
+下 Admission 的 Input 按其捕获的 Epoch 被拒绝。被拒绝的 Raw WebSocket Input 通过受协议验证的
+可见错误提示给写入方 Client，而不是被静默丢弃。
+
 IME Composition 在 Terminal Input Surface 内完整结束后再发送 Committed Text。Fallback 处理
 不能重复发送普通 ASCII Input。
 

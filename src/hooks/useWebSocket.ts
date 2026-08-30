@@ -3,6 +3,7 @@ import type { Agent, ProjectAgentSummary, TaskHistoryEntry } from '@/types/agent
 import type { AcpSessionRevisionMessage, ClientMessage, ComposerInputAttachment, ComposerInputMessage, LanguageServerRefreshMessage, ServerMessage, StartAgentMessage, WorkspaceFileEventMessage } from '@/types/messages'
 import { getStartupAccessToken } from '@/lib/auth-url'
 import { appWsUrl } from '@/lib/base-path'
+import { reconcileTerminalFenceError } from '@/lib/terminal-fence-error-recovery'
 import {
   setTerminalSessionTransport,
   setTerminalSessionTransportReady,
@@ -1140,14 +1141,20 @@ export function useWebSocket() {
               })
               break
             }
-            case 'error':
+            case 'error': {
               setState(prev => ({
                 ...prev,
                 error: msg.message,
                 errorKind: 'error',
                 errorId: prev.errorId + 1,
               }))
+              // Visible fence errors and unconfirmed deliveries drive the
+              // explicit viewer-observed reconciliation: request the
+              // checkpoint for the exact Agent so an attached session
+              // recovers without a reconnect or a sacrificial second input.
+              reconcileTerminalFenceError(msg as { agentId?: unknown; reason?: unknown })
               break
+            }
             case 'composer-input-result':
               latestHandlersRef.current.settleComposerRequest(msg.requestId, msg.accepted, msg.message || '', msg.uncertain !== true)
               break

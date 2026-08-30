@@ -155,7 +155,7 @@ interface TerminalInputAcceptedResult {
 }
 
 interface TerminalInputRejectedResult {
-  reason: 'runtime-epoch-mismatch';
+  reason: 'runtime-epoch-mismatch' | 'terminal-write-rejected' | 'uncertain-input-fence';
   status: 'input-rejected';
 }
 
