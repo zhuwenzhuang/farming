@@ -17,6 +17,44 @@ test('Settings restores focus to its trigger after Escape', async ({ page }) => 
   await expect(settingsTrigger).toBeFocused()
 })
 
+test('keyboard focus stays visible in every appearance and layout', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await openFarming(page)
+
+  for (const viewport of [
+    { width: 1280, height: 800 },
+    { width: 390, height: 800 },
+  ]) {
+    await page.setViewportSize(viewport)
+    if (viewport.width < 980) await page.getByTestId('code-mobile-menu').click()
+
+    const settingsTrigger = page.getByTestId('code-sidebar-options')
+    for (const appearance of ['light', 'dark', 'paper']) {
+      await page.evaluate((value) => {
+        document.documentElement.setAttribute('data-appearance', value)
+        document.body.setAttribute('data-appearance', value)
+      }, appearance)
+      await page.getByTestId('code-product-mark').focus()
+      await page.keyboard.press('Tab')
+      await expect(settingsTrigger).toBeFocused()
+      await expect.poll(() => settingsTrigger.evaluate(element => {
+        const probe = document.createElement('span')
+        probe.style.color = 'var(--code-focus-ring)'
+        document.body.append(probe)
+        const expectedColor = getComputedStyle(probe).color
+        probe.remove()
+        const style = getComputedStyle(element)
+        return element.matches(':focus-visible')
+          && style.outlineColor === expectedColor
+          && style.outlineStyle !== 'none'
+          && Number.parseFloat(style.outlineWidth) >= 2
+      })).toBe(true)
+    }
+
+    if (viewport.width < 980) await page.getByTestId('code-mobile-menu').click()
+  }
+})
+
 test('Settings keeps all interface preferences in one section and card', async ({ page }) => {
   await openFarming(page)
   await page.getByTestId('code-sidebar-options').click()

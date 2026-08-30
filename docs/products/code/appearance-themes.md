@@ -14,10 +14,11 @@ Project, file, or terminal state.
   canvas, chrome, reading surfaces, Composer, editor, and terminal share one
   warm paper base. Hierarchy comes primarily from spacing, fine borders, and
   restrained neutral overlays rather than multiple yellow surfaces. Dark ink
-  provides contrast. Ordinary interaction uses ink and neutral fills without
-  focus rings or selected outlines; green remains only where it carries an
-  actual semantic meaning such as success or data visualization. Status colors
-  keep their semantic meaning instead of being recolored.
+  provides contrast. Pointer hover and selection use ink and neutral fills
+  without decorative outlines; keyboard focus uses a restrained but clearly
+  visible ink ring. Green remains only where it carries an actual semantic
+  meaning such as success or data visualization. Status colors keep their
+  semantic meaning instead of being recolored.
 - Paper is flat color, not a texture filter. Repeated grain or global opacity
   effects reduce code legibility and are not part of the theme.
 - Paper file tabs keep inactive labels in muted ink and the active label in
@@ -69,10 +70,11 @@ Project, file, or terminal state.
   rules may change geometry but must not choose a separate theme surface.
 - Workbench regions remain legible without becoming separate color blocks.
   Paper panels, inputs, and grouped controls use a subtle neutral fill instead
-  of decorative outlines, focus rings, or selected boundaries. Text, cursor,
-  fill, and interaction state provide the required feedback. Semantic status
-  colors remain available inside their content. Theme colors should be selected
-  by semantic role rather than by replacing individual hex values ad hoc.
+  of decorative outlines or selected boundaries. Keyboard focus rings are
+  functional feedback and must remain visible; text, cursor, fill, and other
+  interaction states provide the remaining feedback. Semantic status colors
+  remain available inside their content. Theme colors should be selected by
+  semantic role rather than by replacing individual hex values ad hoc.
 
 ## State Model
 

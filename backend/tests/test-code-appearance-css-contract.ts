@@ -95,6 +95,9 @@ for (const appearance of appearances) {
   assert.equal(roles['--code-panel-border'], 'transparent', `${appearance} passive panels must use tonal separation`)
   assert.equal(roles['--code-panel-divider'], 'transparent', `${appearance} passive panel rows must use tonal separation`)
   assert.equal(roles['--code-composer-border'], 'transparent', `${appearance} composer must use tonal separation`)
+  assert.notEqual(roles['--code-focus-ring'], 'transparent', `${appearance} keyboard focus must remain visible`)
+  assert.notEqual(roles['--code-shadow-focus'], 'none', `${appearance} focus-shadow controls must remain visible`)
+  assert.notEqual(roles['--code-model-matrix-rocker-focus'], 'none', `${appearance} Model Matrix keyboard focus must remain visible`)
 }
 
 assert.notEqual(
