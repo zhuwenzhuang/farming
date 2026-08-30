@@ -103,12 +103,14 @@ export function resourceStatusLabel(resource: BrowserResource, copy: BrowserCopy
 function BrowserRow({
   resource,
   active,
+  runtimeAvailable,
   controller,
   copy,
   onOpen,
 }: {
   resource: BrowserResource
   active: boolean
+  runtimeAvailable: boolean
   controller: BrowserResourcesController
   copy: BrowserCopy
   onOpen: (resource: BrowserResource) => void
@@ -184,7 +186,7 @@ function BrowserRow({
         </button>
         <button
           type="button"
-          disabled={busy}
+          disabled={busy || (!activeRuntime && !runtimeAvailable)}
           title={activeRuntime ? copy.stopBrowser : copy.startBrowser}
           aria-label={activeRuntime ? copy.stopBrowser : copy.startBrowser}
           onClick={event => {
@@ -218,6 +220,7 @@ function BrowserSection({
   ownerAgentId,
   resources,
   activeBrowserId,
+  runtimeAvailable,
   controller,
   copy,
   collapsed,
@@ -228,6 +231,7 @@ function BrowserSection({
   ownerAgentId: string
   resources: BrowserResource[]
   activeBrowserId: string | null
+  runtimeAvailable: boolean
   controller: BrowserResourcesController
   copy: BrowserCopy
   collapsed: boolean
@@ -235,6 +239,7 @@ function BrowserSection({
   onOpen: (resource: BrowserResource) => void
 }) {
   const createBrowser = async () => {
+    if (!runtimeAvailable) return
     try {
       const resource = await controller.create(workspace, { agentId: ownerAgentId })
       const running = await controller.start(resource.id)
@@ -261,6 +266,7 @@ function BrowserSection({
         <button
           type="button"
           className="farming-browser-new code-sidebar-resource-header-action"
+          disabled={!runtimeAvailable}
           title={copy.newBrowser}
           aria-label={copy.newBrowser}
           onClick={() => void createBrowser()}
@@ -275,6 +281,7 @@ function BrowserSection({
               key={resource.id}
               resource={resource}
               active={resource.id === activeBrowserId}
+              runtimeAvailable={runtimeAvailable}
               controller={controller}
               copy={copy}
               onOpen={onOpen}
@@ -284,6 +291,7 @@ function BrowserSection({
             <button
               type="button"
               className="farming-browser-empty code-sidebar-resource-empty"
+              disabled={!runtimeAvailable}
               onClick={() => void createBrowser()}
             >
               <PlusGlyph />
@@ -357,7 +365,7 @@ export function BrowserSidebarPortals({
 }) {
   const copy = browserCopy(language)
   const browserAvailable = controller.capability?.available === true
-  const available = forceAvailable || browserAvailable
+  const available = forceAvailable || browserAvailable || controller.resources.length > 0
   const [targets, setTargets] = useState(new Map<string, HTMLElement>())
   const [collapsed, setCollapsed] = useState(readCollapsed)
   const [expandedResources, setExpandedResources] = useState(readExpandedResources)
@@ -466,12 +474,13 @@ export function BrowserSidebarPortals({
                 workspace: project.workspace,
                 expanded,
               })}
-              {browserAvailable && resources.length > 0 && (
+              {resources.length > 0 && (
                 <BrowserSection
                   workspace={project.workspace}
                   ownerAgentId={agent.id}
                   resources={resources}
                   activeBrowserId={activeBrowserId}
+                  runtimeAvailable={browserAvailable}
                   controller={controller}
                   copy={copy}
                   collapsed={collapsed.has(`agent:${agent.id}`)}

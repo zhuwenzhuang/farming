@@ -116,8 +116,8 @@ export function useBrowserResources(options: {
   // Memoized so the derived maps below (and consumers) keep a stable identity
   // instead of seeing a fresh array on every render.
   const resources = useMemo(
-    () => capability?.available === false ? [] : collection?.resources ?? [],
-    [capability?.available, collection?.resources],
+    () => collection?.resources ?? [],
+    [collection?.resources],
   )
 
   const byAgentId = useMemo(() => {

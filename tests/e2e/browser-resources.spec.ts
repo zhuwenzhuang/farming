@@ -778,6 +778,61 @@ test('deletes a Browser directly without a confirmation dialog', async ({
   expect(dialogs).toEqual([])
 })
 
+test('keeps retained Browser rows manageable while the runtime is unavailable', {
+  tag: ['@critical-behavior', '@behavior-BROWSER-RETAINED-RESOURCE-VISIBILITY'],
+}, async ({
+  page,
+  workspaceRoot,
+}) => {
+  const workspace = path.join(workspaceRoot, 'browser-retained-without-runtime')
+  fs.mkdirSync(workspace, { recursive: true })
+  const enableResponse = await page.request.post('/farming/api/settings', {
+    data: { browserExtensionEnabled: true },
+  })
+  expect(enableResponse.ok()).toBeTruthy()
+  const agentId = await createBrowserOwnerAgent(page, workspace)
+  const createResponse = await page.request.post('/farming/api/browsers', {
+    data: {
+      rootId: projectFilesWorkspaceId(workspace),
+      agentId,
+      name: 'Retained Browser',
+    },
+  })
+  expect(createResponse.ok()).toBeTruthy()
+  const resource = await createResponse.json() as { id: string }
+  await page.route('**/api/browsers/capability', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      enabled: true,
+      available: false,
+      browser: null,
+      message: 'Browser runtime is unavailable',
+    }),
+  }))
+  await openFarming(page)
+
+  const browserSection = await openAgentBrowserSection(page, agentId)
+  await expect(browserSection).toBeVisible()
+  await expect(browserSection.getByRole('button', { name: 'New Tab' })).toBeDisabled()
+  const row = browserSection.locator(
+    `[data-testid="farming-browser-row"][data-browser-id="${resource.id}"]`,
+  )
+  await expect(row).toBeVisible()
+  await row.hover()
+  await expect(row.getByRole('button', { name: 'Start Tab' })).toBeDisabled()
+  await expect(row.getByRole('button', { name: 'Rename Tab' })).toBeEnabled()
+  await expect(row.getByRole('button', { name: 'Close Tab' })).toBeEnabled()
+
+  await row.getByRole('button', { name: 'Rename Tab' }).click()
+  const nameInput = row.getByRole('textbox', { name: 'Tab name' })
+  await nameInput.fill('Renamed retained Browser')
+  await nameInput.press('Enter')
+  await expect(row).toContainText('Renamed retained Browser')
+  await row.hover()
+  await row.getByRole('button', { name: 'Close Tab' }).click()
+  await expect(browserSection).toHaveCount(0)
+})
+
 test('offers explicit isolated Browser preparation when no local browser is available', async ({
   page,
 }, testInfo) => {
