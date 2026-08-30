@@ -132,12 +132,215 @@ function farmingAuthCookieName(configDir: string): string {
   return `${LEGACY_COOKIE_NAME}_${configInstanceFingerprint(configDir)}`;
 }
 
-function readExistingTokenFile(tokenFile: string): string {
+function fsErrorCode(error: unknown): string {
+  return error && typeof error === 'object' && 'code' in error ? String(error.code) : '';
+}
+
+// O_NOFOLLOW exists on the supported server platforms (Linux and macOS).
+// Where it is unavailable (Windows, which is not a supported server
+// platform), an lstat refusal remains the best-effort guard.
+function noFollowOpenFlag(): number {
+  return fs.constants.O_NOFOLLOW || 0;
+}
+
+// Linux-only flag; Node does not export it. It pins an inode without any
+// access-mode check and without following links.
+const LINUX_O_PATH = 0x200000;
+
+interface TokenFileIdentity {
+  dev: number;
+  ino: number;
+}
+
+interface SecuredTokenFile {
+  descriptor: number;
+  identity: TokenFileIdentity;
+  uid: number;
+}
+
+function tokenFileNotRegularError(tokenFile: string, found: string): Error {
+  return new Error(
+    `Session token file ${tokenFile} must be a regular file, but it is ${found}. `
+    + 'Farming refuses to read or write auth state through another path. '
+    + 'Remove the file or replace it with a regular file, then start Farming again.',
+  );
+}
+
+function tokenFileOwnershipError(tokenFile: string, fileUid: number, currentUid: number): Error {
+  return new Error(
+    `Session token file ${tokenFile} is owned by uid ${fileUid}, but Farming runs as uid ${currentUid}. `
+    + 'Farming cannot prove ownership of this auth file. Remove the file or restore its owner, then start Farming again.',
+  );
+}
+
+function currentEffectiveUid(): number {
+  return typeof process.geteuid === 'function' ? process.geteuid() : -1;
+}
+
+function regularTokenFileIdentity(tokenFile: string, status: { dev: number; ino: number; isFile(): boolean }): TokenFileIdentity {
+  if (!status.isFile()) throw tokenFileNotRegularError(tokenFile, 'a non-regular file');
+  return { dev: status.dev, ino: status.ino };
+}
+
+function assertVisibleTokenFileNotLink(tokenFile: string): void {
+  let status;
   try {
-    const token = fs.readFileSync(tokenFile, 'utf8').trim();
-    return token || '';
-  } catch {
-    return '';
+    status = fs.lstatSync(tokenFile);
+  } catch (error) {
+    if (fsErrorCode(error) === 'ENOENT') return;
+    throw error;
+  }
+  if (status.isSymbolicLink()) throw tokenFileNotRegularError(tokenFile, 'a symbolic link');
+  if (!status.isFile()) throw tokenFileNotRegularError(tokenFile, 'a non-regular file');
+}
+
+// Opens the existing session token file and returns a descriptor pinned to
+// one exact inode. Every later mode, read, and write operation uses that
+// descriptor (or its kernel-owned /proc/self/fd alias), so a racing swap of
+// the visible path — for example replacing the file with a symlink — can
+// never redirect securing, reading, or writing to another file.
+function openExistingTokenFile(tokenFile: string): SecuredTokenFile | null {
+  if (!noFollowOpenFlag()) {
+    // Platform without O_NOFOLLOW: the lstat refusal is the only available
+    // link check. Farming servers run on Linux and macOS, where the open
+    // below refuses links atomically.
+    assertVisibleTokenFileNotLink(tokenFile);
+  }
+  let descriptor = -1;
+  try {
+    descriptor = fs.openSync(tokenFile, fs.constants.O_RDONLY | noFollowOpenFlag());
+  } catch (error) {
+    const code = fsErrorCode(error);
+    if (code === 'ENOENT') return null;
+    if (code === 'ELOOP') throw tokenFileNotRegularError(tokenFile, 'a symbolic link');
+    if (code === 'EISDIR') throw tokenFileNotRegularError(tokenFile, 'a directory');
+    if (code === 'ENXIO') throw tokenFileNotRegularError(tokenFile, 'a non-regular file');
+    if (code === 'EACCES' || code === 'EPERM') return openOwnedButUnreadableTokenFile(tokenFile);
+    throw error;
+  }
+  try {
+    const status = fs.fstatSync(descriptor);
+    const identity = regularTokenFileIdentity(tokenFile, status);
+    return { descriptor, identity, uid: status.uid };
+  } catch (error) {
+    fs.closeSync(descriptor);
+    throw error;
+  }
+}
+
+// A token file owned by this user may still deny a read open because its
+// mode lacks the owner read bit (for example 0o000). Its mode must be
+// repaired without any path-based operation that could act on a swapped-in
+// file. Platform support:
+// - Linux: pin the inode with O_PATH|O_NOFOLLOW, repair the mode through
+//   the kernel-owned /proc/self/fd alias, then reopen the pinned inode.
+// - macOS and other platforms: no swap-safe repair primitive exists for an
+//   unreadable file, so fail closed with explicit repair instructions.
+function openOwnedButUnreadableTokenFile(tokenFile: string): SecuredTokenFile | null {
+  const currentUid = currentEffectiveUid();
+  if (process.platform === 'linux') {
+    let pathDescriptor = -1;
+    try {
+      pathDescriptor = fs.openSync(tokenFile, LINUX_O_PATH | noFollowOpenFlag());
+    } catch (error) {
+      const code = fsErrorCode(error);
+      if (code === 'ENOENT') return null;
+      if (code === 'ELOOP') throw tokenFileNotRegularError(tokenFile, 'a symbolic link');
+      throw error;
+    }
+    try {
+      const status = fs.fstatSync(pathDescriptor);
+      const identity = regularTokenFileIdentity(tokenFile, status);
+      if (currentUid >= 0 && status.uid !== currentUid) {
+        throw tokenFileOwnershipError(tokenFile, status.uid, currentUid);
+      }
+      // chmod through /proc/self/fd targets the pinned inode itself; it
+      // cannot be redirected by replacing the visible path.
+      fs.chmodSync(`/proc/self/fd/${pathDescriptor}`, 0o600);
+      const descriptor = fs.openSync(`/proc/self/fd/${pathDescriptor}`, fs.constants.O_RDONLY);
+      try {
+        const reopened = fs.fstatSync(descriptor);
+        const reopenedIdentity = regularTokenFileIdentity(tokenFile, reopened);
+        if (reopenedIdentity.dev !== identity.dev || reopenedIdentity.ino !== identity.ino) {
+          throw new Error(
+            `Session token file ${tokenFile} changed identity while it was being secured; start Farming again`,
+          );
+        }
+        return { descriptor, identity: reopenedIdentity, uid: reopened.uid };
+      } catch (error) {
+        fs.closeSync(descriptor);
+        throw error;
+      }
+    } finally {
+      fs.closeSync(pathDescriptor);
+    }
+  }
+  throw new Error(
+    `Session token file ${tokenFile} exists but cannot be read, and Farming cannot safely repair it on this platform. `
+    + 'Restore its owner permissions (mode 0600) or remove it, then start Farming again.',
+  );
+}
+
+// Secures an existing session token file to owner-only mode and reads its
+// persisted token through one pinned inode. Returns an empty token and null
+// identity when the file does not exist yet.
+function secureAndReadExistingTokenFile(tokenFile: string): { token: string; identity: TokenFileIdentity | null } {
+  const opened = openExistingTokenFile(tokenFile);
+  if (!opened) return { token: '', identity: null };
+  try {
+    const currentUid = currentEffectiveUid();
+    if (currentUid >= 0 && opened.uid !== currentUid) {
+      throw tokenFileOwnershipError(tokenFile, opened.uid, currentUid);
+    }
+    try {
+      fs.fchmodSync(opened.descriptor, 0o600);
+    } catch (error) {
+      const code = fsErrorCode(error);
+      if (code === 'EPERM' || code === 'EACCES') {
+        throw new Error(
+          `Session token file ${tokenFile} could not be secured (file uid ${opened.uid}, current uid ${currentUid}). `
+          + 'Farming cannot prove ownership of this auth file. Remove the file or restore its owner, then start Farming again.',
+          { cause: error },
+        );
+      }
+      throw error;
+    }
+    const size = fs.fstatSync(opened.descriptor).size;
+    if (size > 64 * 1024) {
+      throw new Error(
+        `Session token file ${tokenFile} is ${size} bytes; expected a small Farming token file. `
+        + 'Remove the file or restore it, then start Farming again.',
+      );
+    }
+    const buffer = Buffer.allocUnsafe(size);
+    let read = 0;
+    while (read < size) {
+      const bytes = fs.readSync(opened.descriptor, buffer, read, size - read, read);
+      if (bytes === 0) break;
+      read += bytes;
+    }
+    // The visible path must still name the exact inode that was secured and
+    // read; otherwise later path-based consumers (for example the CLI) would
+    // observe different auth state than this startup loaded.
+    let visible = null;
+    try {
+      visible = fs.lstatSync(tokenFile);
+    } catch (error) {
+      if (fsErrorCode(error) !== 'ENOENT') throw error;
+    }
+    if (
+      !visible
+      || visible.isSymbolicLink()
+      || visible.dev !== opened.identity.dev
+      || visible.ino !== opened.identity.ino
+    ) {
+      throw new Error(
+        `Session token file ${tokenFile} changed identity while it was being read; start Farming again`,
+      );
+    }
+    return { token: buffer.subarray(0, read).toString('utf8').trim(), identity: opened.identity };
+  } finally {
+    fs.closeSync(opened.descriptor);
   }
 }
 
@@ -153,6 +356,7 @@ class TokenAuth {
   token: string;
   tokenInfo: PoeticTokenInfo | null;
   farmingNetPassVerifier: FarmingNetPassVerifierLike | null;
+  securedTokenFileIdentity: TokenFileIdentity | null;
 
   constructor(options: TokenAuthOptions = {}) {
     const authEnv = options.env || process.env;
@@ -172,12 +376,15 @@ class TokenAuth {
     this.token = '';
     this.tokenInfo = null;
     this.farmingNetPassVerifier = null;
+    this.securedTokenFileIdentity = null;
 
     if (this.disabled) {
       return;
     }
 
     this.tokenFile = storageLayout.sessionTokenFile(farmingDir);
+    const securedExistingToken = secureAndReadExistingTokenFile(this.tokenFile);
+    this.securedTokenFileIdentity = securedExistingToken.identity;
     if (options.farmingNetPassVerifier !== false) {
       this.farmingNetPassVerifier = options.farmingNetPassVerifier || new FarmingNetPassVerifier({
         trustFile: options.farmingNetTrustFile || storageLayout.farmingNetTrustFile(farmingDir),
@@ -187,7 +394,7 @@ class TokenAuth {
       ? options.token
       : authEnv.FARMING_TOKEN;
     const configuredToken = String(configuredTokenSource || '').trim();
-    const existingToken = configuredToken ? '' : readExistingTokenFile(this.tokenFile);
+    const existingToken = configuredToken ? '' : securedExistingToken.token;
     if (configuredToken) {
       this.token = configuredToken;
       this.tokenInfo = {
@@ -213,7 +420,57 @@ class TokenAuth {
 
   saveTokenFile(): void {
     if (this.disabled || !this.tokenFile) return;
-    fs.writeFileSync(this.tokenFile, this.token, { mode: 0o600 });
+    // Write through one descriptor pinned by an open that never follows
+    // links. For a file secured during startup, open without O_TRUNC first:
+    // the identity and owner are verified before anything is truncated, so a
+    // racing swap of the visible path cannot get another file truncated or
+    // overwritten. A file that did not exist at startup is created with
+    // O_EXCL so a racing creation fails closed instead of being clobbered.
+    let descriptor = -1;
+    try {
+      if (this.securedTokenFileIdentity) {
+        descriptor = fs.openSync(this.tokenFile, fs.constants.O_WRONLY | noFollowOpenFlag());
+        const status = fs.fstatSync(descriptor);
+        if (!status.isFile()) {
+          throw tokenFileNotRegularError(this.tokenFile, status.isDirectory() ? 'a directory' : 'a non-regular file');
+        }
+        if (status.dev !== this.securedTokenFileIdentity.dev || status.ino !== this.securedTokenFileIdentity.ino) {
+          throw new Error(
+            `Session token file ${this.tokenFile} changed identity between securing and writing; start Farming again`,
+          );
+        }
+        const currentUid = currentEffectiveUid();
+        if (currentUid >= 0 && status.uid !== currentUid) {
+          throw tokenFileOwnershipError(this.tokenFile, status.uid, currentUid);
+        }
+        fs.ftruncateSync(descriptor, 0);
+      } else {
+        descriptor = fs.openSync(
+          this.tokenFile,
+          fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | noFollowOpenFlag(),
+          0o600,
+        );
+      }
+      fs.writeSync(descriptor, this.token);
+      fs.fchmodSync(descriptor, 0o600);
+    } catch (error) {
+      const code = fsErrorCode(error);
+      if (code === 'ELOOP') throw tokenFileNotRegularError(this.tokenFile, 'a symbolic link');
+      if (code === 'EEXIST') {
+        throw new Error(
+          `Session token file ${this.tokenFile} appeared while Farming was starting. `
+          + 'Verify that no other process claims this Config, then start Farming again.',
+        );
+      }
+      if (code === 'ENOENT' && this.securedTokenFileIdentity) {
+        throw new Error(
+          `Session token file ${this.tokenFile} disappeared while Farming was starting; start Farming again`,
+        );
+      }
+      throw error;
+    } finally {
+      if (descriptor >= 0) fs.closeSync(descriptor);
+    }
   }
 
   isEnabled(): boolean {
