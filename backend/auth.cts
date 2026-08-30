@@ -460,11 +460,13 @@ class TokenAuth {
         throw new Error(
           `Session token file ${this.tokenFile} appeared while Farming was starting. `
           + 'Verify that no other process claims this Config, then start Farming again.',
+          { cause: error },
         );
       }
       if (code === 'ENOENT' && this.securedTokenFileIdentity) {
         throw new Error(
           `Session token file ${this.tokenFile} disappeared while Farming was starting; start Farming again`,
+          { cause: error },
         );
       }
       throw error;
