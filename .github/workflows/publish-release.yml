@@ -456,6 +456,9 @@ jobs:
           fi
           if npm view "farming-code@${version}" version >/dev/null 2>&1; then
             bash scripts/verify-npm-release-source.sh "farming-code@${version}" "${candidate_sha}"
+            configured_registry="$(npm config get registry)"
+            bash scripts/reconcile-npm-registry-tarball.sh "${package_tarball}" "farming-code@${version}" --registry "${configured_registry}"
+            echo "Registry already publishes the identical farming-code@${version} tarball; reusing it."
             exit 0
           fi
           dist_tag="latest"
