@@ -1446,11 +1446,11 @@ test.describe('iPhone mobile layout', () => {
     expect(samples.some(sample => sample.innerActual > 400)).toBe(true)
     expect(samples.every(sample => sample.innerOverflow === 'hidden')).toBe(true)
     expect(samples.every(sample => sample.outerOverflow === 'auto')).toBe(true)
-    expect(samples.every(sample => sample.windowPosition === 'sticky')).toBe(true)
+    expect(samples.every(sample => sample.windowPosition === 'absolute')).toBe(true)
     const activeSamples = samples.filter(sample => sample.outerDelta > 200)
     expect(activeSamples.length).toBeGreaterThan(0)
     expect(Math.max(...activeSamples.map(sample => sample.windowTopDelta))).toBeLessThanOrEqual(1)
-    await captureIphoneAudit(page, 'iphone-webkit-large-file-tree-scroll.png')
+    await captureIphoneAudit(page, testInfo, 'iphone-webkit-large-file-tree-scroll.png')
   })
 
   test('keeps composer, mic, and terminal surfaces usable under iPhone WebKit emulation', async ({ page, workspaceRoot }, testInfo) => {

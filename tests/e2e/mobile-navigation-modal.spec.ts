@@ -317,7 +317,15 @@ test('compact closed navigation drawer is isolated from keyboard and accessibili
   const isolation = await collapsedSidebarIsolation(page)
   expect(isolation.inert, 'the closed compact drawer must be inert').toBe(true)
   expect(isolation.ariaHidden, 'the closed compact drawer must be aria-hidden').toBe('true')
-  await expect(page.getByRole('button', { name: /New Agent|新建 Agent/ })).toHaveCount(0)
+  // The compact empty workspace deliberately keeps its own New Agent action
+  // available. Verify that it is the only exposed match and that the sidebar
+  // action itself remains under the isolated drawer.
+  const exposedNewAgentButtons = page.getByRole('button', { name: /New Agent|新建 Agent/ })
+  await expect(exposedNewAgentButtons).toHaveCount(1)
+  await expect(exposedNewAgentButtons).toHaveAttribute('data-testid', 'code-empty-compact-new-agent')
+  expect(await page.getByTestId('code-new-agent').evaluate(element => (
+    element.closest('[inert][aria-hidden="true"]')?.getAttribute('data-testid') === 'code-sidebar'
+  ))).toBe(true)
 
   // Keyboard evidence: tabbing from the navigation trigger never reaches a
   // sidebar control while the drawer is closed.
@@ -368,9 +376,10 @@ test('desktop collapsed rail stays keyboard-usable and viewport transitions clea
   // Compact transition: the drawer auto-closes and becomes isolated.
   await page.setViewportSize({ width: 404, height: 844 })
   await expect(sidebar).toHaveClass(/collapsed/)
-  isolation = await collapsedSidebarIsolation(page)
-  expect(isolation.inert, 'the auto-closed compact drawer must be isolated').toBe(true)
-  expect(isolation.ariaHidden).toBe('true')
+  await expect.poll(() => collapsedSidebarIsolation(page)).toEqual({
+    inert: true,
+    ariaHidden: 'true',
+  })
 
   // Back to desktop: the visible rail clears the isolation.
   await page.setViewportSize({ width: 1280, height: 800 })

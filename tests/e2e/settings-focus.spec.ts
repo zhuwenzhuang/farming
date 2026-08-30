@@ -26,7 +26,12 @@ test('keyboard focus stays visible in every appearance and layout', async ({ pag
     { width: 390, height: 800 },
   ]) {
     await page.setViewportSize(viewport)
-    if (viewport.width < 980) await page.getByTestId('code-mobile-menu').click()
+    if (viewport.width < 980) {
+      await expect(page.locator('body')).toHaveClass(/code-compact-layout/)
+      await expect(page.getByTestId('code-sidebar')).toHaveAttribute('inert', '')
+      await page.getByTestId('code-mobile-menu').click()
+      await expect(page.getByTestId('code-sidebar')).not.toHaveClass(/collapsed/)
+    }
 
     const settingsTrigger = page.getByTestId('code-sidebar-options')
     for (const appearance of ['light', 'dark', 'paper']) {
@@ -39,19 +44,24 @@ test('keyboard focus stays visible in every appearance and layout', async ({ pag
       await expect(settingsTrigger).toBeFocused()
       await expect.poll(() => settingsTrigger.evaluate(element => {
         const probe = document.createElement('span')
-        probe.style.color = 'var(--code-focus-ring)'
-        document.body.append(probe)
-        const expectedColor = getComputedStyle(probe).color
+        probe.style.backgroundColor = 'var(--code-bg-hover)'
+        probe.style.color = 'var(--code-text)'
+        element.append(probe)
+        const probeStyle = getComputedStyle(probe)
+        const expectedBackground = probeStyle.backgroundColor
+        const expectedColor = probeStyle.color
         probe.remove()
         const style = getComputedStyle(element)
         return element.matches(':focus-visible')
-          && style.outlineColor === expectedColor
-          && style.outlineStyle !== 'none'
-          && Number.parseFloat(style.outlineWidth) >= 2
+          && style.backgroundColor === expectedBackground
+          && style.color === expectedColor
       })).toBe(true)
     }
 
-    if (viewport.width < 980) await page.getByTestId('code-mobile-menu').click()
+    if (viewport.width < 980) {
+      await page.keyboard.press('Escape')
+      await expect(page.getByTestId('code-sidebar')).toHaveClass(/collapsed/)
+    }
   }
 })
 

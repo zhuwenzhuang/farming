@@ -489,9 +489,9 @@ test('resource row focus feedback, Space activation, cursor parity, and touch ta
   expect(await cursorOf(computerRow)).toBe(await cursorOf(agentRow))
 
   // --- focus-visible fill feedback on an idle row --------------------------
-  // Paper's focus ring is transparent by design contract, so keyboard focus
-  // must stay visible through the same active-item surface + text hierarchy
-  // used by hover and selection. Compare the exact same row before/after.
+  // Keyboard focus keeps the shared active-item surface + text hierarchy used
+  // by hover and selection, with a visible focus ring in every appearance.
+  // Compare the exact same row before/after.
   const idleAgentRow = await createSecondAgent(page, path.join(workspaceRoot, 'resource-interaction-audit-b'))
   for (const appearance of ['light', 'dark', 'paper'] as const) {
     await setAppearance(page, appearance)
@@ -517,14 +517,7 @@ test('resource row focus feedback, Space activation, cursor parity, and touch ta
     expect(after.color, `${appearance} focus must strengthen to the text role`).toBe(textRole)
     expect(after.background).not.toBe(before.background)
     expect(after.color).not.toBe(before.color)
-    if (appearance === 'light') {
-      expect(after.outline, 'Light keeps the visible focus ring').not.toBe('rgba(0, 0, 0, 0)')
-    } else if (appearance === 'dark') {
-      expect(after.outline, 'Dark keeps the visible focus ring').not.toBe('rgba(0, 0, 0, 0)')
-    } else {
-      // Paper: ring transparent by contract; the fill feedback above carries visibility.
-      expect(after.outline, 'Paper focus ring stays transparent by design').toBe('rgba(0, 0, 0, 0)')
-    }
+    expect(after.outline, `${appearance} keeps the visible focus ring`).not.toBe('rgba(0, 0, 0, 0)')
     const focusShot = await computerRow.screenshot()
     await attachScreenshot(testInfo, `resource-row-focus-${appearance}`, focusShot)
     await computerRow.evaluate(element => element.blur())
