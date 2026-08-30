@@ -83,6 +83,10 @@ const SESSION_REFRESH_TIMEOUT_MS = 5_000;
 const SCREENSHOT_CLEANUP_GRACE_MS = 1_000;
 const DOCKER_TIMEOUT_MS = 90_000;
 const START_TIMEOUT_MS = 45_000;
+// A timed-out start/stop has an uncertain outcome. The reconciliation read and
+// any bounded readiness completion share this budget so the transition still
+// reaches a terminal state instead of hanging on the ambiguous outcome.
+const UNCERTAIN_RECONCILE_TIMEOUT_MS = 15_000;
 const COMPUTER_BROWSER_CDP_PORT = '9223/tcp';
 const COMPUTER_BROWSER_MOUNT = '/opt/farming/chromium';
 const COMPUTER_BROWSER_RELAY_SCRIPT = [
@@ -129,6 +133,7 @@ interface ComputerManagerOptions {
   isEnabled?: () => boolean;
   getSettings?: () => Record<string, unknown>;
   dockerRunner?: DockerRunner;
+  uncertainReconcileBudgetMs?: number;
 }
 
 interface AgentLifecycleState {
@@ -208,6 +213,25 @@ function computerError(message: string, status: number, code: string, extra: Rec
   return Object.assign(new Error(message), { status, code, ...extra });
 }
 
+// Transport-timeout contract for this module. A timed-out mutation has an
+// uncertain outcome, so classification must not depend on error text. It
+// recognizes the explicit signals only: a docker call killed by its own
+// deadline (execFile `killed`/`signal`), a socket-level ETIMEDOUT, or an error
+// whose producer explicitly marked `transportTimeout` (the bounded readiness
+// waits below).
+function isUncertainTransportError(error: unknown): boolean {
+  const candidate = error as Error & {
+    killed?: boolean;
+    signal?: string;
+    code?: string;
+    transportTimeout?: boolean;
+  };
+  return candidate?.killed === true
+    || Boolean(candidate?.signal)
+    || candidate?.code === 'ETIMEDOUT'
+    || candidate?.transportTimeout === true;
+}
+
 function randomPassword(): string {
   return crypto.randomBytes(9).toString('base64url').slice(0, 12);
 }
@@ -254,7 +278,7 @@ function waitForHttpPath(
   return new Promise((resolve, reject) => {
     const attempt = () => {
       if (Date.now() >= deadline) {
-        reject(computerError(failureMessage, 504, failureCode));
+        reject(computerError(failureMessage, 504, failureCode, { transportTimeout: true }));
         return;
       }
       let successfulResponse = false;
@@ -328,6 +352,7 @@ class ComputerResourceManager extends EventEmitter {
   readonly browserLeases = new Map<string, number>();
   readonly agentOwnerReplacementHolds = new Set<string>();
   capabilityCache: Record<string, unknown> | null = null;
+  readonly uncertainReconcileBudgetMs: number;
   preparePromise: Promise<unknown> | null = null;
 
   constructor(options: ComputerManagerOptions) {
@@ -341,6 +366,11 @@ class ComputerResourceManager extends EventEmitter {
       crypto.createHash('sha256').update(options.configDir).digest('hex').slice(0, 12),
       crypto.createHash('sha256').update(this.configDir).digest('hex').slice(0, 12),
     ]);
+    this.uncertainReconcileBudgetMs = typeof options.uncertainReconcileBudgetMs === 'number'
+      && Number.isFinite(options.uncertainReconcileBudgetMs)
+      && options.uncertainReconcileBudgetMs > 0
+      ? options.uncertainReconcileBudgetMs
+      : UNCERTAIN_RECONCILE_TIMEOUT_MS;
     this.docker = options.dockerRunner || (async (args, runOptions = {}) => {
       const result = await execFileAsync('docker', args, {
         encoding: 'utf8',
@@ -719,6 +749,15 @@ class ComputerResourceManager extends EventEmitter {
       this.assertTransitionAdmissionOpen(id);
       let resource = this.privateResource(id);
       if (resource.status === 'running') return publicResource(resource, this.store.revision);
+      if (resource.needsObserve && resource.status === 'failed') {
+        // An uncertain start outcome stays a pure reconciliation: observe the
+        // authoritative container state only, never re-issue docker
+        // create/start, regardless of what the observation shows.
+        return await this.reconcileUncertainStart(
+          id,
+          new Error('the previous start outcome is still uncertain'),
+        );
+      }
       const generation = resource.generation + 1;
       const password = resource.vncPassword || randomPassword();
       const containerName = resource.containerName || this.containerName(resource);
@@ -736,19 +775,33 @@ class ComputerResourceManager extends EventEmitter {
       }, true);
       try {
         let containerId = resource.containerId;
+        let preInspect: Record<string, unknown> | null = null;
         if (containerId) {
           try {
-            await this.inspectOwnedContainer(resource);
+            preInspect = await this.inspectOwnedContainer(resource);
           } catch (caught) {
             if (!isMissingDockerContainer(caught, containerId)) throw caught;
-            resource = this.patch(id, {
-              containerId: '',
-              viewerPort: 0,
-              sessionId: '',
-              error: '',
-            }, true);
+            // The recorded container is authoritatively gone. Drop the stale
+            // identity so the create below starts fresh; the exact absence was
+            // proven, so this is observation, not a replayed mutation.
+            resource = this.patch(id, { containerId: '' }, true);
             containerId = '';
           }
+        }
+        if (containerId && recordValue(preInspect!.State).Running === true) {
+          // Observe before acting: the container is already running, so do not
+          // replay docker start; only complete the bounded readiness checks.
+          const viewerPort = parsePort(preInspect!);
+          if (!viewerPort) throw new Error('Docker did not publish the Computer Viewer on loopback');
+          await waitForHttp(viewerPort);
+          const sessionId = this.sessionId(this.privateResource(id));
+          await this.ensureDriver(this.privateResource(id), sessionId);
+          return this.patch(id, {
+            status: 'running',
+            viewerPort,
+            sessionId,
+            error: '',
+          });
         }
         if (!containerId) {
           const labels = this.containerLabels(resource);
@@ -790,6 +843,12 @@ class ComputerResourceManager extends EventEmitter {
         });
       } catch (caught) {
         const error = caught as Error & { killed?: boolean };
+        if (isUncertainTransportError(error)) {
+          // The timed-out start has an uncertain outcome. Reconcile from
+          // authoritative container state; the reconciliation owns the exact
+          // terminal state and error contract and never replays the mutation.
+          return await this.reconcileUncertainStart(id, error);
+        }
         this.patch(id, {
           status: 'failed',
           viewerPort: 0,
@@ -813,6 +872,16 @@ class ComputerResourceManager extends EventEmitter {
     this.holdStopAdmission(id);
     return this.enqueue(id, async () => {
       const resource = this.privateResource(id);
+      if (resource.needsObserve && resource.status === 'failed') {
+        // An uncertain stop outcome stays a pure reconciliation: observe the
+        // authoritative container state only, never re-issue docker stop,
+        // regardless of what the observation shows. The internal delete path
+        // shares this gate instead of bypassing it.
+        return await this.reconcileUncertainStop(
+          id,
+          new Error('the previous stop outcome is still uncertain'),
+        );
+      }
       if (!resource.containerId) {
         return this.patch(id, {
           status: 'stopped',
@@ -830,8 +899,22 @@ class ComputerResourceManager extends EventEmitter {
           await this.driverCall(resource, 'end_session', { session: resource.sessionId })
             .catch(() => null);
         }
-        await this.inspectOwnedContainer(resource);
-        await this.docker(['stop', '--time', '10', resource.containerId], { timeoutMs: 30_000 });
+        // Observe before acting: only a container proven still running is
+        // stopped. A container already stopped, or authoritatively gone, has
+        // reached the stop target, so the row converges without re-issuing
+        // docker stop. A proven-gone container also clears its stale identity
+        // so delete/reset do not verify a container that no longer exists.
+        let inspect: Record<string, unknown> | null = null;
+        let containerGone = false;
+        try {
+          inspect = await this.inspectOwnedContainer(resource);
+        } catch (caught) {
+          if (!isMissingDockerContainer(caught, resource.containerId)) throw caught;
+          containerGone = true;
+        }
+        if (inspect && recordValue(inspect.State).Running === true) {
+          await this.docker(['stop', '--time', '10', resource.containerId], { timeoutMs: 30_000 });
+        }
         return this.patch(id, {
           status: 'stopped',
           viewerPort: 0,
@@ -840,6 +923,7 @@ class ComputerResourceManager extends EventEmitter {
           controlEpoch: resource.controlEpoch + 1,
           needsObserve: false,
           error: '',
+          ...(containerGone ? { containerId: '' } : {}),
         });
       } catch (caught) {
         if (isMissingDockerContainer(caught, resource.containerId)) {
@@ -857,6 +941,12 @@ class ComputerResourceManager extends EventEmitter {
           });
         }
         const error = caught as Error;
+        if (isUncertainTransportError(error)) {
+          // The timed-out stop has an uncertain outcome. Reconcile from
+          // authoritative container state; the reconciliation owns the exact
+          // terminal state and error contract and never replays the mutation.
+          return await this.reconcileUncertainStop(id, error);
+        }
         this.patch(id, { status: 'failed', error: error.message || 'Computer stop failed' });
         throw error;
       }
@@ -878,8 +968,15 @@ class ComputerResourceManager extends EventEmitter {
       return await this.enqueue(id, async () => {
         const resource = this.privateResource(id);
         if (resource.containerId) {
-          await this.inspectOwnedContainer(resource);
-          await this.docker(['rm', resource.containerId], { timeoutMs: 30_000 });
+          try {
+            await this.inspectOwnedContainer(resource);
+            await this.docker(['rm', resource.containerId], { timeoutMs: 30_000 });
+          } catch (caught) {
+            // Only the exact missing identity is tolerated: a recorded
+            // container proven gone leaves nothing to remove. Unreadable
+            // state or an ownership mismatch still fails closed.
+            if (!isMissingDockerContainer(caught, resource.containerId)) throw caught;
+          }
         }
         this.closeViewers(id, 4000, 'Computer deleted');
         this.browserLeases.delete(id);
@@ -1007,8 +1104,7 @@ class ComputerResourceManager extends EventEmitter {
           deadline: requestDeadline,
         });
       } catch (caught) {
-        const error = caught as Error & { killed?: boolean };
-        if (error.killed || error.signal || /timed out/i.test(error.message || '')) {
+        if (isUncertainTransportError(caught)) {
           this.patch(id, { needsObserve: true, error: `Uncertain ${tool} outcome; observe before retrying` });
           throw computerError(
             `Computer action ${tool} timed out with an uncertain outcome; observe before retrying`,
@@ -1017,7 +1113,7 @@ class ComputerResourceManager extends EventEmitter {
             { uncertain: true },
           );
         }
-        throw error;
+        throw caught;
       }
       const latest = this.privateResource(id);
       if (caller === 'agent' && STATE_OBSERVATION_TOOLS.has(tool) && latest.needsObserve) {
@@ -1196,8 +1292,15 @@ class ComputerResourceManager extends EventEmitter {
       await this.enqueue(id, async () => {
         const resource = this.privateResource(id);
         if (resource.containerId) {
-          await this.inspectOwnedContainer(resource);
-          await this.docker(['rm', resource.containerId], { timeoutMs: 30_000 });
+          try {
+            await this.inspectOwnedContainer(resource);
+            await this.docker(['rm', resource.containerId], { timeoutMs: 30_000 });
+          } catch (caught) {
+            // Only the exact missing identity is tolerated: a recorded
+            // container proven gone leaves nothing to remove. Unreadable
+            // state or an ownership mismatch still fails closed.
+            if (!isMissingDockerContainer(caught, resource.containerId)) throw caught;
+          }
         }
         this.patch(resource.id, {
           containerId: '',
@@ -1287,11 +1390,241 @@ class ComputerResourceManager extends EventEmitter {
     return inspect;
   }
 
+  // Pure observation for a row whose container identity was never recorded
+  // (an uncertain create outcome). Looks up the exact deterministic container
+  // name with full-length IDs and admits the single candidate only when the
+  // ownership-verified inspect accepts it, so another owner's container is
+  // never adopted. This records an observed identity; it never creates or
+  // starts anything.
+  private async observeOwnedContainerByName(resource: {
+    id: string;
+    ownerAgentId: string;
+    containerName: string;
+  }): Promise<string | null> {
+    const name = resource.containerName || this.containerName(resource);
+    const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    let result;
+    try {
+      result = await this.docker(
+        ['ps', '-a', '-q', '--no-trunc', '--filter', `name=^${escapedName}$`],
+        { timeoutMs: 10_000 },
+      );
+    } catch {
+      return null;
+    }
+    const candidates = result.stdout.split('\n').map(line => line.trim()).filter(Boolean);
+    if (candidates.length !== 1) return null;
+    try {
+      await this.inspectOwnedContainer({ ...resource, containerId: candidates[0] });
+      return candidates[0];
+    } catch {
+      return null;
+    }
+  }
+
+  // Returns true only when an ownership-verified inspect proves the container
+  // no longer exists. An inspect timeout stays uncertain and returns false so
+  // the caller keeps the exact Resource identity for an explicit retry.
+  private async containerAuthoritativelyGone(resource: {
+    id: string;
+    ownerAgentId: string;
+    containerId: string;
+  }): Promise<boolean> {
+    try {
+      await this.inspectOwnedContainer(resource);
+      return false;
+    } catch (caught) {
+      return isMissingDockerContainer(caught, resource.containerId);
+    }
+  }
+
+  // A timed-out stop has an uncertain outcome: the daemon may complete the stop
+  // after the client gave up. One bounded authoritative observation decides the
+  // row. Only observing the target terminal state (the container stopped, or
+  // authoritatively gone) completes the stop. Observing the container still
+  // running right after the timeout does not prove the original daemon stop
+  // will not complete later, and an unreadable state proves nothing either, so
+  // both keep the uncertain semantics: a terminal operation error with
+  // uncertain=true, needsObserve=true, and the exact container identity
+  // retained. This path never re-issues docker stop, and every later start,
+  // stop, or delete request on the marked row stays a pure reconciliation:
+  // observe only, never act, no matter what the observation shows.
+  private async reconcileUncertainStop(id: string, error: Error): Promise<unknown> {
+    let resource = this.privateResource(id);
+    const completeStop = (extra: Record<string, unknown> = {}) => {
+      this.patch(id, {
+        status: 'stopped',
+        viewerPort: 0,
+        sessionId: '',
+        controlOwner: 'agent',
+        controlEpoch: resource.controlEpoch + 1,
+        needsObserve: false,
+        error: '',
+        ...extra,
+      });
+      return this.get(id);
+    };
+    const failUncertain = (reason: string): never => {
+      this.patch(id, {
+        status: 'failed',
+        needsObserve: true,
+        error: `Uncertain stop outcome; observe the container state before retrying: ${reason}`,
+      });
+      throw computerError(
+        'Computer stop outcome is uncertain; observe the container state before retrying',
+        504,
+        'COMPUTER_STOP_UNCERTAIN',
+        { uncertain: true },
+      );
+    };
+    if (!resource.containerId) {
+      // The identity was never recorded, so the only authoritative observation
+      // is the exact owned container by its deterministic name. Observing a
+      // not-running one proves the stop target and admits its identity;
+      // observing none keeps the uncertain semantics and never issues anything.
+      const observed = await this.observeOwnedContainerByName(resource);
+      if (!observed) {
+        failUncertain('no exact owned container could be observed, so the stop cannot be proven');
+      }
+      resource = this.patch(id, { containerId: observed }, true);
+    }
+    let inspect: Record<string, unknown>;
+    try {
+      inspect = await this.inspectOwnedContainer(resource);
+    } catch {
+      if (await this.containerAuthoritativelyGone(resource)) {
+        // The container is proven gone, so there is nothing left to stop or
+        // remove. Clear the stale identity; retaining it would brick delete
+        // and reset, which verify the recorded identity before any removal.
+        return completeStop({ containerId: '' });
+      }
+      failUncertain(error.message || 'the container state could not be read');
+    }
+    if (recordValue(inspect.State).Running === true) {
+      failUncertain('the container is still running');
+    }
+    return completeStop();
+  }
+
+  // A timed-out start has an uncertain outcome: the daemon may complete the
+  // start after the client gave up. One bounded authoritative observation
+  // decides the row. Only observing the target terminal state (the container
+  // running and the desktop readiness completing) finishes the start; the
+  // readiness completion uses the documented idempotent session refresh and is
+  // not a replay of docker create/start. Observing the opposite state, or
+  // failing to read state, does not prove the original daemon mutation will
+  // not complete later, so both keep the uncertain semantics with needsObserve
+  // and the exact container identity retained. The only deterministic outcomes
+  // are non-transport facts proven by a completed observation: a recorded
+  // container that is authoritatively gone can no longer be started, and a
+  // running container with no published loopback Viewer port is a static
+  // configuration failure. Both deterministic branches clear needsObserve so
+  // the row is not trapped behind the pure-reconciliation gate.
+  private async reconcileUncertainStart(id: string, error: Error): Promise<unknown> {
+    const failUncertain = (message: string): never => {
+      this.patch(id, {
+        status: 'failed',
+        viewerPort: 0,
+        sessionId: '',
+        needsObserve: true,
+        error: message,
+      });
+      throw computerError(
+        'Computer start outcome is uncertain; observe the Computer state before retrying',
+        504,
+        'COMPUTER_START_UNCERTAIN',
+        { uncertain: true },
+      );
+    };
+    let resource = this.privateResource(id);
+    if (!resource.containerId) {
+      // The container identity was never recorded, so the only authoritative
+      // observation is the exact owned container by its deterministic name.
+      // Observing one admits its identity for future reads; observing none
+      // keeps the uncertain semantics and never creates or starts anything.
+      const observed = await this.observeOwnedContainerByName(resource);
+      if (!observed) {
+        failUncertain(`Uncertain start outcome; no exact owned container could be observed: ${error.message || 'transport timeout'}`);
+      }
+      resource = this.patch(id, { containerId: observed }, true);
+    }
+    let inspect: Record<string, unknown>;
+    try {
+      inspect = await this.inspectOwnedContainer(resource);
+    } catch (caught) {
+      if (isMissingDockerContainer(caught, resource.containerId)) {
+        // The recorded container identity is authoritatively gone, so this
+        // start can no longer complete against it. This is a proven non-
+        // transport fact, not an uncertain daemon outcome. needsObserve is
+        // cleared so the deterministic row is not trapped behind the pure-
+        // reconciliation gate; a later normal start may recreate after the
+        // exact absence was proven.
+        this.patch(id, {
+          status: 'failed',
+          viewerPort: 0,
+          sessionId: '',
+          needsObserve: false,
+          error: 'Computer start timed out and the container is no longer present',
+        });
+        throw computerError(
+          'Computer start timed out and the container is no longer present',
+          502,
+          'COMPUTER_START_FAILED',
+          { retryable: true },
+        );
+      }
+      failUncertain(`Uncertain start outcome; the container state could not be read: ${error.message || 'transport timeout'}`);
+    }
+    if (recordValue(inspect.State).Running !== true) {
+      // Observing not-running right after the timeout does not prove the
+      // original daemon start will not complete later.
+      failUncertain('Uncertain start outcome; the container is not running');
+    }
+    const viewerPort = parsePort(inspect);
+    if (!viewerPort) {
+      // The inspect completed, so a missing loopback Viewer port is a proven
+      // static configuration failure of this container, not a transport
+      // outcome.
+      this.patch(id, {
+        status: 'failed',
+        viewerPort: 0,
+        sessionId: '',
+        needsObserve: false,
+        error: 'Computer start observed the container running but Docker did not publish the Computer Viewer on loopback',
+      });
+      throw computerError(
+        'Computer start observed the container running but Docker did not publish the Computer Viewer on loopback',
+        502,
+        'COMPUTER_START_FAILED',
+      );
+    }
+    try {
+      await waitForHttp(viewerPort, this.uncertainReconcileBudgetMs);
+      const sessionId = this.sessionId(resource);
+      await this.ensureDriver(resource, sessionId, this.uncertainReconcileBudgetMs);
+      return this.patch(id, {
+        status: 'running',
+        viewerPort,
+        sessionId,
+        needsObserve: false,
+        error: '',
+      });
+    } catch {
+      // The container is authoritatively running, but desktop readiness could
+      // not be verified within the bounded budget; it may still become ready.
+      failUncertain('Uncertain start outcome; the container is running but desktop readiness was not verified');
+    }
+  }
+
   private sessionId(resource: { id: string; generation: number }): string {
     return `${resource.id}-g${resource.generation}`;
   }
 
-  private async ensureDriver(resource: { containerId: string; workspace: string }, sessionId: string): Promise<void> {
+  private async ensureDriver(
+    resource: { containerId: string; workspace: string },
+    sessionId: string,
+    timeoutMs = START_TIMEOUT_MS,
+  ): Promise<void> {
     await this.docker([
       'exec', '-u', COMPUTER_USER,
       '-e', 'HOME=/home/cua',
@@ -1305,7 +1638,7 @@ class ComputerResourceManager extends EventEmitter {
       resource.containerId,
       COMPUTER_DRIVER_BIN, 'serve', '--dangerously-bypass-approvals',
     ], { timeoutMs: 10_000 }).catch(() => null);
-    const deadline = Date.now() + START_TIMEOUT_MS;
+    const deadline = Date.now() + timeoutMs;
     let lastError: unknown = null;
     while (Date.now() < deadline) {
       try {

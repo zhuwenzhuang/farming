@@ -95,7 +95,7 @@ function testComputerResourceRevisionOrdering() {
   );
 }
 
-function listen(server) {
+function listen(server): Promise<number> {
   return new Promise((resolve, reject) => {
     server.once('error', reject);
     server.listen(0, '127.0.0.1', () => resolve(server.address().port));
@@ -164,6 +164,11 @@ class FakeDocker {
   blockRemove: boolean;
   releaseRemove: (() => void) | null;
   missingErrorContainerId: string;
+  failOnceCommand: string | null;
+  failOnceEffect: 'none' | 'stop-completes' | 'stop-completes-unreadable' | 'start-completes' | 'start-unreadable' | 'start-gone';
+  failInspectTimes: number;
+  containerName: string;
+  noViewerPort: boolean;
 
   constructor(viewerPort) {
     this.viewerPort = viewerPort;
@@ -182,11 +187,35 @@ class FakeDocker {
     this.blockRemove = false;
     this.releaseRemove = null;
     this.missingErrorContainerId = CONTAINER_ID;
+    this.failOnceCommand = null;
+    this.failOnceEffect = 'none';
+    this.failInspectTimes = 0;
+    this.containerName = '';
+    this.noViewerPort = false;
   }
 
   run = async (args, options: { timeoutMs?: number; maxBuffer?: number } = {}) => {
     this.calls.push([...args]);
     this.dockerTimeouts.push(options.timeoutMs);
+    if (this.failOnceCommand === args[0]) {
+      this.failOnceCommand = null;
+      if (this.failOnceEffect === 'stop-completes') this.running = false;
+      if (this.failOnceEffect === 'stop-completes-unreadable') {
+        this.failInspectTimes = 2;
+      }
+      if (this.failOnceEffect === 'start-completes') this.running = true;
+      if (this.failOnceEffect === 'start-unreadable') {
+        this.failInspectTimes = 1;
+      }
+      if (this.failOnceEffect === 'start-gone') this.removed = true;
+      this.failOnceEffect = 'none';
+      const timeoutError: Error & { killed?: boolean; signal?: string } = new Error(
+        `docker ${args[0]} timed out`,
+      );
+      timeoutError.killed = true;
+      timeoutError.signal = 'SIGKILL';
+      throw timeoutError;
+    }
     if (args[0] === 'version') return { stdout: '20.10.18\n', stderr: '' };
     if (args[0] === 'pull') return { stdout: 'pulled\n', stderr: '' };
     if (args[0] === 'image' && args[1] === 'inspect') {
@@ -198,7 +227,23 @@ class FakeDocker {
       }
       return { stdout: 'cua-driver 0.12.4\n', stderr: '' };
     }
+    if (args[0] === 'ps') {
+      // Exact-name ownership lookup used by the pure reconciliation of rows
+      // whose container identity was never recorded. Production docker
+      // truncates `ps -q` IDs unless --no-trunc is requested, so the fake
+      // reproduces that shape.
+      const filterIndex = args.indexOf('--filter');
+      const filter = filterIndex >= 0 ? args[filterIndex + 1] : '';
+      const exactName = /^name=\^(.*)\$$/.exec(filter)?.[1] ?? '';
+      if (exactName && this.containerName === exactName && !this.removed) {
+        const listedId = args.includes('--no-trunc') ? CONTAINER_ID : CONTAINER_ID.slice(0, 12);
+        return { stdout: `${listedId}\n`, stderr: '' };
+      }
+      return { stdout: '', stderr: '' };
+    }
     if (args[0] === 'create') {
+      const nameIndex = args.indexOf('--name');
+      this.containerName = nameIndex >= 0 ? args[nameIndex + 1] : '';
       for (let index = 0; index < args.length; index += 1) {
         if (args[index] !== '--label') continue;
         const [key, ...rest] = args[index + 1].split('=');
@@ -208,6 +253,13 @@ class FakeDocker {
       return { stdout: `${CONTAINER_ID}\n`, stderr: '' };
     }
     if (args[0] === 'inspect') {
+      if (this.failInspectTimes > 0) {
+        this.failInspectTimes -= 1;
+        const inspectError: Error & { killed?: boolean; signal?: string } = new Error('docker inspect timed out');
+        inspectError.killed = true;
+        inspectError.signal = 'SIGKILL';
+        throw inspectError;
+      }
       if (this.removed) {
         const error = new Error(`Command failed: docker inspect ${CONTAINER_ID}\nError: No such object: ${this.missingErrorContainerId}`) as Error & { stderr?: string };
         error.stderr = `Error: No such object: ${this.missingErrorContainerId}`;
@@ -219,10 +271,14 @@ class FakeDocker {
           Config: { Labels: this.labels },
           State: { Running: this.running },
           NetworkSettings: {
-            Ports: {
-              '6901/tcp': [{ HostIp: '127.0.0.1', HostPort: String(this.viewerPort) }],
-              '9223/tcp': [{ HostIp: '127.0.0.1', HostPort: String(this.viewerPort) }],
-            },
+            Ports: this.noViewerPort
+              ? {
+                  '9223/tcp': [{ HostIp: '127.0.0.1', HostPort: String(this.viewerPort) }],
+                }
+              : {
+                  '6901/tcp': [{ HostIp: '127.0.0.1', HostPort: String(this.viewerPort) }],
+                  '9223/tcp': [{ HostIp: '127.0.0.1', HostPort: String(this.viewerPort) }],
+                },
           },
           HostConfig: {
             PortBindings: {
@@ -300,8 +356,477 @@ class FakeDocker {
   };
 }
 
+async function testComputerUncertainTransitionReconciliation() {
+  const viewer = http.createServer((_request, response) => {
+    response.statusCode = 200;
+    response.end('viewer');
+  });
+  const viewerPort = await listen(viewer);
+  // A Viewer whose readiness can be toggled deterministically, so the bounded
+  // readiness completion can be exercised without real timing.
+  let readinessReady = false;
+  const readinessViewer = http.createServer((_request, response) => {
+    response.statusCode = readinessReady ? 200 : 503;
+    response.end('viewer');
+  });
+  const readinessPort = await listen(readinessViewer);
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-computer-uncertain-'));
+  const settings = { computerCompatibilityMode: false, computerImage: COMPUTER_IMAGE };
+  const createManager = (
+    scenario: string,
+    options: { port?: number; manager?: { uncertainReconcileBudgetMs?: number } } = {},
+  ) => {
+    const scenarioDir = path.join(tempDir, scenario);
+    fs.mkdirSync(scenarioDir, { recursive: true });
+    const workspace = path.join(scenarioDir, 'project');
+    fs.mkdirSync(workspace);
+    const fake = new FakeDocker(options.port ?? viewerPort);
+    const manager = new ComputerResourceManager({
+      configDir: scenarioDir,
+      isEnabled: () => true,
+      getSettings: () => settings,
+      dockerRunner: fake.run,
+      ...(options.manager || {}),
+    });
+    manager.store.init();
+    return { fake, manager, workspace };
+  };
+  const dockerCalls = (fake, command: string) => fake.calls.filter(args => args[0] === command).length;
+  const assertUncertainRow = (manager, id: string, expectation: string) => {
+    const row = manager.get(id);
+    assert.strictEqual(row.status, 'failed', expectation);
+    assert.strictEqual(row.needsObserve, true, `${expectation}: needsObserve must mark the uncertain row`);
+    assert.match(row.error, /^Uncertain /, `${expectation}: the row error must state the uncertain outcome`);
+    assert.strictEqual(row.containerId, CONTAINER_ID, `${expectation}: the exact container identity must be retained`);
+    return row;
+  };
+  const assertUncertainReject = async (request, code: string, expectation: string) => {
+    await assert.rejects(
+      request,
+      error => error.code === code && error.uncertain === true,
+      expectation,
+    );
+  };
+  try {
+    // REQUIRED delayed-original-completes case for stop: repeated pure
+    // reconciliations keep observing the old (running) state, docker stop must
+    // never be re-issued, and only after the original daemon stop completes on
+    // its own does the next pure reconciliation converge to stopped.
+    {
+      const { fake, manager, workspace } = createManager('stop-delayed-completes');
+      const created = manager.create({ ownerAgentId: 'agent_owner', projectRootId: 'root_project', workspace });
+      await manager.start(created.id);
+      fake.failOnceCommand = 'stop';
+      fake.failOnceEffect = 'none';
+      await assertUncertainReject(manager.stop(created.id), 'COMPUTER_STOP_UNCERTAIN',
+        'a stop whose container is still running after the timeout must stay uncertain');
+      assertUncertainRow(manager, created.id, 'stop-delayed-completes');
+      assert.strictEqual(dockerCalls(fake, 'stop'), 1, 'the timed-out docker stop must not be replayed');
+      // A retry that still observes the old state must remain a pure read.
+      await assertUncertainReject(manager.stop(created.id), 'COMPUTER_STOP_UNCERTAIN',
+        'a retry observing the old state must stay uncertain');
+      assert.strictEqual(dockerCalls(fake, 'stop'), 1, 'an old-state retry must not re-issue docker stop');
+      // The original daemon stop completes later on its own.
+      fake.running = false;
+      const stopped = await manager.stop(created.id);
+      assert.strictEqual(stopped.status, 'stopped');
+      assert.strictEqual(stopped.needsObserve, false);
+      assert.strictEqual(manager.get(created.id).error, '');
+      assert.strictEqual(dockerCalls(fake, 'stop'), 1,
+        'the converging reconciliation must not re-issue docker stop');
+    }
+
+    // REQUIRED delayed-original-completes case for start: repeated pure
+    // reconciliations keep observing the old (not running) state, docker start
+    // must never be re-issued, and only after the original daemon start
+    // completes on its own does the next pure reconciliation converge.
+    {
+      const { fake, manager, workspace } = createManager('start-delayed-completes');
+      const created = manager.create({ ownerAgentId: 'agent_owner', projectRootId: 'root_project', workspace });
+      fake.failOnceCommand = 'start';
+      fake.failOnceEffect = 'none';
+      await assertUncertainReject(manager.start(created.id), 'COMPUTER_START_UNCERTAIN',
+        'a start whose container is not running after the timeout must stay uncertain');
+      assertUncertainRow(manager, created.id, 'start-delayed-completes');
+      assert.strictEqual(dockerCalls(fake, 'start'), 1, 'the timed-out docker start must not be replayed');
+      await assertUncertainReject(manager.start(created.id), 'COMPUTER_START_UNCERTAIN',
+        'a retry observing the old state must stay uncertain');
+      assert.strictEqual(dockerCalls(fake, 'start'), 1, 'an old-state retry must not re-issue docker start');
+      // The original daemon start completes later on its own.
+      fake.running = true;
+      const running = await manager.start(created.id);
+      assert.strictEqual(running.status, 'running');
+      assert.strictEqual(running.needsObserve, false);
+      assert.strictEqual(dockerCalls(fake, 'start'), 1,
+        'the converging reconciliation must not re-issue docker start');
+    }
+
+    // Observing the target terminal state during reconciliation completes the
+    // stop: the daemon stopped the container before the read.
+    {
+      const { fake, manager, workspace } = createManager('stop-target-observed');
+      const created = manager.create({ ownerAgentId: 'agent_owner', projectRootId: 'root_project', workspace });
+      await manager.start(created.id);
+      fake.failOnceCommand = 'stop';
+      fake.failOnceEffect = 'stop-completes';
+      const stopped = await manager.stop(created.id);
+      assert.strictEqual(stopped.status, 'stopped');
+      assert.strictEqual(stopped.error, '');
+      assert.strictEqual(dockerCalls(fake, 'stop'), 1, 'a reconciled uncertain stop must not replay docker stop');
+    }
+
+    // Observing the target terminal state during reconciliation completes the
+    // start: the daemon started the container before the read, and the bounded
+    // readiness completion finishes the transition.
+    {
+      const { fake, manager, workspace } = createManager('start-target-observed');
+      const created = manager.create({ ownerAgentId: 'agent_owner', projectRootId: 'root_project', workspace });
+      fake.failOnceCommand = 'start';
+      fake.failOnceEffect = 'start-completes';
+      const running = await manager.start(created.id);
+      assert.strictEqual(running.status, 'running');
+      assert.strictEqual(running.needsObserve, false);
+      assert.strictEqual(dockerCalls(fake, 'start'), 1, 'a reconciled uncertain start must not replay docker start');
+    }
+
+    // A stop that was issued after observing running but timed out, and whose
+    // reconciliation reads are also unreadable, stays uncertain. Later retries
+    // that still observe the old state remain pure reads; only after the
+    // original daemon stop completes does a reconciliation converge.
+    {
+      const { fake, manager, workspace } = createManager('stop-unreadable');
+      const created = manager.create({ ownerAgentId: 'agent_owner', projectRootId: 'root_project', workspace });
+      await manager.start(created.id);
+      fake.failOnceCommand = 'stop';
+      fake.failOnceEffect = 'stop-completes-unreadable';
+      await assertUncertainReject(manager.stop(created.id), 'COMPUTER_STOP_UNCERTAIN',
+        'an unreadable reconciliation must stay uncertain');
+      assertUncertainRow(manager, created.id, 'stop-unreadable');
+      assert.strictEqual(dockerCalls(fake, 'stop'), 1, 'the timed-out docker stop must not be replayed');
+      // The reads recover, but the container still shows the old state.
+      await assertUncertainReject(manager.stop(created.id), 'COMPUTER_STOP_UNCERTAIN',
+        'a readable retry observing the old state must stay uncertain');
+      assert.strictEqual(dockerCalls(fake, 'stop'), 1, 'an old-state retry must not re-issue docker stop');
+      fake.running = false;
+      const stopped = await manager.stop(created.id);
+      assert.strictEqual(stopped.status, 'stopped');
+      assert.strictEqual(dockerCalls(fake, 'stop'), 1,
+        'the converging reconciliation must not re-issue docker stop');
+    }
+
+    // A start whose reconciliation reads are unreadable stays uncertain; a
+    // readable retry observing the old state remains a pure read; only after
+    // the original daemon start completes does a reconciliation converge.
+    {
+      const { fake, manager, workspace } = createManager('start-unreadable');
+      const created = manager.create({ ownerAgentId: 'agent_owner', projectRootId: 'root_project', workspace });
+      fake.failOnceCommand = 'start';
+      fake.failOnceEffect = 'start-unreadable';
+      await assertUncertainReject(manager.start(created.id), 'COMPUTER_START_UNCERTAIN',
+        'an unreadable reconciliation must stay uncertain');
+      assertUncertainRow(manager, created.id, 'start-unreadable');
+      assert.strictEqual(dockerCalls(fake, 'start'), 1, 'the timed-out docker start must not be replayed');
+      await assertUncertainReject(manager.start(created.id), 'COMPUTER_START_UNCERTAIN',
+        'a readable retry observing the old state must stay uncertain');
+      assert.strictEqual(dockerCalls(fake, 'start'), 1, 'an old-state retry must not re-issue docker start');
+      fake.running = true;
+      const running = await manager.start(created.id);
+      assert.strictEqual(running.status, 'running');
+      assert.strictEqual(dockerCalls(fake, 'start'), 1,
+        'the converging reconciliation must not re-issue docker start');
+    }
+
+    // A recorded container that is authoritatively gone is the one proven
+    // deterministic start failure (needsObserve stays false). A later start on
+    // the deterministic row recreates only after the exact absence was proven.
+    {
+      const { fake, manager, workspace } = createManager('start-recorded-gone');
+      const created = manager.create({ ownerAgentId: 'agent_owner', projectRootId: 'root_project', workspace });
+      fake.failOnceCommand = 'start';
+      fake.failOnceEffect = 'start-gone';
+      await assert.rejects(
+        manager.start(created.id),
+        error => error.code === 'COMPUTER_START_FAILED' && error.retryable === true && error.uncertain !== true,
+        'a recorded container proven gone is a deterministic start failure',
+      );
+      const failed = manager.get(created.id);
+      assert.strictEqual(failed.status, 'failed');
+      assert.strictEqual(failed.needsObserve, false);
+      assert.match(failed.error, /no longer present/);
+      const running = await manager.start(created.id);
+      assert.strictEqual(running.status, 'running');
+      assert.strictEqual(dockerCalls(fake, 'create'), 2, 'the deterministic row recreates after proven absence');
+    }
+
+    // An uncertain create outcome records no container identity. Pure
+    // reconciliations must never re-create; start, stop, and delete all stay
+    // bounded and mutation-free until an exact owned container becomes
+    // observable. Once the delayed create completes, delete proves the stop
+    // target through the exact-name observation and removes only the verified
+    // container without any create/start/stop replay.
+    {
+      const { fake, manager, workspace } = createManager('create-timeout-no-identity');
+      const created = manager.create({ ownerAgentId: 'agent_owner', projectRootId: 'root_project', workspace });
+      fake.failOnceCommand = 'create';
+      fake.failOnceEffect = 'none';
+      await assertUncertainReject(manager.start(created.id), 'COMPUTER_START_UNCERTAIN',
+        'a create timeout with no recorded identity must stay uncertain');
+      const row = manager.get(created.id);
+      assert.strictEqual(row.status, 'failed');
+      assert.strictEqual(row.needsObserve, true);
+      assert.strictEqual(row.containerId, '', 'no container identity may be invented after an uncertain create');
+      assert.strictEqual(dockerCalls(fake, 'create'), 1, 'the timed-out docker create must not be replayed');
+      // No owned container is observable yet: every request stays uncertain.
+      await assertUncertainReject(manager.start(created.id), 'COMPUTER_START_UNCERTAIN',
+        'a retry without an observable owned container must stay uncertain');
+      await assertUncertainReject(manager.stop(created.id), 'COMPUTER_STOP_UNCERTAIN',
+        'a stop without an observable owned container must stay uncertain');
+      await assertUncertainReject(manager.delete(created.id), 'COMPUTER_STOP_UNCERTAIN',
+        'a delete without an observable owned container must stay uncertain');
+      assert.strictEqual(dockerCalls(fake, 'create'), 1, 'uncertain retries must never re-create');
+      assert.strictEqual(dockerCalls(fake, 'start'), 0, 'uncertain retries must never issue docker start');
+      assert.strictEqual(dockerCalls(fake, 'stop'), 0, 'uncertain retries must never issue docker stop');
+      assert.strictEqual(dockerCalls(fake, 'rm'), 0, 'an unresolved delete must not remove anything');
+      assert.strictEqual(manager.get(created.id).needsObserve, true, 'an unresolved delete must retain the row');
+      // The original daemon create completes later on its own.
+      const createCall = fake.calls.find(args => args[0] === 'create');
+      assert(createCall);
+      fake.containerName = createCall[createCall.indexOf('--name') + 1];
+      for (let index = 0; index < createCall.length; index += 1) {
+        if (createCall[index] !== '--label') continue;
+        const [key, ...rest] = createCall[index + 1].split('=');
+        fake.labels[key] = rest.join('=');
+      }
+      // Production docker truncates `ps -q` IDs; the recovery must depend on
+      // --no-trunc, otherwise the exact inspect identity check would fail.
+      const filterValue = `name=^${fake.containerName}$`;
+      const truncated = await fake.run(['ps', '-a', '-q', '--filter', filterValue]);
+      assert.strictEqual(truncated.stdout.trim(), CONTAINER_ID.slice(0, 12),
+        'the fake docker must reproduce production ID truncation');
+      const untruncated = await fake.run(['ps', '-a', '-q', '--no-trunc', '--filter', filterValue]);
+      assert.strictEqual(untruncated.stdout.trim(), CONTAINER_ID,
+        'the fake docker must return full IDs with --no-trunc');
+      // A direct delete observes the exact owned container (created, not
+      // running), proves the stop target, and removes only that container.
+      const deletion = await manager.delete(created.id);
+      assert.strictEqual(deletion.id, created.id);
+      assert.strictEqual(manager.store.get(created.id), null);
+      const rmCall = fake.calls.find(args => args[0] === 'rm');
+      assert(rmCall, 'the proven stop target must remove the exact container');
+      assert.strictEqual(rmCall[1], CONTAINER_ID, 'delete must remove only the verified exact container');
+      assert.strictEqual(dockerCalls(fake, 'create'), 1, 'delete must never re-create');
+      assert.strictEqual(dockerCalls(fake, 'start'), 0, 'delete must never issue docker start');
+      assert.strictEqual(dockerCalls(fake, 'stop'), 0, 'delete must never issue docker stop');
+      assert.strictEqual(dockerCalls(fake, 'rm'), 1);
+    }
+
+    // A pure start reconciliation of an uncertain create outcome records the
+    // observed exact owned identity, fails closed while the container is not
+    // running, and converges once the target state is observed — without ever
+    // issuing docker start.
+    {
+      const { fake, manager, workspace } = createManager('create-timeout-observe-then-converge');
+      const created = manager.create({ ownerAgentId: 'agent_owner', projectRootId: 'root_project', workspace });
+      fake.failOnceCommand = 'create';
+      fake.failOnceEffect = 'none';
+      await assertUncertainReject(manager.start(created.id), 'COMPUTER_START_UNCERTAIN',
+        'a create timeout with no recorded identity must stay uncertain');
+      const createCall = fake.calls.find(args => args[0] === 'create');
+      assert(createCall);
+      fake.containerName = createCall[createCall.indexOf('--name') + 1];
+      for (let index = 0; index < createCall.length; index += 1) {
+        if (createCall[index] !== '--label') continue;
+        const [key, ...rest] = createCall[index + 1].split('=');
+        fake.labels[key] = rest.join('=');
+      }
+      await assertUncertainReject(manager.start(created.id), 'COMPUTER_START_UNCERTAIN',
+        'an observed created-but-not-running container must stay uncertain');
+      assert.strictEqual(manager.get(created.id).containerId, CONTAINER_ID,
+        'the exact owned container identity must be recorded by observation');
+      assert.strictEqual(dockerCalls(fake, 'start'), 0, 'observing the old state must not issue docker start');
+      fake.running = true;
+      const running = await manager.start(created.id);
+      assert.strictEqual(running.status, 'running');
+      assert.strictEqual(running.needsObserve, false);
+      assert.strictEqual(dockerCalls(fake, 'start'), 0,
+        'the converging reconciliation must never issue docker start');
+    }
+
+    // The container is authoritatively running but desktop readiness cannot be
+    // verified within the bounded budget: retries stay uncertain and pure until
+    // the Viewer becomes ready; docker start is never re-issued.
+    {
+      const { fake, manager, workspace } = createManager('readiness-unverified', {
+        port: readinessPort,
+        manager: { uncertainReconcileBudgetMs: 500 },
+      });
+      const created = manager.create({ ownerAgentId: 'agent_owner', projectRootId: 'root_project', workspace });
+      fake.failOnceCommand = 'start';
+      fake.failOnceEffect = 'start-completes';
+      await assertUncertainReject(manager.start(created.id), 'COMPUTER_START_UNCERTAIN',
+        'an unverified readiness must stay uncertain');
+      const row = assertUncertainRow(manager, created.id, 'readiness-unverified');
+      assert.match(row.error, /readiness was not verified/);
+      assert.strictEqual(dockerCalls(fake, 'start'), 1, 'the timed-out docker start must not be replayed');
+      await assertUncertainReject(manager.start(created.id), 'COMPUTER_START_UNCERTAIN',
+        'a retry with an unready Viewer must stay uncertain');
+      assert.strictEqual(dockerCalls(fake, 'start'), 1, 'an unready retry must not re-issue docker start');
+      readinessReady = true;
+      const running = await manager.start(created.id);
+      assert.strictEqual(running.status, 'running');
+      assert.strictEqual(dockerCalls(fake, 'start'), 1,
+        'the converging reconciliation must not re-issue docker start');
+    }
+
+    // A deterministic fact observed after an uncertain outcome must clear
+    // needsObserve so the row is not trapped behind the pure-reconciliation
+    // gate: the recorded container is authoritatively gone, then a normal
+    // start recreates after the proven absence.
+    {
+      const { fake, manager, workspace } = createManager('deterministic-gone-after-uncertain');
+      const created = manager.create({ ownerAgentId: 'agent_owner', projectRootId: 'root_project', workspace });
+      fake.failOnceCommand = 'start';
+      fake.failOnceEffect = 'none';
+      await assertUncertainReject(manager.start(created.id), 'COMPUTER_START_UNCERTAIN',
+        'the start must stay uncertain while the container is not running');
+      assertUncertainRow(manager, created.id, 'deterministic-gone-after-uncertain');
+      assert.strictEqual(dockerCalls(fake, 'start'), 1);
+      fake.removed = true;
+      await assert.rejects(
+        manager.start(created.id),
+        error => error.code === 'COMPUTER_START_FAILED' && error.uncertain !== true,
+        'the proven absence of the recorded identity is deterministic',
+      );
+      assert.strictEqual(manager.get(created.id).needsObserve, false,
+        'a deterministic outcome must clear needsObserve');
+      const running = await manager.start(created.id);
+      assert.strictEqual(running.status, 'running');
+      assert.strictEqual(dockerCalls(fake, 'create'), 2,
+        'the released row recreates only after the exact absence was proven');
+    }
+
+    // A static configuration fact observed after an uncertain outcome must
+    // also clear needsObserve: the running container publishes no loopback
+    // Viewer port. The released row then fails through the normal start path,
+    // proving it is no longer trapped behind the pure-reconciliation gate.
+    {
+      const { fake, manager, workspace } = createManager('static-port-missing-after-uncertain', {
+        port: readinessPort,
+        manager: { uncertainReconcileBudgetMs: 500 },
+      });
+      readinessReady = false;
+      const created = manager.create({ ownerAgentId: 'agent_owner', projectRootId: 'root_project', workspace });
+      fake.failOnceCommand = 'start';
+      fake.failOnceEffect = 'start-completes';
+      await assertUncertainReject(manager.start(created.id), 'COMPUTER_START_UNCERTAIN',
+        'an unverified readiness must stay uncertain');
+      assert.strictEqual(manager.get(created.id).needsObserve, true);
+      fake.noViewerPort = true;
+      await assert.rejects(
+        manager.start(created.id),
+        error => error.code === 'COMPUTER_START_FAILED' && error.uncertain !== true,
+        'a static missing Viewer port is deterministic',
+      );
+      assert.strictEqual(manager.get(created.id).needsObserve, false,
+        'a deterministic outcome must clear needsObserve');
+      await assert.rejects(
+        manager.start(created.id),
+        error => error.code === undefined,
+        'the released row must run the normal start path, not the pure gate',
+      );
+      assert.strictEqual(dockerCalls(fake, 'start'), 1, 'no docker start replay in any branch');
+    }
+
+        // Delete must not smuggle a replayed stop through the internal flag: on an
+    // unresolved uncertain stop it returns a bounded uncertain failure and
+    // retains the exact identity; it only proceeds once the target stop state
+    // is actually proven.
+    {
+      const { fake, manager, workspace } = createManager('delete-no-replay');
+      const created = manager.create({ ownerAgentId: 'agent_owner', projectRootId: 'root_project', workspace });
+      await manager.start(created.id);
+      fake.failOnceCommand = 'stop';
+      fake.failOnceEffect = 'none';
+      await assertUncertainReject(manager.stop(created.id), 'COMPUTER_STOP_UNCERTAIN',
+        'the stop must stay uncertain while the container is still running');
+      assert.strictEqual(dockerCalls(fake, 'stop'), 1);
+      await assertUncertainReject(manager.delete(created.id), 'COMPUTER_STOP_UNCERTAIN',
+        'delete must not replay docker stop while the outcome is uncertain');
+      assert.strictEqual(dockerCalls(fake, 'stop'), 1, 'delete must not cause a second docker stop');
+      assert.strictEqual(dockerCalls(fake, 'rm'), 0, 'an unresolved delete must not remove the container');
+      assertUncertainRow(manager, created.id, 'delete-no-replay');
+      fake.running = false;
+      const deletion = await manager.delete(created.id);
+      assert.strictEqual(deletion.id, created.id);
+      assert.strictEqual(dockerCalls(fake, 'stop'), 1,
+        'delete after proven stop must not re-issue docker stop');
+      assert.strictEqual(dockerCalls(fake, 'rm'), 1);
+      assert.strictEqual(manager.store.get(created.id), null);
+    }
+    // A stop that converges through container disappearance must not leave the
+    // stale identity behind: direct delete removes the Resource row with no
+    // second docker stop and nothing to rm.
+    {
+      const { fake, manager, workspace } = createManager('delete-after-gone-stop');
+      const created = manager.create({ ownerAgentId: 'agent_owner', projectRootId: 'root_project', workspace });
+      await manager.start(created.id);
+      fake.failOnceCommand = 'stop';
+      fake.failOnceEffect = 'none';
+      await assertUncertainReject(manager.stop(created.id), 'COMPUTER_STOP_UNCERTAIN',
+        'the stop must stay uncertain while the container is still running');
+      assert.strictEqual(dockerCalls(fake, 'stop'), 1);
+      fake.removed = true;
+      const deletion = await manager.delete(created.id);
+      assert.strictEqual(deletion.id, created.id);
+      assert.strictEqual(manager.store.get(created.id), null);
+      assert.strictEqual(dockerCalls(fake, 'stop'), 1,
+        'delete after proven disappearance must not issue a second docker stop');
+      assert.strictEqual(dockerCalls(fake, 'rm'), 0,
+        'a proven-gone container leaves nothing to remove');
+    }
+
+    // The normal stop path has the same proven-gone shape: a container removed
+    // externally converges to stopped with the stale identity cleared, and
+    // delete removes the row without docker stop or rm.
+    {
+      const { fake, manager, workspace } = createManager('delete-after-normal-gone-stop');
+      const created = manager.create({ ownerAgentId: 'agent_owner', projectRootId: 'root_project', workspace });
+      await manager.start(created.id);
+      fake.removed = true;
+      const stopped = await manager.stop(created.id);
+      assert.strictEqual(stopped.status, 'stopped');
+      assert.strictEqual(manager.get(created.id).containerId, '',
+        'a proven-gone stop must clear the stale container identity');
+      assert.strictEqual(dockerCalls(fake, 'stop'), 0, 'a proven-gone stop must not issue docker stop');
+      const deletion = await manager.delete(created.id);
+      assert.strictEqual(deletion.id, created.id);
+      assert.strictEqual(manager.store.get(created.id), null);
+      assert.strictEqual(dockerCalls(fake, 'rm'), 0);
+    }
+
+    // resetContainer shares the verify-then-remove boundary and must tolerate
+    // the exact missing identity instead of bricking the reset.
+    {
+      const { fake, manager, workspace } = createManager('reset-after-gone-stop');
+      const created = manager.create({ ownerAgentId: 'agent_owner', projectRootId: 'root_project', workspace });
+      await manager.start(created.id);
+      fake.removed = true;
+      await manager.resetContainer(created.id);
+      const row = manager.get(created.id);
+      assert.strictEqual(row.status, 'stopped');
+      assert.strictEqual(row.containerId, '');
+      assert.strictEqual(dockerCalls(fake, 'rm'), 0);
+    }
+    } finally {
+    await close(readinessViewer);
+    await close(viewer);
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+}
+
 async function run() {
   testComputerResourceRevisionOrdering();
+  await testComputerUncertainTransitionReconciliation();
   assert(
     COMPUTER_TOOL_REQUEST_TIMEOUT_MS + 1_000 < COMPUTER_AGENT_HTTP_TIMEOUT_MS,
     'the server deadline and cleanup grace must finish before the Agent HTTP transport timeout',
