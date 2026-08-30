@@ -8,7 +8,7 @@ const execFileAsync = promisify(execFile);
 const computerCli = path.join(__dirname, '..', '..', 'extensions', 'computer', 'bin', 'farming-computer');
 const farmingCli = path.join(__dirname, '..', 'farming-app-cli.cjs');
 const manifest = require('../../extensions/computer/backend/cua-tools.json');
-const { TOOL_TOPICS, describeTool } = require(computerCli);
+const { TOOL_TOPICS, describeTool, markTransportTimeoutUncertain } = require(computerCli);
 
 function listen(server) {
   return new Promise((resolve, reject) => {
@@ -63,6 +63,41 @@ async function run() {
   assert.deepStrictEqual([...discovered].sort(), [...upstream].sort(), 'all 53 former Computer MCP tools must remain discoverable through CLI topics');
   assert.strictEqual(new Set(discovered).size, upstream.length, 'each Computer tool belongs to exactly one topic');
   upstream.forEach(tool => assert.strictEqual(describeTool(tool).tool, tool));
+
+  // A transport timeout on a mutating lifecycle command has an uncertain
+  // outcome and the error envelope must say to observe before any retry.
+  for (const lifecycleCommand of ['open', 'stop']) {
+    const timeoutError = new Error('Computer request timed out');
+    markTransportTimeoutUncertain(timeoutError, lifecycleCommand);
+    assert.strictEqual(
+      timeoutError.uncertain,
+      true,
+      `a timed-out ${lifecycleCommand} must be marked uncertain`,
+    );
+  }
+  for (const readOnlyCommand of ['capability', 'list', 'help', 'describe']) {
+    const timeoutError = new Error('Computer request timed out');
+    markTransportTimeoutUncertain(timeoutError, readOnlyCommand);
+    assert.strictEqual(
+      timeoutError.uncertain,
+      undefined,
+      `a timed-out read-only ${readOnlyCommand} must not be marked uncertain`,
+    );
+  }
+  {
+    const mutatingToolError = new Error('Computer request timed out');
+    markTransportTimeoutUncertain(mutatingToolError, 'click');
+    assert.strictEqual(mutatingToolError.uncertain, true, 'a timed-out mutating tool call must be marked uncertain');
+    const readOnlyToolError = new Error('Computer request timed out');
+    markTransportTimeoutUncertain(readOnlyToolError, 'get_desktop_state');
+    assert.strictEqual(readOnlyToolError.uncertain, undefined, 'a timed-out bounded observation must not be marked uncertain');
+    const notStartedError = Object.assign(new Error('Computer request timed out'), { actionStarted: false });
+    markTransportTimeoutUncertain(notStartedError, 'click');
+    assert.strictEqual(notStartedError.uncertain, undefined, 'a request proven not sent has no uncertain outcome');
+    const unrelatedError = new Error('Computer is stopping');
+    markTransportTimeoutUncertain(unrelatedError, 'stop');
+    assert.strictEqual(unrelatedError.uncertain, undefined, 'non-timeout errors keep their own semantics');
+  }
 
   const top = (await invoke(computerCli, ['--help'])).stdout;
   assert(top.includes('help workflow'));
@@ -136,6 +171,16 @@ async function run() {
         }));
         return;
       }
+      if (request.method === 'POST' && request.url === '/api/computers/computer_test/stop') {
+        running = false;
+        response.statusCode = 504;
+        response.end(JSON.stringify({
+          error: 'Computer stop timed out with an uncertain outcome; observe the container state before retrying',
+          code: 'COMPUTER_STOP_UNCERTAIN',
+          uncertain: true,
+        }));
+        return;
+      }
       if (request.method === 'POST' && request.url === '/api/computers/computer_test/tool/get_desktop_state') {
         response.end(JSON.stringify({
           content: [{ type: 'text', text: 'desktop ready' }, {
@@ -188,6 +233,20 @@ async function run() {
     assert.strictEqual(opened.result.status, 'running');
     assert.strictEqual(requests.find(request => request.method === 'POST').body.name, 'Desktop');
     assert(requests.every(request => request.agentId === 'agent_test'));
+
+    // The server-side uncertain stop envelope must survive the CLI boundary so
+    // the Agent sees uncertain=true instead of a plain failure.
+    await assert.rejects(
+      invoke(computerCli, ['stop'], env),
+      error => {
+        const envelope = JSON.parse(error.stderr);
+        assert.strictEqual(envelope.code, 'COMPUTER_STOP_UNCERTAIN', JSON.stringify(envelope));
+        assert.strictEqual(envelope.uncertain, true, JSON.stringify(envelope));
+        assert.match(envelope.hint, /observe/i);
+        return true;
+      },
+      'an uncertain stop envelope must survive the Agent CLI boundary',
+    );
 
     const observedProcess = await invokeWithInput(
       computerCli,

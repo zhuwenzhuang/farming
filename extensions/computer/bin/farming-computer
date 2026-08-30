@@ -104,6 +104,26 @@ function manifestTool(value) {
   return tool;
 }
 
+// Lifecycle commands that never mutate Computer state. A transport timeout on
+// any other command (open, stop, or a mutating tool call) has an uncertain
+// outcome, so its error envelope must instruct the caller to observe current
+// state before any retry.
+const READ_ONLY_LIFECYCLE_COMMANDS = Object.freeze(['capability', 'list', 'help', 'describe']);
+
+function markTransportTimeoutUncertain(error, operation) {
+  if (!error || error.actionStarted === false) return error;
+  if (error.uncertain === true) return error;
+  if (!/timed out/i.test(String(error.message || error))) return error;
+  try {
+    if (manifestTool(operation).annotations?.readOnlyHint !== true) error.uncertain = true;
+  } catch {
+    // Lifecycle commands are not in the tool manifest. A timed-out open or stop
+    // is uncertain exactly like a timed-out mutating tool call.
+    if (!READ_ONLY_LIFECYCLE_COMMANDS.includes(operation)) error.uncertain = true;
+  }
+  return error;
+}
+
 function cliDescriptorValue(value) {
   if (typeof value === 'string') {
     return value
@@ -318,13 +338,7 @@ async function main(argv = process.argv.slice(2)) {
     const operation = argv[0] === 'call'
       ? normalizeToolName(argv[1])
       : String(argv[0] || 'help');
-    if (error?.actionStarted !== false && /timed out/i.test(String(error?.message || error))) {
-      try {
-        if (manifestTool(operation).annotations?.readOnlyHint !== true) error.uncertain = true;
-      } catch {
-        // The ordinary command error below remains actionable without tool metadata.
-      }
-    }
+    markTransportTimeoutUncertain(error, operation);
     writeCapabilityJson(
       process.stderr,
       capabilityError(error, 'computer', operation),
@@ -342,5 +356,6 @@ module.exports = {
   TOOL_TOPICS,
   describeTool,
   main,
+  markTransportTimeoutUncertain,
   run,
 };
