@@ -147,6 +147,9 @@ RFB transport cannot provide a server-verifiable view-only boundary.
   are not replayed by the backend.
 - When authentication is disabled, share creation fails explicitly.
 - A failed delegated share never falls back to owner access or a longer expiry.
+- QR renderer loading has explicit loading, ready, and failed states. A failed
+  renderer stays failed until the user retries; retry starts a new bounded load
+  and never changes the ticket's permission or expiry.
 
 ## Acceptance Criteria
 

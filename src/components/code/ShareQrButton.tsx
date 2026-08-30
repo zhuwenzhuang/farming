@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type qrcode from 'qrcode-generator'
+import qrCodeModuleUrl from 'qrcode-generator?url'
 import { appPath } from '@/lib/base-path'
 import { CheckGlyph, ShareGlyph } from '@/components/IconGlyphs'
 import { writeClipboardText } from '@/lib/clipboard'
@@ -20,13 +21,11 @@ const POPOVER_WIDTH = 264
 const POPOVER_HEIGHT = 430
 const QR_QUIET_ZONE = 4
 
-type QrCodeFactory = typeof qrcode
-type QrCodeModule = {
+export type QrCodeFactory = typeof qrcode
+export type QrCodeModule = {
   default?: unknown
   qrcode?: unknown
 }
-
-let qrCodeFactoryPromise: Promise<QrCodeFactory> | null = null
 
 function resolveQrCodeFactory(module: QrCodeModule | QrCodeFactory) {
   if (typeof module === 'function') return module
@@ -35,11 +34,42 @@ function resolveQrCodeFactory(module: QrCodeModule | QrCodeFactory) {
   throw new Error('QR renderer failed to load')
 }
 
-export function preloadQrCodeFactory() {
-  if (!qrCodeFactoryPromise) {
-    qrCodeFactoryPromise = import('qrcode-generator').then(module => resolveQrCodeFactory(module as QrCodeModule))
+export function createQrCodeFactoryLoader(
+  loadModule: () => Promise<QrCodeModule | QrCodeFactory>,
+) {
+  let factoryPromise: Promise<QrCodeFactory> | null = null
+
+  return function loadQrCodeFactory() {
+    if (!factoryPromise) {
+      const pending = Promise.resolve()
+        .then(loadModule)
+        .then(resolveQrCodeFactory)
+      factoryPromise = pending
+      void pending.catch(() => {
+        if (factoryPromise === pending) factoryPromise = null
+      })
+    }
+    return factoryPromise
   }
-  return qrCodeFactoryPromise
+}
+
+let qrCodeModuleAttempt = 0
+
+function loadQrCodeModule() {
+  const moduleSource: unknown = qrCodeModuleUrl
+  if (typeof moduleSource !== 'string') {
+    return Promise.resolve(moduleSource as QrCodeFactory)
+  }
+  qrCodeModuleAttempt += 1
+  const attemptUrl = new URL(moduleSource, window.location.href)
+  attemptUrl.searchParams.set('farming-qr-attempt', String(qrCodeModuleAttempt))
+  return import(/* @vite-ignore */ attemptUrl.href) as Promise<QrCodeModule>
+}
+
+const loadQrCodeFactory = createQrCodeFactoryLoader(loadQrCodeModule)
+
+export function preloadQrCodeFactory() {
+  return loadQrCodeFactory()
 }
 
 export function formatCountdown(ms: number) {

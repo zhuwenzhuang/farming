@@ -114,6 +114,37 @@
   font-size: 12px;
 }
 
+.code-share-qr-retry {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  color: var(--code-text-subtle);
+  font-size: 12px;
+  text-align: center;
+}
+
+.code-share-qr-retry button {
+  min-height: 44px;
+  padding: 6px 14px;
+  border: 1px solid var(--code-border);
+  border-radius: 8px;
+  background: var(--code-bg-inset);
+  color: var(--code-text);
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.code-share-qr-retry button:hover {
+  background: var(--code-bg-hover);
+}
+
+.code-share-qr-retry button:focus-visible {
+  outline: 2px solid var(--code-focus-ring);
+  outline-offset: 2px;
+}
+
 .code-share-countdown {
   margin-top: 5px;
   color: var(--code-warning);

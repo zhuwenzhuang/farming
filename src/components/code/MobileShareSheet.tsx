@@ -39,6 +39,33 @@ function CopyActionIcon() {
   )
 }
 
+export function MobileQrLoadStatus({
+  failed,
+  loadingLabel,
+  failedLabel,
+  retryLabel,
+  onRetry,
+}: {
+  failed: boolean
+  loadingLabel: string
+  failedLabel: string
+  retryLabel: string
+  onRetry: () => void
+}) {
+  if (!failed) {
+    return <div className="code-share-qr-loading" role="status">{loadingLabel}</div>
+  }
+
+  return (
+    <div className="code-share-qr-retry">
+      <span role="status">{failedLabel}</span>
+      <button type="button" data-testid="code-mobile-share-qr-retry" onClick={onRetry}>
+        {retryLabel}
+      </button>
+    </div>
+  )
+}
+
 export function MobileShareSheet({
   copy,
   title,
@@ -60,6 +87,7 @@ export function MobileShareSheet({
   const [qrCodeFailed, setQrCodeFailed] = useState(false)
   const dialogRef = useRef<HTMLElement | null>(null)
   const closeButtonRef = useRef<HTMLButtonElement | null>(null)
+  const qrRequestSeqRef = useRef(0)
 
   useEffect(() => {
     const appRoot = document.getElementById('root')
@@ -104,17 +132,28 @@ export function MobileShareSheet({
     }
   }, [onClose, returnFocusRef])
 
-  useEffect(() => {
-    let cancelled = false
+  const loadQrRenderer = useCallback(() => {
+    const requestSeq = qrRequestSeqRef.current + 1
+    qrRequestSeqRef.current = requestSeq
+    setQrCodeFactory(null)
+    setQrCodeFailed(false)
     void preloadQrCodeFactory()
       .then(factory => {
-        if (!cancelled) setQrCodeFactory(() => factory)
+        if (requestSeq === qrRequestSeqRef.current) {
+          setQrCodeFactory(() => factory)
+        }
       })
       .catch(() => {
-        if (!cancelled) setQrCodeFailed(true)
+        if (requestSeq === qrRequestSeqRef.current) {
+          setQrCodeFailed(true)
+        }
       })
-    return () => { cancelled = true }
   }, [])
+
+  useEffect(() => {
+    loadQrRenderer()
+    return () => { qrRequestSeqRef.current += 1 }
+  }, [loadQrRenderer])
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000)
@@ -178,7 +217,13 @@ export function MobileShareSheet({
               {qrCodeFactory ? (
                 <FarmingQrCode value={ticket.shortUrl} badgeUrl={badgeUrl} qrCodeFactory={qrCodeFactory} />
               ) : (
-                <div className="code-share-qr-loading">{qrCodeFailed ? copy.shareLinkFailed : copy.loading}</div>
+                <MobileQrLoadStatus
+                  failed={qrCodeFailed}
+                  loadingLabel={copy.loading}
+                  failedLabel={copy.shareLinkFailed}
+                  retryLabel={copy.retry}
+                  onRetry={loadQrRenderer}
+                />
               )}
             </div>
             <div className="code-share-countdown">{expired ? copy.shareLinkExpired : countdown}</div>
