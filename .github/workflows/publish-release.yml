@@ -391,54 +391,45 @@ jobs:
             "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${tag}")"
           release_dir="${RUNNER_TEMP}/public-release"
           mkdir -p "${release_dir}"
-          RELEASE_JSON="${release_json}" RELEASE_VERSION="${RELEASE_VERSION}" node - "${candidate_sha}" "${release_dir}" <<'NODE'
-          const fs = require('fs');
-          const path = require('path');
-          const [candidateSha, releaseDir] = process.argv.slice(2);
+          release_index="${RUNNER_TEMP}/public-release-index.tsv"
+          RELEASE_JSON="${release_json}" RELEASE_VERSION="${RELEASE_VERSION}" node --input-type=module - "${release_index}" <<'NODE'
+          import fs from 'node:fs';
+          import { checksumFileName, expectedPublicAssets } from './scripts/verify-public-release-assets.mjs';
+          const [releaseIndex] = process.argv.slice(2);
           const version = process.env.RELEASE_VERSION;
           const release = JSON.parse(process.env.RELEASE_JSON);
           if (release.draft) throw new Error(`GitHub Release v${version} is still a draft`);
           const required = [
-            `farming_${version}_linux_amd64`,
-            `farming_${version}_linux_arm64`,
-            `farming_${version}_darwin_amd64`,
-            `farming_${version}_darwin_arm64`,
-            `farming-${version}-linux-x64.tar.gz`,
-            `farming-${version}-linux-x64-legacy-glibc228.tar.gz`,
-            `farming-${version}-darwin-x64.tar.gz`,
-            `farming-${version}-darwin-arm64.tar.gz`,
-            `farming_${version}_checksums.txt`,
+            ...expectedPublicAssets(version).map(asset => asset.file),
+            checksumFileName(version),
             'manifest.json',
           ];
           const assets = new Map((release.assets || []).map(asset => [asset.name, asset.browser_download_url]));
           const missing = required.filter(name => !assets.has(name));
           if (missing.length) throw new Error(`GitHub Release is missing assets: ${missing.join(', ')}`);
-          fs.writeFileSync(path.join(releaseDir, 'manifest.url'), assets.get('manifest.json'));
-          fs.writeFileSync(path.join(releaseDir, 'checksums.url'), assets.get(`farming_${version}_checksums.txt`));
-          fs.writeFileSync(path.join(releaseDir, 'probe.url'), assets.get(`farming_${version}_linux_amd64`));
-          fs.writeFileSync(path.join(releaseDir, 'candidate.sha'), candidateSha);
-          NODE
-          curl --fail --silent --show-error --location \
-            "$(cat "${release_dir}/manifest.url")" --output "${release_dir}/manifest.json"
-          curl --fail --silent --show-error --location \
-            "$(cat "${release_dir}/checksums.url")" --output "${release_dir}/checksums.txt"
-          probe_name="farming_${RELEASE_VERSION}_linux_amd64"
-          curl --fail --silent --show-error --location \
-            "$(cat "${release_dir}/probe.url")" --output "${release_dir}/${probe_name}"
-          node - "${release_dir}/manifest.json" "${candidate_sha}" "${RELEASE_VERSION}" <<'NODE'
-          const fs = require('fs');
-          const [manifestPath, candidateSha, version] = process.argv.slice(2);
-          const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-          if (manifest.gitSha !== candidateSha || manifest.releaseVersion !== version) {
-            throw new Error(`Public manifest mismatch: sha=${manifest.gitSha}, version=${manifest.releaseVersion}`);
+          const downloadLines = [];
+          for (const [name, url] of assets) {
+            if (!/^[A-Za-z0-9._-]+$/.test(name)) {
+              throw new Error(`GitHub Release asset name is unsafe: ${name}`);
+            }
+            let parsedUrl;
+            try {
+              parsedUrl = new URL(url);
+            } catch {
+              throw new Error(`GitHub Release asset URL is invalid for ${name}`);
+            }
+            if (parsedUrl.protocol !== 'https:') {
+              throw new Error(`GitHub Release asset URL must be https for ${name}`);
+            }
+            downloadLines.push(`${name}\t${url}`);
           }
+          fs.writeFileSync(releaseIndex, `${downloadLines.join('\n')}\n`);
           NODE
-          expected_probe_sha="$(awk -v file="${probe_name}" '$2 == file {print $1}' "${release_dir}/checksums.txt")"
-          actual_probe_sha="$(sha256sum "${release_dir}/${probe_name}" | awk '{print $1}')"
-          if [[ -z "${expected_probe_sha}" || "${actual_probe_sha}" != "${expected_probe_sha}" ]]; then
-            echo "Public release asset checksum mismatch for ${probe_name}" >&2
-            exit 1
-          fi
+          while IFS=$'\t' read -r asset_name asset_url; do
+            curl --fail --silent --show-error --location \
+              "${asset_url}" --output "${release_dir}/${asset_name}"
+          done < "${release_index}"
+          node scripts/verify-public-release-assets.mjs "${release_dir}" "${candidate_sha}" "${RELEASE_VERSION}"
 
       - name: Verify and publish npm package with provenance
         env:
