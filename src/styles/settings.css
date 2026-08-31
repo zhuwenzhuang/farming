@@ -310,11 +310,6 @@
   outline: none;
 }
 
-.code-agent-home-form input:focus {
-  border-color: var(--code-text-quiet);
-  box-shadow: 0 0 0 3px var(--code-focus-ring);
-}
-
 .code-agent-home-form input:disabled {
   color: var(--code-text-subtle);
   background: var(--code-code-bg);
@@ -1003,9 +998,7 @@
 }
 
 .code-settings-pet-rest-custom input:focus {
-  border-color: var(--code-border-strong);
-  outline: 2px solid var(--code-focus-ring);
-  outline-offset: 1px;
+  outline: 0;
 }
 
 .code-settings-search-timeout-row output {
@@ -1254,11 +1247,6 @@
   color: var(--code-text);
   font-size: 14px;
   font-weight: 400;
-}
-
-.code-agent-home-form input:focus {
-  border-color: var(--code-text-quiet);
-  box-shadow: var(--code-shadow-focus);
 }
 
 .code-settings-update-actions button {

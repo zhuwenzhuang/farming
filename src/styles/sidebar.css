@@ -1235,11 +1235,6 @@ body.code-resizing-sidebar .code-sidebar-resizer {
   border-color: var(--code-border);
 }
 
-.code-rename-dialog input:focus {
-  border-color: var(--code-focus-ring);
-  box-shadow: var(--code-shadow-focus);
-}
-
 .code-rename-actions {
   display: flex;
   justify-content: flex-end;

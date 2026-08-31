@@ -292,11 +292,6 @@
   border-color: var(--code-border);
 }
 
-.code-plugin-extension-search input:focus {
-  border-color: var(--code-focus-ring);
-  box-shadow: 0 0 0 3px var(--code-focus-ring);
-}
-
 .code-plugin-extension-group {
   min-width: 0;
   display: grid;

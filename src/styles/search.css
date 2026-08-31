@@ -60,8 +60,9 @@
 }
 
 .code-search-panel-input:focus-within {
-  border-color: var(--code-focus-ring);
-  box-shadow: var(--code-shadow-focus);
+  /* The text caret signals focus; do not frame the whole Search/History field. */
+  border-color: transparent;
+  box-shadow: none;
 }
 
 .code-search-panel-icon {

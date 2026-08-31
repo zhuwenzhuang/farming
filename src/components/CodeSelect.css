@@ -70,8 +70,8 @@
 
 .code-select-trigger:focus-visible,
 .code-select.open .code-select-trigger {
-  border-color: var(--code-accent);
-  box-shadow: 0 0 0 3px var(--code-focus-ring);
+  border-color: var(--code-focus-ring);
+  box-shadow: none;
   outline: 0;
 }
 

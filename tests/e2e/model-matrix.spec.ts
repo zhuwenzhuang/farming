@@ -313,6 +313,35 @@ test('ACP model matrix responds locally, settles once, and morphs Advanced witho
   await expect(menu).toBeVisible()
   await expect(menu.locator('.code-model-matrix')).toHaveCount(1)
   await expect(page.getByTestId('code-model-matrix-advanced')).toHaveCount(1)
+  // A non-text control retains keyboard feedback, but no layered focus halo.
+  const rockerButton = menu.locator('.code-model-matrix-rocker-button')
+  const rockerControl = menu.locator('.code-model-matrix-rocker-control')
+  for (const appearance of ['light', 'dark', 'paper']) {
+    await page.evaluate(value => {
+      document.documentElement.dataset.appearance = value
+      document.body.dataset.appearance = value
+    }, appearance)
+    await rockerButton.focus()
+    await page.keyboard.press('Tab')
+    await page.keyboard.press('Shift+Tab')
+    await expect(rockerButton).toBeFocused()
+    await expect(rockerButton).toHaveCSS('outline-style', 'none')
+    await expect(rockerButton).toHaveCSS('box-shadow', 'none')
+    await expect.poll(() => rockerControl.evaluate(element => {
+      const probe = document.createElement('span')
+      probe.style.color = 'var(--code-focus-ring)'
+      element.append(probe)
+      const color = getComputedStyle(probe).color
+      probe.remove()
+      return getComputedStyle(element).boxShadow === `${color} 0px 0px 0px 1px`
+    })).toBe(true)
+    await page.mouse.move(0, 0)
+    await expect(menu.locator('.code-model-matrix-shell')).toHaveScreenshot(`model-matrix-focus-${appearance}.png`)
+  }
+  await page.evaluate(() => {
+    document.documentElement.dataset.appearance = 'light'
+    document.body.dataset.appearance = 'light'
+  })
   const extraHighHeader = menu.locator('.code-model-matrix-head span').nth(3)
   await expect(extraHighHeader).toHaveCSS('white-space', 'nowrap')
   expect((await extraHighHeader.boundingBox())?.height ?? 99).toBeLessThan(12)

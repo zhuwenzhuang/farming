@@ -125,7 +125,6 @@
 }
 
 .farming-browser-toolbar input:focus {
-  border-color: var(--code-focus-ring);
   background: var(--code-bg-raised);
 }
 

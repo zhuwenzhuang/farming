@@ -95,9 +95,10 @@ for (const appearance of appearances) {
   assert.equal(roles['--code-panel-border'], 'transparent', `${appearance} passive panels must use tonal separation`)
   assert.equal(roles['--code-panel-divider'], 'transparent', `${appearance} passive panel rows must use tonal separation`)
   assert.equal(roles['--code-composer-border'], 'transparent', `${appearance} composer must use tonal separation`)
-  assert.notEqual(roles['--code-focus-ring'], 'transparent', `${appearance} keyboard focus must remain visible`)
-  assert.notEqual(roles['--code-shadow-focus'], 'none', `${appearance} focus-shadow controls must remain visible`)
-  assert.notEqual(roles['--code-model-matrix-rocker-focus'], 'none', `${appearance} Model Matrix keyboard focus must remain visible`)
+  assert.notEqual(roles['--code-focus-ring'], 'transparent', `${appearance} non-text controls must have a visible keyboard-focus color`)
+  for (const role of ['--code-shadow-focus', '--code-model-matrix-rocker-focus']) {
+    assert.equal(roles[role], '0 0 0 1px var(--code-focus-ring)', `${appearance} ${role} must use one restrained control boundary, not layered rings`)
+  }
 }
 
 assert.notEqual(
@@ -370,6 +371,34 @@ for (const sourcePath of allCssSources) {
   })
 }
 
+// Keyboard-focus visibility is a behavior, not a requirement to frame every
+// control. Text fields already expose the caret; reject focus-token leakage
+// into their borders, outlines, and shadows at the owning stylesheet.
+for (const sourcePath of allAppearanceSources) {
+  const root = postcss.parse(fs.readFileSync(path.join(projectRoot, sourcePath), 'utf8'), { from: sourcePath })
+  root.walkRules(rule => {
+    const textField = /(?:^|[\s,(])(?:input|textarea)\b/.test(rule.selector)
+      || /\.code-(?:search-panel-input|file-search-box):focus-within/.test(rule.selector)
+    if (!textField) return
+    const focusRule = /:focus(?:-visible|-within)?\b/.test(rule.selector)
+    rule.walkDecls(declaration => {
+      // The shared outline-color rule also lists buttons and does not draw an
+      // outline by itself. Actual text-field outline geometry is checked below.
+      if (declaration.prop === 'outline-color') return
+      if (/^(?:border|outline|box-shadow)/.test(declaration.prop)) {
+        assert(!/var\(--code-(?:focus-ring|shadow-focus)\)/.test(declaration.value),
+          `${sourcePath} ${rule.selector} must not decorate text focus with ${declaration.prop}`)
+      }
+      if (focusRule && declaration.prop === 'box-shadow') {
+        assert.equal(declaration.value, 'none', `${sourcePath} ${rule.selector} must not shadow text focus`)
+      }
+      if (focusRule && declaration.prop === 'outline') {
+        assert(/^(?:0|none)$/.test(declaration.value), `${sourcePath} ${rule.selector} must use the text caret instead of an outline`)
+      }
+    })
+  })
+}
+
 const semanticShadowContracts = [
   ['src/styles/markdown.css', '.code-agent-transcript-assistant.code-markdown-preview code', 'none'],
   ['src/styles/transcript.css', '.code-agent-transcript-process-item', 'none'],
@@ -383,6 +412,7 @@ const semanticShadowContracts = [
   ['src/styles/files.css', '.code-file-blame-detail', 'none'],
   ['src/styles/files.css', '.code-file-line-changes-panel', 'none'],
   ['src/styles/composer.css', ".code-model-matrix-fast:not(.is-active)", 'none'],
+  ['src/styles/search.css', '.code-search-panel-input:focus-within', 'none'],
 ] as const
 for (const [sourcePath, selector, expectedShadow] of semanticShadowContracts) {
   const root = postcss.parse(fs.readFileSync(path.join(projectRoot, sourcePath), 'utf8'), { from: sourcePath })
@@ -398,7 +428,7 @@ for (const [sourcePath, selector, expectedShadow] of semanticShadowContracts) {
 }
 
 const borderPurposeContracts = [
-  ['src/styles/search.css', '.code-search-panel-input:focus-within', 'border-color', 'var(--code-focus-ring)'],
+  ['src/styles/search.css', '.code-search-panel-input:focus-within', 'border-color', 'transparent'],
   ['src/styles/main.css', '.connection-status.lost,\n.connection-status.business-unavailable', 'border', '1px solid var(--code-border-danger)'],
   ['src/styles/transcript.css', '.code-agent-transcript-result-error', 'border', '1px solid var(--code-border-danger)'],
   ['src/styles/sidebar.css', '.code-sidebar-resizer', 'background', 'var(--code-border-subtle)'],

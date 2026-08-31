@@ -74,7 +74,7 @@ body.code-mode {
   --code-model-matrix-border: var(--code-border);
   --code-model-matrix-rocker-bg: radial-gradient(circle at 2px 2px, rgba(31, 35, 40, .09) 0 1px, transparent 1.2px) 0 0 / 6px 6px, #dededb;
   --code-model-matrix-rocker-border: var(--code-border);
-  --code-model-matrix-rocker-focus: inset 0 0 0 5px #efefed, 0 0 0 2px #fff, 0 0 0 4px var(--rocker-accent);
+  --code-model-matrix-rocker-focus: 0 0 0 1px var(--code-focus-ring);
   --code-model-matrix-rocker-shadow: inset 0 0 0 1px rgba(255, 255, 255, .45);
   --code-model-matrix-shadow: inset 0 1px 1px rgba(31, 35, 40, .09), inset 0 -1px 0 rgba(255, 255, 255, .52), 0 1px 0 rgba(255, 255, 255, .46);
   --code-panel-border: transparent;
@@ -108,7 +108,7 @@ body.code-mode {
   --code-settings-surface: #ffffff;
   --code-settings-text: #3f453e;
   --code-shadow-color: rgba(31, 35, 40, 0.16);
-  --code-shadow-focus: 0 0 0 3px rgba(9, 105, 218, 0.24);
+  --code-shadow-focus: 0 0 0 1px var(--code-focus-ring);
   --code-shadow-raised: 0 14px 38px rgba(31, 35, 40, 0.16);
   --code-shadow-soft: 0 8px 28px rgba(31, 35, 40, 0.08);
   --code-share-qr-frame-background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(251, 250, 242, 0.92)), #fbfaf2;
@@ -214,7 +214,7 @@ body.code-mode[data-appearance='dark'] {
   --code-model-matrix-border: rgba(255, 255, 255, 0.04);
   --code-model-matrix-rocker-bg: radial-gradient(circle at 2px 2px, rgba(255, 255, 255, .08) 0 1px, transparent 1.2px) 0 0 / 6px 6px, #242628;
   --code-model-matrix-rocker-border: rgba(255, 255, 255, 0.08);
-  --code-model-matrix-rocker-focus: inset 0 0 0 1px #282a2c, 0 0 0 2px #111315, 0 0 0 4px var(--rocker-accent);
+  --code-model-matrix-rocker-focus: 0 0 0 1px var(--code-focus-ring);
   --code-model-matrix-rocker-shadow: inset 0 0 0 1px rgba(255, 255, 255, .08);
   --code-model-matrix-shadow: inset 0 1px 2px rgba(0, 0, 0, .42), inset 0 -1px 0 rgba(255, 255, 255, .04);
   --code-panel-border: transparent;
@@ -248,7 +248,7 @@ body.code-mode[data-appearance='dark'] {
   --code-settings-surface: #171a1f;
   --code-settings-text: #d8dee9;
   --code-shadow-color: rgba(0, 0, 0, 0.46);
-  --code-shadow-focus: 0 0 0 3px rgba(51, 156, 255, 0.34);
+  --code-shadow-focus: 0 0 0 1px var(--code-focus-ring);
   --code-shadow-raised: 0 14px 38px rgba(0, 0, 0, 0.46);
   --code-shadow-soft: 0 8px 28px rgba(0, 0, 0, 0.28);
   --code-share-qr-frame-background: linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(251, 250, 242, 0.95)), #fbfaf2;
@@ -354,7 +354,7 @@ body.code-mode[data-appearance='paper'] {
   --code-model-matrix-border: var(--code-border);
   --code-model-matrix-rocker-bg: radial-gradient(circle at 2px 2px, rgba(31, 35, 40, .09) 0 1px, transparent 1.2px) 0 0 / 6px 6px, #dededb;
   --code-model-matrix-rocker-border: var(--code-border);
-  --code-model-matrix-rocker-focus: inset 0 0 0 5px #efede7, 0 0 0 2px #fffefa, 0 0 0 4px var(--code-focus-ring);
+  --code-model-matrix-rocker-focus: 0 0 0 1px var(--code-focus-ring);
   --code-model-matrix-rocker-shadow: inset 0 0 0 1px rgba(255, 255, 255, .45);
   --code-model-matrix-shadow: inset 0 1px 1px rgba(31, 35, 40, .09), inset 0 -1px 0 rgba(255, 255, 255, .52), 0 1px 0 rgba(255, 255, 255, .46);
   --code-panel-border: transparent;
@@ -388,7 +388,7 @@ body.code-mode[data-appearance='paper'] {
   --code-settings-surface: var(--code-bg-chrome);
   --code-settings-text: var(--code-text);
   --code-shadow-color: transparent;
-  --code-shadow-focus: 0 0 0 3px rgba(40, 41, 34, 0.58);
+  --code-shadow-focus: 0 0 0 1px var(--code-focus-ring);
   --code-shadow-raised: none;
   --code-shadow-soft: none;
   --code-share-qr-frame-background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(251, 250, 242, 0.92)), #fbfaf2;

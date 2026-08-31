@@ -3379,7 +3379,7 @@ body.code-mode.code-compact-layout .code-composer-attachment.image .code-compose
   outline: none;
 }
 
-.code-composer-menu button:focus-visible {
+.code-composer-menu button:not(.code-model-matrix-rocker-button):focus-visible {
   outline: 2px solid var(--code-focus-ring);
 }
 

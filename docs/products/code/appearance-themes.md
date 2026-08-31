@@ -15,10 +15,10 @@ Project, file, or terminal state.
   warm paper base. Hierarchy comes primarily from spacing, fine borders, and
   restrained neutral overlays rather than multiple yellow surfaces. Dark ink
   provides contrast. Pointer hover and selection use ink and neutral fills
-  without decorative outlines; keyboard focus uses a restrained but clearly
-  visible ink ring. Green remains only where it carries an actual semantic
-  meaning such as success or data visualization. Status colors keep their
-  semantic meaning instead of being recolored.
+  without decorative outlines; non-text controls may use a restrained, clearly
+  visible ink ring for keyboard focus. Green remains only where it carries an
+  actual semantic meaning such as success or data visualization. Status colors
+  keep their semantic meaning instead of being recolored.
 - Paper is flat color, not a texture filter. Repeated grain or global opacity
   effects reduce code legibility and are not part of the theme.
 - Paper file tabs keep inactive labels in muted ink and the active label in
@@ -56,8 +56,14 @@ Project, file, or terminal state.
   keyboard focus, pointer hover, and selection in every appearance. Project,
   Agent, file, Resource, menu, and sidebar action focus must remain visible
   through surface, text, icon, and action exposure without adding a colored
-  perimeter or focus shadow. Form inputs and modal controls retain their own
-  bounded focus treatment outside this navigation contract.
+  perimeter or focus shadow.
+- Text inputs and textareas indicate editing focus through the text caret, in
+  every appearance and for both pointer and keyboard entry. Focus must not add
+  an outline, shadow, or accent border to the field or its wrapper. Ordinary
+  field boundaries and validation-error styling remain independent of focus.
+  Buttons and selectors that need additional keyboard feedback use one restrained
+  boundary, not stacked outline and shadow layers. Shared control-focus shadows,
+  including Model Matrix, use a single one-pixel ring and never style text fields.
 - Native Farming Code scrollbars use one eight-pixel interaction lane with a
   four-pixel rounded thumb, a transparent track, and visible default, hover,
   and active states from the shared appearance registry. Domain styles must not
@@ -70,11 +76,11 @@ Project, file, or terminal state.
   rules may change geometry but must not choose a separate theme surface.
 - Workbench regions remain legible without becoming separate color blocks.
   Paper panels, inputs, and grouped controls use a subtle neutral fill instead
-  of decorative outlines or selected boundaries. Keyboard focus rings are
-  functional feedback and must remain visible; text, cursor, fill, and other
-  interaction states provide the remaining feedback. Semantic status colors
-  remain available inside their content. Theme colors should be selected by
-  semantic role rather than by replacing individual hex values ad hoc.
+  of decorative outlines or selected boundaries. Keyboard focus must remain
+  visible through the appropriate text caret, control ring, fill, or other
+  interaction feedback. Semantic status colors remain available inside their
+  content. Theme colors should be selected by semantic role rather than by
+  replacing individual hex values ad hoc.
 
 ## State Model
 
@@ -145,4 +151,8 @@ Code colors, and appearance branching outside the generated file.
   and active colors in every resolved appearance.
 - Primary and muted text remain readable, focus remains visible, and semantic
   success, warning, danger, and diff states remain distinguishable.
+- Text-entry tests cover pointer focus, Tab navigation, typing, and cancellation
+  without a focus perimeter. Navigation and non-text controls retain their own
+  visible keyboard feedback. Light, Dark, and Paper screenshot baselines cover
+  the composed states; color-ratio assertions supplement, not replace, them.
 - Desktop and compact layouts do not introduce uncovered white or dark areas.

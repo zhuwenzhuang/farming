@@ -152,7 +152,6 @@
 }
 
 .code-terminal-search input:focus {
-  box-shadow: var(--code-shadow-focus);
   background: var(--code-bg-hover);
 }
 

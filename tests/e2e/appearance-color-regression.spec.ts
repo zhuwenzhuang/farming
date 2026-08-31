@@ -349,6 +349,7 @@ test('Light, Dark, and Paper Archive notices keep neutral action colors in every
     await expect(projectList).toBeFocused()
     await expect(projectList).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
     await page.mouse.move(1200, 300)
+    await expect(projectList).toHaveScreenshot(`archive-sidebar-focus-${appearance}.png`)
     const sidebarFocusScreenshot = await stableScreenshot(projectList)
     expect(
       screenshotColorRatio(sidebarFocusScreenshot, await background(page.getByTestId('code-sidebar'))),

@@ -658,8 +658,7 @@ body.code-mode .code-instance-name {
 }
 
 .code-instance-name-dialog input:focus-visible {
-  outline: 2px solid var(--code-focus-ring);
-  outline-offset: 1px;
+  outline: 0;
 }
 
 .code-instance-name-error {
@@ -1584,9 +1583,8 @@ body.code-mode .workspace-directory-picker:hover:not(:disabled) {
 }
 
 body.code-mode .workspace-directory-picker:focus-visible {
-  outline: 2px solid var(--code-focus-ring);
+  outline: 1px solid var(--code-focus-ring);
   outline-offset: 1px;
-  box-shadow: 0 0 0 3px var(--code-focus-ring);
 }
 
 body.code-mode .workspace-directory-browser {
@@ -1675,11 +1673,9 @@ body.code-mode .workspace-directory-browser-go:hover:not(:disabled) {
 
 body.code-mode .workspace-directory-browser-close:focus-visible,
 body.code-mode .workspace-directory-browser-parent:focus-visible,
-body.code-mode .workspace-directory-browser-go:focus-visible,
-body.code-mode .workspace-directory-browser-location input:focus {
-  outline: 2px solid var(--code-focus-ring);
+body.code-mode .workspace-directory-browser-go:focus-visible {
+  outline: 1px solid var(--code-focus-ring);
   outline-offset: 1px;
-  box-shadow: 0 0 0 3px var(--code-focus-ring);
 }
 
 body.code-mode .workspace-directory-browser-parent:disabled,
@@ -1862,9 +1858,8 @@ body.code-mode .workspace-home-trigger {
 }
 
 body.code-mode .workspace-home-trigger:focus-visible {
-  outline: 2px solid var(--code-focus-ring);
+  outline: 1px solid var(--code-focus-ring);
   outline-offset: 1px;
-  box-shadow: 0 0 0 3px var(--code-focus-ring);
 }
 
 body.code-mode .workspace-home-trigger-copy,
@@ -1996,11 +1991,6 @@ body.code-mode .workspace-runtime-options button span {
   color: var(--code-warning);
   font-size: 10px;
   font-weight: 500;
-}
-
-body.code-mode .workspace-input input:focus {
-  border-color: var(--code-focus-ring);
-  box-shadow: 0 0 0 3px var(--code-focus-ring);
 }
 
 body.code-mode .workspace-actions button {
@@ -2244,7 +2234,7 @@ body.code-mode .workspace-input input:disabled {
 
 body.code-mode .workspace-directory-prompt-actions button:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px var(--code-focus-ring);
+  box-shadow: var(--code-shadow-focus);
 }
 
 .dialog-overlay {
@@ -2553,10 +2543,6 @@ body.code-mode .workspace-directory-prompt-actions button:focus-visible {
   outline: none;
 }
 
-.workspace-input input:focus {
-  border-color: var(--code-focus-ring);
-}
-
 .workspace-input .workflow-select .code-select-trigger,
 .workspace-input textarea.task-input {
   width: 100%;
@@ -2578,8 +2564,7 @@ body.code-mode .workspace-directory-prompt-actions button:focus-visible {
   color: var(--code-text);
 }
 
-.workspace-input .workflow-select .code-select-trigger:focus-visible,
-.workspace-input textarea.task-input:focus {
+.workspace-input .workflow-select .code-select-trigger:focus-visible {
   border-color: var(--code-focus-ring);
 }
 
@@ -3987,20 +3972,8 @@ body.code-mode.code-compact-layout .code-options-menu button:focus-visible {
 .agent-launch-icon-monochrome image {
   filter: var(--code-brand-icon-filter);
 }
-.workspace-input .workflow-select .code-select-trigger:focus-visible {
-  box-shadow: var(--code-shadow-focus);
-}
-.workspace-input textarea.task-input:focus {
-  box-shadow: var(--code-shadow-focus);
-}
-.workspace-input input:focus {
-  box-shadow: var(--code-shadow-focus);
-}
 .workspace-home-trigger:focus-visible {
   border-color: var(--code-focus-ring);
-}
-.workspace-home-trigger:focus-visible {
-  box-shadow: var(--code-shadow-focus);
 }
 .workspace-home-menu {
   box-shadow: var(--code-shadow-raised);

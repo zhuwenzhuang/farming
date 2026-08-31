@@ -490,7 +490,7 @@ test('resource row focus feedback, Space activation, cursor parity, and touch ta
 
   // --- focus-visible fill feedback on an idle row --------------------------
   // Keyboard focus keeps the shared active-item surface + text hierarchy used
-  // by hover and selection, with a visible focus ring in every appearance.
+  // by hover and selection, without a competing perimeter in any appearance.
   // Compare the exact same row before/after.
   const idleAgentRow = await createSecondAgent(page, path.join(workspaceRoot, 'resource-interaction-audit-b'))
   for (const appearance of ['light', 'dark', 'paper'] as const) {
@@ -511,13 +511,13 @@ test('resource row focus feedback, Space activation, cursor parity, and touch ta
     const after = {
       background: await background(computerRow),
       color: await color(computerRow),
-      outline: await computerRow.evaluate(element => getComputedStyle(element).outlineColor),
     }
     expect(after.background, `${appearance} focus must paint the shared active-item surface`).toBe(activeItemSurface)
     expect(after.color, `${appearance} focus must strengthen to the text role`).toBe(textRole)
     expect(after.background).not.toBe(before.background)
     expect(after.color).not.toBe(before.color)
-    expect(after.outline, `${appearance} keeps the visible focus ring`).not.toBe('rgba(0, 0, 0, 0)')
+    await expect(computerRow).toHaveCSS('outline-style', 'none')
+    await expect(computerRow).toHaveCSS('box-shadow', 'none')
     const focusShot = await computerRow.screenshot()
     await attachScreenshot(testInfo, `resource-row-focus-${appearance}`, focusShot)
     await computerRow.evaluate(element => element.blur())
