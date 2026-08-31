@@ -646,7 +646,10 @@ export function App() {
     }
   }, [])
 
+  const cancelPendingTerminalOpen = useCallback(() => setPendingTerminalOpen(null), [])
+
   const activateTerminal = useCallback((agentId: string, options?: { focusTerminal?: boolean }) => {
+    setPendingTerminalOpen(null)
     setOpenTerminalIds(ids => ids.includes(agentId) ? ids : [...ids, agentId])
     setRetainedAgentViewIds(ids => touchAgentViewCache(ids, agentId))
     setActiveTerminalId(agentId)
@@ -1403,7 +1406,8 @@ export function App() {
         keyboardShortcutsEnabled={CODEX_SKIN_KEYBOARD_SHORTCUTS_ENABLED}
         uiPreferences={uiPreferences}
         onOpenTerminal={openTerminal}
-        onOpenTerminalWhenReady={requestTerminalOpen}
+        onActivateTerminal={activateTerminal}
+        onCancelPendingTerminalOpen={cancelPendingTerminalOpen}
         onNewAgent={openNewAgentDialog}
         onStartAgent={handleStartAgent}
         onRenameAgent={handleRenameAgent}

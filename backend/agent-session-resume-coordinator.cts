@@ -756,6 +756,25 @@ class AgentSessionResumeCoordinator {
     };
   }
 
+  resumeStatus(provider: string, rawSessionId: string, providerHomeId: unknown): ResumeHttpReply {
+    if (providerHomeId !== undefined && typeof providerHomeId !== 'string') {
+      return { status: 400, body: { error: 'invalid provider home id' } };
+    }
+    const resolved = resolveResumeIdentity(provider, rawSessionId, providerHomeId);
+    if (resolved.failure) return { status: resolved.failure.status || 400, body: { error: resolved.failure.error } };
+    const identity = resolved.identity;
+    const pending = this.#pendingAdmission(this.#pendingHttpResumes, identity.provider, identity.providerHomeId, identity.sessionId)
+      || this.#pendingAdmission(this.#pendingStartResumes, identity.provider, identity.providerHomeId, identity.sessionId);
+    if (pending) return { status: 200, body: { state: 'pending' } };
+    const claim = this.#findClaimingAgent(identity.provider, identity.sessionId, identity.providerHomeId);
+    // A fresh authoritative publication also repairs a missed state delivery.
+    // This read never invokes a resume, mount, or membership mutation.
+    this.ports.publishAgentState();
+    return { status: 200, body: claim?.id
+      ? { state: 'ready', agentId: claim.id, ...projectMembership(this.ports.getSettings()) }
+      : { state: 'absent' } };
+  }
+
   async resumeHttp(provider: string, rawSessionId: string, body: ResumeHttpBody | undefined): Promise<ResumeHttpReply> {
     const requestBody = body || {};
     if (Object.prototype.hasOwnProperty.call(requestBody, 'customTitle') && typeof requestBody.customTitle !== 'string') {

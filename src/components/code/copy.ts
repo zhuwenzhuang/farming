@@ -29,6 +29,13 @@ export interface CodeCopy {
   switchToChat: string
   collapseComposer: string
   restoreComposer: string
+  agentOpeningResume: string
+  agentOpeningWaiting: string
+  agentOpeningChecking: string
+  agentOpeningFailed: string
+  agentOpeningUncertain: string
+  agentOpeningLeaveNote: string
+  agentOpeningCheck: string
   agentChatStarting: string
   agentTranscriptSyncing: string
   agentTranscriptUnavailable: string
@@ -622,6 +629,13 @@ const EN_COPY: CodeCopy = {
   switchToChat: 'Switch to Chat',
   collapseComposer: 'Hide input',
   restoreComposer: 'Show input',
+  agentOpeningResume: 'Resuming session…',
+  agentOpeningWaiting: 'Waiting for Agent state…',
+  agentOpeningChecking: 'Checking resume status…',
+  agentOpeningFailed: 'Unable to open this session',
+  agentOpeningUncertain: 'The resume outcome is uncertain. Check its status before continuing.',
+  agentOpeningLeaveNote: 'You can go back or open something else. This does not stop the Agent.',
+  agentOpeningCheck: 'Check status',
   agentChatStarting: 'Starting Chat — you can type while it connects.',
   agentTranscriptSyncing: 'Syncing chat history...',
   agentTranscriptUnavailable: 'This session’s Chat history could not be loaded.',
@@ -1248,6 +1262,13 @@ const ZH_COPY: CodeCopy = {
   switchToChat: '切换到对话',
   collapseComposer: '收起输入框',
   restoreComposer: '唤出输入框',
+  agentOpeningResume: '正在恢复会话…',
+  agentOpeningWaiting: '正在等待 Agent 状态…',
+  agentOpeningChecking: '正在查询恢复状态…',
+  agentOpeningFailed: '无法打开此会话',
+  agentOpeningUncertain: '尚不能确认恢复结果，请先查询状态。',
+  agentOpeningLeaveNote: '你可以返回或打开其他内容，这不会停止 Agent。',
+  agentOpeningCheck: '查询状态',
   agentChatStarting: '正在启动 Chat，可以先输入。',
   agentTranscriptSyncing: '正在同步聊天历史...',
   agentTranscriptUnavailable: '无法加载此会话的 Chat 历史。',

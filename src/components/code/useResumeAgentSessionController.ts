@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { appPath } from '@/lib/base-path'
 import { agentSessionId } from './model'
 import { resumedAgentSource } from './session-display'
@@ -26,7 +26,7 @@ export type ResumeAgentSessionIdentity = {
   sessionId: string
 }
 
-type ResumeResponse = ProjectMembership & { agentId: string }
+type ResumeResponse = ProjectMembership & { agentId: string; reused: boolean }
 type ResumeRequest = (
   url: string,
   init: {
@@ -40,21 +40,19 @@ type ResumeRequest = (
 export interface ResumeAgentSessionPorts {
   applyProjectMembership: (membership: ProjectMembership) => void
   clearTimer?: (timer: unknown) => void
-  closeMobileNavigation: () => void
   commitSessionMembership: (identity: Omit<ResumeAgentSessionIdentity, 'customTitle'>) => void
   createAbortController?: () => AbortController
   getActiveAgents: () => readonly ResumeAgentCandidate[]
   mountProject: (workspace: string, signal?: AbortSignal) => Promise<string>
-  openAgent: (agentId: string, whenReady: boolean) => void
+  readStatus?: (url: string, init: { signal: AbortSignal }) => ReturnType<ResumeRequest>
   request?: ResumeRequest
   setTimer?: (callback: () => void, delay: number) => unknown
-  showError: (message: string) => void
   timeoutMs?: number
 }
 
 export type ResumeAgentSessionOutcome =
   | { status: 'succeeded'; agentId: string; reused: boolean }
-  | { status: 'failed'; uncertain: boolean }
+  | { status: 'failed'; uncertain: boolean; message: string }
   | { status: 'stale' }
 
 type ResumeOperation = {
@@ -95,6 +93,7 @@ function parseResumeResponse(value: unknown): ResumeResponse | null {
   if (data.pinnedProjectWorkspaces !== undefined && !stringArray(data.pinnedProjectWorkspaces)) return null
   return {
     agentId: data.agentId,
+    reused: data.reused === true,
     ...(data.projectWorkspaces !== undefined ? { projectWorkspaces: data.projectWorkspaces } : {}),
     ...(data.pinnedProjectWorkspaces !== undefined ? { pinnedProjectWorkspaces: data.pinnedProjectWorkspaces } : {}),
   }
@@ -104,18 +103,20 @@ function parseResumeResponse(value: unknown): ResumeResponse | null {
 export class ResumeAgentSessionController {
   private disposed = false
   private readonly inFlight = new Map<string, ResumeOperation>()
+  private readonly uncertain = new Set<string>()
+  private readonly checks = new Set<() => void>()
 
   constructor(private readonly ports: ResumeAgentSessionPorts) {}
 
   resume(identity: ResumeAgentSessionIdentity): Promise<ResumeAgentSessionOutcome> {
     if (this.disposed) return Promise.resolve({ status: 'stale' })
     const key = identityKey(identity)
+    if (this.uncertain.has(key)) return Promise.resolve({ status: 'failed', uncertain: true, message: 'The resume outcome is uncertain. Check its status before continuing.' })
     const customTitle = identity.customTitle || ''
     const existing = this.inFlight.get(key)
     if (existing) {
       if (existing.customTitle === customTitle) return existing.promise
-      this.ports.showError('This Agent session is already resuming with a different title')
-      return Promise.resolve({ status: 'failed', uncertain: false })
+      return Promise.resolve({ status: 'failed', uncertain: false, message: 'This Agent session is already resuming with a different title' })
     }
 
     const abortController = (this.ports.createAbortController || (() => new AbortController()))()
@@ -126,6 +127,7 @@ export class ResumeAgentSessionController {
     const finalize = (outcome: ResumeAgentSessionOutcome) => {
       if (finalized) return
       finalized = true
+      if (outcome.status === 'failed' && outcome.uncertain) this.uncertain.add(key)
       if (this.inFlight.get(key) === operation) this.inFlight.delete(key)
       if (operation.timer !== undefined) (this.ports.clearTimer || clearTimeout)(operation.timer as number)
       resolveOperation(outcome)
@@ -138,8 +140,7 @@ export class ResumeAgentSessionController {
       promise,
       timer: setTimer(() => {
         if (this.inFlight.get(key) !== operation) return
-        this.ports.showError('Agent session resume timed out; the outcome is uncertain')
-        finalize({ status: 'failed', uncertain: true })
+        finalize({ status: 'failed', uncertain: true, message: 'Agent session resume timed out; the outcome is uncertain' })
         abortController.abort()
       }, this.ports.timeoutMs ?? RESUME_AGENT_SESSION_TIMEOUT_MS),
     })
@@ -157,19 +158,16 @@ export class ResumeAgentSessionController {
     fallback = 'Failed to resume agent session',
   ): ResumeAgentSessionOutcome {
     if (!active()) return { status: 'stale' }
-    this.ports.showError(error instanceof Error ? error.message : fallback)
-    return { status: 'failed', uncertain }
+    return { status: 'failed', uncertain, message: error instanceof Error ? error.message : fallback }
   }
 
   private finish(
     identity: Omit<ResumeAgentSessionIdentity, 'customTitle'>,
     agentId: string,
-    whenReady: boolean,
+    reused: boolean,
   ): ResumeAgentSessionOutcome {
     this.ports.commitSessionMembership(identity)
-    this.ports.openAgent(agentId, whenReady)
-    this.ports.closeMobileNavigation()
-    return { status: 'succeeded', agentId, reused: !whenReady }
+    return { status: 'succeeded', agentId, reused }
   }
 
   private async run(
@@ -195,7 +193,7 @@ export class ResumeAgentSessionController {
       try {
         await this.ports.mountProject(activeAgent.workspace, signal)
         if (!active()) return { status: 'stale' } as const
-        return this.finish(identity, activeAgent.id, false)
+        return this.finish(identity, activeAgent.id, true)
       } catch (error) {
         return this.fail(error, active, true)
       }
@@ -223,15 +221,14 @@ export class ResumeAgentSessionController {
       const data = parseResumeResponse(raw)
       if (!response.ok || !data) {
         const error = record(raw)?.error
-        this.ports.showError(
-          typeof error === 'string' && error
-            ? error
-            : `Failed to resume agent session (${response.status})`,
-        )
-        return { status: 'failed', uncertain: response.ok } as const
+        return {
+          status: 'failed',
+          uncertain: response.ok || response.status >= 500 || response.status === 409,
+          message: typeof error === 'string' && error ? error : `Failed to resume agent session (${response.status})`,
+        } as const
       }
       this.ports.applyProjectMembership(data)
-      return this.finish(identity, data.agentId, true)
+      return this.finish(identity, data.agentId, data.reused)
     } catch (error) {
       // The mutation may have completed before a transport failure. This
       // admission terminates without replay; a later user action is explicit.
@@ -239,9 +236,49 @@ export class ResumeAgentSessionController {
     }
   }
 
+  /** A read cannot establish that a lost mutation is safe to replay. */
+  reconcile(identity: ResumeAgentSessionIdentity): Promise<ResumeAgentSessionOutcome> {
+    if (this.disposed) return Promise.resolve({ status: 'stale' })
+    const key = identityKey(identity)
+    const abort = new AbortController()
+    return new Promise(resolve => {
+      let settled = false
+      const finish = (outcome: ResumeAgentSessionOutcome) => {
+        if (settled) return
+        settled = true
+        ;(this.ports.clearTimer || clearTimeout)(timer as number)
+        this.checks.delete(cancel)
+        if (outcome.status === 'succeeded') this.uncertain.delete(key)
+        else if (outcome.status === 'failed') this.uncertain.add(key)
+        resolve(outcome)
+      }
+      const cancel = () => { finish({ status: 'stale' }); abort.abort() }
+      const timer = (this.ports.setTimer || setTimeout)(() => {
+        finish({ status: 'failed', uncertain: true, message: 'Status check timed out. The resume outcome is still uncertain.' })
+        abort.abort()
+      }, this.ports.timeoutMs ?? RESUME_AGENT_SESSION_TIMEOUT_MS)
+      this.checks.add(cancel)
+      const url = appPath(`/api/agent-sessions/${encodeURIComponent(identity.provider)}/${encodeURIComponent(identity.sessionId)}/resume-status?providerHomeId=${encodeURIComponent(identity.providerHomeId || 'default')}`)
+      void Promise.resolve().then(() => (this.ports.readStatus || fetch)(url, { signal: abort.signal })).then(async response => {
+        const raw = record(await response.json())
+        if (settled) return
+        const data = parseResumeResponse(raw)
+        if (response.ok && raw?.state === 'ready' && data) {
+          this.ports.applyProjectMembership(data)
+          finish(this.finish(identityParts(identity), data.agentId, true))
+        } else {
+          finish({ status: 'failed', uncertain: true, message: raw?.state === 'pending'
+            ? 'The backend is still resuming this session. Check again later.'
+            : 'No completed resume could be confirmed. The outcome is still uncertain.' })
+        }
+      }).catch(error => finish({ status: 'failed', uncertain: true, message: error instanceof Error ? error.message : 'Status check failed' }))
+    })
+  }
+
   dispose() {
     if (this.disposed) return
     this.disposed = true
+    for (const cancel of [...this.checks]) cancel()
     for (const operation of [...this.inFlight.values()]) {
       operation.finalize({ status: 'stale' })
       operation.abortController.abort()
@@ -256,18 +293,14 @@ export function useResumeAgentSessionController(ports: ResumeAgentSessionPorts) 
   if (!controllerRef.current) {
     controllerRef.current = new ResumeAgentSessionController({
       applyProjectMembership: membership => portsRef.current.applyProjectMembership(membership),
-      closeMobileNavigation: () => portsRef.current.closeMobileNavigation(),
       commitSessionMembership: identity => portsRef.current.commitSessionMembership(identity),
       getActiveAgents: () => portsRef.current.getActiveAgents(),
       mountProject: (workspace, signal) => portsRef.current.mountProject(workspace, signal),
-      openAgent: (agentId, whenReady) => portsRef.current.openAgent(agentId, whenReady),
+      readStatus: (url, init) => (portsRef.current.readStatus || fetch)(url, init),
       request: (url, init) => (portsRef.current.request || fetch)(url, init),
-      showError: message => portsRef.current.showError(message),
     })
   }
   const controller = controllerRef.current
   useEffect(() => () => controller.dispose(), [controller])
-  return useCallback((provider: string, sessionId: string, providerHomeId = '', customTitle = '') => (
-    controller.resume({ provider, sessionId, providerHomeId, customTitle })
-  ), [controller])
+  return controller
 }

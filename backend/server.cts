@@ -1930,6 +1930,11 @@ app.post(routePath(BASE_PATH, '/api/codex/sessions/:sessionId/resume'), express.
   res.status(reply.status).json(reply.body);
 });
 
+app.get(routePath(BASE_PATH, '/api/agent-sessions/:provider/:sessionId/resume-status'), (req, res) => {
+  const reply = agentSessionResumeCoordinator.resumeStatus(req.params.provider, req.params.sessionId, req.query.providerHomeId);
+  res.set('Cache-Control', 'no-store').status(reply.status).json(reply.body);
+});
+
 app.post(routePath(BASE_PATH, '/api/agent-sessions/:provider/:sessionId/resume'), express.json(), async (req, res) => {
   const reply = await agentSessionResumeCoordinator.resumeHttp(req.params.provider, req.params.sessionId, req.body);
   res.status(reply.status).json(reply.body);

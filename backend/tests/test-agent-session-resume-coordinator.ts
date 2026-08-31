@@ -1588,10 +1588,48 @@ async function testAutoResume() {
   }
 }
 
+async function testReadOnlyResumeStatus() {
+  let publishes = 0;
+  const claims: ReturnType<AgentSessionResumeCoordinatorPorts['getActiveAgents']> = [];
+  const ports = basePorts({
+    getActiveAgents: () => claims,
+    getSettings: () => ({ projectWorkspaces: ['/repo'], pinnedProjectWorkspaces: [] }),
+    publishAgentState: () => { publishes++; },
+    startAgent: () => { throw new Error('a status read must never start an Agent'); },
+    rememberMainPageSession: () => { throw new Error('a status read must never change membership'); },
+    mountProjectWorkspace: () => { throw new Error('a status read must never mount a Project'); },
+  });
+  const coordinator = new AgentSessionResumeCoordinator(ports);
+  assert.equal(coordinator.resumeStatus('codex', '', 'default').status, 400);
+  assert.equal(coordinator.resumeStatus('codex', 'session-alpha', '../bad').status, 400);
+  assert.equal(coordinator.resumeStatus('codex', 'session-alpha', ['work', 'other']).status, 400);
+  assert.deepStrictEqual(coordinator.resumeStatus('codex', 'session-alpha', 'work').body, { state: 'absent' });
+  claims.push({ id: 'other', status: 'running', providerSessionKey: encodeProviderSessionKey('codex', 'session-alpha', 'other') });
+  assert.deepStrictEqual(coordinator.resumeStatus('codex', 'session-alpha', 'work').body, { state: 'absent' });
+  claims.push({ id: 'exact', status: 'running', providerSessionKey: encodeProviderSessionKey('codex', 'session-alpha', 'work') });
+  assert.deepStrictEqual(coordinator.resumeStatus('codex', 'session-alpha', 'work').body, {
+    state: 'ready', agentId: 'exact', projectWorkspaces: ['/repo'], pinnedProjectWorkspaces: [],
+  });
+  claims[1].status = 'stopped';
+  assert.deepStrictEqual(coordinator.resumeStatus('codex', 'session-alpha', 'work').body, { state: 'absent' });
+  assert.equal(publishes, 4);
+
+  const gate = deferred<void>();
+  const pending = new AgentSessionResumeCoordinator(basePorts({ waitForAgentRecovery: () => gate.promise }));
+  const operation = pending.resumeHttp('codex', 'session-alpha', {});
+  assert.deepStrictEqual(pending.resumeStatus('codex', 'session-alpha', '').body, { state: 'pending' });
+  assert.deepStrictEqual(pending.resumeStatus('codex', 'session-alpha', 'other').body, { state: 'absent' });
+  gate.resolve();
+  await operation;
+  await drainAsyncWork();
+  assert.deepStrictEqual(pending.resumeStatus('codex', 'session-alpha', 'default').body, { state: 'absent' });
+}
+
 async function run() {
   const unhandled: unknown[] = [];
   process.on('unhandledRejection', reason => { unhandled.push(reason); });
 
+  await testReadOnlyResumeStatus();
   await testInvalidRequestBoundary();
   await testProviderHomeNormalization();
   await testCrossChannelAdmissionJoin();

@@ -167,6 +167,9 @@ test('editor tab menu closes on outside pointer and restores its tab on Escape',
   await project.locator('[data-testid="code-file-row"][data-file-path="notes.txt"]').click()
   const tab = page.getByTestId('code-file-editor').getByRole('tab', { selected: true })
   await expect(tab).toContainText('notes.txt')
+  // The lazy editor first paints a non-interactive fallback tab. Wait for the
+  // keyboard-accessible real tab before exercising its context menu.
+  await expect(tab).toHaveAttribute('tabindex', '0')
   const menu = page.getByTestId('code-file-tab-context-menu')
   await tab.click({ button: 'right' })
   await expect(menu).toBeVisible()

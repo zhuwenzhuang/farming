@@ -1,3 +1,5 @@
+import { canonicalProviderSessionKey } from '../../shared/provider-session-identity.js'
+import type { MainPaneMode } from './code/types'
 import { interactionLayerOwnsEscape } from '@/lib/interaction-layer'
 import { useInteractionLayer } from '@/hooks/useInteractionLayer'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from 'react'
@@ -272,6 +274,7 @@ import {
   saveSessionDisplayState,
 } from './code/session-display'
 import { useAgentSessionInventoryController } from './code/useAgentSessionInventoryController'
+import { useAgentOpeningController, type AgentOpeningTarget } from './code/useAgentOpeningController'
 import { useResumeAgentSessionController } from './code/useResumeAgentSessionController'
 import { resourcePaneBackTarget, useResourcePaneController } from './code/useResourcePaneController'
 import {
@@ -387,7 +390,8 @@ interface CodeWorkspaceProps {
   keyboardShortcutsEnabled: boolean
   uiPreferences: UiPreferences
   onOpenTerminal: (agentId: string, options?: { focusTerminal?: boolean }) => void
-  onOpenTerminalWhenReady: (agentId: string, options?: { focusTerminal?: boolean }) => void
+  onCancelPendingTerminalOpen: () => void
+  onActivateTerminal: (agentId: string, options?: { focusTerminal?: boolean }) => void
   onNewAgent: (workspace?: string, command?: string, returnFocusTarget?: HTMLElement | null, customTitle?: string) => void
   onStartAgent: (command: string, workspace: string, options?: { projectWorkspace?: string; codexApprovalMode?: string; agentRuntimeMode?: 'terminal' | 'chat' | 'acp'; dangerouslySkipPermissions?: boolean; providerHomeId?: string; additionalDirectories?: string[]; mcpServers?: Array<Record<string, unknown>> }) => void
   onRenameAgent: (agentId: string, title: string) => void
@@ -567,9 +571,10 @@ export function CodeWorkspace({
   keyMap,
   keyboardShortcutsEnabled,
   uiPreferences,
-  onOpenTerminal,
-  onOpenTerminalWhenReady,
-  onNewAgent,
+  onOpenTerminal: requestOpenTerminal,
+  onActivateTerminal,
+  onCancelPendingTerminalOpen,
+  onNewAgent: requestNewAgent,
   onStartAgent,
   onRenameAgent,
   onUpdateAgentFlags,
@@ -577,7 +582,7 @@ export function CodeWorkspace({
   onForkAgent,
   onDeleteForkWorktreeProject,
   onRestartMainAgent,
-  onWorkspaceViewChange,
+  onWorkspaceViewChange: changeWorkspaceView,
   onInterruptAgent,
   sendComposerInput,
   onSessionOutput,
@@ -590,6 +595,31 @@ export function CodeWorkspace({
   onUpdateUiPreferences,
 }: CodeWorkspaceProps) {
   recordPerformanceTestRender('codeWorkspace')
+  const leaveAgentOpeningRef = useRef(() => {})
+  const agentNavigationEpochRef = useRef(0)
+  const [retainedAgentSource, setRetainedAgentSource] = useState<'search' | 'history' | null>(null)
+  const agentOpening = useAgentOpeningController({
+    resume: identity => sessionResumeController.resume(identity),
+    reconcile: identity => sessionResumeController.reconcile(identity),
+    getAgents: () => agents.map(agent => ({ ...agent, workspace: projectWorkspaceForAgent(agent) })),
+    activate: (id, options) => onActivateTerminal(id, options),
+  })
+  const agentOpeningController = agentOpening.controller
+  const agentOpeningBusy = agentOpening.state !== null && agentOpening.state.phase !== 'ready'
+  const onWorkspaceViewChange = useCallback((view: WorkspaceView) => {
+    leaveAgentOpeningRef.current()
+    onCancelPendingTerminalOpen()
+    changeWorkspaceView(view)
+  }, [changeWorkspaceView, onCancelPendingTerminalOpen])
+  const onOpenTerminal = useCallback((agentId: string, options?: { focusTerminal?: boolean }) => {
+    leaveAgentOpeningRef.current()
+    requestOpenTerminal(agentId, options)
+  }, [requestOpenTerminal])
+  const onNewAgent = useCallback((...args: Parameters<CodeWorkspaceProps['onNewAgent']>) => {
+    leaveAgentOpeningRef.current()
+    onCancelPendingTerminalOpen()
+    requestNewAgent(...args)
+  }, [onCancelPendingTerminalOpen, requestNewAgent])
   const [initialWorkspaceViewState] = useState(() => loadCodeWorkspaceViewState())
   const pageVisible = usePageVisibility()
   const {
@@ -612,11 +642,16 @@ export function CodeWorkspace({
     activeComputerId,
     computerReturnAgentId,
     mainPaneMode,
-    setMainPaneMode,
+    setMainPaneMode: changeMainPaneMode,
     showBrowser,
     showComputer,
     reconcileResources,
   } = resourcePane
+  const setMainPaneMode = useCallback((mode: MainPaneMode) => {
+    leaveAgentOpeningRef.current()
+    onCancelPendingTerminalOpen()
+    changeMainPaneMode(mode)
+  }, [changeMainPaneMode, onCancelPendingTerminalOpen])
   const [collapsedComputerAgentIds, setCollapsedComputerAgentIds] = useState<Set<string>>(() => (
     new Set(initialWorkspaceViewState.collapsedComputerAgentIds ?? [])
   ))
@@ -908,6 +943,8 @@ export function CodeWorkspace({
   const projectListScrollRestoredRef = useRef(false)
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null)
   const resumeAgentSessionRef = useRef<(provider: string, sessionId: string, providerHomeId?: string) => void>(() => {})
+  const openAgentTargetRef = useRef<(id: string, options?: { focusTerminal?: boolean }) => void>(() => {})
+  const agentOpeningReturnRef = useRef<{ view: 'search' | 'history' | 'projects'; mode: MainPaneMode; scroll: number; focus: HTMLElement | null; selection: number } | null>(null)
   const activeTerminalIdRef = useRef<string | null>(activeTerminalId)
   const manuallyUnreadActiveAgentIdRef = useRef<string | null>(null)
   const workspaceFileRevealRequestRef = useRef(0)
@@ -915,7 +952,11 @@ export function CodeWorkspace({
   const workspaceAgentRevealRequestRef = useRef(0)
   const workspaceFileSearchFocusRequestRef = useRef(0)
   const consumedWorkspaceFileSearchFocusRequestRef = useRef(0)
-  const workspaceFileOpenRequestRef = useRef(new LatestRequestFence())
+  const workspaceFileOpenRequestRef = useRef(new LatestRequestFence(() => {
+    // File activation owns navigation immediately, before its read finishes.
+    leaveAgentOpeningRef.current()
+    onCancelPendingTerminalOpen()
+  }))
   const terminalPathOpenRequestRef = useRef(new LatestRequestFence())
   const mobileShareRequestFenceRef = useRef(new LatestRequestFence())
   const directShareRequestFenceRef = useRef(new LatestRequestFence())
@@ -1102,7 +1143,7 @@ export function CodeWorkspace({
     loadMoreAgentSessions,
     refreshVisibleAgentSessionPage,
   } = useAgentSessionInventoryController({
-    searchActive: (activeView === 'search' || searchOpen) && agentSessionInventorySearchQuery.length > 0,
+    searchActive: (activeView === 'search' || searchOpen || retainedAgentSource === 'search') && agentSessionInventorySearchQuery.length > 0,
     searchQuery: agentSessionInventorySearchQuery,
     freshErrorMessage: currentInfoLoadFailedRef.current,
   })
@@ -1294,12 +1335,12 @@ export function CodeWorkspace({
       })
   }, [projectListProjects, projectWorkspaces, projectWorkspacesLoaded])
   const globalFileSearch = useGlobalWorkspaceFileSearch({
-    active: projectWorkspacesLoaded && (activeView === 'search' || searchOpen) && hasSearchQuery,
+    active: projectWorkspacesLoaded && (activeView === 'search' || searchOpen || retainedAgentSource === 'search') && hasSearchQuery,
     projects: globalFileSearchProjects,
     query: searchQuery,
   })
   const displayedProjects = useMemo(() => {
-    const sourceProjects = (activeView === 'search' || searchOpen) && hasSearchQuery ? searchableProjects : projects
+    const sourceProjects = (activeView === 'search' || searchOpen || retainedAgentSource === 'search') && hasSearchQuery ? searchableProjects : projects
     return displayedProjectsForSearch(
       sourceProjects,
       normalizedSearch,
@@ -1307,7 +1348,7 @@ export function CodeWorkspace({
       searchedAgentSessionIds,
       searchedAgentIds
     )
-  }, [activeView, hasSearchQuery, normalizedSearch, projectSessionLimits, projects, searchableProjects, searchedAgentIds, searchedAgentSessionIds, searchOpen])
+  }, [activeView, retainedAgentSource, hasSearchQuery, normalizedSearch, projectSessionLimits, projects, searchableProjects, searchedAgentIds, searchedAgentSessionIds, searchOpen])
   const hasProjectListItems = projects.some(project => (
     Boolean(project.workspace)
   ))
@@ -1477,9 +1518,9 @@ export function CodeWorkspace({
   const activeComposerSubmissions = activeComposerState.submissions
 
   useEffect(() => {
-    if (!activeTerminalId || mainPaneMode !== 'terminal' || activeView !== 'projects') return
+    if (agentOpeningBusy || !activeTerminalId || mainPaneMode !== 'terminal' || activeView !== 'projects') return
     recordWorkspaceNavigationAgent(activeTerminalId)
-  }, [activeTerminalId, activeView, mainPaneMode, recordWorkspaceNavigationAgent])
+  }, [activeTerminalId, activeView, agentOpeningBusy, mainPaneMode, recordWorkspaceNavigationAgent])
 
   useEffect(() => {
     saveCodeWorkspaceViewState({ collapsedProjectIds: Array.from(collapsedProjectIds) })
@@ -1528,6 +1569,7 @@ export function CodeWorkspace({
     if (
       !activeTerminalId
       || !activeSidebarProjectId
+      || agentOpeningBusy
       || mainPaneMode !== 'terminal'
       || activeView !== 'projects'
     ) return
@@ -1542,7 +1584,7 @@ export function CodeWorkspace({
       agentId: activeTerminalId,
       requestId: workspaceAgentRevealRequestRef.current += 1,
     })
-  }, [activeSidebarProjectId, activeTerminalId, activeView, mainPaneMode])
+  }, [activeSidebarProjectId, activeTerminalId, activeView, agentOpeningBusy, mainPaneMode])
 
   useEffect(() => {
     if (activeView === 'projects' && mainPaneMode === 'terminal') return
@@ -1743,7 +1785,7 @@ export function CodeWorkspace({
     )) ?? null,
     [agentSessionMenu?.provider, agentSessionMenu?.sessionId, displayedProjects]
   )
-  const selectedSearchTarget = searchOpen ? visibleSearchTargets[searchSelectionIndex] ?? null : null
+  const selectedSearchTarget = (searchOpen || retainedAgentSource === 'search') ? visibleSearchTargets[searchSelectionIndex] ?? null : null
   const selectedSearchAgentId = selectedSearchTarget?.kind === 'agent' ? selectedSearchTarget.id : null
   const selectedSearchSessionHandle = selectedSearchTarget?.kind === 'agent-session'
     ? agentSessionId(selectedSearchTarget)
@@ -1863,7 +1905,7 @@ export function CodeWorkspace({
     permissionModeOptions,
   } = composerControlState
   const browserHost = mobileServerLabel()
-  const mobileHeaderTitle = searchOpen || activeView === 'search'
+  const mobileHeaderTitle = agentOpeningBusy ? agentOpening.state?.target.title || copy.codex : searchOpen || activeView === 'search'
     ? copy.search
     : activeView === 'history'
       ? copy.history
@@ -2195,11 +2237,11 @@ export function CodeWorkspace({
   }, [markAgentReadIfNeeded])
 
   useEffect(() => {
-    if (!activeTerminalId || activeView !== 'projects' || mainPaneMode !== 'terminal') return
+    if (agentOpeningBusy || !activeTerminalId || activeView !== 'projects' || mainPaneMode !== 'terminal') return
     const activeAgent = activeAgents.find(agent => agent.id === activeTerminalId)
     if (!activeAgent?.unread || manuallyUnreadActiveAgentIdRef.current === activeTerminalId) return
     markAgentReadIfNeeded(activeTerminalId, true)
-  }, [activeAgents, activeTerminalId, activeView, mainPaneMode, markAgentReadIfNeeded])
+  }, [activeAgents, activeTerminalId, activeView, agentOpeningBusy, mainPaneMode, markAgentReadIfNeeded])
 
   const handleDraftChange = useCallback((value: string) => {
     updateActiveComposerState(state => ({
@@ -2510,6 +2552,7 @@ export function CodeWorkspace({
     setGlobalFileOpenError(null)
     expandSidebar()
     onWorkspaceViewChange('search')
+    setSearchSelectionIndex(0)
     setSearchOpen(true)
     requestAnimationFrame(() => searchInputRef.current?.focus())
   }, [closeActiveComposerMenus, closeContextMenu, expandSidebar, onWorkspaceViewChange])
@@ -2867,17 +2910,9 @@ export function CodeWorkspace({
   }, [agents])
 
   const openVisibleTarget = useCallback((target: SearchTarget, options?: { focusTerminal?: boolean }) => {
-    workspaceFileOpenRequestRef.current.invalidate()
-    setMainPaneMode('terminal')
-    onWorkspaceViewChange('projects')
-    if (target.kind === 'agent') {
-      if (!resumeColdAgentFromUserActivation(target.id)) {
-        onOpenTerminal(target.id, { focusTerminal: options?.focusTerminal })
-      }
-    } else {
-      resumeAgentSessionRef.current(target.provider, target.id, target.providerHomeId)
-    }
-  }, [onOpenTerminal, onWorkspaceViewChange, resumeColdAgentFromUserActivation, setMainPaneMode])
+    if (target.kind === 'agent') openAgentTargetRef.current(target.id, options)
+    else resumeAgentSessionRef.current(target.provider, target.id, target.providerHomeId)
+  }, [])
 
   const currentProjectListTargetId = useCallback(() => {
     const activeElement = document.activeElement
@@ -3155,19 +3190,11 @@ export function CodeWorkspace({
 
   const openTerminalFromWorkspace = useCallback((agentId: string, options?: { focusTerminal?: boolean }) => {
     if (!isStructuredRuntime(agents.find(agent => agent.id === agentId))) beginNavigationPerformance('agent.switch', agentId)
-    workspaceFileOpenRequestRef.current.invalidate()
-    if (
-      manuallyUnreadActiveAgentIdRef.current
-      && manuallyUnreadActiveAgentIdRef.current !== agentId
-    ) {
+    if (manuallyUnreadActiveAgentIdRef.current && manuallyUnreadActiveAgentIdRef.current !== agentId) {
       manuallyUnreadActiveAgentIdRef.current = null
     }
-    closeContextMenu()
-    clearSearch()
-    setMainPaneMode('terminal')
-    onWorkspaceViewChange('projects')
-    onOpenTerminal(agentId, options)
-  }, [agents, clearSearch, closeContextMenu, onOpenTerminal, onWorkspaceViewChange, setMainPaneMode])
+    openAgentTargetRef.current(agentId, options)
+  }, [agents])
 
   const showBrowserResource = useCallback((resource: BrowserResource, returnAgentId = activeTerminalId) => {
     workspaceFileOpenRequestRef.current.invalidate()
@@ -3931,8 +3958,7 @@ export function CodeWorkspace({
       return
     }
     openVisibleTarget(selectedSearchTarget)
-    clearSearch()
-  }, [clearSearch, openGlobalSearchFile, openVisibleTarget, selectedSearchTarget])
+  }, [openGlobalSearchFile, openVisibleTarget, selectedSearchTarget])
 
   const handleSearchInputKeyDown = useCallback((event: ReactKeyboardEvent<HTMLInputElement>) => {
     if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return
@@ -4542,7 +4568,7 @@ export function CodeWorkspace({
     onOpenArchivedAgent(agentId)
   }, [onOpenArchivedAgent])
 
-  const resumeAgentSession = useResumeAgentSessionController({
+  const sessionResumeController = useResumeAgentSessionController({
     getActiveAgents: () => activeAgents.map(agent => ({
       id: agent.id,
       archived: agent.archived,
@@ -4557,25 +4583,97 @@ export function CodeWorkspace({
       dispatchAgentSessionInventory({ type: 'session-resumed', provider, sessionId, providerHomeId: providerHomeId || '' })
       addMainPageAgentSession(provider, sessionId, providerHomeId || '')
     },
-    openAgent: (agentId, whenReady) => {
-      if (whenReady) onOpenTerminalWhenReady(agentId)
-      else onOpenTerminal(agentId)
-    },
-    showError: message => setCopyNotice({ id: Date.now(), kind: 'error', message }),
-    closeMobileNavigation: closeSidebarForMobile,
   })
+  leaveAgentOpeningRef.current = () => {
+    agentNavigationEpochRef.current += 1
+    agentOpeningController.leave()
+    setRetainedAgentSource(null)
+    agentOpeningReturnRef.current = null
+  }
+  useEffect(() => { agentOpeningController.observeAgents() }, [agentOpeningController, agents])
+  useEffect(() => {
+    if (dialogOpen) leaveAgentOpeningRef.current()
+  }, [dialogOpen])
+
+  const beginAgentOpening = useCallback((target: Omit<AgentOpeningTarget, 'source'>) => {
+    workspaceFileOpenRequestRef.current.invalidate()
+    closeContextMenu()
+    onCancelPendingTerminalOpen()
+    const source = activeView === 'search' || activeView === 'history' ? activeView : 'projects'
+    agentNavigationEpochRef.current += 1
+    const targetIndex = visibleSearchTargets.findIndex(candidate => target.identity
+      ? candidate.kind === 'agent-session' && searchTargetHandle(candidate) === agentSessionId({ provider: target.identity.provider, id: target.identity.sessionId, providerHomeId: target.identity.providerHomeId })
+      : candidate.kind === 'agent' && candidate.id === target.agentId)
+    agentOpeningReturnRef.current = {
+      view: source,
+      mode: mainPaneMode,
+      scroll: document.querySelector<HTMLElement>('[data-testid="code-side-view-panel"]')?.scrollTop || 0,
+      focus: document.activeElement instanceof HTMLElement ? document.activeElement : null,
+      selection: targetIndex >= 0 ? targetIndex : searchSelectionIndex,
+    }
+    setRetainedAgentSource(source === 'projects' ? null : source)
+    setSearchOpen(false)
+    changeMainPaneMode('terminal')
+    changeWorkspaceView('projects')
+    closeSidebarForMobile()
+    agentOpeningController.open({ ...target, source })
+  }, [activeView, agentOpeningController, changeMainPaneMode, changeWorkspaceView, closeContextMenu, closeSidebarForMobile, mainPaneMode, onCancelPendingTerminalOpen, searchSelectionIndex, visibleSearchTargets])
+
+  const resumeAgentSession = useCallback((provider: string, sessionId: string, providerHomeId = '', customTitle = '', sessionHint?: AgentSessionHistoryItem) => {
+    const handle = agentSessionId({ provider, id: sessionId, providerHomeId })
+    const session = sessionHint || [...searchableAgentSessions, ...historyAgentSessions, ...mainPageAgentSessions]
+      .find(candidate => agentSessionId(candidate) === handle)
+    const agent = agents.find(candidate => canonicalProviderSessionKey(candidate.providerSessionKey) === handle)
+    beginAgentOpening({
+      identity: { provider, sessionId, providerHomeId, customTitle },
+      title: customTitle || session?.title || (agent ? agentTitle(agent) : sessionId),
+      workspace: session ? agentSessionWorkingDirectory(session) : agent ? projectWorkspaceForAgent(agent) : '',
+    })
+  }, [agents, beginAgentOpening, historyAgentSessions, mainPageAgentSessions, searchableAgentSessions])
   resumeAgentSessionRef.current = resumeAgentSession
+  openAgentTargetRef.current = (agentId, options) => {
+    if (resumeColdAgentFromUserActivation(agentId)) return
+    const agent = agents.find(candidate => candidate.id === agentId)
+    if (!agent) return
+    beginAgentOpening({ agentId, title: agentTitle(agent), workspace: projectWorkspaceForAgent(agent), focusTerminal: options?.focusTerminal,
+      ...(agent.providerSessionProvider && agent.providerSessionId && !agent.providerSessionTemporary
+        ? { identity: { provider: agent.providerSessionProvider, sessionId: agent.providerSessionId, providerHomeId: agent.providerHomeId } } : {}),
+    })
+  }
+
+  const backFromAgentOpening = useCallback(() => {
+    const source = agentOpeningReturnRef.current
+    if (!source) return
+    const epoch = ++agentNavigationEpochRef.current
+    agentOpeningController.leave()
+    setRetainedAgentSource(null)
+    agentOpeningReturnRef.current = null
+    changeMainPaneMode(source.mode)
+    changeWorkspaceView(source.view)
+    if (source.view === 'search') {
+      setSearchOpen(true)
+      setSearchSelectionIndex(source.selection)
+    }
+    window.requestAnimationFrame(() => {
+      // A single explicit return owns restoration; a later navigation wins.
+      if (agentNavigationEpochRef.current !== epoch) return
+      const panel = document.querySelector<HTMLElement>('[data-testid="code-side-view-panel"]:not([hidden])')
+      if (!panel) return
+      panel.scrollTop = source.scroll
+      const focus = source.focus?.isConnected ? source.focus : panel.querySelector<HTMLElement>('input, button')
+      focus?.focus({ preventScroll: true })
+    })
+  }, [agentOpeningController, changeMainPaneMode, changeWorkspaceView])
 
   const continueArchivedRun = useCallback((entry: TaskHistoryEntry) => {
     const resumedSession = resumedSessionFromHistoryRunSource(entry.source)
     if (resumedSession) {
       resumeAgentSession(resumedSession.provider, resumedSession.sessionId, resumedSession.providerHomeId, entry.customTitle || '')
-      onWorkspaceViewChange('projects')
       return
     }
 
     onNewAgent(projectWorkspaceForHistoryRun(entry), entry.command || undefined, null, entry.customTitle || undefined)
-  }, [onNewAgent, onWorkspaceViewChange, resumeAgentSession])
+  }, [onNewAgent, resumeAgentSession])
 
   const openOptionsMenu = useCallback((event: ReactMouseEvent<HTMLElement>) => {
     if (!isCompactViewport()) {
@@ -5642,7 +5740,7 @@ export function CodeWorkspace({
 
   useEffect(() => {
     setSearchSelectionIndex(0)
-  }, [normalizedSearch, searchOpen])
+  }, [normalizedSearch])
 
   useEffect(() => {
     setSearchSelectionIndex(index => {
@@ -5678,7 +5776,7 @@ export function CodeWorkspace({
         normalizedSearch=""
         hasProjectListItems={hasProjectListItems}
         hasDisplayedProjectListItems={hasProjectListItems}
-        activeTerminalId={mainPaneMode === 'editor' ? null : activeTerminalId}
+        activeTerminalId={agentOpeningBusy || mainPaneMode === 'editor' ? null : activeTerminalId}
         selectedSearchAgentId={selectedSearchAgentId}
         selectedSearchSessionHandle={selectedSearchSessionHandle}
         claimedAgentSessionKeyByAgentId={agentListState.claimedAgentSessionKeyByAgentId}
@@ -5799,7 +5897,7 @@ export function CodeWorkspace({
 
       <AgentHomesSettingsPanel
         open={settingsPanelOpen}
-        activeAgentId={activeView === 'projects' ? activeAgent?.id ?? null : null}
+        activeAgentId={!agentOpeningBusy && activeView === 'projects' ? activeAgent?.id ?? null : null}
         language={uiPreferences.language}
         uiPreferences={uiPreferences}
         onClose={() => setSettingsPanelOpen(false)}
@@ -5924,6 +6022,10 @@ export function CodeWorkspace({
       )}
 
       <CodeMainArea
+        agentOpening={agentOpening.state}
+        onBackFromAgentOpening={backFromAgentOpening}
+        onRetryAgentOpening={() => agentOpeningController.retry()}
+        onCheckAgentOpening={() => agentOpeningController.check()}
         inert={mobileNavigationModalOpen}
         readOnly={readOnly}
         activeView={activeView}
@@ -6168,9 +6270,7 @@ export function CodeWorkspace({
         onSessionOutput={onSessionOutput}
         onOpenSearchAgent={openTerminalFromWorkspace}
         onOpenSearchSession={session => {
-          resumeAgentSession(session.provider, session.id, session.providerHomeId)
-          clearSearch()
-          onWorkspaceViewChange('projects')
+          resumeAgentSession(session.provider, session.id, session.providerHomeId, '', session)
         }}
         onOpenSearchFile={match => void openGlobalSearchFile(match)}
         onRetryGlobalFileSearch={globalFileSearch.retry}
@@ -6180,7 +6280,7 @@ export function CodeWorkspace({
         onBackToProjects={() => openWorkspaceView('projects')}
         onLoadMoreHistoryAgentSessions={loadMoreAgentSessions}
         onSearchHistoryAgentSessions={searchHistoryAgentSessions}
-        onResumeHistorySession={resumeAgentSession}
+        onResumeHistorySession={(provider, id, home, session) => resumeAgentSession(provider, id, home, '', session)}
         onContinueArchivedRun={continueArchivedRun}
         onOpenArchivedAgent={openArchivedAgent}
         onRestoreArchivedAgent={restoreArchivedAgent}

@@ -43,7 +43,7 @@ interface HistoryPanelProps {
   providerSessionTotal: number | null
   revealSession: { requestId: number; sessionHandle: string; sessionId: string } | null
   now: number
-  onResumeSession: (provider: string, sessionId: string, providerHomeId?: string) => void
+  onResumeSession: (provider: string, sessionId: string, providerHomeId?: string, session?: AgentSessionHistoryItem) => void
   onContinueRun: (entry: TaskHistoryEntry) => void
   onOpenArchivedAgent: (agentId: string) => void
   onRestoreArchivedAgent: (agentId: string) => void
@@ -647,7 +647,7 @@ export function HistoryPanel({
                     className="code-history-card-primary"
                     data-testid="code-session-history-primary"
                     aria-label={copy.resumeSessionAria(sessionTitle)}
-                    onClick={() => onResumeSession(session.provider, session.id, session.providerHomeId)}
+                    onClick={() => onResumeSession(session.provider, session.id, session.providerHomeId, session)}
                   >
                     <span className="code-history-card-copy">
                       <span className="code-history-card-title">{sessionTitle}</span>
@@ -667,7 +667,7 @@ export function HistoryPanel({
                       type="button"
                       aria-label={copy.resumeSessionAria(sessionTitle)}
                       title={copy.restore}
-                      onClick={() => onResumeSession(session.provider, session.id, session.providerHomeId)}
+                      onClick={() => onResumeSession(session.provider, session.id, session.providerHomeId, session)}
                     >
                       <ArrowRightGlyph />
                     </button>

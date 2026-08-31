@@ -241,7 +241,8 @@
   color: var(--code-danger);
 }
 
-.code-search-retry {
+.code-search-retry,
+.code-feedback-action {
   flex: none;
   min-height: 30px;
   padding: 4px 10px;
@@ -254,7 +255,8 @@
   font-weight: 600;
 }
 
-.code-search-retry:hover {
+.code-search-retry:hover,
+.code-feedback-action:hover {
   background: var(--code-bg-selected);
 }
 
@@ -348,7 +350,8 @@
       background: transparent;
     }
 
-  body.code-mode.code-compact-layout .code-search-retry {
+  body.code-mode.code-compact-layout .code-search-retry,
+  body.code-mode.code-compact-layout .code-feedback-action {
       min-width: 44px;
       min-height: 44px;
     }

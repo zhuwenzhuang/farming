@@ -27,6 +27,8 @@ import { AgentPlanActivityPreview } from './AgentActivityDock'
 import type { AgentTranscriptProcessItem } from './acp/acp-entry-projection'
 import { CodeComposer } from './CodeComposer'
 import { AcpComposer } from './acp/AcpComposer'
+import { AgentOpeningPane } from './AgentOpeningPane'
+import type { AgentOpeningState } from './useAgentOpeningController'
 import { HistoryPanel } from './HistoryPanel'
 import type { ShareNoticeAnchor } from './share-notice'
 import { SearchPanel } from './SearchPanel'
@@ -266,6 +268,10 @@ function FileEditorFallback({
 }
 
 interface CodeMainAreaProps {
+  agentOpening: AgentOpeningState | null
+  onBackFromAgentOpening: () => void
+  onRetryAgentOpening: () => void
+  onCheckAgentOpening: () => void
   inert?: boolean
   readOnly: boolean
   activeView: WorkspaceView
@@ -356,7 +362,7 @@ interface CodeMainAreaProps {
   onBackToProjects: () => void
   onLoadMoreHistoryAgentSessions: () => boolean | Promise<boolean>
   onSearchHistoryAgentSessions: (query: string, signal: AbortSignal) => Promise<AgentSessionHistoryItem[]>
-  onResumeHistorySession: (provider: string, sessionId: string, providerHomeId?: string) => void
+  onResumeHistorySession: (provider: string, sessionId: string, providerHomeId?: string, session?: AgentSessionHistoryItem) => void
   onContinueArchivedRun: (entry: TaskHistoryEntry) => void
   onOpenArchivedAgent: (agentId: string) => void
   onRestoreArchivedAgent: (agentId: string) => void
@@ -578,6 +584,10 @@ function EmptyWorkspaceGuide({
 }
 
 export function CodeMainArea({
+  agentOpening,
+  onBackFromAgentOpening,
+  onRetryAgentOpening,
+  onCheckAgentOpening,
   inert,
   readOnly,
   activeView,
@@ -731,12 +741,14 @@ export function CodeMainArea({
   // whole object without depending on it — it only reruns on activeAgent?.id.
   const activeAgentRef = useRef(activeAgent)
   activeAgentRef.current = activeAgent
-  const browserWorkspaceVisible = activeView === 'projects' && activeBrowserResource !== null
-  const computerWorkspaceVisible = activeView === 'projects' && activeComputerResource !== null
+  const openingBusy = agentOpening !== null && agentOpening.phase !== 'ready'
+  const sideView = activeView !== 'projects' ? activeView : agentOpening?.target.source === 'search' || agentOpening?.target.source === 'history' ? agentOpening.target.source : null
+  const browserWorkspaceVisible = !openingBusy && activeView === 'projects' && activeBrowserResource !== null
+  const computerWorkspaceVisible = !openingBusy && activeView === 'projects' && activeComputerResource !== null
   const resourceWorkspaceVisible = browserWorkspaceVisible
     || computerWorkspaceVisible
-    || (activeView === 'projects' && showFileEditor && openWorkspaceFile !== null)
-  const agentWorkspaceVisible = activeView === 'projects'
+    || (!openingBusy && activeView === 'projects' && showFileEditor && openWorkspaceFile !== null)
+  const agentWorkspaceVisible = !openingBusy && activeView === 'projects'
     && !browserWorkspaceVisible
     && !computerWorkspaceVisible
     && !(showFileEditor && openWorkspaceFile)
@@ -976,12 +988,14 @@ export function CodeMainArea({
       onPointerDownCapture={dismissComposerKeyboardOnMainPress}
       onTouchStartCapture={dismissComposerKeyboardOnMainPress}
     >
-      {activeView !== 'projects' ? (
+      {agentOpening && <AgentOpeningPane state={agentOpening} copy={copy} onBack={onBackFromAgentOpening} onRetry={onRetryAgentOpening} onCheck={onCheckAgentOpening} />}
+      {sideView ? (
         <section
-          className={`code-side-view-panel ${activeView === 'search' ? 'code-search-view' : ''} ${activeView === 'history' ? 'code-history-view' : ''} ${activeView === 'plugins' ? 'code-plugins-view' : ''}`}
+          hidden={activeView === 'projects'}
+          className={`code-side-view-panel ${sideView === 'search' ? 'code-search-view' : ''} ${sideView === 'history' ? 'code-history-view' : ''} ${sideView === 'plugins' ? 'code-plugins-view' : ''}`}
           data-testid="code-side-view-panel"
         >
-          {activeView === 'search' ? (
+          {sideView === 'search' ? (
             <SearchPanel
               query={searchQuery}
               displayedProjects={displayedProjects}
@@ -1012,7 +1026,7 @@ export function CodeMainArea({
               onRetryFileSearch={onRetryGlobalFileSearch}
               copy={copy}
             />
-          ) : activeView === 'history' ? (
+          ) : sideView === 'history' ? (
             <HistoryPanel
               archivedRuns={archivedRuns}
               archivedAgents={archivedAgents}
@@ -1033,7 +1047,7 @@ export function CodeMainArea({
               onBack={onBackToProjects}
               copy={copy}
             />
-          ) : activeView === 'plugins' ? (
+          ) : sideView === 'plugins' ? (
             <PluginsPanel
               capability={browserController.capability}
               loading={browserController.loading}
@@ -1055,7 +1069,8 @@ export function CodeMainArea({
             <h2>{viewTitle(copy, activeView)}</h2>
           )}
         </section>
-      ) : browserWorkspaceVisible ? (
+      ) : null}
+      {browserWorkspaceVisible ? (
         <BrowserViewer
           resource={activeBrowserResource}
           controller={browserController}
@@ -1076,7 +1091,7 @@ export function CodeMainArea({
           agentSidePanelOpen={resourceAgentPanelOpen}
           onToggleAgentSidePanel={resourceAgentId ? toggleResourceAgentPanel : undefined}
         />
-      ) : showFileEditor && openWorkspaceFile ? (
+      ) : !openingBusy && activeView === 'projects' && showFileEditor && openWorkspaceFile ? (
         ReadyFileEditorPane ? (
           <ReadyFileEditorPane
             openFile={openWorkspaceFile}

@@ -1293,6 +1293,26 @@ body.code-resizing-language-server-dock {
   font-weight: 700;
 }
 
+.code-side-view-panel[hidden] { display: none; }
+
+.code-agent-opening {
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  color: var(--code-text);
+  background: var(--code-bg-surface);
+}
+
+.code-agent-opening.ready { flex: 0 0 auto; }
+.code-agent-opening-header { padding: 12px 20px; }
+.code-agent-opening-body { max-width: 820px; margin: 24px auto; padding: 0 24px; overflow-wrap: anywhere; }
+.code-agent-opening-body h2 { font-size: 20px; font-weight: 600; margin: 0 0 12px; outline: none; }
+.code-agent-opening-identity, .code-agent-opening-note { color: var(--code-text-muted); font-size: 13px; }
+.code-agent-opening-status { margin: 32px 0 20px; }
+.code-agent-opening-status p { font-size: 14px; }
+.code-agent-opening-status[role="alert"] > strong { color: var(--code-danger); }
+
 .code-side-view-heading {
   min-width: 0;
   display: flex;
@@ -1327,6 +1347,21 @@ body.code-resizing-language-server-dock {
 .code-side-view-back svg {
   width: 16px;
   height: 16px;
+}
+
+/* Labeled navigation uses the same Back control, retaining its source context. */
+.code-side-view-back.with-label {
+  width: auto;
+  flex-basis: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  font: inherit;
+}
+
+body.code-mode.code-compact-layout .code-side-view-back.with-label {
+  min-height: 44px;
 }
 
 body.code-mode .dialog-overlay {

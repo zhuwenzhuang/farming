@@ -1,13 +1,28 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import type { Page } from '@playwright/test'
+import os from 'node:os'
+import { chromium, type Page } from '@playwright/test'
 import { expect, openFarming, test as base } from './fixtures'
 
 // Playwright normally hides native scrollbars in headless mode. Preserve the
 // configured browser executable and options while exercising the real thumb.
 const test = base.extend({
   launchOptions: async ({ launchOptions }, use) => {
-    await use({ ...launchOptions, ignoreDefaultArgs: ['--hide-scrollbars'] })
+    const options = { ...launchOptions, ignoreDefaultArgs: ['--hide-scrollbars'] }
+    if (process.platform !== 'darwin') return use(options)
+    // Cocoa's argument domain overrides only this browser process. Do not
+    // change the user's global scrollbar preference. Playwright disallows the
+    // bare Cocoa argument value in args, so append it in an owned launcher.
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-native-scrollbar-'))
+    const launcher = path.join(directory, 'chrome')
+    const executable = launchOptions.executablePath || chromium.executablePath()
+    const quotedExecutable = `'${executable.replace(/'/g, `'"'"'`)}'`
+    fs.writeFileSync(launcher, `#!/bin/sh\nexec ${quotedExecutable} "$@" -AppleShowScrollBars Always\n`, { mode: 0o700 })
+    try {
+      await use({ ...options, executablePath: launcher })
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true })
+    }
   },
 })
 

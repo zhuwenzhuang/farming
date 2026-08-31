@@ -3232,7 +3232,7 @@ test.describe('display-backed agent flows', () => {
     const childWorkspaceDisplay = childWorkspace
     const deepCodexCwdDisplay = deepCodexCwd
 
-    await page.getByRole('button', { name: /Search/ }).click()
+    await page.getByRole('button', { name: 'Search', exact: true }).click()
     await expect(page.getByTestId('code-search-panel')).toBeVisible()
     await expect(page.getByTestId('code-search-empty')).toHaveCount(0)
     await expect(page.getByTestId('code-search-panel').locator('.code-search-result')).toHaveCount(0)
@@ -3258,7 +3258,7 @@ test.describe('display-backed agent flows', () => {
     await expect(page.getByTestId('code-nav-search')).not.toHaveClass(/active/)
     await expect(page.getByTestId('code-new-agent')).toBeFocused()
 
-    await page.getByRole('button', { name: /Search/ }).click()
+    await page.getByRole('button', { name: 'Search', exact: true }).click()
     await expect(page.getByTestId('code-search-panel')).toBeVisible()
     await page.getByTestId('code-search-box').locator('input').fill(mainSearchTerm)
     await page.getByTestId('code-search-box').getByRole('button', { name: 'Clear search' }).click()
@@ -3266,7 +3266,7 @@ test.describe('display-backed agent flows', () => {
     await expect(page.getByTestId('code-search-box')).toBeHidden()
     await expect(childStartedRow).toBeFocused()
 
-    await page.getByRole('button', { name: /Search/ }).click()
+    await page.getByRole('button', { name: 'Search', exact: true }).click()
     await expect(page.getByTestId('code-search-panel')).toBeVisible()
     await page.getByTestId('code-search-box').locator('input').fill(mainSearchTerm)
     await page.getByTestId('code-search-box').getByRole('button', { name: 'Clear search' }).click()
@@ -3274,7 +3274,7 @@ test.describe('display-backed agent flows', () => {
     await expect(page.getByTestId('code-search-box')).toBeHidden()
     await expect(page.getByTestId('code-nav-search')).not.toHaveClass(/active/)
 
-    await page.getByRole('button', { name: /Search/ }).click()
+    await page.getByRole('button', { name: 'Search', exact: true }).click()
     await expect(page.getByTestId('code-search-panel')).toBeVisible()
     await page.getByTestId('code-search-box').locator('input').fill('child')
     await expect(childProjectGroup).toHaveCount(1)
@@ -3288,7 +3288,7 @@ test.describe('display-backed agent flows', () => {
     await expect(childProjectGroup).toHaveCount(1)
     await expect(primaryProjectGroup).toHaveCount(1)
 
-    await page.getByRole('button', { name: /Search/ }).click()
+    await page.getByRole('button', { name: 'Search', exact: true }).click()
     await expect(page.getByTestId('code-search-panel')).toBeVisible()
     await page.getByTestId('code-search-box').locator('input').fill('Deep Codex')
     await expect(page.getByTestId('code-session-search-result')).toHaveCount(1)
@@ -3298,7 +3298,7 @@ test.describe('display-backed agent flows', () => {
     await expect(page.getByTestId('code-search-box')).toBeHidden()
 
     resume.codexSessionId = ''
-    await page.getByRole('button', { name: /Search/ }).click()
+    await page.getByRole('button', { name: 'Search', exact: true }).click()
     await expect(page.getByTestId('code-search-panel')).toBeVisible()
     await page.getByTestId('code-search-box').locator('input').fill('Plain Codex')
     await expect(page.getByTestId('code-session-search-result')).toHaveCount(1)
@@ -3309,7 +3309,7 @@ test.describe('display-backed agent flows', () => {
     await expect(page.getByTestId('code-active-session-row').filter({ hasText: 'Plain Codex Session' })).toHaveCount(1)
 
     resume.claudeSessionId = ''
-    await page.getByRole('button', { name: /Search/ }).click()
+    await page.getByRole('button', { name: 'Search', exact: true }).click()
     await expect(page.getByTestId('code-search-panel')).toBeVisible()
     await page.getByTestId('code-search-box').locator('input').fill('Plain Claude')
     await expect(page.getByTestId('code-session-search-result')).toHaveCount(1)
@@ -3319,7 +3319,7 @@ test.describe('display-backed agent flows', () => {
     await expect(page.getByTestId('code-search-box')).toBeHidden()
     await expect(page.getByTestId('code-active-session-row').filter({ hasText: 'Plain Claude Session' })).toHaveCount(1)
 
-    await page.getByRole('button', { name: /Search/ }).click()
+    await page.getByRole('button', { name: 'Search', exact: true }).click()
     await expect(page.getByTestId('code-search-panel')).toBeVisible()
     await page.getByTestId('code-search-box').locator('input').fill(mainSearchTerm)
     await page.getByTestId('code-search-box').locator('input').dispatchEvent('keydown', {
@@ -3335,7 +3335,7 @@ test.describe('display-backed agent flows', () => {
     await page.keyboard.press('Escape')
     await expect(page.getByTestId('code-terminal-grid')).toBeVisible()
 
-    await page.getByRole('button', { name: /Search/ }).click()
+    await page.getByRole('button', { name: 'Search', exact: true }).click()
     await page.getByTestId('code-search-box').locator('input').fill(mainSearchTerm)
     await expect(page.getByTestId('code-search-panel')).toContainText(mainSearchTerm)
     await page.getByTestId('code-search-box').locator('input').press('Enter')

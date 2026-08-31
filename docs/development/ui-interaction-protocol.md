@@ -63,6 +63,41 @@ isolation together; closing or unmounting one must not restore the background
 until the last owner releases it. Focus restoration must not target an inert
 background while another modal remains open.
 
+## Opening An Agent
+
+Search, History, and Project session activation share one navigation owner,
+regardless of pointer or keyboard input. The backend owns resume admission and
+the exact `(provider, providerHomeId, sessionId)` claim. The browser owns one
+current viewing intent, independently of those operations.
+
+The target page composes the shared side-view Back control (a labeled variant
+retains the source name) and the same recovery-action recipe as Search errors.
+It does not define a separate set of button states for session recovery.
+
+| State / trigger | Effect and exit |
+| --- | --- |
+| Activate a running Agent | Open its existing view without restarting its runtime |
+| Activate a cold or historical session | Immediately show the target title, workspace, and a bounded resume status; hide the previous content |
+| Resume returns an Agent identity | Wait for that exact Agent in authoritative state, with a deadline; then let the transcript view own history loading and its errors |
+| Known rejection | Keep the target page and an explicit retry action |
+| Transport failure, timeout, or ambiguous server failure | Keep an uncertain outcome; offer a bounded, read-only status check, never automatically repeat the mutation |
+| Another activation or navigation away | Revoke the old viewing intent, without stopping the Agent; late operations may reconcile membership but cannot navigate |
+| Back to Search or History | Restore the source query, filter/page, selection, and scroll; restore focus only as part of this explicit return |
+
+Same-session concurrent resumes join one operation. Different sessions may
+complete in any order, but only the current viewing intent can activate a pane.
+Leaving the page does not cancel backend work. Unmounting releases browser timers
+and requests. A status check reporting no current claim does not prove an earlier
+mutation failed, especially across backend restart; uncertainty must remain
+visible. A fresh status check can publish current Agent state for reconnect
+reconciliation, but cannot start or resume an Agent.
+
+Acceptance includes HTTP/state arrival in both orders, delayed history, stopped
+Agents, exact Home identity, repeated activation, A/B completion reordering,
+leaving while pending, known and uncertain failures, bounded waits, and return
+from file/resource contexts. Exercise Search and History with mouse and keyboard,
+including compact layouts and every supported appearance theme.
+
 ## Adoption And Verification
 
 New dismissible surfaces use the shared interaction layer. Existing domain
