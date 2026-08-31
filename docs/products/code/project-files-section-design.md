@@ -177,7 +177,16 @@ branch, file, empty directory, load failure, workspace change, or intervening
 user collapse.
 Direct pointer or keyboard expansion keeps the current row anchored in the
 single Project scroll surface. A toggle does not write Project scroll or start
-a reveal operation; only navigation to a different target owns reveal.
+a reveal operation; explicit navigation or the editor's Reveal in Explorer action
+owns reveal.
+
+The editor header keeps Reveal in Explorer available in source and preview
+views. It expands the current file's Project, Files section, and parent
+directories, opens a closed mobile sidebar, and locates the file using the
+existing reveal owner. Repeating the action repositions a file scrolled out of
+view without reopening it, reading its contents again, or changing its draft,
+editor model, or source/preview mode. An exact external file has no Project tree
+target and does not offer this action.
 
 The Explorer keeps active file, keyboard focus, and selection as distinct
 concepts. Opening a file from Chat, Terminal, search, History, Plugins, or a URL

@@ -128,7 +128,12 @@ Files 收起时，持久化的展开状态不能启动 Directory I/O。Files 重
 迁移到最终可见目录。该过程必须限制最大深度、检测重复路径、不得自动穿过 Symbolic Link，
 并在遇到分叉、文件、空目录、加载失败、Workspace 切换或用户中途折叠时停止。
 鼠标或键盘直接展开时，当前行必须锚定在唯一的 Project Scroll Surface 中。Toggle 不能写入
-Project Scroll，也不能启动 Reveal Operation；只有导航到其它 Target 时才拥有 Reveal。
+Project Scroll，也不能启动 Reveal Operation；显式导航或编辑器的“在文件树中显示”操作才拥有 Reveal。
+
+编辑器顶部在源码与预览模式下均提供“在文件树中显示”。该操作展开当前文件所属 Project、
+Files 区域与父目录，打开已关闭的手机侧边栏，并复用现有 Reveal Owner 定位文件。重复点击
+可以重新定位已经滚出视野的文件，不重新打开或读取文件，也不改变草稿、Editor Model 或
+源码/预览模式。Exact External File 不属于任何 Project Tree，因此不提供该操作。
 
 Explorer 区分 Active File、Keyboard Focus 与 Selection。从 Chat、Terminal、Search、History、
 Plugins 或 URL 打开文件时只有一个 Reveal Owner，避免 Tree 与 Project List 争夺 Focus 或

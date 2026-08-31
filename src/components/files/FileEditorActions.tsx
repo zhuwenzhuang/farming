@@ -1,6 +1,6 @@
 import type { OpenWorkspaceFile } from '@/lib/workspace-open-files'
 import type { WorkspaceEditorActionState } from '@/lib/workspace-editor-model'
-import { ChatBubblesGlyph, ErrorGlyph, RefreshGlyph, ShareGlyph } from '@/components/IconGlyphs'
+import { ChatBubblesGlyph, ErrorGlyph, RefreshGlyph, RevealInExplorerGlyph, ShareGlyph } from '@/components/IconGlyphs'
 import type { CodeCopy } from '../code/copy'
 import { shareNoticeAnchor, type ShareNoticeAnchor } from '../code/share-notice'
 
@@ -106,6 +106,7 @@ interface FileEditorActionsProps {
   agentSidePanelOpen: boolean
   onReload: () => void
   onSave: (overwrite?: boolean) => void
+  onRevealInExplorer: (agentId: string, filePath: string, kind: 'directory' | 'file') => void
   onCopyReadOnlyShareLink: (anchor: ShareNoticeAnchor) => void
   onToggleMarkdownSplit: () => void
   onToggleSourcePreview: () => void
@@ -126,6 +127,7 @@ export function FileEditorActions({
   agentSidePanelOpen,
   onReload,
   onSave,
+  onRevealInExplorer,
   onCopyReadOnlyShareLink,
   onToggleMarkdownSplit,
   onToggleSourcePreview,
@@ -143,6 +145,18 @@ export function FileEditorActions({
         <span className={`code-file-editor-status ${openFile.externalChanged ? 'warning' : ''}`}>
           {statusText}
         </span>
+      )}
+      {!openFile.exactExternal && openFile.file.path && (
+        <button
+          type="button"
+          className="code-file-editor-action reveal"
+          data-testid="code-file-editor-reveal"
+          onClick={() => onRevealInExplorer(openFile.agentId, openFile.file.path, 'file')}
+          aria-label={copy.revealInExplorer(openFile.file.path)}
+          title={copy.revealInExplorer(openFile.file.path)}
+        >
+          <RevealInExplorerGlyph className="code-file-editor-action-svg" />
+        </button>
       )}
       <button
         type="button"
