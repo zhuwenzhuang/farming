@@ -277,8 +277,11 @@ The Explorer preserves one Project-sidebar scroll surface even when many
 directories remain expanded. Its complete row projection keeps keyboard
 navigation and persisted expansion stable, while only a bounded
 viewport neighborhood is mounted. The outer Project scroller owns the complete
-logical tree height; the virtual tree window follows that scroll offset without
-introducing a second scrollbar. The cost of a large restored tree is therefore
+logical tree height and all physical row movement. The virtualizer uses that
+offset only to select mounted rows; its DOM must not create a second scrolling
+surface or compensate with a scroll-linked transform. Independently committed
+inner scrolling and transforms can otherwise move rows twice or leave them one
+frame behind a native touch gesture. The cost of a large restored tree is therefore
 bounded by the visible neighborhood rather than the complete projection.
 A scroll frame must not enumerate the complete expanded tree or read layout
 from every mounted file row.

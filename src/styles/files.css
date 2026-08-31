@@ -859,8 +859,7 @@ body.code-mode .code-file-change-group-toggle {
   left: 0;
   right: 0;
   min-height: 0;
-  overflow: hidden;
-  will-change: transform;
+  overflow: visible;
 }
 
 .code-file-tree {
@@ -870,7 +869,7 @@ body.code-mode .code-file-change-group-toggle {
   width: 100% !important;
   flex: 0 0 auto;
   box-sizing: border-box;
-  overflow: hidden !important;
+  overflow: visible !important;
   overscroll-behavior: auto;
 }
 

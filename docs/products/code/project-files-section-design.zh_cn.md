@@ -204,8 +204,10 @@ Farming Instance 都是同一文件系统的独立客户端。
 
 即使有许多目录保持展开，Explorer 也只保留一个 Project Sidebar 滚动面。完整 Row Projection
 用于稳定 Keyboard Navigation 与持久化 Expansion，但只挂载有界的 Viewport
-邻域。外层 Project Scroller 拥有完整逻辑树高度；Virtual Tree Window 跟随该 Scroll Offset，
-不能引入第二个 Scrollbar。因此大型恢复树的成本由可见邻域而不是完整 Projection 决定。单个
+邻域。外层 Project Scroller 拥有完整逻辑树高度及所有 Row 的实际位移。Virtualizer 只按
+该 Offset 选择挂载范围；其 DOM 不得创建第二个滚动面，也不能用跟随 Scroll 的 Transform
+补偿。否则内层滚动与 Transform 分别提交时，会让 Row 重复移动或落后原生触摸手势一帧。
+因此大型恢复树的成本由可见邻域而不是完整 Projection 决定。单个
 滚动帧不得遍历完整展开树，也不得读取每个已挂载文件 Row 的布局。
 
 Directory Tree 不渲染屏外祖先的随滚动联动副本；真实的 Virtualized Tree Row 是唯一的目录行和

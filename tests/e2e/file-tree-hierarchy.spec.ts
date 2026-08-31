@@ -293,7 +293,8 @@ test('keeps a restored production-sized file projection responsive offscreen', a
   })
   expect(scrollWork.maximumScrollTop).toBeGreaterThan(0)
   expect(scrollWork.fileRowLayoutReads).toBe(0)
-  await expect(treeWindow).not.toHaveCSS('transform', 'none')
+  await expect(treeWindow).toHaveCSS('transform', 'none')
+  await expect(files.locator('.code-file-tree')).toHaveCSS('overflow', 'visible')
   await expect(files.getByTestId('code-file-sticky-stack')).toHaveCount(0)
 
   const editor = page.getByTestId('code-file-editor')

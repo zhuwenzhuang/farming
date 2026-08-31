@@ -294,7 +294,6 @@ const FileTreeViewContent = memo(function FileTreeViewContent({
     filePath: string
     timeStamp: number
   } | null>(null)
-  const treeWindowRef = useRef<HTMLDivElement | null>(null)
   const virtualScrollOffsetRef = useRef(0)
   const previousRowHeightRef = useRef(rowHeight)
   const [treeWindowHeight, setTreeWindowHeight] = useState(() => (
@@ -336,39 +335,34 @@ const FileTreeViewContent = memo(function FileTreeViewContent({
   useLayoutEffect(() => {
     const viewport = treeViewportRef.current
     const scroller = viewport?.closest<HTMLElement>('.code-project-list')
-    const treeWindow = treeWindowRef.current
-    if (!viewport || !scroller || !treeWindow) return undefined
+    if (!viewport || !scroller) return undefined
     let frameId = 0
-    const synchronizeWindow = () => {
+    const synchronize = () => {
+      frameId = 0
       const viewportRect = viewport.getBoundingClientRect()
       const scrollerRect = scroller.getBoundingClientRect()
       const maxOffset = Math.max(0, treeHeight - treeWindowHeight)
       const offset = Math.max(0, Math.min(maxOffset, scrollerRect.top - viewportRect.top))
       virtualScrollOffsetRef.current = offset
-      treeWindow.style.transform = `translateY(${offset}px)`
-      return offset
-    }
-    const synchronize = () => {
-      frameId = 0
-      treeRef.current?.list.current?.scrollTo(synchronizeWindow())
+      // The list uses this offset only to choose mounted rows. Its DOM has
+      // visible overflow, so rows stay in the outer scroller's coordinates.
+      // Mirroring native scroll with a translated window and a second
+      // scrollTop makes those two independently committed offsets drift.
+      treeRef.current?.list.current?.scrollTo(offset)
     }
     const scheduleSynchronize = () => {
       if (frameId) return
       frameId = window.requestAnimationFrame(synchronize)
     }
-    const handleScrollerScroll = () => {
-      synchronizeWindow()
-      scheduleSynchronize()
-    }
     synchronize()
-    scroller.addEventListener('scroll', handleScrollerScroll, { passive: true })
+    scroller.addEventListener('scroll', scheduleSynchronize, { passive: true })
     window.addEventListener('resize', scheduleSynchronize)
     const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(scheduleSynchronize)
     observer?.observe(viewport)
     return () => {
       if (frameId) window.cancelAnimationFrame(frameId)
       observer?.disconnect()
-      scroller.removeEventListener('scroll', handleScrollerScroll)
+      scroller.removeEventListener('scroll', scheduleSynchronize)
       window.removeEventListener('resize', scheduleSynchronize)
     }
   }, [treeHeight, treeRef, treeViewportRef, treeWindowHeight])
@@ -516,7 +510,6 @@ const FileTreeViewContent = memo(function FileTreeViewContent({
       <FileNodeRendererContext.Provider value={nodeRendererContext}>
         <div
           className="code-file-tree-window"
-          ref={treeWindowRef}
           style={{ height: treeWindowHeight }}
         >
           <Tree<FileExplorerNode>
