@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import type { AgentStateWire } from '../../shared/agent-state-wire'
 import {
   expect,
   getAgentIdFromRow,
@@ -167,10 +168,6 @@ async function terminalText(page: import('@playwright/test').Page, agentId: stri
   return (await terminalRows(page, agentId, 100)).join('\n')
 }
 
-async function terminalTextWithoutWhitespace(page: import('@playwright/test').Page, agentId: string) {
-  return (await terminalText(page, agentId)).replace(/\s+/g, '')
-}
-
 test.describe('additional Farming Code user scenarios', () => {
   test('covers 31 additional desktop user-facing UI scenarios', async ({ page, workspaceRoot }) => {
     test.setTimeout(90_000)
@@ -256,7 +253,12 @@ test.describe('additional Farming Code user scenarios', () => {
       await expect(page.getByTestId('input-dialog')).toBeHidden({ timeout: 30_000 })
       const { agentId } = await getAgentIdFromRow(page)
       bashAgentId = agentId
-      await expect.poll(async () => terminalTextWithoutWhitespace(page, agentId)).toContain(path.basename(projectDir))
+      await expect.poll(async () => {
+        const response = await page.request.get('/farming/api/control/agents')
+        expect(response.ok(), await response.text()).toBeTruthy()
+        const { agents } = await response.json() as { agents: AgentStateWire[] }
+        return agents.find(agent => agent.id === agentId)?.cwd
+      }).toBe(projectDir)
     })
 
     await scenario('New Agent can pick an existing recent workspace history entry', async () => {
@@ -328,8 +330,11 @@ test.describe('additional Farming Code user scenarios', () => {
       await searchInput.fill(path.basename(projectDir))
       await expect(page.getByTestId('code-search-panel')).toBeVisible()
       await expect(page.getByTestId('code-search-result')).toHaveCount(2)
-      await expect(page.getByTestId('code-search-result-project')).toHaveCount(2)
-      await expect(page.getByTestId('code-search-result-project').first()).toHaveText(path.basename(projectDir))
+      const agentGroup = page.getByTestId('code-search-panel').getByRole('group')
+        .filter({ has: page.getByTestId('code-search-result') })
+      await expect(agentGroup).toHaveCount(1)
+      await expect(agentGroup.getByRole('heading')).toContainText(path.basename(projectDir))
+      await expect(agentGroup.getByTestId('code-search-result')).toHaveCount(2)
       await searchInput.fill('not-a-real-agent-name')
       await expect(page.getByTestId('code-empty-search')).toBeVisible()
       await page.getByTestId('code-search-box').getByRole('button', { name: 'Clear search' }).click()

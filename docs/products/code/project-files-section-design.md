@@ -37,6 +37,10 @@ delta; a later layer must never slide over the Project name or branch first.
 Directory rows scroll beneath this summary stack and do not add another
 scroll-linked ancestor summary.
 
+Open Editors bounds its sticky list to seven rows using the same responsive row
+height as the file tree. A longer editor list scrolls within that bounded summary;
+an unfilled list does not reserve a second scrollbar gutter that shifts its actions.
+
 Project Agent rows use progressive disclosure to keep large Agent groups
 scannable. A Project initially shows five Agents, the first Show more action
 reveals up to five more, later actions reveal up to ten more, and Show less
@@ -231,6 +235,9 @@ The filesystem is authoritative. A browser working copy keeps a disk baseline,
 a draft, and a revision. Saving one revision must not mark a newer draft clean.
 Unsaved drafts may have bounded browser-local recovery, but they do not become a
 second filesystem authority.
+
+On narrow touch layouts, conflict actions wrap when necessary so Reload and
+Overwrite remain directly visible without reducing their touch targets.
 
 Open files watch only their exact workspace-relative paths and use filesystem
 events to trigger an authoritative re-read. Opening files must not introduce a

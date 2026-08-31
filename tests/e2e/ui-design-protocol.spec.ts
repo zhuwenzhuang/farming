@@ -85,7 +85,11 @@ test('shared sidebar labels, action glyphs and menus survive long names and resp
   await openDrawer(page)
   const editorsTitle = project.locator('.code-open-editors-title')
   if (await editorsTitle.getAttribute('aria-expanded') !== 'true') await editorsTitle.click()
-  for (const toggle of await files.locator('.code-file-change-group-toggle').all()) {
+  // Git status loads independently from the editor. Wait for both fixture
+  // groups before enumerating them; locator.all() does not wait for results.
+  const changeGroups = files.locator('.code-file-change-group-toggle')
+  await expect(changeGroups).toHaveCount(2)
+  for (const toggle of await changeGroups.all()) {
     if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click()
   }
   // Initial layout, opposite width, and return exercise the same runtime tree.

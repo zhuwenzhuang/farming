@@ -32,6 +32,9 @@ Files Header 组成同一个分层 Sticky Summary；后一层 Offset 来自前�
 到达尾部边界后，所有可见层必须以相同 Scroll Delta 一起释放，后层不能先滑过并遮住 Project
 名称或 Branch。Directory Row 从这组 Summary Stack 下方滚过，不再增加随滚动联动的祖先摘要行。
 
+Open Editors 的 Sticky 列表最多展示 7 行，高度使用与文件树相同的响应式行高。更长的编辑器
+列表在这个有界摘要区内滚动；未填满时不额外预留滚动条空隙，避免操作按钮偏离共同的对齐边界。
+
 Project Agent 行采用渐进展示，避免大型 Agent 分组难以浏览。Project 初始显示 5 个 Agent，
 第一次“显示更多”最多再显示 5 个，之后每次最多再显示 10 个；“显示较少”恢复为初始 5 个。
 Selection、Search 与 Active Agent 变化可以替换当前容量内的行，但只有“显示更多”和
@@ -167,6 +170,9 @@ Agent Reveal，以及直接的 Pointer、Wheel 或 Keyboard 意图，会在旧 O
 文件系统是权威来源。Browser Working Copy 保留 Disk Baseline、Draft 与 Revision。保存某个
 Revision 完成时，不能把更新 Draft 错误标成 Clean。Unsaved Draft 可以有界地在 Browser Local
 恢复，但不能成为第二套文件系统权威。
+
+窄屏触控布局下，冲突操作在必要时换行，让 Reload 与 Overwrite 保持直接可见，
+不缩小触控区域。
 
 已打开文件只监听其精确的 Workspace Relative Path，并由文件系统事件触发权威重读；打开文件
 不能引入递归 Project Watcher。精确路径在每个 Workspace 内共享一个增量更新的 Watcher，重读

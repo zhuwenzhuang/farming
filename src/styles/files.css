@@ -573,10 +573,12 @@ body.code-mode .code-file-change-group-toggle {
   display: flex;
   flex-direction: column;
   gap: 0;
-  max-height: var(--code-open-editors-list-max-height, 196px);
+  max-height: calc(var(--code-open-editors-visible-rows, 7) * var(--code-open-editor-row-height));
   overflow-y: auto;
   overscroll-behavior: contain;
-  scrollbar-gutter: stable;
+  /* Reserve space only when this bounded list actually overflows. A second
+     permanent gutter offsets row actions from the shared Project action edge. */
+  scrollbar-gutter: auto;
 }
 
 .code-open-editor-row {

@@ -58,7 +58,13 @@ test('keeps composed sidebar density and alignment through resize, expansion, an
   // not a second density policy based on the input device.
   for (const compact of [false, true, false]) {
     await page.setViewportSize(compact ? { width: 393, height: 852 } : { width: 1280, height: 900 })
-    if (compact) await openDrawer()
+    // ResizeObserver commits the navigation mode after the viewport changes.
+    // Wait for that transition before reading the drawer state or clicking it.
+    if (compact) {
+      await expect(sidebar).toHaveClass(/collapsed/)
+      await openDrawer()
+    }
+    await expect(sidebar).not.toHaveClass(/collapsed/)
     const height = compact ? 28 : 24
     for (const appearance of ['light', 'dark', 'paper'] as const) {
       await page.emulateMedia({ colorScheme: appearance === 'dark' ? 'dark' : 'light', reducedMotion: 'reduce' })
@@ -76,6 +82,7 @@ test('keeps composed sidebar density and alignment through resize, expansion, an
       expect((await rect(editorsTitle)).x).toBe((await rect(filesTitle)).x)
       const refresh = await rect(files.locator('.code-files-refresh'))
       const close = await rect(project.locator('.code-open-editor-close'))
+      await expect(project.locator('.code-open-editors-list')).toHaveCSS('scrollbar-gutter', 'auto')
       expect(close.x + close.width / 2).toBe(refresh.x + refresh.width / 2)
       if (compact) {
         const titleRect = await rect(project.getByTestId('code-project-title'))

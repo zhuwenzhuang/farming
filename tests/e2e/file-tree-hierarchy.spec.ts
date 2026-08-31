@@ -305,6 +305,7 @@ test('keeps a restored production-sized file projection responsive offscreen', a
   for (let index = 0; index < interactionPaths.length; index += 1) {
     const filePath = interactionPaths[index]!
     await tree.focus()
+    await expect.poll(() => tree.evaluate(element => element.contains(document.activeElement))).toBe(true)
     if (filePath === firstPath) {
       await page.keyboard.press('Home')
       await page.keyboard.press('ArrowDown')
@@ -316,6 +317,10 @@ test('keeps a restored production-sized file projection responsive offscreen', a
     if (index === 0) await row.dblclick({ timeout: 3_000 })
     else await row.click({ timeout: 3_000 })
     await expect(editor.getByRole('tab', { selected: true })).toHaveAttribute('title', filePath)
+    // A tab title also exists during loading. Wait for this file's Monaco model
+    // before transferring focus back to the tree for the next keyboard journey.
+    await expect.poll(() => page.evaluate(() => window.__farmingFileEditorTest?.getValue()))
+      .toBe(fs.readFileSync(path.join(workspace, filePath), 'utf8'))
     await expect(page.getByTestId('code-file-editor-alert')).toHaveCount(0)
   }
   await expect(editor.locator(`.code-file-editor-tab[title="${firstPath}"]`)).not.toHaveAttribute('data-preview', 'true')

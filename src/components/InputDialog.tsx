@@ -261,9 +261,6 @@ export function InputDialog({
               : 'terminal',
           )
           setStep('workspace')
-          if (!isMobileViewport()) {
-            setTimeout(() => inputRef.current?.focus(), 50)
-          }
         }
       })
       .catch(() => {
@@ -347,6 +344,14 @@ export function InputDialog({
     if (!workspacePreparation || workspacePreparation.kind === 'creating') return
     workspacePromptPrimaryRef.current?.focus()
   }, [workspacePreparation])
+
+  useLayoutEffect(() => {
+    if (!open || step !== 'workspace' || isMobileViewport()) return
+    // The workspace DOM is committed now. Complete its initial focus before
+    // the next user action, without a delayed callback that can steal focus
+    // from a Home menu, keyboard navigation, or another interaction layer.
+    inputRef.current?.focus({ preventScroll: true })
+  }, [open, step])
 
   useLayoutEffect(() => {
     if (!open || step !== 'agent-list' || !agentsLoaded || agentLoadFailed) return
@@ -518,9 +523,6 @@ export function InputDialog({
     setDiscoveredWorkspaces([])
     setHistorySelection(-1)
     setStep('workspace')
-    if (!isMobileViewport()) {
-      setTimeout(() => inputRef.current?.focus(), 50)
-    }
   }, [agentHomes, initialWorkspace, lockStartClick, mainWorkspaceDefault, mustStartMain, onStart, resumeStartOptions, settingsLoaded, workspace])
 
   const persistWorkspaceHistory = useCallback((nextWorkspace: string) => {

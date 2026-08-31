@@ -85,73 +85,102 @@ test('IME cancellation does not dismiss a menu or its parent dialog', async ({ p
 })
 
 test('wizard and portal dialogs own Escape above the background search', async ({ page, workspaceRoot }) => {
+  const current = await page.request.get('/farming/api/settings')
+  expect(current.ok(), await current.text()).toBeTruthy()
+  const { settings: { agentHomes } } = await current.json() as {
+    settings: { agentHomes: Record<string, Array<{ id: string; path: string }>> }
+  }
+  // Existing Home identities may own persisted sessions from an earlier test.
+  // Keep their paths and add an unused Home solely to exercise the picker.
   const settings = await page.request.post('/farming/api/settings', {
-    data: { agentHomes: { codex: [
-      { id: 'default', path: path.join(workspaceRoot, 'default-home') },
-      { id: 'work', path: path.join(workspaceRoot, 'work-home') },
+    data: { agentHomes: { ...agentHomes, codex: [
+      ...agentHomes.codex,
+      { id: `interaction-${process.pid}`, path: path.join(workspaceRoot, 'interaction-home') },
     ] } },
   })
-  expect(settings.ok()).toBeTruthy()
-  const response = await page.request.post('/farming/api/control/agents', {
-    data: { command: 'bash', workspace: workspaceRoot },
-  })
-  expect(response.ok()).toBeTruthy()
-  await page.route('**/api/agent-sessions/search?**', route => route.fulfill({ json: { sessions: [] } }))
-  await openFarming(page)
-  await page.getByTestId('code-nav-search').click()
-  const search = page.getByTestId('code-search-box').locator('input')
-  await search.fill('sql-insight')
+  expect(settings.ok(), await settings.text()).toBeTruthy()
+  try {
+    const response = await page.request.post('/farming/api/control/agents', {
+      data: { command: 'bash', workspace: workspaceRoot },
+    })
+    expect(response.ok()).toBeTruthy()
+    await page.route('**/api/agent-sessions/search?**', route => route.fulfill({ json: { sessions: [] } }))
+    await page.clock.install()
+    await openFarming(page)
+    await page.getByTestId('code-nav-search').click()
+    const search = page.getByTestId('code-search-box').locator('input')
+    await search.fill('sql-insight')
 
-  // New Agent intentionally navigates to Projects; Escape still advances only
-  // one wizard layer at a time, including the nested Home menu.
-  const newAgent = page.getByTestId('code-new-agent')
-  await newAgent.focus()
-  await newAgent.press('Enter')
-  const wizard = page.getByTestId('input-dialog')
-  await expect(wizard).toBeVisible()
-  await expect(search).toBeHidden()
-  await page.getByTestId('agent-option-codex').click()
-  const workspace = page.getByTestId('workspace-step')
-  await expect(workspace).toBeVisible()
-  const home = page.getByTestId('agent-home-select')
-  await home.click()
-  await expect(page.getByTestId('agent-home-menu')).toBeVisible()
-  await page.keyboard.press('Escape')
-  await expect(page.getByTestId('agent-home-menu')).toBeHidden()
-  await expect(home).toBeFocused()
-  await expect(workspace).toBeVisible()
-  await page.keyboard.press('Escape')
-  await expect(workspace).toBeHidden()
-  await expect(wizard).toBeVisible()
-  await page.keyboard.press('Escape')
-  await expect(wizard).toBeHidden()
-
-  await page.getByTestId('code-nav-search').click()
-  await search.fill('sql-insight')
-
-  // These portal dialogs leave the underlying view open, including when their
-  // triggers are activated by keyboard without an outside pointer event.
-  for (const [triggerId, dialogId] of [
-    ['code-sidebar-focus-toggle', 'code-app-mode-dialog'],
-    ['code-product-mark', 'code-brand-dialog'],
-    ['code-instance-name-edit', 'code-instance-name-dialog'],
-  ]) {
-    const trigger = page.getByTestId(triggerId)
-    await trigger.focus()
-    await trigger.press('Enter')
-    const dialog = page.getByTestId(dialogId)
-    await expect(dialog).toBeVisible()
-    await expect(page.locator('#root')).toHaveAttribute('inert', '')
-    await page.keyboard.press('Tab')
-    expect(await dialog.evaluate(element => element.contains(document.activeElement))).toBe(true)
+    // New Agent intentionally navigates to Projects; Escape still advances only
+    // one wizard layer at a time, including the nested Home menu.
+    const newAgent = page.getByTestId('code-new-agent')
+    await newAgent.focus()
+    await newAgent.press('Enter')
+    const wizard = page.getByTestId('input-dialog')
+    await expect(wizard).toBeVisible()
+    await expect(search).toBeHidden()
+    // Hold delayed transition callbacks until Home has taken focus and Escape
+    // has returned it; the previous 50ms autofocus must not steal it afterwards.
+    await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1_000))
+    await page.getByTestId('agent-option-codex').click()
+    const workspace = page.getByTestId('workspace-step')
+    await expect(workspace).toBeVisible()
+    const home = page.getByTestId('agent-home-select')
+    await home.click()
+    await expect(page.getByTestId('agent-home-menu')).toBeVisible()
     await page.keyboard.press('Escape')
-    await expect(dialog).toBeHidden()
-    await expect(trigger).toBeFocused()
-    await expect(page.locator('#root')).not.toHaveAttribute('inert', '')
-    await expect(search).toHaveValue('sql-insight')
+    await expect(page.getByTestId('agent-home-menu')).toBeHidden()
+    await page.clock.runFor(100)
+    await expect(home).toBeFocused()
+    await page.clock.resume()
+    await expect(workspace).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(workspace).toBeHidden()
+    await expect(wizard).toBeVisible()
+    // Keep the closing wizard's deferred return-focus callbacks pending while
+    // the user navigates to Search and opens another dialog.
+    await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1_000))
+    await page.keyboard.press('Escape')
+    await expect(wizard).toBeHidden()
+
+    await page.getByTestId('code-nav-search').click()
+    await search.fill('sql-insight')
+    // Let Search finish its initial focus frames while the closed wizard's
+    // later 80/180ms return-focus callbacks are still pending.
+    await page.clock.runFor(32)
+    await expect(search).toBeFocused()
+
+    // These portal dialogs leave the underlying view open, including when their
+    // triggers are activated by keyboard without an outside pointer event.
+    for (const [triggerId, dialogId] of [
+      ['code-sidebar-focus-toggle', 'code-app-mode-dialog'],
+      ['code-product-mark', 'code-brand-dialog'],
+      ['code-instance-name-edit', 'code-instance-name-dialog'],
+    ]) {
+      const trigger = page.getByTestId(triggerId)
+      await trigger.focus()
+      await trigger.press('Enter')
+      const dialog = page.getByTestId(dialogId)
+      await expect(dialog).toBeVisible()
+      await expect(page.locator('#root')).toHaveAttribute('inert', '')
+      await page.keyboard.press('Tab')
+      expect(await dialog.evaluate(element => element.contains(document.activeElement))).toBe(true)
+      await page.keyboard.press('Escape')
+      await expect(dialog).toBeHidden()
+      if (triggerId === 'code-product-mark') {
+        await page.clock.runFor(200)
+        await page.clock.resume()
+      }
+      await expect(trigger).toBeFocused()
+      await expect(page.locator('#root')).not.toHaveAttribute('inert', '')
+      await expect(search).toHaveValue('sql-insight')
+    }
+    await page.keyboard.press('Escape')
+    await expect(search).toBeHidden()
+  } finally {
+    const restored = await page.request.post('/farming/api/settings', { data: { agentHomes } })
+    expect(restored.ok(), await restored.text()).toBeTruthy()
   }
-  await page.keyboard.press('Escape')
-  await expect(search).toBeHidden()
 })
 
 test('editor tab menu closes on outside pointer and restores its tab on Escape', async ({ page, workspaceRoot }) => {
@@ -165,6 +194,9 @@ test('editor tab menu closes on outside pointer and restores its tab on Escape',
   const filesTitle = project.locator('.code-files-title').first()
   if (await filesTitle.getAttribute('aria-expanded') !== 'true') await filesTitle.click()
   await project.locator('[data-testid="code-file-row"][data-file-path="notes.txt"]').click()
+  // The loading shell also shows a tab label, but has no tab interactions yet.
+  await expect.poll(() => page.evaluate(() => window.__farmingFileEditorTest?.getValue()))
+    .toBe('Interaction fixture\n')
   const tab = page.getByTestId('code-file-editor').getByRole('tab', { selected: true })
   await expect(tab).toContainText('notes.txt')
   const menu = page.getByTestId('code-file-tab-context-menu')

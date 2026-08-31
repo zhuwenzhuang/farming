@@ -2,29 +2,31 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { expect, openFarming, test } from './fixtures'
 
-test('large file tree preserves native scroll geometry on every frame @native-file-scroll', async ({ page, workspaceRoot, isMobile, browserName }, testInfo) => {
-  testInfo.setTimeout(90_000)
-  const workspace = path.join(workspaceRoot, 'native-file-scrolling')
-  fs.mkdirSync(path.join(workspace, 'sources'), { recursive: true })
-  for (let index = 0; index < 2_000; index++) {
-    fs.writeFileSync(path.join(workspace, 'sources', `module-${String(index).padStart(4, '0')}.ts`), `export const value = ${index}\n`)
-  }
-  const response = await page.request.post('/farming/api/control/agents', { data: { command: 'bash', workspace, name: 'Scroll sample' } })
-  expect(response.ok()).toBeTruthy()
-  await openFarming(page)
-  const sidebar = page.getByTestId('code-sidebar')
-  if (await sidebar.evaluate(element => element.classList.contains('collapsed'))) await page.getByTestId('code-mobile-menu').click()
-  const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(workspace) })
-  const files = project.getByTestId('code-files-section')
-  const title = files.locator('.code-files-title')
-  if (await title.getAttribute('aria-expanded') !== 'true') await title.click()
-  const directory = files.locator('[data-file-path="sources"]')
-  if (isMobile) await directory.tap()
-  else await directory.click()
-  await expect(files.locator('.code-file-tree-viewport')).toHaveAttribute('data-visible-row-count', '2001')
-  await expect.poll(() => files.locator('[data-file-path]').count()).toBeLessThan(100)
+// Keep each appearance's 90 real animation frames in its own bounded test.
+// Software-rendered Linux WebKit can take about 36 seconds for that sample.
+for (const appearance of ['light', 'dark', 'paper'] as const) {
+  test(`large file tree preserves native scroll geometry on every frame in ${appearance} @native-file-scroll`, async ({ page, workspaceRoot, isMobile, browserName }, testInfo) => {
+    testInfo.setTimeout(90_000)
+    const workspace = path.join(workspaceRoot, `native-file-scrolling-${appearance}`)
+    fs.mkdirSync(path.join(workspace, 'sources'), { recursive: true })
+    for (let index = 0; index < 2_000; index++) {
+      fs.writeFileSync(path.join(workspace, 'sources', `module-${String(index).padStart(4, '0')}.ts`), `export const value = ${index}\n`)
+    }
+    const response = await page.request.post('/farming/api/control/agents', { data: { command: 'bash', workspace, name: 'Scroll sample' } })
+    expect(response.ok()).toBeTruthy()
+    await openFarming(page)
+    const sidebar = page.getByTestId('code-sidebar')
+    if (await sidebar.evaluate(element => element.classList.contains('collapsed'))) await page.getByTestId('code-mobile-menu').click()
+    const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(workspace) })
+    const files = project.getByTestId('code-files-section')
+    const title = files.locator('.code-files-title')
+    if (await title.getAttribute('aria-expanded') !== 'true') await title.click()
+    const directory = files.locator('[data-file-path="sources"]')
+    if (isMobile) await directory.tap()
+    else await directory.click()
+    await expect(files.locator('.code-file-tree-viewport')).toHaveAttribute('data-visible-row-count', '2001')
+    await expect.poll(() => files.locator('[data-file-path]').count()).toBeLessThan(100)
 
-  for (const appearance of ['light', 'dark', 'paper']) {
     await page.evaluate(value => {
       document.body.dataset.appearance = value
       document.documentElement.dataset.appearance = value
@@ -90,21 +92,21 @@ test('large file tree preserves native scroll geometry on every frame @native-fi
     // geometry and final touch activation are verified without faking a swipe.
     await expect.poll(() => files.locator('.code-file-tree').evaluate(element => element.scrollTop)).toBe(0)
     await sidebar.screenshot({ path: testInfo.outputPath(`${appearance}-native-scroll.png`), animations: 'disabled' })
-  }
-  // A new virtual range still owns ordinary file activation after scrolling.
-  const visiblePath = await files.evaluate(section => {
-    const scroller = section.closest<HTMLElement>('.code-project-list')!
-    const bounds = scroller.getBoundingClientRect()
-    const rows = [...section.querySelectorAll<HTMLElement>('[data-file-type="file"]')]
-    return rows.find(row => {
-      const rect = row.getBoundingClientRect()
-      return rect.top >= bounds.top + bounds.height * 0.6 && rect.bottom < bounds.bottom
-    })?.dataset.filePath
+    // A new virtual range still owns ordinary file activation after scrolling.
+    const visiblePath = await files.evaluate(section => {
+      const scroller = section.closest<HTMLElement>('.code-project-list')!
+      const bounds = scroller.getBoundingClientRect()
+      const rows = [...section.querySelectorAll<HTMLElement>('[data-file-type="file"]')]
+      return rows.find(row => {
+        const rect = row.getBoundingClientRect()
+        return rect.top >= bounds.top + bounds.height * 0.6 && rect.bottom < bounds.bottom
+      })?.dataset.filePath
+    })
+    expect(visiblePath).toBeTruthy()
+    const row = files.locator(`[data-file-path="${visiblePath}"]`)
+    if (isMobile) await row.tap()
+    else await row.click()
+    await expect(page.getByTestId('code-file-editor')).toBeVisible()
+    await expect(page.getByTestId('code-file-editor')).toContainText(path.basename(visiblePath!))
   })
-  expect(visiblePath).toBeTruthy()
-  const row = files.locator(`[data-file-path="${visiblePath}"]`)
-  if (isMobile) await row.tap()
-  else await row.click()
-  await expect(page.getByTestId('code-file-editor')).toBeVisible()
-  await expect(page.getByTestId('code-file-editor')).toContainText(path.basename(visiblePath!))
-})
+}

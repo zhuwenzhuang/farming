@@ -1108,19 +1108,21 @@ test.describe('iPhone mobile layout', () => {
       const scroller = element.closest<HTMLElement>('.code-project-list')
       const viewport = element.querySelector<HTMLElement>('.code-file-tree-viewport')
       const treeWindow = element.querySelector<HTMLElement>('.code-file-tree-window')
-      if (!scroller || !viewport || !treeWindow) throw new Error('Large Files viewport is incomplete')
+      const tree = element.querySelector<HTMLElement>('.code-file-tree')
+      if (!scroller || !viewport || !treeWindow || !tree) throw new Error('Large Files viewport is incomplete')
       const nextFrame = () => new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
       scroller.scrollTop = Math.min(4_000, scroller.scrollHeight - scroller.clientHeight)
       await nextFrame()
       const samples: number[] = []
       const windowDrift: number[] = []
+      const innerOffsets: number[] = []
       const onScroll = () => {
         const viewportRect = viewport.getBoundingClientRect()
-        const scrollerRect = scroller.getBoundingClientRect()
-        const maxOffset = Math.max(0, viewport.offsetHeight - treeWindow.offsetHeight)
-        const expectedOffset = Math.max(0, Math.min(maxOffset, scrollerRect.top - viewportRect.top))
         samples.push(scroller.scrollTop)
-        windowDrift.push(Math.abs(treeWindow.getBoundingClientRect().top - (viewportRect.top + expectedOffset)))
+        // The virtual window stays in document coordinates; only the outer
+        // Project list physically scrolls, regardless of the mounted range.
+        windowDrift.push(Math.abs(treeWindow.getBoundingClientRect().top - viewportRect.top))
+        innerOffsets.push(tree.scrollTop)
       }
       scroller.addEventListener('scroll', onScroll)
       for (let step = 0; step < 13; step += 1) {
@@ -1137,6 +1139,7 @@ test.describe('iPhone mobile layout', () => {
         release,
         settled: scroller.scrollTop,
         maxWindowDrift: Math.max(0, ...windowDrift),
+        innerOffsets,
       }
     })
     expect(scrollMetrics.maximum).toBeGreaterThan(30_000)
@@ -1144,6 +1147,7 @@ test.describe('iPhone mobile layout', () => {
     expect(scrollMetrics.samples.every((value, index, values) => index === 0 || value > values[index - 1]!)).toBe(true)
     expect(Math.abs(scrollMetrics.settled - scrollMetrics.release)).toBeLessThanOrEqual(1)
     expect(scrollMetrics.maxWindowDrift).toBeLessThanOrEqual(1)
+    expect(scrollMetrics.innerOffsets.every(offset => offset === 0)).toBe(true)
 
     const actionTarget = await files.locator('[data-testid="code-file-row"]').evaluateAll(rows => {
       const scroller = rows[0]?.closest<HTMLElement>('.code-project-list')
@@ -1280,6 +1284,38 @@ test.describe('iPhone mobile layout', () => {
     expect(submenuBounds.right).toBeLessThanOrEqual(submenuBounds.width - 8)
     expect(submenuBounds.top).toBeGreaterThanOrEqual(8)
     expect(submenuBounds.bottom).toBeLessThanOrEqual(submenuBounds.height - 8)
+    const keyboardBounds = await agentSubmenu.evaluate(element => {
+      const viewport = window.visualViewport
+      if (!viewport) throw new Error('Mobile menu acceptance requires VisualViewport')
+      const properties = ['offsetLeft', 'offsetTop', 'width', 'height'] as const
+      const descriptors = properties.map(property => Object.getOwnPropertyDescriptor(viewport, property))
+      const results: boolean[] = []
+      try {
+        for (const [index, event] of ['resize', 'scroll'].entries()) {
+          const bounds = { offsetLeft: 24, offsetTop: 48 + index * 48, width: window.innerWidth - 48, height: 240 }
+          for (const property of properties) Object.defineProperty(viewport, property, { configurable: true, value: bounds[property] })
+          viewport.dispatchEvent(new Event(event))
+          const rect = element.getBoundingClientRect()
+          results.push(
+            rect.left >= bounds.offsetLeft + 7
+            && rect.right <= bounds.offsetLeft + bounds.width - 7
+            && rect.top >= bounds.offsetTop + 7
+            && rect.bottom <= bounds.offsetTop + bounds.height - 7
+            && element.style.maxHeight === `${bounds.height - 16}px`
+            && element.style.maxWidth === `${bounds.width - 16}px`,
+          )
+        }
+      } finally {
+        properties.forEach((property, index) => {
+          const descriptor = descriptors[index]
+          if (descriptor) Object.defineProperty(viewport, property, descriptor)
+          else Reflect.deleteProperty(viewport, property)
+        })
+        viewport.dispatchEvent(new Event('resize'))
+      }
+      return results
+    })
+    expect(keyboardBounds, 'submenu follows keyboard resize and visual viewport scroll').toEqual([true, true])
     await agentSubmenu.getByTestId('agent-launch-bash').tap()
     await expect(menu).toBeHidden()
     await expect.poll(() => page.locator('[data-testid="code-agent-row"][data-agent-id]').count()).toBeGreaterThan(agentCountBeforeLaunch)
@@ -1425,11 +1461,12 @@ test.describe('iPhone mobile layout', () => {
         outerDelta: number
         outerOverflow: string
         windowPosition: string
+        windowTransform: string
         windowTopDelta: number
       }> = []
       for (let frame = 0; frame < 36; frame += 1) {
         await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
-        const scrollerRect = scroller.getBoundingClientRect()
+        const viewportRect = viewport.getBoundingClientRect()
         const windowRect = treeWindow.getBoundingClientRect()
         frames.push({
           innerActual: tree.scrollTop,
@@ -1437,16 +1474,18 @@ test.describe('iPhone mobile layout', () => {
           outerDelta: Math.abs(scroller.scrollTop - outerScrollTop),
           outerOverflow: getComputedStyle(scroller).overflowY,
           windowPosition: getComputedStyle(treeWindow).position,
-          windowTopDelta: Math.abs(windowRect.top - scrollerRect.top),
+          windowTransform: getComputedStyle(treeWindow).transform,
+          windowTopDelta: Math.abs(windowRect.top - viewportRect.top),
         })
       }
       return frames
     })
     expect(samples.some(sample => sample.outerDelta > 400)).toBe(true)
-    expect(samples.some(sample => sample.innerActual > 400)).toBe(true)
-    expect(samples.every(sample => sample.innerOverflow === 'hidden')).toBe(true)
+    expect(samples.every(sample => sample.innerActual === 0)).toBe(true)
+    expect(samples.every(sample => sample.innerOverflow === 'visible')).toBe(true)
     expect(samples.every(sample => sample.outerOverflow === 'auto')).toBe(true)
     expect(samples.every(sample => sample.windowPosition === 'absolute')).toBe(true)
+    expect(samples.every(sample => sample.windowTransform === 'none')).toBe(true)
     const activeSamples = samples.filter(sample => sample.outerDelta > 200)
     expect(activeSamples.length).toBeGreaterThan(0)
     expect(Math.max(...activeSamples.map(sample => sample.windowTopDelta))).toBeLessThanOrEqual(1)

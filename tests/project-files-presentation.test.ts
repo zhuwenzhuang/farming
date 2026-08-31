@@ -153,7 +153,8 @@ test('Open Editors bounds the visible list and presents local versus external ch
 
   assert.match(markup, /data-open-editor-count="8"/)
   assert.match(markup, /data-visible-editor-count="7"/)
-  assert.match(markup, /--code-open-editors-list-max-height:196px/)
+  assert.match(markup, /--code-open-editors-visible-rows:7/)
+  assert.doesNotMatch(markup, /--code-open-editors-list-max-height/)
   assert.match(markup, /code-open-editor-row active/)
   assert.match(markup, /code-open-editor-state dirty/)
   assert.match(markup, /code-open-editor-state external/)

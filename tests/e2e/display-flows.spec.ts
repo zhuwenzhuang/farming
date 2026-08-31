@@ -1249,7 +1249,7 @@ test.describe('display-backed agent flows', () => {
     await expect(trackedDirectory).toBeVisible()
     expect(await trackedDirectory.evaluate(element => (
       getComputedStyle(element).getPropertyValue('--change-indent').trim()
-    ))).toBe('18px')
+    ))).toBe('14px')
     await trackedDirectory.click()
     const nestedChangeRow = trackedGroup.locator(
       '[data-testid="code-file-change-row"][data-file-path="tracked/deep/no-reveal.txt"]',
@@ -1257,7 +1257,7 @@ test.describe('display-backed agent flows', () => {
     await expect(nestedChangeRow).toBeVisible()
     expect(await nestedChangeRow.evaluate(element => (
       getComputedStyle(element).getPropertyValue('--change-indent').trim()
-    ))).toBe('30px')
+    ))).toBe('22px')
     const filesTreeRootDirectory = filesSection.locator(
       '[data-testid="code-file-row"][data-file-path="tracked"]',
     )
@@ -1331,7 +1331,7 @@ test.describe('display-backed agent flows', () => {
     await expect(scratchDirectory).toBeVisible()
     expect(await scratchDirectory.evaluate(element => (
       getComputedStyle(element).getPropertyValue('--change-indent').trim()
-    ))).toBe('18px')
+    ))).toBe('14px')
     await expect(changesSection.getByTestId('code-file-change-row').filter({ hasText: 'scratch.log' })).toHaveCount(0)
     await scratchDirectory.click()
     const untrackedRow = untrackedGroup.getByTestId('code-file-change-row').filter({ hasText: 'scratch.log' })
@@ -2328,13 +2328,16 @@ test.describe('display-backed agent flows', () => {
       const visibleRowCount = Number(viewport.dataset.visibleRowCount)
       const treeStyle = getComputedStyle(tree)
       const viewportStyle = getComputedStyle(viewport)
-      const maximumMountedRows = Math.ceil(treeWindow.clientHeight / 24) + 12
+      const rowHeight = Number.parseFloat(viewportStyle.getPropertyValue('--code-sidebar-file-row-height'))
+      const maximumMountedRows = Math.ceil(treeWindow.clientHeight / rowHeight) + 12
       return rowCount > 0 && Number.isFinite(visibleRowCount) &&
-        treeStyle.overflowY === 'hidden' &&
+        Number.isFinite(rowHeight) && rowHeight > 0 &&
+        treeStyle.overflowY === 'visible' && tree.scrollTop === 0 &&
+        getComputedStyle(treeWindow).transform === 'none' &&
         viewportStyle.overflowY === 'visible' &&
         viewport.scrollHeight <= viewport.clientHeight + 1 &&
         Math.abs(tree.clientHeight - treeWindow.clientHeight) <= 1 &&
-        Math.abs(viewport.clientHeight - visibleRowCount * 24) <= 4 &&
+        Math.abs(viewport.clientHeight - visibleRowCount * rowHeight) <= 4 &&
         treeWindow.clientHeight <= viewport.clientHeight &&
         rowCount <= maximumMountedRows
     })).toBe(true)
@@ -2693,8 +2696,10 @@ test.describe('display-backed agent flows', () => {
       if (!tree || !lastRow || rows.length === 0) return false
       const viewportBox = viewport.getBoundingClientRect()
       const lastRowBox = lastRow.getBoundingClientRect()
-      return Math.abs(tree.clientHeight - rows.length * 24) <= 4 &&
-        Math.abs(viewport.clientHeight - rows.length * 24) <= 4 &&
+      const rowHeight = Number.parseFloat(getComputedStyle(viewport).getPropertyValue('--code-sidebar-file-row-height'))
+      return Number.isFinite(rowHeight) && rowHeight > 0 &&
+        Math.abs(tree.clientHeight - rows.length * rowHeight) <= 4 &&
+        Math.abs(viewport.clientHeight - rows.length * rowHeight) <= 4 &&
         Math.abs(viewportBox.bottom - lastRowBox.bottom) <= 4
     })).toBe(true)
     await compactDeepRow.dispatchEvent('click')
@@ -2705,10 +2710,13 @@ test.describe('display-backed agent flows', () => {
       if (!tree || !treeWindow) return false
       const rowCount = viewport.querySelectorAll('[data-testid="code-file-row"]').length
       const visibleRowCount = Number(viewport.dataset.visibleRowCount)
-      const maximumMountedRows = Math.ceil(treeWindow.clientHeight / 24) + 12
+      const rowHeight = Number.parseFloat(getComputedStyle(viewport).getPropertyValue('--code-sidebar-file-row-height'))
+      const maximumMountedRows = Math.ceil(treeWindow.clientHeight / rowHeight) + 12
       return rowCount > 0 && Number.isFinite(visibleRowCount) &&
-        getComputedStyle(tree).overflowY === 'hidden' &&
-        Math.abs(viewport.clientHeight - visibleRowCount * 24) <= 4 &&
+        Number.isFinite(rowHeight) && rowHeight > 0 &&
+        getComputedStyle(tree).overflowY === 'visible' && tree.scrollTop === 0 &&
+        getComputedStyle(treeWindow).transform === 'none' &&
+        Math.abs(viewport.clientHeight - visibleRowCount * rowHeight) <= 4 &&
         rowCount <= maximumMountedRows
     })).toBe(true)
     await fileSearchInput.fill('deep/nested/inner/file-30.txt:1')

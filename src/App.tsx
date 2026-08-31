@@ -8,6 +8,7 @@ import { InputDialog } from '@/components/InputDialog'
 import { BackendConnectionStatus } from '@/components/BackendConnectionStatus'
 import { CodeWorkspace, type AgentFlagUpdateResult, type DeleteForkWorktreeProjectResult, type WorkspaceView } from '@/components/CodeWorkspace'
 import { codeCopyForLanguage } from '@/components/code/copy'
+import { scheduleUserCancelableFocusRetries } from '@/components/code/focus-retry'
 import { applyThemeAppearance } from '@/lib/theme'
 import { isCompactViewport, isIOSLikeTouchViewport, isTouchInputViewport } from '@/lib/responsive-mode'
 import {
@@ -253,9 +254,11 @@ export function App() {
   const lastActiveWorkspaceRef = useRef<string | undefined>(undefined)
   const inputDialogReturnFocusRef = useRef<HTMLElement | null>(null)
   const inputDialogOpenRequestRef = useRef(0)
+  const inputDialogFocusRestoreCleanupRef = useRef<(() => void) | null>(null)
   const uiPreferencesSaveRevisionRef = useRef(0)
   const uiPreferencesSaveTailRef = useRef<Promise<void>>(Promise.resolve())
   const usageRequestRef = useRef<AbortController | null>(null)
+  useEffect(() => () => inputDialogFocusRestoreCleanupRef.current?.(), [])
   useLayoutEffect(() => {
     openTerminalIdsRef.current = openTerminalIds
   }, [openTerminalIds])
@@ -748,6 +751,7 @@ export function App() {
   }, [activeTerminalId, openTerminal, openTerminalIds])
 
   const openNewAgentDialog = useCallback((workspace?: string, command?: string, returnFocusTarget?: HTMLElement | null, customTitle?: string) => {
+    inputDialogFocusRestoreCleanupRef.current?.()
     const requestId = inputDialogOpenRequestRef.current + 1
     inputDialogOpenRequestRef.current = requestId
     inputDialogReturnFocusRef.current = returnFocusTarget ?? (document.activeElement instanceof HTMLElement
@@ -770,6 +774,7 @@ export function App() {
   }, [])
 
   const restoreInputDialogFocus = useCallback(() => {
+    inputDialogFocusRestoreCleanupRef.current?.()
     const requestId = inputDialogOpenRequestRef.current
     const returnTarget = inputDialogReturnFocusRef.current
     const preferNewAgent = returnTarget?.getAttribute('data-testid') === 'code-new-agent'
@@ -790,9 +795,10 @@ export function App() {
       focusVisibleTarget(document.querySelector<HTMLElement>('[data-testid="code-project-list"]'))
     }
 
-    window.requestAnimationFrame(restoreFocus)
-    window.setTimeout(restoreFocus, 80)
-    window.setTimeout(restoreFocus, 180)
+    inputDialogFocusRestoreCleanupRef.current = scheduleUserCancelableFocusRetries(
+      restoreFocus,
+      { runNow: false, delays: [80, 180] },
+    )
   }, [activeTerminalId])
 
   const closeInputDialog = useCallback(() => {

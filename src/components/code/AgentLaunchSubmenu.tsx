@@ -3,6 +3,7 @@ import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent
 import { ChevronRightGlyph } from '@/components/IconGlyphs'
 import { agentDisplayName } from '@/lib/format'
 import { isTouchInputViewport } from '@/lib/responsive-mode'
+import { useMenuViewportBounds } from '@/hooks/useMenuViewportBounds'
 import type { AgentLaunchOption } from './agent-launch-options'
 import { AgentLaunchIcon } from './AgentLaunchIcon'
 
@@ -25,12 +26,12 @@ export function AgentLaunchSubmenu({
 }: AgentLaunchSubmenuProps) {
   const [open, setOpen] = useState(false)
   const [side, setSide] = useState<'left' | 'right'>('right')
-  const [panelTop, setPanelTop] = useState(-5)
   const rootRef = useRef<HTMLDivElement | null>(null)
   const triggerRef = useRef<HTMLButtonElement | null>(null)
   const panelRef = useRef<HTMLDivElement | null>(null)
   const closeTimerRef = useRef<number | null>(null)
   const hasOptions = options.length > 0
+  useMenuViewportBounds(open, panelRef, side)
 
   const clearCloseTimer = useCallback(() => {
     if (closeTimerRef.current === null) return
@@ -51,18 +52,8 @@ export function AgentLaunchSubmenu({
     } else {
       setSide('right')
     }
-    if (rect) {
-      const expectedHeight = Math.min(options.length * 34 + 10, (visualViewport?.height ?? window.innerHeight) - 24)
-      const viewportTop = visualViewport?.offsetTop ?? 0
-      const viewportBottom = viewportTop + (visualViewport?.height ?? window.innerHeight)
-      const clampedTop = Math.max(
-        viewportTop + 12,
-        Math.min(rect.top - 5, viewportBottom - expectedHeight - 12),
-      )
-      setPanelTop(clampedTop - rect.top)
-    }
     setOpen(true)
-  }, [clearCloseTimer, hasOptions, options.length])
+  }, [clearCloseTimer, hasOptions])
 
   const scheduleClose = useCallback(() => {
     clearCloseTimer()
@@ -142,7 +133,6 @@ export function AgentLaunchSubmenu({
           ref={panelRef}
           className={`code-agent-launch-submenu-panel ${side}`}
           data-testid={submenuTestId}
-          style={{ top: panelTop }}
           role="menu"
           onPointerEnter={() => clearCloseTimer()}
           onPointerLeave={scheduleClose}

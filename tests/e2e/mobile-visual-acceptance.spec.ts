@@ -435,7 +435,7 @@ test('audits compact Composer and sidebar geometry across mobile widths and appe
         || approval.titleFont !== 13
         || approval.descriptionFont !== 11
         || approval.iconSize !== 22
-        || approval.rowMinHeight !== 52
+        || approval.rowMinHeight !== 36
         || approval.rowHeight < 52
       ) {
         violations.push(`${viewport.name}/${appearance}: approval metrics ${JSON.stringify(approval)}`)

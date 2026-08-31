@@ -11,6 +11,10 @@ const projectRoot = path.resolve(__dirname, '..');
 const packageVersion = require(path.join(projectRoot, 'package.json')).version;
 const tasks: FastScreenTask[] = [
   {
+    name: 'reviewed cross-platform visual baselines',
+    args: ['--import', 'tsx', 'scripts/check-visual-snapshot-platforms.ts'],
+  },
+  {
     name: 'API route registration and access ordering',
     args: ['--import', 'tsx', 'backend/tests/test-server-route-manifest.ts'],
   },

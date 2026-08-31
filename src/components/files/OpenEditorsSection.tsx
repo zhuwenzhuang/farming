@@ -8,7 +8,6 @@ import type { CodeCopy } from '../code/copy'
 
 export const OPEN_EDITORS_VISIBLE_ROW_LIMIT = 7
 export const OPEN_EDITORS_HEADER_HEIGHT = 25
-export const OPEN_EDITOR_ROW_HEIGHT = 28
 
 export interface OpenProjectFileSummary {
   agentId: string
@@ -51,7 +50,6 @@ export function OpenEditorsSection({
   const visibleRowCount = Math.min(files.length, OPEN_EDITORS_VISIBLE_ROW_LIMIT)
   const rootStyle = useMemo(() => ({
     '--code-open-editors-visible-rows': visibleRowCount,
-    '--code-open-editors-list-max-height': `${visibleRowCount * OPEN_EDITOR_ROW_HEIGHT}px`,
   }) as CSSProperties, [visibleRowCount])
 
   useEffect(() => {
