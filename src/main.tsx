@@ -2,10 +2,13 @@ import '../frontend/reading-anchor.js'
 import { Component, type CSSProperties, type ErrorInfo, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { appPath } from './lib/base-path'
+import { installInteractionPerformance } from './lib/interaction-performance'
 import { rememberStartupAccessToken } from './lib/auth-url'
 import { visibleUrlWithoutWorkspaceShareTarget } from './lib/workspace-share-target'
 
 rememberStartupAccessToken(window.location.href)
+const disposeInteractionPerformance = installInteractionPerformance()
+if (import.meta.hot) import.meta.hot.dispose(disposeInteractionPerformance)
 const locationFreeVisibleUrl = visibleUrlWithoutWorkspaceShareTarget(window.location.href)
 if (locationFreeVisibleUrl) {
   window.history.replaceState(window.history.state, '', locationFreeVisibleUrl)

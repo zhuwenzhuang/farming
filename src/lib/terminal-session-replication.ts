@@ -1,4 +1,5 @@
 import '../../frontend/terminal-replay.js'
+import { terminalPerformanceRendered } from './interaction-performance'
 import type { FarmingTerminal } from '@/lib/terminal-engine'
 import type { TerminalAttachmentCoordinator } from '@/lib/terminal-attachment-coordinator'
 import type { TerminalResizeEffectController } from '@/lib/terminal-resize-effect-controller'
@@ -565,6 +566,7 @@ export function applyTerminalOutputEvent(
     if (record.disposed) return
     record.attachment.commitTransition(event)
     if (kind === 'clear') record.terminal.clearTerminalSelection?.()
+    terminalPerformanceRendered(record.agentId, record.attachment.runtimeEpoch, record.attachment.outputSeq, record.hostEl)
     record.replication.liveWriteInProgress = false
     if (record.followOutput && !record.hasUnreadOutput) {
       emitFollowOutputState(record)
@@ -710,6 +712,7 @@ function applyQueuedTerminalOutputBatch(
   writeTerminalOutput(record, transitionData, () => {
     if (record.disposed) return
     events.forEach(event => record.attachment.commitTransition(event))
+    terminalPerformanceRendered(record.agentId, record.attachment.runtimeEpoch, record.attachment.outputSeq, record.hostEl)
     if (events.some(event => event.kind === 'clear')) {
       record.terminal.clearTerminalSelection?.()
     }

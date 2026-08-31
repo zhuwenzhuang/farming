@@ -1,4 +1,6 @@
 import { useEffect, useRef, useCallback, useState } from 'react'
+import { beginInteraction } from '@/lib/interaction-performance'
+import type { PerformanceTrace } from '../../shared/interaction-performance'
 import type { Agent, ProjectAgentSummary, TaskHistoryEntry } from '@/types/agent'
 import type { AcpSessionRevisionMessage, ClientMessage, ComposerInputAttachment, ComposerInputMessage, LanguageServerRefreshMessage, ServerMessage, StartAgentMessage, WorkspaceFileEventMessage } from '@/types/messages'
 import { getStartupAccessToken } from '@/lib/auth-url'
@@ -557,6 +559,7 @@ export function useWebSocket() {
     let activeSocket: WebSocket | null = null
     let lastMessageStateUpdateAt = 0
     let businessProbeTimer: ReturnType<typeof setTimeout> | null = null
+    let businessProbeTrace: PerformanceTrace | null = null
     let businessProbeDeadline: ReturnType<typeof setTimeout> | null = null
     let socketConnectDeadline: ReturnType<typeof setTimeout> | null = null
     let socketCloseDeadline: ReturnType<typeof setTimeout> | null = null
@@ -604,6 +607,8 @@ export function useWebSocket() {
     }
 
     function clearBusinessProbeTimers() {
+      businessProbeTrace?.end(document.visibilityState === 'hidden' ? 'hidden' : 'cancelled')
+      businessProbeTrace = null
       if (businessProbeTimer) clearTimeout(businessProbeTimer)
       if (businessProbeDeadline) clearTimeout(businessProbeDeadline)
       businessProbeTimer = null
@@ -644,9 +649,14 @@ export function useWebSocket() {
       const requestId = globalThis.crypto?.randomUUID?.()
         || `health-${Date.now().toString(36)}-${++businessProbeSequence}`
       pendingBusinessProbeId = requestId
+      businessProbeTrace?.end('superseded')
+      businessProbeTrace = beginInteraction('connection.probe', { requestId, timeout: deadlineMs + 1000 })
+      businessProbeTrace.metric({ socketBytes: ws.bufferedAmount })
       ws.send(JSON.stringify({ type: 'business-health-probe', requestId }))
+      businessProbeTrace.mark('sent')
       businessProbeDeadline = setTimeout(() => {
         if (pendingBusinessProbeId !== requestId || wsRef.current !== ws) return
+        businessProbeTrace?.end('timeout'); businessProbeTrace = null
         pendingBusinessProbeId = ''
         businessProbeDeadline = null
         updateBackendConnectionStatus({
@@ -872,6 +882,9 @@ export function useWebSocket() {
               break
             case 'business-health-result':
               if (msg.requestId !== pendingBusinessProbeId) break
+              businessProbeTrace?.mark('received')
+              businessProbeTrace?.end(msg.status === 'ready' ? 'completed' : 'failed')
+              businessProbeTrace = null
               pendingBusinessProbeId = ''
               if (businessProbeDeadline) clearTimeout(businessProbeDeadline)
               businessProbeDeadline = null

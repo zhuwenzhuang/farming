@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { beginNavigationPerformance, filePerformanceKey } from '@/lib/interaction-performance'
 import {
   deletedWorkspaceDiffPlaceholderFile,
   shouldOpenMissingWorkspaceFileAsDiff,
@@ -140,6 +141,7 @@ export function useWorkspaceFileOpenController({
     }
 
     currentPending?.controller.abort()
+    const performanceTrace = beginNavigationPerformance('file.open', filePerformanceKey(agentId, filePath))
     const controller = new AbortController()
     const lease = fileOpenRequestFenceRef.current.begin()
     const intentLease = onBeginOpenFileIntent()
@@ -153,10 +155,12 @@ export function useWorkspaceFileOpenController({
       target: mergeWorkspaceFileOpenTarget({}, target),
     }
     pending.promise = (async () => {
+      let handedToView = false
       try {
         const file = await onResolveFile(requestAgentId, filePath, { signal: controller.signal })
         if (!lease.isCurrent() || !pending.intentLease.isCurrent()) return
         await onOpenFile(requestAgentId, file, pending.target, controller.signal, pending.intentLease)
+        handedToView = true
         if (!lease.isCurrent() || !pending.intentLease.isCurrent()) return
         onClearSearch()
       } catch (error) {
@@ -174,12 +178,17 @@ export function useWorkspaceFileOpenController({
             controller.signal,
             pending.intentLease,
           )
+          handedToView = true
           if (!lease.isCurrent() || !pending.intentLease.isCurrent()) return
           onClearSearch()
           return
         }
         setOpenFileError(error instanceof Error ? error.message : 'Failed to open file')
+        performanceTrace.end('failed')
       } finally {
+        // Opening the editor can unmount its originating sidebar hook. Once
+        // handed off, only the view's actual frame (or deadline) completes it.
+        if (!handedToView && (controller.signal.aborted || !lease.isCurrent() || !pending.intentLease.isCurrent())) performanceTrace.end('cancelled')
         if (pendingFileOpenRef.current === pending) {
           clearOpenFilePending()
           pendingFileOpenRef.current = null

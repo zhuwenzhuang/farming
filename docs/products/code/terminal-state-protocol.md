@@ -113,6 +113,11 @@ Farming does not add speculative replay or input acknowledgement. Multiple
 authorized views may write to the same PTY; the backend serializes writes in
 arrival order.
 
+Optional `performanceId` metadata correlates content-free
+[interaction diagnostics](../../development/interaction-performance.md). It is
+not an acknowledgement, replay key, or evidence that subsequent output echoes
+that input; input admission and delivery are unchanged.
+
 A Terminal write whose outcome cannot be confirmed is uncertain and is never
 replayed. Such a write activates a per-runtime input fence: user input,
 queued input, system control traffic, and interrupts admitted before the

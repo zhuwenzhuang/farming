@@ -35,6 +35,7 @@
 
 ## 验证
 
+- [用户交互性能诊断](interaction-performance.zh_cn.md)
 - [验收与 Dogfood 计划](../products/code/test/acceptance-dogfood-plan.zh_cn.md)
 - [真实 Codex 跨界面用例](../products/code/real-codex-release-case.zh_cn.md)
 

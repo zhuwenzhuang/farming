@@ -348,6 +348,7 @@ type AgentStartCallback = (
 ) => void;
 
 interface TerminalInputOptions extends UnknownRecord {
+  onDispatch?: () => void;
   admissionPhase?: number;
   expectedRuntimeEpoch?: string;
   markUserInput?: boolean;
@@ -6270,13 +6271,17 @@ class AgentManager extends EventEmitter {
       : admission.expectedRuntimeEpoch;
     return this.enqueueInputOperation(
       agentId,
-      () => this.sendInputNow(agentId, input, {
-        ...options,
-        expectedRuntimeEpoch,
-        admissionPhase: typeof options.admissionPhase === 'number'
-          ? options.admissionPhase
-          : admission.admissionPhase,
-      }),
+      () => {
+        // Diagnostic callbacks cannot affect admission, ordering, or delivery.
+        try { options.onDispatch?.(); } catch { /* diagnostics only */ }
+        return this.sendInputNow(agentId, input, {
+          ...options,
+          expectedRuntimeEpoch,
+          admissionPhase: typeof options.admissionPhase === 'number'
+            ? options.admissionPhase
+            : admission.admissionPhase,
+        });
+      },
     );
   }
 

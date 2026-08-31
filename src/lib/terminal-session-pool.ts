@@ -1,4 +1,5 @@
 import '../../frontend/terminal-replay.js'
+import { beginTerminalInputPerformance, observeTerminalPerformanceOutput, navigationPerformanceReady } from './interaction-performance'
 import {
   DEFAULT_THEME,
   createTerminalInstance,
@@ -557,12 +558,16 @@ function reportTerminalSyncError(record: SessionRecord, message: string) {
 
 function queueTerminalInput(record: SessionRecord, input: string | TerminalInputPart[]) {
   if (record.disposed || record.attachedMount === null || record.inputDisabled) return false
+  const trace = beginTerminalInputPerformance(record.agentId, record.hostEl,
+    record.attachment.runtimeEpoch || '', record.attachment.outputSeq, typeof input === 'string' ? input.length : 0)
   const delivered = sendTerminalSessionMessage({
     type: 'input',
     agentId: record.agentId,
+    performanceId: trace.id,
     ...(Array.isArray(input) ? { inputParts: input } : { input }),
   })
-  if (!delivered) return false
+  if (!delivered) { trace.end('failed'); return false }
+  trace.mark('sent')
   markTerminalReplicationInput(record)
   record.inputCount += 1
   record.interaction.clearAfterInput()
@@ -1308,6 +1313,7 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
     kind,
   ) => {
     if (record.disposed) return
+    if (!replace && (!kind || kind === 'output') && data) observeTerminalPerformanceOutput(agentId, runtimeEpoch, outputSeq)
     handleTerminalStreamOutput(
       record,
       data,
@@ -1346,6 +1352,7 @@ function notifyTerminalAttachReady(record: SessionRecord, generation: number) {
   // the authoritative ready boundary or the reattached xterm stays hidden.
   record.hostEl.classList.remove('terminal-checkpoint-installing')
   publishTerminalRecoveryStatus(record, 'ready')
+  navigationPerformanceReady('agent.switch', record.agentId, record.hostEl)
   if (record.attachReadyNotified) return true
   record.attachReadyNotified = true
   const revealedLatestParkedOutput = Boolean(

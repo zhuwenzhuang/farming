@@ -1,4 +1,5 @@
 import { useCallback } from 'react'
+import { beginInteraction, filePerformanceKey } from '@/lib/interaction-performance'
 import {
   beginWorkspaceOpenFileSave,
   completeWorkspaceOpenFileReload,
@@ -59,6 +60,8 @@ export function useFileEditorWorkingCopyController({
       return !savingFile.dirty && !savingFile.saving
     }
     const requestTarget = { ...target, saveRequestId }
+    const trace = beginInteraction('file.save', { target: filePerformanceKey(target.agentId, target.filePath) })
+    trace.metric({ contentUnits: savingFile.draft.length })
 
     try {
       const file = await saveWorkspaceFile(
@@ -71,6 +74,8 @@ export function useFileEditorWorkingCopyController({
       const completedFile = onUpdateOpenFile(requestTarget, currentFile => (
         completeWorkspaceOpenFileSave(currentFile, saveRequestId, file)
       ))
+      trace.mark('model')
+      trace.end('completed') // This captured revision was saved even if a newer draft is dirty.
       return Boolean(completedFile && !completedFile.dirty)
     } catch (error) {
       const conflict = error instanceof WorkspaceFileApiError && error.status === 409
@@ -82,12 +87,14 @@ export function useFileEditorWorkingCopyController({
             const reconciledFile = onUpdateOpenFile(requestTarget, openFile => (
               completeWorkspaceOpenFileSave(openFile, saveRequestId, currentFile)
             ))
+            trace.mark('model'); trace.end('completed')
             return Boolean(reconciledFile && !reconciledFile.dirty)
           }
         } catch {
           // Preserve the draft and report the original save failure when the disk outcome is unknown.
         }
       }
+      trace.end(uncertainOutcome ? 'uncertain' : 'failed')
       onUpdateOpenFile(requestTarget, currentFile => (
         failWorkspaceOpenFileSave(
           currentFile,

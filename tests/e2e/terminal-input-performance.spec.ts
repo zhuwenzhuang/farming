@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { Page } from '@playwright/test'
-import { expect, openFarming, test } from './fixtures'
+import { expect, openFarming, test, terminalCheckpointOutput } from './fixtures'
 
 const LOCAL_KEY_TO_OUTPUT_P95_MS = 250
 const FOCUSED_PREVIEW_MAX_BYTES = 8 * 1024
@@ -130,6 +130,41 @@ function p95(values: number[]) {
   return sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * 0.95) - 1)] ?? Infinity
 }
 
+test('foreground input remains measurable with eight background output producers', async ({ page, workspaceRoot }) => {
+  test.setTimeout(90_000)
+  const workspace = path.join(workspaceRoot, 'terminal-background-performance')
+  fs.mkdirSync(workspace, { recursive: true })
+  const producers: string[] = []
+  for (let i = 0; i < 8; i++) producers.push(await createBashAgent(page, workspace))
+  const foreground = await createBashAgent(page, workspace)
+  await openFarming(page)
+  await openTerminal(page, foreground)
+  await clickReadyTerminalInput(page, foreground)
+  for (const id of producers) {
+    const response = await page.request.post(`/farming/api/control/agents/${id}/input`, { data: {
+      input: 'i=0; while [ "$i" -lt 80 ]; do printf "BACKGROUND_OUTPUT_%04d abcdefghijklmnopqrstuvwxyz\\n" "$i"; i=$((i+1)); sleep 0.1; done\n',
+    } })
+    expect(response.ok()).toBeTruthy()
+  }
+  await Promise.all(producers.map(id => expect.poll(() => terminalCheckpointOutput(page, id)).toContain('BACKGROUND_OUTPUT_0002')))
+  const before = await page.evaluate(() => window.farmingPerformance!.snapshot().records.map(record => record.id))
+  await page.keyboard.type('foreground', { delay: 45 })
+  for (let i = 0; i < 10; i++) await page.keyboard.press('Backspace')
+  await expect.poll(() => page.evaluate(ids => window.farmingPerformance!.snapshot().records.filter(record => (
+    !ids.includes(record.id) && record.operation === 'terminal.input' && record.outcome === 'observed'
+  )).length, before)).toBeGreaterThanOrEqual(20)
+  const records = await page.evaluate(ids => window.farmingPerformance!.snapshot().records.filter(record => (
+    !ids.includes(record.id) && record.operation === 'terminal.input' && record.outcome === 'observed'
+  )), before)
+  console.log(`terminal with 8 background producers: event-to-frame p95=${p95(records.map(record => record.durationMs))}ms n=${records.length}`)
+  expect(p95(records.map(record => record.durationMs))).toBeLessThanOrEqual(250)
+  await expect.poll(async () => {
+    const response = await page.request.get('/farming/api/diagnostics/performance')
+    const body = await response.json() as { records: Array<{ operation: string; target?: string; metrics: { outputChunks?: number } }> }
+    return body.records.filter(record => record.operation === 'runtime.sample' && record.target && (record.metrics.outputChunks || 0) > 0).length
+  }, { timeout: 10_000 }).toBeGreaterThanOrEqual(8)
+})
+
 test('terminal typing stays small and direct after switching an existing agent', async ({ page, workspaceRoot }) => {
   const workspace = path.join(workspaceRoot, 'terminal-input-performance')
   fs.mkdirSync(workspace, { recursive: true })
@@ -140,6 +175,9 @@ test('terminal typing stays small and direct after switching an existing agent',
   await openFarming(page)
   await openTerminal(page, firstAgentId)
   await openTerminal(page, secondAgentId)
+  await expect.poll(() => page.evaluate(() => window.farmingPerformance?.snapshot().records.some(record => (
+    record.operation === 'connection.probe' && record.outcome === 'completed' && record.stages.received !== undefined
+  )))).toBe(true)
   // Measure a genuine Agent switch only after both PTYs have reached their
   // authoritative idle state, never during their initial snapshot traffic.
   await Promise.all([
@@ -200,6 +238,22 @@ test('terminal typing stays small and direct after switching an existing agent',
   })
   console.log(`terminal-input-performance key-to-session-output p95=${keyToOutputP95Ms}ms samples=${samples.join(',')}ms`)
   expect(keyToOutputP95Ms).toBeLessThanOrEqual(LOCAL_KEY_TO_OUTPUT_P95_MS)
+  await expect.poll(() => page.evaluate(() => window.farmingPerformance?.snapshot().records.filter(record => (
+    record.operation === 'terminal.input' && record.outcome === 'observed' && record.stages.frame !== undefined
+  )).length ?? 0)).toBeGreaterThanOrEqual(8)
+  const interactions = await page.evaluate(() => window.farmingPerformance!.snapshot().records.filter(record => record.operation === 'terminal.input'))
+  const painted = interactions.filter(record => record.outcome === 'observed')
+  for (const record of painted) {
+    expect(record.stages.sent).toBeLessThanOrEqual(record.stages.output!)
+    expect(record.stages.output).toBeLessThanOrEqual(record.stages.renderer!)
+    expect(record.stages.renderer).toBeLessThanOrEqual(record.stages.frame!)
+    expect(record).not.toHaveProperty('input')
+  }
+  const diagnosticResponse = await page.request.get('/farming/api/diagnostics/performance')
+  expect(diagnosticResponse.ok()).toBeTruthy()
+  const serverDiagnostics = await diagnosticResponse.json() as { records: Array<{ source: string; id: string; operation: string; stages: Record<string, number> }> }
+  expect(serverDiagnostics.records.some(record => record.source === 'server' && painted.some(client => client.id === record.id))).toBeTruthy()
+  console.log(`terminal-input-performance event-to-frame p95=${p95(painted.map(record => record.durationMs))}ms n=${painted.length}`)
   await expect.poll(() => messages.slice(typingStart).filter(message => (
     message.direction === 'received'
     && message.type === 'session-preview'

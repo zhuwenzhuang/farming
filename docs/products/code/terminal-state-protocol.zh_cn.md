@@ -86,6 +86,10 @@ Layout 与 Renderer Integration，但不能各自维护第二套 Ordering 或 Ch
 
 ## Input 与 Resize
 
+可选 `performanceId` 仅用于关联不含输入正文的
+[交互性能诊断](../../development/interaction-performance.zh_cn.md)，不构成确认、重放键，
+也不能证明后续输出是该输入的回显；输入准入与传递语义不变。
+
 Terminal Input 是 Renderer Raw Input Stream，只写入 PTY 一次。Farming 不增加 Speculative Replay
 或 Input ACK。多个已授权 Viewer 可以输入同一 PTY；Backend 按到达顺序串行写入。
 

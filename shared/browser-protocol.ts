@@ -66,6 +66,8 @@ export interface StartAgentMessage extends ExtensibleMessage {
 
 export interface InputMessage extends ExtensibleMessage {
   type: 'input'
+  /** Optional diagnostic correlation, never an acknowledgement or replay token. */
+  performanceId?: string
   agentId?: string
   input?: string
   inputParts?: unknown[]

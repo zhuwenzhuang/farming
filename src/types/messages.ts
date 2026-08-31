@@ -62,6 +62,7 @@ export interface StartAgentMessage {
 
 export interface InputMessage {
   type: 'input'
+  performanceId?: string
   input?: string
   inputParts?: TerminalInputPart[]
   agentId?: string

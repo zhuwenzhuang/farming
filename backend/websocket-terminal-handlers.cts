@@ -6,6 +6,7 @@ import {
   type TerminalCheckpointRequestMessage,
 } from '../shared/browser-protocol.js';
 import { inputPartsFromMessage } from './input-parts.cjs';
+import { validPerformanceId } from '../shared/interaction-performance.js';
 import { resolveInputTargetAgentId } from './input-routing.cjs';
 
 type ClearTerminalMessage = Extract<ClientMessage, { type: 'clear-terminal' }>;
@@ -22,7 +23,7 @@ interface WebSocketTerminalPorts {
   openState: number;
   getAgentSessionView(agentId: string): Promise<unknown | null>;
   checkpointReconciled?(agentId: string, session: unknown): void;
-  sendInput(agentId: string, inputParts: ReturnType<typeof inputPartsFromMessage>): Promise<unknown>;
+  sendInput(agentId: string, inputParts: ReturnType<typeof inputPartsFromMessage>, performanceId?: string): Promise<unknown>;
   requestResize(agentId: string, cols: number, rows: number): unknown;
   clearBuffer(agentId: string): Promise<unknown>;
   checkpointErrorMessage(caught: unknown): string;
@@ -139,7 +140,7 @@ function createWebSocketTerminalHandlers<Client extends WebSocketTerminalClient>
 
     const inputParts = inputPartsFromMessage(message);
     if (inputParts.length === 0) return;
-    void Promise.resolve(ports.sendInput(targetAgentId, inputParts))
+    void Promise.resolve(ports.sendInput(targetAgentId, inputParts, validPerformanceId(message.performanceId) ? message.performanceId : undefined))
       .then(result => {
         const record = result && typeof result === 'object' ? result as TerminalInputRejectionResult : null;
         if (

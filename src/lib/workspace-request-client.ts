@@ -9,12 +9,15 @@ import type {
   WorkspaceResultMessage,
 } from '../../shared/browser-protocol'
 import { MAX_INLINE_WORKSPACE_MESSAGE_BYTES } from '../../shared/browser-protocol'
+import { performanceRequestKind, type PerformanceTrace } from '../../shared/interaction-performance'
+import { beginInteraction } from './interaction-performance'
 
 type WorkspaceTransportMessage = WorkspaceRequestMessage | WorkspaceCancelMessage | LanguageServerRequestMessage
 type WorkspaceTransport = (message: WorkspaceTransportMessage) => boolean
 type RequestDomain = 'workspace' | 'language-server'
 
 interface PendingRequest {
+  trace: PerformanceTrace
   domain: RequestDomain
   requestId: string
   message: WorkspaceTransportMessage
@@ -76,12 +79,14 @@ function sendPending(request: PendingRequest): boolean {
   if (!transportReady || !transport || request.sent || request.signal?.aborted) return false
   const sent = transport(request.message)
   request.sent = sent
+  if (sent) request.trace.mark('sent')
   if (!sent) transportReady = false
   return sent
 }
 
 function cancelPending(request: PendingRequest): void {
   const uncertain = request.mutation && request.sent
+  request.trace.end(uncertain ? 'uncertain' : 'cancelled')
   deletePending(request)
   if (request.sent && transportReady && transport) {
     transport({ type: 'workspace-cancel', requestId: request.requestId })
@@ -98,6 +103,9 @@ function createRequest<T>(
   return new Promise<T>((resolve, reject) => {
     const id = 'requestId' in message ? String(message.requestId) : ''
     const request: PendingRequest = {
+      trace: beginInteraction(domain === 'workspace' ? 'workspace.request' : 'language-server.request', {
+        requestId: id, requestKind: performanceRequestKind(message.type === 'workspace-cancel' ? undefined : message.request.operation),
+      }),
       domain,
       requestId: id,
       message,
@@ -114,6 +122,7 @@ function createRequest<T>(
       request.timeout = setTimeout(() => {
         if (!pendingRequests.has(id)) return
         const uncertain = request.mutation && request.sent
+        request.trace.end(uncertain ? 'uncertain' : 'timeout')
         deletePending(request)
         if (request.sent && transportReady && transport) {
           transport({ type: 'workspace-cancel', requestId: request.requestId })
@@ -140,6 +149,7 @@ export function setWorkspaceRequestTransportReady(
     for (const request of [...pendingRequests.values()]) {
       if (!request.sent) continue
       if (request.mutation) {
+        request.trace.end('uncertain')
         deletePending(request)
         request.reject(requestError('DISCONNECTED', 'Workspace mutation connection was lost', true))
       } else {
@@ -188,6 +198,8 @@ function settle(
   const request = pendingRequests.get(message.requestId)
   if (!request || request.domain !== domain) return false
   deletePending(request)
+  request.trace.mark('received')
+  request.trace.end(message.ok ? 'completed' : message.error?.uncertain ? 'uncertain' : 'failed')
   if (!message.ok) {
     request.reject(new WorkspaceTransportError(message.error!))
     return true

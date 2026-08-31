@@ -40,12 +40,17 @@ async function run() {
       status: 'running',
     });
 
-    const firstInput = manager.sendInput('agent-input', [{ type: 'paste', text: 'A' }, '\r']);
+    const dispatches = [];
+    const firstInput = manager.sendInput('agent-input', [{ type: 'paste', text: 'A' }, '\r'], { onDispatch: () => dispatches.push('first') });
     await firstInputStarted.promise;
-    const secondInput = manager.sendInput('agent-input', [{ type: 'paste', text: 'B' }, '\r']);
+    const secondInput = manager.sendInput('agent-input', [{ type: 'paste', text: 'B' }, '\r'], {
+      onDispatch: () => { dispatches.push('second'); throw new Error('diagnostic callback failure'); },
+    });
+    assert.deepStrictEqual(dispatches, ['first'], 'diagnostics must mark actual dequeue, not admission');
     assert.strictEqual(calls.length, 1, 'the second input must remain queued until the first input completes');
     releaseFirstInput.resolve();
     await Promise.all([firstInput, secondInput]);
+    assert.deepStrictEqual(dispatches, ['first', 'second'], 'diagnostic failure must not block delivery');
 
     assert.deepStrictEqual(calls, [
       { agentId: 'agent-input', input: [{ type: 'paste', text: 'A' }, '\r'] },

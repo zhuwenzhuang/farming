@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react'
 import * as monaco from 'monaco-editor'
+import { editorInputPerformance, afterInteractionFrame, navigationPerformanceReady, filePerformanceKey } from '@/lib/interaction-performance'
 import {
   workspaceEditorCursorSelection,
   workspaceEditorModelContentVersion as modelContentVersion,
@@ -233,11 +234,15 @@ export function useFileEditorMonacoController({
     applyResponsiveEditorOptions()
 
     editorRef.current = editor
-    changeSubscriptionRef.current = editor.onDidChangeModelContent(() => {
+    changeSubscriptionRef.current = editor.onDidChangeModelContent(event => {
       if (suppressEditorChangeRef.current > 0) return
+      const trace = event.isFlush ? null : editorInputPerformance(editorHostRef.current)
       const model = editor.getModel()
+      if (model) trace?.metric({ contentUnits: model.getValueLength() })
       if (model) markLanguageServerModelDirty(model)
       onChangeDraftRef.current(editor.getValue())
+      trace?.mark('draft')
+      if (trace) afterInteractionFrame(trace, editorHostRef.current)
     })
     cursorSubscriptionRef.current = editor.onDidChangeCursorPosition(event => {
       updateCursorPosition(editor)
@@ -373,6 +378,7 @@ export function useFileEditorMonacoController({
       activeEditorModelKeyRef.current = nextModelKey
     }
     updateCursorPosition(editor)
+    navigationPerformanceReady('file.open', filePerformanceKey(openFile.agentId, openFile.file.path), editorHostRef.current)
   }, [
     openFile,
     updateCursorPosition,

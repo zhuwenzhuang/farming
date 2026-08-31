@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
+import { beginNavigationPerformance, filePerformanceKey } from '@/lib/interaction-performance'
 import type {
   ChangeEvent as ReactChangeEvent,
   ClipboardEvent as ReactClipboardEvent,
@@ -3135,6 +3136,7 @@ export function CodeWorkspace({
   }, [updateSidebarWidth])
 
   const openTerminalFromWorkspace = useCallback((agentId: string, options?: { focusTerminal?: boolean }) => {
+    if (!isStructuredRuntime(agents.find(agent => agent.id === agentId))) beginNavigationPerformance('agent.switch', agentId)
     workspaceFileOpenRequestRef.current.invalidate()
     if (
       manuallyUnreadActiveAgentIdRef.current
@@ -3147,7 +3149,7 @@ export function CodeWorkspace({
     setMainPaneMode('terminal')
     onWorkspaceViewChange('projects')
     onOpenTerminal(agentId, options)
-  }, [clearSearch, closeContextMenu, onOpenTerminal, onWorkspaceViewChange, setMainPaneMode])
+  }, [agents, clearSearch, closeContextMenu, onOpenTerminal, onWorkspaceViewChange, setMainPaneMode])
 
   const showBrowserResource = useCallback((resource: BrowserResource, returnAgentId = activeTerminalId) => {
     workspaceFileOpenRequestRef.current.invalidate()
@@ -3745,6 +3747,7 @@ export function CodeWorkspace({
       sourceAgentId: identity.sourceAgentId,
     }
     if (!workspaceOpenFiles.select(identity.filesId, filePath, openRequest)) return false
+    beginNavigationPerformance('file.open', filePerformanceKey(identity.filesId, filePath))
     closeContextMenu()
     clearSearch()
     onWorkspaceViewChange('projects')

@@ -227,6 +227,8 @@ import {
 import { createWorkspaceFileWatchController } from './websocket-workspace-file-watch.cjs';
 import { createWebSocketHandshakeHealthHandlers } from './websocket-handshake-health-handlers.cjs';
 import { createWebSocketTerminalHandlers } from './websocket-terminal-handlers.cjs';
+import { InteractionPerformanceJournal, createInteractionPerformanceRouter } from './interaction-performance.cjs';
+import { performanceRequestKind } from '../shared/interaction-performance.js';
 import { createWebSocketFocusScopeHandlers } from './websocket-focus-scope-handlers.cjs';
 import { createWebSocketAgentLifecycleHandlers } from './websocket-agent-lifecycle-handlers.cjs';
 import { createWebSocketAcpHandlers } from './websocket-acp-handlers.cjs';
@@ -395,6 +397,8 @@ server.on('close', () => clearInterval(websocketLivenessTimer));
 
 const configManager = new ConfigManager();
 configManager.init();
+const interactionPerformance = new InteractionPerformanceJournal(path.join(configManager.farmingDir, 'logs', 'performance'));
+server.on('close', () => interactionPerformance.dispose());
 const agentSessionInventory = new AgentSessionInventory({
   cacheFile: agentSessionInventoryCacheFile(configManager.farmingDir),
 });
@@ -558,6 +562,11 @@ const workspaceFileWatchController = createWorkspaceFileWatchController({
   ),
 });
 const websocketWorkspaceRequestHandlers = createWebSocketWorkspaceRequestHandlers<WebSocketClient>({
+  observeRequest: (operation, requestId, kind) => {
+    const trace = interactionPerformance.recorder.begin(operation, { requestId, requestKind: performanceRequestKind(kind) });
+    trace.mark('received');
+    return trace;
+  },
   openState: WebSocket.OPEN,
   maxMessageBytes: MAX_INLINE_WORKSPACE_MESSAGE_BYTES,
   executeWorkspace: (request, accessMode, signal, previewScopeId) => executeWorkspaceFileRequest(
@@ -924,6 +933,7 @@ app.get(routePath(BASE_PATH, '/j/:code'), (req, res) => {
 
 // Token authentication middleware (before static files)
 app.use(tokenAuth.middleware());
+app.use(routePath(BASE_PATH, '/api/diagnostics/performance'), createInteractionPerformanceRouter(interactionPerformance, authEnabled));
 
 // Auth status endpoint (allowed without authentication via middleware)
 app.get(routePath(BASE_PATH, '/api/auth/status'), (req, res) => {
@@ -2125,7 +2135,18 @@ const websocketTerminalHandlers = createWebSocketTerminalHandlers({
     // attach-checkpoint prefetch, and other view reads never reconcile.
     agentManager.releaseTerminalInputFence(agentId, (session || {}) as Record<string, unknown>);
   },
-  sendInput: (agentId, inputParts) => agentManager.sendInput(agentId, inputParts),
+  sendInput: async (agentId, inputParts, performanceId) => {
+    const trace = performanceId ? interactionPerformance.recorder.begin('terminal.input', {
+      id: performanceId, target: interactionPerformance.target(agentId), threshold: 100,
+    }) : null;
+    trace?.mark('received');
+    try {
+      const result = await agentManager.sendInput(agentId, inputParts, { onDispatch: () => trace?.mark('dispatch') });
+      trace?.mark('service');
+      trace?.end(result && 'status' in result ? 'failed' : result && 'sent' in result && result.sent ? 'completed' : 'uncertain');
+      return result;
+    } catch (error) { trace?.end('failed'); throw error; }
+  },
   requestResize: (agentId, cols, rows) => agentManager.requestAgentSessionResize(agentId, cols, rows),
   clearBuffer: agentId => agentManager.clearAgentSessionBuffer(agentId),
   checkpointErrorMessage: caught => {
@@ -2867,6 +2888,7 @@ const websocketSessionStreamBroadcasts = createWebSocketSessionStreamBroadcasts(
 });
 
 agentManager.onSessionStream((stream) => {
+  if (isRecord(stream) && typeof stream.agentId === 'string' && typeof stream.data === 'string') interactionPerformance.noteOutput(stream.agentId, stream.data.length);
   websocketSessionStreamBroadcasts.schedule(stream);
 });
 
@@ -2876,6 +2898,8 @@ agentManager.onSessionPreview((preview) => {
 
 agentManager.onSystemStats((systemStats) => {
   if (!isRecord(systemStats)) return;
+  interactionPerformance.context.connections = wss.clients.size;
+  interactionPerformance.context.activeAgents = [...agentManager.agents.values()].filter(agent => agent.status === 'running').length;
   const usageSnapshot = agentManager.getAgentUsageSnapshots();
   const message = JSON.stringify({ 
     type: 'system-stats', 

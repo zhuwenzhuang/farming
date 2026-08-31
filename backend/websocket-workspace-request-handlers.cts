@@ -4,6 +4,7 @@ import type {
   WorkspaceRequest,
   WorkspaceRequestMessage,
 } from '../shared/browser-protocol.js';
+import type { PerformanceTrace, PerformanceOperation } from '../shared/interaction-performance.js';
 
 interface WorkspaceRequestClient {
   accessMode?: 'owner' | 'read-only' | 'none';
@@ -14,6 +15,7 @@ interface WorkspaceRequestClient {
 }
 
 interface WorkspaceRequestPorts {
+  observeRequest?(operation: PerformanceOperation, requestId: string, kind: string): PerformanceTrace;
   openState: number;
   maxMessageBytes: number;
   executeWorkspace(
@@ -38,6 +40,7 @@ interface WorkspaceRequestPorts {
 type RequestLane = 'interactive' | 'background';
 
 interface ScheduledRequest {
+  trace?: PerformanceTrace;
   cancelled: boolean;
   controller: AbortController;
   lane: RequestLane;
@@ -102,8 +105,8 @@ function createWebSocketWorkspaceRequestHandlers<Client extends WorkspaceRequest
     return schedule;
   }
 
-  function send(client: Client, message: Record<string, unknown>): void {
-    if (client.readyState !== ports.openState) return;
+  function send(client: Client, message: Record<string, unknown>): boolean {
+    if (client.readyState !== ports.openState) return false;
     const body = JSON.stringify(message);
     if (Buffer.byteLength(body, 'utf8') > ports.maxMessageBytes) {
       client.send(JSON.stringify({
@@ -116,9 +119,10 @@ function createWebSocketWorkspaceRequestHandlers<Client extends WorkspaceRequest
           status: 413,
         },
       }));
-      return;
+      return false;
     }
     client.send(body);
+    return true;
   }
 
   function finish(client: Client, request: ScheduledRequest): void {
@@ -139,6 +143,9 @@ function createWebSocketWorkspaceRequestHandlers<Client extends WorkspaceRequest
   function start(client: Client, schedule: ClientSchedule, request: ScheduledRequest): void {
     if (request.cancelled) return;
     request.started = true;
+    request.trace?.mark('dispatch');
+    request.trace?.metric({ socketBytes: client.bufferedAmount || 0, pendingRequests: schedule.requests.size,
+      interactiveRunning: globalInteractiveRunning, backgroundRunning: globalBackgroundRunning });
     if (request.lane === 'interactive') {
       schedule.interactiveRunning += 1;
       globalInteractiveRunning += 1;
@@ -179,6 +186,7 @@ function createWebSocketWorkspaceRequestHandlers<Client extends WorkspaceRequest
     const schedule = scheduleFor(client);
     const previous = schedule.requests.get(request.requestId);
     if (previous) {
+      request.trace?.end('failed');
       send(client, {
         type: request.responseType,
         requestId: request.requestId,
@@ -191,6 +199,7 @@ function createWebSocketWorkspaceRequestHandlers<Client extends WorkspaceRequest
     const backpressured = request.lane === 'background'
       && Number(client.bufferedAmount || 0) >= BACKPRESSURE_BYTES;
     if (queued >= MAX_QUEUED_REQUESTS || backpressured) {
+      request.trace?.end('failed');
       send(client, {
         type: request.responseType,
         requestId: request.requestId,
@@ -207,6 +216,7 @@ function createWebSocketWorkspaceRequestHandlers<Client extends WorkspaceRequest
   function workspaceRequest(client: Client, message: WorkspaceRequestMessage): void {
     const controller = new AbortController();
     const scheduled: ScheduledRequest = {
+      trace: ports.observeRequest?.('workspace.request', message.requestId, message.request.operation),
       cancelled: false,
       controller,
       lane: workspaceRequestLane(message.request),
@@ -222,9 +232,12 @@ function createWebSocketWorkspaceRequestHandlers<Client extends WorkspaceRequest
             client.previewScopeId,
           );
           if (scheduled.cancelled || controller.signal.aborted) return;
-          send(client, { type: 'workspace-result', requestId: message.requestId, ok: true, result });
+          scheduled.trace?.mark('service');
+          const sent = send(client, { type: 'workspace-result', requestId: message.requestId, ok: true, result });
+          scheduled.trace?.mark('sent'); scheduled.trace?.end(sent ? 'completed' : 'failed');
         } catch (error: unknown) {
           if (scheduled.cancelled || controller.signal.aborted) return;
+          scheduled.trace?.end('failed');
           send(client, { type: 'workspace-result', requestId: message.requestId, ok: false, error: ports.error(error) });
         }
       },
@@ -235,6 +248,7 @@ function createWebSocketWorkspaceRequestHandlers<Client extends WorkspaceRequest
   function languageServerRequest(client: Client, message: LanguageServerRequestMessage): void {
     const controller = new AbortController();
     const scheduled: ScheduledRequest = {
+      trace: ports.observeRequest?.('language-server.request', message.requestId, message.request.operation),
       cancelled: false,
       controller,
       lane: message.request.operation === 'capability' || message.request.priority === 'background'
@@ -247,15 +261,18 @@ function createWebSocketWorkspaceRequestHandlers<Client extends WorkspaceRequest
         try {
           const response = await ports.executeLanguageServer(message.request, controller.signal);
           if (scheduled.cancelled || controller.signal.aborted) return;
-          send(client, {
+          scheduled.trace?.mark('service');
+          const sent = send(client, {
             type: 'language-server-result',
             requestId: message.requestId,
             ok: true,
             result: response.result,
             supported: response.supported !== false,
           });
+          scheduled.trace?.mark('sent'); scheduled.trace?.end(sent ? 'completed' : 'failed');
         } catch (error: unknown) {
           if (scheduled.cancelled || controller.signal.aborted) return;
+          scheduled.trace?.end('failed');
           send(client, { type: 'language-server-result', requestId: message.requestId, ok: false, error: ports.error(error) });
         }
       },
@@ -267,6 +284,7 @@ function createWebSocketWorkspaceRequestHandlers<Client extends WorkspaceRequest
     const request = schedules.get(client)?.requests.get(message.requestId);
     if (!request) return;
     request.cancelled = true;
+    request.trace?.end('cancelled');
     request.controller.abort();
     schedules.get(client)?.requests.delete(message.requestId);
   }
@@ -276,6 +294,7 @@ function createWebSocketWorkspaceRequestHandlers<Client extends WorkspaceRequest
     if (!schedule) return;
     for (const request of schedule.requests.values()) {
       request.cancelled = true;
+      request.trace?.end('cancelled');
       request.controller.abort();
     }
     schedule.requests.clear();

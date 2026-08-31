@@ -38,6 +38,7 @@ the [documentation home](../README.md).
 
 ## Verification
 
+- [Interaction performance diagnostics](interaction-performance.md)
 - [Acceptance and dogfood plan](../products/code/test/acceptance-dogfood-plan.md)
 - [Real Codex cross-interface case](../products/code/real-codex-release-case.md)
 

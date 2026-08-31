@@ -1,4 +1,5 @@
 const assert = require('assert');
+import { InteractionPerformanceRecorder, performanceRequestKind } from '../../shared/interaction-performance';
 const {
   createWebSocketWorkspaceRequestHandlers,
 } = require('../websocket-workspace-request-handlers.cjs') as typeof import('../websocket-workspace-request-handlers.cjs');
@@ -44,7 +45,9 @@ async function run(): Promise<void> {
   const pending = new Map<string, Deferred<unknown>>();
   const started: string[] = [];
   const aborted: string[] = [];
+  const performanceRecorder = new InteractionPerformanceRecorder({ source: 'server', prefix: 'test', now: () => performance.now(), wallNow: Date.now });
   const handlers = createWebSocketWorkspaceRequestHandlers<TestClient>({
+    observeRequest: (operation, requestId, kind) => performanceRecorder.begin(operation, { requestId, requestKind: performanceRequestKind(kind) }),
     openState: OPEN,
     maxMessageBytes: 1024,
     async executeWorkspace(request, accessMode, signal, previewScopeId) {
@@ -290,6 +293,15 @@ async function run(): Promise<void> {
     });
   }
 
+  const observations = performanceRecorder.snapshot().records;
+  assert(observations.some(record => record.outcome === 'cancelled'));
+  assert(observations.some(record => record.outcome === 'failed'));
+  const completed = observations.filter(record => record.outcome === 'completed');
+  assert(completed.length > 0);
+  for (const record of completed) {
+    assert(record.stages.dispatch! <= record.stages.service!);
+    assert(record.stages.service! <= record.stages.sent!);
+  }
   console.log('WebSocket workspace request handlers passed');
 }
 
