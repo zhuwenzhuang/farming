@@ -412,6 +412,22 @@ test('mounts Agent-owned Browsers behind nested resource controls without layout
       appearanceSurfaces[appearance].inset,
     )
   }
+  for (const appearance of ['light', 'dark', 'paper'] as const) {
+    await page.locator('body').evaluate((body, value) => { body.dataset.appearance = value }, appearance)
+    await viewer.getByRole('button', { name: 'More', exact: true }).click()
+    const menu = viewer.locator('.farming-browser-more-menu')
+    await expect(menu).toHaveCSS('border-radius', '8px')
+    for (const item of await menu.getByRole('menuitem').all()) {
+      await expect(item).toHaveCSS('font-size', '13px')
+      await expect(item).toHaveCSS('font-weight', '400')
+      await expect(item).toHaveCSS('border-radius', '6px')
+    }
+    const screenshot = testInfo.outputPath(`${appearance}-browser-menu.png`)
+    await viewer.screenshot({ path: screenshot, animations: 'disabled' })
+    await testInfo.attach(`${appearance}-browser-menu`, { path: screenshot, contentType: 'image/png' })
+    await viewer.getByRole('button', { name: 'More', exact: true }).click()
+  }
+  await page.locator('body').evaluate(body => { body.dataset.appearance = 'light' })
   const browserOwnerName = await agentRow.locator('.code-agent-name').textContent() ?? ''
   const truncatedOwner = browserOwnerName.length <= 28
     ? browserOwnerName

@@ -3,7 +3,9 @@
 > English version: [ui-interaction-protocol.md](ui-interaction-protocol.md)
 
 Farming 的界面不仅共享外观 Token，也共享交互所有权。组件声明边界和产品动作，公共机制
-负责关闭事件的仲裁。视觉样式仍由[外观契约](../products/code/appearance-themes.zh_cn.md)管理。
+负责关闭事件的仲裁。[UI 设计协议](ui-design-protocol.zh_cn.md)拥有公共控件的等价关系和
+规格，[外观契约](../products/code/appearance-themes.zh_cn.md)拥有调色板与表面角色。
+共享视觉部分不意味着合并不同的交互角色。
 
 ## 区域所有权
 

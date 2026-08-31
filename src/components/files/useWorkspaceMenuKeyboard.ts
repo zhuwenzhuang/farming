@@ -1,8 +1,10 @@
+import { useMenuViewportBounds } from '@/hooks/useMenuViewportBounds'
 import { useInteractionLayer } from '@/hooks/useInteractionLayer'
 import { useCallback, useEffect, useLayoutEffect, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from 'react'
 
 interface UseWorkspaceMenuKeyboardOptions {
   menuOpen: boolean
+  positionKey?: unknown
   menuRef: RefObject<HTMLElement | null>
   onClose: () => void
   onCloseWithFocusRestore?: () => void
@@ -22,11 +24,13 @@ function focusFirstWorkspaceMenuItem(menu: HTMLElement | null) {
 
 export function useWorkspaceMenuKeyboard({
   menuOpen,
+  positionKey,
   menuRef,
   onClose,
   onCloseWithFocusRestore = onClose,
   focusFirstItem = false,
 }: UseWorkspaceMenuKeyboardOptions) {
+  useMenuViewportBounds(menuOpen, menuRef, positionKey)
   const handleMenuKeyDown = useCallback((event: ReactKeyboardEvent<HTMLElement>) => {
     const isNavigationKey = event.key === 'ArrowDown' || event.key === 'ArrowUp' || event.key === 'Home' || event.key === 'End'
     if (!isNavigationKey) return

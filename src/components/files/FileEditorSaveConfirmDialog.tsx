@@ -50,7 +50,7 @@ export function FileEditorSaveConfirmDialog({
         <div className="code-file-save-confirm-brand" aria-hidden="true">F</div>
         <h2 id="code-file-save-confirm-title">{copy.saveBeforeCloseTitle(label)}</h2>
         <p id="code-file-save-confirm-description">{copy.saveBeforeCloseDescription}</p>
-        <div className="code-file-save-confirm-actions">
+        <div className="code-dialog-actions stacked code-file-save-confirm-actions">
           {allowSave ? (
             <button type="button" className="primary" onClick={onConfirmSave} disabled={saving}>
               {saving ? copy.savingFile : copy.save}

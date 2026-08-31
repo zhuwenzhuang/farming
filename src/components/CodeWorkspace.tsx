@@ -5911,7 +5911,7 @@ export function CodeWorkspace({
 
       {optionsMenu && (
         <div
-          className="code-context-menu code-options-menu"
+          className="code-menu-surface code-menu-list code-context-menu code-options-menu"
           data-testid="code-options-menu"
           style={{ left: optionsMenu.x, top: optionsMenu.y }}
           role="menu"

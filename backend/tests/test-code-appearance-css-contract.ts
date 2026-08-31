@@ -472,7 +472,7 @@ const structuralSurfaceContracts = [
   ['src/styles/agent-list.css', '.code-agent-row.active', 'background', 'var(--code-active-item-surface)'],
   ['src/styles/agent-list.css', '.code-agent-row.search-selected', 'background', 'var(--code-active-item-surface)'],
   ['src/styles/agent-list.css', '.code-agent-row', 'border-radius', '8px'],
-  ['src/styles/sidebar.css', '.code-project-title-actions', 'border-radius', '0 8px 8px 0'],
+  ['src/styles/sidebar.css', '.code-project-title-actions', 'border-radius', '8px'],
   ['src/styles/files.css', '.code-open-editor-row', 'border-radius', '8px'],
   ['src/styles/files.css', '.code-open-editors', 'border-radius', '0'],
   ['src/styles/files.css', '.code-open-editors', 'margin-left', '0'],

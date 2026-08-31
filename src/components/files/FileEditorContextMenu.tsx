@@ -48,6 +48,7 @@ export function FileEditorContextMenu({
   const menuRef = useRef<HTMLDivElement | null>(null)
   const handleMenuKeyDown = useWorkspaceMenuKeyboard({
     menuOpen: true,
+    positionKey: `${x}:${y}`,
     menuRef,
     onClose,
     focusFirstItem,
@@ -56,7 +57,7 @@ export function FileEditorContextMenu({
   return (
     <div
       ref={menuRef}
-      className="code-editor-context-menu"
+      className="code-menu-surface code-menu-list code-editor-context-menu"
       data-testid="code-editor-context-menu"
       role="menu"
       style={{ left: x, top: y }}

@@ -1,3 +1,4 @@
+import { useMenuViewportBounds } from '@/hooks/useMenuViewportBounds'
 import type {
   CSSProperties,
   KeyboardEvent as ReactKeyboardEvent,
@@ -190,6 +191,8 @@ export function CodeOverlays({
   onCloseArchivedSessionNotice,
   copy,
 }: CodeOverlaysProps) {
+  const activeContextMenu = agentMenu || projectMenu || agentSessionMenu
+  useMenuViewportBounds(Boolean(activeContextMenu), contextMenuRef, activeContextMenu)
   useInteractionLayer({
     enabled: Boolean(renameDialog), modal: true,
     elements: () => [renameDialogRef.current],
@@ -420,7 +423,7 @@ export function CodeOverlays({
     <>
       {contextMenuAgent && (
         <div
-          className="code-context-menu code-sidebar-context-menu"
+          className="code-menu-surface code-menu-list code-context-menu code-sidebar-context-menu"
           data-testid="code-agent-context-menu"
           style={{ left: agentMenu?.x ?? 0, top: agentMenu?.y ?? 0 }}
           role="menu"
@@ -433,7 +436,7 @@ export function CodeOverlays({
       )}
       {contextMenuAgentSession && (
         <div
-          className="code-context-menu code-sidebar-context-menu"
+          className="code-menu-surface code-menu-list code-context-menu code-sidebar-context-menu"
           data-testid="code-session-context-menu"
           style={{ left: agentSessionMenu?.x ?? 0, top: agentSessionMenu?.y ?? 0 }}
           role="menu"
@@ -446,7 +449,7 @@ export function CodeOverlays({
       )}
       {contextMenuProject && (
         <div
-          className="code-context-menu code-project-context-menu"
+          className="code-menu-surface code-menu-list code-context-menu code-project-context-menu"
           data-testid="code-project-context-menu"
           style={{ left: projectMenu?.x ?? 0, top: projectMenu?.y ?? 0 }}
           role="menu"
@@ -495,7 +498,7 @@ export function CodeOverlays({
               value={renameDialog.title}
               onChange={event => onRenameDialogTitleChange(event.target.value)}
             />
-            <div className="code-rename-actions">
+            <div className="code-dialog-actions code-rename-actions">
               <button type="button" onClick={() => onCloseRenameDialog()}>{copy.cancel}</button>
               <button type="submit" className="primary" disabled={!renameDialog.title.trim()}>{copy.save}</button>
             </div>
@@ -516,7 +519,7 @@ export function CodeOverlays({
           >
             <h2 id="code-archive-exit-title">{copy.archiveAgentQuestion}</h2>
             <p>{copy.acknowledgeUnprovenAcpExitDescription(archiveExitDialog.title)}</p>
-            <div className="code-rename-actions">
+            <div className="code-dialog-actions code-rename-actions">
               <button type="button" ref={archiveExitCancelButtonRef} onClick={() => onCloseArchiveExitDialog()} autoFocus>{copy.cancel}</button>
               <button type="button" className="danger" onClick={onSubmitArchiveExitDialog}>
                 {copy.acknowledgeUnprovenAcpExit}
@@ -567,7 +570,7 @@ export function CodeOverlays({
             {removeProjectDialog.files.some(file => file.dirty) && (
               <p className="code-remove-project-warning">{copy.removeProjectUnsavedChanges}</p>
             )}
-            <div className="code-rename-actions">
+            <div className="code-dialog-actions code-rename-actions">
               <button
                 type="button"
                 ref={removeProjectCancelButtonRef}
@@ -603,7 +606,7 @@ export function CodeOverlays({
           >
             <h2 id="code-delete-worktree-title">{copy.deleteWorktreeQuestion}</h2>
             <p>{copy.deleteWorktreeDescription}</p>
-            <div className="code-rename-actions">
+            <div className="code-dialog-actions code-rename-actions">
               <button type="button" ref={deleteWorktreeCancelButtonRef} onClick={() => onCloseDeleteWorktreeDialog()} autoFocus>{copy.cancel}</button>
               <button type="button" className="danger" onClick={onSubmitDeleteWorktreeDialog}>{copy.forceDelete}</button>
             </div>

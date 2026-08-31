@@ -6,6 +6,10 @@ Farming Code supports System, Light, Dark, and Paper appearances. Appearance is
 a presentation preference only: changing it must not alter Agent, Session,
 Project, file, or terminal state.
 
+The [UI design protocol](../../development/ui-design-protocol.md) governs shared
+control families, typography, geometry, icons, responsive behavior and cross-page
+equivalence. This document owns their appearance roles and theme lifecycle.
+
 ## Design Contract
 
 - Light is the neutral, high-clarity default.
@@ -115,11 +119,12 @@ is data rather than component selectors, so adding an appearance is a complete
 typed inventory operation instead of a sequence of page overrides.
 
 `tokens.css` is generated from that registry and contains exactly one rule for
-Light, Dark, and Paper. It must not be edited by hand. Product-domain styles
-such as Composer, Files, Settings, Transcript, Review, and extension frontends
-own layout and interaction selectors, but consume semantic color roles and
-remain appearance-neutral. They may not contain appearance selectors or fixed
-Code colors.
+Light, Dark, and Paper. It must not be edited by hand. Shared control recipes own
+reusable geometry and interaction styling. Product-domain styles such as
+Composer, Files, Settings, Transcript, Review, and extension frontends own
+composition and domain-specific layout; they must not fork a shared recipe.
+Both consume semantic color roles and remain appearance-neutral. They may not
+contain appearance selectors or fixed Code colors.
 
 The shared role set is intentionally bounded. Most roles describe layer,
 content, interaction, or functional meaning: canvas, chrome, surface, raised,

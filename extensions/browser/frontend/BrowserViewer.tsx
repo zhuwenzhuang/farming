@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeftGlyph, ArrowRightGlyph, BackToAgentGlyph, ChatBubblesGlyph, CopyGlyph, SquareGlyph } from '@/components/IconGlyphs'
+import { ArrowLeftGlyph, ArrowRightGlyph, BackToAgentGlyph, ChatBubblesGlyph, CopyGlyph, MoreHorizontalGlyph, PlayGlyph, SquareGlyph } from '@/components/IconGlyphs'
 import { appPath } from '@/lib/base-path'
 import type { UiPreferences } from '@/lib/ui-preferences'
 import {
@@ -72,24 +72,6 @@ function ReloadGlyph() {
   return (
     <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
       <path d="M12.8 3.8V1.5a.5.5 0 0 1 1 0v3.6a.5.5 0 0 1-.5.5H9.7a.5.5 0 0 1 0-1h2.36A5.5 5.5 0 1 0 13.5 8a.5.5 0 0 1 1 0 6.5 6.5 0 1 1-1.7-4.2Z" />
-    </svg>
-  )
-}
-
-function PlayGlyph() {
-  return (
-    <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-      <path d="M4.5 2.6a.75.75 0 0 1 1.15-.63l7 4.9a.75.75 0 0 1 0 1.23l-7 4.9A.75.75 0 0 1 4.5 12.4V2.6Z" />
-    </svg>
-  )
-}
-
-function MoreGlyph() {
-  return (
-    <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-      <circle cx="3" cy="8" r="1.1" />
-      <circle cx="8" cy="8" r="1.1" />
-      <circle cx="13" cy="8" r="1.1" />
     </svg>
   )
 }
@@ -506,10 +488,10 @@ export function BrowserViewer({
             aria-expanded={moreOpen}
             onClick={() => setMoreOpen(current => !current)}
           >
-            <MoreGlyph />
+            <MoreHorizontalGlyph />
           </button>
           {moreOpen ? (
-            <div ref={moreMenuRef} className="farming-browser-more-menu" role="menu">
+            <div ref={moreMenuRef} className="code-menu-surface code-menu-list farming-browser-more-menu" role="menu">
               <button
                 type="button"
                 role="menuitem"

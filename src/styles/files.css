@@ -20,8 +20,6 @@
 
 .code-files-section {
   --code-file-entry-height: var(--code-sidebar-file-row-height);
-  --code-file-entry-font-size: 13px;
-  --code-file-entry-line-height: 16px;
 }
 
 .code-files-section.collapsed {
@@ -486,8 +484,8 @@ body.code-mode .code-file-change-group-toggle {
   background: transparent;
   color: var(--code-text-muted);
   font: inherit;
-  font-size: 13px;
-  line-height: 1.25;
+  font-size: var(--code-file-entry-font-size);
+  line-height: var(--code-file-entry-line-height);
   text-align: left;
   cursor: pointer;
   position: relative;
@@ -514,7 +512,7 @@ body.code-mode .code-file-change-group-toggle {
 }
 
 .code-file-change-name {
-  font-size: 13px;
+  font-size: var(--code-file-entry-font-size);
 }
 
 .code-file-change-path {
@@ -631,7 +629,8 @@ body.code-mode .code-file-change-group-toggle {
 }
 
 .code-open-editor-name {
-  font-size: 13px;
+  font-size: var(--code-file-entry-font-size);
+  line-height: var(--code-file-entry-line-height);
   color: var(--code-text);
 }
 
@@ -1107,9 +1106,13 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
   color: var(--code-text-muted);
   cursor: pointer;
   font: inherit;
-  font-size: 8px;
-  letter-spacing: -1px;
   line-height: 1;
+}
+
+.code-file-row-actions svg {
+  display: block;
+  width: var(--code-ui-icon-size);
+  height: var(--code-ui-icon-size);
 }
 
 .code-file-row-actions:hover,
@@ -1307,29 +1310,6 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
   line-height: 1.35;
   min-width: 0;
   overflow-wrap: anywhere;
-}
-
-.code-file-operation-dialog .code-rename-actions {
-  gap: 4px;
-}
-
-.code-file-operation-dialog .code-rename-actions button {
-  min-height: 24px;
-  border-radius: 4px;
-  padding: 3px 7px;
-  font-size: 12px;
-  background: var(--code-bg-muted);
-  border-color: var(--code-border);
-  color: var(--code-text);
-}
-
-.code-file-operation-dialog .code-rename-actions button.primary {
-  background: var(--code-accent);
-  border-color: var(--code-accent);
-}
-
-.code-file-operation-dialog .code-rename-actions button.primary:hover:not(:disabled) {
-  background: var(--code-accent-hover);
 }
 
 .code-file-inline-blame-layer {
@@ -1736,33 +1716,7 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
 }
 
 .code-file-save-confirm-actions {
-  display: grid;
-  gap: 8px;
   margin-top: 4px;
-}
-
-.code-file-save-confirm-actions button {
-  min-height: 44px;
-  border: 1px solid var(--code-border);
-  border-radius: 9px;
-  background: var(--code-bg-muted);
-  color: var(--code-text);
-  font: inherit;
-  font-size: 14px;
-  font-weight: 650;
-  cursor: pointer;
-  border-color: var(--code-border);
-}
-
-.code-file-save-confirm-actions button.primary {
-  border-color: var(--code-accent);
-  background: var(--code-accent);
-  color: var(--code-text-on-emphasis);
-}
-
-.code-file-save-confirm-actions button:disabled {
-  opacity: 0.58;
-  cursor: wait;
 }
 
 @media (max-width: 980px) {
@@ -1867,7 +1821,7 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
       gap: 3px;
       padding: 0 4px 0 min(var(--file-indent, 6px), 25%);
       border-radius: 8px;
-      font-size: 14px;
+      font-size: var(--code-file-entry-font-size);
     }
 
   body.code-mode.code-compact-layout .code-file-tree-row-frame:hover:not(.active):not(:has(.code-file-row.focused, .code-file-row.selected, .code-file-row.opening, .code-file-row.active)) {
@@ -1915,35 +1869,6 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
   color: var(--code-warning);
 }
 
-.code-file-context-menu {
-  background: var(--code-bg-raised);
-  border-color: var(--code-border);
-  color: var(--code-text);
-  box-shadow: 0 18px 48px var(--code-shadow-color);
-}
-
-.code-file-context-menu button {
-  color: var(--code-text);
-}
-
-.code-file-context-menu button:hover {
-  background: var(--code-bg-hover);
-  color: var(--code-text);
-}
-
-.code-file-context-menu button:focus-visible {
-  background: var(--code-bg-hover);
-  color: var(--code-text);
-}
-
-.code-file-save-confirm-actions button:hover:not(:disabled) {
-  background: var(--code-bg-hover);
-}
-
-.code-file-operation-dialog .code-rename-actions button:hover {
-  background: var(--code-bg-hover);
-}
-
 .code-file-row.ignored .code-file-name {
   color: var(--code-text-quiet);
 }
@@ -1970,22 +1895,6 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
 
 .code-file-blame-toast.error {
   border-color: var(--code-border-danger);
-}
-
-.code-file-context-menu button {
-  background: transparent;
-}
-
-.code-file-context-menu button:hover {
-  outline: 0;
-}
-
-.code-file-context-menu button:focus-visible {
-  outline: 0;
-}
-
-.code-file-operation-dialog .code-rename-actions button.primary {
-  color: var(--code-text-on-emphasis);
 }
 
 .code-files-panel {

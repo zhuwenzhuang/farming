@@ -47,6 +47,12 @@ Prefer:
 Preserve the existing visual style and product wording when fixing behavior
 unless the requested change has a clear visual or product-copy reason.
 
+For Code UI work, follow the [UI design protocol](docs/development/ui-design-protocol.md).
+Identify the semantic family and reuse its shared specification for typography,
+icons, geometry, states, and responsive behavior. Change common rules at their
+shared owner and verify affected peers; page-local styling differences require
+a documented product reason, not just matching color tokens.
+
 Treat interaction-state styling as a product-wide contract, not a local
 component detail. Selected, active, focused, hovered, pressed, loading,
 disabled, success, warning, and error states must use a coherent visual

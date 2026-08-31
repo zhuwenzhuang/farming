@@ -4,8 +4,10 @@
 
 Farming interfaces share interaction ownership, not just appearance tokens.
 Components declare their boundaries and product actions; shared infrastructure
-arbitrates dismissal. Visual styling remains owned by the
-[appearance contract](../products/code/appearance-themes.md).
+arbitrates dismissal. The [UI design protocol](ui-design-protocol.md) owns shared
+control equivalence and specifications; the
+[appearance contract](../products/code/appearance-themes.md) owns palette and
+surface roles. Sharing visual parts does not merge distinct interaction roles.
 
 ## Surface Ownership
 

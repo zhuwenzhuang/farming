@@ -102,7 +102,7 @@ function SelectOptions({
     <button
       key={candidate.value}
       type="button"
-      className={`code-model-option ${candidate.value === currentValue ? 'selected' : ''}`}
+      className={`code-menu-item code-model-option ${candidate.value === currentValue ? 'selected' : ''}`}
       role="menuitemradio"
       aria-checked={candidate.value === currentValue}
       disabled={disabled}
@@ -169,7 +169,7 @@ export function AcpModeControl({
         <span className="code-chevron" aria-hidden="true"><ChevronDownGlyph /></span>
       </button>
       {open ? (
-        <div className="code-approval-menu code-composer-menu" role="menu" data-testid="code-acp-mode-menu">
+        <div className="code-menu-surface code-approval-menu code-composer-menu" role="menu" data-testid="code-acp-mode-menu">
           <div className="code-approval-menu-header">
             <span>{copy.agentPermissionMode}</span>
             {currentModeDescription ? <small>{currentModeDescription}</small> : null}
@@ -178,7 +178,7 @@ export function AcpModeControl({
             <button
               key={mode.id}
               type="button"
-              className={`code-approval-option ${mode.id === currentModeId ? 'selected' : ''}`}
+              className={`code-menu-item code-approval-option ${mode.id === currentModeId ? 'selected' : ''}`}
               role="menuitemradio"
               aria-checked={mode.id === currentModeId}
               disabled={disabled || Boolean(updatingId)}
@@ -273,7 +273,7 @@ export function AcpModelControl({
         <span className="code-chevron" aria-hidden="true"><ChevronDownGlyph /></span>
       </button>
       {open ? (
-        <div className={`code-model-picker-menu code-composer-menu ${hasMatrix ? 'has-matrix' : ''}`} role="menu" data-testid="code-acp-model-menu">
+        <div className={`code-menu-surface code-model-picker-menu code-composer-menu ${hasMatrix ? 'has-matrix' : ''}`} role="menu" data-testid="code-acp-model-menu">
           <ModelMatrixPicker
             models={matrixModels}
             currentModel={model?.currentValue || ''}
@@ -306,7 +306,7 @@ export function AcpModelControl({
             <div className="code-model-nested-anchor">
               <button
                 type="button"
-                className={`code-model-nested-trigger ${pane === 'model' ? 'selected' : ''}`}
+                className={`code-menu-item code-model-nested-trigger ${pane === 'model' ? 'selected' : ''}`}
                 role="menuitem"
                 data-testid="code-acp-model-submenu-trigger"
                 disabled={disabled}
@@ -316,7 +316,7 @@ export function AcpModelControl({
                 <ChevronRightGlyph className="code-menu-chevron-right" />
               </button>
               {pane === 'model' ? (
-                <div className="code-model-submenu code-composer-menu" role="menu" data-testid="code-acp-model-submenu">
+                <div className="code-menu-surface code-menu-inline code-model-submenu code-composer-menu" role="menu" data-testid="code-acp-model-submenu">
                   <SelectOptions
                     option={model}
                     currentValue={model.currentValue}
@@ -332,7 +332,7 @@ export function AcpModelControl({
             <div className="code-model-nested-anchor">
               <button
                 type="button"
-                className={`code-model-nested-trigger ${pane === 'speed' ? 'selected' : ''}`}
+                className={`code-menu-item code-model-nested-trigger ${pane === 'speed' ? 'selected' : ''}`}
                 role="menuitem"
                 data-testid="code-acp-speed-submenu-trigger"
                 disabled={disabled}
@@ -342,12 +342,12 @@ export function AcpModelControl({
                 <ChevronRightGlyph className="code-menu-chevron-right" />
               </button>
               {pane === 'speed' ? (
-                <div className="code-speed-submenu code-composer-menu" role="menu" data-testid="code-acp-speed-submenu">
+                <div className="code-menu-surface code-menu-inline code-speed-submenu code-composer-menu" role="menu" data-testid="code-acp-speed-submenu">
                   {[false, true].map(value => (
                     <button
                       key={String(value)}
                       type="button"
-                      className={`code-model-option ${fastMode.currentValue === value ? 'selected' : ''}`}
+                      className={`code-menu-item code-model-option ${fastMode.currentValue === value ? 'selected' : ''}`}
                       role="menuitemradio"
                       aria-checked={fastMode.currentValue === value}
                       disabled={disabled}
@@ -383,7 +383,7 @@ export function AcpModelControl({
             <button
               key={option.id}
               type="button"
-              className={`code-model-option ${option.currentValue ? 'selected' : ''}`}
+              className={`code-menu-item code-model-option ${option.currentValue ? 'selected' : ''}`}
               role="menuitemcheckbox"
               aria-checked={option.currentValue}
               disabled={disabled}

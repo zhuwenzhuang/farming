@@ -23,6 +23,7 @@
 
 ## 产品架构
 
+- [UI 设计协议](ui-design-protocol.zh_cn.md)
 - [UI 交互协议](ui-interaction-protocol.zh_cn.md)
 
 - [公开文档站](documentation-site.zh_cn.md)

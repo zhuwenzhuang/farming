@@ -13,6 +13,7 @@ assertDomainStyleOwnership({
   // These hooks take their visual style from shared classes such as
   // .code-project-title-action and .code-nav-item.
   unstyledClassNames: [
+    'code-rename-actions', // Shared dialog action recipe owns its visuals.
     'code-nav-history',
     'code-nav-plugins',
     'code-nav-search',

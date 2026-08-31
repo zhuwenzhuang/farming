@@ -3,16 +3,6 @@
    preserve the original cascade. Sidebar resource slots live in
    sidebar-resources.css. */
 
-:root {
-  --code-sidebar-file-row-height: 24px;
-}
-
-@media (max-width: 980px) {
-  :root {
-    --code-sidebar-file-row-height: 28px;
-  }
-}
-
 .code-sidebar {
   min-width: 0;
   height: 100%;
@@ -604,11 +594,11 @@ body.code-resizing-sidebar .code-sidebar-resizer {
   align-items: center;
   justify-content: flex-end;
   gap: 3px;
-  width: 93px;
+  width: auto;
   height: 28px;
   box-sizing: border-box;
   padding-left: 21px;
-  border-radius: 0 8px 8px 0;
+  border-radius: 8px;
   background:
     linear-gradient(var(--code-project-row-action-overlay), var(--code-project-row-action-overlay)),
     linear-gradient(var(--code-project-row-action-surface), var(--code-project-row-action-surface));
@@ -1131,12 +1121,6 @@ body.code-resizing-sidebar .code-sidebar-resizer {
 .code-project-context-menu,
 .code-project-launch-menu {
   min-width: 154px;
-  padding: 7px;
-  border-color: var(--code-border);
-  border-radius: 15px;
-  background: var(--code-bg-raised);
-  box-shadow:
-    var(--code-shadow-raised);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
@@ -1178,30 +1162,12 @@ body.code-resizing-sidebar .code-sidebar-resizer {
   display: block;
 }
 
-.code-project-context-menu button,
-.code-project-launch-menu button {
-  min-height: 34px;
-  padding: 7px 12px;
-  border-radius: 9px;
-  color: var(--code-text);
-  font-size: 15px;
-  line-height: 1.15;
-}
-
 .code-project-launch-menu .agent-launch-icon {
   width: 16px;
   height: 16px;
   flex: 0 0 16px;
   display: block;
   color: var(--code-text);
-}
-
-.code-project-context-menu button:hover:not(:disabled),
-.code-project-context-menu button:focus-visible,
-.code-project-launch-menu button:hover:not(:disabled),
-.code-project-launch-menu button:focus-visible {
-  background: var(--code-bg-hover);
-  outline: 0;
 }
 
 .code-rename-backdrop {
@@ -1243,52 +1209,6 @@ body.code-resizing-sidebar .code-sidebar-resizer {
   padding: 0 9px;
   outline: 0;
   border-color: var(--code-border);
-}
-
-.code-rename-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.code-rename-actions button {
-  min-height: 30px;
-  border: 0;
-  border-radius: 6px;
-  background: var(--code-bg-muted);
-  color: var(--code-text);
-  cursor: pointer;
-  padding: 5px 11px;
-  border-color: var(--code-border);
-}
-
-.code-rename-actions button:hover:not(:disabled) {
-  background: var(--code-bg-hover);
-}
-
-.code-rename-actions button.primary {
-  background: var(--code-accent);
-  color: var(--code-text-on-emphasis);
-  border-color: var(--code-accent);
-}
-
-.code-rename-actions button.primary:hover:not(:disabled) {
-  background: var(--code-accent-hover);
-}
-
-.code-rename-actions button.danger {
-  background: var(--code-danger);
-  color: var(--code-text-on-emphasis);
-  border-color: var(--code-danger);
-}
-
-.code-rename-actions button.danger:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--code-danger) 82%, var(--code-text));
-}
-
-.code-rename-actions button:disabled {
-  opacity: 0.48;
-  cursor: not-allowed;
 }
 
 .code-session-result {
@@ -1438,9 +1358,18 @@ body.code-resizing-sidebar .code-sidebar-resizer {
       --code-project-sticky-height: 32px;
     }
 
+  body.code-mode.code-compact-layout .code-project-row {
+      grid-template-columns: minmax(0, 1fr) auto;
+    }
+
   body.code-mode.code-compact-layout .code-project-title-actions {
-      height: 44px;
-      width: 132px;
+      position: static;
+      align-self: start;
+      height: var(--code-touch-target-size);
+      width: auto;
+      background: transparent;
+      -webkit-mask-image: none;
+      mask-image: none;
       gap: 0;
       padding-left: 0;
       opacity: 1;

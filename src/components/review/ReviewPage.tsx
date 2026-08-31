@@ -1694,7 +1694,7 @@ export function ReviewPage() {
               <button type="button" className="review-source-trigger" aria-expanded={showComparisonSources} onClick={openComparisonSources}>
                 <strong>{comparisonSourceLabel}</strong><ChevronDownGlyph />
               </button>
-              {showComparisonSources ? <div className="review-source-menu" role="menu" aria-label="Compare changes from">
+              {showComparisonSources ? <div className="code-menu-surface code-menu-list review-source-menu" role="menu" aria-label="Compare changes from">
                 {comparisonSourcesPending ? <p>Loading comparisons…</p> : null}
                 {comparisonSourceError ? <p className="error">{comparisonSourceError}</p> : null}
                 {comparisonSources ? <>
@@ -1729,6 +1729,7 @@ export function ReviewPage() {
             <span className="review-total-stats"><b>+{totalAdded}</b><i>−{totalRemoved}</i></span>
             {!externalReview ? <>
               <CodeSelect
+                density="toolbar"
                 ariaLabel="Patch set"
                 className="review-patch-select"
                 value={patchset}
@@ -1922,9 +1923,9 @@ export function ReviewPage() {
                 onChange={value => setDraftPreferences(current => ({ ...current, context: Number(value) }))}
               />
               <label className="checkbox-row">Fit to screen<input aria-label="Fit to screen" type="checkbox" checked={draftPreferences.fitToScreen} onChange={event => setDraftPreferences(current => ({ ...current, fitToScreen: event.target.checked }))} /></label>
-              <label>Diff width<input aria-label="Diff width" type="number" autoComplete="off" data-form-type="other" min={40} max={240} value={draftPreferences.lineLength} onChange={event => setDraftPreferences(current => ({ ...current, lineLength: Number(event.target.value) || current.lineLength }))} /></label>
-              <label>Tab width<input aria-label="Tab width" type="number" autoComplete="off" data-form-type="other" min={2} max={16} value={draftPreferences.tabSize} onChange={event => setDraftPreferences(current => ({ ...current, tabSize: Number(event.target.value) || current.tabSize }))} /></label>
-              <label>Font size<input aria-label="Font size" type="number" autoComplete="off" data-form-type="other" min={10} max={20} value={draftPreferences.fontSize} onChange={event => setDraftPreferences(current => ({ ...current, fontSize: Number(event.target.value) || current.fontSize }))} /></label>
+              <label>Diff width<input className="code-field" aria-label="Diff width" type="number" autoComplete="off" data-form-type="other" min={40} max={240} value={draftPreferences.lineLength} onChange={event => setDraftPreferences(current => ({ ...current, lineLength: Number(event.target.value) || current.lineLength }))} /></label>
+              <label>Tab width<input className="code-field" aria-label="Tab width" type="number" autoComplete="off" data-form-type="other" min={2} max={16} value={draftPreferences.tabSize} onChange={event => setDraftPreferences(current => ({ ...current, tabSize: Number(event.target.value) || current.tabSize }))} /></label>
+              <label>Font size<input className="code-field" aria-label="Font size" type="number" autoComplete="off" data-form-type="other" min={10} max={20} value={draftPreferences.fontSize} onChange={event => setDraftPreferences(current => ({ ...current, fontSize: Number(event.target.value) || current.fontSize }))} /></label>
               <label className="checkbox-row">Intraline differences<input aria-label="Intraline differences" type="checkbox" checked={draftPreferences.intralineDifference} onChange={event => setDraftPreferences(current => ({ ...current, intralineDifference: event.target.checked }))} /></label>
               <label className="checkbox-row">Show tabs<input aria-label="Show tabs" type="checkbox" checked={draftPreferences.showTabs} onChange={event => setDraftPreferences(current => ({ ...current, showTabs: event.target.checked }))} /></label>
               <label className="checkbox-row">Show trailing whitespace<input aria-label="Show trailing whitespace" type="checkbox" checked={draftPreferences.showTrailingWhitespace} onChange={event => setDraftPreferences(current => ({ ...current, showTrailingWhitespace: event.target.checked }))} /></label>
@@ -1942,7 +1943,7 @@ export function ReviewPage() {
                 onChange={value => setDraftPreferences(current => ({ ...current, ignoreWhitespace: value as IgnoreWhitespace }))}
               />
             </div>
-            <footer><button ref={preferencesCancelRef} type="button" onClick={() => setShowPreferences(false)}>CANCEL</button><button type="button" onClick={savePreferences}>SAVE</button></footer>
+            <footer className="code-dialog-actions"><button ref={preferencesCancelRef} type="button" onClick={() => setShowPreferences(false)}>CANCEL</button><button className="primary" type="button" onClick={savePreferences}>SAVE</button></footer>
           </section>
         </div>, document.body,
       ) : null}

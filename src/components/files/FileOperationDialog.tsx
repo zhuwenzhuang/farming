@@ -109,7 +109,7 @@ export function FileOperationDialog({
             }}
           />
         )}
-        <div className="code-rename-actions">
+        <div className="code-dialog-actions code-rename-actions">
           <button type="button" autoFocus={fileOperation.kind === 'delete'} onClick={onCancel}>{copy.cancel}</button>
           <button
             type="submit"

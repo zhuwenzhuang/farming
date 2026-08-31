@@ -11,30 +11,13 @@
   width: max-content;
   min-width: 116px;
   display: grid;
-  gap: 2px;
-  padding: 4px;
-  border: 1px solid var(--code-border);
-  border-radius: 6px;
-  background: var(--code-bg-raised);
-  box-shadow: var(--code-shadow-soft);
 }
 
 .farming-computer-more-menu button {
   width: auto;
   min-width: 0;
-  padding: 0 8px;
-  color: var(--code-text);
-  font: inherit;
-  font-size: 12px;
   text-align: left;
 }
-
-.farming-computer-more-menu button:hover,
-.farming-computer-more-menu button:focus-visible {
-  background: var(--code-bg-hover);
-}
-
-.farming-computer-more-menu button.danger { color: var(--code-danger); }
 
 .farming-computer-viewer {
   display: flex;

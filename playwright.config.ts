@@ -103,7 +103,7 @@ export default defineConfig({
     },
     {
       name: 'iphone-webkit',
-      testMatch: /(iphone-mobile-layout|global-file-search|sidebar-surface-appearance|sidebar-spacing)\.spec\.ts/,
+      testMatch: /(iphone-mobile-layout|global-file-search|sidebar-surface-appearance|sidebar-spacing|ui-design-protocol)\.spec\.ts/,
       use: {
         ...devices['iPhone 14 Pro'],
         browserName: 'webkit',

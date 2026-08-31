@@ -41,6 +41,7 @@ export function FileContextMenu({
 }: FileContextMenuProps) {
   const handleFileMenuKeyDown = useWorkspaceMenuKeyboard({
     menuOpen: Boolean(fileMenu),
+    positionKey: fileMenu,
     menuRef,
     onClose,
     onCloseWithFocusRestore,
@@ -57,7 +58,7 @@ export function FileContextMenu({
   return (
     <div
       ref={menuRef}
-      className="code-context-menu code-file-context-menu"
+      className="code-menu-surface code-menu-list code-context-menu code-file-context-menu"
       data-testid="code-file-context-menu"
       style={{ left: fileMenu.x, top: fileMenu.y }}
       role="menu"
