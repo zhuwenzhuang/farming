@@ -444,6 +444,9 @@ function serverApiRouteManifest(serverPath: string): string[] {
 const EXPECTED_API_ROUTE_MANIFEST = [
   'GET /j/:code',
   'MIDDLEWARE * [tokenAuth.middleware]',
+  'MIDDLEWARE /api/diagnostics/performance [requireDiagnosticOwner]',
+  'GET /api/diagnostics/performance',
+  'POST /api/diagnostics/performance',
   'GET /api/auth/status',
   'MIDDLEWARE /api/share/qr-ticket [setNoStoreHeader]',
   'POST /api/share/qr-ticket',

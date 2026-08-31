@@ -163,12 +163,13 @@ export class InteractionPerformanceJournal {
 
 export function createInteractionPerformanceRouter(journal: InteractionPerformanceJournal, authEnabled = true) {
   const router = express.Router();
-  router.use((req, res, next) => {
+  const requireDiagnosticOwner: DiagnosticHandler = (req, res, next) => {
     if (authEnabled && req.authAccessMode !== 'owner') {
       res.status(403).json({ error: 'Owner access required' }); return;
     }
     next();
-  });
+  };
+  router.use(requireDiagnosticOwner);
   router.get('/', (_req, res) => { res.setHeader('Cache-Control', 'no-store'); res.json(journal.snapshot()); });
   router.post('/', express.json({ limit: '64kb' }), (req, res) => {
     const body: unknown = req.body;
