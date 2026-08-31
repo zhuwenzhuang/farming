@@ -52,6 +52,9 @@ Native Profile Transaction 同时支持直接选择 Model/Effort 的菜单，以
 Quick-mode 默认值或名称相近的模型。活动菜单即使保留旧 Profile Footer，也不属于 Idle
 Composer。各次转换及 Escape 清理共用一个有界 Deadline；取消或输入结果不确定时退出
 预期的菜单层级，不重放选择。只有菜单关闭且请求的 Profile 可见后，才确认变更完成。
+可见模型行可能只是滚动窗口，并非完整目录。目标在窗口外或编号为多位数时，逐次导航并等待
+高亮编号实际推进，确认精确目标后才按 Enter。只有完整遍历一圈才证明模型不存在；缺少高亮
+或位置不再推进时，沿用原 Deadline 明确失败，不重复未确认的输入。
 
 ## Session 连续性
 

@@ -338,6 +338,93 @@ async function run() {
     sendInput: async () => assert.fail('an existing quick picker must reject a new transaction'),
   }), /Close the active Codex Terminal menu/);
 
+  const pagedCatalog = [
+    'model-1', 'model-2', 'model-3', 'model-4', 'model-5', 'model-6', 'model-7',
+    'gpt-5.6-terra', 'gpt-5.6-sol-openai-compact', 'gpt-5.6-sol', 'gpt-5.6-luna', 'model-12',
+  ];
+  for (const scenario of ['hidden-target', 'visible-two-digit', 'three-digit', 'wrap-target', 'missing-target', 'missing-cursor', 'stalled-cursor', 'move-uncertain', 'move-canceled']) {
+    const pagedModels = scenario === 'three-digit'
+      ? Array.from({ length: 102 }, (_, index) => index === 99 ? 'gpt-5.6-sol' : `model-${index + 1}`)
+      : pagedCatalog;
+    const target = scenario === 'wrap-target' ? 'model-2'
+      : scenario === 'missing-target' ? 'model-absent' : 'gpt-5.6-sol';
+    let selected = scenario === 'three-digit' ? 99 : scenario === 'wrap-target' ? 10 : 8;
+    let firstVisible = scenario === 'three-digit' ? 92
+      : scenario === 'visible-two-digit' ? 3 : scenario === 'wrap-target' ? 5 : 1;
+    const renderPage = () => [
+      'Select Model and Effort',
+      ...pagedModels.slice(firstVisible - 1, firstVisible + 7).map((model, offset) => {
+        const index = firstVisible + offset;
+        const marker = scenario !== 'missing-cursor' && index === selected ? '›' : ' ';
+        return `${marker} ${index}. ${model}  Available model`;
+      }),
+      'gpt-5.5 xhigh · /workspace',
+    ].join('\r\n');
+    let pagedPreview = IDLE_55;
+    let pendingPreview = '';
+    let staleReads = 0;
+    const pagedInputs = [];
+    const controller = new globalThis.AbortController();
+    const originalNow = Date.now;
+    let controlledNow = originalNow();
+    if (scenario === 'stalled-cursor') Date.now = () => controlledNow;
+    try {
+      const applying = applyCodexTerminalProfile({
+        profile: { model: target, effort: 'low', serviceTier: 'default' },
+        readPreview: async () => {
+          if (staleReads > 0 && --staleReads === 0) pagedPreview = pendingPreview;
+          return pagedPreview;
+        },
+        sendInput: async input => {
+          pagedInputs.push(input);
+          if (Array.isArray(input)) pagedPreview = renderPage();
+          else if (input === '\x1b[B') {
+            assert.strictEqual(staleReads, 0, 'do not repeat navigation before the prior cursor move is visible');
+            if (scenario === 'stalled-cursor') return;
+            selected = selected % pagedModels.length + 1;
+            if (selected < firstVisible) firstVisible = selected;
+            if (selected > firstVisible + 7) firstVisible = selected - 7;
+            pendingPreview = renderPage();
+            staleReads = 3;
+            if (scenario === 'move-uncertain') throw new Error('navigation write outcome unknown');
+            if (scenario === 'move-canceled') controller.abort(new Error('navigation canceled'));
+          } else if (input === '\r') {
+            assert.strictEqual(pagedModels[selected - 1], target, 'Enter must select the exact highlighted model');
+            pagedPreview = `Select Reasoning Level for ${target}\n  1. Low  Fast responses`;
+          } else if (input === '1') pagedPreview = `${target} low · /workspace`;
+          else if (input === '\x1b') { staleReads = 0; pagedPreview = IDLE_55; }
+          else assert.fail(`unsafe paged model selection: ${JSON.stringify(input)}`);
+        },
+        signal: controller.signal,
+        sleep: async () => {
+          // Expire the 72ms operation budget, keeping its 8ms cleanup reserve.
+          // This exercises the original deadline without host scheduling races.
+          if (scenario === 'stalled-cursor') controlledNow += 72;
+        },
+        pollIntervalMs: 0,
+        timeoutMs: scenario === 'stalled-cursor' ? 80 : 1000,
+      });
+      if (scenario === 'missing-target' || scenario === 'missing-cursor' || scenario === 'stalled-cursor' || scenario.startsWith('move-')) {
+        const expected = scenario === 'missing-target' ? /Model model-absent is not available/
+          : scenario === 'missing-cursor' ? /did not identify its selected model/
+            : scenario === 'stalled-cursor' ? /did not advance while locating/
+              : scenario === 'move-uncertain' ? /navigation write outcome unknown/ : /navigation canceled/;
+        await assert.rejects(applying, expected);
+        assert.strictEqual(pagedInputs.filter(input => input === '\x1b[B').length,
+          scenario === 'missing-target' ? pagedModels.length : scenario === 'missing-cursor' ? 0 : 1);
+        assert.strictEqual(pagedInputs.at(-1), '\x1b', 'failed navigation closes the single model picker');
+        assert.strictEqual(pagedPreview, IDLE_55);
+        assert(!pagedInputs.includes('\r'), 'a missing or uncertain target must never be selected');
+      } else {
+        assert.deepStrictEqual(await applying, { model: target, effort: 'low', serviceTier: 'default' });
+        const expectedMoves = scenario === 'three-digit' ? 1 : scenario === 'wrap-target' ? 4 : 2;
+        assert.deepStrictEqual(pagedInputs, [[{ type: 'paste', text: '/model' }, '\r'], ...Array(expectedMoves).fill('\x1b[B'), '\r', '1']);
+      }
+    } finally {
+      if (scenario === 'stalled-cursor') Date.now = originalNow;
+    }
+  }
+
   for (const failure of ['missing-all-models', 'all-models-write-lost', 'missing-model', 'model-write-lost', 'advanced-canceled']) {
     let failurePreview = IDLE_55;
     const failureInputs = [];
@@ -359,6 +446,12 @@ async function run() {
           if (failure === 'model-write-lost') throw new Error(reason);
         }
         else if (input === '5') { failurePreview = ADVANCED_REASONING_MENU; controller.abort(new Error(reason)); }
+        else if (input === '\x1b[B' && failure === 'missing-model') {
+          const index = Number(failurePreview.match(/^› (\d+)\./m)?.[1]);
+          const next = index === 8 ? 1 : index === 1 ? 7 : 8;
+          failurePreview = MODEL_MENU.replace('gpt-5.6-sol', 'gpt-5.6-sol-openai-compact')
+            .replace('› 8.', '  8.').replace(new RegExp(`^  ${next}\\.`, 'm'), `› ${next}.`);
+        }
         else if (input === '\x1b') {
           if (failurePreview === ADVANCED_REASONING_MENU) failurePreview = REASONING_MENU;
           else if (failurePreview === REASONING_MENU) failurePreview = MODEL_MENU;

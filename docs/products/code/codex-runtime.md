@@ -66,6 +66,11 @@ retains the previous profile footer. Each transition and any Escape cleanup
 share one bounded deadline; cancellation or uncertain input closes the
 anticipated picker levels without replaying the selection. A profile change is
 confirmed only after the picker closes and the requested profile is visible.
+The visible model rows can be a scroll window, not the full catalog. When the
+target is outside that window or has a multi-digit index, navigation waits for
+each highlighted index to advance and confirms the exact target before Enter.
+A complete cursor cycle proves absence; missing or stalled cursor feedback
+fails within the same deadline without repeating an unconfirmed input.
 
 ## Session Continuity
 

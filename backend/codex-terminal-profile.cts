@@ -49,6 +49,7 @@ interface NumberedMenuOption {
   input: string;
   label: string;
   line: string;
+  selected: boolean;
 }
 
 interface TerminalPasteInput {
@@ -297,12 +298,13 @@ function numberedOptionsAfter(
   const options: NumberedMenuOption[] = [];
   const body = text.slice(heading.index + heading[0].length);
   for (const line of body.split(/\r?\n/)) {
-    const match = line.match(/^\s*(?:[>›❯]\s*)?(\d{1,2})[.)]?\s+(.+?)\s*$/u);
+    const match = line.match(/^\s*([>›❯])?\s*(\d+)[.)]?\s+(.+?)\s*$/u);
     if (!match) continue;
     options.push({
-      input: match[1],
-      label: match[2].replace(/\s{2,}.*$/, '').trim(),
-      line: match[2].trim(),
+      input: match[2],
+      label: match[3].replace(/\s{2,}.*$/, '').trim(),
+      line: match[3].trim(),
+      selected: Boolean(match[1]),
     });
   }
   return options;
@@ -549,9 +551,38 @@ async function applyCodexTerminalProfile({
           { ...waitOptions, timeoutMessage: 'Codex did not open its full model menu' },
         );
       }
-      const modelInput = modelSelectionInput(modelMenu.preview, target.model);
-      if (!modelInput) {
-        throw new Error(`Model ${target.model} is not available in this Codex CLI`);
+      let modelInput = modelSelectionInput(modelMenu.preview, target.model) || '';
+      if (!modelInput || !/^[1-9]$/.test(modelInput)) {
+        // A narrow TUI exposes only a window of the full list. Follow its
+        // selected global index, observing each move before sending another;
+        // a multi-digit index is not a safe single-key selection shortcut.
+        const visited = new Set<string>();
+        for (;;) {
+          const selected = codexModelMenuOptions(modelMenu.preview)?.find(option => option.selected);
+          if (!selected) throw new Error('Codex model menu did not identify its selected model');
+          if (modelSelectionInput(modelMenu.preview, target.model) === selected.input) {
+            modelInput = '\r';
+            break;
+          }
+          if (visited.has(selected.input)) {
+            throw new Error(`Model ${target.model} is not available in this Codex CLI`);
+          }
+          visited.add(selected.input);
+          await runStep(
+            () => sendInput('\x1b[B'),
+            `Timed out navigating to Codex model ${target.model}`,
+          );
+          modelMenu = await waitForPreview(
+            readPreview,
+            text => {
+              if (codexQuickModelMenuOptions(text)) return null;
+              const options = codexModelMenuOptions(text);
+              const next = options?.find(option => option.selected);
+              return next && next.input !== selected.input ? options : null;
+            },
+            { ...waitOptions, timeoutMessage: `Codex model menu did not advance while locating ${target.model}` },
+          );
+        }
       }
       // Reasoning returns to the model list on Escape. Anticipate that level
       // before the write, including an uncertain reply after PTY delivery.
