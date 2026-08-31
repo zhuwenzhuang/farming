@@ -434,7 +434,7 @@ if [ ! -x "$binary" ]; then
   download_fifo=
   cleanup_download() {
     if [ -n "\${wget_pid:-}" ]; then
-      kill "$wget_pid" 2>/dev/null || true
+      kill -KILL "$wget_pid" 2>/dev/null || true
       wait "$wget_pid" 2>/dev/null || true
       wget_pid=
     fi

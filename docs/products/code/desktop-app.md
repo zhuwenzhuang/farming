@@ -51,6 +51,10 @@ transfers are bounded, integrity-checked, cancellable, and published only after
 verification. Legacy Linux compatibility must use a private verified runtime
 without modifying system or editor-owned files.
 
+Cancelling a bootstrap download hard-stops its exact downloader before waiting
+for it and removing temporary files. Cleanup must remain bounded even if the
+downloader ignores termination or is blocked opening its output pipe.
+
 Switching backends is atomic from the renderer's perspective: the target must
 be ready before it becomes active, and stale completion from an older attempt
 cannot replace a newer selection.
@@ -69,6 +73,8 @@ mutation is attempted.
 
 After shutdown begins, Desktop rejects new windows, connections, and navigation
 effects. Cleanup is idempotent and completes before the application exits.
+Buffered command output arriving after completion cannot publish progress or
+recreate a released watchdog.
 
 ## Security Boundary
 

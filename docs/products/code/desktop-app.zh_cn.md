@@ -44,6 +44,9 @@ Desktop 可以安装或复用版本兼容的 Remote Server。Download 与 Transf
 完整性、支持取消，并且只有验证完成后才能发布。旧 Linux 兼容只能使用私有且已验证的
 Runtime，不得修改系统或编辑器拥有的文件。
 
+取消 Bootstrap Download 时，必须先硬终止精确拥有的下载进程，再等待退出并删除临时文件。
+即使下载进程忽略终止信号或阻塞在输出管道的打开阶段，清理也必须有界。
+
 从 Renderer 视角看，Backend 切换必须原子完成：目标 Ready 后才能成为 Active；旧 Attempt
 的迟到完成不能覆盖更新选择。
 
@@ -58,6 +61,7 @@ Startup Failure 只撤销自己精确拥有的资源。
 
 进入 Shutdown 后，Desktop 拒绝新 Window、Connection 与 Navigation Effect。Cleanup 保持
 幂等，并在应用退出前完成。
+命令完成后迟到的缓冲输出不得继续发布进度或重新创建已释放的看门狗定时器。
 
 ## 安全边界
 

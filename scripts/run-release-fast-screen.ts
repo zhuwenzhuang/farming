@@ -15,6 +15,14 @@ const tasks: FastScreenTask[] = [
     args: ['--import', 'tsx', 'backend/tests/test-server-route-manifest.ts'],
   },
   {
+    name: 'Desktop command completion and download cancellation',
+    args: [
+      '--import', 'tsx', '--test',
+      '--test-name-pattern=local command completion cannot revive|remote bootstrap TERM cleans',
+      'tests/desktop-backend.test.ts',
+    ],
+  },
+  {
     name: 'managed dependency registry policy',
     args: ['scripts/check-release-managed-dependency-updates.mjs'],
   },

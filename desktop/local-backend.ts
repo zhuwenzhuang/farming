@@ -127,6 +127,9 @@ function runCommand(
       ), policy.idleTimeoutMs)
     }
     const observeOutput = (stream: 'stdout' | 'stderr', chunk: Buffer | string) => {
+      // Stdio may deliver buffered data after exit; a completed command cannot
+      // publish more progress or recreate a watchdog cleared by finish().
+      if (settled) return
       const output = String(chunk)
       if (stream === 'stdout') stdout = `${stdout}${output}`.slice(-8_000)
       else stderr = `${stderr}${output}`.slice(-8_000)
