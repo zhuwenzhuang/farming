@@ -610,7 +610,7 @@ export async function fetchWorkspaceLineChanges(rootId: string, filePath: string
   })
 }
 
-export async function searchWorkspaceFiles(rootId: string, query: string, options: { includeIgnored?: boolean; path?: string; limit?: number; scope?: 'all' | 'file-path'; signal?: AbortSignal } = {}) {
+export async function searchWorkspaceFiles(rootId: string, query: string, options: { includeIgnored?: boolean; path?: string; limit?: number; scope?: 'all' | 'file-path' | 'entries'; signal?: AbortSignal } = {}) {
   return runWorkspaceRequest<WorkspaceFileSearchResult>({
     operation: 'search',
     rootId,

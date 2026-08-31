@@ -253,6 +253,15 @@ async function run(): Promise<void> {
     assert.deepStrictEqual(socket.messages.at(-1), {
       type: 'workspace-result', requestId: 'foreground-tree', ok: true, result: { operation: 'tree' },
     });
+    priorityHandlers.workspaceRequest(socket, {
+      type: 'workspace-request',
+      requestId: 'foreground-entry-search',
+      request: { operation: 'search', rootId: 'root-a', query: 'sql-insight', scope: 'entries' },
+    });
+    await flush();
+    assert.deepStrictEqual(socket.messages.at(-1), {
+      type: 'workspace-result', requestId: 'foreground-entry-search', ok: true, result: { operation: 'search' },
+    }, 'an explicit entry search must not wait behind background decoration reads');
     decorationGates.forEach(gate => gate.resolve({ items: [] }));
     await flush();
     priorityHandlers.close(socket);

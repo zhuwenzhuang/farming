@@ -133,6 +133,11 @@ assert.strictEqual(validateClientMessage({
 }).ok, true);
 assert.strictEqual(validateClientMessage({
   type: 'workspace-request',
+  requestId: 'workspace-search-entries',
+  request: { operation: 'search', rootId: 'root-1', query: 'sql-insight', scope: 'entries' },
+}).ok, true);
+assert.strictEqual(validateClientMessage({
+  type: 'workspace-request',
   requestId: 'workspace-search-invalid',
   request: { operation: 'search', rootId: 'root-1', query: 'src/App.tsx', scope: 'content' },
 }).ok, false);

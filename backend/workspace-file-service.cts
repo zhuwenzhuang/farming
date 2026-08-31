@@ -1030,6 +1030,9 @@ function scorePathMatch(filePath: unknown, query: unknown, options: { allowPathM
 
   if (options.allowPathMatch === false) return null;
 
+  const directoryIndex = normalizedPath.slice(0, -(fileName.length + 1)).split('/').indexOf(normalizedQuery);
+  if (directoryIndex !== -1) return 30 + directoryIndex;
+
   const pathIndex = normalizedPath.indexOf(normalizedQuery);
   if (pathIndex !== -1) return 40 + pathIndex;
 
@@ -1122,8 +1125,8 @@ function pathSearchMatchesForFile(
   query: unknown,
   includeIgnored = false,
   includeDirectories = true,
+  allowPathMatch = isLikelyPathQuery(query),
 ): PathSearchMatch[] {
-  const allowPathMatch = isLikelyPathQuery(query);
   const matches = [];
   const fileMatch = pathSearchMatchForPath(filePath, query, 'file', allowPathMatch);
   if (fileMatch) matches.push(fileMatch);
@@ -1714,6 +1717,7 @@ class WorkspaceFileService {
     stopAtLimit = false,
     signal?: AbortSignal,
     includeDirectories = true,
+    allowPathMatch = isLikelyPathQuery(query),
   ): Promise<PathSearchResult> {
     const args = [
       '--files',
@@ -1776,11 +1780,20 @@ class WorkspaceFileService {
       const processLine = (line: unknown) => {
         const filePath = normalizeSearchResultPath(line);
         if (!filePath || isSearchIgnoredRelativePath(filePath)) return;
-        for (const match of pathSearchMatchesForFile(filePath, query, false, includeDirectories)) {
+        for (const match of pathSearchMatchesForFile(filePath, query, false, includeDirectories, allowPathMatch)) {
           if (seenMatchPaths.has(match.path)) continue;
           seenMatchPaths.add(match.path);
           scoredMatches.push(match);
           if (scoredMatches.length >= candidateLimit) {
+            if (!includeDirectories) {
+              // Global file search ranks the complete stream within its deadline.
+              // Keep memory bounded without letting an early prefix match hide
+              // a later exact directory or filename match.
+              truncated = true;
+              scoredMatches.sort(comparePathSearchMatches);
+              for (const removed of scoredMatches.splice(limit)) seenMatchPaths.delete(removed.path);
+              continue;
+            }
             stopEarly();
             return;
           }
@@ -1818,7 +1831,8 @@ class WorkspaceFileService {
         if (settled) return;
         if (pending) processLine(pending);
         if (settled) return;
-        if (code && code !== 0 && signal !== 'SIGTERM') {
+        // ripgrep exits with 1 when a directory contains no searchable files.
+        if (code && code !== 1 && signal !== 'SIGTERM') {
           const error = new Error(stderr || 'path search failed') as ProcessError;
           error.code = code;
           error.signal = signal;
@@ -1840,6 +1854,7 @@ class WorkspaceFileService {
     stopAtLimit = false,
     signal?: AbortSignal,
     includeDirectories = true,
+    allowPathMatch = isLikelyPathQuery(query),
   ): Promise<PathSearchResult> {
     return await this.streamPathMatches(
       this.rgPath,
@@ -1851,6 +1866,7 @@ class WorkspaceFileService {
       stopAtLimit,
       signal,
       includeDirectories,
+      allowPathMatch,
     );
   }
 
@@ -1861,8 +1877,9 @@ class WorkspaceFileService {
     limit: number,
     deadline: number,
     signal?: AbortSignal,
+    allowPathMatch = isLikelyPathQuery(query),
+    pruneDirectory: (relativePath: unknown) => boolean = shouldPruneDirectoryNameSearch,
   ): Promise<PathSearchResult> {
-    const allowPathMatch = isLikelyPathQuery(query);
     const candidateLimit = Math.max(PATH_SEARCH_MIN_CANDIDATES, limit * PATH_SEARCH_CANDIDATE_MULTIPLIER);
     const startRelativePath = searchPath === '.' ? '' : normalizeSearchResultPath(searchPath);
     const startDirectory = path.resolve(root, startRelativePath || '.');
@@ -1884,7 +1901,7 @@ class WorkspaceFileService {
       }
 
       const current = queue.shift();
-      if (!current || shouldPruneDirectoryNameSearch(current.relativePath)) continue;
+      if (!current || pruneDirectory(current.relativePath)) continue;
       visited += 1;
 
       let entries;
@@ -1900,7 +1917,7 @@ class WorkspaceFileService {
         const childRelativePath = normalizeSearchResultPath(
           current.relativePath ? `${current.relativePath}/${entry.name}` : entry.name
         );
-        if (!childRelativePath || shouldPruneDirectoryNameSearch(childRelativePath)) continue;
+        if (!childRelativePath || pruneDirectory(childRelativePath)) continue;
         const childTarget = path.join(current.target, entry.name);
         const match = directoryNameSearchMatchForPath(childRelativePath, query, allowPathMatch);
         if (match && !seenMatchPaths.has(match.path)) {
@@ -3215,6 +3232,40 @@ class WorkspaceFileService {
       truncated,
       timeoutMs: timeout
     });
+    if (options.scope === 'entries') {
+      const entryQuery = query.trim().replace(/\\/g, '/').replace(/^\.\/+/, '').replace(/\/+$/, '') || '.';
+      const pathQuery = entryQuery.includes('/');
+      // Explicit paths can select an empty directory (including the root).
+      // Do not turn a selected directory into a request for all descendants.
+      if (pathQuery || entryQuery === '.') {
+        try {
+          const scopedPath = path.join(relativePath, entryQuery);
+          const resolved = await this.resolvePath(root, scopedPath);
+          signal?.throwIfAborted();
+          if (isInside(searchRoot, resolved.target) && !isSearchIgnoredRelativePath(resolved.relativePath)) {
+            const stat = await fsp.stat(resolved.target);
+            signal?.throwIfAborted();
+            if (stat.isFile() || stat.isDirectory()) {
+              return result([{ kind: 'path', entryType: stat.isDirectory() ? 'directory' : 'file', path: resolved.relativePath }], false);
+            }
+          }
+        } catch (error) {
+          if (signal?.aborted) throw error;
+        }
+      }
+      const [files, directories] = await Promise.all([
+        this.collectPathMatchCandidates(root, searchPath, entryQuery, limit, remainingMs(), false, signal, false, pathQuery),
+        this.collectDirectoryNameMatchCandidates(root, searchPath, entryQuery, limit, deadline, signal, pathQuery, isSearchIgnoredRelativePath),
+      ]);
+      signal?.throwIfAborted();
+      const rootMatches = !relativePath && !pathQuery
+        && directoryNameSearchScore(path.basename(root), entryQuery, false) !== null;
+      const directoryMatches = rootMatches
+        ? [{ kind: 'path', entryType: 'directory', path: '' }, ...directories.matches]
+        : directories.matches;
+      return result([...directoryMatches.slice(0, limit), ...files.matches],
+        files.truncated || directories.truncated || directoryMatches.length >= limit || files.matches.length >= limit);
+    }
     let pathMatchCandidates: PathSearchMatch[] = [];
     let searchOutputTruncated = false;
 
@@ -3250,7 +3301,7 @@ class WorkspaceFileService {
       const directPathMatch = likelyPathQuery
         ? await this.directPathMatchCandidate(root, searchPath, searchRoot, query, false, signal)
         : null;
-      if (directPathMatch) {
+      if (directPathMatch && (!filePathOnly || directPathMatch.entryType === 'file')) {
         return result([directPathMatch], false);
       }
       if (Date.now() >= deadline) return result([], true);
@@ -3260,9 +3311,10 @@ class WorkspaceFileService {
         query,
         limit,
         remainingMs(),
-        likelyPathQuery,
+        likelyPathQuery && !filePathOnly,
         signal,
         !filePathOnly,
+        filePathOnly || likelyPathQuery,
       );
       const directoryNameSearch = filePathOnly
         ? { matches: [], truncated: false }

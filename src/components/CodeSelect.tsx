@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useId,
   useRef,
   useState,
@@ -8,6 +9,7 @@ import {
   type ReactNode,
 } from 'react'
 import { CheckGlyph, ChevronDownGlyph } from '@/components/IconGlyphs'
+import { useInteractionLayer } from '@/hooks/useInteractionLayer'
 import './CodeSelect.css'
 
 export type CodeSelectOption = {
@@ -55,7 +57,7 @@ export function CodeSelect({
 
   const close = useCallback((restoreFocus = false) => {
     setOpen(false)
-    if (restoreFocus) window.requestAnimationFrame(() => triggerRef.current?.focus())
+    if (restoreFocus) triggerRef.current?.focus({ preventScroll: true })
   }, [])
 
   const openMenu = useCallback((focusTarget: 'selected' | 'first' | 'last' = 'selected') => {
@@ -64,33 +66,23 @@ export function CodeSelect({
     setOpen(true)
   }, [disabled, options.length])
 
-  useEffect(() => {
+  useInteractionLayer({
+    enabled: open,
+    elements: () => [rootRef.current],
+    onDismiss: () => close(),
+    returnFocus: () => triggerRef.current,
+  })
+
+  useLayoutEffect(() => {
     if (!open) return
-    const handlePointerDown = (event: PointerEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
-    }
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
-      event.preventDefault()
-      close(true)
-    }
-    document.addEventListener('pointerdown', handlePointerDown)
-    document.addEventListener('keydown', handleEscape)
-    const focusId = window.requestAnimationFrame(() => {
-      const optionButtons = [...(menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="option"]:not(:disabled)') || [])]
-      const focusTarget = focusTargetRef.current === 'first'
-        ? optionButtons[0]
-        : focusTargetRef.current === 'last'
-          ? optionButtons[optionButtons.length - 1]
-          : optionButtons.find(option => option.getAttribute('aria-selected') === 'true') || optionButtons[0]
-      focusTarget?.focus()
-    })
-    return () => {
-      window.cancelAnimationFrame(focusId)
-      document.removeEventListener('pointerdown', handlePointerDown)
-      document.removeEventListener('keydown', handleEscape)
-    }
-  }, [close, open])
+    const optionButtons = [...(menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="option"]:not(:disabled)') || [])]
+    const focusTarget = focusTargetRef.current === 'first'
+      ? optionButtons[0]
+      : focusTargetRef.current === 'last'
+        ? optionButtons[optionButtons.length - 1]
+        : optionButtons.find(option => option.getAttribute('aria-selected') === 'true') || optionButtons[0]
+    focusTarget?.focus({ preventScroll: true })
+  }, [open])
 
   useEffect(() => {
     if (disabled || options.length === 0) setOpen(false)

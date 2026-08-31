@@ -115,6 +115,8 @@ Farming Backend
   但不能自动成为当前状态证据。
 - 每个身份和状态迁移只保留一个事实来源。兼容数据形状应停留在系统边界，不得
   渗入新功能代码。
+- 可关闭的 UI 区域共用 [UI 交互协议](docs/development/ui-interaction-protocol.zh_cn.md)。
+  声明完整边界，将外部 Pointer 和 Escape 仲裁委托给共享交互层，不要在组件中新增独立的全局监听。
 
 ## 工程规则
 

@@ -1,3 +1,4 @@
+import { useInteractionLayer } from '@/hooks/useInteractionLayer'
 import { useCallback, useEffect, useLayoutEffect, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from 'react'
 
 interface UseWorkspaceMenuKeyboardOptions {
@@ -27,13 +28,6 @@ export function useWorkspaceMenuKeyboard({
   focusFirstItem = false,
 }: UseWorkspaceMenuKeyboardOptions) {
   const handleMenuKeyDown = useCallback((event: ReactKeyboardEvent<HTMLElement>) => {
-    if (event.key === 'Escape') {
-      event.preventDefault()
-      event.stopPropagation()
-      onCloseWithFocusRestore()
-      return
-    }
-
     const isNavigationKey = event.key === 'ArrowDown' || event.key === 'ArrowUp' || event.key === 'Home' || event.key === 'End'
     if (!isNavigationKey) return
 
@@ -51,7 +45,16 @@ export function useWorkspaceMenuKeyboard({
     event.preventDefault()
     event.stopPropagation()
     menuItems[nextIndex]?.focus()
-  }, [menuRef, onCloseWithFocusRestore])
+  }, [menuRef])
+
+  useInteractionLayer({
+    enabled: menuOpen,
+    elements: () => [menuRef.current],
+    onDismiss: reason => {
+      if (reason === 'escape') onCloseWithFocusRestore()
+      else onClose()
+    },
+  })
 
   useEffect(() => {
     if (!menuOpen) return undefined
@@ -60,28 +63,12 @@ export function useWorkspaceMenuKeyboard({
     const frameId = focusFirstItem ? window.requestAnimationFrame(focusFirstMenuItem) : undefined
     const timeoutId = focusFirstItem ? window.setTimeout(focusFirstMenuItem, 120) : undefined
     const lateTimeoutId = focusFirstItem ? window.setTimeout(focusFirstMenuItem, 260) : undefined
-    const closeMenu = (event: PointerEvent) => {
-      if (menuRef.current?.contains(event.target as Node)) return
-      onClose()
-    }
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
-      event.preventDefault()
-      event.stopPropagation()
-      event.stopImmediatePropagation()
-      onCloseWithFocusRestore()
-    }
-
-    document.addEventListener('pointerdown', closeMenu)
-    document.addEventListener('keydown', closeOnEscape, true)
     return () => {
       if (frameId !== undefined) window.cancelAnimationFrame(frameId)
       if (timeoutId !== undefined) window.clearTimeout(timeoutId)
       if (lateTimeoutId !== undefined) window.clearTimeout(lateTimeoutId)
-      document.removeEventListener('pointerdown', closeMenu)
-      document.removeEventListener('keydown', closeOnEscape, true)
     }
-  }, [focusFirstItem, menuOpen, menuRef, onClose, onCloseWithFocusRestore])
+  }, [focusFirstItem, menuOpen, menuRef])
 
   useLayoutEffect(() => {
     if (!menuOpen || !focusFirstItem) return

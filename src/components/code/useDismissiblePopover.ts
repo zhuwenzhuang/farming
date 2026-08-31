@@ -1,30 +1,19 @@
 import type { RefObject } from 'react'
-import { useEffect } from 'react'
+import { useInteractionLayer } from '@/hooks/useInteractionLayer'
 
 export function useDismissiblePopover(
   open: boolean,
   popoverRef: RefObject<HTMLElement | null>,
   anchorRef: RefObject<HTMLElement | null>,
   onDismiss: () => void,
+  dismissEnabled = true,
 ) {
-  useEffect(() => {
-    if (!open) return
-    const closeOnPointerDown = (event: PointerEvent) => {
-      const target = event.target as Node | null
-      if (target && (popoverRef.current?.contains(target) || anchorRef.current?.contains(target))) return
-      onDismiss()
-    }
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
-      event.preventDefault()
-      onDismiss()
-      anchorRef.current?.focus()
-    }
-    window.addEventListener('pointerdown', closeOnPointerDown, true)
-    window.addEventListener('keydown', closeOnEscape, true)
-    return () => {
-      window.removeEventListener('pointerdown', closeOnPointerDown, true)
-      window.removeEventListener('keydown', closeOnEscape, true)
-    }
-  }, [anchorRef, onDismiss, open, popoverRef])
+  useInteractionLayer({
+    enabled: open,
+    elements: () => [popoverRef.current, anchorRef.current],
+    onDismiss,
+    dismissOnPointerOutside: dismissEnabled,
+    dismissOnEscape: dismissEnabled,
+    returnFocus: () => anchorRef.current,
+  })
 }

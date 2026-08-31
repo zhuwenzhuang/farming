@@ -24,6 +24,7 @@ the [documentation home](../README.md).
 
 ## Product Architecture
 
+- [UI interaction protocol](ui-interaction-protocol.md)
 - [Public documentation site](documentation-site.md)
 - [Farming Desktop MVP](../products/code/desktop-app.md)
 - [Extension and Resource model](../products/code/extension-model.md)

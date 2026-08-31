@@ -1,3 +1,4 @@
+import { useInteractionLayer } from '@/hooks/useInteractionLayer'
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type CSSProperties, type KeyboardEvent, type MouseEvent, type RefObject } from 'react'
 import { ArrowUpGlyph, CloseGlyph, PencilGlyph, PlusGlyph, ReplyGlyph } from '@/components/IconGlyphs'
 import { isCompactViewport } from '@/lib/responsive-mode'
@@ -230,28 +231,15 @@ export function AcpComposer({
     setModelPane(null)
   }, [sessionAuthoritative])
 
-  useEffect(() => {
-    if (!openMenu) return undefined
-    const closeOutside = (event: PointerEvent) => {
-      if (event.target instanceof Node && composerRef.current?.contains(event.target)) return
+  useInteractionLayer({
+    enabled: Boolean(openMenu),
+    elements: () => [composerRef.current],
+    onDismiss: () => {
       setOpenMenu(null)
       setModelPane(null)
-    }
-    const closeOnEscape = (event: Event) => {
-      if (!(event instanceof KeyboardEvent) || event.key !== 'Escape') return
-      event.preventDefault()
-      event.stopPropagation()
-      setOpenMenu(null)
-      setModelPane(null)
-      requestAnimationFrame(() => textareaRef.current?.focus({ preventScroll: true }))
-    }
-    document.addEventListener('pointerdown', closeOutside)
-    document.addEventListener('keydown', closeOnEscape)
-    return () => {
-      document.removeEventListener('pointerdown', closeOutside)
-      document.removeEventListener('keydown', closeOnEscape)
-    }
-  }, [openMenu, textareaRef])
+    },
+    returnFocus: () => textareaRef.current,
+  })
 
   const insertCommand = (name: string) => {
     if (!commandTrigger) return

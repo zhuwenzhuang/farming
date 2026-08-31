@@ -1,3 +1,4 @@
+import { useInteractionLayer } from '@/hooks/useInteractionLayer'
 import { Fragment, type ReactNode, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import hljs from 'highlight.js/lib/core'
@@ -1069,6 +1070,7 @@ export function ReviewPage() {
   const preferencesTriggerRef = useRef<HTMLButtonElement | null>(null)
   const preferencesCancelRef = useRef<HTMLButtonElement | null>(null)
   const preferencesDialogRef = useModalFocusScope<HTMLElement>({
+    dismissOnPointerOutside: true,
     open: showPreferences,
     initialFocusRef: preferencesCancelRef,
     returnFocusRef: preferencesTriggerRef,
@@ -1235,15 +1237,12 @@ export function ReviewPage() {
     return () => document.body.classList.remove('review-body')
   }, [])
 
-  useEffect(() => {
-    if (!showComparisonSources) return
-    const close = (event: PointerEvent) => {
-      if (comparisonSourceRef.current?.contains(event.target as Node)) return
-      setShowComparisonSources(false)
-    }
-    document.addEventListener('pointerdown', close)
-    return () => document.removeEventListener('pointerdown', close)
-  }, [showComparisonSources])
+  useInteractionLayer({
+    enabled: showComparisonSources,
+    elements: () => [comparisonSourceRef.current],
+    onDismiss: () => setShowComparisonSources(false),
+    returnFocus: () => comparisonSourceRef.current?.querySelector('button'),
+  })
 
   useEffect(() => {
     if (!captureRouteRequest && !acpCaptureRoute) return
@@ -1906,8 +1905,8 @@ export function ReviewPage() {
         </div>
       </section>
       {showPreferences ? createPortal(
-        <div className="review-preferences-backdrop" role="presentation" onMouseDown={() => setShowPreferences(false)}>
-          <section ref={preferencesDialogRef} className="review-preferences" role="dialog" aria-modal="true" aria-labelledby="review-preferences-title" onMouseDown={event => event.stopPropagation()}>
+        <div className="review-preferences-backdrop" role="presentation">
+          <section ref={preferencesDialogRef} className="review-preferences" role="dialog" aria-modal="true" aria-labelledby="review-preferences-title">
             <header><h2 id="review-preferences-title">Diff Preferences</h2></header>
             <div className="review-preferences-form">
               <CodeSelect

@@ -137,7 +137,7 @@ function workspaceRequest(value) {
                 && boundedStringField(value, 'path', 4096, true)
                 && optionalBooleanField(value, 'includeIgnored')
                 && optionalNonNegativeIntegerField(value, 'limit')
-                && (value.scope === undefined || value.scope === 'all' || value.scope === 'file-path');
+                && (value.scope === undefined || value.scope === 'all' || value.scope === 'file-path' || value.scope === 'entries');
         case 'blame':
         case 'blame-capability':
         case 'diff':

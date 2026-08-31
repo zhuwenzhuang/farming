@@ -26,6 +26,9 @@ export type SearchTarget =
   | { kind: 'agent'; id: string }
   | { kind: 'agent-session'; provider: string; id: string; providerHomeId?: string }
 
+export type WorkspaceSearchScope = 'all' | 'files' | 'agents' | 'sessions'
+export type WorkspaceSearchCounts = Record<WorkspaceSearchScope, number>
+
 export interface WorkspaceHistorySettings {
   lastMainWorkspace?: string
   workspaceHistory?: string[]

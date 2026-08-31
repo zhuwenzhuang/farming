@@ -55,9 +55,11 @@ export function useFileEditorTabsController({
   const [pendingClose, setPendingClose] = useState<PendingCloseState | null>(null)
   const [pendingCloseSaving, setPendingCloseSaving] = useState(false)
 
-  const closeTabContextMenu = useCallback(() => {
+  const closeTabContextMenu = useCallback((restoreFocus = false) => {
+    const targetFile = tabContextMenu ? openFiles[tabContextMenu.index] : null
     setTabContextMenu(null)
-  }, [])
+    if (restoreFocus && targetFile) tabRefs.current.get(openFileKey(targetFile))?.focus({ preventScroll: true })
+  }, [openFiles, tabContextMenu])
 
   const setTabRef = useCallback((key: string, element: HTMLDivElement | null) => {
     if (element) {

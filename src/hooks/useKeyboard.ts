@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { interactionLayerOwnsEscape } from '@/lib/interaction-layer'
 
 export interface Shortcut {
   key: string
@@ -46,7 +47,7 @@ export function useEscapeKey(onEscape: () => void, enabled = true) {
   useEffect(() => {
     if (!enabled) return
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onEscape()
+      if (event.key === 'Escape' && !event.defaultPrevented && !interactionLayerOwnsEscape(event)) onEscape()
     }
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
@@ -63,6 +64,7 @@ export function useKeyboard(shortcuts: Shortcut[], enabled: boolean = true) {
     if (!enabled) return
 
     function handleKeyDown(e: KeyboardEvent) {
+      if (e.defaultPrevented || interactionLayerOwnsEscape(e)) return
       // Don't intercept when typing in input/textarea
       const target = e.target
       const isTypingTarget = isTextEditingShortcutTarget(target)

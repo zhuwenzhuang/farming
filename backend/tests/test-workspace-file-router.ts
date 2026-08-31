@@ -188,6 +188,10 @@ async function run() {
       }, { ...requestOptions, signal: searchAbort.signal });
       assert.strictEqual(routedSearchSignal, searchAbort.signal);
       assert.strictEqual(routedSearchScope, 'file-path');
+      await executeWorkspaceFileRequest(agentManager, service, {
+        operation: 'search', rootId: 'agent-main', query: 'hello', scope: 'entries',
+      }, { ...requestOptions, signal: searchAbort.signal });
+      assert.strictEqual(routedSearchScope, 'entries');
     } finally {
       service.search = originalSearch;
     }

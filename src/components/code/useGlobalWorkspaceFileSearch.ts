@@ -18,6 +18,7 @@ export interface GlobalWorkspaceFileSearchProject {
 }
 
 export interface GlobalWorkspaceFileSearchMatch {
+  entryType: 'directory' | 'file'
   key: string
   path: string
   projectId: string
@@ -166,6 +167,8 @@ export function useGlobalWorkspaceFileSearch({
         let failedCount = 0
         let incomplete = incompleteByDeadline
         const nextMatches: GlobalWorkspaceFileSearchMatch[] = []
+        const counts = { directory: 0, file: 0 }
+        const seen = new Set<string>()
         for (const outcome of results) {
           if (!outcome) continue
           if ('error' in outcome) {
@@ -174,13 +177,19 @@ export function useGlobalWorkspaceFileSearch({
           }
           incomplete ||= outcome.result.truncated
           for (const match of outcome.result.matches) {
-            if (match.kind !== 'path' || match.entryType !== 'file') continue
-            if (nextMatches.length >= GLOBAL_FILE_SEARCH_LIMIT) {
+            if (match.kind !== 'path' || (match.entryType !== 'file' && match.entryType !== 'directory')) continue
+            if (jumpTarget && match.entryType !== 'file') continue
+            const key = `${outcome.target.rootId}:${match.entryType}:${match.path}`
+            if (seen.has(key)) continue
+            seen.add(key)
+            if (counts[match.entryType] >= GLOBAL_FILE_SEARCH_LIMIT) {
               incomplete = true
               continue
             }
+            counts[match.entryType] += 1
             nextMatches.push({
-              key: `${outcome.target.rootId}:${match.path}`,
+              key,
+              entryType: match.entryType,
               path: match.path,
               projectId: outcome.target.id,
               projectName: outcome.target.name,
@@ -193,7 +202,7 @@ export function useGlobalWorkspaceFileSearch({
             })
           }
         }
-        setMatches(nextMatches)
+        setMatches(nextMatches.sort((a, b) => Number(a.entryType === 'file') - Number(b.entryType === 'file')))
         setFailedProjectCount(failedCount)
         setTruncated(incomplete)
         setLoading(false)
@@ -209,15 +218,15 @@ export function useGlobalWorkspaceFileSearch({
         abortController.signal,
         async target => {
           const targetQuery = pathQueryForWorkspace(pathQuery, target.workspace)
-          if (!targetQuery) return { target, result: { matches: [], truncated: false } }
+          if (targetQuery === null) return { target, result: { matches: [], truncated: false } }
           const projectAbortController = new AbortController()
           const abortProject = () => projectAbortController.abort()
           abortController.signal.addEventListener('abort', abortProject, { once: true })
           const projectDeadlineId = window.setTimeout(abortProject, GLOBAL_FILE_SEARCH_PROJECT_DEADLINE_MS)
           try {
-            const result = await searchWorkspaceFiles(target.rootId, targetQuery, {
+            const result = await searchWorkspaceFiles(target.rootId, targetQuery || '.', {
               limit: GLOBAL_FILE_SEARCH_PROJECT_RESULT_LIMIT,
-              scope: 'file-path',
+              scope: 'entries',
               signal: projectAbortController.signal,
             })
             return { target, result }

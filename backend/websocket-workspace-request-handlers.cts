@@ -67,6 +67,9 @@ const BACKPRESSURE_BYTES = 512 * 1024;
 
 function workspaceRequestLane(request: WorkspaceRequest): RequestLane {
   switch (request.operation) {
+    case 'search':
+      // Global entry lookup is a current navigation intent, not background inventory.
+      return request.scope === 'entries' ? 'interactive' : 'background';
     case 'tree':
     case 'read-file':
     case 'save-file':

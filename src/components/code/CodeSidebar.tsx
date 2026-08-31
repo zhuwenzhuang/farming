@@ -1654,7 +1654,7 @@ export function ProjectWorktreePopover({
     }
   }, [loadRepositoryState])
 
-  useDismissiblePopover(!switchingBranch, popoverRef, anchorRef, onClose)
+  useDismissiblePopover(true, popoverRef, anchorRef, onClose, !switchingBranch)
 
   const switchBranch = async (item: WorkspaceGitBranch) => {
     if (!branches || !branchInventoryTrusted || switchingBranch || item.current || !branches.canSwitch || hasDirtyEditors) return

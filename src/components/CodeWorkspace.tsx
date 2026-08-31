@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
+import { interactionLayerOwnsEscape } from '@/lib/interaction-layer'
+import { useInteractionLayer } from '@/hooks/useInteractionLayer'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { beginNavigationPerformance, filePerformanceKey } from '@/lib/interaction-performance'
 import type {
   ChangeEvent as ReactChangeEvent,
@@ -201,6 +203,7 @@ import type {
   GlobalSettings,
   ProjectGroup,
   SearchTarget,
+  WorkspaceSearchScope,
   SpeechRecognitionLike,
   WindowWithSpeechRecognition,
   WorkspaceFileOpenTarget,
@@ -761,6 +764,7 @@ export function CodeWorkspace({
   }, [activeComputerResource?.ownerAgentId])
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
+  const [searchScope, setSearchScope] = useState<WorkspaceSearchScope>('all')
   const [searchSelectionIndex, setSearchSelectionIndex] = useState(0)
   const [globalFileOpenError, setGlobalFileOpenError] = useState<string | null>(null)
   const [globalFileOpeningKey, setGlobalFileOpeningKey] = useState<string | null>(null)
@@ -1308,8 +1312,12 @@ export function CodeWorkspace({
     Boolean(project.workspace)
   ))
   const searchResultProjects = useMemo(
-    () => hasSearchQuery ? displayedProjects : [],
-    [displayedProjects, hasSearchQuery]
+    () => !hasSearchQuery || searchScope === 'files' ? [] : displayedProjects.map(project => ({
+      ...project,
+      agents: searchScope === 'sessions' ? [] : project.agents,
+      agentSessions: searchScope === 'agents' ? [] : project.agentSessions,
+    })).filter(project => project.agents.length > 0 || project.agentSessions.length > 0),
+    [displayedProjects, hasSearchQuery, searchScope]
   )
   const visibleProjectListTargets = useMemo<SearchTarget[]>(
     () => visibleSearchTargetsForProjects(displayedProjects, collapsedProjectIds, normalizedSearch),
@@ -1317,11 +1325,18 @@ export function CodeWorkspace({
   )
   const visibleSearchTargets = useMemo<WorkspaceSearchTarget[]>(
     () => hasSearchQuery ? [
-      ...visibleProjectListTargets,
-      ...globalFileSearch.matches.map(match => ({ kind: 'file' as const, match })),
+      ...(searchScope === 'all' || searchScope === 'files'
+        ? globalFileSearch.matches.map(match => ({ kind: 'file' as const, match })) : []),
+      ...visibleSearchTargetsForProjects(searchResultProjects, collapsedProjectIds, normalizedSearch),
     ] : [],
-    [globalFileSearch.matches, hasSearchQuery, visibleProjectListTargets]
+    [collapsedProjectIds, globalFileSearch.matches, hasSearchQuery, normalizedSearch, searchResultProjects, searchScope]
   )
+  const searchCounts = useMemo(() => {
+    const files = globalFileSearch.matches.length
+    const agents = displayedProjects.reduce((count, project) => count + project.agents.length, 0)
+    const sessions = displayedProjects.reduce((count, project) => count + project.agentSessions.length, 0)
+    return { all: files + agents + sessions, files, agents, sessions }
+  }, [displayedProjects, globalFileSearch.matches])
   const agentShortcutKeys = useMemo(() => {
     const shortcuts = new Map<string, string>()
     if (!keyboardShortcutsEnabled) return shortcuts
@@ -2718,6 +2733,7 @@ export function CodeWorkspace({
   const clearSearch = useCallback(() => {
     cancelGlobalFileOpen()
     setSearchQuery('')
+    setSearchScope('all')
     setSearchOpen(false)
     setSearchSelectionIndex(0)
     setGlobalFileOpenError(null)
@@ -2730,6 +2746,13 @@ export function CodeWorkspace({
     setSearchQuery(value)
   }, [cancelGlobalFileOpen])
 
+  const updateSearchScope = useCallback((scope: WorkspaceSearchScope) => {
+    cancelGlobalFileOpen()
+    setGlobalFileOpenError(null)
+    setSearchSelectionIndex(0)
+    setSearchScope(scope)
+  }, [cancelGlobalFileOpen])
+
   useEffect(() => {
     const match = globalFileOpenMatchRef.current
     if (!match) return
@@ -2738,7 +2761,9 @@ export function CodeWorkspace({
     ))
     if (stillMounted) return
     cancelGlobalFileOpen()
-    setGlobalFileOpenError(copy.searchFileOpenFailed(match.path))
+    setGlobalFileOpenError(match.entryType === 'directory'
+      ? copy.searchDirectoryOpenFailed(match.path || match.projectName)
+      : copy.searchFileOpenFailed(match.path))
   }, [cancelGlobalFileOpen, copy, projectWorkspaces])
 
   const closeSearchView = useCallback(() => {
@@ -2747,21 +2772,14 @@ export function CodeWorkspace({
     restoreProjectListFocusRef.current = 'active-force'
   }, [clearSearch, onWorkspaceViewChange])
 
-  useEffect(() => {
-    if (!searchOpen || activeView !== 'search') return undefined
-
-    const handlePointerDown = (event: PointerEvent) => {
-      const target = event.target
-      if (!(target instanceof Element)) return
-      if (target.closest('.code-search-panel, .code-options-menu, [data-testid="code-nav-search"], [data-testid="code-mobile-menu"], [data-testid="code-mobile-more"], [data-testid="code-mobile-share-sheet"]')) return
-      closeSearchView()
-    }
-
-    document.addEventListener('pointerdown', handlePointerDown, true)
-    return () => {
-      document.removeEventListener('pointerdown', handlePointerDown, true)
-    }
-  }, [activeView, closeSearchView, searchOpen])
+  useInteractionLayer({
+    enabled: searchOpen && activeView === 'search',
+    elements: () => [
+      searchInputRef.current?.closest('.code-search-view'),
+      ...document.querySelectorAll('.code-options-menu, [data-testid="code-nav-search"], [data-testid="code-mobile-menu"], [data-testid="code-mobile-more"], [data-testid="code-mobile-share-sheet"]'),
+    ],
+    onDismiss: closeSearchView,
+  })
 
   const openWorkspaceView = useCallback((view: WorkspaceView) => {
     workspaceFileOpenRequestRef.current.invalidate()
@@ -3881,13 +3899,22 @@ export function CodeWorkspace({
     ))
     try {
       if (!rootIsMounted()) throw new Error('Project is no longer mounted')
+      if (match.entryType === 'directory') {
+        await fetchWorkspaceTree(identity.filesId, match.path, { signal: abortController.signal })
+        if (!intentLease.isCurrent() || abortController.signal.aborted) return
+        if (!rootIsMounted()) throw new Error('Project is no longer mounted')
+        revealWorkspaceFileInExplorer(identity.filesId, match.path, 'directory')
+        return
+      }
       const file = await fetchWorkspaceFile(identity.filesId, match.path, { signal: abortController.signal })
       if (!intentLease.isCurrent() || abortController.signal.aborted) return
       if (!rootIsMounted()) throw new Error('Project is no longer mounted')
       await openProjectFile(identity.filesId, file, target, abortController.signal, intentLease)
     } catch {
       if (!intentLease.isCurrent() || abortController.signal.aborted) return
-      setGlobalFileOpenError(copy.searchFileOpenFailed(match.path))
+      setGlobalFileOpenError(match.entryType === 'directory'
+        ? copy.searchDirectoryOpenFailed(match.path || match.projectName)
+        : copy.searchFileOpenFailed(match.path))
     } finally {
       if (globalFileOpenAbortRef.current === abortController) {
         globalFileOpenAbortRef.current = null
@@ -3895,7 +3922,7 @@ export function CodeWorkspace({
         setGlobalFileOpeningKey(null)
       }
     }
-  }, [cancelGlobalFileOpen, copy, openProjectFile, resolveWorkspaceFileIdentity, workspaceNavigationAgentIds])
+  }, [cancelGlobalFileOpen, copy, openProjectFile, resolveWorkspaceFileIdentity, revealWorkspaceFileInExplorer, workspaceNavigationAgentIds])
 
   const openSelectedSearchTarget = useCallback(() => {
     if (!selectedSearchTarget) return
@@ -4320,10 +4347,10 @@ export function CodeWorkspace({
     })
   }, [closeContextMenu, contextMenuProject, projectMenu?.returnFocusTarget])
 
-  const closeRenameDialog = useCallback(() => {
+  const closeRenameDialog = useCallback((restoreFocus = true) => {
     const target = renameDialog
     setRenameDialog(null)
-    if (!target) return
+    if (!target || !restoreFocus) return
     if (target.kind === 'agent') focusAgentRow(target.agentId)
     if (target.kind === 'project') {
       if (target.returnFocusTarget?.isConnected) {
@@ -4377,10 +4404,10 @@ export function CodeWorkspace({
     if (focusTarget?.kind === 'agent-session') focusAgentSessionRow(focusTarget.provider, agentSessionId(focusTarget))
   }, [closeContextMenu, copy.copiedWorkingDirectory, copy.copyFailed, focusAgentRow, focusAgentSessionRow])
 
-  const closeArchiveExitDialog = useCallback(() => {
+  const closeArchiveExitDialog = useCallback((restoreFocus = true) => {
     const agentId = archiveExitDialog?.agentId
     setArchiveExitDialog(null)
-    if (agentId) focusAgentRow(agentId)
+    if (restoreFocus && agentId) focusAgentRow(agentId)
   }, [archiveExitDialog?.agentId, focusAgentRow])
 
   const submitArchiveExitDialog = useCallback(() => {
@@ -5044,11 +5071,11 @@ export function CodeWorkspace({
     else focusProjectTitle(contextMenuProject.id)
   }, [buildProjectRemovalPlan, closeContextMenu, contextMenuProject, copy.removeProjectFailed, copy.removeProjectInventoryUnavailable, focusProjectTitle, mutateProject, projectAgentInventoryComplete])
 
-  const closeRemoveProjectDialog = useCallback(() => {
+  const closeRemoveProjectDialog = useCallback((restoreFocus = true) => {
     if (!removeProjectDialog || removeProjectDialog.busy) return
     const projectId = removeProjectDialog.projectId
     setRemoveProjectDialog(null)
-    focusProjectTitle(projectId)
+    if (restoreFocus) focusProjectTitle(projectId)
   }, [focusProjectTitle, removeProjectDialog])
 
   const submitRemoveProjectDialog = useCallback(async () => {
@@ -5119,10 +5146,10 @@ export function CodeWorkspace({
     })
   }, [closeContextMenu, contextMenuProject])
 
-  const closeDeleteWorktreeDialog = useCallback(() => {
+  const closeDeleteWorktreeDialog = useCallback((restoreFocus = true) => {
     const projectId = deleteWorktreeDialog?.projectId
     setDeleteWorktreeDialog(null)
-    if (projectId) focusProjectTitle(projectId)
+    if (restoreFocus && projectId) focusProjectTitle(projectId)
   }, [deleteWorktreeDialog?.projectId, focusProjectTitle])
 
   const submitDeleteWorktreeDialog = useCallback(async () => {
@@ -5142,14 +5169,6 @@ export function CodeWorkspace({
       ? event.target.closest('button')
       : null
     const currentIndex = buttons.findIndex(button => button === targetButton || button === document.activeElement)
-
-    if (event.key === 'Escape') {
-      event.preventDefault()
-      event.stopPropagation()
-      closeActiveComposerMenus()
-      focusComposerTextarea()
-      return
-    }
 
     if (event.key === 'Tab') {
       event.preventDefault()
@@ -5189,7 +5208,7 @@ export function CodeWorkspace({
       event.stopPropagation()
       buttons[buttons.length - 1]?.focus()
     }
-  }, [approvalMenuOpen, closeActiveComposerMenus, focusComposerTextarea, modelMenuOpen])
+  }, [approvalMenuOpen, closeActiveComposerMenus, modelMenuOpen])
 
   const closeComposerMenuOnBlur = useCallback((event: ReactFocusEvent<HTMLDivElement>) => {
     const nextTarget = event.relatedTarget
@@ -5201,6 +5220,7 @@ export function CodeWorkspace({
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
+      if (event.defaultPrevented || interactionLayerOwnsEscape(event)) return
       if (dialogOpen) return
 
       const target = event.target
@@ -5223,30 +5243,6 @@ export function CodeWorkspace({
           event.stopPropagation()
           return
         }
-      }
-
-      if (event.key === 'Escape' && renameDialog) {
-        event.preventDefault()
-        closeRenameDialog()
-        return
-      }
-
-      if (event.key === 'Escape' && archiveExitDialog) {
-        event.preventDefault()
-        closeArchiveExitDialog()
-        return
-      }
-
-      if (event.key === 'Escape' && removeProjectDialog) {
-        event.preventDefault()
-        closeRemoveProjectDialog()
-        return
-      }
-
-      if (event.key === 'Escape' && deleteWorktreeDialog) {
-        event.preventDefault()
-        closeDeleteWorktreeDialog()
-        return
       }
 
       if (renameDialog || archiveExitDialog || removeProjectDialog || deleteWorktreeDialog) {
@@ -5351,7 +5347,7 @@ export function CodeWorkspace({
 
     window.addEventListener('keydown', handleKeyDown, true)
     return () => window.removeEventListener('keydown', handleKeyDown, true)
-  }, [activeView, approvalMenuOpen, archiveExitDialog, clearSearch, closeActiveComposerMenus, closeArchiveExitDialog, closeContextMenu, closeContextMenuAndRestoreFocus, closeDeleteWorktreeDialog, closeRemoveProjectDialog, closeRenameDialog, contextMenu, contextMenuRef, deleteWorktreeDialog, dialogOpen, focusComposerTextarea, focusWorkspaceFilesSearch, handleContextMenuNavigation, keyboardShortcutsEnabled, mobileNavigationModalOpen, mobileShareTicket, modelMenuOpen, navigateWorkspaceHistory, onWorkspaceViewChange, openSearch, plusMenuOpen, projectFileSearchId, projectFileSearchIdForShortcutTarget, removeProjectDialog, renameDialog, reopenLastClosedWorkspaceFile, toggleSidebar])
+  }, [activeView, approvalMenuOpen, archiveExitDialog, clearSearch, closeActiveComposerMenus, closeContextMenu, closeContextMenuAndRestoreFocus, contextMenu, contextMenuRef, deleteWorktreeDialog, dialogOpen, focusComposerTextarea, focusWorkspaceFilesSearch, handleContextMenuNavigation, keyboardShortcutsEnabled, mobileNavigationModalOpen, mobileShareTicket, modelMenuOpen, navigateWorkspaceHistory, onWorkspaceViewChange, openSearch, plusMenuOpen, projectFileSearchId, projectFileSearchIdForShortcutTarget, removeProjectDialog, renameDialog, reopenLastClosedWorkspaceFile, toggleSidebar])
 
   useEffect(() => {
     const dialog = renameDialogStateRef.current
@@ -5422,50 +5418,38 @@ export function CodeWorkspace({
 
   useEffect(() => clearArchiveUndoReconciliation, [clearArchiveUndoReconciliation])
 
-  useEffect(() => {
-    function closeComposerPopover(event: PointerEvent) {
-      const target = event.target
-      if (target instanceof Element && target.closest('.code-composer-menu-anchor')) return
+  useInteractionLayer({
+    enabled: plusMenuOpen || approvalMenuOpen || modelMenuOpen,
+    elements: () => [plusMenuRef, approvalMenuRef, modelMenuRef].map(ref => ref.current?.closest('.code-composer-menu-anchor')),
+    onDismiss: reason => {
       closeActiveComposerMenus()
-    }
+      if (reason === 'escape') focusComposerTextarea()
+    },
+  })
 
-    if (!plusMenuOpen && !approvalMenuOpen && !modelMenuOpen) return
-    window.addEventListener('pointerdown', closeComposerPopover)
-    return () => window.removeEventListener('pointerdown', closeComposerPopover)
-  }, [approvalMenuOpen, closeActiveComposerMenus, modelMenuOpen, plusMenuOpen])
-
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!modelMenuOpen) return
-    const timer = window.setTimeout(() => {
-      const selector = modelPickerPane === 'model'
-        ? '.code-model-submenu .code-model-option.selected'
-        : modelPickerPane === 'speed'
-          ? '.code-speed-submenu .code-model-option.selected'
-          : '.code-model-picker-menu > .code-model-option.selected'
-      const selectedButton = modelMenuRef.current?.querySelector<HTMLButtonElement>(selector)
-      const firstButton = modelMenuRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')
-      ;(selectedButton ?? firstButton)?.focus()
-    }, 0)
-    return () => window.clearTimeout(timer)
-  }, [modelMenuOpen, modelPickerPane, activeAgentModel, activeAgentReasoningEffort, activeAgentServiceTier])
+    const selector = modelPickerPane === 'model'
+      ? '.code-model-submenu .code-model-option.selected'
+      : modelPickerPane === 'speed'
+        ? '.code-speed-submenu .code-model-option.selected'
+        : '.code-model-picker-menu > .code-model-option.selected'
+    const selectedButton = modelMenuRef.current?.querySelector<HTMLButtonElement>(selector)
+    const firstButton = modelMenuRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')
+    ;(selectedButton ?? firstButton)?.focus({ preventScroll: true })
+  }, [modelMenuOpen, modelPickerPane])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!plusMenuOpen) return
-    const timer = window.setTimeout(() => {
-      plusMenuRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus()
-    }, 0)
-    return () => window.clearTimeout(timer)
+    plusMenuRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus({ preventScroll: true })
   }, [plusMenuOpen])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!approvalMenuOpen) return
-    const timer = window.setTimeout(() => {
-      const selectedButton = approvalMenuRef.current?.querySelector<HTMLButtonElement>('.code-approval-option.selected')
-      const firstButton = approvalMenuRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')
-      ;(selectedButton ?? firstButton)?.focus()
-    }, 0)
-    return () => window.clearTimeout(timer)
-  }, [approvalMenuOpen, currentPermissionMode])
+    const selectedButton = approvalMenuRef.current?.querySelector<HTMLButtonElement>('.code-approval-option.selected')
+    const firstButton = approvalMenuRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')
+    ;(selectedButton ?? firstButton)?.focus({ preventScroll: true })
+  }, [approvalMenuOpen])
 
   useEffect(() => {
     if (!pageVisible) return undefined
@@ -5966,14 +5950,19 @@ export function CodeWorkspace({
         displayedProjects={searchResultProjects}
         searchQuery={searchQuery}
         searchHasQuery={hasSearchQuery}
-        searchLoading={agentSessionSearchLoading || globalFileSearch.loading}
+        searchLoading={(searchScope !== 'files' && agentSessionSearchLoading)
+          || ((searchScope === 'all' || searchScope === 'files') && globalFileSearch.loading)}
+        searchScope={searchScope}
+        searchCounts={searchCounts}
+        onSearchScopeChange={updateSearchScope}
+        globalFileSearchLoading={globalFileSearch.loading}
         visibleSearchTargetCount={visibleSearchTargets.length}
         selectedSearchAgentId={selectedSearchAgentId}
         selectedSearchSessionHandle={selectedSearchSessionHandle}
         selectedSearchFileKey={selectedSearchFileKey}
-        globalFileSearchMatches={globalFileSearch.matches}
-        globalFileSearchFailedProjectCount={globalFileSearch.failedProjectCount}
-        globalFileSearchIncomplete={globalFileSearch.truncated}
+        globalFileSearchMatches={searchScope === 'all' || searchScope === 'files' ? globalFileSearch.matches : []}
+        globalFileSearchFailedProjectCount={searchScope === 'all' || searchScope === 'files' ? globalFileSearch.failedProjectCount : 0}
+        globalFileSearchIncomplete={(searchScope === 'all' || searchScope === 'files') && globalFileSearch.truncated}
         globalFileSearchQueryTooLong={globalFileSearch.queryTooLong}
         globalFileOpenError={globalFileOpenError}
         globalFileOpeningKey={globalFileOpeningKey}

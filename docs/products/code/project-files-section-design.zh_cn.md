@@ -80,6 +80,20 @@ Files Identity 来自 Canonical Workspace，不能依赖当前碰巧引用它的
 Association 可以跨 Project 保留，以支持从文件返回来源 Agent，但不属于文件 Ownership。
 
 Global Search 以有界并发、结果数量与取消机制查询当前已挂载且非 Main 的 Project 权威文件索引。
+全局条目搜索区分目录和文件，不搜索内容。普通关键词匹配条目名称，命中父目录不隐式返回其
+全部子文件；路径查询可以定位对应的目录或文件。空目录也可以被搜索。结果保留 Project 根目录
+与相对路径 Identity，在同一根目录内去重，目录排在文件之前。两类结果分别使用有界额度，
+文件不能挤掉目录结果。用户发起的全局条目搜索使用有界交互请求队列，不能在后台 Project
+元数据刷新队列中等待到搜索超时；原有并发、过载和取消限制保持有效。“全部、文件与目录、当前 Agent、历史会话”筛选显示实际返回条目数量。
+即使历史会话有匹配，条目加载、空结果、不完整与失败状态也必须可见。历史会话存在不代表
+对应 Project 已挂载。
+Project 分组直接显示可区分同名目录的路径；历史行标明类型、更新时间，并在实际工作目录与
+Project 根目录不同时显示工作目录。
+
+Workspace 拥有 Query、结果筛选和键盘选择。切换筛选保留 Query 和已完成搜索，取消待完成的
+文件打开，并选择第一条可见结果。修改 Query 或关闭 Search 会取消过期工作。渲染与键盘导航
+使用同一筛选顺序，Enter 只能打开可见结果。筛选不能挂载 Project 或恢复会话。搜索失败沿用
+下述有界重试和取消协议。
 文件结果展示 Project、同名冲突时扩展到最短唯一后缀的 Workspace Label，以及完整 Workspace
 Relative Path，使同名且相对路径相同的文件仍能明确区分。用户可以输入
 Workspace Relative Path，或输入属于其中一个已挂载 Project 的 Absolute Path，并可附带行列位置。
@@ -90,6 +104,16 @@ Explorer 中 Reveal，并在来源 Agent 仍存在时保留为移动端 Back Tar
 Search、启动 Agent、跟随通知、移除目标 Project 都会取消进行中的 Read。Per-project 与 Global
 Deadline 必须收敛到可 Retry 的明确 Failed 或 Incomplete 状态；语义未变化的 Project 刷新不得
 重启这些 Deadline。
+
+目录激活复用 Explorer 定位控制器。经过一次新鲜的后端读取确认目录仍可访问、Project 仍已挂载，
+才切回 Projects、展开祖先与目标目录并选中它；不得打开任意子文件、创建 Agent 或恢复会话。
+等待期间显示打开状态；失败保留查询与 Search 并显示明确错误。修改查询、切换筛选、关闭 Search
+或再次激活目标会取消过期请求，迟到的结果不能夺取导航权。Project 根目录结果展开该 Project
+的 Files 区域。
+
+Search 拥有主面板内完整的滚动区域，包括滚动条和结果列周围的留白。在该区域内操作鼠标必须
+保留 Search 及当前查询；原有的外部点击关闭行为仅适用于该区域和 Search 导航控件之外。
+关闭事件的仲裁遵循共享的 [UI 交互协议](../../development/ui-interaction-protocol.zh_cn.md)。
 
 ## Directory 与 Navigation State
 

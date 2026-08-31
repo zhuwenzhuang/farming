@@ -134,6 +134,9 @@ Execution environment
   is not automatically current-state evidence.
 - Keep one source of truth for each identity and state transition. Compatibility
   shapes belong at system boundaries and must not leak into new feature code.
+- Dismissible UI surfaces share the [UI interaction protocol](docs/development/ui-interaction-protocol.md).
+  Declare complete boundaries and delegate outside-pointer and Escape arbitration
+  to the shared interaction layer instead of adding component-local global listeners.
 
 ## Engineering Rules
 

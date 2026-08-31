@@ -637,6 +637,56 @@ async function run() {
       const directoryPathSearch = await service.search(workspace, 'src/', { limit: 5 });
       assert(directoryPathSearch.matches.some(match => match.path === 'src/App.tsx'));
       assert(!directoryPathSearch.matches.some(match => match.path === 'src'));
+      // A global file-path query includes descendant paths even without a slash.
+      // Ordinary Explorer search above still returns the directory itself.
+      const globalDirectoryFiles = await service.search(workspace, 'poem', { scope: 'file-path', limit: 20 });
+      assert(globalDirectoryFiles.matches.some(match => match.path === 'archive/poem/bundle/notes.txt'));
+      assert(globalDirectoryFiles.matches.every(match => match.entryType === 'file'));
+      const exactGlobalDirectory = await service.search(workspace, 'archive/poem', { scope: 'file-path', limit: 20 });
+      assert(exactGlobalDirectory.matches.some(match => match.path === 'archive/poem/bundle/notes.txt'));
+      assert(exactGlobalDirectory.matches.every(match => match.entryType === 'file'));
+      const rankedRoot = path.join(workspace, 'ranked-file-search');
+      fs.mkdirSync(path.join(rankedRoot, 'sql-insight-lite'), { recursive: true });
+      fs.mkdirSync(path.join(rankedRoot, 'tools', 'sql-insight'), { recursive: true });
+      for (let index = 0; index < 150; index += 1) {
+        fs.writeFileSync(path.join(rankedRoot, 'sql-insight-lite', `example-${index}.ts`), 'export {}\n');
+      }
+      fs.writeFileSync(path.join(rankedRoot, 'tools', 'sql-insight', 'SKILL.md'), '# Example\n');
+      const rankedFiles = await service.search(rankedRoot, 'sql-insight', { scope: 'file-path', limit: 2 });
+      assert.strictEqual(rankedFiles.matches[0].path, 'tools/sql-insight/SKILL.md');
+      assert.strictEqual(rankedFiles.truncated, true);
+      const entryRoot = path.join(workspace, 'entry-search');
+      fs.mkdirSync(path.join(entryRoot, 'tools', 'sql-insight'), { recursive: true });
+      fs.mkdirSync(path.join(entryRoot, 'archive', 'sql-insight'), { recursive: true });
+      fs.mkdirSync(path.join(entryRoot, 'reference', 'sql-insight'), { recursive: true });
+      fs.mkdirSync(path.join(entryRoot, 'sql-insight-empty'), { recursive: true });
+      fs.writeFileSync(path.join(entryRoot, 'tools', 'sql-insight', 'SKILL.md'), '# sql-insight\n');
+      fs.writeFileSync(path.join(entryRoot, 'sql-insight.md'), '# Example\n');
+      const entries = await service.search(entryRoot, 'sql-insight', { scope: 'entries', limit: 20 });
+      assert.deepStrictEqual(entries.matches.filter(match => match.entryType === 'directory').map(match => match.path).sort(),
+        ['archive/sql-insight', 'sql-insight-empty', 'tools/sql-insight']);
+      assert.deepStrictEqual(entries.matches.filter(match => match.entryType === 'file').map(match => match.path), ['sql-insight.md']);
+      assert(entries.matches.every(match => match.kind === 'path'));
+      for (const query of ['archive/sql-insight', 'archive/sql-insight/']) {
+        const exact = await service.search(entryRoot, query, { scope: 'entries' });
+        assert.deepStrictEqual(exact.matches.map(match => [match.entryType, match.path]), [['directory', 'archive/sql-insight']]);
+      }
+      const rootEntry = await service.search(entryRoot, '.', { scope: 'entries' });
+      assert.deepStrictEqual(rootEntry.matches.map(match => [match.entryType, match.path]), [['directory', '']]);
+      const nestedEntry = await service.search(entryRoot, 'sql-insight/SKILL.md', { scope: 'entries' });
+      assert.deepStrictEqual(nestedEntry.matches.map(match => [match.entryType, match.path]), [['file', 'tools/sql-insight/SKILL.md']]);
+      for (let index = 0; index < 20; index += 1) {
+        fs.writeFileSync(path.join(entryRoot, `sql-insight-${index}.ts`), 'export {}\n');
+      }
+      const cappedEntries = await service.search(entryRoot, 'sql-insight', { scope: 'entries', limit: 2 });
+      assert.strictEqual(cappedEntries.matches.filter(match => match.entryType === 'file').length, 2);
+      assert.strictEqual(cappedEntries.matches.filter(match => match.entryType === 'directory').length, 2);
+      assert.strictEqual(cappedEntries.truncated, true);
+      const scopedEntries = await service.search(entryRoot, '../../sql-insight.md', { scope: 'entries', path: 'archive/sql-insight' });
+      assert.deepStrictEqual(scopedEntries.matches, []);
+      const cancelledEntries = new AbortController();
+      cancelledEntries.abort();
+      await assert.rejects(service.search(entryRoot, 'sql-insight', { scope: 'entries', signal: cancelledEntries.signal }), { name: 'AbortError' });
       fs.mkdirSync(path.join(workspace, 'authorized-search-scope'), { recursive: true });
       fs.writeFileSync(path.join(workspace, 'outside-search-scope.txt'), 'must stay hidden\n');
       const scopedPathSearch = await service.search(workspace, 'outside-search-scope.txt', {

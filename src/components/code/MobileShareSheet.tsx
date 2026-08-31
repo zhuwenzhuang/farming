@@ -1,3 +1,4 @@
+import { useModalFocusScope } from '@/hooks/useModalFocusScope'
 import { createPortal } from 'react-dom'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { RefObject } from 'react'
@@ -85,52 +86,16 @@ export function MobileShareSheet({
   const [now, setNow] = useState(() => Date.now())
   const [qrCodeFactory, setQrCodeFactory] = useState<Awaited<ReturnType<typeof preloadQrCodeFactory>> | null>(null)
   const [qrCodeFailed, setQrCodeFailed] = useState(false)
-  const dialogRef = useRef<HTMLElement | null>(null)
   const closeButtonRef = useRef<HTMLButtonElement | null>(null)
   const qrRequestSeqRef = useRef(0)
 
-  useEffect(() => {
-    const appRoot = document.getElementById('root')
-    const returnFocusTarget = returnFocusRef.current
-    const previousInert = appRoot?.inert ?? false
-    const previousAriaHidden = appRoot?.getAttribute('aria-hidden') ?? null
-    if (appRoot) {
-      appRoot.inert = true
-      appRoot.setAttribute('aria-hidden', 'true')
-    }
-    const focusFrame = window.requestAnimationFrame(() => {
-      closeButtonRef.current?.focus({ preventScroll: true })
-    })
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        event.stopImmediatePropagation()
-        onClose()
-        return
-      }
-      if (event.key !== 'Tab') return
-      const buttons = Array.from(dialogRef.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? [])
-      if (buttons.length === 0) return
-      const activeIndex = buttons.indexOf(document.activeElement as HTMLButtonElement)
-      const nextIndex = event.shiftKey
-        ? (activeIndex <= 0 ? buttons.length - 1 : activeIndex - 1)
-        : (activeIndex === -1 || activeIndex === buttons.length - 1 ? 0 : activeIndex + 1)
-      event.preventDefault()
-      event.stopImmediatePropagation()
-      buttons[nextIndex]?.focus({ preventScroll: true })
-    }
-    window.addEventListener('keydown', handleKeyDown, true)
-    return () => {
-      window.cancelAnimationFrame(focusFrame)
-      window.removeEventListener('keydown', handleKeyDown, true)
-      if (appRoot) {
-        appRoot.inert = previousInert
-        if (previousAriaHidden === null) appRoot.removeAttribute('aria-hidden')
-        else appRoot.setAttribute('aria-hidden', previousAriaHidden)
-      }
-      if (returnFocusTarget?.isConnected) returnFocusTarget.focus({ preventScroll: true })
-    }
-  }, [onClose, returnFocusRef])
+  const dialogRef = useModalFocusScope<HTMLElement>({
+    open: true,
+    initialFocusRef: closeButtonRef,
+    returnFocusRef,
+    onEscape: onClose,
+    dismissOnPointerOutside: true,
+  })
 
   const loadQrRenderer = useCallback(() => {
     const requestSeq = qrRequestSeqRef.current + 1
@@ -180,14 +145,13 @@ export function MobileShareSheet({
   const badgeUrl = appPath('/farming-2/app-icon-v2-180.png')
 
   return createPortal(
-    <div className="code-mobile-share-backdrop" data-testid="code-mobile-share-sheet" role="presentation" onPointerDown={onClose}>
+    <div className="code-mobile-share-backdrop" data-testid="code-mobile-share-sheet" role="presentation">
       <section
         ref={dialogRef}
         className="code-mobile-share-sheet"
         role="dialog"
         aria-modal="true"
         aria-labelledby="code-mobile-share-title"
-        onPointerDown={event => event.stopPropagation()}
       >
         <header className="code-mobile-share-header">
           <h2 id="code-mobile-share-title">{copy.mobileShareTitle}</h2>

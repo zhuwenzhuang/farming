@@ -1,8 +1,8 @@
 import { createPortal } from 'react-dom'
-import { useEffect, useRef } from 'react'
+import { useRef } from 'react'
 import type { RefObject } from 'react'
 import { appPath } from '@/lib/base-path'
-import { useEscapeKey } from '@/hooks/useKeyboard'
+import { useModalFocusScope } from '@/hooks/useModalFocusScope'
 import type { UiLanguage } from '@/lib/ui-preferences'
 import type { CodeCopy } from './copy'
 
@@ -26,27 +26,22 @@ export function BrandAboutDialog({
   returnFocusRef: RefObject<HTMLElement | null>
 }) {
   const closeButtonRef = useRef<HTMLButtonElement | null>(null)
-  useEscapeKey(onClose)
-
-  useEffect(() => {
-    // The return target is the sidebar trigger that opened this dialog; it stays
-    // mounted for the dialog's lifetime, so capturing it here restores focus to
-    // the same element the cleanup would have read.
-    const returnFocusTarget = returnFocusRef.current
-    closeButtonRef.current?.focus({ preventScroll: true })
-    return () => {
-      returnFocusTarget?.focus({ preventScroll: true })
-    }
-  }, [onClose, returnFocusRef])
+  const dialogRef = useModalFocusScope({
+    open: true,
+    initialFocusRef: closeButtonRef,
+    returnFocusRef,
+    onEscape: onClose,
+    dismissOnPointerOutside: true,
+  })
 
   return createPortal(
-    <div className="code-brand-backdrop" data-testid="code-brand-dialog" role="presentation" onPointerDown={onClose}>
+    <div className="code-brand-backdrop" data-testid="code-brand-dialog" role="presentation">
       <section
+        ref={dialogRef}
         className="code-brand-dialog"
         role="dialog"
         aria-modal="true"
         aria-labelledby="code-brand-title"
-        onPointerDown={event => event.stopPropagation()}
       >
         <button ref={closeButtonRef} type="button" className="code-brand-close" aria-label={copy.cancel} onClick={onClose}>×</button>
         <img className="code-brand-logo" src={appPath('/farming-2/app-icon-v2-180.png')} alt="" aria-hidden="true" />

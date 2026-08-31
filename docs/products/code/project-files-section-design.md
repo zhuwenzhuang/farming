@@ -104,11 +104,34 @@ Agent, but it is not file ownership.
 
 Global Search queries the authoritative file indexes of the currently mounted,
 non-Main Projects with bounded concurrency, result counts, and cancellation.
+Global entry search returns typed directories and files, never file contents.
+A bare name matches entry names; a parent directory match does not implicitly
+return its descendants. A path query can match the directory or file at that
+path. Empty directories are searchable. Results retain Project-root and relative
+path identity, deduplicate within that root, and show directories before files.
+Each type has its own bounded result budget, so files cannot crowd out folders.
+Explicit global entry searches use the bounded interactive request lane: Project
+metadata refreshes must not consume their deadline before dispatch. Existing
+concurrency, overload, and cancellation limits still apply.
+All, Files and Folders, Current Agents, and History filters expose counts of
+returned objects. Loading, empty, incomplete, and failure states remain visible
+even when sessions match. History does not imply that its Project is mounted.
+Project groups show a disambiguating workspace path; history rows identify their
+type, update time, and working directory when it differs from the Project root.
+
+The workspace owns the query, result filter, and keyboard selection. Changing
+the filter retains the query and completed searches, cancels any pending file
+open, and resets selection to the first visible result. Changing the query or
+closing Search cancels obsolete work. Rendering and keyboard navigation derive
+from the same filtered order; Enter can only open a visible result. Filters do
+not mount Projects or resume sessions. Search failures retain the existing
+bounded retry and cancellation protocol below.
+
 File results expose the Project, a workspace label that expands to the shortest
 unique suffix for same-name collisions, and the complete workspace-relative
 path, so equal basenames and equal relative paths remain distinct. A workspace-relative path, or an absolute path that
 is contained by one of those mounted Projects, may include a line and column.
-Click or Enter opens that exact identity through the ordinary Project file-open
+Click or Enter on a file opens that exact identity through the ordinary Project file-open
 transaction, reveals it in the Explorer, and preserves the Agent that opened
 Search as the mobile Back target when it still exists. Search never broadens to
 the global filesystem or substitutes a fuzzy match after selection. If the file
@@ -118,6 +141,21 @@ starting an Agent, following a notification, or removing the target Project
 cancels an in-flight read. Per-Project and global deadlines converge to explicit
 failed or incomplete states with Retry; semantically unchanged Project refreshes
 must not restart those deadlines.
+
+Directory activation shares the query/open cancellation generation. The backend
+first reads the exact directory inside its still-mounted root. Only a successful,
+current read may switch to Projects, reveal and expand that directory through
+the existing Explorer controller. It never opens an arbitrary child, resumes an
+Agent, or mounts a Project. Missing directories, denied reads, or removed roots
+keep Search visible with an error. Query/filter changes, closing Search, or a
+new activation cancel older reads; the most recent intent owns navigation.
+A Project-root result expands that Project’s Files section.
+
+Search owns its entire main-pane scroll surface, including the scrollbar and
+padding around the result column. Pointer interaction within that surface keeps
+Search and its query open; the existing outside-click dismissal applies only
+outside that surface and the Search navigation controls.
+Dismissal arbitration follows the shared [UI interaction protocol](../../development/ui-interaction-protocol.md).
 
 ## Directory And Navigation State
 

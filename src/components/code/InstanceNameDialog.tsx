@@ -1,7 +1,7 @@
 import { createPortal } from 'react-dom'
 import { useEffect, useRef, useState } from 'react'
 import type { RefObject } from 'react'
-import { useEscapeKey } from '@/hooks/useKeyboard'
+import { useModalFocusScope } from '@/hooks/useModalFocusScope'
 import type { CodeCopy } from './copy'
 
 const MAX_INSTANCE_NAME_LENGTH = 80
@@ -23,18 +23,18 @@ export function InstanceNameDialog({
   const [saving, setSaving] = useState(false)
   const [saveFailed, setSaveFailed] = useState(false)
   const inputRef = useRef<HTMLInputElement | null>(null)
-  useEscapeKey(onClose, !saving)
+  const dialogRef = useModalFocusScope<HTMLFormElement>({
+    open: true,
+    initialFocusRef: inputRef,
+    returnFocusRef,
+    onEscape: onClose,
+    escapeEnabled: !saving,
+    dismissOnPointerOutside: !saving,
+  })
 
   useEffect(() => {
-    // Same return-focus contract as the other sidebar dialogs: the trigger stays
-    // mounted while this dialog is open, so capture it at setup.
-    const returnFocusTarget = returnFocusRef.current
-    inputRef.current?.focus({ preventScroll: true })
     inputRef.current?.select()
-    return () => {
-      returnFocusTarget?.focus({ preventScroll: true })
-    }
-  }, [onClose, returnFocusRef])
+  }, [])
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -50,8 +50,8 @@ export function InstanceNameDialog({
   }
 
   return createPortal(
-    <div className="code-brand-backdrop" data-testid="code-instance-name-dialog" role="presentation" onPointerDown={() => !saving && onClose()}>
-      <form className="code-brand-dialog code-instance-name-dialog" role="dialog" aria-modal="true" aria-labelledby="code-instance-name-title" onPointerDown={event => event.stopPropagation()} onSubmit={submit}>
+    <div className="code-brand-backdrop" data-testid="code-instance-name-dialog" role="presentation">
+      <form ref={dialogRef} className="code-brand-dialog code-instance-name-dialog" role="dialog" aria-modal="true" aria-labelledby="code-instance-name-title" onSubmit={submit}>
         <h2 id="code-instance-name-title">{copy.instanceNameTitle}</h2>
         <p>{copy.instanceNameDescription}</p>
         <input

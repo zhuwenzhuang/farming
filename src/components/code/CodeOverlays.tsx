@@ -3,6 +3,7 @@ import type {
   KeyboardEvent as ReactKeyboardEvent,
   RefObject,
 } from 'react'
+import { useInteractionLayer } from '@/hooks/useInteractionLayer'
 import type { Agent } from '@/types/agent'
 import {
   agentMenuAvailability,
@@ -114,14 +115,14 @@ interface CodeOverlaysProps {
   onArchiveProject: () => void
   onRemoveProject: () => void
   onDeleteWorktree: () => void
-  onCloseRenameDialog: () => void
+  onCloseRenameDialog: (restoreFocus?: boolean) => void
   onRenameDialogTitleChange: (title: string) => void
   onSubmitRenameDialog: () => void
-  onCloseArchiveExitDialog: () => void
+  onCloseArchiveExitDialog: (restoreFocus?: boolean) => void
   onSubmitArchiveExitDialog: () => void
-  onCloseRemoveProjectDialog: () => void
+  onCloseRemoveProjectDialog: (restoreFocus?: boolean) => void
   onSubmitRemoveProjectDialog: () => void
-  onCloseDeleteWorktreeDialog: () => void
+  onCloseDeleteWorktreeDialog: (restoreFocus?: boolean) => void
   onSubmitDeleteWorktreeDialog: () => void
   onViewArchivedSession: () => void
   onUndoArchivedSession: () => void
@@ -189,6 +190,28 @@ export function CodeOverlays({
   onCloseArchivedSessionNotice,
   copy,
 }: CodeOverlaysProps) {
+  useInteractionLayer({
+    enabled: Boolean(renameDialog), modal: true,
+    elements: () => [renameDialogRef.current],
+    onDismiss: reason => onCloseRenameDialog(reason === 'escape'),
+  })
+  useInteractionLayer({
+    enabled: Boolean(archiveExitDialog), modal: true,
+    elements: () => [archiveExitDialogRef.current],
+    onDismiss: reason => onCloseArchiveExitDialog(reason === 'escape'),
+  })
+  useInteractionLayer({
+    enabled: Boolean(removeProjectDialog), modal: true,
+    elements: () => [removeProjectDialogRef.current],
+    dismissOnPointerOutside: !removeProjectDialog?.busy,
+    dismissOnEscape: !removeProjectDialog?.busy,
+    onDismiss: reason => onCloseRemoveProjectDialog(reason === 'escape'),
+  })
+  useInteractionLayer({
+    enabled: Boolean(deleteWorktreeDialog), modal: true,
+    elements: () => [deleteWorktreeDialogRef.current],
+    onDismiss: reason => onCloseDeleteWorktreeDialog(reason === 'escape'),
+  })
   const agentMenuAvailabilityState = agentMenuAvailability(contextMenuAgent, {
     canCreateBrowser: canCreateAgentBrowser,
     canCreateDesktop: canCreateAgentDesktop,
@@ -435,7 +458,7 @@ export function CodeOverlays({
         </div>
       )}
       {renameDialog && (
-        <div className="code-rename-backdrop" data-testid="code-rename-backdrop" onMouseDown={onCloseRenameDialog}>
+        <div className="code-rename-backdrop" data-testid="code-rename-backdrop">
           <form
             className="code-rename-dialog"
             data-testid="code-rename-dialog"
@@ -443,7 +466,6 @@ export function CodeOverlays({
             aria-modal="true"
             aria-labelledby="code-rename-title"
             ref={renameDialogRef}
-            onMouseDown={event => event.stopPropagation()}
             onKeyDownCapture={event => trapFocusInContainer(event, renameDialogRef.current)}
             onKeyDown={event => trapFocusInContainer(event, renameDialogRef.current)}
             onSubmit={event => {
@@ -472,22 +494,16 @@ export function CodeOverlays({
               data-form-type="other"
               value={renameDialog.title}
               onChange={event => onRenameDialogTitleChange(event.target.value)}
-              onKeyDown={event => {
-                if (event.key === 'Escape') {
-                  event.preventDefault()
-                  onCloseRenameDialog()
-                }
-              }}
             />
             <div className="code-rename-actions">
-              <button type="button" onClick={onCloseRenameDialog}>{copy.cancel}</button>
+              <button type="button" onClick={() => onCloseRenameDialog()}>{copy.cancel}</button>
               <button type="submit" className="primary" disabled={!renameDialog.title.trim()}>{copy.save}</button>
             </div>
           </form>
         </div>
       )}
       {archiveExitDialog && (
-        <div className="code-rename-backdrop" data-testid="code-archive-exit-backdrop" onMouseDown={onCloseArchiveExitDialog}>
+        <div className="code-rename-backdrop" data-testid="code-archive-exit-backdrop">
           <div
             className="code-rename-dialog code-kill-dialog"
             data-testid="code-archive-exit-dialog"
@@ -495,14 +511,13 @@ export function CodeOverlays({
             aria-modal="true"
             aria-labelledby="code-archive-exit-title"
             ref={archiveExitDialogRef}
-            onMouseDown={event => event.stopPropagation()}
             onKeyDownCapture={event => trapFocusInContainer(event, archiveExitDialogRef.current)}
             onKeyDown={event => trapFocusInContainer(event, archiveExitDialogRef.current)}
           >
             <h2 id="code-archive-exit-title">{copy.archiveAgentQuestion}</h2>
             <p>{copy.acknowledgeUnprovenAcpExitDescription(archiveExitDialog.title)}</p>
             <div className="code-rename-actions">
-              <button type="button" ref={archiveExitCancelButtonRef} onClick={onCloseArchiveExitDialog} autoFocus>{copy.cancel}</button>
+              <button type="button" ref={archiveExitCancelButtonRef} onClick={() => onCloseArchiveExitDialog()} autoFocus>{copy.cancel}</button>
               <button type="button" className="danger" onClick={onSubmitArchiveExitDialog}>
                 {copy.acknowledgeUnprovenAcpExit}
               </button>
@@ -514,9 +529,6 @@ export function CodeOverlays({
         <div
           className="code-rename-backdrop"
           data-testid="code-remove-project-backdrop"
-          onMouseDown={() => {
-            if (!removeProjectDialog.busy) onCloseRemoveProjectDialog()
-          }}
         >
           <div
             className="code-rename-dialog code-kill-dialog code-remove-project-dialog"
@@ -527,7 +539,6 @@ export function CodeOverlays({
             aria-describedby="code-remove-project-description"
             aria-busy={removeProjectDialog.busy}
             ref={removeProjectDialogRef}
-            onMouseDown={event => event.stopPropagation()}
             onKeyDownCapture={event => trapFocusInContainer(event, removeProjectDialogRef.current)}
             onKeyDown={event => trapFocusInContainer(event, removeProjectDialogRef.current)}
           >
@@ -560,7 +571,7 @@ export function CodeOverlays({
               <button
                 type="button"
                 ref={removeProjectCancelButtonRef}
-                onClick={onCloseRemoveProjectDialog}
+                onClick={() => onCloseRemoveProjectDialog()}
                 disabled={removeProjectDialog.busy}
                 autoFocus
               >
@@ -579,7 +590,7 @@ export function CodeOverlays({
         </div>
       )}
       {deleteWorktreeDialog && (
-        <div className="code-rename-backdrop" data-testid="code-delete-worktree-backdrop" onMouseDown={onCloseDeleteWorktreeDialog}>
+        <div className="code-rename-backdrop" data-testid="code-delete-worktree-backdrop">
           <div
             className="code-rename-dialog code-kill-dialog"
             data-testid="code-delete-worktree-dialog"
@@ -587,14 +598,13 @@ export function CodeOverlays({
             aria-modal="true"
             aria-labelledby="code-delete-worktree-title"
             ref={deleteWorktreeDialogRef}
-            onMouseDown={event => event.stopPropagation()}
             onKeyDownCapture={event => trapFocusInContainer(event, deleteWorktreeDialogRef.current)}
             onKeyDown={event => trapFocusInContainer(event, deleteWorktreeDialogRef.current)}
           >
             <h2 id="code-delete-worktree-title">{copy.deleteWorktreeQuestion}</h2>
             <p>{copy.deleteWorktreeDescription}</p>
             <div className="code-rename-actions">
-              <button type="button" ref={deleteWorktreeCancelButtonRef} onClick={onCloseDeleteWorktreeDialog} autoFocus>{copy.cancel}</button>
+              <button type="button" ref={deleteWorktreeCancelButtonRef} onClick={() => onCloseDeleteWorktreeDialog()} autoFocus>{copy.cancel}</button>
               <button type="button" className="danger" onClick={onSubmitDeleteWorktreeDialog}>{copy.forceDelete}</button>
             </div>
           </div>

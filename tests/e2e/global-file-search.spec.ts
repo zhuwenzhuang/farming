@@ -207,7 +207,7 @@ test.describe('global file path search', () => {
     await interceptWorkspaceRequests(page, request => {
       if (
         request.operation !== 'search'
-        || request.scope !== 'file-path'
+        || request.scope !== 'entries'
         || request.rootId !== slowRootId
         || request.query !== filePath
       ) return undefined
@@ -252,7 +252,7 @@ test.describe('global file path search', () => {
     await interceptWorkspaceRequests(page, request => {
       if (
         request.operation !== 'search'
-        || request.scope !== 'file-path'
+        || request.scope !== 'entries'
         || request.query !== filePath
       ) return undefined
       searchRequestCount += 1
@@ -295,7 +295,7 @@ test.describe('global file path search', () => {
     await interceptWorkspaceRequests(page, request => {
       if (
         request.operation !== 'search'
-        || request.scope !== 'file-path'
+        || request.scope !== 'entries'
         || request.query !== query
       ) return undefined
       searchRequestCount += 1
@@ -389,7 +389,7 @@ test.describe('global file path search', () => {
     await interceptWorkspaceRequests(page, request => {
       if (
         request.operation !== 'search'
-        || request.scope !== 'file-path'
+        || request.scope !== 'entries'
         || request.query !== 'OlderTarget.ts'
       ) return undefined
       return {

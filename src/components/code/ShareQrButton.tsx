@@ -1,3 +1,4 @@
+import { useInteractionLayer } from '@/hooks/useInteractionLayer'
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type qrcode from 'qrcode-generator'
 import qrCodeModuleUrl from 'qrcode-generator?url'
@@ -416,25 +417,12 @@ export function ShareQrButton({
     }
   }, [open, ticket?.tokenLabel, ticket?.shortPath])
 
-  useEffect(() => {
-    if (!open) return undefined
-
-    const closeSharePopoverOnOutsidePointerDown = (event: PointerEvent) => {
-      const target = event.target
-      if (target instanceof Node && rootRef.current?.contains(target)) return
-      closePopover()
-    }
-    const closeSharePopoverOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') closePopover()
-    }
-
-    document.addEventListener('pointerdown', closeSharePopoverOnOutsidePointerDown, true)
-    document.addEventListener('keydown', closeSharePopoverOnEscape, true)
-    return () => {
-      document.removeEventListener('pointerdown', closeSharePopoverOnOutsidePointerDown, true)
-      document.removeEventListener('keydown', closeSharePopoverOnEscape, true)
-    }
-  }, [closePopover, open])
+  useInteractionLayer({
+    enabled: open,
+    elements: () => [rootRef.current],
+    onDismiss: closePopover,
+    returnFocus: () => buttonRef.current,
+  })
 
   useEffect(() => () => {
     clearCloseTimer()
@@ -489,12 +477,6 @@ export function ShareQrButton({
             clearCloseTimer()
           }}
           onMouseLeave={scheduleClose}
-          onKeyDown={event => {
-            if (event.key === 'Escape') {
-              closePopover()
-              buttonRef.current?.focus()
-            }
-          }}
         >
           <div className="code-share-qr-frame" data-expired={expired ? 'true' : 'false'}>
             <div className="code-share-qr-canvas">

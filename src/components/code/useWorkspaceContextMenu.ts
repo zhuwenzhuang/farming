@@ -1,3 +1,4 @@
+import { useInteractionLayer } from '@/hooks/useInteractionLayer'
 import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from 'react'
 import type { Agent } from '@/types/agent'
@@ -151,12 +152,6 @@ export function useWorkspaceContextMenu({
     menu: HTMLElement | null,
   ) => {
     if (!menu) return false
-    if (event.key === 'Escape') {
-      event.preventDefault()
-      event.stopPropagation()
-      closeContextMenuAndRestoreFocus()
-      return true
-    }
     const buttons = Array.from(menu.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'))
     if (buttons.length === 0) return false
     const activeIndex = buttons.findIndex(button => button === document.activeElement)
@@ -202,21 +197,23 @@ export function useWorkspaceContextMenu({
     handleContextMenuNavigation(event.nativeEvent, event.currentTarget)
   }, [handleContextMenuNavigation])
 
+  useInteractionLayer({
+    enabled: Boolean(contextMenu),
+    elements: () => [contextMenuRef.current],
+    onDismiss: reason => {
+      if (reason === 'escape') closeContextMenuAndRestoreFocus()
+      else closeContextMenu()
+    },
+  })
+
   useLayoutEffect(() => {
     if (!contextMenu) return
     const handleNativeKeyDown = (event: KeyboardEvent) => {
       if (handleContextMenuNavigation(event, contextMenuRef.current)) event.stopImmediatePropagation()
     }
-    const closeOnOutsidePointer = (event: PointerEvent) => {
-      const target = event.target
-      if (target instanceof Element && target.closest('.code-context-menu')) return
-      closeContextMenu()
-    }
     document.addEventListener('keydown', handleNativeKeyDown, true)
-    window.addEventListener('pointerdown', closeOnOutsidePointer)
     return () => {
       document.removeEventListener('keydown', handleNativeKeyDown, true)
-      window.removeEventListener('pointerdown', closeOnOutsidePointer)
     }
   }, [closeContextMenu, contextMenu, handleContextMenuNavigation])
 

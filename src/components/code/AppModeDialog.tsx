@@ -1,7 +1,7 @@
 import { createPortal } from 'react-dom'
-import { useEffect, useRef } from 'react'
+import { useRef } from 'react'
 import { appPath } from '@/lib/base-path'
-import { useEscapeKey } from '@/hooks/useKeyboard'
+import { useModalFocusScope } from '@/hooks/useModalFocusScope'
 import type { CodeCopy } from './copy'
 
 export function AppModeDialog({
@@ -24,24 +24,23 @@ export function AppModeDialog({
   onToggleFullscreen: () => void
 }) {
   const closeButtonRef = useRef<HTMLButtonElement | null>(null)
-  useEscapeKey(onClose)
-
-  useEffect(() => {
-    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    closeButtonRef.current?.focus({ preventScroll: true })
-    return () => {
-      previousFocus?.focus({ preventScroll: true })
-    }
-  }, [onClose])
+  const returnFocusRef = useRef(document.activeElement instanceof HTMLElement ? document.activeElement : null)
+  const dialogRef = useModalFocusScope({
+    open: true,
+    initialFocusRef: closeButtonRef,
+    returnFocusRef,
+    onEscape: onClose,
+    dismissOnPointerOutside: true,
+  })
 
   return createPortal(
-    <div className="code-app-mode-backdrop" data-testid="code-app-mode-dialog" role="presentation" onPointerDown={onClose}>
+    <div className="code-app-mode-backdrop" data-testid="code-app-mode-dialog" role="presentation">
       <section
+        ref={dialogRef}
         className="code-app-mode-dialog"
         role="dialog"
         aria-modal="true"
         aria-labelledby="code-app-mode-title"
-        onPointerDown={event => event.stopPropagation()}
       >
         <button ref={closeButtonRef} type="button" className="code-app-mode-close" aria-label={copy.cancel} onClick={onClose}>×</button>
         <header className="code-app-mode-heading">

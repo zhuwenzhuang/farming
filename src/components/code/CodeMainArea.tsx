@@ -42,7 +42,7 @@ import {
   ShareGlyph,
 } from '../IconGlyphs'
 import type { CodeCopy } from './copy'
-import type { AgentSessionHistoryItem, ProjectGroup, WorkspaceFileOpenTarget, WorkspaceView } from './types'
+import type { AgentSessionHistoryItem, ProjectGroup, WorkspaceFileOpenTarget, WorkspaceSearchScope, WorkspaceSearchCounts, WorkspaceView } from './types'
 import { PluginsPanel, type AgentHomeFileTarget, type PluginsNavigationState } from './PluginsPanel'
 
 type ComposerProps = Omit<ComponentProps<typeof CodeComposer>, 'copy'>
@@ -293,6 +293,10 @@ interface CodeMainAreaProps {
   searchQuery: string
   searchHasQuery: boolean
   searchLoading: boolean
+  searchScope: WorkspaceSearchScope
+  searchCounts: WorkspaceSearchCounts
+  onSearchScopeChange: (scope: WorkspaceSearchScope) => void
+  globalFileSearchLoading: boolean
   visibleSearchTargetCount: number
   selectedSearchAgentId: string | null
   selectedSearchSessionHandle: string | null
@@ -601,6 +605,10 @@ export function CodeMainArea({
   searchQuery,
   searchHasQuery,
   searchLoading,
+  searchScope,
+  searchCounts,
+  onSearchScopeChange,
+  globalFileSearchLoading,
   visibleSearchTargetCount,
   selectedSearchAgentId,
   selectedSearchSessionHandle,
@@ -979,6 +987,10 @@ export function CodeMainArea({
               displayedProjects={displayedProjects}
               hasQuery={searchHasQuery}
               loading={searchLoading}
+              scope={searchScope}
+              counts={searchCounts}
+              onScopeChange={onSearchScopeChange}
+              fileSearchLoading={globalFileSearchLoading}
               resultCount={visibleSearchTargetCount}
               selectedAgentId={selectedSearchAgentId}
               selectedSessionHandle={selectedSearchSessionHandle}

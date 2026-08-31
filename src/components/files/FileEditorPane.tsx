@@ -740,6 +740,7 @@ export function FileEditorPane({
         tabContextMenu={tabContextMenu}
         onCancelPendingClose={cancelPendingClose}
         onCloseEditorContextMenu={closeEditorContextMenu}
+        onCloseTabContextMenu={closeTabContextMenu}
         onConfirmSaveAndClose={confirmSaveAndClose}
         onDiscardAndClose={discardAndClose}
         onRunEditorContextAction={runEditorContextAction}

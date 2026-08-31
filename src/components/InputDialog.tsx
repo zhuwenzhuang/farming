@@ -1,3 +1,4 @@
+import { useInteractionLayer } from '@/hooks/useInteractionLayer'
 import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { useKeyboard } from '@/hooks/useKeyboard'
@@ -724,17 +725,12 @@ export function InputDialog({
     }
   }, [homesForSelectedAgent, selectedHomeId])
 
-  useEffect(() => {
-    if (!homeMenuOpen) return
-
-    const closeIfOutside = (event: MouseEvent) => {
-      if (!homeMenuRef.current?.contains(event.target as Node)) setHomeMenuOpen(false)
-    }
-    window.addEventListener('mousedown', closeIfOutside)
-    return () => {
-      window.removeEventListener('mousedown', closeIfOutside)
-    }
-  }, [homeMenuOpen])
+  useInteractionLayer({
+    enabled: open && homeMenuOpen,
+    elements: () => [homeMenuRef.current],
+    onDismiss: () => setHomeMenuOpen(false),
+    returnFocus: () => homeMenuTriggerRef.current,
+  })
 
   const selectHome = useCallback((id: string) => {
     setSelectedHomeId(id)
@@ -855,41 +851,30 @@ export function InputDialog({
   }))
 
   useKeyboard(
-    [
-      ...agentListShortcuts,
-      { key: 'Escape', allowInOverlay: true, handler: () => !mustStartMain && onClose() },
-    ],
+    agentListShortcuts,
     open && step === 'agent-list'
   )
 
-  useKeyboard(
-    [
-      {
-        key: 'Escape',
-        allowInOverlay: true,
-        handler: () => {
-          if (workspaceDirectoryBrowserOpen) {
-            setWorkspaceDirectoryBrowserOpen(false)
-            requestAnimationFrame(() => inputRef.current?.focus())
-            return
-          }
-          if (workspacePreparation) {
-            if (workspacePreparation.kind === 'creating') return
-            setWorkspacePreparation(null)
-            requestAnimationFrame(() => inputRef.current?.focus())
-            return
-          }
-          if (homeMenuOpen) {
-            setHomeMenuOpen(false)
-            requestAnimationFrame(() => homeMenuTriggerRef.current?.focus())
-            return
-          }
-          setStep('agent-list')
-        },
-      },
-    ],
-    open && step === 'workspace'
-  )
+  useInteractionLayer({
+    enabled: open,
+    modal: true,
+    elements: () => [dialogRef.current],
+    dismissOnPointerOutside: false,
+    dismissOnEscape: step === 'agent-list' ? !mustStartMain : workspacePreparation?.kind !== 'creating',
+    onDismiss: () => {
+      if (step === 'agent-list') {
+        onClose()
+      } else if (workspaceDirectoryBrowserOpen) {
+        setWorkspaceDirectoryBrowserOpen(false)
+        inputRef.current?.focus({ preventScroll: true })
+      } else if (workspacePreparation) {
+        setWorkspacePreparation(null)
+        inputRef.current?.focus({ preventScroll: true })
+      } else {
+        setStep('agent-list')
+      }
+    },
+  })
 
   if (!open) return null
 
@@ -1046,12 +1031,6 @@ export function InputDialog({
                   aria-controls="agent-home-options"
                   onClick={() => setHomeMenuOpen(open => !open)}
                   onKeyDown={event => {
-                    if (event.key === 'Escape' && homeMenuOpen) {
-                      event.preventDefault()
-                      event.stopPropagation()
-                      setHomeMenuOpen(false)
-                      return
-                    }
                     if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
                     event.preventDefault()
                     setHomeMenuOpen(true)
@@ -1076,13 +1055,6 @@ export function InputDialog({
                     data-testid="agent-home-menu"
                     role="listbox"
                     aria-label={`${agentDisplayName(selectedAgent.name)} home`}
-                    onKeyDown={event => {
-                      if (event.key !== 'Escape') return
-                      event.preventDefault()
-                      event.stopPropagation()
-                      setHomeMenuOpen(false)
-                      requestAnimationFrame(() => homeMenuTriggerRef.current?.focus())
-                    }}
                   >
                     {homesForSelectedAgent.map(home => {
                       const selected = home.id === selectedHomeId
@@ -1166,10 +1138,6 @@ export function InputDialog({
                       return
                     }
                     void confirm()
-                  }
-                  if (e.key === 'Escape') {
-                    e.preventDefault()
-                    setStep('agent-list')
                   }
                 }}
                 placeholder={copy.workspacePathPlaceholder}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type MutableRefObject } from 'react'
+import { useCallback, useState, type MutableRefObject } from 'react'
 import * as monaco from 'monaco-editor'
 import type { FileEditorContextAction } from './FileEditorContextMenu'
 
@@ -146,28 +146,6 @@ export function useFileEditorContextMenuController({
   const showBlameContextAction = Boolean(editorContextMenu && editorContextMenu.kind === 'gutter' && canShowBlame && (blameOpen || blameCapability === 'available'))
   const showLineChangesContextActions = Boolean(editorContextMenu && editorContextMenu.kind === 'gutter' && canShowLineChanges)
   const showLanguageServerActions = Boolean(editorContextMenu && editorContextMenu.kind === 'editor' && languageServerAvailable)
-
-  useEffect(() => {
-    const closeFloatingMenus = (event: MouseEvent) => {
-      const target = event.target
-      if (target instanceof Element && target.closest('.code-editor-context-menu, .code-file-tab-context-menu, .code-file-blame-detail, .code-file-inline-blame, .code-file-line-changes-panel, .code-language-server-panel')) {
-        return
-      }
-      setEditorContextMenu(null)
-      onCloseTabContextMenu()
-    }
-    const closeFloatingMenusOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
-      setEditorContextMenu(null)
-      onCloseTabContextMenu()
-    }
-    document.addEventListener('mousedown', closeFloatingMenus, true)
-    document.addEventListener('keydown', closeFloatingMenusOnEscape, true)
-    return () => {
-      document.removeEventListener('mousedown', closeFloatingMenus, true)
-      document.removeEventListener('keydown', closeFloatingMenusOnEscape, true)
-    }
-  }, [onCloseTabContextMenu])
 
   return {
     editorContextMenu,

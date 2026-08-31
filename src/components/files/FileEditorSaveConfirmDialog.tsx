@@ -1,4 +1,5 @@
-import { useEffect, useRef } from 'react'
+import { useRef } from 'react'
+import { useModalFocusScope } from '@/hooks/useModalFocusScope'
 import { createPortal } from 'react-dom'
 import type { CodeCopy } from '../code/copy'
 
@@ -21,58 +22,15 @@ export function FileEditorSaveConfirmDialog({
   onDiscard,
   onCancel,
 }: FileEditorSaveConfirmDialogProps) {
-  const dialogRef = useRef<HTMLDivElement | null>(null)
   const cancelButtonRef = useRef<HTMLButtonElement | null>(null)
-  const onCancelRef = useRef(onCancel)
-  const savingRef = useRef(saving)
-  onCancelRef.current = onCancel
-  savingRef.current = saving
-
-  useEffect(() => {
-    const appRoot = document.getElementById('root')
-    const returnFocusTarget = document.activeElement instanceof HTMLElement
-      ? document.activeElement
-      : null
-    const previousInert = appRoot?.inert ?? false
-    const previousAriaHidden = appRoot?.getAttribute('aria-hidden') ?? null
-    if (appRoot) {
-      appRoot.inert = true
-      appRoot.setAttribute('aria-hidden', 'true')
-    }
-    cancelButtonRef.current?.focus({ preventScroll: true })
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        event.stopImmediatePropagation()
-        if (!savingRef.current) onCancelRef.current()
-        return
-      }
-      if (event.key !== 'Tab') return
-      const buttons = Array.from(
-        dialogRef.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? [],
-      )
-      event.preventDefault()
-      event.stopImmediatePropagation()
-      if (buttons.length === 0) return
-      const activeIndex = buttons.indexOf(document.activeElement as HTMLButtonElement)
-      const nextIndex = event.shiftKey
-        ? (activeIndex <= 0 ? buttons.length - 1 : activeIndex - 1)
-        : (activeIndex === -1 || activeIndex === buttons.length - 1 ? 0 : activeIndex + 1)
-      buttons[nextIndex]?.focus({ preventScroll: true })
-    }
-
-    window.addEventListener('keydown', handleKeyDown, true)
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown, true)
-      if (appRoot) {
-        appRoot.inert = previousInert
-        if (previousAriaHidden === null) appRoot.removeAttribute('aria-hidden')
-        else appRoot.setAttribute('aria-hidden', previousAriaHidden)
-      }
-      if (returnFocusTarget?.isConnected) returnFocusTarget.focus({ preventScroll: true })
-    }
-  }, [])
+  const returnFocusRef = useRef(document.activeElement instanceof HTMLElement ? document.activeElement : null)
+  const dialogRef = useModalFocusScope<HTMLDivElement>({
+    open: true,
+    initialFocusRef: cancelButtonRef,
+    returnFocusRef,
+    onEscape: onCancel,
+    escapeEnabled: !saving,
+  })
 
   return createPortal(
     <div

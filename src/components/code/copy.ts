@@ -107,6 +107,17 @@ export interface CodeCopy {
   codexGoalClear: string
   codexGoalSaving: string
   searchProjectsOrAgents: string
+  searchAll: string
+  searchCurrentAgents: string
+  searchSessionHistory: string
+  searchResultType: string
+  searchFileScope: string
+  searchNoFiles: string
+  searchFilesAndFolders: string
+  searchFolders: string
+  openingDirectory: string
+  searchDirectoryOpenFailed: (path: string) => string
+  searchWorkingDirectory: string
   clearSearch: string
   projectsAndAgents: string
   noAgentsYet: string
@@ -696,6 +707,17 @@ const EN_COPY: CodeCopy = {
   codexGoalClear: 'Clear',
   codexGoalSaving: 'Saving...',
   searchProjectsOrAgents: 'Search projects, agents, or files',
+  searchAll: 'All',
+  searchCurrentAgents: 'Current Agents',
+  searchSessionHistory: 'History',
+  searchResultType: 'Result type',
+  searchFileScope: 'File and folder names in mounted Projects. Use a path to narrow results. Session history can include other directories.',
+  searchNoFiles: 'No matching files or folders in mounted Projects.',
+  searchFilesAndFolders: 'Files and Folders',
+  searchFolders: 'Folders',
+  openingDirectory: 'Opening folder…',
+  searchDirectoryOpenFailed: path => `Could not open folder: ${path}. It may have moved, become inaccessible, or its Project was removed.`,
+  searchWorkingDirectory: 'Working directory',
   clearSearch: 'Clear search',
   projectsAndAgents: 'Projects and agents',
   noAgentsYet: 'No agents yet.',
@@ -944,8 +966,8 @@ const EN_COPY: CodeCopy = {
   resultsCount: count => `${count} results`,
   noMatchingAgents: 'No matching agents',
   noMatchingSearchResults: 'No matching projects, agents, sessions, or files',
-  fileSearchUnavailable: count => `File search unavailable in ${count} ${count === 1 ? 'project' : 'projects'}.`,
-  fileSearchIncomplete: 'More file matches may be available.',
+  fileSearchUnavailable: count => `File and folder search unavailable in ${count} ${count === 1 ? 'project' : 'projects'}.`,
+  fileSearchIncomplete: 'Only part of the file and folder results may be shown. Narrow your search for more precise results.',
   searchQueryTooLong: 'Search queries must be 4,096 characters or fewer.',
   searchFileOpenFailed: path => `Unable to open ${path}. The file may have moved or is no longer accessible.`,
   openingFile: 'Opening file…',
@@ -1311,6 +1333,17 @@ const ZH_COPY: CodeCopy = {
   codexGoalClear: '清除',
   codexGoalSaving: '保存中...',
   searchProjectsOrAgents: '搜索项目、Agent 或文件',
+  searchAll: '全部',
+  searchCurrentAgents: '当前 Agent',
+  searchSessionHistory: '历史会话',
+  searchResultType: '结果类型',
+  searchFileScope: '搜索已挂载项目中的文件名和目录名，可输入路径缩小范围；历史会话可能来自其他目录。',
+  searchNoFiles: '已挂载项目中没有匹配的文件或目录。',
+  searchFilesAndFolders: '文件与目录',
+  searchFolders: '目录',
+  openingDirectory: '正在打开目录…',
+  searchDirectoryOpenFailed: path => `无法打开目录：${path}。目录可能已移动、无法访问，或所属项目已被移除。`,
+  searchWorkingDirectory: '工作目录',
   clearSearch: '清空搜索',
   projectsAndAgents: '项目与 Agent',
   noAgentsYet: '还没有 Agent。',
@@ -1595,8 +1628,8 @@ const ZH_COPY: CodeCopy = {
   resultsCount: count => `${count} 个结果`,
   noMatchingAgents: '没有匹配的 Agent',
   noMatchingSearchResults: '没有匹配的项目、Agent、会话或文件',
-  fileSearchUnavailable: count => `${count} 个项目的文件搜索暂不可用。`,
-  fileSearchIncomplete: '可能还有更多文件匹配结果。',
+  fileSearchUnavailable: count => `${count} 个项目的文件与目录搜索暂不可用。`,
+  fileSearchIncomplete: '当前可能仅显示部分文件和目录结果，请缩小搜索范围。',
   searchQueryTooLong: '搜索内容不能超过 4,096 个字符。',
   searchFileOpenFailed: path => `无法打开 ${path}。文件可能已移动或不再可访问。`,
   openingFile: '正在打开文件…',

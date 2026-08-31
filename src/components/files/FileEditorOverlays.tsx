@@ -31,6 +31,7 @@ interface FileEditorOverlaysProps {
   tabContextMenu: FileEditorTabContextMenuState | null
   onCancelPendingClose: () => void
   onCloseEditorContextMenu: () => void
+  onCloseTabContextMenu: (restoreFocus?: boolean) => void
   onConfirmSaveAndClose: () => Promise<void>
   onDiscardAndClose: () => void
   onRunEditorContextAction: (action: FileEditorContextAction) => Promise<void>
@@ -55,6 +56,7 @@ export function FileEditorOverlays({
   tabContextMenu,
   onCancelPendingClose,
   onCloseEditorContextMenu,
+  onCloseTabContextMenu,
   onConfirmSaveAndClose,
   onDiscardAndClose,
   onRunEditorContextAction,
@@ -79,6 +81,7 @@ export function FileEditorOverlays({
       )}
       {tabContextMenu && (
         <FileEditorTabContextMenu
+          onClose={onCloseTabContextMenu}
           menu={tabContextMenu}
           openFiles={openFiles}
           copy={copy}

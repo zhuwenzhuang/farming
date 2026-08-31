@@ -1,4 +1,25 @@
 import { useEffect, useRef, type RefObject } from 'react'
+import { useInteractionLayer } from './useInteractionLayer'
+import { isTopModalInteractionLayer } from '@/lib/interaction-layer'
+
+const modalIsolation = new WeakMap<HTMLElement, { count: number; inert: boolean; ariaHidden: string | null }>()
+
+function isolateModalBackground(root: HTMLElement | null) {
+  if (!root) return () => {}
+  const state = modalIsolation.get(root) ?? { count: 0, inert: root.inert, ariaHidden: root.getAttribute('aria-hidden') }
+  state.count += 1
+  modalIsolation.set(root, state)
+  root.inert = true
+  root.setAttribute('aria-hidden', 'true')
+  return () => {
+    state.count -= 1
+    if (state.count > 0) return
+    root.inert = state.inert
+    if (state.ariaHidden === null) root.removeAttribute('aria-hidden')
+    else root.setAttribute('aria-hidden', state.ariaHidden)
+    modalIsolation.delete(root)
+  }
+}
 
 const FOCUSABLE_SELECTOR = [
   'button:not(:disabled)',
@@ -16,42 +37,43 @@ export function useModalFocusScope<TDialog extends HTMLElement = HTMLElement>({
   returnFocusRef,
   onEscape,
   escapeEnabled = true,
+  dismissOnPointerOutside = false,
 }: {
   open: boolean
   initialFocusRef: RefObject<HTMLElement | null>
   returnFocusRef: RefObject<HTMLElement | null>
   onEscape: () => void
   escapeEnabled?: boolean
+  dismissOnPointerOutside?: boolean
 }) {
   const dialogRef = useRef<TDialog | null>(null)
-  const onEscapeRef = useRef(onEscape)
-  const escapeEnabledRef = useRef(escapeEnabled)
-  onEscapeRef.current = onEscape
-  escapeEnabledRef.current = escapeEnabled
+  const outsideDismissRef = useRef(false)
+
+  useInteractionLayer({
+    enabled: open,
+    modal: true,
+    elements: () => [dialogRef.current],
+    dismissOnPointerOutside,
+    dismissOnEscape: escapeEnabled,
+    onDismiss: reason => {
+      outsideDismissRef.current = reason === 'outside-pointer'
+      onEscape()
+    },
+  })
 
   useEffect(() => {
     if (!open) return undefined
+    outsideDismissRef.current = false
     const appRoot = document.getElementById('root')
     const returnFocusTarget = returnFocusRef.current
-    const previousInert = appRoot?.inert ?? false
-    const previousAriaHidden = appRoot?.getAttribute('aria-hidden') ?? null
-    if (appRoot) {
-      appRoot.inert = true
-      appRoot.setAttribute('aria-hidden', 'true')
-    }
+    const releaseIsolation = isolateModalBackground(appRoot)
     initialFocusRef.current?.focus({ preventScroll: true })
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        event.stopImmediatePropagation()
-        if (escapeEnabledRef.current) onEscapeRef.current()
-        return
-      }
-      if (event.key !== 'Tab') return
+      if (event.key !== 'Tab' || !isTopModalInteractionLayer(dialogRef.current)) return
       const focusable = Array.from(
         dialogRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR) ?? [],
-      ).filter(element => element.getAttribute('aria-hidden') !== 'true')
+      ).filter(element => element.getAttribute('aria-hidden') !== 'true' && element.getClientRects().length > 0 && !element.closest('[inert]'))
       event.preventDefault()
       event.stopImmediatePropagation()
       if (focusable.length === 0) return
@@ -65,12 +87,10 @@ export function useModalFocusScope<TDialog extends HTMLElement = HTMLElement>({
     window.addEventListener('keydown', handleKeyDown, true)
     return () => {
       window.removeEventListener('keydown', handleKeyDown, true)
-      if (appRoot) {
-        appRoot.inert = previousInert
-        if (previousAriaHidden === null) appRoot.removeAttribute('aria-hidden')
-        else appRoot.setAttribute('aria-hidden', previousAriaHidden)
+      releaseIsolation()
+      if (!outsideDismissRef.current && returnFocusTarget?.isConnected && !returnFocusTarget.closest('[inert]')) {
+        returnFocusTarget.focus({ preventScroll: true })
       }
-      if (returnFocusTarget?.isConnected) returnFocusTarget.focus({ preventScroll: true })
     }
   }, [initialFocusRef, open, returnFocusRef])
 

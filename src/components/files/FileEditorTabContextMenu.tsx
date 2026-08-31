@@ -1,4 +1,6 @@
 import type { OpenWorkspaceFile } from '@/lib/workspace-open-files'
+import { useRef } from 'react'
+import { useWorkspaceMenuKeyboard } from './useWorkspaceMenuKeyboard'
 import { hasCleanWorkspaceWorkingCopy } from '@/lib/workspace-working-copy'
 import type { CodeCopy } from '../code/copy'
 import type { FileEditorTabContextMenuState } from './useFileEditorTabsController'
@@ -7,6 +9,7 @@ interface FileEditorTabContextMenuProps {
   menu: FileEditorTabContextMenuState
   openFiles: OpenWorkspaceFile[]
   copy: CodeCopy
+  onClose: (restoreFocus?: boolean) => void
   onRunAction: (action: 'close' | 'close-others' | 'close-right' | 'close-saved' | 'close-all') => void
 }
 
@@ -14,10 +17,20 @@ export function FileEditorTabContextMenu({
   menu,
   openFiles,
   copy,
+  onClose,
   onRunAction,
 }: FileEditorTabContextMenuProps) {
+  const menuRef = useRef<HTMLDivElement | null>(null)
+  const handleKeyDown = useWorkspaceMenuKeyboard({
+    menuOpen: true,
+    menuRef,
+    onClose: () => onClose(),
+    onCloseWithFocusRestore: () => onClose(true),
+  })
   return (
     <div
+      ref={menuRef}
+      onKeyDown={handleKeyDown}
       className="code-context-menu code-file-tab-context-menu"
       data-testid="code-file-tab-context-menu"
       role="menu"

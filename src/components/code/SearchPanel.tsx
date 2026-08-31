@@ -1,19 +1,19 @@
 import { useEffect, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from 'react'
-import { ArrowLeftGlyph, CloseGlyph, SearchGlyph } from '@/components/IconGlyphs'
+import { ArrowLeftGlyph, CloseGlyph, FolderGlyph, SearchGlyph } from '@/components/IconGlyphs'
 import { iconForFilePath } from '@/lib/file-icons'
 import { agentDisplayName } from '@/lib/format'
 import { formatWorkspaceForDisplay } from '@/lib/workspace-options'
 import type { Agent } from '@/types/agent'
 import {
   agentSessionId,
+  agentSessionWorkingDirectory,
   compactPath,
   effortLabel,
-  formatAgentSessionWorkspace,
   projectWorkspaceForAgent,
 } from './model'
 import { buildAgentRowDisplayState } from './agent-row-state'
 import type { CodeCopy } from './copy'
-import type { AgentSessionHistoryItem, ProjectGroup } from './types'
+import type { AgentSessionHistoryItem, ProjectGroup, WorkspaceSearchScope, WorkspaceSearchCounts } from './types'
 import {
   GLOBAL_FILE_SEARCH_QUERY_MAX_LENGTH,
   type GlobalWorkspaceFileSearchMatch,
@@ -34,6 +34,10 @@ interface SearchPanelProps {
   displayedProjects: ProjectGroup[]
   hasQuery: boolean
   loading: boolean
+  scope: WorkspaceSearchScope
+  counts: WorkspaceSearchCounts
+  onScopeChange: (scope: WorkspaceSearchScope) => void
+  fileSearchLoading: boolean
   resultCount: number
   selectedAgentId: string | null
   selectedSessionHandle: string | null
@@ -61,6 +65,10 @@ export function SearchPanel({
   displayedProjects,
   hasQuery,
   loading,
+  scope,
+  counts,
+  onScopeChange,
+  fileSearchLoading,
   resultCount,
   selectedAgentId,
   selectedSessionHandle,
@@ -82,6 +90,13 @@ export function SearchPanel({
   onRetryFileSearch,
   copy,
 }: SearchPanelProps) {
+  const includesFiles = scope === 'all' || scope === 'files'
+  const filters = [
+    { scope: 'all', label: copy.searchAll },
+    { scope: 'files', label: copy.searchFilesAndFolders },
+    { scope: 'agents', label: copy.searchCurrentAgents },
+    { scope: 'sessions', label: copy.searchSessionHistory },
+  ] as const
   const selectedResultId = selectedFileKey
     ? searchResultId('file', selectedFileKey)
     : selectedAgentId
@@ -159,6 +174,48 @@ export function SearchPanel({
           </button>
         )}
       </div>
+      {hasQuery ? (
+        <div className="code-search-filters" role="group" aria-label={copy.searchResultType}>
+          {filters.map(filter => (
+            <button
+              key={filter.scope}
+              type="button"
+              aria-pressed={scope === filter.scope}
+              data-testid={`code-search-filter-${filter.scope}`}
+              onClick={() => onScopeChange(filter.scope)}
+            >
+              {filter.label} <span>{filter.scope === 'files' && fileSearchLoading ? '…' : counts[filter.scope]}</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {hasQuery && includesFiles ? (
+        <p className="code-search-scope-note">{copy.searchFileScope}</p>
+      ) : null}
+      {hasQuery && includesFiles && resultCount > 0 ? (
+        <>
+          {fileSearchLoading ? (
+            <div className="code-search-file-status" data-testid="code-global-file-search-loading" role="status">
+              {copy.searchFilesAndFolders} · {copy.searching}
+            </div>
+          ) : fileMatches.length === 0 && !fileSearchFailedProjectCount && !fileSearchIncomplete ? (
+            <div className="code-search-file-status" data-testid="code-global-file-search-empty" role="status">
+              {copy.searchNoFiles}
+            </div>
+          ) : null}
+          {fileSearchFailedProjectCount > 0 ? (
+            <div className="code-search-file-status error" data-testid="code-global-file-search-partial" role="status">
+              <span>{copy.fileSearchUnavailable(fileSearchFailedProjectCount)}</span>
+              <button type="button" className="code-search-retry" onClick={onRetryFileSearch}>{copy.retry}</button>
+            </div>
+          ) : null}
+          {fileSearchIncomplete ? (
+            <div className="code-search-file-status" data-testid="code-global-file-search-incomplete" role="status">
+              {copy.fileSearchIncomplete}
+            </div>
+          ) : null}
+        </>
+      ) : null}
       {fileOpenError ? (
         <div className="code-search-file-status error" data-testid="code-global-file-open-error" role="alert">
           {fileOpenError}
@@ -187,7 +244,7 @@ export function SearchPanel({
         </div>
       ) : hasQuery && resultCount === 0 ? (
         <div className="code-empty-workspace" data-testid="code-empty-search">
-          <h2>{copy.noMatchingSearchResults}</h2>
+          <h2>{scope === 'files' ? copy.searchNoFiles : copy.noMatchingSearchResults}</h2>
         </div>
       ) : hasQuery ? (
         <>
@@ -197,6 +254,57 @@ export function SearchPanel({
             role="listbox"
             aria-label={copy.resultsCount(resultCount)}
           >
+            {(['directory', 'file'] as const).map(entryType => {
+              const matches = fileMatches.filter(match => match.entryType === entryType)
+              if (matches.length === 0) return null
+              const groupName = entryType === 'directory' ? 'directories' : 'files'
+              return (
+                <section
+                  key={entryType}
+                  className="code-search-result-group"
+                  data-testid={`code-global-${entryType === 'directory' ? 'directory' : 'file'}-search-results`}
+                  role="group"
+                  aria-labelledby={searchGroupId(groupName)}
+                >
+                  <h3 id={searchGroupId(groupName)}>{entryType === 'directory' ? copy.searchFolders : copy.files} <span aria-hidden="true">{matches.length}</span></h3>
+                  {matches.map(match => {
+                    const opening = match.key === openingFileKey
+                    return (
+                      <button
+                        key={match.key}
+                        type="button"
+                        id={searchResultId('file', match.key)}
+                        role="option"
+                        aria-selected={match.key === selectedFileKey}
+                        aria-busy={opening || undefined}
+                        disabled={opening}
+                        className={`code-search-result code-search-file-result ${match.key === selectedFileKey ? 'active' : ''}`}
+                        data-testid={`code-global-${entryType === 'directory' ? 'directory' : 'file'}-search-result`}
+                        title={`${match.projectName} · ${formatWorkspaceForDisplay(match.workspace)} · ${match.path}`}
+                        aria-label={`${entryType === 'directory' ? copy.folder : copy.file}: ${match.projectName} · ${formatWorkspaceForDisplay(match.workspace)} · ${match.path}`}
+                        onClick={() => onOpenFile(match)}
+                      >
+                        {entryType === 'directory'
+                          ? <FolderGlyph className="code-search-file-icon" aria-hidden="true" />
+                          : <img className="code-file-type-icon code-search-file-icon" src={iconForFilePath(match.path)} alt="" aria-hidden="true" />}
+                        <span className="code-search-result-copy">
+                          <strong>{fileName(match.path) || match.projectName}</strong>
+                          <SearchResultProjectName
+                            name={match.projectName}
+                            workspace={match.workspace}
+                            workspacePeers={fileMatches
+                              .filter(candidate => candidate.projectName === match.projectName && candidate.path === match.path)
+                              .map(candidate => candidate.workspace)}
+                            showWorkspace
+                          />
+                          <span className="code-search-file-path">{opening ? (entryType === 'directory' ? copy.openingDirectory : copy.openingFile) : match.path || '.'}</span>
+                        </span>
+                      </button>
+                    )
+                  })}
+                </section>
+              )
+            })}
             {displayedProjects.map(project => {
               const groupLabelId = searchGroupId(`project-${project.id}`)
               return (
@@ -210,103 +318,61 @@ export function SearchPanel({
                     id={groupLabelId}
                     title={project.workspace ? formatWorkspaceForDisplay(project.workspace) : project.name}
                   >
-                    {project.name}
+                    <span>{project.name}</span>
+                    {project.workspace ? (
+                      <span className="code-search-group-workspace" data-testid="code-search-group-workspace">
+                        {compactWorkspaceForSearch(project.workspace, displayedProjects
+                          .filter(candidate => candidate.name === project.name)
+                          .map(candidate => candidate.workspace))}
+                      </span>
+                    ) : null}
                   </h3>
-              {project.agents.map(agent => (
-                <AgentSearchResult
-                  key={agent.id}
-                  agent={agent}
-                  projectName={project.name}
-                  projectWorkspace={project.workspace}
-                  selected={agent.id === selectedAgentId}
-                  optionId={searchResultId('agent', agent.id)}
-                  onOpen={() => onOpenAgent(agent.id)}
-                />
-              ))}
-              {project.agentSessions.map(session => {
-                const sessionHandle = agentSessionId(session)
-                const sessionDetail = [
-                  session.providerName || session.provider,
-                  session.model,
-                  session.effort ? effortLabel(session.effort) : '',
-                ].filter(Boolean).join(' · ') || formatAgentSessionWorkspace(session)
-                return (
-                  <button
-                    key={sessionHandle}
-                    type="button"
-                    id={searchResultId('session', sessionHandle)}
-                    role="option"
-                    aria-selected={sessionHandle === selectedSessionHandle}
-                    className={`code-search-result code-session-result ${sessionHandle === selectedSessionHandle ? 'active' : ''}`}
-                    data-testid="code-session-search-result"
-                    onClick={() => onOpenSession(session)}
-                  >
-                    <span className="code-search-result-copy">
-                      <strong>{session.title || copy.sessionFallbackTitle(session.providerName)}</strong>
-                      <SearchResultProjectName name={project.name} workspace={project.workspace} />
-                      <span>{sessionDetail}</span>
-                    </span>
-                  </button>
-                )
-              })}
+                  {project.agents.map(agent => (
+                    <AgentSearchResult
+                      key={agent.id}
+                      agent={agent}
+                      copy={copy}
+                      selected={agent.id === selectedAgentId}
+                      optionId={searchResultId('agent', agent.id)}
+                      onOpen={() => onOpenAgent(agent.id)}
+                    />
+                  ))}
+                  {project.agentSessions.map(session => {
+                    const sessionHandle = agentSessionId(session)
+                    const sessionDetail = [
+                      copy.searchSessionHistory,
+                      session.providerName || session.provider,
+                      session.model,
+                      session.effort ? effortLabel(session.effort) : '',
+                      formatSessionDate(session.updatedAt || session.createdAt),
+                    ].filter(Boolean).join(' · ')
+                    return (
+                      <button
+                        key={sessionHandle}
+                        type="button"
+                        id={searchResultId('session', sessionHandle)}
+                        role="option"
+                        aria-selected={sessionHandle === selectedSessionHandle}
+                        className={`code-search-result no-status code-session-result ${sessionHandle === selectedSessionHandle ? 'active' : ''}`}
+                        data-testid="code-session-search-result"
+                        onClick={() => onOpenSession(session)}
+                      >
+                        <span className="code-search-result-copy">
+                          <strong>{session.title || copy.sessionFallbackTitle(session.providerName)}</strong>
+                          <span className="code-search-session-detail">{sessionDetail}</span>
+                          {agentSessionWorkingDirectory(session) && agentSessionWorkingDirectory(session) !== project.workspace ? (
+                            <span className="code-search-working-directory">
+                              {copy.searchWorkingDirectory}: {formatWorkspaceForDisplay(agentSessionWorkingDirectory(session))}
+                            </span>
+                          ) : null}
+                        </span>
+                      </button>
+                    )
+                  })}
                 </section>
               )
             })}
-            {fileMatches.length > 0 ? (
-              <section
-                className="code-search-result-group"
-                data-testid="code-global-file-search-results"
-                role="group"
-                aria-labelledby={searchGroupId('files')}
-              >
-                <h3 id={searchGroupId('files')}>{copy.files}</h3>
-                {fileMatches.map(match => {
-                  const opening = match.key === openingFileKey
-                  return (
-                    <button
-                      key={match.key}
-                      type="button"
-                      id={searchResultId('file', match.key)}
-                      role="option"
-                      aria-selected={match.key === selectedFileKey}
-                      aria-busy={opening || undefined}
-                      disabled={opening}
-                      className={`code-search-result code-search-file-result ${match.key === selectedFileKey ? 'active' : ''}`}
-                      data-testid="code-global-file-search-result"
-                      title={`${match.projectName} · ${formatWorkspaceForDisplay(match.workspace)} · ${match.path}`}
-                      aria-label={`${copy.file}: ${match.projectName} · ${formatWorkspaceForDisplay(match.workspace)} · ${match.path}`}
-                      onClick={() => onOpenFile(match)}
-                    >
-                      <img className="code-file-type-icon code-search-file-icon" src={iconForFilePath(match.path)} alt="" aria-hidden="true" />
-                      <span className="code-search-result-copy">
-                        <strong>{fileName(match.path)}</strong>
-                        <SearchResultProjectName
-                          name={match.projectName}
-                          workspace={match.workspace}
-                          workspacePeers={fileMatches
-                            .filter(candidate => candidate.projectName === match.projectName && candidate.path === match.path)
-                            .map(candidate => candidate.workspace)}
-                          showWorkspace
-                        />
-                        <span className="code-search-file-path">{opening ? copy.openingFile : match.path}</span>
-                      </span>
-                    </button>
-                  )
-                })}
-              </section>
-            ) : null}
           </div>
-          {fileSearchFailedProjectCount > 0 ? (
-            <div className="code-search-file-status error" data-testid="code-global-file-search-partial" role="status">
-              <span>{copy.fileSearchUnavailable(fileSearchFailedProjectCount)}</span>
-              <button type="button" className="code-search-retry" onClick={onRetryFileSearch}>{copy.retry}</button>
-            </div>
-          ) : null}
-          {fileSearchIncomplete ? (
-            <div className="code-search-file-status" data-testid="code-global-file-search-incomplete" role="status">
-              {copy.fileSearchIncomplete}
-            </div>
-          ) : null}
         </>
       ) : null}
     </div>
@@ -337,15 +403,13 @@ function compactWorkspaceForSearch(workspace: string, peers: readonly string[] =
 
 function AgentSearchResult({
   agent,
-  projectName,
-  projectWorkspace,
+  copy,
   selected,
   optionId,
   onOpen,
 }: {
   agent: Agent
-  projectName: string
-  projectWorkspace: string
+  copy: CodeCopy
   selected: boolean
   optionId: string
   onOpen: () => void
@@ -369,8 +433,7 @@ function AgentSearchResult({
       )}
       <span className="code-search-result-copy">
         <strong>{rowState.title}</strong>
-        <SearchResultProjectName name={projectName} workspace={projectWorkspace} />
-        <span>{providerLabel || compactPath(projectWorkspaceForAgent(agent))}</span>
+        <span>{copy.searchCurrentAgents} · {providerLabel || compactPath(projectWorkspaceForAgent(agent))}</span>
       </span>
     </button>
   )
@@ -397,4 +460,13 @@ function SearchResultProjectName({
       {name}{showWorkspace && workspace ? ` · ${compactWorkspaceForSearch(workspace, workspacePeers)}` : ''}
     </span>
   )
+}
+
+function formatSessionDate(value: string | undefined) {
+  if (!value) return ''
+  const date = new Date(value)
+  if (!Number.isFinite(date.getTime())) return ''
+  return date.toLocaleString(undefined, {
+    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+  })
 }
