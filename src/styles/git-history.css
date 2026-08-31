@@ -4,6 +4,7 @@
   margin-left: 14px;
   padding-top: 0;
   color: var(--code-text-muted);
+  background: var(--code-navigation-surface);
 }
 
 .code-git-history-section.collapsed {
@@ -21,7 +22,7 @@
   font-weight: 500;
   letter-spacing: 0;
   text-transform: uppercase;
-  background: var(--code-bg-chrome);
+  background: var(--code-navigation-surface);
 }
 
 .code-git-history-title {
@@ -49,7 +50,7 @@
 }
 
 .code-git-history-section {
-  --code-git-history-node-bg: var(--code-bg-inset);
+  --code-git-history-node-bg: var(--code-navigation-surface);
   min-width: 0;
   margin-top: 3px;
   color: var(--code-text);
@@ -80,7 +81,7 @@
   gap: 4px;
   font-size: 13px;
   color: var(--code-text-muted);
-  background: var(--code-bg-chrome);
+  background: var(--code-navigation-surface);
 }
 
 .code-git-history-title {
@@ -230,10 +231,6 @@
   border-radius: 4px;
 }
 
-.code-git-history-entry.selected {
-  background: var(--code-bg-hover);
-}
-
 .code-git-history-commit {
   width: 100%;
   min-width: 0;
@@ -251,9 +248,11 @@
   cursor: pointer;
 }
 
+.code-git-history-entry.selected > .code-git-history-commit,
 .code-git-history-commit:hover,
 .code-git-history-commit:focus-visible {
-  background: var(--code-bg-hover);
+  --code-git-history-node-bg: var(--code-active-item-surface);
+  background: var(--code-active-item-surface);
   outline: 0;
 }
 

@@ -4041,9 +4041,6 @@ body.code-mode.code-mobile-markdown-reading .code-mobile-topbar-button {
 body.code-mode.code-mobile-markdown-reading .code-mobile-topbar-button {
   -webkit-backdrop-filter: none;
 }
-.code-git-history-section {
-  background: var(--code-bg-surface);
-}
 .code-file-editor-tabs {
   background: transparent;
 }

@@ -74,6 +74,12 @@ Project, file, or terminal state.
 - Navigation descendants consume the inherited `--code-navigation-surface`.
   The workspace maps that local role for each layout; responsive component
   rules may change geometry but must not choose a separate theme surface.
+- Project, Agent, Files, Open Editors, and Git History share that navigation
+  background, including sticky headers, inter-row gaps, and loading, empty,
+  non-repository, and error messages. Expanding, focusing, or scrolling a
+  collection never paints its container. Row hover, focus, and selection use
+  the same opaque active-item surface; selected-plus-hovered states must not
+  stack translucent fills or color the expanded details as another selection.
 - Workbench regions remain legible without becoming separate color blocks.
   Paper panels, inputs, and grouped controls use a subtle neutral fill instead
   of decorative outlines or selected boundaries. Keyboard focus must remain

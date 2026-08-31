@@ -16,13 +16,31 @@ body.code-mode .code-sidebar :is(
   .code-project-title,
   .code-project-agent-compact,
   .code-agent-row,
-  .code-sidebar-resource-row
+  .code-sidebar-resource-row,
+  .code-files-title,
+  .code-open-editors-title,
+  .code-file-change-group-toggle,
+  .code-git-history-title,
+  .code-git-history-commit
 ):focus {
   background: var(--code-active-item-surface);
   color: var(--code-text);
 }
 
-body.code-mode .code-sidebar .code-file-row:focus {
+body.code-mode .code-sidebar :is(
+  .code-files-title,
+  .code-open-editors-title,
+  .code-file-change-group-toggle,
+  .code-git-history-title
+):hover {
+  background: var(--code-active-item-surface);
+}
+
+body.code-mode .code-sidebar .code-git-history-commit:focus {
+  --code-git-history-node-bg: var(--code-active-item-surface);
+}
+
+body.code-mode .code-sidebar :is(.code-file-row, .code-open-editor-main):focus {
   background: transparent;
   color: var(--code-text);
 }

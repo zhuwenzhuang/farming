@@ -459,6 +459,11 @@ const structuralSurfaceContracts = [
   ['src/styles/sidebar.css', '.code-sidebar-focus-toggle.active,\n.code-sidebar-search-toggle.active,\n.code-sidebar-history-toggle.active,\n.code-sidebar-plugins-toggle.active', 'background', 'var(--code-bg-selected)'],
   ['src/styles/share.css', '.code-share-button', 'background', 'transparent'],
   ['src/styles/files.css', '.code-open-editors-header,\n.code-files-header', 'background', 'var(--code-navigation-surface)'],
+  ['src/styles/git-history.css', '.code-git-history-section', 'background', 'var(--code-navigation-surface)'],
+  ['src/styles/git-history.css', '.code-git-history-header', 'background', 'var(--code-navigation-surface)'],
+  ['src/styles/git-history.css', '.code-git-history-section', '--code-git-history-node-bg', 'var(--code-navigation-surface)'],
+  ['src/styles/git-history.css', '.code-git-history-entry.selected > .code-git-history-commit,\n.code-git-history-commit:hover,\n.code-git-history-commit:focus-visible', 'background', 'var(--code-active-item-surface)'],
+  ['src/styles/files.css', '.code-open-editor-row.active,\n.code-open-editor-row:hover,\n.code-open-editor-row:has(.code-open-editor-main:focus)', 'background', 'var(--code-active-item-surface)'],
   ['src/styles/agent-list.css', '.code-agent-row', '--code-agent-row-surface', 'var(--code-navigation-surface)'],
   ['src/styles/agent-list.css', '.code-agent-row-actions', 'background', 'linear-gradient(90deg, transparent 0, var(--code-agent-row-surface) 21px)'],
   ['src/styles/agent-list.css', 'body.code-mode.code-compact-layout .code-agents-section', 'background', 'var(--code-navigation-surface)'],
@@ -537,23 +542,32 @@ const navigationSurfaceOwners = [
   '.code-open-editors-header',
   '.code-files-section',
   '.code-files-header',
+  '.code-git-history-section',
+  '.code-git-history-header',
+  '.code-git-history-body',
+  '.code-git-history-status',
 ]
 for (const sourcePath of [
   'src/styles/main.css',
   'src/styles/sidebar.css',
   'src/styles/agent-list.css',
   'src/styles/files.css',
+  'src/styles/git-history.css',
 ]) {
   const root = postcss.parse(fs.readFileSync(path.join(projectRoot, sourcePath), 'utf8'), { from: sourcePath })
   root.walkRules(rule => {
+    if (/\.code-project-list(?::focus(?:-visible|-within)?)?$/.test(rule.selector)) {
+      rule.walkDecls(/^background(?:-color)?$/, declaration => {
+        assert.equal(declaration.value, 'transparent', 'Project-list focus and scrolling must not paint a container surface')
+      })
+    }
     const ownsNavigationSurface = rule.selector.split(',').some(selector => (
       navigationSurfaceOwners.some(owner => selector.trim().endsWith(owner))
     ))
     if (!ownsNavigationSurface) return
     rule.walkDecls(/^background(?:-color)?$/, declaration => {
       assert(
-        !declaration.value.includes('var(--code-bg-chrome)')
-          && !declaration.value.includes('var(--code-panel-surface)'),
+        !/var\(--code-(?:bg-(?:chrome|canvas|surface|raised|inset)|panel-surface)\)/.test(declaration.value),
         `${sourcePath} ${rule.selector} must consume --code-navigation-surface instead of selecting a layout-specific theme surface`,
       )
     })

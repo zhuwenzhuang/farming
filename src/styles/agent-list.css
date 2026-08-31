@@ -778,7 +778,7 @@ body.code-mode:not(.code-compact-layout) .code-agent-row:has(.code-agent-row-act
   .code-agents-section {
       margin-left: 0;
       padding-left: 14px;
-      background: var(--code-bg-inset);
+      background: var(--code-navigation-surface);
       color: var(--code-text-muted);
     }
 

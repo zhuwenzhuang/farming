@@ -580,7 +580,7 @@ body.code-mode .code-file-change-group-toggle {
 }
 
 .code-open-editor-row {
-  --code-open-editor-row-action-surface: var(--code-bg-inset);
+  --code-open-editor-row-action-surface: var(--code-navigation-surface);
   min-width: 0;
   min-height: var(--code-open-editor-row-height);
   position: relative;
@@ -590,13 +590,11 @@ body.code-mode .code-file-change-group-toggle {
   border-radius: 8px;
 }
 
-.code-open-editor-row.active {
-  --code-open-editor-row-action-surface: var(--code-bg-hover);
-  background: var(--code-bg-hover);
-}
-
-.code-open-editor-row:hover:not(.active) {
-  --code-open-editor-row-action-surface: var(--code-bg-hover);
+.code-open-editor-row.active,
+.code-open-editor-row:hover,
+.code-open-editor-row:has(.code-open-editor-main:focus) {
+  --code-open-editor-row-action-surface: var(--code-active-item-surface);
+  background: var(--code-active-item-surface);
 }
 
 .code-open-editor-main {
@@ -617,7 +615,7 @@ body.code-mode .code-file-change-group-toggle {
 
 .code-open-editor-main:hover,
 .code-open-editor-main:focus-visible {
-  background: var(--code-bg-hover);
+  background: transparent;
   outline: 0;
   color: var(--code-text);
 }
@@ -896,7 +894,7 @@ body.code-mode .code-file-change-group-toggle {
 
 .code-file-tree-row-frame:has(.code-file-row.focused:not(.selected):not(.active)),
 .code-file-tree-row-frame:has(.code-file-row.opening:not(.selected):not(.active)) {
-  background: var(--code-bg-hover);
+  background: var(--code-active-item-surface);
 }
 
 .code-file-tree-row-frame.active,
@@ -1960,10 +1958,6 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
 
 .code-file-open-spinner {
   border-color: var(--code-border);
-}
-
-.code-open-editor-row:hover {
-  --code-open-editor-row-action-surface: var(--code-bg-hover);
 }
 
 .code-file-blame-toast.error {
