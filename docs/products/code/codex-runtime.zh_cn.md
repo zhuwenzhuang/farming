@@ -47,6 +47,12 @@ Provider Terminal Control 还负责 Codex 的延迟 Session Identity Probe，以
 Reasoning 与 Speed Transaction。通用 Agent Manager 负责有序 Input、Runtime Fence 与 State
 Publication，但不识别 Codex，也不解释其 Menu。
 
+Native Profile Transaction 同时支持直接选择 Model/Effort 的菜单，以及通过 **All models**
+进入完整列表的 Quick-mode 菜单。事务按明确的 Model 与 Reasoning Identity 选择，不接受
+Quick-mode 默认值或名称相近的模型。活动菜单即使保留旧 Profile Footer，也不属于 Idle
+Composer。各次转换及 Escape 清理共用一个有界 Deadline；取消或输入结果不确定时退出
+预期的菜单层级，不重放选择。只有菜单关闭且请求的 Profile 可见后，才确认变更完成。
+
 ## Session 连续性
 
 Provider Session ID 是 Codex Conversation 的权威身份。Chat/Terminal 切换是真实 Runtime

@@ -58,6 +58,15 @@ native model, reasoning, and speed transaction. The generic Agent manager owns
 ordered input, runtime fencing, and state publication, but does not identify
 Codex or interpret its menus.
 
+The native profile transaction supports both the direct model/effort picker and
+the quick-mode picker that opens the full picker through **All models**. It
+selects explicit model and reasoning identities, never a quick-mode default or
+a similarly named model. An active picker is not an idle composer even when it
+retains the previous profile footer. Each transition and any Escape cleanup
+share one bounded deadline; cancellation or uncertain input closes the
+anticipated picker levels without replaying the selection. A profile change is
+confirmed only after the picker closes and the requested profile is visible.
+
 ## Session Continuity
 
 The provider Session id is the authoritative Codex conversation identity.

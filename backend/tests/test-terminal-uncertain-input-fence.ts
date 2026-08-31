@@ -425,14 +425,24 @@ async function queuedProfileRaceUsesAdmissionPhase() {
 
   // A profile admitted at phase 0 must be rejected now that the fence phase
   // advanced to 2, even though the fence is no longer active.
-  await assert.rejects(
-    manager.setCodexTerminalProfileNow('agent-race', { model: 'gpt-5.6-sol', effort: 'xhigh' }, {
-      admission,
-      timeoutMs: 250,
-    }),
-    error => error.code === 'TERMINAL_INPUT_UNCERTAIN_FENCE',
-    'a profile admitted before the fence advance must stay rejected',
-  );
+  // This case measures admission-phase rejection, not the provider's wall-clock
+  // timeout. Host scheduling must not expire that deadline before the fence
+  // check runs; restore the clock before any later scenario executes.
+  const originalNow = Date.now;
+  const admittedAt = originalNow();
+  Date.now = () => admittedAt;
+  try {
+    await assert.rejects(
+      manager.setCodexTerminalProfileNow('agent-race', { model: 'gpt-5.6-sol', effort: 'xhigh' }, {
+        admission,
+        timeoutMs: 250,
+      }),
+      error => error.code === 'TERMINAL_INPUT_UNCERTAIN_FENCE',
+      'a profile admitted before the fence advance must stay rejected',
+    );
+  } finally {
+    Date.now = originalNow;
+  }
   assert.strictEqual(writes.length, 0, 'a stale-admission profile must not write');
 
   // A profile admitted after the reconciliation passes.

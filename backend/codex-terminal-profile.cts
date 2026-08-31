@@ -279,6 +279,7 @@ function codexTerminalSessionIdFromStatus(previewText: unknown): string {
 function isCodexTerminalComposerPreview(previewText: unknown): boolean {
   const preview = String(previewText || '');
   return Boolean(codexTerminalProfileFromPreview(preview))
+    && !codexQuickModelMenuOptions(preview)
     && !codexModelMenuOptions(preview)
     && !codexReasoningMenuOptions(preview)
     && !codexAdvancedReasoningMenuOptions(preview);
@@ -309,6 +310,10 @@ function numberedOptionsAfter(
 
 function codexModelMenuOptions(previewText: unknown): NumberedMenuOption[] | null {
   return numberedOptionsAfter(previewText, /Select Model and Effort/gi);
+}
+
+function codexQuickModelMenuOptions(previewText: unknown): NumberedMenuOption[] | null {
+  return numberedOptionsAfter(previewText, /^[ \t]*Select Model[ \t]*\r?$/gim);
 }
 
 function codexReasoningMenuOptions(previewText: unknown): NumberedMenuOption[] | null {
@@ -494,7 +499,8 @@ async function applyCodexTerminalProfile({
     throw new Error('Codex Terminal is not idle; wait for its composer before changing the model');
   }
   if (
-    codexModelMenuOptions(preview)
+    codexQuickModelMenuOptions(preview)
+    || codexModelMenuOptions(preview)
     || codexReasoningMenuOptions(preview)
     || codexAdvancedReasoningMenuOptions(preview)
   ) {
@@ -512,10 +518,10 @@ async function applyCodexTerminalProfile({
         () => sendInput(terminalCommand('/model')),
         'Timed out opening the Codex model menu',
       );
-      const modelMenu = await waitForPreview(
+      let modelMenu = await waitForPreview(
         readPreview,
         text => {
-          const options = codexModelMenuOptions(text);
+          const options = codexQuickModelMenuOptions(text) || codexModelMenuOptions(text);
           return options && options.length > 0 ? options : null;
         },
         {
@@ -523,10 +529,33 @@ async function applyCodexTerminalProfile({
           timeoutMessage: 'Codex did not open its model menu',
         }
       );
+      const quickOptions = codexQuickModelMenuOptions(modelMenu.preview);
+      if (quickOptions) {
+        const allModels = quickOptions.find(option => /^All models(?:\s+\(current\))?$/i.test(option.label));
+        if (!allModels) throw new Error('Codex did not offer All models in its quick model menu');
+        // All models replaces the quick-mode page; Escape closes either page
+        // directly, so this transition does not add a return level.
+        await runStep(
+          () => sendInput(allModels.input),
+          'Timed out opening all Codex models',
+        );
+        modelMenu = await waitForPreview(
+          readPreview,
+          text => {
+            if (codexQuickModelMenuOptions(text)) return null;
+            const options = codexModelMenuOptions(text);
+            return options && options.length > 0 ? options : null;
+          },
+          { ...waitOptions, timeoutMessage: 'Codex did not open its full model menu' },
+        );
+      }
       const modelInput = modelSelectionInput(modelMenu.preview, target.model);
       if (!modelInput) {
         throw new Error(`Model ${target.model} is not available in this Codex CLI`);
       }
+      // Reasoning returns to the model list on Escape. Anticipate that level
+      // before the write, including an uncertain reply after PTY delivery.
+      pickerDepth = 2;
       await runStep(
         () => sendInput(modelInput),
         `Timed out selecting model ${target.model}`,
@@ -536,7 +565,7 @@ async function applyCodexTerminalProfile({
         readPreview,
         text => {
           const nextProfile = codexTerminalProfileFromPreview(text);
-          if (profileMatches(nextProfile, target)) return { complete: true };
+          if (isCodexTerminalComposerPreview(text) && profileMatches(nextProfile, target)) return { complete: true };
           const options = codexReasoningMenuOptions(text);
           return options && options.length > 0 ? { options } : null;
         },
@@ -551,7 +580,7 @@ async function applyCodexTerminalProfile({
         if (!reasoningInput) {
           const moreInput = moreReasoningSelectionInput(reasoningStep.preview);
           if (moreInput) {
-            pickerDepth = 2;
+            pickerDepth += 1;
             await runStep(
               () => sendInput(moreInput),
               `Timed out opening advanced reasoning for ${target.model}`,
@@ -579,7 +608,8 @@ async function applyCodexTerminalProfile({
         );
         const applied = await waitForPreview(
           readPreview,
-          text => profileMatches(codexTerminalProfileFromPreview(text), target),
+          text => isCodexTerminalComposerPreview(text)
+            && profileMatches(codexTerminalProfileFromPreview(text), target),
           {
             ...waitOptions,
             timeoutMessage: `Codex did not confirm ${target.model} ${target.effort}`,

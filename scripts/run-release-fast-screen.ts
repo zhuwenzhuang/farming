@@ -23,6 +23,14 @@ const tasks: FastScreenTask[] = [
     args: ['--import', 'tsx', 'backend/tests/test-native-pty-publication.ts'],
   },
   {
+    name: 'Codex Terminal model menu transaction',
+    args: ['--import', 'tsx', 'backend/tests/test-codex-terminal-profile.ts'],
+  },
+  {
+    name: 'Terminal uncertain input admission fence',
+    args: ['--import', 'tsx', 'backend/tests/test-terminal-uncertain-input-fence.ts'],
+  },
+  {
     name: 'Desktop command completion and download cancellation',
     args: [
       '--import', 'tsx', '--test',
