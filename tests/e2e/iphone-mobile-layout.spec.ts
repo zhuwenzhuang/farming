@@ -1289,21 +1289,28 @@ test.describe('iPhone mobile layout', () => {
       if (!viewport) throw new Error('Mobile menu acceptance requires VisualViewport')
       const properties = ['offsetLeft', 'offsetTop', 'width', 'height'] as const
       const descriptors = properties.map(property => Object.getOwnPropertyDescriptor(viewport, property))
-      const results: boolean[] = []
+      const results: Array<{ event: string, bounds: boolean, hit: boolean }> = []
       try {
         for (const [index, event] of ['resize', 'scroll'].entries()) {
           const bounds = { offsetLeft: 24, offsetTop: 48 + index * 48, width: window.innerWidth - 48, height: 240 }
           for (const property of properties) Object.defineProperty(viewport, property, { configurable: true, value: bounds[property] })
           viewport.dispatchEvent(new Event(event))
           const rect = element.getBoundingClientRect()
-          results.push(
-            rect.left >= bounds.offsetLeft + 7
+          // The constrained submenu scrolls independently; Bash is near its end.
+          element.scrollTop = element.scrollHeight
+          const action = element.querySelector('[data-testid="agent-launch-bash"]')
+          const actionRect = action?.getBoundingClientRect()
+          const hit = actionRect ? document.elementFromPoint(actionRect.left + actionRect.width / 2, actionRect.top + actionRect.height / 2) : null
+          results.push({
+            event,
+            bounds: rect.left >= bounds.offsetLeft + 7
             && rect.right <= bounds.offsetLeft + bounds.width - 7
             && rect.top >= bounds.offsetTop + 7
             && rect.bottom <= bounds.offsetTop + bounds.height - 7
             && element.style.maxHeight === `${bounds.height - 16}px`
             && element.style.maxWidth === `${bounds.width - 16}px`,
-          )
+            hit: Boolean(action && hit && (action === hit || action.contains(hit))),
+          })
         }
       } finally {
         properties.forEach((property, index) => {
@@ -1315,7 +1322,10 @@ test.describe('iPhone mobile layout', () => {
       }
       return results
     })
-    expect(keyboardBounds, 'submenu follows keyboard resize and visual viewport scroll').toEqual([true, true])
+    expect(keyboardBounds, 'submenu follows keyboard resize and visual viewport scroll and remains tappable').toEqual([
+      { event: 'resize', bounds: true, hit: true },
+      { event: 'scroll', bounds: true, hit: true },
+    ])
     await agentSubmenu.getByTestId('agent-launch-bash').tap()
     await expect(menu).toBeHidden()
     await expect.poll(() => page.locator('[data-testid="code-agent-row"][data-agent-id]').count()).toBeGreaterThan(agentCountBeforeLaunch)

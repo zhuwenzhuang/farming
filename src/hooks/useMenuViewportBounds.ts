@@ -9,6 +9,7 @@ export function useMenuViewportBounds(enabled: boolean, menuRef: RefObject<HTMLE
     const owner = menu.ownerDocument.defaultView
     if (!owner) return
     const visualViewport = owner.visualViewport
+    const initialOverflowY = menu.style.overflowY
     const constrain = () => {
       const viewportLeft = visualViewport?.offsetLeft ?? 0
       const viewportTop = visualViewport?.offsetTop ?? 0
@@ -16,6 +17,7 @@ export function useMenuViewportBounds(enabled: boolean, menuRef: RefObject<HTMLE
       const viewportHeight = visualViewport?.height ?? owner.innerHeight
       menu.style.maxHeight = `${Math.max(0, viewportHeight - 16)}px`
       menu.style.maxWidth = `${Math.max(0, viewportWidth - 16)}px`
+      menu.style.overflowY = initialOverflowY
       if (menu.scrollHeight > viewportHeight - 16) menu.style.overflowY = 'auto'
       const rect = menu.getBoundingClientRect()
       const left = Math.max(viewportLeft + 8, Math.min(rect.left, viewportLeft + viewportWidth - rect.width - 8))
@@ -36,6 +38,7 @@ export function useMenuViewportBounds(enabled: boolean, menuRef: RefObject<HTMLE
     visualViewport?.addEventListener('scroll', constrain)
     return () => {
       observer.disconnect()
+      menu.style.overflowY = initialOverflowY
       owner.removeEventListener('resize', constrain)
       visualViewport?.removeEventListener('resize', constrain)
       visualViewport?.removeEventListener('scroll', constrain)

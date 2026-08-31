@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react'
 import { ChevronRightGlyph } from '@/components/IconGlyphs'
 import { agentDisplayName } from '@/lib/format'
@@ -25,13 +25,42 @@ export function AgentLaunchSubmenu({
   onSelect,
 }: AgentLaunchSubmenuProps) {
   const [open, setOpen] = useState(false)
-  const [side, setSide] = useState<'left' | 'right'>('right')
+  const [position, setPosition] = useState({ left: 0, top: 0 })
   const rootRef = useRef<HTMLDivElement | null>(null)
   const triggerRef = useRef<HTMLButtonElement | null>(null)
   const panelRef = useRef<HTMLDivElement | null>(null)
   const closeTimerRef = useRef<number | null>(null)
   const hasOptions = options.length > 0
-  useMenuViewportBounds(open, panelRef, side)
+  useLayoutEffect(() => {
+    const trigger = triggerRef.current
+    const panel = panelRef.current
+    if (!open || !trigger || !panel) return
+    const owner = trigger.ownerDocument.defaultView
+    if (!owner) return
+    const viewport = owner.visualViewport
+    const positionPanel = (event?: Event) => {
+      if (event?.target instanceof Node && panel.contains(event.target)) return
+      const rect = trigger.getBoundingClientRect()
+      const width = panel.getBoundingClientRect().width
+      const viewportRight = (viewport?.offsetLeft ?? 0) + (viewport?.width ?? owner.innerWidth)
+      setPosition({
+        left: rect.right + width + 14 > viewportRight ? rect.left - width - 6 : rect.right + 6,
+        top: rect.top - 5,
+      })
+    }
+    positionPanel()
+    owner.addEventListener('scroll', positionPanel, true)
+    owner.addEventListener('resize', positionPanel)
+    viewport?.addEventListener('resize', positionPanel)
+    viewport?.addEventListener('scroll', positionPanel)
+    return () => {
+      owner.removeEventListener('scroll', positionPanel, true)
+      owner.removeEventListener('resize', positionPanel)
+      viewport?.removeEventListener('resize', positionPanel)
+      viewport?.removeEventListener('scroll', positionPanel)
+    }
+  }, [open])
+  useMenuViewportBounds(open, panelRef, position)
 
   const clearCloseTimer = useCallback(() => {
     if (closeTimerRef.current === null) return
@@ -39,19 +68,9 @@ export function AgentLaunchSubmenu({
     closeTimerRef.current = null
   }, [])
 
-  const openSubmenu = useCallback((trigger: HTMLElement | null = triggerRef.current) => {
+  const openSubmenu = useCallback(() => {
     if (!hasOptions) return
     clearCloseTimer()
-    const rect = trigger?.getBoundingClientRect()
-    const expectedWidth = 156
-    const visualViewport = window.visualViewport
-    const viewportLeft = visualViewport?.offsetLeft ?? 0
-    const viewportRight = viewportLeft + (visualViewport?.width ?? window.innerWidth)
-    if (rect && rect.right + expectedWidth + 12 > viewportRight) {
-      setSide('left')
-    } else {
-      setSide('right')
-    }
     setOpen(true)
   }, [clearCloseTimer, hasOptions])
 
@@ -65,7 +84,7 @@ export function AgentLaunchSubmenu({
 
   const handlePointerEnter = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.pointerType !== 'mouse') return
-    openSubmenu(event.currentTarget.querySelector<HTMLElement>('button'))
+    openSubmenu()
   }, [openSubmenu])
 
   const focusFirstOption = useCallback(() => {
@@ -79,7 +98,7 @@ export function AgentLaunchSubmenu({
     if (event.key === 'ArrowRight') {
       event.preventDefault()
       event.stopPropagation()
-      openSubmenu(event.currentTarget)
+      openSubmenu()
       focusFirstOption()
     }
   }, [focusFirstOption, hasOptions, openSubmenu])
@@ -87,7 +106,7 @@ export function AgentLaunchSubmenu({
   const handleTriggerClick = useCallback((event: ReactMouseEvent<HTMLButtonElement>) => {
     if (hasOptions && event.detail > 0 && isTouchInputViewport()) {
       if (open) setOpen(false)
-      else openSubmenu(event.currentTarget)
+      else openSubmenu()
       return
     }
     onOpenDialog()
@@ -131,7 +150,8 @@ export function AgentLaunchSubmenu({
       {hasOptions && open && (
         <div
           ref={panelRef}
-          className={`code-agent-launch-submenu-panel ${side}`}
+          className="code-agent-launch-submenu-panel"
+          style={position}
           data-testid={submenuTestId}
           role="menu"
           onPointerEnter={() => clearCloseTimer()}

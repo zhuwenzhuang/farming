@@ -236,13 +236,16 @@ async function continueWithoutUntrustedHooks(page: Page, agentId: string) {
   )
   let directoryTrustAccepted = false
   let hooksAccepted = false
-  for (let transition = 0; transition < 3; transition += 1) {
+  let updateSkipped = false
+  for (let transition = 0; transition < 4; transition += 1) {
     let startupState = 'waiting'
     await expect.poll(async () => {
       const rendered = (await codeRows(page, agentId)).join('\n')
       const current = await agent(page, agentId)
       if (current?.terminalStatus?.activity === 'idle') {
         startupState = 'ready'
+      } else if (!updateSkipped && rendered.includes('Update available!') && rendered.includes('Skip until next version')) {
+        startupState = 'update'
       } else if (!hooksAccepted && rendered.includes('Hooks need review')) {
         startupState = 'hooks'
       } else if (!directoryTrustAccepted && rendered.includes('Do you trust the contents of this directory?')) {
@@ -251,10 +254,27 @@ async function continueWithoutUntrustedHooks(page: Page, agentId: string) {
         startupState = 'waiting'
       }
       return startupState
-    }, { timeout: 60_000 }).toMatch(/^(ready|directory-trust|hooks)$/)
+    }, { timeout: 60_000 }).toMatch(/^(ready|directory-trust|hooks|update)$/)
     if (startupState === 'ready') return
 
     await input.focus()
+    if (startupState === 'update') {
+      // A newer verified Terminal executable can supersede the no-update test
+      // wrapper. Skip this one prompt through its real UI; never install an
+      // update or change the user's persistent update preferences during a gate.
+      const selectedOption = async () => (await codeRows(page, agentId))
+        .find(row => row.includes('›'))?.match(/›\s*([123])\./)?.[1] ?? ''
+      await expect.poll(selectedOption, { timeout: 5_000 }).toMatch(/^[123]$/)
+      for (let move = 0; move < 2 && await selectedOption() !== '2'; move += 1) {
+        const before = await selectedOption()
+        await input.press('ArrowDown')
+        await expect.poll(selectedOption, { timeout: 5_000 }).not.toBe(before)
+      }
+      await expect.poll(selectedOption, { timeout: 5_000 }).toBe('2')
+      await input.press('Enter')
+      updateSkipped = true
+      continue
+    }
     if (startupState === 'directory-trust') {
       const options = ['Yes, continue', 'No, quit']
       const selectedOption = async () => {

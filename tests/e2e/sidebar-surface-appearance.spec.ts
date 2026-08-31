@@ -57,6 +57,9 @@ test.describe('shared sidebar surfaces', () => {
             const back = page.getByTestId('code-mobile-back')
             if (await back.isVisible()) await back.tap()
             await page.getByTestId('code-mobile-menu').tap()
+            // Opening navigation focuses its toggle on the next animation frame.
+            // Wait for that modal initialization before testing file-row focus.
+            await expect(sidebar.getByTestId('code-sidebar-toggle')).toBeFocused()
           }
         }
         await openDrawer()
