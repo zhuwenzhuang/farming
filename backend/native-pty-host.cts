@@ -211,6 +211,7 @@ import * as nativePtyHostPathModule from './native-pty-host-path.cjs';
 const {
   nativePtyHostPrivateSocketPath,
   nativePtyHostSocketPath,
+  publishNativePtyHostSocket,
 } = nativePtyHostPathModule;
 import * as inputPartsModule from './input-parts.cjs';
 const { terminalInputToPtyString } = inputPartsModule;
@@ -428,7 +429,7 @@ class NativePtyHost {
       this.boundSocketIdentity = socketIdentity(this.boundSocketPath);
       fs.chmodSync(this.boundSocketPath, 0o600);
       try {
-        fs.linkSync(this.boundSocketPath, this.socketPath);
+        publishNativePtyHostSocket(this.boundSocketPath, this.socketPath);
       } catch (error) {
         await new Promise<void>(resolve => this.server?.close(() => resolve()));
         this.server = null;

@@ -238,6 +238,10 @@ Markdown Preview 支持 GFM 与数学公式，并对 Pandoc 空锚点、保留�
 渲染 Preview，绝不改写文件源码。不受支持的公式保留为可读源码而不是生成破损输出，任意 Raw
 HTML 仍保持禁用。
 
+Display 公式保留正常字号，超出阅读栏时只在公式内部横向滚动。公式两端与编号都必须可达，
+不能撑宽正文；编号占据独立空间，不覆盖公式内容。所有 Appearance 下的 Inline 公式、
+对齐公式与显式数学换行均保留渲染器原有布局。
+
 大型 Markdown Preview 按主要 Heading 与有界 Block 数分段，保留普通连续滚动，同时只挂载
 Viewport 附近的 Section，并用已测量或估算的空间表示远处 Section。大型文档不执行语法高亮，
 滚动到远处时不会挂载或高亮整篇文档；Source View 仍然可用。

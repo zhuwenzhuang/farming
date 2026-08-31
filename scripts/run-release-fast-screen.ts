@@ -19,6 +19,10 @@ const tasks: FastScreenTask[] = [
     args: ['--import', 'tsx', 'backend/tests/test-server-route-manifest.ts'],
   },
   {
+    name: 'native PTY socket publication ownership',
+    args: ['--import', 'tsx', 'backend/tests/test-native-pty-publication.ts'],
+  },
+  {
     name: 'Desktop command completion and download cancellation',
     args: [
       '--import', 'tsx', '--test',

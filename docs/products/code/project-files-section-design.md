@@ -326,6 +326,12 @@ spacing. Compatibility applies only to the rendered preview and never rewrites
 file source. Unsupported math remains visible as source instead of producing
 broken output, and arbitrary raw HTML remains disabled.
 
+Display equations retain their normal font size and scroll horizontally within
+the equation when wider than the reading column. Both ends and equation numbers
+remain reachable without widening the document; numbers reserve their own space
+instead of covering formula content. Inline math, aligned equations, and explicit
+math line breaks retain the renderer's layout in every appearance.
+
 Large Markdown preview is segmented at major headings and a bounded block
 count. It preserves ordinary continuous scrolling while mounting only the
 viewport-adjacent sections and representing distant sections with measured or

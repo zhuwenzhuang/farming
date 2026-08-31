@@ -2722,7 +2722,8 @@ test.describe('display-backed agent flows', () => {
     await fileSearchInput.fill('deep/nested/inner/file-30.txt:1')
     await expect(childFiles.locator('.code-file-search-result').filter({ hasText: 'file-30.txt' }).first()).toBeVisible()
     await fileSearchInput.press('Enter')
-    await fileSearchInput.fill('')
+    await expect(fileSearchInput).toHaveValue('')
+    await expect(activeFileTabName(page)).toHaveText('file-30.txt')
     // Opening from Search owns the reveal. Mutating the shared Project scroller
     // here would race the virtual tree and test a state the user cannot create.
     await expect(childFiles.locator(

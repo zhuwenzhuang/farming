@@ -1,6 +1,7 @@
 'use strict';
 
 import * as crypto from 'crypto';
+import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { canonicalConfigDir } from './config-instance.cjs';
@@ -58,8 +59,31 @@ function nativePtyHostPrivateSocketNamePattern(socketPath: string): RegExp {
   return new RegExp(`^\\.fpty-\\d+-${hash}-[a-f0-9]+\\.sock$`);
 }
 
+function publishNativePtyHostSocket(privateSocketPath: string, publicSocketPath: string): void {
+  try {
+    fs.linkSync(privateSocketPath, publicSocketPath);
+  } catch (error) {
+    if (!error || typeof error !== 'object' || !('code' in error) || error.code !== 'EEXIST') {
+      throw error;
+    }
+    // Startup and private-socket recovery can publish the same listener at once.
+    // An existing name only completes publication when it is that exact socket.
+    const bound = fs.lstatSync(privateSocketPath, { bigint: true });
+    const published = fs.lstatSync(publicSocketPath, { bigint: true });
+    if (
+      !bound.isSocket()
+      || !published.isSocket()
+      || bound.dev !== published.dev
+      || bound.ino !== published.ino
+    ) {
+      throw error;
+    }
+  }
+}
+
 export {
   nativePtyHostPrivateSocketNamePattern,
   nativePtyHostPrivateSocketPath,
   nativePtyHostSocketPath,
+  publishNativePtyHostSocket,
 };

@@ -12,6 +12,15 @@ screen state, process identity, and restart continuity. The Farming Server
 controls lifecycle and publishes state. Browser renderers attach to that state;
 they do not own terminal truth.
 
+On Unix, each host binds one private listener and publishes a Config-bound
+public socket link. Startup and recovery of a missing public link share the
+same atomic publication rule: an absent name may be linked; an existing name
+completes publication only when both paths identify the same socket device and
+inode. A different socket or non-socket entry is an explicit conflict and must
+not be replaced. Concurrent publication of the same listener therefore neither
+terminates that host nor creates another one. Recovery still validates the
+host runtime and controller before admitting terminal operations.
+
 One PTY lifetime has one runtime epoch. Within that epoch, ordered output and
 state revisions identify an authoritative cut. These values are transport
 cursors, not another Agent lifecycle.
