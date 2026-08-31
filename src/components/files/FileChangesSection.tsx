@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { ChevronDownGlyph, ChevronRightGlyph } from '@/components/IconGlyphs'
 import { appPath } from '@/lib/base-path'
 import { iconForFilePath } from '@/lib/file-icons'
+import { WORKSPACE_FILE_TREE_INDENT, WORKSPACE_FILE_TREE_ROOT_INDENT } from '@/lib/workspace-file-tree-row'
 import {
   workspaceFileChangePathLabel,
   workspaceFileChangeRowKey,
@@ -46,13 +47,10 @@ type FileChangeTreeNode =
     change: WorkspaceFileChange
   }
 
-const CHANGE_TREE_ROOT_INDENT = 18
-const CHANGE_TREE_INDENT_STEP = 12
-
 function changeTreeDepthStyle(depth: number) {
   return {
-    '--change-indent': `${CHANGE_TREE_ROOT_INDENT + depth * CHANGE_TREE_INDENT_STEP}px`,
-    '--change-guide-width': `${depth * CHANGE_TREE_INDENT_STEP}px`,
+    '--change-indent': `${WORKSPACE_FILE_TREE_ROOT_INDENT + (depth + 1) * WORKSPACE_FILE_TREE_INDENT}px`,
+    '--change-guide-width': `${(depth + 1) * WORKSPACE_FILE_TREE_INDENT}px`,
   } as CSSProperties
 }
 
@@ -196,7 +194,6 @@ function FileChangeRow({
         className="code-file-change-main"
         onClick={() => onOpenChange(change)}
       >
-        <span className="code-file-chevron placeholder" aria-hidden="true" />
         <img className="code-file-type-icon file" src={iconForFilePath(change.path)} alt="" aria-hidden="true" />
         <span className="code-file-change-name">{change.name}</span>
         <span className="code-file-change-path">{pathContext}</span>

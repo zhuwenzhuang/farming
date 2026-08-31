@@ -270,6 +270,16 @@ Issue Reference 遵循 Workspace `.idea/vcs.xml` 内的 IntelliJ
 ## 视觉与交互规则
 
 - Row 保持紧凑、稳定、支持键盘且单行展示。
+- Open Editors、Changes 和 Directory Tree 的文件条目共享桌面 24px、紧凑布局 28px
+  行高，不按 Pointer 类型另分密度。紧凑布局的 Project 和 Agent 主导航行保持 44px。
+  文件分组操作在行内布局，不与相邻点击目标重叠；主导航操作保留更大目标并沿行中心对齐。
+  Open Editors 与 Files 标题使用同一前导列。两种文件树统一采用 8px 层级步长及单一
+  Icon/Chevron 槽；深层缩进按可用标签空间限制，不再固定截断于紧凑布局的两次缩进。
+- 响应式密度是浏览器拥有的展示状态。宽度跨越断点时更新单一 CSS 行高，文件样式及
+  Virtual List 几何共同读取它，不改变 Selection、Expansion 或请求所有权。Resize、
+  Scroll 和目录展开后 Virtual Row 必须保持对齐并继续使用唯一 Project Scroll Surface。
+  密度改变时保留可见 Row 及行内偏移比例，不沿用旧的像素 Scroll Offset。
+  打开、关闭行操作不得改变行高。
 - 每个 Tree Row 固定使用三个显式 Layout Slot：前导 Icon 或 Chevron、Label 与 Label
   Decoration、尾部 State。可选 Decoration 不能创建隐式 Grid Row；Inline Rename 占用
   Label 与 State Slot，但不能移动 Label Origin。

@@ -2,6 +2,7 @@ import { isDescendantPath, type WorkspaceFileTreeNode } from './workspace-file-t
 import type { WorkspaceFileEntry } from './workspace-files'
 
 export const WORKSPACE_FILE_TREE_INDENT = 8
+export const WORKSPACE_FILE_TREE_ROOT_INDENT = 6
 
 export type WorkspaceFileTreeStatusTitleKind = 'git' | 'external' | 'dirty'
 
@@ -23,7 +24,7 @@ export function workspaceFileTreeStatusTitle(
 
 export function workspaceFileTreeDepthStyle(depth: number) {
   return {
-    '--file-indent': `${6 + depth * WORKSPACE_FILE_TREE_INDENT}px`,
+    '--file-indent': `${WORKSPACE_FILE_TREE_ROOT_INDENT + depth * WORKSPACE_FILE_TREE_INDENT}px`,
     '--file-status-indent': `${24 + depth * WORKSPACE_FILE_TREE_INDENT}px`,
     '--file-guide-width': `${depth * WORKSPACE_FILE_TREE_INDENT}px`,
     '--file-depth': depth,

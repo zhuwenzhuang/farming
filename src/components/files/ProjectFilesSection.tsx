@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { getBackendConnectionSnapshot } from '@/lib/backend-live-status'
-import { isCompactViewport, isTouchInputViewport } from '@/lib/responsive-mode'
 import type { WorkspaceFileOpenTarget } from '@/lib/workspace-file-search'
 import type { WorkspaceFileTreeNode } from '@/lib/workspace-file-tree'
 import {
@@ -40,30 +39,25 @@ import { useWorkspaceFileSectionController } from './useWorkspaceFileSectionCont
 import { useWorkspaceFileTreeController } from './useWorkspaceFileTreeController'
 import { useWorkspaceFileTreeKeyboard } from './useWorkspaceFileTreeKeyboard'
 
-const DESKTOP_FILE_ROW_HEIGHT = 24
-const MOBILE_TOUCH_FILE_ROW_HEIGHT = 44
 const FILES_REFRESH_MINIMUM_PENDING_MS = 350
 const FILES_REFRESH_SUCCESS_VISIBLE_MS = 1400
 const EMPTY_FILE_PATHS = new Set<string>()
 
 function currentFileRowHeight() {
-  return isCompactViewport() && isTouchInputViewport()
-    ? MOBILE_TOUCH_FILE_ROW_HEIGHT
-    : DESKTOP_FILE_ROW_HEIGHT
+  // Virtual row positions and the rendered rows consume the same CSS metric.
+  return Number.parseFloat(getComputedStyle(document.documentElement)
+    .getPropertyValue('--code-sidebar-file-row-height'))
 }
 
 function useResponsiveFileRowHeight() {
   const [rowHeight, setRowHeight] = useState(currentFileRowHeight)
   useEffect(() => {
     const compactQuery = window.matchMedia('(max-width: 980px)')
-    const touchQuery = window.matchMedia('(any-pointer: coarse)')
     const syncRowHeight = () => setRowHeight(currentFileRowHeight())
     compactQuery.addEventListener('change', syncRowHeight)
-    touchQuery.addEventListener('change', syncRowHeight)
     window.addEventListener('resize', syncRowHeight)
     return () => {
       compactQuery.removeEventListener('change', syncRowHeight)
-      touchQuery.removeEventListener('change', syncRowHeight)
       window.removeEventListener('resize', syncRowHeight)
     }
   }, [])

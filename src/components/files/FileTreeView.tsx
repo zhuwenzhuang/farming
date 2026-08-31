@@ -296,9 +296,24 @@ const FileTreeViewContent = memo(function FileTreeViewContent({
   } | null>(null)
   const treeWindowRef = useRef<HTMLDivElement | null>(null)
   const virtualScrollOffsetRef = useRef(0)
+  const previousRowHeightRef = useRef(rowHeight)
   const [treeWindowHeight, setTreeWindowHeight] = useState(() => (
     Math.max(rowHeight, Math.min(treeHeight, rowHeight * FILE_TREE_INITIAL_VIEWPORT_ROWS))
   ))
+
+  useLayoutEffect(() => {
+    const previousHeight = previousRowHeightRef.current
+    previousRowHeightRef.current = rowHeight
+    if (previousHeight === rowHeight || virtualScrollOffsetRef.current <= 0) return
+    const viewport = treeViewportRef.current
+    const scroller = viewport?.closest<HTMLElement>('.code-project-list')
+    if (!viewport || !scroller) return
+    // Preserve the visible row and its fractional offset when responsive density
+    // changes. Keeping the old pixel offset would jump to an earlier/later node.
+    const nextOffset = virtualScrollOffsetRef.current * rowHeight / previousHeight
+    const currentOffset = scroller.getBoundingClientRect().top - viewport.getBoundingClientRect().top
+    scroller.scrollTop += nextOffset - currentOffset
+  }, [rowHeight, treeViewportRef])
 
   useLayoutEffect(() => {
     const viewport = treeViewportRef.current

@@ -368,6 +368,21 @@ non-HTTP(S), or invalid rules remain plain text.
 ## Visual And Interaction Rules
 
 - Rows remain compact, stable, keyboard-accessible, and single-line.
+- File entries in Open Editors, Changes, and the directory tree share a 24px
+  desktop row and a 28px compact row, regardless of pointer type. Compact
+  Project and Agent navigation keeps its separate 44px row. File section
+  controls fit their row without overlapping neighboring targets; primary
+  navigation actions retain their larger targets and align to the row center.
+  Open Editors and Files headings share the same leading column. Both file
+  trees use an 8px depth step and one icon-or-chevron slot; deep indentation
+  is bounded by available label space, not a fixed two-level compact limit.
+- Responsive density is browser-owned presentation state. A width-breakpoint
+  change updates one CSS row metric consumed by file styles and virtual-list
+  geometry, without changing selection, expansion, or request ownership.
+  Resize, scroll, and directory expansion must retain aligned virtual rows
+  and the shared Project scroll surface. Density changes preserve the visible
+  row and fractional row offset instead of retaining an obsolete pixel offset.
+  Opening and closing row actions must not change row height.
 - Every tree row has three explicit layout slots: leading icon or chevron,
   label and label decorations, and trailing state. Optional decorations never
   create implicit grid rows, and inline rename occupies the label and state

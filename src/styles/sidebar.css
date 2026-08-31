@@ -3,6 +3,16 @@
    preserve the original cascade. Sidebar resource slots live in
    sidebar-resources.css. */
 
+:root {
+  --code-sidebar-file-row-height: 24px;
+}
+
+@media (max-width: 980px) {
+  :root {
+    --code-sidebar-file-row-height: 28px;
+  }
+}
+
 .code-sidebar {
   min-width: 0;
   height: 100%;
@@ -411,7 +421,7 @@ body.code-resizing-sidebar .code-sidebar-resizer {
   --code-open-editors-header-height: 25px;
   --code-open-editors-sticky-tail-height: var(--code-files-header-height, 25px);
   --code-files-header-height: 25px;
-  --code-open-editor-row-height: 28px;
+  --code-open-editor-row-height: var(--code-sidebar-file-row-height);
   --code-open-editors-sticky-height: 0px;
   --code-project-sticky-tail-height: calc(var(--code-agents-sticky-height, 0px) + var(--code-open-editors-sticky-height, 0px) + var(--code-files-header-height, 25px));
   display: flex;
@@ -1429,8 +1439,18 @@ body.code-resizing-sidebar .code-sidebar-resizer {
     }
 
   body.code-mode.code-compact-layout .code-project-title-actions {
+      height: 44px;
+      width: 132px;
+      gap: 0;
+      padding-left: 0;
       opacity: 1;
       pointer-events: auto;
+    }
+
+  body.code-mode.code-compact-layout .code-project-title-action {
+      width: 44px;
+      height: 44px;
+      flex-basis: 44px;
     }
 
   body.code-mode.code-compact-layout .code-project-context-menu,

@@ -1096,13 +1096,13 @@ test.describe('iPhone mobile layout', () => {
         steps: Array(7).fill(expectedHeight),
       })
     }
-    await expectVisibleFileRows(44)
+    await expectVisibleFileRows(28)
     await page.setViewportSize({ width: 1024, height: 800 })
     await expectVisibleFileRows(24)
     await page.setViewportSize({ width: 390, height: 844 })
     await page.getByTestId('code-mobile-menu').tap()
     await expect(project).toBeVisible()
-    await expectVisibleFileRows(44)
+    await expectVisibleFileRows(28)
 
     const scrollMetrics = await files.evaluate(async element => {
       const scroller = element.closest<HTMLElement>('.code-project-list')
@@ -1175,9 +1175,9 @@ test.describe('iPhone mobile layout', () => {
       }
     })
     expect(actionTarget?.path).toBeTruthy()
-    expect(actionTarget?.rowHeight).toBeGreaterThanOrEqual(44)
-    expect(actionTarget?.width).toBeGreaterThanOrEqual(44)
-    expect(actionTarget?.height).toBeGreaterThanOrEqual(44)
+    expect(actionTarget?.rowHeight).toBe(28)
+    expect(actionTarget?.width).toBe(28)
+    expect(actionTarget?.height).toBe(28)
     expect(actionTarget?.hitWithinAction, JSON.stringify(actionTarget)).toBe(true)
     await page.touchscreen.tap(actionTarget!.x, actionTarget!.y)
     const menu = page.getByTestId('code-file-context-menu')

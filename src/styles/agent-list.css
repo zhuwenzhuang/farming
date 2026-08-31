@@ -870,13 +870,21 @@ body.code-mode:not(.code-compact-layout) .code-agent-row:has(.code-agent-row-act
       width: 44px;
       min-width: 44px;
       height: 44px;
-      margin: -6px -5px -6px 0;
+      position: absolute;
+      top: 50%;
+      right: 0;
+      transform: translateY(-50%);
       display: inline-grid;
       place-items: center;
       border: 0;
       border-radius: 9px;
       background: transparent;
       color: var(--code-text-subtle);
+    }
+
+  body.code-mode.code-compact-layout .code-agent-row-trailing {
+      /* Reserve the action inside the row's seven-pixel trailing padding. */
+      padding-right: calc(44px - 7px);
     }
 
   body.code-mode.code-compact-layout .code-agent-row-more:active {
