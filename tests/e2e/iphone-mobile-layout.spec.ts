@@ -1250,6 +1250,61 @@ test.describe('iPhone mobile layout', () => {
     if (await filesToggle.getAttribute('aria-expanded') === 'false') await filesToggle.tap()
 
     const readmeRow = files.locator('[data-testid="code-file-row"][data-file-path="README.md"]')
+    // A viewport-bounded rect can still be clipped by the transformed drawer.
+    // Exercise the real drawer at both its capped width and a phone width;
+    // hit-testing the far edge catches clipping that center taps alone miss.
+    for (const viewport of [{ width: 560, height: 840 }, { width: 393, height: 852 }]) {
+      await page.setViewportSize(viewport)
+      for (const appearance of ['light', 'dark', 'paper'] as const) {
+        await page.evaluate(value => {
+          document.documentElement.dataset.appearance = value
+          document.body.dataset.appearance = value
+        }, appearance)
+        await readmeRow.getByRole('button', { name: /File actions for README\.md|README\.md 的文件操作/ }).tap()
+        const drawerMenu = page.getByTestId('code-file-context-menu')
+        await expect(drawerMenu).toBeVisible()
+        await captureIphoneAudit(page, testInfo, `iphone-file-menu-${viewport.width}-${appearance}.png`, async () => {
+          await expect(drawerMenu.getByRole('menuitem', { name: /Copy Relative Path|复制相对路径/ })).toBeVisible()
+        }, 'The real file drawer menu is open; clipping and hit-target assertions follow this capture')
+        const itemHits = await drawerMenu.locator('button[role="menuitem"]').evaluateAll(elements => elements.map(element => {
+          const rect = element.getBoundingClientRect()
+          return {
+            label: element.textContent,
+            center: element.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)),
+            right: element.contains(document.elementFromPoint(rect.right - 4, rect.top + rect.height / 2)),
+          }
+        }))
+        expect(itemHits.length).toBeGreaterThan(3)
+        expect(itemHits.every(hit => hit.center && hit.right), JSON.stringify(itemHits)).toBe(true)
+
+        const submenuTrigger = drawerMenu.getByTestId('file-new-agent-submenu-trigger')
+        await submenuTrigger.tap()
+        const drawerSubmenu = page.getByTestId('file-new-agent-submenu')
+        await expect(drawerSubmenu).toBeVisible()
+        const bash = drawerSubmenu.getByTestId('agent-launch-bash')
+        await bash.scrollIntoViewIfNeeded()
+        const submenuHit = await bash.evaluate(element => {
+          const rect = element.getBoundingClientRect()
+          return [rect.left + rect.width / 2, rect.right - 4].every(x => (
+            element.contains(document.elementFromPoint(x, rect.top + rect.height / 2))
+          ))
+        })
+        expect(submenuHit, 'The nested menu must also escape the drawer clipping boundary').toBe(true)
+        await submenuTrigger.tap()
+        await expect(drawerSubmenu).toBeHidden()
+        await drawerMenu.getByRole('menuitem', { name: /Copy Relative Path|复制相对路径/ }).tap()
+        await expect(drawerMenu).toBeHidden()
+        await expect(files.locator('[role="tree"]')).toBeFocused()
+        await expect(page.getByTestId('code-sidebar')).not.toHaveClass(/collapsed/)
+        await expect.poll(() => page.evaluate(() => (
+          (window as typeof window & { __mobileCopiedTexts?: string[] }).__mobileCopiedTexts?.at(-1)
+        ))).toBe('README.md')
+      }
+    }
+    await page.evaluate(() => {
+      document.documentElement.dataset.appearance = 'light'
+      document.body.dataset.appearance = 'light'
+    })
     await readmeRow.getByRole('button', { name: /File actions for README\.md|README\.md 的文件操作/ }).tap()
     const menu = page.getByTestId('code-file-context-menu')
     const menuBounds = await menu.evaluate(element => {

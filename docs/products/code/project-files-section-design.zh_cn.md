@@ -154,6 +154,9 @@ Extension Kind、Query、Detail 与 Scroll Position。
 在目录树空白区域打开的上下文菜单会继承当前目录树选择，创建操作以该选择为目标；只有目录树
 没有当前选择或焦点时，才以 Project 根目录为目标。
 
+文件上下文菜单及子菜单越过手机抽屉裁剪边界时仍须完整可见、可点击。通过 Portal 移动菜单
+表面不能改变其关闭 Owner，关闭后仍按原协议把焦点返回调用菜单的目录树目标。
+
 共享 Project Scroll Surface 上的每个程序化 Reveal 只持有一个 Generation Lease。更新的文件或
 Agent Reveal，以及直接的 Pointer、Wheel 或 Keyboard 意图，会在旧 Owner 再次写入滚动位置前
 撤销其 Lease。目标实测位置满足后 Reveal 立即停止；固定延迟的重复回放不能覆盖后续导航或用户输入。

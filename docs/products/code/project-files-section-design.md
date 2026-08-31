@@ -215,6 +215,10 @@ A context menu opened on empty tree space inherits the current tree selection
 for create operations. It targets the Project root only when the tree has no
 current selection or focus.
 
+File context menus and their submenus remain fully visible and hittable outside
+the mobile drawer's clipping boundary. Portalling their surface must preserve
+the same dismissal owner and return focus to the invoking tree target.
+
 Every programmatic reveal on the shared Project scroll surface holds one
 generation lease. A newer file or Agent reveal, or direct pointer, wheel, or
 keyboard intent, revokes the older lease before it can write another scroll

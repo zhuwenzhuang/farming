@@ -1,4 +1,5 @@
 import type { RefObject } from 'react'
+import { createPortal } from 'react-dom'
 import type {
   WorkspaceFileContextMenuState as FileContextMenuState,
   WorkspaceFileOperationKind as FileOperationKind,
@@ -55,7 +56,9 @@ export function FileContextMenu({
   const canCreateInTarget = !readOnly && !createTargetReadOnly
   const canChangeTargetEntry = !readOnly && (!targetReadOnly || fileMenu.item?.symbolicLink === true)
 
-  return (
+  // Viewport-positioned menus must escape the mobile drawer's transformed,
+  // clipped surface. The same ref still owns dismissal and keyboard focus.
+  return createPortal(
     <div
       ref={menuRef}
       className="code-menu-surface code-menu-list code-context-menu code-file-context-menu"
@@ -117,6 +120,7 @@ export function FileContextMenu({
           )}
         </>
       )}
-    </div>
+    </div>,
+    document.body,
   )
 }
