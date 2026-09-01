@@ -562,6 +562,76 @@ export function useWebSocket() {
     let agentStateSnapshotDeadline: ReturnType<typeof setTimeout> | null = null
     let pendingBusinessProbeId = ''
     let businessProbeSequence = 0
+    let nativeBrowserUnsubscribe: (() => void) | null = null
+    let nativeBrowserAdapterServerEpoch = ''
+    let nativeBrowserAdapterRegisteredServerEpoch = ''
+    let nativeBrowserReconciliationGeneration = 0
+    let nativeBrowserLeaseInvalidation: Promise<void> = Promise.resolve()
+
+    function invalidateNativeBrowserLease() {
+      nativeBrowserReconciliationGeneration += 1
+      nativeBrowserUnsubscribe?.()
+      nativeBrowserUnsubscribe = null
+      nativeBrowserAdapterServerEpoch = ''
+      nativeBrowserAdapterRegisteredServerEpoch = ''
+      const nativeBrowser = window.farmingDesktop?.nativeBrowser
+      if (!nativeBrowser) return
+      nativeBrowserLeaseInvalidation = nativeBrowserLeaseInvalidation
+        .catch(() => {})
+        .then(() => nativeBrowser.invalidateLease())
+        .catch(() => {})
+    }
+
+    async function reconcileAndRegisterNativeBrowserAdapter(
+      ws: WebSocket,
+      serverEpoch: string,
+    ) {
+      const nativeBrowser = window.farmingDesktop?.nativeBrowser
+      if (!nativeBrowser || accessModeRef.current !== 'owner') return
+      if (
+        nativeBrowserAdapterServerEpoch === serverEpoch
+        && nativeBrowserUnsubscribe
+      ) {
+        if (nativeBrowserAdapterRegisteredServerEpoch === serverEpoch) return
+        ws.send(JSON.stringify({
+          type: 'desktop-browser-adapter-register',
+          adapterId: nativeBrowser.adapterId,
+        }))
+        return
+      }
+      const reconciliationGeneration = ++nativeBrowserReconciliationGeneration
+      nativeBrowserUnsubscribe?.()
+      nativeBrowserUnsubscribe = null
+      nativeBrowserAdapterServerEpoch = ''
+      nativeBrowserAdapterRegisteredServerEpoch = ''
+      await nativeBrowserLeaseInvalidation
+      await nativeBrowser.reconcileBackendEpoch(serverEpoch)
+      if (
+        reconciliationGeneration !== nativeBrowserReconciliationGeneration
+        || disposed
+        || wsRef.current !== ws
+        || ws.readyState !== WebSocket.OPEN
+        || accessModeRef.current !== 'owner'
+      ) return
+      nativeBrowserUnsubscribe = nativeBrowser.onEvent(event => {
+        if (
+          disposed
+          || wsRef.current !== ws
+          || ws.readyState !== WebSocket.OPEN
+          || accessModeRef.current !== 'owner'
+        ) return
+        ws.send(JSON.stringify({
+          type: 'desktop-browser-adapter-event',
+          adapterId: nativeBrowser.adapterId,
+          ...event,
+        }))
+      })
+      nativeBrowserAdapterServerEpoch = serverEpoch
+      ws.send(JSON.stringify({
+        type: 'desktop-browser-adapter-register',
+        adapterId: nativeBrowser.adapterId,
+      }))
+    }
 
     function clearAgentStateSnapshotDeadline() {
       if (agentStateSnapshotDeadline) clearTimeout(agentStateSnapshotDeadline)
@@ -869,7 +939,7 @@ export function useWebSocket() {
                 errorId: prev.errorId + 1,
               }))
               break
-            case 'business-health-result':
+            case 'business-health-result': {
               if (msg.requestId !== pendingBusinessProbeId) break
               pendingBusinessProbeId = ''
               if (businessProbeDeadline) clearTimeout(businessProbeDeadline)
@@ -879,11 +949,23 @@ export function useWebSocket() {
                 businessCheckedAt: Date.now(),
                 businessServerEpoch: msg.serverEpoch,
               })
+              void reconcileAndRegisterNativeBrowserAdapter(ws, msg.serverEpoch).catch(error => {
+                if (disposed || wsRef.current !== ws) return
+                setState(prev => ({
+                  ...prev,
+                  error: error instanceof Error
+                    ? `Desktop Browser lease reconciliation failed: ${error.message}`
+                    : 'Desktop Browser lease reconciliation failed',
+                  errorKind: 'error',
+                  errorId: prev.errorId + 1,
+                }))
+              })
               scheduleBusinessProbe(
                 ws,
                 msg.status === 'ready' ? BUSINESS_HEALTH_INTERVAL_MS : BUSINESS_HEALTH_RETRY_MS,
               )
               break
+            }
             case 'terminal-checkpoint-result':
               settleTerminalSessionCheckpoint(msg)
               break
@@ -1274,6 +1356,63 @@ export function useWebSocket() {
             case 'computer-resource-deleted':
               latestHandlersRef.current.deleteComputerResource(msg.deletion)
               break
+            case 'desktop-browser-adapter-registered': {
+              const nativeBrowser = window.farmingDesktop?.nativeBrowser
+              if (
+                !nativeBrowser
+                || msg.adapterId !== nativeBrowser.adapterId
+                || msg.serverEpoch !== nativeBrowserAdapterServerEpoch
+              ) break
+              nativeBrowserAdapterRegisteredServerEpoch = msg.serverEpoch
+              window.dispatchEvent(new CustomEvent('farming:desktop-native-browser-capability-changed'))
+              break
+            }
+            case 'desktop-browser-command': {
+              const nativeBrowser = window.farmingDesktop?.nativeBrowser
+              const command = msg.command
+              const respond = (payload: Record<string, unknown>) => {
+                if (disposed || wsRef.current !== ws || ws.readyState !== WebSocket.OPEN) return
+                ws.send(JSON.stringify({
+                  type: 'desktop-browser-adapter-response',
+                  adapterId: command.adapterId,
+                  generation: command.generation,
+                  requestId: command.requestId,
+                  resourceId: command.resourceId,
+                  sessionId: command.sessionId,
+                  ...payload,
+                }))
+              }
+              if (!nativeBrowser || command.adapterId !== nativeBrowser.adapterId) {
+                respond({
+                  code: 'BROWSER_DESKTOP_ADAPTER_UNAVAILABLE',
+                  error: 'The requested Farming Desktop Browser adapter is unavailable.',
+                  ok: false,
+                  status: 503,
+                })
+                break
+              }
+              void nativeBrowser.command({
+                generation: command.generation,
+                input: command.input,
+                operation: command.operation,
+                resourceId: command.resourceId,
+                sessionId: command.sessionId,
+              }).then(({ result }) => {
+                respond({ ok: true, result })
+              }).catch(error => {
+                const record = error && typeof error === 'object'
+                  ? error as { code?: unknown; status?: unknown; uncertain?: unknown }
+                  : {}
+                respond({
+                  code: typeof record.code === 'string' ? record.code : 'BROWSER_DESKTOP_COMMAND_FAILED',
+                  error: error instanceof Error ? error.message : String(error),
+                  ok: false,
+                  status: Number.isInteger(record.status) ? Number(record.status) : 500,
+                  ...(record.uncertain === true ? { uncertain: true } : {}),
+                })
+              })
+              break
+            }
             case 'system-stats':
               updateBackendSystemStats(msg.stats ?? null)
               break
@@ -1291,6 +1430,7 @@ export function useWebSocket() {
 
       ws.onclose = (event) => {
         if (disposed || wsRef.current !== ws) return
+        invalidateNativeBrowserLease()
         clearSocketCloseDeadline()
         setTerminalSessionTransportReady(false)
         setWorkspaceRequestTransportReady(false)
@@ -1344,6 +1484,7 @@ export function useWebSocket() {
 
     return () => {
       disposed = true
+      invalidateNativeBrowserLease()
       setTerminalSessionTransportReady(false)
       setWorkspaceRequestTransportReady(false)
       clearTimeout(reconnectTimer)

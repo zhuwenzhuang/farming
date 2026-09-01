@@ -21,6 +21,13 @@ declare global {
 
 const repoRoot = path.join(__dirname, '..')
 const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-desktop-smoke-'))
+const smokeAppearance = (() => {
+  const value = String(process.env.FARMING_DESKTOP_SMOKE_APPEARANCE || '').trim()
+  return value === 'light' || value === 'dark' || value === 'paper' ? value : ''
+})()
+const smokeSettings: { appearance?: 'light' | 'dark' | 'paper'; language: 'en' } = {
+  language: 'en',
+}
 let settingsRequestCount = 0
 let protocolHelloCount = 0
 let businessHealthProbeCount = 0
@@ -33,8 +40,27 @@ const backend = http.createServer((request, response) => {
   }
   if (request.url === '/api/settings') {
     settingsRequestCount += 1
+    if (request.method === 'POST') {
+      const chunks: Buffer[] = []
+      request.on('data', chunk => chunks.push(Buffer.from(chunk)))
+      request.once('end', () => {
+        try {
+          const input = JSON.parse(Buffer.concat(chunks).toString('utf8')) as { appearance?: unknown }
+          if (input.appearance === 'light' || input.appearance === 'dark' || input.appearance === 'paper') {
+            smokeSettings.appearance = input.appearance
+          }
+        } catch {
+          response.writeHead(400, { 'Content-Type': 'application/json' })
+          response.end(JSON.stringify({ error: 'Desktop smoke settings payload is invalid.' }))
+          return
+        }
+        response.writeHead(200, { 'Content-Type': 'application/json' })
+        response.end(JSON.stringify({ settings: smokeSettings }))
+      })
+      return
+    }
     response.writeHead(200, { 'Content-Type': 'application/json' })
-    response.end(JSON.stringify({ settings: { language: 'en' } }))
+    response.end(JSON.stringify({ settings: smokeSettings }))
     return
   }
   if (request.url === '/desktop-smoke-external-redirect') {
@@ -170,10 +196,47 @@ async function main() {
     await page.getByTestId('app-shell').waitFor({ state: 'visible' })
     const initialState = await page.evaluate(() => ({
       desktopBridge: typeof (window as Window & { farmingDesktop?: unknown }).farmingDesktop,
+      nativeBrowser: (() => {
+        const bridge = (window as Window & { farmingDesktop?: FarmingDesktopBridge }).farmingDesktop
+          ?.nativeBrowser
+        return bridge ? {
+          adapterId: bridge.adapterId,
+          command: typeof bridge.command,
+          focus: typeof bridge.focus,
+          invalidateLease: typeof bridge.invalidateLease,
+          mount: typeof bridge.mount,
+          reconcileBackendEpoch: typeof bridge.reconcileBackendEpoch,
+          unmount: typeof bridge.unmount,
+        } : null
+      })(),
       text: document.body.innerText.slice(0, 500),
     }))
     console.log(`Desktop renderer state: ${JSON.stringify(initialState)}`)
     assert.equal(initialState.desktopBridge, 'object', 'Electron preload bridge was not installed.')
+    assert.match(
+      initialState.nativeBrowser?.adapterId || '',
+      /^desktop-browser-[0-9a-f-]{36}$/,
+      'Electron preload did not expose the persistent native Browser adapter identity.',
+    )
+    assert.deepEqual(
+      {
+        command: initialState.nativeBrowser?.command,
+        focus: initialState.nativeBrowser?.focus,
+        invalidateLease: initialState.nativeBrowser?.invalidateLease,
+        mount: initialState.nativeBrowser?.mount,
+        reconcileBackendEpoch: initialState.nativeBrowser?.reconcileBackendEpoch,
+        unmount: initialState.nativeBrowser?.unmount,
+      },
+      {
+        command: 'function',
+        focus: 'function',
+        invalidateLease: 'function',
+        mount: 'function',
+        reconcileBackendEpoch: 'function',
+        unmount: 'function',
+      },
+      'Electron preload did not expose the complete native Browser presentation bridge.',
+    )
     assert.equal(await page.getByRole('dialog').count(), 0, 'Desktop first launch must not force a backend decision.')
     assert.equal(await page.getByTestId('desktop-backend-bar').count(), 0, 'Desktop must not add a backend bar above the web UI.')
     const initialBackendState = await page.evaluate(async () => {
@@ -396,6 +459,22 @@ async function main() {
     assert.deepEqual(restartPageErrors, [], 'Restarted desktop renderer emitted an uncaught page error.')
     const screenshotPath = process.env.FARMING_DESKTOP_SMOKE_SCREENSHOT
     if (screenshotPath) {
+      if (smokeAppearance) {
+        await restartedPage.evaluate(async appearance => {
+          const response = await fetch('/api/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ appearance }),
+          })
+          if (!response.ok) throw new Error(`Desktop smoke appearance update failed with HTTP ${response.status}`)
+        }, smokeAppearance)
+        await restartedPage.reload()
+        await restartedPage.getByTestId('app-shell').waitFor({ state: 'visible' })
+        await restartedPage.waitForFunction(appearance => (
+          document.documentElement.dataset.appearance === appearance
+          && document.body.dataset.appearance === appearance
+        ), smokeAppearance)
+      }
       await restartedPage.getByTestId('code-nav-plugins').click()
       await restartedPage.getByTestId('code-plugins-panel').waitFor()
       await restartedPage.getByTestId('desktop-connections-panel').waitFor()

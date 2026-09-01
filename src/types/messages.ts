@@ -150,6 +150,36 @@ export interface StateResyncMessage {
   afterSequence?: number
 }
 
+export interface DesktopBrowserAdapterRegisterMessage {
+  type: 'desktop-browser-adapter-register'
+  adapterId: string
+}
+
+export interface DesktopBrowserAdapterResponseMessage {
+  type: 'desktop-browser-adapter-response'
+  adapterId: string
+  requestId: string
+  resourceId: string
+  sessionId: string
+  generation: number
+  ok: boolean
+  result?: unknown
+  error?: string
+  code?: string
+  status?: number
+  uncertain?: boolean
+}
+
+export interface DesktopBrowserAdapterEventMessage {
+  type: 'desktop-browser-adapter-event'
+  adapterId: string
+  resourceId: string
+  sessionId: string
+  generation: number
+  kind: string
+  payload?: Record<string, unknown>
+}
+
 export interface WatchWorkspaceFilesMessage {
   type: 'watch-workspace-files'
   rootId: string
@@ -179,6 +209,9 @@ export type ClientMessage =
   | WorkspaceCancelMessage
   | LanguageServerRequestMessage
   | StateResyncMessage
+  | DesktopBrowserAdapterRegisterMessage
+  | DesktopBrowserAdapterResponseMessage
+  | DesktopBrowserAdapterEventMessage
 
 // ---- Server → Client messages ----
 
@@ -407,6 +440,25 @@ export interface ComputerResourceDeletedMessage {
   deletion: ComputerResourceDeletion
 }
 
+export interface DesktopBrowserAdapterCommandMessage {
+  type: 'desktop-browser-command'
+  command: {
+    adapterId: string
+    requestId: string
+    resourceId: string
+    sessionId: string
+    generation: number
+    operation: string
+    input?: Record<string, unknown>
+  }
+}
+
+export interface DesktopBrowserAdapterRegisteredMessage {
+  type: 'desktop-browser-adapter-registered'
+  adapterId: string
+  serverEpoch: string
+}
+
 export type ServerMessage =
   | ProtocolServerHelloMessage
   | ProtocolErrorMessage
@@ -437,3 +489,5 @@ export type ServerMessage =
   | ComputerResourceSnapshotMessage
   | ComputerResourceUpdateMessage
   | ComputerResourceDeletedMessage
+  | DesktopBrowserAdapterRegisteredMessage
+  | DesktopBrowserAdapterCommandMessage

@@ -179,6 +179,147 @@ async function browserInputValue(page: Page, browserId: string) {
   return String(result.result || '')
 }
 
+async function installDesktopNativeBrowserBridge(page: Page) {
+  await page.addInitScript(() => {
+    type NativeTab = {
+      active: boolean
+      controlEpoch: number
+      controlOwner: 'agent' | 'user'
+      resourceId: string
+      tabId: string
+      title: string
+      url: string
+      zoomFactor: number
+    }
+    type NativeBrowserTestState = {
+      adapterRegistered: boolean
+      commands: Array<{ operation: string, resourceId: string }>
+      mounted: Array<{ generation: number, resourceId: string }>
+      tabs: Map<string, NativeTab>
+    }
+    const testWindow = window as unknown as {
+      __farmingNativeBrowserE2E?: NativeBrowserTestState
+      farmingDesktop?: unknown
+    }
+    const state: NativeBrowserTestState = {
+      adapterRegistered: false,
+      commands: [],
+      mounted: [],
+      tabs: new Map(),
+    }
+    testWindow.__farmingNativeBrowserE2E = state
+    window.addEventListener('farming:desktop-native-browser-capability-changed', () => {
+      state.adapterRegistered = true
+    })
+    const tabs = () => [...state.tabs.values()].map(tab => ({
+      active: tab.active,
+      controlEpoch: tab.controlEpoch,
+      controlOwner: tab.controlOwner,
+      tabId: tab.tabId,
+      title: tab.title,
+      type: 'page',
+      url: tab.url,
+    }))
+    const tabFor = (resourceId: string) => {
+      const tab = state.tabs.get(resourceId)
+      if (!tab) throw new Error(`Missing native tab for ${resourceId}`)
+      return tab
+    }
+    const nativeBrowser = {
+      adapterId: 'desktop-e2e-native-adapter',
+      command: async (command: {
+        generation?: unknown
+        input?: Record<string, unknown>
+        operation?: unknown
+        resourceId?: unknown
+        sessionId?: unknown
+      }) => {
+        const operation = String(command.operation || '')
+        const resourceId = String(command.resourceId || '')
+        const input = command.input || {}
+        state.commands.push({ operation, resourceId })
+        if (operation === 'start') {
+          const url = String(input.url || 'about:blank')
+          const tab: NativeTab = {
+            active: true,
+            controlEpoch: Number(input.controlEpoch) || 0,
+            controlOwner: 'agent',
+            resourceId,
+            tabId: `native:${resourceId}`,
+            title: 'Native Browser',
+            url,
+            zoomFactor: 1,
+          }
+          for (const existing of state.tabs.values()) existing.active = false
+          state.tabs.set(resourceId, tab)
+          return { result: { tabs: tabs(), title: tab.title, url: tab.url } }
+        }
+        if (operation === 'list-tabs' || operation === 'bind-tab') {
+          return { result: { tabs: tabs() } }
+        }
+        if (operation === 'prepare-control') {
+          return {
+            result: {
+              controlEpoch: Number(input.controlEpoch) || 0,
+              owner: input.owner === 'user' ? 'user' : 'agent',
+            },
+          }
+        }
+        if (operation === 'commit-control') {
+          const tab = tabFor(resourceId)
+          tab.controlEpoch = Number(input.controlEpoch) || tab.controlEpoch
+          tab.controlOwner = input.owner === 'user' ? 'user' : 'agent'
+          return { result: { controlEpoch: tab.controlEpoch, owner: tab.controlOwner } }
+        }
+        if (operation === 'navigate') {
+          const tab = tabFor(resourceId)
+          tab.url = String(input.url || tab.url)
+          tab.title = 'Native navigation'
+          return { result: { title: tab.title, url: tab.url } }
+        }
+        if (operation === 'get-zoom') return { result: { zoomFactor: tabFor(resourceId).zoomFactor } }
+        if (operation === 'zoom-in' || operation === 'zoom-out' || operation === 'reset-zoom') {
+          const tab = tabFor(resourceId)
+          tab.zoomFactor = operation === 'zoom-in'
+            ? 1.1
+            : operation === 'zoom-out'
+              ? 0.9
+              : 1
+          return { result: { zoomFactor: tab.zoomFactor } }
+        }
+        if (operation === 'close-session' || operation === 'close-tab') {
+          state.tabs.delete(resourceId)
+          return { result: { ok: true, tabs: tabs() } }
+        }
+        return { result: { ok: true } }
+      },
+      focus: async () => {},
+      invalidateLease: async () => {
+        state.tabs.clear()
+      },
+      mount: async (input: { generation: number, resourceId: string }) => {
+        state.mounted.push({
+          generation: input.generation,
+          resourceId: input.resourceId,
+        })
+      },
+      onEvent: () => () => {},
+      reconcileBackendEpoch: async () => {},
+      unmount: async () => {},
+    }
+    testWindow.farmingDesktop = {
+      activateBackend: async () => ({ activeBackendId: '', connections: [], profiles: [] }),
+      disconnectBackend: async () => ({ activeBackendId: '', connections: [], profiles: [] }),
+      getState: async () => ({ activeBackendId: '', connections: [], profiles: [] }),
+      nativeBrowser,
+      onStateChanged: () => () => {},
+      removeBackend: async () => ({ activeBackendId: '', connections: [], profiles: [] }),
+      saveAndActivateBackend: async () => ({ activeBackendId: '', connections: [], profiles: [] }),
+      showNotification: async () => {},
+    }
+  })
+}
+
 async function createBrowserOwnerAgent(page: Page, workspace: string) {
   const response = await page.request.post('/farming/api/control/agents', {
     data: { command: 'bash', workspace },
@@ -1128,6 +1269,90 @@ test('keeps an edited browser address until Enter submits it', async ({
 
   await addressInput.press('Enter')
   await expect.poll(async () => (await browserSnapshot(page, createdBrowser.id)).url).toBe(targetUrl)
+})
+
+test('uses the registered Desktop native Browser surface and explicit control handoff', async ({
+  page,
+  workspaceRoot,
+}) => {
+  await installDesktopNativeBrowserBridge(page)
+  const workspace = path.join(workspaceRoot, 'desktop-native-browser-viewer')
+  fs.mkdirSync(workspace, { recursive: true })
+  const enableResponse = await page.request.post('/farming/api/settings', {
+    data: { browserExtensionEnabled: true },
+  })
+  expect(enableResponse.ok()).toBeTruthy()
+  const agentId = await createBrowserOwnerAgent(page, workspace)
+  await openFarming(page)
+
+  await expect.poll(() => page.evaluate(() => {
+    const state = (window as unknown as {
+      __farmingNativeBrowserE2E?: { adapterRegistered: boolean }
+    }).__farmingNativeBrowserE2E
+    return state?.adapterRegistered === true
+  })).toBeTruthy()
+
+  const createResponse = await page.request.post('/farming/api/browsers', {
+    data: {
+      agentId,
+      desktopAdapterId: 'desktop-e2e-native-adapter',
+      rootId: projectFilesWorkspaceId(workspace),
+      source: 'desktop',
+      url: 'https://native-browser.test/',
+    },
+  })
+  expect(createResponse.ok()).toBeTruthy()
+  const createdBrowser = await createResponse.json() as { id: string }
+  const startResponse = await page.request.post(`/farming/api/browsers/${createdBrowser.id}/start`)
+  expect(startResponse.ok()).toBeTruthy()
+
+  const browserSection = await openAgentBrowserSection(page, agentId)
+  await browserSection.getByTestId('farming-browser-row').click()
+  const viewer = page.getByTestId('farming-browser-viewer')
+  await expect(viewer.getByTestId('farming-browser-native-surface')).toBeVisible()
+  await expect.poll(() => page.evaluate(id => {
+    const state = (window as unknown as {
+      __farmingNativeBrowserE2E?: {
+        mounted: Array<{ generation: number, resourceId: string }>
+      }
+    }).__farmingNativeBrowserE2E
+    return state?.mounted.some(mount => mount.resourceId === id) === true
+  }, createdBrowser.id)).toBeTruthy()
+  await expect(viewer).toContainText('Agent control')
+  const takeControl = viewer.getByRole('button', { name: 'Take control' })
+  await expect(takeControl).toBeVisible()
+  await takeControl.click()
+  await expect(viewer).toContainText('You have control')
+
+  const address = viewer.getByRole('textbox', { name: 'Browser address' })
+  await address.fill('example.test/native')
+  await address.press('Enter')
+  await expect(address).toHaveValue('https://example.test/native')
+
+  await viewer.getByRole('button', { name: 'Return to Agent' }).click()
+  await expect(viewer).toContainText('Agent control')
+  const nativeState = await page.evaluate(() => {
+    const state = (window as unknown as {
+      __farmingNativeBrowserE2E?: {
+        commands: Array<{ operation: string, resourceId: string }>
+        mounted: Array<{ generation: number, resourceId: string }>
+      }
+    }).__farmingNativeBrowserE2E
+    return {
+      commands: state?.commands || [],
+      mounted: state?.mounted || [],
+    }
+  })
+  expect(nativeState.commands.map(command => command.operation)).toEqual(expect.arrayContaining([
+    'bind-tab',
+    'commit-control',
+    'navigate',
+    'prepare-control',
+    'start',
+  ]))
+  expect(nativeState.mounted.some(mount => mount.resourceId === createdBrowser.id)).toBeTruthy()
+
+  await page.request.delete(`/farming/api/browsers/${createdBrowser.id}`)
 })
 
 test('normalizes a bare address and clears a recovered navigation error', async ({

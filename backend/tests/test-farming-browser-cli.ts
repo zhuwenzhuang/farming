@@ -63,7 +63,7 @@ async function run() {
 
   const openDescription = describeCommand('open');
   const sourceOption = openDescription.input.options.find(option => option.name === '--source');
-  assert.deepStrictEqual(sourceOption.values, ['system', 'extension', 'isolated']);
+  assert.deepStrictEqual(sourceOption.values, ['desktop', 'system', 'extension', 'isolated']);
   assert.strictEqual(
     openDescription.input.options.some(option => option.name === '--cdp-url'),
     false,

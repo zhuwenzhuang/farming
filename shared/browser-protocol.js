@@ -9,8 +9,8 @@ exports.protocolCompatible = protocolCompatible;
 exports.claimProtocolUpgradeReload = claimProtocolUpgradeReload;
 const agent_state_semantics_js_1 = require("./agent-state-semantics.js");
 const agent_state_wire_js_1 = require("./agent-state-wire.js");
-exports.PROTOCOL_VERSION = 16;
-exports.MIN_PROTOCOL_VERSION = 16;
+exports.PROTOCOL_VERSION = 17;
+exports.MIN_PROTOCOL_VERSION = 17;
 exports.MAX_INLINE_WORKSPACE_MESSAGE_BYTES = 1024 * 1024;
 exports.PROJECT_ATTENTION_SCORE_MAX = agent_state_semantics_js_1.PROJECT_ATTENTION_SCORE_MAX;
 const SERVER_MESSAGE_TYPES = new Set([
@@ -43,6 +43,8 @@ const SERVER_MESSAGE_TYPES = new Set([
     'computer-resource-snapshot',
     'computer-resource-updated',
     'computer-resource-deleted',
+    'desktop-browser-adapter-registered',
+    'desktop-browser-command',
 ]);
 function objectMessage(value) {
     return Boolean(value && typeof value === 'object' && !Array.isArray(value));
@@ -437,6 +439,29 @@ function validateClientMessage(value) {
             valid = stringField(value, 'generation', true)
                 && optionalField(value, 'afterSequence', () => revisionField(value, 'afterSequence'));
             break;
+        case 'desktop-browser-adapter-register':
+            valid = boundedStringField(value, 'adapterId', 160);
+            break;
+        case 'desktop-browser-adapter-response':
+            valid = boundedStringField(value, 'adapterId', 160)
+                && boundedStringField(value, 'requestId', 160)
+                && boundedStringField(value, 'resourceId', 256)
+                && boundedStringField(value, 'sessionId', 256)
+                && revisionField(value, 'generation')
+                && typeof value.ok === 'boolean'
+                && optionalField(value, 'error', () => boundedStringField(value, 'error', 2_000))
+                && optionalField(value, 'code', () => boundedStringField(value, 'code', 128))
+                && optionalField(value, 'status', () => revisionField(value, 'status'))
+                && optionalBooleanField(value, 'uncertain');
+            break;
+        case 'desktop-browser-adapter-event':
+            valid = boundedStringField(value, 'adapterId', 160)
+                && boundedStringField(value, 'resourceId', 256)
+                && boundedStringField(value, 'sessionId', 256)
+                && revisionField(value, 'generation')
+                && boundedStringField(value, 'kind', 128)
+                && optionalField(value, 'payload', () => objectMessage(value.payload));
+            break;
         case 'watch-workspace-files':
             valid = stringField(value, 'rootId')
                 && Array.isArray(value.paths)
@@ -613,6 +638,22 @@ function validateServerMessage(value) {
         case 'computer-resource-deleted':
             valid = resourceDeletion(value.deletion);
             break;
+        case 'desktop-browser-adapter-registered':
+            valid = boundedStringField(value, 'adapterId', 160)
+                && boundedStringField(value, 'serverEpoch', 256);
+            break;
+        case 'desktop-browser-command': {
+            const command = objectMessage(value.command) ? value.command : null;
+            valid = command !== null
+                && boundedStringField(command, 'adapterId', 160)
+                && boundedStringField(command, 'requestId', 160)
+                && boundedStringField(command, 'resourceId', 256)
+                && boundedStringField(command, 'sessionId', 256)
+                && revisionField(command, 'generation')
+                && boundedStringField(command, 'operation', 128)
+                && optionalField(command, 'input', () => objectMessage(command.input));
+            break;
+        }
     }
     return valid
         ? { ok: true, value: value }

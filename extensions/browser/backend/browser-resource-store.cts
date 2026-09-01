@@ -6,10 +6,10 @@ import {
   browserResourcesFile,
 } from '../../../backend/storage-layout.cjs';
 
-const STORE_VERSION = 11;
+const STORE_VERSION = 12;
 const RESOURCE_ID_RE = /^browser_[A-Za-z0-9_-]+$/;
 const SESSION_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
-const TAB_ID_RE = /^t\d+$/;
+const TAB_ID_RE = /^[A-Za-z0-9._:-]{1,256}$/;
 const STATUSES = new Set<BrowserResourceStatus>([
   'stopped',
   'starting',
@@ -33,11 +33,15 @@ interface BrowserResource {
   browserKind: string;
   browserSource: string;
   browserExecutablePath: string;
+  controlEpoch: number;
+  controlOwner: 'agent' | 'user';
   createdAt: number;
+  desktopAdapterId: string;
   error: string;
   existingTabId: number | null;
   generation: number;
   id: string;
+  loading: boolean;
   name: string;
   ownerAgentId: string;
   processIdentity: BrowserProcessIdentity | null;
@@ -65,10 +69,14 @@ interface BrowserResourceCreateInput {
   browserKind?: unknown;
   browserSource?: unknown;
   browserExecutablePath?: unknown;
+  controlEpoch?: unknown;
+  controlOwner?: unknown;
+  desktopAdapterId?: unknown;
   existingTabId?: unknown;
   name?: unknown;
   ownerAgentId: unknown;
   projectRootId: unknown;
+  runtimeKind?: unknown;
   sessionName?: unknown;
   sessionGeneration?: unknown;
   sessionId?: unknown;
@@ -173,10 +181,15 @@ function normalizeResourceFields(
     url: String(resource.url || 'about:blank').slice(0, 8_192) || 'about:blank',
     title: String(resource.title || '').slice(0, 512),
     browserKind: String(resource.browserKind || ''),
-    browserSource: ['extension', 'isolated', 'system'].includes(String(resource.browserSource || ''))
+    browserSource: ['desktop', 'extension', 'isolated', 'system'].includes(String(resource.browserSource || ''))
       ? String(resource.browserSource)
       : legacySource,
     browserExecutablePath: String(resource.browserExecutablePath || '').slice(0, 4_096),
+    desktopAdapterId: String(resource.desktopAdapterId || '').trim().slice(0, 160),
+    controlOwner: resource.controlOwner === 'user' ? 'user' : 'agent',
+    controlEpoch: Number.isSafeInteger(resource.controlEpoch) && Number(resource.controlEpoch) >= 0
+      ? Number(resource.controlEpoch)
+      : 0,
     runtimeKind: String(resource.runtimeKind || ''),
     sessionName: SESSION_NAME_RE.test(String(resource.sessionName || '').trim())
       ? String(resource.sessionName).trim()
@@ -189,6 +202,7 @@ function normalizeResourceFields(
       ? Number(resource.sessionGeneration)
       : 0,
     tabId: TAB_ID_RE.test(String(resource.tabId || '')) ? String(resource.tabId) : '',
+    loading: resource.loading === true,
     error: String(resource.error || '').slice(0, 2_000),
     existingTabId: Number.isSafeInteger(Number(resource.existingTabId))
       && Number(resource.existingTabId) > 0
@@ -291,10 +305,14 @@ class BrowserResourceStore {
       browserKind: '',
       browserSource: input.browserSource,
       browserExecutablePath: input.browserExecutablePath,
+      desktopAdapterId: input.desktopAdapterId,
+      controlOwner: input.controlOwner,
+      controlEpoch: input.controlEpoch,
       sessionName: input.sessionName || '',
       sessionId: input.sessionId || '',
       sessionGeneration: input.sessionGeneration || 0,
       tabId: input.tabId || '',
+      loading: false,
       error: '',
       existingTabId: input.existingTabId,
       createdAt: Date.now(),
@@ -316,7 +334,7 @@ class BrowserResourceStore {
       autoName: true,
       generation: 1,
       browserKind: input.browserKind,
-      runtimeKind: 'agent-browser',
+      runtimeKind: input.runtimeKind || 'agent-browser',
       sessionId: input.sessionId,
       sessionGeneration: input.sessionGeneration,
       tabId: input.tabId,

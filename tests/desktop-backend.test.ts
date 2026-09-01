@@ -12,9 +12,18 @@ import {
 import { resolveDesktopServerVersion } from '../desktop/app-version'
 import { buildSshTunnelArgs } from '../desktop/connection-manager'
 import { desktopExternalUrl, isDesktopGatewayUrl } from '../desktop/external-navigation'
-import { desktopContentSecurityPolicy, validateDesktopRendererAssets } from '../desktop/gateway'
+import {
+  desktopContentSecurityPolicy,
+  desktopInlineScriptCspHashes,
+  validateDesktopRendererAssets,
+} from '../desktop/gateway'
 import { DesktopLifecycle } from '../desktop/lifecycle'
 import { DesktopLocalBackend, LOCAL_BACKEND_ID } from '../desktop/local-backend'
+import {
+  desktopNativeBrowserAdapterIdFile,
+  resolveDesktopNativeBrowserAdapterId,
+} from '../desktop/native-browser-adapter-id'
+import { nativeBrowserDomScript } from '../desktop/native-browser'
 import { allowsDesktopAudioPermission } from '../desktop/permissions'
 import { DesktopProfileStore } from '../desktop/profile-store'
 import { saveAndActivateDesktopBackend } from '../desktop/save-and-activate'
@@ -81,22 +90,53 @@ test('desktop focuses and restores the existing primary window without creating 
   }), false)
 })
 
-test('desktop gateway hashes exactly its inline renderer scripts without unsafe-inline', () => {
-  const inlineScript = 'window.farmingDesktopAppearance = "dark"'
-  const inlineHash = createHash('sha256').update(inlineScript).digest('base64')
-  const externalScript = 'window.mustNotBeHashed = true'
-  const externalHash = createHash('sha256').update(externalScript).digest('base64')
-  const policy = desktopContentSecurityPolicy([
-    '<!doctype html>',
-    `<script>${inlineScript}</script>`,
-    `<script src="/assets/app.js">${externalScript}</script>`,
-  ].join(''))
+test('desktop native Browser adapter identity is stable per Desktop user-data profile', () => {
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-native-browser-adapter-id-'))
+  const otherUserData = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-native-browser-adapter-id-'))
+  try {
+    const first = resolveDesktopNativeBrowserAdapterId(userData)
+    const second = resolveDesktopNativeBrowserAdapterId(userData)
+    const other = resolveDesktopNativeBrowserAdapterId(otherUserData)
+    assert.match(first, /^desktop-browser-[0-9a-f-]{36}$/)
+    assert.equal(second, first)
+    assert.notEqual(other, first)
+    assert.equal(
+      fs.readFileSync(desktopNativeBrowserAdapterIdFile(userData), 'utf8').trim(),
+      first,
+    )
+    if (process.platform !== 'win32') {
+      assert.equal(fs.statSync(desktopNativeBrowserAdapterIdFile(userData)).mode & 0o777, 0o600)
+    }
+  } finally {
+    fs.rmSync(userData, { recursive: true, force: true })
+    fs.rmSync(otherUserData, { recursive: true, force: true })
+  }
+})
 
-  assert.ok(policy.includes(`'sha256-${inlineHash}'`))
-  assert.equal(policy.includes(`'sha256-${externalHash}'`), false)
-  const scriptDirective = policy.split('; ').find(value => value.startsWith('script-src'))
-  assert.ok(scriptDirective)
-  assert.equal(scriptDirective.includes("'unsafe-inline'"), false)
+test('desktop native Browser DOM commands bind their operation in the page world', () => {
+  const script = nativeBrowserDomScript('fill', {
+    selector: '</script><input id="field">',
+    text: 'native input',
+  })
+  assert.match(script, /const operation = "fill";/)
+  assert.match(script, /\\u003c\/script>/)
+  assert.match(script, /if \(operation === 'fill'\)/)
+})
+
+test('desktop gateway CSP hashes every inline renderer script without unsafe-inline', () => {
+  const indexHtml = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8')
+  const expectedHashes = Array.from(
+    indexHtml.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi),
+  )
+    .filter(match => !/\bsrc\s*=/i.test(match[1]) && Boolean(match[2].trim()))
+    .map(match => `'sha256-${createHash('sha256').update(match[2]).digest('base64')}'`)
+    .sort()
+  const hashes = desktopInlineScriptCspHashes(indexHtml).sort()
+  const policy = desktopContentSecurityPolicy(indexHtml)
+
+  assert.deepEqual(hashes, expectedHashes)
+  expectedHashes.forEach(hash => assert.match(policy, new RegExp(hash.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))))
+  assert.doesNotMatch(policy, /script-src[^;]*'unsafe-inline'/)
 })
 
 test('desktop lifecycle coalesces route invalidations while a window is loading', () => {

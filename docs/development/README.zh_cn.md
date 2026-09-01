@@ -25,6 +25,7 @@
 
 - [公开文档站](documentation-site.zh_cn.md)
 - [Farming Desktop MVP](../products/code/desktop-app.zh_cn.md)
+- [Desktop 原生 Browser 视图](../products/code/desktop-native-browser.zh_cn.md)
 - [Extension 与 Resource Model](../products/code/extension-model.zh_cn.md)
 - [Project Files Design](../products/code/project-files-section-design.zh_cn.md)
 - [休息提醒状态模型](../products/code/rest-reminder.zh_cn.md)

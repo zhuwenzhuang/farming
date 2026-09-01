@@ -25,6 +25,7 @@ Farming Code 是默认的浏览器工作区。用户使用说明统一在公开�
 - [分享访问模型](share-access-model.zh_cn.md)
 - [Review 基础](review-foundation.zh_cn.md)
 - [Farming Desktop](desktop-app.zh_cn.md)
+- [Desktop 原生 Browser 视图](desktop-native-browser.zh_cn.md)
 - [外观主题](appearance-themes.zh_cn.md)
 - [Language Server](language-server.zh_cn.md)
 - [验收与 Dogfood 计划](test/acceptance-dogfood-plan.zh_cn.md)

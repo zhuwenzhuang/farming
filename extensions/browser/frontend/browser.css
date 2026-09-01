@@ -36,12 +36,18 @@
 
 .farming-browser-toolbar {
   min-height: 38px;
-  display: flex;
-  align-items: center;
-  gap: 2px;
+  display: grid;
+  gap: 4px;
   padding: 4px 6px;
   border-bottom: 1px solid var(--code-border-subtle);
   background: var(--code-bg-surface);
+}
+
+.farming-browser-toolbar-actions {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
 }
 
 .farming-browser-toolbar button,
@@ -91,6 +97,44 @@
 
 .farming-browser-toolbar .farming-browser-agent-return {
   color: var(--code-text);
+}
+
+.farming-browser-native-tabs {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.farming-browser-native-tab {
+  min-width: 72px;
+  max-width: min(220px, 32vw);
+  height: 27px;
+  flex: 0 1 152px;
+  justify-content: flex-start !important;
+  padding: 0 9px !important;
+  border-radius: 6px !important;
+  color: var(--code-text-muted) !important;
+}
+
+.farming-browser-native-tab:hover:not(:disabled),
+.farming-browser-native-tab:focus-visible,
+.farming-browser-native-tab.selected {
+  background: var(--code-bg-hover) !important;
+  color: var(--code-text-strong) !important;
+}
+
+.farming-browser-native-tab > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.farming-browser-native-new-tab {
+  margin-left: 1px;
 }
 
 .farming-browser-toolbar-separator {
@@ -179,6 +223,54 @@
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--code-warning) 18%, transparent);
 }
 
+.farming-browser-controller.native.user > span {
+  background: var(--code-warning);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--code-warning) 18%, transparent);
+}
+
+.farming-browser-native-control {
+  flex: 0 0 auto;
+  border: 1px solid var(--code-border) !important;
+  background: var(--code-bg-inset) !important;
+  color: var(--code-text) !important;
+}
+
+.farming-browser-native-control:hover:not(:disabled),
+.farming-browser-native-control:focus-visible {
+  background: var(--code-bg-hover) !important;
+  color: var(--code-text-strong) !important;
+}
+
+.farming-browser-native-zoom {
+  height: 28px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--code-border);
+  border-radius: 7px;
+  background: var(--code-bg-inset);
+  overflow: hidden;
+}
+
+.farming-browser-toolbar .farming-browser-native-zoom .farming-browser-toolbar-icon {
+  width: 25px;
+  min-height: 26px;
+  flex-basis: 25px;
+  border-radius: 0;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.farming-browser-native-zoom-value {
+  min-width: 42px;
+  min-height: 26px !important;
+  padding: 0 6px !important;
+  border-radius: 0 !important;
+  border-inline: 1px solid var(--code-border) !important;
+  color: var(--code-text) !important;
+  font-size: 11px !important;
+}
+
 .farming-browser-controller strong {
   min-width: 0;
   overflow: hidden;
@@ -206,6 +298,20 @@
   background: var(--code-bg-canvas);
   cursor: default;
   outline: none;
+}
+
+.farming-browser-native-surface {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  background: var(--code-bg-canvas);
+  color: var(--code-text-muted);
+  font-size: 12px;
+}
+
+.farming-browser-native-unavailable {
+  max-width: 480px;
 }
 
 .farming-browser-more-wrap {
@@ -406,6 +512,10 @@
     padding-inline: 5px;
   }
 
+  .farming-browser-toolbar-actions {
+    gap: 1px;
+  }
+
   .farming-browser-toolbar form {
     margin-left: 1px;
   }
@@ -413,6 +523,14 @@
   .farming-browser-controller {
     max-width: 112px;
     padding-inline: 7px;
+  }
+
+  .farming-browser-native-tabs {
+    max-width: 100%;
+  }
+
+  .farming-browser-native-zoom {
+    display: none;
   }
 
 }

@@ -27,6 +27,7 @@ Maintainer contracts remain in this directory. Important entry points include:
 - [Share access model](share-access-model.md)
 - [Review foundation](review-foundation.md)
 - [Farming Desktop](desktop-app.md)
+- [Desktop Native Browser View](desktop-native-browser.md)
 - [Appearance themes](appearance-themes.md)
 - [Language Server](language-server.md)
 - [Acceptance and dogfood plan](test/acceptance-dogfood-plan.md)

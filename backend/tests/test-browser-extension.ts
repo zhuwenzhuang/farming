@@ -1981,7 +1981,7 @@ async function testLegacyProjectBrowserMigrationCleanup() {
     assert.deepStrictEqual(recovered.store.listLegacyProjectResources(), []);
     assert(!fs.existsSync(runningProfile));
     const migrated = JSON.parse(fs.readFileSync(resourcesFile, 'utf8'));
-    assert.strictEqual(migrated.version, 11);
+    assert.strictEqual(migrated.version, 12);
     assert.deepStrictEqual(migrated.resources, []);
   } finally {
     await recovered.dispose();
@@ -2158,6 +2158,22 @@ async function testBrowserRouterAgentOwnership() {
     },
     stop: async id => ({ id, status: 'stopped' }),
     delete: async id => ({ id }),
+    takeControl: async (id, owner) => {
+      calls.push({ kind: 'take-control', id, owner });
+      return { id, controlOwner: owner };
+    },
+    nativeUserAction: async (id, input) => {
+      calls.push({ kind: 'native-user-action', id, input });
+      return { id, ...input };
+    },
+    selectNativeTab: async id => {
+      calls.push({ kind: 'select-native-tab', id });
+      return { id, selected: true };
+    },
+    createNativeTab: async (id, input) => {
+      calls.push({ kind: 'create-native-tab', id, input });
+      return { id: 'browser_native_tab', ...input };
+    },
     navigate: async (id, url) => ({ id, url }),
     action: async (id, input) => ({ id, input }),
     on() {},
@@ -2210,6 +2226,15 @@ async function testBrowserRouterAgentOwnership() {
     });
     return { status: response.status, body: await response.json() };
   };
+  const humanRequest = (pathname, options: Parameters<typeof fetch>[1] = {}) => (
+    request(pathname, {
+      ...options,
+      headers: {
+        'X-Farming-Agent-Id': '',
+        ...options.headers,
+      },
+    })
+  );
   try {
     const readOnlyCapability = await request('/api/browsers/capability', {
       headers: { 'X-Test-Access': 'read-only' },
@@ -2264,6 +2289,60 @@ async function testBrowserRouterAgentOwnership() {
       'A cross-Agent operation must be rejected before it reaches the manager',
     );
 
+    const nativeOnlyRoutes = [
+      ['/api/browsers/browser_agent_a/control', { owner: 'user' }],
+      ['/api/browsers/browser_agent_a/native-action', { kind: 'reload' }],
+      ['/api/browsers/browser_agent_a/select-native-tab', {}],
+      ['/api/browsers/browser_agent_a/native-tab', {}],
+    ];
+    for (const [pathname, body] of nativeOnlyRoutes) {
+      const forbidden = await request(pathname, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+      assert.strictEqual(forbidden.status, 403);
+      assert.strictEqual(forbidden.body.code, 'BROWSER_HUMAN_CONTROL_ONLY');
+    }
+
+    const userControl = await humanRequest('/api/browsers/browser_agent_a/control', {
+      method: 'POST',
+      body: JSON.stringify({ owner: 'user' }),
+    });
+    assert.strictEqual(userControl.status, 200);
+    assert.deepStrictEqual(calls.at(-1), {
+      kind: 'take-control',
+      id: 'browser_agent_a',
+      owner: 'user',
+    });
+    const userAction = await humanRequest('/api/browsers/browser_agent_a/native-action', {
+      method: 'POST',
+      body: JSON.stringify({ kind: 'reload' }),
+    });
+    assert.strictEqual(userAction.status, 200);
+    assert.deepStrictEqual(calls.at(-1), {
+      kind: 'native-user-action',
+      id: 'browser_agent_a',
+      input: { kind: 'reload' },
+    });
+    const userSelection = await humanRequest('/api/browsers/browser_agent_a/select-native-tab', {
+      method: 'POST',
+    });
+    assert.strictEqual(userSelection.status, 200);
+    assert.deepStrictEqual(calls.at(-1), {
+      kind: 'select-native-tab',
+      id: 'browser_agent_a',
+    });
+    const userTab = await humanRequest('/api/browsers/browser_agent_a/native-tab', {
+      method: 'POST',
+      body: JSON.stringify({ url: 'about:blank' }),
+    });
+    assert.strictEqual(userTab.status, 201);
+    assert.deepStrictEqual(calls.at(-1), {
+      kind: 'create-native-tab',
+      id: 'browser_agent_a',
+      input: { url: 'about:blank' },
+    });
+
     const ownerless = await request('/api/browsers', {
       method: 'POST',
       headers: { 'X-Farming-Agent-Id': '' },
@@ -2316,6 +2395,7 @@ async function testBrowserRouterAgentOwnership() {
         ownerAgentId: 'agent_a',
         name: undefined,
         url: 'https://reuse.example/',
+        preferDesktop: true,
         sessionName: 'default',
       },
     });

@@ -13,8 +13,14 @@ export interface BrowserResource {
   url: string
   title: string
   browserKind: string
-  browserSource?: 'extension' | 'isolated' | 'system'
+  browserSource?: 'desktop' | 'extension' | 'isolated' | 'system'
+  desktopAdapterId?: string
+  sessionId?: string
+  tabId?: string
   sessionName?: string
+  controlEpoch?: number
+  controlOwner?: 'agent' | 'user'
+  loading?: boolean
   error: string
   createdAt: number
   updatedAt: number
@@ -35,12 +41,12 @@ export interface BrowserCapability {
   available: boolean
   browser: { kind: string; path: string } | null
   selection?: {
-    source: 'extension' | 'isolated' | 'system'
+    source: 'desktop' | 'extension' | 'isolated' | 'system'
     executablePath: string
   }
   options?: Array<{ kind: string; path: string }>
   sources?: Array<{
-    source: 'extension' | 'isolated' | 'system'
+    source: 'desktop' | 'extension' | 'isolated' | 'system'
     available: boolean
     kind: string
     path: string

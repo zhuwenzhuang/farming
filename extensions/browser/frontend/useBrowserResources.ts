@@ -5,6 +5,7 @@ import {
   type BrowserResourceState,
 } from './browser-resource-state'
 import type { BrowserCapability, BrowserResource, BrowserResourceDeletion } from './types'
+import type { FarmingDesktopBridge } from '../../../shared/desktop-contract'
 
 async function browserRequest<T>(pathname: string, init?: RequestInit): Promise<T> {
   const response = await fetch(appPath(pathname), {
@@ -53,23 +54,49 @@ export function useBrowserResources(options: {
     }
   }, [refreshVersion])
 
+  useEffect(() => {
+    const refreshNativeDesktopCapability = () => {
+      setCapabilityError('')
+      setLoading(true)
+      setRefreshVersion(version => version + 1)
+    }
+    window.addEventListener(
+      'farming:desktop-native-browser-capability-changed',
+      refreshNativeDesktopCapability,
+    )
+    return () => {
+      window.removeEventListener(
+        'farming:desktop-native-browser-capability-changed',
+        refreshNativeDesktopCapability,
+      )
+    }
+  }, [])
+
   const create = useCallback(async (
     workspace: string,
     options: {
       agentId?: string
+      desktopAdapterId?: string
       executablePath?: string
       name?: string
-      source?: 'extension' | 'isolated' | 'system'
+      source?: 'desktop' | 'extension' | 'isolated' | 'system'
       url?: string
     } = {},
   ) => {
+    const nativeBrowser = (
+      window as Window & { farmingDesktop?: FarmingDesktopBridge }
+    ).farmingDesktop?.nativeBrowser
+    const source = options.source || (nativeBrowser ? 'desktop' : undefined)
     const resource = await browserRequest<BrowserResource>('/api/browsers', {
       method: 'POST',
       body: JSON.stringify({
         rootId: projectFilesWorkspaceId(workspace),
         agentId: options.agentId,
         name: options.name,
-        source: options.source,
+        ...(source ? { source } : {}),
+        ...(source === 'desktop' ? {
+          desktopAdapterId: options.desktopAdapterId || nativeBrowser?.adapterId,
+        } : {}),
         executablePath: options.executablePath,
         url: options.url,
       }),
@@ -107,6 +134,55 @@ export function useBrowserResources(options: {
     onDeletion(deletion)
   }, [onDeletion])
 
+  const takeControl = useCallback(async (id: string, owner: 'agent' | 'user') => {
+    const resource = await browserRequest<BrowserResource>(
+      `/api/browsers/${encodeURIComponent(id)}/control`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ owner }),
+      },
+    )
+    mergeResource(resource)
+    return resource
+  }, [mergeResource])
+
+  const nativeUserAction = useCallback(async (
+    id: string,
+    kind: 'back' | 'forward' | 'get-zoom' | 'navigate' | 'reload' | 'reset-zoom' | 'set-zoom' | 'stop-loading' | 'zoom-in' | 'zoom-out',
+    input: Record<string, unknown> = {},
+  ) => {
+    const resource = await browserRequest<BrowserResource & Record<string, unknown>>(
+      `/api/browsers/${encodeURIComponent(id)}/native-action`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ kind, ...input }),
+      },
+    )
+    mergeResource(resource)
+    return resource
+  }, [mergeResource])
+
+  const selectNativeTab = useCallback(async (id: string) => {
+    const resource = await browserRequest<BrowserResource>(
+      `/api/browsers/${encodeURIComponent(id)}/select-native-tab`,
+      { method: 'POST' },
+    )
+    mergeResource(resource)
+    return resource
+  }, [mergeResource])
+
+  const createNativeTab = useCallback(async (id: string, url = 'about:blank') => {
+    const resource = await browserRequest<BrowserResource>(
+      `/api/browsers/${encodeURIComponent(id)}/native-tab`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ url }),
+      },
+    )
+    mergeResource(resource)
+    return resource
+  }, [mergeResource])
+
   const refreshCapability = useCallback(() => {
     setCapabilityError('')
     setLoading(true)
@@ -143,6 +219,10 @@ export function useBrowserResources(options: {
     start,
     stop,
     remove,
+    takeControl,
+    nativeUserAction,
+    selectNativeTab,
+    createNativeTab,
     mergeResource,
     refreshCapability,
   }

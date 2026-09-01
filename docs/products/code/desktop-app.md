@@ -38,6 +38,12 @@ Desktop gateway keeps backend credentials in the main process, authenticates
 the local renderer, and forwards HTTP and WebSocket traffic to the selected
 backend. Remote content does not receive a Desktop preload bridge.
 
+Agent-owned Browser Resources may additionally use the
+[Desktop Native Browser View](./desktop-native-browser.md). Its Electron
+adapter owns only the native tab and view; Browser identity, lifecycle, lease,
+and Agent authorization remain backend-owned. This native path is not a second
+Browser implementation or a fallback for web clients.
+
 ## Local And Remote Backends
 
 First launch opens the local backend without requiring an SSH decision. Remote

@@ -34,6 +34,11 @@ Renderer 不接收上游 Backend Token，也不拥有 Node.js Access。Desktop G
 Process 内保存 Backend Credential，认证本机 Renderer，并转发到当前 Backend 的 HTTP 与
 WebSocket。Remote Content 不获得 Desktop Preload Bridge。
 
+Agent 拥有的 Browser Resource 还可以使用
+[Desktop 原生 Browser 视图](./desktop-native-browser.zh_cn.md)。其 Electron
+adapter 只拥有原生 tab 与 view；Browser 身份、生命周期、lease 和 Agent 授权仍由
+后端拥有。这条原生路径不是第二个 Browser 实现，也不是 Web 客户端的 fallback。
+
 ## 本机与远端 Backend
 
 首次启动直接打开本机 Backend，不要求用户先决定是否连接 SSH。Remote Connection 是基于

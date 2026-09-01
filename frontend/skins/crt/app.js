@@ -110,7 +110,7 @@ const terminalPreviewSnapshots = new Map();
 const crtBrandPulseTimers = new Map();
 const SESSION_LINK_LIMIT = 6;
 // Replaced from shared/browser-protocol.ts by build-classic-browser-runtime.ts.
-const CRT_PROTOCOL_VERSION = 16;
+const CRT_PROTOCOL_VERSION = 17;
 const CRT_AGENT_STATE_SNAPSHOT_PAGE_DEADLINE_MS = 30_000;
 const CRT_PREVIEW_RENDER_INTERVAL_MS = 1000;
 const CRT_STRUCTURED_PREVIEW_REFRESH_MS = 240;

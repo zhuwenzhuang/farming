@@ -10,7 +10,13 @@ import {
   shell,
   type IpcMainInvokeEvent,
 } from 'electron'
-import type { DesktopBackendInput, DesktopNotificationInput, DesktopState } from '../shared/desktop-contract.js'
+import type {
+  DesktopBackendInput,
+  DesktopNativeBrowserCommand,
+  DesktopNativeBrowserMount,
+  DesktopNotificationInput,
+  DesktopState,
+} from '../shared/desktop-contract.js'
 import { resolveDesktopServerVersion } from './app-version.js'
 import {
   applyDesktopBackendChange,
@@ -30,14 +36,17 @@ import {
   desktopStartupDataUrl,
 } from './startup-view.js'
 import { DesktopStartupResourceOwner } from './startup-resource-owner.js'
-import { focusDesktopWindow } from './window-focus.js'
+import { DesktopNativeBrowserController } from './native-browser.js'
+import { resolveDesktopNativeBrowserAdapterId } from './native-browser-adapter-id.js'
 import { desktopExternalUrl, isDesktopGatewayUrl } from './external-navigation.js'
+import { focusDesktopWindow } from './window-focus.js'
 
 let mainWindow: BrowserWindow | null = null
 let profiles: DesktopProfileStore | null = null
 let connections: DesktopConnectionManager | null = null
 let gateway: DesktopGateway | null = null
 let localBackend: DesktopLocalBackend | null = null
+let nativeBrowser: DesktopNativeBrowserController | null = null
 let pendingRendererUrl: string | null | undefined
 let focusRendererWhenReady = false
 let rendererDrainScheduled = false
@@ -50,6 +59,7 @@ const desktopResources = new DesktopStartupResourceOwner()
 const startupVisibility = new DesktopStartupVisibility()
 const rendererWindowGenerations = new WeakMap<BrowserWindow, number>()
 const desktopIconPath = path.join(__dirname, 'assets', 'farming-desktop.png')
+let nativeBrowserAdapterId = ''
 
 const userDataOverride = process.env.FARMING_DESKTOP_USER_DATA_DIR
 if (userDataOverride) app.setPath('userData', path.resolve(userDataOverride))
@@ -185,6 +195,45 @@ function registerIpc() {
     })
     notification.show()
   })
+  ipcMain.handle('desktop:native-browser-command', async (event, input: DesktopNativeBrowserCommand) => {
+    validateSender(event)
+    if (!nativeBrowser) throw new Error('Desktop native Browser is unavailable.')
+    return nativeBrowser.command(input)
+  })
+  ipcMain.handle('desktop:native-browser-mount', async (event, input: DesktopNativeBrowserMount) => {
+    validateSender(event)
+    if (!nativeBrowser) throw new Error('Desktop native Browser is unavailable.')
+    await nativeBrowser.mount(input.resourceId, input.generation, input.bounds)
+  })
+  ipcMain.handle('desktop:native-browser-unmount', async (
+    event,
+    input: { generation: number; resourceId: string },
+  ) => {
+    validateSender(event)
+    if (!nativeBrowser) return
+    await nativeBrowser.unmount(input.resourceId, input.generation)
+  })
+  ipcMain.handle('desktop:native-browser-focus', async (
+    event,
+    input: { generation: number; resourceId: string },
+  ) => {
+    validateSender(event)
+    if (!nativeBrowser) throw new Error('Desktop native Browser is unavailable.')
+    await nativeBrowser.focus(input.resourceId, input.generation)
+  })
+  ipcMain.handle('desktop:native-browser-invalidate-lease', async event => {
+    validateSender(event)
+    if (!nativeBrowser) return
+    await nativeBrowser.invalidateLease()
+  })
+  ipcMain.handle('desktop:native-browser-reconcile-backend-epoch', async (
+    event,
+    serverEpoch: string,
+  ) => {
+    validateSender(event)
+    if (!nativeBrowser) throw new Error('Desktop native Browser is unavailable.')
+    await nativeBrowser.reconcileBackendEpoch(serverEpoch)
+  })
 }
 
 function currentRendererUrl(window: BrowserWindow) {
@@ -295,6 +344,7 @@ async function navigateWindow(window: BrowserWindow, token: DesktopNavigationTok
 function requestRendererNavigation(url: string | null) {
   if (!lifecycle.isRunning() || !gateway) return
   if (!lifecycle.invalidateRendererRoute()) return
+  nativeBrowser?.hideAll()
   pendingRendererUrl = url
   gateway.closeClientConnections()
   if (rendererDrainScheduled) return
@@ -321,6 +371,7 @@ function createBrowserWindow() {
     title: 'Farming',
     icon: desktopIconPath,
     webPreferences: {
+      additionalArguments: [`--farming-native-browser-adapter=${nativeBrowserAdapterId}`],
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -336,6 +387,7 @@ function createBrowserWindow() {
   window.webContents.on('will-navigate', guardWindowNavigation)
   window.webContents.on('will-redirect', guardWindowNavigation)
   window.on('closed', () => {
+    nativeBrowser?.hideAll()
     const rendererGeneration = rendererWindowGenerations.get(window)
     if (rendererGeneration !== undefined) lifecycle.closeWindow(rendererGeneration)
     if (mainWindow === window) {
@@ -414,6 +466,7 @@ if (!app.requestSingleInstanceLock()) {
 
   void app.whenReady().then(async () => {
     if (process.platform === 'darwin') app.dock?.setIcon(desktopIconPath)
+    nativeBrowserAdapterId = resolveDesktopNativeBrowserAdapterId(app.getPath('userData'))
     const desktopLocalBackend = new DesktopLocalBackend({
       configDir: path.join(app.getPath('userData'), 'local-backend'),
       electronExecutable: process.execPath,
@@ -451,6 +504,16 @@ if (!app.requestSingleInstanceLock()) {
     profiles = profileStore
     connections = connectionManager
     gateway = desktopGateway
+    nativeBrowser = new DesktopNativeBrowserController({
+      adapterId: nativeBrowserAdapterId,
+      getWindow: () => mainWindow,
+      onEvent: nativeEvent => {
+        const window = mainWindow
+        if (!window || window.isDestroyed()) return
+        window.webContents.send('desktop:native-browser-event', nativeEvent)
+      },
+    })
+    desktopResources.own('native-browser', () => nativeBrowser?.dispose() || Promise.resolve())
     await desktopGateway.listen()
     desktopResources.guard()
     lifecycle.start()
