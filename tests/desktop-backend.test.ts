@@ -11,7 +11,8 @@ import {
 } from '../desktop/backend-activation-state'
 import { resolveDesktopServerVersion } from '../desktop/app-version'
 import { buildSshTunnelArgs } from '../desktop/connection-manager'
-import { validateDesktopRendererAssets } from '../desktop/gateway'
+import { desktopExternalUrl, isDesktopGatewayUrl } from '../desktop/external-navigation'
+import { desktopContentSecurityPolicy, validateDesktopRendererAssets } from '../desktop/gateway'
 import { DesktopLifecycle } from '../desktop/lifecycle'
 import { DesktopLocalBackend, LOCAL_BACKEND_ID } from '../desktop/local-backend'
 import { allowsDesktopAudioPermission } from '../desktop/permissions'
@@ -43,6 +44,60 @@ import {
   runCommand,
   shellQuote,
 } from '../desktop/remote-bootstrap'
+import { focusDesktopWindow } from '../desktop/window-focus'
+
+test('desktop only hands safe HTTP(S) links to the operating system', () => {
+  assert.equal(desktopExternalUrl('https://docs.example.test/farming'), 'https://docs.example.test/farming')
+  assert.equal(desktopExternalUrl('http://127.0.0.1:43121/farming'), 'http://127.0.0.1:43121/farming')
+  assert.equal(desktopExternalUrl('https://user:secret@example.test/farming'), null)
+  assert.equal(desktopExternalUrl('file:///tmp/farming'), null)
+  assert.equal(desktopExternalUrl('data:text/html,unsafe'), null)
+  assert.equal(desktopExternalUrl('farming-desktop://cancel-startup'), null)
+  assert.equal(desktopExternalUrl('not a url'), null)
+})
+
+test('desktop rejects credential-bearing navigation even at its gateway origin', () => {
+  const gatewayOrigin = 'http://127.0.0.1:43121'
+  assert.equal(isDesktopGatewayUrl(`${gatewayOrigin}/code/`, gatewayOrigin), true)
+  assert.equal(isDesktopGatewayUrl(`http://desktop:secret@127.0.0.1:43121/code/`, gatewayOrigin), false)
+  assert.equal(isDesktopGatewayUrl('https://docs.example.test/farming', gatewayOrigin), false)
+})
+
+test('desktop focuses and restores the existing primary window without creating another owner', () => {
+  const calls: string[] = []
+  const window = {
+    focus: () => calls.push('focus'),
+    isDestroyed: () => false,
+    isMinimized: () => true,
+    restore: () => calls.push('restore'),
+    show: () => calls.push('show'),
+  }
+  assert.equal(focusDesktopWindow(window), true)
+  assert.deepEqual(calls, ['restore', 'show', 'focus'])
+  assert.equal(focusDesktopWindow(null), false)
+  assert.equal(focusDesktopWindow({
+    ...window,
+    isDestroyed: () => true,
+  }), false)
+})
+
+test('desktop gateway hashes exactly its inline renderer scripts without unsafe-inline', () => {
+  const inlineScript = 'window.farmingDesktopAppearance = "dark"'
+  const inlineHash = createHash('sha256').update(inlineScript).digest('base64')
+  const externalScript = 'window.mustNotBeHashed = true'
+  const externalHash = createHash('sha256').update(externalScript).digest('base64')
+  const policy = desktopContentSecurityPolicy([
+    '<!doctype html>',
+    `<script>${inlineScript}</script>`,
+    `<script src="/assets/app.js">${externalScript}</script>`,
+  ].join(''))
+
+  assert.ok(policy.includes(`'sha256-${inlineHash}'`))
+  assert.equal(policy.includes(`'sha256-${externalHash}'`), false)
+  const scriptDirective = policy.split('; ').find(value => value.startsWith('script-src'))
+  assert.ok(scriptDirective)
+  assert.equal(scriptDirective.includes("'unsafe-inline'"), false)
+})
 
 test('desktop lifecycle coalesces route invalidations while a window is loading', () => {
   const lifecycle = new DesktopLifecycle()

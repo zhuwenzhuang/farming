@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import fs from 'node:fs'
 import http, { type IncomingMessage, type ServerResponse } from 'node:http'
 import https from 'node:https'
@@ -10,7 +10,7 @@ import { bearerCredential, joinUpstreamUrl } from './upstream.js'
 
 const SESSION_COOKIE = 'farming_desktop_session'
 const MAX_QUEUED_WEBSOCKET_BYTES = 1024 * 1024
-const DESKTOP_CONTENT_SECURITY_POLICY = [
+const DESKTOP_CONTENT_SECURITY_POLICY_DIRECTIVES = [
   "default-src 'self'",
   "base-uri 'none'",
   "connect-src 'self' ws://127.0.0.1:*",
@@ -20,10 +20,9 @@ const DESKTOP_CONTENT_SECURITY_POLICY = [
   "img-src 'self' data: blob:",
   "media-src 'self' blob:",
   "object-src 'none'",
-  "script-src 'self' 'wasm-unsafe-eval' 'sha256-UVP3DE6wlLHoOMAEu0MMhgh+it68V2l14Lw37UgjBC0='",
   "style-src 'self' 'unsafe-inline'",
   "worker-src 'self' blob:",
-].join('; ')
+]
 
 const CONTENT_TYPES: Record<string, string> = {
   '.css': 'text/css; charset=utf-8',
@@ -87,6 +86,22 @@ function localRendererReferences(indexHtml: string) {
   return references
 }
 
+export function desktopContentSecurityPolicy(indexHtml: string) {
+  const inlineScriptHashes = new Set<string>()
+  for (const match of indexHtml.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi)) {
+    const attributes = match[1] || ''
+    if (/\bsrc\s*=/i.test(attributes)) continue
+    const source = match[2] || ''
+    if (!source.trim()) continue
+    inlineScriptHashes.add(`'sha256-${createHash('sha256').update(source).digest('base64')}'`)
+  }
+  return [
+    ...DESKTOP_CONTENT_SECURITY_POLICY_DIRECTIVES.slice(0, -2),
+    `script-src 'self' 'wasm-unsafe-eval' ${[...inlineScriptHashes].join(' ')}`.trim(),
+    ...DESKTOP_CONTENT_SECURITY_POLICY_DIRECTIVES.slice(-2),
+  ].join('; ')
+}
+
 export function validateDesktopRendererAssets(distDir: string) {
   const indexPath = path.join(distDir, 'index.html')
   let indexHtml = ''
@@ -106,6 +121,7 @@ export function validateDesktopRendererAssets(distDir: string) {
       throw new Error(`Desktop renderer asset is missing or uses the wrong base path: ${resourceUrl.pathname}`)
     }
   }
+  return indexHtml
 }
 
 export class DesktopGateway {
@@ -113,6 +129,7 @@ export class DesktopGateway {
   private readonly sessionKey = randomBytes(24).toString('base64url')
   private readonly webSockets = new WebSocketServer({ noServer: true })
   private readonly server = http.createServer((request, response) => this.handleRequest(request, response))
+  private contentSecurityPolicy = ''
   private port = 0
 
   constructor(
@@ -137,7 +154,7 @@ export class DesktopGateway {
   }
 
   async listen() {
-    validateDesktopRendererAssets(this.distDir)
+    this.contentSecurityPolicy = desktopContentSecurityPolicy(validateDesktopRendererAssets(this.distDir))
     await new Promise<void>((resolve, reject) => {
       this.server.once('error', reject)
       this.server.listen(0, '127.0.0.1', () => {
@@ -212,7 +229,7 @@ export class DesktopGateway {
     }
     response.writeHead(200, {
       'Cache-Control': path.basename(filePath) === 'index.html' ? 'no-store' : 'public, max-age=31536000, immutable',
-      'Content-Security-Policy': DESKTOP_CONTENT_SECURITY_POLICY,
+      'Content-Security-Policy': this.contentSecurityPolicy,
       'Content-Length': stat.size,
       'Content-Type': CONTENT_TYPES[path.extname(filePath)] || 'application/octet-stream',
       'X-Content-Type-Options': 'nosniff',

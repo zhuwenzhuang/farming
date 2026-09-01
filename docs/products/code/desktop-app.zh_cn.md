@@ -53,6 +53,11 @@ Main Process 拥有 Application、Window、Local Backend 与 Connection Lifecycl
 只有一个 Owner 和 Generation。Quit、Cancel、Profile Change、Connection Replacement 与
 Startup Failure 只撤销自己精确拥有的资源。
 
+Desktop 只声明一个主应用实例。第二次启动只聚焦并恢复该主窗口，不得创建第二个 Local
+Backend、Gateway 或 Profile Owner。只有无凭证且 Origin 精确等于已鉴权 Loopback Gateway
+的目标保留在主窗口内；离开 Gateway 的显式 HTTP(S) 目标交给操作系统打开，而 file、data、
+自定义协议，以及 URL 含用户名或密码的目标必须拒绝。
+
 首个窗口必须显示有界 Startup Progress 或可操作错误，不能长时间白屏。Startup 或 Stop
 结果不确定时，必须先通过 Backend 权威 Handshake 与进程身份对账，再尝试下一次 Mutation。
 
@@ -65,6 +70,8 @@ Startup Failure 只撤销自己精确拥有的资源。
 - Remote Server Artifact 使用前必须校验；部分传输绝不能被发布。
 - 发现的 Backend Token 不写入 Connection Profile，也不暴露给 Renderer。
 - Renderer 使用 Context Isolation、Sandbox，并关闭 Node.js Integration。
+- Gateway 提供打包 Renderer 前，必须校验本地 Asset 引用，并从该精确 Renderer Document
+  派生 Script CSP Hash。
 - Native IPC 与设备权限只允许带鉴权的本机应用 Origin。
 
 ## 失败与恢复

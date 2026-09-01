@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import http from 'node:http'
 import os from 'node:os'
@@ -36,6 +37,13 @@ const backend = http.createServer((request, response) => {
     response.end(JSON.stringify({ settings: { language: 'en' } }))
     return
   }
+  if (request.url === '/desktop-smoke-external-redirect') {
+    response.writeHead(302, {
+      Location: 'https://docs.example.test/farming-desktop-redirect',
+    })
+    response.end()
+    return
+  }
   response.writeHead(404, { 'Content-Type': 'application/json' })
   response.end(JSON.stringify({ error: 'Not implemented by desktop smoke backend.' }))
 })
@@ -57,7 +65,12 @@ backendWebSockets.on('connection', socket => {
     minProtocolVersion: MIN_PROTOCOL_VERSION,
     availableExtensions: [],
   }))
-  socket.send(JSON.stringify({ type: 'state', state: { agents: [] } }))
+  socket.send(JSON.stringify({
+    type: 'state',
+    generation: 'desktop-smoke',
+    sequence: 0,
+    state: { agents: [] },
+  }))
   stateFrameCount += 1
   socket.on('message', data => {
     const validation = validateClientMessage(JSON.parse(data.toString()))
@@ -99,13 +112,32 @@ async function listenBackend() {
   return address.port
 }
 
-async function waitFor(condition: () => boolean, message: string) {
+async function waitFor(condition: () => boolean | Promise<boolean>, message: string) {
   const deadline = Date.now() + 10_000
   while (Date.now() < deadline) {
-    if (condition()) return
+    if (await condition()) return
     await new Promise(resolve => setTimeout(resolve, 50))
   }
   throw new Error(message)
+}
+
+async function waitForOwnedProcessExit(child: ReturnType<typeof spawn>, label: string) {
+  let stderr = ''
+  child.stderr?.on('data', chunk => { stderr = `${stderr}${String(chunk)}`.slice(-4_000) })
+  return await new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      child.kill('SIGKILL')
+      reject(new Error(`${label} did not exit within 10 seconds. ${stderr}`))
+    }, 10_000)
+    child.once('error', error => {
+      clearTimeout(timeout)
+      reject(error)
+    })
+    child.once('exit', (code, signal) => {
+      clearTimeout(timeout)
+      resolve({ code, signal })
+    })
+  })
 }
 
 async function main() {
@@ -155,6 +187,27 @@ async function main() {
     })
     assert.equal(initialBackendState.active?.kind, 'local')
     assert.equal(initialBackendState.connection?.status, 'ready')
+    const secondInstance = spawn(
+      path.join(repoRoot, 'node_modules', '.bin', process.platform === 'win32' ? 'electron.cmd' : 'electron'),
+      [path.join(repoRoot, 'dist-desktop', 'main.js')],
+      {
+        cwd: repoRoot,
+        env: {
+          ...process.env,
+          FARMING_DESKTOP_USER_DATA_DIR: userDataDir,
+          FARMING_DESKTOP_LOCAL_BACKEND_URL: `http://127.0.0.1:${backendPort}`,
+        },
+        stdio: ['ignore', 'ignore', 'pipe'],
+      },
+    )
+    const secondInstanceExit = await waitForOwnedProcessExit(secondInstance, 'Secondary Farming Desktop instance')
+    assert.equal(secondInstanceExit.code, 0, 'Secondary Desktop instance must hand off to the primary instance and exit.')
+    assert.equal(
+      await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length),
+      1,
+      'Secondary Desktop launch must not create another primary window.',
+    )
+    await page.getByTestId('app-shell').waitFor({ state: 'visible' })
     await waitFor(
       () => protocolHelloCount >= 2 && businessHealthProbeCount >= 2 && stateFrameCount >= 2,
       'Desktop renderer did not complete a real bidirectional WebSocket handshake through the gateway.',
@@ -349,6 +402,195 @@ async function main() {
       fs.mkdirSync(path.dirname(screenshotPath), { recursive: true })
       await restartedPage.screenshot({ path: screenshotPath, fullPage: true })
     }
+    const primaryRendererOrigin = new URL(restartedPage.url()).origin
+    await application.evaluate(({ BrowserWindow, shell }) => {
+      type NavigationEvent = {
+        defaultPrevented: boolean
+        isMainFrame: boolean | null
+        name: string
+        url: string | null
+      }
+      const main = globalThis as typeof globalThis & {
+        desktopSmokeExternalUrls?: string[]
+        desktopSmokeNavigationEvents?: NavigationEvent[]
+      }
+      main.desktopSmokeExternalUrls = []
+      main.desktopSmokeNavigationEvents = []
+      const webContents = BrowserWindow.getAllWindows()[0]?.webContents
+      if (!webContents) throw new Error('Desktop primary window is missing.')
+      webContents.on('will-frame-navigate', event => {
+        main.desktopSmokeNavigationEvents?.push({
+          defaultPrevented: Boolean(event.defaultPrevented),
+          isMainFrame: typeof event.isMainFrame === 'boolean' ? event.isMainFrame : null,
+          name: 'will-frame-navigate',
+          url: event.url || null,
+        })
+      })
+      webContents.on('will-navigate', event => {
+        main.desktopSmokeNavigationEvents?.push({
+          defaultPrevented: Boolean(event.defaultPrevented),
+          isMainFrame: typeof event.isMainFrame === 'boolean' ? event.isMainFrame : null,
+          name: 'will-navigate',
+          url: event.url || null,
+        })
+      })
+      webContents.on('will-redirect', event => {
+        main.desktopSmokeNavigationEvents?.push({
+          defaultPrevented: Boolean(event.defaultPrevented),
+          isMainFrame: typeof event.isMainFrame === 'boolean' ? event.isMainFrame : null,
+          name: 'will-redirect',
+          url: event.url || null,
+        })
+      })
+      shell.openExternal = async url => {
+        main.desktopSmokeExternalUrls?.push(url)
+      }
+    })
+    await restartedPage.evaluate(() => {
+      window.open('https://docs.example.test/farming-desktop-smoke', '_blank', 'noopener,noreferrer')
+      window.open('file:///tmp/farming-desktop-smoke', '_blank', 'noopener,noreferrer')
+    })
+    const externalDeadline = Date.now() + 10_000
+    let externalUrls: string[] = []
+    while (Date.now() < externalDeadline) {
+      externalUrls = await application.evaluate(() => {
+        const main = globalThis as typeof globalThis & { desktopSmokeExternalUrls?: string[] }
+        return main.desktopSmokeExternalUrls ?? []
+      })
+      if (externalUrls.length > 0) break
+      await new Promise(resolve => setTimeout(resolve, 25))
+    }
+    assert.deepEqual(
+      externalUrls,
+      ['https://docs.example.test/farming-desktop-smoke'],
+      'Desktop must send only safe external HTTP(S) targets to the operating system.',
+    )
+    await restartedPage.evaluate(() => {
+      const credentialedGatewayUrl = new URL('/code/?desktop-smoke-credentialed=1', window.location.origin)
+      credentialedGatewayUrl.username = 'desktop'
+      credentialedGatewayUrl.password = 'secret'
+      window.open(credentialedGatewayUrl.toString(), '_blank')
+    })
+    await new Promise(resolve => setTimeout(resolve, 100))
+    assert.deepEqual(
+      await application.evaluate(() => {
+        const main = globalThis as typeof globalThis & { desktopSmokeExternalUrls?: string[] }
+        return main.desktopSmokeExternalUrls ?? []
+      }),
+      ['https://docs.example.test/farming-desktop-smoke'],
+      'Desktop must deny a credential-bearing destination even when its origin matches the gateway.',
+    )
+    assert.equal(
+      await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length),
+      1,
+      'Desktop must not create another window for a denied credential-bearing gateway URL.',
+    )
+    await restartedPage.evaluate(() => {
+      window.location.assign('https://docs.example.test/farming-desktop-direct')
+    })
+    await waitFor(async () => {
+      externalUrls = await application!.evaluate(() => {
+        const main = globalThis as typeof globalThis & { desktopSmokeExternalUrls?: string[] }
+        return main.desktopSmokeExternalUrls ?? []
+      })
+      return externalUrls.length === 2
+    }, 'Desktop did not send a direct external navigation to the operating system.')
+    assert.deepEqual(
+      externalUrls,
+      [
+        'https://docs.example.test/farming-desktop-smoke',
+        'https://docs.example.test/farming-desktop-direct',
+      ],
+      'Desktop must apply its safe external navigation policy to the primary renderer.',
+    )
+    const directNavigationEvidence = await application.evaluate(() => {
+      const main = globalThis as typeof globalThis & {
+        desktopSmokeNavigationEvents?: Array<{
+          defaultPrevented: boolean
+          isMainFrame: boolean | null
+          name: string
+          url: string | null
+        }>
+      }
+      return main.desktopSmokeNavigationEvents ?? []
+    })
+    assert.deepEqual(
+      directNavigationEvidence.find(event => (
+        event.name === 'will-navigate'
+        && event.url === 'https://docs.example.test/farming-desktop-direct'
+      )),
+      {
+        defaultPrevented: true,
+        isMainFrame: true,
+        name: 'will-navigate',
+        url: 'https://docs.example.test/farming-desktop-direct',
+      },
+      'Desktop must prevent the primary renderer from leaving the gateway for a safe external URL.',
+    )
+    const directRendererState = await restartedPage.evaluate(() => ({
+      appShell: Boolean(document.querySelector('[data-testid="app-shell"]')),
+      url: window.location.href,
+    }))
+    assert.equal(new URL(directRendererState.url).origin, primaryRendererOrigin)
+    assert.equal(directRendererState.appShell, true, 'Desktop must retain its app shell after external navigation.')
+    await restartedPage.evaluate(() => {
+      window.location.assign(`${window.location.origin}/desktop-smoke-external-redirect`)
+    })
+    await waitFor(async () => {
+      externalUrls = await application!.evaluate(() => {
+        const main = globalThis as typeof globalThis & { desktopSmokeExternalUrls?: string[] }
+        return main.desktopSmokeExternalUrls ?? []
+      })
+      return externalUrls.length === 3
+    }, 'Desktop did not send a safe external redirect to the operating system.')
+    assert.deepEqual(
+      externalUrls,
+      [
+        'https://docs.example.test/farming-desktop-smoke',
+        'https://docs.example.test/farming-desktop-direct',
+        'https://docs.example.test/farming-desktop-redirect',
+      ],
+      'Desktop must apply its safe external navigation policy to redirects.',
+    )
+    const redirectNavigationEvidence = await application.evaluate(() => {
+      const main = globalThis as typeof globalThis & {
+        desktopSmokeNavigationEvents?: Array<{
+          defaultPrevented: boolean
+          isMainFrame: boolean | null
+          name: string
+          url: string | null
+        }>
+      }
+      return main.desktopSmokeNavigationEvents ?? []
+    })
+    assert.deepEqual(
+      redirectNavigationEvidence.find(event => (
+        event.name === 'will-redirect'
+        && event.url === 'https://docs.example.test/farming-desktop-redirect'
+      )),
+      {
+        defaultPrevented: true,
+        isMainFrame: true,
+        name: 'will-redirect',
+        url: 'https://docs.example.test/farming-desktop-redirect',
+      },
+      'Desktop must prevent the primary renderer from following an external redirect.',
+    )
+    const redirectRendererState = await restartedPage.evaluate(() => ({
+      appShell: Boolean(document.querySelector('[data-testid="app-shell"]')),
+      url: window.location.href,
+    }))
+    assert.equal(new URL(redirectRendererState.url).origin, primaryRendererOrigin)
+    assert.equal(redirectRendererState.appShell, true, 'Desktop must retain its app shell after an external redirect.')
+    const internalNavigation = restartedPage.waitForEvent('framenavigated', {
+      predicate: frame => frame === restartedPage.mainFrame()
+        && frame.url().includes('/code/?desktop-smoke=1'),
+    })
+    await restartedPage.evaluate(() => {
+      window.open(`${window.location.origin}/code/?desktop-smoke=1`, '_blank', 'noopener,noreferrer')
+    })
+    await internalNavigation
+    await restartedPage.getByTestId('app-shell').waitFor({ state: 'visible' })
     console.log('Desktop MVP smoke passed: local-first startup, built-in remote management, backend switching, and restart recovery.')
   } finally {
     await application?.close().catch(() => {})
