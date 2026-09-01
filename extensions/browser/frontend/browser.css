@@ -105,7 +105,6 @@
   align-items: center;
   gap: 3px;
   overflow-x: auto;
-  scrollbar-width: thin;
 }
 
 .farming-browser-native-tab {
