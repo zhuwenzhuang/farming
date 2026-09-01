@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { spawn, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
+import { EventEmitter } from 'node:events'
 import fs from 'node:fs'
 import http from 'node:http'
 import os from 'node:os'
@@ -24,6 +25,7 @@ import {
   resolveDesktopNativeBrowserAdapterId,
 } from '../desktop/native-browser-adapter-id'
 import {
+  DesktopNativeBrowserController,
   nativeBrowserDomOperationCanNavigate,
   nativeBrowserDomScript,
   settleNativeBrowserDomOperation,
@@ -215,6 +217,65 @@ test('desktop native Browser startup rollback does not poison the next lifecycle
   ), 'running')
   assert.equal(leased, true)
   assert.equal(rollbacks, 1)
+})
+
+test('desktop structured Browser downloads are admitted without cancelling Electron transfer', async () => {
+  const temporaryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-native-browser-download-'))
+  const temporaryPath = path.join(temporaryDir, 'selected-download')
+  const browserSession = new EventEmitter()
+  const contents = {}
+  let prevented = false
+  let savePath = ''
+  const downloadItem = Object.assign(new EventEmitter(), {
+    getFilename: () => 'fixture.txt',
+    getMimeType: () => 'text/plain',
+    setSavePath: (value: string) => { savePath = value },
+  })
+  const controller = new DesktopNativeBrowserController({
+    getWindow: () => null,
+    onEvent: () => {},
+  })
+  const selectDownload = (
+    controller as unknown as {
+      selectDownload: (
+        browserSession: unknown,
+        contents: unknown,
+        temporaryPath: string,
+        timeoutMs: number,
+      ) => Promise<Record<string, unknown>>
+    }
+  ).selectDownload.bind(controller)
+
+  try {
+    const selected = selectDownload(browserSession, contents, temporaryPath, 1_000)
+    browserSession.emit(
+      'will-download',
+      {
+        get defaultPrevented() { return prevented },
+        preventDefault: () => { prevented = true },
+      },
+      downloadItem,
+      contents,
+    )
+    if (prevented) {
+      downloadItem.emit('done', {}, 'cancelled')
+    } else {
+      fs.writeFileSync(savePath, 'controlled download')
+      downloadItem.emit('done', {}, 'completed')
+    }
+
+    const result = await selected
+    assert.equal(prevented, false)
+    assert.equal(savePath, temporaryPath)
+    assert.deepEqual(result, {
+      data: Buffer.from('controlled download').toString('base64'),
+      mimeType: 'text/plain',
+      name: 'fixture.txt',
+      size: 19,
+    })
+  } finally {
+    fs.rmSync(temporaryDir, { recursive: true, force: true })
+  }
 })
 
 test('desktop gateway CSP hashes every inline renderer script without unsafe-inline', () => {

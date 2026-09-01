@@ -533,6 +533,7 @@ export class DesktopNativeBrowserController {
   private readonly sessions = new Map<string, NativeBrowserSession>()
   private readonly resourceTabs = new Map<string, NativeBrowserTab>()
   private readonly configuredPartitions = new Set<string>()
+  private readonly structuredDownloads = new WeakSet<DownloadItem>()
   private backendEpoch = ''
 
   constructor(options: DesktopNativeBrowserControllerOptions) {
@@ -1162,21 +1163,29 @@ export class DesktopNativeBrowserController {
   ): Promise<Record<string, unknown>> {
     return new Promise((resolve, reject) => {
       let settled = false
+      let selectedDownload: DownloadItem | null = null
       const finish = (callback: () => void) => {
         if (settled) return
         settled = true
         clearTimeout(timeout)
         browserSession.off('will-download', onDownload)
+        if (selectedDownload) this.structuredDownloads.delete(selectedDownload)
         callback()
       }
       const onDownload = (
-        event: Event,
+        _event: Event,
         downloadItem: DownloadItem,
         sourceContents: WebContents,
       ) => {
-        if (sourceContents !== contents || settled) return
-        event.preventDefault()
-        downloadItem.setSavePath(temporaryPath)
+        if (sourceContents !== contents || settled || selectedDownload) return
+        selectedDownload = downloadItem
+        this.structuredDownloads.add(downloadItem)
+        try {
+          downloadItem.setSavePath(temporaryPath)
+        } catch (error) {
+          finish(() => reject(error))
+          return
+        }
         downloadItem.once('done', (_doneEvent, state) => {
           if (state !== 'completed') {
             finish(() => reject(nativeBrowserError(
@@ -1248,7 +1257,8 @@ export class DesktopNativeBrowserController {
         })
       }
     })
-    browserSession.on('will-download', (event, _downloadItem, sourceContents) => {
+    browserSession.on('will-download', (event, downloadItem, sourceContents) => {
+      if (this.structuredDownloads.has(downloadItem)) return
       if ((event as Event & { defaultPrevented?: boolean }).defaultPrevented) return
       event.preventDefault()
       const activeSession = this.sessionForPartition(nativeSession.partition)
