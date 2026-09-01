@@ -103,11 +103,14 @@ console evidence、伪造 pointer success，也不会假装已经切换 frame �
 Browser source。
 
 下载与文件选择仍属于 Project workspace 操作。原生 adapter 传输在后端 workspace
-边界进行有界校验；adapter 不获得宽泛文件系统权力。页面人工文件选择器会被拦截；
-结构化 Agent upload 只读取准确 workspace 文件，把有界 bytes 传给原生 tab，不暴露
-任意主机路径。download 会先进入 adapter 私有临时存储，只有通过后端校验后才发布到
-请求的 workspace 路径。原生页面 permission 与 basic-auth challenge 都明确失败；
-adapter 不会向页面内容转发主机凭据、主机设备权限或通用 Electron/Node bridge。
+边界进行有界校验；adapter 不获得宽泛文件系统权力。页面每个 frame 都会在页面脚本
+运行前通过 sandboxed preload 拦截人工文件选择器，并在页面 handler 收到事件前清空
+任何已选择或拖入的主机文件。结构化 Agent upload 只读取准确 workspace 文件，把有界
+bytes 传给原生 tab，不暴露任意主机路径。结构化 download 只准入准确匹配的 Electron
+`DownloadItem`，在不取消传输的前提下先写入 adapter 私有临时存储，只有通过后端校验
+后才发布到请求的 workspace 路径；未准入的页面 download 一律拒绝。原生页面
+permission 与 basic-auth challenge 都明确失败；adapter 不会向页面内容转发主机凭据、
+主机设备权限或通用 Electron/Node bridge。
 
 ## 替换、重启与不确定结果
 

@@ -480,25 +480,6 @@ export async function settleNativeBrowserTabStartup<T>(
     throw error
   }
 }
-
-const NATIVE_BROWSER_FILE_SELECTION_GUARD = `(() => {
-  if (window.__farmingNativeFileSelectionGuard) return;
-  window.__farmingNativeFileSelectionGuard = true;
-  const blocked = event => {
-    const target = event.target instanceof Element
-      ? event.target.closest('input[type="file"]')
-      : null;
-    if (!target) return;
-    event.preventDefault();
-    event.stopImmediatePropagation();
-    console.warn('FARMING_NATIVE_BROWSER_FILE_SELECTION_BLOCKED');
-  };
-  document.addEventListener('click', blocked, true);
-  document.addEventListener('keydown', event => {
-    if (event.key === 'Enter' || event.key === ' ') blocked(event);
-  }, true);
-})()`
-
 const NATIVE_BROWSER_INTERACTION_SHIELD_URL = `data:text/html;charset=utf-8,${encodeURIComponent(`<!doctype html>
 <html>
   <head>
@@ -789,7 +770,9 @@ export class DesktopNativeBrowserController {
       webPreferences: {
         contextIsolation: true,
         nodeIntegration: false,
+        nodeIntegrationInSubFrames: true,
         partition: nativeSession.partition,
+        preload: path.join(__dirname, 'native-browser-preload.js'),
         sandbox: true,
       },
     })
@@ -797,7 +780,9 @@ export class DesktopNativeBrowserController {
       webPreferences: {
         contextIsolation: true,
         nodeIntegration: false,
+        nodeIntegrationInSubFrames: true,
         partition: nativeSession.partition,
+        preload: path.join(__dirname, 'native-browser-preload.js'),
         sandbox: true,
       },
     })
@@ -1326,9 +1311,6 @@ export class DesktopNativeBrowserController {
     }
     contents.on('did-navigate', publishNavigation)
     contents.on('did-navigate-in-page', publishNavigation)
-    contents.on('did-finish-load', () => {
-      void contents.executeJavaScript(NATIVE_BROWSER_FILE_SELECTION_GUARD, true).catch(() => {})
-    })
     contents.on('console-message', (_event, _level, message) => {
       if (message !== 'FARMING_NATIVE_BROWSER_FILE_SELECTION_BLOCKED') return
       this.emit(tab, 'error', {

@@ -31,6 +31,7 @@ import {
   settleNativeBrowserDomOperation,
   settleNativeBrowserTabStartup,
 } from '../desktop/native-browser'
+import { installNativeBrowserFileSelectionGuard } from '../desktop/native-browser-file-selection'
 import { allowsDesktopAudioPermission } from '../desktop/permissions'
 import { DesktopProfileStore } from '../desktop/profile-store'
 import { saveAndActivateDesktopBackend } from '../desktop/save-and-activate'
@@ -217,6 +218,215 @@ test('desktop native Browser startup rollback does not poison the next lifecycle
   ), 'running')
   assert.equal(leased, true)
   assert.equal(rollbacks, 1)
+})
+
+test('desktop native Browser zoom and interaction shield stay tab-local and control-fenced', () => {
+  const controller = new DesktopNativeBrowserController({
+    getWindow: () => null,
+    onEvent: () => {},
+  })
+  const internals = controller as unknown as {
+    setTabVisible: (tab: unknown, visible: boolean) => void
+    setZoom: (tab: unknown, value: number) => { zoomFactor: number }
+  }
+  const tab = (
+    controlOwner: 'agent' | 'user',
+  ) => {
+    let pageVisible = false
+    let shieldVisible = false
+    let zoomFactor = 1
+    const state: {
+      controlOwner: 'agent' | 'user'
+      interactionShield: { setVisible: (visible: boolean) => void }
+      pendingControl: { controlEpoch: number; owner: 'agent' | 'user' } | null
+      view: {
+        setVisible: (visible: boolean) => void
+        webContents: { setZoomFactor: (value: number) => void }
+      }
+    } = {
+      controlOwner,
+      interactionShield: {
+        setVisible: (visible: boolean) => { shieldVisible = visible },
+      },
+      pendingControl: null,
+      view: {
+        setVisible: (visible: boolean) => { pageVisible = visible },
+        webContents: {
+          setZoomFactor: (value: number) => { zoomFactor = value },
+        },
+      },
+    }
+    return {
+      state,
+      values: () => ({ pageVisible, shieldVisible, zoomFactor }),
+    }
+  }
+  const first = tab('agent')
+  const second = tab('user')
+
+  internals.setTabVisible(first.state, true)
+  assert.deepEqual(first.values(), {
+    pageVisible: true,
+    shieldVisible: true,
+    zoomFactor: 1,
+  })
+  first.state.controlOwner = 'user'
+  internals.setTabVisible(first.state, true)
+  assert.equal(first.values().shieldVisible, false)
+  first.state.pendingControl = { controlEpoch: 2, owner: 'agent' }
+  internals.setTabVisible(first.state, true)
+  assert.equal(first.values().shieldVisible, true)
+  internals.setTabVisible(first.state, false)
+  assert.deepEqual(first.values(), {
+    pageVisible: false,
+    shieldVisible: false,
+    zoomFactor: 1,
+  })
+
+  assert.deepEqual(internals.setZoom(first.state, 99), { zoomFactor: 3 })
+  assert.deepEqual(internals.setZoom(second.state, -99), { zoomFactor: 0.5 })
+  assert.equal(first.values().zoomFactor, 3)
+  assert.equal(second.values().zoomFactor, 0.5)
+})
+
+test('desktop native Browser file selection guard blocks activation and clears selected host files', () => {
+  const listeners = new Map<string, Array<(event: {
+    dataTransfer?: { files?: { length?: number } }
+    key?: string
+    preventDefault: () => void
+    stopImmediatePropagation: () => void
+    target?: unknown
+  }) => void>>()
+  const documentValue = {
+    addEventListener: (
+      type: string,
+      listener: (event: {
+        dataTransfer?: { files?: { length?: number } }
+        key?: string
+        preventDefault: () => void
+        stopImmediatePropagation: () => void
+        target?: unknown
+      }) => void,
+    ) => {
+      const current = listeners.get(type) || []
+      current.push(listener)
+      listeners.set(type, current)
+    },
+  }
+  let reports = 0
+  installNativeBrowserFileSelectionGuard(documentValue, () => { reports += 1 })
+  installNativeBrowserFileSelectionGuard(documentValue, () => { reports += 1 })
+  assert.equal(listeners.get('click')?.length, 1)
+
+  const input = {
+    closest: (selector: string) => selector === 'input[type="file"]' ? input : null,
+    tagName: 'INPUT',
+    type: 'file',
+    value: '/host/private.txt',
+  }
+  const event = (target: unknown, extra: Record<string, unknown> = {}) => {
+    let prevented = false
+    let stopped = false
+    return {
+      value: {
+        ...extra,
+        preventDefault: () => { prevented = true },
+        stopImmediatePropagation: () => { stopped = true },
+        target,
+      },
+      blocked: () => prevented && stopped,
+    }
+  }
+
+  const click = event(input)
+  listeners.get('click')?.[0]?.(click.value)
+  assert.equal(click.blocked(), true)
+
+  const change = event(input)
+  listeners.get('change')?.[0]?.(change.value)
+  assert.equal(change.blocked(), true)
+  assert.equal(input.value, '')
+
+  const label = {
+    closest: (selector: string) => selector === 'label' ? label : null,
+    control: input,
+  }
+  const keyboard = event(label, { key: 'Enter' })
+  listeners.get('keydown')?.[0]?.(keyboard.value)
+  assert.equal(keyboard.blocked(), true)
+
+  const drop = event({}, { dataTransfer: { files: { length: 1 } } })
+  listeners.get('drop')?.[0]?.(drop.value)
+  assert.equal(drop.blocked(), true)
+  assert.equal(reports, 4)
+})
+
+test('desktop native Browser session denies permissions and uncontrolled downloads at its owner boundary', () => {
+  const contents = {}
+  const emitted: Array<Record<string, unknown>> = []
+  const controller = new DesktopNativeBrowserController({
+    getWindow: () => null,
+    onEvent: event => emitted.push(event as unknown as Record<string, unknown>),
+  })
+  const permissionHandlers: {
+    check?: (...args: unknown[]) => boolean
+    request?: (
+      contents: unknown,
+      permission: string,
+      callback: (granted: boolean) => void,
+    ) => void
+  } = {}
+  const browserSession = Object.assign(new EventEmitter(), {
+    setPermissionCheckHandler: (handler: (...args: unknown[]) => boolean) => {
+      permissionHandlers.check = handler
+    },
+    setPermissionRequestHandler: (handler: NonNullable<typeof permissionHandlers.request>) => {
+      permissionHandlers.request = handler
+    },
+  })
+  const tab = {
+    generation: 4,
+    id: 'native:test',
+    resourceId: 'resource-test',
+    sessionId: 'session-test',
+    view: { webContents: contents },
+  }
+  const nativeSession = {
+    partition: 'persist:test',
+    tabs: new Map([[tab.id, tab]]),
+  }
+  const internals = controller as unknown as {
+    configureSession: (nativeSession: unknown, browserSession: unknown) => void
+    sessions: Map<string, unknown>
+  }
+  internals.sessions.set(tab.sessionId, nativeSession)
+  internals.configureSession(nativeSession, browserSession)
+
+  assert.equal(permissionHandlers.check?.(contents, 'geolocation', 'https://example.test', {}), false)
+  assert.ok(permissionHandlers.request)
+  let granted = true
+  permissionHandlers.request(contents, 'media', value => { granted = value })
+  assert.equal(granted, false)
+  assert.match(
+    String((emitted.at(-1)?.payload as Record<string, unknown>)?.message),
+    /denied page permission: media/,
+  )
+
+  let prevented = false
+  browserSession.emit(
+    'will-download',
+    {
+      defaultPrevented: false,
+      preventDefault: () => { prevented = true },
+    },
+    {},
+    contents,
+  )
+  assert.equal(prevented, true)
+  assert.match(
+    String((emitted.at(-1)?.payload as Record<string, unknown>)?.message),
+    /downloads must use the Project-workspace Browser download command/,
+  )
 })
 
 test('desktop structured Browser downloads are admitted without cancelling Electron transfer', async () => {

@@ -130,10 +130,14 @@ explicitly capable Browser source.
 Downloads and file selection remain Project-workspace operations. Native
 adapter transfers are bounded and validated at the backend workspace boundary;
 the adapter does not acquire broad filesystem authority. Manual page file
-pickers are blocked; structured Agent uploads read exact workspace files,
+pickers are blocked from a sandboxed preload in every page frame before page
+scripts run, and any selected or dropped host files are cleared before page
+handlers receive them. Structured Agent uploads read exact workspace files,
 transfer bounded bytes to the native tab, and do not disclose arbitrary host
-paths. A download is captured into adapter-private temporary storage and is
-published to the requested workspace path only after backend validation.
+paths. A structured download admits only its exact Electron `DownloadItem`,
+captures it into adapter-private temporary storage without cancelling the
+transfer, and is published to the requested workspace path only after backend
+validation; every unadmitted page download is rejected.
 Native page permission and basic-auth challenges fail explicitly; the adapter
 never forwards host credentials, host device permissions, or a general
 Electron/Node bridge into page content.
