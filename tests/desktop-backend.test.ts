@@ -7,6 +7,7 @@ import http from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
+import vm from 'node:vm'
 import {
   DesktopBackendActivationState,
 } from '../desktop/backend-activation-state'
@@ -220,6 +221,51 @@ test('desktop native Browser startup rollback does not poison the next lifecycle
   assert.equal(rollbacks, 1)
 })
 
+test('desktop native Browser DOM wait accepts an already detached selector', async () => {
+  const result = vm.runInNewContext(
+    nativeBrowserDomScript('wait', {
+      selector: '#already-detached',
+      state: 'detached',
+      timeoutMs: 100,
+    }),
+    {
+      CSS: { escape: String },
+      document: { querySelector: () => null },
+      setTimeout,
+    },
+  ) as Promise<Record<string, unknown>>
+  await assert.doesNotReject(result)
+  assert.equal((await result).ok, true)
+})
+
+test('desktop native Browser nth locator selects from the complete matching collection', () => {
+  class FakeElement {
+    clicked = false
+    click() { this.clicked = true }
+  }
+  const first = new FakeElement()
+  const second = new FakeElement()
+  const result = vm.runInNewContext(
+    nativeBrowserDomScript('find', {
+      action: 'click',
+      index: 1,
+      locator: 'nth',
+      value: '.item',
+    }),
+    {
+      CSS: { escape: String },
+      document: {
+        querySelector: () => first,
+        querySelectorAll: () => [first, second],
+      },
+      Element: FakeElement,
+    },
+  )
+  assert.equal((result as Record<string, unknown>).ok, true)
+  assert.equal(first.clicked, false)
+  assert.equal(second.clicked, true)
+})
+
 test('desktop native Browser zoom and interaction shield stay tab-local and control-fenced', () => {
   const controller = new DesktopNativeBrowserController({
     getWindow: () => null,
@@ -426,6 +472,56 @@ test('desktop native Browser session denies permissions and uncontrolled downloa
   assert.match(
     String((emitted.at(-1)?.payload as Record<string, unknown>)?.message),
     /downloads must use the Project-workspace Browser download command/,
+  )
+})
+
+test('desktop native Browser cancels basic auth without submitting blank credentials', () => {
+  const emitted: Array<Record<string, unknown>> = []
+  const controller = new DesktopNativeBrowserController({
+    getWindow: () => null,
+    onEvent: event => emitted.push(event as unknown as Record<string, unknown>),
+  })
+  const contents = Object.assign(new EventEmitter(), {
+    getTitle: () => '',
+    getURL: () => 'http://127.0.0.1/auth',
+    setWindowOpenHandler: () => {},
+  })
+  const tab = {
+    closing: false,
+    generation: 3,
+    id: 'native:auth',
+    loading: false,
+    pendingErrors: [],
+    resourceId: 'resource-auth',
+    sessionId: 'session-auth',
+    view: { webContents: contents },
+  }
+  const nativeSession = {
+    activeTabId: tab.id,
+    closing: false,
+    id: tab.sessionId,
+    partition: 'persist:auth',
+    tabs: new Map([[tab.id, tab]]),
+  }
+  const internals = controller as unknown as {
+    observeTab: (nativeSession: unknown, tab: unknown) => void
+  }
+  internals.observeTab(nativeSession, tab)
+
+  let prevented = false
+  let callbackArguments: unknown[] | null = null
+  contents.emit(
+    'login',
+    { preventDefault: () => { prevented = true } },
+    {},
+    {},
+    (...args: unknown[]) => { callbackArguments = args },
+  )
+  assert.equal(prevented, true)
+  assert.deepEqual(callbackArguments, [])
+  assert.match(
+    String((emitted.at(-1)?.payload as Record<string, unknown>)?.message),
+    /authentication requires explicit page interaction/,
   )
 })
 

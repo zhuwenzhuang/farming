@@ -315,10 +315,10 @@ export function nativeBrowserDomScript(operation: string, input: Record<string, 
           if (state === 'domcontentloaded') return document.readyState === 'interactive' || document.readyState === 'complete';
           return document.readyState === 'complete';
         }
-        const target = node();
         const state = String(input.state || 'visible');
-        if (state === 'attached') return true;
         if (state === 'detached') return !document.querySelector(selector);
+        const target = node();
+        if (state === 'attached') return true;
         const style = getComputedStyle(target);
         const visible = style.visibility !== 'hidden' && style.display !== 'none'
           && target.getBoundingClientRect().width > 0 && target.getBoundingClientRect().height > 0;
@@ -378,7 +378,7 @@ export function nativeBrowserDomScript(operation: string, input: Record<string, 
       else if (locator === 'placeholder') candidates = Array.from(document.querySelectorAll('[placeholder]')).filter(element => element.getAttribute('placeholder') === value);
       else if (locator === 'testid') candidates = Array.from(document.querySelectorAll('[data-testid]')).filter(element => element.getAttribute('data-testid') === value);
       else if (locator === 'role') candidates = Array.from(document.querySelectorAll('[role],button,a,input')).filter(element => (element.getAttribute('role') || element.tagName.toLowerCase()) === value);
-      else if (locator === 'nth') candidates = [document.querySelector(value)].filter(Boolean);
+      else if (locator === 'nth') candidates = Array.from(document.querySelectorAll(value));
       else candidates = [document.querySelector(value)].filter(Boolean);
       const target = candidates[locator === 'nth' ? Number(input.index) || 0 : 0];
       if (!(target instanceof Element)) throw new Error('Browser find target is unavailable');
@@ -1352,7 +1352,7 @@ export class DesktopNativeBrowserController {
     })
     contents.on('login', (event, _responseDetails, _authInfo, callback) => {
       event.preventDefault()
-      callback('', '')
+      callback()
       this.emit(tab, 'error', { message: 'Desktop Browser authentication requires explicit page interaction.' })
     })
     contents.once('destroyed', () => {
