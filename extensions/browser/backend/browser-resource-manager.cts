@@ -1517,7 +1517,8 @@ class BrowserResourceManager extends EventEmitter {
       this.emitResource(starting);
 
       const reusableSession = [...this.sessions.values()].find(session => (
-        !session.closing
+        !session.initializing
+        && !session.closing
         && session.ownerKey === browserOwnerKey(resource)
         && session.projectRootId === resource.projectRootId
         && session.browserKind === executable.kind

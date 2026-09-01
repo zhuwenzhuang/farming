@@ -23,7 +23,12 @@ import {
   desktopNativeBrowserAdapterIdFile,
   resolveDesktopNativeBrowserAdapterId,
 } from '../desktop/native-browser-adapter-id'
-import { nativeBrowserDomScript } from '../desktop/native-browser'
+import {
+  nativeBrowserDomOperationCanNavigate,
+  nativeBrowserDomScript,
+  settleNativeBrowserDomOperation,
+  settleNativeBrowserTabStartup,
+} from '../desktop/native-browser'
 import { allowsDesktopAudioPermission } from '../desktop/permissions'
 import { DesktopProfileStore } from '../desktop/profile-store'
 import { saveAndActivateDesktopBackend } from '../desktop/save-and-activate'
@@ -121,6 +126,95 @@ test('desktop native Browser DOM commands bind their operation in the page world
   assert.match(script, /const operation = "fill";/)
   assert.match(script, /\\u003c\/script>/)
   assert.match(script, /if \(operation === 'fill'\)/)
+})
+
+test('desktop native Browser settles a navigation click from the owning tab event', async () => {
+  let navigationSequence = 7
+  let listener: ((sequence: number) => void) | null = null
+  const pending = settleNativeBrowserDomOperation({
+    execute: () => new Promise(() => {}),
+    metadata: () => ({ title: 'Step One', url: 'http://fixture.test/step-one' }),
+    navigationCapable: nativeBrowserDomOperationCanNavigate('click', { ref: 'e1' }),
+    navigationSequence: () => navigationSequence,
+    onNavigation: next => {
+      listener = next
+      return () => { listener = null }
+    },
+  })
+  navigationSequence += 1
+  assert.ok(listener)
+  ;(listener as (sequence: number) => void)(navigationSequence)
+  assert.deepEqual(await pending, {
+    navigationObserved: true,
+    ok: true,
+    title: 'Step One',
+    url: 'http://fixture.test/step-one',
+  })
+  assert.equal(listener, null)
+})
+
+test('desktop native Browser ignores stale navigation and keeps non-navigation script completion', async () => {
+  let navigationSequence = 3
+  let listener: ((sequence: number) => void) | null = null
+  let resolveScript: (value: unknown) => void = () => {}
+  let settled = false
+  const pending = settleNativeBrowserDomOperation({
+    execute: () => new Promise(resolve => { resolveScript = resolve }),
+    metadata: () => ({ url: 'http://fixture.test/stale' }),
+    navigationCapable: true,
+    navigationSequence: () => navigationSequence,
+    onNavigation: next => {
+      listener = next
+      return () => { listener = null }
+    },
+  }).finally(() => { settled = true })
+  assert.ok(listener)
+  ;(listener as (sequence: number) => void)(navigationSequence)
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(settled, false, 'a navigation at the admitted sequence must not settle a new command')
+  resolveScript({ ok: true })
+  assert.deepEqual(await pending, { ok: true })
+
+  let nonNavigationListenerCalled = false
+  const nonNavigation = settleNativeBrowserDomOperation({
+    execute: async () => ({ value: 'filled' }),
+    metadata: () => ({ url: 'http://fixture.test/' }),
+    navigationCapable: nativeBrowserDomOperationCanNavigate('fill', { ref: 'e1' }),
+    navigationSequence: () => navigationSequence,
+    onNavigation: () => {
+      nonNavigationListenerCalled = true
+      return () => {}
+    },
+  })
+  assert.deepEqual(await nonNavigation, { value: 'filled' })
+  assert.equal(nonNavigationListenerCalled, false)
+})
+
+test('desktop native Browser startup rollback does not poison the next lifecycle operation', async () => {
+  let leased = true
+  let rollbacks = 0
+  await assert.rejects(
+    () => settleNativeBrowserTabStartup(
+      async () => { throw new Error('injected native view load failure') },
+      async () => {
+        leased = false
+        rollbacks += 1
+      },
+    ),
+    /injected native view load failure/,
+  )
+  assert.equal(leased, false)
+  assert.equal(rollbacks, 1)
+  leased = true
+  assert.equal(await settleNativeBrowserTabStartup(
+    async () => 'running',
+    async () => {
+      leased = false
+      rollbacks += 1
+    },
+  ), 'running')
+  assert.equal(leased, true)
+  assert.equal(rollbacks, 1)
 })
 
 test('desktop gateway CSP hashes every inline renderer script without unsafe-inline', () => {

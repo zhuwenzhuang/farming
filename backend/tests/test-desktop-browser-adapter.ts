@@ -21,6 +21,7 @@ function synchronousAdapterError(operation: () => unknown, code: string) {
 function createAdapterHarness(options: {
   adapterId?: string;
   registry?: InstanceType<typeof DesktopBrowserAdapterRegistry>;
+  startDelayMs?: number;
 } = {}) {
   const registry = options.registry || new DesktopBrowserAdapterRegistry({ commandTimeoutMs: 1_000 });
   const adapterId = options.adapterId || 'desktop-test-adapter';
@@ -99,9 +100,14 @@ function createAdapterHarness(options: {
         };
         tabs.set(tabId, tab);
         if (activate) activeTabId = tabId;
-        settle(operation === 'start'
+        const result = operation === 'start'
           ? { title: tab.title, url: tab.url, tabs: [...tabs.values()] }
-          : { tabId, tabs: [...tabs.values()] });
+          : { tabId, tabs: [...tabs.values()] };
+        if (operation === 'start' && options.startDelayMs) {
+          setTimeout(() => settle(result), options.startDelayMs);
+        } else {
+          settle(result);
+        }
         return;
       }
       if (operation === 'list-tabs' || operation === 'bind-tab' || operation === 'close-tab') {
@@ -1181,6 +1187,73 @@ async function testDesktopAdapterConnectionReplacementFailsOldLease() {
   }
 }
 
+async function testConcurrentDesktopStartsDoNotReuseInitializingSession() {
+  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-desktop-browser-concurrent-start-'));
+  const workspace = path.join(configDir, 'workspace');
+  fs.mkdirSync(workspace);
+  const harness = createAdapterHarness({ startDelayMs: 100 });
+  const manager = new BrowserResourceManager({
+    configDir,
+    desktopBrowserAdapters: harness.registry,
+    discoverExecutable: async selection => (
+      selection.source === 'desktop'
+        ? { kind: 'desktop-native', path: '' }
+        : null
+    ),
+    getBrowserSettings: () => ({
+      browserExecutablePath: '',
+      browserSource: 'desktop',
+    }),
+    isEnabled: () => true,
+  });
+  try {
+    await manager.init();
+    const create = (name: string) => manager.create({
+      browserSource: 'desktop',
+      desktopAdapterId: harness.adapterId,
+      name,
+      ownerAgentId: 'agent-concurrent-start',
+      projectRootId: 'project-concurrent-start',
+      workspace,
+    });
+    const first = create('Concurrent first');
+    const second = create('Concurrent second');
+    const firstStart = manager.start(first.id);
+    await waitFor(
+      () => harness.commands.filter(command => command.operation === 'start').length === 1,
+      'The first Desktop Resource did not begin native startup.',
+    );
+    const secondStart = manager.start(second.id);
+    await waitFor(
+      () => harness.commands.filter(command => (
+        command.operation === 'start' || command.operation === 'create-tab'
+      )).length >= 2,
+      'The second Desktop Resource did not begin native startup.',
+    );
+    const startupCommands = harness.commands.filter(command => (
+      command.operation === 'start' || command.operation === 'create-tab'
+    ));
+    assert.deepStrictEqual(
+      startupCommands.map(command => command.operation),
+      ['start', 'start'],
+      'A concurrent Resource must not reuse a Desktop session before its initial native lease commits.',
+    );
+    const [firstRunning, secondRunning] = await Promise.all([firstStart, secondStart]);
+    assert.strictEqual(firstRunning.status, 'running');
+    assert.strictEqual(secondRunning.status, 'running');
+    assert.notStrictEqual(
+      firstRunning.sessionId,
+      secondRunning.sessionId,
+      'Concurrent Desktop starts must own independent initializing sessions.',
+    );
+  } finally {
+    await manager.dispose().catch(() => {});
+    harness.unregister();
+    harness.registry.dispose();
+    fs.rmSync(configDir, { recursive: true, force: true });
+  }
+}
+
 Promise.resolve()
   .then(testDesktopAdapterRegistry)
   .then(testDesktopAdapterTimeoutIsUncertain)
@@ -1193,6 +1266,7 @@ Promise.resolve()
   .then(testDesktopNativeProfileCleanup)
   .then(testDesktopAdapterExactIsolationAndDisconnectRecovery)
   .then(testDesktopAdapterConnectionReplacementFailsOldLease)
+  .then(testConcurrentDesktopStartsDoNotReuseInitializingSession)
   .catch(error => {
     console.error(error);
     process.exitCode = 1;

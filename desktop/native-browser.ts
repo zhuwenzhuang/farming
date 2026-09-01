@@ -35,7 +35,9 @@ type NativeBrowserTab = {
   id: string
   interactionShield: WebContentsView
   loading: boolean
+  mainFrameNavigationSequence: number
   mounted: boolean
+  navigationListeners: Set<(sequence: number) => void>
   pendingControl: {
     controlEpoch: number
     owner: 'agent' | 'user'
@@ -418,6 +420,67 @@ export function nativeBrowserDomScript(operation: string, input: Record<string, 
   })()`
 }
 
+export function nativeBrowserDomOperationCanNavigate(
+  operation: string,
+  input: Record<string, unknown>,
+) {
+  return operation === 'click'
+    || (operation === 'element-action' && ['click', 'dblclick'].includes(String(input.kind || '')))
+    || (operation === 'press' && String(input.key || '') === 'Enter')
+}
+
+export function settleNativeBrowserDomOperation(options: {
+  execute: () => Promise<unknown>
+  metadata: () => Record<string, unknown>
+  navigationCapable: boolean
+  navigationSequence: () => number
+  onNavigation: (listener: (sequence: number) => void) => () => void
+}): Promise<unknown> {
+  if (!options.navigationCapable) return options.execute()
+  const admittedNavigationSequence = options.navigationSequence()
+  return new Promise((resolve, reject) => {
+    let settled = false
+    let unsubscribe = () => {}
+    const finish = (callback: () => void) => {
+      if (settled) return
+      settled = true
+      unsubscribe()
+      callback()
+    }
+    const navigationResult = () => ({
+      ...options.metadata(),
+      navigationObserved: true,
+      ok: true,
+    })
+    unsubscribe = options.onNavigation(sequence => {
+      if (sequence <= admittedNavigationSequence) return
+      finish(() => resolve(navigationResult()))
+    })
+    options.execute().then(
+      result => finish(() => resolve(result)),
+      error => {
+        if (options.navigationSequence() > admittedNavigationSequence) {
+          finish(() => resolve(navigationResult()))
+          return
+        }
+        finish(() => reject(error))
+      },
+    )
+  })
+}
+
+export async function settleNativeBrowserTabStartup<T>(
+  load: () => Promise<T>,
+  rollback: () => Promise<void>,
+): Promise<T> {
+  try {
+    return await load()
+  } catch (error) {
+    await rollback()
+    throw error
+  }
+}
+
 const NATIVE_BROWSER_FILE_SELECTION_GUARD = `(() => {
   if (window.__farmingNativeFileSelectionGuard) return;
   window.__farmingNativeFileSelectionGuard = true;
@@ -542,7 +605,19 @@ export class DesktopNativeBrowserController {
         'BROWSER_DESKTOP_OPERATION_UNSUPPORTED',
       )
     }
-    return tab.view.webContents.executeJavaScript(nativeBrowserDomScript(operation, input), true)
+    return settleNativeBrowserDomOperation({
+      execute: () => tab.view.webContents.executeJavaScript(
+        nativeBrowserDomScript(operation, input),
+        true,
+      ),
+      metadata: () => this.metadata(tab),
+      navigationCapable: nativeBrowserDomOperationCanNavigate(operation, input),
+      navigationSequence: () => tab.mainFrameNavigationSequence,
+      onNavigation: listener => {
+        tab.navigationListeners.add(listener)
+        return () => tab.navigationListeners.delete(listener)
+      },
+    })
   }
 
   async mount(resourceId: string, generation: number, bounds: DesktopNativeBrowserBounds): Promise<void> {
@@ -640,6 +715,7 @@ export class DesktopNativeBrowserController {
 
   private async start(command: DesktopNativeBrowserCommand, input: Record<string, unknown>) {
     let session = this.sessions.get(command.sessionId)
+    const createdSession = !session
     if (!session) {
       session = {
         activeTabId: '',
@@ -666,14 +742,26 @@ export class DesktopNativeBrowserController {
       const previousSession = this.sessions.get(current.sessionId)
       if (previousSession) await this.destroyTab(previousSession, current)
     }
-    const created = await this.createTab(
-      session,
-      command.resourceId,
-      command.generation,
-      normalizeNativeBrowserUrl(input.url),
-      'agent',
-      nativeBrowserControlEpoch(input.controlEpoch, 'Desktop Browser start control epoch'),
-    )
+    let created
+    try {
+      created = await this.createTab(
+        session,
+        command.resourceId,
+        command.generation,
+        normalizeNativeBrowserUrl(input.url),
+        'agent',
+        nativeBrowserControlEpoch(input.controlEpoch, 'Desktop Browser start control epoch'),
+      )
+    } catch (error) {
+      if (
+        createdSession
+        && session.tabs.size === 0
+        && this.sessions.get(session.id) === session
+      ) {
+        this.sessions.delete(session.id)
+      }
+      throw error
+    }
     return {
       ...created,
       title: text(this.resourceTabs.get(command.resourceId)?.view.webContents.getTitle(), 512),
@@ -695,6 +783,7 @@ export class DesktopNativeBrowserController {
       throw nativeBrowserError('Farming Desktop window is unavailable', 'BROWSER_DESKTOP_ADAPTER_UNAVAILABLE')
     }
     const id = `native:${crypto.randomUUID()}`
+    const previousActiveTabId = nativeSession.activeTabId
     const view = new WebContentsView({
       webPreferences: {
         contextIsolation: true,
@@ -724,7 +813,9 @@ export class DesktopNativeBrowserController {
       id,
       interactionShield,
       loading: false,
+      mainFrameNavigationSequence: 0,
       mounted: false,
+      navigationListeners: new Set(),
       pendingControl: null,
       pendingErrors: [],
       resourceId,
@@ -736,8 +827,15 @@ export class DesktopNativeBrowserController {
     this.resourceTabs.set(resourceId, tab)
     this.configureSession(nativeSession, view.webContents.session)
     this.observeTab(nativeSession, tab)
-    await interactionShield.webContents.loadURL(NATIVE_BROWSER_INTERACTION_SHIELD_URL)
-    await view.webContents.loadURL(url)
+    await settleNativeBrowserTabStartup(async () => {
+      await interactionShield.webContents.loadURL(NATIVE_BROWSER_INTERACTION_SHIELD_URL)
+      await view.webContents.loadURL(url)
+    }, async () => {
+      await this.destroyTab(nativeSession, tab)
+      if (previousActiveTabId && nativeSession.tabs.has(previousActiveTabId)) {
+        nativeSession.activeTabId = previousActiveTabId
+      }
+    })
     this.emitTabs(nativeSession, tab, [id])
     return {
       tabId: id,
@@ -1208,12 +1306,16 @@ export class DesktopNativeBrowserController {
     contents.on('page-title-updated', () => {
       if (!tab.closing) publishMetadata()
     })
-    contents.on('did-navigate', () => {
-      if (!tab.closing) publishMetadata()
-    })
-    contents.on('did-navigate-in-page', () => {
-      if (!tab.closing) publishMetadata()
-    })
+    const publishNavigation = () => {
+      if (tab.closing) return
+      tab.mainFrameNavigationSequence += 1
+      for (const listener of tab.navigationListeners) {
+        listener(tab.mainFrameNavigationSequence)
+      }
+      publishMetadata()
+    }
+    contents.on('did-navigate', publishNavigation)
+    contents.on('did-navigate-in-page', publishNavigation)
     contents.on('did-finish-load', () => {
       void contents.executeJavaScript(NATIVE_BROWSER_FILE_SELECTION_GUARD, true).catch(() => {})
     })

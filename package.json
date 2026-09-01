@@ -110,6 +110,7 @@
     "test:update:npm": "npm run build:backend-runtime && node --test backend/tests/test-npm-update-helper.ts",
     "test:e2e": "npm run test:e2e:playwright",
     "test:desktop:smoke": "npm run desktop:build && tsx scripts/smoke-desktop.ts",
+    "test:desktop:browser-composed": "tsx scripts/run-desktop-browser-composed-e2e.ts",
     "test:e2e:playwright": "playwright test",
     "test:e2e:playwright:update": "playwright test --update-snapshots",
     "test:e2e:visual:capture": "FARMING_VISUAL_OUTPUT_DIR=${FARMING_VISUAL_OUTPUT_DIR:-.tmp/visual-capture} playwright test tests/e2e/visual-regression.spec.ts --project=chromium --workers=1 --retries=0",
