@@ -4,6 +4,7 @@ import { projectFilesWorkspaceId } from '@/lib/project-workspaces'
 import {
   type BrowserResourceState,
 } from './browser-resource-state'
+import { browserCapabilityForClient } from './browser-capability'
 import type { BrowserCapability, BrowserResource, BrowserResourceDeletion } from './types'
 import type { FarmingDesktopBridge } from '../../../shared/desktop-contract'
 
@@ -42,7 +43,10 @@ export function useBrowserResources(options: {
     setCapabilityError('')
     void browserRequest<BrowserCapability>('/api/browsers/capability').then(nextCapability => {
       if (!active) return
-      setCapability(nextCapability)
+      const nativeBrowser = (
+        window as Window & { farmingDesktop?: FarmingDesktopBridge }
+      ).farmingDesktop?.nativeBrowser
+      setCapability(browserCapabilityForClient(nextCapability, Boolean(nativeBrowser)))
       setLoading(false)
     }).catch(() => {
       if (!active) return

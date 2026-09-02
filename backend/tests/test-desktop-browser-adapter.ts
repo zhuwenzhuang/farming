@@ -384,6 +384,42 @@ async function testDesktopAdapterTimeoutIsUncertain() {
   }
 }
 
+async function testCanonicalCapabilitySnapshotIncludesDesktopAdapter() {
+  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-desktop-browser-capability-'));
+  const harness = createAdapterHarness();
+  const manager = new BrowserResourceManager({
+    configDir,
+    desktopBrowserAdapters: harness.registry,
+    discoverBrowserOptions: () => [],
+    getBrowserSettings: () => ({
+      browserExecutablePath: '',
+      browserSource: 'desktop',
+    }),
+    isEnabled: () => true,
+  });
+  try {
+    const capability = await manager.capabilitySnapshot({ persistDefaultSelection: false });
+    const sources = capability.sources as Array<Record<string, unknown>>;
+    assert.deepStrictEqual(
+      sources.find(source => source.source === 'desktop'),
+      {
+        available: true,
+        kind: 'desktop-native',
+        message: '',
+        path: '',
+        source: 'desktop',
+      },
+      'The canonical Browser capability read must expose the connected Desktop adapter.',
+    );
+    assert.deepStrictEqual(capability.browser, { kind: 'desktop-native', path: '' });
+  } finally {
+    await manager.dispose().catch(() => {});
+    harness.unregister();
+    harness.registry.dispose();
+    fs.rmSync(configDir, { recursive: true, force: true });
+  }
+}
+
 async function testDesktopNativeOperationTimeoutFailsClosed() {
   const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-desktop-browser-timeout-'));
   const workspace = path.join(configDir, 'workspace');
@@ -1256,6 +1292,7 @@ async function testConcurrentDesktopStartsDoNotReuseInitializingSession() {
 
 Promise.resolve()
   .then(testDesktopAdapterRegistry)
+  .then(testCanonicalCapabilitySnapshotIncludesDesktopAdapter)
   .then(testDesktopAdapterTimeoutIsUncertain)
   .then(testDesktopNativeOperationTimeoutFailsClosed)
   .then(testDesktopAdapterDisconnectIsUncertain)

@@ -1087,6 +1087,7 @@ class BrowserResourceManager extends EventEmitter {
       ? await this.isolatedBrowserProvider.capability()
       : null;
     const selections: BrowserSelection[] = [
+      { source: 'desktop', executablePath: '' },
       { source: 'system', executablePath: systemPath },
       { source: 'extension', executablePath: '' },
       { source: 'isolated', executablePath: '' },

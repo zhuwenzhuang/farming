@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { PROTOCOL_VERSION } from '../../shared/browser-protocol'
 import { expect, test } from './fixtures'
 
 test('failed reconnects eventually leave the initial loading state', {
@@ -140,7 +141,7 @@ test('a lost mobile close event preserves protocol mismatch as a terminal failur
 test('a stuck initial mobile WebSocket is replaced after its bounded connect deadline', {
   tag: ['@iphone-human'],
 }, async ({ page }) => {
-  await page.addInitScript(() => {
+  await page.addInitScript((protocolVersion) => {
     const NativeEvent = window.Event
     const NativeCloseEvent = window.CloseEvent
     const NativeMessageEvent = window.MessageEvent
@@ -198,8 +199,8 @@ test('a stuck initial mobile WebSocket is replaced after its bounded connect dea
         if (message.type === 'protocol-hello') {
           emit({
             type: 'protocol-hello',
-            protocolVersion: 16,
-            minProtocolVersion: 16,
+            protocolVersion,
+            minProtocolVersion: protocolVersion,
             accessMode: 'owner',
           })
         } else if (message.type === 'business-health-probe') {
@@ -208,7 +209,7 @@ test('a stuck initial mobile WebSocket is replaced after its bounded connect dea
             requestId: message.requestId,
             status: 'ready',
             serverEpoch: 'stuck-connect-recovered',
-            protocolVersion: 16,
+            protocolVersion,
             agentCount: 0,
             mainAgentId: null,
           })
@@ -220,7 +221,7 @@ test('a stuck initial mobile WebSocket is replaced after its bounded connect dea
       .__silentlyCloseCurrentSocket = () => {
         if (currentSocket) currentSocket.readyState = MockWebSocket.CLOSED
       }
-  })
+  }, PROTOCOL_VERSION)
 
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/farming/')

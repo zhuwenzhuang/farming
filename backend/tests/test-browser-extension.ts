@@ -18,6 +18,9 @@ const {
   mergeBrowserResource,
 } = require('../../extensions/browser/frontend/browser-resource-state.ts');
 const {
+  browserCapabilityForClient,
+} = require('../../extensions/browser/frontend/browser-capability.ts');
+const {
   BrowserResourceManager,
   normalizeUrl,
 } = require('../../extensions/browser/backend/browser-resource-manager.cjs');
@@ -2437,6 +2440,30 @@ function testBrowserPackaging() {
   assert(packageJson.files.includes('backend/farming-agent-bootstrap.md'));
 }
 
+function testBrowserCapabilityMatchesClientDefaultSource() {
+  const capability = {
+    enabled: true,
+    available: true,
+    browser: null,
+    selection: { source: 'system', executablePath: '' },
+    sources: [
+      { source: 'desktop', available: true, kind: 'desktop-native', path: '', message: '' },
+      { source: 'system', available: false, kind: '', path: '', message: 'System Browser unavailable' },
+    ],
+    message: '',
+  };
+  assert.strictEqual(
+    browserCapabilityForClient(capability, false).available,
+    false,
+    'A Web client must not enable Browser creation from another Desktop connection.',
+  );
+  assert.strictEqual(
+    browserCapabilityForClient(capability, true).available,
+    true,
+    'The Desktop client may use its connected native Browser source.',
+  );
+}
+
 async function testBrowserCapabilityCurrentStateReads() {
   const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-browser-capability-'));
   let browserHealthy = true;
@@ -2684,6 +2711,7 @@ Promise.resolve()
   .then(testLegacyProjectBrowserMigrationCleanup)
   .then(testBrowserResourceRevisionOrdering)
   .then(testBrowserRouterAgentOwnership)
+  .then(testBrowserCapabilityMatchesClientDefaultSource)
   .then(testBrowserPackaging)
   .then(() => console.log('browser extension tests passed'))
   .catch(error => {
