@@ -922,8 +922,9 @@ test.describe('iPhone mobile layout', () => {
     const standaloneGap = await waitForStableGap()
 
     expect(restingGap).toBeGreaterThanOrEqual(4)
-    expect(standaloneGap).toBeGreaterThanOrEqual(4)
-    expect(standaloneGap).toBeLessThanOrEqual(restingGap)
+    expect(restingGap).toBeLessThanOrEqual(32)
+    expect(standaloneGap).toBeGreaterThanOrEqual(43)
+    expect(standaloneGap).toBeLessThanOrEqual(45)
   })
 
   test('opens the mobile share sheet from a successful authenticated ticket response', async ({ page }, testInfo) => {

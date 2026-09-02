@@ -595,22 +595,29 @@ export function App() {
   useEffect(() => {
     const updateVisualViewport = () => {
       const viewport = window.visualViewport
-      const width = viewport?.width ?? window.innerWidth
+      const rawWidth = viewport?.width ?? window.innerWidth
       const rawHeight = viewport?.height ?? window.innerHeight
       const offsetTop = viewport?.offsetTop ?? 0
       const offsetLeft = viewport?.offsetLeft ?? 0
+      const layoutWidth = document.documentElement.clientWidth || window.innerWidth || rawWidth
+      const width = Math.min(rawWidth, Math.max(0, layoutWidth - offsetLeft))
       const compactViewport = isCompactViewport()
       const touchViewport = isTouchInputViewport()
-      const layoutHeight = window.innerHeight || rawHeight || MIN_MOBILE_VISUAL_HEIGHT
-      const height = compactViewport
-        ? Math.min(Math.max(rawHeight, MIN_MOBILE_VISUAL_HEIGHT), Math.max(layoutHeight, MIN_MOBILE_VISUAL_HEIGHT))
-        : rawHeight
-      const keyboardOffset = Math.max(0, layoutHeight - rawHeight - offsetTop)
-      const iosLikeTouchViewport = touchViewport && isIOSLikeTouchViewport()
-      const mobileKeyboardActive = compactViewport && touchViewport && keyboardOffset > 80
       const iosNavigator = navigator as Navigator & { standalone?: boolean }
       const standaloneWebApp = iosNavigator.standalone === true
         || window.matchMedia('(display-mode: standalone)').matches
+      const browserLayoutHeight = document.documentElement.clientHeight || window.innerHeight || rawHeight || MIN_MOBILE_VISUAL_HEIGHT
+      const layoutHeight = compactViewport && standaloneWebApp
+        ? window.screen.height || browserLayoutHeight
+        : browserLayoutHeight
+      const keyboardOffset = Math.max(0, layoutHeight - rawHeight - offsetTop)
+      const mobileKeyboardActive = compactViewport && touchViewport && keyboardOffset > 80
+      const height = compactViewport
+        ? mobileKeyboardActive
+          ? Math.min(Math.max(rawHeight, MIN_MOBILE_VISUAL_HEIGHT), Math.max(layoutHeight, MIN_MOBILE_VISUAL_HEIGHT))
+          : Math.max(layoutHeight, MIN_MOBILE_VISUAL_HEIGHT)
+        : rawHeight
+      const iosLikeTouchViewport = touchViewport && isIOSLikeTouchViewport()
 
       document.body.classList.toggle('code-compact-layout', compactViewport)
       document.body.classList.toggle('code-mobile-touch', compactViewport && touchViewport)

@@ -942,6 +942,11 @@ test.describe('additional Farming Code user scenarios', () => {
       await openNewAgentDialog(page)
       await expect(page.getByTestId('input-dialog')).toBeVisible()
       await expectMenuFitsViewport(page, 'input-dialog')
+      const headerPosition = await page.getByTestId('input-dialog').locator('.dialog-header').evaluate(element => {
+        const style = getComputedStyle(element)
+        return { top: style.top, marginTop: style.marginTop }
+      })
+      expect(headerPosition).toEqual({ top: '0px', marginTop: '0px' })
       await page.keyboard.press('Escape')
       await expect(page.getByTestId('input-dialog')).toBeHidden()
       await expectNoDocumentOverflow(page)

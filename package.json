@@ -109,6 +109,7 @@
     "test:update:platforms": "tsx scripts/test-update-platforms.ts",
     "test:update:npm": "npm run build:backend-runtime && node --test backend/tests/test-npm-update-helper.ts",
     "test:e2e": "npm run test:e2e:playwright",
+    "test:e2e:ios-pwa": "npm run build && tsx scripts/run-ios-pwa-acceptance.ts",
     "test:desktop:smoke": "npm run desktop:build && tsx scripts/smoke-desktop.ts",
     "test:desktop:browser-composed": "tsx scripts/run-desktop-browser-composed-e2e.ts",
     "test:e2e:playwright": "playwright test",

@@ -293,3 +293,6 @@ change is reviewed.
 Purpose-built release or remote smoke commands remain documented beside the
 subsystem they validate. Do not add an unimplemented runner proposal to this
 runbook; add the command when it exists and is continuously usable.
+
+The real standalone iOS PWA path is documented in
+[iOS Simulator PWA acceptance](ios-simulator-pwa-acceptance.md).

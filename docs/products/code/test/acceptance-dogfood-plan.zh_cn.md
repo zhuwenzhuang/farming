@@ -242,3 +242,6 @@ Allowlist 仅限架构边界、包组装、生成产物或安全约束；既有�
 
 Purpose-built Release 或 Remote Smoke Command 应记录在所属子系统旁。未实现 Runner 不应先写进
 本 Runbook；命令真正存在且可持续使用后再加入。
+
+真实 standalone iOS PWA 路径见
+[iOS Simulator PWA 验收](ios-simulator-pwa-acceptance.zh_cn.md)。
