@@ -1,19 +1,38 @@
 import assert from 'node:assert/strict'
 import { spawn, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
+import { EventEmitter } from 'node:events'
 import fs from 'node:fs'
 import http from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
+import vm from 'node:vm'
 import {
   DesktopBackendActivationState,
 } from '../desktop/backend-activation-state'
 import { resolveDesktopServerVersion } from '../desktop/app-version'
 import { buildSshTunnelArgs } from '../desktop/connection-manager'
-import { validateDesktopRendererAssets } from '../desktop/gateway'
+import { desktopExternalUrl, isDesktopGatewayUrl } from '../desktop/external-navigation'
+import {
+  desktopContentSecurityPolicy,
+  desktopInlineScriptCspHashes,
+  validateDesktopRendererAssets,
+} from '../desktop/gateway'
 import { DesktopLifecycle } from '../desktop/lifecycle'
 import { DesktopLocalBackend, LOCAL_BACKEND_ID } from '../desktop/local-backend'
+import {
+  desktopNativeBrowserAdapterIdFile,
+  resolveDesktopNativeBrowserAdapterId,
+} from '../desktop/native-browser-adapter-id'
+import {
+  DesktopNativeBrowserController,
+  nativeBrowserDomOperationCanNavigate,
+  nativeBrowserDomScript,
+  settleNativeBrowserDomOperation,
+  settleNativeBrowserTabStartup,
+} from '../desktop/native-browser'
+import { installNativeBrowserFileSelectionGuard } from '../desktop/native-browser-file-selection'
 import { allowsDesktopAudioPermission } from '../desktop/permissions'
 import { DesktopProfileStore } from '../desktop/profile-store'
 import { saveAndActivateDesktopBackend } from '../desktop/save-and-activate'
@@ -43,6 +62,543 @@ import {
   runCommand,
   shellQuote,
 } from '../desktop/remote-bootstrap'
+import { focusDesktopWindow } from '../desktop/window-focus'
+
+test('desktop only hands safe HTTP(S) links to the operating system', () => {
+  assert.equal(desktopExternalUrl('https://docs.example.test/farming'), 'https://docs.example.test/farming')
+  assert.equal(desktopExternalUrl('http://127.0.0.1:43121/farming'), 'http://127.0.0.1:43121/farming')
+  assert.equal(desktopExternalUrl('https://user:secret@example.test/farming'), null)
+  assert.equal(desktopExternalUrl('file:///tmp/farming'), null)
+  assert.equal(desktopExternalUrl('data:text/html,unsafe'), null)
+  assert.equal(desktopExternalUrl('farming-desktop://cancel-startup'), null)
+  assert.equal(desktopExternalUrl('not a url'), null)
+})
+
+test('desktop rejects credential-bearing navigation even at its gateway origin', () => {
+  const gatewayOrigin = 'http://127.0.0.1:43121'
+  assert.equal(isDesktopGatewayUrl(`${gatewayOrigin}/code/`, gatewayOrigin), true)
+  assert.equal(isDesktopGatewayUrl(`http://desktop:secret@127.0.0.1:43121/code/`, gatewayOrigin), false)
+  assert.equal(isDesktopGatewayUrl('https://docs.example.test/farming', gatewayOrigin), false)
+})
+
+test('desktop focuses and restores the existing primary window without creating another owner', () => {
+  const calls: string[] = []
+  const window = {
+    focus: () => calls.push('focus'),
+    isDestroyed: () => false,
+    isMinimized: () => true,
+    restore: () => calls.push('restore'),
+    show: () => calls.push('show'),
+  }
+  assert.equal(focusDesktopWindow(window), true)
+  assert.deepEqual(calls, ['restore', 'show', 'focus'])
+  assert.equal(focusDesktopWindow(null), false)
+  assert.equal(focusDesktopWindow({
+    ...window,
+    isDestroyed: () => true,
+  }), false)
+})
+
+test('desktop native Browser adapter identity is stable per Desktop user-data profile', () => {
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-native-browser-adapter-id-'))
+  const otherUserData = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-native-browser-adapter-id-'))
+  try {
+    const first = resolveDesktopNativeBrowserAdapterId(userData)
+    const second = resolveDesktopNativeBrowserAdapterId(userData)
+    const other = resolveDesktopNativeBrowserAdapterId(otherUserData)
+    assert.match(first, /^desktop-browser-[0-9a-f-]{36}$/)
+    assert.equal(second, first)
+    assert.notEqual(other, first)
+    assert.equal(
+      fs.readFileSync(desktopNativeBrowserAdapterIdFile(userData), 'utf8').trim(),
+      first,
+    )
+    if (process.platform !== 'win32') {
+      assert.equal(fs.statSync(desktopNativeBrowserAdapterIdFile(userData)).mode & 0o777, 0o600)
+    }
+  } finally {
+    fs.rmSync(userData, { recursive: true, force: true })
+    fs.rmSync(otherUserData, { recursive: true, force: true })
+  }
+})
+
+test('desktop native Browser DOM commands bind their operation in the page world', () => {
+  const script = nativeBrowserDomScript('fill', {
+    selector: '</script><input id="field">',
+    text: 'native input',
+  })
+  assert.match(script, /const operation = "fill";/)
+  assert.match(script, /\\u003c\/script>/)
+  assert.match(script, /if \(operation === 'fill'\)/)
+})
+
+test('desktop native Browser settles a navigation click from the owning tab event', async () => {
+  let navigationSequence = 7
+  let listener: ((sequence: number) => void) | null = null
+  const pending = settleNativeBrowserDomOperation({
+    execute: () => new Promise(() => {}),
+    metadata: () => ({ title: 'Step One', url: 'http://fixture.test/step-one' }),
+    navigationCapable: nativeBrowserDomOperationCanNavigate('click', { ref: 'e1' }),
+    navigationSequence: () => navigationSequence,
+    onNavigation: next => {
+      listener = next
+      return () => { listener = null }
+    },
+  })
+  navigationSequence += 1
+  assert.ok(listener)
+  ;(listener as (sequence: number) => void)(navigationSequence)
+  assert.deepEqual(await pending, {
+    navigationObserved: true,
+    ok: true,
+    title: 'Step One',
+    url: 'http://fixture.test/step-one',
+  })
+  assert.equal(listener, null)
+})
+
+test('desktop native Browser ignores stale navigation and keeps non-navigation script completion', async () => {
+  let navigationSequence = 3
+  let listener: ((sequence: number) => void) | null = null
+  let resolveScript: (value: unknown) => void = () => {}
+  let settled = false
+  const pending = settleNativeBrowserDomOperation({
+    execute: () => new Promise(resolve => { resolveScript = resolve }),
+    metadata: () => ({ url: 'http://fixture.test/stale' }),
+    navigationCapable: true,
+    navigationSequence: () => navigationSequence,
+    onNavigation: next => {
+      listener = next
+      return () => { listener = null }
+    },
+  }).finally(() => { settled = true })
+  assert.ok(listener)
+  ;(listener as (sequence: number) => void)(navigationSequence)
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(settled, false, 'a navigation at the admitted sequence must not settle a new command')
+  resolveScript({ ok: true })
+  assert.deepEqual(await pending, { ok: true })
+
+  let nonNavigationListenerCalled = false
+  const nonNavigation = settleNativeBrowserDomOperation({
+    execute: async () => ({ value: 'filled' }),
+    metadata: () => ({ url: 'http://fixture.test/' }),
+    navigationCapable: nativeBrowserDomOperationCanNavigate('fill', { ref: 'e1' }),
+    navigationSequence: () => navigationSequence,
+    onNavigation: () => {
+      nonNavigationListenerCalled = true
+      return () => {}
+    },
+  })
+  assert.deepEqual(await nonNavigation, { value: 'filled' })
+  assert.equal(nonNavigationListenerCalled, false)
+})
+
+test('desktop native Browser startup rollback does not poison the next lifecycle operation', async () => {
+  let leased = true
+  let rollbacks = 0
+  await assert.rejects(
+    () => settleNativeBrowserTabStartup(
+      async () => { throw new Error('injected native view load failure') },
+      async () => {
+        leased = false
+        rollbacks += 1
+      },
+    ),
+    /injected native view load failure/,
+  )
+  assert.equal(leased, false)
+  assert.equal(rollbacks, 1)
+  leased = true
+  assert.equal(await settleNativeBrowserTabStartup(
+    async () => 'running',
+    async () => {
+      leased = false
+      rollbacks += 1
+    },
+  ), 'running')
+  assert.equal(leased, true)
+  assert.equal(rollbacks, 1)
+})
+
+test('desktop native Browser DOM wait accepts an already detached selector', async () => {
+  const result = vm.runInNewContext(
+    nativeBrowserDomScript('wait', {
+      selector: '#already-detached',
+      state: 'detached',
+      timeoutMs: 100,
+    }),
+    {
+      CSS: { escape: String },
+      document: { querySelector: () => null },
+      setTimeout,
+    },
+  ) as Promise<Record<string, unknown>>
+  await assert.doesNotReject(result)
+  assert.equal((await result).ok, true)
+})
+
+test('desktop native Browser nth locator selects from the complete matching collection', () => {
+  class FakeElement {
+    clicked = false
+    click() { this.clicked = true }
+  }
+  const first = new FakeElement()
+  const second = new FakeElement()
+  const result = vm.runInNewContext(
+    nativeBrowserDomScript('find', {
+      action: 'click',
+      index: 1,
+      locator: 'nth',
+      value: '.item',
+    }),
+    {
+      CSS: { escape: String },
+      document: {
+        querySelector: () => first,
+        querySelectorAll: () => [first, second],
+      },
+      Element: FakeElement,
+    },
+  )
+  assert.equal((result as Record<string, unknown>).ok, true)
+  assert.equal(first.clicked, false)
+  assert.equal(second.clicked, true)
+})
+
+test('desktop native Browser zoom and interaction shield stay tab-local and control-fenced', () => {
+  const controller = new DesktopNativeBrowserController({
+    getWindow: () => null,
+    onEvent: () => {},
+  })
+  const internals = controller as unknown as {
+    setTabVisible: (tab: unknown, visible: boolean) => void
+    setZoom: (tab: unknown, value: number) => { zoomFactor: number }
+  }
+  const tab = (
+    controlOwner: 'agent' | 'user',
+  ) => {
+    let pageVisible = false
+    let shieldVisible = false
+    let zoomFactor = 1
+    const state: {
+      controlOwner: 'agent' | 'user'
+      interactionShield: { setVisible: (visible: boolean) => void }
+      pendingControl: { controlEpoch: number; owner: 'agent' | 'user' } | null
+      view: {
+        setVisible: (visible: boolean) => void
+        webContents: { setZoomFactor: (value: number) => void }
+      }
+    } = {
+      controlOwner,
+      interactionShield: {
+        setVisible: (visible: boolean) => { shieldVisible = visible },
+      },
+      pendingControl: null,
+      view: {
+        setVisible: (visible: boolean) => { pageVisible = visible },
+        webContents: {
+          setZoomFactor: (value: number) => { zoomFactor = value },
+        },
+      },
+    }
+    return {
+      state,
+      values: () => ({ pageVisible, shieldVisible, zoomFactor }),
+    }
+  }
+  const first = tab('agent')
+  const second = tab('user')
+
+  internals.setTabVisible(first.state, true)
+  assert.deepEqual(first.values(), {
+    pageVisible: true,
+    shieldVisible: true,
+    zoomFactor: 1,
+  })
+  first.state.controlOwner = 'user'
+  internals.setTabVisible(first.state, true)
+  assert.equal(first.values().shieldVisible, false)
+  first.state.pendingControl = { controlEpoch: 2, owner: 'agent' }
+  internals.setTabVisible(first.state, true)
+  assert.equal(first.values().shieldVisible, true)
+  internals.setTabVisible(first.state, false)
+  assert.deepEqual(first.values(), {
+    pageVisible: false,
+    shieldVisible: false,
+    zoomFactor: 1,
+  })
+
+  assert.deepEqual(internals.setZoom(first.state, 99), { zoomFactor: 3 })
+  assert.deepEqual(internals.setZoom(second.state, -99), { zoomFactor: 0.5 })
+  assert.equal(first.values().zoomFactor, 3)
+  assert.equal(second.values().zoomFactor, 0.5)
+})
+
+test('desktop native Browser file selection guard blocks activation and clears selected host files', () => {
+  const listeners = new Map<string, Array<(event: {
+    dataTransfer?: { files?: { length?: number } }
+    key?: string
+    preventDefault: () => void
+    stopImmediatePropagation: () => void
+    target?: unknown
+  }) => void>>()
+  const documentValue = {
+    addEventListener: (
+      type: string,
+      listener: (event: {
+        dataTransfer?: { files?: { length?: number } }
+        key?: string
+        preventDefault: () => void
+        stopImmediatePropagation: () => void
+        target?: unknown
+      }) => void,
+    ) => {
+      const current = listeners.get(type) || []
+      current.push(listener)
+      listeners.set(type, current)
+    },
+  }
+  let reports = 0
+  installNativeBrowserFileSelectionGuard(documentValue, () => { reports += 1 })
+  installNativeBrowserFileSelectionGuard(documentValue, () => { reports += 1 })
+  assert.equal(listeners.get('click')?.length, 1)
+
+  const input = {
+    closest: (selector: string) => selector === 'input[type="file"]' ? input : null,
+    tagName: 'INPUT',
+    type: 'file',
+    value: '/host/private.txt',
+  }
+  const event = (target: unknown, extra: Record<string, unknown> = {}) => {
+    let prevented = false
+    let stopped = false
+    return {
+      value: {
+        ...extra,
+        preventDefault: () => { prevented = true },
+        stopImmediatePropagation: () => { stopped = true },
+        target,
+      },
+      blocked: () => prevented && stopped,
+    }
+  }
+
+  const click = event(input)
+  listeners.get('click')?.[0]?.(click.value)
+  assert.equal(click.blocked(), true)
+
+  const change = event(input)
+  listeners.get('change')?.[0]?.(change.value)
+  assert.equal(change.blocked(), true)
+  assert.equal(input.value, '')
+
+  const label = {
+    closest: (selector: string) => selector === 'label' ? label : null,
+    control: input,
+  }
+  const keyboard = event(label, { key: 'Enter' })
+  listeners.get('keydown')?.[0]?.(keyboard.value)
+  assert.equal(keyboard.blocked(), true)
+
+  const drop = event({}, { dataTransfer: { files: { length: 1 } } })
+  listeners.get('drop')?.[0]?.(drop.value)
+  assert.equal(drop.blocked(), true)
+  assert.equal(reports, 4)
+})
+
+test('desktop native Browser session denies permissions and uncontrolled downloads at its owner boundary', () => {
+  const contents = {}
+  const emitted: Array<Record<string, unknown>> = []
+  const controller = new DesktopNativeBrowserController({
+    getWindow: () => null,
+    onEvent: event => emitted.push(event as unknown as Record<string, unknown>),
+  })
+  const permissionHandlers: {
+    check?: (...args: unknown[]) => boolean
+    request?: (
+      contents: unknown,
+      permission: string,
+      callback: (granted: boolean) => void,
+    ) => void
+  } = {}
+  const browserSession = Object.assign(new EventEmitter(), {
+    setPermissionCheckHandler: (handler: (...args: unknown[]) => boolean) => {
+      permissionHandlers.check = handler
+    },
+    setPermissionRequestHandler: (handler: NonNullable<typeof permissionHandlers.request>) => {
+      permissionHandlers.request = handler
+    },
+  })
+  const tab = {
+    generation: 4,
+    id: 'native:test',
+    resourceId: 'resource-test',
+    sessionId: 'session-test',
+    view: { webContents: contents },
+  }
+  const nativeSession = {
+    partition: 'persist:test',
+    tabs: new Map([[tab.id, tab]]),
+  }
+  const internals = controller as unknown as {
+    configureSession: (nativeSession: unknown, browserSession: unknown) => void
+    sessions: Map<string, unknown>
+  }
+  internals.sessions.set(tab.sessionId, nativeSession)
+  internals.configureSession(nativeSession, browserSession)
+
+  assert.equal(permissionHandlers.check?.(contents, 'geolocation', 'https://example.test', {}), false)
+  assert.ok(permissionHandlers.request)
+  let granted = true
+  permissionHandlers.request(contents, 'media', value => { granted = value })
+  assert.equal(granted, false)
+  assert.match(
+    String((emitted.at(-1)?.payload as Record<string, unknown>)?.message),
+    /denied page permission: media/,
+  )
+
+  let prevented = false
+  browserSession.emit(
+    'will-download',
+    {
+      defaultPrevented: false,
+      preventDefault: () => { prevented = true },
+    },
+    {},
+    contents,
+  )
+  assert.equal(prevented, true)
+  assert.match(
+    String((emitted.at(-1)?.payload as Record<string, unknown>)?.message),
+    /downloads must use the Project-workspace Browser download command/,
+  )
+})
+
+test('desktop native Browser cancels basic auth without submitting blank credentials', () => {
+  const emitted: Array<Record<string, unknown>> = []
+  const controller = new DesktopNativeBrowserController({
+    getWindow: () => null,
+    onEvent: event => emitted.push(event as unknown as Record<string, unknown>),
+  })
+  const contents = Object.assign(new EventEmitter(), {
+    getTitle: () => '',
+    getURL: () => 'http://127.0.0.1/auth',
+    setWindowOpenHandler: () => {},
+  })
+  const tab = {
+    closing: false,
+    generation: 3,
+    id: 'native:auth',
+    loading: false,
+    pendingErrors: [],
+    resourceId: 'resource-auth',
+    sessionId: 'session-auth',
+    view: { webContents: contents },
+  }
+  const nativeSession = {
+    activeTabId: tab.id,
+    closing: false,
+    id: tab.sessionId,
+    partition: 'persist:auth',
+    tabs: new Map([[tab.id, tab]]),
+  }
+  const internals = controller as unknown as {
+    observeTab: (nativeSession: unknown, tab: unknown) => void
+  }
+  internals.observeTab(nativeSession, tab)
+
+  let prevented = false
+  let callbackArguments: unknown[] | null = null
+  contents.emit(
+    'login',
+    { preventDefault: () => { prevented = true } },
+    {},
+    {},
+    (...args: unknown[]) => { callbackArguments = args },
+  )
+  assert.equal(prevented, true)
+  assert.deepEqual(callbackArguments, [])
+  assert.match(
+    String((emitted.at(-1)?.payload as Record<string, unknown>)?.message),
+    /authentication requires explicit page interaction/,
+  )
+})
+
+test('desktop structured Browser downloads are admitted without cancelling Electron transfer', async () => {
+  const temporaryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-native-browser-download-'))
+  const temporaryPath = path.join(temporaryDir, 'selected-download')
+  const browserSession = new EventEmitter()
+  const contents = {}
+  let prevented = false
+  let savePath = ''
+  const downloadItem = Object.assign(new EventEmitter(), {
+    getFilename: () => 'fixture.txt',
+    getMimeType: () => 'text/plain',
+    setSavePath: (value: string) => { savePath = value },
+  })
+  const controller = new DesktopNativeBrowserController({
+    getWindow: () => null,
+    onEvent: () => {},
+  })
+  const selectDownload = (
+    controller as unknown as {
+      selectDownload: (
+        browserSession: unknown,
+        contents: unknown,
+        temporaryPath: string,
+        timeoutMs: number,
+      ) => Promise<Record<string, unknown>>
+    }
+  ).selectDownload.bind(controller)
+
+  try {
+    const selected = selectDownload(browserSession, contents, temporaryPath, 1_000)
+    browserSession.emit(
+      'will-download',
+      {
+        get defaultPrevented() { return prevented },
+        preventDefault: () => { prevented = true },
+      },
+      downloadItem,
+      contents,
+    )
+    if (prevented) {
+      downloadItem.emit('done', {}, 'cancelled')
+    } else {
+      fs.writeFileSync(savePath, 'controlled download')
+      downloadItem.emit('done', {}, 'completed')
+    }
+
+    const result = await selected
+    assert.equal(prevented, false)
+    assert.equal(savePath, temporaryPath)
+    assert.deepEqual(result, {
+      data: Buffer.from('controlled download').toString('base64'),
+      mimeType: 'text/plain',
+      name: 'fixture.txt',
+      size: 19,
+    })
+  } finally {
+    fs.rmSync(temporaryDir, { recursive: true, force: true })
+  }
+})
+
+test('desktop gateway CSP hashes every inline renderer script without unsafe-inline', () => {
+  const indexHtml = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8')
+  const expectedHashes = Array.from(
+    indexHtml.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi),
+  )
+    .filter(match => !/\bsrc\s*=/i.test(match[1]) && Boolean(match[2].trim()))
+    .map(match => `'sha256-${createHash('sha256').update(match[2]).digest('base64')}'`)
+    .sort()
+  const hashes = desktopInlineScriptCspHashes(indexHtml).sort()
+  const policy = desktopContentSecurityPolicy(indexHtml)
+
+  assert.deepEqual(hashes, expectedHashes)
+  expectedHashes.forEach(hash => assert.match(policy, new RegExp(hash.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))))
+  assert.doesNotMatch(policy, /script-src[^;]*'unsafe-inline'/)
+})
 
 test('desktop lifecycle coalesces route invalidations while a window is loading', () => {
   const lifecycle = new DesktopLifecycle()

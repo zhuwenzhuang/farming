@@ -212,7 +212,7 @@ function commandInput(command) {
       inputField('--workspace', 'path', false),
       inputField('--name', 'string', false),
       inputField('--url', 'http-url', false),
-      inputField('--source', 'enum', false, ['system', 'extension', 'isolated']),
+      inputField('--source', 'enum', false, ['desktop', 'system', 'extension', 'isolated']),
       inputField('--executable', 'path', false),
     ],
   };
@@ -373,14 +373,16 @@ Stopping or deleting the Browser Resource leaves the user's Chrome tab open.
 `;
   }
   if (command === 'open' || command === 'create') {
-    return `Usage: farming browser ${command}${command === 'open' ? ' [url] [--session <name>]' : ''} [--workspace <path>] [--name <name>] [--url <url>] [--source <system|extension|isolated>]
+    return `Usage: farming browser ${command}${command === 'open' ? ' [url] [--session <name>]' : ''} [--workspace <path>] [--name <name>] [--url <url>] [--source <desktop|system|extension|isolated>]
 
 ${command === 'open'
     ? 'Opens the default or named Browser Session. It creates the Resource only when absent, starts it when stopped, and otherwise reuses it.'
     : 'Creates one stopped Project-scoped Browser Resource. Run start before page operations.'}
 
-Use system for ordinary browser work, extension when the task needs the user's
-current Chrome pages or sign-in state, and isolated for a separate environment.
+Use desktop when this Agent has an available Farming Desktop native Browser
+adapter, system for ordinary browser work, extension when the task needs the
+user's current Chrome pages or sign-in state, and isolated for a separate
+environment.
 Ordinary commands use the default Session when no Browser ID is supplied.
 `;
   }

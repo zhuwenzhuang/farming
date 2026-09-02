@@ -25,6 +25,7 @@ function viewerCopy(language: UiPreferences['language']) {
     hideAgent: zh ? '关闭右侧 Agent' : 'Hide Agent beside resource',
     forward: zh ? '前进' : 'Forward',
     reload: zh ? '重新加载' : 'Reload',
+    stopLoading: zh ? '停止加载' : 'Stop loading',
     address: zh ? '浏览器地址' : 'Browser address',
     connected: zh ? 'Viewer 已连接' : 'Viewer connected',
     disconnected: zh ? 'Viewer 未连接' : 'Viewer disconnected',
@@ -32,6 +33,27 @@ function viewerCopy(language: UiPreferences['language']) {
     sharedControlTitle: (name: string) => zh
       ? `你和 ${name} 都可以控制这个浏览器标签页。`
       : `You and ${name} can both control this browser tab.`,
+    agentControl: (name: string) => zh
+      ? `Agent 控制 · ${name}`
+      : `Agent control · ${name}`,
+    agentControlsHint: zh ? 'Agent 正在控制；接管后可输入和导航。' : 'The Agent controls this tab. Take control to navigate or type.',
+    userControl: zh ? '你正在控制' : 'You have control',
+    userControlsHint: zh ? '你正在控制此标签页。' : 'You control this tab.',
+    takeControl: zh ? '接管' : 'Take control',
+    returnControl: zh ? '归还给 Agent' : 'Return to Agent',
+    newTab: zh ? '新建标签页' : 'New tab',
+    closeTab: zh ? '关闭标签页' : 'Close tab',
+    zoomIn: zh ? '放大' : 'Zoom in',
+    zoomOut: zh ? '缩小' : 'Zoom out',
+    resetZoom: zh ? '重置缩放' : 'Reset zoom',
+    nativeUnavailable: zh
+      ? '此 Browser 需要其已租用的 Farming Desktop 原生视图。'
+      : 'This Browser requires its leased Farming Desktop native view.',
+    nativeLeasedElsewhere: zh
+      ? '此 Browser 已租给另一个 Farming Desktop 窗口。请在该窗口中查看或接管。'
+      : 'This Browser is leased to another Farming Desktop window. View or take control there.',
+    nativeReady: zh ? '原生视图已准备好' : 'Native view is ready',
+    nativeLoading: zh ? '正在挂载原生视图…' : 'Mounting native view…',
     copyLink: zh ? '复制链接' : 'Copy link',
     more: zh ? '更多' : 'More',
     start: zh ? '启动' : 'Start',
@@ -94,6 +116,22 @@ function MoreGlyph() {
   )
 }
 
+function PlusGlyph() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+      <path d="M7.5 2.5a.5.5 0 0 1 1 0v5h5a.5.5 0 0 1 0 1h-5v5a.5.5 0 0 1-1 0v-5h-5a.5.5 0 0 1 0-1h5v-5Z" />
+    </svg>
+  )
+}
+
+function CloseGlyph() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+      <path d="M3.15 2.45a.5.5 0 0 1 .7 0L8 6.59l4.15-4.14a.5.5 0 1 1 .7.7L8.7 7.3l4.15 4.15a.5.5 0 0 1-.7.7L8 8.01l-4.15 4.14a.5.5 0 1 1-.7-.7L7.3 7.3 3.15 3.15a.5.5 0 0 1 0-.7Z" />
+    </svg>
+  )
+}
+
 export function BrowserViewer({
   resource,
   controller,
@@ -127,10 +165,37 @@ export function BrowserViewer({
   const moreMenuRef = useRef<HTMLDivElement>(null)
   const paintFrameRef = useRef<number | null>(null)
   const resizeFrameRef = useRef<number | null>(null)
+  const nativeMountFrameRef = useRef<number | null>(null)
+  const nativeSelectionRef = useRef<{
+    key: string
+    promise: Promise<BrowserResource> | null
+    selected: boolean
+  } | null>(null)
   const frameViewportRef = useRef<{ width: number; height: number } | null>(null)
   const viewerMetricsRef = useRef(emptyViewerMetrics())
   const resourceGenerationRef = useRef(resource.generation)
   resourceGenerationRef.current = resource.generation
+  const nativeBrowser = window.farmingDesktop?.nativeBrowser
+  const nativeDesktopResource = resource.browserSource === 'desktop'
+  const nativeDesktopAvailable = nativeDesktopResource
+    && Boolean(nativeBrowser)
+    && resource.desktopAdapterId === nativeBrowser?.adapterId
+  const nativeLeaseMessage = nativeDesktopResource
+    && nativeBrowser
+    && resource.desktopAdapterId
+    && resource.desktopAdapterId !== nativeBrowser.adapterId
+    ? copy.nativeLeasedElsewhere
+    : copy.nativeUnavailable
+  const nativeUserControl = resource.controlOwner === 'user'
+  const selectNativeTab = controller.selectNativeTab
+  const nativeSessionResources = resource.sessionId
+    ? controller.resources.filter(candidate => (
+        candidate.browserSource === 'desktop'
+        && candidate.desktopAdapterId === resource.desktopAdapterId
+        && candidate.sessionId === resource.sessionId
+        && candidate.status === 'running'
+      ))
+    : []
   const inputSchedulerRef = useRef<BrowserViewerInputScheduler | null>(null)
   if (!inputSchedulerRef.current) {
     inputSchedulerRef.current = new BrowserViewerInputScheduler(
@@ -152,6 +217,7 @@ export function BrowserViewer({
   const [navigating, setNavigating] = useState(false)
   const [viewerError, setViewerError] = useState('')
   const [moreOpen, setMoreOpen] = useState(false)
+  const [nativeZoomFactor, setNativeZoomFactor] = useState(1)
   const activeRuntime = resource.status === 'running' || resource.status === 'reconnecting'
 
   useEffect(() => {
@@ -209,7 +275,127 @@ export function BrowserViewer({
     }))
   }, [resource.generation])
 
+  const nativeAction = useCallback(async (
+    operation: 'back' | 'forward' | 'get-zoom' | 'navigate' | 'reload' | 'reset-zoom' | 'set-zoom' | 'stop-loading' | 'zoom-in' | 'zoom-out',
+    input: Record<string, unknown> = {},
+    target: BrowserResource = resource,
+  ) => {
+    if (
+      !nativeBrowser
+      || target.browserSource !== 'desktop'
+      || target.desktopAdapterId !== nativeBrowser.adapterId
+    ) {
+      throw new Error(nativeLeaseMessage)
+    }
+    return controller.nativeUserAction(target.id, operation, input)
+  }, [controller, nativeBrowser, nativeLeaseMessage, resource])
+
   useEffect(() => {
+    if (
+      !nativeDesktopAvailable
+      || resource.status !== 'running'
+      || !resource.sessionId
+      || !nativeBrowser
+    ) return undefined
+    let disposed = false
+    const selectionKey = `${resource.id}:${resource.generation}:${resource.sessionId}`
+    let selection = nativeSelectionRef.current
+    if (!selection || selection.key !== selectionKey) {
+      selection = {
+        key: selectionKey,
+        promise: null,
+        selected: false,
+      }
+      nativeSelectionRef.current = selection
+    }
+    const mount = () => {
+      const viewport = viewportRef.current
+      if (!viewport || disposed || !selection.selected) return
+      const bounds = viewport.getBoundingClientRect()
+      const width = Math.round(bounds.width)
+      const height = Math.round(bounds.height)
+      if (width <= 0 || height <= 0) return
+      void nativeBrowser.mount({
+        bounds: {
+          height,
+          width,
+          x: Math.round(bounds.x),
+          y: Math.round(bounds.y),
+        },
+        generation: resource.generation,
+        resourceId: resource.id,
+      }).catch(error => {
+        if (!disposed) {
+          setViewerError(error instanceof Error ? error.message : nativeLeaseMessage)
+        }
+      })
+    }
+    const scheduleMount = () => {
+      if (!selection.selected) return
+      if (nativeMountFrameRef.current !== null) {
+        window.cancelAnimationFrame(nativeMountFrameRef.current)
+      }
+      nativeMountFrameRef.current = window.requestAnimationFrame(() => {
+        nativeMountFrameRef.current = null
+        mount()
+      })
+    }
+    const viewport = viewportRef.current
+    const observer = viewport ? new ResizeObserver(scheduleMount) : null
+    if (viewport) observer?.observe(viewport)
+    void (async () => {
+      try {
+        if (!selection.promise) {
+          selection.promise = selectNativeTab(resource.id).then(selected => {
+            if (nativeSelectionRef.current === selection) selection.selected = true
+            return selected
+          })
+        }
+        const selected = await selection.promise
+        if (disposed || nativeSelectionRef.current !== selection) return
+        onResource(selected)
+        scheduleMount()
+      } catch (error) {
+        if (nativeSelectionRef.current === selection) selection.promise = null
+        if (!disposed) {
+          setViewerError(error instanceof Error ? error.message : nativeLeaseMessage)
+        }
+      }
+    })()
+    return () => {
+      disposed = true
+      observer?.disconnect()
+      if (nativeMountFrameRef.current !== null) {
+        window.cancelAnimationFrame(nativeMountFrameRef.current)
+        nativeMountFrameRef.current = null
+      }
+      void nativeBrowser.unmount({
+        generation: resource.generation,
+        resourceId: resource.id,
+      }).catch(() => {})
+    }
+  }, [
+    nativeLeaseMessage,
+    nativeBrowser,
+    nativeDesktopAvailable,
+    onResource,
+    resource.generation,
+    resource.id,
+    resource.sessionId,
+    resource.status,
+    selectNativeTab,
+  ])
+
+  useEffect(() => {
+    if (!nativeDesktopAvailable || !nativeUserControl || resource.status !== 'running') return
+    void nativeAction('get-zoom').then(result => {
+      const zoomFactor = Number(result.zoomFactor)
+      if (Number.isFinite(zoomFactor)) setNativeZoomFactor(zoomFactor)
+    }).catch(() => {})
+  }, [nativeAction, nativeDesktopAvailable, nativeUserControl, resource.status])
+
+  useEffect(() => {
+    if (nativeDesktopResource) return undefined
     const viewport = viewportRef.current
     if (!viewport) return undefined
     const observer = new ResizeObserver(() => {
@@ -225,9 +411,10 @@ export function BrowserViewer({
       if (resizeFrameRef.current !== null) window.cancelAnimationFrame(resizeFrameRef.current)
       resizeFrameRef.current = null
     }
-  }, [sendViewerSize])
+  }, [nativeDesktopResource, sendViewerSize])
 
   useEffect(() => {
+    if (nativeDesktopResource) return undefined
     const claimViewport = () => {
       if (document.visibilityState === 'visible' && document.hasFocus()) {
         sendViewerSize(undefined, true)
@@ -239,9 +426,15 @@ export function BrowserViewer({
       window.removeEventListener('focus', claimViewport)
       document.removeEventListener('visibilitychange', claimViewport)
     }
-  }, [sendViewerSize])
+  }, [nativeDesktopResource, sendViewerSize])
 
   useEffect(() => {
+    if (nativeDesktopResource) {
+      setConnected(false)
+      socketRef.current?.close()
+      socketRef.current = null
+      return undefined
+    }
     if (resource.status !== 'running') {
       setConnected(false)
       socketRef.current?.close()
@@ -363,14 +556,28 @@ export function BrowserViewer({
       socketRef.current?.close()
       socketRef.current = null
     }
-  }, [copy.connectionFailed, copy.viewerFailed, onOpenResource, onResource, resource.id, resource.status, sendViewerSize])
+  }, [
+    copy.connectionFailed,
+    copy.viewerFailed,
+    nativeDesktopResource,
+    onOpenResource,
+    onResource,
+    resource.id,
+    resource.status,
+    sendViewerSize,
+  ])
 
   const send = useCallback((message: BrowserViewerInputMessage) => {
+    if (nativeDesktopResource) {
+      inputSchedulerRef.current?.clear()
+      setViewerError(nativeUserControl ? nativeLeaseMessage : copy.takeControl)
+      return
+    }
     const metrics = viewerMetricsRef.current
     if (message.type === 'pointer' && message.action === 'move') metrics.movesReceived += 1
     if (message.type === 'wheel') metrics.wheelsReceived += 1
     inputSchedulerRef.current?.enqueue(message)
-  }, [])
+  }, [copy.takeControl, nativeDesktopResource, nativeLeaseMessage, nativeUserControl])
 
   const point = (event: {
     currentTarget: HTMLCanvasElement
@@ -390,9 +597,21 @@ export function BrowserViewer({
     setNavigating(true)
     setViewerError('')
     try {
+      if (nativeDesktopResource && !nativeUserControl) {
+        throw new Error(copy.takeControl)
+      }
+      let target = resource
       if (resource.status === 'stopped' || resource.status === 'failed') {
         const started = await controller.start(resource.id)
         onResource(started)
+        target = started
+      }
+      if (nativeDesktopResource) {
+        const result = await nativeAction('navigate', { url: submittedAddress }, target)
+        addressEditingRef.current = false
+        setAddress(String(result.url || submittedAddress))
+        onResource(result)
+        return
       }
       const response = await fetch(appPath(`/api/browsers/${encodeURIComponent(resource.id)}/navigate`), {
         method: 'POST',
@@ -411,10 +630,19 @@ export function BrowserViewer({
       setNavigating(false)
     }
   }
-  const browserAction = async (kind: 'back' | 'forward' | 'reload') => {
+  const browserAction = async (kind: 'back' | 'forward' | 'reload' | 'stop-loading') => {
     setNavigating(true)
     setViewerError('')
     try {
+      if (nativeDesktopResource && !nativeUserControl) {
+        throw new Error(copy.takeControl)
+      }
+      if (nativeDesktopResource) {
+        const result = await nativeAction(kind)
+        if (typeof result.url === 'string') setAddress(result.url)
+        onResource(result)
+        return
+      }
       const response = await fetch(appPath(`/api/browsers/${encodeURIComponent(resource.id)}/action`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
@@ -430,120 +658,346 @@ export function BrowserViewer({
       setNavigating(false)
     }
   }
+  const changeNativeControl = async (owner: 'agent' | 'user') => {
+    setViewerError('')
+    try {
+      const next = await controller.takeControl(resource.id, owner)
+      onResource(next)
+      if (owner === 'user') {
+        await window.farmingDesktop?.nativeBrowser?.focus({
+          generation: next.generation,
+          resourceId: next.id,
+        })
+      }
+    } catch (error) {
+      setViewerError(error instanceof Error ? error.message : copy.transitionFailed)
+    }
+  }
+  const createNativeTab = async () => {
+    if (!nativeUserControl) {
+      setViewerError(copy.takeControl)
+      return
+    }
+    setViewerError('')
+    try {
+      const created = await controller.createNativeTab(resource.id)
+      onResource(created)
+      onOpenResource(created)
+    } catch (error) {
+      setViewerError(error instanceof Error ? error.message : copy.transitionFailed)
+    }
+  }
+  const switchNativeTab = async (target: BrowserResource) => {
+    setViewerError('')
+    try {
+      const selected = await controller.selectNativeTab(target.id)
+      onResource(selected)
+      onOpenResource(selected)
+      if (selected.controlOwner === 'user') {
+        await window.farmingDesktop?.nativeBrowser?.focus({
+          generation: selected.generation,
+          resourceId: selected.id,
+        })
+      }
+    } catch (error) {
+      setViewerError(error instanceof Error ? error.message : copy.transitionFailed)
+    }
+  }
+  const closeNativeTab = async (target: BrowserResource) => {
+    if (!nativeUserControl) {
+      setViewerError(copy.takeControl)
+      return
+    }
+    setViewerError('')
+    try {
+      const remaining = nativeSessionResources.filter(candidate => candidate.id !== target.id)
+      const stopped = await controller.stop(target.id)
+      onResource(stopped)
+      if (target.id === resource.id) {
+        const next = remaining.find(candidate => candidate.id !== target.id)
+        if (next) onOpenResource(next)
+        else onBackToAgent()
+      }
+    } catch (error) {
+      setViewerError(error instanceof Error ? error.message : copy.transitionFailed)
+    }
+  }
+  const changeNativeZoom = async (operation: 'zoom-in' | 'zoom-out' | 'reset-zoom') => {
+    if (!nativeUserControl) {
+      setViewerError(copy.takeControl)
+      return
+    }
+    setViewerError('')
+    try {
+      const result = await nativeAction(operation)
+      const zoomFactor = Number(result.zoomFactor)
+      if (Number.isFinite(zoomFactor)) setNativeZoomFactor(zoomFactor)
+      onResource(result)
+    } catch (error) {
+      setViewerError(error instanceof Error ? error.message : copy.transitionFailed)
+    }
+  }
+  const toolbarConnected = nativeDesktopResource
+    ? nativeDesktopAvailable && resource.status === 'running'
+    : connected
+  const primaryBrowserAction = resource.loading ? 'stop-loading' : 'reload'
+  const primaryBrowserActionCopy = resource.loading ? copy.stopLoading : copy.reload
+  const visibleError = viewerError || (nativeDesktopResource ? resource.error : '')
 
   return (
     <section className="farming-browser-viewer" data-testid="farming-browser-viewer">
-      <header className="farming-browser-toolbar">
-        <button
-          type="button"
-          className="farming-browser-toolbar-icon farming-browser-agent-return"
-          aria-label={copy.backToAgent}
-          title={copy.backToAgent}
-          onClick={onBackToAgent}
-        >
-          <BackToAgentGlyph />
-        </button>
-        <span className="farming-browser-toolbar-separator" aria-hidden="true" />
-        <button type="button" className="farming-browser-toolbar-icon" aria-label={copy.back} title={copy.back} disabled={resource.status !== 'running'} onClick={() => void browserAction('back')}><ArrowLeftGlyph /></button>
-        <button type="button" className="farming-browser-toolbar-icon" aria-label={copy.forward} title={copy.forward} disabled={resource.status !== 'running'} onClick={() => void browserAction('forward')}><ArrowRightGlyph /></button>
-        <button type="button" className="farming-browser-toolbar-icon" aria-label={copy.reload} title={copy.reload} disabled={resource.status !== 'running'} onClick={() => void browserAction('reload')}><ReloadGlyph /></button>
-        <form aria-busy={navigating} onSubmit={event => {
-          event.preventDefault()
-          void navigate()
-        }}>
-          <input
-            ref={addressInputRef}
-            value={address}
-            aria-label={copy.address}
-            disabled={resource.status === 'starting' || resource.status === 'reconnecting' || resource.status === 'stopping'}
-            onChange={event => {
-              addressEditingRef.current = true
-              setAddress(event.currentTarget.value)
-            }}
-            onKeyDown={event => {
-              if (event.key !== 'Enter' || event.nativeEvent.isComposing) return
-              event.preventDefault()
-              void navigate()
-            }}
-            onBlur={() => {
-              addressEditingRef.current = false
-              setAddress(resource.url)
-            }}
-          />
-          <span className={`farming-browser-connection ${connected ? 'connected' : ''} ${navigating ? 'navigating' : ''}`} title={connected ? copy.connected : copy.disconnected} />
-        </form>
-        {ownerName ? (
-          <span
-            className={`farming-browser-controller ${resource.status === 'reconnecting' ? 'reconnecting' : ''}`.trim()}
-            data-testid="farming-browser-controller"
-            title={copy.sharedControlTitle(ownerName)}
-          >
-            <span aria-hidden="true" />
-            <strong>{copy.sharedControl(ownerName)}</strong>
-          </span>
+      <header className={`farming-browser-toolbar ${nativeDesktopResource ? 'native' : ''}`.trim()}>
+        {nativeDesktopResource ? (
+          <div className="farming-browser-native-tabs" role="tablist" aria-label={copy.pageLabel(resource.name)}>
+            {nativeSessionResources.map(tab => (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                className={`farming-browser-native-tab ${tab.id === resource.id ? 'selected' : ''}`.trim()}
+                aria-selected={tab.id === resource.id}
+                title={tab.title || tab.url || tab.name}
+                onClick={() => void switchNativeTab(tab)}
+              >
+                <span>{tab.title || tab.name || tab.url}</span>
+              </button>
+            ))}
+            <button
+              type="button"
+              className="farming-browser-toolbar-icon farming-browser-native-new-tab"
+              aria-label={copy.newTab}
+              title={copy.newTab}
+              disabled={!nativeUserControl || resource.status !== 'running'}
+              onClick={() => void createNativeTab()}
+            >
+              <PlusGlyph />
+            </button>
+          </div>
         ) : null}
-        {onToggleAgentSidePanel ? (
+        <div className="farming-browser-toolbar-actions">
           <button
             type="button"
-            className={`farming-browser-toolbar-icon code-resource-agent-toggle ${agentSidePanelOpen ? 'active' : ''}`.trim()}
-            data-testid="code-resource-agent-toggle"
-            aria-label={agentSidePanelOpen ? copy.hideAgent : copy.showAgent}
-            title={agentSidePanelOpen ? copy.hideAgent : copy.showAgent}
-            aria-pressed={agentSidePanelOpen}
-            onClick={onToggleAgentSidePanel}
+            className="farming-browser-toolbar-icon farming-browser-agent-return"
+            aria-label={copy.backToAgent}
+            title={copy.backToAgent}
+            onClick={onBackToAgent}
           >
-            <ChatBubblesGlyph />
+            <BackToAgentGlyph />
           </button>
-        ) : null}
-        <div className="farming-browser-more-wrap">
+          <span className="farming-browser-toolbar-separator" aria-hidden="true" />
           <button
-            ref={moreButtonRef}
             type="button"
             className="farming-browser-toolbar-icon"
-            aria-label={copy.more}
-            title={copy.more}
-            aria-haspopup="menu"
-            aria-expanded={moreOpen}
-            onClick={() => setMoreOpen(current => !current)}
+            aria-label={copy.back}
+            title={copy.back}
+            disabled={resource.status !== 'running' || (nativeDesktopResource && !nativeUserControl)}
+            onClick={() => void browserAction('back')}
           >
-            <MoreGlyph />
+            <ArrowLeftGlyph />
           </button>
-          {moreOpen ? (
-            <div ref={moreMenuRef} className="farming-browser-more-menu" role="menu">
+          <button
+            type="button"
+            className="farming-browser-toolbar-icon"
+            aria-label={copy.forward}
+            title={copy.forward}
+            disabled={resource.status !== 'running' || (nativeDesktopResource && !nativeUserControl)}
+            onClick={() => void browserAction('forward')}
+          >
+            <ArrowRightGlyph />
+          </button>
+          <button
+            type="button"
+            className="farming-browser-toolbar-icon"
+            aria-label={primaryBrowserActionCopy}
+            title={primaryBrowserActionCopy}
+            disabled={resource.status !== 'running' || (nativeDesktopResource && !nativeUserControl)}
+            onClick={() => void browserAction(primaryBrowserAction)}
+          >
+            {primaryBrowserAction === 'stop-loading' ? <SquareGlyph /> : <ReloadGlyph />}
+          </button>
+          <form aria-busy={navigating} onSubmit={event => {
+            event.preventDefault()
+            void navigate()
+          }}>
+            <input
+              ref={addressInputRef}
+              value={address}
+              aria-label={copy.address}
+              disabled={
+                resource.status === 'starting'
+                || resource.status === 'reconnecting'
+                || resource.status === 'stopping'
+                || (nativeDesktopResource && !nativeUserControl)
+              }
+              onChange={event => {
+                addressEditingRef.current = true
+                setAddress(event.currentTarget.value)
+              }}
+              onKeyDown={event => {
+                if (event.key !== 'Enter' || event.nativeEvent.isComposing) return
+                event.preventDefault()
+                void navigate()
+              }}
+              onBlur={() => {
+                addressEditingRef.current = false
+                setAddress(resource.url)
+              }}
+            />
+            <span
+              className={`farming-browser-connection ${toolbarConnected ? 'connected' : ''} ${navigating ? 'navigating' : ''}`}
+              title={toolbarConnected ? (nativeDesktopResource ? copy.nativeReady : copy.connected) : copy.disconnected}
+            />
+          </form>
+          {nativeDesktopResource ? (
+            <>
+              <span
+                className={`farming-browser-controller native ${nativeUserControl ? 'user' : 'agent'}`.trim()}
+                data-testid="farming-browser-controller"
+                title={nativeUserControl ? copy.userControlsHint : copy.agentControlsHint}
+              >
+                <span aria-hidden="true" />
+                <strong>{nativeUserControl ? copy.userControl : copy.agentControl(ownerName)}</strong>
+              </span>
               <button
                 type="button"
-                role="menuitem"
-                onClick={() => {
-                  setMoreOpen(false)
-                  const stableUrl = new URL(window.location.href)
-                  stableUrl.searchParams.set('browser', resource.id)
-                  void navigator.clipboard.writeText(stableUrl.href)
-                }}
+                className="farming-browser-native-control"
+                disabled={resource.status !== 'running' || !nativeDesktopAvailable}
+                onClick={() => void changeNativeControl(nativeUserControl ? 'agent' : 'user')}
               >
-                <CopyGlyph />
-                <span>{copy.copyLink}</span>
+                {nativeUserControl ? copy.returnControl : copy.takeControl}
               </button>
+              <div className="farming-browser-native-zoom" aria-label={`${Math.round(nativeZoomFactor * 100)}%`}>
+                <button
+                  type="button"
+                  className="farming-browser-toolbar-icon"
+                  aria-label={copy.zoomOut}
+                  title={copy.zoomOut}
+                  disabled={!nativeUserControl || resource.status !== 'running'}
+                  onClick={() => void changeNativeZoom('zoom-out')}
+                >
+                  −
+                </button>
+                <button
+                  type="button"
+                  className="farming-browser-native-zoom-value"
+                  title={copy.resetZoom}
+                  disabled={!nativeUserControl || resource.status !== 'running'}
+                  onClick={() => void changeNativeZoom('reset-zoom')}
+                >
+                  {Math.round(nativeZoomFactor * 100)}%
+                </button>
+                <button
+                  type="button"
+                  className="farming-browser-toolbar-icon"
+                  aria-label={copy.zoomIn}
+                  title={copy.zoomIn}
+                  disabled={!nativeUserControl || resource.status !== 'running'}
+                  onClick={() => void changeNativeZoom('zoom-in')}
+                >
+                  +
+                </button>
+              </div>
               <button
                 type="button"
-                role="menuitem"
-                disabled={resource.status === 'starting' || resource.status === 'stopping'}
-                onClick={() => {
-                  setMoreOpen(false)
-                  const transition = activeRuntime
-                    ? controller.stop(resource.id)
-                    : controller.start(resource.id)
-                  void transition.catch(error => setViewerError(error instanceof Error ? error.message : copy.transitionFailed))
-                }}
+                className="farming-browser-toolbar-icon"
+                aria-label={copy.closeTab}
+                title={copy.closeTab}
+                disabled={!nativeUserControl || resource.status !== 'running'}
+                onClick={() => void closeNativeTab(resource)}
               >
-                {activeRuntime ? <SquareGlyph /> : <PlayGlyph />}
-                <span>{activeRuntime ? copy.stop : copy.start}</span>
+                <CloseGlyph />
               </button>
-            </div>
+            </>
+          ) : ownerName ? (
+            <span
+              className={`farming-browser-controller ${resource.status === 'reconnecting' ? 'reconnecting' : ''}`.trim()}
+              data-testid="farming-browser-controller"
+              title={copy.sharedControlTitle(ownerName)}
+            >
+              <span aria-hidden="true" />
+              <strong>{copy.sharedControl(ownerName)}</strong>
+            </span>
           ) : null}
+          {onToggleAgentSidePanel ? (
+            <button
+              type="button"
+              className={`farming-browser-toolbar-icon code-resource-agent-toggle ${agentSidePanelOpen ? 'active' : ''}`.trim()}
+              data-testid="code-resource-agent-toggle"
+              aria-label={agentSidePanelOpen ? copy.hideAgent : copy.showAgent}
+              title={agentSidePanelOpen ? copy.hideAgent : copy.showAgent}
+              aria-pressed={agentSidePanelOpen}
+              onClick={onToggleAgentSidePanel}
+            >
+              <ChatBubblesGlyph />
+            </button>
+          ) : null}
+          <div className="farming-browser-more-wrap">
+            <button
+              ref={moreButtonRef}
+              type="button"
+              className="farming-browser-toolbar-icon"
+              aria-label={copy.more}
+              title={copy.more}
+              aria-haspopup="menu"
+              aria-expanded={moreOpen}
+              onClick={() => setMoreOpen(current => !current)}
+            >
+              <MoreGlyph />
+            </button>
+            {moreOpen ? (
+              <div ref={moreMenuRef} className="farming-browser-more-menu" role="menu">
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setMoreOpen(false)
+                    const stableUrl = new URL(window.location.href)
+                    stableUrl.searchParams.set('browser', resource.id)
+                    void navigator.clipboard.writeText(stableUrl.href)
+                  }}
+                >
+                  <CopyGlyph />
+                  <span>{copy.copyLink}</span>
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={resource.status === 'starting' || resource.status === 'stopping'}
+                  onClick={() => {
+                    setMoreOpen(false)
+                    const transition = activeRuntime
+                      ? controller.stop(resource.id)
+                      : controller.start(resource.id)
+                    void transition.then(onResource).catch(error => {
+                      setViewerError(error instanceof Error ? error.message : copy.transitionFailed)
+                    })
+                  }}
+                >
+                  {activeRuntime ? <SquareGlyph /> : <PlayGlyph />}
+                  <span>{activeRuntime ? copy.stop : copy.start}</span>
+                </button>
+              </div>
+            ) : null}
+          </div>
         </div>
       </header>
       <div ref={viewportRef} className="farming-browser-viewport">
-        {resource.status === 'running' ? (
+        {resource.status === 'running' && nativeDesktopResource ? (
+          nativeDesktopAvailable ? (
+            <div
+              className="farming-browser-native-surface"
+              aria-label={copy.pageLabel(resource.name)}
+              data-testid="farming-browser-native-surface"
+            >
+              <span>{copy.nativeLoading}</span>
+            </div>
+          ) : (
+            <div className="farming-browser-placeholder farming-browser-native-unavailable">
+              <strong>{nativeLeaseMessage}</strong>
+              <p>{resource.error || nativeLeaseMessage}</p>
+            </div>
+          )
+        ) : resource.status === 'running' ? (
           <canvas
             ref={canvasRef}
             tabIndex={0}
@@ -604,37 +1058,39 @@ export function BrowserViewer({
             ) : null}
           </div>
         )}
-        <textarea
-          ref={textInputRef}
-          className="farming-browser-text-input-proxy"
-          aria-label={copy.textInput}
-          autoCapitalize="none"
-          autoCorrect="off"
-          spellCheck={false}
-          onCompositionStart={() => {
-            composingTextRef.current = true
-          }}
-          onCompositionEnd={event => {
-            composingTextRef.current = false
-            const text = event.currentTarget.value
-            if (text) send({ type: 'text', text })
-            event.currentTarget.value = ''
-          }}
-          onInput={event => {
-            if (composingTextRef.current) return
-            const text = event.currentTarget.value
-            if (text) send({ type: 'text', text })
-            event.currentTarget.value = ''
-          }}
-          onKeyDown={event => {
-            if (composingTextRef.current) return
-            if (!['Backspace', 'Delete', 'Enter', 'Tab', 'Escape', 'ArrowLeft', 'ArrowUp', 'ArrowRight', 'ArrowDown'].includes(event.key)) return
-            event.preventDefault()
-            send({ type: 'key', key: event.key, code: event.code })
-          }}
-        />
+        {!nativeDesktopResource ? (
+          <textarea
+            ref={textInputRef}
+            className="farming-browser-text-input-proxy"
+            aria-label={copy.textInput}
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            onCompositionStart={() => {
+              composingTextRef.current = true
+            }}
+            onCompositionEnd={event => {
+              composingTextRef.current = false
+              const text = event.currentTarget.value
+              if (text) send({ type: 'text', text })
+              event.currentTarget.value = ''
+            }}
+            onInput={event => {
+              if (composingTextRef.current) return
+              const text = event.currentTarget.value
+              if (text) send({ type: 'text', text })
+              event.currentTarget.value = ''
+            }}
+            onKeyDown={event => {
+              if (composingTextRef.current) return
+              if (!['Backspace', 'Delete', 'Enter', 'Tab', 'Escape', 'ArrowLeft', 'ArrowUp', 'ArrowRight', 'ArrowDown'].includes(event.key)) return
+              event.preventDefault()
+              send({ type: 'key', key: event.key, code: event.code })
+            }}
+          />
+        ) : null}
       </div>
-      {viewerError && <div className="farming-browser-viewer-error" role="alert">{viewerError}</div>}
+      {visibleError && <div className="farming-browser-viewer-error" role="alert">{visibleError}</div>}
     </section>
   )
 }

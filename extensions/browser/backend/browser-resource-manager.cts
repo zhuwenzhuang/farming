@@ -29,6 +29,10 @@ import {
   type RuntimeOptions,
 } from './agent-browser-runtime.cjs';
 import {
+  DesktopBrowserAdapterRegistry,
+  DesktopBrowserRuntime,
+} from './desktop-browser-adapter.cjs';
+import {
   discoverBrowserExecutables,
   discoverBrowserRuntime,
   type BrowserCandidate,
@@ -42,12 +46,15 @@ const VIEWER_METRICS_REPORT_MS = 5_000;
 const BROWSER_RECOVERY_TIMEOUT_MS = 5_000;
 const BROWSER_RECOVERY_POLL_MS = 100;
 const MAX_UPLOAD_FILES = 20;
+const MAX_DESKTOP_FILE_TRANSFER_BYTES = 8 * 1024 * 1024;
 const INACTIVE_AGENT_STATUSES = new Set(['dead', 'error', 'exited', 'stopped']);
 
 type BrowserResourceStatus = 'stopped' | 'starting' | 'running' | 'reconnecting' | 'stopping' | 'failed';
 type BrowserResourceOwnerType = 'agent' | 'project';
 type BrowserTab = {
   active?: boolean;
+  controlEpoch?: number;
+  controlOwner?: BrowserControlOwner;
   tabId: string;
   title?: string;
   type?: string;
@@ -58,7 +65,20 @@ type BrowserTabsEvent = {
   popupAdmitted?: boolean;
   tabs?: BrowserTab[];
 };
-type BrowserMetadata = { title?: string; url?: string };
+type BrowserMetadata = {
+  generation?: number;
+  resourceId?: string;
+  tabId?: string;
+  title?: string;
+  url?: string;
+};
+type BrowserControlOwner = 'agent' | 'user';
+type BrowserLoadingEvent = {
+  generation?: number;
+  loading: boolean;
+  resourceId?: string;
+  tabId?: string;
+};
 type BrowserCapability = BrowserExecutable;
 type BrowserSelection = {
   executablePath: string;
@@ -78,7 +98,7 @@ type BrowserSettings = {
   browserExecutablePath?: string;
   browserSource?: string;
 };
-const BROWSER_SOURCES = new Set(['extension', 'isolated', 'system']);
+const BROWSER_SOURCES = new Set(['desktop', 'extension', 'isolated', 'system']);
 type BrowserOption = BrowserCandidate;
 type BrowserMessage = Record<string, unknown> & {
   claim?: boolean;
@@ -124,13 +144,14 @@ interface BrowserRuntime {
   start(url: string): Promise<BrowserMetadata>;
   close(): Promise<void>;
   closeTab(tabId: string): Promise<unknown>;
-  createTab(url: string, label?: string): Promise<BrowserTab>;
-  listTabs(): Promise<BrowserTab[]>;
+  createTab(url: string, label?: string, caller?: BrowserControlOwner): Promise<BrowserTab>;
+  listTabs(caller?: BrowserControlOwner): Promise<BrowserTab[]>;
   switchTab(tabId: string): Promise<BrowserTab>;
   navigate(url: string): Promise<BrowserMetadata>;
   goBack(): Promise<BrowserMetadata>;
   goForward(): Promise<BrowserMetadata>;
   reload(): Promise<BrowserMetadata>;
+  stopLoading?(): Promise<BrowserMetadata>;
   snapshot(): Promise<unknown>;
   screenshot(): Promise<unknown>;
   click(input: BrowserMessage): Promise<unknown>;
@@ -157,6 +178,24 @@ interface BrowserRuntime {
   pointer(input: BrowserMessage): Promise<void>;
   resize(input: BrowserViewport): Promise<unknown>;
   insertText(text: string): Promise<void>;
+  setActiveResourceId?(resourceId: string, generation?: number, controlEpoch?: number): void;
+  bindResourceTab?(
+    resourceId: string,
+    tabId: string,
+    generation?: number,
+    controlEpoch?: number,
+    controlOwner?: BrowserControlOwner,
+  ): Promise<unknown>;
+  prepareControl?(input: {
+    controlEpoch: number;
+    expectedControlEpoch: number;
+    expectedControlOwner: BrowserControlOwner;
+    owner: BrowserControlOwner;
+  }): Promise<unknown>;
+  commitControl?(owner: BrowserControlOwner, controlEpoch: number): Promise<unknown>;
+  cancelControl?(owner: BrowserControlOwner, controlEpoch: number): Promise<unknown>;
+  switchTabForUser?(tabId: string): Promise<BrowserTab>;
+  userAction?(operation: string, input: BrowserMessage): Promise<unknown>;
   on<Value>(event: string, listener: (value: Value) => void): this;
   once<Value>(event: string, listener: (value: Value) => void): this;
 }
@@ -235,6 +274,7 @@ type BrowserManagerOptions = Record<string, unknown> & {
   store?: BrowserResourceStoreLike;
   isolatedBrowserProvider?: IsolatedBrowserProvider;
   browserExtensionRelay?: BrowserExtensionRelayProvider;
+  desktopBrowserAdapters?: DesktopBrowserAdapterRegistry;
   discoverExecutable?: (
     selection: BrowserDiscoveryOptions,
   ) => Promise<BrowserCapability | null>;
@@ -262,7 +302,12 @@ type AgentLifecycleState = {
   restartedFromAgentIds?: string[];
   status?: string;
 };
-type BrowserError = Error & { cause?: unknown; code: string; status: number };
+type BrowserError = Error & {
+  cause?: unknown;
+  code: string;
+  status: number;
+  uncertain?: boolean;
+};
 type InterruptedRuntimeCleanupResult = {
   cleaned: boolean;
   message: string;
@@ -275,6 +320,10 @@ function errorMessage(error: unknown): string {
 function errorCode(error: unknown): string {
   if (!error || typeof error !== 'object' || !('code' in error)) return '';
   return typeof error.code === 'string' ? error.code : '';
+}
+
+function uncertainError(error: unknown): boolean {
+  return Boolean(error && typeof error === 'object' && (error as { uncertain?: unknown }).uncertain === true);
 }
 
 function recordValue(value: unknown): Record<string, unknown> {
@@ -298,18 +347,30 @@ function publicResource(resource: BrowserResource, collectionRevision: number) {
     title: resource.title,
     browserKind: resource.browserKind,
     browserSource: resource.browserSource,
+    desktopAdapterId: resource.browserSource === 'desktop' ? resource.desktopAdapterId : '',
     existingTabId: resource.existingTabId,
     sessionName: resource.sessionName,
+    sessionId: resource.sessionId,
+    tabId: resource.tabId,
+    controlEpoch: resource.controlEpoch,
+    controlOwner: resource.controlOwner,
+    loading: resource.loading,
     error: resource.error,
     createdAt: resource.createdAt,
     updatedAt: resource.updatedAt,
   };
 }
 
-function browserError(message: string, status = 400, code = 'BROWSER_INVALID_REQUEST'): BrowserError {
+function browserError(
+  message: string,
+  status = 400,
+  code = 'BROWSER_INVALID_REQUEST',
+  uncertain = false,
+): BrowserError {
   const error = new Error(message) as BrowserError;
   error.status = status;
   error.code = code;
+  if (uncertain) error.uncertain = true;
   return error;
 }
 
@@ -462,6 +523,7 @@ class BrowserResourceManager extends EventEmitter {
   readonly store: BrowserResourceStoreLike;
   readonly isolatedBrowserProvider: IsolatedBrowserProvider | null;
   readonly browserExtensionRelay: BrowserExtensionRelayProvider | null;
+  readonly desktopBrowserAdapters: DesktopBrowserAdapterRegistry | null;
   readonly discoverExecutable: (
     selection: BrowserDiscoveryOptions,
   ) => Promise<BrowserCapability | null>;
@@ -483,7 +545,11 @@ class BrowserResourceManager extends EventEmitter {
   readonly runtimes = new Map<string, BrowserBinding>();
   readonly sessions = new Map<string, BrowserSession>();
   readonly operations = new Map<string, Promise<unknown>>();
+  readonly nativeSessionOperations = new Map<string, Promise<unknown>>();
+  readonly deleteAdmissions = new Set<string>();
   readonly stopAdmissions = new Map<string, number>();
+  readonly controlAdmissions = new Map<string, number>();
+  readonly nativeUserTabAdmissions = new Map<string, Map<string, string>>();
   readonly existingTabReservations = new Map<number, string>();
   readonly agentOwnerReplacementHolds = new Set<string>();
   disposed = false;
@@ -518,6 +584,7 @@ class BrowserResourceManager extends EventEmitter {
     this.store = options.store || new BrowserResourceStore(this.configDir);
     this.isolatedBrowserProvider = options.isolatedBrowserProvider || null;
     this.browserExtensionRelay = options.browserExtensionRelay || null;
+    this.desktopBrowserAdapters = options.desktopBrowserAdapters || null;
     this.discoverExecutable = options.discoverExecutable || (selection => discoverBrowserRuntime({
       ...options,
       ...selection,
@@ -613,6 +680,12 @@ class BrowserResourceManager extends EventEmitter {
   async cleanupInterruptedRuntime(
     resource: BrowserResource,
   ): Promise<InterruptedRuntimeCleanupResult> {
+    if (resource.runtimeKind === 'desktop-native') {
+      return {
+        cleaned: true,
+        message: 'Farming restarted and invalidated the previous Desktop native Browser lease',
+      };
+    }
     if (resource.runtimeKind === 'agent-browser') {
       const capability = this.runtimeCapability?.agentBrowserPath
         ? this.runtimeCapability
@@ -712,7 +785,14 @@ class BrowserResourceManager extends EventEmitter {
         status: 'failed',
         error: cleanup.message,
         ...(cleanup.cleaned ? { processIdentity: null } : {}),
-        ...(resource.runtimeKind === 'agent-browser' ? { tabId: '' } : {}),
+        ...(resource.runtimeKind === 'agent-browser' || resource.runtimeKind === 'desktop-native'
+          ? {
+              tabId: '',
+              loading: false,
+              controlEpoch: related.controlEpoch + 1,
+              controlOwner: 'agent',
+            }
+          : {}),
       });
     }
   }
@@ -794,6 +874,7 @@ class BrowserResourceManager extends EventEmitter {
       && this.sourceCapabilitiesPromiseKey === signature
     ) return this.sourceCapabilitiesPromise;
     const selections: BrowserSelection[] = [
+      { source: 'desktop', executablePath: '' },
       { source: 'system', executablePath: systemPath },
       { source: 'extension', executablePath: '' },
       { source: 'isolated', executablePath: '' },
@@ -817,6 +898,7 @@ class BrowserResourceManager extends EventEmitter {
         if (probe.source === 'system') return Boolean(systemPath);
         if (probe.source === 'extension') return extensionReady;
         if (probe.source === 'isolated') return isolatedCapability?.available === true;
+        if (probe.source === 'desktop') return this.desktopBrowserAdapters?.ids().length === 1;
         return false;
       });
       this.sourceCapabilitiesCache = hasRetryableFailure ? null : { signature, sources: probes };
@@ -872,6 +954,7 @@ class BrowserResourceManager extends EventEmitter {
       }),
       isolatedBrowserCapability,
       extension: this.browserExtensionRelay?.capability() || null,
+      desktopAdapters: this.desktopBrowserAdapters?.ids() || [],
     });
   }
 
@@ -890,6 +973,19 @@ class BrowserResourceManager extends EventEmitter {
       : this.isolatedBrowserProvider
         ? await this.isolatedBrowserProvider.capability()
         : null;
+    if (selection.source === 'desktop') {
+      return {
+        browserOptions,
+        isolatedBrowserCapability,
+        runtimeCapability: {
+          kind: 'desktop-native',
+          path: '',
+          ...(this.desktopBrowserAdapters?.ids().length ? {} : {
+            error: 'Open Farming Desktop to use its native Browser view',
+          }),
+        },
+      };
+    }
     // Each source performs exactly one authoritative final runtime probe; a
     // disabled/unavailable isolated source performs none beyond the shared
     // Computer capability observation. No wasted preliminary probe can hide a
@@ -1289,10 +1385,24 @@ class BrowserResourceManager extends EventEmitter {
       );
     }
     const settings = this.getBrowserSettings();
+    const selectedSource = requestedSource
+      || (input.preferDesktop === true && this.desktopBrowserAdapters?.ids().length
+        ? 'desktop'
+        : settings.browserSource || 'system');
     const selection = this.browserSelection({
-      browserSource: requestedSource || settings.browserSource || 'system',
+      browserSource: selectedSource,
       browserExecutablePath: String(input.browserExecutablePath || settings.browserExecutablePath || ''),
     });
+    const desktopAdapterId = selection.source === 'desktop'
+      ? this.desktopBrowserAdapters?.select(input.desktopAdapterId)
+      : '';
+    if (selection.source === 'desktop' && !desktopAdapterId) {
+      throw browserError(
+        'Open Farming Desktop to use its native Browser view',
+        503,
+        'BROWSER_DESKTOP_ADAPTER_UNAVAILABLE',
+      );
+    }
     const existingTabId = normalizeExistingTabId(input.existingTabId);
     if (existingTabId !== null && selection.source !== 'extension') {
       throw browserError(
@@ -1319,6 +1429,7 @@ class BrowserResourceManager extends EventEmitter {
       url: existingTab?.url || normalizeUrl(input.url),
       browserSource: selection.source,
       browserExecutablePath: selection.executablePath,
+      desktopAdapterId,
       existingTabId,
       sessionName: input.sessionName
         ? normalizeBrowserSessionName(input.sessionName)
@@ -1434,6 +1545,9 @@ class BrowserResourceManager extends EventEmitter {
     this.requireEnabled();
     return this.enqueue(id, async () => {
       const resource = this.requireStored(id);
+      if (this.deleteAdmissions.has(id)) {
+        throw browserError('Browser is deleting', 409, 'BROWSER_DELETING');
+      }
       const existingBinding = this.runtimes.get(id);
       if (resource.status === 'running' && existingBinding) {
         return publicResource(resource, this.store.revision);
@@ -1479,14 +1593,34 @@ class BrowserResourceManager extends EventEmitter {
       });
       const probe = await this.probeCapability(selection);
       const executable = probe.runtimeCapability;
-      if (!executable || executable.error || !executable.agentBrowserPath) {
+      const desktopNative = selection.source === 'desktop';
+      let desktopAdapterId = '';
+      if (desktopNative) {
+        try {
+          desktopAdapterId = this.desktopBrowserAdapters?.select(resource.desktopAdapterId) || '';
+        } catch (error) {
+          const failed = this.store.update(id, {
+            status: 'failed',
+            error: errorMessage(error),
+          });
+          this.emitResource(failed);
+          throw error;
+        }
+      }
+      if (!executable || executable.error || (!desktopNative && !executable.agentBrowserPath)) {
         const failed = this.store.update(id, {
           status: 'failed',
           error: executable?.error
-            || 'Choose a local Chromium browser or prepare the isolated Browser runtime',
+            || (desktopNative
+              ? 'Open Farming Desktop to use its native Browser view'
+              : 'Choose a local Chromium browser or prepare the isolated Browser runtime'),
         });
         this.emitResource(failed);
-        throw browserError(failed.error, 503, 'BROWSER_EXECUTABLE_NOT_FOUND');
+        throw browserError(
+          failed.error,
+          503,
+          desktopNative ? 'BROWSER_DESKTOP_ADAPTER_UNAVAILABLE' : 'BROWSER_EXECUTABLE_NOT_FOUND',
+        );
       }
       const generation = resource.generation + 1;
       const starting = this.store.update(id, {
@@ -1494,16 +1628,32 @@ class BrowserResourceManager extends EventEmitter {
         generation,
         browserKind: executable.kind,
         runtimeKind: 'agent-browser',
+        ...(desktopNative ? {
+          browserKind: 'desktop-native',
+          desktopAdapterId,
+          runtimeKind: 'desktop-native',
+        } : {}),
         error: '',
         processIdentity: null,
+        loading: false,
+        controlEpoch: resource.controlEpoch + 1,
+        controlOwner: 'agent',
       });
       this.emitResource(starting);
 
       const reusableSession = [...this.sessions.values()].find(session => (
-        !session.closing
+        !session.initializing
+        && !session.closing
         && session.ownerKey === browserOwnerKey(resource)
         && session.projectRootId === resource.projectRootId
         && session.browserKind === executable.kind
+        && (
+          !desktopNative
+          || (
+            session.runtime instanceof DesktopBrowserRuntime
+            && session.runtime.adapterId === desktopAdapterId
+          )
+        )
         && (executable.kind !== 'chrome-extension' || resource.existingTabId === null)
       ));
       if (reusableSession) {
@@ -1513,12 +1663,18 @@ class BrowserResourceManager extends EventEmitter {
           const operation = (reusableSession.actionChain || Promise.resolve())
             .catch(() => {})
             .then(async () => {
+              reusableSession.runtime.setActiveResourceId?.(
+                id,
+                generation,
+                starting.controlEpoch,
+              );
               const tab = resource.existingTabId === null
                 ? await reusableSession.runtime.createTab(
                   resource.url,
                   executable.kind === 'isolated-computer'
                     ? `farming-${resource.id}-g${generation}`
                     : '',
+                  desktopNative ? 'agent' : undefined,
                 )
                 : await reusableSession.runtime.switchTab(this.matchExtensionRuntimeTab(
                   await reusableSession.runtime.listTabs(),
@@ -1528,6 +1684,13 @@ class BrowserResourceManager extends EventEmitter {
                 ...starting,
                 tabId: tab.tabId,
               });
+              await reusableSession.runtime.bindResourceTab?.(
+                id,
+                tab.tabId,
+                generation,
+                starting.controlEpoch,
+                starting.controlOwner,
+              );
               reusableSession.bindings.set(id, binding);
               reusableSession.activeResourceId = id;
               this.runtimes.set(id, binding);
@@ -1599,21 +1762,40 @@ class BrowserResourceManager extends EventEmitter {
       }
       let runtime: BrowserRuntime;
       try {
-        runtime = this.createRuntime({
-          id: sessionId,
-          generation: sessionGeneration,
-          configDir: this.configDir,
-          agentBrowserPath: executable.agentBrowserPath,
-          executablePath: executable.path,
-          externalCdpUrl,
-          ...(resource.existingTabId !== null ? {
-            selectInitialExternalTab: tabs => this.matchExtensionRuntimeTab(
-              tabs,
-              resource.existingTabId as number,
-            ),
-          } : {}),
-          profileDir: storageLayout.browserProfileDir(this.configDir, sessionId),
-        });
+        if (desktopNative) {
+          runtime = new DesktopBrowserRuntime({
+            adapterId: desktopAdapterId,
+            controlEpoch: starting.controlEpoch,
+            generation,
+            registry: this.desktopBrowserAdapters!,
+            resourceId: id,
+            sessionId,
+          });
+        } else {
+          const agentBrowserPath = executable.agentBrowserPath;
+          if (!agentBrowserPath) {
+            throw browserError(
+              'The selected Browser runtime is missing its managed agent-browser executable',
+              503,
+              'BROWSER_EXECUTABLE_NOT_FOUND',
+            );
+          }
+          runtime = this.createRuntime({
+            id: sessionId,
+            generation: sessionGeneration,
+            configDir: this.configDir,
+            agentBrowserPath,
+            executablePath: executable.path,
+            externalCdpUrl,
+            ...(resource.existingTabId !== null ? {
+              selectInitialExternalTab: tabs => this.matchExtensionRuntimeTab(
+                tabs,
+                resource.existingTabId as number,
+              ),
+            } : {}),
+            profileDir: storageLayout.browserProfileDir(this.configDir, sessionId),
+          });
+        }
       } catch (error) {
         if (isolatedLeaseKey && this.isolatedBrowserProvider) {
           await this.isolatedBrowserProvider.release(isolatedLeaseKey).catch(() => null);
@@ -1655,6 +1837,13 @@ class BrowserResourceManager extends EventEmitter {
         const tab = tabs.find(candidate => candidate.active) || tabs[0];
         if (!tab) throw new Error('agent-browser did not report the Browser tab');
         binding.tabId = tab.tabId;
+        await runtime.bindResourceTab?.(
+          id,
+          tab.tabId,
+          generation,
+          starting.controlEpoch,
+          starting.controlOwner,
+        );
         if (this.runtimes.get(id) !== binding) {
           throw browserError('Browser startup lost runtime ownership', 409, 'BROWSER_START_REPLACED');
         }
@@ -1673,25 +1862,31 @@ class BrowserResourceManager extends EventEmitter {
         return publicResource(running, this.store.revision);
       } catch (error) {
         session.initializing = false;
+        const desktopStartUncertain = desktopNative && uncertainError(error);
         let cleanupError = null;
-        try {
-          await runtime.close();
-        } catch (closeError) {
-          cleanupError = closeError;
+        if (!desktopStartUncertain) {
+          try {
+            await runtime.close();
+          } catch (closeError) {
+            cleanupError = closeError;
+          }
         }
-        if (!cleanupError && isolatedLeaseKey && this.isolatedBrowserProvider) {
+        if (!desktopStartUncertain && !cleanupError && isolatedLeaseKey && this.isolatedBrowserProvider) {
           try {
             await this.isolatedBrowserProvider.release(isolatedLeaseKey);
           } catch (releaseError) {
             cleanupError = releaseError;
           }
         }
-        if (!cleanupError && this.runtimes.get(id) === binding) this.runtimes.delete(id);
-        if (!cleanupError && this.sessions.get(sessionId) === session) this.sessions.delete(sessionId);
+        if (!desktopStartUncertain && !cleanupError && this.runtimes.get(id) === binding) this.runtimes.delete(id);
+        if (!desktopStartUncertain && !cleanupError && this.sessions.get(sessionId) === session) this.sessions.delete(sessionId);
+        if (desktopStartUncertain) session.closing = true;
         const current = this.store.get(id);
         const failureMessage = executable.kind === 'isolated-computer'
           ? `Isolated Browser connection failed: ${errorMessage(error)}`
-          : errorMessage(error) || 'Failed to start Browser';
+          : desktopStartUncertain
+            ? `Desktop Browser start outcome is uncertain: ${errorMessage(error)}`
+            : errorMessage(error) || 'Failed to start Browser';
         const failed = current?.generation === generation
           ? this.store.update(id, {
             status: 'failed',
@@ -1705,8 +1900,9 @@ class BrowserResourceManager extends EventEmitter {
         if (failed) this.emitResource(failed);
         throw browserError(
           failed?.error || errorMessage(error) || 'Failed to start Browser',
-          500,
-          'BROWSER_START_FAILED',
+          desktopStartUncertain ? 503 : 500,
+          desktopStartUncertain ? 'BROWSER_DESKTOP_OPERATION_UNCERTAIN' : 'BROWSER_START_FAILED',
+          desktopStartUncertain,
         );
       }
     }).catch(error => {
@@ -1723,11 +1919,27 @@ class BrowserResourceManager extends EventEmitter {
     });
   }
 
-  stop(id: string, internal = false): Promise<unknown> {
+  stop(
+    id: string,
+    internal = false,
+    caller: BrowserControlOwner = 'agent',
+  ): Promise<unknown> {
     if (!internal) this.requireEnabled();
     this.stopAdmissions.set(id, (this.stopAdmissions.get(id) || 0) + 1);
     return this.enqueue(id, async () => {
       const resource = this.requireStored(id);
+      if (
+        !internal
+        && caller === 'agent'
+        && resource.browserSource === 'desktop'
+        && resource.controlOwner === 'user'
+      ) {
+        throw browserError(
+          'The user has control of this Browser tab. Return control to the Agent before stopping it.',
+          409,
+          'BROWSER_HUMAN_CONTROL_ACTIVE',
+        );
+      }
       const binding = this.runtimes.get(id);
       if (!binding) {
         if (resource.processIdentity) {
@@ -1746,6 +1958,9 @@ class BrowserResourceManager extends EventEmitter {
           status: 'stopped',
           error: '',
           processIdentity: null,
+          loading: false,
+          controlEpoch: resource.controlEpoch + 1,
+          controlOwner: 'agent',
         });
         if (
           resource.existingTabId !== null
@@ -1766,7 +1981,15 @@ class BrowserResourceManager extends EventEmitter {
       const closeOperation = (session.actionChain || Promise.resolve())
         .catch(() => {})
         .then(async () => {
+          session.runtime.setActiveResourceId?.(
+            binding.id,
+            binding.generation,
+            resource.controlEpoch,
+          );
           if (session.bindings.size === 1) return session.runtime.close();
+          if (resource.browserSource === 'desktop') {
+            return session.runtime.closeTab(binding.tabId);
+          }
           if (resource.existingTabId === null) return session.runtime.closeTab(binding.tabId);
           if (session.runtime.activeTabId === binding.tabId) {
             const next = [...session.bindings.values()].find(candidate => candidate.id !== id);
@@ -1848,6 +2071,9 @@ class BrowserResourceManager extends EventEmitter {
         error: '',
         processIdentity: null,
         tabId: '',
+        loading: false,
+        controlEpoch: resource.controlEpoch + 1,
+        controlOwner: 'agent',
       });
       if (
         resource.existingTabId !== null
@@ -1888,25 +2114,483 @@ class BrowserResourceManager extends EventEmitter {
     }
   }
 
-  async delete(id: string, internal = false): Promise<unknown> {
+  async delete(
+    id: string,
+    internal = false,
+    caller: BrowserControlOwner = 'agent',
+  ): Promise<unknown> {
     if (!internal) this.requireEnabled();
-    await this.stop(id, internal);
-    const resource = this.requireStored(id);
-    const ownerKey = browserOwnerKey(resource);
-    const deletesLastIsolatedOwner = resource.browserKind === 'isolated-computer'
-      && this.isolatedBrowserProvider
-      && !this.store.list().some(candidate => (
-        candidate.id !== resource.id
-        && candidate.browserKind === 'isolated-computer'
-        && browserOwnerKey(candidate) === ownerKey
-      ));
-    if (deletesLastIsolatedOwner) {
-      await this.isolatedBrowserProvider!.deleteOwner(ownerKey);
+    if (this.deleteAdmissions.has(id)) {
+      throw browserError('Browser is deleting', 409, 'BROWSER_DELETING');
     }
-    this.store.delete(id);
-    this.removeBrowserProfile(resource);
-    this.emit('deleted', { id, collectionRevision: this.store.revision });
-    return { id, collectionRevision: this.store.revision };
+    this.deleteAdmissions.add(id);
+    try {
+      await this.stop(id, internal, caller);
+      const stopped = this.requireStored(id);
+      const nativeSessionKey = this.desktopNativeSessionKey(stopped);
+      const remove = async () => {
+        const resource = this.requireStored(id);
+        const ownerKey = browserOwnerKey(resource);
+        const deletesLastIsolatedOwner = resource.browserKind === 'isolated-computer'
+          && this.isolatedBrowserProvider
+          && !this.store.list().some(candidate => (
+            candidate.id !== resource.id
+            && candidate.browserKind === 'isolated-computer'
+            && browserOwnerKey(candidate) === ownerKey
+          ));
+        const deletesLastDesktopSession = Boolean(nativeSessionKey) && !this.store.list().some(candidate => (
+          candidate.id !== resource.id
+          && candidate.browserSource === 'desktop'
+          && candidate.desktopAdapterId === resource.desktopAdapterId
+          && candidate.sessionId === resource.sessionId
+        ));
+        if (deletesLastIsolatedOwner) {
+          await this.isolatedBrowserProvider!.deleteOwner(ownerKey);
+        }
+        if (deletesLastDesktopSession) {
+          try {
+            await this.clearDesktopNativeSessionData(resource);
+          } catch (error) {
+            const uncertain = uncertainError(error);
+            const message = uncertain
+              ? `Desktop Browser native profile cleanup outcome is uncertain: ${errorMessage(error)}`
+              : `Desktop Browser native profile cleanup failed: ${errorMessage(error)}`;
+            const retained = this.store.update(id, {
+              status: 'stopped',
+              loading: false,
+              processIdentity: null,
+              error: message,
+            });
+            this.emitResource(retained);
+            throw browserError(
+              message,
+              uncertain ? 504 : 500,
+              uncertain
+                ? 'BROWSER_DESKTOP_PROFILE_CLEANUP_UNCERTAIN'
+                : 'BROWSER_DESKTOP_PROFILE_CLEANUP_FAILED',
+              uncertain,
+            );
+          }
+        }
+        this.store.delete(id);
+        this.removeBrowserProfile(resource);
+        this.emit('deleted', { id, collectionRevision: this.store.revision });
+        return { id, collectionRevision: this.store.revision };
+      };
+      return nativeSessionKey
+        ? await this.enqueueNativeSessionOperation(nativeSessionKey, remove)
+        : await remove();
+    } finally {
+      this.deleteAdmissions.delete(id);
+    }
+  }
+
+  takeControl(id: string, owner: BrowserControlOwner): Promise<unknown> {
+    this.requireEnabled();
+    if (owner !== 'agent' && owner !== 'user') {
+      throw browserError('Browser control owner is invalid', 400, 'BROWSER_INVALID_REQUEST');
+    }
+    const resource = this.requireStored(id);
+    const binding = this.runtimes.get(id);
+    if (resource.browserSource !== 'desktop' || !binding || !(binding.session.runtime instanceof DesktopBrowserRuntime)) {
+      throw browserError(
+        'This Browser is not running in a Farming Desktop native view',
+        409,
+        'BROWSER_NATIVE_CONTROL_UNAVAILABLE',
+      );
+    }
+    if (resource.status !== 'running') {
+      throw browserError('Browser is not running', 409, 'BROWSER_NOT_RUNNING');
+    }
+    if (resource.controlOwner === owner) {
+      return Promise.resolve(publicResource(resource, this.store.revision));
+    }
+    if (this.stopAdmissions.has(id)) {
+      throw browserError('Browser is stopping', 409, 'BROWSER_STOPPING');
+    }
+    if (this.isControlChanging(id)) {
+      throw browserError('Browser control is changing', 409, 'BROWSER_CONTROL_CHANGING');
+    }
+    this.holdControlAdmission(id);
+    return this.enqueue(id, async () => {
+      const current = this.requireStored(id);
+      const currentBinding = this.runtimes.get(id);
+      if (
+        !currentBinding
+        || current.status !== 'running'
+        || current.browserSource !== 'desktop'
+        || current.generation !== currentBinding.generation
+        || current.sessionId !== currentBinding.session.id
+        || current.sessionGeneration !== currentBinding.session.generation
+        || current.tabId !== currentBinding.tabId
+      ) {
+        throw browserError(
+          'Browser runtime ownership changed; refresh Browser state before retrying',
+          409,
+          'BROWSER_STALE_GENERATION',
+        );
+      }
+      if (current.controlOwner === owner) {
+        return publicResource(current, this.store.revision);
+      }
+      const { session } = currentBinding;
+      const transition = (session.actionChain || Promise.resolve())
+        .catch(() => {})
+        .then(() => this.transitionNativeControl(currentBinding, owner));
+      session.actionChain = transition;
+      return transition;
+    }).finally(() => this.releaseControlAdmission(id));
+  }
+
+  /**
+   * A native control transition has an explicit prepare/commit fence:
+   *
+   * 1. Electron blocks both direct page input and delayed structured commands.
+   * 2. The backend atomically persists the new owner and epoch.
+   * 3. Electron commits the visible handoff. A user-facing page is never
+   *    unshielded before the backend owns that epoch.
+   *
+   * A failed commit is terminal because the adapter may have changed native
+   * input state even when the transport cannot prove its outcome.
+   */
+  async transitionNativeControl(
+    binding: BrowserBinding,
+    owner: BrowserControlOwner,
+  ): Promise<unknown> {
+    const { id, session } = binding;
+    const current = this.store.get(id);
+    if (
+      !current
+      || current.status !== 'running'
+      || current.browserSource !== 'desktop'
+      || current.generation !== binding.generation
+      || current.sessionId !== session.id
+      || current.sessionGeneration !== session.generation
+      || current.tabId !== binding.tabId
+      || this.stopAdmissions.has(id)
+    ) {
+      throw browserError(
+        'Browser runtime ownership changed; refresh Browser state before retrying',
+        409,
+        'BROWSER_STALE_GENERATION',
+      );
+    }
+    if (current.controlOwner === owner) return publicResource(current, this.store.revision);
+    const runtime = session.runtime;
+    if (
+      !runtime.prepareControl
+      || !runtime.commitControl
+      || !runtime.cancelControl
+    ) {
+      throw browserError(
+        'This Browser runtime does not support native control handoff',
+        409,
+        'BROWSER_NATIVE_CONTROL_UNAVAILABLE',
+      );
+    }
+    const expectedOwner = current.controlOwner;
+    const expectedControlEpoch = current.controlEpoch;
+    const controlEpoch = expectedControlEpoch + 1;
+    try {
+      await this.activateBinding(binding, expectedOwner);
+    } catch (error) {
+      if (uncertainError(error)) return this.failNativeControlTransition(binding, error);
+      throw error;
+    }
+    try {
+      await runtime.prepareControl({
+        controlEpoch,
+        expectedControlEpoch,
+        expectedControlOwner: expectedOwner,
+        owner,
+      });
+    } catch (error) {
+      if (uncertainError(error)) {
+        return this.failNativeControlTransition(binding, error);
+      }
+      throw error;
+    }
+    let committed: BrowserResource;
+    try {
+      const latest = this.store.get(id);
+      if (
+        !latest
+        || latest.status !== 'running'
+        || latest.generation !== binding.generation
+        || latest.sessionId !== session.id
+        || latest.sessionGeneration !== session.generation
+        || latest.tabId !== binding.tabId
+        || latest.controlOwner !== expectedOwner
+        || latest.controlEpoch !== expectedControlEpoch
+        || this.stopAdmissions.has(id)
+      ) {
+        throw browserError(
+          'Browser ownership changed while control was transferring',
+          409,
+          'BROWSER_STALE_GENERATION',
+        );
+      }
+      committed = this.store.update(id, {
+        controlEpoch,
+        controlOwner: owner,
+      });
+    } catch (error) {
+      try {
+        await runtime.cancelControl(owner, controlEpoch);
+      } catch (cancelError) {
+        if (uncertainError(cancelError)) return this.failNativeControlTransition(binding, cancelError);
+      }
+      throw error;
+    }
+    try {
+      await runtime.commitControl(owner, controlEpoch);
+    } catch (error) {
+      return this.failNativeControlTransition(binding, error, committed);
+    }
+    const confirmed = this.store.get(id);
+    if (
+      !confirmed
+      || confirmed.status !== 'running'
+      || confirmed.generation !== binding.generation
+      || confirmed.sessionId !== session.id
+      || confirmed.sessionGeneration !== session.generation
+      || confirmed.tabId !== binding.tabId
+      || confirmed.controlOwner !== owner
+      || confirmed.controlEpoch !== controlEpoch
+    ) {
+      return this.failNativeControlTransition(
+        binding,
+        browserError(
+          'Browser ownership changed while control was committing',
+          409,
+          'BROWSER_STALE_GENERATION',
+        ),
+        committed,
+      );
+    }
+    this.emitResource(confirmed);
+    this.broadcastRuntimeState(binding);
+    return publicResource(confirmed, this.store.revision);
+  }
+
+  failNativeControlTransition(
+    binding: BrowserBinding,
+    error: unknown,
+    committed?: BrowserResource,
+  ): never {
+    const current = committed || this.store.get(binding.id);
+    const failure = current
+      ? this.store.update(binding.id, {
+        error: `Desktop Browser control handoff outcome is uncertain: ${errorMessage(error)}`,
+        loading: false,
+        status: 'failed',
+      })
+      : null;
+    if (failure) {
+      this.emitResource(failure);
+      this.broadcastRuntimeState(binding);
+    }
+    throw browserError(
+      failure?.error || 'Desktop Browser control handoff outcome is uncertain',
+      503,
+      'BROWSER_DESKTOP_CONTROL_UNCERTAIN',
+      true,
+    );
+  }
+
+  failNativeUncertainOperation(
+    binding: BrowserBinding,
+    error: unknown,
+  ): never {
+    const current = this.store.get(binding.id);
+    const failure = current
+      && current.status === 'running'
+      && current.browserSource === 'desktop'
+      && current.generation === binding.generation
+      && current.sessionId === binding.session.id
+      && current.sessionGeneration === binding.session.generation
+      && current.tabId === binding.tabId
+      ? this.store.update(binding.id, {
+        error: `Desktop Browser command outcome is uncertain: ${errorMessage(error)}`,
+        loading: false,
+        status: 'failed',
+      })
+      : null;
+    if (failure) {
+      this.emitResource(failure);
+      this.broadcastRuntimeState(binding);
+    }
+    throw browserError(
+      failure?.error || 'Desktop Browser command outcome is uncertain',
+      503,
+      'BROWSER_DESKTOP_OPERATION_UNCERTAIN',
+      true,
+    );
+  }
+
+  nativeUserAction(id: string, input: BrowserMessage): Promise<unknown> {
+    this.requireEnabled();
+    const kind = String(input?.kind || '').trim();
+    const supported = new Set([
+      'back',
+      'forward',
+      'get-zoom',
+      'navigate',
+      'reload',
+      'reset-zoom',
+      'set-zoom',
+      'stop-loading',
+      'zoom-in',
+      'zoom-out',
+    ]);
+    if (!supported.has(kind)) {
+      throw browserError(
+        `Unsupported native Browser user action: ${kind || '(missing)'}`,
+        400,
+        'BROWSER_INVALID_REQUEST',
+      );
+    }
+    const commandInput: BrowserMessage = { ...input };
+    delete commandInput.kind;
+    if (kind === 'navigate') commandInput.url = normalizeUrl(commandInput.url);
+    return this.withRuntime(id, async (runtime, binding) => {
+      if (!runtime.userAction) {
+        throw browserError(
+          'This Browser runtime does not support native user actions',
+          409,
+          'BROWSER_NATIVE_USER_ACTION_UNSUPPORTED',
+        );
+      }
+      const result = recordValue(await runtime.userAction(kind, commandInput));
+      if (['back', 'forward', 'navigate', 'reload', 'stop-loading'].includes(kind)) {
+        this.updateMetadata(binding, result);
+      }
+      if (kind === 'stop-loading') {
+        const current = this.store.get(binding.id);
+        if (current && current.loading) {
+          const updated = this.store.update(binding.id, { loading: false });
+          this.emitResource(updated);
+          this.broadcastRuntimeState(binding);
+        }
+      }
+      const current = this.requireStored(id);
+      return {
+        ...publicResource(current, this.store.revision),
+        ...result,
+      };
+    }, { caller: 'user' });
+  }
+
+  createNativeTab(id: string, input: BrowserMessage = {}): Promise<unknown> {
+    this.requireEnabled();
+    const resource = this.requireStored(id);
+    const binding = this.runtimes.get(id);
+    if (
+      resource.browserSource !== 'desktop'
+      || resource.status !== 'running'
+      || !binding
+      || !(binding.session.runtime instanceof DesktopBrowserRuntime)
+    ) {
+      throw browserError(
+        'This Browser is not running in a Farming Desktop native view',
+        409,
+        'BROWSER_NATIVE_TAB_UNAVAILABLE',
+      );
+    }
+    const url = normalizeUrl(input.url || 'about:blank');
+    return this.withRuntime(id, async (runtime, activeBinding) => {
+      if (!(runtime instanceof DesktopBrowserRuntime)) {
+        throw browserError(
+          'This Browser runtime does not support native tabs',
+          409,
+          'BROWSER_NATIVE_TAB_UNAVAILABLE',
+        );
+      }
+      const { session } = activeBinding;
+      const tab = await runtime.createTab(url, '', 'user');
+      this.reserveNativeUserTabControl(session.id, tab.tabId);
+      try {
+        const tabs = await runtime.listTabs('user');
+        await this.reconcileTabs(session, {
+          newTabIds: [tab.tabId],
+          popupAdmitted: true,
+          tabs,
+        });
+        const createdBinding = [...session.bindings.values()]
+          .find(candidate => candidate.tabId === tab.tabId);
+        const created = createdBinding ? this.store.get(createdBinding.id) : null;
+        if (
+          !createdBinding
+          || !created
+          || created.status !== 'running'
+          || created.browserSource !== 'desktop'
+          || created.sessionId !== session.id
+          || created.sessionGeneration !== session.generation
+        ) {
+          throw browserError(
+            'Desktop Browser tab creation did not commit an owned Browser Resource',
+            500,
+            'BROWSER_START_FAILED',
+          );
+        }
+        return this.transitionNativeControl(createdBinding, 'user');
+      } finally {
+        this.releaseReservedNativeUserTabControl(session.id, tab.tabId);
+      }
+    }, { caller: 'user' });
+  }
+
+  selectNativeTab(id: string): Promise<unknown> {
+    this.requireEnabled();
+    const resource = this.requireStored(id);
+    const binding = this.runtimes.get(id);
+    if (
+      resource.browserSource !== 'desktop'
+      || resource.status !== 'running'
+      || !binding
+      || !binding.session.runtime.switchTabForUser
+    ) {
+      throw browserError(
+        'This Browser tab is not available in a Farming Desktop native view',
+        409,
+        'BROWSER_NATIVE_TAB_UNAVAILABLE',
+      );
+    }
+    if (this.stopAdmissions.has(id) || this.isControlChanging(id)) {
+      throw browserError('Browser is changing state', 409, 'BROWSER_BUSY');
+    }
+    const generation = resource.generation;
+    const { session } = binding;
+    const selection = (session.actionChain || Promise.resolve())
+      .catch(() => {})
+      .then(async () => {
+        const current = this.store.get(id);
+        if (
+          !current
+          || current.status !== 'running'
+          || current.browserSource !== 'desktop'
+          || current.generation !== generation
+          || current.sessionId !== session.id
+          || current.sessionGeneration !== session.generation
+          || current.tabId !== binding.tabId
+          || this.stopAdmissions.has(id)
+          || this.isControlChanging(id)
+        ) {
+          throw browserError(
+            'Browser tab selection is stale; refresh Browser state before retrying',
+            409,
+            'BROWSER_STALE_ADMISSION',
+          );
+        }
+        await this.activateBinding(binding, 'user');
+        return this.get(id);
+      });
+    const guardedSelection = selection.catch(error => {
+      if (uncertainError(error)) return this.failNativeUncertainOperation(binding, error);
+      throw error;
+    });
+    session.actionChain = guardedSelection;
+    return guardedSelection;
   }
 
   navigate(id: string, url: unknown): Promise<unknown> {
@@ -1943,6 +2627,19 @@ class BrowserResourceManager extends EventEmitter {
     });
   }
 
+  stopLoading(id: string): Promise<unknown> {
+    return this.withRuntime(id, async (runtime, binding) => {
+      if (!runtime.stopLoading) {
+        throw browserError('This Browser runtime cannot stop the current navigation', 409, 'BROWSER_STOP_LOADING_UNSUPPORTED');
+      }
+      const metadata = await runtime.stopLoading();
+      const next = this.store.update(binding.id, { loading: false });
+      this.emitResource(next);
+      this.updateMetadata(binding, metadata);
+      return this.get(id);
+    });
+  }
+
   action(id: string, input: BrowserMessage): Promise<unknown> {
     this.requireEnabled();
     const kind = String(input?.kind || '').trim();
@@ -1970,6 +2667,7 @@ class BrowserResourceManager extends EventEmitter {
     if (kind === 'back') return this.goBack(id);
     if (kind === 'forward') return this.goForward(id);
     if (kind === 'reload') return this.reload(id);
+    if (kind === 'stop-loading') return this.stopLoading(id);
     if (kind === 'click') return this.withRuntime(id, runtime => runtime.click(input));
     if ([
       'dblclick',
@@ -2008,6 +2706,28 @@ class BrowserResourceManager extends EventEmitter {
         throw browserError(`Browser upload requires between 1 and ${MAX_UPLOAD_FILES} files`);
       }
       const files = requestedFiles.map(file => resolveWorkspaceInputFile(resource, file));
+      if (resource.browserSource === 'desktop') {
+        let totalBytes = 0;
+        return Promise.all(files.map(async file => {
+          const stat = await fs.promises.stat(file);
+          if (!stat.isFile()) throw browserError(`Browser upload path is not a file: ${file}`);
+          totalBytes += stat.size;
+          if (totalBytes > MAX_DESKTOP_FILE_TRANSFER_BYTES) {
+            throw browserError(
+              `Desktop Browser uploads exceed ${MAX_DESKTOP_FILE_TRANSFER_BYTES} bytes`,
+              413,
+              'BROWSER_UPLOAD_TOO_LARGE',
+            );
+          }
+          return {
+            data: (await fs.promises.readFile(file)).toString('base64'),
+            name: path.basename(file),
+            type: 'application/octet-stream',
+          };
+        })).then(nativeFiles => (
+          this.withRuntime(id, runtime => runtime.upload({ ...input, files: nativeFiles }))
+        ));
+      }
       return this.withRuntime(id, runtime => runtime.upload({ ...input, files }));
     }
     if (kind === 'download') {
@@ -2025,17 +2745,34 @@ class BrowserResourceManager extends EventEmitter {
           `${crypto.randomUUID()}-${path.basename(target)}`,
         );
         try {
-          await runtime.download({ ...input, outputPath: temporaryPath });
-          const stat = fs.statSync(temporaryPath);
+          const result = recordValue(await runtime.download({ ...input, outputPath: temporaryPath }));
+          if (resource.browserSource === 'desktop') {
+            const encoded = String(result.data || '');
+            if (!encoded) throw browserError('Desktop Browser download did not return file data');
+            const bytes = Buffer.from(encoded, 'base64');
+            if (
+              bytes.byteLength === 0
+              || bytes.byteLength > MAX_DESKTOP_FILE_TRANSFER_BYTES
+              || Buffer.byteLength(encoded, 'base64') !== bytes.byteLength
+            ) {
+              throw browserError(
+                `Desktop Browser download exceeds ${MAX_DESKTOP_FILE_TRANSFER_BYTES} bytes`,
+                413,
+                'BROWSER_DOWNLOAD_TOO_LARGE',
+              );
+            }
+            await fs.promises.writeFile(temporaryPath, bytes, { flag: 'wx', mode: 0o600 });
+          }
+          const stat = await fs.promises.stat(temporaryPath);
           if (!stat.isFile()) throw browserError('Browser download did not produce a regular file');
-          fs.copyFileSync(temporaryPath, target, fs.constants.COPYFILE_EXCL);
+          await fs.promises.copyFile(temporaryPath, target, fs.constants.COPYFILE_EXCL);
           return {
             ok: true,
             path: path.relative(resource.workspace, target) || path.basename(target),
             size: stat.size,
           };
         } finally {
-          fs.rmSync(temporaryPath, { force: true });
+          await fs.promises.rm(temporaryPath, { force: true });
         }
       });
     }
@@ -2054,6 +2791,13 @@ class BrowserResourceManager extends EventEmitter {
       type: 'browser-state',
       resource: publicResource(resource, this.store.revision),
     }));
+    if (resource.browserSource === 'desktop') {
+      ws.send(JSON.stringify({
+        type: 'browser-error',
+        message: 'This Browser is presented by its leased Farming Desktop native view.',
+      }));
+      return () => {};
+    }
     if (!binding || resource.status !== 'running') return () => {};
     binding.viewers.add(ws);
     if (binding.latestFrame) ws.send(JSON.stringify(binding.latestFrame));
@@ -2467,6 +3211,88 @@ class BrowserResourceManager extends EventEmitter {
     });
   }
 
+  enqueueNativeSessionOperation<Result>(
+    sessionKey: string,
+    operation: () => Promise<Result>,
+  ): Promise<Result> {
+    const previous = this.nativeSessionOperations.get(sessionKey) || Promise.resolve();
+    const next = previous.catch(() => {}).then(operation);
+    this.nativeSessionOperations.set(sessionKey, next);
+    return next.finally(() => {
+      if (this.nativeSessionOperations.get(sessionKey) === next) {
+        this.nativeSessionOperations.delete(sessionKey);
+      }
+    });
+  }
+
+  desktopNativeSessionKey(resource: BrowserResource): string {
+    if (
+      resource.browserSource !== 'desktop'
+      || !resource.desktopAdapterId
+      || !resource.sessionId
+    ) return '';
+    return `${resource.desktopAdapterId}:${resource.sessionId}`;
+  }
+
+  async clearDesktopNativeSessionData(resource: BrowserResource): Promise<void> {
+    if (
+      resource.browserSource !== 'desktop'
+      || !resource.desktopAdapterId
+      || !resource.sessionId
+      || !this.desktopBrowserAdapters
+    ) {
+      throw browserError(
+        'Desktop Browser native profile cleanup has no exact adapter lease',
+        409,
+        'BROWSER_DESKTOP_PROFILE_CLEANUP_UNAVAILABLE',
+      );
+    }
+    await this.desktopBrowserAdapters.invoke({
+      adapterId: resource.desktopAdapterId,
+      generation: resource.generation,
+      input: { activeResourceId: resource.id },
+      operation: 'clear-session-data',
+      resourceId: resource.id,
+      sessionId: resource.sessionId,
+    });
+  }
+
+  holdControlAdmission(id: string): void {
+    this.controlAdmissions.set(id, (this.controlAdmissions.get(id) || 0) + 1);
+  }
+
+  releaseControlAdmission(id: string): void {
+    const next = (this.controlAdmissions.get(id) || 1) - 1;
+    if (next <= 0) this.controlAdmissions.delete(id);
+    else this.controlAdmissions.set(id, next);
+  }
+
+  isControlChanging(id: string): boolean {
+    return (this.controlAdmissions.get(id) || 0) > 0;
+  }
+
+  reserveNativeUserTabControl(sessionId: string, tabId: string): void {
+    const tabs = this.nativeUserTabAdmissions.get(sessionId) || new Map<string, string>();
+    tabs.set(tabId, '');
+    this.nativeUserTabAdmissions.set(sessionId, tabs);
+  }
+
+  admitReservedNativeUserTabControl(sessionId: string, tabId: string, resourceId: string): void {
+    const tabs = this.nativeUserTabAdmissions.get(sessionId);
+    if (!tabs || !tabs.has(tabId)) return;
+    tabs.set(tabId, resourceId);
+    this.holdControlAdmission(resourceId);
+  }
+
+  releaseReservedNativeUserTabControl(sessionId: string, tabId: string): void {
+    const tabs = this.nativeUserTabAdmissions.get(sessionId);
+    if (!tabs) return;
+    const resourceId = tabs.get(tabId);
+    tabs.delete(tabId);
+    if (tabs.size === 0) this.nativeUserTabAdmissions.delete(sessionId);
+    if (resourceId) this.releaseControlAdmission(resourceId);
+  }
+
   createBinding(session: BrowserSession, resource: BrowserResource): BrowserBinding {
     return {
       admittedTabsRevision: session.tabsRevision,
@@ -2483,14 +3309,41 @@ class BrowserResourceManager extends EventEmitter {
     };
   }
 
-  async activateBinding(binding: BrowserBinding): Promise<void> {
+  async activateBinding(
+    binding: BrowserBinding,
+    caller: BrowserControlOwner = 'agent',
+  ): Promise<void> {
     const { session } = binding;
     if (!binding.tabId) throw browserError('Browser tab is unavailable', 409, 'BROWSER_TAB_UNAVAILABLE');
+    const resource = this.store.get(binding.id);
+    session.runtime.setActiveResourceId?.(
+      binding.id,
+      binding.generation,
+      resource?.controlEpoch,
+    );
+    if (caller === 'agent' && session.runtime instanceof DesktopBrowserRuntime) {
+      // Native commands carry the exact Resource id and can therefore target a
+      // hidden tab without taking over the user-visible selected tab. Keeping
+      // the presentation selection stable prevents an Agent action in another
+      // tab from stealing a user-controlled native view.
+      return;
+    }
     if (
       session.runtime.activeTabId !== binding.tabId
       || session.runtime.streamTabId !== binding.tabId
     ) {
-      await session.runtime.switchTab(binding.tabId);
+      if (caller === 'user') {
+        if (!session.runtime.switchTabForUser) {
+          throw browserError(
+            'This Browser runtime does not support native user tab selection',
+            409,
+            'BROWSER_NATIVE_USER_ACTION_UNSUPPORTED',
+          );
+        }
+        await session.runtime.switchTabForUser(binding.tabId);
+      } else {
+        await session.runtime.switchTab(binding.tabId);
+      }
     }
     session.activeResourceId = binding.id;
   }
@@ -2498,7 +3351,9 @@ class BrowserResourceManager extends EventEmitter {
   withRuntime<Result>(
     id: string,
     operation: (runtime: BrowserRuntime, binding: BrowserBinding) => Promise<Result> | Result,
+    options: { caller?: BrowserControlOwner } = {},
   ): Promise<Result> {
+    const caller = options.caller || 'agent';
     const binding = this.runtimes.get(id);
     const resource = this.requireStored(id);
     if (!binding || resource.status !== 'running') {
@@ -2506,6 +3361,20 @@ class BrowserResourceManager extends EventEmitter {
     }
     if (this.stopAdmissions.has(id)) {
       throw browserError('Browser is stopping', 409, 'BROWSER_STOPPING');
+    }
+    if (this.isControlChanging(id)) {
+      throw browserError('Browser control is changing', 409, 'BROWSER_CONTROL_CHANGING');
+    }
+    if (resource.browserSource === 'desktop' && resource.controlOwner !== caller) {
+      throw browserError(
+        caller === 'agent'
+          ? 'The user has control of this Browser tab. Return control to the Agent before retrying.'
+          : 'The Agent controls this Browser tab. Take control before using the native toolbar.',
+        409,
+        caller === 'agent'
+          ? 'BROWSER_HUMAN_CONTROL_ACTIVE'
+          : 'BROWSER_AGENT_CONTROL_ACTIVE',
+      );
     }
     if (
       resource.generation !== binding.generation
@@ -2519,15 +3388,65 @@ class BrowserResourceManager extends EventEmitter {
         'BROWSER_STALE_GENERATION',
       );
     }
+    const admittedControlEpoch = resource.controlEpoch;
     const { session } = binding;
     const next = (session.actionChain || Promise.resolve())
       .catch(() => {})
       .then(async () => {
-        await this.activateBinding(binding);
+        const current = this.store.get(id);
+        if (
+          !current
+          || current.status !== 'running'
+          || current.generation !== binding.generation
+          || current.sessionId !== binding.session.id
+          || current.sessionGeneration !== binding.session.generation
+          || current.tabId !== binding.tabId
+          || current.controlEpoch !== admittedControlEpoch
+          || (current.browserSource === 'desktop' && current.controlOwner !== caller)
+          || this.stopAdmissions.has(id)
+          || this.isControlChanging(id)
+        ) {
+          throw browserError(
+            'Browser ownership changed before this action ran; refresh Browser state before retrying.',
+            409,
+            'BROWSER_STALE_ADMISSION',
+          );
+        }
+        await this.activateBinding(binding, caller);
         return operation(session.runtime, binding);
       });
-    session.actionChain = next;
-    return next;
+    const guarded = next.catch(error => {
+      if (
+        uncertainError(error)
+        && resource.browserSource === 'desktop'
+        && session.runtime instanceof DesktopBrowserRuntime
+      ) {
+        return this.failNativeUncertainOperation(binding, error);
+      }
+      throw error;
+    });
+    session.actionChain = guarded;
+    return guarded;
+  }
+
+  runtimeEventBinding(
+    session: BrowserSession,
+    runtime: BrowserRuntime,
+    value: { generation?: number; resourceId?: string; tabId?: string },
+  ): BrowserBinding | null {
+    const resourceId = String(value.resourceId || '');
+    const binding = resourceId
+      ? session.bindings.get(resourceId)
+      : [...session.bindings.values()]
+        .find(candidate => candidate.tabId === runtime.activeTabId)
+        || session.bindings.get(session.activeResourceId);
+    if (!binding) return null;
+    if (
+      value.generation !== undefined
+      && value.generation !== binding.generation
+    ) return null;
+    if (value.tabId && binding.tabId && value.tabId !== binding.tabId) return null;
+    return binding;
   }
 
   bindSession(session: BrowserSession): void {
@@ -2564,10 +3483,21 @@ class BrowserResourceManager extends EventEmitter {
       }
     });
     runtime.on('metadata', (metadata: BrowserMetadata) => {
-      const binding = [...session.bindings.values()]
-        .find(candidate => candidate.tabId === runtime.activeTabId)
-        || session.bindings.get(session.activeResourceId);
+      const binding = this.runtimeEventBinding(session, runtime, metadata);
       if (binding) this.updateMetadata(binding, metadata);
+    });
+    runtime.on('loading', (event: BrowserLoadingEvent | boolean) => {
+      const loading = typeof event === 'boolean' ? event : event.loading === true;
+      const binding = this.runtimeEventBinding(
+        session,
+        runtime,
+        typeof event === 'boolean' ? {} : event,
+      );
+      const current = binding ? this.store.get(binding.id) : null;
+      if (!binding || !current || current.loading === loading) return;
+      const next = this.store.update(binding.id, { loading });
+      this.emitResource(next);
+      this.broadcastRuntimeState(binding);
     });
     runtime.on('tabs', (event: BrowserTabsEvent) => {
       if (session.initializing || session.closing) return;
@@ -2579,13 +3509,37 @@ class BrowserResourceManager extends EventEmitter {
       session.actionChain = next;
     });
     runtime.on('error', (error: unknown) => {
-      for (const binding of session.bindings.values()) {
-        for (const viewer of binding.viewers) {
+      const details = recordValue(error);
+      const message = errorMessage(details.message || error) || 'Browser runtime failed';
+      const binding = this.runtimeEventBinding(session, runtime, {
+        generation: Number.isSafeInteger(Number(details.generation))
+          ? Number(details.generation)
+          : undefined,
+        resourceId: String(details.resourceId || ''),
+        tabId: String(details.tabId || ''),
+      });
+      const bindings = binding ? [binding] : [...session.bindings.values()];
+      for (const currentBinding of bindings) {
+        const current = this.store.get(currentBinding.id);
+        if (
+          current
+          && current.browserSource === 'desktop'
+          && current.generation === currentBinding.generation
+          && current.error !== message
+        ) {
+          const next = this.store.update(currentBinding.id, { error: message });
+          this.emitResource(next);
+          this.broadcastRuntimeState(currentBinding);
+        }
+        for (const viewer of currentBinding.viewers) {
           if (viewer.readyState === 1) {
-            viewer.send(JSON.stringify({ type: 'browser-error', message: errorMessage(error) || 'Browser runtime failed' }));
+            viewer.send(JSON.stringify({ type: 'browser-error', message }));
           }
         }
       }
+    });
+    runtime.on('tab-exit', (event: unknown) => {
+      void this.handleNativeTabExit(session, recordValue(event));
     });
     runtime.on('disconnected', (message: string) => {
       if (this.sessions.get(session.id) !== session || session.closing) return;
@@ -2630,6 +3584,56 @@ class BrowserResourceManager extends EventEmitter {
     });
   }
 
+  async handleNativeTabExit(
+    session: BrowserSession,
+    event: Record<string, unknown>,
+  ): Promise<void> {
+    if (
+      this.sessions.get(session.id) !== session
+      || session.closing
+      || !(session.runtime instanceof DesktopBrowserRuntime)
+    ) return;
+    const resourceId = String(event.resourceId || '');
+    const generation = Number(event.generation);
+    const binding = session.bindings.get(resourceId);
+    if (
+      !binding
+      || !Number.isSafeInteger(generation)
+      || binding.generation !== generation
+    ) return;
+    const current = this.store.get(binding.id);
+    if (
+      !current
+      || current.generation !== binding.generation
+      || current.sessionId !== session.id
+      || current.sessionGeneration !== session.generation
+    ) return;
+    session.bindings.delete(binding.id);
+    if (session.activeResourceId === binding.id) {
+      session.activeResourceId = session.bindings.values().next().value?.id || '';
+    }
+    if (this.runtimes.get(binding.id) === binding) this.runtimes.delete(binding.id);
+    const failed = this.store.update(binding.id, {
+      controlEpoch: current.controlEpoch + 1,
+      controlOwner: 'agent',
+      error: String(event.message || 'Desktop Browser tab closed unexpectedly'),
+      loading: false,
+      status: 'failed',
+      tabId: '',
+    });
+    this.emitResource(failed);
+    this.broadcastRuntimeState(binding);
+    this.releaseViewerState(binding);
+    if (session.bindings.size > 0) return;
+    session.closing = true;
+    this.sessions.delete(session.id);
+    try {
+      await session.runtime.close();
+    } catch {
+      // The owned tab was already destroyed; the failed Resource remains explicit.
+    }
+  }
+
   async reconcileTabs(
     session: BrowserSession,
     event: BrowserTabsEvent,
@@ -2665,6 +3669,12 @@ class BrowserResourceManager extends EventEmitter {
           url: tab.url,
           title: tab.title,
           browserKind: session.browserKind,
+          browserSource: ownerResource.browserSource,
+          browserExecutablePath: ownerResource.browserExecutablePath,
+          desktopAdapterId: ownerResource.desktopAdapterId,
+          controlEpoch: tab.controlEpoch,
+          controlOwner: tab.controlOwner === 'user' ? 'user' : 'agent',
+          runtimeKind: ownerResource.runtimeKind,
           sessionId: session.id,
           sessionGeneration: session.generation,
           tabId: tab.tabId,
@@ -2672,7 +3682,15 @@ class BrowserResourceManager extends EventEmitter {
         binding = this.createBinding(session, created);
         session.bindings.set(created.id, binding);
         this.runtimes.set(created.id, binding);
+        await session.runtime.bindResourceTab?.(
+          created.id,
+          tab.tabId,
+          binding.generation,
+          created.controlEpoch,
+          created.controlOwner,
+        );
         byTabId.set(tab.tabId, binding);
+        this.admitReservedNativeUserTabControl(session.id, tab.tabId, created.id);
         this.emitResource(created);
         opened.push(publicResource(created, this.store.revision));
       }
@@ -2776,6 +3794,12 @@ class BrowserResourceManager extends EventEmitter {
         error: current.browserKind === 'isolated-computer'
           ? 'Isolated Browser connection exited'
           : message || 'Browser connection exited',
+        ...(current.runtimeKind === 'desktop-native' ? {
+          controlEpoch: current.controlEpoch + 1,
+          controlOwner: 'agent',
+          loading: false,
+          tabId: '',
+        } : {}),
       });
       this.emitResource(failed);
       this.broadcastRuntimeState(binding);

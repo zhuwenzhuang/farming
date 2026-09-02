@@ -190,6 +190,16 @@ Browser and Computer are built-in Extensions over the same Resource contract:
 - Browser in Docker (Experimental) may lease an Agent-owned Desktop, but Browser-tab and Desktop
   lifecycles remain distinct.
 
+Farming Desktop may offer an exact native Browser adapter. Selecting that
+source creates a normal Agent-owned Browser Resource, but leases its tab/view
+to one identified Desktop adapter and generation. The backend remains the
+single lifecycle, ownership, authorization, and control authority; native
+renderer IPC is presentation-only. Taking control advances the Resource's
+control epoch and fences queued Agent actions at the Session queue boundary.
+The Desktop-native Viewer is never a stream fallback: web Browser sources keep
+their existing Viewer protocol, while a Desktop-leased Resource reports that
+its native view is required. See [Desktop Native Browser View](desktop-native-browser.md).
+
 Browser may also use the Farming Browser Connector to relay eligible tabs from
 the user's signed-in, headed Chrome. The connector composes the same
 Browser Runtime, Resource, Agent tool, and Viewer path; it is not a second

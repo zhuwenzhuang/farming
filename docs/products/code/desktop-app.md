@@ -38,6 +38,12 @@ Desktop gateway keeps backend credentials in the main process, authenticates
 the local renderer, and forwards HTTP and WebSocket traffic to the selected
 backend. Remote content does not receive a Desktop preload bridge.
 
+Agent-owned Browser Resources may additionally use the
+[Desktop Native Browser View](./desktop-native-browser.md). Its Electron
+adapter owns only the native tab and view; Browser identity, lifecycle, lease,
+and Agent authorization remain backend-owned. This native path is not a second
+Browser implementation or a fallback for web clients.
+
 ## Local And Remote Backends
 
 First launch opens the local backend without requiring an SSH decision. Remote
@@ -62,6 +68,14 @@ lifecycles. Each asynchronous transition has one owner and generation. Quit,
 cancel, profile change, connection replacement, and startup failure revoke only
 the exact resources they own.
 
+Desktop claims one primary application instance. A second launch focuses and
+restores that primary window instead of creating a second local backend,
+gateway, or profile owner. Credential-free targets at the exact authenticated
+loopback gateway origin stay in that primary window; explicit HTTP(S)
+destinations outside the gateway open through the operating system, while
+file, data, custom-protocol, and username/password-bearing destinations are
+denied.
+
 The first window must present bounded startup progress or an actionable error;
 it must not remain blank. An uncertain startup or stop result is reconciled from
 the backend's authoritative handshake and process identity before another
@@ -78,6 +92,8 @@ effects. Cleanup is idempotent and completes before the application exits.
 - Discovered backend tokens are not persisted in connection profiles or exposed
   to the renderer.
 - The renderer uses context isolation, sandboxing, and no Node.js integration.
+- Before it serves the packaged renderer, the gateway validates local asset
+  references and derives script CSP hashes from that exact renderer document.
 - Native IPC and device permissions are limited to the authenticated local
   application origin.
 

@@ -60,6 +60,28 @@ const validClientMessages = {
   'archive-agent': { type: 'archive-agent', agentId: 'agent-1' },
   'restart-main-agent': { type: 'restart-main-agent', command: 'codex' },
   'state-resync': { type: 'state-resync' },
+  'desktop-browser-adapter-register': {
+    type: 'desktop-browser-adapter-register',
+    adapterId: 'desktop-1',
+  },
+  'desktop-browser-adapter-response': {
+    type: 'desktop-browser-adapter-response',
+    adapterId: 'desktop-1',
+    requestId: 'command-1',
+    resourceId: 'browser-1',
+    sessionId: 'session-1',
+    generation: 1,
+    ok: true,
+    result: {},
+  },
+  'desktop-browser-adapter-event': {
+    type: 'desktop-browser-adapter-event',
+    adapterId: 'desktop-1',
+    resourceId: 'browser-1',
+    sessionId: 'session-1',
+    generation: 1,
+    kind: 'metadata',
+  },
 } satisfies ClientMessageByType;
 
 async function run(): Promise<void> {
@@ -118,6 +140,9 @@ async function run(): Promise<void> {
       if (dispatchContext.throwOnRestart) throw new Error('restart failed synchronously');
     }),
     'state-resync': register('state-resync', record),
+    'desktop-browser-adapter-register': register('desktop-browser-adapter-register', record),
+    'desktop-browser-adapter-response': register('desktop-browser-adapter-response', record),
+    'desktop-browser-adapter-event': register('desktop-browser-adapter-event', record),
   });
 
   for (const message of Object.values(validClientMessages)) {

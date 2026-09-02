@@ -16,6 +16,9 @@ function previewCopy(language: UiPreferences['language']) {
     open: zh ? '打开完整浏览器' : 'Open full browser',
     reconnecting: zh ? '正在重新连接浏览器…' : 'Reconnecting to browser…',
     waiting: zh ? '正在连接浏览器画面…' : 'Connecting to browser…',
+    nativeView: zh
+      ? '此页面已租给 Farming Desktop 原生视图。打开完整 Browser 以查看或接管。'
+      : 'This page is leased to a Farming Desktop native view. Open the full Browser to view or take control.',
   }
 }
 
@@ -76,10 +79,11 @@ function BrowserActivityPreviewCard({
 }) {
   const [frame, setFrame] = useState('')
   const title = resource.title || resource.name
+  const nativeViewOnly = resource.browserSource === 'desktop'
 
   useEffect(() => {
-    if (!streaming || resource.status !== 'running') {
-      if (resource.status !== 'running') setFrame('')
+    if (nativeViewOnly || !streaming || resource.status !== 'running') {
+      if (nativeViewOnly || resource.status !== 'running') setFrame('')
       return undefined
     }
     let cancelled = false
@@ -107,7 +111,7 @@ function BrowserActivityPreviewCard({
       window.clearTimeout(reconnectTimer)
       socket?.close()
     }
-  }, [resource.generation, resource.id, resource.status, streaming])
+  }, [nativeViewOnly, resource.generation, resource.id, resource.status, streaming])
 
   return (
     <aside
@@ -148,7 +152,9 @@ function BrowserActivityPreviewCard({
           title={copy.open}
           onClick={onOpen}
         >
-          {frame ? <img src={frame} alt="" draggable={false} /> : (
+          {nativeViewOnly ? (
+            <span data-testid="farming-browser-activity-native-view-only">{copy.nativeView}</span>
+          ) : frame ? <img src={frame} alt="" draggable={false} /> : (
             <span>{resource.status === 'reconnecting' ? copy.reconnecting : copy.waiting}</span>
           )}
         </button>

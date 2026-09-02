@@ -278,6 +278,9 @@ function pluginCopy(language: UiLanguage) {
     newBrowserDescription: zh
       ? '新开网页，不使用你 Chrome 里的页面和登录状态。'
       : 'Opens webpages separately without using pages or signed-in state from your Chrome.',
+    nativeBrowserDescription: zh
+      ? '在 Farming Desktop 的原生浏览器视图中打开网页。'
+      : 'Opens webpages in Farming Desktop’s native browser view.',
     noSystemBrowser: zh ? '这台电脑未找到 Chrome 或 Chromium' : 'Chrome or Chromium was not found on this computer',
     extensionBrowser: zh ? '我的 Chrome' : 'My Chrome',
     extensionBrowserDescription: zh
@@ -1338,11 +1341,18 @@ export function PluginsPanel({
     }
   }
 
-  const browserReady = capability?.sources?.some(source => source.available)
+  const desktopNativeBrowserReady = Boolean(window.farmingDesktop?.nativeBrowser)
+    && (capability?.sources || []).some(source => (
+      source.source === 'desktop' && source.available
+    ))
+  const browserReady = capability?.sources?.some(source => (
+    source.available && (source.source !== 'desktop' || desktopNativeBrowserReady)
+  ))
     ?? Boolean(capability?.browser)
   const systemBrowserReady = (capability?.sources || []).some(source => (
     source.source === 'system' && source.available
   ))
+  const newBrowserReady = desktopNativeBrowserReady || systemBrowserReady
   const isolatedBrowserReady = capability?.isolated?.imageReady === true
   const isolatedBrowserDockerAvailable = capability?.isolated?.dockerAvailable === true
   const showIsolatedBrowserPrepare = !isolatedBrowserReady
@@ -1721,9 +1731,13 @@ export function PluginsPanel({
                 <div className="code-plugin-browser-source-copy">
                   <span className="code-plugin-browser-source-heading">
                     <strong>{copy.newBrowser}</strong>
-                    <small>{systemBrowserReady ? copy.ready : copy.unavailable}</small>
+                    <small>{newBrowserReady ? copy.ready : copy.unavailable}</small>
                   </span>
-                  <small>{systemBrowserReady ? copy.newBrowserDescription : copy.noSystemBrowser}</small>
+                  <small>{desktopNativeBrowserReady
+                    ? copy.nativeBrowserDescription
+                    : systemBrowserReady
+                      ? copy.newBrowserDescription
+                      : copy.noSystemBrowser}</small>
                 </div>
               </div>
               <div className="code-plugin-browser-source">

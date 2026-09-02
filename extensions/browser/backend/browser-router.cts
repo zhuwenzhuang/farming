@@ -147,6 +147,18 @@ function requireRequestOwnership(
   }
 }
 
+function requireHumanBrowserRequest(req: Request): void {
+  if (requestAgentId(req)) {
+    const error = new Error('Browser native controls are available only to the supervising user') as Error & {
+      code?: string;
+      status?: number;
+    };
+    error.status = 403;
+    error.code = 'BROWSER_HUMAN_CONTROL_ONLY';
+    throw error;
+  }
+}
+
 function createBrowserRouter(
   manager: BrowserResourceManager,
   workspaceRootRegistry: WorkspaceRootRegistry,
@@ -305,7 +317,9 @@ function createBrowserRouter(
         name: body.name,
         url: body.url,
         ...(source ? { browserSource: source } : {}),
+        ...(callerAgentId && !source ? { preferDesktop: true } : {}),
         ...(executablePath ? { browserExecutablePath: executablePath } : {}),
+        ...(body.desktopAdapterId !== undefined ? { desktopAdapterId: body.desktopAdapterId } : {}),
         ...(body.existingTabId !== undefined ? { existingTabId: body.existingTabId } : {}),
         ...(body.sessionName !== undefined ? { sessionName: body.sessionName } : {}),
       };
@@ -340,7 +354,11 @@ function createBrowserRouter(
   router.post('/:id/stop', async (req, res) => {
     try {
       requireRequestOwnership(manager, agentStateReader, req, req.params.id);
-      res.json(await manager.stop(req.params.id));
+      res.json(await manager.stop(
+        req.params.id,
+        false,
+        requestAgentId(req) ? 'agent' : 'user',
+      ));
     } catch (error) {
       sendError(res, error);
     }
@@ -349,7 +367,55 @@ function createBrowserRouter(
   router.delete('/:id', async (req, res) => {
     try {
       requireRequestOwnership(manager, agentStateReader, req, req.params.id);
-      res.json(await manager.delete(req.params.id));
+      res.json(await manager.delete(
+        req.params.id,
+        false,
+        requestAgentId(req) ? 'agent' : 'user',
+      ));
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
+  router.post('/:id/control', async (req, res) => {
+    try {
+      requireHumanBrowserRequest(req);
+      requireRequestOwnership(manager, agentStateReader, req, req.params.id);
+      const owner = recordValue(req.body).owner;
+      if (owner !== 'agent' && owner !== 'user') {
+        return res.status(400).json({ error: 'Browser control owner must be agent or user' });
+      }
+      res.json(await manager.takeControl(req.params.id, owner));
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
+  router.post('/:id/native-action', async (req, res) => {
+    try {
+      requireHumanBrowserRequest(req);
+      requireRequestOwnership(manager, agentStateReader, req, req.params.id);
+      res.json(await manager.nativeUserAction(req.params.id, recordValue(req.body)));
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
+  router.post('/:id/select-native-tab', async (req, res) => {
+    try {
+      requireHumanBrowserRequest(req);
+      requireRequestOwnership(manager, agentStateReader, req, req.params.id);
+      res.json(await manager.selectNativeTab(req.params.id));
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
+  router.post('/:id/native-tab', async (req, res) => {
+    try {
+      requireHumanBrowserRequest(req);
+      requireRequestOwnership(manager, agentStateReader, req, req.params.id);
+      res.status(201).json(await manager.createNativeTab(req.params.id, recordValue(req.body)));
     } catch (error) {
       sendError(res, error);
     }

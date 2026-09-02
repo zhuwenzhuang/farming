@@ -154,6 +154,14 @@ Browser 和 Computer 是同一 Resource Contract 上的 Built-in Extension：
 - Computer 拥有完整 Desktop 与控制权交接；
 - Docker 中的浏览器可以租用 Agent-owned Desktop，但 Browser Tab 与 Desktop Lifecycle 保持独立。
 
+Farming Desktop 可以提供准确的原生 Browser adapter。选择该 source 后仍会创建普通的
+Agent-owned Browser Resource，但其 tab/view 会租给一个已标识的 Desktop adapter 与
+generation。后端继续是唯一的 Lifecycle、Ownership、Authorization 与 Control Authority；
+native renderer IPC 只负责呈现。接管会推进 Resource 的 control epoch，并在 Session
+Queue 边界 fence 已排队的 Agent Action。Desktop-native Viewer 绝不是 stream fallback：
+Web Browser source 保持已有 Viewer Protocol，而租给 Desktop 的 Resource 会明确报告需要
+其 native view。详见 [Desktop 原生 Browser 视图](desktop-native-browser.zh_cn.md)。
+
 Browser 也可以通过 Farming Browser Connector 中继用户已登录的有头 Chrome 标签页。
 Connector 复用同一个 Browser Runtime、Resource、Agent Tool 与 Viewer 通路，
 不是第二套 Browser 实现。虽然实现持续跟随 MIT 许可的 OpenClaw 上游，但配对与标签页授权

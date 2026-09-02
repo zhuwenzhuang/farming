@@ -7,9 +7,16 @@ import {
   Notification,
   safeStorage,
   session,
+  shell,
   type IpcMainInvokeEvent,
 } from 'electron'
-import type { DesktopBackendInput, DesktopNotificationInput, DesktopState } from '../shared/desktop-contract.js'
+import type {
+  DesktopBackendInput,
+  DesktopNativeBrowserCommand,
+  DesktopNativeBrowserMount,
+  DesktopNotificationInput,
+  DesktopState,
+} from '../shared/desktop-contract.js'
 import { resolveDesktopServerVersion } from './app-version.js'
 import {
   applyDesktopBackendChange,
@@ -29,12 +36,17 @@ import {
   desktopStartupDataUrl,
 } from './startup-view.js'
 import { DesktopStartupResourceOwner } from './startup-resource-owner.js'
+import { DesktopNativeBrowserController } from './native-browser.js'
+import { resolveDesktopNativeBrowserAdapterId } from './native-browser-adapter-id.js'
+import { desktopExternalUrl, isDesktopGatewayUrl } from './external-navigation.js'
+import { focusDesktopWindow } from './window-focus.js'
 
 let mainWindow: BrowserWindow | null = null
 let profiles: DesktopProfileStore | null = null
 let connections: DesktopConnectionManager | null = null
 let gateway: DesktopGateway | null = null
 let localBackend: DesktopLocalBackend | null = null
+let nativeBrowser: DesktopNativeBrowserController | null = null
 let pendingRendererUrl: string | null | undefined
 let focusRendererWhenReady = false
 let rendererDrainScheduled = false
@@ -47,6 +59,7 @@ const desktopResources = new DesktopStartupResourceOwner()
 const startupVisibility = new DesktopStartupVisibility()
 const rendererWindowGenerations = new WeakMap<BrowserWindow, number>()
 const desktopIconPath = path.join(__dirname, 'assets', 'farming-desktop.png')
+let nativeBrowserAdapterId = ''
 
 const userDataOverride = process.env.FARMING_DESKTOP_USER_DATA_DIR
 if (userDataOverride) app.setPath('userData', path.resolve(userDataOverride))
@@ -182,6 +195,45 @@ function registerIpc() {
     })
     notification.show()
   })
+  ipcMain.handle('desktop:native-browser-command', async (event, input: DesktopNativeBrowserCommand) => {
+    validateSender(event)
+    if (!nativeBrowser) throw new Error('Desktop native Browser is unavailable.')
+    return nativeBrowser.command(input)
+  })
+  ipcMain.handle('desktop:native-browser-mount', async (event, input: DesktopNativeBrowserMount) => {
+    validateSender(event)
+    if (!nativeBrowser) throw new Error('Desktop native Browser is unavailable.')
+    await nativeBrowser.mount(input.resourceId, input.generation, input.bounds)
+  })
+  ipcMain.handle('desktop:native-browser-unmount', async (
+    event,
+    input: { generation: number; resourceId: string },
+  ) => {
+    validateSender(event)
+    if (!nativeBrowser) return
+    await nativeBrowser.unmount(input.resourceId, input.generation)
+  })
+  ipcMain.handle('desktop:native-browser-focus', async (
+    event,
+    input: { generation: number; resourceId: string },
+  ) => {
+    validateSender(event)
+    if (!nativeBrowser) throw new Error('Desktop native Browser is unavailable.')
+    await nativeBrowser.focus(input.resourceId, input.generation)
+  })
+  ipcMain.handle('desktop:native-browser-invalidate-lease', async event => {
+    validateSender(event)
+    if (!nativeBrowser) return
+    await nativeBrowser.invalidateLease()
+  })
+  ipcMain.handle('desktop:native-browser-reconcile-backend-epoch', async (
+    event,
+    serverEpoch: string,
+  ) => {
+    validateSender(event)
+    if (!nativeBrowser) throw new Error('Desktop native Browser is unavailable.')
+    await nativeBrowser.reconcileBackendEpoch(serverEpoch)
+  })
 }
 
 function currentRendererUrl(window: BrowserWindow) {
@@ -209,6 +261,45 @@ function showStartupFailure(error: unknown) {
     dialog.showErrorBox('Farming Desktop failed to start', error instanceof Error ? error.message : String(error))
   }
   void stopDesktop(1)
+}
+
+function isGatewayUrl(url: string) {
+  return Boolean(gateway && isDesktopGatewayUrl(url, gateway.origin()))
+}
+
+function openDesktopExternalUrl(url: string) {
+  const externalUrl = desktopExternalUrl(url)
+  if (!externalUrl) return false
+  void shell.openExternal(externalUrl).catch(error => {
+    console.error('Farming Desktop could not open an external link:', error)
+    if (lifecycle.isRunning()) {
+      dialog.showErrorBox(
+        'Farming Desktop could not open the link',
+        'The default browser could not open this HTTP(S) link.',
+      )
+    }
+  })
+  return true
+}
+
+function focusPrimaryWindow() {
+  if (focusDesktopWindow(mainWindow)) return
+  if (lifecycle.snapshot().appPhase === 'stopping' || lifecycle.snapshot().appPhase === 'stopped') return
+  focusRendererWhenReady = true
+  if (lifecycle.isRunning()) createWindow()
+}
+
+function guardWindowNavigation(event: Electron.Event<{ url: string }>) {
+  const { url } = event
+  if (url === DESKTOP_STARTUP_CANCEL_URL) {
+    event.preventDefault()
+    void stopDesktop(0)
+    return
+  }
+  if (lifecycle.snapshot().appPhase === 'starting' && url.startsWith('data:text/html')) return
+  if (isGatewayUrl(url)) return
+  event.preventDefault()
+  openDesktopExternalUrl(url)
 }
 
 async function navigateWindow(window: BrowserWindow, token: DesktopNavigationToken, url: string): Promise<void> {
@@ -253,6 +344,7 @@ async function navigateWindow(window: BrowserWindow, token: DesktopNavigationTok
 function requestRendererNavigation(url: string | null) {
   if (!lifecycle.isRunning() || !gateway) return
   if (!lifecycle.invalidateRendererRoute()) return
+  nativeBrowser?.hideAll()
   pendingRendererUrl = url
   gateway.closeClientConnections()
   if (rendererDrainScheduled) return
@@ -279,6 +371,7 @@ function createBrowserWindow() {
     title: 'Farming',
     icon: desktopIconPath,
     webPreferences: {
+      additionalArguments: [`--farming-native-browser-adapter=${nativeBrowserAdapterId}`],
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -286,17 +379,15 @@ function createBrowserWindow() {
     },
   })
   mainWindow = window
-  window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
-  window.webContents.on('will-navigate', (event, url) => {
-    if (url === DESKTOP_STARTUP_CANCEL_URL) {
-      event.preventDefault()
-      void stopDesktop(0)
-      return
-    }
-    if (lifecycle.snapshot().appPhase === 'starting' && url.startsWith('data:text/html')) return
-    if (!gateway || new URL(url).origin !== gateway.origin()) event.preventDefault()
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    if (isGatewayUrl(url)) requestRendererNavigation(url)
+    else openDesktopExternalUrl(url)
+    return { action: 'deny' }
   })
+  window.webContents.on('will-navigate', guardWindowNavigation)
+  window.webContents.on('will-redirect', guardWindowNavigation)
   window.on('closed', () => {
+    nativeBrowser?.hideAll()
     const rendererGeneration = rendererWindowGenerations.get(window)
     if (rendererGeneration !== undefined) lifecycle.closeWindow(rendererGeneration)
     if (mainWindow === window) {
@@ -368,92 +459,109 @@ function stopDesktop(exitCode: number) {
 
 app.setName('Farming')
 
-void app.whenReady().then(async () => {
-  if (process.platform === 'darwin') app.dock?.setIcon(desktopIconPath)
-  const desktopLocalBackend = new DesktopLocalBackend({
-    configDir: path.join(app.getPath('userData'), 'local-backend'),
-    electronExecutable: process.execPath,
-    resourcesPath: process.resourcesPath,
-    repositoryRoot: path.resolve(__dirname, '..'),
-    injectedUrl: process.env.FARMING_DESKTOP_LOCAL_BACKEND_URL,
-    injectedToken: process.env.FARMING_DESKTOP_LOCAL_BACKEND_TOKEN,
-    cliPath: process.env.FARMING_DESKTOP_LOCAL_CLI,
-    onProgress: updateStartupProgress,
-    signal: desktopResources.signal,
-  })
-  localBackend = desktopLocalBackend
-  desktopResources.own('local-backend', () => desktopLocalBackend.stop())
-  await createStartupWindow()
-  desktopResources.guard()
-  const localTarget = await desktopLocalBackend.start()
-  desktopResources.guard()
-  const profileStore = new DesktopProfileStore(
-    path.join(app.getPath('userData'), 'backends.json'),
-    [localTarget],
-    safeStorage,
-  )
-  const connectionManager = new DesktopConnectionManager(profileStore, {
-    appVersion: resolveDesktopServerVersion({
-      electronVersion: app.getVersion(),
-      packageJsonPath: path.resolve(__dirname, '..', 'package.json'),
-      isPackaged: app.isPackaged,
-      overrideVersion: process.env.FARMING_DESKTOP_SERVER_VERSION,
-    }),
-    cacheDir: path.join(app.getPath('userData'), 'server-cache'),
-  })
-  const desktopGateway = new DesktopGateway(path.resolve(__dirname, '..', 'dist'), profileStore, connectionManager)
-  desktopResources.own('gateway', () => desktopGateway.close())
-  desktopResources.own('connection-manager', () => connectionManager.close())
-  profiles = profileStore
-  connections = connectionManager
-  gateway = desktopGateway
-  await desktopGateway.listen()
-  desktopResources.guard()
-  lifecycle.start()
-  connectionManager.on('change', broadcastState)
-  registerIpc()
-  session.defaultSession.setPermissionCheckHandler((webContents, permission, requestingOrigin, details) => (
-    webContents === mainWindow?.webContents
-    && allowsDesktopAudioPermission({
-      gatewayOrigin: desktopGateway.origin(),
-      isMainFrame: details.isMainFrame,
-      mediaType: details.mediaType,
-      permission,
-      requestingOrigin: details.securityOrigin || requestingOrigin,
+if (!app.requestSingleInstanceLock()) {
+  app.exit(0)
+} else {
+  app.on('second-instance', focusPrimaryWindow)
+
+  void app.whenReady().then(async () => {
+    if (process.platform === 'darwin') app.dock?.setIcon(desktopIconPath)
+    nativeBrowserAdapterId = resolveDesktopNativeBrowserAdapterId(app.getPath('userData'))
+    const desktopLocalBackend = new DesktopLocalBackend({
+      configDir: path.join(app.getPath('userData'), 'local-backend'),
+      electronExecutable: process.execPath,
+      resourcesPath: process.resourcesPath,
+      repositoryRoot: path.resolve(__dirname, '..'),
+      injectedUrl: process.env.FARMING_DESKTOP_LOCAL_BACKEND_URL,
+      injectedToken: process.env.FARMING_DESKTOP_LOCAL_BACKEND_TOKEN,
+      cliPath: process.env.FARMING_DESKTOP_LOCAL_CLI,
+      onProgress: updateStartupProgress,
+      signal: desktopResources.signal,
     })
-  ))
-  session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
-    const mediaDetails = details as Electron.MediaAccessPermissionRequest
-    callback(
+    localBackend = desktopLocalBackend
+    desktopResources.own('local-backend', () => desktopLocalBackend.stop())
+    await createStartupWindow()
+    desktopResources.guard()
+    const localTarget = await desktopLocalBackend.start()
+    desktopResources.guard()
+    const profileStore = new DesktopProfileStore(
+      path.join(app.getPath('userData'), 'backends.json'),
+      [localTarget],
+      safeStorage,
+    )
+    const connectionManager = new DesktopConnectionManager(profileStore, {
+      appVersion: resolveDesktopServerVersion({
+        electronVersion: app.getVersion(),
+        packageJsonPath: path.resolve(__dirname, '..', 'package.json'),
+        isPackaged: app.isPackaged,
+        overrideVersion: process.env.FARMING_DESKTOP_SERVER_VERSION,
+      }),
+      cacheDir: path.join(app.getPath('userData'), 'server-cache'),
+    })
+    const desktopGateway = new DesktopGateway(path.resolve(__dirname, '..', 'dist'), profileStore, connectionManager)
+    desktopResources.own('gateway', () => desktopGateway.close())
+    desktopResources.own('connection-manager', () => connectionManager.close())
+    profiles = profileStore
+    connections = connectionManager
+    gateway = desktopGateway
+    nativeBrowser = new DesktopNativeBrowserController({
+      adapterId: nativeBrowserAdapterId,
+      getWindow: () => mainWindow,
+      onEvent: nativeEvent => {
+        const window = mainWindow
+        if (!window || window.isDestroyed()) return
+        window.webContents.send('desktop:native-browser-event', nativeEvent)
+      },
+    })
+    desktopResources.own('native-browser', () => nativeBrowser?.dispose() || Promise.resolve())
+    await desktopGateway.listen()
+    desktopResources.guard()
+    lifecycle.start()
+    connectionManager.on('change', broadcastState)
+    registerIpc()
+    session.defaultSession.setPermissionCheckHandler((webContents, permission, requestingOrigin, details) => (
       webContents === mainWindow?.webContents
       && allowsDesktopAudioPermission({
         gatewayOrigin: desktopGateway.origin(),
-        isMainFrame: mediaDetails.isMainFrame,
-        mediaTypes: mediaDetails.mediaTypes,
+        isMainFrame: details.isMainFrame,
+        mediaType: details.mediaType,
         permission,
-        requestingOrigin: mediaDetails.securityOrigin || mediaDetails.requestingUrl,
-      }),
-    )
+        requestingOrigin: details.securityOrigin || requestingOrigin,
+      })
+    ))
+    session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
+      const mediaDetails = details as Electron.MediaAccessPermissionRequest
+      callback(
+        webContents === mainWindow?.webContents
+        && allowsDesktopAudioPermission({
+          gatewayOrigin: desktopGateway.origin(),
+          isMainFrame: mediaDetails.isMainFrame,
+          mediaTypes: mediaDetails.mediaTypes,
+          permission,
+          requestingOrigin: mediaDetails.securityOrigin || mediaDetails.requestingUrl,
+        }),
+      )
+    })
+    profileStore.setActiveBackendId(LOCAL_BACKEND_ID)
+    await connectionManager.connect(LOCAL_BACKEND_ID)
+    createWindow()
+
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    })
+  }).catch(error => {
+    const phase = lifecycle.snapshot().appPhase
+    if (phase === 'stopping' || phase === 'stopped') return
+    console.error('Farming Desktop failed to start:', error)
+    showStartupFailure(error)
   })
-  profileStore.setActiveBackendId(LOCAL_BACKEND_ID)
-  await connectionManager.connect(LOCAL_BACKEND_ID)
-  createWindow()
 
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+  app.on('window-all-closed', () => {
+    if (process.platform !== 'darwin') app.quit()
   })
-}).catch(error => {
-  const phase = lifecycle.snapshot().appPhase
-  if (phase === 'stopping' || phase === 'stopped') return
-  console.error('Farming Desktop failed to start:', error)
-  showStartupFailure(error)
-})
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit()
-})
-
-app.on('before-quit', event => {
-  event.preventDefault()
-  void stopDesktop(0)
-})
+  app.on('before-quit', event => {
+    event.preventDefault()
+    void stopDesktop(0)
+  })
+}

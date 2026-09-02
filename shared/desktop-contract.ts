@@ -69,6 +69,50 @@ export interface DesktopNotificationInput {
   title: string
 }
 
+export interface DesktopNativeBrowserBounds {
+  height: number
+  width: number
+  x: number
+  y: number
+}
+
+export interface DesktopNativeBrowserCommand {
+  generation: number
+  input?: Record<string, unknown>
+  operation: string
+  resourceId: string
+  sessionId: string
+}
+
+export interface DesktopNativeBrowserResult {
+  result: unknown
+}
+
+export interface DesktopNativeBrowserEvent {
+  generation: number
+  kind: string
+  payload?: Record<string, unknown>
+  resourceId: string
+  sessionId: string
+}
+
+export interface DesktopNativeBrowserMount {
+  bounds: DesktopNativeBrowserBounds
+  generation: number
+  resourceId: string
+}
+
+export interface FarmingDesktopNativeBrowserBridge {
+  adapterId: string
+  command(command: DesktopNativeBrowserCommand): Promise<DesktopNativeBrowserResult>
+  mount(input: DesktopNativeBrowserMount): Promise<void>
+  unmount(input: { generation: number; resourceId: string }): Promise<void>
+  focus(input: { generation: number; resourceId: string }): Promise<void>
+  invalidateLease(): Promise<void>
+  reconcileBackendEpoch(serverEpoch: string): Promise<void>
+  onEvent(listener: (event: DesktopNativeBrowserEvent) => void): () => void
+}
+
 export interface FarmingDesktopBridge {
   getState(): Promise<DesktopState>
   saveAndActivateBackend(input: DesktopBackendInput): Promise<DesktopState>
@@ -77,5 +121,6 @@ export interface FarmingDesktopBridge {
   disconnectBackend(backendId: string): Promise<DesktopState>
   activateBackend(backendId: string): Promise<DesktopState>
   showNotification(input: DesktopNotificationInput): Promise<void>
+  nativeBrowser: FarmingDesktopNativeBrowserBridge
   onStateChanged(listener: (state: DesktopState) => void): () => void
 }

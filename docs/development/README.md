@@ -27,6 +27,7 @@ the [documentation home](../README.md).
 - [UI interaction protocol](ui-interaction-protocol.md)
 - [Public documentation site](documentation-site.md)
 - [Farming Desktop MVP](../products/code/desktop-app.md)
+- [Desktop Native Browser View](../products/code/desktop-native-browser.md)
 - [Extension and Resource model](../products/code/extension-model.md)
 - [Chrome extension Browser](../products/code/chrome-extension-browser.md)
 - [Language Server](../products/code/language-server.md)

@@ -267,7 +267,11 @@ import {
 } from './workspace-file-router.cjs';
 import { PreviewSessionManager } from './preview-session-manager.cjs';
 import { WorkspaceRootRegistry, rootIdForPath } from './workspace-root-registry.cjs';
-import { BrowserResourceManager, createBrowserRouter } from '../extensions/browser/backend/index.cjs';
+import {
+  BrowserResourceManager,
+  createBrowserRouter,
+  DesktopBrowserAdapterRegistry,
+} from '../extensions/browser/backend/index.cjs';
 import { BrowserExtensionRelay } from '../extensions/browser/backend/browser-extension-relay.cjs';
 import {
   ComputerResourceManager,
@@ -430,6 +434,11 @@ const browserExtensionRelay = new BrowserExtensionRelay({
   configDir: configManager.farmingDir,
   onStateChange: () => refreshBrowserExtensionCapability(),
 });
+const desktopBrowserAdapters = new DesktopBrowserAdapterRegistry({
+  openState: WebSocket.OPEN,
+});
+const desktopBrowserAdapterRegistrations = new WeakMap<WebSocketClient, () => void>();
+const desktopBrowserAdapterIds = new WeakMap<WebSocketClient, string>();
 const browserResourceManager = new BrowserResourceManager({
   configDir: configManager.farmingDir,
   isEnabled: () => configManager.getSettings().browserExtensionEnabled === true,
@@ -440,6 +449,7 @@ const browserResourceManager = new BrowserResourceManager({
   }),
   isolatedBrowserProvider,
   browserExtensionRelay,
+  desktopBrowserAdapters,
 });
 refreshBrowserExtensionCapability = () => {
   void browserResourceManager.refreshCapability().catch((error: unknown) => {
@@ -448,6 +458,7 @@ refreshBrowserExtensionCapability = () => {
 };
 server.on('close', () => {
   void browserExtensionRelay.close();
+  desktopBrowserAdapters.dispose();
 });
 
 function broadcastLanguageServerRefresh(event: ManagedLanguageServerRefreshEvent) {
@@ -2074,6 +2085,9 @@ wss.on('connection', (ws, req) => {
   });
 
   ws.on('close', (code: number, reason: Buffer) => {
+    desktopBrowserAdapterRegistrations.get(ws)?.();
+    desktopBrowserAdapterRegistrations.delete(ws);
+    desktopBrowserAdapterIds.delete(ws);
     workspaceFileWatchController.close(ws);
     websocketWorkspaceRequestHandlers.close(ws);
     cancelSessionPreviewHydration(ws);
@@ -2225,6 +2239,43 @@ const websocketAcpHandlers = createWebSocketAcpHandlers<WebSocketClient>({
     agentManager.respondToAcpPermission(agentId, requestId, optionId, cancelled)
   ),
 });
+function registerDesktopBrowserAdapter(ws: WebSocketClient, data: { adapterId: string }) {
+  if (ws.accessMode !== 'owner') {
+    ws.send(JSON.stringify({ type: 'error', message: 'Desktop Browser adapter requires owner access.' }));
+    return;
+  }
+  if (
+    desktopBrowserAdapterIds.get(ws) === data.adapterId
+    && desktopBrowserAdapterRegistrations.get(ws)
+  ) {
+    ws.send(JSON.stringify({
+      type: 'desktop-browser-adapter-registered',
+      adapterId: data.adapterId,
+      serverEpoch: SERVER_EPOCH,
+    }));
+    return;
+  }
+  desktopBrowserAdapterRegistrations.get(ws)?.();
+  try {
+    const unregister = desktopBrowserAdapters.register(data.adapterId, ws);
+    desktopBrowserAdapterRegistrations.set(ws, unregister);
+    desktopBrowserAdapterIds.set(ws, data.adapterId);
+    ws.send(JSON.stringify({
+      type: 'desktop-browser-adapter-registered',
+      adapterId: data.adapterId,
+      serverEpoch: SERVER_EPOCH,
+    }));
+  } catch (error) {
+    ws.send(JSON.stringify({
+      type: 'error',
+      message: caughtError(error).message || 'Desktop Browser adapter registration failed.',
+    }));
+  }
+}
+
+function desktopBrowserAdapterOwns(ws: WebSocketClient, adapterId: string): boolean {
+  return desktopBrowserAdapterIds.get(ws) === adapterId;
+}
 const clientMessageDispatchTable = defineClientMessageDispatchTable<WebSocketClient>({
   'protocol-hello': registerClientMessage('protocol-hello', websocketHandshakeHealthHandlers.protocolHello),
   'business-health-probe': registerClientMessage('business-health-probe', websocketHandshakeHealthHandlers.businessHealthProbe),
@@ -2250,6 +2301,24 @@ const clientMessageDispatchTable = defineClientMessageDispatchTable<WebSocketCli
   'language-server-request': registerClientMessage('language-server-request', websocketWorkspaceRequestHandlers.languageServerRequest),
   'archive-agent': registerClientMessage('archive-agent', websocketAgentLifecycleHandlers.archiveAgent),
   'restart-main-agent': registerClientMessage('restart-main-agent', websocketAgentLifecycleHandlers.restartMainAgent),
+  'desktop-browser-adapter-register': registerClientMessage(
+    'desktop-browser-adapter-register',
+    registerDesktopBrowserAdapter,
+  ),
+  'desktop-browser-adapter-response': registerClientMessage(
+    'desktop-browser-adapter-response',
+    (ws, data) => {
+      if (!desktopBrowserAdapterOwns(ws, data.adapterId)) return;
+      desktopBrowserAdapters.settle(data, ws);
+    },
+  ),
+  'desktop-browser-adapter-event': registerClientMessage(
+    'desktop-browser-adapter-event',
+    (ws, data) => {
+      if (!desktopBrowserAdapterOwns(ws, data.adapterId)) return;
+      desktopBrowserAdapters.publish(data);
+    },
+  ),
 });
 
 function handleMessage(ws: WebSocketClient, data: ServerClientMessage) {

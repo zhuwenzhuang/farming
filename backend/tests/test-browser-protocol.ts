@@ -53,6 +53,29 @@ const validClientMessages = {
   'archive-agent': { type: 'archive-agent', agentId: 'agent-1' },
   'restart-main-agent': { type: 'restart-main-agent', command: 'codex' },
   'state-resync': { type: 'state-resync' },
+  'desktop-browser-adapter-register': {
+    type: 'desktop-browser-adapter-register',
+    adapterId: 'desktop-1',
+  },
+  'desktop-browser-adapter-response': {
+    type: 'desktop-browser-adapter-response',
+    adapterId: 'desktop-1',
+    requestId: 'command-1',
+    resourceId: 'browser-1',
+    sessionId: 'session-1',
+    generation: 1,
+    ok: true,
+    result: { zoomFactor: 1 },
+  },
+  'desktop-browser-adapter-event': {
+    type: 'desktop-browser-adapter-event',
+    adapterId: 'desktop-1',
+    resourceId: 'browser-1',
+    sessionId: 'session-1',
+    generation: 1,
+    kind: 'metadata',
+    payload: { title: 'Browser' },
+  },
 } satisfies ClientMessageByType;
 
 assert(
@@ -181,6 +204,33 @@ assert.strictEqual(validateClientMessage({
   type: 'acp-permission-response',
   agentId: 'a',
   requestId: 'permission-1',
+}).ok, false);
+assert.strictEqual(validateClientMessage({
+  type: 'desktop-browser-adapter-response',
+  adapterId: 'desktop-1',
+  requestId: 'command-1',
+  resourceId: 'browser-1',
+  sessionId: 'session-1',
+  generation: 1,
+  ok: true,
+  status: -1,
+}).ok, false);
+assert.strictEqual(validateClientMessage({
+  type: 'desktop-browser-adapter-response',
+  adapterId: 'desktop-1',
+  requestId: 'command-1',
+  resourceId: 'browser-1',
+  sessionId: 'session-1',
+  ok: true,
+}).ok, false);
+assert.strictEqual(validateClientMessage({
+  type: 'desktop-browser-adapter-event',
+  adapterId: 'desktop-1',
+  resourceId: 'browser-1',
+  sessionId: 'session-1',
+  generation: 1,
+  kind: 'metadata',
+  payload: [],
 }).ok, false);
 assert.strictEqual(validateClientMessage({
   type: 'acp-permission-response',
@@ -516,6 +566,39 @@ assert.strictEqual(validateServerMessage({
 assert.strictEqual(validateServerMessage({
   type: 'computer-resource-deleted',
   deletion: { id: 'computer-1', collectionRevision: -1 },
+}).ok, false);
+assert.strictEqual(validateServerMessage({
+  type: 'desktop-browser-adapter-registered',
+  adapterId: 'desktop-1',
+  serverEpoch: 'server-1',
+}).ok, true);
+assert.strictEqual(validateServerMessage({
+  type: 'desktop-browser-adapter-registered',
+  adapterId: 'desktop-1',
+}).ok, false);
+assert.strictEqual(validateServerMessage({
+  type: 'desktop-browser-command',
+  command: {
+    adapterId: 'desktop-1',
+    requestId: 'command-1',
+    resourceId: 'browser-1',
+    sessionId: 'session-1',
+    generation: 1,
+    operation: 'navigate',
+    input: { url: 'https://example.test/' },
+  },
+}).ok, true);
+assert.strictEqual(validateServerMessage({
+  type: 'desktop-browser-command',
+  command: {
+    adapterId: 'desktop-1',
+    requestId: 'command-1',
+    resourceId: 'browser-1',
+    sessionId: 'session-1',
+    generation: 1,
+    operation: 'navigate',
+    input: [],
+  },
 }).ok, false);
 assert.strictEqual(validateServerMessage({ type: 'composer-input-result', requestId: 'request-1', agentId: 'a', accepted: true }).ok, true);
 assert.strictEqual(validateServerMessage({
