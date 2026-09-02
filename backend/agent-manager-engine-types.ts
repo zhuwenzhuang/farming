@@ -109,7 +109,13 @@ interface TerminalAttachCheckpoint extends TerminalStateCursor, TerminalDimensio
   previewSnapshot: unknown;
   previewText: string;
   renderOutput: string;
+  renderedScrollback?: number;
+  scrollbackAvailable?: number;
   title: string;
+}
+
+interface TerminalSessionStateReadOptions {
+  scrollback?: number;
 }
 
 interface TerminalStatusContract {
@@ -130,6 +136,7 @@ interface TerminalSessionState {
   previewSnapshot: unknown;
   previewText: string;
   renderOutput: string;
+  renderedScrollback?: number;
   runtimeEpoch: string;
   sessionId: string;
   shellCwd: string;
@@ -141,6 +148,7 @@ interface TerminalSessionState {
   shellLastCommandStartedAt: number | null;
   shellLastEvent: string;
   shellLastExitCode: number | null;
+  scrollbackAvailable?: number;
   startedAt: number | null;
   stateProofAvailable: boolean;
   stateRevision: number | null;
@@ -394,7 +402,10 @@ interface SessionEngineContract extends EngineEventEmitter<EngineSessionEventMap
   ): MaybePromise<TerminalAttachCheckpoint | null>;
   getSessionPreview(sessionId: string): MaybePromise<string>;
   getSessionSource?(): string;
-  getSessionState(sessionId: string): MaybePromise<TerminalSessionState | null>;
+  getSessionState(
+    sessionId: string,
+    options?: TerminalSessionStateReadOptions,
+  ): MaybePromise<TerminalSessionState | null>;
   interruptSession?(
     sessionId: string,
     input: TerminalInput,
@@ -452,7 +463,11 @@ interface SessionEngineBridgeContract extends EngineEventEmitter<BridgeEngineEve
     sessionId: string,
   ): Promise<TerminalAttachCheckpoint | null>;
   getSessionPreview(engineName: unknown, sessionId: string): Promise<string>;
-  getSessionState(engineName: unknown, sessionId: string): Promise<TerminalSessionState | null>;
+  getSessionState(
+    engineName: unknown,
+    sessionId: string,
+    options?: TerminalSessionStateReadOptions,
+  ): Promise<TerminalSessionState | null>;
   killSession(engineName: unknown, sessionId: string): Promise<TerminalKillResult | void>;
   recoverSessions(options?: { startHost?: boolean }): Promise<RecoveredEngineSession[]>;
   resizeSession(
@@ -514,6 +529,7 @@ export type {
   TerminalSessionPreviewEvent,
   TerminalSessionSnapshotEvent,
   TerminalSessionState,
+  TerminalSessionStateReadOptions,
   TerminalSessionStatus,
   TerminalSessionStateEvent,
   TerminalSessionTitleEvent,

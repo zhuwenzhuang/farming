@@ -20,6 +20,8 @@ import {
 } from '@/lib/terminal-bootstrap'
 import {
   emitFollowOutputState,
+  getTerminalScrollbackLength,
+  getTerminalViewportY,
   isTerminalAtBottom,
   setFollowOutputState,
 } from '@/lib/terminal-viewport'
@@ -54,6 +56,10 @@ export interface TerminalReplicationState {
   bootstrapRefreshSeq: number
   checkpointRequestCount: number
   checkpointRequestInFlight: boolean
+  checkpointScrollbackAvailable: number
+  checkpointScrollbackDesired: number
+  checkpointScrollbackInstalled: number
+  checkpointScrollbackRequested: number
   checkpointRetryTimer: number | null
   bootstrapRequestControllers: Set<AbortController>
   needsReconnectOutputSync: boolean
@@ -73,7 +79,10 @@ export interface TerminalReplicationPorts {
   reportError: (message: string) => void
   notifyReady: (generation: number) => boolean
   captureViewportState: () => TerminalViewportRestoreState
-  restoreViewportState: (state: TerminalViewportRestoreState) => void
+  restoreViewportState: (
+    state: TerminalViewportRestoreState,
+    options?: { sameCutHistoryExpansion?: boolean },
+  ) => void
 }
 
 export interface TerminalReplicationRecord extends TerminalOutputRecord {
@@ -89,6 +98,7 @@ export interface TerminalReplicationRecord extends TerminalOutputRecord {
 }
 
 const TERMINAL_CHECKPOINT_REQUEST_TIMEOUT_MS = 5000
+const TERMINAL_CHECKPOINT_SCROLLBACK_STEPS = [200, 500, 1000, 2000, 5000] as const
 const terminalCheckpointRequestScheduler = new TerminalCheckpointRequestScheduler()
 
 export function createTerminalReplicationState(
@@ -112,6 +122,10 @@ export function createTerminalReplicationState(
     bootstrapRefreshSeq: 0,
     checkpointRequestCount: 0,
     checkpointRequestInFlight: false,
+    checkpointScrollbackAvailable: 0,
+    checkpointScrollbackDesired: 200,
+    checkpointScrollbackInstalled: 0,
+    checkpointScrollbackRequested: 0,
     checkpointRetryTimer: null,
     bootstrapRequestControllers: new Set(),
     needsReconnectOutputSync: false,
@@ -124,7 +138,10 @@ export function createTerminalReplicationState(
   }
 }
 
-async function fetchSessionBootstrapStateForCurrentTerminal(record: TerminalReplicationRecord) {
+async function fetchSessionBootstrapStateForCurrentTerminal(
+  record: TerminalReplicationRecord,
+  scrollbackLimit: number,
+) {
   record.replication.checkpointRequestCount += 1
   const controller = new AbortController()
   record.replication.bootstrapRequestControllers.add(controller)
@@ -136,7 +153,11 @@ async function fetchSessionBootstrapStateForCurrentTerminal(record: TerminalRepl
       () => controller.abort(new DOMException('Terminal checkpoint request timed out', 'TimeoutError')),
       TERMINAL_CHECKPOINT_REQUEST_TIMEOUT_MS,
     )
-    const data = await requestTerminalSessionCheckpoint(record.agentId, controller.signal)
+    const data = await requestTerminalSessionCheckpoint(
+      record.agentId,
+      controller.signal,
+      scrollbackLimit,
+    )
     return sessionBootstrapStateFromPayload(data)
   } finally {
     if (timeout !== null) window.clearTimeout(timeout)
@@ -301,6 +322,14 @@ function finishTerminalReplay(record: TerminalReplicationRecord, generation: num
     return
   }
 
+  if (
+    record.replication.checkpointScrollbackDesired > record.replication.checkpointScrollbackInstalled
+    && record.replication.checkpointScrollbackAvailable > record.replication.checkpointScrollbackInstalled
+  ) {
+    requestTerminalReplay(record, generation, record.replication.checkpointScrollbackDesired)
+    return
+  }
+
   record.replication.bootstrappingSnapshot = false
   const forceResize = record.resizeEffects.recoveryFitRequired()
   requestAnimationFrame(() => {
@@ -331,6 +360,8 @@ function installTerminalCheckpoint(
   })
   record.replication.checkpointRequestInFlight = false
   const checkpoint = terminalReplayCheckpoint(state)
+  const expandsScrollback = Number(state.renderedScrollback || 0)
+    > record.replication.checkpointScrollbackInstalled
   const decision = record.attachment.evaluateCheckpoint(checkpoint)
   if (decision.action === 'reject') {
     retryTerminalReplayAfterFailure(
@@ -345,11 +376,21 @@ function installTerminalCheckpoint(
   }
   if (
     decision.action === 'current' &&
+    !expandsScrollback &&
     record.terminal.cols === state.cols &&
     record.terminal.rows === state.rows
   ) {
     const viewportState = record.replicationPorts.captureViewportState()
     record.attachment.commitCheckpoint(operation, checkpoint)
+    record.replication.checkpointScrollbackInstalled = Math.max(
+      record.replication.checkpointScrollbackInstalled,
+      getTerminalScrollbackLength(record.terminal),
+      Number(state.renderedScrollback || 0),
+    )
+    record.replication.checkpointScrollbackAvailable = Math.max(
+      record.replication.checkpointScrollbackInstalled,
+      Number(state.scrollbackAvailable || 0),
+    )
     record.replication.needsReconnectOutputSync = false
     record.replication.bootstrappingSnapshot = false
     record.replicationPorts.restoreViewportState(viewportState)
@@ -400,8 +441,19 @@ function installTerminalCheckpoint(
       record.followOutput = viewportState.following
       record.hasUnreadOutput = viewportState.hasUnreadOutput
       record.preserveUnreadOutputUntilJump = viewportState.preserveUnreadOutputUntilJump
-      record.replicationPorts.restoreViewportState(viewportState)
+      record.replicationPorts.restoreViewportState(viewportState, {
+        sameCutHistoryExpansion: expandsScrollback && decision.action === 'current',
+      })
       record.replication.replayInProgress = false
+      const installedScrollback = getTerminalScrollbackLength(record.terminal)
+      record.replication.checkpointScrollbackInstalled = Math.max(
+        installedScrollback,
+        Number(state.renderedScrollback || 0),
+      )
+      record.replication.checkpointScrollbackAvailable = Math.max(
+        record.replication.checkpointScrollbackInstalled,
+        Number(state.scrollbackAvailable || 0),
+      )
       record.replication.needsReconnectOutputSync = false
       record.replication.bootstrappingSnapshot = false
       flushQueuedTerminalOutput(record)
@@ -433,7 +485,24 @@ function installTerminalCheckpoint(
   return true
 }
 
-export function requestTerminalReplay(record: TerminalReplicationRecord, generation = record.attachment.generation) {
+export function requestTerminalReplay(
+  record: TerminalReplicationRecord,
+  generation = record.attachment.generation,
+  requestedScrollback?: number,
+) {
+  const scrollbackLimit = Math.min(
+    5000,
+    Math.max(
+      200,
+      Math.floor(requestedScrollback || 0),
+      record.replication.checkpointScrollbackDesired,
+      getTerminalScrollbackLength(record.terminal),
+    ),
+  )
+  record.replication.checkpointScrollbackDesired = Math.max(
+    record.replication.checkpointScrollbackDesired,
+    scrollbackLimit,
+  )
   if (
     record.disposed ||
     record.replication.fixtureOverrideActive ||
@@ -456,9 +525,10 @@ export function requestTerminalReplay(record: TerminalReplicationRecord, generat
   const requestOperation = record.attachment.beginCheckpointOperation(generation)
   if (!requestOperation) return
   record.replication.checkpointRequestInFlight = true
+  record.replication.checkpointScrollbackRequested = scrollbackLimit
   record.replication.bootstrappingSnapshot = true
   record.replication.needsReconnectOutputSync = true
-  fetchSessionBootstrapStateForCurrentTerminal(record)
+  fetchSessionBootstrapStateForCurrentTerminal(record, scrollbackLimit)
     .then((state) => {
       if (
         record.disposed ||
@@ -480,6 +550,40 @@ export function requestTerminalReplay(record: TerminalReplicationRecord, generat
         console.warn('Terminal replay request failed; retrying:', error)
       }
     })
+}
+
+export function expandTerminalCheckpointHistory(record: TerminalReplicationRecord) {
+  if (
+    record.disposed
+    || !record.replicationPorts.isAttached()
+    || record.replication.checkpointRequestInFlight
+    || record.replication.replayInProgress
+    || record.attachment.recovering
+  ) return false
+  const installed = Math.max(
+    record.replication.checkpointScrollbackInstalled,
+    getTerminalScrollbackLength(record.terminal),
+  )
+  if (
+    installed >= 5000
+    || record.replication.checkpointScrollbackAvailable <= installed
+  ) return false
+
+  const distanceFromOldest = Math.max(0, installed - getTerminalViewportY(record.terminal))
+  if (distanceFromOldest > Math.max(2, record.terminal.rows || 0)) return false
+
+  const nextStep = TERMINAL_CHECKPOINT_SCROLLBACK_STEPS.find(step => step > installed)
+  if (!nextStep) return false
+  record.replication.checkpointScrollbackDesired = Math.min(
+    nextStep,
+    record.replication.checkpointScrollbackAvailable,
+  )
+  requestTerminalReplay(
+    record,
+    record.attachment.generation,
+    record.replication.checkpointScrollbackDesired,
+  )
+  return true
 }
 
 export function applyTerminalOutputEvent(

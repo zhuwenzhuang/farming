@@ -382,7 +382,9 @@ function validateClientMessage(value) {
             valid = stringField(value, 'requestId');
             break;
         case 'terminal-checkpoint-request':
-            valid = stringField(value, 'requestId') && stringField(value, 'agentId');
+            valid = stringField(value, 'requestId') && stringField(value, 'agentId')
+                && optionalNonNegativeIntegerField(value, 'scrollbackLimit')
+                && (value.scrollbackLimit === undefined || Number(value.scrollbackLimit) <= 5000);
             break;
         case 'start-agent':
             valid = stringField(value, 'command');

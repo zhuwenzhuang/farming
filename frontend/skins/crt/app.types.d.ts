@@ -29,7 +29,10 @@ interface FarmingSessionClient {
   resizeAgent(agentId: string, cols: number, rows: number): boolean;
   clearTerminal(agentId: string): boolean;
   archiveAgent(agentId: string): boolean;
-  requestTerminalCheckpoint(agentId: string, options?: { signal?: AbortSignal }): Promise<Record<string, unknown>>;
+  requestTerminalCheckpoint(
+    agentId: string,
+    options?: { signal?: AbortSignal; scrollbackLimit?: number },
+  ): Promise<Record<string, unknown>>;
 }
 
 interface FarmingSessionBridge {

@@ -21,7 +21,7 @@ interface WebSocketTerminalClient {
 
 interface WebSocketTerminalPorts {
   openState: number;
-  getAgentSessionView(agentId: string): Promise<unknown | null>;
+  getAgentSessionView(agentId: string, options?: { scrollback?: number }): Promise<unknown | null>;
   checkpointReconciled?(agentId: string, session: unknown): void;
   sendInput(agentId: string, inputParts: ReturnType<typeof inputPartsFromMessage>, performanceId?: string): Promise<unknown>;
   requestResize(agentId: string, cols: number, rows: number): unknown;
@@ -81,9 +81,10 @@ function createWebSocketTerminalHandlers<Client extends WebSocketTerminalClient>
     client: Client,
     requestId: string,
     agentId: string,
+    scrollbackLimit?: number,
   ): Promise<void> => {
     try {
-      const session = await ports.getAgentSessionView(agentId);
+      const session = await ports.getAgentSessionView(agentId, { scrollback: scrollbackLimit });
       if (client.readyState !== ports.openState) return;
       if (!session) {
         client.send(JSON.stringify({
@@ -131,7 +132,12 @@ function createWebSocketTerminalHandlers<Client extends WebSocketTerminalClient>
       }));
       return;
     }
-    void sendTerminalCheckpointResult(client, message.requestId, message.agentId);
+    void sendTerminalCheckpointResult(
+      client,
+      message.requestId,
+      message.agentId,
+      message.scrollbackLimit,
+    );
   };
 
   const input = (client: Client, message: InputMessage): void => {

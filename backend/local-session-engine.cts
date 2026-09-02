@@ -7,6 +7,7 @@ import type {
   TerminalInputResult,
   TerminalResizeResult,
   TerminalSessionState,
+  TerminalSessionStateReadOptions,
   TerminalSessionStatus,
 } from './agent-manager-engine-types.js';
 import * as path from 'path';
@@ -971,7 +972,10 @@ class LocalSessionEngine extends SessionEngine {
     }
   }
 
-  async getSessionState(sessionId: string): Promise<TerminalSessionState | null> {
+  async getSessionState(
+    sessionId: string,
+    options: TerminalSessionStateReadOptions = {},
+  ): Promise<TerminalSessionState | null> {
     const session = this.sessions.get(sessionId);
     if (!session) return null;
     const snapshotOutput = session.output;
@@ -981,20 +985,25 @@ class LocalSessionEngine extends SessionEngine {
     const fallbackPreviewRows = session.previewRows;
     const fallbackTitle = session.title;
     const stateProofAvailable = session.stateProofAvailable !== false;
-    const checkpoint = stateProofAvailable ? await captureTerminalAttachCheckpoint(session) : null;
+    const checkpoint = stateProofAvailable
+      ? await captureTerminalAttachCheckpoint(session, { scrollback: options.scrollback })
+      : null;
     if (this.sessions.get(sessionId) !== session) return null;
     const title = checkpoint ? checkpoint.title : fallbackTitle;
     const previewText = checkpoint ? checkpoint.previewText : (stateProofAvailable ? fallbackPreviewText : '');
+    const renderOutput = checkpoint ? checkpoint.renderOutput : (stateProofAvailable ? snapshotOutput : '');
+    const output = options.scrollback === undefined ? snapshotOutput : renderOutput;
 
     return {
       sessionId: session.id,
       status: session.status,
       runtimeEpoch: session.runtimeEpoch,
-      output: snapshotOutput,
+      output,
       outputSeq: checkpoint?.outputSeq ?? null,
       stateRevision: checkpoint?.stateRevision ?? null,
       stateProofAvailable,
-      renderOutput: checkpoint ? checkpoint.renderOutput : (stateProofAvailable ? snapshotOutput : ''),
+      renderOutput,
+      renderedScrollback: checkpoint?.renderedScrollback,
       previewText,
       previewSnapshot: checkpoint ? checkpoint.previewSnapshot : (stateProofAvailable ? fallbackPreviewSnapshot : null),
       previewCols: checkpoint ? checkpoint.cols : fallbackPreviewCols,
@@ -1009,6 +1018,7 @@ class LocalSessionEngine extends SessionEngine {
       shellCwd: session.shellCwd || '',
       shellLastEvent: session.shellLastEvent || '',
       shellLastExitCode: session.shellLastExitCode ?? null,
+      scrollbackAvailable: checkpoint?.scrollbackAvailable,
       shellCommandStartedAt: session.shellCommandStartedAt ?? null,
       shellLastCommandStartedAt: session.shellLastCommandStartedAt ?? null,
       shellLastCommandFinishedAt: session.shellLastCommandFinishedAt ?? null,

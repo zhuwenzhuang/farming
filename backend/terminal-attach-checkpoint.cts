@@ -9,11 +9,13 @@ export interface TerminalAttachCheckpoint {
   rows: number;
   previewText: string;
   previewSnapshot: unknown;
+  renderedScrollback?: number;
+  scrollbackAvailable?: number;
   title: string;
 }
 
 export interface TerminalAttachScreenWorker {
-  getState(options: { timeoutMs: number }): Promise<unknown>;
+  getState(options: { scrollback?: number; timeoutMs: number }): Promise<unknown>;
 }
 
 export interface TerminalAttachSession {
@@ -27,6 +29,7 @@ export interface TerminalAttachSession {
 
 interface TerminalAttachCheckpointOptions {
   requireCurrentCut?: boolean;
+  scrollback?: number;
   timeoutMs?: number;
 }
 
@@ -66,7 +69,11 @@ async function captureTerminalAttachCheckpoint(
   const timeoutMs = typeof options.timeoutMs === 'number' && Number.isFinite(options.timeoutMs)
     ? Math.max(1, Math.floor(options.timeoutMs))
     : DEFAULT_TERMINAL_ATTACH_CHECKPOINT_TIMEOUT_MS;
-  const state = recordValue(await session.screenWorker.getState({ timeoutMs }).catch(() => null));
+  const requestedScrollback = finiteNonNegativeInteger(options.scrollback);
+  const state = recordValue(await session.screenWorker.getState({
+    ...(requestedScrollback === null ? {} : { scrollback: requestedScrollback }),
+    timeoutMs,
+  }).catch(() => null));
   const outputSeq = finiteNonNegativeInteger(state?.outputSeq);
   const stateRevision = finiteNonNegativeInteger(state?.stateRevision);
   const currentOutputSeq = finiteNonNegativeInteger(session.outputSeq);
@@ -103,6 +110,8 @@ async function captureTerminalAttachCheckpoint(
     rows,
     previewText: typeof state.previewText === 'string' ? state.previewText : '',
     previewSnapshot: state.previewSnapshot || null,
+    renderedScrollback: finiteNonNegativeInteger(state.renderedScrollback) || 0,
+    scrollbackAvailable: finiteNonNegativeInteger(state.scrollbackAvailable) || 0,
     title: typeof state.title === 'string' ? state.title : '',
   };
 }

@@ -245,7 +245,14 @@ assert.strictEqual(validateClientMessage({
   type: 'terminal-checkpoint-request',
   requestId: 'checkpoint-1',
   agentId: 'agent-1',
+  scrollbackLimit: 500,
 }).ok, true);
+assert.strictEqual(validateClientMessage({
+  type: 'terminal-checkpoint-request',
+  requestId: 'checkpoint-1',
+  agentId: 'agent-1',
+  scrollbackLimit: 5001,
+}).ok, false);
 assert.strictEqual(validateClientMessage({
   type: 'terminal-checkpoint-request',
   requestId: 'checkpoint-1',

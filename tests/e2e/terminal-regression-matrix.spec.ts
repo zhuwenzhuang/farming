@@ -886,6 +886,50 @@ async function runDesktopTerminalMatrix(
       expect(after).toEqual(before)
     })
 
+    await scenario('burst recovery expands older scrollback as the user scrolls upward', async () => {
+      await page.evaluate(async id => {
+        await window.__farmingTerminalTest?.scrollToBottom(id)
+      }, bashAgentId)
+      await page.evaluate(() => window.dispatchEvent(new Event('pagehide')))
+      await sendActiveTerminalCommand(
+        page,
+        bashAgentId,
+        'awk \'BEGIN { pad = sprintf("%190s", ""); gsub(/ /, "x", pad); for (i = 0; i < 5600; i++) printf "burst-line-%04d-%s\\n", i, pad }\'',
+      )
+      await expect.poll(async () => {
+        const response = await page.request.get(`/farming/api/control/agents/${bashAgentId}/output?tail=4000`)
+        return response.ok() ? await response.text() : ''
+      }, { timeout: 30_000 }).toContain('burst-line-5599-')
+      await page.evaluate(() => window.dispatchEvent(new Event('pageshow')))
+      await expect.poll(
+        async () => (await visibleTerminalText(page, bashAgentId)).includes('burst-line-5599-'),
+        { timeout: 30_000 },
+      ).toBe(true)
+      const initialScrollback = (await terminalViewport(page, bashAgentId)).scrollbackLength
+      expect(initialScrollback).toBeGreaterThan(100)
+      expect(initialScrollback).toBeLessThan(1000)
+
+      for (const [minimumScrollback, maximumScrollback] of [
+        [450, 700],
+        [900, 1200],
+        [1800, 2300],
+        [4500, 5100],
+      ]) {
+        await page.evaluate(async id => {
+          await window.__farmingTerminalTest?.scrollToLine(id, 0)
+        }, bashAgentId)
+        const readingMarker = (await visibleTerminalText(page, bashAgentId)).match(/burst-line-\d{4}-/)?.[0]
+        expect(readingMarker).toBeTruthy()
+        await expect.poll(
+          async () => (await terminalViewport(page, bashAgentId)).scrollbackLength,
+          { timeout: 30_000 },
+        ).toBeGreaterThan(minimumScrollback)
+        const expandedViewport = await terminalViewport(page, bashAgentId)
+        expect(expandedViewport.scrollbackLength).toBeLessThan(maximumScrollback)
+        await expect.poll(async () => await visibleTerminalText(page, bashAgentId)).toContain(readingMarker)
+      }
+    })
+
     await scenario('user scroll position stays anchored while older output is being read', async () => {
       await sendActiveTerminalCommand(
         page,

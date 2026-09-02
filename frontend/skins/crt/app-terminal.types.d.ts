@@ -149,22 +149,26 @@ interface CrtTerminalSessionViewResponse {
   agentId?: string;
   available?: boolean;
   renderOutput?: string;
+  renderedScrollback?: number;
   previewCols?: number | null;
   previewRows?: number | null;
   runtimeEpoch?: string;
   outputSeq?: number | null;
   stateRevision?: number | null;
+  scrollbackAvailable?: number;
 }
 
 interface CrtTerminalSessionView {
   agentId?: string;
   available?: boolean;
   renderOutput: string;
+  renderedScrollback: number;
   previewCols: number;
   previewRows: number;
   runtimeEpoch: string;
   outputSeq: number;
   stateRevision: number;
+  scrollbackAvailable: number;
 }
 
 interface CrtTerminalStreamChunk extends FarmingTerminalTransition {
@@ -187,12 +191,18 @@ interface CrtTerminalReplication {
   applyingLocalResize: boolean;
   attachment: FarmingTerminalAttachmentCoordinatorApi;
   checkpointInFlight: boolean;
+  checkpointScrollbackAvailable: number;
+  checkpointScrollbackDesired: number;
+  checkpointScrollbackInstalled: number;
   checkpointAbortController: AbortController | null;
   checkpointRetryTimer: number | null;
   installInProgress: boolean;
   pendingCheckpoint: {
     operation: TerminalAttachmentOperation;
+    sameCutHistoryExpansion: boolean;
+    scrollbackLength: number;
     sessionView: CrtTerminalSessionView;
+    viewportY: number;
   } | null;
   writeInProgress: boolean;
   disposed: boolean;

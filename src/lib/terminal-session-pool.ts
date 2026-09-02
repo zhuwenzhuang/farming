@@ -39,6 +39,7 @@ import {
   canUpdateTerminalBootstrapState,
   clearPendingTerminalReplication as clearPendingTerminalOutput,
   createTerminalReplicationState,
+  expandTerminalCheckpointHistory,
   finishTerminalAttachmentReplication,
   flushQueuedTerminalOutput,
   hasPendingTerminalSnapshot,
@@ -459,7 +460,11 @@ function terminalViewportStateForRestore(record: SessionRecord): TerminalViewpor
   }
 }
 
-function restoreTerminalViewportFromAnchor(record: SessionRecord, viewportState: TerminalViewportRestoreState) {
+function restoreTerminalViewportFromAnchor(
+  record: SessionRecord,
+  viewportState: TerminalViewportRestoreState,
+  options: { sameCutHistoryExpansion?: boolean } = {},
+) {
   record.followOutput = viewportState.following
   record.hasUnreadOutput = viewportState.hasUnreadOutput
   record.preserveUnreadOutputUntilJump = viewportState.preserveUnreadOutputUntilJump
@@ -471,6 +476,11 @@ function restoreTerminalViewportFromAnchor(record: SessionRecord, viewportState:
       true,
       viewportState.hasUnreadOutput,
     )
+    return
+  }
+  if (options.sameCutHistoryExpansion) {
+    scrollRecordToViewportY(record, viewportState.viewportY)
+    setFollowOutputState(record, false, viewportState.hasUnreadOutput)
     return
   }
   if (
@@ -1211,7 +1221,11 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
       reportError: message => reportTerminalSyncError(record, message),
       notifyReady: generation => notifyTerminalAttachReady(record, generation),
       captureViewportState: () => terminalViewportStateForRestore(record),
-      restoreViewportState: state => restoreTerminalViewportFromAnchor(record, state as TerminalViewportRestoreState),
+      restoreViewportState: (state, restoreOptions) => restoreTerminalViewportFromAnchor(
+        record,
+        state as TerminalViewportRestoreState,
+        restoreOptions,
+      ),
     },
     parkedViewportState: null,
     inputDisabled: Boolean(options.inputDisabled),
@@ -1279,6 +1293,7 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
   const scrollSubscription = terminal.onScroll?.(() => {
     scheduleFollowStateFromViewport(record)
     captureTerminalReadingAnchor(record)
+    expandTerminalCheckpointHistory(record)
   })
   const renderSubscription = terminal.onRender?.(() => {
     scheduleFollowStateFromViewport(record)

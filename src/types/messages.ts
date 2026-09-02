@@ -122,6 +122,7 @@ export interface TerminalCheckpointRequestMessage {
   type: 'terminal-checkpoint-request'
   requestId: string
   agentId: string
+  scrollbackLimit?: number
 }
 
 export type TerminalSessionClientMessage =

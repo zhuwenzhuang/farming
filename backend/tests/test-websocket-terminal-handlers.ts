@@ -42,8 +42,12 @@ function sent(client: TestClient): Record<string, unknown> {
   return JSON.parse(client.sent[0]);
 }
 
-function checkpoint(requestId = 'request-1', agentId = 'agent-1'): TerminalCheckpointRequestMessage {
-  return { type: 'terminal-checkpoint-request', requestId, agentId };
+function checkpoint(
+  requestId = 'request-1',
+  agentId = 'agent-1',
+  scrollbackLimit?: number,
+): TerminalCheckpointRequestMessage {
+  return { type: 'terminal-checkpoint-request', requestId, agentId, scrollbackLimit };
 }
 
 function input(fields: Partial<InputMessage> = {}): InputMessage {
@@ -79,9 +83,13 @@ async function run(): Promise<void> {
   {
     const session = { agentId: 'agent-1', outputSeq: 3 };
     const pending = deferred<typeof session>();
+    let requestedScrollback: number | undefined;
     const handlers = createWebSocketTerminalHandlers({
       openState: 1,
-      getAgentSessionView: () => pending.promise,
+      getAgentSessionView: (_agentId, options) => {
+        requestedScrollback = options?.scrollback;
+        return pending.promise;
+      },
       sendInput: async () => {},
       requestResize: () => {},
       clearBuffer: async () => {},
@@ -89,10 +97,11 @@ async function run(): Promise<void> {
     });
     const ws = client({ protocolVersion: PROTOCOL_VERSION });
 
-    handlers.terminalCheckpointRequest(ws, checkpoint('checkpoint-1', 'agent-1'));
+    handlers.terminalCheckpointRequest(ws, checkpoint('checkpoint-1', 'agent-1', 500));
     assert.strictEqual(ws.sent.length, 0, 'checkpoint handlers must not await session reads');
     pending.resolve(session);
     await Promise.resolve();
+    assert.strictEqual(requestedScrollback, 500);
 
     assert.deepStrictEqual(sent(ws), {
       type: 'terminal-checkpoint-result',

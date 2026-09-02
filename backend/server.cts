@@ -2146,7 +2146,7 @@ const websocketHandshakeHealthHandlers = createWebSocketHandshakeHealthHandlers(
 });
 const websocketTerminalHandlers = createWebSocketTerminalHandlers({
   openState: WebSocket.OPEN,
-  getAgentSessionView: agentId => agentManager.getAgentSessionView(agentId),
+  getAgentSessionView: (agentId, options) => agentManager.getAgentSessionView(agentId, options),
   checkpointReconciled: (agentId, session) => {
     // Fence reconciliation is limited to this connection's explicit
     // terminal-checkpoint-request (viewer attach/reconnect/resume/gap

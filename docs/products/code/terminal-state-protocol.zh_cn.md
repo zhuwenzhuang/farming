@@ -131,6 +131,12 @@ Connection 相互隔离，一个 Viewer 不能为其它 Viewer 积累无界 Debt
 持续 Output 可以为 Rendering Batch，但每个 Transition 仍保持有序且可检测 Gap。Resize Redraw
 形成 Presentation Boundary，让 Full-screen TUI 稳定后再显示新 Cut。
 
+权威 Terminal Reducer 与 Code、CRT Renderer 保留相同的有界 Scrollback 上限。Checkpoint
+传输先加载较小的最近窗口；当用户滚动到已加载历史的顶部附近时，再按有界档位逐步扩大，直至权威
+上限。每次扩展都在已证明的 Revision 上替换序列化 Terminal 状态，并恢复用户的逻辑阅读锚点；
+不得直接拼接原始 ANSI 文本，也不得另建一套 Output Ordering 路径。每个 Surface 同时最多只有一个
+扩展请求，连续滚动只提升目标窗口。
+
 服务端按 Agent 使用有界的一秒时间桶统计终端输出速率。每个时间桶累计输出字节数和输出片段数，
 只保留最近五分钟。用量速率和注意力评分读取这些时间桶，不再为每个输出片段保存并扫描一个独立
 对象。时间窗口边界最多产生一个时间桶的估算误差；终端输出顺序和实际字节传输仍保持精确，不依赖

@@ -8,6 +8,7 @@ const ATTR_DIM = 0x08;
 const ATTR_INVERSE = 0x10;
 const ATTR_INVISIBLE = 0x20;
 const ATTR_STRIKETHROUGH = 0x40;
+const DEFAULT_TERMINAL_SCREEN_SCROLLBACK = 5000;
 
 interface TerminalScreenStateOptions {
   cols?: number;
@@ -19,6 +20,7 @@ interface TerminalScreenStateOptions {
 interface TerminalScreenReadOptions {
   includeRenderOutput?: boolean;
   refreshPreview?: boolean;
+  scrollback?: number;
 }
 
 interface TerminalSnapshotCell {
@@ -44,7 +46,9 @@ interface TerminalScreenSnapshot {
   previewSnapshot: TerminalViewportSnapshot | null;
   previewText: string;
   renderOutput: string;
+  renderedScrollback: number;
   rows: number;
+  scrollbackAvailable: number;
   title: string;
 }
 
@@ -197,12 +201,13 @@ class TerminalScreenState {
   private previewText: string;
   private renderOutput: string;
   private renderOutputDirty: boolean;
+  private renderedScrollback: number;
   private title: string;
 
   constructor(options: TerminalScreenStateOptions = {}) {
     const cols = options.cols || 80;
     const rows = options.rows || 30;
-    const scrollback = options.scrollback || rows * 8;
+    const scrollback = options.scrollback ?? DEFAULT_TERMINAL_SCREEN_SCROLLBACK;
     this.scrollback = scrollback;
     this.includePreviewSnapshot = options.previewSnapshot !== false;
 
@@ -218,6 +223,7 @@ class TerminalScreenState {
 
     this.title = '';
     this.renderOutput = '';
+    this.renderedScrollback = 0;
     this.previewText = '';
     this.previewSnapshot = null;
     this.previewDirty = false;
@@ -226,8 +232,10 @@ class TerminalScreenState {
       cols,
       rows,
       renderOutput: '',
+      renderedScrollback: 0,
       previewText: '',
       previewSnapshot: null,
+      scrollbackAvailable: 0,
       title: '',
     });
 
@@ -247,15 +255,20 @@ class TerminalScreenState {
     this.renderOutputDirty = true;
   }
 
-  private refreshRenderOutput(): void {
+  private refreshRenderOutput(requestedScrollback = this.scrollback): void {
+    const scrollback = Math.min(
+      this.scrollback,
+      Math.max(0, Math.floor(requestedScrollback)),
+    );
     const serialized = this.serializeAddon.serialize({
-      scrollback: this.scrollback,
+      scrollback,
     });
     // SerializeAddon omits DECTCEM and the active mouse encoding. Preserve both
     // so a restored TUI keeps the same cursor and mouse input protocol.
     const mouseEncoding = getTerminalMouseEncodingSequence(this.terminal);
     const cursorVisibility = `\x1b[?25${getTerminalCursorVisible(this.terminal) ? 'h' : 'l'}`;
     this.renderOutput = `${serialized}${mouseEncoding}${cursorVisibility}`;
+    this.renderedScrollback = Math.min(this.terminal.buffer.active.baseY, scrollback);
     this.renderOutputDirty = false;
   }
 
@@ -263,7 +276,7 @@ class TerminalScreenState {
     const includeRenderOutput = options.includeRenderOutput !== false;
     this.refreshPreview();
     if (includeRenderOutput) {
-      this.refreshRenderOutput();
+      this.refreshRenderOutput(options.scrollback);
     }
 
     return this.getState(options);
@@ -308,19 +321,32 @@ class TerminalScreenState {
 
   getState(options: TerminalScreenReadOptions = {}): TerminalScreenSnapshot {
     const includeRenderOutput = options.includeRenderOutput !== false;
+    const requestedScrollback = options.scrollback ?? this.scrollback;
+    const normalizedScrollback = Math.min(
+      this.scrollback,
+      Math.max(0, Math.floor(requestedScrollback)),
+    );
     if (options.refreshPreview !== false && this.previewDirty) {
       this.refreshPreview();
     }
-    if (includeRenderOutput && this.renderOutputDirty) {
-      this.refreshRenderOutput();
+    if (
+      includeRenderOutput
+      && (
+        this.renderOutputDirty
+        || this.renderedScrollback !== Math.min(this.terminal.buffer.active.baseY, normalizedScrollback)
+      )
+    ) {
+      this.refreshRenderOutput(normalizedScrollback);
     }
 
     return {
       cols: this.terminal.cols,
       rows: this.terminal.rows,
       renderOutput: includeRenderOutput ? this.renderOutput : '',
+      renderedScrollback: includeRenderOutput ? this.renderedScrollback : 0,
       previewText: this.previewText,
       previewSnapshot: this.previewSnapshot,
+      scrollbackAvailable: this.terminal.buffer.active.baseY,
       title: this.title,
     };
   }

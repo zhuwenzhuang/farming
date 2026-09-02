@@ -57,6 +57,7 @@ export interface TerminalCheckpointRequestMessage extends ExtensibleMessage {
   type: 'terminal-checkpoint-request'
   requestId: string
   agentId: string
+  scrollbackLimit?: number
 }
 
 export interface StartAgentMessage extends ExtensibleMessage {
@@ -944,6 +945,8 @@ export function validateClientMessage(value: unknown): ValidationResult<ClientMe
     case 'business-health-probe': valid = stringField(value, 'requestId'); break
     case 'terminal-checkpoint-request':
       valid = stringField(value, 'requestId') && stringField(value, 'agentId')
+        && optionalNonNegativeIntegerField(value, 'scrollbackLimit')
+        && (value.scrollbackLimit === undefined || Number(value.scrollbackLimit) <= 5000)
       break
     case 'start-agent': valid = stringField(value, 'command'); break
     case 'input': valid = stringField(value, 'agentId', true) && (typeof value.input === 'string' || Array.isArray(value.inputParts)); break

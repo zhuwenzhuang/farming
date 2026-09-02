@@ -442,6 +442,8 @@ interface AgentSessionViewContract extends UnknownRecord {
   runtimeEpoch?: string;
   outputSeq?: number | null;
   stateRevision?: number | null;
+  renderedScrollback?: number;
+  scrollbackAvailable?: number;
   terminalStatus?: TerminalObservationStatus;
 }
 
@@ -10948,7 +10950,10 @@ class AgentManager extends EventEmitter {
     };
   }
 
-  async getAgentSessionView(agentId: AgentId): Promise<AgentSessionViewContract | null> {
+  async getAgentSessionView(
+    agentId: AgentId,
+    options: { scrollback?: number } = {},
+  ): Promise<AgentSessionViewContract | null> {
     const agent = this.agents.get(agentId);
     if (!agent) {
       return null;
@@ -10959,7 +10964,7 @@ class AgentManager extends EventEmitter {
 
     if (engine && engine.getSessionState) {
       try {
-        sessionState = await engine.getSessionState(agentId);
+        sessionState = await engine.getSessionState(agentId, { scrollback: options.scrollback });
         if (isLiveEngineSessionState(sessionState) && this.reviveAgentRuntime(agent, sessionState)) {
           this.emitStateChange({ agentIds: [agentId] });
         }
@@ -11017,6 +11022,12 @@ class AgentManager extends EventEmitter {
       shellLastCommandFinishedAt,
       shellLastCommandDurationMs,
     });
+    const renderOutput = (sessionState && typeof sessionState.renderOutput === 'string')
+      ? sessionState.renderOutput
+      : fallbackOutput;
+    const output = options.scrollback === undefined
+      ? ((sessionState && typeof sessionState.output === 'string') ? sessionState.output : fallbackOutput)
+      : renderOutput;
 
     const now = Date.now();
     const isMain = this.isMainAgentRecord(agent.id, agent);
@@ -11090,8 +11101,14 @@ class AgentManager extends EventEmitter {
       startedAt: (sessionState && sessionState.startedAt) || agent.startedAt || null,
       exitedAt: (sessionState && sessionState.exitedAt) || agent.exitedAt || null,
       sessionTitle,
-      output: (sessionState && typeof sessionState.output === 'string') ? sessionState.output : fallbackOutput,
-      renderOutput: (sessionState && typeof sessionState.renderOutput === 'string') ? sessionState.renderOutput : fallbackOutput,
+      output,
+      renderOutput,
+      renderedScrollback: sessionState && Number.isFinite(sessionState.renderedScrollback)
+        ? sessionState.renderedScrollback
+        : 0,
+      scrollbackAvailable: sessionState && Number.isFinite(sessionState.scrollbackAvailable)
+        ? sessionState.scrollbackAvailable
+        : 0,
       previewText,
       codexTerminalProfile: activeProviderTerminalProfile(
         agent.providerSessionProvider,

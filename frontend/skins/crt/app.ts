@@ -95,9 +95,11 @@ type CrtSessionPayload = {
   sessionSource?: string;
   output?: string;
   renderOutput?: string;
+  renderedScrollback?: number;
   runtimeEpoch?: string;
   outputSeq?: number | null;
   stateRevision?: number | null;
+  scrollbackAvailable?: number;
   previewCols?: number | null;
   previewRows?: number | null;
   previewText?: string;
@@ -308,6 +310,7 @@ const CRT_AGENT_GRID_PADDING = 20;
 const CRT_SEARCH_DEBOUNCE_MS = 180;
 const CRT_SEARCH_RESULT_LIMIT = 100;
 const CRT_TERMINAL_CHECKPOINT_REQUEST_TIMEOUT_MS = 5_000;
+const CRT_TERMINAL_CHECKPOINT_SCROLLBACK_STEPS = [200, 500, 1_000, 2_000, 5_000] as const;
 const CRT_SETTINGS_REQUEST_TIMEOUT_MS = 15_000;
 const CRT_TERMINAL_RESIZE_SETTLE_MS = 250;
 const CRT_TERMINAL_MIN_COLS = 40;
@@ -2463,9 +2466,11 @@ function normalizeSessionViewPayload(
     sessionSource: session.sessionSource || (fallbackAgent && fallbackAgent.sessionSource) || 'buffer',
     output: typeof session.output === 'string' ? session.output : ((fallbackAgent && fallbackAgent.output) || ''),
     renderOutput: typeof session.renderOutput === 'string' ? session.renderOutput : '',
+    renderedScrollback: Number.isFinite(session.renderedScrollback) ? session.renderedScrollback : 0,
     runtimeEpoch: typeof session.runtimeEpoch === 'string' ? session.runtimeEpoch : '',
     outputSeq: Number.isFinite(session.outputSeq) ? session.outputSeq : null,
     stateRevision: Number.isFinite(session.stateRevision) ? session.stateRevision : null,
+    scrollbackAvailable: Number.isFinite(session.scrollbackAvailable) ? session.scrollbackAvailable : 0,
     previewCols: Number.isFinite(session.previewCols) ? session.previewCols : null,
     previewRows: Number.isFinite(session.previewRows) ? session.previewRows : null,
     previewText: typeof session.previewText === 'string' ? session.previewText : ((fallbackAgent && fallbackAgent.previewText) || ''),
@@ -2493,6 +2498,9 @@ function createCrtTerminalReplication(agentId: string, { initialFocusPending = f
     applyingLocalResize: false,
     attachment,
     checkpointInFlight: false,
+    checkpointScrollbackAvailable: 0,
+    checkpointScrollbackDesired: CRT_TERMINAL_CHECKPOINT_SCROLLBACK_STEPS[0],
+    checkpointScrollbackInstalled: 0,
     checkpointAbortController: null,
     checkpointRetryTimer: null,
     installInProgress: false,
@@ -2625,8 +2633,23 @@ function queueCrtTerminalInput(input: unknown) {
   return Boolean(getSessionClient()?.sendTerminalInput(replication.agentId, text));
 }
 
-function requestCrtTerminalReplay() {
+function requestCrtTerminalReplay(requestedScrollback = 0) {
   const replication = crtTerminalReplication;
+  const installedScrollback = Math.max(
+    replication?.checkpointScrollbackInstalled || 0,
+    Number(terminal?.buffer?.active?.baseY) || 0,
+  );
+  if (replication) {
+    replication.checkpointScrollbackDesired = Math.min(
+      TERMINAL_SCROLLBACK,
+      Math.max(
+        CRT_TERMINAL_CHECKPOINT_SCROLLBACK_STEPS[0],
+        replication.checkpointScrollbackDesired,
+        requestedScrollback,
+        installedScrollback,
+      ),
+    );
+  }
   if (
     !replication ||
     replication.disposed ||
@@ -2637,6 +2660,37 @@ function requestCrtTerminalReplay() {
   ) return;
   replication.attachment.beginRecovery();
   void refreshSessionView(true, replication.agentId, getCurrentSessionToken());
+}
+
+function expandCrtTerminalCheckpointHistory() {
+  const replication = crtTerminalReplication;
+  const buffer = terminal?.buffer?.active;
+  if (
+    !replication ||
+    replication.disposed ||
+    replication.checkpointInFlight ||
+    replication.installInProgress ||
+    replication.attachment.recovering ||
+    !terminal ||
+    !buffer
+  ) return false;
+  const installed = Math.max(
+    replication.checkpointScrollbackInstalled,
+    Number(buffer.baseY) || 0,
+  );
+  if (
+    installed >= TERMINAL_SCROLLBACK ||
+    replication.checkpointScrollbackAvailable <= installed ||
+    (Number(buffer.viewportY) || 0) > Math.max(2, Number(terminal.rows) || 0)
+  ) return false;
+  const nextStep = CRT_TERMINAL_CHECKPOINT_SCROLLBACK_STEPS.find(step => step > installed);
+  if (!nextStep) return false;
+  replication.checkpointScrollbackDesired = Math.min(
+    nextStep,
+    replication.checkpointScrollbackAvailable,
+  );
+  requestCrtTerminalReplay(replication.checkpointScrollbackDesired);
+  return true;
 }
 
 function queueCrtTerminalTransition(event: FarmingTerminalTransition) {
@@ -2700,6 +2754,13 @@ function finishCrtTerminalReplay(replication = crtTerminalReplication) {
     replication.attachment.isReplayTargetPending()
   ) {
     requestCrtTerminalReplay();
+    return;
+  }
+  if (
+    replication.checkpointScrollbackDesired > replication.checkpointScrollbackInstalled &&
+    replication.checkpointScrollbackAvailable > replication.checkpointScrollbackInstalled
+  ) {
+    requestCrtTerminalReplay(replication.checkpointScrollbackDesired);
     return;
   }
   requestAnimationFrame(() => {
@@ -2804,7 +2865,7 @@ function performCrtTerminalCheckpointInstall(
     replication.disposed
   ) return false;
 
-  const { operation, sessionView } = pending;
+  const { operation, sameCutHistoryExpansion, scrollbackLength, sessionView, viewportY } = pending;
   const checkpoint: FarmingTerminalCheckpoint = {
     runtimeEpoch: sessionView.runtimeEpoch,
     outputSeq: sessionView.outputSeq,
@@ -2831,6 +2892,7 @@ function performCrtTerminalCheckpointInstall(
   } finally {
     replication.applyingLocalResize = false;
   }
+  saveCrtTerminalReadingAnchor(replication.agentId, terminal);
   terminal.reset();
 
   const finishInstall = () => {
@@ -2845,6 +2907,20 @@ function performCrtTerminalCheckpointInstall(
       return;
     }
     refreshSessionTerminalUi({ preserveSearchIndex: true });
+    replication.checkpointScrollbackInstalled = Math.max(
+      Number(terminal?.buffer?.active?.baseY) || 0,
+      sessionView.renderedScrollback,
+    );
+    replication.checkpointScrollbackAvailable = Math.max(
+      replication.checkpointScrollbackInstalled,
+      sessionView.scrollbackAvailable,
+    );
+    if (sameCutHistoryExpansion) {
+      const expandedScrollback = Number(terminal?.buffer?.active?.baseY) || 0;
+      terminal?.scrollToLine?.(Math.max(0, viewportY + expandedScrollback - scrollbackLength));
+    } else {
+      restoreCrtTerminalReadingAnchor(replication.agentId, terminal);
+    }
     const runtime = getSessionRuntime();
     if (runtime) {
       runtime.markHydrated(sessionView.renderOutput.length);
@@ -2909,14 +2985,19 @@ function installCrtTerminalCheckpoint(
   const validatedSessionView: CrtTerminalSessionView = {
     agentId: sessionView.agentId || undefined,
     renderOutput: sessionView.renderOutput,
+    renderedScrollback: Number(sessionView.renderedScrollback || 0),
     previewCols: validatedCheckpoint.cols,
     previewRows: validatedCheckpoint.rows,
     runtimeEpoch: validatedCheckpoint.runtimeEpoch,
     outputSeq: validatedCheckpoint.outputSeq,
     stateRevision: validatedCheckpoint.stateRevision,
+    scrollbackAvailable: Number(sessionView.scrollbackAvailable || 0),
   };
+  const expandsScrollback = validatedSessionView.renderedScrollback
+    > replication.checkpointScrollbackInstalled;
   if (
     decision.action === 'current' &&
+    !expandsScrollback &&
     terminal.cols === validatedSessionView.previewCols &&
     terminal.rows === validatedSessionView.previewRows
   ) {
@@ -2925,13 +3006,28 @@ function installCrtTerminalCheckpoint(
       finishCrtTerminalReplay(replication);
       return false;
     }
+    replication.checkpointScrollbackInstalled = Math.max(
+      replication.checkpointScrollbackInstalled,
+      Number(terminal?.buffer?.active?.baseY) || 0,
+      validatedSessionView.renderedScrollback,
+    );
+    replication.checkpointScrollbackAvailable = Math.max(
+      replication.checkpointScrollbackInstalled,
+      validatedSessionView.scrollbackAvailable,
+    );
     sendSessionResize(replication.agentId);
     flushCrtTerminalTransitions();
     finishCrtTerminalReplay(replication);
     return true;
   }
 
-  replication.pendingCheckpoint = { operation, sessionView: validatedSessionView };
+  replication.pendingCheckpoint = {
+    operation,
+    sameCutHistoryExpansion: expandsScrollback && decision.action === 'current',
+    scrollbackLength: Number(terminal.buffer?.active?.baseY) || 0,
+    sessionView: validatedSessionView,
+    viewportY: Number(terminal.buffer?.active?.viewportY) || 0,
+  };
   replication.attachment.beginRecovery(validatedSessionView);
   drainCrtTerminalCheckpointInstall(replication);
   return true;
@@ -2952,7 +3048,9 @@ function handleCrtTerminalStream(stream: CrtTerminalStream) {
       stateRevision: Number(stream.stateRevision),
       previewCols: Number(stream.cols),
       previewRows: Number(stream.rows),
-      renderOutput: typeof stream.data === 'string' ? stream.data : ''
+      renderOutput: typeof stream.data === 'string' ? stream.data : '',
+      renderedScrollback: 0,
+      scrollbackAvailable: 0
     }, operation);
     if (Array.isArray(stream.chunks)) {
       stream.chunks.forEach((chunk) => queueCrtTerminalTransition({
@@ -7468,7 +7566,10 @@ async function openSession(agentId: string|null|undefined) {
     });
   }
   if (terminal && typeof terminal.onScroll === 'function') {
-    terminal.onScroll(() => saveCrtTerminalReadingAnchor(agentId, terminal));
+    terminal.onScroll(() => {
+      saveCrtTerminalReadingAnchor(agentId, terminal);
+      expandCrtTerminalCheckpointHistory();
+    });
   }
   if (runtime) {
     runtime.setLastOutputLength(mountedTerminal ? mountedTerminal.outputLength : (runtime.prepareInitialOutput(agent.output || '')).length);
@@ -7767,7 +7868,8 @@ async function refreshSessionView(_forceReplace = false, expectedAgentId = focus
     const sessionClient = getSessionClient();
     if (!sessionClient) throw new Error('Terminal session client is unavailable');
     const payload = await sessionClient.requestTerminalCheckpoint(expectedAgentId, {
-      signal: controller.signal
+      signal: controller.signal,
+      scrollbackLimit: replication.checkpointScrollbackDesired
     });
     if (
       !crtTerminalReplication ||

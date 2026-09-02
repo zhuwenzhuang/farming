@@ -5,6 +5,7 @@ const { createTestAgentManager } = require('./helpers/test-acp-runtime.ts');
 type ErrorWithCode = Error & { code?: string };
 
 async function run() {
+  let requestedScrollback: number | undefined;
   const manager = createTestAgentManager(AgentManager, {
     getWorkspace() {
       return process.cwd();
@@ -16,7 +17,8 @@ async function run() {
 
   try {
     manager.engineBridge.getEngine = () => ({
-      async getSessionState(agentId) {
+      async getSessionState(agentId, options) {
+        requestedScrollback = options?.scrollback;
         if (agentId === 'terminal-codex') {
           return {
             output: 'terminal codex output',
@@ -27,6 +29,9 @@ async function run() {
         if (agentId !== 'local-agent') return null;
         return {
           output: 'local output',
+          renderOutput: 'local rendered tail',
+          renderedScrollback: 200,
+          scrollbackAvailable: 5000,
           previewText: 'local preview',
           startedAt: 123,
         };
@@ -55,6 +60,13 @@ async function run() {
     assert.strictEqual(localView.output, 'local output');
     assert.strictEqual(localView.previewText, 'local preview');
     assert.strictEqual(localView.startedAt, 123);
+
+    const shallowLocalView = await manager.getAgentSessionView('local-agent', { scrollback: 200 });
+    assert.strictEqual(requestedScrollback, 200);
+    assert.strictEqual(shallowLocalView.output, 'local rendered tail');
+    assert.strictEqual(shallowLocalView.renderOutput, 'local rendered tail');
+    assert.strictEqual(shallowLocalView.renderedScrollback, 200);
+    assert.strictEqual(shallowLocalView.scrollbackAvailable, 5000);
 
     manager.agents.set('terminal-codex', {
       id: 'terminal-codex',

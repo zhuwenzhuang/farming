@@ -17,18 +17,20 @@ async function run() {
   setTerminalSessionTransportReady(false);
 
   const controller = new AbortController();
-  const checkpoint = requestTerminalSessionCheckpoint('agent-hidden', controller.signal);
+  const checkpoint = requestTerminalSessionCheckpoint('agent-hidden', controller.signal, 500);
   assert.strictEqual(sent.length, 0, 'checkpoint waits for the negotiated WebSocket');
 
   setTerminalSessionTransportReady(true);
   assert.strictEqual(sent.length, 1);
   assert.strictEqual(sent[0].type, 'terminal-checkpoint-request');
   assert.strictEqual(sent[0].agentId, 'agent-hidden');
+  assert.strictEqual(sent[0].scrollbackLimit, 500);
 
   setTerminalSessionTransportReady(false);
   setTerminalSessionTransportReady(true);
   assert.strictEqual(sent.length, 2, 'a read-only checkpoint is replayed after reconnect');
   assert.strictEqual(sent[1].requestId, sent[0].requestId, 'reconnect preserves request identity');
+  assert.strictEqual(sent[1].scrollbackLimit, 500, 'reconnect preserves the requested history window');
 
   assert.strictEqual(settleTerminalSessionCheckpoint({
     type: 'terminal-checkpoint-result',

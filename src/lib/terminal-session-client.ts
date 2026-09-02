@@ -9,6 +9,7 @@ type TerminalSessionTransport = (message: TerminalSessionClientMessage) => boole
 interface PendingTerminalCheckpointRequest {
   agentId: string
   requestId: string
+  scrollbackLimit?: number
   signal: AbortSignal
   sent: boolean
   resolve: (payload: SessionDataPayload) => void
@@ -53,6 +54,7 @@ function sendPendingCheckpointRequest(request: PendingTerminalCheckpointRequest)
     type: 'terminal-checkpoint-request',
     requestId: request.requestId,
     agentId: request.agentId,
+    ...(request.scrollbackLimit === undefined ? {} : { scrollbackLimit: request.scrollbackLimit }),
   })
   request.sent = sent
   if (!sent) transportReady = false
@@ -91,13 +93,18 @@ export function sendTerminalSessionMessage(message: TerminalSessionClientMessage
   return transport?.(message) === true
 }
 
-export function requestTerminalSessionCheckpoint(agentId: string, signal: AbortSignal) {
+export function requestTerminalSessionCheckpoint(
+  agentId: string,
+  signal: AbortSignal,
+  scrollbackLimit?: number,
+) {
   if (signal.aborted) return Promise.reject(abortError(signal))
   return new Promise<SessionDataPayload>((resolve, reject) => {
     const requestId = terminalCheckpointRequestId()
     const request: PendingTerminalCheckpointRequest = {
       agentId,
       requestId,
+      scrollbackLimit,
       signal,
       sent: false,
       resolve,

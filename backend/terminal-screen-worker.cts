@@ -27,7 +27,9 @@ export interface TerminalScreenWorkerPreview {
 export interface TerminalScreenWorkerState extends TerminalScreenWorkerPreview {
   outputSeq: number;
   renderOutput: string;
+  renderedScrollback?: number;
   runtimeEpoch: string;
+  scrollbackAvailable?: number;
   stateRevision: number;
 }
 
@@ -68,6 +70,7 @@ interface TerminalScreenRequestOptions {
 
 interface TerminalScreenStateOptions {
   includeRenderOutput?: boolean;
+  scrollback?: number;
   timeoutMs?: number;
 }
 
@@ -106,7 +109,7 @@ class TerminalScreenWorker extends EventEmitter {
   pendingAppendWaiters: PendingAppendWaiter[] = [];
   pendingAppendBytes = 0;
   appendFlushTimer: NodeJS.Timeout | null = null;
-  stateRequestInFlight: Promise<unknown> | null = null;
+  stateRequestsInFlight = new Map<number, Promise<unknown>>();
   failed = false;
   disposed = false;
   private nextRequestId = 1;
@@ -358,11 +361,12 @@ class TerminalScreenWorker extends EventEmitter {
   }
 
   getState(options: TerminalScreenStateOptions = {}): Promise<TerminalScreenWorkerState> {
-    if (!this.stateRequestInFlight) {
+    const requestedScrollback = finiteNumber(options.scrollback);
+    const scrollback = requestedScrollback === null ? -1 : Math.max(0, Math.floor(requestedScrollback));
+    if (!this.stateRequestsInFlight.has(scrollback)) {
       const request = this.request('get-state', {
-        // A full checkpoint can satisfy callers that only need metadata too,
-        // while the reverse would make coalescing unsafe.
         includeRenderOutput: true,
+        ...(scrollback >= 0 ? { scrollback } : {}),
       }, {
         // Caller deadlines are deliberately softer than this shared deadline.
         // A timed-out caller may stop waiting, but the single-flight itself
@@ -377,14 +381,14 @@ class TerminalScreenWorker extends EventEmitter {
         }
         throw error;
       }).finally(() => {
-        if (this.stateRequestInFlight === sharedRequest) {
-          this.stateRequestInFlight = null;
+        if (this.stateRequestsInFlight.get(scrollback) === sharedRequest) {
+          this.stateRequestsInFlight.delete(scrollback);
         }
       });
-      this.stateRequestInFlight = sharedRequest;
+      this.stateRequestsInFlight.set(scrollback, sharedRequest);
     }
 
-    const sharedRequest = this.stateRequestInFlight;
+    const sharedRequest = this.stateRequestsInFlight.get(scrollback)!;
     const timeoutMs = typeof options.timeoutMs === 'number' && Number.isFinite(options.timeoutMs)
       ? Math.max(1, Math.floor(options.timeoutMs))
       : null;

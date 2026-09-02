@@ -102,6 +102,26 @@ async function run() {
       replayScrollbackScreen.dispose();
     }
 
+    const defaultScrollbackScreen = new TerminalScreenState({ cols: 40, rows: 4 });
+    try {
+      const lines = Array.from(
+        { length: 5200 },
+        (_unused, index) => `recovery-line-${String(index).padStart(4, '0')}`,
+      );
+      await defaultScrollbackScreen.write(lines.join('\r\n'));
+      const shallowScrollbackState = defaultScrollbackScreen.getState({ scrollback: 200 });
+      assert.ok(!shallowScrollbackState.renderOutput.includes('recovery-line-4995'));
+      assert.ok(shallowScrollbackState.renderOutput.includes('recovery-line-4996'));
+      assert.strictEqual(shallowScrollbackState.renderedScrollback, 200);
+      assert.strictEqual(shallowScrollbackState.scrollbackAvailable, 5000);
+      const defaultScrollbackState = defaultScrollbackScreen.getState();
+      assert.ok(!defaultScrollbackState.renderOutput.includes('recovery-line-0195'));
+      assert.ok(defaultScrollbackState.renderOutput.includes('recovery-line-0196'));
+      assert.ok(defaultScrollbackState.renderOutput.includes('recovery-line-5199'));
+    } finally {
+      defaultScrollbackScreen.dispose();
+    }
+
     const mouseScreen = new TerminalScreenState({ cols: 40, rows: 8 });
     try {
       await mouseScreen.write('\x1b[?1049h\x1b[?1002h\x1b[?1006hQwen Code');

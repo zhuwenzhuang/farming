@@ -42,6 +42,10 @@ export interface TerminalSessionDiagnostics {
   checkpointHalted: boolean
   checkpointFailureCount: number
   checkpointRequestInFlight: boolean
+  checkpointScrollbackAvailable: number
+  checkpointScrollbackDesired: number
+  checkpointScrollbackInstalled: number
+  checkpointScrollbackRequested: number
   replayInProgress: boolean
   bootstrappingSnapshot: boolean
   pendingSnapshotReplay: boolean
@@ -144,6 +148,10 @@ export class TerminalSessionDiagnosticsProjection {
       checkpointHalted: attachment.halted,
       checkpointFailureCount: attachment.failureCount,
       checkpointRequestInFlight: current.replication.checkpointRequestInFlight,
+      checkpointScrollbackAvailable: current.replication.checkpointScrollbackAvailable,
+      checkpointScrollbackDesired: current.replication.checkpointScrollbackDesired,
+      checkpointScrollbackInstalled: current.replication.checkpointScrollbackInstalled,
+      checkpointScrollbackRequested: current.replication.checkpointScrollbackRequested,
       replayInProgress: current.replication.replayInProgress,
       bootstrappingSnapshot: current.replication.bootstrappingSnapshot,
       pendingSnapshotReplay: current.replication.pendingSnapshotReplay,

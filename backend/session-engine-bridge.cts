@@ -14,6 +14,7 @@ import type {
   TerminalKillResult,
   TerminalResizeResult,
   TerminalSessionState,
+  TerminalSessionStateReadOptions,
 } from './agent-manager-engine-types.js';
 
 class SessionEngineBridge extends EventEmitter {
@@ -124,10 +125,11 @@ class SessionEngineBridge extends EventEmitter {
   async getSessionState(
     engineName: unknown,
     sessionId: string,
+    options: TerminalSessionStateReadOptions = {},
   ): Promise<TerminalSessionState | null> {
     const engine = this.getEngine(engineName);
     if (!engine) return null;
-    return engine.getSessionState(sessionId);
+    return engine.getSessionState(sessionId, options);
   }
 
   async getSessionAttachCheckpoint(

@@ -26,6 +26,7 @@
                     type: 'terminal-checkpoint-request',
                     requestId,
                     agentId: request.agentId,
+                    ...(request.scrollbackLimit === undefined ? {} : { scrollbackLimit: request.scrollbackLimit }),
                 });
                 if (!request.sent) {
                     transportReady = false;
@@ -157,6 +158,7 @@
                         agentId,
                         sent: false,
                         signal: options.signal,
+                        scrollbackLimit: options.scrollbackLimit,
                         resolve,
                         reject,
                         onAbort: undefined,

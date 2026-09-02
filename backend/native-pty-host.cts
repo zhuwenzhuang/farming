@@ -665,7 +665,9 @@ class NativePtyHost {
           () => this.killSession(sessionId),
         );
       case 'getSessionState':
-        return this.getSessionState(sessionId);
+        return this.getSessionState(sessionId, {
+          scrollback: typeof params.scrollback === 'number' ? params.scrollback : undefined,
+        });
       case 'getSessionAttachCheckpoint':
         return this.getSessionAttachCheckpoint(sessionId, client);
       case 'getSessionPreview':
@@ -1585,7 +1587,10 @@ class NativePtyHost {
     return { killed: true };
   }
 
-  async getSessionState(sessionId: string): Promise<Record<string, unknown> | null> {
+  async getSessionState(
+    sessionId: string,
+    options: { scrollback?: number } = {},
+  ): Promise<Record<string, unknown> | null> {
     const session = this.sessions.get(sessionId);
     if (!session) return null;
     // Cut the raw output before the async worker request. The screen worker
@@ -1598,20 +1603,26 @@ class NativePtyHost {
     const fallbackPreviewRows = session.previewRows;
     const fallbackTitle = session.title;
     const stateProofAvailable = session.stateProofAvailable !== false;
-    const checkpoint = stateProofAvailable ? await captureTerminalAttachCheckpoint(session) : null;
+    const checkpoint = stateProofAvailable
+      ? await captureTerminalAttachCheckpoint(session, { scrollback: options.scrollback })
+      : null;
     if (this.sessions.get(sessionId) !== session) return null;
     const title = checkpoint ? checkpoint.title : fallbackTitle;
     const previewText = checkpoint ? checkpoint.previewText : (stateProofAvailable ? fallbackPreviewText : '');
+    const renderOutput = checkpoint ? checkpoint.renderOutput : (stateProofAvailable ? snapshotOutput : '');
+    const output = options.scrollback === undefined ? snapshotOutput : renderOutput;
 
     return {
       sessionId: session.id,
       status: session.status,
       runtimeEpoch: session.runtimeEpoch,
-      output: snapshotOutput,
+      output,
       outputSeq: checkpoint?.outputSeq ?? null,
       stateRevision: checkpoint?.stateRevision ?? null,
       stateProofAvailable,
-      renderOutput: checkpoint ? checkpoint.renderOutput : (stateProofAvailable ? snapshotOutput : ''),
+      renderOutput,
+      renderedScrollback: checkpoint?.renderedScrollback,
+      scrollbackAvailable: checkpoint?.scrollbackAvailable,
       previewText,
       previewSnapshot: checkpoint ? checkpoint.previewSnapshot : (stateProofAvailable ? fallbackPreviewSnapshot : null),
       previewCols: checkpoint ? checkpoint.cols : fallbackPreviewCols,

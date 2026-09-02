@@ -13,6 +13,7 @@ interface TerminalScreenWorkerMessage extends Record<string, unknown> {
   requestId?: number;
   rows?: number;
   runtimeEpoch?: string;
+  scrollback?: number;
   stateRevision?: number;
   type?: string;
 }
@@ -21,6 +22,7 @@ interface TerminalScreenReadOptions {
   emitPreview?: boolean;
   includeRenderOutput?: boolean;
   refreshPreview?: boolean;
+  scrollback?: number;
 }
 
 interface TerminalScreenStateWithRevision extends TerminalScreenSnapshot {
@@ -85,6 +87,7 @@ function currentState(options: TerminalScreenReadOptions = {}): TerminalScreenSt
   const state = screenState.getState({
     includeRenderOutput: options.includeRenderOutput,
     refreshPreview: options.refreshPreview,
+    scrollback: options.scrollback,
   });
   if (options.emitPreview) {
     postPreview(state);
@@ -205,6 +208,7 @@ async function handleRequest(message: TerminalScreenWorkerMessage): Promise<unkn
       return currentState({
         includeRenderOutput: message.includeRenderOutput !== false,
         emitPreview: false,
+        scrollback: message.scrollback,
       });
     case 'dispose':
       if (previewFlushTimer) {

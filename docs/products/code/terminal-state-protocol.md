@@ -166,6 +166,15 @@ Sustained output may be batched for rendering, but every transition remains
 ordered and gap-detectable. Resize redraws form a presentation boundary so a
 full-screen TUI settles before the browser paints the new cut.
 
+The authoritative terminal reducer retains the same bounded scrollback horizon
+as the Code and CRT renderers. Checkpoint transport starts with a small recent
+window and expands through bounded steps when the user scrolls near its oldest
+loaded row, up to that authoritative horizon. Each expansion replaces the
+serialized terminal state at a proved revision and restores the user's logical
+reading anchor; it does not prepend raw ANSI text or create a second output
+ordering path. One expansion may be in flight per surface, and repeated scroll
+intent only raises the desired window.
+
 Server-side output-rate accounting uses bounded one-second buckets per Agent.
 Each bucket accumulates output bytes and chunk count, and only the current
 five-minute estimation window is retained. Usage-rate and attention projections

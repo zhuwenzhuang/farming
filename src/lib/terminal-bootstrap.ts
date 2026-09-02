@@ -5,6 +5,8 @@ export interface SessionDataPayload {
     outputSeq?: number | null
     stateRevision?: number | null
     renderOutput?: string
+    renderedScrollback?: number
+    scrollbackAvailable?: number
     previewCols?: number | null
     previewRows?: number | null
     cols?: number | null
@@ -15,6 +17,8 @@ export interface SessionDataPayload {
   outputSeq?: number | null
   stateRevision?: number | null
   renderOutput?: string
+  renderedScrollback?: number
+  scrollbackAvailable?: number
   previewCols?: number | null
   previewRows?: number | null
   cols?: number | null
@@ -28,6 +32,8 @@ export interface SessionBootstrapState {
   stateRevision: number | null
   cols: number | null
   rows: number | null
+  renderedScrollback?: number
+  scrollbackAvailable?: number
 }
 
 function parseSessionOutput(data: SessionDataPayload) {
@@ -82,6 +88,7 @@ function parseSessionDimensions(data: SessionDataPayload) {
 export function sessionBootstrapStateFromPayload(data: SessionDataPayload): SessionBootstrapState {
   const rawOutput = parseSessionOutput(data)
   const dimensions = parseSessionDimensions(data)
+  const session = data.session && typeof data.session === 'object' ? data.session : null
   return {
     runtimeEpoch: parseSessionRuntimeEpoch(data),
     // A checkpoint is opaque serialized xterm state. Trimming rows, rebuilding
@@ -91,5 +98,7 @@ export function sessionBootstrapStateFromPayload(data: SessionDataPayload): Sess
     stateRevision: parseSessionStateRevision(data),
     cols: dimensions.cols,
     rows: dimensions.rows,
+    renderedScrollback: Math.max(0, Math.floor(Number(session?.renderedScrollback ?? data.renderedScrollback) || 0)),
+    scrollbackAvailable: Math.max(0, Math.floor(Number(session?.scrollbackAvailable ?? data.scrollbackAvailable) || 0)),
   }
 }

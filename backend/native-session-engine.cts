@@ -15,6 +15,7 @@ import type {
   TerminalKillResult,
   TerminalResizeResult,
   TerminalSessionState,
+  TerminalSessionStateReadOptions,
 } from './agent-manager-engine-types.js';
 
 interface NativePtyClient {
@@ -297,10 +298,13 @@ class NativeSessionEngine extends SessionEngine {
     return result;
   }
 
-  override async getSessionState(sessionId: string): Promise<TerminalSessionState | null> {
+  override async getSessionState(
+    sessionId: string,
+    options: TerminalSessionStateReadOptions = {},
+  ): Promise<TerminalSessionState | null> {
     return this.client.request<TerminalSessionState | null>(
       'getSessionState',
-      { sessionId },
+      { sessionId, ...(options.scrollback === undefined ? {} : { scrollback: options.scrollback }) },
       { timeoutMs: 4_500 },
     );
   }

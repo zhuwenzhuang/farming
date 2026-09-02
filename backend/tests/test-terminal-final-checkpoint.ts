@@ -13,6 +13,8 @@ type TerminalCheckpointFixture = {
   previewSnapshot: { rows: string[] };
   cols: number;
   rows: number;
+  renderedScrollback?: number;
+  scrollbackAvailable?: number;
   title: string;
 };
 
@@ -66,6 +68,8 @@ function createSession(id: string): TerminalSessionFixture {
     previewSnapshot: { rows: ['final preview'] },
     cols: 91,
     rows: 27,
+    renderedScrollback: 0,
+    scrollbackAvailable: 0,
     title: 'final title',
   };
   return {
@@ -128,6 +132,8 @@ async function runCase(label, EngineClass) {
     previewSnapshot: { rows: ['final preview'] },
     cols: 91,
     rows: 27,
+    renderedScrollback: 0,
+    scrollbackAvailable: 0,
     title: 'final title',
   });
   const state = client

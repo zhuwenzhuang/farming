@@ -165,14 +165,14 @@ async function run() {
     'checkpoint callers should stop waiting at their soft deadline'
   );
   assert.strictEqual(hanging.pendingRequests.size, 1, 'a soft caller timeout must not duplicate the shared worker request');
-  assert.strictEqual(hanging.stateRequestInFlight !== null, true, 'the shared request remains owned until its hard deadline');
+  assert.strictEqual(hanging.stateRequestsInFlight.size, 1, 'the shared request remains owned until its hard deadline');
   await assert.rejects(
-    () => withKeepAlive(hanging.stateRequestInFlight),
+    () => withKeepAlive(hanging.stateRequestsInFlight.get(-1)),
     error => error && error.code === 'ETIMEDOUT' && /get-state/.test(error.message),
     'the authoritative reducer request should fail at its bounded hard deadline'
   );
   assert.strictEqual(hanging.pendingRequests.size, 0, 'the hard deadline should remove the pending worker request');
-  assert.strictEqual(hanging.stateRequestInFlight, null, 'the hard deadline should clear the poisoned single-flight');
+  assert.strictEqual(hanging.stateRequestsInFlight.size, 0, 'the hard deadline should clear the poisoned single-flight');
   assert.strictEqual(hanging.failed, true, 'a reducer that misses its hard deadline must fail closed');
   assert.strictEqual(hangingErrors.length, 1, 'the hard deadline should report one reducer liveness failure');
   hanging.worker.emit('message', {

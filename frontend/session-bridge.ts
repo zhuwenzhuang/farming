@@ -36,6 +36,7 @@ interface FocusAgentOptions {
 
 interface TerminalCheckpointOptions {
   signal?: AbortSignal;
+  scrollbackLimit?: number;
 }
 
 interface SessionBridgeClientOptions {
@@ -80,6 +81,7 @@ interface Window {
       agentId: string;
       sent: boolean;
       signal?: AbortSignal;
+      scrollbackLimit?: number;
       resolve: (payload: { session: Record<string, unknown> }) => void;
       reject: (error: Error) => void;
       onAbort?: () => void;
@@ -105,6 +107,7 @@ interface Window {
           type: 'terminal-checkpoint-request',
           requestId,
           agentId: request.agentId,
+          ...(request.scrollbackLimit === undefined ? {} : { scrollbackLimit: request.scrollbackLimit }),
         });
         if (!request.sent) {
           transportReady = false;
@@ -242,6 +245,7 @@ interface Window {
             agentId,
             sent: false,
             signal: options.signal,
+            scrollbackLimit: options.scrollbackLimit,
             resolve,
             reject,
             onAbort: undefined as (() => void) | undefined,
