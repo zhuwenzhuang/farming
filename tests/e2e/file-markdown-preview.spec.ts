@@ -128,11 +128,74 @@ test('renders Markdown files by default and keeps preview, source, and split con
   await expect(preview.locator('script')).toHaveCount(0)
   expect(await page.evaluate(() => (window as typeof window & { markdownPreviewUnsafe?: boolean }).markdownPreviewUnsafe)).toBeUndefined()
 
+  const article = preview.locator('.code-markdown-preview')
+  const readLayout = () => preview.evaluate(element => {
+    const panel = element as HTMLElement
+    const article = panel.querySelector('.code-markdown-preview') as HTMLElement | null
+    if (!article) throw new Error('Markdown article is missing')
+    const panelRect = panel.getBoundingClientRect()
+    const articleRect = article.getBoundingClientRect()
+    const style = getComputedStyle(article)
+    return {
+      articleLeftGap: articleRect.left - panelRect.left,
+      articleRightGap: panelRect.right - articleRect.right,
+      articleWidth: articleRect.width,
+      panelClientWidth: panel.clientWidth,
+      paddingLeft: Number.parseFloat(style.paddingLeft),
+      paddingRight: Number.parseFloat(style.paddingRight),
+    }
+  })
+  const readableLayout = await readLayout()
+  expect(readableLayout.articleWidth).toBeLessThanOrEqual(860)
+  expect(Math.abs(readableLayout.articleLeftGap - readableLayout.articleRightGap)).toBeLessThanOrEqual(1)
+  expect(readableLayout.paddingLeft).toBe(36)
+  expect(readableLayout.paddingRight).toBe(36)
+
+  const actions = editor.locator('.code-file-editor-actions')
+  const wideLayout = editor.getByTestId('code-markdown-wide-layout')
+  const wordWrap = actions.locator('.word-wrap')
+  await expect(wideLayout).toBeVisible()
+  await expect(wideLayout).toHaveAttribute('aria-pressed', 'false')
+  await expect(wideLayout).toHaveAttribute('aria-label', 'Use wide Markdown layout')
+  await expect(wideLayout).toHaveAttribute('title', 'Use wide Markdown layout')
+  await expect(wideLayout.locator('svg')).toHaveAttribute('viewBox', '0 0 16 16')
+  const actionOrder = await actions.locator('.code-file-editor-action').evaluateAll(elements => (
+    elements.map(element => element.className)
+  ))
+  expect(actionOrder.findIndex(className => className.includes('markdown-split')))
+    .toBeLessThan(actionOrder.findIndex(className => className.includes('markdown-wide-layout')))
+  expect(actionOrder.findIndex(className => className.includes('markdown-wide-layout')))
+    .toBeLessThan(actionOrder.findIndex(className => className.includes('word-wrap')))
+
   for (const appearance of ['light', 'dark', 'paper'] as const) {
     await page.locator('body').evaluate((body, value) => { body.dataset.appearance = value }, appearance)
-    const screenshot = testInfo.outputPath(`file-markdown-pandoc-${appearance}.png`)
-    await preview.screenshot({ path: screenshot })
-    await testInfo.attach(`file-markdown-pandoc-${appearance}`, {
+    const screenshot = testInfo.outputPath(`file-markdown-readable-${appearance}.png`)
+    await editor.screenshot({ path: screenshot })
+    await testInfo.attach(`file-markdown-readable-${appearance}`, {
+      path: screenshot,
+      contentType: 'image/png',
+    })
+  }
+  await page.locator('body').evaluate(body => { body.dataset.appearance = 'light' })
+
+  await article.evaluate(element => { element.dataset.layoutMountSentinel = 'retained' })
+  await wideLayout.click()
+  await expect(article).toHaveAttribute('data-layout', 'wide')
+  await expect(article).toHaveAttribute('data-layout-mount-sentinel', 'retained')
+  await expect(wideLayout).toHaveClass(/active/)
+  await expect(wideLayout).toHaveAttribute('aria-pressed', 'true')
+  await expect(wideLayout).toHaveAttribute('aria-label', 'Use readable Markdown width')
+  await expect(wideLayout).toHaveAttribute('title', 'Use readable Markdown width')
+  const expandedLayout = await readLayout()
+  expect(Math.abs(expandedLayout.articleWidth - expandedLayout.panelClientWidth)).toBeLessThanOrEqual(2)
+  expect(expandedLayout.paddingLeft).toBe(36)
+  expect(expandedLayout.paddingRight).toBe(36)
+
+  for (const appearance of ['light', 'dark', 'paper'] as const) {
+    await page.locator('body').evaluate((body, value) => { body.dataset.appearance = value }, appearance)
+    const screenshot = testInfo.outputPath(`file-markdown-wide-${appearance}.png`)
+    await editor.screenshot({ path: screenshot })
+    await testInfo.attach(`file-markdown-wide-${appearance}`, {
       path: screenshot,
       contentType: 'image/png',
     })
@@ -146,6 +209,15 @@ test('renders Markdown files by default and keeps preview, source, and split con
   await expect(main).toHaveClass(/resource-agent-side-open/)
   await expect(page.getByTestId('code-agent-terminal-view')).toBeVisible()
   await expect(page.getByTestId('code-terminal-mode-toggle')).toHaveCount(0)
+  await expect(wideLayout).toBeVisible()
+  await wideLayout.click()
+  await expect(main).toHaveClass(/resource-agent-side-open/)
+  await expect(page.getByTestId('code-agent-terminal-view')).toBeVisible()
+  await expect(wideLayout).toHaveAttribute('aria-pressed', 'false')
+  await wideLayout.click()
+  await expect(main).toHaveClass(/resource-agent-side-open/)
+  await expect(page.getByTestId('code-agent-terminal-view')).toBeVisible()
+  await expect(wideLayout).toHaveAttribute('aria-pressed', 'true')
   const agentResizer = page.getByTestId('code-resource-agent-resizer')
   await expect(agentResizer).toBeVisible()
   const editorBox = await editor.boundingBox()
@@ -197,6 +269,10 @@ test('renders Markdown files by default and keeps preview, source, and split con
   await expect(main).not.toHaveClass(/resource-agent-side-open/)
   await expect(page.getByTestId('code-terminal-grid')).toBeHidden()
   await page.locator('body').evaluate(body => { body.dataset.appearance = 'light' })
+  await expect.poll(
+    () => preview.evaluate(element => (element as HTMLElement).style.overflowAnchor),
+    { timeout: 3_000 },
+  ).toBe('')
 
   const rememberedScrollTop = await preview.evaluate(element => {
     const panel = element as HTMLElement
@@ -209,10 +285,12 @@ test('renders Markdown files by default and keeps preview, source, and split con
   await editor.getByRole('button', { name: 'Show Markdown source' }).click()
   await expect(editor.getByTestId('code-file-markdown-preview')).toHaveCount(0)
   await expect(editor.getByTestId('code-file-monaco')).toBeVisible()
+  await expect(wideLayout).toHaveCount(0)
 
   await editor.getByRole('button', { name: 'Open Markdown preview to side' }).click()
   await expect(editor.getByTestId('code-file-markdown-preview')).toBeVisible()
   await expect(editor.getByTestId('code-file-monaco')).toBeVisible()
+  await expect(wideLayout).toHaveCount(0)
   await expect.poll(async () => Math.abs(
     await editor.getByTestId('code-file-markdown-preview').evaluate(element => (element as HTMLElement).scrollTop)
       - rememberedScrollTop,
@@ -220,16 +298,30 @@ test('renders Markdown files by default and keeps preview, source, and split con
 
   await openProjectFile(page, 'file-markdown-preview', 'docs/next document.md')
   await expect(editor.getByRole('tab', { selected: true })).toContainText('next document.md')
+  await expect(wideLayout).toBeVisible()
+  await expect(wideLayout).toHaveAttribute('aria-pressed', 'false')
   await openProjectFile(page, 'file-markdown-preview', 'docs/guide.md')
   await expect(editor.getByRole('tab', { selected: true })).toContainText('guide.md')
+  await expect(wideLayout).toHaveCount(0)
   await expect.poll(async () => Math.abs(
     await editor.getByTestId('code-file-markdown-preview').evaluate(element => (element as HTMLElement).scrollTop)
       - rememberedScrollTop,
   )).toBeLessThanOrEqual(10)
 
+  await editor.getByRole('button', { name: 'Close Markdown side preview' }).click()
+  await expect(wideLayout).toBeVisible()
+  await expect(wideLayout).toHaveAttribute('aria-pressed', 'true')
+  await expect(article).toHaveAttribute('data-layout', 'wide')
+  await page.setViewportSize({ width: 900, height: 800 })
+  await expect(wideLayout).toBeHidden()
+  await page.setViewportSize({ width: 1680, height: 900 })
+  await expect(wideLayout).toBeVisible()
+  await expect(wideLayout).toHaveAttribute('aria-pressed', 'true')
+
   await preview.getByRole('link', { name: 'Open next document' }).click()
   await expect(editor.getByRole('tab', { selected: true })).toContainText('next document.md')
   await expect(editor.getByTestId('code-file-markdown-preview').getByRole('heading', { name: 'Next document' })).toBeVisible()
+  await expect(wideLayout).toHaveAttribute('aria-pressed', 'false')
 
   await editor.getByRole('button', { name: 'Show Agent beside resource' }).click()
   await expect(main).toHaveClass(/resource-agent-side-open/)
@@ -237,6 +329,60 @@ test('renders Markdown files by default and keeps preview, source, and split con
   await expect(editor.getByTestId('code-resource-agent-toggle')).toBeHidden()
   await expect(editor).toBeVisible()
   await expect(page.getByTestId('code-terminal-grid')).toBeHidden()
+})
+
+test('does not reuse a previous file reading anchor when Markdown layouts differ', async ({ page, workspaceRoot }) => {
+  await page.setViewportSize({ width: 1440, height: 800 })
+  const workspace = path.join(workspaceRoot, 'markdown-cross-file-layout-anchor')
+  fs.rmSync(workspace, { recursive: true, force: true })
+  fs.mkdirSync(workspace, { recursive: true })
+  const documentSource = (label: string) => [
+    `# ${label} document`,
+    '',
+    ...Array.from({ length: 120 }, (_, index) => [
+      `## ${label} section ${index + 1}`,
+      '',
+      `${label} reading position ${index + 1} must remain scoped to this file.`,
+      '',
+    ].join('\n')),
+  ].join('\n')
+  fs.writeFileSync(path.join(workspace, 'alpha.md'), documentSource('Alpha'))
+  fs.writeFileSync(path.join(workspace, 'beta.md'), documentSource('Beta'))
+
+  await openFarming(page)
+  await openNewAgentDialog(page)
+  await startAgentFromOpenDialog(page, 'bash', workspace)
+  await openProjectFile(page, 'markdown-cross-file-layout-anchor', 'alpha.md')
+
+  const editor = page.getByTestId('code-file-editor')
+  const preview = editor.getByTestId('code-file-markdown-preview')
+  const article = preview.locator('.code-markdown-preview')
+  const wideLayout = editor.getByTestId('code-markdown-wide-layout')
+  await wideLayout.click()
+  await expect(article).toHaveAttribute('data-layout', 'wide')
+  await expect.poll(
+    () => preview.evaluate(element => (element as HTMLElement).style.overflowAnchor),
+    { timeout: 3_000 },
+  ).toBe('')
+  const alphaScrollTop = await preview.evaluate(async element => {
+    const panel = element as HTMLElement
+    panel.scrollTop = Math.round((panel.scrollHeight - panel.clientHeight) * 0.7)
+    panel.dispatchEvent(new Event('scroll'))
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+    return panel.scrollTop
+  })
+  expect(alphaScrollTop).toBeGreaterThan(1_000)
+
+  await openProjectFile(page, 'markdown-cross-file-layout-anchor', 'beta.md')
+  await expect(editor.getByRole('tab', { selected: true })).toContainText('beta.md')
+  await expect(article).toHaveAttribute('data-layout', 'readable')
+  await expect(wideLayout).toHaveAttribute('aria-pressed', 'false')
+  await expect.poll(
+    () => preview.evaluate(element => (element as HTMLElement).style.overflowAnchor),
+    { timeout: 3_000 },
+  ).toBe('')
+  expect(await preview.evaluate(element => (element as HTMLElement).scrollTop)).toBeLessThanOrEqual(1)
 })
 
 test('keeps oversized Markdown responsive with continuous virtual scrolling', async ({ page, workspaceRoot }, testInfo) => {
@@ -311,6 +457,9 @@ test('keeps oversized Markdown responsive with continuous virtual scrolling', as
   expect(openSettledAt - openStartedAt).toBeLessThan(3_000)
 
   const editor = page.getByTestId('code-file-editor')
+  const wideLayout = editor.getByTestId('code-markdown-wide-layout')
+  await expect(wideLayout).toBeVisible()
+  await expect(wideLayout).toHaveAttribute('aria-pressed', 'false')
   await editor.getByRole('button', { name: 'Show Markdown source' }).click()
   await expect(editor.getByTestId('code-file-monaco')).toBeVisible()
   await expect(preview).toHaveCount(0)
@@ -358,6 +507,66 @@ test('keeps oversized Markdown responsive with continuous virtual scrolling', as
   expect(layout.paddingRight).toBe(36)
   expect(layout.scrollable).toBe(true)
 
+  const sampleVirtualAnchor = () => preview.evaluate(element => {
+    const panel = element as HTMLElement
+    const article = panel.querySelector<HTMLElement>('.code-markdown-preview')
+    if (!article) throw new Error('Large Markdown article is missing')
+    const panelRect = panel.getBoundingClientRect()
+    const viewportY = Math.min(120, Math.max(24, panel.clientHeight * 0.18))
+    const probeY = panelRect.top + viewportY
+    const selector = 'h1, h2, h3, h4, h5, h6, p, pre, blockquote, table, ul, ol, figure'
+    const candidates = [...article.querySelectorAll<HTMLElement>(selector)]
+      .map(candidate => ({ candidate, rect: candidate.getBoundingClientRect() }))
+      .filter(({ rect }) => rect.height > 0 && rect.bottom > panelRect.top && rect.top < panelRect.bottom)
+    const containing = candidates
+      .filter(({ rect }) => rect.top <= probeY && rect.bottom >= probeY)
+      .sort((left, right) => left.rect.height - right.rect.height)[0]
+    const selected = containing ?? candidates
+      .sort((left, right) => Math.abs(left.rect.top - probeY) - Math.abs(right.rect.top - probeY))[0]
+    if (!selected) return null
+    const section = selected.candidate.closest<HTMLElement>('.code-markdown-large-section')
+    if (!section?.dataset.sectionIndex) throw new Error('Large Markdown anchor section is missing')
+    const blocks = [...section.querySelectorAll<HTMLElement>(selector)]
+    const blockIndex = blocks.indexOf(selected.candidate)
+    if (blockIndex < 0) throw new Error('Large Markdown anchor block is missing')
+    return {
+      blockIndex,
+      progress: Math.min(1, Math.max(
+        0,
+        (probeY - selected.rect.top) / Math.max(1, selected.rect.height),
+      )),
+      sectionIndex: section.dataset.sectionIndex,
+      viewportY,
+    }
+  })
+  const readVirtualAnchor = async () => {
+    let anchor: Awaited<ReturnType<typeof sampleVirtualAnchor>> = null
+    await expect.poll(async () => {
+      anchor = await sampleVirtualAnchor()
+      return anchor !== null
+    }, {
+      message: 'Large Markdown visible semantic anchor should become readable',
+      timeout: 3_000,
+    }).toBe(true)
+    if (!anchor) throw new Error('Large Markdown reading anchor is missing after waiting')
+    return anchor
+  }
+  const virtualAnchorDelta = (anchor: Awaited<ReturnType<typeof readVirtualAnchor>>) => (
+    preview.evaluate((element, value) => {
+      const panel = element as HTMLElement
+      const selector = 'h1, h2, h3, h4, h5, h6, p, pre, blockquote, table, ul, ol, figure'
+      const section = panel.querySelector<HTMLElement>(
+        `.code-markdown-large-section[data-section-index="${value.sectionIndex}"]`,
+      )
+      const block = section?.querySelectorAll<HTMLElement>(selector)[value.blockIndex]
+      if (!block) return 100_000
+      const panelRect = panel.getBoundingClientRect()
+      const blockRect = block.getBoundingClientRect()
+      const currentY = blockRect.top + (blockRect.height * value.progress)
+      return Math.abs(currentY - (panelRect.top + value.viewportY))
+    }, anchor)
+  )
+
   const scrollStartedAt = await preview.evaluate(element => {
     const panel = element as HTMLElement
     panel.scrollTop = panel.scrollHeight * 0.75
@@ -375,9 +584,83 @@ test('keeps oversized Markdown responsive with continuous virtual scrolling', as
   expect(await article.locator('.code-markdown-large-section').count()).toBeLessThan(30)
   expect(await preview.locator('*').count()).toBeLessThan(1_000)
 
-  const screenshotPath = testInfo.outputPath('large-markdown-continuous-scroll.png')
+  const anchorBeforeWideLayout = await readVirtualAnchor()
+  await article.evaluate(element => { element.dataset.layoutMountSentinel = 'retained' })
+  await wideLayout.click()
+  await expect(article).toHaveAttribute('data-layout', 'wide')
+  await expect(article).toHaveAttribute('data-layout-mount-sentinel', 'retained')
+  await expect(virtualRoot).toHaveAttribute('data-layout', 'wide')
+  await expect(wideLayout).toHaveAttribute('aria-pressed', 'true')
+  await expect.poll(
+    () => virtualAnchorDelta(anchorBeforeWideLayout),
+    { timeout: 3_000 },
+  ).toBeLessThanOrEqual(32)
+  await expect.poll(
+    () => preview.evaluate(element => (element as HTMLElement).style.overflowAnchor),
+    { timeout: 3_000 },
+  ).toBe('')
+  const wideLayoutMetrics = await preview.evaluate(element => {
+    const panel = element as HTMLElement
+    const article = panel.querySelector<HTMLElement>('.code-markdown-preview')
+    if (!article) throw new Error('Wide large Markdown article is missing')
+    const style = getComputedStyle(article)
+    return {
+      articleWidth: article.getBoundingClientRect().width,
+      panelClientWidth: panel.clientWidth,
+      paddingLeft: Number.parseFloat(style.paddingLeft),
+      paddingRight: Number.parseFloat(style.paddingRight),
+    }
+  })
+  expect(Math.abs(wideLayoutMetrics.articleWidth - wideLayoutMetrics.panelClientWidth)).toBeLessThanOrEqual(2)
+  expect(wideLayoutMetrics.paddingLeft).toBe(36)
+  expect(wideLayoutMetrics.paddingRight).toBe(36)
+  expect(await article.locator('.code-markdown-large-section').count()).toBeLessThan(30)
+  expect(await preview.locator('*').count()).toBeLessThan(1_000)
+
+  const maxSectionBeforeContinuousScroll = Math.max(...await article
+    .locator('.code-markdown-large-section')
+    .evaluateAll(elements => elements.map(element => Number((element as HTMLElement).dataset.sectionIndex))))
+  const continuousScroll = await preview.evaluate(element => {
+    const panel = element as HTMLElement
+    const before = panel.scrollTop
+    panel.scrollTop = panel.scrollHeight * 0.82
+    return { before, clientHeight: panel.clientHeight, after: panel.scrollTop }
+  })
+  expect(continuousScroll.after - continuousScroll.before).toBeGreaterThan(continuousScroll.clientHeight)
+  await expect.poll(async () => Math.max(...await article
+    .locator('.code-markdown-large-section')
+    .evaluateAll(elements => elements.map(element => Number((element as HTMLElement).dataset.sectionIndex)))))
+    .toBeGreaterThan(maxSectionBeforeContinuousScroll)
+  expect(await article.locator('.code-markdown-large-section').count()).toBeLessThan(30)
+  expect(await preview.locator('*').count()).toBeLessThan(1_000)
+
+  await preview.evaluate(element => {
+    const panel = element as HTMLElement
+    panel.scrollTop = panel.scrollHeight * 0.9
+  })
+  await expect.poll(async () => Math.max(...await article
+    .locator('.code-markdown-large-section')
+    .evaluateAll(elements => elements.map(element => Number((element as HTMLElement).dataset.sectionIndex)))))
+    .toBeGreaterThan(sectionCount * 0.82)
+  const anchorBeforeReadableLayout = await readVirtualAnchor()
+  await wideLayout.click()
+  await expect(article).toHaveAttribute('data-layout', 'readable')
+  await expect(virtualRoot).toHaveAttribute('data-layout', 'readable')
+  await expect(wideLayout).toHaveAttribute('aria-pressed', 'false')
+  await expect.poll(
+    () => virtualAnchorDelta(anchorBeforeReadableLayout),
+    { timeout: 3_000 },
+  ).toBeLessThanOrEqual(32)
+  await expect.poll(
+    () => preview.evaluate(element => (element as HTMLElement).style.overflowAnchor),
+    { timeout: 3_000 },
+  ).toBe('')
+  expect(await article.locator('.code-markdown-large-section').count()).toBeLessThan(30)
+  expect(await preview.locator('*').count()).toBeLessThan(1_000)
+
+  const screenshotPath = testInfo.outputPath('large-markdown-width-reflow.png')
   await preview.screenshot({ path: screenshotPath })
-  await testInfo.attach('large-markdown-continuous-scroll', {
+  await testInfo.attach('large-markdown-width-reflow', {
     path: screenshotPath,
     contentType: 'image/png',
   })

@@ -1,6 +1,12 @@
 import type { OpenWorkspaceFile } from '@/lib/workspace-open-files'
 import type { WorkspaceEditorActionState } from '@/lib/workspace-editor-model'
-import { ChatBubblesGlyph, ErrorGlyph, RefreshGlyph, ShareGlyph } from '@/components/IconGlyphs'
+import {
+  ChatBubblesGlyph,
+  ErrorGlyph,
+  RefreshGlyph,
+  ScreenFullGlyph,
+  ShareGlyph,
+} from '@/components/IconGlyphs'
 import type { CodeCopy } from '../code/copy'
 import { shareNoticeAnchor, type ShareNoticeAnchor } from '../code/share-notice'
 
@@ -98,6 +104,7 @@ interface FileEditorActionsProps {
   actions: WorkspaceEditorActionState
   copy: CodeCopy
   diffOpen: boolean
+  markdownWideLayout: boolean
   markdownSplitOpen: boolean
   openFile: OpenWorkspaceFile
   sourcePreviewOpen: boolean
@@ -108,6 +115,7 @@ interface FileEditorActionsProps {
   onSave: (overwrite?: boolean) => void
   onCopyReadOnlyShareLink: (anchor: ShareNoticeAnchor) => void
   onToggleMarkdownSplit: () => void
+  onToggleMarkdownWideLayout: () => void
   onToggleSourcePreview: () => void
   onToggleWordWrap: () => void
   onToggleDiff: () => void
@@ -118,6 +126,7 @@ export function FileEditorActions({
   actions,
   copy,
   diffOpen,
+  markdownWideLayout,
   markdownSplitOpen,
   openFile,
   sourcePreviewOpen,
@@ -128,6 +137,7 @@ export function FileEditorActions({
   onSave,
   onCopyReadOnlyShareLink,
   onToggleMarkdownSplit,
+  onToggleMarkdownWideLayout,
   onToggleSourcePreview,
   onToggleWordWrap,
   onToggleDiff,
@@ -136,6 +146,9 @@ export function FileEditorActions({
   const showSourcePreviewAction = actions.showMarkdownPreview || actions.showSourcePreview
   const previewLabel = sourcePreviewLabel(actions, copy, sourcePreviewOpen)
   const splitPreviewLabel = markdownSplitOpen ? copy.closeMarkdownSplitPreview : copy.openMarkdownSplitPreview
+  const wideLayoutLabel = markdownWideLayout
+    ? copy.useReadableMarkdownWidth
+    : copy.useWideMarkdownLayout
 
   return (
     <div className="code-file-editor-actions">
@@ -199,6 +212,20 @@ export function FileEditorActions({
           title={splitPreviewLabel}
         >
           <MarkdownSplitPreviewIcon />
+        </button>
+      )}
+      {actions.showMarkdownWideLayout && (
+        <button
+          type="button"
+          className={`code-file-editor-action markdown-wide-layout ${markdownWideLayout ? 'active' : ''}`.trim()}
+          data-testid="code-markdown-wide-layout"
+          onClick={onToggleMarkdownWideLayout}
+          disabled={openFile.saving}
+          aria-pressed={markdownWideLayout}
+          aria-label={wideLayoutLabel}
+          title={wideLayoutLabel}
+        >
+          <ScreenFullGlyph className="code-file-editor-action-svg" />
         </button>
       )}
       {actions.showWordWrap && (

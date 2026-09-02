@@ -108,6 +108,10 @@ LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR
 OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
 PERFORMANCE OF THIS SOFTWARE.
 
+Farming's `screen-full` glyph is copied from
+[Visual Studio Code Codicons](https://github.com/microsoft/vscode-codicons/tree/1c47ab36a4bb845c437866405c2fa67b8ca0fe36),
+licensed under CC BY 4.0, Copyright (c) Microsoft Corporation.
+
 If vendored assets are updated, keep this notice in sync with the package name,
 version, and license.
 

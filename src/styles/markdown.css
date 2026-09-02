@@ -271,6 +271,10 @@
   overflow-wrap: anywhere;
 }
 
+.code-markdown-preview.wide-layout {
+  width: 100%;
+}
+
 .code-markdown-preview > :first-child {
   margin-top: 0;
 }

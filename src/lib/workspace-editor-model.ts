@@ -88,6 +88,7 @@ export interface WorkspaceEditorActionState {
   showSave: boolean
   showDiff: boolean
   showMarkdownPreview: boolean
+  showMarkdownWideLayout: boolean
   showSourcePreview: boolean
   showWordWrap: boolean
   showReload: boolean
@@ -277,12 +278,20 @@ export function workspaceEditorSurfaceState(options: WorkspaceEditorSurfaceState
 export function workspaceEditorActionState(
   file: WorkspaceWorkingCopyReference,
   mode: WorkspaceEditorFileMode,
-  options: { canPreviewMarkdown?: boolean; canPreviewSource?: boolean; readOnly?: boolean; statusText: string | null; showBreadcrumbs: boolean }
+  options: {
+    canPreviewMarkdown?: boolean
+    canPreviewSource?: boolean
+    markdownPreviewVisible?: boolean
+    readOnly?: boolean
+    statusText: string | null
+    showBreadcrumbs: boolean
+  }
 ): WorkspaceEditorActionState {
   const showStatus = Boolean(options.statusText)
   const showSave = !options.readOnly && mode.canEditText && shouldShowWorkspaceWorkingCopySaveAction(file)
   const showDiff = mode.canShowDiff
   const showMarkdownPreview = Boolean(options.canPreviewMarkdown)
+  const showMarkdownWideLayout = showMarkdownPreview && Boolean(options.markdownPreviewVisible)
   const showSourcePreview = Boolean(options.canPreviewSource)
   const showWordWrap = !mode.visualPreview && !mode.diffOnly
   const showReload = !mode.diffOnly && (
@@ -297,6 +306,7 @@ export function workspaceEditorActionState(
     showSave,
     showDiff,
     showMarkdownPreview,
+    showMarkdownWideLayout,
     showSourcePreview,
     showWordWrap,
     showReload,

@@ -47,6 +47,7 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  container: code-file-editor-main / inline-size;
 }
 
 .code-file-editor-header {
@@ -426,6 +427,12 @@
   width: 16px;
   height: 16px;
   display: block;
+}
+
+@container code-file-editor-main (max-width: 860px) {
+  .code-file-editor-action.markdown-wide-layout {
+    display: none;
+  }
 }
 
 .code-file-editor-status {
@@ -955,6 +962,7 @@ body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file
 body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-action.save,
 body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-action.diff,
 body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-action.markdown-split,
+body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-action.markdown-wide-layout,
 body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-action.reload,
 body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-action.overwrite,
 body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-statusbar {

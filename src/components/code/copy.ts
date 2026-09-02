@@ -470,6 +470,8 @@ export interface CodeCopy {
   showMarkdownSource: string
   openMarkdownSplitPreview: string
   closeMarkdownSplitPreview: string
+  useWideMarkdownLayout: string
+  useReadableMarkdownWidth: string
   markdownPreviewFor: (path: string) => string
   markdownFrontMatter: string
   markdownHeadingAnchor: string
@@ -1103,6 +1105,8 @@ const EN_COPY: CodeCopy = {
   showMarkdownSource: 'Show Markdown source',
   openMarkdownSplitPreview: 'Open Markdown preview to side',
   closeMarkdownSplitPreview: 'Close Markdown side preview',
+  useWideMarkdownLayout: 'Use wide Markdown layout',
+  useReadableMarkdownWidth: 'Use readable Markdown width',
   markdownPreviewFor: path => `Markdown preview for ${path}`,
   markdownFrontMatter: 'Front matter',
   markdownHeadingAnchor: 'Link to heading',
@@ -1772,6 +1776,8 @@ const ZH_COPY: CodeCopy = {
   showMarkdownSource: '显示 Markdown 源码',
   openMarkdownSplitPreview: '打开 Markdown 侧边预览',
   closeMarkdownSplitPreview: '关闭 Markdown 侧边预览',
+  useWideMarkdownLayout: '使用 Markdown 宽屏布局',
+  useReadableMarkdownWidth: '使用 Markdown 易读宽度',
   markdownPreviewFor: path => `${path} 的 Markdown 预览`,
   markdownFrontMatter: 'Front matter',
   markdownHeadingAnchor: '跳转到这个标题',

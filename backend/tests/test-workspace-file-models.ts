@@ -754,6 +754,7 @@ function run() {
 	    showSave: true,
 	    showDiff: true,
 	    showMarkdownPreview: false,
+	    showMarkdownWideLayout: false,
 	    showSourcePreview: false,
 	    showWordWrap: true,
 	    showReload: false,
@@ -769,6 +770,7 @@ function run() {
 	    showSave: false,
 	    showDiff: true,
 	    showMarkdownPreview: false,
+	    showMarkdownWideLayout: false,
 	    showSourcePreview: false,
 	    showWordWrap: true,
 	    showReload: true,
@@ -784,6 +786,7 @@ function run() {
 	    showSave: false,
 	    showDiff: true,
 	    showMarkdownPreview: false,
+	    showMarkdownWideLayout: false,
 	    showSourcePreview: false,
 	    showWordWrap: false,
 	    showReload: false,
@@ -792,18 +795,24 @@ function run() {
 	  assert.deepStrictEqual(workspaceEditorActionState(
 	    workingCopy(),
 	    workspaceEditorFileMode(workingCopy()),
-	    { canPreviewMarkdown: true, statusText: null, showBreadcrumbs: false }
+	    { canPreviewMarkdown: true, markdownPreviewVisible: true, statusText: null, showBreadcrumbs: false }
 	  ), {
 	    showBar: true,
 	    showStatus: false,
 	    showSave: false,
 	    showDiff: true,
 	    showMarkdownPreview: true,
+	    showMarkdownWideLayout: true,
 	    showSourcePreview: false,
 	    showWordWrap: true,
 	    showReload: true,
 	    showOverwrite: false,
 	  });
+	  assert.strictEqual(workspaceEditorActionState(
+	    workingCopy(),
+	    workspaceEditorFileMode(workingCopy()),
+	    { canPreviewMarkdown: true, markdownPreviewVisible: false, statusText: null, showBreadcrumbs: false }
+	  ).showMarkdownWideLayout, false);
 	  assert.strictEqual(workspaceEditorActionState(
 	    workingCopy({ file: workspaceFile('link.txt', { symbolicLink: true }) }),
 	    workspaceEditorFileMode(workingCopy({ file: workspaceFile('link.txt', { symbolicLink: true }) })),
@@ -824,6 +833,7 @@ function run() {
 	    showSave: false,
 	    showDiff: true,
 	    showMarkdownPreview: false,
+	    showMarkdownWideLayout: false,
 	    showSourcePreview: true,
 	    showWordWrap: true,
 	    showReload: true,
@@ -1276,8 +1286,20 @@ function run() {
       mtimeMs: 42,
     },
   };
+  const otherWorkspaceEditorFile = {
+    agentId: 'agent 1',
+    workspaceRoot: '/other-repo',
+    file: {
+      path: 'src/App.tsx',
+      sha1: 'abc',
+      size: 10,
+      mtimeMs: 42,
+    },
+  };
   assert.strictEqual(workspaceEditorModelKey(editorFile), '/repo/src/App.tsx');
   assert.strictEqual(workspaceEditorModelKey(nestedEditorFile), '/repo/src/App.tsx');
+  assert.strictEqual(workspaceEditorModelKey(otherWorkspaceEditorFile), '/other-repo/src/App.tsx');
+  assert.notStrictEqual(workspaceEditorModelKey(editorFile), workspaceEditorModelKey(otherWorkspaceEditorFile));
   assert.strictEqual(workspaceEditorModelContentVersion(editorFile), '/repo/src/App.tsx:abc:10:42');
   assert.deepStrictEqual(workspaceEditorModelUriParts(editorFile), {
     scheme: 'farming-file',

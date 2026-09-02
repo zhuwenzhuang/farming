@@ -1,4 +1,4 @@
-import { useRef, type RefObject } from 'react'
+import type { RefObject } from 'react'
 import { LocalErrorBoundary, LocalRenderFault } from '@/components/LocalErrorBoundary'
 import { RefreshGlyph } from '@/components/IconGlyphs'
 import {
@@ -12,7 +12,10 @@ import { FileEditorBlameDetail } from './FileEditorBlameDetail'
 import { FileEditorDiffView } from './FileEditorDiffView'
 import { FileEditorInlineBlameLayer } from './FileEditorInlineBlameLayer'
 import { FileEditorLineChangesPanel } from './FileEditorLineChangesPanel'
-import { FileEditorMarkdownPreview } from './FileEditorMarkdownPreview'
+import {
+  FileEditorMarkdownPreview,
+  type FileEditorMarkdownPreviewHandle,
+} from './FileEditorMarkdownPreview'
 import { FileEditorPreviewPanel } from './FileEditorPreviewPanel'
 import type { FileEditorBlameOverlayState } from './useFileEditorBlameOverlayController'
 import type { FileEditorDiffState } from './useFileEditorDiffController'
@@ -43,7 +46,9 @@ interface FileEditorSurfaceProps {
   modelStatus: FileEditorModelStatus
   markdownSplitOpen: boolean
   markdownPreviewOpen: boolean
+  markdownPreviewRef: RefObject<FileEditorMarkdownPreviewHandle | null>
   markdownReadingScrollTop: number
+  markdownWideLayout: boolean
   sourcePreviewOpen: boolean
   previewRefreshRevision: number
   openFile: OpenWorkspaceFile
@@ -115,7 +120,9 @@ export function FileEditorSurface({
   modelStatus,
   markdownSplitOpen,
   markdownPreviewOpen,
+  markdownPreviewRef,
   markdownReadingScrollTop,
+  markdownWideLayout,
   sourcePreviewOpen,
   previewRefreshRevision,
   openFile,
@@ -134,7 +141,6 @@ export function FileEditorSurface({
     sourcePreviewOpen,
     visualPreview: editorMode.visualPreview,
   })
-  const markdownPreviewRef = useRef<HTMLElement | null>(null)
   const hasEditorDiagnostics = modelStatus.errors > 0 || modelStatus.warnings > 0
   const showEditorStatusbar = hasEditorDiagnostics
     && (surface.showEditorOverlays || surface.showMarkdownPreview)
@@ -183,6 +189,7 @@ export function FileEditorSurface({
                 onScrollTopChange={onMarkdownReadingPositionChange}
                 copy={copy}
                 previewRefreshRevision={previewRefreshRevision}
+                wideLayout={false}
               />
             </LocalRenderFault>
           </LocalErrorBoundary>
@@ -209,6 +216,7 @@ export function FileEditorSurface({
         >
           <LocalRenderFault surface="file-preview" identity={`${previewIdentity}:markdown`}>
             <FileEditorMarkdownPreview
+              ref={markdownPreviewRef}
               activeTabDomId={activeTabDomId}
               openFile={openFile}
               onOpenFilePath={onOpenFilePath}
@@ -216,6 +224,7 @@ export function FileEditorSurface({
               onScrollTopChange={onMarkdownReadingPositionChange}
               copy={copy}
               previewRefreshRevision={previewRefreshRevision}
+              wideLayout={markdownWideLayout}
             />
           </LocalRenderFault>
         </LocalErrorBoundary>

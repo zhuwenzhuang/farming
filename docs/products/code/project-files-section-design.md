@@ -300,6 +300,16 @@ Markdown previews remember their per-file scroll position when switching source
 or files. PDF previews retain a bounded set of browser viewer contexts so the
 viewer page, zoom, and scroll state survive ordinary file switching.
 
+Single-column Markdown preview defaults to a centered 860px reading surface,
+including 36px horizontal padding. Wide layout expands that surface to the
+preview panel's available width while retaining the same padding. The browser
+remembers this choice by `workspaceEditorModelKey` for the current
+`FileEditorPane` lifetime. Source and split views, plus widths where both
+layouts are equivalent, hide the control without clearing the choice. Width
+reflow preserves the current reading anchor; large virtual previews keep
+separate measurements for each layout so bounded DOM and continuous scrolling
+remain intact.
+
 Markdown preview accepts GFM and math plus bounded compatibility for Pandoc
 empty anchors, fixed-width simple tables with their source-defined alignment
 and headerless closing-rule form, compact display-math fences, and Pandoc math

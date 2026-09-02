@@ -44,7 +44,7 @@ import {
 import { rawWorkspaceFileUrl } from '@/lib/workspace-files'
 import { decodeMermaidCharacterReferences } from '@/lib/mermaid-source'
 import { markdownTextContent, mermaidCodeBlockSource } from '@/lib/react-markdown-content'
-import { workspaceEditorBasename } from '@/lib/workspace-editor-model'
+import { workspaceEditorBasename, workspaceEditorModelKey } from '@/lib/workspace-editor-model'
 import type { OpenWorkspaceFile, WorkspaceFileOpenTarget } from '@/lib/workspace-open-files'
 import type { CodeCopy } from '../code/copy'
 import { appearanceTheme, type ResolvedAppearance } from '../../../shared/appearance-themes'
@@ -57,6 +57,11 @@ interface FileEditorMarkdownPreviewProps {
   onScrollTopChange?: (scrollTop: number) => void
   copy: CodeCopy
   previewRefreshRevision?: number
+  wideLayout: boolean
+}
+
+export interface FileEditorMarkdownPreviewHandle {
+  prepareForLayoutChange: () => void
 }
 
 type MermaidBindFunctions = (element: Element) => void
@@ -92,6 +97,15 @@ const MarkdownPreviewContext = createContext<MarkdownPreviewContextValue | null>
 type LargeMarkdownRenderRange = {
   start: number
   end: number
+}
+type MarkdownPreviewLayout = 'readable' | 'wide'
+type MarkdownReadingAnchor = {
+  element: HTMLElement
+  fallbackSectionIndex: string | null
+  fallbackSectionProgress: number
+  readingIdentity: string
+  progress: number
+  viewportY: number
 }
 
 function useMarkdownPreviewContext() {
@@ -259,6 +273,86 @@ function sectionIndexAtOffset(offsets: number[], offset: number) {
     else high = middle
   }
   return low
+}
+
+function markdownReadingAnchor(panel: HTMLElement, readingIdentity: string): MarkdownReadingAnchor | null {
+  const article = panel.querySelector<HTMLElement>('.code-markdown-preview')
+  if (!article) return null
+  const panelRect = panel.getBoundingClientRect()
+  const viewportY = Math.min(120, Math.max(24, panel.clientHeight * 0.18))
+  const probeY = panelRect.top + viewportY
+  const candidates = [
+    ...article.querySelectorAll<HTMLElement>(
+      'h1, h2, h3, h4, h5, h6, p, pre, blockquote, table, ul, ol, figure',
+    ),
+  ]
+  let anchorElement: HTMLElement | null = null
+  let anchorRect: DOMRect | null = null
+  let nearestDistance = Number.POSITIVE_INFINITY
+
+  for (const candidate of candidates) {
+    const rect = candidate.getBoundingClientRect()
+    if (rect.height <= 0 || rect.bottom <= panelRect.top || rect.top >= panelRect.bottom) continue
+    if (rect.top <= probeY && rect.bottom >= probeY) {
+      if (!anchorRect || rect.height < anchorRect.height) {
+        anchorElement = candidate
+        anchorRect = rect
+      }
+      continue
+    }
+    if (anchorRect?.top !== undefined && anchorRect.top <= probeY && anchorRect.bottom >= probeY) continue
+    const distance = Math.abs(rect.top - probeY)
+    if (distance < nearestDistance) {
+      nearestDistance = distance
+      anchorElement = candidate
+      anchorRect = rect
+    }
+  }
+
+  anchorElement ??= article
+  anchorRect ??= article.getBoundingClientRect()
+  const section = anchorElement.closest<HTMLElement>('.code-markdown-large-section')
+  const sectionRect = section?.getBoundingClientRect()
+  const progress = Math.min(1, Math.max(0, (probeY - anchorRect.top) / Math.max(1, anchorRect.height)))
+  const fallbackSectionProgress = sectionRect
+    ? Math.min(1, Math.max(0, (probeY - sectionRect.top) / Math.max(1, sectionRect.height)))
+    : progress
+  return {
+    element: anchorElement,
+    fallbackSectionIndex: section?.dataset.sectionIndex ?? null,
+    fallbackSectionProgress,
+    readingIdentity,
+    progress,
+    viewportY,
+  }
+}
+
+function restoreMarkdownReadingAnchor(
+  panel: HTMLElement,
+  anchor: MarkdownReadingAnchor,
+  readingIdentity: string,
+) {
+  if (anchor.readingIdentity !== readingIdentity) return false
+  const article = panel.querySelector<HTMLElement>('.code-markdown-preview')
+  if (!article) return false
+  let element = anchor.element
+  let progress = anchor.progress
+  if (!element.isConnected || !article.contains(element)) {
+    if (anchor.fallbackSectionIndex === null) return false
+    const section = article.querySelector<HTMLElement>(
+      `.code-markdown-large-section[data-section-index="${anchor.fallbackSectionIndex}"]`,
+    )
+    if (!section) return false
+    element = section
+    progress = anchor.fallbackSectionProgress
+  }
+  const panelRect = panel.getBoundingClientRect()
+  const rect = element.getBoundingClientRect()
+  const currentAnchorY = rect.top + (rect.height * progress)
+  const desiredAnchorY = panelRect.top + anchor.viewportY
+  const maxScrollTop = Math.max(0, panel.scrollHeight - panel.clientHeight)
+  panel.scrollTop = Math.min(maxScrollTop, Math.max(0, panel.scrollTop + currentAnchorY - desiredAnchorY))
+  return true
 }
 
 function MarkdownHeading({
@@ -481,14 +575,19 @@ const LargeMarkdownVirtualSection = memo(function LargeMarkdownVirtualSection({
 })
 
 function LargeMarkdownVirtualPreview({
+  layout,
   panelRef,
   sections,
 }: {
+  layout: MarkdownPreviewLayout
   panelRef: RefObject<HTMLElement | null>
   sections: LargeMarkdownSection[]
 }) {
   const rootRef = useRef<HTMLDivElement | null>(null)
-  const measuredHeightsRef = useRef(new Map<number, number>())
+  const measuredHeightsByLayoutRef = useRef<Record<MarkdownPreviewLayout, Map<number, number>>>({
+    readable: new Map(),
+    wide: new Map(),
+  })
   const offsetsRef = useRef<number[]>([])
   const frameRef = useRef<number | null>(null)
   const [, setMeasurementRevision] = useState(0)
@@ -496,12 +595,13 @@ function LargeMarkdownVirtualPreview({
     start: 0,
     end: Math.min(sections.length, LARGE_MARKDOWN_INITIAL_SECTIONS),
   }))
+  const measuredHeights = measuredHeightsByLayoutRef.current[layout]
 
   const offsets = [0]
   for (let index = 0; index < sections.length; index += 1) {
     const section = sections[index]
     if (!section) break
-    const height = measuredHeightsRef.current.get(index) ?? section.estimatedHeight
+    const height = measuredHeights.get(index) ?? section.estimatedHeight
     offsets.push((offsets[index] ?? 0) + height)
   }
   offsetsRef.current = offsets
@@ -536,18 +636,24 @@ function LargeMarkdownVirtualPreview({
   }, [updateRenderRange])
 
   const publishSectionHeight = useCallback((index: number, height: number) => {
-    const currentHeight = measuredHeightsRef.current.get(index)
+    const layoutHeights = measuredHeightsByLayoutRef.current[layout]
+    const currentHeight = layoutHeights.get(index)
     if (currentHeight !== undefined && Math.abs(currentHeight - height) < 1) return
-    measuredHeightsRef.current.set(index, height)
+    layoutHeights.set(index, height)
     setMeasurementRevision(current => current + 1)
     scheduleRenderRangeUpdate()
-  }, [scheduleRenderRangeUpdate])
+  }, [layout, scheduleRenderRangeUpdate])
 
   useLayoutEffect(() => {
-    measuredHeightsRef.current.clear()
+    measuredHeightsByLayoutRef.current.readable.clear()
+    measuredHeightsByLayoutRef.current.wide.clear()
     setRenderRange({ start: 0, end: Math.min(sections.length, LARGE_MARKDOWN_INITIAL_SECTIONS) })
     scheduleRenderRangeUpdate()
   }, [scheduleRenderRangeUpdate, sections])
+
+  useLayoutEffect(() => {
+    scheduleRenderRangeUpdate()
+  }, [layout, scheduleRenderRangeUpdate])
 
   useEffect(() => {
     const panel = panelRef.current
@@ -582,6 +688,7 @@ function LargeMarkdownVirtualPreview({
     <div
       ref={rootRef}
       className="code-markdown-large-virtual"
+      data-layout={layout}
       data-section-count={sections.length}
     >
       <div
@@ -982,7 +1089,7 @@ export function MermaidBlock({ source, copy }: { source: string; copy: CodeCopy 
   )
 }
 
-export const FileEditorMarkdownPreview = forwardRef<HTMLElement, FileEditorMarkdownPreviewProps>(function FileEditorMarkdownPreview({
+export const FileEditorMarkdownPreview = forwardRef<FileEditorMarkdownPreviewHandle, FileEditorMarkdownPreviewProps>(function FileEditorMarkdownPreview({
   activeTabDomId,
   openFile,
   onOpenFilePath,
@@ -990,12 +1097,26 @@ export const FileEditorMarkdownPreview = forwardRef<HTMLElement, FileEditorMarkd
   onScrollTopChange,
   copy,
   previewRefreshRevision = 0,
+  wideLayout,
 }, ref) {
   const previewPanelRef = useRef<HTMLElement | null>(null)
   const restoringScrollRef = useRef(false)
   const appliedScrollTopRef = useRef(0)
   const finishScrollRestoreRef = useRef<(() => void) | null>(null)
-  useImperativeHandle(ref, () => previewPanelRef.current as HTMLElement, [])
+  const latestReadingAnchorRef = useRef<MarkdownReadingAnchor | null>(null)
+  const preparedLayoutAnchorRef = useRef<MarkdownReadingAnchor | null>(null)
+  const activeLayoutAnchorRef = useRef<MarkdownReadingAnchor | null>(null)
+  const layoutRestoreFrameRef = useRef<number | null>(null)
+  const layoutRestoreTimeoutRef = useRef<number | null>(null)
+  const captureAnchorFrameRef = useRef<number | null>(null)
+  const finishLayoutRestoreRef = useRef<(() => void) | null>(null)
+  const articleWidthRef = useRef<number | null>(null)
+  const layout: MarkdownPreviewLayout = wideLayout ? 'wide' : 'readable'
+  const previewIdentity = `${openFile.agentId}:${openFile.file.path}`
+  const readingIdentity = workspaceEditorModelKey(openFile)
+  const readingIdentityRef = useRef(readingIdentity)
+  readingIdentityRef.current = readingIdentity
+  const previousLayoutRef = useRef({ layout, readingIdentity })
   const source = openFile.draft ?? openFile.file.content ?? ''
   const markdownDocument = splitMarkdownFrontMatter(source)
   const previewSource = useMemo(
@@ -1011,7 +1132,139 @@ export const FileEditorMarkdownPreview = forwardRef<HTMLElement, FileEditorMarkd
   )
   const nextHeadingId = createHeadingIdFactory()
   const contextValue = { openFile, onOpenFilePath, copy, nextHeadingId, previewRefreshRevision }
-  const previewIdentity = `${openFile.agentId}:${openFile.file.path}`
+  const captureReadingAnchor = useCallback(() => {
+    if (readingIdentityRef.current !== readingIdentity) return null
+    const panel = previewPanelRef.current
+    if (!panel) return null
+    const anchor = markdownReadingAnchor(panel, readingIdentity)
+    if (anchor) latestReadingAnchorRef.current = anchor
+    return anchor
+  }, [readingIdentity])
+  const queueReadingAnchorCapture = useCallback(() => {
+    if (captureAnchorFrameRef.current !== null) return
+    captureAnchorFrameRef.current = window.requestAnimationFrame(() => {
+      captureAnchorFrameRef.current = null
+      captureReadingAnchor()
+    })
+  }, [captureReadingAnchor])
+  const cancelLayoutRestore = useCallback(() => {
+    activeLayoutAnchorRef.current = null
+    if (layoutRestoreFrameRef.current !== null) {
+      window.cancelAnimationFrame(layoutRestoreFrameRef.current)
+      layoutRestoreFrameRef.current = null
+    }
+    if (layoutRestoreTimeoutRef.current !== null) {
+      window.clearTimeout(layoutRestoreTimeoutRef.current)
+      layoutRestoreTimeoutRef.current = null
+    }
+    const panel = previewPanelRef.current
+    if (panel && !restoringScrollRef.current) panel.style.removeProperty('overflow-anchor')
+  }, [])
+  const finishLayoutRestore = useCallback(() => {
+    const panel = previewPanelRef.current
+    const anchor = activeLayoutAnchorRef.current
+    if (!anchor) return
+    if (anchor.readingIdentity !== readingIdentityRef.current) {
+      cancelLayoutRestore()
+      return
+    }
+    cancelLayoutRestore()
+    if (panel) {
+      if (!restoringScrollRef.current) panel.style.removeProperty('overflow-anchor')
+      onScrollTopChange?.(panel.scrollTop)
+      queueReadingAnchorCapture()
+    }
+  }, [cancelLayoutRestore, onScrollTopChange, queueReadingAnchorCapture])
+  finishLayoutRestoreRef.current = finishLayoutRestore
+  const applyLayoutRestore = useCallback(() => {
+    const panel = previewPanelRef.current
+    const anchor = activeLayoutAnchorRef.current
+    if (!panel || !anchor) return
+    if (anchor.readingIdentity !== readingIdentityRef.current) {
+      cancelLayoutRestore()
+      return
+    }
+    restoreMarkdownReadingAnchor(panel, anchor, readingIdentityRef.current)
+  }, [cancelLayoutRestore])
+  const queueLayoutRestore = useCallback(() => {
+    if (layoutRestoreFrameRef.current !== null || !activeLayoutAnchorRef.current) return
+    layoutRestoreFrameRef.current = window.requestAnimationFrame(() => {
+      layoutRestoreFrameRef.current = null
+      applyLayoutRestore()
+    })
+  }, [applyLayoutRestore])
+  const beginLayoutRestore = useCallback((anchor: MarkdownReadingAnchor | null) => {
+    const panel = previewPanelRef.current
+    if (anchor && anchor.readingIdentity !== readingIdentityRef.current) {
+      cancelLayoutRestore()
+      return
+    }
+    finishLayoutRestore()
+    finishScrollRestoreRef.current?.()
+    if (!panel || !anchor) return
+    activeLayoutAnchorRef.current = anchor
+    panel.style.setProperty('overflow-anchor', 'none')
+    applyLayoutRestore()
+    queueLayoutRestore()
+    layoutRestoreTimeoutRef.current = window.setTimeout(finishLayoutRestore, 750)
+  }, [applyLayoutRestore, cancelLayoutRestore, finishLayoutRestore, queueLayoutRestore])
+
+  useImperativeHandle(ref, () => ({
+    prepareForLayoutChange: () => {
+      finishScrollRestoreRef.current?.()
+      finishLayoutRestore()
+      const anchor = captureReadingAnchor()
+      preparedLayoutAnchorRef.current = anchor
+    },
+  }), [captureReadingAnchor, finishLayoutRestore])
+
+  useLayoutEffect(() => {
+    const previousLayout = previousLayoutRef.current
+    previousLayoutRef.current = { layout, readingIdentity }
+    if (previousLayout.readingIdentity !== readingIdentity) {
+      if (captureAnchorFrameRef.current !== null) {
+        window.cancelAnimationFrame(captureAnchorFrameRef.current)
+        captureAnchorFrameRef.current = null
+      }
+      cancelLayoutRestore()
+      latestReadingAnchorRef.current = null
+      preparedLayoutAnchorRef.current = null
+      articleWidthRef.current = null
+      return
+    }
+    if (previousLayout.layout === layout) return
+    const anchor = preparedLayoutAnchorRef.current ?? latestReadingAnchorRef.current
+    preparedLayoutAnchorRef.current = null
+    beginLayoutRestore(anchor)
+  }, [beginLayoutRestore, cancelLayoutRestore, layout, readingIdentity])
+
+  useLayoutEffect(() => {
+    const panel = previewPanelRef.current
+    const article = panel?.querySelector<HTMLElement>('.code-markdown-preview')
+    if (!panel || !article) return undefined
+    articleWidthRef.current = article.getBoundingClientRect().width
+    queueReadingAnchorCapture()
+    if (typeof ResizeObserver === 'undefined') return undefined
+    const observer = new ResizeObserver(() => {
+      const nextWidth = article.getBoundingClientRect().width
+      const previousWidth = articleWidthRef.current
+      articleWidthRef.current = nextWidth
+      if (previousWidth !== null && Math.abs(previousWidth - nextWidth) >= 1) {
+        if (activeLayoutAnchorRef.current) queueLayoutRestore()
+        else beginLayoutRestore(latestReadingAnchorRef.current ?? captureReadingAnchor())
+        return
+      }
+      if (activeLayoutAnchorRef.current) queueLayoutRestore()
+    })
+    observer.observe(article)
+    return () => observer.disconnect()
+  }, [
+    beginLayoutRestore,
+    captureReadingAnchor,
+    readingIdentity,
+    queueLayoutRestore,
+    queueReadingAnchorCapture,
+  ])
 
   useLayoutEffect(() => {
     const panel = previewPanelRef.current
@@ -1026,8 +1279,9 @@ export const FileEditorMarkdownPreview = forwardRef<HTMLElement, FileEditorMarkd
     const finishRestore = () => {
       if (!restoringScrollRef.current) return
       restoringScrollRef.current = false
-      panel.style.removeProperty('overflow-anchor')
+      if (!activeLayoutAnchorRef.current) panel.style.removeProperty('overflow-anchor')
       onScrollTopChange?.(panel.scrollTop)
+      queueReadingAnchorCapture()
       if (frameId !== null) window.cancelAnimationFrame(frameId)
       if (timeoutId !== null) window.clearTimeout(timeoutId)
       observer?.disconnect()
@@ -1036,7 +1290,10 @@ export const FileEditorMarkdownPreview = forwardRef<HTMLElement, FileEditorMarkd
       panel.scrollTop = target
       appliedScrollTopRef.current = panel.scrollTop
     }
-    const acceptUserPosition = () => finishRestore()
+    const acceptUserPosition = () => {
+      finishRestore()
+      finishLayoutRestoreRef.current?.()
+    }
     finishScrollRestoreRef.current = finishRestore
 
     applyRestore()
@@ -1064,7 +1321,25 @@ export const FileEditorMarkdownPreview = forwardRef<HTMLElement, FileEditorMarkd
       restoringScrollRef.current = false
       panel.style.removeProperty('overflow-anchor')
     }
-  }, [initialScrollTop, onScrollTopChange, previewIdentity])
+  }, [initialScrollTop, onScrollTopChange, queueReadingAnchorCapture, readingIdentity])
+
+  useEffect(() => () => {
+    if (captureAnchorFrameRef.current !== null) {
+      window.cancelAnimationFrame(captureAnchorFrameRef.current)
+      captureAnchorFrameRef.current = null
+    }
+    if (layoutRestoreFrameRef.current !== null) {
+      window.cancelAnimationFrame(layoutRestoreFrameRef.current)
+      layoutRestoreFrameRef.current = null
+    }
+    if (layoutRestoreTimeoutRef.current !== null) {
+      window.clearTimeout(layoutRestoreTimeoutRef.current)
+      layoutRestoreTimeoutRef.current = null
+    }
+    activeLayoutAnchorRef.current = null
+    preparedLayoutAnchorRef.current = null
+    finishLayoutRestoreRef.current = null
+  }, [])
 
   return (
     <section
@@ -1083,12 +1358,15 @@ export const FileEditorMarkdownPreview = forwardRef<HTMLElement, FileEditorMarkd
           }
           return
         }
+        if (activeLayoutAnchorRef.current) return
         onScrollTopChange?.(scrollTop)
+        queueReadingAnchorCapture()
       }}
     >
       <MarkdownPreviewContext.Provider value={contextValue}>
         <article
-          className={`code-markdown-preview${isLargeDocument ? ' large-document' : ''}`}
+          className={`code-markdown-preview${isLargeDocument ? ' large-document' : ''}${wideLayout ? ' wide-layout' : ''}`}
+          data-layout={layout}
           data-syntax-highlight={isLargeDocument ? 'disabled' : 'enabled'}
         >
           {markdownDocument.frontMatter && (
@@ -1118,6 +1396,7 @@ export const FileEditorMarkdownPreview = forwardRef<HTMLElement, FileEditorMarkd
             <LocalRenderFault surface="file-markdown" identity={previewIdentity}>
               {isLargeDocument ? (
                 <LargeMarkdownVirtualPreview
+                  layout={layout}
                   panelRef={previewPanelRef}
                   sections={largeDocumentSections}
                 />

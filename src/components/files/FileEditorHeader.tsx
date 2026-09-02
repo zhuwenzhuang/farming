@@ -14,6 +14,7 @@ interface FileEditorHeaderProps extends Omit<FileEditorTabsProps, 'actions'> {
   onReload: () => void
   onToggleSourcePreview: () => void
   onToggleMarkdownSplit: () => void
+  onToggleMarkdownWideLayout: () => void
   onToggleWordWrap: () => void
   onToggleDiff: () => void
   agentSidePanelOpen: boolean
@@ -22,6 +23,8 @@ interface FileEditorHeaderProps extends Omit<FileEditorTabsProps, 'actions'> {
   canPreviewSource: boolean
   diffOpen: boolean
   previewVisible: boolean
+  markdownPreviewVisible: boolean
+  markdownWideLayout: boolean
   markdownSplitOpen: boolean
   sourcePreviewOpen: boolean
   wordWrapEnabled: boolean
@@ -51,6 +54,7 @@ export function FileEditorHeader({
   onReload,
   onToggleSourcePreview,
   onToggleMarkdownSplit,
+  onToggleMarkdownWideLayout,
   onToggleWordWrap,
   onToggleDiff,
   agentSidePanelOpen,
@@ -59,6 +63,8 @@ export function FileEditorHeader({
   canPreviewSource,
   diffOpen,
   previewVisible,
+  markdownPreviewVisible,
+  markdownWideLayout,
   markdownSplitOpen,
   sourcePreviewOpen,
   wordWrapEnabled,
@@ -67,6 +73,7 @@ export function FileEditorHeader({
   const actions = workspaceEditorActionState(openFile, editorMode, {
     canPreviewMarkdown,
     canPreviewSource,
+    markdownPreviewVisible,
     readOnly,
     statusText,
     showBreadcrumbs,
@@ -94,6 +101,7 @@ export function FileEditorHeader({
             actions={actions}
             copy={copy}
             diffOpen={diffOpen}
+            markdownWideLayout={markdownWideLayout}
             openFile={openFile}
             markdownSplitOpen={markdownSplitOpen}
             sourcePreviewOpen={sourcePreviewOpen}
@@ -104,6 +112,7 @@ export function FileEditorHeader({
             onSave={onSave}
             onCopyReadOnlyShareLink={onCopyReadOnlyShareLink}
             onToggleMarkdownSplit={onToggleMarkdownSplit}
+            onToggleMarkdownWideLayout={onToggleMarkdownWideLayout}
             onToggleSourcePreview={onToggleSourcePreview}
             onToggleWordWrap={onToggleWordWrap}
             onToggleDiff={onToggleDiff}

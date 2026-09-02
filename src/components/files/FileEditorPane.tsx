@@ -37,6 +37,7 @@ import {
 import type { CodeCopy } from '../code/copy'
 import type { ShareNoticeAnchor } from '../code/share-notice'
 import { FileEditorHeader } from './FileEditorHeader'
+import type { FileEditorMarkdownPreviewHandle } from './FileEditorMarkdownPreview'
 import { FileEditorOverlays } from './FileEditorOverlays'
 import { LanguageServerPanel } from './LanguageServerPanel'
 import { FileEditorSurface } from './FileEditorSurface'
@@ -185,10 +186,12 @@ export function FileEditorPane({
   const languageServerDockResizeFrameRef = useRef<number | null>(null)
   const pendingLanguageServerDockClientXRef = useRef<number | null>(null)
   const markdownReadingPositionsRef = useRef(new Map<string, number>())
+  const markdownPreviewRef = useRef<FileEditorMarkdownPreviewHandle>(null)
   const activeTabDomId = fileEditorTabDomId(openFile)
   const editorMode = workspaceEditorFileMode(openFile)
   const [sourcePreviewByFileKey, setSourcePreviewByFileKey] = useState<Record<string, boolean>>({})
   const [markdownSplitByFileKey, setMarkdownSplitByFileKey] = useState<Record<string, boolean>>({})
+  const [markdownWideByFileKey, setMarkdownWideByFileKey] = useState<Record<string, boolean>>({})
   const [wordWrapEnabled, setWordWrapEnabled] = useState(readWordWrapPreference)
   const [previewRefreshRevision, setPreviewRefreshRevision] = useState(0)
   const [languageServerDockWidth, setLanguageServerDockWidth] = useState<number | null>(
@@ -219,6 +222,7 @@ export function FileEditorPane({
   const markdownReadingOpen = canPreviewMarkdown && sourcePreviewOpen
   const markdownSplitOpen = markdownReadingOpen && markdownSplitByFileKey[activeFileKey] === true
   const markdownPreviewOpen = markdownReadingOpen && !markdownSplitOpen
+  const markdownWideLayout = markdownWideByFileKey[activeFileKey] === true
   const sourceVisualPreviewOpen = canPreviewSource && sourcePreviewOpen
   const readOnly = globalReadOnly || !editorMode.canEditText || isGlobalWorkspaceFilesAgentId(openFile.agentId) || openFile.file.readOnly === true
   const largeTextPreview = openFile.file.preview?.kind === 'large-text'
@@ -556,6 +560,15 @@ export function FileEditorPane({
     }))
   }
 
+  const toggleMarkdownWideLayout = () => {
+    if (!markdownPreviewVisible) return
+    markdownPreviewRef.current?.prepareForLayoutChange()
+    setMarkdownWideByFileKey(previous => ({
+      ...previous,
+      [activeFileKey]: !markdownWideLayout,
+    }))
+  }
+
   const toggleWordWrap = () => {
     setWordWrapEnabled(current => {
       const next = !current
@@ -619,6 +632,7 @@ export function FileEditorPane({
               onReload={() => { void reloadFileAndPreview() }}
               onToggleSourcePreview={toggleSourcePreview}
               onToggleMarkdownSplit={toggleMarkdownSplit}
+              onToggleMarkdownWideLayout={toggleMarkdownWideLayout}
               onToggleWordWrap={toggleWordWrap}
               onToggleDiff={toggleDiff}
               agentSidePanelOpen={agentSidePanelOpen}
@@ -627,6 +641,8 @@ export function FileEditorPane({
               canPreviewSource={canPreviewSource}
               diffOpen={diffState.open}
               previewVisible={markdownPreviewVisible || visualPreviewVisible}
+              markdownPreviewVisible={markdownPreviewVisible}
+              markdownWideLayout={markdownWideLayout}
               markdownSplitOpen={markdownSplitOpen}
               sourcePreviewOpen={sourcePreviewOpen}
               wordWrapEnabled={wordWrapEnabled}
@@ -658,6 +674,8 @@ export function FileEditorPane({
               modelStatus={modelStatus}
               markdownSplitOpen={markdownSplitOpen}
               markdownPreviewOpen={markdownPreviewOpen}
+              markdownPreviewRef={markdownPreviewRef}
+              markdownWideLayout={markdownWideLayout}
               sourcePreviewOpen={sourceVisualPreviewOpen}
               previewRefreshRevision={previewRefreshRevision}
               markdownReadingScrollTop={markdownReadingScrollTop}
