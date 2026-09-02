@@ -41,6 +41,11 @@ Farming Code 是默认界面；Farming CRT 是连接同一组后端 Session 的�
 
 修复行为时保留现有视觉风格和产品文案，除非需求本身有明确的视觉或文案理由。
 
+Code UI 工作遵守 [UI 设计协议](docs/development/ui-design-protocol.zh_cn.md)。先确定语义
+家族，复用其字排、图标、几何、状态和响应式公共规格。公共规则应在共享所有者处修改，并
+验证受影响的同类使用者；页面局部样式差异必须有明确记录的产品理由，不能只保证颜色
+Token 相同。
+
 交互状态样式是产品级契约，不是局部组件细节。Selected、Active、Focused、Hovered、
 Pressed、Loading、Disabled、Success、Warning 与 Error 等状态，必须在相关的行、列表、
 Tab、菜单、Editor 与不同外观主题之间使用一致的视觉语言。接受局部样式改动前，应检查
@@ -120,6 +125,8 @@ Farming Backend
 
 ## 工程规则
 
+- 单 Agent 开发默认留在仓库的主集成 Checkout 中。除非用户明确要求，否则不得为该任务
+  创建、切换到或继续使用额外的 Git Worktree。
 - 改动范围应与需求一致，并保留工作区中无关的已有修改。
 - 优先复用现有模式与本地 Helper。只有当前改动已经证明存在稳定、重复的边界时
   才增加抽象。

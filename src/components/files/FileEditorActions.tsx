@@ -1,14 +1,19 @@
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { OpenWorkspaceFile } from '@/lib/workspace-open-files'
 import type { WorkspaceEditorActionState } from '@/lib/workspace-editor-model'
 import {
   ChatBubblesGlyph,
   ErrorGlyph,
+  MoreHorizontalGlyph,
   RefreshGlyph,
+  RevealInExplorerGlyph,
   ScreenFullGlyph,
   ShareGlyph,
 } from '@/components/IconGlyphs'
 import type { CodeCopy } from '../code/copy'
 import { shareNoticeAnchor, type ShareNoticeAnchor } from '../code/share-notice'
+import { useWorkspaceMenuKeyboard } from './useWorkspaceMenuKeyboard'
 
 function MarkdownPreviewIcon({ previewOpen }: { previewOpen: boolean }) {
   if (previewOpen) {
@@ -120,6 +125,7 @@ interface FileEditorActionsProps {
   onToggleWordWrap: () => void
   onToggleDiff: () => void
   onToggleAgentSidePanel?: () => void
+  onRevealInExplorer: (agentId: string, filePath: string, kind: 'directory' | 'file') => void
 }
 
 export function FileEditorActions({
@@ -142,13 +148,58 @@ export function FileEditorActions({
   onToggleWordWrap,
   onToggleDiff,
   onToggleAgentSidePanel,
+  onRevealInExplorer,
 }: FileEditorActionsProps) {
+  const [moreOpen, setMoreOpen] = useState(false)
+  const [morePosition, setMorePosition] = useState({ left: 8, top: 40 })
+  const moreTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const moreMenuRef = useRef<HTMLDivElement | null>(null)
   const showSourcePreviewAction = actions.showMarkdownPreview || actions.showSourcePreview
   const previewLabel = sourcePreviewLabel(actions, copy, sourcePreviewOpen)
   const splitPreviewLabel = markdownSplitOpen ? copy.closeMarkdownSplitPreview : copy.openMarkdownSplitPreview
   const wideLayoutLabel = markdownWideLayout
     ? copy.useReadableMarkdownWidth
     : copy.useWideMarkdownLayout
+  const closeMoreMenu = () => setMoreOpen(false)
+  const closeMoreMenuWithFocus = () => {
+    setMoreOpen(false)
+    moreTriggerRef.current?.focus({ preventScroll: true })
+  }
+  const handleMoreMenuKeyDown = useWorkspaceMenuKeyboard({
+    menuOpen: moreOpen,
+    positionKey: morePosition,
+    menuRef: moreMenuRef,
+    triggerRef: moreTriggerRef,
+    onClose: closeMoreMenu,
+    onCloseWithFocusRestore: closeMoreMenuWithFocus,
+    focusFirstItem: true,
+  })
+
+  useLayoutEffect(() => {
+    const trigger = moreTriggerRef.current
+    if (!moreOpen || !trigger) return
+    const bounds = trigger.getBoundingClientRect()
+    setMorePosition({
+      left: Math.max(8, bounds.right - 224),
+      top: bounds.bottom + 4,
+    })
+  }, [moreOpen])
+
+  useEffect(() => {
+    if (!moreOpen) return
+    const media = window.matchMedia('(max-width: 393px)')
+    const closeWhenWide = () => {
+      if (!media.matches) setMoreOpen(false)
+    }
+    closeWhenWide()
+    media.addEventListener('change', closeWhenWide)
+    return () => media.removeEventListener('change', closeWhenWide)
+  }, [moreOpen])
+
+  const runMoreAction = (action: () => void) => {
+    setMoreOpen(false)
+    action()
+  }
 
   return (
     <div className="code-file-editor-actions">
@@ -157,9 +208,21 @@ export function FileEditorActions({
           {statusText}
         </span>
       )}
+      {!openFile.exactExternal && openFile.file.path && (
+        <button
+          type="button"
+          className="code-file-editor-action narrow-overflow reveal"
+          data-testid="code-file-editor-reveal"
+          onClick={() => onRevealInExplorer(openFile.agentId, openFile.file.path, 'file')}
+          aria-label={copy.revealInExplorer(openFile.file.path)}
+          title={copy.revealInExplorer(openFile.file.path)}
+        >
+          <RevealInExplorerGlyph className="code-file-editor-action-svg" />
+        </button>
+      )}
       <button
         type="button"
-        className="code-file-editor-action share"
+        className="code-file-editor-action narrow-overflow share"
         data-testid="code-file-editor-share"
         onClick={event => onCopyReadOnlyShareLink(shareNoticeAnchor(event))}
         aria-label={copy.copyReadOnlyShareLink}
@@ -180,7 +243,7 @@ export function FileEditorActions({
       {actions.showDiff && (
         <button
           type="button"
-          className={`code-file-editor-action diff ${diffOpen ? 'active' : ''}`}
+          className={`code-file-editor-action narrow-overflow diff ${diffOpen ? 'active' : ''}`}
           onClick={onToggleDiff}
           disabled={openFile.saving}
           aria-label={diffOpen ? copy.closeDiff : copy.openFileDiff}
@@ -205,7 +268,7 @@ export function FileEditorActions({
       {actions.showMarkdownPreview && (
         <button
           type="button"
-          className={`code-file-editor-action markdown-split ${markdownSplitOpen ? 'active' : ''}`}
+          className={`code-file-editor-action narrow-overflow markdown-split ${markdownSplitOpen ? 'active' : ''}`}
           onClick={onToggleMarkdownSplit}
           disabled={openFile.saving}
           aria-label={splitPreviewLabel}
@@ -217,7 +280,7 @@ export function FileEditorActions({
       {actions.showMarkdownWideLayout && (
         <button
           type="button"
-          className={`code-file-editor-action markdown-wide-layout ${markdownWideLayout ? 'active' : ''}`.trim()}
+          className={`code-file-editor-action narrow-overflow markdown-wide-layout ${markdownWideLayout ? 'active' : ''}`.trim()}
           data-testid="code-markdown-wide-layout"
           onClick={onToggleMarkdownWideLayout}
           disabled={openFile.saving}
@@ -231,7 +294,7 @@ export function FileEditorActions({
       {actions.showWordWrap && (
         <button
           type="button"
-          className={`code-file-editor-action word-wrap ${wordWrapEnabled ? 'active' : ''}`}
+          className={`code-file-editor-action narrow-overflow word-wrap ${wordWrapEnabled ? 'active' : ''}`}
           onClick={onToggleWordWrap}
           disabled={openFile.saving}
           aria-pressed={wordWrapEnabled}
@@ -244,7 +307,7 @@ export function FileEditorActions({
       {actions.showReload && (
         <button
           type="button"
-          className="code-file-editor-action reload"
+          className="code-file-editor-action narrow-overflow reload"
           onClick={onReload}
           disabled={openFile.saving}
           aria-label={copy.reloadFile}
@@ -265,6 +328,24 @@ export function FileEditorActions({
           <ErrorGlyph className="code-file-editor-action-svg" />
         </button>
       )}
+      <button
+        ref={moreTriggerRef}
+        type="button"
+        className={`code-file-editor-action code-file-editor-more-trigger ${moreOpen ? 'active' : ''}`}
+        data-testid="code-file-editor-more"
+        aria-label={copy.fileActions(openFile.file.path)}
+        title={copy.fileActions(openFile.file.path)}
+        aria-haspopup="menu"
+        aria-expanded={moreOpen}
+        onClick={() => setMoreOpen(open => !open)}
+        onKeyDown={event => {
+          if (event.key !== 'ArrowDown') return
+          event.preventDefault()
+          setMoreOpen(true)
+        }}
+      >
+        <MoreHorizontalGlyph className="code-file-editor-action-svg" />
+      </button>
       {onToggleAgentSidePanel ? (
         <button
           type="button"
@@ -278,6 +359,102 @@ export function FileEditorActions({
           <ChatBubblesGlyph className="code-file-editor-action-svg" />
         </button>
       ) : null}
+      {moreOpen && typeof document !== 'undefined' && createPortal(
+        <div
+          ref={moreMenuRef}
+          className="code-menu-surface code-menu-list code-file-editor-more-menu"
+          data-testid="code-file-editor-more-menu"
+          role="menu"
+          aria-label={copy.fileActions(openFile.file.path)}
+          style={{ left: morePosition.left, top: morePosition.top }}
+          onKeyDown={handleMoreMenuKeyDown}
+        >
+          {!openFile.exactExternal && openFile.file.path && (
+            <button
+              type="button"
+              role="menuitem"
+              data-testid="code-file-editor-more-reveal"
+              onClick={() => runMoreAction(() => onRevealInExplorer(openFile.agentId, openFile.file.path, 'file'))}
+            >
+              <RevealInExplorerGlyph aria-hidden="true" />
+              <span>{copy.revealInExplorer(openFile.file.path)}</span>
+            </button>
+          )}
+          <button
+            type="button"
+            role="menuitem"
+            data-testid="code-file-editor-more-share"
+            onClick={event => {
+              const anchor = shareNoticeAnchor(event)
+              runMoreAction(() => onCopyReadOnlyShareLink(anchor))
+            }}
+          >
+            <ShareGlyph aria-hidden="true" />
+            <span>{copy.copyReadOnlyShareLink}</span>
+          </button>
+          {actions.showDiff && (
+            <button
+              type="button"
+              role="menuitemcheckbox"
+              aria-checked={diffOpen}
+              disabled={openFile.saving}
+              onClick={() => runMoreAction(onToggleDiff)}
+            >
+              <DiffIcon />
+              <span>{diffOpen ? copy.closeDiff : copy.openFileDiff}</span>
+            </button>
+          )}
+          {actions.showMarkdownPreview && (
+            <button
+              type="button"
+              role="menuitemcheckbox"
+              aria-checked={markdownSplitOpen}
+              disabled={openFile.saving}
+              onClick={() => runMoreAction(onToggleMarkdownSplit)}
+            >
+              <MarkdownSplitPreviewIcon />
+              <span>{splitPreviewLabel}</span>
+            </button>
+          )}
+          {actions.showMarkdownWideLayout && (
+            <button
+              type="button"
+              role="menuitemcheckbox"
+              aria-checked={markdownWideLayout}
+              data-testid="code-file-editor-more-markdown-wide"
+              disabled={openFile.saving}
+              onClick={() => runMoreAction(onToggleMarkdownWideLayout)}
+            >
+              <ScreenFullGlyph aria-hidden="true" />
+              <span>{wideLayoutLabel}</span>
+            </button>
+          )}
+          {actions.showWordWrap && (
+            <button
+              type="button"
+              role="menuitemcheckbox"
+              aria-checked={wordWrapEnabled}
+              disabled={openFile.saving}
+              onClick={() => runMoreAction(onToggleWordWrap)}
+            >
+              <WordWrapIcon />
+              <span>{wordWrapEnabled ? copy.disableWordWrap : copy.enableWordWrap}</span>
+            </button>
+          )}
+          {actions.showReload && (
+            <button
+              type="button"
+              role="menuitem"
+              disabled={openFile.saving}
+              onClick={() => runMoreAction(onReload)}
+            >
+              <RefreshGlyph aria-hidden="true" />
+              <span>{copy.reloadFile}</span>
+            </button>
+          )}
+        </div>,
+        document.body,
+      )}
     </div>
   )
 }

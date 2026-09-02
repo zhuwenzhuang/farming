@@ -8,6 +8,7 @@ const mainEntrySource = fs.readFileSync(path.join(projectRoot, 'src/main.tsx'), 
 const expectedSources = [
   'src/styles/crt-tokens.css',
   'src/styles/tokens.css',
+  'src/styles/ui-design.css',
   'src/styles/scrollbars.css',
   'src/styles/main.css',
   'src/styles/file-editor.css',

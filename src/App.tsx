@@ -7,6 +7,7 @@ import { useKeyboard, type Shortcut } from '@/hooks/useKeyboard'
 import { InputDialog } from '@/components/InputDialog'
 import { BackendConnectionStatus } from '@/components/BackendConnectionStatus'
 import { CodeWorkspace, type AgentFlagUpdateResult, type DeleteForkWorktreeProjectResult, type WorkspaceView } from '@/components/CodeWorkspace'
+import { scheduleUserCancelableFocusRetries } from '@/components/code/focus-retry'
 import { codeCopyForLanguage } from '@/components/code/copy'
 import { applyThemeAppearance } from '@/lib/theme'
 import { isCompactViewport, isIOSLikeTouchViewport, isTouchInputViewport } from '@/lib/responsive-mode'
@@ -252,10 +253,12 @@ export function App() {
   const didApplyAgentDeeplinkRef = useRef(false)
   const lastActiveWorkspaceRef = useRef<string | undefined>(undefined)
   const inputDialogReturnFocusRef = useRef<HTMLElement | null>(null)
+  const inputDialogFocusRestoreCleanupRef = useRef<(() => void) | null>(null)
   const inputDialogOpenRequestRef = useRef(0)
   const uiPreferencesSaveRevisionRef = useRef(0)
   const uiPreferencesSaveTailRef = useRef<Promise<void>>(Promise.resolve())
   const usageRequestRef = useRef<AbortController | null>(null)
+  useEffect(() => () => inputDialogFocusRestoreCleanupRef.current?.(), [])
   useLayoutEffect(() => {
     openTerminalIdsRef.current = openTerminalIds
   }, [openTerminalIds])
@@ -597,26 +600,36 @@ export function App() {
       const viewport = window.visualViewport
       const rawWidth = viewport?.width ?? window.innerWidth
       const rawHeight = viewport?.height ?? window.innerHeight
-      const offsetTop = viewport?.offsetTop ?? 0
-      const offsetLeft = viewport?.offsetLeft ?? 0
-      const layoutWidth = document.documentElement.clientWidth || window.innerWidth || rawWidth
-      const width = Math.min(rawWidth, Math.max(0, layoutWidth - offsetLeft))
+      const layoutWidth = window.innerWidth || document.documentElement.clientWidth || rawWidth
+      const browserLayoutHeight = window.innerHeight || document.documentElement.clientHeight || rawHeight || MIN_MOBILE_VISUAL_HEIGHT
+      const orientationMismatch = (layoutWidth > browserLayoutHeight) !== (rawWidth > rawHeight)
+      const directDimensionDelta = Math.abs(layoutWidth - rawWidth) + Math.abs(browserLayoutHeight - rawHeight)
+      const rotatedDimensionDelta = Math.abs(layoutWidth - rawHeight) + Math.abs(browserLayoutHeight - rawWidth)
+      const staleRotatedVisualViewport = Boolean(
+        viewport
+        && orientationMismatch
+        && rotatedDimensionDelta < directDimensionDelta,
+      )
+      const visualWidth = staleRotatedVisualViewport ? layoutWidth : rawWidth
+      const visualHeight = staleRotatedVisualViewport ? browserLayoutHeight : rawHeight
+      const offsetTop = staleRotatedVisualViewport ? 0 : viewport?.offsetTop ?? 0
+      const offsetLeft = staleRotatedVisualViewport ? 0 : viewport?.offsetLeft ?? 0
+      const width = Math.min(visualWidth, Math.max(0, layoutWidth - offsetLeft))
       const compactViewport = isCompactViewport()
       const touchViewport = isTouchInputViewport()
       const iosNavigator = navigator as Navigator & { standalone?: boolean }
       const standaloneWebApp = iosNavigator.standalone === true
         || window.matchMedia('(display-mode: standalone)').matches
-      const browserLayoutHeight = document.documentElement.clientHeight || window.innerHeight || rawHeight || MIN_MOBILE_VISUAL_HEIGHT
       const layoutHeight = compactViewport && standaloneWebApp
         ? window.screen.height || browserLayoutHeight
         : browserLayoutHeight
-      const keyboardOffset = Math.max(0, layoutHeight - rawHeight - offsetTop)
+      const keyboardOffset = Math.max(0, layoutHeight - visualHeight - offsetTop)
       const mobileKeyboardActive = compactViewport && touchViewport && keyboardOffset > 80
       const height = compactViewport
         ? mobileKeyboardActive
-          ? Math.min(Math.max(rawHeight, MIN_MOBILE_VISUAL_HEIGHT), Math.max(layoutHeight, MIN_MOBILE_VISUAL_HEIGHT))
+          ? Math.min(Math.max(visualHeight, MIN_MOBILE_VISUAL_HEIGHT), Math.max(layoutHeight, MIN_MOBILE_VISUAL_HEIGHT))
           : Math.max(layoutHeight, MIN_MOBILE_VISUAL_HEIGHT)
-        : rawHeight
+        : visualHeight
       const iosLikeTouchViewport = touchViewport && isIOSLikeTouchViewport()
 
       document.body.classList.toggle('code-compact-layout', compactViewport)
@@ -758,6 +771,7 @@ export function App() {
   }, [activeTerminalId, openTerminal, openTerminalIds])
 
   const openNewAgentDialog = useCallback((workspace?: string, command?: string, returnFocusTarget?: HTMLElement | null, customTitle?: string) => {
+    inputDialogFocusRestoreCleanupRef.current?.()
     const requestId = inputDialogOpenRequestRef.current + 1
     inputDialogOpenRequestRef.current = requestId
     inputDialogReturnFocusRef.current = returnFocusTarget ?? (document.activeElement instanceof HTMLElement
@@ -780,6 +794,7 @@ export function App() {
   }, [])
 
   const restoreInputDialogFocus = useCallback(() => {
+    inputDialogFocusRestoreCleanupRef.current?.()
     const requestId = inputDialogOpenRequestRef.current
     const returnTarget = inputDialogReturnFocusRef.current
     const preferNewAgent = returnTarget?.getAttribute('data-testid') === 'code-new-agent'
@@ -800,9 +815,10 @@ export function App() {
       focusVisibleTarget(document.querySelector<HTMLElement>('[data-testid="code-project-list"]'))
     }
 
-    window.requestAnimationFrame(restoreFocus)
-    window.setTimeout(restoreFocus, 80)
-    window.setTimeout(restoreFocus, 180)
+    inputDialogFocusRestoreCleanupRef.current = scheduleUserCancelableFocusRetries(
+      restoreFocus,
+      { runNow: false, delays: [80, 180] },
+    )
   }, [activeTerminalId])
 
   const closeInputDialog = useCallback(() => {

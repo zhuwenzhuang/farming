@@ -6,7 +6,7 @@
   background: var(--code-bg-canvas);
   color: var(--code-text);
   border: 0;
-  font-family: Roboto, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: var(--code-ui-font-family);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   font-synthesis: none;
@@ -29,9 +29,9 @@
   background: var(--code-bg-canvas);
 }
 
-.review-root button {
+/* Native button chrome is not a second skin for portalled Code dialogs. */
+:where(.review-root button) {
   border: 0;
-  font: inherit;
 }
 
 .review-files {
@@ -69,22 +69,6 @@
 .review-patch-select {
   display: inline-block;
   vertical-align: middle;
-}
-.review-patch-select .code-select-trigger {
-  height: 28px;
-  min-width: 0;
-  padding: 3px 5px;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--code-accent);
-  font: inherit;
-}
-.review-patch-select .code-select-trigger:hover,
-.review-patch-select.open .code-select-trigger {
-  background-color: var(--code-bg-hover);
-  color: var(--code-accent);
-  box-shadow: none;
 }
 .review-patch-select .code-select-menu {
   min-width: 150px;
@@ -639,7 +623,7 @@
   border-radius: 0;
   background: var(--code-bg-raised);
   color: var(--code-text);
-  font-family: Roboto, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: var(--code-ui-font-family);
   font-size: 12px;
 }
 .review-comment-editor > header { color: var(--code-accent); font-weight: 500; }
@@ -681,7 +665,7 @@
   border-top: 1px solid var(--code-border);
   background: var(--code-bg-raised);
   color: var(--code-text);
-  font-family: Roboto, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: var(--code-ui-font-family);
   font-size: 12px;
 }
 .review-comment-thread.resolved { border-left-color: var(--code-success); opacity: 0.72; }
@@ -764,8 +748,8 @@
 .review-preferences-form label {
   display: contents;
   color: var(--code-text-muted);
-  font-size: 17px;
-  font-weight: 600;
+  font-size: var(--code-field-label-font-size);
+  font-weight: 500;
 }
 
 .review-preferences-select {
@@ -775,39 +759,11 @@
   column-gap: 28px;
 }
 
-.review-preferences-select .code-select-label {
-  color: var(--code-text-muted);
-  font-size: 17px;
-  font-weight: 600;
-  line-height: normal;
-}
-
-.review-preferences-select .code-select-trigger {
-  min-height: 40px;
-  height: 40px;
-  border-color: var(--code-border);
-  border-radius: 3px;
-  color: var(--code-accent);
-  font-weight: 400;
-}
-
 .review-preferences-select .code-select-menu {
   right: 0;
   left: auto;
   width: 282px;
   min-width: 282px;
-}
-
-.review-preferences-form label > input {
-  width: 100%;
-  min-height: 40px;
-  padding: 0 10px;
-  border: 1px solid var(--code-border);
-  border-radius: 3px;
-  background: var(--code-bg-raised);
-  color: var(--code-text-muted);
-  font: inherit;
-  font-weight: 400;
 }
 
 .review-preferences-form .checkbox-row {
@@ -829,23 +785,10 @@
 
 .review-preferences > footer {
   min-height: 74px;
-  display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 18px;
   padding: 0 38px;
   border-top: 1px solid var(--code-border);
 }
-
-.review-preferences > footer button {
-  padding: 6px 0;
-  background: transparent;
-  color: var(--code-accent);
-  cursor: pointer;
-  font-size: 17px;
-}
-
-.review-preferences > footer button:last-child { color: var(--code-text-muted); }
 
 .review-source-control { position: relative; }
 .review-source-trigger {
@@ -879,30 +822,16 @@
   width: min(320px, calc(100vw - 32px));
   max-height: min(520px, calc(100vh - 64px));
   overflow: auto;
-  padding: 5px;
-  border: 1px solid var(--code-border);
-  border-radius: 3px;
-  background: var(--code-bg-raised);
-  box-shadow: var(--code-shadow-raised);
 }
 .review-source-menu > button,
 .review-source-submenu button {
   width: 100%;
-  min-height: 30px;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 18px;
   align-items: center;
   gap: 8px;
-  padding: 5px 8px;
-  border-radius: 2px !important;
-  background: transparent;
-  color: var(--code-text);
-  cursor: pointer;
-  font-size: 12px;
   text-align: left;
 }
-.review-source-menu > button:hover,
-.review-source-submenu button:hover { background: var(--code-bg-hover); color: var(--code-accent); }
 .review-source-menu button:disabled { cursor: default; opacity: 0.38; }
 .review-source-menu button > span:first-child {
   overflow: hidden;
@@ -913,19 +842,12 @@
 .review-source-menu p { margin: 6px 8px; color: var(--code-text-subtle); font-size: 12px; line-height: 1.45; }
 .review-source-menu p.error { color: var(--code-danger); }
 .review-source-submenu > summary {
-  min-height: 30px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 8px;
-  border-radius: 2px;
-  color: var(--code-text-muted);
-  cursor: pointer;
-  font-size: 12px;
   list-style: none;
 }
 .review-source-submenu > summary::-webkit-details-marker { display: none; }
-.review-source-submenu > summary:hover { background: var(--code-bg-hover); color: var(--code-accent); }
 .review-source-submenu > summary svg { width: 15px; height: 15px; fill: currentColor; transition: transform 140ms ease; }
 .review-source-submenu[open] > summary svg { transform: rotate(90deg); }
 .review-source-submenu > div {
@@ -962,6 +884,7 @@
   .review-preferences > header,
   .review-preferences > footer { padding-inline: 20px; }
   .review-preferences-form,
+  .review-preferences-select,
   .review-preferences-form .checkbox-row { grid-template-columns: minmax(0, 1fr) 168px; column-gap: 14px; }
   .review-preferences-form { padding-inline: 20px; }
   .review-source-trigger { max-width: 66vw; }

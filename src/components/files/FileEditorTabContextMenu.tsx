@@ -31,7 +31,7 @@ export function FileEditorTabContextMenu({
     <div
       ref={menuRef}
       onKeyDown={handleKeyDown}
-      className="code-context-menu code-file-tab-context-menu"
+      className="code-menu-surface code-menu-list code-context-menu code-file-tab-context-menu"
       data-testid="code-file-tab-context-menu"
       role="menu"
       style={{ left: menu.x, top: menu.y }}

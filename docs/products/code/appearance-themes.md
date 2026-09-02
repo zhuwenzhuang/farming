@@ -6,6 +6,10 @@ Farming Code supports System, Light, Dark, and Paper appearances. Appearance is
 a presentation preference only: changing it must not alter Agent, Session,
 Project, file, or terminal state.
 
+The [UI design protocol](../../development/ui-design-protocol.md) governs shared
+control families, typography, geometry, icons, responsive behavior and cross-page
+equivalence. This document owns their appearance roles and theme lifecycle.
+
 ## Design Contract
 
 - Light is the neutral, high-clarity default.
@@ -64,6 +68,11 @@ Project, file, or terminal state.
   Buttons and selectors that need additional keyboard feedback use one restrained
   boundary, not stacked outline and shadow layers. Shared control-focus shadows,
   including Model Matrix, use a single one-pixel ring and never style text fields.
+- Scroll containers are not navigation items. Clicking blank space, dragging
+  their scrollbar, or focusing them for keyboard scrolling must not paint a
+  selection surface or add a focus shadow to the whole container. Individual
+  rows retain their hover, selection, and keyboard-focus feedback.
+  Adjacent resize handles must not intercept the scrollbar's interaction lane.
 - Native Farming Code scrollbars use one eight-pixel interaction lane with a
   four-pixel rounded thumb, a transparent track, and visible default, hover,
   and active states from the shared appearance registry. Domain styles must not
@@ -115,11 +124,12 @@ is data rather than component selectors, so adding an appearance is a complete
 typed inventory operation instead of a sequence of page overrides.
 
 `tokens.css` is generated from that registry and contains exactly one rule for
-Light, Dark, and Paper. It must not be edited by hand. Product-domain styles
-such as Composer, Files, Settings, Transcript, Review, and extension frontends
-own layout and interaction selectors, but consume semantic color roles and
-remain appearance-neutral. They may not contain appearance selectors or fixed
-Code colors.
+Light, Dark, and Paper. It must not be edited by hand. Shared control recipes own
+reusable geometry and interaction styling. Product-domain styles such as
+Composer, Files, Settings, Transcript, Review, and extension frontends own
+composition and domain-specific layout; they must not fork a shared recipe.
+Both consume semantic color roles and remain appearance-neutral. They may not
+contain appearance selectors or fixed Code colors.
 
 The shared role set is intentionally bounded. Most roles describe layer,
 content, interaction, or functional meaning: canvas, chrome, surface, raised,

@@ -22,6 +22,7 @@ interface CodeSelectProps {
   ariaLabel?: string
   className?: string
   disabled?: boolean
+  density?: 'field' | 'toolbar'
   label?: ReactNode
   menuClassName?: string
   options: CodeSelectOption[]
@@ -36,6 +37,7 @@ export function CodeSelect({
   ariaLabel,
   className = '',
   disabled = false,
+  density = 'field',
   label,
   menuClassName = '',
   options,
@@ -106,7 +108,7 @@ export function CodeSelect({
 
   return (
     <div
-      className={`code-select ${open ? 'open' : ''} ${className}`.trim()}
+      className={`code-select ${density} ${open ? 'open' : ''} ${className}`.trim()}
       ref={rootRef}
       onBlur={event => {
         if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setOpen(false)
@@ -115,7 +117,7 @@ export function CodeSelect({
       {label !== undefined ? <span className="code-select-label" id={labelId}>{label}</span> : null}
       <button
         type="button"
-        className={`code-select-trigger ${triggerClassName}`.trim()}
+        className={`code-field code-select-trigger ${triggerClassName}`.trim()}
         ref={triggerRef}
         role="combobox"
         aria-label={label === undefined ? ariaLabel : undefined}
@@ -142,7 +144,7 @@ export function CodeSelect({
       </button>
       {open ? (
         <div
-          className={`code-select-menu ${menuClassName}`.trim()}
+          className={`code-menu-surface code-menu-list code-select-menu ${menuClassName}`.trim()}
           id={menuId}
           ref={menuRef}
           role="listbox"

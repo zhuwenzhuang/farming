@@ -12,28 +12,17 @@
 .code-select-label {
   min-width: 0;
   color: var(--code-text-muted);
-  font-size: 13px;
+  font-size: var(--code-field-label-font-size);
+  font-weight: 500;
   line-height: 18px;
 }
 
 .code-select-trigger {
-  width: 100%;
-  min-width: 0;
-  height: 34px;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 16px;
   align-items: center;
   gap: 8px;
-  box-sizing: border-box;
-  padding: 0 8px 0 10px;
-  border: 1px solid var(--code-border);
-  border-radius: 8px;
-  background: var(--code-bg-raised);
-  color: var(--code-text);
   cursor: pointer;
-  font: inherit;
-  font-size: 14px;
-  line-height: 1.35;
   text-align: left;
 }
 
@@ -93,48 +82,16 @@
   max-height: min(280px, calc(100vh - 120px));
   overflow-y: auto;
   box-sizing: border-box;
-  padding: 6px;
-  border: 1px solid var(--code-border);
-  border-radius: 12px;
-  background: var(--code-bg-raised);
-  box-shadow: var(--code-shadow-raised);
-  color: var(--code-text);
-  text-shadow: none;
 }
 
 .code-select-option {
   width: 100%;
   min-width: 150px;
-  min-height: 34px;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 18px;
   align-items: center;
   gap: 10px;
-  padding: 6px 8px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--code-text-strong);
-  cursor: pointer;
-  font: inherit;
-  font-size: 13px;
-  line-height: 1.25;
   text-align: left;
-}
-
-.code-select-option:hover:not(:disabled),
-.code-select-option:focus-visible {
-  background: var(--code-bg-hover);
-  outline: 0;
-}
-
-.code-select-option.selected {
-  background: var(--code-accent-soft);
-}
-
-.code-select-option:disabled {
-  cursor: default;
-  opacity: 0.45;
 }
 
 .code-select-option-copy {
@@ -156,4 +113,19 @@
   width: 14px;
   height: 14px;
   fill: currentColor;
+}
+
+/* Toolbar choices are compact and borderless; form choices retain field chrome. */
+.code-select.toolbar .code-select-trigger {
+  height: 28px;
+  padding: 3px 8px;
+  border: 0;
+  font-size: var(--code-menu-font-size);
+  line-height: var(--code-menu-line-height);
+  background: transparent;
+}
+
+.code-select.toolbar .code-select-trigger:hover:not(:disabled),
+.code-select.toolbar.open .code-select-trigger {
+  background: var(--code-bg-hover);
 }

@@ -4,6 +4,7 @@ import {
   type WorkspaceFileTreeRowViewState,
 } from '@/lib/workspace-file-tree-row'
 import type { WorkspaceFileTreeNode as FileExplorerNode } from '@/lib/workspace-file-tree'
+import { MoreHorizontalGlyph } from '@/components/IconGlyphs'
 import type { CodeCopy } from '../code/copy'
 
 interface FileTreeRowStatusProps {
@@ -69,7 +70,7 @@ export function FileTreeRowStatus({
           onMouseDown={event => event.stopPropagation()}
           onClick={onOpenActions}
         >
-          <span aria-hidden="true">•••</span>
+          <MoreHorizontalGlyph />
         </button>
       </span>
     </>

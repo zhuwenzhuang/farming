@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict'
-import { spawn, spawnSync } from 'node:child_process'
+import childProcess, { spawn, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { EventEmitter } from 'node:events'
+import { EventEmitter, once } from 'node:events'
 import fs from 'node:fs'
 import http from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
+import { PassThrough } from 'node:stream'
 import test from 'node:test'
 import vm from 'node:vm'
 import {
@@ -1065,6 +1066,60 @@ process.exit(0)
   }
 })
 
+test('local command completion cannot revive progress watchdogs from buffered output', async t => {
+  const temporaryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-desktop-output-order-'))
+  const cli = path.join(temporaryDir, 'cli.cjs')
+  fs.writeFileSync(cli, '')
+  fs.writeFileSync(path.join(temporaryDir, 'farming-server.json'), JSON.stringify({ port: 43123, basePath: '/farming' }))
+  fs.writeFileSync(path.join(temporaryDir, '.session-token'), 'test-token')
+  try {
+    for (const outcome of ['exit', 'error'] as const) {
+      await t.test(outcome, async subtest => {
+        const child = new childProcess.ChildProcess()
+        const stdout = new PassThrough()
+        const stderr = new PassThrough()
+        child.stdout = stdout
+        child.stderr = stderr
+        const spawnMock = subtest.mock.method(childProcess, 'spawn', () => child)
+        const timers = subtest.mock.method(globalThis, 'setTimeout')
+        const progress: string[] = []
+        const runtime = new DesktopLocalBackend({
+          configDir: temporaryDir,
+          electronExecutable: process.execPath,
+          resourcesPath: temporaryDir,
+          repositoryRoot: temporaryDir,
+          cliPath: cli,
+          onProgress: message => progress.push(message),
+        })
+        try {
+          const starting = runtime.start()
+          assert.equal(spawnMock.mock.callCount(), 1)
+          if (outcome === 'error') {
+            const rejected = assert.rejects(starting, /fixture spawn failure/)
+            child.emit('error', new Error('fixture spawn failure'))
+            await rejected
+          } else {
+            child.emit('exit', 0)
+            await starting
+          }
+          const timerCount = timers.mock.callCount()
+          const completedProgress = [...progress]
+          stdout.emit('data', Buffer.from('buffered stdout'))
+          stderr.emit('data', Buffer.from('buffered stderr'))
+          assert.equal(timers.mock.callCount(), timerCount, 'terminal command recreated an owned watchdog')
+          assert.deepEqual(progress, completedProgress, 'terminal command published stale progress')
+        } finally {
+          timers.mock.calls.forEach(call => clearTimeout(call.result))
+          stdout.destroy()
+          stderr.destroy()
+        }
+      })
+    }
+  } finally {
+    fs.rmSync(temporaryDir, { recursive: true, force: true })
+  }
+})
+
 test('local backend startup watchdog accepts active dependency progress but bounds a stall', async () => {
   const temporaryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-desktop-local-watchdog-'))
   const progressingCli = path.join(temporaryDir, 'progressing-cli.cjs')
@@ -1360,7 +1415,7 @@ test('desktop release mirrors keep the same bounded HTTP checksum contract', () 
   assert.match(script, /head -c "\$\(\(limit \+ 1\)\)"/)
   assert.match(script, /trap cleanup_download EXIT/)
   assert.match(script, /trap abort_download HUP INT TERM/)
-  assert.match(script, /kill "\$wget_pid"/)
+  assert.match(script, /kill -KILL "\$wget_pid"/)
   assert.match(script, /mkfifo "\$download_fifo"/)
   assert.match(script, /wait "\$wget_pid"/)
   assert.match(script, /actual_size=\$\(wc -c < "\$target"/)
@@ -1369,7 +1424,7 @@ test('desktop release mirrors keep the same bounded HTTP checksum contract', () 
   assert.match(script, /download "\$asset_url" "\$tmp" "\$asset_limit"/)
 })
 
-test('remote bootstrap TERM cleans its exact wget process and temporary files', async t => {
+test('remote bootstrap TERM cleans a TERM-resistant wget process and temporary files', async t => {
   const temporaryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-desktop-wget-term-'))
   const binaryDir = path.join(temporaryDir, 'bin')
   const farmingHome = path.join(temporaryDir, 'home')
@@ -1386,9 +1441,12 @@ test('remote bootstrap TERM cleans its exact wget process and temporary files', 
   }
   Object.entries(commands).forEach(([name, target]) => fs.symlinkSync(target, path.join(binaryDir, name)))
   const fakeWget = path.join(binaryDir, 'wget')
+  const wgetPidFile = path.join(temporaryDir, 'wget.pid')
   fs.writeFileSync(fakeWget, `#!/bin/sh
+trap '' TERM PIPE
+printf '%s' "$$" > ${JSON.stringify(wgetPidFile)}
 while :; do
-  printf 'download-in-progress'
+  printf 'download-in-progress' 2>/dev/null
   /bin/sleep 0.02
 done
 `)
@@ -1404,28 +1462,36 @@ done
     },
     stdio: ['pipe', 'pipe', 'pipe'],
   })
+  const closed = once(child, 'close')
   let stderr = ''
+  child.stdout.resume()
   child.stderr.on('data', chunk => { stderr += String(chunk) })
   child.stdin.end(buildRemoteBootstrapScript())
   const installDir = path.join(farmingHome, 'server', 'term-version')
   try {
     const deadline = Date.now() + 2_000
     while (
-      (!fs.existsSync(installDir) || fs.readdirSync(installDir).length === 0)
+      !fs.existsSync(wgetPidFile)
       && Date.now() < deadline
     ) await new Promise(resolve => setTimeout(resolve, 10))
-    assert.ok(fs.existsSync(installDir) && fs.readdirSync(installDir).length > 0, stderr)
-    const exitCode = await new Promise<number | null>((resolve, reject) => {
-      child.once('error', reject)
-      child.once('exit', resolve)
-      process.kill(-child.pid!, 'SIGTERM')
-    })
+    assert.ok(fs.existsSync(wgetPidFile), `wget never became ready: ${stderr}`)
+    const wgetPid = Number(fs.readFileSync(wgetPidFile, 'utf8'))
+    const exited = once(child, 'exit', { signal: AbortSignal.timeout(2_000) })
+    process.kill(-child.pid!, 'SIGTERM')
+    const [exitCode] = await exited
     assert.notEqual(exitCode, 0)
+    assert.throws(
+      () => process.kill(wgetPid, 0),
+      (error: unknown) => (error as NodeJS.ErrnoException)?.code === 'ESRCH',
+      'bootstrap exited before its exact downloader was dead',
+    )
     assert.deepEqual(fs.readdirSync(installDir), [])
   } finally {
-    if (child.exitCode === null) {
-      try { process.kill(-child.pid!, 'SIGKILL') } catch {}
+    // The parent may already have exited while a downloader still owns its pipes.
+    try { process.kill(-child.pid!, 'SIGKILL') } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error
     }
+    await closed
     fs.rmSync(temporaryDir, { recursive: true, force: true })
   }
 })

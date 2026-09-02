@@ -19,6 +19,10 @@ import {
   writeTerminalRaw,
   writeTerminalRawAndSampleViewport,
 } from './fixtures'
+import {
+  WORKSPACE_FILE_TREE_INDENT,
+  WORKSPACE_FILE_TREE_ROOT_INDENT,
+} from '../../src/lib/workspace-file-tree-row'
 
 type MockAgentSession = {
   provider?: string
@@ -1249,7 +1253,7 @@ test.describe('display-backed agent flows', () => {
     await expect(trackedDirectory).toBeVisible()
     expect(await trackedDirectory.evaluate(element => (
       getComputedStyle(element).getPropertyValue('--change-indent').trim()
-    ))).toBe('18px')
+    ))).toBe(`${WORKSPACE_FILE_TREE_ROOT_INDENT + WORKSPACE_FILE_TREE_INDENT}px`)
     await trackedDirectory.click()
     const nestedChangeRow = trackedGroup.locator(
       '[data-testid="code-file-change-row"][data-file-path="tracked/deep/no-reveal.txt"]',
@@ -1257,7 +1261,7 @@ test.describe('display-backed agent flows', () => {
     await expect(nestedChangeRow).toBeVisible()
     expect(await nestedChangeRow.evaluate(element => (
       getComputedStyle(element).getPropertyValue('--change-indent').trim()
-    ))).toBe('30px')
+    ))).toBe(`${WORKSPACE_FILE_TREE_ROOT_INDENT + 2 * WORKSPACE_FILE_TREE_INDENT}px`)
     const filesTreeRootDirectory = filesSection.locator(
       '[data-testid="code-file-row"][data-file-path="tracked"]',
     )
@@ -1331,7 +1335,7 @@ test.describe('display-backed agent flows', () => {
     await expect(scratchDirectory).toBeVisible()
     expect(await scratchDirectory.evaluate(element => (
       getComputedStyle(element).getPropertyValue('--change-indent').trim()
-    ))).toBe('18px')
+    ))).toBe(`${WORKSPACE_FILE_TREE_ROOT_INDENT + WORKSPACE_FILE_TREE_INDENT}px`)
     await expect(changesSection.getByTestId('code-file-change-row').filter({ hasText: 'scratch.log' })).toHaveCount(0)
     await scratchDirectory.click()
     const untrackedRow = untrackedGroup.getByTestId('code-file-change-row').filter({ hasText: 'scratch.log' })
@@ -2329,14 +2333,29 @@ test.describe('display-backed agent flows', () => {
       const treeStyle = getComputedStyle(tree)
       const viewportStyle = getComputedStyle(viewport)
       const maximumMountedRows = Math.ceil(treeWindow.clientHeight / 24) + 12
+      const mountedRow = viewport.querySelector<HTMLElement>('[data-testid="code-file-row"]')
+      // The outer Project scroller is the only scroll surface on the path from
+      // a mounted row upward; the virtualizer DOM must not add a second one.
+      const scrollSurfaces: string[] = []
+      for (let ancestor = mountedRow?.parentElement; ancestor; ancestor = ancestor.parentElement) {
+        const overflowY = getComputedStyle(ancestor).overflowY
+        if (overflowY === 'auto' || overflowY === 'scroll') {
+          scrollSurfaces.push(ancestor.className)
+        }
+        if (ancestor.classList.contains('code-project-list')) break
+      }
       return rowCount > 0 && Number.isFinite(visibleRowCount) &&
-        treeStyle.overflowY === 'hidden' &&
+        treeStyle.overflowY === 'visible' &&
+        treeStyle.transform === 'none' &&
+        tree.scrollTop === 0 &&
         viewportStyle.overflowY === 'visible' &&
         viewport.scrollHeight <= viewport.clientHeight + 1 &&
         Math.abs(tree.clientHeight - treeWindow.clientHeight) <= 1 &&
         Math.abs(viewport.clientHeight - visibleRowCount * 24) <= 4 &&
         treeWindow.clientHeight <= viewport.clientHeight &&
-        rowCount <= maximumMountedRows
+        rowCount <= maximumMountedRows &&
+        scrollSurfaces.length === 1 &&
+        scrollSurfaces[0]?.includes('code-project-list') === true
     })).toBe(true)
     fs.writeFileSync(
       path.join(deepInnerWorkspace, 'file-00.txt'),
@@ -2705,11 +2724,32 @@ test.describe('display-backed agent flows', () => {
       if (!tree || !treeWindow) return false
       const rowCount = viewport.querySelectorAll('[data-testid="code-file-row"]').length
       const visibleRowCount = Number(viewport.dataset.visibleRowCount)
+      const treeStyle = getComputedStyle(tree)
+      const viewportStyle = getComputedStyle(viewport)
       const maximumMountedRows = Math.ceil(treeWindow.clientHeight / 24) + 12
+      const mountedRow = viewport.querySelector<HTMLElement>('[data-testid="code-file-row"]')
+      // The outer Project scroller is the only scroll surface on the path from
+      // a mounted row upward; the virtualizer DOM must not add a second one.
+      const scrollSurfaces: string[] = []
+      for (let ancestor = mountedRow?.parentElement; ancestor; ancestor = ancestor.parentElement) {
+        const overflowY = getComputedStyle(ancestor).overflowY
+        if (overflowY === 'auto' || overflowY === 'scroll') {
+          scrollSurfaces.push(ancestor.className)
+        }
+        if (ancestor.classList.contains('code-project-list')) break
+      }
       return rowCount > 0 && Number.isFinite(visibleRowCount) &&
-        getComputedStyle(tree).overflowY === 'hidden' &&
+        treeStyle.overflowY === 'visible' &&
+        treeStyle.transform === 'none' &&
+        tree.scrollTop === 0 &&
+        viewportStyle.overflowY === 'visible' &&
+        viewport.scrollHeight <= viewport.clientHeight + 1 &&
+        Math.abs(tree.clientHeight - treeWindow.clientHeight) <= 1 &&
+        treeWindow.clientHeight <= viewport.clientHeight &&
         Math.abs(viewport.clientHeight - visibleRowCount * 24) <= 4 &&
-        rowCount <= maximumMountedRows
+        rowCount <= maximumMountedRows &&
+        scrollSurfaces.length === 1 &&
+        scrollSurfaces[0]?.includes('code-project-list') === true
     })).toBe(true)
     await fileSearchInput.fill('deep/nested/inner/file-30.txt:1')
     await expect(childFiles.locator('.code-file-search-result').filter({ hasText: 'file-30.txt' }).first()).toBeVisible()

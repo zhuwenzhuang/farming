@@ -5391,7 +5391,11 @@ class AgentManager extends EventEmitter {
         const acpExecutable = resolveProviderAcpExecutable(
           structuredRuntimeProvider,
           launchPathEnv,
-          path.isAbsolute(program) ? { candidates: [program] } : {},
+          {
+            ...(path.isAbsolute(program) ? { candidates: [program] } : {}),
+            allowFakeAcpRuntime: process.env.FARMING_E2E_FAKE_EXECUTABLES === '1'
+              && process.env.FARMING_E2E_FAKE_ACP_AGENT === '1',
+          },
         );
         if (!acpExecutable.compatible) {
           if (callback) callback(null, acpExecutable.error);

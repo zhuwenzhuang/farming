@@ -37,6 +37,12 @@ delta; a later layer must never slide over the Project name or branch first.
 Directory rows scroll beneath this summary stack and do not add another
 scroll-linked ancestor summary.
 
+Open Editors is capped at seven responsive file rows. Its list always owns the
+same vertical overflow geometry, and any measured classic scrollbar width is
+placed in an external lane so row labels and actions keep the same x-position
+and width at seven and eight entries. Overlay scrollbars naturally measure as
+zero. The content edge remains aligned with sibling Project and Files actions.
+
 Project Agent rows use progressive disclosure to keep large Agent groups
 scannable. A Project initially shows five Agents, the first Show more action
 reveals up to five more, later actions reveal up to ten more, and Show less
@@ -177,7 +183,16 @@ branch, file, empty directory, load failure, workspace change, or intervening
 user collapse.
 Direct pointer or keyboard expansion keeps the current row anchored in the
 single Project scroll surface. A toggle does not write Project scroll or start
-a reveal operation; only navigation to a different target owns reveal.
+a reveal operation; explicit navigation or the editor's Reveal in Explorer
+action owns reveal.
+
+The editor header keeps Reveal in Explorer available in source and preview
+views. It expands the current file's Project, Files section, and parent
+directories, opens a closed compact sidebar, and locates the file through the
+existing reveal owner. Repeating the action repositions a file scrolled out of
+view without reopening it, reading it again, or changing its draft, editor
+model, or source/preview state. An exact external file has no Project-tree
+target and does not offer this action.
 
 The Explorer keeps active file, keyboard focus, and selection as distinct
 concepts. Opening a file from Chat, Terminal, search, History, Plugins, or a URL
@@ -201,6 +216,10 @@ opening a source file.
 A context menu opened on empty tree space inherits the current tree selection
 for create operations. It targets the Project root only when the tree has no
 current selection or focus.
+
+File context menus and submenus remain visible and hittable outside a compact
+sidebar's clipping boundary. Portalling their surface preserves the same shared
+dismissal owner and returns focus to the invoking tree target.
 
 Every programmatic reveal on the shared Project scroll surface holds one
 generation lease. A newer file or Agent reveal, or direct pointer, wheel, or
@@ -277,8 +296,11 @@ The Explorer preserves one Project-sidebar scroll surface even when many
 directories remain expanded. Its complete row projection keeps keyboard
 navigation and persisted expansion stable, while only a bounded
 viewport neighborhood is mounted. The outer Project scroller owns the complete
-logical tree height; the virtual tree window follows that scroll offset without
-introducing a second scrollbar. The cost of a large restored tree is therefore
+logical tree height and all physical row movement. The virtualizer uses that
+offset only to select mounted rows; its DOM must not create a second scrolling
+surface or compensate with a scroll-linked transform. Independently committed
+inner scrolling and transforms can otherwise move rows twice or leave them one
+frame behind a native touch gesture. The cost of a large restored tree is therefore
 bounded by the visible neighborhood rather than the complete projection.
 A scroll frame must not enumerate the complete expanded tree or read layout
 from every mounted file row.
@@ -316,6 +338,12 @@ and headerless closing-rule form, compact display-math fences, and Pandoc math
 spacing. Compatibility applies only to the rendered preview and never rewrites
 file source. Unsupported math remains visible as source instead of producing
 broken output, and arbitrary raw HTML remains disabled.
+
+Display equations retain their normal font size and scroll horizontally within
+the equation when wider than the reading column. Both ends and equation numbers
+remain reachable without widening the document; numbers reserve their own space
+instead of covering formula content. Inline math, aligned equations, and
+explicit math line breaks retain the renderer's layout in every appearance.
 
 Large Markdown preview is segmented at major headings and a bounded block
 count. It preserves ordinary continuous scrolling while mounting only the
@@ -404,6 +432,13 @@ non-HTTP(S), or invalid rules remain plain text.
   disclosure on header hover. A focused or non-empty search remains visible;
   compact touch layouts keep search visible without requiring hover.
 - Open Editors appears only when needed and stays separate from the tree.
+- At 393 CSS pixels and narrower, available Save, source/preview,
+  overwrite-conflict, and Agent-side controls remain direct primary actions.
+  Reveal, sharing, diff, split preview, Markdown width, word wrap, and reload
+  move into a named More menu rather than requiring horizontal toolbar
+  scrolling. The trigger and commands retain titles or visible labels, ARIA
+  roles and checked states, keyboard navigation, and shared outside-pointer /
+  Escape arbitration; the portalled menu is constrained to VisualViewport.
 - Single-child directory chains may compact into one stable row.
 - Dirty, external-change, and Git state remain visible without turning the tree
   into a high-noise warning surface.

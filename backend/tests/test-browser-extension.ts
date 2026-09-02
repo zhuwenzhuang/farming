@@ -2603,6 +2603,16 @@ async function testBrowserCapabilitySnapshotCoherence() {
     },
   });
   await manager.init();
+  const capabilitySnapshot = manager.capabilitySnapshot.bind(manager);
+  let capabilitySnapshotEntryBarrier: { count: number; resolve: () => void } | null = null;
+  manager.capabilitySnapshot = options => {
+    const barrier = capabilitySnapshotEntryBarrier;
+    if (barrier) {
+      barrier.count += 1;
+      if (barrier.count === 3) barrier.resolve();
+    }
+    return capabilitySnapshot(options);
+  };
   const baselineSystemProbes = probeCounts.system || 0;
   const baselineIsolatedProbes = probeCounts.isolated || 0;
   const baselineExtensionProbes = probeCounts.extension || 0;
@@ -2666,8 +2676,22 @@ async function testBrowserCapabilitySnapshotCoherence() {
     probeLatch = new Promise(resolve => {
       releaseProbes = resolve;
     });
+    let resolveCapabilitySnapshotEntries = () => {};
+    const allConcurrentReadsEnteredCapabilitySnapshot = new Promise<void>(resolve => {
+      resolveCapabilitySnapshotEntries = resolve;
+    });
+    capabilitySnapshotEntryBarrier = {
+      count: 0,
+      resolve: resolveCapabilitySnapshotEntries,
+    };
     const concurrent = Promise.all([read(), read(), read()]);
-    await new Promise(resolve => setTimeout(resolve, 50));
+    await allConcurrentReadsEnteredCapabilitySnapshot;
+    assert.strictEqual(
+      capabilitySnapshotEntryBarrier.count,
+      3,
+      'all concurrent canonical reads must enter capabilitySnapshot before probes resume',
+    );
+    capabilitySnapshotEntryBarrier = null;
     systemHealthy = true;
     releaseProbes();
     probeLatch = null;

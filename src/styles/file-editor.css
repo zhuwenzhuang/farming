@@ -336,6 +336,34 @@
   gap: 2px;
 }
 
+.code-file-editor-action.code-file-editor-more-trigger {
+  display: none;
+}
+
+.code-file-editor-more-menu {
+  position: fixed;
+  z-index: 10008;
+  width: max-content;
+  min-width: 216px;
+  max-width: calc(100vw - 16px);
+}
+
+.code-file-editor-more-menu button {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.code-file-editor-more-menu button > svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+  fill: currentColor;
+}
+
 .code-file-editor-action {
   width: 22px;
   height: 22px;
@@ -706,6 +734,7 @@ body.code-mode .code-file-editor-fallback-textarea {
   display: block;
   place-items: initial;
   padding: 0;
+  scrollbar-gutter: stable both-edges;
 }
 
 .code-file-metadata-preview-icon {
@@ -1096,4 +1125,44 @@ body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file
 
 body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-action.source-preview.active {
   box-shadow: none;
+}
+
+@media (max-width: 393px) {
+  body.code-mode.code-compact-layout .code-file-editor-actions {
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+    overflow-x: hidden;
+    overscroll-behavior-x: none;
+  }
+
+  body.code-mode.code-compact-layout .code-file-editor:not(.markdown-reading) .code-file-editor-tab-strip {
+    min-height: 88px;
+    flex-wrap: wrap;
+  }
+
+  body.code-mode.code-compact-layout .code-file-editor:not(.markdown-reading) .code-file-editor-tab-strip > .code-file-editor-actions {
+    width: 100%;
+    max-width: 100%;
+    min-height: 44px;
+    position: static;
+    flex: 0 0 100%;
+    justify-content: flex-end;
+    padding: 0 2px;
+  }
+
+  body.code-mode.code-compact-layout .code-file-editor-actions .narrow-overflow,
+  body.code-mode.code-compact-layout .code-file-editor-actions .code-file-editor-status {
+    display: none;
+  }
+
+  body.code-mode.code-compact-layout .code-file-editor-action {
+    width: 44px;
+    height: 44px;
+    flex: 0 0 44px;
+  }
+
+  body.code-mode.code-compact-layout .code-file-editor-action.code-file-editor-more-trigger {
+    display: inline-grid;
+  }
 }

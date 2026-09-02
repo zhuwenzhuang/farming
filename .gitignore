@@ -55,7 +55,7 @@ playwright-report/
 .qwen/
 .dolt-backup/
 fa-*/
-hooks/
+/hooks/
 city.toml
 pack.toml
 packs.lock

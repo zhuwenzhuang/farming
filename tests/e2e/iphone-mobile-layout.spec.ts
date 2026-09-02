@@ -229,39 +229,71 @@ test.describe('iPhone mobile layout', () => {
     await page.evaluate(() => window.__farmingFileEditorTest?.insertText('SAVED_FROM_MOBILE\n'))
     const save = page.getByRole('button', { name: 'Save file' })
     const actionBar = page.locator('.code-file-editor-tab-strip > .code-file-editor-actions')
-    const actionButtons = actionBar.getByRole('button')
-    const actionCount = await actionButtons.count()
-    expect(actionCount).toBeGreaterThanOrEqual(6)
+    const moreTrigger = actionBar.locator('.code-file-editor-more-trigger')
+    await expect(moreTrigger).toBeVisible()
+    await expect(moreTrigger).toHaveAttribute('aria-haspopup', 'menu')
+    await expect(moreTrigger).toHaveAttribute('aria-expanded', 'false')
     const overflow = await actionBar.evaluate(element => ({
       clientWidth: element.clientWidth,
       scrollWidth: element.scrollWidth,
     }))
-    expect(overflow.scrollWidth).toBeGreaterThan(overflow.clientWidth)
-    for (const index of [...Array(actionCount).keys()].reverse()) {
-      const action = actionButtons.nth(index)
-      await action.evaluate(element => element.scrollIntoView({ block: 'nearest', inline: 'center' }))
-      await expect.poll(() => action.evaluate(element => {
-        const rect = element.getBoundingClientRect()
-        const scroller = element.closest<HTMLElement>('.code-file-editor-actions')
-        const scrollerRect = scroller?.getBoundingClientRect()
+    expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth + 1)
+    await moreTrigger.click()
+    const moreMenu = page.getByTestId('code-file-editor-more-menu')
+    await expect(moreMenu).toBeVisible()
+    await expect(moreTrigger).toHaveAttribute('aria-expanded', 'true')
+    // Named required actions for a Markdown file in the More menu.
+    const requiredActions = [
+      page.getByTestId('code-file-editor-more-reveal'),
+      page.getByTestId('code-file-editor-more-share'),
+    ]
+    for (const action of requiredActions) {
+      await expect(action).toBeVisible()
+    }
+    // Every visible menu row must meet the shared menu row contract:
+    // min-height from --code-menu-row-height, within visual viewport,
+    // non-overlapping, and center-hit accessible.
+    const menuGeometry = await moreMenu.evaluate(menu => {
+      const viewport = window.visualViewport
+      const viewportTop = viewport?.offsetTop ?? 0
+      const viewportLeft = viewport?.offsetLeft ?? 0
+      const viewportBottom = viewportTop + (viewport?.height ?? innerHeight)
+      const viewportRight = viewportLeft + (viewport?.width ?? innerWidth)
+      const rows = Array.from(menu.querySelectorAll<HTMLElement>('[role="menuitem"], [role="menuitemcheckbox"]'))
+        .filter(row => getComputedStyle(row).display !== 'none')
+      const rowHeight = parseFloat(getComputedStyle(menu).getPropertyValue('--code-menu-row-height')) || 36
+      return rows.map(row => {
+        const rect = row.getBoundingClientRect()
         const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)
         return {
+          text: (row.textContent || '').trim(),
           width: rect.width,
           height: rect.height,
-          centerInsideScroller: Boolean(
-            scrollerRect
-            && rect.left + rect.width / 2 >= scrollerRect.left
-            && rect.left + rect.width / 2 <= scrollerRect.right
-          ),
-          centerHits: hit === element || element.contains(hit),
+          top: rect.top,
+          bottom: rect.bottom,
+          left: rect.left,
+          right: rect.right,
+          meetsMinHeight: rect.height >= rowHeight,
+          insideViewport: rect.top >= viewportTop && rect.bottom <= viewportBottom
+            && rect.left >= viewportLeft && rect.right <= viewportRight,
+          centerHits: hit === row || row.contains(hit),
         }
-      })).toEqual({
-        width: 44,
-        height: 44,
-        centerInsideScroller: true,
-        centerHits: true,
       })
+    })
+    expect(menuGeometry.length).toBeGreaterThanOrEqual(4)
+    for (let index = 0; index < menuGeometry.length; index++) {
+      const row = menuGeometry[index]!
+      expect(row.meetsMinHeight, `menu row ${index} (${row.text}) must meet min-height`).toBe(true)
+      expect(row.insideViewport, `menu row ${index} (${row.text}) must stay within visual viewport`).toBe(true)
+      expect(row.centerHits, `menu row ${index} (${row.text}) must be center-hit accessible`).toBe(true)
+      // Non-overlap: each row's top must be at or below the previous row's bottom.
+      if (index > 0) {
+        const previous = menuGeometry[index - 1]!
+        expect(row.top, `menu row ${index} (${row.text}) must not overlap row ${index - 1}`).toBeGreaterThanOrEqual(previous.bottom - 1)
+      }
     }
+    await page.keyboard.press('Escape')
+    await expect(moreMenu).toHaveCount(0)
     await save.tap()
     await expect.poll(() => saves.length).toBe(1)
     await expect.poll(() => fs.readFileSync(filePath, 'utf8')).toContain('SAVED_FROM_MOBILE')
@@ -290,40 +322,109 @@ test.describe('iPhone mobile layout', () => {
     const conflictToolbar = await actionBar.evaluate(element => {
       element.scrollLeft = 0
       const scrollerRect = element.getBoundingClientRect()
-      const buttons = [...element.querySelectorAll<HTMLElement>('button')].map(button => {
+      const geometryOf = (button: HTMLElement | null) => {
+        if (!button) return null
         const rect = button.getBoundingClientRect()
-        return { left: rect.left, right: rect.right }
-      })
-      return {
-        clientWidth: element.clientWidth,
-        scrollWidth: element.scrollWidth,
-        allButtonsInside: buttons.every(button => button.left >= scrollerRect.left && button.right <= scrollerRect.right),
-      }
-    })
-    expect(conflictToolbar.scrollWidth).toBeLessThanOrEqual(conflictToolbar.clientWidth + 1)
-    expect(conflictToolbar.allButtonsInside).toBe(true)
-
-    const conflictActions = [
-      page.getByRole('button', { name: 'Reload file' }),
-      page.getByRole('button', { name: 'Overwrite changed file' }),
-    ]
-    for (const action of conflictActions) {
-      const target = await action.evaluate(element => {
-        const rect = element.getBoundingClientRect()
-        const scrollerRect = element.closest<HTMLElement>('.code-file-editor-actions')?.getBoundingClientRect()
         const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)
         return {
           width: rect.width,
           height: rect.height,
-          fullyInsideScroller: Boolean(scrollerRect && rect.left >= scrollerRect.left && rect.right <= scrollerRect.right),
-          centerHits: hit === element || element.contains(hit),
+          visible: getComputedStyle(button).display !== 'none' && rect.width > 0 && rect.height > 0,
+          fullyInsideActionBar: rect.left >= scrollerRect.left
+            && rect.right <= scrollerRect.right
+            && rect.top >= scrollerRect.top
+            && rect.bottom <= scrollerRect.bottom,
+          centerHits: hit === button || button.contains(hit),
         }
-      })
-      expect(target.width).toBeGreaterThanOrEqual(44)
-      expect(target.height).toBeGreaterThanOrEqual(44)
-      expect(target.fullyInsideScroller).toBe(true)
-      expect(target.centerHits).toBe(true)
-    }
+      }
+      const visibleButtons = [...element.querySelectorAll<HTMLElement>('button')]
+        .filter(button => {
+          const rect = button.getBoundingClientRect()
+          return getComputedStyle(button).display !== 'none' && rect.width > 0 && rect.height > 0
+        })
+      return {
+        clientWidth: element.clientWidth,
+        scrollWidth: element.scrollWidth,
+        allVisibleButtonsInside: visibleButtons.every(button => {
+          const rect = button.getBoundingClientRect()
+          return rect.left >= scrollerRect.left
+            && rect.right <= scrollerRect.right
+            && rect.top >= scrollerRect.top
+            && rect.bottom <= scrollerRect.bottom
+        }),
+        moreTrigger: geometryOf(element.querySelector<HTMLElement>('[data-testid="code-file-editor-more"]')),
+        lastVisibleButtonTestId: visibleButtons.at(-1)?.dataset.testid ?? '',
+      }
+    })
+    expect(conflictToolbar.scrollWidth).toBeLessThanOrEqual(conflictToolbar.clientWidth + 1)
+    expect(conflictToolbar.allVisibleButtonsInside).toBe(true)
+    expect(conflictToolbar.moreTrigger).toEqual({
+      width: 44,
+      height: 44,
+      visible: true,
+      fullyInsideActionBar: true,
+      centerHits: true,
+    })
+    expect(conflictToolbar.lastVisibleButtonTestId).toBe('code-file-editor-more')
+
+    await moreTrigger.tap()
+    await expect(moreMenu).toBeVisible()
+    const reloadMenuItem = moreMenu.getByRole('menuitem', { name: 'Reload file' })
+    await expect(reloadMenuItem).toBeVisible()
+    const reloadMenuGeometry = await reloadMenuItem.evaluate(element => {
+      const rect = element.getBoundingClientRect()
+      const menu = element.closest<HTMLElement>('.code-file-editor-more-menu')
+      const rowHeight = menu
+        ? parseFloat(getComputedStyle(menu).getPropertyValue('--code-menu-row-height'))
+        : Number.NaN
+      const viewport = window.visualViewport
+      const viewportTop = viewport?.offsetTop ?? 0
+      const viewportLeft = viewport?.offsetLeft ?? 0
+      const viewportBottom = viewportTop + (viewport?.height ?? innerHeight)
+      const viewportRight = viewportLeft + (viewport?.width ?? innerWidth)
+      const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)
+      return {
+        height: rect.height,
+        rowHeight,
+        insideViewport: rect.top >= viewportTop && rect.bottom <= viewportBottom
+          && rect.left >= viewportLeft && rect.right <= viewportRight,
+        centerHits: hit === element || element.contains(hit),
+      }
+    })
+    expect(Number.isFinite(reloadMenuGeometry.rowHeight)).toBe(true)
+    expect(reloadMenuGeometry.height).toBeGreaterThanOrEqual(reloadMenuGeometry.rowHeight)
+    expect(reloadMenuGeometry.insideViewport).toBe(true)
+    expect(reloadMenuGeometry.centerHits).toBe(true)
+    await page.keyboard.press('Escape')
+    await expect(moreMenu).toHaveCount(0)
+
+    const overwriteAction = actionBar.getByRole('button', { name: 'Overwrite changed file' })
+    await expect(overwriteAction).toBeVisible()
+    await expect(overwriteAction).toBeEnabled()
+    const overwriteGeometry = await overwriteAction.evaluate(element => {
+      const rect = element.getBoundingClientRect()
+      const actionBar = element.closest<HTMLElement>('.code-file-editor-actions')
+      const actionBarRect = actionBar?.getBoundingClientRect()
+      const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)
+      return {
+        width: rect.width,
+        height: rect.height,
+        directActionBarChild: element.parentElement === actionBar,
+        fullyInsideActionBar: Boolean(
+          actionBarRect
+          && rect.left >= actionBarRect.left
+          && rect.right <= actionBarRect.right
+          && rect.top >= actionBarRect.top
+          && rect.bottom <= actionBarRect.bottom
+        ),
+        centerHits: hit === element || element.contains(hit),
+      }
+    })
+    expect(overwriteGeometry.width).toBe(44)
+    expect(overwriteGeometry.height).toBe(44)
+    expect(overwriteGeometry.directActionBarChild).toBe(true)
+    expect(overwriteGeometry.fullyInsideActionBar).toBe(true)
+    expect(overwriteGeometry.centerHits).toBe(true)
     for (const appearance of ['light', 'dark', 'paper'] as const) {
       await page.locator('body').evaluate((body, value) => {
         document.documentElement.dataset.appearance = value
@@ -344,7 +445,7 @@ test.describe('iPhone mobile layout', () => {
       await captureIphoneAudit(page, testInfo, `iphone-file-conflict-${appearance}.png`)
     }
     const savesBeforeOverwrite = saves.length
-    await conflictActions[1]!.tap()
+    await overwriteAction.tap()
     await expect.poll(() => saves.length).toBe(savesBeforeOverwrite + 1)
     expect(saves[0]).toEqual({ overwrite: false })
     expect(saves.at(-1)).toEqual({ overwrite: true })
@@ -786,6 +887,15 @@ test.describe('iPhone mobile layout', () => {
     expect(geometry.composer.left).toBeGreaterThanOrEqual(4)
     expect(geometry.composer.right).toBeLessThanOrEqual(geometry.viewport.width - 4)
     expect(geometry.composer.bottom).toBeLessThanOrEqual(geometry.viewport.height)
+    await captureIphoneAudit(page, testInfo, 'iphone-webkit-landscape-rotation-geometry.png')
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    await expect(page.locator('body')).toHaveClass(/code-compact-layout/)
+    await expect.poll(async () => page.evaluate(() => {
+      const main = document.querySelector<HTMLElement>('[data-testid="code-main"]')?.getBoundingClientRect()
+      return main ? { right: Math.round(main.right), viewportWidth: window.innerWidth } : null
+    }), { timeout: 5_000 }).toEqual({ right: 844, viewportWidth: 844 })
+    await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${agentId}"]`)).toBeVisible({ timeout: 30_000 })
+    await page.waitForFunction(id => Boolean(window.__farmingTerminalTest?.isReady(id)), agentId, { timeout: 30_000 })
     const input = page.getByTestId('code-composer-input')
     await input.tap()
     await page.keyboard.insertText('echo IPHONE_LANDSCAPE_OK')
@@ -826,8 +936,10 @@ test.describe('iPhone mobile layout', () => {
     await expect(page.getByTestId('code-mobile-more')).toBeVisible()
     await expect(page.getByTestId('code-composer-input')).toHaveJSProperty('tagName', 'TEXTAREA')
     if (testInfo.project.name === 'iphone-webkit') {
+      await expect(page.locator('body')).toHaveClass(/code-mobile-ios/)
       await expect(page.locator('body')).toHaveClass(/code-mobile-touch/)
     } else {
+      await expect(page.locator('body')).not.toHaveClass(/code-mobile-ios/)
       await expect(page.locator('body')).not.toHaveClass(/code-mobile-touch/)
     }
 
@@ -1097,13 +1209,13 @@ test.describe('iPhone mobile layout', () => {
         steps: Array(7).fill(expectedHeight),
       })
     }
+    const expectVisibleAgentRows = async (expectedHeight: number) => {
+      await expect.poll(() => project.locator('[data-testid="code-agent-row"][data-agent-id]').evaluateAll(rows => (
+        rows.slice(0, 3).map(row => Math.round(row.getBoundingClientRect().height))
+      ))).toEqual(Array(3).fill(expectedHeight))
+    }
     await expectVisibleFileRows(28)
-    await page.setViewportSize({ width: 1024, height: 800 })
-    await expectVisibleFileRows(24)
-    await page.setViewportSize({ width: 390, height: 844 })
-    await page.getByTestId('code-mobile-menu').tap()
-    await expect(project).toBeVisible()
-    await expectVisibleFileRows(28)
+    await expectVisibleAgentRows(44)
 
     const scrollMetrics = await files.evaluate(async element => {
       const scroller = element.closest<HTMLElement>('.code-project-list')
@@ -1117,11 +1229,8 @@ test.describe('iPhone mobile layout', () => {
       const windowDrift: number[] = []
       const onScroll = () => {
         const viewportRect = viewport.getBoundingClientRect()
-        const scrollerRect = scroller.getBoundingClientRect()
-        const maxOffset = Math.max(0, viewport.offsetHeight - treeWindow.offsetHeight)
-        const expectedOffset = Math.max(0, Math.min(maxOffset, scrollerRect.top - viewportRect.top))
         samples.push(scroller.scrollTop)
-        windowDrift.push(Math.abs(treeWindow.getBoundingClientRect().top - (viewportRect.top + expectedOffset)))
+        windowDrift.push(Math.abs(treeWindow.getBoundingClientRect().top - viewportRect.top))
       }
       scroller.addEventListener('scroll', onScroll)
       for (let step = 0; step < 13; step += 1) {
@@ -1421,36 +1530,80 @@ test.describe('iPhone mobile layout', () => {
       const target = Math.min(scroller.scrollHeight - scroller.clientHeight, outerScrollTop + 1_600)
       scroller.scrollTo({ top: target, behavior: 'smooth' })
       const frames: Array<{
-        innerActual: number
-        innerOverflow: string
+        hasVisibleMountedTarget: boolean
+        physicalRowDrift: number
+        scrollAncestors: string[]
+        treeScrollTop: number
+        treeOverflow: string
+        treeTransform: string
         outerDelta: number
+        outerScrollTop: number
         outerOverflow: string
         windowPosition: string
-        windowTopDelta: number
+        windowCoverage: boolean
+        windowTopDrift: number
       }> = []
       for (let frame = 0; frame < 36; frame += 1) {
         await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
         const scrollerRect = scroller.getBoundingClientRect()
+        const viewportRect = viewport.getBoundingClientRect()
         const windowRect = treeWindow.getBoundingClientRect()
+        const rowHeight = Number.parseFloat(
+          getComputedStyle(document.documentElement).getPropertyValue('--code-sidebar-file-row-height'),
+        )
+        const rows = [...viewport.querySelectorAll<HTMLElement>('[data-testid="code-file-row"]')]
+        const sampleRow = rows.find(row => row.dataset.filePath?.includes('mobile-file-'))
+        const sampleMatch = sampleRow?.dataset.filePath?.match(/mobile-file-(\d+)\.sql$/)
+        const sampleIndex = sampleMatch ? Number(sampleMatch[1]) + 1 : -1
+        const filesHeaderBottom = viewport.closest('[data-testid="code-files-section"]')
+          ?.querySelector<HTMLElement>('.code-files-header')
+          ?.getBoundingClientRect().bottom ?? scrollerRect.top
+        const visibleContentTop = Math.max(scrollerRect.top, filesHeaderBottom)
+        const scrollAncestors: string[] = []
+        for (let ancestor = sampleRow?.parentElement; ancestor; ancestor = ancestor.parentElement) {
+          const overflowY = getComputedStyle(ancestor).overflowY
+          if (overflowY === 'auto' || overflowY === 'scroll') scrollAncestors.push(ancestor.className)
+          if (ancestor === scroller) break
+        }
         frames.push({
-          innerActual: tree.scrollTop,
-          innerOverflow: getComputedStyle(tree).overflowY,
+          hasVisibleMountedTarget: rows.some(row => {
+            if (row.dataset.fileType !== 'file') return false
+            const rect = row.getBoundingClientRect()
+            return rect.bottom > visibleContentTop && rect.top < scrollerRect.bottom
+          }),
+          physicalRowDrift: sampleRow && sampleIndex >= 0
+            ? Math.abs(sampleRow.getBoundingClientRect().top - (viewportRect.top + sampleIndex * rowHeight))
+            : Number.POSITIVE_INFINITY,
+          scrollAncestors,
+          treeScrollTop: tree.scrollTop,
+          treeOverflow: getComputedStyle(tree).overflowY,
+          treeTransform: getComputedStyle(tree).transform,
           outerDelta: Math.abs(scroller.scrollTop - outerScrollTop),
+          outerScrollTop: scroller.scrollTop,
           outerOverflow: getComputedStyle(scroller).overflowY,
           windowPosition: getComputedStyle(treeWindow).position,
-          windowTopDelta: Math.abs(windowRect.top - scrollerRect.top),
+          windowCoverage: Math.abs(tree.clientHeight - treeWindow.clientHeight) <= 1
+            && treeWindow.clientHeight <= viewport.clientHeight,
+          windowTopDrift: Math.abs(windowRect.top - viewportRect.top),
         })
       }
       return frames
     })
     expect(samples.some(sample => sample.outerDelta > 400)).toBe(true)
-    expect(samples.some(sample => sample.innerActual > 400)).toBe(true)
-    expect(samples.every(sample => sample.innerOverflow === 'hidden')).toBe(true)
+    expect(samples.every((sample, index) => index === 0 || sample.outerScrollTop >= samples[index - 1]!.outerScrollTop)).toBe(true)
+    expect(samples.every(sample => sample.treeScrollTop === 0)).toBe(true)
+    expect(samples.every(sample => sample.treeOverflow === 'visible')).toBe(true)
+    expect(samples.every(sample => sample.treeTransform === 'none')).toBe(true)
     expect(samples.every(sample => sample.outerOverflow === 'auto')).toBe(true)
     expect(samples.every(sample => sample.windowPosition === 'absolute')).toBe(true)
+    expect(samples.every(sample => sample.scrollAncestors.length === 1)).toBe(true)
+    expect(samples.every(sample => sample.scrollAncestors[0]?.includes('code-project-list') === true)).toBe(true)
     const activeSamples = samples.filter(sample => sample.outerDelta > 200)
     expect(activeSamples.length).toBeGreaterThan(0)
-    expect(Math.max(...activeSamples.map(sample => sample.windowTopDelta))).toBeLessThanOrEqual(1)
+    expect(activeSamples.every(sample => sample.hasVisibleMountedTarget)).toBe(true)
+    expect(activeSamples.every(sample => sample.windowCoverage)).toBe(true)
+    expect(Math.max(...activeSamples.map(sample => sample.physicalRowDrift))).toBeLessThanOrEqual(1)
+    expect(Math.max(...activeSamples.map(sample => sample.windowTopDrift))).toBeLessThanOrEqual(1)
     await captureIphoneAudit(page, testInfo, 'iphone-webkit-large-file-tree-scroll.png')
   })
 

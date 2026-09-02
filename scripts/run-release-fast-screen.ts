@@ -11,6 +11,38 @@ const projectRoot = path.resolve(__dirname, '..');
 const packageVersion = require(path.join(projectRoot, 'package.json')).version;
 const tasks: FastScreenTask[] = [
   {
+    name: 'authoritative release lineage',
+    args: ['--import', 'tsx', '--test', 'tests/release-lineage.test.ts'],
+  },
+  {
+    name: 'API route registration and access ordering',
+    args: ['--import', 'tsx', 'backend/tests/test-server-route-manifest.ts'],
+  },
+  {
+    name: 'shared UI design ownership',
+    args: ['--import', 'tsx', 'backend/tests/test-ui-design-ownership.ts'],
+  },
+  {
+    name: 'native PTY socket publication ownership',
+    args: ['--import', 'tsx', 'backend/tests/test-native-pty-publication.ts'],
+  },
+  {
+    name: 'Codex Terminal model menu transaction',
+    args: ['--import', 'tsx', 'backend/tests/test-codex-terminal-profile.ts'],
+  },
+  {
+    name: 'Terminal uncertain input admission fence',
+    args: ['--import', 'tsx', 'backend/tests/test-terminal-uncertain-input-fence.ts'],
+  },
+  {
+    name: 'bounded Desktop command and download lifecycle',
+    args: [
+      '--import', 'tsx', '--test',
+      '--test-name-pattern=local command completion cannot revive|remote bootstrap TERM cleans|desktop release download reports progress',
+      'tests/desktop-backend.test.ts',
+    ],
+  },
+  {
     name: 'managed dependency registry policy',
     args: ['scripts/check-release-managed-dependency-updates.mjs'],
   },

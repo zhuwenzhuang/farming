@@ -503,6 +503,21 @@ test('overlays right-side file actions on overflowing tabs and shows a seamless 
     const tabsRect = tabs.getBoundingClientRect()
     const breadcrumbRect = breadcrumbs.getBoundingClientRect()
     const firstAction = actions.querySelector<HTMLElement>('.code-file-editor-action')!
+    const revealAction = actions.querySelector<HTMLElement>('[data-testid="code-file-editor-reveal"]')
+    const moreTrigger = actions.querySelector<HTMLElement>('[data-testid="code-file-editor-more"]')
+    const agentToggle = actions.querySelector<HTMLElement>('[data-testid="code-resource-agent-toggle"]')
+    const actionButtons = [...actions.querySelectorAll<HTMLElement>('.code-file-editor-action')]
+    const boxOf = (element: HTMLElement | null) => {
+      if (!element) return null
+      const bounds = element.getBoundingClientRect()
+      return {
+        left: bounds.left,
+        right: bounds.right,
+        top: bounds.top,
+        bottom: bounds.bottom,
+        display: getComputedStyle(element).display,
+      }
+    }
     return {
       actionsInsideTabStrip: actions.parentElement === tabStrip,
       actionsAfterTabs: Boolean(tabs.compareDocumentPosition(actions) & Node.DOCUMENT_POSITION_FOLLOWING),
@@ -520,6 +535,15 @@ test('overlays right-side file actions on overflowing tabs and shows a seamless 
       actionBorderWidth: getComputedStyle(firstAction).borderTopWidth,
       actionGap: getComputedStyle(actions).gap,
       agentToggleIsLast: actions.lastElementChild?.matches('[data-testid="code-resource-agent-toggle"]') === true,
+      actionOrder: {
+        reveal: revealAction ? actionButtons.indexOf(revealAction) : -1,
+        more: moreTrigger ? actionButtons.indexOf(moreTrigger) : -1,
+        agentToggle: agentToggle ? actionButtons.indexOf(agentToggle) : -1,
+        count: actionButtons.length,
+      },
+      revealBox: boxOf(revealAction),
+      moreBox: boxOf(moreTrigger),
+      agentToggleBox: boxOf(agentToggle),
       actionBackground: getComputedStyle(actions).backgroundColor,
       tabStripBackground: getComputedStyle(tabStrip).backgroundColor,
       tabStripBorderBottomWidth: getComputedStyle(tabStrip).borderBottomWidth,
@@ -543,6 +567,28 @@ test('overlays right-side file actions on overflowing tabs and shows a seamless 
   expect(headerLayout.actionBorderWidth).toBe('0px')
   expect(headerLayout.actionGap).toBe('2px')
   expect(headerLayout.agentToggleIsLast).toBe(true)
+  // Reveal and the Agent-side toggle remain direct primary actions; the More
+  // trigger is the narrow-only overflow affordance and stays hidden here.
+  expect(headerLayout.revealBox).not.toBeNull()
+  expect(headerLayout.revealBox!.display).not.toBe('none')
+  expect(headerLayout.agentToggleBox).not.toBeNull()
+  expect(headerLayout.agentToggleBox!.display).not.toBe('none')
+  expect(headerLayout.moreBox).not.toBeNull()
+  expect(headerLayout.moreBox!.display).toBe('none')
+  // Semantic order: file-location action, then the overflow trigger, then the
+  // terminal Agent-side toggle.
+  expect(headerLayout.actionOrder.reveal).toBeGreaterThanOrEqual(0)
+  expect(headerLayout.actionOrder.more).toBeGreaterThan(headerLayout.actionOrder.reveal)
+  expect(headerLayout.actionOrder.agentToggle).toBeGreaterThan(headerLayout.actionOrder.more)
+  expect(headerLayout.actionOrder.agentToggle).toBe(headerLayout.actionOrder.count - 1)
+  // Reachable actions stay inside the action surface and never overlap.
+  for (const box of [headerLayout.revealBox!, headerLayout.agentToggleBox!]) {
+    expect(box.left).toBeGreaterThanOrEqual(headerLayout.actionLeft)
+    expect(box.right).toBeLessThanOrEqual(headerLayout.actionRight)
+    expect(box.top).toBeGreaterThanOrEqual(headerLayout.actionTop)
+    expect(box.bottom).toBeLessThanOrEqual(headerLayout.actionBottom)
+  }
+  expect(headerLayout.revealBox!.right).toBeLessThanOrEqual(headerLayout.agentToggleBox!.left)
   expect(headerLayout.actionBackground).toBe(headerLayout.tabStripBackground)
   expect(headerLayout.headerBorderBottomWidth).toBe('0px')
   expect(headerLayout.breadcrumbBackground).toBe(headerLayout.contentBackground)

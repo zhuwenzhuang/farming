@@ -502,7 +502,12 @@ test('captures an agent working copy as an isolated immutable review session', a
   await expect(review.getByLabel('Diff for src/fail.cpp').getByRole('alert')).toHaveText('Could not load diff: diff backend unavailable')
 
   await page.setViewportSize({ width: 390, height: 844 })
-  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390)
+  expect(page.viewportSize()?.width).toBe(390)
+  const documentWidth = await page.evaluate(() => ({
+    clientWidth: document.documentElement.clientWidth,
+    scrollWidth: document.documentElement.scrollWidth,
+  }))
+  expect(documentWidth.scrollWidth).toBeLessThanOrEqual(documentWidth.clientWidth)
 })
 
 test('captures recent untracked files as an immutable single-column review', async ({ page }) => {

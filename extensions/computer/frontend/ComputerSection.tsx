@@ -1,9 +1,13 @@
-import { useEffect, useRef, useState } from 'react'
+import { useInteractionLayer } from '@/hooks/useInteractionLayer'
+import { useMenuViewportBounds } from '@/hooks/useMenuViewportBounds'
+import { useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
   ChevronDownGlyph,
   ChevronRightGlyph,
   DesktopGlyph,
+  MoreHorizontalGlyph,
+  PlayGlyph,
   PlusGlyph,
   SquareGlyph,
 } from '@/components/IconGlyphs'
@@ -43,24 +47,6 @@ function copyFor(language: UiPreferences['language']) {
   }
 }
 
-function PlayGlyph() {
-  return (
-    <svg viewBox="0 0 16 16" aria-hidden="true">
-      <path d="M4.5 2.6a.75.75 0 0 1 1.15-.63l7 4.9a.75.75 0 0 1 0 1.23l-7 4.9A.75.75 0 0 1 4.5 12.4V2.6Z" />
-    </svg>
-  )
-}
-
-function MoreGlyph() {
-  return (
-    <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-      <circle cx="3" cy="8" r="1.1" />
-      <circle cx="8" cy="8" r="1.1" />
-      <circle cx="13" cy="8" r="1.1" />
-    </svg>
-  )
-}
-
 export function ComputerSection({
   workspace,
   agentId,
@@ -94,28 +80,13 @@ export function ComputerSection({
   const moreButtonRef = useRef<HTMLButtonElement>(null)
   const moreMenuRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    if (!moreOpen) return undefined
-    const close = (event: PointerEvent) => {
-      if (
-        event.target instanceof Node
-        && (moreButtonRef.current?.contains(event.target) || moreMenuRef.current?.contains(event.target))
-      ) return
-      setMoreOpen(false)
-    }
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
-      event.preventDefault()
-      setMoreOpen(false)
-      moreButtonRef.current?.focus()
-    }
-    window.addEventListener('pointerdown', close, true)
-    window.addEventListener('keydown', closeOnEscape, true)
-    return () => {
-      window.removeEventListener('pointerdown', close, true)
-      window.removeEventListener('keydown', closeOnEscape, true)
-    }
-  }, [moreOpen])
+  useMenuViewportBounds(moreOpen, moreMenuRef, moreMenuPosition)
+  useInteractionLayer({
+    enabled: moreOpen,
+    elements: () => [moreButtonRef.current, moreMenuRef.current],
+    onDismiss: () => setMoreOpen(false),
+    returnFocus: () => moreButtonRef.current,
+  })
 
   const create = async () => {
     try {
@@ -288,12 +259,12 @@ export function ComputerSection({
                     setMoreOpen(true)
                   }}
                 >
-                  <MoreGlyph />
+                  <MoreHorizontalGlyph />
                 </button>
                 {moreOpen && typeof document !== 'undefined' && createPortal(
                   <div
                     ref={moreMenuRef}
-                    className="farming-computer-more-menu"
+                    className="code-menu-surface code-menu-list farming-computer-more-menu"
                     role="menu"
                     style={{ left: moreMenuPosition.left, top: moreMenuPosition.top }}
                   >

@@ -44,7 +44,7 @@ body.code-mode {
      every appearance. Keep the semantic alias without spending another
      bounded registry entry. */
   --code-bg-surface: var(--code-bg-canvas);
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  font-family: var(--code-ui-font-family);
   font-size: 14px;
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
@@ -57,12 +57,6 @@ body.code-mode {
 body.code-mode::before,
 body.code-mode::after {
   display: none !important;
-}
-
-body.code-mode button,
-body.code-mode textarea,
-body.code-mode input {
-  font: inherit;
 }
 
 @keyframes blink {
@@ -121,14 +115,6 @@ body.code-resizing-resource-agent {
 .code-mobile-topbar,
 .code-mobile-sidebar-backdrop {
   display: none;
-}
-
-.code-context-menu button {
-  border: 0;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-  border-radius: 8px;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -856,14 +842,8 @@ body.code-resizing-resource-agent .code-resource-agent-resizer,
   position: fixed;
   z-index: 10006;
   width: 210px;
-  padding: 5px;
-  border: 0;
-  border-radius: 7px;
-  background: var(--code-context-menu-surface);
-  box-shadow: var(--code-shadow-raised);
   max-height: calc(100vh - 16px);
   overflow-y: auto;
-  color: var(--code-text);
 }
 
 body.code-resizing-language-server-dock {
@@ -873,28 +853,7 @@ body.code-resizing-language-server-dock {
 
 .code-editor-context-menu button {
   width: 100%;
-  min-height: 26px;
-  padding: 4px 8px;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--code-text);
-  cursor: pointer;
-  font: inherit;
-  font-size: 12px;
   text-align: left;
-}
-
-.code-editor-context-menu button:hover:not(:disabled),
-.code-editor-context-menu button:focus-visible {
-  background: var(--code-bg-hover);
-  outline: 0;
-  color: var(--code-text);
-}
-
-.code-editor-context-menu button:disabled {
-  color: var(--code-text-subtle);
-  cursor: not-allowed;
 }
 
 .code-editor-context-separator {
@@ -909,12 +868,6 @@ body.code-resizing-language-server-dock {
   width: max-content;
   min-width: 132px;
   max-width: min(280px, calc(100vw - 24px));
-  padding: 5px;
-  border: 0;
-  border-radius: 8px;
-  background: var(--code-context-menu-surface);
-  box-shadow: var(--code-shadow-raised);
-  color: var(--code-text);
 }
 
 .code-context-menu button {
@@ -925,13 +878,8 @@ body.code-resizing-language-server-dock {
   width: auto;
   min-width: 100%;
   box-sizing: border-box;
-  min-height: 26px;
-  padding: 4px 10px;
   text-align: left;
-  font-size: 13px;
-  line-height: 1.2;
   white-space: nowrap;
-  color: var(--code-text);
 }
 
 .code-context-menu-icon {
@@ -957,31 +905,10 @@ body.code-resizing-language-server-dock {
   margin-left: auto;
 }
 
-.code-context-menu button:hover:not(:disabled) {
-  background: var(--code-bg-hover);
-}
-
-.code-context-menu button:focus,
-.code-context-menu button:focus-visible {
-  outline: 2px solid var(--code-focus-ring);
-  outline-offset: -2px;
-  background: var(--code-bg-hover);
-  color: var(--code-text);
-}
-
-.code-context-menu button:disabled {
-  color: var(--code-text-disabled);
-  cursor: not-allowed;
-}
-
 .code-context-menu-separator {
   height: 1px;
   margin: 5px 0;
   background: var(--code-border-subtle);
-}
-
-.code-context-menu button.danger {
-  color: var(--code-danger);
 }
 
 .code-context-menu button.danger .code-context-menu-icon {
@@ -992,11 +919,6 @@ body.code-resizing-language-server-dock {
   width: max-content;
   min-width: 150px;
   max-width: min(220px, calc(100vw - 16px));
-  padding: 6px;
-  background: var(--code-bg-raised);
-  border-color: var(--code-border);
-  color: var(--code-text);
-  box-shadow: 0 18px 48px var(--code-shadow-color);
 }
 
 .code-options-menu button {
@@ -1294,24 +1216,6 @@ body.code-resizing-language-server-dock {
 }
 
 .code-side-view-panel[hidden] { display: none; }
-
-.code-agent-opening {
-  min-width: 0;
-  min-height: 0;
-  flex: 1;
-  overflow: auto;
-  color: var(--code-text);
-  background: var(--code-bg-surface);
-}
-
-.code-agent-opening.ready { flex: 0 0 auto; }
-.code-agent-opening-header { padding: 12px 20px; }
-.code-agent-opening-body { max-width: 820px; margin: 24px auto; padding: 0 24px; overflow-wrap: anywhere; }
-.code-agent-opening-body h2 { font-size: 20px; font-weight: 600; margin: 0 0 12px; outline: none; }
-.code-agent-opening-identity, .code-agent-opening-note { color: var(--code-text-muted); font-size: 13px; }
-.code-agent-opening-status { margin: 32px 0 20px; }
-.code-agent-opening-status p { font-size: 14px; }
-.code-agent-opening-status[role="alert"] > strong { color: var(--code-danger); }
 
 .code-side-view-heading {
   min-width: 0;
@@ -3819,10 +3723,6 @@ body.code-mode.code-compact-layout .code-options-menu button:focus-visible {
 .workspace-input textarea.task-input::placeholder {
   color: var(--code-text-subtle);
 }
-.code-context-menu button:hover {
-  background: var(--code-bg-raised);
-  color: var(--code-text);
-}
 .code-options-menu button:hover {
   background: var(--code-bg-hover);
   color: var(--code-text);
@@ -3997,9 +3897,6 @@ body.code-mode.code-compact-layout .code-options-menu button:focus-visible {
 }
 .code-options-menu button {
   background: transparent;
-}
-.code-context-menu button:hover {
-  outline: none;
 }
 .code-options-menu button:hover {
   outline: none;

@@ -85,13 +85,41 @@ test('IME cancellation does not dismiss a menu or its parent dialog', async ({ p
 })
 
 test('wizard and portal dialogs own Escape above the background search', async ({ page, workspaceRoot }) => {
+  const currentSettings = await page.request.get('/farming/api/settings')
+  if (!currentSettings.ok()) {
+    throw new Error(`Settings fixture read failed (${currentSettings.status()}): ${await currentSettings.text()}`)
+  }
+  const currentSettingsData = await currentSettings.json() as {
+    settings?: {
+      agentHomes?: Record<string, Array<{
+        id: string
+        path: string
+        order?: number
+        acpRuntime?: { mode?: string; executable?: string }
+        newAgentDefaults?: { model?: string; reasoning?: string; fast?: string }
+      }>>
+    }
+  }
+  const existingCodexHomes = currentSettingsData.settings?.agentHomes?.codex ?? []
+  const defaultCodexHome = existingCodexHomes.find(home => home.id === 'default')
+  if (!defaultCodexHome?.path) {
+    throw new Error('Settings fixture requires the existing codex default Agent Home')
+  }
+  const workHomePath = path.join(workspaceRoot, 'work-home')
   const settings = await page.request.post('/farming/api/settings', {
-    data: { agentHomes: { codex: [
-      { id: 'default', path: path.join(workspaceRoot, 'default-home') },
-      { id: 'work', path: path.join(workspaceRoot, 'work-home') },
-    ] } },
+    data: {
+      agentHomes: {
+        codex: [
+          defaultCodexHome,
+          { id: 'work', path: workHomePath },
+          ...existingCodexHomes.filter(home => home.id !== 'default' && home.id !== 'work'),
+        ],
+      },
+    },
   })
-  expect(settings.ok()).toBeTruthy()
+  if (!settings.ok()) {
+    throw new Error(`Settings fixture setup failed (${settings.status()}): ${await settings.text()}`)
+  }
   const response = await page.request.post('/farming/api/control/agents', {
     data: { command: 'bash', workspace: workspaceRoot },
   })

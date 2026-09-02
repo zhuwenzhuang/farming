@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, type CSSProperties } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, type CSSProperties } from 'react'
 import { iconForFilePath } from '@/lib/file-icons'
 import { ChevronDownGlyph, ChevronRightGlyph } from '@/components/IconGlyphs'
 import { parentDirectory } from '@/lib/workspace-file-tree'
@@ -51,8 +51,26 @@ export function OpenEditorsSection({
   const visibleRowCount = Math.min(files.length, OPEN_EDITORS_VISIBLE_ROW_LIMIT)
   const rootStyle = useMemo(() => ({
     '--code-open-editors-visible-rows': visibleRowCount,
-    '--code-open-editors-list-max-height': `${visibleRowCount * OPEN_EDITOR_ROW_HEIGHT}px`,
   }) as CSSProperties, [visibleRowCount])
+
+  useLayoutEffect(() => {
+    const list = listRef.current
+    if (!list) return
+    const synchronizeScrollbarLane = () => {
+      const scrollbarWidth = Math.max(0, list.offsetWidth - list.clientWidth)
+      const value = `${scrollbarWidth}px`
+      if (list.style.getPropertyValue('--code-open-editors-scrollbar-width') === value) return
+      list.style.setProperty('--code-open-editors-scrollbar-width', value)
+    }
+    synchronizeScrollbarLane()
+    const frameId = window.requestAnimationFrame(synchronizeScrollbarLane)
+    const observer = new ResizeObserver(synchronizeScrollbarLane)
+    observer.observe(list)
+    return () => {
+      window.cancelAnimationFrame(frameId)
+      observer.disconnect()
+    }
+  }, [collapsed, files.length])
 
   useEffect(() => {
     if (collapsed) return

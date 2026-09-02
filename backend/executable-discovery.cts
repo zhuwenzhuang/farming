@@ -30,6 +30,7 @@ interface ExecutableResolutionOptions {
   readVersion?: ExecutableVersionReader;
   systemCandidates?: string[];
   trustConfiguredExecutable?: boolean;
+  allowFakeAcpRuntime?: boolean;
 }
 
 interface CodexExecutableResolution {
@@ -464,6 +465,19 @@ function resolveProviderAcpExecutable(
   const configuredAgentName = String(agentName || '').trim();
   const normalizedAgentName = path.basename(configuredAgentName);
   const definition = EXECUTABLE_DISCOVERY_DEFINITIONS[normalizedAgentName];
+  // Deterministic fake-ACP E2E spawn path: the fake ACP runtime is a fixture,
+  // so its executable resolution must not require a real provider binary.
+  // This option is set only by the fake-ACP spawn call site, never by custom
+  // absolute-executable or production paths.
+  if (options.allowFakeAcpRuntime === true) {
+    return {
+      compatible: true,
+      error: '',
+      path: configuredAgentName || normalizedAgentName,
+      requiredVersion: definition?.acpMinimumVersion || '',
+      version: '',
+    };
+  }
   const candidates = options.candidates
     || (path.isAbsolute(configuredAgentName)
       ? [configuredAgentName]

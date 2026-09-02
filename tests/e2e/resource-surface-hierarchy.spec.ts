@@ -390,15 +390,20 @@ test('expanded Agent resources consume the navigation and active-item tokens in 
       expect(actionsBox.y + actionsBox.height).toBeLessThanOrEqual(rowBox.y + rowBox.height + 0.5)
     }
 
-    // Rendered pixel proof: sample inside the actions zone's button-free left
-    // band (actions are 65px wide at right:4; buttons occupy the right 47px).
-    const rowShot = await computerRow.screenshot()
-    const shotSize = ScreenshotPng.sync.read(rowShot)
-    const scale = rowBox ? shotSize.width / rowBox.width : 1
-    const sampleX = rowBox ? (rowBox.width - 60) * scale : 0
-    const sampleY = rowBox ? (rowBox.height / 2) * scale : 0
-    expectChannelsClose(samplePixel(rowShot, sampleX, sampleY), compositedFinal, 8, `${appearance} rendered actions pixel`)
-    await attachScreenshot(testInfo, `resource-row-hover-${appearance}-regular`, rowShot)
+    // Rendered pixel proof: preserve the live hover while capturing the page,
+    // then sample the actions zone's button-free left band in viewport coordinates
+    // (actions are 65px wide at right:4; buttons occupy the right 47px).
+    await computerRow.hover()
+    const hoverShot = await page.screenshot()
+    const shotSize = ScreenshotPng.sync.read(hoverShot)
+    const viewport = page.viewportSize()
+    expect(viewport, 'page screenshot sampling requires the configured viewport').not.toBeNull()
+    const scaleX = viewport ? shotSize.width / viewport.width : 1
+    const scaleY = viewport ? shotSize.height / viewport.height : 1
+    const sampleX = rowBox ? (rowBox.x + rowBox.width - 60) * scaleX : 0
+    const sampleY = rowBox ? (rowBox.y + rowBox.height / 2) * scaleY : 0
+    expectChannelsClose(samplePixel(hoverShot, sampleX, sampleY), compositedFinal, 8, `${appearance} rendered actions pixel`)
+    await attachScreenshot(testInfo, `resource-row-hover-${appearance}-regular`, hoverShot)
     await page.mouse.move(5, 5)
 
     // Selected row (real click): same opaque surface, same text role, no accent text.
@@ -597,11 +602,11 @@ test('resource row focus feedback, Space activation, cursor parity, and touch ta
   await page.getByTestId('code-mobile-menu').click()
   await expect(sidebar).toBeVisible()
   const compactRowBox = await computerRow.boundingBox()
-  expect(compactRowBox?.height ?? 0, 'compact resource row must keep at least the 24px minimum').toBeGreaterThanOrEqual(24)
+  expect(compactRowBox?.height ?? 0, 'compact resource row must use the shared 44px touch target').toBeGreaterThanOrEqual(44)
   const compactAgentBox = await agentRow.boundingBox()
   testInfo.annotations.push({
     type: 'measured-density',
-    description: `compact: resource row ${compactRowBox?.height}px, Agent row ${compactAgentBox?.height}px (Agent rows scale to the 44px touch contract; resource rows keep 32px density, matching file rows at 24px)`,
+    description: `compact: resource row ${compactRowBox?.height}px, Agent row ${compactAgentBox?.height}px (Agent and Resource rows share the 44px touch contract; dense file rows keep their separate 28px variant)`,
   })
 
   // Compact density focus check: the same fill contract holds in the drawer.

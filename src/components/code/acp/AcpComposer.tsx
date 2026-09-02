@@ -521,13 +521,13 @@ export function AcpComposer({
         </section>
       ) : null}
       {showCommands ? (
-        <div className="code-slash-menu code-composer-menu" data-testid="code-acp-command-menu" role="listbox" aria-label="ACP commands">
+        <div className="code-menu-surface code-slash-menu code-composer-menu" data-testid="code-acp-command-menu" role="listbox" aria-label="ACP commands">
           <div className="code-slash-menu-header">{commandTrigger?.trigger === '$' ? 'Skills' : 'Agent commands'}</div>
           {filteredCommands.map((command, index) => (
             <button
               key={command.name}
               type="button"
-              className={`code-slash-command ${index === activeCommandIndex ? 'active' : ''}`}
+              className={`code-menu-item code-slash-command ${index === activeCommandIndex ? 'active' : ''}`}
               data-testid={`code-acp-command-${command.name}`}
               role="option"
               aria-selected={index === activeCommandIndex}
@@ -624,7 +624,7 @@ export function AcpComposer({
               <PlusGlyph />
             </button>
             {openMenu === 'commands' ? (
-              <div className="code-plus-menu code-composer-menu" role="menu" data-testid="code-acp-plus-menu">
+              <div className="code-menu-surface code-menu-list code-plus-menu code-composer-menu" role="menu" data-testid="code-acp-plus-menu">
                 <button
                   type="button"
                   role="menuitem"

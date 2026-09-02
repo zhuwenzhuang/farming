@@ -34,6 +34,8 @@ assertDomainStyleOwnership({
     'src/components/files/ProjectFilesSection.tsx',
   ],
   unstyledClassNames: [
+    // Menu chrome belongs to the shared UI family recipe.
+    'code-file-context-menu',
     'code-file-blame-state',
     'code-file-change-directory-row',
     'code-file-change-tracked-group',

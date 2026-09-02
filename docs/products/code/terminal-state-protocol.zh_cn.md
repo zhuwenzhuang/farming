@@ -10,6 +10,12 @@ Native PTY Host 拥有 Live PTY、有序 Byte Stream、Terminal Reducer、Screen
 Identity 与 Restart Continuity。Farming Server 控制 Lifecycle 并发布状态；Browser Renderer
 只 Attach 到该状态，不拥有 Terminal Truth。
 
+在 Unix 上，每个 Host 绑定一个私有 Listener，并发布与 Config 对应的公共 Socket Link。
+启动与公共 Link 丢失后的恢复共用同一条原子发布规则：目标不存在时可以建立 Link；目标已存在时，
+只有两个路径均为 Socket 且 Device 与 Inode 完全相同，才视为发布完成。不同 Socket 或非 Socket
+节点属于明确冲突，绝不替换。因此，同一 Listener 的并发发布不会终止该 Host，也不会创建另一个
+Host。恢复仍须验证 Host Runtime 与 Controller，之后才能接收 Terminal Operation。
+
 一次 PTY Lifetime 对应一个 Runtime Epoch。Epoch 内的有序 Output 与 State Revision 标识一份
 权威 Cut；它们只是 Transport Cursor，不是第二套 Agent Lifecycle。
 

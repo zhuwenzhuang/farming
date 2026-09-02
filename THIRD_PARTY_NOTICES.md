@@ -112,6 +112,13 @@ Farming's `screen-full` glyph is copied from
 [Visual Studio Code Codicons](https://github.com/microsoft/vscode-codicons/tree/1c47ab36a4bb845c437866405c2fa67b8ca0fe36),
 licensed under CC BY 4.0, Copyright (c) Microsoft Corporation.
 
+Farming's Reveal in Explorer icon uses the
+[`target` icon from Microsoft Codicons](https://github.com/microsoft/vscode-codicons/blob/80617137f764487b13bacee11837da0b5dbb85a3/src/icons/target.svg),
+Copyright (c) Microsoft Corporation, licensed under
+[Creative Commons Attribution 4.0 International](https://creativecommons.org/licenses/by/4.0/).
+The SVG path is unchanged; Farming adapts the wrapper to a shared React
+component with inherited color and accessibility attributes.
+
 If vendored assets are updated, keep this notice in sync with the package name,
 version, and license.
 

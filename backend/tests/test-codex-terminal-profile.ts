@@ -33,6 +33,16 @@ const MODEL_MENU = [
   '› 8. gpt-5.6-sol        Strong coding variant',
 ].join('\n');
 
+// Codex 0.151 presents quick modes before its full model/effort picker.
+const QUICK_MODEL_MENU = [
+  'Select Model',
+  'Pick a quick mode or browse all models.',
+  '  1. codex-auto-review   AI model available through this gateway.',
+  '› 2. All models (current)  Choose a specific model and reasoning level (current: gpt-5.6-luna)',
+  '',
+  'gpt-5.6-luna low · /workspace',
+].join('\n');
+
 const REASONING_MENU = [
   'Select Reasoning Level for gpt-5.6-sol',
   '',
@@ -110,6 +120,10 @@ async function run() {
   );
   assert.strictEqual(isCodexTerminalComposerPreview(IDLE_55), true);
   assert.strictEqual(isCodexTerminalComposerPreview(MODEL_MENU), false);
+  assert.strictEqual(isCodexTerminalComposerPreview(QUICK_MODEL_MENU), false,
+    'the quick-mode picker must not be mistaken for its unchanged composer footer');
+  assert.strictEqual(isCodexTerminalComposerPreview(QUICK_MODEL_MENU.replace(/\n/g, '\r\n')), false,
+    'CRLF terminal previews must recognize the same quick-mode picker');
 
   let identityPreview = IDLE_55;
   const identityInputs = [];
@@ -285,6 +299,180 @@ async function run() {
     serviceTier: 'priority',
   });
 
+  for (const effort of ['low', 'ultra']) {
+    let quickPreview = IDLE_55;
+    const quickInputs = [];
+    let pendingAppliedReads = 0;
+    const targetFooter = `gpt-5.6-sol ${effort} · /workspace`;
+    const result = await applyCodexTerminalProfile({
+      profile: { model: 'gpt-5.6-sol', effort, serviceTier: 'default' },
+      readPreview: async () => {
+        if (pendingAppliedReads > 0 && --pendingAppliedReads === 0) quickPreview = targetFooter;
+        return quickPreview;
+      },
+      sendInput: async input => {
+        quickInputs.push(input);
+        if (Array.isArray(input)) quickPreview = QUICK_MODEL_MENU;
+        else if (quickPreview === QUICK_MODEL_MENU && input === '2') quickPreview = MODEL_MENU;
+        else if (quickPreview === MODEL_MENU && input === '8') quickPreview = `${REASONING_MENU}\n${targetFooter}`;
+        else if (input === '5') quickPreview = `${ADVANCED_REASONING_MENU}\n${targetFooter}`;
+        else if (input === (effort === 'low' ? '1' : '2')) pendingAppliedReads = 3;
+        else assert.fail(`unexpected quick-picker input: ${JSON.stringify(input)}`);
+      },
+      sleep: async () => {},
+      pollIntervalMs: 0,
+      timeoutMs: 1000,
+    });
+    assert.deepStrictEqual(quickInputs, [
+      [{ type: 'paste', text: '/model' }, '\r'], '2', '8',
+      ...(effort === 'low' ? ['1'] : ['5', '2']),
+    ], 'quick modes must enter All models once, then use the existing model/effort transaction');
+    assert.deepStrictEqual(result, { model: 'gpt-5.6-sol', effort, serviceTier: 'default' });
+    assert.strictEqual(pendingAppliedReads, 0,
+      'matching profile text under an active picker must not confirm completion');
+  }
+
+  await assert.rejects(applyCodexTerminalProfile({
+    profile: { model: 'gpt-5.6-luna', effort: 'low', serviceTier: 'default' },
+    readPreview: async () => QUICK_MODEL_MENU,
+    sendInput: async () => assert.fail('an existing quick picker must reject a new transaction'),
+  }), /Close the active Codex Terminal menu/);
+
+  const pagedCatalog = [
+    'model-1', 'model-2', 'model-3', 'model-4', 'model-5', 'model-6', 'model-7',
+    'gpt-5.6-terra', 'gpt-5.6-sol-openai-compact', 'gpt-5.6-sol', 'gpt-5.6-luna', 'model-12',
+  ];
+  for (const scenario of ['hidden-target', 'visible-two-digit', 'three-digit', 'wrap-target', 'missing-target', 'missing-cursor', 'stalled-cursor', 'move-uncertain', 'move-canceled']) {
+    const pagedModels = scenario === 'three-digit'
+      ? Array.from({ length: 102 }, (_, index) => index === 99 ? 'gpt-5.6-sol' : `model-${index + 1}`)
+      : pagedCatalog;
+    const target = scenario === 'wrap-target' ? 'model-2'
+      : scenario === 'missing-target' ? 'model-absent' : 'gpt-5.6-sol';
+    let selected = scenario === 'three-digit' ? 99 : scenario === 'wrap-target' ? 10 : 8;
+    let firstVisible = scenario === 'three-digit' ? 92
+      : scenario === 'visible-two-digit' ? 3 : scenario === 'wrap-target' ? 5 : 1;
+    const renderPage = () => [
+      'Select Model and Effort',
+      ...pagedModels.slice(firstVisible - 1, firstVisible + 7).map((model, offset) => {
+        const index = firstVisible + offset;
+        const marker = scenario !== 'missing-cursor' && index === selected ? '›' : ' ';
+        return `${marker} ${index}. ${model}  Available model`;
+      }),
+      'gpt-5.5 xhigh · /workspace',
+    ].join('\r\n');
+    let pagedPreview = IDLE_55;
+    let pendingPreview = '';
+    let staleReads = 0;
+    const pagedInputs = [];
+    const controller = new globalThis.AbortController();
+    const originalNow = Date.now;
+    let controlledNow = originalNow();
+    if (scenario === 'stalled-cursor') Date.now = () => controlledNow;
+    try {
+      const applying = applyCodexTerminalProfile({
+        profile: { model: target, effort: 'low', serviceTier: 'default' },
+        readPreview: async () => {
+          if (staleReads > 0 && --staleReads === 0) pagedPreview = pendingPreview;
+          return pagedPreview;
+        },
+        sendInput: async input => {
+          pagedInputs.push(input);
+          if (Array.isArray(input)) pagedPreview = renderPage();
+          else if (input === '\x1b[B') {
+            assert.strictEqual(staleReads, 0, 'do not repeat navigation before the prior cursor move is visible');
+            if (scenario === 'stalled-cursor') return;
+            selected = selected % pagedModels.length + 1;
+            if (selected < firstVisible) firstVisible = selected;
+            if (selected > firstVisible + 7) firstVisible = selected - 7;
+            pendingPreview = renderPage();
+            staleReads = 3;
+            if (scenario === 'move-uncertain') throw new Error('navigation write outcome unknown');
+            if (scenario === 'move-canceled') controller.abort(new Error('navigation canceled'));
+          } else if (input === '\r') {
+            assert.strictEqual(pagedModels[selected - 1], target, 'Enter must select the exact highlighted model');
+            pagedPreview = `Select Reasoning Level for ${target}\n  1. Low  Fast responses`;
+          } else if (input === '1') pagedPreview = `${target} low · /workspace`;
+          else if (input === '\x1b') { staleReads = 0; pagedPreview = IDLE_55; }
+          else assert.fail(`unsafe paged model selection: ${JSON.stringify(input)}`);
+        },
+        signal: controller.signal,
+        sleep: async () => {
+          // Expire the 72ms operation budget, keeping its 8ms cleanup reserve.
+          // This exercises the original deadline without host scheduling races.
+          if (scenario === 'stalled-cursor') controlledNow += 72;
+        },
+        pollIntervalMs: 0,
+        timeoutMs: scenario === 'stalled-cursor' ? 80 : 1000,
+      });
+      if (scenario === 'missing-target' || scenario === 'missing-cursor' || scenario === 'stalled-cursor' || scenario.startsWith('move-')) {
+        const expected = scenario === 'missing-target' ? /Model model-absent is not available/
+          : scenario === 'missing-cursor' ? /did not identify its selected model/
+            : scenario === 'stalled-cursor' ? /did not advance while locating/
+              : scenario === 'move-uncertain' ? /navigation write outcome unknown/ : /navigation canceled/;
+        await assert.rejects(applying, expected);
+        assert.strictEqual(pagedInputs.filter(input => input === '\x1b[B').length,
+          scenario === 'missing-target' ? pagedModels.length : scenario === 'missing-cursor' ? 0 : 1);
+        assert.strictEqual(pagedInputs.at(-1), '\x1b', 'failed navigation closes the single model picker');
+        assert.strictEqual(pagedPreview, IDLE_55);
+        assert(!pagedInputs.includes('\r'), 'a missing or uncertain target must never be selected');
+      } else {
+        assert.deepStrictEqual(await applying, { model: target, effort: 'low', serviceTier: 'default' });
+        const expectedMoves = scenario === 'three-digit' ? 1 : scenario === 'wrap-target' ? 4 : 2;
+        assert.deepStrictEqual(pagedInputs, [[{ type: 'paste', text: '/model' }, '\r'], ...Array(expectedMoves).fill('\x1b[B'), '\r', '1']);
+      }
+    } finally {
+      if (scenario === 'stalled-cursor') Date.now = originalNow;
+    }
+  }
+
+  for (const failure of ['missing-all-models', 'all-models-write-lost', 'missing-model', 'model-write-lost', 'advanced-canceled']) {
+    let failurePreview = IDLE_55;
+    const failureInputs = [];
+    const controller = new globalThis.AbortController();
+    const reason = failure === 'advanced-canceled' ? 'quick picker canceled' : failure;
+    await assert.rejects(applyCodexTerminalProfile({
+      profile: { model: 'gpt-5.6-sol', effort: 'ultra', serviceTier: 'default' },
+      readPreview: async () => failurePreview,
+      sendInput: async input => {
+        failureInputs.push(input);
+        if (Array.isArray(input)) {
+          failurePreview = failure === 'missing-all-models'
+            ? QUICK_MODEL_MENU.replace('All models (current)', 'Other quick mode') : QUICK_MODEL_MENU;
+        } else if (input === '2') {
+          failurePreview = failure === 'missing-model' ? MODEL_MENU.replace('gpt-5.6-sol', 'gpt-5.6-sol-openai-compact') : MODEL_MENU;
+          if (failure === 'all-models-write-lost') throw new Error(reason);
+        } else if (input === '8') {
+          failurePreview = REASONING_MENU;
+          if (failure === 'model-write-lost') throw new Error(reason);
+        }
+        else if (input === '5') { failurePreview = ADVANCED_REASONING_MENU; controller.abort(new Error(reason)); }
+        else if (input === '\x1b[B' && failure === 'missing-model') {
+          const index = Number(failurePreview.match(/^› (\d+)\./m)?.[1]);
+          const next = index === 8 ? 1 : index === 1 ? 7 : 8;
+          failurePreview = MODEL_MENU.replace('gpt-5.6-sol', 'gpt-5.6-sol-openai-compact')
+            .replace('› 8.', '  8.').replace(new RegExp(`^  ${next}\\.`, 'm'), `› ${next}.`);
+        }
+        else if (input === '\x1b') {
+          if (failurePreview === ADVANCED_REASONING_MENU) failurePreview = REASONING_MENU;
+          else if (failurePreview === REASONING_MENU) failurePreview = MODEL_MENU;
+          else failurePreview = IDLE_55;
+        }
+      },
+      sleep: async () => {},
+      pollIntervalMs: 0,
+      timeoutMs: 1000,
+      signal: controller.signal,
+    }), failure === 'missing-all-models' ? /did not offer All models/
+      : failure === 'missing-model' ? /Model gpt-5.6-sol is not available/ : new RegExp(reason));
+    const expectedDepth = failure === 'advanced-canceled' ? 3 : failure === 'model-write-lost' ? 2 : 1;
+    assert.strictEqual(failureInputs.filter(input => input === '\x1b').length, expectedDepth,
+      `${failure} must close every anticipated picker level within the same deadline`);
+    assert.strictEqual(failureInputs.filter(input => input === '2').length, failure === 'missing-all-models' ? 0 : 1,
+      'an uncertain All models write must never be replayed');
+    assert.strictEqual(failurePreview, IDLE_55,
+      `${failure} must return through the observed parent menus to the composer`);
+  }
+
   let modernOutput = 'booted';
   const modernInputs = [];
   const modernApplied = await applyCodexTerminalProfile({
@@ -391,6 +579,10 @@ async function run() {
         else if (input === '5') {
           uncertainAdvancedPreview = ADVANCED_REASONING_MENU;
           throw new Error('advanced menu reply lost after PTY write');
+        } else if (input === '\x1b') {
+          if (uncertainAdvancedPreview === ADVANCED_REASONING_MENU) uncertainAdvancedPreview = REASONING_MENU;
+          else if (uncertainAdvancedPreview === REASONING_MENU) uncertainAdvancedPreview = MODEL_MENU;
+          else uncertainAdvancedPreview = IDLE_55;
         }
       },
       sleep: async () => {},
@@ -399,8 +591,10 @@ async function run() {
     }),
     /advanced menu reply lost after PTY write/,
   );
-  assert.deepStrictEqual(uncertainAdvancedInputs.slice(-2), ['\x1b', '\x1b'],
-    'an uncertain advanced-menu write must close both anticipated picker levels');
+  assert.deepStrictEqual(uncertainAdvancedInputs.slice(-3), ['\x1b', '\x1b', '\x1b'],
+    'an uncertain advanced-menu write must close advanced, reasoning, and model picker levels');
+  assert.strictEqual(uncertainAdvancedPreview, IDLE_55,
+    'the direct model picker must use the same observed parent menus to recover its composer');
 
   const abortController = new globalThis.AbortController();
   const abortedProfile = applyCodexTerminalProfile({

@@ -9,6 +9,11 @@ const baseURL = `http://127.0.0.1:${port}`
 const includeInternalTests = process.env.FARMING_PLAYWRIGHT_INTERNAL === '1'
 const useRealCodex = process.env.FARMING_E2E_REAL_CODEX === '1'
 const useMobileAuth = process.env.FARMING_PLAYWRIGHT_AUTH === '1'
+const headed = process.env.FARMING_PLAYWRIGHT_HEADED === '1'
+const disableRetries = process.env.FARMING_PLAYWRIGHT_RETRIES === '0'
+const outputDir = process.env.FARMING_PLAYWRIGHT_OUTPUT_DIR
+const htmlReportDir = process.env.FARMING_PLAYWRIGHT_HTML_REPORT_DIR
+  || process.env.PLAYWRIGHT_HTML_OUTPUT_DIR
 // CI builds the frontend once in the Check job and hands dist/ to every browser
 // shard, so the shards set this to skip a rebuild they would only repeat. Local
 // runs leave it unset and keep building their own bundle first.
@@ -68,12 +73,13 @@ const playwrightServerEnv = {
 
 export default defineConfig({
   testDir: './tests/e2e',
+  ...(outputDir ? { outputDir } : {}),
   testIgnore: includeInternalTests ? [] : ['**/internal/**'],
   globalTeardown: './tests/e2e/global-teardown.ts',
   fullyParallel: false,
   workers: 1,
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 2 : 0,
+  retries: disableRetries ? 0 : process.env.CI ? 2 : 0,
   timeout: 60_000,
   expect: {
     timeout: 15_000,
@@ -83,11 +89,12 @@ export default defineConfig({
     },
   },
   reporter: [
-    ['html', { open: 'never' }],
+    ['html', { open: 'never', ...(htmlReportDir ? { outputFolder: htmlReportDir } : {}) }],
     process.env.CI ? ['github'] : ['list'],
   ],
   use: {
     baseURL,
+    headless: !headed,
     trace: process.env.CI ? 'retain-on-failure' : 'on-first-retry',
     screenshot: 'only-on-failure',
     video: process.env.CI ? 'retain-on-failure' : 'off',
@@ -103,7 +110,7 @@ export default defineConfig({
     },
     {
       name: 'iphone-webkit',
-      testMatch: /(iphone-mobile-layout|global-file-search|sidebar-surface-appearance|sidebar-spacing)\.spec\.ts/,
+      testMatch: /(iphone-mobile-layout|global-file-search|sidebar-surface-appearance|sidebar-spacing|ui-design-protocol|file-tree-scroll|file-editor-reveal|markdown-math-layout)\.spec\.ts/,
       use: {
         ...devices['iPhone 14 Pro'],
         browserName: 'webkit',
@@ -120,8 +127,8 @@ export default defineConfig({
     },
     {
       name: 'android-human-chromium',
-      testMatch: /(acp-human-cases|backend-connection-status|background-chat-continuity|human-story)\.spec\.ts/,
-      grep: /@iphone-human/,
+      testMatch: /(acp-human-cases|backend-connection-status|background-chat-continuity|human-story|file-tree-scroll)\.spec\.ts/,
+      grep: /@iphone-human|@native-file-scroll/,
       use: {
         ...devices['Pixel 7'],
         browserName: 'chromium',

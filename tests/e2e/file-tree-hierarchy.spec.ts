@@ -29,7 +29,9 @@ const TARGET_FILE = [
   'meta',
   'AbstractVectorIndexDataClient.java',
 ].join('/')
-const FILE_OPERATION_AUDIT_DIR = path.resolve('.tmp/file-operation-visual-audit')
+const FILE_OPERATION_AUDIT_DIR = path.resolve(
+  process.env.FARMING_FILE_OPERATION_AUDIT_DIR || '.tmp/file-operation-visual-audit',
+)
 
 function observeWorkspaceOperations(page: Page, onOperation: (operation: string, filePath: string) => void) {
   page.on('websocket', socket => {
@@ -293,7 +295,63 @@ test('keeps a restored production-sized file projection responsive offscreen', a
   })
   expect(scrollWork.maximumScrollTop).toBeGreaterThan(0)
   expect(scrollWork.fileRowLayoutReads).toBe(0)
-  await expect(treeWindow).not.toHaveCSS('transform', 'none')
+  const scrollOwnership = await files.evaluate(section => {
+    const scroller = section.closest<HTMLElement>('.code-project-list')!
+    const viewport = section.querySelector<HTMLElement>('.code-file-tree-viewport')!
+    const treeWindow = section.querySelector<HTMLElement>('.code-file-tree-window')!
+    const tree = section.querySelector<HTMLElement>('.code-file-tree')!
+    const rowHeight = Number.parseFloat(
+      getComputedStyle(document.documentElement).getPropertyValue('--code-sidebar-file-row-height'),
+    )
+    const rows = [...section.querySelectorAll<HTMLElement>('[data-testid="code-file-row"]')]
+    const mountedIndexes = rows.map(row => {
+      if (row.dataset.filePath === 'bulk') return 0
+      const match = row.dataset.filePath?.match(/entry-(\d+)\.cpp$/)
+      return match ? Number(match[1]) + 1 : -1
+    }).filter(index => index >= 0)
+    const outerTreeOffset = Math.max(0, scroller.getBoundingClientRect().top - viewport.getBoundingClientRect().top)
+    const visibleStartIndex = Math.floor(outerTreeOffset / rowHeight)
+    const sample = rows.find(row => row.dataset.filePath?.includes('entry-'))
+    const sampleMatch = sample?.dataset.filePath?.match(/entry-(\d+)\.cpp$/)
+    const sampleIndex = sampleMatch ? Number(sampleMatch[1]) + 1 : -1
+    const physicalOffsetError = sample && sampleIndex >= 0
+      ? Math.abs(sample.getBoundingClientRect().top - (viewport.getBoundingClientRect().top + sampleIndex * rowHeight))
+      : Number.POSITIVE_INFINITY
+    // The outer Project scroller is the only scroll surface on the path from a
+    // mounted row upward; the virtualizer DOM must not add a second one.
+    const scrollSurfaces: string[] = []
+    for (let ancestor = sample?.parentElement; ancestor; ancestor = ancestor.parentElement) {
+      const overflowY = getComputedStyle(ancestor).overflowY
+      if (overflowY === 'auto' || overflowY === 'scroll') {
+        scrollSurfaces.push(ancestor.className)
+      }
+      if (ancestor === scroller) break
+    }
+    const scrollerBounds = scroller.getBoundingClientRect()
+    const headerBottom = section.querySelector<HTMLElement>('.code-files-header')!.getBoundingClientRect().bottom
+    return {
+      mountedIncludesVisibleStart: mountedIndexes.length > 0
+        && Math.min(...mountedIndexes) <= visibleStartIndex
+        && Math.max(...mountedIndexes) >= visibleStartIndex,
+      hasVisibleMountedTarget: rows.some(row => {
+        const bounds = row.getBoundingClientRect()
+        return bounds.top >= headerBottom && bounds.bottom <= scrollerBounds.bottom
+      }),
+      physicalOffsetError,
+      treeOverflowY: getComputedStyle(tree).overflowY,
+      treeScrollTop: tree.scrollTop,
+      treeTransform: getComputedStyle(treeWindow).transform,
+      scrollSurfaces,
+    }
+  })
+  expect(scrollOwnership.mountedIncludesVisibleStart).toBe(true)
+  expect(scrollOwnership.hasVisibleMountedTarget).toBe(true)
+  expect(scrollOwnership.physicalOffsetError).toBeLessThanOrEqual(1)
+  expect(scrollOwnership.treeOverflowY).toBe('visible')
+  expect(scrollOwnership.treeScrollTop).toBe(0)
+  expect(scrollOwnership.treeTransform).toBe('none')
+  expect(scrollOwnership.scrollSurfaces).toHaveLength(1)
+  expect(scrollOwnership.scrollSurfaces[0]).toContain('code-project-list')
   await expect(files.getByTestId('code-file-sticky-stack')).toHaveCount(0)
 
   const editor = page.getByTestId('code-file-editor')

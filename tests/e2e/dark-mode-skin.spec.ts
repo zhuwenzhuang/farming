@@ -505,7 +505,7 @@ test.describe('Farming Code appearance skins', () => {
     await expectPageTitleStyle(searchTitle)
     await saveScreenshot(testInfo, 'search-view.png', page.getByTestId('code-side-view-panel'))
     await page.getByTestId('code-search-result').first().click()
-    await expect(page.getByTestId('code-search-panel')).toHaveCount(0)
+    await expect(page.getByTestId('code-search-panel')).toBeHidden()
 
     await page.getByTestId('code-nav-history').click()
     await expect(page.getByTestId('code-history-panel')).toBeVisible()

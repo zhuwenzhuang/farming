@@ -56,7 +56,10 @@ test('shows truthful command activity through output, silence, reload, completio
   await expect(silentActivity.locator('button')).toHaveCount(0)
   expect((await silentActivity.boundingBox())?.height || 0).toBeLessThanOrEqual(24)
 
-  const screenshotPath = path.resolve('.tmp/acp-command-activity/long-command-activity.png')
+  const screenshotPath = path.resolve(
+    process.env.FARMING_ACP_COMMAND_SCREENSHOT_PATH
+      || '.tmp/acp-command-activity/long-command-activity.png',
+  )
   fs.mkdirSync(path.dirname(screenshotPath), { recursive: true })
   await silentTurn.scrollIntoViewIfNeeded()
   await page.screenshot({ path: screenshotPath })

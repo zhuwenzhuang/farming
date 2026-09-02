@@ -47,6 +47,12 @@ Prefer:
 Preserve the existing visual style and product wording when fixing behavior
 unless the requested change has a clear visual or product-copy reason.
 
+For Code UI work, follow the [UI design protocol](docs/development/ui-design-protocol.md).
+Identify the semantic family and reuse its shared specification for typography,
+icons, geometry, states, and responsive behavior. Change common rules at their
+shared owner and verify affected peers; page-local styling differences require
+a documented product reason, not just matching color tokens.
+
 Treat interaction-state styling as a product-wide contract, not a local
 component detail. Selected, active, focused, hovered, pressed, loading,
 disabled, success, warning, and error states must use a coherent visual
@@ -140,6 +146,9 @@ Execution environment
 
 ## Engineering Rules
 
+- Keep single-Agent development in the repository's primary integration checkout.
+  Do not create, switch to, or continue the task in an additional Git worktree
+  unless the user explicitly requests one.
 - Keep changes scoped to the request and preserve unrelated worktree changes.
 - Prefer existing patterns and local helpers. Add abstraction only when the
   current change proves a stable repeated boundary.

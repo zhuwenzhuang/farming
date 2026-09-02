@@ -15,6 +15,10 @@ function run() {
     path.join(root, 'scripts/verify-npm-release-source.sh'),
     'utf8',
   );
+  const releaseLineageScript = fs.readFileSync(
+    path.join(root, 'scripts/verify-release-lineage.sh'),
+    'utf8',
+  );
   const releasePreparationWorkflow = fs.readFileSync(
     path.join(root, '.github/workflows/release.yml'),
     'utf8',
@@ -319,6 +323,20 @@ function run() {
   for (const scriptName of fs.readdirSync(path.join(root, 'scripts')).filter(name => name.endsWith('.sh'))) {
     execFileSync('bash', ['-n', path.join(root, 'scripts', scriptName)], { stdio: 'pipe' });
   }
+
+  assert(
+    releaseLineageScript.includes('refs/remotes/origin/main')
+      && releaseLineageScript.includes('merge-base --is-ancestor')
+      && releaseLineageScript.includes('FARMING_RELEASE_INTEGRATION_REF')
+      && releaseLineageScript.includes('Release lineage check skipped')
+      && !appPackageScript.includes('verify-release-lineage.sh')
+      && !packageScript.includes('verify-release-lineage.sh')
+      && !npmPackageScript.includes('verify-release-lineage.sh')
+      && releasePreparationWorkflow.includes('Verify candidate is integrated into main')
+      && releasePublicationWorkflow.includes('Verify candidate is integrated into main')
+      && releaseWorkflow.includes('fetch-depth: 0'),
+    'release lineage check must be opt-in via FARMING_RELEASE_INTEGRATION_REF and enforced only in formal GitHub workflows',
+  );
 
   console.log('✓ CLI packaging keeps executable source fallback and fails closed on missing code');
 }

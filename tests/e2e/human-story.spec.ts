@@ -237,7 +237,7 @@ test.describe('human Farming Agent story', () => {
     expect((await terminalViewport(page, agentId)).viewportY).toBe(0)
     const inputCountAfterJump = await page.evaluate((id) => window.__farmingTerminalTest?.getInputCount(id) ?? 0, agentId)
     expect(inputCountAfterJump).toBe(inputCountBeforeJump)
-    await expect.poll(async () => (await terminalRows(page, agentId, 80)).join('\n')).toContain('new output while user is reading older terminal lines')
+    await expect.poll(async () => (await terminalRows(page, agentId, 80)).join('')).toContain('new output while user is reading older terminal lines')
   })
 
   test('does not persist a host reading anchor for a provider-owned terminal viewport', async ({ page, workspaceRoot }) => {
@@ -873,7 +873,7 @@ test.describe('human Farming Agent story', () => {
 
     await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${bashAgentId}"]`)).toBeVisible()
     await expect(page.getByTestId('code-composer').locator('textarea')).toBeEnabled()
-    await expect.poll(async () => (await terminalRows(page, bashAgentId, 20)).join('\n')).toContain('$')
+    await page.waitForFunction(id => Boolean(window.__farmingTerminalTest?.isReady(id)), bashAgentId)
 
     const command = [
       'node -e "',

@@ -548,7 +548,7 @@ export function CodeComposer({
       )}
       {(showSlashMenu || showSlashCatalogLoading || showSlashCatalogError) && (
         <div
-          className="code-slash-menu code-composer-menu"
+          className="code-menu-surface code-slash-menu code-composer-menu"
           data-testid="code-slash-menu"
           role="listbox"
           aria-label={commandMenuTitle}
@@ -564,7 +564,7 @@ export function CodeComposer({
             <button
               key={command.command}
               type="button"
-              className={`code-slash-command ${index === activeSlashIndex ? 'active' : ''}`}
+              className={`code-menu-item code-slash-command ${index === activeSlashIndex ? 'active' : ''}`}
               data-testid={composerCommandTestId(command.command)}
               role="option"
               aria-selected={index === activeSlashIndex}
@@ -799,7 +799,7 @@ export function CodeComposer({
             </button>
             {plusMenuOpen && (
               <div
-                className="code-plus-menu code-composer-menu"
+                className="code-menu-surface code-menu-list code-plus-menu code-composer-menu"
                 role="menu"
                 data-testid="code-composer-plus-menu"
                 ref={plusMenuRef}
@@ -863,7 +863,7 @@ export function CodeComposer({
               </button>
               {approvalMenuOpen && (
                 <div
-                  className="code-approval-menu code-composer-menu"
+                  className="code-menu-surface code-approval-menu code-composer-menu"
                   role="menu"
                   data-testid="code-approval-menu"
                   ref={approvalMenuRef}
@@ -879,7 +879,7 @@ export function CodeComposer({
                     <button
                       key={option.value}
                       type="button"
-                      className={`code-approval-option ${option.value === currentPermissionMode ? 'selected' : ''}`}
+                      className={`code-menu-item code-approval-option ${option.value === currentPermissionMode ? 'selected' : ''}`}
                       role="menuitemradio"
                       aria-checked={option.value === currentPermissionMode}
                       onClick={() => onUpdatePermissionMode(option.value)}
@@ -949,7 +949,7 @@ export function CodeComposer({
               </button>
               {modelMenuOpen && (
                 <div
-                  className={`code-model-picker-menu code-composer-menu ${hasModelMatrix ? 'has-matrix' : ''}`}
+                  className={`code-menu-surface code-model-picker-menu code-composer-menu ${hasModelMatrix ? 'has-matrix' : ''}`}
                   role="menu"
                   data-testid="code-model-menu"
                   ref={modelMenuRef}
@@ -976,7 +976,7 @@ export function CodeComposer({
                         <button
                           key={option.value}
                           type="button"
-                          className={`code-model-option ${option.value === agentReasoningEffort ? 'selected' : ''}`}
+                          className={`code-menu-item code-model-option ${option.value === agentReasoningEffort ? 'selected' : ''}`}
                           role="menuitemradio"
                           aria-checked={option.value === agentReasoningEffort}
                           disabled={modelProfileDisabled}
@@ -994,7 +994,7 @@ export function CodeComposer({
                   <div className="code-model-nested-anchor">
                     <button
                       type="button"
-                      className={`code-model-nested-trigger ${modelPickerPane === 'model' ? 'selected' : ''}`}
+                      className={`code-menu-item code-model-nested-trigger ${modelPickerPane === 'model' ? 'selected' : ''}`}
                       role="menuitem"
                       data-testid="code-model-submenu-trigger"
                       disabled={modelProfileDisabled}
@@ -1005,7 +1005,7 @@ export function CodeComposer({
                     </button>
                     {modelPickerPane === 'model' && (
                       <div
-                        className="code-model-submenu code-composer-menu"
+                        className="code-menu-surface code-menu-inline code-model-submenu code-composer-menu"
                         role="menu"
                         data-testid="code-model-submenu"
                         onKeyDown={onComposerMenuKeyDown}
@@ -1014,7 +1014,7 @@ export function CodeComposer({
                           <button
                             key={option.value}
                             type="button"
-                            className={`code-model-option ${option.value === agentModel ? 'selected' : ''}`}
+                            className={`code-menu-item code-model-option ${option.value === agentModel ? 'selected' : ''}`}
                             role="menuitemradio"
                             aria-checked={option.value === agentModel}
                             disabled={modelProfileDisabled}
@@ -1033,7 +1033,7 @@ export function CodeComposer({
                     <div className="code-model-nested-anchor">
                       <button
                         type="button"
-                        className={`code-model-nested-trigger ${modelPickerPane === 'speed' ? 'selected' : ''}`}
+                        className={`code-menu-item code-model-nested-trigger ${modelPickerPane === 'speed' ? 'selected' : ''}`}
                         role="menuitem"
                         data-testid="code-speed-submenu-trigger"
                         disabled={modelProfileDisabled}
@@ -1044,7 +1044,7 @@ export function CodeComposer({
                       </button>
                       {modelPickerPane === 'speed' && (
                         <div
-                          className="code-speed-submenu code-composer-menu"
+                          className="code-menu-surface code-menu-inline code-speed-submenu code-composer-menu"
                           role="menu"
                           data-testid="code-speed-submenu"
                           onKeyDown={onComposerMenuKeyDown}
@@ -1053,7 +1053,7 @@ export function CodeComposer({
                             <button
                               key={option.value}
                               type="button"
-                              className={`code-model-option ${option.value === agentServiceTier ? 'selected' : ''}`}
+                              className={`code-menu-item code-model-option ${option.value === agentServiceTier ? 'selected' : ''}`}
                               role="menuitemradio"
                               aria-checked={option.value === agentServiceTier}
                               disabled={modelProfileDisabled}

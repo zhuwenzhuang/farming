@@ -5,6 +5,9 @@
 Farming Code 支持跟随系统、浅色、深色和纸张四种外观。外观只属于展示偏好；
 切换外观不得改变 Agent、Session、Project、文件或终端状态。
 
+[UI 设计协议](../../development/ui-design-protocol.zh_cn.md)约束公共控件家族、字排、几何、
+图标、响应式行为和跨页面等价性。本文档拥有它们的外观角色与主题生命周期。
+
 ## 设计契约
 
 - 浅色是中性、高辨识度的默认外观。
@@ -45,6 +48,9 @@ Farming Code 支持跟随系统、浅色、深色和纸张四种外观。外观�
   校验错误样式与焦点独立。需要额外键盘反馈的按钮及选择器只使用一道克制的边界，
   不叠加 Outline 和 Shadow。共享控件焦点阴影（包括 Model Matrix）只使用单层 1 像素
   焦点环，不用于文本输入框。
+- 滚动容器不是导航项。点击空白处、拖动滚动条或为键盘滚动聚焦容器时，不得给整个
+  容器涂上选中底色或添加焦点阴影；具体行仍保留 Hover、Selection 和键盘焦点反馈。
+  相邻尺寸调节柄的命中区不得覆盖滚动条交互槽。
 - Farming Code 原生滚动条统一使用 8 像素交互槽、4 像素圆角滑块和透明轨道，默认、Hover
   与 Active 状态均取自共享外观注册表。领域样式不得重新定义滚动条几何或颜色。Monaco 与
   Terminal 保留各自的渲染器接入方式，但必须映射到同一套几何和状态色。只有具备明确替代
@@ -81,8 +87,9 @@ Farming Code 支持跟随系统、浅色、深色和纸张四种外观。外观�
 不能再靠逐页覆盖完成。
 
 `tokens.css` 由该注册表生成，只包含 Light、Dark、Paper 各一条规则，禁止手工修改。
-Composer、Files、Settings、Transcript、Review 和扩展前端等领域样式只拥有布局与
-交互选择器；它们只能消费语义颜色角色，不能包含外观选择器或写死的 Code 颜色。
+共享控件 Recipe 拥有可复用的几何与交互样式。Composer、Files、Settings、Transcript、
+Review 和扩展前端等领域样式拥有组合与领域布局，不能分叉共享 Recipe。两者都只能消费
+语义颜色角色、保持外观中立，不能包含外观选择器或写死的 Code 颜色。
 
 共享角色数量必须保持克制。普通角色只描述层级、内容、交互或功能语义，例如 canvas、
 chrome、surface、raised、inset、hover、selected、disabled、文字层级、边框层级、

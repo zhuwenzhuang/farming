@@ -3,7 +3,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-playwright-config-'));
+const inheritedPlaywrightConfigDir = process.env.FARMING_PLAYWRIGHT_CONFIG_DIR;
+const configDir = inheritedPlaywrightConfigDir
+  ? path.resolve(inheritedPlaywrightConfigDir)
+  : fs.mkdtempSync(path.join(os.tmpdir(), 'farming-playwright-config-'));
+const ownsConfigDir = !inheritedPlaywrightConfigDir;
+fs.mkdirSync(configDir, { recursive: true });
 const fixtureBinDir = path.join(__dirname, '..', 'tests', 'e2e', 'fixtures');
 const useRealCodex = process.env.FARMING_E2E_REAL_CODEX === '1';
 fs.writeFileSync(path.join(configDir, 'server.json'), `${JSON.stringify({
@@ -14,8 +19,8 @@ fs.writeFileSync(path.join(configDir, 'server.json'), `${JSON.stringify({
 process.env.PORT = process.env.PORT || process.env.FARMING_PLAYWRIGHT_PORT || '4173';
 process.env.FARMING_BASE_PATH = process.env.FARMING_BASE_PATH || '/farming';
 // A Playwright server can be launched from inside a running Farming Agent and
-// therefore inherit that server's config root. Never reuse it: a second backend
-// would otherwise reconcile and stop the parent's live ACP processes.
+// therefore inherit that server's generic config root. Ignore it and use only the
+// isolated lane override or a config root created and owned by this process.
 process.env.FARMING_CONFIG_DIR = configDir;
 process.env.FARMING_DISABLE_AUTH = process.env.FARMING_DISABLE_AUTH || '1';
 if (!useRealCodex) {
@@ -53,7 +58,7 @@ function removeDirSync(dir: string): void {
 function cleanup(): void {
   if (cleanedUp) return;
   cleanedUp = true;
-  removeDirSync(configDir);
+  if (ownsConfigDir) removeDirSync(configDir);
 }
 
 function shutdown(): void {

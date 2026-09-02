@@ -32,6 +32,10 @@ Files Header 组成同一个分层 Sticky Summary；后一层 Offset 来自前�
 到达尾部边界后，所有可见层必须以相同 Scroll Delta 一起释放，后层不能先滑过并遮住 Project
 名称或 Branch。Directory Row 从这组 Summary Stack 下方滚过，不再增加随滚动联动的祖先摘要行。
 
+Open Editors 最多显示 7 个响应式文件行。列表始终拥有相同的垂直 Overflow 几何；实测的经典
+Scrollbar 宽度放到外部通道，使第 7 项与第 8 项之间的标签和操作 X 坐标、宽度保持不变。
+Overlay Scrollbar 的实测宽度自然为 0；内容边界继续与同级 Project、Files 操作对齐。
+
 Project Agent 行采用渐进展示，避免大型 Agent 分组难以浏览。Project 初始显示 5 个 Agent，
 第一次“显示更多”最多再显示 5 个，之后每次最多再显示 10 个；“显示较少”恢复为初始 5 个。
 Selection、Search 与 Active Agent 变化可以替换当前容量内的行，但只有“显示更多”和
@@ -128,7 +132,13 @@ Files 收起时，持久化的展开状态不能启动 Directory I/O。Files 重
 迁移到最终可见目录。该过程必须限制最大深度、检测重复路径、不得自动穿过 Symbolic Link，
 并在遇到分叉、文件、空目录、加载失败、Workspace 切换或用户中途折叠时停止。
 鼠标或键盘直接展开时，当前行必须锚定在唯一的 Project Scroll Surface 中。Toggle 不能写入
-Project Scroll，也不能启动 Reveal Operation；只有导航到其它 Target 时才拥有 Reveal。
+Project Scroll，也不能启动 Reveal Operation；显式导航或编辑器的“在文件树中显示”操作才拥有
+Reveal。
+
+编辑器顶部在 Source 与 Preview 模式下均提供“在文件树中显示”。该操作展开当前文件所属
+Project、Files 区域与父目录，打开已关闭的紧凑侧边栏，并复用现有 Reveal Owner 定位文件。
+重复执行可以重新定位已经滚出视野的文件，不重新打开或读取文件，也不改变 Draft、Editor Model
+或 Source/Preview State。Exact External File 不属于任何 Project Tree，因此不提供该操作。
 
 Explorer 区分 Active File、Keyboard Focus 与 Selection。从 Chat、Terminal、Search、History、
 Plugins 或 URL 打开文件时只有一个 Reveal Owner，避免 Tree 与 Project List 争夺 Focus 或
@@ -145,6 +155,9 @@ Extension Kind、Query、Detail 与 Scroll Position。
 
 在目录树空白区域打开的上下文菜单会继承当前目录树选择，创建操作以该选择为目标；只有目录树
 没有当前选择或焦点时，才以 Project 根目录为目标。
+
+文件上下文菜单及子菜单越过紧凑侧边栏裁剪边界时仍须完整可见、可点击。通过 Portal 移动菜单
+表面不能改变共享关闭 Owner，关闭后仍把焦点返回调用菜单的目录树目标。
 
 共享 Project Scroll Surface 上的每个程序化 Reveal 只持有一个 Generation Lease。更新的文件或
 Agent Reveal，以及直接的 Pointer、Wheel 或 Keyboard 意图，会在旧 Owner 再次写入滚动位置前
@@ -204,8 +217,10 @@ Farming Instance 都是同一文件系统的独立客户端。
 
 即使有许多目录保持展开，Explorer 也只保留一个 Project Sidebar 滚动面。完整 Row Projection
 用于稳定 Keyboard Navigation 与持久化 Expansion，但只挂载有界的 Viewport
-邻域。外层 Project Scroller 拥有完整逻辑树高度；Virtual Tree Window 跟随该 Scroll Offset，
-不能引入第二个 Scrollbar。因此大型恢复树的成本由可见邻域而不是完整 Projection 决定。单个
+邻域。外层 Project Scroller 拥有完整逻辑树高度及所有 Row 的实际位移。Virtualizer 只按该
+Offset 选择挂载范围；其 DOM 不得创建第二个滚动面，也不能用跟随 Scroll 的 Transform 补偿。
+否则内层滚动与 Transform 分别提交时，会让 Row 重复移动或落后原生触摸手势一帧。因此大型恢复树
+的成本由可见邻域而不是完整 Projection 决定。单个
 滚动帧不得遍历完整展开树，也不得读取每个已挂载文件 Row 的布局。
 
 Directory Tree 不渲染屏外祖先的随滚动联动副本；真实的 Virtualized Tree Row 是唯一的目录行和
@@ -230,6 +245,10 @@ Markdown Preview 支持 GFM 与数学公式，并对 Pandoc 空锚点、保留�
 形式的定宽简单表格、紧凑 Display-math Fence 和 Pandoc 数学间距提供有界兼容。兼容转换只作用于
 渲染 Preview，绝不改写文件源码。不受支持的公式保留为可读源码而不是生成破损输出，任意 Raw
 HTML 仍保持禁用。
+
+Display 公式保留正常字号，超出阅读栏时只在公式内部横向滚动。公式两端与编号都必须可达，
+不能撑宽正文；编号占据独立空间，不覆盖公式内容。所有 Appearance 下的 Inline 公式、
+对齐公式与显式数学换行均保留渲染器原有布局。
 
 大型 Markdown Preview 按主要 Heading 与有界 Block 数分段，保留普通连续滚动，同时只挂载
 Viewport 附近的 Section，并用已测量或估算的空间表示远处 Section。大型文档不执行语法高亮，
@@ -294,6 +313,11 @@ Issue Reference 遵循 Workspace `.idea/vcs.xml` 内的 IntelliJ
 - 在 Pointer Layout 中，Files Search 与 Refresh Control 在 Header Hover 时渐进显示；
   Search 获得焦点或内容非空时继续保持可见，Compact Touch Layout 不依赖 Hover 并常显 Search。
 - Open Editors 只在需要时出现，并与 Tree 分离。
+- 在 393 CSS Pixel 及更窄布局中，可用的 Save、Source/Preview、Overwrite Conflict 与
+  Agent-side Control 继续作为直接主操作。Reveal、Share、Diff、Split Preview、Markdown
+  Width、Word Wrap 与 Reload 进入明确命名的 More 菜单，不能依赖横向滚动发现。Trigger 与
+  Command 保留 Title 或可见 Label、ARIA Role/Checked State 与键盘导航；Portal Menu 使用共享
+  Outside-pointer / Escape 仲裁，并限制在 VisualViewport 内。
 - 单子目录链可以合并成一个稳定 Row。
 - Dirty、External Change 与 Git State 保持可见，但不把整棵 Tree 变成高噪音警告面。
 - Preview 与 Pinned Tab 保留各自 Editor Position，并区分临时查看与有意多文件工作。单击可以

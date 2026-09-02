@@ -621,6 +621,86 @@ human-readable bundle containing:
 The release watcher exits on the first terminal required-job failure and
 returns this bundle. It does not require repeated Agent polling.
 
+### B4. Run balanced shards in isolated local lanes
+
+`npm run test:e2e:playwright:isolated -- --project <name> --lanes <count>`
+starts the existing balanced location assignments as isolated lanes. The
+coordinator builds once unless `--skip-build` is explicit, then forces every
+lane server to reuse that build. It does not forward arbitrary Playwright
+arguments, because doing so could bypass the isolation contract.
+
+Lane execution copies are prepared entirely with Node filesystem APIs, without
+requiring `rsync` or another host copy utility. The coordinator reads the exact
+NUL-delimited `git ls-files -co --exclude-standard` manifest, byte-copies its
+regular files, recreates its symbolic links, preserves executable permissions,
+and never hard-links tracked or non-ignored WIP back to the source checkout.
+Copy destinations are constrained to the lane repository root and unsupported
+manifest entry types fail closed.
+
+The Git manifest intentionally excludes ignored build output. After copying
+the manifest, lane preparation inherits generated runtime artifacts only from
+the canonical backend build output roots: each runtime `.cts` source requires
+its adjacent `.cjs` and `.cjs.map`, and explicitly owned singleton runtime
+outputs are copied separately. These files are isolated copies rather than
+links to the source `backend/`, `desktop/`, `extensions/`, or `shared/` trees,
+so plain Node subprocesses can start the native PTY host and ACP runtime host
+from the lane clone. A missing required artifact fails preparation with the
+build command needed to restore it; there is no fallback to `tsx` module
+resolution. The already-built `node_modules` and `dist` roots remain shared
+read-only inputs for all lanes.
+
+Each lane owns a unique backend port, config root, temporary directory,
+Playwright output and HTML report directory, visual/audit directory, and any
+single-file screenshot path. Linux headed execution additionally owns one
+unique Xvfb display and sets Playwright `headless: false`. Default ports and
+displays are checked before work starts and fail closed when already occupied;
+Xvfb must create its display socket before Playwright starts and an early Xvfb
+exit fails that lane.
+
+Every spawned command is an owned process group. Interrupt and final cleanup
+signal only those groups, escalate from TERM to KILL when required, and return
+nonzero after an interrupt. A lane failure does not cancel independent lanes:
+all terminal results are collected. Successful runs delete their temporary
+lane root by default; failed runs retain trace, report, screenshot, and audit
+evidence and print the exact retained paths. `--retain-evidence` also retains
+and prints the exact root after success. `--dry-run` creates no server,
+directory, or temporary root, while `--list` uses the balanced runner's
+supported `--list-selected` discovery mode.
+
+On a Linux validation host, the complete 703-test matrix is the following
+collision-free set of 12 logical lanes. Chromium uses six balanced lanes; the
+smaller projects use proportional lane counts. Eight lanes use Chromium and
+four use WebKit. Authentication is enabled only for the two auth projects.
+
+| Project | Tests | Exact isolated invocation |
+| --- | ---: | --- |
+| `chromium` | 603 | `FARMING_PLAYWRIGHT_PORT_BASE=43100 FARMING_PLAYWRIGHT_XVFB_DISPLAY_BASE=90 FARMING_PLAYWRIGHT_AUTH=0 node scripts/run-playwright-isolated-lanes.mjs --project chromium --lanes 6 --headed-xvfb --skip-build --retain-evidence` |
+| `iphone-webkit` | 45 | `FARMING_PLAYWRIGHT_PORT_BASE=43200 FARMING_PLAYWRIGHT_XVFB_DISPLAY_BASE=110 FARMING_PLAYWRIGHT_AUTH=0 node scripts/run-playwright-isolated-lanes.mjs --project iphone-webkit --lanes 2 --headed-xvfb --skip-build --retain-evidence` |
+| `iphone-human-webkit` | 25 | `FARMING_PLAYWRIGHT_PORT_BASE=43300 FARMING_PLAYWRIGHT_XVFB_DISPLAY_BASE=120 FARMING_PLAYWRIGHT_AUTH=0 node scripts/run-playwright-isolated-lanes.mjs --project iphone-human-webkit --lanes 1 --headed-xvfb --skip-build --retain-evidence` |
+| `android-human-chromium` | 28 | `FARMING_PLAYWRIGHT_PORT_BASE=43400 FARMING_PLAYWRIGHT_XVFB_DISPLAY_BASE=130 FARMING_PLAYWRIGHT_AUTH=0 node scripts/run-playwright-isolated-lanes.mjs --project android-human-chromium --lanes 1 --headed-xvfb --skip-build --retain-evidence` |
+| `mobile-auth-chromium` | 1 | `FARMING_PLAYWRIGHT_PORT_BASE=43500 FARMING_PLAYWRIGHT_XVFB_DISPLAY_BASE=140 FARMING_PLAYWRIGHT_AUTH=1 node scripts/run-playwright-isolated-lanes.mjs --project mobile-auth-chromium --lanes 1 --headed-xvfb --skip-build --retain-evidence` |
+| `mobile-auth-webkit` | 1 | `FARMING_PLAYWRIGHT_PORT_BASE=43600 FARMING_PLAYWRIGHT_XVFB_DISPLAY_BASE=150 FARMING_PLAYWRIGHT_AUTH=1 node scripts/run-playwright-isolated-lanes.mjs --project mobile-auth-webkit --lanes 1 --headed-xvfb --skip-build --retain-evidence` |
+
+Run `npm run test:e2e:playwright:isolated:matrix` from that checkout instead of
+manually backgrounding the table commands. By default, the checked-in
+coordinator builds once, expands the six project definitions into 12
+independently isolated lane invocations, and admits at most six Chromium lanes
+at once across all Chromium projects. This is one global limit rather than
+three independent project limits; all WebKit lanes remain eligible to run in
+parallel. `--max-chromium-lanes <1-8>` is an explicit operator override for a
+measured host, while the default remains the validated safe capacity. The
+coordinator aggregates every terminal status without automatic retry and
+signals only process groups it owns during interruption. The standalone
+per-project commands above preserve their requested lane count and are not a
+substitute for the matrix's global scheduler. A caller may run
+`npm run test:e2e:playwright:isolated:matrix -- --skip-build` only when all
+build outputs required by the matrix have already been completed and verified
+for the exact checkout; the caller owns that verification, and the coordinator
+does not prove that existing outputs are fresh. Lane preparation still fails
+closed when an expected generated runtime artifact is absent. Its `--dry-run`
+mode prints the exact lane commands and, unless `--skip-build` is present, the
+build command without side effects.
+
 ## Workstream C: Agent Diagnosis Protocol
 
 ### Three-minute first response
@@ -722,6 +802,9 @@ reduces avoidable investigation time; it does not reset the release timer.
   Use preparation gate before any public mutation.
 - Independent Computer Use scenarios run on separately owned isolated Desktops;
   one failure preserves its evidence without restarting unrelated lanes.
+- Local balanced Playwright lanes have unique runtime and evidence resources,
+  build once, fail closed on occupied ports/displays, clean only owned process
+  groups, and retain failed-lane evidence.
 - Release contains no duplicate ordinary repository gate.
 - Every published asset and npm `gitHead` identifies the exact candidate SHA.
 - npm is absent until the GitHub Release and required assets are public and

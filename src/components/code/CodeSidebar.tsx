@@ -17,6 +17,7 @@ import {
   FieldFlagGlyph,
   FocusModeGlyph,
   HistoryGlyph,
+  MoreHorizontalGlyph,
   NewAgentGlyph,
   PencilGlyph,
   PuzzleGlyph,
@@ -2503,7 +2504,7 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
             title={copy.openOptions}
             onClick={event => onOpenProjectMenu(event, project.id, pinnedSectionAgentIds)}
           >
-            <ProjectActionsIcon />
+            <MoreHorizontalGlyph />
           </button>
           {!globalRootProject && (
             <button
@@ -2524,7 +2525,7 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
         {launchMenu && typeof document !== 'undefined' && createPortal(
           <div
             ref={launchMenuRef}
-            className="code-context-menu code-project-launch-menu"
+            className="code-menu-surface code-menu-list code-context-menu code-project-launch-menu"
             data-testid="code-project-new-agent-menu"
             role="menu"
             style={{ left: launchMenu.x, top: launchMenu.y }}
@@ -2785,14 +2786,6 @@ function visibleAgentsWithForcedRows(
     visibleIds.add(agent.id)
   }
   return visible
-}
-
-function ProjectActionsIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-      <path fill="currentColor" d="M4 8C4 8.55228 3.55228 9 3 9C2.44772 9 2 8.55228 2 8C2 7.44772 2.44772 7 3 7C3.55228 7 4 7.44772 4 8ZM9 8C9 8.55228 8.55228 9 8 9C7.44772 9 7 8.55228 7 8C7 7.44772 7.44772 7 8 7C8.55228 7 9 7.44772 9 8ZM13 9C13.5523 9 14 8.55228 14 8C14 7.44772 13.5523 7 13 7C12.4477 7 12 7.44772 12 8C12 8.55228 12.4477 9 13 9Z" />
-    </svg>
-  )
 }
 
 function previewTargetForAgent(agent: Agent, rowState: ReturnType<typeof buildAgentRowDisplayState>, project?: string): AgentPreviewTarget {
@@ -3334,7 +3327,7 @@ function AgentRow({
             title={copy.openOptions}
             onClick={openRowMenu}
           >
-            <ProjectActionsIcon />
+            <MoreHorizontalGlyph />
           </button>
         )}
         {shortcutHint && <kbd>{shortcutHint}</kbd>}

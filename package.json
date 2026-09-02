@@ -1,6 +1,6 @@
 {
   "name": "farming-code",
-  "version": "2.2.62",
+  "version": "2.2.63",
   "description": "Farming Code is a self-hosted browser workspace for running and supervising AI coding agents",
   "main": "backend/server.cjs",
   "bin": {
@@ -97,7 +97,7 @@
     "pretest:behavior": "npm run build:backend-runtime && npm run build:classic-runtime && npm run build:usage-history && npm run prepare:runtime-manifest",
     "test:behavior": "npm run test:behavior:contracts && npm run test:behavior:node && npm run test:behavior:e2e",
     "test:behavior:contracts": "tsx scripts/check-behavior-contracts.ts && tsx scripts/check-source-inspection-contracts.ts",
-    "test:behavior:node": "tsx scripts/run-behavior-node-tests.ts",
+    "test:behavior:node": "tsx scripts/run-behavior-node-tests.ts && node --test scripts/run-playwright-isolated-lanes.test.mjs",
     "test:behavior:e2e": "FARMING_E2E_REAL_CODEX=0 FARMING_E2E_FAKE_EXECUTABLES=1 FARMING_E2E_FAKE_ACP_AGENT=1 tsx scripts/run-behavior-e2e.ts",
     "test:pre-release:codex-ui:smoke": "FARMING_REAL_CODEX_BIN=\"$(command -v codex)\" FARMING_CODEX_BIN=\"$PWD/tests/e2e/fixtures/real-codex-no-update\" FARMING_REAL_CODEX_RELEASE_CASE=1 FARMING_E2E_REAL_CODEX=1 FARMING_PLAYWRIGHT_INTERNAL=1 playwright test tests/e2e/internal/real-codex-release-case.spec.ts --project=chromium --workers=1 --retries=0 --trace=retain-on-failure --grep @release-smoke",
     "test:pre-release:codex-ui": "FARMING_REAL_CODEX_BIN=\"$(command -v codex)\" FARMING_CODEX_BIN=\"$PWD/tests/e2e/fixtures/real-codex-no-update\" FARMING_REAL_CODEX_RELEASE_CASE=1 FARMING_E2E_REAL_CODEX=1 FARMING_PLAYWRIGHT_INTERNAL=1 playwright test tests/e2e/internal/real-codex-release-case.spec.ts --project=chromium --workers=1 --retries=0 --trace=retain-on-failure --grep @release-composite",
@@ -113,6 +113,8 @@
     "test:desktop:smoke": "npm run desktop:build && tsx scripts/smoke-desktop.ts",
     "test:desktop:browser-composed": "tsx scripts/run-desktop-browser-composed-e2e.ts",
     "test:e2e:playwright": "playwright test",
+    "test:e2e:playwright:isolated": "node scripts/run-playwright-isolated-lanes.mjs",
+    "test:e2e:playwright:isolated:self-test": "node --test scripts/run-playwright-isolated-lanes.test.mjs",
     "test:e2e:playwright:update": "playwright test --update-snapshots",
     "test:e2e:visual:capture": "FARMING_VISUAL_OUTPUT_DIR=${FARMING_VISUAL_OUTPUT_DIR:-.tmp/visual-capture} playwright test tests/e2e/visual-regression.spec.ts --project=chromium --workers=1 --retries=0",
     "test:e2e:visual:compare": "node scripts/compare-visual-revisions.cjs",
@@ -128,7 +130,8 @@
     "pretypecheck": "npm run build:backend-runtime && npm run build:classic-runtime",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.backend-runtime.json && tsc -p tsconfig.backend.json && tsc -p tsconfig.desktop.json && tsx scripts/typecheck-classic-runtime.ts && tsc -p tsconfig.shared.json && tsc -p tsconfig.scripts.json && tsc -p tsconfig.scripts-harness.json && tsc -p tsconfig.tests.json && tsc -p tsconfig.unit-tests.json && tsc -p tsconfig.usage.json",
     "lint": "eslint --max-warnings=0 \"backend/**/*.cts\" \"backend/tests/test-*.ts\" \"desktop/**/*.ts\" \"extensions/*/backend/**/*.cts\" \"extensions/*/frontend/**/*.{ts,tsx}\" \"frontend/**/*.js\" \"frontend/**/*.ts\" \"scripts/**/*.ts\" \"shared/**/*.ts\" \"src/**/*.{ts,tsx}\" bin/farming --ignore-pattern \"frontend/vendor/**\" --ignore-pattern \"frontend/themes/**\"",
-    "check": "npm run test:behavior:contracts && npm run typecheck && npm run lint && npm test"
+    "check": "npm run test:behavior:contracts && npm run typecheck && npm run lint && npm test",
+    "test:e2e:playwright:isolated:matrix": "node scripts/run-playwright-full-matrix.mjs"
   },
   "keywords": [
     "coding-agent-workspace",

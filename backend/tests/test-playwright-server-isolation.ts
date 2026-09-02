@@ -10,13 +10,24 @@ const source = fs.readFileSync(
 
 assert.match(
   source,
-  /process\.env\.FARMING_CONFIG_DIR = configDir;/,
-  'Playwright must always use its newly-created isolated config root',
+  /const inheritedPlaywrightConfigDir = process\.env\.FARMING_PLAYWRIGHT_CONFIG_DIR;/,
+  'Playwright must accept only the isolated lane config override',
 );
 assert.doesNotMatch(
   source,
-  /process\.env\.FARMING_CONFIG_DIR = process\.env\.FARMING_CONFIG_DIR \|\| configDir;/,
-  'Playwright must not inherit the parent Farming config root',
+  /(?:const|let|var)\s+\w+\s*=\s*process\.env\.FARMING_CONFIG_DIR[;\n]/,
+  'Playwright must not read the inherited generic Farming config root',
+);
+
+assert.match(
+  source,
+  /const ownsConfigDir = !inheritedPlaywrightConfigDir;/,
+  'Externally supplied lane config must not be removed by server cleanup',
+);
+assert.match(
+  source,
+  /process\.env\.FARMING_CONFIG_DIR = configDir;/,
+  'The backend must receive the resolved isolated Playwright config root',
 );
 
 console.log('test-playwright-server-isolation passed');

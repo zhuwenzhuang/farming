@@ -502,6 +502,67 @@ Changed Files + Failure Signatures
 
 Release Watcher 在第一个必需 Job 终止失败时直接返回该 Bundle，不再要求 Agent 反复轮询。
 
+### B4. 使用隔离本地 Lane 运行均衡 Shard
+
+`npm run test:e2e:playwright:isolated -- --project <name> --lanes <count>`
+把现有的均衡 Test Location 分配启动为相互隔离的 Lane。Coordinator 默认只 Build 一次；只有明确
+传入 `--skip-build` 才跳过 Build，随后强制每条 Lane 的 Server 复用该 Build。脚本不转发任意
+Playwright 参数，避免调用方绕过隔离契约。
+
+Lane Execution Copy 完全使用 Node Filesystem API 准备，不依赖 `rsync` 或其他 Host Copy
+Utility。Coordinator 读取精确的 NUL 分隔
+`git ls-files -co --exclude-standard` Manifest，对普通文件做字节复制、重新创建符号链接、保留
+可执行权限，并且绝不把 Tracked 或 Non-ignored WIP Hard Link 回 Source Checkout。所有复制目标
+都必须位于 Lane Repository Root 内；遇到不支持的 Manifest Entry Type 时 Fail Closed。
+
+Git Manifest 会有意排除 Ignored Build Output。复制 Manifest 后，Lane Preparation 只从
+Canonical Backend Build Output Root 继承 Generated Runtime Artifact：每个 Runtime `.cts`
+Source 都必须有相邻的 `.cjs` 和 `.cjs.map`，另外再复制明确归属的 Singleton Runtime Output。
+这些文件是隔离副本，不会把 Source 的 `backend/`、`desktop/`、`extensions/` 或 `shared/`
+整棵目录链接进 Clone，因此 Plain Node 子进程可以直接从 Lane Clone 启动 Native PTY Host 和
+ACP Runtime Host。缺少任何必需 Artifact 时，Preparation 会 Fail Closed，并给出恢复它所需的
+Build Command；不会退回 `tsx` Module Resolution。已经 Build 的 `node_modules` 和 `dist` Root
+仍作为所有 Lane 共享的只读输入。
+
+每条 Lane 独占 Backend Port、Config Root、临时目录、Playwright Output、HTML Report、
+Visual/Audit Directory，以及所有单文件 Screenshot Path。Linux Headed 模式还会独占一个 Xvfb
+Display，并实际设置 Playwright `headless: false`。开始工作前必须检查默认 Port 与 Display；已被
+占用时 Fail Closed。Xvfb 创建 Display Socket 后才能启动 Playwright，Xvfb 提前退出会使该 Lane
+失败。
+
+所有子命令都运行在本次调用拥有的独立 Process Group 中。收到中断或最终清理时只向这些 Group
+发信号；需要时从 TERM 升级到 KILL，中断后的父进程返回非零。一条 Lane 失败不会取消其他独立
+Lane，Coordinator 会可靠收集全部终态。默认全成功时删除临时 Lane Root；任一失败时保留 Trace、
+Report、Screenshot 和 Audit Evidence，并打印精确保留路径。`--retain-evidence` 也会在成功后
+保留 Evidence 并打印精确 Root。`--dry-run` 不创建 Server、目录或临时 Root；`--list` 只使用
+Balanced Runner 支持的 `--list-selected` 发现模式。
+
+在 Linux Validation Host 的 Checkout 中，完整 703 Test Matrix 使用以下 12 条无冲突 Logical
+Lane。Chromium 使用六条 Balanced Lane，较小 Project 使用按规模缩减的 Lane 数；其中 8 条
+使用 Chromium、4 条使用 WebKit，只有两个 Auth Project 启用认证。
+
+| Project | Tests | 精确隔离调用 |
+| --- | ---: | --- |
+| `chromium` | 603 | `FARMING_PLAYWRIGHT_PORT_BASE=43100 FARMING_PLAYWRIGHT_XVFB_DISPLAY_BASE=90 FARMING_PLAYWRIGHT_AUTH=0 node scripts/run-playwright-isolated-lanes.mjs --project chromium --lanes 6 --headed-xvfb --skip-build --retain-evidence` |
+| `iphone-webkit` | 45 | `FARMING_PLAYWRIGHT_PORT_BASE=43200 FARMING_PLAYWRIGHT_XVFB_DISPLAY_BASE=110 FARMING_PLAYWRIGHT_AUTH=0 node scripts/run-playwright-isolated-lanes.mjs --project iphone-webkit --lanes 2 --headed-xvfb --skip-build --retain-evidence` |
+| `iphone-human-webkit` | 25 | `FARMING_PLAYWRIGHT_PORT_BASE=43300 FARMING_PLAYWRIGHT_XVFB_DISPLAY_BASE=120 FARMING_PLAYWRIGHT_AUTH=0 node scripts/run-playwright-isolated-lanes.mjs --project iphone-human-webkit --lanes 1 --headed-xvfb --skip-build --retain-evidence` |
+| `android-human-chromium` | 28 | `FARMING_PLAYWRIGHT_PORT_BASE=43400 FARMING_PLAYWRIGHT_XVFB_DISPLAY_BASE=130 FARMING_PLAYWRIGHT_AUTH=0 node scripts/run-playwright-isolated-lanes.mjs --project android-human-chromium --lanes 1 --headed-xvfb --skip-build --retain-evidence` |
+| `mobile-auth-chromium` | 1 | `FARMING_PLAYWRIGHT_PORT_BASE=43500 FARMING_PLAYWRIGHT_XVFB_DISPLAY_BASE=140 FARMING_PLAYWRIGHT_AUTH=1 node scripts/run-playwright-isolated-lanes.mjs --project mobile-auth-chromium --lanes 1 --headed-xvfb --skip-build --retain-evidence` |
+| `mobile-auth-webkit` | 1 | `FARMING_PLAYWRIGHT_PORT_BASE=43600 FARMING_PLAYWRIGHT_XVFB_DISPLAY_BASE=150 FARMING_PLAYWRIGHT_AUTH=1 node scripts/run-playwright-isolated-lanes.mjs --project mobile-auth-webkit --lanes 1 --headed-xvfb --skip-build --retain-evidence` |
+
+不要手工把表中命令放入后台；应在该 Checkout 运行
+`npm run test:e2e:playwright:isolated:matrix`。Checked-in Coordinator 默认只 Build 一次，把六个
+Project 定义展开为 12 个彼此隔离的 Lane 调用，并在所有 Chromium Project 之间全局最多同时放行
+六条 Chromium Lane；这不是三个互不知情的 Project 局部上限。所有 WebKit Lane 仍可并行。
+`--max-chromium-lanes <1-8>` 允许 Operator 根据已测量 Host 显式覆盖，默认值保持为已经验证的
+安全容量。Coordinator 不做自动 Retry，会汇总全部终态；中断时只向自己拥有的 Process Group
+发信号。上表的单 Project 命令会保留其请求的 Lane 数，不能替代 Matrix 的全局调度器。只有当
+Matrix 所需的全部 Build Output 已针对同一精确 Checkout 完成并验证时，调用方才可运行
+`npm run test:e2e:playwright:isolated:matrix -- --skip-build`；验证责任由调用方承担，Coordinator
+不会证明已有 Output 仍然 Fresh。Lane Preparation 仍会在预期 Generated Runtime Artifact
+缺失时 Fail Closed。`--dry-run` 会打印精确 Lane Command；未传入 `--skip-build` 时还会打印
+Build Command，且不产生副作用。
+
 ## 改造 C：Agent 三分钟调查协议
 
 ### 三分钟首次处置
@@ -584,6 +645,8 @@ Chat Position：
 - 每个产品行为发布在任何公开 Mutation 前完成选中的自动化与 Computer Use Preparation Gate。
 - 独立 Computer Use 场景运行在分别归属的 Isolated Desktop 上；一条 Lane 失败时保留其证据，
   不重启无关 Lane。
+- 本地均衡 Playwright Lane 使用唯一 Runtime/Evidence 资源，只 Build 一次；Port/Display 占用时
+  Fail Closed，只清理本次拥有的 Process Group，并保留失败 Lane 的证据。
 - Release 不再重复普通仓库门禁。
 - 所有正式资产和 npm `gitHead` 都指向精确 Candidate SHA。
 - GitHub Release 和必需资产公开并验证之前，npm Version 不存在。

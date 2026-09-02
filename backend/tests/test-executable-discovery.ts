@@ -254,6 +254,31 @@ function run() {
     assert.strictEqual(missingExplicitPiAcp.path, '');
     assert.strictEqual(missingExplicitPiAcp.compatible, false);
     assert.match(missingExplicitPiAcp.error, /missing or not executable/);
+
+    // (a) Explicit fake-ACP bypass allows resolution without a real binary.
+    const fakeAcpBypass = resolveProviderAcpExecutable('pi', '', { allowFakeAcpRuntime: true });
+    assert.strictEqual(fakeAcpBypass.compatible, true, 'fake ACP bypass must allow Pi without a real binary');
+    assert.strictEqual(fakeAcpBypass.error, '', 'fake ACP bypass must not produce a version error');
+    const fakeAcpBypassCodex = resolveProviderAcpExecutable('codex', '', { allowFakeAcpRuntime: true });
+    assert.strictEqual(fakeAcpBypassCodex.compatible, true, 'fake ACP bypass must allow Codex without a real binary');
+
+    // (b) Fake executables alone (without the bypass option) must still reject.
+    const noBypassMissing = resolveProviderAcpExecutable('pi', '', {});
+    assert.strictEqual(noBypassMissing.compatible, false, 'without bypass, missing Pi binary must be rejected');
+    assert.match(noBypassMissing.error, /0\.80\.4 or newer/, 'missing Pi must report the version requirement');
+    const noBypassOld = resolveProviderAcpExecutable('pi', '', {
+      candidates: [oldPi],
+      readVersion: () => '0.79.9',
+      cacheVersions: false,
+    });
+    assert.strictEqual(noBypassOld.compatible, false, 'without bypass, old Pi binary must be rejected');
+    assert.match(noBypassOld.error, /0\.80\.4 or newer/, 'old Pi must report the version requirement');
+
+    // (c) Production path (no bypass, real binary missing) must reject.
+    const productionMissing = resolveProviderAcpExecutable('pi', '/nonexistent-path-for-test', {});
+    assert.strictEqual(productionMissing.compatible, false, 'production path must reject missing Pi binary');
+    assert.match(productionMissing.error, /missing or not executable/, 'production path must report the missing executable');
+
     assert.strictEqual(
       resolveFarmingOwnedExecutable('codex', { farmingCandidates: [farmingCodex] }),
       farmingCodex,

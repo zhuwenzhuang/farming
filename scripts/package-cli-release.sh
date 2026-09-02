@@ -20,7 +20,7 @@ BUNDLE_WORKER="${PROJECT_ROOT}/backend/terminal-screen-worker-thread.pkg.js"
 BUNDLE_USAGE_WORKER="${PROJECT_ROOT}/backend/usage-history-worker.pkg.js"
 BUNDLE_COMPUTER_TOOLS="${PROJECT_ROOT}/backend/cua-tools.json"
 SOURCE_COMPUTER_TOOLS="${PROJECT_ROOT}/extensions/computer/backend/cua-tools.json"
-GIT_SHA="$(cd "${PROJECT_ROOT}" && git rev-parse --short HEAD 2>/dev/null || date +%Y%m%d%H%M%S)"
+GIT_SHA="$(cd "${PROJECT_ROOT}" && git rev-parse HEAD)"
 GIT_STATUS="$(cd "${PROJECT_ROOT}" && git status --porcelain --untracked-files=normal 2>/dev/null || true)"
 GIT_DIRTY=false
 BUILT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"

@@ -1738,9 +1738,9 @@ async function runDesktopTerminalMatrix(
       }, bashAgentId)
       await expect.poll(async () => page.evaluate((id) => window.__farmingTerminalTest?.getInputCount(id) ?? 0, bashAgentId))
         .toBeGreaterThan(inputCountBeforePaste)
-      await expect.poll(async () => await visibleTerminalText(page, bashAgentId)).toContain('XTERM_NATIVE_PASTE_OK')
-      await expect.poll(async () => await visibleTerminalText(page, bashAgentId)).not.toContain('201~')
-      await expect.poll(async () => await visibleTerminalText(page, bashAgentId)).not.toContain('200~')
+      await expect.poll(async () => (await terminalRows(page, bashAgentId, 60)).join('')).toContain('XTERM_NATIVE_PASTE_OK')
+      await expect.poll(async () => (await terminalRows(page, bashAgentId, 60)).join('')).not.toContain('201~')
+      await expect.poll(async () => (await terminalRows(page, bashAgentId, 60)).join('')).not.toContain('200~')
     })
 
     await scenario('focus and typing route to the active terminal only', async () => {

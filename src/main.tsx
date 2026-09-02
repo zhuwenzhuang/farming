@@ -300,6 +300,7 @@ async function renderApplication() {
     const [{ ReviewPage }] = await Promise.all([
       import('./components/review/ReviewPage'),
       import('./styles/tokens.css'),
+      import('./styles/ui-design.css'),
       import('./styles/review.css'),
     ])
     root.render(<ApplicationErrorBoundary><ReviewPage /></ApplicationErrorBoundary>)
@@ -309,6 +310,7 @@ async function renderApplication() {
   prepareCodeAppearanceDocument()
   await import('./styles/crt-tokens.css')
   await import('./styles/tokens.css')
+  await import('./styles/ui-design.css')
   await import('./styles/scrollbars.css')
   await import('./styles/main.css')
   await import('./styles/file-editor.css')

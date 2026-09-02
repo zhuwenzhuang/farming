@@ -3,6 +3,25 @@
    rule order preserve the original cascade. Transcript rendering lives in
    transcript.css. */
 
+.code-agent-opening {
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  color: var(--code-text);
+  background: var(--code-bg-surface);
+}
+
+.code-agent-opening.ready { flex: 0 0 auto; }
+.code-agent-opening-header { padding: 12px 20px; }
+.code-agent-opening-body { max-width: 820px; margin: 24px auto; padding: 0 24px; overflow-wrap: anywhere; }
+.code-agent-opening-body h2 { font-size: 20px; font-weight: 600; margin: 0 0 12px; outline: none; }
+.code-agent-opening-identity,
+.code-agent-opening-note { color: var(--code-text-muted); font-size: 13px; }
+.code-agent-opening-status { margin: 32px 0 20px; }
+.code-agent-opening-status p { font-size: 14px; }
+.code-agent-opening-status[role="alert"] > strong { color: var(--code-danger); }
+
 .code-agent-row {
   border: 0;
   background: transparent;
@@ -402,7 +421,7 @@
   align-items: center;
   justify-content: flex-end;
   gap: 3px;
-  width: 93px;
+  width: auto;
   height: 28px;
   box-sizing: border-box;
   padding-left: 21px;
@@ -414,8 +433,8 @@
   z-index: 1;
 }
 
-.code-agent-row-actions.session {
-  width: 68px;
+.code-agent-resource-action-slot {
+  display: contents;
 }
 
 .code-agent-row:hover .code-agent-row-actions,
@@ -748,7 +767,7 @@ body.code-mode:not(.code-compact-layout) .code-agent-row:has(.code-agent-row-act
 }
 
 .code-agent-launch-submenu-panel {
-  position: absolute;
+  position: fixed;
   z-index: 1;
   top: -5px;
   left: calc(100% + 6px);
@@ -863,7 +882,28 @@ body.code-mode:not(.code-compact-layout) .code-agent-row:has(.code-agent-row-act
     }
 
   body.code-mode.code-compact-layout .code-agent-row-actions {
+      right: var(--code-touch-target-size);
+      width: auto;
+      height: var(--code-touch-target-size);
+      padding: 0;
+      gap: 0;
+      background: transparent;
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+  body.code-mode.code-compact-layout .code-agent-row-actions > .code-agent-row-action {
       display: none;
+    }
+
+  body.code-mode.code-compact-layout .code-agent-resource-action-slot > .code-agent-row-action {
+      width: var(--code-touch-target-size);
+      height: var(--code-touch-target-size);
+      flex-basis: var(--code-touch-target-size);
+    }
+
+  body.code-mode.code-compact-layout .code-agent-row:has(.code-agent-resource-action-slot:not(:empty)) .code-agent-row-trailing {
+      padding-right: calc(2 * var(--code-touch-target-size) - 7px);
     }
 
   body.code-mode.code-compact-layout .code-agent-row-more {
@@ -892,8 +932,8 @@ body.code-mode:not(.code-compact-layout) .code-agent-row:has(.code-agent-row-act
     }
 
   body.code-mode.code-compact-layout .code-agent-row-more svg {
-      width: 18px;
-      height: 18px;
+      width: var(--code-ui-icon-size);
+      height: var(--code-ui-icon-size);
     }
 
   body.code-mode.code-compact-layout .code-agents-section {

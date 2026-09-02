@@ -1,0 +1,193 @@
+/* Appearance-neutral geometry and semantic control recipes.
+ * Color values belong to tokens.css. Product rules: ui-design-protocol.md.
+ */
+:root {
+  --code-ui-font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  --code-ui-icon-size: 16px;
+  --code-field-height: 34px;
+  --code-field-radius: 6px;
+  --code-field-font-size: 14px;
+  --code-field-line-height: 20px;
+  --code-field-label-font-size: 13px;
+  --code-dialog-action-height: 30px;
+  --code-dialog-action-radius: 6px;
+  --code-touch-target-size: 44px;
+  --code-sidebar-file-row-height: 24px;
+  --code-file-entry-font-size: 13px;
+  --code-file-entry-line-height: 16px;
+  --code-menu-font-size: 13px;
+  --code-menu-line-height: 18px;
+  --code-menu-row-height: 28px;
+  --code-menu-padding: 5px;
+  --code-menu-item-padding: 4px 8px;
+  --code-menu-radius: 8px;
+  --code-menu-item-radius: 6px;
+}
+
+/* Native button chrome is not a second skin for portalled Code dialogs. */
+:where(body.code-mode, .review-body) :where(button) {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 0;
+}
+
+/* Resets must never outrank a component's typography, including Review. */
+:where(body.code-mode, .review-body) :where(button, textarea, input, select) {
+  font: inherit;
+}
+
+@media (max-width: 980px) {
+  :root {
+    --code-sidebar-file-row-height: 28px;
+    --code-file-entry-font-size: 14px;
+    --code-menu-row-height: 36px;
+  }
+}
+
+.code-menu-surface {
+  box-sizing: border-box;
+  padding: var(--code-menu-padding);
+  border: 1px solid var(--code-border);
+  border-radius: var(--code-menu-radius);
+  background: var(--code-context-menu-surface);
+  box-shadow: var(--code-shadow-raised);
+  color: var(--code-text);
+  font-family: var(--code-ui-font-family);
+  text-shadow: none;
+}
+
+/* Single-line actions and choices share chrome. Grid columns, menu placement
+ * and text truncation stay with the content owner. Rich choices opt in per row. */
+.code-menu-surface.code-menu-list :where(button, summary),
+.code-menu-surface .code-menu-item {
+  box-sizing: border-box;
+  min-height: var(--code-menu-row-height);
+  padding: var(--code-menu-item-padding);
+  border: 0;
+  border-radius: var(--code-menu-item-radius);
+  background: transparent;
+  color: var(--code-text);
+  font-family: var(--code-ui-font-family);
+  font-size: var(--code-menu-font-size);
+  font-weight: 400;
+  line-height: var(--code-menu-line-height);
+  text-align: left;
+  cursor: pointer;
+}
+
+.code-menu-surface.code-menu-list :where(button, summary):is(:hover, :focus-visible, [aria-selected="true"], [aria-checked="true"]):not(:disabled),
+.code-menu-surface .code-menu-item:is(:hover, :focus-visible, .selected, .active):not(:disabled) {
+  background: var(--code-bg-hover);
+  color: var(--code-text);
+}
+
+.code-menu-surface.code-menu-list :where(button, summary):focus-visible,
+.code-menu-surface .code-menu-item:focus-visible {
+  outline: 2px solid var(--code-focus-ring);
+  outline-offset: -2px;
+}
+
+.code-menu-surface.code-menu-list :where(button):disabled,
+.code-menu-surface .code-menu-item:disabled {
+  color: var(--code-text-disabled);
+  opacity: 1;
+  cursor: not-allowed;
+}
+
+.code-menu-surface.code-menu-list :where(button).danger {
+  color: var(--code-danger);
+}
+
+/* An embedded submenu is a group within its parent's surface, not another
+ * floating shell. Desktop keeps the independently anchored surface. */
+@media (max-width: 980px) {
+  .code-menu-surface.code-menu-inline {
+    padding: 5px 0 0;
+    border: 0;
+    border-top: 1px solid var(--code-border);
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+}
+
+
+.code-field {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  height: var(--code-field-height);
+  padding: 0 10px;
+  border: 1px solid var(--code-border);
+  border-radius: var(--code-field-radius);
+  background: var(--code-bg-raised);
+  color: var(--code-text);
+  font-family: var(--code-ui-font-family);
+  font-size: var(--code-field-font-size);
+  font-weight: 400;
+  line-height: var(--code-field-line-height);
+}
+
+.code-field:is(input, textarea):focus {
+  outline: 0;
+  box-shadow: none;
+  caret-color: var(--code-text);
+}
+
+
+.code-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.code-dialog-actions button {
+  min-height: var(--code-dialog-action-height);
+  padding: 5px 11px;
+  border: 0;
+  border-radius: var(--code-dialog-action-radius);
+  background: var(--code-bg-muted);
+  color: var(--code-text);
+  font-family: var(--code-ui-font-family);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.code-dialog-actions button:hover:not(:disabled) { background: var(--code-bg-hover); }
+.code-dialog-actions button.primary { background: var(--code-accent); color: var(--code-text-on-emphasis); }
+.code-dialog-actions button.primary:hover:not(:disabled) { background: var(--code-accent-hover); }
+.code-dialog-actions button.danger { background: var(--code-danger); color: var(--code-text-on-emphasis); }
+.code-dialog-actions button.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--code-danger) 82%, var(--code-text)); }
+.code-dialog-actions button:focus-visible { outline: 2px solid var(--code-focus-ring); outline-offset: 2px; }
+.code-dialog-actions button:disabled { opacity: 0.48; cursor: not-allowed; }
+
+/* Stacked decision dialogs use full-width touch targets at every viewport. */
+.code-dialog-actions.stacked { display: grid; }
+.code-dialog-actions.stacked button { min-height: var(--code-touch-target-size); }
+
+/* Recovery actions are shared feedback controls, not Search-specific chrome. */
+.code-feedback-action {
+  flex: none;
+  min-height: 30px;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--code-bg-hover-strong);
+  color: var(--code-text);
+  cursor: pointer;
+  font-family: var(--code-ui-font-family);
+  font-weight: 600;
+}
+
+.code-feedback-action:hover {
+  background: var(--code-bg-selected);
+}
+
+@media (max-width: 980px) {
+  body.code-mode.code-compact-layout .code-feedback-action {
+    min-width: var(--code-touch-target-size);
+    min-height: var(--code-touch-target-size);
+  }
+}

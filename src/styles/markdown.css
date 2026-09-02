@@ -481,9 +481,37 @@
 }
 
 .code-markdown-preview .katex-display {
+  max-width: 100%;
+  min-width: 0;
   overflow-x: auto;
   overflow-y: hidden;
   padding: 4px 0;
+}
+
+.code-markdown-preview .katex-display > .katex {
+  /* Center short equations, but start wide equations inside their own scroller. */
+  box-sizing: border-box;
+  width: max-content;
+  min-width: 100%;
+  padding-inline: 2px;
+}
+
+.code-markdown-preview .katex-display > .katex > .katex-html {
+  /* Preserve KaTeX's inline bases, explicit newlines, and alignment struts. */
+  display: flow-root;
+}
+
+.code-markdown-preview .katex-display > .katex > .katex-html > .tag {
+  /* A number contributes to the equation's width instead of covering its end. */
+  position: static;
+  float: right;
+  margin-left: 1em;
+}
+
+.code-markdown-preview .katex-display.leqno > .katex > .katex-html > .tag {
+  float: left;
+  margin-left: 0;
+  margin-right: 1em;
 }
 
 .code-markdown-preview code.code-markdown-math-error {

@@ -1,9 +1,12 @@
+import { useMenuViewportBounds } from '@/hooks/useMenuViewportBounds'
 import { useInteractionLayer } from '@/hooks/useInteractionLayer'
 import { useCallback, useEffect, useLayoutEffect, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from 'react'
 
 interface UseWorkspaceMenuKeyboardOptions {
   menuOpen: boolean
+  positionKey?: unknown
   menuRef: RefObject<HTMLElement | null>
+  triggerRef?: RefObject<HTMLElement | null>
   onClose: () => void
   onCloseWithFocusRestore?: () => void
   focusFirstItem?: boolean
@@ -15,23 +18,26 @@ function focusFirstWorkspaceMenuItem(menu: HTMLElement | null) {
   if (
     activeElement instanceof HTMLButtonElement &&
     menu.contains(activeElement) &&
-    activeElement.matches('button[role="menuitem"]:not(:disabled)')
+    activeElement.matches('button[role^="menuitem"]:not(:disabled)')
   ) return
-  menu.querySelector<HTMLButtonElement>('button[role="menuitem"]:not(:disabled)')?.focus()
+  menu.querySelector<HTMLButtonElement>('button[role^="menuitem"]:not(:disabled)')?.focus()
 }
 
 export function useWorkspaceMenuKeyboard({
   menuOpen,
+  positionKey,
   menuRef,
+  triggerRef,
   onClose,
   onCloseWithFocusRestore = onClose,
   focusFirstItem = false,
 }: UseWorkspaceMenuKeyboardOptions) {
+  useMenuViewportBounds(menuOpen, menuRef, positionKey)
   const handleMenuKeyDown = useCallback((event: ReactKeyboardEvent<HTMLElement>) => {
     const isNavigationKey = event.key === 'ArrowDown' || event.key === 'ArrowUp' || event.key === 'Home' || event.key === 'End'
     if (!isNavigationKey) return
 
-    const menuItems = Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]:not(:disabled)') ?? [])
+    const menuItems = Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>('button[role^="menuitem"]:not(:disabled)') ?? [])
     if (menuItems.length === 0) return
     const currentIndex = menuItems.indexOf(document.activeElement as HTMLButtonElement)
     const nextIndex = event.key === 'Home'
@@ -49,11 +55,12 @@ export function useWorkspaceMenuKeyboard({
 
   useInteractionLayer({
     enabled: menuOpen,
-    elements: () => [menuRef.current],
+    elements: () => [triggerRef?.current, menuRef.current],
     onDismiss: reason => {
       if (reason === 'escape') onCloseWithFocusRestore()
       else onClose()
     },
+    returnFocus: () => triggerRef?.current,
   })
 
   useEffect(() => {
@@ -72,7 +79,7 @@ export function useWorkspaceMenuKeyboard({
 
   useLayoutEffect(() => {
     if (!menuOpen || !focusFirstItem) return
-    menuRef.current?.querySelector<HTMLButtonElement>('button[role="menuitem"]:not(:disabled)')?.focus()
+    menuRef.current?.querySelector<HTMLButtonElement>('button[role^="menuitem"]:not(:disabled)')?.focus()
   }, [focusFirstItem, menuOpen, menuRef])
 
   return handleMenuKeyDown

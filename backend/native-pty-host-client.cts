@@ -4,7 +4,7 @@ const crypto = require('crypto') as typeof import('crypto');
 const fs = require('fs') as typeof import('fs');
 const net = require('net') as typeof import('net');
 const path = require('path') as typeof import('path');
-import { nativePtyHostPrivateSocketNamePattern, nativePtyHostSocketPath } from './native-pty-host-path.cjs';
+import { nativePtyHostPrivateSocketNamePattern, nativePtyHostSocketPath, publishNativePtyHostSocket } from './native-pty-host-path.cjs';
 import { nativePtyHostRuntimeIdentity, nativePtyHostRuntimeIdentityMatches, normalizeNativePtyHostRuntimeIdentity } from './native-pty-host-identity.cjs';
 import { allocateNativePtyControllerGeneration, positiveGeneration } from './native-pty-controller-generation.cjs';
 import { isTemporaryProviderSessionId } from './provider-session-id.cjs';
@@ -452,15 +452,10 @@ class NativePtyHostClient extends EventEmitter {
       process.platform === 'win32'
       || !connectedPath
       || connectedPath === this.socketPath
-      || fs.existsSync(this.socketPath)
     ) {
       return;
     }
-    try {
-      fs.linkSync(connectedPath, this.socketPath);
-    } catch (error) {
-      if (errorCode(error) !== 'EEXIST') throw error;
-    }
+    publishNativePtyHostSocket(connectedPath, this.socketPath);
   }
 
   spawnHost(): void {
@@ -517,14 +512,19 @@ class NativePtyHostClient extends EventEmitter {
     const connectedPath = await this.resolveConnectSocketPath();
     return new Promise<void>((resolve, reject) => {
       const socket = net.createConnection(connectedPath);
-      const onError = (error: Error) => {
+      const onError = (error: unknown) => {
         socket.destroy();
         reject(error);
       };
       socket.once('error', onError);
       socket.once('connect', () => {
+        try {
+          this.restorePublicSocketPath(connectedPath);
+        } catch (error) {
+          onError(error);
+          return;
+        }
         socket.off('error', onError);
-        this.restorePublicSocketPath(connectedPath);
         this.connectedSocketPath = connectedPath;
         this.attachSocket(socket);
         resolve();
@@ -605,7 +605,7 @@ class NativePtyHostClient extends EventEmitter {
         if (errorCode(error) === 'FARMING_NATIVE_HOST_RUNTIME_MISMATCH') {
           throw error;
         }
-        if (errorCode(error) === 'FARMING_NATIVE_HOST_AMBIGUOUS') {
+        if (errorCode(error) === 'FARMING_NATIVE_HOST_AMBIGUOUS' || errorCode(error) === 'EEXIST') {
           throw error;
         }
         if (this.hostStartError) {

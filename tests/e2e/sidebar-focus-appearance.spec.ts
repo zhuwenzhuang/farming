@@ -13,6 +13,14 @@ const { PNG: ScreenshotPng } = require('playwright-core/lib/utilsBundle') as {
 
 type Appearance = 'light' | 'dark' | 'paper'
 
+// Playwright hides native scrollbars in headless Chromium by default. Keep
+// their real hit targets for these interaction tests instead of faking scroll.
+const scrollbarTest = test.extend({
+  launchOptions: async ({ launchOptions }, use) => {
+    await use({ ...launchOptions, ignoreDefaultArgs: ['--hide-scrollbars'] })
+  },
+})
+
 async function createAgent(page: Page, workspace: string) {
   const response = await page.request.post('/farming/api/control/agents', {
     data: { command: 'bash', workspace },
@@ -73,6 +81,104 @@ async function captureFullPage(page: Page, testInfo: TestInfo, appearance: Appea
   await testInfo.attach(`sidebar-focus-${appearance}-full`, {
     path: screenshotPath,
     contentType: 'image/png',
+  })
+}
+
+for (const layout of ['regular', 'compact'] as const) {
+  scrollbarTest(`keeps the sidebar scroll container unpainted while dragging its scrollbar (${layout})`, async ({ page, workspaceRoot }, testInfo) => {
+    const workspace = path.join(workspaceRoot, 'scrollbar-focus')
+    fs.mkdirSync(workspace, { recursive: true })
+    for (let index = 0; index < 120; index += 1) {
+      fs.writeFileSync(path.join(workspace, `file-${String(index).padStart(3, '0')}.txt`), `file ${index}\n`)
+    }
+    await createAgent(page, workspace)
+    // Open Editors, an active file, and sticky Project/Files headers must coexist
+    // with the long, virtualized tree, as they do in the reported screenshot.
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await openFarming(page)
+    const project = page.getByTestId('code-project-group').filter({ hasText: 'scrollbar-focus' })
+    const files = project.getByTestId('code-files-section')
+    const filesTitle = files.locator('.code-files-title')
+    if (await filesTitle.getAttribute('aria-expanded') !== 'true') await filesTitle.click()
+    await files.locator('[data-file-path="file-000.txt"]').click()
+    await expect(project.locator('.code-open-editors')).toBeVisible()
+    const editorsTitle = project.locator('.code-open-editors-title')
+    if (await editorsTitle.getAttribute('aria-expanded') !== 'true') await editorsTitle.click()
+
+    if (layout === 'compact') {
+      await page.setViewportSize({ width: 390, height: 844 })
+      await expect(page.locator('body')).toHaveClass(/code-compact-layout/)
+      const sidebar = page.getByTestId('code-sidebar')
+      await expect(sidebar).toHaveClass(/collapsed/)
+      await page.getByTestId('code-mobile-back').click()
+      await page.getByTestId('code-mobile-menu').click()
+      await expect(sidebar).not.toHaveClass(/collapsed/)
+    }
+
+    const list = page.getByTestId('code-project-list')
+    for (const appearance of ['light', 'dark', 'paper'] as const) {
+      await setAppearance(page, appearance)
+      await list.evaluate(element => { element.scrollTop = 0 })
+      await expect.poll(() => list.evaluate(element => element.scrollTop)).toBe(0)
+      await list.hover({ position: { x: 100, y: 300 } })
+      await page.mouse.wheel(0, 240)
+      await expect.poll(() => list.evaluate(element => element.scrollTop)).toBeGreaterThan(0)
+      const geometry = await list.evaluate(element => {
+        const bounds = element.getBoundingClientRect()
+        const thumbHeight = element.clientHeight ** 2 / element.scrollHeight
+        return {
+          x: bounds.right - 2,
+          y: bounds.top + element.scrollTop * element.clientHeight / element.scrollHeight + thumbHeight / 2,
+          scrollTop: element.scrollTop,
+          overflow: element.scrollHeight - element.clientHeight,
+          lane: element.offsetWidth - element.clientWidth,
+          hit: document.elementFromPoint(bounds.right - 2, bounds.top + 20)?.className,
+        }
+      })
+      expect(geometry.overflow).toBeGreaterThan(1000)
+      expect(geometry.lane).toBeGreaterThan(0)
+      expect(geometry.hit).toBe('code-project-list')
+      await page.mouse.move(geometry.x, geometry.y)
+      await page.mouse.down()
+      try {
+        await page.mouse.move(geometry.x, geometry.y + 100, { steps: 12 })
+        await expect.poll(() => list.evaluate(element => element.scrollTop)).toBeGreaterThan(geometry.scrollTop + 100)
+        await expectFocusedContainerWithoutSurface(list)
+        const screenshotPath = testInfo.outputPath(`scrollbar-drag-${layout}-${appearance}.png`)
+        const screenshot = await list.screenshot({ path: screenshotPath, animations: 'disabled', caret: 'hide' })
+        const image = ScreenshotPng.sync.read(screenshot)
+        expect(image.width).toBeGreaterThan(200)
+        expect(image.height).toBeGreaterThan(400)
+        await testInfo.attach(`scrollbar-drag-${layout}-${appearance}`, { path: screenshotPath, contentType: 'image/png' })
+      } finally {
+        await page.mouse.up()
+      }
+      await expectFocusedContainerWithoutSurface(list)
+      // Keyboard focus remains on the container for navigation; it must not
+      // become a selected-row surface in either input modality.
+      await list.press('Shift')
+      await expectFocusedContainerWithoutSurface(list)
+      if (layout === 'regular') {
+        const activeEditor = project.locator('.code-open-editor-row.active')
+        await expect(activeEditor).toHaveCSS('background-color', await resolvedColor(page, '--code-active-item-surface'))
+      }
+    }
+    if (layout === 'regular') {
+      const resizer = page.getByTestId('code-sidebar-resizer')
+      const bounds = await resizer.boundingBox()
+      expect(bounds).not.toBeNull()
+      const widthBefore = await page.getByTestId('code-sidebar').evaluate(element => element.getBoundingClientRect().width)
+      // The nine-pixel resize target remains usable on the content side.
+      await page.mouse.move(bounds!.x + 4, bounds!.y + 200)
+      await page.mouse.down()
+      try {
+        await page.mouse.move(bounds!.x + 44, bounds!.y + 200, { steps: 8 })
+        await expect.poll(() => page.getByTestId('code-sidebar').evaluate(element => element.getBoundingClientRect().width))
+          .toBeGreaterThan(widthBefore + 30)
+      } finally {
+        await page.mouse.up()
+      }
+    }
   })
 }
 

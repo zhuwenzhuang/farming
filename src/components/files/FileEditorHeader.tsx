@@ -110,6 +110,7 @@ export function FileEditorHeader({
             agentSidePanelOpen={agentSidePanelOpen}
             onReload={onReload}
             onSave={onSave}
+            onRevealInExplorer={onRevealInExplorer}
             onCopyReadOnlyShareLink={onCopyReadOnlyShareLink}
             onToggleMarkdownSplit={onToggleMarkdownSplit}
             onToggleMarkdownWideLayout={onToggleMarkdownWideLayout}

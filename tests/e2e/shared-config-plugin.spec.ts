@@ -8,12 +8,12 @@ import {
   openNewAgentDialog,
   selectAgent,
   startAgentFromOpenDialog,
-  terminalRows,
   test,
 } from './fixtures'
 
-async function visibleTerminalText(page: Page, agentId: string) {
-  return (await terminalRows(page, agentId, 60)).join('\n')
+async function expectShellReady(page: Page, agentId: string) {
+  await page.waitForFunction(id => Boolean(window.__farmingTerminalTest?.isReady(id)), agentId)
+  await expect(page.getByTestId('code-composer').locator('textarea')).toBeEnabled()
 }
 
 async function agentOutput(page: Page, agentId: string) {
@@ -120,7 +120,7 @@ test('Shared configuration follows an editable-file user story', async ({ page, 
 
   await openNewAgentDialog(page)
   const firstAgentId = await startAgentFromOpenDialog(page, 'bash', workspaceRoot)
-  await expect.poll(() => visibleTerminalText(page, firstAgentId), { timeout: 15_000 }).toContain('$')
+  await expectShellReady(page, firstAgentId)
   await expectAgentVariable(page, firstAgentId, 'FIRST_AGENT', 'first-version')
 
   fs.writeFileSync(envFile, [
@@ -139,7 +139,7 @@ test('Shared configuration follows an editable-file user story', async ({ page, 
   await expectAgentVariable(page, firstAgentId, 'FIRST_AGENT_AFTER_EDIT', 'first-version')
   await openNewAgentDialog(page)
   const secondAgentId = await startAgentFromOpenDialog(page, 'bash', workspaceRoot)
-  await expect.poll(() => visibleTerminalText(page, secondAgentId), { timeout: 15_000 }).toContain('$')
+  await expectShellReady(page, secondAgentId)
   await expectAgentVariable(page, secondAgentId, 'SECOND_AGENT', 'second-version')
 
   fs.rmSync(envFile)
@@ -173,7 +173,7 @@ test('Shared configuration follows an editable-file user story', async ({ page, 
   await captureStory(card, testInfo, '06-file-fixed-automatically-ready.png')
   await openNewAgentDialog(page)
   const recoveredAgentId = await startAgentFromOpenDialog(page, 'bash', workspaceRoot)
-  await expect.poll(() => visibleTerminalText(page, recoveredAgentId), { timeout: 15_000 }).toContain('$')
+  await expectShellReady(page, recoveredAgentId)
   await expectAgentVariable(page, recoveredAgentId, 'RECOVERED_AGENT', 'recovered-without-saving')
 
 })

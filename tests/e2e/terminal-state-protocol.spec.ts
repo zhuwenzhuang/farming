@@ -592,7 +592,7 @@ test.describe('terminal state protocol', () => {
         stateRevision + 1,
       )
     }, { id: agentId, epoch: initial.runtimeEpoch, ...initial })
-    await expect.poll(() => visibleText(page, agentId)).toContain('CONTIGUOUS_GOOD')
+    await expect.poll(async () => (await terminalRows(page, agentId, 80)).join('')).toContain('CONTIGUOUS_GOOD')
 
     await page.evaluate(async ({ id, epoch, outputSeq, stateRevision }) => {
       await window.__farmingTerminalTest?.streamSequenced(

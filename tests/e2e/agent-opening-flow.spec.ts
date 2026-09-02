@@ -24,7 +24,10 @@ async function setup(page: Page, workspaceRoot: string, count = 30, provider = '
   const agents: string[] = []
   const createAgent = async (command = 'bash', chat = false) => {
     const response = await page.request.post('/farming/api/control/agents', { data: { command, workspace: root, ...(chat ? { agentRuntimeMode: 'chat' } : {}) } })
-    expect(response.ok()).toBeTruthy()
+    if (!response.ok()) {
+      const body = await response.text().catch(() => '(unreadable body)')
+      throw new Error(`Agent creation failed (${response.status()}): ${body}`)
+    }
     const body = await response.json() as { agentId: string }
     agents.push(body.agentId)
     return body.agentId
@@ -283,6 +286,22 @@ test('Escape returns from pending History and late completion cannot steal focus
 
 for (const provider of ['codex', 'claude', 'opencode', 'pi', 'qwen']) {
   test(`${provider} Chat loading stays in the target pane and uses the existing transcript error/retry flow`, async ({ page, workspaceRoot }) => {
+    if (provider === 'pi') {
+      const availabilityResponse = await page.request.get('/farming/api/agent-extensions')
+      if (!availabilityResponse.ok()) {
+        throw new Error(`Provider availability read failed (${availabilityResponse.status()}): ${await availabilityResponse.text()}`)
+      }
+      const availability = await availabilityResponse.json() as {
+        agents?: Array<{ available?: boolean; id?: string; supportsChat?: boolean }>
+      }
+      const pi = availability.agents?.find(agent => agent.id === 'pi')
+      if (!pi) throw new Error('Provider availability did not include pi')
+      if (typeof pi.available !== 'boolean' || typeof pi.supportsChat !== 'boolean') {
+        throw new Error('Provider availability for pi is incomplete')
+      }
+      test.skip(!pi.available, 'Pi provider executable is unavailable in this environment')
+      test.skip(!pi.supportsChat, 'Pi provider does not support Chat in this environment')
+    }
     let sourceOverrides = 0
     // A historical Chat expects a checkpoint. A newly created empty Chat
     // deliberately suppresses checkpoint errors, so model the durable source.
