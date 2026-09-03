@@ -344,6 +344,23 @@ const FileTreeViewContent = memo(function FileTreeViewContent({
       const maxOffset = Math.max(0, treeHeight - treeWindowHeight)
       const offset = Math.max(0, Math.min(maxOffset, scrollerRect.top - viewportRect.top))
       virtualScrollOffsetRef.current = offset
+      const tree = viewport.querySelector<HTMLElement>('[role="tree"]')
+      const activeElement = document.activeElement
+      if (
+        tree
+        && activeElement instanceof HTMLElement
+        && activeElement !== tree
+        && activeElement.getAttribute('role') === 'treeitem'
+        && tree.contains(activeElement)
+      ) {
+        // Focusing the tall tree can scroll the outer Project list before its
+        // virtual window catches up. Arborist briefly restores DOM focus to the
+        // old row; if synchronization then unmounts that offscreen row, the
+        // browser drops keyboard ownership to <body>. Park focus on the stable
+        // tree root before changing the mounted range so Home/End/Arrow keys
+        // continue through the real tree keyboard path.
+        tree.focus({ preventScroll: true })
+      }
       // The list uses this offset only to choose mounted rows. Its DOM has
       // visible overflow, so rows stay in the outer scroller's coordinates.
       // Mirroring native scroll with a translated window and a second
@@ -560,6 +577,7 @@ export function FileTreeView({ activeFilePath, openFilePendingPath, onTreeSelect
   if (!selectedFilePathStoreRef.current) selectedFilePathStoreRef.current = new SelectedFilePathStore()
   const selectedFilePathStore = selectedFilePathStoreRef.current
   const treeSelectionTimerRef = useRef<number | null>(null)
+  const treeSelectionIntentRef = useRef(0)
   useLayoutEffect(() => {
     activeFilePathStore.set(activeFilePath)
   }, [activeFilePath, activeFilePathStore])
@@ -567,15 +585,23 @@ export function FileTreeView({ activeFilePath, openFilePendingPath, onTreeSelect
     openFilePendingPathStore.set(openFilePendingPath || undefined)
   }, [openFilePendingPath, openFilePendingPathStore])
   const handleSelectFilePath = useCallback((filePath: string) => {
+    const intent = treeSelectionIntentRef.current + 1
+    treeSelectionIntentRef.current = intent
     if (treeSelectionTimerRef.current !== null) {
       window.clearTimeout(treeSelectionTimerRef.current)
       treeSelectionTimerRef.current = null
     }
     selectedFilePathStore.set([filePath])
     return () => {
+      // File reads may finish after the user has already moved selection with
+      // the keyboard. Only the still-current pointer intent may reconcile
+      // Arborist's internal state; an older completion must not scroll back to
+      // and reselect its path.
+      if (treeSelectionIntentRef.current !== intent) return
       if (treeSelectionTimerRef.current !== null) window.clearTimeout(treeSelectionTimerRef.current)
       treeSelectionTimerRef.current = window.setTimeout(() => {
         treeSelectionTimerRef.current = null
+        if (treeSelectionIntentRef.current !== intent) return
         treeProps.treeRef.current?.select(filePath, { focus: false })
       }, 100)
     }
@@ -588,10 +614,14 @@ export function FileTreeView({ activeFilePath, openFilePendingPath, onTreeSelect
     // react-arborist may publish an empty selection when its hidden focus
     // target blurs. Keyboard ownership moving to a tab or Monaco must not
     // erase the Explorer's last explicit selection.
-    if (nodes.length > 0) selectedFilePathStore.set(nodes.map(node => node.data.path))
+    if (nodes.length > 0) {
+      treeSelectionIntentRef.current += 1
+      selectedFilePathStore.set(nodes.map(node => node.data.path))
+    }
     onTreeSelect(nodes)
   }, [onTreeSelect, selectedFilePathStore])
   useLayoutEffect(() => () => {
+    treeSelectionIntentRef.current += 1
     if (treeSelectionTimerRef.current !== null) window.clearTimeout(treeSelectionTimerRef.current)
   }, [])
   return (
