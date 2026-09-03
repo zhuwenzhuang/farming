@@ -66,7 +66,14 @@ test('keeps composed sidebar density and alignment through resize, expansion, an
   // not a second density policy based on the input device.
   for (const compact of [false, true, false]) {
     await page.setViewportSize(compact ? { width: 393, height: 852 } : { width: 1280, height: 900 })
-    if (compact) await openDrawer()
+    if (compact) {
+      // Responsive ownership updates after the viewport event. Wait for the
+      // real compact transition before reopening the drawer; sampling the old
+      // desktop class can leave every sidebar row hidden a frame later.
+      await expect(sidebar).toHaveClass(/collapsed/)
+      await openDrawer()
+      await expect(sidebar).not.toHaveClass(/collapsed/)
+    }
     const height = compact ? 28 : 24
     for (const appearance of ['light', 'dark', 'paper'] as const) {
       await page.emulateMedia({ colorScheme: appearance === 'dark' ? 'dark' : 'light', reducedMotion: 'reduce' })

@@ -178,7 +178,7 @@ export function AcpModeControl({
             <button
               key={mode.id}
               type="button"
-              className={`code-menu-item code-approval-option ${mode.id === currentModeId ? 'selected' : ''}`}
+              className={`code-menu-item code-menu-item-rich code-approval-option ${mode.id === currentModeId ? 'selected' : ''}`}
               role="menuitemradio"
               aria-checked={mode.id === currentModeId}
               disabled={disabled || Boolean(updatingId)}

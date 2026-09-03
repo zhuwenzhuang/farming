@@ -42,4 +42,22 @@ for (const source of sources) {
     }
   })
 }
+
+const familyCss = fs.readFileSync(path.join(projectRoot, familyOwner), 'utf8')
+assert.match(
+  familyCss,
+  /\.code-menu-surface \.code-menu-item\.code-menu-item-rich\s*\{[^}]*min-height:\s*52px/s,
+  'the shared mobile menu recipe must preserve touch-sized rich choice rows',
+)
+for (const component of [
+  'src/components/code/CodeComposer.tsx',
+  'src/components/code/acp/AcpSessionControls.tsx',
+]) {
+  const source = fs.readFileSync(path.join(projectRoot, component), 'utf8')
+  assert.match(
+    source,
+    /code-menu-item code-menu-item-rich code-approval-option/,
+    `${component} must opt multi-line approval choices into the shared rich-row recipe`,
+  )
+}
 console.log('test-ui-design-ownership passed')

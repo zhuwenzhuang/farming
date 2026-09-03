@@ -879,7 +879,7 @@ export function CodeComposer({
                     <button
                       key={option.value}
                       type="button"
-                      className={`code-menu-item code-approval-option ${option.value === currentPermissionMode ? 'selected' : ''}`}
+                      className={`code-menu-item code-menu-item-rich code-approval-option ${option.value === currentPermissionMode ? 'selected' : ''}`}
                       role="menuitemradio"
                       aria-checked={option.value === currentPermissionMode}
                       onClick={() => onUpdatePermissionMode(option.value)}

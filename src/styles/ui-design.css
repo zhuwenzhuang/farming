@@ -109,6 +109,12 @@
     background: transparent;
     box-shadow: none;
   }
+
+  /* Multi-line choices need a touch-sized content row instead of inheriting
+   * the compact single-line menu metric. Product owners opt in explicitly. */
+  .code-menu-surface .code-menu-item.code-menu-item-rich {
+    min-height: 52px;
+  }
 }
 
 
