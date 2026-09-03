@@ -105,7 +105,10 @@ docker image inspect "${COMPUTER_IMAGE}" >/dev/null 2>&1 \
   || fail "pinned Computer image is not present locally"
 
 codex login status >/dev/null 2>&1 || fail "Codex CLI is not logged in"
-node scripts/check-release-managed-dependency-updates.mjs \
+NPM_REGISTRY="$(npm config get registry)"
+[[ "${NPM_REGISTRY}" =~ ^https://[^[:space:]]+/$ ]] \
+  || fail "npm registry must be an HTTPS URL ending in /; found ${NPM_REGISTRY}"
+node scripts/check-release-managed-dependency-updates.mjs --registry "${NPM_REGISTRY}" \
   || fail "managed Agent dependency preflight failed"
 
 printf 'coordinator_platform=linux\n'
@@ -113,6 +116,7 @@ printf 'candidate_sha=%s\n' "${CANDIDATE_SHA}"
 printf 'release_version=%s\n' "${VERSION}"
 printf 'artifact_execution=github-actions\n'
 printf 'npm_publication=github-actions-oidc\n'
+printf 'dependency_registry=%s\n' "${NPM_REGISTRY}"
 printf 'ios_acceptance=skipped\n'
 printf 'ios_acceptance_reason=linux-coordinator-special-rule\n'
 printf 'computer_image=%s\n' "${COMPUTER_IMAGE}"

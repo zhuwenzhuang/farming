@@ -158,7 +158,9 @@ Use、Exact-SHA CI、Provider 门禁、Candidate Workflow、所有平台制品�
 `npm run release:coordinator:linux:check -- VERSION`。该检查确认 Linux 协调机已登录 GitHub 和
 Codex CLI、Docker 健康、发布 Workflow 处于 Active，并且固定 Digest 的 Computer 镜像已经存在。
 Release Artifact 与 npm Publication 仍由 GitHub Actions 负责，因此协调机不需要 npm 凭据、
-Xcode、新版宿主机 glibc 或本地跨平台打包工具。
+Xcode、新版宿主机 glibc 或本地跨平台打包工具。协调机的依赖探测遵循其配置的 HTTPS npm
+registry，因此受限 Linux 网络可以使用可信镜像；GitHub Release Preparation 任务仍查询 npm
+官方 registry，并作为权威依赖门禁。
 
 每条 Lane 记录 Candidate SHA、Scenario、Agent 与 Computer Resource Identity、Container/Image
 Identity、时间、Screenshot、Computer Action Trace、Backend/Provider Evidence、结果和 Failure

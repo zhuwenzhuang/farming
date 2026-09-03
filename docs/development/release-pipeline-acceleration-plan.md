@@ -207,7 +207,10 @@ The check proves that the Linux coordinator has authenticated GitHub and Codex
 CLIs, a healthy Docker daemon, active release workflows, and the exact pinned
 Computer image. Release artifacts and npm publication remain owned by GitHub
 Actions, so the coordinator does not need npm credentials, Xcode, a modern host
-glibc, or local cross-platform packaging tools.
+glibc, or local cross-platform packaging tools. The coordinator dependency
+probe follows its configured HTTPS npm registry so restricted Linux networks
+may use a trusted mirror; the GitHub Release Preparation job still queries the
+public npm registry and remains the authoritative dependency gate.
 
 Every lane records candidate SHA, scenario, Agent and Computer Resource
 identities, container/image identity, timestamps, screenshots, Computer action

@@ -39,7 +39,12 @@ set -u
 name="$(basename "$0")"
 case "$name" in
   uname) printf '%s\\n' "\${FAKE_UNAME:-Linux}" ;;
-  npm) printf '10.9.3\\n' ;;
+  npm)
+    case "$*" in
+      'config get registry') printf '%s\\n' "\${FAKE_NPM_REGISTRY:-https://registry.npmjs.org/}" ;;
+      *) printf '10.9.3\\n' ;;
+    esac
+    ;;
   codex) exit 0 ;;
   docker)
     case "\${1:-}" in info|image) exit 0 ;; esac
@@ -104,6 +109,7 @@ test('Linux coordinator preflight keeps artifacts in GitHub Actions and records 
     assert.equal(result.status, 0, result.stderr)
     assert.match(result.stdout, /artifact_execution=github-actions/)
     assert.match(result.stdout, /npm_publication=github-actions-oidc/)
+    assert.match(result.stdout, /dependency_registry=https:\/\/registry\.npmjs\.org\//)
     assert.match(result.stdout, /ios_acceptance=skipped/)
     assert.match(result.stdout, /ios_acceptance_reason=linux-coordinator-special-rule/)
     assert.match(result.stdout, /preflight=ready/)
@@ -122,6 +128,19 @@ test('Linux coordinator preflight fails closed for unsafe Git TLS and dirty rele
     const dirty = runCoordinator(root, fakeBin, { FAKE_DIRTY: ' M package.json\n' })
     assert.notEqual(dirty.status, 0)
     assert.match(dirty.stderr, /uncommitted changes/)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('Linux coordinator preflight accepts an explicit HTTPS npm mirror', () => {
+  const { root, fakeBin } = createFixture()
+  try {
+    const result = runCoordinator(root, fakeBin, {
+      FAKE_NPM_REGISTRY: 'https://registry.example.test/',
+    })
+    assert.equal(result.status, 0, result.stderr)
+    assert.match(result.stdout, /dependency_registry=https:\/\/registry\.example\.test\//)
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }
