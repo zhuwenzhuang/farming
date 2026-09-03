@@ -76,7 +76,6 @@ const resolveDependencyManifest = (parentManifestPath, dependencyName) => {
 
 const globalOverrides = new Map([
   ['dompurify', rootManifest.overrides?.dompurify],
-  ['qs', rootManifest.overrides?.qs],
 ]);
 for (const [dependencyName, version] of globalOverrides) {
   if (typeof version !== 'string' || !version) {
@@ -109,21 +108,20 @@ for (const [dependencyName, version] of globalOverrides) {
   }
 }
 
-const expressOverride = rootManifest.overrides?.['express@^4.22.2']?.['body-parser'];
-if (typeof expressOverride !== 'string' || !expressOverride) {
-  throw new Error('Missing reviewed Express body-parser override');
-}
+// Express 5.2 declares body-parser ^2.2.1 and qs ^6.14.0, and body-parser
+// 2.3.0 declares qs ^6.15.2, so the patched production chain resolves
+// naturally. Pin the reviewed versions instead of rewriting override edges.
 const expressManifestPath = path.join(stageRoot, 'node_modules', 'express', 'package.json');
 const expressManifest = JSON.parse(fs.readFileSync(expressManifestPath, 'utf8'));
 const bodyParserManifestPath = resolveDependencyManifest(expressManifestPath, 'body-parser');
 const bodyParserManifest = JSON.parse(fs.readFileSync(bodyParserManifestPath, 'utf8'));
-if (expressManifest.version !== '4.22.2' || bodyParserManifest.version !== expressOverride) {
+const qsManifestPath = resolveDependencyManifest(bodyParserManifestPath, 'qs');
+const qsManifest = JSON.parse(fs.readFileSync(qsManifestPath, 'utf8'));
+if (expressManifest.version !== '5.2.1' || bodyParserManifest.version !== '2.3.0' || qsManifest.version !== '6.16.0') {
   throw new Error(
-    `Express override mismatch: express=${expressManifest.version}, body-parser=${bodyParserManifest.version}`,
+    `Express production chain mismatch: express=${expressManifest.version}, body-parser=${bodyParserManifest.version}, qs=${qsManifest.version}`,
   );
 }
-expressManifest.dependencies['body-parser'] = expressOverride;
-writeJson(expressManifestPath, expressManifest);
 
 if (!/^[0-9a-f]{40}$/.test(gitSha)) {
   throw new Error(`Invalid npm release gitHead: ${gitSha}`);

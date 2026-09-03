@@ -287,9 +287,10 @@ function run() {
       && packageJson.overrides?.['@hono/node-server'] === '2.0.11'
       && !npmPackageScript.includes("['@hono/node-server', rootManifest.overrides?.['@hono/node-server']]")
       && npmPackageScript.includes("['dompurify', rootManifest.overrides?.dompurify]")
-      && npmPackageScript.includes("['qs', rootManifest.overrides?.qs]")
-      && npmPackageScript.includes("rootManifest.overrides?.['express@^4.22.2']?.['body-parser']"),
-    'npm packaging must stage the locked production tree, retain reviewed development overrides, and rewrite production override edges before bundling',
+      && npmPackageScript.includes("expressManifest.version !== '5.2.1'")
+      && npmPackageScript.includes("bodyParserManifest.version !== '2.3.0'")
+      && npmPackageScript.includes("qsManifest.version !== '6.16.0'"),
+    'npm packaging must stage the locked production tree, retain reviewed development overrides, and pin the reviewed Express body-parsing chain before bundling',
   );
   assert(
     npmSmokeScript.includes('PACKAGE_TARBALL="${1:-}"')

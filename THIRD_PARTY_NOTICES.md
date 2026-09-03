@@ -27,7 +27,7 @@ preserved in bundled `node_modules` when bundled dependencies are enabled.
 | `chokidar` | 5.0.0 | MIT | Filesystem watching |
 | `compression` | 1.8.1 | MIT | HTTP response compression |
 | `diff` | 9.0.0 | BSD-3-Clause | Character-level diff ranges for code review |
-| `express` | 4.22.2 | MIT | HTTP API server |
+| `express` | 5.2.1 | MIT | HTTP API server |
 | `highlight.js` | 11.11.1 | BSD-3-Clause | Syntax highlighting |
 | `katex` | 0.17.0 | MIT | Mathematical notation rendering |
 | `material-icon-theme` | 5.36.1 | MIT | File and folder icons |
