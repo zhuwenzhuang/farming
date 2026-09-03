@@ -22,6 +22,8 @@
   font-size: var(--code-content-font-size);
   line-height: var(--code-content-line-height);
   overflow: visible;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   color: var(--code-text);
 }
 

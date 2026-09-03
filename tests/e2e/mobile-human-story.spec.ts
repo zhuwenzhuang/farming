@@ -308,7 +308,7 @@ test.describe('mobile Farming Code user story', () => {
 
   })
 
-  test('keeps the running answer fully visible above the mobile composer', async ({ page, workspaceRoot }) => {
+  test('keeps long Chat lines and the running answer fully visible above the mobile composer', { tag: '@iphone-human' }, async ({ page, workspaceRoot }, testInfo) => {
     const projectDir = path.join(workspaceRoot, 'mobile-transcript-status')
     fs.mkdirSync(path.join(projectDir, 'src/components/code'), { recursive: true })
     fs.mkdirSync(path.join(projectDir, 'backend/tests'), { recursive: true })
@@ -414,6 +414,10 @@ test.describe('mobile Farming Code user story', () => {
                   '```',
                   '',
                   'Inline paths such as `src/components/code/useMobileComposerHeight.ts` should wrap too.',
+                  '',
+                  'Unbroken identifier: mobile_transcript_0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz.',
+                  '',
+                  'Long URL: https://example.com/mobile/transcript/0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz',
                 ].join('\n') }],
               },
               {
@@ -458,6 +462,9 @@ test.describe('mobile Farming Code user story', () => {
     await revealMobileSidebar(page)
     await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
     await expect(page.getByTestId('code-agent-transcript')).toBeVisible()
+    await expect.poll(() => page.getByTestId('code-sidebar').evaluate(element => (
+      element.getBoundingClientRect().right <= 1
+    ))).toBe(true)
     await page.getByTestId('code-agent-transcript-scroll').evaluate(element => {
       element.scrollTop = element.scrollHeight
     })
@@ -480,6 +487,20 @@ test.describe('mobile Farming Code user story', () => {
       const runningAnswer = document.querySelector(
         '.code-agent-transcript-turn.running:last-child .code-agent-transcript-answer',
       ) as HTMLElement | null
+      const completedAnswer = document.querySelector(
+        '.code-agent-transcript-turn:not(.running) .code-agent-transcript-answer',
+      ) as HTMLElement | null
+      const completedMarkdown = completedAnswer?.querySelector(
+        '.code-agent-transcript-assistant.code-markdown-preview',
+      ) as HTMLElement | null
+      const wrappedLineCount = (prefix: string) => {
+        const paragraph = Array.from(completedMarkdown?.querySelectorAll('p') ?? [])
+          .find(candidate => candidate.textContent?.startsWith(prefix))
+        if (!paragraph) return 0
+        const range = document.createRange()
+        range.selectNodeContents(paragraph)
+        return range.getClientRects().length
+      }
       const runningPlaceholder = document.querySelector('.code-agent-transcript-turn.running:last-child .code-agent-transcript-placeholder') as HTMLElement | null
       const runningPlaceholderStyle = runningPlaceholder ? getComputedStyle(runningPlaceholder) : null
       return {
@@ -505,6 +526,13 @@ test.describe('mobile Farming Code user story', () => {
           ? Math.round(scroller.getBoundingClientRect().bottom - runningTurn.getBoundingClientRect().bottom)
           : -1,
         answerHeight: Math.round(runningAnswer?.getBoundingClientRect().height ?? 0),
+        completedAnswerScrollWidth: completedAnswer?.scrollWidth ?? 0,
+        completedAnswerClientWidth: completedAnswer?.clientWidth ?? 0,
+        completedMarkdownScrollWidth: completedMarkdown?.scrollWidth ?? 0,
+        completedMarkdownClientWidth: completedMarkdown?.clientWidth ?? 0,
+        completedMarkdownWordBreak: completedMarkdown ? getComputedStyle(completedMarkdown).wordBreak : '',
+        longIdentifierLineCount: wrappedLineCount('Unbroken identifier:'),
+        longUrlLineCount: wrappedLineCount('Long URL:'),
         scrollerGapToComposer: scroller && composer
           ? Math.round(composer.getBoundingClientRect().top - scroller.getBoundingClientRect().bottom)
           : -1,
@@ -526,7 +554,22 @@ test.describe('mobile Farming Code user story', () => {
     expect(metrics.runningStatusPosition).not.toBe('fixed')
     expect(metrics.runningTurnGapToScrollerBottom).toBeGreaterThanOrEqual(0)
     expect(metrics.answerHeight).toBeGreaterThan(40)
+    expect(metrics.completedAnswerScrollWidth).toBeLessThanOrEqual(metrics.completedAnswerClientWidth)
+    expect(metrics.completedMarkdownScrollWidth).toBeLessThanOrEqual(metrics.completedMarkdownClientWidth)
+    expect(metrics.completedMarkdownWordBreak).toBe('break-word')
+    expect(metrics.longIdentifierLineCount).toBeGreaterThan(1)
+    expect(metrics.longUrlLineCount).toBeGreaterThan(1)
     expect(metrics.scrollerGapToComposer).toBeGreaterThanOrEqual(0)
+
+    for (const appearance of ['light', 'dark', 'paper'] as const) {
+      await page.locator('body').evaluate((body, value) => {
+        body.dataset.appearance = value
+      }, appearance)
+      await page.screenshot({
+        path: testInfo.outputPath(`mobile-chat-long-lines-${appearance}.png`),
+        fullPage: false,
+      })
+    }
   })
 
   test('returns to a remote shell, opens files, and uses touch-accessible blame', { tag: '@iphone-human' }, async ({ page, workspaceRoot }) => {
