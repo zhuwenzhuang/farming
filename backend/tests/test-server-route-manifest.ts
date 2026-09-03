@@ -449,6 +449,7 @@ const EXPECTED_API_ROUTE_MANIFEST = [
   'POST /api/diagnostics/performance',
   'GET /api/auth/status',
   'MIDDLEWARE /api/share/qr-ticket [setNoStoreHeader]',
+  'POST /api/share/qr-ticket/rotate',
   'POST /api/share/qr-ticket',
   'DELETE /api/share/qr-ticket/:code',
   'MIDDLEWARE /api/files [express.json(limit=3mb)]',

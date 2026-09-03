@@ -187,7 +187,6 @@
 }
 
 .code-share-token-card {
-  appearance: none;
   width: 100%;
   min-height: 40px;
   margin-top: 8px;
@@ -195,21 +194,68 @@
   border-radius: 8px;
   background: var(--code-bg-inset);
   color: var(--code-text);
-  cursor: pointer;
   display: block;
+  overflow: hidden;
+  position: relative;
+}
+
+.code-share-token-copy,
+.code-share-token-rotate {
+  appearance: none;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
   font: inherit;
+}
+
+.code-share-token-copy {
+  width: 100%;
+  display: block;
   padding: 7px 10px;
   text-align: left;
 }
 
-.code-share-token-card:hover,
-.code-share-token-card:focus-visible {
+.code-share-token-copy:hover,
+.code-share-token-copy:focus-visible,
+.code-share-token-rotate:hover,
+.code-share-token-rotate:focus-visible {
   background: var(--code-bg-hover);
 }
 
-.code-share-token-card:focus-visible {
-  outline: 0;
-  background: var(--code-bg-hover);
+.code-share-token-copy:focus-visible,
+.code-share-token-rotate:focus-visible {
+  outline: 2px solid var(--code-focus-ring);
+  outline-offset: -2px;
+}
+
+.code-share-token-rotate {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 36px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-left: 1px solid var(--code-border-subtle);
+}
+
+.code-share-token-rotate svg {
+  width: 16px;
+  height: 16px;
+}
+
+.code-share-token-rotate:disabled {
+  cursor: wait;
+}
+
+.code-share-token-rotate:disabled svg {
+  animation: code-share-token-rotate 900ms linear infinite;
+}
+
+@keyframes code-share-token-rotate {
+  to { transform: rotate(360deg); }
 }
 
 .code-share-token-card-main {
@@ -254,6 +300,7 @@
 }
 
 .code-share-copy-action {
+  padding-right: 30px;
   color: var(--code-text-subtle);
   font-size: 11px;
   font-weight: 600;

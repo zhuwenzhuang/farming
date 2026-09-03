@@ -22,7 +22,9 @@ expiry time returned by the backend. The owner passphrase
 area is a clickable button that copies a full-control URL while preserving the
 segmented passphrase line wrapping. It must carry a separate warning that it grants
 full control until the instance credential changes; it does not inherit the QR
-countdown.
+countdown. An owner-only refresh action beside that passphrase rotates the persisted
+instance credential. Success updates the visible browser URL, passphrase, full-control
+link, and QR share in the same open popover.
 
 Sharing requires token authentication. If authentication is disabled, Farming
 must refuse to present a share result because a recipient could bypass any
@@ -68,6 +70,14 @@ Share tickets and newly issued read-only capabilities have a maximum lifetime of
 five minutes. A ticket is single-use. Earlier capabilities keep their own original
 expiry. The owner passphrase is the instance credential and remains valid until it
 is changed or rotated.
+
+Rotation atomically persists a newly generated instance credential before exposing
+it to the frontend and replaces the current HTTP-only owner cookie in the same
+response. The old owner credential, existing QR tickets that carry it, and signed
+read-only capabilities derived from it are rejected by subsequent HTTP requests and
+WebSocket handshakes. Existing admitted WebSocket connections keep their admission
+until disconnect. A token supplied by `FARMING_TOKEN` is deployment-owned and cannot
+be rotated from the share panel.
 
 ## Redemption
 
@@ -147,6 +157,9 @@ RFB transport cannot provide a server-verifiable view-only boundary.
   are not replayed by the backend.
 - When authentication is disabled, share creation fails explicitly.
 - A failed delegated share never falls back to owner access or a longer expiry.
+- A failed token rotation preserves the previous credential and visible share state.
+  After a successful rotation, a later QR refresh failure still leaves the new token
+  in the browser URL and full-control copy surface so the owner is not locked out.
 - QR renderer loading has explicit loading, ready, and failed states. A failed
   renderer stays failed until the user retries; retry starts a new bounded load
   and never changes the ticket's permission or expiry.
@@ -160,6 +173,8 @@ RFB transport cannot provide a server-verifiable view-only boundary.
 - Out-of-order direct-share responses cannot replace the clipboard result of a newer
   share action.
 - Owner QR and passphrase access remain full-control and are labeled as such.
+- Owner token rotation changes the persisted token once, updates the visible URL and
+  open share surface, refreshes the QR ticket, and rejects the prior credential.
 - An owner startup URL retains its token through reload and supplies the same
   token to an installed app's start URL.
 - A contextual location is applied only by its first page load; the visible URL

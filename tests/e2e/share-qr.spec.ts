@@ -43,25 +43,44 @@ test.describe('workspace sharing', () => {
   test('keeps read-only and full-control copy actions distinct', async ({ page }) => {
     const readOnlyUrl = 'https://share.example.test/workspace?token=read-only'
     const fullAccessUrl = 'https://share.example.test/workspace?token=full-control'
-    await page.route('**/api/share/qr-ticket', async route => {
+    const rotatedReadOnlyUrl = 'https://share.example.test/workspace?token=rotated-read-only'
+    const rotatedFullAccessUrl = 'https://share.example.test/workspace?token=rotated-owner-token'
+    let rotated = false
+    let ticketRequests = 0
+    await page.route('**/api/share/qr-ticket**', async route => {
       if (route.request().method() === 'DELETE') {
         await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ revoked: true }) })
         return
       }
+      if (new URL(route.request().url()).pathname.endsWith('/rotate')) {
+        rotated = true
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            tokenLabel: '秋水轻摇岸-远山静入薄云间-一鹤过长天',
+            fullAccessUrl: rotatedFullAccessUrl,
+          }),
+        })
+        return
+      }
+      ticketRequests += 1
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
-          code: 'SHARECODE1',
+          code: rotated ? 'SHARECODE2' : 'SHARECODE1',
           expiresAt: Date.now() + 5 * 60 * 1000,
           ttlMs: 5 * 60 * 1000,
-          shortPath: '/j/SHARECODE1',
-          shortUrl: 'https://share.example.test/j/SHARECODE1',
-          longUrl: readOnlyUrl,
-          fullAccessUrl,
+          shortPath: rotated ? '/j/SHARECODE2' : '/j/SHARECODE1',
+          shortUrl: rotated ? 'https://share.example.test/j/SHARECODE2' : 'https://share.example.test/j/SHARECODE1',
+          longUrl: rotated ? rotatedReadOnlyUrl : readOnlyUrl,
+          fullAccessUrl: rotated ? rotatedFullAccessUrl : fullAccessUrl,
           shortUrlAccessMode: 'owner',
           longUrlAccessMode: 'read-only',
-          tokenLabel: '春风轻拂柳-细雨静落庭前树-一枝梅初开',
+          tokenLabel: rotated
+            ? '秋水轻摇岸-远山静入薄云间-一鹤过长天'
+            : '春风轻拂柳-细雨静落庭前树-一枝梅初开',
         }),
       })
     })
@@ -94,6 +113,26 @@ test.describe('workspace sharing', () => {
 
     await expect.poll(async () => page.evaluate(() => navigator.clipboard.readText())).toBe(fullAccessUrl)
     await expect(fullAccessButton).toContainText(/Full-control passphrase link copied|完整控制口令链接已复制/)
+
+    const originalQr = await popover.locator('svg[aria-label="QR code"]').innerHTML()
+    await page.getByTestId('code-share-rotate-token').click()
+    await expect.poll(() => ticketRequests).toBe(2)
+    await expect(fullAccessButton).toContainText('秋水轻摇岸-远山静入薄云间-一鹤过长天')
+    await expect.poll(() => page.evaluate(() => new URL(window.location.href).searchParams.get('token'))).toBe('秋水轻摇岸-远山静入薄云间-一鹤过长天')
+    await expect.poll(() => popover.locator('svg[aria-label="QR code"]').innerHTML()).not.toBe(originalQr)
+
+    await page.addStyleTag({ content: '.code-share-countdown { visibility: hidden !important; }' })
+    for (const appearance of ['light', 'dark', 'paper'] as const) {
+      await page.evaluate(value => {
+        document.documentElement.dataset.appearance = value
+        document.body.dataset.appearance = value
+      }, appearance)
+      await expect(popover).toHaveScreenshot(`share-token-rotation-${appearance}.png`, {
+        animations: 'disabled',
+      })
+    }
+    await fullAccessButton.click()
+    await expect.poll(async () => page.evaluate(() => navigator.clipboard.readText())).toBe(rotatedFullAccessUrl)
   })
 
   test('copies the selected Chat Turn read-only link and fences an older response', async ({ page, workspaceRoot }) => {

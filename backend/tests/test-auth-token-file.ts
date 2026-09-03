@@ -245,8 +245,51 @@ function run() {
     assert.strictEqual(configuredAuth.getToken(), 'fixed-token-for-deploy');
     assert.strictEqual(configuredAuth.getTokenInfo().style, 'configured');
     assert.strictEqual(configuredAuth.verify('fixed-token-for-deploy'), true);
+    assert.throws(
+      () => configuredAuth.rotateToken(),
+      /configured with FARMING_TOKEN cannot be rotated/,
+      'deployment-owned credentials must not be replaced by the share UI',
+    );
     configuredAuth.cleanup({ removeTokenFile: true });
     delete process.env.FARMING_TOKEN;
+
+    const rotationDir = path.join(configDir, 'rotation');
+    const rotationAuth = new TokenAuth({
+      basePath: '/farming',
+      farmingDir: rotationDir,
+      tokenLocale: 'zh',
+    });
+    const originalRotationToken = rotationAuth.getToken();
+    const originalReadOnlyToken = rotationAuth.createReadOnlyToken({ expiresAt: Date.now() + 60_000 });
+    const rotatedToken = rotationAuth.rotateToken();
+    assert.notStrictEqual(rotatedToken, originalRotationToken);
+    assert.strictEqual(rotationAuth.verify(originalRotationToken), false);
+    assert.strictEqual(rotationAuth.verify(rotatedToken), true);
+    assert.strictEqual(rotationAuth.verifyReadOnlyToken(originalReadOnlyToken), false);
+    assert.strictEqual(fs.readFileSync(rotationAuth.getTokenFile(), 'utf8'), rotatedToken);
+    assert.strictEqual(fs.statSync(rotationAuth.getTokenFile()).mode & 0o777, 0o600);
+    const rotationRestart = new TokenAuth({ basePath: '/farming', farmingDir: rotationDir });
+    assert.strictEqual(rotationRestart.getToken(), rotatedToken, 'restart must load the rotated credential');
+
+    const failedRotationDir = path.join(configDir, 'failed-rotation');
+    const failedRotationAuth = new TokenAuth({ basePath: '/farming', farmingDir: failedRotationDir });
+    const tokenBeforeFailedRotation = failedRotationAuth.getToken();
+    const tokenFileBeforeSwap = `${failedRotationAuth.getTokenFile()}.original`;
+    const rotationVictim = path.join(configDir, 'rotation-victim');
+    fs.writeFileSync(rotationVictim, 'do-not-touch');
+    fs.renameSync(failedRotationAuth.getTokenFile(), tokenFileBeforeSwap);
+    fs.symlinkSync(rotationVictim, failedRotationAuth.getTokenFile());
+    assert.throws(
+      () => failedRotationAuth.rotateToken(),
+      /symbolic link|changed identity/,
+      'a swapped token path must fail before changing auth state',
+    );
+    assert.strictEqual(failedRotationAuth.getToken(), tokenBeforeFailedRotation);
+    assert.strictEqual(failedRotationAuth.verify(tokenBeforeFailedRotation), true);
+    assert.strictEqual(fs.readFileSync(tokenFileBeforeSwap, 'utf8'), tokenBeforeFailedRotation);
+    assert.strictEqual(fs.readFileSync(rotationVictim, 'utf8'), 'do-not-touch');
+    fs.unlinkSync(failedRotationAuth.getTokenFile());
+    fs.renameSync(tokenFileBeforeSwap, failedRotationAuth.getTokenFile());
 
     const netConfigDir = path.join(configDir, 'net');
     const netAuth = new TokenAuth({

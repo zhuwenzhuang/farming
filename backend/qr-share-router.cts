@@ -17,6 +17,7 @@ interface QrShareRequest {
 interface QrShareResponse {
   json(value: unknown): QrShareResponse;
   set(name: string, value: string): QrShareResponse;
+  setHeader(name: string, value: string): void;
   status(code: number): QrShareResponse;
 }
 
@@ -47,6 +48,8 @@ interface QrShareAuthPort {
   extractToken(request: QrShareRequest): string | null;
   getToken(): string;
   readOnlyTokenExpiresAt(token: unknown): number | null;
+  rotateToken(): string;
+  setAuthenticatedCookie(response: Pick<QrShareResponse, 'setHeader'>): void;
 }
 
 interface QrShareTicket {
@@ -210,6 +213,32 @@ function createQrShareRouter(
     authEnabled: options.authEnabled,
     basePath: options.basePath,
     token,
+  });
+
+  router.post('/rotate', expressFactory.json({ limit: '8kb' }), (req, res) => {
+    try {
+      if (!options.authEnabled) {
+        res.status(409).json({ error: 'Token rotation requires token authentication.' });
+        return;
+      }
+      if (req.authAccessMode !== 'owner') {
+        res.status(403).json({ error: 'Only the Farming owner can rotate the token.' });
+        return;
+      }
+      const token = auth.rotateToken();
+      auth.setAuthenticatedCookie(res);
+      const fullAccessPath = entryPathWithToken(shareTargetQueryFromBody(req.body), token);
+      res.json({
+        tokenLabel: token,
+        fullAccessUrl: absoluteClientUrl(req, fullAccessPath, options),
+      });
+    } catch (caught) {
+      const error = caughtError(caught) as Error & { status?: number };
+      const status = Number.isInteger(error.status) && Number(error.status) >= 400 && Number(error.status) < 500
+        ? Number(error.status)
+        : 500;
+      res.status(status).json({ error: error.message || 'Failed to rotate Farming token' });
+    }
   });
 
   router.post('/', expressFactory.json({ limit: '8kb' }), (req, res) => {

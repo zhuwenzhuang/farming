@@ -84,7 +84,7 @@ async function listen(app: { listen(port: number, callback: () => void): HttpSer
 
 async function run(): Promise<void> {
   const now = 1_800_000_000_000;
-  const ownerToken = 'owner-token';
+  let ownerToken = 'owner-token';
   const calls: string[] = [];
   const ticketCreates: TicketCreateCall[] = [];
   const revokedCodes: string[] = [];
@@ -110,6 +110,15 @@ async function run(): Promise<void> {
       calls.push(`readOnlyTokenExpiresAt:${String(token || '')}`);
       if (token === 'delegated') return delegatedExpiresAt;
       return null;
+    },
+    rotateToken(): string {
+      calls.push('rotateToken');
+      ownerToken = 'rotated-owner-token';
+      return ownerToken;
+    },
+    setAuthenticatedCookie(response: { setHeader(name: string, value: string): void }): void {
+      calls.push('setAuthenticatedCookie');
+      response.setHeader('Set-Cookie', `farming_token=${ownerToken}; Path=/farm; HttpOnly; SameSite=Lax`);
     },
   };
   const tickets = {
@@ -339,6 +348,27 @@ async function run(): Promise<void> {
       assert.strictEqual(calls.length, callStart, 'rejected JSON must not reach auth or ticket effects');
     }
 
+    callStart = calls.length;
+    const rotateResponse = await postJson(`${endpoint}/rotate`, fileTarget, {
+      'x-test-token': ownerToken,
+    });
+    await assertJsonResponse(rotateResponse, 200, {
+      tokenLabel: 'rotated-owner-token',
+      fullAccessUrl: `https://share.example.test/farm?${targetQuery}&token=rotated-owner-token`,
+    });
+    assert.deepStrictEqual(calls.slice(callStart), ['rotateToken', 'setAuthenticatedCookie']);
+    assert.strictEqual(
+      rotateResponse.headers.get('set-cookie'),
+      'farming_token=rotated-owner-token; Path=/farm; HttpOnly; SameSite=Lax',
+    );
+
+    callStart = calls.length;
+    await assertJsonResponse(await postJson(`${endpoint}/rotate`, {}, {
+      'x-test-access': 'read-only',
+      'x-test-token': 'delegated',
+    }), 403, { error: 'Only the Farming owner can rotate the token.' });
+    assert.strictEqual(calls.length, callStart, 'read-only rotation must not reach auth mutation');
+
     const disabledApp = express();
     disabledApp.use('/api/share/qr-ticket', createQrShareRouter(auth, tickets, {
       authEnabled: false,
@@ -353,6 +383,12 @@ async function run(): Promise<void> {
         await postJson(`http://127.0.0.1:${serverPort(disabledServer)}/api/share/qr-ticket`, {}),
         409,
         { error: 'Read-only sharing requires token authentication.' },
+      );
+      assert.strictEqual(calls.length, callStart);
+      await assertJsonResponse(
+        await postJson(`http://127.0.0.1:${serverPort(disabledServer)}/api/share/qr-ticket/rotate`, {}),
+        409,
+        { error: 'Token rotation requires token authentication.' },
       );
       assert.strictEqual(calls.length, callStart);
     } finally {

@@ -959,6 +959,8 @@ app.use(routePath(BASE_PATH, '/api/share/qr-ticket'), createQrShareRouter({
   extractToken: request => tokenAuth.extractToken(request),
   getToken: () => tokenAuth.getToken(),
   readOnlyTokenExpiresAt: token => tokenAuth.readOnlyTokenExpiresAt(token),
+  rotateToken: () => tokenAuth.rotateToken(),
+  setAuthenticatedCookie: response => tokenAuth.setAuthenticatedCookie(response),
 }, {
   create: (token, options) => qrShareTickets.create(token, options),
   revoke: code => qrShareTickets.revoke(code),

@@ -42,6 +42,11 @@ export type QrShareTicket = QrShareTicketBase & (
   }
 )
 
+export interface RotatedOwnerCredential {
+  fullAccessUrl: string
+  tokenLabel: string
+}
+
 export async function requestQrShareTicket(
   target: WorkspaceShareTarget | null | undefined,
   failureMessage: string,
@@ -98,6 +103,32 @@ export async function revokeQrShareTicket(
   if (!ticket?.code) return
   await request(appPath(`/api/share/qr-ticket/${encodeURIComponent(ticket.code)}`), { method: 'DELETE' })
     .catch(() => {})
+}
+
+export async function requestOwnerTokenRotation(
+  target: WorkspaceShareTarget | null | undefined,
+  failureMessage: string,
+  request: QrShareTicketRequest = fetch,
+): Promise<RotatedOwnerCredential> {
+  const response = await request(appPath('/api/share/qr-ticket/rotate'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(target ? { target } : {}),
+  })
+  const body = await response.json().catch(() => null)
+  const record = body && typeof body === 'object' ? body as Record<string, unknown> : null
+  const fullAccessUrl = nonEmptyString(record?.fullAccessUrl)
+  const tokenLabel = nonEmptyString(record?.tokenLabel)
+  if (!response.ok || !fullAccessUrl || !tokenLabel) {
+    throw new Error(nonEmptyString(record?.error) ?? failureMessage)
+  }
+  return { fullAccessUrl, tokenLabel }
+}
+
+export function ownerUrlWithRotatedToken(currentUrl: string, token: string) {
+  const nextUrl = new URL(currentUrl)
+  nextUrl.searchParams.set('token', token)
+  return nextUrl.href
 }
 
 export interface ReadOnlyShareLink {

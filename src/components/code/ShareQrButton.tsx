@@ -3,11 +3,14 @@ import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useSta
 import type qrcode from 'qrcode-generator'
 import qrCodeModuleUrl from 'qrcode-generator?url'
 import { appPath } from '@/lib/base-path'
-import { CheckGlyph, ShareGlyph } from '@/components/IconGlyphs'
+import { CheckGlyph, RefreshGlyph, ShareGlyph } from '@/components/IconGlyphs'
 import { writeClipboardText } from '@/lib/clipboard'
 import {
   requestQrShareTicket,
+  requestOwnerTokenRotation,
   revokeQrShareTicket,
+  ownerUrlWithRotatedToken,
+  type RotatedOwnerCredential,
   type QrShareTicket,
 } from '@/lib/qr-share-ticket'
 import {
@@ -208,7 +211,9 @@ export function ShareQrButton({
   const [open, setOpen] = useState(false)
   const [pinned, setPinned] = useState(false)
   const [ticket, setTicket] = useState<QrShareTicket | null>(null)
+  const [rotatedCredential, setRotatedCredential] = useState<RotatedOwnerCredential | null>(null)
   const [loading, setLoading] = useState(false)
+  const [rotating, setRotating] = useState(false)
   const [error, setError] = useState('')
   const [copied, setCopied] = useState(false)
   const [fullAccessCopied, setFullAccessCopied] = useState(false)
@@ -220,6 +225,7 @@ export function ShareQrButton({
   const tokenMeasureRef = useRef<HTMLSpanElement | null>(null)
   const closeTimerRef = useRef<number | null>(null)
   const requestSeqRef = useRef(0)
+  const rotationSeqRef = useRef(0)
   const ticketRef = useRef<QrShareTicket | null>(null)
   const handledOpenRequestRef = useRef(0)
   const [singleLineTokenFits, setSingleLineTokenFits] = useState(true)
@@ -281,6 +287,7 @@ export function ShareQrButton({
         return null
       }
       setTicket(body)
+      setRotatedCredential(null)
       setNow(Date.now())
       setCopied(false)
       setFullAccessCopied(false)
@@ -312,7 +319,7 @@ export function ShareQrButton({
   }, [copyShareTicket, createTicket])
 
   const copyFullAccessLink = useCallback(async () => {
-    const fullAccessUrl = ticketRef.current?.fullAccessUrl
+    const fullAccessUrl = rotatedCredential?.fullAccessUrl || ticketRef.current?.fullAccessUrl
     if (!fullAccessUrl) return
     const ok = await writeClipboardText(fullAccessUrl)
     if (!ok) {
@@ -321,20 +328,60 @@ export function ShareQrButton({
     }
     setError('')
     setFullAccessCopied(true)
-  }, [copy.copyFailed])
+  }, [copy.copyFailed, rotatedCredential?.fullAccessUrl])
+
+  const rotateOwnerToken = useCallback(async () => {
+    if (rotating || ticketRef.current?.shortUrlAccessMode !== 'owner') return
+    const rotationSeq = rotationSeqRef.current + 1
+    rotationSeqRef.current = rotationSeq
+    requestSeqRef.current += 1
+    setRotating(true)
+    setLoading(false)
+    setError('')
+    setCopied(false)
+    setFullAccessCopied(false)
+    const previousTicket = ticketRef.current
+    try {
+      const credential = await requestOwnerTokenRotation(
+        workspaceShareTargetWithCurrentReadingAnchor(shareTarget),
+        copy.rotateOwnerTokenFailed,
+      )
+      window.history.replaceState(
+        window.history.state,
+        '',
+        ownerUrlWithRotatedToken(window.location.href, credential.tokenLabel),
+      )
+      if (rotationSeq !== rotationSeqRef.current) return
+      ticketRef.current = null
+      setTicket(null)
+      setRotatedCredential(credential)
+      void revokeQrShareTicket(previousTicket)
+      await createTicket(true)
+    } catch (caught) {
+      if (rotationSeq === rotationSeqRef.current) {
+        setError(caught instanceof Error ? caught.message : copy.rotateOwnerTokenFailed)
+      }
+    } finally {
+      if (rotationSeq === rotationSeqRef.current) setRotating(false)
+    }
+  }, [copy.rotateOwnerTokenFailed, createTicket, rotating, shareTarget])
 
   const closePopover = useCallback(() => {
     clearCloseTimer()
     requestSeqRef.current += 1
+    rotationSeqRef.current += 1
     setOpen(false)
     setPinned(false)
     setError('')
     setCopied(false)
     setFullAccessCopied(false)
     setLoading(false)
+    setRotating(false)
+    setRotatedCredential(null)
     const current = ticketRef.current
     ticketRef.current = null
     setTicket(null)
+    setRotatedCredential(null)
     void revokeQrShareTicket(current)
   }, [clearCloseTimer])
 
@@ -384,7 +431,9 @@ export function ShareQrButton({
   }, [open])
 
   useEffect(() => {
+    rotationSeqRef.current += 1
     const current = ticketRef.current
+    setRotatedCredential(null)
     if (!current) return
     ticketRef.current = null
     setTicket(null)
@@ -415,7 +464,7 @@ export function ShareQrButton({
       observer?.disconnect()
       window.removeEventListener('resize', updateTokenFit)
     }
-  }, [open, ticket?.tokenLabel, ticket?.shortPath])
+  }, [open, rotatedCredential?.tokenLabel, ticket?.tokenLabel, ticket?.shortPath])
 
   useInteractionLayer({
     enabled: open,
@@ -427,12 +476,16 @@ export function ShareQrButton({
   useEffect(() => () => {
     clearCloseTimer()
     requestSeqRef.current += 1
+    rotationSeqRef.current += 1
     void revokeQrShareTicket(ticketRef.current)
   }, [clearCloseTimer])
 
+  const ownerCredential = rotatedCredential || (ticket?.shortUrlAccessMode === 'owner'
+    ? { tokenLabel: ticket.tokenLabel, fullAccessUrl: ticket.fullAccessUrl }
+    : null)
   const expired = Boolean(ticket && ticket.expiresAt <= now)
   const countdown = ticket ? formatCountdown(ticket.expiresAt - now) : ''
-  const tokenLabel = ticket?.tokenLabel || copy.loading
+  const tokenLabel = ownerCredential?.tokenLabel || copy.loading
   const tokenParts = tokenDisplayLines(tokenLabel)
   const segmentedToken = tokenParts.length > 1
   const tokenLines = segmentedToken && !singleLineTokenFits ? tokenParts : [tokenLabel]
@@ -506,6 +559,11 @@ export function ShareQrButton({
                 {copy.refreshShareLink}
               </button>
             )}
+            {rotatedCredential && !ticket && !loading && (
+              <button type="button" className="code-share-refresh" onClick={() => void createTicket(true)}>
+                {copy.refreshShareLink}
+              </button>
+            )}
           </div>
           {copied && (
             <div
@@ -521,13 +579,14 @@ export function ShareQrButton({
               </span>
             </div>
           )}
-          {ticket?.tokenLabel && ticket.fullAccessUrl && (
-            <button
-              type="button"
-              className="code-share-token-card"
-              data-testid="code-share-copy-link"
-              onClick={() => void copyFullAccessLink()}
-            >
+          {ownerCredential && (
+            <div className="code-share-token-card">
+              <button
+                type="button"
+                className="code-share-token-copy"
+                data-testid="code-share-copy-link"
+                onClick={() => void copyFullAccessLink()}
+              >
               <span
                 className={`code-share-token-card-main${segmentedToken ? '' : ' non-segmented'}`}
               >
@@ -546,7 +605,19 @@ export function ShareQrButton({
                   {fullAccessCopied ? copy.copiedFullAccessShareLink : copy.copyFullAccessShareLink}
                 </span>
               </span>
-            </button>
+              </button>
+              <button
+                type="button"
+                className="code-share-token-rotate"
+                data-testid="code-share-rotate-token"
+                aria-label={rotating ? copy.rotatingOwnerToken : copy.rotateOwnerToken}
+                title={rotating ? copy.rotatingOwnerToken : copy.rotateOwnerToken}
+                disabled={rotating || ticket?.shortUrlAccessMode !== 'owner'}
+                onClick={() => void rotateOwnerToken()}
+              >
+                <RefreshGlyph aria-hidden="true" />
+              </button>
+            </div>
           )}
           {error && <div className="code-share-error" role="status">{error}</div>}
         </div>

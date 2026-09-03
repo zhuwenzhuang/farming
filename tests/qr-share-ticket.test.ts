@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { requestQrShareTicket, revokeQrShareTicket } from '../src/lib/qr-share-ticket'
+import {
+  ownerUrlWithRotatedToken,
+  requestOwnerTokenRotation,
+  requestQrShareTicket,
+  revokeQrShareTicket,
+} from '../src/lib/qr-share-ticket'
 import type { WorkspaceShareTarget } from '../src/lib/workspace-share-target'
 
 const FAILURE_MESSAGE = 'Could not create a share link'
@@ -141,4 +146,50 @@ test('ticket revocation targets only the encoded short code', async () => {
     url: '/api/share/qr-ticket/owner%2Fcode%20with%20spaces',
     method: 'DELETE',
   }])
+})
+
+test('owner token rotation posts the share target and validates the replacement credential', async () => {
+  const calls: Array<{ url: string; body: string }> = []
+  const credential = await requestOwnerTokenRotation(fileTarget, FAILURE_MESSAGE, async (url, init) => {
+    calls.push({ url, body: init.body })
+    return {
+      ok: true,
+      status: 200,
+      async json() {
+        return {
+          tokenLabel: 'new-owner-token',
+          fullAccessUrl: 'https://host/?token=new-owner-token',
+        }
+      },
+    }
+  })
+
+  assert.deepEqual(calls, [{
+    url: '/api/share/qr-ticket/rotate',
+    body: JSON.stringify({ target: fileTarget }),
+  }])
+  assert.deepEqual(credential, {
+    tokenLabel: 'new-owner-token',
+    fullAccessUrl: 'https://host/?token=new-owner-token',
+  })
+
+  await assert.rejects(
+    requestOwnerTokenRotation(null, FAILURE_MESSAGE, async () => ({
+      ok: true,
+      status: 200,
+      async json() { return { tokenLabel: 'new-owner-token' } },
+    })),
+    new RegExp(FAILURE_MESSAGE),
+  )
+})
+
+test('owner token URL replacement preserves the current location and changes only token', () => {
+  assert.equal(
+    ownerUrlWithRotatedToken('https://host/farming/?agent=one&token=old#turn-2', 'new token'),
+    'https://host/farming/?agent=one&token=new+token#turn-2',
+  )
+  assert.equal(
+    ownerUrlWithRotatedToken('https://host/farming/', 'new-token'),
+    'https://host/farming/?token=new-token',
+  )
 })

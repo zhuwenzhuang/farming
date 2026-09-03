@@ -357,6 +357,9 @@ class TokenAuth {
   tokenInfo: PoeticTokenInfo | null;
   farmingNetPassVerifier: FarmingNetPassVerifierLike | null;
   securedTokenFileIdentity: TokenFileIdentity | null;
+  tokenEnv: NodeJS.ProcessEnv;
+  tokenLocale: unknown;
+  tokenTimeZone: string | undefined;
 
   constructor(options: TokenAuthOptions = {}) {
     const authEnv = options.env || process.env;
@@ -377,6 +380,9 @@ class TokenAuth {
     this.tokenInfo = null;
     this.farmingNetPassVerifier = null;
     this.securedTokenFileIdentity = null;
+    this.tokenEnv = authEnv;
+    this.tokenLocale = options.tokenLocale;
+    this.tokenTimeZone = options.timeZone;
 
     if (this.disabled) {
       return;
@@ -453,6 +459,8 @@ class TokenAuth {
       }
       fs.writeSync(descriptor, this.token);
       fs.fchmodSync(descriptor, 0o600);
+      const status = fs.fstatSync(descriptor);
+      this.securedTokenFileIdentity = regularTokenFileIdentity(this.tokenFile, status);
     } catch (error) {
       const code = fsErrorCode(error);
       if (code === 'ELOOP') throw tokenFileNotRegularError(this.tokenFile, 'a symbolic link');
@@ -489,6 +497,121 @@ class TokenAuth {
 
   getTokenInfo(): PoeticTokenInfo | null {
     return this.tokenInfo;
+  }
+
+  persistRotatedToken(nextToken: string): void {
+    if (!this.tokenFile || !this.securedTokenFileIdentity) {
+      throw new Error('Session token file is unavailable; restart Farming before rotating the token');
+    }
+
+    const expectedIdentity = this.securedTokenFileIdentity;
+    const expectedUid = currentEffectiveUid();
+    const temporaryTokenFile = `${this.tokenFile}.rotate-${process.pid}-${crypto.randomBytes(9).toString('hex')}`;
+    let descriptor = -1;
+    let temporaryIdentity: TokenFileIdentity | null = null;
+    try {
+      const current = openExistingTokenFile(this.tokenFile);
+      if (
+        !current
+        || current.identity.dev !== expectedIdentity.dev
+        || current.identity.ino !== expectedIdentity.ino
+        || expectedUid >= 0 && current.uid !== expectedUid
+      ) {
+        if (current) fs.closeSync(current.descriptor);
+        throw new Error(
+          `Session token file ${this.tokenFile} changed identity before rotation; restart Farming`,
+        );
+      }
+      fs.closeSync(current.descriptor);
+
+      descriptor = fs.openSync(
+        temporaryTokenFile,
+        fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | noFollowOpenFlag(),
+        0o600,
+      );
+      const buffer = Buffer.from(nextToken, 'utf8');
+      let written = 0;
+      while (written < buffer.length) {
+        written += fs.writeSync(descriptor, buffer, written, buffer.length - written, written);
+      }
+      fs.fchmodSync(descriptor, 0o600);
+      fs.fsyncSync(descriptor);
+      const temporaryStatus = fs.fstatSync(descriptor);
+      temporaryIdentity = regularTokenFileIdentity(temporaryTokenFile, temporaryStatus);
+      if (expectedUid >= 0 && temporaryStatus.uid !== expectedUid) {
+        throw tokenFileOwnershipError(temporaryTokenFile, temporaryStatus.uid, expectedUid);
+      }
+      fs.closeSync(descriptor);
+      descriptor = -1;
+
+      // Re-check immediately before the atomic replacement. A path swap must
+      // fail closed instead of allowing a rotation to overwrite unknown state.
+      const visible = openExistingTokenFile(this.tokenFile);
+      if (
+        !visible
+        || visible.identity.dev !== expectedIdentity.dev
+        || visible.identity.ino !== expectedIdentity.ino
+        || expectedUid >= 0 && visible.uid !== expectedUid
+      ) {
+        if (visible) fs.closeSync(visible.descriptor);
+        throw new Error(
+          `Session token file ${this.tokenFile} changed identity during rotation; restart Farming`,
+        );
+      }
+      fs.closeSync(visible.descriptor);
+
+      fs.renameSync(temporaryTokenFile, this.tokenFile);
+      this.securedTokenFileIdentity = temporaryIdentity;
+    } catch (error) {
+      if (descriptor >= 0) {
+        fs.closeSync(descriptor);
+        descriptor = -1;
+      }
+      try {
+        fs.unlinkSync(temporaryTokenFile);
+      } catch (cleanupError) {
+        if (fsErrorCode(cleanupError) !== 'ENOENT') {
+          throw new AggregateError(
+            [error, cleanupError],
+            `Token rotation failed and Farming could not remove ${temporaryTokenFile}`,
+            { cause: cleanupError },
+          );
+        }
+      }
+      throw error;
+    } finally {
+      if (descriptor >= 0) fs.closeSync(descriptor);
+    }
+  }
+
+  rotateToken(): string {
+    if (this.disabled) {
+      const error = new Error('Token rotation requires token authentication') as Error & { status?: number };
+      error.status = 409;
+      throw error;
+    }
+    if (this.tokenInfo?.style === 'configured') {
+      const error = new Error('A token configured with FARMING_TOKEN cannot be rotated from the share panel') as Error & { status?: number };
+      error.status = 409;
+      throw error;
+    }
+
+    let nextInfo = createPoeticToken({
+      locale: this.tokenLocale,
+      env: this.tokenEnv,
+      timeZone: this.tokenTimeZone,
+    });
+    while (nextInfo.token === this.token) {
+      nextInfo = createPoeticToken({
+        locale: this.tokenLocale,
+        env: this.tokenEnv,
+        timeZone: this.tokenTimeZone,
+      });
+    }
+    this.persistRotatedToken(nextInfo.token);
+    this.token = nextInfo.token;
+    this.tokenInfo = nextInfo;
+    return this.token;
   }
 
   getCookieName(): string {

@@ -175,6 +175,9 @@ export interface CodeCopy {
   shareLinkVisibility: string
   copyFullAccessShareLink: string
   copiedFullAccessShareLink: string
+  rotateOwnerToken: string
+  rotatingOwnerToken: string
+  rotateOwnerTokenFailed: string
   shareQrFullAccessWarning: string
   shareQrReadOnlyWarning: string
   shareLinkFailed: string
@@ -784,6 +787,9 @@ const EN_COPY: CodeCopy = {
   shareLinkVisibility: 'View only, no changes. It expires with the countdown.',
   copyFullAccessShareLink: 'Copy full-control passphrase link',
   copiedFullAccessShareLink: 'Full-control passphrase link copied',
+  rotateOwnerToken: 'Rotate full-control token',
+  rotatingOwnerToken: 'Rotating full-control token',
+  rotateOwnerTokenFailed: 'Could not rotate the full-control token',
   shareQrFullAccessWarning: 'This QR code contains the full-control passphrase link.',
   shareQrReadOnlyWarning: 'This QR code contains the read-only link for this page.',
   shareLinkFailed: 'Share link unavailable',
@@ -1419,6 +1425,9 @@ const ZH_COPY: CodeCopy = {
   shareLinkVisibility: '只能查看，不能修改；链接会随倒计时过期。',
   copyFullAccessShareLink: '复制完整控制口令链接',
   copiedFullAccessShareLink: '完整控制口令链接已复制',
+  rotateOwnerToken: '轮转完整控制口令',
+  rotatingOwnerToken: '正在轮转完整控制口令',
+  rotateOwnerTokenFailed: '无法轮转完整控制口令',
   shareQrFullAccessWarning: '二维码包含完整控制口令链接。',
   shareQrReadOnlyWarning: '二维码包含当前页面的只读链接。',
   shareLinkFailed: '分享链接不可用',
