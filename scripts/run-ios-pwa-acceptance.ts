@@ -289,7 +289,7 @@ function exportResult(resultBundle: string, outputDir: string): void {
   for (const test of manifest) {
     for (const attachment of test.attachments || []) {
       const name = attachment.suggestedHumanReadableName || ''
-      if (!/^(01|02|03)-/.test(name) || !attachment.exportedFileName) continue
+      if (!/^(01|02|03|04)-/.test(name) || !attachment.exportedFileName) continue
       fs.mkdirSync(screenshotsDir, { recursive: true })
       fs.copyFileSync(
         path.join(attachmentsDir, attachment.exportedFileName),

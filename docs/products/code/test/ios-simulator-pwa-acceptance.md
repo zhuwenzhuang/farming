@@ -27,7 +27,7 @@ Set `FARMING_IOS_SIMULATOR_UDID` to select a specific Simulator. Otherwise the
 runner uses a booted iPhone, or boots an available iPhone 16 Pro. Set
 `FARMING_IOS_PWA_OUTPUT_DIR` to choose a new, non-existing artifact directory.
 
-The command succeeds only when all three product assertions pass. A non-zero
+The command succeeds only when all four product assertions pass. A non-zero
 exit after an `IOS_PWA_EVIDENCE` line is a product regression; a failure before
 that line is classified as a harness or environment blocker.
 
@@ -51,18 +51,21 @@ host/runner apps.
    two known harness bundle IDs, remove only the temporary directories created
    by this run, and verify that the selected port closed.
 
-The three scenarios cover:
+The four scenarios cover:
 
 - excessive blank space below the resting standalone Composer;
 - the Start New Agent dialog entering the iOS status/Dynamic Island region or
   clipping its heading and first provider row;
 - a focused, busy ACP Composer with a queued message whose Add, model, and
   active-turn controls must remain above iOS input UI and hittable.
+- the same focused Composer in a normal Mobile Safari tab, including browser
+  chrome, with its top bar and input remaining visible above iOS input UI.
 
-The compact layout has one viewport owner: an installed standalone app uses the
-full screen layout height while the software keyboard is absent, and the
-shrunken visual viewport while the keyboard is present. Safe-area clearance is
-then applied once by the owning mobile surface.
+The compact layout has one viewport owner: browser tabs and installed standalone
+apps use the visual viewport exactly, including heights below 240 points while
+the keyboard is open. Standalone mode relies on the system region already
+excluded by that viewport; it does not create a second root-viewport coordinate
+system or subtract the safe area again.
 
 ## Artifacts And Failure Classification
 
@@ -70,7 +73,7 @@ Each run writes a new ignored directory under `.tmp/ios-pwa-acceptance/` by
 default. It contains:
 
 - `FarmingPWAAcceptance.xcresult`;
-- `screenshots/01-*.png`, `02-*.png`, and `03-*.png` for scenarios that reached
+- `screenshots/01-*.png`, `02-*.png`, `03-*.png`, and `04-*.png` for scenarios that reached
   capture;
 - `summary.json`, `xcodebuild.log`, `server.log`, `run.json`, and
   `cleanup.json`;

@@ -27,8 +27,12 @@ final class FarmingPWAUITests: XCTestCase {
     func test01StandaloneComposerRestingGeometry() throws {
         let app = try launchStandalone()
 
+        let navigation = app.buttons["Open navigation"].firstMatch
         let footer = app.otherElements["footer"].firstMatch
+        let send = app.buttons["Send message"].firstMatch
+        XCTAssertTrue(navigation.waitForExistence(timeout: 15), "The standalone top bar did not appear")
         XCTAssertTrue(footer.waitForExistence(timeout: 15), "The standalone Composer footer did not appear")
+        XCTAssertTrue(send.waitForExistence(timeout: 15), "The standalone send control did not appear")
         let screen = app.windows.firstMatch.frame
         let footerFrame = footer.frame
         let bottomGap = screen.maxY - footerFrame.maxY
@@ -38,8 +42,11 @@ final class FarmingPWAUITests: XCTestCase {
             "resting-composer",
             [
                 "screen": screen,
+                "navigation": navigation.frame,
                 "footer": footerFrame,
+                "send": send.frame,
                 "bottomGap": bottomGap,
+                "navigationHittable": navigation.isHittable,
                 "footerHittable": footer.isHittable,
             ]
         )
@@ -51,9 +58,21 @@ final class FarmingPWAUITests: XCTestCase {
             "The acceptance path must not remain inside Mobile Safari"
         )
         XCTAssertTrue(footer.isHittable, "The resting Composer must remain interactive")
+        XCTAssertTrue(navigation.isHittable, "The top bar must not be shifted out of the visible screen")
+        XCTAssertTrue(send.isHittable, "The send control must remain interactive")
+        XCTAssertGreaterThanOrEqual(
+            send.frame.minY,
+            footerFrame.minY,
+            "The send control starts outside the Composer: send=\(send.frame), footer=\(footerFrame)"
+        )
+        XCTAssertLessThanOrEqual(
+            send.frame.maxY,
+            footerFrame.maxY,
+            "The send control is clipped by the Composer bottom: send=\(send.frame), footer=\(footerFrame)"
+        )
         XCTAssertLessThanOrEqual(
             bottomGap,
-            44,
+            64,
             "Standalone Composer leaves an abnormal \(format(bottomGap))pt blank region below it; screen=\(screen), footer=\(footerFrame)"
         )
     }
@@ -147,6 +166,7 @@ final class FarmingPWAUITests: XCTestCase {
         let model = labeledElement("Model and reasoning", in: app)
         let activeControl = app.buttons["Interrupt agent"].firstMatch
         for (name, element) in [
+            ("Composer input", input),
             ("Add context", addContext),
             ("Model and reasoning", model),
             ("Interrupt agent", activeControl),
@@ -201,6 +221,59 @@ final class FarmingPWAUITests: XCTestCase {
                     "\(name) is covered by the iOS keyboard/input assistant: control=\(element.frame), obstruction=\(obstruction)"
                 )
             }
+        }
+    }
+
+    func test04SafariTabKeepsFocusedComposerAboveInputUI() throws {
+        let safari = XCUIApplication(bundleIdentifier: "com.apple.mobilesafari")
+        safari.terminate()
+        safari.launch()
+        safari.open(baseURL)
+        XCTAssertTrue(safari.webViews.firstMatch.waitForExistence(timeout: 20), "Farming did not load in Mobile Safari")
+        try selectAgent(named: chatAgentName, in: safari)
+
+        let navigation = safari.buttons["Open navigation"].firstMatch
+        let input = safari.textViews.firstMatch
+        XCTAssertTrue(navigation.waitForExistence(timeout: 15), "The Safari tab top bar did not appear")
+        XCTAssertTrue(input.waitForExistence(timeout: 20), "The Safari tab Composer did not appear")
+        input.tap()
+        input.typeText("browser viewport remains visible")
+
+        let keyboard = safari.keyboards.firstMatch
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 10), "The Safari software keyboard did not appear")
+        let assistant = safari.otherElements.matching(
+            NSPredicate(format: "identifier == %@", "SystemInputAssistantView")
+        ).firstMatch
+        let screen = safari.windows.firstMatch.frame
+        let obstruction = visibleObstructionFrame(
+            keyboard: keyboard,
+            assistant: assistant,
+            inferredAssistant: inferredInputAssistantFrame(keyboard: keyboard, screen: screen)
+        )
+
+        attachScreenshot(named: "04-safari-tab-focused-composer")
+        printEvidence(
+            "safari-tab-focused-composer",
+            [
+                "screen": screen,
+                "navigation": navigation.frame,
+                "input": input.frame,
+                "keyboard": keyboard.frame,
+                "obstruction": obstruction as Any,
+                "navigationHittable": navigation.isHittable,
+                "inputHittable": input.isHittable,
+            ]
+        )
+
+        XCTAssertTrue(navigation.isHittable, "The Safari tab top bar is shifted out of view")
+        XCTAssertTrue(input.isHittable, "The Safari tab Composer input is covered")
+        XCTAssertNotNil(obstruction, "The Safari keyboard or input assistant must be visible")
+        if let obstruction {
+            XCTAssertLessThanOrEqual(
+                input.frame.maxY,
+                obstruction.minY + 1,
+                "The Safari tab Composer is covered by the keyboard/input assistant: input=\(input.frame), obstruction=\(obstruction)"
+            )
         }
     }
 

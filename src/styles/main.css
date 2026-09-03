@@ -3447,10 +3447,9 @@ body.code-mode.code-compact-layout .code-workspace.sidebar-collapsed {
   }
 
   body.code-mode.code-compact-layout.code-mobile-standalone:not(.code-mobile-keyboard-active) .code-main {
-    /* The standalone layout spans the full screen. Keep the complete Composer
-       above the bottom gesture hit-test exclusion rather than subtracting the
-       safe area a second time from the viewport height. */
-    --mobile-composer-viewport-gap: max(44px, env(safe-area-inset-bottom));
+    /* Standalone WebKit already removes the system gesture region from its
+       paint viewport. Do not subtract the safe area a second time. */
+    --mobile-composer-viewport-gap: 0px;
   }
 
   body.code-mode.code-compact-layout.code-mobile-keyboard-active .code-main {

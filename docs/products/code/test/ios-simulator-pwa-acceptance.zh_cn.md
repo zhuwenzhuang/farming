@@ -27,7 +27,7 @@ npm run test:e2e:ios-pwa
 优先使用已启动的 iPhone，否则启动一个可用的 iPhone 16 Pro。可通过
 `FARMING_IOS_PWA_OUTPUT_DIR` 指定一个尚不存在的新产物目录。
 
-只有三个产品断言全部通过时命令才成功。出现 `IOS_PWA_EVIDENCE` 后返回非零
+只有四个产品断言全部通过时命令才成功。出现 `IOS_PWA_EVIDENCE` 后返回非零
 表示产品回归；在该行之前失败则归类为 harness 或环境阻塞。
 
 ## 状态模型
@@ -47,17 +47,20 @@ host/runner app。
    本轮新增的 WebKit PushBundle ID 和两个已知 harness bundle ID，只删除本轮
    创建的临时目录，并验证所选端口已关闭。
 
-三个场景覆盖：
+四个场景覆盖：
 
 - standalone 静止态 Composer 下方的异常大片空白；
 - Start New Agent 弹层进入 iOS 状态栏/Dynamic Island 区域，或裁切标题和
   首个 provider 行；
 - ACP Agent 正忙且存在 queued message 时，聚焦 Composer 后 Add、模型和
   当前轮控制必须位于 iOS 输入 UI 上方并保持可点击。
+- 普通 Mobile Safari 标签页中的同一聚焦 Composer；包含浏览器 chrome，且顶部栏
+  与输入框必须在 iOS 输入 UI 上方保持可见。
 
-compact 布局只有一个 viewport owner：已安装 standalone app 在软键盘未出现
-时使用完整屏幕布局高度，键盘出现时使用收缩后的 visual viewport；safe-area
-间距再由所属 mobile surface 只应用一次。
+compact 布局只有一个 viewport owner：普通浏览器标签页和已安装的 standalone app
+都严格使用 visual viewport，包括键盘打开后低于 240 点的剩余高度。standalone
+模式直接依赖该 viewport 已排除的系统区域，不再创建第二套根视口坐标系，也不重复
+扣减 safe area。
 
 ## 产物和失败分类
 
@@ -65,7 +68,7 @@ compact 布局只有一个 viewport owner：已安装 standalone app 在软键�
 其中包含：
 
 - `FarmingPWAAcceptance.xcresult`；
-- 已到达截图步骤的 `screenshots/01-*.png`、`02-*.png`、`03-*.png`；
+- 已到达截图步骤的 `screenshots/01-*.png`、`02-*.png`、`03-*.png`、`04-*.png`；
 - `summary.json`、`xcodebuild.log`、`server.log`、`run.json` 和
   `cleanup.json`；
 - 完整导出的 XCUITest attachments。

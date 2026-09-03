@@ -28,6 +28,7 @@ import {
 import { appPath } from '@/lib/base-path'
 import { getStartupSearch } from '@/lib/auth-url'
 import { runtimeBindingForMode } from '@/lib/agent-runtime'
+import { resolveMobileViewportGeometry } from '@/lib/mobile-viewport'
 import { recordPerformanceTestRender } from '@/lib/performance-test-observer'
 import {
   getBackendConnectionSnapshot,
@@ -602,46 +603,33 @@ export function App() {
       const rawHeight = viewport?.height ?? window.innerHeight
       const layoutWidth = window.innerWidth || document.documentElement.clientWidth || rawWidth
       const browserLayoutHeight = window.innerHeight || document.documentElement.clientHeight || rawHeight || MIN_MOBILE_VISUAL_HEIGHT
-      const orientationMismatch = (layoutWidth > browserLayoutHeight) !== (rawWidth > rawHeight)
-      const directDimensionDelta = Math.abs(layoutWidth - rawWidth) + Math.abs(browserLayoutHeight - rawHeight)
-      const rotatedDimensionDelta = Math.abs(layoutWidth - rawHeight) + Math.abs(browserLayoutHeight - rawWidth)
-      const staleRotatedVisualViewport = Boolean(
-        viewport
-        && orientationMismatch
-        && rotatedDimensionDelta < directDimensionDelta,
-      )
-      const visualWidth = staleRotatedVisualViewport ? layoutWidth : rawWidth
-      const visualHeight = staleRotatedVisualViewport ? browserLayoutHeight : rawHeight
-      const offsetTop = staleRotatedVisualViewport ? 0 : viewport?.offsetTop ?? 0
-      const offsetLeft = staleRotatedVisualViewport ? 0 : viewport?.offsetLeft ?? 0
-      const width = Math.min(visualWidth, Math.max(0, layoutWidth - offsetLeft))
       const compactViewport = isCompactViewport()
       const touchViewport = isTouchInputViewport()
       const iosNavigator = navigator as Navigator & { standalone?: boolean }
       const standaloneWebApp = iosNavigator.standalone === true
         || window.matchMedia('(display-mode: standalone)').matches
-      const layoutHeight = compactViewport && standaloneWebApp
-        ? window.screen.height || browserLayoutHeight
-        : browserLayoutHeight
-      const keyboardOffset = Math.max(0, layoutHeight - visualHeight - offsetTop)
-      const mobileKeyboardActive = compactViewport && touchViewport && keyboardOffset > 80
-      const height = compactViewport
-        ? mobileKeyboardActive
-          ? Math.min(Math.max(visualHeight, MIN_MOBILE_VISUAL_HEIGHT), Math.max(layoutHeight, MIN_MOBILE_VISUAL_HEIGHT))
-          : Math.max(layoutHeight, MIN_MOBILE_VISUAL_HEIGHT)
-        : visualHeight
+      const geometry = resolveMobileViewportGeometry({
+        visualWidth: rawWidth,
+        visualHeight: rawHeight,
+        visualOffsetTop: viewport?.offsetTop ?? 0,
+        visualOffsetLeft: viewport?.offsetLeft ?? 0,
+        layoutWidth,
+        layoutHeight: browserLayoutHeight,
+        compact: compactViewport,
+        touch: touchViewport,
+      })
       const iosLikeTouchViewport = touchViewport && isIOSLikeTouchViewport()
 
       document.body.classList.toggle('code-compact-layout', compactViewport)
       document.body.classList.toggle('code-mobile-touch', compactViewport && touchViewport)
       document.body.classList.toggle('code-mobile-ios', iosLikeTouchViewport)
       document.body.classList.toggle('code-mobile-standalone', compactViewport && standaloneWebApp)
-      document.body.classList.toggle('code-mobile-keyboard-active', mobileKeyboardActive)
-      document.documentElement.style.setProperty('--app-visual-width', `${width}px`)
-      document.documentElement.style.setProperty('--app-visual-height', `${height}px`)
-      document.documentElement.style.setProperty('--app-visual-offset-top', `${offsetTop}px`)
-      document.documentElement.style.setProperty('--app-visual-offset-left', `${offsetLeft}px`)
-      document.documentElement.style.setProperty('--mobile-keyboard-offset', `${keyboardOffset}px`)
+      document.body.classList.toggle('code-mobile-keyboard-active', geometry.keyboardActive)
+      document.documentElement.style.setProperty('--app-visual-width', `${geometry.width}px`)
+      document.documentElement.style.setProperty('--app-visual-height', `${geometry.height}px`)
+      document.documentElement.style.setProperty('--app-visual-offset-top', `${geometry.offsetTop}px`)
+      document.documentElement.style.setProperty('--app-visual-offset-left', `${geometry.offsetLeft}px`)
+      document.documentElement.style.setProperty('--mobile-keyboard-offset', `${geometry.keyboardOffset}px`)
     }
 
     updateVisualViewport()
