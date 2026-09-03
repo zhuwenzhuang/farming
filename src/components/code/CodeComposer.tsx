@@ -287,8 +287,8 @@ export function CodeComposer({
   const lastCompositionEndAtRef = useRef(0)
   const latestDraftRef = useRef(draft)
   const mobileSpeechPointerHandledRef = useRef(false)
-  useMobileComposerHeight(composerRef)
   useComposerTextareaAutoSize(textareaRef, draft)
+  useMobileComposerHeight(composerRef, draft)
 
   const baseComposerMenuOpen = plusMenuOpen || approvalMenuOpen || modelMenuOpen
   const slashTrigger = useMemo(

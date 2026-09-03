@@ -2,7 +2,10 @@ import { useLayoutEffect } from 'react'
 import type { RefObject } from 'react'
 import { isCompactViewport } from '@/lib/responsive-mode'
 
-export function useMobileComposerHeight(composerRef: RefObject<HTMLElement | null>) {
+export function useMobileComposerHeight(
+  composerRef: RefObject<HTMLElement | null>,
+  layoutSignal?: unknown,
+) {
   useLayoutEffect(() => {
     const composer = composerRef.current
     if (!composer) return undefined
@@ -32,5 +35,8 @@ export function useMobileComposerHeight(composerRef: RefObject<HTMLElement | nul
       window.removeEventListener('resize', publish)
       clear()
     }
-  }, [composerRef])
+  // Textarea auto-sizing and composer reservation must settle in the same
+  // layout pass. WebKit can defer ResizeObserver delivery until after the next
+  // paint, which would briefly leave the transcript underneath a taller input.
+  }, [composerRef, layoutSignal])
 }

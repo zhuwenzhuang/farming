@@ -53,6 +53,14 @@ test('keeps composed sidebar density and alignment through resize, expansion, an
   const editorsTitle = project.locator('.code-open-editors-title')
   if (await editorsTitle.getAttribute('aria-expanded') !== 'true') await editorsTitle.click()
   const list = page.getByTestId('code-project-list')
+  const setChangeGroupsExpanded = async (expanded: boolean) => {
+    for (const toggle of await files.locator('.code-file-change-group-toggle').all()) {
+      if ((await toggle.getAttribute('aria-expanded')) === String(expanded)) continue
+      await toggle.scrollIntoViewIfNeeded()
+      await toggle.click()
+      await expect(toggle).toHaveAttribute('aria-expanded', String(expanded))
+    }
+  }
 
   // A touch-capable wide viewport and a narrow mouse viewport both obey width,
   // not a second density policy based on the input device.
@@ -66,9 +74,7 @@ test('keeps composed sidebar density and alignment through resize, expansion, an
         document.documentElement.dataset.appearance = value
         document.body.dataset.appearance = value
       }, appearance)
-      for (const toggle of await files.locator('.code-file-change-group-toggle').all()) {
-        if (await toggle.getAttribute('aria-expanded') === 'true') await toggle.click()
-      }
+      await setChangeGroupsExpanded(false)
       await list.evaluate(element => { element.scrollTop = 0 })
       await expect.poll(() => list.evaluate(element => element.scrollTop)).toBe(0)
       await expect.poll(() => rect(project.locator('.code-open-editor-row'))).toMatchObject({ height })
@@ -96,9 +102,7 @@ test('keeps composed sidebar density and alignment through resize, expansion, an
       await list.screenshot({ path: screenshotPath, animations: 'disabled' })
       await testInfo.attach(`${compact ? 'compact' : 'desktop'}-${appearance}`, { path: screenshotPath, contentType: 'image/png' })
     }
-    for (const toggle of await files.locator('.code-file-change-group-toggle').all()) {
-      if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click()
-    }
+    await setChangeGroupsExpanded(true)
     const changes = files.locator('.code-file-change-main')
     await expect(changes).toHaveCount(3)
     for (const change of await changes.all()) expect((await rect(change)).height).toBe(height)

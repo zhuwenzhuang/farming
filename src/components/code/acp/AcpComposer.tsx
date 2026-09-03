@@ -171,8 +171,8 @@ export function AcpComposer({
     active,
     `${runtimeState}:${sessionRevision || 0}:${sessionUpdatedAt || ''}`,
   )
-  useMobileComposerHeight(composerRef)
   useComposerTextareaAutoSize(textareaRef, draft)
+  useMobileComposerHeight(composerRef, draft)
   latestDraftRef.current = draft
   const interrupting = submitAction === 'interrupt'
   const disabled = submitAction === 'disabled'
