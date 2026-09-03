@@ -39,6 +39,13 @@ that npm context.
    signatures. Create one release-preparation plan before running broad gates.
 5. Verify the selected remote branch identifies the same exact candidate SHA;
    push the intentional candidate commit before starting remote preparation.
+   When the coordinator itself runs on Linux, run
+   `npm run release:coordinator:linux:check -- VERSION` after that push. This
+   check requires a clean `main`, the exact remote SHA, active workflows,
+   authenticated GitHub and Codex CLIs, a healthy Docker daemon, and the pinned
+   Computer image. It deliberately does not build release artifacts or require
+   npm publication credentials on the coordinator; GitHub Actions owns those
+   operations.
 6. Create a short unique campaign ID. Run
    `scripts/set-release-acceptance-status.sh pending VERSION CAMPAIGN_ID SHA`.
    Dispatch `release.yml` for artifact preparation immediately and retain its
@@ -176,6 +183,13 @@ Use separate focused lanes for independent domains such as sharing/access,
 Chat/ACP, Terminal, CRT, Browser/Computer, and responsive appearance. Native
 macOS Desktop/LSP acceptance cannot be replaced by Linux containers; schedule a
 Mac lane when that contract changes.
+
+When the release coordinator runs on Linux, iOS Simulator and physical-device
+acceptance are a defined release exception: omit them from the blocking ledger
+and record `ios_acceptance=skipped-linux-coordinator-rule`. This exception does
+not omit mobile Chromium/WebKit automation, responsive-appearance Computer Use,
+or any exact-SHA artifact, provider, workflow, and publication gate. It also
+does not replace a Mac lane when native macOS Desktop/LSP behavior changed.
 
 For each lane record candidate SHA, scenario, Agent ID, Computer Resource ID,
 container/image identity, start/end time, screenshots, Computer action trace,

@@ -190,6 +190,25 @@ Sharing/access, Chat/ACP, Terminal, CRT, Browser/Computer, and responsive
 appearance can use separate parallel lanes. Native macOS Desktop/LSP behavior
 requires a Mac lane and cannot be replaced by a Linux container.
 
+### Linux release coordinator exception
+
+When the release coordinator itself runs on Linux, iOS Simulator and physical-
+device acceptance are omitted from the blocking release ledger and recorded as
+`ios_acceptance=skipped-linux-coordinator-rule`. This is an explicit platform
+policy, not an inference that Linux emulation proves iOS behavior. Mobile
+Chromium/WebKit automation, responsive-appearance Computer Use, exact-SHA CI,
+provider gates, candidate workflows, every platform artifact, and publication
+verification remain required. Native macOS Desktop/LSP changes still require a
+Mac lane.
+
+Run `npm run release:coordinator:linux:check -- VERSION` after the clean
+candidate is pushed to `main` and before release acceptance becomes pending.
+The check proves that the Linux coordinator has authenticated GitHub and Codex
+CLIs, a healthy Docker daemon, active release workflows, and the exact pinned
+Computer image. Release artifacts and npm publication remain owned by GitHub
+Actions, so the coordinator does not need npm credentials, Xcode, a modern host
+glibc, or local cross-platform packaging tools.
+
 Every lane records candidate SHA, scenario, Agent and Computer Resource
 identities, container/image identity, timestamps, screenshots, Computer action
 trace, backend/provider evidence, result, and failure signature. Successful

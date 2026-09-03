@@ -8,6 +8,11 @@ XCUITest 打开 Mobile Safari、选择 **Add to Home Screen**、从 SpringBoard
 `navigator.standalone`，不以 Playwright 设备模拟冒充真实 PWA，也不依赖
 Computer Use。
 
+发布规则例外：当 Release Coordinator 本身运行在 Linux 上时，该 iOS 验收记录为
+`skipped-linux-coordinator-rule`，不作为阻塞发布的门禁。Mobile Browser 自动化和
+Responsive Appearance 验收仍然必须完成；完整边界见
+[发布流水线方案](../../../development/release-pipeline-acceleration-plan.zh_cn.md)。
+
 ## 运行
 
 要求：

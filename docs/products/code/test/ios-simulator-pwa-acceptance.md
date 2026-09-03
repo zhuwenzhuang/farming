@@ -8,6 +8,13 @@ installed icon from SpringBoard, and exercise the resulting
 `com.apple.webapp` process. It does not mock `navigator.standalone`, use a
 Playwright device profile as a substitute, or depend on Computer Use.
 
+Release policy exception: when the release coordinator itself runs on Linux,
+this iOS acceptance is recorded as `skipped-linux-coordinator-rule` and is not
+a blocking release gate. Mobile browser automation and responsive-appearance
+acceptance remain required; see the
+[release pipeline plan](../../../development/release-pipeline-acceleration-plan.md)
+for the complete boundary.
+
 ## Run
 
 Requirements:

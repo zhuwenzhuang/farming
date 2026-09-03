@@ -90,6 +90,7 @@
     "release:remote": "./scripts/install-remote-release.sh",
     "release:remote:linux-compat": "./scripts/install-remote-linux-compat-release.sh",
     "release:dependencies:check": "node scripts/check-release-managed-dependency-updates.mjs",
+    "release:coordinator:linux:check": "./scripts/check-linux-release-coordinator.sh",
     "release:fast-screen": "tsx scripts/run-release-fast-screen.ts",
     "sync:openclaw-browser-extension": "node scripts/sync-openclaw-browser-extension.mjs",
     "docs:product:screenshots": "tsx scripts/capture-product-screenshots.ts",

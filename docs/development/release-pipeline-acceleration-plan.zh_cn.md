@@ -146,6 +146,20 @@ Computer Use 分三层选择：
 分享/权限、Chat/ACP、Terminal、CRT、Browser/Computer 和响应式外观可以拆成独立并发 Lane。
 原生 macOS Desktop/LSP 行为必须使用 Mac Lane，不能由 Linux Container 替代。
 
+### Linux 发布协调机例外
+
+当 Release Coordinator 本身运行在 Linux 上时，iOS Simulator 和真机验收不进入阻塞发布的
+Ledger，并记录为 `ios_acceptance=skipped-linux-coordinator-rule`。这是明确的平台规则，不代表
+Linux 模拟已经证明 iOS 行为。Mobile Chromium/WebKit 自动化、Responsive Appearance Computer
+Use、Exact-SHA CI、Provider 门禁、Candidate Workflow、所有平台制品和发布验证仍然必须完成。
+原生 macOS Desktop/LSP 发生变化时仍然需要 Mac Lane。
+
+干净 Candidate 推送到 `main` 后、Release Acceptance 进入 Pending 前，运行
+`npm run release:coordinator:linux:check -- VERSION`。该检查确认 Linux 协调机已登录 GitHub 和
+Codex CLI、Docker 健康、发布 Workflow 处于 Active，并且固定 Digest 的 Computer 镜像已经存在。
+Release Artifact 与 npm Publication 仍由 GitHub Actions 负责，因此协调机不需要 npm 凭据、
+Xcode、新版宿主机 glibc 或本地跨平台打包工具。
+
 每条 Lane 记录 Candidate SHA、Scenario、Agent 与 Computer Resource Identity、Container/Image
 Identity、时间、Screenshot、Computer Action Trace、Backend/Provider Evidence、结果和 Failure
 Signature。成功资源按精确 Identity 删除；失败 Desktop 只在有边界的调查期间保留。

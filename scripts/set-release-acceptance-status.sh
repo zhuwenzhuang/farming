@@ -28,12 +28,20 @@ if [[ ! "${SHA}" =~ ^[a-f0-9]{40}$ ]]; then
 fi
 
 CONTEXT="farming/release-acceptance/${VERSION}/${CAMPAIGN_ID}"
+COORDINATOR_PLATFORM="$(uname -s | tr '[:upper:]' '[:lower:]')"
+IOS_ACCEPTANCE="selected-by-change"
+if [[ "${COORDINATOR_PLATFORM}" == "linux" ]]; then
+  IOS_ACCEPTANCE="skipped-linux-coordinator-rule"
+fi
 case "${STATE}" in
   pending) DESCRIPTION="Automated and Computer Use acceptance is running" ;;
   success) DESCRIPTION="Automated and Computer Use acceptance passed" ;;
   failure) DESCRIPTION="Required release acceptance failed" ;;
   error) DESCRIPTION="Release acceptance could not complete" ;;
 esac
+if [[ "${STATE}" == "success" && "${COORDINATOR_PLATFORM}" == "linux" ]]; then
+  DESCRIPTION="Acceptance passed; iOS skipped by Linux coordinator rule"
+fi
 
 REPOSITORY="$(gh repo view --json nameWithOwner --jq '.nameWithOwner')"
 gh api \
@@ -47,3 +55,5 @@ gh api \
 printf 'acceptance_context=%s\n' "${CONTEXT}"
 printf 'candidate_sha=%s\n' "${SHA}"
 printf 'state=%s\n' "${STATE}"
+printf 'coordinator_platform=%s\n' "${COORDINATOR_PLATFORM}"
+printf 'ios_acceptance=%s\n' "${IOS_ACCEPTANCE}"
