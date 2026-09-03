@@ -335,6 +335,15 @@ test('ACP model matrix responds locally, settles once, and morphs Advanced witho
       probe.remove()
       return getComputedStyle(element).boxShadow === `${color} 0px 0px 0px 1px`
     })).toBe(true)
+    await expect.poll(() => menu.locator('.code-model-matrix-rocker-knob').evaluate(element => (
+      getComputedStyle(element, '::after').content
+    ))).toBe('none')
+    if (appearance === 'dark') {
+      await expect(menu.locator('.code-model-matrix-surface')).toHaveCSS('background-color', 'rgb(40, 40, 40)')
+      await expect(menu.locator('.code-model-matrix-surface')).toHaveCSS('border-color', 'rgb(56, 56, 56)')
+      await expect(rockerControl).toHaveCSS('background-color', 'rgb(34, 34, 34)')
+      await expect(rockerControl).toHaveCSS('border-color', 'rgb(56, 56, 56)')
+    }
     await page.mouse.move(0, 0)
     await expect(menu.locator('.code-model-matrix-shell')).toHaveScreenshot(`model-matrix-focus-${appearance}.png`)
   }

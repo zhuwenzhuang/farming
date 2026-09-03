@@ -1879,17 +1879,6 @@
   transition: transform 340ms var(--matrix-motion);
 }
 
-.code-model-matrix-rocker-knob::after {
-  content: '';
-  position: absolute;
-  left: 5px;
-  top: 4px;
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--code-bg-raised) 50%, transparent);
-}
-
 .code-model-matrix-rocker-button:active .code-model-matrix-rocker-control {
   transform: scale(.97);
 }
