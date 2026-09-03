@@ -733,7 +733,7 @@ test('run awaits all preparation promises before cleanup, never starts lanes unt
   }
 });
 
-test('complete matrix covers all 703 discovered tests exactly once across 12 logical lanes', { timeout: 90_000 }, () => {
+test('complete matrix covers all 706 discovered tests exactly once across 12 logical lanes', { timeout: 90_000 }, () => {
   let discoveredTotal = 0;
   assert.deepEqual(PLAYWRIGHT_PROJECT_MATRIX.map(entry => entry.lanes), [6, 2, 1, 1, 1, 1]);
   const tasks = createMatrixLaneTasks();
@@ -771,7 +771,7 @@ test('complete matrix covers all 703 discovered tests exactly once across 12 log
     assert.equal(invocation.args.includes('--retain-evidence'), true);
     assert.equal(invocation.env.FARMING_PLAYWRIGHT_AUTH, entry.auth ? '1' : '0');
   }
-  assert.equal(discoveredTotal, 703);
+  assert.equal(discoveredTotal, 706);
   // Main chromium lanes must equal the default global Chromium concurrency cap.
   const mainChromium = PLAYWRIGHT_PROJECT_MATRIX.find(entry => entry.project === 'chromium');
   assert.equal(mainChromium.lanes, DEFAULT_MAX_CHROMIUM_LANES);

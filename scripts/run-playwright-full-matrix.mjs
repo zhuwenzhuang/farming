@@ -14,10 +14,10 @@ const STOP_GRACE_MS = 5_000;
 export const DEFAULT_MAX_CHROMIUM_LANES = 6;
 
 export const PLAYWRIGHT_PROJECT_MATRIX = Object.freeze([
-  { project: 'chromium', browser: 'chromium', tests: 603, lanes: 6, portBase: 43_100, displayBase: 90, auth: false },
+  { project: 'chromium', browser: 'chromium', tests: 604, lanes: 6, portBase: 43_100, displayBase: 90, auth: false },
   { project: 'iphone-webkit', browser: 'webkit', tests: 45, lanes: 2, portBase: 43_200, displayBase: 110, auth: false },
-  { project: 'iphone-human-webkit', browser: 'webkit', tests: 25, lanes: 1, portBase: 43_300, displayBase: 120, auth: false },
-  { project: 'android-human-chromium', browser: 'chromium', tests: 28, lanes: 1, portBase: 43_400, displayBase: 130, auth: false },
+  { project: 'iphone-human-webkit', browser: 'webkit', tests: 26, lanes: 1, portBase: 43_300, displayBase: 120, auth: false },
+  { project: 'android-human-chromium', browser: 'chromium', tests: 29, lanes: 1, portBase: 43_400, displayBase: 130, auth: false },
   { project: 'mobile-auth-chromium', browser: 'chromium', tests: 1, lanes: 1, portBase: 43_500, displayBase: 140, auth: true },
   { project: 'mobile-auth-webkit', browser: 'webkit', tests: 1, lanes: 1, portBase: 43_600, displayBase: 150, auth: true },
 ]);
