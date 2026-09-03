@@ -11,6 +11,7 @@ export interface AcpCollaborationEvent {
   processItemId: string
   threadId: string
   name: string
+  task?: string
   action: AcpCollaborationAction
   tone: number
   title: string
@@ -45,7 +46,9 @@ function displayAgentName(path: string, threadId: string) {
   const lastSegment = segments[segments.length - 1] || ''
   const normalized = lastSegment.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim()
   if (normalized) return normalized.charAt(0).toUpperCase() + normalized.slice(1)
-  const suffix = threadId.replace(/[^a-z0-9]/gi, '').slice(0, 6)
+  const compactThreadId = threadId.replace(/[^a-z0-9]/gi, '')
+  const uuidLike = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(threadId)
+  const suffix = uuidLike ? compactThreadId.slice(-6) : compactThreadId.slice(0, 6)
   return suffix ? `Agent ${suffix}` : 'Subagent'
 }
 
@@ -80,13 +83,22 @@ function agentIcon(threadId: string) {
 
 export function acpCollaborationEvents(items: AgentTranscriptProcessItem[]): AcpCollaborationEvent[] {
   const nameByThread = new Map<string, string>()
+  const taskByThread = new Map<string, string>()
   const activityActions = new Set<string>()
   for (const item of items) {
     const collaboration = item.collaboration
-    if (collaboration?.kind !== 'activity' || !collaboration.threadId) continue
-    nameByThread.set(collaboration.threadId, displayAgentName(collaboration.agentPath || '', collaboration.threadId))
-    const action = activityAction(String(collaboration.activity || '').toLowerCase())
-    if (action) activityActions.add(`${collaboration.threadId}:${action}`)
+    if (!collaboration) continue
+    if (collaboration.kind === 'activity' && collaboration.threadId) {
+      nameByThread.set(collaboration.threadId, displayAgentName(collaboration.agentPath || '', collaboration.threadId))
+      const action = activityAction(String(collaboration.activity || '').toLowerCase())
+      if (action) activityActions.add(`${collaboration.threadId}:${action}`)
+      continue
+    }
+    if (collaboration.kind === 'tool' && collaboration.task?.trim()) {
+      for (const threadId of collaboration.receiverThreadIds || []) {
+        taskByThread.set(threadId, collaboration.task.trim())
+      }
+    }
   }
 
   const events: AcpCollaborationEvent[] = []
@@ -105,6 +117,7 @@ export function acpCollaborationEvents(items: AgentTranscriptProcessItem[]): Acp
       processItemId: item.id,
       threadId,
       name: nameByThread.get(threadId) || displayAgentName('', threadId),
+      task: taskByThread.get(threadId) || nameByThread.get(threadId),
       action,
       tone: eventTone(threadId),
       title: String(item.title || '').trim(),
@@ -153,6 +166,7 @@ function recordedCollaborationStatuses(items: AgentTranscriptProcessItem[]) {
     const collaboration = item.collaboration
     if (collaboration?.kind !== 'tool') continue
     for (const [threadId, state] of Object.entries(collaboration.agentsStates || {})) {
+      if (state.status === 'pendingInit' && item.status === 'completed') continue
       if (state.status) statuses.set(threadId, state.status)
     }
   }
@@ -175,7 +189,7 @@ export function acpCollaborationAgents(
     const existing = groups.get(event.threadId)
     if (existing) {
       existing.events.push(event)
-      existing.task = event.name
+      if (event.task) existing.task = event.task
       const previousActivity = existing.activities[existing.activities.length - 1]
       if (
         event.action === 'updated'
@@ -203,7 +217,7 @@ export function acpCollaborationAgents(
       id: event.threadId,
       threadId: event.threadId,
       name: event.name,
-      task: event.name,
+      task: event.task,
       status: statusForThread(event.threadId),
       parentThreadId: stateByThreadId.get(event.threadId)?.parentThreadId,
       tone: event.tone,

@@ -1016,6 +1016,49 @@ test.describe('ACP human-like browser matrix', () => {
     await expect(turn).not.toContainText('Cross turn child')
   })
 
+  test('distinguishes same-prefix subagents and shows their tasks without stale pending state', async ({ page, workspaceRoot }, testInfo) => {
+    const workspace = path.join(workspaceRoot, 'acp-same-prefix-collaboration')
+    fs.mkdirSync(workspace, { recursive: true })
+
+    const agentId = await createAcpAgent(page, workspace)
+    await openFarming(page)
+    await agentRow(page, agentId).click()
+    await sendAcpMessage(page, 'same prefix collaboration')
+
+    const turn = page.locator('.code-agent-transcript-turn')
+      .filter({ hasText: 'Same-prefix collaboration example complete.' })
+    await expect(turn).toBeVisible({ timeout: 15_000 })
+    await turn.getByTestId('code-agent-transcript-process-summary').click()
+    const timeline = turn.getByTestId('code-agent-transcript-collaboration')
+    const groups = timeline.getByTestId('code-agent-transcript-collaboration-group')
+    await expect(groups).toHaveCount(3)
+
+    const expectedAgents = [
+      ['Agent 1b995a', 'Audit mobile responsive behavior'],
+      ['Agent aef497', 'Review release notes'],
+      ['Agent 6c0c7d', 'Inspect CI failures'],
+    ]
+    for (let index = 0; index < expectedAgents.length; index += 1) {
+      const [name, task] = expectedAgents[index]
+      const summary = groups.nth(index).getByTestId('code-agent-transcript-collaboration-summary')
+      await expect(summary).toContainText(name)
+      await expect(summary).toContainText(task)
+      await expect(summary).not.toContainText(/Preparing|准备中/)
+      await summary.click()
+      await expect(groups.nth(index).getByTestId('code-agent-transcript-collaboration-event'))
+        .toContainText(task)
+    }
+
+    for (const appearance of ['light', 'dark', 'paper'] as const) {
+      await page.locator('body').evaluate((element, value) => { element.dataset.appearance = value }, appearance)
+      await page.mouse.move(0, 0)
+      await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+      await expect(timeline).toHaveScreenshot(`same-prefix-subagents-${appearance}.png`, {
+        animations: 'disabled',
+      })
+    }
+  })
+
   test('keeps a manually expanded Agent stable while collaboration updates stream', async ({ page, workspaceRoot }) => {
     test.setTimeout(30_000)
     const workspace = path.join(workspaceRoot, 'acp-live-collaboration')

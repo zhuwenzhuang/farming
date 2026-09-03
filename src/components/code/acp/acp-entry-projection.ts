@@ -87,6 +87,7 @@ export interface AgentTranscriptCollaborationState {
 export interface AgentTranscriptCollaboration {
   kind: 'tool' | 'activity'
   tool?: string
+  task?: string
   senderThreadId?: string
   receiverThreadIds?: string[]
   agentsStates?: Record<string, AgentTranscriptCollaborationState>
@@ -537,6 +538,7 @@ function codexCollaboration(entry: AcpRecord): AgentTranscriptCollaboration | un
     return {
       kind: 'tool',
       tool: stringValue(collaboration.tool),
+      task: stringValue(collaboration.task),
       senderThreadId: stringValue(collaboration.senderThreadId),
       receiverThreadIds: list(collaboration.receiverThreadIds).map(stringValue).filter(Boolean),
       agentsStates: states,

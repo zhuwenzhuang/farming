@@ -959,6 +959,47 @@ class FakeAgent implements Agent {
       });
       return { stopReason: 'end_turn' };
     }
+    if (promptText.includes('same prefix collaboration')) {
+      const agents = [
+        ['01a06578-0ef2-7380-adf7-b10aab1b995a', 'Audit mobile responsive behavior'],
+        ['01a06578-3408-7312-a7ec-692779aef497', 'Review release notes'],
+        ['01a06578-645e-7ab1-8d44-5cdf556c0c7d', 'Inspect CI failures'],
+      ];
+      for (const [threadId, prompt] of agents) {
+        await client.sessionUpdate({
+          sessionId: params.sessionId,
+          update: {
+            sessionUpdate: 'tool_call',
+            toolCallId: `same-prefix-${threadId.slice(-6)}`,
+            title: 'Agent spawnAgent',
+            kind: 'other',
+            status: 'completed',
+            rawInput: {
+              prompt,
+              receiverThreadIds: [threadId],
+              agentsStates: { [threadId]: { status: 'pendingInit' } },
+            },
+            _meta: {
+              codex: {
+                collaboration: {
+                  tool: 'spawnAgent',
+                  receiverThreadIds: [threadId],
+                },
+              },
+            },
+          },
+        });
+      }
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          messageId: 'same-prefix-collaboration-answer',
+          content: { type: 'text', text: 'Same-prefix collaboration example complete.' },
+        },
+      });
+      return { stopReason: 'end_turn' };
+    }
     if (promptText.includes('collaboration follow up')) {
       await client.sessionUpdate({
         sessionId: params.sessionId,

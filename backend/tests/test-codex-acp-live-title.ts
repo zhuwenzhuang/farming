@@ -3,7 +3,7 @@ const path = require('path');
 const { spawn } = require('child_process');
 
 const projectRoot = path.join(__dirname, '..', '..');
-const adapterPath = path.join(projectRoot, 'dist', 'acp', 'codex-acp-1.7.0.mjs');
+const adapterPath = path.join(projectRoot, 'dist', 'acp', 'codex-acp-1.8.0.mjs');
 const fakeCodexPath = path.join(__dirname, 'fixtures', 'fake-codex-app-server.ts');
 
 function send(child, message) {

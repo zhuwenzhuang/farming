@@ -140,7 +140,7 @@ async function smokeClaudeAcp(options: SmokeOptions): Promise<void> {
   if (response.result?.agentCapabilities?.sessionCapabilities?.fork == null) {
     throw new Error('Claude ACP initialize omitted session/fork');
   }
-  if (response.result?.agentInfo?.version !== '0.70.0') {
+  if (response.result?.agentInfo?.version !== '0.73.0') {
     throw new Error(`Claude ACP selected unexpected version: ${response.result?.agentInfo?.version}`);
   }
   if (response.result?._meta?.steering?.supported !== true) {

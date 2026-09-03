@@ -35,6 +35,40 @@ assert.deepStrictEqual(compactActivity._meta.codex.subagent, {
   activity: 'interacted',
 });
 
+const sharedPrefixThreadIds = [
+  '01a06578-0ef2-7380-adf7-b10aab1b995a',
+  '01a06578-3408-7312-a7ec-692779aef497',
+  '01a06578-645e-7ab1-8d44-5cdf556c0c7d',
+];
+const compactSpawn = acpTranscriptToolEntry({
+  id: 'spawn-mobile-review',
+  type: 'tool',
+  kind: 'other',
+  title: 'Agent spawnAgent',
+  status: 'completed',
+  rawInput: {
+    prompt: '  Audit the mobile responsive WIP\nwithout changing files.  ',
+    receiverThreadIds: sharedPrefixThreadIds,
+    agentsStates: Object.fromEntries(sharedPrefixThreadIds.map(threadId => [
+      threadId,
+      { status: 'pendingInit' },
+    ])),
+  },
+  _meta: {
+    codex: {
+      collaboration: {
+        tool: 'spawnAgent',
+        receiverThreadIds: sharedPrefixThreadIds,
+      },
+    },
+  },
+});
+assert.strictEqual(
+  compactSpawn._meta.codex.collaboration.task,
+  'Audit the mobile responsive WIP without changing files.',
+  'spawnAgent keeps one bounded display task in the compact transcript',
+);
+
 const oversizedStates = Object.fromEntries(Array.from({ length: 20 }, (_, index) => [
   `thread-${index}`,
   { status: index === 0 ? 'completed' : 'running', message: 'x'.repeat(700) },
@@ -117,6 +151,31 @@ const fallbackEvents = acpCollaborationEvents([{
 }]);
 assert.strictEqual(fallbackEvents[0].action, 'started');
 assert.strictEqual(fallbackEvents[0].name, 'Agent thread');
+
+const sharedPrefixAgents = acpCollaborationAgents(projectAcpTranscript({
+  sessionId: 'same-prefix-parent',
+  state: 'idle',
+  entries: [compactSpawn],
+}).turns[0].processItems);
+assert.deepStrictEqual(
+  sharedPrefixAgents.map(agent => [agent.name, agent.task, agent.status]),
+  [
+    ['Agent 1b995a', 'Audit the mobile responsive WIP without changing files.', 'unknown'],
+    ['Agent aef497', 'Audit the mobile responsive WIP without changing files.', 'unknown'],
+    ['Agent 6c0c7d', 'Audit the mobile responsive WIP without changing files.', 'unknown'],
+  ],
+  'same-prefix UUIDv7 Agents stay distinguishable and a completed spawn snapshot is not presented as live pending state',
+);
+assert.deepStrictEqual(
+  acpCollaborationAgents(projectAcpTranscript({
+    sessionId: 'same-prefix-parent-live',
+    state: 'idle',
+    entries: [compactSpawn],
+  }).turns[0].processItems, [{ threadId: sharedPrefixThreadIds[0], status: 'pendingInit' }])
+    .find(agent => agent.threadId === sharedPrefixThreadIds[0])?.status,
+  'pending',
+  'an authoritative live snapshot still exposes pending initialization',
+);
 const stableIconAgents = acpCollaborationAgents([
   {
     id: 'icon-a-start',

@@ -1035,8 +1035,11 @@ test.describe('iPhone mobile layout', () => {
 
     expect(restingGap).toBeGreaterThanOrEqual(4)
     expect(restingGap).toBeLessThanOrEqual(32)
-    expect(standaloneGap).toBeGreaterThanOrEqual(43)
-    expect(standaloneGap).toBeLessThanOrEqual(45)
+    // Standalone WebKit already excludes the system gesture region from its
+    // paint viewport. The Composer must settle flush with that boundary
+    // instead of subtracting the safe area a second time; see the viewport
+    // contract in docs/products/code/test/ios-simulator-pwa-acceptance.md.
+    expect(Math.abs(standaloneGap)).toBeLessThanOrEqual(2)
   })
 
   test('opens the mobile share sheet from a successful authenticated ticket response', async ({ page }, testInfo) => {

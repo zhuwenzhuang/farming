@@ -150,6 +150,58 @@ function requestJson(port, method, route, body, headers = {}) {
   });
 }
 
+function requestText(port, route) {
+  return new Promise<{ status: number | undefined; body: string }>((resolve, reject) => {
+    const request = http.request({
+      hostname: '127.0.0.1',
+      port,
+      method: 'GET',
+      path: route,
+    }, response => {
+      const chunks = [];
+      response.on('data', chunk => chunks.push(chunk));
+      response.on('end', () => resolve({
+        status: response.statusCode,
+        body: Buffer.concat(chunks).toString('utf8'),
+      }));
+    });
+    request.on('error', reject);
+    request.end();
+  });
+}
+
+async function testComputerViewerProxyPaths() {
+  const viewerRequestPaths = [];
+  const viewer = http.createServer((request, response) => {
+    viewerRequestPaths.push(request.url);
+    response.statusCode = 200;
+    response.end('viewer');
+  });
+  const viewerPort = await listen(viewer);
+  const app = express();
+  app.use('/api/computers', createComputerRouter({
+    viewerConfig: () => ({ host: '127.0.0.1', port: viewerPort }),
+  }, { resolve: () => null }, undefined));
+  const api = http.createServer(app);
+  const apiPort = await listen(api);
+  try {
+    const response = await requestText(
+      apiPort,
+      '/api/computers/computer_1/viewer/app/assets/vendor/runtime.js?cache=1',
+    );
+    assert.strictEqual(response.status, 200);
+    assert.strictEqual(response.body, 'viewer');
+    assert.strictEqual(
+      viewerRequestPaths.at(-1),
+      '/app/assets/vendor/runtime.js?cache=1',
+      'Express 5 wildcard segments must retain slash-separated Computer viewer paths',
+    );
+  } finally {
+    await close(api);
+    await close(viewer);
+  }
+}
+
 class FakeDocker {
   viewerPort: number;
   running: boolean;
@@ -976,6 +1028,7 @@ async function testIsolatedBrowserCapabilityFollowsComputerState() {
 
 async function run() {
   testComputerResourceRevisionOrdering();
+  await testComputerViewerProxyPaths();
   await testComputerUncertainTransitionReconciliation();
   await testComputerCapabilityFreshAndCachedReads();
   await testComputerCapabilityEndpointCurrentStateReads();
@@ -985,8 +1038,8 @@ async function run() {
     'the server deadline and cleanup grace must finish before the Agent HTTP transport timeout',
   );
   const viewerConnectionHeaders = [];
-  const viewer = http.createServer((_request, response) => {
-    viewerConnectionHeaders.push(_request.headers.connection);
+  const viewer = http.createServer((request, response) => {
+    viewerConnectionHeaders.push(request.headers.connection);
     response.statusCode = 200;
     response.end('viewer');
   });

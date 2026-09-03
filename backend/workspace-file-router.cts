@@ -229,6 +229,14 @@ function normalizePreviewAssetPath(value: unknown): string {
   return normalized;
 }
 
+function wildcardRouteParam(value: unknown): string {
+  // Express 5 (path-to-regexp v8) reports named wildcard matches as segment
+  // arrays; Express 4 reported one joined string. Rejoin at this boundary so
+  // downstream normalization keeps seeing a slash-separated path.
+  if (Array.isArray(value)) return value.map(segment => String(segment)).join('/');
+  return typeof value === 'string' ? value : '';
+}
+
 function previewContentSecurityPolicy() {
   return [
     "default-src 'none'",
@@ -793,7 +801,7 @@ function createWorkspaceFileRouter(
     }
   });
 
-  router.get('/previews/:sessionId/:scope/*', async (req: HttpRequest, res: HttpResponse) => {
+  const previewAssetHandler = async (req: HttpRequest, res: HttpResponse) => {
     try {
       const session = previewSessions.get(req.params.sessionId, {
         accessMode: req.authAccessMode === 'read-only' ? 'read-only' : 'owner',
@@ -803,7 +811,7 @@ function createWorkspaceFileRouter(
       if (scope !== 'base' && scope !== 'root') {
         throw new WorkspaceFileError('preview scope is invalid', 400);
       }
-      const assetPath = normalizePreviewAssetPath(req.params[0] || '');
+      const assetPath = normalizePreviewAssetPath(wildcardRouteParam(req.params.assetPath));
       const resourcePath = scope === 'base'
         ? path.posix.join(session.baseDirectory, assetPath)
         : assetPath;
@@ -835,7 +843,12 @@ function createWorkspaceFileRouter(
     } catch (error: unknown) {
       sendWorkspaceFileError(res, error);
     }
-  });
+  };
+  router.get('/previews/:sessionId/:scope/*assetPath', previewAssetHandler);
+  // Express 5 named wildcards require at least one path segment. Keep the
+  // Express 4 empty-asset behavior (explicit rejection) for both trailing
+  // forms through the non-wildcard route.
+  router.get('/previews/:sessionId/:scope', previewAssetHandler);
 
   router.put('/file', async (req: HttpRequest, res: HttpResponse) => {
     try {

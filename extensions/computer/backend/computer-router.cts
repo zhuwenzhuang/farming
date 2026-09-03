@@ -109,6 +109,14 @@ function sendError(res: any, caught: unknown): void {
   });
 }
 
+function wildcardViewerPath(value: unknown): string {
+  // Express 5 (path-to-regexp v8) reports named wildcard matches as segment
+  // arrays; Express 4 reported one joined string. Rejoin at this boundary so
+  // the upstream Viewer request keeps its slash-separated path.
+  if (Array.isArray(value)) return value.map(segment => String(segment)).join('/');
+  return typeof value === 'string' ? value : '';
+}
+
 function createComputerRouter(
   manager: ComputerResourceManager,
   workspaceRoots: WorkspaceRootRegistry,
@@ -281,10 +289,10 @@ function createComputerRouter(
     }
   });
 
-  router.get('/:id/viewer/*', (req: any, res: any) => {
+  router.get('/:id/viewer/*viewerPath', (req: any, res: any) => {
     try {
       const config = manager.viewerConfig(req.params.id);
-      const viewerPath = `/${String(req.params[0] || 'vnc.html').replace(/^\/+/, '')}`;
+      const viewerPath = `/${(wildcardViewerPath(req.params.viewerPath) || 'vnc.html').replace(/^\/+/, '')}`;
       const query = req.originalUrl.includes('?') ? req.originalUrl.slice(req.originalUrl.indexOf('?')) : '';
       const upstream = http.request({
         hostname: config.host,

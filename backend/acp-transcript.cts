@@ -609,6 +609,10 @@ function boundedCollaborationString(value: unknown, maxChars: number): string {
   return String(value || '').trim().slice(0, maxChars);
 }
 
+function boundedCollaborationTask(value: unknown): string {
+  return String(value || '').replace(/\s+/g, ' ').trim().slice(0, MAX_COLLABORATION_MESSAGE_CHARS);
+}
+
 function boundedCollaborationIds(value: unknown): string[] {
   const seen = new Set();
   return (Array.isArray(value) ? value : []).flatMap((item: unknown) => {
@@ -646,6 +650,9 @@ function transcriptCodexToolMeta(entry: DataRecord): DataRecord | null {
       ),
       receiverThreadIds,
       agentsStates,
+      ...(String(collaboration.tool || '').toLowerCase() === 'spawnagent'
+        ? { task: boundedCollaborationTask(rawInput.prompt) }
+        : {}),
     };
   }
   if (isDataRecord(codex.subagent)) {

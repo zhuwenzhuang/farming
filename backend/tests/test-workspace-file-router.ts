@@ -50,6 +50,8 @@ async function run() {
     fs.writeFileSync(path.join(workspace, 'binary.bin'), Buffer.from([0, 1, 2, 3]));
     fs.writeFileSync(path.join(workspace, 'site', 'index.html'), '<link rel="stylesheet" href="assets/site.css"><h1>Preview</h1>\n');
     fs.writeFileSync(path.join(workspace, 'site', 'assets', 'site.css'), 'h1 { color: green; }\n');
+    fs.mkdirSync(path.join(workspace, 'site', 'assets', 'vendor', 'lib'), { recursive: true });
+    fs.writeFileSync(path.join(workspace, 'site', 'assets', 'vendor', 'lib', 'deep.js'), '/* deep preview asset */\n');
     const outsideAllowedSearchFile = path.join(tempRoot, 'outside-allowed-search.txt');
     fs.writeFileSync(outsideAllowedSearchFile, 'global metadata must stay hidden\n');
     const outsideSearchDirectory = path.join(tempRoot, 'outside-search-directory');
@@ -271,6 +273,15 @@ async function run() {
       const css = await fetchRaw(baseUrl, `/api/files/previews/${preview.id}/base/assets/site.css`);
       assert.strictEqual(css.response.status, 200);
       assert.match(css.buffer.toString('utf8'), /green/);
+      // Express 5 named wildcards report segment arrays; the router must
+      // rejoin them so multi-level preview assets keep their slash paths.
+      const deep = await fetchRaw(baseUrl, `/api/files/previews/${preview.id}/base/assets/vendor/lib/deep.js`);
+      assert.strictEqual(deep.response.status, 200);
+      assert.match(deep.buffer.toString('utf8'), /deep preview asset/);
+      const emptyAsset = await fetchRaw(baseUrl, `/api/files/previews/${preview.id}/base/`);
+      assert.strictEqual(emptyAsset.response.status, 400, 'an empty preview asset path must stay rejected');
+      const missingAsset = await fetchRaw(baseUrl, `/api/files/previews/${preview.id}/base`);
+      assert.strictEqual(missingAsset.response.status, 400, 'a missing preview asset path must stay rejected');
       const hiddenOwnerPreview = await fetchRaw(
         baseUrl,
         `/api/files/previews/${preview.id}/base/index.html`,

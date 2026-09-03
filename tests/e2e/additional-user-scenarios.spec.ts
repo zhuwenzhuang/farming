@@ -256,7 +256,12 @@ test.describe('additional Farming Code user scenarios', () => {
       await expect(page.getByTestId('input-dialog')).toBeHidden({ timeout: 30_000 })
       const { agentId } = await getAgentIdFromRow(page)
       bashAgentId = agentId
-      await expect.poll(async () => terminalTextWithoutWhitespace(page, agentId)).toContain(path.basename(projectDir))
+      await expect.poll(async () => {
+        const response = await page.request.get('/farming/api/control/agents')
+        if (!response.ok()) return ''
+        const payload = await response.json() as { agents?: Array<{ id: string; cwd?: string }> }
+        return payload.agents?.find(agent => agent.id === agentId)?.cwd ?? ''
+      }).toBe(projectDir)
     })
 
     await scenario('New Agent can pick an existing recent workspace history entry', async () => {
@@ -329,7 +334,9 @@ test.describe('additional Farming Code user scenarios', () => {
       await expect(page.getByTestId('code-search-panel')).toBeVisible()
       await expect(page.getByTestId('code-search-result')).toHaveCount(2)
       await expect(page.getByTestId('code-search-result-project')).toHaveCount(1)
-      await expect(page.getByTestId('code-search-result-project').first()).toHaveText(path.basename(projectDir))
+      // File search rows keep the Project name first and append a compact
+      // workspace suffix so same-name Projects stay distinguishable.
+      await expect(page.getByTestId('code-search-result-project').first()).toHaveText(new RegExp(`^${path.basename(projectDir)} · `))
       await searchInput.fill('not-a-real-agent-name')
       await expect(page.getByTestId('code-empty-search')).toBeVisible()
       await page.getByTestId('code-search-box').getByRole('button', { name: 'Clear search' }).click()
