@@ -732,6 +732,17 @@ class FakeAgent implements Agent {
       });
       return { stopReason: 'end_turn' };
     }
+    if (promptText.startsWith('markdown image response\n')) {
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          messageId: 'markdown-image-answer',
+          content: { type: 'text', text: promptText.slice('markdown image response\n'.length) },
+        },
+      });
+      return { stopReason: 'end_turn' };
+    }
     if (promptText.startsWith('local image link ')) {
       const imagePath = promptText.slice('local image link '.length).trim();
       await client.sessionUpdate({

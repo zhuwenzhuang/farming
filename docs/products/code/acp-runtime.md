@@ -431,7 +431,9 @@ disclosure. Mobile titles retain the shared bounded row title and let available
 width determine visual truncation instead of applying a short character limit.
 
 Local image Resource links use the same bounded inline preview and accessible
-enlargement as Markdown image links, including exact external paths. The existing
+enlargement as both Markdown image syntax (`![alt](path)`) and image file links
+(`[label](path)`), including relative, absolute, and exact external paths. Local
+image sources resolve through the file endpoint, never as website routes. The existing
 authorized file endpoint owns access; a missing MIME type does not suppress a
 recognized image path. Failed image loads remain visible as unavailable evidence.
 Ordinary Resource labels truncate within their row without widening Chat or

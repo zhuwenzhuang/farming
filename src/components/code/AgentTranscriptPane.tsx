@@ -373,6 +373,10 @@ function agentTranscriptUrlTransform(value: string, key: string) {
   if (key === 'src' && /^data:image\/(?:png|gif|jpe?g|webp|svg\+xml);base64,/i.test(value)) {
     return value
   }
+  // Preserve local file URLs until the image renderer can route them through
+  // the authorized file endpoint; never use them as browser file:// requests.
+  const localImage = key === 'src' ? transcriptFileTargetFromHref(value) : null
+  if (localImage && transcriptImageFilePath(localImage.filePath)) return value
   if (key === 'href' && isTranscriptFileLineHref(value)) {
     return value
   }
@@ -560,6 +564,20 @@ function AgentTranscriptImageTrigger({
 
 function AgentTranscriptUserImages({ images }: { images: AgentTranscriptUserImage[] }) {
   return <AgentTranscriptImages images={images} className="code-agent-transcript-user-images" testId="code-agent-transcript-user-images" fallbackAlt="Attached image" />
+}
+
+function transcriptLocalImageUrl(href: string, workspaceRoot?: string, agentId?: string) {
+  const target = transcriptFileTargetFromHref(href, workspaceRoot)
+  if (!target || !transcriptImageFilePath(target.filePath)) return ''
+  const exactExternal = target.target.globalRoot === true
+  const rootId = exactExternal ? GLOBAL_WORKSPACE_FILES_AGENT_ID : agentId
+  if (!rootId) return ''
+  return rawWorkspaceFileUrl(
+    rootId,
+    target.filePath,
+    undefined,
+    { exactExternal },
+  )
 }
 
 function AgentTranscriptMarkdownImage({ url, label }: { url: string; label: string }) {
@@ -2720,21 +2738,14 @@ function AgentTranscriptTurnView({
   // carries the live state; full reasoning and tool details remain opt-in.
   const effectiveProcessOpen = processOpen
   const markdownComponents = useMemo<Components>(() => ({
+    img: ({ src, alt }) => {
+      const source = typeof src === 'string' ? src : ''
+      const url = transcriptLocalImageUrl(source, workspaceRoot, agentId) || source
+      return <AgentTranscriptMarkdownImage url={url} label={alt || 'Image'} />
+    },
     a: ({ href, children, onClick, ...props }) => {
       const target = href ? transcriptFileTargetFromHref(href, workspaceRoot) : null
-      const imageUrl = target
-        && transcriptImageFilePath(target.filePath)
-        ? target.target.globalRoot === true
-          ? rawWorkspaceFileUrl(
-              GLOBAL_WORKSPACE_FILES_AGENT_ID,
-              target.filePath,
-              undefined,
-              { exactExternal: true },
-            )
-          : agentId
-            ? rawWorkspaceFileUrl(agentId, target.filePath)
-            : ''
-        : ''
+      const imageUrl = href ? transcriptLocalImageUrl(href, workspaceRoot, agentId) : ''
       const external = href ? isExternalTranscriptHref(href) : false
       const normalizedHref = href ? normalizeTranscriptHref(href) : href
       const browserUrl = external && normalizedHref && /^https?:/i.test(normalizedHref)

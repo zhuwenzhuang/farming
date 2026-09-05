@@ -264,6 +264,73 @@ test.describe('ACP human-like browser matrix', () => {
     await expect(page.getByText('farming-inline.html', { exact: true })).toHaveCount(0)
   })
 
+  test('renders standard Markdown images through authorized paths and preserves remote sources', { tag: '@iphone-human' }, async ({ page, workspaceRoot }) => {
+    const workspace = path.join(workspaceRoot, 'markdown-image-confirmation')
+    const imagePath = path.join(workspace, '中文 截图.png')
+    const externalPath = path.join(workspaceRoot, 'external markdown.png')
+    fs.mkdirSync(workspace, { recursive: true })
+    const image = fs.readFileSync(path.resolve('public/farming-2/github-social-preview.png'))
+    fs.writeFileSync(imagePath, image)
+    fs.writeFileSync(externalPath, image)
+    const remoteUrl = 'https://images.example.test/preview.png'
+    await page.route(remoteUrl, route => route.fulfill({ contentType: 'image/png', body: image }))
+    const incorrectRequests: string[] = []
+    page.on('request', request => {
+      if (new URL(request.url()).pathname.startsWith(workspaceRoot)) incorrectRequests.push(request.url())
+    })
+    const agentId = await createCodexAcpAgent(page, workspace)
+    await openFarming(page)
+    if (await page.locator('body').evaluate(body => body.classList.contains('code-compact-layout'))) {
+      await page.getByTestId('code-mobile-menu').click()
+    }
+    await agentRow(page, agentId).click()
+    await expect(page.getByTestId('code-acp-composer-input')).toBeEditable()
+    await sendAcpMessage(page, `markdown image response\n截图确认：\n\n${[
+      `![绝对路径](<${imagePath}>)`,
+      '![相对路径](<./中文 截图.png>)',
+      `![文件 URL](<file://${imagePath}>)`,
+      `![外部路径](<${externalPath}>)`,
+      `![远程图片](${remoteUrl})`,
+      `![缺失图片](<${path.join(workspace, 'missing.png')}>)`,
+    ].join('\n\n')}`)
+    const answer = page.locator('.code-agent-transcript-answer').last()
+    for (const label of ['绝对路径', '相对路径', '文件 URL', '外部路径', '远程图片']) {
+      const preview = answer.getByRole('img', { name: label, exact: true })
+      await preview.scrollIntoViewIfNeeded()
+      await expect.poll(() => preview.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 1)).toBe(true)
+      const source = await preview.getAttribute('src')
+      if (label === '远程图片') {
+        expect(source).toBe(remoteUrl)
+      } else {
+        expect(source).toContain('/farming/api/files/raw?')
+        const response = await page.request.get(source!)
+        expect(response.status()).toBe(200)
+        expect(response.headers()['content-type']).toContain('image/png')
+        expect(await response.body()).toEqual(image)
+        if (label === '外部路径') expect(source).toMatch(/rootId=wroot_global.*exact=1/)
+      }
+    }
+    await answer.getByText('Image unavailable: 缺失图片', { exact: true }).scrollIntoViewIfNeeded()
+    await expect(answer.getByText('Image unavailable: 缺失图片', { exact: true })).toBeVisible()
+    const trigger = answer.locator('.code-agent-transcript-markdown-image-link').first()
+    for (const appearance of ['light', 'dark', 'paper'] as const) {
+      await page.locator('body').evaluate((body, value) => { body.dataset.appearance = value }, appearance)
+      await trigger.scrollIntoViewIfNeeded()
+      await trigger.screenshot({ path: test.info().outputPath(`markdown-image-${appearance}.png`) })
+    }
+    await trigger.click()
+    const overlay = page.getByTestId('code-agent-transcript-image-overlay')
+    await expect(overlay).toBeVisible()
+    await expect.poll(() => overlay.locator('img').evaluate((img: HTMLImageElement) => img.naturalWidth > 1)).toBe(true)
+    await page.keyboard.press('Escape')
+    await expect(overlay).toHaveCount(0)
+    await page.reload()
+    const restored = page.locator('.code-agent-transcript-answer').last().getByRole('img', { name: '绝对路径', exact: true })
+    await restored.scrollIntoViewIfNeeded()
+    await expect.poll(() => restored.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 1)).toBe(true)
+    expect(incorrectRequests).toEqual([])
+  })
+
   test('renders workspace and external local image links as bounded inline previews', { tag: '@iphone-human' }, async ({ page, workspaceRoot }) => {
     const workspace = path.join(workspaceRoot, 'acp-local-image-link')
     fs.mkdirSync(workspace, { recursive: true })
