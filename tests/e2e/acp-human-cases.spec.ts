@@ -79,6 +79,76 @@ async function openHumanCaseChat(page: Page, workspace: string) {
 }
 
 test.describe('ACP human-like browser matrix', () => {
+  test('mobile title uses available width and the collapsed plan stays above the composer', { tag: '@iphone-human' }, async ({ page, workspaceRoot }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    const workspace = path.join(workspaceRoot, 'mobile-title-plan')
+    fs.mkdirSync(workspace, { recursive: true })
+    const agentId = await createCodexAcpAgent(page, workspace)
+    const title = '检查手机标题的自适应展示，并确保当前计划不会遮挡正文与输入区域'
+    expect((await page.request.patch(`/farming/api/agents/${agentId}`, { data: { customTitle: title } })).ok()).toBeTruthy()
+    await openFarming(page)
+    await page.getByTestId('code-mobile-menu').click()
+    await agentRow(page, agentId).click()
+    const header = page.locator('.code-mobile-topbar-title strong')
+    await expect(header).toHaveText(title)
+    await expect(header).toHaveAttribute('title', title)
+    await expect(header).toHaveCSS('text-overflow', 'ellipsis')
+    await sendAcpMessage(page, 'hold for steer without user echo with mobile plan')
+    await expect(page.getByText('Waiting for steering.', { exact: true })).toBeVisible()
+    const dock = page.getByTestId('code-agent-activity-dock')
+    const plan = page.getByTestId('code-agent-transcript-plan-driver')
+    const toggle = plan.getByRole('button')
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    const assertLayout = async () => {
+      await expect.poll(() => dock.evaluate(element => {
+        const dock = element.getBoundingClientRect()
+        const top = document.querySelector('.code-mobile-topbar')!.getBoundingClientRect()
+        const composer = document.querySelector('.code-composer')!.getBoundingClientRect()
+        const transcript = document.querySelector('.code-agent-transcript-scroll')!.getBoundingClientRect()
+        return dock.top >= top.bottom && dock.top >= transcript.bottom - 1
+          && dock.bottom <= composer.top + 1 && composer.bottom <= innerHeight + 1
+          && dock.left >= 0 && dock.right <= innerWidth
+      })).toBe(true)
+    }
+    for (const appearance of ['light', 'dark', 'paper'] as const) {
+      await page.locator('body').evaluate((body, value) => { body.dataset.appearance = value }, appearance)
+      if (appearance === 'paper') {
+        const composer = page.getByTestId('code-acp-composer')
+        await expect(composer).toHaveCSS('background-color', 'rgb(255, 254, 250)')
+        await expect(page.locator('.code-agent-transcript')).toHaveCSS('background-color', 'rgb(249, 248, 244)')
+        await page.getByTestId('code-acp-composer-input').fill('继续检查手机界面，保留清楚的输入区边界')
+        await expect(composer).toHaveCSS('background-color', 'rgb(255, 254, 250)')
+        await expect(composer).toHaveCSS('box-shadow', 'none')
+      }
+      await assertLayout()
+      expect((await plan.boundingBox())!.height).toBeLessThanOrEqual(40)
+      await page.screenshot({ path: test.info().outputPath(`mobile-plan-${appearance}-collapsed.png`) })
+      await toggle.click()
+      await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+      await expect(plan.locator('li')).toHaveCount(12)
+      await assertLayout()
+      expect(await dock.evaluate(e => e.scrollHeight > e.clientHeight)).toBe(true)
+      await page.screenshot({ path: test.info().outputPath(`mobile-plan-${appearance}-expanded.png`) })
+      await toggle.press('Escape')
+      await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    }
+    // A reduced visual viewport (keyboard) must preserve the same flow order.
+    await page.setViewportSize({ width: 390, height: 430 })
+    await page.getByTestId('code-acp-composer-input').focus()
+    await assertLayout()
+    await page.setViewportSize({ width: 844, height: 390 })
+    await assertLayout()
+    await expect(header).toHaveText(title)
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await expect(dock).toHaveCSS('position', 'absolute')
+    await page.setViewportSize({ width: 390, height: 844 })
+    await assertLayout()
+    await sendAcpMessage(page, 'Finish the layout check')
+    const pendingSteer = page.getByTestId('code-acp-pending-followup-steer')
+    if (await pendingSteer.count()) await pendingSteer.click()
+    await expect(page.getByText('Steer accepted: Finish the layout check', { exact: true })).toBeVisible()
+  })
+
   test('keeps ACP Session metadata bounded unless raw Entries are explicitly requested', async ({ page, workspaceRoot }) => {
     const workspace = path.join(workspaceRoot, 'acp-session-metadata-default')
     fs.mkdirSync(workspace, { recursive: true })
@@ -266,6 +336,106 @@ test.describe('ACP human-like browser matrix', () => {
     const externalPreview = page.locator('.code-agent-transcript-markdown-image-link img').last()
     await expect(externalPreview).toHaveAttribute('src', /rootId=wroot_global.*path=[^&]*external-screenshot\.png.*exact=1/)
     await expect(page.getByText('screenshot.png', { exact: true })).toHaveCount(0)
+  })
+
+  test('keeps image resources and image steer visible after expanding long tool paths', { tag: '@iphone-human' }, async ({ page, workspaceRoot }) => {
+    const workspace = path.join(workspaceRoot, 'acp-image-resource')
+    const nested = path.join(workspace, 'long-screenshot-directory-'.repeat(6))
+    fs.mkdirSync(nested, { recursive: true })
+    const imagePath = path.join(nested, '中文界面截图.png')
+    fs.copyFileSync(path.resolve('public/farming-2/github-social-preview.png'), imagePath)
+    const agentId = await createCodexAcpAgent(page, workspace)
+    await openFarming(page)
+    const compact = await page.locator('body').evaluate(body => body.classList.contains('code-compact-layout'))
+    if (compact) await page.getByTestId('code-mobile-menu').click()
+    await agentRow(page, agentId).click()
+    await expect(page.getByTestId('code-acp-composer-input')).toBeEditable()
+    await sendAcpMessage(page, `local image resource ${imagePath}\nhold for steer without user echo`)
+    await expect(page.getByText('Waiting for steering.', { exact: true })).toBeVisible()
+    const turn = page.locator('.code-agent-transcript-turn').last()
+    const group = turn.getByTestId('code-agent-transcript-process-group-toggle').first()
+    await group.click()
+    const tool = turn.getByTestId('code-agent-transcript-process-item').filter({ hasText: 'View Image' })
+    await tool.getByTestId('code-agent-transcript-process-item-toggle').click()
+    const preview = tool.locator('.code-agent-transcript-markdown-image-link img')
+    await expect(preview).toBeVisible()
+    await expect.poll(() => preview.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 1)).toBe(true)
+    await tool.screenshot({ path: test.info().outputPath('local-tool-image-preview.png') })
+    const scroll = page.locator('.code-agent-transcript-scroll')
+    await expect.poll(() => scroll.evaluate(e => e.scrollWidth <= e.clientWidth)).toBe(true)
+    await preview.click()
+    const overlay = page.getByTestId('code-agent-transcript-image-overlay')
+    await expect(overlay).toBeVisible()
+    await overlay.getByRole('button', { name: 'Close image preview' }).click()
+
+    await page.getByTestId('code-acp-composer-file-input').setInputFiles(imagePath)
+    await expect(page.getByTestId('code-composer-attachment')).toHaveClass(/ready/)
+    await sendAcpMessage(page, '请检查这张中文界面截图')
+    const pendingSteer = page.getByTestId('code-acp-pending-followup-steer')
+    if (await pendingSteer.count()) await pendingSteer.click()
+    const steer = turn.getByTestId('code-agent-transcript-steer')
+    await expect(steer).toContainText('请检查这张中文界面截图')
+    const attachment = steer.locator('img')
+    await attachment.scrollIntoViewIfNeeded()
+    await expect.poll(() => attachment.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 1)).toBe(true)
+    for (const appearance of ['light', 'dark', 'paper'] as const) {
+      await page.locator('body').evaluate((body, value) => { body.dataset.appearance = value }, appearance)
+      await expect.poll(() => scroll.evaluate(e => e.scrollWidth <= e.clientWidth)).toBe(true)
+      expect(await attachment.evaluate(img => {
+        const bounds = img.getBoundingClientRect()
+        const viewport = img.closest('.code-agent-transcript-scroll')!.getBoundingClientRect()
+        return bounds.width > 0 && bounds.left >= viewport.left && bounds.right <= viewport.right
+      })).toBe(true)
+      await steer.screenshot({ path: test.info().outputPath(`image-steer-${appearance}.png`) })
+    }
+    await page.reload()
+    // Wait for persisted selection to restore before interacting with navigation.
+    // Toggling it during hydration races the automatic Chat restoration.
+    await expect(page.getByTestId('code-acp-composer-input')).toBeEditable()
+    await expect(steer).toContainText('请检查这张中文界面截图')
+    await attachment.scrollIntoViewIfNeeded()
+    await expect.poll(() => attachment.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 1)).toBe(true)
+  })
+
+  test('previews exact external image resources and reports unavailable images', { tag: '@iphone-human' }, async ({ page, workspaceRoot }) => {
+    const workspace = path.join(workspaceRoot, 'acp-external-image-resource')
+    fs.mkdirSync(workspace, { recursive: true })
+    const external = path.join(workspaceRoot, 'external-resource.png')
+    fs.copyFileSync(path.resolve('public/farming-2/github-social-preview.png'), external)
+    const agentId = await createCodexAcpAgent(page, workspace)
+    await openFarming(page)
+    if (await page.locator('body').evaluate(body => body.classList.contains('code-compact-layout'))) {
+      await page.getByTestId('code-mobile-menu').click()
+    }
+    await agentRow(page, agentId).click()
+    await expect(page.getByTestId('code-acp-composer-input')).toBeEditable()
+    for (const filePath of [external, path.join(workspace, 'missing.png'), path.join(workspace, `${'long-resource-'.repeat(12)}.txt`)]) {
+      await sendAcpMessage(page, `local image resource ${filePath}`)
+      const turn = page.locator('.code-agent-transcript-turn').last()
+      const summary = turn.getByTestId('code-agent-transcript-process-summary')
+      await expect(summary).toHaveAttribute('aria-expanded', 'false')
+      await summary.click()
+      const group = turn.getByTestId('code-agent-transcript-process-group-toggle')
+      if (await group.count()) await group.click()
+      await turn.getByTestId('code-agent-transcript-process-item-toggle').click()
+      if (filePath === external) {
+        const image = turn.locator('.code-agent-transcript-markdown-image-link img')
+        await expect(image).toHaveAttribute('src', /rootId=wroot_global.*exact=1/)
+        await image.scrollIntoViewIfNeeded()
+        await expect.poll(() => image.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 1)).toBe(true)
+        for (const appearance of ['light', 'dark', 'paper'] as const) {
+          await page.locator('body').evaluate((body, value) => { body.dataset.appearance = value }, appearance)
+          await image.screenshot({ path: test.info().outputPath(`resource-preview-${appearance}.png`) })
+        }
+      } else if (filePath.endsWith('.png')) {
+        await expect(turn.getByRole('status').filter({ hasText: 'Image unavailable:' })).toBeVisible()
+      } else {
+        const link = turn.locator('.code-agent-transcript-resource-link > button')
+        await expect(link).toHaveCSS('text-overflow', 'ellipsis')
+        await expect(link).toHaveAttribute('title', filePath)
+      }
+      await expect.poll(() => page.locator('.code-agent-transcript-scroll').evaluate(e => e.scrollWidth <= e.clientWidth)).toBe(true)
+    }
   })
 
   test('opens connecting Chat without waiting for ordered workspace-history saves', async ({ page }) => {

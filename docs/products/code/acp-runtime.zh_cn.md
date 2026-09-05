@@ -312,6 +312,15 @@ Transition：Operation 保持 pending 并给出显式告警。任何情况下 Fo
 
 ## 展示契约
 
+紧凑 Chat 中，当前 Plan 默认收起为 Composer 上方正常布局流内的一行摘要。
+展开详情在限高区域内滚动；两种状态都不能覆盖标题、正文或输入区。切换 Agent 时
+关闭详情。手机标题复用共享的有界行标题，由可用宽度决定视觉省略，不预先按较短字数截断。
+
+本地图片 Resource Link 与 Markdown 图片链接共用有界内联预览和可访问的大图操作，
+包括精确的外部路径。访问由现有授权文件接口负责；缺少 MIME Type 不应隐藏已识别的
+图片路径。图片加载失败应明确显示为不可用的证据。普通 Resource 标签在行内省略，
+不能撑宽 Chat 或挤出后续图片附件及 Steer 消息。
+
 Chat 展示有序对话、当前 Turn 的一条紧凑 Live Activity，以及可逆的结构化证据。已完成的
 Reasoning 与 Tool Detail 不应在默认阅读面上形成重叠摘要。Disclosure Control 保留稳定布局
 槽位，只在 Hover 或 Keyboard Focus 时视觉浮现。中间 Tool 失败保留在所属 Action Group

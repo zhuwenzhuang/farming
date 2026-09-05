@@ -34,7 +34,7 @@ import {
   useAgentWithLiveRuntimeState,
 } from '@/lib/agent-live-state'
 import { recordPerformanceTestRender } from '@/lib/performance-test-observer'
-import { agentTitle } from '@/lib/format'
+import { agentRowTitle, agentTitle } from '@/lib/format'
 import {
   GLOBAL_WORKSPACE_FILES_AGENT_ID,
   isGlobalWorkspaceFilesAgentId,
@@ -1917,7 +1917,7 @@ export function CodeWorkspace({
         ? activeBrowserResource.name
         : showFileEditor && openWorkspaceFile
           ? basename(openWorkspaceFile.file.path)
-          : activeAgent ? agentTitle(activeAgent) : copy.codex
+          : activeAgent ? agentRowTitle(activeAgent) : copy.codex
   const mobileHeaderWorkspace = activeAgent?.isMain
     ? 'farming'
     : mobileWorkspaceLabel(activeAgent ? projectWorkspaceForAgent(activeAgent) : undefined)
@@ -5987,7 +5987,7 @@ export function CodeWorkspace({
           </button>
         )}
         <div className="code-mobile-topbar-title">
-          <strong>{mobileHeaderTitle}</strong>
+          <strong title={mobileHeaderTitle}>{mobileHeaderTitle}</strong>
           {mobileHeaderSubtitle && (
             <span>
               <i aria-hidden="true" />

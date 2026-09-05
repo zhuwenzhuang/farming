@@ -828,11 +828,22 @@ body.code-mode:not(.code-compact-layout) .code-agent-row:has(.code-agent-row-act
     }
 
   body.code-mode.code-compact-layout .code-agent-activity-dock {
-      top: 7px;
-      right: 7px;
-      left: 7px;
+      position: relative;
+      flex: 0 0 auto;
+      top: auto;
+      right: auto;
+      left: auto;
       width: auto;
-      max-height: 112px;
+      min-width: 0;
+      grid-auto-rows: max-content;
+      margin: 4px 7px var(--mobile-composer-reserved-height, 80px);
+      max-height: min(28dvh, 220px);
+    }
+
+  body.code-mode.code-compact-layout .code-main:has(> .code-agent-activity-dock) > .code-terminal-grid {
+      /* Reserve the absolute Composer below the in-flow activity dock, not
+         between the transcript and that dock. Keep one space reservation. */
+      padding-bottom: 0;
     }
 
   body.code-mode.code-compact-layout .code-agent-work-pane {

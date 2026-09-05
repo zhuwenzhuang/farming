@@ -13,7 +13,8 @@ export interface ModelMatrixModelOption {
 }
 
 interface MatrixFamilyModel extends ModelMatrixModelOption {
-  variant: 'sol' | 'terra' | 'luna'
+  variant: 'astra' | 'sol' | 'terra' | 'luna' | 'neutral'
+  shortLabel: string
 }
 
 interface MatrixSelection {
@@ -30,22 +31,27 @@ interface MatrixPointerGesture {
   dragged: boolean
 }
 
-const VARIANT_ORDER = ['sol', 'terra', 'luna'] as const
 const MATRIX_DRAG_THRESHOLD = 4
 const MATRIX_STAGE_TRANSITION_MS = 240
 
 export function modelMatrixFamily(models: ModelMatrixModelOption[], currentModel: string) {
-  const currentMatch = currentModel.match(/^(.*?)[-\s](sol|terra|luna)$/i)
-  const family = currentMatch?.[1]?.toLowerCase()
-  if (!family) return null
-  const familyModels = models.flatMap(model => {
-    const match = model.value.match(/^(.*?)[-\s](sol|terra|luna)$/i)
-    const modelFamily = match?.[1]?.toLowerCase()
-    const variant = match?.[2]?.toLowerCase()
-    if (!modelFamily || modelFamily !== family || !variant) return []
-    return [{ ...model, variant: variant as MatrixFamilyModel['variant'] }]
-  }).sort((left, right) => VARIANT_ORDER.indexOf(left.variant) - VARIANT_ORDER.indexOf(right.variant))
-  return familyModels.length >= 2 ? familyModels : null
+  // Inventory and ordering belong to the provider. Identity colors must never
+  // become an allowlist or restrict the picker to the current model generation.
+  const rows: MatrixFamilyModel[] = models
+    .filter(model => model.reasoning.some(option => option.value !== 'ultra'))
+    .map(model => {
+      const suffix = model.value.match(/[-\s](astra|sol|terra|luna)$/i)?.[1]?.toLowerCase()
+      const variant = suffix === 'astra' || suffix === 'sol' || suffix === 'terra' || suffix === 'luna'
+        ? suffix : 'neutral'
+      return {
+        ...model,
+        variant,
+        shortLabel: variant === 'neutral'
+          ? model.label.replace(/^gpt[-\s]*/i, '') || model.value
+          : variant.charAt(0).toUpperCase() + variant.slice(1),
+      }
+    })
+  return rows.length >= 2 && rows.some(model => model.value === currentModel) ? rows : null
 }
 
 function MatrixRocker({
@@ -263,7 +269,7 @@ export function ModelMatrixPicker({
       stage.style.overflow = advancedOpen ? 'visible' : 'hidden'
       stageAnimationTimerRef.current = null
     }, MATRIX_STAGE_TRANSITION_MS + 40)
-  }, [advancedOpen])
+  }, [advancedOpen, family?.length])
 
   if (!family) return advanced
 
@@ -414,6 +420,7 @@ export function ModelMatrixPicker({
       data-advanced={advancedOpen ? 'open' : 'closed'}
       data-fast={visibleFast ? 'on' : 'off'}
       data-ultra={ultraActive ? 'on' : 'off'}
+      style={{ '--matrix-rows': matrixRows.length } as CSSProperties}
     >
       <div className="code-model-matrix-stage" ref={matrixStageRef}>
         <div
@@ -431,8 +438,8 @@ export function ModelMatrixPicker({
             </div>
             <div className="code-model-matrix-labels" aria-hidden="true">
               {matrixRows.map(({ model }) => (
-                <span key={model.value} className={model.value === visibleRow.model.value ? 'selected' : ''} data-variant={model.variant}>
-                  {model.variant.charAt(0).toUpperCase() + model.variant.slice(1)}
+                <span key={model.value} className={model.value === visibleRow.model.value ? 'selected' : ''} data-variant={model.variant} title={model.label}>
+                  {model.shortLabel}
                 </span>
               ))}
             </div>
@@ -491,7 +498,8 @@ export function ModelMatrixPicker({
                       className={positioned ? 'selected' : ''}
                       role="radio"
                       data-matrix-cell
-                      data-testid={`code-model-matrix-cell-${model.variant}-${option.value}`}
+                      data-testid={`code-model-matrix-cell-${model.variant === 'neutral' ? model.value : model.variant}-${option.value}`}
+                      data-model={model.value}
                       aria-label={`${model.label}, ${option.label}`}
                       aria-checked={selected}
                       disabled={disabled}

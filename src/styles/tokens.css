@@ -312,7 +312,7 @@ body.code-mode[data-appearance='paper'] {
   --code-collaboration-tone-2: #95625e;
   --code-collaboration-tone-3: var(--code-skill);
   --code-collaboration-tone-4: #887b68;
-  --code-composer-acp-active-surface: var(--code-bg-surface);
+  --code-composer-acp-active-surface: var(--code-composer-acp-surface);
   --code-composer-acp-surface: var(--code-bg-raised);
   --code-composer-border: transparent;
   --code-composer-compact-border: var(--code-border);

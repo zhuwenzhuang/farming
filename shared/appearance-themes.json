@@ -544,7 +544,7 @@
       "--code-collaboration-tone-4": "#887b68",
       "--code-composer-border": "transparent",
       "--code-composer-acp-surface": "var(--code-bg-raised)",
-      "--code-composer-acp-active-surface": "var(--code-bg-surface)",
+      "--code-composer-acp-active-surface": "var(--code-composer-acp-surface)",
       "--code-composer-compact-border": "var(--code-border)",
       "--code-composer-shadow": "none",
       "--code-composer-surface": "var(--code-bg-raised)",

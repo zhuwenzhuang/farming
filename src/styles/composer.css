@@ -1428,14 +1428,24 @@
   /* Product-identity hues stay stable across appearances; surrounding chrome
      and every derived highlight/shadow remain appearance-driven below. */
   --matrix-sol: #f2a24b;
+  --matrix-astra: #42baff;
   --matrix-terra: #48cc7b;
   --matrix-luna: #9568ef;
   --matrix-ultra: #a775f2;
   --matrix-danger: #ef4056;
-  --matrix-accent: var(--matrix-sol);
+  --matrix-accent: var(--code-text-muted);
+  --matrix-row-height: calc(76px / 3);
   --matrix-motion: cubic-bezier(.22, .72, .18, 1);
   position: relative;
   min-width: 0;
+}
+
+.code-model-matrix-shell.is-astra {
+  --matrix-accent: var(--matrix-astra);
+}
+
+.code-model-matrix-shell.is-sol {
+  --matrix-accent: var(--matrix-sol);
 }
 
 .code-model-matrix-shell.is-terra {
@@ -1505,10 +1515,12 @@
 
 .code-model-matrix {
   display: grid;
-  grid-template-columns: 34px minmax(180px, 1fr) 58px;
-  grid-template-rows: 14px 76px 18px;
+  grid-template-columns: max-content minmax(0, 1fr) 58px;
+  grid-template-rows: 14px max(76px, calc(var(--matrix-rows) * var(--matrix-row-height))) 18px;
   column-gap: 4px;
   padding: 5px 6px 4px;
+  max-height: calc(100dvh - 160px);
+  overflow-y: auto;
 }
 
 .code-model-matrix-head {
@@ -1524,6 +1536,7 @@
 }
 
 .code-model-matrix-labels {
+  min-width: 34px;
   grid-column: 1;
   grid-row: 2;
   display: grid;
@@ -1532,9 +1545,17 @@
 }
 
 .code-model-matrix-labels span {
+  max-width: 68px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--code-text-muted);
   font-size: 11px;
   transition: color 180ms ease;
+}
+
+.code-model-matrix-labels span.selected[data-variant='astra'] {
+  color: color-mix(in srgb, var(--matrix-astra) 60%, var(--code-text) 40%);
 }
 
 .code-model-matrix-labels span.selected[data-variant='sol'] { color: var(--matrix-sol); }
@@ -1547,7 +1568,7 @@
   position: relative;
   grid-column: 2;
   grid-row: 2;
-  height: 76px;
+  height: 100%;
   overflow: hidden;
   border: 1px solid var(--code-model-matrix-border);
   border-radius: 16px;
@@ -2806,9 +2827,8 @@ body.code-mode .code-composer textarea:disabled {
     gap: 1px;
     padding: 2px 5px 3px;
     border-radius: 20px;
-    background: var(--code-bg-surface) !important;
     border-color: var(--code-border) !important;
-    box-shadow: var(--code-shadow-raised);
+    box-shadow: var(--code-composer-shadow);
     isolation: isolate;
     transition:
       bottom 160ms ease,

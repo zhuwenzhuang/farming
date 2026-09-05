@@ -1237,10 +1237,10 @@ const EN_COPY: CodeCopy = {
   goForward: 'Go Forward',
   backendConnecting: 'Loading...',
   backendActionPending: 'Still reconnecting. This action was not sent.',
-  backendConnectionLost: 'Farming backend is still unavailable. Retrying...',
-  backendConnectionUnavailable: 'Farming backend connection is unavailable.',
-  backendBusinessRecovering: 'Farming backend is restoring business state...',
-  backendBusinessUnavailable: 'Farming backend business state is not responding. Waiting for recovery...',
+  backendConnectionLost: 'Connection interrupted. Reconnecting...',
+  backendConnectionUnavailable: 'Connection unavailable. Check your connection and reload to try again.',
+  backendBusinessRecovering: 'Syncing workspace state...',
+  backendBusinessUnavailable: 'Workspace state is not available yet. Waiting for an update...',
 }
 
 const ZH_COPY: CodeCopy = {
@@ -1911,10 +1911,10 @@ const ZH_COPY: CodeCopy = {
   goForward: '前进',
   backendConnecting: '加载中…',
   backendActionPending: '正在重新连接，这次操作尚未发送。',
-  backendConnectionLost: 'Farming 后端暂时不可用，仍在重试…',
-  backendConnectionUnavailable: 'Farming 后端连接不可用。',
-  backendBusinessRecovering: 'Farming 后端正在恢复业务状态…',
-  backendBusinessUnavailable: 'Farming 后端业务状态没有响应，正在等待恢复…',
+  backendConnectionLost: '连接已中断，正在重新连接…',
+  backendConnectionUnavailable: '暂时无法连接，请检查连接后刷新重试。',
+  backendBusinessRecovering: '正在同步工作区状态…',
+  backendBusinessUnavailable: '暂未获取到工作区状态，正在等待更新…',
 }
 
 export function codeCopyForLanguage(language: UiLanguage): CodeCopy {

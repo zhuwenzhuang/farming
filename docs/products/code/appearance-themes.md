@@ -25,6 +25,9 @@ equivalence. This document owns their appearance roles and theme lifecycle.
   keep their semantic meaning instead of being recolored.
 - Paper is flat color, not a texture filter. Repeated grain or global opacity
   effects reduce code legibility and are not part of the theme.
+- Composer retains its subtle input surface against the reading canvas on both
+  desktop and compact layouts. Focus and open menus preserve that surface;
+  mobile overrides must not merge the input background into the transcript.
 - Paper file tabs keep inactive labels in muted ink and the active label in
   strong ink, with one restrained tonal fill behind only the active tab.
   File-type, Provider, and semantic-status icons retain their own identity

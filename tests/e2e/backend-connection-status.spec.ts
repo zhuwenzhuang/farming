@@ -3,21 +3,27 @@ import path from 'node:path'
 import { PROTOCOL_VERSION } from '../../shared/browser-protocol'
 import { expect, test } from './fixtures'
 
-test('failed reconnects eventually leave the initial loading state', {
-  tag: ['@critical-behavior', '@behavior-CODE-BACKEND-CONNECTION-RECOVERY'],
-}, async ({ page }) => {
-  await page.routeWebSocket(/\/farming\/ws(?:\?|$)/, socket => {
-    socket.onMessage(() => undefined)
-    socket.close({ code: 1012, reason: 'backend unavailable' })
+for (const language of ['en', 'zh'] as const) {
+  test(`failed reconnects show neutral connection feedback in ${language}`, {
+    tag: ['@iphone-human', '@critical-behavior', '@behavior-CODE-BACKEND-CONNECTION-RECOVERY'],
+  }, async ({ page }) => {
+    const settings = await page.request.post('/farming/api/settings', { data: { language } })
+    expect(settings.ok()).toBeTruthy()
+    await page.routeWebSocket(/\/farming\/ws(?:\?|$)/, socket => {
+      socket.onMessage(() => undefined)
+      socket.close({ code: 1012, reason: 'backend unavailable' })
+    })
+
+    await page.goto('/farming/')
+
+    const status = page.getByTestId('connection-status')
+    await expect(status).toContainText(language === 'zh' ? '加载中' : 'Loading')
+    await expect(status).toHaveClass(/lost/, { timeout: 12_000 })
+    await expect(status).toHaveText(language === 'zh' ? '连接已中断，正在重新连接…' : 'Connection interrupted. Reconnecting...')
+    await expect(status).not.toContainText(/backend|后端/i)
+    await status.screenshot({ path: test.info().outputPath(`connection-feedback-${language}.png`) })
   })
-
-  await page.goto('/farming/')
-
-  const status = page.getByTestId('connection-status')
-  await expect(status).toContainText('Loading')
-  await expect(status).toHaveClass(/lost/, { timeout: 12_000 })
-  await expect(status).toContainText('still unavailable')
-})
+}
 
 test('terminal authentication and protocol failures do not resume on recovery events', async ({ page }) => {
   const protocolPage = await page.context().newPage()
@@ -43,10 +49,10 @@ test('terminal authentication and protocol failures do not resume on recovery ev
   const protocolStatus = protocolPage.getByTestId('connection-status')
   await expect(status).toHaveClass(/lost/, { timeout: 12_000 })
   await expect(protocolStatus).toHaveClass(/lost/, { timeout: 12_000 })
-  await expect(status).toContainText('connection is unavailable')
-  await expect(protocolStatus).toContainText('connection is unavailable')
-  await expect(status).not.toContainText('Retrying')
-  await expect(protocolStatus).not.toContainText('Retrying')
+  await expect(status).toContainText('Connection unavailable')
+  await expect(protocolStatus).toContainText('Connection unavailable')
+  await expect(status).not.toContainText(/Retrying|Reconnecting|backend/i)
+  await expect(protocolStatus).not.toContainText(/Retrying|Reconnecting|backend/i)
   await Promise.all([page, protocolPage].map(currentPage => currentPage.evaluate(() => {
     window.dispatchEvent(new Event('online'))
     window.dispatchEvent(new Event('pageshow'))
@@ -371,6 +377,7 @@ test('a real mobile offline transition retains draft input and requires an expli
     const offlineStatus = page.getByTestId('connection-status')
     await expect(offlineStatus).toBeVisible({ timeout: 12_000 })
     await expect(offlineStatus).toHaveClass(/(?:connecting|lost)/)
+    await expect(offlineStatus).not.toContainText(/backend|后端/i)
     await composer.fill(command)
     const send = page.getByTestId('code-composer-send')
     if (await send.isEnabled()) await send.click()

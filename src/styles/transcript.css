@@ -443,6 +443,7 @@
 }
 
 .code-agent-transcript-resource-link > a,
+.code-agent-transcript-resource-link > button,
 .code-agent-transcript-resource-link > span:not(.code-agent-transcript-user-file-meta) {
   min-width: 0;
   overflow: hidden;
@@ -742,6 +743,7 @@
 
 .code-agent-transcript-process-list {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 4px;
   padding: 6px 0 14px;
 }
@@ -1201,6 +1203,7 @@
 
 .code-agent-transcript-process-group-list {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 3px;
   margin-top: 4px;
   padding-left: 16px;
@@ -2607,7 +2610,8 @@ button.code-agent-transcript-result-summary:is(:hover, :focus-visible) .code-age
     }
 
   body.code-mode.code-compact-layout .code-agent-transcript-plan-driver {
-      padding: 7px 10px 8px;
+      min-width: 0;
+      padding: 4px 10px;
       border-radius: 11px;
     }
 

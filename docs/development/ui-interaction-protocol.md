@@ -102,6 +102,11 @@ including compact layouts and every supported appearance theme.
 
 ## Adoption And Verification
 
+Connection feedback describes observed connectivity and workspace synchronization,
+not an inferred fault location. A lost browser connection does not prove a Server
+failure. Reconnecting and terminal connection failures retain distinct copy, and
+only an actual retrying state may claim that reconnection is underway.
+
 New dismissible surfaces use the shared interaction layer. Existing domain
 hooks delegate dismissal to it instead of installing another global pointer or
 Escape listener. A component must have one dismissal owner. Global shortcuts

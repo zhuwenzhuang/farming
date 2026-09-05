@@ -102,6 +102,14 @@ apply until the user confirms an explicit override. Confirmed model, reasoning,
 speed, and permission choices survive supported runtime replacement; unavailable
 saved choices degrade to the current Provider value with a visible warning.
 
+The Composer model matrix uses the advertised model inventory and its order,
+across model generations. Identity styling does not filter the catalog: Astra
+uses a blue-white stellar accent, Sol orange, Terra green, Luna violet, and
+unrecognized identities use neutral styling. Rows grow with the inventory and
+long labels retain their full identity in the accessible cell label. The matrix
+uses the reasoning choices supplied by its runtime; Advanced remains available
+for the full configuration controls.
+
 Codex Chat declares active-Turn Conversation Fork support. The pinned adapter
 captures the current Codex Turn id and sends it as the app-server
 `beforeTurnId` boundary, so the child excludes the unfinished Turn while the

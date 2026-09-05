@@ -35,6 +35,7 @@ const extraAppearanceSources = [
 const allAppearanceSources = [...CODE_STYLE_SOURCES, ...extraAppearanceSources]
 const appearanceNeutralSources = new Set<string>(allAppearanceSources)
 const fixedArtworkPaletteRoles = new Set([
+  '--matrix-astra',
   '--matrix-sol',
   '--matrix-terra',
   '--matrix-luna',

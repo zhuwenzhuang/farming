@@ -424,6 +424,19 @@ outcome, and archive or delete supersedes it while the source is addressable.
 
 ## Presentation Contract
 
+Compact Chat keeps the current Plan collapsed to one summary row above the
+Composer in normal layout flow. Expanded details scroll within a bounded height;
+neither state overlays the title, transcript, or input. Agent changes close the
+disclosure. Mobile titles retain the shared bounded row title and let available
+width determine visual truncation instead of applying a short character limit.
+
+Local image Resource links use the same bounded inline preview and accessible
+enlargement as Markdown image links, including exact external paths. The existing
+authorized file endpoint owns access; a missing MIME type does not suppress a
+recognized image path. Failed image loads remain visible as unavailable evidence.
+Ordinary Resource labels truncate within their row without widening Chat or
+displacing subsequent image attachments and Steer messages.
+
 Chat shows the ordered conversation, one compact live activity signal for the
 current Turn, and reversible structured evidence. Completed reasoning and tool
 details do not remain as overlapping default summaries. Disclosure controls

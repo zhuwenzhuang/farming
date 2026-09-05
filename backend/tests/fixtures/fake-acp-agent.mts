@@ -624,7 +624,37 @@ class FakeAgent implements Agent {
       });
       return { stopReason: 'cancelled' };
     }
+    if (promptText.startsWith('local image resource ')) {
+      const imagePath = promptText.slice('local image resource '.length).split('\n')[0].trim();
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'tool_call',
+          toolCallId: `local-image-resource-${imagePath}`,
+          title: `View Image ${imagePath}`,
+          kind: 'read',
+          status: 'completed',
+          content: [{ type: 'content', content: { type: 'resource_link', name: imagePath, uri: imagePath } }],
+          locations: [{ path: imagePath }],
+          rawInput: { path: imagePath },
+        },
+      });
+      if (!promptText.includes('hold for steer')) return { stopReason: 'end_turn' };
+    }
     if (promptText.includes('hold for steer') || promptText.includes('hold for two steers')) {
+      if (promptText.includes('with mobile plan')) {
+        await client.sessionUpdate({
+          sessionId: params.sessionId,
+          update: {
+            sessionUpdate: 'plan',
+            entries: Array.from({ length: 12 }, (_, index) => ({
+              content: `步骤 ${index + 1}：检查手机标题、计划与输入区的布局边界`,
+              priority: 'medium',
+              status: index === 0 ? 'completed' : index === 1 ? 'in_progress' : 'pending',
+            })),
+          },
+        });
+      }
       let releaseSteerTurn;
       const steerTurnReleased = new Promise<void>(resolve => { releaseSteerTurn = resolve; });
       activeSteerTurn = {

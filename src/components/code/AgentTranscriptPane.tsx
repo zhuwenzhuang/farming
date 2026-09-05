@@ -439,12 +439,7 @@ function AgentTranscriptImages({
           label={image.alt || fallbackAlt}
           url={image.url}
         >
-          <img
-            src={image.url}
-            alt={image.alt || fallbackAlt}
-            loading="lazy"
-            decoding="async"
-          />
+          <AgentTranscriptPreviewImage url={image.url} label={image.alt || fallbackAlt} />
         </AgentTranscriptImageTrigger>
       ))}
     </div>
@@ -574,9 +569,17 @@ function AgentTranscriptMarkdownImage({ url, label }: { url: string; label: stri
       label={label}
       url={url}
     >
-      <img src={url} alt={label} loading="lazy" decoding="async" />
+      <AgentTranscriptPreviewImage url={url} label={label} />
     </AgentTranscriptImageTrigger>
   )
+}
+
+function AgentTranscriptPreviewImage({ url, label }: { url: string; label: string }) {
+  const [failedUrl, setFailedUrl] = useState('')
+  if (failedUrl === url) {
+    return <span className="code-agent-transcript-user-file-error" role="status">Image unavailable: {label}</span>
+  }
+  return <img src={url} alt={label} loading="lazy" decoding="async" onError={() => setFailedUrl(url)} />
 }
 
 function userFileMeta(file: AgentTranscriptUserFile) {
@@ -612,6 +615,21 @@ function AgentTranscriptUserFiles({ files }: { files: AgentTranscriptUserFile[] 
         const workspaceResource = file.resourceKind === 'link' && file.uri
           ? transcriptLocationOpenTarget({ path: file.uri }, workspaceRoot)
           : null
+        if (workspaceResource && agentId && !file.error && transcriptImageFilePath(workspaceResource.filePath)) {
+          const exactExternal = workspaceResource.target.globalRoot === true
+          return (
+            <AgentTranscriptMarkdownImage
+              key={file.id}
+              label={fileReferenceDisplayText(file.name)}
+              url={rawWorkspaceFileUrl(
+                exactExternal ? GLOBAL_WORKSPACE_FILES_AGENT_ID : agentId,
+                workspaceResource.filePath,
+                undefined,
+                { exactExternal },
+              )}
+            />
+          )
+        }
         if (
           file.resourceKind === 'link'
           && file.mimeType === 'text/html'

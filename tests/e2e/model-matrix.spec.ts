@@ -26,7 +26,10 @@ const MODEL_OPTIONS = [
 const REASONING_OPTIONS = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra']
   .map(value => ({ value, name: value }))
 
-const TERMINAL_MODEL_CATALOG = MODEL_OPTIONS.map(option => ({
+const TERMINAL_MODEL_CATALOG = [
+  { value: 'gpt-6-astra', name: 'GPT 6.0 Astra' },
+  ...MODEL_OPTIONS,
+].map(option => ({
   value: option.value,
   model: option.value,
   label: option.name.replace(/^GPT-/i, ''),
@@ -89,6 +92,68 @@ function requestedState(route: Route, current: MatrixState) {
     return next
   }, { ...current })
 }
+
+test('model matrix follows the advertised catalog across generations and appearances', async ({ page, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'model-matrix-dynamic-catalog')
+  fs.mkdirSync(workspace, { recursive: true })
+  const agentId = await createAcpAgent(page, workspace)
+  let state: MatrixState = { model: 'gpt-5.6-sol', reasoning: 'high', fast: false }
+  const models = [
+    { value: 'gpt-6-astra', name: 'GPT 6.0 Astra' },
+    ...MODEL_OPTIONS,
+    { value: 'gpt-5.5', name: 'GPT 5.5' },
+    { value: 'gpt-5.4', name: 'GPT 5.4' },
+    { value: 'gpt-5.4-mini', name: 'GPT 5.4 Mini' },
+    { value: 'gpt-5.3-codex-spark', name: 'GPT 5.3 Codex Spark' },
+    { value: 'future-model', name: 'Future Model With A Long Name' },
+  ]
+  function snapshot() {
+    const session = sessionSnapshot(state)
+    session.configOptions[0] = { ...session.configOptions[0]!, options: models }
+    return session
+  }
+  await page.route(/\/farming\/api\/agents\/[^/]+\/acp-session(?:\?includeEntries=0)?$/, async route => {
+    if (route.request().method() === 'PATCH') {
+      state = requestedState(route, state)
+      await route.fulfill({ json: { sessionId: 'model-matrix-session', configOptions: snapshot().configOptions } })
+    } else {
+      await route.fulfill({ json: { session: snapshot() } })
+    }
+  })
+  await openFarming(page)
+  await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+  const picker = page.getByTestId('code-acp-model-picker')
+  await picker.click()
+  const matrix = page.getByTestId('code-model-matrix-picker')
+  const labels = matrix.locator('.code-model-matrix-labels span')
+  await expect(labels).toHaveText(['Astra', 'Sol', 'Terra', 'Luna', '5.5', '5.4', '5.4 Mini', '5.3 Codex Spark', 'Future Model With A Long Name'])
+  const astra = matrix.getByRole('radio', { name: 'GPT 6.0 Astra, high', exact: true })
+  await astra.focus()
+  await page.keyboard.press('Space')
+  await expect(picker).toHaveAttribute('data-agent-model-preset', 'gpt-6-astra:high')
+  await expect(astra).toHaveAttribute('aria-checked', 'true')
+  await expect(matrix.locator('.code-model-matrix-fill')).toHaveCSS('color', 'rgb(66, 186, 255)')
+
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 })
+    for (const appearance of ['light', 'dark', 'paper']) {
+      await page.evaluate(value => {
+        document.documentElement.dataset.appearance = value
+        document.body.dataset.appearance = value
+      }, appearance)
+      const menu = page.getByTestId('code-acp-model-menu')
+      await expect(menu).toBeVisible()
+      const bounds = await menu.boundingBox()
+      expect(bounds!.x).toBeGreaterThanOrEqual(0)
+      expect(bounds!.y).toBeGreaterThanOrEqual(0)
+      expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width)
+      await expect(matrix).toHaveScreenshot(`model-matrix-catalog-${width}-${appearance}.png`)
+    }
+  }
+  await matrix.getByRole('radio', { name: 'Future Model With A Long Name, high', exact: true }).click()
+  await expect(picker).toHaveAttribute('data-agent-model-preset', 'future-model:high')
+  await expect(matrix).toHaveAttribute('data-advanced', 'closed')
+})
 
 test('ACP model controls wait for the initial session configuration to become ready', async ({ page, workspaceRoot }) => {
   const workspace = path.join(workspaceRoot, 'model-matrix-connecting')
@@ -261,6 +326,7 @@ test('keeps the ACP model picker open throughout a real streamed Chat turn', asy
   await expect(page.getByText('Streaming thought complete.', { exact: true })).toBeVisible({ timeout: 15_000 })
   await expect(menu).toBeVisible()
   await expect(picker).toBeEnabled()
+  await page.getByTestId('code-model-matrix-advanced-toggle').click()
   await page.getByTestId('code-acp-model-submenu-trigger').click()
   await expect(page.getByTestId('code-acp-model-submenu')).toBeVisible()
 })
@@ -503,8 +569,7 @@ test('ACP model matrix responds locally, settles once, and morphs Advanced witho
   await expect.poll(async () => Math.round((await menu.boundingBox())?.width ?? 0))
     .toBe(350)
 
-  const matrixBox = await menu.boundingBox()
-  expect(matrixBox?.width).toBeCloseTo(350, 0)
+  await expect.poll(async () => (await menu.boundingBox())?.width).toBeCloseTo(350, 0)
   const matrixStage = page.locator('.code-model-matrix-stage')
   const matrixStageBox = await matrixStage.boundingBox()
   await page.getByTestId('code-model-matrix-advanced-toggle').click()
@@ -668,6 +733,8 @@ for (const provider of ['claude', 'opencode', 'qoder', 'qwen']) {
     await picker.click()
 
     await expect(page.getByTestId('code-acp-model-menu')).toBeVisible()
+    const advancedToggle = page.getByTestId('code-model-matrix-advanced-toggle')
+    if (await advancedToggle.isVisible()) await advancedToggle.click()
     await expect(page.getByTestId('code-acp-model-submenu-trigger')).toContainText('gpt-5.5')
     await page.getByTestId('code-acp-speed-submenu-trigger').click()
     await page.getByTestId('code-acp-speed-submenu').getByRole('menuitemradio').last().click()
@@ -768,6 +835,12 @@ test('Terminal Codex uses the live matrix and applies profile changes immediatel
   await page.getByTestId('code-model-matrix-advanced-toggle').click()
   await expect(menu.locator('.code-model-matrix')).toHaveAttribute('aria-hidden', 'false')
   await expect(picker).toHaveAttribute('data-agent-model-preset', 'gpt-5.6-luna:max')
+  const astra = page.getByTestId('code-model-matrix-cell-astra-high')
+  await astra.click()
+  await expect.poll(() => profileGates.length).toBe(3)
+  profileGates[2]!.resolve()
+  await expect(picker).toHaveAttribute('data-agent-model-preset', 'gpt-6-astra:high')
+  expect(terminalProfiles[2]).toEqual({ model: 'gpt-6-astra', reasoning: 'high', fast: true })
 })
 
 test('Terminal Codex keeps live profile controls disabled while a turn is active', async ({ page, workspaceRoot }) => {
