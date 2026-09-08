@@ -25,6 +25,7 @@
 
 - [UI 设计协议](ui-design-protocol.zh_cn.md)
 - [UI 交互协议](ui-interaction-protocol.zh_cn.md)
+- [Composer 输入](../products/code/composer-input.zh_cn.md)
 
 - [公开文档站](documentation-site.zh_cn.md)
 - [Farming Desktop MVP](../products/code/desktop-app.zh_cn.md)

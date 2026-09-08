@@ -795,7 +795,7 @@ test('keeps long ACP Chat stable when the Composer is collapsed and restored', a
 test('preserves the visible Chat position when loading older turns after reload', async ({ page, workspaceRoot }) => {
   const workspace = path.join(workspaceRoot, 'persisted-chat-reading-anchor')
   fs.mkdirSync(workspace, { recursive: true })
-  const agentId = await createAcpAgent(page, workspace)
+  const agentId = await createAcpAgent(page, workspace, 'codex')
   const identity = await acpTranscriptFixtureIdentity(page, agentId)
   const entries = Array.from({ length: 36 }, (_, index) => ([
     {
@@ -803,6 +803,14 @@ test('preserves the visible Chat position when loading older turns after reload'
       type: 'message',
       role: 'user',
       content: [{ type: 'text', text: `Persisted reading question ${index}` }],
+    },
+    {
+      id: `anchor-tool-${index}`,
+      type: 'tool',
+      kind: 'read',
+      title: `Read reference ${index}`,
+      status: 'completed',
+      content: [],
     },
     {
       id: `anchor-answer-${index}`,

@@ -542,7 +542,9 @@ class FakeAgent implements Agent {
     if (promptText.includes('inline visualization')) {
       const codexHome = String(process.env.CODEX_HOME || '').trim();
       if (!codexHome) throw new Error('Fake inline visualization requires CODEX_HOME');
-      const directory = codexVisualizationDirectory(codexHome, params.sessionId);
+      const directory = promptText.includes('workspace inline visualization')
+        ? path.join(process.cwd(), '.tmp', 'mobile-composer-design')
+        : codexVisualizationDirectory(codexHome, params.sessionId);
       fs.mkdirSync(directory, { recursive: true });
       fs.writeFileSync(path.join(directory, 'farming-inline.html'), [
         '<!doctype html><html><head><style>',

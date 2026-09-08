@@ -18,6 +18,8 @@ import { ComposerMicIcon, formatContextTokens } from '../composer-presentation'
 import type { CodeCopy } from '../copy'
 import { useMobileComposerHeight } from '../useMobileComposerHeight'
 import { useComposerTextareaAutoSize } from '../useComposerTextareaAutoSize'
+import { useComposerExpandedEditor } from '../useComposerExpandedEditor'
+import { ComposerEditorHeader } from '../ComposerEditorHeader'
 import type { ComposerMode } from '../types'
 import { AcpPermissionCard } from './AcpPermissionCard'
 import { AcpElicitationCard } from './AcpElicitationCard'
@@ -171,8 +173,6 @@ export function AcpComposer({
     active,
     `${runtimeState}:${sessionRevision || 0}:${sessionUpdatedAt || ''}`,
   )
-  useComposerTextareaAutoSize(textareaRef, draft)
-  useMobileComposerHeight(composerRef, draft)
   latestDraftRef.current = draft
   const interrupting = submitAction === 'interrupt'
   const disabled = submitAction === 'disabled'
@@ -400,9 +400,16 @@ export function AcpComposer({
     || deferredSessionError
     || displayedSessionError
   )
+  const editor = useComposerExpandedEditor({
+    agentId, textareaRef, composerRef,
+    enabled: compactComposerViewport && active && !hasAcpRequest && !speechListening,
+  })
+  useComposerTextareaAutoSize(textareaRef, draft, editor.expanded)
+  useMobileComposerHeight(composerRef, `${draft}:${editor.expanded}`)
   const composerClasses = [
     'code-composer',
     'code-acp-composer',
+    editor.expanded ? 'editor-expanded' : '',
     openMenu ? 'menu-open' : '',
     attachments.length > 0 ? 'has-attachments' : '',
     (pendingFollowUp || submissions.length > 0) && active ? 'has-pending-followup' : '',
@@ -412,7 +419,7 @@ export function AcpComposer({
   return (
     <div
       ref={composerRef}
-      className="code-acp-composer-stack"
+      className={`code-acp-composer-stack${editor.expanded ? 'editor-expanded' : ''}`}
       data-testid="code-acp-composer-stack"
       aria-busy={active && !sessionAuthoritative}
     >
@@ -490,6 +497,7 @@ export function AcpComposer({
         data-testid="code-acp-composer"
         onClick={handleComposerClick}
       >
+      {compactComposerViewport && active && !hasAcpRequest && !speechListening ? <ComposerEditorHeader expanded={editor.expanded} onToggle={() => { setOpenMenu(null); setModelPane(null); editor.toggle() }} copy={copy} /> : null}
       {active ? permissions.map(permission => (
         <AcpPermissionCard key={permission.requestId} request={permission} onRespond={onRespondToPermission} copy={copy} />
       )) : null}

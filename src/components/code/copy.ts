@@ -29,6 +29,9 @@ export interface CodeCopy {
   switchToChat: string
   collapseComposer: string
   restoreComposer: string
+  expandComposer: string
+  closeExpandedComposer: string
+  editMessage: string
   agentOpeningResume: string
   agentOpeningWaiting: string
   agentOpeningChecking: string
@@ -634,6 +637,9 @@ const EN_COPY: CodeCopy = {
   switchToChat: 'Switch to Chat',
   collapseComposer: 'Hide input',
   restoreComposer: 'Show input',
+  expandComposer: 'Expand message editor',
+  closeExpandedComposer: 'Collapse',
+  editMessage: 'Edit message',
   agentOpeningResume: 'Resuming session…',
   agentOpeningWaiting: 'Waiting for Agent state…',
   agentOpeningChecking: 'Checking resume status…',
@@ -1272,6 +1278,9 @@ const ZH_COPY: CodeCopy = {
   switchToChat: '切换到对话',
   collapseComposer: '收起输入框',
   restoreComposer: '唤出输入框',
+  expandComposer: '展开编辑',
+  closeExpandedComposer: '收起',
+  editMessage: '编辑消息',
   agentOpeningResume: '正在恢复会话…',
   agentOpeningWaiting: '正在等待 Agent 状态…',
   agentOpeningChecking: '正在查询恢复状态…',

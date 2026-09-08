@@ -47,7 +47,7 @@ import type { CodeCopy } from './copy'
 import type { AgentSessionHistoryItem, ProjectGroup, WorkspaceFileOpenTarget, WorkspaceSearchScope, WorkspaceSearchCounts, WorkspaceView } from './types'
 import { PluginsPanel, type AgentHomeFileTarget, type PluginsNavigationState } from './PluginsPanel'
 
-type ComposerProps = Omit<ComponentProps<typeof CodeComposer>, 'copy'>
+type ComposerProps = Omit<ComponentProps<typeof CodeComposer>, 'copy' | 'agentId'>
 type AcpComposerProps = Omit<ComponentProps<typeof AcpComposer>, 'copy'>
 type TerminalFollowState = {
   following: boolean
@@ -1321,7 +1321,7 @@ export function CodeMainArea({
             {acpComposerActive ? (
               <AcpComposer {...acpComposerProps} copy={copy} />
             ) : (
-              <CodeComposer {...composerProps} copy={copy} />
+              <CodeComposer {...composerProps} agentId={activeAgent?.id || ''} copy={copy} />
             )}
           </div>
         )

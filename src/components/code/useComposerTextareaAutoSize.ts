@@ -1,7 +1,13 @@
 import { useLayoutEffect } from 'react'
 import type { RefObject } from 'react'
 
-function resizeComposerTextarea(textarea: HTMLTextAreaElement) {
+function resizeComposerTextarea(textarea: HTMLTextAreaElement, expanded: boolean) {
+  if (expanded) {
+    textarea.style.height = '0px'
+    textarea.style.overflowY = 'auto'
+    return
+  }
+  const scrollTop = textarea.scrollTop
   textarea.style.height = 'auto'
   const styles = window.getComputedStyle(textarea)
   const minHeight = Number.parseFloat(styles.minHeight) || 0
@@ -9,16 +15,18 @@ function resizeComposerTextarea(textarea: HTMLTextAreaElement) {
   const height = Math.min(maxHeight, Math.max(minHeight, textarea.scrollHeight))
   textarea.style.height = `${Math.ceil(height)}px`
   textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden'
+  textarea.scrollTop = scrollTop
 }
 
 export function useComposerTextareaAutoSize(
   textareaRef: RefObject<HTMLTextAreaElement | null>,
   value: string,
+  expanded = false,
 ) {
   useLayoutEffect(() => {
     const textarea = textareaRef.current
     if (!textarea) return undefined
-    const resize = () => resizeComposerTextarea(textarea)
+    const resize = () => resizeComposerTextarea(textarea, expanded)
     resize()
     let observedWidth = textarea.getBoundingClientRect().width
     const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(entries => {
@@ -29,11 +37,13 @@ export function useComposerTextareaAutoSize(
     })
     observer?.observe(textarea)
     window.addEventListener('resize', resize)
+    window.visualViewport?.addEventListener('resize', resize)
     return () => {
       observer?.disconnect()
       window.removeEventListener('resize', resize)
+      window.visualViewport?.removeEventListener('resize', resize)
       textarea.style.removeProperty('height')
       textarea.style.removeProperty('overflow-y')
     }
-  }, [textareaRef, value])
+  }, [textareaRef, value, expanded])
 }

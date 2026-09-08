@@ -517,6 +517,8 @@ The Composer preserves drafts, IME behavior, attachments, queue/steer controls,
 permissions, and negotiated configuration. Reload may restore an unresolved
 submission as a visible item requiring reconciliation, but never resubmits it
 automatically.
+Chat and Terminal share the [Composer input contract](composer-input.md),
+including bounded mobile growth and expanded editing of the same draft.
 
 ## Acceptance Criteria
 

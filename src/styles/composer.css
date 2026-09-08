@@ -2821,7 +2821,7 @@ body.code-mode .code-composer textarea:disabled {
     max-width: calc(var(--app-visual-width, 100vw) - 8px);
     height: auto;
     min-height: var(--mobile-composer-resting-height, 72px);
-    max-height: var(--mobile-composer-expanded-height, 118px);
+    max-height: none;
     margin: 0;
     grid-template-rows: minmax(22px, auto) 44px;
     gap: 1px;
@@ -2931,6 +2931,10 @@ body.code-mode.code-compact-layout .code-acp-composer-stack {
     overflow-y: hidden;
   }
 
+  body.code-mode.code-compact-layout .code-composer.has-attachments textarea {
+    max-height: min(66px, calc(var(--app-visual-height, 100dvh) * 0.2));
+  }
+
   body.code-mode.code-compact-layout .code-composer.has-acp-request {
     --mobile-composer-height: min(236px, calc(var(--app-visual-height, 100dvh) * 0.34));
     height: var(--mobile-composer-height);
@@ -2982,7 +2986,11 @@ body.code-mode.code-compact-layout .code-acp-composer-stack {
 
   body.code-mode.code-compact-layout .code-composer textarea {
     min-height: 22px;
-    max-height: 66px;
+    max-height: min(156px, calc(var(--app-visual-height, 100dvh) * 0.32));
+    padding-right: 46px;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    touch-action: pan-y pinch-zoom;
     font-size: var(--code-content-font-size);
     line-height: 1.34;
   }
@@ -3375,6 +3383,114 @@ body.code-mode.code-compact-layout .code-composer textarea {
 
 body.code-mode.code-compact-layout .code-composer textarea::placeholder {
   color: var(--code-text-quiet);
+}
+
+.code-composer-editor-header {
+  position: absolute;
+  right: 4px;
+  top: 0;
+  z-index: 2;
+}
+
+.code-composer-editor-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--code-text-muted);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.code-composer-editor-toggle:hover {
+  background: var(--code-bg-hover);
+}
+
+.code-composer-editor-toggle svg {
+  width: 18px;
+  height: 18px;
+}
+
+@media (max-width: 980px) {
+  /* This is an in-place editor page, not a second draft or a portalled textarea. */
+  body.code-mode.code-compact-layout:has(.code-composer.editor-expanded) .code-mobile-topbar,
+  body.code-mode.code-compact-layout .code-main:has(.code-composer.editor-expanded) > :not(.code-composer-shell) {
+    visibility: hidden;
+  }
+
+  body.code-mode.code-compact-layout .code-composer-shell:has(.editor-expanded) {
+    position: absolute;
+    inset: 0;
+    height: 100%;
+    z-index: 60;
+  }
+
+  body.code-mode.code-compact-layout .code-acp-composer-stack.editor-expanded {
+    inset: 0;
+    width: 100%;
+    max-width: 100%;
+    height: 100%;
+  }
+
+  body.code-mode.code-compact-layout .code-acp-composer-stack.editor-expanded > :not(.code-composer),
+  body.code-mode.code-compact-layout .code-composer.editor-expanded > .code-pending-followup,
+  body.code-mode.code-compact-layout .code-composer-shell:has(.editor-expanded) > .code-composer-collapse-zone {
+    display: none;
+  }
+
+  body.code-mode.code-compact-layout .code-composer.editor-expanded {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    max-width: 100%;
+    height: 100%;
+    min-height: 0;
+    max-height: 100%;
+    padding: max(6px, env(safe-area-inset-top)) 8px max(6px, env(safe-area-inset-bottom));
+    gap: 8px;
+    border-radius: 0;
+    transition: none;
+  }
+
+  body.code-mode.code-compact-layout .code-composer.editor-expanded .code-composer-editor-header {
+    position: static;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex: 0 0 44px;
+  }
+
+  .code-composer-editor-title {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--code-text);
+  }
+
+  body.code-mode.code-compact-layout .code-composer.editor-expanded textarea {
+    flex: 1 1 0;
+    min-height: 0;
+    max-height: none;
+    padding: 4px 12px;
+    line-height: 1.6;
+  }
+
+  body.code-mode.code-compact-layout .code-composer.editor-expanded .code-composer-toolbar {
+    flex: 0 0 44px;
+  }
+
+  body.code-mode.code-compact-layout .code-composer.editor-expanded .code-composer-attachments {
+    flex: 0 1 auto;
+    max-height: 96px;
+  }
 }
 
 body.code-mode.code-compact-layout .code-composer-add {

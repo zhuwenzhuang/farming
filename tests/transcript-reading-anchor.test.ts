@@ -239,6 +239,47 @@ test('capture clamps fractions to the visible viewport and handles zero-height t
   assert.equal(flat && flat.position.value, 0)
 })
 
+test('capture keeps the user message anchor when process items start below the reading position', () => {
+  const scroller = asScroller(makeScroller({
+    scrollTop: 100,
+    scrollHeight: 2000,
+    clientHeight: 400,
+    top: 100,
+    turns: [makeTurn({
+      turnId: 'turn-a',
+      top: 80,
+      height: 500,
+      processItems: [{ processItemId: 'item-below', top: 200, height: 100 }],
+    })],
+  }))
+  const anchor = captureTranscriptReadingAnchor('agent-a', scroller)
+  assert.ok(anchor)
+  assert.deepEqual(anchor.locator, { kind: 'message', id: 'turn-a' })
+  assert.equal(anchor.position.value, 20 / 500)
+})
+
+test('capture does not skip commentary between process items', () => {
+  const scroller = asScroller(makeScroller({
+    scrollTop: 100,
+    scrollHeight: 2000,
+    clientHeight: 400,
+    top: 100,
+    turns: [makeTurn({
+      turnId: 'turn-a',
+      top: -100,
+      height: 800,
+      processItems: [
+        { processItemId: 'item-above', top: -50, height: 100 },
+        { processItemId: 'item-below', top: 300, height: 100 },
+      ],
+    })],
+  }))
+  const anchor = captureTranscriptReadingAnchor('agent-a', scroller)
+  assert.ok(anchor)
+  assert.deepEqual(anchor.locator, { kind: 'message', id: 'turn-a' })
+  assert.equal(anchor.position.value, 200 / 800)
+})
+
 test('persist saves chat anchors and clears them on null', () => {
   const agentId = 'agent-persist'
   const key = readingAnchorAgentKey(agentId, 'chat')

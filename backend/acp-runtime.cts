@@ -846,20 +846,48 @@ async function resolveCodexInlineVisualization(binding: AcpBinding, sessionId: s
     || path.extname(file) !== '.html'
   ) return '';
   const { threadDirectory, visualizationsDirectory } = codexVisualizationThreadDirectory(binding, sessionId);
-  if (!threadDirectory) return '';
+  if (!path.isAbsolute(requested) && !threadDirectory) return '';
   try {
-    const [canonicalVisualizations, canonicalThread] = await Promise.all([
-      fs.promises.realpath(visualizationsDirectory),
-      fs.promises.realpath(threadDirectory),
-    ]);
-    if (!canonicalThread.startsWith(`${canonicalVisualizations}${path.sep}`)) return '';
-    const candidate = await fs.promises.realpath(path.join(canonicalThread, file));
-    if (!candidate.startsWith(`${canonicalThread}${path.sep}`)) return '';
-    if (path.isAbsolute(requested) && await fs.promises.realpath(requested) !== candidate) return '';
-    const metadata = await fs.promises.stat(candidate);
-    if (!metadata.isFile() || metadata.size > MAX_CODEX_INLINE_VISUALIZATION_BYTES) return '';
-    const source = await fs.promises.readFile(candidate);
-    new TextDecoder('utf-8', { fatal: true }).decode(source);
+    const requestedPath = path.isAbsolute(requested) ? path.resolve(requested) : path.join(threadDirectory, file);
+    const candidate = await fs.promises.realpath(requestedPath);
+    const canonicalVisualizations = await fs.promises.realpath(visualizationsDirectory).catch(() => '');
+    // Provider-owned visualization storage keeps its exact Session boundary,
+    // even when a workspace or an additional directory contains the Agent Home.
+    const inProviderStorage = isSameOrDescendantPath(visualizationsDirectory, requestedPath)
+      || (canonicalVisualizations && isSameOrDescendantPath(canonicalVisualizations, candidate));
+    if (inProviderStorage) {
+      if (!threadDirectory || !canonicalVisualizations) return '';
+      const canonicalThread = await fs.promises.realpath(threadDirectory);
+      if (!canonicalThread.startsWith(`${canonicalVisualizations}${path.sep}`)
+        || !candidate.startsWith(`${canonicalThread}${path.sep}`)) return '';
+    } else {
+      const roots = [binding.cwd, ...(binding.sessionRequestOptions?.additionalDirectories || [])]
+        .filter((root): root is string => Boolean(root));
+      const authorized = await Promise.all(roots.map(async root => {
+        const resolvedRoot = path.resolve(root);
+        if (!isSameOrDescendantPath(resolvedRoot, requestedPath)) return false;
+        const canonicalRoot = await fs.promises.realpath(resolvedRoot).catch(() => '');
+        return Boolean(canonicalRoot && isSameOrDescendantPath(canonicalRoot, candidate));
+      }));
+      if (!authorized.some(Boolean)) return '';
+    }
+    if (!(await fs.promises.stat(candidate)).isFile()) return '';
+    const handle = await fs.promises.open(candidate, 'r');
+    try {
+      const metadata = await handle.stat();
+      if (!metadata.isFile() || metadata.size > MAX_CODEX_INLINE_VISUALIZATION_BYTES) return '';
+      const source = Buffer.alloc(MAX_CODEX_INLINE_VISUALIZATION_BYTES + 1);
+      let length = 0;
+      while (length < source.length) {
+        const { bytesRead } = await handle.read(source, length, source.length - length, null);
+        if (!bytesRead) break;
+        length += bytesRead;
+      }
+      if (length > MAX_CODEX_INLINE_VISUALIZATION_BYTES) return '';
+      new TextDecoder('utf-8', { fatal: true }).decode(source.subarray(0, length));
+    } finally {
+      await handle.close();
+    }
     return candidate;
   } catch {
     return '';

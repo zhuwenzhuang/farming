@@ -382,3 +382,6 @@ Fallback、有序 Mutation、结果不确定、Server/Host 重启、Checkpoint/D
 恢复、Chat/Terminal 切换、Fork、Media 与 Tool Evidence，以及大规模 Multi-Agent Workload。
 Scale Test 必须测量 Process 数、Memory、Wire Volume、Browser Render Work 与 Navigation
 Latency，不能设置固定并发上限。
+
+Chat 和 Terminal 共享 [Composer 输入约定](composer-input.zh_cn.md)，包括移动端有界增高
+以及对同一草稿的展开编辑。

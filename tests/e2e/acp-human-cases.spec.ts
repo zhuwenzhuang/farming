@@ -239,30 +239,40 @@ test.describe('ACP human-like browser matrix', () => {
     await expect(agentRow(page, agentId)).not.toHaveClass(/turn-active/)
   })
 
-  test('renders a Codex host visualization directly inside the Chat result', async ({ page, workspaceRoot }) => {
-    const workspace = path.join(workspaceRoot, 'acp-inline-visualization')
-    fs.mkdirSync(workspace, { recursive: true })
+  for (const location of ['session', 'workspace']) {
+    test(`renders a Codex host visualization from ${location} directly inside the Chat result`, async ({ page, workspaceRoot }) => {
+      const workspace = path.join(workspaceRoot, 'acp-inline-visualization')
+      fs.mkdirSync(workspace, { recursive: true })
 
-    const agentId = await createCodexAcpAgent(page, workspace)
-    await openFarming(page)
-    await agentRow(page, agentId).click()
-    await expect(page.getByTestId('code-acp-composer-input')).toBeEditable({ timeout: 20_000 })
-    await sendAcpMessage(page, 'inline visualization')
+      const agentId = await createCodexAcpAgent(page, workspace)
+      await openFarming(page)
+      await agentRow(page, agentId).click()
+      await expect(page.getByTestId('code-acp-composer-input')).toBeEditable({ timeout: 20_000 })
+      await sendAcpMessage(page, location === 'workspace' ? 'workspace inline visualization' : 'inline visualization')
 
-    await expect(page.getByText('Inline visualization result', { exact: true })).toBeVisible({ timeout: 20_000 })
-    const visualization = page.getByTestId('code-agent-transcript-inline-visualization')
-    await expect(visualization).toBeVisible()
-    const frame = visualization.locator('iframe').contentFrame()
-    await expect(frame.getByRole('heading', { name: 'Farming visualization ready' })).toBeVisible()
-    await expect(frame.locator('body')).toHaveAttribute('data-visualization-ready', 'true')
-    await expect(frame.getByText('Job count view active', { exact: true })).toBeVisible()
-    const viewToggle = frame.getByRole('button', { name: 'Show CU view' })
-    await viewToggle.click()
-    await expect(frame.locator('body')).toHaveAttribute('data-view', 'cu')
-    await expect(frame.getByText('CU consumption view active', { exact: true })).toBeVisible()
-    await expect(viewToggle).toHaveAttribute('aria-pressed', 'true')
-    await expect(page.getByText('farming-inline.html', { exact: true })).toHaveCount(0)
-  })
+      await expect(page.getByText('Inline visualization result', { exact: true })).toBeVisible({ timeout: 20_000 })
+      const visualization = page.getByTestId('code-agent-transcript-inline-visualization')
+      await expect(visualization).toBeVisible()
+      const frame = visualization.locator('iframe').contentFrame()
+      await expect(frame.getByRole('heading', { name: 'Farming visualization ready' })).toBeVisible()
+      await expect(frame.locator('body')).toHaveAttribute('data-visualization-ready', 'true')
+      await expect(frame.getByText('Job count view active', { exact: true })).toBeVisible()
+      const viewToggle = frame.getByRole('button', { name: 'Show CU view' })
+      await viewToggle.click()
+      await expect(frame.locator('body')).toHaveAttribute('data-view', 'cu')
+      await expect(frame.getByText('CU consumption view active', { exact: true })).toBeVisible()
+      await expect(viewToggle).toHaveAttribute('aria-pressed', 'true')
+      await expect(visualization.locator('iframe')).toHaveAttribute('sandbox', 'allow-scripts')
+      for (const appearance of ['light', 'dark', 'paper'] as const) {
+        await page.locator('body').evaluate((body, value) => { body.dataset.appearance = value }, appearance)
+        await visualization.screenshot({ path: test.info().outputPath(`inline-${location}-${appearance}.png`) })
+      }
+      await page.reload()
+      await expect(page.getByTestId('code-agent-transcript-inline-visualization').locator('iframe').contentFrame()
+        .getByRole('heading', { name: 'Farming visualization ready' })).toBeVisible()
+      await expect(page.getByText('farming-inline.html', { exact: true })).toHaveCount(0)
+    })
+  }
 
   test('renders standard Markdown images through authorized paths and preserves remote sources', { tag: '@iphone-human' }, async ({ page, workspaceRoot }) => {
     const workspace = path.join(workspaceRoot, 'markdown-image-confirmation')

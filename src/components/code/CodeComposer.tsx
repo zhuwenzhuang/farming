@@ -41,6 +41,8 @@ import {
 } from './composer-slash-commands'
 import { useMobileComposerHeight } from './useMobileComposerHeight'
 import { useComposerTextareaAutoSize } from './useComposerTextareaAutoSize'
+import { useComposerExpandedEditor } from './useComposerExpandedEditor'
+import { ComposerEditorHeader } from './ComposerEditorHeader'
 import type {
   CodexModelOption,
   CodeModelPickerPane,
@@ -109,6 +111,7 @@ function ComposerSpeedIcon() {
 }
 
 interface CodeComposerProps {
+  agentId: string
   active: boolean
   agentKind: ComposerAgentKind
   capabilities: AgentComposerCapabilities
@@ -181,6 +184,7 @@ interface CodeComposerProps {
 }
 
 export function CodeComposer({
+  agentId,
   active,
   agentKind,
   capabilities,
@@ -287,8 +291,9 @@ export function CodeComposer({
   const lastCompositionEndAtRef = useRef(0)
   const latestDraftRef = useRef(draft)
   const mobileSpeechPointerHandledRef = useRef(false)
-  useComposerTextareaAutoSize(textareaRef, draft)
-  useMobileComposerHeight(composerRef, draft)
+  const editor = useComposerExpandedEditor({ agentId, enabled: compactComposerViewport && active && !speechListening, textareaRef, composerRef })
+  useComposerTextareaAutoSize(textareaRef, draft, editor.expanded)
+  useMobileComposerHeight(composerRef, `${draft}:${editor.expanded}`)
 
   const baseComposerMenuOpen = plusMenuOpen || approvalMenuOpen || modelMenuOpen
   const slashTrigger = useMemo(
@@ -493,6 +498,7 @@ export function CodeComposer({
 
   const composerClasses = [
     'code-composer',
+    editor.expanded ? 'editor-expanded' : '',
     composerMenuOpen ? 'menu-open' : '',
     showMobileRecordingBar ? 'recording' : '',
     attachments.length > 0 ? 'has-attachments' : '',
@@ -508,6 +514,7 @@ export function CodeComposer({
       data-slash-catalog-target={slashCatalogTargetKey}
       onClick={handleComposerClick}
     >
+      {compactComposerViewport && active && !speechListening ? <ComposerEditorHeader expanded={editor.expanded} onToggle={() => { onCloseMenus(); editor.toggle() }} copy={copy} /> : null}
       {pendingFollowUp && active && (
         <div className="code-pending-followup" data-testid="code-pending-followup">
           {pendingFollowUp.messages.map(message => (

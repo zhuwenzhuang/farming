@@ -29,7 +29,12 @@ export function captureTranscriptReadingAnchor(agentId: string, element: HTMLDiv
   const turn = turns.find(candidate => candidate.getBoundingClientRect().bottom > scrollerRect.top)
   if (!turn) return undefined
   const processItem = Array.from(turn.querySelectorAll<HTMLElement>('[data-process-item-id]'))
-    .find(candidate => candidate.getBoundingClientRect().bottom > scrollerRect.top)
+    .find(candidate => {
+      const rect = candidate.getBoundingClientRect()
+      // An item below the reading position would skip the user message or
+      // commentary above it when this anchor is restored.
+      return rect.top <= scrollerRect.top && rect.bottom > scrollerRect.top
+    })
   const target = processItem || turn
   const targetRect = target.getBoundingClientRect()
   const fraction = targetRect.height > 0

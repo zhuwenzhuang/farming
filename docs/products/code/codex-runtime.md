@@ -42,8 +42,15 @@ and child activity remain typed protocol data. Provider-specific display hints
 are normalized at the adapter boundary and must not become generic ACP syntax.
 Codex host-directed HTML visualizations from live or resumed history are
 normalized there into bounded resources and use the same sandboxed Chat
-renderer; an absolute host path is accepted only when it resolves to the exact
-visualization directory owned by that Provider Session.
+renderer. Absolute host paths may resolve inside the Agent workspace, explicitly
+granted additional directories, or the visualization directory owned by that
+Provider Session. Basename-only references retain the Session-directory meaning.
+Canonical paths must remain inside their authorized root; provider visualization
+storage retains its exact Session boundary even inside a broader workspace.
+Missing files, directory escapes, non-HTML files, invalid UTF-8, and files larger
+than 2 MiB produce an unavailable resource. Ordinary HTML links do not opt into
+script execution; explicit host visualizations run in an opaque-origin sandbox
+with the existing network restrictions.
 
 Native Terminal startup ordering is not a Codex lifecycle state machine. The
 shared Terminal startup coordinator owns bounded serialization, readiness,
