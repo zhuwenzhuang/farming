@@ -164,6 +164,25 @@ function run() {
   assert.strictEqual(lastCommandState.ageLabel, '2d');
   assert.strictEqual(lastCommandState.ageVisible, true);
 
+  for (const command of ['bash', 'zsh', 'sh', 'fish']) {
+    const shell = agent({ command, terminalBusy: true, shellCommand: 'sleep 2', shellCommandStartedAt: now });
+    const short = buildAgentRowDisplayState({ kind: 'agent', agent: shell }, now);
+    assert.strictEqual(short.turnActive, true, 'presentation delay must not change authoritative activity');
+    assert.strictEqual(short.statusIndicatorDelayMs, 1000);
+    const next = buildAgentRowDisplayState({ kind: 'agent', agent: { ...shell, shellCommandStartedAt: now + 5 } }, now);
+    assert.notStrictEqual(next.statusIndicatorKey, short.statusIndicatorKey, 'coalesced commands need independent presentation lifetimes');
+    const replaced = buildAgentRowDisplayState({ kind: 'agent', agent: { ...shell, runtimeEpoch: 'replacement' } }, now);
+    assert.notStrictEqual(replaced.statusIndicatorKey, short.statusIndicatorKey);
+  }
+  assert.strictEqual(buildAgentRowDisplayState({ kind: 'agent', agent: agent({ command: 'codex', terminalBusy: true }) }, now).statusIndicatorDelayMs, 0);
+  assert.strictEqual(buildAgentRowDisplayState({ kind: 'agent', agent: agent({ command: 'bash', status: 'pending' }) }, now).statusIndicatorDelayMs, 0);
+  for (const status of ['pending', 'stopped', 'dead']) {
+    const staleWorking = agent({ command: 'bash', terminalBusy: true });
+    staleWorking.status = status;
+    assert.strictEqual(buildAgentRowDisplayState({ kind: 'agent', agent: staleWorking }, now).statusIndicatorDelayMs, 0,
+      'lifecycle feedback must remain immediate even before a working observation is replaced');
+  }
+
   const forcedActiveAge = buildAgentRowDisplayState({ kind: 'agent', agent: agent({
     terminalStatus: {
       kind: 'shell',

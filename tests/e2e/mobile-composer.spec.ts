@@ -46,6 +46,16 @@ for (const runtime of ['chat', 'terminal'] as const) {
     const shortHeight = await input.evaluate(element => element.clientHeight)
     await input.fill(longDraft)
     await expect.poll(() => input.evaluate(element => element.clientHeight)).toBeGreaterThan(shortHeight + 60)
+    const workView = page.getByTestId(runtime === 'chat' ? 'code-agent-chat-view' : 'code-agent-terminal-view')
+    const expectUnfocusedComposerClearance = async () => {
+      await input.evaluate(element => element.blur())
+      await expect(input).not.toBeFocused()
+      await expect.poll(async () => {
+        const viewBox = await workView.boundingBox()
+        const composerBox = await composer.boundingBox()
+        return viewBox && composerBox ? viewBox.y + viewBox.height - composerBox.y : Number.POSITIVE_INFINITY
+      }).toBeLessThanOrEqual(1)
+    }
     await expect(input).toHaveAttribute('enterkeyhint', 'enter')
     await expect(toggle).toHaveAttribute('aria-expanded', 'false')
     await input.evaluate(element => { element.scrollTop = 0 })
@@ -76,6 +86,14 @@ for (const runtime of ['chat', 'terminal'] as const) {
       await page.locator('body').evaluate((body, value) => { body.dataset.appearance = value }, appearance)
       await expect(input).toHaveValue(longDraft)
       await page.evaluate(() => document.fonts.ready)
+      await expectUnfocusedComposerClearance()
+      await page.screenshot({ path: testInfo.outputPath(`mobile-${runtime}-${appearance}-long-blurred.png`), animations: 'disabled', caret: 'hide' })
+      await input.fill('')
+      await expect.poll(() => input.evaluate(element => element.clientHeight)).toBeLessThanOrEqual(shortHeight + 1)
+      await expectUnfocusedComposerClearance()
+      await page.screenshot({ path: testInfo.outputPath(`mobile-${runtime}-${appearance}-empty-blurred.png`), animations: 'disabled', caret: 'hide' })
+      await input.fill(longDraft)
+      await expect.poll(() => input.evaluate(element => element.clientHeight)).toBeGreaterThan(shortHeight + 60)
       await input.press('Control+Home')
       await input.evaluate(element => { element.setSelectionRange(0, 0); element.scrollTop = 0 })
       await expect.poll(() => input.evaluate(element => element.scrollTop)).toBe(0)

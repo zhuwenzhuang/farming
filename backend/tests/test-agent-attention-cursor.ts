@@ -372,6 +372,21 @@ async function run() {
       assert.strictEqual(agent.unread, true);
     }
 
+    for (const command of ['bash', 'zsh']) {
+      const agentId = `plain-shell-bell-${command}`;
+      const runtimeEpoch = `${agentId}-epoch`;
+      manager.agents.set(agentId, {
+        id: agentId, command, cwd: '/tmp', output: '', previewText: '',
+        engineName: 'local', status: 'running', runtimeEpoch, terminalBusy: false,
+        attentionSeq: 0, readAttentionSeq: 0, unread: false,
+      });
+      const event = { sessionId: agentId, runtimeEpoch, method: 'bel', title: '', message: '', outputSeq: 1 };
+      manager.engineBridge.router.engines.local.emit('session-notification', event);
+      assert.strictEqual(manager.agents.get(agentId).attentionSeq, 0, 'shell line-editor bells must not mint unread');
+      manager.engineBridge.router.engines.local.emit('session-notification', { ...event, method: 'osc9', message: 'Explicit shell notification' });
+      assert.strictEqual(manager.agents.get(agentId).attentionSeq, 1, 'explicit shell notifications retain attention');
+    }
+
     const qwenAgentId = 'terminal-notification-qwen';
     const qwenRuntimeEpoch = `${qwenAgentId}-epoch`;
     manager.agents.set(qwenAgentId, {

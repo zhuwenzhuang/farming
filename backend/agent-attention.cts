@@ -92,6 +92,19 @@ function agentAttentionUnread(agent: TypedAgentRecord | null | undefined) {
     > finiteNonNegativeInteger(agent?.readAttentionSeq);
 }
 
+function terminalNotificationRequiresAttention(agent: TypedAgentRecord, method: string): boolean {
+  // A shell bell is ordinary line-editor feedback, not a completed Agent turn.
+  // Resolve the current terminal kind so a coding CLI launched inside a shell
+  // retains its notification contract. Explicit OSC notifications are distinct.
+  return method !== 'bel' || deriveAgentTerminalStatus(agent).kind !== 'shell';
+}
+
+function retireLegacyShellAttention(agent: TypedAgentRecord): boolean {
+  if (!isEphemeralShellAgent(agent) || !agentAttentionUnread(agent)
+    || (agent.attentionReason !== 'turn-complete' && agent.attentionReason !== 'process-exit')) return false;
+  return applyAgentReadRequest(agent, { readAttentionSeq: finiteNonNegativeInteger(agent.attentionSeq) }).changed;
+}
+
 function hasAgentOutputAfterAttentionBaseline(agent: TypedAgentRecord | null | undefined) {
   if (!agent || agent.attentionRequiresNewOutput !== true) return true;
   const baselineSeq = finiteNumberOrNull(agent.attentionBaselineOutputSeq);
@@ -150,13 +163,14 @@ function applyAgentReadRequest(
   }
 
   if (typeof request.unread === 'boolean') {
+    const previousReason = agent.attentionReason;
     const previousReadSeq = finiteNonNegativeInteger(agent.readAttentionSeq);
     const previousUnread = agent.unread === true;
     if (request.unread) {
+      agent.attentionReason = 'manual-unread';
       if (finiteNonNegativeInteger(agent.attentionSeq) === 0) {
         agent.attentionSeq = 1;
         agent.attentionUpdatedAt = now;
-        agent.attentionReason = 'manual-unread';
         agent.attentionOutputEpoch = typeof agent.runtimeEpoch === 'string' ? agent.runtimeEpoch : '';
         agent.attentionOutputSeq = finiteNumberOrNull(agent.lastOutputSeq);
         agent.attentionAutoReadNext = false;
@@ -168,6 +182,7 @@ function applyAgentReadRequest(
     agent.readAttentionAt = now;
     agent.unread = agentAttentionUnread(agent);
     changed = changed
+      || previousReason !== agent.attentionReason
       || previousReadSeq !== agent.readAttentionSeq
       || previousUnread !== agent.unread;
     updates.unread = agent.unread;
@@ -240,12 +255,10 @@ class AgentAttentionTracker {
 
     // Retire automatic shell unread state persisted by older releases while
     // preserving deliberate manual unread marks.
-    if (
-      isEphemeralShellAgent(agent)
-      && agent.unread === true
-      && (agent.attentionReason === 'turn-complete' || agent.attentionReason === 'process-exit')
-    ) {
-      this.markAgentReadCursor(agent.id, finiteNonNegativeInteger(agent.attentionSeq));
+    if (retireLegacyShellAttention(agent)) {
+      this.host.persistAgent(agent);
+      this.host.updateProviderMetadata(agent);
+      this.emitAgentReadState(agent);
     }
 
     const turnActive = agentAttentionTurnActive(agent);
@@ -336,6 +349,10 @@ class AgentAttentionTracker {
     if (!agent) return { error: 'Agent not found' };
 
     let changed = false;
+    if (agent.attentionReason !== 'manual-unread') {
+      agent.attentionReason = 'manual-unread';
+      changed = true;
+    }
     if (finiteNonNegativeInteger(agent.attentionSeq) === 0) {
       this.recordAgentAttentionEvent(agent, 'manual-unread');
       changed = true;
@@ -386,6 +403,8 @@ export {
   agentAttentionTurnActive,
   agentAttentionUnread,
   hasAgentOutputAfterAttentionBaseline,
+  terminalNotificationRequiresAttention,
+  retireLegacyShellAttention,
 };
 
 export type {

@@ -5,6 +5,8 @@ const {
   applyAgentReadRequest,
   agentAttentionUnread,
   hasAgentOutputAfterAttentionBaseline,
+  terminalNotificationRequiresAttention,
+  retireLegacyShellAttention,
 } = require('../agent-attention.cjs');
 
 function createFakeHost(overrides = {}) {
@@ -232,6 +234,25 @@ async function run() {
   tracker.observeAgentAttentionState(legacyShellAgent.id);
   assert.strictEqual(legacyShellAgent.readAttentionSeq, 1);
   assert.strictEqual(legacyShellAgent.unread, false);
+
+  for (const command of ['bash', 'zsh', 'sh', 'fish']) {
+    const plainShell = createAgent({ command, status: 'stopped', attentionSeq: 4, readAttentionSeq: 3, unread: true, attentionReason: 'process-exit' });
+    assert.strictEqual(terminalNotificationRequiresAttention(plainShell, 'bel'), false);
+    assert.strictEqual(terminalNotificationRequiresAttention(plainShell, 'osc9'), true);
+    assert.strictEqual(retireLegacyShellAttention(plainShell), true);
+    assert.strictEqual(plainShell.readAttentionSeq, 4);
+    assert.strictEqual(retireLegacyShellAttention(plainShell), false, 'recovery normalization is idempotent');
+    applyAgentReadRequest(plainShell, { unread: true });
+    assert.strictEqual(plainShell.attentionReason, 'manual-unread');
+    assert.strictEqual(retireLegacyShellAttention(plainShell), false, 'explicit re-marking is not legacy attention');
+    assert.strictEqual(plainShell.unread, true);
+  }
+  assert.strictEqual(terminalNotificationRequiresAttention(createAgent({ command: 'bash', shellCommand: 'codex', terminalBusy: true }), 'bel'), true, 'nested coding CLI bells retain their provider semantics');
+  assert.strictEqual(terminalNotificationRequiresAttention(createAgent(), 'bel'), true);
+  legacyShellAgent.attentionReason = 'process-exit';
+  tracker.markAgentUnreadCursor(legacyShellAgent.id);
+  tracker.observeAgentAttentionState(legacyShellAgent.id);
+  assert.strictEqual(legacyShellAgent.unread, true, 'manual unread after an old completion survives observation');
 
   assert.deepStrictEqual(tracker.markAgentReadCursor('missing'), { error: 'Agent not found' });
   assert.deepStrictEqual(tracker.markAgentUnreadCursor('missing'), { error: 'Agent not found' });

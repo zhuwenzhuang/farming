@@ -92,6 +92,7 @@
     "release:dependencies:check": "node scripts/check-release-managed-dependency-updates.mjs",
     "release:coordinator:linux:check": "./scripts/check-linux-release-coordinator.sh",
     "release:fast-screen": "tsx scripts/run-release-fast-screen.ts",
+    "release:fast-screen:mobile": "playwright test tests/e2e/mobile-composer.spec.ts tests/e2e/acp-human-cases.spec.ts --project=chromium --project=iphone-webkit --project=iphone-human-webkit --project=android-human-chromium --grep 'mobile (chat|terminal) long input|opens native ACP image attachments' --retries=0",
     "sync:openclaw-browser-extension": "node scripts/sync-openclaw-browser-extension.mjs",
     "docs:product:screenshots": "tsx scripts/capture-product-screenshots.ts",
     "test": "tsx scripts/run-tests.ts",

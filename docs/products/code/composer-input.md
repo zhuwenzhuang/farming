@@ -14,6 +14,10 @@ that bound it scrolls natively. A vertical gesture starting inside the input
 stays with the input, including at its scroll boundary. Native selection,
 composition and pinch zoom remain available.
 
+The conversation reserves the Composer's measured height whether or not the
+input is focused. Clearing or shortening a draft shrinks the input from its
+content height; grid stretching must not retain the previous taller size.
+
 The always-visible expand control opens an in-place editor page occupying the
 current visual viewport. It retains the same textarea, draft, selection and
 scroll position; collapsing preserves that state. The page uses the shared
@@ -44,3 +48,6 @@ Agent/layout changes. Verify the same DOM textarea survives expansion and that
 Enter does not submit. Capture compact and expanded states in Light, Dark and
 Paper. Browser-emulated viewport changes verify layout; they do not certify a
 physical phone's keyboard, dictation or candidate UI.
+
+`npm run release:fast-screen:mobile` checks draft shrinking, unfocused space
+reservation and image-preview hit targets before the complete mobile matrix.

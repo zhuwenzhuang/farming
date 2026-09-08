@@ -8,7 +8,9 @@ function resizeComposerTextarea(textarea: HTMLTextAreaElement, expanded: boolean
     return
   }
   const scrollTop = textarea.scrollTop
-  textarea.style.height = 'auto'
+  // A grid item with auto height can stretch to the previous row height. Clear
+  // that contribution before measuring so deleting text can shrink the input.
+  textarea.style.height = '0px'
   const styles = window.getComputedStyle(textarea)
   const minHeight = Number.parseFloat(styles.minHeight) || 0
   const maxHeight = Number.parseFloat(styles.maxHeight) || Number.POSITIVE_INFINITY

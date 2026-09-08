@@ -142,6 +142,16 @@ async function run() {
     );
 
     let readSettled = false;
+    for (const reason of ['process-exit', 'manual-unread', 'terminal-notification']) {
+      const shellId = `cold-shell-${reason}`;
+      const shell = manager.recoveredAgentRecord(shellId, 'native', {
+        command: 'bash', forkCommand: 'bash', cwd: '/repo',
+        attentionSeq: 2, readAttentionSeq: 1, attentionReason: reason,
+      }, { status: 'stopped' });
+      manager.registerAgentRecord(shellId, shell);
+      assert.strictEqual(shell.unread, reason !== 'process-exit', 'cold recovery must retire only obsolete automatic shell attention without awaiting output');
+      assert.strictEqual(shell.readAttentionSeq, reason === 'process-exit' ? 2 : 1);
+    }
     const pendingRead = manager.getAcpSessionForRead('materialized-acp')
       .then(session => {
         readSettled = true;

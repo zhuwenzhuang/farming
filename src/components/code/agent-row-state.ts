@@ -17,6 +17,8 @@ export interface AgentRowDisplayState {
   lifecycleStatus?: Agent['status']
   turnActive: boolean
   statusIndicatorVisible: boolean
+  statusIndicatorDelayMs: number
+  statusIndicatorKey: string
   pinned: boolean
   unread: boolean
   forkedToNewWorktree: boolean
@@ -136,6 +138,11 @@ function agentRowStateFromAgent(
     lifecycleStatus: agent.status,
     turnActive,
     statusIndicatorVisible: shouldShowAgentStatusIndicator(agent.status, turnActive),
+    statusIndicatorDelayMs: agent.status === 'running'
+      && agent.runtimeBinding.kind === 'terminal'
+      && agent.runtimeObservation.kind === 'shell'
+      && agent.runtimeObservation.phase === 'working' ? 1000 : 0,
+    statusIndicatorKey: `${agent.id}:${agent.runtimeEpoch || ''}:${agent.terminalStatus?.runningCommandStartedAt ?? agent.shellCommandStartedAt ?? ''}`,
     pinned: agent.pinned === true,
     unread: agent.unread === true,
     forkedToNewWorktree: isNewWorktreeForkAgent(agent),
@@ -170,6 +177,8 @@ function agentRowStateFromHistory(
     detailLabel,
     turnActive: false,
     statusIndicatorVisible: false,
+    statusIndicatorDelayMs: 0,
+    statusIndicatorKey: '',
     pinned: session.pinned === true,
     unread: session.unread === true,
     forkedToNewWorktree: false,

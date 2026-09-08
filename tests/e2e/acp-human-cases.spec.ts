@@ -45,7 +45,7 @@ async function sendAcpMessage(page: Page, text: string) {
   await expect(input).toHaveValue('')
 }
 
-type HumanCaseSection = 'transcript' | 'subagent' | 'security' | 'human-input' | 'runtime'
+type HumanCaseSection = 'transcript' | 'image-preview' | 'subagent' | 'security' | 'human-input' | 'runtime'
 
 function createHumanCaseWorkspace(workspaceRoot: string) {
   const workspace = path.join(workspaceRoot, 'acp-human-cases')
@@ -1622,7 +1622,10 @@ test.describe('ACP human-like browser matrix', () => {
       await expect(page.getByTestId('code-acp-composer-attach-file')).toBeVisible()
       await page.getByTestId('code-acp-composer-add').click()
     })
-    await test.step('29b attach an image through the established composer control', async () => {
+    }
+
+    if (section === 'image-preview') {
+    await test.step('attach an image through the established composer control', async () => {
       const imagePath = path.join(workspace, 'attachment.png')
       fs.writeFileSync(imagePath, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=', 'base64'))
       await page.getByTestId('code-acp-composer-file-input').setInputFiles(imagePath)
@@ -1630,7 +1633,7 @@ test.describe('ACP human-like browser matrix', () => {
       await expect(attachment).not.toContainText('attachment.png')
       await expect(attachment).toHaveClass(/ready/, { timeout: 15_000 })
     })
-    await test.step('29c send native ACP image content and retain it in the user turn', async () => {
+    await test.step('send native ACP image content and retain it in the user turn', async () => {
       await sendAcpMessage(page, 'image attachment')
       await expect(page.getByText('Received 1 image.', { exact: true })).toBeVisible({ timeout: 15_000 })
       const imageTurn = page.locator('.code-agent-transcript-turn').filter({ hasText: 'image attachment' }).last()
@@ -1638,6 +1641,11 @@ test.describe('ACP human-like browser matrix', () => {
       await expect(image).toHaveCount(1)
       const imageTrigger = imageTurn.getByTestId('code-agent-transcript-user-images').getByRole('button')
       await expect(imageTrigger).toHaveAccessibleName(/^Open /)
+      await imageTrigger.scrollIntoViewIfNeeded()
+      await expect.poll(() => imageTrigger.evaluate(element => {
+        const box = element.getBoundingClientRect()
+        return element.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2))
+      })).toBe(true)
       const triggerBox = await imageTrigger.boundingBox()
       expect(triggerBox?.width ?? 0).toBeGreaterThanOrEqual(44)
       expect(triggerBox?.height ?? 0).toBeGreaterThanOrEqual(44)
@@ -2008,6 +2016,10 @@ test.describe('ACP human-like browser matrix', () => {
   test('renders live and completed ACP transcript history', { tag: '@iphone-human' }, async ({ page, workspaceRoot }) => {
     test.setTimeout(150_000)
     await exerciseHumanCaseSection(page, workspaceRoot, 'transcript')
+  })
+
+  test('opens native ACP image attachments above the mobile composer', { tag: '@iphone-human' }, async ({ page, workspaceRoot }) => {
+    await exerciseHumanCaseSection(page, workspaceRoot, 'image-preview')
   })
 
   test('keeps subagent and failed-tool history safely folded', { tag: '@iphone-human' }, async ({ page, workspaceRoot }) => {

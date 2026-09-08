@@ -328,6 +328,11 @@ jobs:
       - name: Install browsers for mobile checks
         run: npx playwright install webkit chromium
 
+      - name: Screen mobile Composer geometry and image hit targets
+        run: npm run release:fast-screen:mobile
+        env:
+          FARMING_PLAYWRIGHT_SKIP_BUILD: '1'
+
       - name: Run mobile browser checks
         run: npx playwright test --project=iphone-webkit --project=iphone-human-webkit --project=android-human-chromium
         env:

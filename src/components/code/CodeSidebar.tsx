@@ -54,8 +54,10 @@ import type { WorkspaceShareTarget } from '@/lib/workspace-share-target'
 import {
   agentRowKey,
   buildAgentRowDisplayState,
+  type AgentRowBacking,
 } from './agent-row-state'
 import type { CodeCopy } from './copy'
+import { AgentStatusIndicator } from './AgentStatusIndicator'
 import {
   MAIN_AGENT_PROJECT_ID,
   agentSessionId,
@@ -1160,7 +1162,8 @@ function AgentRailButton({
   onShowPreview: (event: AgentPreviewAnchorEvent, target: AgentPreviewTarget, compact?: boolean) => void
   onHidePreview: () => void
 }) {
-  const backing = { kind: 'agent' as const, agent: item.agent }
+  const agent = useAgentWithLiveState(item.agent)
+  const backing = { kind: 'agent' as const, agent }
   const rowState = buildAgentRowDisplayState(backing, now)
   const active = item.agent.id === activeTerminalId
   const title = [rowState.title, rowState.commandTitle, item.projectName].filter(Boolean).join(' · ')
@@ -1176,13 +1179,11 @@ function AgentRailButton({
       data-agent-id={item.agent.id}
       aria-label={title}
       onClick={openItem}
-      onMouseEnter={event => onShowPreview(event, previewTargetForAgent(item.agent, rowState, item.projectName), true)}
+      onMouseEnter={event => onShowPreview(event, previewTargetForAgent(agent, rowState, item.projectName), true)}
       onMouseLeave={onHidePreview}
     >
       <span className="code-agent-rail-label">{index + 1}</span>
-      {rowState.statusIndicatorVisible && (
-        <span className={`code-agent-rail-status ${rowState.lifecycleStatus} ${rowState.turnActive ? 'turn-active' : ''}`} aria-hidden="true" />
-      )}
+      <AgentStatusIndicator state={rowState} className="code-agent-rail-status" decorative />
       {rowState.unread && <span className="code-agent-rail-unread" aria-hidden="true" />}
     </button>
   )
@@ -1211,40 +1212,21 @@ function ProjectAgentCompactStrip({
 }) {
   return (
     <div className="code-project-agent-strip" data-testid="code-project-agent-strip" aria-label="Project agents">
-      {agents.map((agent, index) => {
-        const rowState = buildAgentRowDisplayState({ kind: 'agent', agent }, now)
-        const active = agent.id === activeTerminalId
-        const searchSelected = agent.id === selectedSearchAgentId
-        const title = rowState.rowTitle || rowState.title
-        return (
-          <button
-            key={agentRowKey({ kind: 'agent', agent, claimedSessionKey: claimedAgentSessionKeyByAgentId.get(agent.id) })}
-            type="button"
-            className={`code-project-agent-compact ${active ? 'active' : ''} ${searchSelected ? 'search-selected' : ''} ${rowState.unread ? 'unread' : ''}`}
-            data-testid="code-project-agent-compact"
-            data-agent-id={agent.id}
-            aria-label={title}
-            onClick={() => onOpenAgent(agent.id)}
-            onMouseEnter={event => onShowPreview(event, previewTargetForAgent(agent, rowState), true)}
-            onMouseLeave={onHidePreview}
-            onContextMenu={event => onOpenAgentMenu(event, agent.id)}
-            onKeyDown={event => {
-              onOpenAgentMenu(event, agent.id)
-              if (event.defaultPrevented) return
-              if (event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault()
-                onOpenAgent(agent.id)
-              }
-            }}
-          >
-            <span className="code-project-agent-compact-label">{index + 1}</span>
-            {rowState.statusIndicatorVisible && (
-              <span className={`code-project-agent-compact-status ${rowState.lifecycleStatus} ${rowState.turnActive ? 'turn-active' : ''}`} aria-hidden="true" />
-            )}
-            {rowState.unread && <span className="code-project-agent-compact-unread" aria-hidden="true" />}
-          </button>
-        )
-      })}
+      {agents.map((agent, index) => (
+        <AgentCompactButton
+          key={agentRowKey({ kind: 'agent', agent, claimedSessionKey: claimedAgentSessionKeyByAgentId.get(agent.id) })}
+          backing={{ kind: 'agent', agent }}
+          index={index}
+          testId="code-project-agent-compact"
+          activeTerminalId={activeTerminalId}
+          selectedSearchAgentId={selectedSearchAgentId}
+          now={now}
+          onOpen={() => onOpenAgent(agent.id)}
+          onOpenMenu={event => onOpenAgentMenu(event, agent.id)}
+          onShowPreview={onShowPreview}
+          onHidePreview={onHidePreview}
+        />
+      ))}
     </div>
   )
 }
@@ -1278,81 +1260,89 @@ function PinnedItemCompactStrip({
 }) {
   return (
     <div className="code-project-agent-strip code-pinned-agent-strip" data-testid="code-pinned-agent-strip" aria-label="Pinned agents">
-      {items.map((item, index) => {
-        const rowState = item.kind === 'agent'
-          ? buildAgentRowDisplayState({ kind: 'agent', agent: item.agent }, now)
-          : buildAgentRowDisplayState({
-            kind: 'history',
-            session: item.session,
-            fallbackTitle: item.session.providerName || item.session.provider || 'Agent',
-          }, now)
-        const agent = item.kind === 'agent' ? item.agent : null
-        const session = item.kind === 'agent' ? null : item.session
-        const sessionHandle = session ? agentSessionId(session) : null
-        const active = agent ? agent.id === activeTerminalId : false
-        const searchSelected = agent
-          ? agent.id === selectedSearchAgentId
-          : sessionHandle === selectedSearchSessionHandle
-        const title = rowState.rowTitle || rowState.title
-        return (
-          <button
-            key={item.kind === 'agent'
-              ? agentRowKey({ kind: 'agent', agent: item.agent, claimedSessionKey: claimedAgentSessionKeyByAgentId.get(item.agent.id) })
-              : agentRowKey({ kind: 'history', session: item.session })}
-            type="button"
-            className={`code-project-agent-compact ${active ? 'active' : ''} ${searchSelected ? 'search-selected' : ''} ${rowState.unread ? 'unread' : ''}`}
-            data-testid="code-pinned-agent-compact"
-            data-agent-id={agent?.id}
-            data-session-id={sessionHandle ?? undefined}
-            aria-label={title}
-            onClick={() => {
-              if (agent) {
-                onOpenAgent(agent.id)
-                return
-              }
-              if (session) onResumeAgentSession(session.provider, session.id, session.providerHomeId)
-            }}
-            onMouseEnter={event => onShowPreview(
-              event,
-              agent
-                ? previewTargetForAgent(agent, rowState)
-                : previewTargetForSession(session!, rowState),
-              true
-            )}
-            onMouseLeave={onHidePreview}
-            onContextMenu={event => {
-              if (agent) {
-                onOpenAgentMenu(event, agent.id)
-                return
-              }
-              if (session) onOpenAgentSessionMenu(event, session.provider, agentSessionId(session))
-            }}
-            onKeyDown={event => {
-              if (agent) {
-                onOpenAgentMenu(event, agent.id)
-              } else if (session) {
-                onOpenAgentSessionMenu(event, session.provider, agentSessionId(session))
-              }
-              if (event.defaultPrevented) return
-              if (event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault()
-                if (agent) {
-                  onOpenAgent(agent.id)
-                } else if (session) {
-                  onResumeAgentSession(session.provider, session.id, session.providerHomeId)
-                }
-              }
-            }}
-          >
-            <span className="code-project-agent-compact-label">{index + 1}</span>
-            {rowState.statusIndicatorVisible && (
-              <span className={`code-project-agent-compact-status ${rowState.lifecycleStatus} ${rowState.turnActive ? 'turn-active' : ''}`} aria-hidden="true" />
-            )}
-            {rowState.unread && <span className="code-project-agent-compact-unread" aria-hidden="true" />}
-          </button>
-        )
-      })}
+      {items.map((item, index) => (
+        <AgentCompactButton
+          key={item.kind === 'agent'
+            ? agentRowKey({ kind: 'agent', agent: item.agent, claimedSessionKey: claimedAgentSessionKeyByAgentId.get(item.agent.id) })
+            : agentRowKey({ kind: 'history', session: item.session })}
+          backing={item.kind === 'agent'
+            ? { kind: 'agent', agent: item.agent }
+            : { kind: 'history', session: item.session, fallbackTitle: item.session.providerName || item.session.provider || 'Agent' }}
+          index={index}
+          testId="code-pinned-agent-compact"
+          activeTerminalId={activeTerminalId}
+          selectedSearchAgentId={selectedSearchAgentId}
+          selectedSearchSessionHandle={selectedSearchSessionHandle}
+          now={now}
+          onOpen={() => {
+            if (item.kind === 'agent') onOpenAgent(item.agent.id)
+            else onResumeAgentSession(item.session.provider, item.session.id, item.session.providerHomeId)
+          }}
+          onOpenMenu={event => {
+            if (item.kind === 'agent') onOpenAgentMenu(event, item.agent.id)
+            else onOpenAgentSessionMenu(event, item.session.provider, agentSessionId(item.session))
+          }}
+          onShowPreview={onShowPreview}
+          onHidePreview={onHidePreview}
+        />
+      ))}
     </div>
+  )
+}
+
+function AgentCompactButton({
+  backing, index, testId, activeTerminalId, selectedSearchAgentId,
+  selectedSearchSessionHandle, now, onOpen, onOpenMenu, onShowPreview, onHidePreview,
+}: {
+  backing: AgentRowBacking
+  index: number
+  testId: string
+  activeTerminalId: string | null
+  selectedSearchAgentId: string | null
+  selectedSearchSessionHandle?: string | null
+  now: number
+  onOpen: () => void
+  onOpenMenu: (event: ContextMenuTriggerEvent) => void
+  onShowPreview: (event: AgentPreviewAnchorEvent, target: AgentPreviewTarget, compact?: boolean) => void
+  onHidePreview: () => void
+}) {
+  const agent = useAgentWithLiveState(backing.kind === 'agent' ? backing.agent : null)
+  const session = backing.kind === 'history' ? backing.session : null
+  const rowState = buildAgentRowDisplayState(agent ? { kind: 'agent', agent } : backing, now)
+  const sessionHandle = session ? agentSessionId(session) : null
+  const active = agent ? agent.id === activeTerminalId : false
+  const searchSelected = agent
+    ? agent.id === selectedSearchAgentId
+    : sessionHandle === selectedSearchSessionHandle
+  return (
+    <button
+      type="button"
+      className={`code-project-agent-compact ${active ? 'active' : ''} ${searchSelected ? 'search-selected' : ''} ${rowState.unread ? 'unread' : ''}`}
+      data-testid={testId}
+      data-agent-id={agent?.id}
+      data-session-id={sessionHandle ?? undefined}
+      aria-label={rowState.rowTitle || rowState.title}
+      onClick={onOpen}
+      onMouseEnter={event => onShowPreview(
+        event,
+        agent ? previewTargetForAgent(agent, rowState) : previewTargetForSession(session!, rowState),
+        true,
+      )}
+      onMouseLeave={onHidePreview}
+      onContextMenu={onOpenMenu}
+      onKeyDown={event => {
+        onOpenMenu(event)
+        if (event.defaultPrevented) return
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          onOpen()
+        }
+      }}
+    >
+      <span className="code-project-agent-compact-label">{index + 1}</span>
+      <AgentStatusIndicator state={rowState} className="code-project-agent-compact-status" decorative />
+      {rowState.unread && <span className="code-project-agent-compact-unread" aria-hidden="true" />}
+    </button>
   )
 }
 
@@ -3224,12 +3214,7 @@ function AgentRow({
         )}
       </span>
       <span className="code-agent-row-trailing">
-        {rowState.statusIndicatorVisible && (
-          <span
-            className={`code-agent-dot ${rowState.lifecycleStatus} ${rowState.turnActive ? 'turn-active' : ''}`}
-            title={rowState.commandTitle || rowState.lifecycleStatus}
-          />
-        )}
+        <AgentStatusIndicator state={rowState} className="code-agent-dot" />
         {rowState.forkedToNewWorktree && (
           <span
             className="code-agent-fork-new-worktree"

@@ -233,6 +233,24 @@ read cursors. The persisted `unread` projection must be rewritten from those
 cursors whenever Agent state is persisted; an older contradictory boolean must
 not reappear during startup or while a runtime is still pending.
 
+## Shell activity and attention
+
+Code's shared row-status presentation delays the running indicator for an
+ordinary Shell by one second after observing the command. Completion removes
+it immediately; a short command never reveals it. Each command/runtime identity
+owns one cancellable presentation timer, shared by full, compact and rail row
+variants. Every variant subscribes to the same authoritative live Agent state;
+an unchanged inventory row object must not leave activity or unread stale.
+This does not delay backend activity, input guards, pending/error
+states or coding-Agent attention, including coding CLIs launched inside a Shell.
+
+Ordinary Shell command completion and line-editor BEL feedback do not create
+unread attention. Explicit OSC notifications and manual unread marks retain
+their existing cursor semantics. Recovery retires legacy automatic Shell
+completion/exit unread cursors before row publication, including stopped rows
+that will not receive more output. Manual re-marking records manual provenance
+even when a previous attention event already exists.
+
 ## Follow-up flag
 
 The backend owns the durable `followUp` boolean for each Agent. Farming Code

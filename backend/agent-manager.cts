@@ -291,6 +291,8 @@ import {
   applyAgentReadRequest,
   agentAttentionTurnActive,
   agentAttentionUnread,
+  retireLegacyShellAttention,
+  terminalNotificationRequiresAttention,
 } from './agent-attention.cjs';
 import { deserializeTerminalState } from './terminal-state-serialization.cjs';
 import type { TranscriptBuildOptions } from './codex-transcript.cjs';
@@ -1388,6 +1390,9 @@ class AgentManager extends EventEmitter {
     if (previous && previous !== agent) this.agentOrderAllocator.remove(previous);
     this.agentOrderAllocator.ensure(agent);
     this.agents.set(agentId, agent);
+    // Cold/stopped rows may never receive another runtime event. Reconcile old
+    // automatic shell attention before publishing their first inventory row.
+    if (retireLegacyShellAttention(agent)) this.sessionPersistence.persist(agent);
   }
 
   recordAgentActivity(agentId: AgentId, activityAt = Date.now()): number {
@@ -2464,11 +2469,13 @@ class AgentManager extends EventEmitter {
     this.engineBridge.on('session-notification', ({
       sessionId,
       runtimeEpoch,
+      method,
       message,
       title,
     }: TerminalSessionNotificationEvent) => {
       const agent = this.agents.get(sessionId);
       if (!agent || !terminalRuntimeEventMatches(agent, runtimeEpoch)) return;
+      if (!terminalNotificationRequiresAttention(agent, method)) return;
       const summary = agentNotificationSummary(message || title);
       const provider = agent.providerSessionProvider
         || agentHomeProviderForProgram(agent.forkCommand || agent.command || '');

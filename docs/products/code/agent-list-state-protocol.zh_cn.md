@@ -72,6 +72,20 @@ Farming 已绑定 Agent 的未读状态由单调 Attention Cursor 和 Read Curso
 Agent State 时，都必须从 Cursor 重新写入 `unread` Projection；旧版本留下的矛盾 Boolean
 不能在启动期间或 Runtime 尚未恢复时重新出现。
 
+## Shell 活动与关注
+
+普通 Shell 的 Working 状态连续被观察到一秒后，Agent 行才显示运行指示器；完整行、窄栏
+和紧凑条使用同一展示规则。命令结束立即取消尚未显示的提示并移除已显示的提示；新的命令
+或 Runtime Epoch 重新计时。每种展示都订阅同一权威 Live Agent 状态，不能因 Inventory
+行对象未变而保留旧活动或未读。Backend 活动状态、运行数量和输入准入仍实时更新，Pending、
+Stopped、失败状态及 Coding Agent 的运行提示不延迟。
+
+普通 Shell 命令完成和 BEL 响铃不生成消息未读点。显式 OSC 通知、Shell 内 Coding Agent
+的通知及用户手动标记未读仍遵循现有 Attention Cursor 协议。恢复旧记录时，在首次发布
+Inventory 前清理 Shell 遗留的自动完成或进程退出未读，包括不会再产生 Runtime 事件的
+Stopped 行；不清除显式通知或手动未读。再次手动标记未读必须记录手动来源，避免后续
+兼容清理把它误认为旧自动事件。
+
 ## 待跟进小田旗
 
 Backend 拥有每个 Agent 持久化的 `followUp` Boolean。Farming Code 使用它展示小田旗和 Project
