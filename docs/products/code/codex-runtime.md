@@ -115,7 +115,9 @@ uses a blue-white stellar accent, Sol orange, Terra green, Luna violet, and
 unrecognized identities use neutral styling. Rows grow with the inventory and
 long labels retain their full identity in the accessible cell label. The matrix
 uses the reasoning choices supplied by its runtime; Advanced remains available
-for the full configuration controls.
+for the full configuration controls. The Ultra track aligns with the matrix
+height; its hit area, knob travel, and energy fill adapt together as rows grow,
+in every appearance and viewport.
 
 Codex Chat declares active-Turn Conversation Fork support. The pinned adapter
 captures the current Codex Turn id and sends it as the app-server

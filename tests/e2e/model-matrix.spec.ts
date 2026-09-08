@@ -147,7 +147,23 @@ test('model matrix follows the advertised catalog across generations and appeara
       expect(bounds!.x).toBeGreaterThanOrEqual(0)
       expect(bounds!.y).toBeGreaterThanOrEqual(0)
       expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width)
+      const surface = await matrix.locator('.code-model-matrix-surface').boundingBox()
+      const ultra = matrix.getByRole('button', { name: 'Ultra reasoning', exact: true })
+      const track = matrix.locator('.code-model-matrix-rocker-control')
+      const trackBounds = await track.boundingBox()
+      expect(Math.abs(trackBounds!.y - surface!.y)).toBeLessThanOrEqual(1)
+      expect(Math.abs(trackBounds!.height - surface!.height)).toBeLessThanOrEqual(1)
+      expect(await ultra.boundingBox()).toEqual(trackBounds)
       await expect(matrix).toHaveScreenshot(`model-matrix-catalog-${width}-${appearance}.png`)
+      await ultra.click()
+      await expect(ultra).toHaveAttribute('aria-pressed', 'true')
+      await expect.poll(async () => {
+        const knob = await matrix.locator('.code-model-matrix-rocker-knob-position').boundingBox()
+        return Math.abs(trackBounds!.y + trackBounds!.height - knob!.y - knob!.height - 3)
+      }).toBeLessThanOrEqual(1)
+      await expect(matrix).toHaveScreenshot(`model-matrix-catalog-ultra-${width}-${appearance}.png`)
+      await ultra.click()
+      await expect(ultra).toHaveAttribute('aria-pressed', 'false')
     }
   }
   await matrix.getByRole('radio', { name: 'Future Model With A Long Name, high', exact: true }).click()

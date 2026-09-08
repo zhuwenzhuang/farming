@@ -168,6 +168,7 @@ function sessionConfigState(id: string): SessionConfigState {
 
 function sessionConfigOptions(id: string): SessionConfigOption[] {
   const state = sessionConfigState(id);
+  const modelMatrix = process.env.FARMING_TEST_ACP_MODEL_MATRIX === '1';
   const options: SessionConfigOption[] = [
     {
       id: 'model',
@@ -175,7 +176,9 @@ function sessionConfigOptions(id: string): SessionConfigOption[] {
       category: 'model',
       type: 'select',
       currentValue: state.model,
-      options: ['gpt-5.5', 'gpt-5.6-luna'].map(value => ({ value, name: value })),
+      options: (modelMatrix
+        ? ['gpt-6-astra', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.5', 'gpt-5.2']
+        : ['gpt-5.5', 'gpt-5.6-luna']).map(value => ({ value, name: value })),
     },
     {
       id: 'reasoning',
@@ -183,7 +186,9 @@ function sessionConfigOptions(id: string): SessionConfigOption[] {
       category: 'thought_level',
       type: 'select',
       currentValue: state.effort,
-      options: ['high', 'ultra'].map(value => ({ value, name: value })),
+      options: (modelMatrix
+        ? ['low', 'medium', 'high', 'xhigh', 'max', 'ultra']
+        : ['high', 'ultra']).map(value => ({ value, name: value })),
     },
   ];
   if (!omitFastOption) {
@@ -394,6 +399,9 @@ class FakeAgent implements Agent {
       const refreshedMatch = state.refreshedModelId.match(/^(.+)\[([^\]]+)]$/);
       const refreshed = refreshedMatch?.[1] === params.value;
       if (refreshed && refreshedMatch) state.effort = refreshedMatch[2];
+      if (process.env.FARMING_TEST_ACP_MODEL_MATRIX === '1') {
+        return { configOptions: sessionConfigOptions(params.sessionId) };
+      }
       const configOptions: SessionConfigOption[] = [
           { id: 'model', name: 'Model', category: 'model', type: 'select', currentValue: state.model, options: [{ value: state.model, name: state.model }] },
           { id: 'reasoning', name: 'Reasoning', category: 'thought_level', type: 'select', currentValue: state.effort, options: [{ value: state.effort, name: state.effort }] },
@@ -413,6 +421,9 @@ class FakeAgent implements Agent {
         throw new Error('Reasoning config requires a string value');
       }
       state.effort = params.value;
+      if (process.env.FARMING_TEST_ACP_MODEL_MATRIX === '1') {
+        return { configOptions: sessionConfigOptions(params.sessionId) };
+      }
       const configOptions: SessionConfigOption[] = [
           { id: 'model', name: 'Model', type: 'select', currentValue: state.model, options: [{ value: state.model, name: state.model }] },
           { id: 'reasoning', name: 'Reasoning', type: 'select', currentValue: state.effort, options: [{ value: state.effort, name: state.effort }] },

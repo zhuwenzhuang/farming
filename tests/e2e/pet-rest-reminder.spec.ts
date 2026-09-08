@@ -1073,7 +1073,7 @@ test('reports a failed business probe without calling the WebSocket disconnected
   const status = page.getByTestId('connection-status')
   await expect(status).toHaveClass(/business-unavailable/, { timeout: 12_000 })
   await expect(status).not.toHaveClass(/connecting|lost/)
-  await expect(status).toContainText('business state is not responding')
+  await expect(status).toHaveText('Workspace state is not available yet. Waiting for an update...')
 
   dropBusinessHealth = false
   await expect(status).toHaveCount(0, { timeout: 8_000 })

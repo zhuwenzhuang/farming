@@ -5,9 +5,9 @@ import path from 'node:path';
 import * as esbuild from 'esbuild';
 
 const projectRoot = path.join(__dirname, '..');
-const expectedVersion = '0.73.0';
+const expectedVersion = '0.75.1';
 const expectedSdkVersion = '0.3.257';
-const expectedBundleSha256 = '362921ce5205272f3f2255445db2fd7d60e85f9483e65da3e5916af5dd2517d7';
+const expectedBundleSha256 = '3ed85057d20a2b66525393fb465cd127b6d5d776d14ba565bf64d0173d5cd90d';
 const packageRoot = path.dirname(require.resolve('@agentclientprotocol/claude-agent-acp/package.json'));
 const packageJsonPath = path.join(packageRoot, 'package.json');
 const sdkEntry = require.resolve('@anthropic-ai/claude-agent-sdk', {
@@ -22,7 +22,7 @@ const targetEntry = path.join(targetDirectory, `claude-agent-acp-${expectedVersi
 const targetLicense = path.join(targetDirectory, 'LICENSE.claude-agent-acp');
 const targetSdkLicense = path.join(targetDirectory, 'LICENSE.claude-agent-sdk');
 const executableFunctionStart = 'export async function claudeCliPath() {';
-const executableFunctionEnd = 'function shouldHideClaudeAuth() {';
+const executableFunctionEnd = 'function isMuslLibc() {';
 
 function sha256(filePath: string): string {
   return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');

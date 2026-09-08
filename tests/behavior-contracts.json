@@ -148,7 +148,7 @@
         "playwright": [
           {
             "file": "tests/e2e/backend-connection-status.spec.ts",
-            "title": "failed reconnects eventually leave the initial loading state"
+            "title": "failed reconnects show neutral connection feedback"
           }
         ]
       }

@@ -649,8 +649,14 @@ test.describe('mobile Farming Code user story', () => {
       const inputRect = input?.getBoundingClientRect()
       return inputRect?.height ?? 0
     })).toBeGreaterThanOrEqual(56)
-    const expandedComposerHeight = await page.getByTestId('code-composer').evaluate(element => element.getBoundingClientRect().height)
-    expect(expandedComposerHeight).toBeLessThanOrEqual(122)
+    const expandedComposerMetrics = await page.getByTestId('code-composer').evaluate(element => {
+      const input = element.querySelector<HTMLTextAreaElement>('[data-testid="code-composer-input"]')!
+      return { height: element.getBoundingClientRect().height, inputHeight: input.getBoundingClientRect().height }
+    })
+    // Growing the draft adds textarea height, while the compact controls keep
+    // their geometry. Long-input bounds are covered by the Composer story.
+    expect(expandedComposerMetrics.height - expandedComposerMetrics.inputHeight)
+      .toBeCloseTo(compactComposerMetrics.height - compactComposerMetrics.inputHeight, 0)
     await composerInput.fill('')
 
     const marker = `mobile-story-${Date.now()}`

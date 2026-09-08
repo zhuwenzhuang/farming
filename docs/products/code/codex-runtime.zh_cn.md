@@ -88,7 +88,8 @@ Temporary。
 Composer 模型矩阵使用运行时公布的模型目录及顺序，跨模型代际展示。身份配色不参与目录
 过滤：Astra 使用蓝白星光色，Sol 使用橙色，Terra 使用绿色，Luna 使用紫色，未知身份使用
 中性色。行数随目录增长，长名称在单元格的无障碍标签中保留完整身份。矩阵使用运行时提供的
-推理选项；Advanced 保留完整配置控件入口。
+推理选项；Advanced 保留完整配置控件入口。Ultra 轨道与矩阵等高，其点击区域、滑块行程和
+能量填充随行数一起自适应，在所有外观与视口下保持一致。
 
 Codex Chat 声明支持 Active-Turn Conversation Fork。版本锁定的 Adapter 捕获当前 Codex Turn
 ID，并把它作为 app-server 的 `beforeTurnId` Boundary 发送；因此 Child 排除尚未完成的 Turn，

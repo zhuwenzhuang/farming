@@ -4,24 +4,26 @@ import { PROTOCOL_VERSION } from '../../shared/browser-protocol'
 import { expect, test } from './fixtures'
 
 for (const language of ['en', 'zh'] as const) {
-  test(`failed reconnects show neutral connection feedback in ${language}`, {
-    tag: ['@iphone-human', '@critical-behavior', '@behavior-CODE-BACKEND-CONNECTION-RECOVERY'],
-  }, async ({ page }) => {
-    const settings = await page.request.post('/farming/api/settings', { data: { language } })
-    expect(settings.ok()).toBeTruthy()
-    await page.routeWebSocket(/\/farming\/ws(?:\?|$)/, socket => {
-      socket.onMessage(() => undefined)
-      socket.close({ code: 1012, reason: 'backend unavailable' })
+  test.describe(language, () => {
+    test('failed reconnects show neutral connection feedback', {
+      tag: ['@iphone-human', '@critical-behavior', '@behavior-CODE-BACKEND-CONNECTION-RECOVERY'],
+    }, async ({ page }) => {
+      const settings = await page.request.post('/farming/api/settings', { data: { language } })
+      expect(settings.ok()).toBeTruthy()
+      await page.routeWebSocket(/\/farming\/ws(?:\?|$)/, socket => {
+        socket.onMessage(() => undefined)
+        socket.close({ code: 1012, reason: 'backend unavailable' })
+      })
+
+      await page.goto('/farming/')
+
+      const status = page.getByTestId('connection-status')
+      await expect(status).toContainText(language === 'zh' ? '加载中' : 'Loading')
+      await expect(status).toHaveClass(/lost/, { timeout: 12_000 })
+      await expect(status).toHaveText(language === 'zh' ? '连接已中断，正在重新连接…' : 'Connection interrupted. Reconnecting...')
+      await expect(status).not.toContainText(/backend|后端/i)
+      await status.screenshot({ path: test.info().outputPath(`connection-feedback-${language}.png`) })
     })
-
-    await page.goto('/farming/')
-
-    const status = page.getByTestId('connection-status')
-    await expect(status).toContainText(language === 'zh' ? '加载中' : 'Loading')
-    await expect(status).toHaveClass(/lost/, { timeout: 12_000 })
-    await expect(status).toHaveText(language === 'zh' ? '连接已中断，正在重新连接…' : 'Connection interrupted. Reconnecting...')
-    await expect(status).not.toContainText(/backend|后端/i)
-    await status.screenshot({ path: test.info().outputPath(`connection-feedback-${language}.png`) })
   })
 }
 

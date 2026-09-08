@@ -3,7 +3,7 @@ const path = require('path');
 const { spawn } = require('child_process');
 
 const projectRoot = path.join(__dirname, '..', '..');
-const adapterPath = path.join(projectRoot, 'dist', 'acp', 'codex-acp-1.8.0.mjs');
+const adapterPath = path.join(projectRoot, 'dist', 'acp', 'codex-acp-1.10.0.mjs');
 const fakeCodexPath = path.join(__dirname, 'fixtures', 'fake-codex-app-server.ts');
 
 function send(child, message) {
@@ -43,6 +43,11 @@ async function run() {
           if (!line) continue;
           const message = JSON.parse(line);
           if (message.id === 1) {
+            assert.deepStrictEqual(message.result.agentCapabilities._meta.codex, {
+              steer: { method: '_codex/session/steer', version: 1 },
+              subagents: { version: 1 },
+            });
+            assert.deepStrictEqual(message.result.agentCapabilities._meta.authStatus, {});
             send(child, {
               jsonrpc: '2.0',
               id: 2,
