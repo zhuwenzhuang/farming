@@ -22,8 +22,10 @@ test(`shell ${presentation} activity waits one second without delaying authorita
   const statusClass = presentation === 'row' ? '.code-agent-dot' : '.code-agent-rail-status'
   await expect(row).toBeVisible()
   await expect(row.locator(statusClass)).toHaveCount(0)
-  await page.clock.install()
-  await page.clock.pauseAt(new Date())
+  const clockStart = new Date()
+  // Start behind the target so separate browser calls cannot pause in the past.
+  await page.clock.install({ time: new Date(clockStart.getTime() - 60_000) })
+  await page.clock.pauseAt(clockStart)
   let commandStartedAt = Date.now()
   const patch = async (phase: 'working' | 'idle', kind: 'shell' | 'codex' = 'shell', epoch = 'shell-test') => {
     await page.evaluate(({ agentId, phase, kind, epoch, startedAt }) => {
