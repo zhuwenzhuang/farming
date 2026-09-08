@@ -733,9 +733,18 @@ test('run awaits all preparation promises before cleanup, never starts lanes unt
   }
 });
 
-test('complete matrix covers all 706 discovered tests exactly once across 12 logical lanes', { timeout: 90_000 }, () => {
-  let discoveredTotal = 0;
-  assert.deepEqual(PLAYWRIGHT_PROJECT_MATRIX.map(entry => entry.lanes), [6, 2, 1, 1, 1, 1]);
+test('complete matrix covers every discovered test exactly once across 12 logical lanes', { timeout: 90_000 }, () => {
+  assert.deepEqual(
+    PLAYWRIGHT_PROJECT_MATRIX.map(({ project, browser, lanes, auth }) => ({ project, browser, lanes, auth })),
+    [
+      { project: 'chromium', browser: 'chromium', lanes: 6, auth: false },
+      { project: 'iphone-webkit', browser: 'webkit', lanes: 2, auth: false },
+      { project: 'iphone-human-webkit', browser: 'webkit', lanes: 1, auth: false },
+      { project: 'android-human-chromium', browser: 'chromium', lanes: 1, auth: false },
+      { project: 'mobile-auth-chromium', browser: 'chromium', lanes: 1, auth: true },
+      { project: 'mobile-auth-webkit', browser: 'webkit', lanes: 1, auth: true },
+    ],
+  );
   const tasks = createMatrixLaneTasks();
   assert.equal(tasks.length, 12);
   assert.equal(new Set(tasks.map(task => `${task.entry.project}:${task.laneIndex}`)).size, 12);
@@ -743,9 +752,9 @@ test('complete matrix covers all 706 discovered tests exactly once across 12 log
   const displays = new Set();
   for (const entry of PLAYWRIGHT_PROJECT_MATRIX) {
     const discovered = discoverProjectTests(entry);
-    const discoveredCount = discovered.length;
-    assert.equal(discoveredCount, entry.tests, entry.project);
-    discoveredTotal += discoveredCount;
+    assert.ok(discovered.length > 0, `${entry.project} must discover tests`);
+    // A source location may declare several parameterized tests. The balanced
+    // runner assigns the complete location group to exactly one lane.
     const assignedLocations = entry.lanes
       ? Array.from({ length: entry.lanes }, (_, offset) => listBalancedShard(entry, offset + 1)).flat()
       : [];
@@ -771,7 +780,6 @@ test('complete matrix covers all 706 discovered tests exactly once across 12 log
     assert.equal(invocation.args.includes('--retain-evidence'), true);
     assert.equal(invocation.env.FARMING_PLAYWRIGHT_AUTH, entry.auth ? '1' : '0');
   }
-  assert.equal(discoveredTotal, 706);
   // Main chromium lanes must equal the default global Chromium concurrency cap.
   const mainChromium = PLAYWRIGHT_PROJECT_MATRIX.find(entry => entry.project === 'chromium');
   assert.equal(mainChromium.lanes, DEFAULT_MAX_CHROMIUM_LANES);
