@@ -143,7 +143,7 @@ jobs:
         run: npx playwright install chromium
 
       - name: Run critical browser behavior
-        run: npm run test:behavior:e2e
+        run: npm run release:fast-screen:shell && npm run test:behavior:e2e
         env:
           FARMING_PLAYWRIGHT_SKIP_BUILD: '1'
 

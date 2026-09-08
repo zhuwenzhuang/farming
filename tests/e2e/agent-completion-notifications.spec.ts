@@ -233,8 +233,18 @@ test('uses Terminal-native notification requests instead of inferred command com
     window as Window & { __farmingNotifications?: Array<unknown> }
   ).__farmingNotifications?.length ?? 0)).toBe(0)
 
-  const nativeNotification = await page.request.post(`/farming/api/control/agents/${agentId}/input`, {
+  const shellBell = await page.request.post(`/farming/api/control/agents/${agentId}/input`, {
     data: { input: "printf '\\007'\r" },
+  })
+  expect(shellBell.ok()).toBeTruthy()
+  // Ordinary Shell BEL is line-editor feedback, not an attention request.
+  await page.waitForTimeout(600)
+  expect(await page.evaluate(() => (
+    window as Window & { __farmingNotifications?: Array<unknown> }
+  ).__farmingNotifications?.length ?? 0)).toBe(0)
+
+  const nativeNotification = await page.request.post(`/farming/api/control/agents/${agentId}/input`, {
+    data: { input: "printf '\\033]9;Explicit shell notification\\007'\r" },
   })
   expect(nativeNotification.ok()).toBeTruthy()
   await expect.poll(async () => page.evaluate(() => (
@@ -244,5 +254,5 @@ test('uses Terminal-native notification requests instead of inferred command com
   const body = await page.evaluate(() => (
     window as Window & { __farmingNotifications?: Array<{ body: string }> }
   ).__farmingNotifications?.[0]?.body ?? '')
-  expect(body).toContain('requested attention')
+  expect(body).toContain('Explicit shell notification')
 })

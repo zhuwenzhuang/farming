@@ -251,6 +251,9 @@ completion/exit unread cursors before row publication, including stopped rows
 that will not receive more output. Manual re-marking records manual provenance
 even when a previous attention event already exists.
 
+`npm run release:fast-screen:shell` verifies the presentation lifetime and the
+BEL/explicit-notification distinction before the broader browser behavior gate.
+
 ## Follow-up flag
 
 The backend owns the durable `followUp` boolean for each Agent. Farming Code

@@ -86,6 +86,9 @@ Inventory 前清理 Shell 遗留的自动完成或进程退出未读，包括不
 Stopped 行；不清除显式通知或手动未读。再次手动标记未读必须记录手动来源，避免后续
 兼容清理把它误认为旧自动事件。
 
+`npm run release:fast-screen:shell` 在更广的浏览器行为检查前验证展示计时，以及 BEL 与
+显式通知的区别。
+
 ## 待跟进小田旗
 
 Backend 拥有每个 Agent 持久化的 `followUp` Boolean。Farming Code 使用它展示小田旗和 Project
