@@ -106,8 +106,10 @@ continue to treat the identity as temporary.
 
 Configuration follows the shared ACP rule: Provider and Agent Home defaults
 apply until the user confirms an explicit override. Confirmed model, reasoning,
-speed, and permission choices survive supported runtime replacement; unavailable
-saved choices degrade to the current Provider value with a visible warning.
+speed, and permission choices survive supported runtime replacement. An
+unrestored saved model remains selected in persistence and blocks Prompt and
+Steer with a visible warning until reconnect restores it or the user confirms
+another model; Farming must not silently submit using the Provider default.
 
 The Composer model matrix uses the advertised model inventory and its order,
 across model generations. Identity styling does not filter the catalog: Astra

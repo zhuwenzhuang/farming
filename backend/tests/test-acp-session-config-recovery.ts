@@ -283,6 +283,107 @@ async function run() {
     await defaultManager.dispose();
   }
 
+  const savedModel = { configId: 'model', value: 'gpt-6-astra' };
+  const missingModelRecord = coldRecord({
+    ...persistedFastOn,
+    acpConfigOverrides: [savedModel],
+  }, 'agent-missing-model');
+  const missingModelConfig = persistentConfig([missingModelRecord]);
+  const missingModelRuntime = runtime();
+  const missingModelManager = new AgentManager(missingModelConfig, {
+    acpRuntime: missingModelRuntime,
+    agentShellEnvProvider: shellEnv(false, {
+      FARMING_TEST_ACP_MODEL_MATRIX: '1',
+      FARMING_TEST_ACP_MODEL_DEFAULT: 'gpt-5.6-sol',
+      FARMING_TEST_ACP_OMIT_MODEL: 'gpt-6-astra',
+    }),
+    skipExecutablePreflight: true,
+  });
+  try {
+    const agentId = 'agent-missing-model';
+    await missingModelManager.recoverAcpSessions();
+    const sessionKey = missingModelManager.agents.get(agentId).providerSessionKey;
+    const assertBlocked = async () => {
+      const binding = missingModelRuntime.bindings.get(agentId);
+      const entriesBefore = binding.sessionState.entries.length;
+      await assert.rejects(
+        missingModelRuntime.prompt(agentId, [{ type: 'text', text: 'must not run on Sol' }]),
+        /Saved ACP model "gpt-6-astra" has not been restored/,
+      );
+      assert.strictEqual(binding.activeTurn, null, 'rejected admission must release its Turn');
+      assert.strictEqual(binding.state, 'error', 'model restoration failure must remain visible');
+      assert.strictEqual(missingModelManager.getAcpSession(agentId).retryableReconnect, true);
+      assert.strictEqual(binding.sessionState.entries.length, entriesBefore, 'rejected input must not enter the transcript');
+      assert.deepStrictEqual(missingModelConfig.records.get(sessionKey).acpConfigOverrides, [savedModel]);
+    };
+    assert.strictEqual(configValue(missingModelManager, agentId, 'model'), 'gpt-5.6-sol');
+    assert.match(missingModelManager.getAcpSession(agentId).configOverrideWarnings[0].message, /selection is preserved/);
+    await assertBlocked();
+    assert.strictEqual((await missingModelRuntime.reconnectAgent(agentId)).reconnected, true);
+    await assertBlocked();
+
+    // Even a provider that omits the complete model option cannot authorize a fallback prompt.
+    let binding = missingModelRuntime.bindings.get(agentId);
+    binding.configOptions = binding.configOptions.filter(option => option.id !== 'model');
+    await assertBlocked();
+
+    // A successful new catalog allows reconnect to reapply the durable selection.
+    binding.restartOptions.env = { ...binding.restartOptions.env, FARMING_TEST_ACP_OMIT_MODEL: '' };
+    assert.strictEqual((await missingModelRuntime.reconnectAgent(agentId)).reconnected, true);
+    assert.strictEqual(configValue(missingModelManager, agentId, 'model'), 'gpt-6-astra');
+    assert.deepStrictEqual(missingModelManager.getAcpSession(agentId).configOverrideWarnings, []);
+    assert.strictEqual((await missingModelRuntime.prompt(agentId, [{ type: 'text', text: 'config recovery probe' }])).stopReason, 'end_turn');
+    assert.match(JSON.stringify(missingModelRuntime.bindings.get(agentId).sessionState.entries), /Using model gpt-6-astra/);
+
+    // Simulate a later provider model change; Steer must not bypass the same invariant.
+    binding = missingModelRuntime.bindings.get(agentId);
+    binding.configOptions.find(option => option.id === 'model').currentValue = 'gpt-5.6-sol';
+    const turn = missingModelRuntime.beginTurn(binding);
+    turn.phase = 'running';
+    try {
+      await assert.rejects(missingModelRuntime.steer(agentId, [{ type: 'text', text: 'must not steer Sol' }]), /has not been restored/);
+    } finally {
+      missingModelRuntime.finishTurn(binding, turn, { status: 'test-finished' });
+      binding.state = 'idle';
+    }
+
+    // User confirmation may replace the saved choice, including while Prompt waits on that mutation.
+    binding.env = { ...binding.env, FARMING_TEST_ACP_OMIT_MODEL: 'gpt-6-astra' };
+    await missingModelRuntime.restartAgentConnection(agentId);
+    const selected = missingModelRuntime.setSessionConfigOption(agentId, 'model', 'gpt-5.6-sol');
+    const sent = missingModelRuntime.prompt(agentId, [{ type: 'text', text: 'config recovery probe' }]);
+    await selected;
+    assert.strictEqual((await sent).stopReason, 'end_turn');
+    assert.deepStrictEqual(missingModelConfig.records.get(sessionKey).acpConfigOverrides, [
+      { configId: 'model', value: 'gpt-5.6-sol' },
+    ]);
+    assert.deepStrictEqual(missingModelManager.getAcpSession(agentId).configOverrideWarnings, []);
+  } finally {
+    await missingModelManager.dispose();
+  }
+
+  // Advertised models can still fail restoration. Keep the guard provider-neutral.
+  for (const provider of ['codex', 'opencode']) {
+    const rejectedModelRuntime = runtime();
+    try {
+      const agentId = `agent-rejected-model-${provider}`;
+      await rejectedModelRuntime.prepareAgent({
+        agentId,
+        provider,
+        cwd: process.cwd(),
+        env: shellEnv(false, {
+          FARMING_TEST_ACP_MODEL_MATRIX: '1',
+          FARMING_TEST_ACP_REJECT_CONFIG_ID: 'model',
+        })(),
+        configOverrides: [savedModel],
+      });
+      await assert.rejects(rejectedModelRuntime.prompt(agentId, [{ type: 'text', text: 'rejected model' }]), /has not been restored/);
+      assert.deepStrictEqual(rejectedModelRuntime.bindings.get(agentId).restartOptions.configOverrides, [savedModel]);
+    } finally {
+      await rejectedModelRuntime.dispose();
+    }
+  }
+
   const staleOverrideRecord = coldRecord({
     ...persistedFastOn,
     acpConfigOverrides: [

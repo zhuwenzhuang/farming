@@ -759,7 +759,10 @@ class AcpRuntimeHostProcess {
       this.invokeControllerCallback(
         callbackToken,
         agentId,
-        String(this.runtime.bindingEpoch(agentId) || initialBindingEpoch),
+        // Reconnect stops the old process before refreshing its capabilities.
+        // During that gap the Host still owns the last published binding; an
+        // original-launch epoch becomes stale after the first reconnect.
+        String(this.runtime.bindingEpoch(agentId) || this.service.state.binding(agentId)?.bindingEpoch || initialBindingEpoch),
         name,
         args,
       )

@@ -83,7 +83,8 @@ Temporary。
 
 配置遵循共享 ACP 规则：用户没有确认显式 Override 前，使用 Provider 与 Agent Home 默认值；
 已确认的 Model、Reasoning、Speed 与 Permission Choice 在受支持的 Runtime Replacement 后保留。
-保存的选项不再可用时，优雅降级到 Provider 当前值，并显示可见警告。
+已保存的模型未能恢复时，继续保留持久化选择，并显示警告、阻止 Prompt 和 Steer，直到重连
+恢复成功或用户确认其他模型；Farming 不得静默使用 Provider 默认模型提交请求。
 
 Composer 模型矩阵使用运行时公布的模型目录及顺序，跨模型代际展示。身份配色不参与目录
 过滤：Astra 使用蓝白星光色，Sol 使用橙色，Terra 使用绿色，Luna 使用紫色，未知身份使用

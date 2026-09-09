@@ -809,6 +809,49 @@ test.describe('ACP human-like browser matrix', () => {
     expect(fs.existsSync(path.join(workspace, '.adapter-disconnect-replayed'))).toBe(false)
   })
 
+  test('preserves a missing saved model and restores it through reconnect', async ({ page, workspaceRoot }) => {
+    const workspace = path.join(workspaceRoot, 'acp-model-catalog-recovery')
+    fs.mkdirSync(workspace, { recursive: true })
+    fs.writeFileSync(path.join(workspace, '.fake-acp-model-matrix'), '1')
+    const omittedModel = path.join(workspace, '.fake-acp-omit-model')
+    const agentId = await createCodexAcpAgent(page, workspace)
+    const selected = await page.request.patch(`/farming/api/agents/${agentId}/acp-session`, {
+      data: { configId: 'model', value: 'gpt-6-astra' },
+    })
+    expect(selected.ok()).toBeTruthy()
+    await openFarming(page)
+    await agentRow(page, agentId).click()
+    fs.writeFileSync(omittedModel, 'gpt-6-astra')
+    await sendAcpMessage(page, 'disconnect adapter once')
+    const reconnect = page.getByTestId('code-acp-reconnect')
+    await expect(reconnect).toBeVisible()
+    await reconnect.click()
+    const warning = page.getByTestId('code-acp-config-recovery-warning')
+    await expect(warning).toContainText('selection is preserved')
+    const error = page.getByTestId('code-acp-error')
+    await expect(error).toContainText('Saved ACP model "gpt-6-astra" has not been restored')
+    await expect(reconnect).toBeVisible()
+    for (const appearance of ['light', 'dark', 'paper'] as const) {
+      await page.locator('body').evaluate((element, value) => { element.dataset.appearance = value }, appearance)
+      await expect(error).toHaveScreenshot(`saved-model-recovery-${appearance}.png`)
+    }
+    fs.unlinkSync(omittedModel)
+    const restoredResponse = page.waitForResponse(response => (
+      response.request().method() === 'POST'
+      && response.url().includes(`/api/agents/${agentId}/acp-session/reconnect`)
+    ))
+    await reconnect.click()
+    const restored = await restoredResponse
+    expect(await restored.json()).toMatchObject({ reconnected: true })
+    const restoredSession = await page.request.get(`/farming/api/agents/${agentId}/acp-session`)
+    expect(await restoredSession.json()).toMatchObject({ session: { state: 'idle', error: '' } })
+    await expect(warning).toHaveCount(0)
+    await expect(error).toHaveCount(0)
+    await sendAcpMessage(page, 'config recovery probe')
+    await expect(page.getByText('Using model gpt-6-astra', { exact: true })).toBeVisible()
+    expect(fs.existsSync(path.join(workspace, '.adapter-disconnect-replayed'))).toBe(false)
+  })
+
   test('paints the terminal checkpoint after switching from Chat', async ({ page, workspaceRoot }) => {
     const workspace = path.join(workspaceRoot, 'acp-chat-to-terminal')
     fs.mkdirSync(workspace, { recursive: true })

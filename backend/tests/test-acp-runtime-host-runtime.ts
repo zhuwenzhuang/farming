@@ -89,14 +89,22 @@ class FakeRuntime extends EventEmitter {
 
   async reconnectAgent(agentId, options: { onProcessStopped?: () => unknown } = {}) {
     const restart = this.restartOptions.get(agentId);
-    const refreshed = await restart.refreshMcpServersForRuntime?.([{ id: 'browser' }]);
+    const session = this.sessions.get(agentId);
+    // Real reconnect removes the live binding before asking the Controller to
+    // refresh capabilities. Exercise that gap on repeated reconnects too.
+    this.sessions.delete(agentId);
+    let refreshed;
+    try {
+      await options.onProcessStopped?.();
+      refreshed = await restart.refreshMcpServersForRuntime?.([{ id: 'browser' }]);
+    } finally {
+      this.sessions.set(agentId, session);
+    }
     if (refreshed?.capabilityRuntimeEpoch) {
-      const session = this.sessions.get(agentId);
       session.bindingEpoch = refreshed.capabilityRuntimeEpoch;
       this.emit('agent-runtime', session);
     }
     await restart.onProcessStarted?.({ pid: 202, processGroupId: 202, startedAt: 'later' });
-    await options.onProcessStopped?.();
     return { reconnected: true, refreshed };
   }
 

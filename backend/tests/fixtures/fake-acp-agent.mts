@@ -166,9 +166,18 @@ function sessionConfigState(id: string): SessionConfigState {
   return state;
 }
 
+function usesModelMatrix() {
+  return process.env.FARMING_TEST_ACP_MODEL_MATRIX === '1'
+    || fs.existsSync(path.join(process.cwd(), '.fake-acp-model-matrix'));
+}
+
 function sessionConfigOptions(id: string): SessionConfigOption[] {
   const state = sessionConfigState(id);
-  const modelMatrix = process.env.FARMING_TEST_ACP_MODEL_MATRIX === '1';
+  const modelMatrix = usesModelMatrix();
+  const omittedModelFile = path.join(process.cwd(), '.fake-acp-omit-model');
+  const omittedModel = fs.existsSync(omittedModelFile)
+    ? fs.readFileSync(omittedModelFile, 'utf8').trim()
+    : process.env.FARMING_TEST_ACP_OMIT_MODEL;
   const options: SessionConfigOption[] = [
     {
       id: 'model',
@@ -178,7 +187,9 @@ function sessionConfigOptions(id: string): SessionConfigOption[] {
       currentValue: state.model,
       options: (modelMatrix
         ? ['gpt-6-astra', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.5', 'gpt-5.2']
-        : ['gpt-5.5', 'gpt-5.6-luna']).map(value => ({ value, name: value })),
+        : ['gpt-5.5', 'gpt-5.6-luna'])
+        .filter(value => value !== omittedModel)
+        .map(value => ({ value, name: value })),
     },
     {
       id: 'reasoning',
@@ -399,7 +410,7 @@ class FakeAgent implements Agent {
       const refreshedMatch = state.refreshedModelId.match(/^(.+)\[([^\]]+)]$/);
       const refreshed = refreshedMatch?.[1] === params.value;
       if (refreshed && refreshedMatch) state.effort = refreshedMatch[2];
-      if (process.env.FARMING_TEST_ACP_MODEL_MATRIX === '1') {
+      if (usesModelMatrix()) {
         return { configOptions: sessionConfigOptions(params.sessionId) };
       }
       const configOptions: SessionConfigOption[] = [
@@ -421,7 +432,7 @@ class FakeAgent implements Agent {
         throw new Error('Reasoning config requires a string value');
       }
       state.effort = params.value;
-      if (process.env.FARMING_TEST_ACP_MODEL_MATRIX === '1') {
+      if (usesModelMatrix()) {
         return { configOptions: sessionConfigOptions(params.sessionId) };
       }
       const configOptions: SessionConfigOption[] = [
@@ -513,6 +524,16 @@ class FakeAgent implements Agent {
   async prompt(params: PromptRequest): Promise<PromptResponse> {
     const promptText = params.prompt?.map(block => block.type === 'text' ? block.text : '').join('') || '';
     const imageCount = params.prompt?.filter(block => block.type === 'image').length || 0;
+    if (promptText === 'config recovery probe') {
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          content: { type: 'text', text: `Using model ${sessionConfigState(params.sessionId).model}` },
+        },
+      });
+      return { stopReason: 'end_turn' };
+    }
     if (promptText.includes('prompt suggestion')) {
       await client.sessionUpdate({
         sessionId: params.sessionId,

@@ -2178,6 +2178,13 @@ class AcpRuntime extends EventEmitter {
       if (configOverrides.length > 0) await this.restoreSessionConfigOverrides(binding, configOverrides);
       this.requireOpenBinding(binding);
       binding.state = 'idle';
+      const modelRecoveryError = this.savedSessionModelError(binding);
+      if (modelRecoveryError) {
+        binding.state = 'error';
+        binding.error = modelRecoveryError;
+        binding.stopReason = 'error';
+        binding.retryableReconnect = isSafeProviderSessionId(binding.sessionId);
+      }
       binding.updatedAt = new Date().toISOString();
       this.scheduleCheckpoint(binding, { exact: true });
       this.emitRuntime(binding);
@@ -3187,10 +3194,12 @@ class AcpRuntime extends EventEmitter {
       if (!this.isCurrentTurn(binding, turn) || turn.phase !== 'admitting') {
         throw new Error('ACP prompt was cancelled before submission');
       }
+      this.requireSavedSessionModel(binding);
       await this.markCheckpointDirty(binding);
       if (!this.isCurrentTurn(binding, turn) || turn.phase !== 'admitting') {
         throw new Error('ACP prompt was cancelled before submission');
       }
+      this.requireSavedSessionModel(binding);
     } catch (error) {
       if (this.isCurrentTurn(binding, turn)) {
         binding.state = turn.previousState;
@@ -3294,6 +3303,7 @@ class AcpRuntime extends EventEmitter {
       await this.markCheckpointDirty(binding);
       this.requireCurrentTurn(binding, turn, ['running']);
       if (turn.providerSettled) throw new Error('No active ACP turn to steer');
+      this.requireSavedSessionModel(binding);
       const sessionState = this.requireSessionState(binding);
       const insertionIndex = sessionState.entries.length;
       const response = await withTimeout(
@@ -4014,10 +4024,11 @@ class AcpRuntime extends EventEmitter {
       return this.deferSessionConfigChanges(binding, changes);
     }
     this.requireConfigMutationReady(binding);
-    const result = await this.enqueueSessionConfigMutation(binding, () => (
-      this.setSessionConfigOptionNow(binding, configId, value)
-    ));
-    this.rememberSessionConfigOverrides(binding, [{ configId: String(configId || ''), value }]);
+    const result = await this.enqueueSessionConfigMutation(binding, async () => {
+      const response = await this.setSessionConfigOptionNow(binding, configId, value);
+      this.rememberSessionConfigOverrides(binding, [{ configId: String(configId || ''), value }]);
+      return response;
+    });
     if (this.clearDeferredSessionError(binding)) {
       binding.updatedAt = new Date().toISOString();
       this.emitRuntime(binding);
@@ -4063,10 +4074,11 @@ class AcpRuntime extends EventEmitter {
       return this.deferSessionConfigChanges(binding, changes);
     }
     this.requireConfigMutationReady(binding);
-    const result = await this.enqueueSessionConfigMutation(binding, () => (
-      this.setSessionConfigOptionsNow(binding, changes)
-    ));
-    this.rememberSessionConfigOverrides(binding, changes);
+    const result = await this.enqueueSessionConfigMutation(binding, async () => {
+      const response = await this.setSessionConfigOptionsNow(binding, changes);
+      this.rememberSessionConfigOverrides(binding, changes);
+      return response;
+    });
     if (this.clearDeferredSessionError(binding)) {
       binding.updatedAt = new Date().toISOString();
       this.emitRuntime(binding);
@@ -4075,6 +4087,7 @@ class AcpRuntime extends EventEmitter {
   }
 
   rememberSessionConfigOverrides(binding: AcpBinding, changes: SessionConfigChange[]) {
+    const previousModelError = this.savedSessionModelError(binding);
     const merged = new Map<string, SessionConfigChange>();
     for (const change of normalizeSessionConfigChanges(binding.restartOptions.configOverrides)) {
       merged.set(change.configId, change);
@@ -4085,7 +4098,16 @@ class AcpRuntime extends EventEmitter {
     const configOverrides = [...merged.values()];
     binding.restartOptions = { ...binding.restartOptions, configOverrides };
     const changedIds = new Set(normalizeSessionConfigChanges(changes).map(change => change.configId));
+    const previousWarningCount = binding.configOverrideWarnings.length;
     binding.configOverrideWarnings = binding.configOverrideWarnings.filter(warning => !changedIds.has(warning.configId));
+    if (previousModelError && binding.error === previousModelError && !this.savedSessionModelError(binding)) {
+      binding.error = '';
+      binding.stopReason = '';
+      binding.retryableReconnect = false;
+      binding.state = 'idle';
+      if (binding.activeTurn?.phase === 'admitting') binding.activeTurn.previousState = 'idle';
+      this.emitRuntime(binding);
+    }
     this.emit('config-overrides', {
       agentId: binding.agentId,
       sessionId: binding.sessionId,
@@ -4094,6 +4116,36 @@ class AcpRuntime extends EventEmitter {
         value: Array.isArray(change.value) ? [...change.value] : change.value,
       })),
     });
+    if (binding.configOverrideWarnings.length !== previousWarningCount) this.emitSession(binding);
+  }
+
+  isSessionModelOverride(binding: AcpBinding, change: SessionConfigChange) {
+    const option = binding.configOptions?.find(candidate => candidate.id === change.configId);
+    // Keep the standard model identity recognizable even when discovery omits
+    // the entire option. Provider-specific legacy names stay at the adapter boundary.
+    return change.configId === 'model' || option?.category === 'model' || (
+      providerAcpConfigPolicy(binding.provider)?.matchModelByName === true
+      && /(^|[\s_-])model([\s_-]|$)/i.test(`${change.configId} ${option?.name || ''}`)
+    );
+  }
+
+  savedSessionModelError(binding: AcpBinding) {
+    for (const change of normalizeSessionConfigChanges(binding.restartOptions.configOverrides)) {
+      if (!this.isSessionModelOverride(binding, change)) continue;
+      const option = binding.configOptions?.find(candidate => candidate.id === change.configId);
+      if (
+        option?.currentValue === change.value
+        && !binding.configOverrideWarnings.some(warning => warning.configId === change.configId)
+      ) continue;
+      return `Saved ACP model ${JSON.stringify(change.value)} has not been restored. `
+        + 'Reconnect to refresh the model list or explicitly select an available model before sending.';
+    }
+    return '';
+  }
+
+  requireSavedSessionModel(binding: AcpBinding) {
+    const error = this.savedSessionModelError(binding);
+    if (error) throw new Error(error);
   }
 
   sessionConfigOverrideCompatibility(binding: AcpBinding, change: SessionConfigChange) {
@@ -4120,14 +4172,7 @@ class AcpRuntime extends EventEmitter {
     const modelOverrides: SessionConfigChange[] = [];
     const remainingOverrides: SessionConfigChange[] = [];
     for (const change of normalized) {
-      const option = binding.configOptions?.find(candidate => candidate.id === change.configId);
-      const isModel = option?.type === 'select' && (
-        option.category === 'model'
-        || (
-          providerAcpConfigPolicy(binding.provider)?.matchModelByName === true
-          && /(^|[\s_-])model([\s_-]|$)/i.test(`${option.id} ${option.name || ''}`)
-        )
-      );
+      const isModel = this.isSessionModelOverride(binding, change);
       (isModel ? modelOverrides : remainingOverrides).push(change);
     }
 
@@ -4136,7 +4181,17 @@ class AcpRuntime extends EventEmitter {
     for (const change of [...modelOverrides, ...remainingOverrides]) {
       const incompatibility = this.sessionConfigOverrideCompatibility(binding, change);
       if (incompatibility) {
-        warnings.push({ configId: change.configId, message: incompatibility });
+        const isModel = this.isSessionModelOverride(binding, change);
+        // An advertised catalog may be a fallback after a failed refresh. Its
+        // omissions cannot authorize deleting the user's selected model.
+        if (isModel) retained.push(change);
+        warnings.push({
+          configId: change.configId,
+          message: isModel
+            ? `Saved ACP model ${JSON.stringify(change.value)} is not in the current model list. `
+              + 'The selection is preserved; reconnect or select an available model before sending.'
+            : incompatibility,
+        });
         continue;
       }
       try {

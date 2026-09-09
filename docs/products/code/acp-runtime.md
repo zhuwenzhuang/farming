@@ -194,11 +194,21 @@ Configuration has two authorities:
 - after a user change is confirmed, Farming persists only that explicit
   override and reapplies it after the Provider Session is loaded.
 
-Overrides are matched by stable option identity, never by display labels. If a
-saved option or value is no longer supported, Farming keeps the Provider's
-current value, drops only the incompatible override, and reports a recovery
-warning without making the Session unusable. A transport failure is not proof
-that an override is permanently incompatible.
+Overrides are matched by stable option identity, never by display labels. A
+model missing from the advertised catalog is not proof of removal: the Provider
+may have returned a fallback catalog after a failed refresh. Farming preserves
+the saved model and reports a recovery warning. Until restoration succeeds or
+the user explicitly selects another model, Prompt and Steer reject before
+Provider submission; history, configuration, and reconnect remain available.
+Reconnect reapplies the saved choice against the new catalog. A confirmed model
+change and clearing its recovery warning belong to the same ordered mutation,
+so a waiting Prompt sees the confirmed selection.
+During reconnect's process replacement gap, Controller callbacks remain fenced
+to the Host's last published binding until the replacement publishes its epoch.
+
+For other unsupported options or values, Farming keeps the Provider's current
+value, drops only the incompatible override, and reports a recovery warning.
+A transport failure is not proof that an override is permanently incompatible.
 
 ## Turn And Mutation Semantics
 

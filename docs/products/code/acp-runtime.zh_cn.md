@@ -139,9 +139,16 @@ History 解析；该规则对所有 Provider 一致生效，直到 Adapter 特�
 - 用户修改得到确认后，Farming 只持久化这项显式 Override，并在加载 Provider Session 后
   重新应用。
 
-Override 只能按稳定 Option Identity 匹配，不能按展示 Label 猜测。保存的 Option 或 Value
-不再支持时，Farming 保留 Provider 当前值，只删除不兼容 Override，并显示恢复警告，不让
-Session 整体不可用。Transport Failure 不能证明 Override 永久不兼容。
+Override 只能按稳定 Option Identity 匹配，不能按展示 Label 猜测。模型未出现在发布的目录中
+不能证明模型已下架：Provider 可能在刷新失败后返回了回退目录。Farming 保留已保存的模型，
+并显示恢复警告。在恢复成功或用户显式选择其他模型之前，Prompt 和 Steer 必须在提交给
+Provider 前拒绝；历史、配置和重连仍然可用。重连使用新目录重新应用已保存的选择。
+模型修改得到确认与清除恢复警告属于同一次有序 Mutation，保证等待中的 Prompt 看到已确认的选择。
+重连替换进程的空档期内，Controller Callback 继续使用 Host 最后发布的 Binding 作为隔离边界，
+直到替代 Runtime 发布新的 Epoch。
+
+其他 Option 或 Value 不再支持时，Farming 保留 Provider 当前值，只删除不兼容 Override，
+并显示恢复警告。Transport Failure 不能证明 Override 永久不兼容。
 
 ## Turn 与 Mutation 语义
 
