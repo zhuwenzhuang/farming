@@ -191,6 +191,7 @@
     "react-arborist": "^3.10.5",
     "react-dom": "^19.2.4",
     "react-markdown": "^10.1.0",
+    "react-zoom-pan-pinch": "4.2.0",
     "rehype-highlight": "^7.0.2",
     "rehype-katex": "^7.0.1",
     "remark-gfm": "^4.0.1",

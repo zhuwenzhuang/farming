@@ -15,11 +15,11 @@ import {
   useState,
   type HTMLAttributes,
   type MouseEvent as ReactMouseEvent,
-  type PointerEvent,
   type RefObject,
   type ReactNode,
 } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
+import { TransformComponent, TransformWrapper, type ReactZoomPanPinchRef } from 'react-zoom-pan-pinch'
 import rehypeHighlight from 'rehype-highlight'
 import rehypeKatex from 'rehype-katex'
 import remarkGfm from 'remark-gfm'
@@ -761,8 +761,7 @@ export function MermaidBlock({ source, copy, pending }: { source: string; copy: 
   const renderId = useMemo(() => `farming-mermaid-${reactId}-${hashMermaidSource(renderSource)}-${appearance}`, [appearance, reactId, renderSource])
   const canvasRef = useRef<HTMLDivElement | null>(null)
   const viewportRef = useRef<HTMLDivElement | null>(null)
-  const dragRef = useRef<{ pointerId: number; startX: number; startY: number; baseX: number; baseY: number } | null>(null)
-  const didPanRef = useRef(false)
+  const transformRef = useRef<ReactZoomPanPinchRef | null>(null)
   const [retry, setRetry] = useState(0)
   const config = useMemo(() => ({ startOnLoad: false, securityLevel: 'strict' as const, theme: 'base' as const, themeVariables: mermaidThemeVariables(appearance) }), [appearance])
   const renderState = useMermaidRender({ source: renderSource, id: `${renderId}-${retry}`, config, renderer: renderCodeMermaid, pending })
@@ -797,7 +796,11 @@ export function MermaidBlock({ source, copy, pending }: { source: string; copy: 
   }, [renderState.diagram, isFullscreen])
 
   const setNextZoom = useCallback((nextZoom: number) => {
-    setZoom(Math.min(6, Math.max(0.5, Number(nextZoom.toFixed(2)))))
+    const api = transformRef.current
+    const viewport = viewportRef.current?.getBoundingClientRect()
+    if (!api || !viewport) return
+    void api.zoomToPoint(Math.min(6, Math.max(0.5, Number(nextZoom.toFixed(2)))),
+      viewport.x + viewport.width / 2, viewport.y + viewport.height / 2, 0)
   }, [])
 
   const measureDiagram = useCallback(() => {
@@ -821,6 +824,7 @@ export function MermaidBlock({ source, copy, pending }: { source: string; copy: 
   }, [isFullscreen, viewMode])
 
   const resetView = useCallback((mode: 'fit' | 'actual') => {
+    void transformRef.current?.setTransform(0, 0, 1, 0)
     setViewMode(mode)
     setZoom(1)
     setOffset({ x: 0, y: 0 })
@@ -858,59 +862,6 @@ export function MermaidBlock({ source, copy, pending }: { source: string; copy: 
       observer.disconnect()
     }
   }, [measureDiagram, isFullscreen, renderState.diagram])
-
-  const handlePointerDown = useCallback((event: PointerEvent<HTMLDivElement>) => {
-    if (renderState.status !== 'ready' || (!panMode && !event.altKey)) return
-    didPanRef.current = false
-    dragRef.current = {
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startY: event.clientY,
-      baseX: offset.x,
-      baseY: offset.y,
-    }
-    event.currentTarget.setPointerCapture(event.pointerId)
-  }, [offset.x, offset.y, panMode, renderState.status])
-
-  const handlePointerMove = useCallback((event: PointerEvent<HTMLDivElement>) => {
-    const drag = dragRef.current
-    if (!drag || drag.pointerId !== event.pointerId) return
-    didPanRef.current = true
-    setOffset({
-      x: drag.baseX + event.clientX - drag.startX,
-      y: drag.baseY + event.clientY - drag.startY,
-    })
-  }, [])
-
-  const handlePointerEnd = useCallback((event: PointerEvent<HTMLDivElement>) => {
-    if (dragRef.current?.pointerId === event.pointerId) {
-      dragRef.current = null
-    }
-  }, [])
-
-  const handleWheel = useCallback((event: WheelEvent) => {
-    if (renderState.status !== 'ready' || (!event.altKey && !event.ctrlKey)) return
-    event.preventDefault()
-    setNextZoom(zoom * (event.deltaY < 0 ? 1.2 : 1 / 1.2))
-  }, [renderState.status, setNextZoom, zoom])
-
-  useEffect(() => {
-    const viewport = viewportRef.current
-    if (!viewport) return
-    // Modifier-wheel zoom must cancel browser scrolling/zooming. React's
-    // delegated wheel listener is passive in supported browsers.
-    viewport.addEventListener('wheel', handleWheel, { passive: false })
-    return () => viewport.removeEventListener('wheel', handleWheel)
-  }, [handleWheel, isFullscreen, renderState.diagram])
-
-  const handleDiagramClick = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
-    if (didPanRef.current) {
-      didPanRef.current = false
-      return
-    }
-    if (renderState.status !== 'ready' || !event.altKey || dragRef.current) return
-    setNextZoom(zoom * (event.shiftKey ? 1 / 1.2 : 1.2))
-  }, [renderState.status, setNextZoom, zoom])
 
   const handleCopySource = useCallback(() => {
     void writeClipboardText(renderSource).then(copied => {
@@ -957,13 +908,25 @@ export function MermaidBlock({ source, copy, pending }: { source: string; copy: 
         {!readyState || renderState.status !== 'ready' ? <div className="code-markdown-mermaid-loading" role="status">
           {renderState.status === 'streaming' ? copy.mermaidGenerating : renderState.status === 'interrupted' ? copy.mermaidIncomplete : copy.mermaidRendering}
         </div> : null}
-        {readyState && <div ref={viewportRef} className={`code-markdown-mermaid-viewport ${panMode ? 'pannable' : ''}`}
-          onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerUp={handlePointerEnd}
-          onPointerCancel={handlePointerEnd} onClick={handleDiagramClick}>
-          <div ref={canvasRef} className="code-markdown-mermaid-canvas" style={{
-            ...(canvasSize ? { width: `${canvasSize.width}px`, height: `${canvasSize.height}px` } : {}),
-            transform: `translate(${offset.x}px, ${offset.y}px) scale(${zoom})`,
-          }} dangerouslySetInnerHTML={{ __html: readyState.svg }} />
+        {readyState && <div ref={viewportRef} className={`code-markdown-mermaid-viewport ${panMode ? 'pannable' : ''}`}>
+          <TransformWrapper ref={transformRef} initialScale={zoom} initialPositionX={offset.x} initialPositionY={offset.y}
+            minScale={0.5} maxScale={6} limitToBounds={false} smooth={false}
+            disabled={renderState.status !== 'ready'}
+            wheel={{ activationKeys: keys => keys.includes('Control') || keys.includes('Alt') }}
+            panning={{ disabled: !panMode, velocityDisabled: true }}
+            doubleClick={{ mode: 'toggle', animationTime: 0 }}
+            zoomAnimation={{ disabled: true }} autoAlignment={{ disabled: true }} velocityAnimation={{ disabled: true }}
+            onTransform={(_, state) => { setZoom(state.scale); setOffset({ x: state.positionX, y: state.positionY }) }}>
+            {/* Avoid a separate GPU bitmap layer so SVG labels stay sharp when zoomed. */}
+            <TransformComponent wrapperClass="code-markdown-mermaid-gesture-viewport"
+              contentClass="code-markdown-mermaid-gesture-content"
+              wrapperStyle={{ transform: 'none', width: '100%', height: isFullscreen ? '100%' : `${Math.min(canvasSize?.height || 120, Math.min(640, window.innerHeight * 0.72) - 48)}px` }}
+              contentStyle={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <div ref={canvasRef} className="code-markdown-mermaid-canvas" style={
+                canvasSize ? { width: `${canvasSize.width}px`, height: `${canvasSize.height}px` } : undefined
+              } dangerouslySetInnerHTML={{ __html: readyState.svg }} />
+            </TransformComponent>
+          </TransformWrapper>
         </div>}
       </>}
     </>

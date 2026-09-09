@@ -570,3 +570,14 @@ viewers with sidebar, Composer and nested interaction layers; verify real SVG
 bounds, hit testing, focus and preserved viewing intent in Light, Dark, Paper
 and initial narrow/touch layouts. Appearance changes must preserve identifiable
 diagram node shapes, not only readable text.
+
+Diagram gestures have one transform owner, shared by inline and fullscreen views.
+Wheel zoom requires Ctrl or Alt and keeps the point under the pointer fixed;
+ordinary wheel input remains available for reading. Two-finger pinch and double
+click/tap zoom operate around the gesture position. The pan control enables drag
+panning; disabling it permits ordinary one-finger page scrolling. Fit and actual
+size cancel the current transform and recenter. Fullscreen entry starts fitted,
+while closing restores the saved inline transform. Source/appearance updates do
+not recreate the gesture owner; removing content releases its listeners and work.
+The gesture library owns scale/translation and gesture cancellation, while Farming
+owns fit dimensions, toolbar state, render revisions and viewer lifetime.

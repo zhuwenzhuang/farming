@@ -954,7 +954,7 @@ test('preserves diagram inspection through file refresh, repaint and terminal re
   const viewer = page.getByRole('dialog', { name: 'Mermaid diagram', exact: true })
   await expect(viewer).toBeVisible()
   await viewer.getByRole('button', { name: 'Zoom in', exact: true }).click()
-  const canvas = viewer.locator('.code-markdown-mermaid-canvas')
+  const canvas = viewer.locator('.code-markdown-mermaid-gesture-content')
   const before = await canvas.evaluate(element => (element as HTMLElement).style.transform)
   fs.writeFileSync(file, markdown('Updated output'))
   await expect(viewer.locator('.code-markdown-mermaid-canvas')).toContainText('Updated output')

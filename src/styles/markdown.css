@@ -602,10 +602,10 @@
   min-height: 120px;
   max-height: min(640px, 72vh);
   padding: 24px 18px;
-  overflow: auto;
-  display: grid;
-  place-items: safe center;
-  touch-action: pan-x pan-y;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  touch-action: pan-y;
 }
 
 .code-markdown-mermaid.fullscreen .code-markdown-mermaid-viewport {
@@ -618,6 +618,7 @@
 }
 
 .code-markdown-mermaid.fullscreen .code-markdown-mermaid-canvas {
+  flex-shrink: 0;
   max-width: none;
 }
 
@@ -627,6 +628,15 @@
   width: 100%;
   height: 100%;
   display: block;
+}
+
+.code-markdown-mermaid-gesture-viewport {
+  min-height: 0;
+  touch-action: pan-y;
+}
+
+.code-markdown-mermaid-viewport.pannable .code-markdown-mermaid-gesture-viewport {
+  touch-action: none;
 }
 
 .code-markdown-mermaid-viewport.pannable {
@@ -639,6 +649,7 @@
 }
 
 .code-markdown-mermaid-canvas {
+  flex-shrink: 0;
   max-width: none;
   transform-origin: center center;
   will-change: transform;
