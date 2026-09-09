@@ -117,6 +117,7 @@ export interface AgentTranscriptTurn {
   completedAt: number | null
   durationMs: number | null
   status: 'inProgress' | 'completed' | 'interrupted' | 'missingFinalReply' | string
+  stopReason?: string
   processItems: AgentTranscriptProcessItem[]
 }
 
@@ -852,6 +853,9 @@ export function projectAcpTranscript(sessionValue: unknown, options: { maxTurns?
     .includes(stringValue(session.stopReason).toLowerCase())) {
     lastTurn.status = 'interrupted'
   }
+  // Result presence and stream termination are separate facts: a final-answer
+  // message can still be cut off by cancellation or a provider limit.
+  if (lastTurn && !activeSession) lastTurn.stopReason = stringValue(session.stopReason)
   const maxTurns = Number.isFinite(Number(options.maxTurns)) ? Math.max(1, Math.floor(Number(options.maxTurns))) : 80
   const visibleTurns = turns.slice(-maxTurns)
   const rawSubagents = record(session.codexSubagents)

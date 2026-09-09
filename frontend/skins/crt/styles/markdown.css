@@ -249,3 +249,17 @@
 #farming-crt .crt-markdown .hljs-deletion {
     color: #ffa198;
 }
+
+#farming-crt .code-markdown-math-pending {
+  color: inherit;
+  white-space: pre-wrap;
+}
+
+#farming-crt .crt-markdown-mermaid details {
+  margin-top: 10px;
+}
+
+#farming-crt .crt-markdown-mermaid details pre {
+  max-height: 320px;
+  overflow: auto;
+}

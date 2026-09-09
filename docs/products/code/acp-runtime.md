@@ -530,3 +530,42 @@ checkpoint/delta gaps, reading-position restore, Chat/Terminal switching,
 Fork, media and tool evidence, and large multi-Agent workloads. Scale tests
 must measure process count, memory, wire volume, browser render work, and
 navigation latency without imposing a fixed concurrency ceiling.
+
+
+### Streaming rich content and inspection
+
+Turn and message state own whether content is streaming, settled or interrupted.
+An unfinished Mermaid fence uses a stable neutral generating surface; a closed
+block renders immediately, without waiting for Turn completion. An interrupted
+unfinished block remains visibly incomplete. Settled content is validated even
+when Markdown omits a closing fence. Incomplete math remains readable without a
+transient parser error; settled invalid math retains its diagnostic. Ordinary
+prose, code and tables continue through the live snapshot cadence.
+
+A diagram block owns one running render and one latest desired revision. Only
+the current revision may publish; old queued work is skipped, the final revision
+must run, and asynchronous rendering has a bounded failure with a render-only
+Retry. Source and appearance updates retain the previous valid diagram while
+repainting. Unmount revokes publication and releases timers. Code and CRT share
+this content-state and scheduling contract while retaining their product skins.
+
+Viewing intent is independent of render state. Updates and appearance changes
+preserve an open viewer, zoom and pan. Closing or removing its owning content
+releases the viewer without replaying Agent work. Image and diagram inspection
+use the shared full-viewport content shell, with an application-level portal,
+background isolation, top-layer Escape, a focus loop and focus return. The shell
+owns title, actions and viewport geometry; content owns fit, zoom and pan.
+Diagram labels use an 18px natural size. Inline diagrams retain that size with
+contained scrolling; full viewers may enlarge a small diagram, but never silently
+shrink a large diagram below its natural size. Fit is an explicit overview action;
+the zoom percentage also restores actual size (100%). Controls occupy a separate
+row so they cannot obscure nodes. These rules also apply to file previews.
+Inline placeholders retain reading geometry while the viewer is open. File
+reading-width changes remain layout operations under their existing owner.
+
+Acceptance observes the entire update sequence, including unfinished and
+invalid syntax, completion, interruption, late results and unmount. Compose
+viewers with sidebar, Composer and nested interaction layers; verify real SVG
+bounds, hit testing, focus and preserved viewing intent in Light, Dark, Paper
+and initial narrow/touch layouts. Appearance changes must preserve identifiable
+diagram node shapes, not only readable text.

@@ -221,10 +221,23 @@ assert.deepStrictEqual(structuredTranscriptTurns({
 	  userImages: [],
 	  finalMessage: 'Second answer',
 	  resultImages: [],
+    status: 'completed',
+    stopReason: undefined,
 	}]);
 
 assert.deepStrictEqual(structuredTranscriptTurns({
   turns: [{ userMessage: 'Legacy request', finalMessage: 'Legacy answer' }],
 }), [{ userMessage: 'Legacy request', finalMessage: 'Legacy answer' }]);
+
+for (const state of ['working', 'waiting-for-permission', 'waiting-for-input', 'interrupting']) {
+  const turns = structuredTranscriptTurns({ state, entries: [
+    { type: 'message', role: 'assistant', content: [{ type: 'text', text: 'Partial answer' }] },
+  ] });
+  assert.strictEqual(turns[0].status, 'inProgress');
+}
+const stopped = structuredTranscriptTurns({ state: 'idle', stopReason: 'cancelled', entries: [
+  { type: 'message', role: 'assistant', content: [{ type: 'text', text: 'Partial answer' }] },
+] });
+assert.strictEqual(stopped[0].stopReason, 'cancelled');
 
 console.log('CRT runtime switch helper tests passed');

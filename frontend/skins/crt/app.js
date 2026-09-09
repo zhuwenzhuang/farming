@@ -6108,6 +6108,12 @@ function structuredTranscriptTurns(transcript) {
         current.finalMessage = text;
         current.resultImages = images;
     });
+    const lastTurn = turns[turns.length - 1];
+    if (lastTurn) {
+        lastTurn.status = ['working', 'waiting-for-permission', 'waiting-for-input', 'interrupting'].includes(transcript?.state || '')
+            ? 'inProgress' : 'completed';
+        lastTurn.stopReason = transcript?.stopReason;
+    }
     return turns;
 }
 function normalizeCrtStructuredPreviewText(value, limit = 240) {

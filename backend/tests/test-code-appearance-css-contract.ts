@@ -604,7 +604,7 @@ const semanticStateContracts = [
   ['src/styles/share.css', '.code-mobile-install-control', 'background', 'var(--code-bg-hover-strong)'],
   ['src/styles/file-editor.css', '.code-file-editor-action:hover:not(:disabled)', 'background', 'var(--code-bg-hover)'],
   ['src/styles/settings.css', '.code-settings-update-actions button.primary:hover:not(:disabled),\n.code-settings-update-actions button.primary:focus-visible', 'background', 'var(--code-accent-hover)'],
-  ['src/styles/markdown.css', ".code-markdown-mermaid-toolbar button:hover:not(:disabled),\n.code-markdown-mermaid-toolbar button:focus-visible", 'background', 'var(--code-bg-hover)'],
+  ['src/styles/ui-design.css', ".code-content-toolbar button:is(:hover, [aria-pressed='true']):not(:disabled),\n.code-content-viewer-actions > button:hover,\n.code-rich-content-retry:hover", 'background', 'var(--code-bg-hover)'],
 ] as const
 for (const [sourcePath, selector, property, expectedValue] of semanticStateContracts) {
   const root = postcss.parse(fs.readFileSync(path.join(projectRoot, sourcePath), 'utf8'), { from: sourcePath })

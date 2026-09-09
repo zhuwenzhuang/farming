@@ -141,3 +141,29 @@ test('renders KaTeX and lazily loaded Mermaid with a bounded diagram error state
   await expect(errorFigure.locator('code.language-mermaid')).toContainText('this is not a diagram')
   await expect(page.locator('.crt-structured-error')).toHaveCount(0)
 })
+
+test('keeps CRT rich content neutral through partial syntax and validates the final block', async ({ page, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'crt-streaming-rich-content')
+  fs.mkdirSync(workspace, { recursive: true })
+  const gate = path.join(workspace, '.rich-content-stage')
+  const input = await openCrtAcpAgent(page, workspace)
+  try {
+    await input.fill('streaming rich content')
+    await input.press('Enter')
+    const answer = page.locator('.crt-structured-message.assistant.crt-markdown').last()
+    const diagram = answer.locator('.crt-markdown-mermaid').first()
+    await expect(diagram).toHaveAttribute('data-render-state', 'streaming')
+    await expect(answer.locator('.crt-markdown-mermaid.error, .katex-error')).toHaveCount(0)
+    fs.writeFileSync(gate, '1')
+    await expect(diagram).toHaveAttribute('data-render-state', 'ready')
+    await expect(answer.locator('[data-math-pending]')).toBeVisible()
+    fs.writeFileSync(gate, '2')
+    await expect(answer.locator('.katex')).toBeVisible()
+    await expect(answer.locator('.crt-markdown-mermaid').last()).toHaveAttribute('data-render-state', 'streaming')
+    await expect(answer.locator('.crt-markdown-mermaid.error, .katex-error')).toHaveCount(0)
+    fs.writeFileSync(gate, '3')
+    await expect(answer.locator('.crt-markdown-mermaid').last()).toHaveAttribute('data-render-state', 'error')
+  } finally {
+    fs.writeFileSync(gate, '3')
+  }
+})

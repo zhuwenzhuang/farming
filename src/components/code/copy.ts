@@ -483,6 +483,10 @@ export interface CodeCopy {
   markdownHeadingAnchor: string
   mermaidDiagram: string
   mermaidDiagramControls: string
+  mermaidGenerating: string
+  mermaidIncomplete: string
+  mermaidRetry: string
+  mermaidErrorDetails: string
   mermaidRendering: string
   mermaidRenderFailed: string
   mermaidZoomIn: string
@@ -491,6 +495,9 @@ export interface CodeCopy {
   mermaidEnterFullscreen: string
   mermaidExitFullscreen: string
   mermaidResetView: string
+  mermaidActualSize: string
+  mermaidFitView: string
+  mermaidFit: string
   mermaidCopySource: string
   mermaidCopiedSource: string
   fileDiff: string
@@ -1124,6 +1131,10 @@ const EN_COPY: CodeCopy = {
   markdownHeadingAnchor: 'Link to heading',
   mermaidDiagram: 'Mermaid diagram',
   mermaidDiagramControls: 'Mermaid diagram controls',
+  mermaidGenerating: 'Generating diagram…',
+  mermaidIncomplete: 'Diagram incomplete',
+  mermaidRetry: 'Retry',
+  mermaidErrorDetails: 'Details and source',
   mermaidRendering: 'Rendering diagram...',
   mermaidRenderFailed: 'Unable to render Mermaid diagram',
   mermaidZoomIn: 'Zoom in',
@@ -1132,6 +1143,9 @@ const EN_COPY: CodeCopy = {
   mermaidEnterFullscreen: 'Open fullscreen diagram',
   mermaidExitFullscreen: 'Close fullscreen diagram',
   mermaidResetView: 'Reset view',
+  mermaidActualSize: 'Actual size (100%)',
+  mermaidFitView: 'Fit diagram to view',
+  mermaidFit: 'Fit',
   mermaidCopySource: 'Copy Mermaid source',
   mermaidCopiedSource: 'Copied Mermaid source',
   fileDiff: 'File Diff',
@@ -1801,6 +1815,10 @@ const ZH_COPY: CodeCopy = {
   markdownHeadingAnchor: '跳转到这个标题',
   mermaidDiagram: 'Mermaid 图表',
   mermaidDiagramControls: 'Mermaid 图表控制',
+  mermaidGenerating: '正在生成图表…',
+  mermaidIncomplete: '图表尚未完成',
+  mermaidRetry: '重试',
+  mermaidErrorDetails: '详情与源码',
   mermaidRendering: '正在渲染图表...',
   mermaidRenderFailed: '无法渲染 Mermaid 图表',
   mermaidZoomIn: '放大',
@@ -1809,6 +1827,9 @@ const ZH_COPY: CodeCopy = {
   mermaidEnterFullscreen: '全屏查看图表',
   mermaidExitFullscreen: '退出全屏查看',
   mermaidResetView: '重置视图',
+  mermaidActualSize: '原始尺寸（100%）',
+  mermaidFitView: '适应窗口',
+  mermaidFit: '适应',
   mermaidCopySource: '复制 Mermaid 源码',
   mermaidCopiedSource: '已复制 Mermaid 源码',
   fileDiff: '文件 Diff',

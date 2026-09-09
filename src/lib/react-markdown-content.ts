@@ -17,3 +17,10 @@ export function mermaidCodeBlockSource(children: ReactNode) {
   if (!/\blanguage-mermaid\b/i.test(props.className || '')) return null
   return markdownTextContent(props.children).replace(/\n$/, '')
 }
+
+export function mermaidCodeBlockPending(children: ReactNode): import('./streaming-markdown').PendingRichContent {
+  const child = Children.count(children) === 1 ? Children.only(children) : null
+  if (!isValidElement(child)) return undefined
+  const value = (child.props as { 'data-content-pending'?: unknown })['data-content-pending']
+  return value === 'streaming' || value === 'interrupted' ? value : undefined
+}

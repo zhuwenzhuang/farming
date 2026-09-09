@@ -67,7 +67,7 @@ import { writeClipboardText } from '@/lib/clipboard'
 import { iconForFilePath } from '@/lib/file-icons'
 import { GLOBAL_WORKSPACE_FILES_AGENT_ID, normalizeGlobalWorkspaceFilePath } from '@/lib/global-workspace-files'
 import { recordPerformanceTestRender } from '@/lib/performance-test-observer'
-import { markdownTextContent, mermaidCodeBlockSource } from '@/lib/react-markdown-content'
+import { markdownTextContent, mermaidCodeBlockSource, mermaidCodeBlockPending } from '@/lib/react-markdown-content'
 import {
   clearReadingAnchor,
   encodeReadingAnchor,
@@ -79,6 +79,10 @@ import type { WorkspaceShareTarget } from '@/lib/workspace-share-target'
 import { isCompactViewport } from '@/lib/responsive-mode'
 import { useSharedNow } from '@/lib/shared-now'
 import { isPageActive } from '@/hooks/usePageVisibility'
+import { ContentViewerDialog } from '@/components/ContentViewerDialog'
+import { remarkStreamingContent, richContentPhase } from '@/lib/streaming-markdown'
+import { rehypeGuardInvalidKatex } from '@/lib/markdown-preview-compatibility'
+import type { PluggableList } from 'unified'
 import { useModalFocusScope } from '@/hooks/useModalFocusScope'
 import { loadAcpReviewPreview, loadReviewComparisonSources } from '@/lib/review/api'
 import {
@@ -195,7 +199,7 @@ type OpenTranscriptImagePreview = (preview: TranscriptImagePreview, trigger: HTM
 
 const TranscriptImagePreviewContext = createContext<OpenTranscriptImagePreview | null>(null)
 const TRANSCRIPT_REMARK_PLUGINS = [remarkGfm, remarkMath]
-const TRANSCRIPT_REHYPE_PLUGINS = [rehypeKatex, rehypeHighlight]
+
 const EMPTY_SUBAGENT_STATES: AgentTranscriptSubagentState[] = []
 
 export interface AgentTranscriptPaneProps {
@@ -2017,21 +2021,26 @@ function AgentTranscriptCollaborationSpace({
 }
 
 function PerformanceObservedTranscriptMarkdown({
-  live,
+  status,
+  stopReason,
   components,
   children,
 }: {
-  live: boolean
+  status?: string
+  stopReason?: string
   components: Components
   children: string
 }) {
-  recordPerformanceTestRender(live
+  const phase = richContentPhase(status, stopReason)
+  const remarkPlugins = useMemo<PluggableList>(() => [...TRANSCRIPT_REMARK_PLUGINS, [remarkStreamingContent, { phase }]], [phase])
+  const rehypePlugins = useMemo<PluggableList>(() => [[rehypeGuardInvalidKatex, { pending: phase !== 'settled' }], rehypeKatex, rehypeHighlight], [phase])
+  recordPerformanceTestRender(status === 'inProgress'
     ? 'liveTranscriptMarkdown'
     : 'completedTranscriptMarkdown')
   return (
     <ReactMarkdown
-      remarkPlugins={TRANSCRIPT_REMARK_PLUGINS}
-      rehypePlugins={TRANSCRIPT_REHYPE_PLUGINS}
+      remarkPlugins={remarkPlugins}
+      rehypePlugins={rehypePlugins}
       components={components}
       skipHtml
       urlTransform={agentTranscriptUrlTransform}
@@ -2080,7 +2089,7 @@ function AgentTranscriptProgressUpdate({
       >
         <LocalRenderFault surface="transcript-markdown" identity={item.id}>
           <PerformanceObservedTranscriptMarkdown
-            live={item.status === 'inProgress'}
+            status={item.status}
             components={markdownComponents}
           >{progressText}</PerformanceObservedTranscriptMarkdown>
         </LocalRenderFault>
@@ -2843,7 +2852,7 @@ function AgentTranscriptTurnView({
           >
             <LocalRenderFault surface="transcript-mermaid" identity={turn.id}>
               <Suspense fallback={<div className="code-markdown-mermaid-loading">{copy.mermaidRendering}</div>}>
-                <TranscriptMermaidBlock source={mermaidSource} copy={copy} />
+                <TranscriptMermaidBlock source={mermaidSource} copy={copy} pending={mermaidCodeBlockPending(children)} />
               </Suspense>
             </LocalRenderFault>
           </LocalErrorBoundary>
@@ -3069,7 +3078,8 @@ function AgentTranscriptTurnView({
               >
                 <LocalRenderFault surface="transcript-markdown" identity={turn.id}>
                   <PerformanceObservedTranscriptMarkdown
-                    live={turn.status === 'inProgress'}
+                    status={turn.status}
+                    stopReason={turn.stopReason}
                     components={markdownComponents}
                   >{answerMessage}</PerformanceObservedTranscriptMarkdown>
                 </LocalRenderFault>
@@ -3202,14 +3212,7 @@ export function AgentTranscriptPane({
   const [showJumpToBottom, setShowJumpToBottom] = useState(false)
   const [imagePreview, setImagePreview] = useState<TranscriptImagePreview | null>(null)
   const imagePreviewTriggerRef = useRef<HTMLButtonElement | null>(null)
-  const imagePreviewCloseRef = useRef<HTMLButtonElement | null>(null)
   const closeImagePreview = useCallback(() => setImagePreview(null), [])
-  const imagePreviewOverlayRef = useModalFocusScope<HTMLDivElement>({
-    open: Boolean(imagePreview),
-    initialFocusRef: imagePreviewCloseRef,
-    returnFocusRef: imagePreviewTriggerRef,
-    onEscape: closeImagePreview,
-  })
   const openImagePreview = useCallback<OpenTranscriptImagePreview>((preview, trigger) => {
     imagePreviewTriggerRef.current = trigger
     setImagePreview(preview)
@@ -4320,36 +4323,12 @@ export function AgentTranscriptPane({
         </button>
       ) : null}
       </div>
-      {imagePreview ? createPortal(
-        <div
-          ref={imagePreviewOverlayRef}
-          className="code-agent-transcript-image-overlay"
-          data-testid="code-agent-transcript-image-overlay"
-          role="dialog"
-          aria-modal="true"
-          aria-label={imagePreview.label}
-          onClick={closeImagePreview}
-        >
-          <button
-            ref={imagePreviewCloseRef}
-            type="button"
-            className="code-agent-transcript-image-close"
-            aria-label="Close image preview"
-            onClick={event => {
-              event.stopPropagation()
-              closeImagePreview()
-            }}
-          >
-            <CloseGlyph />
-          </button>
-          <img
-            src={imagePreview.url}
-            alt={imagePreview.label}
-            onClick={event => event.stopPropagation()}
-          />
-        </div>,
-        document.body,
-      ) : null}
+      {imagePreview ? <ContentViewerDialog title={imagePreview.label} closeLabel="Close image preview"
+        testId="code-agent-transcript-image-overlay" onClose={closeImagePreview} returnFocusRef={imagePreviewTriggerRef}>
+        <div className="code-content-viewer-image" onClick={closeImagePreview}>
+          <img src={imagePreview.url} alt={imagePreview.label} onClick={event => event.stopPropagation()} />
+        </div>
+      </ContentViewerDialog> : null}
       </TranscriptFileOpenContext.Provider>
     </TranscriptImagePreviewContext.Provider>
   )

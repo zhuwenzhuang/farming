@@ -412,7 +412,7 @@ function hastText(node: MutableHastNode): string {
   return node.children?.map(hastText).join('') ?? ''
 }
 
-function guardInvalidMath(node: MutableHastNode, parent?: MutableHastNode) {
+function guardInvalidMath(node: MutableHastNode, parent?: MutableHastNode, pending = false) {
   if (node.type === 'element') {
     const classes = Array.isArray(node.properties?.className)
       ? node.properties.className.filter((value): value is string => typeof value === 'string')
@@ -427,17 +427,17 @@ function guardInvalidMath(node: MutableHastNode, parent?: MutableHastNode) {
       } catch (error) {
         node.properties = {
           ...node.properties,
-          className: [...classes.filter(className => !mathClasses.includes(className)), 'code-markdown-math-error'],
-          dataMathError: 'true',
-          title: error instanceof Error ? error.message : String(error),
+          className: [...classes.filter(className => !mathClasses.includes(className)), pending ? 'code-markdown-math-pending' : 'code-markdown-math-error'],
+          ...(pending ? { dataMathPending: 'true' } : { dataMathError: 'true' }),
+          title: pending ? undefined : error instanceof Error ? error.message : String(error),
         }
       }
     }
   }
 
-  node.children?.forEach(child => guardInvalidMath(child, node))
+  node.children?.forEach(child => guardInvalidMath(child, node, pending))
 }
 
-export const rehypeGuardInvalidKatex: Plugin<[], HastRoot> = () => tree => {
-  guardInvalidMath(tree as MutableHastNode)
+export const rehypeGuardInvalidKatex: Plugin<[{ pending?: boolean }?], HastRoot> = (options) => tree => {
+  guardInvalidMath(tree as MutableHastNode, undefined, options?.pending)
 }

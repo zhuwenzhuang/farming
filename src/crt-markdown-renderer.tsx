@@ -15,9 +15,16 @@ import rehypeKatex from 'rehype-katex'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import 'katex/dist/katex.min.css'
-import { mermaidCodeBlockSource } from '@/lib/react-markdown-content'
+import { useMermaidRender } from '@/hooks/useMermaidRender'
+import { createMermaidRenderer, type MermaidConfig } from '@/lib/mermaid-renderer'
+import { remarkStreamingContent, richContentPhase, type PendingRichContent } from '@/lib/streaming-markdown'
+import { rehypeGuardInvalidKatex } from '@/lib/markdown-preview-compatibility'
+import type { PluggableList } from 'unified'
+import { mermaidCodeBlockSource, mermaidCodeBlockPending } from '@/lib/react-markdown-content'
 
 type CrtTranscriptTurn = {
+  status?: string
+  stopReason?: string
   id?: string | null
   userMessage?: string | null
   userImages?: CrtTranscriptImage[] | null
@@ -37,11 +44,6 @@ type CrtMarkdownRenderer = {
 }
 
 type CrtMermaidApi = Pick<typeof import('mermaid').default, 'initialize' | 'parse' | 'render'>
-
-type MermaidRenderState =
-  | { status: 'loading' }
-  | { status: 'ready'; svg: string; bindFunctions?: (element: Element) => void }
-  | { status: 'error'; message: string }
 
 declare global {
   interface Window {
@@ -100,7 +102,7 @@ const markdownComponents: Components = {
   },
   pre({ children, ...props }) {
     const mermaidSource = mermaidCodeBlockSource(children)
-    if (mermaidSource !== null) return <MermaidBlock source={mermaidSource} />
+    if (mermaidSource !== null) return <MermaidBlock source={mermaidSource} pending={mermaidCodeBlockPending(children)} />
     return <pre {...props}>{children}</pre>
   },
 }
@@ -121,124 +123,77 @@ function loadMermaidRuntime() {
     const script = document.createElement('script')
     script.src = new URL('crt-mermaid-renderer.js', document.baseURI).href
     script.async = true
+    const fail = (message: string) => {
+      script.remove()
+      mermaidRuntimePromise = null
+      reject(new Error(message))
+    }
     script.onload = () => {
       const mermaid = window.FarmingCrtMermaid
       if (!mermaid) {
-        reject(new Error('Mermaid runtime loaded without exposing its renderer'))
+        fail('Mermaid runtime loaded without exposing its renderer')
         return
       }
-      mermaid.initialize({
-        startOnLoad: false,
-        securityLevel: 'strict',
-        theme: 'base',
-        themeVariables: {
-          background: '#001008',
-          mainBkg: '#062417',
-          primaryColor: '#062417',
-          primaryTextColor: '#b9e6cb',
-          primaryBorderColor: '#20c977',
-          secondaryColor: '#102d27',
-          tertiaryColor: '#071c13',
-          lineColor: '#55f59b',
-          textColor: '#b9e6cb',
-          fontFamily: "'Courier New', monospace",
-        },
-      })
       resolve(mermaid)
     }
-    script.onerror = () => reject(new Error('Failed to load Mermaid renderer'))
+    script.onerror = () => fail('Failed to load Mermaid renderer')
     document.head.appendChild(script)
   })
   return mermaidRuntimePromise
 }
 
-function MermaidBlock({ source }: { source: string }) {
+const crtMermaidConfig: MermaidConfig = {
+  startOnLoad: false,
+  securityLevel: 'strict',
+  theme: 'base',
+  themeVariables: {
+    background: '#001008',
+    mainBkg: '#062417',
+    primaryColor: '#062417',
+    primaryTextColor: '#b9e6cb',
+    primaryBorderColor: '#20c977',
+    secondaryColor: '#102d27',
+    tertiaryColor: '#071c13',
+    lineColor: '#55f59b',
+    textColor: '#b9e6cb',
+    fontFamily: "'Courier New', monospace",
+  },
+}
+const renderCrtMermaid = createMermaidRenderer(loadMermaidRuntime)
+
+function MermaidBlock({ source, pending }: { source: string; pending?: PendingRichContent }) {
   const reactId = useId().replace(/[^a-zA-Z0-9_-]/g, '')
-  const renderId = useMemo(() => `farming-crt-mermaid-${reactId}-${hashMermaidSource(source)}`, [reactId, source])
+  const [retry, setRetry] = useState(0)
+  const renderId = `farming-crt-mermaid-${reactId}-${hashMermaidSource(source)}-${retry}`
   const figureRef = useRef<HTMLElement | null>(null)
   const canvasRef = useRef<HTMLDivElement | null>(null)
   const followOutputRef = useRef(false)
-  const [renderState, setRenderState] = useState<MermaidRenderState>({ status: 'loading' })
-
-  useEffect(() => {
-    if (!source.trim()) {
-      setRenderState({ status: 'error', message: 'Empty Mermaid diagram' })
-      return
-    }
-    let disposed = false
-    setRenderState({ status: 'loading' })
-    loadMermaidRuntime()
-      .then(async mermaid => {
-        await mermaid.parse(source)
-        return mermaid.render(renderId, source)
-      })
-      .then(({ svg, bindFunctions }) => {
-        if (disposed) return
-        const container = figureRef.current?.closest<HTMLElement>('#terminal-output')
-        followOutputRef.current = Boolean(
-          container && container.scrollHeight - container.scrollTop - container.clientHeight < 80,
-        )
-        setRenderState({ status: 'ready', svg, bindFunctions })
-      })
-      .catch(error => {
-        if (disposed) return
-        const container = figureRef.current?.closest<HTMLElement>('#terminal-output')
-        followOutputRef.current = Boolean(
-          container && container.scrollHeight - container.scrollTop - container.clientHeight < 80,
-        )
-        setRenderState({
-          status: 'error',
-          message: error instanceof Error ? error.message : String(error || 'Failed to render Mermaid diagram'),
-        })
-      })
-    return () => {
-      disposed = true
-    }
-  }, [renderId, source])
-
-  useEffect(() => {
-    if (renderState.status !== 'ready' || !renderState.bindFunctions || !canvasRef.current) return
-    renderState.bindFunctions(canvasRef.current)
-  }, [renderState])
-
+  const state = useMermaidRender({ source, id: renderId, pending, config: crtMermaidConfig, renderer: renderCrtMermaid })
   useLayoutEffect(() => {
-    if (!followOutputRef.current) return
-    followOutputRef.current = false
     const container = figureRef.current?.closest<HTMLElement>('#terminal-output')
-    if (container) container.scrollTop = container.scrollHeight
-  }, [renderState])
-
-  if (!source.trim()) {
-    return (
-      <pre className="crt-markdown-mermaid-fallback">
-        <code className="language-mermaid">{source}</code>
-      </pre>
-    )
-  }
-
-  if (renderState.status === 'error') {
-    return (
-      <figure ref={figureRef} className="crt-markdown-mermaid error" aria-label="Mermaid diagram">
-        <figcaption>DIAGRAM ERROR</figcaption>
-        <pre className="crt-markdown-mermaid-error">{renderState.message}</pre>
+    if (followOutputRef.current && container) container.scrollTop = container.scrollHeight
+    return () => {
+      followOutputRef.current = Boolean(container && container.scrollHeight - container.scrollTop - container.clientHeight < 80)
+    }
+  }, [state])
+  useEffect(() => {
+    if (canvasRef.current) state.diagram?.bindFunctions?.(canvasRef.current)
+  }, [state.diagram])
+  return <figure ref={figureRef} className={`crt-markdown-mermaid ${state.status}`} data-render-state={state.status} aria-label="Mermaid diagram">
+    {state.status === 'error' ? <>
+      <figcaption>DIAGRAM ERROR</figcaption>
+      <button type="button" onClick={() => setRetry(value => value + 1)}>Retry</button>
+      <details><summary>Details and source</summary>
+        <pre className="crt-markdown-mermaid-error">{state.message}</pre>
         <pre className="crt-markdown-mermaid-fallback"><code className="language-mermaid">{source}</code></pre>
-      </figure>
-    )
-  }
-
-  return (
-    <figure ref={figureRef} className={`crt-markdown-mermaid ${renderState.status}`} aria-label="Mermaid diagram">
-      {renderState.status === 'loading' ? (
-        <div className="crt-markdown-mermaid-loading">RENDERING DIAGRAM...</div>
-      ) : (
-        <div
-          ref={canvasRef}
-          className="crt-markdown-mermaid-canvas"
-          dangerouslySetInnerHTML={{ __html: renderState.svg }}
-        />
-      )}
-    </figure>
-  )
+      </details>
+    </> : <>
+      {state.status !== 'ready' && <div className="crt-markdown-mermaid-loading" role="status">
+        {state.status === 'streaming' ? 'GENERATING DIAGRAM…' : state.status === 'interrupted' ? 'DIAGRAM INCOMPLETE' : 'RENDERING DIAGRAM…'}
+      </div>}
+      {state.diagram && <div ref={canvasRef} className="crt-markdown-mermaid-canvas" dangerouslySetInnerHTML={{ __html: state.diagram.svg }} />}
+    </>}
+  </figure>
 }
 
 function readingAnchorId(turn: CrtTranscriptTurn) {
@@ -246,6 +201,9 @@ function readingAnchorId(turn: CrtTranscriptTurn) {
 }
 
 const CrtTranscriptTurnView = memo(function CrtTranscriptTurnView({ turn }: { turn: CrtTranscriptTurn }) {
+  const phase = richContentPhase(turn.status, turn.stopReason)
+  const remarkPlugins = useMemo<PluggableList>(() => [remarkGfm, remarkMath, [remarkStreamingContent, { phase }]], [phase])
+  const rehypePlugins = useMemo<PluggableList>(() => [[rehypeGuardInvalidKatex, { pending: phase !== 'settled' }], rehypeKatex, rehypeHighlight], [phase])
   return (
     <section className="crt-structured-turn" data-reading-anchor-id={readingAnchorId(turn)}>
       {turn.userMessage || (turn.userImages?.length ?? 0) > 0 ? (
@@ -258,8 +216,8 @@ const CrtTranscriptTurnView = memo(function CrtTranscriptTurnView({ turn }: { tu
         <div className="crt-structured-message assistant crt-markdown">
           <ReactMarkdown
             components={markdownComponents}
-            rehypePlugins={[rehypeKatex, rehypeHighlight]}
-            remarkPlugins={[remarkGfm, remarkMath]}
+            rehypePlugins={rehypePlugins}
+            remarkPlugins={remarkPlugins}
             skipHtml
             urlTransform={markdownUrlTransform}
           >

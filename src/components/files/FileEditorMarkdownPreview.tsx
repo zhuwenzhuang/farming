@@ -18,7 +18,6 @@ import {
   type PointerEvent,
   type RefObject,
   type ReactNode,
-  type WheelEvent as ReactWheelEvent,
 } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import rehypeHighlight from 'rehype-highlight'
@@ -28,7 +27,11 @@ import remarkMath from 'remark-math'
 import { parse as parseYaml } from 'yaml'
 import 'katex/dist/katex.min.css'
 import { LocalErrorBoundary, LocalRenderFault } from '@/components/LocalErrorBoundary'
-import { RefreshGlyph } from '@/components/IconGlyphs'
+import { RefreshGlyph, CopyGlyph, ScreenFullGlyph } from '@/components/IconGlyphs'
+import { ContentViewerDialog } from '@/components/ContentViewerDialog'
+import { useMermaidRender } from '@/hooks/useMermaidRender'
+import { createMermaidRenderer } from '@/lib/mermaid-renderer'
+import type { PendingRichContent } from '@/lib/streaming-markdown'
 import { writeClipboardText } from '@/lib/clipboard'
 import { decodeFileUrlPath } from '@/lib/file-url-path'
 import {
@@ -64,11 +67,6 @@ export interface FileEditorMarkdownPreviewHandle {
   prepareForLayoutChange: () => void
 }
 
-type MermaidBindFunctions = (element: Element) => void
-type MermaidRenderState =
-  | { status: 'empty' | 'loading' }
-  | { status: 'ready'; svg: string; bindFunctions?: MermaidBindFunctions }
-  | { status: 'error'; message: string }
 type MarkdownHeadingTag = 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6'
 type MarkdownFrontMatterEntry = { key: string; value: string }
 type MarkdownFrontMatter = {
@@ -84,6 +82,7 @@ type MarkdownPreviewContextValue = {
   previewRefreshRevision: number
 }
 
+const renderCodeMermaid = createMermaidRenderer(async () => (await import('mermaid')).default)
 const MERMAID_FONT = 'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
 const LARGE_MARKDOWN_PREVIEW_CHARACTERS = 256 * 1024
 const LARGE_MARKDOWN_SECTION_BLOCKS = 40
@@ -730,42 +729,19 @@ function mermaidThemeVariables(appearance: ResolvedAppearance) {
   return {
     ...appearanceTheme(appearance).mermaid,
     fontFamily: MERMAID_FONT,
+    fontSize: '18px',
   }
 }
 
-function MermaidControlIcon({ kind }: { kind: 'zoomIn' | 'zoomOut' | 'reset' | 'copy' | 'pan' | 'fullscreen' | 'fullscreenExit' }) {
-  if (kind === 'copy') {
-    return (
-      <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-        <path d="M5 2.5C5 1.672 5.672 1 6.5 1H12.5C13.328 1 14 1.672 14 2.5V8.5C14 9.328 13.328 10 12.5 10H11V11.5C11 12.328 10.328 13 9.5 13H3.5C2.672 13 2 12.328 2 11.5V5.5C2 4.672 2.672 4 3.5 4H5V2.5ZM6 4H9.5C10.328 4 11 4.672 11 5.5V9H12.5C12.776 9 13 8.776 13 8.5V2.5C13 2.224 12.776 2 12.5 2H6.5C6.224 2 6 2.224 6 2.5V4ZM3.5 5C3.224 5 3 5.224 3 5.5V11.5C3 11.776 3.224 12 3.5 12H9.5C9.776 12 10 11.776 10 11.5V5.5C10 5.224 9.776 5 9.5 5H3.5Z" />
-      </svg>
-    )
-  }
-
-  if (kind === 'reset') {
-    return (
-      <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-        <path d="M7.5 2C5.015 2 3 4.015 3 6.5H4.5L2.5 9L0.5 6.5H2C2 3.462 4.462 1 7.5 1C10.538 1 13 3.462 13 6.5C13 9.538 10.538 12 7.5 12C6.017 12 4.671 11.413 3.682 10.459L4.379 9.741C5.189 10.523 6.289 11 7.5 11C9.985 11 12 8.985 12 6.5C12 4.015 9.985 2 7.5 2Z" />
-      </svg>
-    )
-  }
+function MermaidControlIcon({ kind }: { kind: 'zoomIn' | 'zoomOut' | 'reset' | 'copy' | 'pan' | 'fullscreen' }) {
+  if (kind === 'copy') return <CopyGlyph />
+  if (kind === 'reset') return <RefreshGlyph />
+  if (kind === 'fullscreen') return <ScreenFullGlyph />
 
   if (kind === 'pan') {
     return (
       <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
         <path d="M7.5 1 5 3.5h1.75V6H4V4.25L1.5 6.75 4 9.25V7.5h2.75v2.75H5L7.5 12.75 10 10.25H8.25V7.5H11v1.75l2.5-2.5L11 4.25V6H8.25V3.5H10L7.5 1Z" />
-      </svg>
-    )
-  }
-
-  if (kind === 'fullscreen' || kind === 'fullscreenExit') {
-    return (
-      <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-        {kind === 'fullscreen' ? (
-          <path d="M2 1h4v1H3v3H2V1Zm8 0h4v4h-1V2h-3V1ZM2 11h1v3h3v1H2v-4Zm11 0h1v4h-4v-1h3v-3Z" />
-        ) : (
-          <path d="M2 1h4v1H3v3H2V1Zm8 0h4v4h-1V2h-3V1ZM5 5h6v6H5V5Zm1 1v4h4V6H6Z" />
-        )}
       </svg>
     )
   }
@@ -778,7 +754,7 @@ function MermaidControlIcon({ kind }: { kind: 'zoomIn' | 'zoomOut' | 'reset' | '
   )
 }
 
-export function MermaidBlock({ source, copy }: { source: string; copy: CodeCopy }) {
+export function MermaidBlock({ source, copy, pending }: { source: string; copy: CodeCopy; pending?: PendingRichContent }) {
   const reactId = useId().replace(/[^a-zA-Z0-9_-]/g, '')
   const appearance = useMermaidAppearance()
   const renderSource = useMemo(() => decodeMermaidCharacterReferences(source), [source])
@@ -787,143 +763,104 @@ export function MermaidBlock({ source, copy }: { source: string; copy: CodeCopy 
   const viewportRef = useRef<HTMLDivElement | null>(null)
   const dragRef = useRef<{ pointerId: number; startX: number; startY: number; baseX: number; baseY: number } | null>(null)
   const didPanRef = useRef(false)
-  const [renderState, setRenderState] = useState<MermaidRenderState>({ status: renderSource.trim() ? 'loading' : 'empty' })
+  const [retry, setRetry] = useState(0)
+  const config = useMemo(() => ({ startOnLoad: false, securityLevel: 'strict' as const, theme: 'base' as const, themeVariables: mermaidThemeVariables(appearance) }), [appearance])
+  const renderState = useMermaidRender({ source: renderSource, id: `${renderId}-${retry}`, config, renderer: renderCodeMermaid, pending })
+  const figureRef = useRef<HTMLElement | null>(null)
+  const fullscreenTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const [inlineHeight, setInlineHeight] = useState(120)
   const [zoom, setZoom] = useState(1)
   const [offset, setOffset] = useState({ x: 0, y: 0 })
   const [panMode, setPanMode] = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
-  const [fullscreenCanvasSize, setFullscreenCanvasSize] = useState<{ width: number; height: number } | null>(null)
+  const [viewMode, setViewMode] = useState<'auto' | 'fit' | 'actual'>('auto')
+  const [canvasSize, setCanvasSize] = useState<{ width: number; height: number; scale: number } | null>(null)
   const [copied, setCopied] = useState(false)
+  const inlineViewRef = useRef({ zoom, offset, panMode, viewMode })
 
-  useEffect(() => {
-    if (!renderSource.trim()) {
-      setRenderState({ status: 'empty' })
-      return
-    }
-
-    let disposed = false
-    setRenderState({ status: 'loading' })
-    import('mermaid')
-      .then(({ default: mermaid }) => {
-        mermaid.initialize({
-          startOnLoad: false,
-          securityLevel: 'strict',
-          theme: 'base',
-          themeVariables: mermaidThemeVariables(appearance),
-        })
-        return mermaid.parse(renderSource).then(() => mermaid)
-      })
-      .then(mermaid => {
-        return mermaid.render(renderId, renderSource)
-      })
-      .then(({ svg: nextSvg, bindFunctions }) => {
-        if (!disposed) setRenderState({ status: 'ready', svg: nextSvg, bindFunctions })
-      })
-      .catch(error => {
-        if (!disposed) {
-          setRenderState({
-            status: 'error',
-            message: error instanceof Error ? error.message : String(error || copy.mermaidRenderFailed),
-          })
-        }
-      })
-
-    return () => {
-      disposed = true
-    }
-  }, [appearance, copy.mermaidRenderFailed, renderId, renderSource])
-
-  useEffect(() => {
-    setZoom(1)
-    setOffset({ x: 0, y: 0 })
-    setPanMode(false)
+  const closeFullscreen = useCallback(() => {
+    const inline = inlineViewRef.current
+    setZoom(inline.zoom)
+    setOffset(inline.offset)
+    setPanMode(inline.panMode)
+    setViewMode(inline.viewMode)
     setIsFullscreen(false)
-    setCopied(false)
-  }, [appearance, renderSource])
+  }, [])
+
+  useEffect(() => () => clearTimeout(copyTimerRef.current), [])
 
   useEffect(() => {
-    if (!isFullscreen) return
-    const previousOverflow = document.body.style.overflow
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setIsFullscreen(false)
-    }
-    document.body.style.overflow = 'hidden'
-    window.addEventListener('keydown', handleKeyDown)
-    return () => {
-      document.body.style.overflow = previousOverflow
-      window.removeEventListener('keydown', handleKeyDown)
-    }
-  }, [isFullscreen])
-
-  useEffect(() => {
-    if (renderState.status !== 'ready' || !renderState.bindFunctions || !canvasRef.current) return
-    renderState.bindFunctions(canvasRef.current)
-  }, [renderState])
+    const canvas = canvasRef.current
+    if (!canvas || !renderState.diagram) return
+    renderState.diagram.bindFunctions?.(canvas)
+  }, [renderState.diagram, isFullscreen])
 
   const setNextZoom = useCallback((nextZoom: number) => {
     setZoom(Math.min(6, Math.max(0.5, Number(nextZoom.toFixed(2)))))
   }, [])
 
-  const fitFullscreenDiagram = useCallback(() => {
+  const measureDiagram = useCallback(() => {
     const viewport = viewportRef.current
     const svg = canvasRef.current?.querySelector('svg')
     const viewBox = svg?.viewBox.baseVal
     if (!viewport || !viewBox || viewBox.width <= 0 || viewBox.height <= 0) return
 
-    const availableWidth = Math.max(1, viewport.clientWidth - 72)
-    const availableHeight = Math.max(1, viewport.clientHeight - 108)
-    const scale = Math.min(availableWidth / viewBox.width, availableHeight / viewBox.height)
-    setFullscreenCanvasSize({
+    const padding = getComputedStyle(viewport)
+    const availableWidth = Math.max(1, viewport.clientWidth - parseFloat(padding.paddingLeft) - parseFloat(padding.paddingRight))
+    const availableHeight = Math.max(1, (isFullscreen ? viewport.clientHeight : Math.min(640, window.innerHeight * 0.72)) - parseFloat(padding.paddingTop) - parseFloat(padding.paddingBottom))
+    const fitScale = Math.min(availableWidth / viewBox.width, availableHeight / viewBox.height)
+    // Default to readable text. Fitting a large graph below its natural size is
+    // an explicit overview action, never a side effect of a narrow chat column.
+    const scale = viewMode === 'fit' ? fitScale : viewMode === 'actual' || !isFullscreen ? 1 : Math.max(1, Math.min(2, fitScale))
+    setCanvasSize({
+      scale,
       width: Math.max(1, Math.floor(viewBox.width * scale)),
       height: Math.max(1, Math.floor(viewBox.height * scale)),
     })
+  }, [isFullscreen, viewMode])
+
+  const resetView = useCallback((mode: 'fit' | 'actual') => {
+    setViewMode(mode)
     setZoom(1)
     setOffset({ x: 0, y: 0 })
     setPanMode(false)
   }, [])
 
-  const resetView = useCallback(() => {
-    if (isFullscreen) {
-      fitFullscreenDiagram()
-      return
-    }
-    setZoom(1)
-    setOffset({ x: 0, y: 0 })
-    setPanMode(false)
-  }, [fitFullscreenDiagram, isFullscreen])
-
   const toggleFullscreen = useCallback(() => {
     if (isFullscreen) {
-      setIsFullscreen(false)
+      closeFullscreen()
       return
     }
-    setFullscreenCanvasSize(null)
+    inlineViewRef.current = { zoom, offset, panMode, viewMode }
+    setInlineHeight(figureRef.current?.getBoundingClientRect().height || 120)
+    setCanvasSize(null)
+    setViewMode('auto')
     setZoom(1)
     setOffset({ x: 0, y: 0 })
     setPanMode(false)
     setIsFullscreen(true)
-  }, [isFullscreen])
+  }, [isFullscreen, closeFullscreen, zoom, offset, panMode, viewMode])
 
-  useEffect(() => {
-    if (!isFullscreen || renderState.status !== 'ready') {
-      if (!isFullscreen) setFullscreenCanvasSize(null)
-      return undefined
-    }
+  useLayoutEffect(() => {
+    if (!renderState.diagram) return undefined
 
-    let frameId = window.requestAnimationFrame(fitFullscreenDiagram)
+    measureDiagram()
+    let frameId = 0
     const scheduleFit = () => {
       window.cancelAnimationFrame(frameId)
-      frameId = window.requestAnimationFrame(fitFullscreenDiagram)
+      frameId = window.requestAnimationFrame(measureDiagram)
     }
-    window.addEventListener('resize', scheduleFit)
+    const observer = new ResizeObserver(scheduleFit)
+    if (viewportRef.current) observer.observe(viewportRef.current)
     return () => {
       window.cancelAnimationFrame(frameId)
-      window.removeEventListener('resize', scheduleFit)
+      observer.disconnect()
     }
-  }, [fitFullscreenDiagram, isFullscreen, renderState.status])
+  }, [measureDiagram, isFullscreen, renderState.diagram])
 
   const handlePointerDown = useCallback((event: PointerEvent<HTMLDivElement>) => {
-    if (zoom <= 1 || renderState.status !== 'ready' || (!panMode && !event.altKey)) return
+    if (renderState.status !== 'ready' || (!panMode && !event.altKey)) return
     didPanRef.current = false
     dragRef.current = {
       pointerId: event.pointerId,
@@ -933,7 +870,7 @@ export function MermaidBlock({ source, copy }: { source: string; copy: CodeCopy 
       baseY: offset.y,
     }
     event.currentTarget.setPointerCapture(event.pointerId)
-  }, [offset.x, offset.y, panMode, renderState.status, zoom])
+  }, [offset.x, offset.y, panMode, renderState.status])
 
   const handlePointerMove = useCallback((event: PointerEvent<HTMLDivElement>) => {
     const drag = dragRef.current
@@ -951,11 +888,20 @@ export function MermaidBlock({ source, copy }: { source: string; copy: CodeCopy 
     }
   }, [])
 
-  const handleWheel = useCallback((event: ReactWheelEvent<HTMLDivElement>) => {
+  const handleWheel = useCallback((event: WheelEvent) => {
     if (renderState.status !== 'ready' || (!event.altKey && !event.ctrlKey)) return
     event.preventDefault()
     setNextZoom(zoom * (event.deltaY < 0 ? 1.2 : 1 / 1.2))
   }, [renderState.status, setNextZoom, zoom])
+
+  useEffect(() => {
+    const viewport = viewportRef.current
+    if (!viewport) return
+    // Modifier-wheel zoom must cancel browser scrolling/zooming. React's
+    // delegated wheel listener is passive in supported browsers.
+    viewport.addEventListener('wheel', handleWheel, { passive: false })
+    return () => viewport.removeEventListener('wheel', handleWheel)
+  }, [handleWheel, isFullscreen, renderState.diagram])
 
   const handleDiagramClick = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
     if (didPanRef.current) {
@@ -969,124 +915,72 @@ export function MermaidBlock({ source, copy }: { source: string; copy: CodeCopy 
   const handleCopySource = useCallback(() => {
     void writeClipboardText(renderSource).then(copied => {
       setCopied(copied)
-      if (copied) window.setTimeout(() => setCopied(false), 1200)
+      clearTimeout(copyTimerRef.current)
+      if (copied) copyTimerRef.current = setTimeout(() => setCopied(false), 1200)
     })
   }, [renderSource])
 
-  if (!renderSource.trim() || renderState.status === 'empty') {
-    return (
-      <pre className="code-markdown-mermaid-fallback">
-        <code className="language-mermaid">{renderSource}</code>
-      </pre>
-    )
-  }
-
-  if (renderState.status === 'error') {
-    return (
-      <figure className="code-markdown-mermaid error" aria-label={copy.mermaidDiagram}>
-        <figcaption className="code-markdown-mermaid-error-title">{copy.mermaidRenderFailed}</figcaption>
-        <pre className="code-markdown-mermaid-error-message">{renderState.message}</pre>
-        <pre className="code-markdown-mermaid-fallback">
-          <code className="language-mermaid">{renderSource}</code>
-        </pre>
-      </figure>
-    )
-  }
-
-  const readyState = renderState.status === 'ready' ? renderState : null
-
-  return (
-    <figure
-      className={`code-markdown-mermaid ${renderState.status === 'loading' ? 'loading' : ''} ${isFullscreen ? 'fullscreen' : ''}`}
-      aria-label={copy.mermaidDiagram}
-      role={isFullscreen ? 'dialog' : undefined}
-      aria-modal={isFullscreen || undefined}
-    >
-      <div className="code-markdown-mermaid-toolbar" aria-label={copy.mermaidDiagramControls}>
-        <button
-          type="button"
-          onClick={toggleFullscreen}
-          disabled={renderState.status !== 'ready'}
-          aria-label={isFullscreen ? copy.mermaidExitFullscreen : copy.mermaidEnterFullscreen}
-          title={isFullscreen ? copy.mermaidExitFullscreen : copy.mermaidEnterFullscreen}
-        >
-          <MermaidControlIcon kind={isFullscreen ? 'fullscreenExit' : 'fullscreen'} />
-        </button>
-        <button
-          type="button"
-          onClick={() => setNextZoom(zoom / 1.2)}
-          disabled={renderState.status !== 'ready' || zoom <= 0.5}
-          aria-label={copy.mermaidZoomOut}
-          title={copy.mermaidZoomOut}
-        >
-          <MermaidControlIcon kind="zoomOut" />
-        </button>
-        <button
-          type="button"
-          onClick={() => setNextZoom(zoom * 1.2)}
-          disabled={renderState.status !== 'ready' || zoom >= 6}
-          aria-label={copy.mermaidZoomIn}
-          title={copy.mermaidZoomIn}
-        >
-          <MermaidControlIcon kind="zoomIn" />
-        </button>
-        <button
-          type="button"
-          onClick={() => setPanMode(value => !value)}
-          disabled={renderState.status !== 'ready' || zoom <= 1}
-          aria-pressed={panMode}
-          aria-label={copy.mermaidPanMode}
-          title={copy.mermaidPanMode}
-        >
-          <MermaidControlIcon kind="pan" />
-        </button>
-        <button
-          type="button"
-          onClick={resetView}
-          disabled={renderState.status !== 'ready'}
-          aria-label={copy.mermaidResetView}
-          title={copy.mermaidResetView}
-        >
-          <MermaidControlIcon kind="reset" />
-        </button>
-        <button
-          type="button"
-          onClick={handleCopySource}
-          aria-label={copied ? copy.mermaidCopiedSource : copy.mermaidCopySource}
-          title={copied ? copy.mermaidCopiedSource : copy.mermaidCopySource}
-        >
-          <MermaidControlIcon kind="copy" />
-        </button>
-      </div>
-      {!readyState ? (
-        <div className="code-markdown-mermaid-loading">{copy.mermaidRendering}</div>
-      ) : (
-        <div
-          ref={viewportRef}
-          className={`code-markdown-mermaid-viewport ${zoom > 1 ? 'pannable' : ''}`}
-          onPointerDown={handlePointerDown}
-          onPointerMove={handlePointerMove}
-          onPointerUp={handlePointerEnd}
-          onPointerCancel={handlePointerEnd}
-          onWheel={handleWheel}
-          onClick={handleDiagramClick}
-        >
-          <div
-            ref={canvasRef}
-            className="code-markdown-mermaid-canvas"
-            style={{
-              ...(isFullscreen && fullscreenCanvasSize ? {
-                width: `${fullscreenCanvasSize.width}px`,
-                height: `${fullscreenCanvasSize.height}px`,
-              } : {}),
-              transform: `translate(${offset.x}px, ${offset.y}px) scale(${zoom})`,
-            }}
-            dangerouslySetInnerHTML={{ __html: readyState.svg }}
-          />
-        </div>
-      )}
-    </figure>
+  const readyState = renderState.status === 'error' ? null : renderState.diagram
+  const busy = renderState.status === 'streaming' || renderState.status === 'loading'
+  const controls = (inline: boolean) => (
+    <div className="code-markdown-mermaid-toolbar code-content-toolbar" aria-label={copy.mermaidDiagramControls}>
+      {inline && <button ref={fullscreenTriggerRef} type="button" onClick={toggleFullscreen}
+        disabled={!readyState} aria-label={copy.mermaidEnterFullscreen} title={copy.mermaidEnterFullscreen}>
+        <MermaidControlIcon kind="fullscreen" />
+      </button>}
+      <button type="button" onClick={() => setNextZoom(zoom / 1.2)} disabled={!readyState || zoom <= 0.5}
+        aria-label={copy.mermaidZoomOut} title={copy.mermaidZoomOut}><MermaidControlIcon kind="zoomOut" /></button>
+      <button type="button" onClick={() => setNextZoom(zoom * 1.2)} disabled={!readyState || zoom >= 6}
+        aria-label={copy.mermaidZoomIn} title={copy.mermaidZoomIn}><MermaidControlIcon kind="zoomIn" /></button>
+      <button type="button" onClick={() => setPanMode(value => !value)} disabled={!readyState}
+        aria-pressed={panMode} aria-label={copy.mermaidPanMode} title={copy.mermaidPanMode}><MermaidControlIcon kind="pan" /></button>
+      <button type="button" className="code-content-toolbar-text" onClick={() => resetView('actual')} disabled={!readyState}
+        aria-label={copy.mermaidActualSize} title={copy.mermaidActualSize}>{Math.round((canvasSize?.scale || 1) * zoom * 100)}%</button>
+      <button type="button" className="code-content-toolbar-text" onClick={() => resetView('fit')} disabled={!readyState}
+        aria-label={copy.mermaidFitView} title={copy.mermaidFitView}>{copy.mermaidFit}</button>
+      <button type="button" onClick={handleCopySource} aria-label={copied ? copy.mermaidCopiedSource : copy.mermaidCopySource}
+        title={copied ? copy.mermaidCopiedSource : copy.mermaidCopySource}><MermaidControlIcon kind="copy" /></button>
+    </div>
   )
+  const content = (
+    <>
+      {renderState.status === 'error' ? (
+        <div className="code-markdown-mermaid-failure">
+          <p className="code-markdown-mermaid-error-title">{copy.mermaidRenderFailed}</p>
+          <button type="button" className="code-rich-content-retry" onClick={() => setRetry(value => value + 1)}>{copy.mermaidRetry}</button>
+          <details><summary>{copy.mermaidErrorDetails}</summary>
+            <pre className="code-markdown-mermaid-error-message">{renderState.message}</pre>
+            <pre className="code-markdown-mermaid-fallback"><code className="language-mermaid">{renderSource}</code></pre>
+          </details>
+        </div>
+      ) : <>
+        {!readyState || renderState.status !== 'ready' ? <div className="code-markdown-mermaid-loading" role="status">
+          {renderState.status === 'streaming' ? copy.mermaidGenerating : renderState.status === 'interrupted' ? copy.mermaidIncomplete : copy.mermaidRendering}
+        </div> : null}
+        {readyState && <div ref={viewportRef} className={`code-markdown-mermaid-viewport ${panMode ? 'pannable' : ''}`}
+          onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerUp={handlePointerEnd}
+          onPointerCancel={handlePointerEnd} onClick={handleDiagramClick}>
+          <div ref={canvasRef} className="code-markdown-mermaid-canvas" style={{
+            ...(canvasSize ? { width: `${canvasSize.width}px`, height: `${canvasSize.height}px` } : {}),
+            transform: `translate(${offset.x}px, ${offset.y}px) scale(${zoom})`,
+          }} dangerouslySetInnerHTML={{ __html: readyState.svg }} />
+        </div>}
+      </>}
+    </>
+  )
+  return <>
+    <figure ref={figureRef} className={`code-markdown-mermaid ${renderState.status === 'error' ? 'error' : ''}`}
+      data-render-state={renderState.status} aria-label={copy.mermaidDiagram} aria-busy={busy}
+      style={isFullscreen ? { height: inlineHeight } : undefined}>
+      {controls(true)}
+      {!isFullscreen && content}
+    </figure>
+    {isFullscreen && <ContentViewerDialog title={copy.mermaidDiagram} closeLabel={copy.mermaidExitFullscreen}
+      onClose={closeFullscreen} returnFocusRef={fullscreenTriggerRef} actions={controls(false)}>
+      <div className={`code-markdown-mermaid fullscreen ${renderState.status === 'error' ? 'error' : ''}`}
+        data-render-state={renderState.status} aria-busy={busy}>{content}</div>
+    </ContentViewerDialog>}
+  </>
 }
 
 export const FileEditorMarkdownPreview = forwardRef<FileEditorMarkdownPreviewHandle, FileEditorMarkdownPreviewProps>(function FileEditorMarkdownPreview({

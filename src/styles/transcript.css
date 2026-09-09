@@ -333,60 +333,6 @@
   outline-offset: 2px;
 }
 
-.code-agent-transcript-image-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 1400;
-  display: grid;
-  place-items: center;
-  padding: 48px;
-  background: var(--code-emphasis);
-  cursor: zoom-out;
-}
-
-.code-agent-transcript-image-overlay > img {
-  display: block;
-  max-width: min(94vw, 1600px);
-  max-height: 90vh;
-  object-fit: contain;
-  border-radius: 10px;
-  background: var(--code-bg-surface);
-  box-shadow: var(--code-shadow-raised);
-  cursor: default;
-}
-
-.code-agent-transcript-image-close {
-  position: fixed;
-  top: calc(var(--app-visual-offset-top, 0px) + max(18px, env(safe-area-inset-top)));
-  right: max(18px, env(safe-area-inset-right));
-  width: 44px;
-  height: 44px;
-  display: grid;
-  place-items: center;
-  padding: 0;
-  border: 1px solid var(--code-border-strong);
-  border-radius: 50%;
-  background: var(--code-emphasis);
-  color: var(--code-text-on-emphasis);
-  cursor: pointer;
-}
-
-.code-agent-transcript-image-close svg {
-  width: 17px;
-  height: 17px;
-  fill: currentColor;
-}
-
-@media (max-width: 640px) {
-  .code-agent-transcript-image-overlay {
-    padding:
-      calc(62px + env(safe-area-inset-top))
-      max(12px, env(safe-area-inset-right))
-      max(20px, env(safe-area-inset-bottom))
-      max(12px, env(safe-area-inset-left));
-  }
-}
-
 .code-agent-transcript-user-files {
   min-width: min(320px, 100%);
   display: grid;

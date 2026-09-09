@@ -702,6 +702,38 @@ class FakeAgent implements Agent {
       }
       return { stopReason: 'end_turn' };
     }
+    if (promptText === 'streaming rich content') {
+      const gate = path.join(process.cwd(), '.rich-content-stage');
+      let cancelled = false;
+      cancelledSessions.set(params.sessionId, () => { cancelled = true; });
+      const send = async (text: string) => client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: { sessionUpdate: 'agent_message_chunk', messageId: 'rich-content-final',
+          content: { type: 'text', text }, _meta: { codex: { phase: 'final_answer' } } },
+      });
+      const waitForStage = async (stage: number) => {
+        const deadline = Date.now() + 90_000;
+        while (!cancelled) {
+          const value = await fs.promises.readFile(gate, 'utf8').catch(() => '0');
+          if (Number(value) >= stage) return;
+          if (Date.now() >= deadline) throw new Error('Rich content fixture stage timed out');
+          await new Promise(resolve => setTimeout(resolve, 40));
+        }
+      };
+      try {
+        await send('## Query execution\n\nThe query and index service cooperate through a shared data pipe.\n\n```mermaid\nflowchart LR\n Q["Query');
+        await waitForStage(1);
+        if (cancelled) return { stopReason: 'cancelled' };
+        await send(' tasks"] --> P["Query pipe"]\n I["Index shards"] --> P\n P --> R["Result processing"]\n R --> O["Output"]\n```\n\n### Estimated work\n\n$$\n\\frac{a');
+        await waitForStage(2);
+        if (cancelled) return { stopReason: 'cancelled' };
+        await send('}{b}\n$$\n\n| Stage | Status |\n| --- | --- |\n| Query | Complete |\n| Index | Complete |\n\n```ts\nconst result = await query();\n```\n\n```mermaid\nthis is not a diagram');
+        await waitForStage(3);
+        return { stopReason: cancelled ? 'cancelled' : 'end_turn' };
+      } finally {
+        cancelledSessions.delete(params.sessionId);
+      }
+    }
     if (promptText.includes('phase-aware mermaid')) {
       await client.sessionUpdate({
         sessionId: params.sessionId,
