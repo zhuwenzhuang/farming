@@ -1,6 +1,23 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import type { Locator } from '@playwright/test'
 import { expect, openFarming, test } from './fixtures'
+
+async function expectDiagramFits(container: Locator) {
+  await expect.poll(() => container.evaluate(element => {
+    const viewport = element.querySelector('.code-markdown-mermaid-viewport')!
+    const canvas = element.querySelector('.code-markdown-mermaid-canvas') as HTMLElement
+    const svg = canvas?.querySelector('svg')
+    if (!svg || !canvas.style.width) return false
+    const bounds = svg.getBoundingClientRect()
+    const frame = viewport.getBoundingClientRect()
+    const padding = getComputedStyle(viewport)
+    const width = viewport.clientWidth - parseFloat(padding.paddingLeft) - parseFloat(padding.paddingRight)
+    return bounds.width > 0 && bounds.height > 0 && bounds.width <= width + 1
+      && bounds.left >= frame.left && bounds.right <= frame.right + 1
+      && bounds.top >= frame.top && bounds.bottom <= frame.bottom + 1
+  })).toBe(true)
+}
 
 for (const appearance of ['light', 'dark', 'paper'] as const) {
   test(`unifies streaming rich content and fullscreen inspection in ${appearance}`, async ({ page, workspaceRoot }) => {
@@ -37,7 +54,7 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
       fs.writeFileSync(gate, '1')
       await expect(diagram).toHaveAttribute('data-render-state', 'ready')
       await expect(answer.locator('[data-math-pending]')).toBeVisible()
-      await expect.poll(() => diagram.locator('.code-markdown-mermaid-canvas > svg').evaluate(svg => (svg as SVGSVGElement).getScreenCTM()?.a || 0)).toBeGreaterThanOrEqual(0.99)
+      await expectDiagramFits(diagram)
       await page.screenshot({ path: test.info().outputPath(`inline-${appearance}.png`) })
       const expand = diagram.getByRole('button', { name: 'Open fullscreen diagram' })
       const inlineIcon = await expand.locator('svg').boundingBox()
@@ -131,8 +148,7 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
       await expect(viewer).toBeVisible()
       await expect(viewer.getByRole('button', { name: 'Close fullscreen diagram' })).toBeInViewport()
       expect(await viewer.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
-      await viewer.getByRole('button', { name: 'Fit diagram to view' }).click()
-      await expect.poll(() => viewer.locator('.code-markdown-mermaid-canvas > svg').evaluate(svg => svg.getBoundingClientRect().width)).toBeLessThan(320)
+      await expectDiagramFits(viewer)
       await page.screenshot({ path: test.info().outputPath(`fullscreen-narrow-${appearance}.png`) })
       await viewer.getByRole('button', { name: 'Actual size (100%)', exact: true }).click()
       await expect.poll(() => viewer.locator('.code-markdown-mermaid-canvas > svg').evaluate(svg => svg.getBoundingClientRect().width / (svg as SVGSVGElement).viewBox.baseVal.width)).toBeGreaterThan(0.99)
@@ -175,11 +191,15 @@ test.describe('initial touch inspection', () => {
       await page.getByTestId('code-acp-composer-send').tap()
       const completed = page.locator('.code-agent-transcript-answer').last().locator('.code-markdown-mermaid')
       await expect(completed).toHaveAttribute('data-render-state', 'ready')
+      await expectDiagramFits(completed)
+      await page.screenshot({ path: test.info().outputPath('inline-touch-paper.png') })
       const trigger = completed.getByRole('button', { name: 'Open fullscreen diagram' })
       await trigger.tap()
       const viewer = page.getByRole('dialog', { name: 'Mermaid diagram', exact: true })
       await expect(viewer).toBeVisible()
       await expect.poll(() => viewer.locator('.code-markdown-mermaid-canvas').evaluate(element => (element as HTMLElement).style.width)).not.toBe('')
+      await expectDiagramFits(viewer)
+      await page.screenshot({ path: test.info().outputPath('fullscreen-initial-touch-paper.png') })
       await viewer.getByRole('button', { name: 'Zoom in', exact: true }).tap()
       const pan = viewer.getByRole('button', { name: 'Toggle pan mode' })
       await pan.tap()

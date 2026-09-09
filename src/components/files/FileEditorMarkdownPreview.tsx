@@ -774,7 +774,7 @@ export function MermaidBlock({ source, copy, pending }: { source: string; copy: 
   const [offset, setOffset] = useState({ x: 0, y: 0 })
   const [panMode, setPanMode] = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
-  const [viewMode, setViewMode] = useState<'auto' | 'fit' | 'actual'>('auto')
+  const [viewMode, setViewMode] = useState<'fit' | 'actual'>('fit')
   const [canvasSize, setCanvasSize] = useState<{ width: number; height: number; scale: number } | null>(null)
   const [copied, setCopied] = useState(false)
   const inlineViewRef = useRef({ zoom, offset, panMode, viewMode })
@@ -810,9 +810,9 @@ export function MermaidBlock({ source, copy, pending }: { source: string; copy: 
     const availableWidth = Math.max(1, viewport.clientWidth - parseFloat(padding.paddingLeft) - parseFloat(padding.paddingRight))
     const availableHeight = Math.max(1, (isFullscreen ? viewport.clientHeight : Math.min(640, window.innerHeight * 0.72)) - parseFloat(padding.paddingTop) - parseFloat(padding.paddingBottom))
     const fitScale = Math.min(availableWidth / viewBox.width, availableHeight / viewBox.height)
-    // Default to readable text. Fitting a large graph below its natural size is
-    // an explicit overview action, never a side effect of a narrow chat column.
-    const scale = viewMode === 'fit' ? fitScale : viewMode === 'actual' || !isFullscreen ? 1 : Math.max(1, Math.min(2, fitScale))
+    // Both entry points start with the whole diagram visible. Actual size is
+    // an explicit reading action; resizing preserves the selected view mode.
+    const scale = viewMode === 'actual' ? 1 : fitScale
     setCanvasSize({
       scale,
       width: Math.max(1, Math.floor(viewBox.width * scale)),
@@ -835,7 +835,7 @@ export function MermaidBlock({ source, copy, pending }: { source: string; copy: 
     inlineViewRef.current = { zoom, offset, panMode, viewMode }
     setInlineHeight(figureRef.current?.getBoundingClientRect().height || 120)
     setCanvasSize(null)
-    setViewMode('auto')
+    setViewMode('fit')
     setZoom(1)
     setOffset({ x: 0, y: 0 })
     setPanMode(false)

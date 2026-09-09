@@ -1948,6 +1948,10 @@
   -webkit-user-select: text;
 }
 
+.code-agent-transcript-answer:has(.code-markdown-mermaid) {
+  width: 100%;
+}
+
 .code-agent-transcript-answer-actions {
   position: relative;
   display: inline-flex;

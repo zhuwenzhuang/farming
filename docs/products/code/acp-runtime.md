@@ -555,10 +555,11 @@ releases the viewer without replaying Agent work. Image and diagram inspection
 use the shared full-viewport content shell, with an application-level portal,
 background isolation, top-layer Escape, a focus loop and focus return. The shell
 owns title, actions and viewport geometry; content owns fit, zoom and pan.
-Diagram labels use an 18px natural size. Inline diagrams retain that size with
-contained scrolling; full viewers may enlarge a small diagram, but never silently
-shrink a large diagram below its natural size. Fit is an explicit overview action;
-the zoom percentage also restores actual size (100%). Controls occupy a separate
+Diagram labels use an 18px natural size. Initial inline rendering and each full
+viewer opening fit the complete diagram to the available viewport. Fit follows
+container resizing; zoom and pan remain explicit user adjustments. The zoom
+percentage restores actual size (100%), and Fit returns to the complete overview.
+Diagram answers use the available reading-column width. Controls occupy a separate
 row so they cannot obscure nodes. These rules also apply to file previews.
 Inline placeholders retain reading geometry while the viewer is open. File
 reading-width changes remain layout operations under their existing owner.
