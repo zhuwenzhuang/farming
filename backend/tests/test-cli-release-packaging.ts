@@ -244,6 +244,11 @@ function run() {
     Object.keys(packageJson.dependencies).sort(),
     'npm packages must bundle every direct production dependency',
   );
+  assert.deepStrictEqual(
+    [...packageJson.bundleDependencies].sort(),
+    [...packageJson.bundledDependencies].sort(),
+    'npm canonical bundleDependencies and its compatibility alias must stay aligned',
+  );
   assert(
     npmSmokeScript.includes('--ignore-scripts')
       && npmSmokeScript.includes("grep -q '^npm warn allow-scripts'")

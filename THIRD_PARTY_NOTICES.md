@@ -39,6 +39,7 @@ preserved in bundled `node_modules` when bundled dependencies are enabled.
 | `react-arborist` | 3.10.5 | MIT | Tree view UI |
 | `react-dom` | 19.2.4 | MIT | React DOM renderer |
 | `react-markdown` | 10.1.0 | MIT | Markdown rendering |
+| `react-zoom-pan-pinch` | 4.2.0 | MIT | Diagram zoom and pan gestures |
 | `rehype-highlight` | 7.0.2 | MIT | Markdown syntax-highlighting integration |
 | `rehype-katex` | 7.0.1 | MIT | Markdown math rendering integration |
 | `remark-gfm` | 4.0.1 | MIT | GitHub Flavored Markdown support |
