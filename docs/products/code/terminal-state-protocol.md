@@ -25,6 +25,13 @@ One PTY lifetime has one runtime epoch. Within that epoch, ordered output and
 state revisions identify an authoritative cut. These values are transport
 cursors, not another Agent lifecycle.
 
+Exit finalization owns one promise, including process-group cleanup, before
+awaiting asynchronous work. A signal permission error is not proof of exit.
+On macOS, a bounded process-table read may establish that the group is missing
+or contains only zombie or kernel-exiting members; live members or an
+unavailable observation retain the cleanup failure. This applies to every
+provider and does not introduce another stop mode.
+
 ## Provider Activity And Attention
 
 For a persistent coding CLI, process liveness is not turn activity. Provider

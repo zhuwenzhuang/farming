@@ -2,7 +2,8 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as net from 'net';
 import * as path from 'path';
-import { execFileSync } from 'child_process';
+import { execFile, execFileSync } from 'child_process';
+import { promisify } from 'util';
 import { canonicalConfigDir, configInstanceFingerprint } from './config-instance.cjs';
 import { readServerProcessIdentity } from './server-process-identity.cjs';
 import { acpRuntimeHostSocketPath } from './acp-runtime-host-path.cjs';
@@ -33,6 +34,7 @@ type HardStopOptions = {
 };
 
 type OwnedProcessGroupKillOptions = {
+  inspectProcessGroup?: (processGroupId: number) => Promise<ProcessGroupState>;
   processExists?: (pid: number) => boolean;
   readProcessIdentity?: (pid: number) => ProcessIdentity | null;
   signalProcessGroup?: (processGroupId: number, signal: NodeJS.Signals) => void;
@@ -138,7 +140,7 @@ function processExists(pid: number): boolean {
   }
 }
 
-function killOwnedProcessGroup(
+async function killOwnedProcessGroup(
   rawIdentity: unknown,
   options: OwnedProcessGroupKillOptions = {},
 ) {
@@ -166,7 +168,41 @@ function killOwnedProcessGroup(
     if ((error as NodeJS.ErrnoException).code === 'ESRCH') {
       return { killed: false, alreadyExited: true };
     }
+    if ((error as NodeJS.ErrnoException).code === 'EPERM') {
+      // Darwin can refuse a second signal while only kernel-exiting members
+      // remain. Permission failure alone never proves that a group exited.
+      const state = await (options.inspectProcessGroup || inspectDarwinProcessGroup)(expected.processGroupId);
+      if (state === 'missing' || state === 'exited-only') {
+        return { killed: false, alreadyExited: true };
+      }
+    }
     throw error;
+  }
+}
+
+function classifyDarwinProcessGroupStats(output: string, processGroupId: number): ProcessGroupState {
+  let matchedExitedMember = false;
+  for (const line of output.trim().split('\n')) {
+    if (!line.trim()) continue;
+    const fields = line.trim().split(/\s+/);
+    if (fields.length !== 2 || !/^\d+$/.test(fields[0])) return 'unknown';
+    if (Number(fields[0]) !== processGroupId) continue;
+    const state = fields[1];
+    if (!state.startsWith('Z') && !state.includes('E')) return 'live';
+    matchedExitedMember = true;
+  }
+  return matchedExitedMember ? 'exited-only' : 'missing';
+}
+
+async function inspectDarwinProcessGroup(processGroupId: number): Promise<ProcessGroupState> {
+  if (process.platform !== 'darwin') return 'unknown';
+  try {
+    const { stdout } = await promisify(execFile)('/bin/ps', ['-axo', 'pgid=,stat='], {
+      encoding: 'utf8', timeout: 1000, maxBuffer: 1024 * 1024,
+    });
+    return classifyDarwinProcessGroupStats(stdout, processGroupId);
+  } catch {
+    return 'unknown';
   }
 }
 
@@ -637,6 +673,7 @@ export {
   hardStopConfigComputerContainers,
   discoverLegacyConfigProcesses,
   killOwnedProcessGroup,
+  classifyDarwinProcessGroupStats,
   registerConfigProcessGroup,
   unregisterConfigProcessGroup,
 };

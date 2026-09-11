@@ -488,18 +488,18 @@ class LocalSessionEngine extends SessionEngine {
       return Promise.resolve();
     }
     if (session.exitFinalizationPromise) return session.exitFinalizationPromise;
-    if (session.processIdentity) {
-      const cleanup = killOwnedProcessGroup(session.processIdentity);
-      if (!cleanup.identityMismatch && !cleanup.identityUnavailable) {
-        unregisterConfigProcessGroup(this.configDir, 'terminal', session.processIdentity);
-      }
-    }
     const finalization = this.finalizeSessionExit(session, code);
     session.exitFinalizationPromise = finalization;
     return finalization;
   }
 
   async finalizeSessionExit(session: LocalSession, code: number): Promise<void> {
+    if (session.processIdentity) {
+      const cleanup = await killOwnedProcessGroup(session.processIdentity);
+      if (!cleanup.identityMismatch && !cleanup.identityUnavailable) {
+        unregisterConfigProcessGroup(this.configDir, 'terminal', session.processIdentity);
+      }
+    }
     const quiesced = await waitForTerminalExitDataQuiescence(session, {
       flushMs: this.terminalExitDataFlushMs,
       isCurrent: () => this.sessions.get(session.id) === session,
@@ -962,7 +962,7 @@ class LocalSessionEngine extends SessionEngine {
     session.status = 'stopping';
     session.killRequestedAt = Date.now();
     if (session.processIdentity) {
-      const cleanup = killOwnedProcessGroup(session.processIdentity);
+      const cleanup = await killOwnedProcessGroup(session.processIdentity);
       if (cleanup.identityMismatch || cleanup.identityUnavailable) {
         session.status = 'running';
         throw new Error('Terminal process-group ownership changed; refusing to signal it');

@@ -19,6 +19,11 @@ Host。恢复仍须验证 Host Runtime 与 Controller，之后才能接收 Termi
 一次 PTY Lifetime 对应一个 Runtime Epoch。Epoch 内的有序 Output 与 State Revision 标识一份
 权威 Cut；它们只是 Transport Cursor，不是第二套 Agent Lifecycle。
 
+退出终结流程在等待异步工作前，先以同一个 Promise 拥有进程组清理与终结操作。
+信号权限错误本身不能证明进程已退出。在 macOS 上，有界的进程表读取可以确认进程组已消失，
+或仅包含僵尸进程、已进入内核退出阶段的进程；仍有活进程或观测不可用时，继续保留清理失败。
+这一规则适用于所有 Provider，不引入另一种停止模式。
+
 ## Provider Activity 与 Attention
 
 对于持久运行的 Coding CLI，Process 存活不等于 Turn 正在执行。Provider Terminal Observer 从

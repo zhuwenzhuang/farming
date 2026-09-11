@@ -1254,12 +1254,6 @@ class NativePtyHost {
       session.status === 'exited'
     ) return Promise.resolve();
     if (session.exitFinalizationPromise) return session.exitFinalizationPromise;
-    if (session.processIdentity) {
-      const cleanup = killOwnedProcessGroup(session.processIdentity);
-      if (!cleanup.identityMismatch && !cleanup.identityUnavailable) {
-        unregisterConfigProcessGroup(this.configDir, 'terminal', session.processIdentity);
-      }
-    }
     const finalization = this.finalizeSessionExit(sessionId, code, session);
     session.exitFinalizationPromise = finalization;
     return finalization;
@@ -1270,6 +1264,12 @@ class NativePtyHost {
     code: number,
     session: NativePtySession,
   ): Promise<void> {
+    if (session.processIdentity) {
+      const cleanup = await killOwnedProcessGroup(session.processIdentity);
+      if (!cleanup.identityMismatch && !cleanup.identityUnavailable) {
+        unregisterConfigProcessGroup(this.configDir, 'terminal', session.processIdentity);
+      }
+    }
     const quiesced = await waitForTerminalExitDataQuiescence(session, {
       flushMs: this.terminalExitDataFlushMs,
       isCurrent: () => this.sessions.get(sessionId) === session,
@@ -1577,7 +1577,7 @@ class NativePtyHost {
     session.status = 'stopping';
     session.killRequestedAt = Date.now();
     if (session.processIdentity) {
-      const cleanup = killOwnedProcessGroup(session.processIdentity);
+      const cleanup = await killOwnedProcessGroup(session.processIdentity);
       if (cleanup.identityMismatch || cleanup.identityUnavailable) {
         session.status = 'running';
         throw new Error('Terminal process-group ownership changed; refusing to signal it');
@@ -1876,7 +1876,7 @@ class NativePtyHost {
     if (!session || !session.process || session.status === 'exited') return;
     session.status = 'stopping';
     if (session.processIdentity) {
-      const cleanup = killOwnedProcessGroup(session.processIdentity);
+      const cleanup = await killOwnedProcessGroup(session.processIdentity);
       if (cleanup.identityMismatch || cleanup.identityUnavailable) {
         throw new Error('Terminal process-group ownership changed; refusing to signal it');
       }

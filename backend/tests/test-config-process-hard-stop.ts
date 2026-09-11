@@ -9,6 +9,7 @@ const {
   discoverLegacyConfigProcesses,
   hardStopConfigProcesses,
   killOwnedProcessGroup,
+  classifyDarwinProcessGroupStats,
   registerConfigProcessGroup,
 } = require('../config-process-ownership.cjs');
 const { configInstanceFingerprint } = require('../config-instance.cjs');
@@ -43,11 +44,11 @@ async function run() {
       startedAt: 'exact-terminal-owner',
     };
     const signals = [];
-    assert.throws(
+    await assert.rejects(
       () => killOwnedProcessGroup({ ...expected, processGroupId: 30002 }),
       /process-group leader identity/,
     );
-    assert.deepStrictEqual(killOwnedProcessGroup(expected, {
+    assert.deepStrictEqual(await killOwnedProcessGroup(expected, {
       readProcessIdentity: () => expected,
       signalProcessGroup(processGroupId, signal) {
         signals.push({ processGroupId, signal });
@@ -56,7 +57,7 @@ async function run() {
     assert.deepStrictEqual(signals, [{ processGroupId: 30001, signal: 'SIGKILL' }]);
 
     signals.length = 0;
-    assert.deepStrictEqual(killOwnedProcessGroup(expected, {
+    assert.deepStrictEqual(await killOwnedProcessGroup(expected, {
       readProcessIdentity: () => ({ ...expected, startedAt: 'reused-pid' }),
       signalProcessGroup(processGroupId, signal) {
         signals.push({ processGroupId, signal });
@@ -64,7 +65,7 @@ async function run() {
     }), { killed: false, identityMismatch: true });
     assert.deepStrictEqual(signals, [], 'a reused Terminal process-group leader must not be signalled');
 
-    assert.deepStrictEqual(killOwnedProcessGroup(expected, {
+    assert.deepStrictEqual(await killOwnedProcessGroup(expected, {
       readProcessIdentity: () => null,
       processExists: () => true,
       signalProcessGroup() {
@@ -72,13 +73,32 @@ async function run() {
       },
     }), { killed: false, identityUnavailable: true });
 
-    assert.deepStrictEqual(killOwnedProcessGroup(expected, {
+    assert.deepStrictEqual(await killOwnedProcessGroup(expected, {
       readProcessIdentity: () => null,
       processExists: () => false,
       signalProcessGroup() {
         throw Object.assign(new Error('missing group'), { code: 'ESRCH' });
       },
     }), { killed: false, alreadyExited: true });
+
+    assert.strictEqual(classifyDarwinProcessGroupStats('30001 ?E\n30001 Z\n30002 S', 30001), 'exited-only');
+    assert.strictEqual(classifyDarwinProcessGroupStats('30001 ?E\n30001 S', 30001), 'live');
+    assert.strictEqual(classifyDarwinProcessGroupStats('30002 S', 30001), 'missing');
+    assert.strictEqual(classifyDarwinProcessGroupStats('incomplete', 30001), 'unknown');
+    for (const state of ['missing', 'exited-only', 'live', 'unknown']) {
+      const denied = Object.assign(new Error('permission denied'), { code: 'EPERM' });
+      const result = killOwnedProcessGroup(expected, {
+        readProcessIdentity: () => null,
+        processExists: () => false,
+        signalProcessGroup() { throw denied; },
+        inspectProcessGroup: async () => state,
+      });
+      if (state === 'missing' || state === 'exited-only') {
+        assert.deepStrictEqual(await result, { killed: false, alreadyExited: true });
+      } else {
+        await assert.rejects(result, error => error === denied, 'live or uncertain groups must retain the original failure');
+      }
+    }
 
     const zombieDescendantSignals = [];
     const zombieDescendants = await hardStopConfigProcesses('/tmp/farming-zombie-descendant-config', {
