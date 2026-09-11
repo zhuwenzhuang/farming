@@ -79,74 +79,77 @@ async function openHumanCaseChat(page: Page, workspace: string) {
 }
 
 test.describe('ACP human-like browser matrix', () => {
-  test('mobile title uses available width and the collapsed plan stays above the composer', { tag: '@iphone-human' }, async ({ page, workspaceRoot }) => {
-    await page.setViewportSize({ width: 390, height: 844 })
-    const workspace = path.join(workspaceRoot, 'mobile-title-plan')
-    fs.mkdirSync(workspace, { recursive: true })
-    const agentId = await createCodexAcpAgent(page, workspace)
-    const title = '检查手机标题的自适应展示，并确保当前计划不会遮挡正文与输入区域'
-    expect((await page.request.patch(`/farming/api/agents/${agentId}`, { data: { customTitle: title } })).ok()).toBeTruthy()
-    await openFarming(page)
-    await page.getByTestId('code-mobile-menu').click()
-    await agentRow(page, agentId).click()
-    const header = page.locator('.code-mobile-topbar-title strong')
-    await expect(header).toHaveText(title)
-    await expect(header).toHaveAttribute('title', title)
-    await expect(header).toHaveCSS('text-overflow', 'ellipsis')
-    await sendAcpMessage(page, 'hold for steer without user echo with mobile plan')
-    await expect(page.getByText('Waiting for steering.', { exact: true })).toBeVisible()
-    const dock = page.getByTestId('code-agent-activity-dock')
-    const plan = page.getByTestId('code-agent-transcript-plan-driver')
-    const toggle = plan.getByRole('button')
-    await expect(toggle).toHaveAttribute('aria-expanded', 'false')
-    const assertLayout = async () => {
-      await expect.poll(() => dock.evaluate(element => {
-        const dock = element.getBoundingClientRect()
-        const top = document.querySelector('.code-mobile-topbar')!.getBoundingClientRect()
-        const composer = document.querySelector('.code-composer')!.getBoundingClientRect()
-        const transcript = document.querySelector('.code-agent-transcript-scroll')!.getBoundingClientRect()
-        return dock.top >= top.bottom && dock.top >= transcript.bottom - 1
-          && dock.bottom <= composer.top + 1 && composer.bottom <= innerHeight + 1
-          && dock.left >= 0 && dock.right <= innerWidth
-      })).toBe(true)
-    }
-    for (const appearance of ['light', 'dark', 'paper'] as const) {
-      await page.locator('body').evaluate((body, value) => { body.dataset.appearance = value }, appearance)
-      if (appearance === 'paper') {
-        const composer = page.getByTestId('code-acp-composer')
-        await expect(composer).toHaveCSS('background-color', 'rgb(255, 254, 250)')
-        await expect(page.locator('.code-agent-transcript')).toHaveCSS('background-color', 'rgb(249, 248, 244)')
-        await page.getByTestId('code-acp-composer-input').fill('继续检查手机界面，保留清楚的输入区边界')
-        await expect(composer).toHaveCSS('background-color', 'rgb(255, 254, 250)')
-        await expect(composer).toHaveCSS('box-shadow', 'none')
-      }
-      await assertLayout()
-      expect((await plan.boundingBox())!.height).toBeLessThanOrEqual(40)
-      await page.screenshot({ path: test.info().outputPath(`mobile-plan-${appearance}-collapsed.png`) })
-      await toggle.click()
-      await expect(toggle).toHaveAttribute('aria-expanded', 'true')
-      await expect(plan.locator('li')).toHaveCount(12)
-      await assertLayout()
-      expect(await dock.evaluate(e => e.scrollHeight > e.clientHeight)).toBe(true)
-      await page.screenshot({ path: test.info().outputPath(`mobile-plan-${appearance}-expanded.png`) })
-      await toggle.press('Escape')
+  test.describe('touch title and plan layout', () => {
+    test.use({ hasTouch: true })
+    test('mobile title uses available width and the collapsed plan stays above the composer', { tag: '@iphone-human' }, async ({ page, workspaceRoot }) => {
+      await page.setViewportSize({ width: 390, height: 844 })
+      const workspace = path.join(workspaceRoot, 'mobile-title-plan')
+      fs.mkdirSync(workspace, { recursive: true })
+      const agentId = await createCodexAcpAgent(page, workspace)
+      const title = '检查手机标题的自适应展示，并确保当前计划不会遮挡正文与输入区域'
+      expect((await page.request.patch(`/farming/api/agents/${agentId}`, { data: { customTitle: title } })).ok()).toBeTruthy()
+      await openFarming(page)
+      await page.getByTestId('code-mobile-menu').click()
+      await agentRow(page, agentId).click()
+      const header = page.locator('.code-mobile-topbar-title strong')
+      await expect(header).toHaveText(title)
+      await expect(header).toHaveAttribute('title', title)
+      await expect(header).toHaveCSS('text-overflow', 'ellipsis')
+      await sendAcpMessage(page, 'hold for steer without user echo with mobile plan')
+      await expect(page.getByText('Waiting for steering.', { exact: true })).toBeVisible()
+      const dock = page.getByTestId('code-agent-activity-dock')
+      const plan = page.getByTestId('code-agent-transcript-plan-driver')
+      const toggle = plan.getByRole('button')
       await expect(toggle).toHaveAttribute('aria-expanded', 'false')
-    }
-    // A reduced visual viewport (keyboard) must preserve the same flow order.
-    await page.setViewportSize({ width: 390, height: 430 })
-    await page.getByTestId('code-acp-composer-input').focus()
-    await assertLayout()
-    await page.setViewportSize({ width: 844, height: 390 })
-    await assertLayout()
-    await expect(header).toHaveText(title)
-    await page.setViewportSize({ width: 1440, height: 900 })
-    await expect(dock).toHaveCSS('position', 'absolute')
-    await page.setViewportSize({ width: 390, height: 844 })
-    await assertLayout()
-    await sendAcpMessage(page, 'Finish the layout check')
-    const pendingSteer = page.getByTestId('code-acp-pending-followup-steer')
-    if (await pendingSteer.count()) await pendingSteer.click()
-    await expect(page.getByText('Steer accepted: Finish the layout check', { exact: true })).toBeVisible()
+      const assertLayout = async () => {
+        await expect.poll(() => dock.evaluate(element => {
+          const dock = element.getBoundingClientRect()
+          const top = document.querySelector('.code-mobile-topbar')!.getBoundingClientRect()
+          const composer = document.querySelector('.code-composer')!.getBoundingClientRect()
+          const transcript = document.querySelector('.code-agent-transcript-scroll')!.getBoundingClientRect()
+          return dock.top >= top.bottom && dock.top >= transcript.bottom - 1
+            && dock.bottom <= composer.top + 1 && composer.bottom <= innerHeight + 1
+            && dock.left >= 0 && dock.right <= innerWidth
+        })).toBe(true)
+      }
+      for (const appearance of ['light', 'dark', 'paper'] as const) {
+        await page.locator('body').evaluate((body, value) => { body.dataset.appearance = value }, appearance)
+        if (appearance === 'paper') {
+          const composer = page.getByTestId('code-acp-composer')
+          await expect(composer).toHaveCSS('background-color', 'rgb(255, 254, 250)')
+          await expect(page.locator('.code-agent-transcript')).toHaveCSS('background-color', 'rgb(249, 248, 244)')
+          await page.getByTestId('code-acp-composer-input').fill('继续检查手机界面，保留清楚的输入区边界')
+          await expect(composer).toHaveCSS('background-color', 'rgb(255, 254, 250)')
+          await expect(composer).toHaveCSS('box-shadow', 'none')
+        }
+        await assertLayout()
+        expect((await plan.boundingBox())!.height).toBeLessThanOrEqual(40)
+        await page.screenshot({ path: test.info().outputPath(`mobile-plan-${appearance}-collapsed.png`) })
+        await toggle.click()
+        await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+        await expect(plan.locator('li')).toHaveCount(12)
+        await assertLayout()
+        expect(await dock.evaluate(e => e.scrollHeight > e.clientHeight)).toBe(true)
+        await page.screenshot({ path: test.info().outputPath(`mobile-plan-${appearance}-expanded.png`) })
+        await toggle.press('Escape')
+        await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+      }
+      // A reduced visual viewport (keyboard) must preserve the same flow order.
+      await page.setViewportSize({ width: 390, height: 430 })
+      await page.getByTestId('code-acp-composer-input').focus()
+      await assertLayout()
+      await page.setViewportSize({ width: 844, height: 390 })
+      await assertLayout()
+      await expect(header).toHaveText(title)
+      await page.setViewportSize({ width: 1440, height: 900 })
+      await expect(dock).toHaveCSS('position', 'absolute')
+      await page.setViewportSize({ width: 390, height: 844 })
+      await assertLayout()
+      await sendAcpMessage(page, 'Finish the layout check')
+      const pendingSteer = page.getByTestId('code-acp-pending-followup-steer')
+      if (await pendingSteer.count()) await pendingSteer.click()
+      await expect(page.getByText('Steer accepted: Finish the layout check', { exact: true })).toBeVisible()
+    })
   })
 
   test('keeps ACP Session metadata bounded unless raw Entries are explicitly requested', async ({ page, workspaceRoot }) => {
@@ -1716,8 +1719,11 @@ test.describe('ACP human-like browser matrix', () => {
       await expect(page.getByTestId('code-agent-transcript-image-overlay')).toBeVisible()
       const closePreview = page.getByRole('button', { name: 'Close image preview' })
       const closeBox = await closePreview.boundingBox()
-      expect(closeBox?.width ?? 0).toBeGreaterThanOrEqual(44)
-      expect(closeBox?.height ?? 0).toBeGreaterThanOrEqual(44)
+      // Shared content-viewer actions use desktop dialog density; compact
+      // layouts retain the larger touch target. This case also runs on desktop.
+      const minimumCloseTarget = compactLayout ? 44 : 30
+      expect(closeBox?.width ?? 0).toBeGreaterThanOrEqual(minimumCloseTarget)
+      expect(closeBox?.height ?? 0).toBeGreaterThanOrEqual(minimumCloseTarget)
       await page.keyboard.press('Escape')
       await expect(page.getByTestId('code-agent-transcript-image-overlay')).toHaveCount(0)
     })

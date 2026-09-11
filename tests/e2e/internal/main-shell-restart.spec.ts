@@ -11,6 +11,7 @@ const exec = promisify(execFile)
 
 test('hard restart retires Main Shells without adding bash rows', async ({ page }, testInfo) => {
   test.setTimeout(120_000)
+  await page.addInitScript(() => { window.__FARMING_E2E__ = true })
   const root = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'farming-main-shell-restart-'))
   const configDir = path.join(root, 'config')
   const workspace = path.join(root, 'demo-project')

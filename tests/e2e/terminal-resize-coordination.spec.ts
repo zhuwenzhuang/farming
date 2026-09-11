@@ -366,18 +366,30 @@ test('coalesces a sustained diagonal window drag into one geometry update', asyn
     { width: 1100, height: 630 },
   ]
   const duringDimensions: Array<{ cols: number; rows: number }> = []
-  for (const size of viewportSizes) {
-    await page.setViewportSize(size)
-    // This is the input cadence under test: each resize stays inside the
-    // debounce interval so an intermediate geometry must not be committed.
-    await page.waitForTimeout(125)
-    duringDimensions.push(await page.evaluate(id => {
-      const diagnostics = window.__farmingTerminalTest?.getBufferDiagnostics(id)
-      return {
-        cols: diagnostics?.cols ?? 0,
-        rows: diagnostics?.rows ?? 0,
-      }
-    }, agentId))
+  await page.clock.install()
+  await page.clock.pauseAt(new Date())
+  try {
+    for (const size of viewportSizes) {
+      await page.setViewportSize(size)
+      // ResizeObserver uses native layout frames even with the clock paused.
+      // Observe that frame before advancing the debounce clock.
+      await page.evaluate(() => new Promise<void>(resolve => {
+        const observer = new ResizeObserver(() => { observer.disconnect(); resolve() })
+        observer.observe(document.documentElement)
+      }))
+      // Browser time keeps protocol and capture overhead outside the input
+      // cadence: intermediate geometry must remain uncommitted.
+      await page.clock.runFor(125)
+      duringDimensions.push(await page.evaluate(id => {
+        const diagnostics = window.__farmingTerminalTest?.getBufferDiagnostics(id)
+        return {
+          cols: diagnostics?.cols ?? 0,
+          rows: diagnostics?.rows ?? 0,
+        }
+      }, agentId))
+    }
+  } finally {
+    await page.clock.resume()
   }
 
   expect(duringDimensions.every(({ cols, rows }) => (

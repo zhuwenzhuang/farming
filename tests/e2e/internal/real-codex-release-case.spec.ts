@@ -391,12 +391,28 @@ async function dragCodeTerminal(
 ) {
   const before = await codeDiagnostics(page, agentId)
   expect(before).not.toBeNull()
-  for (const size of sizes) {
-    await page.setViewportSize(size)
-    const sample = await sampleCodeAnchor(page, agentId, anchor)
-    expect(sample.samples).toBeGreaterThan(0)
-    expect(sample.missing).toBe(0)
-    await page.waitForTimeout(40)
+  // Protocol round trips and trace capture must not turn one synthetic drag
+  // into several settled gestures. Advance browser time explicitly so every
+  // intermediate geometry remains inside the 250 ms resize settle interval.
+  await page.clock.install()
+  await page.clock.pauseAt(new Date())
+  try {
+    for (const size of sizes) {
+      await page.setViewportSize(size)
+      // ResizeObserver uses native layout frames even with the clock paused.
+      // Observe that frame before advancing the debounce clock.
+      await page.evaluate(() => new Promise<void>(resolve => {
+        const observer = new ResizeObserver(() => { observer.disconnect(); resolve() })
+        observer.observe(document.documentElement)
+      }))
+      const sampling = sampleCodeAnchor(page, agentId, anchor)
+      await page.clock.runFor(100)
+      const sample = await sampling
+      expect(sample.samples).toBeGreaterThan(0)
+      expect(sample.missing).toBe(0)
+    }
+  } finally {
+    await page.clock.resume()
   }
   await expect.poll(async () => {
     const current = await codeDiagnostics(page, agentId)

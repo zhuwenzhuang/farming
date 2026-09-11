@@ -276,9 +276,10 @@ test('late blame results cannot undo hide or replace the current file annotation
 })
 
 test('source-preview navigation dismisses the menu and restores clipped blame in split view', async ({ page, workspaceRoot }) => {
-  await openFile(page, repository(workspaceRoot))
-  await selectTreeFile(page, 'notes.md')
+  const directory = repository(workspaceRoot)
+  await page.goto(`/farming/?${new URLSearchParams({ ftarget: 'file', path: path.join(directory, 'notes.md') })}`)
   const editor = page.getByTestId('code-file-editor')
+  await expect(editor).toBeVisible()
   await editor.getByRole('button', { name: 'Show Markdown source' }).click()
   await annotate(page)
   await expect(page.locator('.code-file-inline-blame')).toHaveCount(3)

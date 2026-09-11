@@ -325,7 +325,7 @@ test('renders Markdown files by default and keeps preview, source, and split con
 
   await editor.getByRole('button', { name: 'Show Agent beside resource' }).click()
   await expect(main).toHaveClass(/resource-agent-side-open/)
-  await page.setViewportSize({ width: 900, height: 800 })
+  await page.setViewportSize({ width: 760, height: 800 })
   await expect(editor.getByTestId('code-resource-agent-toggle')).toBeHidden()
   await expect(editor).toBeVisible()
   await expect(page.getByTestId('code-terminal-grid')).toBeHidden()

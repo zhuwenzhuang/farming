@@ -984,7 +984,7 @@ async function runDesktopTerminalMatrix(
       const inputCountBeforeJump = await page.evaluate((id) => window.__farmingTerminalTest?.getInputCount(id) ?? 0, bashAgentId)
       await page.getByTestId('code-terminal-jump-bottom').click()
       await expect.poll(async () => (await terminalViewport(page, bashAgentId)).following).toBe(true)
-      expect((await terminalViewport(page, bashAgentId)).viewportY).toBe(0)
+      await expect.poll(async () => (await terminalViewport(page, bashAgentId)).viewportY).toBe(0)
       await expect.poll(async () => await visibleTerminalText(page, bashAgentId)).toContain('matrix-new-background-output')
       await expect(page.getByTestId('code-terminal-jump-bottom')).toHaveCount(0)
       await expect(agentListItem(page, bashAgentId)).not.toHaveClass(/unread/)
