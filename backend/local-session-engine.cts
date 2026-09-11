@@ -474,7 +474,15 @@ class LocalSessionEngine extends SessionEngine {
     ptyProcess.onData(data => this.handleSessionData(session.id, data, session));
 
     ptyProcess.onExit(({ code }) => {
-      void this.handleSessionExit(session, code);
+      this.handleSessionExit(session, code).catch(error => {
+        if (this.sessions.get(session.id) !== session) return;
+        this.emit('session-error', {
+          sessionId: session.id,
+          error: error.message,
+          fatal: false,
+          runtimeEpoch: session.runtimeEpoch,
+        });
+      });
     });
 
     return {
