@@ -286,7 +286,7 @@ body.code-resizing-sidebar .code-sidebar-resizer {
   outline: 0;
 }
 
-@media (min-width: 981px) {
+@media (min-width: 768px) and (pointer: fine), (min-width: 768px) and (pointer: none), (min-width: 981px) {
   .code-project-list {
     margin-right: -9px;
     padding-right: 0;
@@ -400,7 +400,7 @@ body.code-resizing-sidebar .code-sidebar-resizer {
   padding-left: 0;
 }
 
-@media (max-width: 980px) {
+@media (max-width: 767px), (max-width: 980px) and (pointer: coarse) {
   body.code-mode.code-compact-layout .code-pinned-list {
     margin-left: 12px;
   }
@@ -1224,7 +1224,7 @@ body.code-resizing-sidebar .code-sidebar-resizer {
   grid-template-columns: minmax(0, 1fr);
 }
 
-@media (max-width: 980px) {
+@media (max-width: 767px), (max-width: 980px) and (pointer: coarse) {
   .code-sidebar-resizer {
       display: none;
     }

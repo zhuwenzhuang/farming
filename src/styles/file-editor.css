@@ -824,7 +824,7 @@ body.code-mode .code-file-editor-fallback-textarea {
   }
 }
 
-@media (max-width: 980px) {
+@media (max-width: 767px), (max-width: 980px) and (pointer: coarse) {
 
   .code-file-editor {
     min-width: 0;
@@ -834,7 +834,7 @@ body.code-mode .code-file-editor-fallback-textarea {
   }
 }
 
-@media (max-width: 980px) {
+@media (max-width: 767px), (max-width: 980px) and (pointer: coarse) {
 
   .code-file-editor-header,
 .code-file-editor-bar,
@@ -846,7 +846,7 @@ body.code-mode .code-file-editor-fallback-textarea {
   }
 }
 
-@media (max-width: 980px) {
+@media (max-width: 767px), (max-width: 980px) and (pointer: coarse) {
 
   .code-file-editor-tab {
     max-width: min(280px, 76vw);
@@ -855,7 +855,7 @@ body.code-mode .code-file-editor-fallback-textarea {
   }
 }
 
-@media (max-width: 980px) {
+@media (max-width: 767px), (max-width: 980px) and (pointer: coarse) {
 
   .code-file-editor-bar {
     gap: 6px;
@@ -865,7 +865,7 @@ body.code-mode .code-file-editor-fallback-textarea {
   }
 }
 
-@media (max-width: 980px) {
+@media (max-width: 767px), (max-width: 980px) and (pointer: coarse) {
 
   .code-file-editor-actions {
     flex: 0 0 auto;
@@ -873,7 +873,7 @@ body.code-mode .code-file-editor-fallback-textarea {
   }
 }
 
-@media (max-width: 980px) {
+@media (max-width: 767px), (max-width: 980px) and (pointer: coarse) {
   body.code-mode.code-compact-layout.code-mobile-touch .code-file-editor:not(.markdown-reading) .code-file-editor-tab-strip {
     min-height: 88px;
     flex-wrap: wrap;
@@ -932,7 +932,7 @@ body.code-mode .code-file-editor-fallback-textarea {
   }
 }
 
-@media (max-width: 980px) {
+@media (max-width: 767px), (max-width: 980px) and (pointer: coarse) {
 
   .code-file-editor-status {
     min-width: 0;
@@ -942,7 +942,7 @@ body.code-mode .code-file-editor-fallback-textarea {
   }
 }
 
-@media (max-width: 980px) {
+@media (max-width: 767px), (max-width: 980px) and (pointer: coarse) {
 
   .code-file-monaco {
     overflow: hidden;
@@ -951,14 +951,14 @@ body.code-mode .code-file-editor-fallback-textarea {
   }
 }
 
-@media (max-width: 980px) {
+@media (max-width: 767px), (max-width: 980px) and (pointer: coarse) {
 
   .code-file-editor-source-region.markdown-split {
     grid-template-columns: minmax(0, 1fr) minmax(280px, 1fr);
   }
 }
 
-@media (max-width: 980px) {
+@media (max-width: 767px), (max-width: 980px) and (pointer: coarse) {
 
   .code-file-editor-fallback-textarea {
     white-space: pre-wrap;
@@ -968,7 +968,7 @@ body.code-mode .code-file-editor-fallback-textarea {
   }
 }
 
-@media (max-width: 980px) {
+@media (max-width: 767px), (max-width: 980px) and (pointer: coarse) {
 
   body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-header {
     position: absolute;
@@ -982,7 +982,7 @@ body.code-mode .code-file-editor-fallback-textarea {
   }
 }
 
-@media (max-width: 980px) {
+@media (max-width: 767px), (max-width: 980px) and (pointer: coarse) {
 
   body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-navigation,
 body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-tabs,
@@ -999,7 +999,7 @@ body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file
   }
 }
 
-@media (max-width: 980px) {
+@media (max-width: 767px), (max-width: 980px) and (pointer: coarse) {
 
   body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-tab-strip {
     min-height: 0;
@@ -1012,7 +1012,7 @@ body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file
   }
 }
 
-@media (max-width: 980px) {
+@media (max-width: 767px), (max-width: 980px) and (pointer: coarse) {
 
   body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-bar {
     min-height: 0;
@@ -1024,7 +1024,7 @@ body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file
   }
 }
 
-@media (max-width: 980px) {
+@media (max-width: 767px), (max-width: 980px) and (pointer: coarse) {
 
   body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-actions {
     position: static;
@@ -1035,7 +1035,7 @@ body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file
   }
 }
 
-@media (max-width: 980px) {
+@media (max-width: 767px), (max-width: 980px) and (pointer: coarse) {
 
   body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-action.source-preview {
     width: 44px;
@@ -1050,7 +1050,7 @@ body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file
   }
 }
 
-@media (max-width: 980px) {
+@media (max-width: 767px), (max-width: 980px) and (pointer: coarse) {
 
   body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-action.source-preview.active {
     border-color: transparent;
@@ -1059,14 +1059,14 @@ body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file
   }
 }
 
-@media (max-width: 980px) {
+@media (max-width: 767px), (max-width: 980px) and (pointer: coarse) {
 
   body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-action.source-preview::after {
     display: none;
   }
 }
 
-@media (max-width: 980px) {
+@media (max-width: 767px), (max-width: 980px) and (pointer: coarse) {
 
   body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-action.source-preview:hover:not(:disabled),
 body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-action.source-preview:focus-visible {
@@ -1075,7 +1075,7 @@ body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file
   }
 }
 
-@media (max-width: 980px) {
+@media (max-width: 767px), (max-width: 980px) and (pointer: coarse) {
 
   body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-preview-panel.markdown {
     min-height: 0;
@@ -1083,7 +1083,7 @@ body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file
   }
 }
 
-@media (max-width: 980px) {
+@media (max-width: 767px), (max-width: 980px) and (pointer: coarse) {
 
   body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-source-region.markdown-split {
     display: block;
@@ -1092,14 +1092,14 @@ body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file
   }
 }
 
-@media (max-width: 980px) {
+@media (max-width: 767px), (max-width: 980px) and (pointer: coarse) {
 
   body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-source-region.markdown-split .code-file-monaco {
     display: none;
   }
 }
 
-@media (max-width: 980px) {
+@media (max-width: 767px), (max-width: 980px) and (pointer: coarse) {
 
   body.code-mode.code-compact-layout .code-file-diff-monaco {
     min-width: 0;
@@ -1109,13 +1109,13 @@ body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file
   }
 }
 
-@media (max-width: 980px) {
+@media (max-width: 767px), (max-width: 980px) and (pointer: coarse) {
   body.code-mode.code-compact-layout .code-file-diff-monaco .monaco-diff-editor .editor.original {
     display: none;
   }
 }
 
-@media (max-width: 980px) {
+@media (max-width: 767px), (max-width: 980px) and (pointer: coarse) {
 
   body.code-mode.code-compact-layout .code-file-diff-monaco .monaco-diff-editor .editor.modified {
     left: 0 !important;

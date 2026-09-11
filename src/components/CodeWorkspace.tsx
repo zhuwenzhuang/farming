@@ -74,7 +74,7 @@ import {
   type WorkspaceShareTarget,
 } from '@/lib/workspace-share-target'
 import { importSharedReadingAnchor } from '@/lib/reading-anchor'
-import { isCompactViewport, isIOSLikeTouchViewport, isTouchInputViewport } from '@/lib/responsive-mode'
+import { COMPACT_VIEWPORT_QUERY, isCompactViewport, isIOSLikeTouchViewport, isTouchInputViewport } from '@/lib/responsive-mode'
 import {
   fetchWorkspaceFile,
   fetchWorkspaceTree,
@@ -5566,7 +5566,7 @@ export function CodeWorkspace({
   }, [pageVisible])
 
   useEffect(() => {
-    const speechViewportQuery = window.matchMedia('(max-width: 980px)')
+    const speechViewportQuery = window.matchMedia(COMPACT_VIEWPORT_QUERY)
     const updateSpeechSupported = () => {
       const SpeechRecognition = (window as WindowWithSpeechRecognition).SpeechRecognition
         || (window as WindowWithSpeechRecognition).webkitSpeechRecognition
@@ -5686,8 +5686,14 @@ export function CodeWorkspace({
       syncSidebarForWorkspaceWidth(width)
     })
     observer.observe(workspace)
+    const compactQuery = window.matchMedia(COMPACT_VIEWPORT_QUERY)
+    const syncViewportMode = () => syncSidebarForWorkspaceWidth(workspace.getBoundingClientRect().width)
+    compactQuery.addEventListener('change', syncViewportMode)
 
-    return () => observer.disconnect()
+    return () => {
+      observer.disconnect()
+      compactQuery.removeEventListener('change', syncViewportMode)
+    }
   }, [autoCollapseSidebar, restoreAutoCollapsedSidebar])
 
   useEffect(() => {

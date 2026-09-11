@@ -1,3 +1,4 @@
+import { COMPACT_VIEWPORT_QUERY } from '@/lib/responsive-mode'
 import * as monaco from 'monaco-editor'
 import {
   codeEditorFontSize,
@@ -32,7 +33,6 @@ declare global {
   }
 }
 
-const NARROW_EDITOR_MEDIA = '(max-width: 980px)'
 const WORKSPACE_EDITOR_SYNTAX_ONLY_DIAGNOSTICS = {
   noSemanticValidation: true,
   noSyntaxValidation: false,
@@ -128,11 +128,11 @@ export function cancelWorkspaceEditorScheduledLayout(editor: object) {
 
 export function isNarrowWorkspaceEditorViewport() {
   if (typeof window === 'undefined') return false
-  return window.matchMedia(NARROW_EDITOR_MEDIA).matches
+  return window.matchMedia(COMPACT_VIEWPORT_QUERY).matches
 }
 
 export function workspaceEditorViewportMedia() {
-  return window.matchMedia(NARROW_EDITOR_MEDIA)
+  return window.matchMedia(COMPACT_VIEWPORT_QUERY)
 }
 
 export interface WorkspaceEditorCreateOptions {

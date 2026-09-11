@@ -972,7 +972,7 @@ test.describe('display-backed agent flows', () => {
     const { resume, sessionId } = await prepareEmptyWorkspaceHistory(page, workspaceRoot)
     const emptyWorkspace = page.getByTestId('code-empty-workspace')
 
-    await page.setViewportSize({ width: 900, height: 700 })
+    await page.setViewportSize({ width: 720, height: 700 })
     const compactHistory = emptyWorkspace.getByTestId('code-empty-compact-history')
     await expect(compactHistory).toBeVisible()
     await expect(emptyWorkspace.getByTestId('code-empty-compact-new-agent')).toBeVisible()

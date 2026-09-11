@@ -1745,7 +1745,7 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
   cursor: wait;
 }
 
-@media (max-width: 980px) {
+@media (max-width: 767px), (max-width: 980px) and (pointer: coarse) {
   .code-open-editors,
   .code-files-section {
       margin-left: 14px;

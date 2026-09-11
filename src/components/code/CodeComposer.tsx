@@ -21,7 +21,7 @@ import {
   PlusGlyph,
   ReplyGlyph,
 } from '@/components/IconGlyphs'
-import { isCompactViewport, isTouchInputViewport } from '@/lib/responsive-mode'
+import { COMPACT_VIEWPORT_QUERY, isCompactViewport, isTouchInputViewport } from '@/lib/responsive-mode'
 import { codexModelDisplayName } from './model'
 import type { AgentComposerCapabilities, ComposerAgentKind, SlashCommandOption } from './capabilities'
 import {
@@ -429,7 +429,7 @@ export function CodeComposer({
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined
-    const query = window.matchMedia('(max-width: 980px)')
+    const query = window.matchMedia(COMPACT_VIEWPORT_QUERY)
     const updateMobileViewport = () => {
       setCompactComposerViewport(isCompactComposerViewport())
       setMobileComposerViewport(isMobileComposerViewport())

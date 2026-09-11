@@ -938,7 +938,7 @@
   color: var(--code-text-quiet);
 }
 
-@media (max-width: 980px) {
+@media (max-width: 767px), (max-width: 980px) and (pointer: coarse) {
   body.code-mode.code-compact-layout .code-sidebar-footer .code-usage-panel {
       display: block;
       padding: 0;

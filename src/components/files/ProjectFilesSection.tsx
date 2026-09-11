@@ -1,3 +1,4 @@
+import { COMPACT_VIEWPORT_QUERY } from '@/lib/responsive-mode'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { getBackendConnectionSnapshot } from '@/lib/backend-live-status'
 import type { WorkspaceFileOpenTarget } from '@/lib/workspace-file-search'
@@ -52,7 +53,7 @@ function currentFileRowHeight() {
 function useResponsiveFileRowHeight() {
   const [rowHeight, setRowHeight] = useState(currentFileRowHeight)
   useEffect(() => {
-    const compactQuery = window.matchMedia('(max-width: 980px)')
+    const compactQuery = window.matchMedia(COMPACT_VIEWPORT_QUERY)
     const syncRowHeight = () => setRowHeight(currentFileRowHeight())
     compactQuery.addEventListener('change', syncRowHeight)
     window.addEventListener('resize', syncRowHeight)

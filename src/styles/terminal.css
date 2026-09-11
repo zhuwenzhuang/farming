@@ -483,7 +483,7 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
   border-color: transparent;
 }
 
-@media (max-width: 980px) {
+@media (max-width: 767px), (max-width: 980px) and (pointer: coarse) {
   .code-terminal-grid {
       padding: 8px 8px 6px;
       grid-template-columns: minmax(0, 1fr);

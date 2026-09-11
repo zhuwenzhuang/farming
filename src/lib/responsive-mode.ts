@@ -1,8 +1,10 @@
-const MOBILE_NAVIGATION_MAX_WIDTH = 980
+// Keep Code CSS media queries aligned with this shared layout policy.
+// Mouse-driven windows retain desktop navigation until they are phone-width.
+export const COMPACT_VIEWPORT_QUERY = '(max-width: 767px), (max-width: 980px) and (pointer: coarse)'
 
-export function isCompactViewport(maxWidth = MOBILE_NAVIGATION_MAX_WIDTH) {
+export function isCompactViewport() {
   if (typeof window === 'undefined') return false
-  return window.matchMedia(`(max-width: ${maxWidth}px)`).matches
+  return window.matchMedia(COMPACT_VIEWPORT_QUERY).matches
 }
 
 export function isTouchInputViewport() {

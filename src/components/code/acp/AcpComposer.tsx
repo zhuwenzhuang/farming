@@ -1,7 +1,7 @@
 import { useInteractionLayer } from '@/hooks/useInteractionLayer'
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type CSSProperties, type KeyboardEvent, type MouseEvent, type RefObject } from 'react'
 import { ArrowUpGlyph, CloseGlyph, PencilGlyph, PlusGlyph, ReplyGlyph } from '@/components/IconGlyphs'
-import { isCompactViewport } from '@/lib/responsive-mode'
+import { COMPACT_VIEWPORT_QUERY, isCompactViewport } from '@/lib/responsive-mode'
 import type { AcpPendingElicitation, AcpPendingPermission, AgentContextWindowUsage } from '@/types/agent'
 import { ComposerAttachments, type ComposerAttachmentView } from '../ComposerAttachments'
 import type { AgentComposerPendingFollowUp } from '../composer-state'
@@ -213,7 +213,7 @@ export function AcpComposer({
   useEffect(() => setActiveCommandIndex(0), [commandTrigger?.query, commandTrigger?.trigger, filteredCommands.length])
   useEffect(() => setDismissedPromptSuggestionId(''), [agentId])
   useEffect(() => {
-    const compactQuery = window.matchMedia('(max-width: 980px)')
+    const compactQuery = window.matchMedia(COMPACT_VIEWPORT_QUERY)
     const updateMobileViewport = () => {
       setCompactComposerViewport(isCompactViewport())
     }

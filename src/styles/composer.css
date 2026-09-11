@@ -2631,7 +2631,7 @@ body.code-mode .code-composer textarea:disabled {
   opacity: 0 !important;
 }
 
-@media (max-width: 980px) {
+@media (max-width: 767px), (max-width: 980px) and (pointer: coarse) {
 
   .code-composer {
     margin: 0 8px 8px;
@@ -2793,7 +2793,7 @@ body.code-mode .code-composer textarea:disabled {
   }
 }
 
-@media (max-width: 980px) {
+@media (max-width: 767px), (max-width: 980px) and (pointer: coarse) {
 
   body.code-mode.code-compact-layout .code-main:has(.code-composer:focus-within),
   body.code-mode.code-compact-layout .code-main:has(.code-composer.menu-open),
@@ -3175,7 +3175,7 @@ body.code-mode.code-compact-layout .code-acp-composer-stack {
   }
 }
 
-@media (max-width: 980px) {
+@media (max-width: 767px), (max-width: 980px) and (pointer: coarse) {
 
   body.code-mode.code-compact-layout .code-composer {
     margin: 0;
@@ -3412,7 +3412,7 @@ body.code-mode.code-compact-layout .code-composer textarea::placeholder {
   height: 18px;
 }
 
-@media (max-width: 980px) {
+@media (max-width: 767px), (max-width: 980px) and (pointer: coarse) {
   /* This is an in-place editor page, not a second draft or a portalled textarea. */
   body.code-mode.code-compact-layout:has(.code-composer.editor-expanded) .code-mobile-topbar,
   body.code-mode.code-compact-layout .code-main:has(.code-composer.editor-expanded) > :not(.code-composer-shell) {

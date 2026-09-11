@@ -10,7 +10,7 @@ import { CodeWorkspace, type AgentFlagUpdateResult, type DeleteForkWorktreeProje
 import { scheduleUserCancelableFocusRetries } from '@/components/code/focus-retry'
 import { codeCopyForLanguage } from '@/components/code/copy'
 import { applyThemeAppearance } from '@/lib/theme'
-import { isCompactViewport, isIOSLikeTouchViewport, isTouchInputViewport } from '@/lib/responsive-mode'
+import { COMPACT_VIEWPORT_QUERY, isCompactViewport, isIOSLikeTouchViewport, isTouchInputViewport } from '@/lib/responsive-mode'
 import {
   DEFAULT_UI_PREFERENCES,
   normalizeComposerFollowUpBehavior,
@@ -632,12 +632,15 @@ export function App() {
       document.documentElement.style.setProperty('--mobile-keyboard-offset', `${geometry.keyboardOffset}px`)
     }
 
+    const compactQuery = window.matchMedia(COMPACT_VIEWPORT_QUERY)
     updateVisualViewport()
+    compactQuery.addEventListener('change', updateVisualViewport)
     window.addEventListener('resize', updateVisualViewport)
     window.visualViewport?.addEventListener('resize', updateVisualViewport)
     window.visualViewport?.addEventListener('scroll', updateVisualViewport)
 
     return () => {
+      compactQuery.removeEventListener('change', updateVisualViewport)
       window.removeEventListener('resize', updateVisualViewport)
       window.visualViewport?.removeEventListener('resize', updateVisualViewport)
       window.visualViewport?.removeEventListener('scroll', updateVisualViewport)

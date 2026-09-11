@@ -147,6 +147,16 @@ modal boundaries; visual reuse does not merge different keyboard semantics.
 
 ## Responsive And Input Contract
 
+Code's shared compact policy applies at widths up to 767 CSS pixels for all
+inputs, and up to 980 CSS pixels when the primary pointer is coarse. Wider
+mouse-driven windows keep desktop navigation and actions; below 900 pixels the
+desktop sidebar may automatically collapse without becoming a modal drawer.
+CSS, viewport subscriptions, virtual row metrics and editor behavior must consume
+this same policy. Additional touch capability alone does not select compact mode.
+On resize, preserve the active Agent and work; entering compact mode collapses
+navigation, and returning to a wide desktop restores an automatically collapsed
+sidebar. Drawer dismissal and focus isolation apply only while compact.
+
 Density is an explicit family variant selected by shared layout policy. The same
 viewport and role must not acquire unrelated geometry from independent pointer
 queries. Input capabilities may change how actions are revealed, not whether an
