@@ -568,6 +568,7 @@ export interface CodeCopy {
   saveBeforeCloseDescription: string
   dontSave: string
   loadingBlame: string
+  blameUnsavedChanges: string
   notGitRepository: string
   noCommittedLines: string
   cursorPosition: (line: number, column: number) => string
@@ -1216,6 +1217,7 @@ const EN_COPY: CodeCopy = {
   saveBeforeCloseDescription: 'If you do not save, your changes will be lost.',
   dontSave: "Don't Save",
   loadingBlame: 'Loading blame...',
+  blameUnsavedChanges: 'Save or undo changes to refresh blame.',
   notGitRepository: 'Not a git repository.',
   noCommittedLines: 'No committed lines.',
   cursorPosition: (line, column) => `Ln ${line}, Col ${column}`,
@@ -1900,6 +1902,7 @@ const ZH_COPY: CodeCopy = {
   saveBeforeCloseDescription: '如果不保存，你的更改将丢失。',
   dontSave: '不保存',
   loadingBlame: '正在加载 Blame...',
+  blameUnsavedChanges: '保存或撤销修改后刷新 Blame。',
   notGitRepository: '不是 Git 仓库。',
   noCommittedLines: '没有已提交行。',
   cursorPosition: (line, column) => `第 ${line} 行，第 ${column} 列`,

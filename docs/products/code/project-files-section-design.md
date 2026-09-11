@@ -221,6 +221,27 @@ File context menus and submenus remain visible and hittable outside a compact
 sidebar's clipping boundary. Portalling their surface preserves the same shared
 dismissal owner and returns focus to the invoking tree target.
 
+Editor context menus belong to the file and source view that opened them. They
+open immediately; asynchronous Git capability checks may update actions but
+cannot reopen a dismissed menu or replace a newer one. File/view changes and
+unmount revoke the menu and any pending action. Clipboard completion must not
+edit a different model after navigation.
+
+Git blame uses the same gutter menu from both line numbers and author/date
+annotations, including Hide Blame while loading or after failure. Annotation
+rows stay clipped to the editor viewport and below Monaco's sticky headers;
+they cannot cover breadcrumbs, preview panes, or blame details. Details follow
+the shared outside-pointer and Escape dismissal protocol.
+
+Blame is a projection of the saved working file. Unsaved edits pause annotations
+with an explicit save/undo prompt instead of assigning old line ownership to a
+changed draft. Save, undo, and file navigation refresh the current projection
+and clear old details. Hidden, superseded, or unmounted requests cannot publish
+results. Loading has a bounded success or failure outcome; errors remain visible
+with Retry and Hide Blame available. Acceptance covers these transitions, delayed
+capability/data responses, untracked files, scrolling, folding, sticky headers, resizing,
+and Light, Dark, and Paper.
+
 Every programmatic reveal on the shared Project scroll surface holds one
 generation lease. A newer file or Agent reveal, or direct pointer, wheel, or
 keyboard intent, revokes the older lease before it can write another scroll

@@ -1,4 +1,4 @@
-import type { RefObject } from 'react'
+import type { MouseEvent, RefObject } from 'react'
 import { LocalErrorBoundary, LocalRenderFault } from '@/components/LocalErrorBoundary'
 import { RefreshGlyph } from '@/components/IconGlyphs'
 import {
@@ -58,6 +58,7 @@ interface FileEditorSurfaceProps {
   onMarkdownReadingPositionChange: (scrollTop: number) => void
   onOpenFilePath: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void> | void
   onShowBlameDetail: (line: FileEditorBlameLine) => void
+  onBlameContextMenu: (event: MouseEvent, lineNumber: number) => void
 }
 
 function filePreviewResetKey(openFile: OpenWorkspaceFile) {
@@ -132,6 +133,7 @@ export function FileEditorSurface({
   onMarkdownReadingPositionChange,
   onOpenFilePath,
   onShowBlameDetail,
+  onBlameContextMenu,
 }: FileEditorSurfaceProps) {
   const surface = workspaceEditorSurfaceState({
     diffOnly: editorMode.diffOnly,
@@ -231,11 +233,13 @@ export function FileEditorSurface({
       )}
       {surface.showEditorOverlays && blameOpen && blame?.isGitRepo && (
         <FileEditorInlineBlameLayer
+          viewport={blameOverlay.viewport}
           left={blameOverlay.left}
           width={blameOverlay.width}
           rows={blameOverlay.rows}
           copy={copy}
           onShowDetail={onShowBlameDetail}
+          onContextMenu={onBlameContextMenu}
         />
       )}
       <LocalErrorBoundary

@@ -1,3 +1,5 @@
+import { useRef } from 'react'
+import { useInteractionLayer } from '@/hooks/useInteractionLayer'
 import {
   formatWorkspaceBlameTime as formatBlameTime,
   workspaceBlameMessageParts,
@@ -26,8 +28,17 @@ export function FileEditorBlameDetail({
   copy,
   onClose,
 }: FileEditorBlameDetailProps) {
+  const detailRef = useRef<HTMLElement | null>(null)
+  const returnTarget = useRef(document.activeElement instanceof HTMLElement ? document.activeElement : null)
+  useInteractionLayer({
+    enabled: true,
+    elements: () => [detailRef.current],
+    onDismiss: onClose,
+    returnFocus: () => returnTarget.current,
+  })
   return (
     <section
+      ref={detailRef}
       className="code-file-blame-detail"
       data-testid="code-file-blame-detail"
       aria-label={copy.gitBlameDetails}

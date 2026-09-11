@@ -3,7 +3,6 @@ import * as monaco from 'monaco-editor'
 import {
   DEFAULT_BLAME_LABEL_WIDTH,
   workspaceEditorBlameOverlayRows,
-  workspaceEditorVisibleLineWindow,
   type WorkspaceEditorBlameOverlayRow,
 } from '@/lib/workspace-editor-model'
 import type { WorkspaceFileBlame } from '@/lib/workspace-files'
@@ -11,6 +10,7 @@ import type { WorkspaceFileBlame } from '@/lib/workspace-files'
 type FileEditorBlameLine = WorkspaceFileBlame['lines'][number]
 
 export interface FileEditorBlameOverlayState {
+  viewport: { left: number; top: number; width: number; height: number; stickyHeight: number }
   left: number
   width: number
   rows: Array<WorkspaceEditorBlameOverlayRow<FileEditorBlameLine>>
@@ -37,6 +37,7 @@ export function useFileEditorBlameOverlayController({
   disabled,
 }: UseFileEditorBlameOverlayControllerOptions) {
   const [blameOverlay, setBlameOverlay] = useState<FileEditorBlameOverlayState>({
+    viewport: { left: 0, top: 0, width: 0, height: 0, stickyHeight: 0 },
     left: 0,
     width: DEFAULT_BLAME_LABEL_WIDTH,
     rows: [],
@@ -46,7 +47,7 @@ export function useFileEditorBlameOverlayController({
     const editor = editorRef.current
     const host = editorHostRef.current
     if (!editor || !host || !blameOpen || !blame?.isGitRepo || disabled) {
-      setBlameOverlay({ left: 0, width: DEFAULT_BLAME_LABEL_WIDTH, rows: [] })
+      setBlameOverlay({ viewport: { left: 0, top: 0, width: 0, height: 0, stickyHeight: 0 }, left: 0, width: DEFAULT_BLAME_LABEL_WIDTH, rows: [] })
       editor?.updateOptions({ lineDecorationsWidth: 10 })
       return
     }
@@ -55,26 +56,33 @@ export function useFileEditorBlameOverlayController({
     const labelWidth = compactBlame ? blameLabelWidths.compact : blameLabelWidths.regular
     editor.updateOptions({ lineDecorationsWidth: labelWidth + 12 })
     const layout = editor.getLayoutInfo()
-    const hostTop = host.offsetTop
     const scrollTop = editor.getScrollTop()
     const lineHeight = editor.getOption(monaco.editor.EditorOption.lineHeight)
-    const left = host.offsetLeft + Math.max(0, layout.contentLeft - labelWidth - 8)
-    const visibleWindow = workspaceEditorVisibleLineWindow({
-      visibleRanges: editor.getVisibleRanges(),
-      scrollTop,
-      hostHeight: host.clientHeight,
-      lineHeight,
-    })
-    const rows = workspaceEditorBlameOverlayRows(blame.lines, {
-      ...visibleWindow,
-      hostTop,
+    const left = Math.max(0, layout.contentLeft - labelWidth - 8)
+    // Sticky headers own their line numbers. Scrolling annotations must not
+    // label those fixed lines or escape into the editor header and detail pane.
+    const sticky = host.querySelector<HTMLElement>('.sticky-widget')
+    const stickyHeight = sticky && sticky.clientHeight > 0
+      ? Math.max(0, sticky.getBoundingClientRect().bottom - host.getBoundingClientRect().top)
+      : 0
+    // Monaco returns separate ranges around folded regions. Merging their
+    // endpoints would render hidden lines at the collapsed line's position.
+    const rows = editor.getVisibleRanges().flatMap(range => workspaceEditorBlameOverlayRows(blame.lines, {
+      firstVisibleLine: range.startLineNumber,
+      lastVisibleLine: range.endLineNumber,
+      hostTop: 0,
       scrollTop,
       hostHeight: host.clientHeight,
       lineHeight,
       getTopForLineNumber: lineNumber => editor.getTopForLineNumber(lineNumber),
-    })
+    }))
 
-    setBlameOverlay({ left, width: labelWidth, rows })
+    setBlameOverlay({
+      viewport: { left: host.offsetLeft, top: host.offsetTop, width: host.clientWidth, height: host.clientHeight, stickyHeight },
+      left,
+      width: labelWidth,
+      rows,
+    })
   }, [blame, blameLabelWidths, blameOpen, disabled, editorHostRef, editorRef])
 
   useEffect(() => {
@@ -82,14 +90,26 @@ export function useFileEditorBlameOverlayController({
     if (!editor) return undefined
 
     refreshBlameOverlay()
-    const scrollSubscription = editor.onDidScrollChange(refreshBlameOverlay)
-    const layoutSubscription = editor.onDidLayoutChange(refreshBlameOverlay)
-    const frame = window.requestAnimationFrame(refreshBlameOverlay)
+    let frame: number | undefined
+    const scheduleRefresh = () => {
+      if (frame !== undefined) window.cancelAnimationFrame(frame)
+      frame = window.requestAnimationFrame(() => {
+        frame = undefined
+        refreshBlameOverlay()
+      })
+    }
+    const scrollSubscription = editor.onDidScrollChange(scheduleRefresh)
+    const layoutSubscription = editor.onDidLayoutChange(scheduleRefresh)
+    const foldingSubscription = editor.onDidChangeHiddenAreas(scheduleRefresh)
+    const configurationSubscription = editor.onDidChangeConfiguration(scheduleRefresh)
+    scheduleRefresh()
 
     return () => {
       scrollSubscription.dispose()
       layoutSubscription.dispose()
-      window.cancelAnimationFrame(frame)
+      foldingSubscription.dispose()
+      configurationSubscription.dispose()
+      if (frame !== undefined) window.cancelAnimationFrame(frame)
     }
   }, [editorRef, refreshBlameOverlay])
 

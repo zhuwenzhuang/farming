@@ -46,11 +46,16 @@ export function FileEditorContextMenu({
   onRunAction,
 }: FileEditorContextMenuProps) {
   const menuRef = useRef<HTMLDivElement | null>(null)
+  const returnTarget = useRef(document.activeElement instanceof HTMLElement ? document.activeElement : null)
   const handleMenuKeyDown = useWorkspaceMenuKeyboard({
     menuOpen: true,
     positionKey: `${x}:${y}`,
     menuRef,
     onClose,
+    onCloseWithFocusRestore: () => {
+      onClose()
+      if (returnTarget.current?.isConnected) returnTarget.current.focus({ preventScroll: true })
+    },
     focusFirstItem,
   })
 

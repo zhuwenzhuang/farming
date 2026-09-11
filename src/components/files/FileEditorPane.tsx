@@ -15,6 +15,7 @@ import {
   workspaceEditorFileMode,
   workspaceEditorModelKey,
   workspaceEditorStatusKind,
+  workspaceEditorSurfaceState,
   workspaceBlameAuthorProfileUrl,
   workspaceBlameCommitUrl,
   workspaceEditorTabDomId as fileEditorTabDomId,
@@ -444,6 +445,7 @@ export function FileEditorPane({
     blameLabelWidths,
     checkBlameCapability,
     toggleBlame,
+    retryBlame,
     showBlameDetail,
     clearBlameDetail,
   } = useFileEditorBlameController({
@@ -504,11 +506,21 @@ export function FileEditorPane({
     editorContextMenu,
     closeEditorContextMenu,
     openEditorContextMenu,
+    openBlameContextMenu,
     runEditorContextAction,
     showBlameContextAction,
     showLineChangesContextActions,
     showLanguageServerActions,
   } = useFileEditorContextMenuController({
+    scope: activeFileKey,
+    active: workspaceEditorSurfaceState({
+      diffOnly: editorMode.diffOnly,
+      diffOpen: diffState.open,
+      markdownSplitOpen,
+      markdownPreviewOpen,
+      sourcePreviewOpen: sourceVisualPreviewOpen,
+      visualPreview: editorMode.visualPreview,
+    }).showEditorOverlays,
     blameCapability,
     blameOpen,
     canShowBlame,
@@ -686,6 +698,7 @@ export function FileEditorPane({
               onOpenFilePath={onOpenFilePath}
               onMarkdownReadingPositionChange={rememberMarkdownReadingPosition}
               onShowBlameDetail={showBlameDetail}
+              onBlameContextMenu={openBlameContextMenu}
             />
           </div>
           {languageServer.navigator.open ? (
@@ -743,6 +756,7 @@ export function FileEditorPane({
       <FileEditorOverlays
         blame={blame}
         blameError={blameError}
+        blameDirty={openFile.dirty}
         blameLoading={blameLoading}
         blameOpen={blameOpen}
         copy={copy}
@@ -758,6 +772,7 @@ export function FileEditorPane({
         tabContextMenu={tabContextMenu}
         onCancelPendingClose={cancelPendingClose}
         onCloseEditorContextMenu={closeEditorContextMenu}
+        onRetryBlame={() => void retryBlame()}
         onCloseTabContextMenu={closeTabContextMenu}
         onConfirmSaveAndClose={confirmSaveAndClose}
         onDiscardAndClose={discardAndClose}

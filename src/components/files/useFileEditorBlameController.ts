@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   estimateWorkspaceBlameLabelWidth as estimateBlameLabelWidth,
   isPermanentWorkspaceBlameFailureStatus,
@@ -36,7 +36,8 @@ export function useFileEditorBlameController({
   onRevealLine,
 }: UseFileEditorBlameControllerOptions) {
   const currentOpenFileKey = openFileKey(openFile)
-  const blameRequestFenceRef = useRef(new RequestOwnershipFence(currentOpenFileKey))
+  const snapshotKey = `${currentOpenFileKey}\u0000${openFile.file.sha1 ?? ''}`
+  const blameRequestFenceRef = useRef(new RequestOwnershipFence(snapshotKey))
   const blameCapabilityRequestFenceRef = useRef(new RequestOwnershipFence(currentOpenFileKey))
   const [blameOpen, setBlameOpen] = useState(false)
   const [blameLoading, setBlameLoading] = useState(false)
@@ -44,10 +45,16 @@ export function useFileEditorBlameController({
   const [blameError, setBlameError] = useState<string | null>(null)
   const [blameCapability, setBlameCapability] = useState<BlameCapability>('unknown')
   const [blameDetail, setBlameDetail] = useState<BlameDetailState | null>(null)
-  blameRequestFenceRef.current.setScope(currentOpenFileKey)
-  blameRequestFenceRef.current.setActive(!disabled)
+  blameRequestFenceRef.current.setScope(snapshotKey)
+  blameRequestFenceRef.current.setActive(!disabled && blameOpen && !openFile.dirty)
   blameCapabilityRequestFenceRef.current.setScope(currentOpenFileKey)
   blameCapabilityRequestFenceRef.current.setActive(!disabled)
+
+  useLayoutEffect(() => {
+    const fences = [blameRequestFenceRef.current, blameCapabilityRequestFenceRef.current]
+    fences.forEach(fence => fence.setMounted(true))
+    return () => fences.forEach(fence => fence.setMounted(false))
+  }, [])
 
   const blameLabelWidths = useMemo(() => {
     const lines = blame?.lines ?? []
@@ -62,11 +69,10 @@ export function useFileEditorBlameController({
   }, [])
 
   const loadBlame = useCallback(async () => {
-    if (disabled) {
-      setBlameCapability('unavailable')
-      return null
-    }
+    if (!blameRequestFenceRef.current.available) return null
     const lease = blameRequestFenceRef.current.begin()
+    setBlame(null)
+    setBlameDetail(null)
     setBlameLoading(true)
     setBlameError(null)
     try {
@@ -84,7 +90,7 @@ export function useFileEditorBlameController({
     } finally {
       if (lease.isCurrent()) setBlameLoading(false)
     }
-  }, [disabled, openFile.agentId, openFile.file.path])
+  }, [openFile.agentId, openFile.file.path])
 
   const checkBlameCapability = useCallback(async (): Promise<BlameCapability | null> => {
     if (disabled) {
@@ -108,7 +114,9 @@ export function useFileEditorBlameController({
   const toggleBlame = useCallback(async () => {
     if (disabled) return
     if (blameOpen) {
+      blameRequestFenceRef.current.invalidate()
       setBlameOpen(false)
+      setBlameLoading(false)
       setBlameDetail(null)
       return
     }
@@ -147,19 +155,15 @@ export function useFileEditorBlameController({
 
   useEffect(() => {
     if (!blameOpen) return
-    let cancelled = false
-    void loadBlame().then(nextBlame => {
-      if (cancelled) return
-      if (!nextBlame?.isGitRepo || nextBlame.lines.length === 0) {
-        setBlameOpen(false)
-        setBlameDetail(null)
-      }
-    })
-    return () => {
-      cancelled = true
+    if (openFile.dirty) {
+      setBlame(null)
+      setBlameDetail(null)
+      setBlameLoading(false)
+      return
     }
+    void loadBlame()
     // `openFile.file.sha1` re-runs the load after a save so open blame never shows stale lines.
-  }, [blameOpen, loadBlame, openFile.file.sha1])
+  }, [blameOpen, disabled, loadBlame, currentOpenFileKey, openFile.file.sha1, openFile.dirty])
 
   useEffect(() => {
     setBlameDetail(null)
@@ -175,6 +179,7 @@ export function useFileEditorBlameController({
     blameLabelWidths,
     checkBlameCapability,
     toggleBlame,
+    retryBlame: loadBlame,
     showBlameDetail,
     clearBlameDetail,
   }

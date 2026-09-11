@@ -18,6 +18,7 @@ interface FileEditorOverlaysProps {
   blameError: string | null
   blameLoading: boolean
   blameOpen: boolean
+  blameDirty: boolean
   copy: CodeCopy
   editorContextMenu: FileEditorContextMenuOverlayState | null
   readOnly: boolean
@@ -35,6 +36,7 @@ interface FileEditorOverlaysProps {
   onConfirmSaveAndClose: () => Promise<void>
   onDiscardAndClose: () => void
   onRunEditorContextAction: (action: FileEditorContextAction) => Promise<void>
+  onRetryBlame: () => void
   onRunTabContextAction: (action: 'close' | 'close-others' | 'close-right' | 'close-saved' | 'close-all') => void
 }
 
@@ -43,6 +45,7 @@ export function FileEditorOverlays({
   blameError,
   blameLoading,
   blameOpen,
+  blameDirty,
   copy,
   editorContextMenu,
   readOnly,
@@ -60,6 +63,7 @@ export function FileEditorOverlays({
   onConfirmSaveAndClose,
   onDiscardAndClose,
   onRunEditorContextAction,
+  onRetryBlame,
   onRunTabContextAction,
 }: FileEditorOverlaysProps) {
   return (
@@ -104,6 +108,8 @@ export function FileEditorOverlays({
           blame={blame}
           loading={blameLoading}
           error={blameError}
+          dirty={blameDirty}
+          onRetry={onRetryBlame}
           copy={copy}
         />
       )}

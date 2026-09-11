@@ -1,8 +1,10 @@
-import { useCallback, useState, type MutableRefObject } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState, type MutableRefObject, type MouseEvent as ReactMouseEvent } from 'react'
 import * as monaco from 'monaco-editor'
+import { RequestOwnershipFence } from '@/lib/request-ownership'
 import type { FileEditorContextAction } from './FileEditorContextMenu'
 
 interface FileEditorContextMenuState {
+  scope: string
   x: number
   y: number
   kind: 'gutter' | 'editor'
@@ -17,6 +19,8 @@ function isKeyboardContextMenuEvent(event: MouseEvent) {
 type BlameCapability = 'unknown' | 'available' | 'unavailable'
 
 interface UseFileEditorContextMenuControllerOptions {
+  scope: string
+  active: boolean
   blameCapability: BlameCapability
   blameOpen: boolean
   canShowBlame: boolean
@@ -33,6 +37,8 @@ interface UseFileEditorContextMenuControllerOptions {
 }
 
 export function useFileEditorContextMenuController({
+  scope,
+  active,
   blameCapability,
   blameOpen,
   canShowBlame,
@@ -47,11 +53,46 @@ export function useFileEditorContextMenuController({
   languageServerAvailable,
   onRunLanguageServerAction,
 }: UseFileEditorContextMenuControllerOptions) {
-  const [editorContextMenu, setEditorContextMenu] = useState<FileEditorContextMenuState | null>(null)
+  const [menuState, setEditorContextMenu] = useState<FileEditorContextMenuState | null>(null)
+  const actionFenceRef = useRef(new RequestOwnershipFence(scope))
+  actionFenceRef.current.setScope(scope)
+  actionFenceRef.current.setActive(active)
+  const editorContextMenu = active && menuState?.scope === scope ? menuState : null
 
   const closeEditorContextMenu = useCallback(() => {
+    actionFenceRef.current.invalidate()
     setEditorContextMenu(null)
   }, [])
+
+  useLayoutEffect(() => {
+    closeEditorContextMenu()
+  }, [scope, active, closeEditorContextMenu])
+
+  useLayoutEffect(() => {
+    const fence = actionFenceRef.current
+    fence.setMounted(true)
+    return () => fence.setMounted(false)
+  }, [])
+
+  const openContextMenu = useCallback((event: MouseEvent, kind: 'gutter' | 'editor', lineNumber: number) => {
+    if (!active) return
+    event.preventDefault()
+    event.stopPropagation()
+    actionFenceRef.current.invalidate()
+    onClearBlameDetail()
+    onCloseTabContextMenu()
+    setEditorContextMenu({
+      scope,
+      x: Math.max(8, Math.min(event.clientX, window.innerWidth - 220)),
+      y: Math.max(8, Math.min(event.clientY, window.innerHeight - 230)),
+      kind,
+      lineNumber,
+      focusFirstItem: isKeyboardContextMenuEvent(event),
+    })
+    // The menu owns dismissal immediately. Capability completion only updates
+    // available actions; it must never reopen or replace a later menu.
+    if (kind === 'gutter' && canShowBlame && !blameOpen) void onCheckBlameCapability()
+  }, [active, scope, blameOpen, canShowBlame, onCheckBlameCapability, onClearBlameDetail, onCloseTabContextMenu])
 
   const openEditorContextMenu = useCallback((event: monaco.editor.IEditorMouseEvent) => {
     const targetType = event.target.type
@@ -64,32 +105,19 @@ export function useFileEditorContextMenuController({
     const lineNumber = event.target.position?.lineNumber ?? editorRef.current?.getPosition()?.lineNumber ?? 1
     const kind = gutterTypes.has(targetType) ? 'gutter' : 'editor'
 
-    event.event.preventDefault()
-    event.event.stopPropagation()
-    onClearBlameDetail()
-    onCloseTabContextMenu()
-    const nextMenu: FileEditorContextMenuState = {
-      x: Math.max(8, Math.min(event.event.posx, window.innerWidth - 220)),
-      y: Math.max(8, Math.min(event.event.posy, window.innerHeight - 230)),
-      kind,
-      lineNumber,
-      focusFirstItem: isKeyboardContextMenuEvent(event.event.browserEvent),
-    }
-    if (kind === 'gutter' && canShowBlame && !blameOpen) {
-      void onCheckBlameCapability().then(capability => {
-        if (capability === null) return
-        setEditorContextMenu(nextMenu)
-      })
-      return
-    }
-    setEditorContextMenu(nextMenu)
-  }, [blameOpen, canShowBlame, editorRef, onCheckBlameCapability, onClearBlameDetail, onCloseTabContextMenu])
+    openContextMenu(event.event.browserEvent, kind, lineNumber)
+  }, [editorRef, openContextMenu])
+
+  const openBlameContextMenu = useCallback((event: ReactMouseEvent, lineNumber: number) => {
+    openContextMenu(event.nativeEvent, 'gutter', lineNumber)
+  }, [openContextMenu])
 
   const runEditorContextAction = useCallback(async (action: FileEditorContextAction) => {
     const editor = editorRef.current
     const menu = editorContextMenu
     closeEditorContextMenu()
-    if (!editor) return
+    if (!editor || !menu) return
+    const actionLease = actionFenceRef.current.begin()
 
     if ([
       'go-to-definition',
@@ -127,6 +155,7 @@ export function useFileEditorContextMenuController({
     if (action === 'copy' || action === 'cut') {
       const text = model.getValueInRange(selection)
       if (text) await navigator.clipboard?.writeText(text).catch(() => {})
+      if (!actionLease.isCurrent() || editor.getModel() !== model) return
       if (action === 'cut' && text && !readOnly) {
         editor.executeEdits('farming-context-menu', [{ range: selection, text: '', forceMoveMarkers: true }])
       }
@@ -136,6 +165,7 @@ export function useFileEditorContextMenuController({
 
     if (action === 'paste' && !readOnly) {
       const text = await navigator.clipboard?.readText().catch(() => '') ?? ''
+      if (!actionLease.isCurrent() || editor.getModel() !== model) return
       if (text) {
         editor.executeEdits('farming-context-menu', [{ range: selection, text, forceMoveMarkers: true }])
       }
@@ -151,6 +181,7 @@ export function useFileEditorContextMenuController({
     editorContextMenu,
     closeEditorContextMenu,
     openEditorContextMenu,
+    openBlameContextMenu,
     runEditorContextAction,
     showBlameContextAction,
     showLineChangesContextActions,

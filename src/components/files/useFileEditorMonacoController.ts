@@ -139,13 +139,9 @@ export function useFileEditorMonacoController({
   }, [])
 
   const focusEditor = useCallback(() => {
-    const focusCurrentEditor = () => {
-      const editor = editorRef.current
-      if (!editor) return
-      editor.focus()
-    }
-    focusCurrentEditor()
-    window.requestAnimationFrame(focusCurrentEditor)
+    // A later focus transfer belongs to its destination. Replaying this focus
+    // on the next frame can steal it back from the tree or another page.
+    editorRef.current?.focus()
   }, [])
 
   const revealLine = useCallback((lineNumber: number, options: { focusEditor?: boolean } = {}) => {
