@@ -35,8 +35,9 @@ function indexedHistoryRecord(index) {
     record: {
       id: `history-record-${index}`,
       runtimeAgentId: `history-agent-${index}`,
-      command: `codex resume ${sessionId}`,
-      forkCommand: 'codex',
+      command: index === 0 ? 'bash' : `codex resume ${sessionId}`,
+      forkCommand: index === 0 ? 'bash' : 'codex',
+      mainWorkspace: index === 0 ? '/repo/.farming' : '',
       cwd: '/repo',
       projectWorkspace: '/repo',
       provider: 'codex',
@@ -61,8 +62,28 @@ async function run() {
     runtimeAgentId: `archived-agent-${index}`,
     archived: true,
   }));
-  const records = [...legacyRecords, ...indexed.map(entry => entry.record), ...archivedRecords];
-  assert.strictEqual(records.length, 8_452, 'fixture must retain the observed production record shape');
+  const retiredMainShells = Array.from({ length: 45 }, (_, index) => ({
+    ...legacyMainRecord(index),
+    id: `retired-shell-record-${index}`,
+    runtimeAgentId: `retired-shell-${index}`,
+    command: 'bash',
+    forkCommand: 'bash',
+    mainWorkspace: '/repo/.farming',
+    wantsMain: false,
+    visibleOnMainPage: true,
+    lifecycleJournal: { sequence: 1, entries: [{
+      id: 'aop_1', type: 'create', state: 'succeeded', startedAt: 1, updatedAt: 2,
+    }] },
+  }));
+  const ordinaryShells = Array.from({ length: 9 }, (_, index) => ({
+    ...retiredMainShells[index],
+    id: `ordinary-shell-record-${index}`,
+    runtimeAgentId: `ordinary-shell-${index}`,
+    mainWorkspace: '',
+    cwd: '/repo',
+  }));
+  const records = [...legacyRecords, ...indexed.map(entry => entry.record), ...archivedRecords, ...retiredMainShells, ...ordinaryShells];
+  assert.strictEqual(records.length, 8_506, 'fixture includes 45 demoted Main Shells and 9 ordinary Shells');
   const runtime = new RecoveryRuntime();
   const manager = new AgentManager({
     farmingDir: '/tmp/farming-recovery-inventory-shape',
@@ -85,7 +106,7 @@ async function run() {
     assert.strictEqual(
       state.agents.length,
       51,
-      'cold inventory must contain one authoritative Main plus all 50 indexed rows, not 6,565 legacy Main records',
+      'cold inventory must contain one Main and 50 indexed rows without fabricating Shells from metadata',
     );
     assert.strictEqual(
       state.agents.filter(agent => agent.isMain === true).length,
@@ -93,6 +114,11 @@ async function run() {
       'legacy wantsMain flags must project to one authoritative Main identity',
     );
     assert(state.mainAgentId, 'cold inventory must elect one deterministic Main identity');
+    assert.deepStrictEqual(
+      state.agents.filter(agent => agent.id.startsWith('ordinary-shell-')).map(agent => agent.status),
+      [],
+      'ordinary Shells must stay absent until native-host enumeration supplies recoverable state',
+    );
     assert.deepStrictEqual(
       state.agents.filter(agent => agent.id.startsWith('history-agent-')).map(agent => agent.status),
       Array(50).fill('stopped'),

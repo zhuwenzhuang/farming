@@ -958,6 +958,18 @@ function isEphemeralShellAgent(agent: TypedAgentRecord): boolean {
   return agent && isShellProgram(agent.forkCommand || agent.command || '');
 }
 
+function isStandaloneShellAgent(agent: TypedAgentRecord): boolean {
+  return isEphemeralShellAgent(agent)
+    && runtimeKind(agent) === 'terminal'
+    && !agent.providerSessionId
+    && !agent.providerSessionKey;
+}
+
+function isEphemeralMainShell(agent: TypedAgentRecord): boolean {
+  return isStandaloneShellAgent(agent)
+    && (agent.wantsMain === true || Boolean(agent.mainWorkspace));
+}
+
 function hasSubmittedTerminalInput(input: TerminalInput) {
   const parts = Array.isArray(input) ? input : [input];
   return parts.some((part: unknown) => {
@@ -1087,6 +1099,12 @@ function shouldRestoreAgentFromMetadata(
     record.providerSessionId,
     record.providerHomeId || 'default'
   );
+  // A replaced Main Shell has no resumable conversation. Older recovery
+  // cleared wantsMain but retained membership; mainWorkspace preserves its
+  // original role and must not promote it into an ordinary Agent row.
+  if (isEphemeralMainShell(record)) {
+    return String(record.runtimeAgentId || record.id || '').trim() === mainAgentId;
+  }
   if (record.wantsMain === true) {
     return String(record.runtimeAgentId || record.id || '').trim() === mainAgentId
       || Boolean(sessionKey && mainPageSessionKeys.has(sessionKey));
@@ -2596,6 +2614,9 @@ class AgentManager extends EventEmitter {
       if (
         !agentId
         || this.agents.has(agentId)
+        // Shell membership is not a resumable conversation. Publish an
+        // ordinary Shell only after the Host supplies actual recovery state.
+        || (!operation && agentId !== mainRecoveryAgentId && isStandaloneShellAgent(record))
         || (
           !recoverableOperation
           && !shouldRestoreAgentFromMetadata(record, mainPageSessionKeys, mainRecoveryAgentId)
@@ -2607,14 +2628,14 @@ class AgentManager extends EventEmitter {
         record.providerSessionId,
         record.providerHomeId || 'default',
       );
-      const isColdTerminalHistoryPlaceholder = Boolean(
+      const isColdTerminalPlaceholder = Boolean(
         !recoverableOperation
         && agentId !== mainRecoveryAgentId
+        && String(record.agentRuntimeMode || 'terminal') === 'terminal'
         && sessionKey
         && mainPageSessionKeys.has(sessionKey)
-        && String(record.agentRuntimeMode || 'terminal') === 'terminal'
       );
-      const coldStatus = isColdTerminalHistoryPlaceholder ? 'stopped' : 'pending';
+      const coldStatus = isColdTerminalPlaceholder ? 'stopped' : 'pending';
       const agent = this.recoveredAgentRecord(
         agentId,
         record.engine || 'native',
@@ -2624,11 +2645,11 @@ class AgentManager extends EventEmitter {
       setAgentRecordId(agent, record.id || '');
       agent.wantsMain = agentId === mainRecoveryAgentId;
       agent.status = coldStatus;
-      agent.engineStatus = isColdTerminalHistoryPlaceholder ? 'stopped' : 'recovering';
+      agent.engineStatus = isColdTerminalPlaceholder ? 'stopped' : 'recovering';
       agent.engineStarted = false;
       const runtime = runtimeBindingOf(agent, 'acp');
       if (runtime) {
-        runtime.state = isColdTerminalHistoryPlaceholder ? 'stopped' : 'connecting';
+        runtime.state = isColdTerminalPlaceholder ? 'stopped' : 'connecting';
         runtime.error = '';
         runtime.stopReason = '';
       }
@@ -3095,6 +3116,7 @@ class AgentManager extends EventEmitter {
       );
       setAgentRecordId(agent, persisted.id || persisted.persistentSessionId || '');
       const wasMain = this.mainAgentIdentity.isCurrent(agentId) || placeholder.wantsMain === true;
+      const retireShell = isStandaloneShellAgent(persisted);
       const reason = 'Terminal runtime was not present in the authoritative native-host recovery set';
       agent.status = wasMain ? 'dead' : 'stopped';
       agent.engineStatus = 'recovery-failed';
@@ -3109,7 +3131,8 @@ class AgentManager extends EventEmitter {
       this.registerAgentRecord(agentId, agent);
       this.providerSessionService.stop(agentId);
       try {
-        this.sessionPersistence.persist(agent);
+        this.sessionPersistence.persist(agent, retireShell ? { visibleOnMainPage: false } : {});
+        if (retireShell) this.forgetStoppedAgentRecord(agentId);
       } catch (caughtError: unknown) {
         const error = caughtError as ErrorRecord;
         console.warn(

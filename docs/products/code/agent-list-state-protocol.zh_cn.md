@@ -34,15 +34,21 @@ Fork Child 继承 Source Agent 当前有效的 Row Title。Backend 追加 `(1)`�
 Farming Code 与 Farming CRT 保留各自的展示状态、渲染方式和页面生命周期策略，但共用浏览器侧协议 Reducer。两个界面都必须在消息入口校验规范的 Agent 状态 Server 消息，并使用同一套 Snapshot Cursor、Delta Sequence 与 Agent 列表合并规则。界面专属的投影与渲染必须留在这套共享协议状态机之外。
 
 Server 启动时必须在等待 Terminal Host 枚举、ACP Binding 或 Transcript 加载之前，通过一次
-聚合状态转换物化全部持久化 Main-page Agent 行。这些行保留持久化 Identity、Runtime Kind、
+聚合状态转换物化持久化 Main-page 对话行与当选 Main。这些行保留持久化 Identity、Runtime Kind、
 顺序和 Attention Cursor。有精确恢复证据的 Runtime 为 `pending` 或 `connecting`；只有 Indexed
 Membership、没有 Live Host 证据的 Terminal 是明确的 `stopped` Placeholder。后续 Runtime 恢复
 只更新已有行，不能逐个新增。只有用户真实点击 Stopped Provider-backed 行时，Client 才发送
 一次精确 Session Resume Mutation；后台读取、Preview Hydration 和 Server Ready 都不得触发恢复。
 打开 Binding 尚未恢复的 Chat 行时，读取会等待同一次权威恢复。权威 Native Host 结果中不存在
-的 Terminal Runtime 必须在同一轮有界恢复中离开 `pending`，并继续以明确的 Stopped 或失败状态
+的 Provider-backed Terminal Runtime 必须在同一轮有界恢复中离开 `pending`，并继续以明确的 Stopped 或失败状态
 可见，不能消失并退回 Provider History。缺失的当选 Main Terminal 会被标记为 Dead 并释放 Main
 Identity，让 Client 只创建一个替代者；它不能作为 Pending Main Placeholder 永久阻断恢复。
+没有 Provider Session 的 Main Shell 在确认底层 Runtime 缺失后撤销 Main-page Membership，
+并退出列表。已被替换的 Main Shell（包括 Main Marker 已清除但仍保留 Main Workspace 的旧记录）
+不能在后续启动时变成普通 Agent 行。独立 Shell 采用 best effort 恢复：有存活 Host Session 或
+精确的存活终端序列化状态才恢复，仅有历史元数据不能创建普通 Shell 行。无法恢复的 Shell 不留
+Stopped 或 Pending 占位行。Provider Session 仍保留 Stopped 行，尚未完成的生命周期操作仍需
+先完成恢复协调，再退出 Shell 列表。
 如果 Native Host 枚举本身失败，受影响的 Terminal Row 会进入明确的 Recovery Error，同时保留
 当选 Main Identity；系统不能靠猜测替换一个结果不确定的 Live Runtime。
 

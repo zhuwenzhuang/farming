@@ -203,10 +203,8 @@ async function run() {
     assert.strictEqual(latestLifecycleOperation(missingUpdateRecord).state, 'succeeded');
     assert.strictEqual(missingUpdateRecord.customTitle, 'Recovered title');
     const missingUpdateAgent = manager.agents.get(missingUpdate.id);
-    assert(missingUpdateAgent, 'a detached Update must retain one stopped inventory row');
-    assert.strictEqual(missingUpdateAgent.status, 'stopped');
-    assert.strictEqual(missingUpdateAgent.engineStatus, 'recovery-failed');
-    assert.strictEqual(activeLifecycleOperation(missingUpdateAgent), null);
+    assert.strictEqual(missingUpdateAgent, undefined, 'a resolved Update must not retain an unrecoverable Shell row');
+    assert.strictEqual(store.readRecord(missingUpdate.persistentSessionId).visibleOnMainPage, false);
   } finally {
     await manager.dispose();
     fs.rmSync(configDir, { recursive: true, force: true });

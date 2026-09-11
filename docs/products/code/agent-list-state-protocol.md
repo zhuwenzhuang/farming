@@ -177,8 +177,8 @@ interfaces validate canonical Agent-state Server messages at ingress and use the
 snapshot cursor, delta sequence, and Agent-list merge rules. Interface-specific
 projection and rendering must remain outside that shared protocol state machine.
 
-Server startup materializes every durable main-page Agent row in one aggregate
-state transition before awaiting Terminal-host enumeration, ACP binding, or
+Server startup materializes durable main-page conversation rows and the elected
+Main in one aggregate state transition before awaiting Terminal-host enumeration, ACP binding, or
 transcript loading. Those rows retain their persisted identity, runtime kind,
 ordering, and attention cursors. A runtime that has exact recovery evidence is
 `pending` or `connecting`; an indexed Terminal without live-host evidence is an
@@ -187,12 +187,21 @@ instead of adding them one at a time. A real user activation of a stopped
 provider-backed row sends one exact Session resume mutation; background reads,
 preview hydration, and Server readiness never resume it. Opening a Chat row
 whose binding is still pending waits on that same authoritative recovery. A
-Terminal runtime absent from the authoritative native-host result leaves
+Provider-backed Terminal runtime absent from the authoritative native-host result leaves
 `pending` in the same bounded recovery pass and remains visible with an
 explicit stopped or failed state rather than disappearing into Provider
 history. A missing elected Main Terminal is marked dead and relinquishes Main
 identity so the client can create one replacement; it cannot remain a pending
-Main placeholder that blocks recovery. If native-host enumeration itself
+Main placeholder that blocks recovery. A Main Shell without a Provider Session
+instead retires its main-page membership after that authoritative absence and
+leaves the inventory. Replaced Main Shell records, including legacy records
+whose Main marker was cleared but whose Main workspace remains, do not become
+ordinary Agent rows on subsequent starts. Standalone Shell recovery is best
+effort: a live Host session or an exact serialized live state may restore it;
+metadata alone never creates an ordinary Shell row. A Shell that cannot be
+recovered leaves no stopped or pending inventory row. Provider Sessions retain
+their stopped-row behavior, and incomplete lifecycle operations still reconcile
+before their Shell is retired. If native-host enumeration itself
 fails, affected Terminal rows become explicit recovery errors while the elected
 Main identity remains reserved; an uncertain live runtime is never replaced by
 guessing.

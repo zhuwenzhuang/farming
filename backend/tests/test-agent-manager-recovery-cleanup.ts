@@ -190,6 +190,15 @@ async function run() {
         },
         {
           engineName: 'native',
+          agentId: 'live-ordinary-bash',
+          metadata: {
+            agentId: 'live-ordinary-bash', command: 'bash', cwd: '/repo',
+            category: 'other', source: 'ui', wantsMain: false, visibleOnMainPage: true,
+          },
+          state: { status: 'running', startedAt: 2001 },
+        },
+        {
+          engineName: 'native',
           agentId: 'recovered-cleared-title',
           metadata: {
             agentId: 'recovered-cleared-title',
@@ -316,6 +325,8 @@ async function run() {
       'full'
     );
     assert(manager.agents.has('main-bash'), 'Main Agent shell sessions should be restored');
+    assert.strictEqual(manager.agents.get('live-ordinary-bash')?.status, 'running',
+      'best-effort recovery must retain a live ordinary Shell when the Host supplies it');
     assert.strictEqual(manager.mainAgentIdentity.currentId(), 'main-bash');
     assert.strictEqual(manager.getState().agents.find(agent => agent.id === 'main-bash').isMain, true);
     assert.strictEqual(manager.agents.has('untracked-bash'), false, 'shell sessions should not be restored');
@@ -363,19 +374,24 @@ async function run() {
     },
   ];
   const persistedMissingStatuses = new Map();
+  let recoveredMissingRecords = missingTerminalRecords.map(record => ({ ...record }));
   const missingTerminalManager = createTestAgentManager(AgentManager, {
     ...configManager(),
     getMainPageSessionKeys() {
       return [];
     },
     listAgentSessionRecords() {
-      return missingTerminalRecords;
+      return recoveredMissingRecords;
     },
-    ensureAgentSessionRecord(agent) {
+    ensureAgentSessionRecord(agent, patch) {
+      recoveredMissingRecords = recoveredMissingRecords.map(record => record.runtimeAgentId === agent.id
+        ? { ...record, ...patch, wantsMain: agent.wantsMain }
+        : record);
       persistedMissingStatuses.set(agent.id, {
         status: agent.status,
         engineStatus: agent.engineStatus,
         wantsMain: agent.wantsMain,
+        visibleOnMainPage: patch.visibleOnMainPage,
       });
       return agent.persistentSessionId;
     },
@@ -396,10 +412,10 @@ async function run() {
   try {
     await missingTerminalManager.recoverEngineSessions();
 
-    const missingMain = missingTerminalManager.agents.get('missing-main-bash');
-    assert(missingMain, 'a missing Main Terminal must remain visible as a failed row');
-    assert.strictEqual(missingMain.status, 'dead');
-    assert.strictEqual(missingMain.engineStatus, 'recovery-failed');
+    assert.strictEqual(
+      missingTerminalManager.agents.has('missing-main-bash'), false,
+      'a Main Shell proven absent must retire instead of becoming an ordinary bash row',
+    );
     assert.strictEqual(missingTerminalManager.mainAgentIdentity.currentId(), null);
     assert.strictEqual(
       missingTerminalManager.findActiveMainAgentStart(),
@@ -408,20 +424,19 @@ async function run() {
     );
 
     const missingVisible = missingTerminalManager.agents.get('missing-visible-bash');
-    assert(missingVisible, 'a missing visible Terminal must remain in the Agent inventory');
-    assert.strictEqual(missingVisible.status, 'stopped');
-    assert.strictEqual(missingVisible.engineStatus, 'recovery-failed');
-    assert.match(missingVisible.output, /not present in the authoritative native-host recovery set/);
+    assert.strictEqual(missingVisible, undefined, 'an unrecoverable Shell must not leave an inventory row');
     assert.deepStrictEqual(persistedMissingStatuses.get('missing-main-bash'), {
       status: 'dead',
       engineStatus: 'recovery-failed',
       wantsMain: false,
+      visibleOnMainPage: false,
     });
-    assert.deepStrictEqual(persistedMissingStatuses.get('missing-visible-bash'), {
-      status: 'stopped',
-      engineStatus: 'recovery-failed',
-      wantsMain: false,
-    });
+    assert.strictEqual(persistedMissingStatuses.has('missing-visible-bash'), false);
+    await missingTerminalManager.recoverEngineSessions();
+    assert.strictEqual(
+      missingTerminalManager.agents.has('missing-main-bash'), false,
+      'subsequent recovery must not resurrect a retired Main Shell from its successful Create record',
+    );
   } finally {
     await missingTerminalManager.dispose({ preserveTerminalHost: true });
   }
@@ -458,8 +473,7 @@ async function run() {
       'an uncertain enumeration must retain Main identity and prevent an unsafe duplicate start',
     );
     assert.strictEqual(failedEnumerationManager.findActiveMainAgentStart(), uncertainMain);
-    assert.strictEqual(uncertainVisible.status, 'error');
-    assert.strictEqual(uncertainVisible.engineStatus, 'recovery-failed');
+    assert.strictEqual(uncertainVisible, undefined, 'failed enumeration must not invent a Shell runtime row');
   } finally {
     await failedEnumerationManager.dispose({ preserveTerminalHost: true });
   }
