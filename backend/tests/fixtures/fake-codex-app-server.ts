@@ -19,6 +19,7 @@ function thread(id = sessionId) {
   return {
     id,
     sessionId: id,
+    historyMode: 'paginated',
     forkedFromId: null,
     parentThreadId: null,
     preview: 'ACP history image test',
@@ -96,7 +97,8 @@ async function resultFor(method, params) {
   if (method === 'thread/resume') {
     await waitForProviderResumeGate();
     return {
-      thread: thread(params.threadId),
+      thread: { ...thread(params.threadId), turns: [] },
+      turnsBackwardsCursor: 'history-start',
       model: 'gpt-5.6',
       modelProvider: 'openai',
       reasoningEffort: 'medium',
@@ -130,7 +132,25 @@ async function resultFor(method, params) {
     };
   }
   if (method === 'thread/read') {
-    return { thread: thread(params.threadId) };
+    return { thread: { ...thread(params.threadId), turns: [] } };
+  }
+  if (method === 'thread/turns/list') {
+    const turns = thread(params.threadId).turns;
+    if (process.env.FARMING_TEST_PAGINATED_HISTORY === '1' && params.cursor !== 'history-older') {
+      return {
+        data: [{
+          ...turns[0],
+          id: 'turn-history-newest',
+          items: [{
+            id: 'user-history-newest',
+            type: 'userMessage',
+            content: [{ type: 'text', text: 'Newest paginated turn', text_elements: [] }],
+          }],
+        }],
+        nextCursor: 'history-older',
+      };
+    }
+    return { data: [...turns].reverse(), nextCursor: null };
   }
   if (method === 'thread/unsubscribe' || method === 'thread/delete') return {};
   if (method === 'thread/list') {

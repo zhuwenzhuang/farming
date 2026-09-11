@@ -5,7 +5,7 @@ const path = require('path');
 const { spawn } = require('child_process');
 
 const projectRoot = path.join(__dirname, '..', '..');
-const adapterPath = path.join(projectRoot, 'dist', 'acp', 'codex-acp-1.10.0.mjs');
+const adapterPath = path.join(projectRoot, 'dist', 'acp', 'codex-acp-1.11.0.mjs');
 const fakeCodexPath = path.join(__dirname, 'fixtures', 'fake-codex-app-server.ts');
 const imageData = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=';
 const sessionId = '019f0000-0000-7000-8000-000000000999';
@@ -17,12 +17,15 @@ function send(child, message) {
 async function run() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-acp-history-image-'));
   const imagePath = path.join(tmpDir, 'screen.png');
+  const requestLogFile = path.join(tmpDir, 'requests.jsonl');
   fs.writeFileSync(imagePath, Buffer.from(imageData, 'base64'));
   const child = spawn(process.execPath, [adapterPath], {
     cwd: projectRoot,
     env: {
       ...process.env,
       CODEX_PATH: fakeCodexPath,
+      FARMING_TEST_PAGINATED_HISTORY: '1',
+      FARMING_TEST_REQUEST_LOG_FILE: requestLogFile,
       FARMING_TEST_HISTORY_IMAGE_PATH: imagePath,
       FARMING_TEST_HISTORY_IMAGE_DATA_URL: `data:image/png;base64,${imageData}`,
     },
@@ -109,6 +112,11 @@ async function run() {
     assert.deepStrictEqual(userUpdates[4]._meta, {
       codex: { steer: true, turnId: 'turn-history-image' },
     });
+    assert.deepStrictEqual(contents[5], { type: 'text', text: 'Newest paginated turn' });
+    assert.strictEqual(contents.length, 6, 'all history pages must appear once in chronological order');
+    const historyRequests = fs.readFileSync(requestLogFile, 'utf8').trim().split('\n')
+      .map(line => JSON.parse(line)).filter(request => request.method === 'thread/turns/list');
+    assert.deepStrictEqual(historyRequests.map(request => request.params.cursor), ['history-start', 'history-older']);
     assert(!contents.some(content => content?.type === 'text' && content.text.includes('[@image]')));
     console.log('✓ Codex ACP session/load emits native history image blocks');
   } finally {
