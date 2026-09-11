@@ -353,3 +353,33 @@ test('a save supersedes pending blame for the previous saved version', async ({ 
     await expect(page.locator('.code-file-inline-blame.uncommitted').first()).toBeVisible()
   } finally { held.release() }
 })
+
+for (const appearance of ['light', 'dark', 'paper'] as const) {
+  test(`failed clipboard writes preserve cut text in ${appearance}`, async ({ page, workspaceRoot }, testInfo) => {
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, 'clipboard', { configurable: true, value: {
+        writeText: async () => {
+          if (document.body.dataset.clipboardAccept === 'true') return
+          throw new DOMException('Clipboard permission denied', 'NotAllowedError')
+        },
+      } })
+      const original = document.execCommand.bind(document)
+      document.execCommand = (command, ...args) => command === 'copy' ? false : original(command, ...args)
+    })
+    await openFile(page, repository(workspaceRoot))
+    await page.locator('body').evaluate((body, value) => { body.dataset.appearance = value }, appearance)
+    const editor = page.getByTestId('code-file-monaco')
+    await editor.click({ button: 'right', position: { x: 400, y: 38 } })
+    await page.getByTestId('code-editor-context-menu').getByRole('menuitem', { name: 'Select All', exact: true }).click()
+    await editor.click({ button: 'right', position: { x: 400, y: 38 } })
+    await page.getByTestId('code-editor-context-menu').getByRole('menuitem', { name: 'Cut', exact: true }).click()
+    await expect(page.getByTestId('code-file-clipboard-alert')).toHaveText('Copy failed')
+    expect(await page.evaluate(() => window.__farmingFileEditorTest?.getValue())).toBe('first line\nchanged second line\nthird line\n')
+    await page.screenshot({ path: testInfo.outputPath(`clipboard-failed-${appearance}.png`), animations: 'disabled' })
+    await page.locator('body').evaluate(body => { body.dataset.clipboardAccept = 'true' })
+    await editor.click({ button: 'right', position: { x: 400, y: 38 } })
+    await page.getByTestId('code-editor-context-menu').getByRole('menuitem', { name: 'Cut', exact: true }).click()
+    await expect(page.getByTestId('code-file-clipboard-alert')).toHaveCount(0)
+    expect(await page.evaluate(() => window.__farmingFileEditorTest?.getValue())).toBe('')
+  })
+}

@@ -89,6 +89,7 @@ test('hard restart retires Main Shells without adding bash rows', async ({ page 
     await terminalRow.click()
     await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${liveTerminalId}"]`)).toBeVisible()
     await expect(page.locator(`.code-agent-row[data-agent-id="${initialMain}"]`)).toHaveCount(0)
+    await expect.poll(() => page.evaluate(id => window.__farmingTerminalTest?.getRows(id).join('\n') || '', liveTerminalId)).toContain('$')
     for (const appearance of ['light', 'dark', 'paper']) {
       await page.locator('body').evaluate((body, value) => { body.dataset.appearance = value }, appearance)
       await page.screenshot({ path: testInfo.outputPath(`main-shell-restart-${appearance}.png`), animations: 'disabled' })

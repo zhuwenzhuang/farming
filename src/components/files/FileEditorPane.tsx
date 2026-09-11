@@ -503,6 +503,7 @@ export function FileEditorPane({
   })
 
   const {
+    clipboardWriteFailed,
     editorContextMenu,
     closeEditorContextMenu,
     openEditorContextMenu,
@@ -662,6 +663,11 @@ export function FileEditorPane({
             {openFile.error && (
               <div className="code-file-editor-alert" data-testid="code-file-editor-alert">
                 {openFile.error}
+              </div>
+            )}
+            {clipboardWriteFailed && (
+              <div className="code-file-editor-alert" data-testid="code-file-clipboard-alert" role="alert">
+                {copy.copyFailed}
               </div>
             )}
             {largeTextPreview && (

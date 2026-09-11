@@ -227,6 +227,10 @@ cannot reopen a dismissed menu or replace a newer one. File/view changes and
 unmount revoke the menu and any pending action. Clipboard completion must not
 edit a different model after navigation.
 
+Cut removes the selected text only after a confirmed clipboard write. A failed
+write preserves the document and shows the shared inline error feedback; a new
+action or file/view change clears that feedback.
+
 Git blame uses the same gutter menu from both line numbers and author/date
 annotations, including Hide Blame while loading or after failure. Annotation
 rows stay clipped to the editor viewport and below Monaco's sticky headers;

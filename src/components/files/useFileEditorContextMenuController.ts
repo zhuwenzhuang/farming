@@ -1,6 +1,7 @@
 import { useCallback, useLayoutEffect, useRef, useState, type MutableRefObject, type MouseEvent as ReactMouseEvent } from 'react'
 import * as monaco from 'monaco-editor'
 import { RequestOwnershipFence } from '@/lib/request-ownership'
+import { writeClipboardText } from '@/lib/clipboard'
 import type { FileEditorContextAction } from './FileEditorContextMenu'
 
 interface FileEditorContextMenuState {
@@ -53,6 +54,7 @@ export function useFileEditorContextMenuController({
   languageServerAvailable,
   onRunLanguageServerAction,
 }: UseFileEditorContextMenuControllerOptions) {
+  const [clipboardWriteFailed, setClipboardWriteFailed] = useState(false)
   const [menuState, setEditorContextMenu] = useState<FileEditorContextMenuState | null>(null)
   const actionFenceRef = useRef(new RequestOwnershipFence(scope))
   actionFenceRef.current.setScope(scope)
@@ -65,6 +67,7 @@ export function useFileEditorContextMenuController({
   }, [])
 
   useLayoutEffect(() => {
+    setClipboardWriteFailed(false)
     closeEditorContextMenu()
   }, [scope, active, closeEditorContextMenu])
 
@@ -118,6 +121,7 @@ export function useFileEditorContextMenuController({
     closeEditorContextMenu()
     if (!editor || !menu) return
     const actionLease = actionFenceRef.current.begin()
+    setClipboardWriteFailed(false)
 
     if ([
       'go-to-definition',
@@ -154,8 +158,13 @@ export function useFileEditorContextMenuController({
 
     if (action === 'copy' || action === 'cut') {
       const text = model.getValueInRange(selection)
-      if (text) await navigator.clipboard?.writeText(text).catch(() => {})
+      const copied = text ? await writeClipboardText(text) : true
       if (!actionLease.isCurrent() || editor.getModel() !== model) return
+      if (!copied) {
+        setClipboardWriteFailed(true)
+        editor.focus()
+        return
+      }
       if (action === 'cut' && text && !readOnly) {
         editor.executeEdits('farming-context-menu', [{ range: selection, text: '', forceMoveMarkers: true }])
       }
@@ -178,6 +187,7 @@ export function useFileEditorContextMenuController({
   const showLanguageServerActions = Boolean(editorContextMenu && editorContextMenu.kind === 'editor' && languageServerAvailable)
 
   return {
+    clipboardWriteFailed,
     editorContextMenu,
     closeEditorContextMenu,
     openEditorContextMenu,
