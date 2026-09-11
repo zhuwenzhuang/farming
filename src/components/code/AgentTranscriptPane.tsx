@@ -211,6 +211,7 @@ export interface AgentTranscriptPaneProps {
   viewportLayoutKey?: string
   source: 'acp' | 'json-cli'
   refreshSignal?: number
+  followLatestSignal?: number
   runtimeState?: string
   expectHistory?: boolean
   forkedFromAgent?: boolean
@@ -3184,6 +3185,7 @@ export function AgentTranscriptPane({
   viewportLayoutKey = '',
   source,
   refreshSignal = 0,
+  followLatestSignal = 0,
   runtimeState = '',
   expectHistory = false,
   forkedFromAgent = false,
@@ -3229,6 +3231,7 @@ export function AgentTranscriptPane({
     turnCount: number
   } | null>(null)
   const followBottomRef = useRef(true)
+  const handledFollowLatestSignalRef = useRef(followLatestSignal)
   const stationaryScrollTopRef = useRef<number | null>(null)
   const previousViewportLayoutKeyRef = useRef(viewportLayoutKey)
   // A saved semantic anchor is for returning to an Agent, not for tracking
@@ -4177,18 +4180,30 @@ export function AgentTranscriptPane({
   }, [])
   const handleJumpToBottom = useCallback(() => {
     const element = scrollRef.current
-    if (!element) return
     followBottomRef.current = true
     stationaryScrollTopRef.current = null
+    pendingReadingAnchorRestoreRef.current = false
+    pendingPrependAnchorRef.current = null
+    pendingReadingAnchorWriteRef.current = null
+    userScrollGestureRef.current = false
+    textSelectionGestureRef.current = false
     textSelectionHadRangeRef.current = false
     // This control is an explicit catch-up action. A smooth animation can be
     // interrupted by a transcript refresh and leave the reader above the
     // newest turn, so move the viewport synchronously instead.
-    element.scrollTop = element.scrollHeight
+    if (element) element.scrollTop = element.scrollHeight
     clearReadingAnchor(readingAnchorAgentKey(readingAnchorAgentId, 'chat'))
     setShowJumpToBottom(false)
     onReadLatest?.()
   }, [onReadLatest, readingAnchorAgentId])
+  useLayoutEffect(() => {
+    if (handledFollowLatestSignalRef.current === followLatestSignal) return
+    handledFollowLatestSignalRef.current = followLatestSignal
+    // Consume hidden requests too: returning to an Agent must not replay an
+    // earlier send over a newer reading position.
+    if (!followLatestSignal || !active || !isPageActive()) return
+    handleJumpToBottom()
+  }, [active, followLatestSignal, handleJumpToBottom])
   const handleTranscriptRetry = useCallback(() => {
     if (source === 'acp') {
       refreshAcpTranscriptSession(agentId, true)

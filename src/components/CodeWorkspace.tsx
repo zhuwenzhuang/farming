@@ -2359,6 +2359,7 @@ export function CodeWorkspace({
     activeAgent?.codexTerminalProfile?.serviceTier,
   ])
 
+  const [chatFollowLatestRequest, setChatFollowLatestRequest] = useState<{ agentId: string; nonce: number } | null>(null)
   const sendComposerMessageToAgent = useCallback((
     agent: Agent,
     message: string,
@@ -2367,11 +2368,20 @@ export function CodeWorkspace({
     delivery?: 'prompt' | 'steer',
   ) => {
     if (isStructuredRuntime(agent)) {
-      return sendComposerInput(message, agent.id, attachments, {
+      const submitted = sendComposerInput(message, agent.id, attachments, {
         awaitResult: true,
         requestId,
         delivery,
       })
+      const followAcceptedMessage = (accepted: boolean) => {
+        if (accepted && activeTerminalIdRef.current === agent.id) {
+          setChatFollowLatestRequest(current => ({ agentId: agent.id, nonce: (current?.nonce ?? 0) + 1 }))
+        }
+        return accepted
+      }
+      return typeof submitted === 'boolean'
+        ? followAcceptedMessage(submitted)
+        : submitted.then(followAcceptedMessage)
     }
     if (
       agentKindForCommand(agent.command) === 'shell'
@@ -6048,6 +6058,7 @@ export function CodeWorkspace({
         permissionSwitchingAgentId={permissionSwitchingAgentId}
         agentSwitchingKind={agentSwitchingKind}
         terminalFocusRequest={terminalFocusRequest}
+        chatFollowLatestRequest={chatFollowLatestRequest}
         agentCreationWorkspace={agentCreationWorkspace}
         displayedProjects={searchResultProjects}
         searchQuery={searchQuery}

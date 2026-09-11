@@ -1195,6 +1195,45 @@ test('keeps a human reader stationary while an ACP answer streams below', { tag:
   ))).toBeLessThanOrEqual(1)
 })
 
+for (const appearance of ['light', 'dark', 'paper'] as const) {
+  test(`returns to the sent ACP message from history in ${appearance}`, { tag: '@iphone-human' }, async ({ page, workspaceRoot }, testInfo) => {
+    const workspace = path.join(workspaceRoot, `send-from-history-${appearance}`)
+    fs.mkdirSync(workspace, { recursive: true })
+    const agentId = await createAcpAgent(page, workspace)
+    await openFarming(page)
+    await selectAgentOnCompactLayout(page, agentId)
+    await page.locator('body').evaluate((body, value) => { body.dataset.appearance = value }, appearance)
+
+    const transcript = page.getByTestId('code-agent-transcript-scroll')
+    const input = page.getByTestId('code-acp-composer-input')
+    const send = page.getByTestId('code-acp-composer-send')
+    await input.fill('scroll stability')
+    await send.click()
+    await expect(page.getByText('Streaming tail 6', { exact: false })).toBeAttached()
+    await expect(send).toHaveAttribute('data-action', 'disabled')
+    await expect.poll(() => transcript.evaluate(element => element.scrollHeight - element.clientHeight)).toBeGreaterThan(900)
+    await transcript.evaluate(element => {
+      element.dispatchEvent(new Event('touchstart', { bubbles: true }))
+      element.scrollTop = element.scrollHeight - element.clientHeight - 900
+      element.dispatchEvent(new Event('scroll', { bubbles: true }))
+      element.dispatchEvent(new Event('touchend', { bubbles: true }))
+    })
+    await expect(page.getByTestId('code-agent-transcript-jump-bottom')).toBeVisible()
+
+    await input.fill('Message sent while reading history')
+    await send.click()
+    await expect(input).toHaveValue('')
+    const sentMessage = transcript.getByText('Message sent while reading history', { exact: true })
+    // Geometry assertions must precede any locator action that might scroll it into view.
+    await expect(sentMessage).toBeInViewport()
+    await expect.poll(() => transcript.evaluate(element => (
+      element.scrollHeight - element.clientHeight - element.scrollTop
+    ))).toBeLessThanOrEqual(2)
+    await expect(page.getByTestId('code-agent-transcript-jump-bottom')).toHaveCount(0)
+    await page.screenshot({ path: testInfo.outputPath(`send-from-history-${appearance}.png`), animations: 'disabled', caret: 'hide' })
+  })
+}
+
 test('keeps following the bottom when a new ACP turn first grows', async ({ page, workspaceRoot }) => {
   const workspace = path.join(workspaceRoot, 'first-refresh-bottom-follow')
   fs.mkdirSync(workspace, { recursive: true })

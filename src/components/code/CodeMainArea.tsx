@@ -294,6 +294,7 @@ interface CodeMainAreaProps {
   permissionSwitchingAgentId: string | null
   agentSwitchingKind: 'permission' | 'runtime' | null
   terminalFocusRequest: { agentId: string; nonce: number } | null
+  chatFollowLatestRequest: { agentId: string; nonce: number } | null
   agentCreationWorkspace?: string
   displayedProjects: ProjectGroup[]
   searchQuery: string
@@ -610,6 +611,7 @@ export function CodeMainArea({
   permissionSwitchingAgentId,
   agentSwitchingKind,
   terminalFocusRequest,
+  chatFollowLatestRequest,
   agentCreationWorkspace,
   displayedProjects,
   searchQuery,
@@ -1244,6 +1246,7 @@ export function CodeMainArea({
               onActivePlanChange={publishActivePlan}
               onSessionOutput={onSessionOutput}
               focusSignal={terminalFocusRequest?.agentId === agent.id ? terminalFocusRequest.nonce : 0}
+              followLatestSignal={chatFollowLatestRequest?.agentId === agent.id ? chatFollowLatestRequest.nonce : 0}
               copy={copy}
             />
           ))

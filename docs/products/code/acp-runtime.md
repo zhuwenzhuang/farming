@@ -227,6 +227,15 @@ Queued follow-ups remain editable and discardable until admission begins.
 Negotiated live Steer remains inside its owning Turn; providers without that
 capability use the visible queue.
 
+Chat owns two viewing states: following the latest content and reading history.
+An accepted Composer Prompt or Steer for the visible Agent resumes following,
+clears pending reading-position restoration, and reveals the latest content as
+the transcript arrives. Rejected or uncertain submissions and queued messages
+awaiting admission do not change this state. Ordinary transcript updates preserve
+history reading; a new user scroll can pause following again. Hidden Agents do
+not replay a send's scroll request when reopened. This contract is shared by all
+ACP providers and does not retry or otherwise change message delivery.
+
 Farming negotiates standard Steering from the Agent's initialize response and
 uses `_session/steering` only while it owns an active Turn. The older Codex
 steer extension remains an adapter-boundary compatibility path for Agents that

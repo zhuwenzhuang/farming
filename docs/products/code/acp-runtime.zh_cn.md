@@ -171,6 +171,13 @@ Farming 从 Agent 的 Initialize Response 协商标准 Steering，并且只在�
 Composer 中的 Goal 输入被明确视为 Prompt Content，而不是持久 ACP Goal Binding。Farming
 不会根据该输入创建跨 Turn Goal 状态；提交的文字本身就是完整事实来源。
 
+Chat 有“跟随最新内容”和“阅读历史”两种查看状态。当前可见 Agent 的 Composer
+Prompt 或 Steer 被接受后，恢复跟随、清除待恢复的阅读位置，并在 Transcript 到达时
+显示最新内容。被拒绝、结果不确定的发送以及尚未准入的排队消息不改变此状态。
+普通 Transcript 更新保持历史阅读位置；用户再次滚动可暂停跟随。隐藏 Agent 再次
+打开时不重放旧发送的滚动请求。所有 ACP Provider 共用此契约，滚动行为不重试或
+改变消息投递。
+
 ## Transcript 协议
 
 Backend 把 History Replay 与 Live ACP Update 归约成一条有序、Provider-neutral Transcript。
