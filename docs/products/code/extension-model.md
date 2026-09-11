@@ -190,6 +190,12 @@ Browser and Computer are built-in Extensions over the same Resource contract:
 - Browser in Docker (Experimental) may lease an Agent-owned Desktop, but Browser-tab and Desktop
   lifecycles remain distinct.
 
+Viewer text input must preserve printable characters, including punctuation,
+through the Runtime adapter. Keyboard virtual keys are distinct from character
+codes; printable input must not trigger editing commands such as Delete.
+See [Browser Interaction](browser-interaction.md) for input state and shared-control
+semantics.
+
 Farming Desktop may offer an exact native Browser adapter. Selecting that
 source creates a normal Agent-owned Browser Resource, but leases its tab/view
 to one identified Desktop adapter and generation. The backend remains the

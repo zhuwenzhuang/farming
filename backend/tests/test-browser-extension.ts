@@ -51,6 +51,7 @@ class FakeBrowserRuntime extends EventEmitter {
     this.resizeCalls = 0;
     this.resizeValues = [];
     this.actionCalls = [];
+    this.keyCalls = [];
     this.tabs = [];
     this.nextTab = 1;
     this.activeTabId = '';
@@ -184,7 +185,8 @@ class FakeBrowserRuntime extends EventEmitter {
     return { ok: true };
   }
 
-  async press() {
+  async press(input) {
+    this.keyCalls.push(input);
     return { ok: true };
   }
 
@@ -974,6 +976,34 @@ async function testBrowserResourceManager() {
     const readOnlyFrame = { type: 'browser-frame', generation: 1, data: 'read-only-frame' };
     runtimes[0].emit('frame', readOnlyFrame);
     assert.deepStrictEqual(readOnlyViewer.messages.at(-1), readOnlyFrame);
+
+    const input = value => viewer.emit('message', Buffer.from(JSON.stringify({ generation: running.generation, ...value })));
+    input({ type: 'key', key: 'Shift', code: 'ShiftLeft', action: 'down', modifiers: 8 });
+    await manager.sessions.values().next().value.actionChain;
+    input({ type: 'pointer', action: 'down', x: 10, y: 20, button: 'left', buttons: 1 });
+    input({ type: 'pointer', action: 'move', x: 30, y: 40, buttons: 1 });
+    input({ type: 'reset-input' });
+    await manager.sessions.values().next().value.actionChain;
+    assert.strictEqual(runtimes[0].keyCalls.at(-1).action, 'up', 'focus loss must release held keys');
+    assert.deepStrictEqual(runtimes[0].actionCalls.at(-1).input, {
+      generation: running.generation, type: 'pointer', action: 'up', x: 30, y: 40, button: 'left', buttons: 0, modifiers: 0,
+    });
+    input({ type: 'key', key: 'Shift', code: 'ShiftLeft', action: 'down', modifiers: 8 });
+    await manager.sessions.values().next().value.actionChain;
+    const otherInputViewer = new FakeViewer();
+    manager.attachViewer(created.id, otherInputViewer);
+    otherInputViewer.emit('message', Buffer.from(JSON.stringify({ generation: running.generation, type: 'text', text: 'new viewer' })));
+    await manager.sessions.values().next().value.actionChain;
+    assert.strictEqual(runtimes[0].keyCalls.at(-1).action, 'up', 'another Viewer must not inherit held keys');
+    otherInputViewer.emit('message', Buffer.from(JSON.stringify({ generation: running.generation, type: 'key', key: 'Shift', code: 'ShiftLeft', action: 'down', modifiers: 8 })));
+    await manager.sessions.values().next().value.actionChain;
+    const keyCountBeforeStaleReset = runtimes[0].keyCalls.length;
+    input({ type: 'reset-input' });
+    await manager.sessions.values().next().value.actionChain;
+    assert.strictEqual(runtimes[0].keyCalls.length, keyCountBeforeStaleReset, 'old Viewer blur cannot release another Viewer key');
+    otherInputViewer.emit('close');
+    await manager.sessions.values().next().value.actionChain;
+    assert.strictEqual(runtimes[0].keyCalls.at(-1).action, 'up', 'Viewer disconnect must release its own held key');
 
     runtimes[0].tabs[0].active = false;
     runtimes[0].tabs.push({

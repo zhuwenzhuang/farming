@@ -21,6 +21,33 @@ const execFileAsync = promisify(execFile)
 
 test.beforeAll(async () => {
   targetServer = http.createServer((request, response) => {
+    if (request.url?.startsWith('/vs/')) {
+      const base = path.resolve('node_modules/monaco-editor/min')
+      const file = path.resolve(base, `.${request.url}`)
+      if (!file.startsWith(`${base}${path.sep}`)) { response.writeHead(403).end(); return }
+      response.setHeader('content-type', file.endsWith('.css') ? 'text/css' : file.endsWith('.ttf') ? 'font/ttf' : 'text/javascript')
+      void fs.promises.readFile(file).then(data => response.end(data)).catch(() => response.writeHead(404).end())
+      return
+    }
+    if (request.url === '/input-lab') {
+      response.setHeader('content-type', 'text/html; charset=utf-8')
+      response.end(`<!doctype html><meta charset="utf-8"><title>Browser Input Lab</title>
+        <style>body{font:18px system-ui;margin:20px;background:#f4f7fa}input,textarea{display:block;width:500px;height:42px;margin:12px 0;font:20px monospace}#rich{background:white;width:600px;min-height:60px;padding:8px}#editor{height:220px;width:750px;margin-top:20px}#drag{width:80px;height:35px;background:#7ad}</style>
+        <h1>Browser Input Lab</h1><input id="name" aria-label="Name"><textarea id="multiline" aria-label="Multiline"></textarea>
+        <div id="rich" contenteditable="true" role="textbox">Rich text</div><div id="drag">Drag</div><div id="editor"></div>
+        <script>
+          window.inputEvents=[];
+          for(const type of ['keydown','keyup','input','mousedown','mouseup','mousemove','dblclick']) document.addEventListener(type,e=>{
+            if(window.inputEvents.length>500)window.inputEvents.shift();
+            window.inputEvents.push({type,key:e.key,code:e.code,shift:e.shiftKey,ctrl:e.ctrlKey,meta:e.metaKey,repeat:e.repeat,buttons:e.buttons,detail:e.detail});
+          });
+        </script>
+        <script src="/vs/loader.js"></script><script>
+          require.config({paths:{vs:'/vs'}});
+          require(['vs/editor/editor.main'],()=>{window.editor=monaco.editor.create(document.getElementById('editor'),{value:'const value = 1;',language:'javascript',minimap:{enabled:false},automaticLayout:true});});
+        </script>`)
+      return
+    }
     if (request.url === '/closed') {
       request.socket.destroy()
       return
@@ -1468,6 +1495,169 @@ test('normalizes a bare address and clears a recovered navigation error', async 
     .toBe('Browser Interaction Lab')
   await expect(viewer.getByRole('alert')).toHaveCount(0)
   await expect(viewer.locator('form')).toHaveAttribute('aria-busy', 'false')
+})
+
+test('preserves remote Browser editing, clipboard, pointer and focus semantics', async ({ page, workspaceRoot }, testInfo) => {
+  test.setTimeout(120_000)
+  const workspace = path.join(workspaceRoot, 'browser-input-contract')
+  fs.mkdirSync(workspace, { recursive: true })
+  await page.request.post('/farming/api/settings', { data: { browserExtensionEnabled: true } })
+  const agentId = await createBrowserOwnerAgent(page, workspace)
+  const create = await page.request.post('/farming/api/browsers', { data: { rootId: projectFilesWorkspaceId(workspace), agentId } })
+  expect(create.ok()).toBeTruthy()
+  const { id } = await create.json() as { id: string }
+  const action = async (expression: string) => {
+    const response = await page.request.post(`/farming/api/browsers/${id}/action`, { data: { kind: 'eval', expression } })
+    expect(response.ok(), await response.text()).toBeTruthy()
+    return (await response.json() as { result: unknown }).result
+  }
+  try {
+    expect((await page.request.post(`/farming/api/browsers/${id}/start`)).ok()).toBeTruthy()
+    await openFarming(page)
+    const section = await openAgentBrowserSection(page, agentId)
+    await section.getByTestId('farming-browser-row').click()
+    const viewer = page.getByTestId('farming-browser-viewer')
+    const canvas = viewer.locator('canvas')
+    const proxy = viewer.getByRole('textbox', { name: 'Browser text input' })
+    const address = viewer.getByRole('textbox', { name: 'Browser address' })
+    await address.fill(`${targetUrl}input-lab`)
+    await address.press('Enter')
+    await expect.poll(() => action('Boolean(window.editor)')).toBe(true)
+    const focus = async (selector: string) => {
+      const point = await action(`(()=>{const r=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();return {x:r.x+20,y:r.y+20}})()`) as { x: number; y: number }
+      await clickBrowserPoint(canvas, point.x, point.y)
+      await expect(proxy).toBeFocused()
+      await expect.poll(async () => ({ active: await action('document.activeElement.id'), errors: await viewer.getByRole('alert').allTextContents() })).toEqual({active: selector.slice(1), errors: []})
+    }
+    await focus('#name')
+    const sample = `a.b, /;:'"[]{}-=+_!?@#$%^&*()`
+    await page.keyboard.type(sample)
+    await expect.poll(() => action('document.querySelector("#name").value')).toBe(sample)
+    await page.keyboard.press('ControlOrMeta+A')
+    await page.keyboard.type('alpha beta')
+    await expect.poll(() => action('document.querySelector("#name").value')).toBe('alpha beta')
+    await page.keyboard.press('Shift+ArrowLeft')
+    await page.keyboard.type('!')
+    await expect.poll(() => action('document.querySelector("#name").value')).toBe('alpha bet!')
+    await page.keyboard.press('ControlOrMeta+Z')
+    await expect.poll(() => action('document.querySelector("#name").value')).toBe('alpha beta')
+    await page.keyboard.press('End')
+    await page.keyboard.insertText(' 中文🙂')
+    await expect.poll(() => action('document.querySelector("#name").value')).toBe('alpha beta 中文🙂')
+
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
+    await page.keyboard.press('ControlOrMeta+A')
+    await page.keyboard.press('ControlOrMeta+C')
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('alpha beta 中文🙂')
+    await page.keyboard.press('ControlOrMeta+X')
+    await expect.poll(() => action('document.querySelector("#name").value')).toBe('')
+    await page.keyboard.press('ControlOrMeta+V')
+    await expect.poll(() => action('document.querySelector("#name").value')).toBe('alpha beta 中文🙂')
+
+    // HTTP deployments lack navigator.clipboard; exercise their copy path too.
+    const clipboard = await page.evaluateHandle(() => navigator.clipboard)
+    try {
+      await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined }))
+      await page.keyboard.press('ControlOrMeta+A')
+      await page.keyboard.type('HTTP.copy')
+      await expect.poll(() => action('document.querySelector("#name").value')).toBe('HTTP.copy')
+      await page.keyboard.press('ControlOrMeta+A')
+      await page.keyboard.press('ControlOrMeta+C')
+      await expect.poll(() => clipboard.evaluate(value => value.readText())).toBe('HTTP.copy')
+    } finally {
+      await page.evaluate(() => Reflect.deleteProperty(navigator, 'clipboard'))
+      await clipboard.dispose()
+    }
+
+    await focus('#multiline')
+    await page.keyboard.type('line1')
+    await page.keyboard.press('Enter')
+    await page.keyboard.type('line2')
+    await expect.poll(() => action('document.querySelector("#multiline").value')).toBe('line1\nline2')
+    await page.keyboard.down('Backspace')
+    await page.keyboard.down('Backspace')
+    await page.keyboard.up('Backspace')
+    await expect.poll(() => action('document.querySelector("#multiline").value')).toBe('line1\nlin')
+    await expect.poll(() => action('window.inputEvents.some(e=>e.type==="keydown"&&e.key==="Backspace"&&e.repeat)')).toBe(true)
+    // Exercise composition commit and cancellation through the local IME proxy.
+    await proxy.evaluate(el => el.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true, data: '' })))
+    await proxy.fill('intermediate')
+    await proxy.evaluate(el => el.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '中文' })))
+    await expect.poll(() => action('document.querySelector("#multiline").value')).toBe('line1\nlin中文')
+    await proxy.evaluate(el => el.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true, data: '' })))
+    await proxy.fill('cancelled')
+    await proxy.evaluate(el => el.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '' })))
+    await expect.poll(() => action('document.querySelector("#multiline").value')).toBe('line1\nlin中文')
+
+    await page.keyboard.down('Shift')
+    await address.click()
+    await expect.poll(async () => (await action('window.inputEvents') as Array<{type:string;key:string}>).filter(e => e.type === 'keyup' && e.key === 'Shift').length).toBeGreaterThan(0)
+    await page.keyboard.up('Shift')
+    await focus('#rich')
+    await page.keyboard.press('ControlOrMeta+A')
+    await page.keyboard.type('Rich.editor')
+    await expect.poll(() => action('document.querySelector("#rich").textContent')).toBe('Rich.editor')
+    await page.keyboard.press('ControlOrMeta+Z')
+    await expect.poll(() => action('document.querySelector("#rich").textContent')).toBe('Rich text')
+
+    await action('window.editor.focus()')
+    await proxy.focus()
+    await page.keyboard.press('ControlOrMeta+A')
+    await page.keyboard.type('const punctuation = "a.b";')
+    await expect.poll(() => action('window.editor.getValue()')).toBe('const punctuation = "a.b";')
+    await action('window.editor.pushUndoStop()')
+    await page.keyboard.type('.')
+    await expect.poll(() => action('window.editor.getValue()')).toBe('const punctuation = "a.b";.')
+    await page.keyboard.press('ControlOrMeta+Z')
+    await expect.poll(() => action('window.editor.getValue()')).toBe('const punctuation = "a.b";')
+    await page.keyboard.press('ControlOrMeta+Shift+Z')
+    await expect.poll(() => action('window.editor.getValue()')).toBe('const punctuation = "a.b";.')
+
+    const point = await action('(()=>{const r=document.querySelector("#name").getBoundingClientRect();return {x:r.x+30,y:r.y+20}})()') as { x:number;y:number }
+    const box = await canvas.boundingBox()
+    const dimensions = await canvas.evaluate(c => ({ width:(c as HTMLCanvasElement).width,height:(c as HTMLCanvasElement).height }))
+    if (!box) throw new Error('Viewer canvas missing')
+    await canvas.dblclick({position:{x:point.x*box.width/dimensions.width,y:point.y*box.height/dimensions.height}})
+    await expect.poll(async () => (await action('window.inputEvents') as Array<{type:string}>).some(e=>e.type==='dblclick')).toBe(true)
+    const dragPoint = await action('(()=>{const r=document.querySelector("#drag").getBoundingClientRect();return {x:r.x+20,y:r.y+20}})()') as { x:number;y:number }
+    const dragX = box.x + dragPoint.x * box.width / dimensions.width
+    const dragY = box.y + dragPoint.y * box.height / dimensions.height
+    await page.mouse.move(dragX, dragY)
+    await page.mouse.down()
+    await page.mouse.move(dragX + 40, dragY + 10, {steps:5})
+    await page.mouse.up()
+    await expect.poll(() => action('window.inputEvents.some(e=>e.type==="mousemove"&&e.buttons===1)')).toBe(true)
+    await expect(viewer.getByRole('alert')).toHaveCount(0)
+    for (const appearance of ['light', 'dark', 'paper']) {
+      await page.evaluate(value => { document.body.dataset.appearance = value }, appearance)
+      await testInfo.attach(`browser-input-${appearance}`, {body:await viewer.screenshot(),contentType:'image/png'})
+    }
+    // A cut must not delete a new selection while local clipboard access waits.
+    await focus('#name')
+    await page.keyboard.press('ControlOrMeta+A')
+    try {
+      await page.evaluate(browserId => {
+        const original = navigator.clipboard
+        Object.defineProperty(navigator, 'clipboard', { configurable: true, value: {
+          writeText: async (text: string) => {
+            const changed = await fetch(`/farming/api/browsers/${browserId}/action`, {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ kind: 'eval', expression: 'document.querySelector("#name").value="changed during copy"' }),
+            })
+            if (!changed.ok) throw new Error('Could not change the test selection')
+            await original.writeText(text)
+          },
+        } })
+      }, id)
+      await page.keyboard.press('ControlOrMeta+X')
+      await expect(viewer.getByRole('alert')).toContainText('Selection changed before cut')
+      await expect.poll(() => action('document.querySelector("#name").value')).toBe('changed during copy')
+    } finally {
+      await page.evaluate(() => Reflect.deleteProperty(navigator, 'clipboard'))
+    }
+  } finally {
+    await page.request.delete(`/farming/api/browsers/${id}`)
+  }
 })
 
 test('forwards Backspace and Delete from shared Browser control', async ({

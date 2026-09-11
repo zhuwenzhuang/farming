@@ -3,6 +3,8 @@ import * as path from 'path';
 import * as crypto from 'crypto';
 import { execFile } from 'child_process';
 import { EventEmitter } from 'events';
+import { clipboardExpression } from './browser-clipboard.cjs';
+import { CdpBrowserInputTransport, type BrowserInputTransport } from './browser-input-transport.cjs';
 const WebSocket = require('ws') as { OPEN: number; new(url: string): WebSocketLike };
 import {
   matchingProcessIdentity,
@@ -85,6 +87,7 @@ interface RuntimeOptions {
   session?: string;
   tabLabel?: string;
   runCommand?: RunCommand;
+  createInputTransport?: (command: (args: string[]) => Promise<unknown>, failed: (message: string) => void) => BrowserInputTransport;
   createWebSocket?: (url: string) => WebSocketLike;
   readProcessIdentity?: (pid: number) => ProcessIdentity | null | Promise<ProcessIdentity | null>;
   wait?: (durationMs: number) => Promise<void>;
@@ -363,7 +366,11 @@ function webSocketPort(data: unknown): number | null {
   return Number.isSafeInteger(port) && port > 0 && port <= 65_535 ? port : null;
 }
 
-function keyCodeFor(key: string): number {
+function keyCodeFor(key: string, code = ''): number {
+  if (/^Numpad[0-9]$/.test(code)) return 96 + Number(code.at(-1));
+  const keypad: Record<string, number> = { NumpadMultiply: 106, NumpadAdd: 107, NumpadSubtract: 109, NumpadDecimal: 110, NumpadDivide: 111 };
+  if (keypad[code]) return keypad[code];
+  if (/^F([1-9]|1[0-9]|2[0-4])$/.test(key)) return 111 + Number(key.slice(1));
   const named: Record<string, number> = {
     Backspace: 8,
     Tab: 9,
@@ -379,9 +386,26 @@ function keyCodeFor(key: string): number {
     ArrowDown: 40,
     Delete: 46,
     Meta: 91,
+    CapsLock: 20, PageUp: 33, PageDown: 34, End: 35, Home: 36,
+    Insert: 45, ContextMenu: 93, NumLock: 144, ScrollLock: 145,
+    ';': 186, ':': 186,
+    '=': 187, '+': 187,
+    ',': 188, '<': 188,
+    '-': 189, '_': 189,
+    '.': 190, '>': 190,
+    '/': 191, '?': 191,
+    '`': 192, '~': 192,
+    '[': 219, '{': 219,
+    '\\': 220, '|': 220,
+    ']': 221, '}': 221,
+    "'": 222, '"': 222,
+    '!': 49, '@': 50, '#': 51, '$': 52, '%': 53,
+    '^': 54, '&': 55, '*': 56, '(': 57, ')': 48,
   };
   if (named[key]) return named[key];
-  return key?.length === 1 ? key.toUpperCase().charCodeAt(0) : 0;
+  // Character codes match virtual keys only for ASCII letters and digits.
+  // In particular, '.' is U+002E (46), but virtual key 46 means Delete.
+  return /^[a-z0-9]$/i.test(key) ? key.toUpperCase().charCodeAt(0) : 0;
 }
 
 async function waitForIdentityExit(
@@ -447,9 +471,14 @@ class AgentBrowserRuntime extends EventEmitter {
   closePromise: Promise<void> | null;
   commandChain: Promise<CommandResult | void>;
   screenshotChain: Promise<unknown>;
+  private clipboardSelections = new Map<string, { tabId: string; expires: number; fingerprint: string }>();
+  private inputTransport: BrowserInputTransport;
 
   constructor(options: RuntimeOptions) {
     super();
+    this.inputTransport = (options.createInputTransport || ((command, failed) => new CdpBrowserInputTransport(command, failed)))(
+      args => this.command(args), message => { if (!this.closedByOwner) this.emit('exit', message); },
+    );
     this.id = options.id;
     this.generation = options.generation;
     this.configDir = canonicalConfigDir(options.configDir);
@@ -742,13 +771,6 @@ class AgentBrowserRuntime extends EventEmitter {
         popupAdmitted: Date.now() <= this.popupAdmissionUntil,
       });
     }
-  }
-
-  sendStream(message: UnknownRecord): void {
-    if (!this.stream || !this.streamReady || this.stream.readyState !== WebSocket.OPEN) {
-      throw new Error('agent-browser stream is not connected');
-    }
-    this.stream.send(JSON.stringify(message));
   }
 
   async metadata(): Promise<{ url: string; title: string }> {
@@ -1140,15 +1162,24 @@ class AgentBrowserRuntime extends EventEmitter {
       const key = String(input.key || '');
       if (!key) throw new Error('key is required');
       const code = String(input.code || '');
-      const windowsVirtualKeyCode = keyCodeFor(key);
+      const windowsVirtualKeyCode = keyCodeFor(key, code);
+      const modifiers = Number(input.modifiers) || 0;
+      const editing: Record<string, string> = { a: 'selectAll', z: modifiers & 8 ? 'redo' : 'undo', y: 'redo' };
+      const commands = (modifiers & (2 | 4)) && !(modifiers & 1) && editing[key.toLowerCase()]
+        ? [editing[key.toLowerCase()]] : [];
       const common = {
         key,
         code,
-        modifiers: Number(input.modifiers) || 0,
+        modifiers,
         windowsVirtualKeyCode,
+        autoRepeat: input.repeat === true,
+        location: Number(input.location) || 0,
+        isKeypad: code.startsWith('Numpad'),
       };
-      this.sendStream({ type: 'input_keyboard', eventType: 'keyDown', ...common, text: '' });
-      this.sendStream({ type: 'input_keyboard', eventType: 'keyUp', ...common });
+      if (input.action !== 'up') {
+        await this.inputTransport.send(this.activeTabId, 'Input.dispatchKeyEvent', { type: 'keyDown', ...common, commands, text: String(input.text || (key === 'Enter' && !(modifiers & 7) ? '\r' : '')) });
+      }
+      if (input.action !== 'down') await this.inputTransport.send(this.activeTabId, 'Input.dispatchKeyEvent', { type: 'keyUp', ...common });
       return { ok: true };
     }
     const key = String(input?.key || '').trim();
@@ -1189,13 +1220,13 @@ class AgentBrowserRuntime extends EventEmitter {
     const eventType = eventTypes[action];
     if (!eventType) return;
     if (action === 'down') this.admitPopup();
-    this.sendStream({
-      type: 'input_mouse',
-      eventType,
+    await this.inputTransport.send(this.activeTabId, 'Input.dispatchMouseEvent', {
+      type: eventType,
       x,
       y,
-      button: action === 'move' ? 'none' : (input.button || 'left'),
-      clickCount: action === 'move' ? 0 : 1,
+      button: input.button || (action === 'move' ? 'none' : 'left'),
+      buttons: Number(input.buttons) || 0,
+      clickCount: action === 'move' ? 0 : Number(input.clickCount) || 1,
       modifiers: Number(input.modifiers) || 0,
     });
   }
@@ -1203,9 +1234,8 @@ class AgentBrowserRuntime extends EventEmitter {
   async wheel(input: UnknownRecord): Promise<void> {
     const x = Number(input.x);
     const y = Number(input.y);
-    this.sendStream({
-      type: 'input_mouse',
-      eventType: 'mouseWheel',
+    await this.inputTransport.send(this.activeTabId, 'Input.dispatchMouseEvent', {
+      type: 'mouseWheel',
       x: Number.isFinite(x) ? x : this.viewport.width / 2,
       y: Number.isFinite(y) ? y : this.viewport.height / 2,
       deltaX: Number(input.deltaX) || 0,
@@ -1216,29 +1246,30 @@ class AgentBrowserRuntime extends EventEmitter {
 
   async insertText(text: unknown): Promise<void> {
     const value = String(text || '');
-    if (/[^\x20-\x7e]/.test(value)) {
-      await this.command(['keyboard', 'inserttext', value]);
-      return;
+    if (value) await this.inputTransport.send(this.activeTabId, 'Input.insertText', { text: value });
+  }
+
+  async clipboard(input: UnknownRecord): Promise<UnknownRecord> {
+    for (const [token, selection] of this.clipboardSelections) {
+      if (selection.expires < Date.now()) this.clipboardSelections.delete(token);
     }
-    for (const key of value) {
-      const common = {
-        key,
-        code: '',
-        windowsVirtualKeyCode: keyCodeFor(key),
-        modifiers: 0,
-      };
-      this.sendStream({
-        type: 'input_keyboard',
-        eventType: 'keyDown',
-        ...common,
-        text: key,
-      });
-      this.sendStream({
-        type: 'input_keyboard',
-        eventType: 'keyUp',
-        ...common,
-      });
+    let fingerprint: string | undefined;
+    if (input.operation === 'cut') {
+      const token = String(input.token || '');
+      const selection = this.clipboardSelections.get(token);
+      this.clipboardSelections.delete(token);
+      if (!selection || selection.tabId !== this.activeTabId) throw new Error('Clipboard selection expired; copy again before cutting.');
+      fingerprint = selection.fingerprint;
     }
+    const expression = Buffer.from(clipboardExpression(fingerprint)).toString('base64');
+    const data = commandData(await this.command(['eval', '--base64', expression]));
+    const result = recordValue(data.result);
+    if (input.operation === 'cut') return { ok: true };
+    if (typeof result.text !== 'string' || typeof result.fingerprint !== 'string') throw new Error('Browser clipboard selection is unavailable.');
+    if (this.clipboardSelections.size >= 32) this.clipboardSelections.delete(this.clipboardSelections.keys().next().value!);
+    const token = crypto.randomUUID();
+    this.clipboardSelections.set(token, { tabId: this.activeTabId, expires: Date.now() + 10_000, fingerprint: result.fingerprint });
+    return { text: result.text, token };
   }
 
   async closeOwnedExternalTabs() {
@@ -1286,6 +1317,7 @@ class AgentBrowserRuntime extends EventEmitter {
     if (this.closeComplete) return;
     if (this.closePromise) return this.closePromise;
     this.closedByOwner = true;
+    this.inputTransport.close();
     this.streamRecoveryEpoch += 1;
     this.closePromise = (async () => {
       if (this.stream) {

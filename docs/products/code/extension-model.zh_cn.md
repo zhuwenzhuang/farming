@@ -154,6 +154,10 @@ Browser 和 Computer 是同一 Resource Contract 上的 Built-in Extension：
 - Computer 拥有完整 Desktop 与控制权交接；
 - Docker 中的浏览器可以租用 Agent-owned Desktop，但 Browser Tab 与 Desktop Lifecycle 保持独立。
 
+Viewer 文本输入经过 Runtime adapter 时必须保留标点等可打印字符。键盘虚拟键码与字符编码
+是不同的概念；可打印字符不得触发 Delete 等编辑命令。
+输入状态和共享控制语义见 [Browser 交互](browser-interaction.zh_cn.md)。
+
 Farming Desktop 可以提供准确的原生 Browser adapter。选择该 source 后仍会创建普通的
 Agent-owned Browser Resource，但其 tab/view 会租给一个已标识的 Desktop adapter 与
 generation。后端继续是唯一的 Lifecycle、Ownership、Authorization 与 Control Authority；

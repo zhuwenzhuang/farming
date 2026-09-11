@@ -1,7 +1,5 @@
-export interface BrowserViewerInputMessage {
-  type: string
-  [key: string]: unknown
-}
+import type { BrowserViewerInputMessage } from '../../../shared/browser-viewer-input'
+export type { BrowserViewerInputMessage } from '../../../shared/browser-viewer-input'
 
 interface PendingInput {
   message: BrowserViewerInputMessage
@@ -21,6 +19,11 @@ export class BrowserViewerInputScheduler {
   ) {}
 
   enqueue(message: BrowserViewerInputMessage): void {
+    const previous = this.pendingMove?.message || this.pendingWheel?.message
+    if (previous && (
+      ('modifiers' in previous ? previous.modifiers || 0 : 0) !== ('modifiers' in message ? message.modifiers || 0 : 0)
+      || ('buttons' in previous ? previous.buttons || 0 : 0) !== ('buttons' in message ? message.buttons || 0 : 0)
+    )) this.flush()
     if (message.type === 'pointer' && message.action === 'move') {
       this.pendingMove = { message, order: ++this.nextOrder }
       this.ensureScheduled()
@@ -31,8 +34,8 @@ export class BrowserViewerInputScheduler {
       this.pendingWheel = {
         message: {
           ...message,
-          deltaX: Number(previous?.deltaX || 0) + Number(message.deltaX || 0),
-          deltaY: Number(previous?.deltaY || 0) + Number(message.deltaY || 0),
+          deltaX: Number(previous?.type === 'wheel' ? previous.deltaX : 0) + message.deltaX,
+          deltaY: Number(previous?.type === 'wheel' ? previous.deltaY : 0) + message.deltaY,
         },
         order: ++this.nextOrder,
       }

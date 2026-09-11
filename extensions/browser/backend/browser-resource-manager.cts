@@ -3,6 +3,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { EventEmitter } = require('events');
 import * as storageLayout from '../../../backend/storage-layout.cjs';
+import { isBrowserViewerInputMessage } from '../../../shared/browser-viewer-input.js';
 import { canonicalConfigDir, configInstanceFingerprint } from '../../../backend/config-instance.cjs';
 import {
   matchingProcessIdentity,
@@ -178,6 +179,7 @@ interface BrowserRuntime {
   pointer(input: BrowserMessage): Promise<void>;
   resize(input: BrowserViewport): Promise<unknown>;
   insertText(text: string): Promise<void>;
+  clipboard?(input: BrowserMessage): Promise<Record<string, unknown>>;
   setActiveResourceId?(resourceId: string, generation?: number, controlEpoch?: number): void;
   bindResourceTab?(
     resourceId: string,
@@ -551,6 +553,12 @@ class BrowserResourceManager extends EventEmitter {
   readonly controlAdmissions = new Map<string, number>();
   readonly nativeUserTabAdmissions = new Map<string, Map<string, string>>();
   readonly existingTabReservations = new Map<number, string>();
+  private viewerInputStates = new WeakMap<BrowserSession, {
+    binding: BrowserBinding;
+    viewer: BrowserViewer;
+    keys: Map<string, BrowserMessage>;
+    buttons: Map<string, BrowserMessage>;
+  }>();
   readonly agentOwnerReplacementHolds = new Set<string>();
   disposed = false;
   runtimeCapability: BrowserCapability | null = null;
@@ -2814,18 +2822,26 @@ class BrowserResourceManager extends EventEmitter {
       } catch {
         return;
       }
+      if (!message || typeof message !== 'object' || Array.isArray(message)) {
+        ws.send(JSON.stringify({ type: 'browser-error', message: 'Browser input is invalid' }));
+        return;
+      }
       const operation = message.type === 'resize'
         ? this.scheduleViewerResize(binding, ws, message)
         : this.handleViewerMessage(binding, ws, message);
       void Promise.resolve(operation).catch(error => {
         if (ws.readyState === 1) {
-          ws.send(JSON.stringify({ type: 'browser-error', message: errorMessage(error) || 'Browser input failed' }));
+          ws.send(JSON.stringify({ type: message.type === 'clipboard' ? 'browser-clipboard' : 'browser-error', requestId: message.requestId, error: errorMessage(error), message: errorMessage(error) || 'Browser input failed' }));
         }
       });
     };
     if (options.readOnly !== true) ws.on('message', onMessage);
     const detach = () => {
       binding.viewers.delete(ws);
+      const cleanup = binding.session.actionChain.catch(() => {}).then(async () => {
+        if (this.viewerInputStates.get(binding.session)?.viewer === ws) await this.releaseViewerInput(binding.session);
+      });
+      binding.session.actionChain = cleanup.catch(() => {});
       binding.viewerGeometries.delete(ws);
       if (binding.viewerViewportOwner === ws) {
         binding.viewerViewportOwner = Array.from(binding.viewers)
@@ -2851,6 +2867,7 @@ class BrowserResourceManager extends EventEmitter {
     message: BrowserMessage,
   ): Promise<unknown> {
     const resource = this.requireStored(binding.id);
+    if (message.type !== 'resize' && !isBrowserViewerInputMessage(message)) return Promise.reject(browserError('Browser input is invalid'));
     if (
       resource.status !== 'running'
       || this.stopAdmissions.has(binding.id)
@@ -2883,6 +2900,7 @@ class BrowserResourceManager extends EventEmitter {
           const pendingCoalescible = pending.message.type === 'wheel'
             || (pending.message.type === 'pointer' && pending.message.action === 'move');
           if (!pendingCoalescible || pending.binding !== binding || pending.viewer !== viewer) break;
+          if ((pending.message.modifiers || 0) !== (message.modifiers || 0) || (pending.message.buttons || 0) !== (message.buttons || 0)) break;
           if (pending.message.type !== message.type) continue;
           pending.message = message.type === 'wheel'
             ? {
@@ -2933,7 +2951,8 @@ class BrowserResourceManager extends EventEmitter {
         Date.now() - input.enqueuedAt,
       );
       try {
-        await this.activateBinding(input.binding);
+        if (input.viewer.readyState !== 1 || !input.binding.viewers.has(input.viewer)) throw browserError('Browser Viewer disconnected before input ran');
+        if (input.message.type !== 'reset-input') await this.activateBinding(input.binding);
         const result = await this.performViewerMessage(input.binding, input.viewer, input.message);
         this.viewerInputMetrics.executed += 1;
         input.resolvers.forEach(resolve => resolve(result));
@@ -3061,8 +3080,33 @@ class BrowserResourceManager extends EventEmitter {
       });
       return;
     }
+    const previous = this.viewerInputStates.get(binding.session);
+    if (message.type === 'reset-input') {
+      if (previous?.viewer === viewer && previous.binding === binding) await this.releaseViewerInput(binding.session);
+      return;
+    }
+    if (previous && (previous.viewer !== viewer || previous.binding !== binding)) {
+      await this.releaseViewerInput(binding.session);
+    }
+    let state = this.viewerInputStates.get(binding.session);
+    if (!state) {
+      state = { binding, viewer, keys: new Map(), buttons: new Map() };
+      this.viewerInputStates.set(binding.session, state);
+    }
+    if (message.type === 'clipboard') {
+      if (!runtime.clipboard) throw browserError('This Browser does not support clipboard transfer');
+      const result = await runtime.clipboard(message);
+      if (viewer.readyState === 1) viewer.send(JSON.stringify({ type: 'browser-clipboard', requestId: message.requestId, result }));
+      return;
+    }
     if (message.type === 'pointer') {
       await runtime.pointer(message);
+      const button = String(message.button || 'left');
+      if (message.action === 'down') state.buttons.set(button, message);
+      if (message.action === 'up') state.buttons.delete(button);
+      if (message.action === 'move') {
+        for (const [held, down] of state.buttons) state.buttons.set(held, { ...down, x: message.x, y: message.y });
+      }
       return;
     }
     if (message.type === 'wheel') {
@@ -3071,10 +3115,26 @@ class BrowserResourceManager extends EventEmitter {
     }
     if (message.type === 'key') {
       await runtime.press(message);
+      const key = String(message.code || message.key);
+      if (message.action === 'down') state.keys.set(key, message);
+      if (message.action === 'up') state.keys.delete(key);
       return;
     }
     if (message.type === 'text') {
       await runtime.insertText(String(message.text || ''));
+    }
+  }
+
+  async releaseViewerInput(session: BrowserSession): Promise<void> {
+    const state = this.viewerInputStates.get(session);
+    if (!state) return;
+    this.viewerInputStates.delete(session);
+    if (session.runtime.activeTabId !== state.binding.tabId) return;
+    for (const key of [...state.keys.values()].reverse()) {
+      await session.runtime.press({ ...key, action: 'up', modifiers: 0, text: '' });
+    }
+    for (const pointer of state.buttons.values()) {
+      await session.runtime.pointer({ ...pointer, action: 'up', buttons: 0, modifiers: 0 });
     }
   }
 
@@ -3315,6 +3375,8 @@ class BrowserResourceManager extends EventEmitter {
     caller: BrowserControlOwner = 'agent',
   ): Promise<void> {
     const { session } = binding;
+    const inputState = this.viewerInputStates.get(session);
+    if (inputState && inputState.binding !== binding) await this.releaseViewerInput(session);
     if (!binding.tabId) throw browserError('Browser tab is unavailable', 409, 'BROWSER_TAB_UNAVAILABLE');
     const resource = this.store.get(binding.id);
     session.runtime.setActiveResourceId?.(

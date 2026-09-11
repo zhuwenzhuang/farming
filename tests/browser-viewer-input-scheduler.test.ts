@@ -84,3 +84,13 @@ test('clear drops pending high-frequency input', () => {
 
   assert.deepEqual(sent, [])
 })
+
+test('preserves modifier and held-button boundaries when coalescing', () => {
+  const { runFrame, scheduler, sent } = harness()
+  scheduler.enqueue({ type: 'pointer', action: 'move', x: 1, y: 2, buttons: 0 })
+  scheduler.enqueue({ type: 'pointer', action: 'move', x: 2, y: 2, buttons: 1 })
+  scheduler.enqueue({ type: 'wheel', deltaX: 0, deltaY: 4, modifiers: 8 })
+  scheduler.enqueue({ type: 'wheel', deltaX: 0, deltaY: 5, modifiers: 0 })
+  runFrame()
+  assert.equal(sent.length, 4)
+})

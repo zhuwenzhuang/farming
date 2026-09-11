@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { ArrowLeftGlyph, ArrowRightGlyph, BackToAgentGlyph, ChatBubblesGlyph, CopyGlyph, MoreHorizontalGlyph, PlayGlyph, SquareGlyph } from '@/components/IconGlyphs'
 import { appPath } from '@/lib/base-path'
 import type { UiPreferences } from '@/lib/ui-preferences'
@@ -6,6 +6,7 @@ import {
   BrowserViewerInputScheduler,
   type BrowserViewerInputMessage,
 } from './browser-viewer-input-scheduler'
+import { BrowserViewerKeyboard, BrowserViewerClicks, browserInputModifiers, writeBrowserClipboard } from './browser-viewer-keyboard'
 import { applyBrowserViewerCanvasSize } from './browser-viewer-rendering'
 import type { BrowserResource } from './types'
 import type { BrowserResourcesController } from './useBrowserResources'
@@ -155,6 +156,15 @@ export function BrowserViewer({
   } | null>(null)
   const frameViewportRef = useRef<{ width: number; height: number } | null>(null)
   const viewerMetricsRef = useRef(emptyViewerMetrics())
+  const keyboardRef = useRef(new BrowserViewerKeyboard())
+  const clicksRef = useRef(new BrowserViewerClicks())
+  const clipboardRequestIdRef = useRef(0)
+  const clipboardBusyRef = useRef(false)
+  const clipboardRequestsRef = useRef(new Map<string, {
+    resolve: (value: { text?: string; token?: string }) => void
+    reject: (error: Error) => void
+    timer: ReturnType<typeof setTimeout>
+  }>())
   const resourceGenerationRef = useRef(resource.generation)
   resourceGenerationRef.current = resource.generation
   const nativeBrowser = window.farmingDesktop?.nativeBrowser
@@ -183,7 +193,10 @@ export function BrowserViewer({
     inputSchedulerRef.current = new BrowserViewerInputScheduler(
       message => {
         const socket = socketRef.current
-        if (!socket || socket.readyState !== WebSocket.OPEN) return
+        if (!socket || socket.readyState !== WebSocket.OPEN) {
+          setViewerError(copy.disconnected)
+          return
+        }
         socket.send(JSON.stringify({ ...message, generation: resourceGenerationRef.current }))
         const metrics = viewerMetricsRef.current
         if (message.type === 'pointer' && message.action === 'move') metrics.movesSent += 1
@@ -478,23 +491,41 @@ export function BrowserViewer({
       }
       image.src = `data:image/${message.format === 'png' ? 'png' : 'jpeg'};base64,${message.data}`
     }
+    const keyboard = keyboardRef.current
+    const textInput = textInputRef.current
+    const clipboardRequests = clipboardRequestsRef.current
     const connect = () => {
       if (cancelled) return
       const socket = new WebSocket(viewerWebSocketUrl(resource.id))
       socketRef.current = socket
       socket.onopen = () => {
+        if (cancelled || socketRef.current !== socket) return
         setConnected(true)
         setViewerError('')
         sendViewerSize(socket, document.visibilityState === 'visible' && document.hasFocus())
       }
       socket.onmessage = event => {
+        if (cancelled || socketRef.current !== socket) return
         const message = JSON.parse(String(event.data)) as {
           type: string
+          requestId?: string
+          error?: string
+          result?: { text?: string; token?: string }
           data?: string
           format?: 'jpeg' | 'png'
           viewport?: { width: number; height: number }
           resource?: BrowserResource
           message?: string
+        }
+        if (message.type === 'browser-clipboard' && message.requestId) {
+          const request = clipboardRequestsRef.current.get(message.requestId)
+          if (request) {
+            clipboardRequestsRef.current.delete(message.requestId)
+            clearTimeout(request.timer)
+            if (message.error) request.reject(new Error(message.error))
+            else request.resolve(message.result || {})
+          }
+          return
         }
         if (message.type === 'browser-tab-opened' && message.resource) {
           onResource(message.resource)
@@ -521,15 +552,33 @@ export function BrowserViewer({
         if (!decodingFrame) decodeNextFrame()
       }
       socket.onclose = () => {
+        if (cancelled || socketRef.current !== socket) return
+        keyboardRef.current.reset()
+        composingTextRef.current = false
+        if (textInputRef.current) textInputRef.current.value = ''
+        inputSchedulerRef.current?.clear()
+        for (const request of clipboardRequestsRef.current.values()) {
+          clearTimeout(request.timer)
+          request.reject(new Error(copy.disconnected))
+        }
+        clipboardRequestsRef.current.clear()
         if (socketRef.current === socket) socketRef.current = null
         setConnected(false)
         if (!cancelled) reconnectTimer = window.setTimeout(connect, 1_000)
       }
-      socket.onerror = () => setViewerError(copy.connectionFailed)
+      socket.onerror = () => { if (!cancelled && socketRef.current === socket) setViewerError(copy.connectionFailed) }
     }
     connect()
     return () => {
       cancelled = true
+      keyboard.reset()
+      composingTextRef.current = false
+      if (textInput) textInput.value = ''
+      for (const request of clipboardRequests.values()) {
+        clearTimeout(request.timer)
+        request.reject(new Error(copy.disconnected))
+      }
+      clipboardRequests.clear()
       pendingFrame = null
       inputSchedulerRef.current?.clear()
       window.clearTimeout(reconnectTimer)
@@ -545,7 +594,9 @@ export function BrowserViewer({
     onOpenResource,
     onResource,
     resource.id,
+    resource.generation,
     resource.status,
+    copy.disconnected,
     sendViewerSize,
   ])
 
@@ -560,6 +611,73 @@ export function BrowserViewer({
     if (message.type === 'wheel') metrics.wheelsReceived += 1
     inputSchedulerRef.current?.enqueue(message)
   }, [copy.takeControl, nativeDesktopResource, nativeLeaseMessage, nativeUserControl])
+
+  const resetInput = useCallback(() => {
+    keyboardRef.current.reset()
+    composingTextRef.current = false
+    if (textInputRef.current) textInputRef.current.value = ''
+    inputSchedulerRef.current?.clear()
+    if (socketRef.current?.readyState === WebSocket.OPEN) send({ type: 'reset-input' })
+  }, [send])
+
+  useEffect(() => {
+    if (nativeDesktopResource) return
+    const hidden = () => { if (document.visibilityState === 'hidden') resetInput() }
+    window.addEventListener('blur', resetInput)
+    document.addEventListener('visibilitychange', hidden)
+    return () => {
+      window.removeEventListener('blur', resetInput)
+      document.removeEventListener('visibilitychange', hidden)
+    }
+  }, [nativeDesktopResource, resetInput])
+
+  const clipboardRequest = (operation: 'read' | 'cut', token?: string) => new Promise<{ text?: string; token?: string }>((resolve, reject) => {
+    if (socketRef.current?.readyState !== WebSocket.OPEN) { reject(new Error(copy.disconnected)); return }
+    const requestId = `${Date.now()}-${++clipboardRequestIdRef.current}`
+    const timer = setTimeout(() => {
+      clipboardRequestsRef.current.delete(requestId)
+      reject(new Error('Browser clipboard timed out; no operation will be replayed.'))
+    }, 5_000)
+    clipboardRequestsRef.current.set(requestId, { resolve, reject, timer })
+    send({ type: 'clipboard', operation, token, requestId })
+  })
+
+  const copySelection = async (cut: boolean) => {
+    if (clipboardBusyRef.current) return
+    clipboardBusyRef.current = true
+    const socket = socketRef.current
+    try {
+      const selection = await clipboardRequest('read')
+      if (socketRef.current !== socket || !selection.text) return
+      await writeBrowserClipboard(selection.text)
+      if (cut && socketRef.current === socket) await clipboardRequest('cut', selection.token)
+    } catch (error) {
+      if (socketRef.current === socket) setViewerError(error instanceof Error ? error.message : copy.viewerFailed)
+    } finally {
+      clipboardBusyRef.current = false
+    }
+  }
+
+  const onViewerKey = (event: ReactKeyboardEvent, action: 'down' | 'up') => {
+    if (event.target !== canvasRef.current && event.target !== textInputRef.current) return
+    if (!connected) { event.preventDefault(); return }
+    if (composingTextRef.current || event.nativeEvent.isComposing) return
+    const shortcut = event.ctrlKey || event.metaKey
+    if (shortcut && ['c', 'x', 'v'].includes(event.key.toLowerCase())) {
+      // Paste is handled by the native paste event, including on HTTP pages.
+      if (event.key.toLowerCase() === 'v') return
+      event.preventDefault()
+      event.stopPropagation()
+      if (action === 'down' && !event.repeat) void copySelection(event.key.toLowerCase() === 'x')
+      return
+    }
+    const message = keyboardRef.current.key(event.nativeEvent, action)
+    if (message) {
+      event.preventDefault()
+      event.stopPropagation()
+      send(message)
+    }
+  }
 
   const point = (event: {
     currentTarget: HTMLCanvasElement
@@ -963,7 +1081,23 @@ export function BrowserViewer({
           </div>
         </div>
       </header>
-      <div ref={viewportRef} className="farming-browser-viewport">
+      <div ref={viewportRef} className="farming-browser-viewport"
+        onKeyDown={event => onViewerKey(event, 'down')}
+        onKeyUp={event => onViewerKey(event, 'up')}
+        onBlur={event => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) resetInput()
+        }}
+        onPaste={event => {
+          if (nativeDesktopResource) return
+          event.preventDefault()
+          event.stopPropagation()
+          if (!connected) { setViewerError(copy.disconnected); return }
+          const text = event.clipboardData.getData('text/plain')
+          if (text) send({ type: 'text', text })
+        }}
+        onCopy={event => { if (!nativeDesktopResource) { event.preventDefault(); void copySelection(false) } }}
+        onCut={event => { if (!nativeDesktopResource) { event.preventDefault(); void copySelection(true) } }}
+      >
         {resource.status === 'running' && nativeDesktopResource ? (
           nativeDesktopAvailable ? (
             <div
@@ -982,47 +1116,41 @@ export function BrowserViewer({
         ) : resource.status === 'running' ? (
           <canvas
             ref={canvasRef}
-            tabIndex={0}
+            tabIndex={connected ? 0 : -1}
+            aria-disabled={!connected}
             aria-label={copy.pageLabel(resource.name)}
             onPointerMove={event => {
+              if (!connected) return
               const position = point(event)
-              send({ type: 'pointer', action: 'move', ...position })
+              send({ type: 'pointer', action: 'move', buttons: event.buttons, modifiers: browserInputModifiers(event), ...position })
             }}
             onPointerDown={event => {
+              if (!connected) return
               event.currentTarget.focus()
               event.currentTarget.setPointerCapture(event.pointerId)
               const position = point(event)
-              send({ type: 'pointer', action: 'down', button: event.button === 2 ? 'right' : event.button === 1 ? 'middle' : 'left', ...position })
-              window.requestAnimationFrame(() => textInputRef.current?.focus({ preventScroll: true }))
+              send({ type: 'pointer', action: 'down', button: event.button === 2 ? 'right' : event.button === 1 ? 'middle' : 'left', buttons: event.buttons, clickCount: clicksRef.current.down(event.button, event.clientX, event.clientY, event.timeStamp), modifiers: browserInputModifiers(event), ...position })
+              const canvas = event.currentTarget
+              window.requestAnimationFrame(() => {
+                if (document.activeElement === canvas) textInputRef.current?.focus({ preventScroll: true })
+              })
             }}
+            onPointerCancel={() => resetInput()}
+            onLostPointerCapture={event => { if (event.buttons) resetInput() }}
             onPointerUp={event => {
+              if (!connected) return
               const position = point(event)
-              send({ type: 'pointer', action: 'up', button: event.button === 2 ? 'right' : event.button === 1 ? 'middle' : 'left', ...position })
+              send({ type: 'pointer', action: 'up', button: event.button === 2 ? 'right' : event.button === 1 ? 'middle' : 'left', buttons: event.buttons, clickCount: clicksRef.current.count, modifiers: browserInputModifiers(event), ...position })
             }}
             onContextMenu={event => event.preventDefault()}
             onWheel={event => {
               event.preventDefault()
+              if (!connected) return
               const position = point(event)
-              send({ type: 'wheel', deltaX: event.deltaX, deltaY: event.deltaY, ...position })
+              const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? event.currentTarget.clientHeight : 1
+              send({ type: 'wheel', deltaX: event.deltaX * unit, deltaY: event.deltaY * unit, modifiers: browserInputModifiers(event), ...position })
             }}
-            onKeyDown={event => {
-              event.preventDefault()
-              const modifiers = (event.altKey ? 1 : 0)
-                | (event.ctrlKey ? 2 : 0)
-                | (event.metaKey ? 4 : 0)
-                | (event.shiftKey ? 8 : 0)
-              if (event.key.length === 1 && (modifiers & ~8) === 0) {
-                send({ type: 'text', text: event.key })
-              } else {
-                send({ type: 'key', key: event.key, code: event.code, modifiers })
-              }
-            }}
-            onPaste={event => {
-              const text = event.clipboardData.getData('text/plain')
-              if (!text) return
-              event.preventDefault()
-              send({ type: 'text', text })
-            }}
+
           />
         ) : (
           <div className="farming-browser-placeholder">
@@ -1045,15 +1173,17 @@ export function BrowserViewer({
             ref={textInputRef}
             className="farming-browser-text-input-proxy"
             aria-label={copy.textInput}
+            disabled={!connected}
             autoCapitalize="none"
             autoCorrect="off"
             spellCheck={false}
             onCompositionStart={() => {
+              resetInput()
               composingTextRef.current = true
             }}
             onCompositionEnd={event => {
               composingTextRef.current = false
-              const text = event.currentTarget.value
+              const text = event.data
               if (text) send({ type: 'text', text })
               event.currentTarget.value = ''
             }}
@@ -1061,14 +1191,15 @@ export function BrowserViewer({
               if (composingTextRef.current) return
               const text = event.currentTarget.value
               if (text) send({ type: 'text', text })
+              else {
+                const inputType = (event.nativeEvent as InputEvent).inputType
+                if (inputType === 'deleteContentBackward' || inputType === 'deleteContentForward') {
+                  send({ type: 'key', key: inputType === 'deleteContentBackward' ? 'Backspace' : 'Delete' })
+                }
+              }
               event.currentTarget.value = ''
             }}
-            onKeyDown={event => {
-              if (composingTextRef.current) return
-              if (!['Backspace', 'Delete', 'Enter', 'Tab', 'Escape', 'ArrowLeft', 'ArrowUp', 'ArrowRight', 'ArrowDown'].includes(event.key)) return
-              event.preventDefault()
-              send({ type: 'key', key: event.key, code: event.code })
-            }}
+
           />
         ) : null}
       </div>

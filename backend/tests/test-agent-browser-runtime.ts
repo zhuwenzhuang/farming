@@ -48,8 +48,7 @@ class FailingStream extends EventEmitter {
   }
 }
 
-async function run() {
-  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-agent-browser-runtime.'));
+async function run(configDir) {
   const profileDir = path.join(configDir, 'browsers', 'browser_test', 'profile');
   const calls = [];
   const commandEnvironments = [];
@@ -130,6 +129,7 @@ async function run() {
     if (command[0] === 'close') processActive = false;
     return { success: true, data: {} };
   };
+  const inputMessages: Array<Record<string, unknown>> = [];
   const runtime = new AgentBrowserRuntime({
     id: 'browser_test',
     generation: 7,
@@ -138,6 +138,13 @@ async function run() {
     agentBrowserPath: '/managed/agent-browser',
     executablePath: '/Applications/Chromium',
     runCommand,
+    createInputTransport: () => ({
+      async send(tabId, method, params) {
+        assert.strictEqual(tabId, runtime.activeTabId);
+        inputMessages.push({ ...params, method });
+      },
+      close() {},
+    }),
     createWebSocket: url => {
       assert.strictEqual(url, 'ws://127.0.0.1:47777');
       return stream;
@@ -304,43 +311,56 @@ async function run() {
   await runtime.resize({ width: 1024, height: 700, deviceScaleFactor: 1 });
   await runtime.pointer({ action: 'down', x: 10, y: 20, button: 'left' });
   await runtime.wheel({ x: 10, y: 20, deltaY: 120 });
-  const sentBeforeText = stream.sent.length;
+  const sentBeforeText = inputMessages.length;
   await runtime.insertText('text');
-  const textMessages = stream.sent.slice(sentBeforeText);
+  const textMessages = inputMessages.slice(sentBeforeText);
+  const punctuationKeys = [
+    ['.', 190], ['>', 190], [',', 188], ['<', 188],
+    ['/', 191], ['?', 191], [';', 186], [':', 186],
+    ["'", 222], ['"', 222], ['[', 219], ['{', 219],
+    [']', 221], ['}', 221], ['\\', 220], ['|', 220],
+    ['-', 189], ['_', 189], ['=', 187], ['+', 187],
+    ['`', 192], ['~', 192], ['!', 49], ['@', 50],
+    ['#', 51], ['$', 52], ['%', 53], ['^', 54],
+    ['&', 55], ['*', 56], ['(', 57], [')', 48],
+  ];
+  for (const [key, virtualKeyCode] of punctuationKeys) {
+    const start = inputMessages.length;
+    await runtime.press({ type: 'key', key, action: 'down', text: key });
+    assert.strictEqual(inputMessages.length, start + 1, 'key down must remain held until key up');
+    await runtime.press({ type: 'key', key, action: 'up' });
+    const messages = inputMessages.slice(start);
+    assert.deepStrictEqual(
+      messages.map(message => [message.type, message.key, message.text, message.windowsVirtualKeyCode]),
+      [
+        ['keyDown', key, key, virtualKeyCode],
+        ['keyUp', key, undefined, virtualKeyCode],
+      ],
+      `Printable ${key} must use a keyboard virtual key, not its character code`,
+    );
+  }
   await runtime.insertText('性能');
   await runtime.press({ type: 'key', key: 'Enter', code: 'Enter' });
   await runtime.press({ type: 'key', key: 'Backspace', code: 'Backspace' });
   await runtime.press({ type: 'key', key: 'Delete', code: 'Delete' });
-  assert(stream.sent.some(message => message.type === 'input_mouse' && message.eventType === 'mousePressed'));
-  assert(stream.sent.some(message => message.type === 'input_mouse' && message.eventType === 'mouseWheel'));
-  assert.deepStrictEqual(
-    textMessages.map(message => [message.eventType, message.key, message.text]),
-    [
-      ['keyDown', 't', 't'],
-      ['keyUp', 't', undefined],
-      ['keyDown', 'e', 'e'],
-      ['keyUp', 'e', undefined],
-      ['keyDown', 'x', 'x'],
-      ['keyUp', 'x', undefined],
-      ['keyDown', 't', 't'],
-      ['keyUp', 't', undefined],
-    ],
-  );
-  assert(stream.sent.some(message => (
-    message.type === 'input_keyboard'
-    && message.eventType === 'keyDown'
+  assert(inputMessages.some(message => message.method === 'Input.dispatchMouseEvent' && message.type === 'mousePressed'));
+  assert(inputMessages.some(message => message.method === 'Input.dispatchMouseEvent' && message.type === 'mouseWheel'));
+  assert.deepStrictEqual(textMessages, [{ method: 'Input.insertText', text: 'text' }], 'committed text must not synthesize physical keys');
+  assert(inputMessages.some(message => (
+    message.method === 'Input.dispatchKeyEvent'
+    && message.type === 'keyDown'
     && message.key === 'Backspace'
     && message.windowsVirtualKeyCode === 8
     && message.text === ''
   )));
-  assert(stream.sent.some(message => (
-    message.type === 'input_keyboard'
-    && message.eventType === 'keyDown'
+  assert(inputMessages.some(message => (
+    message.method === 'Input.dispatchKeyEvent'
+    && message.type === 'keyDown'
     && message.key === 'Delete'
     && message.windowsVirtualKeyCode === 46
     && message.text === ''
   )));
-  assert(calls.some(args => args.slice(-4).join(' ') === 'keyboard inserttext 性能 --json'));
+  assert(inputMessages.some(message => message.method === 'Input.insertText' && message.text === '性能'));
   const commands = calls.map(args => args.slice(4, -1));
   assert(commands.some(command => command.join(' ') === 'hover #menu'));
   assert(commands.some(command => command.join(' ') === 'keyboard type editor text'));
@@ -715,11 +735,13 @@ async function run() {
   );
   assert.strictEqual(mismatchProcessActive, false);
 
-  fs.rmSync(configDir, { recursive: true, force: true });
   console.log('agent-browser runtime tests passed');
 }
 
-run().catch(error => {
+const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-agent-browser-runtime.'));
+run(configDir).finally(() => {
+  fs.rmSync(configDir, { recursive: true, force: true });
+}).catch(error => {
   console.error(error);
   process.exitCode = 1;
 });
