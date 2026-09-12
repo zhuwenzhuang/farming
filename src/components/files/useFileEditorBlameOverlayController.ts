@@ -102,6 +102,26 @@ export function useFileEditorBlameOverlayController({
     const layoutSubscription = editor.onDidLayoutChange(scheduleRefresh)
     const foldingSubscription = editor.onDidChangeHiddenAreas(scheduleRefresh)
     const configurationSubscription = editor.onDidChangeConfiguration(scheduleRefresh)
+    const host = editorHostRef.current
+    let stickyResizeObserver: ResizeObserver | undefined
+    let stickyMountObserver: MutationObserver | undefined
+    if (host && blameOpen && !disabled) {
+      // Monaco can resolve sticky headers after the scroll/layout event. Their
+      // actual geometry owns the clipping boundary, including a late mount.
+      stickyResizeObserver = new ResizeObserver(scheduleRefresh)
+      const observeSticky = () => {
+        const sticky = host.querySelector('.sticky-widget')
+        if (!sticky) return false
+        stickyResizeObserver?.observe(sticky)
+        stickyMountObserver?.disconnect()
+        scheduleRefresh()
+        return true
+      }
+      if (!observeSticky()) {
+        stickyMountObserver = new MutationObserver(observeSticky)
+        stickyMountObserver.observe(host, { childList: true, subtree: true })
+      }
+    }
     scheduleRefresh()
 
     return () => {
@@ -109,9 +129,11 @@ export function useFileEditorBlameOverlayController({
       layoutSubscription.dispose()
       foldingSubscription.dispose()
       configurationSubscription.dispose()
+      stickyResizeObserver?.disconnect()
+      stickyMountObserver?.disconnect()
       if (frame !== undefined) window.cancelAnimationFrame(frame)
     }
-  }, [editorRef, refreshBlameOverlay])
+  }, [blameOpen, disabled, editorHostRef, editorRef, refreshBlameOverlay])
 
   return {
     blameOverlay,

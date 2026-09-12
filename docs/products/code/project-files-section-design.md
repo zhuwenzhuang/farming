@@ -234,7 +234,8 @@ action or file/view change clears that feedback.
 Git blame uses the same gutter menu from both line numbers and author/date
 annotations, including Hide Blame while loading or after failure. Annotation
 rows stay clipped to the editor viewport and below Monaco's sticky headers;
-they cannot cover breadcrumbs, preview panes, or blame details. Details follow
+they cannot cover breadcrumbs, preview panes, or blame details. Clipping follows
+actual sticky-header geometry even when it resolves after a scroll event. Details follow
 the shared outside-pointer and Escape dismissal protocol.
 
 Blame is a projection of the saved working file. Unsaved edits pause annotations

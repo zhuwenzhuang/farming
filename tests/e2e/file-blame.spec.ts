@@ -138,6 +138,39 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
   })
 }
 
+test('blame clipping follows late sticky geometry without another editor scroll', async ({ page, workspaceRoot }) => {
+  await openFile(page, repository(workspaceRoot), 'large.ts')
+  await annotate(page)
+  const monaco = page.getByTestId('code-file-monaco')
+  const sticky = monaco.locator('.sticky-widget')
+  const layer = page.locator('.code-file-inline-blame-layer')
+  expect(await page.evaluate(() => window.__farmingFileEditorTest?.revealLine(180))).toBe(true)
+  await expect(sticky).toBeVisible()
+  // Let the reveal/layout refreshes settle first. The seam changes the actual
+  // Monaco widget's geometry, without synthesizing an editor event or relying
+  // on the timing of its asynchronous TypeScript outline provider.
+  await page.evaluate(async () => {
+    for (let frame = 0; frame < 4; frame += 1) {
+      await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+    }
+  })
+  const scrollTop = await page.evaluate(() => window.__farmingFileEditorTest?.getScrollTop())
+  const originalStyle = await sticky.getAttribute('style')
+  const clipTop = () => layer.evaluate(element => Number.parseFloat(getComputedStyle(element).clipPath.replace('inset(', '')))
+  try {
+    await sticky.evaluate(element => { element.style.setProperty('height', '120px', 'important') })
+    await expect.poll(clipTop).toBeCloseTo(120, 0)
+    await sticky.evaluate(element => { element.style.setProperty('height', '0px', 'important') })
+    await expect.poll(clipTop).toBe(0)
+    expect(await page.evaluate(() => window.__farmingFileEditorTest?.getScrollTop())).toBe(scrollTop)
+  } finally {
+    await sticky.evaluate((element, style) => {
+      if (style === null) element.removeAttribute('style')
+      else element.setAttribute('style', style)
+    }, originalStyle)
+  }
+})
+
 test('pending capability cannot reopen, replace, or cross file and page navigation', async ({ page, workspaceRoot }) => {
   const directory = repository(workspaceRoot)
   let held = gate()
