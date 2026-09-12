@@ -1773,6 +1773,10 @@ export async function scrollTerminalSessionToBottom(agentId: string) {
   const record = await current
   if (record.disposed) return
   record.interaction.stopTouchMomentum()
+  // A reattach checkpoint must not restore the position parked before this
+  // newer explicit jump, even when its output cut is already current.
+  record.parkedViewportState = null
+  clearReadingAnchor(readingAnchorAgentKey(record.agentId, 'terminal'))
   scrollRecordToBottom(record, { allowClearUnread: true })
 }
 

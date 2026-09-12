@@ -500,6 +500,7 @@ async function runDesktopTerminalMatrix(
       })
     })
 
+    if (selectedGroup === 'scrolling') await page.clock.install()
     await openFarming(page)
     await installClipboardProbe(page)
     await installWindowOpenProbe(page)
@@ -975,17 +976,45 @@ async function runDesktopTerminalMatrix(
       await selectAgent(page, reconnectOutputAgentId)
       await expect(bashRow).toHaveClass(/unread/)
 
-      await selectAgent(page, bashAgentId)
+      // Keep the pending reattach layout frames behind the user's explicit
+      // jump, so its checkpoint must reconcile the newer viewport intent.
+      await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1000))
+      await bashRow.dispatchEvent('click')
+      await expect(bashRow).toHaveClass(/active/)
+      await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${bashAgentId}"]`)).toBeVisible()
       await expect(bashRow).toHaveClass(/unread/)
       await expect(page.getByTestId('code-terminal-jump-bottom')).toBeVisible()
     })
 
     await scenario('jump-to-bottom restores follow mode after anchored scrolling', async () => {
       const inputCountBeforeJump = await page.evaluate((id) => window.__farmingTerminalTest?.getInputCount(id) ?? 0, bashAgentId)
-      await page.getByTestId('code-terminal-jump-bottom').click()
-      await expect.poll(async () => (await terminalViewport(page, bashAgentId)).following).toBe(true)
-      await expect.poll(async () => (await terminalViewport(page, bashAgentId)).viewportY).toBe(0)
-      await expect.poll(async () => await visibleTerminalText(page, bashAgentId)).toContain('matrix-new-background-output')
+      const viewportSample = () => page.evaluate(id => ({
+        ...window.__farmingTerminalTest?.getViewport(id),
+        ready: window.__farmingTerminalTest?.isReady(id) ?? false,
+        hasLatest: window.__farmingTerminalTest?.getRows(id, 60)
+          .some(row => row.includes('matrix-new-background-output')) ?? false,
+      }), bashAgentId)
+      try {
+        // Dispatch the real button action without actionability animation
+        // frames consuming the deliberately paused reattach boundary.
+        await page.getByTestId('code-terminal-jump-bottom').dispatchEvent('click')
+        expect(await viewportSample()).toEqual(expect.objectContaining({
+          following: true,
+          viewportY: 0,
+          hasLatest: true,
+        }))
+        await page.clock.runFor(100)
+      } finally {
+        await page.clock.resume()
+      }
+      // Sample one authoritative attachment state and its visible rows in
+      // the same task; separate polls can accept a transient successful jump.
+      await expect.poll(viewportSample).toEqual(expect.objectContaining({
+        ready: true,
+        following: true,
+        viewportY: 0,
+        hasLatest: true,
+      }))
       await expect(page.getByTestId('code-terminal-jump-bottom')).toHaveCount(0)
       await expect(agentListItem(page, bashAgentId)).not.toHaveClass(/unread/)
       const inputCountAfterJump = await page.evaluate((id) => window.__farmingTerminalTest?.getInputCount(id) ?? 0, bashAgentId)
@@ -2007,6 +2036,7 @@ test.describe('terminal regression matrix', () => {
       try {
         await runDesktopTerminalMatrix(page, workspaceRoot, group)
       } finally {
+        if (group === 'scrolling') await page.clock.resume()
         await restoreWindowOpenProbe(page)
         await cleanupControlAgents(page.request)
       }

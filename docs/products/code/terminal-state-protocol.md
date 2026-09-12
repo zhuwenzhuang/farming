@@ -189,7 +189,9 @@ loaded row, up to that authoritative horizon. Each expansion replaces the
 serialized terminal state at a proved revision and restores the user's logical
 reading anchor; it does not prepend raw ANSI text or create a second output
 ordering path. One expansion may be in flight per surface, and repeated scroll
-intent only raises the desired window.
+intent only raises the desired window. An explicit jump to latest discards the
+parked and persisted reading position before entering follow mode, so a subsequent
+reattach checkpoint cannot select the older parked intent.
 
 Server-side output-rate accounting uses bounded one-second buckets per Agent.
 Each bucket accumulates output bytes and chunk count, and only the current
