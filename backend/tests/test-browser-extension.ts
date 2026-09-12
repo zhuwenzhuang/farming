@@ -699,6 +699,8 @@ async function testBrowserResourceManager() {
       deleted: 0,
       deleteShouldFail: true,
       processAlive: false,
+      killShouldFail: false,
+      browserLeases: new Map(),
       runtimes: new Map(),
       runtimeOptions: null,
     };
@@ -714,10 +716,17 @@ async function testBrowserResourceManager() {
         prepare: async () => ({}),
         acquire: async ({ ownerKey }) => {
           isolatedCalls.acquired += 1;
+          isolatedCalls.browserLeases.set(
+            ownerKey,
+            (isolatedCalls.browserLeases.get(ownerKey) || 0) + 1,
+          );
           return { cdpUrl: 'http://127.0.0.1:19444', leaseKey: ownerKey };
         },
-        release: async () => {
+        release: async leaseKey => {
           isolatedCalls.released += 1;
+          const current = isolatedCalls.browserLeases.get(leaseKey) || 0;
+          if (current <= 1) isolatedCalls.browserLeases.delete(leaseKey);
+          else isolatedCalls.browserLeases.set(leaseKey, current - 1);
         },
         deleteOwner: async () => {
           isolatedCalls.deleted += 1;
@@ -750,6 +759,7 @@ async function testBrowserResourceManager() {
           : null
       ),
       killProcessGroup: (processGroupId, signal) => {
+        if (isolatedCalls.killShouldFail) throw new Error('exact process cleanup failed');
         isolatedCalls.killedProcessGroups.push({ processGroupId, signal });
         isolatedCalls.processAlive = false;
       },
@@ -853,6 +863,113 @@ async function testBrowserResourceManager() {
       );
       await isolatedManager.delete(sharedIsolated.id);
       await isolatedManager.delete(retainedIsolated.id);
+
+      const missingLastTab = isolatedManager.create({
+        projectRootId: 'wroot_isolated',
+        workspace: projectWorkspace,
+        ownerAgentId: 'agent_missing_last_tab',
+        name: 'Last tab disappearance',
+        url: 'https://example.com/last-tab',
+      });
+      await isolatedManager.start(missingLastTab.id);
+      const missingLastTabRuntime = isolatedCalls.runtimes.get(missingLastTab.id);
+      const missingLastTabLeaseKey = 'agent:agent_missing_last_tab';
+      const missingLastTabSession = isolatedManager.sessions.get(missingLastTab.id);
+      const withinCleanupBudget = async operation => {
+        let timer;
+        try {
+          return await Promise.race([
+            operation,
+            new Promise((_, reject) => {
+              timer = setTimeout(() => reject(new Error('last-tab cleanup did not settle')), 1_000);
+            }),
+          ]);
+        } finally {
+          clearTimeout(timer);
+        }
+      };
+      let releaseClose;
+      const closeGate = new Promise(resolve => { releaseClose = resolve; });
+      let lastTabCloseCalls = 0;
+      missingLastTabRuntime.close = async () => {
+        lastTabCloseCalls += 1;
+        await closeGate;
+        missingLastTabRuntime.closed = true;
+      };
+      missingLastTabRuntime.emit('tabs', { tabs: [], newTabIds: [] });
+      let concurrentStop;
+      try {
+        await withinCleanupBudget(missingLastTabSession.actionChain);
+        assert.strictEqual(isolatedManager.get(missingLastTab.id).status, 'stopping');
+        assert.strictEqual(missingLastTabSession.bindings.has(missingLastTab.id), true);
+        concurrentStop = isolatedManager.stop(missingLastTab.id);
+      } finally {
+        releaseClose();
+      }
+      await withinCleanupBudget(concurrentStop);
+      assert.strictEqual(isolatedManager.get(missingLastTab.id).status, 'stopped');
+      assert.strictEqual(missingLastTabRuntime.closed, true);
+      assert.strictEqual(lastTabCloseCalls, 1, 'concurrent stop must share final-session cleanup');
+      assert.strictEqual(isolatedManager.sessions.has(missingLastTab.id), false);
+      assert.strictEqual(isolatedCalls.browserLeases.has(missingLastTabLeaseKey), false);
+      await isolatedManager.delete(missingLastTab.id);
+      assert.strictEqual(
+        isolatedCalls.browserLeases.has(missingLastTabLeaseKey),
+        false,
+        'deleting a Resource after its last tab disappears must release the isolated Computer lease',
+      );
+
+      const remainingTab = isolatedManager.create({
+        projectRootId: 'wroot_isolated', workspace: projectWorkspace,
+        ownerAgentId: 'agent_remaining_tab', url: 'https://example.com/remaining',
+      });
+      const disappearingTab = isolatedManager.create({
+        projectRootId: 'wroot_isolated', workspace: projectWorkspace,
+        ownerAgentId: 'agent_remaining_tab', url: 'https://example.com/disappearing',
+      });
+      await isolatedManager.start(remainingTab.id);
+      await isolatedManager.start(disappearingTab.id);
+      const remainingRuntime = isolatedCalls.runtimes.get(remainingTab.id);
+      const remainingSession = isolatedManager.sessions.get(remainingTab.id);
+      const remainingTabId = isolatedManager.get(remainingTab.id).tabId;
+      remainingRuntime.emit('tabs', {
+        tabs: remainingRuntime.tabs.filter(tab => tab.tabId === remainingTabId), newTabIds: [],
+      });
+      await withinCleanupBudget(remainingSession.actionChain);
+      assert.strictEqual(isolatedManager.get(disappearingTab.id).status, 'stopped');
+      assert.strictEqual(remainingRuntime.closed, false);
+      assert.strictEqual(isolatedCalls.browserLeases.get('agent:agent_remaining_tab'), 1);
+      await isolatedManager.delete(disappearingTab.id);
+      await isolatedManager.delete(remainingTab.id);
+
+      const failedLastTab = isolatedManager.create({
+        projectRootId: 'wroot_isolated', workspace: projectWorkspace,
+        ownerAgentId: 'agent_failed_last_tab', url: 'https://example.com/failed-cleanup',
+      });
+      await isolatedManager.start(failedLastTab.id);
+      const failedRuntime = isolatedCalls.runtimes.get(failedLastTab.id);
+      const failedSession = isolatedManager.sessions.get(failedLastTab.id);
+      const failedProcessIdentity = isolatedManager.store.get(failedLastTab.id).processIdentity;
+      failedRuntime.closeFailures = 1;
+      isolatedCalls.processAlive = true;
+      isolatedCalls.killShouldFail = true;
+      failedRuntime.emit('tabs', { tabs: [], newTabIds: [] });
+      await withinCleanupBudget(failedSession.actionChain);
+      await assert.rejects(
+        withinCleanupBudget(isolatedManager.operations.get(failedLastTab.id)),
+        /exact process cleanup failed/,
+      );
+      assert.strictEqual(isolatedManager.get(failedLastTab.id).status, 'failed');
+      assert.strictEqual(failedSession.bindings.has(failedLastTab.id), true);
+      assert.deepStrictEqual(isolatedManager.store.get(failedLastTab.id).processIdentity, failedProcessIdentity);
+      assert.strictEqual(isolatedCalls.browserLeases.has('agent:agent_failed_last_tab'), false);
+      failedRuntime.emit('tabs', { tabs: [], newTabIds: [] });
+      await withinCleanupBudget(failedSession.actionChain);
+      assert.strictEqual(isolatedManager.get(failedLastTab.id).status, 'failed');
+      assert.strictEqual(failedRuntime.closed, false, 'a later tab event must not retry failed cleanup');
+      assert.strictEqual(isolatedManager.operations.has(failedLastTab.id), false);
+      isolatedCalls.killShouldFail = false;
+      await isolatedManager.delete(failedLastTab.id);
     } finally {
       await isolatedManager.dispose();
       fs.rmSync(isolatedConfigDir, { recursive: true, force: true });

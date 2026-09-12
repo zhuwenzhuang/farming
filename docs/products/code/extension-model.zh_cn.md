@@ -191,6 +191,11 @@ State，并保留精确 Resource 与 Process Identity 供显式重试，不能�
 Single-binding Isolated Session 可以按精确记录回收 Farming-owned Process，Shared Session
 与借用的 Chrome Tab 不能作为 Cleanup Fallback 被 Kill。
 
+Tab Reconciliation 发现最后一个 Owned Tab 消失时，必须通过同一 Session Cleanup
+关闭 Runtime 并释放隔离 Desktop Lease，然后才能移除最后一个 Binding。并发 Stop
+与 Reconciliation 共用该清理所有权；仍有其他 Tab 时保留 Session 与 Lease。
+清理失败须保留最后一条 Resource 及精确 Process Identity，供显式重试。
+
 已建立的 Browser Runtime Stream 拥有一个有界 Connection Transition：
 `running -> reconnecting -> running | failed`。一次 Transport 中断不会删除
 Resource，但只有同一 Runtime Session 和 Resource Generation 才能完成重连。

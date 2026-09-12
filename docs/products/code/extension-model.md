@@ -241,6 +241,12 @@ fails. Only a single-binding isolated Session may then recover its exact recorde
 Farming-owned process; shared Sessions and borrowed Chrome tabs must not be
 killed as cleanup fallback.
 
+When tab reconciliation observes the last owned tab disappear, the same Session
+cleanup must close its Runtime and release its isolated Desktop lease before
+discarding the final binding. Concurrent stop and reconciliation share that
+cleanup ownership; remaining tabs keep their Session and lease. A cleanup failure
+retains the final Resource and exact process identity for an explicit retry.
+
 An established Browser Runtime stream owns a bounded connection transition:
 `running -> reconnecting -> running | failed`. A single transport interruption
 does not delete the Resource, but only the same Runtime Session and Resource

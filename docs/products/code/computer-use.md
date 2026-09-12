@@ -31,6 +31,11 @@ endpoint.
 - Deleting the Agent removes the exact Desktop it owns.
 - A Browser using the Desktop must release its lease before the Desktop stops.
 
+An isolated Browser's private CDP relay serves a bounded number of independent
+concurrent connections, so an existing automation connection cannot block
+Viewer input. Disconnect or upstream failure closes only that client's pair of
+sockets. Stopping the owning Desktop ends every relay connection.
+
 Chat/Terminal replacement changes the runtime Agent identity. The lifecycle
 owner holds the old Agent's Browser and Computer Resources while no live Agent
 record exists, then transfers those exact Resources to the registered

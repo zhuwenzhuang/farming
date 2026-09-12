@@ -2537,7 +2537,6 @@ test.describe('display-backed agent flows', () => {
     await expect(readmeRow).toBeVisible()
     await expect(readmeRow).not.toHaveClass(/active/)
     const queryRow = childFiles.locator('[data-testid="code-file-row"][data-file-path="query.sql"]')
-    const transientReplacementRow = childFiles.locator('[data-testid="code-file-row"][data-file-path="deep/nested/inner/file-00.txt"]')
     await queryRow.click()
     await expect(activeFileTabName(page)).toHaveText('query.sql')
     await expect(page.getByTestId('code-file-editor').getByRole('tab').filter({ hasText: 'query.sql' })).toHaveCount(1)
@@ -2546,7 +2545,14 @@ test.describe('display-backed agent flows', () => {
     await page.keyboard.press('Control+Shift+T')
     await expect(activeFileTabName(page)).toHaveText('query.sql')
     await expect(page.getByTestId('code-file-editor').getByRole('tab').filter({ hasText: 'query.sql' })).toHaveCount(1)
-    await transientReplacementRow.click()
+    // Revealing the reopened query can unmount this offscreen virtual row.
+    // Scroll the owning Project surface before testing single-click preview.
+    await fileTree.evaluate(tree => {
+      const scroller = tree.closest<HTMLElement>('.code-project-list')
+      if (!scroller) throw new Error('Project file scroller is missing')
+      scroller.scrollTop += tree.getBoundingClientRect().top - scroller.getBoundingClientRect().top
+    })
+    await childFiles.locator('[data-testid="code-file-row"][data-file-path="deep/nested/inner/file-00.txt"]').click()
     await expect(activeFileTabName(page)).toHaveText('file-00.txt')
     await expect(page.getByTestId('code-file-editor').getByRole('tab').filter({ hasText: 'query.sql' })).toHaveCount(0)
     await expect(page.getByTestId('code-file-editor').getByRole('tab').filter({ hasText: 'README.md' })).toHaveCount(1)
@@ -2754,7 +2760,9 @@ test.describe('display-backed agent flows', () => {
     await fileSearchInput.fill('deep/nested/inner/file-30.txt:1')
     await expect(childFiles.locator('.code-file-search-result').filter({ hasText: 'file-30.txt' }).first()).toBeVisible()
     await fileSearchInput.press('Enter')
-    await fileSearchInput.fill('')
+    await expect(fileSearchInput).toHaveValue('')
+    // Opening clears Search itself. Another fill would be new user input,
+    // revoking its in-flight reveal lease before the virtual row is mounted.
     // Opening from Search owns the reveal. Mutating the shared Project scroller
     // here would race the virtual tree and test a state the user cannot create.
     await expect(childFiles.locator(

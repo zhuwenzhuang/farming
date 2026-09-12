@@ -26,6 +26,10 @@ Session、Credential、Profile 或 Private Endpoint。
 - 删除 Agent 会删除它精确拥有的 Desktop。
 - Browser 正在使用 Desktop 时，必须先释放 Lease 才能停止 Desktop。
 
+隔离 Browser 的私有 CDP Relay 支持有界数量的独立并发连接，已有的自动化连接不能阻塞
+Viewer 输入。连接断开或上游失败时，只关闭该客户端对应的一对 Socket；停止所属 Desktop
+会终止全部 Relay 连接。
+
 Chat/Terminal Replacement 会改变 Runtime Agent Identity。Lifecycle Owner 会在 Live Agent
 Record 暂时不存在期间 Hold 旧 Agent 的 Browser 与 Computer Resource，并在 Switch 结束前把
 这些精确 Resource 转移给已注册的 Replacement。若请求的 Replacement 与原 Runtime 都无法恢复，

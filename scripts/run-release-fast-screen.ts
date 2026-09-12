@@ -71,6 +71,14 @@ const tasks: FastScreenTask[] = [
     args: ['--import', 'tsx', 'backend/tests/test-browser-extension.ts'],
   },
   {
+    name: 'Computer Browser relay concurrent clients',
+    args: ['--import', 'tsx', 'backend/tests/test-computer-browser-relay.ts'],
+  },
+  {
+    name: 'native hard-stop ownership regression',
+    args: ['--import', 'tsx', 'backend/tests/test-config-process-hard-stop.ts'],
+  },
+  {
     name: 'shared Codex ACP replacement',
     args: ['--import', 'tsx', 'backend/tests/test-acp-shared-codex-adapter.ts'],
   },

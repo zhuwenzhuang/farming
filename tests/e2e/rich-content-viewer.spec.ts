@@ -20,7 +20,7 @@ async function expectDiagramFits(container: Locator) {
 }
 
 for (const appearance of ['light', 'dark', 'paper'] as const) {
-  test(`unifies streaming rich content and fullscreen inspection in ${appearance}`, async ({ page, workspaceRoot }) => {
+  test(`unifies streaming rich content and fullscreen inspection in ${appearance}`, async ({ page, workspaceRoot, browserName, isMobile }) => {
     test.setTimeout(120_000)
     const workspace = path.join(workspaceRoot, `rich-content-${appearance}`)
     fs.mkdirSync(workspace, { recursive: true })
@@ -32,6 +32,8 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
     const { agentId } = await response.json() as { agentId: string }
     try {
       await openFarming(page)
+      const mobileMenu = page.getByTestId('code-mobile-menu')
+      if (await mobileMenu.isVisible()) await mobileMenu.click()
       await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
       await page.evaluate(value => { document.body.dataset.appearance = value }, appearance)
       await page.evaluate(() => {
@@ -120,9 +122,18 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
       const svgBefore = (await viewer.locator('.code-markdown-mermaid-canvas > svg').boundingBox())!
       const point = { x: svgBefore.x + svgBefore.width * 0.3, y: svgBefore.y + svgBefore.height * 0.4 }
       await page.mouse.move(point.x, point.y)
-      await page.keyboard.down('Control')
-      await page.mouse.wheel(0, -100)
-      await page.keyboard.up('Control')
+      if (browserName === 'webkit' && isMobile) {
+        // Playwright cannot send native wheel input to mobile WebKit.
+        // Exercise the same anchored-wheel contract with a DOM event there.
+        await viewer.locator('.code-markdown-mermaid-gesture-viewport').dispatchEvent('wheel', {
+          deltaY: -100, ctrlKey: true, clientX: point.x, clientY: point.y,
+          bubbles: true, cancelable: true,
+        })
+      } else {
+        await page.keyboard.down('Control')
+        await page.mouse.wheel(0, -100)
+        await page.keyboard.up('Control')
+      }
       await expect.poll(async () => (await viewer.locator('.code-markdown-mermaid-canvas > svg').boundingBox())!.width).toBeGreaterThan(svgBefore.width)
       const svgAfter = (await viewer.locator('.code-markdown-mermaid-canvas > svg').boundingBox())!
       expect((point.x - svgAfter.x) / svgAfter.width).toBeCloseTo(0.3, 2)

@@ -3777,6 +3777,16 @@ class BrowserResourceManager extends EventEmitter {
       if (observedTabsRevision <= binding.admittedTabsRevision) continue;
       const current = this.store.get(binding.id);
       if (!current || current.status === 'stopping') continue;
+      if (session.bindings.size === 1) {
+        if (current.status !== 'running' && current.status !== 'reconnecting') return;
+        // Reconciliation owns actionChain. Schedule the normal stop after it
+        // settles, retaining the final binding and process identity for cleanup
+        // or an explicit retry. Awaiting stop here would await this action itself.
+        void this.stop(binding.id, true).catch(() => {
+          // stop owns the terminal failed state and retained cleanup identity.
+        });
+        return;
+      }
       session.bindings.delete(binding.id);
       this.runtimes.delete(binding.id);
       if (session.processOwnerResourceId === binding.id && session.bindings.size > 0) {
