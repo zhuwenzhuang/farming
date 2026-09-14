@@ -56,7 +56,8 @@ type TerminalFollowState = {
 
 const TERMINAL_COMPOSER_COLLAPSED_STORAGE_KEY = 'farming.code.terminalComposerCollapsed.v1'
 const RESOURCE_AGENT_PANEL_OPEN_STORAGE_KEY = 'farming.code.resourceAgentPanelOpen.v1'
-const DEFAULT_RESOURCE_AGENT_WIDTH = 420
+const DEFAULT_RESOURCE_AGENT_WIDTH = 480
+const MAX_DEFAULT_RESOURCE_AGENT_WIDTH = 600
 const MIN_RESOURCE_AGENT_WIDTH = 360
 const MAX_RESOURCE_AGENT_WIDTH = 800
 const MIN_RESOURCE_WORKSPACE_WIDTH = 320
@@ -708,6 +709,7 @@ export function CodeMainArea({
   const [resourceAgentPanelOpen, setResourceAgentPanelOpen] = useState(readResourceAgentPanelOpen)
   const [resourceAgentWidth, setResourceAgentWidth] = useState(DEFAULT_RESOURCE_AGENT_WIDTH)
   const [resourceAgentWidthMax, setResourceAgentWidthMax] = useState(MAX_RESOURCE_AGENT_WIDTH)
+  const preferredResourceAgentWidthRef = useRef<number | null>(null)
   const mainAreaRef = useRef<HTMLElement | null>(null)
   const resourceAgentResizeGestureRef = useRef<{
     pointerId: number
@@ -807,7 +809,9 @@ export function CodeMainArea({
     const maxWidth = maxResourceAgentWidth(mainRect.width)
     const rawWidth = mainRect.right - clientX
     setResourceAgentWidthMax(maxWidth)
-    setResourceAgentWidth(clampResourceAgentWidth(rawWidth, mainRect.width))
+    const width = clampResourceAgentWidth(rawWidth, mainRect.width)
+    preferredResourceAgentWidthRef.current = width
+    setResourceAgentWidth(width)
   }, [])
 
   const handleResourceAgentResizeKeyDown = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
@@ -818,7 +822,9 @@ export function CodeMainArea({
     else if (event.key === 'End') nextWidth = resourceAgentWidthMax
     if (nextWidth === null) return
     event.preventDefault()
-    setResourceAgentWidth(Math.max(MIN_RESOURCE_AGENT_WIDTH, Math.min(resourceAgentWidthMax, nextWidth)))
+    const width = Math.max(MIN_RESOURCE_AGENT_WIDTH, Math.min(resourceAgentWidthMax, nextWidth))
+    preferredResourceAgentWidthRef.current = width
+    setResourceAgentWidth(width)
   }, [resourceAgentWidth, resourceAgentWidthMax])
 
   const beginResourceAgentResize = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
@@ -863,7 +869,15 @@ export function CodeMainArea({
       const mainWidth = element.getBoundingClientRect().width
       const maxWidth = maxResourceAgentWidth(mainWidth)
       setResourceAgentWidthMax(maxWidth)
-      setResourceAgentWidth(current => clampResourceAgentWidth(current, mainWidth))
+      // Follow available workspace space until the user chooses a width.
+      const preferredWidth = preferredResourceAgentWidthRef.current ?? Math.min(
+        Math.floor((mainWidth - 1) / 2),
+        Math.max(
+          DEFAULT_RESOURCE_AGENT_WIDTH,
+          Math.min(MAX_DEFAULT_RESOURCE_AGENT_WIDTH, Math.round(mainWidth * 0.4)),
+        ),
+      )
+      setResourceAgentWidth(clampResourceAgentWidth(preferredWidth, mainWidth))
     }
     reconcileWidth()
     const observer = new ResizeObserver(reconcileWidth)

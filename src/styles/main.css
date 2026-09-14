@@ -715,7 +715,7 @@ body.code-mode .code-instance-name {
 
 .code-main.resource-agent-side-open {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 1px minmax(0, var(--code-resource-agent-width, 420px));
+  grid-template-columns: minmax(0, 1fr) 1px minmax(0, var(--code-resource-agent-width));
   grid-template-rows: minmax(0, 1fr) auto auto;
   background: var(--code-bg-surface);
 }

@@ -40,6 +40,7 @@ export function useWorkspaceFileExplorer(agentId: string | null, workspaceKey = 
   const openDirectoryWorkspaceKeyRef = useRef(normalizedWorkspaceKey)
   const compactDirectoryHydrationRef = useRef(new Map<string, Promise<readonly string[] | null>>())
   const restoredDirectoryHydrationKeyRef = useRef('')
+  const previousDirectoriesRef = useRef(directories)
   const treeProjectionRef = useRef<{ workspaceKey: string; nodes: WorkspaceFileTreeNode[] }>({
     workspaceKey: normalizedWorkspaceKey,
     nodes: [],
@@ -56,6 +57,25 @@ export function useWorkspaceFileExplorer(agentId: string | null, workspaceKey = 
   const visibleTreeRowCount = useMemo(() => (
     Math.max(1, countVisibleWorkspaceTreeRows(treeData, openDirectoryPaths))
   ), [openDirectoryPaths, treeData])
+
+  useEffect(() => {
+    const previous = previousDirectoriesRef.current
+    previousDirectoriesRef.current = directories
+    const current = openDirectoryPathsRef.current
+    const stale = Object.entries(directories).flatMap(([path, directory]) => {
+      const oldItems = previous[path]?.items
+      if (!oldItems || oldItems === directory.items || directory.loading || directory.error) return []
+      const remaining = new Set(directory.items.filter(item => item.type === 'directory').map(item => item.path))
+      return oldItems.filter(item => item.type === 'directory' && !remaining.has(item.path)).map(item => item.path)
+    })
+    if (stale.length === 0) return
+    const next = new Set(Array.from(current).filter(path => (
+      !stale.some(removed => path === removed || path.startsWith(`${removed}/`))
+    )))
+    if (next.size === current.size) return
+    openDirectoryPathsRef.current = next
+    setOpenDirectoryPaths(next)
+  }, [directories])
 
   const setDirectoryOpen = useCallback((directoryPath: string, open: boolean) => {
     const current = openDirectoryPathsRef.current
@@ -274,6 +294,7 @@ export function useWorkspaceFileExplorer(agentId: string | null, workspaceKey = 
     visibleTreeRowCount,
     hydrateRestoredDirectories,
     loadRootDirectory,
+    loadDirectory,
     ensureDirectoryLoaded,
     isDirectoryLoaded,
     loadMissingDirectories,
@@ -294,6 +315,7 @@ export function useWorkspaceFileExplorer(agentId: string | null, workspaceKey = 
     loadMissingDirectories,
     moveOpenDirectories,
     loadRootDirectory,
+    loadDirectory,
     openDirectoriesInLayout,
     openDirectoryPaths,
     refreshDirectories,

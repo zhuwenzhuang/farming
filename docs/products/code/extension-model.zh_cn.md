@@ -48,6 +48,11 @@ Agent Surface 的居中阅读栏宽度。Composer 保留完整 Agent Surface 的
 Activity Preview 参与窄栏的纵向布局，不得覆盖 Composer；已经在相邻 Viewer 中打开的
 Browser 不再重复显示为 Activity Preview。窄栏分隔线支持指针与键盘调整；Workspace
 变窄时会先回收窄栏宽度，不让相邻 Viewer 低于其支持的最小宽度。
+手动调整前，窄栏默认占主工作区可用宽度的 40%，目标范围为 480–600 CSS 像素，
+同时至少为 Viewer 保留一半工作区，并受现有窄栏与 Viewer 最小宽度约束。
+浏览器或 Sidebar 宽度变化时重新计算默认值。
+指针或键盘调整后，当前 Workspace View 保留用户偏好宽度；后续容器变窄时约束
+实际显示宽度，空间恢复后恢复偏好值。
 
 Current Plan、Browser Preview 等 Live Agent Activity 共享一个由 Core 拥有的右侧 Dock。
 每项 Activity 始终保留可识别的紧凑 Header，但同一时刻最多只展开一个 Activity Body；

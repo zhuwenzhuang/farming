@@ -102,6 +102,17 @@ Agent 行或其他导航 surface。文件行通过 pointer capture 保持该所�
 合并；workspace 改变使旧结果失效；展开意图不依赖读取完成。目录缓存不成为文件内容
 model。
 
+用户通过指针或键盘展开、收起目录时重新核实该目录，同时保留可见快照。Layout Restoration
+使用缓存读取，不触发这次核实。目录展开或文件打开收到路径不存在的响应时刷新父目录；
+父目录也不存在时，在已挂载 Root 内逐级向上核实。只有成功的父目录列表才能移除分支、
+清理其后代缓存与展开状态，并取消过期的后代读取。权限或传输失败保留原 Projection 并
+明确报错。核实不能抢夺 Focus、重开用户收起的目录，也不能丢弃已打开的 Editor 或 Draft。
+
+显式 Files Refresh 分别等待 Directory、Changes 与 Open File Read 结束；某一部分失败
+不妨碍其他成功部分提交，失败反馈包含受影响部分和可用的路径、错误详情。已确认不存在
+的 Open File 是已经核实的磁盘状态：保留 Tab 与 Draft，并显示文件自身错误，不把整个
+Refresh 标记为失败。
+
 Directory Structure 与 Git Decoration 是两个独立 Projection。Structure 成功结果可以在
 Decoration 仍处于 absent、loading、ready 或 failed 时提交；Decoration 失败不能让 Directory
 Snapshot 失败或延迟。Decoration Result 只有在 Workspace Generation 仍为当前值，且 Entry Path

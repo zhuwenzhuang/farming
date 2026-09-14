@@ -123,6 +123,22 @@ owner. Same-directory loads join, workspace changes invalidate old results,
 and expansion intent is independent from load completion. Directory caches do
 not become file-content models.
 
+Explicit pointer or keyboard directory toggles revalidate that directory while
+retaining its visible snapshot. Layout restoration uses cached reads and does
+not start this revalidation. A missing-path response on directory expansion or
+file opening refreshes its parent; missing parents are reconciled upward within
+the mounted root. Only a successful parent listing removes a branch, clears its
+cached descendants and expansion state, and cancels obsolete descendant reads.
+Permission or transport failures retain the previous projection and remain
+errors. Revalidation never steals focus, reopens a manually collapsed directory,
+or discards an open editor or draft.
+
+Explicit Files refresh waits for directory, Changes, and open-file reads to
+settle independently. Successful parts commit even if another part fails, and
+failure feedback identifies the affected part and available path/error details.
+A confirmed missing open file is a reconciled disk state: retain its tab and
+draft with a file-local error instead of reporting the entire refresh as failed.
+
 Directory structure and Git decoration are separate projections. A successful
 structure result may commit while decoration remains absent, loading, ready, or
 failed. Decoration failure does not fail or delay the directory snapshot. A

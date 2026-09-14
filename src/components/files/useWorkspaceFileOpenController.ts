@@ -56,6 +56,7 @@ interface UseWorkspaceFileOpenControllerOptions {
   ) => void | Promise<void>
   onBeginOpenFileIntent: () => RequestOwnershipLease
   onSelectOpenFile?: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => boolean
+  onMissingFile?: (filePath: string) => Promise<unknown>
 }
 
 export function useWorkspaceFileOpenController({
@@ -65,6 +66,7 @@ export function useWorkspaceFileOpenController({
   onOpenFile,
   onBeginOpenFileIntent,
   onSelectOpenFile,
+  onMissingFile,
 }: UseWorkspaceFileOpenControllerOptions) {
   const fileOpenRequestFenceRef = useRef(new RequestOwnershipFence(agentId))
   const fileOpenPendingTimerRef = useRef<number | null>(null)
@@ -165,6 +167,9 @@ export function useWorkspaceFileOpenController({
         onClearSearch()
       } catch (error) {
         if (!lease.isCurrent() || !pending.intentLease.isCurrent()) return
+        if (error instanceof WorkspaceFileApiError && error.status === 404) {
+          void onMissingFile?.(filePath)
+        }
         if (
           pending.target
           && error instanceof WorkspaceFileApiError
@@ -183,7 +188,7 @@ export function useWorkspaceFileOpenController({
           onClearSearch()
           return
         }
-        setOpenFileError(error instanceof Error ? error.message : 'Failed to open file')
+        setOpenFileError(`${filePath}: ${error instanceof Error ? error.message : 'Failed to open file'}`)
         performanceTrace.end('failed')
       } finally {
         // Opening the editor can unmount its originating sidebar hook. Once
@@ -197,7 +202,7 @@ export function useWorkspaceFileOpenController({
     })()
     pendingFileOpenRef.current = pending
     return pending.promise
-  }, [agentId, clearOpenFilePending, onBeginOpenFileIntent, onClearSearch, onOpenFile, onResolveFile, onSelectOpenFile, scheduleOpenFilePending])
+  }, [agentId, clearOpenFilePending, onBeginOpenFileIntent, onClearSearch, onMissingFile, onOpenFile, onResolveFile, onSelectOpenFile, scheduleOpenFilePending])
 
   return {
     openFileError,

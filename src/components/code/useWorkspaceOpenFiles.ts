@@ -29,6 +29,7 @@ import {
 } from '@/lib/workspace-open-files'
 import {
   fetchWorkspaceFile,
+  WorkspaceFileApiError,
   type WorkspaceFile,
   type WorkspaceFileDeleteResult,
   type WorkspaceFileMove,
@@ -92,7 +93,7 @@ export interface WorkspaceOpenFileRestoreRead {
 
 async function refreshOpenWorkspaceFileReads(rootId: string, filePaths: readonly string[]) {
   const files: WorkspaceFile[] = []
-  let successful = true
+  const errors: Array<{ path: string; message: string; missing: boolean }> = []
   let nextIndex = 0
   const workers = Array.from({ length: Math.min(OPEN_FILE_REFRESH_CONCURRENCY, filePaths.length) }, async () => {
     while (nextIndex < filePaths.length) {
@@ -102,15 +103,19 @@ async function refreshOpenWorkspaceFileReads(rootId: string, filePaths: readonly
       const timeoutId = window.setTimeout(() => abortController.abort(), OPEN_FILE_REFRESH_TIMEOUT_MS)
       try {
         files.push(await fetchWorkspaceFile(rootId, filePath, { signal: abortController.signal }))
-      } catch {
-        successful = false
+      } catch (error) {
+        errors.push({
+          path: filePath,
+          message: abortController.signal.aborted ? 'File refresh timed out' : error instanceof Error ? error.message : 'Failed to refresh file',
+          missing: error instanceof WorkspaceFileApiError && error.status === 404,
+        })
       } finally {
         window.clearTimeout(timeoutId)
       }
     }
   })
   await Promise.all(workers)
-  return { files, successful }
+  return { files, errors }
 }
 
 export function useWorkspaceOpenFiles() {
@@ -356,8 +361,23 @@ export function useWorkspaceOpenFiles() {
     ]))
     const result = await refreshOpenWorkspaceFileReads(rootId, filePaths)
     refreshFromReads(workspaceRoot, result.files, requestedBaseSha1ByPath)
-    return result.successful
-  }, [refreshFromReads])
+    for (const error of result.errors) {
+      const current = findOpenWorkspaceFileForUpdate(stateRef.current.files, {
+        agentId: rootId, filePath: error.path, workspaceRoot,
+      })
+      if (!current || current.file.sha1 !== requestedBaseSha1ByPath.get(error.path)) continue
+      commitState(updateWorkspaceOpenFile(stateRef.current, {
+        ...current,
+        error: error.message,
+        externalChanged: current.externalChanged || error.missing,
+      }))
+    }
+    // A missing resource has been reconciled above. Its editor retains the
+    // snapshot/draft and explains the disk state; it is not a failed refresh.
+    const failures = result.errors.filter(error => !error.missing)
+    if (failures.length > 0) throw new Error(failures.map(error => `${error.path}: ${error.message}`).join('\n'))
+    return true
+  }, [commitState, refreshFromReads])
 
   const refreshOpenFileFromDisk = useCallback(async (
     rootId: string,

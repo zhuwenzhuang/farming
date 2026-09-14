@@ -634,9 +634,11 @@ test('keeps a deeply scrolled directory anchored while pointer expansion loads i
   const filesTitle = files.getByRole('button', { name: 'Files', exact: true })
   if (await filesTitle.getAttribute('aria-expanded') !== 'true') await filesTitle.click()
 
+  await expect(files.locator('[data-file-path="module-000"]')).toBeVisible()
   const tree = files.locator('[role="tree"]')
   await tree.focus()
   await page.keyboard.press('End')
+  await expect(files.locator('[data-file-path="zz-tail-39"]')).toHaveClass(/selected/)
   for (let index = 0; index < 40; index += 1) await page.keyboard.press('ArrowUp')
   const velox = files.locator('[data-testid="code-file-row"][data-file-path="velox"]')
   await expect(velox).toHaveClass(/selected/)

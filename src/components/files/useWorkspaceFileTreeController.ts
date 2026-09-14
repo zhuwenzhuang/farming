@@ -13,6 +13,7 @@ interface UseWorkspaceFileTreeControllerOptions {
   ) => Promise<readonly string[] | null>
   isDirectoryOpen: (path: string) => boolean
   setDirectoryOpen: (path: string, open: boolean) => void
+  refreshDirectory: (path: string) => Promise<unknown>
 }
 
 export function useWorkspaceFileTreeController({
@@ -23,12 +24,14 @@ export function useWorkspaceFileTreeController({
   hydrateCompactDirectoryChains,
   isDirectoryOpen,
   setDirectoryOpen,
+  refreshDirectory,
 }: UseWorkspaceFileTreeControllerOptions) {
   const treeRef = useRef<TreeApi<WorkspaceFileTreeNode> | undefined>(undefined)
   const treeViewportRef = useRef<HTMLDivElement | null>(null)
   const lastFocusedFilePathRef = useRef<string | null>(null)
   const manuallyClosedPathsRef = useRef(new Set<string>())
   const appliedManualClosuresRef = useRef(new Set<string>())
+  const reconciledOpenPathsRef = useRef(openDirectoryPaths)
 
   const treeHeight = Math.max(rowHeight, visibleTreeRowCount * rowHeight)
 
@@ -73,7 +76,10 @@ export function useWorkspaceFileTreeController({
   const setTreePathOpen = useCallback((path: string, open: boolean) => {
     const node = treeRef.current?.get(path)?.data
     setTreePathsOpen(node?.compactedPaths ?? [path], open)
-  }, [setTreePathsOpen])
+    // Only explicit pointer/keyboard intent revalidates; layout restoration
+    // must not turn a background response into another read or expansion.
+    void refreshDirectory(path)
+  }, [refreshDirectory, setTreePathsOpen])
 
   const toggleTreePathOpen = useCallback((path: string) => {
     const nextOpen = !isDirectoryOpen(path)
@@ -94,8 +100,13 @@ export function useWorkspaceFileTreeController({
   }, [openDirectoryPaths])
 
   useEffect(() => {
+    // Arborist retains expansion by ID even after a node leaves the data.
+    // Reconcile removals as well as additions so a recreated path starts fresh.
+    reconciledOpenPathsRef.current.forEach(path => {
+      if (!openDirectoryPaths.has(path)) treeRef.current?.close(path, false)
+    })
+    reconciledOpenPathsRef.current = openDirectoryPaths
     const pathsToOpen = Array.from(openDirectoryPaths)
-    if (pathsToOpen.length === 0) return undefined
     const reconcileTreeOpenState = () => {
       if (openTreePaths(pathsToOpen)) {
         treeRef.current?.redrawList()

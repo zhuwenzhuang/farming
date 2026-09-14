@@ -3,8 +3,10 @@ import { getBackendConnectionSnapshot } from '@/lib/backend-live-status'
 import {
   fetchWorkspaceTree,
   fetchWorkspaceTreeDecorations,
+  WorkspaceFileApiError,
   type WorkspaceFileEntry,
 } from '@/lib/workspace-files'
+import { isDescendantPath, parentDirectory } from '@/lib/workspace-file-tree'
 import { WorkspaceFileDecorationStore } from '@/lib/workspace-file-decorations'
 
 interface DirectoryState {
@@ -115,7 +117,7 @@ export function useWorkspaceFiles(agentId: string | null, workspaceKey = agentId
         ...previous,
         [normalizedPath]: {
           items: previous[normalizedPath]?.items ?? [],
-          loading: true,
+          loading: !previous[normalizedPath],
           error: null,
         },
       }
@@ -132,9 +134,26 @@ export function useWorkspaceFiles(agentId: string | null, workspaceKey = agentId
       }, WORKSPACE_FILE_REQUEST_TIMEOUT_MS)
       try {
         const tree = await fetchWorkspaceTree(agentId, normalizedPath, { signal: abortController.signal })
-        if (generationRef.current !== generation) return null
+        if (generationRef.current !== generation || abortController.signal.aborted) return null
         const previousItems = directoriesRef.current[normalizedPath]?.items ?? []
         const items = reconcileWorkspaceFileEntries(previousItems, tree.items)
+        const directoryPaths = new Set(items.filter(item => item.type === 'directory').map(item => item.path))
+        const removedPaths = previousItems.filter(item => item.type === 'directory' && !directoryPaths.has(item.path)).map(item => item.path)
+        const removed = (candidate: string) => removedPaths.some(path => isDescendantPath(path, candidate))
+        // A removed branch must not survive in the cache or be resurrected by
+        // a read that started before its parent was refreshed.
+        for (const [path, load] of inFlightDirectoryLoadsRef.current) {
+          if (removed(path)) {
+            load.controller.abort()
+            inFlightDirectoryLoadsRef.current.delete(path)
+          }
+        }
+        for (const [path, load] of inFlightDecorationLoadsRef.current) {
+          if (removed(path)) {
+            load.controller.abort()
+            inFlightDecorationLoadsRef.current.delete(path)
+          }
+        }
         setDirectories(previous => {
           const current = previous[normalizedPath]
           const nextDirectory = { items, loading: false, error: null }
@@ -144,6 +163,7 @@ export function useWorkspaceFiles(agentId: string | null, workspaceKey = agentId
             && current.error === nextDirectory.error
           ) return previous
           const next = { ...previous, [normalizedPath]: nextDirectory }
+          Object.keys(next).forEach(path => { if (removed(path)) delete next[path] })
           directoriesRef.current = next
           return next
         })
@@ -157,6 +177,13 @@ export function useWorkspaceFiles(agentId: string | null, workspaceKey = agentId
         return { path: tree.path, items }
       } catch (error) {
         if (generationRef.current !== generation) return null
+        if (abortController.signal.aborted && !timedOut) return null
+        if (normalizedPath && error instanceof WorkspaceFileApiError && error.status === 404) {
+          // Reconcile against the parent listing; a failed read alone must not
+          // remove entries (for example, a broken symbolic link still exists).
+          await loadDirectory(parentDirectory(normalizedPath))
+          if (generationRef.current !== generation || abortController.signal.aborted) return null
+        }
         const recovering = !getBackendConnectionSnapshot().connected
         if (recovering) reconnectDirectoryLoadsRef.current.add(normalizedPath)
         setDirectories(previous => {
@@ -189,6 +216,8 @@ export function useWorkspaceFiles(agentId: string | null, workspaceKey = agentId
 
   const ensureDirectoryLoaded = useCallback((directoryPath: string) => {
     const normalizedPath = normalizeDirectoryPath(directoryPath)
+    const pending = inFlightDirectoryLoadsRef.current.get(normalizedPath)
+    if (pending) return pending.promise
     const directory = directoriesRef.current[normalizedPath]
     if (!directory || directory.loading || directory.error) {
       return loadDirectory(normalizedPath)

@@ -59,6 +59,12 @@ must not overlap the Composer; a Browser already open in the adjacent Viewer is
 not repeated as an activity preview. The pane divider supports pointer and
 keyboard resizing, and a workspace resize clamps the pane before the adjacent
 Viewer falls below its supported minimum width.
+Before manual resizing, the pane follows 40% of the available main workspace
+width, targeting 480–600 CSS pixels while leaving at least half the workspace
+for the Viewer, subject to the existing pane and Viewer minimum widths.
+Browser and sidebar resizing recompute that default. Pointer or keyboard resizing
+sets a preferred width for the current workspace view; later container resizing
+clamps its displayed width and restores the preference when space returns.
 
 Live Agent activity such as the current Plan and Browser previews shares one
 core-owned right-side dock. Every activity keeps a compact identifiable header,

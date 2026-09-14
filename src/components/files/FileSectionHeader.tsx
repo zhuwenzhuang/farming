@@ -17,6 +17,7 @@ interface FileSectionHeaderProps {
   copy: CodeCopy
   filesCollapsed: boolean
   refreshStatus: FileSectionRefreshStatus
+  refreshError?: string
   search: FileSectionHeaderSearch
   onCancelPendingFileFocus: () => void
   onFileSearchKeyDown: (event: ReactKeyboardEvent<HTMLInputElement>) => void
@@ -29,6 +30,7 @@ export function FileSectionHeader({
   copy,
   filesCollapsed,
   refreshStatus,
+  refreshError,
   search,
   onCancelPendingFileFocus,
   onFileSearchKeyDown,
@@ -110,7 +112,7 @@ export function FileSectionHeader({
           className="code-files-refresh"
           data-testid="code-files-refresh"
           data-refresh-status={refreshStatus}
-          title={refreshLabel}
+          title={refreshError ? `${refreshLabel}\n${refreshError}` : refreshLabel}
           aria-label={refreshLabel}
           aria-busy={refreshStatus === 'refreshing'}
           disabled={refreshStatus === 'refreshing'}
@@ -126,7 +128,7 @@ export function FileSectionHeader({
         </button>
       </span>
       <span className="code-visually-hidden" role="status" aria-live="polite">
-        {refreshStatus === 'idle' ? '' : refreshLabel}
+        {refreshStatus === 'idle' ? '' : refreshError ? `${refreshLabel}: ${refreshError}` : refreshLabel}
       </span>
     </div>
   )
