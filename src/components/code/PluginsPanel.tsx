@@ -599,9 +599,9 @@ function normalizeAgentExtensionGroups(rawGroups: AgentExtensionGroup[]): AgentE
       order: Number.isFinite(Number(home.order)) ? Number(home.order) : fallbackOrder++,
       acpRuntime: { mode: 'managed', executable: '' },
       newAgentDefaults: {
-        model: 'inherit',
-        reasoning: 'inherit',
-        fast: 'inherit',
+        model: home.newAgentDefaults?.model || 'inherit',
+        reasoning: home.newAgentDefaults?.reasoning || 'inherit',
+        fast: home.newAgentDefaults?.fast || 'inherit',
       } satisfies NewAgentDefaults,
       configuration: {
         exists: home.configuration?.exists === true,
@@ -640,7 +640,7 @@ function settingsHomes(groups: AgentExtensionGroup[]) {
       path: home.path,
       order: home.order,
       acpRuntime: { mode: 'managed', executable: '' },
-      newAgentDefaults: { model: 'inherit', reasoning: 'inherit', fast: 'inherit' },
+      newAgentDefaults: { ...home.newAgentDefaults },
     })),
   ]))
 }

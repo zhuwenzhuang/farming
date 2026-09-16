@@ -139,6 +139,18 @@ History 解析；该规则对所有 Provider 一致生效，直到 Adapter 特�
 - 用户修改得到确认后，Farming 只持久化这项显式 Override，并在加载 Provider Session 后
   重新应用。
 
+Composer 的模型、推理强度和 Fast 选择还会更新当前 Farming Config 实例中所选 Agent Home
+的新 Agent 默认值。后端负责这一转换：配置切换确认成功，或运行中排队的变更已持久化接受后，
+只保存用户修改的字段（包括关闭 Fast）。模型切换确认后也保存实际生效的推理强度。失败或结果
+不确定的切换不更新默认值。保存时要求 Provider、Home ID 和 Home 路径仍然一致，已移除或
+重新绑定的 Home 会被拒绝。配置写入合并最新 Home 状态，每个字段以最后接受的写入为准。
+保存失败时明确提示 Session 已接受选择但默认值未保存，不重放 Session 修改。
+
+新 Agent 通过 Provider 发布的配置控件继承这些默认值，并把生效的选择保存为自己的 Session
+配置。已有 Session、重连、Resume 和 Fork
+保留自己的配置，恢复过程不写入 Home 默认值。Provider 原生配置文件保持不变。保存或排序
+Agent Homes 时保留它们的新 Agent 默认值。
+
 Override 只能按稳定 Option Identity 匹配，不能按展示 Label 猜测。模型未出现在发布的目录中
 不能证明模型已下架：Provider 可能在刷新失败后返回了回退目录。Farming 保留已保存的模型，
 并显示恢复警告。在恢复成功或用户显式选择其他模型之前，Prompt 和 Steer 必须在提交给

@@ -470,12 +470,29 @@ function run() {
     assert.deepStrictEqual(manager.getAgentLaunchProfileForHome('codex', 'work'), {
       approvalMode: 'approve',
       homeId: 'default',
-      model: 'config',
-      reasoningEffort: 'config',
+      model: 'gpt-5.6-sol',
+      reasoningEffort: 'high',
       runtimeMode: 'terminal',
-      serviceTier: 'config',
+      serviceTier: 'priority',
       modelPreset: 'config',
     });
+    const workHomePath = manager.getAgentHome('codex', 'work').path;
+    manager.updateAgentHomeDefaults('codex', 'work', workHomePath, { fast: 'off' });
+    assert.strictEqual(manager.getAgentLaunchProfileForHome('codex', 'work').serviceTier, 'default');
+    assert.strictEqual(manager.getAgentLaunchProfileForHome('codex', 'work').model, 'gpt-5.6-sol');
+    assert.strictEqual(manager.getAgentLaunchProfileForHome('codex', 'default').model, 'config');
+    const reloadedDefaults = new ConfigManager();
+    reloadedDefaults.init();
+    assert.strictEqual(reloadedDefaults.getAgentLaunchProfileForHome('codex', 'work').serviceTier, 'default');
+    assert.throws(() => manager.updateAgentHomeDefaults('codex', 'work', projectA, { fast: 'on' }), /original path/);
+    const writeSettings = manager.writeSettingsFile;
+    manager.writeSettingsFile = () => { throw new Error('disk unavailable'); };
+    try {
+      assert.throws(() => manager.updateAgentHomeDefaults('codex', 'work', workHomePath, { fast: 'on' }), /disk unavailable/);
+      assert.strictEqual(manager.getAgentHome('codex', 'work').newAgentDefaults.fast, 'off');
+    } finally {
+      manager.writeSettingsFile = writeSettings;
+    }
     assert.strictEqual(manager.getSettings().agentHomes.codex[1].order, 1);
     assert.deepStrictEqual(manager.getAgentHome('codex', 'work').acpRuntime, {
       mode: 'managed',

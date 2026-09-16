@@ -15,7 +15,8 @@ import {
 import { FarmingSessionStore, MAX_MAIN_PAGE_SESSION_KEYS } from './farming-session-store.cjs';
 import { RunHistoryStore } from './run-history-store.cjs';
 import { getUserLaunchAgents, isSupportedHistoryAgent } from './cli-agents.cjs';
-import { listProviderDescriptors } from './provider-adapters.cjs';
+import type { AgentHomeDefaults } from './agent-home-defaults.cjs';
+import { getProviderAdapter, listProviderDescriptors } from './provider-adapters.cjs';
 import * as storageLayout from './storage-layout.cjs';
 import { COMPUTER_IMAGE } from '../extensions/computer/backend/computer-constants.cjs';
 import type {
@@ -40,11 +41,7 @@ export interface AgentHome {
     mode: 'managed' | 'custom';
     executable: string;
   };
-  newAgentDefaults: {
-    model: string;
-    reasoning: string;
-    fast: 'inherit' | 'on' | 'off';
-  };
+  newAgentDefaults: AgentHomeDefaults;
   order: number;
   path: string;
 }
@@ -1343,14 +1340,34 @@ class ConfigManager {
     return profile ? { ...profile } : {};
   }
 
+  updateAgentHomeDefaults(provider: string, homeId: string, homePath: string, patch: Partial<AgentHomeDefaults>): void {
+    if (Object.keys(patch).length === 0) return;
+    const home = this.getAgentHome(provider, homeId);
+    if (!home || this.canonicalAgentHomePath(home.path) !== this.canonicalAgentHomePath(homePath)) {
+      throw new Error('The Agent Home is no longer configured at its original path.');
+    }
+    const newAgentDefaults = { ...home.newAgentDefaults, ...patch };
+    if (JSON.stringify(newAgentDefaults) === JSON.stringify(home.newAgentDefaults)) return;
+    this.updateSettings({ agentHomes: {
+      ...this.settings.agentHomes,
+      [provider]: this.settings.agentHomes[provider].map(candidate => candidate.id === homeId
+        ? { ...candidate, newAgentDefaults } : candidate),
+    } });
+  }
+
   getAgentLaunchProfileForHome(agentName: unknown, homeId: unknown = 'default'): JsonRecord {
     const provider = String(agentName || '').trim().toLowerCase();
     const profile = this.getAgentLaunchProfile(provider);
     const home = this.getAgentHome(provider, homeId);
     if (!home) return profile;
+    const defaults = home.newAgentDefaults;
+    const reasoningKey = getProviderAdapter(provider)?.acp.config?.reasoningProfileKey || 'reasoningEffort';
     return {
       ...profile,
       ...(AGENT_HOME_LAUNCH_PROFILE_OVERRIDES[provider] || {}),
+      ...(defaults.model !== 'inherit' ? { model: defaults.model } : {}),
+      ...(defaults.reasoning !== 'inherit' ? { [reasoningKey]: defaults.reasoning } : {}),
+      ...(defaults.fast !== 'inherit' ? { serviceTier: defaults.fast === 'on' ? 'priority' : 'default' } : {}),
     };
   }
 

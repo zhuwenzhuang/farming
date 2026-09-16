@@ -1,4 +1,5 @@
 import { EventEmitter } from 'events';
+import { acpHomeDefaultsPatch, type AgentHomeDefaults } from './agent-home-defaults.cjs';
 import type {
   AcpConfigChange,
   AcpConfigOverridesEvent,
@@ -567,6 +568,7 @@ interface KillAgentAdmission {
 }
 
 interface AgentManagerConfigContract extends AgentManagerConfig {
+  updateAgentHomeDefaults?(provider: string, homeId: string, homePath: string, patch: Partial<AgentHomeDefaults>): void;
   appendTaskHistory?(entry: UnknownRecord): void;
   getAgentHome(provider: string, homeId?: string): AgentHome | null;
   getAgentSessionRecordForProviderSessionKey(sessionKey: string): PersistedAgentPrivateMetadata | null;
@@ -6688,6 +6690,11 @@ class AgentManager extends EventEmitter {
       });
     }
     this.emitStateChange({ agentIds: [agentId] });
+    this.rememberAgentHomeDefaults(agent, {
+      model: applied.model,
+      reasoning: applied.effort,
+      fast: applied.serviceTier === 'priority' ? 'on' : 'off',
+    });
     return applied;
   }
 
@@ -7232,18 +7239,41 @@ class AgentManager extends EventEmitter {
     return this.acpRuntime.setSessionMode(agentId, modeId);
   }
 
+  rememberAgentHomeDefaults(agent: AgentRecord, patch: Partial<AgentHomeDefaults>): void {
+    try {
+      this.configManager?.updateAgentHomeDefaults?.(
+        String(agent.providerSessionProvider || ''),
+        agent.providerHomeId || 'default',
+        agent.providerHomePath || '',
+        patch,
+      );
+    } catch (error) {
+      throw new Error(`Session selection was accepted, but its Agent Home defaults could not be saved: ${
+        error instanceof Error ? error.message : String(error)
+      }`, { cause: error });
+    }
+  }
+
   async setAcpSessionConfigOption(agentId: AgentId, configId: string, value: AcpConfigValue) {
     this.assertAgentOperationAdmission();
     this.getAcpSession(agentId);
     await this.reconnectAcpAgent(agentId);
-    return this.acpRuntime.setSessionConfigOption(agentId, configId, value);
+    const agent = this.agents.get(agentId);
+    if (!agent) throw new Error('Agent not found');
+    const response = await this.acpRuntime.setSessionConfigOption(agentId, configId, value);
+    this.rememberAgentHomeDefaults(agent, acpHomeDefaultsPatch(response, [{ configId, value }]));
+    return response;
   }
 
   async setAcpSessionConfigOptions(agentId: AgentId, changes: AcpConfigChange[]) {
     this.assertAgentOperationAdmission();
     this.getAcpSession(agentId);
     await this.reconnectAcpAgent(agentId);
-    return this.acpRuntime.setSessionConfigOptions(agentId, changes);
+    const agent = this.agents.get(agentId);
+    if (!agent) throw new Error('Agent not found');
+    const response = await this.acpRuntime.setSessionConfigOptions(agentId, changes);
+    this.rememberAgentHomeDefaults(agent, acpHomeDefaultsPatch(response, changes));
+    return response;
   }
 
   /**

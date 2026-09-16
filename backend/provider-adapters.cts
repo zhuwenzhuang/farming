@@ -29,7 +29,6 @@ interface ProviderSessionPolicy {
   permissionDisplayName?: string;
   permissionOption?: 'claudePermissionMode' | 'codexApprovalMode';
   permissionRestartModes?: readonly string[];
-  preserveProfileOnResume?: boolean;
   preserveRequiredCliVersion?: boolean;
   resumeLaunchProfileOverrides?: Readonly<Record<string, string>>;
   suppressPermissionOptionWhenDangerousSkip?: boolean;
@@ -659,7 +658,6 @@ const PROVIDER_ADAPTERS = Object.freeze<ProviderAdapter[]>([
       permissionDisplayName: 'Codex',
       permissionOption: 'codexApprovalMode',
       permissionRestartModes: ['ask', 'approve', 'full', 'custom'],
-      preserveProfileOnResume: true,
       preserveRequiredCliVersion: true,
       resumeLaunchProfileOverrides: {
         model: 'config',
@@ -1176,14 +1174,15 @@ function providerSessionResumeOptions(
     requiredCliVersion?: string;
   } = {},
 ): Record<string, string | boolean> {
-  const policy = getProviderAdapter(provider)?.sessionPolicy;
-  if (!policy) return {};
+  const adapter = getProviderAdapter(provider);
+  const policy = adapter?.sessionPolicy;
   const result: Record<string, string | boolean> = {};
-  const permissionMode = String(options.permissionMode || '').trim();
-  if (permissionMode && policy.permissionOption) result[policy.permissionOption] = permissionMode;
-  if (options.preserveProfile === true && policy.preserveProfileOnResume === true) {
+  if (adapter && options.preserveProfile === true) {
     result.preserveProviderSessionProfile = true;
   }
+  if (!policy) return result;
+  const permissionMode = String(options.permissionMode || '').trim();
+  if (permissionMode && policy.permissionOption) result[policy.permissionOption] = permissionMode;
   const requiredCliVersion = String(options.requiredCliVersion || '').trim();
   if (requiredCliVersion && policy.preserveRequiredCliVersion === true) {
     result.requiredCliVersion = requiredCliVersion;
@@ -1196,10 +1195,16 @@ function providerSessionLaunchProfile(
   profile: Record<string, unknown>,
   preserveProviderSessionProfile: boolean,
 ): Record<string, unknown> {
-  const overrides = preserveProviderSessionProfile
-    ? getProviderAdapter(provider)?.sessionPolicy?.resumeLaunchProfileOverrides
-    : null;
-  return overrides ? { ...profile, ...overrides } : { ...profile };
+  if (!preserveProviderSessionProfile) return { ...profile };
+  const adapter = getProviderAdapter(provider);
+  const reasoningKey = adapter?.acp.config?.reasoningProfileKey || 'reasoningEffort';
+  return {
+    ...profile,
+    model: 'config',
+    [reasoningKey]: 'config',
+    serviceTier: 'config',
+    ...adapter?.sessionPolicy?.resumeLaunchProfileOverrides,
+  };
 }
 
 function providerSessionIdentityScope(

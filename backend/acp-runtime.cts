@@ -2122,7 +2122,8 @@ class AcpRuntime extends EventEmitter {
       initializedSessionState.currentModeId = String(binding.modes?.currentModeId || '');
       initializedSessionState.configOptions = JSON.parse(JSON.stringify(binding.configOptions));
       const configPolicy = providerAcpConfigPolicy(provider);
-      if (configPolicy?.launchModelAndReasoning) {
+      const launchConfigIds = new Set<string>();
+      if (configPolicy?.launchModelAndReasoning || options.model || options.reasoningEffort) {
         const changes: SessionConfigChange[] = [];
         if (options.model && options.model !== 'config') {
           const modelOption = binding.configOptions.find(option => (
@@ -2150,7 +2151,10 @@ class AcpRuntime extends EventEmitter {
           }
           changes.push({ configId: reasoningOption.id, value: options.reasoningEffort });
         }
-        if (changes.length > 0) await this.applySessionConfigOptionsNow(binding, changes);
+        if (changes.length > 0) {
+          await this.applySessionConfigOptionsNow(binding, changes);
+          for (const change of changes) launchConfigIds.add(change.configId);
+        }
       }
       if (configPolicy?.approvalModes) {
         const modeId = configPolicy.approvalModes[binding.approvalMode];
@@ -2165,17 +2169,27 @@ class AcpRuntime extends EventEmitter {
           await this.setSessionModeNow(binding, modeId);
         }
       }
-      if (configPolicy?.serviceTier && options.serviceTier && options.serviceTier !== 'config') {
+      if (options.serviceTier && options.serviceTier !== 'config') {
         const fastOption = binding.configOptions.find(option => (
           option.type === 'boolean'
-          && /fast/i.test(`${option.id || ''} ${option.name || ''} ${option.category || ''}`)
+          && /(fast|speed)/i.test(`${option.id || ''} ${option.name || ''} ${option.category || ''}`)
         ));
-        const fastEnabled = configPolicy.serviceTier.enabledValues.includes(options.serviceTier);
+        const fastEnabled = (configPolicy?.serviceTier?.enabledValues || ['priority', 'fast']).includes(options.serviceTier);
         if (fastOption && fastOption.currentValue !== fastEnabled) {
           await this.applySessionConfigOption(binding, fastOption.id, fastEnabled, { emit: false });
         }
+        if (fastOption) launchConfigIds.add(fastOption.id);
       }
       if (configOverrides.length > 0) await this.restoreSessionConfigOverrides(binding, configOverrides);
+      if (historyMode === 'new' && launchConfigIds.size > 0) {
+        // Freeze inherited launch choices for this Session so process recovery
+        // does not depend on later Home defaults or provider persistence.
+        this.rememberSessionConfigOverrides(binding, binding.configOptions
+          .filter(option => launchConfigIds.has(option.id)
+            && !configOverrides.some(override => override.configId === option.id))
+          .flatMap(option => option.currentValue === undefined
+            ? [] : [{ configId: option.id, value: option.currentValue }]));
+      }
       this.requireOpenBinding(binding);
       binding.state = 'idle';
       const modelRecoveryError = this.savedSessionModelError(binding);

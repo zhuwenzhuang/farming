@@ -194,6 +194,23 @@ Configuration has two authorities:
 - after a user change is confirmed, Farming persists only that explicit
   override and reapplies it after the Provider Session is loaded.
 
+Composer model, reasoning, and Fast choices also update the selected Agent Home's
+new-Agent defaults in the current Farming Config instance. The backend owns this
+transition: a confirmed configuration mutation, or a durably accepted change
+queued during a turn, saves only the requested fields (including Fast off). A
+confirmed model change also saves its effective reasoning level. Failed or
+uncertain mutations do not update defaults. Saving requires the same Provider,
+Home ID, and Home path; a removed or rebound Home is rejected. Configuration
+writes merge against the latest Home state; the last accepted write for each
+field wins. A save failure reports that the Session accepted the choice but its
+defaults were not saved, without replaying the Session mutation.
+
+Fresh Agents inherit these defaults through the Provider's advertised controls
+and checkpoint the effective choices as their own Session configuration.
+Existing Sessions, reconnect, resume, and fork retain their own configuration;
+restoration never writes Home defaults. Native Provider configuration remains
+unchanged. Saving or reordering Agent Homes preserves their new-Agent defaults.
+
 Overrides are matched by stable option identity, never by display labels. A
 model missing from the advertised catalog is not proof of removal: the Provider
 may have returned a fallback catalog after a failed refresh. Farming preserves

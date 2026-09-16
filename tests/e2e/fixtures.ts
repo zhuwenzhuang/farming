@@ -353,10 +353,12 @@ async function clearMainPageSessionKeys(page: Page) {
 async function resetSettings(page: Page) {
   try {
     const currentSettingsResponse = await page.request.get('/farming/api/settings')
+    let agentHomes: Record<string, Array<Record<string, unknown>>> | undefined
     if (currentSettingsResponse.ok()) {
       const currentSettingsData = await currentSettingsResponse.json() as {
-        settings?: { projectWorkspaces?: string[] }
+        settings?: { projectWorkspaces?: string[]; agentHomes?: Record<string, Array<Record<string, unknown>>> }
       }
+      agentHomes = currentSettingsData.settings?.agentHomes
       for (const workspace of currentSettingsData.settings?.projectWorkspaces ?? []) {
         await page.request.post('/farming/api/projects/remove', {
           data: { workspace },
@@ -365,6 +367,10 @@ async function resetSettings(page: Page) {
     }
     await page.request.post('/farming/api/settings', {
       data: {
+        ...(agentHomes ? { agentHomes: Object.fromEntries(Object.entries(agentHomes).map(([provider, homes]) => [
+          provider,
+          homes.map(home => ({ ...home, newAgentDefaults: { model: 'inherit', reasoning: 'inherit', fast: 'inherit' } })),
+        ])) } : {}),
         lastMainWorkspace: '~/.farming',
         workspaceHistory: [],
         defaultLaunchAgent: 'codex',

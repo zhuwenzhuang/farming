@@ -754,7 +754,13 @@ async function run() {
     ...TEST_PROCESS_IDENTITY,
     resolveLaunch: () => ({ command: process.execPath, args: ['--import', require.resolve('tsx'), fixture], version: 'test' }),
   });
-  const providerManager = new AgentManager(config({ farmingDir: providerFarmingDir }), {
+  const savedHomeDefaults = [];
+  const providerManager = new AgentManager(config({
+    farmingDir: providerFarmingDir,
+    updateAgentHomeDefaults: (provider, homeId, homePath, patch) => {
+      savedHomeDefaults.push({ provider, homeId, homePath, patch });
+    },
+  }), {
     acpRuntime: providerRuntime,
     skipExecutablePreflight: true,
     agentShellEnvProvider: () => ({
@@ -834,6 +840,19 @@ async function run() {
         true,
         `${provider} ACP Fast should update through the shared runtime path`,
       );
+      assert.deepStrictEqual(savedHomeDefaults.at(-1), {
+        provider,
+        homeId: providerAgent.providerHomeId,
+        homePath: providerAgent.providerHomePath,
+        patch: { fast: 'on' },
+      });
+      await providerManager.setAcpSessionConfigOptions(providerAgentId, [{ configId: 'fast-mode', value: false }]);
+      assert.deepStrictEqual(savedHomeDefaults.at(-1).patch, { fast: 'off' });
+      const saveCount = savedHomeDefaults.length;
+      await assert.rejects(
+        providerManager.setAcpSessionConfigOption(providerAgentId, 'fast-mode', 'invalid'),
+      );
+      assert.strictEqual(savedHomeDefaults.length, saveCount, 'failed selections cannot change defaults');
       const attentionSeqBeforePrompt = providerAgent.attentionSeq || 0;
       const promptResult = await providerManager.sendComposerMessage(
         providerAgentId,

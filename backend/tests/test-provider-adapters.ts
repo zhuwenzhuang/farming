@@ -190,7 +190,7 @@ function run() {
       preserveProfile: true,
       requiredCliVersion: 'ignored',
     }),
-    { claudePermissionMode: 'plan' },
+    { claudePermissionMode: 'plan', preserveProviderSessionProfile: true },
   );
   assert.deepStrictEqual(providerSessionResumeOptions('opencode', { permissionMode: 'full' }), {});
   assert.deepStrictEqual(
@@ -203,12 +203,20 @@ function run() {
   );
   assert.deepStrictEqual(
     providerSessionLaunchProfile('claude', { model: 'opus', effort: 'high' }, true),
-    { model: 'config', effort: 'config' },
+    { model: 'config', effort: 'config', serviceTier: 'config' },
   );
   assert.deepStrictEqual(
     providerSessionLaunchProfile('claude', { model: 'opus', effort: 'high' }, false),
     { model: 'opus', effort: 'high' },
   );
+  for (const provider of ['opencode', 'qoder', 'qwen', 'pi']) {
+    assert.strictEqual(providerSessionResumeOptions(provider, { preserveProfile: true }).preserveProviderSessionProfile, true);
+    assert.deepStrictEqual(
+      providerSessionLaunchProfile(provider, { model: 'saved', reasoningEffort: 'high', serviceTier: 'priority' }, true),
+      { model: 'config', reasoningEffort: 'config', serviceTier: 'config' },
+      `${provider} resumes must not adopt new-Agent defaults`,
+    );
+  }
   assert.strictEqual(providerLaunchPermissionMode('codex', { approvalMode: 'full' }), 'full');
   assert.strictEqual(providerLaunchPermissionMode('claude', { permissionMode: 'plan' }), 'plan');
   assert.strictEqual(providerLaunchPermissionMode('opencode', { permissionMode: 'full' }), '');

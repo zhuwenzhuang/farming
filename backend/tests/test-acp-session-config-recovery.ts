@@ -463,6 +463,49 @@ async function run() {
     await rejectedManager.dispose();
   }
 
+  const inheritedConfig = persistentConfig();
+  inheritedConfig.getAgentLaunchProfileForHome = () => ({
+    approvalMode: 'approve', modelPreset: 'config',
+    model: 'gpt-5.6-luna', reasoningEffort: 'high', serviceTier: 'priority',
+  });
+  const inheritedManager = new AgentManager(inheritedConfig, {
+    acpRuntime: runtime(), agentShellEnvProvider: shellEnv(false), skipExecutablePreflight: true,
+  });
+  let inheritedRecord;
+  try {
+    const agentId = await new Promise((resolve, reject) => {
+      inheritedManager.startAgent('codex', process.cwd(), (id, error) => {
+        if (error) reject(new Error(String(error)));
+        else resolve(id);
+      }, { agentRuntimeMode: 'chat', wantsMain: false });
+    });
+    const agent = inheritedManager.agents.get(agentId);
+    inheritedRecord = coldRecord(inheritedConfig.records.get(agent.providerSessionKey), 'agent-inherited-defaults');
+    assert.deepStrictEqual(inheritedRecord.acpConfigOverrides, [
+      { configId: 'model', value: 'gpt-5.6-luna' },
+      { configId: 'reasoning', value: 'high' },
+      { configId: 'fast-mode', value: true },
+    ]);
+  } finally {
+    await inheritedManager.dispose();
+  }
+  const changedHomeConfig = persistentConfig([inheritedRecord]);
+  changedHomeConfig.getAgentLaunchProfileForHome = () => ({
+    approvalMode: 'approve', modelPreset: 'config',
+    model: 'gpt-5.5', reasoningEffort: 'ultra', serviceTier: 'default',
+  });
+  const inheritedRecovery = new AgentManager(changedHomeConfig, {
+    acpRuntime: runtime(), agentShellEnvProvider: shellEnv(false), skipExecutablePreflight: true,
+  });
+  try {
+    await inheritedRecovery.recoverAcpSessions();
+    assert.strictEqual(configValue(inheritedRecovery, 'agent-inherited-defaults', 'model'), 'gpt-5.6-luna');
+    assert.strictEqual(configValue(inheritedRecovery, 'agent-inherited-defaults', 'reasoning'), 'high');
+    assert.strictEqual(fastValue(inheritedRecovery, 'agent-inherited-defaults'), true);
+  } finally {
+    await inheritedRecovery.dispose();
+  }
+
   console.log('ACP Session config recovery tests passed');
 }
 
