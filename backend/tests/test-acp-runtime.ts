@@ -62,8 +62,8 @@ async function run() {
   assert.strictEqual(classifyLinuxProcessGroupStats([
     '600 (unrelated) S 1 600 0',
   ], 574), 'missing');
-  assert.strictEqual(resolveAcpLaunch('codex').version, '1.11.0');
-  assert.strictEqual(resolveAcpLaunch('claude').version, '0.76.0');
+  assert.strictEqual(resolveAcpLaunch('codex').version, '1.12.0');
+  assert.strictEqual(resolveAcpLaunch('claude').version, '0.78.0');
   assert.strictEqual(resolveAcpLaunch('pi', piLaunchOptions).version, '0.0.33');
   assert.strictEqual(resolveAcpLaunch('qwen').version, 'native');
   const codexAcpSource = fs.readFileSync(

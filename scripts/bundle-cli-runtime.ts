@@ -17,8 +17,8 @@ const packagedPiBridge = path.join(projectRoot, 'backend', 'acp', 'packaged-pi-a
 const packagedCodexRuntimeBridge = path.join(projectRoot, 'backend', 'acp', 'packaged-codex-acp.cjs');
 const packagedClaudeRuntimeBridge = path.join(projectRoot, 'backend', 'acp', 'packaged-claude-acp.cjs');
 const packagedPiRuntimeBridge = path.join(projectRoot, 'backend', 'acp', 'packaged-pi-acp.cjs');
-const packagedCodexEntry = path.join(projectRoot, 'dist', 'acp', 'codex-acp-1.11.0.mjs');
-const packagedClaudeEntry = path.join(projectRoot, 'dist', 'acp', 'claude-agent-acp-0.76.0.mjs');
+const packagedCodexEntry = path.join(projectRoot, 'dist', 'acp', 'codex-acp-1.12.0.mjs');
+const packagedClaudeEntry = path.join(projectRoot, 'dist', 'acp', 'claude-agent-acp-0.78.0.mjs');
 const packagedPiEntry = path.join(projectRoot, 'dist', 'acp', 'pi-acp-0.0.33.mjs');
 
 const dynamicRequire = [
