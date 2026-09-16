@@ -87,6 +87,7 @@ interface CodexSession {
 }
 
 interface ListCodexSessionsOptions {
+  sessionId?: string;
   codexHome?: string;
   limit?: number;
   scanLimit?: number;
@@ -384,6 +385,7 @@ function collectRecentJsonlFiles(root: string, limit: number): RecentFileCandida
 async function collectRecentJsonlFilesAsync(
   root: string,
   limit: number,
+  sessionId?: string,
 ): Promise<RecentFileCandidate[]> {
   const candidateLimit = Math.max(limit, limit * RECENT_FILE_CANDIDATE_MULTIPLIER);
   const directories = [root];
@@ -396,7 +398,8 @@ async function collectRecentJsonlFilesAsync(
     let entries: fs.Dirent[] = [];
     try {
       entries = await fsp.readdir(directory, { withFileTypes: true });
-    } catch {
+    } catch (error) {
+      if (sessionId && (error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
       continue;
     }
     visitedDirectories += 1;
@@ -407,7 +410,8 @@ async function collectRecentJsonlFilesAsync(
       if (entry.isDirectory()) directories.push(path.join(directory, entry.name));
     }
 
-    const fileEntries = sortedEntries.filter(entry => entry.isFile() && entry.name.endsWith('.jsonl'));
+    const fileEntries = sortedEntries.filter(entry => entry.isFile() && entry.name.endsWith('.jsonl')
+      && (!sessionId || sessionIdFromFilePath(entry.name) === sessionId));
     for (let offset = 0; offset < fileEntries.length; offset += RECENT_FILE_STAT_CONCURRENCY) {
       const candidates = await Promise.all(
         fileEntries.slice(offset, offset + RECENT_FILE_STAT_CONCURRENCY).map(async entry => {
@@ -430,6 +434,7 @@ async function collectRecentJsonlFilesAsync(
     }
   }
 
+  if (sessionId && directories.length > 0) throw new Error('Codex history lookup exceeded its directory limit');
   return pruneRecentFileCandidates(files, limit);
 }
 
@@ -745,8 +750,8 @@ async function listCodexSessions(
     getGlobalState(codexHome),
     readCodexAutomationSchedules(codexHome),
     Promise.all([
-      collectRecentJsonlFilesAsync(path.join(codexHome, 'sessions'), scanLimit),
-      collectRecentJsonlFilesAsync(path.join(codexHome, 'archived_sessions'), scanLimit),
+      collectRecentJsonlFilesAsync(path.join(codexHome, 'sessions'), scanLimit, options.sessionId),
+      collectRecentJsonlFilesAsync(path.join(codexHome, 'archived_sessions'), scanLimit, options.sessionId),
     ]),
   ]);
   const sessionFiles = sessionFileGroups
@@ -796,6 +801,8 @@ async function listCodexSessions(
   }
 
   for (const [id, indexed] of index.entries()) {
+    // Index-only entries are discovery hints, not proof of resumable history.
+    if (options.sessionId) continue;
     if (sessions.has(id) || skippedTemporaryIds.has(id)) continue;
     const cwd = normalizePathValue(indexed.cwd || globalState.workspaceHints[id] || indexed.workspace || '');
     const workspace = resolveSessionWorkspace(id, cwd, indexed, globalState);

@@ -38,6 +38,20 @@ unverified structured runtime also blocks removal. Confirmed removal deletes
 the stale main-page membership and Farming Session metadata; run history stays
 as an audit record and is not resumable Provider history.
 
+Resume reads history in the requested Home and reuses that fresh observation
+within the serialized admission for the exact tuple. Codex exact lookup reads
+the matching rollout independently of the recent-history window; an index-only
+entry is a discovery hint, not proof that the conversation is available.
+
+An explicit Resume can cancel a blocked Archive only when its durable tombstone
+proves the old runtime stopped and fresh Provider history is available and
+unarchived. A retained runtime must also have verified exit, no ACP binding, and
+no lifecycle operation in flight. Recovery completes before admission, and
+Archive and Resume share the same identity-scoped mutation queue. Failed reads,
+unarchive, or persistence leave the operation blocked. Read-only status checks
+expose the original lifecycle error; an uncertain request is never replayed
+automatically.
+
 ## Encoded Forms
 
 Two durable strings carry the identity.

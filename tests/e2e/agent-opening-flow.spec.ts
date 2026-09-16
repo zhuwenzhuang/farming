@@ -128,7 +128,9 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
     })
     await page.route(/\/api\/agent-sessions\/codex\/[^/]+\/resume-status(?:\?.*)?$/, async route => {
       checks++
-      await route.fulfill({ json: checks === 1 ? { state: 'pending' } : checks === 2 ? { state: 'absent' } : { state: 'ready', agentId, projectWorkspaces: [f.root] } })
+      await route.fulfill({ json: checks === 1 ? { state: 'pending' } : checks === 2 ? { state: 'absent' }
+        : checks === 3 ? { state: 'blocked', error: 'The previous archive could not stop this Agent. Resolve it before resuming.' }
+          : { state: 'ready', agentId, projectWorkspaces: [f.root] } })
     })
     try {
       await page.emulateMedia({ colorScheme: appearance === 'dark' ? 'dark' : 'light', reducedMotion: 'reduce' })
@@ -145,10 +147,17 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
       await opening.getByRole('button', { name: 'Retry', exact: true }).click()
       await expect(opening.getByRole('button', { name: 'Check status' })).toBeVisible()
       await expect(opening.getByRole('button', { name: 'Retry', exact: true })).toHaveCount(0)
-      for (let i = 1; i <= 3; i++) {
+      for (let i = 1; i <= 4; i++) {
         await opening.getByRole('button', { name: 'Check status' }).click()
         await expect.poll(() => checks).toBe(i)
-        await expect(opening).toHaveAttribute('data-phase', i === 3 ? 'ready' : 'failed')
+        await expect(opening).toHaveAttribute('data-phase', i === 4 ? 'ready' : 'failed')
+        if (i === 3) {
+          await expect(opening.getByRole('alert')).toContainText('The previous archive could not stop this Agent')
+          await test.info().attach(`agent-opening-blocked-${appearance}`, {
+            body: await page.getByTestId('code-main').screenshot({ mask: [page.locator('.code-agent-opening-identity').first()] }),
+            contentType: 'image/png',
+          })
+        }
       }
       expect(posts).toBe(2)
       await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${agentId}"]`)).toBeVisible()

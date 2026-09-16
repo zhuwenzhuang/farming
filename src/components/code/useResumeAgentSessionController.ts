@@ -267,7 +267,9 @@ export class ResumeAgentSessionController {
           this.ports.applyProjectMembership(data)
           finish(this.finish(identityParts(identity), data.agentId, true))
         } else {
-          finish({ status: 'failed', uncertain: true, message: raw?.state === 'pending'
+          finish({ status: 'failed', uncertain: true, message: raw?.state === 'blocked' && typeof raw.error === 'string' && raw.error
+            ? raw.error
+            : raw?.state === 'pending'
             ? 'The backend is still resuming this session. Check again later.'
             : 'No completed resume could be confirmed. The outcome is still uncertain.' })
         }

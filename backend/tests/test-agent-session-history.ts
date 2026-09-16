@@ -651,6 +651,14 @@ async function run() {
     }],
   });
   assert.strictEqual(foundAltCodex.providerHomeId, 'zwz');
+  const invalidOtherHome = path.join(root, 'unrelated-home-is-not-a-directory');
+  fs.writeFileSync(invalidOtherHome, 'must not be scanned');
+  const exactHomeOptions = { limit: 1, providerLimit: 1, scanLimit: 1, providerHomeId: 'zwz',
+    providerHomes: { codex: [{ id: 'default', path: invalidOtherHome }, { id: 'zwz', path: codexAltHome }] } };
+  assert.strictEqual((await findAgentSession('codex', altCodexId, exactHomeOptions))?.id, altCodexId,
+    'exact lookup must not read another Home');
+  assert.strictEqual(await findAgentSession('codex', altCodexId, { ...exactHomeOptions, providerHomeId: 'unknown' }), null,
+    'an unknown Home must not fall back to default');
   assert.strictEqual(foundClaude.id, claudeId);
   assert.strictEqual(foundPi.id, piId);
   assert.strictEqual(foundOpenCode.id, openCodeId);

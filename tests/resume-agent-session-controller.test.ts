@@ -152,13 +152,13 @@ for (const operation of ['request', 'mount'] as const) {
   }
 }
 
-for (const state of ['pending', 'absent', 'ready', 'malformed'] as const) {
+for (const state of ['pending', 'absent', 'blocked', 'ready', 'malformed'] as const) {
   test(`fresh ${state} status reconciles without a second POST`, async () => {
     let posts = 0
     const subject = fixture({ request: async () => { posts++; throw new Error('lost reply') }, readStatus: async (url, init) => {
       assert.match(url, /resume-status\?providerHomeId=work$/)
       assert.equal(init.signal.aborted, false)
-      return response({ state, agentId: state === 'ready' ? 'recovered' : null, projectWorkspaces: ['/repo'] })
+      return response({ state, error: state === 'blocked' ? 'Previous archive could not stop its runtime' : undefined, agentId: state === 'ready' ? 'recovered' : null, projectWorkspaces: ['/repo'] })
     } })
     await subject.controller.resume(identity)
     const outcome = await subject.controller.reconcile(identity)
@@ -168,6 +168,7 @@ for (const state of ['pending', 'absent', 'ready', 'malformed'] as const) {
       assert.deepEqual(subject.events, ['project-membership', 'session:work:session-1'])
     } else {
       failed(outcome, true)
+      if (state === 'blocked') failed(outcome, true, /Previous archive could not stop its runtime/)
       failed(await subject.controller.resume(identity), true)
       assert.equal(posts, 1)
     }

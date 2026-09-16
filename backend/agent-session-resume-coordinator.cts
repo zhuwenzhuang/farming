@@ -13,6 +13,7 @@ import {
   resumedAgentSource,
 } from './main-page-session.cjs';
 import { providerConversationForkCapability, providerSessionResumeOptions } from './provider-adapters.cjs';
+import { activeLifecycleOperation } from './agent-lifecycle-journal.cjs';
 
 interface ResumeOptions {
   acpHistoryMode?: string;
@@ -68,7 +69,8 @@ interface ProviderSessionAvailabilityOptions extends Record<string, unknown> {
 
 type EnsureProviderSessionAvailable = (
   options: ProviderSessionAvailabilityOptions,
-) => Promise<{ error?: string } | null | undefined>;
+  session?: AgentSession | null,
+) => Promise<{ error?: string; session?: AgentSession | null } | null | undefined>;
 
 interface ResumeAgentClaim {
   archived?: boolean;
@@ -157,7 +159,7 @@ interface AgentSessionResumeCoordinatorPorts {
     provider: string,
     sessionId: string,
     options: ProviderSessionAvailabilityOptions,
-  ): Promise<{ error?: string } | null | undefined>;
+  ): Promise<{ error?: string; session?: AgentSession | null } | null | undefined>;
   findAgentSession(provider: string, sessionId: string, options: {
     limit: number;
     providerHomeId: string;
@@ -432,11 +434,15 @@ class AgentSessionResumeCoordinator {
         cwd: session?.cwd || session?.workspace || '',
       };
       const unarchiveResult = ensureAvailable
-        ? await ensureAvailable(availabilityOptions)
+        ? await ensureAvailable(availabilityOptions, session)
         : await this.ports.ensureProviderSessionAvailable(provider, sessionId, availabilityOptions);
       if (unarchiveResult?.error) return { error: unarchiveResult.error };
-      session = await this.#lookupSession(provider, sessionId, providerHomeId, providerHomes)
-        || (session ? { ...session, archived: false } : session);
+      if (unarchiveResult && 'session' in unarchiveResult) {
+        session = unarchiveResult.session || null;
+      } else if (session?.archived) {
+        session = await this.#lookupSession(provider, sessionId, providerHomeId, providerHomes);
+        if (!session) return { error: 'Agent session disappeared while restoring history', status: 409 };
+      }
     }
     if (session?.archived && !shouldFork) {
       this.ports.removeMainPageSession(provider, sessionId, providerHomeId);
@@ -770,6 +776,14 @@ class AgentSessionResumeCoordinator {
     // A fresh authoritative publication also repairs a missed state delivery.
     // This read never invokes a resume, mount, or membership mutation.
     this.ports.publishAgentState();
+    if (!claim?.id) {
+      const saved = this.ports.getSavedAgentSession(identity.provider, identity.sessionId, identity.providerHomeId);
+      const operation = activeLifecycleOperation({ lifecycleJournal: saved?.lifecycleJournal });
+      if (operation) return { status: 200, body: {
+        state: 'blocked',
+        error: operation.error || `The previous ${operation.type} operation has not completed.`,
+      } };
+    }
     return { status: 200, body: claim?.id
       ? { state: 'ready', agentId: claim.id, ...projectMembership(this.ports.getSettings()) }
       : { state: 'absent' } };

@@ -2691,7 +2691,7 @@ class AgentManager extends EventEmitter {
 
     for (const entry of recovered || []) {
       const engineMetadata = entry.metadata || {};
-      const state = entry.state || {};
+      const state: RecoveredSessionStateInput = entry.state || { status: 'running' };
       const agentId = recoveredEngineSessionId(entry, engineMetadata);
       const persisted = persistedByRuntimeAgentId.get(agentId);
       const desiredMetadata = persisted || engineMetadata;
@@ -9946,7 +9946,8 @@ class AgentManager extends EventEmitter {
     provider: string,
     sessionId: string,
     options: ProviderResumeOptions = {},
-  ): Promise<{ error: string } | null> {
+    knownSession?: Awaited<ReturnType<typeof findAgentSession>>,
+  ): Promise<{ error?: string; session?: Awaited<ReturnType<typeof findAgentSession>> } | null> {
     if (!providerSessionHistoryMutationSupported(provider, 'unarchive')) {
       return null;
     }
@@ -9955,7 +9956,7 @@ class AgentManager extends EventEmitter {
     const displayName = getProviderAdapter(provider)?.displayName || provider;
     let session: Awaited<ReturnType<typeof findAgentSession>>;
     try {
-      session = await findAgentSession(provider, sessionId, {
+      session = knownSession !== undefined ? knownSession : await findAgentSession(provider, sessionId, {
         limit: 1000,
         providerLimit: 1000,
         scanLimit: 5000,
@@ -9970,7 +9971,7 @@ class AgentManager extends EventEmitter {
         error: `Failed to inspect ${displayName} session before unarchiving: ${error && (error.message || error)}`,
       };
     }
-    if (!session || session.archived !== true) return null;
+    if (!session || session.archived !== true) return { session };
 
     const result = await runProviderSessionHistoryMutation(
       provider,
@@ -9983,14 +9984,23 @@ class AgentManager extends EventEmitter {
       },
       { unarchiveCodexSession: (...args) => this.unarchiveCodexSession(...args) },
     );
-    return result?.error ? { error: result.error } : null;
+    if (result?.error) return { error: result.error };
+    const verified = await findAgentSession(provider, sessionId, {
+      providerHomeId,
+      providerHomes: { [provider]: [{ id: providerHomeId, path: session.providerHomePath || providerHomePath }] },
+      limit: 1000,
+      providerLimit: 1000,
+      scanLimit: 5000,
+    });
+    if (!verified || verified.archived) return { error: 'Agent history could not be verified after unarchiving. Check its status before resuming.' };
+    return { session: verified };
   }
 
   ensureProviderSessionAvailable(
     provider: string,
     sessionId: string,
     options: ProviderResumeOptions = {},
-  ): Promise<{ error: string } | null> {
+  ): Promise<{ error?: string; session?: Awaited<ReturnType<typeof findAgentSession>> } | null> {
     const providerHomeId = String(options.providerHomeId || 'default').trim() || 'default';
     return this.providerSessionMutationCoordinator.run({
       provider,
@@ -10073,14 +10083,18 @@ class AgentManager extends EventEmitter {
     }
   }
 
-  runProviderSessionResumeAdmission<Result>(
+  async runProviderSessionResumeAdmission<Result>(
     provider: string,
     sessionId: string,
     providerHomeId: string,
     operation: (
-      ensureAvailable: (options: ProviderResumeOptions) => Promise<{ error: string } | null>,
+      ensureAvailable: (
+        options: ProviderResumeOptions,
+        session?: Awaited<ReturnType<typeof findAgentSession>>,
+      ) => Promise<{ error?: string; session?: Awaited<ReturnType<typeof findAgentSession>> } | null>,
     ) => Promise<Result>,
   ): Promise<Result> {
+    await this.recoveryGate.wait();
     return this.providerSessionMutationCoordinator.run({
       provider,
       homeId: providerHomeId,
@@ -10088,9 +10102,48 @@ class AgentManager extends EventEmitter {
       type: 'resume',
       joinSameType: false,
       operation: () => operation(
-        options => this.ensureProviderSessionAvailableMutation(provider, sessionId, options),
+        async (options, session) => {
+          const available = await this.ensureProviderSessionAvailableMutation(provider, sessionId, options, session);
+          if (!available?.error && available?.session && available.session.archived === false) {
+            this.cancelStoppedArchiveForResume(provider, sessionId, providerHomeId);
+          }
+          return available;
+        },
       ),
     });
+  }
+
+  private cancelStoppedArchiveForResume(provider: string, sessionId: string, providerHomeId: string) {
+    const key = mainPageAgentSessionKey(provider, sessionId, providerHomeId);
+    const record = this.configManager?.getAgentSessionRecordForProviderSessionKey?.(key);
+    const operation = activeLifecycleOperation(record);
+    if (!record || !operation || operation.type !== 'archive') return;
+    // The archive tombstone is committed only AFTER exact runtime exit proof.
+    // A blocked kill, a pending mutation, or a retained process is not that proof.
+    if (operation.state !== 'blocked' || record.archived !== true
+      || record.runtimeAgentId || record.structuredRuntimeProcess) {
+      throw new Error('The previous archive has not safely stopped this Agent. Resolve it before resuming.');
+    }
+    const oldAgent = [...this.agents.values()].find(agent => (
+      (agent.agentRecordId || agent.persistentSessionId) === record.id
+    ));
+    if (oldAgent && (this.lifecycleCoordinator.get(oldAgent.id)
+      || !this.runtimeStopTracker.isVerifiedStopped(oldAgent.id)
+      || this.acpRuntime.hasBinding(oldAgent.id))) {
+      throw new Error('The previous Agent runtime is still being stopped. Check again before resuming.');
+    }
+    const staged = this.recoveredAgentRecord(
+      oldAgent?.id || record.id,
+      record.engine || 'native',
+      { ...record, persistentSessionId: record.id },
+      { status: 'exited' },
+    );
+    setAgentRecordId(staged, record.id);
+    staged.requiresProcessExitAcknowledgement = false;
+    this.lifecycleJournalService.transition(staged, operation.id, 'cancelled',
+      'Archive cancelled by explicit Resume after verifying runtime exit and available Provider history',
+      { runtimeAgentId: '', archived: true, structuredRuntimeProcess: null });
+    if (oldAgent) this.forgetStoppedAgentRecord(oldAgent.id);
   }
 
   async archiveProviderSessionByIdentity(

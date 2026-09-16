@@ -404,11 +404,15 @@ async function run() {
     manager.acpRuntime.prepareAgent = originalPrepareAgent;
 
     const originalUnarchiveCodexSession = manager.unarchiveCodexSession;
+    const activeRollout = path.join(codexHome, 'sessions', `rollout-${codexSessionId}.jsonl`);
+    const archivedRollout = path.join(codexSessionsDir, `rollout-${codexSessionId}.jsonl`);
+    fs.renameSync(activeRollout, archivedRollout);
     let releaseConcurrentUnarchive;
     let concurrentUnarchiveCalls = 0;
     manager.unarchiveCodexSession = async () => {
       concurrentUnarchiveCalls += 1;
       await new Promise(resolve => { releaseConcurrentUnarchive = resolve; });
+      fs.renameSync(archivedRollout, activeRollout);
       return { unarchived: true };
     };
     const concurrentForkOne = manager.forkAgent(resumedCodexId, 'same-worktree');
@@ -427,6 +431,7 @@ async function run() {
       'concurrent child starts must reserve distinct incrementing Fork titles',
     );
 
+    fs.renameSync(activeRollout, archivedRollout);
     manager.unarchiveCodexSession = async () => ({ error: 'simulated unarchive failure' });
     const worktreesBeforeFailedFork = execFileSync('git', ['-C', repo, 'worktree', 'list', '--porcelain'], { encoding: 'utf8' });
     const engineStartsBeforeFailedFork = captured.length;
@@ -670,6 +675,11 @@ if (process.argv[2] === 'unarchive' && process.env.FARMING_TEST_COMMAND_LOG) {
     args: process.argv.slice(2),
     codexHome: process.env.CODEX_HOME || '',
   }) + '\\n');
+  const path = require('path');
+  const home = process.env.CODEX_HOME;
+  const name = 'rollout-' + process.argv[3] + '.jsonl';
+  fs.mkdirSync(path.join(home, 'sessions'), { recursive: true });
+  fs.renameSync(path.join(home, 'archived_sessions', name), path.join(home, 'sessions', name));
 }
 `);
   fs.chmodSync(filePath, 0o755);

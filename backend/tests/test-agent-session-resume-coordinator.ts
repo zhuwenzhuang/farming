@@ -1614,6 +1614,14 @@ async function testReadOnlyResumeStatus() {
   assert.deepStrictEqual(coordinator.resumeStatus('codex', 'session-alpha', 'work').body, { state: 'absent' });
   assert.equal(publishes, 4);
 
+  ports.getSavedAgentSession = () => ({ lifecycleJournal: { sequence: 1, entries: [{
+    id: 'aop_1', type: 'archive', state: 'blocked', requestKey: 'archive',
+    error: 'Provider archive failed',
+  }] } });
+  assert.deepStrictEqual(coordinator.resumeStatus('codex', 'session-alpha', 'work').body, {
+    state: 'blocked', error: 'Provider archive failed',
+  }, 'status reads retain the original lifecycle failure instead of reporting absent');
+
   const gate = deferred<void>();
   const pending = new AgentSessionResumeCoordinator(basePorts({ waitForAgentRecovery: () => gate.promise }));
   const operation = pending.resumeHttp('codex', 'session-alpha', {});
@@ -1628,6 +1636,14 @@ async function testReadOnlyResumeStatus() {
 async function run() {
   const unhandled: unknown[] = [];
   process.on('unhandledRejection', reason => { unhandled.push(reason); });
+
+  let lookupCount = 0;
+  const singleLookup = new AgentSessionResumeCoordinator(basePorts({
+    findAgentSession: async () => { lookupCount++; return { provider: 'codex', id: 'session-alpha', archived: false }; },
+    runProviderSessionResumeAdmission: (_provider, _id, _home, operation) => operation(async (_options, session) => ({ session })),
+  }));
+  assert.equal((await singleLookup.resumeHttp('codex', 'session-alpha', { unarchiveArchived: true })).status, 201);
+  assert.equal(lookupCount, 1, 'an available history session is read once under resume admission');
 
   await testReadOnlyResumeStatus();
   await testInvalidRequestBoundary();

@@ -179,6 +179,7 @@ interface ProviderHome {
 type OpenCodeListRunner = (options: OpenCodeListOptions) => unknown | PromiseLike<unknown>;
 
 interface ProviderListOptions {
+  sessionId?: string;
   claudeHome?: string;
   codexHome?: string;
   limit?: number;
@@ -1501,8 +1502,10 @@ async function listHomeBackedProviderSessions(
   const sessions: AgentSession[] = [];
   for (const home of configuredHomes) {
     const providerHomeId = String(home && home.id || 'default').trim() || 'default';
+    if (options.providerHomeId?.trim() && options.providerHomeId.trim() !== providerHomeId) continue;
     const providerHomePath = String(home && home.path || '').trim();
     const listOptions: ProviderListOptions = {
+      sessionId: options.sessionId,
       limit: perHomeLimit,
       scanLimit: options.scanLimit,
       opencodeBin: options.opencodeBin,
@@ -1736,13 +1739,15 @@ async function findAgentSession(
   const normalizedSessionId = String(sessionId || '').trim();
   if (!normalizedProvider || !isSafeSessionId(normalizedSessionId)) return null;
 
+  const requestedHomeId = typeof options.providerHomeId === 'string' ? options.providerHomeId.trim() : '';
+
   const sessions = await listAgentSessions({
     ...options,
+    sessionId: normalizedSessionId,
     providers: [normalizedProvider],
     limit: options.limit || 200,
     providerLimit: options.providerLimit || 200,
   });
-  const requestedHomeId = typeof options.providerHomeId === 'string' ? options.providerHomeId.trim() : '';
   return sessions.find(session => session.id === normalizedSessionId && (!requestedHomeId || (session.providerHomeId || 'default') === requestedHomeId)) || null;
 }
 

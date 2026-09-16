@@ -12,6 +12,17 @@ const {
 
 async function run() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-codex-history-'));
+  const manyRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-codex-history-many-'));
+  try {
+    await checkHistory(root, manyRoot);
+  } finally {
+    fs.rmSync(manyRoot, { recursive: true, force: true });
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+  console.log('✓ Codex session history metadata is merged read-only');
+}
+
+async function checkHistory(root: string, manyRoot: string) {
   const sessionsDir = path.join(root, 'sessions', '2026', '06', '27');
   const archivedDir = path.join(root, 'archived_sessions');
   fs.mkdirSync(sessionsDir, { recursive: true });
@@ -237,7 +248,12 @@ async function run() {
   assert.strictEqual(sessions[3].effort, 'medium');
   assert.strictEqual(sessions[3].schedule, undefined);
 
-  const manyRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-codex-history-many-'));
+  const exactArchived = await listCodexSessions({ codexHome: root, sessionId: archivedId, limit: 1, scanLimit: 1 });
+  assert.deepStrictEqual(exactArchived.map(session => session.id), [archivedId]);
+  assert.strictEqual(exactArchived[0].archived, true);
+  assert.deepStrictEqual(await listCodexSessions({ codexHome: root, sessionId: indexOnlyId }), [],
+    'an index hint without a rollout cannot prove history is available');
+
   const manySessionsDir = path.join(manyRoot, 'sessions', '2026', '07', '01');
   fs.mkdirSync(manySessionsDir, { recursive: true });
   const manyCount = 1_105;
@@ -254,10 +270,10 @@ async function run() {
   }
   const manySessions = await listCodexSessions({ codexHome: manyRoot, limit: manyCount, scanLimit: manyCount });
   assert.strictEqual(manySessions.length, manyCount);
-  fs.rmSync(manyRoot, { recursive: true, force: true });
-
-  fs.rmSync(root, { recursive: true, force: true });
-  console.log('✓ Codex session history metadata is merged read-only');
+  const oldestId = '019f0000-0000-7000-8000-000000000001';
+  const exactOldest = await listCodexSessions({ codexHome: manyRoot, sessionId: oldestId, limit: 1, scanLimit: 1 });
+  assert.deepStrictEqual(exactOldest.map(session => session.id), [oldestId],
+    'exact lookup must find old history beyond the recent discovery window');
 }
 
 run().catch(error => {
