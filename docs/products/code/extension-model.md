@@ -156,6 +156,30 @@ which Homes accept new Agents and their display order. Existing Agent records
 retain an immutable binding to the exact Provider Home used for their Session;
 removing or reordering a configuration must not relabel existing Sessions.
 
+Settings and Agent Home inventory reads discover existing Homes from provider
+Home environment variables, default directories, and sibling directories with
+`.` / `-` / `_` suffixes (including nested layouts such as `.pi/agent`).
+OpenCode also checks its XDG configuration directory. Provider adapters own the recognition markers; a
+candidate must be a directory containing provider configuration, credentials,
+or session storage. Discovery checks metadata only and does not read credentials
+or execute shell profiles. Canonical paths deduplicate aliases within a provider.
+The scan is shallow, limited to 4096 entries per parent and 256 candidates per
+provider, with a three-second deadline; failure returns an explicit error and
+commits no partial results.
+
+Config settings own discovery state: concurrent reads share one scan, then merge
+new Homes into the latest settings and persist before publishing. Existing Home
+ids, launch defaults, and Session bindings remain unchanged. A removed path is
+excluded from automatic rediscovery in that Config instance, including after
+restart; manually adding it again clears the exclusion. A failed scan or save
+leaves settings intact and a later read can retry. Homes that disappear from disk
+remain configured so temporary unavailability cannot erase an identity.
+
+Homes are grouped in the provider catalog's order, with stable saved order within
+each provider. Newly discovered and manually added Homes append within their
+provider; discoveries from one scan use deterministic path order. Drag and
+keyboard reordering operate within a provider group.
+
 Each Provider launch profile owns the default Home and Terminal-or-Chat runtime
 for new Agents. A launch request may explicitly override either value without
 changing the saved defaults. Removing the selected default Home atomically

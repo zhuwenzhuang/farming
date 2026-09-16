@@ -57,6 +57,7 @@ interface AgentExtensionRouterPort {
     get(provider: string, homePath: string): Promise<AgentExtensionHomeInventorySnapshot>;
     retain(homes: Array<{ provider: string; path: string }>): Promise<void>;
   };
+  refreshAgentHomes(): Promise<void>;
   configuredProviders(): readonly string[];
   getAgentLaunchProfile(provider: string): Record<string, unknown>;
   getAgentHomes(provider: string): readonly AgentHome[];
@@ -103,6 +104,7 @@ function createAgentExtensionRouter(service: AgentExtensionRouterPort): ExpressR
 
   router.get('/agent-extensions', async (_req, res) => {
     try {
+      await service.refreshAgentHomes();
       const availableAgents = service.getAvailableAgents()
         .filter(agent => agent.category === 'coding');
       const availableByProvider = new Map(availableAgents.map(agent => [

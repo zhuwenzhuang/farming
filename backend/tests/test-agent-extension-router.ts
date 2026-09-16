@@ -75,6 +75,7 @@ async function run(): Promise<void> {
 
   const app = express();
   app.use('/api', createAgentExtensionRouter({
+    refreshAgentHomes: async () => {},
     agentExtensionInventory: {
       async get(provider: string, homePath: string): Promise<InventoryFixture> {
         inventoryRequests.push({ homePath, provider });

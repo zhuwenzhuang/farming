@@ -128,6 +128,21 @@ Provider 加 Agent Home ID 是一份 Configuration Identity。Global Settings �
 的 Home 与展示顺序；Existing Agent Record 保留创建 Session 时使用的精确 Provider Home
 不可变绑定，移除或重排配置不能给已有 Session 改身份。
 
+读取 Settings 和 Agent Home Inventory 时，从 Provider Home 环境变量、默认目录及带
+`.` / `-` / `_` 后缀的同级目录发现已有 Home（包括 `.pi/agent` 这类嵌套布局）。
+OpenCode 也检查其 XDG 配置目录。Provider Adapter 定义识别标记；候选必须是
+包含 Provider 配置、凭证文件或会话存储的目录。发现只检查文件元数据，不读取凭证内容，
+也不执行 Shell Profile；按真实路径在 Provider 内去重。扫描不递归，每个父目录最多
+4096 个条目、每个 Provider 最多 256 个候选，限时三秒；失败明确报错，不提交部分结果。
+
+Config Settings 拥有发现状态：并发读取共享一次扫描，完成后把新增 Home 合并到最新配置，
+先持久化再发布。已有 Home ID、启动默认值和 Session 绑定保持不变。移除的路径在当前
+Config 实例中不再自动加入，重启后同样有效；手动加回会清除排除记录。扫描或保存失败保留
+原配置，后续读取可以重试。目录从磁盘消失时仍保留已配置 Home，避免临时不可用抹掉身份。
+
+Homes 按 Provider 目录的类型顺序分组，组内使用稳定的已保存顺序。自动发现和手动新增的
+Home 都追加在所属类型末尾；同批发现采用确定的路径顺序。拖动和键盘调序在同一类型内进行。
+
 每个 Provider Launch Profile 拥有新 Agent 的默认 Home 与 Terminal/Chat Runtime。启动请求可以
 显式覆盖其中任一项而不修改已保存默认值。删除当前选中的默认 Home 时，必须在同一次配置提交中
 回落到该 Provider 的 `default` Home，同时保留 Runtime 默认值。Resume、Fork、Restart 与恢复

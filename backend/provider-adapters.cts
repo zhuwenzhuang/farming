@@ -216,6 +216,8 @@ interface ProviderAdapter {
   displayName: string;
   executable: string;
   homeEnvKey: string;
+  homeDiscoveryMarkers: readonly string[];
+  homeDiscoveryXdgDirectory?: string;
   interruptInput: string;
   runtimeObservationKind?: 'codex' | 'claude' | 'process';
   legacyAcpRequestIsChat?: boolean;
@@ -629,6 +631,7 @@ const PROVIDER_ADAPTERS = Object.freeze<ProviderAdapter[]>([
     displayName: 'Codex',
     executable: 'codex',
     homeEnvKey: 'CODEX_HOME',
+    homeDiscoveryMarkers: ['config.toml', 'auth.json', 'sessions'],
     interruptInput: '\x1b',
     runtimeObservationKind: 'codex',
     legacyAcpRequestIsChat: true,
@@ -721,6 +724,7 @@ const PROVIDER_ADAPTERS = Object.freeze<ProviderAdapter[]>([
     displayName: 'Claude Code',
     executable: 'claude',
     homeEnvKey: 'CLAUDE_CONFIG_DIR',
+    homeDiscoveryMarkers: ['settings.json', '.credentials.json', 'projects'],
     interruptInput: '\x1b',
     runtimeObservationKind: 'claude',
     freshAcpSessionSources: ['claude-session-id'],
@@ -801,6 +805,7 @@ const PROVIDER_ADAPTERS = Object.freeze<ProviderAdapter[]>([
     displayName: 'Pi',
     executable: 'pi',
     homeEnvKey: 'PI_CODING_AGENT_DIR',
+    homeDiscoveryMarkers: ['settings.json', 'auth.json', 'sessions'],
     interruptInput: '\x1b',
     runtimeObservationKind: 'process',
     freshAcpSessionSources: ['pi-session-id'],
@@ -868,6 +873,8 @@ const PROVIDER_ADAPTERS = Object.freeze<ProviderAdapter[]>([
     displayName: 'OpenCode',
     executable: 'opencode',
     homeEnvKey: 'OPENCODE_CONFIG_DIR',
+    homeDiscoveryXdgDirectory: 'opencode',
+    homeDiscoveryMarkers: ['opencode.json', 'opencode.jsonc'],
     interruptInput: '\x03',
     freshAcpSessionSources: [],
     commands: ['opencode'],
@@ -948,6 +955,7 @@ const PROVIDER_ADAPTERS = Object.freeze<ProviderAdapter[]>([
     displayName: 'Qoder',
     executable: 'qodercli',
     homeEnvKey: 'QODER_CONFIG_DIR',
+    homeDiscoveryMarkers: ['settings.json', 'sessions'],
     interruptInput: '\x1b',
     freshAcpSessionSources: ['qoder-session-id'],
     commands: ['qoder', 'qodercli'],
@@ -1004,6 +1012,7 @@ const PROVIDER_ADAPTERS = Object.freeze<ProviderAdapter[]>([
     displayName: 'Qwen Code',
     executable: 'qwen',
     homeEnvKey: 'QWEN_HOME',
+    homeDiscoveryMarkers: ['settings.json', 'oauth_creds.json', 'projects'],
     interruptInput: '\x1b',
     freshAcpSessionSources: ['qwen-session-id'],
     commands: ['qwen'],

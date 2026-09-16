@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import os from 'node:os'
 import type { Route, TestInfo, WebSocketRoute } from '@playwright/test'
 import {
   expect,
@@ -64,6 +65,10 @@ test('Plugins treats each Agent Home as an independent ordered Agent configurati
   expect(codexDefault?.path).toBeTruthy()
   expect(claudeDefault?.path).toBeTruthy()
 
+  const codexPrimaryHome = path.join(workspaceRoot, 'codex-primary')
+  const claudeDefaultHome = path.join(workspaceRoot, 'claude-default')
+  fs.mkdirSync(codexPrimaryHome, { recursive: true })
+  fs.mkdirSync(claudeDefaultHome, { recursive: true })
   const claudePrimaryHome = path.join(workspaceRoot, 'claude-primary')
   const claudeWorkHome = path.join(workspaceRoot, 'claude-work')
   const codexWorkHome = path.join(workspaceRoot, 'codex-work')
@@ -87,6 +92,7 @@ test('Plugins treats each Agent Home as an independent ordered Agent configurati
         codex: [
           {
             ...codexDefault!,
+            path: codexPrimaryHome,
             order: 2,
           },
           {
@@ -111,6 +117,7 @@ test('Plugins treats each Agent Home as an independent ordered Agent configurati
           },
           {
             ...claudeDefault!,
+            path: claudeDefaultHome,
             order: 4,
           },
         ],
@@ -129,8 +136,8 @@ test('Plugins treats each Agent Home as an independent ordered Agent configurati
     sections.map(section => section.getAttribute('data-testid')).slice(0, 3)
   ))).toEqual([
     'code-plugin-section-agent-codex-work',
-    'code-plugin-section-agent-claude-primary',
     'code-plugin-section-agent-codex-default',
+    'code-plugin-section-agent-claude-primary',
   ])
 
   const openCode = panel.getByTestId('code-plugin-section-agent-opencode-default')
@@ -164,7 +171,7 @@ test('Plugins treats each Agent Home as an independent ordered Agent configurati
   await expect.poll(() => agentSections.evaluateAll(sections => (
     sections.map(section => section.getAttribute('data-testid')).slice(0, 2)
   ))).toEqual([
-    'code-plugin-section-agent-claude-primary',
+    'code-plugin-section-agent-codex-default',
     'code-plugin-section-agent-codex-work',
   ])
   await work.getByRole('button', { name: 'Edit configuration', exact: true }).click()
@@ -191,6 +198,22 @@ test('Plugins treats each Agent Home as an independent ordered Agent configurati
   await form.getByRole('button', { name: 'Save', exact: true }).click()
   const review = panel.getByTestId('code-plugin-section-agent-codex-review')
   await expect(review).toBeVisible()
+  await expect.poll(() => agentSections.evaluateAll(sections => (
+    sections.map(section => section.getAttribute('data-testid')).slice(0, 4)
+  ))).toEqual([
+    'code-plugin-section-agent-codex-default',
+    'code-plugin-section-agent-codex-work',
+    'code-plugin-section-agent-codex-review',
+    'code-plugin-section-agent-claude-primary',
+  ])
+  await expect(form).toHaveCount(0)
+  await expect(panel.getByRole('button', { name: 'Add Agent', exact: true })).toBeEnabled()
+  for (const appearance of ['light', 'dark', 'paper']) {
+    await page.locator('body').evaluate((body, theme) => { body.dataset.appearance = theme }, appearance)
+    await expect(review).toBeVisible()
+    await page.screenshot({ path: `.tmp/agent-homes-${appearance}.png` })
+  }
+
 
   await review.getByRole('button', { name: 'Edit configuration', exact: true }).click()
   await expect(page.getByTestId('code-file-editor').getByRole('tab', { selected: true })).toContainText('config.toml')
@@ -210,6 +233,43 @@ test('Plugins treats each Agent Home as an independent ordered Agent configurati
   page.once('dialog', dialog => dialog.accept())
   await review.getByRole('button', { name: 'Remove', exact: true }).click()
   await expect(review).toHaveCount(0)
+})
+
+test('Agent Homes discovers a newly created Home and keeps it with its provider', async ({ page }) => {
+  const homePath = fs.mkdtempSync(path.join(os.homedir(), '.codex-farming-discovery-'))
+  fs.writeFileSync(path.join(homePath, 'config.toml'), 'model = "fixture-discovered-model"\n')
+  try {
+    await openFarming(page)
+    const response = await page.request.get('/farming/api/settings')
+    expect(response.ok()).toBeTruthy()
+    const { settings } = await response.json() as {
+      settings: { agentHomes: Record<string, Array<{ id: string; path: string }>> }
+    }
+    const discovered = settings.agentHomes.codex?.find(home => home.path === fs.realpathSync(homePath))
+    expect(discovered).toBeTruthy()
+    await page.getByTestId('code-nav-plugins').click()
+    const panel = page.getByTestId('code-plugins-panel')
+    await panel.getByTestId('code-plugin-tab-homes').click()
+    const home = panel.getByTestId(`code-plugin-section-agent-codex-${discovered!.id}`)
+    await expect(home).toContainText('fixture-discovered-model')
+    const ids = await panel.locator('.code-plugin-agent-section').evaluateAll(sections => (
+      sections.map(section => section.getAttribute('data-testid') || '')
+    ))
+    const discoveredIndex = ids.indexOf(`code-plugin-section-agent-codex-${discovered!.id}`)
+    const claudeIndex = ids.findIndex(id => id.startsWith('code-plugin-section-agent-claude-'))
+    expect(discoveredIndex).toBeGreaterThanOrEqual(0)
+    expect(discoveredIndex).toBeLessThan(claudeIndex)
+    page.once('dialog', dialog => dialog.accept())
+    await home.getByRole('button', { name: 'Remove', exact: true }).click()
+    await expect(home).toHaveCount(0)
+    await page.reload()
+    await page.getByTestId('code-nav-plugins').click()
+    await panel.getByTestId('code-plugin-tab-homes').click()
+    await expect(panel.getByRole('button', { name: 'Add Agent', exact: true })).toBeEnabled()
+    await expect(home).toHaveCount(0)
+  } finally {
+    fs.rmSync(homePath, { recursive: true, force: true })
+  }
 })
 
 test('Agent Homes use the Farming-managed ACP runtime without a user-facing runtime selector', {
@@ -555,6 +615,10 @@ test('Plugins shows a read-only extension catalog from one exact Agent Home', {
   await panel.getByTestId('code-plugin-tab-extensions').click()
   const selectedHome = panel.getByTestId('code-plugin-extension-home-codex-catalog')
   const selectedKind = panel.getByTestId('code-plugin-extension-kind-plugin')
+  // Equal order values retain insertion order: default precedes the added catalog.
+  await expect(panel.getByTestId('code-plugin-extension-home-codex-default')).toHaveAttribute('aria-selected', 'true')
+  await selectedHome.click()
+  await page.mouse.move(0, 0)
   await expect(selectedHome).toHaveAttribute('aria-selected', 'true')
   expect(await panel.locator('.code-plugin-extension-kind-tabs > button').evaluateAll(buttons => (
     buttons.map(button => button.getAttribute('data-testid'))

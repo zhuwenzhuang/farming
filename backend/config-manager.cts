@@ -1,6 +1,8 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+import { createHash } from 'node:crypto';
+import { discoverAgentHomes } from './agent-home-discovery.cjs';
 import { atomicWriteJson } from './atomic-json-store.cjs';
 import { ensureMainAgentSkillFiles } from './main-agent-skills.cjs';
 import { ensureFarmingAgentBootstrapFile } from './farming-agent-bootstrap.cjs';
@@ -29,6 +31,7 @@ type JsonRecord = Record<string, unknown>;
 interface ConfigManagerOptions {
   configDir?: string;
   writeJson?: (file: string, value: unknown) => void;
+  discoverHomes?: typeof discoverAgentHomes;
 }
 
 export interface AgentHome {
@@ -123,6 +126,7 @@ export interface PublicSettings extends JsonRecord {
 }
 
 export interface Settings extends PublicSettings {
+  agentHomeDiscoveryExcludedPaths: Record<string, string[]>;
   projectOperations: Record<string, AgentProjectOperation>;
 }
 
@@ -329,7 +333,11 @@ class ConfigManager {
   runHistoryStore: RunHistoryStoreLike;
   writeJson: (file: string, value: unknown) => void;
 
+  private readonly discoverHomes: typeof discoverAgentHomes;
+  private homeDiscovery: Promise<void> | null = null;
+
   constructor(options: ConfigManagerOptions = {}) {
+    this.discoverHomes = options.discoverHomes || discoverAgentHomes;
     this.farmingDir = options.configDir || storageLayout.farmingConfigDir();
     this.settingsFile = storageLayout.settingsFile(this.farmingDir);
     this.sessionStore = new FarmingSessionStore(this.farmingDir, {
@@ -616,6 +624,7 @@ class ConfigManager {
         claude: cloneLaunchProfile(DEFAULT_CLAUDE_LAUNCH_PROFILE),
       },
       agentHomes: cloneAgentHomes(DEFAULT_AGENT_HOMES),
+      agentHomeDiscoveryExcludedPaths: {},
       searchTimeoutMs: DEFAULT_SEARCH_TIMEOUT_MS,
       codexApprovalMode: 'approve',
       codexModel: 'config',
@@ -639,6 +648,13 @@ class ConfigManager {
     settings.projectNames = this.normalizeProjectNames(settings.projectNames);
     settings.projectOperations = this.normalizeProjectOperations(settings.projectOperations);
     settings.instanceName = this.normalizeInstanceName(settings.instanceName);
+    settings.agentHomeDiscoveryExcludedPaths = Object.fromEntries(
+      Object.entries(objectRecord(settings.agentHomeDiscoveryExcludedPaths) || {})
+        .filter(([provider]) => Object.hasOwn(DEFAULT_AGENT_HOMES, provider))
+        .map(([provider, paths]) => [provider, Array.isArray(paths)
+          ? [...new Set(paths.filter((value): value is string => typeof value === 'string' && Boolean(value.trim())))]
+          : []]),
+    );
     settings.agentHomes = this.normalizeAgentHomes(settings.agentHomes);
     this.assertAgentHomeBindings(settings.agentHomes);
     settings.searchTimeoutMs = this.normalizeSearchTimeoutMs(settings.searchTimeoutMs);
@@ -878,7 +894,7 @@ class ConfigManager {
       }
     }
 
-    return normalized;
+    return Object.fromEntries(Object.keys(DEFAULT_AGENT_HOMES).map(provider => [provider, normalized[provider]]));
   }
 
   normalizeProjectNames(projectNames: unknown): Record<string, string> {
@@ -1218,12 +1234,51 @@ class ConfigManager {
   }
 
 
+  refreshAgentHomes(): Promise<void> {
+    if (this.homeDiscovery) return this.homeDiscovery;
+    this.homeDiscovery = this.discoverHomes().then(discovered => {
+      // Read after scanning: concurrent saves/removals must win over discovery.
+      // Merge and commit without an await so no stale snapshot can overwrite them.
+      const homes = cloneAgentHomes(this.settings.agentHomes);
+      const bindings = this.agentHomeBindings();
+      let changed = false;
+      for (const candidate of discovered) {
+        const providerHomes = homes[candidate.provider];
+        if (!providerHomes) continue;
+        const canonical = this.canonicalAgentHomePath(candidate.path);
+        if (providerHomes.some(home => this.canonicalAgentHomePath(home.path) === canonical)) continue;
+        if (this.settings.agentHomeDiscoveryExcludedPaths[candidate.provider]?.includes(canonical)) continue;
+        const bound = bindings.find(binding => binding.provider === candidate.provider
+          && this.canonicalAgentHomePath(binding.providerHomePath) === canonical);
+        const basename = path.basename(candidate.path).replace(/[^A-Za-z0-9._-]/g, '-').replace(/^\.+/, '').slice(0, 48) || 'home';
+        const occupied = (id: string) => providerHomes.some(home => home.id.toLowerCase() === id.toLowerCase())
+          || bindings.some(binding => binding.provider === candidate.provider && binding.providerHomeId.toLowerCase() === id.toLowerCase());
+        const id = bound?.providerHomeId || (occupied(basename)
+          ? `${basename}-${createHash('sha256').update(canonical).digest('hex').slice(0, 12)}`
+          : basename);
+        if (providerHomes.some(home => home.id.toLowerCase() === id.toLowerCase())) {
+          throw new Error(`${candidate.provider} discovered Home conflicts with existing Home "${id}"`);
+        }
+        providerHomes.push({
+          id,
+          path: candidate.path,
+          order: Math.max(-1, ...providerHomes.map(home => home.order)) + 1,
+          acpRuntime: { mode: 'managed', executable: '' },
+          newAgentDefaults: { model: 'inherit', reasoning: 'inherit', fast: 'inherit' },
+        });
+        changed = true;
+      }
+      if (changed) this.updateSettings({ agentHomes: homes });
+    }).finally(() => { this.homeDiscovery = null; });
+    return this.homeDiscovery;
+  }
+
   getAgentHomes(provider: unknown): AgentHome[] {
     const providerKey = String(provider);
     const homes = this.settings && this.settings.agentHomes && this.settings.agentHomes[providerKey]
       ? this.settings.agentHomes[providerKey]
       : [];
-    return homes.map(home => ({
+    return [...homes].sort((left, right) => left.order - right.order).map(home => ({
       ...home,
       acpRuntime: { ...home.acpRuntime },
       newAgentDefaults: { ...home.newAgentDefaults },
@@ -1302,6 +1357,7 @@ class ConfigManager {
   getSettings(): PublicSettingsSnapshot {
     const {
       projectOperations: _privateProjectOperations,
+      agentHomeDiscoveryExcludedPaths: _privateHomeDiscoveryExcludedPaths,
       ...publicSettings
     } = this.settings;
     return {
@@ -1657,6 +1713,7 @@ class ConfigManager {
     const settingsPatch = { ...(newSettings || {}) };
     delete settingsPatch.mainPageSessionKeys;
     delete settingsPatch.projectOperations;
+    delete settingsPatch.agentHomeDiscoveryExcludedPaths;
     const incomingTaskHistory = Object.prototype.hasOwnProperty.call(settingsPatch, 'taskHistory')
       ? settingsPatch.taskHistory
       : undefined;
@@ -1677,6 +1734,18 @@ class ConfigManager {
       this.runHistoryStore.setEntries(incomingTaskHistory);
     }
     this.normalizePersistedSettings(nextSettings, settingsPatch, previousMainWorkspace);
+    if (Object.prototype.hasOwnProperty.call(settingsPatch, 'agentHomes')) {
+      const excluded = { ...this.settings.agentHomeDiscoveryExcludedPaths };
+      for (const [provider, homes] of Object.entries(this.settings.agentHomes)) {
+        const nextPaths = new Set((nextSettings.agentHomes[provider] || [])
+          .map(home => this.canonicalAgentHomePath(home.path)));
+        const removed = homes.map(home => this.canonicalAgentHomePath(home.path))
+          .filter(homePath => !nextPaths.has(homePath));
+        excluded[provider] = [...new Set([...(excluded[provider] || []), ...removed])]
+          .filter(homePath => !nextPaths.has(homePath));
+      }
+      nextSettings.agentHomeDiscoveryExcludedPaths = excluded;
+    }
     this.writeSettingsFile(nextSettings);
     this.settings = nextSettings;
   }

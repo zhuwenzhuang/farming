@@ -1117,6 +1117,7 @@ app.use(
 
 app.use(routePath(BASE_PATH, '/api'), createAgentExtensionRouter({
   agentExtensionInventory,
+  refreshAgentHomes: () => configManager.refreshAgentHomes(),
   configuredProviders: () => Object.keys(configManager.getSettings().agentHomes || {}),
   getAgentLaunchProfile: provider => configManager.getAgentLaunchProfile(provider),
   getAgentHomes: provider => configManager.getAgentHomes(provider),
@@ -1256,10 +1257,14 @@ app.get(routePath(BASE_PATH, '/api/themes'), (req, res) => {
   });
 });
 
-app.get(routePath(BASE_PATH, '/api/settings'), (req, res) => {
-  res.json({
-    settings: configManager.getSettings()
-  });
+app.get(routePath(BASE_PATH, '/api/settings'), async (_req, res) => {
+  try {
+    await configManager.refreshAgentHomes();
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ settings: configManager.getSettings() });
+  } catch (error) {
+    res.status(500).json({ error: caughtError(error).message });
+  }
 });
 
 app.get(routePath(BASE_PATH, '/api/workspaces/discovered'), (req, res) => {

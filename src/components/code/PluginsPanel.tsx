@@ -187,8 +187,8 @@ function pluginCopy(language: UiLanguage) {
     farmingBuiltInDescription: zh ? '由 Farming 提供并统一管理的能力。' : 'Capabilities provided and managed by Farming.',
     agentHomes: 'Agent Homes',
     agentHomesDescription: zh
-      ? '配置 Agent Home，以及新 Agent 的默认 Home 和 Runtime。'
-      : 'Configure Agent Homes and the default Home and runtime for new Agents.',
+      ? '自动识别 Agent Home，并配置新 Agent 的默认 Home 和 Runtime。'
+      : 'Automatically discover Agent Homes and configure the default Home and runtime for new Agents.',
     agentExtensions: zh ? 'Agent 扩展' : 'Agent extensions',
     agentExtensionsDescription: zh
       ? '按 Home 查看发现的 Skill、MCP、Hook、插件和命令。'
@@ -557,13 +557,9 @@ function agentConfigurationKey(provider: string, homeId: string) {
 }
 
 function orderedAgentConfigurations(groups: AgentExtensionGroup[]): AgentConfiguration[] {
-  return groups
-    .flatMap(provider => provider.homes.map(home => ({ provider, home })))
-    .sort((left, right) => (
-      left.home.order - right.home.order
-      || left.provider.id.localeCompare(right.provider.id)
-      || left.home.id.localeCompare(right.home.id)
-    ))
+  return groups.flatMap(provider => [...provider.homes]
+    .sort((left, right) => left.order - right.order)
+    .map(home => ({ provider, home })))
 }
 
 function safeExtensionIcon(value: unknown) {
@@ -1098,8 +1094,8 @@ export function PluginsPanel({
       setAgentGroupsError(copy.invalidHome)
       return
     }
-    const nextOrder = orderedAgentConfigurations(agentGroups)
-      .reduce((maximum, configuration) => Math.max(maximum, configuration.home.order), -1) + 1
+    const nextOrder = provider.homes
+      .reduce((maximum, home) => Math.max(maximum, home.order), -1) + 1
     const nextGroups = agentGroups.map(group => group.id === providerId
       ? {
           ...group,
@@ -1174,6 +1170,7 @@ export function PluginsPanel({
       agentConfigurationKey(configuration.provider.id, configuration.home.id) === targetKey
     ))
     if (sourceIndex < 0 || targetIndex < 0) return
+    if (ordered[sourceIndex]?.provider.id !== ordered[targetIndex]?.provider.id) return
     const [source] = ordered.splice(sourceIndex, 1)
     if (!source) return
     ordered.splice(targetIndex, 0, source)
@@ -2133,6 +2130,10 @@ export function PluginsPanel({
               data-testid={`code-plugin-section-agent-${provider.id}-${home.id}`}
               onDragOver={event => {
                 if (!draggingAgentKey) return
+                if (!draggingAgentKey.startsWith(`${provider.id}:`)) {
+                  event.dataTransfer.dropEffect = 'none'
+                  return
+                }
                 event.preventDefault()
                 event.dataTransfer.dropEffect = 'move'
               }}
