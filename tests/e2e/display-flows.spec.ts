@@ -2188,18 +2188,16 @@ test.describe('display-backed agent flows', () => {
     await requestDedupeRow.click()
     await expect(requestDedupeRow).toHaveAttribute('aria-expanded', 'true')
     await expect(childFiles.locator('[data-testid="code-file-row"][data-file-path="request-dedupe/first.txt"]')).toBeVisible()
-    await requestDedupeRow.evaluate(row => {
-      const directoryRow = row as HTMLElement
-      directoryRow.click()
-      directoryRow.click()
-    })
-    await expect(requestDedupeRow).toHaveAttribute('aria-expanded', 'true')
-    await page.evaluate(() => new Promise<void>(resolve => {
-      requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
-    }))
-    expect(workspaceRequests.filter(request => (
+    const directoryReads = () => workspaceRequests.filter(request => (
       request.operation === 'tree' && request.path === 'request-dedupe'
-    ))).toHaveLength(1)
+    ))
+    expect(directoryReads()).toHaveLength(1)
+    await requestDedupeRow.click()
+    await expect(requestDedupeRow).toHaveAttribute('aria-expanded', 'false')
+    expect(directoryReads()).toHaveLength(1)
+    await requestDedupeRow.click()
+    await expect(requestDedupeRow).toHaveAttribute('aria-expanded', 'true')
+    await expect.poll(directoryReads).toHaveLength(2)
     await fileSearchInput.fill('poem')
     const folderSearchResults = childFiles.getByTestId('code-file-search-results')
     const poemDirectoryResult = folderSearchResults.locator('.code-file-search-result[title="poem"]')

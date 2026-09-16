@@ -209,6 +209,8 @@ test('renders Markdown files by default and keeps preview, source, and split con
   await expect(main).toHaveClass(/resource-agent-side-open/)
   await expect(page.getByTestId('code-agent-terminal-view')).toBeVisible()
   await expect(page.getByTestId('code-terminal-mode-toggle')).toHaveCount(0)
+  // Give the Viewer enough width for its distinct readable and wide layouts.
+  await page.getByTestId('code-resource-agent-resizer').press('Home')
   await expect(wideLayout).toBeVisible()
   await wideLayout.click()
   await expect(main).toHaveClass(/resource-agent-side-open/)
@@ -862,6 +864,8 @@ test('reuses the existing Agent Chat beside a file', async ({ page, workspaceRoo
   await expect.poll(() => copyAnswer.evaluate(element => (
     getComputedStyle(element, '::after').opacity
   ))).toBe('1')
+  // Exercise the compact composer at an explicit pane width.
+  await page.getByTestId('code-resource-agent-resizer').press('Home')
   await expect(page.locator('.code-composer-approval-label')).toBeHidden()
   await expect(page.getByTestId('code-acp-mode')).toHaveCSS('width', '34px')
   await expect(page.locator('.code-composer-model-label.desktop')).toBeHidden()

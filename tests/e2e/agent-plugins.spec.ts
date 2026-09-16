@@ -65,10 +65,6 @@ test('Plugins treats each Agent Home as an independent ordered Agent configurati
   expect(codexDefault?.path).toBeTruthy()
   expect(claudeDefault?.path).toBeTruthy()
 
-  const codexPrimaryHome = path.join(workspaceRoot, 'codex-primary')
-  const claudeDefaultHome = path.join(workspaceRoot, 'claude-default')
-  fs.mkdirSync(codexPrimaryHome, { recursive: true })
-  fs.mkdirSync(claudeDefaultHome, { recursive: true })
   const claudePrimaryHome = path.join(workspaceRoot, 'claude-primary')
   const claudeWorkHome = path.join(workspaceRoot, 'claude-work')
   const codexWorkHome = path.join(workspaceRoot, 'codex-work')
@@ -92,7 +88,6 @@ test('Plugins treats each Agent Home as an independent ordered Agent configurati
         codex: [
           {
             ...codexDefault!,
-            path: codexPrimaryHome,
             order: 2,
           },
           {
@@ -117,7 +112,6 @@ test('Plugins treats each Agent Home as an independent ordered Agent configurati
           },
           {
             ...claudeDefault!,
-            path: claudeDefaultHome,
             order: 4,
           },
         ],
@@ -236,7 +230,16 @@ test('Plugins treats each Agent Home as an independent ordered Agent configurati
 })
 
 test('Agent Home insertion lines cover first, last, cancellation and provider boundaries', async ({ page, workspaceRoot }, testInfo) => {
+  const currentSettingsResponse = await page.request.get('/farming/api/settings')
+  expect(currentSettingsResponse.ok()).toBeTruthy()
+  const currentSettings = await currentSettingsResponse.json() as {
+    settings: { agentHomes: { codex: Array<{ id: string; path: string }> } }
+  }
+  const defaultHome = currentSettings.settings.agentHomes.codex.find(home => home.id === 'default')
+  expect(defaultHome).toBeTruthy()
   const homes = ['default', 'work', 'review'].map((id, order) => {
+    // Persisted sessions bind the default Home to its existing path.
+    if (id === 'default') return { ...defaultHome!, order }
     const homePath = path.join(workspaceRoot, `home-${id}`)
     fs.mkdirSync(homePath)
     fs.writeFileSync(path.join(homePath, 'config.toml'), '')

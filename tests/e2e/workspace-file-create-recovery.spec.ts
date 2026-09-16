@@ -253,6 +253,9 @@ test('submits each file operation once and keeps newer operation UI when an olde
   await lateSuccessInput.press('Enter')
   await expect.poll(() => lateSuccessCount).toBe(1)
   await page.keyboard.press('Escape')
+  await expect(lateSuccessInput).toBeVisible()
+  await expect(lateSuccessInput).toBeDisabled()
+  await page.getByTestId('code-file-operation-dialog').getByRole('button', { name: 'Cancel', exact: true }).click()
   await expect(lateSuccessInput).toHaveCount(0)
 
   const newerInput = await startNewFile('newer-operation.txt')
@@ -268,6 +271,9 @@ test('submits each file operation once and keeps newer operation UI when an olde
   await lateErrorInput.press('Enter')
   await expect.poll(() => lateErrorCount).toBe(1)
   await page.keyboard.press('Escape')
+  await expect(lateErrorInput).toBeVisible()
+  await expect(lateErrorInput).toBeDisabled()
+  await page.getByTestId('code-file-operation-dialog').getByRole('button', { name: 'Cancel', exact: true }).click()
   await expect(lateErrorInput).toHaveCount(0)
 
   const latestInput = await startNewFile('latest-operation.txt')

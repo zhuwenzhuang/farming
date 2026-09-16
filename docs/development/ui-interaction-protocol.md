@@ -71,7 +71,8 @@ inline file operations register their visible surfaces with the shared layer;
 IME Enter/Escape must not submit or discard an edit. A submitting file operation
 consumes Escape without discarding its pending result. After completion or failure,
 its existing operation owner determines the next state; dismissal never retries a
-filesystem mutation.
+filesystem mutation. Deferred focus recovery must preserve the user's current
+selection when an inline editor already owns focus.
 
 ## Opening An Agent
 
@@ -79,6 +80,11 @@ Search, History, and Project session activation share one navigation owner,
 regardless of pointer or keyboard input. The backend owns resume admission and
 the exact `(provider, providerHomeId, sessionId)` claim. The browser owns one
 current viewing intent, independently of those operations.
+
+Permission and runtime replacements preserve selection and drafts across the
+confirmed lineage. Inventory fallback must reconcile the inventory and transient
+selection from the same state snapshot, including chained replacements while a
+request remains pending; it must not select an unrelated Agent between them.
 
 The target page composes the shared side-view Back control (a labeled variant
 retains the source name) and the same recovery-action recipe as Search errors.

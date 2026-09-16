@@ -1285,7 +1285,9 @@ export function App() {
     const fallbackId = resolveActiveAgentId(
       displayedAgents,
       activeTerminalId,
-      permissionSwitchStateRef.current?.agent.id ?? null,
+      // Match the rendered inventory, even if an earlier effect has already
+      // queued a replacement and advanced the imperative request owner.
+      permissionSwitch?.agent.id ?? null,
     )
     if (fallbackId === activeTerminalId) return
     if (!fallbackId) {
@@ -1298,7 +1300,7 @@ export function App() {
     setOpenTerminalIds(ids => ids.includes(fallbackId) ? ids : [...ids, fallbackId])
     setRetainedAgentViewIds(ids => touchAgentViewCache(ids, fallbackId))
     setActiveTerminalId(fallbackId)
-  }, [activeTerminalId, displayedAgents, ws.agentInventoryComplete])
+  }, [activeTerminalId, displayedAgents, permissionSwitch?.agent.id, ws.agentInventoryComplete])
 
   useEffect(() => {
     const pending = pendingMainRestartRef.current

@@ -1663,9 +1663,10 @@ test('Settings blocks the reminder and closing it never auto-starts rest', async
   await expect(closeSettings).toBeVisible()
   await expect(closeSettings).toBeEnabled()
   expect(await page.locator('#root').evaluate(element => (element as HTMLElement).inert))
-    .toBe(false)
+    .toBe(true)
 
   await closeSettings.click()
+  await expect.poll(() => page.locator('#root').evaluate(element => (element as HTMLElement).inert)).toBe(false)
   const reminder = page.getByTestId('pet-rest-reminder')
   await expect(reminder).toBeVisible()
   await expect(page.getByTestId('pet-rest-scene')).toHaveCount(0)
