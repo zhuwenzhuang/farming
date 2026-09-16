@@ -34,7 +34,7 @@ import {
   useAgentWithLiveRuntimeState,
 } from '@/lib/agent-live-state'
 import { recordPerformanceTestRender } from '@/lib/performance-test-observer'
-import { agentRowTitle, agentTitle } from '@/lib/format'
+import { agentRowTitle, agentTitle, resolveAgentTitle } from '@/lib/format'
 import {
   GLOBAL_WORKSPACE_FILES_AGENT_ID,
   isGlobalWorkspaceFilesAgentId,
@@ -4370,7 +4370,7 @@ export function CodeWorkspace({
   const renameContextMenuAgent = useCallback(() => {
     if (!contextMenuAgent) return
 
-    const currentTitle = agentTitle(contextMenuAgent)
+    const currentTitle = resolveAgentTitle(contextMenuAgent)
     closeContextMenu()
     setRenameDialog({ kind: 'agent', agentId: contextMenuAgent.id, title: currentTitle })
   }, [closeContextMenu, contextMenuAgent])

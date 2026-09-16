@@ -115,7 +115,8 @@ interface AgentTitleSource {
   runtimeBinding?: { kind?: string }
 }
 
-function resolveAgentTitle(agent: AgentTitleSource) {
+/** Effective title for editing; presentation truncation must never become saved data. */
+export function resolveAgentTitle(agent: AgentTitleSource) {
   const customTitle = typeof agent.customTitle === 'string' ? agent.customTitle.trim() : ''
   if (customTitle) return customTitle
 

@@ -138,6 +138,10 @@ still the requesting Agent. The accepted result is acknowledged only after
 atomic publication. Failure rolls the visible title back when that failed
 value is still current, and shutdown drains every accepted title operation.
 
+The rename dialog edits the complete effective Agent title. Display truncation
+belongs to labels only and must never enter the editable value or be persisted
+by an unchanged save. Cancel leaves the authoritative title unchanged.
+
 A Fork child inherits the source Agent's current effective row title. The
 backend appends `(1)` and selects the lowest positive suffix not already used
 by another Agent or an admitted child start, then persists that result as the
