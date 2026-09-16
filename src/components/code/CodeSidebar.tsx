@@ -58,6 +58,7 @@ import {
 } from './agent-row-state'
 import type { CodeCopy } from './copy'
 import { AgentStatusIndicator } from './AgentStatusIndicator'
+import { InfoCard, InfoCardRow } from './InfoCard'
 import {
   MAIN_AGENT_PROJECT_ID,
   agentSessionId,
@@ -392,9 +393,7 @@ export function CodeSidebar({
   copy,
 }: CodeSidebarProps) {
   const [agentPreview, setAgentPreview] = useState<(AgentPreviewTarget & {
-    x: number
-    y: number
-    width: number
+    anchor: HTMLElement
     branch: string
   }) | null>(null)
   const handledAgentRevealRequestRef = useRef(0)
@@ -404,10 +403,9 @@ export function CodeSidebar({
     return true
   }, [])
   const [projectPreview, setProjectPreview] = useState<(ProjectPreviewTarget & {
-    x: number
-    y: number
-    width: number
+    anchor: HTMLElement
   }) | null>(null)
+  const previewSurfaceRef = useRef<HTMLDivElement>(null)
   const previewTimerRef = useRef<number | null>(null)
   const previewBrowsingRef = useRef(false)
   const [initialWorkspaceViewState] = useState(() => loadCodeWorkspaceViewState())
@@ -470,6 +468,13 @@ export function CodeSidebar({
     previewBrowsingRef.current = false
     hideAgentPreview()
   }, [hideAgentPreview])
+  const scheduleHidePreview = useCallback(() => {
+    clearPreviewTimer()
+    previewTimerRef.current = window.setTimeout(() => {
+      previewTimerRef.current = null
+      resetAgentPreview()
+    }, 120)
+  }, [clearPreviewTimer, resetAgentPreview])
   const showAgentPreview = useCallback((event: AgentPreviewAnchorEvent, target: AgentPreviewTarget, compact = false) => {
     if (hoverPreviewsPaused) return
     clearPreviewTimer()
@@ -477,15 +482,10 @@ export function CodeSidebar({
     const delay = previewBrowsingRef.current ? 0 : (compact ? 450 : 1500)
     previewTimerRef.current = window.setTimeout(() => {
       previewTimerRef.current = null
-      if (!anchor.matches(':hover')) return
-      const rect = anchor.getBoundingClientRect()
-      const x = rect.right + 10
-      const width = Math.min(320, window.innerWidth - x - 12)
-      if (width < 200) return
-      const y = Math.max(8, Math.min(rect.top - 4, window.innerHeight - 152))
+      if (isCompactViewport() || !anchor.isConnected || !anchor.matches(':hover, :focus-visible')) return
       previewBrowsingRef.current = true
       setProjectPreview(null)
-      setAgentPreview({ ...target, x, y, width })
+      setAgentPreview({ ...target, anchor })
     }, delay)
   }, [clearPreviewTimer, hoverPreviewsPaused])
 
@@ -509,15 +509,10 @@ export function CodeSidebar({
     const delay = previewBrowsingRef.current ? 0 : 1500
     previewTimerRef.current = window.setTimeout(() => {
       previewTimerRef.current = null
-      if (!anchor.matches(':hover')) return
-      const rect = anchor.getBoundingClientRect()
-      const x = rect.right + 10
-      const width = Math.min(320, window.innerWidth - x - 12)
-      if (width < 200) return
-      const y = Math.max(8, Math.min(rect.top - 4, window.innerHeight - 188))
+      if (isCompactViewport() || !anchor.isConnected || !anchor.matches(':hover, :focus-visible')) return
       previewBrowsingRef.current = true
       setAgentPreview(null)
-      setProjectPreview({ ...target, x, y, width })
+      setProjectPreview({ ...target, anchor })
     }, delay)
   }, [clearPreviewTimer, hoverPreviewsPaused])
 
@@ -740,9 +735,13 @@ export function CodeSidebar({
       aria-label={navigationModalOpen ? copy.projectsAndAgents : undefined}
       inert={mobileDrawerClosed || undefined}
       aria-hidden={mobileDrawerClosed || undefined}
-      onMouseLeave={resetAgentPreview}
-      onPointerDownCapture={hideAgentPreview}
-      onContextMenuCapture={hideAgentPreview}
+      onMouseLeave={scheduleHidePreview}
+      onPointerDownCapture={event => {
+        if ((!previewSurfaceRef.current || !event.nativeEvent.composedPath().includes(previewSurfaceRef.current))) hideAgentPreview()
+      }}
+      onContextMenuCapture={event => {
+        if ((!previewSurfaceRef.current || !event.nativeEvent.composedPath().includes(previewSurfaceRef.current))) hideAgentPreview()
+      }}
       onKeyDown={event => {
         if (!navigationModalOpen || event.defaultPrevented) return
         if (event.key === 'Escape') {
@@ -860,7 +859,7 @@ export function CodeSidebar({
           now={now}
           onOpenAgent={onOpenAgent}
           onShowPreview={showAgentPreview}
-          onHidePreview={hideAgentPreview}
+          onHidePreview={scheduleHidePreview}
           copy={copy}
         />
       )}
@@ -912,7 +911,7 @@ export function CodeSidebar({
             onToggleAgentSessionPinned={onToggleAgentSessionPinned}
             onArchiveAgentSession={onArchiveAgentSession}
             onShowAgentPreview={showAgentPreview}
-            onHideAgentPreview={hideAgentPreview}
+            onHideAgentPreview={scheduleHidePreview}
             onToggleCollapsed={() => setPinnedCollapsed(collapsed => !collapsed)}
             onToggleDynamicPinning={() => setDynamicPinningEnabled(enabled => !enabled)}
             copy={copy}
@@ -972,7 +971,7 @@ export function CodeSidebar({
             onToggleAgentSessionPinned={onToggleAgentSessionPinned}
             onArchiveAgentSession={onArchiveAgentSession}
             onShowAgentPreview={showAgentPreview}
-            onHideAgentPreview={hideAgentPreview}
+            onHideAgentPreview={scheduleHidePreview}
             onOpenProjectFile={onOpenProjectFile}
             onBeginProjectFileOpenIntent={onBeginProjectFileOpenIntent}
             onResolveProjectFile={onResolveProjectFile}
@@ -1067,10 +1066,14 @@ export function CodeSidebar({
         <AgentHoverPreview
           preview={visibleAgentPreview}
           now={now}
+          surfaceRef={previewSurfaceRef}
+          onKeepOpen={clearPreviewTimer}
+          onLeave={scheduleHidePreview}
+          onDismiss={resetAgentPreview}
         />
       )}
       {projectPreview && (
-        <ProjectHoverPreview preview={projectPreview} copy={copy} />
+        <ProjectHoverPreview surfaceRef={previewSurfaceRef} preview={projectPreview} copy={copy} onKeepOpen={clearPreviewTimer} onLeave={scheduleHidePreview} onDismiss={resetAgentPreview} />
       )}
       {brandDialogOpen && (
         <BrandAboutDialog
@@ -1176,6 +1179,8 @@ function AgentRailButton({
       aria-label={title}
       onClick={openItem}
       onMouseEnter={event => onShowPreview(event, previewTargetForAgent(agent, rowState, item.projectName), true)}
+      onFocus={event => { if (event.currentTarget.matches(':focus-visible')) onShowPreview(event, previewTargetForAgent(agent, rowState, item.projectName), true) }}
+      onBlur={onHidePreview}
       onMouseLeave={onHidePreview}
     >
       <span className="code-agent-rail-label">{index + 1}</span>
@@ -1325,6 +1330,12 @@ function AgentCompactButton({
         true,
       )}
       onMouseLeave={onHidePreview}
+      onFocus={event => {
+        if (event.currentTarget.matches(':focus-visible')) {
+          onShowPreview(event, agent ? previewTargetForAgent(agent, rowState) : previewTargetForSession(session!, rowState), true)
+        }
+      }}
+      onBlur={onHidePreview}
       onContextMenu={onOpenMenu}
       onKeyDown={event => {
         onOpenMenu(event)
@@ -2376,6 +2387,29 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
     setWorktreeMenu(point)
   }
 
+  const showProjectDetails = (event: AgentPreviewAnchorEvent) => {
+    const currentSummary = agentInventoryComplete && !project.hasMain
+      ? projectAgentLiveSummary(project.workspace)
+      : null
+    const metrics = projectHeaderMetrics(
+      project,
+      agentInventoryComplete,
+      currentSummary,
+      now,
+    )
+    onShowProjectPreview(event, {
+      key: `project:${project.id}`,
+      name: project.name,
+      workspace: project.workspace,
+      agentCount: metrics.agentCount,
+      unreadCount: metrics.unreadCount,
+      runningCount: metrics.activeCount,
+      branch: currentProjectWorktreeName,
+      worktreeCount: repositoryWorktreeCount,
+      pinned: project.pinned === true,
+    })
+  }
+
   return (
     <>
       <div
@@ -2384,28 +2418,11 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
         onDragLeave={onProjectDragLeave}
         onDragOver={event => onProjectDragOver(event, project.id)}
         onDrop={event => onProjectDrop(event, project.id)}
-        onMouseEnter={event => {
-          const currentSummary = agentInventoryComplete && !project.hasMain
-            ? projectAgentLiveSummary(project.workspace)
-            : null
-          const metrics = projectHeaderMetrics(
-            project,
-            agentInventoryComplete,
-            currentSummary,
-            now,
-          )
-          onShowProjectPreview(event, {
-            key: `project:${project.id}`,
-            name: project.name,
-            workspace: project.workspace,
-            agentCount: metrics.agentCount,
-            unreadCount: metrics.unreadCount,
-            runningCount: metrics.activeCount,
-            branch: currentProjectWorktreeName,
-            worktreeCount: repositoryWorktreeCount,
-            pinned: project.pinned === true,
-          })
+        onMouseEnter={showProjectDetails}
+        onFocus={event => {
+          if (event.target.matches('.code-project-title:focus-visible')) showProjectDetails({ currentTarget: event.target })
         }}
+        onBlur={onHideAgentPreview}
         onMouseLeave={onHideAgentPreview}
       >
         <span className="code-project-title-content">
@@ -2810,11 +2827,15 @@ function nonDefaultAgentHomeId(providerHomeId: string | undefined) {
   return normalized && normalized.toLowerCase() !== 'default' ? normalized : undefined
 }
 
-function ProjectHoverPreview({
-  preview,
-  copy,
-}: {
-  preview: ProjectPreviewTarget & { x: number; y: number; width: number }
+type PreviewInteraction = {
+  surfaceRef: RefObject<HTMLDivElement | null>
+  onKeepOpen: () => void
+  onLeave: () => void
+  onDismiss: () => void
+}
+
+function ProjectHoverPreview({ preview, copy, ...interaction }: PreviewInteraction & {
+  preview: ProjectPreviewTarget & { anchor: HTMLElement }
   copy: CodeCopy
 }) {
   const worktreeLabel = preview.branch
@@ -2823,116 +2844,46 @@ function ProjectHoverPreview({
       : preview.branch
     : ''
   return (
-    <div
-      className="code-project-hover-preview"
-      data-testid="code-project-hover-preview"
-      style={{ left: preview.x, top: preview.y, width: preview.width }}
-      aria-hidden="true"
-    >
-      <div className="code-project-hover-preview-header">
-        <span className="code-project-hover-preview-icon"><AgentPreviewFolderIcon /></span>
-        <strong>{preview.name}</strong>
-        {preview.pinned && <span className="code-project-hover-preview-pin"><AgentPinIcon /></span>}
-      </div>
-      <div className="code-project-hover-preview-line">
-        <span className="code-project-hover-preview-icon"><ProjectPreviewAgentsIcon /></span>
-        <span>{copy.projectAgentsSummary(preview.agentCount, preview.unreadCount, preview.runningCount)}</span>
-      </div>
-      <div className="code-project-hover-preview-line">
-        <span className="code-project-hover-preview-icon"><AgentPreviewFolderIcon /></span>
-        <span className="code-project-hover-preview-workspace">{formatWorkspaceForDisplay(preview.workspace)}</span>
-      </div>
-      {worktreeLabel && (
-        <div className="code-project-hover-preview-line">
-          <span className="code-project-hover-preview-icon"><AgentPreviewBranchIcon /></span>
-          <span>{worktreeLabel}</span>
-        </div>
-      )}
-    </div>
+    <InfoCard anchor={preview.anchor} testId="code-project-hover-preview"
+      icon={<AgentPreviewFolderIcon />} title={preview.name}
+      meta={preview.pinned ? <AgentPinIcon /> : undefined} {...interaction}>
+      <InfoCardRow icon={<ProjectPreviewAgentsIcon />}>
+        {copy.projectAgentsSummary(preview.agentCount, preview.unreadCount, preview.runningCount)}
+      </InfoCardRow>
+      <InfoCardRow icon={<AgentPreviewFolderIcon />} secondary testId="code-project-hover-preview-workspace">
+        {formatWorkspaceForDisplay(preview.workspace)}
+      </InfoCardRow>
+      {worktreeLabel && <InfoCardRow icon={<AgentPreviewBranchIcon />}>{worktreeLabel}</InfoCardRow>}
+    </InfoCard>
   )
 }
 
-function AgentHoverPreview({
-  preview,
-  now,
-}: {
-  preview: AgentPreviewTarget & { x: number; y: number; width: number; branch: string }
+function AgentHoverPreview({ preview, now, ...interaction }: PreviewInteraction & {
+  preview: AgentPreviewTarget & { anchor: HTMLElement; branch: string }
   now: number
 }) {
-  const titleRef = useRef<HTMLElement>(null)
-  const previewRef = useRef<HTMLDivElement>(null)
-  const [titleOverflow, setTitleOverflow] = useState(false)
-  const [titleCardTop, setTitleCardTop] = useState(preview.y)
-  const ageLabel = formatRelativeAge(preview.lastActive, now)
-  useLayoutEffect(() => {
-    const title = titleRef.current
-    setTitleOverflow(Boolean(title && title.scrollWidth > title.clientWidth + 1))
-    const previewElement = previewRef.current
-    if (previewElement) setTitleCardTop(previewElement.getBoundingClientRect().bottom + 10)
-  }, [ageLabel, preview.branch, preview.key, preview.providerHomeId, preview.title, preview.width, preview.x, preview.y])
-  const titleCardLeft = preview.x
-  const titleCardWidth = Math.min(360, window.innerWidth - titleCardLeft - 12)
-
   return (
-    <>
-      <div
-        className="code-agent-hover-preview"
-        data-testid="code-agent-hover-preview"
-        ref={previewRef}
-        style={{ left: preview.x, top: preview.y, width: preview.width }}
-        aria-hidden="true"
-      >
-        <div className="code-agent-hover-preview-header">
-          <strong ref={titleRef}>{preview.title}</strong>
-          <span>{ageLabel}</span>
-        </div>
-        <div className="code-agent-hover-preview-line">
-          <span className="code-agent-hover-preview-icon"><AgentPreviewFolderIcon /></span>
-          <div className="code-agent-hover-preview-project">
-            <span className="code-agent-hover-preview-project-name">{preview.project}</span>
-            {preview.provider && <AgentLaunchIcon name={preview.provider} variant="color" className="code-agent-hover-preview-provider-icon" />}
-          </div>
-        </div>
-        {preview.branch && (
-          <div className="code-agent-hover-preview-line" data-testid="code-agent-hover-preview-branch">
-            <span className="code-agent-hover-preview-icon"><AgentPreviewBranchIcon /></span>
-            <span>{preview.branch}</span>
-          </div>
-        )}
-        {preview.providerHomeId && (
-          <div className="code-agent-hover-preview-line" data-testid="code-agent-hover-preview-home">
-            <span className="code-agent-hover-preview-icon"><AgentPreviewHomeIcon /></span>
-            <span>{preview.providerHomeId}</span>
-          </div>
-        )}
-        {(Boolean(preview.browserCount) || Boolean(preview.desktopCount)) && (
-          <div className="code-agent-hover-preview-resources" data-testid="code-agent-hover-preview-resources">
-            {Boolean(preview.browserCount) && (
-              <span className="code-agent-hover-preview-resource" data-testid="code-agent-hover-preview-browser-count">
-                <BrowserGlyph />
-                <span>{preview.browserCount}</span>
-              </span>
-            )}
-            {Boolean(preview.desktopCount) && (
-              <span className="code-agent-hover-preview-resource" data-testid="code-agent-hover-preview-desktop-count">
-                <DesktopGlyph />
-                <span>{preview.desktopCount}</span>
-              </span>
-            )}
-          </div>
-        )}
-      </div>
-      {titleOverflow && titleCardWidth >= 180 && (
-        <div
-          className="code-agent-hover-title-card"
-          data-testid="code-agent-hover-title-card"
-          style={{ left: titleCardLeft, top: titleCardTop, width: titleCardWidth }}
-          aria-hidden="true"
-        >
-          {preview.title}
+    <InfoCard anchor={preview.anchor} testId="code-agent-hover-preview"
+      icon={preview.provider ? <AgentLaunchIcon name={preview.provider} variant="color" /> : <ChatBubblesGlyph />}
+      title={preview.title} meta={formatRelativeAge(preview.lastActive, now)} {...interaction}>
+      <InfoCardRow icon={<AgentPreviewFolderIcon />}>{preview.project}</InfoCardRow>
+      {preview.branch && (
+        <InfoCardRow icon={<AgentPreviewBranchIcon />} testId="code-agent-hover-preview-branch">{preview.branch}</InfoCardRow>
+      )}
+      {preview.providerHomeId && (
+        <InfoCardRow icon={<AgentPreviewHomeIcon />} testId="code-agent-hover-preview-home">{preview.providerHomeId}</InfoCardRow>
+      )}
+      {(Boolean(preview.browserCount) || Boolean(preview.desktopCount)) && (
+        <div className="code-info-card-stats" data-testid="code-agent-hover-preview-resources">
+          {Boolean(preview.browserCount) && (
+            <span data-testid="code-agent-hover-preview-browser-count"><BrowserGlyph /><span>{preview.browserCount}</span></span>
+          )}
+          {Boolean(preview.desktopCount) && (
+            <span data-testid="code-agent-hover-preview-desktop-count"><DesktopGlyph /><span>{preview.desktopCount}</span></span>
+          )}
         </div>
       )}
-    </>
+    </InfoCard>
   )
 }
 
@@ -3171,7 +3122,11 @@ function AgentRow({
         if (event.button === 0) prepareLiveChat()
       }}
       onFocus={event => {
-        if (event.currentTarget.matches(':focus-visible')) prepareLiveChat()
+        if (event.currentTarget.matches(':focus-visible')) {
+          prepareLiveChat()
+          if (liveAgent) onShowPreview?.(event, previewTargetForAgent(liveAgent, rowState))
+          else if (session) onShowPreview?.(event, previewTargetForSession(session, rowState))
+        }
       }}
       onMouseEnter={event => {
         if (liveAgent) {
@@ -3181,6 +3136,7 @@ function AgentRow({
         }
       }}
       onMouseLeave={onHidePreview}
+      onBlur={onHidePreview}
       onContextMenu={event => {
         if (requiresResume) {
           onHidePreview?.()

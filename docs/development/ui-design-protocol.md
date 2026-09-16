@@ -59,6 +59,49 @@ the same label typography at the same density and state; tree indentation does
 not justify a separate font. A menu command and a combobox option may share visual
 parts but retain menu and listbox semantics respectively.
 
+## Overlay Presentation
+
+Classify overlays by purpose before choosing a shell. Tooltips explain a control;
+information cards summarize an entity; menus issue commands; listboxes select a
+value; popovers contain local operations; dialogs require a bounded decision;
+drawers and full-screen viewers provide extended content; toasts report outcomes.
+They share surface roles and control recipes, while retaining their own anchoring,
+modality, keyboard semantics and width policy. CRT and Net retain their skins.
+
+Project and Agent previews share the information-card shell and row recipe.
+The header contains a leading identity icon, wrapping title and optional trailing
+metadata. Project uses its folder identity; Agent uses its provider identity.
+Attributes follow in aligned icon/text rows. Paths use the shared secondary text
+role and wrap rather than shrinking independently. Optional resource totals form
+one separated statistics group; ordinary attributes do not each add a divider.
+Long titles stay within the same card, never a second floating title surface.
+Geometry and typography have one appearance-independent owner. Light, Dark and
+Paper change palette mappings, not density, slots or wrapping.
+
+The sidebar owns the current preview and its pending timer. Entering another
+trigger replaces pending work; initial desktop inspection waits 1500 ms and the
+compact Agent rail waits 450 ms, while browsing an already open set is immediate.
+Leaving starts a 120 ms exit grace period so the pointer can enter the card for
+reading and text selection. Entering the card cancels that exit. Leaving both,
+Escape, an outside pointer, opening another menu, or unmounting cancels the preview
+and pending work. Keyboard focus on a supported entity trigger can expose the same
+card without transferring focus. Compact layouts dismiss these cards and keep explicit Project/Agent actions
+instead of hover previews.
+
+The shell measures its actual content and anchor. It prefers the anchor's right
+side, flips left when needed, and constrains the result to the visual viewport.
+Content and viewport resizing recompute placement; oversized content scrolls in
+one card. A removed or hidden anchor dismisses its card. Reading a preview must
+not start/resume an Agent or issue speculative provider requests. Existing keyboard
+navigation preparation remains owned by the navigation controller.
+
+Acceptance compares real Project and Agent cards against shared metrics and each
+other, including long titles/paths, optional metadata, pointer transfer, keyboard
+focus, cancellation, viewport edges and every appearance. Existing menu recipes
+remain the menu owner. Other tooltip/popover/dialog shells are incremental
+consumers of the classification contract, not claimed as fully migrated by the
+information-card adoption.
+
 ## One Owner Per Design Decision
 
 | Layer | Owns | Must not own |

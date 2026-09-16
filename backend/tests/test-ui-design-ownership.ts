@@ -21,7 +21,7 @@ const menuSurfaces = [
   'farming-browser-more-menu', 'farming-computer-more-menu',
 ]
 const surfaceMetric = /^(?:border(?:-radius|-color)?|background(?:-color)?|box-shadow|font(?:-family|-size|-weight)?|padding)$/
-const sharedMetric = /^--code-(?:ui-|menu-|field-|dialog-action-|touch-target|file-entry-(?:font|line)|sidebar-file-row-height)/
+const sharedMetric = /^--code-(?:ui-|info-card-|menu-|field-|dialog-action-|touch-target|file-entry-(?:font|line)|sidebar-file-row-height)/
 
 for (const source of sources) {
   const root = postcss.parse(fs.readFileSync(path.join(projectRoot, source), 'utf8'))
@@ -34,6 +34,7 @@ for (const source of sources) {
   root.walkRules(rule => {
     for (const selector of rule.selectors) {
       assert(!/\.code-menu-(surface|list|item)(?=[\s.:[]|$)/.test(selector), `${source} must not override the shared menu recipe`)
+      assert(!/\.code-info-card(?:[\s.:[-]|$)/.test(selector), `${source} must not override the shared information-card recipe`)
       // Product owners may size/anchor a surface, but its chrome stays shared.
       if (!menuSurfaces.some(name => selector.endsWith(`.${name}`) || selector.endsWith(`.${name}.has-matrix`))) continue
       rule.walkDecls(declaration => {

@@ -24,7 +24,69 @@
   --code-menu-item-padding: 4px 8px;
   --code-menu-radius: 8px;
   --code-menu-item-radius: 6px;
+  --code-info-card-width: 320px;
+  --code-info-card-radius: 16px;
+  --code-info-card-padding: 12px 14px;
+  --code-info-card-gap: 8px;
+  --code-info-card-viewport-gap: 8px;
+  --code-info-card-anchor-gap: 10px;
 }
+
+.code-info-card {
+  position: fixed;
+  z-index: 120;
+  box-sizing: border-box;
+  width: var(--code-info-card-width);
+  display: flex;
+  flex-direction: column;
+  gap: var(--code-info-card-gap);
+  padding: var(--code-info-card-padding);
+  border: 0;
+  border-radius: var(--code-info-card-radius);
+  background: var(--code-context-menu-surface);
+  box-shadow: var(--code-shadow-raised);
+  color: var(--code-text);
+  font-family: var(--code-ui-font-family);
+  font-size: 14px;
+  line-height: 20px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  text-shadow: none;
+}
+
+.code-info-card-header,
+.code-info-card-row {
+  display: grid;
+  grid-template-columns: var(--code-ui-icon-size) minmax(0, 1fr);
+  gap: var(--code-info-card-gap);
+  align-items: start;
+  flex-shrink: 0;
+  min-width: 0;
+}
+
+.code-info-card-header { grid-template-columns: var(--code-ui-icon-size) minmax(0, 1fr) auto; }
+.code-info-card-header strong { font-size: 15px; font-weight: 500; }
+.code-info-card-header strong,
+.code-info-card-row > span:last-child { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+.code-info-card-meta,
+.code-info-card-row.secondary { font-size: 13px; color: var(--code-text-subtle); }
+.code-info-card-meta { white-space: nowrap; }
+.code-info-card-icon { display: inline-grid; place-items: center; height: 20px; color: var(--code-text-subtle); }
+.code-info-card-icon > *,
+.code-info-card-icon svg,
+.code-info-card-meta svg,
+.code-info-card-stats svg { width: var(--code-ui-icon-size); height: var(--code-ui-icon-size); }
+.code-info-card-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  padding-top: var(--code-info-card-gap);
+  border-top: 1px solid var(--code-panel-divider);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.code-info-card-stats > span { display: inline-flex; align-items: center; gap: 5px; }
+.code-info-card-stats svg { color: var(--code-text-subtle); }
 
 /* Native button chrome is not a second skin for portalled Code dialogs. */
 :where(body.code-mode, .review-body) :where(button) {
