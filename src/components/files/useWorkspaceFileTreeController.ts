@@ -76,9 +76,9 @@ export function useWorkspaceFileTreeController({
   const setTreePathOpen = useCallback((path: string, open: boolean) => {
     const node = treeRef.current?.get(path)?.data
     setTreePathsOpen(node?.compactedPaths ?? [path], open)
-    // Only explicit pointer/keyboard intent revalidates; layout restoration
-    // must not turn a background response into another read or expansion.
-    void refreshDirectory(path)
+    // Expanding revalidates the content the user is about to see. Collapsing
+    // stays local and must not enqueue directory or Git decoration reads.
+    if (open) void refreshDirectory(path)
   }, [refreshDirectory, setTreePathsOpen])
 
   const toggleTreePathOpen = useCallback((path: string) => {

@@ -70,6 +70,7 @@ export interface OpenWorkspaceFile {
   saveRequestId?: number
   saveRevision?: number
   error: string | null
+  watchError?: string
   cursor?: WorkspaceFileCursor
   diffRequestId?: number
   diffOnly?: boolean
@@ -326,6 +327,7 @@ export function refreshOpenWorkspaceFileFromRead(openFile: OpenWorkspaceFile, fi
       dirty: nextDirty,
       externalChanged: nextDirty && (openFile.externalChanged || openFile.file.sha1 !== file.sha1),
       error: null,
+      watchError: undefined,
     }
   }
 
@@ -338,6 +340,7 @@ export function refreshOpenWorkspaceFileFromRead(openFile: OpenWorkspaceFile, fi
       externalChanged: false,
       saving: false,
       error: null,
+      watchError: undefined,
     }
   }
 
@@ -350,6 +353,7 @@ export function refreshOpenWorkspaceFileFromRead(openFile: OpenWorkspaceFile, fi
     externalChanged: nextDirty && (openFile.externalChanged || openFile.file.sha1 !== file.sha1),
     saving: false,
     error: null,
+    watchError: undefined,
   }
 }
 
@@ -491,7 +495,7 @@ export function selectWorkspaceOpenFile(
   )
   const accessModeChanged = request.exactExternal !== undefined
     && request.exactExternal !== Boolean(nextFile.exactExternal)
-  if (accessOwnerChanged || accessModeChanged) return null
+  if (accessOwnerChanged || accessModeChanged || nextFile.watchError) return null
   const hasViewRequest = Boolean(
     request.cursor
     || request.diffRequestId

@@ -525,12 +525,16 @@ export function useWorkspaceOpenFiles() {
     })
   }, [])
 
-  const setWatchError = useCallback((rootId: string, message: string) => {
+  const setWatchError = useCallback((rootId: string, message: string, filePath?: string) => {
+    if (filePath) modelManagerRef.current?.invalidateFile(rootId, filePath)
+    else modelManagerRef.current?.invalidateRoot(rootId)
+    setRetainedModelFiles(modelManagerRef.current?.retainedOpenFiles() ?? [])
     let changed = false
     const files = stateRef.current.files.map(openFile => {
-      if (openFile.agentId !== rootId || openFile.error === message) return openFile
+      if (openFile.agentId !== rootId || (filePath && openFile.file.path !== filePath)) return openFile
+      if (openFile.watchError === message) return openFile
       changed = true
-      return { ...openFile, error: message }
+      return { ...openFile, error: message, watchError: message }
     })
     if (!changed) return
     commitState({

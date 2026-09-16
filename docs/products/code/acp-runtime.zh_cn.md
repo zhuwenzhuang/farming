@@ -6,6 +6,9 @@ Farming 使用 Agent Client Protocol 为受支持的 Coding Agent 提供结构�
 拥有 Runtime 生命周期、Provider Session、有序 Chat 状态、配置、权限与恢复；Browser
 界面只展示权威状态，不从普通文字或 Terminal Output 中重新推断。
 
+[关联会话与旁聊设计提案](related-sessions-design.zh_cn.md)定义用户旁聊与 Provider 原生子 Agent 的目标组合方式。
+该文档是设计提案，不改变当前能力或生命周期保证。
+
 ## Provider 边界
 
 Provider 特有的 Executable Discovery、Environment、Adapter Patch、可选方法和 History

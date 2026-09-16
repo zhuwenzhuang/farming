@@ -696,6 +696,7 @@ export function CodeWorkspace({
         isGlobalWorkspaceFilesAgentId(file.agentId)
         || file.file.external
         || file.file.symbolicLink
+        || file.watchError
       ) return
       const paths = pathsByRoot.get(file.agentId) ?? new Set<string>()
       paths.add(file.file.path)
@@ -729,7 +730,7 @@ export function CodeWorkspace({
       }
       const registration = onWatchWorkspaceFiles(rootId, paths, event => {
         if (event.type === 'error') {
-          setOpenFileWatchError(rootId, event.message || 'File auto-refresh stopped')
+          setOpenFileWatchError(rootId, event.message || 'File auto-refresh stopped', event.path)
           return
         }
         if ((event.type === 'change' || event.type === 'add' || event.type === 'unlink') && event.path) {

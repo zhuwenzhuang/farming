@@ -69,6 +69,7 @@ function workspaceFileModelBytes(entry: WorkspaceFileModelEntry) {
 
 function canResolveFromRetainedEntry(entry: WorkspaceFileModelEntry) {
   return !entry.exactExternal
+    && !entry.openFile?.watchError
     && entry.file.external !== true
     && entry.file.symbolicLink !== true
 }

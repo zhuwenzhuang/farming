@@ -1492,10 +1492,11 @@ setInterval(() => {}, 1000);
     await secondExactSubscription.close();
     assert.strictEqual(service.exactWatchers.size, 0);
 
-    await assertRejectsWithStatus(
-      service.subscribeExactFiles(workspace, ['src'], () => {}),
-      400,
-    );
+    const directoryWatchErrors = [];
+    const directoryWatch = await service.subscribeExactFiles(workspace, ['src'], event => directoryWatchErrors.push(event));
+    assert.deepStrictEqual(directoryWatch.paths, []);
+    assert.deepStrictEqual(directoryWatchErrors, [{ type: 'error', path: 'src', message: 'watched path must be a file' }]);
+    await directoryWatch.close();
     await assertRejectsWithStatus(
       service.subscribeExactFiles(
         workspace,
@@ -1505,10 +1506,12 @@ setInterval(() => {}, 1000);
       400,
     );
     if (fs.existsSync(path.join(workspace, 'external-directory-link'))) {
-      await assertRejectsWithStatus(
-        service.subscribeExactFiles(workspace, ['external-directory-link'], () => {}),
-        403,
-      );
+      const externalWatchErrors = [];
+      const externalWatch = await service.subscribeExactFiles(workspace, ['external-directory-link'], event => externalWatchErrors.push(event));
+      assert.deepStrictEqual(externalWatch.paths, []);
+      assert.strictEqual(externalWatchErrors[0]?.path, 'external-directory-link');
+      assert.match(externalWatchErrors[0]?.message, /outside allowed workspaces/);
+      await externalWatch.close();
     }
 
     const disposalRaceService = new WorkspaceFileService({

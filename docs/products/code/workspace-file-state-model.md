@@ -74,6 +74,15 @@ overwritten by that reload. Global, external, and symbolic-link resources that
 do not have this watch contract keep the authoritative read on reopen, though
 their editor models may still be retained.
 
+Exact file watches admit each path independently. An unreadable, missing, or
+non-file path terminates only that path's watch admission and reports a file-local
+error; it cannot prevent readable peers from subscribing. Ready acknowledgements
+list only admitted paths. A failed watch invalidates retained content as evidence
+for reopening, preserves open drafts, and stops automatic resubscription for that
+file until an explicit successful read restores watch eligibility. Watch failures
+belong to the current root and subscription intent; errors from cancelled or
+superseded subscriptions must not surface as global action failures.
+
 The same physical path can be reached through different access owners, such as
 the global root and a mounted Project or two nested Projects. A retained
 content snapshot cannot cross that owner boundary: the new owner performs an
@@ -123,8 +132,9 @@ owner. Same-directory loads join, workspace changes invalidate old results,
 and expansion intent is independent from load completion. Directory caches do
 not become file-content models.
 
-Explicit pointer or keyboard directory toggles revalidate that directory while
-retaining its visible snapshot. Layout restoration uses cached reads and does
+Explicit pointer or keyboard directory expansion revalidates that directory while
+retaining its visible snapshot. Collapsing a directory stays local and starts no
+directory or Git decoration reads. Layout restoration uses cached reads and does
 not start this revalidation. A missing-path response on directory expansion or
 file opening refreshes its parent; missing parents are reconciled upward within
 the mounted root. Only a successful parent listing removes a branch, clears its

@@ -8,6 +8,10 @@ state, configuration, permissions, and recovery. Browser interfaces present
 that authoritative state and do not reconstruct it from prose or terminal
 output.
 
+The [Related Sessions and Side Chat proposal](related-sessions-design.md) defines
+the intended composition of user side chats and provider-native subagents. It is
+a design proposal and does not change current capability or lifecycle guarantees.
+
 ## Provider Boundary
 
 Provider-specific executable discovery, environment, adapter patches, optional

@@ -27,6 +27,7 @@ the [documentation home](../README.md).
 - [UI design protocol](ui-design-protocol.md)
 - [UI interaction protocol](ui-interaction-protocol.md)
 - [Composer input](../products/code/composer-input.md)
+- [Related Sessions and Side Chat proposal](../products/code/related-sessions-design.md)
 - [Public documentation site](documentation-site.md)
 - [Farming Desktop MVP](../products/code/desktop-app.md)
 - [Desktop Native Browser View](../products/code/desktop-native-browser.md)

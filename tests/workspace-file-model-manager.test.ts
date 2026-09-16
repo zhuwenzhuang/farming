@@ -7,6 +7,7 @@ import {
 import type { WorkspaceFile } from '../src/lib/workspace-files'
 import {
   openWorkspaceFileFromRead,
+  refreshOpenWorkspaceFileFromRead,
   selectWorkspaceOpenFile,
   type WorkspaceOpenFilesState,
 } from '../src/lib/workspace-open-files'
@@ -20,6 +21,28 @@ function workspaceFile(path: string, content = `${path}\n`): WorkspaceFile {
     sha1: `sha1-${path}`,
   }
 }
+
+test('watch failure forces authoritative reopen and preserves a dirty draft during recovery', async () => {
+  const state = openWorkspaceFileFromRead({ activeFile: null, files: [], closedFileCache: new Map() },
+    'root', workspaceFile('old.md'))
+  const failed = { ...state.activeFile!, draft: 'unsaved draft', dirty: true, watchError: 'path not found', error: 'path not found' }
+  const failedState = { ...state, activeFile: failed, files: [failed] }
+  assert.equal(selectWorkspaceOpenFile(failedState, 'root', 'old.md'), null)
+  let reads = 0
+  const manager = new WorkspaceFileModelManager({ readFile: async () => {
+    reads += 1
+    return workspaceFile('old.md', 'restored')
+  } })
+  try {
+    manager.acceptOpenFiles([failed], [failed])
+    const file = await manager.resolve('root', 'old.md')
+    assert.equal(reads, 1)
+    const restored = refreshOpenWorkspaceFileFromRead(failed, file)
+    assert.equal(restored.draft, 'unsaved draft')
+    assert.equal(restored.watchError, undefined)
+    assert.equal(restored.error, null)
+  } finally { manager.dispose() }
+})
 
 test('watch readiness revalidates retained reads but not fresh authoritative reads', async () => {
   let reads = 0

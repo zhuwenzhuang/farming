@@ -18,6 +18,7 @@ interface TestClient {
 
 interface SubscriptionAttempt {
   deferred: Deferred<{
+    readonly paths: readonly string[];
     update(paths: readonly string[]): Promise<void>;
     close(): void | Promise<void>;
   }>;
@@ -91,8 +92,10 @@ function resolveAttempt(
     attempt.updates.push([...paths]);
   },
 ) {
+  let paths = attempt.paths;
   attempt.deferred.resolve({
-    update,
+    get paths() { return paths; },
+    async update(nextPaths) { await update(nextPaths); paths = nextPaths; },
     close,
   });
 }
@@ -266,6 +269,8 @@ async function run(): Promise<void> {
     assert.strictEqual(secondUnsubscribeCalls, 0);
     const secondMessageCount = secondClient.messages.length;
     attempts[1].events({ type: 'add', path: 'still-live.ts' });
+    assert.strictEqual(secondClient.messages.length, secondMessageCount, 'events outside the current requested paths are ignored');
+    attempts[1].events({ type: 'add', path: 'second.ts' });
     assert.strictEqual(secondClient.messages.length, secondMessageCount + 1);
     controller.close(secondClient);
     await flushPromises();
@@ -304,10 +309,9 @@ async function run(): Promise<void> {
     assert.deepStrictEqual(
       socket.messages,
       [
-        { type: 'error', message: 'watch unavailable' },
-        { type: 'error', message: 'watch unavailable' },
+        { type: 'workspace-file-event', event: { rootId: 'agent-reject', type: 'error', message: 'watch unavailable' } },
       ],
-      'each duplicate request must retain the existing failure response',
+      'one failed lease reports one root-scoped error',
     );
     const retry = controller.watch(socket, 'agent-reject', ['retry.ts']);
     assert.strictEqual(attempts.length, 2, 'failed subscriptions must leave a live retry path');
@@ -325,8 +329,8 @@ async function run(): Promise<void> {
     await controller.watch(socket, '', ['missing-agent.ts']);
     await controller.watch(socket, 'missing-paths', []);
     assert.deepStrictEqual(socket.messages, [
-      { type: 'error', message: 'workspace not found' },
-      { type: 'error', message: 'failed to watch workspace files' },
+      { type: 'workspace-file-event', event: { rootId: 'known-error', type: 'error', message: 'workspace not found' } },
+      { type: 'workspace-file-event', event: { rootId: 'generic-error', type: 'error', message: 'failed to watch workspace files' } },
       { type: 'error', message: 'rootId is required' },
       { type: 'error', message: 'at least one file path is required' },
     ]);
@@ -348,6 +352,38 @@ async function run(): Promise<void> {
     await flushPromises();
     assert.strictEqual(unsubscribeCalls, 1, 'close during subscribe must clean up a late-ready lease');
     assert.deepStrictEqual(socket.messages, [], 'close during subscribe must suppress readiness');
+  }
+
+  {
+    const { attempts, controller } = createHarness();
+    const socket = client();
+    const cancelled = controller.watch(socket, 'cancelled', ['old.md']);
+    controller.unwatch(socket, 'cancelled');
+    attempts[0].deferred.reject(new WorkspaceFileError('old failure', 403));
+    await cancelled;
+    assert.deepStrictEqual(socket.messages, [], 'late failed subscription cannot report against a cancelled intent');
+  }
+
+  {
+    const { attempts, controller } = createHarness();
+    const socket = client();
+    const initial = controller.watch(socket, 'switching', ['first.md']);
+    const blocked = deferred<void>();
+    const started = deferred<void>();
+    resolveAttempt(attempts[0], () => {}, async paths => {
+      if (paths.includes('old.md')) { started.resolve(); await blocked.promise; }
+    });
+    await initial;
+    const old = controller.watch(socket, 'switching', ['old.md']);
+    await started.promise;
+    const latest = controller.watch(socket, 'switching', ['current.md']);
+    blocked.reject(new WorkspaceFileError('obsolete failure', 404));
+    await Promise.all([old, latest]);
+    assert.deepStrictEqual(socket.messages.at(-1), {
+      type: 'workspace-file-watch', rootId: 'switching', paths: ['current.md'], watching: true,
+    });
+    assert(!socket.messages.some(message => message.type === 'workspace-file-event'));
+    controller.close(socket);
   }
 
   console.log('WebSocket workspace file watch controller passed');

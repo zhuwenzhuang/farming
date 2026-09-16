@@ -50,6 +50,7 @@ const runtimeCodeRoles = new Set([
   '--code-copy-toast-x',
   '--code-copy-toast-y',
   '--code-pet-status-glass-filter',
+  '--code-resource-agent-width',
   '--code-sidebar-width',
 ])
 

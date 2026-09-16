@@ -173,6 +173,7 @@ interface WorkspaceWatcherRecord {
 }
 
 interface ExactWorkspaceFileSubscription {
+  readonly paths: readonly string[];
   update(paths: readonly string[]): Promise<void>;
   close(): Promise<void>;
 }
@@ -2023,9 +2024,24 @@ class WorkspaceFileService {
     }
 
     if (options.allowMissing) {
-      const parent = await fsp.realpath(path.dirname(target)).catch(() => null);
-      if (!parent || !isInside(root, parent)) {
+      if (target === root) {
+        throw new WorkspaceFileError('workspace root cannot be changed', 400);
+      }
+      let parent: string;
+      try {
+        parent = await fsp.realpath(path.dirname(target));
+      } catch (error) {
+        const code = processError(error).code;
+        if (code === 'ENOENT' || code === 'ENOTDIR') {
+          throw new WorkspaceFileError('parent directory not found', 404, { path: requestedRelativePath });
+        }
+        throw error;
+      }
+      if (!isInside(root, parent)) {
         throw new WorkspaceFileError('parent path must stay inside the workspace', 403);
+      }
+      if (!(await fsp.stat(parent)).isDirectory()) {
+        throw new WorkspaceFileError('parent path must be a directory', 400, { path: requestedRelativePath });
       }
       return {
         root,
@@ -3820,28 +3836,31 @@ class WorkspaceFileService {
   async resolveExactWatchTargets(
     root: string,
     filePaths: readonly string[],
+    onPathError?: WorkspaceFileSubscriber,
   ): Promise<Map<string, string>> {
     const normalizedPaths = this.normalizeExactWatchPaths(filePaths);
     const entries = await mapWithConcurrency(
       normalizedPaths,
       EXACT_WATCH_PATH_RESOLVE_CONCURRENCY,
       async relativePath => {
-      try {
-        const resolved = await this.resolvePath(root, relativePath);
-        const stat = await fsp.stat(resolved.target);
-        if (!stat.isFile()) throw new WorkspaceFileError('watched path must be a file', 400, { path: relativePath });
-        return [relativePath, resolved.target] as const;
-      } catch (caught: unknown) {
-        const error = processError(caught);
-        if (!(caught instanceof WorkspaceFileError) || caught.statusCode !== 404) throw caught;
-        const missing = await this.resolvePath(root, relativePath, { allowMissing: true });
-        const entry = await fsp.lstat(missing.target).catch(() => null);
-        if (entry) throw error;
-        return [relativePath, missing.target] as const;
-      }
+        try {
+          const resolved = await this.resolvePath(root, relativePath);
+          const stat = await fsp.stat(resolved.target);
+          if (!stat.isFile()) throw new WorkspaceFileError('watched path must be a file', 400, { path: relativePath });
+          return [relativePath, resolved.target] as const;
+        } catch (error) {
+          if (!onPathError) throw error;
+          // One obsolete cached file cannot reject every other file's watch.
+          onPathError({
+            type: 'error',
+            path: relativePath,
+            message: error instanceof WorkspaceFileError ? error.message : 'Unable to watch file',
+          });
+          return null;
+        }
       },
     );
-    return new Map(entries);
+    return new Map(entries.filter((entry): entry is readonly [string, string] => entry !== null));
   }
 
   attachExactWatchPaths(
@@ -3974,7 +3993,7 @@ class WorkspaceFileService {
     const targets = new Map([
       ...retainedTargets,
       ...(unresolvedPaths.length > 0
-        ? await this.resolveExactWatchTargets(root, unresolvedPaths)
+        ? await this.resolveExactWatchTargets(root, unresolvedPaths, callback)
         : new Map<string, string>()),
     ]);
     if (this.disposed || this.watcherLifecycleGeneration !== lifecycleGeneration) {
@@ -4031,7 +4050,7 @@ class WorkspaceFileService {
             message: error.message,
           }));
         });
-        await waitForWatcherReady(watcher);
+        if (initializingRecord.targetPaths.size > 0) await waitForWatcherReady(watcher);
         return this.exactWatchers.get(root) === initializingRecord;
       })();
     }
@@ -4055,6 +4074,7 @@ class WorkspaceFileService {
     const subscriptionRecord = record;
     let closed = false;
     return {
+      get paths() { return [...(subscriptionRecord.subscribers.get(callback) ?? [])].sort(); },
       update: async paths => {
         if (closed) return;
         const normalizedPaths = this.normalizeExactWatchPaths(paths);
@@ -4066,7 +4086,7 @@ class WorkspaceFileService {
           .filter((entry): entry is [string, string] => Boolean(entry[1])));
         const addedPaths = normalizedPaths.filter(relativePath => !retainedTargets.has(relativePath));
         const addedTargets = addedPaths.length > 0
-          ? await this.resolveExactWatchTargets(root, addedPaths)
+          ? await this.resolveExactWatchTargets(root, addedPaths, callback)
           : new Map<string, string>();
         const nextTargets = new Map([
           ...retainedTargets,

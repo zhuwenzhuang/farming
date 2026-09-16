@@ -5,6 +5,7 @@ interface WorkspaceFileWatchClient {
 
 type WorkspaceFileWatchEvent = Record<string, unknown>;
 interface WorkspaceFileWatchSubscription {
+  readonly paths: readonly string[];
   update(paths: readonly string[]): Promise<void>;
   close(): void | Promise<void>;
 }
@@ -96,10 +97,10 @@ function createWorkspaceFileWatchController<Client extends WorkspaceFileWatchCli
     client.send(JSON.stringify({ type: 'error', message }));
   }
 
-  function sendWatchError(client: Client, error: unknown): void {
+  function sendWatchError(client: Client, rootId: string, error: unknown): void {
     if (!isOpen(client)) return;
     const message = options.watchErrorMessage(error) ?? 'failed to watch workspace files';
-    client.send(JSON.stringify({ type: 'error', message }));
+    client.send(JSON.stringify({ type: 'workspace-file-event', event: { rootId, type: 'error', message } }));
   }
 
   function unwatch(
@@ -148,11 +149,17 @@ function createWorkspaceFileWatchController<Client extends WorkspaceFileWatchCli
             existing.appliedPaths = requestedPaths;
           }
           if (existing.desiredPaths === requestedPaths && isCurrentLease(client, rootId, existing) && isOpen(client)) {
-            sendWatching(client, rootId, existing.appliedPaths);
+            sendWatching(client, rootId, subscription.paths);
           }
         });
         existing.updateQueue = update.catch(() => {});
-        await update;
+        try {
+          await update;
+        } catch (error) {
+          if (isCurrentLease(client, rootId, existing) && existing.desiredPaths === requestedPaths) {
+            sendWatchError(client, rootId, error);
+          }
+        }
         return;
       }
 
@@ -174,6 +181,7 @@ function createWorkspaceFileWatchController<Client extends WorkspaceFileWatchCli
       lease.ready = (async () => {
         const subscription = await options.subscribe(root, normalizedPaths, (event) => {
           if (!isCurrentLease(client, rootId, lease) || !isOpen(client)) return;
+          if (typeof event.path === 'string' && !lease.desiredPaths.includes(event.path)) return;
           client.send(JSON.stringify({
             type: 'workspace-file-event',
             event: {
@@ -200,16 +208,17 @@ function createWorkspaceFileWatchController<Client extends WorkspaceFileWatchCli
           && isCurrentLease(client, rootId, lease)
           && isOpen(client)
         ) {
-          sendWatching(client, rootId, lease.appliedPaths);
+          sendWatching(client, rootId, subscription.paths);
         }
       } catch (error: unknown) {
+        const current = isCurrentLease(client, rootId, lease);
         if (leases.get(rootId) === lease) leases.delete(rootId);
         closeLease(lease);
         releaseEmptyLeaseMap(client, leases);
-        throw error;
+        if (current) sendWatchError(client, rootId, error);
       }
     } catch (error: unknown) {
-      sendWatchError(client, error);
+      sendWatchError(client, rootId, error);
     }
   }
 

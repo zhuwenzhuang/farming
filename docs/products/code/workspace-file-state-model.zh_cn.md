@@ -62,6 +62,12 @@ reload 必须取消。clean stale model 可以先显示并在后台做有界 rel
 绝不能被该 reload 覆盖。没有该 watch 契约的 global、external 和 symbolic-link 资源
 在 reopen 时继续执行权威 read，但仍可保留并复用 editor model。
 
+精确文件 watch 逐路径准入。不可读、已消失或不是文件的路径只结束自身的 watch 准入，
+并显示文件局部错误，不能阻止可读文件订阅。Ready 确认只列出已准入的路径。Watch 失败后，
+保留打开的草稿，但缓存内容不再作为重新打开的依据；该文件停止自动重订阅，直到显式读取
+成功后恢复 watch 资格。Watch 错误只属于当前 root 和订阅意图；取消或被替代订阅的旧错误
+不得变成全局操作失败提示。
+
 同一物理路径可能通过不同 access owner 到达，例如 global root 与已挂载 Project，或
 两个嵌套 Project。retained content snapshot 不能跨越 owner 边界；新 owner 必须执行
 权威 read，并建立自己的 watch 与 authorization 语义。完成 read 后，Editor Group
@@ -102,7 +108,8 @@ Agent 行或其他导航 surface。文件行通过 pointer capture 保持该所�
 合并；workspace 改变使旧结果失效；展开意图不依赖读取完成。目录缓存不成为文件内容
 model。
 
-用户通过指针或键盘展开、收起目录时重新核实该目录，同时保留可见快照。Layout Restoration
+用户通过指针或键盘展开目录时重新核实该目录，同时保留可见快照。收起目录仅更新本地
+状态，不触发目录或 Git Decoration 读取。Layout Restoration
 使用缓存读取，不触发这次核实。目录展开或文件打开收到路径不存在的响应时刷新父目录；
 父目录也不存在时，在已挂载 Root 内逐级向上核实。只有成功的父目录列表才能移除分支、
 清理其后代缓存与展开状态，并取消过期的后代读取。权限或传输失败保留原 Projection 并

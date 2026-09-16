@@ -46,6 +46,57 @@ function recordWorkspaceWatchReady(socket: PlaywrightWebSocket, onReady: (paths:
   })
 }
 
+for (const appearance of ['light', 'dark', 'paper']) {
+  test(`missing parent watch stays file-local while switching documents in ${appearance}`, async ({ page, workspaceRoot }) => {
+    const workspace = path.join(workspaceRoot, 'watch-isolation')
+    const removed = path.join(workspace, 'removed')
+    fs.mkdirSync(removed, { recursive: true })
+    fs.writeFileSync(path.join(removed, 'old.md'), '# Previous document\n')
+    fs.writeFileSync(path.join(workspace, 'one.md'), '# First document\n')
+    fs.writeFileSync(path.join(workspace, 'two.md'), '# Second document\n')
+    await createControlAgent(page, workspace)
+    await page.request.post('/farming/api/settings', { data: { appearance } })
+    let deleted = false
+    const globalErrors: string[] = []
+    const admitted = new Set<string>()
+    await page.routeWebSocket(/\/farming\/ws(?:\?|$)/, socket => {
+      const server = socket.connectToServer()
+      socket.onMessage(message => {
+        const payload = JSON.parse(String(message)) as { type?: string; paths?: string[] }
+        if (!deleted && payload.type === 'watch-workspace-files' && payload.paths?.includes('removed/old.md')) {
+          deleted = true
+          fs.rmSync(removed, { recursive: true })
+        }
+        server.send(message)
+      })
+      server.onMessage(message => {
+        const payload = JSON.parse(String(message)) as { type?: string; message?: string; paths?: string[] }
+        if (payload.type === 'error') globalErrors.push(payload.message || '')
+        if (payload.type === 'workspace-file-watch') payload.paths?.forEach(file => admitted.add(file))
+        socket.send(message)
+      })
+    })
+    await openFarming(page)
+    const project = page.getByTestId('code-project-group').filter({ hasText: 'watch-isolation' })
+    const files = project.getByTestId('code-files-section')
+    const title = files.locator('.code-files-title').first()
+    if (await title.getAttribute('aria-expanded') !== 'true') await title.click()
+    await files.locator('[data-file-path="removed"]').click()
+    await files.locator('[data-file-path="removed/old.md"]').click()
+    await expect(page.getByTestId('code-file-editor-alert')).toContainText('path not found')
+    await expect(page.getByTestId('code-file-editor')).toHaveScreenshot(`missing-watch-${appearance}.png`)
+    for (const file of ['one.md', 'two.md', 'one.md', 'two.md']) {
+      await openProjectFile(page, 'watch-isolation', file)
+      await expect(page.getByTestId('code-file-editor-alert')).toHaveCount(0)
+    }
+    await expect.poll(() => admitted.has('two.md')).toBe(true)
+    fs.writeFileSync(path.join(workspace, 'two.md'), '# Updated second document\n')
+    await expect(page.getByTestId('code-file-markdown-preview').getByRole('heading', { name: 'Updated second document' })).toBeVisible()
+    expect(deleted).toBe(true)
+    expect(globalErrors).toEqual([])
+  })
+}
+
 test('automatically refreshes every open file viewer while preserving dirty drafts', async ({ page, workspaceRoot }) => {
   const workspace = path.join(workspaceRoot, 'file-auto-refresh')
   fs.mkdirSync(workspace, { recursive: true })
