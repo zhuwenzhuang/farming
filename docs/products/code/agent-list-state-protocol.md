@@ -317,3 +317,32 @@ It protects manually pinned Sessions and Agents as well as live Agents currently
 projected into Pinned by Dynamic pinning. Removing a Project is a separate,
 confirmed cleanup operation and still releases every associated Agent and
 main-page Session, including pinned rows.
+
+## Sidebar Disclosure And Reordering
+
+Project titles and single-line Agent rows share navigation row height and vertical
+spacing, including compact touch targets. A collapsed Project renders only its
+title and applicable actions: branch/worktree metadata and the Agent-list
+visibility control return when expanded. Disclosure remains browser-owned and
+does not mutate Agent membership, activity, or backend order. Sticky measurements
+follow visible content and must shrink as well as grow across disclosure changes.
+
+Project and Agent dragging share insertion-line styling. The upper/lower half of
+the visible target row selects before/after; invisible sticky-stack reservations
+are excluded from hit testing and indicator placement. Starting a drag clears
+hover previews, a valid drop invokes the existing ordering owner once, and drag
+end/cancellation removes transient feedback without changing disclosure or active
+Agent. Before the first and after the last visible row are valid drop positions;
+Show more retains the explicit full-list end target for paginated Agents. Leaving
+a target, returning to the source, or entering another ordering group clears its
+line; a drop without a current valid target cannot reuse an old position. The
+browser drag controller records each target synchronously; rendering only
+projects feedback, so a same-frame drop cannot consume stale rendered state. Project
+drops remain within the source pin group. Backend state remains
+order authority; drag feedback is not evidence of persistence and does not retry
+a failed or uncertain mutation.
+
+Acceptance covers collapsed Git Projects next to expanded Agents, equal row
+spacing, repeated disclosure and viewport changes, before/after feedback on both
+row kinds, cancellation, persistent ordering, and sticky-stack release in Light,
+Dark, and Paper.

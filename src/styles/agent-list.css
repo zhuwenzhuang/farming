@@ -125,35 +125,10 @@
   color: var(--code-text);
 }
 
-.code-agent-row.dragging {
-  opacity: 0.45;
-}
-
-.code-agent-row.drop-before::before,
-.code-agent-row.drop-after::after {
-  content: '';
-  position: absolute;
-  left: 4px;
-  right: 4px;
-  height: 2px;
-  border-radius: 999px;
-  background: var(--code-accent);
-  pointer-events: none;
-  z-index: 30;
-}
-
-.code-agent-row.drop-before::before {
-  top: -2px;
-}
-
-.code-agent-row.drop-after::after {
-  bottom: -2px;
-}
-
 .code-agent-list {
   display: flex;
   flex-direction: column;
-  gap: 0;
+  gap: var(--code-sidebar-navigation-row-gap);
   padding-left: 7px;
   padding-bottom: 0;
 }
@@ -165,7 +140,7 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  min-height: 28px;
+  min-height: var(--code-sidebar-navigation-row-height);
   gap: 7px;
   padding: 4px 6px;
   /* Agent labels sit between Project headings and file entries in the sidebar hierarchy. */
@@ -380,7 +355,7 @@
 }
 
 .code-agent-list-controls > .code-agent-row {
-  min-height: 28px;
+  min-height: var(--code-sidebar-navigation-row-height);
   padding-block: 4px;
   border: 0;
   background: transparent;
@@ -861,7 +836,6 @@ body.code-mode:not(.code-compact-layout) .code-agent-row:has(.code-agent-row-act
 
   body.code-mode.code-compact-layout .code-agent-row {
       grid-template-columns: minmax(0, 1fr) auto;
-      min-height: 44px;
       padding: 7px 7px;
       border-radius: 10px;
       font-size: 14px;

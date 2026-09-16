@@ -176,6 +176,12 @@ target must not stretch a neighboring row or mask its text. Responsive changes
 must preserve virtual geometry, scroll position and the active interaction's
 ownership, not only the apparent row height.
 
+Dialog Close actions share the Close glyph, accessible action name, and icon-button
+recipe. Compact hit targets grow independently of glyph size. Home configuration
+actions use the same compact target metric, and text fields share the selector's
+field recipe. Pointer hover changes the surface; only keyboard focus adds the
+non-text control focus ring.
+
 ## Adoption And Exceptions
 
 For a new control or a change to an existing one:

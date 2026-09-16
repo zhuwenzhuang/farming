@@ -410,7 +410,7 @@ test.describe('additional Farming Code user scenarios', () => {
       await expect(brandDialog.locator('.code-brand-logo')).toBeVisible()
       await expect(brandDialog).toContainText('Farming Code began with a simple idea')
       await expect(brandDialog.getByRole('link', { name: 'GitHub' })).toHaveAttribute('href', 'https://github.com/zhuwenzhuang/farming')
-      await brandDialog.getByRole('button', { name: 'Cancel' }).click()
+      await brandDialog.getByRole('button', { name: 'Close' }).click()
     })
 
     await scenario('collapsed sidebar keeps the brand logo as an icon-sized affordance', async () => {

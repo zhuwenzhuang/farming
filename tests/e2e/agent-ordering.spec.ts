@@ -460,7 +460,7 @@ test('keeps the Files header below a resized sticky Agent section without Resize
   expect(releaseMotion).toEqual([-12, -12, -12])
 })
 
-test('keeps the active Agent snapshot pseudo inert until drag insertion', async ({ page, workspaceRoot }) => {
+test('keeps the active Agent snapshot pseudo inert until drag insertion', async ({ page, workspaceRoot }, testInfo) => {
   const projectDir = path.join(workspaceRoot, 'active-agent-pseudo')
   fs.mkdirSync(projectDir, { recursive: true })
 
@@ -485,19 +485,37 @@ test('keeps the active Agent snapshot pseudo inert until drag insertion', async 
   })
 
   const dataTransfer = await page.evaluateHandle(() => new DataTransfer())
-  const targetBox = await targetRow.boundingBox()
-  expect(targetBox).toBeTruthy()
-  await sourceRow.dispatchEvent('dragstart', { dataTransfer })
-  await targetRow.dispatchEvent('dragover', {
-    dataTransfer,
-    clientY: targetBox!.y + 1,
-  })
-  await expect.poll(() => targetRow.evaluate(element => (
-    ['rgb(9, 105, 218)', 'rgb(88, 166, 255)'].includes(
-      getComputedStyle(element, '::before').backgroundColor,
-    )
-  ))).toBe(true)
-  await sourceRow.dispatchEvent('dragend', { dataTransfer })
+  for (const appearance of ['light', 'dark', 'paper'] as const) {
+    await page.emulateMedia({ colorScheme: appearance === 'dark' ? 'dark' : 'light', reducedMotion: 'reduce' })
+    await page.evaluate(value => {
+      document.documentElement.dataset.appearance = value
+      document.body.dataset.appearance = value
+    }, appearance)
+    for (const position of ['before', 'after'] as const) {
+      const targetBox = await targetRow.boundingBox()
+      expect(targetBox).toBeTruthy()
+      await sourceRow.dispatchEvent('dragstart', { dataTransfer })
+      await targetRow.dispatchEvent('dragover', {
+        dataTransfer,
+        clientY: targetBox!.y + (position === 'before' ? 1 : targetBox!.height - 1),
+      })
+      await expect(targetRow).toHaveClass(new RegExp(`drop-${position}`))
+      await expect.poll(() => targetRow.evaluate((element, side) => {
+        const line = getComputedStyle(element, side === 'before' ? '::before' : '::after')
+        return { content: line.content, height: line.height, edge: side === 'before' ? line.top : line.bottom }
+      }, position)).toEqual({ content: '""', height: '2px', edge: '0px' })
+      const screenshotPath = testInfo.outputPath(`agent-drag-${appearance}-${position}.png`)
+      await project.screenshot({ path: screenshotPath, animations: 'disabled' })
+      await testInfo.attach(`agent-drag-${appearance}-${position}`, { path: screenshotPath, contentType: 'image/png' })
+      await targetRow.dispatchEvent('dragleave', { dataTransfer })
+      await expect(targetRow).not.toHaveClass(/drop-before|drop-after/)
+      await targetRow.dispatchEvent('drop', { dataTransfer })
+      await sourceRow.dispatchEvent('dragend', { dataTransfer })
+      await expect(targetRow).not.toHaveClass(/drop-before|drop-after/)
+      await expect(targetRow).toHaveClass(/active/)
+    }
+  }
+  await dataTransfer.dispose()
 })
 
 test('keeps persistent project and pinned Agent order', async ({ page, workspaceRoot }) => {
@@ -547,6 +565,11 @@ test('keeps persistent project and pinned Agent order', async ({ page, workspace
   ])
   await expect(targetRow).toHaveClass(/active/)
   await expect(sourceRow).not.toHaveClass(/active/)
+  const lastRow = project.locator(`[data-testid="code-agent-row"][data-agent-id="${secondAgentId}"]`)
+  await sourceRow.dragTo(lastRow, { targetPosition: { x: 80, y: (await lastRow.boundingBox())!.height - 2 } })
+  await expect.poll(() => projectAgentIds(project)).toEqual([thirdAgentId, secondAgentId, firstAgentId])
+  await sourceRow.dragTo(targetRow, { targetPosition: { x: 80, y: 2 } })
+  await expect.poll(() => projectAgentIds(project)).toEqual([firstAgentId, thirdAgentId, secondAgentId])
 
   await sourceRow.click()
   await expect(sourceRow).toHaveClass(/active/)
@@ -657,7 +680,35 @@ test('keeps persistent project and pinned Agent order', async ({ page, workspace
   expect(expandedIds[expandedIds.length - 1]).toBe(firstAgentId)
 })
 
-test('reorders Projects persistently within the sidebar', async ({ page, workspaceRoot }) => {
+test('same-frame Agent end drop consumes the current source and target', async ({ page, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'agent-fast-end-drop')
+  fs.mkdirSync(workspace)
+  for (let index = 0; index < 6; index += 1) await createControlAgent(page, workspace)
+  await openFarming(page)
+  const project = page.getByTestId('code-project-group').filter({ hasText: 'agent-fast-end-drop' })
+  await expect(project.getByTestId('code-agent-row')).toHaveCount(5)
+  const sourceId = await project.getByTestId('code-agent-row').first().getAttribute('data-agent-id')
+  // Active Agents intentionally remain visible across pagination; move an
+  // inactive row so the end-drop projection can be checked independently.
+  await project.getByTestId('code-agent-row').nth(1).click()
+  await expect(project.getByTestId('code-agent-row').nth(1)).toHaveClass(/active/)
+  await project.evaluate(element => {
+    const source = element.querySelector<HTMLElement>('[data-testid="code-agent-row"]')!
+    const target = element.querySelector<HTMLElement>('[data-testid="code-agent-show-more"]')!
+    const dataTransfer = new DataTransfer()
+    source.dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer }))
+    target.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer }))
+    target.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer }))
+    source.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer }))
+  })
+  await expect(project.locator(`[data-testid="code-agent-row"][data-agent-id="${sourceId}"]`)).toHaveCount(0)
+  await expect(project.getByTestId('code-agent-row')).toHaveCount(5)
+  await project.getByTestId('code-agent-show-more').click()
+  await expect(project.getByTestId('code-agent-row')).toHaveCount(6)
+  await expect(project.getByTestId('code-agent-row').last()).toHaveAttribute('data-agent-id', sourceId!)
+})
+
+test('reorders Projects persistently within the sidebar', async ({ page, workspaceRoot }, testInfo) => {
   const projectA = path.join(workspaceRoot, 'project-order-a')
   const projectB = path.join(workspaceRoot, 'project-order-b')
   const projectC = path.join(workspaceRoot, 'project-order-c')
@@ -683,6 +734,52 @@ test('reorders Projects persistently within the sidebar', async ({ page, workspa
 
   const sourceTitle = page.locator(`[data-testid="code-project-title"][data-project-id="${projectA}"]`)
   const targetTitle = page.locator(`[data-testid="code-project-title"][data-project-id="${projectC}"]`)
+  const targetRow = targetTitle.locator('..').locator('..')
+  const dataTransfer = await page.evaluateHandle(() => new DataTransfer())
+  for (const appearance of ['light', 'dark', 'paper'] as const) {
+    await page.emulateMedia({ colorScheme: appearance === 'dark' ? 'dark' : 'light', reducedMotion: 'reduce' })
+    await page.evaluate(value => {
+      document.documentElement.dataset.appearance = value
+      document.body.dataset.appearance = value
+    }, appearance)
+    for (const expanded of [true, false]) {
+      if (await targetTitle.getAttribute('aria-expanded') !== String(expanded)) await targetTitle.click()
+      for (const position of ['before', 'after'] as const) {
+        await sourceTitle.dispatchEvent('dragstart', { dataTransfer })
+        const visibleBox = await targetRow.locator('.code-project-title-content').boundingBox()
+        expect(visibleBox).toBeTruthy()
+        await targetTitle.dispatchEvent('dragover', {
+          dataTransfer,
+          clientY: visibleBox!.y + (position === 'before' ? 1 : visibleBox!.height - 1),
+        })
+        await expect(targetRow).toHaveClass(new RegExp(`drop-${position}`))
+        // Verify the line actually lies inside the clip, not merely that the
+        // pseudo-element has a color while being painted outside the header.
+        const indicator = await targetRow.evaluate((element, side) => {
+          const row = getComputedStyle(element)
+          const line = getComputedStyle(element, side === 'before' ? '::before' : '::after')
+          const visibleHeight = element.getBoundingClientRect().height - parseFloat(row.paddingBottom)
+          const y = side === 'before' ? parseFloat(line.top)
+            : element.getBoundingClientRect().height - parseFloat(line.bottom) - parseFloat(line.height)
+          return { y, bottom: y + parseFloat(line.height), visibleHeight, content: line.content }
+        }, position)
+        expect(indicator.content).toBe('""')
+        expect(indicator.y).toBeGreaterThanOrEqual(0)
+        expect(indicator.bottom).toBeLessThanOrEqual(indicator.visibleHeight)
+        const screenshotPath = testInfo.outputPath(`project-drag-${appearance}-${expanded ? 'expanded' : 'collapsed'}-${position}.png`)
+        await page.getByTestId('code-project-list').screenshot({ path: screenshotPath, animations: 'disabled' })
+        await testInfo.attach(`project-drag-${appearance}-${expanded ? 'expanded' : 'collapsed'}-${position}`, { path: screenshotPath, contentType: 'image/png' })
+        await targetRow.dispatchEvent('dragleave', { dataTransfer })
+        await expect(targetRow).not.toHaveClass(/drop-before|drop-after/)
+        await targetTitle.dispatchEvent('drop', { dataTransfer })
+        await sourceTitle.dispatchEvent('dragend', { dataTransfer })
+        await expect(targetRow).not.toHaveClass(/drop-before|drop-after/)
+        await expect(targetTitle).toHaveAttribute('aria-expanded', String(expanded))
+        await expect.poll(() => orderedProjectIds(page, projectIds)).toEqual([projectC, projectB, projectA])
+      }
+    }
+  }
+  await dataTransfer.dispose()
   await sourceTitle.dragTo(targetTitle, { targetPosition: { x: 80, y: 2 } })
   await expect.poll(() => orderedProjectIds(page, projectIds)).toEqual([
     projectA,
@@ -690,12 +787,25 @@ test('reorders Projects persistently within the sidebar', async ({ page, workspa
     projectB,
   ])
 
+  const lastTitle = page.locator(`[data-testid="code-project-title"][data-project-id="${projectB}"]`)
+  await sourceTitle.dragTo(lastTitle, { targetPosition: { x: 80, y: (await lastTitle.boundingBox())!.height - 2 } })
+  await expect.poll(() => orderedProjectIds(page, projectIds)).toEqual([projectC, projectB, projectA])
   await page.reload({ waitUntil: 'domcontentloaded' })
-  await expect.poll(() => orderedProjectIds(page, projectIds)).toEqual([
-    projectA,
-    projectC,
-    projectB,
-  ])
+  await expect.poll(() => orderedProjectIds(page, projectIds)).toEqual([projectC, projectB, projectA])
+
+  const pinResponse = await page.request.post('/farming/api/projects/pin', { data: { workspace: projectC, pinned: true } })
+  expect(pinResponse.ok()).toBeTruthy()
+  const invalidDrag = await page.evaluateHandle(() => new DataTransfer())
+  await sourceTitle.dispatchEvent('dragstart', { dataTransfer: invalidDrag })
+  await lastTitle.dispatchEvent('dragover', { dataTransfer: invalidDrag, clientY: (await lastTitle.boundingBox())!.y + 1 })
+  await expect(lastTitle.locator('..').locator('..')).toHaveClass(/drop-before/)
+  await targetTitle.dispatchEvent('dragover', { dataTransfer: invalidDrag })
+  await expect(lastTitle.locator('..').locator('..')).not.toHaveClass(/drop-before|drop-after/)
+  await expect(targetRow).not.toHaveClass(/drop-before|drop-after/)
+  await targetTitle.dispatchEvent('drop', { dataTransfer: invalidDrag })
+  await sourceTitle.dispatchEvent('dragend', { dataTransfer: invalidDrag })
+  await expect.poll(() => orderedProjectIds(page, projectIds)).toEqual([projectC, projectB, projectA])
+  await invalidDrag.dispose()
 })
 
 test('keeps Project Files on workspace identity while its source Agent changes', async ({ page, workspaceRoot }) => {

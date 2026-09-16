@@ -322,7 +322,7 @@
 .code-plugin-agent-actions button,
 .code-plugin-agent-path-edit button,
 .code-plugin-agent-form-actions button {
-  min-height: 30px;
+  height: 30px;
   padding: 0 11px;
   border: 0;
   border-radius: 8px;
@@ -335,7 +335,7 @@
 
 .code-plugin-agent-actions button {
   width: 26px;
-  min-height: 26px;
+  height: 26px;
   display: inline-grid;
   place-items: center;
   padding: 0;
@@ -371,6 +371,14 @@
 .code-plugin-agent-form-actions button:hover:not(:disabled),
 .code-plugin-agent-form-actions button:focus-visible:not(:disabled) {
   background: var(--code-bg-hover);
+}
+
+.code-plugin-agent-add:focus-visible:not(:disabled),
+.code-plugin-agent-drag:focus-visible:not(:disabled),
+.code-plugin-agent-actions button:focus-visible:not(:disabled),
+.code-plugin-agent-path-edit button:focus-visible:not(:disabled),
+.code-plugin-agent-form-actions button:focus-visible:not(:disabled),
+.code-plugin-agent-runtime-default:focus-visible:not(:disabled) {
   outline: 2px solid var(--code-focus-ring);
   outline-offset: 1px;
 }
@@ -415,20 +423,6 @@
   line-height: 18px;
 }
 
-.code-plugin-agent-form input,
-.code-plugin-agent-path-edit input {
-  width: 100%;
-  min-width: 0;
-  height: 34px;
-  padding: 0 10px;
-  border: 1px solid var(--code-border);
-  border-radius: 8px;
-  background: var(--code-bg-canvas);
-  color: var(--code-text);
-  font: inherit;
-  font-size: 14px;
-  border-color: var(--code-border);
-}
 
 .code-plugin-agent-form-actions {
   display: flex;
@@ -449,14 +443,11 @@
 }
 
 .code-plugin-agent-section {
+  position: relative;
   gap: 8px;
   padding: 13px 0 4px;
   border-top: 1px solid var(--code-border-subtle);
   border-color: var(--code-border);
-}
-
-.code-plugin-agent-section.dragging {
-  opacity: 0.55;
 }
 
 .code-plugin-agent-header {
@@ -467,7 +458,7 @@
 
 .code-plugin-agent-drag {
   width: 16px;
-  min-height: 20px;
+  height: 20px;
   padding: 0;
   border: 0;
   background: transparent;
@@ -482,7 +473,6 @@
 .code-plugin-agent-drag:hover:not(:disabled),
 .code-plugin-agent-drag:focus-visible:not(:disabled) {
   color: var(--code-text-muted);
-  outline: 0;
 }
 
 .code-plugin-agent-drag:disabled {
@@ -569,8 +559,6 @@
 .code-plugin-agent-runtime-default:hover:not(:disabled),
 .code-plugin-agent-runtime-default:focus-visible:not(:disabled) {
   background: var(--code-bg-hover-strong);
-  outline: 2px solid var(--code-focus-ring);
-  outline-offset: 1px;
 }
 
 .code-plugin-agent-runtime-default:disabled {
@@ -2311,5 +2299,17 @@
   .code-plugin-extension-home-tabs > button,
   .code-plugin-extension-kind-tabs > button {
     padding-inline: 9px;
+  }
+}
+
+@media (max-width: 767px), (max-width: 980px) and (pointer: coarse) {
+  .code-plugin-agent-header {
+    grid-template-columns: var(--code-touch-target-size) minmax(0, 1fr);
+  }
+
+  .code-plugin-agent-actions {
+    grid-column: 2;
+    justify-content: flex-start;
+    flex-wrap: wrap;
   }
 }

@@ -235,6 +235,105 @@ test('Plugins treats each Agent Home as an independent ordered Agent configurati
   await expect(review).toHaveCount(0)
 })
 
+test('Agent Home insertion lines cover first, last, cancellation and provider boundaries', async ({ page, workspaceRoot }, testInfo) => {
+  const homes = ['default', 'work', 'review'].map((id, order) => {
+    const homePath = path.join(workspaceRoot, `home-${id}`)
+    fs.mkdirSync(homePath)
+    fs.writeFileSync(path.join(homePath, 'config.toml'), '')
+    return { id, path: homePath, order }
+  })
+  const response = await page.request.post('/farming/api/settings', { data: { agentHomes: { codex: homes } } })
+  expect(response.ok()).toBeTruthy()
+  await openFarming(page)
+  await page.getByTestId('code-nav-plugins').click()
+  const panel = page.getByTestId('code-plugins-panel')
+  await panel.getByTestId('code-plugin-tab-homes').click()
+  const sections = panel.locator('[data-testid^="code-plugin-section-agent-codex-"]')
+  const order = () => sections.evaluateAll(elements => elements.map(element => element.getAttribute('data-testid')!.replace('code-plugin-section-agent-codex-', '')))
+  await expect.poll(order).toEqual(['default', 'work', 'review'])
+  const first = panel.getByTestId('code-plugin-section-agent-codex-default')
+  const middle = panel.getByTestId('code-plugin-section-agent-codex-work')
+  const last = panel.getByTestId('code-plugin-section-agent-codex-review')
+  const otherProvider = panel.getByTestId('code-plugin-section-agent-claude-default')
+  const handle = (section: import('@playwright/test').Locator) => section.getByRole('button', { name: 'Drag to reorder Agents', exact: true })
+  let saves = 0
+  page.on('request', request => {
+    if (request.method() === 'POST' && new URL(request.url()).pathname === '/farming/api/settings') saves += 1
+  })
+  const dataTransfer = await page.evaluateHandle(() => new DataTransfer())
+  for (const appearance of ['light', 'dark', 'paper'] as const) {
+    await page.emulateMedia({ colorScheme: appearance === 'dark' ? 'dark' : 'light', reducedMotion: 'reduce' })
+    await page.evaluate(value => {
+      document.documentElement.dataset.appearance = value
+      document.body.dataset.appearance = value
+    }, appearance)
+    for (const position of ['before', 'after'] as const) {
+      const source = position === 'before' ? last : first
+      const target = position === 'before' ? first : last
+      await target.scrollIntoViewIfNeeded()
+      await handle(source).dispatchEvent('dragstart', { dataTransfer })
+      const box = await target.boundingBox()
+      expect(box).toBeTruthy()
+      const dragOver = { dataTransfer, clientY: box!.y + (position === 'before' ? 1 : box!.height - 1) }
+      await target.dispatchEvent('dragover', dragOver)
+      await expect(target).toHaveClass(new RegExp(`drop-${position}`))
+      await expect.poll(() => target.evaluate((element, side) => {
+        const line = getComputedStyle(element, side === 'before' ? '::before' : '::after')
+        return { height: line.height, edge: side === 'before' ? line.top : line.bottom }
+      }, position)).toEqual({ height: '2px', edge: '0px' })
+      const screenshotPath = testInfo.outputPath(`home-drag-${appearance}-${position}.png`)
+      await target.screenshot({ path: screenshotPath, animations: 'disabled' })
+      await testInfo.attach(`home-drag-${appearance}-${position}`, { path: screenshotPath, contentType: 'image/png' })
+      await target.dispatchEvent('dragleave', { dataTransfer })
+      await expect(target).not.toHaveClass(/drop-before|drop-after/)
+      // A drop without a current valid target must not reuse the old position.
+      await target.dispatchEvent('drop', { dataTransfer })
+      await handle(source).dispatchEvent('dragend', { dataTransfer })
+      await expect.poll(order).toEqual(['default', 'work', 'review'])
+    }
+  }
+  await handle(last).dispatchEvent('dragstart', { dataTransfer })
+  await first.dispatchEvent('dragover', { dataTransfer, clientY: (await first.boundingBox())!.y + 1 })
+  await expect(first).toHaveClass(/drop-before/)
+  await last.dispatchEvent('dragover', { dataTransfer })
+  await expect(first).not.toHaveClass(/drop-before|drop-after/)
+  await first.dispatchEvent('dragover', { dataTransfer, clientY: (await first.boundingBox())!.y + 1 })
+  await otherProvider.dispatchEvent('dragover', { dataTransfer })
+  await expect(first).not.toHaveClass(/drop-before|drop-after/)
+  await expect(otherProvider).not.toHaveClass(/drop-before|drop-after/)
+  await otherProvider.dispatchEvent('drop', { dataTransfer })
+  await handle(last).dispatchEvent('dragend', { dataTransfer })
+  expect(saves).toBe(0)
+  await dataTransfer.dispose()
+
+  // Real browser dragging proves both ends are reachable and persist.
+  await handle(last).dragTo(first, { targetPosition: { x: 60, y: 2 } })
+  await expect.poll(order).toEqual(['review', 'default', 'work'])
+  await expect(handle(first)).toBeEnabled()
+  const lastBox = await middle.boundingBox()
+  await handle(last).dragTo(middle, { targetPosition: { x: 60, y: lastBox!.height - 2 } })
+  await expect.poll(order).toEqual(['default', 'work', 'review'])
+  await expect(handle(last)).toBeEnabled()
+  await handle(last).press('ArrowUp')
+  await expect.poll(order).toEqual(['default', 'review', 'work'])
+  await expect(handle(last)).toBeEnabled()
+  // All native input events in one task: drop must see the new target even
+  // before React has committed the dragover feedback render.
+  await panel.evaluate(element => {
+    const source = element.querySelector<HTMLElement>('[data-testid="code-plugin-section-agent-codex-work"] .code-plugin-agent-drag')!
+    const target = element.querySelector<HTMLElement>('[data-testid="code-plugin-section-agent-codex-default"]')!
+    const dataTransfer = new DataTransfer()
+    source.dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer }))
+    target.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer, clientY: target.getBoundingClientRect().top + 1 }))
+    target.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer }))
+    source.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer }))
+  })
+  await expect.poll(order).toEqual(['work', 'default', 'review'])
+  await expect(handle(last)).toBeEnabled()
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await expect.poll(order).toEqual(['work', 'default', 'review'])
+})
+
 test('Agent Homes discovers a newly created Home and keeps it with its provider', async ({ page }) => {
   const homePath = fs.mkdtempSync(path.join(os.homedir(), '.codex-farming-discovery-'))
   fs.writeFileSync(path.join(homePath, 'config.toml'), 'model = "fixture-discovered-model"\n')

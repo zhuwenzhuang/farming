@@ -140,3 +140,63 @@ test('keeps composed sidebar density and alignment through resize, expansion, an
     }
   }
 })
+
+
+test('collapsed Git Projects share Agent row density in every appearance and viewport', async ({ page, workspaceRoot, isMobile }, testInfo) => {
+  const workspaces = ['compact-project-a', 'compact-project-b', 'expanded-project'].map(name => path.join(workspaceRoot, name))
+  for (const workspace of workspaces) {
+    fs.mkdirSync(workspace)
+    execFileSync('git', ['init', '--quiet', '--initial-branch=main'], { cwd: workspace })
+    const response = await page.request.post('/farming/api/control/agents', { data: { command: 'bash', workspace } })
+    expect(response.ok()).toBeTruthy()
+  }
+  for (let index = 0; index < 5; index += 1) {
+    const extraAgent = await page.request.post('/farming/api/control/agents', {
+      data: { command: 'bash', workspace: workspaces[2] },
+    })
+    expect(extraAgent.ok()).toBeTruthy()
+  }
+  await openFarming(page)
+  const sidebar = page.getByTestId('code-sidebar')
+  const projects = workspaces.map(workspace => page.getByTestId('code-project-group').filter({ hasText: path.basename(workspace) }))
+  for (const compact of [false, true, false]) {
+    await page.setViewportSize(compact ? { width: 393, height: 852 } : { width: 1280, height: 900 })
+    await expect(page.locator('body')).toHaveClass(compact ? /code-compact-layout/ : /^(?!.*code-compact-layout)/)
+    if (await sidebar.evaluate(element => element.classList.contains('collapsed'))) {
+      const back = page.getByTestId('code-mobile-back')
+      if (await back.isVisible()) await back.click()
+      await page.getByTestId(compact ? 'code-mobile-menu' : 'code-sidebar-toggle').click()
+    }
+    const height = compact ? 44 : 28
+    for (const appearance of ['light', 'dark', 'paper'] as const) {
+      await page.emulateMedia({ colorScheme: appearance === 'dark' ? 'dark' : 'light', reducedMotion: 'reduce' })
+      await page.evaluate(value => {
+        document.documentElement.dataset.appearance = value
+        document.body.dataset.appearance = value
+      }, appearance)
+      for (const project of projects.slice(0, 2)) {
+        const title = project.getByTestId('code-project-title')
+        if (await title.getAttribute('aria-expanded') !== 'true') await title.click()
+        await expect(project.getByTestId('code-project-worktree')).toBeVisible()
+        await title.click()
+        await expect(project.getByTestId('code-project-worktree')).toHaveCount(0)
+        await expect(project.getByTestId('code-project-agent-visibility')).toHaveCount(0)
+        await expect.poll(() => rect(project)).toMatchObject({ height })
+        await expect.poll(() => rect(title)).toMatchObject({ height })
+      }
+      const collapsedBounds = await Promise.all(projects.slice(0, 2).map(rect))
+      collapsedBounds.sort((a, b) => a.y - b.y)
+      expect(collapsedBounds[1]!.y - collapsedBounds[0]!.y - height).toBe(0)
+      const agents = projects[2]!.getByTestId('code-agent-row')
+      await expect(agents).toHaveCount(5)
+      const agentBounds = await Promise.all((await agents.all()).map(rect))
+      expect(agentBounds.map(bounds => bounds.height)).toEqual(Array(5).fill(height))
+      expect(agentBounds.slice(1).map((bounds, index) => bounds.y - agentBounds[index]!.y - height)).toEqual([0, 0, 0, 0])
+      expect((await rect(projects[2]!.getByTestId('code-agent-show-more'))).height).toBe(height)
+      await page.mouse.move(0, 0)
+      const screenshotPath = testInfo.outputPath(`collapsed-${isMobile ? 'touch' : 'mouse'}-${compact ? 'compact' : 'desktop'}-${appearance}.png`)
+      await page.getByTestId('code-project-list').screenshot({ path: screenshotPath, animations: 'disabled' })
+      await testInfo.attach(`collapsed-${compact ? 'compact' : 'desktop'}-${appearance}`, { path: screenshotPath, contentType: 'image/png' })
+    }
+  }
+})

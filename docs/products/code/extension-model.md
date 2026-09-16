@@ -178,7 +178,13 @@ remain configured so temporary unavailability cannot erase an identity.
 Homes are grouped in the provider catalog's order, with stable saved order within
 each provider. Newly discovered and manually added Homes append within their
 provider; discoveries from one scan use deterministic path order. Drag and
-keyboard reordering operate within a provider group.
+keyboard reordering operate within a provider group. Home cards share the Project
+and Agent insertion-line recipe: the upper/lower half selects before/after,
+including before the first and after the last Home. Leaving the target, hovering
+the source or another provider, dropping without a valid target, and cancelling
+clear feedback without saving. A valid drop saves once through the existing
+settings owner; saving disables reordering, and uncertain outcomes reconcile by
+read rather than replay. Arrow keys retain one-step movement within the group.
 
 Each Provider launch profile owns the default Home and Terminal-or-Chat runtime
 for new Agents. A launch request may explicitly override either value without

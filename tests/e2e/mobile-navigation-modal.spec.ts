@@ -260,7 +260,7 @@ test('mobile share owns focus and Escape without closing the underlying view', a
 
   const sheet = page.getByTestId('code-mobile-share-sheet')
   const dialog = sheet.getByRole('dialog')
-  const closeButton = dialog.getByRole('button', { name: /Cancel|取消/ })
+  const closeButton = dialog.getByRole('button', { name: /Close|关闭/ })
   await expect(closeButton).toBeFocused()
 
   const focusable = dialog.locator('button:not(:disabled)')

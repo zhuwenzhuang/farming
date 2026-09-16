@@ -1,3 +1,4 @@
+import { CloseGlyph } from '@/components/IconGlyphs'
 import { createPortal } from 'react-dom'
 import { useRef } from 'react'
 import type { RefObject } from 'react'
@@ -43,7 +44,7 @@ export function BrandAboutDialog({
         aria-modal="true"
         aria-labelledby="code-brand-title"
       >
-        <button ref={closeButtonRef} type="button" className="code-brand-close" aria-label={copy.cancel} onClick={onClose}>×</button>
+        <button ref={closeButtonRef} type="button" className="code-brand-close code-dialog-close" aria-label={copy.close} onClick={onClose}><CloseGlyph /></button>
         <img className="code-brand-logo" src={appPath('/farming-2/app-icon-v2-180.png')} alt="" aria-hidden="true" />
         <div className="code-brand-heading">
           <h2 id="code-brand-title">Farming Code</h2>

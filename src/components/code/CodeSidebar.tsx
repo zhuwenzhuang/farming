@@ -704,6 +704,7 @@ export function CodeSidebar({
     beginAgentDrag: beginProjectDrag,
     dropAgent: dropProject,
     finishAgentDrag: finishProjectDrag,
+    leaveAgentDropTarget: leaveProjectDropTarget,
     updateAgentDropTarget: updateProjectDropTarget,
   } = useAgentReorder(
     reorderableProjects,
@@ -711,12 +712,6 @@ export function CodeSidebar({
     hideAgentPreview,
     (source, target) => source.pinned === target.pinned,
   )
-  const canDropProject = (targetProjectId: string) => {
-    if (!projectDrag) return false
-    const source = reorderableProjects.find(project => project.id === projectDrag.agentId)
-    const target = reorderableProjects.find(project => project.id === targetProjectId)
-    return Boolean(source && target && source.pinned === target.pinned)
-  }
   const sidebarRailItems = displayedProjects.flatMap<SidebarRailItem>(project => [
     ...project.agents
       .filter(agent => !agent.isMain)
@@ -960,12 +955,13 @@ export function CodeSidebar({
             dropPosition={projectDrag?.targetAgentId === project.id ? projectDrag.position : undefined}
             onProjectDragStart={beginProjectDrag}
             onProjectDragEnd={finishProjectDrag}
-            onProjectDragOver={(event, projectId) => {
-              if (canDropProject(projectId)) updateProjectDropTarget(event, projectId)
-            }}
-            onProjectDrop={(event, projectId) => {
-              if (canDropProject(projectId)) dropProject(event, projectId)
-            }}
+            onProjectDragLeave={leaveProjectDropTarget}
+            onProjectDragOver={(event, projectId) => updateProjectDropTarget(
+              event,
+              projectId,
+              event.currentTarget.querySelector('.code-project-title-content') ?? event.currentTarget,
+            )}
+            onProjectDrop={dropProject}
             onShowProjectPreview={showProjectPreview}
             onOpenAgent={onOpenAgent}
             onUpdateAgentFlags={onUpdateAgentFlags}
@@ -1409,6 +1405,7 @@ function PinnedSection({
     beginAgentDrag,
     dropAgent,
     finishAgentDrag,
+    leaveAgentDropTarget,
     updateAgentDropTarget,
   } = useAgentReorder(pinnedAgents, onReorderAgent, onHideAgentPreview)
   return (
@@ -1488,6 +1485,7 @@ function PinnedSection({
                     dropPosition={agentDrag?.targetAgentId === agent.id ? agentDrag.position : undefined}
                     onAgentDragStart={beginAgentDrag}
                     onAgentDragEnd={finishAgentDrag}
+                    onAgentDragLeave={leaveAgentDropTarget}
                     onAgentDragOver={updateAgentDropTarget}
                     onAgentDrop={dropAgent}
                     onOpenAgentMenu={onOpenAgentMenu}
@@ -1914,6 +1912,7 @@ interface ProjectSectionProps {
   dropPosition?: 'before' | 'after'
   onProjectDragStart: (event: ReactDragEvent<HTMLElement>, projectId: string) => void
   onProjectDragEnd: () => void
+  onProjectDragLeave: (event: ReactDragEvent<HTMLElement>) => void
   onProjectDragOver: (event: ReactDragEvent<HTMLElement>, projectId: string) => void
   onProjectDrop: (event: ReactDragEvent<HTMLElement>, projectId: string) => void
   onShowProjectPreview: (event: AgentPreviewAnchorEvent, target: ProjectPreviewTarget) => void
@@ -2063,6 +2062,7 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
   dropPosition,
   onProjectDragStart,
   onProjectDragEnd,
+  onProjectDragLeave,
   onProjectDragOver,
   onProjectDrop,
   onShowProjectPreview,
@@ -2252,15 +2252,15 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
     dropAgentAtEnd,
     droppingAtEnd: droppingAtProjectEnd,
     finishAgentDrag,
+    leaveAgentDropTarget,
     updateAgentDropTarget,
     updateAgentEndDropTarget: updateProjectEndDropTarget,
   } = useAgentReorder(sortedAgents, onReorderAgent, onHideAgentPreview)
   const dropAgentAtProjectEnd = useCallback((event: ReactDragEvent<HTMLElement>) => {
-    const droppedAgentId = agentDrag?.agentId
-    dropAgentAtEnd(event)
+    const droppedAgentId = dropAgentAtEnd(event)
     if (!droppedAgentId) return
     setPaginationExcludedAgentIds(current => new Set([...current, droppedAgentId]))
-  }, [agentDrag?.agentId, dropAgentAtEnd])
+  }, [dropAgentAtEnd])
 
   useEffect(() => {
     setProjectAgentVisibleLimit(current => {
@@ -2381,6 +2381,7 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
       <div
         ref={projectRowRef}
         className={`code-project-row ${dragging ? 'dragging' : ''} ${dropPosition ? `drop-${dropPosition}` : ''}`}
+        onDragLeave={onProjectDragLeave}
         onDragOver={event => onProjectDragOver(event, project.id)}
         onDrop={event => onProjectDrop(event, project.id)}
         onMouseEnter={event => {
@@ -2452,7 +2453,7 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
               </span>
             )}
           </button>
-          {currentProjectWorktreeName && repositoryWorktrees && (
+          {!collapsed && currentProjectWorktreeName && repositoryWorktrees && (
             <button
               ref={worktreeButtonRef}
               type="button"
@@ -2472,7 +2473,7 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
           )}
         </span>
         <span className="code-project-title-actions" aria-hidden={false}>
-          {showAgentsSection && !forceAgentsExpanded && (
+          {!collapsed && showAgentsSection && !forceAgentsExpanded && (
             <button
               type="button"
               className="code-project-title-action"
@@ -2612,6 +2613,7 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
                             dropPosition={agentDrag?.targetAgentId === agent.id ? agentDrag.position : undefined}
                             onAgentDragStart={beginAgentDrag}
                             onAgentDragEnd={finishAgentDrag}
+                            onAgentDragLeave={leaveAgentDropTarget}
                             onAgentDragOver={updateAgentDropTarget}
                             onAgentDrop={dropAgent}
                             onOpenAgentMenu={onOpenAgentMenu}
@@ -2666,6 +2668,7 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
                           }
                           onToggleProjectSessions(project.id, 'more')
                         }}
+                        onDragLeave={leaveAgentDropTarget}
                         onDragOver={canRevealProjectAgents ? updateProjectEndDropTarget : undefined}
                         onDrop={canRevealProjectAgents ? dropAgentAtProjectEnd : undefined}
                       >
@@ -3021,6 +3024,7 @@ function AgentRow({
   dropPosition,
   onAgentDragStart,
   onAgentDragEnd,
+  onAgentDragLeave,
   onAgentDragOver,
   onAgentDrop,
   onOpenAgentMenu,
@@ -3046,6 +3050,7 @@ function AgentRow({
   dropPosition?: 'before' | 'after'
   onAgentDragStart?: (event: ReactDragEvent<HTMLElement>, agentId: string) => void
   onAgentDragEnd?: () => void
+  onAgentDragLeave?: (event: ReactDragEvent<HTMLElement>) => void
   onAgentDragOver?: (event: ReactDragEvent<HTMLElement>, agentId: string) => void
   onAgentDrop?: (event: ReactDragEvent<HTMLElement>, agentId: string) => void
   onOpenAgentMenu?: (event: ContextMenuTriggerEvent, agentId: string) => void
@@ -3151,6 +3156,7 @@ function AgentRow({
           draggedRef.current = false
         }, 0)
       }}
+      onDragLeave={onAgentDragLeave}
       onDragOver={event => liveAgentId && reorderable && onAgentDragOver?.(event, liveAgentId)}
       onDrop={event => liveAgentId && reorderable && onAgentDrop?.(event, liveAgentId)}
       onClick={event => {

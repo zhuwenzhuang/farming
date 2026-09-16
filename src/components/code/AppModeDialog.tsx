@@ -1,3 +1,4 @@
+import { CloseGlyph } from '@/components/IconGlyphs'
 import { createPortal } from 'react-dom'
 import { useRef } from 'react'
 import { appPath } from '@/lib/base-path'
@@ -42,7 +43,7 @@ export function AppModeDialog({
         aria-modal="true"
         aria-labelledby="code-app-mode-title"
       >
-        <button ref={closeButtonRef} type="button" className="code-app-mode-close" aria-label={copy.cancel} onClick={onClose}>×</button>
+        <button ref={closeButtonRef} type="button" className="code-app-mode-close code-dialog-close" aria-label={copy.close} onClick={onClose}><CloseGlyph /></button>
         <header className="code-app-mode-heading">
           <img src={appPath('/farming-2/app-icon-v2-180.png')} alt="" aria-hidden="true" />
           <div>

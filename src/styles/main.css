@@ -150,26 +150,6 @@ body.code-resizing-resource-agent {
   position: absolute;
   top: 10px;
   right: 10px;
-  width: 30px;
-  height: 30px;
-  display: grid;
-  place-items: center;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--code-text-subtle);
-  font: inherit;
-  font-size: 22px;
-  font-weight: 300;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.code-app-mode-close:hover,
-.code-app-mode-close:focus-visible {
-  background: var(--code-bg-hover);
-  color: var(--code-text);
-  outline: 0;
 }
 
 .code-app-mode-heading {
@@ -326,25 +306,6 @@ body.code-resizing-resource-agent {
   position: absolute;
   top: 12px;
   right: 12px;
-  width: 30px;
-  height: 30px;
-  display: grid;
-  place-items: center;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--code-text-subtle);
-  font: inherit;
-  font-size: 22px;
-  font-weight: 300;
-  line-height: 1;
-}
-
-.code-brand-close:hover,
-.code-brand-close:focus-visible {
-  background: var(--code-bg-hover);
-  color: var(--code-text);
-  outline: 0;
 }
 
 .code-brand-logo {

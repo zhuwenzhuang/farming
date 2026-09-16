@@ -1,3 +1,4 @@
+import { useInteractionLayer } from '@/hooks/useInteractionLayer'
 import { useCallback, useEffect, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from 'react'
 import {
   openRequestForWorkspaceFileJumpQuery,
@@ -12,6 +13,7 @@ interface UseWorkspaceFileSearchControllerOptions {
   fileMenuOpen: boolean
   fileOperationActive: boolean
   fileSearch: WorkspaceFileSearchState
+  fileSearchInputRef: RefObject<HTMLInputElement | null>
   fileSearchResultsRef: RefObject<HTMLDivElement | null>
   filesCollapsed: boolean
   focusFileTreeFromSearch: () => void
@@ -24,6 +26,7 @@ export function useWorkspaceFileSearchController({
   fileMenuOpen,
   fileOperationActive,
   fileSearch,
+  fileSearchInputRef,
   fileSearchResultsRef,
   filesCollapsed,
   focusFileTreeFromSearch,
@@ -58,13 +61,7 @@ export function useWorkspaceFileSearchController({
   }, [fileSearch, onOpenFilePath])
 
   const handleFileSearchKeyDown = useCallback((event: ReactKeyboardEvent<HTMLInputElement>) => {
-    if (event.key === 'Escape') {
-      event.preventDefault()
-      event.stopPropagation()
-      fileSearch.clear()
-      focusFileTreeFromSearch()
-      return
-    }
+    if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return
 
     if (event.key === 'ArrowDown') {
       if (fileSearch.matches.length === 0) return
@@ -86,7 +83,7 @@ export function useWorkspaceFileSearchController({
     if (openFileJumpQuery(event.currentTarget.value)) return
     const selectedMatch = fileSearch.selectedMatch ?? fileSearch.matches[0]
     if (selectedMatch) openFileSearchMatch(selectedMatch)
-  }, [fileSearch, focusFileTreeFromSearch, openFileJumpQuery, openFileSearchMatch])
+  }, [fileSearch, openFileJumpQuery, openFileSearchMatch])
 
   useEffect(() => {
     if (!fileSearch.active || fileSearch.matches.length === 0) return
@@ -102,22 +99,15 @@ export function useWorkspaceFileSearchController({
     }
   }, [fileSearch.active, fileSearch.activeMatchIndex, fileSearch.matches.length, fileSearchResultsRef])
 
-  useEffect(() => {
-    if (filesCollapsed || !fileSearch.active || fileMenuOpen || fileOperationActive) return undefined
-
-    const closeFileSearchOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
-      event.preventDefault()
-      event.stopPropagation()
+  useInteractionLayer({
+    enabled: !filesCollapsed && fileSearch.active && !fileMenuOpen && !fileOperationActive,
+    elements: () => [fileSearchInputRef.current, fileSearchResultsRef.current],
+    dismissOnPointerOutside: false,
+    onDismiss: () => {
       fileSearch.clear()
       focusFileTreeFromSearch()
-    }
-
-    document.addEventListener('keydown', closeFileSearchOnEscape, true)
-    return () => {
-      document.removeEventListener('keydown', closeFileSearchOnEscape, true)
-    }
-  }, [fileMenuOpen, fileOperationActive, fileSearch, filesCollapsed, focusFileTreeFromSearch])
+    },
+  })
 
   return {
     activeOptionId,

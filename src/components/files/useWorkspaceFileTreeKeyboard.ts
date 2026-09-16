@@ -2,7 +2,6 @@ import { useCallback, useEffect, type KeyboardEvent as ReactKeyboardEvent, type 
 import type { NodeApi, TreeApi } from 'react-arborist'
 import type {
   WorkspaceFileOperationKind,
-  WorkspaceFileOperationState,
 } from '@/lib/workspace-file-operation-model'
 import {
   shouldCancelPendingWorkspaceFileTreeFocus,
@@ -18,10 +17,8 @@ interface UseWorkspaceFileTreeKeyboardOptions {
   treeRef: MutableRefObject<TreeApi<WorkspaceFileTreeNode> | undefined>
   treeViewportRef: MutableRefObject<HTMLDivElement | null>
   lastFocusedFilePathRef: MutableRefObject<string | null>
-  fileOperation: WorkspaceFileOperationState | null
   openDirectoryPaths: ReadonlySet<string>
   cancelPendingFileFocus: () => void
-  closeFileOperation: () => void
   focusFileSearchInput: () => void
   focusFileTreePath: (filePath: string | null) => void
   focusFileTreeTarget: (item: WorkspaceFileTreeNode | null) => void
@@ -41,10 +38,8 @@ export function useWorkspaceFileTreeKeyboard({
   treeRef,
   treeViewportRef,
   lastFocusedFilePathRef,
-  fileOperation,
   openDirectoryPaths,
   cancelPendingFileFocus,
-  closeFileOperation,
   focusFileSearchInput,
   focusFileTreePath,
   focusFileTreeTarget,
@@ -113,13 +108,6 @@ export function useWorkspaceFileTreeKeyboard({
 
     const tree = treeRef.current
     const targetElement = event.target as HTMLElement | null
-    if (fileOperation && event.key === 'Escape' && targetElement?.closest('.code-file-inline-operation')) {
-      event.preventDefault()
-      event.stopPropagation()
-      closeFileOperation()
-      return
-    }
-
     if (targetElement?.closest('input, textarea, [contenteditable="true"], .code-file-inline-operation')) return
 
     if (shouldCancelPendingWorkspaceFileTreeFocus(event.key)) {
@@ -290,9 +278,7 @@ export function useWorkspaceFileTreeKeyboard({
     }
   }, [
     cancelPendingFileFocus,
-    closeFileOperation,
     closeDirectoryNode,
-    fileOperation,
     focusFileSearchInput,
     focusFileTreeTarget,
     lastFocusedFilePathRef,

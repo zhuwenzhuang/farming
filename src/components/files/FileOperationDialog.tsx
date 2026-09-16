@@ -1,4 +1,5 @@
-import type { RefObject } from 'react'
+import { useRef, type RefObject } from 'react'
+import { useInteractionLayer } from '@/hooks/useInteractionLayer'
 import {
   workspaceFileOperationTitle,
   type WorkspaceFileOperationState,
@@ -26,6 +27,14 @@ export function FileOperationDialog({
   onSubmit,
   onUpdateName,
 }: FileOperationDialogProps) {
+  const formRef = useRef<HTMLFormElement | null>(null)
+  useInteractionLayer({
+    enabled: Boolean(fileOperation && fileOperation.kind !== 'rename'),
+    elements: () => [formRef.current],
+    dismissOnPointerOutside: fileOperation?.kind === 'delete',
+    dismissOnEscape: !fileOperation?.submitting,
+    onDismiss: onCancel,
+  })
   if (!fileOperation || fileOperation.kind === 'rename') return null
 
   return (
@@ -34,12 +43,10 @@ export function FileOperationDialog({
       data-testid="code-file-operation-backdrop"
       onMouseDown={event => {
         event.stopPropagation()
-        if (fileOperation.kind === 'delete' && event.target === event.currentTarget) {
-          onCancel()
-        }
       }}
     >
       <form
+        ref={formRef}
         className="code-file-operation-dialog"
         data-testid="code-file-operation-dialog"
         role="dialog"
@@ -48,12 +55,6 @@ export function FileOperationDialog({
         aria-labelledby="code-file-operation-title"
         autoComplete="off"
         onMouseDown={event => event.stopPropagation()}
-        onKeyDown={event => {
-          if (event.key === 'Escape') {
-            event.preventDefault()
-            onCancel()
-          }
-        }}
         onSubmit={event => {
           event.preventDefault()
           onSubmit()
@@ -102,6 +103,7 @@ export function FileOperationDialog({
               onUpdateName(event.target.value)
             }}
             onKeyDown={event => {
+              if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return
               if (event.key !== 'Enter') return
               event.preventDefault()
               event.stopPropagation()

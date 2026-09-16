@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { createPortal } from 'react-dom'
+import { useModalFocusScope } from '@/hooks/useModalFocusScope'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { CheckGlyph, ChevronLeftGlyph, CloseGlyph, ColorModeGlyph, PlayGlyph } from '@/components/IconGlyphs'
 import { CodeSelect } from '@/components/CodeSelect'
 import { appPath } from '@/lib/base-path'
@@ -246,6 +248,23 @@ export function AgentHomesSettingsPanel({
   const copy = useMemo(() => panelCopy(language), [language])
   const defaultPetAppearance = usePetDefaultAppearance(uiPreferences.appearance)
   const closeButtonRef = useRef<HTMLButtonElement | null>(null)
+  const backButtonRef = useRef<HTMLButtonElement | null>(null)
+  const initialFocusRef = useRef<HTMLElement | null>(null)
+  const returnFocusRef = useRef<HTMLElement | null>(null)
+  useLayoutEffect(() => {
+    if (!open) return
+    returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    initialFocusRef.current = backButtonRef.current?.getClientRects().length
+      ? backButtonRef.current
+      : closeButtonRef.current
+  }, [open])
+  const dialogRef = useModalFocusScope<HTMLElement>({
+    open,
+    initialFocusRef,
+    returnFocusRef,
+    onEscape: onClose,
+    dismissOnPointerOutside: true,
+  })
   const searchTimeoutSaveTimerRef = useRef<number | null>(null)
   const restReminderSaveRequestRef = useRef(0)
   const upgradeTargetVersionRef = useRef('')
@@ -348,22 +367,6 @@ export function AgentHomesSettingsPanel({
   }, [defaultPetAppearance, loadSettings, open])
 
   useEffect(() => {
-    if (!open) return undefined
-    const returnFocusTarget = document.activeElement instanceof HTMLElement
-      ? document.activeElement
-      : null
-    const focusFrame = window.requestAnimationFrame(() => {
-      closeButtonRef.current?.focus({ preventScroll: true })
-    })
-    return () => {
-      window.cancelAnimationFrame(focusFrame)
-      if (returnFocusTarget?.isConnected) {
-        returnFocusTarget.focus({ preventScroll: true })
-      }
-    }
-  }, [open])
-
-  useEffect(() => {
     setPetAppearanceState(readPetAppearance(undefined, defaultPetAppearance))
   }, [defaultPetAppearance, open])
 
@@ -437,18 +440,6 @@ export function AgentHomesSettingsPanel({
     }
     if (saveAgentCompletionNotificationsEnabled(true)) setCompletionNotificationsEnabled(true)
   }, [completionNotificationsEnabled])
-
-  useEffect(() => {
-    if (!open) return undefined
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        onClose()
-      }
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [onClose, open])
 
   const refreshUpdateStatus = useCallback((force = true, quiet = false) => {
     if (!quiet) {
@@ -712,22 +703,19 @@ export function AgentHomesSettingsPanel({
       : selectedVersion?.available && targetUpdateVersion !== '-'
         ? copy.updateToVersion(targetUpdateVersion)
         : copy.updateAction
-  return (
+  return createPortal(
     <div
       className="code-settings-panel-overlay"
       data-testid="code-settings-panel"
       data-pet-snapshot-exclude
-      onPointerDown={event => {
-        if (event.target === event.currentTarget) onClose()
-      }}
     >
-      <aside className="code-settings-panel" aria-modal="true" role="dialog" aria-labelledby="code-settings-panel-title">
+      <aside ref={dialogRef} className="code-settings-panel" aria-modal="true" role="dialog" aria-labelledby="code-settings-panel-title">
         <header className="code-settings-panel-header">
-          <button type="button" className="code-settings-panel-back" onClick={onClose} aria-label={copy.back}><ChevronLeftGlyph /></button>
+          <button ref={backButtonRef} type="button" className="code-settings-panel-back code-touch-target" onClick={onClose} aria-label={copy.back}><ChevronLeftGlyph /></button>
           <div>
             <h2 id="code-settings-panel-title">{copy.title}</h2>
           </div>
-          <button ref={closeButtonRef} type="button" className="code-settings-panel-close" onClick={onClose} aria-label={copy.close}><CloseGlyph /></button>
+          <button ref={closeButtonRef} type="button" className="code-settings-panel-close code-dialog-close" onClick={onClose} aria-label={copy.close}><CloseGlyph /></button>
         </header>
 
         <div className="code-settings-panel-body">
@@ -1050,6 +1038,7 @@ export function AgentHomesSettingsPanel({
 
         </div>
       </aside>
-    </div>
+    </div>,
+    document.body,
   )
 }

@@ -429,17 +429,6 @@
   line-height: 22px;
 }
 
-.code-mobile-share-header button {
-  width: 44px;
-  height: 44px;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--code-text-subtle);
-  font-size: 22px;
-  font-weight: 300;
-  line-height: 1;
-}
 
 .code-mobile-share-choice {
   min-width: 0;

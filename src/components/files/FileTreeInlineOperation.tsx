@@ -1,3 +1,4 @@
+import { useInteractionLayer } from '@/hooks/useInteractionLayer'
 import { useLayoutEffect, useRef, type RefObject } from 'react'
 import {
   workspaceFileOperationSelectionEnd,
@@ -27,6 +28,13 @@ export function FileTreeInlineOperation({
   onInputName,
   onSubmit,
 }: FileTreeInlineOperationProps) {
+  useInteractionLayer({
+    enabled: true,
+    elements: () => [inputRef.current?.closest('form')],
+    dismissOnPointerOutside: false,
+    dismissOnEscape: !fileOperation.submitting,
+    onDismiss: onCancel,
+  })
   // `fileOperation.name` changes on every keystroke, so the selection range is read
   // through a ref: re-running the effect would reset the caret while the user types.
   const fileOperationRef = useRef(fileOperation)
@@ -92,12 +100,7 @@ export function FileTreeInlineOperation({
           onInputName(event.currentTarget.value)
         }}
         onKeyDown={event => {
-          if (event.key === 'Escape') {
-            event.preventDefault()
-            event.stopPropagation()
-            onCancel()
-            return
-          }
+          if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return
           if (event.key !== 'Enter') return
           event.preventDefault()
           event.stopPropagation()

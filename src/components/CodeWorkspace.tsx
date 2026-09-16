@@ -2588,7 +2588,12 @@ export function CodeWorkspace({
       mobileNavigationFocusRestoreFrameRef.current = null
     }
     const returnFocusTarget = mobileNavigationTriggerRef.current
+    const initialActiveElement = document.activeElement
     const focusFrame = window.requestAnimationFrame(() => {
+      // Opening the drawer must not steal a later keyboard/pointer choice or
+      // focus from a dialog opened before this frame runs.
+      if (document.activeElement !== initialActiveElement
+        || mobileNavigationDialogRef.current?.closest('[inert]')) return
       mobileNavigationDialogRef.current
         ?.querySelector<HTMLButtonElement>('[data-testid="code-sidebar-toggle"]')
         ?.focus({ preventScroll: true })

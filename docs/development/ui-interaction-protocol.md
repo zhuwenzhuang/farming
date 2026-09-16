@@ -65,6 +65,14 @@ isolation together; closing or unmounting one must not restore the background
 until the last owner releases it. Focus restoration must not target an inert
 background while another modal remains open.
 
+Settings follows the same modal focus and dismissal contract as other dialogs,
+including a visible initial focus target in compact layouts. File search and
+inline file operations register their visible surfaces with the shared layer;
+IME Enter/Escape must not submit or discard an edit. A submitting file operation
+consumes Escape without discarding its pending result. After completion or failure,
+its existing operation owner determines the next state; dismissal never retries a
+filesystem mutation.
+
 ## Opening An Agent
 
 Search, History, and Project session activation share one navigation owner,

@@ -1,3 +1,4 @@
+import { CloseGlyph } from '@/components/IconGlyphs'
 import { useModalFocusScope } from '@/hooks/useModalFocusScope'
 import { createPortal } from 'react-dom'
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -155,7 +156,7 @@ export function MobileShareSheet({
       >
         <header className="code-mobile-share-header">
           <h2 id="code-mobile-share-title">{copy.mobileShareTitle}</h2>
-          <button ref={closeButtonRef} type="button" aria-label={copy.cancel} onClick={onClose}>×</button>
+          <button ref={closeButtonRef} className="code-dialog-close" type="button" aria-label={copy.close} onClick={onClose}><CloseGlyph /></button>
         </header>
         <section className="code-mobile-share-choice code-mobile-share-forward">
           <div className="code-mobile-share-choice-copy">

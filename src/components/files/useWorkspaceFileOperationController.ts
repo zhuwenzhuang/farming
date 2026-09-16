@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MutableRefObject } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState, type MutableRefObject } from 'react'
 import {
   createWorkspaceFileOperation,
   reconcileWorkspaceFileCreateFromDirectory,
@@ -378,22 +378,6 @@ export function useWorkspaceFileOperationController({
     fileOperationRef.current = null
     fileOperationActiveRef.current = false
   }, [fileOperationActiveRef])
-
-  useEffect(() => {
-    if (!fileOperation) return undefined
-
-    const closeInlineOperationOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
-      event.preventDefault()
-      event.stopPropagation()
-      closeFileOperation()
-    }
-
-    document.addEventListener('keydown', closeInlineOperationOnEscape, true)
-    return () => {
-      document.removeEventListener('keydown', closeInlineOperationOnEscape, true)
-    }
-  }, [closeFileOperation, fileOperation])
 
   return {
     fileOperation,

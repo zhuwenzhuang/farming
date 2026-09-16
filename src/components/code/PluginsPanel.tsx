@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Dispatch, KeyboardEvent as ReactKeyboardEvent, SetStateAction } from 'react'
+import { useAgentReorder } from './useAgentReorder'
 import { CodeSelect } from '@/components/CodeSelect'
 import { appPath } from '@/lib/base-path'
 import { agentDisplayName as formatAgentDisplayName } from '@/lib/format'
@@ -733,7 +734,6 @@ export function PluginsPanel({
   const [agentGroupsError, setAgentGroupsError] = useState('')
   const [agentSaving, setAgentSaving] = useState(false)
   const [agentDraft, setAgentDraft] = useState<AgentHomeDraft | null>(null)
-  const [draggingAgentKey, setDraggingAgentKey] = useState('')
   const selectedExtensionTriggerRef = useRef<HTMLButtonElement | null>(null)
   const panelRef = useRef<HTMLDivElement | null>(null)
   const activeTab = navigationState.activeTab
@@ -1160,7 +1160,8 @@ export function PluginsPanel({
     void saveAgentGroups(nextGroups)
   }, [agentGroups, agentSaving, saveAgentGroups])
 
-  const reorderAgentConfigurations = useCallback((sourceKey: string, targetKey: string) => {
+  const agentConfigurations = useMemo(() => orderedAgentConfigurations(agentGroups), [agentGroups])
+  const reorderAgentConfigurations = useCallback((sourceKey: string, targetKey: string, position: 'before' | 'after') => {
     if (!sourceKey || sourceKey === targetKey || agentSaving) return
     const ordered = orderedAgentConfigurations(agentGroups)
     const sourceIndex = ordered.findIndex(configuration => (
@@ -1173,7 +1174,11 @@ export function PluginsPanel({
     if (ordered[sourceIndex]?.provider.id !== ordered[targetIndex]?.provider.id) return
     const [source] = ordered.splice(sourceIndex, 1)
     if (!source) return
-    ordered.splice(targetIndex, 0, source)
+    const insertionIndex = ordered.findIndex(configuration => (
+      agentConfigurationKey(configuration.provider.id, configuration.home.id) === targetKey
+    )) + (position === 'after' ? 1 : 0)
+    if (insertionIndex === sourceIndex) return
+    ordered.splice(insertionIndex, 0, source)
     const orderByKey = new Map(ordered.map((configuration, order) => [
       agentConfigurationKey(configuration.provider.id, configuration.home.id),
       order,
@@ -1199,8 +1204,28 @@ export function PluginsPanel({
     reorderAgentConfigurations(
       key,
       agentConfigurationKey(target.provider.id, target.home.id),
+      offset < 0 ? 'before' : 'after',
     )
   }, [agentGroups, reorderAgentConfigurations])
+
+  const {
+    agentDrag: homeDrag,
+    beginAgentDrag: beginHomeDrag,
+    finishAgentDrag: finishHomeDrag,
+    updateAgentDropTarget: updateHomeDropTarget,
+    leaveAgentDropTarget: leaveHomeDropTarget,
+    dropAgent: dropHome,
+  } = useAgentReorder(
+    agentConfigurations.map(({ provider, home }) => ({
+      id: agentConfigurationKey(provider.id, home.id),
+      providerId: provider.id,
+    })),
+    (sourceKey, previousKey, nextKey) => reorderAgentConfigurations(
+      sourceKey, nextKey || previousKey, nextKey ? 'before' : 'after',
+    ),
+    () => {},
+    (source, target) => source.providerId === target.providerId,
+  )
 
   const toggleBrowser = async () => {
     if (saving || (!capability?.browser && !enabled)) return
@@ -1412,7 +1437,6 @@ export function PluginsPanel({
       : computerCapability.imageReady
         ? computerEnabled ? copy.enabled : copy.disabled
         : copy.computerRuntimeMissing
-  const agentConfigurations = useMemo(() => orderedAgentConfigurations(agentGroups), [agentGroups])
   const extensionHomes = useMemo(() => agentConfigurations.map(({ provider, home }) => {
     const homeKey = agentConfigurationKey(provider.id, home.id)
     return {
@@ -2044,7 +2068,7 @@ export function PluginsPanel({
           </div>
           <button
             type="button"
-            className="code-plugin-agent-add"
+            className="code-plugin-agent-add code-touch-target"
             disabled={agentSaving || agentGroups.length === 0}
             onClick={() => {
               setAgentGroupsError('')
@@ -2077,6 +2101,7 @@ export function PluginsPanel({
             <label>
               <span>{copy.homePath}</span>
               <input
+                className="code-field"
                 type="text"
                 value={agentDraft.path}
                 placeholder={copy.homePathPlaceholder}
@@ -2089,6 +2114,7 @@ export function PluginsPanel({
             <label>
               <span>{copy.homeName}</span>
               <input
+                className="code-field"
                 type="text"
                 value={agentDraft.id}
                 placeholder={copy.homeNamePlaceholder}
@@ -2098,7 +2124,7 @@ export function PluginsPanel({
                   : current)}
               />
             </label>
-            <div className="code-plugin-agent-form-actions">
+            <div className="code-plugin-agent-form-actions code-touch-actions">
               <button type="button" disabled={agentSaving} onClick={() => setAgentDraft(null)}>
                 {copy.cancel}
               </button>
@@ -2126,38 +2152,29 @@ export function PluginsPanel({
           return (
             <section
               key={key}
-              className={`code-plugin-section code-plugin-agent-section ${draggingAgentKey === key ? 'dragging' : ''}`}
+              className={`code-plugin-section code-plugin-agent-section ${homeDrag?.agentId === key ? 'dragging' : ''} ${homeDrag?.targetAgentId === key ? `drop-${homeDrag.position}` : ''}`}
               data-testid={`code-plugin-section-agent-${provider.id}-${home.id}`}
               onDragOver={event => {
-                if (!draggingAgentKey) return
-                if (!draggingAgentKey.startsWith(`${provider.id}:`)) {
-                  event.dataTransfer.dropEffect = 'none'
-                  return
-                }
-                event.preventDefault()
-                event.dataTransfer.dropEffect = 'move'
+                if (!agentSaving) updateHomeDropTarget(event, key)
               }}
+              onDragLeave={leaveHomeDropTarget}
               onDrop={event => {
-                event.preventDefault()
-                const sourceKey = event.dataTransfer.getData('text/plain') || draggingAgentKey
-                setDraggingAgentKey('')
-                reorderAgentConfigurations(sourceKey, key)
+                if (!agentSaving) dropHome(event, key)
+                else finishHomeDrag()
               }}
             >
               <header className="code-plugin-section-header code-plugin-agent-header">
                 <button
                   type="button"
-                  className="code-plugin-agent-drag"
+                  className="code-plugin-agent-drag code-touch-target"
                   draggable={!agentSaving}
                   disabled={agentSaving}
                   aria-label={copy.dragToReorder}
                   title={copy.dragToReorder}
                   onDragStart={event => {
-                    setDraggingAgentKey(key)
-                    event.dataTransfer.effectAllowed = 'move'
-                    event.dataTransfer.setData('text/plain', key)
+                    if (!agentSaving) beginHomeDrag(event, key)
                   }}
-                  onDragEnd={() => setDraggingAgentKey('')}
+                  onDragEnd={finishHomeDrag}
                   onKeyDown={event => {
                     if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return
                     event.preventDefault()
@@ -2174,7 +2191,7 @@ export function PluginsPanel({
                   </h3>
                   <p><code>{home.path}</code></p>
                 </div>
-                <div className="code-plugin-agent-actions">
+                <div className="code-plugin-agent-actions code-touch-actions">
                   {isLaunchDefault && provider.supportsChat ? (
                     <select
                       className="code-plugin-agent-runtime-default"

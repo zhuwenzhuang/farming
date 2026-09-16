@@ -12,6 +12,8 @@
   --code-dialog-action-height: 30px;
   --code-dialog-action-radius: 6px;
   --code-touch-target-size: 44px;
+  --code-sidebar-navigation-row-height: 28px;
+  --code-sidebar-navigation-row-gap: 0px;
   --code-sidebar-file-row-height: 24px;
   --code-file-entry-font-size: 13px;
   --code-file-entry-line-height: 16px;
@@ -38,6 +40,7 @@
 
 @media (max-width: 767px), (max-width: 980px) and (pointer: coarse) {
   :root {
+    --code-sidebar-navigation-row-height: var(--code-touch-target-size);
     --code-sidebar-file-row-height: 28px;
     --code-file-entry-font-size: 14px;
     --code-menu-row-height: 36px;
@@ -353,4 +356,70 @@
 
 .code-content-viewer-actions .code-content-toolbar {
   min-width: 0;
+}
+
+/* Project, Agent and Home reorder feedback stays inside each visible row, including
+ * the clipped Project sticky stack. Sticky reservation is not a drop surface. */
+:is(.code-project-row, .code-agent-row, .code-plugin-agent-section).dragging {
+  opacity: 0.45;
+}
+
+:is(.code-project-row, .code-agent-row, .code-plugin-agent-section).drop-before::before,
+:is(.code-project-row, .code-agent-row, .code-plugin-agent-section).drop-after::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--code-accent);
+  pointer-events: none;
+  z-index: 30;
+}
+
+:is(.code-project-row, .code-agent-row, .code-plugin-agent-section).drop-before::before {
+  top: 0;
+}
+
+:is(.code-project-row, .code-agent-row, .code-plugin-agent-section).drop-after::after {
+  bottom: var(--code-reorder-bottom, 0px);
+}
+
+/* Dialog dismissal shares one glyph, hit area and keyboard-focus treatment. */
+.code-dialog-close {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: var(--code-dialog-action-height);
+  height: var(--code-dialog-action-height);
+  padding: 0;
+  border: 0;
+  border-radius: var(--code-dialog-action-radius);
+  background: transparent;
+  color: var(--code-text-subtle);
+  cursor: pointer;
+}
+
+.code-dialog-close svg {
+  width: var(--code-ui-icon-size);
+  height: var(--code-ui-icon-size);
+}
+
+.code-dialog-close:hover {
+  background: var(--code-bg-hover);
+  color: var(--code-text);
+}
+
+.code-dialog-close:focus-visible {
+  outline: 2px solid var(--code-focus-ring);
+  outline-offset: -2px;
+}
+
+@media (max-width: 767px), (max-width: 980px) and (pointer: coarse) {
+  .code-dialog-close,
+  .code-touch-target,
+  .code-touch-actions > :is(button, select) {
+    min-width: var(--code-touch-target-size);
+    min-height: var(--code-touch-target-size);
+  }
 }
