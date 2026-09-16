@@ -1271,6 +1271,8 @@ async function run() {
     assert.strictEqual(completedAgentId, null, 'the final start callback must wait for ACP initialization');
     assert.strictEqual(registrationCount, 1, 'a Create request must publish one connecting Agent');
     assert.strictEqual(shellEnvironmentReads, 1, 'ACP environment construction should reuse one post-registration shell read');
+    assert.strictEqual(await registrationManager.getAcpSessionForRead(registeredAgentId), null,
+      'the visible Composer must receive pending while ACP registration is still gated');
 
     let duplicateCompletedAgentId = null;
     let duplicateRegistrationCount = 0;

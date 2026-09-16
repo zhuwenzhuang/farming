@@ -138,7 +138,14 @@ export function useAcpSession(agentId: string, active: boolean, refreshSignal: s
     const lease = refreshOwnershipRef.current.begin()
     try {
       const response = await fetch(appPath(`/api/agents/${encodeURIComponent(agentId)}/acp-session?includeEntries=0`), { signal })
-      const body = await response.json().catch(() => null) as { session?: AcpSessionSnapshot; error?: string } | null
+      const body = await response.json().catch(() => null) as { session?: AcpSessionSnapshot | null; pending?: boolean; error?: string } | null
+      if (response.status === 202 && body?.pending === true && body.session === null) {
+        if (!lease.isCurrent() || mutationRef.current || mutationSequenceRef.current !== requestMutationSequence) return
+        setSession(null)
+        setError('')
+        setValidatedScope('')
+        return
+      }
       if (!response.ok || !body?.session) throw new Error(body?.error || `Failed to read ACP session (${response.status})`)
       if (
         !lease.isCurrent()

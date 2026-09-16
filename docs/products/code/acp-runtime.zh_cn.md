@@ -360,6 +360,12 @@ Transcript 投影并可在刷新后重建，不增加恢复操作或独立通知
 当前 Staged、Unstaged 或 Untracked Git 改动时才显示 Commit Follow-up；无关的 Working Copy
 改动不能让该操作继续显示。
 
+Chat 可以在 ACP Host Binding 建立前发布。在有明确所有者、无错误且处于 `connecting` 的
+启动过程中，Session 配置读取返回 `202`、`pending: true` 与 `session: null`。Composer
+保留草稿，不显示错误或虚构能力；Runtime Revision 推动下一次新鲜读取。这个只读等待状态
+不授予 Mutation 准入。启动超时、真实失败，以及没有进行中启动操作的 Binding 丢失仍然
+显示明确错误，不能无限返回等待。
+
 新建 Chat 在 Session 连接期间持续显示稳定的空对话状态。Session 启动不属于 Active Turn，
 不得启用 Steer，也不应使用短暂的启动文案替换空状态。新 Session 启动期间的 Transcript
 读取失败不能替换该空状态；真实 Runtime Failure 仍通过权威 Runtime 与 Composer State 显示。

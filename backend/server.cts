@@ -1296,12 +1296,12 @@ app.get(routePath(BASE_PATH, '/api/agents/:agentId/session-text'), async (req, r
 
 app.get(routePath(BASE_PATH, '/api/agents/:agentId/acp-session'), async (req, res) => {
   try {
-    res.json({
-      session: await agentManager.getAcpSessionForRead(req.params.agentId, {
-        includeUpdates: req.query.includeUpdates === '1',
-        includeEntries: req.query.includeEntries === '1',
-      }),
+    const session = await agentManager.getAcpSessionForRead(req.params.agentId, {
+      includeUpdates: req.query.includeUpdates === '1',
+      includeEntries: req.query.includeEntries === '1',
     });
+    if (session === null) res.status(202).json({ pending: true, session: null });
+    else res.json({ session });
   } catch (caught) {
     const error = caughtError(caught);
     const message = error && error.message ? error.message : 'Failed to read ACP session';

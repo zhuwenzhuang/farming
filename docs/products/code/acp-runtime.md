@@ -493,6 +493,14 @@ are committed. Their Commit follow-up is visible only while at least one path
 from that card still has a current staged, unstaged, or untracked Git change;
 unrelated working-copy changes do not keep the action visible.
 
+A published Chat can precede its ACP Host binding. During an owned, error-free
+start in `connecting`, the Session configuration read returns `202` with
+`pending: true` and `session: null`. The Composer retains its draft without an
+error or invented capabilities; Runtime revisions trigger the next fresh read.
+This read-only pending state grants no mutation admission. Startup deadlines,
+actual failures, and missing bindings without an active start remain explicit
+errors rather than an indefinite pending response.
+
 A fresh Chat shows the stable empty-conversation state while its Session
 connects. Session startup is not an active Turn and must not enable Steer or
 replace the empty state with transient startup copy. A startup-time transcript

@@ -6812,6 +6812,16 @@ class AgentManager extends EventEmitter {
     if (!this.acpRuntime.hasBinding(agentId) && !this.recoveryGate.isComplete()) {
       await this.recoveryGate.wait();
     }
+    const runtime = runtimeBindingOf(agent, 'acp');
+    if (this.agents.get(agentId) === agent
+      && !this.acpRuntime.hasBinding(agentId)
+      && this.lifecycleCoordinator.get(agentId)?.kind === 'start'
+      && runtime?.state === 'connecting'
+      && !runtime.error) {
+      // The row is published before Host registration. Only the owned startup
+      // interval is pending; failures and missing live bindings still reject.
+      return null;
+    }
     this.requireLiveAcpAgent(agentId);
     return this.acpRuntime.getSessionForRead(agentId, options);
   }
