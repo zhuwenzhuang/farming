@@ -90,6 +90,14 @@ Host 发往 Controller 的回调在传输层接受消息后保持等待，包括
 只有匹配的 Controller 结果才能完成回调；断连或有界回调超时会以结果不确定结束。
 队列与载荷限制仍拒绝无法接受的消息，不得重放可能已送达的回调。
 
+序列化失败不得遗留 Pending Request 或计时器，也不得使健康连接失效。Controller 只提交
+一次 Handler 结果；结果确认丢失不得重传该结果，也不得使无关操作失效。Controller 身份
+或 Generation 变化（包括在同一连接上变化）会使之前的回调和 Fork Reservation 失效。
+属于当前 Controller 但 Agent Binding 已过期的回调，必须明确返回结果不确定的失败，
+不得调用 Handler。
+连接替换会拒绝旧连接的等待请求并重置帧缓冲。已脱离的 Socket 所产生的数据、错误和关闭
+事件不得影响新连接；无效响应会关闭对应传输连接。
+
 上述 Server-only 重连属于故障恢复行为，不是 Farming 的主动 Stop Mode。Farming 只有一种
 主动 Stop 语义：直接杀掉选中的、由 Farming 拥有的全部进程，不做 Graceful Shutdown 或 Drain、
 Handoff，也不保留或复用进程。这个单一的 Hard-stop 契约用于刻意简化状态管理，也用于保证

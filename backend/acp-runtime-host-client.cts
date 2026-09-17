@@ -78,7 +78,7 @@ function mutationMethod(method: string): boolean {
     'ping', 'recover', 'getSession', 'getSessionForRead', 'getTranscriptSessionForRead',
     'getSubagentTranscriptSessionForRead', 'getTranscriptEntryForRead', 'getTranscriptMediaChunkForRead',
     'getToolEntryForRead', 'getToolDetailPageForRead', 'getToolReviewChangesPageForRead',
-    'listSessions', 'getSessionRequestOptions',
+    'listSessions', 'getSessionRequestOptions', 'resolveControllerCallback',
   ].includes(method);
 }
 
@@ -201,17 +201,28 @@ class AcpRuntimeHostClient extends EventEmitter {
   }
 
   attachSocket(socket: net.Socket): void {
+    if (this.socket && this.socket !== socket) {
+      this.handleDisconnect(new Error('ACP runtime host connection replaced'));
+    }
     this.socket = socket;
     this.buffer = '';
     this.decoder = new StringDecoder('utf8');
-    socket.on('data', chunk => this.handleData(chunk));
-    socket.once('close', () => this.handleDisconnect(new Error('ACP runtime host connection closed')));
-    socket.once('error', error => this.handleDisconnect(error));
+    socket.on('data', chunk => {
+      if (this.socket === socket) this.handleData(chunk);
+    });
+    socket.once('close', () => {
+      if (this.socket === socket) this.handleDisconnect(new Error('ACP runtime host connection closed'));
+    });
+    socket.once('error', error => {
+      if (this.socket === socket) this.handleDisconnect(error);
+    });
   }
 
   handleDisconnect(error: Error): void {
     if (!this.socket) return;
+    const socket = this.socket;
     this.socket = null;
+    socket.destroy();
     for (const pending of this.pending.values()) {
       if (pending.timer) clearTimeout(pending.timer);
       const pendingError = new Error(error.message) as Error & UnknownRecord;
@@ -295,22 +306,31 @@ class AcpRuntimeHostClient extends EventEmitter {
       || generation !== this.controllerGeneration
     ) return;
     const expectedAgentId = this.callbackAgentIds.get(callbackToken) || '';
-    if (expectedAgentId && String(request.agentId || '') !== expectedAgentId) return;
     const currentBindingEpoch = String(this.bindings.get(expectedAgentId)?.bindingEpoch || '');
-    if (currentBindingEpoch && String(request.bindingEpoch || '') !== currentBindingEpoch) return;
     const handler = this.callbackHandlers.get(callbackToken)?.[String(request.name || '')];
+    let reply: UnknownRecord;
     try {
+      if (
+        (expectedAgentId && String(request.agentId || '') !== expectedAgentId)
+        || (currentBindingEpoch && String(request.bindingEpoch || '') !== currentBindingEpoch)
+      ) {
+        const error = new Error('ACP runtime Host Controller callback binding is stale') as Error & UnknownRecord;
+        error.uncertain = true;
+        throw error;
+      }
       if (!handler) throw new Error('ACP runtime Host requested an unavailable Controller callback');
       const result = await handler(...(Array.isArray(request.args) ? request.args : []));
-      await this.request('resolveControllerCallback', { callbackId, ok: true, result });
+      reply = { callbackId, ok: true, result };
     } catch (error) {
-      await this.request('resolveControllerCallback', {
+      reply = {
         callbackId,
         ok: false,
         error: error instanceof Error ? error.message : String(error),
         uncertain: Boolean(error && typeof error === 'object' && (error as UnknownRecord).uncertain === true),
-      }).catch(() => {});
+      };
     }
+    // A lost acknowledgment cannot change the handler's outcome or replay its reply.
+    await this.request('resolveControllerCallback', reply).catch(() => {});
   }
 
   registerCallbackHandlers(
@@ -501,6 +521,8 @@ class AcpRuntimeHostClient extends EventEmitter {
     const id = this.nextRequestId++;
     const timeoutMs = options.timeoutMs === 0 ? 0 : Number(options.timeoutMs || this.requestTimeoutMs);
     return new Promise<T>((resolve, reject) => {
+      // Serialization has no transport effect and must precede pending state/timers.
+      const serialized = `${JSON.stringify({ id, method, params })}\n`;
       const operationId = String(params.clientPromptId || params.operationId || '');
       const timer = timeoutMs > 0
         ? setTimeout(() => {
@@ -518,7 +540,7 @@ class AcpRuntimeHostClient extends EventEmitter {
         : null;
       timer?.unref?.();
       this.pending.set(id, { method, operationId, resolve: value => resolve(value as T), reject, timer });
-      this.socket?.write(`${JSON.stringify({ id, method, params })}\n`, error => {
+      const onWriteError = (error?: Error | null): void => {
         if (!error) return;
         const pending = this.pending.get(id);
         if (!pending) return;
@@ -533,7 +555,12 @@ class AcpRuntimeHostClient extends EventEmitter {
         }
         pending.reject(writeError);
         if (mutationMethod(method)) this.socket?.destroy(writeError);
-      });
+      };
+      try {
+        this.socket?.write(serialized, onWriteError);
+      } catch (error) {
+        onWriteError(error instanceof Error ? error : new Error(String(error)));
+      }
     });
   }
 

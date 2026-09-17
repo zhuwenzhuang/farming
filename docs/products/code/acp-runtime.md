@@ -123,6 +123,17 @@ Controller result completes the callback; disconnect or the bounded callback
 timeout ends it with an uncertain outcome. Queue and payload limits still reject
 messages that cannot be accepted, without replaying a possibly delivered callback.
 
+Serialization failures leave no pending request or deadline and do not invalidate
+a healthy connection. A Controller submits one handler outcome; a missing result
+acknowledgment neither retransmits that outcome nor poisons unrelated operations.
+A Controller identity or generation change, including on the same connection,
+invalidates its previous callbacks and fork reservations. A callback for the
+current Controller but a stale Agent binding fails explicitly with an uncertain
+outcome without invoking the handler.
+Connection replacement rejects the old connection's pending requests and resets
+framing. Data and terminal events from a detached socket cannot affect its
+replacement; invalid responses close the affected transport.
+
 That Server-only reconnection is failure-recovery behavior, not an intentional
 Farming stop mode. Farming has one intentional stop semantic: directly kill the
 complete selected set of Farming-owned processes, without graceful shutdown or

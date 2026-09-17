@@ -1,3 +1,4 @@
+import { Socket } from 'node:net';
 const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
@@ -70,6 +71,40 @@ async function waitFor(predicate, message) {
 }
 
 async function main() {
+  const replacementClient = new AcpRuntimeHostClient({ configDir: os.tmpdir(), socketPath: '/unused' });
+  const oldSocket = new Socket();
+  const newSocket = new Socket();
+  oldSocket.write = () => true;
+  newSocket.write = () => true;
+  try {
+    replacementClient.attachSocket(oldSocket);
+    const oldRequest = replacementClient.request('prepareAgent', {}, { timeoutMs: 0 });
+    const oldRejected = assert.rejects(oldRequest, error => error.uncertain === true);
+    oldSocket.emit('data', Buffer.from('{"id":'));
+    replacementClient.attachSocket(newSocket);
+    await oldRejected;
+    assert.strictEqual(oldSocket.destroyed, true, 'replacement must close the old transport');
+    const requestId = replacementClient.nextRequestId;
+    const currentRequest = replacementClient.request('ping', {}, { timeoutMs: 0 });
+    oldSocket.emit('error', new Error('late old-socket error'));
+    oldSocket.emit('close');
+    oldSocket.emit('data', Buffer.from('{"stale":'));
+    assert.strictEqual(replacementClient.socket, newSocket);
+    assert.strictEqual(replacementClient.pending.size, 1, 'old events must not reject new work');
+    newSocket.emit('data', Buffer.from(`${JSON.stringify({ id: requestId, ok: true, result: 'current' })}\n`));
+    assert.strictEqual(await currentRequest, 'current', 'new framing must exclude old partial data');
+    const invalidRequest = replacementClient.request('ping', {}, { timeoutMs: 0 });
+    const invalidRejected = assert.rejects(invalidRequest, /invalid response/);
+    newSocket.emit('data', Buffer.from('invalid JSON\n'));
+    await invalidRejected;
+    assert.strictEqual(newSocket.destroyed, true, 'invalid responses must close their transport');
+    assert.strictEqual(replacementClient.socket, null);
+    assert.strictEqual(replacementClient.pending.size, 0);
+  } finally {
+    replacementClient.disconnect();
+    oldSocket.destroy();
+    newSocket.destroy();
+  }
   const splitUtf8Client = new AcpRuntimeHostClient({
     configDir: os.tmpdir(),
     socketPath: '/unused',

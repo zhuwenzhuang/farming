@@ -364,6 +364,11 @@ class AcpRuntimeHostProcess {
       this.activeControllerClient = null;
       this.service.disconnectController(client.controller);
     }
+    this.releaseControllerRequests(client);
+    this.scheduleIdleExit();
+  }
+
+  releaseControllerRequests(client: HostClient): void {
     for (const [callbackId, callback] of this.controllerCallbacks) {
       if (callback.client !== client) continue;
       clearTimeout(callback.timer);
@@ -377,7 +382,6 @@ class AcpRuntimeHostProcess {
       reservation.release();
       this.forkReservations.delete(token);
     }
-    this.scheduleIdleExit();
   }
 
   cancelIdleExit(): void {
@@ -479,6 +483,10 @@ class AcpRuntimeHostProcess {
       if (previous && previous !== client) {
         previous.controller = null;
         previous.socket.destroy(new Error('ACP runtime host controller was replaced'));
+      } else if (client.controller && (
+        client.controller.id !== identity.id || client.controller.generation !== identity.generation
+      )) {
+        this.releaseControllerRequests(client);
       }
       client.controller = identity;
       this.activeControllerClient = client;
@@ -818,23 +826,27 @@ class AcpRuntimeHostProcess {
       }, 30000);
       timer.unref?.();
       this.controllerCallbacks.set(callbackId, { client, resolve, reject, timer });
-      if (!this.send(client, {
-        event: 'controller-callback',
-        payload: {
-          hostEpoch: this.service.state.hostEpoch,
-          controllerGeneration: controller.generation,
-          agentId,
-          bindingEpoch,
-          callbackId,
-          callbackToken,
-          name,
-          args,
-        },
-      })) {
+      try {
+        if (!this.send(client, {
+          event: 'controller-callback',
+          payload: {
+            hostEpoch: this.service.state.hostEpoch,
+            controllerGeneration: controller.generation,
+            agentId,
+            bindingEpoch,
+            callbackId,
+            callbackToken,
+            name,
+            args,
+          },
+        })) {
+          const error = new Error('ACP runtime Host Controller callback could not be delivered') as Error & UnknownRecord;
+          error.uncertain = true;
+          throw error;
+        }
+      } catch (error) {
         clearTimeout(timer);
         this.controllerCallbacks.delete(callbackId);
-        const error = new Error('ACP runtime Host Controller callback could not be delivered') as Error & UnknownRecord;
-        error.uncertain = true;
         reject(error);
       }
     });
