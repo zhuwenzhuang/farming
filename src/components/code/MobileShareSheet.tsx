@@ -164,8 +164,8 @@ export function MobileShareSheet({
             <p>{copy.shareLinkVisibility}</p>
           </div>
           <div className="code-mobile-share-link-row">
-            <span className="code-mobile-share-link" title={title}>{ticket.longUrl}</span>
-            <button type="button" data-testid="code-mobile-share-copy-action" onClick={() => void copyLink(ticket.longUrl, 'read-only')}>
+            <span className="code-mobile-share-link" title={title}>{ticket.readOnlyUrl}</span>
+            <button type="button" data-testid="code-mobile-share-copy-action" onClick={() => void copyLink(ticket.readOnlyUrl, 'read-only')}>
               <CopyActionIcon />
               <span>{copied === 'read-only' ? copy.mobileShareCopied : copy.mobileShareCopyAction}</span>
             </button>

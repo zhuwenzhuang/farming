@@ -53,13 +53,13 @@ share popover closes.
 
 An owner share request creates:
 
-- a signed read-only capability used by the automatically copied long URL;
+- a signed read-only capability stored behind the automatically copied short URL;
 - a one-time QR ticket carrying the owner credential;
 - the owner passphrase for explicit full-control access.
 
 A read-only visitor may create a delegated share. Its response contains only:
 
-- a signed read-only capability used by the copied long URL;
+- a signed read-only capability stored behind the copied short URL;
 - a one-time QR ticket carrying that same read-only capability.
 
 The delegated response must not contain the owner passphrase or any owner
@@ -85,16 +85,16 @@ Redeeming a QR short link consumes its ticket and stores exactly the ticket's
 credential in an HTTP-only cookie. Consequently, an owner-created QR grants full
 control, while a read-only visitor's QR remains read-only.
 
-The copied long URL always carries a read-only query capability. On first use the
-backend moves it into an HTTP-only cookie and removes it from the URL before the
-application loads, reducing address-bar, history, and referrer exposure.
+The copied short URL contains only an opaque code. Opening it resolves the stored
+read-only capability into an HTTP-only cookie and redirects to the application.
+Legacy read-only query URLs remain supported and are cleaned before the app loads.
 
 Chat answer actions and the File Viewer expose a direct copy action for this same
-read-only long URL. A Chat action freezes the selected durable Turn identity rather
+read-only short URL. A Chat action freezes the selected durable Turn identity rather
 than the surrounding viewport. A File action freezes the current file identity,
 Editor or Diff view, and the current reading line and column. Creating a direct link
 also creates a QR ticket as part of the shared backend response; because the direct
-action does not display that ticket, the client revokes it after copying the long URL.
+action does not display that ticket, the client revokes it after copying the short URL.
 
 Opening a contextual link resolves the exact location before applying a bounded
 fallback. Chat loads older transcript pages while the selected Turn may still exist,
@@ -104,9 +104,9 @@ inventory reconciliation, Farming opens its nearest available parent folder. If 
 Agent or Project itself cannot be resolved, Farming keeps the default workspace open
 and reports the failed location. A location fallback never changes the link's
 read-only access mode. The frontend captures the contextual location once at startup
-and immediately removes its query fields from the visible URL while retaining the
-credential. Reload and restart therefore use current workspace state instead of
-replaying a stale location.
+and immediately removes its query fields from the visible URL while retaining
+authentication. Reload and restart therefore use current workspace state instead
+of replaying a stale location.
 
 An owner startup URL carries the instance token so the entry assets can load. The
 frontend keeps that token in the visible URL so reloads, copied URLs, and installed
@@ -115,6 +115,29 @@ authenticated transport, but does not replace the URL credential.
 
 New HTTP requests and WebSocket handshakes are admitted only while a capability is
 valid. Existing WebSocket connections retain their admission until disconnect.
+
+## Read-Only Short Links
+
+The Config-owned backend stores each copied link's read-only capability, exact
+contextual target and original expiry before returning `/s/<code>`. Codes use
+128 random bits (22 base64url characters); storage keys are their SHA-256 hashes.
+Creation is serialized and atomically persisted before publication. Failed writes
+return an explicit error without publishing a link. Capacity is bounded; expired
+records may be removed, but a new share must never evict a live link.
+
+A link transitions from absent to active after persistence, then to expired at
+its fixed deadline or invalid when its signing instance credential changes.
+Opening, previewing, or re-sharing does not consume or extend it. Delegation is
+capped by the parent credential's expiry. Concurrent reads and opens are allowed;
+closing the share panel revokes only its separate QR ticket. Server restart loads
+the persisted records without renewing their lifetime. Corrupt or unavailable
+storage fails explicitly rather than creating an empty replacement store.
+
+Redemption verifies that the stored capability is still read-only, puts it in an
+HTTP-only cookie, and redirects through the existing contextual-location path.
+Unknown, expired, or invalid links return 410. HEAD checks do not set cookies or
+consume links. Responses use no-store and no-referrer. The old longUrl response
+field remains a compatibility alias for the new readOnlyUrl at the API boundary.
 
 ## Read-Only Enforcement
 
@@ -177,8 +200,8 @@ RFB transport cannot provide a server-verifiable view-only boundary.
   open share surface, refreshes the QR ticket, and rejects the prior credential.
 - An owner startup URL retains its token through reload and supplies the same
   token to an installed app's start URL.
-- A contextual location is applied only by its first page load; the visible URL
-  retains the credential but cannot replay that location after reload or restart.
+- A contextual location is applied only by its first page load; the page retains
+  authentication but cannot replay that location after reload or restart.
 - A read-only visitor can re-share, but receives only a read-only URL and read-only
   QR, with no owner passphrase or owner token.
 - Delegated shares never outlive their parent capability.

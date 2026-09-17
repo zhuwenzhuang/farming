@@ -109,6 +109,7 @@ async function run(): Promise<void> {
     readOnlyTokenExpiresAt(token: unknown): number | null {
       calls.push(`readOnlyTokenExpiresAt:${String(token || '')}`);
       if (token === 'delegated') return delegatedExpiresAt;
+      if (typeof token === 'string' && token.startsWith('readonly-')) return Number(token.slice(9));
       return null;
     },
     rotateToken(): string {
@@ -140,12 +141,21 @@ async function run(): Promise<void> {
     },
   };
 
+  let readOnlySequence = 0;
+  const readOnlyCreates: TicketCreateCall[] = [];
+  const readOnlyLinks = {
+    async create(token: string, options: TicketCreateOptions) {
+      readOnlyCreates.push({ token, ...options });
+      return { code: `READONLY${++readOnlySequence}` };
+    },
+  };
   const app = express();
   app.use((req: { authAccessMode?: string; headers: Record<string, unknown> }, _res: unknown, next: () => void) => {
     req.authAccessMode = req.headers['x-test-access'] === 'read-only' ? 'read-only' : 'owner';
     next();
   });
   app.use('/farm/api/share/qr-ticket', createQrShareRouter(auth, tickets, {
+    readOnlyLinks,
     authEnabled: true,
     basePath: '/farm',
     fallbackPort: 9123,
@@ -213,7 +223,8 @@ async function run(): Promise<void> {
       ttlMs: SHARE_TICKET_TTL_MS,
       shortPath: '/farm/j/SHARE1',
       shortUrl: 'https://share.example.test/farm/j/SHARE1',
-      longUrl: `https://share.example.test/farm?${targetQuery}&token=${readOnlyToken}`,
+      readOnlyUrl: 'https://share.example.test/farm/s/READONLY1',
+      longUrl: 'https://share.example.test/farm/s/READONLY1',
       shortUrlAccessMode: 'owner',
       longUrlAccessMode: 'read-only',
       tokenLabel: ownerToken,
@@ -223,9 +234,10 @@ async function run(): Promise<void> {
       'extractToken:owner-request-token',
       `createReadOnlyToken:${now + SHARE_TICKET_TTL_MS}`,
       'getToken',
+      `readOnlyTokenExpiresAt:${readOnlyToken}`,
       `createTicket:${ownerToken}`,
-      'getToken',
     ]);
+    assert.deepStrictEqual(readOnlyCreates.at(-1), { token: readOnlyToken, expiresAt: now + SHARE_TICKET_TTL_MS, now, targetQuery });
     assert.deepStrictEqual(ticketCreates.at(-1), {
       token: ownerToken,
       expiresAt: now + SHARE_TICKET_TTL_MS,
@@ -247,6 +259,7 @@ async function run(): Promise<void> {
 
     const directOriginApp = express();
     directOriginApp.use('/api/share/qr-ticket', createQrShareRouter(auth, tickets, {
+      readOnlyLinks,
       authEnabled: true,
       basePath: '',
       fallbackPort: 9123,
@@ -280,7 +293,8 @@ async function run(): Promise<void> {
       ttlMs: SHARE_TICKET_TTL_MS,
       shortPath: '/farm/j/SHARE4',
       shortUrl: 'https://share.example.test/farm/j/SHARE4',
-      longUrl: `https://share.example.test/farm?token=${delegatedToken}`,
+      readOnlyUrl: 'https://share.example.test/farm/s/READONLY4',
+      longUrl: 'https://share.example.test/farm/s/READONLY4',
       shortUrlAccessMode: 'read-only',
       longUrlAccessMode: 'read-only',
       tokenLabel: '',
@@ -289,6 +303,7 @@ async function run(): Promise<void> {
       'extractToken:delegated',
       'readOnlyTokenExpiresAt:delegated',
       `createReadOnlyToken:${delegatedExpiresAt}`,
+      `readOnlyTokenExpiresAt:${delegatedToken}`,
       `createTicket:${delegatedToken}`,
     ]);
     assert.strictEqual(ticketCreates.at(-1)?.token, delegatedToken);
@@ -324,6 +339,7 @@ async function run(): Promise<void> {
       'extractToken:owner-request-token',
       `createReadOnlyToken:${now + SHARE_TICKET_TTL_MS}`,
       'getToken',
+      `readOnlyTokenExpiresAt:readonly-${now + SHARE_TICKET_TTL_MS}`,
       `createTicket:${ownerToken}`,
     ]);
     ticketCreateError = null;
@@ -371,6 +387,7 @@ async function run(): Promise<void> {
 
     const disabledApp = express();
     disabledApp.use('/api/share/qr-ticket', createQrShareRouter(auth, tickets, {
+      readOnlyLinks,
       authEnabled: false,
       basePath: '',
       fallbackPort: 9123,

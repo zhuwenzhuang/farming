@@ -1,11 +1,13 @@
 import { normalizeBasePath, routePath } from './index-html.cjs';
 import { SHARE_TICKET_TTL_MS } from './qr-share-tickets.cjs';
+import type { ReadOnlyShareStore } from './read-only-share-store.cjs';
 
 const express = require('express');
 
 type ShareAccessMode = 'owner' | 'read-only';
 
 interface QrShareRequest {
+  method?: string;
   authAccessMode?: 'none' | ShareAccessMode;
   body?: unknown;
   headers: Record<string, string | string[] | undefined>;
@@ -15,6 +17,9 @@ interface QrShareRequest {
 }
 
 interface QrShareResponse {
+  end(): void;
+  send(value: string): void;
+  redirect(status: number, location: string): void;
   json(value: unknown): QrShareResponse;
   set(name: string, value: string): QrShareResponse;
   setHeader(name: string, value: string): void;
@@ -24,7 +29,7 @@ interface QrShareResponse {
 type ExpressHandler = (
   request: QrShareRequest,
   response: QrShareResponse,
-) => void;
+) => void | Promise<void>;
 
 type ExpressMiddleware = (
   request: QrShareRequest,
@@ -33,6 +38,7 @@ type ExpressMiddleware = (
 ) => void;
 
 interface ExpressRouter {
+  get(path: string, handler: ExpressHandler): ExpressRouter;
   delete(path: string, handler: ExpressHandler): ExpressRouter;
   post(path: string, middleware: unknown, handler: ExpressHandler): ExpressRouter;
   use(handler: ExpressMiddleware): ExpressRouter;
@@ -68,6 +74,7 @@ interface QrShareTicketPort {
 }
 
 interface QrShareRouterOptions {
+  readOnlyLinks: Pick<ReadOnlyShareStore, 'create'>;
   authEnabled: boolean;
   basePath: string;
   fallbackPort: string | number;
@@ -241,7 +248,7 @@ function createQrShareRouter(
     }
   });
 
-  router.post('/', expressFactory.json({ limit: '8kb' }), (req, res) => {
+  router.post('/', expressFactory.json({ limit: '8kb' }), async (req, res) => {
     try {
       if (!options.authEnabled) {
         res.status(409).json({ error: 'Read-only sharing requires token authentication.' });
@@ -268,13 +275,20 @@ function createQrShareRouter(
       const targetQuery = shareTargetQueryFromBody(req.body);
       const readOnlyToken = auth.createReadOnlyToken({ expiresAt: shareExpiresAt });
       const qrToken = requesterAccessMode === 'owner' ? auth.getToken() : readOnlyToken;
+      const readOnlyLink = await options.readOnlyLinks.create(readOnlyToken, {
+        expiresAt: shareExpiresAt, now: requestNow, targetQuery,
+      });
+      if (!auth.readOnlyTokenExpiresAt(readOnlyToken)) {
+        res.status(410).json({ error: 'Read-only share credential expired or changed during creation.' });
+        return;
+      }
       const ticket = tickets.create(qrToken, {
         expiresAt: shareExpiresAt,
         now: requestNow,
         targetQuery,
       });
       const shortPath = routePath(options.basePath, `/j/${ticket.code}`);
-      const longPath = entryPathWithToken(ticket.targetQuery, readOnlyToken);
+      const readOnlyPath = routePath(options.basePath, `/s/${readOnlyLink.code}`);
       const fullAccessPath = requesterAccessMode === 'owner'
         ? entryPathWithToken(ticket.targetQuery, qrToken)
         : '';
@@ -284,17 +298,20 @@ function createQrShareRouter(
         ttlMs: SHARE_TICKET_TTL_MS,
         shortPath,
         shortUrl: absoluteClientUrl(req, shortPath, options),
-        longUrl: absoluteClientUrl(req, longPath, options),
+        readOnlyUrl: absoluteClientUrl(req, readOnlyPath, options),
+        // Compatibility for older clients; every copied URL remains read-only.
+        longUrl: absoluteClientUrl(req, readOnlyPath, options),
         shortUrlAccessMode: requesterAccessMode,
         longUrlAccessMode: 'read-only',
-        tokenLabel: requesterAccessMode === 'owner' ? auth.getToken() : '',
+        tokenLabel: requesterAccessMode === 'owner' ? qrToken : '',
         ...(fullAccessPath
           ? { fullAccessUrl: absoluteClientUrl(req, fullAccessPath, options) }
           : {}),
       });
     } catch (caught) {
       const error = caughtError(caught);
-      res.status(500).json({ error: error.message || 'Failed to create share ticket' });
+      res.status((error as Error & { status?: number }).status === 503 ? 503 : 500)
+        .json({ error: error.message || 'Failed to create share ticket' });
     }
   });
 
@@ -305,8 +322,40 @@ function createQrShareRouter(
   return router;
 }
 
+function createReadOnlyShareEntryRouter(
+  links: Pick<ReadOnlyShareStore, 'resolve'>,
+  auth: {
+    accessForToken(token: unknown): 'none' | ShareAccessMode;
+    setAccessCookie(response: Pick<QrShareResponse, 'setHeader'>, token: string): void;
+  },
+  basePath: string,
+): ExpressRouter {
+  const router = expressFactory.Router();
+  router.use(setNoStoreHeader);
+  router.get('/:code', async (req, res) => {
+    res.set('Referrer-Policy', 'no-referrer');
+    try {
+      const link = await links.resolve(req.params.code);
+      if (!link || auth.accessForToken(link.token) !== 'read-only') {
+        res.status(410).send('Farming share link expired or unavailable.');
+        return;
+      }
+      if (req.method === 'HEAD') {
+        res.status(204).end();
+        return;
+      }
+      auth.setAccessCookie(res, link.token);
+      res.redirect(302, entryPathWithQuery(link.targetQuery, { basePath }));
+    } catch {
+      res.status(503).send('Farming share link is temporarily unavailable. Try again later.');
+    }
+  });
+  return router;
+}
+
 export {
   createQrShareRouter,
+  createReadOnlyShareEntryRouter,
   entryPathWithQuery,
   shareTargetQueryFromBody,
   type QrShareAuthPort,

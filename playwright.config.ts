@@ -137,7 +137,7 @@ export default defineConfig({
     },
     {
       name: 'mobile-auth-chromium',
-      testMatch: /mobile-auth-readonly\.spec\.ts/,
+      testMatch: /(mobile-auth-readonly|share-short-link)\.spec\.ts/,
       use: {
         ...devices['Pixel 7'],
         browserName: 'chromium',

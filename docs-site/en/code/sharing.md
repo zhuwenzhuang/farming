@@ -6,6 +6,8 @@ description: Share an exact Chat answer, file reading position, or current Farmi
 
 Farming can share a specific working location, not just the workspace home. Chat answers and the File Viewer copy temporary read-only links; the page-level share panel also provides a QR code that another device can scan.
 
+Copied links use `/farming/s/<code>` with a 22-character random code, keeping credentials and location details out of the shared URL. The same link can be opened by multiple recipients until its original expiry, including after a server restart. Closing the panel does not invalidate the copied link.
+
 Sharing requires token authentication. When authentication is disabled, Farming refuses to create a share because a recipient could bypass the read-only restriction and open the unprotected instance directly.
 
 ## Share a Chat answer
@@ -30,7 +32,7 @@ When the link opens, an out-of-range line or column is clamped to the current fi
 
 ## Scan a QR code on another device
 
-Select **Share current page** at the top of the sidebar. Farming copies the read-only long link for the current page and opens the QR panel. Point another device's camera or system QR scanner at the code to open Farming; Farming does not need camera access on the device showing the code.
+Select **Share current page** at the top of the sidebar. Farming copies the read-only short link for the current page and opens the QR panel. Point another device's camera or system QR scanner at the code to open Farming; Farming does not need camera access on the device showing the code.
 
 <ThemeImage light="/cn/assets/share-qr.png" dark="/cn/assets/share-qr-dark.png" paper="/cn/assets/share-qr-paper.png" alt="A Farming page share QR code ready to scan on a phone" />
 

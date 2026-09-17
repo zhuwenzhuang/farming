@@ -74,7 +74,7 @@ test('a ticket preserves owner and delegated access modes', async () => {
     },
   }))
 
-  assert.equal(owner.longUrl, 'https://host/long')
+  assert.equal(owner.readOnlyUrl, 'https://host/long')
   assert.equal(owner.shortUrlAccessMode, 'owner')
   assert.equal(owner.fullAccessUrl, 'https://host/full')
   assert.equal(delegated.shortUrlAccessMode, 'read-only')
@@ -192,4 +192,16 @@ test('owner token URL replacement preserves the current location and changes onl
     ownerUrlWithRotatedToken('https://host/farming/', 'new-token'),
     'https://host/farming/?token=new-token',
   )
+})
+
+test('new read-only URLs take precedence while legacy responses remain supported', async () => {
+  for (const fields of [
+    { readOnlyUrl: 'https://host/s/new', longUrl: 'https://host/legacy' },
+    { readOnlyUrl: 'https://host/s/new', longUrl: undefined },
+  ]) {
+    const ticket = await requestQrShareTicket(null, FAILURE_MESSAGE, async () => ({
+      ok: true, status: 200, async json() { return completeTicket(fields) },
+    }))
+    assert.equal(ticket.readOnlyUrl, 'https://host/s/new')
+  }
 })

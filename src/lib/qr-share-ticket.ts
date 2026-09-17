@@ -25,7 +25,7 @@ interface QrShareTicketBase {
   ttlMs: number
   shortPath: string
   shortUrl: string
-  longUrl: string
+  readOnlyUrl: string
   longUrlAccessMode: 'read-only'
 }
 
@@ -59,7 +59,7 @@ export async function requestQrShareTicket(
   })
   const body = await response.json().catch(() => null)
   const record = body && typeof body === 'object' ? body as Record<string, unknown> : null
-  const longUrl = nonEmptyString(record?.longUrl)
+  const readOnlyUrl = nonEmptyString(record?.readOnlyUrl) ?? nonEmptyString(record?.longUrl)
   const shortUrl = nonEmptyString(record?.shortUrl)
   const code = nonEmptyString(record?.code)
   const shortPath = nonEmptyString(record?.shortPath)
@@ -69,7 +69,7 @@ export async function requestQrShareTicket(
   const fullAccessUrl = nonEmptyString(record?.fullAccessUrl)
   const tokenLabel = nonEmptyString(record?.tokenLabel)
   const commonFieldsValid = response.ok
-    && Boolean(longUrl)
+    && Boolean(readOnlyUrl)
     && Boolean(shortUrl)
     && Boolean(code)
     && Boolean(shortPath)
@@ -88,7 +88,7 @@ export async function requestQrShareTicket(
     ttlMs,
     shortPath: shortPath!,
     shortUrl: shortUrl!,
-    longUrl: longUrl!,
+    readOnlyUrl: readOnlyUrl!,
     longUrlAccessMode: 'read-only' as const,
   }
   return shortUrlAccessMode === 'owner'
@@ -148,7 +148,7 @@ export async function requestReadOnlyShareLink(
   })
   const body = await response.json().catch(() => null)
   const record = body && typeof body === 'object' ? body as Record<string, unknown> : null
-  const url = nonEmptyString(record?.longUrl)
+  const url = nonEmptyString(record?.readOnlyUrl) ?? nonEmptyString(record?.longUrl)
   const code = nonEmptyString(record?.code)
   const expiresAt = Number(record?.expiresAt)
   if (

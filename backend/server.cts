@@ -218,7 +218,8 @@ import { runtimeKind } from './agent-runtime-binding.cjs';
 import { ConfigManager } from './config-manager.cjs';
 import { ThemeManager } from './theme-manager.cjs';
 import { createThemeRouter } from './theme-router.cjs';
-import { createQrShareRouter, entryPathWithQuery } from './qr-share-router.cjs';
+import { createQrShareRouter, createReadOnlyShareEntryRouter, entryPathWithQuery } from './qr-share-router.cjs';
+import { ReadOnlyShareStore } from './read-only-share-store.cjs';
 import {
   createClientMessageRegistration,
   defineClientMessageDispatchTable,
@@ -761,6 +762,7 @@ async function currentAgentSessions(): Promise<AgentSession[]> {
 }
 
 const qrShareTickets = new QrShareTicketStore({ ttlMs: SHARE_TICKET_TTL_MS });
+const readOnlyShares = new ReadOnlyShareStore(configManager.farmingDir);
 const reviewStateStore = new ReviewStateStore(configManager.farmingDir, {
   seedReviews: {
     'review-fixture-553987': {
@@ -942,6 +944,8 @@ app.get(routePath(BASE_PATH, '/j/:code'), (req, res) => {
   }));
 });
 
+app.use(routePath(BASE_PATH, '/s'), createReadOnlyShareEntryRouter(readOnlyShares, tokenAuth, BASE_PATH));
+
 // Token authentication middleware (before static files)
 app.use(tokenAuth.middleware());
 app.use(routePath(BASE_PATH, '/api/diagnostics/performance'), createInteractionPerformanceRouter(interactionPerformance, authEnabled));
@@ -965,6 +969,7 @@ app.use(routePath(BASE_PATH, '/api/share/qr-ticket'), createQrShareRouter({
   create: (token, options) => qrShareTickets.create(token, options),
   revoke: code => qrShareTickets.revoke(code),
 }, {
+  readOnlyLinks: readOnlyShares,
   authEnabled,
   basePath: BASE_PATH,
   fallbackPort: PORT,

@@ -305,7 +305,7 @@ export function ShareQrButton({
   }, [copy.shareLinkFailed, shareTarget])
 
   const copyShareTicket = useCallback(async (nextTicket: QrShareTicket) => {
-    const ok = await writeClipboardText(nextTicket.longUrl)
+    const ok = await writeClipboardText(nextTicket.readOnlyUrl)
     if (!ok) {
       setError(copy.copyFailed)
       return

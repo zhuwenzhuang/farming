@@ -373,7 +373,7 @@ function serverApiRouteManifest(serverPath: string): string[] {
         return;
       }
       const paths = literalPaths(node.arguments[0])
-        .filter(route => route === '/j/:code' || route === '/api' || route.startsWith('/api/'));
+        .filter(route => route === '/j/:code' || route === '/s' || route === '/api' || route.startsWith('/api/'));
       const method = node.expression.name.text;
       for (const route of paths) {
         const conditions = enclosingConditionals(node, parsed);
@@ -443,6 +443,8 @@ function serverApiRouteManifest(serverPath: string): string[] {
 
 const EXPECTED_API_ROUTE_MANIFEST = [
   'GET /j/:code',
+  'MIDDLEWARE /s [setNoStoreHeader]',
+  'GET /s/:code',
   'MIDDLEWARE * [tokenAuth.middleware]',
   'MIDDLEWARE /api/diagnostics/performance [requireDiagnosticOwner]',
   'GET /api/diagnostics/performance',

@@ -123,9 +123,12 @@ test('enforces Owner and read-only authority across real mobile authentication',
         }
       })
     })
-    const guestUrl = new URL(ownerTicket.longUrl)
-    guestUrl.searchParams.set('ftarget', 'file')
-    guestUrl.searchParams.set('path', externalFile)
+    const externalShareResponse = await page.request.post('/farming/api/share/qr-ticket', {
+      data: { target: { kind: 'file', absolutePath: externalFile } },
+    })
+    expect(externalShareResponse.ok()).toBeTruthy()
+    const externalShare = await externalShareResponse.json() as { readOnlyUrl: string }
+    const guestUrl = new URL(externalShare.readOnlyUrl)
     const guestResponse = await guestPage.goto(guestUrl.toString(), { waitUntil: 'domcontentloaded' })
     expect(guestResponse?.ok()).toBeTruthy()
     await expect(guestPage.getByTestId('app-shell')).toBeVisible()
@@ -243,11 +246,11 @@ test('enforces Owner and read-only authority across real mobile authentication',
     await expect(guestPage.getByTestId('code-mobile-share-sheet')).toHaveCount(0)
 
     const tamperedUrl = new URL(ownerTicket.longUrl)
-    tamperedUrl.searchParams.set('token', `${tamperedUrl.searchParams.get('token') || ''}x`)
+    tamperedUrl.pathname += 'x'
     const tamperedPage = await tampered.newPage()
     const tamperedResponse = await tamperedPage.goto(tamperedUrl.toString(), { waitUntil: 'domcontentloaded' })
-    expect(tamperedResponse?.status()).toBe(401)
-    await expect(tamperedPage.getByText(/Token required/)).toBeVisible()
+    expect(tamperedResponse?.status()).toBe(410)
+    await expect(tamperedPage.getByText(/share link expired or unavailable/)).toBeVisible()
   } finally {
     await Promise.all([
       fullControl.close(),
