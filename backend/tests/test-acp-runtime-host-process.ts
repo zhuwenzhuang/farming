@@ -106,12 +106,14 @@ class HostClient {
   buffer;
   nextId;
   pending;
+  events;
 
   constructor(socket) {
     this.socket = socket;
     this.buffer = '';
     this.nextId = 1;
     this.pending = new Map();
+    this.events = [];
     socket.on('data', chunk => this.onData(chunk));
   }
 
@@ -122,7 +124,9 @@ class HostClient {
       const line = this.buffer.slice(0, newline);
       this.buffer = this.buffer.slice(newline + 1);
       const message = JSON.parse(line);
-      if (message.id) {
+      if (message.event) {
+        this.events.push(message);
+      } else if (message.id) {
         const pending = this.pending.get(message.id);
         if (pending) {
           this.pending.delete(message.id);
@@ -164,6 +168,29 @@ async function waitFor(predicate, message) {
     await new Promise(resolve => setTimeout(resolve, 10));
   }
   throw new Error(message);
+}
+
+function trackSettled(promise: Promise<unknown>) {
+  const state: {
+    settled: boolean;
+    ok: boolean;
+    value: unknown;
+    message: string;
+    uncertain: unknown;
+  } = { settled: false, ok: false, value: undefined, message: '', uncertain: undefined };
+  promise.then(
+    value => {
+      state.settled = true;
+      state.ok = true;
+      state.value = value;
+    },
+    (error: Error & { uncertain?: unknown }) => {
+      state.settled = true;
+      state.message = String(error?.message || error);
+      state.uncertain = error?.uncertain;
+    },
+  );
+  return state;
 }
 
 async function main() {
@@ -700,6 +727,163 @@ async function main() {
       fs.rmSync(symlinkTarget, { recursive: true, force: true });
       fs.rmSync(symlinkConfigDir, { recursive: true, force: true });
     }
+  }
+
+  // Bounded transport semantics for Host -> Controller callbacks: Node reports an
+  // accepted-but-queued write as `write() === false`. That is backpressure, not a
+  // delivery failure, so the callback must stay pending until its callback result
+  // arrives. Only a torn-down transport, an oversize callback event, and an outbound
+  // buffer above the Host limit may reject as undeliverable.
+  class CallbackRuntime extends FakeRuntime {
+    callbackInvocations: ReturnType<typeof trackSettled>[] = [];
+
+    async prepareAgent(options) {
+      const result = await super.prepareAgent(options);
+      if (typeof options.onProcessStarted === 'function') {
+        // Observe the outcome immediately: the Host callback promise must never
+        // reject on an accepted write, and an unobserved rejection would mask the
+        // assertion that catches it.
+        this.callbackInvocations.push(trackSettled(options.onProcessStarted({ pid: 4242 })));
+      }
+      return result;
+    }
+  }
+
+  const callbackConfigDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-acp-runtime-host-callback-'));
+  const callbackSocketPath = path.join(callbackConfigDir, 'host.sock');
+  const callbackRuntime = new CallbackRuntime();
+  const callbackHost = new AcpRuntimeHostProcess({
+    configDir: callbackConfigDir,
+    socketPath: callbackSocketPath,
+    runtime: callbackRuntime,
+    exitOnShutdown: false,
+    maxBufferedBytes: 64 * 1024,
+    maxResponseBytes: 64 * 1024,
+  });
+  // Test-only transport instrumentation. `reportBackpressure` makes an already
+  // queued callback write report `false`, exactly like a real socket at its high
+  // water mark; `bufferedBytes` models an outbound buffer above the Host limit.
+  let reportBackpressure = false;
+  let bufferedBytes: number | null = null;
+  const connectController = callbackHost.handleConnection.bind(callbackHost);
+  type ControllerSocket = Parameters<typeof connectController>[0];
+  callbackHost.handleConnection = (socket: ControllerSocket) => {
+    const instrumented = socket as unknown as {
+      write: (chunk: unknown, ...rest: unknown[]) => boolean;
+    };
+    const write = instrumented.write.bind(socket);
+    instrumented.write = (chunk: unknown, ...rest: unknown[]) => {
+      const accepted = write(chunk, ...rest);
+      const isCallback = typeof chunk === 'string' && chunk.includes('"controller-callback"');
+      return reportBackpressure && isCallback ? false : accepted;
+    };
+    const described = Object.getOwnPropertyDescriptor(socket, 'writableLength')
+      || Object.getOwnPropertyDescriptor(Object.getPrototypeOf(socket), 'writableLength');
+    Object.defineProperty(socket, 'writableLength', {
+      configurable: true,
+      get: () => (bufferedBytes === null ? described?.get?.call(socket) : bufferedBytes),
+    });
+    return connectController(socket);
+  };
+
+  const invokeCallback = (args: unknown[]) => trackSettled(callbackHost.invokeControllerCallback(
+    'token-callback',
+    'agent-callback',
+    'binding-callback',
+    'onProcessStarted',
+    args,
+  ));
+  let callbackClient;
+  try {
+    await callbackHost.start();
+    callbackClient = await connect(callbackSocketPath);
+    await callbackClient.request('registerController', { identity: { id: 'server-callback', generation: 1 } });
+
+    reportBackpressure = true;
+    const prepared = callbackClient.request('prepareAgent', {
+      options: {
+        agentId: 'agent-callback',
+        capabilityRuntimeEpoch: 'binding-callback',
+        sessionId: 'session-callback',
+        callbackToken: 'token-callback',
+        callbackNames: ['onProcessStarted'],
+      },
+    });
+    await waitFor(
+      () => callbackClient.events.some(message => message.event === 'controller-callback'),
+      'a backpressured callback write must still reach the Controller transport',
+    );
+    assert.strictEqual((await prepared).sessionId, 'session-callback');
+    await waitFor(
+      () => callbackRuntime.callbackInvocations.length === 1,
+      'the runtime callback was not invoked',
+    );
+    const callbackEvent = callbackClient.events.find(message => message.event === 'controller-callback');
+    assert.strictEqual(callbackEvent.payload.name, 'onProcessStarted');
+    assert.strictEqual(callbackEvent.payload.callbackToken, 'token-callback');
+    assert.strictEqual(callbackClient.socket.destroyed, false, 'backpressure must not tear down the transport');
+
+    const pending = callbackRuntime.callbackInvocations[0];
+    await new Promise(resolve => setTimeout(resolve, 50));
+    assert.strictEqual(
+      pending.settled,
+      false,
+      `an accepted backpressured callback must remain pending, observed settled ok=${pending.ok} message=${pending.message}`,
+    );
+    assert.strictEqual(callbackHost.controllerCallbacks.size, 1, 'a pending callback must stay registered');
+
+    await callbackClient.request('resolveControllerCallback', {
+      callbackId: callbackEvent.payload.callbackId,
+      ok: true,
+      result: { started: true },
+    });
+    await waitFor(() => pending.settled, 'the pending callback must settle on its callback result');
+    assert.strictEqual(pending.ok, true, 'an accepted backpressured callback must resolve, not reject');
+    assert.deepStrictEqual(pending.value, { started: true });
+    assert.strictEqual(callbackHost.controllerCallbacks.size, 0);
+    reportBackpressure = false;
+
+    const oversized = invokeCallback(['x'.repeat(128 * 1024)]);
+    await waitFor(() => oversized.settled, 'an oversize callback event must reject');
+    assert.strictEqual(oversized.ok, false);
+    assert.match(oversized.message, /could not be delivered/);
+    assert.strictEqual(oversized.uncertain, true);
+    await waitFor(
+      () => callbackClient.socket.destroyed,
+      'an oversize callback event must destroy the transport',
+    );
+    assert.strictEqual(callbackHost.controllerCallbacks.size, 0);
+
+    callbackClient.close();
+    const bufferedClient = await connect(callbackSocketPath);
+    await bufferedClient.request('registerController', { identity: { id: 'server-callback', generation: 2 } });
+    bufferedBytes = 1024 * 1024;
+    const overLimit = invokeCallback([{ pid: 4242 }]);
+    await waitFor(() => overLimit.settled, 'a client above the buffered byte limit must reject');
+    assert.strictEqual(overLimit.ok, false);
+    assert.match(overLimit.message, /could not be delivered/);
+    assert.strictEqual(overLimit.uncertain, true);
+    await waitFor(
+      () => bufferedClient.socket.destroyed,
+      'a client above the buffered byte limit must be disconnected',
+    );
+    bufferedBytes = null;
+    bufferedClient.close();
+
+    const destroyedClient = await connect(callbackSocketPath);
+    await destroyedClient.request('registerController', { identity: { id: 'server-callback', generation: 3 } });
+    callbackHost.activeControllerClient.socket.destroy();
+    const disconnected = invokeCallback([{ pid: 4242 }]);
+    await waitFor(() => disconnected.settled, 'a destroyed transport must reject the callback');
+    assert.strictEqual(disconnected.ok, false);
+    assert.match(disconnected.message, /could not be delivered/);
+    assert.strictEqual(disconnected.uncertain, true);
+    assert.strictEqual(callbackHost.controllerCallbacks.size, 0, 'an undeliverable callback must not stay registered');
+    destroyedClient.close();
+  } finally {
+    callbackClient?.close();
+    await callbackHost.dispose();
+    fs.rmSync(callbackConfigDir, { recursive: true, force: true });
   }
 
   console.log('ACP runtime host process tests passed');

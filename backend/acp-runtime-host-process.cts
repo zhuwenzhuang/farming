@@ -744,7 +744,10 @@ class AcpRuntimeHostProcess {
         return false;
       }
     }
-    return client.socket.write(`${serialized}\n`);
+    // A false write result means accepted with backpressure, not undelivered.
+    // Callback completion is owned by the Controller result, disconnect, or timeout.
+    client.socket.write(`${serialized}\n`);
+    return true;
   }
 
   controllerCallbackOptions(client: HostClient, options: UnknownRecord = {}): UnknownRecord {

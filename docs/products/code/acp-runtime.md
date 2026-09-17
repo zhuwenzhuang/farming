@@ -117,6 +117,12 @@ operations, ordered reducers, and process identities. A compatible Server
 restart reconnects to the Host and restores its authoritative checkpoint and
 deltas instead of restarting healthy sessions.
 
+Host-to-Controller callbacks remain pending after their message is accepted by
+the transport, including when the socket reports backpressure. Only the matching
+Controller result completes the callback; disconnect or the bounded callback
+timeout ends it with an uncertain outcome. Queue and payload limits still reject
+messages that cannot be accepted, without replaying a possibly delivered callback.
+
 That Server-only reconnection is failure-recovery behavior, not an intentional
 Farming stop mode. Farming has one intentional stop semantic: directly kill the
 complete selected set of Farming-owned processes, without graceful shutdown or

@@ -86,6 +86,10 @@ Qwen Code 的 v1 Prompt Suggestion Notification 会在该边界归一化为临�
 拥有 Live Provider Connection、Active Operation、有序 Reducer 和进程身份。兼容 Server
 重启会重连 Host，并读取其权威 Checkpoint 与 Delta，而不是重启健康 Session。
 
+Host 发往 Controller 的回调在传输层接受消息后保持等待，包括 Socket 报告背压的情况。
+只有匹配的 Controller 结果才能完成回调；断连或有界回调超时会以结果不确定结束。
+队列与载荷限制仍拒绝无法接受的消息，不得重放可能已送达的回调。
+
 上述 Server-only 重连属于故障恢复行为，不是 Farming 的主动 Stop Mode。Farming 只有一种
 主动 Stop 语义：直接杀掉选中的、由 Farming 拥有的全部进程，不做 Graceful Shutdown 或 Drain、
 Handoff，也不保留或复用进程。这个单一的 Hard-stop 契约用于刻意简化状态管理，也用于保证
