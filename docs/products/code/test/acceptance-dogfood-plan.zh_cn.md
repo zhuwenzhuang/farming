@@ -185,6 +185,12 @@ Chat Marker、Composer State、Drawer State、Touch Target，以及所有会改�
 
 ## Real-provider Smoke 规则
 
+构建完成后，显式运行 `FARMING_REAL_ARCHIVE=1 node scripts/validate-real-codex-archive.mjs`
+可用真实 `gpt-5.6-luna` / `low` Turn 验证 Codex Archive。脚本隔离 Config、Provider Home
+和 Workspace，覆盖浏览器操作、重启与恢复，并核对 Lifecycle Journal 和 Provider History。
+需要 Python 3.11+、`lsof`、已配置的 Codex Provider 和 Playwright Chromium。
+Evidence 写入 `.tmp`；脚本清理其拥有的进程、Socket 和测试数据。
+
 只使用极短 Prompt 或隔离 Workspace 中的极小文件修改。启动前确认 Login 与 Runtime。验证
 Resume 或 Chat/Terminal Switch 时保留精确 Provider Session Identity，并记录成本敏感 Model。
 

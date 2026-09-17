@@ -68,6 +68,7 @@ async function run() {
     },
   });
 
+  manager.findRuntimeSwitchSession = async () => null;
   try {
     const now = Date.now();
     const zombieMs = AgentManager.ZOMBIE_IDLE_MS;
@@ -228,6 +229,51 @@ async function run() {
       providerArchiveCallsBeforeFreshArchive,
       'a fresh Codex ACP session without a submitted message must not invoke codex archive',
     );
+
+    const runtimeArchiveOrder = [];
+    const originalRuntimeArchive = manager.acpRuntime.archiveSession;
+    const originalRuntimeRelease = manager.acpRuntime.unregisterAgentAndWait;
+    manager.acpRuntime.archiveSession = async id => {
+      runtimeArchiveOrder.push(`archive:${id}`);
+      if (id === 'runtime-archive-failure') throw new Error('writer refused archive');
+      return true;
+    };
+    manager.acpRuntime.unregisterAgentAndWait = async id => {
+      runtimeArchiveOrder.push(`release:${id}`);
+      return true;
+    };
+    for (const id of ['runtime-archive-success', 'runtime-archive-failure']) {
+      manager.agents.set(id, {
+        id, command: 'codex', cwd: '/repo', projectWorkspace: '/repo',
+        status: 'running', engineName: 'local', agentRuntimeMode: 'acp',
+        providerSessionProvider: 'codex', providerSessionId: id,
+        providerSessionMaterialized: true, providerSessionTemporary: false,
+      });
+    }
+    const archiveCallsBeforeRuntimeArchive = codexArchiveCalls.length;
+    const runtimeArchived = await manager.archiveAgent('runtime-archive-success', { recordHistory: false });
+    assert.strictEqual(runtimeArchived.error, undefined);
+    assert.strictEqual(runtimeArchived.archived, true);
+    const runtimeFailed = await manager.archiveAgent('runtime-archive-failure', { recordHistory: false });
+    assert.match(runtimeFailed.error, /writer refused archive/);
+    assert.strictEqual(manager.agents.has('runtime-archive-failure'), true);
+    assert.notStrictEqual(manager.agents.get('runtime-archive-failure').archived, true);
+    assert.deepStrictEqual(runtimeArchiveOrder, [
+      'archive:runtime-archive-success', 'release:runtime-archive-success',
+      'archive:runtime-archive-failure',
+    ]);
+    assert.strictEqual(codexArchiveCalls.length, archiveCallsBeforeRuntimeArchive,
+      'owner archive success or failure must not replay through an external CLI');
+    manager.findRuntimeSwitchSession = async () => ({ archived: true });
+    const reconciled = await manager.archiveAgent('runtime-archive-failure', { recordHistory: false });
+    assert.strictEqual(reconciled.error, undefined);
+    assert.deepStrictEqual(runtimeArchiveOrder, [
+      'archive:runtime-archive-success', 'release:runtime-archive-success',
+      'archive:runtime-archive-failure', 'release:runtime-archive-failure',
+    ], 'an uncertain archive that committed must be reconciled, not replayed');
+    manager.findRuntimeSwitchSession = async () => null;
+    manager.acpRuntime.archiveSession = originalRuntimeArchive;
+    manager.acpRuntime.unregisterAgentAndWait = originalRuntimeRelease;
 
     const archiveCodexSession = manager.archiveCodexSession;
     manager.archiveCodexSession = async () => ({ error: 'simulated provider archive failure' });

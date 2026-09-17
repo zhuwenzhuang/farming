@@ -557,6 +557,7 @@ export interface AcpRuntimeContract {
   logout(agentId: string): Promise<unknown>;
   deleteSession(agentId: string, sessionId: string): Promise<unknown>;
   closeSession(agentId: string): Promise<unknown>;
+  archiveSession?(agentId: string): Promise<boolean>;
   setSessionMode(agentId: string, modeId: string): Promise<unknown>;
   setSessionConfigOption(agentId: string, configId: string, value: AcpConfigValue): Promise<unknown>;
   setSessionConfigOptions(agentId: string, changes: AcpConfigChange[]): Promise<unknown>;

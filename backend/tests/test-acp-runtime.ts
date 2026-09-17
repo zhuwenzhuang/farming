@@ -722,8 +722,28 @@ async function run() {
     await sharedRuntime.unregisterAgentAndWait('different-home-agent');
     await sharedRuntime.unregisterAgentAndWait('different-project-agent');
     assert.strictEqual(differentProjectAgent.sessionId.startsWith('shared-session-'), true);
+    assert.strictEqual(await sharedRuntime.archiveSession(sharedAgents[0]), false);
+    sharedExtensionBinding.initializeResponse.agentCapabilities._meta = {
+      sessionArchive: { method: '_session/archive', version: 1 },
+    };
+    const archiveRequests = [];
+    sharedExtensionBinding.connection.request = async (method, params) => {
+      archiveRequests.push({ method, params });
+      throw new Error('archive writer conflict');
+    };
+    await assert.rejects(sharedRuntime.archiveSession(sharedAgents[0]), /archive writer conflict/);
+    assert.strictEqual(sharedRuntime.bindings.has(sharedAgents[0]), true);
+    assert.notStrictEqual(sharedExtensionBinding.state, 'closed');
+    sharedExtensionBinding.connection.request = async (method, params) => {
+      archiveRequests.push({ method, params });
+      return { archived: true };
+    };
+    assert.strictEqual(await sharedRuntime.archiveSession(sharedAgents[0]), true);
+    assert.deepStrictEqual(archiveRequests, Array(2).fill({
+      method: '_session/archive', params: { sessionId: preparedShared[0].sessionId },
+    }));
     await sharedRuntime.unregisterAgentAndWait(sharedAgents[0]);
-    assert.deepStrictEqual(sharedClosedSessions, [preparedShared[0].sessionId]);
+    assert.deepStrictEqual(sharedClosedSessions, [], 'confirmed archive already closes the provider Session');
     assert.strictEqual(sharedChildren[0].child.exitCode, null, 'releasing one Session must keep the shared runtime alive');
     const reclaimedSession = await sharedRuntime.prepareAgent({
       agentId: 'reclaimed-cross-project-session',

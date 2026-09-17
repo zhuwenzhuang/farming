@@ -152,7 +152,7 @@ async function resultFor(method, params) {
     }
     return { data: [...turns].reverse(), nextCursor: null };
   }
-  if (method === 'thread/unsubscribe' || method === 'thread/delete') return {};
+  if (method === 'thread/unsubscribe' || method === 'thread/delete' || method === 'thread/archive') return {};
   if (method === 'thread/list') {
     return { data: [], nextCursor: null };
   }

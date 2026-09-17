@@ -546,6 +546,11 @@ class AcpRuntimeHostRuntime extends EventEmitter implements AcpRuntimeContract {
     return this.client.request('forkSession', { agentId, options }, { timeoutMs: 0 });
   }
 
+  async archiveSession(agentId: string): Promise<boolean> {
+    await this.initialize();
+    return this.client.request('archiveSession', { agentId });
+  }
+
   async listSessions(agentId: string, options: AcpSessionListOptions = {}): Promise<AcpSessionListResult> {
     await this.initialize();
     return this.client.request('listSessions', { agentId, options });

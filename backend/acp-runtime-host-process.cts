@@ -674,6 +674,8 @@ class AcpRuntimeHostProcess {
         return this.runtime.deleteSession(String(params.agentId || ''), String(params.sessionId || ''));
       case 'closeSession':
         return this.runtime.closeSession(String(params.agentId || ''));
+      case 'archiveSession':
+        return this.runtime.archiveSession(String(params.agentId || ''));
       case 'setSessionMode':
         return this.runtime.setSessionMode(String(params.agentId || ''), String(params.modeId || ''));
       case 'setSessionConfigOption':

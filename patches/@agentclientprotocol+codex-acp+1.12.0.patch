@@ -144,10 +144,11 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
    }
    async renameSession(sessionId, name) {
      await this.codexClient.threadSetName({ threadId: sessionId, name });
-@@ -28644,6 +28679,51 @@ var CodexAcpClient = class {
+@@ -28643,6 +28678,51 @@
+   async getGoal(sessionId) {
      const response = await this.codexClient.threadGoalGet({ threadId: sessionId });
      return response?.goal ?? null;
-   }
++  }
 +  onClientTransportEvent(callback) {
 +    this.codexClient.onClientTransportEvent(callback);
 +  }
@@ -192,10 +193,9 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
 +      )
 +    );
 +    return resolved.filter(Boolean);
-+  }
+   }
    async setGoal(sessionId, objective, onTurnStarted, onGoalSet) {
      const params = {
-       threadId: sessionId,
 @@ -28687,8 +28767,20 @@ var CodexAcpClient = class {
    getMcpServerStartupVersion() {
      return this.codexClient.getMcpServerStartupVersion();
@@ -257,10 +257,11 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
    }
    /**
     * Create a codex config entry for MCP server
-@@ -28861,6 +28972,14 @@ var CodexAcpClient = class {
+@@ -28860,6 +28971,14 @@
+       model: modelId.model,
        serviceTier
      }, onTurnStarted);
-   }
++  }
 +  async steerPrompt(sessionId, turnId, prompt, clientMessageId) {
 +    return await this.codexClient.turnSteer({
 +      threadId: sessionId,
@@ -268,10 +269,9 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
 +      expectedTurnId: turnId,
 +      clientUserMessageId: clientMessageId ?? null
 +    });
-+  }
+   }
    async setCollaborationMode(sessionId, mode, currentModelId) {
      await this.codexClient.threadSettingsUpdate({
-       threadId: sessionId,
 @@ -28986,13 +29105,36 @@ var CodexAcpClient = class {
      });
    }
@@ -316,16 +316,16 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
      return models;
    }
    async runSessionListDiagnostics() {
-@@ -29608,6 +29750,9 @@ var CodexAppServerClient = class {
+@@ -29607,6 +29749,9 @@
+   }
    async threadArchive(params) {
      return await this.sendRequest({ method: "thread/archive", params });
-   }
++  }
 +  async threadDelete(params) {
 +    return await this.sendRequest({ method: "thread/delete", params });
-+  }
+   }
    async threadUnsubscribe(params) {
      return await this.sendRequest({ method: "thread/unsubscribe", params });
-   }
 @@ -30883,6 +31028,53 @@ function imageBlocks(images) {
      return path9 ? [{ type: "text", text: `[@image](${path9})` }] : [];
    });
@@ -425,18 +425,18 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
      this.observeCodexProcess();
    }
    createAvailableCommands(client) {
-@@ -32304,6 +32511,11 @@ var CodexAcpServer = class {
+@@ -32303,6 +32510,11 @@
+       (operation) => this.runWithProcessCheck(operation),
        () => this.refreshAuthState(null)
      );
-   }
++  }
 +  bindClientTransportEvents(client) {
 +    client.onClientTransportEvent((event) => {
 +      this.handleSubagentTransportEvent(event);
 +    });
-+  }
+   }
    async initialize(_params) {
      logger.log("Initialize request received");
-     this.clientInfo = _params.clientInfo ?? null;
 @@ -32316,9 +32528,9 @@ var CodexAcpServer = class {
      const sessionCapabilities = {
        resume: {},
@@ -448,10 +448,11 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
        additionalDirectories: {},
        subagents: {}
      };
-@@ -32346,6 +32558,10 @@ var CodexAcpServer = class {
+@@ -32346,6 +32558,11 @@ var CodexAcpServer = class {
            sse: false
          },
          _meta: {
++          sessionArchive: { method: "_session/archive", version: 1 },
 +          codex: {
 +            steer: { method: STEER_METHOD, version: 1 },
 +            subagents: { version: SUBAGENT_STATE_VERSION }
@@ -459,7 +460,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
            // Presence means "this agent pushes `_auth/status_update`". It
            // never carries a payload, and the client never asks for one.
            [AUTH_STATUS_META_KEY]: authStatusCapability()
-@@ -32464,6 +32680,31 @@ var CodexAcpServer = class {
+@@ -32464,6 +32681,31 @@ var CodexAcpServer = class {
          }
          return {};
        }
@@ -491,7 +492,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
      }
    }
    async checkAuthorization() {
-@@ -32634,6 +32875,7 @@ Check ${configPath} and project .codex directories, especially their config.toml
+@@ -32634,6 +32876,7 @@ Check ${configPath} and project .codex directories, especially their config.toml
        cwd: request.cwd,
        additionalDirectories: sessionMetadata.additionalDirectories,
        mcpServers: requestedMcpServers,
@@ -499,7 +500,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
        fastModeEnabled: sessionMetadata.currentServiceTier === "fast",
        currentModelSupportsFast,
        sessionMcpServers,
-@@ -32730,6 +32972,7 @@ Check ${configPath} and project .codex directories, especially their config.toml
+@@ -32730,6 +32973,7 @@ Check ${configPath} and project .codex directories, especially their config.toml
      } = await this.getOrCreateSessionWithHistory(params);
      await this.streamThreadHistory(sessionId, thread);
      await this.getSessionState(sessionId).asyncTasks.reconcile();
@@ -507,7 +508,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
      logger.log("Session loaded", {
        sessionId,
        modelId: modelState.currentModelId,
-@@ -32741,6 +32984,27 @@ Check ${configPath} and project .codex directories, especially their config.toml
+@@ -32741,6 +32985,27 @@ Check ${configPath} and project .codex directories, especially their config.toml
        ...this.createSessionConfigOptionsResponse(this.getSessionState(sessionId))
      };
    }
@@ -535,7 +536,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
    async resumeSession(params) {
      if (this.providerUpdate !== null) {
        await this.providerUpdate;
-@@ -32752,6 +33016,7 @@ Check ${configPath} and project .codex directories, especially their config.toml
+@@ -32752,6 +33017,7 @@ Check ${configPath} and project .codex directories, especially their config.toml
        modelId: modelState.currentModelId,
        availableModelCount: modelState.availableModels.length
      });
@@ -543,7 +544,36 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
      return {
        models: modelState,
        modes: modeState,
-@@ -32813,6 +33078,7 @@ Check ${configPath} and project .codex directories, especially their config.toml
+@@ -32795,6 +33061,28 @@
+       })
+     };
+   }
++  async archiveSession(params) {
++    const sessionState = this.sessions.get(params.sessionId);
++    if (!sessionState) {
++      throw RequestError.invalidParams(void 0, `Unknown session: ${params.sessionId}`);
++    }
++    this.beginSessionCloseFence(params.sessionId);
++    try {
++      await this.interruptSessionTurn(sessionState, "Archive", true);
++      const activePrompt = this.activePrompts.get(params.sessionId);
++      if (activePrompt) {
++        activePrompt.requestClose();
++        await activePrompt.completion;
++      }
++      await this.runWithProcessCheck(() => this.codexAcpClient.codexClient.threadArchive({
++        threadId: params.sessionId
++      }));
++      await this.closeSession(params);
++      return { archived: true };
++    } finally {
++      this.endSessionCloseFence(params.sessionId);
++    }
++  }
+   async closeSession(params) {
+     logger.log("Closing session...", { sessionId: params.sessionId });
+     const closeGeneration = this.bumpSessionGeneration(params.sessionId);
+@@ -32813,6 +33101,7 @@ Check ${configPath} and project .codex directories, especially their config.toml
          await activePrompt.completion;
        }
        await this.runWithProcessCheck(() => this.codexAcpClient.closeSession(params.sessionId));
@@ -551,7 +581,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
        logger.log("Session closed", { sessionId: params.sessionId });
      } finally {
        if (this.getSessionGeneration(params.sessionId) === closeGeneration) {
-@@ -32827,7 +33093,260 @@ Check ${configPath} and project .codex directories, especially their config.toml
+@@ -32827,7 +33116,260 @@ Check ${configPath} and project .codex directories, especially their config.toml
      }
      return {};
    }
@@ -812,7 +842,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
      logger.log("Deleting session...", { sessionId: params.sessionId });
      const sessionId = params.sessionId;
      const shouldCloseLocalSession = this.hasLocalSession(sessionId);
-@@ -32944,6 +33463,7 @@ Check ${configPath} and project .codex directories, especially their config.toml
+@@ -32944,6 +33486,7 @@ Check ${configPath} and project .codex directories, especially their config.toml
        }
        await this.finishAllAsyncTasks("stopped", "before the provider restart");
        const replacement = await this.restartCodexClient();
@@ -820,7 +850,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
        apply(replacement);
        if (this.initializeRequest === null) {
          throw new Error("Cannot restart Codex app-server before ACP initialization");
-@@ -32959,7 +33479,8 @@ Check ${configPath} and project .codex directories, especially their config.toml
+@@ -32959,7 +33502,8 @@ Check ${configPath} and project .codex directories, especially their config.toml
              sessionId: session.sessionId,
              cwd: session.cwd,
              additionalDirectories: session.additionalDirectories,
@@ -830,7 +860,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
            });
            session.authProvider = replacement.getModelProvider();
            session.asyncTasks.refresh();
-@@ -33694,6 +34215,7 @@ Check ${configPath} and project .codex directories, especially their config.toml
+@@ -33694,6 +34238,7 @@ Check ${configPath} and project .codex directories, especially their config.toml
        cwd: request.cwd,
        additionalDirectories: sessionMetadata.additionalDirectories,
        mcpServers: requestedMcpServers,
@@ -838,7 +868,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
        fastModeEnabled: sessionMetadata.currentServiceTier === "fast",
        currentModelSupportsFast,
        sessionMcpServers,
-@@ -33754,8 +34276,25 @@ Check ${configPath} and project .codex directories, especially their config.toml
+@@ -33754,8 +34299,25 @@ Check ${configPath} and project .codex directories, especially their config.toml
      );
      const threadUpdates = [];
      for (const turn of thread.turns) {
@@ -865,7 +895,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
          threadUpdates.push(...updates2);
        }
      }
-@@ -33986,11 +34525,11 @@ Check ${configPath} and project .codex directories, especially their config.toml
+@@ -33986,11 +34548,11 @@ Check ${configPath} and project .codex directories, especially their config.toml
          return item.text.length > 0 ? [this.createPlanHistoryUpdate(item)] : [];
      }
    }
@@ -879,7 +909,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
        for (const block of blocks) {
          updates.push(createUserMessageChunk(block, messageId));
        }
-@@ -34041,15 +34580,26 @@ Check ${configPath} and project .codex directories, especially their config.toml
+@@ -34041,15 +34603,26 @@ Check ${configPath} and project .codex directories, especially their config.toml
        createCodexMessagePhaseMeta("final_answer")
      );
    }
@@ -910,7 +940,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
        }
        case "skill":
          return [{ type: "text", text: `skill:${input.name} (${input.path})` }];
-@@ -34589,6 +35139,10 @@ Check ${configPath} and project .codex directories, especially their config.toml
+@@ -34589,6 +35162,10 @@ Check ${configPath} and project .codex directories, especially their config.toml
            logger.error(`Prompt for cancelled session ${params.sessionId} failed after prompt returned`, err);
          }
        });
@@ -921,7 +951,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
        let turnCompleted = await Promise.race([
          sendPromptPromise,
          activePrompt.closeSignal,
-@@ -35127,6 +35681,11 @@ var asyncTaskStopParamsParser = external_exports.object({
+@@ -35127,6 +35704,11 @@ var asyncTaskStopParamsParser = external_exports.object({
    sessionId: external_exports.string().trim().min(1),
    asyncTaskId: external_exports.string().trim().min(1)
  }).passthrough();
@@ -933,10 +963,11 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
  if (process.argv.includes("--version")) {
    console.log(`${package_default.name} ${package_default.version}`);
    process.exit(0);
-@@ -35207,5 +35766,5 @@ function startAcpServer() {
+@@ -35207,5 +35789,5 @@ function startAcpServer() {
          codexAcpServer = null;
        }
      });
 -  }).onRequest(methods.agent.initialize, (ctx) => getAgent().initialize(ctx.params)).onRequest(methods.agent.session.new, (ctx) => getAgent().newSession(ctx.params)).onRequest(methods.agent.session.load, (ctx) => getAgent().loadSession(ctx.params)).onRequest(methods.agent.session.fork, (ctx) => getAgent().forkSession(ctx.params)).onRequest(methods.agent.session.list, (ctx) => getAgent().listSessions(ctx.params)).onRequest(methods.agent.session.delete, (ctx) => getAgent().deleteSession(ctx.params)).onRequest(methods.agent.session.resume, (ctx) => getAgent().resumeSession(ctx.params)).onRequest(methods.agent.session.close, (ctx) => getAgent().closeSession(ctx.params)).onRequest(methods.agent.session.setMode, (ctx) => getAgent().setSessionMode(ctx.params)).onRequest(methods.agent.session.setConfigOption, (ctx) => getAgent().setSessionConfigOption(ctx.params)).onRequest(methods.agent.authenticate, (ctx) => getAgent().authenticate(ctx.params, ctx.requestId)).onRequest(methods.agent.logout, (ctx) => getAgent().logout(ctx.params)).onRequest(methods.agent.providers.list, (ctx) => getAgent().listProviders(ctx.params)).onRequest(methods.agent.providers.set, (ctx) => getAgent().setProvider(ctx.params)).onRequest(methods.agent.providers.disable, (ctx) => getAgent().disableProvider(ctx.params)).onRequest(methods.agent.session.prompt, (ctx) => getAgent().prompt(ctx.params, ctx.signal)).onNotification(methods.agent.session.cancel, (ctx) => getAgent().cancel(ctx.params)).onRequest("authentication/status", emptyExtensionParamsParser, (ctx) => getAgent().extMethod("authentication/status", ctx.params)).onRequest("authentication/logout", emptyExtensionParamsParser, (ctx) => getAgent().extMethod("authentication/logout", ctx.params)).onRequest(LEGACY_SET_SESSION_MODEL_METHOD, legacySetSessionModelParamsParser, (ctx) => getAgent().extMethod(LEGACY_SET_SESSION_MODEL_METHOD, ctx.params)).onRequest(SESSION_STEERING_METHOD, sessionSteerParamsParser, (ctx) => getAgent().extMethod(SESSION_STEERING_METHOD, ctx.params)).onRequest(ASYNC_TASK_STOP_METHOD, asyncTaskStopParamsParser, (ctx) => getAgent().extMethod(ASYNC_TASK_STOP_METHOD, ctx.params)).onRequest(GOAL_CONTROL_METHOD, goalControlParamsParser, (ctx) => getAgent().extMethod(GOAL_CONTROL_METHOD, ctx.params)).connect(acpJsonStream);
-+  }).onRequest(methods.agent.initialize, (ctx) => getAgent().initialize(ctx.params)).onRequest(methods.agent.session.new, (ctx) => getAgent().newSession(ctx.params)).onRequest(methods.agent.session.load, (ctx) => getAgent().loadSession(ctx.params)).onRequest(methods.agent.session.fork, (ctx) => getAgent().unstable_forkSession(ctx.params)).onRequest(methods.agent.session.list, (ctx) => getAgent().listSessions(ctx.params)).onRequest(methods.agent.session.delete, (ctx) => getAgent().deleteSession(ctx.params)).onRequest(methods.agent.session.resume, (ctx) => getAgent().resumeSession(ctx.params)).onRequest(methods.agent.session.close, (ctx) => getAgent().closeSession(ctx.params)).onRequest(methods.agent.session.setMode, (ctx) => getAgent().setSessionMode(ctx.params)).onRequest(methods.agent.session.setConfigOption, (ctx) => getAgent().setSessionConfigOption(ctx.params)).onRequest(methods.agent.authenticate, (ctx) => getAgent().authenticate(ctx.params, ctx.requestId)).onRequest(methods.agent.logout, (ctx) => getAgent().logout(ctx.params)).onRequest(methods.agent.providers.list, (ctx) => getAgent().listProviders(ctx.params)).onRequest(methods.agent.providers.set, (ctx) => getAgent().setProvider(ctx.params)).onRequest(methods.agent.providers.disable, (ctx) => getAgent().disableProvider(ctx.params)).onRequest(methods.agent.session.prompt, (ctx) => getAgent().prompt(ctx.params, ctx.signal)).onNotification(methods.agent.session.cancel, (ctx) => getAgent().cancel(ctx.params)).onRequest("authentication/status", emptyExtensionParamsParser, (ctx) => getAgent().extMethod("authentication/status", ctx.params)).onRequest("authentication/logout", emptyExtensionParamsParser, (ctx) => getAgent().extMethod("authentication/logout", ctx.params)).onRequest(LEGACY_SET_SESSION_MODEL_METHOD, legacySetSessionModelParamsParser, (ctx) => getAgent().extMethod(LEGACY_SET_SESSION_MODEL_METHOD, ctx.params)).onRequest(SESSION_STEERING_METHOD, sessionSteerParamsParser, (ctx) => getAgent().extMethod(SESSION_STEERING_METHOD, ctx.params)).onRequest(ASYNC_TASK_STOP_METHOD, asyncTaskStopParamsParser, (ctx) => getAgent().extMethod(ASYNC_TASK_STOP_METHOD, ctx.params)).onRequest(GOAL_CONTROL_METHOD, goalControlParamsParser, (ctx) => getAgent().extMethod(GOAL_CONTROL_METHOD, ctx.params)).onRequest(LEGACY_GOAL_CONTROL_METHOD, goalControlParamsParser, (ctx) => getAgent().extMethod(LEGACY_GOAL_CONTROL_METHOD, ctx.params)).onRequest(STEER_METHOD, steerParamsParser, (ctx) => getAgent().extMethod(STEER_METHOD, ctx.params)).connect(acpJsonStream);
- }
+-}
++  }).onRequest(methods.agent.initialize, (ctx) => getAgent().initialize(ctx.params)).onRequest(methods.agent.session.new, (ctx) => getAgent().newSession(ctx.params)).onRequest(methods.agent.session.load, (ctx) => getAgent().loadSession(ctx.params)).onRequest(methods.agent.session.fork, (ctx) => getAgent().unstable_forkSession(ctx.params)).onRequest(methods.agent.session.list, (ctx) => getAgent().listSessions(ctx.params)).onRequest(methods.agent.session.delete, (ctx) => getAgent().deleteSession(ctx.params)).onRequest(methods.agent.session.resume, (ctx) => getAgent().resumeSession(ctx.params)).onRequest(methods.agent.session.close, (ctx) => getAgent().closeSession(ctx.params)).onRequest(methods.agent.session.setMode, (ctx) => getAgent().setSessionMode(ctx.params)).onRequest(methods.agent.session.setConfigOption, (ctx) => getAgent().setSessionConfigOption(ctx.params)).onRequest(methods.agent.authenticate, (ctx) => getAgent().authenticate(ctx.params, ctx.requestId)).onRequest(methods.agent.logout, (ctx) => getAgent().logout(ctx.params)).onRequest(methods.agent.providers.list, (ctx) => getAgent().listProviders(ctx.params)).onRequest(methods.agent.providers.set, (ctx) => getAgent().setProvider(ctx.params)).onRequest(methods.agent.providers.disable, (ctx) => getAgent().disableProvider(ctx.params)).onRequest(methods.agent.session.prompt, (ctx) => getAgent().prompt(ctx.params, ctx.signal)).onNotification(methods.agent.session.cancel, (ctx) => getAgent().cancel(ctx.params)).onRequest("authentication/status", emptyExtensionParamsParser, (ctx) => getAgent().extMethod("authentication/status", ctx.params)).onRequest("authentication/logout", emptyExtensionParamsParser, (ctx) => getAgent().extMethod("authentication/logout", ctx.params)).onRequest(LEGACY_SET_SESSION_MODEL_METHOD, legacySetSessionModelParamsParser, (ctx) => getAgent().extMethod(LEGACY_SET_SESSION_MODEL_METHOD, ctx.params)).onRequest(SESSION_STEERING_METHOD, sessionSteerParamsParser, (ctx) => getAgent().extMethod(SESSION_STEERING_METHOD, ctx.params)).onRequest(ASYNC_TASK_STOP_METHOD, asyncTaskStopParamsParser, (ctx) => getAgent().extMethod(ASYNC_TASK_STOP_METHOD, ctx.params)).onRequest(GOAL_CONTROL_METHOD, goalControlParamsParser, (ctx) => getAgent().extMethod(GOAL_CONTROL_METHOD, ctx.params)).onRequest(LEGACY_GOAL_CONTROL_METHOD, goalControlParamsParser, (ctx) => getAgent().extMethod(LEGACY_GOAL_CONTROL_METHOD, ctx.params)).onRequest("_session/archive", external_exports.object({ sessionId: external_exports.string().trim().min(1) }), (ctx) => getAgent().archiveSession(ctx.params)).onRequest(STEER_METHOD, steerParamsParser, (ctx) => getAgent().extMethod(STEER_METHOD, ctx.params)).connect(acpJsonStream);
++}

@@ -319,7 +319,7 @@ const CODEX_STEER_METHOD = '_codex/session/steer';
 const SESSION_STEERING_METHOD = '_session/steering';
 const CODEX_ACP_PACKAGE = '@agentclientprotocol/codex-acp';
 const CODEX_ACP_VERSION = '1.12.0';
-const CODEX_ACP_SHA256 = 'c5486cd26a275e3241647050669672d4424b8e4dc39184b06272658b25ca1d1b';
+const CODEX_ACP_SHA256 = 'c6f71c357d2f4ae3659bf1a299a7c1b16167dfa732197f3c4a4dcb880c0b0fc4';
 const CLAUDE_ACP_PACKAGE = '@agentclientprotocol/claude-agent-acp';
 const CLAUDE_ACP_VERSION = '0.78.0';
 const CLAUDE_ACP_SHA256 = '740636d0b956bb94a249512f42f73001a3aeb3e396d986fab337f831ffd2cddf';
@@ -3946,6 +3946,30 @@ class AcpRuntime extends EventEmitter {
       );
       this.requireOpenBinding(binding);
       return { deleted: true, sessionId: targetSessionId };
+    } finally {
+      this.endSessionMutation(binding, mutation);
+    }
+  }
+
+  async archiveSession(agentId: string): Promise<boolean> {
+    const binding = this.bindings.get(agentId);
+    if (!binding) return false;
+    const capability = recordValue(binding.initializeResponse?.agentCapabilities?._meta?.sessionArchive);
+    if (capability.version !== 1 || capability.method !== '_session/archive') return false;
+    if (binding.activeTurn) await this.cancel(agentId);
+    const mutation = this.beginSessionMutation(binding, 'session archive');
+    try {
+      this.requireOpenBinding(binding);
+      const response = recordValue(await withTimeout(
+        binding.connection.request('_session/archive', { sessionId: binding.sessionId }),
+        this.requestTimeoutMs,
+        'ACP session archive',
+      ));
+      this.requireOpenBinding(binding);
+      if (response.archived !== true) throw new Error('ACP Agent did not confirm Session archive');
+      binding.state = 'closed';
+      this.emitRuntime(binding);
+      return true;
     } finally {
       this.endSessionMutation(binding, mutation);
     }

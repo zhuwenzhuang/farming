@@ -603,7 +603,16 @@ async function hardStopConfigProcesses(configDir: string, options: HardStopOptio
     try {
       signal(record.processGroupId, 'SIGKILL');
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== 'ESRCH') {
+        if (code !== 'EPERM') throw error;
+        // Like single-group cleanup, reconcile Darwin's kernel-exiting
+        // groups. EPERM itself never proves that the owned processes stopped.
+        const state = options.inspectProcessGroup || process.platform !== 'darwin'
+          ? inspectGroup(record.processGroupId)
+          : await inspectDarwinProcessGroup(record.processGroupId);
+        if (state !== 'missing' && state !== 'exited-only') throw error;
+      }
       files.forEach(file => fs.rmSync(file, { force: true }));
       continue;
     }

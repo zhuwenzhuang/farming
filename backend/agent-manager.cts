@@ -6738,9 +6738,18 @@ class AgentManager extends EventEmitter {
         delivery: options.delivery,
         clientPromptId: options.requestId,
         retryDefinitiveFailure: options.retryDefinitiveFailure,
-        onSubmitted: options.onSubmitted
-          ? () => options.onSubmitted?.({ kind: 'acp' })
-          : options.releaseInput,
+        onSubmitted: () => {
+          // A new Session becomes archivable when its prompt is submitted,
+          // including while that first Turn is still executing. Waiting for
+          // completion would let Archive detach the owning writer first.
+          try {
+            agent.providerSessionMaterialized = true;
+            this.sessionPersistence.persist(agent);
+          } finally {
+            if (options.onSubmitted) options.onSubmitted({ kind: 'acp' });
+            else options.releaseInput?.();
+          }
+        },
       });
       if (result.steered !== true) {
         const runtime = runtimeBindingOf(agent, 'acp');
@@ -6763,10 +6772,6 @@ class AgentManager extends EventEmitter {
           this.attentionTracker.recordAgentAttentionEvent(agent, 'turn-complete');
         }
       }
-      // ACP assigns a Codex session id before it writes an archivable
-      // conversation. A submitted message is the materialization boundary.
-      agent.providerSessionMaterialized = true;
-      this.sessionPersistence.persist(agent);
       if (result.steered !== true && this.acpRuntime.turnCompletionEvents !== true) {
         this.providerSessionService.observe(agentId, { force: true });
       }
@@ -10387,6 +10392,40 @@ class AgentManager extends EventEmitter {
     });
     if ('error' in admission) return { agentId, error: admission.error };
     const operationId = admission.operation.id;
+    let providerArchivedByRuntime = false;
+    if (
+      runtimeKind(agent) === 'acp'
+      && agent.providerSessionProvider
+      && agent.providerSessionId
+      && agent.providerSessionTemporary !== true
+      && agent.providerSessionMaterialized !== false
+      && options.scheduleProviderArchive !== false
+      && this.acpRuntime.archiveSession
+    ) {
+      try {
+        providerArchivedByRuntime = await this.providerSessionMutationCoordinator.run({
+          provider: agent.providerSessionProvider,
+          homeId: agent.providerHomeId || 'default',
+          sessionId: agent.providerSessionId,
+          type: 'archive',
+          joinSameType: true,
+          operation: async () => {
+            // A previous response or local persistence may have failed after
+            // the Provider committed. Reconcile before an explicit retry.
+            if (admission.joined && (await this.findRuntimeSwitchSession(agent))?.archived === true) {
+              return true;
+            }
+            return this.acpRuntime.archiveSession!(agentId);
+          },
+        });
+      } catch (caughtError: unknown) {
+        const error = caughtError as ErrorRecord;
+        const message = `Provider archive failed: ${error.message || error}`;
+        this.lifecycleJournalService.transition(agent, operationId, 'blocked', message);
+        this.emitStateChange({ agentIds: [agentId] });
+        return { agentId, operationId, error: message, retryable: true };
+      }
+    }
     const killResult = await this.killAgent(agentId, {
       reason: options.reason || 'manual-archive',
       recordHistory: false,
@@ -10460,7 +10499,7 @@ class AgentManager extends EventEmitter {
     // The lifecycle journal remains provider-archive-pending until that
     // external mutation reaches its terminal state.
     this.emitStateChange({ agentIds: [agentId], taskHistoryChanged: true });
-    if (options.scheduleProviderArchive !== false) {
+    if (options.scheduleProviderArchive !== false && !providerArchivedByRuntime) {
       const providerArchive = await this.archiveProviderSession(agent);
       if (providerArchive?.error) {
         try {
@@ -10555,13 +10594,16 @@ class AgentManager extends EventEmitter {
         sessionId,
         type: 'archive',
         joinSameType: true,
-        operation: () => runProviderSessionHistoryMutation(
-          provider,
-          'archive',
-          sessionId,
-          session,
-          { archiveCodexSession: (...args) => this.archiveCodexSession(...args) },
-        ),
+        operation: async () => {
+          if ((await this.findRuntimeSwitchSession(agent))?.archived === true) return { archived: true };
+          return runProviderSessionHistoryMutation(
+            provider,
+            'archive',
+            sessionId,
+            session,
+            { archiveCodexSession: (...args) => this.archiveCodexSession(...args) },
+          );
+        },
       });
       return result?.error ? { error: result.error } : { archived: true };
     } catch (caughtError: unknown) {

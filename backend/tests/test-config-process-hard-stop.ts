@@ -98,6 +98,24 @@ async function run() {
       } else {
         await assert.rejects(result, error => error === denied, 'live or uncertain groups must retain the original failure');
       }
+      const configDir = '/tmp/farming-config-exit-race';
+      const configStop = hardStopConfigProcesses(configDir, {
+        readProcessIdentity: () => expected,
+        isProcessZombie: () => false,
+        signalProcessGroup() { throw denied; },
+        inspectProcessGroup: () => state,
+        discoverLegacyProcesses: async () => [{
+          ...expected,
+          role: 'terminal',
+          configInstanceFingerprint: configInstanceFingerprint(configDir),
+        }],
+      });
+      if (state === 'missing' || state === 'exited-only') {
+        assert.deepStrictEqual(await configStop, { stopped: 0, refused: 0 });
+      } else {
+        await assert.rejects(configStop, error => error === denied,
+          'Config stop must also retain permission failures for live or uncertain groups');
+      }
     }
 
     const zombieDescendantSignals = [];

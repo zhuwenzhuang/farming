@@ -230,7 +230,28 @@ async function run() {
     };
     manager.once('provider-session-updated', resolveProviderTitle);
     live.customTitle = 'Manual Mermaid review';
-    const result = await manager.sendComposerMessage(agentId, 'phase-aware mermaid');
+    let releaseFirstTurn;
+    const firstTurnGate = new Promise(resolve => { releaseFirstTurn = resolve; });
+    const originalPrompt = binding.connection.prompt.bind(binding.connection);
+    binding.connection.prompt = async params => {
+      const response = await originalPrompt(params);
+      await firstTurnGate;
+      return response;
+    };
+    let submitted;
+    const submittedGate = new Promise(resolve => { submitted = resolve; });
+    const firstTurn = manager.sendComposerMessageNow(agentId, 'phase-aware mermaid', {
+      onSubmitted: submitted,
+    });
+    await submittedGate;
+    try {
+      assert.strictEqual(live.providerSessionMaterialized, true,
+        'the first submitted prompt must use owner Archive before Turn completion');
+    } finally {
+      releaseFirstTurn();
+    }
+    const result = await firstTurn;
+    binding.connection.prompt = originalPrompt;
     assert.strictEqual(result.kind, 'acp');
     assert.strictEqual(result.stopReason, 'end_turn');
     assert.strictEqual(live.providerSessionMaterialized, true);

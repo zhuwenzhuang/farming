@@ -236,6 +236,13 @@ A missing login or capability may produce a clear blocked result; it must not
 fall back to a different Agent, model, permission mode, or runtime without an
 explicit product contract.
 
+After building, `FARMING_REAL_ARCHIVE=1 node scripts/validate-real-codex-archive.mjs`
+runs the opt-in Codex Archive matrix with real `gpt-5.6-luna` / `low` turns.
+It isolates Config, Provider Home and workspace, exercises the browser and
+restart/restore paths, and checks both the lifecycle journal and Provider history.
+Python 3.11+, `lsof`, a configured Codex provider and Playwright Chromium are required.
+Evidence is written under `.tmp`; owned processes, sockets and test data are cleaned up.
+
 ## Evidence And Report
 
 For each failure record:

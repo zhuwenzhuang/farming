@@ -44,6 +44,19 @@ lookup and optional unarchive until the new Agent establishes its claim; the
 unarchive step executes inside the owned admission rather than re-entering the
 same mutation coordinator.
 
+A live ACP Session may advertise the versioned `_session/archive` extension.
+Archive then cancels its active Turn and asks the owning Provider connection to
+archive before releasing the local binding. The first submitted prompt makes a
+Session eligible for this path even before its Turn completes; an empty,
+never-submitted Session needs no History mutation. Success closes that Session
+and skips the detached History mutation; failure or timeout keeps Archive blocked
+without replaying it through another process. The same exact Session admission
+excludes concurrent lifecycle mutations, and unrelated Sessions in a shared
+runtime remain live. Explicit retry and restart recovery read Provider History
+first so an already committed archive is not replayed. Providers without this
+capability retain their existing History mutation contract. In particular, Codex unsubscribe is not proof of
+writer release: its idle retention can outlive the close response.
+
 Performance, correctness, reliability, recovery, isolation, and observability
 are provider-neutral ACP requirements. A cross-cutting improvement is complete
 only when every supported provider satisfies the same adapter contract and

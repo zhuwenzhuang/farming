@@ -32,6 +32,17 @@ Archive 与完整的 Non-Fork Resume Admission 按同一个精确 Provider Sessi
 Resume 从权威 Lookup、可选 Unarchive 一直持有该 Admission，直到新 Agent 建立 Claim；
 Unarchive 在已持有的 Admission 内执行，不会再次进入同一个 Mutation Coordinator。
 
+Live ACP Session 可以声明带版本的 `_session/archive` 扩展。Archive 先取消进行中的
+Turn，再由持有该 Session 的 Provider Connection 完成归档，最后释放本地 Binding。
+首条 Prompt 提交后即可走此路径，不必等待 Turn 完成；从未提交 Prompt 的空 Session
+无需修改 History。
+成功后关闭该 Session 并跳过 Detached History Mutation；失败或超时保持 Archive
+Blocked，不通过另一进程重放。精确 Session Admission 排除并发 Lifecycle Mutation，
+共享 Runtime 中其他 Session 保持运行。显式重试与重启恢复先读取 Provider History，
+避免重放已提交的归档。未声明该能力的 Provider 保留原有 History
+Mutation Contract。Codex Unsubscribe 不等于 Writer 已释放：空闲保留期可能持续到
+Close Response 之后。
+
 性能、正确性、可靠性、恢复、隔离与可观测性都是 Provider-neutral 的 ACP 要求。
 横切改进只有在所有受支持 Provider 都满足同一 Adapter Contract 与等价验收标准后才算
 完成。Provider 集成可以用不同方式实现该 Contract，但不得绕过它，也不能把单一 Provider
