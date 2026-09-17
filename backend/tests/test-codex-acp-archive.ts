@@ -51,7 +51,8 @@ async function run() {
       clientInfo: { name: 'farming-archive-test', version: '1' },
       clientCapabilities: {},
     });
-    assert.deepStrictEqual(initialized.agentCapabilities._meta.sessionArchive, {
+    const capabilities = initialized.agentCapabilities as { _meta: { sessionArchive: unknown } };
+    assert.deepStrictEqual(capabilities._meta.sessionArchive, {
       method: '_session/archive', version: 1,
     });
     const first = await request('session/new', { cwd: tmp, mcpServers: [] });
