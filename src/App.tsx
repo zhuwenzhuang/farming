@@ -1316,7 +1316,9 @@ export function App() {
         : agentAfterRemoval(availableAgents,
           displayedAgents.find(agent => agent.id === activeTerminalId)
             ?? previousInventory.find(agent => agent.id === activeTerminalId), closedAgentIdsRef.current)
-    selectionInitializedRef.current = true
+    // The initial restoration policy must survive an empty first inventory so
+    // Agents created after load still receive their initial selection.
+    if (currentAvailable || fallbackId) selectionInitializedRef.current = true
     for (const id of closedAgentIdsRef.current) {
       if (!displayedAgents.some(agent => agent.id === id && isOpenableAgent(agent))) {
         closedAgentIdsRef.current.delete(id)

@@ -43,6 +43,10 @@ function run() {
     path.join(root, 'scripts/prepare-codex-acp-vendor.ts'),
     'utf8',
   );
+  const prepareClaudeAcpVendorScript = fs.readFileSync(
+    path.join(root, 'scripts/prepare-claude-acp-vendor.ts'),
+    'utf8',
+  );
   const acpRuntimeSource = fs.readFileSync(path.join(root, 'backend/acp-runtime.cts'), 'utf8');
   const preparePiAcpVendorScript = fs.readFileSync(
     path.join(root, 'scripts/prepare-pi-acp-vendor.ts'),
@@ -170,6 +174,23 @@ function run() {
   assert(
     npmSmokeScript.includes(`const expectedCodexVendor = '${preparedCodexAcpSha256}';`),
     'npm package smoke must verify the same reviewed Codex ACP bytes',
+  );
+  const preparedClaudeAcpSha256 = prepareClaudeAcpVendorScript.match(
+    /const expectedBundleSha256 = '([a-f0-9]{64})';/,
+  )?.[1];
+  const runtimeClaudeAcpSha256 = acpRuntimeSource.match(
+    /const CLAUDE_ACP_SHA256 = '([a-f0-9]{64})';/,
+  )?.[1];
+  assert(preparedClaudeAcpSha256, 'Claude ACP vendor preparation must pin its reviewed SHA-256');
+  assert(runtimeClaudeAcpSha256, 'Claude ACP runtime launch must pin its reviewed SHA-256');
+  assert.strictEqual(
+    runtimeClaudeAcpSha256,
+    preparedClaudeAcpSha256,
+    'Claude ACP runtime integrity must match the reviewed vendor bytes',
+  );
+  assert(
+    npmSmokeScript.includes(`const expectedClaudeVendor = '${preparedClaudeAcpSha256}';`),
+    'npm package smoke must verify the same reviewed Claude ACP bytes',
   );
   assert(
     appPackageScript.includes(
