@@ -58,7 +58,13 @@ function lastLineIndexMatching(text: string, predicate: (line: string) => boolea
 }
 
 function lastCodexIdleFooterIndex(text: string): number {
-  return lastMatchIndex(text, /(?:^|\n)\s*(?:gpt|codex)[^\n]*(?:·|•)\s*(?:~|\/)[^\n]*$/gim);
+  // The footer model token is provider-owned, so match its shape instead of a
+  // vendor prefix: the model token, an optional reasoning effort, an optional
+  // service tier, then the separator and workspace path.
+  return lastMatchIndex(
+    text,
+    /(?:^|\n)\s*[a-z0-9][a-z0-9._:+-]*(?:\s+(?:minimal|low|medium|high|xhigh|extra\s+high|max|ultra))?(?:\s+fast)?\s*(?:·|•)\s*(?:~|\/)[^\n]*$/gim,
+  );
 }
 
 function codexActiveIndex(text: string): number {

@@ -96,6 +96,19 @@ function run() {
       previewText: [
         '› 你好',
         '',
+        '› Explain this codebase',
+        'qwen3.8-max xhigh · ~/git/farming',
+      ].join('\n'),
+    })),
+    false,
+    'Codex idle detection must not depend on the model vendor prefix in the footer'
+  );
+
+  assert.strictEqual(
+    isCodexAgentWorking(codexAgent({
+      previewText: [
+        '› 你好',
+        '',
         '• Working (2s • esc to interrupt)',
         '',
         '› Explain this codebase',
