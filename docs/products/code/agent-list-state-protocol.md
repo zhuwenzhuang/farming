@@ -350,3 +350,34 @@ Acceptance covers collapsed Git Projects next to expanded Agents, equal row
 spacing, repeated disclosure and viewport changes, before/after feedback on both
 row kinds, cancellation, persistent ordering, and sticky-stack release in Light,
 Dark, and Paper.
+
+## Selection After Row Removal
+
+Code owns viewing intent separately from backend membership. Closing or archiving
+an unselected Agent preserves the current content. Removing the selected Agent
+chooses the next openable Agent in its Project's sidebar order, then the nearest
+previous one. The entire closing set is excluded. Activity and global open-tab
+order do not choose a successor; pinned presentation does not change Project
+ownership. Main, archived, dead, stopped, and history-only rows are not automatic
+successors. This transition never starts or resumes a runtime.
+
+If no successor exists, no Agent is selected. Keep the last Project workspace for
+new-Agent and file actions and return keyboard focus to its title (or the list if
+the Project itself was removed). This empty selection survives inventory updates
+and reload. Global most-recent selection is only an initial restoration policy,
+not a fallback after an intentional removal. A complete authoritative inventory
+that removes the current row uses the previous identity and the same Project
+boundary; partial snapshots cannot trigger removal navigation.
+
+Close/archive admission moves selection once, excluding pending removals even
+before HTTP and state agree. A definite rejection restores row availability but
+does not overwrite a later viewing choice. An uncertain outcome retains existing
+lifecycle reconciliation and never automatically repeats the mutation. Late
+responses cannot navigate away from a newer user selection. Focus restoration
+is bounded and cancelled by subsequent pointer or keyboard input. Content and
+focus remain distinct: archiving a background row may return focus locally but
+must not activate that row's neighbor.
+
+Acceptance covers next/previous/only Agent, background and consecutive removals,
+cross-Project open order, runtime replacement, authoritative removal, empty-state
+updates/reload, and Project-local focus in Light, Dark, and Paper.

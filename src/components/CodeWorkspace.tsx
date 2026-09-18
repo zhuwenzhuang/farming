@@ -1,3 +1,4 @@
+import { agentAfterRemoval } from './code/agent-selection'
 import { canonicalProviderSessionKey } from '../../shared/provider-session-identity.js'
 import type { MainPaneMode } from './code/types'
 import { interactionLayerOwnsEscape } from '@/lib/interaction-layer'
@@ -867,7 +868,7 @@ export function CodeWorkspace({
       : workspaceShareTargetFromSearch(getStartupSearch() || window.location.search)
   ))
   const [shareTargetRestoreTick, setShareTargetRestoreTick] = useState(0)
-  const [lastProjectWorkspace, setLastProjectWorkspace] = useState<string | undefined>(undefined)
+  const [lastProjectWorkspace, setLastProjectWorkspace] = useState<string | undefined>(() => loadCodeWorkspaceViewState().lastProjectWorkspace)
   const [settingsPanelOpen, setSettingsPanelOpen] = useState(false)
   const [mobileShareTicket, setMobileShareTicket] = useState<QrShareTicket | null>(null)
   const mobileShareTicketRef = useRef<QrShareTicket | null>(null)
@@ -963,7 +964,7 @@ export function CodeWorkspace({
   const directShareRequestFenceRef = useRef(new LatestRequestFence())
   const shareTargetRestoreAttemptsRef = useRef(0)
   const restoreProjectListFocusRef = useRef<'active' | 'active-force' | 'list' | null>(null)
-  const pendingArchivedFocusAgentRef = useRef<string | null>(null)
+  const pendingArchivedFocusAgentRef = useRef<Agent | null>(null)
   const pendingRestoredFocusAgentRef = useRef<string | null>(null)
   const projectOperationRequestIdsRef = useRef(new Map<string, string>())
   const trackedMainPageAgentKeysRef = useRef<Set<string>>(new Set())
@@ -1803,9 +1804,10 @@ export function CodeWorkspace({
       return projectFilesWorkspaceId(projectWorkspaceForAgent(activeAgent))
     }
     if (activeProjectWorkspace) return projectFilesWorkspaceId(activeProjectWorkspace)
+    if (lastProjectWorkspace) return projectFilesWorkspaceId(lastProjectWorkspace)
     const firstProjectAgent = activeAgents.find(agent => !agent.isMain)
     return firstProjectAgent ? projectFilesWorkspaceId(projectWorkspaceForAgent(firstProjectAgent)) : null
-  }, [activeAgent, activeAgents, activeProjectWorkspace, openWorkspaceFile])
+  }, [activeAgent, activeAgents, activeProjectWorkspace, lastProjectWorkspace, openWorkspaceFile])
   const projectFileSearchIdForShortcutTarget = useCallback((target: EventTarget | null) => {
     if (!(target instanceof Element)) return null
     const rowAgentId = target.closest<HTMLElement>('[data-testid="code-agent-row"][data-agent-id], [data-testid="code-project-agent-compact"][data-agent-id], [data-testid="code-pinned-agent-compact"][data-agent-id], [data-testid="code-agent-rail-item"][data-agent-id]')?.dataset.agentId
@@ -2695,6 +2697,8 @@ export function CodeWorkspace({
     agentId: string,
     options: { acknowledgeUnprovenAcpExit?: boolean } = {},
   ) => {
+    const archivedAgent = activeAgents.find(agent => agent.id === agentId)
+    if (archivedAgent) pendingArchivedFocusAgentRef.current = archivedAgent
     discardAcpTranscriptSession(agentId)
     discardAcpSessionState(agentId)
     setOptimisticallyArchivedAgentIds(previous => {
@@ -2702,7 +2706,7 @@ export function CodeWorkspace({
       return new Set(previous).add(agentId)
     })
     const rollback = () => {
-      if (pendingArchivedFocusAgentRef.current === agentId) {
+      if (pendingArchivedFocusAgentRef.current?.id === agentId) {
         pendingArchivedFocusAgentRef.current = null
       }
       setOptimisticallyArchivedAgentIds(previous => {
@@ -2731,7 +2735,7 @@ export function CodeWorkspace({
       })
       .catch(rollback)
     return result
-  }, [onUpdateAgentFlags, syncRemovedMainPageSessionsFromAgentUpdate])
+  }, [activeAgents, onUpdateAgentFlags, syncRemovedMainPageSessionsFromAgentUpdate])
 
   useEffect(() => {
     let discoveredSession = false
@@ -4493,7 +4497,6 @@ export function CodeWorkspace({
     if (flags.archived === true) {
       const sessionHandle = claimedAgentSessionHandle(contextMenuAgent)
       if (sessionHandle) removeMainPageAgentSession(sessionHandle)
-      pendingArchivedFocusAgentRef.current = agentId
     }
     if (flags.archived === true) archiveAgentOptimistically(agentId)
     else {
@@ -4516,7 +4519,6 @@ export function CodeWorkspace({
     if (flags.archived === true) {
       const sessionHandle = claimedAgentSessionHandle(agent)
       if (sessionHandle) removeMainPageAgentSession(sessionHandle)
-      pendingArchivedFocusAgentRef.current = agentId
     }
     if (flags.archived === true) archiveAgentOptimistically(agentId)
     else {
@@ -5128,16 +5130,17 @@ export function CodeWorkspace({
     )
     if (targets.agentIds.length === 0 && targets.sessionHandles.length === 0) {
       closeContextMenu()
-      restoreProjectListFocusRef.current = 'list'
+      focusProjectTitle(contextMenuProject.id)
       return
     }
 
     targets.agentIds.forEach(agentId => archiveAgentOptimistically(agentId))
     removeMainPageAgentSessions(targets.sessionHandles)
 
+    pendingArchivedFocusAgentRef.current = null
     closeContextMenu()
-    restoreProjectListFocusRef.current = 'list'
-  }, [archiveAgentOptimistically, closeContextMenu, mainPageAgentSessions, contextMenuProject, projectMenu?.protectedAgentIds, removeMainPageAgentSessions])
+    focusProjectTitle(contextMenuProject.id)
+  }, [archiveAgentOptimistically, closeContextMenu, focusProjectTitle, mainPageAgentSessions, contextMenuProject, projectMenu?.protectedAgentIds, removeMainPageAgentSessions])
 
   const buildProjectRemovalPlan = useCallback((project: ProjectGroup): ProjectRemovalPlan => ({
     workspace: project.workspace,
@@ -5721,25 +5724,25 @@ export function CodeWorkspace({
   }, [activeTerminalId, activeView, focusActiveProjectListTargetNow, searchOpen, shouldSkipProjectFocusRestore])
 
   useEffect(() => {
-    const archivedAgentId = pendingArchivedFocusAgentRef.current
-    if (!archivedAgentId) return
+    const archivedAgent = pendingArchivedFocusAgentRef.current
+    if (!archivedAgent) return
+    pendingArchivedFocusAgentRef.current = null
     if (activeView !== 'projects' || searchOpen) return
-
-    return scheduleFocusUntil(() => {
-      if (shouldSkipProjectFocusRestore()) return false
-      const focused = focusActiveProjectListTargetNow()
-      const activeElement = document.activeElement
-      if (
-        focused
-        && activeElement instanceof HTMLElement
-        && activeElement.dataset.agentId !== archivedAgentId
-      ) {
-        pendingArchivedFocusAgentRef.current = null
-        return true
+    const nextId = agentAfterRemoval(activeAgents, archivedAgent, new Set([archivedAgent.id]))
+    const expectedActiveId = activeTerminalId
+    return scheduleUserCancelableFocusRetries(() => {
+      if (shouldSkipProjectFocusRestore() || activeTerminalIdRef.current !== expectedActiveId) return
+      if (nextId) {
+        focusAgentRowNow(nextId)
+      } else {
+        const projectId = projectWorkspaceForAgent(archivedAgent)
+        const titles = workspaceRef.current?.querySelectorAll<HTMLElement>('[data-testid="code-project-title"]')
+        const title = Array.from(titles ?? []).find(candidate => candidate.dataset.projectId === projectId)
+        const target = title ?? projectListRef.current
+        target?.focus({ preventScroll: true })
       }
-      return false
-    }, { initialDelay: 50, retryDelay: 90, maxAttempts: 12, animationFrame: false })
-  }, [activeAgents.length, activeTerminalId, activeView, focusActiveProjectListTargetNow, searchOpen, shouldSkipProjectFocusRestore])
+    }, { animationFrame: false, delays: [50, 140, 320] })
+  }, [activeAgents, activeTerminalId, activeView, focusAgentRowNow, searchOpen, shouldSkipProjectFocusRestore])
 
   useEffect(() => {
     const restoredAgentId = pendingRestoredFocusAgentRef.current
@@ -5759,6 +5762,10 @@ export function CodeWorkspace({
       setLastProjectWorkspace(activeProjectWorkspace)
     }
   }, [activeProjectWorkspace])
+
+  useEffect(() => {
+    saveCodeWorkspaceViewState({ lastProjectWorkspace })
+  }, [lastProjectWorkspace])
 
   useEffect(() => {
     setSearchSelectionIndex(0)

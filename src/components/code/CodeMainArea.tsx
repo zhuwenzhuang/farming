@@ -1179,7 +1179,7 @@ export function CodeMainArea({
         data-testid="code-terminal-grid"
         hidden={!agentSurfaceVisible}
       >
-        {openAgentsCount === 0 ? (
+        {!activeAgent ? (
           <div className="code-empty-workspace code-empty-home-state" data-testid="code-empty-workspace">
             <EmptyWorkspaceGuide
               agentCreationWorkspace={agentCreationWorkspace}
@@ -1234,37 +1234,36 @@ export function CodeMainArea({
               </div>
             </div>
           </div>
-        ) : (
-          openAgents.map(agent => (
-            <AgentWorkPane
-              key={agent.id}
-              agent={agent}
-              mounted={(agentSurfaceVisible || resourceWorkspaceVisible) && agent.id === activeTerminalId}
-              active={agentSurfaceVisible && agent.id === activeTerminalId}
-              runtimeSwitchVisible={!resourceAgentPanelVisible}
-              viewportLayoutKey={`${resourceAgentPanelVisible ? 'agent-side' : 'agent-full'}:${composerCollapsed ? 'composer-collapsed' : 'composer-expanded'}`}
-              switching={agent.id === permissionSwitchingAgentId}
-              switchingKind={agent.id === permissionSwitchingAgentId ? agentSwitchingKind : null}
-              onActivate={onOpenTerminal}
-              onOpenPath={onOpenTerminalPath}
-              onResolvePath={onResolveTerminalPath}
-              onSearchTerminalWord={onSearchTerminalWord}
-              onOpenWorkspaceFilePath={onOpenWorkspaceFilePath}
-              onCopyReadOnlyShareLink={onCopyReadOnlyShareLink}
-              onOpenUrlInFarming={onOpenUrlInFarming}
-              onFollowOutputChange={onTerminalFollowOutputChange}
-              onReadLatest={onAgentReadLatest}
-              onRuntimeModeChange={onRuntimeModeChange}
-              onForkAgent={onForkAgent}
-              onReviewAndCommit={onReviewAndCommit}
-              onActivePlanChange={publishActivePlan}
-              onSessionOutput={onSessionOutput}
-              focusSignal={terminalFocusRequest?.agentId === agent.id ? terminalFocusRequest.nonce : 0}
-              followLatestSignal={chatFollowLatestRequest?.agentId === agent.id ? chatFollowLatestRequest.nonce : 0}
-              copy={copy}
-            />
-          ))
-        )}
+        ) : null}
+        {openAgents.map(agent => (
+          <AgentWorkPane
+            key={agent.id}
+            agent={agent}
+            mounted={(agentSurfaceVisible || resourceWorkspaceVisible) && agent.id === activeTerminalId}
+            active={agentSurfaceVisible && agent.id === activeTerminalId}
+            runtimeSwitchVisible={!resourceAgentPanelVisible}
+            viewportLayoutKey={`${resourceAgentPanelVisible ? 'agent-side' : 'agent-full'}:${composerCollapsed ? 'composer-collapsed' : 'composer-expanded'}`}
+            switching={agent.id === permissionSwitchingAgentId}
+            switchingKind={agent.id === permissionSwitchingAgentId ? agentSwitchingKind : null}
+            onActivate={onOpenTerminal}
+            onOpenPath={onOpenTerminalPath}
+            onResolvePath={onResolveTerminalPath}
+            onSearchTerminalWord={onSearchTerminalWord}
+            onOpenWorkspaceFilePath={onOpenWorkspaceFilePath}
+            onCopyReadOnlyShareLink={onCopyReadOnlyShareLink}
+            onOpenUrlInFarming={onOpenUrlInFarming}
+            onFollowOutputChange={onTerminalFollowOutputChange}
+            onReadLatest={onAgentReadLatest}
+            onRuntimeModeChange={onRuntimeModeChange}
+            onForkAgent={onForkAgent}
+            onReviewAndCommit={onReviewAndCommit}
+            onActivePlanChange={publishActivePlan}
+            onSessionOutput={onSessionOutput}
+            focusSignal={terminalFocusRequest?.agentId === agent.id ? terminalFocusRequest.nonce : 0}
+            followLatestSignal={chatFollowLatestRequest?.agentId === agent.id ? chatFollowLatestRequest.nonce : 0}
+            copy={copy}
+          />
+        ))}
       </div>
 
       {agentSurfaceVisible && (visibleActivePlan || activeBrowserPreviews.length > 0) ? (

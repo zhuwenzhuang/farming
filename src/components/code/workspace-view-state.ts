@@ -59,6 +59,7 @@ export interface CodeWorkspaceOpenFileViewState {
 }
 
 export interface CodeWorkspaceViewState {
+  lastProjectWorkspace?: string
   activeTerminalId?: string | null
   activeView?: WorkspaceView
   collapsedComputerAgentIds?: string[]
@@ -251,7 +252,8 @@ export function normalizeCodeWorkspaceViewState(value: unknown): CodeWorkspaceVi
   if (updatedAt && Date.now() - updatedAt > MAX_RESTORE_AGE_MS) return {}
 
   return {
-    activeTerminalId: normalizeStringId(record.activeTerminalId),
+    lastProjectWorkspace: normalizeStringId(record.lastProjectWorkspace) || undefined,
+    activeTerminalId: record.activeTerminalId === undefined ? undefined : normalizeStringId(record.activeTerminalId),
     activeView: isWorkspaceView(record.activeView) ? record.activeView : undefined,
     collapsedComputerAgentIds: normalizeStringIds(record.collapsedComputerAgentIds, MAX_COLLAPSED_PROJECT_IDS),
     collapsedProjectIds: normalizeStringIds(record.collapsedProjectIds, MAX_COLLAPSED_PROJECT_IDS),

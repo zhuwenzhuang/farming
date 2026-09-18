@@ -159,3 +159,15 @@ test('rejects invalid nested view state without rejecting valid siblings', () =>
   assert.equal(state.projectFiles?.project.filesCollapsed, true)
   assert.equal(state.projectFiles?.project.agentVisibleLimit, undefined)
 })
+
+test('distinguishes startup discovery from a persisted empty Project selection', () => {
+  const fresh = normalizeCodeWorkspaceViewState({ updatedAt: Date.now() })
+  const empty = normalizeCodeWorkspaceViewState({
+    activeTerminalId: null,
+    lastProjectWorkspace: '/project',
+    updatedAt: Date.now(),
+  })
+  assert.equal(fresh.activeTerminalId, undefined)
+  assert.equal(empty.activeTerminalId, null)
+  assert.equal(empty.lastProjectWorkspace, '/project')
+})

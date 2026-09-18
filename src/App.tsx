@@ -47,7 +47,7 @@ import {
   retainAcpTranscriptSessions,
 } from '@/components/code/acp/acp-transcript-session-pool'
 import { retainAcpSessionStates } from '@/components/code/acp/acp-session-state-pool'
-import { isOpenableAgent, resolveActiveAgentId } from '@/components/code/agent-selection'
+import { agentAfterRemoval, isOpenableAgent, resolveActiveAgentId } from '@/components/code/agent-selection'
 import { projectWorkspaceFromAgentState } from '../shared/agent-state-semantics.js'
 
 type DialogState = 'none' | 'input'
@@ -249,6 +249,11 @@ export function App() {
   const projectOperationRequestIdsRef = useRef(new Map<string, string>())
   const permissionSwitchRequestRef = useRef<string | null>(null)
   const permissionSwitchStateRef = useRef<PermissionSwitchState | null>(null)
+  const activeTerminalIdRef = useRef(activeTerminalId)
+  const selectionInitializedRef = useRef(initialWorkspaceViewState.activeTerminalId === null)
+  const previousSelectionInventoryRef = useRef<Agent[]>([])
+  // Admission-time exclusions survive HTTP/state reordering and consecutive closes.
+  const closedAgentIdsRef = useRef(new Set<string>())
   const openTerminalIdsRef = useRef<string[]>([])
   const hiddenMainStartRequestedRef = useRef(false)
   const didApplyAgentDeeplinkRef = useRef(false)
@@ -262,7 +267,8 @@ export function App() {
   useEffect(() => () => inputDialogFocusRestoreCleanupRef.current?.(), [])
   useLayoutEffect(() => {
     openTerminalIdsRef.current = openTerminalIds
-  }, [openTerminalIds])
+    activeTerminalIdRef.current = activeTerminalId
+  }, [openTerminalIds, activeTerminalId])
 
   useEffect(() => {
     saveCodeWorkspaceViewState({
@@ -660,6 +666,9 @@ export function App() {
   const cancelPendingTerminalOpen = useCallback(() => setPendingTerminalOpen(null), [])
 
   const activateTerminal = useCallback((agentId: string, options?: { focusTerminal?: boolean }) => {
+    selectionInitializedRef.current = true
+    closedAgentIdsRef.current.delete(agentId)
+    activeTerminalIdRef.current = agentId
     setPendingTerminalOpen(null)
     setOpenTerminalIds(ids => ids.includes(agentId) ? ids : [...ids, agentId])
     setRetainedAgentViewIds(ids => touchAgentViewCache(ids, agentId))
@@ -711,6 +720,9 @@ export function App() {
     activateTerminal(pendingTerminalOpen.agentId, pendingTerminalOpen.options)
   }, [activateTerminal, displayedAgents, pendingTerminalOpen])
 
+  const selectionInventoryRef = useRef(displayedAgents)
+  selectionInventoryRef.current = displayedAgents
+
   const closeTerminals = useCallback((
     agentIds: Iterable<string>,
     options: { focusNextTerminal?: boolean } = {},
@@ -718,11 +730,20 @@ export function App() {
     const closingIds = new Set(agentIds)
     if (closingIds.size === 0) return
     const openIds = openTerminalIdsRef.current
-    const activeIndex = openIds.indexOf(activeTerminalId ?? '')
+    const inventory = selectionInventoryRef.current
+    closingIds.forEach(id => closedAgentIdsRef.current.add(id))
+    const currentId = activeTerminalIdRef.current
+    const isClosingActive = currentId !== null && closingIds.has(currentId)
+    const nextActiveId = isClosingActive
+      ? agentAfterRemoval(inventory, inventory.find(agent => agent.id === currentId)
+        ?? previousSelectionInventoryRef.current.find(agent => agent.id === currentId), closedAgentIdsRef.current)
+      : currentId
     const remaining = openIds.filter(id => !closingIds.has(id))
-    const nextActiveId = activeIndex === -1
-      ? remaining[remaining.length - 1] ?? null
-      : remaining[Math.min(activeIndex, remaining.length - 1)] ?? null
+    if (nextActiveId && !remaining.includes(nextActiveId)) remaining.push(nextActiveId)
+    if (isClosingActive) {
+      selectionInitializedRef.current = true
+      activeTerminalIdRef.current = nextActiveId
+    }
 
     openTerminalIdsRef.current = remaining
     setOpenTerminalIds(remaining)
@@ -738,8 +759,7 @@ export function App() {
     })
     if (
       options.focusNextTerminal !== false
-      && activeTerminalId
-      && closingIds.has(activeTerminalId)
+      && isClosingActive
       && nextActiveId
     ) {
       setTerminalFocusRequest(previous => ({
@@ -747,7 +767,7 @@ export function App() {
         nonce: (previous?.nonce ?? 0) + 1,
       }))
     }
-  }, [activeTerminalId])
+  }, [])
 
   const closeTerminal = useCallback((agentId: string, options?: { focusNextTerminal?: boolean }) => {
     closeTerminals([agentId], options)
@@ -1029,6 +1049,7 @@ export function App() {
         // archived the Agent. Preserve that committed outcome in the UI; the
         // persisted lifecycle operation remains blocked and retryable.
         if (flags.archived === true && data?.archived === true) return data
+        if (flags.archived === true) closedAgentIdsRef.current.delete(agentId)
         return false
       }
       const settledSwitch = permissionSwitchStateRef.current
@@ -1282,13 +1303,25 @@ export function App() {
 
   useEffect(() => {
     if (!ws.agentInventoryComplete) return
-    const fallbackId = resolveActiveAgentId(
-      displayedAgents,
-      activeTerminalId,
-      // Match the rendered inventory, even if an earlier effect has already
-      // queued a replacement and advanced the imperative request owner.
-      permissionSwitch?.agent.id ?? null,
-    )
+    const previousInventory = previousSelectionInventoryRef.current
+    previousSelectionInventoryRef.current = displayedAgents
+    // Confirmed runtime lineage owns replacement selection, before removal fallback.
+    if (activeTerminalId && observedAgentReplacements.has(activeTerminalId)) return
+    const availableAgents = displayedAgents.filter(agent => !closedAgentIdsRef.current.has(agent.id))
+    const currentAvailable = activeTerminalId === permissionSwitch?.agent.id
+      || availableAgents.some(agent => agent.id === activeTerminalId && isOpenableAgent(agent))
+    const fallbackId = currentAvailable ? activeTerminalId
+      : !selectionInitializedRef.current
+        ? resolveActiveAgentId(availableAgents, activeTerminalId, permissionSwitch?.agent.id ?? null)
+        : agentAfterRemoval(availableAgents,
+          displayedAgents.find(agent => agent.id === activeTerminalId)
+            ?? previousInventory.find(agent => agent.id === activeTerminalId), closedAgentIdsRef.current)
+    selectionInitializedRef.current = true
+    for (const id of closedAgentIdsRef.current) {
+      if (!displayedAgents.some(agent => agent.id === id && isOpenableAgent(agent))) {
+        closedAgentIdsRef.current.delete(id)
+      }
+    }
     if (fallbackId === activeTerminalId) return
     if (!fallbackId) {
       setActiveTerminalId(null)
@@ -1300,7 +1333,7 @@ export function App() {
     setOpenTerminalIds(ids => ids.includes(fallbackId) ? ids : [...ids, fallbackId])
     setRetainedAgentViewIds(ids => touchAgentViewCache(ids, fallbackId))
     setActiveTerminalId(fallbackId)
-  }, [activeTerminalId, displayedAgents, permissionSwitch?.agent.id, ws.agentInventoryComplete])
+  }, [activeTerminalId, displayedAgents, observedAgentReplacements, permissionSwitch?.agent.id, ws.agentInventoryComplete])
 
   useEffect(() => {
     const pending = pendingMainRestartRef.current

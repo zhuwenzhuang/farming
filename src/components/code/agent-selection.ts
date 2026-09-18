@@ -1,4 +1,5 @@
 import type { Agent } from '@/types/agent'
+import { projectWorkspaceFromAgentState } from '../../../shared/agent-state-semantics.js'
 
 type AgentSelectionCandidate = Pick<
   Agent,
@@ -57,4 +58,27 @@ export function resolveActiveAgentId<T extends AgentSelectionCandidate>(
   }
 
   return mostRecentlyUpdatedAgent(agents)?.id ?? null
+}
+
+// Shared with the Project sidebar; activity does not reorder this collection.
+export function compareProjectAgents(a: Pick<Agent, 'isMain' | 'projectOrder' | 'startedAt'>, b: Pick<Agent, 'isMain' | 'projectOrder' | 'startedAt'>) {
+  if (a.isMain !== b.isMain) return a.isMain ? -1 : 1
+  return (b.projectOrder ?? 0) - (a.projectOrder ?? 0)
+    || (b.startedAt ?? 0) - (a.startedAt ?? 0)
+}
+
+export function agentAfterRemoval(
+  agents: readonly Agent[],
+  current: Agent | null | undefined,
+  excludedIds: ReadonlySet<string>,
+): string | null {
+  if (!current || current.isMain) return null
+  const workspace = projectWorkspaceFromAgentState(current)
+  const peers = agents.filter(agent => !agent.isMain
+    && projectWorkspaceFromAgentState(agent) === workspace)
+  if (!peers.some(agent => agent.id === current.id)) peers.push(current)
+  peers.sort(compareProjectAgents)
+  const index = peers.findIndex(agent => agent.id === current.id)
+  const candidates = [...peers.slice(index + 1), ...peers.slice(0, index).reverse()]
+  return candidates.find(agent => !excludedIds.has(agent.id) && isOpenableAgent(agent))?.id ?? null
 }

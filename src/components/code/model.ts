@@ -1,3 +1,4 @@
+import { compareProjectAgents } from './agent-selection'
 import type { Agent } from '@/types/agent'
 import { projectWorkspaceFromAgentState } from '../../../shared/agent-state-semantics.js'
 import { encodeProviderSessionKey } from '../../../shared/provider-session-identity.js'
@@ -151,12 +152,7 @@ export function groupAgentsByProject(agents: Agent[], agentSessions: AgentSessio
 
   return Array.from(groups.values()).map(group => ({
     ...group,
-    agents: group.agents.sort((a, b) => {
-      if (a.isMain !== b.isMain) return a.isMain ? -1 : 1
-      const orderDifference = (b.projectOrder ?? 0) - (a.projectOrder ?? 0)
-      if (orderDifference !== 0) return orderDifference
-      return (b.startedAt ?? 0) - (a.startedAt ?? 0)
-    }),
+    agents: group.agents.sort(compareProjectAgents),
     agentSessions: group.agentSessions.sort(compareAgentSessions),
   })).sort((a, b) => {
     const aHasMain = a.agents.some(agent => agent.isMain)
