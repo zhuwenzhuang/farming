@@ -63,7 +63,7 @@ async function run() {
     '600 (unrelated) S 1 600 0',
   ], 574), 'missing');
   assert.strictEqual(resolveAcpLaunch('codex').version, '1.12.0');
-  assert.strictEqual(resolveAcpLaunch('claude').version, '0.78.0');
+  assert.strictEqual(resolveAcpLaunch('claude').version, '0.79.0');
   assert.strictEqual(resolveAcpLaunch('pi', piLaunchOptions).version, '0.0.33');
   assert.strictEqual(resolveAcpLaunch('qwen').version, 'native');
   const codexAcpSource = fs.readFileSync(
@@ -1010,7 +1010,7 @@ async function run() {
   const compatibleClaudeLaunch = resolveAcpLaunch('claude');
   assert.match(
     compatibleClaudeLaunch.args.at(-1),
-    /(?:dist\/acp\/claude-agent-acp-0\.78\.0\.mjs|claude-agent-acp\/dist\/index\.js)$/,
+    /(?:dist\/acp\/claude-agent-acp-0\.79\.0\.mjs|claude-agent-acp\/dist\/index\.js)$/,
   );
   const compatiblePiLaunch = resolveAcpLaunch('pi', piLaunchOptions);
   assert.match(compatiblePiLaunch.args[0], /dist\/acp\/pi-acp-0\.0\.33\.mjs$/);
