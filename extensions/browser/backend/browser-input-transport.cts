@@ -6,15 +6,19 @@ const record = (value: unknown): RecordValue => value && typeof value === 'objec
 
 export interface BrowserInputTransport {
   send(tabId: string, method: string, params: RecordValue): Promise<void>;
+  observeTargets(changed: () => void): Promise<void>;
+  browserProcessId(): Promise<number>;
   close(): void;
 }
 
-/** Input-only attachment to the existing Runtime, never a browser launcher. */
+/** Input and lifecycle attachment to the existing Runtime, never a browser launcher. */
 export class CdpBrowserInputTransport implements BrowserInputTransport {
   private socket: WebSocket | null = null;
   private nextId = 0;
   private browserSession = '';
   private closed = false;
+  private connecting: Promise<void> | null = null;
+  private targetsChanged: (() => void) | null = null;
   private sessions = new Map<string, string>();
   private pending = new Map<number, {
     resolve: (value: RecordValue) => void;
@@ -31,6 +35,13 @@ export class CdpBrowserInputTransport implements BrowserInputTransport {
   }
 
   private async connect() {
+    if (!this.connecting) {
+      this.connecting = this.openConnection().finally(() => { this.connecting = null; });
+    }
+    return this.connecting;
+  }
+
+  private async openConnection() {
     if (this.closed) throw new Error('Browser input transport is closed');
     if (this.socket?.readyState === WebSocket.OPEN) return;
     const result = record(await this.command(['get', 'cdp-url']));
@@ -51,6 +62,9 @@ export class CdpBrowserInputTransport implements BrowserInputTransport {
       socket.on('message', bytes => {
         let response: RecordValue;
         try { response = record(JSON.parse(String(bytes))); } catch { return; }
+        if (['Target.targetCreated', 'Target.targetDestroyed', 'Target.targetInfoChanged', 'Target.attachedToTarget', 'Target.detachedFromTarget'].includes(String(response.method))) {
+          this.targetsChanged?.();
+        }
         if (response.method === 'Target.detachedFromTarget') {
           for (const [tab, session] of this.sessions) {
             if (session === record(response.params).sessionId) this.sessions.delete(tab);
@@ -156,8 +170,24 @@ export class CdpBrowserInputTransport implements BrowserInputTransport {
     await this.request(method, params, await this.session(tabId));
   }
 
+  async observeTargets(changed: () => void): Promise<void> {
+    await this.connect();
+    this.targetsChanged = changed;
+    await this.request('Target.setDiscoverTargets', { discover: true });
+  }
+
+  async browserProcessId(): Promise<number> {
+    await this.connect();
+    const result = await this.request('SystemInfo.getProcessInfo', {});
+    const processes = Array.isArray(result.processInfo) ? result.processInfo.map(record) : [];
+    const pid = Number(processes.find(entry => entry.type === 'browser')?.id);
+    if (!Number.isSafeInteger(pid) || pid <= 0) throw new Error('Browser did not report its process identity');
+    return pid;
+  }
+
   close() {
     this.closed = true;
+    this.targetsChanged = null;
     this.socket?.close();
     this.sessions.clear();
   }

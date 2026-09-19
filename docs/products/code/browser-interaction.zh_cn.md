@@ -28,6 +28,13 @@ Desktop 原生输入继续由 Chromium 负责，不经过远程 Viewer。系统�
 结果不确定：Runtime 明确失败，丢弃排队输入，要求显式重新启动 Browser，不重放操作。
 这不增加浏览器启动器或第二个生命周期所有者。
 
+画面采集在 Runtime Session 边界按需开启：第一个在线 Viewer 订阅上游画面流，
+最后一个 Viewer 离开时释放订阅。共享 Session 的多个 Resource 标签页共同计算订阅需求。
+隐藏 Viewer 保留最后一帧，不停止 Browser 或 Agent。没有 Viewer 时，现有 CDP 连接仍
+监测目标变化和连接故障；目标事件触发合并的权威标签页读取，不周期轮询页面。
+新的 Viewer 重新订阅画面，真实流中断仍使用有界恢复。停止时同时隔离观察与待处理
+订阅，迟到的回调不能重新启动采集。
+
 ## 共享控制
 
 Web Viewer 允许人工直接操作，不要求先接管、再交还。它与 Agent 共享同一个 Browser，
@@ -44,3 +51,8 @@ Web Viewer 允许人工直接操作，不要求先接管、再交还。它与 Ag
 选中替换、撤销重做、纯文本剪贴板、特殊键、双击、拖动和失焦。检查网页值及事件，
 不能只检查发送消息。按住按键／按钮时验证断线和切页。可见变化覆盖 Light、Dark、Paper，
 平台与移动端覆盖必须明确报告。
+
+显式真实浏览器检查 `scripts/smoke-browser-idle.ts` 验证无人观看时不采集画面、重新订阅、
+无 Viewer 时的输入与弹窗观察，以及 daemon 突然退出后的 Config 硬停止清理。
+传入托管 agent-browser 与 Chrome 可执行文件路径；检查使用隔离 profile，清理其精确
+进程和临时文件。

@@ -12,6 +12,11 @@ import {
 } from '../../../backend/server-process-identity.cjs';
 import { canonicalConfigDir } from '../../../backend/config-instance.cjs';
 import {
+  hardStopConfigProcesses,
+  registerConfigProcessGroup,
+  unregisterConfigProcessGroup,
+} from '../../../backend/config-process-ownership.cjs';
+import {
   runtimeExecutableInvocation,
 } from '../../../backend/runtime-executable-invocation.cjs';
 
@@ -473,6 +478,12 @@ class AgentBrowserRuntime extends EventEmitter {
   screenshotChain: Promise<unknown>;
   private clipboardSelections = new Map<string, { tabId: string; expires: number; fingerprint: string }>();
   private inputTransport: BrowserInputTransport;
+  private viewerActive = false;
+  private streamUrl = '';
+  private viewerStreamChain: Promise<void> = Promise.resolve();
+  private targetRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+  private targetRefreshDirty = false;
+  private browserProcessIdentity: ProcessIdentity | null = null;
 
   constructor(options: RuntimeOptions) {
     super();
@@ -616,8 +627,22 @@ class AgentBrowserRuntime extends EventEmitter {
       }
       const port = webSocketPort(status);
       if (!port) throw new Error('agent-browser stream did not report a loopback port');
-      await this.connectStream(`ws://127.0.0.1:${port}`);
+      this.streamUrl = `ws://127.0.0.1:${port}`;
+      await this.inputTransport.observeTargets(() => this.scheduleTabRefresh());
+      if (!this.externalCdpUrl) {
+        const browserPid = await this.inputTransport.browserProcessId();
+        const browserIdentity = await this.readProcessIdentity(browserPid);
+        if (!browserIdentity || browserIdentity.processGroupId !== browserPid) {
+          throw new Error('Browser process-group identity could not be verified');
+        }
+        // Chrome creates a process group separate from the agent-browser daemon.
+        // Persist both ownership boundaries before accepting work, including on macOS.
+        this.browserProcessIdentity = browserIdentity;
+        registerConfigProcessGroup(this.configDir, this.browserProcessRole(), browserIdentity);
+      }
       this.started = true;
+      this.scheduleTabRefresh();
+      if (this.viewerActive) await this.setViewerActive(true);
       const metadata = await this.metadata();
       this.emit('metadata', metadata);
       return metadata;
@@ -632,6 +657,47 @@ class AgentBrowserRuntime extends EventEmitter {
       }
       throw error;
     }
+  }
+
+  private scheduleTabRefresh(): void {
+    if (!this.started || this.closedByOwner) return;
+    this.targetRefreshDirty = true;
+    if (this.targetRefreshTimer) return;
+    this.targetRefreshTimer = setTimeout(() => {
+      this.targetRefreshDirty = false;
+      // Keep the refresh coalesced while its authoritative read is outstanding.
+      void this.listTabs().then(tabs => {
+        if (!this.closedByOwner) this.handleStreamMessage(JSON.stringify({ type: 'tabs', tabs }));
+      }).catch(error => {
+        if (!this.closedByOwner) this.emit('exit', `Browser tab observation failed: ${errorMessage(error)}`);
+      }).finally(() => {
+        this.targetRefreshTimer = null;
+        if (this.targetRefreshDirty) this.scheduleTabRefresh();
+      });
+    }, 25);
+  }
+
+  private browserProcessRole(): string {
+    return `browser-${this.namespace}`;
+  }
+
+  setViewerActive(active: boolean): Promise<void> {
+    this.viewerActive = active;
+    const update = this.viewerStreamChain.catch(() => {}).then(async () => {
+      if (this.closedByOwner || !this.started || this.viewerActive !== active) return;
+      if (this.streamRecoveryPromise) await this.streamRecoveryPromise;
+      if (this.closedByOwner || this.viewerActive !== active) return;
+      if (active) {
+        if (!this.stream) await this.connectStream(this.streamUrl);
+      } else {
+        const socket = this.stream;
+        this.stream = null;
+        this.streamReady = false;
+        socket?.close();
+      }
+    });
+    this.viewerStreamChain = update;
+    return update;
   }
 
   connectStream(url: string): Promise<void> {
@@ -704,7 +770,7 @@ class AgentBrowserRuntime extends EventEmitter {
   }
 
   recoverStream(url: string, message: string): void {
-    if (this.closedByOwner || this.streamRecoveryPromise) return;
+    if (this.closedByOwner || !this.viewerActive || this.streamRecoveryPromise) return;
     const recoveryEpoch = ++this.streamRecoveryEpoch;
     this.emit('disconnected', message);
     const recovery = (async () => {
@@ -1317,6 +1383,9 @@ class AgentBrowserRuntime extends EventEmitter {
     if (this.closeComplete) return;
     if (this.closePromise) return this.closePromise;
     this.closedByOwner = true;
+    this.viewerActive = false;
+    if (this.targetRefreshTimer) clearTimeout(this.targetRefreshTimer);
+    this.targetRefreshTimer = null;
     this.inputTransport.close();
     this.streamRecoveryEpoch += 1;
     this.closePromise = (async () => {
@@ -1344,6 +1413,13 @@ class AgentBrowserRuntime extends EventEmitter {
           cause: cleanupErrors[0],
         });
       }
+      if (this.browserProcessIdentity) {
+        if (!await waitForIdentityExit(this.browserProcessIdentity, {
+          readProcessIdentity: this.readProcessIdentity,
+          wait: this.wait,
+        })) throw new Error('Browser process group remained alive after Runtime close');
+        unregisterConfigProcessGroup(this.configDir, this.browserProcessRole(), this.browserProcessIdentity);
+      }
       this.closeComplete = true;
     })().finally(() => {
       this.closePromise = null;
@@ -1359,6 +1435,10 @@ class AgentBrowserRuntime extends EventEmitter {
       externalCdpUrl: 'recovery',
     });
     runtime.processIdentity = options.processIdentity || null;
+    const cleanup = await hardStopConfigProcesses(runtime.configDir, {
+      roles: [runtime.browserProcessRole()],
+    });
+    if (cleanup.refused) throw new Error('Previous Browser process ownership could not be verified');
     runtime.connectedCdp = true;
     runtime.closedByOwner = true;
     await runtime.close();

@@ -34,6 +34,10 @@ const { configInstanceFingerprint } = require('../config-instance.cjs');
 const storageLayout = require('../storage-layout.cjs');
 
 class FakeBrowserRuntime extends EventEmitter {
+  viewerActive = false;
+
+  async setViewerActive(active) { this.viewerActive = active; }
+
   constructor(options) {
     super();
     this.id = options.id;
@@ -1064,6 +1068,14 @@ async function testBrowserResourceManager() {
     )));
 
     const viewer = new FakeViewer();
+    const detachDemandViewer = manager.attachViewer(created.id, viewer);
+    assert.strictEqual(runtimes[0].viewerActive, true);
+    const demandPeer = new FakeViewer();
+    const detachDemandPeer = manager.attachViewer(created.id, demandPeer);
+    detachDemandViewer();
+    assert.strictEqual(runtimes[0].viewerActive, true, 'another Viewer retains the Session stream');
+    detachDemandPeer();
+    assert.strictEqual(runtimes[0].viewerActive, false, 'last Viewer leaving releases frame capture');
     manager.attachViewer(created.id, viewer);
     assert.strictEqual(viewer.messages[0].type, 'browser-state');
     const frame = { type: 'browser-frame', generation: 1, data: 'frame' };

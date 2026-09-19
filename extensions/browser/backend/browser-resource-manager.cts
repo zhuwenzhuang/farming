@@ -138,6 +138,7 @@ interface BrowserViewerOptions {
   readOnly?: boolean;
 }
 interface BrowserRuntime {
+  setViewerActive?(active: boolean): Promise<void>;
   activeTabId: string;
   externalCdpUrl?: string;
   ownedTabIds: Set<string>;
@@ -2809,6 +2810,7 @@ class BrowserResourceManager extends EventEmitter {
     }
     if (!binding || resource.status !== 'running') return () => {};
     binding.viewers.add(ws);
+    this.updateViewerDemand(binding.session);
     if (binding.latestFrame) ws.send(JSON.stringify(binding.latestFrame));
     void this.withRuntime(id, () => {}).catch(error => {
       if (ws.readyState === 1) {
@@ -2838,6 +2840,7 @@ class BrowserResourceManager extends EventEmitter {
     if (options.readOnly !== true) ws.on('message', onMessage);
     const detach = () => {
       binding.viewers.delete(ws);
+      this.updateViewerDemand(binding.session);
       const cleanup = binding.session.actionChain.catch(() => {}).then(async () => {
         if (this.viewerInputStates.get(binding.session)?.viewer === ws) await this.releaseViewerInput(binding.session);
       });
@@ -2859,6 +2862,16 @@ class BrowserResourceManager extends EventEmitter {
     };
     ws.once('close', detach);
     return detach;
+  }
+
+  updateViewerDemand(session: BrowserSession): void {
+    if (session.closing || this.sessions.get(session.id) !== session) return;
+    const active = [...session.bindings.values()].some(binding => (
+      [...binding.viewers].some(viewer => viewer.readyState === 1)
+    ));
+    void session.runtime.setViewerActive?.(active).catch(error => {
+      void this.handleRuntimeExit(session, `Browser Viewer stream failed: ${errorMessage(error)}`);
+    });
   }
 
   handleViewerMessage(
@@ -3053,6 +3066,7 @@ class BrowserResourceManager extends EventEmitter {
     runtime.viewerGeometries?.clear?.();
     runtime.viewerViewportOwner = null;
     runtime.viewers?.clear?.();
+    this.updateViewerDemand(runtime.session);
   }
 
   async performViewerMessage(

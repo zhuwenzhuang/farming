@@ -11,9 +11,11 @@ async function run() {
   const messages: Array<{ method: string; params: Record<string, unknown>; sessionId?: string }> = [];
   const expressions: string[] = [];
   const failures: string[] = [];
+  let connections = 0;
+  let targetChanges = 0;
   let notifyFailure: () => void;
   const failed = new Promise<void>(resolve => { notifyFailure = resolve; });
-  server.on('connection', socket => socket.on('message', bytes => {
+  server.on('connection', socket => { connections++; socket.on('message', bytes => {
     const message = JSON.parse(String(bytes));
     messages.push(message);
     if (message.method === 'Input.insertText') return; // Simulate a lost execution response.
@@ -29,7 +31,7 @@ async function run() {
       case 'Runtime.evaluate': result = { result: { value: message.sessionId === 'selected' } }; break;
     }
     socket.send(JSON.stringify({ id: message.id, result }));
-  }));
+  }); });
   const transport = new CdpBrowserInputTransport(async args => {
     if (args[0] === 'get') return { data: { cdpUrl: `ws://127.0.0.1:${address.port}` } };
     expressions.push(Buffer.from(args[2], 'base64').toString());
@@ -37,7 +39,22 @@ async function run() {
   }, message => { failures.push(message); notifyFailure(); });
   try {
     const key = { type: 'keyDown', key: 'a', modifiers: 4, commands: ['selectAll'], autoRepeat: true };
-    await transport.send('t1', 'Input.dispatchKeyEvent', key);
+    await Promise.all([
+      transport.observeTargets(() => { targetChanges++; }),
+      transport.send('t1', 'Input.dispatchKeyEvent', key),
+    ]);
+    assert.equal(connections, 1, 'lifecycle and input share one connection even during concurrent startup');
+    assert(messages.some(message => message.method === 'Target.setDiscoverTargets'));
+    assert(!messages.some(message => message.method === 'Target.setAutoAttach'), 'observation must not compete with the Runtime target attachment owner');
+    for (const socket of server.clients) socket.send(JSON.stringify({ method: 'Target.targetCreated', params: { targetInfo: { type: 'page' } } }));
+    for (let turn = 0; targetChanges === 0 && turn < 20; turn++) await new Promise(resolve => setTimeout(resolve, 5));
+    assert.equal(targetChanges, 1, 'target observation does not require a screencast subscription');
+    for (const socket of server.clients) {
+      socket.send(JSON.stringify({ method: 'Target.attachedToTarget', params: { sessionId: 'relay-page' } }));
+      socket.send(JSON.stringify({ method: 'Target.detachedFromTarget', params: { sessionId: 'relay-page' } }));
+    }
+    for (let turn = 0; targetChanges < 3 && turn < 20; turn++) await new Promise(resolve => setTimeout(resolve, 5));
+    assert.equal(targetChanges, 3, 'scoped relay attachment events also invalidate tab inventory');
     assert.equal(messages.at(-1)?.method, 'Input.dispatchKeyEvent');
     assert.deepEqual(messages.at(-1)?.params, key);
     assert.equal(messages.at(-1)?.sessionId, 'selected');

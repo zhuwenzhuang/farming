@@ -53,6 +53,11 @@ Descendant 时必须继续向精确进程组发送 `SIGKILL`。由于身份与�
 必须复核一次：进程已经消失或成为僵尸时收敛为已退出；仍然存活且身份不匹配时才显式失败，
 并且绝不向它发送信号。
 
+本地启动的 Browser 必须将 Chromium 进程组身份与 agent-browser daemon 分开记录：
+Chromium 可能建立独立进程组，并在 daemon 退出后继续存活。Config 硬停止必须包含两组，
+Browser 恢复只选择该 Session generation 记录的 Chromium 组。借用 Chrome 或连接远程
+Browser 端点不代表 Farming 拥有其浏览器进程。
+
 停止单个 Terminal 也遵循同一 Hard-stop Ownership 规则。Native 与 Local PTY Engine 必须对
 完整进程组直接发送 `SIGKILL`，不能只杀 Leader PID，确保后台 Descendant 不会在 Agent Row
 消失后继续存活。发送信号前必须立即复核已记录的 Leader Identity；Identity 不匹配，或 Leader

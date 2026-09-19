@@ -541,6 +541,23 @@ async function run() {
     [42],
     'a scoped CDP client must not initialize unrelated Chrome pages',
   );
+  scopedCdp.onMessage(JSON.stringify({ id: 4, method: 'Target.setDiscoverTargets', params: { discover: true } }));
+  await waitFor(() => scopedCdpMessages.some(message => message.id === 4));
+  assert.deepStrictEqual(scopedCdpMessages.filter(message => message.method === 'Target.targetCreated')
+    .map(message => message.params.targetInfo.targetId), ['target-42']);
+  scopedExtension.onMessage(JSON.stringify({ type: 'tabs', tabs: [
+    { tabId: 41, url: 'https://unrelated.test/', title: 'Unrelated', active: false },
+    { tabId: 42, url: 'https://selected.test/next', title: 'Next', active: true },
+  ] }));
+  assert.strictEqual(scopedCdpMessages.find(message => message.method === 'Target.targetInfoChanged').params.targetInfo.url,
+    'https://selected.test/next', 'an unwatched borrowed page must still report navigation');
+  scopedExtension.onMessage(JSON.stringify({ type: 'tabs', tabs: [
+    { tabId: 41, url: 'https://unrelated.test/', title: 'Unrelated', active: false },
+  ] }));
+  assert.deepStrictEqual(scopedCdpMessages.filter(message => message.method === 'Target.targetDestroyed')
+    .map(message => message.params.targetId), ['target-42']);
+  assert.deepStrictEqual(scopedRelayMessages.filter(message => message.type === 'attach').map(message => message.tabId),
+    [42], 'passive discovery must not create additional debugger attachments');
   scopedCdp.onClose();
   scopedExtension.onClose();
   scopedBridge.dispose();

@@ -24,6 +24,7 @@ type OwnershipRecord = ProcessIdentity & {
 };
 
 type HardStopOptions = {
+  roles?: readonly string[];
   discoverLegacyProcesses?: () => Promise<OwnershipRecord[]>;
   readProcessIdentity?: (pid: number) => ProcessIdentity | null | Promise<ProcessIdentity | null>;
   isProcessZombie?: (pid: number) => boolean;
@@ -528,9 +529,11 @@ async function hardStopConfigProcesses(configDir: string, options: HardStopOptio
   const leaderExists = options.processExists || processExists;
   const signal = options.signalProcessGroup || ((processGroupId, value) => process.kill(-processGroupId, value));
   const waitForExit = options.waitForProcessGroupExit || defaultWaitForProcessGroupExit;
-  const registered = readOwnershipRecords(configDir);
-  const discovered = options.readProcessIdentity
-    && !options.discoverLegacyProcesses
+  const registered = readOwnershipRecords(configDir).filter(item => (
+    !options.roles || options.roles.includes(item.record.role)
+  ));
+  const discovered = options.roles || (options.readProcessIdentity
+    && !options.discoverLegacyProcesses)
     ? []
     : [
         ...await discoverConfigHostProcesses(configDir),

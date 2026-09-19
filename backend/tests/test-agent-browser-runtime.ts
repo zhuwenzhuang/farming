@@ -5,10 +5,16 @@ const path = require('path');
 const { EventEmitter } = require('events');
 const {
   AGENT_BROWSER_VERSION,
-  AgentBrowserRuntime,
+  AgentBrowserRuntime: RealAgentBrowserRuntime,
   namespaceForResource,
   sessionForResource,
 } = require('../../extensions/browser/backend/agent-browser-runtime.cjs');
+
+class AgentBrowserRuntime extends RealAgentBrowserRuntime {
+  constructor(options) {
+    super({ createInputTransport: () => ({ async observeTargets() {}, async browserProcessId() { return 44_001; }, async send() {}, close() {} }), ...options });
+  }
+}
 
 class FakeStream extends EventEmitter {
   constructor() {
@@ -139,6 +145,8 @@ async function run(configDir) {
     executablePath: '/Applications/Chromium',
     runCommand,
     createInputTransport: () => ({
+      async observeTargets() {},
+      async browserProcessId() { return identity.pid; },
       async send(tabId, method, params) {
         assert.strictEqual(tabId, runtime.activeTabId);
         inputMessages.push({ ...params, method });
@@ -177,6 +185,12 @@ async function run(configDir) {
   const expectedSession = sessionForResource('browser_test', 7);
   assert.match(expectedSession, /^fb-[a-f0-9]{16}$/);
   const metadata = await runtime.start('https://example.test/');
+  assert.strictEqual(runtime.stream, null, 'unwatched Browsers must not subscribe to frames');
+  const ownershipDirectory = path.join(configDir, '.farming-processes');
+  const ownedBrowserRecords = fs.readdirSync(ownershipDirectory).map(file => JSON.parse(fs.readFileSync(path.join(ownershipDirectory, file), 'utf8')));
+  assert(ownedBrowserRecords.some(record => record.role === `browser-${runtime.namespace}` && record.pid === identity.pid),
+    'the independently launched Chrome group must have durable Config ownership');
+  await runtime.setViewerActive(true);
   assert.deepStrictEqual(metadata, { url: 'https://example.test/', title: 'Example' });
   const metadataCommands = calls
     .map(args => args.slice(4, -1))
@@ -410,6 +424,7 @@ async function run(configDir) {
   )));
 
   await runtime.close();
+  assert.strictEqual(fs.readdirSync(ownershipDirectory).length, 0, 'completed close retires the exact Browser ownership record');
   assert.strictEqual(processActive, false);
   assert(calls.some(args => args.includes('close')));
 
@@ -561,6 +576,7 @@ async function run(configDir) {
     wait: async () => {},
   });
   await reconnectingRuntime.start('https://example.test/');
+  await reconnectingRuntime.setViewerActive(true);
   const reconnectEvents = [];
   reconnectingRuntime.on('disconnected', () => reconnectEvents.push('disconnected'));
   reconnectingRuntime.on('connected', () => reconnectEvents.push('connected'));
@@ -590,7 +606,24 @@ async function run(configDir) {
     'A recovered connection must retain the same bounded recovery contract',
   );
   assert.strictEqual(reconnectingStreams.length, 3);
+  await reconnectingRuntime.setViewerActive(false);
+  assert.strictEqual(reconnectingRuntime.stream, null);
+  const previousEventCount = reconnectEvents.length;
+  reconnectingStreams[2].emit('message', JSON.stringify({ type: 'frame', data: 'stale' }));
+  reconnectingStreams[2].emit('close');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.strictEqual(reconnectEvents.length, previousEventCount, 'hiding the Viewer is not a disconnection');
+  assert.strictEqual(reconnectingRuntime.latestFrame, null, 'retired sockets cannot publish stale frames');
+  await Promise.all([
+    reconnectingRuntime.setViewerActive(true),
+    reconnectingRuntime.setViewerActive(false),
+  ]);
+  assert.strictEqual(reconnectingStreams.length, 3, 'a cancelled subscription must not start capturing');
+  await reconnectingRuntime.setViewerActive(true);
+  assert.strictEqual(reconnectingStreams.length, 4);
   await reconnectingRuntime.close();
+  await reconnectingRuntime.setViewerActive(true);
+  assert.strictEqual(reconnectingStreams.length, 4, 'closed Runtimes cannot be resurrected by a Viewer');
 
   const failingStreams = [];
   processActive = true;
@@ -612,6 +645,7 @@ async function run(configDir) {
     wait: async () => {},
   });
   await unrecoverableRuntime.start('https://example.test/');
+  await unrecoverableRuntime.setViewerActive(true);
   const failureEvents = [];
   unrecoverableRuntime.on('disconnected', () => failureEvents.push('disconnected'));
   unrecoverableRuntime.on('connected', () => failureEvents.push('connected'));

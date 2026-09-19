@@ -270,6 +270,28 @@ async function run() {
     }
   }
 
+  const selectedConfig = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-browser-stop-selection.'));
+  try {
+    const browser = { pid: 32001, processGroupId: 32001, startedAt: 'browser-generation' };
+    const peer = { pid: 32002, processGroupId: 32002, startedAt: 'other-generation' };
+    registerConfigProcessGroup(selectedConfig, 'browser-selected', browser);
+    registerConfigProcessGroup(selectedConfig, 'browser-peer', peer);
+    const signals = [];
+    const stopped = await hardStopConfigProcesses(selectedConfig, {
+      roles: ['browser-selected'],
+      readProcessIdentity: pid => pid === browser.pid ? browser : peer,
+      discoverLegacyProcesses: async () => { throw new Error('Scoped recovery must not discover unrelated processes'); },
+      signalProcessGroup: (pid, signal) => signals.push({ pid, signal }),
+      waitForProcessGroupExit: async () => true,
+    });
+    assert.deepStrictEqual(stopped, { stopped: 1, refused: 0 });
+    assert.deepStrictEqual(signals, [{ pid: browser.pid, signal: 'SIGKILL' }]);
+    assert.strictEqual(fs.readdirSync(path.join(selectedConfig, '.farming-processes')).length, 1,
+      'Browser recovery must retain other Session ownership records');
+  } finally {
+    fs.rmSync(selectedConfig, { recursive: true, force: true });
+  }
+
   const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-config-hard-stop.'));
   const otherConfigDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-config-hard-stop-other.'));
   try {

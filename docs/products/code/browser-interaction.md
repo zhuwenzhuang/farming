@@ -34,6 +34,16 @@ loss or a timed-out dispatch has an uncertain outcome: fail the Runtime, discard
 queued input, and require an explicit Browser restart. Never replay a mutation.
 This does not add a browser launcher or a second lifecycle owner.
 
+Frame capture is demand-driven at the Runtime Session boundary. The first live
+Viewer subscribes to the upstream frame stream; the last Viewer leaving releases
+that subscription. Multiple Resource tabs sharing a Session share this demand.
+Hiding a Viewer retains its last frame and does not stop the Browser or Agent.
+The existing CDP connection observes target changes and connection failure even
+without Viewers; target events trigger coalesced authoritative tab reads rather
+than periodic page polling. A new Viewer reopens the frame stream, while genuine
+stream interruptions retain bounded recovery. Stop fences both observation and
+pending subscriptions so late callbacks cannot restart capture.
+
 ## Shared Control
 
 The Web Viewer accepts direct human input without a mandatory take-control or
@@ -56,3 +66,9 @@ real Chromium inputs, contenteditable, and a browser code editor. Verify page
 values and events, not merely sent messages. Exercise disconnect and target
 switching with held keys/buttons. Visual checks cover Light, Dark, and Paper;
 platform and mobile coverage must be reported explicitly.
+
+The explicit `scripts/smoke-browser-idle.ts` real-browser check verifies no frame
+capture without Viewers, resubscription, input and popup observation while
+unwatched, and Config hard-stop cleanup after abrupt daemon loss. Supply the
+managed agent-browser and Chrome executable paths; it uses an isolated profile
+and cleans its exact processes and temporary files.

@@ -58,6 +58,7 @@ type TabState = {
 type CdpClientState = {
   socket: BridgeSocket;
   autoAttach: boolean;
+  discoverTargets: boolean;
   /** Null means the legacy all-tabs endpoint; scoped clients only see these tabs. */
   allowedTabIds: Set<number> | null;
   /** Session ids this client has been told about (root and child sessions). */
@@ -371,7 +372,9 @@ export class ExtensionRelayBridge {
     for (const info of tabs) {
       const existing = this.tabs.get(info.tabId);
       if (existing) {
+        const changed = existing.info.url !== info.url || existing.info.title !== info.title;
         existing.info = info;
+        if (changed && existing.attached) this.announceTargetDiscovery("Target.targetInfoChanged", info.tabId);
       } else {
         this.tabs.set(info.tabId, { info });
         // Newly accessible tabs must reach auto-attach clients immediately;
@@ -417,6 +420,7 @@ export class ExtensionRelayBridge {
         throw new Error(`tab ${tabId} closed during attach`);
       }
       current.attached = attached;
+      this.announceTargetDiscovery("Target.targetCreated", tabId);
       return attached;
     })();
     tab.attaching = attaching;
@@ -439,6 +443,20 @@ export class ExtensionRelayBridge {
       attached: true,
       canAccessOpener: false,
     };
+  }
+
+  private announceTargetDiscovery(method: string, tabId: number, onlyClient?: CdpClientState): void {
+    const tab = this.tabs.get(tabId);
+    if (!tab?.attached) return;
+    for (const client of onlyClient ? [onlyClient] : this.clients) {
+      if (!client.discoverTargets || !this.clientCanAccessTab(client, tabId)) continue;
+      client.socket.send(JSON.stringify({
+        method,
+        params: method === "Target.targetDestroyed"
+          ? { targetId: tab.attached.targetId }
+          : { targetInfo: this.targetInfoForTab(tab, tab.attached.targetId) },
+      }));
+    }
   }
 
   private announceAttachedTab(
@@ -475,6 +493,7 @@ export class ExtensionRelayBridge {
   }
 
   private emitDetachedFromTarget(tabId: number, sessionId: string, targetId: string): void {
+    this.announceTargetDiscovery("Target.targetDestroyed", tabId);
     const event = JSON.stringify({
       method: "Target.detachedFromTarget",
       params: { sessionId, targetId },
@@ -577,6 +596,7 @@ export class ExtensionRelayBridge {
     const client: CdpClientState = {
       socket,
       autoAttach: false,
+      discoverTargets: false,
       allowedTabIds: options.allowedTabId !== undefined
         ? new Set([options.allowedTabId])
         : options.newTabsOnly
@@ -760,8 +780,19 @@ export class ExtensionRelayBridge {
       }
       // Browser-level knobs chrome.debugger cannot reach; acknowledging keeps
       // Playwright's default-context bootstrap happy with browser defaults.
-      case "Browser.setDownloadBehavior":
+      case "Browser.setDownloadBehavior": {
+        this.respond(client, request, {});
+        return;
+      }
       case "Target.setDiscoverTargets": {
+        // Lifecycle observers share the Runtime's existing attachments, without
+        // auto-attaching another debugger or touching unrelated borrowed tabs.
+        client.discoverTargets = request.params?.discover === true;
+        if (client.discoverTargets) {
+          for (const tabId of this.clientTabIds(client)) {
+            this.announceTargetDiscovery("Target.targetCreated", tabId, client);
+          }
+        }
         this.respond(client, request, {});
         return;
       }

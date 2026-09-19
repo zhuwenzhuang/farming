@@ -67,6 +67,12 @@ rechecks an apparent mismatch once before refusing: disappearance or zombie
 state is reconciled as exited, while a still-live mismatch remains a visible
 failure and is never signalled.
 
+Locally launched Browsers record the Chromium process-group identity separately
+from the agent-browser daemon: Chromium may create its own group and survive
+daemon loss. Config hard stop includes both groups, and Browser recovery selects
+only that Session generation's recorded Chromium group. Borrowed Chrome and
+remote Browser endpoints never confer ownership of their browser process.
+
 Stopping one Terminal follows the same hard-stop ownership rule. The native
 and local PTY engines signal the complete process group with `SIGKILL`, never
 only its leader PID, so background descendants cannot outlive the Agent row.
