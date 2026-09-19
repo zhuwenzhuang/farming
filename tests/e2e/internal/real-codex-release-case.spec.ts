@@ -395,7 +395,9 @@ async function dragCodeTerminal(
   // into several settled gestures. Advance browser time explicitly so every
   // intermediate geometry remains inside the 250 ms resize settle interval.
   await page.clock.install()
-  await page.clock.pauseAt(new Date())
+  // Earlier drags advance the virtual clock beyond host time. Base the next
+  // pause on that clock, with room for the protocol round trip.
+  await page.clock.pauseAt(await page.evaluate(() => Date.now()) + 1000)
   try {
     for (const size of sizes) {
       await page.setViewportSize(size)
