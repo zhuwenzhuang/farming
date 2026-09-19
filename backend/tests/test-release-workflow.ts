@@ -125,6 +125,15 @@ function run() {
     agentBrowserJob.strategy.matrix.include.map(entry => entry.runner),
     ['macos-15', 'macos-15-intel', 'ubuntu-24.04-arm', 'ubuntu-24.04', 'ubuntu-24.04-arm', 'ubuntu-24.04', 'windows-latest'],
   );
+  const lineEndingSetupIndex = agentBrowserJob.steps.findIndex(
+    step => step.name === 'Preserve pinned source line endings',
+  );
+  const agentBrowserCheckoutIndex = agentBrowserJob.steps.findIndex(step => step.name === 'Checkout');
+  assert(lineEndingSetupIndex >= 0 && lineEndingSetupIndex < agentBrowserCheckoutIndex);
+  assert.strictEqual(
+    agentBrowserJob.steps[lineEndingSetupIndex].run,
+    'git config --global core.autocrlf false',
+  );
   assert.strictEqual(
     agentBrowserJob.steps.find(step => step.name === 'Setup Node.js')?.with['node-version'],
     '24',

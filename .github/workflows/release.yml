@@ -114,6 +114,10 @@ jobs:
             rustTarget: x86_64-pc-windows-msvc
             zig: false
     steps:
+      - name: Preserve pinned source line endings
+        shell: bash
+        run: git config --global core.autocrlf false
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
