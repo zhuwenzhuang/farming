@@ -209,8 +209,33 @@ function run() {
       .find(step => step.name === 'Smoke-test patched browser runtime on Linux')
       ?.run.includes('$PWD/dist/runtime/agent-browser/linux-x64/agent-browser'),
   );
+  const linuxArm64Smoke = preparationWorkflow.jobs['build-linux'].steps
+    .find(step => step.name === 'Smoke-test Linux arm64 CLI server and native PTY');
   assert(
-    preparationWorkflow.jobs['build-macos'].steps
+    linuxArm64Smoke?.run.includes('-e FARMING_SKIP_RUNTIME_PREPARE=1')
+      && linuxArm64Smoke.run.includes('-e FARMING_SMOKE_AGENT=0'),
+    'the emulated arm64 CLI smoke must validate startup without downloading unrelated Agent runtimes',
+  );
+  const macosJob = preparationWorkflow.jobs['build-macos'];
+  const macosRuntimeRust = macosJob.steps
+    .find(step => step.name === 'Setup Rust for native macOS browser runtime');
+  assert.strictEqual(macosRuntimeRust?.if, "matrix.kind == 'app'");
+  assert.strictEqual(macosRuntimeRust?.with.toolchain, '1.96.1');
+  assert.strictEqual(
+    macosRuntimeRust?.with.target,
+    "${{ matrix.arch == 'arm64' && 'aarch64-apple-darwin' || 'x86_64-apple-darwin' }}",
+  );
+  const macosRuntimeBuild = macosJob.steps
+    .find(step => step.name === 'Build native macOS browser runtime on packaging runner');
+  assert.strictEqual(macosRuntimeBuild?.if, "matrix.kind == 'app'");
+  assert(
+    macosRuntimeBuild?.run.includes('--platform "darwin-${{ matrix.arch }}"')
+      && macosRuntimeBuild.run.includes('FARMING_AGENT_BROWSER_ARTIFACTS=${native_artifacts}')
+      && macosRuntimeBuild.run.includes('${GITHUB_ENV}'),
+    'macOS app packaging must build and select the patched native runtime on its final runner',
+  );
+  assert(
+    macosJob.steps
       .find(step => step.name === 'Smoke-test patched browser runtime on macOS')
       ?.run.includes('$PWD/dist/runtime/agent-browser/darwin-${{ matrix.arch }}/agent-browser'),
   );

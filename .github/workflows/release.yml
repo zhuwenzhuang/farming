@@ -250,6 +250,8 @@ jobs:
         shell: bash
         run: |
           docker run --rm --platform linux/arm64 \
+            -e FARMING_SKIP_RUNTIME_PREPARE=1 \
+            -e FARMING_SMOKE_AGENT=0 \
             -v "$PWD/releases/${FARMING_RELEASE_VERSION}:/release:ro" \
             -v "$PWD/scripts:/scripts:ro" \
             node:22.17.0-bookworm \
@@ -432,6 +434,28 @@ jobs:
         uses: browser-actions/setup-chrome@v2
         with:
           chrome-version: stable
+
+      # GitHub's artifact handoff marks downloaded native executables with
+      # macOS provenance. On a different runner the transferred ad-hoc Mach-O
+      # can stall in dyld before main(), so the final app must consume a native
+      # build made and exercised on the same runner that packages it.
+      - name: Setup Rust for native macOS browser runtime
+        if: matrix.kind == 'app'
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: 1.96.1
+          target: ${{ matrix.arch == 'arm64' && 'aarch64-apple-darwin' || 'x86_64-apple-darwin' }}
+          rustflags: ''
+
+      - name: Build native macOS browser runtime on packaging runner
+        if: matrix.kind == 'app'
+        shell: bash
+        run: |
+          native_artifacts="${RUNNER_TEMP}/native-agent-browser-artifacts"
+          node scripts/build-agent-browser-runtime.mjs \
+            --platform "darwin-${{ matrix.arch }}" \
+            --output "${native_artifacts}"
+          echo "FARMING_AGENT_BROWSER_ARTIFACTS=${native_artifacts}" >> "${GITHUB_ENV}"
 
       - name: Build native macOS CLI
         if: matrix.kind == 'cli'
