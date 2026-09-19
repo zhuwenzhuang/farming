@@ -49,6 +49,7 @@ const run = (command, args, cwd = work) => {
 // -> release binary -> identity sidecar. No partial output is accepted by packagers.
 try {
   run('git', ['init', '-q']);
+  run('git', ['config', 'core.autocrlf', 'false']);
   run('git', ['remote', 'add', 'origin', pin.repository]);
   run('git', ['fetch', '--depth', '1', 'origin', pin.commit]);
   run('git', ['checkout', '--detach', 'FETCH_HEAD']);
