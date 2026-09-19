@@ -160,6 +160,10 @@
   margin-right: 68px;
 }
 
+.code-agent-work-pane.side-chat-available .code-agent-transcript-user {
+  margin-right: 108px;
+}
+
 @container (max-width: 800px) {
   .code-agent-transcript-scroll {
     padding: 8px 12px 6px;

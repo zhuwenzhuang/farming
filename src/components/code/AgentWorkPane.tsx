@@ -93,6 +93,7 @@ export function AgentWorkPane({
   const canSwitchRuntime = runtimeSwitchVisible && canSwitchAgentRuntime(agent)
   const runtimeSwitchDisabled = switching || isAgentTurnActive(agent)
   const canForkConversation = canForkAgentConversation(agent)
+  const canOpenSideChat = runtimeSwitchVisible && acpChat && openSideChat && canForkConversation && !agent.sideChatParentSessionKey
   const readLatestChat = useCallback(() => {
     const attentionSeq = Number.isFinite(agent.attentionSeq) ? Math.max(0, Number(agent.attentionSeq)) : 0
     const readAttentionSeq = Number.isFinite(agent.readAttentionSeq) ? Math.max(0, Number(agent.readAttentionSeq)) : 0
@@ -122,23 +123,25 @@ export function AgentWorkPane({
 
   return (
     <section
-      className={`code-agent-work-pane ${active ? 'active' : ''} ${canSwitchRuntime ? 'runtime-switchable' : ''}`}
+      className={`code-agent-work-pane ${active ? 'active' : ''} ${canSwitchRuntime ? 'runtime-switchable' : ''} ${canOpenSideChat ? 'side-chat-available' : ''}`}
       data-testid="code-agent-work-pane"
       data-agent-id={agent.id}
       hidden={!active}
       aria-busy={switching}
     >
-      {canSwitchRuntime || (openSideChat && canForkConversation && !agent.sideChatParentSessionKey) ? (
+      {canOpenSideChat ? (
+        <div className="code-terminal-side-chat-toggle" onPointerDown={event => event.stopPropagation()} onMouseDown={event => event.stopPropagation()}>
+          <button type="button" aria-label={copy.sideChat} title={copy.sideChat} onClick={() => openSideChat(agent.id)}><ForkGlyph /></button>
+        </div>
+      ) : null}
+      {canSwitchRuntime ? (
         <div className="code-terminal-mode-toggle" data-testid="code-terminal-mode-toggle" onPointerDown={event => event.stopPropagation()} onMouseDown={event => event.stopPropagation()}>
-          {openSideChat && canForkConversation && !agent.sideChatParentSessionKey ? <button type="button" aria-label={copy.sideChat} title={copy.sideChat} onClick={() => openSideChat(agent.id)}><ForkGlyph /></button> : null}
-          {canSwitchRuntime ? <>
           <button type="button" className={chatMode ? 'active' : ''} aria-pressed={chatMode} aria-label={copy.transcriptView} title={copy.transcriptView} disabled={runtimeSwitchDisabled} onClick={() => !chatMode && onRuntimeModeChange?.(agent.id, 'chat')}>
             <ChatBubblesGlyph />
           </button>
           <button type="button" className={!chatMode ? 'active' : ''} aria-pressed={!chatMode} aria-label={copy.terminalView} title={copy.terminalView} disabled={runtimeSwitchDisabled} onClick={() => chatMode && onRuntimeModeChange?.(agent.id, 'terminal')}>
             <TerminalSquareGlyph />
           </button>
-          </> : null}
         </div>
       ) : null}
       {!chatMode && mounted ? (

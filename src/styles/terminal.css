@@ -56,7 +56,7 @@
   padding: 4px 8px 8px;
 }
 
-.code-terminal-mode-toggle {
+:is(.code-terminal-mode-toggle, .code-terminal-side-chat-toggle) {
   position: absolute;
   top: 13px;
   right: 18px;
@@ -74,15 +74,15 @@
   transition: opacity 120ms ease, background 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
 }
 
-.code-terminal-mode-toggle:hover,
-.code-terminal-mode-toggle:focus-within {
+:is(.code-terminal-mode-toggle, .code-terminal-side-chat-toggle):hover,
+:is(.code-terminal-mode-toggle, .code-terminal-side-chat-toggle):focus-within {
   border-color: var(--code-panel-border);
   background: var(--code-bg-hover);
   box-shadow: none;
   opacity: 1;
 }
 
-.code-terminal-mode-toggle button {
+:is(.code-terminal-mode-toggle, .code-terminal-side-chat-toggle) button {
   width: 28px;
   height: 28px;
   display: grid;
@@ -97,25 +97,29 @@
   transition: opacity 120ms ease, background 120ms ease, color 120ms ease;
 }
 
-.code-terminal-mode-toggle button svg {
+:is(.code-terminal-mode-toggle, .code-terminal-side-chat-toggle) button svg {
   width: 16px;
   height: 16px;
   display: block;
   fill: currentColor;
 }
 
-.code-terminal-mode-toggle button:hover,
-.code-terminal-mode-toggle button:focus-visible {
+:is(.code-terminal-mode-toggle, .code-terminal-side-chat-toggle) button:hover,
+:is(.code-terminal-mode-toggle, .code-terminal-side-chat-toggle) button:focus-visible {
   color: var(--code-text);
   background: var(--code-bg-hover);
   opacity: 1;
   outline: none;
 }
 
-.code-terminal-mode-toggle button.active {
+:is(.code-terminal-mode-toggle, .code-terminal-side-chat-toggle) button.active {
   color: var(--code-text);
   background: var(--code-bg-selected);
   opacity: 1;
+}
+
+.code-terminal-side-chat-toggle {
+  right: 90px;
 }
 
 .code-terminal-search {
@@ -602,6 +606,10 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
   body.code-mode.code-compact-layout .code-terminal-mode-toggle {
       display: none;
     }
+
+  body.code-mode.code-compact-layout .code-terminal-side-chat-toggle {
+      right: 18px;
+    }
 }
 
 .terminal-context-menu-pooled {
@@ -648,7 +656,7 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
   color: var(--code-text);
 }
 
-.code-terminal-mode-toggle {
+:is(.code-terminal-mode-toggle, .code-terminal-side-chat-toggle) {
   border-color: var(--code-panel-border);
 }
 
