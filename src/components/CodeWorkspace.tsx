@@ -1,4 +1,4 @@
-import { attachSideChat } from '@/lib/side-chat-supervision'
+import { attachSubagent } from '@/lib/subagent-supervision'
 import { agentAfterRemoval } from './code/agent-selection'
 import { canonicalProviderSessionKey } from '../../shared/provider-session-identity.js'
 import type { MainPaneMode } from './code/types'
@@ -168,7 +168,7 @@ import {
 import { terminalInputPartsForComposerMessage } from './code/composer-submit'
 import { ComposerFollowUpAdmissions, useComposerFollowUpController } from './code/useComposerFollowUpController'
 import type { RelatedSessionTarget } from './code/related-session-navigation'
-import { SideChatComposer } from './code/SideChatComposer'
+import { SubagentComposer } from './code/SubagentComposer'
 import {
   addComposerHistoryEntry,
   canUseComposerHistoryNavigation,
@@ -293,6 +293,10 @@ import {
 } from './code/workspace-view-state'
 
 export type { WorkspaceView } from './code/types'
+
+function quotedSelectionBlock(text: string) {
+  return text.trim().slice(0, 6000).split('\n').map(line => `> ${line}`).join('\n')
+}
 
 type RenameDialogState =
   | { kind: 'agent'; agentId: string; title: string }
@@ -2366,6 +2370,72 @@ export function CodeWorkspace({
   ])
 
   const [relatedSession, setRelatedSession] = useState<RelatedSessionTarget | null>(null)
+  const [subagentError, setSubagentError] = useState('')
+  const [openingSubagent, setOpeningSubagent] = useState('')
+  const openingSubagentRef = useRef('')
+  const openSubagent = useCallback(async (parentAgentId: string) => {
+    if (openingSubagentRef.current) return
+    const parent = agents.find(agent => agent.id === parentAgentId)
+    if (!parent?.providerSessionKey) return
+    attachSubagent(parent.providerSessionKey)
+    openingSubagentRef.current = parentAgentId
+    setOpeningSubagent(parentAgentId)
+    setSubagentError('')
+    try {
+      const response = await fetch(appPath(`/api/agents/${encodeURIComponent(parentAgentId)}/subagent`), {
+        method: 'POST', signal: AbortSignal.timeout(90000),
+      })
+      const result = await response.json() as {
+        error?: string
+        providerSessionId?: string
+        providerSessionKey?: string
+      }
+      if (!response.ok || result.error) throw new Error(result.error || 'Subagent could not be opened')
+      if (!result.providerSessionKey) throw new Error('Subagent has no durable session identity')
+      openAgentTargetRef.current(parentAgentId, { focusTerminal: false })
+      setRelatedSession({
+        parentAgentId,
+        parentSessionKey: parent.providerSessionKey,
+        sessionId: result.providerSessionId || '',
+        subagentSessionKey: result.providerSessionKey,
+        title: copy.subagent,
+      })
+      return result.providerSessionKey
+    } catch (caught) {
+      setSubagentError(caught instanceof Error ? caught.message : String(caught))
+      return null
+    } finally {
+      openingSubagentRef.current = ''
+      setOpeningSubagent('')
+    }
+  }, [agents, copy.subagent])
+  const quoteSelectionForAgent = useCallback((agentId: string, text: string) => {
+    const agent = agents.find(candidate => candidate.id === agentId)
+    const composerKey = acpComposerStateKeyForAgent(agent)
+    const quote = quotedSelectionBlock(text)
+    if (!composerKey || !quote) return
+    updateComposerStateForKey(composerKey, state => ({
+      ...state,
+      draft: appendDraftBlock(state.draft, quote),
+      history: { ...state.history, cursor: null },
+    }))
+    if (activeTerminalIdRef.current === agentId) focusComposerTextarea()
+  }, [agents, focusComposerTextarea, updateComposerStateForKey])
+  const quoteSelectionInSubagent = useCallback(async (parentAgentId: string, text: string) => {
+    const sessionKey = await openSubagent(parentAgentId)
+    const quote = quotedSelectionBlock(text)
+    if (!sessionKey || !quote) return
+    const composerKey = `acp:${canonicalProviderSessionKey(sessionKey)}`
+    updateComposerStateForKey(composerKey, state => ({
+      ...state,
+      draft: appendDraftBlock(state.draft, quote),
+      history: { ...state.history, cursor: null },
+    }))
+    window.requestAnimationFrame(() => {
+      document.querySelector<HTMLTextAreaElement>('[data-testid="code-subagent-panel"] [data-testid="code-acp-composer-input"]')
+        ?.focus({ preventScroll: true })
+    })
+  }, [openSubagent, updateComposerStateForKey])
   const [chatFollowLatestRequest, setChatFollowLatestRequest] = useState<{ agentId: string; nonce: number } | null>(null)
   const sendComposerMessageToAgent = useCallback((
     agent: Agent,
@@ -3220,19 +3290,19 @@ export function CodeWorkspace({
       manuallyUnreadActiveAgentIdRef.current = null
     }
     const child = agents.find(agent => agent.id === agentId)
-    if (child?.sideChatParentSessionKey) {
-      attachSideChat(child.sideChatParentSessionKey)
-      const parent = agents.find(agent => agent.providerSessionKey === child.sideChatParentSessionKey)
+    if (child?.subagentParentSessionKey) {
+      attachSubagent(child.subagentParentSessionKey)
+      const parent = agents.find(agent => agent.providerSessionKey === child.subagentParentSessionKey)
       if (parent) {
         setRelatedSession({ parentAgentId: parent.id, parentSessionKey: parent.providerSessionKey,
-          sideChatSessionKey: child.providerSessionKey, sessionId: child.providerSessionId || '', title: copy.sideChat })
+          subagentSessionKey: child.providerSessionKey, sessionId: child.providerSessionId || '', title: copy.subagent })
         openAgentTargetRef.current(parent.id, options)
         return
       }
     }
     setRelatedSession(null)
     openAgentTargetRef.current(agentId, options)
-  }, [agents, copy.sideChat])
+  }, [agents, copy.subagent])
 
   const showBrowserResource = useCallback((resource: BrowserResource, returnAgentId = activeTerminalId) => {
     workspaceFileOpenRequestRef.current.invalidate()
@@ -5826,8 +5896,8 @@ export function CodeWorkspace({
         hasProjectListItems={hasProjectListItems}
         hasDisplayedProjectListItems={hasProjectListItems}
         activeTerminalId={agentOpeningBusy || mainPaneMode === 'editor' ? null
-          : relatedSession?.parentAgentId === activeTerminalId && relatedSession.sideChatSessionKey
-            ? agents.find(agent => agent.providerSessionKey === relatedSession.sideChatSessionKey)?.id || activeTerminalId
+          : relatedSession?.parentAgentId === activeTerminalId && relatedSession.subagentSessionKey
+            ? agents.find(agent => agent.providerSessionKey === relatedSession.subagentSessionKey)?.id || activeTerminalId
             : relatedSession?.parentAgentId === activeTerminalId ? null : activeTerminalId}
         selectedSearchAgentId={selectedSearchAgentId}
         selectedSearchSessionHandle={selectedSearchSessionHandle}
@@ -5884,6 +5954,7 @@ export function CodeWorkspace({
         onOpenProjectMenu={openProjectContextMenu}
         onReorderProject={reorderSidebarProject}
         onOpenAgent={openTerminalFromSidebar}
+        onOpenSubagent={readOnly ? undefined : openSubagent}
         onUpdateAgentFlags={updateSidebarAgentFlags}
         onReorderAgent={reorderSidebarAgent}
         onOpenAgentMenu={openAgentContextMenu}
@@ -6076,8 +6147,13 @@ export function CodeWorkspace({
       <CodeMainArea
         relatedSession={relatedSession}
         onRelatedSessionChange={setRelatedSession}
+        onOpenSubagent={openSubagent}
+        openingSubagent={openingSubagent}
+        subagentError={subagentError}
+        onQuoteSelection={quoteSelectionForAgent}
+        onQuoteSelectionInSubagent={quoteSelectionInSubagent}
         relatedAgents={activeAgents}
-        renderSideChatComposer={(agent, active) => <SideChatComposer agent={agent} active={active} copy={copy} controller={{
+        renderSubagentComposer={(agent, active) => <SubagentComposer agent={agent} active={active} copy={copy} controller={{
           states: composerByAgentKey, update: updateComposerStateForKey, updateExisting: updateExistingComposerStateForKey,
           send: sendComposerMessageToAgent, interrupt: onInterruptAgent, addMedia: addMediaAttachment,
           ownership: composerFollowUpOwnership, followUpBehavior: uiPreferences.composerFollowUpBehavior,

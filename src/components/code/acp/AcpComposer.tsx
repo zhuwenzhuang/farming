@@ -24,6 +24,7 @@ import type { ComposerMode } from '../types'
 import { AcpPermissionCard } from './AcpPermissionCard'
 import { AcpElicitationCard } from './AcpElicitationCard'
 import { AcpAuthenticationCard } from './AcpAuthenticationCard'
+import type { AcpAvailableCommand } from './types'
 import {
   AcpModeControl,
   AcpModelControl,
@@ -88,6 +89,7 @@ export interface AcpComposerProps {
   permissions: AcpPendingPermission[]
   elicitations: AcpPendingElicitation[]
   activeElicitations: AcpPendingElicitation[]
+  hostCommands?: AcpAvailableCommand[]
   speechSupported: boolean
   speechListening: boolean
   onDraftChange: (value: string) => void
@@ -133,6 +135,7 @@ export function AcpComposer({
   permissions,
   elicitations,
   activeElicitations,
+  hostCommands = [],
   speechSupported,
   speechListening,
   onDraftChange,
@@ -182,17 +185,23 @@ export function AcpComposer({
     [draft, selectionStart]
   )
   const filteredCommands = useMemo(() => {
-    if (!commandTrigger || !sessionAuthoritative) return []
+    if (!commandTrigger) return []
     const query = commandTrigger.query.toLowerCase()
-    return (session?.availableCommands || [])
+    const seen = new Set<string>()
+    return [
+      ...hostCommands,
+      ...(sessionAuthoritative ? session?.availableCommands || [] : []),
+    ]
       .filter(command => {
         const name = command.name.toLowerCase()
+        if (seen.has(name)) return false
+        seen.add(name)
         if (commandTrigger.trigger === '$' && !name.startsWith('$')) return false
         const searchableName = commandTrigger.trigger === '$' ? name.slice(1) : name
         return searchableName.startsWith(query) || command.description.toLowerCase().includes(query)
       })
       .slice(0, 12)
-  }, [commandTrigger, session?.availableCommands, sessionAuthoritative])
+  }, [commandTrigger, hostCommands, session?.availableCommands, sessionAuthoritative])
   const showCommands = active && focused && filteredCommands.length > 0
   const selectedCommand = filteredCommands[activeCommandIndex] || filteredCommands[0] || null
   const promptSuggestion = session?.promptSuggestion
@@ -530,7 +539,7 @@ export function AcpComposer({
       ) : null}
       {showCommands ? (
         <div className="code-menu-surface code-slash-menu code-composer-menu" data-testid="code-acp-command-menu" role="listbox" aria-label="ACP commands">
-          <div className="code-slash-menu-header">{commandTrigger?.trigger === '$' ? 'Skills' : 'Agent commands'}</div>
+          <div className="code-slash-menu-header">{commandTrigger?.trigger === '$' ? 'Skills' : 'Commands'}</div>
           {filteredCommands.map((command, index) => (
             <button
               key={command.name}

@@ -157,7 +157,7 @@ export function useWebSocket() {
   const agentActivityScopeRef = useRef<'all' | 'focused' | 'none'>('all')
   const agentPreviewScopeRef = useRef<'all' | 'focused' | 'none'>('none')
   const watchedAcpTranscriptAgentIdsRef = useRef<string[]>([])
-  const sideChatParentKeysRef = useRef<string[]>([])
+  const subagentParentKeysRef = useRef<string[]>([])
   const agentStateSignaturesRef = useRef<Map<string, string>>(new Map())
   const agentStateCursorRef = useRef<AgentStateCursor | null>(null)
   const agentStateSnapshotAgentsRef = useRef<Agent[]>([])
@@ -440,15 +440,15 @@ export function useWebSocket() {
     return true
   }, [])
 
-  const watchAcpTranscripts = useCallback((agentIds: readonly string[], sideChatParentKeys: readonly string[] = []) => {
-    const normalizedParents = Array.from(new Set(sideChatParentKeys)).sort().slice(0, 20)
+  const watchAcpTranscripts = useCallback((agentIds: readonly string[], subagentParentKeys: readonly string[] = []) => {
+    const normalizedParents = Array.from(new Set(subagentParentKeys)).sort().slice(0, 20)
     const normalizedAgentIds = Array.from(new Set(agentIds)).sort().slice(0, 20)
-    if (sameStringArray(watchedAcpTranscriptAgentIdsRef.current, normalizedAgentIds) && sameStringArray(sideChatParentKeysRef.current, normalizedParents)) return true
-    sideChatParentKeysRef.current = normalizedParents
+    if (sameStringArray(watchedAcpTranscriptAgentIdsRef.current, normalizedAgentIds) && sameStringArray(subagentParentKeysRef.current, normalizedParents)) return true
+    subagentParentKeysRef.current = normalizedParents
     watchedAcpTranscriptAgentIdsRef.current = normalizedAgentIds
     const ws = wsRef.current
     if (!ws || ws.readyState !== WebSocket.OPEN || accessModeRef.current === 'unknown') return false
-    ws.send(JSON.stringify({ type: 'watch-acp-transcripts', agentIds: normalizedAgentIds, sideChatParentKeys: normalizedParents }))
+    ws.send(JSON.stringify({ type: 'watch-acp-transcripts', agentIds: normalizedAgentIds, subagentParentKeys: normalizedParents }))
     return true
   }, [])
 
@@ -940,7 +940,7 @@ export function useWebSocket() {
                 ws.send(JSON.stringify({
                   type: 'watch-acp-transcripts',
                   agentIds: watchedAcpTranscriptAgentIdsRef.current,
-                  sideChatParentKeys: sideChatParentKeysRef.current,
+                  subagentParentKeys: subagentParentKeysRef.current,
                 }))
               }
               break

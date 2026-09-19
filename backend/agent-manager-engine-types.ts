@@ -36,9 +36,9 @@ interface RuntimeEngineMetadata extends Record<string, unknown> {
   lastActivityAt?: number;
   mainWorkspace?: string;
   parentAgentId?: string;
-  sideChatParentSessionKey?: string;
-  sideChatRetained?: boolean
-  sideChatSourceRevision?: number;
+  subagentParentSessionKey?: string;
+  subagentRetained?: boolean
+  subagentSourceRevision?: number;
   persistentSessionId?: string;
   pinned?: boolean;
   pinnedOrder?: number | null;

@@ -1,4 +1,3 @@
-import { attachSideChat } from '@/lib/side-chat-supervision'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type ComponentProps, type CSSProperties, type Dispatch, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type RefObject, type SetStateAction, type SyntheticEvent as ReactSyntheticEvent } from 'react'
 import type { Agent, TaskHistoryEntry } from '@/types/agent'
 import { isAcpRuntime } from '@/lib/agent-runtime'
@@ -24,15 +23,16 @@ import { ComputerViewer } from '../../../extensions/computer/frontend/ComputerVi
 import type { ComputerResource } from '../../../extensions/computer/frontend/types'
 import type { ComputerResourcesController } from '../../../extensions/computer/frontend/useComputerResources'
 import { AgentWorkPane } from './AgentWorkPane'
-import { appPath } from '@/lib/base-path'
-import { SideChatBody } from './SideChatBody'
+import { SubagentBody } from './SubagentBody'
 import { CloseGlyph } from '../IconGlyphs'
-import { RelatedSessionNavigation, SideChatNavigation, type RelatedSessionTarget } from './related-session-navigation'
+import { RelatedSessionNavigation, SubagentNavigation, type RelatedSessionTarget } from './related-session-navigation'
 import { RelatedSessionPanel } from './RelatedSessionPanel'
 import { AgentPlanActivityPreview } from './AgentActivityDock'
 import type { AgentTranscriptProcessItem } from './acp/acp-entry-projection'
 import { CodeComposer } from './CodeComposer'
 import { AcpComposer } from './acp/AcpComposer'
+import type { AcpAvailableCommand } from './acp/types'
+import { canForkAgentConversation } from './capabilities'
 import { AgentOpeningPane } from './AgentOpeningPane'
 import type { AgentOpeningState } from './useAgentOpeningController'
 import { HistoryPanel } from './HistoryPanel'
@@ -277,8 +277,13 @@ function FileEditorFallback({
 interface CodeMainAreaProps {
   relatedSession: RelatedSessionTarget | null
   onRelatedSessionChange: (target: RelatedSessionTarget | null) => void
+  onOpenSubagent: (parentAgentId: string) => void
+  openingSubagent: string
+  subagentError: string
+  onQuoteSelection: (agentId: string, text: string) => void
+  onQuoteSelectionInSubagent: (agentId: string, text: string) => void
   relatedAgents: Agent[]
-  renderSideChatComposer: (agent: Agent, active: boolean) => ReactNode
+  renderSubagentComposer: (agent: Agent, active: boolean) => ReactNode
   agentOpening: AgentOpeningState | null
   onBackFromAgentOpening: () => void
   onRetryAgentOpening: () => void
@@ -709,16 +714,19 @@ export function CodeMainArea({
   relatedAgents,
   relatedSession,
   onRelatedSessionChange: setRelatedSession,
-  renderSideChatComposer,
+  onOpenSubagent: openSubagent,
+  openingSubagent,
+  subagentError,
+  onQuoteSelection,
+  onQuoteSelectionInSubagent,
+  renderSubagentComposer,
 }: CodeMainAreaProps) {
   const [compactRelatedActive, setCompactRelatedActive] = useState(true)
   const [relatedRatio, setRelatedRatio] = useState(() => {
-    try { const value = Number(localStorage.getItem('farming.code.relatedRatio.v1')); return value > 0 && value < 1 ? value : 0.6 }
-    catch { return 0.6 }
+    try { const value = Number(localStorage.getItem('farming.code.relatedRatio.v1')); return value > 0 && value < 1 ? value : 0.5 }
+    catch { return 0.5 }
   })
   const [relatedWidth, setRelatedWidth] = useState(0)
-  const [sideChatError, setSideChatError] = useState('')
-  const [openingSideChat, setOpeningSideChat] = useState('')
   const relatedTriggerRef = useRef<HTMLElement | null>(null)
   const selectRelatedSession = useCallback((target: RelatedSessionTarget) => {
     relatedTriggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
@@ -731,28 +739,15 @@ export function CodeMainArea({
     const trigger = relatedTriggerRef.current
     if (trigger?.isConnected) trigger.focus({ preventScroll: true })
   }, [setRelatedSession])
-  const openSideChat = useCallback(async (parentAgentId: string) => {
-    if (openingSideChat) return
-    const parent = relatedAgents.find(agent => agent.id === parentAgentId)
-    if (!parent?.providerSessionKey) return
-    attachSideChat(parent.providerSessionKey)
+  const requestSubagent = useCallback((parentAgentId: string) => {
     relatedTriggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    setOpeningSideChat(parentAgentId)
-    setSideChatError('')
-    try {
-      const response = await fetch(appPath(`/api/agents/${encodeURIComponent(parentAgentId)}/side-chat`), {
-        method: 'POST', signal: AbortSignal.timeout(90000),
-      })
-      const result = await response.json()
-      if (!response.ok || result.error) throw new Error(result.error || 'Side chat could not be opened')
-      if (!result.providerSessionKey) throw new Error('Side chat has no durable session identity')
-      setCompactRelatedActive(true)
-      setRelatedSession({ parentAgentId, parentSessionKey: parent.providerSessionKey,
-        sessionId: result.providerSessionId, sideChatSessionKey: result.providerSessionKey, title: 'Side chat' })
-    } catch (caught) {
-      setSideChatError(caught instanceof Error ? caught.message : String(caught))
-    } finally { setOpeningSideChat('') }
-  }, [openingSideChat, relatedAgents, setRelatedSession])
+    openSubagent(parentAgentId)
+  }, [openSubagent])
+  useEffect(() => {
+    if (!relatedSession) return
+    setCompactRelatedActive(true)
+    setRelatedRatio(0.5)
+  }, [relatedSession])
   const [terminalComposerCollapsed, setTerminalComposerCollapsed] = useState(readTerminalComposerCollapsed)
   const [chatComposerCollapseRequested, setChatComposerCollapseRequested] = useState(false)
   const [runtimeSwitchExpandedAgentId, setRuntimeSwitchExpandedAgentId] = useState<string | null>(null)
@@ -831,17 +826,43 @@ export function CodeMainArea({
   const agentSurfaceVisible = agentWorkspaceVisible || resourceAgentPanelVisible
   const relatedSessionVisible = agentWorkspaceVisible && relatedSession?.parentAgentId === activeTerminalId
     && (!relatedSession.parentSessionKey || relatedSession.parentSessionKey === activeAgent?.providerSessionKey)
-  const sideChatAgent = relatedSession?.sideChatSessionKey
-    ? relatedAgents.find(agent => agent.providerSessionKey === relatedSession.sideChatSessionKey
-      && agent.sideChatParentSessionKey === relatedSession.parentSessionKey) : undefined
-  const [sideChatLoadingExpired, setSideChatLoadingExpired] = useState(false)
+  const subagentAgent = relatedSession?.subagentSessionKey
+    ? relatedAgents.find(agent => agent.providerSessionKey === relatedSession.subagentSessionKey
+      && agent.subagentParentSessionKey === relatedSession.parentSessionKey) : undefined
+  const [subagentLoadingExpired, setSubagentLoadingExpired] = useState(false)
   useEffect(() => {
-    setSideChatLoadingExpired(false)
-    if (!relatedSessionVisible || !relatedSession?.sideChatSessionKey || sideChatAgent) return
-    const timer = window.setTimeout(() => setSideChatLoadingExpired(true), 15000)
+    setSubagentLoadingExpired(false)
+    if (!relatedSessionVisible || !relatedSession?.subagentSessionKey || subagentAgent) return
+    const timer = window.setTimeout(() => setSubagentLoadingExpired(true), 15000)
     return () => window.clearTimeout(timer)
-  }, [relatedSessionVisible, relatedSession?.sideChatSessionKey, sideChatAgent])
+  }, [relatedSessionVisible, relatedSession?.subagentSessionKey, subagentAgent])
   const acpComposerActive = isAcpRuntime(activeAgent)
+  const subagentCommandAvailable = Boolean(
+    !readOnly
+    && !resourceAgentPanelVisible
+    && activeAgent
+    && !activeAgent.subagentParentSessionKey
+    && canForkAgentConversation(activeAgent),
+  )
+  const subagentHostCommands: AcpAvailableCommand[] = subagentCommandAvailable
+    ? [{
+      name: 'side',
+      description: language === 'zh' ? '打开或复用子 Agent' : 'Open or reuse Subagent',
+    }]
+    : []
+  const submitAcpComposer = (draft?: string, options?: { oppositeFollowUpBehavior?: boolean }) => {
+    if (
+      subagentCommandAvailable
+      && (draft || '').trim() === '/side'
+      && acpComposerProps.attachments.length === 0
+      && activeAgent
+    ) {
+      acpComposerProps.onDraftChange('')
+      requestSubagent(activeAgent.id)
+      return
+    }
+    acpComposerProps.onSubmit(draft, options)
+  }
   const activeBrowserPreviews = activeAgent
     ? (browserController.byAgentId.get(activeAgent.id) ?? [])
       .filter(resource => resource.status === 'running' || resource.status === 'reconnecting')
@@ -1073,7 +1094,7 @@ export function CodeMainArea({
   if (fileEditorPaneLoadError) throw fileEditorPaneLoadError
 
   return (
-    <SideChatNavigation.Provider value={readOnly ? null : openSideChat}>
+    <SubagentNavigation.Provider value={readOnly ? null : requestSubagent}>
     <RelatedSessionNavigation.Provider value={selectRelatedSession}>
     <main
       ref={mainAreaRef}
@@ -1340,6 +1361,8 @@ export function CodeMainArea({
             onForkAgent={onForkAgent}
             onReviewAndCommit={onReviewAndCommit}
             onActivePlanChange={publishActivePlan}
+            onQuoteSelection={onQuoteSelection}
+            onQuoteSelectionInSubagent={onQuoteSelectionInSubagent}
             onSessionOutput={onSessionOutput}
             focusSignal={terminalFocusRequest?.agentId === agent.id ? terminalFocusRequest.nonce : 0}
             followLatestSignal={chatFollowLatestRequest?.agentId === agent.id ? chatFollowLatestRequest.nonce : 0}
@@ -1417,7 +1440,13 @@ export function CodeMainArea({
               </div>
             ) : null}
             {acpComposerActive ? (
-              <AcpComposer {...acpComposerProps} active={acpComposerProps.active && (!relatedSessionVisible || relatedSessionFits || !compactRelatedActive)} copy={copy} />
+              <AcpComposer
+                {...acpComposerProps}
+                active={acpComposerProps.active && (!relatedSessionVisible || relatedSessionFits || !compactRelatedActive)}
+                hostCommands={subagentHostCommands}
+                onSubmit={submitAcpComposer}
+                copy={copy}
+              />
             ) : (
               <CodeComposer {...composerProps} agentId={activeAgent?.id || ''} copy={copy} />
             )}
@@ -1448,15 +1477,16 @@ export function CodeMainArea({
           setRelatedRatio(ratio)
           try { localStorage.setItem('farming.code.relatedRatio.v1', String(ratio)) } catch { /* layout remains in memory */ }
         }} /> : null}
-      {openingSideChat === activeTerminalId ? <div className="code-related-session-notice" role="status">{language === 'zh' ? '正在打开旁聊…' : 'Opening side chat…'}</div> : null}
-      {sideChatError ? <div className="code-related-session-notice" role="alert">{sideChatError}</div> : null}
-      {relatedSessionVisible && relatedSession?.sideChatSessionKey ? <aside className="code-related-session-panel code-side-chat-panel" data-testid="code-side-chat-panel" aria-label="Side chat">
-        <header className="code-related-session-header"><strong>{language === 'zh' ? '旁聊' : 'Side chat'}</strong>
+      {openingSubagent === activeTerminalId ? <div className="code-related-session-notice" role="status">{language === 'zh' ? '正在打开子 Agent…' : 'Opening subagent…'}</div> : null}
+      {subagentError ? <div className="code-related-session-notice" role="alert">{subagentError}</div> : null}
+      {relatedSessionVisible && relatedSession?.subagentSessionKey ? <aside className="code-related-session-panel code-subagent-panel" data-testid="code-subagent-panel" aria-label="Subagent">
+        <header className="code-related-session-header"><strong>{language === 'zh' ? '子 Agent' : 'Subagent'}</strong>
           <button type="button" className="code-agent-transcript-subagent-control" onClick={closeRelatedSession} aria-label="Collapse related session"><CloseGlyph /></button>
         </header>
         <div className="code-related-session-source">{language === 'zh' ? '上下文截至上一轮完成' : 'Context through the last completed turn'}</div>
-        {sideChatAgent ? <SideChatBody agent={sideChatAgent} active={relatedSessionFits || compactRelatedActive}
-          renderComposer={renderSideChatComposer} onReadLatest={onAgentReadLatest} onOpenFile={onOpenWorkspaceFilePath} copy={copy} /> : sideChatLoadingExpired ? <div role="alert">{language === 'zh' ? '旁聊状态尚未同步。' : 'Side chat state has not synchronized.'} <button type="button" onClick={() => { void openSideChat(relatedSession.parentAgentId) }}>{language === 'zh' ? '重新核对' : 'Reconcile'}</button></div> : <div role="status">{language === 'zh' ? '正在加载旁聊…' : 'Loading side chat…'}</div>}
+        {subagentAgent ? <SubagentBody agent={subagentAgent} active={relatedSessionFits || compactRelatedActive}
+          renderComposer={renderSubagentComposer} onReadLatest={onAgentReadLatest} onOpenFile={onOpenWorkspaceFilePath}
+          onQuoteSelection={onQuoteSelection} copy={copy} /> : subagentLoadingExpired ? <div role="alert">{language === 'zh' ? '子 Agent 状态尚未同步。' : 'Subagent state has not synchronized.'} <button type="button" onClick={() => { requestSubagent(relatedSession.parentAgentId) }}>{language === 'zh' ? '重新核对' : 'Reconcile'}</button></div> : <div role="status">{language === 'zh' ? '正在加载子 Agent…' : 'Loading subagent…'}</div>}
       </aside> : relatedSessionVisible && relatedSession ? <RelatedSessionPanel
         key={`${relatedSession.parentAgentId}:${relatedSession.sessionId}`}
         target={relatedSession}
@@ -1466,6 +1496,6 @@ export function CodeMainArea({
       /> : null}
     </main>
     </RelatedSessionNavigation.Provider>
-    </SideChatNavigation.Provider>
+    </SubagentNavigation.Provider>
   )
 }

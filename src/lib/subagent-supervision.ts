@@ -6,11 +6,11 @@ let parents: readonly string[] = []
 const listeners = new Set<() => void>()
 const subscribe = (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener) } }
 const snapshot = () => parents
-export function attachSideChat(parentSessionKey: string) {
+export function attachSubagent(parentSessionKey: string) {
   if (!parentSessionKey || parents.includes(parentSessionKey)) return
   parents = [...parents, parentSessionKey].slice(-20)
   listeners.forEach(listener => listener())
 }
-export function useSideChatSupervision() {
+export function useSubagentSupervision() {
   return useSyncExternalStore(subscribe, snapshot, snapshot)
 }

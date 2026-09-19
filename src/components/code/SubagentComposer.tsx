@@ -1,4 +1,4 @@
-import { attachSideChat } from '@/lib/side-chat-supervision'
+import { attachSubagent } from '@/lib/subagent-supervision'
 import { useCallback, useRef, useState } from 'react'
 import type { Agent } from '@/types/agent'
 import { useAgentWithLiveRuntimeState } from '@/lib/agent-live-state'
@@ -16,7 +16,7 @@ import { useComposerFollowUpController, type ComposerFollowUpOwnership, type Com
 import type { CodeCopy } from './copy'
 
 type StateUpdater = (key: string, update: (state: AgentComposerState) => AgentComposerState) => void
-export interface SideChatComposerController {
+export interface SubagentComposerController {
   states: Record<string, AgentComposerState>
   update: StateUpdater
   updateExisting: StateUpdater
@@ -29,8 +29,8 @@ export interface SideChatComposerController {
 
 /** Both panes share the durable draft store and admission owner, but every
  * action closes over this exact child identity, never the selected parent. */
-export function SideChatComposer({ agent: structuralAgent, active, controller, copy }: {
-  agent: Agent; active: boolean; controller: SideChatComposerController; copy: CodeCopy
+export function SubagentComposer({ agent: structuralAgent, active, controller, copy }: {
+  agent: Agent; active: boolean; controller: SubagentComposerController; copy: CodeCopy
 }) {
   const agent = useAgentWithLiveRuntimeState(structuralAgent)!
   const key = acpComposerStateKeyForAgent(agent)
@@ -80,7 +80,7 @@ export function SideChatComposer({ agent: structuralAgent, active, controller, c
     requestAnimationFrame(() => { if (textarea.isConnected) { textarea.focus({ preventScroll: true }); textarea.setSelectionRange(start + text.length, start + text.length) } })
   }
   const submit = (text?: string, options?: { oppositeFollowUpBehavior?: boolean }) => {
-    if (agent.sideChatParentSessionKey) attachSideChat(agent.sideChatParentSessionKey)
+    if (agent.subagentParentSessionKey) attachSubagent(agent.subagentParentSessionKey)
     const result = submitAcpDraft({
       agent, composerKey: key, draft: text ?? textareaRef.current?.value ?? state.draft,
       attachments: state.attachments, composerMode: state.mode,

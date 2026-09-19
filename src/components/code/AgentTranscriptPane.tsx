@@ -220,6 +220,8 @@ export interface AgentTranscriptPaneProps {
   onForkLatest?: () => Promise<void> | void
   onReviewAndCommit?: () => void
   onActivePlanChange?: (plan: AgentTranscriptProcessItem | undefined) => void
+  onQuoteSelection?: (text: string) => void
+  onQuoteSelectionInSubagent?: (text: string) => void
   groupProcessActions?: boolean
   copy: CodeCopy
 }
@@ -3152,6 +3154,8 @@ export function AgentTranscriptPane({
   onForkLatest,
   onReviewAndCommit,
   onActivePlanChange,
+  onQuoteSelection,
+  onQuoteSelectionInSubagent,
   groupProcessActions = true,
   copy,
 }: AgentTranscriptPaneProps) {
@@ -3167,6 +3171,11 @@ export function AgentTranscriptPane({
   const [turnLimit, setTurnLimit] = useState(() => initialTranscriptTurnLimit(source))
   const [loadingOlder, setLoadingOlder] = useState(false)
   const [showJumpToBottom, setShowJumpToBottom] = useState(false)
+  const [selectionAction, setSelectionAction] = useState<{
+    text: string
+    left: number
+    top: number
+  } | null>(null)
   const [imagePreview, setImagePreview] = useState<TranscriptImagePreview | null>(null)
   const imagePreviewTriggerRef = useRef<HTMLButtonElement | null>(null)
   const closeImagePreview = useCallback(() => setImagePreview(null), [])
@@ -3180,6 +3189,78 @@ export function AgentTranscriptPane({
     uncommittedPaths: ReadonlySet<string> | null
   }>({ owner: '', target: unavailableTranscriptGitDiffTarget, uncommittedPaths: null })
   const scrollRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    if (!active || !onQuoteSelection) {
+      setSelectionAction(null)
+      return
+    }
+    const clearCollapsedSelection = () => {
+      const selection = window.getSelection()
+      if (!selection || selection.isCollapsed) setSelectionAction(null)
+    }
+    const captureSelection = () => {
+      window.requestAnimationFrame(() => {
+        const selection = window.getSelection()
+        const element = scrollRef.current
+        if (!selection || selection.isCollapsed || selection.rangeCount === 0 || !element) {
+          setSelectionAction(null)
+          return
+        }
+        const anchor = selection.anchorNode instanceof Element
+          ? selection.anchorNode
+          : selection.anchorNode?.parentElement
+        const focus = selection.focusNode instanceof Element
+          ? selection.focusNode
+          : selection.focusNode?.parentElement
+        if (
+          !anchor
+          || !focus
+          || !element.contains(anchor)
+          || !element.contains(focus)
+          || !anchor.closest('.code-agent-transcript-assistant')
+          || !focus.closest('.code-agent-transcript-assistant')
+        ) {
+          setSelectionAction(null)
+          return
+        }
+        const text = selection.toString().trim().slice(0, 6000)
+        const range = selection.getRangeAt(0)
+        const rect = range.getBoundingClientRect().width > 0
+          ? range.getBoundingClientRect()
+          : range.getClientRects()[0]
+        if (!text || !rect) {
+          setSelectionAction(null)
+          return
+        }
+        setSelectionAction({
+          text,
+          left: Math.min(window.innerWidth - 12, Math.max(12, rect.left + rect.width / 2)),
+          top: Math.max(12, rect.top - 8),
+        })
+      })
+    }
+    const handleKeyUp = (event: KeyboardEvent) => {
+      if (event.key === 'Shift' || event.shiftKey) captureSelection()
+    }
+    document.addEventListener('pointerup', captureSelection)
+    document.addEventListener('keyup', handleKeyUp)
+    document.addEventListener('selectionchange', clearCollapsedSelection)
+    const scroller = scrollRef.current
+    scroller?.addEventListener('scroll', clearCollapsedSelection)
+    return () => {
+      document.removeEventListener('pointerup', captureSelection)
+      document.removeEventListener('keyup', handleKeyUp)
+      document.removeEventListener('selectionchange', clearCollapsedSelection)
+      scroller?.removeEventListener('scroll', clearCollapsedSelection)
+    }
+  }, [active, onQuoteSelection])
+  const applySelection = useCallback((target: 'chat' | 'subagent') => {
+    if (!selectionAction) return
+    if (target === 'subagent') onQuoteSelectionInSubagent?.(selectionAction.text)
+    else onQuoteSelection?.(selectionAction.text)
+    window.getSelection()?.removeAllRanges()
+    setSelectionAction(null)
+  }, [onQuoteSelection, onQuoteSelectionInSubagent, selectionAction])
   const pendingPrependAnchorRef = useRef<{
     scrollTop: number
     scrollHeight: number
@@ -4293,6 +4374,25 @@ export function AgentTranscriptPane({
         </button>
       ) : null}
       </div>
+      {selectionAction ? createPortal(
+        <div
+          className="code-agent-transcript-selection-actions"
+          data-testid="code-agent-transcript-selection-actions"
+          style={{ left: selectionAction.left, top: selectionAction.top }}
+          role="toolbar"
+          aria-label={copy.quoteSelection}
+          onPointerDown={event => {
+            event.preventDefault()
+            event.stopPropagation()
+          }}
+        >
+          <button type="button" onClick={() => applySelection('chat')}>{copy.quoteSelection}</button>
+          {onQuoteSelectionInSubagent ? (
+            <button type="button" onClick={() => applySelection('subagent')}>{copy.askInSubagent}</button>
+          ) : null}
+        </div>,
+        document.body,
+      ) : null}
       {imagePreview ? <ContentViewerDialog title={imagePreview.label} closeLabel="Close image preview"
         testId="code-agent-transcript-image-overlay" onClose={closeImagePreview} returnFocusRef={imagePreviewTriggerRef}>
         <div className="code-content-viewer-image" onClick={closeImagePreview}>

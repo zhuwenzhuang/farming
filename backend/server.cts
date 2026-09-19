@@ -141,7 +141,7 @@ interface WebSocketClient {
   bufferedAmount: number;
   acpRevisionCheckpointPending?: Set<string>;
   acpRevisionInterest?: Set<string>;
-  sideChatParentInterest?: Set<string>;
+  subagentParentInterest?: Set<string>;
   acpRevisionSentCursor?: Map<string, AcpTranscriptCursor>;
   connectionId?: string;
   focusedAgentId?: string | null;
@@ -543,7 +543,7 @@ const agentManager = new AgentManager(
   },
   },
 );
-agentManager.setSideChatSupervisionProbe(parentKey => [...wss.clients].some(client => client.readyState === WebSocket.OPEN && (client as WebSocketClient).accessMode === 'owner' && (client as WebSocketClient).sideChatParentInterest?.has(parentKey)));
+agentManager.setSubagentSupervisionProbe(parentKey => [...wss.clients].some(client => client.readyState === WebSocket.OPEN && (client as WebSocketClient).accessMode === 'owner' && (client as WebSocketClient).subagentParentInterest?.has(parentKey)));
 
 
 async function requireAgentRecoveryForHttp(res: HttpResponse) {
@@ -629,7 +629,7 @@ const websocketWorkspaceRequestHandlers = createWebSocketWorkspaceRequestHandler
     };
   },
 });
-agentManager.setSideChatResourceCleanup(async agentId => {
+agentManager.setSubagentResourceCleanup(async agentId => {
   // Browser release relinquishes Desktop leases and may remove an isolated
   // Browser's owned Computer. Reconcile Computers only after that completes.
   await browserResourceManager.releaseAgentResources(agentId);
@@ -957,7 +957,7 @@ app.get(routePath(BASE_PATH, '/j/:code'), (req, res) => {
 app.use(routePath(BASE_PATH, '/s'), createReadOnlyShareEntryRouter(readOnlyShares, tokenAuth, BASE_PATH));
 
 // Token authentication middleware (before static files)
-app.use(routePath(BASE_PATH, '/api/visualization-resources'), createVisualizationResourceRouter(workspaceFileService, workspacePreviewSessionManager));
+app.use(routePath(BASE_PATH, '/visualization-resources'), createVisualizationResourceRouter(workspaceFileService, workspacePreviewSessionManager));
 app.use(tokenAuth.middleware());
 app.use(routePath(BASE_PATH, '/api/diagnostics/performance'), createInteractionPerformanceRouter(interactionPerformance, authEnabled));
 
@@ -1600,12 +1600,12 @@ app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-session/reconnect'), asy
   }
 });
 
-app.post(routePath(BASE_PATH, '/api/agents/:agentId/side-chat'), async (req, res) => {
+app.post(routePath(BASE_PATH, '/api/agents/:agentId/subagent'), async (req, res) => {
   try {
-    const result = await agentManager.openSideChat(req.params.agentId);
+    const result = await agentManager.openSubagent(req.params.agentId);
     res.status(result.error ? 409 : 200).json(result);
   } catch (caught) {
-    res.status(409).json({ error: caughtError(caught).message || 'Failed to open side chat' });
+    res.status(409).json({ error: caughtError(caught).message || 'Failed to open subagent' });
   }
 });
 
@@ -2242,8 +2242,8 @@ const websocketFocusScopeHandlers = createWebSocketFocusScopeHandlers<WebSocketC
   sendPreviewHydration,
 });
 
-function watchAcpTranscripts(client: WebSocketClient, data: { agentIds: string[]; sideChatParentKeys?: string[] }) {
-  client.sideChatParentInterest = client.accessMode === 'owner' ? new Set(data.sideChatParentKeys || []) : new Set();
+function watchAcpTranscripts(client: WebSocketClient, data: { agentIds: string[]; subagentParentKeys?: string[] }) {
+  client.subagentParentInterest = client.accessMode === 'owner' ? new Set(data.subagentParentKeys || []) : new Set();
   const previous = client.acpRevisionInterest ?? new Set<string>();
   const next = new Set(data.agentIds);
   client.acpRevisionInterest = next;

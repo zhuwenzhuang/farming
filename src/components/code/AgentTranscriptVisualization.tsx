@@ -59,7 +59,7 @@ export function AgentTranscriptVisualization({ rootId, exactExternal, file, file
         if (controller.signal.aborted) { void deleteWorkspaceHtmlPreview(preview.id).catch(() => {}); return }
         ownedId = preview.id
         clearTimeout(deadline)
-        const rootUrl = new URL(appPath(`/api/visualization-resources/${encodeURIComponent(preview.id)}/`), window.location.href).href
+        const rootUrl = new URL(appPath(`/visualization-resources/${encodeURIComponent(preview.id)}/`), window.location.href).href
         const baseUrl = rootUrl + (preview.basePath ? `${preview.basePath}/` : '')
         setSource(buildWorkspaceInlineVisualizationDocument(preview.source || '', baseUrl, rootUrl, key, root.current ? visualizationTheme(root.current) : undefined, icons))
         renew(preview.expiresAt)

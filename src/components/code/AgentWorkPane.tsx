@@ -1,13 +1,12 @@
-import { useCallback, useContext, useLayoutEffect, useRef } from 'react'
+import { useCallback, useLayoutEffect, useRef } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
-import { SideChatNavigation } from './related-session-navigation'
 import type { Agent } from '@/types/agent'
 import { isAcpRuntime } from '@/lib/agent-runtime'
 import type { TerminalPathOpenTarget } from '@/lib/terminal-session-pool'
 import type { WorkspaceFileOpenTarget } from '@/lib/workspace-open-files'
 import type { WorkspaceShareTarget } from '@/lib/workspace-share-target'
 import { AgentTerminalPane } from '../AgentTerminalPane'
-import { ChatBubblesGlyph, ForkGlyph, TerminalSquareGlyph } from '../IconGlyphs'
+import { ChatBubblesGlyph, TerminalSquareGlyph } from '../IconGlyphs'
 import { AcpTranscriptPane } from './acp/AcpTranscriptPane'
 import type { AgentTranscriptProcessItem } from './acp/acp-entry-projection'
 import { canForkAgentConversation, canSwitchAgentRuntime } from './capabilities'
@@ -49,6 +48,8 @@ interface AgentWorkPaneProps {
   ) => Promise<void> | void
   onReviewAndCommit?: (agentId: string) => void
   onActivePlanChange?: (agentId: string, plan: AgentTranscriptProcessItem | undefined) => void
+  onQuoteSelection?: (agentId: string, text: string) => void
+  onQuoteSelectionInSubagent?: (agentId: string, text: string) => void
   copy: CodeCopy
 }
 
@@ -80,9 +81,10 @@ export function AgentWorkPane({
   onForkAgent,
   onReviewAndCommit,
   onActivePlanChange,
+  onQuoteSelection,
+  onQuoteSelectionInSubagent,
   copy,
 }: AgentWorkPaneProps) {
-  const openSideChat = useContext(SideChatNavigation)
   const acpRuntime = isAcpRuntime(agent) ? agent.runtimeBinding : null
   const reviewAndCommitRef = useRef(onReviewAndCommit)
   useLayoutEffect(() => {
@@ -93,7 +95,6 @@ export function AgentWorkPane({
   const canSwitchRuntime = runtimeSwitchVisible && canSwitchAgentRuntime(agent)
   const runtimeSwitchDisabled = switching || isAgentTurnActive(agent)
   const canForkConversation = canForkAgentConversation(agent)
-  const canOpenSideChat = runtimeSwitchVisible && acpChat && openSideChat && canForkConversation && !agent.sideChatParentSessionKey
   const readLatestChat = useCallback(() => {
     const attentionSeq = Number.isFinite(agent.attentionSeq) ? Math.max(0, Number(agent.attentionSeq)) : 0
     const readAttentionSeq = Number.isFinite(agent.readAttentionSeq) ? Math.max(0, Number(agent.readAttentionSeq)) : 0
@@ -115,6 +116,12 @@ export function AgentWorkPane({
   const publishActivePlan = useCallback((plan: AgentTranscriptProcessItem | undefined) => {
     onActivePlanChange?.(agent.id, plan)
   }, [agent.id, onActivePlanChange])
+  const quoteSelection = useCallback((text: string) => {
+    onQuoteSelection?.(agent.id, text)
+  }, [agent.id, onQuoteSelection])
+  const quoteSelectionInSubagent = useCallback((text: string) => {
+    onQuoteSelectionInSubagent?.(agent.id, text)
+  }, [agent.id, onQuoteSelectionInSubagent])
 
   const activateChatView = useCallback((event: ReactPointerEvent) => {
     if (event.button !== 0) return
@@ -123,17 +130,12 @@ export function AgentWorkPane({
 
   return (
     <section
-      className={`code-agent-work-pane ${active ? 'active' : ''} ${canSwitchRuntime ? 'runtime-switchable' : ''} ${canOpenSideChat ? 'side-chat-available' : ''}`}
+      className={`code-agent-work-pane ${active ? 'active' : ''} ${canSwitchRuntime ? 'runtime-switchable' : ''}`}
       data-testid="code-agent-work-pane"
       data-agent-id={agent.id}
       hidden={!active}
       aria-busy={switching}
     >
-      {canOpenSideChat ? (
-        <div className="code-terminal-side-chat-toggle" onPointerDown={event => event.stopPropagation()} onMouseDown={event => event.stopPropagation()}>
-          <button type="button" aria-label={copy.sideChat} title={copy.sideChat} onClick={() => openSideChat(agent.id)}><ForkGlyph /></button>
-        </div>
-      ) : null}
       {canSwitchRuntime ? (
         <div className="code-terminal-mode-toggle" data-testid="code-terminal-mode-toggle" onPointerDown={event => event.stopPropagation()} onMouseDown={event => event.stopPropagation()}>
           <button type="button" className={chatMode ? 'active' : ''} aria-pressed={chatMode} aria-label={copy.transcriptView} title={copy.transcriptView} disabled={runtimeSwitchDisabled} onClick={() => !chatMode && onRuntimeModeChange?.(agent.id, 'chat')}>
@@ -175,7 +177,7 @@ export function AgentWorkPane({
           aria-hidden={!active}
           onPointerDown={activateChatView}
         >
-          <AcpTranscriptPane followLatestSignal={followLatestSignal} agentId={agent.id} workspaceRootId={agent.workspaceRootId} readingIdentity={agentWorkPaneModeStorageIdentity(agent)} workspaceRoot={agent.projectWorkspace || agent.cwd} active={active} viewportLayoutKey={viewportLayoutKey} runtimeState={acpRuntime?.state || ''} expectHistory={Boolean(resumedAgentSessionSourceIdentity(agent.source)) || Number(acpRuntime?.sessionRevision || 0) > 0} forkedFromAgent={Boolean(agent.parentAgentId && agent.forkedFromProviderSessionId)} refreshSignal={acpRuntime?.sessionRevision || (acpRuntime?.sessionUpdatedAt ? Date.parse(acpRuntime.sessionUpdatedAt) : 0)} onOpenWorkspaceFilePath={onOpenWorkspaceFilePath} onCopyReadOnlyShareLink={onCopyReadOnlyShareLink} onOpenUrlInFarming={onOpenUrlInFarming ? openChatUrlInFarming : undefined} onReadLatest={readLatestChat} onForkLatest={canForkConversation ? forkLatestChat : undefined} onReviewAndCommit={onReviewAndCommit && !isAgentTurnActive(agent) ? reviewAndCommitChat : undefined} onActivePlanChange={publishActivePlan} copy={copy} />
+          <AcpTranscriptPane followLatestSignal={followLatestSignal} agentId={agent.id} workspaceRootId={agent.workspaceRootId} readingIdentity={agentWorkPaneModeStorageIdentity(agent)} workspaceRoot={agent.projectWorkspace || agent.cwd} active={active} viewportLayoutKey={viewportLayoutKey} runtimeState={acpRuntime?.state || ''} expectHistory={Boolean(resumedAgentSessionSourceIdentity(agent.source)) || Number(acpRuntime?.sessionRevision || 0) > 0} forkedFromAgent={Boolean(agent.parentAgentId && agent.forkedFromProviderSessionId)} refreshSignal={acpRuntime?.sessionRevision || (acpRuntime?.sessionUpdatedAt ? Date.parse(acpRuntime.sessionUpdatedAt) : 0)} onOpenWorkspaceFilePath={onOpenWorkspaceFilePath} onCopyReadOnlyShareLink={onCopyReadOnlyShareLink} onOpenUrlInFarming={onOpenUrlInFarming ? openChatUrlInFarming : undefined} onReadLatest={readLatestChat} onForkLatest={canForkConversation ? forkLatestChat : undefined} onReviewAndCommit={onReviewAndCommit && !isAgentTurnActive(agent) ? reviewAndCommitChat : undefined} onActivePlanChange={publishActivePlan} onQuoteSelection={onQuoteSelection ? quoteSelection : undefined} onQuoteSelectionInSubagent={onQuoteSelectionInSubagent && canForkConversation && !agent.subagentParentSessionKey ? quoteSelectionInSubagent : undefined} copy={copy} />
         </div>
       ) : null}
       {switching ? (

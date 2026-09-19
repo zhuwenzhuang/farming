@@ -577,7 +577,7 @@ const EXPECTED_API_ROUTE_MANIFEST = [
   'POST /api/agents/:agentId/acp-session/authenticate',
   'POST /api/agents/:agentId/acp-session/logout',
   'POST /api/agents/:agentId/acp-session/reconnect',
-  'POST /api/agents/:agentId/side-chat',
+  'POST /api/agents/:agentId/subagent',
   'POST /api/agents/:agentId/acp-session/fork',
   'DELETE /api/agents/:agentId/acp-sessions/:sessionId',
   'POST /api/agents/:agentId/acp-session/close',

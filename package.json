@@ -280,7 +280,9 @@
   "overrides": {
     "@hono/node-server": "2.0.11",
     "dompurify": "3.4.13",
-    "@openai/codex": "0.155.1"
+    "@openai/codex": "0.155.1",
+    "lodash": "4.18.1",
+    "minimist": "1.2.8"
   },
   "optionalDependencies": {
     "@anthropic-ai/claude-agent-sdk-darwin-arm64": "0.3.274",

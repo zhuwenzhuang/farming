@@ -1,4 +1,4 @@
-import { useSideChatSupervision } from '@/lib/side-chat-supervision'
+import { useSubagentSupervision } from '@/lib/subagent-supervision'
 import { useState, useCallback, useMemo, useEffect, useLayoutEffect, useRef } from 'react'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { usePageVisibility } from '@/hooks/usePageVisibility'
@@ -199,7 +199,7 @@ export function App() {
   const ws = useWebSocket()
   const focusAgent = ws.focusAgent
   const onAcpSessionRevision = ws.onAcpSessionRevision
-  const sideChatParentKeys = useSideChatSupervision()
+  const subagentParentKeys = useSubagentSupervision()
   const watchAcpTranscripts = ws.watchAcpTranscripts
   const pageVisible = usePageVisibility()
   const { keyMap } = useAgents(ws.agents, ws.mainAgentId)
@@ -1273,8 +1273,8 @@ export function App() {
   useEffect(() => {
     retainAcpTranscriptSessions(retainedAcpTranscriptAgentIds)
     retainAcpSessionStates(retainedAcpTranscriptAgentIds)
-    watchAcpTranscripts(retainedAcpTranscriptAgentIds, sideChatParentKeys)
-  }, [retainedAcpTranscriptAgentIds, sideChatParentKeys, watchAcpTranscripts])
+    watchAcpTranscripts(retainedAcpTranscriptAgentIds, subagentParentKeys)
+  }, [retainedAcpTranscriptAgentIds, subagentParentKeys, watchAcpTranscripts])
 
   useEffect(() => () => {
     retainAcpTranscriptSessions([])

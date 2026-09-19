@@ -764,10 +764,10 @@ class FarmingSessionStore {
         : '',
       source: typeof agent.source === 'string' ? agent.source : '',
       parentAgentId: typeof agent.parentAgentId === 'string' ? agent.parentAgentId : '',
-      sideChatRetained: agent.sideChatRetained === true,
-      ...(Number.isFinite(agent.sideChatSupervisionExpiresAt) ? { sideChatSupervisionExpiresAt: agent.sideChatSupervisionExpiresAt } : {}),
-      sideChatParentSessionKey: canonicalProviderSessionKey(agent.sideChatParentSessionKey),
-      ...(Number.isSafeInteger(agent.sideChatSourceRevision) ? { sideChatSourceRevision: agent.sideChatSourceRevision } : {}),
+      subagentRetained: agent.subagentRetained === true,
+      ...(Number.isFinite(agent.subagentSupervisionExpiresAt) ? { subagentSupervisionExpiresAt: agent.subagentSupervisionExpiresAt } : {}),
+      subagentParentSessionKey: canonicalProviderSessionKey(agent.subagentParentSessionKey),
+      ...(Number.isSafeInteger(agent.subagentSourceRevision) ? { subagentSourceRevision: agent.subagentSourceRevision } : {}),
       forkRequestId: typeof agent.forkRequestId === 'string' ? agent.forkRequestId : '',
       forkRequestSignature: typeof agent.forkRequestSignature === 'string'
         ? agent.forkRequestSignature

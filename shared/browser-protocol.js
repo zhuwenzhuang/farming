@@ -429,9 +429,9 @@ function validateClientMessage(value) {
                 && value.agentIds.length <= 20
                 && value.agentIds.every(agentId => typeof agentId === 'string' && agentId.length > 0 && agentId.length <= 256)
                 && new Set(value.agentIds).size === value.agentIds.length
-                && (!Object.prototype.hasOwnProperty.call(value, 'sideChatParentKeys') || (Array.isArray(value.sideChatParentKeys) && value.sideChatParentKeys.length <= 20
-                    && value.sideChatParentKeys.every(key => typeof key === 'string' && key.length > 0 && key.length <= 2048)
-                    && new Set(value.sideChatParentKeys).size === value.sideChatParentKeys.length));
+                && (!Object.prototype.hasOwnProperty.call(value, 'subagentParentKeys') || (Array.isArray(value.subagentParentKeys) && value.subagentParentKeys.length <= 20
+                    && value.subagentParentKeys.every(key => typeof key === 'string' && key.length > 0 && key.length <= 2048)
+                    && new Set(value.subagentParentKeys).size === value.subagentParentKeys.length));
             break;
         case 'resize-agent':
             valid = stringField(value, 'agentId') && finiteField(value, 'cols') && finiteField(value, 'rows');

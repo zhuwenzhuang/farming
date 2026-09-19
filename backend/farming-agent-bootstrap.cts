@@ -9,9 +9,9 @@ function renderFarmingAgentBootstrap(): string {
   return fs.readFileSync(sourceFile, 'utf8').trim();
 }
 
-function renderFarmingAgentSystemPrompt(additionalInstructions = '', sideChat = false): string {
+function renderFarmingAgentSystemPrompt(additionalInstructions = '', subagent = false): string {
   const additional = String(additionalInstructions || '').trim();
-  const builtIn = [renderFarmingAgentBootstrap(), ...(sideChat ? ['## Side conversation', 'The inherited transcript is context only. Do not continue the parent task or infer new work from it. Act only on new user messages in this side conversation.'] : [])].join('\n\n');
+  const builtIn = [renderFarmingAgentBootstrap(), ...(subagent ? ['## Subagent', 'The inherited transcript is context only. Do not continue the parent task or infer new work from it. Act only on new user messages in this subagent.'] : [])].join('\n\n');
   if (!additional) return builtIn;
   return [
     builtIn,
@@ -22,9 +22,9 @@ function renderFarmingAgentSystemPrompt(additionalInstructions = '', sideChat = 
   ].join('\n\n');
 }
 
-function ensureFarmingAgentBootstrapFile(configDir: string, additionalInstructions = '', sideChat = false): string {
-  const content = `${renderFarmingAgentSystemPrompt(additionalInstructions, sideChat)}\n`;
-  const hasAdditionalInstructions = sideChat || Boolean(String(additionalInstructions || '').trim());
+function ensureFarmingAgentBootstrapFile(configDir: string, additionalInstructions = '', subagent = false): string {
+  const content = `${renderFarmingAgentSystemPrompt(additionalInstructions, subagent)}\n`;
+  const hasAdditionalInstructions = subagent || Boolean(String(additionalInstructions || '').trim());
   const target = hasAdditionalInstructions
     ? path.join(
         configDir,

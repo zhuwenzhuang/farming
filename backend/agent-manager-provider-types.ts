@@ -428,7 +428,7 @@ export interface AgentForkResult extends Record<string, unknown> {
 }
 
 export interface TargetProcessAcpForkOptions {
-  purpose?: 'side-chat';
+  purpose?: 'subagent';
   agent: Record<string, unknown> & { id: string };
   forkTitleBase: string;
   provider: ProviderId;
@@ -651,9 +651,9 @@ export interface ProviderStartOptions extends Record<string, unknown> {
   onAcpForkSessionCreated?: (sessionId: string) => Promise<void> | void;
   onAcpSessionPrepared?: (prepared: AcpPrepareResult) => Promise<void> | void;
   parentAgentId?: string;
-  sideChatParentSessionKey?: string;
-  sideChatRetained?: boolean
-  sideChatSourceRevision?: number;
+  subagentParentSessionKey?: string;
+  subagentRetained?: boolean
+  subagentSourceRevision?: number;
   preserveProviderSessionProfile?: boolean;
   projectWorkspace?: string;
   providerHomeId?: string;

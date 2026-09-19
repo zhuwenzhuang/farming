@@ -176,10 +176,10 @@ export interface AgentRecord extends Record<string, unknown>, AgentDisplayState,
   lastObservedTurnActive?: boolean;
   lastOutputSeq?: number | null;
   parentAgentId?: string;
-  sideChatParentSessionKey?: string;
-  sideChatRetained?: boolean
-  sideChatSupervisionExpiresAt?: number
-  sideChatSourceRevision?: number;
+  subagentParentSessionKey?: string;
+  subagentRetained?: boolean
+  subagentSupervisionExpiresAt?: number
+  subagentSourceRevision?: number;
   persistentSessionId?: string;
   previewCols?: number;
   previewRows?: number;
@@ -242,10 +242,10 @@ export interface PersistedAgentPrivateMetadata extends Record<string, unknown>, 
   lifecycleJournal?: LifecycleJournal;
   mainWorkspace?: string;
   parentAgentId?: string;
-  sideChatParentSessionKey?: string;
-  sideChatRetained?: boolean
-  sideChatSupervisionExpiresAt?: number
-  sideChatSourceRevision?: number;
+  subagentParentSessionKey?: string;
+  subagentRetained?: boolean
+  subagentSupervisionExpiresAt?: number
+  subagentSourceRevision?: number;
   persistentSessionId?: string;
   projectWorkspace?: string;
   providerHomeId?: string;

@@ -51,7 +51,7 @@ export function NativeRelatedRows({ parent, active, selected, onOpen }: {
     ? <button type="button" className="code-agent-row related-child" onClick={() => refreshRef.current?.()} title={error}>Related sessions unavailable · Retry</button> : null
   return <>
     {inventory.children.map(child => <button type="button" key={`${inventory.runtimeEpoch}:${child.sessionId}`}
-      className={`code-agent-row related-child ${selected?.parentAgentId === parent.id && selected.sessionId === child.sessionId && !selected.sideChatSessionKey ? 'active' : ''}`}
+      className={`code-agent-row related-child ${selected?.parentAgentId === parent.id && selected.sessionId === child.sessionId && !selected.subagentSessionKey ? 'active' : ''}`}
       data-testid="code-native-related-row" aria-label={child.title} title={`${child.title} · ${child.state}`}
       onClick={() => onOpen({ parentAgentId: parent.id, parentSessionKey: parent.providerSessionKey,
         sessionId: child.sessionId, title: child.title, runtimeEpoch: inventory.runtimeEpoch, readable: child.readable })}>

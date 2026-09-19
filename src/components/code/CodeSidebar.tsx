@@ -47,6 +47,7 @@ import {
 } from '@/lib/workspace-files'
 import { appPath } from '@/lib/base-path'
 import { isAcpRuntime } from '@/lib/agent-runtime'
+import { canForkAgentConversation } from './capabilities'
 import { agentDisplayName, formatRelativeAge } from '@/lib/format'
 import { agentIconName, agentIconNameFromCommand, type AgentIconName } from '@/lib/agent-presentation'
 import { GLOBAL_WORKSPACE_FILES_AGENT_ID } from '@/lib/global-workspace-files'
@@ -261,6 +262,7 @@ interface CodeSidebarProps {
   onOpenProjectMenu: (event: ContextMenuTriggerEvent, projectId: string, protectedAgentIds?: readonly string[]) => void
   onReorderProject: (workspace: string, beforeWorkspace: string, afterWorkspace: string) => void
   onOpenAgent: (agentId: string) => void
+  onOpenSubagent?: (agentId: string) => void
   onUpdateAgentFlags: (agent: Agent, flags: Partial<Pick<Agent, 'followUp' | 'pinned' | 'archived'>>) => void
   onReorderAgent: (agentId: string, beforeAgentId: string, afterAgentId: string) => void
   onOpenAgentMenu: (event: ContextMenuTriggerEvent, agentId: string) => void
@@ -379,6 +381,7 @@ export function CodeSidebar({
   onOpenProjectMenu,
   onReorderProject,
   onOpenAgent,
+  onOpenSubagent,
   onUpdateAgentFlags,
   onReorderAgent,
   onOpenAgentMenu,
@@ -617,7 +620,7 @@ export function CodeSidebar({
   const pinnedItems = displayedProjects
     .flatMap<PinnedSidebarItem>(project => [
       ...project.agents
-        .filter(agent => !agent.sideChatParentSessionKey && (agent.pinned || dynamicallyPinnedAgentIds.has(agent.id)))
+        .filter(agent => !agent.subagentParentSessionKey && (agent.pinned || dynamicallyPinnedAgentIds.has(agent.id)))
         .map(agent => ({
           kind: 'agent' as const,
           agent: liveAgentById.get(agent.id) ?? agent,
@@ -732,7 +735,13 @@ export function CodeSidebar({
   const mobileDrawerClosed = navigationViewport && sidebarCollapsed
 
   return (
-    <RelatedSidebarRows.Provider value={{ agents: displayedProjects.flatMap(project => project.agents), activeId: activeTerminalId, selected: relatedSession, onOpen: onOpenRelatedSession }}>
+    <RelatedSidebarRows.Provider value={{
+      agents: displayedProjects.flatMap(project => project.agents),
+      activeId: activeTerminalId,
+      selected: relatedSession,
+      onOpen: onOpenRelatedSession,
+      onOpenSubagent,
+    }}>
     <aside
       ref={navigationDialogRef}
       className={`code-sidebar ${sidebarCollapsed ? 'collapsed' : ''}`}
@@ -2164,12 +2173,12 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
     projectOpenWorkspaceFiles.filter(file => file.externalChanged).map(file => file.file.path)
   )
   const sortedAgents = project.agents.filter(agent => (
-    !agent.sideChatParentSessionKey && !agent.pinned && !dynamicallyPinnedAgentIds.has(agent.id)
+    !agent.subagentParentSessionKey && !agent.pinned && !dynamicallyPinnedAgentIds.has(agent.id)
   ))
   const lastProjectAgentId = sortedAgents[sortedAgents.length - 1]?.id ?? ''
   const visibleAgentSessions = project.agentSessions.filter(session => !session.pinned)
   const pinnedSectionAgentIds = project.agents
-    .filter(agent => !agent.sideChatParentSessionKey && (agent.pinned || dynamicallyPinnedAgentIds.has(agent.id)))
+    .filter(agent => !agent.subagentParentSessionKey && (agent.pinned || dynamicallyPinnedAgentIds.has(agent.id)))
     .map(agent => agent.id)
   const showAgentsSection = sortedAgents.length > 0 || visibleAgentSessions.length > 0 || (project.hiddenAgentSessionCount ?? 0) > 0
   const compactProjectAgents = compactAgents && sortedAgents.length > 0
@@ -2968,7 +2977,13 @@ function AgentNewWorktreeForkIcon() {
   )
 }
 
-const RelatedSidebarRows = createContext<{ agents: Agent[]; activeId: string | null; selected?: RelatedSessionTarget | null; onOpen?: (target: RelatedSessionTarget) => void }>({ agents: [], activeId: null })
+const RelatedSidebarRows = createContext<{
+  agents: Agent[]
+  activeId: string | null
+  selected?: RelatedSessionTarget | null
+  onOpen?: (target: RelatedSessionTarget) => void
+  onOpenSubagent?: (agentId: string) => void
+}>({ agents: [], activeId: null })
 
 function AgentRow({
   agent,
@@ -3047,6 +3062,13 @@ function AgentRow({
   const providerIcon = liveAgent
     ? previewAgentIconNameForAgent(liveAgent)
     : agentIconName(session?.provider)
+  const canOpenSubagent = Boolean(
+    liveAgent
+    && !liveAgent.subagentParentSessionKey
+    && isAcpRuntime(liveAgent)
+    && canForkAgentConversation(liveAgent)
+    && relatedRows.onOpenSubagent,
+  )
   const prepareLiveChat = () => {
     if (!liveAgent || !isAcpRuntime(liveAgent)) return
     void fetch(appPath(`/api/agents/${encodeURIComponent(liveAgent.id)}/acp-transcript/prepare`), {
@@ -3076,6 +3098,11 @@ function AgentRow({
     if (!liveAgent) return
     onUpdateAgentFlags?.(liveAgent, { followUp: liveAgent.followUp !== true })
   }
+  const openSubagent = (event: ReactMouseEvent<HTMLButtonElement>) => {
+    event.preventDefault()
+    event.stopPropagation()
+    if (liveAgent) relatedRows.onOpenSubagent?.(liveAgent.id)
+  }
   const archiveAgent = (event: ReactMouseEvent<HTMLButtonElement>) => {
     event.preventDefault()
     event.stopPropagation()
@@ -3099,14 +3126,14 @@ function AgentRow({
     <>
     <div
       tabIndex={0}
-      className={`code-agent-row ${liveAgent?.sideChatParentSessionKey ? 'related-child' : ''} ${providerIcon ? 'has-provider' : ''} ${requiresResume ? 'requires-resume' : ''} ${active ? 'active' : ''} ${searchSelected ? 'search-selected' : ''} ${rowState.pinned ? 'pinned' : ''} ${liveAgent?.followUp === true ? 'follow-up' : ''} ${rowState.unread ? 'unread' : ''} ${dynamicPinningEnabled ? 'force-age' : ''} ${dragging ? 'dragging' : ''} ${dropPosition ? `drop-${dropPosition}` : ''}`}
+      className={`code-agent-row ${liveAgent?.subagentParentSessionKey ? 'related-child' : ''} ${providerIcon ? 'has-provider' : ''} ${requiresResume ? 'requires-resume' : ''} ${active ? 'active' : ''} ${searchSelected ? 'search-selected' : ''} ${rowState.pinned ? 'pinned' : ''} ${liveAgent?.followUp === true ? 'follow-up' : ''} ${rowState.unread ? 'unread' : ''} ${dynamicPinningEnabled ? 'force-age' : ''} ${dragging ? 'dragging' : ''} ${dropPosition ? `drop-${dropPosition}` : ''}`}
       draggable={(reorderable && !isTouchInputViewport()) || undefined}
       data-testid={rowTestId}
       data-agent-id={liveAgent?.id}
       data-activity-level={liveAgent?.activityLevel}
       data-provider={session?.provider}
       data-session-id={session ? agentSessionId(session) : undefined}
-      aria-label={liveAgent?.sideChatParentSessionKey ? copy.sideChat : rowState.rowTitle || rowState.title}
+      aria-label={liveAgent?.subagentParentSessionKey ? copy.subagent : rowState.rowTitle || rowState.title}
       onDragStart={event => {
         if (!liveAgentId || !reorderable) return
         draggedRef.current = true
@@ -3175,7 +3202,7 @@ function AgentRow({
         </span>
       )}
       <span className={`code-agent-row-copy ${rowState.detailLabel ? 'has-details' : ''}`}>
-        <span className="code-agent-name">{liveAgent?.sideChatParentSessionKey ? copy.sideChat : rowState.title}</span>
+        <span className="code-agent-name">{liveAgent?.subagentParentSessionKey ? copy.subagent : rowState.title}</span>
         {rowState.detailLabel && (
           <span
             className="code-agent-meta"
@@ -3237,6 +3264,18 @@ function AgentRow({
                 data-agent-id={liveAgent.id}
               />
             )}
+            {canOpenSubagent && (
+              <button
+                type="button"
+                className="code-agent-row-action subagent"
+                data-testid="code-agent-row-subagent"
+                aria-label={copy.subagent}
+                title={copy.subagent}
+                onClick={openSubagent}
+              >
+                <ProjectNewAgentIcon />
+              </button>
+            )}
             {agent && (
               <button
                 type="button"
@@ -3276,7 +3315,7 @@ function AgentRow({
             </button>
           </span>
         )}
-        {(agent || session) && !liveAgent?.sideChatParentSessionKey && (
+        {(agent || session) && !liveAgent?.subagentParentSessionKey && (
           <button
             type="button"
             className="code-agent-row-more"
@@ -3298,12 +3337,12 @@ function AgentRow({
         data-agent-id={liveAgent.id}
       />
     )}
-    {liveAgent?.providerSessionKey && !liveAgent.sideChatParentSessionKey ? relatedRows.agents
-      .filter(child => child.sideChatParentSessionKey === liveAgent.providerSessionKey)
+    {liveAgent?.providerSessionKey && !liveAgent.subagentParentSessionKey ? relatedRows.agents
+      .filter(child => child.subagentParentSessionKey === liveAgent.providerSessionKey)
       .map(child => <AgentRow key={child.providerSessionKey || child.id} agent={child}
         active={relatedRows.activeId === child.id} searchSelected={false} now={now}
         onOpenAgent={onOpenAgent} onShowPreview={onShowPreview} onHidePreview={onHidePreview} copy={copy} />) : null}
-    {liveAgent && !liveAgent.sideChatParentSessionKey && relatedRows.onOpen ? <NativeRelatedRows parent={liveAgent}
+    {liveAgent && !liveAgent.subagentParentSessionKey && relatedRows.onOpen ? <NativeRelatedRows parent={liveAgent}
       active={active || relatedRows.selected?.parentAgentId === liveAgent.id} selected={relatedRows.selected || null} onOpen={relatedRows.onOpen} /> : null}
     </>
   )

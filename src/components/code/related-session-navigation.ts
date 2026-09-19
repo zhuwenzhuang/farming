@@ -7,10 +7,10 @@ export interface RelatedSessionTarget {
   runtimeEpoch?: string
   readable?: boolean
   parentSessionKey?: string
-  sideChatSessionKey?: string
+  subagentSessionKey?: string
 }
 
 // Navigation carries exact identities. It never starts, stops or resumes work.
 export const RelatedSessionNavigation = createContext<((target: RelatedSessionTarget) => void) | null>(null)
 
-export const SideChatNavigation = createContext<((parentAgentId: string) => void) | null>(null)
+export const SubagentNavigation = createContext<((parentAgentId: string) => void) | null>(null)

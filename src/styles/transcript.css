@@ -160,10 +160,6 @@
   margin-right: 68px;
 }
 
-.code-agent-work-pane.side-chat-available .code-agent-transcript-user {
-  margin-right: 108px;
-}
-
 @container (max-width: 800px) {
   .code-agent-transcript-scroll {
     padding: 8px 12px 6px;
@@ -1987,6 +1983,39 @@
   pointer-events: auto;
 }
 
+.code-agent-transcript-selection-actions {
+  position: fixed;
+  z-index: 140;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid var(--code-panel-border);
+  border-radius: 10px;
+  background: var(--code-bg-surface);
+  box-shadow: var(--code-shadow-soft);
+  transform: translate(-50%, -100%);
+}
+
+.code-agent-transcript-selection-actions button {
+  min-height: 30px;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--code-text);
+  font: inherit;
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.code-agent-transcript-selection-actions button:hover,
+.code-agent-transcript-selection-actions button:focus-visible {
+  background: var(--code-bg-hover);
+  outline: none;
+}
+
 .code-agent-transcript-answer-action {
   position: relative;
   width: 20px;
@@ -2805,7 +2834,7 @@ button.code-agent-transcript-result-summary:is(:hover, :focus-visible) .code-age
 }
 
 .code-related-session-content .code-agent-transcript-subagent-entries { max-height: none; }
-.code-side-chat-panel > .code-agent-transcript { flex: 1; min-height: 0; }
+.code-subagent-panel > .code-agent-transcript { flex: 1; min-height: 0; }
 
 .code-agent-transcript-turn:has(.code-agent-transcript-inline-visualization.wide) { max-width: 1104px; }
 

@@ -252,9 +252,9 @@ export interface Agent extends AgentStateWire {
   adaptiveTitle?: string
   customTitle?: string
   parentAgentId?: string
-  sideChatParentSessionKey?: string
-  sideChatRetained?: boolean
-  sideChatSourceRevision?: number
+  subagentParentSessionKey?: string
+  subagentRetained?: boolean
+  subagentSourceRevision?: number
   task?: string
   /** Workflow preset id from New Agent dialog (e.g. ralph); informational */
   workflowTemplate?: string

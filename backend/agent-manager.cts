@@ -1374,11 +1374,11 @@ class AgentManager extends EventEmitter {
   declare agentWorktreeRefreshQueue: AgentWorktreeRefreshQueue;
   declare worktreeGitService: WorktreeGitServicePort;
   declare forkOperationCoordinator: ForkOperationCoordinator;
-  private sideChatSupervisionProbe: ((parentSessionKey: string) => boolean) | null = null;
-  private sideChatResourceCleanup: ((agentId: string) => Promise<void>) | null = null;
-  setSideChatResourceCleanup(cleanup: (agentId: string) => Promise<void>) { this.sideChatResourceCleanup = cleanup; }
-  setSideChatSupervisionProbe(probe: (parentSessionKey: string) => boolean) { this.sideChatSupervisionProbe = probe; }
-  private readonly sideChatRequests = new Map<string, Promise<AgentForkResult>>();
+  private subagentSupervisionProbe: ((parentSessionKey: string) => boolean) | null = null;
+  private subagentResourceCleanup: ((agentId: string) => Promise<void>) | null = null;
+  setSubagentResourceCleanup(cleanup: (agentId: string) => Promise<void>) { this.subagentResourceCleanup = cleanup; }
+  setSubagentSupervisionProbe(probe: (parentSessionKey: string) => boolean) { this.subagentSupervisionProbe = probe; }
+  private readonly subagentRequests = new Map<string, Promise<AgentForkResult>>();
   declare lifecycleCoordinator: AgentLifecycleCoordinator;
   declare startAdmissionCoordinator: AgentStartAdmissionCoordinator;
   declare projectAdmissionCoordinator: ProjectOperationAdmissionCoordinator;
@@ -2737,10 +2737,10 @@ class AgentManager extends EventEmitter {
         // even briefly makes Chat/Terminal switching disappear until a later
         // provider resolver update happens to repair it.
         source: persisted.source || engineMetadata.source,
-        sideChatRetained: persisted.sideChatRetained,
-        sideChatParentSessionKey: persisted.sideChatParentSessionKey,
-        sideChatSupervisionExpiresAt: persisted.sideChatSupervisionExpiresAt,
-        sideChatSourceRevision: persisted.sideChatSourceRevision,
+        subagentRetained: persisted.subagentRetained,
+        subagentParentSessionKey: persisted.subagentParentSessionKey,
+        subagentSupervisionExpiresAt: persisted.subagentSupervisionExpiresAt,
+        subagentSourceRevision: persisted.subagentSourceRevision,
         forkRequestId: typeof persisted.forkRequestId === 'string'
           ? persisted.forkRequestId
           : engineMetadata.forkRequestId,
@@ -3751,7 +3751,7 @@ class AgentManager extends EventEmitter {
           projectWorkspace: effectiveAgentWorkspaceRoot(agent),
           sessionId,
           historyMode: 'checkpoint',
-          retained: record.sideChatParentSessionKey && record.sideChatRetained === true,
+          retained: record.subagentParentSessionKey && record.subagentRetained === true,
           providerHomeId: agent.providerHomeId || record.providerHomeId || 'default',
           providerHomePath: agent.providerHomePath || record.providerHomePath || '',
           approvalMode,
@@ -3760,7 +3760,7 @@ class AgentManager extends EventEmitter {
           model: 'config',
           reasoningEffort: 'config',
           serviceTier: 'config',
-          farmingSystemPrompt: renderFarmingAgentSystemPrompt(sharedLaunchConfig?.instructions || '', Boolean(agent.sideChatParentSessionKey)),
+          farmingSystemPrompt: renderFarmingAgentSystemPrompt(sharedLaunchConfig?.instructions || '', Boolean(agent.subagentParentSessionKey)),
           additionalDirectories: Array.isArray(record.acpAdditionalDirectories) ? record.acpAdditionalDirectories : [],
           configOverrides: recoveryConfigOverrides,
           capabilityRuntimeEpoch: recoveryProjection.capabilityRuntimeEpoch,
@@ -3813,7 +3813,7 @@ class AgentManager extends EventEmitter {
         });
         agent.providerSessionTemporary = false;
         agent.providerSessionSource = `acp-${prepared.historyMode}`;
-        if (prepared.historyMode === 'retained') await this.sideChatResourceCleanup?.(agentId);
+        if (prepared.historyMode === 'retained') await this.subagentResourceCleanup?.(agentId);
         const runtime = replaceRuntimeBinding(agent, 'acp', runtimeBindingOf(agent, 'acp'));
         runtime.state = prepared.historyMode === 'retained' ? 'closed' : 'idle';
         runtime.stopReason = '';
@@ -4151,10 +4151,10 @@ class AgentManager extends EventEmitter {
       category: metadata.category || 'coding',
       launchPermissionMode: metadata.launchPermissionMode || '',
       parentAgentId: metadata.parentAgentId || '',
-      sideChatRetained: metadata.sideChatRetained === true,
-      sideChatParentSessionKey: metadata.sideChatParentSessionKey || '',
-      sideChatSupervisionExpiresAt: metadata.sideChatSupervisionExpiresAt,
-      sideChatSourceRevision: metadata.sideChatSourceRevision,
+      subagentRetained: metadata.subagentRetained === true,
+      subagentParentSessionKey: metadata.subagentParentSessionKey || '',
+      subagentSupervisionExpiresAt: metadata.subagentSupervisionExpiresAt,
+      subagentSourceRevision: metadata.subagentSourceRevision,
       forkRequestId: metadata.forkRequestId || '',
       forkRequestSignature: metadata.forkRequestSignature || '',
       task: metadata.task || '',
@@ -4517,7 +4517,7 @@ class AgentManager extends EventEmitter {
       env.FARMING_STARTUP_PROMPT_FILE = ensureFarmingAgentBootstrapFile(
         this.configManager.farmingDir,
         launchConfig?.instructions || '',
-        Boolean(agent.sideChatParentSessionKey),
+        Boolean(agent.subagentParentSessionKey),
       );
     }
     if (agent.mainWorkspace) {
@@ -4639,24 +4639,24 @@ class AgentManager extends EventEmitter {
     return !hasDifferentActiveMain;
   }
   
-  async reconcileSideChatSupervision() {
+  async reconcileSubagentSupervision() {
     for (const agent of this.agents.values()) {
-      const supervised = !agent.sideChatParentSessionKey || (this.sideChatSupervisionProbe?.(agent.sideChatParentSessionKey) ?? true);
-      if (agent.sideChatParentSessionKey && !agent.sideChatRetained) {
-        const expiry = supervised ? 0 : agent.sideChatSupervisionExpiresAt || Date.now() + 60_000;
-        if (expiry !== agent.sideChatSupervisionExpiresAt) {
-          agent.sideChatSupervisionExpiresAt = expiry;
+      const supervised = !agent.subagentParentSessionKey || (this.subagentSupervisionProbe?.(agent.subagentParentSessionKey) ?? true);
+      if (agent.subagentParentSessionKey && !agent.subagentRetained) {
+        const expiry = supervised ? 0 : agent.subagentSupervisionExpiresAt || Date.now() + 60_000;
+        if (expiry !== agent.subagentSupervisionExpiresAt) {
+          agent.subagentSupervisionExpiresAt = expiry;
           this.sessionPersistence.persist(agent);
         }
       }
-      const supervisionExpired = !supervised && Number(agent.sideChatSupervisionExpiresAt) > 0 && Date.now() >= Number(agent.sideChatSupervisionExpiresAt);
+      const supervisionExpired = !supervised && Number(agent.subagentSupervisionExpiresAt) > 0 && Date.now() >= Number(agent.subagentSupervisionExpiresAt);
       const runtime = runtimeBindingOf(agent, 'acp');
       const updatedAt = Date.parse(String(runtime?.sessionUpdatedAt || ''));
-      if (agent.sideChatParentSessionKey && !agent.sideChatRetained && runtime
+      if (agent.subagentParentSessionKey && !agent.subagentRetained && runtime
         && (supervisionExpired || (runtime.state === 'idle' && Number.isFinite(updatedAt) && Date.now() - updatedAt >= 5 * 60_000))
         && !this.lifecycleCoordinator.get(agent.id)) {
-        try { await this.retainSideChat(agent.id, supervisionExpired); }
-        catch (caught) { console.warn('Side chat idle release requires reconciliation:', (caught as ErrorRecord).message); }
+        try { await this.retainSubagent(agent.id, supervisionExpired); }
+        catch (caught) { console.warn('Subagent idle release requires reconciliation:', (caught as ErrorRecord).message); }
       }
     }
   }
@@ -4664,7 +4664,7 @@ class AgentManager extends EventEmitter {
   async runHeartbeatTick({ sweepZombies }: AgentHeartbeatTick) {
     if (this.shutdownState.isDisposed()) return;
     if (sweepZombies) await this.cleanupZombieAgents();
-    await this.reconcileSideChatSupervision();
+    await this.reconcileSubagentSupervision();
 
     const mainAgentId = this.mainAgentIdentity.currentId();
     if (mainAgentId) {
@@ -4827,9 +4827,9 @@ class AgentManager extends EventEmitter {
       category: agent.category,
       launchPermissionMode: agent.launchPermissionMode,
       parentAgentId: agent.parentAgentId || '',
-      sideChatRetained: agent.sideChatRetained === true,
-      sideChatParentSessionKey: agent.sideChatParentSessionKey || '',
-      sideChatSourceRevision: agent.sideChatSourceRevision,
+      subagentRetained: agent.subagentRetained === true,
+      subagentParentSessionKey: agent.subagentParentSessionKey || '',
+      subagentSourceRevision: agent.subagentSourceRevision,
       forkRequestId: agent.forkRequestId || '',
       forkRequestSignature: agent.forkRequestSignature || '',
       task: agent.task,
@@ -5161,7 +5161,7 @@ class AgentManager extends EventEmitter {
         homeLaunchProfile,
         dangerouslySkipPermissions === true,
       ),
-      farmingSystemPrompt: renderFarmingAgentSystemPrompt(sharedLaunchConfig?.instructions || '', Boolean(options.sideChatParentSessionKey)),
+      farmingSystemPrompt: renderFarmingAgentSystemPrompt(sharedLaunchConfig?.instructions || '', Boolean(options.subagentParentSessionKey)),
       mainAgentSystemPrompt: wantsMain ? renderMainAgentBootstrap() : '',
     });
     const program = launch.program;
@@ -5545,9 +5545,9 @@ class AgentManager extends EventEmitter {
       category: typeof resolutionSpec?.category === 'string' ? resolutionSpec.category : 'other',
       launchPermissionMode: launch.permissionMode || '',
       parentAgentId,
-      sideChatRetained: options.sideChatRetained === true,
-      sideChatParentSessionKey: options.sideChatParentSessionKey || '',
-      sideChatSourceRevision: options.sideChatSourceRevision,
+      subagentRetained: options.subagentRetained === true,
+      subagentParentSessionKey: options.subagentParentSessionKey || '',
+      subagentSourceRevision: options.subagentSourceRevision,
       forkRequestId: typeof options.forkRequestId === 'string' ? options.forkRequestId : '',
       forkRequestSignature: typeof options.forkRequestSignature === 'string'
         ? options.forkRequestSignature
@@ -5652,10 +5652,10 @@ class AgentManager extends EventEmitter {
       );
       if (existingRecord) {
         previousPersistentRecord = existingRecord;
-        agentRecord.sideChatRetained = existingRecord.sideChatRetained === true;
-        agentRecord.sideChatParentSessionKey = canonicalProviderSessionKey(existingRecord.sideChatParentSessionKey);
-        agentRecord.sideChatSupervisionExpiresAt = existingRecord.sideChatSupervisionExpiresAt;
-        agentRecord.sideChatSourceRevision = existingRecord.sideChatSourceRevision;
+        agentRecord.subagentRetained = existingRecord.subagentRetained === true;
+        agentRecord.subagentParentSessionKey = canonicalProviderSessionKey(existingRecord.subagentParentSessionKey);
+        agentRecord.subagentSupervisionExpiresAt = existingRecord.subagentSupervisionExpiresAt;
+        agentRecord.subagentSourceRevision = existingRecord.subagentSourceRevision;
         agentRecord.lifecycleJournal = lifecycleJournal(existingRecord);
         previousPersistentRuntimeAgentId = String(existingRecord.runtimeAgentId || '').trim();
       }
@@ -5797,7 +5797,7 @@ class AgentManager extends EventEmitter {
           model: runtimeLaunchProfile.model,
           reasoningEffort: runtimeLaunchProfile.reasoningEffort,
           serviceTier: runtimeLaunchProfile.serviceTier,
-          farmingSystemPrompt: renderFarmingAgentSystemPrompt(sharedLaunchConfig?.instructions || '', Boolean(agentRecord.sideChatParentSessionKey)),
+          farmingSystemPrompt: renderFarmingAgentSystemPrompt(sharedLaunchConfig?.instructions || '', Boolean(agentRecord.subagentParentSessionKey)),
           additionalDirectories: requestedAdditionalDirectories,
           mcpServers: requestedMcpServers,
         });
@@ -6001,7 +6001,7 @@ class AgentManager extends EventEmitter {
           model: runtimeLaunchProfile.model,
           reasoningEffort: runtimeLaunchProfile.reasoningEffort,
           serviceTier: runtimeLaunchProfile.serviceTier,
-          farmingSystemPrompt: renderFarmingAgentSystemPrompt(sharedLaunchConfig?.instructions || '', Boolean(agentRecord.sideChatParentSessionKey)),
+          farmingSystemPrompt: renderFarmingAgentSystemPrompt(sharedLaunchConfig?.instructions || '', Boolean(agentRecord.subagentParentSessionKey)),
           additionalDirectories,
           configOverrides,
           mcpServers,
@@ -6372,12 +6372,12 @@ class AgentManager extends EventEmitter {
     );
   }
 
-  assertSideChatParentAvailable(agentId: AgentId) {
+  assertSubagentParentAvailable(agentId: AgentId) {
     const child = this.agents.get(agentId);
-    if (child?.sideChatParentSessionKey) {
-      const parent = [...this.agents.values()].find(candidate => candidate.providerSessionKey === child.sideChatParentSessionKey);
+    if (child?.subagentParentSessionKey) {
+      const parent = [...this.agents.values()].find(candidate => candidate.providerSessionKey === child.subagentParentSessionKey);
       if (!parent || parent.archived || ['dead', 'stopped'].includes(parent.status || '')
-        || this.lifecycleCoordinator.get(parent.id)) throw new Error('The parent session is unavailable for side chat');
+        || this.lifecycleCoordinator.get(parent.id)) throw new Error('The parent session is unavailable for subagent');
     }
   }
 
@@ -6387,7 +6387,7 @@ class AgentManager extends EventEmitter {
     requestId: string,
     options: ComposerMessageOptions = {},
   ): Promise<unknown> {
-    this.assertSideChatParentAvailable(agentId);
+    this.assertSubagentParentAvailable(agentId);
     const lifecycleOperation = this.lifecycleCoordinator.get(agentId);
     if (lifecycleOperation) {
       return Promise.reject(new Error(
@@ -6436,7 +6436,7 @@ class AgentManager extends EventEmitter {
     message: unknown,
     options: ComposerMessageOptions = {},
   ): Promise<unknown> {
-    this.assertSideChatParentAvailable(agentId);
+    this.assertSubagentParentAvailable(agentId);
     const lifecycleOperation = this.lifecycleCoordinator.get(agentId);
     if (lifecycleOperation) {
       throw new Error(`Agent lifecycle change already in progress: ${lifecycleOperation.label}`);
@@ -6764,7 +6764,7 @@ class AgentManager extends EventEmitter {
     options: ComposerSendOptions = {},
   ): Promise<ComposerSubmissionResult> {
     options.assertDeliveryOwner?.();
-    this.assertSideChatParentAvailable(agentId);
+    this.assertSubagentParentAvailable(agentId);
     const agent = this.agents.get(agentId);
     if (!agent) throw new Error('Agent not found');
     if (options.requireConfirmedTerminalDelivery === true) {
@@ -6794,7 +6794,7 @@ class AgentManager extends EventEmitter {
       this.requireLiveAcpAgent(agentId);
       await this.reconnectAcpAgent(agentId);
       options.assertDeliveryOwner?.();
-      this.assertSideChatParentAvailable(agentId);
+      this.assertSubagentParentAvailable(agentId);
       this.requireLiveAcpAgent(agentId);
       const result = await this.acpRuntime.submitMessage(agentId, prompt, {
         delivery: options.delivery,
@@ -6895,7 +6895,7 @@ class AgentManager extends EventEmitter {
 
   async reconnectAcpAgent(agentId: AgentId) {
     this.assertAgentOperationAdmission();
-    this.assertSideChatParentAvailable(agentId);
+    this.assertSubagentParentAvailable(agentId);
     const agent = this.requireLiveAcpAgent(agentId);
     await this.acpRuntime.initialize?.();
     if (!this.acpRuntime.hasBinding(agentId)) {
@@ -6912,9 +6912,9 @@ class AgentManager extends EventEmitter {
         this.sessionPersistence.persist(agent);
       },
     });
-    if (agent.sideChatParentSessionKey && result.reconnected === true) {
-      agent.sideChatRetained = false;
-      agent.sideChatSupervisionExpiresAt = Date.now() + 60_000;
+    if (agent.subagentParentSessionKey && result.reconnected === true) {
+      agent.subagentRetained = false;
+      agent.subagentSupervisionExpiresAt = Date.now() + 60_000;
     }
     this.sessionPersistence.persist(agent);
     return result;
@@ -8272,7 +8272,7 @@ class AgentManager extends EventEmitter {
     const nextMode = mode === 'acp' && providerTreatsLegacyAcpRequestAsChat(provider)
       ? 'chat'
       : mode;
-    if (agent.sideChatParentSessionKey && nextMode !== 'chat') return { error: 'Side chat requires structured Chat' };
+    if (agent.subagentParentSessionKey && nextMode !== 'chat') return { error: 'Subagent requires structured Chat' };
     const currentKind = runtimeKind(agent);
     const currentMode = currentKind === 'acp' ? 'chat' : 'terminal';
     const nextRuntimeKind = nextMode === 'chat' ? chatRuntimeForProvider(provider) : nextMode;
@@ -9598,22 +9598,22 @@ class AgentManager extends EventEmitter {
     }
   }
 
-  async retainSideChat(agentId: AgentId, force = false) {
-    return this.runAgentLifecycleOperation(agentId, 'side-chat-retain', 'update', 'side chat idle release', async () => {
+  async retainSubagent(agentId: AgentId, force = false) {
+    return this.runAgentLifecycleOperation(agentId, 'subagent-retain', 'update', 'subagent idle release', async () => {
       const agent = this.agents.get(agentId);
       const runtime = runtimeBindingOf(agent, 'acp');
-      if (!agent?.sideChatParentSessionKey || !runtime || !this.acpRuntime.retainAgent) return false;
+      if (!agent?.subagentParentSessionKey || !runtime || !this.acpRuntime.retainAgent) return false;
       if (!force && runtime.state !== 'idle' && runtime.state !== 'closed') return false;
       // Persist desired ownership before releasing resources. Cold recovery must
-      // not eagerly spawn a side conversation after a crash in this interval.
-      agent.sideChatRetained = true;
+      // not eagerly spawn a replacement Subagent after a crash in this interval.
+      agent.subagentRetained = true;
       this.sessionPersistence.persist(agent);
       try {
         const result = await this.acpRuntime.retainAgent(agentId, force);
-        if (!result.retained) { agent.sideChatRetained = false; this.sessionPersistence.persist(agent); return false; }
-        if (result.sessionId !== agent.providerSessionId) throw new Error('Side chat release identity mismatch');
+        if (!result.retained) { agent.subagentRetained = false; this.sessionPersistence.persist(agent); return false; }
+        if (result.sessionId !== agent.providerSessionId) throw new Error('Subagent release identity mismatch');
         agent.structuredRuntimeProcess = null;
-        await this.sideChatResourceCleanup?.(agentId);
+        await this.subagentResourceCleanup?.(agentId);
         runtime.state = 'closed';
         runtime.error = '';
         agent.status = 'running';
@@ -9623,31 +9623,31 @@ class AgentManager extends EventEmitter {
         return true;
       } catch (caught) {
         const error = caught as ErrorRecord;
-        this.markStructuredAgentCleanupUncertain(agentId, 'acp', `Side chat release failed: ${error.message || error}`);
+        this.markStructuredAgentCleanupUncertain(agentId, 'acp', `Subagent release failed: ${error.message || error}`);
         throw caught;
       }
     });
   }
 
-  async openSideChat(agentId: AgentId): Promise<AgentForkResult> {
+  async openSubagent(agentId: AgentId): Promise<AgentForkResult> {
     await this.recoveryGate.wait();
     const parent = this.agents.get(agentId);
     if (!parent) return { error: 'Agent not found' };
     const parentKey = canonicalProviderSessionKey(parent.providerSessionKey);
-    if (!parentKey || parent.providerSessionTemporary || parent.sideChatParentSessionKey) {
-      return { error: 'Side chat requires an independent, durable parent session' };
+    if (!parentKey || parent.providerSessionTemporary || parent.subagentParentSessionKey) {
+      return { error: 'Subagent requires an independent, durable parent session' };
     }
-    const pending = this.sideChatRequests.get(parentKey);
+    const pending = this.subagentRequests.get(parentKey);
     if (pending) return pending;
     const request = (async (): Promise<AgentForkResult> => {
       const records = typeof this.configManager?.listAgentSessionRecords === 'function'
         ? this.configManager.listAgentSessionRecords()
         : [];
-      const children = records.filter(record => canonicalProviderSessionKey(record.sideChatParentSessionKey) === parentKey);
-      if (children.length > 1) return { error: 'Multiple side chats claim this parent; reconcile their ownership before continuing' };
+      const children = records.filter(record => canonicalProviderSessionKey(record.subagentParentSessionKey) === parentKey);
+      if (children.length > 1) return { error: 'Multiple subagents claim this parent; reconcile their ownership before continuing' };
       const child = children[0];
       if (child) {
-        if (activeLifecycleOperation(child)) return { error: 'Side chat has an unresolved lifecycle operation', uncertain: true };
+        if (activeLifecycleOperation(child)) return { error: 'Subagent has an unresolved lifecycle operation', uncertain: true };
         return {
           agentId: child.runtimeAgentId,
           providerSessionId: child.providerSessionId,
@@ -9658,30 +9658,30 @@ class AgentManager extends EventEmitter {
         };
       }
       const prior = [...(parent.lifecycleJournal?.entries || [])].reverse().find(operation => (
-        operation.type === 'fork' && operation.request?.purpose === 'side-chat'
+        operation.type === 'fork' && operation.request?.purpose === 'subagent'
       ));
       // A missing child is not evidence that a previously successful or uncertain
       // create never happened. Reconcile the durable Fork request, never replay it.
       const reconcile = prior && !['failed', 'cancelled'].includes(prior.state);
       const runtime = runtimeBindingOf(parent, 'acp');
-      if (!runtime) return { error: 'This parent does not support structured side chat' };
+      if (!runtime) return { error: 'This parent does not support structured subagent' };
       const result = await this.forkAgent(agentId, 'same-worktree', {
-        purpose: 'side-chat',
+        purpose: 'subagent',
         targetRuntime: 'chat',
         expectedRevision: reconcile ? Number(prior.request?.expectedRevision) : Number(runtime.sessionRevision || 0),
-        requestId: reconcile ? prior.requestKey.slice('fork-request:'.length) : `side-${crypto.randomUUID()}`,
+        requestId: reconcile ? prior.requestKey.slice('fork-request:'.length) : `subagent-${crypto.randomUUID()}`,
       });
       if (result.error) return result;
       const created = (this.configManager?.listAgentSessionRecords?.() || []).find(record => (
-        canonicalProviderSessionKey(record.sideChatParentSessionKey) === parentKey
+        canonicalProviderSessionKey(record.subagentParentSessionKey) === parentKey
         && record.runtimeAgentId === result.agentId
       ));
-      if (!created?.providerSessionKey) return { error: 'Side chat creation is not yet durably reconciled', uncertain: true };
+      if (!created?.providerSessionKey) return { error: 'Subagent creation is not yet durably reconciled', uncertain: true };
       return { ...result, providerSessionKey: created.providerSessionKey };
     })();
-    this.sideChatRequests.set(parentKey, request);
+    this.subagentRequests.set(parentKey, request);
     try { return await request; }
-    finally { if (this.sideChatRequests.get(parentKey) === request) this.sideChatRequests.delete(parentKey); }
+    finally { if (this.subagentRequests.get(parentKey) === request) this.subagentRequests.delete(parentKey); }
   }
 
   async forkAgent(
@@ -9924,7 +9924,7 @@ class AgentManager extends EventEmitter {
     forkRequestId = '',
     forkRequestSignature = '',
     forkTitleBase = '',
-    purpose?: 'side-chat',
+    purpose?: 'subagent',
   ): Promise<AgentForkResult> {
     const agent = this.agents.get(agentId);
     if (!agent) return { error: 'Agent not found' };
@@ -10000,7 +10000,7 @@ class AgentManager extends EventEmitter {
       callback => this.startAgent(command, workspace, callback, {
         wantsMain: false,
         parentAgentId: agent.id,
-        ...(purpose === 'side-chat' ? { sideChatParentSessionKey: agent.providerSessionKey, sideChatSourceRevision: expectedRevision } : {}),
+        ...(purpose === 'subagent' ? { subagentParentSessionKey: agent.providerSessionKey, subagentSourceRevision: expectedRevision } : {}),
         forkRequestId,
         forkRequestSignature,
         task: agent.task ? `Fork: ${agent.task}` : `Fork of ${agent.command}`,
@@ -10097,7 +10097,7 @@ class AgentManager extends EventEmitter {
             callback => this.startAgent(command, workspace, callback, {
               wantsMain: false,
               parentAgentId: agent.id,
-              ...(purpose === 'side-chat' ? { sideChatParentSessionKey: agent.providerSessionKey, sideChatSourceRevision: expectedRevision } : {}),
+              ...(purpose === 'subagent' ? { subagentParentSessionKey: agent.providerSessionKey, subagentSourceRevision: expectedRevision } : {}),
               forkRequestId,
               forkRequestSignature,
               task: agent.task ? `Fork: ${agent.task}` : `Fork of ${agent.command}`,
@@ -10946,11 +10946,11 @@ class AgentManager extends EventEmitter {
     const agent = this.agents.get(agentId);
     if (!agent) return { agentId, killed: true, missing: true };
 
-    if (!agent.sideChatParentSessionKey && agent.providerSessionKey) {
-      const children = [...this.agents.values()].filter(child => child.sideChatParentSessionKey === agent.providerSessionKey);
+    if (!agent.subagentParentSessionKey && agent.providerSessionKey) {
+      const children = [...this.agents.values()].filter(child => child.subagentParentSessionKey === agent.providerSessionKey);
       for (const child of children) {
         try {
-          const result = await this.retainSideChat(child.id, true);
+          const result = await this.retainSubagent(child.id, true);
           if (result !== true) return { agentId, error: 'Related session cleanup did not complete', retryable: true };
         } catch (caught) { return { agentId, error: `Related session cleanup failed: ${(caught as ErrorRecord).message}`, retryable: true }; }
       }
@@ -11419,9 +11419,9 @@ class AgentManager extends EventEmitter {
       shellLastCommandFinishedAt,
       shellLastCommandDurationMs,
       parentAgentId: agent.parentAgentId || '',
-      sideChatRetained: agent.sideChatRetained === true,
-      sideChatParentSessionKey: agent.sideChatParentSessionKey || '',
-      sideChatSourceRevision: agent.sideChatSourceRevision,
+      subagentRetained: agent.subagentRetained === true,
+      subagentParentSessionKey: agent.subagentParentSessionKey || '',
+      subagentSourceRevision: agent.subagentSourceRevision,
       task: agent.task || '',
       workflowTemplate: agent.workflowTemplate || '',
       source: agent.source || '',
@@ -11594,9 +11594,9 @@ class AgentManager extends EventEmitter {
       shellLastCommandDurationMs: finiteNumberOrNull(agent.shellLastCommandDurationMs),
       isMain,
       parentAgentId: agent.parentAgentId || '',
-      sideChatRetained: agent.sideChatRetained === true,
-      sideChatParentSessionKey: agent.sideChatParentSessionKey || '',
-      sideChatSourceRevision: agent.sideChatSourceRevision,
+      subagentRetained: agent.subagentRetained === true,
+      subagentParentSessionKey: agent.subagentParentSessionKey || '',
+      subagentSourceRevision: agent.subagentSourceRevision,
       task: agent.task || '',
       workflowTemplate: agent.workflowTemplate || '',
       source: agent.source || '',
