@@ -154,6 +154,7 @@ interface SubagentControl {
   cancelPromise?: Promise<unknown> | null; [key: string]: unknown;
 }
 interface AcpBinding {
+  retained?: boolean;
   agentId: string; provider: string; providerHomeId: string; providerHomePath: string;
   providerHomeIdentity: string; projectPath: string; cwd: string;
   capabilityRuntimeEpoch: string;
@@ -244,6 +245,7 @@ interface AcpRuntimeOptions extends PrepareAgentOptions {
   terminalSpawn?: typeof spawn;
 }
 interface PrepareAgentOptions extends UnknownRecord {
+  retained?: boolean;
   agentId?: string; provider?: string; providerHomeId?: string; providerHomePath?: string;
   configDir?: string; projectWorkspace?: string; cwd?: string; sessionId?: string;
   capabilityRuntimeEpoch?: string;
@@ -1799,6 +1801,7 @@ class AcpRuntime extends EventEmitter {
       providerHomePath,
       configOverrides,
     };
+    delete restartOptions.retained;
     delete restartOptions.forkSourceSessionId;
     delete restartOptions.forkSourceCheckpoint;
     delete restartOptions.onForkSessionCreated;
@@ -1886,6 +1889,22 @@ class AcpRuntime extends EventEmitter {
     try {
       binding.projectPath = await canonicalAcpProjectPath(options, cwd);
       this.requireOpenBinding(binding);
+      if (options.retained === true) {
+        if (!isSafeProviderSessionId(requestedSessionId) || !this.checkpointStore) throw new Error('Retained session requires an exact saved checkpoint');
+        const saved = await this.checkpointStore.load(this.checkpointIdentity(binding, requestedSessionId), { allowDirty: true });
+        this.requireOpenBinding(binding);
+        const restored = this.restoreBindingCheckpoint(binding, recordValue(saved?.state) as AcpCheckpoint, { sessionId: requestedSessionId });
+        if (!restored) throw new Error('Retained session checkpoint is unavailable');
+        binding.sessionId = requestedSessionId;
+        binding.sessionState = restored.sessionState;
+        binding.subagentStates = restored.subagentStates;
+        binding.retained = true;
+        binding.exited = true;
+        binding.state = 'closed';
+        this.emitRuntime(binding);
+        this.emitSession(binding);
+        return { sessionId: requestedSessionId, historyMode: 'retained', configOverrides };
+      }
       binding.providerHomeIdentity = await prepareAcpHomePath(provider, binding.providerHomeIdentity);
       if (binding.providerHomePath) {
         binding.providerHomePath = binding.providerHomeIdentity;
@@ -3755,6 +3774,47 @@ class AcpRuntime extends EventEmitter {
     return this.prepareAgent(options);
   }
 
+  async retainAgent(agentId: string, force = false) {
+    const binding = this.requireBinding(agentId);
+    if (binding.retained) return { retained: true, sessionId: binding.sessionId };
+    this.requireOpenBinding(binding);
+    if (binding.runtime && binding.runtime.bindings.size > 1 && !binding.initializeResponse?.agentCapabilities?.sessionCapabilities?.close) {
+      throw new Error('Provider cannot independently release this shared side session');
+    }
+    if (force && binding.sessionMutation) throw new Error('Session mutation is still in progress');
+    const mutation = force ? { action: 'supervision release' } : this.beginSessionMutation(binding, 'idle release');
+    if (force) binding.sessionMutation = mutation;
+    if (!force && this.activeSubagentSessionIds(binding).length) { this.endSessionMutation(binding, mutation); return { retained: false, sessionId: binding.sessionId }; }
+    const reservation = (this.reconnectReservations.get(agentId) || 0) + 1;
+    this.reconnectReservations.set(agentId, reservation);
+    try {
+      if (!this.checkpointStore || !this.checkpointIdentity(binding)) throw new Error('Idle release requires a saved transcript');
+      await this.writeCheckpoint(binding);
+      const interruptedTurn = Boolean(binding.activeTurn);
+      const stopped = await this.unregisterAgentAndWait(agentId, binding);
+      if (!stopped) throw new Error('Idle release could not prove resource cleanup');
+      if (interruptedTurn) binding.sessionState?.completePrompt();
+      if (this.bindings.has(agentId) || this.reconnectReservations.get(agentId) !== reservation) {
+        throw new Error('Idle release lost session ownership');
+      }
+      // Force release may have interrupted a turn after the initial write.
+      // Persist the final, stopped state before publishing a retained handle.
+      await this.checkpointStore.write(this.checkpointIdentity(binding), this.bindingCheckpoint(binding), { exact: false });
+      if (this.bindings.has(agentId) || this.reconnectReservations.get(agentId) !== reservation) throw new Error('Idle release lost session ownership');
+      binding.runtime = null;
+      binding.child = null;
+      binding.retained = true;
+      binding.exited = true;
+      binding.state = 'closed';
+      binding.error = '';
+      binding.stopReason = '';
+      this.bindings.set(agentId, binding);
+      this.reconnectReservations.delete(agentId);
+      this.emitRuntime(binding);
+      return { retained: true, sessionId: binding.sessionId };
+    } finally { this.endSessionMutation(binding, mutation); }
+  }
+
   reconnectAgent(agentId: string, options: PrepareAgentOptions = {}): Promise<Record<string, unknown>> {
     const existing = this.reconnectOperations.get(agentId);
     if (existing) return existing;
@@ -3773,7 +3833,7 @@ class AcpRuntime extends EventEmitter {
     const recoverableFailure = binding.state === 'error'
       && binding.stopReason === 'error'
       && binding.retryableReconnect === true;
-    if (!recoverableFailure) {
+    if (!recoverableFailure && binding.retained !== true) {
       return { reconnected: false, sessionId: binding.sessionId, state: binding.state };
     }
     if (!isSafeProviderSessionId(binding.sessionId)) {
@@ -3797,6 +3857,7 @@ class AcpRuntime extends EventEmitter {
       historyMode: 'checkpoint',
       revisionBase,
     };
+    delete restartOptions.retained;
     delete restartOptions.forkSourceSessionId;
     delete restartOptions.forkSourceCheckpoint;
     delete restartOptions.onForkSessionCreated;
@@ -4723,6 +4784,20 @@ class AcpRuntime extends EventEmitter {
     });
   }
 
+  listSubagents(agentId: string) {
+    const binding = this.requireBinding(agentId);
+    const children = new Map<string, { sessionId: string; title: string; state: string; readable: boolean }>();
+    for (const [sessionId, state] of binding.subagentStates) {
+      const transcript = this.getSubagentTranscriptSession(agentId, sessionId, { maxTurns: 1 });
+      children.set(sessionId, { sessionId, title: state.title || 'Subagent', state: transcript?.state || '', readable: true });
+    }
+    for (const child of binding.sessionState.codexSubagents?.agents || []) {
+      if (child.parentThreadId !== binding.sessionId || children.has(child.threadId)) continue;
+      children.set(child.threadId, { sessionId: child.threadId, title: child.name || 'Subagent', state: child.status, readable: false });
+    }
+    return { sessionId: binding.sessionId, children: [...children.values()] };
+  }
+
   getSubagentTranscriptSession(
     agentId: string,
     sessionId: string,
@@ -4998,6 +5073,10 @@ class AcpRuntime extends EventEmitter {
     const binding = this.bindings.get(agentId);
     if (expectedBinding && binding !== expectedBinding) return false;
     if (!binding) return false;
+    if (binding.retained === true) {
+      this.bindings.delete(agentId);
+      return true;
+    }
     const runtime = binding.runtime;
     if (!runtime) return false;
     if (!runtime.exited && !runtime.stopping && runtime.bindings.size > 1) {

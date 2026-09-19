@@ -428,6 +428,7 @@ export interface AgentForkResult extends Record<string, unknown> {
 }
 
 export interface TargetProcessAcpForkOptions {
+  purpose?: 'side-chat';
   agent: Record<string, unknown> & { id: string };
   forkTitleBase: string;
   provider: ProviderId;
@@ -490,6 +491,8 @@ export interface AcpRuntimeContract {
   on(event: 'config-overrides', listener: (event: AcpConfigOverridesEvent) => void): this;
   on(event: 'bindings-interrupted', listener: (event: { agentIds?: unknown[] }) => void): this;
   prepareAgent(options?: AcpPrepareOptions): Promise<AcpPrepareResult>;
+  listSubagents?(agentId: string): Promise<{ sessionId: string; children: Array<{ sessionId: string; title: string; state: string; readable: boolean }> }> | { sessionId: string; children: Array<{ sessionId: string; title: string; state: string; readable: boolean }> };
+  retainAgent?(agentId: string, force?: boolean): Promise<{ retained: boolean; sessionId: string }>;
   reconnectAgent(
     agentId: string,
     options?: { onProcessStopped?: () => Promise<void> | void },
@@ -648,6 +651,9 @@ export interface ProviderStartOptions extends Record<string, unknown> {
   onAcpForkSessionCreated?: (sessionId: string) => Promise<void> | void;
   onAcpSessionPrepared?: (prepared: AcpPrepareResult) => Promise<void> | void;
   parentAgentId?: string;
+  sideChatParentSessionKey?: string;
+  sideChatRetained?: boolean
+  sideChatSourceRevision?: number;
   preserveProviderSessionProfile?: boolean;
   projectWorkspace?: string;
   providerHomeId?: string;

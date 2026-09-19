@@ -8,9 +8,32 @@ state, configuration, permissions, and recovery. Browser interfaces present
 that authoritative state and do not reconstruct it from prose or terminal
 output.
 
-The [Related Sessions and Side Chat proposal](related-sessions-design.md) defines
-the intended composition of user side chats and provider-native subagents. It is
-a design proposal and does not change current capability or lifecycle guarantees.
+## Related Sessions and Side Chat
+
+A durable parent Provider Session owns at most one retained Side Chat. Creation
+uses the existing owned Fork admission and journal at the provider's stable
+conversation boundary. It never cancels, reloads, or switches the parent to
+obtain context. Inherited messages are context, not permission to continue the
+parent's task; the child acts on new Side Chat messages. Providers without a
+verified Fork capability cannot create a Side Chat.
+
+Code places the parent on the left and the selected related conversation on the
+right, with independently owned drafts, permissions, and turn controls. Narrow
+windows switch between the two views. Collapsing changes presentation only.
+Side Chat and native subagent rows remain beneath their owning parent. Native
+opaque child identities are fenced by the exact parent runtime generation;
+missing transcript capability is reported explicitly.
+
+Idle Side Chats release their runtime after five minutes; loss of explicitly attached owner-client
+supervision releases them after one minute, including an interrupted turn.
+History remains checkpointed and cold recovery does not start a provider.
+A new explicit message resumes the same session without replaying a prior
+prompt. Stopping the parent releases its exact Side Chat and owned Browser and
+Computer resources; an unavailable parent rejects child messages. Uncertain
+creation or cleanup stays blocked for authoritative reconciliation.
+
+The [Related Sessions design](related-sessions-design.md) describes the broader
+composition and interaction model.
 
 ## Provider Boundary
 

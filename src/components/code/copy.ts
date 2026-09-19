@@ -23,6 +23,7 @@ export interface CodeCopy {
   appModeInstallUnavailableBrowser: string
   appModeFullscreenTitle: string
   appModeFullscreenDescription: string
+  sideChat: string
   terminalView: string
   transcriptView: string
   switchToTerminal: string
@@ -639,6 +640,7 @@ const EN_COPY: CodeCopy = {
   appModeInstallUnavailableBrowser: 'This browser has not provided an app-install prompt for this deployment.',
   appModeFullscreenTitle: 'Fullscreen for now',
   appModeFullscreenDescription: 'Hide browser controls for this window. Press Esc to leave fullscreen.',
+  sideChat: 'Side chat',
   terminalView: 'Terminal',
   transcriptView: 'Chat',
   switchToTerminal: 'Switch to Terminal',
@@ -1288,6 +1290,7 @@ const ZH_COPY: CodeCopy = {
   appModeInstallUnavailableBrowser: '当前浏览器没有为此部署提供应用安装入口。',
   appModeFullscreenTitle: '暂时全屏',
   appModeFullscreenDescription: '只为当前窗口隐藏浏览器控制，按 Esc 即可退出。',
+  sideChat: '旁聊',
   terminalView: '终端',
   transcriptView: '对话',
   switchToTerminal: '切换到终端',

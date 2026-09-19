@@ -1,3 +1,4 @@
+import { attachSideChat } from '@/lib/side-chat-supervision'
 import { agentAfterRemoval } from './code/agent-selection'
 import { canonicalProviderSessionKey } from '../../shared/provider-session-identity.js'
 import type { MainPaneMode } from './code/types'
@@ -165,7 +166,9 @@ import {
   type ComposerPromptAttachment,
 } from './code/composer-message'
 import { terminalInputPartsForComposerMessage } from './code/composer-submit'
-import { useComposerFollowUpController } from './code/useComposerFollowUpController'
+import { ComposerFollowUpAdmissions, useComposerFollowUpController } from './code/useComposerFollowUpController'
+import type { RelatedSessionTarget } from './code/related-session-navigation'
+import { SideChatComposer } from './code/SideChatComposer'
 import {
   addComposerHistoryEntry,
   canUseComposerHistoryNavigation,
@@ -2362,6 +2365,7 @@ export function CodeWorkspace({
     activeAgent?.codexTerminalProfile?.serviceTier,
   ])
 
+  const [relatedSession, setRelatedSession] = useState<RelatedSessionTarget | null>(null)
   const [chatFollowLatestRequest, setChatFollowLatestRequest] = useState<{ agentId: string; nonce: number } | null>(null)
   const sendComposerMessageToAgent = useCallback((
     agent: Agent,
@@ -2396,7 +2400,9 @@ export function CodeWorkspace({
     return sendTerminalSessionInput(agent.id, terminalInputPartsForComposerMessage(message))
   }, [sendComposerInput])
 
+  const composerFollowUpOwnership = useRef({ admissions: new ComposerFollowUpAdmissions(), promptStartFences: {} }).current
   const composerFollowUps = useComposerFollowUpController({
+    ownership: composerFollowUpOwnership,
     agents: activeAgents,
     activeAgent,
     activeComposerKey,
@@ -3213,8 +3219,20 @@ export function CodeWorkspace({
     if (manuallyUnreadActiveAgentIdRef.current && manuallyUnreadActiveAgentIdRef.current !== agentId) {
       manuallyUnreadActiveAgentIdRef.current = null
     }
+    const child = agents.find(agent => agent.id === agentId)
+    if (child?.sideChatParentSessionKey) {
+      attachSideChat(child.sideChatParentSessionKey)
+      const parent = agents.find(agent => agent.providerSessionKey === child.sideChatParentSessionKey)
+      if (parent) {
+        setRelatedSession({ parentAgentId: parent.id, parentSessionKey: parent.providerSessionKey,
+          sideChatSessionKey: child.providerSessionKey, sessionId: child.providerSessionId || '', title: copy.sideChat })
+        openAgentTargetRef.current(parent.id, options)
+        return
+      }
+    }
+    setRelatedSession(null)
     openAgentTargetRef.current(agentId, options)
-  }, [agents])
+  }, [agents, copy.sideChat])
 
   const showBrowserResource = useCallback((resource: BrowserResource, returnAgentId = activeTerminalId) => {
     workspaceFileOpenRequestRef.current.invalidate()
@@ -5790,6 +5808,8 @@ export function CodeWorkspace({
       style={workspaceStyle}
     >
       <CodeSidebar
+        relatedSession={relatedSession}
+        onOpenRelatedSession={target => { setRelatedSession(target); openAgentTargetRef.current(target.parentAgentId, { focusTerminal: false }) }}
         readOnly={readOnly}
         sidebarCollapsed={sidebarCollapsed}
         navigationModalOpen={mobileNavigationModalOpen}
@@ -5805,7 +5825,10 @@ export function CodeWorkspace({
         normalizedSearch=""
         hasProjectListItems={hasProjectListItems}
         hasDisplayedProjectListItems={hasProjectListItems}
-        activeTerminalId={agentOpeningBusy || mainPaneMode === 'editor' ? null : activeTerminalId}
+        activeTerminalId={agentOpeningBusy || mainPaneMode === 'editor' ? null
+          : relatedSession?.parentAgentId === activeTerminalId && relatedSession.sideChatSessionKey
+            ? agents.find(agent => agent.providerSessionKey === relatedSession.sideChatSessionKey)?.id || activeTerminalId
+            : relatedSession?.parentAgentId === activeTerminalId ? null : activeTerminalId}
         selectedSearchAgentId={selectedSearchAgentId}
         selectedSearchSessionHandle={selectedSearchSessionHandle}
         claimedAgentSessionKeyByAgentId={agentListState.claimedAgentSessionKeyByAgentId}
@@ -6051,6 +6074,14 @@ export function CodeWorkspace({
       )}
 
       <CodeMainArea
+        relatedSession={relatedSession}
+        onRelatedSessionChange={setRelatedSession}
+        relatedAgents={activeAgents}
+        renderSideChatComposer={(agent, active) => <SideChatComposer agent={agent} active={active} copy={copy} controller={{
+          states: composerByAgentKey, update: updateComposerStateForKey, updateExisting: updateExistingComposerStateForKey,
+          send: sendComposerMessageToAgent, interrupt: onInterruptAgent, addMedia: addMediaAttachment,
+          ownership: composerFollowUpOwnership, followUpBehavior: uiPreferences.composerFollowUpBehavior,
+        }} />}
         agentOpening={agentOpening.state}
         onBackFromAgentOpening={backFromAgentOpening}
         onRetryAgentOpening={() => agentOpeningController.retry()}

@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ComponentProps, type CSSProperties, type Dispatch, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type RefObject, type SetStateAction, type SyntheticEvent as ReactSyntheticEvent } from 'react'
+import { attachSideChat } from '@/lib/side-chat-supervision'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type ComponentProps, type CSSProperties, type Dispatch, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type RefObject, type SetStateAction, type SyntheticEvent as ReactSyntheticEvent } from 'react'
 import type { Agent, TaskHistoryEntry } from '@/types/agent'
 import { isAcpRuntime } from '@/lib/agent-runtime'
 import { agentTitle } from '@/lib/format'
@@ -12,7 +13,7 @@ import type { WorkspaceFileResolveOptions } from '@/lib/workspace-file-model-man
 import type { WorkspaceFile } from '@/lib/workspace-files'
 import type { WorkspaceNavigationFileInput } from '@/lib/workspace-navigation-history'
 import type { WorkspaceShareTarget } from '@/lib/workspace-share-target'
-import { isCompactViewport, isTouchInputViewport } from '@/lib/responsive-mode'
+import { COMPACT_VIEWPORT_QUERY, isCompactViewport, isTouchInputViewport } from '@/lib/responsive-mode'
 import type { UiPreferences } from '@/lib/ui-preferences'
 import { isWorkspaceHtmlFile, isWorkspaceMarkdownFile, isWorkspaceSvgFile } from '@/lib/workspace-editor-model'
 import { BrowserActivityPreview } from '../../../extensions/browser/frontend/BrowserActivityPreview'
@@ -23,6 +24,11 @@ import { ComputerViewer } from '../../../extensions/computer/frontend/ComputerVi
 import type { ComputerResource } from '../../../extensions/computer/frontend/types'
 import type { ComputerResourcesController } from '../../../extensions/computer/frontend/useComputerResources'
 import { AgentWorkPane } from './AgentWorkPane'
+import { appPath } from '@/lib/base-path'
+import { SideChatBody } from './SideChatBody'
+import { CloseGlyph } from '../IconGlyphs'
+import { RelatedSessionNavigation, SideChatNavigation, type RelatedSessionTarget } from './related-session-navigation'
+import { RelatedSessionPanel } from './RelatedSessionPanel'
 import { AgentPlanActivityPreview } from './AgentActivityDock'
 import type { AgentTranscriptProcessItem } from './acp/acp-entry-projection'
 import { CodeComposer } from './CodeComposer'
@@ -269,6 +275,10 @@ function FileEditorFallback({
 }
 
 interface CodeMainAreaProps {
+  relatedSession: RelatedSessionTarget | null
+  onRelatedSessionChange: (target: RelatedSessionTarget | null) => void
+  relatedAgents: Agent[]
+  renderSideChatComposer: (agent: Agent, active: boolean) => ReactNode
   agentOpening: AgentOpeningState | null
   onBackFromAgentOpening: () => void
   onRetryAgentOpening: () => void
@@ -696,7 +706,53 @@ export function CodeMainArea({
   onRecordWorkspaceNavigationCursor,
   onBackToAgentFromFile,
   copy,
+  relatedAgents,
+  relatedSession,
+  onRelatedSessionChange: setRelatedSession,
+  renderSideChatComposer,
 }: CodeMainAreaProps) {
+  const [compactRelatedActive, setCompactRelatedActive] = useState(true)
+  const [relatedRatio, setRelatedRatio] = useState(() => {
+    try { const value = Number(localStorage.getItem('farming.code.relatedRatio.v1')); return value > 0 && value < 1 ? value : 0.6 }
+    catch { return 0.6 }
+  })
+  const [relatedWidth, setRelatedWidth] = useState(0)
+  const [sideChatError, setSideChatError] = useState('')
+  const [openingSideChat, setOpeningSideChat] = useState('')
+  const relatedTriggerRef = useRef<HTMLElement | null>(null)
+  const selectRelatedSession = useCallback((target: RelatedSessionTarget) => {
+    relatedTriggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const parent = relatedAgents.find(agent => agent.id === target.parentAgentId)
+    setCompactRelatedActive(true)
+    setRelatedSession({ ...target, parentSessionKey: parent?.providerSessionKey })
+  }, [relatedAgents, setRelatedSession])
+  const closeRelatedSession = useCallback(() => {
+    setRelatedSession(null)
+    const trigger = relatedTriggerRef.current
+    if (trigger?.isConnected) trigger.focus({ preventScroll: true })
+  }, [setRelatedSession])
+  const openSideChat = useCallback(async (parentAgentId: string) => {
+    if (openingSideChat) return
+    const parent = relatedAgents.find(agent => agent.id === parentAgentId)
+    if (!parent?.providerSessionKey) return
+    attachSideChat(parent.providerSessionKey)
+    relatedTriggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    setOpeningSideChat(parentAgentId)
+    setSideChatError('')
+    try {
+      const response = await fetch(appPath(`/api/agents/${encodeURIComponent(parentAgentId)}/side-chat`), {
+        method: 'POST', signal: AbortSignal.timeout(90000),
+      })
+      const result = await response.json()
+      if (!response.ok || result.error) throw new Error(result.error || 'Side chat could not be opened')
+      if (!result.providerSessionKey) throw new Error('Side chat has no durable session identity')
+      setCompactRelatedActive(true)
+      setRelatedSession({ parentAgentId, parentSessionKey: parent.providerSessionKey,
+        sessionId: result.providerSessionId, sideChatSessionKey: result.providerSessionKey, title: 'Side chat' })
+    } catch (caught) {
+      setSideChatError(caught instanceof Error ? caught.message : String(caught))
+    } finally { setOpeningSideChat('') }
+  }, [openingSideChat, relatedAgents, setRelatedSession])
   const [terminalComposerCollapsed, setTerminalComposerCollapsed] = useState(readTerminalComposerCollapsed)
   const [chatComposerCollapseRequested, setChatComposerCollapseRequested] = useState(false)
   const [runtimeSwitchExpandedAgentId, setRuntimeSwitchExpandedAgentId] = useState<string | null>(null)
@@ -711,6 +767,18 @@ export function CodeMainArea({
   const [resourceAgentWidthMax, setResourceAgentWidthMax] = useState(MAX_RESOURCE_AGENT_WIDTH)
   const preferredResourceAgentWidthRef = useRef<number | null>(null)
   const mainAreaRef = useRef<HTMLElement | null>(null)
+  const [relatedSessionFits, setRelatedSessionFits] = useState(false)
+  useLayoutEffect(() => {
+    const main = mainAreaRef.current
+    if (!main) return
+    const measure = () => { setRelatedWidth(main.clientWidth); setRelatedSessionFits(main.clientWidth >= 841 && !isCompactViewport()) }
+    const observer = new ResizeObserver(measure)
+    observer.observe(main)
+    const compactQuery = window.matchMedia(COMPACT_VIEWPORT_QUERY)
+    compactQuery.addEventListener('change', measure)
+    measure()
+    return () => { observer.disconnect(); compactQuery.removeEventListener('change', measure) }
+  }, [])
   const resourceAgentResizeGestureRef = useRef<{
     pointerId: number
     target: HTMLDivElement
@@ -761,6 +829,18 @@ export function CodeMainArea({
     && resourceAgentId !== null
     && activeTerminalId === resourceAgentId
   const agentSurfaceVisible = agentWorkspaceVisible || resourceAgentPanelVisible
+  const relatedSessionVisible = agentWorkspaceVisible && relatedSession?.parentAgentId === activeTerminalId
+    && (!relatedSession.parentSessionKey || relatedSession.parentSessionKey === activeAgent?.providerSessionKey)
+  const sideChatAgent = relatedSession?.sideChatSessionKey
+    ? relatedAgents.find(agent => agent.providerSessionKey === relatedSession.sideChatSessionKey
+      && agent.sideChatParentSessionKey === relatedSession.parentSessionKey) : undefined
+  const [sideChatLoadingExpired, setSideChatLoadingExpired] = useState(false)
+  useEffect(() => {
+    setSideChatLoadingExpired(false)
+    if (!relatedSessionVisible || !relatedSession?.sideChatSessionKey || sideChatAgent) return
+    const timer = window.setTimeout(() => setSideChatLoadingExpired(true), 15000)
+    return () => window.clearTimeout(timer)
+  }, [relatedSessionVisible, relatedSession?.sideChatSessionKey, sideChatAgent])
   const acpComposerActive = isAcpRuntime(activeAgent)
   const activeBrowserPreviews = activeAgent
     ? (browserController.byAgentId.get(activeAgent.id) ?? [])
@@ -993,13 +1073,15 @@ export function CodeMainArea({
   if (fileEditorPaneLoadError) throw fileEditorPaneLoadError
 
   return (
+    <SideChatNavigation.Provider value={readOnly ? null : openSideChat}>
+    <RelatedSessionNavigation.Provider value={selectRelatedSession}>
     <main
       ref={mainAreaRef}
-      className={`code-main ${resourceAgentPanelVisible ? 'resource-agent-side-open' : ''}`.trim()}
+      className={`code-main ${resourceAgentPanelVisible ? 'resource-agent-side-open' : ''} ${relatedSessionVisible ? `related-session-open ${relatedSessionFits ? '' : `related-session-compact ${compactRelatedActive ? 'related-session-child-active' : ''}`}` : ''}`.trim()}
       data-testid="code-main"
-      style={resourceAgentPanelVisible ? {
-        '--code-resource-agent-width': `${resourceAgentWidth}px`,
-      } as CSSProperties : undefined}
+      style={{ ...(resourceAgentPanelVisible ? { '--code-resource-agent-width': `${resourceAgentWidth}px` } : {}),
+        '--code-related-parent-width': `${Math.min(Math.max(480, relatedWidth * relatedRatio), Math.max(480, relatedWidth - 361))}px`,
+      } as CSSProperties}
       inert={inert ? true : undefined}
       onPointerDownCapture={dismissComposerKeyboardOnMainPress}
       onTouchStartCapture={dismissComposerKeyboardOnMainPress}
@@ -1240,7 +1322,7 @@ export function CodeMainArea({
             key={agent.id}
             agent={agent}
             mounted={(agentSurfaceVisible || resourceWorkspaceVisible) && agent.id === activeTerminalId}
-            active={agentSurfaceVisible && agent.id === activeTerminalId}
+            active={agentSurfaceVisible && agent.id === activeTerminalId && (!relatedSessionVisible || relatedSessionFits || !compactRelatedActive)}
             runtimeSwitchVisible={!resourceAgentPanelVisible}
             viewportLayoutKey={`${resourceAgentPanelVisible ? 'agent-side' : 'agent-full'}:${composerCollapsed ? 'composer-collapsed' : 'composer-expanded'}`}
             switching={agent.id === permissionSwitchingAgentId}
@@ -1335,13 +1417,55 @@ export function CodeMainArea({
               </div>
             ) : null}
             {acpComposerActive ? (
-              <AcpComposer {...acpComposerProps} copy={copy} />
+              <AcpComposer {...acpComposerProps} active={acpComposerProps.active && (!relatedSessionVisible || relatedSessionFits || !compactRelatedActive)} copy={copy} />
             ) : (
               <CodeComposer {...composerProps} agentId={activeAgent?.id || ''} copy={copy} />
             )}
           </div>
         )
       ) : null}
+      {relatedSessionVisible && !relatedSessionFits ? <nav className="code-related-session-switcher" aria-label="Related sessions">
+        <button type="button" aria-pressed={!compactRelatedActive} onClick={() => setCompactRelatedActive(false)}>{language === 'zh' ? '父会话' : 'Parent'}</button>
+        <button type="button" aria-pressed={compactRelatedActive} onClick={() => setCompactRelatedActive(true)}>{relatedSession?.title}</button>
+      </nav> : null}
+      {relatedSessionVisible && relatedSessionFits ? <div className="code-related-session-resizer" role="separator" tabIndex={0}
+        aria-label="Resize related session" aria-orientation="vertical" aria-valuemin={480}
+        aria-valuemax={Math.floor(relatedWidth - 361)} aria-valuenow={Math.floor(Math.min(Math.max(480, relatedWidth * relatedRatio), relatedWidth - 361))}
+        onPointerDown={event => { if (event.button === 0) { event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId) } }}
+        onPointerMove={event => {
+          if (!event.currentTarget.hasPointerCapture(event.pointerId)) return
+          const bounds = mainAreaRef.current?.getBoundingClientRect()
+          if (bounds) setRelatedRatio(Math.min(Math.max(480, event.clientX - bounds.left), bounds.width - 361) / bounds.width)
+        }}
+        onPointerUp={event => { if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
+          try { localStorage.setItem('farming.code.relatedRatio.v1', String(relatedRatio)) } catch { /* layout remains in memory */ } }}
+        onKeyDown={event => {
+          if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+          event.preventDefault()
+          const width = event.key === 'Home' ? 480 : event.key === 'End' ? relatedWidth - 361
+            : relatedWidth * relatedRatio + (event.key === 'ArrowRight' ? 16 : -16)
+          const ratio = Math.min(Math.max(480, width), relatedWidth - 361) / relatedWidth
+          setRelatedRatio(ratio)
+          try { localStorage.setItem('farming.code.relatedRatio.v1', String(ratio)) } catch { /* layout remains in memory */ }
+        }} /> : null}
+      {openingSideChat === activeTerminalId ? <div className="code-related-session-notice" role="status">{language === 'zh' ? '正在打开旁聊…' : 'Opening side chat…'}</div> : null}
+      {sideChatError ? <div className="code-related-session-notice" role="alert">{sideChatError}</div> : null}
+      {relatedSessionVisible && relatedSession?.sideChatSessionKey ? <aside className="code-related-session-panel code-side-chat-panel" data-testid="code-side-chat-panel" aria-label="Side chat">
+        <header className="code-related-session-header"><strong>{language === 'zh' ? '旁聊' : 'Side chat'}</strong>
+          <button type="button" className="code-agent-transcript-subagent-control" onClick={closeRelatedSession} aria-label="Collapse related session"><CloseGlyph /></button>
+        </header>
+        <div className="code-related-session-source">{language === 'zh' ? '上下文截至上一轮完成' : 'Context through the last completed turn'}</div>
+        {sideChatAgent ? <SideChatBody agent={sideChatAgent} active={relatedSessionFits || compactRelatedActive}
+          renderComposer={renderSideChatComposer} onReadLatest={onAgentReadLatest} onOpenFile={onOpenWorkspaceFilePath} copy={copy} /> : sideChatLoadingExpired ? <div role="alert">{language === 'zh' ? '旁聊状态尚未同步。' : 'Side chat state has not synchronized.'} <button type="button" onClick={() => { void openSideChat(relatedSession.parentAgentId) }}>{language === 'zh' ? '重新核对' : 'Reconcile'}</button></div> : <div role="status">{language === 'zh' ? '正在加载旁聊…' : 'Loading side chat…'}</div>}
+      </aside> : relatedSessionVisible && relatedSession ? <RelatedSessionPanel
+        key={`${relatedSession.parentAgentId}:${relatedSession.sessionId}`}
+        target={relatedSession}
+        refreshSignal={isAcpRuntime(activeAgent) ? activeAgent.runtimeBinding.sessionRevision || 0 : 0}
+        onClose={closeRelatedSession}
+        language={language}
+      /> : null}
     </main>
+    </RelatedSessionNavigation.Provider>
+    </SideChatNavigation.Provider>
   )
 }

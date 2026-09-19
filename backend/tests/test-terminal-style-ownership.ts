@@ -3,7 +3,12 @@ import { assertDomainStyleOwnership } from './style-ownership-contract'
 assertDomainStyleOwnership({
   domain: 'terminal',
   prefixes: ['code-terminal', 'terminal-session', 'terminal-context'],
-  mainIntegrationSelectors: ['.code-main.resource-agent-side-open > .code-terminal-grid'],
+  mainIntegrationSelectors: [
+    '.code-main.resource-agent-side-open > .code-terminal-grid',
+    '.code-main.related-session-open > .code-terminal-grid',
+    '.code-main.related-session-child-active > .code-terminal-grid',
+    '.code-main.related-session-compact > .code-terminal-grid',
+  ],
   componentSources: [
     'src/components/AgentTerminalPane.tsx',
     'src/components/code/AgentWorkPane.tsx',

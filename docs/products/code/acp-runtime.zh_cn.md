@@ -6,8 +6,24 @@ Farming 使用 Agent Client Protocol 为受支持的 Coding Agent 提供结构�
 拥有 Runtime 生命周期、Provider Session、有序 Chat 状态、配置、权限与恢复；Browser
 界面只展示权威状态，不从普通文字或 Terminal Output 中重新推断。
 
-[关联会话与旁聊设计提案](related-sessions-design.zh_cn.md)定义用户旁聊与 Provider 原生子 Agent 的目标组合方式。
-该文档是设计提案，不改变当前能力或生命周期保证。
+## 关联会话与旁聊
+
+每个持久父 Provider Session 最多拥有一个保留的旁聊。创建复用现有 Fork 准入和
+持久日志，取 Provider 的稳定上下文边界，不取消、重新加载或切换父 Runtime。
+继承的消息仅作为上下文，不授权继续父任务；旁聊只执行新收到的旁聊消息。
+未验证 Fork 能力的 Provider 不能创建旁聊。
+
+Code 宽屏左侧显示父会话、右侧显示选中的关联会话，各自拥有草稿、权限和运行控制；
+窄屏在两个视图间切换。收起只影响展示。旁聊和原生子 Agent 行位于其父会话下。
+原生不透明子项身份受精确父 Runtime Generation 约束；缺少内容读取能力时明确提示。
+
+旁聊空闲五分钟后释放 Runtime；所有显式关注该旁聊的 Owner 客户端失去连接一分钟后也会释放，
+包括中断当前 Turn。历史保留在 Checkpoint 中，冷恢复不会启动 Provider。
+新的显式消息恢复同一会话，不重放之前的请求。停止父会话时释放其精确旁聊及所属
+Browser、Computer 资源；父会话不可用时拒绝向旁聊发送消息。创建或清理结果不确定
+时保持阻塞，等待权威状态对账。
+
+[关联会话设计](related-sessions-design.zh_cn.md)描述更完整的组合与交互模型。
 
 ## Provider 边界
 

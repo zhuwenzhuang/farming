@@ -3181,6 +3181,14 @@ class BrowserResourceManager extends EventEmitter {
     }
   }
 
+  async releaseAgentResources(agentId: string): Promise<void> {
+    const results = await Promise.allSettled(this.store.list()
+      .filter(resource => resource.ownerAgentId === agentId)
+      .map(resource => this.delete(resource.id, true)));
+    const failures = results.filter(result => result.status === 'rejected');
+    if (failures.length) throw new AggregateError(failures.map(result => result.reason), 'Agent Resource cleanup failed');
+  }
+
   async reconcileAgentLifecycle(agentStates: AgentLifecycleState[]): Promise<void> {
     const agents = new Map(agentStates.map(agent => [String(agent.id || ''), agent]));
     const resources = this.store.list();

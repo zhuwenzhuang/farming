@@ -18,6 +18,7 @@ import {
   type WheelEvent as ReactWheelEvent,
 } from 'react'
 import { createPortal } from 'react-dom'
+import { RelatedSessionNavigation } from './related-session-navigation'
 import ReactMarkdown, { defaultUrlTransform, type Components } from 'react-markdown'
 import { shareNoticeAnchor, type ShareNoticeAnchor } from './share-notice'
 import rehypeHighlight from 'rehype-highlight'
@@ -1066,13 +1067,17 @@ function AgentTranscriptSubagentAction({ item }: { item: AgentTranscriptProcessI
   )
 }
 
-function AgentTranscriptSubagentPreview({
+export function AgentTranscriptSubagentPreview({
   transcript,
   onStop,
+  docked = false,
 }: {
   transcript: AgentTranscript
   onStop?: () => Promise<void>
+  docked?: boolean
 }) {
+  const openRelatedSession = useContext(RelatedSessionNavigation)
+  const { agentId: parentAgentId } = useContext(TranscriptFileOpenContext)
   const active = ['working', 'waiting-for-permission', 'waiting-for-input', 'interrupting'].includes(transcript.state || '')
   const status = transcript.error ? 'Failed' : active ? 'Working' : 'Completed'
   const actionCount = transcript.turns.reduce((count, turn) => count + turn.processItems.length, 0)
@@ -1129,17 +1134,21 @@ function AgentTranscriptSubagentPreview({
           {stopping ? <span className="code-permission-switching-spinner" /> : <CloseGlyph />}
         </button>
       ) : null}
-      <button
+      {!docked ? <button
         ref={dialog ? fullscreenCloseRef : fullscreenTriggerRef}
         type="button"
         className="code-agent-transcript-subagent-control"
         data-testid="code-acp-subagent-fullscreen"
         aria-label={fullscreen ? 'Close subagent details' : 'Open subagent details'}
         title={fullscreen ? 'Close details' : 'Open details'}
-        onClick={() => setFullscreen(current => !current)}
+        onClick={() => {
+          if (openRelatedSession && parentAgentId && transcript.sessionId) {
+            openRelatedSession({ parentAgentId, sessionId: transcript.sessionId, title: transcript.title || 'Subagent' })
+          } else setFullscreen(current => !current)
+        }}
       >
         {fullscreen ? <CloseGlyph /> : <span aria-hidden="true">↗</span>}
-      </button>
+      </button> : null}
     </header>
   )
   const preview = (

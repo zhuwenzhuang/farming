@@ -672,6 +672,10 @@ class AcpRuntimeHostProcess {
         return this.runtime.listSessions(String(params.agentId || ''), params.options as UnknownRecord);
       case 'deleteSession':
         return this.runtime.deleteSession(String(params.agentId || ''), String(params.sessionId || ''));
+      case 'listSubagents':
+        return this.runtime.listSubagents(String(params.agentId || ''));
+      case 'retainAgent':
+        return this.runtime.retainAgent(String(params.agentId || ''), params.force === true);
       case 'closeSession':
         return this.runtime.closeSession(String(params.agentId || ''));
       case 'archiveSession':

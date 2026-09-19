@@ -137,6 +137,9 @@ assert.strictEqual(validateClientMessage({
 }).ok, false);
 assert.strictEqual(validateClientMessage({ type: 'resize-agent', agentId: 'a', cols: 80, rows: 24 }).ok, true);
 assert.strictEqual(validateClientMessage({ type: 'watch-acp-transcripts', agentIds: [] }).ok, true);
+assert.strictEqual(validateClientMessage({ type: 'watch-acp-transcripts', agentIds: [], sideChatParentKeys: ['parent'] }).ok, true);
+assert.strictEqual(validateClientMessage({ type: 'watch-acp-transcripts', agentIds: [], sideChatParentKeys: ['parent', 'parent'] }).ok, false);
+assert.strictEqual(validateClientMessage({ type: 'watch-acp-transcripts', agentIds: [], sideChatParentKeys: [42] }).ok, false);
 assert.strictEqual(validateClientMessage({ type: 'watch-acp-transcripts', agentIds: ['a', 'a'] }).ok, false);
 assert.strictEqual(validateClientMessage({ type: 'watch-acp-transcripts', agentIds: Array.from({ length: 21 }, (_, index) => `a-${index}`) }).ok, false);
 assert.strictEqual(validateClientMessage({ type: 'resize-agent', agentId: 'a', cols: '80', rows: 24 }).ok, false);

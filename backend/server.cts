@@ -141,6 +141,7 @@ interface WebSocketClient {
   bufferedAmount: number;
   acpRevisionCheckpointPending?: Set<string>;
   acpRevisionInterest?: Set<string>;
+  sideChatParentInterest?: Set<string>;
   acpRevisionSentCursor?: Map<string, AcpTranscriptCursor>;
   connectionId?: string;
   focusedAgentId?: string | null;
@@ -541,6 +542,8 @@ const agentManager = new AgentManager(
   },
   },
 );
+agentManager.setSideChatSupervisionProbe(parentKey => [...wss.clients].some(client => client.readyState === WebSocket.OPEN && (client as WebSocketClient).accessMode === 'owner' && (client as WebSocketClient).sideChatParentInterest?.has(parentKey)));
+
 
 async function requireAgentRecoveryForHttp(res: HttpResponse) {
   try {
@@ -624,6 +627,14 @@ const websocketWorkspaceRequestHandlers = createWebSocketWorkspaceRequestHandler
       ...(record.uncertain === true ? { uncertain: true } : {}),
     };
   },
+});
+agentManager.setSideChatResourceCleanup(async agentId => {
+  const results = await Promise.allSettled([
+    browserResourceManager.releaseAgentResources(agentId),
+    computerResourceManager.releaseAgentResources(agentId),
+  ]);
+  const failures = results.filter(result => result.status === 'rejected');
+  if (failures.length) throw new AggregateError(failures.map(result => result.reason), 'Side chat Resource cleanup failed');
 });
 let agentResourceReconcileRequested = false;
 let agentResourceReconcileRunning = false;
@@ -1457,9 +1468,30 @@ app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-terminals/:terminalId/in
 
 app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-terminals/:terminalId/resize'), express.json(), createAcpTerminalResizeHandler(agentManager));
 
+app.get(routePath(BASE_PATH, '/api/agents/:agentId/related-sessions'), async (req, res) => {
+  try { res.json(await agentManager.getAcpRelatedSessions(req.params.agentId)); }
+  catch (caught) { res.status(409).json({ error: caughtError(caught).message || 'Related sessions unavailable' }); }
+});
+
+app.get(routePath(BASE_PATH, '/api/agents/:agentId/acp-subagents/:sessionId/transcript'), async (req, res) => {
+  try {
+    const limit = Number(req.query.maxTurns || 24);
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 200) {
+      res.status(400).json({ error: 'maxTurns must be an integer between 1 and 200' });
+      return;
+    }
+    res.json(await agentManager.getAcpSubagentTranscript(req.params.agentId, req.params.sessionId, limit, typeof req.query.runtimeEpoch === 'string' ? req.query.runtimeEpoch : ''));
+  } catch (caught) {
+    const error = caughtError(caught);
+    const message = error.message || 'Failed to read ACP subagent';
+    res.status(message === 'Agent not found' || message === 'ACP subagent session not found' ? 404 : 409)
+      .json({ error: message });
+  }
+});
+
 app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-subagents/:sessionId/cancel'), async (req, res) => {
   try {
-    res.json(await agentManager.cancelAcpSubagent(req.params.agentId, req.params.sessionId));
+    res.json(await agentManager.cancelAcpSubagent(req.params.agentId, req.params.sessionId, typeof req.query.runtimeEpoch === 'string' ? req.query.runtimeEpoch : ''));
   } catch (caught) {
     const error = caughtError(caught);
     const message = error && error.message ? error.message : 'Failed to stop ACP subagent';
@@ -1565,6 +1597,15 @@ app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-session/reconnect'), asy
     res.json(result);
   } catch (error) {
     res.status(409).json({ error: caughtError(error).message || 'Failed to reconnect ACP Agent' });
+  }
+});
+
+app.post(routePath(BASE_PATH, '/api/agents/:agentId/side-chat'), async (req, res) => {
+  try {
+    const result = await agentManager.openSideChat(req.params.agentId);
+    res.status(result.error ? 409 : 200).json(result);
+  } catch (caught) {
+    res.status(409).json({ error: caughtError(caught).message || 'Failed to open side chat' });
   }
 });
 
@@ -2201,7 +2242,8 @@ const websocketFocusScopeHandlers = createWebSocketFocusScopeHandlers<WebSocketC
   sendPreviewHydration,
 });
 
-function watchAcpTranscripts(client: WebSocketClient, data: { agentIds: string[] }) {
+function watchAcpTranscripts(client: WebSocketClient, data: { agentIds: string[]; sideChatParentKeys?: string[] }) {
+  client.sideChatParentInterest = client.accessMode === 'owner' ? new Set(data.sideChatParentKeys || []) : new Set();
   const previous = client.acpRevisionInterest ?? new Set<string>();
   const next = new Set(data.agentIds);
   client.acpRevisionInterest = next;

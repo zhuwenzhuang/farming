@@ -39,7 +39,14 @@ type ComposerStateUpdater = (
   updater: (state: AgentComposerState) => AgentComposerState,
 ) => void
 
+export interface ComposerFollowUpOwnership {
+  admissions: ComposerFollowUpAdmissions
+  promptStartFences: Record<string, number>
+}
+
 interface UseComposerFollowUpControllerOptions {
+  ownership?: ComposerFollowUpOwnership
+  flushQueues?: boolean
   agents: Agent[]
   activeAgent: Agent | null
   activeComposerKey: string
@@ -199,6 +206,8 @@ export function failQueuedAcpFollowUp(
 }
 
 export function useComposerFollowUpController({
+  ownership,
+  flushQueues = true,
   agents,
   activeAgent,
   activeComposerKey,
@@ -214,8 +223,8 @@ export function useComposerFollowUpController({
   composerByAgentKeyRef.current = composerByAgentKey
   const agentsRef = useRef(agents)
   agentsRef.current = agents
-  const admissionsRef = useRef(new ComposerFollowUpAdmissions())
-  const promptStartFencesRef = useRef<Record<string, number>>({})
+  const admissionsRef = useRef(ownership?.admissions ?? new ComposerFollowUpAdmissions())
+  const promptStartFencesRef = useRef<Record<string, number>>(ownership?.promptStartFences ?? {})
 
   const isPromptStartFenced = useCallback((agent: Agent | null | undefined) => Boolean(
     agent
@@ -371,10 +380,10 @@ export function useComposerFollowUpController({
   useEffect(() => {
     const activeAgentIds = new Set(agents.map(agent => agent.id))
     Object.keys(promptStartFencesRef.current).forEach(agentId => {
-      if (!activeAgentIds.has(agentId)) delete promptStartFencesRef.current[agentId]
+      if (flushQueues && !activeAgentIds.has(agentId)) delete promptStartFencesRef.current[agentId]
     })
     agents.forEach(reconcilePromptStartFence)
-  }, [agents, reconcilePromptStartFence])
+  }, [agents, flushQueues, reconcilePromptStartFence])
 
   const flushPendingFollowUps = useCallback((candidateAgents: Agent[]) => {
     const pendingFlushes: Array<{
@@ -430,15 +439,15 @@ export function useComposerFollowUpController({
   }, [sendMessage, updateExistingComposerState])
 
   useEffect(() => {
-    flushPendingFollowUps(agents)
-  }, [agents, composerByAgentKey, flushPendingFollowUps])
+    if (flushQueues) flushPendingFollowUps(agents)
+  }, [agents, composerByAgentKey, flushPendingFollowUps, flushQueues])
 
   useEffect(() => subscribeAgentRuntimeBindingEvents(agentId => {
     const structuralAgent = agentsRef.current.find(agent => agent.id === agentId)
     if (!structuralAgent) return
     reconcilePromptStartFence(structuralAgent)
-    flushPendingFollowUps([structuralAgent])
-  }), [flushPendingFollowUps, reconcilePromptStartFence])
+    if (flushQueues) flushPendingFollowUps([structuralAgent])
+  }), [flushPendingFollowUps, flushQueues, reconcilePromptStartFence])
 
   return useMemo(() => ({
     activeAgentCanInterrupt,

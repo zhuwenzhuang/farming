@@ -157,6 +157,21 @@ async function run() {
 
     primarySessionId = 'primary-session-v1';
     runtimeEpoch = 'runtime-epoch-v1';
+    await assert.rejects(
+      manager.getAcpSubagentTranscript(agentId, 'subagent-session-v1'),
+      /ACP parent session changed during subagent read/,
+      'the dock must not accept a child read from a replaced parent runtime',
+    );
+    runtime.getSubagentTranscriptSessionForRead = async (owner: string, child: string) => {
+      assert.strictEqual(owner, agentId);
+      if (child !== 'subagent-session-v1') return null;
+      return { sessionId: child, entries: [], transcriptProjectionVersion: 1 };
+    };
+    const child = await manager.getAcpSubagentTranscript(agentId, 'subagent-session-v1');
+    assert.strictEqual(child.sessionId, 'subagent-session-v1');
+    assert.strictEqual('transcriptProjectionVersion' in child, false);
+    await assert.rejects(manager.getAcpSubagentTranscript(agentId, 'unrelated-session'), /not found/);
+
     const reviewPayloads = new Map([
       ['review-tool-a', JSON.stringify([{ path: 'a.ts', kind: 'update' }])],
       ['review-tool-b', JSON.stringify([{ path: 'b.ts', kind: 'update' }])],

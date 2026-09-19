@@ -169,6 +169,7 @@ export interface ArchiveAgentOptions extends DeleteAgentOptions {
 export type ForkMode = 'same-worktree' | 'new-worktree' | 'conversation';
 
 export interface ForkAgentOptions extends BaseLifecycleOptions {
+  purpose?: 'side-chat';
   expectedRevision?: number;
   forkRequestId?: string;
   forkRequestSignature?: string;

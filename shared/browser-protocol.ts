@@ -101,6 +101,7 @@ export interface FocusAgentMessage extends ExtensibleMessage {
 export interface WatchAcpTranscriptsMessage extends ExtensibleMessage {
   type: 'watch-acp-transcripts'
   agentIds: string[]
+  sideChatParentKeys?: string[]
 }
 
 export interface ResizeAgentMessage extends ExtensibleMessage {
@@ -985,6 +986,11 @@ export function validateClientMessage(value: unknown): ValidationResult<ClientMe
         && value.agentIds.length <= 20
         && value.agentIds.every(agentId => typeof agentId === 'string' && agentId.length > 0 && agentId.length <= 256)
         && new Set(value.agentIds).size === value.agentIds.length
+        && (!Object.prototype.hasOwnProperty.call(value, 'sideChatParentKeys') || (
+          Array.isArray(value.sideChatParentKeys) && value.sideChatParentKeys.length <= 20
+          && value.sideChatParentKeys.every(key => typeof key === 'string' && key.length > 0 && key.length <= 2048)
+          && new Set(value.sideChatParentKeys).size === value.sideChatParentKeys.length
+        ))
       break
     case 'resize-agent': valid = stringField(value, 'agentId') && finiteField(value, 'cols') && finiteField(value, 'rows'); break
     case 'unwatch-workspace-files': valid = stringField(value, 'rootId', true); break

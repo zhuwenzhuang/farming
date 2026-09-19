@@ -1,12 +1,13 @@
-import { useCallback, useLayoutEffect, useRef } from 'react'
+import { useCallback, useContext, useLayoutEffect, useRef } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
+import { SideChatNavigation } from './related-session-navigation'
 import type { Agent } from '@/types/agent'
 import { isAcpRuntime } from '@/lib/agent-runtime'
 import type { TerminalPathOpenTarget } from '@/lib/terminal-session-pool'
 import type { WorkspaceFileOpenTarget } from '@/lib/workspace-open-files'
 import type { WorkspaceShareTarget } from '@/lib/workspace-share-target'
 import { AgentTerminalPane } from '../AgentTerminalPane'
-import { ChatBubblesGlyph, TerminalSquareGlyph } from '../IconGlyphs'
+import { ChatBubblesGlyph, ForkGlyph, TerminalSquareGlyph } from '../IconGlyphs'
 import { AcpTranscriptPane } from './acp/AcpTranscriptPane'
 import type { AgentTranscriptProcessItem } from './acp/acp-entry-projection'
 import { canForkAgentConversation, canSwitchAgentRuntime } from './capabilities'
@@ -81,6 +82,7 @@ export function AgentWorkPane({
   onActivePlanChange,
   copy,
 }: AgentWorkPaneProps) {
+  const openSideChat = useContext(SideChatNavigation)
   const acpRuntime = isAcpRuntime(agent) ? agent.runtimeBinding : null
   const reviewAndCommitRef = useRef(onReviewAndCommit)
   useLayoutEffect(() => {
@@ -126,14 +128,17 @@ export function AgentWorkPane({
       hidden={!active}
       aria-busy={switching}
     >
-      {canSwitchRuntime ? (
+      {canSwitchRuntime || (openSideChat && canForkConversation && !agent.sideChatParentSessionKey) ? (
         <div className="code-terminal-mode-toggle" data-testid="code-terminal-mode-toggle" onPointerDown={event => event.stopPropagation()} onMouseDown={event => event.stopPropagation()}>
+          {openSideChat && canForkConversation && !agent.sideChatParentSessionKey ? <button type="button" aria-label={copy.sideChat} title={copy.sideChat} onClick={() => openSideChat(agent.id)}><ForkGlyph /></button> : null}
+          {canSwitchRuntime ? <>
           <button type="button" className={chatMode ? 'active' : ''} aria-pressed={chatMode} aria-label={copy.transcriptView} title={copy.transcriptView} disabled={runtimeSwitchDisabled} onClick={() => !chatMode && onRuntimeModeChange?.(agent.id, 'chat')}>
             <ChatBubblesGlyph />
           </button>
           <button type="button" className={!chatMode ? 'active' : ''} aria-pressed={!chatMode} aria-label={copy.terminalView} title={copy.terminalView} disabled={runtimeSwitchDisabled} onClick={() => chatMode && onRuntimeModeChange?.(agent.id, 'terminal')}>
             <TerminalSquareGlyph />
           </button>
+          </> : null}
         </div>
       ) : null}
       {!chatMode && mounted ? (

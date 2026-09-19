@@ -2789,3 +2789,6 @@ button.code-agent-transcript-result-summary:is(:hover, :focus-visible) .code-age
 .code-agent-transcript-markdown hr {
   border-color: var(--code-border);
 }
+
+.code-related-session-content .code-agent-transcript-subagent-entries { max-height: none; }
+.code-side-chat-panel > .code-agent-transcript { flex: 1; min-height: 0; }

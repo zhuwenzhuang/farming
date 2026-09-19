@@ -576,6 +576,14 @@ class AcpRuntimeHostRuntime extends EventEmitter implements AcpRuntimeContract {
     return this.client.request('deleteSession', { agentId, sessionId });
   }
 
+  listSubagents(agentId: string): Promise<{ sessionId: string; children: Array<{ sessionId: string; title: string; state: string; readable: boolean }> }> {
+    return this.client.request('listSubagents', { agentId });
+  }
+
+  retainAgent(agentId: string, force = false): Promise<{ retained: boolean; sessionId: string }> {
+    return this.client.request('retainAgent', { agentId, force });
+  }
+
   closeSession(agentId: string): Promise<unknown> {
     return this.client.request('closeSession', { agentId });
   }

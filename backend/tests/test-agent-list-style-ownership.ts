@@ -5,7 +5,12 @@ assertDomainStyleOwnership({
   prefixes: ['code-agent', 'code-agents'],
   // Resource content has a separate owner; the Agent row owns its action slot.
   excludePrefixes: ['code-agent-transcript', 'code-agent-resource-slot'],
-  mainIntegrationSelectors: ['.code-main.resource-agent-side-open > .code-agent-activity-dock'],
+  mainIntegrationSelectors: [
+    '.code-main.resource-agent-side-open > .code-agent-activity-dock',
+    '.code-main.related-session-open > .code-agent-activity-dock',
+    '.code-main.related-session-child-active > .code-agent-activity-dock',
+    '.code-main.related-session-compact > .code-agent-activity-dock',
+  ],
   componentSources: [
     'src/components/code/AgentLaunchSubmenu.tsx',
     'src/components/code/AgentWorkPane.tsx',

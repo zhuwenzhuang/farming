@@ -145,11 +145,13 @@ export function respondToAcpPermission(
   requestId: string,
   optionId?: string,
   cancelled = false,
+  signal?: AbortSignal,
 ) {
   return fetch(appPath(`/api/agents/${encodeURIComponent(agentId)}/acp-permission`), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ requestId, optionId, cancelled }),
+    signal,
   })
 }
 
@@ -158,10 +160,12 @@ export function respondToAcpElicitation(
   requestId: string,
   action: 'accept' | 'decline' | 'cancel',
   content?: Record<string, string | number | boolean | string[]>,
+  signal?: AbortSignal,
 ) {
   return fetch(appPath(`/api/agents/${encodeURIComponent(agentId)}/acp-elicitation`), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ requestId, action, content }),
+    signal,
   })
 }

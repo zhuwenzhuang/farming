@@ -104,6 +104,7 @@ export interface FocusAgentMessage {
 export interface WatchAcpTranscriptsMessage {
   type: 'watch-acp-transcripts'
   agentIds: string[]
+  sideChatParentKeys?: string[]
 }
 
 export interface ResizeAgentMessage {

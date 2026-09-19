@@ -133,6 +133,7 @@ function forkRequestSignature(
         : null,
       mode,
       targetRuntime: options.targetRuntime || '',
+      ...(options.purpose ? { purpose: options.purpose } : {}),
     })))
     .digest('hex');
 }
@@ -249,6 +250,7 @@ class ForkOperationCoordinator {
     if (
       String(operation.request?.mode || 'same-worktree') !== mode
       || String(operation.request?.targetRuntime || '') !== String(options.targetRuntime || '')
+      || String(operation.request?.purpose || '') !== String(options.purpose || '')
       || storedExpectedRevision !== requestedExpectedRevision
     ) {
       return { error: `Fork request ${requestId} was already used for different parameters` };
@@ -457,6 +459,7 @@ class ForkOperationCoordinator {
       const admission = this.ports.begin(source, `fork-request:${requestId}`, {
         signature,
         mode,
+        ...(options.purpose ? { purpose: options.purpose } : {}),
         sourceRecordId: initialRecordId,
         sourceRuntimeKind: initialRuntimeKind,
         targetRuntime: options.targetRuntime || '',

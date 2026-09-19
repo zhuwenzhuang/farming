@@ -816,3 +816,5 @@ body.code-mode:not(.code-compact-layout) .code-agent-row:has(.code-agent-row-act
 .code-agent-rail-status.running {
   color: var(--code-success);
 }
+
+.code-agent-row.related-child { margin-inline-start: 20px; width: calc(100% - 20px); }
