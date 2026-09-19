@@ -83,8 +83,12 @@ try {
   const target = targets[platformKey];
   const zig = platformKey.startsWith('linux-');
   if (zig) {
-    const version = execFileSync('cargo', ['zigbuild', '--version'], { encoding: 'utf8' }).trim();
-    if (version !== `cargo-zigbuild ${pin.cargoZigbuild}`) throw new Error(`Unexpected zigbuild: ${version}`);
+    // zigbuild's cargo subcommand does not implement --version. Cargo owns the
+    // installed tool receipt; match its complete package header, not a substring.
+    const installed = execFileSync('cargo', [`+${pin.rust}`, 'install', '--list'], { encoding: 'utf8' });
+    if (!installed.split(/\r?\n/).includes(`cargo-zigbuild v${pin.cargoZigbuild}:`)) {
+      throw new Error(`cargo-zigbuild ${pin.cargoZigbuild} is not installed by cargo`);
+    }
   }
   run('cargo', [`+${pin.rust}`, zig ? 'zigbuild' : 'build', '--locked', '--release', '--target',
     zig && !platformKey.endsWith('-musl') ? `${target}.2.28` : target], cli);
