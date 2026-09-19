@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ListTable } from '@visactor/vtable'
 import type { CodeCopy } from '../code/copy'
+import { writeClipboardText } from '@/lib/clipboard'
 import type { OpenWorkspaceFile } from '@/lib/workspace-open-files'
 import { rawWorkspaceFileUrl } from '@/lib/workspace-files'
 import {
@@ -313,7 +314,7 @@ export function FileEditorSpreadsheetPreview({
   const copySelection = useCallback(async () => {
     const value = tableRef.current?.getCopyValue()
     if (!value) return
-    await navigator.clipboard.writeText(value)
+    if (!await writeClipboardText(value)) return
     setCopied(true)
     window.setTimeout(() => setCopied(false), 1_200)
   }, [])

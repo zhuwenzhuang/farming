@@ -1,6 +1,8 @@
 import { expect, openFarming, test } from './fixtures'
 
 function providerSession(id: string, title: string) {
+  const updatedAt = new Date(Date.now() + 60_000).toISOString()
+  const createdAt = new Date(Date.now()).toISOString()
   return {
     provider: 'codex',
     providerName: 'Codex',
@@ -8,8 +10,8 @@ function providerSession(id: string, title: string) {
     id,
     title,
     workspace: '/tmp/current-page-refresh',
-    updatedAt: '2026-07-30T12:00:00.000Z',
-    createdAt: '2026-07-30T11:00:00.000Z',
+    updatedAt,
+    createdAt,
     archived: false,
     pinned: false,
     unread: false,
