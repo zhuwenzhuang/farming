@@ -291,7 +291,7 @@ async function testManagedAgentBrowserDiscovery() {
     },
     execFile(executablePath, args, options, callback) {
       probed.push({ executablePath, args, env: options.env });
-      callback(null, 'agent-browser 0.32.3', '');
+      callback(null, 'agent-browser 0.32.3-farming.1', '');
     },
   });
   assert.strictEqual(runtime.agentBrowserPath, managedPath);
@@ -321,7 +321,7 @@ async function testManagedAgentBrowserDiscovery() {
     },
     execFile(executablePath, args, options, callback) {
       probed.push({ executablePath, args, env: options.env });
-      callback(null, 'agent-browser 0.32.3', '');
+      callback(null, 'agent-browser 0.32.3-farming.1', '');
     },
   });
   assert.strictEqual(staticRuntime.agentBrowserPath, managedPath);

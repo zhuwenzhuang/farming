@@ -2,9 +2,34 @@
 
 > English version: [runtime-dependencies.md](./runtime-dependencies.md)
 
-Farming 不把 Codex、Claude Code 和 `agent-browser` 等平台程序放进应用包。
+Farming 固定 Codex、Claude Code 和 `agent-browser` 等平台程序的版本。
 每个 Farming 版本都会固定它们的精确版本、下载完整性、可执行文件入口和支持的
 平台类型。
+
+## agent-browser 临时源码固定版本
+
+所有发行形式携带 `0.32.3-farming.1`：以官方 0.32.3 为基础，采用
+[上游 PR #1527](https://github.com/vercel-labs/agent-browser/pull/1527) 的 stderr 排空修复，
+由 Farming 构建。启动器在发现端点后持续读取 Chrome 的 stderr，防止长期运行后
+未消费的管道写满、阻塞浏览器。此修复不保留无限诊断日志，也不修改 Chrome。
+
+**在官方版本包含这项修复之前，不得升级 agent-browser。** 切回官方制品前，
+必须核对实际发布源码，并通过真实启动路径的 stderr 饱和回归测试及 Farming Browser
+冒烟测试；版本号更高本身不是升级依据。源码固定信息和已审查补丁是权威来源，
+例行依赖更新不得改变它们。
+
+原生构建依次完成精确上游提交与补丁校验、启动器测试、包含 dashboard 的 release
+构建，以及平台身份与摘要生成。打包只接受选定 Farming 提交的完整原生制品。
+制品缺失、身份不匹配或损坏均为终止错误，不能回退下载未修复的 npm 程序。
+运行时验证包内身份和可执行文件摘要；独立 CLI 的快照资产先复制到既有不可变缓存
+再执行。准备过程突然中断不会激活绑定；下次准备在既有依赖锁下验证或重建缓存。
+
+源码开发者显式执行
+`node scripts/build-agent-browser-runtime.mjs --platform <platform> --output <artifact-root>`，
+前端构建后，将 `FARMING_AGENT_BROWSER_ARTIFACTS` 指向该目录并执行
+`npm run prepare:packaged-runtimes -- --platform <platform>`。
+Rust 与 pnpm 版本由源码元数据固定。发行打包前构建所有支持平台；普通前端与单元
+测试构建不会静默编译或下载替代 Browser 运行时。
 
 ## 按 Runtime Mode 区分所有权
 

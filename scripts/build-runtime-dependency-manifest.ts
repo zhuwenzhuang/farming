@@ -3,6 +3,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import agentBrowserSource from '../backend/data/agent-browser-source.json';
 
 interface PackageLockRecord {
   version?: string;
@@ -23,7 +24,7 @@ interface PlatformTarget {
 interface RuntimeArtifact {
   url: string;
   integrity: string;
-  archive: 'tgz';
+  archive?: 'tgz';
   archivePrefix?: string;
   archiveEntry?: string;
   entry: string;
@@ -34,6 +35,7 @@ interface RuntimeArtifact {
   };
   packagedEntry?: string;
   sha256?: string;
+  packagedIdentity?: string;
 }
 
 interface RuntimeDependency {
@@ -62,7 +64,7 @@ const packages = lock.packages || {};
 
 const CODEX_VERSION = '0.155.1';
 const CLAUDE_VERSION = '0.3.274';
-const AGENT_BROWSER_VERSION = '0.32.3';
+const AGENT_BROWSER_VERSION = agentBrowserSource.version;
 
 const PLATFORM_TARGETS: Record<string, PlatformTarget> = {
   'darwin-arm64': {
@@ -116,14 +118,6 @@ const AGENT_BROWSER_ENTRIES: Record<string, string> = {
   'linux-x64-musl': 'agent-browser-linux-musl-x64',
   'win32-x64': 'agent-browser-win32-x64.exe',
 };
-
-const agentBrowserPackageRoot = path.dirname(require.resolve('agent-browser/package.json'));
-
-function agentBrowserSha256(archiveFilename: string): string {
-  return crypto.createHash('sha256')
-    .update(fs.readFileSync(path.join(agentBrowserPackageRoot, 'bin', archiveFilename)))
-    .digest('hex');
-}
 
 function packageRecord(packageName: string, version: string): Required<PackageLockRecord> {
   const record = packages[`node_modules/${packageName}`];
@@ -183,18 +177,20 @@ export function buildManifest(): RuntimeDependencyManifest {
     );
   }
   const agentBrowserArtifacts: Record<string, RuntimeArtifact> = {};
-  for (const [platformKey, archiveFilename] of Object.entries(AGENT_BROWSER_ENTRIES)) {
+  // The npm package stays pinned for upstream reference, never as a runtime fallback.
+  packageRecord('agent-browser', agentBrowserSource.upstreamVersion);
+  const patchBytes = fs.readFileSync(path.join(root, agentBrowserSource.patch));
+  if (crypto.createHash('sha256').update(patchBytes).digest('hex') !== agentBrowserSource.patchSha256) {
+    throw new Error('agent-browser patch differs from the reviewed pin');
+  }
+  const sourceId = crypto.createHash('sha256').update(JSON.stringify(agentBrowserSource)).digest('hex');
+  for (const platformKey of Object.keys(AGENT_BROWSER_ENTRIES)) {
     agentBrowserArtifacts[platformKey] = {
-      ...npmArtifact(
-      'agent-browser',
-      AGENT_BROWSER_VERSION,
-      platformKey.startsWith('win32-') ? 'agent-browser.exe' : 'agent-browser',
-      '',
-      `package/bin/${archiveFilename}`,
-      '',
-      `dist/runtime/agent-browser/${platformKey}/${platformKey.startsWith('win32-') ? 'agent-browser.exe' : 'agent-browser'}`,
-      ),
-      sha256: agentBrowserSha256(archiveFilename),
+      url: '',
+      integrity: `sha256-${Buffer.from(sourceId, 'hex').toString('base64')}`,
+      entry: platformKey.startsWith('win32-') ? 'agent-browser.exe' : 'agent-browser',
+      packagedEntry: `dist/runtime/agent-browser/${platformKey}/${platformKey.startsWith('win32-') ? 'agent-browser.exe' : 'agent-browser'}`,
+      packagedIdentity: sourceId,
     };
   }
   const manifest = {

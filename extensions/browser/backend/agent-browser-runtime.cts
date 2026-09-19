@@ -124,7 +124,7 @@ interface SnapshotElement {
   disabled: boolean;
 }
 
-const AGENT_BROWSER_VERSION = '0.32.3';
+const AGENT_BROWSER_VERSION = (require('../../../backend/data/agent-browser-source.json') as { version: string }).version;
 const DEFAULT_VIEWPORT = Object.freeze({ width: 1280, height: 720, deviceScaleFactor: 1 });
 const MAX_VIEWPORT_DIMENSION = 4096;
 const MAX_VIEWPORT_PIXELS = 8_000_000;

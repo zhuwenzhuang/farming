@@ -2,13 +2,14 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 
 import manifest from '../backend/data/runtime-dependency-manifest.json';
 import { canonicalManagedRipgrepPlatform } from '../backend/ripgrep-runtime.cjs';
 import { prepareRipgrepRuntimes } from './prepare-ripgrep-runtime';
+import { verifyPackagedRuntimeIdentity } from '../backend/packaged-runtime-identity.cjs';
 
 const projectRoot = path.resolve(__dirname, '..');
-const agentBrowserRoot = path.dirname(require.resolve('agent-browser/package.json'));
 const outputRoot = path.join(projectRoot, 'dist', 'runtime', 'agent-browser');
 const ripgrepOutputRoot = path.join(projectRoot, 'dist', 'runtime', 'ripgrep');
 
@@ -30,26 +31,46 @@ function safeRelative(value: string, label: string): string {
 
 async function main(): Promise<void> {
   const platform = requestedPlatform();
+  const artifactRoot = process.env.FARMING_AGENT_BROWSER_ARTIFACTS;
+  if (!artifactRoot) throw new Error('FARMING_AGENT_BROWSER_ARTIFACTS must point to the patched native build outputs; upstream npm binaries are not accepted');
+  const farmingSha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: projectRoot, encoding: 'utf8' }).trim();
+  if (platform && !(platform in manifest.dependencies.agentBrowser.artifacts)) {
+    throw new Error(`Unknown agent-browser platform: ${platform}`);
+  }
+  // Validate the complete selection before replacing the previous package image.
+  for (const [platformKey, artifact] of Object.entries(manifest.dependencies.agentBrowser.artifacts)) {
+    if (platform && platformKey !== platform) continue;
+    const identity = verifyPackagedRuntimeIdentity(path.resolve(artifactRoot, platformKey, artifact.entry), {
+      version: manifest.dependencies.agentBrowser.version, platformKey, sourceId: artifact.packagedIdentity,
+    });
+    if (identity.farmingSha !== farmingSha) throw new Error(`agent-browser ${platformKey} was built for another Farming SHA`);
+    if (!fs.statSync(path.resolve(artifactRoot, platformKey, 'LICENSE')).isFile()) {
+      throw new Error(`agent-browser ${platformKey} omitted its license`);
+    }
+  }
   fs.rmSync(outputRoot, { recursive: true, force: true });
   fs.rmSync(ripgrepOutputRoot, { recursive: true, force: true });
   for (const [platformKey, artifact] of Object.entries(manifest.dependencies.agentBrowser.artifacts)) {
     if (platform && platformKey !== platform) continue;
-    if (!artifact.archiveEntry || !artifact.packagedEntry) {
+    if (!artifact.packagedIdentity || !artifact.packagedEntry) {
       throw new Error(`agent-browser ${platformKey} is missing packaged runtime metadata`);
     }
-    const sourceEntry = safeRelative(artifact.archiveEntry.replace(/^package\//, ''), 'archive entry');
     const packagedEntry = safeRelative(artifact.packagedEntry, 'packaged entry');
-    const source = path.join(agentBrowserRoot, sourceEntry);
+    const source = path.resolve(artifactRoot, platformKey, artifact.entry);
     const destination = path.join(projectRoot, packagedEntry);
     if (!fs.statSync(source).isFile()) {
       throw new Error(`agent-browser ${platformKey} binary is missing: ${source}`);
     }
     fs.mkdirSync(path.dirname(destination), { recursive: true });
     fs.copyFileSync(source, destination);
+    for (const name of ['identity.json', 'LICENSE', 'NOTICE']) {
+      const companion = path.join(path.dirname(source), name);
+      if (fs.existsSync(companion)) fs.copyFileSync(companion, path.join(path.dirname(destination), name));
+    }
     if (!platformKey.startsWith('win32-')) fs.chmodSync(destination, 0o755);
-  }
-  if (platform && !(platform in manifest.dependencies.agentBrowser.artifacts)) {
-    throw new Error(`Unknown agent-browser platform: ${platform}`);
+    verifyPackagedRuntimeIdentity(destination, {
+      version: manifest.dependencies.agentBrowser.version, platformKey, sourceId: artifact.packagedIdentity,
+    });
   }
   await prepareRipgrepRuntimes(platform
     ? [canonicalManagedRipgrepPlatform(platform)]

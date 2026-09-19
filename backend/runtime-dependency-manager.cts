@@ -10,6 +10,7 @@ import {
 import { pipeline } from 'stream/promises';
 import { Readable, Transform, type TransformCallback } from 'stream';
 import * as tar from 'tar';
+import { verifyPackagedRuntimeIdentity } from './packaged-runtime-identity.cjs';
 
 interface StorageLayout {
   farmingConfigDir(env?: NodeJS.ProcessEnv): string;
@@ -40,6 +41,8 @@ interface RuntimeArtifact {
   };
   packagedEntry?: string;
   sha256?: string;
+  /** Source-built, package-only executable; never use a registry fallback. */
+  packagedIdentity?: string;
 }
 
 interface RuntimeDependencyManifestEntry {
@@ -944,13 +947,14 @@ async function resolvePackagedRuntime(
   platformKey: string,
   env: NodeJS.ProcessEnv,
 ): Promise<ResolvedRuntime | null> {
-  const packageRootValue = String(env[PACKAGED_RUNTIME_ROOT_ENV] || '').trim();
+  const { dependency, artifact } = dependencyManifest(id, platformKey);
+  const packageRootValue = String(env[PACKAGED_RUNTIME_ROOT_ENV]
+    || (artifact.packagedIdentity ? path.resolve(__dirname, '..') : '')).trim();
   if (!packageRootValue) return null;
   if (!path.isAbsolute(packageRootValue)) {
     throw new Error(`${PACKAGED_RUNTIME_ROOT_ENV} must be an absolute directory.`);
   }
   const packageRoot = fs.realpathSync(packageRootValue);
-  const { dependency, artifact } = dependencyManifest(id, platformKey);
   let executablePath = '';
   if (artifact.installedPackage) {
     const packageDirectory = path.join(
@@ -983,6 +987,18 @@ async function resolvePackagedRuntime(
     return null;
   }
   if (artifact.sha256 && fileSha256(realExecutablePath) !== artifact.sha256) return null;
+  if (artifact.packagedIdentity) {
+    try {
+      verifyPackagedRuntimeIdentity(realExecutablePath, {
+        version: dependency.version, platformKey, sourceId: artifact.packagedIdentity,
+      });
+    } catch {
+      return null;
+    }
+    // pkg assets cannot be executed in place. Install the verified bytes into
+    // the existing immutable cache using the same atomic owner as downloads.
+    if ((process as NodeJS.Process & { pkg?: unknown }).pkg) return null;
+  }
   if (dependency.managedProbe !== false) {
     const verification = await verifyExecutable(
       realExecutablePath,
@@ -1061,7 +1077,25 @@ async function installExactRuntime(
   platformKey: string,
   options: RuntimeManagerOptions = {},
 ): Promise<ResolvedRuntime> {
-  if (String(options.env?.[RUNTIME_DOWNLOAD_POLICY_ENV] || '').trim() === 'forbid') {
+  const { dependency, artifact } = dependencyManifest(definition.id, platformKey);
+  let packagedSource = '';
+  if (artifact.packagedIdentity) {
+    const packageRoot = path.resolve(options.env?.[PACKAGED_RUNTIME_ROOT_ENV] || path.resolve(__dirname, '..'));
+    packagedSource = path.resolve(packageRoot, safeRelative(artifact.packagedEntry, 'packaged runtime entry'));
+    try {
+      if (!fs.realpathSync(packagedSource).startsWith(`${fs.realpathSync(packageRoot)}${path.sep}`)) {
+        throw new Error('Patched runtime escaped its package root');
+      }
+      verifyPackagedRuntimeIdentity(packagedSource, {
+        version: dependency.version, platformKey, sourceId: artifact.packagedIdentity,
+      });
+    } catch {
+      throw new Error(`${definition.id} ${dependency.version} is missing or corrupt in the Farming package image; `
+        + 'install a complete patched Farming package, or build and prepare the pinned native artifacts in a source checkout. '
+        + 'The unpatched npm runtime will not be downloaded.');
+    }
+  }
+  if (!packagedSource && String(options.env?.[RUNTIME_DOWNLOAD_POLICY_ENV] || '').trim() === 'forbid') {
     if (String(options.env?.[PACKAGED_RUNTIME_ROOT_ENV] || '').trim()) {
       throw new Error(
         `${definition.id} ${MANIFEST.dependencies[definition.id]?.version || ''} is missing or corrupt `
@@ -1074,43 +1108,53 @@ async function installExactRuntime(
       + 'run npm install again before starting Farming Desktop.',
     );
   }
-  const { dependency, artifact } = dependencyManifest(definition.id, platformKey);
   const cacheDir = dependencyCacheDir(configDir, definition.id, dependency.version, platformKey);
   const stagingDir = `${cacheDir}.preparing-${process.pid}-${crypto.randomUUID()}`;
   const archivePath = path.join(stagingDir, 'artifact.download');
   const quarantine = `${cacheDir}.invalid-${Date.now()}-${crypto.randomUUID()}`;
   fs.mkdirSync(stagingDir, { recursive: true, mode: 0o700 });
   try {
-    notifyProgress(options.onProgress, {
-      dependencyId: definition.id,
-      phase: 'download',
-      receivedBytes: 0,
-      totalBytes: Number(artifact.size) || 0,
-      version: dependency.version,
-    });
-    await downloadArtifact(artifact, archivePath, {
-      ...options,
-      onDownloadProgress: progress => {
-        notifyProgress(options.onDownloadProgress, progress);
-        notifyProgress(options.onProgress, {
-          dependencyId: definition.id,
-          phase: 'download',
-          receivedBytes: progress.receivedBytes,
-          totalBytes: progress.totalBytes,
-          version: dependency.version,
-        });
-      },
-      onDownloadRetry: retry => {
-        notifyProgress(options.onDownloadRetry, retry);
-        notifyProgress(options.onProgress, {
-          dependencyId: definition.id,
-          message: retry.error,
-          phase: 'retry',
-          version: dependency.version,
-        });
-      },
-    });
-    const executablePath = await extractArtifact(artifact, archivePath, stagingDir);
+    let executablePath: string;
+    if (packagedSource) {
+      executablePath = path.join(stagingDir, artifact.entry);
+      await fs.promises.copyFile(packagedSource, executablePath);
+      // Recheck the copied bytes against the sidecar before publishing a cache.
+      await fs.promises.copyFile(path.join(path.dirname(packagedSource), 'identity.json'), path.join(stagingDir, 'identity.json'));
+      verifyPackagedRuntimeIdentity(executablePath, {
+        version: dependency.version, platformKey, sourceId: artifact.packagedIdentity!,
+      });
+    } else {
+      notifyProgress(options.onProgress, {
+        dependencyId: definition.id,
+        phase: 'download',
+        receivedBytes: 0,
+        totalBytes: Number(artifact.size) || 0,
+        version: dependency.version,
+      });
+      await downloadArtifact(artifact, archivePath, {
+        ...options,
+        onDownloadProgress: progress => {
+          notifyProgress(options.onDownloadProgress, progress);
+          notifyProgress(options.onProgress, {
+            dependencyId: definition.id,
+            phase: 'download',
+            receivedBytes: progress.receivedBytes,
+            totalBytes: progress.totalBytes,
+            version: dependency.version,
+          });
+        },
+        onDownloadRetry: retry => {
+          notifyProgress(options.onDownloadRetry, retry);
+          notifyProgress(options.onProgress, {
+            dependencyId: definition.id,
+            message: retry.error,
+            phase: 'retry',
+            version: dependency.version,
+          });
+        },
+      });
+      executablePath = await extractArtifact(artifact, archivePath, stagingDir);
+    }
     if (!fs.existsSync(executablePath)) throw new Error(`${definition.id} archive omitted ${artifact.entry}`);
     fs.chmodSync(executablePath, 0o700);
     notifyProgress(options.onProgress, {

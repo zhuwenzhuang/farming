@@ -2,9 +2,41 @@
 
 > Chinese version: [runtime-dependencies.zh_cn.md](./runtime-dependencies.zh_cn.md)
 
-Farming keeps platform executables such as Codex, Claude Code, and
-`agent-browser` outside the application package. Each Farming release pins exact
+Farming pins platform executables such as Codex, Claude Code, and
+`agent-browser`. Each Farming release pins exact
 versions, download integrity, executable entries, and supported platform keys.
+
+## Temporary agent-browser source pin
+
+All distribution forms carry `0.32.3-farming.1`, a Farming build of upstream
+0.32.3 with the stderr-drain fix from [upstream PR #1527](https://github.com/vercel-labs/agent-browser/pull/1527).
+The launch owner continuously consumes Chrome's piped stderr after endpoint
+discovery, so a long-lived browser cannot block on a full, unread pipe. It does
+not retain an unbounded diagnostic log or change Chrome itself.
+
+**Do not upgrade agent-browser until an official release includes this fix.**
+Before returning to an official build, verify the actual released source and
+rerun the real-launch stderr saturation regression and Farming Browser smoke.
+A newer version number alone is not sufficient. The source pin and reviewed
+patch are authoritative; routine dependency updates must leave them unchanged.
+
+Native construction progresses from exact upstream commit and checked patch to
+launcher tests, dashboard-inclusive release build, and platform identity/digest.
+Packagers accept only the selected Farming commit's complete native artifacts.
+Missing, mismatched, or corrupt artifacts are terminal errors, never a reason to
+download the unpatched npm executable. Runtime resolution verifies the bundled
+identity and executable digest; standalone CLI snapshot assets are copied into
+the existing immutable cache before execution. Abrupt loss during preparation
+leaves no active binding; a later preparation validates or rebuilds the cache
+under the existing dependency lock.
+
+Source developers explicitly build with
+`node scripts/build-agent-browser-runtime.mjs --platform <platform> --output <artifact-root>`,
+then set `FARMING_AGENT_BROWSER_ARTIFACTS` to that root and run
+`npm run prepare:packaged-runtimes -- --platform <platform>` after building the
+frontend. Rust and pnpm versions are pinned in the source metadata. Releases
+build every supported native platform before packaging; ordinary frontend and
+unit-test builds do not silently compile or download a substitute Browser runtime.
 
 ## Runtime ownership by mode
 

@@ -32,6 +32,7 @@ type RuntimeArtifactFixture = {
   archiveEntry?: string;
   archivePrefix?: string;
   packagedEntry?: string;
+  packagedIdentity?: string;
 };
 
 type RuntimeDependencyFixture = {
@@ -100,6 +101,10 @@ async function run() {
   assert(MANIFEST.dependencies.agentBrowser.artifacts[runtimePlatformKey()]);
   for (const dependency of Object.values(MANIFEST.dependencies) as RuntimeDependencyFixture[]) {
     for (const artifact of Object.values(dependency.artifacts)) {
+      if (artifact.packagedIdentity) {
+        assert.strictEqual(artifact.url, '', 'patched runtime must not have a raw npm fallback');
+        continue;
+      }
       assert.match(
         artifact.url,
         /^https:\/\/registry\.npmjs\.org\//,
@@ -112,12 +117,13 @@ async function run() {
       MANIFEST.dependencies.agentBrowser.artifacts,
     ) as RuntimeArtifactFixture[]
   ) {
-    assert.strictEqual(artifact.archive, 'tgz');
-    assert.match(artifact.archiveEntry, /^package\/bin\/agent-browser-/);
+    assert.match(artifact.packagedIdentity, /^[a-f0-9]{64}$/);
+    assert.strictEqual(artifact.archiveEntry, undefined);
     assert(!artifact.archivePrefix);
   }
 
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-runtime-manager.'));
+  try {
   const seedRoot = path.join(root, 'install-seed');
   const targetRoot = path.join(root, 'desktop-target');
   const seedPlatformKey = runtimePlatformKey();
@@ -166,13 +172,17 @@ async function run() {
   let packagedFetches = 0;
   const packagedRoot = path.join(root, 'package-image');
   const packagedBrowser = path.join(packagedRoot, browserArtifact.packagedEntry);
-  const agentBrowserPackageRoot = path.dirname(require.resolve('agent-browser/package.json'));
-  const packagedBrowserSource = path.join(
-    agentBrowserPackageRoot,
-    browserArtifact.archiveEntry.replace(/^package\//, ''),
-  );
   fs.mkdirSync(path.dirname(packagedBrowser), { recursive: true });
-  fs.copyFileSync(packagedBrowserSource, packagedBrowser);
+  writeVersionExecutable(path.dirname(packagedBrowser), browserArtifact.entry, browserDependency.version);
+  const packagedIdentity = {
+    version: browserDependency.version,
+    platformKey: seedPlatformKey,
+    sourceId: browserArtifact.packagedIdentity,
+    sha256: crypto.createHash('sha256').update(fs.readFileSync(packagedBrowser)).digest('hex'),
+    farmingSha: 'a'.repeat(40),
+  };
+  const identityFile = path.join(path.dirname(packagedBrowser), 'identity.json');
+  fs.writeFileSync(identityFile, JSON.stringify(packagedIdentity));
   if (process.platform !== 'win32') fs.chmodSync(packagedBrowser, 0o755);
   const packaged = await prepareRuntimeDependencies({
     configDir: path.join(root, 'packaged-target'),
@@ -189,6 +199,35 @@ async function run() {
   });
   assert.strictEqual(packagedFetches, 0);
   assert.strictEqual(packaged.dependencies[0].source, 'managed');
+  // Package-only resolution fails closed even when downloads are permitted.
+  for (const identity of [null, { ...packagedIdentity, sourceId: '0'.repeat(64) },
+    { ...packagedIdentity, sha256: '0'.repeat(64) }]) {
+    if (identity) fs.writeFileSync(identityFile, JSON.stringify(identity));
+    else fs.rmSync(identityFile);
+    await assert.rejects(prepareRuntimeDependencies({
+      configDir: path.join(root, 'rejected-package'),
+      dependencyIds: ['agentBrowser'],
+      env: { PATH: process.env.PATH, FARMING_PACKAGED_RUNTIME_ROOT: packagedRoot },
+      fetch: async () => { packagedFetches += 1; throw new Error('must not download an unpatched fallback'); },
+    }), /missing or corrupt in the Farming package image/);
+  }
+  fs.writeFileSync(identityFile, JSON.stringify(packagedIdentity));
+  assert.strictEqual(packagedFetches, 0);
+  const previousPkg = process.pkg;
+  try {
+    process.pkg = { entrypoint: 'test snapshot' };
+    const copied = await prepareRuntimeDependencies({
+      configDir: path.join(root, 'snapshot-target'),
+      dependencyIds: ['agentBrowser'],
+      env: { PATH: process.env.PATH, FARMING_PACKAGED_RUNTIME_ROOT: packagedRoot, FARMING_RUNTIME_DOWNLOAD_POLICY: 'forbid' },
+      fetch: async () => { throw new Error('snapshot extraction must be offline'); },
+    });
+    assert.notStrictEqual(copied.dependencies[0].executablePath, packagedBrowser);
+    assert.strictEqual(fs.readFileSync(copied.dependencies[0].executablePath, 'utf8'), fs.readFileSync(packagedBrowser, 'utf8'));
+  } finally {
+    if (previousPkg === undefined) delete process.pkg;
+    else process.pkg = previousPkg;
+  }
   assert.strictEqual(
     packaged.dependencies[0].executablePath,
     fs.realpathSync(packagedBrowser),
@@ -227,7 +266,7 @@ async function run() {
         throw new Error('corrupt startup seed must not fall back to fetch');
       },
     }),
-    /was not prepared during npm install/,
+    /missing or corrupt in the Farming package image/,
   );
   assert.strictEqual(seedFetches, 0);
   const downloadBody = Buffer.from('verified runtime artifact');
@@ -635,6 +674,9 @@ async function run() {
   );
 
   console.log('✓ startup dependencies publish retained multi-version bindings and activate atomically');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 }
 
 run().catch(error => {

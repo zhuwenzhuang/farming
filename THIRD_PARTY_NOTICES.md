@@ -79,7 +79,10 @@ it under the Unlicense.
 
 The npm distribution declares the exact Codex CLI 0.153.0 and Claude Agent SDK
 CLI package 0.3.257 platform carriers as optional dependencies and embeds the
-reviewed `agent-browser` 0.32.3 platform artifacts. Other release forms may
+reviewed `agent-browser` 0.32.3-farming.1 platform artifacts, built from upstream
+0.32.3 with the Chrome stderr-drain fix from upstream PR #1527 and a launch-path
+regression test. This is a Farming-built revision, not an upstream release.
+Other release forms may
 prepare the same exact artifacts in a private runtime cache. These artifacts
 remain independent works under their own terms. Farming accepts only the
 version-locked sources and integrity values declared

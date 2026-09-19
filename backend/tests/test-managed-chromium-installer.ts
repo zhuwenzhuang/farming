@@ -93,7 +93,7 @@ async function testInstallPublishesOnlyAfterVerification() {
   try {
     assert.deepStrictEqual(installer.status(), {
       state: 'absent',
-      agentBrowserVersion: '0.32.3',
+      agentBrowserVersion: '0.32.3-farming.1',
       installedVersion: '',
       updateAvailable: false,
       error: '',
@@ -134,7 +134,7 @@ async function testInstallPublishesOnlyAfterVerification() {
     assert.strictEqual(findBrowserExecutable(installer.targetDir(), { platform: 'linux' }), option.path);
     const manifest = JSON.parse(fs.readFileSync(installer.manifestFile(), 'utf8'));
     assert.strictEqual(manifest.format, MANIFEST_FORMAT);
-    assert.strictEqual(manifest.agentBrowserVersion, '0.32.3');
+    assert.strictEqual(manifest.agentBrowserVersion, '0.32.3-farming.1');
     assert.strictEqual(manifest.platformKey, 'linux-x64');
     assert.strictEqual(manifest.downloadSource, 'google');
     assert.strictEqual(fs.existsSync(path.join(installer.targetDir(), '.home')), false);
@@ -327,7 +327,7 @@ async function testAgentBrowserUpgradeRequiresMatchingChromium() {
     }));
     assert.deepStrictEqual(current.status(), {
       state: 'absent',
-      agentBrowserVersion: '0.32.3',
+      agentBrowserVersion: '0.32.3-farming.1',
       installedVersion: '0.31.1',
       updateAvailable: true,
       error: '',
@@ -359,7 +359,7 @@ async function testManifestAcceptsLegalDotDotPrefixedDescendant() {
     fs.writeFileSync(executablePath, '#!/bin/sh\n', { mode: 0o700 });
     fs.writeFileSync(installer.manifestFile(), JSON.stringify({
       format: MANIFEST_FORMAT,
-      agentBrowserVersion: '0.32.3',
+      agentBrowserVersion: '0.32.3-farming.1',
       platformKey: 'linux-x64',
       executableRelativePath,
     }));
@@ -367,7 +367,7 @@ async function testManifestAcceptsLegalDotDotPrefixedDescendant() {
 
     fs.writeFileSync(installer.manifestFile(), JSON.stringify({
       format: MANIFEST_FORMAT,
-      agentBrowserVersion: '0.32.3',
+      agentBrowserVersion: '0.32.3-farming.1',
       platformKey: 'linux-x64',
       executableRelativePath: path.join('..', 'outside-chrome'),
     }));
