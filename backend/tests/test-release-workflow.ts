@@ -106,6 +106,48 @@ function run() {
       .map(entry => `${entry.arch}:${entry.kind}`),
     ['x64:cli', 'x64:app', 'arm64:cli', 'arm64:app'],
   );
+  const agentBrowserJob = preparationWorkflow.jobs['build-agent-browser'];
+  assert(agentBrowserJob, 'release preparation must build the patched agent-browser runtimes');
+  assert.strictEqual(agentBrowserJob.needs, 'preflight');
+  assert.deepStrictEqual(
+    agentBrowserJob.strategy.matrix.include.map(entry => entry.platform),
+    [
+      'darwin-arm64',
+      'darwin-x64',
+      'linux-arm64',
+      'linux-x64',
+      'linux-arm64-musl',
+      'linux-x64-musl',
+      'win32-x64',
+    ],
+  );
+  assert.deepStrictEqual(
+    agentBrowserJob.strategy.matrix.include.map(entry => entry.runner),
+    ['macos-15', 'macos-15-intel', 'ubuntu-24.04-arm', 'ubuntu-24.04', 'ubuntu-24.04-arm', 'ubuntu-24.04', 'windows-latest'],
+  );
+  assert.strictEqual(
+    agentBrowserJob.steps.find(step => step.name === 'Setup Node.js')?.with['node-version'],
+    '24',
+  );
+  const rustSetup = agentBrowserJob.steps.find(step => step.name === 'Setup Rust');
+  assert.strictEqual(rustSetup?.with.toolchain, '1.96.1');
+  assert.strictEqual(rustSetup?.with.target, '${{ matrix.rustTarget }}');
+  assert.strictEqual(
+    rustSetup?.with.rustflags,
+    '',
+    'the pinned upstream runtime must not inherit setup-rust-toolchain -D warnings',
+  );
+  const zigSetup = agentBrowserJob.steps.find(step => step.name === 'Install pinned Zig cross-build tools');
+  assert.strictEqual(zigSetup?.if, 'matrix.zig');
+  assert(zigSetup?.run.includes('ziglang==0.15.2'));
+  assert(zigSetup?.run.includes('cargo-zigbuild --version 0.22.3 --locked'));
+  assert.strictEqual(
+    agentBrowserJob.steps.find(step => step.name === 'Build and verify patched agent-browser')?.run,
+    'node scripts/build-agent-browser-runtime.mjs --platform "${{ matrix.platform }}" --output "$RUNNER_TEMP/agent-browser-artifacts"',
+  );
+  const nativeUpload = agentBrowserJob.steps.find(step => step.name === 'Upload patched agent-browser runtime');
+  assert.strictEqual(nativeUpload?.with.name, 'farming-agent-browser-${{ matrix.platform }}');
+  assert.strictEqual(nativeUpload?.with.path, '${{ runner.temp }}/agent-browser-artifacts');
   assert(
     preparationWorkflow.jobs['build-linux'].steps.some(
       step => step.name === 'Smoke-test Linux app bundle'
@@ -126,9 +168,16 @@ function run() {
   );
   assert(candidateWorkflowGate, 'release publication must require every workflow from the exact candidate push');
   assert.strictEqual(candidateWorkflowGate.env.GH_TOKEN, '${{ github.token }}');
-  assert.strictEqual(preparationWorkflow.jobs['build-linux'].needs, 'preflight');
-  assert.strictEqual(preparationWorkflow.jobs['build-macos'].needs, 'preflight');
-  assert.strictEqual(preparationWorkflow.jobs['prepare-npm'].needs, 'preflight');
+  for (const jobName of ['build-linux', 'build-macos', 'prepare-npm']) {
+    const job = preparationWorkflow.jobs[jobName];
+    assert.deepStrictEqual(job.needs, ['preflight', 'build-agent-browser']);
+    assert.strictEqual(job.env.FARMING_AGENT_BROWSER_ARTIFACTS, '${{ runner.temp }}/agent-browser-artifacts');
+    const download = job.steps.find(step => step.name === 'Download patched agent-browser runtimes');
+    assert(download, `${jobName} must consume the verified patched agent-browser matrix`);
+    assert.strictEqual(download.with.pattern, 'farming-agent-browser-*');
+    assert.strictEqual(download.with.path, '${{ runner.temp }}/agent-browser-artifacts');
+    assert.strictEqual(download.with['merge-multiple'], true);
+  }
   const dependencyUpdateGate = preparationWorkflow.jobs.preflight.steps.find(
     step => step.name === 'Check managed Agent dependency updates',
   );
