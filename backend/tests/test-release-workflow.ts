@@ -193,17 +193,17 @@ function run() {
     assert.strictEqual(download.with.path, '${{ github.workspace }}/../release-agent-browser-artifacts');
     assert.strictEqual(download.with['merge-multiple'], true);
   }
-  for (const jobName of ['build-linux', 'build-macos']) {
-    const job = preparationWorkflow.jobs[jobName];
-    const chrome = job.steps.find(step => step.name === 'Setup Chrome for patched runtime smoke');
-    assert.strictEqual(chrome?.if, "matrix.kind == 'app'");
-    assert.strictEqual(chrome?.uses, 'browser-actions/setup-chrome@v2');
-    assert.strictEqual(chrome?.with['chrome-version'], 'stable');
-    const smoke = job.steps.find(step => step.name.startsWith('Smoke-test patched browser runtime on'));
-    assert.strictEqual(smoke?.if, "matrix.kind == 'app'");
-    assert(smoke?.run.includes('npx tsx scripts/smoke-browser-idle.ts'));
-    assert(smoke?.run.includes('${{ steps.setup-chrome.outputs.chrome-path }}'));
-  }
+  const linuxJob = preparationWorkflow.jobs['build-linux'];
+  const linuxChrome = linuxJob.steps.find(step => step.name === 'Setup Chrome for patched runtime smoke');
+  assert.strictEqual(linuxChrome?.if, "matrix.kind == 'app'");
+  assert.strictEqual(linuxChrome?.uses, 'browser-actions/setup-chrome@v2');
+  assert.strictEqual(linuxChrome?.with['chrome-version'], 'stable');
+  const linuxBrowserSmoke = linuxJob.steps.find(
+    step => step.name === 'Smoke-test patched browser runtime on Linux',
+  );
+  assert.strictEqual(linuxBrowserSmoke?.if, "matrix.kind == 'app'");
+  assert(linuxBrowserSmoke?.run.includes('npx tsx scripts/smoke-browser-idle.ts'));
+  assert(linuxBrowserSmoke?.run.includes('${{ steps.setup-chrome.outputs.chrome-path }}'));
   assert(
     preparationWorkflow.jobs['build-linux'].steps
       .find(step => step.name === 'Smoke-test patched browser runtime on Linux')
@@ -217,6 +217,14 @@ function run() {
     'the emulated arm64 CLI smoke must validate startup without downloading unrelated Agent runtimes',
   );
   const macosJob = preparationWorkflow.jobs['build-macos'];
+  const macosChrome = macosJob.steps
+    .find(step => step.name === 'Verify system Chrome for patched runtime smoke');
+  assert.strictEqual(macosChrome?.if, "matrix.kind == 'app'");
+  assert(
+    macosChrome?.run.includes('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome')
+      && macosChrome.run.includes('--version'),
+    'macOS app smoke must exercise the system Chrome used by the released product',
+  );
   const macosRuntimeRust = macosJob.steps
     .find(step => step.name === 'Setup Rust for native macOS browser runtime');
   assert.strictEqual(macosRuntimeRust?.if, "matrix.kind == 'app'");
@@ -237,7 +245,10 @@ function run() {
   assert(
     macosJob.steps
       .find(step => step.name === 'Smoke-test patched browser runtime on macOS')
-      ?.run.includes('$PWD/dist/runtime/agent-browser/darwin-${{ matrix.arch }}/agent-browser'),
+      ?.run.includes('$PWD/dist/runtime/agent-browser/darwin-${{ matrix.arch }}/agent-browser')
+      && macosJob.steps
+        .find(step => step.name === 'Smoke-test patched browser runtime on macOS')
+        ?.run.includes('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'),
   );
   const dependencyUpdateGate = preparationWorkflow.jobs.preflight.steps.find(
     step => step.name === 'Check managed Agent dependency updates',
