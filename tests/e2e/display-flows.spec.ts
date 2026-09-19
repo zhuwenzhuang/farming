@@ -4186,7 +4186,13 @@ test.describe('display-backed agent flows', () => {
     await archiveRequestStarted
     try {
       await expect(mobileRow).toBeHidden()
-      await expect(primaryRow).toBeFocused()
+      // The removed Agent was the last one in its Project. Focus stays with
+      // that Project instead of following the open-tab order into another one.
+      await expect(page.getByTestId('code-project-title').filter({
+        hasText: path.basename(childWorkspace),
+      })).toBeFocused()
+      await expect(page.locator('[data-testid="code-agent-work-pane"]:visible')).toHaveCount(0)
+      await expect(primaryRow).toBeVisible()
     } finally {
       releaseArchiveRequest()
     }

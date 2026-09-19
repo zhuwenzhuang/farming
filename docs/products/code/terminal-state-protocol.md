@@ -39,6 +39,11 @@ terminal observers derive `busy`, `idle`, or `unknown` from the provider's
 current authoritative screen projection. A `busy` to `idle` transition may
 complete attention immediately; elapsed silence is not completion evidence.
 
+Codex idle-footer recognition accepts provider-owned model identifiers,
+including namespaced identifiers. Without activity evidence the state remains
+`unknown`, not `idle`. A live spinner title or a newer working row
+still takes precedence over an older idle footer.
+
 Qwen Code follows its own rendered streaming-state contract. The Responding
 screen contains its loading row or `Ctrl+Q` queue footer; when those markers are
 removed from the current Ink screen, Qwen has left Responding for Idle or an

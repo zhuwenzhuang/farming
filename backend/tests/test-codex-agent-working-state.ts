@@ -96,6 +96,8 @@ function run() {
       previewText: [
         '› 你好',
         '',
+        '• Working (2s • esc to interrupt)',
+        '',
         '› Explain this codebase',
         'qwen3.8-max xhigh · ~/git/farming',
       ].join('\n'),

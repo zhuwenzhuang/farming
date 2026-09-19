@@ -377,6 +377,45 @@ function run() {
     'A direct Codex idle footer should override a stale native PTY busy marker'
   );
 
+  for (const footer of [
+    'qwen3.8-max xhigh · ~/repo',
+    'openrouter/qwen3.8-max high fast · /repo',
+    'gpt-custom/model-v1 medium · ~/repo',
+    'local/model-v1 · /repo',
+  ]) {
+    assert.deepStrictEqual(
+      pickStatus(deriveTerminalStatus({
+        command: 'codex',
+        cwd: '/repo',
+        previewText: `Working (2s • esc to interrupt)\n› Ask Codex\n${footer}`,
+        terminalBusy: true,
+      })),
+      { kind: 'codex', activity: 'idle', busy: false },
+      `The current footer must prove idle for provider-owned model names: ${footer}`,
+    );
+    assert.deepStrictEqual(
+      pickStatus(deriveTerminalStatus({
+        command: 'codex',
+        cwd: '/repo',
+        previewText: `${footer}\nWorking (2s • esc to interrupt)`,
+        terminalBusy: false,
+      })),
+      { kind: 'codex', activity: 'busy', busy: true },
+      'A newer working row must supersede an old model footer',
+    );
+  }
+
+  assert.deepStrictEqual(
+    pickStatus(deriveTerminalStatus({
+      command: 'codex',
+      cwd: '/repo',
+      previewText: '› Ask Codex',
+      terminalBusy: null,
+    })),
+    { kind: 'codex', activity: 'unknown', busy: false },
+    'An input prompt without activity evidence must not be reported as idle',
+  );
+
   assert.deepStrictEqual(
     pickStatus(deriveTerminalStatus({
       command: 'codex',

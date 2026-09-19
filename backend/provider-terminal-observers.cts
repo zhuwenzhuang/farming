@@ -63,7 +63,7 @@ function lastCodexIdleFooterIndex(text: string): number {
   // service tier, then the separator and workspace path.
   return lastMatchIndex(
     text,
-    /(?:^|\n)\s*[a-z0-9][a-z0-9._:+-]*(?:\s+(?:minimal|low|medium|high|xhigh|extra\s+high|max|ultra))?(?:\s+fast)?\s*(?:·|•)\s*(?:~|\/)[^\n]*$/gim,
+    /(?:^|\n)\s*[a-z0-9][a-z0-9._:/+-]*(?:\s+(?:minimal|low|medium|high|xhigh|extra\s+high|max|ultra))?(?:\s+fast)?\s*(?:·|•)\s*(?:~|\/)[^\n]*$/gim,
   );
 }
 
