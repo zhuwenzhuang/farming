@@ -3,6 +3,7 @@ import { registry } from 'playwright-core/lib/server/registry/index'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import agentBrowserSource from './backend/data/agent-browser-source.json'
 
 const port = Number(process.env.FARMING_PLAYWRIGHT_PORT || 4173)
 const baseURL = `http://127.0.0.1:${port}`
@@ -36,7 +37,7 @@ const managedAgentBrowserCandidates = [
     '.farming',
     'runtimes',
     'agentBrowser',
-    '0.32.3',
+    agentBrowserSource.version,
     `${process.platform}-${process.arch}`,
     process.platform === 'win32' ? 'agent-browser.exe' : 'agent-browser',
   ),

@@ -70,6 +70,28 @@ function run() {
   assert.strictEqual(workflow.env.FARMING_SKIP_INSTALL_RUNTIME_PREPARE, '1');
   assert.strictEqual(workflow.env.PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD, '1');
   assert.strictEqual(workflow.env.PUPPETEER_SKIP_DOWNLOAD, '1');
+  const e2eAgentBrowser = workflow.jobs['e2e-agent-browser'];
+  assert(e2eAgentBrowser, 'browser-facing CI must build the reviewed Farming agent-browser runtime');
+  assert.deepStrictEqual(nodeMajorsOf(e2eAgentBrowser), [AUTHORITATIVE_NODE_MAJOR]);
+  assert(
+    runScriptsOf(e2eAgentBrowser).includes(
+      'scripts/build-agent-browser-runtime.mjs --platform linux-x64 --output "$RUNNER_TEMP/e2e-agent-browser/linux-x64"',
+    ),
+    'E2E runtime construction must use the exact-SHA native builder',
+  );
+  for (const jobName of ['behavior', 'browser', 'mobile']) {
+    const job = workflow.jobs[jobName];
+    assert.deepStrictEqual(job.needs, ['frontend', 'e2e-agent-browser']);
+    assert.strictEqual(
+      job.env.FARMING_AGENT_BROWSER_BIN,
+      '${{ github.workspace }}/.ci-agent-browser/linux-x64/agent-browser',
+    );
+    assert(
+      job.steps.some(step => step.name === 'Download patched agent-browser runtime')
+        && runScriptsOf(job).includes('chmod +x "$FARMING_AGENT_BROWSER_BIN"'),
+      `${jobName} must consume the shared reviewed runtime`,
+    );
+  }
   for (const [jobName, job] of jobs) {
     const install = job.steps?.find(step => step.name === 'Install dependencies');
     if (!install) continue;

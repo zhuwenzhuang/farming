@@ -83,13 +83,61 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  # Browser-facing E2E jobs must exercise the reviewed Farming runtime. The
+  # upstream npm binary reports 0.32.3 and is intentionally rejected now that
+  # the release carries the exact-SHA stderr-drain backport.
+  e2e-agent-browser:
+    name: E2E patched agent-browser
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: 1.96.1
+          target: x86_64-unknown-linux-gnu
+          rustflags: ''
+
+      - name: Setup Python for Zig
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install pinned Zig cross-build tools
+        run: |
+          python -m pip install ziglang==0.15.2
+          cargo install cargo-zigbuild --version 0.22.3 --locked
+
+      - name: Build and verify patched agent-browser
+        run: node scripts/build-agent-browser-runtime.mjs --platform linux-x64 --output "$RUNNER_TEMP/e2e-agent-browser/linux-x64"
+
+      - name: Upload patched agent-browser runtime
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-agent-browser-linux-x64
+          path: ${{ runner.temp }}/e2e-agent-browser
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
   # Keep the small set of product promises that have repeatedly regressed as a
   # named, unsharded gate. The complete Chromium matrix still provides broad
   # coverage; this job makes critical behavior ownership and failures visible.
   behavior:
     name: Critical behavior
-    needs: frontend
+    needs: [frontend, e2e-agent-browser]
     runs-on: ubuntu-latest
+    env:
+      FARMING_AGENT_BROWSER_BIN: ${{ github.workspace }}/.ci-agent-browser/linux-x64/agent-browser
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -111,6 +159,15 @@ jobs:
         with:
           name: frontend-dist
           path: dist
+
+      - name: Download patched agent-browser runtime
+        uses: actions/download-artifact@v4
+        with:
+          name: e2e-agent-browser-linux-x64
+          path: .ci-agent-browser
+
+      - name: Restore patched agent-browser executable permission
+        run: chmod +x "$FARMING_AGENT_BROWSER_BIN"
 
       # upload-artifact normalizes file modes. The managed rg binary is part
       # of the tested frontend artifact, so restore its executable bit instead
@@ -195,8 +252,10 @@ jobs:
 
   browser:
     name: Chromium (${{ matrix.shard }}/9)
-    needs: frontend
+    needs: [frontend, e2e-agent-browser]
     runs-on: ubuntu-latest
+    env:
+      FARMING_AGENT_BROWSER_BIN: ${{ github.workspace }}/.ci-agent-browser/linux-x64/agent-browser
     strategy:
       fail-fast: false
       matrix:
@@ -222,6 +281,15 @@ jobs:
         with:
           name: frontend-dist
           path: dist
+
+      - name: Download patched agent-browser runtime
+        uses: actions/download-artifact@v4
+        with:
+          name: e2e-agent-browser-linux-x64
+          path: .ci-agent-browser
+
+      - name: Restore patched agent-browser executable permission
+        run: chmod +x "$FARMING_AGENT_BROWSER_BIN"
 
       - name: Restore managed runtime executable permissions
         run: chmod +x dist/runtime/ripgrep/*/rg
@@ -284,8 +352,10 @@ jobs:
   # runs separately because its isolated server intentionally enables auth.
   mobile:
     name: Mobile browsers
-    needs: frontend
+    needs: [frontend, e2e-agent-browser]
     runs-on: ubuntu-latest
+    env:
+      FARMING_AGENT_BROWSER_BIN: ${{ github.workspace }}/.ci-agent-browser/linux-x64/agent-browser
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -307,6 +377,15 @@ jobs:
         with:
           name: frontend-dist
           path: dist
+
+      - name: Download patched agent-browser runtime
+        uses: actions/download-artifact@v4
+        with:
+          name: e2e-agent-browser-linux-x64
+          path: .ci-agent-browser
+
+      - name: Restore patched agent-browser executable permission
+        run: chmod +x "$FARMING_AGENT_BROWSER_BIN"
 
       - name: Restore managed runtime executable permissions
         run: chmod +x dist/runtime/ripgrep/*/rg
