@@ -629,12 +629,10 @@ const websocketWorkspaceRequestHandlers = createWebSocketWorkspaceRequestHandler
   },
 });
 agentManager.setSideChatResourceCleanup(async agentId => {
-  const results = await Promise.allSettled([
-    browserResourceManager.releaseAgentResources(agentId),
-    computerResourceManager.releaseAgentResources(agentId),
-  ]);
-  const failures = results.filter(result => result.status === 'rejected');
-  if (failures.length) throw new AggregateError(failures.map(result => result.reason), 'Side chat Resource cleanup failed');
+  // Browser release relinquishes Desktop leases and may remove an isolated
+  // Browser's owned Computer. Reconcile Computers only after that completes.
+  await browserResourceManager.releaseAgentResources(agentId);
+  await computerResourceManager.releaseAgentResources(agentId);
 });
 let agentResourceReconcileRequested = false;
 let agentResourceReconcileRunning = false;

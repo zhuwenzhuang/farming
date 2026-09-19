@@ -6912,7 +6912,10 @@ class AgentManager extends EventEmitter {
         this.sessionPersistence.persist(agent);
       },
     });
-    if (agent.sideChatParentSessionKey && result.reconnected === true) agent.sideChatRetained = false;
+    if (agent.sideChatParentSessionKey && result.reconnected === true) {
+      agent.sideChatRetained = false;
+      agent.sideChatSupervisionExpiresAt = Date.now() + 60_000;
+    }
     this.sessionPersistence.persist(agent);
     return result;
   }
