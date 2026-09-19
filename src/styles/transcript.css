@@ -358,13 +358,13 @@
   border: 0;
   padding: 0 0 8px;
 }
-.code-visualization-content { overflow: hidden; }
-.code-visualization-status {
+.code-agent-transcript-inline-visualization .code-visualization-content { overflow: hidden; }
+.code-agent-transcript-inline-visualization .code-visualization-status {
   padding: 12px 0;
   color: var(--code-text-subtle);
   overflow-wrap: anywhere;
 }
-.code-visualization-expand { margin-top: 8px; }
+.code-agent-transcript-inline-visualization .code-visualization-expand { margin-top: 8px; }
 .code-agent-transcript-inline-visualization:fullscreen {
   max-width: none;
   box-sizing: border-box;
