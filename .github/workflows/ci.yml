@@ -118,7 +118,7 @@ jobs:
           cargo install cargo-zigbuild --version 0.22.3 --locked
 
       - name: Build and verify patched agent-browser
-        run: node scripts/build-agent-browser-runtime.mjs --platform linux-x64 --output "$RUNNER_TEMP/e2e-agent-browser/linux-x64"
+        run: node scripts/build-agent-browser-runtime.mjs --platform linux-x64 --output "$RUNNER_TEMP/e2e-agent-browser"
 
       - name: Upload patched agent-browser runtime
         uses: actions/upload-artifact@v4

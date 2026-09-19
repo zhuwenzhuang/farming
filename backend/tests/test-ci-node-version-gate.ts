@@ -75,7 +75,7 @@ function run() {
   assert.deepStrictEqual(nodeMajorsOf(e2eAgentBrowser), [AUTHORITATIVE_NODE_MAJOR]);
   assert(
     runScriptsOf(e2eAgentBrowser).includes(
-      'scripts/build-agent-browser-runtime.mjs --platform linux-x64 --output "$RUNNER_TEMP/e2e-agent-browser/linux-x64"',
+      'scripts/build-agent-browser-runtime.mjs --platform linux-x64 --output "$RUNNER_TEMP/e2e-agent-browser"',
     ),
     'E2E runtime construction must use the exact-SHA native builder',
   );
