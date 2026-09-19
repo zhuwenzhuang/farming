@@ -178,6 +178,27 @@ function run() {
     assert.strictEqual(download.with.path, '${{ runner.temp }}/agent-browser-artifacts');
     assert.strictEqual(download.with['merge-multiple'], true);
   }
+  for (const jobName of ['build-linux', 'build-macos']) {
+    const job = preparationWorkflow.jobs[jobName];
+    const chrome = job.steps.find(step => step.name === 'Setup Chrome for patched runtime smoke');
+    assert.strictEqual(chrome?.if, "matrix.kind == 'app'");
+    assert.strictEqual(chrome?.uses, 'browser-actions/setup-chrome@v2');
+    assert.strictEqual(chrome?.with['chrome-version'], 'stable');
+    const smoke = job.steps.find(step => step.name.startsWith('Smoke-test patched browser runtime on'));
+    assert.strictEqual(smoke?.if, "matrix.kind == 'app'");
+    assert(smoke?.run.includes('npx tsx scripts/smoke-browser-idle.ts'));
+    assert(smoke?.run.includes('${{ steps.setup-chrome.outputs.chrome-path }}'));
+  }
+  assert(
+    preparationWorkflow.jobs['build-linux'].steps
+      .find(step => step.name === 'Smoke-test patched browser runtime on Linux')
+      ?.run.includes('$PWD/dist/runtime/agent-browser/linux-x64/agent-browser'),
+  );
+  assert(
+    preparationWorkflow.jobs['build-macos'].steps
+      .find(step => step.name === 'Smoke-test patched browser runtime on macOS')
+      ?.run.includes('$PWD/dist/runtime/agent-browser/darwin-${{ matrix.arch }}/agent-browser'),
+  );
   const dependencyUpdateGate = preparationWorkflow.jobs.preflight.steps.find(
     step => step.name === 'Check managed Agent dependency updates',
   );

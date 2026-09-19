@@ -211,6 +211,14 @@ jobs:
       - name: Install dependencies
         run: FARMING_SKIP_INSTALL_RUNTIME_PREPARE=1 PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 PUPPETEER_SKIP_DOWNLOAD=1 npm ci --registry=https://registry.npmjs.org/ --no-audit --no-fund
 
+      - name: Setup Chrome for patched runtime smoke
+        if: matrix.kind == 'app'
+        id: setup-chrome
+        uses: browser-actions/setup-chrome@v2
+        with:
+          chrome-version: stable
+          install-dependencies: true
+
       - name: Enable arm64 CLI smoke emulation
         if: matrix.kind == 'cli'
         uses: docker/setup-qemu-action@v3
@@ -247,6 +255,13 @@ jobs:
           FARMING_RELEASE_VERSION: ${{ steps.version.outputs.value }}
           FARMING_RELEASE_STAGE_ROOT: ${{ runner.temp }}/farming-release-stage-app
         run: npm run release:app
+
+      - name: Smoke-test patched browser runtime on Linux
+        if: matrix.kind == 'app'
+        run: >-
+          npx tsx scripts/smoke-browser-idle.ts
+          "$PWD/dist/runtime/agent-browser/linux-x64/agent-browser"
+          "${{ steps.setup-chrome.outputs.chrome-path }}"
 
       - name: Verify Linux app bundle
         if: matrix.kind == 'app'
@@ -403,6 +418,13 @@ jobs:
       - name: Install dependencies
         run: FARMING_SKIP_INSTALL_RUNTIME_PREPARE=1 PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 PUPPETEER_SKIP_DOWNLOAD=1 npm ci --registry=https://registry.npmjs.org/ --no-audit --no-fund
 
+      - name: Setup Chrome for patched runtime smoke
+        if: matrix.kind == 'app'
+        id: setup-chrome
+        uses: browser-actions/setup-chrome@v2
+        with:
+          chrome-version: stable
+
       - name: Build native macOS CLI
         if: matrix.kind == 'cli'
         env:
@@ -424,6 +446,13 @@ jobs:
           FARMING_RELEASE_ARCH: ${{ matrix.arch }}
           FARMING_RELEASE_STAGE_ROOT: ${{ runner.temp }}/farming-release-stage-app
         run: npm run release:app
+
+      - name: Smoke-test patched browser runtime on macOS
+        if: matrix.kind == 'app'
+        run: >-
+          npx tsx scripts/smoke-browser-idle.ts
+          "$PWD/dist/runtime/agent-browser/darwin-${{ matrix.arch }}/agent-browser"
+          "${{ steps.setup-chrome.outputs.chrome-path }}"
 
       - name: Verify macOS app bundle
         if: matrix.kind == 'app'
