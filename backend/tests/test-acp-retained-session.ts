@@ -19,7 +19,9 @@ async function run() {
     const opened = await runtime.prepareAgent(prepare);
     await runtime.submitMessage(prepare.agentId, [{ type: 'text', text: 'image attachment retained transcript' }]);
     const original = runtime.getSession(prepare.agentId);
-    const child = runtime.bindings.get(prepare.agentId).child;
+    const liveBinding = runtime.bindings.get(prepare.agentId);
+    liveBinding.initializeResponse.agentCapabilities._meta = { sessionArchive: { version: 1, method: '_session/archive' } };
+    const child = liveBinding.child;
     const result = await runtime.retainAgent(prepare.agentId);
     assert.equal(result.sessionId, opened.sessionId);
     assert.equal(result.retained, true);
@@ -27,6 +29,8 @@ async function run() {
     assert.deepEqual(runtime.getSession(prepare.agentId).entries, original.entries, 'retention preserves readable history');
     assert.equal(runtime.bindings.get(prepare.agentId).runtime, null);
     assert.ok(child.exitCode !== null || child.signalCode !== null, 'owned provider process must exit');
+    assert.equal(await runtime.archiveSession(prepare.agentId), false, 'retained history must not send an archive RPC to its stopped writer');
+    assert.equal(runtime.getSession(prepare.agentId).state, 'closed');
     const count = spawns;
     await runtime.dispose();
     runtime = new AcpRuntime(options);

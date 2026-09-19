@@ -4014,7 +4014,9 @@ class AcpRuntime extends EventEmitter {
 
   async archiveSession(agentId: string): Promise<boolean> {
     const binding = this.bindings.get(agentId);
-    if (!binding) return false;
+    // Retention proved that this binding no longer owns a live Provider writer.
+    // Let the lifecycle owner use the existing stopped-session History path.
+    if (!binding || binding.retained === true) return false;
     const capability = recordValue(binding.initializeResponse?.agentCapabilities?._meta?.sessionArchive);
     if (capability.version !== 1 || capability.method !== '_session/archive') return false;
     if (binding.activeTurn) await this.cancel(agentId);
