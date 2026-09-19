@@ -171,11 +171,11 @@ function run() {
   for (const jobName of ['build-linux', 'build-macos', 'prepare-npm']) {
     const job = preparationWorkflow.jobs[jobName];
     assert.deepStrictEqual(job.needs, ['preflight', 'build-agent-browser']);
-    assert.strictEqual(job.env.FARMING_AGENT_BROWSER_ARTIFACTS, '${{ runner.temp }}/agent-browser-artifacts');
+    assert.strictEqual(job.env.FARMING_AGENT_BROWSER_ARTIFACTS, '.release-agent-browser-artifacts');
     const download = job.steps.find(step => step.name === 'Download patched agent-browser runtimes');
     assert(download, `${jobName} must consume the verified patched agent-browser matrix`);
     assert.strictEqual(download.with.pattern, 'farming-agent-browser-*');
-    assert.strictEqual(download.with.path, '${{ runner.temp }}/agent-browser-artifacts');
+    assert.strictEqual(download.with.path, '.release-agent-browser-artifacts');
     assert.strictEqual(download.with['merge-multiple'], true);
   }
   for (const jobName of ['build-linux', 'build-macos']) {
