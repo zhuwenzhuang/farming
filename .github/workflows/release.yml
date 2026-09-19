@@ -172,7 +172,7 @@ jobs:
       FARMING_BASE_PATH: /farming
       FARMING_RELEASE_VERSION: ${{ inputs.release_version }}
       FARMING_RELEASE_INTEGRATION_REF: refs/remotes/origin/main
-      FARMING_AGENT_BROWSER_ARTIFACTS: ${{ runner.temp }}/release-agent-browser-artifacts
+      FARMING_AGENT_BROWSER_ARTIFACTS: ${{ github.workspace }}/../release-agent-browser-artifacts
     steps:
       - name: Normalize release version
         id: version
@@ -209,7 +209,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           pattern: farming-agent-browser-*
-          path: ${{ runner.temp }}/release-agent-browser-artifacts
+          path: ${{ github.workspace }}/../release-agent-browser-artifacts
           merge-multiple: true
 
       - name: Install dependencies
@@ -373,7 +373,7 @@ jobs:
       FARMING_BASE_PATH: /farming
       FARMING_RELEASE_VERSION: ${{ inputs.release_version }}
       FARMING_RELEASE_INTEGRATION_REF: refs/remotes/origin/main
-      FARMING_AGENT_BROWSER_ARTIFACTS: ${{ runner.temp }}/release-agent-browser-artifacts
+      FARMING_AGENT_BROWSER_ARTIFACTS: ${{ github.workspace }}/../release-agent-browser-artifacts
     steps:
       - name: Normalize release version
         id: version
@@ -410,7 +410,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           pattern: farming-agent-browser-*
-          path: ${{ runner.temp }}/release-agent-browser-artifacts
+          path: ${{ github.workspace }}/../release-agent-browser-artifacts
           merge-multiple: true
 
       - name: Verify native runner architecture
@@ -507,7 +507,7 @@ jobs:
     env:
       FARMING_RELEASE_VERSION: ${{ inputs.release_version }}
       FARMING_RELEASE_INTEGRATION_REF: refs/remotes/origin/main
-      FARMING_AGENT_BROWSER_ARTIFACTS: ${{ runner.temp }}/release-agent-browser-artifacts
+      FARMING_AGENT_BROWSER_ARTIFACTS: ${{ github.workspace }}/../release-agent-browser-artifacts
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -525,7 +525,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           pattern: farming-agent-browser-*
-          path: ${{ runner.temp }}/release-agent-browser-artifacts
+          path: ${{ github.workspace }}/../release-agent-browser-artifacts
           merge-multiple: true
 
       - name: Install current npm CLI
