@@ -378,3 +378,14 @@ Paint p95 小于 1,000 ms，并同时限制 Mounted Row 与 Row Render。这些�
 验证必须覆盖：Empty Project、多个 Agent 共享 Workspace、Git Worktree、Deep Tree、Keyboard
 Navigation、Reload Restore、Symlink、Search 与 Location Link、Dirty/External Change、结果
 不确定的 Mutation、Read-only Viewer、Git History、Review、Mobile Viewing 与 Large Workspace。
+
+## 表格预览
+
+XLSX、CSV、TSV 复用已有授权、版本化文件预览链路。浏览器持有只读工作簿快照、Sheet
+选择、单元格地址、查找与选区复制状态；后端继续拥有文件身份和访问权限。
+加载或刷新创建一组可取消的 Fetch 与 Worker 解析。关闭、切换或刷新文件时，旧结果失效，
+终止对应 Worker 并释放渲染表格；加载和解析分别具备有界失败状态。
+
+文件大小、ZIP 解压规模和预览单元格预算显式拒绝不支持的输入。展示工作簿格式化值与公式
+缓存提示，不重新计算公式；分隔文本保留原始字段文本。隐藏 Sheet、行、列带明确标记且仍可
+发现。预览覆盖 Light、Dark、Paper，保留原文件下载及已有文件刷新机制。

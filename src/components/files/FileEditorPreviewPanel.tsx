@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { iconForFilePath } from '@/lib/file-icons'
 import {
   isWorkspaceHtmlFile,
@@ -28,6 +28,10 @@ interface RetainedPdfPreview {
 }
 
 const MAX_RETAINED_PDF_PREVIEWS = 6
+const FileEditorSpreadsheetPreview = lazy(async () => {
+  const module = await import('./FileEditorSpreadsheetPreview')
+  return { default: module.FileEditorSpreadsheetPreview }
+})
 
 export function FileEditorPreviewPanel({
   openFile,
@@ -43,6 +47,7 @@ export function FileEditorPreviewPanel({
     : null
   const imagePreview = filePreview?.kind === 'image' ? filePreview : sourceImagePreview
   const pdfPreview = filePreview?.kind === 'pdf' ? filePreview : null
+  const spreadsheetPreview = filePreview?.kind === 'spreadsheet' ? filePreview : null
   const binaryPreview = filePreview?.kind === 'binary' ? filePreview : null
   const activePdf = useMemo(
     () => visible && pdfPreview
@@ -101,6 +106,27 @@ export function FileEditorPreviewPanel({
           />
         </div>
       </section>
+    )
+  } else if (visible && spreadsheetPreview) {
+    activePreview = (
+      <Suspense fallback={(
+        <section
+          className="code-file-preview-panel spreadsheet"
+          data-testid="code-file-preview-panel"
+          role="tabpanel"
+          aria-labelledby={activeTabDomId}
+          tabIndex={-1}
+        >
+          <div className="code-spreadsheet-state" role="status">{copy.spreadsheetLoading}</div>
+        </section>
+      )}>
+        <FileEditorSpreadsheetPreview
+          activeTabDomId={activeTabDomId}
+          copy={copy}
+          openFile={openFile}
+          previewRefreshRevision={previewRefreshRevision}
+        />
+      </Suspense>
     )
   } else if (visible && binaryPreview) {
     activePreview = (

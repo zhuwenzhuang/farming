@@ -455,6 +455,21 @@ export interface CodeCopy {
   refreshingFiles: string
   filesRefreshed: string
   filesRefreshFailed: string
+  spreadsheetLoading: string
+  spreadsheetSheet: string
+  spreadsheetFind: string
+  spreadsheetFindPlaceholder: string
+  spreadsheetNoMatch: string
+  spreadsheetAddress: string
+  spreadsheetCopy: string
+  spreadsheetCopied: string
+  spreadsheetDownload: string
+  spreadsheetRowsColumns: (rows: number, columns: number) => string
+  spreadsheetFormulaNoCache: string
+  spreadsheetMissingFormulaCaches: (count: number) => string
+  spreadsheetHiddenContent: string
+  spreadsheetHidden: string
+  spreadsheetParseFailed: string
   refresh: string
   rename: string
   copyRelativePath: string
@@ -1105,6 +1120,21 @@ const EN_COPY: CodeCopy = {
   refreshingFiles: 'Refreshing files…',
   filesRefreshed: 'Files refreshed',
   filesRefreshFailed: 'Files refresh failed',
+  spreadsheetLoading: 'Loading spreadsheet…',
+  spreadsheetSheet: 'Sheet',
+  spreadsheetFind: 'Find',
+  spreadsheetFindPlaceholder: 'Find in sheet',
+  spreadsheetNoMatch: 'No matching cell',
+  spreadsheetAddress: 'Cell address',
+  spreadsheetCopy: 'Copy selection',
+  spreadsheetCopied: 'Copied',
+  spreadsheetDownload: 'Download original',
+  spreadsheetRowsColumns: (rows, columns) => `${rows.toLocaleString()} rows × ${columns.toLocaleString()} columns`,
+  spreadsheetFormulaNoCache: 'Formula has no cached result',
+  spreadsheetMissingFormulaCaches: count => `${count.toLocaleString()} formula cell${count === 1 ? '' : 's'} have no cached result.`,
+  spreadsheetHiddenContent: 'The workbook contains hidden sheets, rows, or columns.',
+  spreadsheetHidden: 'hidden',
+  spreadsheetParseFailed: 'Spreadsheet preview unavailable',
   refresh: 'Refresh',
   rename: 'Rename',
   copyRelativePath: 'Copy Relative Path',
@@ -1791,6 +1821,21 @@ const ZH_COPY: CodeCopy = {
   refreshingFiles: '正在刷新文件…',
   filesRefreshed: '文件已刷新',
   filesRefreshFailed: '文件刷新失败',
+  spreadsheetLoading: '正在加载表格…',
+  spreadsheetSheet: '工作表',
+  spreadsheetFind: '查找',
+  spreadsheetFindPlaceholder: '在工作表中查找',
+  spreadsheetNoMatch: '没有匹配的单元格',
+  spreadsheetAddress: '单元格地址',
+  spreadsheetCopy: '复制选区',
+  spreadsheetCopied: '已复制',
+  spreadsheetDownload: '下载原文件',
+  spreadsheetRowsColumns: (rows, columns) => `${rows.toLocaleString()} 行 × ${columns.toLocaleString()} 列`,
+  spreadsheetFormulaNoCache: '公式没有缓存结果',
+  spreadsheetMissingFormulaCaches: count => `${count.toLocaleString()} 个公式单元格没有缓存结果。`,
+  spreadsheetHiddenContent: '工作簿包含隐藏的工作表、行或列。',
+  spreadsheetHidden: '已隐藏',
+  spreadsheetParseFailed: '无法预览表格',
   refresh: '刷新',
   rename: '重命名',
   copyRelativePath: '复制相对路径',

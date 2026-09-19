@@ -1,6 +1,6 @@
 {
   "name": "farming-code",
-  "version": "2.2.69",
+  "version": "2.2.70",
   "description": "Farming Code is a self-hosted browser workspace for running and supervising AI coding agents",
   "main": "backend/server.cjs",
   "bin": {
@@ -167,6 +167,7 @@
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "1.4.0",
+    "@visactor/vtable": "1.26.8",
     "@xterm/addon-clipboard": "^0.2.0",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-search": "^0.16.0",
@@ -202,12 +203,14 @@
     "vscode-jsonrpc": "9.0.1",
     "vscode-languageserver-protocol": "3.18.2",
     "ws": "^8.21.0",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
     "yaml": "^2.9.0",
     "yauzl": "3.4.0",
     "zod": "^3.25.76"
   },
   "bundledDependencies": [
     "@agentclientprotocol/sdk",
+    "@visactor/vtable",
     "@xterm/addon-clipboard",
     "@xterm/addon-fit",
     "@xterm/addon-search",
@@ -243,6 +246,7 @@
     "vscode-jsonrpc",
     "vscode-languageserver-protocol",
     "ws",
+    "xlsx",
     "yaml",
     "yauzl",
     "zod"
@@ -303,6 +307,7 @@
   },
   "bundleDependencies": [
     "@agentclientprotocol/sdk",
+    "@visactor/vtable",
     "@xterm/addon-clipboard",
     "@xterm/addon-fit",
     "@xterm/addon-search",
@@ -338,6 +343,7 @@
     "vscode-jsonrpc",
     "vscode-languageserver-protocol",
     "ws",
+    "xlsx",
     "yaml",
     "yauzl",
     "zod"

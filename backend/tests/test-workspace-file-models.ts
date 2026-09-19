@@ -636,6 +636,16 @@ function run() {
 	    canShowBlame: false,
 	    canShowLineChanges: false,
 	  });
+	  assert.deepStrictEqual(workspaceEditorFileMode(workingCopy({ file: { ...workspaceFile('data.xlsx'), preview: { kind: 'spreadsheet', mediaType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' } } })), {
+	    preview: true,
+	    visualPreview: true,
+	    diffOnly: false,
+	    readOnly: true,
+	    canEditText: false,
+	    canShowDiff: false,
+	    canShowBlame: false,
+	    canShowLineChanges: false,
+	  });
 	  assert.deepStrictEqual(workspaceEditorFileMode(workingCopy({ file: { ...workspaceFile('large.log'), preview: { kind: 'large-text', mediaType: 'text/plain', truncated: true } } })), {
 	    preview: true,
 	    visualPreview: false,

@@ -715,6 +715,170 @@ body.code-mode .code-file-editor-fallback-textarea {
   overflow: hidden;
 }
 
+.code-file-preview-panel.spreadsheet {
+  display: flex;
+  place-items: initial;
+  padding: 0;
+  overflow: hidden;
+}
+
+.code-spreadsheet-shell {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--code-bg-surface);
+}
+
+.code-spreadsheet-toolbar {
+  min-height: 38px;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--code-border-subtle);
+  background: var(--code-bg-muted);
+  color: var(--code-text-muted);
+  font-size: 12px;
+  overflow-x: auto;
+}
+
+.code-spreadsheet-toolbar label,
+.code-spreadsheet-find,
+.code-spreadsheet-address {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
+}
+
+.code-spreadsheet-toolbar select,
+.code-spreadsheet-toolbar input,
+.code-spreadsheet-toolbar button,
+.code-spreadsheet-download {
+  height: 28px;
+  box-sizing: border-box;
+  border: 1px solid var(--code-border-subtle);
+  border-radius: 6px;
+  background: var(--code-bg-surface);
+  color: var(--code-text);
+  font: inherit;
+}
+
+.code-spreadsheet-toolbar select,
+.code-spreadsheet-toolbar input {
+  padding: 0 8px;
+}
+
+.code-spreadsheet-toolbar button,
+.code-spreadsheet-download {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 9px;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.code-spreadsheet-toolbar button:hover,
+.code-spreadsheet-toolbar button:focus-visible,
+.code-spreadsheet-download:hover,
+.code-spreadsheet-download:focus-visible {
+  border-color: var(--code-accent);
+  background: var(--code-accent-soft);
+  color: var(--code-accent);
+  outline: 0;
+}
+
+.code-spreadsheet-toolbar button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.code-spreadsheet-find input {
+  width: 150px;
+}
+
+.code-spreadsheet-address input {
+  width: 74px;
+  font-family: var(--font-mono, "SF Mono", Menlo, Consolas, monospace);
+  text-transform: uppercase;
+}
+
+.code-spreadsheet-size {
+  margin-left: auto;
+  flex: 0 0 auto;
+  padding: 0 4px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.code-spreadsheet-warning {
+  flex: 0 0 auto;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--code-border-subtle);
+  background: var(--code-warning-bg, var(--code-bg-muted));
+  color: var(--code-warning-text, var(--code-text));
+  font-size: 12px;
+}
+
+.code-spreadsheet-grid {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+  background: var(--code-bg-surface);
+}
+
+.code-spreadsheet-inspector {
+  min-height: 30px;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 4px 10px;
+  border-top: 1px solid var(--code-border-subtle);
+  background: var(--code-bg-muted);
+  color: var(--code-text);
+  font: 12px/1.4 var(--font-mono, "SF Mono", Menlo, Consolas, monospace);
+  overflow: hidden;
+}
+
+.code-spreadsheet-inspector strong {
+  flex: 0 0 auto;
+  color: var(--code-text-muted);
+}
+
+.code-spreadsheet-inspector span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.code-spreadsheet-state {
+  margin: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  color: var(--code-text-muted);
+  text-align: center;
+}
+
+.code-spreadsheet-state.error {
+  max-width: 520px;
+  color: var(--code-danger, var(--code-text));
+}
+
+.code-spreadsheet-state a {
+  color: var(--code-accent);
+}
+
 .code-file-html-preview {
   flex: 1;
   min-width: 0;

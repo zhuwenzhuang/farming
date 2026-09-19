@@ -5,6 +5,12 @@ const path = require('path');
 const { diffChars } = require('diff');
 const { execFile, spawn } = require('child_process');
 const readline = require('readline');
+const yauzl = require('yauzl') as {
+  openPromise(
+    archivePath: string,
+    options: { autoClose: boolean; strictFileNames: boolean; validateEntrySizes: boolean },
+  ): Promise<{ eachEntry(): AsyncIterable<{ fileName: string; uncompressedSize: number }> }>;
+};
 import { isSameOrDescendantPath as isInside } from './path-containment.cjs';
 import { assertManagedRipgrep } from './ripgrep-runtime.cjs';
 
@@ -32,6 +38,9 @@ const MAX_EXACT_WATCH_TARGETS_PER_WORKSPACE = 1_024;
 const EXACT_WATCH_PATH_RESOLVE_CONCURRENCY = 16;
 const SEARCH_FILE_LIST_MAX_BUFFER = 16 * 1024 * 1024;
 const BINARY_SNIFF_BYTES = 8192;
+const MAX_SPREADSHEET_ZIP_ENTRIES = 4_096;
+const MAX_SPREADSHEET_UNCOMPRESSED_BYTES = 128 * 1024 * 1024;
+const MAX_SPREADSHEET_ZIP_ENTRY_BYTES = 32 * 1024 * 1024;
 const PATH_SEARCH_MIN_CANDIDATES = 120;
 const PATH_SEARCH_CANDIDATE_MULTIPLIER = 8;
 const MAX_GIT_CHECK_IGNORE_ARG_BYTES = 128 * 1024;
@@ -676,10 +685,49 @@ function sha1(buffer: import('crypto').BinaryLike): string {
 
 function previewForPath(filePath: string, options: { includeTextImages?: boolean } = {}) {
   const extension = path.extname(filePath).toLowerCase();
+  if (extension === '.xlsx') {
+    return { kind: 'spreadsheet', mediaType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' };
+  }
+  if (extension === '.csv') return { kind: 'spreadsheet', mediaType: 'text/csv; charset=utf-8' };
+  if (extension === '.tsv') return { kind: 'spreadsheet', mediaType: 'text/tab-separated-values; charset=utf-8' };
   if (extension === '.pdf') return { kind: 'pdf', mediaType: 'application/pdf' };
   if (!options.includeTextImages && TEXT_IMAGE_PREVIEW_EXTENSIONS.has(extension)) return null;
   const mediaType = IMAGE_PREVIEW_MEDIA_TYPES.get(extension);
   return mediaType ? { kind: 'image', mediaType } : null;
+}
+
+async function validateSpreadsheetArchive(target: string): Promise<void> {
+  let archive;
+  try {
+    archive = await yauzl.openPromise(target, {
+      autoClose: true,
+      strictFileNames: true,
+      validateEntrySizes: true,
+    });
+  } catch {
+    throw new WorkspaceFileError('workbook is invalid, encrypted, or unsupported', 415);
+  }
+  let entries = 0;
+  let uncompressedBytes = 0;
+  try {
+    for await (const entry of archive.eachEntry()) {
+      entries += 1;
+      uncompressedBytes += entry.uncompressedSize;
+      if (
+        entries > MAX_SPREADSHEET_ZIP_ENTRIES
+        || entry.uncompressedSize > MAX_SPREADSHEET_ZIP_ENTRY_BYTES
+        || uncompressedBytes > MAX_SPREADSHEET_UNCOMPRESSED_BYTES
+      ) {
+        throw new WorkspaceFileError('workbook exceeds the safe preview budget', 413, {
+          entries,
+          uncompressedBytes,
+        });
+      }
+    }
+  } catch (error: unknown) {
+    if (error instanceof WorkspaceFileError) throw error;
+    throw new WorkspaceFileError('workbook is invalid, encrypted, or unsupported', 415);
+  }
 }
 
 function metadataFileVersion(relativePath: string, stat: import('fs').Stats): string {
@@ -2691,6 +2739,9 @@ class WorkspaceFileService {
     }
     if (stat.size > this.maxPreviewFileSize) {
       throw new WorkspaceFileError('file is too large to preview', 413, { size: stat.size });
+    }
+    if (path.extname(relativePath).toLowerCase() === '.xlsx') {
+      await validateSpreadsheetArchive(target);
     }
     const buffer = await fsp.readFile(target);
     return {

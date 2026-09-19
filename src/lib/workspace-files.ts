@@ -40,6 +40,7 @@ export interface WorkspaceFile {
   preview?: (
     | { kind: 'image'; mediaType: string }
     | { kind: 'pdf'; mediaType: string }
+    | { kind: 'spreadsheet'; mediaType: string }
     | { kind: 'binary'; mediaType: string }
     | { kind: 'large-text'; mediaType: string; truncated?: boolean }
   )

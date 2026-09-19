@@ -15,6 +15,7 @@ preserved in bundled `node_modules` when bundled dependencies are enabled.
 | Package | Version | License | Purpose |
 | --- | --- | --- | --- |
 | `@agentclientprotocol/sdk` | 1.4.0 | Apache-2.0 | ACP JSON-RPC client and protocol types |
+| `@visactor/vtable` | 1.26.8 | MIT | Virtualized read-only spreadsheet rendering |
 | `@xterm/addon-clipboard` | 0.2.0 | MIT | Browser terminal clipboard integration |
 | `@xterm/addon-fit` | 0.11.0 | MIT | Browser terminal sizing |
 | `@xterm/addon-search` | 0.16.0 | MIT | Browser terminal search |
@@ -50,6 +51,7 @@ preserved in bundled `node_modules` when bundled dependencies are enabled.
 | `vscode-jsonrpc` | 9.0.1 | MIT | Language Server JSON-RPC stream transport |
 | `vscode-languageserver-protocol` | 3.18.2 | MIT | Language Server Protocol types and contracts |
 | `ws` | 8.21.0 | MIT | WebSocket server/client support |
+| `xlsx` | 0.20.3 | Apache-2.0 | XLSX and delimited-text workbook parsing |
 | `yaml` | 2.9.0 | ISC | YAML parsing |
 | `yauzl` | 3.4.0 | MIT | Validated managed ZIP archive parsing |
 | `zod` | 3.25.76 | MIT | MCP tool input schema validation |

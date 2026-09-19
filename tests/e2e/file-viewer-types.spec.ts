@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import * as XLSX from 'xlsx'
 import {
   expect,
   openFarming,
@@ -7,7 +8,7 @@ import {
   test,
 } from './fixtures'
 
-test('opens image, PDF, and binary files through their bounded viewers', async ({ page }) => {
+test('opens image, PDF, spreadsheet, and binary files through their bounded viewers', async ({ page }, testInfo) => {
   const workspaceRoot = path.join(PLAYWRIGHT_WORKSPACE_ROOT, 'file-viewer-types')
   fs.rmSync(workspaceRoot, { recursive: true, force: true })
   fs.mkdirSync(workspaceRoot, { recursive: true })
@@ -19,6 +20,22 @@ test('opens image, PDF, and binary files through their bounded viewers', async (
     '%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF\n',
   ))
   fs.writeFileSync(path.join(workspaceRoot, 'binary.bin'), Buffer.from([0, 1, 2, 3, 0]))
+  fs.writeFileSync(path.join(workspaceRoot, 'table.csv'), 'id,value\n001,12\n002,34\n')
+  const workbook = XLSX.utils.book_new()
+  const dataSheet = XLSX.utils.aoa_to_sheet([
+    ['id', 'value', 'formula'],
+    ...Array.from({ length: 12_000 }, (_, index) => [
+      String(index + 1).padStart(5, '0'),
+      (index + 1) * 42,
+      null,
+    ]),
+  ])
+  dataSheet.C2 = { t: 'n', f: 'B2*2', v: 84 }
+  dataSheet['!merges'] = [XLSX.utils.decode_range('A1:B1')]
+  XLSX.utils.book_append_sheet(workbook, dataSheet, 'Data')
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([['status'], ['ready']]), 'Summary')
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([['check'], ['passed']]), 'Diagnostics')
+  XLSX.writeFile(workbook, path.join(workspaceRoot, 'workbook.xlsx'))
 
   const rawPaths: string[] = []
   page.on('request', request => {
@@ -92,4 +109,37 @@ test('opens image, PDF, and binary files through their bounded viewers', async (
   await expect(page.getByTestId('code-file-metadata-preview-icon')).toBeVisible()
   expect(rawPaths).not.toContain('binary.bin')
   await expect(files.getByTestId('code-file-open-error')).toHaveCount(0)
+
+  await files.locator('[data-file-path="workbook.xlsx"]').dblclick()
+  await expect(activeTab).toHaveAttribute('title', 'workbook.xlsx')
+  const spreadsheet = page.getByTestId('code-spreadsheet-preview')
+  await expect(spreadsheet).toBeVisible({ timeout: 30_000 })
+  await expect(page.getByTestId('code-spreadsheet-grid').locator('canvas')).toBeVisible()
+  const address = spreadsheet.getByRole('textbox', { name: 'Cell address' })
+  await address.fill('B2')
+  await address.press('Enter')
+  await expect(spreadsheet.locator('.code-spreadsheet-inspector strong')).toHaveText('B2')
+  await expect(spreadsheet.locator('.code-spreadsheet-inspector span')).toHaveText('42')
+  await spreadsheet.getByRole('button', { name: 'Copy selection' }).click()
+  await expect(spreadsheet.getByRole('button', { name: 'Copied' })).toBeVisible()
+  const find = spreadsheet.getByRole('textbox', { name: 'Find' })
+  await find.fill('002')
+  await find.press('Enter')
+  await expect(spreadsheet.locator('.code-spreadsheet-inspector strong')).toHaveText('A3')
+  await page.getByTestId('code-spreadsheet-sheet-select').selectOption({ label: 'Summary' })
+  await expect(spreadsheet.locator('.code-spreadsheet-inspector span')).toHaveText('status')
+
+  for (const appearance of ['light', 'dark', 'paper'] as const) {
+    await page.evaluate(value => {
+      document.documentElement.dataset.appearance = value
+      document.body.dataset.appearance = value
+    }, appearance)
+    await expect(page.getByTestId('code-spreadsheet-grid').locator('canvas')).toBeVisible()
+    await spreadsheet.screenshot({ path: testInfo.outputPath(`spreadsheet-${appearance}.png`) })
+  }
+
+  await files.locator('[data-file-path="table.csv"]').dblclick()
+  await expect(activeTab).toHaveAttribute('title', 'table.csv')
+  await expect(page.getByTestId('code-spreadsheet-preview')).toBeVisible({ timeout: 30_000 })
+  await expect(page.getByTestId('code-spreadsheet-preview').locator('.code-spreadsheet-inspector span')).toHaveText('id')
 })

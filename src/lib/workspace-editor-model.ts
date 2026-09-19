@@ -240,6 +240,7 @@ export function workspaceEditorFileMode(file: WorkspaceEditorFileModeReference):
   const preview = Boolean(file.file.preview)
   const visualPreview = file.file.preview?.kind === 'image'
     || file.file.preview?.kind === 'pdf'
+    || file.file.preview?.kind === 'spreadsheet'
     || file.file.preview?.kind === 'binary'
   const diffOnly = file.diffOnly === true
   const readOnly = preview || diffOnly

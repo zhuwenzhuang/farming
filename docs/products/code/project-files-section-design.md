@@ -528,3 +528,19 @@ Verification must cover empty Projects, multiple Agents sharing a workspace,
 Git worktrees, deep trees, keyboard navigation, reload restoration, symlinks,
 search and location links, dirty and external changes, uncertain mutations,
 read-only viewers, Git History, Review, mobile viewing, and large workspaces.
+
+## Spreadsheet Preview
+
+XLSX, CSV and TSV use the existing authorized, versioned file-preview path.
+The browser owns a read-only workbook snapshot, sheet selection, cell address,
+search and selection copy; the backend continues to own file identity and access.
+Loading or refreshing creates one cancellable fetch and Worker parse. Closing,
+switching or refreshing invalidates the old result, terminates its Worker and
+releases the rendered table. Fetch and parse each have bounded failure states.
+
+Workbook size, ZIP expansion and preview cell budgets reject unsupported input
+explicitly. Display formatted workbook values and formula-cache warnings without
+recalculating formulas; delimited text preserves its original field text.
+Hidden sheets, rows and columns remain discoverable with explicit markers.
+The same preview supports Light, Dark and Paper; original-file download and the
+existing file refresh mechanism remain available.

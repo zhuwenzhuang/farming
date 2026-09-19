@@ -4,6 +4,7 @@ const fsp = require('fs/promises');
 const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
+const XLSX = require('xlsx');
 
 const {
   WorkspaceFileService,
@@ -243,6 +244,23 @@ async function run() {
     fs.writeFileSync(path.join(workspace, 'preview.pdf'), Buffer.from('%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF\n'));
     fs.writeFileSync(path.join(workspace, 'large.log'), `${'large text line\n'.repeat(3000)}`);
     fs.writeFileSync(path.join(workspace, 'predicates.csv'), 'id,value\n'.repeat(120000));
+    const workbook = XLSX.utils.book_new();
+    const workbookSheet = XLSX.utils.aoa_to_sheet([
+      ['id', 'value'],
+      ['001', 42],
+    ]);
+    XLSX.utils.book_append_sheet(workbook, workbookSheet, 'Data');
+    XLSX.writeFile(workbook, path.join(workspace, 'preview.xlsx'));
+    fs.writeFileSync(path.join(workspace, 'invalid.xlsx'), 'not a workbook');
+    const oversizedWorkbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(
+      oversizedWorkbook,
+      XLSX.utils.aoa_to_sheet(Array.from({ length: 1_030 }, (_, index) => [
+        `${'a'.repeat(32_760)}${index}`,
+      ])),
+      'Oversized',
+    );
+    XLSX.writeFile(oversizedWorkbook, path.join(workspace, 'oversized.xlsx'), { compression: true });
     fs.writeFileSync(path.join(workspace, 'preview.png'), Buffer.from(
       'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgF/2l2fLwAAAABJRU5ErkJggg==',
       'base64'
@@ -314,8 +332,10 @@ async function run() {
     const defaultSizeService = new WorkspaceFileService({ flushWorkspaceWrites: false });
     try {
       const csvFile = await defaultSizeService.readFile(workspace, 'predicates.csv');
-      assert.strictEqual(csvFile.content, fs.readFileSync(path.join(workspace, 'predicates.csv'), 'utf8'));
-      assert.strictEqual(csvFile.preview, undefined);
+      assert.strictEqual(csvFile.content, '');
+      assert.strictEqual(csvFile.binary, true);
+      assert.strictEqual(csvFile.preview.kind, 'spreadsheet');
+      assert.strictEqual(csvFile.preview.mediaType, 'text/csv; charset=utf-8');
       assert.strictEqual(csvFile.readOnly, undefined);
     } finally {
       await defaultSizeService.dispose();
@@ -399,6 +419,22 @@ async function run() {
     assert.strictEqual(pdfPreview.preview.kind, 'pdf');
     assert.strictEqual(pdfPreview.preview.mediaType, 'application/pdf');
     assert(pdfPreview.buffer.toString('utf8').startsWith('%PDF-1.4'));
+    const spreadsheetFile = await service.readFile(workspace, 'preview.xlsx');
+    assert.strictEqual(spreadsheetFile.binary, true);
+    assert.strictEqual(spreadsheetFile.preview.kind, 'spreadsheet');
+    assert.strictEqual(
+      spreadsheetFile.preview.mediaType,
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+    const spreadsheetPreview = await service.readPreviewFile(workspace, 'preview.xlsx');
+    assert.strictEqual(spreadsheetPreview.preview.kind, 'spreadsheet');
+    assert(spreadsheetPreview.buffer.subarray(0, 2).equals(Buffer.from('PK')));
+    const invalidSpreadsheet = await service.readFile(workspace, 'invalid.xlsx');
+    assert.strictEqual(invalidSpreadsheet.preview.kind, 'spreadsheet');
+    await assertRejectsWithStatus(service.readPreviewFile(workspace, 'invalid.xlsx'), 415);
+    const oversizedSpreadsheet = await service.readFile(workspace, 'oversized.xlsx');
+    assert.strictEqual(oversizedSpreadsheet.preview.kind, 'spreadsheet');
+    await assertRejectsWithStatus(service.readPreviewFile(workspace, 'oversized.xlsx'), 413);
     const svgFile = await service.readFile(workspace, 'icon.svg');
     assert.strictEqual(svgFile.path, 'icon.svg');
     assert(svgFile.content.includes('<svg'));
