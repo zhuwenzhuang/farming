@@ -265,7 +265,13 @@ function run() {
   assert(publicationWorkflowSource.includes("if: inputs.failed_publication_run_id == ''"));
   assert(publicationWorkflowSource.includes("if: inputs.failed_publication_run_id != ''"));
   assert(publicationWorkflowSource.includes("workflow.path !== '.github/workflows/publish-release.yml'"));
-  assert(publicationWorkflowSource.includes("['Verify public tag, assets, and manifest', 'failure']"));
+  assert(
+    publicationWorkflowSource.includes("publicVerification?.conclusion === 'failure'")
+      && publicationWorkflowSource.includes("npmPublication?.conclusion === 'skipped'")
+      && publicationWorkflowSource.includes("publicVerification?.conclusion === 'success'")
+      && publicationWorkflowSource.includes("npmPublication?.conclusion === 'failure'"),
+    'publication recovery must accept failure at either public-asset verification or npm publication',
+  );
   const publicationSteps = publicationWorkflow.jobs['publish-release'].steps;
   const publicationStepIndex = (name: string) => publicationSteps.findIndex(step => step.name === name);
   const publicationStep = (name: string) => publicationSteps.find(step => step.name === name);

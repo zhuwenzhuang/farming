@@ -135,11 +135,25 @@ jobs:
             ['Require successful candidate push workflows', 'success'],
             ['Require successful automated and Computer Use acceptance', 'success'],
             ['Publish the matching draft release', 'success'],
-            ['Verify public tag, assets, and manifest', 'failure'],
           ]);
           for (const [name, conclusion] of requiredSteps) {
             const step = (job.steps || []).find(entry => entry.name === name);
             if (step?.conclusion !== conclusion) throw new Error(`Publication step ${name} is ${step?.conclusion || 'missing'}, expected ${conclusion}`);
+          }
+          const publicVerification = (job.steps || []).find(
+            entry => entry.name === 'Verify public tag, assets, and manifest',
+          );
+          const npmPublication = (job.steps || []).find(
+            entry => entry.name === 'Verify and publish npm package with provenance',
+          );
+          const recoverablePublicVerificationFailure = publicVerification?.conclusion === 'failure'
+            && npmPublication?.conclusion === 'skipped';
+          const recoverableNpmPublicationFailure = publicVerification?.conclusion === 'success'
+            && npmPublication?.conclusion === 'failure';
+          if (!recoverablePublicVerificationFailure && !recoverableNpmPublicationFailure) {
+            throw new Error(
+              `Publication did not stop at a recoverable boundary: public=${publicVerification?.conclusion || 'missing'}, npm=${npmPublication?.conclusion || 'missing'}`,
+            );
           }
           NODE
           fi
