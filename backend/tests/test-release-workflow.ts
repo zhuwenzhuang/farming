@@ -181,6 +181,12 @@ function run() {
     const job = preparationWorkflow.jobs[jobName];
     assert.deepStrictEqual(job.needs, ['preflight', 'build-agent-browser']);
     assert.strictEqual(job.env.FARMING_AGENT_BROWSER_ARTIFACTS, '.release-agent-browser-artifacts');
+    const installScripts = job.steps.map(step => step.run ?? '').join('\n');
+    assert(
+      installScripts.indexOf('npm install --global npm@12.0.2') >= 0
+        && installScripts.indexOf('npm install --global npm@12.0.2') < installScripts.indexOf('npm ci'),
+      `${jobName} must select the pinned npm 12 resolver before npm ci`,
+    );
     const download = job.steps.find(step => step.name === 'Download patched agent-browser runtimes');
     assert(download, `${jobName} must consume the verified patched agent-browser matrix`);
     assert.strictEqual(download.with.pattern, 'farming-agent-browser-*');

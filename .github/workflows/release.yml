@@ -213,7 +213,9 @@ jobs:
           merge-multiple: true
 
       - name: Install dependencies
-        run: FARMING_SKIP_INSTALL_RUNTIME_PREPARE=1 PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 PUPPETEER_SKIP_DOWNLOAD=1 npm ci --registry=https://registry.npmjs.org/ --no-audit --no-fund
+        run: |
+          npm install --global npm@12.0.2
+          FARMING_SKIP_INSTALL_RUNTIME_PREPARE=1 PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 PUPPETEER_SKIP_DOWNLOAD=1 npm ci --registry=https://registry.npmjs.org/ --no-audit --no-fund
 
       - name: Setup Chrome for patched runtime smoke
         if: matrix.kind == 'app'
@@ -420,7 +422,9 @@ jobs:
           esac
 
       - name: Install dependencies
-        run: FARMING_SKIP_INSTALL_RUNTIME_PREPARE=1 PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 PUPPETEER_SKIP_DOWNLOAD=1 npm ci --registry=https://registry.npmjs.org/ --no-audit --no-fund
+        run: |
+          npm install --global npm@12.0.2
+          FARMING_SKIP_INSTALL_RUNTIME_PREPARE=1 PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 PUPPETEER_SKIP_DOWNLOAD=1 npm ci --registry=https://registry.npmjs.org/ --no-audit --no-fund
 
       - name: Setup Chrome for patched runtime smoke
         if: matrix.kind == 'app'
@@ -525,7 +529,7 @@ jobs:
           merge-multiple: true
 
       - name: Install current npm CLI
-        run: npm install --global npm@latest
+        run: npm install --global npm@12.0.2
 
       - name: Install dependencies
         run: FARMING_SKIP_INSTALL_RUNTIME_PREPARE=1 PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 PUPPETEER_SKIP_DOWNLOAD=1 npm ci --registry=https://registry.npmjs.org/ --no-audit --no-fund

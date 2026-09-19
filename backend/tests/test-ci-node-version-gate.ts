@@ -70,6 +70,16 @@ function run() {
   assert.strictEqual(workflow.env.FARMING_SKIP_INSTALL_RUNTIME_PREPARE, '1');
   assert.strictEqual(workflow.env.PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD, '1');
   assert.strictEqual(workflow.env.PUPPETEER_SKIP_DOWNLOAD, '1');
+  for (const [jobName, job] of jobs) {
+    const install = job.steps?.find(step => step.name === 'Install dependencies');
+    if (!install) continue;
+    const script = install.run ?? '';
+    assert(
+      script.indexOf('npm install --global npm@12.0.2') >= 0
+        && script.indexOf('npm install --global npm@12.0.2') < script.indexOf('npm ci'),
+      `${jobName} must select the pinned npm 12 resolver before npm ci`,
+    );
+  }
   assert.strictEqual(workflow.jobs.browser.strategy.matrix.shard.length, 9);
   const browserRunStep = workflow.jobs.browser.steps.find(
     step => step.name === 'Run Chromium browser checks',

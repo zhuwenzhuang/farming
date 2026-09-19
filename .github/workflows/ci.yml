@@ -35,7 +35,9 @@ jobs:
           registry-url: https://registry.npmjs.org
 
       - name: Install dependencies
-        run: npm ci --registry=https://registry.npmjs.org/ --no-audit --no-fund
+        run: |
+          npm install --global npm@12.0.2
+          npm ci --registry=https://registry.npmjs.org/ --no-audit --no-fund
 
       - name: Run checks
         run: npm run check
@@ -66,7 +68,9 @@ jobs:
           registry-url: https://registry.npmjs.org
 
       - name: Install dependencies
-        run: npm ci --registry=https://registry.npmjs.org/ --no-audit --no-fund
+        run: |
+          npm install --global npm@12.0.2
+          npm ci --registry=https://registry.npmjs.org/ --no-audit --no-fund
 
       - name: Build frontend
         run: FARMING_BASE_PATH=/farming npm run build
@@ -98,7 +102,9 @@ jobs:
           registry-url: https://registry.npmjs.org
 
       - name: Install dependencies
-        run: npm ci --registry=https://registry.npmjs.org/ --no-audit --no-fund
+        run: |
+          npm install --global npm@12.0.2
+          npm ci --registry=https://registry.npmjs.org/ --no-audit --no-fund
 
       - name: Download frontend build
         uses: actions/download-artifact@v4
@@ -177,7 +183,9 @@ jobs:
           registry-url: https://registry.npmjs.org
 
       - name: Install dependencies
-        run: npm ci --registry=https://registry.npmjs.org/ --no-audit --no-fund
+        run: |
+          npm install --global npm@12.0.2
+          npm ci --registry=https://registry.npmjs.org/ --no-audit --no-fund
 
       - name: Typecheck on Node 24
         run: npm run typecheck
@@ -205,7 +213,9 @@ jobs:
           registry-url: https://registry.npmjs.org
 
       - name: Install dependencies
-        run: npm ci --registry=https://registry.npmjs.org/ --no-audit --no-fund
+        run: |
+          npm install --global npm@12.0.2
+          npm ci --registry=https://registry.npmjs.org/ --no-audit --no-fund
 
       - name: Download frontend build
         uses: actions/download-artifact@v4
@@ -288,7 +298,9 @@ jobs:
           registry-url: https://registry.npmjs.org
 
       - name: Install dependencies
-        run: npm ci --registry=https://registry.npmjs.org/ --no-audit --no-fund
+        run: |
+          npm install --global npm@12.0.2
+          npm ci --registry=https://registry.npmjs.org/ --no-audit --no-fund
 
       - name: Download frontend build
         uses: actions/download-artifact@v4
