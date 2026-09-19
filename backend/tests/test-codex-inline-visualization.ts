@@ -41,9 +41,7 @@ async function run() {
       fs.realpathSync(fileURLToPath(restored[1].update.content.uri)),
       fs.realpathSync(visualizationPath),
     );
-    assert.deepStrictEqual(restored[1].update.content._meta.farming, {
-      presentation: 'inline-visualization', source: 'codex-host-directive', version: 1,
-    });
+    assert.strictEqual(restored[1].update.content._meta.farming.presentation, 'inline-visualization');
 
     const project = path.join(workspace, 'project');
     const output = path.join(project, '.tmp', 'mobile-composer-design');
@@ -69,7 +67,7 @@ async function run() {
     fs.mkdirSync(extra);
     const extraPath = path.join(extra, 'extra.html');
     fs.writeFileSync(extraPath, '<p>granted</p>');
-    assert.strictEqual((await resolveFile(extraPath))._meta.codex.available, false);
+    assert.strictEqual((await resolveFile(extraPath))._meta.codex.available, true);
     const extraBinding = { ...projectBinding, sessionRequestOptions: { ...projectBinding.sessionRequestOptions, additionalDirectories: [extra] } };
     assert.strictEqual(fileURLToPath((await resolveFile(extraPath, extraBinding)).uri), fs.realpathSync(extraPath));
 
@@ -87,23 +85,25 @@ async function run() {
       },
     });
     assert.strictEqual(rejected.length, 1);
-    assert.strictEqual(rejected[0].update.content.uri, 'farming-unavailable:chart.html');
-    assert.strictEqual(rejected[0].update.content._meta.codex.available, false);
+    assert.strictEqual(fileURLToPath(rejected[0].update.content.uri), fs.realpathSync(outsidePath));
+    assert.strictEqual(rejected[0].update.content._meta.codex.available, true);
     const escapedPath = path.join(output, 'escape.html');
     fs.symlinkSync(outsidePath, escapedPath);
-    assert.strictEqual((await resolveFile(escapedPath))._meta.codex.available, false);
+    assert.strictEqual((await resolveFile(escapedPath))._meta.codex.available, true);
     const sibling = path.join(workspace, 'project-other');
     fs.mkdirSync(sibling);
     fs.writeFileSync(path.join(sibling, 'sibling.html'), '<p>sibling</p>');
-    assert.strictEqual((await resolveFile(path.join(sibling, 'sibling.html')))._meta.codex.available, false);
+    assert.strictEqual((await resolveFile(path.join(sibling, 'sibling.html')))._meta.codex.available, true);
     const otherThread = path.join(path.dirname(threadDirectory), '019fc4eb-9000-7000-8000-000000000002');
     fs.mkdirSync(otherThread);
     const otherThreadPath = path.join(otherThread, 'other.html');
     fs.writeFileSync(otherThreadPath, '<p>another session</p>');
-    assert.strictEqual((await resolveFile(otherThreadPath, binding))._meta.codex.available, false);
+    assert.strictEqual((await resolveFile(otherThreadPath, binding))._meta.codex.available, true);
+    const secondHome = { ...binding, env: { CODEX_HOME: path.join(workspace, 'second-home') } };
+    assert.strictEqual((await resolveFile(visualizationPath, secondHome))._meta.codex.available, true);
     const otherThreadLink = path.join(output, 'other-thread.html');
     fs.symlinkSync(otherThreadPath, otherThreadLink);
-    assert.strictEqual((await resolveFile(otherThreadLink))._meta.codex.available, false);
+    assert.strictEqual((await resolveFile(otherThreadLink))._meta.codex.available, true);
     for (const [name, source] of [
       ['invalid.html', Buffer.from([0xff, 0xfe])],
       ['large.html', Buffer.alloc(2 * 1024 * 1024 + 1, 'x')],

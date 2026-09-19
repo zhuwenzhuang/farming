@@ -136,7 +136,8 @@ export type WorkspaceRequest =
   | { operation: 'tree'; rootId: string; path?: string }
   | { operation: 'tree-decorations'; rootId: string; path?: string; entryPaths: string[] }
   | { operation: 'read-file'; rootId: string; path: string; exactExternal?: boolean }
-  | { operation: 'create-preview'; rootId: string; path: string; exactExternal?: boolean }
+  | { operation: 'create-preview'; rootId: string; path: string; exactExternal?: boolean; visualization?: boolean; resourceRoot?: string }
+  | { operation: 'renew-preview'; previewId: string }
   | { operation: 'delete-preview'; previewId: string }
   | { operation: 'save-file'; rootId: string; path: string; content: string; baseSha1: string; overwrite?: boolean }
   | { operation: 'move-entry'; rootId: string; sourcePath: string; targetDirectory: string; expectedVersion?: string }
@@ -655,8 +656,10 @@ function workspaceRequest(value: unknown): value is WorkspaceRequest {
         && value.entryPaths.length <= 4096
         && value.entryPaths.every(entryPath => typeof entryPath === 'string' && entryPath.length <= 4096)
     case 'read-file':
-    case 'create-preview':
       return rootPath() && optionalBooleanField(value, 'exactExternal')
+    case 'create-preview':
+      return rootPath() && optionalBooleanField(value, 'exactExternal') && optionalBooleanField(value, 'visualization') && boundedStringField(value, 'resourceRoot', 4096, true)
+    case 'renew-preview':
     case 'delete-preview':
       return boundedStringField(value, 'previewId', 256)
     case 'save-file':

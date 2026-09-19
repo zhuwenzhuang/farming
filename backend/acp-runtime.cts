@@ -845,34 +845,13 @@ async function resolveCodexInlineVisualization(binding: AcpBinding, sessionId: s
     !requested
     || !file
     || (!path.isAbsolute(requested) && requested !== file)
-    || path.extname(file) !== '.html'
+    || !/\.html?$/i.test(file)
   ) return '';
-  const { threadDirectory, visualizationsDirectory } = codexVisualizationThreadDirectory(binding, sessionId);
+  const { threadDirectory } = codexVisualizationThreadDirectory(binding, sessionId);
   if (!path.isAbsolute(requested) && !threadDirectory) return '';
   try {
     const requestedPath = path.isAbsolute(requested) ? path.resolve(requested) : path.join(threadDirectory, file);
     const candidate = await fs.promises.realpath(requestedPath);
-    const canonicalVisualizations = await fs.promises.realpath(visualizationsDirectory).catch(() => '');
-    // Provider-owned visualization storage keeps its exact Session boundary,
-    // even when a workspace or an additional directory contains the Agent Home.
-    const inProviderStorage = isSameOrDescendantPath(visualizationsDirectory, requestedPath)
-      || (canonicalVisualizations && isSameOrDescendantPath(canonicalVisualizations, candidate));
-    if (inProviderStorage) {
-      if (!threadDirectory || !canonicalVisualizations) return '';
-      const canonicalThread = await fs.promises.realpath(threadDirectory);
-      if (!canonicalThread.startsWith(`${canonicalVisualizations}${path.sep}`)
-        || !candidate.startsWith(`${canonicalThread}${path.sep}`)) return '';
-    } else {
-      const roots = [binding.cwd, ...(binding.sessionRequestOptions?.additionalDirectories || [])]
-        .filter((root): root is string => Boolean(root));
-      const authorized = await Promise.all(roots.map(async root => {
-        const resolvedRoot = path.resolve(root);
-        if (!isSameOrDescendantPath(resolvedRoot, requestedPath)) return false;
-        const canonicalRoot = await fs.promises.realpath(resolvedRoot).catch(() => '');
-        return Boolean(canonicalRoot && isSameOrDescendantPath(canonicalRoot, candidate));
-      }));
-      if (!authorized.some(Boolean)) return '';
-    }
     if (!(await fs.promises.stat(candidate)).isFile()) return '';
     const handle = await fs.promises.open(candidate, 'r');
     try {
@@ -925,12 +904,12 @@ async function normalizeCodexHostMessageUpdate(binding: AcpBinding, notification
         ...update,
         content: {
           type: 'resource_link',
-          name: displayFile,
+          name: directive.title || displayFile,
           uri: resolved ? pathToFileURL(resolved).toString() : `farming-unavailable:${displayFile}`,
           mimeType: 'text/html',
           _meta: {
             codex: { kind: 'inline-visualization', available: Boolean(resolved) },
-            farming: { presentation: 'inline-visualization', source: 'codex-host-directive', version: 1 },
+            farming: { presentation: 'inline-visualization', source: 'codex-host-directive', version: 1, mode: directive.mode, resourceRoot: directive.resourceRoot, requestedPath: path.isAbsolute(directive.file) ? directive.file : path.join(codexVisualizationThreadDirectory(binding, String(notification.sessionId || '')).threadDirectory, directive.file) },
           },
         },
       },
@@ -950,10 +929,14 @@ function normalizeReservedPresentationMetadata(notification: UnknownRecord) {
   const nextMeta = { ...(contentMeta || {}) };
   delete nextMeta.farming;
   if (trusted) {
+    const presentation = contentMeta?.farming as UnknownRecord | undefined;
     nextMeta.farming = {
       presentation: 'inline-visualization',
       source: 'codex-host-directive',
       version: 1,
+      ...(presentation?.mode ? { mode: presentation.mode } : {}),
+      ...(presentation?.resourceRoot ? { resourceRoot: presentation.resourceRoot } : {}),
+      ...(presentation?.requestedPath ? { requestedPath: presentation.requestedPath } : {}),
     };
   }
   const nextContent = { ...content };

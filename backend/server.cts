@@ -264,6 +264,7 @@ import { createAcpTerminalResizeHandler } from './acp-terminal-resize-handler.cj
 import { WorkspaceFileService, WorkspaceFileError } from './workspace-file-service.cjs';
 import {
   createWorkspaceFileRouter,
+  createVisualizationResourceRouter,
   executeWorkspaceFileRequest,
   resolveWorkspaceRoot,
 } from './workspace-file-router.cjs';
@@ -956,6 +957,7 @@ app.get(routePath(BASE_PATH, '/j/:code'), (req, res) => {
 app.use(routePath(BASE_PATH, '/s'), createReadOnlyShareEntryRouter(readOnlyShares, tokenAuth, BASE_PATH));
 
 // Token authentication middleware (before static files)
+app.use(routePath(BASE_PATH, '/api/visualization-resources'), createVisualizationResourceRouter(workspaceFileService, workspacePreviewSessionManager));
 app.use(tokenAuth.middleware());
 app.use(routePath(BASE_PATH, '/api/diagnostics/performance'), createInteractionPerformanceRouter(interactionPerformance, authEnabled));
 

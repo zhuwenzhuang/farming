@@ -183,6 +183,7 @@
     "express": "^5.2.1",
     "highlight.js": "^11.11.1",
     "katex": "^0.17.0",
+    "lucide": "1.47.0",
     "material-icon-theme": "^5.36.1",
     "mermaid": "^11.16.1",
     "monaco-editor": "^0.55.1",

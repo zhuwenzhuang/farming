@@ -128,3 +128,16 @@ assert.strictEqual(partitionedManager.get(ownerC.id), ownerC);
 assert.strictEqual(partitionedManager.get(viewerA2.id, { accessMode: 'read-only' }), viewerA2);
 
 console.log('preview session manager assertions passed');
+
+let leaseNow = 0;
+const leases = new PreviewSessionManager({ ttlMs: 1000, now: () => leaseNow });
+const lease = leases.createStatic({ ...previewInput, visualization: true, scopeId: 'client-a' });
+leaseNow = 500;
+assert.strictEqual(leases.renew(lease.id, { scopeId: 'client-b' }), null);
+const renewal = leases.renew(lease.id, { scopeId: 'client-a' });
+assert.strictEqual(renewal.id, lease.id);
+assert.strictEqual(renewal.visualization, true);
+assert.strictEqual(renewal.expiresAt, 1500);
+leaseNow = 1501;
+assert.strictEqual(leases.renew(lease.id, { scopeId: 'client-a' }), null);
+leases.dispose();

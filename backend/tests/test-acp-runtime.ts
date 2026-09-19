@@ -1630,6 +1630,7 @@ async function run() {
     assert.strictEqual(normalizedVisualization[1].update.content.mimeType, 'text/html');
     assert.deepStrictEqual(normalizedVisualization[1].update.content._meta.farming, {
       presentation: 'inline-visualization', source: 'codex-host-directive', version: 1,
+      mode: undefined, resourceRoot: undefined, requestedPath: path.join(visualizationDirectory, 'chart.html'),
     });
     assert.match(normalizedVisualization[1].update.content.uri, /^file:\/\//);
     assert(normalizedVisualization[1].update.content.uri.endsWith('/chart.html'));

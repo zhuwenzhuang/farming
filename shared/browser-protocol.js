@@ -110,8 +110,10 @@ function workspaceRequest(value) {
                 && value.entryPaths.length <= 4096
                 && value.entryPaths.every(entryPath => typeof entryPath === 'string' && entryPath.length <= 4096);
         case 'read-file':
-        case 'create-preview':
             return rootPath() && optionalBooleanField(value, 'exactExternal');
+        case 'create-preview':
+            return rootPath() && optionalBooleanField(value, 'exactExternal') && optionalBooleanField(value, 'visualization') && boundedStringField(value, 'resourceRoot', 4096, true);
+        case 'renew-preview':
         case 'delete-preview':
             return boundedStringField(value, 'previewId', 256);
         case 'save-file':

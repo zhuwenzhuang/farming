@@ -54,13 +54,9 @@ import {
 } from '@/components/IconGlyphs'
 import { LocalErrorBoundary, LocalRenderFault } from '@/components/LocalErrorBoundary'
 import {
-  createWorkspaceHtmlPreview,
-  deleteWorkspaceHtmlPreview,
   fetchWorkspaceChanges,
-  fetchWorkspaceFile,
   fetchWorkspaceGitWorktrees,
   rawWorkspaceFileUrl,
-  workspaceHtmlPreviewUrl,
 } from '@/lib/workspace-files'
 import { appPath } from '@/lib/base-path'
 import { showUrlOpenMenu } from '@/lib/url-open-menu'
@@ -236,6 +232,8 @@ const MAX_TRANSCRIPT_TURN_LIMIT = 1000
 const INITIAL_TRANSCRIPT_REVEAL_QUIET_MS = 120
 const INITIAL_TRANSCRIPT_REVEAL_MAX_MS = 400
 const LIVE_ACTIVITY_SWEEP_SPEED_PX_PER_SECOND = 130
+
+const AgentTranscriptVisualization = lazy(() => import('./AgentTranscriptVisualization').then(module => ({ default: module.AgentTranscriptVisualization })))
 
 function initialTranscriptTurnLimit(source: AgentTranscriptPaneProps['source']) {
   return source === 'acp'
@@ -665,13 +663,15 @@ function AgentTranscriptUserFiles({ files }: { files: AgentTranscriptUserFile[] 
         ) {
           const exactExternal = workspaceResource.target.globalRoot === true
           return (
-            <AgentTranscriptInlineVisualization
-              key={file.id}
-              rootId={exactExternal ? GLOBAL_WORKSPACE_FILES_AGENT_ID : agentId}
-              exactExternal={exactExternal}
-              file={file}
-              filePath={workspaceResource.filePath}
-            />
+            <Suspense key={file.id} fallback={<div role="status">Loading visualization…</div>}>
+              <AgentTranscriptVisualization
+                rootId={exactExternal ? GLOBAL_WORKSPACE_FILES_AGENT_ID : agentId}
+                exactExternal={exactExternal}
+                file={file}
+                filePath={workspaceResource.filePath}
+                onOpenSource={onOpenFile ? () => onOpenFile(workspaceResource.filePath, workspaceResource.target) : undefined}
+              />
+            </Suspense>
           )
         }
         if (file.resourceKind === 'link') {
@@ -709,60 +709,6 @@ function AgentTranscriptUserFiles({ files }: { files: AgentTranscriptUserFile[] 
           </details>
         )
       })}
-    </div>
-  )
-}
-
-function AgentTranscriptInlineVisualization({
-  rootId,
-  exactExternal,
-  file,
-  filePath,
-}: {
-  rootId: string
-  exactExternal: boolean
-  file: AgentTranscriptUserFile
-  filePath: string
-}) {
-  const [document, setDocument] = useState('')
-  const [error, setError] = useState('')
-
-  useEffect(() => {
-    const controller = new AbortController()
-    let previewId = ''
-    void fetchWorkspaceFile(rootId, filePath, { signal: controller.signal, exactExternal })
-      .then(async workspaceFile => {
-        const preview = await createWorkspaceHtmlPreview(rootId, filePath, { signal: controller.signal, exactExternal })
-        previewId = preview.id
-        const baseUrl = new URL(workspaceHtmlPreviewUrl(preview.id, 'base'), window.location.href).toString()
-        const rootUrl = new URL(workspaceHtmlPreviewUrl(preview.id, 'root'), window.location.href).toString()
-        const { buildWorkspaceInlineVisualizationDocument } = await import('@/lib/workspace-inline-visualization')
-        if (controller.signal.aborted) return
-        setDocument(buildWorkspaceInlineVisualizationDocument(workspaceFile.content || '', baseUrl, rootUrl))
-      })
-      .catch(reason => {
-        if (controller.signal.aborted) return
-        setError(reason instanceof Error ? reason.message : String(reason || 'Visualization unavailable'))
-      })
-    return () => {
-      controller.abort()
-      if (previewId) void deleteWorkspaceHtmlPreview(previewId)
-    }
-  }, [exactExternal, filePath, rootId])
-
-  if (error) {
-    return <div className="code-agent-transcript-inline-visualization error" role="status">{error}</div>
-  }
-  return (
-    <div className="code-agent-transcript-inline-visualization" data-testid="code-agent-transcript-inline-visualization">
-      {document ? (
-        <iframe
-          sandbox="allow-scripts"
-          referrerPolicy="no-referrer"
-          srcDoc={document}
-          title={file.name}
-        />
-      ) : <div className="code-agent-transcript-inline-visualization-loading">Loading visualization…</div>}
     </div>
   )
 }

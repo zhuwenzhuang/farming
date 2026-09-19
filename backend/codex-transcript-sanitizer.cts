@@ -8,6 +8,9 @@ interface HeartbeatEnvelope {
 
 interface CodexInlineVisualizationDirective {
   file: string;
+  title?: string;
+  mode?: 'wide';
+  resourceRoot?: string;
 }
 
 interface CodexInlineVisualizationStreamState {
@@ -199,7 +202,16 @@ function consumeCodexInlineVisualizationStream(
       return;
     }
     const file = directiveFile(line);
-    if (file) directives.push({ file });
+    if (file) {
+      const directive: CodexInlineVisualizationDirective = { file };
+      if (trimmed.startsWith(CODEX_VISUALIZE_REFERENCE_PREFIX)) {
+        const payload = JSON.parse(trimmed.slice(CODEX_VISUALIZE_REFERENCE_PREFIX.length, -CODEX_VISUALIZE_REFERENCE_SUFFIX.length));
+        if (typeof payload.title === 'string') directive.title = payload.title.slice(0, 256);
+        if (payload.mode === 'wide') directive.mode = 'wide';
+        if (typeof payload.resourceRoot === 'string') directive.resourceRoot = payload.resourceRoot;
+      }
+      directives.push(directive);
+    }
     // A complete malformed directive and an incomplete streaming directive are
     // both host-only syntax. The caller renders an explicit unavailable
     // resource for a valid directive whose file cannot be resolved.

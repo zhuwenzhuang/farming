@@ -213,7 +213,14 @@
       "--code-worktree-count-text": "#687388",
       "--code-workspace-directory-surface": "#fbfbf8",
       "--code-workspace-prompt-code-surface": "var(--code-bg-surface)",
-      "--code-workspace-prompt-surface": "#f8f8f5"
+      "--code-workspace-prompt-surface": "#f8f8f5",
+      "--code-viz-series-1": "#326dc3",
+      "--code-viz-series-2": "#a97518",
+      "--code-viz-series-3": "#258477",
+      "--code-viz-series-4": "#9663ae",
+      "--code-viz-series-5": "#b85464",
+      "--code-viz-series-6": "#417f9c",
+      "--code-viz-border": "#dedfe0"
     }
   },
   "dark": {
@@ -430,7 +437,14 @@
       "--code-worktree-count-text": "var(--code-text-subtle)",
       "--code-workspace-directory-surface": "var(--code-bg-inset)",
       "--code-workspace-prompt-code-surface": "var(--code-bg-raised)",
-      "--code-workspace-prompt-surface": "var(--code-bg-muted)"
+      "--code-workspace-prompt-surface": "var(--code-bg-muted)",
+      "--code-viz-series-1": "#79a9ef",
+      "--code-viz-series-2": "#d7ac59",
+      "--code-viz-series-3": "#69b7a8",
+      "--code-viz-series-4": "#be9bd7",
+      "--code-viz-series-5": "#dd8f9b",
+      "--code-viz-series-6": "#7bb4cf",
+      "--code-viz-border": "#484848"
     }
   },
   "paper": {
@@ -647,7 +661,14 @@
       "--code-worktree-count-text": "var(--code-text-subtle)",
       "--code-workspace-directory-surface": "var(--code-bg-raised)",
       "--code-workspace-prompt-code-surface": "var(--code-bg-surface)",
-      "--code-workspace-prompt-surface": "var(--code-bg-inset)"
+      "--code-workspace-prompt-surface": "var(--code-bg-inset)",
+      "--code-viz-series-1": "#4d7095",
+      "--code-viz-series-2": "#9b742e",
+      "--code-viz-series-3": "#567f70",
+      "--code-viz-series-4": "#866d96",
+      "--code-viz-series-5": "#a56c70",
+      "--code-viz-series-6": "#587c89",
+      "--code-viz-border": "#d5d2c7"
     }
   }
 }

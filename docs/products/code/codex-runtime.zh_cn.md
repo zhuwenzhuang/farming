@@ -34,13 +34,44 @@ Capability 以 Live ACP Handshake 和 Session State 为准。Live Steer 等 Code
 
 Codex 的 Media、Tool、Diff、Terminal、Permission、Config 与 Child Activity 都保持为类型化
 Protocol Data。Provider 特有展示 Hint 在 Adapter 边界归一化，不能变成通用 ACP 语法。
-来自 Live 或恢复 History 的 Codex Host-directed HTML Visualization 也在该边界归一化为有界
-Resource，并复用同一套沙箱 Chat Renderer。绝对 Host Path 可以位于 Agent 工作目录、显式
-授权的附加目录，或该 Provider Session 拥有的 Visualization 目录。只有文件名的引用仍指向
-Session 专属目录。规范路径必须保持在授权根目录内；即使外层工作目录覆盖了 Provider 的
-Visualization 存储，也仍须遵守精确 Session 边界。文件不存在、目录越界、非 HTML 文件、
-无效 UTF-8 或超过 2 MiB 都产生不可用资源。普通 HTML 链接不会启用脚本执行；显式 Host
-Visualization 在不透明源沙箱中执行，并保持现有网络限制。
+来自 Live 或恢复 History 的 Codex Host-directed HTML Visualization 在该边界归一化。
+绝对路径允许指向 Farming 后端可读的任意 HTML，不受 Workspace、Provider Home 或 Session
+目录限制。仅文件名的引用按来源 Session 的实际 Codex Home 解析。指令保留可选 `title`、
+`mode: "wide"` 和 `resourceRoot`。普通 HTML 链接不会启用脚本执行。
+
+已认证 Owner 为规范 HTML 路径及依赖目录创建有界预览租约，默认依赖目录是 HTML 的父目录。
+显式资源根目录必须包含 HTML，且不能是文件系统根。相对 JS、ES Module 导入、CSS、字体、
+图片和 JSON 请求在此目录解析；目录穿越与符号链接越界被拒绝。HTML 必须为 UTF-8，且不超过
+2 MiB。文件系统错误明确展示；不跨机器迁移文件，也不创建历史快照。Fork 与恢复保留路径，
+原始文件必须仍然可读。
+
+Preview ID 是该依赖目录的短期不可猜测读取凭据。只有资源 GET 接口不依赖登录 Cookie，使用
+不携带凭据的 CORS 支持不透明源 iframe；普通 Preview 不能使用此接口。直接导航资源时禁止
+脚本并强制沙箱。只读分享不能创建此类凭据。iframe 仅启用 `allow-scripts`，不启用同源、
+表单或顶层导航。CSP 仅开放该预览依赖 URL 和支持的可视化 CDN，不开放 Farming API。
+
+后端拥有租约；挂载的 Renderer 拥有加载与续租。加载有截止时间，最终进入可展示或具体失败。
+重试取消旧视图，迟到响应释放自己的租约；卸载删除租约。服务重启或租约过期明确提示重试。
+不同视图使用独立租约。资源或脚本失败保留已有内容并显示诊断，不能静默当作成功。
+
+Farming 为片段提供随产品版本打包的兼容层：字体、主题变量、基础控件、Tabs、Tooltip 和
+Lucide 图标。完整 HTML 保留自己的样式。Light、Dark、Paper 更新不重新运行脚本。可选
+Widget State 仅保留本地展示状态，不作为 Agent 上下文；追问通过 Composer 完成。
+
+图表布局由原始 HTML 负责；Farming 不重写图表结构、坐标标签或分栏断点。普通内联内容
+最大宽度为 640px，`wide` 内容可达 1,024px，让普通图表保持阅读宽度，多面板布局则显式选择。
+全屏移除宽度上限。宿主兼容性验收必须使用相同源文件和相同 iframe 宽度，不能用应用窗口
+宽度代替图表宽度。浏览器 ResizeObserver 延迟投递通知仅保留在控制台，不作为资源加载
+失败；验收仍需确认布局最终稳定。
+
+内联图表无额外卡片边框，高度随内容测量。离屏条目仍须更新尺寸，不能依赖浏览器可能
+暂停的 iframe 动画帧。消息通道仅接受精确 iframe 的尺寸、主题/状态和
+诊断消息。普通图表跟随聊天页面滚动，由已有阅读锚点和跟随底部逻辑负责位置。超长内容提供
+明确展开入口，不使用内部滚动条。Wide 指令放宽消息宽度。原生全屏保留同一个 iframe 和交互
+状态；不支持原生全屏的平台在页面内展开。续租不重载图表。
+
+验收覆盖多 Home 与 Fork 路径、本地模块和 JSON、目录越界、过期删除、加载取消、完整文档
+和片段、动态增高缩短、主题/全屏切换保留状态，以及桌面和窄屏的 Light/Dark/Paper 展示。
 
 Native Terminal 的启动排序不是一套 Codex Lifecycle State Machine。共享的 Terminal
 Startup Coordinator 拥有有界串行、就绪、失败与清理；Codex Adapter 只声明无状态约束：

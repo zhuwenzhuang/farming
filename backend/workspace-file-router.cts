@@ -94,6 +94,7 @@ interface WorkspaceFileServiceLike {
 }
 
 interface PreviewSession {
+  visualization?: boolean;
   authorizedRoot: string;
   baseDirectory: string;
   expiresAt: number;
@@ -103,7 +104,9 @@ interface PreviewSession {
 }
 
 interface PreviewSessionManagerLike {
+  renew(sessionId: string, authority?: { accessMode?: 'owner' | 'read-only'; scopeId?: string }): PreviewSession | null;
   createStatic(options: {
+    visualization?: boolean;
     accessMode?: 'owner' | 'read-only';
     authorizedRoot: string;
     baseDirectory: string;
@@ -564,8 +567,27 @@ async function executeWorkspaceFileRequest(
         }
       }
       const { root, rootId } = resolveRequestRoot(request);
-      await fileService.readFile(root, entryPath, { allowedExternalRoots: [] });
+      let source: string | undefined;
+      let basePath: string | undefined;
+      if (request.visualization) {
+        assertExactExternalFileAccess({ authAccessMode: options.accessMode } as HttpRequest);
+        const entry = await fs.promises.realpath(path.resolve(root, entryPath)).catch(() => { throw new WorkspaceFileError('Visualization file not found or unreadable', 404); });
+        authorizedRoot = request.resourceRoot
+          ? await fs.promises.realpath(path.resolve(path.dirname(entry), request.resourceRoot))
+          : path.dirname(entry);
+        if (authorizedRoot === path.parse(authorizedRoot).root || !isSameOrDescendantPath(authorizedRoot, entry)) {
+          throw new WorkspaceFileError('Visualization resource root must contain the HTML and cannot be the filesystem root', 403);
+        }
+        const file = await fileService.readResourceFile(authorizedRoot, path.relative(authorizedRoot, entry), { allowedExternalRoots: [] });
+        if (file.size > 2 * 1024 * 1024) throw new WorkspaceFileError('Visualization exceeds 2 MiB', 413);
+        try { source = new TextDecoder('utf-8', { fatal: true }).decode(file.buffer); }
+        catch { throw new WorkspaceFileError('Visualization is not valid UTF-8', 415); }
+        basePath = path.relative(authorizedRoot, path.dirname(entry)).split(path.sep).map(encodeURIComponent).join('/');
+      } else {
+        await fileService.readFile(root, entryPath, { allowedExternalRoots: [] });
+      }
       const session = previewSessions.createStatic({
+        visualization: request.visualization,
         accessMode: options.accessMode === 'read-only' ? 'read-only' : 'owner',
         rootId,
         scopeId: options.previewScopeId,
@@ -574,7 +596,14 @@ async function executeWorkspaceFileRequest(
         entryPath,
         baseDirectory: path.posix.dirname(entryPath) === '.' ? '' : path.posix.dirname(entryPath),
       });
-      return { id: session.id, kind: session.kind, expiresAt: session.expiresAt };
+      return { id: session.id, kind: session.kind, expiresAt: session.expiresAt, ...(request.visualization ? { source, basePath } : {}) };
+    }
+    case 'renew-preview': {
+      const session = previewSessions.renew(request.previewId, {
+        accessMode: options.accessMode === 'read-only' ? 'read-only' : 'owner', scopeId: options.previewScopeId,
+      });
+      if (!session) throw new WorkspaceFileError('Preview expired; reload visualization', 404);
+      return { expiresAt: session.expiresAt };
     }
     case 'delete-preview':
       return {
@@ -870,7 +899,27 @@ function createWorkspaceFileRouter(
   return router;
 }
 
+// Only authenticated owners can mint these short-lived directory capabilities.
+// Opaque-origin sandbox frames use them without ambient Farming credentials.
+function createVisualizationResourceRouter(fileService: WorkspaceFileServiceLike, sessions: PreviewSessionManagerLike, expressFactory: ExpressFactory = express) {
+  const router = expressFactory.Router();
+  router.get('/:sessionId/*assetPath', async (req, res) => {
+    res.set('Access-Control-Allow-Origin', '*').set('Cache-Control', 'no-store').set('X-Content-Type-Options', 'nosniff');
+    try {
+      const session = sessions.get(req.params.sessionId);
+      if (!session?.visualization) throw new WorkspaceFileError('Visualization preview expired or unavailable', 404);
+      const resource = normalizePreviewAssetPath(wildcardRouteParam(req.params.assetPath));
+      const file = await fileService.readResourceFile(session.authorizedRoot, resource, { allowedExternalRoots: [] });
+      // Direct navigation must never execute a local HTML file on Farming's origin.
+      res.set('Content-Security-Policy', "sandbox; default-src 'none'");
+      res.type(path.extname(file.path) || 'application/octet-stream').send(file.buffer);
+    } catch (error) { sendWorkspaceFileError(res, error); }
+  });
+  return router;
+}
+
 export {
+  createVisualizationResourceRouter,
   createWorkspaceFileRouter,
   resolveWorkspaceRoot,
   executeWorkspaceFileRequest,

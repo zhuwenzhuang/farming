@@ -578,17 +578,27 @@ class FakeAgent implements Agent {
         ? path.join(process.cwd(), '.tmp', 'mobile-composer-design')
         : codexVisualizationDirectory(codexHome, params.sessionId);
       fs.mkdirSync(directory, { recursive: true });
+      fs.writeFileSync(path.join(directory, 'local.css'), '.local-proof{border-bottom:3px solid var(--viz-series-1)}');
+      fs.writeFileSync(path.join(directory, 'data.json'), JSON.stringify({ label: 'Local JSON loaded' }));
+      fs.writeFileSync(path.join(directory, 'helper.js'), 'export const suffix = "module loaded";');
+      fs.writeFileSync(path.join(directory, 'chart.js'), 'import {suffix} from "./helper.js"; const response = await fetch("./data.json"); const data = await response.json(); document.getElementById("local-proof").textContent=data.label+" / "+suffix;');
       fs.writeFileSync(path.join(directory, 'farming-inline.html'), [
-        '<!doctype html><html><head><style>',
-        'body{margin:0;padding:24px;font:15px system-ui;background:linear-gradient(135deg,#eef8ff,#f5f0ff);color:#182230}',
-        '.card{border:1px solid #93b4d8;border-radius:16px;background:rgba(255,255,255,.88);padding:22px;box-shadow:0 12px 32px rgba(34,72,110,.14)}',
-        '.badge{display:inline-block;border-radius:999px;background:#dff6e7;color:#176b36;padding:5px 10px;font-weight:700}',
-        'h2{margin:14px 0 8px;font-size:24px}p{margin:0;color:#486174}button{margin-top:18px;border:0;border-radius:10px;background:#176bdb;color:white;padding:9px 14px;font:inherit;font-weight:700;cursor:pointer}',
-        '</style></head><body data-view="jobs"><section class="card"><span class="badge">ACP · inline</span><h2>Farming visualization ready</h2><p id="view-status">Job count view active</p><button id="view-toggle" type="button" aria-pressed="false">Show CU view</button></section>',
-        '<script>document.body.dataset.visualizationReady="true";document.getElementById("view-toggle").addEventListener("click",event=>{document.body.dataset.view="cu";document.getElementById("view-status").textContent="CU consumption view active";event.currentTarget.setAttribute("aria-pressed","true")})</script></body></html>',
+        '<link rel="stylesheet" href="local.css"><div id="viz-test">',
+        '<h2>Farming visualization ready</h2><p id="view-status">Job count view active</p>',
+        '<p id="local-proof" class="local-proof"></p><button class="btn" id="view-toggle" type="button" aria-pressed="false">Show CU view</button>',
+        '<div id="chart-area" style="height:480px;background:var(--viz-series-1);margin-top:12px"></div>',
+        '<button class="btn" id="resize">Resize chart</button><i data-lucide="chart-column"></i>',
+        '</div><script>document.body.dataset.visualizationReady="true";document.body.dataset.view="jobs";document.getElementById("view-toggle").addEventListener("click",event=>{document.body.dataset.view="cu";document.getElementById("view-status").textContent="CU consumption view active";event.currentTarget.setAttribute("aria-pressed","true")}); document.getElementById("resize").onclick=()=>{const area=document.getElementById("chart-area");area.style.height=area.style.height==="480px"?"700px":"480px"};</script>',
+        '<script type="module" src="chart.js"></script>',
       ].join(''));
+      if (promptText.includes('complete document')) {
+        const entry = path.join(directory, 'farming-inline.html');
+        const fragment = fs.readFileSync(entry, 'utf8');
+        fs.writeFileSync(entry, '<!doctype html><html><head><style>body{margin:0;font:17px Georgia,serif;color:#345678}h2{font-size:22px}</style></head><body>' + fragment + '</body></html>');
+      }
       const visualizationReference = `visualize${JSON.stringify({
         path: path.join(directory, 'farming-inline.html'),
+        ...(promptText.includes('wide') ? { mode: 'wide' } : {}),
       })}`;
       const referenceSplit = visualizationReference.indexOf('inline.html');
       await client.sessionUpdate({

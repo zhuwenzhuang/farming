@@ -17,6 +17,7 @@ interface PreviewSessionManagerOptions {
 }
 
 interface StaticPreviewSessionInput {
+  visualization?: boolean;
   accessMode?: PreviewAccessMode;
   rootId: string;
   scopeId?: string;
@@ -91,6 +92,7 @@ class PreviewSessionManager {
       kind: 'static',
       accessMode,
       scopeId,
+      visualization: input.visualization,
       rootId: input.rootId,
       workspaceRoot: input.workspaceRoot,
       authorizedRoot: input.authorizedRoot,
@@ -129,6 +131,14 @@ class PreviewSessionManager {
     const scopeId = String(authority.scopeId || accessMode);
     if (session.accessMode !== accessMode || session.scopeId !== scopeId) return false;
     return this.sessions.delete(id);
+  }
+
+  renew(sessionId: string, authority: { accessMode?: PreviewAccessMode; scopeId?: string } = {}) {
+    const session = this.get(sessionId, authority);
+    if (!session || session.scopeId !== String(authority.scopeId || authority.accessMode || 'owner')) return null;
+    const renewed = Object.freeze({ ...session, expiresAt: this.now() + this.ttlMs });
+    this.sessions.set(sessionId, renewed);
+    return renewed;
   }
 
   private sessionIds(accessMode: PreviewAccessMode, scopeId?: string): string[] {

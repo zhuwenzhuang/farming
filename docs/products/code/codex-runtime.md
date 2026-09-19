@@ -41,16 +41,65 @@ Codex structured media, tools, diffs, terminals, permissions, configuration,
 and child activity remain typed protocol data. Provider-specific display hints
 are normalized at the adapter boundary and must not become generic ACP syntax.
 Codex host-directed HTML visualizations from live or resumed history are
-normalized there into bounded resources and use the same sandboxed Chat
-renderer. Absolute host paths may resolve inside the Agent workspace, explicitly
-granted additional directories, or the visualization directory owned by that
-Provider Session. Basename-only references retain the Session-directory meaning.
-Canonical paths must remain inside their authorized root; provider visualization
-storage retains its exact Session boundary even inside a broader workspace.
-Missing files, directory escapes, non-HTML files, invalid UTF-8, and files larger
-than 2 MiB produce an unavailable resource. Ordinary HTML links do not opt into
-script execution; explicit host visualizations run in an opaque-origin sandbox
-with the existing network restrictions.
+normalized at this boundary. Absolute paths may refer to any HTML file readable
+by the Farming backend, independently of workspace, Provider Home or Session.
+Basename-only references use the originating Session's actual Codex Home.
+The directive retains optional `title`, `mode: "wide"`, and `resourceRoot` fields.
+Ordinary HTML links do not opt into script execution.
+
+An authenticated owner creates a bounded preview lease for the canonical HTML
+file and its dependency directory (the HTML parent by default). An explicit
+resource root may contain the HTML and its dependencies but cannot be the
+filesystem root. Relative JS, ES module imports, CSS, fonts, images and JSON
+requests resolve within this directory; traversal and symlink escapes fail.
+HTML must be UTF-8 and at most 2 MiB. Backend filesystem errors are surfaced;
+paths are not transferred between machines or snapshotted for future recovery.
+Fork and resume retain paths; the original files must remain readable.
+
+The preview ID is a short-lived, unguessable read capability for this dependency
+directory. Only its resource GET endpoint is available without ambient login
+credentials, with non-credentialed CORS for opaque-origin frames. Other previews
+cannot use this endpoint. Direct navigation to a resource is script-disabled and
+sandboxed. Read-only shares cannot create these capabilities. The iframe keeps
+`allow-scripts` without `allow-same-origin`, forms or top navigation; its CSP permits
+only its dependency URLs and the supported visualization CDNs, not Farming APIs.
+
+The backend owns leases; the mounted renderer owns loading and renewal. Loading
+has a deadline and reaches ready or an actionable failure. Retry cancels the old
+view; late responses release their leases. Unmount deletes the owned lease;
+server restart or lease expiry invalidates resource access with explicit retry.
+Separate renders have separate leases. Resource and script failures preserve
+available content and expose diagnostics rather than silently showing success.
+Browser ResizeObserver delivery deferrals remain console diagnostics, not
+resource failures; acceptance must also verify that the layout settles.
+
+Farming supplies a versioned, bundled compatibility layer for visualization
+fragments: typography, theme tokens, utility controls, tabs, tooltips and Lucide
+icons. Complete HTML documents keep their own styling. Light, Dark and Paper
+updates do not rerun scripts. Optional widget state is local presentation state,
+not Agent context; follow-up requests must use the composer.
+
+Chart layout remains owned by the authored HTML; Farming does not rewrite chart
+markup, axis labels, or panel breakpoints. Normal inline content is capped at
+640px; `wide` content may reach 1,024px. This keeps ordinary figures at reading
+width while leaving multi-panel layouts an explicit choice. Fullscreen removes
+the cap. Compare identical source at identical iframe widths when assessing
+host compatibility, since application window widths do not determine chart widths.
+
+The inline surface is unframed and expands to measured content height. Sizing
+continues while an entry is offscreen; it cannot depend on animation frames
+that browsers may suspend in hidden iframes. A bounded
+iframe message channel accepts only size, theme/state and diagnostic messages
+from the exact frame. Ordinary charts scroll with the transcript, whose existing
+reading-anchor/bottom-follow owner remains authoritative. Very long content has
+an explicit full-content expansion, not a nested scrollbar. Wide directives
+relax the message width. Native fullscreen keeps the same iframe and interaction
+state; platforms without it expand inline. Preview renewal does not reload it.
+
+Acceptance covers multiple Homes and forked paths, dependency imports and JSON,
+root escapes, expiry and deletion, load cancellation, complete documents and
+fragments, dynamic growth/shrink, persisted interaction during theme/fullscreen
+changes, and Light/Dark/Paper at desktop and narrow widths.
 
 Native Terminal startup ordering is not a Codex lifecycle state machine. The
 shared Terminal startup coordinator owns bounded serialization, readiness,

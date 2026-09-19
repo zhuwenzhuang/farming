@@ -24,14 +24,14 @@ export function buildWorkspacePreviewDocument(
   const policy = [
     "default-src 'none'",
     inlineVisualization
-      ? `script-src 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' blob: data: ${visualizationCdn}`
+      ? `script-src 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' blob: data: ${safeBaseUrl} ${safeRootUrl} ${visualizationCdn}`
       : "script-src 'none'",
     `style-src ${safeBaseUrl} ${safeRootUrl} 'unsafe-inline' blob: data:${inlineVisualization ? ` ${visualizationCdn}` : ''}`,
     `img-src ${safeBaseUrl} ${safeRootUrl} blob: data:${inlineVisualization ? ` ${visualizationCdn}` : ''}`,
     `font-src ${safeBaseUrl} ${safeRootUrl} blob: data:${inlineVisualization ? ` ${visualizationCdn}` : ''}`,
     `media-src ${safeBaseUrl} ${safeRootUrl} blob: data:`,
     inlineVisualization ? 'worker-src blob:' : "worker-src 'none'",
-    inlineVisualization ? 'connect-src blob: data:' : "connect-src 'none'",
+    inlineVisualization ? `connect-src blob: data: ${safeBaseUrl} ${safeRootUrl}` : "connect-src 'none'",
     "frame-src 'none'",
     "object-src 'none'",
     `base-uri ${safeBaseUrl}`,

@@ -23,6 +23,16 @@ equivalence. This document owns their appearance roles and theme lifecycle.
   visible ink ring for keyboard focus. Green remains only where it carries an
   actual semantic meaning such as success or data visualization. Status colors
   keep their semantic meaning instead of being recolored.
+- Quantitative visualization series use the dedicated `--code-viz-series-1` through
+  `--code-viz-series-6` palette, independent of UI accents and success/error colors.
+  Series identities remain blue, ochre, teal, violet, rose and slate across appearances.
+  Dark raises luminance without neon saturation; Paper uses restrained ink-like colors
+  without turning categorical marks monochrome. Major marks retain at least 3:1
+  contrast against the canvas. Labels and signs accompany color; values use text roles.
+  Increases and decreases do not imply success or failure; a blue/ochre pair is the
+  default when no business-specific status meaning is established.
+  Visualization structural borders use `--code-viz-border` independently of
+  workbench decoration, so Paper can omit chrome borders without hiding chart axes.
 - Paper is flat color, not a texture filter. Repeated grain or global opacity
   effects reduce code legibility and are not part of the theme.
 - Composer retains its subtle input surface against the reading canvas on both

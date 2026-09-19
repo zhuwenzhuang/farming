@@ -427,16 +427,20 @@ export function rawWorkspaceFileUrl(rootId: string, filePath: string, sha1?: str
 export interface WorkspaceHtmlPreviewSession {
   id: string
   kind: 'static'
+  source?: string
+  basePath?: string
   expiresAt: number
 }
 
 export async function createWorkspaceHtmlPreview(
   rootId: string,
   filePath: string,
-  options: { signal?: AbortSignal; exactExternal?: boolean } = {},
+  options: { signal?: AbortSignal; exactExternal?: boolean; visualization?: boolean; resourceRoot?: string } = {},
 ) {
   return runWorkspaceRequest<WorkspaceHtmlPreviewSession>({
     operation: 'create-preview',
+    visualization: options.visualization,
+    resourceRoot: options.resourceRoot,
     rootId,
     path: filePath,
     ...(options.exactExternal ? { exactExternal: true } : {}),
@@ -621,4 +625,8 @@ export async function searchWorkspaceFiles(rootId: string, query: string, option
     ...(options.limit ? { limit: options.limit } : {}),
     ...(options.scope ? { scope: options.scope } : {}),
   }, { signal: options.signal, timeoutMs: WORKSPACE_FILE_SEARCH_REQUEST_TIMEOUT_MS })
+}
+
+export function renewWorkspaceHtmlPreview(previewId: string) {
+  return runWorkspaceRequest<{ expiresAt: number }>({ operation: 'renew-preview', previewId })
 }

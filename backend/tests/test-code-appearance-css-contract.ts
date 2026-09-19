@@ -115,7 +115,8 @@ assert.notEqual(
 )
 
 const lightRoles = Object.keys(registry.light.css).sort()
-assert(lightRoles.length <= 136, 'the semantic palette must not grow back into a selector-level override matrix')
+// Six chart series and their structural border extend the workbench palette.
+assert(lightRoles.length <= 143, 'the semantic palette must not grow back into a selector-level override matrix')
 assert.equal(
   registry.light.css['--code-active-item-surface'],
   '#eeeeec',
@@ -619,3 +620,23 @@ for (const [sourcePath, selector, property, expectedValue] of semanticStateContr
 }
 
 console.log('test-code-appearance-css-contract passed')
+
+function luminance(color: string) {
+  const channels = normalizedColor(color).slice(0, 3).map(channel => {
+    const value = channel / 255
+    return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
+  })
+  return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722
+}
+for (const appearance of appearances) {
+  const palette = registry[appearance].css
+  assert.notEqual(palette['--code-viz-border'], 'transparent', `${appearance}: chart axes remain visible even in borderless workbench themes`)
+  const background = luminance(palette['--code-bg-canvas'])
+  const colors = Array.from({ length: 6 }, (_, i) => palette[`--code-viz-series-${i + 1}`])
+  assert.equal(new Set(colors).size, 6, `${appearance}: visualization categories remain distinct`)
+  for (const color of colors) {
+    const mark = luminance(color)
+    const contrast = (Math.max(mark, background) + 0.05) / (Math.min(mark, background) + 0.05)
+    assert(contrast >= 3, `${appearance}: chart mark ${color} contrast ${contrast} must be at least 3:1`)
+  }
+}

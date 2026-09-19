@@ -44,6 +44,8 @@ export interface AgentTranscriptUserFile {
   resourceKind?: string
   presentation?: string
   presentationSource?: string
+  visualizationMode?: string
+  resourceRoot?: string
 }
 
 export interface AgentTranscriptLocation {
@@ -379,11 +381,12 @@ function contentFiles(content: unknown, prefix: string): AgentTranscriptUserFile
   return list(content).flatMap((value, index) => {
     const block = record(value)
     if (block.type === 'resource_link') {
-      const uri = stringValue(block.uri)
+      let uri = stringValue(block.uri)
       const farming = record(record(block._meta).farming)
       const trustedInlineVisualization = farming.presentation === 'inline-visualization'
         && farming.source === 'codex-host-directive'
         && Number(farming.version) === 1
+      if (trustedInlineVisualization && uri.startsWith('farming-unavailable:') && stringValue(farming.requestedPath).startsWith('/')) uri = `file://${encodeURI(stringValue(farming.requestedPath)).replace(/#/g, '%23').replace(/\?/g, '%3F')}`
       return [{
         id: `${prefix}-resource-link-${index + 1}`,
         name: stringValue(block.name || uri) || 'Resource',
@@ -394,6 +397,8 @@ function contentFiles(content: unknown, prefix: string): AgentTranscriptUserFile
         ...(trustedInlineVisualization ? {
           presentation: 'inline-visualization',
           presentationSource: 'codex-host-directive',
+          visualizationMode: stringValue(farming.mode),
+          resourceRoot: stringValue(farming.resourceRoot),
         } : {}),
         ...(uri.startsWith('farming-unavailable:') ? { error: 'Visualization file is unavailable or invalid' } : {}),
       }]

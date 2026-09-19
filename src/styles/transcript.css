@@ -347,32 +347,41 @@
 
 .code-agent-transcript-inline-visualization {
   width: 100%;
-  min-height: 120px;
-  overflow: hidden;
-  border: 1px solid var(--code-border);
-  border-radius: 12px;
-  background: var(--code-bg-raised);
+  max-width: 640px;
+  min-width: 0;
+  color: var(--code-text);
 }
-
 .code-agent-transcript-inline-visualization iframe {
   display: block;
   width: 100%;
-  height: 360px;
   border: 0;
   background: transparent;
 }
-
-.code-agent-transcript-inline-visualization-loading,
-.code-agent-transcript-inline-visualization.error {
-  padding: 14px;
-  color: var(--code-text-subtle);
-  font-size: 13px;
+.code-agent-transcript-inline-visualization .code-visualization-toolbar {
+  background: transparent;
+  border: 0;
+  padding: 0 0 8px;
 }
-
-@media (max-width: 640px) {
-  .code-agent-transcript-inline-visualization iframe {
-      height: 420px;
-    }
+.code-visualization-content { overflow: hidden; }
+.code-visualization-status {
+  padding: 12px 0;
+  color: var(--code-text-subtle);
+  overflow-wrap: anywhere;
+}
+.code-visualization-expand { margin-top: 8px; }
+.code-agent-transcript-inline-visualization:fullscreen {
+  max-width: none;
+  box-sizing: border-box;
+  background: var(--code-bg-canvas);
+  padding: 20px;
+  overflow: auto;
+}
+.code-agent-transcript-inline-visualization:fullscreen .code-visualization-toolbar {
+  position: sticky;
+  top: -20px;
+  z-index: 1;
+  background: var(--code-bg-canvas);
+  padding: 8px 0;
 }
 
 .code-agent-transcript-user-file {
@@ -1952,7 +1961,8 @@
   -webkit-user-select: text;
 }
 
-.code-agent-transcript-answer:has(.code-markdown-mermaid) {
+.code-agent-transcript-answer:has(.code-markdown-mermaid),
+.code-agent-transcript-answer:has(.code-agent-transcript-inline-visualization) {
   width: 100%;
 }
 
@@ -2796,3 +2806,9 @@ button.code-agent-transcript-result-summary:is(:hover, :focus-visible) .code-age
 
 .code-related-session-content .code-agent-transcript-subagent-entries { max-height: none; }
 .code-side-chat-panel > .code-agent-transcript { flex: 1; min-height: 0; }
+
+.code-agent-transcript-turn:has(.code-agent-transcript-inline-visualization.wide) { max-width: 1104px; }
+
+.code-agent-transcript-inline-visualization.wide:not(:fullscreen) { max-width: 1024px; }
+
+.code-agent-transcript-answer:has(.code-agent-transcript-inline-visualization.wide) { max-width: 100%; }

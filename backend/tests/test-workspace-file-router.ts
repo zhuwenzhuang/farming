@@ -8,6 +8,7 @@ const { PreviewSessionManager } = require('../preview-session-manager.cjs');
 const { WorkspaceFileService } = require('../workspace-file-service.cjs');
 const {
   createWorkspaceFileRouter,
+  createVisualizationResourceRouter,
   executeWorkspaceFileRequest,
 } = require('../workspace-file-router.cjs');
 
@@ -237,6 +238,7 @@ async function run() {
       req.authAccessMode = req.headers['x-test-access'] === 'read-only' ? 'read-only' : 'owner';
       next();
     });
+    app.use('/api/visualization-resources', createVisualizationResourceRouter(service, previewSessions));
     app.use('/api/files', createWorkspaceFileRouter(agentManager, service, {
       previewSessionManager: previewSessions,
     }));
@@ -294,6 +296,36 @@ async function run() {
         { headers: { 'X-Test-Access': 'read-only' } },
       );
       assert.strictEqual(visibleReadOnlyPreview.response.status, 200);
+
+      const viz = await executeWorkspaceFileRequest(agentManager, service, {
+        operation: 'create-preview', rootId: 'agent-main', path: 'site/index.html', visualization: true,
+      }, requestOptions);
+      assert.match(viz.source, /Preview/);
+      const vizCss = await fetchRaw(baseUrl, `/api/visualization-resources/${viz.id}/assets/site.css`, { headers: { Origin: 'null' } });
+      assert.strictEqual(vizCss.response.status, 200);
+      assert.strictEqual(vizCss.response.headers.get('access-control-allow-origin'), '*');
+      assert.match(vizCss.response.headers.get('content-type'), /text\/css/);
+      const vizHtml = await fetchRaw(baseUrl, `/api/visualization-resources/${viz.id}/index.html`);
+      assert.match(vizHtml.response.headers.get('content-security-policy'), /sandbox/);
+      fs.symlinkSync(outsideAllowedSearchFile, path.join(workspace, 'site', 'escape.txt'));
+      assert.strictEqual((await fetchRaw(baseUrl, `/api/visualization-resources/${viz.id}/escape.txt`)).response.status, 403);
+      assert.strictEqual((await fetchRaw(baseUrl, `/api/visualization-resources/${preview.id}/index.html`)).response.status, 404);
+      await assert.rejects(() => executeWorkspaceFileRequest(agentManager, service, {
+        operation: 'create-preview', rootId: 'agent-main', path: 'site/index.html', visualization: true,
+      }, { ...requestOptions, accessMode: 'read-only' }));
+      const rooted = await executeWorkspaceFileRequest(agentManager, service, {
+        operation: 'create-preview', rootId: 'agent-main', path: 'site/index.html', visualization: true, resourceRoot: '..',
+      }, requestOptions);
+      assert.strictEqual(rooted.basePath, 'site');
+      assert.strictEqual((await fetchRaw(baseUrl, `/api/visualization-resources/${rooted.id}/README.md`)).response.status, 200);
+      await executeWorkspaceFileRequest(agentManager, service, { operation: 'delete-preview', previewId: rooted.id }, requestOptions);
+      await assert.rejects(() => executeWorkspaceFileRequest(agentManager, service, {
+        operation: 'create-preview', rootId: 'agent-main', path: 'site/index.html', visualization: true, resourceRoot: '/',
+      }, requestOptions));
+      const renewed = await executeWorkspaceFileRequest(agentManager, service, { operation: 'renew-preview', previewId: viz.id }, requestOptions);
+      assert(renewed.expiresAt >= viz.expiresAt);
+      await executeWorkspaceFileRequest(agentManager, service, { operation: 'delete-preview', previewId: viz.id }, requestOptions);
+      assert.strictEqual((await fetchRaw(baseUrl, `/api/visualization-resources/${viz.id}/assets/site.css`)).response.status, 404);
 
       const save = await fetchJson(baseUrl, '/api/files/file', {
         method: 'PUT',

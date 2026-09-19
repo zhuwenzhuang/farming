@@ -31,6 +31,7 @@ preserved in bundled `node_modules` when bundled dependencies are enabled.
 | `express` | 5.2.1 | MIT | HTTP API server |
 | `highlight.js` | 11.11.1 | BSD-3-Clause | Syntax highlighting |
 | `katex` | 0.17.0 | MIT | Mathematical notation rendering |
+| `lucide` | 1.47.0 | ISC | Bundled visualization fragment icons |
 | `material-icon-theme` | 5.36.1 | MIT | File and folder icons |
 | `mermaid` | 11.16.1 | MIT | Diagram rendering |
 | `monaco-editor` | 0.55.1 | MIT | Lightweight code editor |
