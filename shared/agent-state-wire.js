@@ -2,6 +2,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.isAgentStateWire = isAgentStateWire;
+const chat_turn_state_js_1 = require("./chat-turn-state.js");
 function record(value) {
     return value && typeof value === 'object' && !Array.isArray(value)
         ? value
@@ -87,6 +88,7 @@ function isAgentStateWire(value) {
         && typeof agent.cwd === 'string'
         && typeof agent.output === 'string'
         && (agent.followUp === undefined || typeof agent.followUp === 'boolean')
+        && (agent.chatTurn == null || (0, chat_turn_state_js_1.isChatTurnState)(agent.chatTurn))
         && ['pending', 'running', 'stopped', 'dead'].includes(String(agent.status || ''))
         && typeof agent.isMain === 'boolean'
         && ['hot', 'warm', 'cool', 'cold'].includes(String(agent.activityLevel || ''))

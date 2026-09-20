@@ -218,6 +218,50 @@
 
 .code-agent-dot.dead { background: var(--code-danger); }
 
+/* One status recipe across ordinary rows, compact collections and the rail. */
+.code-agent-chat-failure[role="img"] {
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  align-items: center;
+  justify-content: center;
+  color: var(--code-danger);
+  background: transparent;
+  border: 0;
+  animation: none;
+  pointer-events: auto;
+}
+
+.code-agent-chat-failure svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+}
+
+.code-project-agent-compact-status.code-agent-chat-failure {
+  inset: auto 0 0 auto;
+}
+
+.code-agent-rail-status.code-agent-chat-failure {
+  top: 1px;
+  right: 1px;
+}
+
+/* Reserve the rightmost status slot even while row actions are exposed. */
+.code-agent-row:has(.code-agent-chat-failure) .code-agent-row-trailing {
+  padding-right: 22px;
+}
+
+.code-agent-row .code-agent-dot.code-agent-chat-failure {
+  position: absolute;
+  right: 6px;
+}
+
+.code-agent-row:has(.code-agent-chat-failure) .code-agent-row-actions {
+  right: 28px;
+}
+
 .code-agent-list-controls {
   min-width: 0;
   display: grid;
@@ -783,6 +827,11 @@ body.code-mode:not(.code-compact-layout) .code-agent-row:has(.code-agent-row-act
   body.code-mode.code-compact-layout .code-agent-row-trailing {
       /* Reserve the action inside the row's seven-pixel trailing padding. */
       padding-right: calc(44px - 7px);
+    }
+
+  body.code-mode.code-compact-layout .code-agent-row .code-agent-dot.code-agent-chat-failure {
+      /* The mobile options button already owns the row's rightmost slot. */
+      position: static;
     }
 
   body.code-mode.code-compact-layout .code-agent-row-more:active {

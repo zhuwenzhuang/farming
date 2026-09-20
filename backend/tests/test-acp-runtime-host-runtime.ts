@@ -411,6 +411,7 @@ async function main() {
         agentId: 'agent-replaced',
         bindingEpoch: 'binding-old',
         state: 'working',
+        chatTurn: { turnId: 'binding-old:1', status: 'active', message: '', updatedAt: 1000 },
         revision: 1,
       }],
     ]), 'host-old');
@@ -419,6 +420,7 @@ async function main() {
       true,
       'a new Host epoch must interrupt the previous Host-owned binding before publishing recovered state',
     );
+    assert.strictEqual(replacementEvents.find(event => event.stopReason === 'interrupted').chatTurn.status, 'interrupted');
   } finally {
     replacedHostFacade.disconnect();
   }

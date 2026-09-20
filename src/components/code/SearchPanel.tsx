@@ -1,3 +1,5 @@
+import { AgentStatusIndicator } from './AgentStatusIndicator'
+import { useAgentWithLiveState } from '@/lib/agent-live-state'
 import { useEffect, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from 'react'
 import { ArrowLeftGlyph, CloseGlyph, FolderGlyph, SearchGlyph } from '@/components/IconGlyphs'
 import { iconForFilePath } from '@/lib/file-icons'
@@ -402,7 +404,7 @@ function compactWorkspaceForSearch(workspace: string, peers: readonly string[] =
 }
 
 function AgentSearchResult({
-  agent,
+  agent: sourceAgent,
   copy,
   selected,
   optionId,
@@ -414,6 +416,7 @@ function AgentSearchResult({
   optionId: string
   onOpen: () => void
 }) {
+  const agent = useAgentWithLiveState(sourceAgent)
   const rowState = buildAgentRowDisplayState({ kind: 'agent', agent })
   const providerLabel = agentDisplayName(agent.providerSessionProvider || agent.command)
 
@@ -428,9 +431,7 @@ function AgentSearchResult({
       title={rowState.rowTitle || rowState.title}
       onClick={onOpen}
     >
-      {rowState.statusIndicatorVisible && (
-        <span className={`code-agent-dot ${rowState.lifecycleStatus} ${rowState.turnActive ? 'turn-active' : ''}`} />
-      )}
+      <AgentStatusIndicator state={rowState} className="code-agent-dot" />
       <span className="code-search-result-copy">
         <strong>{rowState.title}</strong>
         <span>{copy.searchCurrentAgents} · {providerLabel || compactPath(projectWorkspaceForAgent(agent))}</span>

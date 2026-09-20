@@ -207,6 +207,29 @@
       }
     },
     {
+      "id": "CODE-CHAT-FAILURE-MARKER",
+      "surface": "ui",
+      "promise": "Chat turn failures survive reading and runtime recovery, exclude user cancellation and tool errors, and share one visible status marker across appearances and row layouts.",
+      "owner": "docs/products/code/agent-list-state-protocol.md",
+      "evidence": {
+        "node": [
+          "backend/tests/test-chat-turn-state.ts",
+          "backend/tests/test-code-agent-row-state.ts",
+          "backend/tests/test-acp-runtime-host-runtime.ts"
+        ],
+        "playwright": [
+          {
+            "file": "tests/e2e/chat-failure-marker.spec.ts",
+            "title": "Chat failure marker survives reads and renders across appearances and layouts"
+          },
+          {
+            "file": "tests/e2e/acp-human-cases.spec.ts",
+            "title": "reconnects an exited ACP adapter without replaying the interrupted request"
+          }
+        ]
+      }
+    },
+    {
       "id": "CODE-ACP-STRUCTURED-ERRORS",
       "surface": "ui",
       "promise": "ACP authentication failures remain in the structured turn and authentication card without a duplicate generic session error.",

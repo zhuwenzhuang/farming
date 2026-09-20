@@ -9,8 +9,9 @@ exports.protocolCompatible = protocolCompatible;
 exports.claimProtocolUpgradeReload = claimProtocolUpgradeReload;
 const agent_state_semantics_js_1 = require("./agent-state-semantics.js");
 const agent_state_wire_js_1 = require("./agent-state-wire.js");
-exports.PROTOCOL_VERSION = 17;
-exports.MIN_PROTOCOL_VERSION = 17;
+const chat_turn_state_js_1 = require("./chat-turn-state.js");
+exports.PROTOCOL_VERSION = 18;
+exports.MIN_PROTOCOL_VERSION = 18;
 exports.MAX_INLINE_WORKSPACE_MESSAGE_BYTES = 1024 * 1024;
 exports.PROJECT_ATTENTION_SCORE_MAX = agent_state_semantics_js_1.PROJECT_ATTENTION_SCORE_MAX;
 const SERVER_MESSAGE_TYPES = new Set([
@@ -339,6 +340,7 @@ const AGENT_UPDATE_PATCH_VALIDATORS = {
                 && typeof value.sessionUpdatedAt === 'string'
                 && revisionField(value, 'sessionRevision')))),
     terminalInputReceived: (value) => typeof value === 'boolean',
+    chatTurn: (value) => value === null || (0, chat_turn_state_js_1.isChatTurnState)(value),
     terminalBusy: (value) => value === null || typeof value === 'boolean',
     shellCwd: (value) => typeof value === 'string',
     shellLastExitCode: (value) => value === null || typeof value === 'number' && Number.isFinite(value),

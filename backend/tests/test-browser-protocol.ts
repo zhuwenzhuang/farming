@@ -754,6 +754,18 @@ assert.strictEqual(validateServerMessage({
   type: 'agent-update',
   update: { agentId: 'a', patch: {} },
 }).ok, false);
+for (const status of ['active', 'cancelling', 'completed', 'cancelled', 'failed', 'interrupted']) {
+  const chatTurn = { turnId: 'runtime:1', status, message: 'Request failed', updatedAt: 1000 };
+  assert.strictEqual(validateServerMessage({
+    type: 'agent-update', update: { agentId: 'a', patch: { chatTurn } },
+  }).ok, true);
+}
+for (const chatTurn of [{}, { turnId: 'x', status: 'tool-failed', message: '', updatedAt: 1 }, { turnId: 'x', status: 'failed', message: 'error', updatedAt: NaN }]) {
+  assert.strictEqual(validateServerMessage({
+    type: 'agent-update', update: { agentId: 'a', patch: { chatTurn } },
+  }).ok, false);
+}
+
 assert.strictEqual(validateServerMessage({
   type: 'acp-session-revision',
   session: {

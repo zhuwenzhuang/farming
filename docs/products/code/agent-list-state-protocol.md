@@ -267,6 +267,32 @@ even when a previous attention event already exists.
 `npm run release:fast-screen:shell` verifies the presentation lifetime and the
 BEL/explicit-notification distinction before the broader browser behavior gate.
 
+## Chat failure marker
+
+Chat rows show a red outlined circle with an exclamation mark when the current
+Turn failed or was interrupted by proven unexpected runtime loss. The backend
+owns the exact Turn identity and outcome independently of connection state and
+Unread. A submitted Turn becomes active; its ordered terminal result becomes
+completed, cancelled, failed, or interrupted. Cancellation admitted for that
+exact active Turn records cancelling before dispatch; cancellation errors retain
+that intent and use the operation-error surface. Tool/command failures, user
+cancellation, intentional lifecycle removal, and browser transport loss never
+create a Turn failure marker. Terminal mode does not consume this feature.
+
+The outcome persists across reload, read acknowledgement and binding recovery.
+A newly submitted Turn replaces it; admission failure and reconnect alone do
+not clear it. Runtime ownership and Turn identity fence late results. A missing
+Host binding interrupts only a previously observed active Turn; absent or legacy
+evidence is not inferred as failure. Recovery never replays the interrupted
+prompt. Existing bounded cancellation and binding-recovery paths remain the
+owners of liveness; the outcome adds no retry or stop mode.
+
+Regular, compact, rail and search rows share the same 16 px status artwork and
+theme danger color, with the failure reason available to assistive technology
+and inspection. Hover actions must not obscure the marker. Acceptance includes
+cancel/failure ordering, tool errors followed by success, clean process exit
+during a Turn, recovery, persistence, late results, and Light, Dark and Paper.
+
 ## Follow-up flag
 
 The backend owns the durable `followUp` boolean for each Agent. Farming Code

@@ -1,4 +1,5 @@
 import { EventEmitter } from 'events';
+import { interruptChatTurn, type ChatTurnState } from '../shared/chat-turn-state.js';
 const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
@@ -154,6 +155,7 @@ interface SubagentControl {
   cancelPromise?: Promise<unknown> | null; [key: string]: unknown;
 }
 interface AcpBinding {
+  chatTurn: ChatTurnState | null;
   retained?: boolean;
   agentId: string; provider: string; providerHomeId: string; providerHomePath: string;
   providerHomeIdentity: string; projectPath: string; cwd: string;
@@ -1792,6 +1794,7 @@ class AcpRuntime extends EventEmitter {
     delete restartOptions.onForkSessionCreated;
     const binding: AcpBinding = {
       agentId,
+      chatTurn: null,
       capabilityRuntimeEpoch,
       provider,
       providerHomeId: String(options.providerHomeId || 'default'),
@@ -3239,13 +3242,21 @@ class AcpRuntime extends EventEmitter {
     }
     this.requireSessionState(binding).beginPrompt(content);
     turn.phase = 'running';
+    binding.chatTurn = {
+      turnId: `${binding.capabilityRuntimeEpoch}:${turn.id}`,
+      status: 'active',
+      message: '',
+      updatedAt: Date.now(),
+    };
     binding.state = 'working';
     binding.error = '';
     binding.stopReason = '';
-    this.emitRuntime(binding);
-    this.emitSession(binding);
     let response;
     try {
+      // Observers may reject the durable state write. Settle that failure in
+      // the same Turn before releasing admission, without dispatching a prompt.
+      this.emitRuntime(binding);
+      this.emitSession(binding);
       const responsePromise = binding.connection.prompt({ sessionId: binding.sessionId, prompt: content });
       try {
         options.onSubmitted?.({ steered: false });
@@ -3269,6 +3280,15 @@ class AcpRuntime extends EventEmitter {
         sessionState.completePrompt();
         binding.state = 'error';
         binding.error = runtimeError.message;
+        if (binding.chatTurn) {
+          const cancelled = binding.chatTurn.status === 'cancelling';
+          binding.chatTurn = {
+            ...binding.chatTurn,
+            status: cancelled ? 'cancelled' : 'failed',
+            message: cancelled ? '' : runtimeError.message,
+            updatedAt: Date.now(),
+          };
+        }
         binding.retryableReconnect = isStructuredReconnectableFailure(binding, error)
           && isSafeProviderSessionId(binding.sessionId);
         binding.updatedAt = new Date().toISOString();
@@ -3287,6 +3307,14 @@ class AcpRuntime extends EventEmitter {
     return this.enqueueTurnControl(turn, async () => {
       this.requireCurrentTurn(binding, turn);
       binding.stopReason = String(response?.stopReason || '');
+      if (binding.chatTurn) {
+        binding.chatTurn = {
+          ...binding.chatTurn,
+          status: binding.stopReason === 'cancelled' ? 'cancelled' : 'completed',
+          message: '',
+          updatedAt: Date.now(),
+        };
+      }
       this.requireSessionState(binding).completePrompt();
       binding.state = 'idle';
       binding.error = '';
@@ -3393,6 +3421,9 @@ class AcpRuntime extends EventEmitter {
         this.requireCurrentTurn(binding, turn, ['running']);
         if (turn.providerSettled) throw new Error('No active turn to cancel');
         turn.phase = 'cancelling';
+        if (binding.chatTurn) {
+          binding.chatTurn = { ...binding.chatTurn, status: 'cancelling', updatedAt: Date.now() };
+        }
       }
       binding.state = 'interrupting';
       for (const resolve of binding.permissionResolvers.values()) {
@@ -4525,6 +4556,7 @@ class AcpRuntime extends EventEmitter {
       errorKind: binding.error ? acpErrorKind(binding.error) : '',
       retryableReconnect: binding.retryableReconnect === true,
       stopReason: binding.stopReason,
+      chatTurn: binding.chatTurn,
       supportsSteer: binding.supportsSteer === true,
       supportsFork: Boolean(
         binding.initializeResponse?.agentCapabilities?.sessionCapabilities?.fork
@@ -4577,6 +4609,7 @@ class AcpRuntime extends EventEmitter {
       errorKind: binding.error ? acpErrorKind(binding.error) : '',
       retryableReconnect: binding.retryableReconnect === true,
       stopReason: binding.stopReason,
+      chatTurn: binding.chatTurn,
       plan: binding.sessionState.plan == null
         ? null
         : JSON.parse(JSON.stringify(binding.sessionState.plan)),
@@ -4604,6 +4637,7 @@ class AcpRuntime extends EventEmitter {
       errorKind: binding.error ? acpErrorKind(binding.error) : '',
       retryableReconnect: binding.retryableReconnect === true,
       stopReason: binding.stopReason,
+      chatTurn: binding.chatTurn,
       plan: state.plan == null ? null : JSON.parse(JSON.stringify(state.plan)),
       ...slice,
     };
@@ -4906,6 +4940,7 @@ class AcpRuntime extends EventEmitter {
       errorKind: binding.error ? acpErrorKind(binding.error) : '',
       retryableReconnect: binding.retryableReconnect === true,
       stopReason: binding.stopReason,
+      chatTurn: binding.chatTurn,
       supportsSteer: binding.supportsSteer === true,
       supportsFork: Boolean(
         binding.initializeResponse?.agentCapabilities?.sessionCapabilities?.fork
@@ -4947,6 +4982,12 @@ class AcpRuntime extends EventEmitter {
     binding.exited = true;
     const turn = binding.activeTurn;
     const promptWasActive = Boolean(turn && turn.phase !== 'admitting');
+    if (promptWasActive) {
+      binding.chatTurn = interruptChatTurn(
+        binding.chatTurn,
+        error ? acpErrorMessage(error) : 'Agent exited before the Chat turn completed',
+      );
+    }
     binding.activeTurn = null;
     if (error) {
       binding.state = 'error';
@@ -4989,6 +5030,11 @@ class AcpRuntime extends EventEmitter {
     if (options.retainForCleanup !== true) this.bindings.delete(binding.agentId);
     binding.exited = true;
     const turn = binding.activeTurn;
+    if (turn && binding.chatTurn && ['active', 'cancelling'].includes(binding.chatTurn.status)) {
+      // Lifecycle removal owns this interruption. A retained binding must not
+      // later turn it into an unexpected-loss marker during Host recovery.
+      binding.chatTurn = { ...binding.chatTurn, status: 'cancelled', message: '', updatedAt: Date.now() };
+    }
     binding.activeTurn = null;
     if (turn) {
       turn.phase = 'completed';

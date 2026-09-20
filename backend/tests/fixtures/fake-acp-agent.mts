@@ -642,6 +642,12 @@ class FakeAgent implements Agent {
       });
       return { stopReason: 'end_turn' };
     }
+    if (promptText.includes('clean exit during turn')) process.exit(0);
+    if (promptText.includes('cancel then provider error')) {
+      await new Promise<void>(resolve => cancelledSessions.set(params.sessionId, resolve));
+      cancelledSessions.delete(params.sessionId);
+      throw new Error('Provider request aborted after user cancellation');
+    }
     if (promptText.includes('mobile interrupt')) {
       let releaseCancellation: () => void = () => {};
       const cancellation = new Promise<void>(resolve => {

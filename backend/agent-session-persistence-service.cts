@@ -1,3 +1,4 @@
+import { isChatTurnState } from '../shared/chat-turn-state.js';
 'use strict';
 
 import type {
@@ -137,6 +138,7 @@ class AgentSessionPersistenceService {
     agent.customTitle = typeof record.customTitle === 'string' ? record.customTitle : '';
     agent.adaptiveTitle = typeof record.adaptiveTitle === 'string' ? record.adaptiveTitle : '';
     agent.followUp = record.followUp === true;
+    agent.chatTurn = isChatTurnState(record.chatTurn) ? record.chatTurn : null;
     agent.pinned = record.pinned === true;
     agent.projectOrder = finiteOrder(record.projectOrder);
     agent.pinnedOrder = finiteOrder(record.pinnedOrder);

@@ -19,6 +19,7 @@ export interface AgentRowDisplayState {
   statusIndicatorVisible: boolean
   statusIndicatorDelayMs: number
   statusIndicatorKey: string
+  failureMessage: string
   pinned: boolean
   unread: boolean
   forkedToNewWorktree: boolean
@@ -119,6 +120,10 @@ function agentRowStateFromAgent(
   const ageTimestamp = options.ageTimestamp ?? agent.lastActivity ?? agent.startedAt
   const terminalState = inferAgentTerminalState(agent)
   const turnActive = terminalState.turnActive
+  const failureMessage = agent.runtimeBinding.kind === 'acp'
+    && (agent.chatTurn?.status === 'failed' || agent.chatTurn?.status === 'interrupted')
+    ? agent.chatTurn.message
+    : ''
   const title = agentRowTitle(agent)
   const commandTitle = agentCommandTitle(agent, turnActive, now)
   const providerLabel = agentDisplayName(agent.providerSessionProvider || agent.command)
@@ -132,12 +137,13 @@ function agentRowStateFromAgent(
   return {
     kind: 'agent',
     title,
-    rowTitle: [title, commandTitle, agent.cwd].filter(Boolean).join(' · '),
+    rowTitle: [title, failureMessage, commandTitle, agent.cwd].filter(Boolean).join(' · '),
     commandTitle,
     detailLabel,
     lifecycleStatus: agent.status,
     turnActive,
-    statusIndicatorVisible: shouldShowAgentStatusIndicator(agent.status, turnActive),
+    statusIndicatorVisible: Boolean(failureMessage) || shouldShowAgentStatusIndicator(agent.status, turnActive),
+    failureMessage,
     statusIndicatorDelayMs: agent.status === 'running'
       && agent.runtimeBinding.kind === 'terminal'
       && agent.runtimeObservation.kind === 'shell'
@@ -177,6 +183,7 @@ function agentRowStateFromHistory(
     detailLabel,
     turnActive: false,
     statusIndicatorVisible: false,
+    failureMessage: '',
     statusIndicatorDelayMs: 0,
     statusIndicatorKey: '',
     pinned: session.pinned === true,

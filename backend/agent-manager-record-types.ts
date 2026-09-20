@@ -1,3 +1,4 @@
+import type { ChatTurnState } from '../shared/chat-turn-state.js';
 export type AgentId = string;
 export type AgentRecordId = `agent_${string}` | `fsess_${string}`;
 export type ProviderSessionKey = `agent-session:${string}:${string}`;
@@ -147,6 +148,7 @@ export interface ComposerCommandRecord {
 }
 
 export interface AgentRecord extends Record<string, unknown>, AgentDisplayState, AgentAttentionState, AgentShellState {
+  chatTurn?: ChatTurnState | null;
   acpFinalizedTurnHandle?: string;
   acpRuntimeExecutable?: string;
   acpRuntimeMode?: 'managed' | 'custom';
@@ -222,6 +224,7 @@ export interface AgentRecord extends Record<string, unknown>, AgentDisplayState,
 }
 
 export interface PersistedAgentPrivateMetadata extends Record<string, unknown>, PersistedAcpSessionOptions, AgentDisplayState, AgentAttentionState {
+  chatTurn?: ChatTurnState | null;
   acpFinalizedTurnHandle?: string;
   acpRuntimeExecutable?: string;
   acpRuntimeMode?: 'managed' | 'custom';

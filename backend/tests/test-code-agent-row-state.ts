@@ -60,6 +60,18 @@ function run() {
   } = importTsModule('src/lib/dynamic-pinning.ts');
 
   const now = 100_000 + 2 * 24 * 60 * 60 * 1000;
+  for (const status of ['active', 'cancelling', 'completed', 'cancelled', 'failed', 'interrupted']) {
+    const chatTurn = { turnId: 'epoch:1', status, message: 'Provider request failed', updatedAt: now };
+    const failed = status === 'failed' || status === 'interrupted';
+    const chat = buildAgentRowDisplayState({ kind: 'agent', agent: agent({
+      runtimeBinding: { kind: 'acp', state: 'idle' }, chatTurn,
+    }) }, now);
+    assert.strictEqual(chat.statusIndicatorVisible, failed);
+    assert.strictEqual(chat.failureMessage, failed ? chatTurn.message : '');
+    const terminal = buildAgentRowDisplayState({ kind: 'agent', agent: agent({ chatTurn }) }, now);
+    assert.strictEqual(terminal.failureMessage, '', 'Terminal never presents a stored Chat failure');
+  }
+
   assert.strictEqual(
     agentRowKey({ kind: 'agent', agent: agent({ id: 'agent-42' }) }),
     'agent:agent-42',

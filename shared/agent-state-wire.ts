@@ -1,3 +1,4 @@
+import { isChatTurnState, type ChatTurnState } from './chat-turn-state.js'
 export type AgentActivityLevel = 'hot' | 'warm' | 'cool' | 'cold'
 export type AgentLifecycleStatus = 'pending' | 'running' | 'stopped' | 'dead'
 export type ProviderRuntime = 'terminal' | 'acp'
@@ -54,6 +55,7 @@ export interface AgentStateWire {
   cwd: string
   output: string
   followUp?: boolean
+  chatTurn?: ChatTurnState | null
   status: AgentLifecycleStatus
   isMain: boolean
   activityLevel: AgentActivityLevel
@@ -184,6 +186,7 @@ export function isAgentStateWire(value: unknown): value is AgentStateWire {
     && typeof agent.cwd === 'string'
     && typeof agent.output === 'string'
     && (agent.followUp === undefined || typeof agent.followUp === 'boolean')
+    && (agent.chatTurn == null || isChatTurnState(agent.chatTurn))
     && ['pending', 'running', 'stopped', 'dead'].includes(String(agent.status || ''))
     && typeof agent.isMain === 'boolean'
     && ['hot', 'warm', 'cool', 'cold'].includes(String(agent.activityLevel || ''))

@@ -90,6 +90,7 @@ const RUNTIME_FIELDS = new Set<keyof AgentLiveState>([
   'adaptiveTitle',
   'sessionTitle',
   'runtimeBinding',
+  'chatTurn',
   'terminalInputReceived',
   'terminalBusy',
   'shellCwd',
@@ -121,6 +122,7 @@ const STRUCTURED_RUNTIME_FIELDS = new Set<keyof AgentLiveState>([
   'runtimeObservation',
   'codexTerminalProfile',
   'runtimeBinding',
+  'chatTurn',
 ])
 
 declare global {
@@ -137,6 +139,7 @@ function liveStateFromAgent(agent: Agent): AgentLiveState {
     adaptiveTitle: agent.adaptiveTitle,
     sessionTitle: agent.sessionTitle,
     runtimeBinding: agent.runtimeBinding,
+    chatTurn: agent.chatTurn,
     lastActivity: agent.lastActivity,
     activityLevel: agent.activityLevel,
     attentionScore: agent.attentionScore,

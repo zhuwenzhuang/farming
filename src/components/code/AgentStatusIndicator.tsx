@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { ChatFailureGlyph } from '../IconGlyphs'
 import type { AgentRowDisplayState } from './agent-row-state'
 
 function StatusIndicator({ state, className, decorative }: {
@@ -29,6 +30,19 @@ export function AgentStatusIndicator({ state, className, decorative = false }: {
   decorative?: boolean
 }) {
   if (!state.statusIndicatorVisible) return null
+  if (state.failureMessage) {
+    return (
+      <span
+        className={`${className} code-agent-chat-failure`}
+        data-testid="code-agent-chat-failure"
+        title={state.failureMessage}
+        aria-label={state.failureMessage}
+        role="img"
+      >
+        <ChatFailureGlyph />
+      </span>
+    )
+  }
   // Completion unmounts the timer immediately. A replacement runtime/command
   // gets its own delay even when its preceding idle update was coalesced.
   return <StatusIndicator key={`${state.statusIndicatorKey}:${state.statusIndicatorDelayMs}`} state={state} className={className} decorative={decorative} />

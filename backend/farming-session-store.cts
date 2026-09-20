@@ -1,3 +1,4 @@
+import { isChatTurnState } from '../shared/chat-turn-state.js';
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
@@ -90,6 +91,7 @@ const AGENT_STATE_FIELDS: string[] = [
   'acpSessionUpdatedAt',
   'acpSessionRevision',
   'acpFinalizedTurnHandle',
+  'chatTurn',
   'jsonCliState',
   'jsonCliError',
   'jsonCliTranscriptUpdatedAt',
@@ -807,6 +809,7 @@ class FarmingSessionStore {
       workflowTemplate: typeof agent.workflowTemplate === 'string' ? agent.workflowTemplate : '',
       wantsMain: agent.wantsMain === true,
       followUp: agent.followUp === true,
+      chatTurn: isChatTurnState(agent.chatTurn) ? agent.chatTurn : null,
       pinned: agent.pinned === true,
       projectOrder: typeof agent.projectOrder === 'number' && Number.isFinite(agent.projectOrder) ? agent.projectOrder : null,
       pinnedOrder: typeof agent.pinnedOrder === 'number' && Number.isFinite(agent.pinnedOrder) ? agent.pinnedOrder : null,

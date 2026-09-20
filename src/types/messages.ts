@@ -345,6 +345,7 @@ export interface AgentUpdateMessage {
       codexTerminalProfile?: CodexTerminalProfile | null
       sessionTitle?: string
       runtimeBinding?: Agent['runtimeBinding']
+      chatTurn?: Agent['chatTurn']
       terminalInputReceived?: boolean
       terminalBusy?: boolean | null
       shellCwd?: string

@@ -1,3 +1,4 @@
+import { interruptChatTurn } from '../shared/chat-turn-state.js';
 'use strict';
 
 import { EventEmitter } from 'events';
@@ -140,6 +141,7 @@ class AcpRuntimeHostRuntime extends EventEmitter implements AcpRuntimeContract {
       interruptedAgentIds.push(agentId);
       const interrupted: UnknownRecord = {
         ...previous,
+        chatTurn: interruptChatTurn(previous.chatTurn, 'Chat runtime was lost; the turn outcome could not be confirmed'),
         state: 'error',
         error: hostReplaced
           ? 'ACP runtime Host restarted; the previous runtime binding is no longer recoverable'

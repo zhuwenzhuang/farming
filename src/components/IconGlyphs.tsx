@@ -593,6 +593,16 @@ export function ErrorGlyph(props: IconGlyphProps) {
   )
 }
 
+/** Chat failure uses the approved outlined circle/exclamation artwork. */
+export function ChatFailureGlyph(props: IconGlyphProps) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false" {...props}>
+      <circle cx="12" cy="12" r="10" />
+      <path d="M12 8v4m0 4h.01" />
+    </svg>
+  )
+}
+
 export function RefreshGlyph(props: IconGlyphProps) {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false" {...props}>

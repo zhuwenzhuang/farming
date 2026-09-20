@@ -1,3 +1,4 @@
+import { isChatTurnState, type ChatTurnState } from '../shared/chat-turn-state.js';
 import type { AgentSession } from './agent-session-history.cjs';
 import {
   buildAgentSessionResumeCommand,
@@ -95,6 +96,7 @@ interface PersistedSessionRecord extends Record<string, unknown> {
   attentionUpdatedAt?: unknown;
   customTitle?: unknown;
   followUp?: unknown;
+  chatTurn?: unknown;
   id?: unknown;
   pinned?: unknown;
   pinnedOrder?: unknown;
@@ -121,6 +123,7 @@ interface ResumeStartOptions extends Record<string, unknown> {
   customTitle: string;
   customTitleExplicit: boolean;
   followUp: boolean;
+  chatTurn?: ChatTurnState | null;
   persistentSessionId: string;
   pinned: boolean;
   pinnedOrder?: unknown;
@@ -505,6 +508,7 @@ class AgentSessionResumeCoordinator {
       providerSessionTitle: session?.title || stringValue(savedSession?.providerSessionTitle),
       persistentSessionId: stringValue(savedSession?.id),
       followUp: shouldFork ? false : savedSession?.followUp === true,
+      chatTurn: !shouldFork && isChatTurnState(savedSession?.chatTurn) ? savedSession.chatTurn : null,
       pinned: savedSession?.pinned === true,
       projectOrder: savedSession?.projectOrder,
       pinnedOrder: savedSession?.pinnedOrder,

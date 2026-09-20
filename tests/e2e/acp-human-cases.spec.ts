@@ -843,7 +843,9 @@ test.describe('ACP human-like browser matrix', () => {
     })
   })
 
-  test('reconnects an exited ACP adapter without replaying the interrupted request', async ({ page, workspaceRoot }) => {
+  test('reconnects an exited ACP adapter without replaying the interrupted request', {
+    tag: ['@critical-behavior', '@behavior-CODE-CHAT-FAILURE-MARKER'],
+  }, async ({ page, workspaceRoot }) => {
     const workspace = path.join(workspaceRoot, 'acp-adapter-reconnect')
     fs.mkdirSync(workspace, { recursive: true })
 
@@ -851,6 +853,7 @@ test.describe('ACP human-like browser matrix', () => {
     await openFarming(page)
     await agentRow(page, agentId).click()
     await sendAcpMessage(page, 'disconnect adapter once')
+    await expect(agentRow(page, agentId).getByTestId('code-agent-chat-failure')).toBeVisible()
 
     const reconnect = page.getByTestId('code-acp-reconnect')
     await expect(reconnect).toBeVisible({ timeout: 15_000 })
@@ -866,8 +869,10 @@ test.describe('ACP human-like browser matrix', () => {
     await expect(reconnectResponse.json()).resolves.toMatchObject({ reconnected: true })
     await expect(page.getByTestId('code-acp-reconnect')).toHaveCount(0, { timeout: 15_000 })
     await expect(page.getByTestId('code-acp-error')).toHaveCount(0)
+    await expect(agentRow(page, agentId).getByTestId('code-agent-chat-failure')).toBeVisible()
 
     await sendAcpMessage(page, 'new explicit request after reconnect')
+    await expect(agentRow(page, agentId).getByTestId('code-agent-chat-failure')).toHaveCount(0)
     await expect(page.getByText('ACP reconnect reply', { exact: true })).toBeVisible({ timeout: 15_000 })
     expect(fs.existsSync(path.join(workspace, '.adapter-disconnect-replayed'))).toBe(false)
   })

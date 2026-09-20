@@ -1,4 +1,5 @@
 import { EventEmitter } from 'events';
+import { isChatTurnState } from '../shared/chat-turn-state.js';
 import { acpHomeDefaultsPatch, type AgentHomeDefaults } from './agent-home-defaults.cjs';
 import type {
   AcpConfigChange,
@@ -680,6 +681,7 @@ const CREATE_ROLLBACK_FIELDS: string[] = [
   'acpSessionUpdatedAt',
   'acpSessionRevision',
   'acpFinalizedTurnHandle',
+  'chatTurn',
   'jsonCliState',
   'jsonCliError',
   'jsonCliTranscriptUpdatedAt',
@@ -1955,12 +1957,15 @@ class AgentManager extends EventEmitter {
 
   bindAcpRuntimeEvents() {
     if (!this.acpRuntime || typeof this.acpRuntime.on !== 'function') return;
-    this.acpRuntime.on('agent-runtime', ({ agentId, state, error, sessionId, stopReason, supportsSteer, supportsFork, pendingPermission, pendingPermissions, pendingElicitation, pendingElicitations, activeElicitations, updatedAt, lastSettledTurnHandle, lastSettledTurnSummary }: AcpRuntimeEvent) => {
+    this.acpRuntime.on('agent-runtime', ({ agentId, state, error, sessionId, stopReason, supportsSteer, supportsFork, pendingPermission, pendingPermissions, pendingElicitation, pendingElicitations, activeElicitations, updatedAt, lastSettledTurnHandle, lastSettledTurnSummary, chatTurn }: AcpRuntimeEvent) => {
       const agent = this.agents.get(agentId);
       if (!agent) return;
       const runtime = runtimeBindingOf(agent, 'acp');
       if (!runtime) return;
       const previousRuntime = publicRuntimeBinding(agent);
+      const chatTurnChanged = isChatTurnState(chatTurn)
+        && JSON.stringify(agent.chatTurn) !== JSON.stringify(chatTurn);
+      if (chatTurnChanged) agent.chatTurn = { ...chatTurn };
       const previousState = runtime.state;
       const previousError = runtime.error;
       const sessionIdentityChanged = Boolean(
@@ -1993,6 +1998,7 @@ class AgentManager extends EventEmitter {
       if (recordsActivity) this.recordAgentActivity(agentId);
       if (
         sessionIdentityChanged
+        || chatTurnChanged
         || (stopReason === 'interrupted' && previousState !== state)
         || (state === 'error' && !sessionId && (previousState !== state || previousError !== runtime.error))
       ) {
@@ -2000,11 +2006,12 @@ class AgentManager extends EventEmitter {
       }
       this.acpTranscriptService.refresh(agentId);
       const nextRuntime = publicRuntimeBinding(agent);
-      if (JSON.stringify(previousRuntime) !== JSON.stringify(nextRuntime)) {
+      if (chatTurnChanged || JSON.stringify(previousRuntime) !== JSON.stringify(nextRuntime)) {
         this.emit('agent-update', {
           agentId,
           patch: {
             runtimeBinding: nextRuntime,
+            chatTurn: agent.chatTurn || null,
             runtimeObservation: deriveRuntimeObservation(agent),
           },
         });
@@ -2776,6 +2783,7 @@ class AgentManager extends EventEmitter {
         lifecycleJournal: lifecycleJournal(persisted),
         ...legacyRuntimeMetadata(persisted),
         followUp: persisted.followUp === true,
+        chatTurn: isChatTurnState(persisted.chatTurn) ? persisted.chatTurn : null,
         pinned: persisted.pinned === true,
         projectOrder: finiteOrder(persisted.projectOrder) ?? finiteOrder(engineMetadata.projectOrder),
         pinnedOrder: finiteOrder(persisted.pinnedOrder) ?? finiteOrder(engineMetadata.pinnedOrder),
@@ -3333,6 +3341,7 @@ class AgentManager extends EventEmitter {
         customTitle: record.customTitle || '',
         adaptiveTitle: record.adaptiveTitle || '',
         followUp: record.followUp === true,
+        chatTurn: isChatTurnState(record.chatTurn) ? record.chatTurn : null,
         pinned: record.pinned === true,
         attentionSeq: finiteNonNegativeInteger(record.attentionSeq),
         readAttentionSeq: finiteNonNegativeInteger(record.readAttentionSeq),
@@ -4215,6 +4224,7 @@ class AgentManager extends EventEmitter {
       shellLastCommandFinishedAt: finiteNumberOrNull(state.shellLastCommandFinishedAt),
       shellLastCommandDurationMs: finiteNumberOrNull(state.shellLastCommandDurationMs),
       followUp: metadata.followUp === true,
+      chatTurn: isChatTurnState(metadata.chatTurn) ? metadata.chatTurn : null,
       pinned: metadata.pinned === true,
       projectOrder: finiteOrder(metadata.projectOrder),
       pinnedOrder: finiteOrder(metadata.pinnedOrder),
@@ -4314,6 +4324,7 @@ class AgentManager extends EventEmitter {
       forkRequestSignature: agent.forkRequestSignature || '',
       launchPermissionMode: agent.launchPermissionMode || '',
       followUp: agent.followUp === true,
+      chatTurn: isChatTurnState(agent.chatTurn) ? agent.chatTurn : null,
       attentionSeq: finiteNonNegativeInteger(agent.attentionSeq),
       readAttentionSeq: finiteNonNegativeInteger(agent.readAttentionSeq),
       attentionUpdatedAt: finiteNumberOrNull(agent.attentionUpdatedAt),
@@ -4857,6 +4868,7 @@ class AgentManager extends EventEmitter {
       adaptiveTitle: agent.adaptiveTitle,
       capabilityRuntimeEpoch: agent.capabilityRuntimeEpoch || '',
       followUp: agent.followUp === true,
+      chatTurn: isChatTurnState(agent.chatTurn) ? agent.chatTurn : null,
       pinned: agent.pinned,
       projectOrder: finiteOrder(agent.projectOrder),
       pinnedOrder: finiteOrder(agent.pinnedOrder),
@@ -5614,6 +5626,7 @@ class AgentManager extends EventEmitter {
       shellLastCommandFinishedAt: null,
       shellLastCommandDurationMs: null,
       followUp: options.followUp === true,
+      chatTurn: isChatTurnState(options.chatTurn) ? options.chatTurn : null,
       pinned: options.pinned === true,
       projectOrder: finiteOrder(options.projectOrder),
       pinnedOrder: finiteOrder(options.pinnedOrder),
@@ -8338,6 +8351,7 @@ class AgentManager extends EventEmitter {
     if (!command) return { error: 'Failed to build provider resume command' };
     const preserved = {
       followUp: agent.followUp === true,
+      chatTurn: isChatTurnState(agent.chatTurn) ? agent.chatTurn : null,
       pinned: agent.pinned === true,
       projectOrder: finiteOrder(agent.projectOrder),
       pinnedOrder: finiteOrder(agent.pinnedOrder),
@@ -8693,6 +8707,7 @@ class AgentManager extends EventEmitter {
     };
     const preserved = {
       followUp: agent.followUp === true,
+      chatTurn: isChatTurnState(agent.chatTurn) ? agent.chatTurn : null,
       pinned: agent.pinned === true,
       projectOrder: finiteOrder(agent.projectOrder),
       pinnedOrder: finiteOrder(agent.pinnedOrder),
@@ -8728,6 +8743,7 @@ class AgentManager extends EventEmitter {
         const restartedAgent = this.agents.get(restartedAgentId);
         if (restartedAgent) {
           restartedAgent.followUp = preserved.followUp;
+          restartedAgent.chatTurn = preserved.chatTurn;
           restartedAgent.pinned = preserved.pinned;
           restartedAgent.projectOrder = preserved.projectOrder;
           restartedAgent.pinnedOrder = preserved.pinnedOrder;
@@ -11444,6 +11460,7 @@ class AgentManager extends EventEmitter {
       customTitle: agent.customTitle || '',
       adaptiveTitle: agent.adaptiveTitle || '',
       followUp: agent.followUp === true,
+      chatTurn: isChatTurnState(agent.chatTurn) ? agent.chatTurn : null,
       pinned: agent.pinned === true,
       projectOrder: finiteOrder(agent.projectOrder),
       pinnedOrder: finiteOrder(agent.pinnedOrder),
@@ -11630,6 +11647,7 @@ class AgentManager extends EventEmitter {
       customTitle: agent.customTitle || '',
       adaptiveTitle: agent.adaptiveTitle || '',
       followUp: agent.followUp === true,
+      chatTurn: isChatTurnState(agent.chatTurn) ? agent.chatTurn : null,
       pinned: agent.pinned === true,
       projectOrder: finiteOrder(agent.projectOrder),
       pinnedOrder: finiteOrder(agent.pinnedOrder),

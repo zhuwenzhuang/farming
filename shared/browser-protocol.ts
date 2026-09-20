@@ -1,9 +1,10 @@
 import { PROJECT_ATTENTION_SCORE_MAX as projectAttentionScoreMax } from './agent-state-semantics.js'
 import { isAgentStateWire } from './agent-state-wire.js'
+import { isChatTurnState, type ChatTurnState } from './chat-turn-state.js'
 import type { AgentStateWire } from './agent-state-wire.js'
 
-export const PROTOCOL_VERSION = 17
-export const MIN_PROTOCOL_VERSION = 17
+export const PROTOCOL_VERSION = 18
+export const MIN_PROTOCOL_VERSION = 18
 export const MAX_INLINE_WORKSPACE_MESSAGE_BYTES = 1024 * 1024
 export const PROJECT_ATTENTION_SCORE_MAX = projectAttentionScoreMax
 
@@ -385,6 +386,7 @@ export interface AgentActivitySnapshotMessage extends ExtensibleMessage {
 }
 
 export interface AgentUpdatePatch {
+  chatTurn?: ChatTurnState | null
   adaptiveTitle?: string
   codexTerminalProfile?: ObjectMessage | null
   sessionTitle?: string
@@ -905,6 +907,7 @@ const AGENT_UPDATE_PATCH_VALIDATORS = {
     )
   ),
   terminalInputReceived: (value: unknown) => typeof value === 'boolean',
+  chatTurn: (value: unknown) => value === null || isChatTurnState(value),
   terminalBusy: (value: unknown) => value === null || typeof value === 'boolean',
   shellCwd: (value: unknown) => typeof value === 'string',
   shellLastExitCode: (value: unknown) => value === null || typeof value === 'number' && Number.isFinite(value),
