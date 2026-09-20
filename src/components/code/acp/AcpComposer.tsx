@@ -164,6 +164,7 @@ export function AcpComposer({
   const lastCompositionEndAtRef = useRef(0)
   const latestDraftRef = useRef(draft)
   const composerRef = useRef<HTMLDivElement | null>(null)
+  const commandMenuRef = useRef<HTMLDivElement | null>(null)
   const [focused, setFocused] = useState(false)
   const [selectionStart, setSelectionStart] = useState(draft.length)
   const [activeCommandIndex, setActiveCommandIndex] = useState(0)
@@ -220,6 +221,10 @@ export function AcpComposer({
     : null
 
   useEffect(() => setActiveCommandIndex(0), [commandTrigger?.query, commandTrigger?.trigger, filteredCommands.length])
+  useEffect(() => {
+    if (!showCommands) return
+    commandMenuRef.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' })
+  }, [showCommands, activeCommandIndex, selectedCommand])
   useEffect(() => setDismissedPromptSuggestionId(''), [agentId])
   useEffect(() => {
     const compactQuery = window.matchMedia(COMPACT_VIEWPORT_QUERY)
@@ -538,7 +543,7 @@ export function AcpComposer({
         </section>
       ) : null}
       {showCommands ? (
-        <div className="code-menu-surface code-slash-menu code-composer-menu" data-testid="code-acp-command-menu" role="listbox" aria-label="ACP commands">
+        <div ref={commandMenuRef} className="code-menu-surface code-slash-menu code-composer-menu" data-testid="code-acp-command-menu" role="listbox" aria-label="ACP commands">
           <div className="code-slash-menu-header">{commandTrigger?.trigger === '$' ? 'Skills' : 'Commands'}</div>
           {filteredCommands.map((command, index) => (
             <button

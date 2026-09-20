@@ -40,6 +40,15 @@ content and compact navigation are hidden while editing; outside taps do not
 discard or collapse the draft. Collapse remains explicit, and no downward
 gesture competes with scrolling or selection.
 
+## Command Navigation
+
+Chat and Terminal command menus keep keyboard selection visible using the shared
+menu selection surface. Hover and selection use the same fill in every appearance.
+Arrow keys wrap through the filtered commands; Home and End select their bounds.
+Opening the menu or changing its selected command reveals that row within the
+scrollable menu without moving focus out of the input. Filtering resets selection
+to the first result; dismissing the menu ends navigation without submitting.
+
 ## Verification
 
 Exercise both Chat and Terminal input with long Chinese/Latin text, native

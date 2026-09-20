@@ -142,7 +142,7 @@
 
 .code-menu-surface.code-menu-list :where(button, summary):is(:hover, :focus-visible, [aria-selected="true"], [aria-checked="true"]):not(:disabled),
 .code-menu-surface .code-menu-item:is(:hover, :focus-visible, .selected, .active):not(:disabled) {
-  background: var(--code-bg-hover);
+  background: var(--code-active-item-surface);
   color: var(--code-text);
 }
 
