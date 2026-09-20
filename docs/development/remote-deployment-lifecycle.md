@@ -44,9 +44,9 @@ one install path may stop only the exact Server proven by the selected Config.
 | --- | --- | --- |
 | Idle | No deployment owns the target lock. | A new operation may start. |
 | Building | An isolated Linux builder packages one committed SHA. | Build failure leaves the remote target unchanged. |
-| Staging | The checksum-matched archive is safely extracted to a unique staging path. | Invalid paths, metadata, platform, or identity remove only that staging path. |
+| Staging | Under the deployment lock, obsolete unreferenced images are pruned and disk capacity is checked before the checksum-matched archive is extracted to a unique staging path. | Invalid paths, metadata, platform, or identity remove only that staging path. |
 | Prepared | Native modules load through the artifact compatibility runtime and fixed runtimes are prepared with `--no-activate`. | Failure leaves the current Server live. |
-| Activating | The exact old Server stops, its Config is checkpointed, a working copy is created on the same filesystem, a symlink atomically selects the prepared image, and the new Server starts against the working copy. | A stop or checkpoint failure leaves selection and durable Config state unchanged. A selection or start failure enters rollback. |
+| Activating | Disk capacity is rechecked after runtime preparation, then the exact old Server stops, its Config is checkpointed, a working copy is created on the same filesystem, a symlink atomically selects the prepared image, and the new Server starts against the working copy. | A stop or checkpoint failure leaves selection and durable Config state unchanged. A selection or start failure enters rollback. |
 | Verifying | Authenticated HTTP, versioned WebSocket, PTY Host, ACP Host, and one fresh empty Chat are exercised through internal smoke Agents that stay out of interactive browser inventories, then those exact Agents are removed. | Any failure enters rollback without replaying an uncertain mutation. |
 | Succeeded | Current and rollback selections are recorded, and only safe old images outside retention and without a live same-user reference are removed. | Cleanup failure does not invalidate the running image and remains visible. Uncertain live-reference evidence skips all cleanup. |
 | Rolling back | The failed image stops, its working Config copy is isolated, the pre-activation Config checkpoint is restored, the prior image is selected, and its Server starts. | Success ends as a visible failed deployment with the prior image and its compatible Config state restored; rollback failure retains exact snapshots and requires operator action. |
@@ -64,6 +64,26 @@ snapshot observation, not an atomic lease: current and previous selections
 protect normal new starts, the scan protects already-running old Config
 Servers observed at scan time, and uncertain observation skips all cleanup with
 a visible warning.
+
+The default recency budget is two images; current, previous, the deployment
+candidate, and live references remain protected. Retention runs before image
+preparation as well as after success, so low disk space does not require a
+successful upgrade before old images can be reclaimed. Deletion requires an
+owned image with matching deployment metadata. Unknown ownership or process
+references preserve the image and produce a warning.
+
+Capacity checks account for archive expansion and a complete Config copy on the
+appropriate filesystems, with 1 GiB headroom. A second check immediately before
+stop includes runtime preparation's actual disk use. These checks reject
+insufficient capacity while the old Server is still running; they are not a
+reservation against concurrent writers. The Config checkpoint remains complete,
+including caches, until its immutable-runtime ownership can be separated safely.
+
+A failed candidate is reclaimed only before stop or after successful recovery,
+and only when neither selections nor live processes reference it. Interrupted
+or incomplete recovery preserves images and Config snapshots for reconciliation.
+The operation always attempts to remove its own staging and incoming archive;
+it never sweeps another operation's incoming files or another Config instance.
 
 ## Safety And Liveness
 
@@ -93,7 +113,7 @@ protocol rather than hidden behind deployment retries.
 Automated verification covers invalid artifacts, rejection of non-local Docker
 contexts before build or SSH work, native-module preflight, concurrent
 activation, startup failure, product-smoke failure, exact rollback, first
-migration from a legacy source directory, and bounded cleanup. A real target
-acceptance additionally builds the private Linux artifact, deploys it through
+migration from a legacy source directory, bounded cleanup, low capacity before
+stop, and failed-candidate reclamation. A real target acceptance additionally builds the private Linux artifact, deploys it through
 the public command surface, confirms the exact selected SHA, and uses a real
 provider plus visible UI journeys selected by the changed behavior.

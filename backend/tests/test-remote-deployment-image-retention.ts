@@ -43,7 +43,7 @@ if (command === 'runtime') process.exit(0);
 if (command === 'stop') process.exit(0);
 if (command === 'daemon') {
   fs.writeFileSync(path.join(configDir, 'farming-server.pid'), String(process.pid));
-  process.exit(0);
+  process.exit(${options.startExitCode || 0});
 }
 process.exit(1);
 `);
@@ -76,7 +76,6 @@ function activate(fixture, gitSha, remoteDir, configDir, extraEnv = {}) {
     '--app-port', '16694',
     '--base-path', '/farming',
     '--smoke-agent', 'fixture',
-    '--keep-images', '2',
     '--disable-auth',
   ], {
     cwd: projectRoot,
@@ -297,6 +296,33 @@ async function runUncertainCleanup() {
     const success = parseSuccessLine(lastResult);
     assert.strictEqual(success.ok, true);
     assert.strictEqual(success.cleanupWarning, true, 'uncertain cleanup must report cleanupWarning=true');
+    const failedSha = 'a'.repeat(40);
+    const failed = activate(writeFixtureBundle(root, { gitSha: failedSha, startExitCode: 7 }),
+      failedSha, remoteDir, configDir, uncertainEnv);
+    assert.notStrictEqual(failed.status, 0);
+    assert.match(failed.stderr, /previous image was restored/);
+    assert(fs.readdirSync(imagesDir).some(name => name.startsWith(failedSha.slice(0, 12))),
+      'uncertain live references must protect even a failed candidate');
+
+    // Once references can be proven, cleanup happens before the next capacity
+    // refusal, without stopping the current Server or requiring a successful upgrade.
+    const dfStubDir = path.join(root, 'df-stub');
+    fs.mkdirSync(dfStubDir);
+    fs.writeFileSync(path.join(dfStubDir, 'df'),
+      "#!/usr/bin/env bash\nprintf 'Filesystem 1B-blocks Used Available Capacity Mounted\\nfixture 100 100 0 100%% /\\n'\n",
+      { mode: 0o755 });
+    const selected = fs.realpathSync(remoteDir);
+    const previous = fs.realpathSync(`${remoteDir}.deploy/previous`);
+    const refusedSha = 'b'.repeat(40);
+    const refused = activate(writeFixtureBundle(root, { gitSha: refusedSha }), refusedSha,
+      remoteDir, configDir, { PATH: `${dfStubDir}:${process.env.PATH}` });
+    assert.notStrictEqual(refused.status, 0);
+    assert.match(refused.stderr, /Insufficient disk space before preparation/);
+    assert.strictEqual(fs.realpathSync(remoteDir), selected);
+    // The newer failed candidate may consume a recency slot, but selected and
+    // rollback images are always protected and oldest obsolete images are pruned.
+    assert(!fs.readdirSync(imagesDir).some(name => name.startsWith(shas[0].slice(0, 12))));
+    assert(fs.existsSync(selected) && fs.existsSync(previous));
     console.log('✓ uncertain live-reference evidence skips remote image cleanup entirely');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });

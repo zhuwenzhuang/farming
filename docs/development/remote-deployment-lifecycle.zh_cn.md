@@ -36,9 +36,9 @@ Config 状态和部署 image 不共享所有权身份。更新一个安装路径
 | --- | --- | --- |
 | Idle | 没有部署持有目标锁。 | 新操作可以开始。 |
 | Building | 隔离 Linux builder 为一个已提交 SHA 打包。 | 构建失败不改变远端。 |
-| Staging | checksum 匹配的压缩包安全解压到唯一 staging 路径。 | 路径、元数据、平台或身份非法时只删除该 staging。 |
+| Staging | 持有部署锁时先清理过期且未被引用的 image、检查磁盘容量，再将 checksum 匹配的压缩包安全解压到唯一 staging 路径。 | 路径、元数据、平台或身份非法时只删除该 staging。 |
 | Prepared | 通过 artifact 自带兼容运行时加载原生模块，并用 `--no-activate` 准备固定 runtime。 | 失败时当前 Server 继续运行。 |
-| Activating | 精确停止旧 Server，为其 Config 建立 checkpoint，在同一文件系统创建工作副本，原子切换 symlink，并让新 Server 使用工作副本启动。 | 停止或 checkpoint 失败不改变选择和持久 Config 状态；切换或启动失败进入回滚。 |
+| Activating | runtime 准备后再次检查容量，然后精确停止旧 Server，为其 Config 建立 checkpoint，在同一文件系统创建工作副本，原子切换 symlink，并让新 Server 使用工作副本启动。 | 停止或 checkpoint 失败不改变选择和持久 Config 状态；切换或启动失败进入回滚。 |
 | Verifying | 通过不进入交互式浏览器 Agent 清单的内部 smoke Agent 验证认证 HTTP、版本化 WebSocket、PTY Host、ACP Host 和一个全新空 Chat，随后删除这些确切 Agent。 | 任一步失败都进入回滚，不重放结果不确定的 mutation。 |
 | Succeeded | 记录 current 与 rollback 选择，只清理保留策略外、且没有存活同用户进程引用的可证明安全旧 image。 | 清理失败不会否定运行中的 image，但必须可见；存活引用证据不确定时跳过全部清理。 |
 | Rolling back | 停止失败 image，隔离其 Config 工作副本，恢复 activation 前的 Config checkpoint，选择旧 image，并启动旧 Server。 | 成功则部署失败，但旧 image 与兼容的旧 Config 状态一同恢复；回滚失败时保留确切快照并要求人工处理。 |
@@ -52,6 +52,19 @@ Retention 保留 current 与 previous image、recency 预算内的 image，以�
 入口）。存活引用扫描是一次快照观测，而不是原子租约：current 与 previous 选择保护正常的新
 启动，扫描保护扫描时刻已在运行的旧 Config Server，观测不确定时跳过全部清理并给出可见
 警告。
+
+默认 recency 预算为两个 image；current、previous、本次候选和存活引用始终受保护。
+Retention 在 image 准备前和成功后都执行，避免只有升级成功后才能回收旧 image。
+删除要求 image 属于当前用户且部署元数据与身份匹配；所有权或进程引用不确定时保留并警告。
+
+容量检查分别计算相关文件系统上的压缩包展开空间和完整 Config 副本，并预留 1 GiB。
+停服前再次检查，计入 runtime 准备后实际的空间占用。空间不足时保持旧 Server 运行并拒绝
+继续；检查不等于对其他并发写入者预留空间。在不可变 runtime 的所有权可安全分离之前，
+Config checkpoint 仍完整包含缓存。
+
+失败候选只允许在尚未停服或恢复成功后回收，而且必须确认选择指针和存活进程均不引用它。
+中断或恢复不完整时保留 image 和 Config 快照供核对。本次操作始终尝试清理自己的 staging
+和上传压缩包，不扫描删除其他操作的 incoming 文件或其他 Config 实例。
 
 ## Safety 与 Liveness
 
@@ -74,5 +87,5 @@ Safety 要求：
 
 自动验证覆盖非法 artifact、在构建或 SSH 操作前拒绝非本地 Docker context、原生模块
 preflight、并发 activation、启动失败、产品 smoke 失败、精确回滚、从旧源码目录首次
-迁移以及有界清理。真实目标验收还必须通过公开命令入口构建并部署私有 Linux artifact，
+迁移、有界清理、停服前低容量拒绝以及失败候选回收。真实目标验收还必须通过公开命令入口构建并部署私有 Linux artifact，
 确认选中的确切 SHA，并根据变更范围使用真实 Provider 和可见 UI journey。

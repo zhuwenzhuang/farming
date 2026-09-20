@@ -44,7 +44,10 @@ const configDir = configIndex >= 0 ? args[configIndex + 1] : process.env.HOME + 
 fs.mkdirSync(configDir, { recursive: true });
 const events = path.join(configDir, 'fixture-events.log');
 fs.appendFileSync(events, command + ':' + process.cwd() + '\\n');
-if (command === 'runtime') process.exit(0);
+if (command === 'runtime') {
+  if (process.env.FIXTURE_LOW_SPACE_MARKER) fs.writeFileSync(process.env.FIXTURE_LOW_SPACE_MARKER, 'low');
+  process.exit(0);
+}
 if (command === 'stop') {
   fs.rmSync(path.join(configDir, 'farming-server.pid'), { force: true });
   process.exit(0);
@@ -78,7 +81,7 @@ process.exit(${options.smokeExitCode || 0})\n`,
   };
 }
 
-function activate(fixture, gitSha, remoteDir, configDir) {
+function activate(fixture, gitSha, remoteDir, configDir, extraEnv = {}) {
   let expectedSelection = 'none';
   if (fs.existsSync(remoteDir)) {
     const stat = fs.statSync(remoteDir);
@@ -104,7 +107,7 @@ function activate(fixture, gitSha, remoteDir, configDir) {
   ], {
     cwd: projectRoot,
     encoding: 'utf8',
-    env: { ...process.env, HOME: path.dirname(configDir) },
+    env: { ...process.env, HOME: path.dirname(configDir), ...extraEnv },
   });
 }
 
@@ -198,6 +201,7 @@ async function run() {
       new RegExp(daemonSecretSentinel),
     );
     assert.strictEqual(fs.realpathSync(remoteDir), firstImage);
+    assert(!fs.readdirSync(`${remoteDir}.deploy/images`).some(name => name.startsWith(secondSha.slice(0, 12))), 'reconciled failed-start image must be reclaimed');
     const eventsAfterStartRollback = fs.readFileSync(path.join(configDir, 'fixture-events.log'), 'utf8');
     assert(eventsAfterStartRollback.split('\n').filter(line => line.startsWith(`daemon:${firstImage}`)).length >= 2);
 
@@ -218,6 +222,7 @@ async function run() {
       'state-owned-by-previous-image',
       'rollback must restore Config state from before the failed image started',
     );
+    assert(!fs.readdirSync(`${remoteDir}.deploy/images`).some(name => name.startsWith(thirdSha.slice(0, 12))), 'reconciled failed-smoke image must be reclaimed');
     const eventsAfterRollback = fs.readFileSync(path.join(configDir, 'fixture-events.log'), 'utf8');
     assert(eventsAfterRollback.split('\n').filter(line => line.startsWith(`daemon:${firstImage}`)).length >= 2);
 
@@ -230,9 +235,50 @@ async function run() {
     assert.strictEqual(fs.realpathSync(remoteDir), firstImage);
     assert.strictEqual(fs.readFileSync(path.join(configDir, 'fixture-events.log'), 'utf8'), eventsBeforePreflight);
 
+    assert(!fs.readdirSync(`${remoteDir}.deploy/images`).some(name => name.startsWith(fourthSha.slice(0, 12))), 'failed native preflight image must be reclaimed');
+
+    const stubDir = path.join(root, 'capacity-stubs');
+    const lowMarker = path.join(root, 'low-space');
+    fs.mkdirSync(stubDir);
+    fs.writeFileSync(path.join(stubDir, 'df'), [
+      '#!/usr/bin/env bash',
+      `if [ -f '${lowMarker}' ]; then`,
+      "  printf 'Filesystem 1B-blocks Used Available Capacity Mounted\\nfixture 100 100 0 100%% /\\n'",
+      'else',
+      '  exec /bin/df "$@"',
+      'fi',
+      '',
+    ].join('\n'), { mode: 0o755 });
+    const capacityEnv = { PATH: `${stubDir}:${process.env.PATH}` };
+    const capacitySha = 'b'.repeat(40);
+    const capacityFixture = writeFixtureBundle(root, { gitSha: capacitySha });
+    const eventsBeforeCapacity = fs.readFileSync(path.join(configDir, 'fixture-events.log'), 'utf8');
+    fs.writeFileSync(lowMarker, 'low');
+    const insufficient = activate(capacityFixture, capacitySha, remoteDir, configDir, capacityEnv);
+    assert.notStrictEqual(insufficient.status, 0);
+    assert.match(insufficient.stderr, /Insufficient disk space before preparation/);
+    assert.strictEqual(fs.realpathSync(remoteDir), firstImage);
+    assert.strictEqual(fs.readFileSync(path.join(configDir, 'fixture-events.log'), 'utf8'), eventsBeforeCapacity,
+      'capacity refusal must precede preparation and stop');
+    fs.rmSync(lowMarker);
+    const insufficientAfterPrepare = activate(capacityFixture, capacitySha, remoteDir, configDir, {
+      ...capacityEnv, FIXTURE_LOW_SPACE_MARKER: lowMarker,
+    });
+    assert.notStrictEqual(insufficientAfterPrepare.status, 0);
+    assert.match(insufficientAfterPrepare.stderr, /Insufficient disk space before Config checkpoint/);
+    assert.strictEqual(fs.realpathSync(remoteDir), firstImage);
+    const addedEvents = fs.readFileSync(path.join(configDir, 'fixture-events.log'), 'utf8').slice(eventsBeforeCapacity.length);
+    assert.match(addedEvents, /^runtime:/);
+    assert(!addedEvents.includes('stop:'), 'capacity lost during preparation must refuse before stop');
+    assert(!fs.readdirSync(`${remoteDir}.deploy/images`).some(name => name.startsWith(capacitySha.slice(0, 12))),
+      'capacity failure must not accumulate a prepared image');
+    fs.rmSync(lowMarker);
+
     const lockFile = `${remoteDir}.deploy/deploy.lock`;
     const readyFile = path.join(root, 'lock-ready');
-    const lockHolder = spawn('flock', [lockFile, 'bash', '-c', `touch '${readyFile}'; sleep 5`], {
+    const lockHolder = spawn('bash', ['-c', 'exec 9>"$1"; flock -n 9 || exit 1; exec "$2" -e "$3"',
+      'fixture-lock', lockFile, process.execPath,
+      `require('fs').writeFileSync(${JSON.stringify(readyFile)}, 'ready'); setInterval(() => {}, 1000);`], {
       stdio: 'ignore',
     });
     try {
@@ -244,7 +290,13 @@ async function run() {
       assert.match(blockedResult.stderr, /Another Farming deployment is active/);
       assert.strictEqual(fs.realpathSync(remoteDir), firstImage);
     } finally {
-      lockHolder.kill('SIGTERM');
+      const stopped = new Promise<void>((resolve, reject) => {
+        if (lockHolder.exitCode !== null || lockHolder.signalCode !== null) { resolve(); return; }
+        const timer = setTimeout(() => reject(new Error('fixture lock holder did not exit')), 5_000);
+        lockHolder.once('exit', () => { clearTimeout(timer); resolve(); });
+      });
+      lockHolder.kill('SIGKILL');
+      await stopped;
     }
 
     console.log('✓ remote deployment uses immutable activation, preflight, locking, and rollback');

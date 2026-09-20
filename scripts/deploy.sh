@@ -16,7 +16,7 @@ BUILDER_IMAGE="${FARMING_DEPLOY_BUILDER_IMAGE:-node:22.17.0-bookworm}"
 DOCKER_CONTEXT="${FARMING_DEPLOY_DOCKER_CONTEXT:-}"
 NPM_REGISTRY="${FARMING_DEPLOY_NPM_REGISTRY:-https://registry.npmjs.org/}"
 SMOKE_AGENT="codex"
-KEEP_IMAGES="5"
+KEEP_IMAGES="2"
 DISABLE_AUTH="0"
 RUNTIME_NPM_MIRROR=""
 
@@ -45,7 +45,7 @@ Deployment options:
   --docker-context NAME       Local Unix-socket Docker context used by the Linux builder
   --npm-registry URL          npm registry used inside the Linux builder
   --smoke-agent COMMAND       ACP provider exercised after startup (default: codex)
-  --keep-images COUNT         Recent images retained in addition to rollback (default: 5)
+  --keep-images COUNT         Recent images retained; current, rollback and live images protected (default: 2)
   --runtime-npm-mirror VALUE  Optional packaged-runtime npm mirror override
   --disable-auth              Disable Farming authentication for this Config
   --help                      Show this help
