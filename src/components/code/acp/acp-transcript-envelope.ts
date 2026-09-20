@@ -62,6 +62,9 @@ export function preserveCompletedTranscriptTurns(
   }
 }
 
+// A delta's leading omission is relative to its update window, not the loaded
+// conversation. Only replacing a checkpoint or evicting loaded Turns changes
+// whether the browser still has older history to request.
 function legacyMergeAcpTranscript(
   current: AgentTranscript | null,
   next: AgentTranscript | null,
@@ -97,14 +100,14 @@ function legacyMergeAcpTranscript(
       ...current,
       ...next,
       available: current.available || next.available,
-      hasMoreBefore: current.hasMoreBefore || next.hasMoreBefore || boundedTurns.length < mergedTurns.length,
+      hasMoreBefore: current.hasMoreBefore || boundedTurns.length < mergedTurns.length,
       turns: boundedTurns,
     })
   }
   return preserveCompletedTranscriptTurns(current, {
     ...next,
     available: current.available || next.available,
-    hasMoreBefore: current.hasMoreBefore || next.hasMoreBefore,
+    hasMoreBefore: current.hasMoreBefore,
     turns: [...current.turns.slice(0, replaceIndex), ...next.turns],
   })
 }
@@ -235,7 +238,7 @@ export function mergeAcpTranscript(
       transcript: preserveCompletedTranscriptTurns(current, {
         ...next,
         available: current.available || next.available,
-        hasMoreBefore: current.hasMoreBefore || next.hasMoreBefore || boundedTurns.length < mergedTurns.length,
+        hasMoreBefore: current.hasMoreBefore || boundedTurns.length < mergedTurns.length,
         turns: boundedTurns,
       }),
       accepted: true,
@@ -246,7 +249,7 @@ export function mergeAcpTranscript(
     transcript: preserveCompletedTranscriptTurns(current, {
       ...next,
       available: current.available || next.available,
-      hasMoreBefore: current.hasMoreBefore || next.hasMoreBefore,
+      hasMoreBefore: current.hasMoreBefore,
       turns: [...current.turns.slice(0, replaceIndex), ...next.turns],
     }),
     accepted: true,

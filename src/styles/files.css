@@ -80,6 +80,13 @@
   transition: opacity 120ms ease;
 }
 
+/* Settled feedback swaps its glyph on return to idle. Hide an unrevealed
+ * control atomically so the idle glyph cannot flash during an opacity fade. */
+.code-files-header:not(:hover):not(:has(.code-files-header-actions :focus-visible))
+  .code-files-header-actions[data-refresh-status='idle'] {
+  transition: none;
+}
+
 .code-files-header:hover .code-files-header-actions,
 .code-files-header:has(.code-files-header-actions :focus-visible) .code-files-header-actions,
 .code-files-header-actions:not([data-refresh-status='idle']) {

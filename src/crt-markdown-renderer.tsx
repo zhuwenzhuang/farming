@@ -14,6 +14,7 @@ import rehypeHighlight from 'rehype-highlight'
 import rehypeKatex from 'rehype-katex'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
+import { remarkLiteralShellDollars } from './lib/remark-literal-shell-dollars'
 import 'katex/dist/katex.min.css'
 import { useMermaidRender } from '@/hooks/useMermaidRender'
 import { createMermaidRenderer, type MermaidConfig } from '@/lib/mermaid-renderer'
@@ -202,7 +203,7 @@ function readingAnchorId(turn: CrtTranscriptTurn) {
 
 const CrtTranscriptTurnView = memo(function CrtTranscriptTurnView({ turn }: { turn: CrtTranscriptTurn }) {
   const phase = richContentPhase(turn.status, turn.stopReason)
-  const remarkPlugins = useMemo<PluggableList>(() => [remarkGfm, remarkMath, [remarkStreamingContent, { phase }]], [phase])
+  const remarkPlugins = useMemo<PluggableList>(() => [remarkGfm, remarkMath, remarkLiteralShellDollars, [remarkStreamingContent, { phase }]], [phase])
   const rehypePlugins = useMemo<PluggableList>(() => [[rehypeGuardInvalidKatex, { pending: phase !== 'settled' }], rehypeKatex, rehypeHighlight], [phase])
   return (
     <section className="crt-structured-turn" data-reading-anchor-id={readingAnchorId(turn)}>

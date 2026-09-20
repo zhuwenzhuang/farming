@@ -456,7 +456,9 @@ non-HTTP(S), or invalid rules remain plain text.
   chevron column.
 - On pointer layouts, the Files search and refresh controls use progressive
   disclosure on header hover. A focused or non-empty search remains visible;
-  compact touch layouts keep search visible without requiring hover.
+  compact touch layouts keep search visible without requiring hover. When refresh
+  success feedback expires outside hover or keyboard focus, hide the control
+  atomically with its return to idle; do not flash the idle glyph during a fade.
 - Open Editors appears only when needed and stays separate from the tree.
 - At 393 CSS pixels and narrower, available Save, source/preview,
   overwrite-conflict, and Agent-side controls remain direct primary actions.

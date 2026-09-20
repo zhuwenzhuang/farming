@@ -328,6 +328,7 @@ Issue Reference 遵循 Workspace `.idea/vcs.xml` 内的 IntelliJ
   前导 Slot；文件不能额外保留一列空 Chevron。
 - 在 Pointer Layout 中，Files Search 与 Refresh Control 在 Header Hover 时渐进显示；
   Search 获得焦点或内容非空时继续保持可见，Compact Touch Layout 不依赖 Hover 并常显 Search。
+  刷新成功反馈结束时，若没有 Hover 或键盘焦点，应与回到 Idle 同时隐藏控件，不能在淡出过程中闪现 Idle 图标。
 - Open Editors 只在需要时出现，并与 Tree 分离。
 - 在 393 CSS Pixel 及更窄布局中，可用的 Save、Source/Preview、Overwrite Conflict 与
   Agent-side Control 继续作为直接主操作。Reveal、Share、Diff、Split Preview、Markdown

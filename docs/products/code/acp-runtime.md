@@ -611,7 +611,10 @@ An unsettled authoritative transcript that already contains Turns is admitted
 immediately while bounded fast settlement retries continue in the background,
 followed by a slower recovery cadence until an authoritative settled response
 arrives. Only an expected history response that is still empty blocks the
-transcript surface behind synchronization feedback.
+transcript surface behind synchronization feedback. A delta's omitted prefix
+refers to its update window, not missing browser history. Once the beginning is
+loaded, subsequent deltas retain that fact unless loaded Turns are evicted;
+scrolling at the top must not restart history synchronization.
 
 Live transcript revisions coalesce behind an in-flight read instead of
 repeatedly cancelling it, so sustained update streams make visible progress
@@ -624,7 +627,9 @@ use a short, bounded reveal; multiple arrivals reveal in parallel and
 reduced-motion preferences disable the effect. Expanded reasoning omits a
 leading line that already serves as its folded title and renders the remaining
 text as safe Markdown, so provider-authored emphasis is presented instead of
-exposing its source markers.
+exposing its source markers. Shell variable expansions in prose remain literal:
+paired dollar signs in quoted commands must not turn paths into inline math.
+Genuine inline/display formulas and code spans retain their normal rendering.
 
 The latest live answer mounts every authoritative snapshot that crosses the
 bounded revision-read cadence. Farming must not hold prefix-extending text until

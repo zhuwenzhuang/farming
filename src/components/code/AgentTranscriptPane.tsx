@@ -26,6 +26,7 @@ import rehypeHighlight from 'rehype-highlight'
 import rehypeKatex from 'rehype-katex'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
+import { remarkLiteralShellDollars } from '@/lib/remark-literal-shell-dollars'
 import {
   AgentBotGlyph,
   AgentChipGlyph,
@@ -196,7 +197,7 @@ interface TranscriptImagePreview {
 type OpenTranscriptImagePreview = (preview: TranscriptImagePreview, trigger: HTMLButtonElement) => void
 
 const TranscriptImagePreviewContext = createContext<OpenTranscriptImagePreview | null>(null)
-const TRANSCRIPT_REMARK_PLUGINS = [remarkGfm, remarkMath]
+const TRANSCRIPT_REMARK_PLUGINS = [remarkGfm, remarkMath, remarkLiteralShellDollars]
 
 const EMPTY_SUBAGENT_STATES: AgentTranscriptSubagentState[] = []
 

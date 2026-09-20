@@ -246,3 +246,36 @@ test('applies an authoritative correction inside a completed Turn', () => {
   const stable = mergeAcpTranscript(refreshed.transcript, unchanged)
   assert.strictEqual(stable.transcript?.turns[0], refreshed.transcript?.turns[0])
 })
+
+for (const legacy of [false, true]) {
+  test(`delta prefix omission does not reopen exhausted history (${legacy ? 'legacy' : 'versioned'})`, () => {
+    const project = (options: Parameters<typeof response>[0], maxTurns = 3) => {
+      const projected = projectAcpTranscriptResponse(response(options), 'agent-a', { maxTurns })
+      if (legacy) {
+        delete projected.envelopeVersion
+        projected.delta = !options.replace
+        projected.replaceFromTurnId = projected.turns[0]?.id
+      }
+      return projected
+    }
+    const first = project({ toRevision: 1, replace: true, label: 'first' })
+    const second = project({ fromRevision: 1, toRevision: 2, replace: false, label: 'second', hasMoreBefore: true })
+    const appended = mergeAcpTranscript(first, second).transcript!
+    assert.equal(appended.turns.length, 2)
+    assert.equal(appended.hasMoreBefore, false, 'the omitted prefix is already loaded')
+    const updated = mergeAcpTranscript(appended, project({
+      fromRevision: 2, toRevision: 3, replace: false, label: 'second', hasMoreBefore: true,
+    })).transcript!
+    assert.equal(updated.hasMoreBefore, false, 'updating the last Turn cannot invent older history')
+    const bounded = { ...updated, turnLimit: 2 }
+    const evicted = mergeAcpTranscript(bounded, project({
+      fromRevision: 3, toRevision: 4, replace: false, label: 'third', hasMoreBefore: true,
+    }, 2)).transcript!
+    assert.equal(evicted.turns.length, 2)
+    assert.equal(evicted.hasMoreBefore, true, 'eviction really does make older history unavailable')
+    const partial = { ...updated, hasMoreBefore: true }
+    assert.equal(mergeAcpTranscript(partial, project({
+      fromRevision: 3, toRevision: 4, replace: false, label: 'second', hasMoreBefore: false,
+    })).transcript?.hasMoreBefore, true, 'a delta cannot declare an unseen prefix loaded')
+  })
+}
