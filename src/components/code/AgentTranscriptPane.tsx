@@ -1,5 +1,6 @@
 import {
   createContext,
+  Fragment,
   lazy,
   memo,
   Suspense,
@@ -4248,6 +4249,23 @@ export function AgentTranscriptPane({
     transcriptRefreshRef.current?.()
   }, [agentId, source])
 
+  const forkOriginNote = forkedFromAgent || transcript?.forkOrigin ? (
+    <div
+      className="code-agent-transcript-fork-origin"
+      data-testid="code-agent-transcript-fork-origin"
+      role="note"
+    >
+      <span aria-hidden="true" />
+      <span className="code-agent-transcript-fork-origin-label">
+        <ForkGlyph />
+        {transcript?.forkOrigin?.status === 'ready'
+          ? copy.agentTranscriptForkedFromAgent
+          : copy.agentTranscriptForkBoundaryUnavailable}
+      </span>
+      <span aria-hidden="true" />
+    </div>
+  ) : null
+
   return (
     <TranscriptImagePreviewContext.Provider value={openImagePreview}>
       <TranscriptFileOpenContext.Provider value={transcriptFileOpenContext}>
@@ -4264,7 +4282,7 @@ export function AgentTranscriptPane({
           <span>{error}</span>
           <button type="button" onClick={handleTranscriptRetry}>{copy.retry}</button>
         </div>
-      ) : showFreshAcpEmpty ? (
+      ) : showFreshAcpEmpty && !transcript?.forkOrigin ? (
         <div className="code-agent-transcript-blank" role="status">{copy.agentTranscriptEmpty}</div>
       ) : loading || awaitingAcpHistory || awaitingInitialReveal ? (
         <div className="code-agent-transcript-state subtle">
@@ -4272,9 +4290,9 @@ export function AgentTranscriptPane({
             ? copy.agentChatStarting
             : copy.agentTranscriptSyncing}
         </div>
-      ) : !transcript?.available ? (
+      ) : !transcript?.available && !transcript?.forkOrigin ? (
         <div className="code-agent-transcript-blank" role="status">{copy.agentTranscriptEmpty}</div>
-      ) : turns.length === 0 ? (
+      ) : turns.length === 0 && !transcript?.forkOrigin ? (
         <div className="code-agent-transcript-blank" role="status">{copy.agentTranscriptEmpty}</div>
       ) : (
         <div
@@ -4289,75 +4307,66 @@ export function AgentTranscriptPane({
           onTouchEnd={handleTouchEnd}
           onTouchCancel={handleTouchEnd}
         >
-          {forkedFromAgent ? (
-            <div
-              className="code-agent-transcript-fork-origin"
-              data-testid="code-agent-transcript-fork-origin"
-              role="note"
-            >
-              <span aria-hidden="true" />
-              <span className="code-agent-transcript-fork-origin-label">
-                <ForkGlyph />
-                {copy.agentTranscriptForkedFromAgent}
-              </span>
-              <span aria-hidden="true" />
-            </div>
-          ) : null}
+          {forkOriginNote && (!transcript?.forkOrigin || transcript.forkOrigin.status !== 'ready'
+            || !transcript.forkOrigin.afterTurnId) ? forkOriginNote : null}
           {turns.map((turn, index) => {
             const processOpen = openProcessTurnIds.has(turn.id)
             return (
-              <LocalErrorBoundary
-                key={turn.id}
-                label="transcript turn"
-                resetKey={transcriptTurnResetKey(turn)}
-                fallback={(_error, retry) => (
-                  <article className="code-agent-transcript-turn" data-turn-id={turn.id}>
-                    <TranscriptLocalErrorFallback
+              <Fragment key={turn.id}>
+                <LocalErrorBoundary
+                  label="transcript turn"
+                  resetKey={transcriptTurnResetKey(turn)}
+                  fallback={(_error, retry) => (
+                    <article className="code-agent-transcript-turn" data-turn-id={turn.id}>
+                      <TranscriptLocalErrorFallback
+                        copy={copy}
+                        onRetry={retry}
+                        testId="code-agent-transcript-turn-render-error"
+                      />
+                    </article>
+                  )}
+                >
+                  <LocalRenderFault surface="transcript-turn" identity={turn.id}>
+                    <StableAgentTranscriptTurnView
+                      turn={turn}
                       copy={copy}
-                      onRetry={retry}
-                      testId="code-agent-transcript-turn-render-error"
+                      onOpenFile={onOpenWorkspaceFilePath ? handleOpenFile : undefined}
+                      onOpenUrlInFarming={onOpenUrlInFarming}
+                      workspaceRoot={workspaceRoot}
+                      clockActive={active}
+                      processOpen={processOpen}
+                      groupProcessActions={groupProcessActions}
+                      source={source}
+                      initialProgressIds={initialProgressUpdateIdsRef.current}
+                      onToggleProcess={handleToggleProcess}
+                      onLoadProcessItemDetail={source === 'acp' ? handleLoadProcessItemDetail : undefined}
+                      onLoadPatchChanges={source === 'acp' ? handleLoadPatchChanges : undefined}
+                      onReviewAndCommit={source === 'acp' ? onReviewAndCommit : undefined}
+                      gitDiffTarget={gitDiffTarget}
+                      uncommittedPaths={uncommittedPaths}
+                      onStopTerminal={source === 'acp' ? handleStopTerminal : undefined}
+                      onInputTerminal={source === 'acp' ? handleInputTerminal : undefined}
+                      onResizeTerminal={source === 'acp' ? handleResizeTerminal : undefined}
+                      onStopSubagent={source === 'acp' ? handleStopSubagent : undefined}
+                      subagentStates={transcript?.codexSubagents?.agents ?? EMPTY_SUBAGENT_STATES}
+                      openCollaborationAgentIds={openCollaborationAgentIds}
+                      setOpenCollaborationAgentIds={setOpenCollaborationAgentIds}
+                      openCollaborationActivityIds={openCollaborationActivityIds}
+                      setOpenCollaborationActivityIds={setOpenCollaborationActivityIds}
+                      showLiveActivity={
+                        source === 'acp'
+                        && index === turns.length - 1
+                        && turn.status === 'inProgress'
+                        && transcript?.state === 'working'
+                      }
+                      onFork={index === latestSettledTurnIndex ? onForkLatest : undefined}
+                      onShare={onCopyReadOnlyShareLink ? copyTurnShareLink : undefined}
                     />
-                  </article>
-                )}
-              >
-                <LocalRenderFault surface="transcript-turn" identity={turn.id}>
-                  <StableAgentTranscriptTurnView
-                    turn={turn}
-                    copy={copy}
-                    onOpenFile={onOpenWorkspaceFilePath ? handleOpenFile : undefined}
-                    onOpenUrlInFarming={onOpenUrlInFarming}
-                    workspaceRoot={workspaceRoot}
-                    clockActive={active}
-                    processOpen={processOpen}
-                    groupProcessActions={groupProcessActions}
-                    source={source}
-                    initialProgressIds={initialProgressUpdateIdsRef.current}
-                    onToggleProcess={handleToggleProcess}
-                    onLoadProcessItemDetail={source === 'acp' ? handleLoadProcessItemDetail : undefined}
-                    onLoadPatchChanges={source === 'acp' ? handleLoadPatchChanges : undefined}
-                    onReviewAndCommit={source === 'acp' ? onReviewAndCommit : undefined}
-                    gitDiffTarget={gitDiffTarget}
-                    uncommittedPaths={uncommittedPaths}
-                    onStopTerminal={source === 'acp' ? handleStopTerminal : undefined}
-                    onInputTerminal={source === 'acp' ? handleInputTerminal : undefined}
-                    onResizeTerminal={source === 'acp' ? handleResizeTerminal : undefined}
-                    onStopSubagent={source === 'acp' ? handleStopSubagent : undefined}
-                    subagentStates={transcript?.codexSubagents?.agents ?? EMPTY_SUBAGENT_STATES}
-                    openCollaborationAgentIds={openCollaborationAgentIds}
-                    setOpenCollaborationAgentIds={setOpenCollaborationAgentIds}
-                    openCollaborationActivityIds={openCollaborationActivityIds}
-                    setOpenCollaborationActivityIds={setOpenCollaborationActivityIds}
-                    showLiveActivity={
-                      source === 'acp'
-                      && index === turns.length - 1
-                      && turn.status === 'inProgress'
-                      && transcript?.state === 'working'
-                    }
-                    onFork={index === latestSettledTurnIndex ? onForkLatest : undefined}
-                    onShare={onCopyReadOnlyShareLink ? copyTurnShareLink : undefined}
-                  />
-                </LocalRenderFault>
-              </LocalErrorBoundary>
+                  </LocalRenderFault>
+                </LocalErrorBoundary>
+                {transcript?.forkOrigin?.status === 'ready'
+                  && transcript.forkOrigin.afterTurnId === turn.id ? forkOriginNote : null}
+              </Fragment>
             )
           })}
         </div>

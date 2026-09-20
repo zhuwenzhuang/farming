@@ -249,6 +249,7 @@ interface PrepareAgentOptions extends UnknownRecord {
   agentId?: string; provider?: string; providerHomeId?: string; providerHomePath?: string;
   configDir?: string; projectWorkspace?: string; cwd?: string; sessionId?: string;
   capabilityRuntimeEpoch?: string;
+  forkOriginSessionId?: string;
   forkSourceSessionId?: string; forkSourceCheckpoint?: UnknownRecord | null; revisionBase?: number;
   approvalMode?: string; historyMode?: string; model?: string; reasoningEffort?: string;
   serviceTier?: string; identityOnly?: boolean;
@@ -1785,6 +1786,7 @@ class AcpRuntime extends EventEmitter {
       configOverrides,
     };
     delete restartOptions.retained;
+    delete restartOptions.forkOriginSessionId;
     delete restartOptions.forkSourceSessionId;
     delete restartOptions.forkSourceCheckpoint;
     delete restartOptions.onForkSessionCreated;
@@ -1999,22 +2001,27 @@ class AcpRuntime extends EventEmitter {
         let restoredCheckpointState = null;
         let restoredCheckpoint = null;
         let saved = null;
-        if (options.historyMode === 'checkpoint' && this.checkpointStore) {
+        let savedForkOrigin: unknown = null;
+        if (this.checkpointStore) {
           saved = await this.checkpointStore.load(
             this.checkpointIdentity(binding, requestedSessionId),
             { allowDirty: true },
           );
           this.requireOpenBinding(binding);
-          restoredCheckpoint = this.restoreBindingCheckpoint(
-            binding,
-            recordValue(saved?.state) as AcpCheckpoint,
-            { sessionId: requestedSessionId },
-          );
-          restoredCheckpointState = restoredCheckpoint?.sessionState || null;
-          if (restoredCheckpoint?.deferredConfigChanges instanceof Map) {
-            binding.deferredConfigChanges = restoredCheckpoint.deferredConfigChanges;
+          const checkpoint = recordValue(saved?.state);
+          savedForkOrigin = recordValue(checkpoint.version === 2 ? checkpoint.sessionState : checkpoint).forkOrigin;
+          if (options.historyMode === 'checkpoint') {
+            restoredCheckpoint = this.restoreBindingCheckpoint(
+              binding,
+              recordValue(saved?.state) as AcpCheckpoint,
+              { sessionId: requestedSessionId },
+            );
+            restoredCheckpointState = restoredCheckpoint?.sessionState || null;
+            if (restoredCheckpoint?.deferredConfigChanges instanceof Map) {
+              binding.deferredConfigChanges = restoredCheckpoint.deferredConfigChanges;
+            }
+            binding.deferredModeId = String(restoredCheckpoint?.deferredModeId || '');
           }
-          binding.deferredModeId = String(restoredCheckpoint?.deferredModeId || '');
         }
         if (capabilities.sessionCapabilities?.resume && restoredCheckpoint) {
           const providerStateMatches = restoredCheckpoint?.complete === true && saved?.exact === true
@@ -2075,6 +2082,7 @@ class AcpRuntime extends EventEmitter {
           if (providerAcpHistoryReplayPolicy(provider)?.restoreMissingCheckpointMedia && restoredCheckpointState) {
             restoreMissingHistoryMedia(binding.sessionState, restoredCheckpointState);
           }
+          binding.sessionState.restoreForkOrigin(savedForkOrigin);
           this.restorePatchDecisions(binding, restoredCheckpoint?.patchDecisions);
           historyMode = 'load';
           opened = true;
@@ -2093,6 +2101,7 @@ class AcpRuntime extends EventEmitter {
             'ACP session/resume'
           );
           this.requireOpenBinding(binding);
+          binding.sessionState.restoreForkOrigin(savedForkOrigin);
           historyMode = 'resume';
           opened = true;
         } else {
@@ -2121,6 +2130,11 @@ class AcpRuntime extends EventEmitter {
         : sessionResponse?.modes) as SessionResponse['modes'] || null;
       binding.configOptions = sessionResponse?.configOptions || [];
       const initializedSessionState = this.requireSessionState(binding);
+      if (options.forkOriginSessionId) {
+        initializedSessionState.captureForkOrigin(options.forkOriginSessionId);
+        // Publish a usable child only after its lineage boundary is durable.
+        await this.writeCheckpoint(binding);
+      }
       initializedSessionState.currentModeId = String(binding.modes?.currentModeId || '');
       initializedSessionState.configOptions = JSON.parse(JSON.stringify(binding.configOptions));
       const configPolicy = providerAcpConfigPolicy(provider);
@@ -3841,6 +3855,7 @@ class AcpRuntime extends EventEmitter {
       revisionBase,
     };
     delete restartOptions.retained;
+    delete restartOptions.forkOriginSessionId;
     delete restartOptions.forkSourceSessionId;
     delete restartOptions.forkSourceCheckpoint;
     delete restartOptions.onForkSessionCreated;

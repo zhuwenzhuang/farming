@@ -631,6 +631,7 @@ export interface ProviderStartOptions extends Record<string, unknown> {
   acpConfigOverrides?: AcpConfigChange[];
   acpForkSourceCheckpoint?: AcpBindingCheckpoint | null;
   acpForkSourceSessionId?: string;
+  acpForkOriginSessionId?: string;
   acpHistoryMode?: 'checkpoint' | 'load' | 'resume';
   acpStartFresh?: boolean;
   additionalDirectories?: string[];

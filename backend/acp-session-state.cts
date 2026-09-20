@@ -3,6 +3,7 @@ const MAX_ACP_UPDATE_LOG_VALUE_CHARS = 32 * 1024;
 const MAX_CODEX_SUBAGENTS = 128;
 const MAX_CODEX_SUBAGENT_ID_CHARS = 160;
 const MAX_CODEX_SUBAGENT_NAME_CHARS = 120;
+import { createHash } from 'node:crypto';
 import { acpSessionProviderPolicy } from './acp-session-provider-policy.cjs';
 
 type DataRecord = Record<string, unknown>;
@@ -282,6 +283,12 @@ function canMergeMessageChunks(
   return policy.messagePhase(existing) === policy.messagePhase(update);
 }
 
+interface ForkOrigin {
+  sourceSessionId: string;
+  userTurnCount: number;
+  userPrefixHash: string;
+}
+
 class AcpSessionState {
   provider: string;
   sessionId: string;
@@ -305,6 +312,8 @@ class AcpSessionState {
   sequence: number;
   revision: number;
   resetBeforeRevision: number;
+  forkOrigin: ForkOrigin | null = null;
+  forkOriginAnchor: { status: 'ready' | 'unavailable'; afterEntryId: string } | null = null;
 
   constructor(options: AcpSessionStateOptions = {}) {
     this.provider = String(options.provider || '');
@@ -383,7 +392,57 @@ class AcpSessionState {
     state.updatedAt = String(source.updatedAt || '');
     state.codexSubagents = clone(source.codexSubagents ?? null) as CodexSubagents | null;
     state.truncated = source.truncated === true;
+    state.restoreForkOrigin(source.forkOrigin);
     return state;
+  }
+
+  private forkUserTurns(): AcpEntry[] {
+    const policy = acpSessionProviderPolicy(this.provider);
+    const users = clone(this.entries.filter(entry => entry.type === 'message' && entry.role === 'user'));
+    return policy.sanitizeEntries(users, this.entries, 0)
+      .filter(entry => policy.transcriptTurnStart(entry) && !entry.internal);
+  }
+
+  private forkPrefixHash(turns: AcpEntry[]): string {
+    // Provider replays may regenerate entry/tool IDs. Verify the ordered user
+    // prefix before rebinding the immutable boundary to this replay's IDs.
+    return createHash('sha256').update(JSON.stringify(turns.map(entry => entry.content || []))).digest('hex');
+  }
+
+  captureForkOrigin(sourceSessionId: string): void {
+    const turns = this.forkUserTurns();
+    this.restoreForkOrigin({
+      sourceSessionId,
+      userTurnCount: turns.length,
+      userPrefixHash: this.forkPrefixHash(turns),
+    });
+  }
+
+  restoreForkOrigin(value: unknown): void {
+    if (!value || typeof value !== 'object') return;
+    const origin = value as Partial<ForkOrigin>;
+    if (typeof origin.sourceSessionId !== 'string' || !origin.sourceSessionId
+      || !Number.isSafeInteger(origin.userTurnCount) || Number(origin.userTurnCount) < 0
+      || typeof origin.userPrefixHash !== 'string') return;
+    this.forkOrigin = {
+      sourceSessionId: origin.sourceSessionId,
+      userTurnCount: Number(origin.userTurnCount),
+      userPrefixHash: origin.userPrefixHash,
+    };
+    const turns = this.forkUserTurns();
+    const count = this.forkOrigin.userTurnCount;
+    const verified = turns.length >= count
+      && this.forkPrefixHash(turns.slice(0, count)) === this.forkOrigin.userPrefixHash;
+    this.forkOriginAnchor = {
+      status: verified ? 'ready' : 'unavailable',
+      afterEntryId: verified && count > 0 ? String(turns[count - 1].id || '') : '',
+    };
+  }
+
+  private forkOriginSnapshot() {
+    return this.forkOrigin && this.forkOriginAnchor
+      ? { sourceSessionId: this.forkOrigin.sourceSessionId, ...this.forkOriginAnchor }
+      : null;
   }
 
   nextEntryId(prefix: string): string {
@@ -787,6 +846,7 @@ class AcpSessionState {
 
     return {
       entries: this.sanitizedEntries(startIndex, { forTranscript: true }),
+      forkOrigin: this.forkOriginSnapshot(),
       revision: this.revision,
       delta,
       hasMoreBefore: startIndex > 0,
@@ -838,6 +898,7 @@ class AcpSessionState {
       truncated: this.truncated,
       revision: this.revision,
       entries,
+      forkOrigin: this.forkOriginSnapshot(),
       usage: clone(this.usage),
       availableCommands: clone(this.availableCommands),
       currentModeId: this.currentModeId,
@@ -859,6 +920,7 @@ class AcpSessionState {
       revision: this.revision,
       resetBeforeRevision: this.resetBeforeRevision,
       entries: clone(this.entries),
+      forkOrigin: clone(this.forkOrigin),
       activePlanEntryId: this.activePlanEntry?.id || '',
       plan: clone(this.plan),
       usage: clone(this.usage),

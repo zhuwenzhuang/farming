@@ -515,6 +515,33 @@ with an explicit warning. In every case the Fork is never replayed
 automatically, the same request may only reconcile against the durable
 outcome, and archive or delete supersedes it while the source is addressable.
 
+### Fork History Boundary
+
+A fork's origin is a durable conversation boundary owned by the child runtime,
+not a banner at the start or moving end of its transcript. After the provider
+has prepared the child history and before the child accepts input, capture its
+inherited user-turn prefix and persist the origin in its checkpoint. A fork of
+a fork captures a new boundary for its immediate source.
+
+The divider follows the last inherited visible Turn and precedes all child
+Turns. A newly opened fork reveals that boundary with the inherited tail; later
+messages, pagination, refresh and parent activity never move it. Empty inherited
+history places it before the first child Turn. It is presentation metadata,
+never a user/assistant message sent to the provider.
+
+Recovery loads history authoritatively and verifies the saved ordered user
+prefix before rebinding the boundary to replayed entry identities. Tool replay
+shape and regenerated IDs must not move it. Missing or incompatible history,
+including compaction that removes the prefix, exposes an unavailable boundary
+instead of guessing. Legacy forks without a saved boundary show origin-only
+information with that limitation; merely opening one must not mark its current
+tail as inherited. Paging past the boundary hides the divider until its Turn is
+loaded, rather than relocating it into the visible page.
+
+Acceptance covers initial tail visibility in every appearance, first child
+submission, checkpoint/replay recovery, pagination, repeated forks, empty
+history and unavailable boundaries across provider adapters.
+
 ## Presentation Contract
 
 Compact Chat keeps the current Plan collapsed to one summary row above the

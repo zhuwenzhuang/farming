@@ -6008,6 +6008,7 @@ class AgentManager extends EventEmitter {
           refreshMcpServersForRuntime: currentMcpServers => (
             this.projectAcpMcpServersForRuntime(currentMcpServers.filter(isRecord), acpEnv)
           ),
+          forkOriginSessionId: options.acpForkOriginSessionId || '',
           forkSourceSessionId: options.acpForkSourceSessionId || '',
           forkSourceCheckpoint: options.acpForkSourceCheckpoint || null,
           onForkSessionCreated: async (sessionId: string) => {
@@ -10016,6 +10017,7 @@ class AgentManager extends EventEmitter {
         acpHistoryMode: 'load',
         runtimeSwitchVerifiedSessionId: forkedSessionId,
         forkedFromProviderSessionId: sourceSessionId,
+        acpForkOriginSessionId: sourceSessionId,
         lifecycleToken,
         ...acpSessionOptions,
         ...providerSessionResumeOptions(provider, {
@@ -10110,6 +10112,7 @@ class AgentManager extends EventEmitter {
               providerSessionTitle: agent.providerSessionTitle || '',
               projectWorkspace: workspace,
               agentRuntimeMode: 'chat',
+              acpForkOriginSessionId: sourceSessionId,
               acpForkSourceSessionId: sourceSessionId,
               acpForkSourceCheckpoint: forkSourceCheckpoint,
               forkedFromProviderSessionId: sourceSessionId,

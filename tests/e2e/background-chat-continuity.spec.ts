@@ -1148,6 +1148,38 @@ test('forks the latest ACP answer into a new Chat Agent in the same workspace', 
     ':scope > [data-testid="code-agent-transcript-fork-origin"]'
   )).toHaveCount(1)
   await expect(forkOrigin.locator(':scope > span[aria-hidden="true"]')).toHaveCount(2)
+
+  const forkScroll = forkedPane.getByTestId('code-agent-transcript-scroll')
+  await expect(forkOrigin).toBeInViewport()
+  await expect.poll(() => forkOrigin.evaluate(element =>
+    element.previousElementSibling?.getAttribute('data-turn-id') || '',
+  )).toMatch(/^acp-turn-/)
+  const inheritedTurnId = await forkOrigin.evaluate(element => element.previousElementSibling?.getAttribute('data-turn-id'))
+  for (const appearance of ['light', 'dark', 'paper']) {
+    await page.evaluate(value => {
+      document.documentElement.dataset.appearance = value
+      document.body.dataset.appearance = value
+    }, appearance)
+    await expect(forkOrigin).toBeInViewport()
+    await forkScroll.screenshot({ path: test.info().outputPath(`${appearance}-fork-boundary.png`) })
+  }
+
+  const input = page.getByTestId('code-acp-composer-input')
+  await input.fill('child branch continuation')
+  await page.getByTestId('code-acp-composer-send').click()
+  await expect(forkScroll.getByText('child branch continuation', { exact: true })).toBeVisible()
+  await expect.poll(() => forkOrigin.evaluate(element => ({
+    before: element.previousElementSibling?.getAttribute('data-turn-id'),
+    after: element.nextElementSibling?.textContent,
+  }))).toEqual({ before: inheritedTurnId, after: expect.stringContaining('child branch continuation') })
+  await page.reload()
+  await expect(forkedPane).toBeVisible()
+  await expect(forkOrigin).toHaveCount(1)
+  await expect.poll(() => forkOrigin.evaluate(element => ({
+    before: element.previousElementSibling?.getAttribute('data-turn-id'),
+    after: element.nextElementSibling?.textContent,
+  }))).toEqual({ before: inheritedTurnId, after: expect.stringContaining('child branch continuation') })
+
   await expect(forkedPane.getByText('phase-aware mermaid fork this conversation', { exact: true })).toBeVisible()
   await expect(forkedPane.getByText('Phase-aware rich answer.', { exact: false })).toBeVisible()
 })

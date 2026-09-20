@@ -124,6 +124,11 @@ export interface AgentTranscriptTurn {
 }
 
 export interface AgentTranscript {
+  forkOrigin?: {
+    sourceSessionId: string
+    status: 'ready' | 'unavailable'
+    afterTurnId: string
+  } | null
   version?: number
   envelopeVersion?: number
   agentId?: string
@@ -863,6 +868,7 @@ export function projectAcpTranscript(sessionValue: unknown, options: { maxTurns?
   if (lastTurn && !activeSession) lastTurn.stopReason = stringValue(session.stopReason)
   const maxTurns = Number.isFinite(Number(options.maxTurns)) ? Math.max(1, Math.floor(Number(options.maxTurns))) : 80
   const visibleTurns = turns.slice(-maxTurns)
+  const forkOrigin = record(session.forkOrigin)
   const rawSubagents = record(session.codexSubagents)
   const codexSubagents = Number(rawSubagents.version) === 1
     ? {
@@ -882,6 +888,13 @@ export function projectAcpTranscript(sessionValue: unknown, options: { maxTurns?
     : undefined
   return {
     version: 2,
+    forkOrigin: typeof forkOrigin.sourceSessionId === 'string' && forkOrigin.sourceSessionId
+      ? {
+          sourceSessionId: forkOrigin.sourceSessionId,
+          status: forkOrigin.status === 'ready' ? 'ready' : 'unavailable',
+          afterTurnId: forkOrigin.afterEntryId ? `acp-turn-${stringValue(forkOrigin.afterEntryId)}` : '',
+        }
+      : null,
     available: visibleTurns.length > 0,
     reason: visibleTurns.length > 0 ? undefined : 'empty-acp-session',
     sessionId: stringValue(session.sessionId), title: stringValue(session.title), updatedAt: stringValue(session.updatedAt),
