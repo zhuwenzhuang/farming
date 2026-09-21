@@ -205,3 +205,14 @@ test('new read-only URLs take precedence while legacy responses remain supported
     assert.equal(ticket.readOnlyUrl, 'https://host/s/new')
   }
 })
+
+test('read-only expiry is independent from QR expiry', async () => {
+  const expiresAt = Date.now() + 300_000
+  const readOnlyExpiresAt = Date.now() + 86_400_000
+  const ticket = await requestQrShareTicket(null, FAILURE_MESSAGE, async () => ({
+    ok: true, status: 200,
+    async json() { return completeTicket({ expiresAt, readOnlyExpiresAt }) },
+  }))
+  assert.equal(ticket.expiresAt, expiresAt)
+  assert.equal(ticket.readOnlyExpiresAt, readOnlyExpiresAt)
+})

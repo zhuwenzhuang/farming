@@ -2,7 +2,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
 import { atomicWriteJsonAsync } from './atomic-json-store.cjs';
-import { SHARE_TICKET_TTL_MS } from './qr-share-tickets.cjs';
+import { MAX_READ_ONLY_SHARE_HOURS } from '../shared/read-only-share-duration.js';
 
 interface ReadOnlyShare {
   token: string;
@@ -78,7 +78,7 @@ class ReadOnlyShareStore {
   create(token: string, options: { targetQuery: string; expiresAt: number; now?: number }): Promise<{ code: string }> {
     const operation = this.writing.then(async () => {
       const now = options.now ?? Date.now();
-      const share = { token, targetQuery: options.targetQuery, expiresAt: Math.min(options.expiresAt, now + SHARE_TICKET_TTL_MS) };
+      const share = { token, targetQuery: options.targetQuery, expiresAt: Math.min(options.expiresAt, now + MAX_READ_ONLY_SHARE_HOURS * 60 * 60 * 1000) };
       if (!validShare(share) || share.expiresAt <= now) throw new Error('Invalid read-only share');
       const records = new Map([...(await this.load())].filter(([, value]) => value.expiresAt > now));
       if (records.size >= this.maxLinks) {

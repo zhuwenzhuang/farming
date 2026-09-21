@@ -75,6 +75,7 @@ export interface GlobalSettings extends WorkspaceHistorySettings {
   computerImage?: string
   languageServerEnabled?: boolean
   searchTimeoutMs?: number
+  readOnlyShareHours?: number
   agentHomes?: AgentHomesSettings
   agentLaunchProfiles?: Record<string, {
     approvalMode?: CodexApprovalMode

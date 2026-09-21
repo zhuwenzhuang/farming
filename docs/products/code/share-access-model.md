@@ -16,7 +16,7 @@ The share popover exposes different capabilities deliberately:
 
 The UI must state the QR permission and expiry directly below the QR code in muted
 text. The copy confirmation must say that the current-page link is read-only,
-cannot modify the workspace, and expires with the countdown. Direct Chat and File
+cannot modify the workspace, and states its own expiry separately from the QR countdown. Direct Chat and File
 copy confirmations appear next to the activated share control and state the exact
 expiry time returned by the backend. The owner passphrase
 area is a clickable button that copies a full-control URL while preserving the
@@ -66,9 +66,13 @@ The delegated response must not contain the owner passphrase or any owner
 credential. Its expiry is capped by the parent read-only capability, so repeated
 re-sharing cannot extend access.
 
-Share tickets and newly issued read-only capabilities have a maximum lifetime of
-five minutes. A ticket is single-use. Earlier capabilities keep their own original
-expiry. The owner passphrase is the instance credential and remains valid until it
+QR tickets have a maximum lifetime of five minutes and are single-use. Read-only
+links use the Config-owned Settings slider: 1–168 whole hours, default 24 hours.
+The server validates and persists the value; new links capture it at creation,
+while existing links retain their original expiry. Delegation is still capped by
+the parent capability. The short-link store and signed capability share the same
+expiry; the QR expiry remains independent. Settings changes never extend a live
+capability. The owner passphrase is the instance credential and remains valid until it
 is changed or rotated.
 
 Rotation atomically persists a newly generated instance credential before exposing

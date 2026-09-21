@@ -176,6 +176,7 @@ export interface CodeCopy {
   copyFailed: string
   sharePage: string
   copyReadOnlyShareLink: string
+  readOnlyShareExpires: (expiresAt: number) => string
   copiedReadOnlyShareLink: (expiresAt: number) => string
   scanToOpenOnPhone: string
   copiedShareLink: string
@@ -818,6 +819,7 @@ const EN_COPY: CodeCopy = {
   copyFailed: 'Copy failed',
   sharePage: 'Share current page',
   copyReadOnlyShareLink: 'Copy read-only share link',
+  readOnlyShareExpires: expiresAt => `View only · Valid until ${new Date(expiresAt).toLocaleString('en-US')}`,
   copiedReadOnlyShareLink: expiresAt => `Read-only share link copied; view only, valid until ${new Date(expiresAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}`,
   scanToOpenOnPhone: 'Scan to open on phone',
   copiedShareLink: 'Current page read-only link copied',
@@ -1486,6 +1488,7 @@ const ZH_COPY: CodeCopy = {
   copyFailed: '复制失败',
   sharePage: '分享当前页面',
   copyReadOnlyShareLink: '复制只读分享链接',
+  readOnlyShareExpires: expiresAt => `只能查看 · 有效至 ${new Date(expiresAt).toLocaleString('zh-CN', { hour12: false })}`,
   copiedReadOnlyShareLink: expiresAt => `只读分享链接已复制；只能查看，有效至 ${new Date(expiresAt).toLocaleString('zh-CN', { dateStyle: 'medium', timeStyle: 'short', hour12: false })}`,
   scanToOpenOnPhone: '手机扫码打开',
   copiedShareLink: '当前页面只读链接已复制',

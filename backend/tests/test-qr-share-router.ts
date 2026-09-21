@@ -149,6 +149,7 @@ async function run(): Promise<void> {
       return { code: `READONLY${++readOnlySequence}` };
     },
   };
+  let shareHours = 24;
   const app = express();
   app.use((req: { authAccessMode?: string; headers: Record<string, unknown> }, _res: unknown, next: () => void) => {
     req.authAccessMode = req.headers['x-test-access'] === 'read-only' ? 'read-only' : 'owner';
@@ -156,6 +157,7 @@ async function run(): Promise<void> {
   });
   app.use('/farm/api/share/qr-ticket', createQrShareRouter(auth, tickets, {
     readOnlyLinks,
+    readOnlyShareHours: () => shareHours,
     authEnabled: true,
     basePath: '/farm',
     fallbackPort: 9123,
@@ -216,9 +218,10 @@ async function run(): Promise<void> {
       'x-forwarded-proto': 'https, http',
       'x-test-token': 'owner-request-token',
     });
-    const readOnlyToken = `readonly-${now + SHARE_TICKET_TTL_MS}`;
+    const readOnlyToken = `readonly-${now + 24 * 60 * 60 * 1000}`;
     await assertJsonResponse(ownerResponse, 200, {
       code: 'SHARE1',
+      readOnlyExpiresAt: now + 24 * 60 * 60 * 1000,
       expiresAt: now + SHARE_TICKET_TTL_MS,
       ttlMs: SHARE_TICKET_TTL_MS,
       shortPath: '/farm/j/SHARE1',
@@ -232,12 +235,12 @@ async function run(): Promise<void> {
     });
     assert.deepStrictEqual(calls.slice(callStart), [
       'extractToken:owner-request-token',
-      `createReadOnlyToken:${now + SHARE_TICKET_TTL_MS}`,
+      `createReadOnlyToken:${now + 24 * 60 * 60 * 1000}`,
       'getToken',
       `readOnlyTokenExpiresAt:${readOnlyToken}`,
       `createTicket:${ownerToken}`,
     ]);
-    assert.deepStrictEqual(readOnlyCreates.at(-1), { token: readOnlyToken, expiresAt: now + SHARE_TICKET_TTL_MS, now, targetQuery });
+    assert.deepStrictEqual(readOnlyCreates.at(-1), { token: readOnlyToken, expiresAt: now + 24 * 60 * 60 * 1000, now, targetQuery });
     assert.deepStrictEqual(ticketCreates.at(-1), {
       token: ownerToken,
       expiresAt: now + SHARE_TICKET_TTL_MS,
@@ -275,7 +278,8 @@ async function run(): Promise<void> {
       });
       const directOriginBody = await directOriginResponse.json() as { shortUrl: string };
       assert.strictEqual(new URL(directOriginBody.shortUrl).origin, `http://127.0.0.1:${serverPort(directOriginServer)}`);
-    } finally {
+
+  } finally {
       await closeServer(directOriginServer);
     }
 
@@ -289,6 +293,7 @@ async function run(): Promise<void> {
     const delegatedToken = `readonly-${delegatedExpiresAt}`;
     await assertJsonResponse(delegatedResponse, 200, {
       code: 'SHARE4',
+      readOnlyExpiresAt: delegatedExpiresAt,
       expiresAt: delegatedExpiresAt,
       ttlMs: SHARE_TICKET_TTL_MS,
       shortPath: '/farm/j/SHARE4',
@@ -337,9 +342,9 @@ async function run(): Promise<void> {
     }), 500, { error: 'Unable to allocate share code' });
     assert.deepStrictEqual(calls.slice(callStart), [
       'extractToken:owner-request-token',
-      `createReadOnlyToken:${now + SHARE_TICKET_TTL_MS}`,
+      `createReadOnlyToken:${now + 24 * 60 * 60 * 1000}`,
       'getToken',
-      `readOnlyTokenExpiresAt:readonly-${now + SHARE_TICKET_TTL_MS}`,
+      `readOnlyTokenExpiresAt:readonly-${now + 24 * 60 * 60 * 1000}`,
       `createTicket:${ownerToken}`,
     ]);
     ticketCreateError = null;
@@ -413,6 +418,15 @@ async function run(): Promise<void> {
     }
 
     console.log('QR share router behavior passed');
+    for (const hours of [1, 168]) {
+      shareHours = hours;
+      const response = await postJson(endpoint, {}, { 'x-test-token': 'owner-request-token' });
+      assert.strictEqual(response.status, 200);
+      const body = await response.json();
+      assert.strictEqual(body.readOnlyExpiresAt, now + hours * 60 * 60 * 1000);
+      assert.strictEqual(body.expiresAt, now + SHARE_TICKET_TTL_MS);
+      assert.strictEqual(readOnlyCreates.at(-1)?.expiresAt, body.readOnlyExpiresAt);
+    }
   } finally {
     await closeServer(server);
   }

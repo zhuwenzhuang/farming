@@ -88,6 +88,11 @@ async function run() {
     assert.equal(result.status, 200);
     const share = await result.json();
     assert.equal(share.readOnlyUrl, share.longUrl);
+    assert(share.readOnlyExpiresAt > Date.now() + 23 * 60 * 60 * 1000);
+    assert(share.expiresAt <= Date.now() + 5 * 60 * 1000);
+    const persistedLink = await liveStore.resolve(new URL(share.readOnlyUrl).pathname.split('/').at(-1)!, share.expiresAt + 1);
+    assert(persistedLink, 'read-only link remains valid after QR expiry');
+    assert.equal(persistedLink.expiresAt, share.readOnlyExpiresAt);
     const url = new URL(share.readOnlyUrl);
     assert.match(url.pathname, /^\/farm\/s\/[A-Za-z0-9_-]{22}$/);
     assert.equal(url.search, '');
@@ -114,7 +119,7 @@ async function run() {
     const delegatedResponse = await create({ Cookie: cookie });
     assert.equal(delegatedResponse.status, 200);
     const delegated = await delegatedResponse.json();
-    assert(delegated.expiresAt <= share.expiresAt);
+    assert(delegated.readOnlyExpiresAt <= share.readOnlyExpiresAt);
     assert.equal(delegated.tokenLabel, '');
     assert.equal(delegated.fullAccessUrl, undefined);
     assert.equal(delegated.shortUrlAccessMode, 'read-only');
@@ -123,7 +128,7 @@ async function run() {
     assert.equal((await fetch(origin + url.pathname + 'x')).status, 410);
     const tokenRecord = await liveStore.resolve(url.pathname.split('/').at(-1)!);
     assert(tokenRecord);
-    assert.equal(await liveStore.resolve(url.pathname.split('/').at(-1)!, share.expiresAt), null);
+    assert.equal(await liveStore.resolve(url.pathname.split('/').at(-1)!, share.readOnlyExpiresAt), null);
 
     failCommit = true;
     assert.equal((await create(owner)).status, 500, 'failed persistence must never return a link');

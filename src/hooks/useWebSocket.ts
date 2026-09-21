@@ -709,7 +709,6 @@ export function useWebSocket() {
     function sendBusinessProbe(
       ws: WebSocket,
       deadlineMs = BUSINESS_HEALTH_DEADLINE_MS,
-      replaceOnTimeout = false,
     ) {
       if (
         disposed
@@ -736,11 +735,7 @@ export function useWebSocket() {
           businessStatus: 'unresponsive',
           businessCheckedAt: Date.now(),
         })
-        if (replaceOnTimeout) {
-          replaceConnection(ws, 'Business health probe timed out')
-        } else {
-          scheduleBusinessProbe(ws, BUSINESS_HEALTH_RETRY_MS)
-        }
+        replaceConnection(ws, 'Business health probe timed out')
       }, deadlineMs)
     }
 
@@ -776,7 +771,7 @@ export function useWebSocket() {
       resetBusinessProbeObservation()
       const ws = wsRef.current
       if (ws?.readyState === WebSocket.OPEN) {
-        sendBusinessProbe(ws, FOREGROUND_BUSINESS_HEALTH_DEADLINE_MS, true)
+        sendBusinessProbe(ws, FOREGROUND_BUSINESS_HEALTH_DEADLINE_MS)
         return
       }
       if (ws?.readyState === WebSocket.CONNECTING) return

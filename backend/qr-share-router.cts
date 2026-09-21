@@ -1,3 +1,4 @@
+import { normalizeReadOnlyShareHours } from '../shared/read-only-share-duration.js';
 import { normalizeBasePath, routePath } from './index-html.cjs';
 import { SHARE_TICKET_TTL_MS } from './qr-share-tickets.cjs';
 import type { ReadOnlyShareStore } from './read-only-share-store.cjs';
@@ -79,6 +80,7 @@ interface QrShareRouterOptions {
   basePath: string;
   fallbackPort: string | number;
   now?: () => number;
+  readOnlyShareHours?: () => number;
   publicOrigin?: string;
 }
 
@@ -265,7 +267,7 @@ function createQrShareRouter(
         return;
       }
       const shareExpiresAt = Math.min(
-        requestNow + SHARE_TICKET_TTL_MS,
+        requestNow + normalizeReadOnlyShareHours(options.readOnlyShareHours?.()) * 60 * 60 * 1000,
         requesterExpiresAt || Number.POSITIVE_INFINITY,
       );
       if (shareExpiresAt <= requestNow + 1000) {
@@ -283,7 +285,7 @@ function createQrShareRouter(
         return;
       }
       const ticket = tickets.create(qrToken, {
-        expiresAt: shareExpiresAt,
+        expiresAt: Math.min(shareExpiresAt, requestNow + SHARE_TICKET_TTL_MS),
         now: requestNow,
         targetQuery,
       });
@@ -295,6 +297,7 @@ function createQrShareRouter(
       res.json({
         code: ticket.code,
         expiresAt: ticket.expiresAt,
+        readOnlyExpiresAt: shareExpiresAt,
         ttlMs: SHARE_TICKET_TTL_MS,
         shortPath,
         shortUrl: absoluteClientUrl(req, shortPath, options),

@@ -400,3 +400,31 @@ test('a real mobile offline transition retains draft input and requires an expli
     await context.setOffline(false)
   }
 })
+
+test('periodic health timeout replaces an unresponsive socket without foreground events', async ({ page, workspaceRoot }) => {
+  const response = await page.request.post('/farming/api/control/agents', {
+    data: { command: 'claude', workspace: workspaceRoot, agentRuntimeMode: 'chat' },
+  })
+  expect(response.ok()).toBeTruthy()
+  let socketCount = 0
+  let dropHealth = false
+  await page.routeWebSocket(/\/farming\/ws(?:\?|$)/, socket => {
+    const generation = ++socketCount
+    const server = socket.connectToServer()
+    socket.onMessage(message => server.send(message))
+    server.onMessage(message => {
+      const parsed = JSON.parse(String(message)) as { type?: string }
+      if (dropHealth && generation === 1 && parsed.type === 'business-health-result') return
+      socket.send(message)
+    })
+  })
+  await page.goto('/farming/')
+  const composer = page.getByTestId('code-acp-composer-input')
+  await expect(composer).toBeEditable()
+  await composer.fill('PRESERVE_DRAFT_AFTER_HEALTH_TIMEOUT')
+  await expect.poll(() => socketCount).toBe(1)
+  dropHealth = true
+  await expect.poll(() => socketCount, { timeout: 25_000 }).toBe(2)
+  await expect(page.getByTestId('connection-status')).toHaveCount(0)
+  await expect(composer).toHaveValue('PRESERVE_DRAFT_AFTER_HEALTH_TIMEOUT')
+})

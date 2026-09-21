@@ -575,7 +575,7 @@ export function ShareQrButton({
               <span className="code-share-copy-status-icon" aria-hidden="true"><CheckGlyph /></span>
               <span className="code-share-copy-status-copy">
                 <strong>{copy.copiedShareLink}</strong>
-                <span>{copy.shareLinkVisibility}</span>
+                <span>{ticket ? copy.readOnlyShareExpires(ticket.readOnlyExpiresAt ?? ticket.expiresAt) : copy.shareLinkVisibility}</span>
               </span>
             </div>
           )}

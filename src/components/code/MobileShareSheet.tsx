@@ -161,7 +161,7 @@ export function MobileShareSheet({
         <section className="code-mobile-share-choice code-mobile-share-forward">
           <div className="code-mobile-share-choice-copy">
             <h3>{copy.copyReadOnlyShareLink}</h3>
-            <p>{copy.shareLinkVisibility}</p>
+            <p>{ticket ? copy.readOnlyShareExpires(ticket.readOnlyExpiresAt ?? ticket.expiresAt) : copy.shareLinkVisibility}</p>
           </div>
           <div className="code-mobile-share-link-row">
             <span className="code-mobile-share-link" title={title}>{ticket.readOnlyUrl}</span>

@@ -187,6 +187,12 @@ function panelCopy(language: UiPreferences['language']) {
     dangerousSkipHint: zh
       ? '开启后，新启动的 Codex、Claude、OpenCode、Qoder、Qwen、Aider、GitHub Copilot CLI、Amazon Q 等会使用各自的危险跳过权限 flag。只在可信沙箱中使用。'
       : 'When enabled, new Codex, Claude, OpenCode, Qoder, Qwen, Aider, GitHub Copilot CLI, Amazon Q, and similar agents launch with their provider-specific dangerous skip flags. Use only in trusted sandboxes.',
+    sharePage: zh ? '分享' : 'Sharing',
+    readOnlyShareDuration: zh ? '只读链接有效期' : 'Read-only link validity',
+    readOnlyShareDurationHint: zh ? '1 小时～7 天。对新链接生效；二维码仍为 5 分钟。' : '1 hour–7 days. Applies to new links; QR codes remain valid for 5 minutes.',
+    readOnlyShareDurationValue: (hours: number) => hours % 24 === 0
+      ? (zh ? `${hours / 24} 天` : `${hours / 24} day${hours === 24 ? '' : 's'}`)
+      : (zh ? `${hours} 小时` : `${hours} h`),
     searchTimeout: zh ? '搜索超时' : 'Search timeout',
     searchTimeoutValue: (seconds: number) => zh
       ? (seconds >= 60 ? `${seconds / 60} 分钟` : `${seconds} 秒`)
@@ -272,6 +278,10 @@ export function AgentHomesSettingsPanel({
   const settingsLoadRequestRef = useRef(0)
   const [dangerouslySkipPermissions, setDangerouslySkipPermissions] = useState(false)
   const [composerFollowUpBehavior, setComposerFollowUpBehavior] = useState<ComposerFollowUpBehavior | null>(null)
+  const [shareHours, setShareHours] = useState(24)
+  const [shareHoursDraft, setShareHoursDraft] = useState<number | null>(null)
+  const [shareHoursSaving, setShareHoursSaving] = useState(false)
+  const shareHoursSaveRef = useRef(false)
   const [searchTimeoutSeconds, setSearchTimeoutSeconds] = useState(15)
   const [searchTimeoutDraftSeconds, setSearchTimeoutDraftSeconds] = useState<number | null>(null)
   const [contentFontSizeDraft, setContentFontSizeDraft] = useState<number | null>(null)
@@ -324,6 +334,7 @@ export function AgentHomesSettingsPanel({
         )
         setComposerFollowUpBehavior(nextFollowUpBehavior)
         onSyncUiPreferences({ composerFollowUpBehavior: nextFollowUpBehavior })
+        setShareHours(Number(data.settings?.readOnlyShareHours ?? 24))
         setSearchTimeoutSeconds(nearestSearchTimeoutSeconds(Number(data.settings?.searchTimeoutMs ?? 15000)))
       })
       .catch(() => {
@@ -489,6 +500,40 @@ export function AgentHomesSettingsPanel({
         .catch(error => setError(error instanceof Error ? error.message : copy.saveFailed))
     }, 120)
   }, [copy.saveFailed])
+
+  const commitShareHours = async () => {
+    if (shareHoursDraft === null || shareHoursSaveRef.current) return
+    const hours = shareHoursDraft
+    setShareHoursDraft(null)
+    if (hours === shareHours) return
+    shareHoursSaveRef.current = true
+    setShareHoursSaving(true)
+    setError('')
+    try {
+      const response = await fetch(appPath('/api/settings'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ readOnlyShareHours: hours }),
+        signal: AbortSignal.timeout(10_000),
+      })
+      const data = await response.json() as { settings?: GlobalSettings; error?: string }
+      if (!response.ok) throw new Error(data.error || copy.saveFailed)
+      setShareHours(Number(data.settings?.readOnlyShareHours ?? hours))
+    } catch (error) {
+      setError(error instanceof Error ? error.message : copy.saveFailed)
+      // A lost response does not prove the write failed. Reconcile once, without replaying it.
+      try {
+        const response = await fetch(appPath('/api/settings'), { signal: AbortSignal.timeout(10_000) })
+        const data = await response.json() as { settings?: GlobalSettings }
+        if (response.ok && data.settings?.readOnlyShareHours !== undefined) {
+          setShareHours(data.settings.readOnlyShareHours)
+        }
+      } catch { /* The save error stays visible until the next authoritative load. */ }
+    } finally {
+      shareHoursSaveRef.current = false
+      setShareHoursSaving(false)
+    }
+  }
 
   const commitSearchTimeout = useCallback(() => {
     if (searchTimeoutDraftSeconds === null) return
@@ -869,10 +914,35 @@ export function AgentHomesSettingsPanel({
 
           <section className="code-settings-section code-settings-group">
             <div className="code-settings-section-heading">
+              <div><h3>{copy.sharePage}</h3></div>
+            </div>
+            <div className="code-settings-card">
+              <div className="code-settings-choice-row code-settings-duration-row">
+                <div className="code-settings-row-copy"><strong>{copy.readOnlyShareDuration}</strong></div>
+                <input
+                  type="range" min="1" max="168" step="1"
+                  data-testid="code-settings-read-only-share-duration"
+                  value={shareHoursDraft ?? shareHours}
+                  aria-label={copy.readOnlyShareDuration}
+                  disabled={loading || shareHoursSaving}
+                  onChange={event => setShareHoursDraft(Number(event.target.value))}
+                  onPointerUp={() => void commitShareHours()}
+                  onPointerCancel={() => void commitShareHours()}
+                  onKeyUp={() => void commitShareHours()}
+                  onBlur={() => void commitShareHours()}
+                />
+                <output>{copy.readOnlyShareDurationValue(shareHoursDraft ?? shareHours)}</output>
+              </div>
+              <div className="code-settings-choice-row"><div className="code-settings-row-copy"><small>{copy.readOnlyShareDurationHint}</small></div></div>
+            </div>
+          </section>
+
+          <section className="code-settings-section code-settings-group">
+            <div className="code-settings-section-heading">
               <div><h3>{copy.search}</h3></div>
             </div>
             <div className="code-settings-card">
-              <div className="code-settings-choice-row code-settings-search-timeout-row">
+              <div className="code-settings-choice-row code-settings-duration-row">
                 <div className="code-settings-row-copy">
                   <strong>{copy.searchTimeout}</strong>
                 </div>

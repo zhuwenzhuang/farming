@@ -1,3 +1,4 @@
+import { normalizeReadOnlyShareHours } from '../shared/read-only-share-duration.js';
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -116,6 +117,7 @@ export interface PublicSettings extends JsonRecord {
   projectWorkspaces: string[];
   restReminderIntervalSeconds: number | null;
   searchTimeoutMs: number;
+  readOnlyShareHours: number;
   theme: string;
   version: string;
   workspace: string;
@@ -623,6 +625,7 @@ class ConfigManager {
       agentHomes: cloneAgentHomes(DEFAULT_AGENT_HOMES),
       agentHomeDiscoveryExcludedPaths: {},
       searchTimeoutMs: DEFAULT_SEARCH_TIMEOUT_MS,
+      readOnlyShareHours: 24,
       codexApprovalMode: 'approve',
       codexModel: 'config',
       codexReasoningEffort: 'config',
@@ -654,6 +657,7 @@ class ConfigManager {
     );
     settings.agentHomes = this.normalizeAgentHomes(settings.agentHomes);
     this.assertAgentHomeBindings(settings.agentHomes);
+    settings.readOnlyShareHours = normalizeReadOnlyShareHours(settings.readOnlyShareHours);
     settings.searchTimeoutMs = this.normalizeSearchTimeoutMs(settings.searchTimeoutMs);
     settings.appearance = this.normalizeAppearance(settings.appearance);
     settings.language = this.normalizeLanguage(settings.language);

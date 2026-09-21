@@ -22,6 +22,7 @@ function nonEmptyString(value: unknown) {
 interface QrShareTicketBase {
   code: string
   expiresAt: number
+  readOnlyExpiresAt?: number
   ttlMs: number
   shortPath: string
   shortUrl: string
@@ -85,6 +86,7 @@ export async function requestQrShareTicket(
   const ticket = {
     code: code!,
     expiresAt,
+    readOnlyExpiresAt: Number(record?.readOnlyExpiresAt ?? expiresAt),
     ttlMs,
     shortPath: shortPath!,
     shortUrl: shortUrl!,
@@ -150,7 +152,7 @@ export async function requestReadOnlyShareLink(
   const record = body && typeof body === 'object' ? body as Record<string, unknown> : null
   const url = nonEmptyString(record?.readOnlyUrl) ?? nonEmptyString(record?.longUrl)
   const code = nonEmptyString(record?.code)
-  const expiresAt = Number(record?.expiresAt)
+  const expiresAt = Number(record?.readOnlyExpiresAt ?? record?.expiresAt)
   if (
     !response.ok
     || !url

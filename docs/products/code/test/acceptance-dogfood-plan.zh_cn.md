@@ -99,6 +99,8 @@ Code 保持终止态。Composer Draft 跨恢复保留；结果不确定的 Input
 不能自动重放。如果 Browser 把保留的 Socket 标为 Closing 或 Closed 却遗漏 Close Event，回到
 前台时仍必须通过同一条有界 Close 路径替换它。
 
+页面持续可见时，周期业务健康探测超时也必须通过同一条有界连接替换路径恢复，不能依赖再次触发前台事件。
+
 ### Agent Lifecycle 与 Configuration
 
 验证 Executable Discovery、精确 Agent Home Selection、New Agent、Duplicate Request、Title、

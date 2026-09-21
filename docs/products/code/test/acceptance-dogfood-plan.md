@@ -115,6 +115,8 @@ user retry. If the browser reports the retained socket as closing or closed but
 omits its close event, foreground reconciliation must still replace it through
 the same bounded close path.
 
+Periodic business-health probes use the same bounded socket replacement path on timeout, even while the page remains visible. No foreground event is required for recovery.
+
 ### Agent Lifecycle And Configuration
 
 Verify executable discovery, exact Agent Home selection, new Agent creation,

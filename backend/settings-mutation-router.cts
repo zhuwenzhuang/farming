@@ -1,3 +1,4 @@
+import { validReadOnlyShareHours } from '../shared/read-only-share-duration.js';
 const express = require('express');
 
 interface ExpressRequest {
@@ -156,6 +157,9 @@ class SettingsMutationCoordinator {
     const settingsPatch: SettingsRecord = rawPatch && typeof rawPatch === 'object'
       ? { ...(rawPatch as Record<string, unknown>) }
       : {};
+    if (owns(settingsPatch, 'readOnlyShareHours') && !validReadOnlyShareHours(settingsPatch.readOnlyShareHours)) {
+      throw new SettingsMutationResponseError('Read-only share duration must be an integer from 1 to 168 hours.', 'INVALID_SHARE_DURATION', 400);
+    }
     PROTECTED_SETTINGS_KEYS.forEach(key => delete settingsPatch[key]);
     const currentSettings = this.ports.getSettings();
     const requestsIsolatedBrowser = (

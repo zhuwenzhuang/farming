@@ -981,6 +981,7 @@ app.use(routePath(BASE_PATH, '/api/share/qr-ticket'), createQrShareRouter({
   revoke: code => qrShareTickets.revoke(code),
 }, {
   readOnlyLinks: readOnlyShares,
+  readOnlyShareHours: () => configManager.getSettings().readOnlyShareHours,
   authEnabled,
   basePath: BASE_PATH,
   fallbackPort: PORT,
