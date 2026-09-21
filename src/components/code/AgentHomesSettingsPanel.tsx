@@ -189,7 +189,7 @@ function panelCopy(language: UiPreferences['language']) {
       : 'When enabled, new Codex, Claude, OpenCode, Qoder, Qwen, Aider, GitHub Copilot CLI, Amazon Q, and similar agents launch with their provider-specific dangerous skip flags. Use only in trusted sandboxes.',
     sharePage: zh ? '分享' : 'Sharing',
     readOnlyShareDuration: zh ? '只读链接有效期' : 'Read-only link validity',
-    readOnlyShareDurationHint: zh ? '1 小时～7 天。对新链接生效；二维码仍为 5 分钟。' : '1 hour–7 days. Applies to new links; QR codes remain valid for 5 minutes.',
+    readOnlyShareDurationHint: zh ? '新链接有效期 1 小时～7 天；二维码为 5 分钟。' : 'New links: 1h–7d. QR codes: 5 min.',
     readOnlyShareDurationValue: (hours: number) => hours % 24 === 0
       ? (zh ? `${hours / 24} 天` : `${hours / 24} day${hours === 24 ? '' : 's'}`)
       : (zh ? `${hours} 小时` : `${hours} h`),
