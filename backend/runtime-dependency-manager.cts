@@ -907,10 +907,10 @@ async function resolveCachedRuntime(
   const cacheDir = dependencyCacheDir(configDir, id, dependency.version, platformKey);
   const record = readJson<RuntimeCacheRecord>(path.join(cacheDir, 'runtime.json'));
   const executablePath = path.resolve(cacheDir, artifact.entry);
+  // Cache identity belongs to this artifact, not the aggregate release manifest.
   if (
     !record
     || record.schemaVersion !== 1
-    || record.manifestId !== MANIFEST.manifestId
     || record.id !== id
     || record.version !== dependency.version
     || record.platformKey !== platformKey

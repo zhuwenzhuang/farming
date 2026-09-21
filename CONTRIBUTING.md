@@ -11,6 +11,13 @@ npm install
 npm start
 ```
 
+Source startup restores the pinned Browser runtime after each frontend build.
+On first preparation, install the Rust toolchain pinned in
+`backend/data/agent-browser-source.json`; the native build also needs network
+access. To reuse verified native build outputs, set
+`FARMING_AGENT_BROWSER_ARTIFACTS` to their artifact root. Subsequent starts reuse
+the verified cache under `node_modules/.cache/farming/agent-browser`.
+
 To stop every current-user Farming process and start a fresh local Server:
 
 ```bash

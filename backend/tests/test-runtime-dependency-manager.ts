@@ -124,6 +124,43 @@ async function run() {
 
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-runtime-manager.'));
   try {
+  fs.mkdirSync(path.join(root, 'empty-package'));
+  // A different aggregate manifest must not invalidate unchanged artifacts.
+  for (const id of ['codex', 'claude', 'agentBrowser']) {
+    const configDir = path.join(root, `upgrade-${id}`);
+    const platformKey = runtimePlatformKey();
+    const dependency = MANIFEST.dependencies[id];
+    const artifact = dependency.artifacts[platformKey];
+    const cache = dependencyCacheDir(configDir, id, dependency.version, platformKey);
+    const executable = path.join(cache, artifact.entry);
+    fs.mkdirSync(path.dirname(executable), { recursive: true });
+    const fixture = writeVersionExecutable(path.dirname(executable), path.basename(executable), dependency.reportedVersion || dependency.version);
+    if (fixture !== executable) fs.renameSync(fixture, executable);
+    const record = {
+      schemaVersion: 1, manifestId: 'previous-release-manifest', id,
+      version: dependency.version, platformKey, integrity: artifact.integrity, entry: artifact.entry,
+      executableSha256: crypto.createHash('sha256').update(fs.readFileSync(executable)).digest('hex'),
+    };
+    const recordPath = path.join(cache, 'runtime.json');
+    const prepare = () => prepareRuntimeDependencies({
+      configDir, dependencyIds: [id], env: { PATH: process.env.PATH, FARMING_PACKAGED_RUNTIME_ROOT: path.join(root, 'empty-package') },
+      installRuntime: async () => { throw new Error('cache miss'); },
+    });
+    fs.writeFileSync(recordPath, JSON.stringify(record));
+    const reused = await prepare();
+    assert.strictEqual(reused.dependencies[0].executablePath, executable);
+    assert.strictEqual(reused.binding.manifestId, MANIFEST.manifestId);
+    for (const change of [
+      { version: 'other-version' }, { platformKey: 'other-platform' },
+      { integrity: 'changed-artifact' }, { executableSha256: '0'.repeat(64) },
+    ]) {
+      fs.writeFileSync(recordPath, JSON.stringify({ ...record, ...change }));
+      await assert.rejects(prepare, /cache miss/);
+    }
+    fs.writeFileSync(recordPath, JSON.stringify(record));
+    fs.appendFileSync(executable, '\n// corrupt cached bytes\n');
+    await assert.rejects(prepare, /cache miss/);
+  }
   const seedRoot = path.join(root, 'install-seed');
   const targetRoot = path.join(root, 'desktop-target');
   const seedPlatformKey = runtimePlatformKey();
@@ -160,6 +197,7 @@ async function run() {
       PATH: process.env.PATH,
       FARMING_RUNTIME_DOWNLOAD_POLICY: 'forbid',
       FARMING_RUNTIME_SEED_DIR: seedRoot,
+      FARMING_PACKAGED_RUNTIME_ROOT: path.join(root, 'empty-package'),
     },
     fetch: async () => {
       seedFetches += 1;
@@ -260,6 +298,7 @@ async function run() {
         PATH: process.env.PATH,
         FARMING_RUNTIME_DOWNLOAD_POLICY: 'forbid',
         FARMING_RUNTIME_SEED_DIR: seedRoot,
+        FARMING_PACKAGED_RUNTIME_ROOT: incompletePackageRoot,
       },
       fetch: async () => {
         seedFetches += 1;
@@ -387,6 +426,7 @@ async function run() {
   fs.mkdirSync(binDir);
   const env: NodeJS.ProcessEnv = {
     PATH: process.env.PATH,
+    FARMING_PACKAGED_RUNTIME_ROOT: path.join(root, 'empty-package'),
     FARMING_CODEX_BIN: writeVersionExecutable(binDir, 'codex', '0.148.0'),
     FARMING_CLAUDE_BIN: writeVersionExecutable(binDir, 'claude', '2.1.0'),
     FARMING_AGENT_BROWSER_BIN: writeVersionExecutable(binDir, 'agent-browser', '0.33.2'),
@@ -490,7 +530,7 @@ async function run() {
     activate: false,
     configDir: stagedRoot,
     dependencyIds: ['agentBrowser'],
-    env: { PATH: process.env.PATH },
+    env: { PATH: process.env.PATH, FARMING_PACKAGED_RUNTIME_ROOT: path.join(root, 'empty-package') },
     installRuntime,
   });
   assert.strictEqual(
@@ -629,6 +669,7 @@ async function run() {
   ));
 
   const staleInjectedEnv = {
+    FARMING_PACKAGED_RUNTIME_ROOT: path.join(root, 'empty-package'),
     PATH: [
       binDir,
       path.dirname(process.execPath),

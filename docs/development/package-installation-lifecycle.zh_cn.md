@@ -54,6 +54,17 @@ npm Image 将精确版本的 Codex 与 Claude Native Carrier 声明为受平台�
 初始化前，把内置且固定版本的 ripgrep 原子写入所属 Config 的私有 Versioned Runtime Directory。
 这是本地 Image Extraction，不是下载或 Executable Fallback；写入后仍执行相同的版本与可执行校验。
 
+### 源码工作区准备
+
+源码启动在前端构建后准备固定版本的原生 Browser Runtime，因为前端构建会替换 `dist`。
+按源码身份与平台区分的已验证缓存保存在 `dist` 外，普通重启可复用。缓存缺失时，从显式
+提供的构建制品或固定版本的原生构建准备；构建失败不会发布可复用缓存。首次原生构建需要
+固定版本的 Rust 工具链及网络访问。Release 打包仍要求属于精确 Farming SHA 的独立制品。
+
+Managed Runtime 缓存按每个依赖的版本、平台、制品完整性、入口路径、可执行文件摘要及
+当前探测契约判断是否有效。仅整体 Manifest 变化不会使未变化的依赖失效。只有全部准备
+完成，才会发布当前 Manifest 的 Binding。
+
 ## 更新状态机
 
 - **Idle**：没有更新。

@@ -72,6 +72,21 @@ the owning Config's private versioned runtime directory before Server
 initialization. This is local image extraction, not a download or executable
 fallback; the same version and executable verification applies afterward.
 
+### Source checkout preparation
+
+Source startup prepares the pinned native Browser runtime after the frontend
+build, because that build replaces `dist`. A source-and-platform-keyed verified
+cache outside `dist` survives ordinary restarts. A missing cache is populated
+from explicitly supplied build artifacts or the pinned native build; a failed
+build never publishes a reusable cache. The first native build requires the
+pinned Rust toolchain and network access. Release packaging still requires its
+own exact-Farming-SHA artifacts.
+
+Managed runtime caches are matched per dependency by version, platform, artifact
+integrity, entry path, executable digest, and the current probe contract. A change
+to the aggregate manifest alone does not invalidate unchanged dependencies. Only
+a complete preparation publishes a binding for the current manifest.
+
 ## Update State Machine
 
 - **Idle**: no update is active.

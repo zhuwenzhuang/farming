@@ -11,6 +11,11 @@ npm install
 npm start
 ```
 
+源码启动会在每次前端构建后恢复固定版本的 Browser Runtime。首次准备前，请安装
+`backend/data/agent-browser-source.json` 中固定的 Rust 工具链；原生构建还需要网络访问。
+若已有经过验证的原生构建输出，可将 `FARMING_AGENT_BROWSER_ARTIFACTS` 设置为制品根目录。
+后续启动复用 `node_modules/.cache/farming/agent-browser` 中的已验证缓存。
+
 如需结束当前用户的所有 Farming 进程后重新启动本地 Server：
 
 ```bash
