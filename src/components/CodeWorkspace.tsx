@@ -2370,6 +2370,12 @@ export function CodeWorkspace({
   ])
 
   const [relatedSession, setRelatedSession] = useState<RelatedSessionTarget | null>(null)
+  useEffect(() => {
+    if (!relatedSession?.subagentSessionKey) return
+    if (agents.some(agent => agent.providerSessionKey === relatedSession.subagentSessionKey && agent.archived)) {
+      setRelatedSession(null)
+    }
+  }, [agents, relatedSession])
   const [subagentError, setSubagentError] = useState('')
   const [openingSubagent, setOpeningSubagent] = useState('')
   const openingSubagentRef = useRef('')
@@ -2801,11 +2807,13 @@ export function CodeWorkspace({
     syncRemovedMainPageSessionsFromAgentUpdate(result)
     void Promise.resolve(result)
       .then(value => {
+        if (value === true || (typeof value === 'object' && value !== null && value.archived === true)) {
+          setRelatedSession(current => current?.subagentSessionKey
+            && current.subagentSessionKey === archivedAgent?.providerSessionKey ? null : current)
+          return
+        }
         if (
-          value === true
-          || (typeof value === 'object' && value !== null && (
-            value.archived === true || value.uncertain === true
-          ))
+          typeof value === 'object' && value !== null && value.uncertain === true
         ) return
         rollback()
       })

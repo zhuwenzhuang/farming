@@ -2929,3 +2929,79 @@ test('subagent keeps independent drafts and reopens the same child', async ({ pa
   })
   expect(orphanSend.status()).toBe(409)
 })
+
+for (const appearance of ['light', 'dark', 'paper']) {
+  test(`subagent row actions target the child and archive closes it in ${appearance}`, async ({ page, workspaceRoot }, testInfo) => {
+    await page.setViewportSize({ width: 1600, height: 1000 })
+    const workspace = path.join(workspaceRoot, 'subagent-actions')
+    fs.mkdirSync(workspace, { recursive: true })
+    const parentId = await createCodexAcpAgent(page, workspace)
+    await openFarming(page)
+    await page.locator('body').evaluate((body, value) => { body.dataset.appearance = value }, appearance)
+    await agentRow(page, parentId).click()
+    await sendAcpMessage(page, 'image attachment subagent parent context')
+    await expect(page.getByTestId('code-acp-composer-send')).toBeDisabled()
+    const opened = page.waitForResponse(response => response.url().endsWith(`/agents/${parentId}/subagent`))
+    await agentRow(page, parentId).hover()
+    await agentRow(page, parentId).getByTestId('code-agent-row-subagent').click()
+    const child = await (await opened).json()
+    expect(child.error).toBeFalsy()
+    const row = agentRow(page, child.agentId)
+    const pane = page.getByTestId('code-subagent-panel')
+    await expect(pane.getByTestId('code-acp-composer-input')).toBeVisible()
+    const parentInput = page.locator('.code-composer-shell').getByTestId('code-acp-composer-input')
+    await parentInput.fill('preserve parent draft')
+
+    await expect(row.getByTestId('code-agent-row-pin')).toHaveCount(0)
+    await agentRow(page, parentId).hover()
+    await expect(agentRow(page, parentId).getByTestId('code-agent-row-pin')).toBeVisible()
+    for (const value of [true, false]) {
+      await row.hover()
+      const updated = page.waitForResponse(response => response.url().endsWith(`/agents/${child.agentId}`)
+        && response.request().method() === 'PATCH')
+      await row.getByTestId('code-agent-row-follow-up').click()
+      const response = await updated
+      expect(response.request().postDataJSON()).toEqual({ followUp: value })
+      expect(response.ok()).toBeTruthy()
+      await expect(row.getByTestId('code-agent-row-follow-up')).toHaveAttribute('aria-pressed', String(value))
+    }
+    await row.hover()
+    await page.screenshot({ path: testInfo.outputPath(`subagent-actions-${appearance}.png`), animations: 'disabled' })
+    await page.route(`**/api/agents/${child.agentId}`, async route => {
+      if (route.request().method() === 'PATCH' && route.request().postDataJSON().archived) {
+        await route.fulfill({ status: 409, json: { error: 'Archive fixture rejection' } })
+      } else await route.fallback()
+    })
+    await row.getByTestId('code-agent-row-archive').click()
+    await expect(page.getByText('Archive fixture rejection', { exact: true })).toBeVisible()
+    await expect(row).toBeVisible()
+    await expect(pane.getByTestId('code-acp-composer-input')).toBeVisible()
+    await page.unroute(`**/api/agents/${child.agentId}`)
+    await row.hover()
+    const archived = page.waitForResponse(response => response.url().endsWith(`/agents/${child.agentId}`)
+      && response.request().method() === 'PATCH')
+    await row.getByTestId('code-agent-row-archive').click()
+    const archiveResponse = await archived
+    const archiveResult = await archiveResponse.json()
+    // The fake provider has no CLI history entry for its fork. Local Archive
+    // must still stop the child and close its pane if provider history fails.
+    expect(archiveResult.archived).toBe(true)
+    if (!archiveResponse.ok()) expect(archiveResult.error).toMatch(/Provider archive failed/)
+    await expect(row).toHaveCount(0)
+    await expect(pane).toHaveCount(0)
+    await expect(agentRow(page, parentId)).toHaveClass(/active/)
+    await expect(parentInput).toHaveValue('preserve parent draft')
+    const childSession = await page.request.get(`/farming/api/agents/${child.agentId}/acp-session`)
+    if (archiveResult.removed) expect(childSession.status()).toBe(404)
+    else {
+      expect(archiveResult.stopped).toBe(true)
+      expect(childSession.status()).toBe(409)
+      expect((await childSession.json()).error).toBe('ACP Agent runtime is unavailable')
+    }
+    await parentInput.fill('image attachment parent still works')
+    await page.getByTestId('code-acp-composer-send').click()
+    await expect(page.locator('.code-terminal-grid')).toContainText('image attachment parent still works')
+    await expect(page.getByTestId('code-acp-composer-send')).toBeDisabled()
+    await page.screenshot({ path: testInfo.outputPath(`subagent-archived-${appearance}.png`), animations: 'disabled' })
+  })
+}

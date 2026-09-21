@@ -379,6 +379,13 @@ Dark, and Paper.
 
 ## Selection After Row Removal
 
+Farming-owned subagent rows expose Follow-up and Archive, targeting the child
+identity through the same mutations as other live Agent rows. They stay under
+their parent and do not expose Pin. Confirmed child Archive
+stops that runtime and closes its related-session pane while preserving the
+parent view and runtime. A rejected Archive keeps the child available; missing
+inventory alone is not evidence of successful Archive.
+
 Code owns viewing intent separately from backend membership. Closing or archiving
 an unselected Agent preserves the current content. Removing the selected Agent
 chooses the next openable Agent in its Project's sidebar order, then the nearest

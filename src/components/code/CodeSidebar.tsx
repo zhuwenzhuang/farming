@@ -3289,20 +3289,22 @@ function AgentRow({
                 <FieldFlagGlyph filled={liveAgent?.followUp === true} />
               </button>
             )}
-            <button
-              type="button"
-              className={`code-agent-row-action pin ${rowState.pinned ? 'active' : ''}`}
-              data-testid="code-agent-row-pin"
-              aria-label={rowState.pinned
-                ? (session ? copy.unpinChat : copy.unpinAgent)
-                : (session ? copy.pinChat : copy.pinAgent)}
-              title={rowState.pinned
-                ? (session ? copy.unpinChat : copy.unpinAgent)
-                : (session ? copy.pinChat : copy.pinAgent)}
-              onClick={togglePinned}
-            >
-              {rowState.pinned ? <AgentUnpinIcon /> : <AgentPinIcon />}
-            </button>
+            {!liveAgent?.subagentParentSessionKey && (
+              <button
+                type="button"
+                className={`code-agent-row-action pin ${rowState.pinned ? 'active' : ''}`}
+                data-testid="code-agent-row-pin"
+                aria-label={rowState.pinned
+                  ? (session ? copy.unpinChat : copy.unpinAgent)
+                  : (session ? copy.pinChat : copy.pinAgent)}
+                title={rowState.pinned
+                  ? (session ? copy.unpinChat : copy.unpinAgent)
+                  : (session ? copy.pinChat : copy.pinAgent)}
+                onClick={togglePinned}
+              >
+                {rowState.pinned ? <AgentUnpinIcon /> : <AgentPinIcon />}
+              </button>
+            )}
             <button
               type="button"
               className="code-agent-row-action archive"
@@ -3341,7 +3343,8 @@ function AgentRow({
       .filter(child => child.subagentParentSessionKey === liveAgent.providerSessionKey)
       .map(child => <AgentRow key={child.providerSessionKey || child.id} agent={child}
         active={relatedRows.activeId === child.id} searchSelected={false} now={now}
-        onOpenAgent={onOpenAgent} onShowPreview={onShowPreview} onHidePreview={onHidePreview} copy={copy} />) : null}
+        onOpenAgent={onOpenAgent} onUpdateAgentFlags={onUpdateAgentFlags}
+        onShowPreview={onShowPreview} onHidePreview={onHidePreview} copy={copy} />) : null}
     {liveAgent && !liveAgent.subagentParentSessionKey && relatedRows.onOpen ? <NativeRelatedRows parent={liveAgent}
       active={active || relatedRows.selected?.parentAgentId === liveAgent.id} selected={relatedRows.selected || null} onOpen={relatedRows.onOpen} /> : null}
     </>
