@@ -37,6 +37,21 @@ farming_send_signal() {
   kill "-${signal_name}" "${pid}"
 }
 
+farming_process_has_exited() {
+  local pid="$1"
+  local state
+  if state="$(ps -p "${pid}" -o stat= 2>&1)"; then
+    state="${state//[[:space:]]/}"
+    case "${state}" in
+      Z*|\?E*) return 0 ;;
+      *) return 1 ;;
+    esac
+  fi
+  # ps reports an absent PID with no rows. Diagnostic output is uncertainty,
+  # not evidence of exit, and must retain the refusal below.
+  [ -z "${state}" ]
+}
+
 farming_signal_process_if_identity_matches() {
   local signal_name="$1"
   local pid="$2"
@@ -46,10 +61,12 @@ farming_signal_process_if_identity_matches() {
 
   if ! farming_process_identity_matches \
     "${pid}" "${expected_uid}" "${expected_started_at}" "${expected_command}"; then
+    if farming_process_has_exited "${pid}"; then return 0; fi
     echo "Skipping pid=${pid}: process identity changed before ${signal_name}." >&2
     return 3
   fi
   if ! farming_send_signal "${signal_name}" "${pid}"; then
+    if farming_process_has_exited "${pid}"; then return 0; fi
     echo "Could not send ${signal_name} to verified Farming process pid=${pid}." >&2
     return 4
   fi

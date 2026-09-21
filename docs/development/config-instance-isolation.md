@@ -81,6 +81,21 @@ an identity mismatch or an existing leader whose identity cannot be read fails
 visibly without signalling. The exit path applies the same group cleanup before
 releasing the durable ownership record.
 
+### Explicit all-instance development stop
+
+The source checkout's `npm restart` invokes an explicit current-user Farming
+stop before building and starting again. This broader development command
+captures the selected Farming roots and descendants, revalidates each process
+identity, and sends `SIGKILL` directly, with Server roots before workers. It
+waits only for exit confirmation; it never requests graceful shutdown. A target
+that has already exited is reconciled without signalling, while a live identity
+mismatch or signal failure remains a visible failure.
+
+A final discovery checks that no Farming processes remain. New independent
+starts during the operation are reported as a concurrent-start conflict rather
+than automatically added to repeated stop attempts. A task or supervisor that
+keeps starting Farming must be stopped before retrying this global restart.
+
 ## Runtime And Authentication Isolation
 
 Config-owned storage and runtime namespaces must derive from the same canonical

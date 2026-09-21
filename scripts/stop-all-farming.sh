@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-GRACE_SECONDS=5
+EXIT_WAIT_SECONDS=5
 DRY_RUN=0
+signal_failures=0
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/stop-process-identity.sh
 source "${script_dir}/stop-process-identity.sh"
@@ -11,7 +12,7 @@ usage() {
   cat <<'EOF'
 Usage: scripts/stop-all-farming.sh [--dry-run]
 
-Stops every Farming process owned by the current user without deleting
+Directly kills every selected Farming process owned by the current user without deleting
 configuration or session data. Run --dry-run first to inspect the targets.
 
 Options:
@@ -127,7 +128,7 @@ collect_targets() {
       seed_kind = farming_seed_kind(command)
       if (seed_kind) {
         selected[pid] = 1
-        graceful[pid] = seed_kind == 2 ? 1 : 0
+        server[pid] = seed_kind == 2
       }
     }
 
@@ -143,10 +144,19 @@ collect_targets() {
         }
       }
       for (pid in selected) {
-        if (selected[pid]) print pid "\t" group[pid] "\t" started[pid] "\t" (graceful[pid] ? 1 : 0) "\t" commands[pid]
+        # Kill Server roots first, then ancestors before their workers, so
+        # Servers cannot recreate a detached Host and parents cannot recreate a worker
+        # after it is killed. Detached descendants remain in this snapshot.
+        depth = 0
+        ancestor = parent[pid]
+        while (ancestor in parent && ancestor != parent[ancestor]) {
+          depth += 1
+          ancestor = parent[ancestor]
+        }
+        if (selected[pid]) print pid "\t" group[pid] "\t" started[pid] "\t" sprintf("%d:%09d", server[pid] ? 0 : 1, depth) "\t" commands[pid]
       }
     }
-  ' | sort -n > "${output_file}"
+  ' | sort -t $'\t' -k4,4 -k1,1n > "${output_file}"
 }
 
 print_targets() {
@@ -160,8 +170,7 @@ print_targets() {
   echo "Matched ${count} Farming process(es):"
   awk -F '\t' '{
     command = length($5) > 180 ? substr($5, 1, 177) "..." : $5
-    shutdown = $4 == 1 ? " shutdown=graceful" : ""
-    printf "  pid=%s pgid=%s%s %s\n", $1, $2, shutdown, command
+    printf "  pid=%s pgid=%s %s\n", $1, $2, command
   }' "${input_file}"
 }
 
@@ -170,10 +179,12 @@ signal_target_file() {
   local input_file="$2"
   local owner_uid
   owner_uid="$(id -u)"
-  while IFS=$'\t' read -r pid _group started_at _graceful command; do
+  while IFS=$'\t' read -r pid _group started_at _order command; do
     [ -n "${pid}" ] || continue
-    farming_signal_process_if_identity_matches \
-      "${signal_name}" "${pid}" "${owner_uid}" "${started_at}" "${command}" || true
+    if ! farming_signal_process_if_identity_matches \
+      "${signal_name}" "${pid}" "${owner_uid}" "${started_at}" "${command}"; then
+      signal_failures=$((signal_failures + 1))
+    fi
   done < "${input_file}"
 }
 
@@ -181,10 +192,10 @@ filter_alive_targets() {
   local input_file="$1"
   local owner_uid
   owner_uid="$(id -u)"
-  while IFS=$'\t' read -r pid group started_at graceful command; do
+  while IFS=$'\t' read -r pid group started_at order command; do
     [ -n "${pid}" ] || continue
     if farming_process_identity_matches "${pid}" "${owner_uid}" "${started_at}" "${command}"; then
-      printf '%s\t%s\t%s\t%s\t%s\n' "${pid}" "${group}" "${started_at}" "${graceful}" "${command}"
+      printf '%s\t%s\t%s\t%s\t%s\n' "${pid}" "${group}" "${started_at}" "${order}" "${command}"
     fi
   done < "${input_file}"
 }
@@ -210,40 +221,20 @@ if awk -F '\t' -v current_pid="$$" '$1 == current_pid { found = 1 } END { exit !
   exit 2
 fi
 
-awk -F '\t' '$4 == 1' \
-  "${initial_targets}" > "${signal_targets}"
-
-if [ -s "${signal_targets}" ]; then
-  echo "Requesting graceful shutdown..."
-  signal_target_file TERM "${signal_targets}"
-  for ((attempt = 0; attempt < GRACE_SECONDS * 10; attempt += 1)); do
-    [ -z "$(alive_from_targets "${initial_targets}")" ] && break
-    sleep 0.1
-  done
-fi
-
-collect_targets "${current_targets}"
-{
-  cat "${current_targets}"
-  filter_alive_targets "${initial_targets}"
-} | sort -n -u > "${remaining_targets}"
-
-if [ -s "${remaining_targets}" ]; then
-  echo "Stopping remaining Farming processes..."
-  signal_target_file TERM "${remaining_targets}"
-  sleep 2
-  filter_alive_targets "${remaining_targets}" > "${signal_targets}"
-  if [ -s "${signal_targets}" ]; then
-    echo "Forcing unresponsive Farming processes to exit..."
-    signal_target_file KILL "${signal_targets}"
-    sleep 0.2
-  fi
-fi
+# One stop semantic: signal the verified snapshot directly with KILL. Do not
+# turn a concurrent independent start into another implicitly selected stop.
+echo "Hard-stopping selected Farming processes..."
+signal_target_file KILL "${initial_targets}"
+for ((attempt = 0; attempt < EXIT_WAIT_SECONDS * 10; attempt += 1)); do
+  filter_alive_targets "${initial_targets}" > "${remaining_targets}"
+  [ ! -s "${remaining_targets}" ] && break
+  sleep 0.1
+done
 
 collect_targets "${current_targets}"
 alive_from_targets "${initial_targets}" > "${signal_targets}"
-if [ -s "${current_targets}" ] || [ -s "${signal_targets}" ]; then
-  echo "Some Farming processes are still running:" >&2
+if [ -s "${current_targets}" ] || [ -s "${signal_targets}" ] || [ "${signal_failures}" -ne 0 ]; then
+  echo "Farming stop did not reach an empty process set. Remaining or concurrently started processes:" >&2
   if [ -s "${current_targets}" ]; then
     print_targets "${current_targets}" >&2
   else
@@ -251,6 +242,7 @@ if [ -s "${current_targets}" ] || [ -s "${signal_targets}" ]; then
       ps -p "${pid}" -o pid=,ppid=,pgid=,command= >&2 || true
     done < "${signal_targets}"
   fi
+  echo "If a task or supervisor is starting Farming concurrently, stop that launcher before retrying npm restart." >&2
   exit 1
 fi
 
