@@ -5,6 +5,7 @@ test('read-only share slider persists its range and matches Settings in every ap
   await page.getByTestId('code-sidebar-options').click()
   const slider = page.getByTestId('code-settings-read-only-share-duration')
   await expect(slider).toHaveValue('24')
+  await expect(slider).toBeEnabled()
   await slider.focus()
   await slider.press('End')
   await expect.poll(async () => {
@@ -25,6 +26,7 @@ test('read-only share slider persists its range and matches Settings in every ap
       path: test.info().outputPath(`share-duration-${appearance}.png`),
     })
   }
+  await expect(slider).toBeEnabled()
   await slider.press('Home')
   await expect.poll(async () => {
     const response = await page.request.get('/farming/api/settings')
