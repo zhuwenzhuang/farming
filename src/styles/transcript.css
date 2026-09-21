@@ -2833,7 +2833,14 @@ button.code-agent-transcript-result-summary:is(:hover, :focus-visible) .code-age
   border-color: var(--code-border);
 }
 
-.code-related-session-content .code-agent-transcript-subagent-entries { max-height: none; }
+.code-agent-transcript-related { min-width: 0; color: var(--code-text); }
+.code-agent-transcript-related > header {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  padding-inline: 12px;
+}
 .code-subagent-panel > .code-agent-transcript { flex: 1; min-height: 0; }
 
 .code-agent-transcript-turn:has(.code-agent-transcript-inline-visualization.wide) { max-width: 1104px; }

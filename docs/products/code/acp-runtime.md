@@ -58,6 +58,12 @@ identity change, and size limits terminate visibly. Acceptance covers concurrent
 readers, unrelated-thread rejection, live output while viewing, and desktop and
 compact layouts in all appearances.
 
+Native details reuse the ordinary Chat turn renderer: task messages, collapsible
+process activity, tool results, and Markdown answers retain their shared visual
+roles. The pane must not wrap a conversation in a muted summary card, repeat its
+title, or count progress messages as tool actions. Read-only presentation does
+not mean disabled-looking content; execution controls remain capability-bound.
+
 ## Provider Boundary
 
 Provider-specific executable discovery, environment, adapter patches, optional

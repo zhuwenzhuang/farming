@@ -110,7 +110,7 @@ import {
   restoreTranscriptReadingAnchor,
 } from '@/lib/transcript-reading-anchor'
 import type { WorkspaceFileOpenTarget } from '@/lib/workspace-open-files'
-import type { CodeCopy } from './copy'
+import { codeCopyForLanguage, type CodeCopy } from './copy'
 import { planDetailItems } from './agent-plan'
 import { acpActivityKind, acpCompactPlanLabel, acpLiveToolActivity, acpPlanProgress, acpThoughtActivityLabel, type AcpActivityKind } from './acp/acp-activity-label'
 import {
@@ -1022,16 +1022,18 @@ export function AgentTranscriptSubagentPreview({
   transcript,
   onStop,
   docked = false,
+  copy = codeCopyForLanguage('en'),
 }: {
   transcript: AgentTranscript
   onStop?: () => Promise<void>
   docked?: boolean
+  copy?: CodeCopy
 }) {
   const openRelatedSession = useContext(RelatedSessionNavigation)
   const { agentId: parentAgentId } = useContext(TranscriptFileOpenContext)
   const active = ['working', 'waiting-for-permission', 'waiting-for-input', 'interrupting'].includes(transcript.state || '')
   const status = transcript.error ? 'Failed' : active ? 'Working' : 'Completed'
-  const actionCount = transcript.turns.reduce((count, turn) => count + turn.processItems.length, 0)
+  const actionCount = transcript.turns.reduce((count, turn) => count + turn.processItems.filter(item => item.type !== 'progress').length, 0)
   const [fullscreen, setFullscreen] = useState(false)
   const [stopping, setStopping] = useState(false)
   const [stopError, setStopError] = useState('')
@@ -1043,7 +1045,7 @@ export function AgentTranscriptSubagentPreview({
     returnFocusRef: fullscreenTriggerRef,
     onEscape: () => setFullscreen(false),
   })
-  const entries = (
+  const entries = docked ? <AgentTranscriptReadOnly transcript={transcript} copy={copy} /> : (
     <div className="code-agent-transcript-subagent-entries">
       {transcript.turns.map(turn => (
         <div className="code-agent-transcript-subagent-turn" key={turn.id}>
@@ -1060,11 +1062,11 @@ export function AgentTranscriptSubagentPreview({
   )
   const header = (dialog = false) => (
     <header>
-      <span>{transcript.title || 'Subagent'}</span>
-      <span className="code-agent-transcript-subagent-meta" title={transcript.sessionId}>
+      {!docked ? <span>{transcript.title || 'Subagent'}</span> : null}
+      {!docked ? <span className="code-agent-transcript-subagent-meta" title={transcript.sessionId}>
         {transcript.turns.length} {transcript.turns.length === 1 ? 'turn' : 'turns'}
         {actionCount > 0 ? ` · ${actionCount} ${actionCount === 1 ? 'action' : 'actions'}` : ''}
-      </span>
+      </span> : null}
       <span className={`code-agent-transcript-subagent-status ${transcript.error ? 'error' : active ? 'active' : ''}`}>{status}</span>
       {active && onStop && transcript.canCancel !== false ? (
         <button
@@ -1103,7 +1105,7 @@ export function AgentTranscriptSubagentPreview({
     </header>
   )
   const preview = (
-    <section className="code-agent-transcript-subagent" data-testid="code-agent-transcript-subagent">
+    <section className={docked ? 'code-agent-transcript-related' : 'code-agent-transcript-subagent'} data-testid="code-agent-transcript-subagent">
       {header()}
       {transcript.error ? <div className="code-agent-transcript-subagent-error" role="status">{transcript.error}</div> : null}
       {stopError ? <div className="code-agent-transcript-subagent-error" role="alert">{stopError}</div> : null}
@@ -3131,6 +3133,31 @@ function AgentTranscriptTurnView({
 }
 
 const StableAgentTranscriptTurnView = memo(AgentTranscriptTurnView)
+
+// Share the Chat turn renderer without its session lifecycle or mutation handlers.
+function AgentTranscriptReadOnly({ transcript, copy }: { transcript: AgentTranscript; copy: CodeCopy }) {
+  const [openTurns, setOpenTurns] = useState<Set<string>>(() => new Set())
+  const [openAgents, setOpenAgents] = useState<Set<string>>(() => new Set())
+  const [openActivities, setOpenActivities] = useState<Set<string>>(() => new Set())
+  return <div className="code-agent-transcript-scroll" data-testid="code-related-transcript">
+    {transcript.turns.length === 0 ? <div className="code-agent-transcript-blank" role="status">{copy.agentTranscriptEmpty}</div> : null}
+    {transcript.turns.map(turn => <StableAgentTranscriptTurnView
+      key={turn.id} turn={turn} copy={copy} source="acp"
+      clockActive={transcript.state === 'working'} processOpen={openTurns.has(turn.id)} groupProcessActions
+      onToggleProcess={id => setOpenTurns(current => {
+        const next = new Set(current)
+        if (next.has(id)) next.delete(id)
+        else next.add(id)
+        return next
+      })}
+      gitDiffTarget={unavailableTranscriptGitDiffTarget} uncommittedPaths={null}
+      subagentStates={transcript.codexSubagents?.agents ?? EMPTY_SUBAGENT_STATES}
+      openCollaborationAgentIds={openAgents} setOpenCollaborationAgentIds={setOpenAgents}
+      openCollaborationActivityIds={openActivities} setOpenCollaborationActivityIds={setOpenActivities}
+      showLiveActivity={turn.status === 'inProgress' && transcript.state === 'working'}
+    />)}
+  </div>
+}
 
 function transcriptTurnResetKey(turn: AgentTranscriptTurn) {
   return [

@@ -1889,7 +1889,7 @@ class FakeAgent implements Agent {
       });
       return { stopReason: 'end_turn' };
     }
-    if (promptText.includes('native related live')) {
+    if (promptText.includes('Review parser edge cases (demo)')) {
       const childSessionId = `${params.sessionId}-native-child`;
       await client.sessionUpdate({ sessionId: params.sessionId, update: {
         sessionUpdate: 'tool_call', toolCallId: 'native-collaboration', title: 'Start parser reviewer', status: 'completed', kind: 'other',
@@ -1899,14 +1899,18 @@ class FakeAgent implements Agent {
         jsonrpc: '2.0', method: 'session/update', params: { sessionId: params.sessionId, update },
       }) + '\n');
       notifyNative({ sessionUpdate: 'subagent_spawned', subagentSessionId: childSessionId,
-        name: 'Parser reviewer', task: 'Verify the parser while the parent keeps working', capabilities: {} });
+        name: 'Parser reviewer (demo)', task: 'Review empty input and whitespace handling. Summarize findings without editing files.', capabilities: {} });
       await client.sessionUpdate({ sessionId: childSessionId, update: { sessionUpdate: 'user_message_chunk',
-        messageId: 'native-task', content: { type: 'text', text: 'Verify the parser while the parent keeps working' } } });
-      for (let index = 0; index < 12; index++) {
-        await client.sessionUpdate({ sessionId: childSessionId, update: { sessionUpdate: 'agent_message_chunk',
-          messageId: `native-progress-${index}`, content: { type: 'text', text: `Parser check ${index} passed.\n` } } });
-        await new Promise(resolve => setTimeout(resolve, 250));
-      }
+        messageId: 'native-task', content: { type: 'text', text: 'Review empty input and whitespace handling. Summarize findings without editing files.' } } });
+      await client.sessionUpdate({ sessionId: childSessionId, update: { sessionUpdate: 'agent_message_chunk',
+        messageId: 'native-progress', content: { type: 'text', text: 'I’ll inspect the parser and its existing edge-case tests.' } } });
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      await client.sessionUpdate({ sessionId: childSessionId, update: { sessionUpdate: 'tool_call',
+        toolCallId: 'native-test-run', title: 'Run parser tests', kind: 'execute', status: 'completed',
+        content: [{ type: 'content', content: { type: 'text', text: 'Demo test output: 8 tests passed.' } }] } });
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      await client.sessionUpdate({ sessionId: childSessionId, update: { sessionUpdate: 'agent_message_chunk',
+        messageId: 'native-result', content: { type: 'text', text: '**Review complete**\n\n- Empty input returns an empty result.\n- Surrounding whitespace is trimmed before parsing.\n- The existing tests cover both cases.\n\nNo files changed. This is a simulated review for UI verification.' } } });
       notifyNative({ sessionUpdate: 'subagent_state_update', subagentSessionId: childSessionId, state: 'completed' });
       await client.sessionUpdate({ sessionId: params.sessionId, update: { sessionUpdate: 'agent_message_chunk',
         content: { type: 'text', text: 'Parent completed without interruption.' } } });

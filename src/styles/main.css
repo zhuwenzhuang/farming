@@ -693,7 +693,7 @@ body.code-mode .code-instance-name {
   display: flex;
   flex-direction: column;
   border-inline-start: 1px solid var(--code-border-subtle);
-  background: var(--code-bg-surface);
+  background: var(--code-bg-canvas);
 }
 
 .code-related-session-header {

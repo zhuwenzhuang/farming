@@ -4,6 +4,7 @@ import { CloseGlyph } from '@/components/IconGlyphs'
 import { AgentTranscriptSubagentPreview } from './AgentTranscriptPane'
 import { projectAcpTranscript, type AgentTranscript } from './acp/acp-entry-projection'
 import type { RelatedSessionTarget } from './related-session-navigation'
+import { codeCopyForLanguage } from './copy'
 
 export function RelatedSessionPanel({ target, refreshSignal, onClose, language }: {
   target: RelatedSessionTarget
@@ -85,7 +86,7 @@ export function RelatedSessionPanel({ target, refreshSignal, onClose, language }
         {error ? <div role="alert">{error} <button type="button" onClick={() => setReadVersion(value => value + 1)}>{chinese ? '重试' : 'Retry'}</button></div> : null}
         {!transcript && loading ? <div role="status">{chinese ? '加载中…' : 'Loading…'}</div> : null}
         {transcript?.hasMoreBefore && limit < 200 ? <button type="button" disabled={loading} onClick={() => setLimit(value => Math.min(200, value + 24))}>{chinese ? '加载更早消息' : 'Load earlier messages'}</button> : null}
-        {transcript ? <AgentTranscriptSubagentPreview transcript={transcript} docked onStop={async () => {
+        {transcript ? <AgentTranscriptSubagentPreview transcript={transcript} copy={codeCopyForLanguage(chinese ? 'zh' : 'en')} docked onStop={async () => {
           const response = await fetch(appPath(`/api/agents/${encodeURIComponent(target.parentAgentId)}/acp-subagents/${encodeURIComponent(target.sessionId)}/cancel?runtimeEpoch=${encodeURIComponent(epochRef.current)}`), { method: 'POST', signal: AbortSignal.timeout(15000) })
           if (!response.ok) { const payload = await response.json(); throw new Error(payload.error || 'Subagent stop failed') }
           setReadVersion(value => value + 1)

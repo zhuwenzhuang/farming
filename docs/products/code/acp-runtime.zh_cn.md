@@ -40,6 +40,10 @@ Cancel Session。未经单独验证的原生控制不可用，执行仍由父 Ag
 身份变化和大小超限均明确结束。验收覆盖并发查看、无关线程拒绝、查看期间实时输出，以及所有主题下
 的桌面与紧凑布局。
 
+原生详情复用普通 Chat 的 Turn 渲染：任务消息、可折叠过程、工具结果与 Markdown 回复沿用同一视觉
+规范。不能把整段对话放进弱化摘要卡片、重复标题，或将过程文字计作工具操作。只读内容保持正常可读的
+正文样式，执行控件仍由能力边界决定。
+
 ## Provider 边界
 
 Provider 特有的 Executable Discovery、Environment、Adapter Patch、可选方法和 History
