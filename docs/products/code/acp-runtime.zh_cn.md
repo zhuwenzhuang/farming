@@ -25,6 +25,21 @@ Browser、Computer 资源；父会话不可用时拒绝向旁聊发送消息。�
 
 [关联会话设计](related-sessions-design.zh_cn.md)描述更完整的组合与交互模型。
 
+### 读取原生关联会话
+
+原生子 Agent 通过既有父运行时接受查看。客户端协商原生子会话事件，在 ACP 边界统一身份与状态。
+连接内子 ID 受父运行时 Epoch 约束，不能当作可独立 Resume 的 Session 身份。Side Chat 继续沿用
+既有持久 Fork 身份和生命周期。
+
+打开原生详情时，通过原连接读取已保留事件或经能力协商的有界历史快照。Codex 历史读取核验祖先关系，
+分页读取 Turn 和条目，使用私有快照投影且不覆盖实时 Reducer。查看不会 Start、Load、Resume 或
+Cancel Session。未经单独验证的原生控制不可用，执行仍由父 Agent 管理。不支持历史读取的 Provider
+只展示确实收到的子会话事件，内容不可用时明确报告。
+
+关联面板串行刷新并拒绝过期父身份。关闭面板只取消浏览器读取，不停止 Agent。读取超时、历史缺失、
+身份变化和大小超限均明确结束。验收覆盖并发查看、无关线程拒绝、查看期间实时输出，以及所有主题下
+的桌面与紧凑布局。
+
 ## Provider 边界
 
 Provider 特有的 Executable Discovery、Environment、Adapter Patch、可选方法和 History

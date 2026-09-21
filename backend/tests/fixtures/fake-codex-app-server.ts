@@ -21,7 +21,6 @@ function thread(id = sessionId) {
     sessionId: id,
     historyMode: 'paginated',
     forkedFromId: null,
-    parentThreadId: null,
     preview: 'ACP history image test',
     ephemeral: false,
     modelProvider: 'openai',
@@ -32,6 +31,7 @@ function thread(id = sessionId) {
     path: null,
     cwd: process.cwd(),
     cliVersion: '0.0.0-test',
+    parentThreadId: id.endsWith('-child') ? id.slice(0, -6) : null,
     source: 'appServer',
     threadSource: null,
     agentNickname: null,
@@ -134,7 +134,13 @@ async function resultFor(method, params) {
   if (method === 'thread/read') {
     return { thread: { ...thread(params.threadId), turns: [] } };
   }
+  if (method === 'thread/items/list') {
+    return { data: [{ turnId: 'child-turn', item: { id: 'child-question', type: 'userMessage', content: [{ type: 'text', text: 'Inspect the parser', text_elements: [] }] } },
+      { turnId: 'child-turn', item: { id: 'child-answer', type: 'agentMessage', text: 'Live child history read without resume.', phase: 'final_answer' } }], nextCursor: null };
+  }
   if (method === 'thread/turns/list') {
+    if (String(params.threadId).endsWith('-child')) return { data: [{ id: 'child-turn', items: [], itemsView: { type: 'summary' }, status: 'inProgress' }], nextCursor: null };
+
     const turns = thread(params.threadId).turns;
     if (process.env.FARMING_TEST_PAGINATED_HISTORY === '1' && params.cursor !== 'history-older') {
       return {

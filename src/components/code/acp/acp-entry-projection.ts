@@ -124,6 +124,7 @@ export interface AgentTranscriptTurn {
 }
 
 export interface AgentTranscript {
+  canCancel?: boolean
   forkOrigin?: {
     sourceSessionId: string
     status: 'ready' | 'unavailable'
@@ -898,7 +899,7 @@ export function projectAcpTranscript(sessionValue: unknown, options: { maxTurns?
     available: visibleTurns.length > 0,
     reason: visibleTurns.length > 0 ? undefined : 'empty-acp-session',
     sessionId: stringValue(session.sessionId), title: stringValue(session.title), updatedAt: stringValue(session.updatedAt),
-    source: 'acp', state: stringValue(session.state), error: stringValue(session.error), errorKind: stringValue(session.errorKind),
+    canCancel: session.canCancel !== false, source: 'acp', state: stringValue(session.state), error: stringValue(session.error), errorKind: stringValue(session.errorKind),
     revision: Number(session.revision || 0), delta: session.delta === true,
     replaceFromTurnId: session.delta === true ? stringValue(visibleTurns[0]?.id) : '',
     stopReason: stringValue(session.stopReason),

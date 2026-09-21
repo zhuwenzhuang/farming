@@ -35,6 +35,29 @@ creation or cleanup stays blocked for authoritative reconciliation.
 The [Related Sessions design](related-sessions-design.md) describes the broader
 composition and interaction model.
 
+### Reading native related conversations
+
+Native children are observed through their existing parent runtime. The client
+negotiates native child events and normalizes their identities and state at the
+ACP boundary. Connection-local child IDs remain fenced by the parent runtime
+epoch; they are not independently resumable Session identities. Side Chat keeps
+its existing durable Fork identity and lifecycle.
+
+Opening native details reads retained child events or a negotiated, bounded
+provider history snapshot through the existing connection. Codex history reads
+verify ancestry, page turns and items, and project a private snapshot without
+replacing the live reducer. Viewing never starts, loads, resumes, or cancels a
+Session. Native controls are unavailable unless separately supported; the parent
+continues to own execution. Providers without history-read capability expose
+only the child events actually received, with unavailable content reported
+explicitly.
+
+The related pane serializes refreshes and rejects stale parent identities.
+Closing it cancels the browser read, not the Agent. Read timeout, missing history,
+identity change, and size limits terminate visibly. Acceptance covers concurrent
+readers, unrelated-thread rejection, live output while viewing, and desktop and
+compact layouts in all appearances.
+
 ## Provider Boundary
 
 Provider-specific executable discovery, environment, adapter patches, optional

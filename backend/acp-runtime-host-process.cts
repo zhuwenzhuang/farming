@@ -199,7 +199,7 @@ function projectTranscriptSessionForTransport(
   const metadataBudget = Math.max(4096, Math.min(MAX_TRANSCRIPT_METADATA_BYTES, Math.floor(maxResponseBytes / 4)));
   const metadata = boundedTranscriptMetadata(session, metadataBudget);
   const entries = acpTranscriptEntries(session.entries, {
-    mediaPathPrefix: typeof options.mediaPathPrefix === 'string'
+    mediaPathPrefix: session.inlineReadMedia !== true && typeof options.mediaPathPrefix === 'string'
       ? options.mediaPathPrefix
       : undefined,
   });

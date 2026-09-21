@@ -81,6 +81,38 @@ async function run() {
       assert.strictEqual(environment.FARMING_PROJECT_WORKSPACE, root);
     }
 
+    const beforeRead = readRequests(requestLog).length;
+    const snapshots = await Promise.all([1, 2].map(() => runtime.getSubagentTranscriptSessionForRead(
+      'shared-codex-a', `${first.sessionId}-child`, { maxTurns: 24 },
+    )));
+    assert(snapshots.every(snapshot => snapshot.sessionId === `${first.sessionId}-child`));
+    const readCalls = readRequests(requestLog).slice(beforeRead);
+    assert(readCalls.some(call => call.method === 'thread/turns/list'));
+    assert(readCalls.some(call => call.method === 'thread/items/list'));
+    assert(JSON.stringify(snapshots).includes('Live child history read without resume.'));
+    assert.strictEqual(firstBinding.subagentStates.size, 0, 'read projection must not acquire a child runtime or overwrite live state');
+    assert(readCalls.every(call => ['thread/read', 'thread/turns/list', 'thread/items/list', 'thread/list'].includes(call.method)), 'viewing may only read');
+    assert.strictEqual(firstBinding.child.pid, secondBinding.child.pid);
+    await assert.rejects(runtime.getSubagentTranscriptSessionForRead('shared-codex-a', second.sessionId), /not a child/);
+
+    const handlers = runtime.clientHandlers(firstBinding);
+    await handlers.sessionUpdate({ sessionId: first.sessionId, update: {
+      sessionUpdate: 'subagent_spawned', subagentSessionId: 'opaque-native-child', name: 'Native reviewer', task: 'Review', capabilities: {},
+    } });
+    assert.strictEqual(runtime.bindingForRuntimeSession(firstBinding.runtime, 'opaque-native-child'), firstBinding);
+    await handlers.sessionUpdate({ sessionId: 'opaque-native-child', update: {
+      sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Child streaming independently' },
+    } });
+    assert.strictEqual(runtime.getSubagentTranscriptSession('shared-codex-a', 'opaque-native-child').canCancel, false);
+    assert(runtime.activeSubagentSessionIds(firstBinding).includes('opaque-native-child'));
+    assert.strictEqual((await runtime.retainAgent('shared-codex-a')).retained, false,
+      'a live native child must prevent idle reclamation of its owning runtime');
+    await assert.rejects(runtime.cancelSubagent('shared-codex-a', 'opaque-native-child'), /controlled by its parent/);
+    await handlers.sessionUpdate({ sessionId: first.sessionId, update: {
+      sessionUpdate: 'subagent_state_update', subagentSessionId: 'opaque-native-child', state: 'completed',
+    } });
+    assert.strictEqual(runtime.getSubagentTranscriptSession('shared-codex-a', 'opaque-native-child').state, 'idle');
+
     const firstProviderUpdate = firstBinding.connection.request('providers/set', {
       providerId: 'openai',
       apiType: 'openai',

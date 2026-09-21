@@ -990,6 +990,7 @@ function AgentTranscriptTerminals({
 
 function AgentTranscriptSubagentAction({ item }: { item: AgentTranscriptProcessItem }) {
   const detail = String(item.detail || '').trim()
+  if (item.type === 'progress' && detail) return <div className="code-agent-transcript-subagent-action">{plainTextBlock(detail)}</div>
   const changes = item.changes || []
   const expandable = Boolean(detail || changes.length > 0)
   const label = (
@@ -1065,7 +1066,7 @@ export function AgentTranscriptSubagentPreview({
         {actionCount > 0 ? ` · ${actionCount} ${actionCount === 1 ? 'action' : 'actions'}` : ''}
       </span>
       <span className={`code-agent-transcript-subagent-status ${transcript.error ? 'error' : active ? 'active' : ''}`}>{status}</span>
-      {active && onStop ? (
+      {active && onStop && transcript.canCancel !== false ? (
         <button
           type="button"
           className="code-agent-transcript-subagent-control stop"
@@ -1422,6 +1423,8 @@ function AgentTranscriptCollaborationTimeline({
   openActivityIds: Set<string>
   setOpenActivityIds: Dispatch<SetStateAction<Set<string>>>
 }) {
+  const openRelatedSession = useContext(RelatedSessionNavigation)
+  const { agentId: parentAgentId } = useContext(TranscriptFileOpenContext)
   const [visibleActivityCounts, setVisibleActivityCounts] = useState<Record<string, number>>({})
   const [visibleEvidenceCounts, setVisibleEvidenceCounts] = useState<Record<string, number>>({})
   if (agents.length === 0) return null
@@ -1516,6 +1519,11 @@ function AgentTranscriptCollaborationTimeline({
         </button>
         {agentOpen ? (
           <div className="code-agent-transcript-collaboration-events">
+            {openRelatedSession && parentAgentId && agent.threadId ? <button
+              type="button" className="code-agent-transcript-subagent-control"
+              data-testid="code-collaboration-open-details" aria-label="Open subagent details" title="Open subagent details"
+              onClick={() => openRelatedSession({ parentAgentId, sessionId: agent.threadId, title: agent.task || agent.name })}
+            >↗</button> : null}
             {hiddenActivityCount > 0 ? (
               <button
                 type="button"
