@@ -2531,14 +2531,14 @@ export function CodeWorkspace({
 
   const submitDraft = useCallback((submittedDraft?: string) => {
     const latestDraft = submittedDraft ?? composerTextareaRef.current?.value ?? draft
-    if (!activeAgent || !activeComposerKey || !composerAttachmentsCanSubmit(composerAttachments)) return
+    if (!activeAgent || !activeComposerKey || !composerAttachmentsCanSubmit(composerAttachments)) return false
     const nativeAttachments = isStructuredRuntime(activeAgent)
       ? composerPromptAttachments(composerAttachments)
       : []
     const text = nativeAttachments.length > 0
       ? composerMessageForNativeAttachments(latestDraft, composerAttachments)
       : composerMessageWithAttachments(latestDraft, composerAttachments)
-    if (!text && nativeAttachments.length === 0) return
+    if (!text && nativeAttachments.length === 0) return false
 
     const message = formatComposerMessageForAgent(composerMode, text, activeAgent)
     let submitted: boolean | Promise<boolean> = true
@@ -2575,10 +2575,11 @@ export function CodeWorkspace({
     }
     if (typeof submitted === 'boolean') {
       if (submitted) clearAcceptedDraft()
-      return
+      return submitted
     }
-    void submitted.then(accepted => {
+    return submitted.then(accepted => {
       if (accepted) clearAcceptedDraft()
+      return accepted
     })
   }, [activeAgent, activeComposerKey, composerAttachments, composerMode, draft, focusComposerTextarea, sendComposerMessageToAgent, updateComposerStateForKey])
 
@@ -2619,8 +2620,14 @@ export function CodeWorkspace({
       }
       if (restoreFocus) focusComposerTextarea()
     }
-    if (typeof submitted === 'boolean') commitAccepted(submitted, true)
-    else void submitted.then(accepted => commitAccepted(accepted, false))
+    if (typeof submitted === 'boolean') {
+      commitAccepted(submitted, true)
+      return submitted
+    }
+    return submitted.then(accepted => {
+      commitAccepted(accepted, false)
+      return accepted
+    })
   }, [activeAcpRuntime, activeAgent, activeAgentTurnActive, activeComposerKey, activePromptStartFenced, composerAttachments, composerMode, draft, focusComposerTextarea, markPromptStart, sendComposerMessageToAgent, uiPreferences.composerFollowUpBehavior, updateComposerStateForKey])
 
   const reconnectActiveAcpAgent = useCallback(() => {

@@ -165,3 +165,90 @@ for (const runtime of ['chat', 'terminal'] as const) {
     }
   })
 }
+
+for (const runtime of ['chat', 'terminal'] as const) {
+  test(`mobile ${runtime} send and stop stay clear of expand and accepted sends collapse`, async ({ page, workspaceRoot }, testInfo) => {
+    const response = await page.request.post('/farming/api/control/agents', {
+      data: { command: runtime === 'chat' ? 'codex' : 'bash', workspace: workspaceRoot, agentRuntimeMode: runtime },
+    })
+    expect(response.ok()).toBeTruthy()
+    const { agentId } = await response.json() as { agentId: string }
+    let rejected = 0
+    if (runtime === 'chat') {
+      await page.routeWebSocket(/\/farming\/ws(?:\?|$)/, socket => {
+        const server = socket.connectToServer()
+        socket.onMessage(message => {
+          const parsed = JSON.parse(String(message))
+          if (parsed.type === 'composer-input' && rejected === 0) {
+            rejected += 1
+            socket.send(JSON.stringify({
+              type: 'composer-input-result', requestId: parsed.requestId,
+              agentId: parsed.agentId, accepted: false, message: 'Test admission rejected',
+            }))
+            return
+          }
+          server.send(message)
+        })
+        server.onMessage(message => socket.send(message))
+      })
+    }
+    await openFarming(page)
+    await page.getByTestId('code-mobile-menu').click()
+    await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+    const prefix = runtime === 'chat' ? 'code-acp-composer' : 'code-composer'
+    const input = page.getByTestId(`${prefix}-input`)
+    const send = page.getByTestId(`${prefix}-send`)
+    const toggle = page.getByTestId('code-composer-editor-toggle')
+    const assertSeparate = async () => {
+      const a = await toggle.boundingBox(), b = await send.boundingBox()
+      expect(a).not.toBeNull()
+      expect(b).not.toBeNull()
+      expect(a!.y + a!.height).toBeLessThanOrEqual(b!.y)
+      for (const button of [toggle, send]) {
+        expect(await button.evaluate(element => {
+          const r = element.getBoundingClientRect()
+          return element.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2))
+        })).toBe(true)
+      }
+    }
+    for (const width of [320, 390]) {
+      await page.setViewportSize({ width, height: 480 })
+      for (const appearance of ['light', 'dark', 'paper']) {
+        await page.locator('body').evaluate((body, value) => { body.dataset.appearance = value }, appearance)
+        await input.fill('')
+        await assertSeparate()
+        await input.fill(runtime === 'chat' ? 'hold for steer without user echo' : "printf 'MOBILE_SENT\\n'")
+        await assertSeparate()
+        await page.getByTestId(prefix).screenshot({ path: testInfo.outputPath(`${runtime}-${width}-${appearance}-controls.png`) })
+      }
+    }
+    await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    if (runtime === 'chat') {
+      const draft = await input.inputValue()
+      await send.click()
+      await expect.poll(() => rejected).toBe(1)
+      await expect(input).toHaveValue(draft)
+      await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    }
+    await send.click()
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    await expect(input).toHaveValue('')
+    await assertSeparate()
+    if (runtime === 'chat') {
+      await expect(send).toHaveAttribute('data-action', 'interrupt')
+      for (const appearance of ['light', 'dark', 'paper']) {
+        await page.locator('body').evaluate((body, value) => { body.dataset.appearance = value }, appearance)
+        await assertSeparate()
+        await page.getByTestId(prefix).screenshot({ path: testInfo.outputPath(`${runtime}-${appearance}-stop-controls.png`) })
+      }
+      await toggle.click()
+      await input.fill('Queued follow-up')
+      await send.click()
+      await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+      await expect(input).toHaveValue('')
+      await assertSeparate()
+      await send.click()
+    }
+  })
+}

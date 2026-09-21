@@ -10,11 +10,13 @@ export function useComposerExpandedEditor({ agentId, enabled, textareaRef, compo
 }) {
   const [expandedAgentId, setExpandedAgentId] = useState<string | null>(null)
   const expanded = enabled && expandedAgentId === agentId
+  const presentationRevision = useRef(0)
   const position = useRef<{ start: number; end: number; direction: 'forward' | 'backward' | 'none'; top: number } | null>(null)
 
-  useLayoutEffect(() => { setExpandedAgentId(null) }, [agentId, enabled])
+  useLayoutEffect(() => { presentationRevision.current += 1; setExpandedAgentId(null) }, [agentId, enabled])
 
   function toggle() {
+    presentationRevision.current += 1
     const textarea = textareaRef.current
     if (!textarea) return
     position.current = {
@@ -43,5 +45,19 @@ export function useComposerExpandedEditor({ agentId, enabled, textareaRef, compo
     returnFocus: () => textareaRef.current,
   })
 
-  return { expanded, toggle }
+  function submit(action: () => boolean | Promise<boolean>) {
+    const revision = presentationRevision.current
+    const submittedDraft = textareaRef.current?.value
+    const accepted = (result: boolean) => {
+      if (!result || presentationRevision.current !== revision) return
+      const currentDraft = textareaRef.current?.value
+      if (currentDraft && currentDraft !== submittedDraft) return
+      setExpandedAgentId(null)
+    }
+    const result = action()
+    if (typeof result === 'boolean') accepted(result)
+    else void result.then(accepted, () => {})
+  }
+
+  return { expanded, toggle, submit }
 }

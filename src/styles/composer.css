@@ -3379,6 +3379,11 @@ body.code-mode.code-compact-layout .code-composer textarea::placeholder {
   color: var(--code-text-quiet);
 }
 
+/* The expand hit area must stay entirely in the input row, above Send/Stop. */
+body.code-mode.code-compact-layout .code-composer:has(> .code-composer-editor-header):not(.editor-expanded) textarea {
+  min-height: 44px;
+}
+
 .code-composer-editor-header {
   position: absolute;
   right: 4px;

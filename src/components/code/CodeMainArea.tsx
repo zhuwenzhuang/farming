@@ -859,9 +859,9 @@ export function CodeMainArea({
     ) {
       acpComposerProps.onDraftChange('')
       requestSubagent(activeAgent.id)
-      return
+      return true
     }
-    acpComposerProps.onSubmit(draft, options)
+    return acpComposerProps.onSubmit(draft, options)
   }
   const activeBrowserPreviews = activeAgent
     ? (browserController.byAgentId.get(activeAgent.id) ?? [])

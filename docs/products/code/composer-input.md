@@ -23,7 +23,9 @@ current visual viewport. It retains the same textarea, draft, selection and
 scroll position; collapsing preserves that state. The page uses the shared
 Composer surface, controls, attachment and submission behavior in Light, Dark
 and Paper. The conversation is temporarily hidden without losing its reading
-position. Desktop input keeps its existing layout and keyboard behavior.
+position. Desktop input keeps its existing layout and keyboard behavior. The compact input
+row reserves the full 44px expand hit area above the separate send/interrupt row,
+including empty drafts and short keyboard viewports.
 
 | Trigger | Effect |
 | --- | --- |
@@ -33,11 +35,12 @@ position. Desktop input keeps its existing layout and keyboard behavior.
 | Escape | Shared interaction arbitration closes the top menu first, then the expanded editor; IME cancellation retains priority |
 | Keyboard / viewport resize | Recompute bounded input geometry inside the visible viewport; keep send reachable |
 | Agent changes, desktop layout, permission/error request or dictation | Leave expanded presentation; preserve the existing draft ownership and expose the required surface |
-| Submit, queue or interrupt | Use existing authoritative submission behavior; expansion itself never retries a mutation |
+| Accepted submit or queue | Collapse the current expanded editor after the submission owner reports acceptance; retain newer drafts and later expansion sessions |
+| Rejected/uncertain submit or interrupt | Preserve expansion and existing draft handling; never retry a mutation from presentation state |
 
 Expansion is a full-page editing view, not a dismissible modal. Background
 content and compact navigation are hidden while editing; outside taps do not
-discard or collapse the draft. Collapse remains explicit, and no downward
+discard or collapse the draft. Manual collapse remains explicit; accepted submissions also return to the conversation. No downward
 gesture competes with scrolling or selection.
 
 ## Command Navigation

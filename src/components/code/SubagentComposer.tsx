@@ -89,8 +89,9 @@ export function SubagentComposer({ agent: structuralAgent, active, controller, c
         options?.oppositeFollowUpBehavior === true, runtime?.supportsSteer === true),
       sendMessage: controller.send, updateComposerState: controller.update,
     })
-    void Promise.resolve(result).then(accepted => {
+    return Promise.resolve(result).then(accepted => {
       if (accepted && !followUps.activeAgentTurnActive) followUps.markPromptStart(agent)
+      return accepted
     })
   }
   return <>

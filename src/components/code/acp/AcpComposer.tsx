@@ -95,7 +95,7 @@ export interface AcpComposerProps {
   onDraftChange: (value: string) => void
   onNavigateHistory: (direction: ComposerHistoryDirection, input: ComposerHistoryNavigationInput) => string | null
   onRemoveAttachment: (id: string) => void
-  onSubmit: (draft?: string, options?: { oppositeFollowUpBehavior?: boolean }) => void
+  onSubmit: (draft?: string, options?: { oppositeFollowUpBehavior?: boolean }) => boolean | Promise<boolean>
   onInterrupt: () => void
   onReconnect: () => void
   onDiscardPendingFollowUp: (messageId: string) => void
@@ -365,10 +365,10 @@ export function AcpComposer({
     if (!shouldSubmitComposerEnter(event, compositionActiveRef.current, lastCompositionEndAtRef.current, Date.now(), !compactComposerViewport)) return
     event.preventDefault()
     event.stopPropagation()
-    onSubmit(
+    editor.submit(() => onSubmit(
       composerDraftForSubmit(event.currentTarget.value, latestDraftRef.current),
       { oppositeFollowUpBehavior: event.metaKey || event.ctrlKey },
-    )
+    ))
   }
 
   const toggleMenu = (menu: Exclude<AcpComposerMenu, null>) => {
@@ -755,7 +755,7 @@ export function AcpComposer({
             data-testid="code-acp-composer-send"
             data-action={submitAction}
             aria-label={interrupting ? copy.interruptAgent : copy.sendMessage}
-            onClick={interrupting ? onInterrupt : () => onSubmit(latestDraftRef.current)}
+            onClick={interrupting ? onInterrupt : () => editor.submit(() => onSubmit(latestDraftRef.current))}
             disabled={disabled}
           >
             {interrupting ? <span className="code-composer-stop-icon" aria-hidden="true" /> : <ArrowUpGlyph />}

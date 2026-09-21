@@ -155,7 +155,7 @@ interface CodeComposerProps {
   onDraftChange: (value: string) => void
   onNavigateHistory: (direction: ComposerHistoryDirection, input: ComposerHistoryNavigationInput) => string | null
   onRemoveAttachment: (id: string) => void
-  onSubmit: (draft?: string) => void
+  onSubmit: (draft?: string) => boolean | Promise<boolean>
   onInterrupt: () => void
   onSendPendingFollowUp: (messageId: string) => void
   onDiscardPendingFollowUp: (messageId: string) => void
@@ -734,7 +734,7 @@ export function CodeComposer({
             if (!shouldSubmitComposerEnter(event, compositionActive, lastCompositionEndAtRef.current, Date.now(), !compactComposerViewport)) return
             event.preventDefault()
             event.stopPropagation()
-            onSubmit(composerDraftForSubmit(event.currentTarget.value, latestDraftRef.current))
+            editor.submit(() => onSubmit(composerDraftForSubmit(event.currentTarget.value, latestDraftRef.current)))
           }}
           placeholder={active ? composerModePlaceholder(copy, composerMode, agentKind) : copy.openAgentTerminalFirst}
           disabled={!active}
@@ -781,7 +781,7 @@ export function CodeComposer({
               data-testid="code-composer-send"
               data-action={submitAction}
               aria-label={submitIsInterrupt ? copy.interruptAgent : copy.sendMessage}
-              onClick={submitIsInterrupt ? onInterrupt : () => onSubmit(latestDraftRef.current)}
+              onClick={submitIsInterrupt ? onInterrupt : () => editor.submit(() => onSubmit(latestDraftRef.current))}
               disabled={submitDisabled}
             >
               {submitIsInterrupt ? <span className="code-composer-stop-icon" aria-hidden="true" /> : <ArrowUpGlyph />}
@@ -1110,7 +1110,7 @@ export function CodeComposer({
             data-testid="code-composer-send"
             data-action={submitAction}
             aria-label={submitIsInterrupt ? copy.interruptAgent : copy.sendMessage}
-            onClick={submitIsInterrupt ? onInterrupt : () => onSubmit(latestDraftRef.current)}
+            onClick={submitIsInterrupt ? onInterrupt : () => editor.submit(() => onSubmit(latestDraftRef.current))}
             disabled={submitDisabled}
           >
             {submitIsInterrupt ? <span className="code-composer-stop-icon" aria-hidden="true" /> : <ArrowUpGlyph />}
