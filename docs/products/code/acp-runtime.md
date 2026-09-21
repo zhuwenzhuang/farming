@@ -63,6 +63,9 @@ process activity, tool results, and Markdown answers retain their shared visual
 roles. The pane must not wrap a conversation in a muted summary card, repeat its
 title, or count progress messages as tool actions. Read-only presentation does
 not mean disabled-looking content; execution controls remain capability-bound.
+Sidebar child rows and collaboration cards share the same session-derived icon
+and theme color. The sidebar icon occupies the existing child indentation gutter
+without shifting the label.
 
 ## Provider Boundary
 

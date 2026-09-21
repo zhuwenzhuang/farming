@@ -922,13 +922,6 @@
   color: var(--code-text-muted);
 }
 
-.code-agent-transcript-collaboration-agent svg {
-  width: 14px;
-  height: 14px;
-  flex: 0 0 auto;
-  color: var(--code-text-quiet);
-}
-
 .code-agent-transcript-collaboration-agent > span {
   min-width: 0;
   overflow: hidden;
@@ -961,14 +954,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-.code-agent-transcript-collaboration-agent.tone-0 svg { color: var(--code-collaboration-tone-1); }
-
-.code-agent-transcript-collaboration-agent.tone-1 svg { color: var(--code-collaboration-tone-2); }
-
-.code-agent-transcript-collaboration-agent.tone-2 svg { color: var(--code-collaboration-tone-3); }
-
-.code-agent-transcript-collaboration-agent.tone-3 svg { color: var(--code-collaboration-tone-4); }
 
 .code-agent-transcript-collaboration-summary > .code-agent-transcript-collaboration-action {
   flex: 0 0 auto;

@@ -19,6 +19,7 @@ import {
   type WheelEvent as ReactWheelEvent,
 } from 'react'
 import { createPortal } from 'react-dom'
+import { CollaborationAgentIcon } from './CollaborationAgentIcon'
 import { RelatedSessionNavigation } from './related-session-navigation'
 import ReactMarkdown, { defaultUrlTransform, type Components } from 'react-markdown'
 import { shareNoticeAnchor, type ShareNoticeAnchor } from './share-notice'
@@ -28,13 +29,7 @@ import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import { remarkLiteralShellDollars } from '@/lib/remark-literal-shell-dollars'
 import {
-  AgentBotGlyph,
-  AgentChipGlyph,
-  AgentDroneGlyph,
   AgentGroupGlyph,
-  AgentManufacturingGlyph,
-  AgentSmartToyGlyph,
-  AgentSpeechBotGlyph,
   ArrowDownGlyph,
   BookGlyph,
   CheckGlyph,
@@ -1394,18 +1389,6 @@ function collaborationStatusLabel(status: AcpCollaborationStatus, copy: CodeCopy
   return ''
 }
 
-function CollaborationAgentGlyph({ icon }: { icon: number }) {
-  const Glyph = [
-    AgentBotGlyph,
-    AgentSpeechBotGlyph,
-    AgentChipGlyph,
-    AgentSmartToyGlyph,
-    AgentDroneGlyph,
-    AgentManufacturingGlyph,
-  ][icon] || AgentBotGlyph
-  return <Glyph />
-}
-
 function AgentTranscriptCollaborationTimeline({
   agents,
   renderProcessItem,
@@ -1504,7 +1487,7 @@ function AgentTranscriptCollaborationTimeline({
           }}
         >
           <span className={`code-agent-transcript-collaboration-agent tone-${agent.tone}`}>
-            <CollaborationAgentGlyph icon={agent.icon} />
+            <CollaborationAgentIcon sessionId={agent.threadId} />
             <span className="code-agent-transcript-collaboration-agent-labels">
               <span>{agent.task || agent.name}</span>
               {agent.task && agent.task !== agent.name ? <small>{agent.name}</small> : null}

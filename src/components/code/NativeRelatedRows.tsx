@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { Agent } from '@/types/agent'
 import { appPath } from '@/lib/base-path'
 import { isAcpRuntime } from '@/lib/agent-runtime'
-import { ChatBubblesGlyph } from '../IconGlyphs'
+import { CollaborationAgentIcon } from './CollaborationAgentIcon'
 import type { RelatedSessionTarget } from './related-session-navigation'
 
 type Inventory = { parentSessionKey: string; runtimeEpoch: string; children: Array<{ sessionId: string; title: string; state: string; readable: boolean }> }
@@ -55,7 +55,7 @@ export function NativeRelatedRows({ parent, active, selected, onOpen }: {
       data-testid="code-native-related-row" aria-label={child.title} title={`${child.title} · ${child.state}`}
       onClick={() => onOpen({ parentAgentId: parent.id, parentSessionKey: parent.providerSessionKey,
         sessionId: child.sessionId, title: child.title, runtimeEpoch: inventory.runtimeEpoch, readable: child.readable })}>
-      <span className="code-agent-row-provider-icon"><ChatBubblesGlyph /></span>
+      <CollaborationAgentIcon sessionId={child.sessionId} />
       <span className="code-agent-row-copy"><span className="code-agent-name">{child.title}</span></span>
       <span className="code-agent-row-trailing">{child.state}</span>
     </button>)}

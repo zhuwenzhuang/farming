@@ -63,6 +63,30 @@ for (const width of [1440, 390]) {
     await page.getByTestId('code-collaboration-open-details').click()
     await expect(panel).toContainText('Review complete')
     await panel.getByRole('button', { name: 'Collapse related session' }).click()
+    await openSidebar()
+    const sidebarIcon = page.getByTestId('code-native-related-row').locator('.code-collaboration-agent-icon')
+    const transcriptIcon = page.getByTestId('code-agent-transcript-collaboration-summary').locator('.code-collaboration-agent-icon')
+    await expect(sidebarIcon).toBeVisible()
+    const row = page.getByTestId('code-native-related-row')
+    await row.scrollIntoViewIfNeeded()
+    const labelOffset = (element: Element) => element.querySelector('.code-agent-name')!.getBoundingClientRect().x - element.getBoundingClientRect().x
+    const labelBefore = await row.evaluate(labelOffset)
+    await sidebarIcon.evaluate(element => { (element as HTMLElement).style.display = 'none' })
+    const labelWithoutIcon = await row.evaluate(labelOffset)
+    await sidebarIcon.evaluate(element => { (element as HTMLElement).style.removeProperty('display') })
+    expect(labelBefore).toBe(labelWithoutIcon)
+    const iconBox = await sidebarIcon.boundingBox()
+    const rowBox = await row.boundingBox()
+    expect(iconBox!.x).toBeLessThan(rowBox!.x)
+
+    for (const appearance of ['light', 'dark', 'paper']) {
+      await page.locator('body').evaluate((body, value) => { body.dataset.appearance = value }, appearance)
+      expect(await sidebarIcon.locator('svg').innerHTML()).toBe(await transcriptIcon.locator('svg').innerHTML())
+      expect(await sidebarIcon.locator('svg').evaluate(element => getComputedStyle(element).color)).toBe(
+        await transcriptIcon.locator('svg').evaluate(element => getComputedStyle(element).color),
+      )
+      await page.screenshot({ path: testInfo.outputPath(`native-sidebar-${width}-${appearance}.png`), animations: 'disabled' })
+    }
 
   })
 }

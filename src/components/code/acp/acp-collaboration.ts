@@ -73,11 +73,11 @@ function threadVisualHash(threadId: string) {
   return hash
 }
 
-function eventTone(threadId: string) {
+export function eventTone(threadId: string) {
   return threadVisualHash(threadId) % 4
 }
 
-function agentIcon(threadId: string) {
+export function agentIcon(threadId: string) {
   return Math.floor(threadVisualHash(threadId) / 4) % 6
 }
 

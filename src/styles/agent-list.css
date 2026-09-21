@@ -867,3 +867,20 @@ body.code-mode:not(.code-compact-layout) .code-agent-row:has(.code-agent-row-act
 }
 
 .code-agent-row.related-child { margin-inline-start: 20px; width: calc(100% - 20px); }
+
+.code-collaboration-agent-icon {
+  display: inline-flex;
+  flex: 0 0 14px;
+  width: 14px;
+  height: 14px;
+  align-items: center;
+  justify-content: center;
+}
+.code-collaboration-agent-icon > svg { width: 14px; height: 14px; }
+/* Child identity occupies the existing indentation gutter; labels do not move. */
+.code-agent-row.related-child > .code-collaboration-agent-icon {
+  position: absolute;
+  inset-inline-start: -17px;
+  top: 50%;
+  transform: translateY(-50%);
+}
