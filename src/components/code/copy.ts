@@ -383,6 +383,11 @@ export interface CodeCopy {
   searchEmptyDescription: string
   agents: string
   files: string
+  mainRepository: string
+  submodule: string
+  stagedChanges: string
+  unstagedChanges: string
+  stagedAndUnstagedChanges: string
   changes: string
   changedFiles: string
   trackedChanges: string
@@ -1076,6 +1081,11 @@ const EN_COPY: CodeCopy = {
   searchEmptyDescription: 'Type an Agent title, session title, Project name, or file path.',
   agents: 'Agents',
   files: 'Files',
+  mainRepository: 'Main repository',
+  submodule: 'Submodule',
+  stagedChanges: 'Staged',
+  unstagedChanges: 'Unstaged',
+  stagedAndUnstagedChanges: 'Staged + unstaged',
   changes: 'Changes',
   changedFiles: 'Changed files',
   trackedChanges: 'Tracked',
@@ -1805,6 +1815,11 @@ const ZH_COPY: CodeCopy = {
   searchEmptyDescription: '输入 Agent 标题、会话标题、Project 名称或文件路径。',
   agents: 'Agent',
   files: '文件',
+  mainRepository: '主仓库',
+  submodule: '子模块',
+  stagedChanges: '已暂存',
+  unstagedChanges: '未暂存',
+  stagedAndUnstagedChanges: '已暂存 + 未暂存',
   changes: '变更',
   changedFiles: '变更文件',
   trackedChanges: '已跟踪',

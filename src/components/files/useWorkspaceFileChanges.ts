@@ -8,12 +8,14 @@ import {
 import {
   fetchWorkspaceChanges,
   type WorkspaceFileChange,
+  type WorkspaceFileChanges,
 } from '@/lib/workspace-files'
 
 const WORKSPACE_CHANGES_LIMIT = 200
 const WORKSPACE_CHANGES_TIMEOUT_MS = 15_000
 
 interface WorkspaceFileChangesState {
+  repositories?: WorkspaceFileChanges['repositories']
   error: string | null
   items: WorkspaceFileChange[]
   loaded: boolean
@@ -76,6 +78,7 @@ export function useWorkspaceFileChanges(
       setState({
         error: null,
         items: changes.items,
+        repositories: changes.repositories,
         loaded: true,
         loading: false,
         truncated: changes.truncated,

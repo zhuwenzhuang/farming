@@ -416,6 +416,17 @@ narrow container.
 
 ## Git And Review
 
+Files traverses checked-out submodule directories normally. Changes discovers
+indexed submodules with bounded repository count and command output, and groups
+project-relative file paths by their owning repository. Staged, unstaged and
+untracked status belong to that repository; its Review action captures only its
+own working copy. Parent gitlink changes remain separate from child edits.
+Blame, line changes, file diffs and directory decorations resolve the nearest
+repository inside the authorized Project. Missing or uninitialized repositories
+remain visible failures, never empty successful change inventories. Refresh
+rebuilds discovery; no child operation changes the parent's index.
+
+
 Working-copy Changes and committed Git History live inside Files. History is
 Project-scoped and loads bounded pages; expanding a commit reveals its changed
 files and parent comparison without implementing a second diff viewer.

@@ -700,6 +700,7 @@ function isReviewFile(value: unknown): value is ReviewFile {
     && (file.binary === undefined || file.binary === true)
     && (file.diffLoaded === undefined || typeof file.diffLoaded === 'boolean')
     && (file.diffTooExpensive === undefined || typeof file.diffTooExpensive === 'boolean')
+    && isOptionalString(file.submoduleError)
     && isOptionalString(file.newMode)
     && isOptionalString(file.newSha)
     && isOptionalString(file.oldMode)

@@ -116,6 +116,10 @@ export interface WorkspaceFileDiff {
 }
 
 export interface WorkspaceFileChange {
+  repositoryPath?: string
+  repositoryFilePath?: string
+  indexStatus?: string
+  workingTreeStatus?: string
   path: string
   name: string
   type: WorkspaceFileEntry['type']
@@ -125,6 +129,7 @@ export interface WorkspaceFileChange {
 }
 
 export interface WorkspaceFileChanges {
+  repositories?: Array<{ path: string; error?: string; truncated: boolean }>
   items: WorkspaceFileChange[]
   truncated: boolean
 }

@@ -1950,6 +1950,7 @@ export function ReviewPage() {
                         onStatusChange={status => changeCommentStatus(comment, status)}
                       />)}
                     </div> : null}
+                    {file.submoduleError ? <div className="review-diff-status" role="alert">{file.submoduleError}</div> : null}
                     <div className="review-diff-columns"><span>File</span>{effectiveDiffMode === 'split' ? <span>File</span> : null}</div>
                     {rowModel.diffStatus !== 'loaded' || rowModel.diffLoadPending || rowModel.diffLoadError ? (
                       <DiffStatusMessage row={rowModel} />

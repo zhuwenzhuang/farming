@@ -12,6 +12,7 @@ const yauzl = require('yauzl') as {
   ): Promise<{ eachEntry(): AsyncIterable<{ fileName: string; uncompressedSize: number }> }>;
 };
 import { isSameOrDescendantPath as isInside } from './path-containment.cjs';
+import { discoverWorkspaceRepositories, repositoryForFile } from './workspace-repositories.cjs';
 import { assertManagedRipgrep } from './ripgrep-runtime.cjs';
 
 const DEFAULT_MAX_FILE_SIZE = 10 * 1024 * 1024;
@@ -200,6 +201,25 @@ interface ExactWorkspaceWatcherRecord {
   targetPaths: Map<string, Set<string>>;
   updateQueue: Promise<void>;
   watcher: ChokidarWatcher | null;
+}
+
+interface WorkspaceChangeItem {
+  [key: string]: unknown;
+  path: string;
+  name: string;
+  type: string;
+  gitStatus: string;
+  gitStatusLabel?: string;
+  indexStatus: string;
+  workingTreeStatus: string;
+  previousPath?: string;
+  repositoryPath?: string;
+  repositoryFilePath?: string;
+}
+interface WorkspaceChangesResult {
+  items: WorkspaceChangeItem[];
+  truncated: boolean;
+  repositories?: Array<{ path: string; error?: string; truncated: boolean }>;
 }
 
 interface GitStatusEntry {
@@ -1226,6 +1246,8 @@ function parseGitStatus(stdout: unknown): GitStatusMap {
       : '';
     statusByPath.set(filePath, {
       kind,
+      indexStatus: statusCode[0],
+      workingTreeStatus: statusCode[1],
       label: gitStatusLabel(kind),
       ...(previousPath ? { previousPath } : {}),
     });
@@ -2267,10 +2289,15 @@ class WorkspaceFileService {
       }
       return normalizeGitStatusPath(normalizedPath);
     })));
-    const [gitStatusByPath, ignoredPaths] = await Promise.all([
-      this.getGitStatusByPath(root),
-      this.loadGitIgnoredPaths(root, normalizedEntryPaths),
+    const owner = await repositoryForFile(this, root, relativePath ? `${relativePath}/.farming-decoration` : '.farming-decoration');
+    const repositoryPrefix = relativeFromRoot(root, owner.root);
+    const toRepositoryPath = (entry: string) => repositoryPrefix ? entry.slice(repositoryPrefix.length + 1) : entry;
+    const [repositoryStatus, repositoryIgnored] = await Promise.all([
+      this.getGitStatusByPath(owner.root),
+      this.loadGitIgnoredPaths(owner.root, normalizedEntryPaths.map(toRepositoryPath)),
     ]);
+    const gitStatusByPath: GitStatusMap = new Map(Array.from(repositoryStatus, ([entry, status]) => [repositoryPrefix ? `${repositoryPrefix}/${entry}` : entry, status]));
+    const ignoredPaths = new Set(Array.from(repositoryIgnored, entry => repositoryPrefix ? `${repositoryPrefix}/${entry}` : entry));
     const descendantGitStatusByPath = buildDescendantGitStatusByDirectory(gitStatusByPath);
 
     return {
@@ -2295,7 +2322,10 @@ class WorkspaceFileService {
   }
 
   invalidateGitStatus(root: string) {
-    if (root) this.gitStatusCache.delete(root);
+    if (!root) return;
+    for (const cachedRoot of this.gitStatusCache.keys()) {
+      if (isInside(root, cachedRoot)) this.gitStatusCache.delete(cachedRoot);
+    }
   }
 
   async loadGitStatusByPath(root: string, options: Record<string, unknown> = {}): Promise<GitStatusMap> {
@@ -2440,9 +2470,11 @@ class WorkspaceFileService {
     return this.loadGitStatusByPath(root);
   }
 
-  async getGitStatusForPath(root: string, relativePath: unknown) {
+  async getGitStatusForPath(root: string, relativePath: unknown): Promise<GitStatusEntry | null> {
     const normalizedPath = normalizeGitStatusPath(relativePath);
     if (!normalizedPath) return null;
+    const owner = await repositoryForFile(this, root, normalizedPath);
+    if (owner.root !== root) return this.getGitStatusForPath(owner.root, owner.path);
 
     const cached = this.gitStatusCache.get(root);
     if (cached?.value) {
@@ -2624,10 +2656,29 @@ class WorkspaceFileService {
     }
   }
 
-  async changes(workspaceRoot: unknown, options: Record<string, unknown> = {}) {
+  async changes(workspaceRoot: unknown, options: Record<string, unknown> = {}): Promise<WorkspaceChangesResult> {
     const root = await this.resolveRoot(workspaceRoot);
     const limit = Math.max(1, Math.min(2000, Number(options.limit) || DEFAULT_GIT_CHANGES_LIMIT));
     const scope = options.scope === 'tracked' || options.scope === 'untracked' ? options.scope : undefined;
+    if (options.repositories === true) {
+      const repositories = await discoverWorkspaceRepositories(this, root);
+      const groups = await mapWithConcurrency(repositories, 4, async repository => {
+        if (repository.error) return { ...repository, items: [], truncated: false };
+        const result = await this.changes(repository.root, { ...options, repositories: false, limit });
+        return { ...repository, ...result };
+      });
+      return {
+        items: groups.flatMap(group => group.items.map(item => ({
+          ...item,
+          path: group.path ? `${group.path}/${item.path}` : item.path,
+          ...(item.previousPath ? { previousPath: group.path ? `${group.path}/${item.previousPath}` : item.previousPath } : {}),
+          repositoryPath: group.path,
+          repositoryFilePath: item.path,
+        }))).sort((a, b) => gitStatusReviewRank(a.gitStatus) - gitStatusReviewRank(b.gitStatus) || a.path.localeCompare(b.path)).slice(0, limit),
+        repositories: groups.map(({ path, error, truncated }) => ({ path, ...(error ? { error } : {}), truncated })),
+        truncated: groups.some(group => group.truncated) || groups.reduce((count, group) => count + group.items.length, 0) > limit,
+      };
+    }
     const gitStatusByPath = await this.loadGitStatusByPath(root, {
       allowPartial: true,
       excludeHidden: false,
@@ -2651,6 +2702,8 @@ class WorkspaceFileService {
         name: path.posix.basename(filePath),
         type: await workspaceEntryTypeForGitChange(root, filePath),
         gitStatus: status.kind,
+        indexStatus: String(status.indexStatus || ' '),
+        workingTreeStatus: String(status.workingTreeStatus || ' '),
         gitStatusLabel: status.label,
         ...(status.previousPath ? { previousPath: status.previousPath } : {}),
       })));
@@ -2824,13 +2877,15 @@ class WorkspaceFileService {
   }
 
   async blameCapability(workspaceRoot: unknown, userPath: unknown, options: ResolvePathOptions = {}) {
-    const { root, target, relativePath, actualRelativePath, external } = await this.resolvePath(workspaceRoot, userPath, options);
+    const { root: projectRoot, target, relativePath, actualRelativePath, external } = await this.resolvePath(workspaceRoot, userPath, options);
     const capability = (available: boolean, reason = '') => ({
       isGitRepo: reason !== 'not-git-repo' && reason !== 'git-unavailable',
       path: relativePath,
       available,
       ...(reason ? { reason } : {})
     });
+    const owner = await repositoryForFile(this, projectRoot, actualRelativePath || relativePath);
+    const root = owner.root;
     const stat = await fsp.stat(target);
     if (!stat.isFile()) {
       throw new WorkspaceFileError('path must be a file', 400);
@@ -2845,7 +2900,7 @@ class WorkspaceFileService {
       return capability(false, 'binary');
     }
 
-    const gitPath = actualRelativePath || relativePath;
+    const gitPath = owner.path;
     const directGitStatus = await this.getGitStatusForPath(root, gitPath);
     if (directGitStatus && ['added', 'deleted', 'renamed', 'untracked', 'conflicted'].includes(directGitStatus.kind)) {
       return capability(false, directGitStatus.kind);
@@ -3522,7 +3577,7 @@ class WorkspaceFileService {
   }
 
   async diff(workspaceRoot: unknown, userPath: unknown = '', options: Record<string, unknown> = {}) {
-    const root = await this.resolveRoot(workspaceRoot);
+    let root = await this.resolveRoot(workspaceRoot);
     const normalized = normalizeUserPath(userPath);
     let target = null;
     let relativePath = normalized;
@@ -3542,6 +3597,11 @@ class WorkspaceFileService {
           throw error;
         }
       }
+    }
+    if (normalized) {
+      const owner = await repositoryForFile(this, root, gitRelativePath);
+      root = owner.root;
+      gitRelativePath = owner.path;
     }
     const args = ['-C', root, 'diff', ...gitDiffWhitespaceArgs(options.ignoreWhitespace), ...gitDiffContextArgs(options.context), 'HEAD', '--'];
     if (normalized) args.push(gitRelativePath);
@@ -3673,7 +3733,9 @@ class WorkspaceFileService {
       throw new WorkspaceFileError('mode must be working or previous', 400);
     }
 
-    const { root, target, relativePath, actualRelativePath } = await this.resolvePath(workspaceRoot, userPath);
+    const { root: projectRoot, target, relativePath, actualRelativePath } = await this.resolvePath(workspaceRoot, userPath);
+    const owner = await repositoryForFile(this, projectRoot, actualRelativePath || relativePath);
+    const root = owner.root;
     const stat = await fsp.stat(target);
     if (!stat.isFile()) {
       throw new WorkspaceFileError('path must be a file', 400);
@@ -3685,7 +3747,7 @@ class WorkspaceFileService {
       throw new WorkspaceFileError('binary files cannot be inspected as text', 415);
     }
 
-    const gitRelativePath = actualRelativePath || relativePath;
+    const gitRelativePath = owner.path;
     const baseResult = {
       isGitRepo: true,
       path: relativePath,
@@ -3840,7 +3902,9 @@ class WorkspaceFileService {
   }
 
   async blame(workspaceRoot: unknown, userPath: unknown) {
-    const { root, target, relativePath, actualRelativePath } = await this.resolvePath(workspaceRoot, userPath);
+    const { root: projectRoot, target, relativePath, actualRelativePath } = await this.resolvePath(workspaceRoot, userPath);
+    const owner = await repositoryForFile(this, projectRoot, actualRelativePath || relativePath);
+    const root = owner.root;
     const stat = await fsp.stat(target);
     if (!stat.isFile()) {
       throw new WorkspaceFileError('path must be a file', 400);
@@ -3857,7 +3921,7 @@ class WorkspaceFileService {
         'blame',
         '--porcelain',
         '--',
-        actualRelativePath || relativePath,
+        owner.path,
       ], { cwd: root, timeout: this.blameTimeoutMs, maxBuffer: DEFAULT_BLAME_MAX_BUFFER });
       const [remote, issueLinkRules] = await Promise.all([
         this.execFile(this.gitPath, [

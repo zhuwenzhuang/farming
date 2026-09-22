@@ -1309,3 +1309,59 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
     }
   })
 }
+
+for (const appearance of ['light', 'dark', 'paper'] as const) {
+  test(`reviews exact submodule files and captured child edits in ${appearance}`, async ({ page }, testInfo) => {
+    const temp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'farming-review-submodule-')))
+    const root = path.join(temp, 'project')
+    const source = path.join(temp, 'source')
+    try {
+      for (const directory of [root, source]) {
+        fs.mkdirSync(directory)
+        git(directory, 'init', '-b', 'main')
+        git(directory, 'config', 'core.hooksPath', '/dev/null')
+        git(directory, 'config', 'user.name', 'Review Fixture')
+        git(directory, 'config', 'user.email', 'review@example.test')
+      }
+      fs.writeFileSync(path.join(source, 'engine.ts'), 'export const capacity = 1\n')
+      git(source, 'add', '.'); git(source, 'commit', '-m', 'Initial engine')
+      git(root, '-c', 'protocol.file.allow=always', 'submodule', 'add', source, 'engine')
+      git(root, 'commit', '-am', 'Add engine')
+      const base = git(root, 'rev-parse', 'HEAD')
+      const child = path.join(root, 'engine')
+      git(child, 'config', 'core.hooksPath', '/dev/null')
+      git(child, 'config', 'user.name', 'Review Fixture'); git(child, 'config', 'user.email', 'review@example.test')
+      fs.writeFileSync(path.join(child, 'engine.ts'), 'export const capacity = 2\n')
+      git(child, 'commit', '-am', 'Increase capacity')
+      git(root, 'commit', '-am', 'Update engine')
+      const head = git(root, 'rev-parse', 'HEAD')
+      fs.writeFileSync(path.join(child, 'engine.ts'), 'export const capacity = 3\n')
+      expect((await page.request.post('/farming/api/settings', { data: { appearance } })).ok()).toBeTruthy()
+      await page.goto(`/farming/review?${new URLSearchParams({ root, base, head })}`)
+      await expect(page.locator('body')).toHaveAttribute('data-appearance', appearance)
+      const row = page.getByTestId('review-file-row').filter({ has: page.locator('[class="review-file-name"]').filter({ hasText: 'engine/engine.ts' }) })
+      await expect(row).toHaveCount(1)
+      await row.locator('.review-file-select').click()
+      const diff = page.getByLabel('Diff for engine/engine.ts', { exact: true })
+      await expect(diff).toContainText('capacity = 1')
+      await expect(diff).toContainText('capacity = 2')
+      await expect(diff).not.toContainText('capacity = 3')
+      await page.screenshot({ path: testInfo.outputPath(`submodule-range-${appearance}.png`), animations: 'disabled' })
+      await page.goto(`/farming/review?${new URLSearchParams({ root: child, scope: 'tracked' })}`)
+      const childRow = page.getByTestId('review-file-row').filter({ hasText: 'engine.ts' })
+      await expect(childRow).toHaveCount(1)
+      await childRow.locator('.review-file-select').click()
+      const childDiff = page.getByLabel('Diff for engine.ts', { exact: true })
+      await expect(childDiff).toContainText('capacity = 2')
+      await expect(childDiff).toContainText('capacity = 3')
+      fs.writeFileSync(path.join(child, 'engine.ts'), 'export const capacity = 4\n')
+      await page.reload()
+      await childRow.locator('.review-file-select').click()
+      await expect(childDiff).toContainText('capacity = 3')
+      await expect(childDiff).not.toContainText('capacity = 4')
+      await page.screenshot({ path: testInfo.outputPath(`submodule-capture-${appearance}.png`), animations: 'disabled' })
+    } finally {
+      fs.rmSync(temp, { recursive: true, force: true })
+    }
+  })
+}

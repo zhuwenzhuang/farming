@@ -1,6 +1,7 @@
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
+import { exactChildRepository } from './workspace-repositories.cjs';
 
 interface WorkspaceFileErrorInstance extends Error {
   details?: Record<string, unknown>;
@@ -64,6 +65,7 @@ interface ReviewFileDiff {
 }
 
 interface ReviewFile extends ReviewFileMetadata {
+  submoduleError?: string;
   added: number;
   binary?: boolean;
   diff: ReviewFileDiff;
@@ -76,6 +78,18 @@ interface ReviewFile extends ReviewFileMetadata {
   size?: number;
   sizeDelta?: number;
   status: string;
+}
+
+interface GitRangeSnapshot {
+  basePatchset: string;
+  comparison?: Awaited<ReturnType<ReviewDiffService['getComparison']>>;
+  files: ReviewFile[];
+  isGitRepo: boolean;
+  patchset: string;
+  reviewId: unknown;
+  root: string;
+  source: string;
+  truncated: boolean;
 }
 
 interface TextSources {
@@ -95,6 +109,7 @@ type ReviewScope = 'tracked' | 'untracked';
 type IgnoreWhitespace = 'NONE' | 'ALL' | 'TRAILING' | 'LEADING_AND_TRAILING';
 
 interface ReviewOptions extends ContextRangeOptions {
+  submoduleDepth?: number;
   base?: unknown;
   context?: unknown;
   fileMeta?: unknown;
@@ -1192,7 +1207,7 @@ class ReviewDiffService {
     return contextRowsFromSources(await this.getWorkingCopyTextSources(root, change, source), options);
   }
 
-  async getGitRangeFileContext(agentId: unknown, options: ReviewOptions = {}) {
+  async getGitRangeFileContext(agentId: unknown, options: ReviewOptions = {}): Promise<ReturnType<typeof contextRowsFromSources>> {
     const root = this.resolveWorkspace(agentId, options.root);
     const base = String(options.base || '').trim();
     const head = String(options.head || '').trim();
@@ -1203,7 +1218,11 @@ class ReviewDiffService {
     if (!isSafeReviewPath(filePath)) throw new WorkspaceFileError('file path is required', 400);
     const changes = assertUniqueReviewPaths(await this.getGitRangeChanges(root, base, head));
     const change = changes.find(item => item.path === filePath);
-    if (!change) throw new WorkspaceFileError('review file not found', 404);
+    if (!change) {
+      const nested = await this.nestedFileRange(root, base, head, filePath, changes, options.submoduleDepth || 0);
+      if (!nested) throw new WorkspaceFileError('review file not found', 404);
+      return this.getGitRangeFileContext(undefined, { ...options, ...nested, reviewId: undefined });
+    }
     if (change.gitStatus === 'untracked') throw new WorkspaceFileError('untracked files do not have common diff context', 400);
     const rawMetadata = await this.getGitRangeRawMetadata(root, base, head, [change]);
     if (isGitlinkMetadata(rawMetadata.get(change.path))) {
@@ -1394,7 +1413,64 @@ class ReviewDiffService {
     };
   }
 
-  async getGitRange(agentId: unknown, options: ReviewOptions = {}) {
+  async submoduleRange(root: string, file: ReviewFileMetadata & { path: string }, depth: number) {
+    if (depth >= 8) throw new WorkspaceFileError('Submodule review nesting exceeds 8 levels', 413);
+    let childRoot: string;
+    try {
+      childRoot = await exactChildRepository(this.fileService, root, file.path);
+    } catch (error) {
+      throw new WorkspaceFileError(`Submodule ${file.path} is unavailable: ${error instanceof Error ? error.message : 'initialize the repository'}`, 409);
+    }
+    const objectId = file.newSha || file.oldSha || '';
+    const emptyTree = crypto.createHash(objectId.length === 64 ? 'sha256' : 'sha1').update('tree 0\0').digest('hex');
+    const base = file.oldMode === '160000' ? file.oldSha : emptyTree;
+    const head = file.newMode === '160000' ? file.newSha : emptyTree;
+    if (!base || !head) throw new WorkspaceFileError('Submodule comparison has no exact commit identities', 409);
+    for (const revision of [base, head]) {
+      if (revision === emptyTree) continue;
+      try {
+        await this.git(childRoot, ['cat-file', '-e', `${revision}^{commit}`]);
+      } catch {
+        throw new WorkspaceFileError(`Submodule ${file.path} is missing commit ${revision}; make that commit available locally and retry`, 409);
+      }
+    }
+    return { root: childRoot, base, head, submoduleDepth: depth + 1 };
+  }
+
+  async expandSubmoduleFiles(root: string, files: ReviewFile[], options: ReviewOptions, limit: number): Promise<ReviewFile[]> {
+    if (options.head === 'now') return files;
+    const expanded: ReviewFile[] = [];
+    for (const file of files) {
+      expanded.push(file);
+      if (!isGitlinkMetadata(file)) continue;
+      try {
+        const range = await this.submoduleRange(root, file, options.submoduleDepth || 0);
+        const remaining = limit - expanded.length - (files.length - files.indexOf(file) - 1);
+        if (remaining <= 0) throw new WorkspaceFileError('Submodule review exceeds the file limit; open this repository separately', 413);
+        const child = await this.getGitRange(undefined, { ...options, ...range, reviewId: undefined, limit: remaining });
+        if (child.truncated) throw new WorkspaceFileError('Submodule review exceeds the file limit; open this repository separately', 413);
+        expanded.push(...child.files.map(item => ({
+          ...item,
+          path: `${file.path}/${item.path}`,
+          ...(item.previousPath ? { previousPath: `${file.path}/${item.previousPath}` } : {}),
+        })));
+      } catch (error) {
+        file.submoduleError = error instanceof Error ? error.message : 'Submodule review unavailable';
+      }
+    }
+    return expanded;
+  }
+
+  async nestedFileRange(root: string, base: string, head: string, filePath: string, changes: ReviewChange[], depth: number) {
+    const ancestor = changes.find(change => filePath.startsWith(`${change.path}/`));
+    if (!ancestor || head === 'now') return null;
+    const metadata = (await this.getGitRangeRawMetadata(root, base, head, [ancestor])).get(ancestor.path);
+    if (!isGitlinkMetadata(metadata)) return null;
+    const range = await this.submoduleRange(root, { ...metadata, path: ancestor.path }, depth);
+    return { ...range, path: filePath.slice(ancestor.path.length + 1), prefix: ancestor.path };
+  }
+
+  async getGitRange(agentId: unknown, options: ReviewOptions = {}): Promise<GitRangeSnapshot> {
     const root = this.resolveWorkspace(agentId, options.root);
     const base = String(options.base || '').trim();
     const head = String(options.head || '').trim();
@@ -1425,7 +1501,7 @@ class ReviewDiffService {
       return {
         basePatchset: base,
         ...(comparison ? { comparison } : {}),
-        files,
+        files: await this.expandSubmoduleFiles(root, files, options, limit),
         isGitRepo: true,
         patchset: head,
         reviewId: options.reviewId || gitRangeReviewId(root, base, head),
@@ -1443,6 +1519,7 @@ class ReviewDiffService {
           root,
           'diff',
           '--find-renames',
+          '--full-index',
           ...gitWhitespaceArgs(ignoreWhitespace),
           ...gitContextArgs(context),
           ...gitRangeRevisionArgs(base, head),
@@ -1467,7 +1544,7 @@ class ReviewDiffService {
     return {
       basePatchset: base,
       ...(comparison ? { comparison } : {}),
-      files,
+      files: await this.expandSubmoduleFiles(root, files, options, limit),
       isGitRepo: true,
       patchset: head,
       reviewId: options.reviewId || gitRangeReviewId(root, base, head),
@@ -1494,7 +1571,12 @@ class ReviewDiffService {
     const changes = await this.getGitRangeChanges(root, base, head);
     const uniqueChanges = assertUniqueReviewPaths(changes);
     const change = uniqueChanges.find(item => item.path === path);
-    if (!change) throw new WorkspaceFileError('review file not found', 404);
+    if (!change) {
+      const nested = await this.nestedFileRange(root, base, head, path, uniqueChanges, options.submoduleDepth || 0);
+      if (!nested) throw new WorkspaceFileError('review file not found', 404);
+      const file = await this.getGitRangeFile(undefined, { ...options, ...nested, reviewId: undefined });
+      return { ...file, path, ...(file.previousPath ? { previousPath: `${nested.prefix}/${file.previousPath}` } : {}) };
+    }
     if (change.gitStatus === 'untracked') return this.getGitRangeUntrackedFile(root, change, false);
     const stats = ignoreWhitespace !== 'NONE'
       ? await this.getGitRangeNumstat(root, base, head, ignoreWhitespace, [change])
@@ -1505,6 +1587,7 @@ class ReviewDiffService {
         root,
         'diff',
         '--find-renames',
+        '--full-index',
         ...gitWhitespaceArgs(ignoreWhitespace),
         ...gitContextArgs(context),
         ...gitRangeRevisionArgs(base, head),
@@ -1560,6 +1643,7 @@ class ReviewDiffService {
           root,
           'diff',
           '--find-renames',
+          '--full-index',
           ...gitWhitespaceArgs(ignoreWhitespace),
           ...gitContextArgs(context),
           ...gitRangeRevisionArgs(base, head),
@@ -1598,6 +1682,7 @@ class ReviewDiffService {
         '--numstat',
         '-z',
         '--find-renames',
+        '--full-index',
         ...gitWhitespaceArgs(ignoreWhitespace),
         ...gitRangeRevisionArgs(base, head),
         '--',
@@ -1627,6 +1712,7 @@ class ReviewDiffService {
         root,
         'diff',
         '--raw',
+        '--no-abbrev',
         '-z',
         '--find-renames',
         ...gitRangeRevisionArgs(base, head),

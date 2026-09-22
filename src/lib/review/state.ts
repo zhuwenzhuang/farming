@@ -83,6 +83,7 @@ export type ReviewFile = {
   diffLoaded?: boolean
   diffTooExpensive?: boolean
   kind: 'modified' | 'added' | 'copied' | 'deleted' | 'renamed' | 'rewritten' | 'unmodified' | 'reverted'
+  submoduleError?: string
   newMode?: string
   newSha?: string
   oldMode?: string

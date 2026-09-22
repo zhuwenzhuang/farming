@@ -178,7 +178,10 @@ function FileChangeRow({
   const active = activeFilePath === change.path
   const gitStatusTitle = copy.gitStatus(change.gitStatus)
   const visibleGitStatusLabel = change.gitStatus === 'untracked' ? '' : change.gitStatusLabel
-  const pathContext = change.previousPath ? workspaceFileChangePathLabel(change) : ''
+  const stageLabel = change.gitStatus !== 'untracked' && (change.indexStatus || change.workingTreeStatus)
+    ? change.indexStatus?.trim() && change.workingTreeStatus?.trim() ? copy.stagedAndUnstagedChanges : change.indexStatus?.trim() ? copy.stagedChanges : copy.unstagedChanges
+    : ''
+  const pathContext = [change.previousPath ? workspaceFileChangePathLabel(change) : '', stageLabel].filter(Boolean).join(' · ')
   return (
     <div
       key={workspaceFileChangeRowKey(change)}
@@ -186,7 +189,7 @@ function FileChangeRow({
       data-testid="code-file-change-row"
       data-file-path={change.path}
       data-file-type="file"
-      title={workspaceFileChangeTitle(change, gitStatusTitle)}
+      title={[workspaceFileChangeTitle(change, gitStatusTitle), stageLabel].filter(Boolean).join(' · ')}
       style={changeTreeDepthStyle(depth)}
     >
       <button
@@ -259,6 +262,7 @@ function FileChangeTreeRows({
                 aria-expanded={canExpand ? expanded : undefined}
                 onClick={() => {
                   if (canExpand) onToggleDirectory(node.id)
+                  else if (node.change) onOpenChange(node.change)
                 }}
               >
                 <span className={`code-file-chevron ${canExpand ? expanded ? 'expanded' : 'collapsed' : 'placeholder'}`} aria-hidden="true">
@@ -286,7 +290,7 @@ function FileChangeTreeRows({
   )
 }
 
-export function FileChangesSection({
+function RepositoryFileChangesSection({
   activeFilePath,
   projectWorkspace,
   changes,
@@ -318,7 +322,7 @@ export function FileChangesSection({
     })
   }, [openDirectoryIds, projectId, untrackedCollapsed])
 
-  if (changes.items.length === 0 && !changes.error) return null
+  if (changes.items.length === 0 && !changes.error && !changes.truncated) return null
 
   const toggleCollapsed = () => {
     if (collapsed) changes.refreshChanges()
@@ -439,6 +443,7 @@ export function FileChangesSection({
           )}
         </div>
       )}
+      {changes.truncated ? <div className="code-file-changes-status" role="status">{copy.gitHistoryChangesTruncated}</div> : null}
       {changes.error && (
         <div className="code-file-changes-status error" data-testid="code-file-changes-error">
           {changes.error}
@@ -446,4 +451,25 @@ export function FileChangesSection({
       )}
     </div>
   )
+}
+
+export function FileChangesSection(props: FileChangesSectionProps) {
+  const repositories = props.changes.repositories
+  if (!repositories || repositories.length <= 1) return <RepositoryFileChangesSection {...props} />
+  return <div data-testid="code-repository-changes">
+    {repositories.map(repository => {
+      const items = props.changes.items.filter(item => (item.repositoryPath ?? '') === repository.path)
+      if (!items.length && !repository.error && !repository.truncated) return null
+      const root = repository.path ? `${props.projectWorkspace.replace(/\/$/, '')}/${repository.path}` : props.projectWorkspace
+      return <div key={repository.path} data-repository-path={repository.path}>
+        <div className="code-file-change-group-header">
+          <span className="code-file-change-name">{repository.path || props.copy.mainRepository} {repository.path ? `· ${props.copy.submodule}` : ''}</span>
+        </div>
+        <RepositoryFileChangesSection {...props}
+          projectWorkspace={root}
+          projectId={`${props.projectId}:repository:${repository.path}`}
+          changes={{ ...props.changes, items, truncated: repository.truncated || props.changes.truncated, error: repository.error || props.changes.error }} />
+      </div>
+    })}
+  </div>
 }

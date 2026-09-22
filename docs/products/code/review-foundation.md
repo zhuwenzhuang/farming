@@ -78,9 +78,16 @@ untracked area cannot truncate a tracked Review; overflow within the selected
 scope remains an explicit capture failure. Rename captures retain both the
 previous and current path identities.
 
-Gitlink changes are reviewed as pointer changes: the old and new `Subproject
-commit` lines remain visible, while the linked repository's ordinary file
-content is not read and its referenced objects need not exist locally.
+Gitlink changes retain their pointer rows and expand into file-level changes
+between the exact referenced child commits. Nested paths are qualified by their
+submodule path within the parent revision, so comments and reviewed state cannot
+collide with parent files. The child checkout supplies Git objects only; later
+working edits never replace captured content. Missing repositories or objects,
+file limits, and nesting limits remain explicit on the submodule row.
+
+Working-copy captures remain repository-local. Project Changes groups child
+repositories separately and opens each child's own immutable capture. Parent
+commit-range changes and child uncommitted edits are distinct review scopes.
 
 ## File-list-first Loading
 

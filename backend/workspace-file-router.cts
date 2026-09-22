@@ -684,7 +684,7 @@ async function executeWorkspaceFileRequest(
       if (isGlobalWorkspaceFilesAgentId(request.rootId)) {
         throw new WorkspaceFileError('global files do not support workspace changes', 403);
       }
-      return fileService.changes(resolveRequestRoot(request).root, { limit: request.limit });
+      return fileService.changes(resolveRequestRoot(request).root, { limit: request.limit, repositories: true });
     }
     case 'branch': {
       if (isGlobalWorkspaceFilesAgentId(request.rootId)) {

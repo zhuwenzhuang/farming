@@ -62,8 +62,13 @@ Working-copy Review 会在权威 Git 枚举阶段、应用 File Limit 之前应�
 Untracked Scope。大量 Untracked 文件不能截断 Tracked Review；选定 Scope 内超出上限时，
 Capture 必须显式失败。Rename Capture 会保留 Previous 与 Current 两个 Path Identity。
 
-Gitlink 变化按指针变化审阅：旧、新 `Subproject commit` 行仍可显示，但不会读取链接仓库的
-普通文件内容，引用的对象也不要求存在于当前仓库。
+Gitlink 变化保留提交指针行，并展开为对应子仓库两个精确提交之间的文件差异。
+子文件使用子模块路径作为前缀，在父 Review 版本中保持唯一身份，评论和已审阅状态
+不会与父仓库文件冲突。子仓库工作区仅用于读取 Git 对象；后续编辑不会替代捕获内容。
+仓库未初始化、对象缺失、文件数量或嵌套深度超限都在子模块行明确显示。
+
+工作区捕获仍以单个仓库为边界。项目变更列表按仓库分组，子仓库的 Review 入口捕获
+自己的不可变快照。父仓库的提交范围和子仓库未提交修改是不同的审阅范围。
 
 ## File-list-first Loading
 

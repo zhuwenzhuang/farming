@@ -293,6 +293,13 @@ Language Server 的共享结果使用自适应 Dock，通过缩小 Editor Viewpo
 
 ## Git 与 Review
 
+文件树可正常浏览已检出的子模块目录。变更列表在仓库数量和命令输出上限内发现索引中的
+子模块，并按所属仓库分组展示项目相对路径。已暂存、未暂存和未跟踪状态由各仓库独立
+提供，Review 入口只捕获该仓库的工作区。父仓库提交指针变化与子仓库内部修改分别展示。
+Blame、行变更、文件差异和目录装饰解析到授权项目内最近的所属仓库。仓库未初始化或
+无法读取时明确显示失败，不能当作没有变更。刷新重新发现仓库；子仓库操作不修改父仓库索引。
+
+
 Working-copy Changes 与 Committed Git History 位于 Files 内。History 属于 Project，并按有界
 Page 加载；展开 Commit 后显示 Changed File 与 Parent Comparison，不实现第二套 Diff Viewer。
 
