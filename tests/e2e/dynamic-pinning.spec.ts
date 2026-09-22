@@ -214,7 +214,7 @@ test('Project Archive protects manual and dynamic pinned Agents', async ({ page,
   await project.getByTestId('code-project-title').hover()
   await project.getByTestId('code-project-actions').click()
   const archive = page.getByTestId('code-project-context-menu').getByRole('menuitem', {
-    name: 'Archive chats',
+    name: 'Archive all chats',
   })
   await expect(archive).toBeEnabled()
   await archive.click()

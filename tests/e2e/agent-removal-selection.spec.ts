@@ -100,7 +100,7 @@ for (const appearance of ['light', 'dark', 'paper']) {
     const batch = [await create(workspace), await create(workspace)]
     await open(batch[0])
     await projectTitle.click({ button: 'right' })
-    await page.getByTestId('code-project-context-menu').getByRole('menuitem', { name: 'Archive chats', exact: true }).click()
+    await page.getByTestId('code-project-context-menu').getByRole('menuitem', { name: 'Archive all chats', exact: true }).click()
     for (const id of batch) await expect(row(id)).toHaveCount(0)
     await expect(pane).toHaveCount(0)
     await expect(projectTitle).toBeFocused()

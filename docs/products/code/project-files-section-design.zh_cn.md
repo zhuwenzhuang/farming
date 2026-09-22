@@ -9,6 +9,8 @@ Project Files 让用户在监督 Agent 时查看并轻量编辑 Project。它不
 交互请求复用与大内容传输边界由
 [Workspace 传输协议](./workspace-transport-protocol.zh_cn.md)定义。
 
+项目菜单提供“复制路径”，复制后端工作区路径，包括远程工作区与全局根目录。复制操作关闭菜单，并反馈剪贴板写入成功或失败。仅当桌面端连接管理确认当前连接为就绪的本机 macOS 后端时，才显示“在访达中显示”；浏览器 URL 和 SSH 隧道主机名不能证明本地归属。能力读取未知或失败时隐藏该操作。“归档所有会话”作用于项目分区，保留既有的置顶行和 Main Agent 保护规则。
+
 ## 产品位置
 
 Files 属于具体 Project，不属于 Main Agent。Project 展开后包含：

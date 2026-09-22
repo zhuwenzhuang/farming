@@ -1742,11 +1742,11 @@ test.describe('display-backed agent flows', () => {
     projectContextMenu = page.getByTestId('code-project-context-menu')
     for (const label of [
       'Pin project',
-      'Reveal in Finder',
+      'Copy path',
       'Create permanent worktree',
       'Rename project',
       'Mark all as read',
-      'Archive chats',
+      'Archive all chats',
       'Remove Project',
     ]) {
       await expect(projectContextMenu.getByRole('menuitem', { name: label })).toBeVisible()
@@ -1790,11 +1790,13 @@ test.describe('display-backed agent flows', () => {
     await expect(otherAgentRow).toHaveCount(0)
 
     await openProjectActions()
-    await page.getByTestId('code-project-context-menu').getByRole('menuitem', { name: 'Reveal in Finder' }).click()
-    await expect.poll(() => revealedProjectRootId).toMatch(/^wroot_[0-9a-f]{16}$/)
+    await expect(page.getByTestId('code-project-context-menu').getByRole('menuitem', { name: 'Reveal in Finder' })).toHaveCount(0)
+    await page.getByTestId('code-project-context-menu').getByRole('menuitem', { name: 'Copy path', exact: true }).click()
+    await expect(page.getByTestId('code-copy-toast')).toHaveText('Copied working directory')
+    expect(revealedProjectRootId).toBe('')
     await openProjectActions()
     await page.getByTestId('code-project-context-menu').getByRole('menuitem', { name: 'Create permanent worktree' }).click()
-    await expect.poll(() => createdWorktreeRootId).toBe(revealedProjectRootId)
+    await expect.poll(() => createdWorktreeRootId).toMatch(/^wroot_[0-9a-f]{16}$/)
     await expect(page.getByTestId('code-copy-toast')).toHaveText('Permanent worktree created')
 
     await project.getByTestId('code-project-worktree').click()
@@ -3105,8 +3107,8 @@ test.describe('display-backed agent flows', () => {
     await expect(projectContextMenu.getByRole('menuitem', { name: 'Rename project' })).toBeVisible()
     await expect(projectContextMenu.getByRole('menuitem', { name: 'Pin project' })).toBeVisible()
     await expect(projectContextMenu.getByRole('menuitem', { name: 'Mark all as read' })).toBeVisible()
-    await expect(projectContextMenu.getByRole('menuitem', { name: 'Archive chats' })).toBeVisible()
-    await expect(projectContextMenu.getByRole('menuitem', { name: 'Archive chats' })).toBeEnabled()
+    await expect(projectContextMenu.getByRole('menuitem', { name: 'Archive all chats' })).toBeVisible()
+    await expect(projectContextMenu.getByRole('menuitem', { name: 'Archive all chats' })).toBeEnabled()
     await expect(projectContextMenu.getByRole('menuitem', { name: 'Open First Agent' })).toHaveCount(0)
     await expect(projectContextMenu.getByRole('menuitem', { name: 'Collapse Project' })).toHaveCount(0)
     await expect(projectContextMenu.getByRole('menuitem', { name: 'Pin project' })).not.toBeFocused()
@@ -3721,11 +3723,12 @@ test.describe('display-backed agent flows', () => {
     const childProjectMenu = page.getByTestId('code-project-context-menu')
     await expect(childProjectMenu.getByRole('menuitem')).toHaveCount(7)
     await expect(childProjectMenu.getByRole('menuitem', { name: 'Pin project' })).toBeVisible()
-    await expect(childProjectMenu.getByRole('menuitem', { name: 'Reveal in Finder' })).toBeVisible()
+    await expect(childProjectMenu.getByRole('menuitem', { name: 'Reveal in Finder' })).toHaveCount(0)
+    await expect(childProjectMenu.getByRole('menuitem', { name: 'Copy path', exact: true })).toBeVisible()
     await expect(childProjectMenu.getByRole('menuitem', { name: 'Create permanent worktree' })).toBeVisible()
     await expect(childProjectMenu.getByRole('menuitem', { name: 'Rename project' })).toBeVisible()
     await expect(childProjectMenu.getByRole('menuitem', { name: 'Mark all as read' })).toBeVisible()
-    await expect(childProjectMenu.getByRole('menuitem', { name: 'Archive chats' })).toBeVisible()
+    await expect(childProjectMenu.getByRole('menuitem', { name: 'Archive all chats' })).toBeVisible()
     await expect(childProjectMenu.getByRole('menuitem', { name: 'Remove Project' })).toBeEnabled()
     await childProjectMenu.getByRole('menuitem', { name: 'Remove Project' }).click()
     const removeProjectDialog = page.getByTestId('code-remove-project-dialog')

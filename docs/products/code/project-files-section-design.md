@@ -10,6 +10,14 @@ contract is defined by the [Workspace File State Model](./workspace-file-state-m
 Interactive request multiplexing and the large-content boundary are defined by
 the [Workspace Transport Protocol](./workspace-transport-protocol.md).
 
+Project menus offer Copy path for the backend workspace path, including remote
+workspaces and the global root. Copy closes the menu and reports clipboard
+success or failure. Reveal in Finder is available only when the desktop
+connection owner confirms a ready local macOS backend; browser URLs and SSH
+tunnel hostnames do not establish locality. Unknown or failed capability reads
+keep the command hidden. Archive all chats applies to the Project section,
+preserving the existing protection for pinned rows and Main Agent.
+
 ## Product Placement
 
 Files belongs to a concrete Project, not Main Agent. An expanded Project shows:

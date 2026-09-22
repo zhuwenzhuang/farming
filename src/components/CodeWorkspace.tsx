@@ -6510,6 +6510,11 @@ export function CodeWorkspace({
           })
         }}
         onToggleProjectPinned={toggleContextProjectPinned}
+        onCopyProjectPath={() => {
+          if (!contextMenuProject?.workspace) return
+          const projectId = contextMenuProject.id
+          void copyContextMenuValue(contextMenuProject.workspace).then(() => focusProjectTitle(projectId))
+        }}
         onRevealProject={revealContextProject}
         onCreatePermanentWorktree={createContextProjectPermanentWorktree}
         onMarkProjectRead={markContextProjectRead}

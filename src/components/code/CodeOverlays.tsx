@@ -1,3 +1,5 @@
+import { useEffect, useState } from 'react'
+import type { DesktopState } from '../../../shared/desktop-contract'
 import type {
   CSSProperties,
   KeyboardEvent as ReactKeyboardEvent,
@@ -110,6 +112,7 @@ interface CodeOverlaysProps {
   onArchiveSession: () => void
   onCopySessionWorkingDirectory: () => void
   onToggleProjectPinned: () => void
+  onCopyProjectPath: () => void
   onRevealProject: () => void
   onCreatePermanentWorktree: () => void
   onMarkProjectRead: () => void
@@ -171,6 +174,7 @@ export function CodeOverlays({
   onArchiveSession,
   onCopySessionWorkingDirectory,
   onToggleProjectPinned,
+  onCopyProjectPath,
   onRevealProject,
   onCreatePermanentWorktree,
   onMarkProjectRead,
@@ -191,6 +195,40 @@ export function CodeOverlays({
   onCloseArchivedSessionNotice,
   copy,
 }: CodeOverlaysProps) {
+  // Only the desktop connection owner can prove that the workspace is on this Mac.
+  // Browser hostnames (including localhost SSH tunnels) cannot prove locality.
+  const [revealCapability, setRevealCapability] = useState<{ menu: ProjectMenuState; available: boolean } | null>(null)
+  useEffect(() => {
+    const bridge = window.farmingDesktop
+    if (!projectMenu || !bridge) return
+    let disposed = false
+    let receivedUpdate = false
+    const publish = (state: DesktopState) => {
+      if (disposed) return
+      const profile = state.profiles.find(item => item.id === state.activeBackendId)
+      const connection = state.connections.find(item => item.backendId === state.activeBackendId)
+      setRevealCapability({
+        menu: projectMenu,
+        available: profile?.kind === 'local' && connection?.status === 'ready' && connection.server?.platform === 'darwin',
+      })
+    }
+    const timer = window.setTimeout(() => { disposed = true }, 3000)
+    const unsubscribe = bridge.onStateChanged(state => {
+      receivedUpdate = true
+      window.clearTimeout(timer)
+      publish(state)
+    })
+    void bridge.getState().then(state => {
+      window.clearTimeout(timer)
+      if (!receivedUpdate) publish(state)
+    }).catch(() => { window.clearTimeout(timer) })
+    return () => {
+      disposed = true
+      window.clearTimeout(timer)
+      unsubscribe()
+    }
+  }, [projectMenu])
+  const canRevealProject = revealCapability?.menu === projectMenu && revealCapability?.available === true
   const activeContextMenu = agentMenu || projectMenu || agentSessionMenu
   useMenuViewportBounds(Boolean(activeContextMenu), contextMenuRef, activeContextMenu)
   useInteractionLayer({
@@ -360,10 +398,18 @@ export function CodeOverlays({
     },
     {
       type: 'item',
+      id: 'copy-project-path',
+      label: copy.copyPath,
+      icon: 'copy',
+      hidden: !contextMenuProject?.workspace,
+      onSelect: onCopyProjectPath,
+    },
+    {
+      type: 'item',
       id: 'reveal-project',
       label: copy.revealInFinder,
       icon: 'folder',
-      hidden: !contextMenuProject?.workspace || contextMenuProject.workspace === '/' || contextMenuProject.hasMain,
+      hidden: !canRevealProject || !contextMenuProject?.workspace || contextMenuProject.workspace === '/' || contextMenuProject.hasMain,
       onSelect: onRevealProject,
     },
     {

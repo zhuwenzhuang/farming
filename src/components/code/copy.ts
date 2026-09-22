@@ -169,6 +169,7 @@ export interface CodeCopy {
   unpinAgent: string
   pinProject: string
   unpinProject: string
+  copyPath: string
   revealInFinder: string
   revealInFinderFailed: string
   createPermanentWorktree: string
@@ -827,6 +828,7 @@ const EN_COPY: CodeCopy = {
   unpinAgent: 'Unpin Agent',
   pinProject: 'Pin project',
   unpinProject: 'Unpin project',
+  copyPath: 'Copy path',
   revealInFinder: 'Reveal in Finder',
   revealInFinderFailed: 'Failed to reveal project in Finder',
   createPermanentWorktree: 'Create permanent worktree',
@@ -896,7 +898,7 @@ const EN_COPY: CodeCopy = {
   viewArchivedChat: 'View',
   undoArchiveChat: 'Undo',
   undoArchiveTimedOut: 'Undo timed out. Current session state is being refreshed.',
-  archiveChats: 'Archive chats',
+  archiveChats: 'Archive all chats',
   archiveProject: 'Archive Project',
   removeProject: 'Remove Project',
   removeProjectQuestion: name => `Remove ${name}?`,
@@ -1511,6 +1513,7 @@ const ZH_COPY: CodeCopy = {
   unpinAgent: '取消置顶',
   pinProject: '置顶项目',
   unpinProject: '取消置顶项目',
+  copyPath: '复制路径',
   revealInFinder: '在访达中显示',
   revealInFinderFailed: '无法在访达中显示项目',
   createPermanentWorktree: '创建永久 worktree',
@@ -1580,7 +1583,7 @@ const ZH_COPY: CodeCopy = {
   viewArchivedChat: '查看',
   undoArchiveChat: '撤销',
   undoArchiveTimedOut: '撤销归档超时，正在刷新当前会话状态。',
-  archiveChats: '归档会话',
+  archiveChats: '归档所有会话',
   archiveProject: '归档项目',
   removeProject: '移除项目',
   removeProjectQuestion: name => `移除“${name}”？`,
