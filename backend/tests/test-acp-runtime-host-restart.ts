@@ -48,8 +48,8 @@ async function main() {
     };
 
     spawnHost();
-    await new Promise((resolve, reject) => {
-      const finish = (error) => {
+    await new Promise<void>((resolve, reject) => {
+      const finish = (error?: Error) => {
         clearTimeout(timer);
         hostChild.off('message', onMessage);
         hostChild.off('exit', onExit);
