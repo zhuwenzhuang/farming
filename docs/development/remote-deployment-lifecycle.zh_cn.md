@@ -2,6 +2,12 @@
 
 > English version: [remote-deployment-lifecycle.md](./remote-deployment-lifecycle.md)
 
+部署就绪检查先协商 WebSocket 协议，等待后端业务健康状态确认恢复完成后，
+才创建检查用 Agent。恢复期限为三分钟，与变更请求的一分钟期限分开；
+失败或停止状态立即终止，变更请求不会重发。回滚恢复 Config 前，在 Config
+外按镜像标识保存私有失败日志目录，各保留 Server、PTY 和 ACP 日志末尾
+最多 1 MiB，以供诊断。
+
 本文定义把一个已提交的 Farming 版本私有部署到远端 Linux Server 的契约。部署复用
 Release 准备所使用的 App Bundle 格式，但不会创建 GitHub Release，也不会发布 npm。
 

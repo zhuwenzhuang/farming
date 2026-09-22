@@ -53,6 +53,7 @@ if (command === 'stop') {
   process.exit(0);
 }
 if (command === 'daemon') {
+  fs.writeFileSync(path.join(configDir, 'farming-server.log'), 'private diagnostic fixture');
   fs.writeFileSync(path.join(configDir, 'farming-server.pid'), String(process.pid));
   ${options.daemonStateValue === undefined
     ? ''
@@ -215,6 +216,12 @@ async function run() {
     const failedResult = activate(failingSmoke, thirdSha, remoteDir, configDir);
     assert.notStrictEqual(failedResult.status, 0);
     assert.match(failedResult.stderr, /previous image was restored/i);
+    const failureEvidenceRoot = path.join(`${remoteDir}.deploy`, 'failures');
+    const failureEvidenceImage = fs.readdirSync(failureEvidenceRoot).find(name => name.startsWith(thirdSha.slice(0, 12)));
+    assert(failureEvidenceImage, 'rollback retains image-keyed diagnostic logs');
+    const failureLog = path.join(failureEvidenceRoot, failureEvidenceImage, 'farming-server.log');
+    assert.strictEqual(fs.readFileSync(failureLog, 'utf8'), 'private diagnostic fixture');
+    assert.strictEqual(fs.statSync(failureLog).mode & 0o777, 0o600);
     assert.doesNotMatch(`${failedResult.stdout}\n${failedResult.stderr}`, new RegExp(daemonSecretSentinel));
     assert.strictEqual(fs.realpathSync(remoteDir), firstImage);
     assert.strictEqual(

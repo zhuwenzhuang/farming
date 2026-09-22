@@ -215,6 +215,16 @@ stage_config_snapshot() {
 
 restore_config_snapshot() {
   [ "${CONFIG_SNAPSHOT_ACTIVE}" = "1" ] || return 0
+  # Keep private diagnostic evidence outside the restored Config. Never print
+  # logs: they can contain workspace data or credentials.
+  local evidence_dir="${STATE_ROOT}/failures/${IMAGE_ID}"
+  mkdir -p -m 700 "${evidence_dir}" || echo "Warning: could not retain deployment failure logs." >&2
+  local log_name
+  for log_name in farming-server.log native-pty-host.log acp-runtime-host.log; do
+    if [ -f "${CONFIG_DIR}/${log_name}" ] && [ ! -L "${CONFIG_DIR}/${log_name}" ]; then
+      (umask 077; tail -c 1048576 "${CONFIG_DIR}/${log_name}" > "${evidence_dir}/${log_name}") || true
+    fi
+  done
   if ! mv "${CONFIG_DIR}" "${CONFIG_FAILED_COPY}"; then
     echo "Could not isolate the failed image's Config state." >&2
     return 1

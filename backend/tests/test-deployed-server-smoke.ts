@@ -66,6 +66,9 @@ async function run() {
   let terminalCreates = 0;
   let chatCreates = 0;
   const createdSources: unknown[] = [];
+  let healthStatus = 'recovering';
+  let healthProbes = 0;
+  let negotiated = false;
 
   const server = http.createServer(async (request, response) => {
     const url = new URL(request.url || '/', 'http://127.0.0.1');
@@ -76,6 +79,7 @@ async function run() {
     }
 
     if (url.pathname === '/farming/api/control/agents' && request.method === 'POST') {
+      assert.strictEqual(healthStatus, 'ready', 'no mutation before authoritative recovery readiness');
       const body = JSON.parse(await readBody(request));
       createdSources.push(body.source);
       const id = body.command === 'bash' ? 'agent-terminal-smoke' : 'agent-chat-smoke';
@@ -128,7 +132,20 @@ async function run() {
     });
   });
   websocketServer.on('connection', websocket => {
-    websocket.send(JSON.stringify({ type: 'state', agents: [] }));
+    websocket.send(JSON.stringify({ type: 'protocol-hello', protocolVersion: 19 }));
+    websocket.on('message', data => {
+      const message = JSON.parse(String(data));
+      if (message.type === 'protocol-hello') {
+        assert.strictEqual(message.protocolVersion, 19);
+        negotiated = true;
+        websocket.send(JSON.stringify({ type: 'state', agents: [] }));
+      } else if (message.type === 'business-health-probe') {
+        assert(negotiated);
+        healthProbes += 1;
+        if (healthStatus === 'recovering' && healthProbes === 2) healthStatus = 'ready';
+        websocket.send(JSON.stringify({ type: 'business-health-result', requestId: message.requestId, status: healthStatus }));
+      }
+    });
   });
 
   try {
@@ -152,6 +169,25 @@ async function run() {
     assert.deepStrictEqual(createdSources, ['deployment-smoke', 'deployment-smoke']);
     assert.deepStrictEqual(deletedAgentIds, ['agent-terminal-smoke', 'agent-chat-smoke']);
     assert.strictEqual(agents.size, 0);
+    assert.strictEqual(healthProbes, 2);
+    healthStatus = 'failed';
+    const failed = await runSmoke([
+      '--base-url', `http://127.0.0.1:${port}/farming`,
+      '--workspace', workspace,
+      '--recovery-timeout-ms', '1000',
+    ]);
+    assert.notStrictEqual(failed.code, 0);
+    assert.match(failed.stderr, /lifecycle readiness failed: failed/);
+    assert.strictEqual(terminalCreates, 1, 'failed recovery must not create an Agent');
+    healthStatus = 'recovering';
+    const timedOut = await runSmoke([
+      '--base-url', `http://127.0.0.1:${port}/farming`,
+      '--workspace', workspace,
+      '--recovery-timeout-ms', '1000',
+    ]);
+    assert.notStrictEqual(timedOut.code, 0);
+    assert.match(timedOut.stderr, /Timed out waiting for Farming lifecycle recovery/);
+    assert.strictEqual(terminalCreates, 1, 'recovery timeout must not create an Agent');
     console.log('✓ deployed Server smoke reads ACP idle from the authoritative runtime binding');
   } finally {
     websocketServer.close();

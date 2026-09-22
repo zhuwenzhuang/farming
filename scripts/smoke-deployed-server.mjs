@@ -12,6 +12,7 @@ function parseArgs(argv) {
     workspace: '',
     agent: 'codex',
     timeoutMs: 60_000,
+    recoveryTimeoutMs: 180_000,
   }
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index]
@@ -26,11 +27,15 @@ function parseArgs(argv) {
     else if (argument === '--workspace') options.workspace = readValue()
     else if (argument === '--agent') options.agent = readValue()
     else if (argument === '--timeout-ms') options.timeoutMs = Number(readValue())
+    else if (argument === '--recovery-timeout-ms') options.recoveryTimeoutMs = Number(readValue())
     else throw new Error(`Unknown deployment smoke option: ${argument}`)
   }
   if (!options.baseUrl || !options.workspace) throw new Error('--base-url and --workspace are required')
   if (!Number.isFinite(options.timeoutMs) || options.timeoutMs < 1_000 || options.timeoutMs > 180_000) {
     throw new Error('--timeout-ms must be between 1000 and 180000')
+  }
+  if (!Number.isFinite(options.recoveryTimeoutMs) || options.recoveryTimeoutMs < 1_000 || options.recoveryTimeoutMs > 180_000) {
+    throw new Error('--recovery-timeout-ms must be between 1000 and 180000')
   }
   return options
 }
@@ -78,27 +83,44 @@ async function verifyWebSocket(baseUrl, token, timeoutMs) {
   url.search = token ? `?token=${encodeURIComponent(token)}` : ''
   await new Promise((resolve, reject) => {
     const socket = new WebSocket(url)
-    const timer = setTimeout(() => {
+    let settled = false
+    let hasState = false
+    let ready = false
+    let probeTimer
+    const requestId = `deploy-health-${process.pid}`
+    const finish = (error) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      clearTimeout(probeTimer)
       socket.terminate()
-      reject(new Error('Timed out waiting for the initial WebSocket state'))
-    }, timeoutMs)
+      if (error) reject(error)
+      else resolve()
+    }
+    const timer = setTimeout(() => finish(new Error('Timed out waiting for Farming lifecycle recovery readiness')), timeoutMs)
+    const probe = () => socket.send(JSON.stringify({ type: 'business-health-probe', requestId }))
     socket.on('message', (data) => {
       try {
         const message = JSON.parse(String(data))
-        if (message.type !== 'state') return
-        clearTimeout(timer)
-        socket.close()
-        resolve()
+        if (message.type === 'protocol-hello') {
+          socket.send(JSON.stringify({ type: 'protocol-hello', protocolVersion: message.protocolVersion }))
+          probe()
+        } else if (message.type === 'protocol-error') {
+          finish(new Error('Deployment WebSocket protocol negotiation failed'))
+        } else if (message.type === 'state') {
+          hasState = true
+        } else if (message.type === 'business-health-result' && message.requestId === requestId) {
+          if (message.status === 'ready') ready = true
+          else if (message.status === 'recovering') probeTimer = setTimeout(probe, 200)
+          else finish(new Error(`Farming lifecycle readiness failed: ${message.status}`))
+        }
+        if (hasState && ready) finish()
       } catch (error) {
-        clearTimeout(timer)
-        socket.terminate()
-        reject(error)
+        finish(error)
       }
     })
-    socket.once('error', (error) => {
-      clearTimeout(timer)
-      reject(error)
-    })
+    socket.once('error', finish)
+    socket.once('close', () => finish(new Error('WebSocket closed before lifecycle readiness')))
   })
 }
 
@@ -125,9 +147,9 @@ async function main() {
   const baseUrl = options.baseUrl.replace(/\/$/, '')
   const controlUrl = `${baseUrl}/api/control/agents`
   const token = tokenFromFile(options.tokenFile)
+  await verifyWebSocket(baseUrl, token, options.recoveryTimeoutMs)
   const baseline = await fetchJson(controlUrl, token, {}, options.timeoutMs)
   const baselineIds = new Set((baseline?.agents || []).map(agent => agent.id))
-  await verifyWebSocket(baseUrl, token, options.timeoutMs)
 
   fs.mkdirSync(options.workspace, { recursive: true })
   const createdIds = []
