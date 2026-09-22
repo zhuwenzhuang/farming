@@ -11,7 +11,7 @@ import type {
 } from 'react'
 import type { AgentContextWindowUsage } from '@/types/agent'
 import {
-  ArrowUpGlyph,
+  ArrowUpGlyph, LoadingGlyph,
   CheckGlyph,
   ChevronDownGlyph,
   ChevronRightGlyph,
@@ -780,11 +780,13 @@ export function CodeComposer({
               className={`code-composer-send ${submitIsInterrupt ? 'interrupt' : ''}`}
               data-testid="code-composer-send"
               data-action={submitAction}
-              aria-label={submitIsInterrupt ? copy.interruptAgent : copy.sendMessage}
+            aria-busy={editor.submitting && !submitIsInterrupt}
+              aria-label={submitIsInterrupt ? copy.interruptAgent : editor.submitting ? (editor.submissionPhase ? copy.submissionPhases[editor.submissionPhase] : copy.sendingMessage) : copy.sendMessage}
+            title={editor.submitting && !submitIsInterrupt ? copy.sendingMessage : undefined}
               onClick={submitIsInterrupt ? onInterrupt : () => editor.submit(() => onSubmit(latestDraftRef.current))}
-              disabled={submitDisabled}
+              disabled={submitDisabled || (editor.submitting && !submitIsInterrupt)}
             >
-              {submitIsInterrupt ? <span className="code-composer-stop-icon" aria-hidden="true" /> : <ArrowUpGlyph />}
+              {submitIsInterrupt ? <span className="code-composer-stop-icon" aria-hidden="true" /> : editor.submitting ? <LoadingGlyph className="code-composer-sending-icon" /> : <ArrowUpGlyph />}
             </button>
           </div>
         ) : (
@@ -1109,16 +1111,19 @@ export function CodeComposer({
             className={`code-composer-send ${submitIsInterrupt ? 'interrupt' : ''}`}
             data-testid="code-composer-send"
             data-action={submitAction}
-            aria-label={submitIsInterrupt ? copy.interruptAgent : copy.sendMessage}
+            aria-busy={editor.submitting && !submitIsInterrupt}
+            aria-label={submitIsInterrupt ? copy.interruptAgent : editor.submitting ? (editor.submissionPhase ? copy.submissionPhases[editor.submissionPhase] : copy.sendingMessage) : copy.sendMessage}
+            title={editor.submitting && !submitIsInterrupt ? copy.sendingMessage : undefined}
             onClick={submitIsInterrupt ? onInterrupt : () => editor.submit(() => onSubmit(latestDraftRef.current))}
-            disabled={submitDisabled}
+            disabled={submitDisabled || (editor.submitting && !submitIsInterrupt)}
           >
-            {submitIsInterrupt ? <span className="code-composer-stop-icon" aria-hidden="true" /> : <ArrowUpGlyph />}
+            {submitIsInterrupt ? <span className="code-composer-stop-icon" aria-hidden="true" /> : editor.submitting ? <LoadingGlyph className="code-composer-sending-icon" /> : <ArrowUpGlyph />}
               </button>
             </div>
           </>
         )}
       </div>
+      {editor.submitting && editor.submissionPhase ? <div className="code-composer-submission-status" role="status">{copy.submissionPhases[editor.submissionPhase]}</div> : null}
     </footer>
   )
 }

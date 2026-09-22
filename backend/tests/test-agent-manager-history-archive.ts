@@ -374,6 +374,26 @@ async function run() {
       providerSessionTemporary: false,
       task: 'stopped detached session',
     });
+    const originalArchiveAgent = manager.archiveAgent.bind(manager);
+    manager.agents.set('detached-child', { id: 'detached-child', status: 'stopped',
+      subagentParentSessionKey: encodeProviderSessionKey('codex', detachedSessionId, 'review'),
+      providerSessionKey: encodeProviderSessionKey('codex', 'detached-child', 'review'),
+    });
+    let rejectChildArchive = true;
+    manager.archiveAgent = async (id, options) => {
+      if (id !== 'detached-child') return originalArchiveAgent(id, options);
+      assert.strictEqual(options.scheduleProviderArchive, true, 'parent metadata-only options cannot skip child provider archival');
+      assert.strictEqual(detachedArchiveCalls.length, 0, 'history archive must process children before the provider parent');
+      if (rejectChildArchive) return { error: 'child archive rejected' };
+      manager.agents.delete(id);
+      return { archived: true };
+    };
+    const rejectedParentArchive = await manager.archiveProviderSessionByIdentity('codex', detachedSessionId, {
+      providerHomeId: 'review', providerHomes: { codex: [{ id: 'review', path: providerHistoryRoot }] },
+    });
+    assert.match(rejectedParentArchive.error, /child archive rejected/);
+    assert.strictEqual(detachedArchiveCalls.length, 0);
+    rejectChildArchive = false;
     const detachedArchive = await manager.archiveProviderSessionByIdentity(
       'codex',
       detachedSessionId,
@@ -382,6 +402,7 @@ async function run() {
         providerHomes: { codex: [{ id: 'review', path: providerHistoryRoot }] },
       },
     );
+    manager.archiveAgent = originalArchiveAgent;
     assert.deepStrictEqual(detachedArchive, { archived: true, providerArchived: true });
     assert.strictEqual(detachedArchiveCalls.length, 1);
     assert.strictEqual(detachedArchiveCalls[0].sessionId, detachedSessionId);

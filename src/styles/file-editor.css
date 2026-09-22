@@ -756,8 +756,7 @@ body.code-mode .code-file-editor-fallback-textarea {
 
 .code-spreadsheet-toolbar select,
 .code-spreadsheet-toolbar input,
-.code-spreadsheet-toolbar button,
-.code-spreadsheet-download {
+.code-spreadsheet-toolbar button {
   height: 28px;
   box-sizing: border-box;
   border: 1px solid var(--code-border-subtle);
@@ -772,8 +771,7 @@ body.code-mode .code-file-editor-fallback-textarea {
   padding: 0 8px;
 }
 
-.code-spreadsheet-toolbar button,
-.code-spreadsheet-download {
+.code-spreadsheet-toolbar button {
   display: inline-flex;
   align-items: center;
   justify-content: center;

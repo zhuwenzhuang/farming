@@ -823,6 +823,7 @@ function createWorkspaceFileRouter(
           : (file as PreviewFileResult).preview.mediaType)
         .set('Cache-Control', 'no-store')
         .set('X-Content-Type-Options', 'nosniff')
+        .set('X-Workspace-File-Sha1', file.sha1)
         .set('Content-Length', String(file.size))
         .send(file.buffer);
     } catch (error: unknown) {

@@ -301,6 +301,17 @@ async function main() {
   assert.strictEqual(lateErrorBinding.lastSettledTurnHandle, 'binding-late-error:2');
   assert.strictEqual(lateErrorBinding.lastSettledTurnSummary, 'New success answer');
 
+  const autonomousSession = runtime.sessions.get('agent-1');
+  autonomousSession.state = 'working';
+  autonomousSession.providerTurnId = 'native-autonomous';
+  runtime.emit('agent-runtime', { agentId: 'agent-1' });
+  assert.strictEqual(service.state.binding('agent-1').turnHandle, 'binding-1:provider:native-autonomous');
+  autonomousSession.state = 'idle';
+  autonomousSession.providerTurnId = null;
+  runtime.emit('agent-runtime', { agentId: 'agent-1' });
+  assert.strictEqual(service.state.binding('agent-1').state, 'idle');
+  assert.strictEqual(service.state.binding('agent-1').turnHandle, '');
+
   runtime.emit('config-overrides', {
     agentId: 'agent-1',
     configOverrides: [{ configId: 'service_tier', value: 'fast' }],

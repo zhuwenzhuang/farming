@@ -18,6 +18,7 @@ interface FileEditorPreviewPanelProps {
   sourcePreviewOpen?: boolean
   previewRefreshRevision?: number
   visible: boolean
+  onQuoteSelection?: (text: string) => void
 }
 
 interface RetainedPdfPreview {
@@ -37,6 +38,7 @@ export function FileEditorPreviewPanel({
   openFile,
   activeTabDomId,
   copy,
+  onQuoteSelection,
   sourcePreviewOpen,
   previewRefreshRevision = 0,
   visible,
@@ -121,6 +123,7 @@ export function FileEditorPreviewPanel({
         </section>
       )}>
         <FileEditorSpreadsheetPreview
+          onQuoteSelection={onQuoteSelection}
           activeTabDomId={activeTabDomId}
           copy={copy}
           openFile={openFile}

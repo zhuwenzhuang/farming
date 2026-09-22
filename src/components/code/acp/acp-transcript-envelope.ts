@@ -150,8 +150,15 @@ export function projectAcpTranscriptResponse(
     throw new Error('Invalid ACP transcript checkpoint')
   }
 
+  const patch = record(transcriptValue.entryPatch)
+  const entrySnapshot = patch.version === 1 && Array.isArray(patch.order) && patch.order.length <= 257
+    && patch.order.every(id => typeof id === 'string') && new Set(patch.order).size === patch.order.length
+    ? { session: transcriptValue, entries: (Array.isArray(transcriptValue.entries) ? transcriptValue.entries : []).map(record), order: patch.order as string[] }
+    : undefined
+  if (transcriptValue.entryPatch && !entrySnapshot) throw new Error('Invalid ACP entry patch')
   return {
     ...projectAcpTranscript(transcriptValue, options),
+    ...(entrySnapshot ? { entrySnapshot, historyPage: typeof patch.pageCursor === 'string' } : {}),
     agentId,
     runtimeEpoch,
     fromRevision,
@@ -170,6 +177,55 @@ export interface AcpTranscriptMergeResult {
   needsCheckpoint: boolean
 }
 
+function mergeAcpTranscriptHistoryPage(
+  current: AgentTranscript,
+  next: AgentTranscript,
+): AgentTranscript {
+  const turnLimit = next.turnLimit || current.turnLimit || 80
+  if (!current.entrySnapshot || !next.entrySnapshot) {
+    const turns = new Map(next.turns.map(turn => [turn.id, turn]))
+    current.turns.forEach(turn => turns.set(turn.id, turn))
+    return preserveCompletedTranscriptTurns(current, {
+      ...current,
+      ...next,
+      revision: Math.max(Number(current.revision), Number(next.revision)),
+      turns: [...turns.values()].slice(-turnLimit),
+    })!
+  }
+
+  const entries = new Map(next.entrySnapshot.entries.map(entry => [String(entry.id), entry]))
+  current.entrySnapshot.entries.forEach(entry => entries.set(String(entry.id), entry))
+  const order = [...new Set([
+    ...next.entrySnapshot.order,
+    ...current.entrySnapshot.order,
+  ])]
+  const ordered = order.map(id => entries.get(id)).filter((entry): entry is DataRecord => Boolean(entry))
+  const nextSession = next.entrySnapshot.session
+  const currentSession = current.entrySnapshot.session
+  const revision = Math.max(Number(current.revision), Number(next.revision))
+  const session = {
+    ...nextSession,
+    ...currentSession,
+    revision,
+    entries: ordered,
+    nextCursor: nextSession.nextCursor,
+    hasMoreBefore: nextSession.hasMoreBefore,
+    entryPatch: {
+      ...record(nextSession.entryPatch),
+      order,
+    },
+  }
+  const projected = projectAcpTranscript(session, { maxTurns: turnLimit })
+  return preserveCompletedTranscriptTurns(current, {
+    ...current,
+    ...next,
+    ...projected,
+    revision,
+    entrySnapshot: { session, entries: ordered, order },
+    historyPage: true,
+  })!
+}
+
 export function mergeAcpTranscript(
   current: AgentTranscript | null,
   next: AgentTranscript | null,
@@ -183,6 +239,19 @@ export function mergeAcpTranscript(
   }
 
   if (next.replace) {
+    if (
+      next.historyPage
+      && current?.envelopeVersion === 1
+      && current.agentId === next.agentId
+      && current.sessionId === next.sessionId
+      && current.runtimeEpoch === next.runtimeEpoch
+    ) {
+      return {
+        transcript: mergeAcpTranscriptHistoryPage(current, next),
+        accepted: true,
+        needsCheckpoint: false,
+      }
+    }
     if (
       current?.envelopeVersion === 1
       && current.agentId === next.agentId
@@ -207,6 +276,21 @@ export function mergeAcpTranscript(
     || next.fromRevision !== current.revision
   ) {
     return { transcript: current, accepted: false, needsCheckpoint: true }
+  }
+
+  if (next.entrySnapshot) {
+    if (!current.entrySnapshot) return { transcript: current, accepted: false, needsCheckpoint: true }
+    const entries = new Map(current.entrySnapshot.entries.map(entry => [String(entry.id), entry]))
+    next.entrySnapshot.entries.forEach(entry => entries.set(String(entry.id), entry))
+    if (next.entrySnapshot.order.some(id => !entries.has(id))) return { transcript: current, accepted: false, needsCheckpoint: true }
+    const ordered = next.entrySnapshot.order.map(id => entries.get(id)!)
+    const session = { ...next.entrySnapshot.session, entries: ordered }
+    const projected = projectAcpTranscript(session, { maxTurns: next.turnLimit })
+    return {
+      transcript: preserveCompletedTranscriptTurns(current, { ...next, ...projected,
+        entrySnapshot: { ...next.entrySnapshot, session, entries: ordered } }),
+      accepted: true, needsCheckpoint: false,
+    }
   }
 
   if (next.turns.length === 0) {

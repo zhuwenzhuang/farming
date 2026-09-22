@@ -17,6 +17,7 @@ export const ACP_TRANSCRIPT_TURN_PAGE_SIZE = 10
 export const MAX_ACP_TRANSCRIPT_TURN_LIMIT = 1000
 
 const MAX_CONCURRENT_TRANSCRIPT_READS = 3
+export const ACP_TRANSCRIPT_READ_TIMEOUT_MS = 15_000
 const BACKGROUND_TRANSCRIPT_REFRESH_MS = 500
 
 export interface AcpTranscriptSessionSnapshot {
@@ -29,6 +30,7 @@ export interface AcpTranscriptSessionSnapshot {
 
 interface AcpTranscriptSessionRecord {
   agentId: string
+  pageCursor: string
   snapshot: AcpTranscriptSessionSnapshot
   subscribers: Set<() => void>
   retained: boolean
@@ -57,6 +59,7 @@ let activeReads = 0
 function createRecord(agentId: string): AcpTranscriptSessionRecord {
   return {
     agentId,
+    pageCursor: '',
     snapshot: {
       transcript: null,
       loading: true,
@@ -169,7 +172,7 @@ function nextQueuedRecord() {
     if (record.attachments > 0) return record
     background ??= record
   }
-  return background
+  return activeReads < MAX_CONCURRENT_TRANSCRIPT_READS - 1 ? background : null
 }
 
 function pumpReadQueue() {
@@ -275,15 +278,26 @@ async function loadRecord(record: AcpTranscriptSessionRecord) {
   const generation = ++record.requestGeneration
   const controller = new AbortController()
   record.controller = controller
+  let timedOut = false
+  let expire!: (error: Error) => void
+  const expired = new Promise<never>((_, reject) => { expire = reject })
+  const deadline = setTimeout(() => {
+    timedOut = true
+    controller.abort()
+    expire(new Error('Transcript read deadline exceeded'))
+  }, ACP_TRANSCRIPT_READ_TIMEOUT_MS)
   const checkpointRequested = record.forceCheckpoint
   record.forceCheckpoint = false
   const current = record.snapshot.transcript
   const params = new URLSearchParams({
-    maxTurns: String(record.snapshot.turnLimit),
+    maxTurns: String(record.pageCursor ? ACP_TRANSCRIPT_TURN_PAGE_SIZE : record.snapshot.turnLimit),
     media: 'external-v1',
+    entryPatches: 'v1',
+    ...(record.pageCursor ? { cursor: record.pageCursor } : {}),
   })
   if (
     !checkpointRequested
+    && !record.pageCursor
     && current?.sessionId
     && current.turnLimit === record.snapshot.turnLimit
     && Number.isFinite(current.revision)
@@ -292,9 +306,9 @@ async function loadRecord(record: AcpTranscriptSessionRecord) {
   }
   let responseReceived = false
   try {
-    const response = await fetch(appPath(
+    const response = await Promise.race([expired, fetch(appPath(
       `/api/agents/${encodeURIComponent(record.agentId)}/acp-transcript?${params.toString()}`,
-    ), { signal: controller.signal })
+    ), { signal: controller.signal })])
     responseReceived = true
     if (response.status === 202) {
       updateSnapshot(record, {
@@ -328,7 +342,7 @@ async function loadRecord(record: AcpTranscriptSessionRecord) {
       return
     }
     if (!response.ok) throw new Error('Transcript unavailable')
-    const payload = await response.json()
+    const payload = await Promise.race([expired, response.json()])
     if (generation !== record.requestGeneration) return
     record.retryAttempt = 0
     const nextTranscript = projectAcpTranscriptResponse(
@@ -400,7 +414,7 @@ async function loadRecord(record: AcpTranscriptSessionRecord) {
       error: null,
     })
   } catch (reason) {
-    if (generation !== record.requestGeneration || (reason as { name?: string })?.name === 'AbortError') return
+    if (generation !== record.requestGeneration || (!timedOut && (reason as { name?: string })?.name === 'AbortError')) return
     const retryDelay = !responseReceived && reason instanceof TypeError
       ? acpTranscriptFetchRetryDelayMs(record.retryAttempt)
       : undefined
@@ -416,11 +430,12 @@ async function loadRecord(record: AcpTranscriptSessionRecord) {
       transcript: hasDisplayableTranscript ? record.snapshot.transcript : null,
       loading: false,
       loadingOlder: false,
-      error: hasDisplayableTranscript && !checkpointFailure
+      error: hasDisplayableTranscript && !checkpointFailure && !timedOut
         ? null
-        : (responseReceived ? 'response' : 'transport'),
+        : (responseReceived && !timedOut ? 'response' : 'transport'),
     })
   } finally {
+    clearTimeout(deadline)
     if (generation === record.requestGeneration) {
       record.inFlight = false
       record.controller = null
@@ -431,6 +446,7 @@ async function loadRecord(record: AcpTranscriptSessionRecord) {
         || record.forceCheckpoint
         || (
           record.snapshot.error === null
+          && !record.pageCursor
           && currentTranscriptMatchesIdentity
           && Number.isInteger(record.latestRevision)
           && record.latestRevision > revision
@@ -492,6 +508,7 @@ export function observeAcpTranscriptRevision(
   if (identityChanged || (!currentIdentityMatches && !initialCheckpointInFlight)) {
     record.forceCheckpoint = true
     if (identityChanged) {
+      record.pageCursor = ''
       updateSnapshot(record, {
         transcript: null,
         loading: record.attachments > 0,
@@ -504,6 +521,7 @@ export function observeAcpTranscriptRevision(
     scheduleRecord(record, { immediate: true })
     return
   }
+  if (record.pageCursor) return
   const currentRevision = Number(record.snapshot.transcript?.revision)
   if (!Number.isInteger(currentRevision) || session.revision > currentRevision) {
     scheduleRecord(record)
@@ -570,6 +588,14 @@ export function refreshAcpTranscriptSession(agentId: string, checkpoint = false)
   scheduleRecord(record, { immediate: checkpoint })
 }
 
+export function returnToLatestAcpTranscript(agentId: string) {
+  const record = recordFor(agentId)
+  record.pageCursor = ''
+  record.forceCheckpoint = true
+  updateSnapshot(record, { turnLimit: INITIAL_ACP_TRANSCRIPT_TURN_LIMIT, loading: true, loadingOlder: false })
+  scheduleRecord(record, { immediate: true })
+}
+
 export function discardAcpTranscriptSession(agentId: string) {
   const record = records.get(agentId)
   if (record) disposeRecord(record)
@@ -596,6 +622,9 @@ export function setAcpTranscriptTurnLimit(agentId: string, turnLimit: number) {
     Math.min(MAX_ACP_TRANSCRIPT_TURN_LIMIT, Math.floor(turnLimit)),
   )
   if (normalized === record.snapshot.turnLimit) return
+  if (normalized > record.snapshot.turnLimit && record.snapshot.transcript?.entrySnapshot && record.snapshot.transcript.nextCursor) {
+    record.pageCursor = record.snapshot.transcript.nextCursor
+  }
   record.forceCheckpoint = true
   updateSnapshot(record, { turnLimit: normalized, loadingOlder: true, error: null })
   scheduleRecord(record, { immediate: true })

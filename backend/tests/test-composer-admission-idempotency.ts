@@ -139,6 +139,7 @@ async function run() {
     const concurrentTwo = manager.sendComposerMessage(agent.id, 'join concurrent delivery', {
       requestId: 'composer-request-concurrent',
     });
+    while (submitCount < 2) await new Promise(resolve => setImmediate(resolve));
     releaseSubmission();
     const [concurrentAcceptedOne, concurrentAcceptedTwo] = await Promise.all([concurrentOne, concurrentTwo]);
     assert.strictEqual(concurrentAcceptedOne.accepted, true);
@@ -147,20 +148,20 @@ async function run() {
     holdSubmission = false;
     releaseTurn();
 
-    const ensureAgentSessionRecord = configManager.ensureAgentSessionRecord.bind(configManager);
-    configManager.ensureAgentSessionRecord = (candidate, patch) => {
-      const command = candidate.composerCommands?.find(item => item.requestId === 'composer-request-2');
+    const persistAgentStatePatch = configManager.persistAgentStatePatch.bind(configManager);
+    configManager.persistAgentStatePatch = async (candidate, patch, options) => {
+      const command = patch.composerCommands?.find(item => item.requestId === 'composer-request-2');
       if (command?.state === 'accepted') {
         throw new Error('simulated accepted admission write failure');
       }
-      return ensureAgentSessionRecord(candidate, patch);
+      return persistAgentStatePatch(candidate, patch, options);
     };
     await assert.rejects(
       () => manager.sendComposerMessage(agent.id, 'uncertain admission', { requestId: 'composer-request-2' }),
       error => error?.uncertain === true && /accepted admission write failure/.test(error.message),
     );
     assert.strictEqual(submitCount, 3);
-    configManager.ensureAgentSessionRecord = ensureAgentSessionRecord;
+    configManager.persistAgentStatePatch = persistAgentStatePatch;
     await assert.rejects(
       () => manager.sendComposerMessage(agent.id, 'uncertain admission', { requestId: 'composer-request-2' }),
       error => error?.uncertain === true && /admission could not be saved/.test(error.message),

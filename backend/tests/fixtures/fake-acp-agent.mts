@@ -1889,6 +1889,24 @@ class FakeAgent implements Agent {
       });
       return { stopReason: 'end_turn' };
     }
+    if (promptText.includes('related workflow demo')) {
+      const notify = (update: Record<string, unknown>) => process.stdout.write(JSON.stringify({
+        jsonrpc: '2.0', method: 'session/update', params: { sessionId: params.sessionId, update },
+      }) + '\n');
+      for (let child = 0; child < 14; child++) {
+        const childId = `${params.sessionId}-review-${child}`;
+        notify({ sessionUpdate: 'subagent_spawned', subagentSessionId: childId, name: `Review ${child}`, task: `Review task ${child}`, capabilities: {} });
+        const turns = child === 0 ? 260 : 1;
+        for (let turn = 0; turn < turns; turn++) {
+          await client.sessionUpdate({ sessionId: childId, update: { sessionUpdate: 'user_message_chunk', messageId: `q-${child}-${turn}`, content: { type: 'text', text: `Question ${turn}` } } });
+          await client.sessionUpdate({ sessionId: childId, update: { sessionUpdate: 'agent_message_chunk', messageId: `a-${child}-${turn}`, content: { type: 'text', text: `Answer ${turn}` } } });
+        }
+        if (child < 12) notify({ sessionUpdate: 'subagent_state_update', subagentSessionId: childId, state: 'completed' });
+        if (child === 13) notify({ sessionUpdate: 'subagent_state_update', subagentSessionId: childId, state: 'failed' });
+      }
+      await client.sessionUpdate({ sessionId: params.sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Review group ready.' } } });
+      return { stopReason: 'end_turn' };
+    }
     if (promptText.includes('Review parser edge cases (demo)')) {
       const childSessionId = `${params.sessionId}-native-child`;
       await client.sessionUpdate({ sessionId: params.sessionId, update: {

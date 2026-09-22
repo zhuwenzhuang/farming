@@ -2623,6 +2623,47 @@ async function run() {
     runtime.cancelTimeoutMs = originalCancelTimeoutMs;
 
     await runtime.prepareAgent({
+      agentId: 'agent-native-lifecycle', provider: 'codex', cwd: process.cwd(),
+      env: process.env, approvalMode: 'approve',
+    });
+    const nativeBinding = runtime.bindings.get('agent-native-lifecycle');
+    const nativeHandlers = runtime.clientHandlers(nativeBinding);
+    let settleNativeRequest;
+    nativeBinding.connection.prompt = () => new Promise(resolve => { settleNativeRequest = resolve; });
+    const managedNative = runtime.prompt('agent-native-lifecycle', [{ type: 'text', text: 'goal' }]);
+    while (!settleNativeRequest) await new Promise(resolve => setImmediate(resolve));
+    const nativeEvent = (turnId, status, sequence, sessionId = nativeBinding.sessionId) => nativeHandlers.sessionUpdate({
+      sessionId, update: { sessionUpdate: 'session_info_update',
+        _meta: { farmingTurn: { version: 1, turnId, status, sequence } } },
+    });
+    nativeEvent('native-1', 'started', 1);
+    nativeEvent('native-1', 'completed', 2);
+    nativeEvent('native-2', 'started', 3);
+    const autonomousTurn = nativeBinding.activeTurn;
+    assert.strictEqual(autonomousTurn.nativeTurnId, 'native-2');
+    assert.strictEqual(autonomousTurn.providerInitiated, true);
+    settleNativeRequest({ stopReason: 'end_turn' });
+    await managedNative;
+    assert.strictEqual(nativeBinding.activeTurn, autonomousTurn, 'late request settlement must preserve autonomous execution');
+    assert.strictEqual(runtime.getSession('agent-native-lifecycle').state, 'working');
+    nativeEvent('native-1', 'completed', 4);
+    nativeEvent('native-2', 'completed', 2);
+    nativeEvent('native-2', 'completed', 5, 'unrelated-session');
+    assert.strictEqual(nativeBinding.activeTurn, autonomousTurn, 'stale or unrelated completion must be fenced');
+    nativeBinding.historyReplayActive = true;
+    nativeEvent('native-2', 'completed', 6);
+    assert.strictEqual(nativeBinding.activeTurn, autonomousTurn);
+    nativeBinding.historyReplayActive = false;
+    nativeEvent('native-2', 'cancelled', 7);
+    assert.strictEqual(nativeBinding.activeTurn, null);
+    assert.strictEqual(runtime.getSession('agent-native-lifecycle').chatTurn.status, 'cancelled');
+    nativeEvent('native-2', 'started', 8);
+    assert.strictEqual(nativeBinding.activeTurn, null, 'duplicate completed identity cannot start another turn');
+    nativeEvent('native-3', 'started', 9);
+    nativeEvent('native-3', 'failed', 10);
+    assert.strictEqual(runtime.getSession('agent-native-lifecycle').state, 'error');
+
+    await runtime.prepareAgent({
       agentId: 'agent-acp-binding-fence',
       provider: 'codex',
       cwd: process.cwd(),

@@ -1,3 +1,4 @@
+import type { ComposerSubmissionPhase } from '../../../shared/composer-submission'
 import type { UiLanguage } from '@/lib/ui-preferences'
 
 export interface CodeCopy {
@@ -25,6 +26,17 @@ export interface CodeCopy {
   appModeFullscreenDescription: string
   subagent: string
   quoteSelection: string
+  quoteInParent: string
+  sideChatDescription: string
+  nativeChildDescription: string
+  relatedWaitingPermission: string
+  relatedWaitingInput: string
+  relatedStatusUnavailable: string
+  relatedSummary: (running: number, attention: number, finished: number) => string
+  relatedFinished: (count: number) => string
+  relatedOpenDetails: string
+  relatedShowMore: string
+  relatedShowLess: string
   askInSubagent: string
   terminalView: string
   transcriptView: string
@@ -303,6 +315,8 @@ export interface CodeCopy {
   stopDictation: string
   speechUnsupported: string
   mobileDictationHint: string
+  submissionPhases: Record<ComposerSubmissionPhase, string>
+  sendingMessage: string
   sendMessage: string
   interruptAgent: string
   startOrSelectAgent: string
@@ -467,7 +481,9 @@ export interface CodeCopy {
   spreadsheetAddress: string
   spreadsheetCopy: string
   spreadsheetCopied: string
-  spreadsheetDownload: string
+  spreadsheetCopyFailed: string
+  spreadsheetQuoteTooLarge: string
+  spreadsheetQuoteUnavailable: string
   spreadsheetRowsColumns: (rows: number, columns: number) => string
   spreadsheetFormulaNoCache: string
   spreadsheetMissingFormulaCaches: (count: number) => string
@@ -661,6 +677,17 @@ const EN_COPY: CodeCopy = {
   appModeFullscreenDescription: 'Hide browser controls for this window. Press Esc to leave fullscreen.',
   subagent: 'Subagent',
   quoteSelection: 'Quote in chat',
+  quoteInParent: 'Quote in parent chat',
+  sideChatDescription: 'Side chat · You can reply. Accepted work continues while you are away.',
+  nativeChildDescription: 'Delegated task · The parent Agent controls this conversation.',
+  relatedWaitingPermission: 'Waiting for approval',
+  relatedWaitingInput: 'Waiting for input',
+  relatedStatusUnavailable: 'Status unavailable',
+  relatedSummary: (running, attention, finished) => `${running} running · ${attention} need attention · ${finished} finished`,
+  relatedFinished: count => `Finished · ${count}`,
+  relatedOpenDetails: 'Open subagent details',
+  relatedShowMore: 'Show more',
+  relatedShowLess: 'Show less',
   askInSubagent: 'Ask in subagent',
   terminalView: 'Terminal',
   transcriptView: 'Chat',
@@ -706,7 +733,7 @@ const EN_COPY: CodeCopy = {
   agentTranscriptCompactingContext: 'Compacting context',
   agentTranscriptProcessCount: count => `${count} ${count === 1 ? 'event' : 'events'}`,
   agentTranscriptCollaborationInProgress: 'In progress',
-  agentTranscriptCollaborationHeading: 'Collaborating agents',
+  agentTranscriptCollaborationHeading: 'Agent activity',
   agentTranscriptCollaborationCompleted: 'Completed',
   agentTranscriptCollaborationInterrupted: 'Paused',
   agentTranscriptCollaborationFailed: 'Failed',
@@ -968,6 +995,8 @@ const EN_COPY: CodeCopy = {
   stopDictation: 'Stop dictation',
   speechUnsupported: 'Speech recognition is not supported in this browser',
   mobileDictationHint: 'Use the microphone key on the iOS keyboard to dictate.',
+  submissionPhases: { received: 'Confirming receipt…', queued: 'Queued…', preparing: 'Preparing…', 'waiting-turn': 'Waiting for the current turn…', dispatching: 'Submitting…', submitted: 'Submitted', failed: 'Not sent', unknown: 'Checking submission…' },
+  sendingMessage: 'Sending message…',
   sendMessage: 'Send message',
   interruptAgent: 'Interrupt agent',
   startOrSelectAgent: 'Start or select an agent',
@@ -1136,7 +1165,9 @@ const EN_COPY: CodeCopy = {
   spreadsheetAddress: 'Cell address',
   spreadsheetCopy: 'Copy selection',
   spreadsheetCopied: 'Copied',
-  spreadsheetDownload: 'Download original',
+  spreadsheetCopyFailed: 'Could not copy. Try again or select and copy the text below.',
+  spreadsheetQuoteTooLarge: 'Select a smaller range to quote (up to 200 cells and 5,600 characters).',
+  spreadsheetQuoteUnavailable: 'The file version is unavailable. Refresh before quoting.',
   spreadsheetRowsColumns: (rows, columns) => `${rows.toLocaleString()} rows × ${columns.toLocaleString()} columns`,
   spreadsheetFormulaNoCache: 'Formula has no cached result',
   spreadsheetMissingFormulaCaches: count => `${count.toLocaleString()} formula cell${count === 1 ? '' : 's'} have no cached result.`,
@@ -1330,6 +1361,17 @@ const ZH_COPY: CodeCopy = {
   appModeFullscreenDescription: '只为当前窗口隐藏浏览器控制，按 Esc 即可退出。',
   subagent: '子 Agent',
   quoteSelection: '引用提问',
+  quoteInParent: '引用到父会话',
+  sideChatDescription: '旁聊 · 可继续提问，已接受的任务会在你离开后继续执行。',
+  nativeChildDescription: '委派任务 · 由父 Agent 控制此会话。',
+  relatedWaitingPermission: '等待批准',
+  relatedWaitingInput: '等待输入',
+  relatedStatusUnavailable: '状态不可用',
+  relatedSummary: (running, attention, finished) => `${running} 个执行中 · ${attention} 个待处理 · ${finished} 个已结束`,
+  relatedFinished: count => `已结束 · ${count}`,
+  relatedOpenDetails: '查看子 Agent 详情',
+  relatedShowMore: '显示更多',
+  relatedShowLess: '收起',
   askInSubagent: '在子 Agent中提问',
   terminalView: '终端',
   transcriptView: '对话',
@@ -1375,7 +1417,7 @@ const ZH_COPY: CodeCopy = {
   agentTranscriptCompactingContext: '正在压缩上下文',
   agentTranscriptProcessCount: count => `${count} 个事件`,
   agentTranscriptCollaborationInProgress: '进行中',
-  agentTranscriptCollaborationHeading: '协作 Agent',
+  agentTranscriptCollaborationHeading: 'Agent 动态',
   agentTranscriptCollaborationCompleted: '已完成',
   agentTranscriptCollaborationInterrupted: '已暂停',
   agentTranscriptCollaborationFailed: '失败',
@@ -1673,6 +1715,8 @@ const ZH_COPY: CodeCopy = {
   stopDictation: '停止语音输入',
   speechUnsupported: '当前浏览器不支持语音识别',
   mobileDictationHint: '请点 iOS 键盘上的麦克风进行听写。',
+  submissionPhases: { received: '确认接收中…', queued: '排队中…', preparing: '准备中…', 'waiting-turn': '等待当前轮次…', dispatching: '提交中…', submitted: '已提交', failed: '未发送', unknown: '核对提交结果中…' },
+  sendingMessage: '正在发送…',
   sendMessage: '发送消息',
   interruptAgent: '中止 Agent',
   startOrSelectAgent: '启动或选择一个 Agent',
@@ -1841,7 +1885,9 @@ const ZH_COPY: CodeCopy = {
   spreadsheetAddress: '单元格地址',
   spreadsheetCopy: '复制选区',
   spreadsheetCopied: '已复制',
-  spreadsheetDownload: '下载原文件',
+  spreadsheetCopyFailed: '复制失败。请重试，或选中下方文本手动复制。',
+  spreadsheetQuoteTooLarge: '请选择更小的引用范围（最多 200 个单元格、5,600 个字符）。',
+  spreadsheetQuoteUnavailable: '文件版本不可用，请刷新后再引用。',
   spreadsheetRowsColumns: (rows, columns) => `${rows.toLocaleString()} 行 × ${columns.toLocaleString()} 列`,
   spreadsheetFormulaNoCache: '公式没有缓存结果',
   spreadsheetMissingFormulaCaches: count => `${count.toLocaleString()} 个公式单元格没有缓存结果。`,

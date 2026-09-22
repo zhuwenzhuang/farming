@@ -110,11 +110,14 @@ interface AcceptedSteerOptions {
 }
 
 export interface TranscriptSliceOptions {
+  entryPatches?: boolean;
+  cursor?: string;
   maxTurns?: unknown;
   sinceRevision?: unknown;
 }
 
 interface SanitizedEntriesOptions {
+  endIndex?: number;
   forTranscript?: boolean;
 }
 
@@ -818,8 +821,34 @@ class AcpSessionState {
       requestedRevision > this.revision
       || (this.resetBeforeRevision > 0 && requestedRevision <= this.resetBeforeRevision)
     );
-    const delta = Number.isFinite(requestedRevision) && requestedRevision >= 0 && !resetRequired;
+    const delta = !options.cursor && Number.isFinite(requestedRevision) && requestedRevision >= 0 && !resetRequired;
+    const endIndex = options.cursor ? this.entries.findIndex(entry => entry.id === options.cursor) : this.entries.length;
+    if (endIndex < 0) throw new Error('History cursor is no longer available. Return to the latest messages.');
     let startIndex = 0;
+
+    if (options.entryPatches) {
+      let remaining = maxTurns;
+      startIndex = endIndex;
+      while (startIndex > 0 && endIndex - startIndex < 256) {
+        startIndex -= 1;
+        if (providerPolicy.transcriptTurnStart(this.entries[startIndex]) && --remaining <= 0) break;
+      }
+      // Keep the owning user prompt as context when a very long turn spans pages.
+      let anchor = startIndex;
+      while (anchor > 0 && !providerPolicy.transcriptTurnStart(this.entries[anchor])) anchor -= 1;
+      const page = this.sanitizedEntries(startIndex, { forTranscript: true, endIndex });
+      if (anchor < startIndex && providerPolicy.transcriptTurnStart(this.entries[anchor])) {
+        page.unshift(...this.sanitizedEntries(anchor, { forTranscript: true, endIndex: anchor + 1 }));
+      }
+      const changedIds = delta ? new Set(this.entries.filter(entry => Number(entry._revision || 0) > requestedRevision).map(entry => entry.id)) : null;
+      return {
+        entries: changedIds ? page.filter(entry => changedIds.has(entry.id)) : page,
+        entryPatch: { version: 1, order: page.map(entry => String(entry.id)), pageCursor: options.cursor || null },
+        nextCursor: startIndex > 0 ? String(this.entries[startIndex].id) : null,
+        forkOrigin: this.forkOriginSnapshot(), revision: this.revision, delta,
+        hasMoreBefore: startIndex > 0, codexSubagents: clone(this.codexSubagents),
+      };
+    }
 
     if (delta) {
       startIndex = this.entries.findIndex(entry => Number(entry?._revision || 0) > requestedRevision);
@@ -833,7 +862,7 @@ class AcpSessionState {
       }
     } else {
       let remaining = maxTurns;
-      startIndex = this.entries.length;
+      startIndex = endIndex;
       while (startIndex > 0) {
         startIndex -= 1;
         const entry = this.entries[startIndex];
@@ -845,7 +874,8 @@ class AcpSessionState {
     }
 
     return {
-      entries: this.sanitizedEntries(startIndex, { forTranscript: true }),
+      entries: this.sanitizedEntries(startIndex, { forTranscript: true, endIndex }),
+      nextCursor: startIndex > 0 ? String(this.entries[startIndex]?.id || '') : null,
       forkOrigin: this.forkOriginSnapshot(),
       revision: this.revision,
       delta,
@@ -860,7 +890,7 @@ class AcpSessionState {
   ): AcpEntry[] {
     const safeStart = Math.min(this.entries.length, Math.max(0, Math.floor(startIndex)));
     const entries = options.forTranscript === true
-      ? this.entries.slice(safeStart).map(entry => {
+      ? this.entries.slice(safeStart, options.endIndex).map(entry => {
         const visible = { ...entry };
         delete visible._revision;
         if (entry.type !== 'tool') return clone(visible);
@@ -870,7 +900,7 @@ class AcpSessionState {
         // to produce a compact summary.
         return visible;
       })
-      : clone(this.entries.slice(safeStart));
+      : clone(this.entries.slice(safeStart, options.endIndex));
     if (options.forTranscript !== true) {
       for (const entry of entries) delete entry._revision;
     }
@@ -910,7 +940,34 @@ class AcpSessionState {
     return snapshot;
   }
 
-  exportCheckpoint() {
+  private readonly checkpointEntries = new WeakMap<AcpEntry, { revision: unknown; json: string }>();
+
+  async exportCheckpointChunks(): Promise<string[]> {
+    const revision = this.revision;
+    const entries = this.entries.slice();
+    const metadata = JSON.stringify(this.exportCheckpoint(false));
+    const chunks = [metadata.slice(0, -1), ',"entries":['];
+    let batchStarted = performance.now();
+    for (let index = 0; index < entries.length; index += 1) {
+      const entry = entries[index];
+      let encoded = this.checkpointEntries.get(entry);
+      if (!encoded || encoded.revision !== entry._revision) {
+        encoded = { revision: entry._revision, json: JSON.stringify(entry) };
+        this.checkpointEntries.set(entry, encoded);
+      }
+      chunks.push(index ? ',' : '', encoded.json);
+      if (performance.now() - batchStarted >= 4) {
+        await new Promise<void>(resolve => setImmediate(resolve));
+        if (this.revision !== revision) throw new Error('ACP checkpoint changed while encoding');
+        batchStarted = performance.now();
+      }
+    }
+    if (this.revision !== revision) throw new Error('ACP checkpoint changed while encoding');
+    chunks.push(']}');
+    return chunks;
+  }
+
+  exportCheckpoint(includeEntries = true) {
     return {
       version: 1,
       provider: this.provider,
@@ -919,7 +976,7 @@ class AcpSessionState {
       sequence: this.sequence,
       revision: this.revision,
       resetBeforeRevision: this.resetBeforeRevision,
-      entries: clone(this.entries),
+      ...(includeEntries ? { entries: clone(this.entries) } : {}),
       forkOrigin: clone(this.forkOrigin),
       activePlanEntryId: this.activePlanEntry?.id || '',
       plan: clone(this.plan),

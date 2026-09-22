@@ -59,10 +59,18 @@ async function run() {
   manager.agents = new Map([['stale-subagent', staleChild]]);
   manager.sessionPersistence = { persist: () => {} };
   manager.setSubagentSupervisionProbe((key: string) => watched.has(key));
-  manager.retainSubagent = async (id: string, force: boolean) => { assert.equal(id, 'stale-subagent'); assert.equal(force, true); released++; return true; };
+  manager.retainSubagent = async (id: string, force: boolean) => { assert.equal(id, 'stale-subagent'); assert.equal(force, false); released++; return true; };
   watched.add('another-parent');
   await manager.reconcileSubagentSupervision();
-  assert.equal(released, 1, 'another parent observer cannot keep this child alive');
+  assert.equal(released, 0, 'disconnect never interrupts an accepted turn');
+  for (const state of ['waiting-for-permission', 'waiting-for-input', 'interrupting']) {
+    staleChild.runtimeBinding.state = state;
+    await manager.reconcileSubagentSupervision();
+    assert.equal(released, 0, `${state} survives supervision expiry`);
+  }
+  staleChild.runtimeBinding.state = 'idle';
+  await manager.reconcileSubagentSupervision();
+  assert.equal(released, 1, 'only a settled child releases after disconnect');
   watched.add(parentKey);
   await manager.reconcileSubagentSupervision();
   assert.equal(staleChild.subagentSupervisionExpiresAt, 0, 'reconnect before cleanup reacquires only the exact parent');
@@ -85,6 +93,51 @@ async function run() {
   assert.equal(cleanupAttempts, 2, 'retained Provider state cannot bypass uncertain Resource cleanup');
   assert.equal(cleanupChild.status, 'running');
   assert.equal(cleanupChild.runtimeBinding.state, 'closed');
+  // Archive ordering is owned by the parent lifecycle, including failure.
+  const archiveParent = { id: 'archive-parent', providerSessionKey: parentKey, runtimeBinding: { kind: 'acp', state: 'idle' }, providerSessionProvider: 'codex', providerSessionId: 'parent-session' };
+  const archiveChild = { id: 'archive-child', providerSessionKey: 'child-key', subagentParentSessionKey: parentKey, runtimeBinding: { kind: 'acp', state: 'idle' } };
+  const order: string[] = [];
+  const archiveManager = Object.create(AgentManager.prototype);
+  archiveManager.agents = new Map<string, typeof archiveParent | typeof archiveChild>([['archive-parent', archiveParent], ['archive-child', archiveChild]]);
+  archiveManager.configManager = { listAgentSessionRecords: () => [] };
+  archiveManager.lifecycleJournalService = { begin: () => ({ operation: { id: 'archive-op' } }), transition: () => {} };
+  archiveManager.emitStateChange = () => {};
+  archiveManager.providerSessionMutationCoordinator = { run: (request: { operation: () => Promise<unknown> }) => request.operation() };
+  archiveManager.acpRuntime = { archiveSession: async () => { order.push('parent-provider'); return true; } };
+  archiveManager.killAgent = async () => { order.push('parent-stop'); return {}; };
+  archiveManager.mainPageSessionIndex = { removeAgents: () => [] };
+  archiveManager.forgetStoppedAgentRecord = () => {};
+  archiveManager.archiveAgent = async (id: string) => { order.push(id); return { archived: true }; };
+  await archiveManager.performArchiveAgent('archive-parent', { recordHistory: false }, Symbol('archive'));
+  assert.deepEqual(order, ['archive-child', 'parent-provider', 'parent-stop']);
+  order.length = 0;
+  archiveManager.archiveAgent = async () => { throw new Error('child archive uncertain'); };
+  const rejected = await archiveManager.performArchiveAgent('archive-parent', { recordHistory: false }, Symbol('archive'));
+  assert.match(rejected.error, /child archive uncertain/);
+  assert.deepEqual(order, [], 'uncertain child archive must not touch the parent provider or publish success');
+  const coldKey = encodeProviderSessionKey('codex', 'cold-child', 'default');
+  archiveManager.agents = new Map([['archive-parent', archiveParent]]);
+  archiveManager.configManager = { listAgentSessionRecords: () => [{ id: 'cold-record',
+    runtimeAgentId: '', providerSessionKey: coldKey, providerSessionId: 'cold-child', providerSessionProvider: 'codex',
+    subagentParentSessionKey: parentKey, subagentRetained: true, runtimeBinding: { kind: 'acp', state: 'closed' },
+  }, { id: 'other-home', providerSessionKey: encodeProviderSessionKey('codex', 'cold-child', 'other'),
+    subagentParentSessionKey: encodeProviderSessionKey('codex', 'parent-session', 'other'),
+  }] };
+  archiveManager.archiveAgent = async (id: string) => {
+    assert.equal(id, 'cold-record');
+    const recovered = archiveManager.agents.get(id);
+    assert.equal(recovered.providerSessionKey, coldKey);
+    assert.equal(recovered.subagentRetained, true);
+    assert.equal(recovered.status, 'stopped', 'cold archival must not resume the child');
+    return { archived: true };
+  };
+  await archiveManager.archiveOwnedSideChats(archiveParent, {});
+  assert.equal(archiveManager.agents.has('other-home'), false, 'same session IDs in another home are unrelated');
+  archiveManager.agents.set('cold-record', { id: 'cold-record', providerSessionKey: 'unrelated' });
+  await assert.rejects(archiveManager.archiveOwnedSideChats(archiveParent, {}), /belongs to another session/);
+  const closedParent = { ...parent, subagentParentSessionKey: '', archived: true };
+  manager.agents = new Map([['parent', closedParent]]);
+  assert.match((await manager.openSubagent('parent')).error, /archived or removed/);
   console.log('subagent admission tests passed');
 }
 run().catch(error => { console.error(error); process.exitCode = 1; });

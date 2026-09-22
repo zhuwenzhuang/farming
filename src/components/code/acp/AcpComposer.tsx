@@ -1,6 +1,6 @@
 import { useInteractionLayer } from '@/hooks/useInteractionLayer'
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type CSSProperties, type KeyboardEvent, type MouseEvent, type RefObject } from 'react'
-import { ArrowUpGlyph, CloseGlyph, PencilGlyph, PlusGlyph, ReplyGlyph } from '@/components/IconGlyphs'
+import { ArrowUpGlyph, LoadingGlyph, CloseGlyph, PencilGlyph, PlusGlyph, ReplyGlyph } from '@/components/IconGlyphs'
 import { COMPACT_VIEWPORT_QUERY, isCompactViewport } from '@/lib/responsive-mode'
 import type { AcpPendingElicitation, AcpPendingPermission, AgentContextWindowUsage } from '@/types/agent'
 import { ComposerAttachments, type ComposerAttachmentView } from '../ComposerAttachments'
@@ -754,14 +754,17 @@ export function AcpComposer({
             className={`code-composer-send ${interrupting ? 'interrupt' : ''}`}
             data-testid="code-acp-composer-send"
             data-action={submitAction}
-            aria-label={interrupting ? copy.interruptAgent : copy.sendMessage}
+            aria-busy={editor.submitting && !interrupting}
+            aria-label={interrupting ? copy.interruptAgent : editor.submitting ? (editor.submissionPhase ? copy.submissionPhases[editor.submissionPhase] : copy.sendingMessage) : copy.sendMessage}
+            title={editor.submitting && !interrupting ? copy.sendingMessage : undefined}
             onClick={interrupting ? onInterrupt : () => editor.submit(() => onSubmit(latestDraftRef.current))}
-            disabled={disabled}
+            disabled={disabled || (editor.submitting && !interrupting)}
           >
-            {interrupting ? <span className="code-composer-stop-icon" aria-hidden="true" /> : <ArrowUpGlyph />}
+            {interrupting ? <span className="code-composer-stop-icon" aria-hidden="true" /> : editor.submitting ? <LoadingGlyph className="code-composer-sending-icon" /> : <ArrowUpGlyph />}
           </button>
         </div>
       </div>
+        {editor.submitting && editor.submissionPhase ? <div className="code-composer-submission-status" role="status">{copy.submissionPhases[editor.submissionPhase]}</div> : null}
       </footer>
     </div>
   )

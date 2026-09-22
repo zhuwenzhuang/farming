@@ -7,11 +7,12 @@ exports.validateClientMessage = validateClientMessage;
 exports.validateServerMessage = validateServerMessage;
 exports.protocolCompatible = protocolCompatible;
 exports.claimProtocolUpgradeReload = claimProtocolUpgradeReload;
+const composer_submission_js_1 = require("./composer-submission.js");
 const agent_state_semantics_js_1 = require("./agent-state-semantics.js");
 const agent_state_wire_js_1 = require("./agent-state-wire.js");
 const chat_turn_state_js_1 = require("./chat-turn-state.js");
-exports.PROTOCOL_VERSION = 18;
-exports.MIN_PROTOCOL_VERSION = 18;
+exports.PROTOCOL_VERSION = 19;
+exports.MIN_PROTOCOL_VERSION = 19;
 exports.MAX_INLINE_WORKSPACE_MESSAGE_BYTES = 1024 * 1024;
 exports.PROJECT_ATTENTION_SCORE_MAX = agent_state_semantics_js_1.PROJECT_ATTENTION_SCORE_MAX;
 const SERVER_MESSAGE_TYPES = new Set([
@@ -24,6 +25,7 @@ const SERVER_MESSAGE_TYPES = new Set([
     'state-delta',
     'error',
     'composer-input-result',
+    'composer-input-status',
     'agent-started',
     'session-output',
     'session-preview',
@@ -396,6 +398,9 @@ function validateClientMessage(value) {
         case 'input':
             valid = stringField(value, 'agentId', true) && (typeof value.input === 'string' || Array.isArray(value.inputParts));
             break;
+        case 'composer-input-status-request':
+            valid = stringField(value, 'requestId') && stringField(value, 'agentId');
+            break;
         case 'composer-input':
             valid = stringField(value, 'message')
                 && stringField(value, 'agentId', true)
@@ -550,6 +555,9 @@ function validateServerMessage(value) {
             break;
         case 'state-delta':
             valid = stateDeltaMessage(value);
+            break;
+        case 'composer-input-status':
+            valid = stringField(value, 'requestId') && stringField(value, 'agentId') && composer_submission_js_1.COMPOSER_SUBMISSION_PHASES.includes(value.phase) && typeof value.updatedAt === 'number' && Number.isFinite(value.updatedAt) && stringField(value, 'message', true);
             break;
         case 'composer-input-result':
             valid = stringField(value, 'requestId') && stringField(value, 'agentId') && typeof value.accepted === 'boolean' && stringField(value, 'message', true) && (!Object.prototype.hasOwnProperty.call(value, 'uncertain') || typeof value.uncertain === 'boolean');

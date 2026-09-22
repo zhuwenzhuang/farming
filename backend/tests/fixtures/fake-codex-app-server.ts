@@ -14,6 +14,7 @@ const requestLogFile = process.env.FARMING_TEST_REQUEST_LOG_FILE || '';
 const providerResumeGatePrefix = process.env.FARMING_TEST_PROVIDER_RESUME_GATE_PREFIX || '';
 const emitSubagentAfterResume = process.env.FARMING_TEST_EMIT_SUBAGENT_AFTER_RESUME === '1';
 let nextThread = 1;
+const archivedThreads = new Set<string>();
 
 function thread(id = sessionId) {
   return {
@@ -139,6 +140,17 @@ async function resultFor(method, params) {
       { turnId: 'child-turn', item: { id: 'child-answer', type: 'agentMessage', text: 'Live child history read without resume.', phase: 'final_answer' } }], nextCursor: null };
   }
   if (method === 'thread/turns/list') {
+    if (process.env.FARMING_TEST_PAGED_CHILD_HISTORY === '1' && String(params.threadId).endsWith('-child')) {
+      const end = params.cursor == null ? 260 : Number(params.cursor);
+      const start = Math.max(0, end - Number(params.limit));
+      return { data: Array.from({ length: end - start }, (_, offset) => {
+        const i = end - offset - 1;
+        return { id: `turn-${i}`, status: 'completed', items: [
+          { id: `user-${i}`, type: 'userMessage', content: [{ type: 'text', text: `Question ${i}`, text_elements: [] }] },
+          { id: `answer-${i}`, type: 'agentMessage', text: `Answer ${i}`, phase: 'final_answer' },
+        ] };
+      }), nextCursor: start > 0 ? String(start) : null };
+    }
     if (String(params.threadId).endsWith('-child')) return { data: [{ id: 'child-turn', items: [], itemsView: { type: 'summary' }, status: 'inProgress' }], nextCursor: null };
 
     const turns = thread(params.threadId).turns;
@@ -158,8 +170,17 @@ async function resultFor(method, params) {
     }
     return { data: [...turns].reverse(), nextCursor: null };
   }
-  if (method === 'thread/unsubscribe' || method === 'thread/delete' || method === 'thread/archive') return {};
+  if (method === 'thread/archive') {
+    if (process.env.FARMING_TEST_ARCHIVE_FAILURE_FILE && fs.existsSync(process.env.FARMING_TEST_ARCHIVE_FAILURE_FILE) && String(params.threadId).endsWith('-child-child')) throw new Error('Simulated descendant archive failure');
+    archivedThreads.add(params.threadId);
+    return {};
+  }
+  if (method === 'thread/unsubscribe' || method === 'thread/delete') return {};
   if (method === 'thread/list') {
+    if (process.env.FARMING_TEST_ARCHIVE_CHILDREN === '1' && params.ancestorThreadId) {
+      return { data: [`${params.ancestorThreadId}-child`, `${params.ancestorThreadId}-child-child`]
+        .filter(id => !archivedThreads.has(id)).map(id => thread(id)), nextCursor: null };
+    }
     return { data: [], nextCursor: null };
   }
   if (method === 'model/list') {

@@ -8,11 +8,11 @@ exports.parsePerformanceRecord = parsePerformanceRecord;
 exports.summarizePerformanceRecords = summarizePerformanceRecords;
 /** Diagnostic observations only: never an input acknowledgement or mutation authority. */
 exports.PERFORMANCE_OPERATIONS = [
-    'terminal.input', 'editor.input', 'file.open', 'file.save', 'agent.switch',
+    'chat.submit', 'chat.admission', 'terminal.input', 'editor.input', 'file.open', 'file.save', 'agent.switch',
     'workspace.request', 'language-server.request', 'connection.probe', 'browser.long-task', 'runtime.sample',
 ];
 exports.PERFORMANCE_OUTCOMES = ['observed', 'completed', 'failed', 'cancelled', 'superseded', 'timeout', 'hidden', 'unobserved', 'uncertain'];
-exports.PERFORMANCE_STAGES = ['handler', 'sent', 'received', 'dispatch', 'service', 'output', 'model', 'draft', 'renderer', 'frame'];
+exports.PERFORMANCE_STAGES = ['handler', 'sent', 'received', 'dispatch', 'service', 'output', 'model', 'draft', 'renderer', 'frame', 'intent', 'preparing', 'accepted'];
 exports.PERFORMANCE_METRICS = [
     'inputCount', 'inputUnits', 'contentUnits', 'outputUnits', 'queueMs', 'serviceMs',
     'socketBytes', 'pendingRequests', 'backgroundRunning', 'interactiveRunning',

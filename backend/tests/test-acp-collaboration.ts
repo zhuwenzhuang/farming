@@ -6,6 +6,7 @@ const {
   acpCollaborationAgents,
   acpCollaborationAgentsForTurn,
   acpCollaborationEvents,
+  acpCollaborationActivityFeed,
 } = require('../../src/components/code/acp/acp-collaboration.ts');
 
 const compactActivity = acpTranscriptToolEntry({
@@ -129,7 +130,7 @@ assert.deepStrictEqual(
   acpCollaborationEvents(transcript.turns[0].processItems).map(event => [event.name, event.action, event.processItemId]),
   [
     ['Review refresh', 'updated', 'activity-review'],
-    ['Review refresh', 'recorded', 'wait-browser'],
+    ['Review refresh', 'finished', 'wait-browser'],
   ],
 );
 assert.deepStrictEqual(
@@ -526,3 +527,13 @@ assert.deepStrictEqual(
 );
 
 console.log('ACP collaboration projection tests passed');
+
+const activity = (id, threadId, action = 'interacted') => ({ id, type: 'collaboration', status: 'completed', title: 'Progress',
+  collaboration: { kind: 'activity', threadId, agentPath: threadId, activity: action } });
+const orderedFeed = acpCollaborationActivityFeed([
+  activity('a1', 'alpha'), activity('a2', 'alpha'), activity('b1', 'beta'), activity('a3', 'alpha'),
+]);
+assert.deepStrictEqual(orderedFeed.map(event => [event.threadId, event.count]), [['alpha', 2], ['beta', 1], ['alpha', 1]],
+  'only adjacent updates coalesce; interleaved Agent activity keeps chronological order');
+assert.deepStrictEqual(orderedFeed[0].processItemIds, ['a1', 'a2']);
+assert.deepStrictEqual(acpCollaborationActivityFeed([]), [], 'inventory changes cannot create Chat events');

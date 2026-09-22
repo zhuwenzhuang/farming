@@ -59,6 +59,7 @@ interface FileEditorSurfaceProps {
   onOpenFilePath: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void> | void
   onShowBlameDetail: (line: FileEditorBlameLine) => void
   onBlameContextMenu: (event: MouseEvent, lineNumber: number) => void
+  onQuoteSelection?: (text: string) => void
 }
 
 function filePreviewResetKey(openFile: OpenWorkspaceFile) {
@@ -113,6 +114,7 @@ export function FileEditorSurface({
   blameOpen,
   blameOverlay,
   copy,
+  onQuoteSelection,
   cursorPosition,
   diffState,
   editorMode,
@@ -257,6 +259,7 @@ export function FileEditorSurface({
           identity={`${previewIdentity}:visual`}
         >
           <FileEditorPreviewPanel
+            onQuoteSelection={onQuoteSelection}
             openFile={openFile}
             activeTabDomId={activeTabDomId}
             copy={copy}

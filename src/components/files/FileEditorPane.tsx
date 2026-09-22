@@ -86,6 +86,7 @@ interface FileEditorPaneProps {
   agentSidePanelOpen: boolean
   onToggleAgentSidePanel?: () => void
   copy: CodeCopy
+  onQuoteSelection?: (text: string) => void
 }
 
 const WORD_WRAP_STORAGE_KEY = 'farming.code.fileEditor.wordWrap'
@@ -179,6 +180,7 @@ export function FileEditorPane({
   agentSidePanelOpen,
   onToggleAgentSidePanel,
   copy,
+  onQuoteSelection,
 }: FileEditorPaneProps) {
   const openEditorContextMenuRef = useRef<(event: monaco.editor.IEditorMouseEvent) => void>(() => {})
   const closeEditorContextMenuRef = useRef<() => void>(() => {})
@@ -676,6 +678,7 @@ export function FileEditorPane({
               </div>
             )}
             <FileEditorSurface
+              onQuoteSelection={globalReadOnly ? undefined : onQuoteSelection}
               activeTabDomId={activeTabDomId}
               blame={blame}
               blameAuthorProfileUrl={blameAuthorProfileUrl}

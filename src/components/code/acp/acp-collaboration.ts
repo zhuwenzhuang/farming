@@ -140,8 +140,11 @@ export function acpCollaborationEvents(items: AgentTranscriptProcessItem[]): Acp
       ...Object.keys(collaboration.agentsStates || {}),
     ].filter(Boolean))]
     for (const threadId of threadIds) {
+      const resultStatus = collaboration.agentsStates?.[threadId]?.status
       const action = tool === 'wait'
-        ? (itemStatus === 'failed' ? 'failed' : 'recorded')
+        ? (itemStatus === 'failed' || ['errored', 'notFound'].includes(resultStatus || '') ? 'failed'
+          : ['completed', 'shutdown'].includes(resultStatus || '') ? 'finished'
+            : resultStatus === 'interrupted' ? 'interrupted' : 'recorded')
         : fallbackToolAction(tool, itemStatus) || 'recorded'
       if (tool !== 'wait' && action !== 'recorded' && activityActions.has(`${threadId}:${action}`)) continue
       append(item, threadId, action, collaboration.agentsStates?.[threadId]?.message)
@@ -281,4 +284,20 @@ export function acpCollaborationAgentsForTurn(
     items,
     states.filter(state => relevantThreadIds.has(state.threadId)),
   )
+}
+
+/** Chat follows event order; inventory-only children never become feed entries. */
+export function acpCollaborationActivityFeed(items: AgentTranscriptProcessItem[]) {
+  const feed: Array<AcpCollaborationEvent & { processItemIds: string[]; count: number }> = []
+  for (const event of acpCollaborationEvents(items)) {
+    const previous = feed[feed.length - 1]
+    if (previous && event.action === 'updated' && previous.action === event.action
+      && previous.threadId === event.threadId && previous.title === event.title && previous.message === event.message) {
+      previous.processItemIds.push(event.processItemId)
+      previous.count += 1
+    } else {
+      feed.push({ ...event, processItemIds: [event.processItemId], count: 1 })
+    }
+  }
+  return feed
 }

@@ -91,7 +91,8 @@ function testPorts(overrides: Partial<WebSocketAcpPorts> = {}) {
       return 'acp';
     },
     async sendComposerMessage(agentId, content, options) {
-      composerCalls.push({ agentId, content, options });
+      const { onPhase: _onPhase, ...requestOptions } = options;
+      composerCalls.push({ agentId, content, options: requestOptions });
     },
     respondToAcpPermission(...args) {
       permissionCalls.push(args);
@@ -163,7 +164,6 @@ async function run(): Promise<void> {
         { kind: 'image', path: '/attachments/large.png', type: 'image/png' },
         { kind: 'image', path: '/attachments/missing.png', type: 'image/png' },
         { kind: 'audio', path: '/attachments/invalid.aiff', type: 'audio/aiff' },
-        { kind: 'image', path: '/attachments/ninth.png', type: 'image/png' },
       ],
     }));
     await flush();
@@ -197,6 +197,27 @@ async function run(): Promise<void> {
       requestId: 'request-1',
       agentId: 'agent-1',
       accepted: true,
+    }]);
+
+    const overLimit = testPorts();
+    const overLimitWs = client();
+    createWebSocketAcpHandlers<TestClient>(overLimit.ports).composerInput(overLimitWs, composer({
+      requestId: 'too-many-attachments',
+      attachments: Array.from({ length: 9 }, (_, index) => ({
+        kind: 'image',
+        path: `/attachments/image-${index}.png`,
+        type: 'image/png',
+      })),
+    }));
+    await flush();
+    assert.deepStrictEqual(overLimit.readPaths, [], 'over-limit submissions must fail before attachment file I/O');
+    assert.strictEqual(overLimit.composerCalls.length, 0);
+    assert.deepStrictEqual(messages(overLimitWs), [{
+      type: 'composer-input-result',
+      requestId: 'too-many-attachments',
+      agentId: 'agent-1',
+      accepted: false,
+      message: 'Too many Chat attachments',
     }]);
   }
 

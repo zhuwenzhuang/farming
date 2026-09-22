@@ -2425,7 +2425,7 @@ export function CodeWorkspace({
       draft: appendDraftBlock(state.draft, quote),
       history: { ...state.history, cursor: null },
     }))
-    if (activeTerminalIdRef.current === agentId) focusComposerTextarea()
+    if (activeTerminalIdRef.current === agentId) window.requestAnimationFrame(focusComposerTextarea)
   }, [agents, focusComposerTextarea, updateComposerStateForKey])
   const quoteSelectionInSubagent = useCallback(async (parentAgentId: string, text: string) => {
     const sessionKey = await openSubagent(parentAgentId)

@@ -20,7 +20,7 @@ Their purpose and controller remain explicit. A child reported by a provider is
 not automatically a Session that Farming can prompt, resume, close or delete.
 
 The initial design provides one retained side chat per parent Provider Session.
-Repeated opening returns to that conversation; ending it retains its history;
+Repeated opening returns to that conversation; automatic runtime release retains its history;
 deleting it permits a fresh snapshot and conversation. Ordinary Conversation Fork
 continues to create an independent task. Existing forks are not reclassified.
 Nested user-created side chats, promotion, automatic result merging, worktree
@@ -52,9 +52,10 @@ ancestors or scrolling away from the user's current work.
   it expands the parent and activates the child after creation settles. Repeated
   clicks and multiple browsers join the same backend operation.
 - Selecting the parent shows its existing Chat or Terminal. Selecting a child
-  opens its conversation in the existing work pane. A compact breadcrumb identifies
-  its parent and purpose and links back to the parent; no new header toolbar is added. A second split
-  pane is not required. Parent execution continues while a child is visible.
+  opens the shared related-conversation pane on the right, keeping its parent
+  visible on the left. This applies equally to Side Chat and native subagents.
+  A compact pane heading identifies the child and its parent; no app-level toolbar
+  is added. Parent execution continues while a child is visible.
 - Only the selected row receives the shared selection surface. Selecting a child
   does not also select its parent. Hover and selection use the same surface; no
   left-edge marker is added. Shared geometry and typography apply in Light, Dark
@@ -79,17 +80,139 @@ the same child view rather than creating another transcript owner. A child with
 no prompt capability is an inspectable transcript with an explicit control-owner
 label and no enabled composer.
 
+## Parallel Conversation Layout
+
+On a sufficiently wide desktop, the workspace has three regions: existing
+navigation, the parent work pane, and one related-conversation pane. Side Chat
+and provider-native subagents use the **same opening and placement behavior**.
+The right pane is a persistent content surface, not a modal, drawer or popover.
+
+```text
+Navigation             Parent work pane             Related conversation
+Project                Fix login                    Side chat · Cache behavior
+  Fix login            Chat / Terminal              Parent: Fix login · snapshot
+    Side chat          Parent transcript            Child transcript
+    Subagent           Parent continues working     Child status / permissions
+                       Parent composer              Child composer if supported
+```
+
+- Clicking either kind of child, including a link in a parent tool call, resolves
+  the authoritative relation, keeps the parent on the left, and opens that exact
+  child on the right. For a nested native child, its direct parent is the left
+  conversation; the compact ancestor path provides navigation back to the root.
+  Never recursively add a third conversation column.
+- Selecting another child replaces only the right conversation. Each Session
+  retains its own draft, attachments, scroll anchor, unread cursor and pending
+  permissions. Selecting the displayed parent focuses the left pane without
+  hiding the right. Navigating to a different top-level task hides the old pair;
+  returning restores its last viewed child and layout without starting a runtime.
+- Navigation selection and pane focus are separate. Exactly one sidebar row is
+  selected; both visible conversations are not simultaneously selected rows.
+  Pointer or keyboard focus determines the input target, never the last arriving
+  stream. Each Send, Stop, approval, model change and attachment uses the exact
+  Session of its own pane. Native output never steals focus or scrolls its peer.
+- Reuse the existing transcript, composer, status and icon-button families.
+  Show the child's title, purpose, compact parent path, snapshot information when
+  applicable, and the shared Hide pane action. Do not add an End action, a new
+  global toolbar, extra cards, or a separate input style. The parent keeps its
+  existing controls; unsupported child controls remain unavailable.
+- Hide pane expands the left pane and returns focus to the invoking child row or
+  parent control. Outside clicks do not hide a docked pane. Escape belongs to
+  the focused editor/Terminal or top registered overlay; it is not a global
+  shortcut to close the conversation. Explicit pane-navigation and Hide pane
+  commands provide keyboard access without taking over Terminal shortcuts.
+- Each visible transcript advances only its own read cursor when at latest
+  content. Reading one pane does not mark the other read; a visible peer already
+  at latest content may satisfy its own ordinary reading rule. Hidden panes do
+  not acquire read receipts. Preserve parent scroll and Terminal viewport when
+  opening, resizing or hiding the child; resize must not restart a runtime.
+
+### Width And Other Workspace Surfaces
+
+Use the workspace's **available content width**, after navigation, to decide
+whether two conversations fit. Initial design targets are a 480 CSS-pixel parent
+minimum, a 360 CSS-pixel child minimum, and a default 60:40 division clamped to
+those minima. Include the shared separator in the width budget. These are layout
+proposal values to verify with real composers, not a new compact-mode breakpoint.
+The existing compact policy remains authoritative. A keyboard-operable separator
+supports bounded resizing; store the preferred ratio locally, never Session state.
+
+When either minimum cannot fit, or the shared policy enters compact mode, show
+one conversation at a time with an explicit Parent / Related conversation switch
+and the other conversation's attention state. Preserve the pair, drafts, focus
+intent and scroll positions; returning to a wide layout restores the split.
+Do not shrink both composers until their actions disappear, add horizontal page
+scroll, or silently end either conversation. Initial narrow loads use this same
+policy rather than briefly mounting an unusable desktop split.
+
+Opening a related conversation from Files, Review, Browser or Computer restores
+the parent Chat/Terminal as the left content and remembers the previous workspace
+surface. Explicitly opening one of those surfaces keeps its existing navigation
+behavior and hides the conversation pair without closing either runtime. Returning
+to the pair restores both conversations. Preserve unsaved editor state and resource
+identity through the existing surface owner; do not create a third pane or a second
+resource/navigation controller in the first delivery.
+
+### Presentation Transitions
+
+The browser owns the parent/child pair, visible surface, focused pane and width;
+the backend owns relation identity, capabilities and lifecycle. Store durable
+Session identities for restoration, never assume a former runtime attachment is
+still live. A stale request may update its exact cached conversation but cannot
+replace a newer navigation choice.
+
+| Trigger | Presentation result | Lifecycle effect |
+| --- | --- | --- |
+| Open an existing child | Resolve parent, show pair, focus child composer or read-only heading | Fresh authoritative read only; no resume |
+| Create Side Chat | Keep parent visible; show bounded loading in right pane; settle exact child or explicit failure | Existing creation operation owns admission and reconciliation |
+| Select another child | Replace right pane; retain both children’s local view state | No cancel, release or prompt |
+| Hide pane / visit another surface | Preserve pair for return; restore appropriate focus | Supervision interest remains; ordinary idle policy still applies |
+| Resize wide ↔ narrow | Preserve pair and choose split or single visible conversation | No mutation |
+| Child removed or access lost | Show exact unavailable state and a route back; never substitute another child | No automatic recreation |
+| Reload / reconnect | Validate saved pair with a bounded authoritative read before controls enable | Reconcile backend state; do not resume merely to render |
+
+## Research Basis
+
+For evidence on when multi-agent orchestration helps, see
+[Multi-Agent Workflows: Industry Evidence](multi-agent-workflows-research.md).
+Session ownership and workflow dependencies are distinct; Side Chat alone does
+not imply a workflow scheduler or dependency graph.
+
+
+The layout decision is to keep the parent and related conversation visible at
+once. Product documentation supports this interaction without proving Farming's
+provider capabilities:
+
+- [VS Code: manage sessions](https://code.visualstudio.com/docs/agents/run/sessions/manage-sessions#ask-side-questions)
+  explicitly describes Side Chat in a group beside its source, with private
+  inherited context. Its multi-chat layout also separates hiding a tab from
+  deleting a chat and supports resizable groups. Adopt parallel visibility and
+  presentation-only hiding. Its documented Side Chat availability is limited to
+  Copilot and Claude in the Agents window; it does not establish Codex support.
+  Its per-question child creation and inclusion of in-progress context are not
+  this proposal's retained-slot and stable-boundary contract.
+- [Zed: Agent panel](https://github.com/zed-industries/zed/blob/main/docs/src/ai/agent-panel.md)
+  describes independently running threads with separate context and history and
+  project-grouped navigation. This supports identity and navigation separation;
+  it does not establish the same Side Chat split interaction.
+- [OpenAI desktop app documentation](https://learn.chatgpt.com/docs/app)
+  describes supervising parallel work. The retrieved documentation does not
+  establish exact Side Chat placement or native-child click behavior. Do not
+  claim Codex parity from that source; the same right-pane behavior for both
+  Farming child kinds is an explicit product decision here.
+
 ## Actions And Retention
 
 | User action | Runtime effect | History and navigation |
 | --- | --- | --- |
-| Back, switch task, collapse parent, dismiss a menu | None | Preserve the conversation and running indicator |
+| Hide pane, back, switch task, collapse parent, dismiss a menu | None | Preserve the conversation and running indicator |
 | Stop reply | Cancel this child's current Turn, when supported | Preserve the Session and allow a later message |
 | Open ended side chat | Read history without starting a runtime | Resume the same Session only when the user sends a new message |
 | Delete side chat | Settle owned runtime cleanup, then delete exact provider history | Remove the related row only after confirmed completion |
 | Copy to parent draft | None | Put user-selected content into the parent's ordinary draft, without overwriting an existing draft or sending automatically |
 
-There is no End button or dedicated close-side-chat control. Runtime release is
+There is no End button. The shared Hide pane control only changes presentation;
+it does not cancel, release or delete a Session. Runtime release is
 automatic under the reclamation policy below; the user can keep reading retained
 history. Escape and outside-pointer dismissal remain local navigation/overlay
 operations under the shared interaction contract and never issue Delete implicitly.
@@ -145,7 +268,7 @@ top-level. The first delivery uses a provider-owned boundary before the active
 Turn, consistent with the current ACP contract; it does not copy unfinished tool
 calls. The parent is never cancelled, steered, switched or reloaded to make a fork.
 
-The child header shows "Context through the last completed turn" and an available
+The child pane shows "Context through the last completed turn" and an available
 source reference. An active parent's partial answer and future changes are not
 included. If no safe boundary is available, report that reason without queueing
 an invisible fork behind the parent's entire running Turn. A provider limited to
@@ -165,7 +288,7 @@ requests and results remain attributed to the child. Conversation isolation does
 not isolate files: the first delivery shares the existing workspace and does not
 claim a filesystem snapshot or create a worktree.
 
-Opening an existing side chat does not refresh its parent context. The header
+Opening an existing side chat does not refresh its parent context. The pane
 continues to expose the original boundary. Users can supply selected newer
 information through an ordinary message, or explicitly delete and start again.
 
@@ -211,8 +334,8 @@ Turn (or creation without input), and sixty seconds after the last supervising
 browser loses its side-chat attachment. Idle eviction requires no active Turn,
 permission/elicitation, child work or owned asynchronous work. These deadlines
 release resources and retain history; they are not history expiration. A reconnect
-during the sixty-second window retains the runtime; expiry invokes the same End
-operation even if the side chat is still answering.
+during the sixty-second window retains the runtime; expiry makes only an idle runtime eligible for release. Accepted work and pending
+interaction continue after disconnect; release rechecks idleness at its owning boundary.
 
 Supervision uses an explicit related-session interest on the existing authenticated
 workspace connection, independent of transcript visibility. Returning to the parent
@@ -260,14 +383,25 @@ related work exists and provide a route to the Code view rather than hide it.
 
 ## Delivery And Acceptance
 
-1. Add the backend association and capability projection with deterministic fake
-   providers. Normalize native children into it without changing their controller.
-2. Add the shared sidebar rows and existing transcript/composer composition; wire
-   creation, retained reopen, deletion and automatic bounded reclamation together.
-   Do not ship creation with cleanup deferred to a later phase.
-3. Enable each adapter only after the common end-to-end criteria pass. Running
-   Side Chat requires the active-parent case; idle-only support stays clearly scoped.
-   Terminal entry is enabled separately after exact identity and non-interruption proof.
+The following dependency gates are implementation work, not shipped capability.
+The current Conversation Fork path can supply creation primitives, but a fork
+alone does not supply retained related membership, a split view or bounded cleanup.
+Native-child transcript inspection likewise does not imply prompt support.
+
+| Gate | Scope and owner | Exit evidence / dependency |
+| --- | --- | --- |
+| 1. Adapter contract | Provider boundary proves stable snapshot, continuation, exact identity and independent release; distinguish active-Turn from idle-only support | Fake-provider contracts plus an isolated real-provider probe; unresolved methods remain disabled |
+| 2. Durable related membership | Backend owns parent slot, native-child normalization, capability projection, list deltas and uncertain-operation reconciliation | Concurrent browsers, duplicate history discovery, stale generations and crash boundaries preserve one identity |
+| 3. Lifecycle completion | Backend composes creation/resume with idle/disconnect release, parent stop/archive/delete and exact cleanup | Child resources are reclaimed while parent and shared siblings survive; no uncertain mutation is replayed |
+| 4. Shared paired view | Workspace navigation composes parent and child transcripts, shared rows, focus routing, width policy and surface restoration | Both Side Chat and native-child entry points pass identical placement, focus and navigation cases; read-only fixtures can be used before creation is enabled |
+| 5. Enablement | Complete create/send/retain/reopen path using gates 1–4, then enable only verified adapter capabilities | Common end-to-end suite, three-appearance visual evidence and low-volume real-provider smoke; Terminal entry additionally proves exact identity and non-interruption |
+
+Gate 4 can be developed against deterministic fixtures while backend work proceeds,
+but creation must not ship before gate 3. Reuse existing operation, list projection,
+transcript and composer owners; do not introduce a second runtime lifecycle. Before
+implementation, confirm the layout dimensions with a production-shaped paired
+transcript/composer fixture. Provider support is recorded from acceptance evidence,
+not inferred from its name or an advertised connection-level Fork method.
 
 | Acceptance area | Required evidence |
 | --- | --- |
@@ -279,7 +413,7 @@ related work exists and provide a route to the Code view rather than hide it.
 | Cleanup | Exact child processes, bindings, tool resources and interactions are reclaimed; shared siblings survive; all idle/disconnect expiry and cleanup-failure paths terminate visibly |
 | Restart and retention | Hard process loss at each creation/deletion stage preserves exact reconciliation; history opens without inference; missing/incomplete inventory never causes guessed deletion |
 | Parent lifecycle | Natural completion, explicit End, archive, delete and native descendants obey their distinct ownership and retention rules |
-| Composed UI | Running parent plus streaming child, waiting native child, long titles, paged children, unread state, collapse, pins, search, keyboard and touch work in Light/Dark/Paper and compact layouts |
+| Composed UI | Parent and child simultaneously visible; both child kinds open the same right pane; independent input/Stop/approval targeting; hide/reopen, wide–narrow–wide, resource restoration, and running parent plus streaming child, waiting native child, long titles, paged children, unread state, collapse, pins, search, keyboard and touch work in Light/Dark/Paper and compact layouts |
 | Cost and scale | Collapsed rows do not load full child transcripts or spawn runtimes; bounded pages/deltas and exact fixture cleanup hold for many parents and native children |
 
 Provider enablement requires low-volume isolated real-provider smokes in addition

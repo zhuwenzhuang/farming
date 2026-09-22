@@ -66,3 +66,9 @@ Git History 与 Agent History 是两件事：前者来自项目的 Git 仓库，
 Blame 可以帮助理解一行代码来自何时、由谁修改。它是调查线索，不等于当前设计意图；需要结合代码、测试和当前文档判断。
 
 Files 展示的是 Farming Host 上的实际文件。代码跳转、引用、调用层次与诊断见 [Language Server](./language-server)。
+
+## 表格预览
+
+XLSX、CSV 和 TSV 以只读方式打开，支持切换 Sheet、单元格定位、查找和复制选区。
+选中 Chat Agent 时，点击“引用提问”会将选中内容、文件版本、Sheet 和范围追加到该 Agent
+已有草稿，确认后再发送。范围过大会提示缩小，不静默抽样；剪贴板不可用时可手动复制展示的文本。

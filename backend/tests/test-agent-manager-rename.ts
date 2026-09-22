@@ -31,6 +31,10 @@ async function run() {
       persistedAgentSnapshots.push({ ...agent, ...patch });
       return agent.persistentSessionId || `fsess_${agent.id}`;
     },
+    async persistAgentStatePatch(agent, patch) {
+      const id = this.ensureAgentSessionRecord({ ...agent, ...patch });
+      return { status: 'committed', id, commit: { metadataGeneration: 1, stateGeneration: 1 } };
+    },
     async persistAgentAdaptiveTitle(agent, adaptiveTitle) {
       return this.ensureAgentSessionRecord(agent, { adaptiveTitle });
     },

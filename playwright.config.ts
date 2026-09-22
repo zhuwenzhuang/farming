@@ -119,7 +119,7 @@ export default defineConfig({
     },
     {
       name: 'iphone-human-webkit',
-      testMatch: /(acp-human-cases|backend-connection-status|background-chat-continuity|human-story)\.spec\.ts/,
+      testMatch: /(related-session-workflows|acp-human-cases|backend-connection-status|background-chat-continuity|human-story)\.spec\.ts/,
       grep: /@iphone-human/,
       use: {
         ...devices['iPhone 14 Pro'],
@@ -128,7 +128,7 @@ export default defineConfig({
     },
     {
       name: 'android-human-chromium',
-      testMatch: /(acp-human-cases|backend-connection-status|background-chat-continuity|human-story|file-tree-scroll)\.spec\.ts/,
+      testMatch: /(related-session-workflows|acp-human-cases|backend-connection-status|background-chat-continuity|human-story|file-tree-scroll)\.spec\.ts/,
       grep: /@iphone-human|@native-file-scroll/,
       use: {
         ...devices['Pixel 7'],

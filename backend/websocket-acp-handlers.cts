@@ -1,3 +1,6 @@
+import type { ComposerSubmissionStatus } from '../shared/composer-submission.js';
+import type { ComposerStatusRequestMessage } from '../shared/browser-protocol.js';
+import { CHAT_PROMPT_MAX_ENCODED_BYTES, CHAT_ATTACHMENT_MAX_COUNT } from '../shared/chat-capacity.js';
 import type {
   AcpPermissionResponseMessage,
   ComposerInputMessage,
@@ -39,8 +42,9 @@ interface WebSocketAcpPorts {
   sendComposerMessage(
     agentId: string,
     content: unknown[],
-    options: { requestId: string; delivery: 'auto' | 'prompt' | 'steer' },
+    options: { requestId: string; delivery: 'auto' | 'prompt' | 'steer'; onPhase?: (status: ComposerSubmissionStatus) => void },
   ): Promise<unknown>;
+  composerSubmissionStatus?(agentId: string, requestId: string): ComposerSubmissionStatus;
   respondToAcpPermission(
     agentId: string,
     requestId: string,
@@ -116,7 +120,10 @@ function createWebSocketAcpHandlers<Client extends WebSocketAcpClient>(ports: We
 
       const content: unknown[] = [];
       if (composerMessage.trim()) content.push({ type: 'text', text: composerMessage });
-      const attachments = Array.isArray(message.attachments) ? message.attachments.slice(0, 8) : [];
+      const attachments = Array.isArray(message.attachments) ? message.attachments : [];
+      if (attachments.length > CHAT_ATTACHMENT_MAX_COUNT) throw new Error('Too many Chat attachments');
+      let encodedBytes = Buffer.byteLength(JSON.stringify(content));
+      if (encodedBytes > CHAT_PROMPT_MAX_ENCODED_BYTES) throw new Error('Chat message exceeds the encoded submission limit');
       for (const attachment of attachments) {
         if (
           (attachment?.kind !== 'image' && attachment?.kind !== 'audio')
@@ -132,6 +139,11 @@ function createWebSocketAcpHandlers<Client extends WebSocketAcpClient>(ports: We
         try {
           const data = await ports.readAttachment(filePath);
           if (data.length === 0 || data.length > 12 * 1024 * 1024) continue;
+          encodedBytes += 4 * Math.ceil(data.length / 3) + Buffer.byteLength(filePath) * 8 + 1024;
+          if (encodedBytes > CHAT_PROMPT_MAX_ENCODED_BYTES) {
+            respond(false, 'Chat attachments exceed the combined submission limit. Send fewer or smaller attachments.');
+            return;
+          }
           content.push({
             type: attachment.kind,
             data: data.toString('base64'),
@@ -154,7 +166,7 @@ function createWebSocketAcpHandlers<Client extends WebSocketAcpClient>(ports: We
       }
 
       try {
-        await ports.sendComposerMessage(targetAgentId, content, { requestId, delivery });
+        await ports.sendComposerMessage(targetAgentId, content, { requestId, delivery, onPhase: status => sendJson(client, { type: 'composer-input-status', agentId: targetAgentId, requestId, ...status }, ports.openState) });
         respond(true);
       } catch (error) {
         const normalized = caughtError(error);
@@ -195,7 +207,17 @@ function createWebSocketAcpHandlers<Client extends WebSocketAcpClient>(ports: We
     }
   };
 
-  return { acpPermissionResponse, composerInput };
+  const composerStatus = (client: Client, message: ComposerStatusRequestMessage) => {
+    if (!/^[A-Za-z0-9._:-]{1,160}$/.test(message.requestId)) return;
+    let status: ComposerSubmissionStatus;
+    try {
+      status = ports.composerSubmissionStatus?.(message.agentId, message.requestId) || { phase: 'unknown', updatedAt: Date.now() };
+    } catch {
+      status = { phase: 'unknown', updatedAt: Date.now() };
+    }
+    sendJson(client, { type: 'composer-input-status', agentId: message.agentId, requestId: message.requestId, ...status }, ports.openState);
+  };
+  return { acpPermissionResponse, composerInput, composerStatus };
 }
 
 export {

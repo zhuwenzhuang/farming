@@ -205,7 +205,7 @@ async function run() {
 
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-worktree-info-'));
   const repo = path.join(tmpRoot, 'repo');
-  const linked = path.join(tmpRoot, 'repo-topic 中文 \"quote\" \\slash');
+  const linked = path.join(tmpRoot, 'repo-topic 中文 "quote" \\slash');
   fs.mkdirSync(repo, { recursive: true });
 
   try {

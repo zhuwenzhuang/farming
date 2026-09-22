@@ -6,6 +6,9 @@ Chat and Terminal input share one editing contract. Drafts, attachments and
 submission state belong to the existing Agent composer owner. Expanding the
 editor is local presentation state, never another draft or submission path.
 
+
+When submission returns a pending result, the send control immediately shows its sending state and prevents duplicate submissions for that Agent. The draft remains editable; acceptance clears only the submitted draft, while failure or an uncertain result preserves it. Changing Agents does not transfer the pending indicator or let an earlier completion clear the new draft.
+
 ## Compact And Expanded Editing
 
 On compact layouts the textarea grows with its content to a bounded height

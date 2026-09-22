@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import { ChatFailureGlyph } from '../IconGlyphs'
-import type { AgentRowDisplayState } from './agent-row-state'
+import type { AgentStatusDisplayState } from './agent-row-state'
 
 function StatusIndicator({ state, className, decorative }: {
-  state: AgentRowDisplayState
+  state: AgentStatusDisplayState
   className: string
   decorative: boolean
 }) {
@@ -25,7 +25,7 @@ function StatusIndicator({ state, className, decorative }: {
 }
 
 export function AgentStatusIndicator({ state, className, decorative = false }: {
-  state: AgentRowDisplayState
+  state: AgentStatusDisplayState
   className: string
   decorative?: boolean
 }) {

@@ -1,3 +1,4 @@
+import type { ComposerSubmissionPhase, ComposerSubmissionStatus } from '../shared/composer-submission.js';
 import { EventEmitter } from 'events';
 import { isChatTurnState } from '../shared/chat-turn-state.js';
 import { acpHomeDefaultsPatch, type AgentHomeDefaults } from './agent-home-defaults.cjs';
@@ -371,6 +372,8 @@ interface TerminalInputAdmission {
 }
 
 interface ComposerMessageOptions extends UnknownRecord {
+  admissionDeadline?: number;
+  onPhase?: (status: ComposerSubmissionStatus) => void;
   delivery?: 'auto' | 'prompt' | 'steer';
   requestId?: string;
   retryDefinitiveFailure?: boolean;
@@ -1634,6 +1637,8 @@ class AgentManager extends EventEmitter {
         assertCurrentOwner,
         delivery,
         onSubmitted,
+        admissionDeadline,
+        onPhase,
         prompt,
         requestId,
         retryDefinitiveFailure,
@@ -1663,6 +1668,8 @@ class AgentManager extends EventEmitter {
           if (delivery === 'steer') {
             return this.sendComposerMessageNow(agent.id, prompt, {
               assertDeliveryOwner: assertCurrentOwner,
+              admissionDeadline,
+              onPhase: status => onPhase(status.phase),
               delivery,
               requestId,
               retryDefinitiveFailure,
@@ -1673,6 +1680,8 @@ class AgentManager extends EventEmitter {
             agent.id,
             (releaseInput: () => void) => this.sendComposerMessageNow(agent.id, prompt, {
               assertDeliveryOwner: assertCurrentOwner,
+              admissionDeadline,
+              onPhase: status => onPhase(status.phase),
               delivery,
               requestId,
               retryDefinitiveFailure,
@@ -1699,6 +1708,17 @@ class AgentManager extends EventEmitter {
         );
       },
       persistAgent: agent => this.sessionPersistence.persist(agent),
+      persistCommands: async (agent, composerCommands) => {
+        if (!this.configManager?.persistAgentStatePatch) {
+          if (typeof this.configManager?.ensureAgentSessionRecord === 'function') throw new Error('Async Composer persistence is unavailable');
+          return '';
+        }
+        const result = await this.configManager.persistAgentStatePatch(agent, { composerCommands, providerSessionMaterialized: agent.providerSessionMaterialized }, {
+          beforeCommit: () => this.agents.get(agent.id) === agent,
+        });
+        if (result.status !== 'committed') throw new Error(`Composer persistence rejected: ${result.status}`);
+        return result.id;
+      },
       persistenceRequired: () => typeof this.configManager?.ensureAgentSessionRecord === 'function',
       runtimeKind: agent => runtimeKind(agent),
     });
@@ -1957,6 +1977,9 @@ class AgentManager extends EventEmitter {
 
   bindAcpRuntimeEvents() {
     if (!this.acpRuntime || typeof this.acpRuntime.on !== 'function') return;
+    this.acpRuntime.on('submission-phase', (event: { agentId: string; clientPromptId: string; phase: ComposerSubmissionPhase }) => {
+      this.composerAdmissionCoordinator.phase(event.agentId, event.clientPromptId, event.phase);
+    });
     this.acpRuntime.on('agent-runtime', ({ agentId, state, error, sessionId, stopReason, supportsSteer, supportsFork, pendingPermission, pendingPermissions, pendingElicitation, pendingElicitations, activeElicitations, updatedAt, lastSettledTurnHandle, lastSettledTurnSummary, chatTurn }: AcpRuntimeEvent) => {
       const agent = this.agents.get(agentId);
       if (!agent) return;
@@ -4664,9 +4687,10 @@ class AgentManager extends EventEmitter {
       const runtime = runtimeBindingOf(agent, 'acp');
       const updatedAt = Date.parse(String(runtime?.sessionUpdatedAt || ''));
       if (agent.subagentParentSessionKey && !agent.subagentRetained && runtime
-        && (supervisionExpired || (runtime.state === 'idle' && Number.isFinite(updatedAt) && Date.now() - updatedAt >= 5 * 60_000))
+        && runtime.state === 'idle'
+        && (supervisionExpired || (Number.isFinite(updatedAt) && Date.now() - updatedAt >= 5 * 60_000))
         && !this.lifecycleCoordinator.get(agent.id)) {
-        try { await this.retainSubagent(agent.id, supervisionExpired); }
+        try { await this.retainSubagent(agent.id, false); }
         catch (caught) { console.warn('Subagent idle release requires reconciliation:', (caught as ErrorRecord).message); }
       }
     }
@@ -6422,6 +6446,7 @@ class AgentManager extends EventEmitter {
         delivery: options.delivery,
         message,
         requestId,
+        onPhase: options.onPhase,
       });
     }
     let terminalAdmission: TerminalInputAdmission | undefined;
@@ -6441,8 +6466,15 @@ class AgentManager extends EventEmitter {
       delivery: options.delivery,
       message,
       requestId,
+      onPhase: options.onPhase,
       ...(terminalAdmission ? { terminalAdmission } : {}),
     });
+  }
+
+  composerSubmissionStatus(agentId: string, requestId: string) {
+    const agent = this.agents.get(agentId);
+    if (!agent) throw new Error('Agent not found');
+    return this.composerAdmissionCoordinator.status(agent, requestId);
   }
 
   async sendComposerMessage(
@@ -6806,6 +6838,7 @@ class AgentManager extends EventEmitter {
 
     if (isAcpAgent(agent)) {
       this.requireLiveAcpAgent(agentId);
+      options.onPhase?.({ phase: 'preparing', updatedAt: Date.now() });
       await this.reconnectAcpAgent(agentId);
       options.assertDeliveryOwner?.();
       this.assertSubagentParentAvailable(agentId);
@@ -6813,6 +6846,7 @@ class AgentManager extends EventEmitter {
       const result = await this.acpRuntime.submitMessage(agentId, prompt, {
         delivery: options.delivery,
         clientPromptId: options.requestId,
+        admissionDeadline: options.admissionDeadline,
         retryDefinitiveFailure: options.retryDefinitiveFailure,
         onSubmitted: () => {
           // A new Session becomes archivable when its prompt is submitted,
@@ -6820,7 +6854,7 @@ class AgentManager extends EventEmitter {
           // completion would let Archive detach the owning writer first.
           try {
             agent.providerSessionMaterialized = true;
-            this.sessionPersistence.persist(agent);
+            if (!options.requestId) this.sessionPersistence.persist(agent);
           } finally {
             if (options.onSubmitted) options.onSubmitted({ kind: 'acp' });
             else options.releaseInput?.();
@@ -6830,8 +6864,9 @@ class AgentManager extends EventEmitter {
       if (result.steered !== true) {
         const runtime = runtimeBindingOf(agent, 'acp');
         if (!runtime) throw new Error('ACP runtime binding is unavailable');
-        runtime.state = 'idle';
-        runtime.stopReason = result.stopReason || '';
+        const authoritative = this.acpRuntime.getSession(agentId, { includeEntries: false, includeUpdates: false });
+        runtime.state = String(authoritative.state || runtime.state);
+        runtime.stopReason = String(authoritative.stopReason || result.stopReason || '');
         if (
           this.acpRuntime.turnCompletionEvents !== true
           &&
@@ -7173,13 +7208,14 @@ class AgentManager extends EventEmitter {
     return { ...inventory, parentSessionKey: parent.providerSessionKey, runtimeEpoch: epoch };
   }
 
-  async getAcpSubagentTranscript(agentId: AgentId, sessionId: string, maxTurns = 24, expectedEpoch = '') {
+  async getAcpSubagentTranscript(agentId: AgentId, sessionId: string, maxTurns = 24, expectedEpoch = '', cursor = '') {
     this.requireLiveAcpAgent(agentId);
     if (expectedEpoch && this.acpRuntime.bindingEpoch(agentId) !== expectedEpoch) throw new Error('Subagent belongs to an earlier parent runtime');
     const parentSessionId = String(this.getAcpSession(agentId).sessionId || '');
     const epoch = this.acpRuntime.bindingEpoch(agentId);
     const session = await this.acpRuntime.getSubagentTranscriptSessionForRead(agentId, sessionId, {
       maxTurns: Math.max(1, Math.min(200, Math.floor(maxTurns))),
+      cursor,
       mediaPathPrefix: this.transcriptMediaPathPrefix(agentId, sessionId),
     });
     if (
@@ -9656,6 +9692,10 @@ class AgentManager extends EventEmitter {
     }
     const pending = this.subagentRequests.get(parentKey);
     if (pending) return pending;
+    const parentOperation = activeLifecycleOperation(parent);
+    if (parent.archived || (parentOperation && ['archive', 'delete'].includes(parentOperation.type))) {
+      return { error: 'Parent is being archived or removed' };
+    }
     const request = (async (): Promise<AgentForkResult> => {
       const records = typeof this.configManager?.listAgentSessionRecords === 'function'
         ? this.configManager.listAgentSessionRecords()
@@ -10444,6 +10484,12 @@ class AgentManager extends EventEmitter {
             return { error: 'Agent session is currently running', status: 409 };
           }
 
+          // Detached/history Archive obeys the same child-first boundary as a
+          // live Agent. The parent identity mutation fences concurrent Resume.
+          await this.archiveOwnedSideChats(detachedAgent() || { providerSessionKey: sessionKey }, {
+            reason: 'parent-archive', recordHistory: false,
+          });
+
           const providerArchiveSupported = providerSessionHistoryMutationSupported(provider, 'archive');
           if (providerArchiveSupported) {
             let session: Awaited<ReturnType<typeof findAgentSession>>;
@@ -10588,6 +10634,30 @@ class AgentManager extends EventEmitter {
     );
   }
 
+  async archiveOwnedSideChats(parent: Pick<TypedAgentRecord, 'providerSessionKey' | 'subagentParentSessionKey'>, options: ArchiveAgentOptions) {
+    if (parent.subagentParentSessionKey || !parent.providerSessionKey) return;
+    const owned = new Map([...this.agents.values()]
+      .filter(child => child.subagentParentSessionKey === parent.providerSessionKey)
+      .map(child => [child.providerSessionKey || child.id, child]));
+    // Retained children may have no live attachment after a restart. Recover
+    // their exact persisted record without starting or resuming a provider.
+    for (const record of this.configManager?.listAgentSessionRecords?.() || []) {
+      if (canonicalProviderSessionKey(record.subagentParentSessionKey) !== parent.providerSessionKey
+        || (record.archived && !activeLifecycleOperation(record)) || owned.has(record.providerSessionKey || '')) continue;
+      const childId = record.runtimeAgentId || record.id;
+      if (!childId || !record.providerSessionKey) throw new Error('Child history has no durable identity');
+      if (this.agents.has(childId)) throw new Error('Child runtime identity belongs to another session');
+      const child = this.recoveredAgentRecord(childId, record.engine || 'native', record, { status: 'exited' });
+      setAgentRecordId(child, record.id);
+      this.agents.set(childId, child);
+      owned.set(record.providerSessionKey, child);
+    }
+    for (const child of owned.values()) {
+      const result = await this.archiveAgent(child.id, { ...options, reason: 'parent-archive', scheduleProviderArchive: true });
+      if (result.error || result.archived !== true) throw new Error(result.error || 'Child archive was not confirmed');
+    }
+  }
+
   async performArchiveAgent(
     agentId: AgentId,
     options: ArchiveAgentOptions,
@@ -10601,6 +10671,16 @@ class AgentManager extends EventEmitter {
     });
     if ('error' in admission) return { agentId, error: admission.error };
     const operationId = admission.operation.id;
+    // The parent journal fences new child work before any child Archive begins.
+    // Child failures remain explicit and prevent publishing parent success.
+    try {
+      await this.archiveOwnedSideChats(agent, options);
+    } catch (caught) {
+      const message = `Related session archive failed: ${(caught as ErrorRecord).message || caught}`;
+      this.lifecycleJournalService.transition(agent, operationId, 'blocked', message);
+      this.emitStateChange({ agentIds: [agentId] });
+      return { agentId, operationId, error: message, retryable: true };
+    }
     let providerArchivedByRuntime = false;
     if (
       runtimeKind(agent) === 'acp'

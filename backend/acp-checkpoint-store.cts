@@ -3,6 +3,7 @@ const fs = require('fs/promises');
 const path = require('path');
 const { promisify } = require('util');
 const zlib = require('zlib');
+import { Readable } from 'node:stream';
 import * as storageLayout from './storage-layout.cjs';
 
 type Gzip = (data: Buffer, options: { level: number }) => Promise<Buffer>;
@@ -17,6 +18,7 @@ interface AcpCheckpointIdentity {
 
 interface AcpCheckpointState {
   exportCheckpoint(): unknown;
+  exportCheckpointChunks?(): Promise<string[]>;
 }
 
 interface PendingCheckpoint {
@@ -42,6 +44,30 @@ const gzip = promisify(zlib.gzip) as unknown as Gzip;
 const gunzip = promisify(zlib.gunzip) as unknown as Gunzip;
 const CHECKPOINT_VERSION = 1;
 const DEFAULT_WRITE_DELAY_MS = 250;
+
+// Global capacity includes serialization, compression and durable publication.
+// Admission fences use their own tiny writes and never wait on this budget.
+let activeCheckpoints = 0;
+const checkpointWaiters: Array<() => void> = [];
+async function checkpointBudget<T>(operation: () => Promise<T>): Promise<T> {
+  if (activeCheckpoints >= 2) {
+    if (checkpointWaiters.length >= 128) throw new Error('ACP checkpoint capacity exceeded');
+    await new Promise<void>(resolve => checkpointWaiters.push(resolve));
+  } else activeCheckpoints += 1;
+  try { return await operation(); }
+  finally {
+    const next = checkpointWaiters.shift();
+    if (next) next();
+    else activeCheckpoints -= 1;
+  }
+}
+
+async function compressChunks(chunks: string[]): Promise<Buffer> {
+  const stream = Readable.from(chunks).pipe(zlib.createGzip({ level: zlib.constants.Z_BEST_SPEED }));
+  const buffers: Buffer[] = [];
+  for await (const chunk of stream) buffers.push(Buffer.from(chunk));
+  return Buffer.concat(buffers);
+}
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -95,6 +121,7 @@ class AcpCheckpointStore {
   writeDelayMs: number;
   pending: Map<string, PendingCheckpoint>;
   writeChains: Map<string, Promise<void>>;
+  dirtyProofs = new Map<string, Promise<void>>();
 
   constructor(configDir: string, options: { writeDelayMs?: unknown } = {}) {
     this.dir = storageLayout.acpCheckpointsDir(configDir);
@@ -164,11 +191,20 @@ class AcpCheckpointStore {
     const pending = this.pending.get(files.key);
     if (pending?.timer) clearTimeout(pending.timer);
     this.pending.delete(files.key);
-    return this.enqueue(files.key, async () => {
+    // A durable dirty fence remains valid across inexact snapshot writes.
+    // Reuse its completion instead of joining a potentially large snapshot queue.
+    const existing = this.dirtyProofs.get(files.key);
+    if (existing) return existing;
+    const proof = this.enqueue(files.key, async () => {
       await fs.mkdir(this.dir, { recursive: true });
       await durableWrite(files.dirty, `${Date.now()}\n`);
       await syncDirectory(this.dir);
     });
+    this.dirtyProofs.set(files.key, proof);
+    void proof.catch(() => {
+      if (this.dirtyProofs.get(files.key) === proof) this.dirtyProofs.delete(files.key);
+    });
+    return proof;
   }
 
   schedule(
@@ -180,17 +216,30 @@ class AcpCheckpointStore {
     if (!normalized.provider || !normalized.sessionId || !state) return;
     const files = this.paths(normalized);
     const previous = this.pending.get(files.key);
-    if (previous?.timer) clearTimeout(previous.timer);
-    const pending: PendingCheckpoint = {
-      identity: normalized,
-      state,
-      exact: options.exact === true,
-      timer: null,
+    if (previous) {
+      previous.state = state;
+      previous.exact = options.exact === true;
+      // One waiter owns the latest scheduled state while a write is in flight.
+      if (!previous.timer) return;
+      clearTimeout(previous.timer);
+    }
+    const pending: PendingCheckpoint = previous || {
+      identity: normalized, state, exact: options.exact === true, timer: null,
     };
-    pending.timer = setTimeout(() => {
+    const writeWhenReady = () => {
+      if (this.pending.get(files.key) !== pending) return;
+      pending.timer = null;
+      const writing = this.writeChains.get(files.key);
+      if (writing) {
+        void writing.then(writeWhenReady, writeWhenReady);
+        return;
+      }
       this.pending.delete(files.key);
-      void this.write(pending.identity, pending.state, { exact: pending.exact });
-    }, this.writeDelayMs);
+      void this.write(pending.identity, pending.state, { exact: pending.exact }).catch(error => {
+        console.warn('Failed to write ACP checkpoint:', error instanceof Error ? error.message : error);
+      });
+    };
+    pending.timer = setTimeout(writeWhenReady, this.writeDelayMs);
     pending.timer.unref?.();
     this.pending.set(files.key, pending);
   }
@@ -206,19 +255,18 @@ class AcpCheckpointStore {
     const pending = this.pending.get(files.key);
     if (pending?.timer) clearTimeout(pending.timer);
     this.pending.delete(files.key);
+    // Exact writes may clear the fence, including when already queued. A later
+    // markDirty must follow them; never reuse proof from before that write.
+    if (options.exact === true) this.dirtyProofs.delete(files.key);
+    const dirty = options.exact === true ? Promise.resolve() : this.markDirty(normalized);
     return this.enqueue(files.key, async () => {
-      const payload = {
-        version: CHECKPOINT_VERSION,
-        savedAt: Date.now(),
-        identity: normalized,
-        state: state.exportCheckpoint(),
-      };
-      const compressed = await gzip(Buffer.from(JSON.stringify(payload)), { level: zlib.constants.Z_BEST_SPEED });
+      await dirty;
+      return checkpointBudget(async () => {
+      const metadata = JSON.stringify({ version: CHECKPOINT_VERSION, savedAt: Date.now(), identity: normalized });
+      const compressed = state.exportCheckpointChunks
+        ? await compressChunks([metadata.slice(0, -1), ',"state":', ...await state.exportCheckpointChunks(), '}'])
+        : await gzip(Buffer.from(JSON.stringify({ version: CHECKPOINT_VERSION, savedAt: Date.now(), identity: normalized, state: state.exportCheckpoint() })), { level: zlib.constants.Z_BEST_SPEED });
       await fs.mkdir(this.dir, { recursive: true });
-      if (options.exact !== true) {
-        await durableWrite(files.dirty, `${Date.now()}\n`);
-        await syncDirectory(this.dir);
-      }
       const temporary = `${files.checkpoint}.${process.pid}.${Date.now()}.tmp`;
       try {
         await durableWrite(temporary, compressed);
@@ -231,6 +279,7 @@ class AcpCheckpointStore {
         await fs.rm(files.dirty, { force: true });
         await syncDirectory(this.dir);
       }
+      });
     });
   }
 

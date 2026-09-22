@@ -206,3 +206,6 @@ export function buildAgentRowDisplayState(
   if (backing.kind === 'agent') return agentRowStateFromAgent(backing.agent, now, options)
   return agentRowStateFromHistory(backing.session, backing.fallbackTitle, now)
 }
+
+export type AgentStatusDisplayState = Pick<AgentRowDisplayState,
+  'statusIndicatorVisible' | 'statusIndicatorDelayMs' | 'statusIndicatorKey' | 'failureMessage' | 'commandTitle' | 'lifecycleStatus' | 'turnActive'>

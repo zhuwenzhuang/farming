@@ -25,7 +25,9 @@ opaque child identities are fenced by the exact parent runtime generation;
 missing transcript capability is reported explicitly.
 
 Idle Side Chats release their runtime after five minutes; loss of explicitly attached owner-client
-supervision releases them after one minute, including an interrupted turn.
+supervision makes an idle runtime eligible for release after one minute. Accepted
+turns, pending approvals/input and native child work continue while the browser is
+away; disconnect never forces cancellation. The runtime rechecks idleness at release.
 History remains checkpointed and cold recovery does not start a provider.
 A new explicit message resumes the same session without replaying a prior
 prompt. Stopping the parent releases its exact Side Chat and owned Browser and
@@ -51,6 +53,34 @@ Session. Native controls are unavailable unless separately supported; the parent
 continues to own execution. Providers without history-read capability expose
 only the child events actually received, with unavailable content reported
 explicitly.
+
+Parent Archive first archives all Farming-owned Side Chats, including retained
+records after restart, through their existing lifecycle journals. A child failure
+blocks parent completion. The Codex adapter fences the parent, freshly enumerates
+proven native descendants and archives deepest children first; incomplete inventory,
+changing descendants or an unconfirmed child archive cannot report parent success.
+Provider-native archive behavior belongs to the adapter; opaque event IDs are never
+passed to another provider's history mutation API.
+
+Sidebar child rows reuse the main Agent status indicator, position and appearance tokens.
+Native lists show running and attention states by default; finished work is behind
+a counted, paged disclosure. An open or selected child remains visible on completion.
+Unknown state is labeled explicitly. The shared status vocabulary applies to sidebar and details. Chat owns a chronological activity feed, not an Agent inventory:
+only events attributed to that Turn appear, with adjacent repeated progress updates
+coalesced and evidence available on demand. Later inventory/status snapshots never
+create historical feed entries or rewrite an earlier event's outcome. Started work
+and its subsequent completion/failure remain in their original Turn; later ordinary
+Turns do not inherit the child list. No finished group, hierarchy or inventory count
+is duplicated in Chat. Explicitly opened evidence stays open as new events arrive;
+older events remain reachable through a bounded disclosure. Execution and cancellation
+remain owned by the backend/provider; feed visibility has no lifecycle side effects.
+
+The related pane reads fixed-size pages using provider cursors (retained-event IDs
+for event-only providers). Older/newer navigation and Return to latest keep every
+available turn reachable without growing each response. Live updates refresh only
+the latest page. Missing cursors, unavailable history and stale epochs are explicit.
+Quoting a child's result appends its source and selected text to the parent's draft,
+reveals that draft, and never sends it or overwrites existing text.
 
 The related pane serializes refreshes and rejects stale parent identities.
 Closing it cancels the browser read, not the Agent. Read timeout, missing history,
@@ -411,6 +441,15 @@ cross-process payload for these browser APIs.
 Provider replay is authoritative. Local checkpoints accelerate projection and
 preserve reset fences, but cannot replace a full load unless the provider can
 prove freshness. An uncertain Prompt leaves the checkpoint dirty.
+
+The Host checkpoint store owns the durable dirty fence. Prompt admission waits
+for its first successful durable write, then reuses that proof across inexact
+snapshots. Scheduling an exact rewrite invalidates the proof before enqueueing;
+subsequent admissions establish a new fence after that rewrite. Failed fence
+writes never establish proof. Process restart discards all in-memory proofs.
+Background snapshots coalesce to one latest pending state per Session while a
+write is active; they must not form an unbounded queue ahead of Prompt admission.
+Explicit writes and flushes retain their ordered completion semantics.
 
 The ordered Session reducer remains provider-neutral. Transcript details that
 are not part of standard ACP—such as internal-context scoping, compaction-text

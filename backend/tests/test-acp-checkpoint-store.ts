@@ -53,6 +53,61 @@ async function run() {
     assert.strictEqual((await store.load(identity))?.exact, true, 'an atomic exact rewrite should clear the dirty fence');
     assert.strictEqual(await store.load({ ...identity, providerHomeId: 'other' }), null, 'Agent Home is part of checkpoint identity');
 
+    // Hold the snapshot lane: an already durable dirty fence must not wait for it.
+    await store.markDirty(identity);
+    let releaseWrite!: () => void;
+    const gate = new Promise<void>(resolve => { releaseWrite = resolve; });
+    const blocked = store.enqueue(store.paths(identity).key, () => gate);
+    try {
+      let dirtyResolved = false;
+      void store.markDirty(identity).then(() => { dirtyResolved = true; });
+      await new Promise(resolve => setImmediate(resolve));
+      assert(dirtyResolved, 'repeat admission must not queue behind a large inexact snapshot');
+
+      let exported = 0;
+      for (let i = 0; i < 4; i++) {
+        store.schedule(identity, { exportCheckpoint: () => { exported++; return { latest: i }; } });
+        await new Promise(resolve => setTimeout(resolve, 5));
+      }
+      releaseWrite();
+      await blocked;
+      await store.flush();
+      assert.strictEqual(exported, 1, 'background snapshots coalesce to one latest state while writing');
+      assert.strictEqual((await store.load(identity, { allowDirty: true })).state.latest, 3);
+    } finally {
+      releaseWrite();
+      await blocked;
+    }
+
+    // An exact rewrite invalidates the old proof at enqueue, before it can clear it.
+    let releaseExact!: () => void;
+    const exactGate = new Promise<void>(resolve => { releaseExact = resolve; });
+    const beforeExact = store.enqueue(store.paths(identity).key, () => exactGate);
+    const exactWrite = store.write(identity, restored, { exact: true });
+    let fenced = false;
+    const newFence = store.markDirty(identity).then(() => { fenced = true; });
+    try {
+      await new Promise(resolve => setImmediate(resolve));
+      assert.strictEqual(fenced, false, 'a queued exact write requires a new ordered dirty fence');
+    } finally {
+      releaseExact();
+      await Promise.all([beforeExact, exactWrite, newFence]);
+    }
+    assert.strictEqual(await store.load(identity), null, 'an exact write cannot erase a later admission fence');
+
+    const failedStore = new AcpCheckpointStore(root);
+    const blockedDirectory = path.join(root, 'not-a-directory');
+    fs.writeFileSync(blockedDirectory, 'block checkpoint creation');
+    failedStore.dir = blockedDirectory;
+    try {
+      await assert.rejects(failedStore.markDirty(identity));
+      fs.unlinkSync(blockedDirectory);
+      await failedStore.markDirty(identity);
+      assert(fs.existsSync(failedStore.paths(identity).dirty), 'failed writes must not cache a successful dirty proof');
+    } finally {
+      await failedStore.dispose();
+    }
+
     restored.apply({
       sessionId: identity.sessionId,
       update: {

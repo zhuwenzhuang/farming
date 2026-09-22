@@ -1,3 +1,5 @@
+import { COMPOSER_ADMISSION_TIMEOUT_MS } from '../shared/chat-capacity.js';
+import type { ComposerSubmissionPhase } from '../shared/composer-submission.js';
 import { EventEmitter } from 'events';
 import { normalizeNativeSubagentNotification } from './acp-native-subagents.cjs';
 import { interruptChatTurn, type ChatTurnState } from '../shared/chat-turn-state.js';
@@ -159,6 +161,8 @@ interface SubagentControl {
 interface AcpBinding {
   chatTurn: ChatTurnState | null;
   retained?: boolean;
+  nativeTurnSequence?: number;
+  nativeTurnId?: string;
   agentId: string; provider: string; providerHomeId: string; providerHomePath: string;
   providerHomeIdentity: string; projectPath: string; cwd: string;
   capabilityRuntimeEpoch: string;
@@ -250,6 +254,8 @@ interface AcpRuntimeOptions extends PrepareAgentOptions {
 }
 interface PrepareAgentOptions extends UnknownRecord {
   retained?: boolean;
+  nativeTurnSequence?: number;
+  nativeTurnId?: string;
   agentId?: string; provider?: string; providerHomeId?: string; providerHomePath?: string;
   configDir?: string; projectWorkspace?: string; cwd?: string; sessionId?: string;
   capabilityRuntimeEpoch?: string;
@@ -326,7 +332,7 @@ const CODEX_STEER_METHOD = '_codex/session/steer';
 const SESSION_STEERING_METHOD = '_session/steering';
 const CODEX_ACP_PACKAGE = '@agentclientprotocol/codex-acp';
 const CODEX_ACP_VERSION = '1.12.0';
-const CODEX_ACP_SHA256 = '12695072c8736471d79585d9aa1b756b567f346c32f93dd0d769448891ca8fab';
+const CODEX_ACP_SHA256 = 'df3da296895a6d9a036de6d990e8ec69f8500d49a5d93e3fb8e118659eb71bde';
 const CLAUDE_ACP_PACKAGE = '@agentclientprotocol/claude-agent-acp';
 const CLAUDE_ACP_VERSION = '0.79.0';
 const CLAUDE_ACP_SHA256 = 'c332c90c89b1b3dd0000b548697667aedcec72f050ed2ec2cbe7ee0c39808f82';
@@ -2467,6 +2473,7 @@ class AcpRuntime extends EventEmitter {
       phase: 'admitting',
       previousState: binding.state,
       providerSettled: false,
+      nativeCompleted: false,
       controlTail: Promise.resolve(),
       cancelPromise: null,
       completion,
@@ -2476,14 +2483,69 @@ class AcpRuntime extends EventEmitter {
     return turn;
   }
 
-  finishTurn(binding: AcpBinding, turn: AcpTurn, result: unknown) {
+  finishTurn(binding: AcpBinding, turn: AcpTurn, result: unknown, flushConfig = true) {
     if (binding.activeTurn !== turn) return false;
     binding.activeTurn = null;
     binding.codexInlineVisualizationStreams.clear();
     turn.phase = 'completed';
     turn.resolveCompletion?.(result);
-    void this.flushDeferredSessionChanges(binding);
+    if (flushConfig) void this.flushDeferredSessionChanges(binding);
     return true;
+  }
+
+  // Adapter-normalized live lifecycle. Request settlement cannot retire a later
+  // provider-owned turn, and history replay cannot create live execution.
+  applyNativeTurn(binding: AcpBinding, update: UnknownRecord) {
+    const meta = update?._meta as UnknownRecord | undefined;
+    const event = meta?.farmingTurn as UnknownRecord | undefined;
+    if (binding.historyReplayActive || update?.sessionUpdate !== 'session_info_update'
+      || event?.version !== 1 || typeof event.turnId !== 'string' || !event.turnId
+      || event.turnId.length > 512 || !Number.isSafeInteger(event.sequence)
+      || Number(event.sequence) <= (binding.nativeTurnSequence || 0)
+      || !['started', 'completed', 'cancelled', 'failed'].includes(String(event.status))) return;
+    binding.nativeTurnSequence = Number(event.sequence);
+    let turn = binding.activeTurn;
+    if (event.status === 'started') {
+      if (binding.nativeTurnId === event.turnId) return;
+      if (turn?.nativeTurnId && !turn.nativeCompleted) return;
+      if (turn?.nativeCompleted) {
+        this.requireSessionState(binding).completePrompt();
+        this.finishTurn(binding, turn, { status: 'completed' }, false);
+        turn = null;
+      }
+      binding.nativeTurnId = event.turnId;
+      if (!turn) {
+        turn = this.beginTurn(binding);
+        turn.providerInitiated = true;
+        turn.phase = 'running';
+        binding.chatTurn = {
+          turnId: `${binding.capabilityRuntimeEpoch}:${turn.id}`,
+          status: 'active', message: '', updatedAt: Date.now(),
+        };
+      }
+      turn.nativeTurnId = event.turnId;
+      binding.state = 'working';
+      binding.error = '';
+      binding.stopReason = '';
+    } else {
+      if (!turn || turn.nativeTurnId !== event.turnId) return;
+      turn.nativeCompleted = true;
+      turn.providerSettled = true;
+      // A submitted ACP request still owns its own response/notification barrier.
+      if (!turn.providerInitiated) return;
+      this.requireSessionState(binding).completePrompt();
+      binding.state = event.status === 'failed' ? 'error' : 'idle';
+      binding.stopReason = event.status === 'completed' ? 'end_turn' : String(event.status);
+      if (binding.chatTurn) binding.chatTurn = {
+        ...binding.chatTurn, status: event.status as 'completed' | 'cancelled' | 'failed',
+        updatedAt: Date.now(),
+      };
+      this.finishTurn(binding, turn, { status: event.status });
+      this.scheduleCheckpoint(binding);
+    }
+    binding.updatedAt = new Date().toISOString();
+    this.emitRuntime(binding);
+    this.emitSession(binding);
   }
 
   async flushDeferredSessionChanges(binding: AcpBinding) {
@@ -2742,6 +2804,25 @@ class AcpRuntime extends EventEmitter {
 
   bindingCheckpoint(binding: AcpBinding) {
     return {
+      exportCheckpointChunks: async () => {
+        const main = binding.sessionState;
+        const revision = main.revision;
+        const metadata = JSON.stringify({
+          version: 2, complete: false,
+          patchDecisions: [...binding.patchDecisions.entries()],
+          deferredConfigChanges: [...binding.deferredConfigChanges.entries()].map(([id, change]) => [id, change.value]),
+          deferredModeId: binding.deferredModeId, providerProof: binding.checkpointProof || null,
+        });
+        const chunks = [metadata.slice(0, -1), ',"sessionState":', ...await main.exportCheckpointChunks(), ',"subagentStates":['];
+        let first = true;
+        for (const [sessionId, state] of binding.subagentStates) {
+          chunks.push(`${first ? '' : ','}{"sessionId":${JSON.stringify(sessionId)},"state":`, ...await state.exportCheckpointChunks(), '}');
+          first = false;
+        }
+        if (binding.sessionState !== main || main.revision !== revision) throw new Error('ACP checkpoint changed while encoding');
+        chunks.push(']}');
+        return chunks;
+      },
       exportCheckpoint: () => ({
         version: 2,
         complete: false,
@@ -2981,6 +3062,7 @@ class AcpRuntime extends EventEmitter {
           }
         const notificationSessionId = String(notification?.sessionId || '');
         const isPrimarySession = !binding.sessionId || !notificationSessionId || notificationSessionId === binding.sessionId;
+        if (isPrimarySession) this.applyNativeTurn(binding, native);
         let targetState = isPrimarySession ? binding.sessionState : binding.subagentStates.get(notificationSessionId);
         if (!targetState && notificationSessionId && binding.subagentStates.size < 32) {
           targetState = new AcpSessionState({
@@ -3180,7 +3262,19 @@ class AcpRuntime extends EventEmitter {
     this.emitRuntime(binding);
   }
 
+  admissionRemaining(options: PrepareAgentOptions): number {
+    const remaining = Number(options.admissionDeadline) - Date.now();
+    if (!Number.isFinite(remaining) || remaining <= 0) throw new Error('Chat admission expired before dispatch; the message was not sent');
+    return remaining;
+  }
+
+  submissionPhase(binding: AcpBinding, options: PrepareAgentOptions, phase: ComposerSubmissionPhase) {
+    this.emit('submission-phase', { agentId: binding.agentId, clientPromptId: String(options.clientPromptId || ''), phase });
+  }
+
   async submitMessage(agentId: string, prompt: PromptBlock[], options: PrepareAgentOptions = {}) {
+    options = { ...options, admissionDeadline: options.admissionDeadline || Date.now() + COMPOSER_ADMISSION_TIMEOUT_MS };
+    this.admissionRemaining(options);
     const binding = this.requireBinding(agentId);
     const delivery = options.delivery === 'prompt' || options.delivery === 'steer'
       ? options.delivery
@@ -3221,7 +3315,8 @@ class AcpRuntime extends EventEmitter {
         }
       }
       if (binding.activeTurn === turn && turn) {
-        await turn.completion;
+        this.submissionPhase(binding, options, 'waiting-turn');
+        await withTimeout(turn.completion, this.admissionRemaining(options), 'Chat waiting for the active turn');
         continue;
       }
       if (binding.activeTurn) continue;
@@ -3230,6 +3325,8 @@ class AcpRuntime extends EventEmitter {
   }
 
   async prompt(agentId: string, prompt: PromptBlock[], options: PrepareAgentOptions = {}) {
+    options = { ...options, admissionDeadline: options.admissionDeadline || Date.now() + COMPOSER_ADMISSION_TIMEOUT_MS };
+    this.admissionRemaining(options);
     const binding = this.requireBinding(agentId);
     if (
       binding.exited
@@ -3257,15 +3354,17 @@ class AcpRuntime extends EventEmitter {
     try {
       const configMutation = binding.configMutationTail;
       const patchDecisions = [...binding.patchDecisionInFlight.values()].map(item => item.promise);
-      await Promise.allSettled([
+      this.submissionPhase(binding, options, 'preparing');
+      await withTimeout(Promise.allSettled([
         ...(configMutation ? [configMutation] : []),
         ...patchDecisions,
-      ]);
+      ]), this.admissionRemaining(options), 'Chat configuration and decisions');
       if (!this.isCurrentTurn(binding, turn) || turn.phase !== 'admitting') {
         throw new Error('ACP prompt was cancelled before submission');
       }
       this.requireSavedSessionModel(binding);
-      await this.markCheckpointDirty(binding);
+      await withTimeout(this.markCheckpointDirty(binding), this.admissionRemaining(options), 'Chat durable admission fence');
+      this.admissionRemaining(options);
       if (!this.isCurrentTurn(binding, turn) || turn.phase !== 'admitting') {
         throw new Error('ACP prompt was cancelled before submission');
       }
@@ -3294,6 +3393,8 @@ class AcpRuntime extends EventEmitter {
       // the same Turn before releasing admission, without dispatching a prompt.
       this.emitRuntime(binding);
       this.emitSession(binding);
+      this.admissionRemaining(options);
+      this.submissionPhase(binding, options, 'dispatching');
       const responsePromise = binding.connection.prompt({ sessionId: binding.sessionId, prompt: content });
       try {
         options.onSubmitted?.({ steered: false });
@@ -3342,6 +3443,9 @@ class AcpRuntime extends EventEmitter {
       throw runtimeError;
     }
     return this.enqueueTurnControl(turn, async () => {
+      this.requireOpenBinding(binding);
+      // Native autonomous work may have replaced this already-completed turn.
+      if (binding.activeTurn !== turn && turn.nativeCompleted) return response;
       this.requireCurrentTurn(binding, turn);
       binding.stopReason = String(response?.stopReason || '');
       if (binding.chatTurn) {
@@ -4597,6 +4701,7 @@ class AcpRuntime extends EventEmitter {
       retryableReconnect: binding.retryableReconnect === true,
       stopReason: binding.stopReason,
       chatTurn: binding.chatTurn,
+      providerTurnId: binding.activeTurn?.providerInitiated ? String(binding.activeTurn.nativeTurnId) : null,
       supportsSteer: binding.supportsSteer === true,
       supportsFork: Boolean(
         binding.initializeResponse?.agentCapabilities?.sessionCapabilities?.fork
@@ -4865,10 +4970,10 @@ class AcpRuntime extends EventEmitter {
 
   listSubagents(agentId: string) {
     const binding = this.requireBinding(agentId);
-    const children = new Map<string, { sessionId: string; title: string; state: string; readable: boolean }>();
+    const children = new Map<string, { sessionId: string; title: string; state: string; stopReason?: string; readable: boolean }>();
     for (const [sessionId, state] of binding.subagentStates) {
       const transcript = this.getSubagentTranscriptSession(agentId, sessionId, { maxTurns: 1 });
-      children.set(sessionId, { sessionId, title: state.title || 'Subagent', state: transcript?.state || '', readable: true });
+      children.set(sessionId, { sessionId, title: state.title || 'Subagent', state: transcript?.state || '', stopReason: transcript?.stopReason || '', readable: true });
     }
     for (const child of binding.sessionState.codexSubagents?.agents || []) {
       if (child.parentThreadId !== binding.sessionId || children.has(child.threadId)) continue;
@@ -4945,7 +5050,7 @@ class AcpRuntime extends EventEmitter {
     const parentSessionId = binding.sessionId;
     if (!binding.connection.extMethod) throw new Error('ACP connection does not support related history reads');
     const response = await withTimeout(binding.connection.extMethod(method, {
-      parentSessionId, sessionId, maxTurns: options.maxTurns || 24,
+      parentSessionId, sessionId, maxTurns: options.maxTurns || 24, cursor: options.cursor || null,
     }), this.requestTimeoutMs, 'ACP related session read');
     this.requireOpenBinding(binding);
     if (binding.sessionId !== parentSessionId || response.sessionId !== sessionId
@@ -4959,7 +5064,9 @@ class AcpRuntime extends EventEmitter {
       cwd: binding.cwd, title: String(response.title || 'Subagent'),
       state: response.status === 'active' ? 'working' : response.status === 'systemError' ? 'error' : 'idle',
       canCancel: false, inlineReadMedia: true, error: '', stopReason: '',
-      ...snapshot.transcriptSlice(options), truncated: response.truncated === true, hasMoreBefore: response.truncated === true,
+      ...snapshot.transcriptSlice({ ...options, cursor: undefined }),
+      nextCursor: typeof response.nextCursor === 'string' ? response.nextCursor : null,
+      truncated: response.truncated === true, hasMoreBefore: response.truncated === true,
     };
   }
 
@@ -5009,6 +5116,7 @@ class AcpRuntime extends EventEmitter {
       retryableReconnect: binding.retryableReconnect === true,
       stopReason: binding.stopReason,
       chatTurn: binding.chatTurn,
+      providerTurnId: binding.activeTurn?.providerInitiated ? String(binding.activeTurn.nativeTurnId) : null,
       supportsSteer: binding.supportsSteer === true,
       supportsFork: Boolean(
         binding.initializeResponse?.agentCapabilities?.sessionCapabilities?.fork

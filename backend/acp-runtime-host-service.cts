@@ -62,6 +62,7 @@ class AcpRuntimeHostService extends EventEmitter {
     this.runtime = options.runtime;
     this.state = options.state || new AcpRuntimeHostState();
     this.state.on('event', event => this.emit('event', event));
+    this.runtime.on('submission-phase', event => this.state.publish('submission-phase', event));
     this.runtime.on('agent-runtime', event => this.refreshBinding(String(event.agentId || '')));
     this.runtime.on('session', event => {
       const agentId = String(event.agentId || '');
@@ -93,7 +94,11 @@ class AcpRuntimeHostService extends EventEmitter {
     delete summary.updates;
     const activePrompt = this.state.activePromptOperation(agentId, bindingEpoch);
     const current = this.state.binding(agentId);
-    if (activePrompt && current?.bindingEpoch === bindingEpoch) {
+    if (summary.providerTurnId) {
+      summary.turnHandle = `${bindingEpoch}:provider:${summary.providerTurnId}`;
+    } else if (current?.providerTurnId) {
+      summary.turnHandle = '';
+    } else if (activePrompt && current?.bindingEpoch === bindingEpoch) {
       summary.state = current.state;
       summary.turnHandle = current.turnHandle;
     }
@@ -153,6 +158,8 @@ class AcpRuntimeHostService extends EventEmitter {
     const completion = this.state.submitPrompt(controller, { ...request, contentHash }, (onTurnAdmitted, onSubmitted) => (
       this.runtime.submitMessage(request.agentId, request.prompt, {
         delivery: request.delivery,
+        clientPromptId: request.clientPromptId,
+        admissionDeadline: request.admissionDeadline,
         onTurnAdmitted,
         onTurnSettled: (settlement: UnknownRecord = {}) => {
           exactStopReason = String(settlement.stopReason || '');

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { ACP_TRANSCRIPT_UNSETTLED_RETRY_LADDER_LENGTH } from '../src/lib/transcript-fetch-policy'
 import {
+  ACP_TRANSCRIPT_READ_TIMEOUT_MS,
   attachAcpTranscriptSession,
   getAcpTranscriptSessionSnapshot,
   observeAcpTranscriptRevision,
@@ -9,6 +10,7 @@ import {
   reconnectAcpTranscriptSessions,
   resetAcpTranscriptSessionPoolForTests,
   retainAcpTranscriptSessions,
+  setAcpTranscriptTurnLimit,
 } from '../src/components/code/acp/acp-transcript-session-pool'
 
 function envelope(
@@ -49,6 +51,49 @@ function envelope(
           _meta: { codex: { phase: 'final_answer' } },
         },
       ],
+    },
+  }
+}
+
+function pagedEnvelope(
+  agentId: string,
+  turns: number[],
+  options: { pageCursor?: string; nextCursor: string | null; hasMoreBefore: boolean },
+) {
+  const entries = turns.flatMap(turn => [
+    { id: `user-${turn}`, type: 'message', role: 'user', content: [{ type: 'text', text: `question-${turn}` }] },
+    {
+      id: `answer-${turn}`,
+      type: 'message',
+      role: 'assistant',
+      content: [{ type: 'text', text: `answer-${turn}` }],
+      _meta: { codex: { phase: 'final_answer' } },
+    },
+  ])
+  const sessionId = `session-${agentId}`
+  return {
+    version: 1,
+    agentId,
+    sessionId,
+    runtimeEpoch: `epoch-${agentId}`,
+    fromRevision: null,
+    toRevision: 1,
+    replace: true,
+    settled: true,
+    hasMoreBefore: options.hasMoreBefore,
+    transcript: {
+      sessionId,
+      revision: 1,
+      state: 'idle',
+      updatedAt: '2026-08-19T00:00:01.000Z',
+      entries,
+      entryPatch: {
+        version: 1,
+        order: entries.map(entry => entry.id),
+        pageCursor: options.pageCursor ?? null,
+      },
+      nextCursor: options.nextCursor,
+      hasMoreBefore: options.hasMoreBefore,
     },
   }
 }
@@ -230,6 +275,45 @@ test('revision bursts keep one request in flight and collapse to the latest high
 
     assert.equal(urls.length, 2)
     assert.match(urls[1] ?? '', /sinceRevision=1/)
+    release()
+  } finally {
+    resetAcpTranscriptSessionPoolForTests()
+    globalThis.fetch = previousFetch
+  }
+})
+
+test('loading older ACP history prepends a fixed page without replacing the latest turns', async () => {
+  const previousFetch = globalThis.fetch
+  const urls: string[] = []
+  globalThis.fetch = async input => {
+    const url = String(input)
+    urls.push(url)
+    return jsonResponse(urls.length === 1
+      ? pagedEnvelope('agent-history', [16, 17, 18, 19, 20], {
+          nextCursor: 'user-16',
+          hasMoreBefore: true,
+        })
+      : pagedEnvelope('agent-history', [6, 7, 8, 9, 10, 11, 12, 13, 14, 15], {
+          pageCursor: 'user-16',
+          nextCursor: 'user-6',
+          hasMoreBefore: true,
+        }))
+  }
+  try {
+    retainAcpTranscriptSessions(['agent-history'])
+    const release = attachAcpTranscriptSession('agent-history')
+    await waitFor(() => getAcpTranscriptSessionSnapshot('agent-history').transcript?.turns.length === 5)
+
+    setAcpTranscriptTurnLimit('agent-history', 15)
+    await waitFor(() => getAcpTranscriptSessionSnapshot('agent-history').transcript?.turns.length === 15)
+
+    const snapshot = getAcpTranscriptSessionSnapshot('agent-history')
+    assert.match(urls[0] ?? '', /maxTurns=5/)
+    assert.match(urls[1] ?? '', /maxTurns=10/)
+    assert.match(urls[1] ?? '', /cursor=user-16/)
+    assert.equal(snapshot.transcript?.turns[0]?.finalMessage, 'answer-6')
+    assert.equal(snapshot.transcript?.turns.at(-1)?.finalMessage, 'answer-20')
+    assert.equal(snapshot.transcript?.nextCursor, 'user-6')
     release()
   } finally {
     resetAcpTranscriptSessionPoolForTests()
@@ -528,5 +612,35 @@ test('a repeated delta gap stops retrying and exposes a retryable terminal error
     resetAcpTranscriptSessionPoolForTests()
     globalThis.fetch = previousFetch
     globalThis.setTimeout = previousSetTimeout
+  }
+})
+
+
+test('hung transcript reads expire and release foreground capacity', async context => {
+  const previousFetch = globalThis.fetch
+  const requests: string[] = []
+  context.mock.timers.enable({ apis: ['setTimeout'] })
+  globalThis.fetch = (input, options) => {
+    requests.push(String(input))
+    return new Promise<Response>((_, reject) => {
+      options?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true })
+    })
+  }
+  try {
+    for (const id of ['hung-a', 'hung-b', 'hung-c', 'foreground']) {
+      attachAcpTranscriptSession(id)
+      refreshAcpTranscriptSession(id, true)
+    }
+    assert.equal(requests.length, 3)
+    context.mock.timers.tick(ACP_TRANSCRIPT_READ_TIMEOUT_MS)
+    for (let i = 0; i < 20; i++) await Promise.resolve()
+    assert.equal(getAcpTranscriptSessionSnapshot('hung-a').error, 'transport')
+    assert.equal(getAcpTranscriptSessionSnapshot('hung-a').loading, false)
+    assert(requests.some(url => url.includes('foreground')), 'expired reads must release their slots')
+  } finally {
+    resetAcpTranscriptSessionPoolForTests()
+    for (let i = 0; i < 20; i++) await Promise.resolve()
+    globalThis.fetch = previousFetch
+    context.mock.timers.reset()
   }
 })

@@ -36,6 +36,7 @@ const validClientMessages = {
   },
   'start-agent': { type: 'start-agent', command: 'codex' },
   input: { type: 'input', agentId: 'agent-1', input: 'hello' },
+  'composer-input-status-request': { type: 'composer-input-status-request', requestId: 'composer-1', agentId: 'agent-1' },
   'composer-input': { type: 'composer-input', agentId: 'agent-1', message: 'hello' },
   'acp-permission-response': {
     type: 'acp-permission-response',
@@ -114,6 +115,7 @@ async function run(): Promise<void> {
     'terminal-checkpoint-request': register('terminal-checkpoint-request', record),
     'start-agent': register('start-agent', record),
     input: register('input', record),
+    'composer-input-status-request': register('composer-input-status-request', record),
     'composer-input': register('composer-input', record),
     'acp-permission-response': register('acp-permission-response', record),
     'interrupt-agent': register('interrupt-agent', (dispatchContext, message) => {

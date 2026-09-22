@@ -33,6 +33,7 @@ interface HostClient {
   controller: { id: string; generation: number } | null;
   decoder: StringDecoder;
   disconnected: boolean;
+  dataRequests: number;
   socket: net.Socket;
 }
 
@@ -349,6 +350,7 @@ class AcpRuntimeHostProcess {
       controller: null,
       decoder: new StringDecoder('utf8'),
       disconnected: false,
+      dataRequests: 0,
     };
     this.clients.add(client);
     socket.on('data', chunk => this.handleData(client, chunk));
@@ -414,7 +416,7 @@ class AcpRuntimeHostProcess {
     client.buffer += typeof chunk === 'string' ? chunk : client.decoder.write(chunk);
     let newline = client.buffer.indexOf('\n');
     while (newline >= 0) {
-      if (newline > this.maxRequestBytes) {
+      if (Buffer.byteLength(client.buffer.slice(0, newline)) > this.maxRequestBytes) {
         client.socket.destroy(new Error('ACP runtime host request exceeded limit'));
         return;
       }
@@ -423,7 +425,7 @@ class AcpRuntimeHostProcess {
       if (line.trim()) void this.handleMessage(client, line);
       newline = client.buffer.indexOf('\n');
     }
-    if (client.buffer.length > this.maxRequestBytes) {
+    if (Buffer.byteLength(client.buffer) > this.maxRequestBytes) {
       client.socket.destroy(new Error('ACP runtime host request exceeded limit'));
     }
   }
@@ -437,9 +439,15 @@ class AcpRuntimeHostProcess {
     }
     const id = Number(message.id);
     if (!Number.isSafeInteger(id) || id <= 0) return;
+    const bulk = String(message.method || '').startsWith('get');
+    if (bulk && (client.dataRequests >= 8 || client.socket.writableLength > Math.max(0, this.maxBufferedBytes - 1024 * 1024))) {
+      this.send(client, { id, ok: false, error: { message: 'ACP history capacity exceeded; retry the read', code: 'ACP_RUNTIME_HOST_BUSY', retryable: true } });
+      return;
+    }
+    if (bulk) client.dataRequests += 1;
     try {
       const result = await this.dispatch(client, String(message.method || ''), message.params || {});
-      this.send(client, { id, ok: true, result });
+      this.send(client, { id, ok: true, result }, bulk);
     } catch (error) {
       const detail = error && typeof error === 'object' ? error as UnknownRecord : {};
       this.send(client, {
@@ -453,6 +461,8 @@ class AcpRuntimeHostProcess {
           ...(detail.operationId ? { operationId: String(detail.operationId) } : {}),
         },
       });
+    } finally {
+      if (bulk) client.dataRequests -= 1;
     }
   }
 
@@ -739,13 +749,16 @@ class AcpRuntimeHostProcess {
     }
   }
 
-  send(client: HostClient, message: UnknownRecord): boolean {
+  send(client: HostClient, message: UnknownRecord, bulk = false): boolean {
     if (client.disconnected || client.socket.destroyed) return false;
     if (client.socket.writableLength > this.maxBufferedBytes) {
       client.socket.destroy(new Error('ACP runtime host client backpressure'));
       return false;
     }
     let serialized = JSON.stringify(message);
+    if (bulk && client.socket.writableLength + Buffer.byteLength(serialized) > Math.max(0, this.maxBufferedBytes - 1024 * 1024)) {
+      serialized = JSON.stringify({ id: message.id, ok: false, error: { message: 'ACP history capacity exceeded; retry the read', code: 'ACP_RUNTIME_HOST_BUSY', retryable: true } });
+    }
     if (Buffer.byteLength(serialized) > this.maxResponseBytes) {
       if (message.id) {
         serialized = JSON.stringify({
@@ -757,6 +770,10 @@ class AcpRuntimeHostProcess {
         client.socket.destroy(new Error('ACP runtime Host event exceeded the configured limit'));
         return false;
       }
+    }
+    if (client.socket.writableLength + Buffer.byteLength(serialized) + 1 > this.maxBufferedBytes) {
+      client.socket.destroy(new Error('ACP runtime host client backpressure'));
+      return false;
     }
     // A false write result means accepted with backpressure, not undelivered.
     // Callback completion is owned by the Controller result, disconnect, or timeout.

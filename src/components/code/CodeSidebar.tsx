@@ -3345,7 +3345,7 @@ function AgentRow({
         active={relatedRows.activeId === child.id} searchSelected={false} now={now}
         onOpenAgent={onOpenAgent} onUpdateAgentFlags={onUpdateAgentFlags}
         onShowPreview={onShowPreview} onHidePreview={onHidePreview} copy={copy} />) : null}
-    {liveAgent && !liveAgent.subagentParentSessionKey && relatedRows.onOpen ? <NativeRelatedRows parent={liveAgent}
+    {liveAgent && !liveAgent.subagentParentSessionKey && relatedRows.onOpen ? <NativeRelatedRows parent={liveAgent} copy={copy}
       active={active || relatedRows.selected?.parentAgentId === liveAgent.id} selected={relatedRows.selected || null} onOpen={relatedRows.onOpen} /> : null}
     </>
   )

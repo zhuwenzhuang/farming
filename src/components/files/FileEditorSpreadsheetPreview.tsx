@@ -5,6 +5,8 @@ import { writeClipboardText } from '@/lib/clipboard'
 import type { OpenWorkspaceFile } from '@/lib/workspace-open-files'
 import { rawWorkspaceFileUrl } from '@/lib/workspace-files'
 import {
+  spreadsheetSelectionQuote,
+  spreadsheetSelectionText,
   spreadsheetColumnIndex,
   spreadsheetColumnLabel,
   type SpreadsheetSheetSnapshot,
@@ -16,6 +18,7 @@ interface FileEditorSpreadsheetPreviewProps {
   copy: CodeCopy
   openFile: OpenWorkspaceFile
   previewRefreshRevision: number
+  onQuoteSelection?: (text: string) => void
 }
 
 interface SpreadsheetWorkerResponse {
@@ -97,6 +100,7 @@ function errorFromResponseBody(body: string, status: number): string {
 export function FileEditorSpreadsheetPreview({
   activeTabDomId,
   copy,
+  onQuoteSelection,
   openFile,
   previewRefreshRevision,
 }: FileEditorSpreadsheetPreviewProps) {
@@ -108,6 +112,12 @@ export function FileEditorSpreadsheetPreview({
   const [query, setQuery] = useState('')
   const [findStatus, setFindStatus] = useState('')
   const [copied, setCopied] = useState(false)
+  const [tableReady, setTableReady] = useState(false)
+  const [actionError, setActionError] = useState('')
+  const [manualCopy, setManualCopy] = useState('')
+  const [snapshotSha1, setSnapshotSha1] = useState('')
+  const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => () => { if (copiedTimer.current) clearTimeout(copiedTimer.current) }, [])
   const tableHostRef = useRef<HTMLDivElement | null>(null)
   const tableRef = useRef<ListTable | null>(null)
   const searchCursorRef = useRef({ query: '', index: -1 })
@@ -131,6 +141,9 @@ export function FileEditorSpreadsheetPreview({
       setError('Spreadsheet loading timed out.')
     }, SPREADSHEET_PARSE_TIMEOUT_MS)
     setWorkbook(null)
+    setSnapshotSha1('')
+    setActionError('')
+    setManualCopy('')
     setError(null)
     setActiveSheetIndex(0)
     setSelectedRange(null)
@@ -139,6 +152,7 @@ export function FileEditorSpreadsheetPreview({
 
     void fetch(sourceUrl, { cache: 'no-store', signal: controller.signal }).then(async response => {
       if (!response.ok) throw new Error(errorFromResponseBody(await response.text(), response.status))
+      const sha1 = response.headers.get('X-Workspace-File-Sha1') || ''
       const buffer = await response.arrayBuffer()
       window.clearTimeout(fetchTimeout)
       if (controller.signal.aborted) return
@@ -154,7 +168,7 @@ export function FileEditorSpreadsheetPreview({
         settled = true
         window.clearTimeout(timeout)
         worker?.terminate()
-        if (event.data.workbook) setWorkbook(event.data.workbook)
+        if (event.data.workbook) { setWorkbook(event.data.workbook); setSnapshotSha1(sha1) }
         else setError(event.data.error || copy.spreadsheetParseFailed)
       }
       worker.onerror = () => {
@@ -184,6 +198,7 @@ export function FileEditorSpreadsheetPreview({
 
   useEffect(() => {
     const container = tableHostRef.current
+    setTableReady(false)
     if (!container || !sheet) return
     let disposed = false
     let table: ListTable | null = null
@@ -254,10 +269,11 @@ export function FileEditorSpreadsheetPreview({
         table.selectCell(1, 1, false, false, true)
         updateSelection()
       }
+      setTableReady(true)
       resizeObserver = new ResizeObserver(() => table?.resize())
       resizeObserver.observe(container)
       appearanceObserver = new MutationObserver(() => table?.updateTheme(spreadsheetTheme()))
-      appearanceObserver.observe(document.body, { attributes: true, attributeFilter: ['class', 'data-theme', 'style'] })
+      appearanceObserver.observe(document.body, { attributes: true, attributeFilter: ['class', 'data-appearance', 'data-theme', 'style'] })
       appearanceObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'data-appearance', 'data-theme', 'style'] })
     }).catch(caught => {
       if (!disposed) setError(caught instanceof Error ? caught.message : copy.spreadsheetParseFailed)
@@ -274,7 +290,7 @@ export function FileEditorSpreadsheetPreview({
   }, [copy.spreadsheetParseFailed, sheet])
 
   const selectCell = useCallback((column: number, row: number) => {
-    if (!sheet || column < 0 || row < 0 || column >= sheet.columnCount || row >= sheet.rowCount) return false
+    if (!tableRef.current || !sheet || column < 0 || row < 0 || column >= sheet.columnCount || row >= sheet.rowCount) return false
     tableRef.current?.selectCell(column + 1, row + 1, false, false, true)
     tableRef.current?.scrollToCell({ col: column + 1, row: row + 1 })
     setSelectedRange({ startColumn: column, startRow: row, endColumn: column, endRow: row })
@@ -312,12 +328,29 @@ export function FileEditorSpreadsheetPreview({
   }, [copy.spreadsheetNoMatch, query, selectCell, sheet])
 
   const copySelection = useCallback(async () => {
-    const value = tableRef.current?.getCopyValue()
+    const value = sheet && selectedRange ? spreadsheetSelectionText(sheet, selectedRange) : ''
     if (!value) return
-    if (!await writeClipboardText(value)) return
+    setActionError('')
+    setManualCopy('')
+    if (!await writeClipboardText(value)) {
+      setCopied(false)
+      setActionError(copy.spreadsheetCopyFailed)
+      setManualCopy(value)
+      return
+    }
     setCopied(true)
-    window.setTimeout(() => setCopied(false), 1_200)
-  }, [])
+    if (copiedTimer.current) clearTimeout(copiedTimer.current)
+    copiedTimer.current = setTimeout(() => setCopied(false), 1_200)
+  }, [copy.spreadsheetCopyFailed, sheet, selectedRange])
+
+  const quoteSelection = () => {
+    if (!sheet || !selectedRange || !onQuoteSelection) return
+    setActionError('')
+    if (!snapshotSha1) { setActionError(copy.spreadsheetQuoteUnavailable); return }
+    const quote = spreadsheetSelectionQuote(openFile.workspaceRoot, openFile.file.path, snapshotSha1, sheet, selectedRange)
+    if (!quote) { setActionError(copy.spreadsheetQuoteTooLarge); return }
+    onQuoteSelection(quote)
+  }
 
   const selectedAddress = sheet && selectedRange ? selectedRangeLabel(sheet, selectedRange) : ''
   const selectedCellAddress = sheet && selectedRange
@@ -343,7 +376,6 @@ export function FileEditorSpreadsheetPreview({
         <div className="code-spreadsheet-state error" role="alert">
           <strong>{copy.spreadsheetParseFailed}</strong>
           <span>{error}</span>
-          <a href={sourceUrl} download>{copy.spreadsheetDownload}</a>
         </div>
       )}
       {workbook && sheet && !error && (
@@ -355,6 +387,7 @@ export function FileEditorSpreadsheetPreview({
                 data-testid="code-spreadsheet-sheet-select"
                 value={activeSheetIndex}
                 onChange={event => {
+                  setTableReady(false)
                   setActiveSheetIndex(Number(event.currentTarget.value))
                   setSelectedRange(null)
                   setFindStatus('')
@@ -370,31 +403,35 @@ export function FileEditorSpreadsheetPreview({
             </label>
             <form className="code-spreadsheet-find" onSubmit={event => { event.preventDefault(); findNext() }}>
               <input
+                disabled={!tableReady}
                 aria-label={copy.spreadsheetFind}
                 placeholder={copy.spreadsheetFindPlaceholder}
                 value={query}
                 onChange={event => { setQuery(event.currentTarget.value); setFindStatus('') }}
               />
-              <button type="submit">{copy.spreadsheetFind}</button>
+              <button type="submit" disabled={!tableReady}>{copy.spreadsheetFind}</button>
               {findStatus && <span role="status">{findStatus}</span>}
             </form>
             <form className="code-spreadsheet-address" onSubmit={event => { event.preventDefault(); goToAddress() }}>
               <input
+                disabled={!tableReady}
                 aria-label={copy.spreadsheetAddress}
                 value={address}
                 onChange={event => setAddress(event.currentTarget.value)}
               />
             </form>
-            <button type="button" onClick={() => void copySelection()} disabled={!selectedRange}>
+            <button type="button" onClick={() => void copySelection()} disabled={!tableReady || !selectedRange}>
               {copied ? copy.spreadsheetCopied : copy.spreadsheetCopy}
             </button>
-            <a className="code-spreadsheet-download" href={sourceUrl} download>
-              {copy.spreadsheetDownload}
-            </a>
+            {onQuoteSelection ? <button type="button" onClick={quoteSelection} disabled={!tableReady || !selectedRange}>
+              {copy.quoteSelection}
+            </button> : null}
             <span className="code-spreadsheet-size">
               {copy.spreadsheetRowsColumns(sheet.rowCount, sheet.columnCount)}
             </span>
           </div>
+          {actionError ? <div className="code-spreadsheet-warning" role="alert">{actionError}</div> : null}
+          {manualCopy ? <textarea aria-label={copy.spreadsheetCopy} readOnly value={manualCopy} onFocus={event => event.currentTarget.select()} /> : null}
           {workbook.warnings.length > 0 && (
             <div className="code-spreadsheet-warning" role="status">
               {workbook.warnings.map(warning => warning.kind === 'missing-formula-cache'

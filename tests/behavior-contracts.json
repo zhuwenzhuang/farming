@@ -284,6 +284,30 @@
           }
         ]
       }
+    },
+    {
+      "id": "CODE-RELATED-WORKFLOWS",
+      "surface": "ui",
+      "promise": "Related work remains attributable and bounded: selected data and child results append to drafts without sending, finished children disclose progressively, and native history remains reachable past 200 turns.",
+      "owner": "docs/products/code/acp-runtime.md",
+      "evidence": {
+        "node": [
+          "backend/tests/test-agent-manager-subagent.ts",
+          "backend/tests/test-related-session-pagination.ts",
+          "backend/tests/test-spreadsheet-workbook.ts",
+          "backend/tests/test-codex-acp-archive.ts"
+        ],
+        "playwright": [
+          {
+            "file": "tests/e2e/related-session-workflows.spec.ts",
+            "title": "quotes spreadsheet and side-chat results without losing drafts or sending automatically"
+          },
+          {
+            "file": "tests/e2e/related-session-workflows.spec.ts",
+            "title": "keeps active children visible and pages past 200 historical turns"
+          }
+        ]
+      }
     }
   ]
 }

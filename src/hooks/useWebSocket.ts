@@ -1,3 +1,4 @@
+import { updateComposerSubmission } from '@/components/code/composer-submission-state'
 import { useEffect, useRef, useCallback, useState } from 'react'
 import { beginInteraction } from '@/lib/interaction-performance'
 import type { PerformanceTrace } from '../../shared/interaction-performance'
@@ -166,6 +167,7 @@ export function useWebSocket() {
   const composerRequestSequenceRef = useRef(0)
   const composerRequestResolversRef = useRef(new Map<string, {
     resolve: (accepted: boolean) => void
+    agentId: string
     timeout: number
     promise: Promise<boolean>
   }>())
@@ -287,6 +289,7 @@ export function useWebSocket() {
       composerAcceptedRequestsRef.current.add(requestId)
       return
     }
+    if (pending) updateComposerSubmission(pending.agentId, requestId, null)
     if (definitive) {
       if (requestKey && composerRequestIdsRef.current.get(requestKey) === requestId) {
         composerRequestIdsRef.current.delete(requestKey)
@@ -371,6 +374,7 @@ export function useWebSocket() {
           type: attachment.type,
         })),
       })
+    const reconciling = composerRequestIdsRef.current.has(requestKey) && !composerRequestResolversRef.current.has(composerRequestIdsRef.current.get(requestKey) || '')
     const requestId = explicitRequestId
       || composerRequestIdsRef.current.get(requestKey)
       || globalThis.crypto?.randomUUID?.()
@@ -396,16 +400,22 @@ export function useWebSocket() {
     const promise = new Promise<boolean>(resolve => {
       resolveRequest = resolve
     })
-    const timeout = window.setTimeout(() => {
-        settleComposerRequest(
-          requestId,
-          false,
-          'Chat submission has an uncertain outcome. Your draft is still available; retrying will reconcile the same request.',
-          false,
-        )
-    }, 15_000)
-    composerRequestResolversRef.current.set(requestId, { resolve: resolveRequest, timeout, promise })
-    if (!sendMessage(input)) {
+    const startedAt = performance.now()
+    const reconcile = () => {
+      const current = composerRequestResolversRef.current.get(requestId)
+      if (!current) return
+      if (performance.now() - startedAt >= 60_000) {
+        settleComposerRequest(requestId, false, 'Chat submission has an uncertain outcome. Your draft is preserved; retry checks the same request without sending it again.', false)
+        return
+      }
+      const ws = wsRef.current
+      if (ws?.readyState === WebSocket.OPEN && agentId) ws.send(JSON.stringify({ type: 'composer-input-status-request', agentId, requestId }))
+      current.timeout = window.setTimeout(reconcile, 2000)
+    }
+    const timeout = window.setTimeout(reconcile, 5000)
+    composerRequestResolversRef.current.set(requestId, { resolve: resolveRequest, agentId: agentId || '', timeout, promise })
+    updateComposerSubmission(agentId || '', requestId, { phase: 'received', updatedAt: Date.now() })
+    if (!sendMessage(reconciling && agentId ? { type: 'composer-input-status-request', requestId, agentId } : input)) {
       settleComposerRequest(
         requestId,
         false,
@@ -1249,6 +1259,13 @@ export function useWebSocket() {
               reconcileTerminalFenceError(msg as { agentId?: unknown; reason?: unknown })
               break
             }
+            case 'composer-input-status': {
+              if (!composerRequestResolversRef.current.has(msg.requestId)) break
+              updateComposerSubmission(msg.agentId, msg.requestId, msg)
+              if (msg.phase === 'submitted') latestHandlersRef.current.settleComposerRequest(msg.requestId, true)
+              else if (msg.phase === 'failed' || msg.phase === 'unknown') latestHandlersRef.current.settleComposerRequest(msg.requestId, false, msg.message || 'Chat submission could not be confirmed. Your draft is preserved.', msg.phase === 'failed')
+              break
+            }
             case 'composer-input-result':
               latestHandlersRef.current.settleComposerRequest(msg.requestId, msg.accepted, msg.message || '', msg.uncertain !== true)
               break
@@ -1469,11 +1486,8 @@ export function useWebSocket() {
         agentStateSnapshotCursorRef.current = null
         agentStateSignaturesRef.current = new Map()
         agentStateResyncPendingRef.current = false
-        composerRequestResolversRef.current.forEach(({ resolve, timeout }) => {
-          window.clearTimeout(timeout)
-          resolve(false)
-        })
-        composerRequestResolversRef.current.clear()
+        // Pending submissions retain their original deadline and query the same
+        // request after reconnection. A disconnect never replays a mutation.
         setState(prev => ({
           ...prev,
           connected: false,

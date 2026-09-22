@@ -1336,6 +1336,8 @@ app.get(routePath(BASE_PATH, '/api/agents/:agentId/acp-transcript'), async (req,
     const externalMedia = req.query.media === 'external-v1';
     const serialized = await agentManager.getAcpTranscriptSerialized(req.params.agentId, {
       maxTurns,
+      ...(req.query.entryPatches === 'v1' ? { entryPatches: true } : {}),
+      ...(typeof req.query.cursor === 'string' && req.query.cursor.length <= 512 ? { cursor: req.query.cursor } : {}),
       ...(externalMedia
         ? {
             mediaPathPrefix: routePath(
@@ -1481,7 +1483,12 @@ app.get(routePath(BASE_PATH, '/api/agents/:agentId/acp-subagents/:sessionId/tran
       res.status(400).json({ error: 'maxTurns must be an integer between 1 and 200' });
       return;
     }
-    res.json(await agentManager.getAcpSubagentTranscript(req.params.agentId, req.params.sessionId, limit, typeof req.query.runtimeEpoch === 'string' ? req.query.runtimeEpoch : ''));
+    const cursor = req.query.cursor;
+    if (cursor !== undefined && (typeof cursor !== 'string' || cursor.length > 4096)) {
+      res.status(400).json({ error: 'Invalid history cursor' });
+      return;
+    }
+    res.json(await agentManager.getAcpSubagentTranscript(req.params.agentId, req.params.sessionId, limit, typeof req.query.runtimeEpoch === 'string' ? req.query.runtimeEpoch : '', cursor || ''));
   } catch (caught) {
     const error = caughtError(caught);
     const message = error.message || 'Failed to read ACP subagent';
@@ -2287,9 +2294,24 @@ const websocketAcpHandlers = createWebSocketAcpHandlers<WebSocketClient>({
   attachmentsRoot: path.resolve(attachmentUploadStore.attachmentsDir),
   readAttachment: filePath => fs.promises.readFile(filePath),
   agentRuntimeKind: agentId => agentManager.agentRuntimeKind(agentId),
-  sendComposerMessage: (agentId, content, options) => (
-    agentManager.sendComposerMessage(agentId, content, options)
-  ),
+  composerSubmissionStatus: (agentId, requestId) => agentManager.composerSubmissionStatus(agentId, requestId),
+  sendComposerMessage: async (agentId, content, options) => {
+    const trace = interactionPerformance.recorder.begin('chat.submit', {
+      requestId: options.requestId, target: interactionPerformance.target(agentId), threshold: 200, timeout: 60_000,
+    });
+    trace.mark('received');
+    try {
+      const result = await agentManager.sendComposerMessage(agentId, content, { ...options, onPhase: status => {
+        trace.mark(status.phase === 'queued' ? 'intent' : status.phase === 'preparing' ? 'preparing' : status.phase === 'dispatching' ? 'dispatch' : status.phase === 'submitted' ? 'accepted' : 'received');
+        options.onPhase?.(status);
+      } });
+      trace.end('completed');
+      return result;
+    } catch (error) {
+      trace.end(caughtError(error).uncertain === true ? 'uncertain' : 'failed');
+      throw error;
+    }
+  },
   respondToAcpPermission: (agentId, requestId, optionId, cancelled) => (
     agentManager.respondToAcpPermission(agentId, requestId, optionId, cancelled)
   ),
@@ -2338,6 +2360,7 @@ const clientMessageDispatchTable = defineClientMessageDispatchTable<WebSocketCli
   'state-resync': registerClientMessage('state-resync', websocketFocusScopeHandlers.stateResync),
   'start-agent': registerClientMessage('start-agent', websocketAgentLifecycleHandlers.startAgent),
   input: registerClientMessage('input', websocketTerminalHandlers.input),
+  'composer-input-status-request': registerClientMessage('composer-input-status-request', websocketAcpHandlers.composerStatus),
   'composer-input': registerClientMessage('composer-input', websocketAcpHandlers.composerInput),
   'acp-permission-response': registerClientMessage('acp-permission-response', websocketAcpHandlers.acpPermissionResponse),
   'interrupt-agent': registerClientMessage('interrupt-agent', websocketAgentLifecycleHandlers.interruptAgent),

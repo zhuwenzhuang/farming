@@ -124,6 +124,8 @@ export interface AgentTranscriptTurn {
 }
 
 export interface AgentTranscript {
+  entrySnapshot?: { session: Record<string, unknown>; entries: Record<string, unknown>[]; order: string[] }
+  historyPage?: boolean
   canCancel?: boolean
   forkOrigin?: {
     sourceSessionId: string
@@ -146,6 +148,7 @@ export interface AgentTranscript {
   state?: string
   error?: string
   errorKind?: string
+  nextCursor?: string | null
   hasMoreBefore?: boolean
   turnLimit?: number
   revision?: number
@@ -905,6 +908,7 @@ export function projectAcpTranscript(sessionValue: unknown, options: { maxTurns?
     stopReason: stringValue(session.stopReason),
     plan,
     ...(codexSubagents ? { codexSubagents } : {}),
+    nextCursor: typeof session.nextCursor === 'string' ? session.nextCursor : null,
     hasMoreBefore: session.hasMoreBefore === true || turns.length > visibleTurns.length,
     turnLimit: maxTurns, truncated: session.truncated === true, turns: visibleTurns,
   }

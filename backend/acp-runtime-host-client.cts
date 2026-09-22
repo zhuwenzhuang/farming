@@ -1,3 +1,4 @@
+import { ACP_HOST_FRAME_MAX_BYTES, ACP_HOST_PENDING_MAX, ACP_HOST_CONTROL_RESERVE, ACP_HOST_RECOVERY_MAX_EVENTS, ACP_HOST_RECOVERY_MAX_BYTES } from '../shared/chat-capacity.js';
 'use strict';
 
 import { EventEmitter } from 'events';
@@ -129,6 +130,7 @@ class AcpRuntimeHostClient extends EventEmitter {
   configOverrides: Map<string, UnknownRecord>;
   recovering: boolean;
   recoveryEvents: UnknownRecord[];
+  recoveryBytes = 0;
   callbackHandlers: Map<string, Record<string, ControllerCallback>>;
   callbackAgentIds: Map<string, string>;
   poisonedError: Error | null;
@@ -161,6 +163,7 @@ class AcpRuntimeHostClient extends EventEmitter {
     this.configOverrides = new Map();
     this.recovering = false;
     this.recoveryEvents = [];
+    this.recoveryBytes = 0;
     this.callbackHandlers = new Map();
     this.callbackAgentIds = new Map();
     this.poisonedError = null;
@@ -241,6 +244,10 @@ class AcpRuntimeHostClient extends EventEmitter {
     this.buffer += typeof chunk === 'string' ? chunk : this.decoder.write(chunk);
     let newline = this.buffer.indexOf('\n');
     while (newline >= 0) {
+      if (Buffer.byteLength(this.buffer.slice(0, newline)) > ACP_HOST_FRAME_MAX_BYTES) {
+        this.handleDisconnect(new Error('ACP runtime host response exceeded limit'));
+        return;
+      }
       const line = this.buffer.slice(0, newline);
       this.buffer = this.buffer.slice(newline + 1);
       if (line.trim()) {
@@ -253,6 +260,9 @@ class AcpRuntimeHostClient extends EventEmitter {
         }
       }
       newline = this.buffer.indexOf('\n');
+    }
+    if (Buffer.byteLength(this.buffer) > ACP_HOST_FRAME_MAX_BYTES) {
+      this.handleDisconnect(new Error('ACP runtime host response exceeded limit'));
     }
   }
 
@@ -278,6 +288,11 @@ class AcpRuntimeHostClient extends EventEmitter {
     if (event === 'runtime-event' && payload && typeof payload === 'object') {
       const item = payload as UnknownRecord;
       if (this.recovering) {
+        this.recoveryBytes += Buffer.byteLength(JSON.stringify(item));
+        if (this.recoveryEvents.length >= ACP_HOST_RECOVERY_MAX_EVENTS || this.recoveryBytes > ACP_HOST_RECOVERY_MAX_BYTES) {
+          this.handleDisconnect(new Error('ACP runtime host recovery capacity exceeded'));
+          return;
+        }
         this.recoveryEvents.push(item);
         return;
       }
@@ -518,11 +533,22 @@ class AcpRuntimeHostClient extends EventEmitter {
     if (!this.socket || this.socket.destroyed) {
       return Promise.reject(new Error('ACP runtime host is not connected'));
     }
+    const control = ['cancelTurn', 'cancelSubagent', 'respondPermission', 'respondElicitation', 'resolveControllerCallback', 'recover', 'ping', 'registerController'].includes(method);
+    const pendingLimit = control ? ACP_HOST_PENDING_MAX : ACP_HOST_PENDING_MAX - ACP_HOST_CONTROL_RESERVE;
+    if (this.pending.size >= pendingLimit) {
+      return Promise.reject(Object.assign(new Error('ACP runtime host request capacity exceeded'), { code: 'ACP_RUNTIME_HOST_BUSY', retryable: true }));
+    }
     const id = this.nextRequestId++;
     const timeoutMs = options.timeoutMs === 0 ? 0 : Number(options.timeoutMs || this.requestTimeoutMs);
     return new Promise<T>((resolve, reject) => {
       // Serialization has no transport effect and must precede pending state/timers.
       const serialized = `${JSON.stringify({ id, method, params })}\n`;
+      const bytes = Buffer.byteLength(serialized);
+      if (bytes > ACP_HOST_FRAME_MAX_BYTES) throw new Error('ACP runtime host request exceeded limit');
+      const budget = control ? ACP_HOST_FRAME_MAX_BYTES : ACP_HOST_FRAME_MAX_BYTES - 1024 * 1024;
+      if ((this.socket?.writableLength || 0) + bytes > budget) {
+        throw Object.assign(new Error('ACP runtime host write capacity exceeded'), { code: 'ACP_RUNTIME_HOST_BUSY', retryable: true });
+      }
       const operationId = String(params.clientPromptId || params.operationId || '');
       const timer = timeoutMs > 0
         ? setTimeout(() => {
@@ -568,6 +594,7 @@ class AcpRuntimeHostClient extends EventEmitter {
     if (this.recovering) throw new Error('ACP runtime host recovery is already in progress');
     this.recovering = true;
     this.recoveryEvents = [];
+    this.recoveryBytes = 0;
     let requireFull = forceReplace;
     let result: UnknownRecord = {};
     try {
@@ -578,12 +605,14 @@ class AcpRuntimeHostClient extends EventEmitter {
         });
         const buffered = this.recoveryEvents;
         this.recoveryEvents = [];
+    this.recoveryBytes = 0;
         let contiguous = this.installRecovery(result, baseEventSeq, requireFull)
           && this.installBufferedEvents(buffered);
         if (contiguous) {
           while (this.recoveryEvents.length > 0) {
             const next = this.recoveryEvents;
             this.recoveryEvents = [];
+    this.recoveryBytes = 0;
             if (!this.installBufferedEvents(next)) {
               contiguous = false;
               break;
@@ -597,6 +626,7 @@ class AcpRuntimeHostClient extends EventEmitter {
     } finally {
       this.recovering = false;
       this.recoveryEvents = [];
+    this.recoveryBytes = 0;
     }
   }
 

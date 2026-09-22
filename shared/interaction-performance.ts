@@ -1,12 +1,12 @@
 /** Diagnostic observations only: never an input acknowledgement or mutation authority. */
 export const PERFORMANCE_OPERATIONS = [
-  'terminal.input', 'editor.input', 'file.open', 'file.save', 'agent.switch',
+  'chat.submit', 'chat.admission', 'terminal.input', 'editor.input', 'file.open', 'file.save', 'agent.switch',
   'workspace.request', 'language-server.request', 'connection.probe', 'browser.long-task', 'runtime.sample',
 ] as const
 export type PerformanceOperation = typeof PERFORMANCE_OPERATIONS[number]
 export const PERFORMANCE_OUTCOMES = ['observed', 'completed', 'failed', 'cancelled', 'superseded', 'timeout', 'hidden', 'unobserved', 'uncertain'] as const
 export type PerformanceOutcome = typeof PERFORMANCE_OUTCOMES[number]
-export const PERFORMANCE_STAGES = ['handler', 'sent', 'received', 'dispatch', 'service', 'output', 'model', 'draft', 'renderer', 'frame'] as const
+export const PERFORMANCE_STAGES = ['handler', 'sent', 'received', 'dispatch', 'service', 'output', 'model', 'draft', 'renderer', 'frame', 'intent', 'preparing', 'accepted'] as const
 export type PerformanceStage = typeof PERFORMANCE_STAGES[number]
 export const PERFORMANCE_METRICS = [
   'inputCount', 'inputUnits', 'contentUnits', 'outputUnits', 'queueMs', 'serviceMs',

@@ -80,7 +80,7 @@ class AcpTranscriptService {
       revision: Number(runtimeBinding?.sessionRevision || 0),
       projectionRevision: this.runtime.transcriptProjectionRevision(agentId),
     };
-    const preparedProfile = !Number.isFinite(Number(options.sinceRevision))
+    const preparedProfile = !options.entryPatches && !options.cursor && !Number.isFinite(Number(options.sinceRevision))
       && Number(options.maxTurns) === PREPARED_TRANSCRIPT_TURN_LIMIT
       && options.mediaPathPrefix === this.mediaPathPrefix(agentId);
     if (preparedProfile && identity.sessionId) {
@@ -94,6 +94,8 @@ class AcpTranscriptService {
       runtimeEpoch: identity.runtimeEpoch,
       revision: identity.revision,
       projectionRevision: identity.projectionRevision,
+      entryPatches: options.entryPatches === true,
+      cursor: options.cursor || '',
       maxTurns: Number(options.maxTurns) || 0,
       sinceRevision: Number.isFinite(Number(options.sinceRevision)) ? Number(options.sinceRevision) : null,
       mediaPathPrefix: String(options.mediaPathPrefix || ''),

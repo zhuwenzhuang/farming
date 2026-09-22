@@ -1,3 +1,7 @@
+import { ChevronRightGlyph } from '@/components/IconGlyphs'
+import { AgentStatusIndicator } from './AgentStatusIndicator'
+import type { CodeCopy } from './copy'
+import { relatedSessionStatusLabel, relatedSessionFinished, relatedSessionCounts, relatedSessionIndicator } from './related-session-status'
 import { useEffect, useRef, useState } from 'react'
 import type { Agent } from '@/types/agent'
 import { appPath } from '@/lib/base-path'
@@ -5,12 +9,14 @@ import { isAcpRuntime } from '@/lib/agent-runtime'
 import { CollaborationAgentIcon } from './CollaborationAgentIcon'
 import type { RelatedSessionTarget } from './related-session-navigation'
 
-type Inventory = { parentSessionKey: string; runtimeEpoch: string; children: Array<{ sessionId: string; title: string; state: string; readable: boolean }> }
-export function NativeRelatedRows({ parent, active, selected, onOpen }: {
-  parent: Agent; active: boolean; selected: RelatedSessionTarget | null; onOpen: (target: RelatedSessionTarget) => void
+type Inventory = { parentSessionKey: string; runtimeEpoch: string; children: Array<{ sessionId: string; title: string; state: string; stopReason?: string; readable: boolean }> }
+export function NativeRelatedRows({ parent, active, selected, onOpen, copy }: {
+  copy: CodeCopy; parent: Agent; active: boolean; selected: RelatedSessionTarget | null; onOpen: (target: RelatedSessionTarget) => void
 }) {
   const [inventory, setInventory] = useState<Inventory | null>(null)
   const [error, setError] = useState('')
+  const [visibleCount, setVisibleCount] = useState(6)
+  const [finishedCount, setFinishedCount] = useState(6)
   const refreshRef = useRef<(() => void) | null>(null)
   const structured = isAcpRuntime(parent)
   const revision = isAcpRuntime(parent) ? parent.runtimeBinding.sessionRevision : 0
@@ -49,16 +55,30 @@ export function NativeRelatedRows({ parent, active, selected, onOpen }: {
   useEffect(() => { if (active) refreshRef.current?.() }, [revision, active])
   if (!inventory || inventory.parentSessionKey !== parent.providerSessionKey) return error && active
     ? <button type="button" className="code-agent-row related-child" onClick={() => refreshRef.current?.()} title={error}>Related sessions unavailable · Retry</button> : null
-  return <>
-    {inventory.children.map(child => <button type="button" key={`${inventory.runtimeEpoch}:${child.sessionId}`}
+  const isSelected = (child: Inventory['children'][number]) => selected?.parentAgentId === parent.id
+    && selected.parentSessionKey === parent.providerSessionKey && !selected.subagentSessionKey && selected.sessionId === child.sessionId
+  const current = inventory.children.filter(child => !relatedSessionFinished(child.state) || isSelected(child))
+  const finished = inventory.children.filter(child => relatedSessionFinished(child.state) && !isSelected(child))
+  const counts = relatedSessionCounts(inventory.children.map(child => child.state))
+  const renderChild = (child: Inventory['children'][number]) => <button type="button" key={`${inventory.runtimeEpoch}:${child.sessionId}`}
       className={`code-agent-row related-child ${selected?.parentAgentId === parent.id && selected.sessionId === child.sessionId && !selected.subagentSessionKey ? 'active' : ''}`}
-      data-testid="code-native-related-row" aria-label={child.title} title={`${child.title} · ${child.state}`}
+      data-testid="code-native-related-row" aria-label={`${child.title} · ${relatedSessionStatusLabel(child.state, copy, child.stopReason)}`} title={`${child.title} · ${relatedSessionStatusLabel(child.state, copy, child.stopReason)}`}
       onClick={() => onOpen({ parentAgentId: parent.id, parentSessionKey: parent.providerSessionKey,
         sessionId: child.sessionId, title: child.title, runtimeEpoch: inventory.runtimeEpoch, readable: child.readable })}>
       <CollaborationAgentIcon sessionId={child.sessionId} />
       <span className="code-agent-row-copy"><span className="code-agent-name">{child.title}</span></span>
-      <span className="code-agent-row-trailing">{child.state}</span>
-    </button>)}
+      <span className="code-agent-row-trailing"><AgentStatusIndicator className="code-agent-dot" state={relatedSessionIndicator(`${inventory.runtimeEpoch}:${child.sessionId}`, child.state, copy, child.stopReason)} /></span>
+    </button>
+  return <>
+    {inventory.children.length ? <div className="code-agent-row related-child" role="status">{copy.relatedSummary(counts.running, counts.attention, counts.finished)}</div> : null}
+    {current.filter((child, index) => index < visibleCount || isSelected(child)).map(renderChild)}
+    {current.length > visibleCount ? <button type="button" className="code-agent-row related-child" onClick={() => setVisibleCount(value => value + 6)}>{copy.relatedShowMore}</button> : null}
+    {visibleCount > 6 ? <button type="button" className="code-agent-row related-child" onClick={() => setVisibleCount(6)}>{copy.relatedShowLess}</button> : null}
+    {finished.length ? <details className="code-related-finished" data-testid="code-native-related-finished"><summary className="code-agent-row related-child"><ChevronRightGlyph className="code-related-disclosure-icon" />{copy.relatedFinished(finished.length)}</summary>
+      {finished.slice(0, finishedCount).map(renderChild)}
+      {finished.length > finishedCount ? <button type="button" className="code-agent-row related-child" onClick={() => setFinishedCount(value => value + 6)}>{copy.relatedShowMore}</button> : null}
+      {finishedCount > 6 ? <button type="button" className="code-agent-row related-child" onClick={() => setFinishedCount(6)}>{copy.relatedShowLess}</button> : null}
+    </details> : null}
     {error && active ? <button type="button" className="code-agent-row related-child" title={error} onClick={() => refreshRef.current?.()}>Refresh related sessions</button> : null}
   </>
 }

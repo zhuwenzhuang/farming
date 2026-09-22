@@ -3523,3 +3523,22 @@ body.code-mode.code-compact-layout .code-composer-approval.blue {
 body.code-mode.code-compact-layout .code-composer-approval.orange {
   color: var(--code-warning);
 }
+
+.code-composer-sending-icon {
+  animation: code-composer-sending 1s linear infinite;
+}
+
+@keyframes code-composer-sending {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .code-composer-sending-icon { animation: none; }
+}
+
+.code-composer-submission-status {
+  color: var(--code-text-subtle);
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 2px 12px 6px;
+}

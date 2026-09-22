@@ -121,6 +121,7 @@ test('same Composer admission joins one delivery and conflicting content is reje
     harness.request(coordinator, 'different content'),
     /already used for different content/,
   );
+  await new Promise(resolve => setImmediate(resolve));
   assert.equal(harness.deliverCount, 1);
 
   delivery.resolve({ kind: 'acp' });
@@ -540,4 +541,48 @@ test('stale runtime ownership cannot persist a late accepted callback', async ()
   delivery.resolve({ kind: 'acp' });
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(harness.agent.composerCommands?.at(-1)?.state, 'intent');
+});
+
+
+test('expired queued submissions cannot become ghost messages when the queue later releases', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'] });
+  const harness = new ComposerAdmissionHarness();
+  const gate = deferred<void>();
+  harness.delivery = async request => {
+    await gate.promise;
+    request.assertCurrentOwner();
+    harness.deliverCount += 1;
+    request.onSubmitted({ kind: 'acp' });
+  };
+  const coordinator = harness.coordinator();
+  const submission = harness.request(coordinator, 'must not send fifty minutes later');
+  const rejected = assert.rejects(submission, error => Boolean((error as { uncertain?: boolean }).uncertain));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(coordinator.status(harness.agent, 'request-1').phase, 'queued');
+  t.mock.timers.tick(31_000);
+  await rejected;
+  assert.equal(coordinator.status(harness.agent, 'request-1').phase, 'unknown');
+  gate.resolve();
+  await coordinator.whenIdle(harness.agent.id);
+  assert.equal(harness.deliverCount, 0);
+  assert.equal(coordinator.status(harness.agent, 'request-1').phase, 'failed');
+});
+
+test('async durable intent gates delivery and same-request reconciliation is read-only', async () => {
+  const harness = new ComposerAdmissionHarness();
+  const durable = deferred<void>();
+  harness.ports.persistCommands = async (agent, commands) => {
+    if (commands.at(-1)?.state === 'intent') await durable.promise;
+    return harness.ports.persistAgent({ ...agent, composerCommands: commands });
+  };
+  const coordinator = harness.coordinator();
+  const submission = harness.request(coordinator, 'durable first');
+  await new Promise(resolve => setImmediate(resolve));
+  for (let index = 0; index < 20; index += 1) assert.equal(coordinator.status(harness.agent, 'request-1').phase, 'received');
+  assert.equal(harness.deliverCount, 0);
+  await assert.rejects(harness.request(coordinator, 'conflicting'), /different content/);
+  durable.resolve();
+  await submission;
+  assert.equal(harness.deliverCount, 1);
+  assert.equal(coordinator.status(harness.agent, 'request-1').phase, 'submitted');
 });

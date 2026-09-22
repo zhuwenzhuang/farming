@@ -41,3 +41,18 @@ The action row of a completed answer includes copy and share buttons. Share copi
 ## Switch to Terminal
 
 Switch to [Terminal](./terminal) when you need native CLI interaction or complete PTY output. Supported Providers keep the same Agent identity and Workspace.
+
+## Related conversations
+
+Side Chat accepts your follow-up messages independently of the parent. Closing the
+browser does not cancel accepted work. Idle runtimes may be released; history stays
+available and a new message resumes the same conversation. Provider-created children
+are controlled by the parent Agent; their available actions may differ.
+
+The sidebar owns the full child list and uses the same status indicators as the parent Agent. Running and attention states stay visible. Finished children are grouped behind a
+counted disclosure; expand it to inspect earlier work. An open child stays in place
+when it finishes. Use **Quote in parent chat** to bring a result into the parent's
+draft without sending it automatically. Native history supports older/newer pages
+and returning to the latest output.
+
+Chat shows only chronological Agent activity from each turn, with expandable evidence and links to child details. It does not duplicate the full list, child hierarchy or finished group. Older activity stays in its original turn and is not repeated in later conversations.

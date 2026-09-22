@@ -2,6 +2,8 @@ import assert from 'node:assert/strict'
 import * as XLSX from 'xlsx'
 import {
   parseSpreadsheetWorkbook,
+  spreadsheetSelectionQuote,
+  spreadsheetSelectionText,
   spreadsheetColumnIndex,
   spreadsheetColumnLabel,
 } from '../../src/lib/spreadsheet-workbook'
@@ -55,3 +57,18 @@ assert.equal(spreadsheetColumnIndex('AA'), 26)
 // Delimited text has no type metadata: preserve identifiers and date-like text.
 const identifiers = new TextEncoder().encode("id,date,amount\n00123,2026-09-19,1.00\n").buffer
 assert.deepEqual(parseSpreadsheetWorkbook(identifiers, "sample.csv").sheets[0]?.rows[1], ["00123", "2026-09-19", "1.00"])
+
+const rangeQuote = spreadsheetSelectionQuote('/workspace', 'sample.xlsx', 'version-1', parsed.sheets[0]!, {
+  startColumn: 0, endColumn: 2, startRow: 1, endRow: 2,
+})
+assert(rangeQuote?.includes('Range: A2:C3'))
+assert(rangeQuote?.includes('SHA-1: version-1'))
+assert(rangeQuote?.includes('"00123"'))
+assert(rangeQuote?.includes('#NO CACHED VALUE'))
+assert.equal(spreadsheetSelectionQuote('/workspace', 'sample.xlsx', 'v1', parsed.sheets[0]!, {
+  startColumn: 0, endColumn: 300, startRow: 0, endRow: 1,
+}), null, 'oversized or invalid selections are never silently truncated')
+
+assert.equal(spreadsheetSelectionText(parsed.sheets[0]!, { startColumn: 0, endColumn: 1, startRow: 1, endRow: 1 }), '00123\t25%')
+assert.equal(spreadsheetSelectionText({ ...parsed.sheets[0]!, rows: [['line\nbreak', 'a"b']] },
+  { startColumn: 0, endColumn: 1, startRow: 0, endRow: 0 }), '"line\nbreak"\t"a""b"')

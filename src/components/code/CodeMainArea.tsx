@@ -1093,6 +1093,21 @@ export function CodeMainArea({
 
   if (fileEditorPaneLoadError) throw fileEditorPaneLoadError
 
+  const quoteRelatedSelectionInParent = (text: string) => {
+    if (readOnly || !relatedSession) return
+    onQuoteSelection(relatedSession.parentAgentId, `Source: ${relatedSession.title} (${relatedSession.sessionId})\n\n${text}`)
+    setCompactRelatedActive(false)
+    updateComposerCollapsed(false)
+    window.requestAnimationFrame(() => {
+      const input = mainAreaRef.current?.querySelector<HTMLTextAreaElement>('.code-composer-shell [data-testid="code-acp-composer-input"]')
+      if (input) {
+        input.focus({ preventScroll: true })
+        input.setSelectionRange(input.value.length, input.value.length)
+        input.scrollTop = input.scrollHeight
+      }
+    })
+  }
+
   return (
     <SubagentNavigation.Provider value={readOnly ? null : requestSubagent}>
     <RelatedSessionNavigation.Provider value={selectRelatedSession}>
@@ -1214,6 +1229,10 @@ export function CodeMainArea({
         ReadyFileEditorPane ? (
           <ReadyFileEditorPane
             openFile={openWorkspaceFile}
+            onQuoteSelection={!readOnly && resourceAgentId && activeAgent?.id === resourceAgentId && isAcpRuntime(activeAgent) ? text => {
+              onBackToAgentFromFile(resourceAgentId)
+              onQuoteSelection(resourceAgentId, text)
+            } : undefined}
             globalReadOnly={readOnly}
             openFiles={openWorkspaceFiles}
             retainedFiles={retainedWorkspaceFileModels}
@@ -1486,10 +1505,11 @@ export function CodeMainArea({
         <div className="code-related-session-source">{language === 'zh' ? '上下文截至上一轮完成' : 'Context through the last completed turn'}</div>
         {subagentAgent ? <SubagentBody agent={subagentAgent} active={relatedSessionFits || compactRelatedActive}
           renderComposer={renderSubagentComposer} onReadLatest={onAgentReadLatest} onOpenFile={onOpenWorkspaceFilePath}
-          onQuoteSelection={onQuoteSelection} copy={copy} /> : subagentLoadingExpired ? <div role="alert">{language === 'zh' ? '子 Agent 状态尚未同步。' : 'Subagent state has not synchronized.'} <button type="button" onClick={() => { requestSubagent(relatedSession.parentAgentId) }}>{language === 'zh' ? '重新核对' : 'Reconcile'}</button></div> : <div role="status">{language === 'zh' ? '正在加载子 Agent…' : 'Loading subagent…'}</div>}
+          onQuoteSelection={onQuoteSelection} onQuoteInParent={readOnly ? undefined : quoteRelatedSelectionInParent} copy={copy} /> : subagentLoadingExpired ? <div role="alert">{language === 'zh' ? '子 Agent 状态尚未同步。' : 'Subagent state has not synchronized.'} <button type="button" onClick={() => { requestSubagent(relatedSession.parentAgentId) }}>{language === 'zh' ? '重新核对' : 'Reconcile'}</button></div> : <div role="status">{language === 'zh' ? '正在加载子 Agent…' : 'Loading subagent…'}</div>}
       </aside> : relatedSessionVisible && relatedSession ? <RelatedSessionPanel
         key={`${relatedSession.parentAgentId}:${relatedSession.sessionId}`}
         target={relatedSession}
+        onQuoteInParent={readOnly ? undefined : quoteRelatedSelectionInParent}
         refreshSignal={isAcpRuntime(activeAgent) ? activeAgent.runtimeBinding.sessionRevision || 0 : 0}
         onClose={closeRelatedSession}
         language={language}

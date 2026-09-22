@@ -1,10 +1,11 @@
+import { COMPOSER_SUBMISSION_PHASES, type ComposerSubmissionStatus } from './composer-submission.js'
 import { PROJECT_ATTENTION_SCORE_MAX as projectAttentionScoreMax } from './agent-state-semantics.js'
 import { isAgentStateWire } from './agent-state-wire.js'
 import { isChatTurnState, type ChatTurnState } from './chat-turn-state.js'
 import type { AgentStateWire } from './agent-state-wire.js'
 
-export const PROTOCOL_VERSION = 18
-export const MIN_PROTOCOL_VERSION = 18
+export const PROTOCOL_VERSION = 19
+export const MIN_PROTOCOL_VERSION = 19
 export const MAX_INLINE_WORKSPACE_MESSAGE_BYTES = 1024 * 1024
 export const PROJECT_ATTENTION_SCORE_MAX = projectAttentionScoreMax
 
@@ -81,6 +82,17 @@ export interface ComposerInputMessage extends ExtensibleMessage {
   agentId?: string
   requestId?: string
   delivery?: 'prompt' | 'steer'
+}
+
+export interface ComposerStatusRequestMessage extends ExtensibleMessage {
+  type: 'composer-input-status-request'
+  requestId: string
+  agentId: string
+}
+export interface ComposerStatusMessage extends ExtensibleMessage, ComposerSubmissionStatus {
+  type: 'composer-input-status'
+  requestId: string
+  agentId: string
 }
 
 export interface AcpPermissionResponseMessage extends ExtensibleMessage {
@@ -236,6 +248,7 @@ export type ClientMessage =
   | StartAgentMessage
   | InputMessage
   | ComposerInputMessage
+  | ComposerStatusRequestMessage
   | AcpPermissionResponseMessage
   | FocusAgentMessage
   | WatchAcpTranscriptsMessage
@@ -523,6 +536,7 @@ export type ServerMessage =
   | StateMessage
   | StateDeltaMessage
   | ComposerInputResultMessage
+  | ComposerStatusMessage
   | AgentStartedMessage
   | SessionOutputMessage
   | SessionPreviewMessage
@@ -560,6 +574,7 @@ const SERVER_MESSAGE_TYPES: ReadonlySet<ServerMessage['type']> = new Set([
   'state-delta',
   'error',
   'composer-input-result',
+  'composer-input-status',
   'agent-started',
   'session-output',
   'session-preview',
@@ -957,6 +972,7 @@ export function validateClientMessage(value: unknown): ValidationResult<ClientMe
       break
     case 'start-agent': valid = stringField(value, 'command'); break
     case 'input': valid = stringField(value, 'agentId', true) && (typeof value.input === 'string' || Array.isArray(value.inputParts)); break
+    case 'composer-input-status-request': valid = stringField(value, 'requestId') && stringField(value, 'agentId'); break
     case 'composer-input':
       valid = stringField(value, 'message')
         && stringField(value, 'agentId', true)
@@ -1103,6 +1119,7 @@ export function validateServerMessage(value: unknown): ValidationResult<ServerMe
     case 'command-ack': valid = stringField(value, 'requestId') && stringField(value, 'command'); break
     case 'state': valid = stateMessage(value); break
     case 'state-delta': valid = stateDeltaMessage(value); break
+    case 'composer-input-status': valid = stringField(value, 'requestId') && stringField(value, 'agentId') && COMPOSER_SUBMISSION_PHASES.includes(value.phase as ComposerSubmissionStatus['phase']) && typeof value.updatedAt === 'number' && Number.isFinite(value.updatedAt) && stringField(value, 'message', true); break
     case 'composer-input-result': valid = stringField(value, 'requestId') && stringField(value, 'agentId') && typeof value.accepted === 'boolean' && stringField(value, 'message', true) && (!Object.prototype.hasOwnProperty.call(value, 'uncertain') || typeof value.uncertain === 'boolean'); break
     case 'agent-started': valid = stringField(value, 'agentId'); break
     case 'session-output': valid = objectMessage(value.stream) && stringField(value.stream, 'agentId'); break

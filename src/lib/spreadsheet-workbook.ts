@@ -205,3 +205,31 @@ export function spreadsheetColumnIndex(label: string): number {
   }
   return value - 1
 }
+
+/** Quote the displayed snapshot without silently sampling or coercing cell values. */
+export function spreadsheetSelectionQuote(
+  workspace: string | undefined, path: string, sha1: string, sheet: SpreadsheetSheetSnapshot,
+  range: { startColumn: number; endColumn: number; startRow: number; endRow: number },
+): string | null {
+  const { startColumn, endColumn, startRow, endRow } = range
+  if (startColumn < 0 || startRow < 0 || endColumn >= sheet.columnCount || endRow >= sheet.rowCount
+    || endColumn < startColumn || endRow < startRow || (endColumn - startColumn + 1) * (endRow - startRow + 1) > 200) return null
+  const address = (column: number, row: number) => `${spreadsheetColumnLabel(sheet.startColumn + column)}${sheet.startRow + row + 1}`
+  const label = `${address(startColumn, startRow)}:${address(endColumn, endRow)}`
+  const rows = sheet.rows.slice(startRow, endRow + 1).map(row => row.slice(startColumn, endColumn + 1))
+  const quote = `File: ${JSON.stringify(path)}\nWorkspace: ${JSON.stringify(workspace || '')}\nSHA-1: ${sha1}\nSheet: ${JSON.stringify(sheet.name)}\nRange: ${label}\nDisplayed cell values (JSON):\n${JSON.stringify(rows)}`
+  return quote.length <= 5600 ? quote : null
+}
+
+/** Use the same selection snapshot for the inspector, copy and Chat quotes. */
+export function spreadsheetSelectionText(
+  sheet: SpreadsheetSheetSnapshot,
+  range: { startColumn: number; endColumn: number; startRow: number; endRow: number },
+): string {
+  const { startColumn, endColumn, startRow, endRow } = range
+  if (startColumn < 0 || startRow < 0 || endColumn >= sheet.columnCount || endRow >= sheet.rowCount
+    || endColumn < startColumn || endRow < startRow) return ''
+  const escapeCell = (value: string) => /["\t\r\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value
+  return sheet.rows.slice(startRow, endRow + 1)
+    .map(row => row.slice(startColumn, endColumn + 1).map(escapeCell).join('\t')).join('\n')
+}

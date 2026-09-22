@@ -1,3 +1,4 @@
+import type { ComposerStatusMessage, ComposerStatusRequestMessage } from '../../shared/browser-protocol'
 import type { Agent, AgentTerminalStatus, AppState, CodexTerminalProfile, RuntimeObservation, SystemStats, TerminalPreviewSnapshot } from './agent'
 import type {
   LanguageServerRequestMessage,
@@ -200,6 +201,7 @@ export type ClientMessage =
   | StartAgentMessage
   | InputMessage
   | ComposerInputMessage
+  | ComposerStatusRequestMessage
   | FocusAgentMessage
   | WatchAcpTranscriptsMessage
   | TerminalSessionClientMessage
@@ -473,6 +475,7 @@ export type ServerMessage =
   | StateDeltaMessage
   | ErrorMessage
   | ComposerInputResultMessage
+  | ComposerStatusMessage
   | AgentStartedMessage
   | SessionOutputMessage
   | SessionPreviewMessage

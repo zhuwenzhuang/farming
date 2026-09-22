@@ -59,3 +59,11 @@ Git History comes from the repository; Agent History is used to find and resume 
 Blame is a useful investigation clue, not proof of current design intent. Combine it with code, tests, and current documentation.
 
 Files shows actual files on the Farming Host. See [Language Server](./language-server) for definitions, references, call hierarchy, and diagnostics.
+
+## Spreadsheet previews
+
+XLSX, CSV and TSV open read-only with sheet selection, cell address, search and
+selection copy. With a Chat Agent selected, **Quote in chat** adds the selected
+cells, file version, sheet and range to its existing draft. Review before sending.
+Large selections require a smaller range; no data is silently sampled. If clipboard
+access fails, selectable text remains available for manual copying.

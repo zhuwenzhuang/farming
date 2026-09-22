@@ -1,3 +1,4 @@
+import type { ComposerSubmissionPhase } from '../shared/composer-submission.js';
 export type ProviderId = 'codex' | 'claude' | 'opencode' | 'qoder' | string;
 export type StructuredRuntimeKind = 'acp' | 'terminal';
 export type AcpConfigValue = string | number | boolean | null | string[];
@@ -486,6 +487,7 @@ export interface AcpRuntimeContract {
     },
   ): void;
   disconnect?(): void;
+  on(event: 'submission-phase', listener: (event: { agentId: string; clientPromptId: string; phase: ComposerSubmissionPhase }) => void): this;
   on(event: 'agent-runtime', listener: (event: AcpRuntimeEvent) => void): this;
   on(event: 'session', listener: (event: AcpSessionEvent) => void): this;
   on(event: 'config-overrides', listener: (event: AcpConfigOverridesEvent) => void): this;

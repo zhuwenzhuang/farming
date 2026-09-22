@@ -6,15 +6,18 @@ import { projectAcpTranscript, type AgentTranscript } from './acp/acp-entry-proj
 import type { RelatedSessionTarget } from './related-session-navigation'
 import { codeCopyForLanguage } from './copy'
 
-export function RelatedSessionPanel({ target, refreshSignal, onClose, language }: {
+export function RelatedSessionPanel({ target, refreshSignal, onClose, language, onQuoteInParent }: {
   target: RelatedSessionTarget
   refreshSignal: number
   onClose: () => void
+  onQuoteInParent?: (text: string) => void
   language: string
 }) {
   const [transcript, setTranscript] = useState<AgentTranscript | null>(null)
   const [error, setError] = useState('')
-  const [limit, setLimit] = useState(24)
+  const [cursors, setCursors] = useState<string[]>([''])
+  const cursor = cursors[cursors.length - 1] || ''
+  const limit = 24
   const [readVersion, setReadVersion] = useState(0)
   const [loading, setLoading] = useState(true)
   const epochRef = useRef(target.runtimeEpoch || '')
@@ -28,6 +31,8 @@ export function RelatedSessionPanel({ target, refreshSignal, onClose, language }
       setError(chinese ? '此 Provider 未提供子会话内容读取能力。' : 'This provider does not expose the subagent transcript.')
       return
     }
+    setTranscript(null)
+    setError('')
     let current = true
     let pending = false
     let reading = false
@@ -43,7 +48,7 @@ export function RelatedSessionPanel({ target, refreshSignal, onClose, language }
         const deadline = window.setTimeout(() => request.abort(), 15000)
         setLoading(true)
         try {
-          const response = await fetch(appPath(`/api/agents/${encodeURIComponent(target.parentAgentId)}/acp-subagents/${encodeURIComponent(target.sessionId)}/transcript?maxTurns=${limit}&runtimeEpoch=${encodeURIComponent(epochRef.current)}`), { signal: request.signal })
+          const response = await fetch(appPath(`/api/agents/${encodeURIComponent(target.parentAgentId)}/acp-subagents/${encodeURIComponent(target.sessionId)}/transcript?maxTurns=${limit}&cursor=${encodeURIComponent(cursor)}&runtimeEpoch=${encodeURIComponent(epochRef.current)}`), { signal: request.signal })
           const payload = await response.json()
           if (!response.ok) throw new Error(payload.error || 'Subagent transcript unavailable')
           if (!epochRef.current && typeof payload.parentRuntimeEpoch === 'string') epochRef.current = payload.parentRuntimeEpoch
@@ -71,8 +76,9 @@ export function RelatedSessionPanel({ target, refreshSignal, onClose, language }
       refreshRef.current = null
       controller?.abort()
     }
-  }, [target.parentAgentId, target.sessionId, target.runtimeEpoch, target.readable, limit, chinese])
-  useEffect(() => { refreshRef.current?.() }, [refreshSignal, readVersion])
+  }, [target.parentAgentId, target.sessionId, target.runtimeEpoch, target.readable, limit, cursor, chinese])
+  useEffect(() => { if (!cursor) refreshRef.current?.() }, [refreshSignal, cursor])
+  useEffect(() => { refreshRef.current?.() }, [readVersion])
   return (
     <aside className="code-related-session-panel" data-testid="code-related-session-panel" aria-label={target.title}>
       <header className="code-related-session-header">
@@ -83,10 +89,16 @@ export function RelatedSessionPanel({ target, refreshSignal, onClose, language }
         </button>
       </header>
       <div className="code-related-session-content" aria-busy={loading}>
+        <div className="code-related-session-source">{codeCopyForLanguage(chinese ? 'zh' : 'en').nativeChildDescription}</div>
         {error ? <div role="alert">{error} <button type="button" onClick={() => setReadVersion(value => value + 1)}>{chinese ? '重试' : 'Retry'}</button></div> : null}
         {!transcript && loading ? <div role="status">{chinese ? '加载中…' : 'Loading…'}</div> : null}
-        {transcript?.hasMoreBefore && limit < 200 ? <button type="button" disabled={loading} onClick={() => setLimit(value => Math.min(200, value + 24))}>{chinese ? '加载更早消息' : 'Load earlier messages'}</button> : null}
-        {transcript ? <AgentTranscriptSubagentPreview transcript={transcript} copy={codeCopyForLanguage(chinese ? 'zh' : 'en')} docked onStop={async () => {
+        {cursors.length > 1 ? <>
+          <button type="button" disabled={loading} onClick={() => setCursors(value => value.slice(0, -1))}>{chinese ? '较新消息' : 'Newer messages'}</button>
+          <button type="button" disabled={loading} onClick={() => setCursors([''])}>{chinese ? '返回最新消息' : 'Return to latest'}</button>
+        </> : null}
+        {transcript?.nextCursor && !cursors.includes(transcript.nextCursor) ? <button type="button" disabled={loading} onClick={() => setCursors(value => [...value, transcript.nextCursor!])}>{chinese ? '加载更早消息' : 'Load earlier messages'}</button> : null}
+        {transcript?.hasMoreBefore && (!transcript.nextCursor || cursors.includes(transcript.nextCursor)) ? <div role="status">{chinese ? '更早的历史未由 Provider 提供。' : 'Earlier history is not available from the provider.'}</div> : null}
+        {transcript ? <AgentTranscriptSubagentPreview transcript={transcript} copy={codeCopyForLanguage(chinese ? 'zh' : 'en')} onQuoteInParent={onQuoteInParent} docked onStop={async () => {
           const response = await fetch(appPath(`/api/agents/${encodeURIComponent(target.parentAgentId)}/acp-subagents/${encodeURIComponent(target.sessionId)}/cancel?runtimeEpoch=${encodeURIComponent(epochRef.current)}`), { method: 'POST', signal: AbortSignal.timeout(15000) })
           if (!response.ok) { const payload = await response.json(); throw new Error(payload.error || 'Subagent stop failed') }
           setReadVersion(value => value + 1)

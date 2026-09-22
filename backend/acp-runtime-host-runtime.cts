@@ -197,6 +197,7 @@ class AcpRuntimeHostRuntime extends EventEmitter implements AcpRuntimeContract {
         this.bindingCallbackHandlers.delete(agentId);
       }
     }
+    if (event.type === 'submission-phase') this.emit('submission-phase', payload);
     if (event.type === 'prompt-operation') {
       const agentId = String(payload.agentId || '');
       const clientPromptId = String(payload.clientPromptId || '');
@@ -348,6 +349,7 @@ class AcpRuntimeHostRuntime extends EventEmitter implements AcpRuntimeContract {
         contentHash: promptContentHash(prompt, options.delivery),
         prompt,
         delivery: options.delivery,
+        admissionDeadline: options.admissionDeadline,
         retryDefinitiveFailure: options.retryDefinitiveFailure,
       }, { timeoutMs: 0 });
     } finally {
