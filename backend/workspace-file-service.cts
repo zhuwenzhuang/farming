@@ -36,6 +36,8 @@ const DEFAULT_WATCH_DEPTH = 1;
 const MAX_EXACT_WATCH_PATHS_PER_SUBSCRIPTION = 256;
 const MAX_EXACT_WATCH_TARGETS_PER_WORKSPACE = 1_024;
 const EXACT_WATCH_PATH_RESOLVE_CONCURRENCY = 16;
+const MAX_TREE_ENTRIES = 4_096;
+const TREE_METADATA_CONCURRENCY = 16;
 const SEARCH_FILE_LIST_MAX_BUFFER = 16 * 1024 * 1024;
 const BINARY_SNIFF_BYTES = 8192;
 const MAX_SPREADSHEET_ZIP_ENTRIES = 4_096;
@@ -112,6 +114,7 @@ interface ProcessError extends Error {
 interface ResolvePathOptions {
   allowMissing?: boolean;
   allowedExternalRoots?: string[];
+  signal?: AbortSignal;
 }
 
 interface ResolvedWorkspacePath {
@@ -2155,6 +2158,7 @@ class WorkspaceFileService {
   }
 
   async listTree(workspaceRoot: unknown, userPath: unknown = '', options: ResolvePathOptions = {}) {
+    options.signal?.throwIfAborted();
     const root = await this.waitForWorkspaceMutations(workspaceRoot);
     const { target, relativePath, external: parentExternal = false } = await this.resolvePath(root, userPath, options);
     const stat = await fsp.stat(target);
@@ -2162,10 +2166,27 @@ class WorkspaceFileService {
       throw new WorkspaceFileError('path must be a directory', 400);
     }
 
-    const entries = await fsp.readdir(target, { withFileTypes: true });
-    const visibleEntries = entries.filter((entry: import("fs").Dirent) => !TREE_HIDDEN_NAMES.has(entry.name));
-    const items = await Promise.all(visibleEntries
-      .map(async (entry: import("fs").Dirent) => {
+    options.signal?.throwIfAborted();
+    // Stop before allocating metadata promises for an arbitrarily large directory.
+    // The iterator closes the handle on success, error, and cancellation.
+    const visibleEntries: import('fs').Dirent[] = [];
+    const directory: import('fs').Dir = await fsp.opendir(target);
+    for await (const entry of directory) {
+      options.signal?.throwIfAborted();
+      if (TREE_HIDDEN_NAMES.has(entry.name)) continue;
+      if (visibleEntries.length === MAX_TREE_ENTRIES) {
+        throw new WorkspaceFileError(
+          `Directory has more than ${MAX_TREE_ENTRIES} entries. Open a subdirectory or search for a specific file.`,
+          413,
+          { path: relativePath, limit: MAX_TREE_ENTRIES },
+        );
+      }
+      visibleEntries.push(entry);
+    }
+    options.signal?.throwIfAborted();
+    const items = await mapWithConcurrency(visibleEntries, TREE_METADATA_CONCURRENCY,
+      async (entry) => {
+        options.signal?.throwIfAborted();
         const absolute = path.join(target, entry.name);
         let entryStat;
         try {
@@ -2215,8 +2236,9 @@ class WorkspaceFileService {
           ...(linkTarget ? { linkTarget } : {}),
           ...(linkError ? { linkError } : {}),
         };
-      }));
-    const visibleItems = items.filter(Boolean);
+      });
+    options.signal?.throwIfAborted();
+    const visibleItems = items.filter(item => item !== null);
 
     visibleItems.sort((a, b) => {
       if (a.type === 'directory' && b.type !== 'directory') return -1;

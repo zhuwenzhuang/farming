@@ -45,7 +45,7 @@ interface FileSectionBodyProps {
   fileMenu: FileContextMenuState | null
   fileMenuRef: RefObject<HTMLDivElement | null>
   openFileError: string | null
-  rootDirectoryError: string | null
+  directoryErrors: Array<{ path: string; message: string }>
   rootDirectoryHasItems: boolean
   rootDirectoryLoading: boolean
   search: FileSectionBodySearch
@@ -68,7 +68,7 @@ export function FileSectionBody({
   fileMenu,
   fileMenuRef,
   openFileError,
-  rootDirectoryError,
+  directoryErrors,
   rootDirectoryHasItems,
   rootDirectoryLoading,
   search,
@@ -89,9 +89,11 @@ export function FileSectionBody({
       {rootDirectoryLoading && !rootDirectoryHasItems && (
         <div className="code-file-status" style={workspaceFileTreeDepthStyle(0)}>{copy.loading}</div>
       )}
-      {rootDirectoryError && (
-        <div className="code-file-status error" style={workspaceFileTreeDepthStyle(0)}>{rootDirectoryError}</div>
-      )}
+      {directoryErrors.map(({ path, message }) => (
+        <div key={path} className="code-file-status error" role="alert" style={workspaceFileTreeDepthStyle(0)}>
+          {path ? `${path}: ${message}` : message}
+        </div>
+      ))}
       {openFileError && !search.active && (
         <div className="code-file-status error" data-testid="code-file-open-error" style={workspaceFileTreeDepthStyle(0)}>
           {openFileError}

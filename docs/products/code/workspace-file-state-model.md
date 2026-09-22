@@ -132,6 +132,17 @@ owner. Same-directory loads join, workspace changes invalidate old results,
 and expansion intent is independent from load completion. Directory caches do
 not become file-content models.
 
+Project and global directory reads enumerate incrementally and admit at most
+4,096 visible entries, matching the decoration protocol's entry budget. An
+oversized directory fails explicitly with `TOO_LARGE` before metadata fan-out;
+it never publishes a partial successful snapshot. Metadata reads have bounded
+concurrency. Cancellation and deadlines stop enumeration and further metadata
+scheduling, close directory handles, and fence late completion. Existing
+snapshots survive failures; users can open a subdirectory or search for a
+specific file without an oversized read blocking unrelated work.
+Failures for expanded child directories include their path in the shared Files
+error surface, so a rejected listing cannot look like an empty directory.
+
 Explicit pointer or keyboard directory expansion revalidates that directory while
 retaining its visible snapshot. Collapsing a directory stays local and starts no
 directory or Git decoration reads. Layout restoration uses cached reads and does

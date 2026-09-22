@@ -47,6 +47,32 @@ function recordWorkspaceWatchReady(socket: PlaywrightWebSocket, onReady: (paths:
 }
 
 for (const appearance of ['light', 'dark', 'paper']) {
+  test(`oversized directory fails locally while ordinary files remain usable in ${appearance}`, async ({ page, workspaceRoot }, testInfo) => {
+    const workspace = path.join(workspaceRoot, 'bounded-tree')
+    const large = path.join(workspace, 'large')
+    fs.mkdirSync(large, { recursive: true })
+    for (let i = 0; i < 4097; i++) fs.writeFileSync(path.join(large, `entry-${i}`), '')
+    fs.writeFileSync(path.join(workspace, 'guide.md'), '# Responsive file\n')
+    await createControlAgent(page, workspace)
+    await page.request.post('/farming/api/settings', { data: { appearance } })
+    await openFarming(page)
+    await openProjectFile(page, 'bounded-tree', 'guide.md')
+    const project = page.getByTestId('code-project-group').filter({ hasText: 'bounded-tree' })
+    const files = project.getByTestId('code-files-section')
+    await files.locator('[data-file-path="large"]').click()
+    await expect(files).toContainText('Directory has more than 4096 entries.')
+    await testInfo.attach(`oversized-directory-${appearance}`, {
+      body: await files.screenshot(),
+      contentType: 'image/png',
+    })
+    // Collapse the failed branch and refresh the ordinary project through the UI.
+    await files.locator('[data-file-path="large"]').click()
+    await project.getByTestId('code-files-refresh').focus()
+    await project.getByTestId('code-files-refresh').press('Enter')
+    await expect(project.getByTestId('code-files-refresh')).toHaveAttribute('data-refresh-status', 'success')
+    await expect(page.getByTestId('code-file-markdown-preview').getByRole('heading', { name: 'Responsive file' })).toBeVisible()
+  })
+
   test(`missing parent watch stays file-local while switching documents in ${appearance}`, async ({ page, workspaceRoot }) => {
     const workspace = path.join(workspaceRoot, 'watch-isolation')
     const removed = path.join(workspace, 'removed')

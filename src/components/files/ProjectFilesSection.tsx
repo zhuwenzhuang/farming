@@ -616,7 +616,11 @@ export function ProjectFilesSection({
     openFilePendingPath,
     projectId,
     renderFileTreeRow,
-    rootDirectoryError: directories['']?.error ?? null,
+    directoryErrors: Object.entries(directories).flatMap(([path, directory]) => (
+      directory.error && (!path || openDirectoryPaths.has(path))
+        ? [{ path, message: directory.error }]
+        : []
+    )),
     rootDirectoryHasItems: Boolean(directories['']?.items.length),
     rootDirectoryLoading: Boolean(directories['']?.loading),
     rowHeight: fileRowHeight,

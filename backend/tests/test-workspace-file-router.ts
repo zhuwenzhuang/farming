@@ -98,6 +98,17 @@ async function run() {
       operation: 'tree', rootId: 'agent-main', path: '',
     }, requestOptions);
     assert(tree.items.some((item: { path: string }) => item.path === 'README.md'));
+    const cancelledTree = new AbortController();
+    cancelledTree.abort(new Error('tree request cancelled'));
+    for (const request of [
+      { operation: 'tree', rootId: 'agent-main', path: '' },
+      { operation: 'tree', rootId: 'wroot_global', path: workspace.replace(/^\//, '') },
+    ]) {
+      await assert.rejects(
+        executeWorkspaceFileRequest(agentManager, service, request, { signal: cancelledTree.signal }),
+        /tree request cancelled/,
+      );
+    }
     const treeDecorations = await executeWorkspaceFileRequest(agentManager, service, {
       operation: 'tree-decorations',
       rootId: 'agent-main',

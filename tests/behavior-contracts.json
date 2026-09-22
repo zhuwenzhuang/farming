@@ -2,6 +2,20 @@
   "version": 1,
   "contracts": [
     {
+      "id": "CODE-COMPOSER-SUBMISSION-OWNERSHIP",
+      "surface": "ui",
+      "promise": "An unfinished Composer submission stays locked to its Agent across file navigation and clears only after acceptance.",
+      "owner": "docs/products/code/composer-input.md",
+      "evidence": {
+        "playwright": [
+          {
+            "file": "tests/e2e/related-session-workflows.spec.ts",
+            "title": "keeps an unfinished Composer submission locked across file navigation"
+          }
+        ]
+      }
+    },
+    {
       "id": "CODE-SIDEBAR-SESSION-PAGINATION",
       "surface": "ui",
       "promise": "Project sessions reveal in progressive batches and Show less restores the compact list.",

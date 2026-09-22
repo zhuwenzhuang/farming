@@ -153,6 +153,7 @@ interface ExpressFactory {
 
 interface ReadOptions {
   allowedExternalRoots?: string[];
+  signal?: AbortSignal;
 }
 
 interface MutationVersionOptions {
@@ -408,7 +409,9 @@ async function listGlobalWorkspaceTree(
   agentManager: AgentManager,
   fileService: WorkspaceFileServiceLike,
   userPath: unknown = '',
+  signal?: AbortSignal,
 ): Promise<unknown> {
+  signal?.throwIfAborted();
   const { target, allowedRoots } = assertGlobalWorkspacePathAllowed(agentManager, userPath, {
     allowAllowedRootAncestor: true,
   });
@@ -416,7 +419,7 @@ async function listGlobalWorkspaceTree(
   if (!insideAllowedRoot) {
     return globalSyntheticTree(agentManager, userPath);
   }
-  return fileService.listTree(GLOBAL_WORKSPACE_FILES_ROOT, userPath || '');
+  return fileService.listTree(GLOBAL_WORKSPACE_FILES_ROOT, userPath || '', { signal });
 }
 
 function sendWorkspaceFileError(res: HttpResponse, error: unknown) {
@@ -505,11 +508,11 @@ async function executeWorkspaceFileRequest(
   switch (request.operation) {
     case 'tree': {
       const tree = isGlobalWorkspaceFilesAgentId(request.rootId)
-        ? await listGlobalWorkspaceTree(agentManager, fileService, request.path || '')
+        ? await listGlobalWorkspaceTree(agentManager, fileService, request.path || '', options.signal)
         : await fileService.listTree(
           resolveRequestRoot(request).root,
           request.path || '',
-          readOptionsForAgent(agentManager, request.rootId),
+          { ...readOptionsForAgent(agentManager, request.rootId), signal: options.signal },
         );
       return tree;
     }

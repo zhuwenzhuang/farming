@@ -45,7 +45,7 @@ interface UseProjectFilesSectionViewModelOptions {
   openFilePendingPath: string | null
   projectId: string
   renderFileTreeRow: NonNullable<Parameters<typeof Tree<WorkspaceFileTreeNode>>[0]['renderRow']>
-  rootDirectoryError: string | null
+  directoryErrors: Array<{ path: string; message: string }>
   rootDirectoryHasItems: boolean
   rootDirectoryLoading: boolean
   rowHeight: number
@@ -112,7 +112,7 @@ export function useProjectFilesSectionViewModel({
   openFilePendingPath,
   projectId,
   renderFileTreeRow,
-  rootDirectoryError,
+  directoryErrors,
   rootDirectoryHasItems,
   rootDirectoryLoading,
   rowHeight,
@@ -294,7 +294,7 @@ export function useProjectFilesSectionViewModel({
       fileMenu,
       fileMenuRef,
       openFileError,
-      rootDirectoryError,
+      directoryErrors,
       rootDirectoryHasItems,
       rootDirectoryLoading,
       search: bodySearch,
