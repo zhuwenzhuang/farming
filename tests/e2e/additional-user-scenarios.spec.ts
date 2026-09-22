@@ -893,7 +893,9 @@ test.describe('additional Farming Code user scenarios', () => {
         const rect = (element as HTMLElement).getBoundingClientRect()
         return { height: rect.height }
       })
-      expect(collapsedComposerBox.height).toBeLessThanOrEqual(72)
+      // Compact input reserves separate 44px expand and send rows, plus chrome.
+      expect(collapsedComposerBox.height).toBeGreaterThanOrEqual(88)
+      expect(collapsedComposerBox.height).toBeLessThanOrEqual(100)
       await textarea.click()
       await expect(page.getByTestId('code-composer-model-picker')).toBeVisible()
       const focusedComposerBox = await composer.evaluate(element => {

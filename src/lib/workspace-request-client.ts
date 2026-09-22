@@ -11,6 +11,7 @@ import type {
 import { MAX_INLINE_WORKSPACE_MESSAGE_BYTES } from '../../shared/browser-protocol'
 import { performanceRequestKind, type PerformanceTrace } from '../../shared/interaction-performance'
 import { beginInteraction } from './interaction-performance'
+import { languageServerRequestLane, workspaceRequestLane, WORKSPACE_REQUEST_CONCURRENCY, type WorkspaceRequestLane } from '../../shared/workspace-request-scheduling'
 
 type WorkspaceTransportMessage = WorkspaceRequestMessage | WorkspaceCancelMessage | LanguageServerRequestMessage
 type WorkspaceTransport = (message: WorkspaceTransportMessage) => boolean
@@ -23,6 +24,7 @@ interface PendingRequest {
   message: WorkspaceTransportMessage
   mutation: boolean
   sent: boolean
+  lane: WorkspaceRequestLane
   signal?: AbortSignal
   timeout?: ReturnType<typeof setTimeout>
   onAbort?: () => void
@@ -51,6 +53,8 @@ let transportReady = false
 let requestSequence = 0
 let inlineMessageLimit = MAX_INLINE_WORKSPACE_MESSAGE_BYTES
 const pendingRequests = new Map<string, PendingRequest>()
+const MAX_PENDING_REQUESTS = 512
+const DEFAULT_REQUEST_TIMEOUT_MS = 60_000
 
 function requestId(domain: RequestDomain): string {
   requestSequence += 1
@@ -84,6 +88,19 @@ function sendPending(request: PendingRequest): boolean {
   return sent
 }
 
+function drainPending(): void {
+  if (!transportReady || !transport) return
+  const running = { interactive: 0, background: 0 }
+  for (const request of pendingRequests.values()) {
+    if (request.sent) running[request.lane] += 1
+  }
+  for (const request of pendingRequests.values()) {
+    if (request.sent || running[request.lane] >= WORKSPACE_REQUEST_CONCURRENCY[request.lane]) continue
+    if (!sendPending(request)) break
+    running[request.lane] += 1
+  }
+}
+
 function cancelPending(request: PendingRequest): void {
   const uncertain = request.mutation && request.sent
   request.trace.end(uncertain ? 'uncertain' : 'cancelled')
@@ -92,6 +109,7 @@ function cancelPending(request: PendingRequest): void {
     transport({ type: 'workspace-cancel', requestId: request.requestId })
   }
   request.reject(abortError(request.signal, uncertain))
+  drainPending()
 }
 
 function createRequest<T>(
@@ -100,6 +118,11 @@ function createRequest<T>(
   options: { mutation?: boolean; signal?: AbortSignal; timeoutMs?: number } = {},
 ): Promise<T> {
   if (options.signal?.aborted) return Promise.reject(abortError(options.signal))
+  if (pendingRequests.size >= MAX_PENDING_REQUESTS) {
+    return Promise.reject(new WorkspaceTransportError({
+      code: 'BUSY', status: 503, message: 'Workspace request queue is full; wait for current work to finish',
+    }))
+  }
   return new Promise<T>((resolve, reject) => {
     const id = 'requestId' in message ? String(message.requestId) : ''
     const request: PendingRequest = {
@@ -111,6 +134,8 @@ function createRequest<T>(
       message,
       mutation: options.mutation === true,
       sent: false,
+      lane: message.type === 'language-server-request' ? languageServerRequestLane(message.request)
+        : message.type === 'workspace-request' ? workspaceRequestLane(message.request) : 'interactive',
       signal: options.signal,
       resolve: value => resolve(value as T),
       reject,
@@ -118,19 +143,19 @@ function createRequest<T>(
     request.onAbort = () => cancelPending(request)
     pendingRequests.set(id, request)
     options.signal?.addEventListener('abort', request.onAbort, { once: true })
-    if (options.timeoutMs && options.timeoutMs > 0) {
-      request.timeout = setTimeout(() => {
-        if (!pendingRequests.has(id)) return
-        const uncertain = request.mutation && request.sent
-        request.trace.end(uncertain ? 'uncertain' : 'timeout')
-        deletePending(request)
-        if (request.sent && transportReady && transport) {
-          transport({ type: 'workspace-cancel', requestId: request.requestId })
-        }
-        request.reject(requestError('TIMEOUT', 'Workspace request timed out', uncertain))
-      }, options.timeoutMs)
-    }
-    sendPending(request)
+    const timeoutMs = options.timeoutMs && options.timeoutMs > 0 ? options.timeoutMs : DEFAULT_REQUEST_TIMEOUT_MS
+    request.timeout = setTimeout(() => {
+      if (!pendingRequests.has(id)) return
+      const uncertain = request.mutation && request.sent
+      request.trace.end(uncertain ? 'uncertain' : 'timeout')
+      deletePending(request)
+      if (request.sent && transportReady && transport) {
+        transport({ type: 'workspace-cancel', requestId: request.requestId })
+      }
+      request.reject(requestError('TIMEOUT', 'Workspace request timed out', uncertain))
+      drainPending()
+    }, timeoutMs)
+    drainPending()
   })
 }
 
@@ -158,9 +183,7 @@ export function setWorkspaceRequestTransportReady(
     }
     return
   }
-  for (const request of pendingRequests.values()) {
-    if (!sendPending(request)) break
-  }
+  drainPending()
 }
 
 export function workspaceInlineMessageLimit(): number {
@@ -202,11 +225,13 @@ function settle(
   request.trace.end(message.ok ? 'completed' : message.error?.uncertain ? 'uncertain' : 'failed')
   if (!message.ok) {
     request.reject(new WorkspaceTransportError(message.error!))
+    drainPending()
     return true
   }
   request.resolve(domain === 'language-server'
     ? { result: message.result, supported: message.supported !== false }
     : message.result)
+  drainPending()
   return true
 }
 

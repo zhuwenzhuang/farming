@@ -190,7 +190,18 @@ Cancellation 释放一个 Consumer。同 Resource Resolve 被多个 File-open In
 Effort：不支持取消的 Filesystem/Git 工作可以完成，但其结果仍受 Request Ownership 与
 Latest File-open Intent 限制。
 
-## Server Dispatch 与调度
+## 请求准入与 Server 调度
+
+浏览器请求代理在发送到 socket 前限制并发，与服务端共享操作分类。Workspace
+和 Language Server 请求合计最多同时发送四个交互请求与两个后台请求。恢复大量
+展开目录时在本地排队，不能冲满服务端队列，也不能让 Git 装饰阻塞目录导航。
+结果、取消和超时都会为下一个仍被使用的请求释放准入名额。服务端排队请求被
+取消时立即释放队列容量。
+
+浏览器最多保留 512 个待完成请求，超出时在发送前明确拒绝。默认 60 秒期限包含
+本地排队与传输时间；具体操作可使用自己的有界期限。发送前取消或超时的变更
+不会产生不确定结果。重连时安全读取的重发也遵循相同并发限制；已发送变更不
+重放，`BUSY` 结果不自动重试。
 
 WebSocket Message Handler 只执行 Validate 与 Schedule；不能等待一个长 Filesystem、Git
 或 Language Server 调用后才接收下一条消息。每个 In-flight Request 拥有 AbortController、

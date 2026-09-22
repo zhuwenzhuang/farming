@@ -525,6 +525,11 @@ function initialComputerResourceId() {
   return new URL(window.location.href).searchParams.get('computer')
 }
 
+interface WorkspaceActivationOptions {
+  focusTerminal?: boolean
+  origin?: 'user' | 'restore'
+}
+
 function openTargetForTerminalPath(target: TerminalPathOpenTarget): WorkspaceFileOpenTarget {
   return {
     lineNumber: target.lineNumber,
@@ -951,8 +956,8 @@ export function CodeWorkspace({
   const projectListScrollSaveFrameRef = useRef<number | null>(null)
   const projectListScrollRestoredRef = useRef(false)
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null)
-  const resumeAgentSessionRef = useRef<(provider: string, sessionId: string, providerHomeId?: string) => void>(() => {})
-  const openAgentTargetRef = useRef<(id: string, options?: { focusTerminal?: boolean }) => void>(() => {})
+  const resumeAgentSessionRef = useRef<(provider: string, sessionId: string, providerHomeId?: string, customTitle?: string, sessionHint?: AgentSessionHistoryItem, options?: WorkspaceActivationOptions) => void>(() => {})
+  const openAgentTargetRef = useRef<(id: string, options?: WorkspaceActivationOptions) => void>(() => {})
   const agentOpeningReturnRef = useRef<{ view: 'search' | 'history' | 'projects'; mode: MainPaneMode; scroll: number; focus: HTMLElement | null; selection: number } | null>(null)
   const activeTerminalIdRef = useRef<string | null>(activeTerminalId)
   const manuallyUnreadActiveAgentIdRef = useRef<string | null>(null)
@@ -3004,7 +3009,7 @@ export function CodeWorkspace({
     })
   }, [])
 
-  const resumeColdAgentFromUserActivation = useCallback((agentId: string) => {
+  const resumeColdAgentFromUserActivation = useCallback((agentId: string, options?: WorkspaceActivationOptions) => {
     const agent = agents.find(candidate => candidate.id === agentId)
     if (
       agent?.status !== 'stopped'
@@ -3016,6 +3021,9 @@ export function CodeWorkspace({
       agent.providerSessionProvider,
       agent.providerSessionId,
       agent.providerHomeId,
+      undefined,
+      undefined,
+      options,
     )
     return true
   }, [agents])
@@ -3299,7 +3307,7 @@ export function CodeWorkspace({
     if (target.hasPointerCapture(pointerId)) target.releasePointerCapture(pointerId)
   }, [updateSidebarWidth])
 
-  const openTerminalFromWorkspace = useCallback((agentId: string, options?: { focusTerminal?: boolean }) => {
+  const openTerminalFromWorkspace = useCallback((agentId: string, options?: WorkspaceActivationOptions) => {
     if (!isStructuredRuntime(agents.find(agent => agent.id === agentId))) beginNavigationPerformance('agent.switch', agentId)
     if (manuallyUnreadActiveAgentIdRef.current && manuallyUnreadActiveAgentIdRef.current !== agentId) {
       manuallyUnreadActiveAgentIdRef.current = null
@@ -3435,6 +3443,7 @@ export function CodeWorkspace({
     target?: WorkspaceFileOpenTarget,
     signal?: AbortSignal,
     intentLease?: RequestOwnershipLease,
+    options?: WorkspaceActivationOptions,
   ) => {
     throwIfProjectMountAborted(signal)
     const requestLease = intentLease ?? workspaceFileOpenRequestRef.current.begin()
@@ -3499,7 +3508,7 @@ export function CodeWorkspace({
         requestId: workspaceFileRevealRequestRef.current += 1,
       })
     }
-    closeSidebarForMobile()
+    if (options?.origin !== 'restore') closeSidebarForMobile()
   }, [clearSearch, closeContextMenu, closeSidebarForMobile, createWorkspaceOpenFileRequest, mountProject, onWorkspaceViewChange, projectWorkspaces, readOnly, resolveWorkspaceFileIdentity, setMainPaneMode, workspaceOpenFiles])
 
   const beginProjectFileOpenIntent = useCallback(() => (
@@ -3532,7 +3541,7 @@ export function CodeWorkspace({
   }, [readOnly, requestProjectMountForFile, resolveWorkspaceFileIdentity])
 
   const restoreWorkspaceAgent = useCallback((agentId: string) => {
-    openTerminalFromWorkspace(agentId, { focusTerminal: false })
+    openTerminalFromWorkspace(agentId, { focusTerminal: false, origin: 'restore' })
   }, [openTerminalFromWorkspace])
   const resolveWorkspaceSurfaceFile = useCallback((
     filesId: string,
@@ -3550,7 +3559,7 @@ export function CodeWorkspace({
     file: WorkspaceFile,
     target: WorkspaceFileOpenTarget,
     intentLease?: RequestOwnershipLease,
-  ) => openProjectFile(filesId, file, target, undefined, intentLease), [openProjectFile])
+  ) => openProjectFile(filesId, file, target, undefined, intentLease, { origin: 'restore' }), [openProjectFile])
   const { restored: workspaceSurfaceRestored } = useWorkspaceSurfaceController({
     activeView,
     mainPaneMode,
@@ -4716,7 +4725,7 @@ export function CodeWorkspace({
     if (dialogOpen) leaveAgentOpeningRef.current()
   }, [dialogOpen])
 
-  const beginAgentOpening = useCallback((target: Omit<AgentOpeningTarget, 'source'>) => {
+  const beginAgentOpening = useCallback((target: Omit<AgentOpeningTarget, 'source'>, options?: WorkspaceActivationOptions) => {
     workspaceFileOpenRequestRef.current.invalidate()
     closeContextMenu()
     onCancelPendingTerminalOpen()
@@ -4736,11 +4745,11 @@ export function CodeWorkspace({
     setSearchOpen(false)
     changeMainPaneMode('terminal')
     changeWorkspaceView('projects')
-    closeSidebarForMobile()
+    if (options?.origin !== 'restore') closeSidebarForMobile()
     agentOpeningController.open({ ...target, source })
   }, [activeView, agentOpeningController, changeMainPaneMode, changeWorkspaceView, closeContextMenu, closeSidebarForMobile, mainPaneMode, onCancelPendingTerminalOpen, searchSelectionIndex, visibleSearchTargets])
 
-  const resumeAgentSession = useCallback((provider: string, sessionId: string, providerHomeId = '', customTitle = '', sessionHint?: AgentSessionHistoryItem) => {
+  const resumeAgentSession = useCallback((provider: string, sessionId: string, providerHomeId = '', customTitle = '', sessionHint?: AgentSessionHistoryItem, options?: WorkspaceActivationOptions) => {
     const handle = agentSessionId({ provider, id: sessionId, providerHomeId })
     const session = sessionHint || [...searchableAgentSessions, ...historyAgentSessions, ...mainPageAgentSessions]
       .find(candidate => agentSessionId(candidate) === handle)
@@ -4749,17 +4758,18 @@ export function CodeWorkspace({
       identity: { provider, sessionId, providerHomeId, customTitle },
       title: customTitle || session?.title || (agent ? agentTitle(agent) : sessionId),
       workspace: session ? agentSessionWorkingDirectory(session) : agent ? projectWorkspaceForAgent(agent) : '',
-    })
+      focusTerminal: options?.focusTerminal,
+    }, options)
   }, [agents, beginAgentOpening, historyAgentSessions, mainPageAgentSessions, searchableAgentSessions])
   resumeAgentSessionRef.current = resumeAgentSession
   openAgentTargetRef.current = (agentId, options) => {
-    if (resumeColdAgentFromUserActivation(agentId)) return
+    if (resumeColdAgentFromUserActivation(agentId, options)) return
     const agent = agents.find(candidate => candidate.id === agentId)
     if (!agent) return
     beginAgentOpening({ agentId, title: agentTitle(agent), workspace: projectWorkspaceForAgent(agent), focusTerminal: options?.focusTerminal,
       ...(agent.providerSessionProvider && agent.providerSessionId && !agent.providerSessionTemporary
         ? { identity: { provider: agent.providerSessionProvider, sessionId: agent.providerSessionId, providerHomeId: agent.providerHomeId } } : {}),
-    })
+    }, options)
   }
 
   const backFromAgentOpening = useCallback(() => {

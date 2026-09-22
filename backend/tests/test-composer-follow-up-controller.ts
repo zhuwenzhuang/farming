@@ -1,6 +1,7 @@
 const assert = require('assert');
 const {
   ComposerFollowUpAdmissions,
+  isComposerPromptStartFenceActive,
   failQueuedAcpFollowUp,
   settleComposerDelivery,
   settleComposerSubmissionState,
@@ -19,6 +20,25 @@ function message(id, text = id) {
 }
 
 async function run() {
+  const idleAgent = {
+    id: 'prompt-fence-agent', status: 'running',
+    runtimeBinding: { kind: 'acp', state: 'idle', sessionRevision: 4 },
+    runtimeObservation: { kind: 'codex', phase: 'idle' },
+  };
+  assert.strictEqual(isComposerPromptStartFenceActive(idleAgent, 4), true,
+    'accepted Prompt remains fenced until a corresponding runtime transition arrives');
+  assert.strictEqual(isComposerPromptStartFenceActive(idleAgent, undefined), false);
+  const completed = { ...idleAgent, runtimeBinding: { ...idleAgent.runtimeBinding, sessionRevision: 7 } };
+  assert.strictEqual(isComposerPromptStartFenceActive(completed, 4), false,
+    'completion delivered before acceptance must not resurrect a Prompt-start fence');
+  assert.strictEqual(isComposerPromptStartFenceActive({
+    ...idleAgent, runtimeObservation: { kind: 'codex', phase: 'working' },
+  }, 4), false, 'authoritative active state replaces the local admission fence');
+  assert.strictEqual(isComposerPromptStartFenceActive({ ...idleAgent, status: 'stopped' }, 4), false);
+  assert.strictEqual(isComposerPromptStartFenceActive({ ...idleAgent, archived: true }, 4), false);
+  assert.strictEqual(isComposerPromptStartFenceActive({
+    ...idleAgent, runtimeBinding: { ...idleAgent.runtimeBinding, state: 'error' },
+  }, 4), false);
   const admissions = new ComposerFollowUpAdmissions();
   assert.strictEqual(admissions.beginPending('acp:one', 'message-1'), true);
   assert.strictEqual(

@@ -90,6 +90,14 @@ const tasks: FastScreenTask[] = [
     name: 'ACP live Host controller reconnection',
     args: ['--import', 'tsx', 'backend/tests/test-acp-runtime-host-restart.ts'],
   },
+  {
+    name: 'Composer admission ordering and completed Turn fence',
+    args: ['--import', 'tsx', 'backend/tests/test-composer-follow-up-controller.ts'],
+  },
+  {
+    name: 'Workspace restoration admission and cancellation',
+    args: ['--import', 'tsx', '--test', 'tests/workspace-request-admission.test.ts'],
+  },
 ];
 
 async function runTask(task: FastScreenTask): Promise<{ name: string; code: number }> {

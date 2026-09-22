@@ -5,6 +5,7 @@ import type {
   WorkspaceRequestMessage,
 } from '../shared/browser-protocol.js';
 import type { PerformanceTrace, PerformanceOperation } from '../shared/interaction-performance.js';
+import { WORKSPACE_REQUEST_CONCURRENCY, workspaceRequestLane, languageServerRequestLane } from '../shared/workspace-request-scheduling.js';
 
 interface WorkspaceRequestClient {
   accessMode?: 'owner' | 'read-only' | 'none';
@@ -58,31 +59,12 @@ interface ClientSchedule {
   requests: Map<string, ScheduledRequest>;
 }
 
-const INTERACTIVE_LIMIT = 4;
-const BACKGROUND_LIMIT = 2;
+const INTERACTIVE_LIMIT = WORKSPACE_REQUEST_CONCURRENCY.interactive;
+const BACKGROUND_LIMIT = WORKSPACE_REQUEST_CONCURRENCY.background;
 const GLOBAL_INTERACTIVE_LIMIT = 24;
 const GLOBAL_BACKGROUND_LIMIT = 12;
 const MAX_QUEUED_REQUESTS = 64;
 const BACKPRESSURE_BYTES = 512 * 1024;
-
-function workspaceRequestLane(request: WorkspaceRequest): RequestLane {
-  switch (request.operation) {
-    case 'search':
-      // Global entry lookup is a current navigation intent, not background inventory.
-      return request.scope === 'entries' ? 'interactive' : 'background';
-    case 'tree':
-    case 'read-file':
-    case 'save-file':
-    case 'move-entry':
-    case 'create-entry':
-    case 'rename-entry':
-    case 'delete-entry':
-    case 'switch-branch':
-      return 'interactive';
-    default:
-      return 'background';
-  }
-}
 
 function createWebSocketWorkspaceRequestHandlers<Client extends WorkspaceRequestClient>(
   ports: WorkspaceRequestPorts,
@@ -254,9 +236,7 @@ function createWebSocketWorkspaceRequestHandlers<Client extends WorkspaceRequest
       trace: ports.observeRequest?.('language-server.request', message.requestId, message.request.operation),
       cancelled: false,
       controller,
-      lane: message.request.operation === 'capability' || message.request.priority === 'background'
-        ? 'background'
-        : 'interactive',
+      lane: languageServerRequestLane(message.request),
       requestId: message.requestId,
       responseType: 'language-server-result',
       started: false,
@@ -284,12 +264,18 @@ function createWebSocketWorkspaceRequestHandlers<Client extends WorkspaceRequest
   }
 
   function cancel(client: Client, message: WorkspaceCancelMessage): void {
-    const request = schedules.get(client)?.requests.get(message.requestId);
-    if (!request) return;
+    const schedule = schedules.get(client);
+    const request = schedule?.requests.get(message.requestId);
+    if (!schedule || !request) return;
     request.cancelled = true;
     request.trace?.end('cancelled');
     request.controller.abort();
-    schedules.get(client)?.requests.delete(message.requestId);
+    schedule.requests.delete(message.requestId);
+    if (!request.started) {
+      const queue = schedule[request.lane];
+      const index = queue.indexOf(request);
+      if (index !== -1) queue.splice(index, 1);
+    }
   }
 
   function close(client: Client): void {

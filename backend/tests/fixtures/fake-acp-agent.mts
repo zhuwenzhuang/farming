@@ -98,6 +98,7 @@ const sessionConfigStates = new Map<string, SessionConfigState>();
 const omitFastOption = process.env.FARMING_TEST_ACP_OMIT_FAST === '1';
 const cancelledSessions = new Map<string, () => void>();
 const sessionEnvironments = new Map<string, NodeJS.ProcessEnv>();
+const localImageLinkAnswerSequences = new Map<string, number>();
 
 function farmingSessionEnvironment(params): NodeJS.ProcessEnv {
   const environment = params?._meta?.farming?.env;
@@ -880,11 +881,13 @@ class FakeAgent implements Agent {
     }
     if (promptText.startsWith('local image link ')) {
       const imagePath = promptText.slice('local image link '.length).trim();
+      const answerSequence = (localImageLinkAnswerSequences.get(params.sessionId) || 0) + 1;
+      localImageLinkAnswerSequences.set(params.sessionId, answerSequence);
       await client.sessionUpdate({
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'agent_message_chunk',
-          messageId: 'local-image-link-answer',
+          messageId: `local-image-link-answer-${answerSequence}`,
           content: { type: 'text', text: `Screenshot:\n\n- [screenshot.png](${imagePath})` },
         },
       });

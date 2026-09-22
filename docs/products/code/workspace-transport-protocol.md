@@ -218,7 +218,22 @@ owns it. Backend cancellation is best effort: unsupported filesystem or Git
 work may finish, but its result remains fenced by request ownership and the
 latest file-open intent.
 
-## Server Dispatch And Scheduling
+## Request Admission And Server Scheduling
+
+The browser broker bounds delivery before requests reach the socket. It shares
+the server's operation classification and admits at most four interactive and
+two background requests at a time across Workspace and Language Server work.
+Restoring many expanded directories queues their reads locally; it must not
+flood the server queue or let Git decoration block directory navigation.
+Every result, cancellation, and timeout releases admission for the next owned
+request. Cancelled server-queued work immediately releases queue capacity.
+
+The browser retains at most 512 pending requests and rejects overflow explicitly
+before delivery. A request's default 60-second deadline includes local queue
+time and delivery; operation-specific bounded deadlines may override it.
+Cancellation or timeout before delivery cannot have an uncertain mutation
+outcome. Reconnection applies the same admission limits to replayable reads;
+it never replays a sent mutation or retries a `BUSY` result automatically.
 
 The WebSocket message handler validates and schedules work; it never waits for
 a long filesystem, Git, or Language Server call before accepting the next

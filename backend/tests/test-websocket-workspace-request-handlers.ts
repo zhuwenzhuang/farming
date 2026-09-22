@@ -182,6 +182,31 @@ async function run(): Promise<void> {
 
   {
     const socket = client();
+    const gate = deferred<unknown>();
+    for (let i = 0; i < 4; i += 1) {
+      pending.set(`read-file:held-${i}`, gate);
+      handlers.workspaceRequest(socket, {
+        type: 'workspace-request', requestId: `held-${i}`,
+        request: { operation: 'read-file', rootId: `held-${i}`, path: 'a.ts' },
+      });
+    }
+    for (let i = 0; i < 100; i += 1) {
+      handlers.workspaceRequest(socket, {
+        type: 'workspace-request', requestId: `obsolete-${i}`,
+        request: { operation: 'tree', rootId: 'root-a', path: `${i}` },
+      });
+      handlers.cancel(socket, { type: 'workspace-cancel', requestId: `obsolete-${i}` });
+    }
+    assert.deepStrictEqual(socket.messages, [], 'cancelled queued work must immediately release queue capacity');
+    gate.resolve({});
+    await flush();
+    assert.strictEqual(socket.messages.length, 4, 'only the four retained requests may complete');
+    handlers.close(socket);
+    for (let i = 0; i < 4; i += 1) pending.delete(`read-file:held-${i}`);
+  }
+
+  {
+    const socket = client();
     const backgroundGates = [deferred<unknown>(), deferred<unknown>()];
     const backgroundStarted: string[] = [];
     const priorityHandlers = createWebSocketWorkspaceRequestHandlers<TestClient>({

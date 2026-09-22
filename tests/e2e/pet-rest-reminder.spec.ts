@@ -1055,13 +1055,20 @@ test('an action attempted during reconnect uses a neutral recoverable notice', a
 })
 
 test('reports a failed business probe without calling the WebSocket disconnected', async ({ page }) => {
-  let dropBusinessHealth = true
+  let failBusinessHealth = true
+  let connections = 0
   await page.routeWebSocket(/\/farming\/ws(?:\?|$)/, socket => {
+    connections += 1
     const server = socket.connectToServer()
     server.onMessage(message => {
       try {
         const parsed = JSON.parse(String(message)) as { type?: string }
-        if (dropBusinessHealth && parsed.type === 'business-health-result') return
+        if (failBusinessHealth && parsed.type === 'business-health-result') {
+          // An explicit business rejection preserves the transport. Dropping
+          // the response instead tests the separate unresponsive-socket reset.
+          socket.send(JSON.stringify({ ...parsed, status: 'failed' }))
+          return
+        }
       } catch {
         // Non-JSON protocol frames remain part of the live connection.
       }
@@ -1075,8 +1082,10 @@ test('reports a failed business probe without calling the WebSocket disconnected
   await expect(status).not.toHaveClass(/connecting|lost/)
   await expect(status).toHaveText('Workspace state is not available yet. Waiting for an update...')
 
-  dropBusinessHealth = false
+  expect(connections).toBe(1)
+  failBusinessHealth = false
   await expect(status).toHaveCount(0, { timeout: 8_000 })
+  expect(connections).toBe(1)
   await expect(page.getByTestId('app-shell')).toBeVisible()
 })
 

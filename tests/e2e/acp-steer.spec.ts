@@ -64,9 +64,7 @@ test('renders intermediate commentary promptly during a dense live stream', {
   })
   expect(commentaryRenderLatencyMs).toBeLessThan(1_000)
   await expect(page.getByText('Live commentary stream complete.', { exact: true })).toHaveCount(0)
-  const firstProgress = firstCommentary.locator('xpath=ancestor::*[@data-testid="code-acp-progress-update"]')
-  await expect(firstProgress).toHaveCSS('animation-name', 'code-acp-progress-fill')
-  expect(Number.parseFloat(await firstProgress.evaluate(element => getComputedStyle(element).animationDuration)) * 1_000).toBeLessThanOrEqual(520)
+  // One-time arrival motion is covered by acp-progress-arrival.spec.ts.
   const processingActivity = page.getByTestId('code-agent-transcript-live-activity')
   await expect(processingActivity.getByTestId('code-agent-transcript-live-activity-icon')).toHaveAttribute('data-kind', 'processing')
   await expect.poll(() => processingActivity.locator(':scope > span:not(.code-agent-transcript-live-activity-icon)').evaluate(element => (
@@ -78,6 +76,54 @@ test('renders intermediate commentary promptly during a dense live stream', {
   await expect(page.getByText('Live commentary stream complete.', { exact: true })).toHaveCount(0)
   await expect(page.getByText('Live commentary stream complete.', { exact: true })).toBeVisible({ timeout: 5_000 })
 })
+
+for (const provider of ['codex', 'claude', 'qwen'] as const) {
+  test(`a completed ${provider} Turn stays idle when its Prompt acceptance arrives afterward`, async ({ page, workspaceRoot }) => {
+    const workspace = path.join(workspaceRoot, `${provider}-acp-completed-before-acceptance`)
+    fs.mkdirSync(workspace, { recursive: true })
+    const response = await page.request.post('/farming/api/control/agents', {
+      data: { command: provider, workspace, agentRuntimeMode: 'chat' },
+    })
+    expect(response.ok()).toBeTruthy()
+    const { agentId } = await response.json() as { agentId: string }
+    let releaseAcceptance: (() => void) | undefined
+    const acceptanceGate = new Promise<void>(resolve => { releaseAcceptance = resolve })
+    let heldAcceptance = false
+    await page.routeWebSocket(/\/farming\/ws(?:\?|$)/, socket => {
+      const server = socket.connectToServer()
+      server.onMessage(async payload => {
+        const message = JSON.parse(String(payload)) as { type?: string; agentId?: string; accepted?: boolean; phase?: string }
+        if (message.agentId === agentId && (
+          (message.type === 'composer-input-result' && message.accepted)
+          || (message.type === 'composer-input-status' && message.phase === 'submitted')
+        )) {
+          heldAcceptance = true
+          await acceptanceGate
+        }
+        socket.send(payload)
+      })
+    })
+    try {
+      await openFarming(page)
+      await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+      const input = page.getByTestId('code-acp-composer-input')
+      await input.fill('image attachment completion before acceptance')
+      await page.getByTestId('code-acp-composer-send').click()
+      await expect(page.getByText('Received 0 image.', { exact: true })).toBeVisible()
+      await expect.poll(() => heldAcceptance).toBe(true)
+      await expect.poll(async () => {
+        const result = await page.request.get(`/farming/api/agents/${agentId}/acp-session`)
+        return (await result.json()).session?.chatTurn?.status
+      }).toBe('completed')
+      releaseAcceptance?.()
+      await expect(input).toHaveValue('')
+      await expect(page.getByTestId('code-acp-composer-send')).toHaveAttribute('data-action', 'disabled')
+    } finally {
+      releaseAcceptance?.()
+      await page.request.delete(`/farming/api/control/agents/${agentId}?recordHistory=0`)
+    }
+  })
+}
 
 test('sends the first Codex Chat message as a Prompt while the Session is connecting', async ({ page, workspaceRoot }) => {
   const workspace = path.join(workspaceRoot, 'codex-acp-first-prompt')
@@ -530,7 +576,8 @@ test('keeps queued follow-ups separate and steers each selected message', async 
     const toolbarRect = composer.querySelector('[data-testid="code-acp-composer-toolbar"]')?.getBoundingClientRect()
     return {
       composerOverflow: composer.scrollHeight > composer.clientHeight + 1,
-      composerKeepsRestingHeight: composerRect.height >= 70 && composerRect.height <= 74,
+      // Compact input reserves separate 44px expand and send rows, plus chrome.
+      composerKeepsRestingHeight: composerRect.height >= 88 && composerRect.height <= 100,
       pendingOutsideComposer: !composer.contains(pending),
       pendingOverlapsComposer: pendingRect.bottom - composerRect.top >= 13
         && pendingRect.bottom - composerRect.top <= 15,

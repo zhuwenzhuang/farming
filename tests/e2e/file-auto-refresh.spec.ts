@@ -46,6 +46,44 @@ function recordWorkspaceWatchReady(socket: PlaywrightWebSocket, onReady: (paths:
   })
 }
 
+test('restores and refreshes one hundred expanded directories without overflowing the request queue', async ({ page, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'restored-tree')
+  const directories = Array.from({ length: 100 }, (_, i) => `directory-${String(i).padStart(3, '0')}`)
+  for (const directory of directories) {
+    fs.mkdirSync(path.join(workspace, directory), { recursive: true })
+    fs.writeFileSync(path.join(workspace, directory, 'guide.md'), '# Restored file\n')
+  }
+  await createControlAgent(page, workspace)
+  await page.addInitScript(({ workspace, directories }) => {
+    localStorage.setItem('farming.code.workspaceViewState.v1', JSON.stringify({
+      updatedAt: Date.now(), lastProjectWorkspace: workspace,
+      projectFiles: { [workspace]: { filesCollapsed: false, openDirectoryPaths: directories } },
+    }))
+  }, { workspace, directories })
+  const errors: string[] = []
+  const loaded = new Set<string>()
+  page.on('websocket', socket => {
+    socket.on('framereceived', frame => {
+      const message = JSON.parse(String(frame.payload)) as {
+        type?: string; ok?: boolean; error?: { code: string }; result?: { path?: string; items?: unknown[] }
+      }
+      if (message.type !== 'workspace-result') return
+      if (!message.ok) errors.push(message.error?.code || 'unknown')
+      if (Array.isArray(message.result?.items) && message.result.path) loaded.add(message.result.path)
+    })
+  })
+  await openFarming(page)
+  await expect.poll(() => directories.filter(directory => loaded.has(directory)).length).toBe(100)
+  const project = page.getByTestId('code-project-group').filter({ hasText: 'restored-tree' })
+  const refresh = project.getByTestId('code-files-refresh')
+  await refresh.focus()
+  await refresh.press('Enter')
+  await expect(refresh).toHaveAttribute('data-refresh-status', 'success')
+  await openProjectFile(page, 'restored-tree', 'directory-000/guide.md')
+  await expect(page.getByTestId('code-file-markdown-preview').getByRole('heading', { name: 'Restored file' })).toBeVisible()
+  expect(errors).toEqual([])
+})
+
 for (const appearance of ['light', 'dark', 'paper']) {
   test(`oversized directory fails locally while ordinary files remain usable in ${appearance}`, async ({ page, workspaceRoot }, testInfo) => {
     const workspace = path.join(workspaceRoot, 'bounded-tree')

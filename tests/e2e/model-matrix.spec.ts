@@ -711,7 +711,9 @@ test('mobile ACP keeps one compact Composer state and exposes model selection be
   await expect(picker).toBeVisible()
 
   const compactHeight = await composer.evaluate(element => element.getBoundingClientRect().height)
-  expect(compactHeight).toBeLessThanOrEqual(72)
+  // Compact input reserves separate 44px expand and send rows, plus chrome.
+  expect(compactHeight).toBeGreaterThanOrEqual(88)
+  expect(compactHeight).toBeLessThanOrEqual(100)
   await picker.click()
   await expect(page.getByTestId('code-acp-model-menu')).toBeVisible()
   await page.keyboard.press('Escape')

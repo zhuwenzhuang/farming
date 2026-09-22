@@ -11,12 +11,12 @@ test('shell variables remain literal and exhausted Chat history stays exhausted 
   expect(response.ok()).toBeTruthy()
   const { agentId } = await response.json() as { agentId: string }
   const limits: number[] = []
-  let omittedPrefixDeltas = 0
+  let liveDeltas = 0
   await page.route(`**/api/agents/${agentId}/acp-transcript?*`, async route => {
     const response = await route.fetch()
     const payload = await response.json()
     limits.push(Number(new URL(route.request().url()).searchParams.get('maxTurns')))
-    if (!payload.replace && payload.hasMoreBefore) omittedPrefixDeltas++
+    if (payload.replace === false) liveDeltas++
     for (const entry of payload.transcript?.entries || []) {
       if (entry.type !== 'message' || entry.role !== 'assistant') continue
       for (const content of entry.content || []) {
@@ -38,7 +38,7 @@ test('shell variables remain literal and exhausted Chat history stays exhausted 
   await input.fill('streaming command activity')
   await page.getByTestId('code-acp-composer-send').click()
   await expect(scroll).toContainText('Streaming command completed.')
-  await expect.poll(() => omittedPrefixDeltas).toBeGreaterThan(0)
+  await expect.poll(() => liveDeltas).toBeGreaterThan(0)
   await scroll.evaluate(element => { element.setAttribute('data-retained-probe', 'original'); element.scrollTop = 0 })
   await scroll.hover()
   for (let i = 0; i < 8; i++) {

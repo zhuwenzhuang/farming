@@ -44,6 +44,16 @@ export interface ComposerFollowUpOwnership {
   promptStartFences: Record<string, number>
 }
 
+export function isComposerPromptStartFenceActive(agent: Agent | null | undefined, revisionBeforePrompt: number | undefined) {
+  if (!agent || !isAcpRuntime(agent) || revisionBeforePrompt === undefined) return false
+  return !agent.archived
+    && agent.status !== 'dead'
+    && agent.status !== 'stopped'
+    && agent.runtimeBinding.state !== 'error'
+    && !isAgentTurnActive(agent)
+    && (Number(agent.runtimeBinding.sessionRevision) || 0) <= revisionBeforePrompt
+}
+
 interface UseComposerFollowUpControllerOptions {
   ownership?: ComposerFollowUpOwnership
   flushQueues?: boolean
@@ -226,10 +236,11 @@ export function useComposerFollowUpController({
   const admissionsRef = useRef(ownership?.admissions ?? new ComposerFollowUpAdmissions())
   const promptStartFencesRef = useRef<Record<string, number>>(ownership?.promptStartFences ?? {})
 
-  const isPromptStartFenced = useCallback((agent: Agent | null | undefined) => Boolean(
-    agent
-    && isAcpRuntime(agent)
-    && promptStartFencesRef.current[agent.id] !== undefined
+  // Acceptance can arrive after the corresponding Turn has already completed.
+  // Ref cleanup is bookkeeping; rendering must honor current runtime truth now.
+  const isPromptStartFenced = useCallback((agent: Agent | null | undefined) => isComposerPromptStartFenceActive(
+    agent ? agentWithCurrentLiveState(agent) : agent,
+    agent ? promptStartFencesRef.current[agent.id] : undefined,
   ), [])
   const activePromptStartFenced = isPromptStartFenced(activeAgent)
   const activeAgentTurnActive = activePromptStartFenced || isAgentTurnActive(activeAgent)
@@ -364,17 +375,7 @@ export function useComposerFollowUpController({
     const agent = agentWithCurrentLiveState(structuralAgent)
     const revisionBeforePrompt = promptStartFencesRef.current[agent.id]
     if (revisionBeforePrompt === undefined) return
-    const runtime = isAcpRuntime(agent) ? agent.runtimeBinding : null
-    const promptStateConfirmed = isAgentTurnActive(agent)
-      || (Number(runtime?.sessionRevision) || 0) > revisionBeforePrompt
-    if (
-      !runtime
-      || promptStateConfirmed
-      || runtime.state === 'error'
-      || agent.archived
-      || agent.status === 'dead'
-      || agent.status === 'stopped'
-    ) delete promptStartFencesRef.current[agent.id]
+    if (!isComposerPromptStartFenceActive(agent, revisionBeforePrompt)) delete promptStartFencesRef.current[agent.id]
   }, [])
 
   useEffect(() => {

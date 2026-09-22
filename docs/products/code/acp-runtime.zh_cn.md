@@ -253,6 +253,10 @@ Prompt Submission 有明确身份。相同请求的重复提交可以加入已�
 必须拒绝。Transport Failure 导致 Provider Ownership 不确定时，Farming 不会自动重放 Prompt
 或 Steer。Cancel 精确指向当前 Active Turn，并到达可见终态。
 
+Composer 的临时 Prompt 启动保护在权威活动状态或更新的 Session Revision 确认转换后结束。
+完成状态可能先于提交确认到达；迟到的确认不得让已完成 Turn 的 Composer 重新显示忙碌。
+渲染必须直接遵守这一顺序，不能等待本地保护清理或另一次运行时事件。
+
 Queued Follow-up 在准入开始前保持可编辑、可丢弃。协商成功的 Live Steer 保留在所属 Turn
 内部；不支持 Steer 的 Provider 使用可见 Queue。
 

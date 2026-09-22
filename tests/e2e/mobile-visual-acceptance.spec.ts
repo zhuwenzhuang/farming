@@ -605,3 +605,57 @@ test('audits compact Composer and sidebar geometry across mobile widths and appe
 
   expect(violations).toEqual([])
 })
+
+for (const surface of ['agent', 'file'] as const) {
+  for (const appearance of APPEARANCES) {
+    test(`mobile ${appearance} menu stays open when remembered ${surface} restores after the click`, async ({ page, workspaceRoot }, testInfo) => {
+      await page.setViewportSize({ width: 390, height: 844 })
+      const workspace = path.join(workspaceRoot, `late-mobile-${surface}-${appearance}`)
+      fs.mkdirSync(workspace, { recursive: true })
+      fs.writeFileSync(path.join(workspace, 'restored.txt'), 'Remembered workspace file\n')
+      const agentId = await createAgent(page, 'bash', workspace, 'Remembered Agent')
+      await openFarming(page)
+      await openAgent(page, agentId)
+      await expect(page.getByTestId('code-sidebar')).toHaveClass(/collapsed/)
+      if (surface === 'file') {
+        await page.addInitScript(workspace => {
+          const key = 'farming.code.workspaceViewState.v1'
+          const state = JSON.parse(localStorage.getItem(key) || '{}')
+          localStorage.setItem(key, JSON.stringify({
+            ...state, surface: { kind: 'file', workspace, filePath: 'restored.txt' },
+          }))
+        }, workspace)
+      }
+      let releaseInventory: (() => void) | undefined
+      const inventoryGate = new Promise<void>(resolve => { releaseInventory = resolve })
+      await page.routeWebSocket(/\/farming\/ws(?:\?|$)/, socket => {
+        const server = socket.connectToServer()
+        server.onMessage(async message => {
+          await inventoryGate
+          socket.send(message)
+        })
+      })
+      try {
+        await page.reload()
+        await page.locator('body').evaluate((body, value) => { body.dataset.appearance = value }, appearance)
+        await page.getByTestId('code-mobile-menu').click()
+        const sidebar = page.getByTestId('code-sidebar')
+        await expect(sidebar).not.toHaveClass(/collapsed/)
+        releaseInventory?.()
+        if (surface === 'file') {
+          await expect(page.getByTestId('code-file-editor').getByRole('tab', { selected: true, includeHidden: true })).toHaveAttribute('title', 'restored.txt')
+        } else {
+          await expect(page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)).toHaveClass(/active/)
+        }
+        await expect(sidebar).not.toHaveClass(/collapsed/)
+        await expect(sidebar).not.toHaveAttribute('inert', '')
+        await page.screenshot({ path: testInfo.outputPath(`${surface}-${appearance}-restored-sidebar.png`), animations: 'disabled' })
+        // Explicit activation still dismisses the drawer after restoration.
+        await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+        await expect(sidebar).toHaveClass(/collapsed/)
+      } finally {
+        releaseInventory?.()
+      }
+    })
+  }
+}

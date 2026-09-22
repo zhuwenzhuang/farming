@@ -359,6 +359,12 @@ rejected. When transport failure leaves Provider ownership uncertain, Farming
 does not replay the Prompt or Steer automatically. Cancellation targets the
 exact active Turn and reaches a visible terminal result.
 
+The Composer's temporary Prompt-start guard ends when authoritative activity or
+a newer Session revision confirms the transition. Completion may arrive before
+the submission acknowledgement; a late acknowledgement must not restore a busy
+Composer after that completed Turn. Rendering observes this ordering directly,
+without waiting for local guard cleanup or another runtime event.
+
 Queued follow-ups remain editable and discardable until admission begins.
 Negotiated live Steer remains inside its owning Turn; providers without that
 capability use the visible queue.

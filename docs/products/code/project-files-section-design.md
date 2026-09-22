@@ -273,7 +273,9 @@ Remember stable user choices that help a user continue where they left off.
 Do not remember transient interaction, loading, error, or responsive state.
 
 Authoritative Project and Agent state restores first. A valid active Agent or
-file owns the final reveal; stale remembered targets are ignored.
+file owns the final reveal; stale remembered targets are ignored. Restoring that
+surface does not dismiss a compact sidebar the user has opened while loading.
+Explicit target activation and drawer dismissal still close it.
 
 ## Working Copies And Mutations
 
