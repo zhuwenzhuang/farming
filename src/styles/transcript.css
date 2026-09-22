@@ -906,37 +906,6 @@
   flex: 0 0 auto;
 }
 
-.code-acp-progress-update.live-fill {
-  animation: code-acp-progress-fill 220ms ease-out both;
-  will-change: clip-path, opacity;
-}
-
-.code-acp-progress-update.live-fill.medium {
-  animation-duration: 340ms;
-}
-
-.code-acp-progress-update.live-fill.long {
-  animation-duration: 480ms;
-}
-
-@keyframes code-acp-progress-fill {
-  from {
-    clip-path: inset(0 100% 0 0);
-    opacity: 0.35;
-  }
-
-  to {
-    clip-path: inset(0 0 0 0);
-    opacity: 1;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .code-acp-progress-update.live-fill {
-      animation: none;
-    }
-}
-
 .code-acp-progress-update > :first-child {
   margin-top: 0;
 }

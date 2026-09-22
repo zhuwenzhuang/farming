@@ -693,10 +693,14 @@ without waiting for a quiet period. Rapid revision-only refreshes also share a
 short bounded cadence; the latest revision must still run, while reconnect and
 runtime-state transitions remain immediate. Completed Turns retain stable
 render identities across these reads, so unchanged Markdown is not parsed
-again. Newly visible intermediate messages
-use a short, bounded reveal; multiple arrivals reveal in parallel and
-reduced-motion preferences disable the effect. Expanded reasoning omits a
-leading line that already serves as its folded title and renders the remaining
+again. Only new intermediate messages received while the selected Chat is visible
+and following the latest content fade in once, for 180 ms. The pane consumes message
+identities when each snapshot arrives; mounting a message never triggers motion.
+Streaming extensions and final answers display directly. Initial history, Agent
+switching, expanded content, history loading, reconnect recovery, and background
+catch-up display without replay. Reading older content or selecting text suppresses
+arrival motion, as do reduced-motion preferences. Multiple arrivals fade in parallel.
+Expanded reasoning omits a leading line that already serves as its folded title and renders the remaining
 text as safe Markdown, so provider-authored emphasis is presented instead of
 exposing its source markers. Shell variable expansions in prose remain literal:
 paired dollar signs in quoted commands must not turn paths into inline math.

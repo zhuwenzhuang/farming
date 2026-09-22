@@ -1827,23 +1827,17 @@ function AgentTranscriptProgressUpdate({
   item,
   markdownComponents,
   copy,
-  animate = false,
 }: {
   item: AgentTranscriptProcessItem
   markdownComponents: Components
   copy: CodeCopy
-  animate?: boolean
 }) {
   const progressText = String(item.detail || '').trim()
   if (!progressText) return null
-  const revealSpeed = progressText.length > 320
-    ? 'long'
-    : progressText.length > 96
-      ? 'medium'
-      : 'short'
   return (
     <div
-      className={`code-acp-progress-update code-markdown-preview ${animate ? `live-fill ${revealSpeed}` : ''}`}
+      className="code-acp-progress-update code-markdown-preview"
+      data-progress-id={item.id}
       data-testid="code-acp-progress-update"
     >
       <LocalErrorBoundary
@@ -2192,7 +2186,6 @@ function AgentTranscriptTurnView({
   onFork,
   onShare,
   showLiveActivity,
-  initialProgressIds,
 }: {
   turn: AgentTranscriptTurn
   copy: CodeCopy
@@ -2219,7 +2212,6 @@ function AgentTranscriptTurnView({
   onFork?: () => Promise<void> | void
   onShare?: (turnId: string, anchor: ShareNoticeAnchor) => Promise<void> | void
   showLiveActivity: boolean
-  initialProgressIds?: Set<string> | null
 }) {
   recordPerformanceTestRender(turn.status === 'inProgress'
     ? 'liveTranscriptTurn'
@@ -2709,7 +2701,6 @@ function AgentTranscriptTurnView({
                     item={item}
                     markdownComponents={markdownComponents}
                     copy={copy}
-                    animate={turn.status === 'inProgress' && !initialProgressIds?.has(item.id)}
                   />
                 ) : (
                   <SafeAgentTranscriptProcessItemView
@@ -2773,7 +2764,6 @@ function AgentTranscriptTurnView({
                       item={entry.item}
                       markdownComponents={markdownComponents}
                       copy={copy}
-                      animate={turn.status === 'inProgress' && !initialProgressIds?.has(entry.item.id)}
                     />
                   )
                 }
@@ -3110,10 +3100,13 @@ export function AgentTranscriptPane({
   const initialRevealReadyRef = useRef(false)
   const initialRevealStartedAtRef = useRef<number | null>(null)
   const initialRevealTimerRef = useRef<number | null>(null)
-  // Progress updates already visible when the transcript is first revealed
-  // must not replay the left-to-right fill animation. Only updates that
-  // arrive afterwards should animate.
-  const initialProgressUpdateIdsRef = useRef<Set<string> | null>(null)
+  // Arrival motion belongs to snapshot transitions, never component mounts.
+  const progressTransportConnectedRef = useRef(true)
+  const progressArrivalRef = useRef({
+    transcript: null as AgentTranscript | null,
+    ready: false,
+    ids: new Set<string>(),
+  })
   // A transcript refresh can arrive while a user is dragging the mobile
   // scroll surface. Never let the refresh/layout pass take the viewport away
   // from the finger (the old behavior made the list jump back to the same
@@ -3234,7 +3227,7 @@ export function AgentTranscriptPane({
     setLoading(true)
     initialRevealReadyRef.current = false
     initialRevealStartedAtRef.current = null
-    initialProgressUpdateIdsRef.current = null
+    progressArrivalRef.current = { transcript: null, ready: false, ids: new Set() }
     setInitialRevealReady(false)
     setLoadingOlder(false)
     setTurnLimit(initialTranscriptTurnLimit(source))
@@ -3633,25 +3626,66 @@ export function AgentTranscriptPane({
     && !error
     && Boolean(transcript?.available)
     && turns.length > 0
-  if (initialProgressUpdateIdsRef.current === null && showFreshAcpEmpty) {
-    initialProgressUpdateIdsRef.current = new Set()
-  }
-  if (
-    initialProgressUpdateIdsRef.current === null
-    && expectHistory
-    && !error
-    && !loading
-    && !awaitingAcpHistory
-    && !awaitingInitialReveal
-  ) {
+  useEffect(() => {
+    const suppressCatchUpMotion = () => { progressArrivalRef.current.ready = false }
+    const handleDisconnected = () => {
+      progressTransportConnectedRef.current = false
+      suppressCatchUpMotion()
+    }
+    const handleConnected = () => {
+      progressTransportConnectedRef.current = true
+      suppressCatchUpMotion()
+    }
+    const handleVisibility = () => {
+      if (!isPageActive()) suppressCatchUpMotion()
+    }
+    window.addEventListener('farming:backend-disconnected', handleDisconnected)
+    window.addEventListener('farming:backend-connected', handleConnected)
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => {
+      window.removeEventListener('farming:backend-disconnected', handleDisconnected)
+      window.removeEventListener('farming:backend-connected', handleConnected)
+      document.removeEventListener('visibilitychange', handleVisibility)
+    }
+  }, [])
+  useLayoutEffect(() => {
+    const previous = progressArrivalRef.current
+    const ready = progressTransportConnectedRef.current && source === 'acp' && active && isPageActive() && !loading && !loadingOlder
+      && !error && !awaitingInitialReveal && !awaitingAcpHistory && runtimeState !== 'connecting'
     const ids = new Set<string>()
     for (const turn of turns) {
       for (const item of turn.processItems) {
-        if (isAcpProgressUpdate(item)) ids.add(item.id)
+        if (isAcpProgressUpdate(item) && item.detail?.trim()) ids.add(item.id)
       }
     }
-    initialProgressUpdateIdsRef.current = ids
-  }
+    const element = scrollRef.current
+    if (ready && previous.ready && transcript !== previous.transcript
+      && transcript?.sessionId === previous.transcript?.sessionId
+      && latestTurn?.status === 'inProgress' && transcript?.state === 'working'
+      && followBottomRef.current && element && !textSelectionGestureRef.current
+      && !hasTextSelectionWithin(element)
+      && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      const arrivals = new Set(latestTurn.processItems
+        .filter(item => ids.has(item.id) && !previous.ids.has(item.id))
+        .map(item => item.id))
+      for (const node of element.querySelectorAll<HTMLElement>('[data-progress-id]')) {
+        if (arrivals.has(node.dataset.progressId || '')) {
+          node.animate([{ opacity: 0.65 }, { opacity: 1 }], { duration: 180, easing: 'ease-out' })
+        }
+      }
+    }
+    // Consume every arrival, including hidden, historical, and reduced-motion ones.
+    // Expanding or remounting a message cannot grant a second animation.
+    // A cached in-progress transcript can mount before its catch-up read lands.
+    // Arm motion only after that next snapshot, or from a fresh empty Chat.
+    progressArrivalRef.current = {
+      transcript,
+      ready: ready && (previous.ready || showFreshAcpEmpty
+        || (previous.transcript !== null && transcript !== previous.transcript)),
+      ids,
+    }
+  }, [active, awaitingAcpHistory, awaitingInitialReveal, error, latestTurn, loading, loadingOlder,
+    runtimeState, showFreshAcpEmpty, source, transcript, turns])
   useEffect(() => {
     if (!active || !isPageActive() || !transcript?.available || turns.length === 0) return
     const element = scrollRef.current
@@ -4167,7 +4201,6 @@ export function AgentTranscriptPane({
                       processOpen={processOpen}
                       groupProcessActions={groupProcessActions}
                       source={source}
-                      initialProgressIds={initialProgressUpdateIdsRef.current}
                       onToggleProcess={handleToggleProcess}
                       onLoadProcessItemDetail={source === 'acp' ? handleLoadProcessItemDetail : undefined}
                       onLoadPatchChanges={source === 'acp' ? handleLoadPatchChanges : undefined}

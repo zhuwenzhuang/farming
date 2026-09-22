@@ -740,6 +740,35 @@ class FakeAgent implements Agent {
       }
       return { stopReason: 'end_turn' };
     }
+    if (promptText === 'progress arrival motion') {
+      const gate = path.join(process.cwd(), '.progress-arrival-stage');
+      let cancelled = false;
+      cancelledSessions.set(params.sessionId, () => { cancelled = true; });
+      try {
+        for (let stage = 1; stage <= 9; stage += 1) {
+          const deadline = Date.now() + 60_000;
+          while (!cancelled && Number(await fs.promises.readFile(gate, 'utf8').catch(() => '0')) < stage) {
+            if (Date.now() >= deadline) throw new Error('Progress arrival fixture stage timed out');
+            await new Promise(resolve => setTimeout(resolve, 40));
+          }
+          if (cancelled) return { stopReason: 'cancelled' };
+          await client.sessionUpdate({
+            sessionId: params.sessionId,
+            update: {
+              sessionUpdate: 'agent_message_chunk',
+              messageId: `arrival-${stage === 2 ? 1 : stage}`,
+              content: { type: 'text', text: stage === 1
+                ? 'Arrival one.\n\n' + Array.from({ length: 16 }, (_, i) => `Review paragraph ${i + 1}: checking the implementation and its behavior.`).join('\n\n')
+                : stage === 2 ? '\n\nStreaming extension.' : `Arrival stage ${stage}.` },
+              _meta: { codex: { phase: stage === 9 ? 'final_answer' : 'commentary' } },
+            },
+          });
+        }
+        return { stopReason: 'end_turn' };
+      } finally {
+        cancelledSessions.delete(params.sessionId);
+      }
+    }
     if (promptText === 'streaming rich content') {
       const gate = path.join(process.cwd(), '.rich-content-stage');
       let cancelled = false;
