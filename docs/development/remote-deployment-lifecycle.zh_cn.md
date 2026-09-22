@@ -16,6 +16,10 @@ Artifact 明确记录完整 Git SHA、平台、架构、兼容运行时、包内
 
 ## 所有权与目录布局
 
+本地 builder 的 Node/npm 组合必须兼容发布流程固定的 npm 版本，依赖安装限时五分钟。
+宿主机还需安装固定版本的 Rust 和 Zig 工具链，在打包前为同一提交 SHA 编译带补丁的
+Linux musl Browser runtime。
+
 - 本地 builder 拥有 artifact 构建与验证。操作者可以显式选择本地 Unix socket
   Docker context 和 npm registry；部署不会推断或改变其他容器引擎的生命周期。
   由于 builder 需要 bind-mount 本机仓库路径，远端、TCP、转发 socket 和 Windows

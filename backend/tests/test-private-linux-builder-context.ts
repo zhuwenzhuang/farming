@@ -94,7 +94,10 @@ function run() {
   assert.match(builderSource, /HOST_RIPGREP_CACHE_DIR/);
   assert.match(builderSource, /FARMING_RELEASE_BUILDER_NODE_HEAP_MB:-6144/);
   assert.match(builderSource, /NODE_OPTIONS="--max-old-space-size=\$\{BUILDER_NODE_HEAP_MB\}"/);
-  assert.match(builderSource, /npm install --global npm@12\.0\.2 --no-audit --no-fund && npm ci/);
+  assert.match(builderSource, /node:22\.22\.2-bookworm/);
+  assert.match(builderSource, /npm install --global npm@12\.0\.2/);
+  assert.match(builderSource, /timeout 300 npm ci/);
+  assert.match(builderSource, /--env FARMING_AGENT_BROWSER_ARTIFACTS=\/browser-artifacts/);
 
   const invalidHeap = runBuilder('unix:///tmp/farming-docker.sock', {
     FARMING_RELEASE_BUILDER_NODE_HEAP_MB: '1024',

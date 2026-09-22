@@ -2,7 +2,7 @@
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-BUILDER_IMAGE="${FARMING_DEPLOY_BUILDER_IMAGE:-node:22.17.0-bookworm}"
+BUILDER_IMAGE="${FARMING_DEPLOY_BUILDER_IMAGE:-node:22.22.2-bookworm}"
 DOCKER_CONTEXT="${FARMING_DEPLOY_DOCKER_CONTEXT:-}"
 NPM_REGISTRY="${FARMING_DEPLOY_NPM_REGISTRY:-https://registry.npmjs.org/}"
 BUILDER_NODE_HEAP_MB="${FARMING_RELEASE_BUILDER_NODE_HEAP_MB:-6144}"
@@ -18,7 +18,7 @@ builder.
 
 Options:
   --output-dir PATH       Artifact output directory (default: .tmp/private-releases/<sha>)
-  --builder-image IMAGE   Linux amd64 container image (default: node:22.17.0-bookworm)
+  --builder-image IMAGE   Linux amd64 container image (default: node:22.22.2-bookworm)
   --docker-context NAME   Local Unix-socket Docker context used by the Linux builder
   --npm-registry URL      npm registry used inside the builder
   --help                  Show this help
@@ -121,11 +121,19 @@ echo "==> Preparing isolated source tree for ${GIT_SHA}" >&2
 git -C "${PROJECT_ROOT}" worktree add --detach "${WORKTREE_DIR}" "${GIT_SHA}" >/dev/null
 GIT_COMMON_DIR="$(git -C "${WORKTREE_DIR}" rev-parse --path-format=absolute --git-common-dir)"
 
+# Use Release CI's pinned native builder and exact-SHA identity.
+# Cross-compile locally instead of compiling Rust under amd64 emulation.
+BROWSER_ARTIFACTS_DIR="${WORKTREE_ROOT}/browser-artifacts"
+echo "==> Building patched Browser runtime for ${GIT_SHA}" >&2
+node "${WORKTREE_DIR}/scripts/build-agent-browser-runtime.mjs" \
+  --platform linux-x64-musl --output "${BROWSER_ARTIFACTS_DIR}" >&2
+
 echo "==> Building private Linux release in ${BUILDER_IMAGE}" >&2
 docker_command run --rm --platform linux/amd64 \
   --mount "type=bind,source=${WORKTREE_DIR},target=${WORKTREE_DIR}" \
   --mount "type=bind,source=${GIT_COMMON_DIR},target=${GIT_COMMON_DIR},readonly" \
   --mount "type=bind,source=${OUTPUT_DIR},target=/output" \
+  --mount "type=bind,source=${BROWSER_ARTIFACTS_DIR},target=/browser-artifacts,readonly" \
   --mount "type=bind,source=${PROJECT_ROOT}/.tmp/deploy-npm-cache,target=/root/.npm" \
   --mount "type=bind,source=${RUNTIME_CACHE_DIR},target=/farming-runtime-cache" \
   --workdir "${WORKTREE_DIR}" \
@@ -136,6 +144,7 @@ docker_command run --rm --platform linux/amd64 \
   --env FARMING_RELEASE_DIR=/output \
   --env FARMING_RELEASE_NAME="${RELEASE_NAME}" \
   --env FARMING_RELEASE_UPDATE_METHOD=app-bundle \
+  --env FARMING_AGENT_BROWSER_ARTIFACTS=/browser-artifacts \
   --env FARMING_GLIBC_RUNTIME_CACHE=/farming-runtime-cache/glibc228-lib.tar.gz \
   --env FARMING_RIPGREP_ARCHIVE_CACHE=/farming-runtime-cache/ripgrep \
   --env FARMING_SKIP_INSTALL_RUNTIME_PREPARE=1 \
@@ -144,7 +153,7 @@ docker_command run --rm --platform linux/amd64 \
   --env NODE_OPTIONS="--max-old-space-size=${BUILDER_NODE_HEAP_MB}" \
   --env npm_config_registry="${NPM_REGISTRY}" \
   "${BUILDER_IMAGE}" \
-  bash -lc 'npm install --global npm@12.0.2 --no-audit --no-fund && npm ci --no-audit --no-fund && npm run release:app:legacy-linux' >&2
+  bash -lc 'npm install --global npm@12.0.2 --no-audit --no-fund && node --version && npm --version && timeout 300 npm ci --no-audit --no-fund && npm run release:app:legacy-linux' >&2
 
 TARBALL="${OUTPUT_DIR}/${RELEASE_NAME}.tar.gz"
 test -f "${TARBALL}"

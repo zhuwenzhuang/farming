@@ -21,6 +21,10 @@ of the artifact or repository configuration.
 ## Ownership And Layout
 
 - The local builder owns artifact construction and verification.
+  Its Node/npm pair must be compatible with the pinned release npm version.
+  Dependency installation has a five-minute deadline. The host also uses the
+  pinned Rust and Zig toolchain to build the patched Linux musl Browser runtime
+  for the same committed SHA before packaging; these tools must be installed.
 - The operator may select an explicit local Unix-socket Docker context and npm
   registry for the local builder; deployment never infers or changes another
   engine's lifecycle. Remote, TCP, forwarded-socket, and Windows-pipe Docker
