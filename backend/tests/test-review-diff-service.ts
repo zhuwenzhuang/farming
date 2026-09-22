@@ -79,11 +79,13 @@ async function run() {
   fs.writeFileSync(path.join(scopeRoot, 'old.txt'), 'old\n');
   const oldTime = new Date(Date.now() - 4 * 24 * 60 * 60 * 1000);
   fs.utimesSync(path.join(scopeRoot, 'old.txt'), oldTime, oldTime);
+  const scopeChangeOptions = [];
   const scopeService = new ReviewDiffService({
     getAgentWorkspaceRoot() { return scopeRoot; },
   }, {
     async changes(_root, options) {
       assert.strictEqual(options.limit, 2000);
+      scopeChangeOptions.push(options);
       return {
         items: [
           { path: 'tracked.ts', gitStatus: 'modified' },
@@ -101,8 +103,10 @@ async function run() {
   try {
     const trackedScope = await scopeService.getWorkingCopy('agent-scope', { metadataOnly: true, scope: 'tracked' });
     assert.deepStrictEqual(trackedScope.files.map(file => file.path), ['tracked.ts']);
+    assert.deepStrictEqual(scopeChangeOptions[0], { limit: 2000, scope: 'tracked' });
     const untrackedScope = await scopeService.getWorkingCopy('agent-scope', { metadataOnly: true, modifiedWithinDays: 3, scope: 'untracked' });
     assert.deepStrictEqual(untrackedScope.files.map(file => file.path), ['recent.txt']);
+    assert.deepStrictEqual(scopeChangeOptions[1], { limit: 2000, scope: 'untracked' });
     assert.notStrictEqual(trackedScope.reviewId, untrackedScope.reviewId);
     await assert.rejects(
       () => scopeService.getWorkingCopyFile('agent-scope', 'old.txt', { modifiedWithinDays: 3, scope: 'untracked' }),

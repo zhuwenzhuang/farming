@@ -1248,6 +1248,55 @@ setInterval(() => {}, 1000);
         await boundedChangesService.dispose();
       }
 
+      const scopedStatusCalls: string[][] = [];
+      const scopedChangesService = new WorkspaceFileService({
+        commandRunner: {
+          run: async (command, args) => {
+            assert.strictEqual(command, 'git');
+            scopedStatusCalls.push(args);
+            if (args.includes('--untracked-files=no')) {
+              return {
+                stdout: ' M tracked.txt\0',
+                stderr: '',
+              };
+            }
+            return {
+              stdout: [
+                ' M tracked-first.txt',
+                ' M tracked-second.txt',
+                '?? untracked-first.txt',
+                '?? untracked-second.txt',
+                '?? untracked-third.txt',
+                '',
+              ].join('\0'),
+              stderr: '',
+            };
+          },
+        },
+      });
+      try {
+        const trackedScopedChanges = await scopedChangesService.changes(workspace, {
+          limit: 1,
+          scope: 'tracked',
+        });
+        assert.deepStrictEqual(trackedScopedChanges.items.map(item => item.path), ['tracked.txt']);
+        assert.strictEqual(trackedScopedChanges.truncated, false);
+        assert(scopedStatusCalls[0].includes('--untracked-files=no'));
+
+        const untrackedScopedChanges = await scopedChangesService.changes(workspace, {
+          limit: 2,
+          scope: 'untracked',
+        });
+        assert.deepStrictEqual(
+          untrackedScopedChanges.items.map(item => item.path),
+          ['untracked-first.txt', 'untracked-second.txt'],
+        );
+        assert.strictEqual(untrackedScopedChanges.truncated, true);
+        assert(scopedStatusCalls[1].includes('--untracked-files=all'));
+      } finally {
+        await scopedChangesService.dispose();
+      }
+
       const originalChangesExecFile = service.execFile.bind(service);
       service.execFile = async (command, args, options) => {
         if (command === service.gitPath && args.includes('status') && args.includes('--untracked-files=all')) {

@@ -570,6 +570,8 @@ export interface CodeCopy {
   paste: string
   selectAll: string
   annotateWithBlame: string
+  checkingBlameCapability: string
+  retryBlameCapability: string
   hideBlame: string
   openLineChangesWithPreviousRevision: string
   openLineChangesWithWorkingFile: string
@@ -1261,6 +1263,8 @@ const EN_COPY: CodeCopy = {
   paste: 'Paste',
   selectAll: 'Select All',
   annotateWithBlame: 'Annotate with Blame',
+  checkingBlameCapability: 'Checking Blame availability...',
+  retryBlameCapability: 'Blame check failed — retry',
   hideBlame: 'Hide Blame',
   openLineChangesWithPreviousRevision: 'Open Line Changes with Previous Revision',
   openLineChangesWithWorkingFile: 'Open Line Changes with Working File',
@@ -1988,6 +1992,8 @@ const ZH_COPY: CodeCopy = {
   paste: '粘贴',
   selectAll: '全选',
   annotateWithBlame: '用 Blame 标注',
+  checkingBlameCapability: '正在检查 Blame 是否可用...',
+  retryBlameCapability: 'Blame 检查失败，重试',
   hideBlame: '隐藏 Blame',
   openLineChangesWithPreviousRevision: '打开与上一版的行变化',
   openLineChangesWithWorkingFile: '打开与工作区文件的行变化',

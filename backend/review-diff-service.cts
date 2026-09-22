@@ -141,7 +141,7 @@ interface ExecResult {
 }
 
 interface ReviewFileService {
-  changes(root: string, options: { limit: number }): Promise<WorkingCopyChangesResult>;
+  changes(root: string, options: { limit: number; scope?: ReviewScope }): Promise<WorkingCopyChangesResult>;
   diff(root: string, filePath: string, options?: Record<string, unknown>): Promise<FileDiffSource>;
   diffMaxBuffer: number;
   diffTimeoutMs: number;
@@ -952,14 +952,11 @@ class ReviewDiffService {
   ): Promise<WorkingCopyChangesResult> {
     const scope = normalizeWorkingCopyScope(options.scope);
     const scanLimit = scope ? MAX_WORKING_COPY_SCAN_FILES : limit;
-    const changes = await this.fileService.changes(root, { limit: scanLimit });
+    const changes = await this.fileService.changes(root, { limit: scanLimit, ...(scope ? { scope } : {}) });
     const items = filterWorkingCopyChangeItems(root, assertUniqueReviewPaths(changes.items), options);
     return {
       items: items.slice(0, limit),
-      truncated: (
-        changes.truncated === true
-        && (scope !== 'tracked' || changes.items.at(-1)?.gitStatus !== 'untracked')
-      ) || items.length > limit,
+      truncated: changes.truncated === true || items.length > limit,
     };
   }
 

@@ -7,7 +7,7 @@ const { promisify } = require('util');
 const { ReviewSessionService, changedPathsFromNameStatus, normalizeHistoricalReviewChanges } = require('../review-session-service.cjs');
 const { ReviewSessionStore } = require('../review-session-store.cjs');
 const { ReviewStateStore } = require('../review-state-store.cjs');
-const { gitCommandEnvironment } = require('../workspace-file-service.cjs');
+const { WorkspaceFileService, gitCommandEnvironment } = require('../workspace-file-service.cjs');
 
 const execFile = promisify(childProcess.execFile);
 
@@ -74,7 +74,7 @@ async function run() {
       diffTimeoutMs: 10_000,
       gitPath: 'git',
       execFile: execFileWithPinnedGitLocale,
-      async changes() {
+      async changes(_root, _options) {
         return {
           items: [
             { gitStatus: 'modified', path: 'a.txt' },
@@ -104,6 +104,65 @@ async function run() {
     assert.strictEqual(await git(repository, 'show', `${selected.head}:a.txt`), 'a1');
     assert.strictEqual(await git(repository, 'show', `${selected.head}:b.txt`), 'b0');
     await assert.rejects(() => service.create({ base: 'HEAD', root: repository, paths: ['../outside.txt'] }), /file paths are invalid/);
+
+    const originalChanges = fileService.changes;
+    fileService.changes = async (_root, options) => {
+      assert.strictEqual(options.scope, 'tracked');
+      return {
+        items: [{ gitStatus: 'renamed', path: 'new-name.txt', previousPath: 'old-name.txt' }],
+        truncated: false,
+      };
+    };
+    try {
+      assert.deepStrictEqual(
+        await service.capturePaths(repository, { scope: 'tracked' }),
+        ['old-name.txt', 'new-name.txt'],
+      );
+    } finally {
+      fileService.changes = originalChanges;
+    }
+
+    fileService.changes = async (_root, options) => {
+      if (options.scope === 'tracked') {
+        return {
+          items: Array.from({ length: 2001 }, (_, index) => ({
+            gitStatus: 'modified',
+            path: `tracked-${index}.txt`,
+          })),
+          truncated: true,
+        };
+      }
+      return originalChanges(_root, options);
+    };
+    try {
+      await assert.rejects(
+        () => service.create({ base: 'HEAD', root: repository, scope: 'tracked' }),
+        error => error && error.statusCode === 413,
+      );
+    } finally {
+      fileService.changes = originalChanges;
+    }
+
+    const manyUntrackedDirectory = path.join(repository, 'untracked-volume');
+    fs.mkdirSync(manyUntrackedDirectory);
+    for (let index = 0; index < 2055; index += 1) {
+      fs.writeFileSync(path.join(manyUntrackedDirectory, `${String(index).padStart(4, '0')}.txt`), `${index}\n`);
+    }
+    const productionFileService = new WorkspaceFileService({ rgPath: 'rg' });
+    try {
+      const indexTreeBeforeCapture = await git(repository, 'write-tree');
+      const allChanges = await productionFileService.changes(repository, { limit: 2000 });
+      assert.strictEqual(allChanges.truncated, true);
+      const productionService = new ReviewSessionService(productionFileService, sessionStore, stateStore);
+      const trackedWithManyUntracked = await productionService.create({ base: 'HEAD', root: repository, scope: 'tracked' });
+      assert.strictEqual(trackedWithManyUntracked.scope, 'tracked');
+      assert.strictEqual(await git(repository, 'show', `${trackedWithManyUntracked.head}:a.txt`), 'a1');
+      assert.strictEqual(await git(repository, 'show', `${trackedWithManyUntracked.head}:b.txt`), 'b1');
+      await assert.rejects(() => git(repository, 'show', `${trackedWithManyUntracked.head}:untracked-volume/0000.txt`));
+      assert.strictEqual(await git(repository, 'write-tree'), indexTreeBeforeCapture);
+    } finally {
+      await productionFileService.dispose();
+    }
 
     assert.deepStrictEqual(normalizeHistoricalReviewChanges(repository, [
       { kind: 'updated', oldText: 'old-1', newText: 'middle', path: path.join(repository, 'history.txt') },

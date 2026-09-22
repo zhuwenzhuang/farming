@@ -776,6 +776,7 @@ export function FileEditorPane({
         pendingCloseLabel={pendingCloseLabel}
         pendingCloseSaving={pendingCloseSaving}
         showBlameContextAction={showBlameContextAction}
+        blameCapability={blameCapability}
         showLineChangesContextActions={showLineChangesContextActions}
         showLanguageServerActions={showLanguageServerActions}
         tabContextMenu={tabContextMenu}

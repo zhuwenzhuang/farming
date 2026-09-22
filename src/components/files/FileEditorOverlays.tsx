@@ -6,6 +6,7 @@ import { FileEditorContextMenu, type FileEditorContextAction } from './FileEdito
 import { FileEditorSaveConfirmDialog } from './FileEditorSaveConfirmDialog'
 import { FileEditorTabContextMenu } from './FileEditorTabContextMenu'
 import type { FileEditorTabContextMenuState } from './useFileEditorTabsController'
+import type { BlameCapability } from './useFileEditorBlameController'
 
 interface FileEditorContextMenuOverlayState {
   x: number
@@ -18,6 +19,7 @@ interface FileEditorOverlaysProps {
   blameError: string | null
   blameLoading: boolean
   blameOpen: boolean
+  blameCapability: BlameCapability
   blameDirty: boolean
   copy: CodeCopy
   editorContextMenu: FileEditorContextMenuOverlayState | null
@@ -45,6 +47,7 @@ export function FileEditorOverlays({
   blameError,
   blameLoading,
   blameOpen,
+  blameCapability,
   blameDirty,
   copy,
   editorContextMenu,
@@ -75,6 +78,7 @@ export function FileEditorOverlays({
           focusFirstItem={editorContextMenu.focusFirstItem}
 	          copy={copy}
 	          blameOpen={blameOpen}
+          blameCapability={blameCapability}
 	          readOnly={readOnly}
           showBlameContextAction={showBlameContextAction}
           showLineChangesContextActions={showLineChangesContextActions}

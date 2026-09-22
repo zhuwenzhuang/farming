@@ -54,6 +54,12 @@ Unchanged files may retain reviewed state. Changed files become unreviewed, and
 comments whose anchors no longer match become outdated rather than moving to
 unrelated lines.
 
+For a working-copy Review, the requested tracked or untracked scope is applied
+during the authoritative Git enumeration before the file limit. A large
+untracked area cannot truncate a tracked Review; overflow within the selected
+scope remains an explicit capture failure. Rename captures retain both the
+previous and current path identities.
+
 ## File-list-first Loading
 
 The ordered file list is the primary Review navigation. Metadata loads before

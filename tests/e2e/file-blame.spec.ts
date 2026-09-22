@@ -56,6 +56,48 @@ async function selectTreeFile(page: Page, file: string) {
 }
 
 for (const appearance of ['light', 'dark', 'paper'] as const) {
+  test(`blame capability loading and failure remain explicit in ${appearance}`, async ({ page, workspaceRoot }, testInfo) => {
+    let held = gate()
+    let fail = true
+    let requests = 0
+    await interceptWorkspaceRequests(page, request => {
+      if (request.operation !== 'blame-capability') return
+      requests += 1
+      const currentGate = held
+      const shouldFail = fail
+      return { onResult: async result => {
+        await currentGate.promise
+        return shouldFail
+          ? { type: result.type, requestId: result.requestId, ok: false, error: { code: 'FIXTURE_TIMEOUT', status: 504, message: 'Capability read timed out' } }
+          : result
+      } }
+    })
+    try {
+      await openFile(page, repository(workspaceRoot))
+      await page.locator('body').evaluate((body, value) => { body.dataset.appearance = value }, appearance)
+      const menu = await gutterMenu(page)
+      const checking = menu.getByRole('menuitem', { name: 'Checking Blame availability...' })
+      await expect(checking).toBeVisible()
+      await expect(checking).toBeDisabled()
+      await menu.screenshot({ path: testInfo.outputPath(`blame-checking-${appearance}.png`) })
+      held.release()
+      const retry = menu.getByRole('menuitem', { name: 'Blame check failed — retry' })
+      await expect(retry).toBeVisible()
+      await expect(retry).toBeEnabled()
+      expect(requests).toBe(1)
+      await menu.screenshot({ path: testInfo.outputPath(`blame-check-failed-${appearance}.png`) })
+      fail = false
+      held = gate()
+      await retry.click()
+      await expect(checking).toBeDisabled()
+      await expect.poll(() => requests).toBe(2)
+      held.release()
+      await menu.getByRole('menuitem', { name: 'Annotate with Blame' }).click()
+      await expect(page.locator('.code-file-inline-blame')).toHaveCount(3)
+      await expect(menu).toHaveCount(0)
+    } finally { held.release() }
+  })
+
   test(`blame annotations, detail dismissal, and right-click hiding in ${appearance}`, async ({ page, workspaceRoot }, testInfo) => {
     await openFile(page, repository(workspaceRoot))
     await page.locator('body').evaluate((body, value) => { body.dataset.appearance = value }, appearance)

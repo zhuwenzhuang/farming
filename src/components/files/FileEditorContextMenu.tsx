@@ -1,6 +1,7 @@
 import { useRef } from 'react'
 import type { CodeCopy } from '../code/copy'
 import { useWorkspaceMenuKeyboard } from './useWorkspaceMenuKeyboard'
+import type { BlameCapability } from './useFileEditorBlameController'
 
 export type FileEditorContextAction =
   | 'cut'
@@ -8,6 +9,7 @@ export type FileEditorContextAction =
   | 'paste'
   | 'select-all'
   | 'toggle-blame'
+  | 'retry-blame-capability'
   | 'line-changes-previous'
   | 'line-changes-working'
   | 'go-to-definition'
@@ -23,6 +25,7 @@ interface FileEditorContextMenuProps {
   y: number
   copy: CodeCopy
   blameOpen: boolean
+  blameCapability: BlameCapability
   focusFirstItem: boolean
   readOnly: boolean
   showBlameContextAction: boolean
@@ -37,6 +40,7 @@ export function FileEditorContextMenu({
   y,
   copy,
   blameOpen,
+  blameCapability,
   focusFirstItem,
   readOnly,
   showBlameContextAction,
@@ -71,8 +75,14 @@ export function FileEditorContextMenu({
     >
       {showBlameContextAction && (
         <>
-          <button type="button" role="menuitem" onClick={() => onRunAction('toggle-blame')}>
-            {blameOpen ? copy.hideBlame : copy.annotateWithBlame}
+          <button
+            type="button"
+            role="menuitem"
+            disabled={!blameOpen && (blameCapability === 'unknown' || blameCapability === 'checking')}
+            onClick={() => onRunAction(!blameOpen && blameCapability === 'error' ? 'retry-blame-capability' : 'toggle-blame')}
+          >
+            {blameOpen ? copy.hideBlame : blameCapability === 'error' ? copy.retryBlameCapability
+              : blameCapability === 'available' ? copy.annotateWithBlame : copy.checkingBlameCapability}
           </button>
           <div className="code-editor-context-separator" role="separator" />
         </>

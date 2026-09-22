@@ -14,7 +14,7 @@ import {
 import { RequestOwnershipFence } from '@/lib/request-ownership'
 
 export type FileEditorBlameLine = WorkspaceFileBlame['lines'][number]
-type BlameCapability = 'unknown' | 'available' | 'unavailable'
+export type BlameCapability = 'unknown' | 'checking' | 'available' | 'unavailable' | 'error'
 
 interface BlameDetailState {
   line: FileEditorBlameLine
@@ -98,6 +98,7 @@ export function useFileEditorBlameController({
       return 'unavailable'
     }
     const lease = blameCapabilityRequestFenceRef.current.begin()
+    setBlameCapability('checking')
     try {
       const capability = await fetchWorkspaceBlameCapability(openFile.agentId, openFile.file.path)
       if (!lease.isCurrent()) return null
@@ -106,8 +107,8 @@ export function useFileEditorBlameController({
       return nextCapability
     } catch {
       if (!lease.isCurrent()) return null
-      setBlameCapability('unavailable')
-      return 'unavailable'
+      setBlameCapability('error')
+      return 'error'
     }
   }, [disabled, openFile.agentId, openFile.file.path])
 
@@ -121,12 +122,11 @@ export function useFileEditorBlameController({
       return
     }
 
-    const capability = blameCapability === 'unknown'
+    const capability = blameCapability === 'unknown' || blameCapability === 'error'
       ? await checkBlameCapability()
       : blameCapability
     if (
-      capability !== null
-      && capability !== 'unavailable'
+      capability === 'available'
       && !disabled
     ) {
       setBlameOpen(true)

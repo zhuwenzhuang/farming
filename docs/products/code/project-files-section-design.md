@@ -247,6 +247,9 @@ action or file/view change clears that feedback.
 
 Git blame uses the same gutter menu from both line numbers and author/date
 annotations, including Hide Blame while loading or after failure. Annotation
+availability checks keep a disabled checking action visible; failed checks show
+an explicit retry action instead of implying that the file cannot be blamed.
+Only an authoritative unsupported result removes the action. Annotation
 rows stay clipped to the editor viewport and below Monaco's sticky headers;
 they cannot cover breadcrumbs, preview panes, or blame details. Clipping follows
 actual sticky-header geometry even when it resolves after a scroll event. Details follow

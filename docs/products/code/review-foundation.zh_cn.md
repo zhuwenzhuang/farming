@@ -45,6 +45,10 @@ Agent 修复后 Refresh 会在同一 Review Lineage 中创建新 Revision。未�
 Reviewed State；变化文件回到 Unreviewed；Comment Anchor 不再匹配时标为 Outdated，不能
 静默移动到无关代码行。
 
+Working-copy Review 会在权威 Git 枚举阶段、应用 File Limit 之前应用请求的 Tracked 或
+Untracked Scope。大量 Untracked 文件不能截断 Tracked Review；选定 Scope 内超出上限时，
+Capture 必须显式失败。Rename Capture 会保留 Previous 与 Current 两个 Path Identity。
+
 ## File-list-first Loading
 
 有序 File List 是主要 Review Navigation。Metadata 先于昂贵 Inline Diff 加载。展开文件只

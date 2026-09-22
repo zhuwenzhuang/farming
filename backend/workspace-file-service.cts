@@ -2627,15 +2627,18 @@ class WorkspaceFileService {
   async changes(workspaceRoot: unknown, options: Record<string, unknown> = {}) {
     const root = await this.resolveRoot(workspaceRoot);
     const limit = Math.max(1, Math.min(2000, Number(options.limit) || DEFAULT_GIT_CHANGES_LIMIT));
+    const scope = options.scope === 'tracked' || options.scope === 'untracked' ? options.scope : undefined;
     const gitStatusByPath = await this.loadGitStatusByPath(root, {
       allowPartial: true,
       excludeHidden: false,
       maxBuffer: DEFAULT_GIT_CHANGES_MAX_BUFFER,
       throwOnError: true,
-      untrackedFiles: 'all',
+      untrackedFiles: scope === 'tracked' ? 'no' : 'all',
     });
     this.invalidateGitStatus(root);
     const visibleEntries = Array.from(gitStatusByPath.entries())
+      .filter(([, status]) => scope !== 'tracked' || status.kind !== 'untracked')
+      .filter(([, status]) => scope !== 'untracked' || status.kind === 'untracked')
       .filter(([filePath]) => !shouldHidePath(filePath))
       .sort((left, right) => (
         gitStatusReviewRank(left[1].kind) - gitStatusReviewRank(right[1].kind)

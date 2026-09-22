@@ -90,7 +90,7 @@ interface GitResult {
 }
 
 interface ReviewFileService {
-  changes(root: string, options: { limit: number }): Promise<{
+  changes(root: string, options: { limit: number; scope?: ReviewScope }): Promise<{
     items: WorkingCopyChange[];
     truncated: boolean;
   }>;
@@ -496,7 +496,7 @@ class ReviewSessionService {
     if (requestedPaths !== undefined) return requestedPaths;
     const scope = normalizeWorkingCopyScope(options.scope);
     if (!scope) return undefined;
-    const changes = await this.fileService.changes(root, { limit: MAX_CAPTURE_FILES });
+    const changes = await this.fileService.changes(root, { limit: MAX_CAPTURE_FILES, scope });
     if (changes.truncated) throw new ReviewSessionError('too many workspace files to capture this review', 413);
     const selected = filterWorkingCopyChangeItems(root, changes.items, {
       scope,
