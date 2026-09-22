@@ -485,3 +485,15 @@
     min-height: var(--code-touch-target-size);
   }
 }
+
+/* Auxiliary content actions combining the shared glyph and text roles. */
+.code-content-toolbar button.code-content-toolbar-labeled {
+  grid-template-columns: var(--code-ui-icon-size) minmax(0, 1fr);
+  column-gap: 6px;
+  font-family: var(--code-ui-font-family);
+  font-weight: 400;
+  line-height: 16px;
+}
+
+.code-content-toolbar-labeled > svg { grid-area: 1 / 1; }
+.code-content-toolbar-labeled > span { grid-area: 1 / 2; }

@@ -769,6 +769,29 @@ class FakeAgent implements Agent {
         cancelledSessions.delete(params.sessionId);
       }
     }
+    if (promptText === 'streaming code copy') {
+      const gate = path.join(process.cwd(), '.code-copy-finish');
+      let cancelled = false;
+      cancelledSessions.set(params.sessionId, () => { cancelled = true; });
+      const send = async (text: string) => client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: { sessionUpdate: 'agent_message_chunk', messageId: 'code-copy-stream',
+          content: { type: 'text', text }, _meta: { codex: { phase: 'final_answer' } } },
+      });
+      try {
+        await send('```json\n{\n  "ready": false');
+        const deadline = Date.now() + 30_000;
+        while (!cancelled && !fs.existsSync(gate)) {
+          if (Date.now() >= deadline) throw new Error('Code copy fixture stage timed out');
+          await new Promise(resolve => setTimeout(resolve, 40));
+        }
+        if (cancelled) return { stopReason: 'cancelled' };
+        await send(',\n  "complete": true\n}\n```');
+        return { stopReason: 'end_turn' };
+      } finally {
+        cancelledSessions.delete(params.sessionId);
+      }
+    }
     if (promptText === 'streaming rich content') {
       const gate = path.join(process.cwd(), '.rich-content-stage');
       let cancelled = false;

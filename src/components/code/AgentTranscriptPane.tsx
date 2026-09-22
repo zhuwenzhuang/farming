@@ -62,7 +62,7 @@ import { writeClipboardText } from '@/lib/clipboard'
 import { iconForFilePath } from '@/lib/file-icons'
 import { GLOBAL_WORKSPACE_FILES_AGENT_ID, normalizeGlobalWorkspaceFilePath } from '@/lib/global-workspace-files'
 import { recordPerformanceTestRender } from '@/lib/performance-test-observer'
-import { markdownTextContent, mermaidCodeBlockSource, mermaidCodeBlockPending } from '@/lib/react-markdown-content'
+import { markdownTextContent, mermaidCodeBlockSource, codeBlockPending } from '@/lib/react-markdown-content'
 import {
   clearReadingAnchor,
   encodeReadingAnchor,
@@ -74,6 +74,7 @@ import type { WorkspaceShareTarget } from '@/lib/workspace-share-target'
 import { isCompactViewport } from '@/lib/responsive-mode'
 import { useSharedNow } from '@/lib/shared-now'
 import { isPageActive } from '@/hooks/usePageVisibility'
+import { MarkdownCodeBlock } from '@/components/MarkdownCodeBlock'
 import { ContentViewerDialog } from '@/components/ContentViewerDialog'
 import { remarkStreamingContent, richContentPhase } from '@/lib/streaming-markdown'
 import { rehypeGuardInvalidKatex } from '@/lib/markdown-preview-compatibility'
@@ -2613,13 +2614,13 @@ function AgentTranscriptTurnView({
           >
             <LocalRenderFault surface="transcript-mermaid" identity={turn.id}>
               <Suspense fallback={<div className="code-markdown-mermaid-loading">{copy.mermaidRendering}</div>}>
-                <TranscriptMermaidBlock source={mermaidSource} copy={copy} pending={mermaidCodeBlockPending(children)} />
+                <TranscriptMermaidBlock source={mermaidSource} copy={copy} pending={codeBlockPending(children)} />
               </Suspense>
             </LocalRenderFault>
           </LocalErrorBoundary>
         )
       }
-      return <pre {...props}>{children}</pre>
+      return <MarkdownCodeBlock {...props} copy={copy} streaming={codeBlockPending(children) === 'streaming'}>{children}</MarkdownCodeBlock>
     },
   }), [agentId, copy, onOpenFile, turn.id, workspaceRoot])
 

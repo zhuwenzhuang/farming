@@ -25,7 +25,7 @@ export const remarkStreamingContent: Plugin<[{ phase: RichContentPhase }], Root>
   if (phase === 'settled') return
   const source = String(file.value)
   function visit(node: Root | Root['children'][number]) {
-    if (node.type === 'code' && node.lang?.toLowerCase() === 'mermaid') {
+    if (node.type === 'code') {
       const start = node.position?.start.offset
       const end = node.position?.end.offset
       if (start !== undefined && end !== undefined && !hasClosingCodeFence(source.slice(start, end))) {

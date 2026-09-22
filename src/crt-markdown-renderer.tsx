@@ -21,7 +21,7 @@ import { createMermaidRenderer, type MermaidConfig } from '@/lib/mermaid-rendere
 import { remarkStreamingContent, richContentPhase, type PendingRichContent } from '@/lib/streaming-markdown'
 import { rehypeGuardInvalidKatex } from '@/lib/markdown-preview-compatibility'
 import type { PluggableList } from 'unified'
-import { mermaidCodeBlockSource, mermaidCodeBlockPending } from '@/lib/react-markdown-content'
+import { mermaidCodeBlockSource, codeBlockPending } from '@/lib/react-markdown-content'
 
 type CrtTranscriptTurn = {
   status?: string
@@ -103,7 +103,7 @@ const markdownComponents: Components = {
   },
   pre({ children, ...props }) {
     const mermaidSource = mermaidCodeBlockSource(children)
-    if (mermaidSource !== null) return <MermaidBlock source={mermaidSource} pending={mermaidCodeBlockPending(children)} />
+    if (mermaidSource !== null) return <MermaidBlock source={mermaidSource} pending={codeBlockPending(children)} />
     return <pre {...props}>{children}</pre>
   },
 }

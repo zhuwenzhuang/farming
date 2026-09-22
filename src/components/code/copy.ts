@@ -535,6 +535,12 @@ export interface CodeCopy {
   mermaidActualSize: string
   mermaidFitView: string
   mermaidFit: string
+  codeBlockCopy: string
+  codeBlockCopying: string
+  codeBlockCopied: string
+  codeBlockCopiedCurrent: string
+  codeBlockCopyFailed: string
+  codeBlockCopyUncertain: string
   mermaidCopySource: string
   mermaidCopiedSource: string
   fileDiff: string
@@ -1220,6 +1226,12 @@ const EN_COPY: CodeCopy = {
   mermaidActualSize: 'Actual size (100%)',
   mermaidFitView: 'Fit diagram to view',
   mermaidFit: 'Fit',
+  codeBlockCopy: 'Copy code',
+  codeBlockCopying: 'Copying…',
+  codeBlockCopied: 'Copied',
+  codeBlockCopiedCurrent: 'Copied current content',
+  codeBlockCopyFailed: 'Copy failed. Try again',
+  codeBlockCopyUncertain: 'Copy unconfirmed. Try again',
   mermaidCopySource: 'Copy Mermaid source',
   mermaidCopiedSource: 'Copied Mermaid source',
   fileDiff: 'File Diff',
@@ -1941,6 +1953,12 @@ const ZH_COPY: CodeCopy = {
   mermaidActualSize: '原始尺寸（100%）',
   mermaidFitView: '适应窗口',
   mermaidFit: '适应',
+  codeBlockCopy: '复制代码',
+  codeBlockCopying: '复制中…',
+  codeBlockCopied: '已复制',
+  codeBlockCopiedCurrent: '已复制当前内容',
+  codeBlockCopyFailed: '复制失败，请重试',
+  codeBlockCopyUncertain: '无法确认复制结果，请重试',
   mermaidCopySource: '复制 Mermaid 源码',
   mermaidCopiedSource: '已复制 Mermaid 源码',
   fileDiff: '文件 Diff',

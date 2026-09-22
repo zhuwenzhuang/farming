@@ -1,8 +1,6 @@
 import {
-  Children,
   createContext,
   forwardRef,
-  isValidElement,
   memo,
   useCallback,
   useContext,
@@ -29,6 +27,7 @@ import { parse as parseYaml } from 'yaml'
 import 'katex/dist/katex.min.css'
 import { LocalErrorBoundary, LocalRenderFault } from '@/components/LocalErrorBoundary'
 import { RefreshGlyph, CopyGlyph, ScreenFullGlyph } from '@/components/IconGlyphs'
+import { MarkdownCodeBlock } from '@/components/MarkdownCodeBlock'
 import { ContentViewerDialog } from '@/components/ContentViewerDialog'
 import { useMermaidRender } from '@/hooks/useMermaidRender'
 import { createMermaidRenderer } from '@/lib/mermaid-renderer'
@@ -162,13 +161,6 @@ function hashMermaidSource(source: string) {
     hash = (hash * 31 + source.charCodeAt(index)) | 0
   }
   return Math.abs(hash).toString(36)
-}
-
-function codeBlockLanguage(children: ReactNode) {
-  const child = Children.count(children) === 1 ? Children.only(children) : null
-  if (!isValidElement(child)) return null
-  const props = child.props as { className?: string }
-  return props.className?.match(/\blanguage-([a-z0-9_-]+)\b/i)?.[1] ?? null
 }
 
 function slugifyHeading(value: string) {
@@ -508,8 +500,7 @@ const MarkdownPre: Components['pre'] = ({ children, ...props }) => {
       </LocalErrorBoundary>
     )
   }
-  const language = codeBlockLanguage(children)
-  return <pre {...props} data-language={language || undefined}>{children}</pre>
+  return <MarkdownCodeBlock {...props} copy={copy}>{children}</MarkdownCodeBlock>
 }
 
 const MARKDOWN_COMPONENTS: Components = {

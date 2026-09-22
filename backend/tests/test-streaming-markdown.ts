@@ -19,6 +19,16 @@ async function main() {
     const tree = await processor.run(processor.parse(raw), { value: raw })
     assert(JSON.stringify(tree).includes('data-content-pending'), `nested unclosed fence: ${prefix}`)
   }
+  for (const language of ['json', 'ts', '']) {
+    for (const phase of ['streaming', 'settled', 'interrupted'] as const) {
+      for (const closed of [false, true]) {
+        const raw = `\`\`\`${language}\n  preserve whitespace\n${closed ? '```' : ''}`
+        const processor = unified().use(remarkParse).use(remarkStreamingContent, { phase })
+        const tree = await processor.run(processor.parse(raw), { value: raw })
+        assert.equal(JSON.stringify(tree).includes('data-content-pending'), !closed && phase !== 'settled')
+      }
+    }
+  }
   const render = (source: string, pending: boolean) => renderToStaticMarkup(createElement(ReactMarkdown, {
     children: source, remarkPlugins: [remarkMath], rehypePlugins: [[rehypeGuardInvalidKatex, { pending }], rehypeKatex],
   }))

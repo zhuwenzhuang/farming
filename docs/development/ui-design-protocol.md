@@ -225,6 +225,26 @@ actions use the same compact target metric, and text fields share the selector's
 field recipe. Pointer hover changes the surface; only keyboard focus adds the
 non-text control focus ring.
 
+## Markdown Code Actions
+
+Chat and file-preview code blocks share a compact language/action row inside one
+rounded code surface. Copy uses the auxiliary content-toolbar button and shared
+glyph. Desktop pointer hover or keyboard focus reveals it; compact and hoverless
+inputs keep it visible. Reserved space prevents reveal and success feedback from
+moving the code. The toolbar stays outside the code's horizontal scroll area.
+
+Each block owns its copy operation: activation snapshots only its code text,
+including indentation and newlines, without fences, language labels or controls.
+An unfinished streaming block copies the current snapshot and labels that result.
+One write may be pending per block. Success is shown only after clipboard
+confirmation, then resets after 1.5 seconds. Failure permits explicit retry;
+a five-second timeout reports an unconfirmed outcome and never retries itself.
+Late results cannot replace a newer operation's feedback. Unmount releases timers
+and revokes result publication. Pending and result feedback remain visible after
+pointer exit. Inline code and Mermaid's existing source action retain their roles.
+Acceptance covers exact clipboard content, failure, keyboard/touch reachability,
+stream updates and Light, Dark and Paper on both consuming surfaces.
+
 ## Adoption And Exceptions
 
 For a new control or a change to an existing one:
