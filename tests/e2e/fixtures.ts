@@ -2,6 +2,7 @@ import { test as base, expect, type Page } from '@playwright/test'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { cleanupAgents, reportAgentCleanupFailure } from './agent-cleanup'
 import type {
   TerminalHostDiagnostics,
   TerminalSessionDiagnostics,
@@ -286,49 +287,6 @@ export async function terminalCheckpointOutput(page: Page, agentId: string) {
   return (await requestTerminalCheckpoint(page, agentId)).output
 }
 
-type CleanupAgent = {
-  id?: string
-  command?: string
-}
-
-async function cleanupAgent(page: Page, agent: CleanupAgent) {
-  if (!agent.id) return
-  if (process.env.FARMING_E2E_REAL_CODEX === '1' && agent.command === 'codex') {
-    const response = await page.request.patch(`/farming/api/agents/${agent.id}`, {
-      data: { archived: true },
-    }).catch(() => null)
-    if (response?.ok()) return
-  }
-  await page.request.delete(`/farming/api/control/agents/${agent.id}?recordHistory=0`).catch(() => null)
-}
-
-async function cleanupAgents(page: Page) {
-  try {
-    const response = await page.request.get('/farming/api/control/agents')
-    if (!response.ok()) return
-    const data = await response.json() as { agents?: CleanupAgent[] }
-    const cleanupRequested = new Set<string>()
-    const requestCleanup = async (agents: CleanupAgent[]) => {
-      const pending = agents.filter(agent => agent.id && !cleanupRequested.has(agent.id))
-      pending.forEach(agent => cleanupRequested.add(agent.id!))
-      await Promise.all(pending.map(agent => cleanupAgent(page, agent)))
-    }
-    await requestCleanup(data.agents ?? [])
-    for (let attempt = 0; attempt < 100; attempt += 1) {
-      const nextResponse = await page.request.get('/farming/api/control/agents').catch(() => null)
-      if (!nextResponse?.ok()) return
-      const nextData = await nextResponse.json() as { agents?: CleanupAgent[] }
-      const remainingAgents = nextData.agents ?? []
-      if (remainingAgents.length === 0) return
-      await requestCleanup(remainingAgents)
-      await delay(100)
-    }
-    throw new Error(`Timed out cleaning up Farming E2E Agents: ${Array.from(cleanupRequested).join(', ')}`)
-  } catch {
-    // Best effort isolation; each test still asserts the visible starting state.
-  }
-}
-
 async function clearMainPageSessionKeys(page: Page) {
   try {
     const response = await page.request.get('/farming/api/settings')
@@ -424,18 +382,19 @@ export const test = base.extend<{ workspaceRoot: string }>({
     await use(PLAYWRIGHT_WORKSPACE_ROOT)
     fs.rmSync(PLAYWRIGHT_WORKSPACE_ROOT, { recursive: true, force: true })
   },
-  page: async ({ page, workspaceRoot }, use) => {
+  page: async ({ page, workspaceRoot }, use, testInfo) => {
     void workspaceRoot
     await page.addInitScript(() => {
       window.__FARMING_E2E__ = true
     })
-    await cleanupAgents(page)
+    const cleanup = () => cleanupAgents(page.request, { archiveCodex: process.env.FARMING_E2E_REAL_CODEX === '1' })
+    await cleanup()
     await resetSettings(page)
     await use(page)
     // Stop UI-owned state transitions (especially automatic main-Agent
     // recovery) before asking the backend to remove this test's Agents.
     await page.close()
-    await cleanupAgents(page)
+    await reportAgentCleanupFailure(cleanup, testInfo)
     await resetSettings(page)
   },
 })

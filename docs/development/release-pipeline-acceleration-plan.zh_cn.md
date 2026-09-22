@@ -546,6 +546,13 @@ Display，并实际设置 Playwright `headless: false`。开始工作前必须�
 占用时 Fail Closed。Xvfb 创建 Display Socket 后才能启动 Playwright，Xvfb 提前退出会使该 Lane
 失败。
 
+默认 Playwright Server 只删除自己创建的 Config Root。Lane 提供 Config Root 时，由该
+Lane 负责清理与证据保留。Teardown 不得扫描或删除其它运行的临时配置目录。
+
+Agent 清理必须观察到权威列表为空，才允许开始下一个测试。删除或归档请求被受理后，
+通过查询等待完成，不重放修改请求。读取失败、修改被拒绝或结果不确定、列表格式错误、
+以及超过截止时间都必须阻断 Setup；Teardown 在原始测试错误之外附加报告清理失败。
+
 所有子命令都运行在本次调用拥有的独立 Process Group 中。收到中断或最终清理时只向这些 Group
 发信号；需要时从 TERM 升级到 KILL，中断后的父进程返回非零。一条 Lane 失败不会取消其他独立
 Lane，Coordinator 会可靠收集全部终态。默认全成功时删除临时 Lane Root；任一失败时保留 Trace、

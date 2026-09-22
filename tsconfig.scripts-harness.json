@@ -26,7 +26,6 @@
     "scripts/smoke-desktop.ts",
     "scripts/smoke-remote-terminal-chaos.ts",
     "scripts/test-initial-main-agent-flow.ts",
-    "tests/e2e/global-teardown.ts",
     "tests/performance/agent-usage-hotpath.ts"
   ]
 }

@@ -245,7 +245,10 @@ async function continueWithoutUntrustedHooks(page: Page, agentId: string) {
         startupState = 'ready'
       } else if (!hooksAccepted && rendered.includes('Hooks need review')) {
         startupState = 'hooks'
-      } else if (!directoryTrustAccepted && rendered.includes('Do you trust the contents of this directory?')) {
+      } else if (!directoryTrustAccepted && (
+        rendered.includes('Do you trust the contents of this directory?')
+        || rendered.includes('Trust this folder?')
+      )) {
         startupState = 'directory-trust'
       } else {
         startupState = 'waiting'
@@ -256,15 +259,18 @@ async function continueWithoutUntrustedHooks(page: Page, agentId: string) {
 
     await input.focus()
     if (startupState === 'directory-trust') {
-      const options = ['Yes, continue', 'No, quit']
+      const rendered = (await codeRows(page, agentId)).join('\n')
+      const options = rendered.includes('Trust and continue')
+        ? ['Trust and continue', 'Quit'] as const
+        : ['Yes, continue', 'No, quit'] as const
       const selectedOption = async () => {
         const rows = await codeRows(page, agentId)
         return options.find(option => rows.some(row => row.includes('›') && row.includes(option))) || ''
       }
-      await expect.poll(selectedOption, { timeout: 5_000 }).toMatch(/^(Yes, continue|No, quit)$/)
-      if (await selectedOption() !== 'Yes, continue') {
+      await expect.poll(selectedOption, { timeout: 5_000 }).toMatch(/^(Yes, continue|No, quit|Trust and continue|Quit)$/)
+      if (await selectedOption() !== options[0]) {
         await input.press('ArrowUp')
-        await expect.poll(selectedOption, { timeout: 5_000 }).toBe('Yes, continue')
+        await expect.poll(selectedOption, { timeout: 5_000 }).toBe(options[0])
       }
       await input.press('Enter')
       directoryTrustAccepted = true

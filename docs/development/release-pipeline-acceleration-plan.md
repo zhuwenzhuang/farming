@@ -679,6 +679,16 @@ displays are checked before work starts and fail closed when already occupied;
 Xvfb must create its display socket before Playwright starts and an early Xvfb
 exit fails that lane.
 
+The default Playwright server removes only the config root it created. When a
+lane supplies a config root, that lane owns its cleanup and evidence retention.
+Teardown must not scan or delete other runs' temporary configuration directories.
+
+Agent cleanup must observe an empty authoritative inventory before the next test
+starts. Accepted deletion or archival is polled to completion without replaying
+the mutation. Failed reads, rejected or uncertain mutations, malformed inventory,
+and deadline exhaustion fail setup; teardown reports cleanup failures alongside
+the original test error.
+
 Every spawned command is an owned process group. Interrupt and final cleanup
 signal only those groups, escalate from TERM to KILL when required, and return
 nonzero after an interrupt. A lane failure does not cancel independent lanes:

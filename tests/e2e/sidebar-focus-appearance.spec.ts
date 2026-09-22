@@ -209,6 +209,7 @@ test('uses one surface-based sidebar focus language across Light, Dark, and Pape
     const agentRename = page.getByTestId('code-agent-context-menu').getByRole('menuitem', { name: 'Rename Agent' })
     await agentRename.hover()
     await expect(agentRename).toHaveCSS('outline-style', 'none')
+    await expect(agentRename).toHaveCSS('background-color', await resolvedColor(page, '--code-active-item-surface'))
     await agentRename.click()
     const agentRenameInput = page.getByTestId('code-rename-input')
     await expect(agentRenameInput).toBeFocused()
@@ -252,11 +253,11 @@ test('uses one surface-based sidebar focus language across Light, Dark, and Pape
     await refresh.hover()
     await expect(refresh).toHaveCSS('outline-style', 'none')
     expect(await refresh.evaluate(element => getComputedStyle(element).backgroundColor)).toBe(
-      await resolvedColor(page, '--code-bg-hover')
+      await resolvedColor(page, '--code-active-item-surface')
     )
     await page.waitForTimeout(400)
     await refresh.focus()
-    await expectFocusedSurface(page, refresh, '--code-bg-hover')
+    await expectFocusedSurface(page, refresh, '--code-active-item-surface')
     await refresh.press('Escape')
   }
 

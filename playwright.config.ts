@@ -76,7 +76,6 @@ export default defineConfig({
   testDir: './tests/e2e',
   ...(outputDir ? { outputDir } : {}),
   testIgnore: includeInternalTests ? [] : ['**/internal/**'],
-  globalTeardown: './tests/e2e/global-teardown.ts',
   fullyParallel: false,
   workers: 1,
   forbidOnly: !!process.env.CI,

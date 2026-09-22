@@ -98,6 +98,7 @@ const sessionConfigStates = new Map<string, SessionConfigState>();
 const omitFastOption = process.env.FARMING_TEST_ACP_OMIT_FAST === '1';
 const cancelledSessions = new Map<string, () => void>();
 const sessionEnvironments = new Map<string, NodeJS.ProcessEnv>();
+const imageAttachmentAnswerSequences = new Map<string, number>();
 const localImageLinkAnswerSequences = new Map<string, number>();
 
 function farmingSessionEnvironment(params): NodeJS.ProcessEnv {
@@ -858,11 +859,13 @@ class FakeAgent implements Agent {
       return { stopReason: 'end_turn' };
     }
     if (promptText.includes('image attachment')) {
+      const answerSequence = (imageAttachmentAnswerSequences.get(params.sessionId) || 0) + 1;
+      imageAttachmentAnswerSequences.set(params.sessionId, answerSequence);
       await client.sessionUpdate({
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'agent_message_chunk',
-          messageId: 'image-attachment-answer',
+          messageId: `image-attachment-answer-${answerSequence}`,
           content: { type: 'text', text: `Received ${imageCount} image.` },
         },
       });
