@@ -14,7 +14,7 @@ preserved in bundled `node_modules` when bundled dependencies are enabled.
 
 | Package | Version | License | Purpose |
 | --- | --- | --- | --- |
-| `@agentclientprotocol/sdk` | 1.4.0 | Apache-2.0 | ACP JSON-RPC client and protocol types |
+| `@agentclientprotocol/sdk` | 1.5.0 | Apache-2.0 | ACP JSON-RPC client and protocol types |
 | `@visactor/vtable` | 1.26.8 | MIT | Virtualized read-only spreadsheet rendering |
 | `@xterm/addon-clipboard` | 0.2.0 | MIT | Browser terminal clipboard integration |
 | `@xterm/addon-fit` | 0.11.0 | MIT | Browser terminal sizing |

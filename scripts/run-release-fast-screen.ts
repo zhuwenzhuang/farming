@@ -59,6 +59,10 @@ const tasks: FastScreenTask[] = [
     args: ['--import', 'tsx', 'backend/tests/test-cli-release-packaging.ts'],
   },
   {
+    name: 'app CLI and third-party dependency notices',
+    args: ['--import', 'tsx', 'backend/tests/test-farming-app-cli.ts'],
+  },
+  {
     name: 'managed dependency policy tests',
     args: ['--import', 'tsx', 'backend/tests/test-release-managed-dependency-updates.ts'],
   },
