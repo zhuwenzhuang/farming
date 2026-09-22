@@ -5,6 +5,7 @@ PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BUILDER_IMAGE="${FARMING_DEPLOY_BUILDER_IMAGE:-node:22.17.0-bookworm}"
 DOCKER_CONTEXT="${FARMING_DEPLOY_DOCKER_CONTEXT:-}"
 NPM_REGISTRY="${FARMING_DEPLOY_NPM_REGISTRY:-https://registry.npmjs.org/}"
+BUILDER_NODE_HEAP_MB="${FARMING_RELEASE_BUILDER_NODE_HEAP_MB:-6144}"
 OUTPUT_DIR=""
 
 usage() {
@@ -21,6 +22,9 @@ Options:
   --docker-context NAME   Local Unix-socket Docker context used by the Linux builder
   --npm-registry URL      npm registry used inside the builder
   --help                  Show this help
+
+Environment:
+  FARMING_RELEASE_BUILDER_NODE_HEAP_MB  Builder Node.js heap in MiB (default: 6144)
 EOF
 }
 
@@ -65,6 +69,10 @@ case "${NPM_REGISTRY}" in
 esac
 if [[ "${NPM_REGISTRY}" == *[[:space:]]* ]]; then
   echo "--npm-registry cannot contain whitespace." >&2
+  exit 2
+fi
+if [[ ! "${BUILDER_NODE_HEAP_MB}" =~ ^[0-9]+$ ]] || [ "${BUILDER_NODE_HEAP_MB}" -lt 2048 ]; then
+  echo "FARMING_RELEASE_BUILDER_NODE_HEAP_MB must be an integer of at least 2048 MiB." >&2
   exit 2
 fi
 
@@ -133,6 +141,7 @@ docker_command run --rm --platform linux/amd64 \
   --env FARMING_SKIP_INSTALL_RUNTIME_PREPARE=1 \
   --env PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
   --env PUPPETEER_SKIP_DOWNLOAD=1 \
+  --env NODE_OPTIONS="--max-old-space-size=${BUILDER_NODE_HEAP_MB}" \
   --env npm_config_registry="${NPM_REGISTRY}" \
   "${BUILDER_IMAGE}" \
   bash -lc 'npm ci --no-audit --no-fund && npm run release:app:legacy-linux' >&2

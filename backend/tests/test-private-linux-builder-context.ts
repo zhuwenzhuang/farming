@@ -92,6 +92,15 @@ function run() {
   const builderSource = fs.readFileSync(builder, 'utf8');
   assert.match(builderSource, /FARMING_RIPGREP_ARCHIVE_CACHE=\/farming-runtime-cache\/ripgrep/);
   assert.match(builderSource, /HOST_RIPGREP_CACHE_DIR/);
+  assert.match(builderSource, /FARMING_RELEASE_BUILDER_NODE_HEAP_MB:-6144/);
+  assert.match(builderSource, /NODE_OPTIONS="--max-old-space-size=\$\{BUILDER_NODE_HEAP_MB\}"/);
+
+  const invalidHeap = runBuilder('unix:///tmp/farming-docker.sock', {
+    FARMING_RELEASE_BUILDER_NODE_HEAP_MB: '1024',
+  });
+  assert.strictEqual(invalidHeap.status, 2, invalidHeap.stderr);
+  assert.match(invalidHeap.stderr, /must be an integer of at least 2048 MiB/);
+  assert.strictEqual(invalidHeap.gitCalls, '', 'invalid heap limits must fail before Git or worktree setup');
 
   const remote = runBuilder('ssh://builder.example.invalid');
   assert.strictEqual(remote.status, 2, remote.stderr);
