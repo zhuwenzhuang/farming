@@ -94,6 +94,7 @@ function run() {
   assert.match(builderSource, /HOST_RIPGREP_CACHE_DIR/);
   assert.match(builderSource, /FARMING_RELEASE_BUILDER_NODE_HEAP_MB:-6144/);
   assert.match(builderSource, /NODE_OPTIONS="--max-old-space-size=\$\{BUILDER_NODE_HEAP_MB\}"/);
+  assert.match(builderSource, /npm install --global npm@12\.0\.2 --no-audit --no-fund && npm ci/);
 
   const invalidHeap = runBuilder('unix:///tmp/farming-docker.sock', {
     FARMING_RELEASE_BUILDER_NODE_HEAP_MB: '1024',

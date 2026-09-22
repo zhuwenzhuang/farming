@@ -144,7 +144,7 @@ docker_command run --rm --platform linux/amd64 \
   --env NODE_OPTIONS="--max-old-space-size=${BUILDER_NODE_HEAP_MB}" \
   --env npm_config_registry="${NPM_REGISTRY}" \
   "${BUILDER_IMAGE}" \
-  bash -lc 'npm ci --no-audit --no-fund && npm run release:app:legacy-linux' >&2
+  bash -lc 'npm install --global npm@12.0.2 --no-audit --no-fund && npm ci --no-audit --no-fund && npm run release:app:legacy-linux' >&2
 
 TARBALL="${OUTPUT_DIR}/${RELEASE_NAME}.tar.gz"
 test -f "${TARBALL}"
