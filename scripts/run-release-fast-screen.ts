@@ -86,6 +86,10 @@ const tasks: FastScreenTask[] = [
     name: 'shared Codex ACP replacement',
     args: ['--import', 'tsx', 'backend/tests/test-acp-shared-codex-adapter.ts'],
   },
+  {
+    name: 'ACP live Host controller reconnection',
+    args: ['--import', 'tsx', 'backend/tests/test-acp-runtime-host-restart.ts'],
+  },
 ];
 
 async function runTask(task: FastScreenTask): Promise<{ name: string; code: number }> {

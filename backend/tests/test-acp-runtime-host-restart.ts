@@ -22,12 +22,18 @@ async function main() {
   let first;
   let second;
   try {
+    // This case tests controller reconnection to a live Host. Cold tsx startup
+    // is a fixture prerequisite, not part of the client's connection budget.
+    let hostOutput = '';
     const spawnHost = () => {
       if (hostChild) return;
       hostChild = spawn(process.execPath, [
         '--import',
         require.resolve('tsx'),
-        path.join(__dirname, '..', 'acp-runtime-host-process.cts'),
+        '--eval',
+        `require(${JSON.stringify(path.join(__dirname, '..', 'acp-runtime-host-process.cts'))})`
+          + '.startAcpRuntimeHostProcess().then(() => process.send({ ready: true }))'
+          + '.catch(error => { console.error(error); process.exit(1); });',
       ], {
         detached: process.platform !== 'win32',
         env: {
@@ -36,9 +42,29 @@ async function main() {
           FARMING_ACP_RUNTIME_HOST_SOCKET: socketPath,
           FARMING_E2E_FAKE_ACP_AGENT: '1',
         },
-        stdio: 'ignore',
+        stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
       });
+      hostChild.stderr.on('data', chunk => { hostOutput = (hostOutput + chunk).slice(-65536); });
     };
+
+    spawnHost();
+    await new Promise((resolve, reject) => {
+      const finish = (error) => {
+        clearTimeout(timer);
+        hostChild.off('message', onMessage);
+        hostChild.off('exit', onExit);
+        hostChild.off('error', onError);
+        if (error) reject(error);
+        else resolve();
+      };
+      const onMessage = message => { if (message?.ready === true) finish(); };
+      const onExit = (code, signal) => finish(new Error(`Host fixture exited before ready (${code}, ${signal}): ${hostOutput}`));
+      const onError = error => finish(error);
+      const timer = setTimeout(() => finish(new Error(`Host fixture did not become ready: ${hostOutput}`)), 15000);
+      hostChild.on('message', onMessage);
+      hostChild.once('exit', onExit);
+      hostChild.once('error', onError);
+    });
 
     first = new AcpRuntimeHostClient({
       configDir,
