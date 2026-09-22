@@ -1,5 +1,6 @@
 const { execFile } = require('child_process');
 const path = require('path');
+const { realpath } = require('fs/promises');
 const { promisify } = require('util');
 import { isSameOrDescendantPath } from './path-containment.cjs';
 
@@ -175,11 +176,34 @@ function invalidateGitWorktreeInfoCache() {
   worktreeListCache.clear();
 }
 
-function parseGitWorktreeList(output: unknown): GitWorktreeRecord[] {
+function unquoteGitValue(value: string): string {
+  if (!value.startsWith('"')) return value;
+  if (!value.endsWith('"')) throw new Error('Invalid quoted Git worktree value');
+  const escapes: Record<string, string> = { a: '\x07', b: '\b', t: '\t', n: '\n', v: '\v', f: '\f', r: '\r', '\\': '\\', '"': '"' };
+  const bytes: Buffer[] = [];
+  const body = value.slice(1, -1);
+  for (let index = 0; index < body.length;) {
+    if (body[index] !== '\\') {
+      const end = body.indexOf('\\', index);
+      bytes.push(Buffer.from(body.slice(index, end < 0 ? body.length : end)));
+      index = end < 0 ? body.length : end;
+      continue;
+    }
+    const octal = body.slice(index + 1).match(/^[0-7]{3}/);
+    if (octal) { bytes.push(Buffer.from([parseInt(octal[0], 8)])); index += 4; continue; }
+    const escaped = escapes[body[index + 1]];
+    if (escaped === undefined) throw new Error('Invalid Git worktree escape');
+    bytes.push(Buffer.from(escaped));
+    index += 2;
+  }
+  return Buffer.concat(bytes).toString('utf8');
+}
+
+function parseGitWorktreeList(output: unknown, nulDelimited = true): GitWorktreeRecord[] {
   const records: GitWorktreeRecord[] = [];
   let current: GitWorktreeRecord | null = null;
 
-  for (const token of String(output || '').split('\0')) {
+  for (const token of String(output || '').split(nulDelimited ? '\0' : '\n')) {
     if (!token) {
       if (current) records.push(current);
       current = null;
@@ -188,10 +212,14 @@ function parseGitWorktreeList(output: unknown): GitWorktreeRecord[] {
 
     const separator = token.indexOf(' ');
     const key = separator === -1 ? token : token.slice(0, separator);
-    const value = separator === -1 ? '' : token.slice(separator + 1);
+    if (!nulDelimited && !['worktree', 'HEAD', 'branch', 'bare', 'detached', 'locked', 'prunable'].includes(key)) {
+      throw new Error('Ambiguous legacy Git worktree output');
+    }
+    const rawValue = separator === -1 ? '' : token.slice(separator + 1);
+    const value = nulDelimited ? rawValue : unquoteGitValue(rawValue);
     if (key === 'worktree') {
       if (current) records.push(current);
-      current = { path: normalizePathValue(value) };
+      current = { path: value ? path.resolve(value) : '' };
       continue;
     }
     if (!current) continue;
@@ -235,16 +263,18 @@ async function inspectGitWorktreeUncached(
   const exec = options.execFileAsync || execFileAsync;
 
   try {
-    const commonDirPromise = exec('git', ['-C', candidate, 'rev-parse', '--path-format=absolute', '--git-common-dir'], {
+    // Resolve the established relative format ourselves. Older rev-parse can
+    // echo unknown flags without failing, so --path-format is not a safe probe.
+    const commonDirPromise = exec('git', ['-C', candidate, 'rev-parse', '--git-common-dir'], {
       timeout,
       maxBuffer: 1024 * 1024,
-    }).catch(async () => {
-      const { stdout } = await exec('git', ['-C', candidate, 'rev-parse', '--git-common-dir'], {
-        timeout,
-        maxBuffer: 1024 * 1024,
-      });
+    }).then(async ({ stdout }) => {
       const value = String(stdout || '').trim();
-      return { stdout: path.isAbsolute(value) ? value : path.resolve(candidate, value) };
+      const resolved = value ? path.resolve(candidate, value) : '';
+      return { stdout: resolved ? await realpath(resolved).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === 'ENOENT') return resolved;
+        throw error;
+      }) : '' };
     });
     const [{ stdout: topLevelOutput }, { stdout: commonDirOutput }] = await Promise.all([
       exec('git', ['-C', candidate, 'rev-parse', '--show-toplevel'], {
@@ -258,14 +288,20 @@ async function inspectGitWorktreeUncached(
     const commonDir = normalizePathValue(commonDirOutput);
     if (!topLevel || !commonDir) return null;
     const loadWorktrees = async () => {
-      const { stdout } = await exec('git', [
-        '--git-dir', commonDir,
-        'worktree', 'list', '--porcelain', '-z',
-      ], {
-        timeout,
-        maxBuffer: 4 * 1024 * 1024,
-      });
-      return parseGitWorktreeList(stdout);
+      const args = ['--git-dir', commonDir, 'worktree', 'list', '--porcelain'];
+      const execOptions = { timeout, maxBuffer: 4 * 1024 * 1024,
+        env: { ...process.env, LC_ALL: 'C' } };
+      try {
+        const { stdout } = await exec('git', [...args, '-z'], execOptions);
+        return parseGitWorktreeList(stdout);
+      } catch (error: unknown) {
+        const failure = error as { code?: unknown; stderr?: unknown };
+        // Only an unsupported -z may select the legacy wire format. Permission,
+        // timeout and repository errors retain their existing failure semantics.
+        if (failure?.code !== 129 || !/unknown (?:switch|option) [`'"-]*z['"`]/.test(String(failure.stderr || ''))) throw error;
+        const { stdout } = await exec('git', args, execOptions);
+        return parseGitWorktreeList(stdout, false);
+      }
     };
     const repositoryCache = options.worktreeListCache
       || (options.execFileAsync ? null : worktreeListCache);

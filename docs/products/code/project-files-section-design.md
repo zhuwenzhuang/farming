@@ -87,6 +87,12 @@ Agent into a broader mounted Project. Launching from an existing Project surface
 may instead pass that Project workspace explicitly while using a deeper working
 directory.
 
+Git discovery accepts both NUL-delimited worktree inventory and the legacy
+line format when Git explicitly rejects `-z`. Legacy quoted values are decoded;
+malformed output remains a failed lookup. Paths containing newlines require the
+NUL format. Timeouts and repository errors do not trigger format fallback.
+Common-directory paths are resolved without requiring `--path-format`.
+
 Git owns repository and worktree identity. Farming presents each worktree as an
 ordinary Project and owns only its membership and order in the workspace.
 Every absolute-file open entry point, including Chat links, Terminal links, and

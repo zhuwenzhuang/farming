@@ -31,7 +31,7 @@ function fakeWorktreeList(repository: FakeRepository): string {
 
 function createFakeGitExecutor(
   repositories: FakeRepository[],
-  options: { failNextList?: boolean; rejectAbsoluteCommonDir?: boolean } = {},
+  options: { failNextList?: boolean; rejectAbsoluteCommonDir?: boolean; rejectNul?: boolean } = {},
 ) {
   const calls: string[][] = [];
   const repositoryForCandidate = (candidate: string) => repositories.find(repository => (
@@ -73,11 +73,14 @@ function createFakeGitExecutor(
       if (args[0] === '--git-dir' && args.includes('worktree') && args.includes('list')) {
         const repository = repositoryForCommonDir(args[1]);
         if (!repository) throw new Error(`Unknown fake Git common dir: ${args[1]}`);
+        if (options.rejectNul && args.includes('-z')) {
+          throw Object.assign(new Error('Unsupported option'), { code: 129, stderr: "error: unknown switch `z'" });
+        }
         if (failNextList) {
           failNextList = false;
           throw new Error('Synthetic worktree list failure');
         }
-        return { stdout: fakeWorktreeList(repository) };
+        return { stdout: args.includes('-z') ? fakeWorktreeList(repository) : fakeWorktreeList(repository).replaceAll('\0', '\n') };
       }
       throw new Error(`Unexpected fake Git command: ${args.join(' ')}`);
     },
@@ -177,7 +180,7 @@ async function assertRepositoryWorktreeListCache() {
   assert.strictEqual(listCallCount(failureExecutor.calls), 2, 'A failed list read must not remain cached');
 
   const oldGitCache = createGitWorktreeListCache({ now: () => now, maxEntries: 2 });
-  const oldGitExecutor = createFakeGitExecutor([repositoryA], { rejectAbsoluteCommonDir: true });
+  const oldGitExecutor = createFakeGitExecutor([repositoryA], { rejectAbsoluteCommonDir: true, rejectNul: true });
   const oldGitOptions = {
     cacheMs: 3_000,
     execFileAsync: oldGitExecutor.execFileAsync,
@@ -190,16 +193,19 @@ async function assertRepositoryWorktreeListCache() {
   assert(oldGitResults.every(Boolean));
   assert.strictEqual(
     listCallCount(oldGitExecutor.calls),
-    1,
+    2,
     'The old-Git relative common-dir fallback should retain repository-level sharing',
   );
 }
 
 async function run() {
   await assertRepositoryWorktreeListCache();
+  assert.throws(() => parseGitWorktreeList('worktree /tmp/repo\nline\nHEAD abc\n\n', false), /Ambiguous/);
+  assert.strictEqual(parseGitWorktreeList('worktree /tmp/repo\nlocked "line\\nnext"\n\n', false)[0].lockReason, 'line\nnext');
+
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-worktree-info-'));
   const repo = path.join(tmpRoot, 'repo');
-  const linked = path.join(tmpRoot, 'repo-topic');
+  const linked = path.join(tmpRoot, 'repo-topic 中文 \"quote\" \\slash');
   fs.mkdirSync(repo, { recursive: true });
 
   try {
@@ -221,6 +227,14 @@ async function run() {
     const mainInfo = await inspectGitWorktree(repo, { cacheMs: 0 });
     const linkedInfo = await inspectGitWorktree(path.join(linked, 'src'), { cacheMs: 0 });
     const dotDotNameInfo = await inspectGitWorktree(path.join(linked, '..foo'), { cacheMs: 0 });
+    const legacyInfo = await inspectGitWorktree(repo, {
+      cacheMs: 0,
+      execFileAsync: async (executable, args, options) => {
+        if (args.includes('-z')) throw Object.assign(new Error('Old Git'), { code: 129, stderr: "error: unknown switch `z'" });
+        return { stdout: execFileSync(executable, args, { ...options, encoding: 'utf8' }) };
+      },
+    });
+    assert.deepStrictEqual(legacyInfo, mainInfo, 'legacy quoted paths must match NUL records, including Unicode, quotes and backslashes');
     assert(mainInfo);
     assert(linkedInfo);
     assert(dotDotNameInfo, 'a legal ..foo descendant must resolve to its containing worktree');

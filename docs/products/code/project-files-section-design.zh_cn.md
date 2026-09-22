@@ -67,6 +67,10 @@ Editor 和 Project Membership Controller 持有；任一阶段失败都停止后
 负责仓库操作，但不得因此把 Agent 提升到范围更大的已挂载 Project。从已有 Project 界面启动时，
 则可以显式传入该 Project Workspace，同时使用更深层的 Working Directory。
 
+Git 发现支持 NUL 分隔的 Worktree 清单；只有 Git 明确拒绝 `-z` 时才使用旧版行格式。
+旧格式中的引用值会解码，格式异常仍按查找失败处理。含换行的路径要求 NUL 格式。
+超时与仓库错误不会触发格式回退。公共 Git 目录路径由后端解析，不依赖 `--path-format`。
+
 Git 拥有 Repository 与 Worktree Identity。Farming 把每个 Worktree 展示为普通 Project，
 只拥有它在 Workspace 中的 Membership 与 Order。
 任何绝对文件打开入口（包括 Chat 链接、Terminal 链接与分享 URL）都先通过同一个解析边界，
