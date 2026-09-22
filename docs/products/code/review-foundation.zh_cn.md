@@ -33,6 +33,7 @@ Source Discovery 分别有界枚举 Staged、Unstaged 和 Untracked 路径。达
 Commit 或 Staged Source 的选择。需要精确路径判断的消费者将不完整清单视为未知，不能
 因路径未出现就推断它没有变更。命令失败与超时仍是显式错误。Review Capture 独立遵守
 所选 Scope 和完整文件列表的契约。
+Git 对嵌套仓库返回的目录提示也意味着精确文件清单不完整，不能把目录提示当作单个文件路径。
 
 选择路径清单超过上限的 Working-copy Comparison 时必须显式失败，并提示缩小 Scope 或
 选择 Staged、Commit；不能把 Discovery 的部分清单当作完整 Capture。

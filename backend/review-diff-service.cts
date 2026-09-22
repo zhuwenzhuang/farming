@@ -951,7 +951,9 @@ class ReviewDiffService {
       ...stagedResult.paths,
       ...untrackedResult.paths,
     ])];
-    const uncommittedPaths = allPaths.slice(0, MAX_WORKING_COPY_SCAN_FILES);
+    // Git emits directory hints (with a trailing slash) for embedded repositories.
+    // They prove availability, but cannot stand in for exact child-file identities.
+    const uncommittedPaths = allPaths.filter(isSafeReviewPath).slice(0, MAX_WORKING_COPY_SCAN_FILES);
     const uncommittedPathsTruncated = statusResult.some(result => result.truncated)
       || allPaths.length > uncommittedPaths.length;
     const refsResult = await this.git(root, [

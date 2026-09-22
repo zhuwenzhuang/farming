@@ -1261,6 +1261,12 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
       git(root, 'update-index', '--cacheinfo', `160000,${newCommit},dependency`)
       git(root, 'commit', '-m', 'Update source and dependency')
       const head = git(root, 'rev-parse', 'HEAD')
+      const embedded = path.join(root, 'embedded')
+      fs.mkdirSync(embedded)
+      git(embedded, 'init', '-b', 'main')
+      fs.writeFileSync(path.join(embedded, 'child.txt'), 'nested repository\n')
+      git(embedded, 'add', '.')
+      git(embedded, '-c', 'core.hooksPath=/dev/null', '-c', 'user.name=Review Fixture', '-c', 'user.email=review@example.com', 'commit', '-m', 'Nested repository')
       fs.mkdirSync(path.join(root, 'generated'))
       for (let i = 0; i < 2100; i += 1) {
         fs.writeFileSync(path.join(root, 'generated', `${String(i).padStart(4, '0')}-${'x'.repeat(150)}.txt`), '')

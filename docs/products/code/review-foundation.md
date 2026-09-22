@@ -40,6 +40,8 @@ commit or staged source. Exact-path consumers treat an incomplete inventory as
 unknown; they must not infer a clean path from its absence. Command failure and
 timeout remain explicit errors. Review capture separately enforces its selected
 scope and complete-file-list contract.
+Git directory hints for embedded repositories also make this exact-file
+inventory incomplete; they are not passed off as individual file paths.
 
 Selecting a working-copy comparison whose path inventory exceeds its bound
 fails explicitly with a request to narrow the scope or choose Staged or a commit;

@@ -37,6 +37,17 @@ async function run() {
       root, base: unstagedSources.unstaged.base, head: 'now', metadataOnly: true,
     });
     assert.deepEqual(unstagedReview.comparison, { workingTree: true });
+    const embedded = path.join(root, 'embedded');
+    fs.mkdirSync(embedded);
+    await exec('git', ['-C', embedded, 'init', '-b', 'main']);
+    fs.writeFileSync(path.join(embedded, 'child.txt'), 'nested repository\n');
+    await exec('git', ['-C', embedded, 'add', '.']);
+    await exec('git', ['-C', embedded, '-c', 'core.hooksPath=/dev/null', '-c', 'user.name=Review Test', '-c', 'user.email=review@example.com', 'commit', '-m', 'nested']);
+    assert.ok((await git('ls-files', '--others', '--exclude-standard', '-z')).stdout.includes('embedded/\0'));
+    const embeddedSources = await service.getComparisonSources(undefined, { root });
+    assert.equal(embeddedSources.unstaged.available, true);
+    assert.equal(embeddedSources.uncommittedPathsTruncated, true);
+    assert.deepEqual(embeddedSources.uncommittedPaths, ['tracked.txt']);
     const inventory = path.join(root, 'generated');
     fs.mkdirSync(inventory);
     // More than the former 1 MiB buffer, with realistic long generated paths.
