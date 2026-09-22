@@ -153,7 +153,7 @@ docker_command run --rm --platform linux/amd64 \
   --env NODE_OPTIONS="--max-old-space-size=${BUILDER_NODE_HEAP_MB}" \
   --env npm_config_registry="${NPM_REGISTRY}" \
   "${BUILDER_IMAGE}" \
-  bash -lc 'npm install --global npm@12.0.2 --no-audit --no-fund && node --version && npm --version && timeout 300 npm ci --no-audit --no-fund && npm run release:app:legacy-linux' >&2
+  bash -lc 'set -e; npm install --global --prefix /opt/farming-npm npm@12.0.2 --no-audit --no-fund; export PATH="/opt/farming-npm/bin:$PATH"; node --version; npm --version; timeout 300 npm ci --no-audit --no-fund; npm run release:app:legacy-linux' >&2
 
 TARBALL="${OUTPUT_DIR}/${RELEASE_NAME}.tar.gz"
 test -f "${TARBALL}"

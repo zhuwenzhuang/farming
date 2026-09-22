@@ -95,7 +95,10 @@ function run() {
   assert.match(builderSource, /FARMING_RELEASE_BUILDER_NODE_HEAP_MB:-6144/);
   assert.match(builderSource, /NODE_OPTIONS="--max-old-space-size=\$\{BUILDER_NODE_HEAP_MB\}"/);
   assert.match(builderSource, /node:22\.22\.2-bookworm/);
-  assert.match(builderSource, /npm install --global npm@12\.0\.2/);
+  const deploySource = fs.readFileSync(deployer, 'utf8');
+  assert.strictEqual(deploySource.match(/BUILDER_IMAGE="([^"\n]+)"/)[1],
+    builderSource.match(/BUILDER_IMAGE="([^"\n]+)"/)[1], 'deploy must not override the builder with an incompatible Node image');
+  assert.match(builderSource, /npm install --global --prefix \/opt\/farming-npm npm@12\.0\.2/);
   assert.match(builderSource, /timeout 300 npm ci/);
   assert.match(builderSource, /--env FARMING_AGENT_BROWSER_ARTIFACTS=\/browser-artifacts/);
 
