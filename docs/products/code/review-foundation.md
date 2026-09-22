@@ -22,12 +22,28 @@ Two independent layers exist:
 Changing comparison source or base creates a different identity. Loading
 strategy, diff mode, whitespace preference, and context size do not.
 
+Changing identity clears the previous catalog and summary before loading the
+new source. Failed loads remain empty with an explicit error; late responses
+from the previous identity cannot restore its content.
+
 ## Comparison Sources
 
 Review may compare a working tree, staged changes, a commit, a branch merge
 base, an explicit Git range, or an immutable Agent File Changes capture. Source
 selection is semantic and must resolve to an exact comparison before the Review
 is shown.
+
+Source discovery bounds each staged, unstaged, and untracked path enumeration.
+An output limit preserves the source's known availability and marks the path
+inventory incomplete, so a large untracked area cannot prevent selecting a
+commit or staged source. Exact-path consumers treat an incomplete inventory as
+unknown; they must not infer a clean path from its absence. Command failure and
+timeout remain explicit errors. Review capture separately enforces its selected
+scope and complete-file-list contract.
+
+Selecting a working-copy comparison whose path inventory exceeds its bound
+fails explicitly with a request to narrow the scope or choose Staged or a commit;
+discovery's partial inventory must never become a partial capture presented as complete.
 
 Historical Agent changes are captured from the structured change evidence that
 the Agent produced. Later filesystem edits must not change that historical
@@ -59,6 +75,10 @@ during the authoritative Git enumeration before the file limit. A large
 untracked area cannot truncate a tracked Review; overflow within the selected
 scope remains an explicit capture failure. Rename captures retain both the
 previous and current path identities.
+
+Gitlink changes are reviewed as pointer changes: the old and new `Subproject
+commit` lines remain visible, while the linked repository's ordinary file
+content is not read and its referenced objects need not exist locally.
 
 ## File-list-first Loading
 

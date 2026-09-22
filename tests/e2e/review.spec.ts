@@ -1239,3 +1239,67 @@ test('switches every comparison source against a real Git repository', async ({ 
     fs.rmSync(temporaryRoot, { force: true, recursive: true })
   }
 })
+
+for (const appearance of ['light', 'dark', 'paper'] as const) {
+  test(`loads Review sources and gitlink diffs with a large untracked inventory in ${appearance}`, async ({ page }, testInfo) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-review-large-inventory-'))
+    const oldCommit = '1'.repeat(40)
+    const newCommit = '2'.repeat(40)
+    try {
+      git(root, 'init', '-b', 'main')
+      git(root, 'config', 'user.email', 'review@example.com')
+      git(root, 'config', 'user.name', 'Review Fixture')
+      git(root, 'config', 'core.hooksPath', '/dev/null')
+      for (let i = 0; i < 63; i += 1) fs.writeFileSync(path.join(root, `source-${i}.txt`), 'before\n')
+      git(root, 'add', '.')
+      // Gitlinks reference commits in a separate repository, absent from this object database.
+      git(root, 'update-index', '--add', '--cacheinfo', `160000,${oldCommit},dependency`)
+      git(root, 'commit', '-m', 'Base source and dependency')
+      const base = git(root, 'rev-parse', 'HEAD')
+      for (let i = 0; i < 63; i += 1) fs.writeFileSync(path.join(root, `source-${i}.txt`), 'after\n')
+      git(root, 'add', '--', ...Array.from({ length: 63 }, (_, i) => `source-${i}.txt`))
+      git(root, 'update-index', '--cacheinfo', `160000,${newCommit},dependency`)
+      git(root, 'commit', '-m', 'Update source and dependency')
+      const head = git(root, 'rev-parse', 'HEAD')
+      fs.mkdirSync(path.join(root, 'generated'))
+      for (let i = 0; i < 2100; i += 1) {
+        fs.writeFileSync(path.join(root, 'generated', `${String(i).padStart(4, '0')}-${'x'.repeat(150)}.txt`), '')
+      }
+      const indexBefore = fs.readFileSync(path.join(root, '.git', 'index'))
+      const settings = await page.request.post('/farming/api/settings', { data: { appearance } })
+      expect(settings.ok()).toBeTruthy()
+      await page.goto(`/farming/review?${new URLSearchParams({ root, base, head })}`)
+      const review = page.getByTestId('review-page')
+      await expect(page.locator('body')).toHaveAttribute('data-appearance', appearance)
+      await expect(review.getByTestId('review-file-row')).toHaveCount(64)
+      const dependency = review.locator('[data-file-path="dependency"]')
+      await dependency.locator('.review-file-select').click()
+      const diff = review.getByLabel('Diff for dependency')
+      await expect(diff).toContainText(`Subproject commit ${oldCommit}`)
+      await expect(diff).toContainText(`Subproject commit ${newCommit}`)
+      await expect(dependency).not.toContainText('Could not load diff')
+      await dependency.screenshot({ path: testInfo.outputPath(`review-gitlink-${appearance}.png`), animations: 'disabled' })
+      const sourcesResponse = page.waitForResponse(response => response.url().includes('/api/reviews/comparison-sources'))
+      await review.locator('.review-source-trigger').click()
+      const response = await sourcesResponse
+      expect(response.ok()).toBeTruthy()
+      const sources = await response.json()
+      expect(sources.uncommittedPathsTruncated).toBe(true)
+      expect(sources.unstaged.available).toBe(true)
+      await expect(review.getByRole('menuitemradio', { name: 'Unstaged', exact: true })).toBeVisible()
+      await expect(review).not.toContainText('maxBuffer')
+      await page.screenshot({ path: testInfo.outputPath(`review-gitlink-sources-${appearance}.png`), animations: 'disabled' })
+      await review.getByRole('menuitemradio', { name: 'Unstaged', exact: true }).click()
+      await expect(review.getByRole('alert')).toContainText('Working-copy comparison exceeds the untracked path limit')
+      await expect(review.getByTestId('review-file-row')).toHaveCount(0)
+      await review.locator('.review-source-trigger').click()
+      await review.locator('details.review-source-submenu').filter({ hasText: 'Commit' }).locator('summary').click()
+      await review.getByRole('menuitemradio', { name: `${git(root, 'rev-parse', '--short', head)} Update source and dependency`, exact: true }).click()
+      await expect(review.locator('.review-source-trigger')).toHaveText(/Commit · .*Update source and dependency/)
+      await expect(review.getByTestId('review-file-row')).toHaveCount(64)
+      expect(fs.readFileSync(path.join(root, '.git', 'index'))).toEqual(indexBefore)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+}

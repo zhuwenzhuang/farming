@@ -38,6 +38,7 @@ async function run() {
         root: '/workspace',
         staged: { available: true, base: '1'.repeat(40), head: '2'.repeat(40), id: 'staged', label: 'Staged' },
         uncommittedPaths: ['src/review.ts'],
+        uncommittedPathsTruncated: false,
         unstaged: { available: false, base: '2'.repeat(40), head: 'now', id: 'unstaged', label: 'Unstaged' },
       };
     },

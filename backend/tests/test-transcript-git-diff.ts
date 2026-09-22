@@ -19,6 +19,7 @@ function comparisonSources(overrides: Partial<ComparisonSources> = {}): Comparis
       head: '3'.repeat(40),
     },
     uncommittedPaths: [],
+    uncommittedPathsTruncated: false,
     unstaged: {
       available: false,
       base: '3'.repeat(40),
@@ -69,5 +70,13 @@ assert.deepEqual(
   })),
   new Set(['src/app.ts', 'docs/readme.md']),
 )
+
+const truncatedSources = comparisonSources({
+  uncommittedPaths: ['src/app.ts'],
+  uncommittedPathsTruncated: true,
+  unstaged: { available: true, base: '3'.repeat(40), head: 'now' },
+})
+assert.equal(transcriptUncommittedPathsForRepository(truncatedSources), null)
+assert.deepEqual(transcriptGitDiffTargetForRepository(truncatedSources), { kind: 'working-copy' })
 
 console.log('Transcript Git diff tests passed')

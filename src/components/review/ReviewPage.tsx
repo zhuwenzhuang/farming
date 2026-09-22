@@ -28,7 +28,7 @@ import { useModalFocusScope } from '@/hooks/useModalFocusScope'
 import { completeReviewFileDiffLoad, failReviewFileDiffLoad } from '@/lib/review/effects'
 import { reviewFileRowModel, type ReviewFileRowAction, type ReviewFileRowModel } from '@/lib/review/file-list'
 import { acpReviewCaptureRequestFromSearch, reviewSnapshotRequestFromLocation } from '@/lib/review/route-target'
-import { createReviewStateFromSnapshot, reviewCatalogFromSnapshot, reviewCatalogWithFile, reviewCatalogWithUnmodifiedPaths, type ReviewComparison, type ReviewDiffSnapshotRequest } from '@/lib/review/snapshot'
+import { createReviewStateFromSnapshot, reviewCatalogFromSnapshot, reviewCatalogWithFile, reviewCatalogWithUnmodifiedPaths, reviewSnapshotRequestKey, type ReviewComparison, type ReviewDiffSnapshotRequest } from '@/lib/review/snapshot'
 import {
   commentsForFilePaths,
   createReviewState,
@@ -293,6 +293,11 @@ function initialReviewBasePatchset(request: ReviewDiffSnapshotRequest | null, fi
 function initialReviewCatalog(request: ReviewDiffSnapshotRequest | null, fixtureMode = true): ReviewCatalog {
   if (!request) return fixtureMode ? PATCHSET_FILES : { [INVALID_REVIEW_PATCHSET]: [] }
   return { [initialReviewPatchset(request, fixtureMode)]: [] }
+}
+
+function reviewRequestIdentityKey(request: ReviewDiffSnapshotRequest | null) {
+  if (!request) return ''
+  return reviewSnapshotRequestKey({ ...request, limit: undefined, metadataOnly: true })
 }
 
 function createPageReviewState({
@@ -1064,8 +1069,40 @@ export function ReviewPage() {
   })
   const reviewStateRef = useRef(reviewState)
   const catalogRef = useRef(catalog)
+  const reviewRequestIdentityRef = useRef(reviewRequestIdentityKey(reviewRequestBase))
   catalogRef.current = catalog
+  const replaceReviewRequest = (request: ReviewDiffSnapshotRequest) => {
+    const nextIdentity = reviewRequestIdentityKey(request)
+    if (nextIdentity !== reviewRequestIdentityRef.current) {
+      reviewRequestIdentityRef.current = nextIdentity
+      const nextCatalog = initialReviewCatalog(request, fixtureMode)
+      const nextState = createPageReviewState({
+        basePatchset: initialReviewBasePatchset(request, fixtureMode),
+        catalog: nextCatalog,
+        comments: [],
+        initialPatchset: initialReviewPatchset(request, fixtureMode),
+        initiallyExpand: !externalReview,
+        reviewId: undefined,
+      })
+      nextState.diffMode = reviewStateRef.current.diffMode
+      nextState.preferences = reviewStateRef.current.preferences
+      reviewStateRef.current = nextState
+      catalogRef.current = nextCatalog
+      setReviewState(nextState)
+      setCatalog(nextCatalog)
+      setReviewComparison(null)
+      setReviewLoadError('')
+      setReviewStatusError('')
+      setReviewCommentError('')
+      setContextLoadPaths([])
+      setContextGapExpansions({})
+      setReviewingPath('')
+    }
+    setReviewRequestBase(request)
+  }
   const [draftPreferences, setDraftPreferences] = useState<DiffPreferences>(DEFAULT_DIFF_PREFERENCES)
+  const replaceReviewRequestRef = useRef(replaceReviewRequest)
+  replaceReviewRequestRef.current = replaceReviewRequest
   const [showPreferences, setShowPreferences] = useState(false)
   const preferencesTriggerRef = useRef<HTMLButtonElement | null>(null)
   const preferencesCancelRef = useRef<HTMLButtonElement | null>(null)
@@ -1127,6 +1164,7 @@ export function ReviewPage() {
     reviewStateRef.current = transition.state
     setReviewState(transition.state)
     for (const effect of transition.effects) {
+      const effectRequestIdentity = reviewRequestIdentityRef.current
       if (effect.type === 'load-file-diff') {
         const request = reviewDiffRequestRef.current
         if (!request) {
@@ -1135,28 +1173,37 @@ export function ReviewPage() {
         }
         void loadReviewFileDiff(request, effect.path)
           .then(file => {
+            if (reviewRequestIdentityRef.current !== effectRequestIdentity) return
             const completed = completeReviewFileDiffLoad(catalogRef.current, effect, file, { reviewId: reviewStateRef.current.reviewId })
             catalogRef.current = completed.catalog
             setCatalog(completed.catalog)
             applyReviewAction(completed.action)
           })
-          .catch(error => applyReviewAction(failReviewFileDiffLoad(effect, error)))
+          .catch(error => {
+            if (reviewRequestIdentityRef.current !== effectRequestIdentity) return
+            applyReviewAction(failReviewFileDiffLoad(effect, error))
+          })
       }
       if (effect.type === 'save-reviewed-status') {
         const effectReviewId = effect.reviewId ?? reviewId
         void saveReviewedFilesStatus({ ...effect, reviewId: effectReviewId })
-          .then(saved => applyReviewAction({
-            patchset: effect.patchset,
-            paths: effect.changes.map(change => change.path),
-            reviewedPaths: saved.reviewedPaths,
-            ...(effect.reviewId ? { reviewId: effect.reviewId } : {}),
-            revision: saved.revision,
-            type: 'commit-reviewed-status',
-          }))
+          .then(saved => {
+            if (reviewRequestIdentityRef.current !== effectRequestIdentity) return
+            applyReviewAction({
+              patchset: effect.patchset,
+              paths: effect.changes.map(change => change.path),
+              reviewedPaths: saved.reviewedPaths,
+              ...(effect.reviewId ? { reviewId: effect.reviewId } : {}),
+              revision: saved.revision,
+              type: 'commit-reviewed-status',
+            })
+          })
           .catch(async error => {
+            if (reviewRequestIdentityRef.current !== effectRequestIdentity) return
             let restored = error instanceof ReviewApiError && error.state
               ? error.state
               : await loadReviewedPatchsetState(effectReviewId, effect.patchset).catch(() => null)
+            if (reviewRequestIdentityRef.current !== effectRequestIdentity) return
           if (!restored) {
             const current = reviewStateForPatchset(reviewStateRef.current, effect.patchset)
             const reviewedPaths = new Set(current.reviewedPaths)
@@ -1179,16 +1226,21 @@ export function ReviewPage() {
       if (effect.type === 'save-comment') {
         const effectReviewId = effect.reviewId ?? reviewId
         void saveReviewComment(effectReviewId, effect.comment)
-          .then(() => applyReviewAction({
-            id: effect.comment.id,
-            patchset: effect.comment.patchset,
-            pendingType: 'save',
-            ...(effect.reviewId ? { reviewId: effect.reviewId } : {}),
-            type: 'commit-comment',
-          }))
+          .then(() => {
+            if (reviewRequestIdentityRef.current !== effectRequestIdentity) return
+            applyReviewAction({
+              id: effect.comment.id,
+              patchset: effect.comment.patchset,
+              pendingType: 'save',
+              ...(effect.reviewId ? { reviewId: effect.reviewId } : {}),
+              type: 'commit-comment',
+            })
+          })
           .catch(async error => {
+            if (reviewRequestIdentityRef.current !== effectRequestIdentity) return
             const comments = await loadReviewComments(effectReviewId, effect.comment.patchset)
               .catch(() => reviewStateRef.current.comments.filter(comment => comment.id !== effect.comment.id))
+            if (reviewRequestIdentityRef.current !== effectRequestIdentity) return
             applyReviewAction({
               comments,
               id: effect.comment.id,
@@ -1203,16 +1255,21 @@ export function ReviewPage() {
       if (effect.type === 'delete-comment') {
         const effectReviewId = effect.reviewId ?? reviewId
         void deleteReviewComment(effectReviewId, effect.comment.patchset, effect.comment.id)
-          .then(() => applyReviewAction({
-            id: effect.comment.id,
-            patchset: effect.comment.patchset,
-            pendingType: 'delete',
-            ...(effect.reviewId ? { reviewId: effect.reviewId } : {}),
-            type: 'commit-comment',
-          }))
+          .then(() => {
+            if (reviewRequestIdentityRef.current !== effectRequestIdentity) return
+            applyReviewAction({
+              id: effect.comment.id,
+              patchset: effect.comment.patchset,
+              pendingType: 'delete',
+              ...(effect.reviewId ? { reviewId: effect.reviewId } : {}),
+              type: 'commit-comment',
+            })
+          })
           .catch(async error => {
+            if (reviewRequestIdentityRef.current !== effectRequestIdentity) return
             const comments = await loadReviewComments(effectReviewId, effect.comment.patchset)
               .catch(() => [...reviewStateRef.current.comments, effect.comment])
+            if (reviewRequestIdentityRef.current !== effectRequestIdentity) return
             applyReviewAction({
               comments,
               id: effect.comment.id,
@@ -1281,7 +1338,7 @@ export function ReviewPage() {
         setReviewSessionRevision(revision)
         setReviewView('final')
         setComparisonSourceId('last-turn')
-        setReviewRequestBase(request)
+        replaceReviewRequestRef.current(request)
         setReviewLoadError('')
       })
       .catch(error => {
@@ -1312,6 +1369,7 @@ export function ReviewPage() {
   useEffect(() => {
     if (!reviewRequestBase) return
     let active = true
+    const requestIdentity = reviewRequestIdentityKey(reviewRequestBase)
     const preferences = readStoredDiffPreferences()
     void loadReviewDiffSnapshot({ ...reviewRequestBase, context: preferences.context, ignoreWhitespace: preferences.ignoreWhitespace, metadataOnly: true })
       .then(async review => {
@@ -1319,7 +1377,7 @@ export function ReviewPage() {
           loadReviewedPatchsetState(review.reviewId, review.patchset).catch(() => null),
           loadReviewComments(review.reviewId, review.patchset).catch(() => []),
         ])
-        if (!active) return
+        if (!active || reviewRequestIdentityRef.current !== requestIdentity) return
         const nextCatalog = reviewCatalogWithUnmodifiedPaths(
           reviewCatalogFromSnapshot(review),
           review.patchset,
@@ -1348,7 +1406,7 @@ export function ReviewPage() {
         setReviewLoadError('')
       })
       .catch(error => {
-        if (!active) return
+        if (!active || reviewRequestIdentityRef.current !== requestIdentity) return
         setReviewLoadError(error instanceof Error ? error.message : 'review diff request failed')
       })
     return () => { active = false }
@@ -1377,9 +1435,10 @@ export function ReviewPage() {
   useEffect(() => {
     if (externalReview || !reviewId || !catalogRef.current[patchset]) return
     let active = true
+    const requestIdentity = reviewRequestIdentityRef.current
     void loadReviewedPatchsetState(reviewId, patchset)
       .then(saved => {
-        if (!active) return
+        if (!active || reviewRequestIdentityRef.current !== requestIdentity) return
         applyReviewActionRef.current({
           patchset,
           reviewedPaths: saved.reviewedPaths,
@@ -1393,7 +1452,7 @@ export function ReviewPage() {
       })
     void loadReviewComments(reviewId, patchset)
       .then(loadedComments => {
-        if (!active) return
+        if (!active || reviewRequestIdentityRef.current !== requestIdentity) return
         const nextCatalog = reviewCatalogWithUnmodifiedPaths(catalogRef.current, patchset, loadedComments.map(comment => comment.path))
         if (nextCatalog !== catalogRef.current) {
           catalogRef.current = nextCatalog
@@ -1475,10 +1534,11 @@ export function ReviewPage() {
       return Boolean(file && file.kind !== 'unmodified' && !file.binary && !file.diffTooExpensive)
     })
     if (!paths.length) return
+    const requestIdentity = reviewRequestIdentityRef.current
     setContextLoadPaths(current => [...new Set([...current, ...paths])])
     void reloadReviewFiles({ ...reviewRequestBase, context: next.context, ignoreWhitespace: next.ignoreWhitespace }, paths)
       .then(result => {
-        if (reviewStateRef.current.patchRange.patchset !== targetPatchset) return
+        if (reviewRequestIdentityRef.current !== requestIdentity || reviewStateRef.current.patchRange.patchset !== targetPatchset) return
         let nextCatalog = catalogRef.current
         for (const file of result.files) nextCatalog = reviewCatalogWithFile(nextCatalog, targetPatchset, file)
         catalogRef.current = nextCatalog
@@ -1486,7 +1546,10 @@ export function ReviewPage() {
         const firstError = result.errors[0]
         if (firstError) setReviewLoadError(firstError.message)
       })
-      .finally(() => setContextLoadPaths(current => current.filter(path => !paths.includes(path))))
+      .finally(() => {
+        if (reviewRequestIdentityRef.current !== requestIdentity) return
+        setContextLoadPaths(current => current.filter(path => !paths.includes(path)))
+      })
   }
   const copyCommit = () => {
     if (navigator.clipboard) {
@@ -1498,21 +1561,31 @@ export function ReviewPage() {
   const expandRemoteContext = (path: string, context: number) => {
     const request = reviewDiffRequestRef.current
     if (!request || contextLoadPaths.includes(path)) return
+    const requestIdentity = reviewRequestIdentityRef.current
     const targetPatchset = patchset
     setContextLoadPaths(current => [...current, path])
     void loadReviewFileDiff({ ...request, context }, path)
       .then(file => {
+        if (reviewRequestIdentityRef.current !== requestIdentity) return
         const nextCatalog = reviewCatalogWithFile(catalogRef.current, targetPatchset, file)
         catalogRef.current = nextCatalog
         setCatalog(nextCatalog)
       })
-      .catch(error => setReviewLoadError(error instanceof Error ? error.message : 'review context request failed'))
-      .finally(() => setContextLoadPaths(current => current.filter(item => item !== path)))
+      .catch(error => {
+        if (reviewRequestIdentityRef.current !== requestIdentity) return
+        setReviewLoadError(error instanceof Error ? error.message : 'review context request failed')
+      })
+      .finally(() => {
+        if (reviewRequestIdentityRef.current !== requestIdentity) return
+        setContextLoadPaths(current => current.filter(item => item !== path))
+      })
   }
   const expandFileContext = (file: ReviewFile, gap: ContextGapDescriptor, direction: ContextGapDirection, range: ReviewContextRange) => {
     const request = reviewDiffRequestRef.current
     if (gap.expansion.pending || range.lines < 1) return
+    const requestIdentity = reviewRequestIdentityRef.current
     const commitRows = (rows: ReviewDiffRow[]) => {
+      if (reviewRequestIdentityRef.current !== requestIdentity) return
       setContextGapExpansions(current => {
         const previous = current[gap.key] ?? emptyContextGapExpansion()
         return {
@@ -1524,6 +1597,7 @@ export function ReviewPage() {
       })
     }
     const failRows = (error: unknown) => {
+      if (reviewRequestIdentityRef.current !== requestIdentity) return
       const message = error instanceof Error ? error.message : 'review context request failed'
       setContextGapExpansions(current => {
         const previous = current[gap.key] ?? emptyContextGapExpansion()
@@ -1567,10 +1641,17 @@ export function ReviewPage() {
   }
   const changeCommentStatus = (comment: ReviewComment, status: 'open' | 'resolved') => {
     if (!reviewId) return
+    const requestIdentity = reviewRequestIdentityRef.current
     void updateReviewCommentStatus(reviewId, comment.patchset, comment.id, status)
       .then(() => loadReviewComments(reviewId, comment.patchset))
-      .then(comments => applyReviewAction({ comments, patchset: comment.patchset, reviewId, type: 'hydrate-comments' }))
-      .catch(error => setReviewCommentError(error instanceof Error ? error.message : 'review comment status failed'))
+      .then(comments => {
+        if (reviewRequestIdentityRef.current !== requestIdentity) return
+        applyReviewAction({ comments, patchset: comment.patchset, reviewId, type: 'hydrate-comments' })
+      })
+      .catch(error => {
+        if (reviewRequestIdentityRef.current !== requestIdentity) return
+        setReviewCommentError(error instanceof Error ? error.message : 'review comment status failed')
+      })
   }
   const setSessionRequest = (revision: ReviewSessionRevision, view: 'final' | 'fixes') => {
     const request = reviewRequestForSessionRevision(revision, view)
@@ -1586,7 +1667,7 @@ export function ReviewPage() {
     setReviewView(view)
     setComparisonSourceId('last-turn')
     setShowComparisonSources(false)
-    setReviewRequestBase(request)
+    replaceReviewRequest(request)
   }
   const reviewWorkspaceTarget = (() => {
     if (reviewRequestBase && 'root' in reviewRequestBase && reviewRequestBase.root) return { root: reviewRequestBase.root }
@@ -1628,7 +1709,7 @@ export function ReviewPage() {
     setComparisonSourceId(source.id)
     setShowComparisonSources(false)
     setReviewView('final')
-    setReviewRequestBase(request)
+    replaceReviewRequest(request)
   }
   const refreshCapturedReview = () => {
     if (!reviewSessionRevision || capturePending) return

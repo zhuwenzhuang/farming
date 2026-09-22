@@ -2525,7 +2525,7 @@ test.describe('ACP human-like browser matrix', () => {
     await item.getByTestId('code-agent-transcript-process-item-toggle').click()
     const preview = item.getByTestId('code-agent-transcript-subagent')
     await expect(preview).toContainText('Inspect the long-running task', { timeout: 15_000 })
-    await expect(preview).toContainText('Working')
+    await expect(preview).toContainText('In progress')
     await preview.getByTestId('code-acp-subagent-fullscreen').click()
     const panel = page.getByTestId('code-related-session-panel')
     await expect(panel).toContainText('Checking the first candidate')
@@ -2841,21 +2841,20 @@ for (const appearance of ['light', 'dark', 'paper']) {
     await row.getByTestId('code-agent-row-archive').click()
     const archiveResponse = await archived
     const archiveResult = await archiveResponse.json()
-    // The fake provider has no CLI history entry for its fork. Local Archive
-    // must still stop the child and close its pane if provider history fails.
+    // A successful Archive must reach its terminal state, not merely hide a
+    // locally archived child whose Provider operation is still blocked.
+    expect(archiveResponse.ok()).toBeTruthy()
     expect(archiveResult.archived).toBe(true)
-    if (!archiveResponse.ok()) expect(archiveResult.error).toMatch(/Provider archive failed/)
+    expect(archiveResult.removed).toBe(true)
     await expect(row).toHaveCount(0)
     await expect(pane).toHaveCount(0)
     await expect(agentRow(page, parentId)).toHaveClass(/active/)
     await expect(parentInput).toHaveValue('preserve parent draft')
     const childSession = await page.request.get(`/farming/api/agents/${child.agentId}/acp-session`)
-    if (archiveResult.removed) expect(childSession.status()).toBe(404)
-    else {
-      expect(archiveResult.stopped).toBe(true)
-      expect(childSession.status()).toBe(409)
-      expect((await childSession.json()).error).toBe('ACP Agent runtime is unavailable')
-    }
+    expect(childSession.status()).toBe(404)
+    const inventory = await page.request.get('/farming/api/control/agents')
+    expect(inventory.ok()).toBeTruthy()
+    expect((await inventory.json()).agents.some((agent: { id: string }) => agent.id === child.agentId)).toBe(false)
     await parentInput.fill('image attachment parent still works')
     await page.getByTestId('code-acp-composer-send').click()
     await expect(page.locator('.code-terminal-grid')).toContainText('image attachment parent still works')

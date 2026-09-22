@@ -121,6 +121,7 @@ test('loads a direct-root git range without fabricating an agent id', async () =
 test('loads semantic comparison sources for the review workspace', async () => {
   const previousFetch = globalThis.fetch
   const calls: string[] = []
+  let uncommittedPathsTruncated: unknown = false
   globalThis.fetch = async input => {
     calls.push(String(input))
     return jsonResponse({
@@ -130,6 +131,7 @@ test('loads semantic comparison sources for the review workspace', async () => {
       root: '/workspace/direct',
       staged: { available: true, base: '1'.repeat(40), head: '2'.repeat(40), id: 'staged', label: 'Staged' },
       uncommittedPaths: ['src/review.ts'],
+      uncommittedPathsTruncated,
       unstaged: { available: false, base: '2'.repeat(40), head: 'now', id: 'unstaged', label: 'Unstaged' },
     })
   }
@@ -138,7 +140,14 @@ test('loads semantic comparison sources for the review workspace', async () => {
     assert.equal(sources.currentBranch, 'feature/review')
     assert.equal(sources.staged.available, true)
     assert.deepEqual(sources.uncommittedPaths, ['src/review.ts'])
+    assert.equal(sources.uncommittedPathsTruncated, false)
     assert.deepEqual(calls, ['/api/reviews/comparison-sources?root=%2Fworkspace%2Fdirect'])
+    uncommittedPathsTruncated = true
+    assert.equal((await loadReviewComparisonSources({ root: '/workspace/direct' })).uncommittedPathsTruncated, true)
+    for (const invalid of [undefined, 'true']) {
+      uncommittedPathsTruncated = invalid
+      await assert.rejects(loadReviewComparisonSources({ root: '/workspace/direct' }), /response is invalid/)
+    }
   } finally {
     globalThis.fetch = previousFetch
   }

@@ -68,6 +68,7 @@ async function run() {
     });
     const sources = await comparisonService.getComparisonSources(undefined, { root: comparisonRoot });
     assert.deepStrictEqual(sources.uncommittedPaths, ['unstaged.ts', 'shared.ts', 'staged.ts', 'new.ts']);
+    assert.strictEqual(sources.uncommittedPathsTruncated, false);
     assert.strictEqual(sources.staged.available, true);
     assert.strictEqual(sources.unstaged.available, true);
   } finally {
@@ -1063,6 +1064,83 @@ async function run() {
   assert.match(whitespaceIgnoredRangePatch.patch, /diff --git a\/src\/review\.ts b\/src\/review\.ts/);
   assert.ok(gitCalls.some(args => args.includes('--ignore-space-change')));
   assert.ok(gitCalls.some(args => args.includes('--unified=100')));
+
+  const gitlinkPath = 'dependency';
+  const gitlinkOld = '1'.repeat(40);
+  const gitlinkNew = '2'.repeat(40);
+  const gitlinkPatch = [
+    `diff --git a/${gitlinkPath} b/${gitlinkPath}`,
+    `index ${gitlinkOld}..${gitlinkNew} 160000`,
+    `--- a/${gitlinkPath}`,
+    `+++ b/${gitlinkPath}`,
+    '@@ -1 +1 @@',
+    `-Subproject commit ${gitlinkOld}`,
+    `+Subproject commit ${gitlinkNew}`,
+  ].join('\n');
+  const parsedGitlink = fileFromPatch({ kind: 'modified', path: gitlinkPath, status: 'M' }, gitlinkPatch);
+  assert.strictEqual(parsedGitlink.binary, undefined);
+  assert.strictEqual(parsedGitlink.diff.hunks[0].rows[0].left?.text, `Subproject commit ${gitlinkOld}`);
+  assert.strictEqual(parsedGitlink.diff.hunks[0].rows[0].right?.text, `Subproject commit ${gitlinkNew}`);
+  const gitlinkCalls = [];
+  const gitlinkService = new ReviewDiffService({
+    getAgentWorkspaceRoot(agentId) {
+      return agentId === 'agent-gitlink' ? '/gitlink-workspace' : '';
+    },
+  }, {
+    diffMaxBuffer: 1024 * 1024,
+    diffTimeoutMs: 5000,
+    gitPath: 'git',
+    async execFile(command, args) {
+      assert.strictEqual(command, 'git');
+      gitlinkCalls.push(args);
+      const joined = args.join(' ');
+      if (joined.includes('--name-status')) return { stdout: `M\t${gitlinkPath}\n` };
+      if (joined.includes('--numstat')) return { stdout: `-\t-\t${gitlinkPath}\0` };
+      if (joined.includes('--raw')) {
+        return { stdout: `:160000 160000 ${gitlinkOld} ${gitlinkNew} M\0${gitlinkPath}\0` };
+      }
+      if (args.includes('diff')) return { stdout: gitlinkPatch };
+      if (args[2] === 'show') throw new Error('gitlink content must not use git show');
+      throw new Error(`unexpected gitlink args: ${joined}`);
+    },
+  });
+  const gitlinkFile = await gitlinkService.getGitRangeFile('agent-gitlink', {
+    base: 'BASE',
+    fileMeta: true,
+    head: 'HEAD',
+    path: gitlinkPath,
+  });
+  assert.strictEqual(gitlinkFile.binary, undefined);
+  assert.deepStrictEqual(gitlinkFile.diff.leftMeta, {
+    contentType: 'text/plain',
+    lines: 1,
+    name: gitlinkPath,
+  });
+  assert.deepStrictEqual(gitlinkFile.diff.rightMeta, {
+    contentType: 'text/plain',
+    lines: 1,
+    name: gitlinkPath,
+  });
+  assert.strictEqual(gitlinkCalls.some(args => args[2] === 'show'), false);
+  const whitespaceGitlinkFile = await gitlinkService.getGitRangeFile('agent-gitlink', {
+    base: 'BASE',
+    head: 'HEAD',
+    ignoreWhitespace: 'ALL',
+    path: gitlinkPath,
+  });
+  assert.strictEqual(whitespaceGitlinkFile.binary, undefined);
+  await assert.rejects(
+    () => gitlinkService.getGitRangeFileContext('agent-gitlink', {
+      base: 'BASE',
+      head: 'HEAD',
+      lines: 1,
+      newStart: 1,
+      oldStart: 1,
+      path: gitlinkPath,
+    }),
+    error => error && error.statusCode === 415 && /gitlink files/.test(error.message),
+  );
+  assert.strictEqual(gitlinkCalls.some(args => args[2] === 'show'), false);
 
   const duplicateWorkingCopyService = new ReviewDiffService({
     getAgentWorkspaceRoot(agentId) {

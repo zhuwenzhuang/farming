@@ -19,11 +19,23 @@ Range；`HEAD` 这类展示 Label 不能单独作为身份。
 切换 Comparison Source 或 Base 会创建不同 Identity。Loading Strategy、Diff Mode、Whitespace
 Preference 与 Context Size 不会改变 Identity。
 
+切换 Comparison Identity 时，应先清除上一份文件清单与摘要再加载新 Source。
+加载失败时保持空内容并明确显示错误；上一 Identity 的迟到响应不能恢复旧内容。
+
 ## Comparison Source
 
 Review 可以比较 Working Tree、Staged Change、Commit、Branch Merge Base、显式 Git Range，或
 不可变的 Agent File Changes Capture。Source Selection 表达真实语义，页面出现前必须解析成
 精确 Comparison。
+
+Source Discovery 分别有界枚举 Staged、Unstaged 和 Untracked 路径。达到输出上限时保留
+已知的 Source Availability，并标记路径清单不完整，因此大量 Untracked 文件不会阻断
+Commit 或 Staged Source 的选择。需要精确路径判断的消费者将不完整清单视为未知，不能
+因路径未出现就推断它没有变更。命令失败与超时仍是显式错误。Review Capture 独立遵守
+所选 Scope 和完整文件列表的契约。
+
+选择路径清单超过上限的 Working-copy Comparison 时必须显式失败，并提示缩小 Scope 或
+选择 Staged、Commit；不能把 Discovery 的部分清单当作完整 Capture。
 
 历史 Agent Change 从 Agent 当时产生的结构化变更证据捕获。之后的 Filesystem Edit 不能改变
 这份历史 Review。
@@ -48,6 +60,9 @@ Reviewed State；变化文件回到 Unreviewed；Comment Anchor 不再匹配时�
 Working-copy Review 会在权威 Git 枚举阶段、应用 File Limit 之前应用请求的 Tracked 或
 Untracked Scope。大量 Untracked 文件不能截断 Tracked Review；选定 Scope 内超出上限时，
 Capture 必须显式失败。Rename Capture 会保留 Previous 与 Current 两个 Path Identity。
+
+Gitlink 变化按指针变化审阅：旧、新 `Subproject commit` 行仍可显示，但不会读取链接仓库的
+普通文件内容，引用的对象也不要求存在于当前仓库。
 
 ## File-list-first Loading
 

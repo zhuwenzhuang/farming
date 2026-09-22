@@ -2,6 +2,19 @@
   "version": 1,
   "contracts": [
     {
+      "id": "REVIEW-BOUNDED-SOURCE-INVENTORY",
+      "surface": "runtime",
+      "promise": "Comparison source discovery stays bounded in large working copies, preserves source availability, and marks incomplete path inventories so consumers cannot infer clean paths from missing entries.",
+      "owner": "docs/products/code/review-foundation.md",
+      "evidence": {
+        "node": [
+          "backend/tests/test-review-comparison-sources.ts",
+          "backend/tests/test-transcript-git-diff.ts",
+          "tests/review-api.test.ts"
+        ]
+      }
+    },
+    {
       "id": "CODE-COMPOSER-SUBMISSION-OWNERSHIP",
       "surface": "ui",
       "promise": "An unfinished Composer submission stays locked to its Agent across file navigation and clears only after acceptance.",

@@ -1,4 +1,4 @@
-import { test as base, expect, type Page } from '@playwright/test'
+import { request as playwrightRequest, test as base, expect, type Page } from '@playwright/test'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -22,6 +22,8 @@ export const PLAYWRIGHT_WORKSPACE_ROOT = path.join(
   fs.realpathSync(os.tmpdir()),
   `farming-playwright-workspaces-${process.pid}`,
 )
+
+const AUTHENTICATED_CLEANUP_TOKEN = 'mobile-auth-owner-fixture-token'
 
 function delay(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms))
@@ -387,15 +389,32 @@ export const test = base.extend<{ workspaceRoot: string }>({
     await page.addInitScript(() => {
       window.__FARMING_E2E__ = true
     })
-    const cleanup = () => cleanupAgents(page.request, { archiveCodex: process.env.FARMING_E2E_REAL_CODEX === '1' })
-    await cleanup()
-    await resetSettings(page)
-    await use(page)
-    // Stop UI-owned state transitions (especially automatic main-Agent
-    // recovery) before asking the backend to remove this test's Agents.
-    await page.close()
-    await reportAgentCleanupFailure(cleanup, testInfo)
-    await resetSettings(page)
+    // Authenticated mobile projects need cleanup before the test page has
+    // intentionally logged in. Use a separate owner API context so setup and
+    // teardown remain authoritative while the browser page still exercises
+    // the authentication boundary.
+    const cleanupContext = process.env.FARMING_PLAYWRIGHT_AUTH === '1'
+      ? await playwrightRequest.newContext({
+        baseURL: `http://127.0.0.1:${process.env.FARMING_PLAYWRIGHT_PORT || '4173'}`,
+        extraHTTPHeaders: { Authorization: `Bearer ${AUTHENTICATED_CLEANUP_TOKEN}` },
+      })
+      : null
+    const cleanup = () => cleanupAgents(
+      cleanupContext || page.request,
+      { archiveCodex: process.env.FARMING_E2E_REAL_CODEX === '1' },
+    )
+    try {
+      await cleanup()
+      await resetSettings(page)
+      await use(page)
+      // Stop UI-owned state transitions (especially automatic main-Agent
+      // recovery) before asking the backend to remove this test's Agents.
+      await page.close()
+      await reportAgentCleanupFailure(cleanup, testInfo)
+      await resetSettings(page)
+    } finally {
+      await cleanupContext?.dispose()
+    }
   },
 })
 

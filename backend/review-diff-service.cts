@@ -174,6 +174,7 @@ import { WorkspaceFileError, parseUnifiedDiffRows } from './workspace-file-servi
 
 const MAX_REVIEW_FILES = 200;
 const MAX_WORKING_COPY_SCAN_FILES = 2000;
+const MAX_COMPARISON_PATH_BYTES = 256 * 1024;
 const MAX_UNTRACKED_LINES = 500;
 const MAX_REVIEW_CONTEXT_RANGE_LINES = 10000;
 const DIFF_CONCURRENCY = 4;
@@ -385,13 +386,14 @@ function metadataFile(
   options: MetadataFileOptions = {},
 ): ReviewFile {
   const kind = change.kind || reviewKind(change.gitStatus);
+  const gitlink = isGitlinkMetadata(options);
   return {
     added: typeof options.added === 'number'
       && Number.isInteger(options.added)
       && options.added >= 0
       ? options.added
       : 0,
-    ...(options.binary === true ? { binary: true } : {}),
+    ...(options.binary === true && !gitlink ? { binary: true } : {}),
     diff: { hunks: [], ...(options.truncated === true ? { truncated: true } : {}) },
     diffLoaded: false,
     ...(options.diffTooExpensive === true ? { diffTooExpensive: true } : {}),
@@ -764,6 +766,20 @@ function patchMetadata(patchOrHeader: unknown): ReviewFileMetadata {
   return metadata;
 }
 
+function isGitlinkMetadata(metadata: ReviewFileMetadata | undefined): boolean {
+  return metadata?.oldMode === '160000' || metadata?.newMode === '160000';
+}
+
+function gitlinkTextSources(change: ReviewChange, patch: unknown): TextSources {
+  const rows = parseUnifiedDiffRows(patch).flatMap(hunk => hunk.rows);
+  return {
+    leftLines: rows.flatMap(row => row.left ? [row.left.text] : []),
+    leftName: change.previousPath || change.path,
+    rightLines: rows.flatMap(row => row.right ? [row.right.text] : []),
+    rightName: change.path,
+  };
+}
+
 function fileFromPatch(change: ReviewChange, patch: unknown): ReviewFile {
   const hunks = parseUnifiedDiffRows(patch);
   const totals = countRows(hunks);
@@ -788,10 +804,11 @@ function fileFromPatch(change: ReviewChange, patch: unknown): ReviewFile {
 
 function fileWithStats(file: ReviewFile, stat: ReviewLineStats | undefined): ReviewFile {
   if (!stat) return file;
+  const gitlink = isGitlinkMetadata(file);
   return {
     ...file,
     added: stat.added,
-    ...(stat.binary === true ? { binary: true } : {}),
+    ...(stat.binary === true && !gitlink ? { binary: true } : {}),
     removed: stat.removed,
   };
 }
@@ -872,6 +889,43 @@ class ReviewDiffService {
     }
   }
 
+  async gitComparisonPaths(root: string, args: string[]) {
+    let output = '';
+    let truncated = false;
+    try {
+      const { stdout } = await this.fileService.execFile(this.fileService.gitPath, ['-C', root, ...args], {
+        cwd: root,
+        timeout: this.fileService.diffTimeoutMs,
+        maxBuffer: MAX_COMPARISON_PATH_BYTES,
+      });
+      output = String(stdout || '');
+    } catch (error) {
+      // The command runner retains bounded stdout on overflow. Only stdout
+      // overflow proves a nonempty path source; stderr or transport errors do not.
+      if (errorString(error, 'code') === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER'
+        && errorString(error, 'message') === 'stdout maxBuffer length exceeded'
+        && errorString(error, 'stdout')) {
+        output = errorString(error, 'stdout');
+        truncated = true;
+      } else {
+        const timedOut = errorString(error, 'code') === 'ETIMEDOUT'
+          || (errorString(error, 'signal') === 'SIGTERM'
+            && errorString(error, 'code') !== 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER');
+        throw new WorkspaceFileError(timedOut
+          ? 'git comparison source request timed out'
+          : errorString(error, 'stderr') || errorString(error, 'message') || 'git comparison paths could not be loaded',
+        timedOut ? 504 : 500);
+      }
+    }
+    // A maxBuffer cutoff may bisect a UTF-8 path. Only NUL-terminated records
+    // are identities; any nonempty output still proves source availability.
+    if (!truncated && output && !output.endsWith('\0')) {
+      throw new WorkspaceFileError('git comparison path output is incomplete', 500);
+    }
+    const paths = nulFields(output.slice(0, output.lastIndexOf('\0') + 1));
+    return { available: output.length > 0, paths, truncated };
+  }
+
   async getComparisonSources(agentId: unknown, options: ReviewOptions = {}) {
     const root = this.resolveWorkspace(agentId, options.root);
     const [{ stdout: headOutput }, { stdout: indexOutput }, branchResult, logResult, statusResult] = await Promise.all([
@@ -880,9 +934,9 @@ class ReviewDiffService {
       this.git(root, ['symbolic-ref', '--quiet', '--short', 'HEAD']).catch(() => ({ stdout: '' })),
       this.git(root, ['log', '-n', '12', '--format=%H%x1f%P%x1f%h%x1f%s%x1e', 'HEAD']),
       Promise.all([
-        this.git(root, ['diff', '--name-only', '-z', '--']),
-        this.git(root, ['diff', '--cached', '--name-only', '-z', '--']),
-        this.git(root, ['ls-files', '--others', '--exclude-standard', '-z']),
+        this.gitComparisonPaths(root, ['diff', '--name-only', '-z', '--']),
+        this.gitComparisonPaths(root, ['diff', '--cached', '--name-only', '-z', '--']),
+        this.gitComparisonPaths(root, ['ls-files', '--others', '--exclude-standard', '-z']),
       ]),
     ]);
     const head = String(headOutput || '').trim();
@@ -892,11 +946,14 @@ class ReviewDiffService {
     }
     const currentBranch = String(branchResult.stdout || '').trim();
     const [unstagedResult, stagedResult, untrackedResult] = statusResult;
-    const uncommittedPaths = [...new Set([
-      ...nulFields(unstagedResult.stdout),
-      ...nulFields(stagedResult.stdout),
-      ...nulFields(untrackedResult.stdout),
+    const allPaths = [...new Set([
+      ...unstagedResult.paths,
+      ...stagedResult.paths,
+      ...untrackedResult.paths,
     ])];
+    const uncommittedPaths = allPaths.slice(0, MAX_WORKING_COPY_SCAN_FILES);
+    const uncommittedPathsTruncated = statusResult.some(result => result.truncated)
+      || allPaths.length > uncommittedPaths.length;
     const refsResult = await this.git(root, [
       'for-each-ref',
       '--count=20',
@@ -928,15 +985,16 @@ class ReviewDiffService {
       currentBranch: currentBranch || 'Detached HEAD',
       root,
       uncommittedPaths,
+      uncommittedPathsTruncated,
       staged: {
-        available: Boolean(String(stagedResult.stdout || '')),
+        available: stagedResult.available,
         base: head,
         head: indexTree,
         id: 'staged',
         label: 'Staged',
       },
       unstaged: {
-        available: Boolean(String(unstagedResult.stdout || '') || String(untrackedResult.stdout || '')),
+        available: unstagedResult.available || untrackedResult.available,
         base: indexTree,
         head: 'now',
         id: 'unstaged',
@@ -978,16 +1036,22 @@ class ReviewDiffService {
       ], { cwd: root, timeout: this.fileService.diffTimeoutMs, maxBuffer: this.fileService.diffMaxBuffer });
       const changes = parseNameStatus(stdout);
       if (head !== 'now') return changes;
-      const untracked = await this.fileService.execFile(this.fileService.gitPath, [
-        '-C',
-        root,
+      const untracked = await this.gitComparisonPaths(root, [
         'ls-files',
         '--others',
         '--exclude-standard',
         '-z',
-      ], { cwd: root, timeout: this.fileService.diffTimeoutMs, maxBuffer: this.fileService.diffMaxBuffer });
-      return [...changes, ...nulFields(untracked.stdout).map(path => ({ gitStatus: 'untracked', kind: 'added', path, status: 'A' }))];
+      ]);
+      if (untracked.truncated || untracked.paths.length > MAX_WORKING_COPY_SCAN_FILES) {
+        throw new WorkspaceFileError('Working-copy comparison exceeds the untracked path limit; select a narrower review scope, Staged, or a commit', 413);
+      }
+      return [...changes, ...untracked.paths.map(path => ({ gitStatus: 'untracked', kind: 'added', path, status: 'A' }))];
     } catch (error) {
+      if (error instanceof WorkspaceFileError) throw error;
+      if (errorString(error, 'code') === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER'
+        && errorString(error, 'message') === 'stdout maxBuffer length exceeded') {
+        throw new WorkspaceFileError('Git comparison exceeds the path limit; select a narrower review scope or revision range', 413);
+      }
       if (errorString(error, 'code') === 'ETIMEDOUT') {
         throw new WorkspaceFileError('git diff timed out', 504);
       }
@@ -1023,7 +1087,7 @@ class ReviewDiffService {
       this.getCommitSummary(root, base),
       head === 'now' ? Promise.resolve(null) : this.getCommitSummary(root, head),
     ]);
-    if (!baseCommit && !headCommit) return null;
+    if (!baseCommit && !headCommit && head !== 'now') return null;
     return {
       ...(baseCommit ? { base: baseCommit } : {}),
       ...(headCommit ? { head: headCommit } : {}),
@@ -1139,6 +1203,10 @@ class ReviewDiffService {
     const change = changes.find(item => item.path === filePath);
     if (!change) throw new WorkspaceFileError('review file not found', 404);
     if (change.gitStatus === 'untracked') throw new WorkspaceFileError('untracked files do not have common diff context', 400);
+    const rawMetadata = await this.getGitRangeRawMetadata(root, base, head, [change]);
+    if (isGitlinkMetadata(rawMetadata.get(change.path))) {
+      throw new WorkspaceFileError('gitlink files do not have expandable text context', 415);
+    }
     return contextRowsFromSources(await this.getGitRangeTextSources(root, base, head, change), options);
   }
 
@@ -1442,8 +1510,11 @@ class ReviewDiffService {
         ...gitDiffPathArgs(change),
       ], { cwd: root, timeout: this.fileService.diffTimeoutMs, maxBuffer: this.fileService.diffMaxBuffer });
       const file = fileFromPatch(change, stdout);
-      if (options.fileMeta === true && file.binary !== true) {
-        const textSources = await this.getGitRangeTextSources(root, base, head, change);
+      const gitlink = isGitlinkMetadata(patchMetadata(stdout));
+      if (options.fileMeta === true && (file.binary !== true || gitlink)) {
+        const textSources = gitlink
+          ? gitlinkTextSources(change, stdout)
+          : await this.getGitRangeTextSources(root, base, head, change);
         file.diff = {
           ...file.diff,
           leftMeta: reviewTextFileMeta(textSources.leftName, textSources.leftLines),

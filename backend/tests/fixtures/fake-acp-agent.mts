@@ -249,7 +249,10 @@ class FakeAgent implements Agent {
         loadSession: true,
         promptCapabilities: { image: true, audio: true, embeddedContext: true },
         sessionCapabilities: { list: {}, resume: {}, fork: {}, delete: {}, close: {} },
-        _meta: { codex: { steer: { method: '_codex/session/steer', version: 1 } } },
+        _meta: {
+          codex: { steer: { method: '_codex/session/steer', version: 1 } },
+          sessionArchive: { method: '_session/archive', version: 1 },
+        },
       },
       authMethods: [{
         id: 'fake-login',
@@ -462,6 +465,10 @@ class FakeAgent implements Agent {
   }
 
   async extMethod(method, params) {
+    if (method === '_session/archive') {
+      if (typeof params.sessionId !== 'string' || !params.sessionId) throw new Error('Session archive requires a Session id');
+      return { archived: true };
+    }
     if (method === '_session/steering' || method === '_codex/session/steer') {
       const steerTurn = activeSteerTurn;
       if (!steerTurn || steerTurn.sessionId !== params.sessionId) {
