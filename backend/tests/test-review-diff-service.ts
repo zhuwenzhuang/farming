@@ -410,6 +410,7 @@ async function run() {
   const { patchset, reviewId, ...reviewWithoutIdentity } = review;
   assert.deepStrictEqual(reviewWithoutIdentity, {
     basePatchset: 'HEAD',
+    comparison: { workingTree: true },
     files: [
       {
         added: 2,
