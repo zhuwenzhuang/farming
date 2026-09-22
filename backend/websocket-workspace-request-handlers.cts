@@ -64,6 +64,7 @@ const BACKGROUND_LIMIT = WORKSPACE_REQUEST_CONCURRENCY.background;
 const GLOBAL_INTERACTIVE_LIMIT = 24;
 const GLOBAL_BACKGROUND_LIMIT = 12;
 const MAX_QUEUED_REQUESTS = 64;
+const MAX_BACKGROUND_QUEUED_REQUESTS = MAX_QUEUED_REQUESTS - 16;
 const BACKPRESSURE_BYTES = 512 * 1024;
 
 function createWebSocketWorkspaceRequestHandlers<Client extends WorkspaceRequestClient>(
@@ -182,7 +183,8 @@ function createWebSocketWorkspaceRequestHandlers<Client extends WorkspaceRequest
     }
     const queued = schedule.interactive.length + schedule.background.length;
     const backpressured = request.lane === 'background'
-      && Number(client.bufferedAmount || 0) >= BACKPRESSURE_BYTES;
+      && (Number(client.bufferedAmount || 0) >= BACKPRESSURE_BYTES
+        || schedule.background.length >= MAX_BACKGROUND_QUEUED_REQUESTS);
     if (queued >= MAX_QUEUED_REQUESTS || backpressured) {
       request.trace?.end('failed');
       send(client, {

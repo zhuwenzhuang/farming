@@ -92,3 +92,29 @@ test('one bounded queue covers both domains while disconnected', { timeout: 5_00
     await Promise.all(pending)
   }
 })
+
+test('a full background backlog leaves admission capacity for interactive navigation', { timeout: 5_000 }, async t => {
+  const controller = new AbortController()
+  t.after(() => controller.abort())
+  const pending: Promise<unknown>[] = []
+  const sent: WorkspaceRequestMessage[] = []
+  setWorkspaceRequestTransport(message => {
+    if (message.type === 'workspace-request') sent.push(message)
+    return true
+  })
+  setWorkspaceRequestTransportReady(true)
+  try {
+    for (let i = 0; i < 512; i++) pending.push(requestWorkspace({ operation: 'tree-decorations', rootId: 'root', path: `${i}`, entryPaths: [] },
+      { signal: controller.signal }).catch(error => error))
+    const navigation = requestWorkspace({ operation: 'read-file', rootId: 'root', path: 'visible.md' }, { signal: controller.signal })
+    pending.push(navigation.catch(error => error))
+    const message = sent.at(-1)!
+    assert.equal(message.request.operation, 'read-file', 'background queue saturation cannot reject navigation')
+    settleWorkspaceRequest({ type: 'workspace-result', requestId: message.requestId, ok: true, result: { content: 'visible' } })
+    assert.deepEqual(await navigation, { content: 'visible' })
+  } finally {
+    controller.abort()
+    await Promise.all(pending)
+    setWorkspaceRequestTransport(null)
+  }
+})

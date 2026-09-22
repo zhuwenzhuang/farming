@@ -228,8 +228,9 @@ flood the server queue or let Git decoration block directory navigation.
 Every result, cancellation, and timeout releases admission for the next owned
 request. Cancelled server-queued work immediately releases queue capacity.
 
-The browser retains at most 512 pending requests and rejects overflow explicitly
-before delivery. A request's default 60-second deadline includes local queue
+The browser retains at most 512 pending requests, with 64 reserved for interactive
+work; the server's 64-entry queue likewise reserves 16 for interactive work.
+Overflow is explicitly rejected before delivery or execution. A request's default 60-second deadline includes local queue
 time and delivery; operation-specific bounded deadlines may override it.
 Cancellation or timeout before delivery cannot have an uncertain mutation
 outcome. Reconnection applies the same admission limits to replayable reads;

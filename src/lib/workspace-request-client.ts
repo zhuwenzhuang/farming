@@ -54,6 +54,7 @@ let requestSequence = 0
 let inlineMessageLimit = MAX_INLINE_WORKSPACE_MESSAGE_BYTES
 const pendingRequests = new Map<string, PendingRequest>()
 const MAX_PENDING_REQUESTS = 512
+const MAX_BACKGROUND_PENDING_REQUESTS = MAX_PENDING_REQUESTS - 64
 const DEFAULT_REQUEST_TIMEOUT_MS = 60_000
 
 function requestId(domain: RequestDomain): string {
@@ -118,7 +119,11 @@ function createRequest<T>(
   options: { mutation?: boolean; signal?: AbortSignal; timeoutMs?: number } = {},
 ): Promise<T> {
   if (options.signal?.aborted) return Promise.reject(abortError(options.signal))
-  if (pendingRequests.size >= MAX_PENDING_REQUESTS) {
+  const lane = message.type === 'language-server-request' ? languageServerRequestLane(message.request)
+    : message.type === 'workspace-request' ? workspaceRequestLane(message.request) : 'interactive'
+  const backgroundFull = lane === 'background'
+    && [...pendingRequests.values()].filter(request => request.lane === 'background').length >= MAX_BACKGROUND_PENDING_REQUESTS
+  if (pendingRequests.size >= MAX_PENDING_REQUESTS || backgroundFull) {
     return Promise.reject(new WorkspaceTransportError({
       code: 'BUSY', status: 503, message: 'Workspace request queue is full; wait for current work to finish',
     }))
@@ -134,8 +139,7 @@ function createRequest<T>(
       message,
       mutation: options.mutation === true,
       sent: false,
-      lane: message.type === 'language-server-request' ? languageServerRequestLane(message.request)
-        : message.type === 'workspace-request' ? workspaceRequestLane(message.request) : 'interactive',
+      lane,
       signal: options.signal,
       resolve: value => resolve(value as T),
       reject,

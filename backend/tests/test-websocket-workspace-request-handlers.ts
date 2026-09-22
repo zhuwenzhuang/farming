@@ -269,6 +269,14 @@ async function run(): Promise<void> {
       });
     }
     assert.deepStrictEqual(decorationStarted, ['decorations-a', 'decorations-b']);
+    for (let i = 0; i < 64; i += 1) {
+      priorityHandlers.workspaceRequest(socket, {
+        type: 'workspace-request', requestId: `background-backlog-${i}`,
+        request: { operation: 'tree-decorations', rootId: 'decorations-b', entryPaths: ['src/App.tsx'] },
+      });
+    }
+    assert(socket.messages.some(message => (message.error as { code?: string })?.code === 'BUSY'),
+      'background overflow must be rejected before consuming reserved navigation capacity');
     priorityHandlers.workspaceRequest(socket, {
       type: 'workspace-request',
       requestId: 'foreground-tree',
