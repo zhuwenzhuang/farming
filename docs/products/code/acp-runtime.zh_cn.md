@@ -277,6 +277,12 @@ Prompt 或 Steer 被接受后，恢复跟随、清除待恢复的阅读位置，
 
 ## Transcript 协议
 
+历史条目身份由 reducer 管理，与提供方 message ID 分离。同一消息可能在
+Steer 或工具条目之后继续输出；每个不连续片段保留原顺序，并拥有唯一的
+条目 ID。连续分块沿用原合并语义。检查点恢复会修复旧数据中重复的消息片段
+ID，保留全部内容、推进版本，并要求先读取替换检查点再接收增量。
+
+
 Backend 把 History Replay 与 Live ACP Update 归约成一条有序、Provider-neutral Transcript。
 Text、Reasoning、Tool、Patch、Plan、Terminal、Media、Resource、Permission 与 Child Session
 保持结构化；UI 不得先压平成普通文字再反向解析。

@@ -293,6 +293,7 @@ interface ForkOrigin {
 }
 
 class AcpSessionState {
+  private entryIds = new Set<string>();
   provider: string;
   sessionId: string;
   cwd: string;
@@ -383,6 +384,19 @@ class AcpSessionState {
     }
     state.revision = Math.max(state.revision, maximumRevision);
     state.sequence = Math.max(0, Math.floor(Number(source.sequence || 0)));
+    // Older checkpoints could reuse a provider message id after a Steer/tool
+    // split. Preserve both ordered segments, but invalidate old delta cursors.
+    let repaired = false;
+    for (const entry of state.entries) {
+      const id = String(entry.id || '');
+      if ((entry.type === 'message' || entry.type === 'thought') && state.entryIds.has(id)) {
+        entry.id = state.uniqueMessageEntryId(id, String(entry.type));
+        state.touchEntry(entry);
+        repaired = true;
+      }
+      state.entryIds.add(String(entry.id));
+    }
+    if (repaired) state.resetBeforeRevision = state.revision;
     state.activePlanEntry = source.activePlanEntryId
       ? state.entries.find(entry => entry?.id === source.activePlanEntryId) || null
       : null;
@@ -449,10 +463,20 @@ class AcpSessionState {
   }
 
   nextEntryId(prefix: string): string {
-    return `${prefix}-${++this.sequence}`;
+    let id: string;
+    do { id = `${prefix}-${++this.sequence}`; } while (this.entryIds.has(id));
+    return id;
+  }
+
+  private uniqueMessageEntryId(messageId: string, type: string): string {
+    if (messageId && !this.entryIds.has(messageId)) return messageId;
+    let id: string;
+    do { id = this.nextEntryId(type); } while (this.entryIds.has(id));
+    return id;
   }
 
   pushEntry(entry: AcpEntry): AcpEntry {
+    this.entryIds.add(String(entry.id));
     this.touchEntry(entry);
     this.entries.push(entry);
     return entry;
@@ -534,6 +558,7 @@ class AcpSessionState {
     const insertionIndex = Number.isFinite(Number(options.insertionIndex))
       ? Math.max(0, Math.min(this.entries.length, Math.floor(Number(options.insertionIndex))))
       : this.entries.length;
+    this.entryIds.add(entry.id);
     this.entries.splice(insertionIndex, 0, entry);
     return true;
   }
@@ -726,7 +751,7 @@ class AcpSessionState {
 
     if (role === 'user') this.activePlanEntry = null;
     this.pushEntry({
-      id: messageId || this.nextEntryId(type),
+      id: this.uniqueMessageEntryId(messageId, type),
       type,
       role,
       messageId,

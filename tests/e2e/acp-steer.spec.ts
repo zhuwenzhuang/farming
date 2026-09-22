@@ -671,3 +671,40 @@ test('keeps queued follow-ups separate and steers each selected message', async 
   const nextTurn = page.locator('.code-agent-transcript-turn').filter({ hasText: 'phase-aware mermaid after the active turn' })
   await expect(nextTurn).toContainText('Phase-aware rich answer.')
 })
+
+for (const appearance of ['light', 'dark', 'paper'] as const) {
+  test(`reloads history after a Steer splits one reasoning identity in ${appearance}`, async ({ page, workspaceRoot }, testInfo) => {
+    const workspace = path.join(workspaceRoot, 'steer-identity')
+    fs.mkdirSync(workspace, { recursive: true })
+    await page.request.post('/farming/api/settings', { data: { appearance, composerFollowUpBehavior: 'steer' } })
+    const response = await page.request.post('/farming/api/control/agents', { data: { command: 'codex', workspace, agentRuntimeMode: 'chat' } })
+    expect(response.ok()).toBeTruthy()
+    const { agentId } = await response.json() as { agentId: string }
+    try {
+      await openFarming(page)
+      const row = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
+      await row.click()
+      const input = page.getByTestId('code-acp-composer-input')
+      await input.fill('hold for steer reused thought identity')
+      await page.getByTestId('code-acp-composer-send').click()
+      await expect(page.getByText('Waiting for steering.', { exact: true })).toBeVisible()
+      await input.fill('Continue with the simpler design')
+      await page.getByTestId('code-acp-composer-send').click()
+      const pending = page.getByTestId('code-acp-pending-followup-steer')
+      if (await pending.count()) await pending.click()
+      await expect(page.getByText('Implementation continued successfully.', { exact: true })).toBeVisible()
+      await page.reload()
+      await row.click()
+      await expect(page.getByText('Implementation continued successfully.', { exact: true })).toBeVisible()
+      await expect(page.getByTestId('code-agent-transcript-steer')).toContainText('Continue with the simpler design')
+      await expect(page.locator('body')).toHaveAttribute('data-appearance', appearance)
+      const transcript = await page.request.get(`/farming/api/agents/${agentId}/acp-transcript?maxTurns=5&entryPatches=v1`)
+      const payload = await transcript.json()
+      const order: string[] = payload.transcript.entryPatch.order
+      expect(new Set(order).size).toBe(order.length)
+      await page.screenshot({ path: testInfo.outputPath(`steer-history-${appearance}.png`), animations: 'disabled' })
+    } finally {
+      await page.request.delete(`/farming/api/control/agents/${agentId}?recordHistory=0`)
+    }
+  })
+}

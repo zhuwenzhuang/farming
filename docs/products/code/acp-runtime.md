@@ -391,6 +391,14 @@ the submitted text remains the complete source of truth.
 
 ## Transcript Protocol
 
+Transcript entry identity belongs to the reducer and is distinct from a provider
+message ID. A provider message can resume after an intervening Steer or tool
+entry; each noncontiguous segment keeps its position and a unique entry ID.
+Adjacent chunks retain their existing merge semantics. Checkpoint recovery
+repairs legacy duplicate message-segment IDs without dropping content, advances
+the revision, and requires a replacement checkpoint before further deltas.
+
+
 The backend reduces history replay and live ACP updates into one ordered,
 provider-neutral transcript. Typed text, reasoning, tools, patches, plans,
 terminals, media, resources, permissions, and child Sessions remain structured;

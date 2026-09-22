@@ -744,6 +744,20 @@ class FakeAgent implements Agent {
         },
       });
       await steerTurnReleased;
+      if (promptText.includes('reused thought identity')) {
+        await client.sessionUpdate({
+          sessionId: params.sessionId,
+          update: {
+            sessionUpdate: 'agent_thought_chunk',
+            messageId: 'steer-planning-thought',
+            content: { type: 'text', text: '**Continuing implementation after steering**' },
+          },
+        });
+        await client.sessionUpdate({
+          sessionId: params.sessionId,
+          update: { sessionUpdate: 'agent_message_chunk', messageId: 'steer-finished', content: { type: 'text', text: 'Implementation continued successfully.' } },
+        });
+      }
       if (promptText.includes('post-steer commentary')) {
         await new Promise(resolve => setTimeout(resolve, 4_000));
       }
