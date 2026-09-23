@@ -391,6 +391,11 @@ the submitted text remains the complete source of truth.
 
 ## Transcript Protocol
 
+The browser bounds a Chat history read to 15 seconds. One timed-out read may
+retry because it is read-only; a second timeout reaches a visible error and
+explicit Retry. Reconnect and fresh revision signals still trigger their own
+authoritative reads without replaying a mutation.
+
 Transcript entry identity belongs to the reducer and is distinct from a provider
 message ID. A provider message can resume after an intervening Steer or tool
 entry; each noncontiguous segment keeps its position and a unique entry ID.

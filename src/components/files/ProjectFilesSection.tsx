@@ -625,7 +625,7 @@ export function ProjectFilesSection({
     renderFileTreeRow,
     directoryErrors: Object.entries(directories).flatMap(([path, directory]) => (
       directory.error && (!path || openDirectoryPaths.has(path))
-        ? [{ path, message: directory.error }]
+        ? [{ path, message: directory.error, tooLarge: directory.tooLarge === true }]
         : []
     )),
     rootDirectoryHasItems: Boolean(directories['']?.items.length),
@@ -647,6 +647,10 @@ export function ProjectFilesSection({
     onFocusFileTreeTarget: focusFileTreeTarget,
     onOpenFileContextMenu: openFileContextMenu,
     onOpenFileJumpQuery: openFileJumpQuery,
+    onSearchDirectory: (path: string) => {
+      fileSearch.searchInDirectory(path)
+      focusFileSearchInput()
+    },
     onOpenFilePath: stableOpenFilePath,
     onOpenFileSearchMatch: openFileSearchMatch,
     onOpenNewAgentFromFileMenu: openNewAgentFromFileMenu,

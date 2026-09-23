@@ -21,6 +21,7 @@ function renderHeader(overrides: Partial<Parameters<typeof FileSectionHeader>[0]
       inputRef: emptyRef,
       listboxId: 'project-files-search',
       query: '',
+      scopePath: '',
     },
     onCancelPendingFileFocus: () => {},
     onFileSearchKeyDown: () => {},
@@ -67,6 +68,7 @@ test('Files header exposes search and refresh states through native accessibilit
       inputRef: emptyRef,
       listboxId: 'project-files-search',
       query: 'app',
+      scopePath: '',
     },
   })
   assert.match(refreshing, /role="combobox"/)
@@ -76,6 +78,11 @@ test('Files header exposes search and refresh states through native accessibilit
   assert.match(refreshing, /disabled=""/)
   assert.match(refreshing, new RegExp(copy.refreshingFiles))
   assert.match(refreshing, /role="status"/)
+
+  const scoped = renderHeader({
+    search: { active: false, inputRef: emptyRef, listboxId: 'project-files-search', query: '', scopePath: 'large' },
+  })
+  assert.match(scoped, /placeholder="Search in large"/)
 })
 
 test('Files search renders selectable path and content results with the active option', () => {

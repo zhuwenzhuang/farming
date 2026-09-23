@@ -415,9 +415,13 @@ async function loadRecord(record: AcpTranscriptSessionRecord) {
     })
   } catch (reason) {
     if (generation !== record.requestGeneration || (!timedOut && (reason as { name?: string })?.name === 'AbortError')) return
-    const retryDelay = !responseReceived && reason instanceof TypeError
-      ? acpTranscriptFetchRetryDelayMs(record.retryAttempt)
-      : undefined
+    // Transcript reads are read-only. One timed-out checkpoint may be retried
+    // after a brief delay while the Host finishes recovery or a large projection.
+    const retryDelay = timedOut && record.retryAttempt === 0
+      ? acpTranscriptFetchRetryDelayMs(0)
+      : !responseReceived && reason instanceof TypeError
+        ? acpTranscriptFetchRetryDelayMs(record.retryAttempt)
+        : undefined
     if (retryDelay !== undefined) {
       record.retryAttempt += 1
       scheduleRecord(record, { delayMs: retryDelay })

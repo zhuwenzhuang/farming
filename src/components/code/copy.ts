@@ -435,6 +435,9 @@ export interface CodeCopy {
   gitHistoryChangesTruncated: string
   searchOrPathLine: string
   searchFilesOrJump: string
+  searchInDirectory: string
+  searchThisDirectory: string
+  directoryTooLarge: string
   openEditors: string
   loading: string
   slashCatalogUnavailable: string
@@ -1133,6 +1136,9 @@ const EN_COPY: CodeCopy = {
   gitHistoryChangesTruncated: 'More changed files were omitted',
   searchOrPathLine: 'Search or path:line',
   searchFilesOrJump: 'Search files or jump to path line',
+  searchInDirectory: 'Search in',
+  searchThisDirectory: 'Search this directory',
+  directoryTooLarge: 'This directory has more than 4096 entries.',
   openEditors: 'OPEN EDITORS',
   loading: 'Loading...',
   slashCatalogUnavailable: 'Skills are temporarily unavailable.',
@@ -1867,6 +1873,9 @@ const ZH_COPY: CodeCopy = {
   gitHistoryChangesTruncated: '还有部分变更文件未展示',
   searchOrPathLine: '搜索或路径:行号',
   searchFilesOrJump: '搜索文件或跳转到路径行号',
+  searchInDirectory: '搜索目录',
+  searchThisDirectory: '搜索此目录',
+  directoryTooLarge: '此目录超过 4096 项。',
   openEditors: '打开的编辑器',
   loading: '加载中...',
   slashCatalogUnavailable: 'Skills 暂时不可用。',

@@ -9,6 +9,7 @@ export interface FileSectionHeaderSearch {
   inputRef: RefObject<HTMLInputElement | null>
   listboxId: string
   query: string
+  scopePath: string
 }
 
 export type FileSectionRefreshStatus = 'idle' | 'refreshing' | 'success' | 'error'
@@ -92,8 +93,8 @@ export function FileSectionHeader({
             }}
             onMouseDown={onCancelPendingFileFocus}
             onKeyDownCapture={onFileSearchKeyDown}
-            placeholder={copy.searchOrPathLine}
-            aria-label={copy.searchFilesOrJump}
+            placeholder={search.scopePath ? `${copy.searchInDirectory} ${search.scopePath}` : copy.searchOrPathLine}
+            aria-label={search.scopePath ? `${copy.searchInDirectory} ${search.scopePath}` : copy.searchFilesOrJump}
             aria-autocomplete="list"
             aria-controls={search.active ? search.listboxId : undefined}
             aria-expanded={search.active}

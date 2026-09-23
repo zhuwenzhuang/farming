@@ -45,7 +45,7 @@ interface UseProjectFilesSectionViewModelOptions {
   openFilePendingPath: string | null
   projectId: string
   renderFileTreeRow: NonNullable<Parameters<typeof Tree<WorkspaceFileTreeNode>>[0]['renderRow']>
-  directoryErrors: Array<{ path: string; message: string }>
+  directoryErrors: Array<{ path: string; message: string; tooLarge: boolean }>
   rootDirectoryHasItems: boolean
   rootDirectoryLoading: boolean
   rowHeight: number
@@ -65,6 +65,7 @@ interface UseProjectFilesSectionViewModelOptions {
   onFocusFileTreeTarget: (item: WorkspaceFileTreeNode | null) => void
   onOpenFileContextMenu: (x: number, y: number, item: WorkspaceFileTreeNode | null) => void
   onOpenFileJumpQuery: (query: string) => void
+  onSearchDirectory: (path: string) => void
   onOpenFilePath: (filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void>
   onOpenFileSearchMatch: FileSectionBodySearchActions['onOpenMatch']
   onOpenNewAgentFromFileMenu: () => void
@@ -132,6 +133,7 @@ export function useProjectFilesSectionViewModel({
   onFocusFileTreeTarget,
   onOpenFileContextMenu,
   onOpenFileJumpQuery,
+  onSearchDirectory,
   onOpenFilePath,
   onOpenFileSearchMatch,
   onOpenNewAgentFromFileMenu,
@@ -157,10 +159,12 @@ export function useProjectFilesSectionViewModel({
     inputRef: fileSearchInputRef,
     listboxId: fileSearchListboxId,
     query: fileSearch.query,
+    scopePath: fileSearch.scopePath,
   }), [
     activeSearchOptionId,
     fileSearch.active,
     fileSearch.query,
+    fileSearch.scopePath,
     fileSearchInputRef,
     fileSearchListboxId,
   ])
@@ -295,6 +299,7 @@ export function useProjectFilesSectionViewModel({
       fileMenuRef,
       openFileError,
       directoryErrors,
+      onSearchDirectory,
       rootDirectoryHasItems,
       rootDirectoryLoading,
       search: bodySearch,

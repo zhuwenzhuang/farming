@@ -45,7 +45,7 @@ interface FileSectionBodyProps {
   fileMenu: FileContextMenuState | null
   fileMenuRef: RefObject<HTMLDivElement | null>
   openFileError: string | null
-  directoryErrors: Array<{ path: string; message: string }>
+  directoryErrors: Array<{ path: string; message: string; tooLarge: boolean }>
   rootDirectoryHasItems: boolean
   rootDirectoryLoading: boolean
   search: FileSectionBodySearch
@@ -57,6 +57,7 @@ interface FileSectionBodyProps {
   onCopyFileMenuShareUrl: () => void
   onOpenNewAgentFromFileMenu: () => void
   onRefreshFileMenuTarget: () => void
+  onSearchDirectory: (path: string) => void
   onStartAgentFromFileMenu: (command: string) => void
   onStartFileMenuOperation: (kind: WorkspaceFileOperationKind) => void
   readOnly?: boolean
@@ -80,6 +81,7 @@ export function FileSectionBody({
   onCopyFileMenuShareUrl,
   onOpenNewAgentFromFileMenu,
   onRefreshFileMenuTarget,
+  onSearchDirectory,
   onStartAgentFromFileMenu,
   onStartFileMenuOperation,
   readOnly = false,
@@ -89,9 +91,14 @@ export function FileSectionBody({
       {rootDirectoryLoading && !rootDirectoryHasItems && (
         <div className="code-file-status" style={workspaceFileTreeDepthStyle(0)}>{copy.loading}</div>
       )}
-      {directoryErrors.map(({ path, message }) => (
+      {directoryErrors.map(({ path, message, tooLarge }) => (
         <div key={path} className="code-file-status error" role="alert" style={workspaceFileTreeDepthStyle(0)}>
-          {path ? `${path}: ${message}` : message}
+          {path ? `${path}: ` : ''}{tooLarge ? copy.directoryTooLarge : message}
+          {tooLarge && path && (
+            <button type="button" className="code-file-directory-search-action" onClick={() => onSearchDirectory(path)}>
+              {copy.searchThisDirectory}
+            </button>
+          )}
         </div>
       ))}
       {openFileError && !search.active && (

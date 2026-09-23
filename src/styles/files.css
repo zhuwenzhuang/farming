@@ -1215,6 +1215,23 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
   color: var(--code-danger);
 }
 
+.code-file-directory-search-action {
+  display: block;
+  margin: 4px 0 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--code-accent-hover);
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.code-file-directory-search-action:hover,
+.code-file-directory-search-action:focus-visible {
+  text-decoration: underline;
+}
+
 .code-file-inline-operation {
   min-width: 0;
   width: 100%;

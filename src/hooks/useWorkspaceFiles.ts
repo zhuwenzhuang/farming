@@ -13,6 +13,7 @@ interface DirectoryState {
   items: WorkspaceFileEntry[]
   loading: boolean
   error: string | null
+  tooLarge?: boolean
 }
 
 interface WorkspaceDirectoryTree {
@@ -119,6 +120,7 @@ export function useWorkspaceFiles(agentId: string | null, workspaceKey = agentId
           items: previous[normalizedPath]?.items ?? [],
           loading: !previous[normalizedPath],
           error: null,
+          tooLarge: false,
         },
       }
       directoriesRef.current = next
@@ -156,11 +158,12 @@ export function useWorkspaceFiles(agentId: string | null, workspaceKey = agentId
         }
         setDirectories(previous => {
           const current = previous[normalizedPath]
-          const nextDirectory = { items, loading: false, error: null }
+          const nextDirectory = { items, loading: false, error: null, tooLarge: false }
           if (
             current?.items === items
             && current.loading === nextDirectory.loading
             && current.error === nextDirectory.error
+            && current.tooLarge === nextDirectory.tooLarge
           ) return previous
           const next = { ...previous, [normalizedPath]: nextDirectory }
           Object.keys(next).forEach(path => { if (removed(path)) delete next[path] })
@@ -197,6 +200,8 @@ export function useWorkspaceFiles(agentId: string | null, workspaceKey = agentId
                 : timedOut
                   ? 'File refresh timed out'
                   : error instanceof Error ? error.message : 'Failed to load directory',
+              tooLarge: !recovering && error instanceof WorkspaceFileApiError
+                && error.status === 413 && Number((error.details as { limit?: unknown } | null)?.limit) === 4096,
             },
           }
           directoriesRef.current = next

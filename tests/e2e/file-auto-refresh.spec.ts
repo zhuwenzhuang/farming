@@ -90,6 +90,8 @@ for (const appearance of ['light', 'dark', 'paper']) {
     const large = path.join(workspace, 'large')
     fs.mkdirSync(large, { recursive: true })
     for (let i = 0; i < 4097; i++) fs.writeFileSync(path.join(large, `entry-${i}`), '')
+    fs.writeFileSync(path.join(large, 'target-find-me.md'), '# Found in large directory\n')
+    fs.writeFileSync(path.join(workspace, 'target-find-me-outside.md'), '# Outside large directory\n')
     fs.writeFileSync(path.join(workspace, 'guide.md'), '# Responsive file\n')
     await createControlAgent(page, workspace)
     await page.request.post('/farming/api/settings', { data: { appearance } })
@@ -98,16 +100,25 @@ for (const appearance of ['light', 'dark', 'paper']) {
     const project = page.getByTestId('code-project-group').filter({ hasText: 'bounded-tree' })
     const files = project.getByTestId('code-files-section')
     await files.locator('[data-file-path="large"]').click()
-    await expect(files).toContainText('Directory has more than 4096 entries.')
+    await expect(files).toContainText('This directory has more than 4096 entries.')
     await testInfo.attach(`oversized-directory-${appearance}`, {
       body: await files.screenshot(),
       contentType: 'image/png',
     })
+    await files.getByRole('button', { name: 'Search this directory' }).click()
+    const searchInput = files.getByRole('combobox', { name: 'Search in large' })
+    await expect(searchInput).toBeFocused()
+    await searchInput.fill('target-find-me')
+    await expect(files.getByTestId('code-file-search-results')).toContainText('target-find-me.md')
+    await expect(files.getByTestId('code-file-search-results')).not.toContainText('target-find-me-outside.md')
+    await files.getByTestId('code-file-search-results').getByRole('option', { name: /target-find-me/ }).click()
+    await expect(page.getByTestId('code-file-markdown-preview').getByRole('heading', { name: 'Found in large directory' })).toBeVisible()
     // Collapse the failed branch and refresh the ordinary project through the UI.
     await files.locator('[data-file-path="large"]').click()
     await project.getByTestId('code-files-refresh').focus()
     await project.getByTestId('code-files-refresh').press('Enter')
     await expect(project.getByTestId('code-files-refresh')).toHaveAttribute('data-refresh-status', 'success')
+    await openProjectFile(page, 'bounded-tree', 'guide.md')
     await expect(page.getByTestId('code-file-markdown-preview').getByRole('heading', { name: 'Responsive file' })).toBeVisible()
   })
 

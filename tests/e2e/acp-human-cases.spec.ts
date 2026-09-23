@@ -791,6 +791,34 @@ test.describe('ACP human-like browser matrix', () => {
     await expect(page.getByTestId('code-agent-transcript-load-error')).toHaveCount(0)
   })
 
+  test('retries one timed-out transcript read before showing a load error', async ({ page, workspaceRoot }) => {
+    test.setTimeout(60_000)
+    const workspace = path.join(workspaceRoot, 'acp-transcript-timeout-retry')
+    fs.mkdirSync(workspace, { recursive: true })
+    const agentId = await createAcpAgent(page, workspace)
+    await openFarming(page)
+    await agentRow(page, agentId).click()
+    await sendAcpMessage(page, 'markdown typography')
+    await expect(page.getByText('Typography baseline.', { exact: true })).toBeVisible()
+
+    let attempts = 0
+    await page.route(new RegExp(`/farming/api/agents/${agentId}/acp-transcript(?:\\?.*)?$`), async route => {
+      attempts += 1
+      if (attempts === 1) {
+        await new Promise(resolve => setTimeout(resolve, 17_000))
+        await route.abort('timedout').catch(() => {})
+        return
+      }
+      await route.continue()
+    })
+
+    await page.reload()
+    await agentRow(page, agentId).click()
+    await expect.poll(() => attempts, { timeout: 25_000 }).toBeGreaterThanOrEqual(2)
+    await expect(page.getByText('Typography baseline.', { exact: true })).toBeVisible({ timeout: 15_000 })
+    await expect(page.getByTestId('code-agent-transcript-load-error')).toHaveCount(0)
+  })
+
   test('shows a lightweight missing-final-reply line rebuilt from the ACP transcript', async ({ page, workspaceRoot }, testInfo) => {
     const workspace = path.join(workspaceRoot, 'acp-missing-final-reply')
     fs.mkdirSync(workspace, { recursive: true })

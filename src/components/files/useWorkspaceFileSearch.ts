@@ -13,6 +13,7 @@ const DEFAULT_SEARCH_TIMEOUT_MS = 3000
 
 export function useWorkspaceFileSearch(agentId: string | null) {
   const [query, setQuery] = useState('')
+  const [scopePath, setScopePath] = useState('')
   const [matches, setMatches] = useState<WorkspaceFileSearchMatch[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -34,6 +35,7 @@ export function useWorkspaceFileSearch(agentId: string | null) {
   const clear = useCallback(() => {
     requestRef.current += 1
     setQuery('')
+    setScopePath('')
     setMatches([])
     setError(null)
     setSelectionIndex(0)
@@ -45,7 +47,15 @@ export function useWorkspaceFileSearch(agentId: string | null) {
 
   const setSearchQuery = useCallback((nextQuery: string) => {
     setIncludeIgnored(false)
+    if (!nextQuery) setScopePath('')
     setQuery(nextQuery)
+  }, [])
+
+  const searchInDirectory = useCallback((path: string) => {
+    setQuery('')
+    setScopePath(path)
+    setMatches([])
+    setError(null)
   }, [])
 
   const searchIgnored = useCallback(() => {
@@ -86,6 +96,7 @@ export function useWorkspaceFileSearch(agentId: string | null) {
     const timeoutId = window.setTimeout(() => {
       searchWorkspaceFiles(agentId, trimmedQuery, {
         includeIgnored,
+        ...(scopePath ? { path: scopePath } : {}),
         limit: WORKSPACE_FILE_SEARCH_LIMIT,
         signal: abortController.signal,
       })
@@ -110,7 +121,7 @@ export function useWorkspaceFileSearch(agentId: string | null) {
       window.clearTimeout(timeoutId)
       abortController.abort()
     }
-  }, [agentId, includeIgnored, query])
+  }, [agentId, includeIgnored, query, scopePath])
 
   useEffect(() => {
     setSelectionIndex(index => Math.min(index, Math.max(matches.length - 1, 0)))
@@ -118,7 +129,9 @@ export function useWorkspaceFileSearch(agentId: string | null) {
 
   return useMemo(() => ({
     query,
+    scopePath,
     setQuery: setSearchQuery,
+    searchInDirectory,
     matches,
     loading,
     error,
@@ -145,6 +158,8 @@ export function useWorkspaceFileSearch(agentId: string | null) {
     includeIgnored,
     searchIgnored,
     query,
+    scopePath,
+    searchInDirectory,
     selectMatchIndex,
     selectNext,
     selectPrevious,
