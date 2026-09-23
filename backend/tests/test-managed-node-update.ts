@@ -8,7 +8,7 @@ import { packageInstallationId } from '../package-installation.cjs';
 
 const quote = (value: string) => `'${value.replace(/'/g, `'\\''`)}'`;
 
-for (const scenario of ['success', 'rollback', 'missing-runtime']) {
+for (const scenario of ['success', 'rollback', 'missing-runtime', 'runtime-download-failure', 'wrong-runtime-version']) {
   test(`managed Node follows the image during ${scenario}`, async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-managed-update-'));
     const previousManagedRoot = process.env.FARMING_MANAGED_NODE_ROOT;
@@ -18,9 +18,14 @@ for (const scenario of ['success', 'rollback', 'missing-runtime']) {
     const installationRoot = path.join(root, 'installation');
     const stagingPrefix = path.join(installationRoot, 'staging', 'candidate');
     const template = path.join(root, 'candidate-template');
+    const carrier = process.platform === 'darwin'
+      ? (process.arch === 'arm64' ? 'node-bin-darwin-arm64' : 'node-darwin-x64')
+      : `node-linux-${process.arch}`;
+    const pins = { [carrier]: '22.23.2', npm: '12.1.0' };
     const writePackage = (directory: string, version: string, fail: boolean) => {
       fs.mkdirSync(path.join(directory, 'bin'), { recursive: true });
-      fs.writeFileSync(path.join(directory, 'package.json'), JSON.stringify({ name: 'farming-code', version }));
+      fs.mkdirSync(path.join(directory, 'node_modules'), { recursive: true });
+      fs.writeFileSync(path.join(directory, 'package.json'), JSON.stringify({ name: 'farming-code', version, farmingUserRuntimeDependencies: pins }));
       fs.writeFileSync(path.join(directory, 'bin/farming-node'),
         `#!/bin/sh\nexport FARMING_FIXTURE_RUNTIME=${quote(version)}\nexec ${quote(process.execPath)} "$@"\n`, { mode: 0o755 });
       fs.writeFileSync(path.join(directory, 'bin/farming'), `
@@ -44,7 +49,18 @@ const fs = require('node:fs'); const path = require('node:path');
 const args = process.argv.slice(2);
 assert(args.includes('--ignore-scripts')); assert(args.includes('--include=optional'));
 const prefix = args[args.indexOf('--prefix')+1];
-fs.cpSync(${JSON.stringify(template)},path.join(prefix,'lib/node_modules/farming-code'),{recursive:true});
+if (args.includes('farming-code@2.0.0')) {
+  fs.cpSync(${JSON.stringify(template)},path.join(prefix,'lib/node_modules/farming-code'),{recursive:true});
+} else {
+  assert(args.includes(${JSON.stringify(`${carrier}@22.23.2`)}));
+  assert(args.includes('npm@12.1.0'));
+  if (${JSON.stringify(scenario)} === 'runtime-download-failure') process.exit(17);
+  for (const [name, version] of Object.entries(${JSON.stringify(pins)})) {
+    const root = path.join(prefix, 'lib/node_modules', name);
+    fs.mkdirSync(root, {recursive:true});
+    fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({name,version:${JSON.stringify(scenario)} === 'wrong-runtime-version' ? '0.0.1' : version}));
+  }
+}
 `, { mode: 0o755 });
       const payload = {
         action: 'prepare' as const,
@@ -62,12 +78,18 @@ fs.cpSync(${JSON.stringify(template)},path.join(prefix,'lib/node_modules/farming
       }));
       await runNpmUpdate(payload);
       const prepared = JSON.parse(fs.readFileSync(payload.stateFile, 'utf8'));
-      if (scenario === 'missing-runtime') {
+      if (['missing-runtime', 'runtime-download-failure', 'wrong-runtime-version'].includes(scenario)) {
         assert.equal(prepared.phase, 'failed');
         assert(!fs.existsSync(calls), 'missing Node must fail before invoking system Node or restarting');
+        assert(!fs.existsSync(stagingPrefix), 'failed runtime preparation must remove only its staging tree');
+        assert(fs.existsSync(path.join(activePackageRoot, 'bin/farming-node')), 'active runtime is preserved');
         return;
       }
       assert.equal(prepared.phase, 'ready-to-restart', fs.readFileSync(payload.logPath, 'utf8'));
+      for (const name of Object.keys(pins)) {
+        assert(fs.existsSync(path.join(prepared.targetPackageRoot, 'node_modules', name, 'package.json')),
+          'the published image must own the exact staged runtime');
+      }
       await runNpmUpdate({ ...payload, ...prepared, action: 'apply', stateFile: payload.stateFile,
         targetVersion: '2.0.0', nodePath: payload.nodePath, npmCommand: fakeNpm,
         stagingPrefix: undefined, stagingPackageRoot: undefined });

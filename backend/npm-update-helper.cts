@@ -382,6 +382,7 @@ async function installPackage(
   const packageSpec = `${payload.packageName}@${version}`;
   try {
     await installPackageFromRegistry(payload, packageSpec);
+    await prepareManagedNodeRuntime(payload);
   } catch (configuredRegistryError: unknown) {
     if (!payload.npmFallbackRegistryUrl) throw configuredRegistryError;
     if (!operationOwnsState(payload)) {
@@ -395,6 +396,7 @@ async function installPackage(
     fs.mkdirSync(String(payload.stagingPrefix), { recursive: true });
     try {
       await installPackageFromRegistry(payload, packageSpec, payload.npmFallbackRegistryUrl);
+      await prepareManagedNodeRuntime(payload, payload.npmFallbackRegistryUrl);
     } catch (authoritativeRegistryError: unknown) {
       throw new Error(
         `Both configured and authoritative npm installs failed; ${errorMessage(authoritativeRegistryError)}`,
@@ -450,14 +452,16 @@ function commandFailureMessage(error: unknown, logPath: string, offset: number):
 
 async function installPackageFromRegistry(
   payload: NpmUpdatePayload,
-  packageSpec: string,
+  packageSpec: string | string[],
   registryUrl = '',
+  prefix = String(payload.stagingPrefix),
 ): Promise<void> {
-  appendLog(payload.logPath, `Installing ${packageSpec}${registryUrl ? ' from the update-status registry' : ''}`);
+  const specs = Array.isArray(packageSpec) ? packageSpec : [packageSpec];
+  appendLog(payload.logPath, `Installing ${specs.join(' ')}${registryUrl ? ' from the update-status registry' : ''}`);
   const args = ['install', '--global'];
-  args.push('--prefix', String(payload.stagingPrefix));
+  args.push('--prefix', prefix);
   if (registryUrl) args.push('--registry', registryUrl);
-  args.push(packageSpec, '--ignore-scripts', '--include=optional', '--no-audit', '--no-fund');
+  args.push(...specs, '--ignore-scripts', '--include=optional', '--omit=dev', '--no-audit', '--no-fund');
   const offset = logSize(payload.logPath);
   try {
     await runCommand(payload.npmCommand || 'npm', args, {
@@ -467,6 +471,36 @@ async function installPackageFromRegistry(
     });
   } catch (error: unknown) {
     throw new Error(commandFailureMessage(error, payload.logPath, offset), { cause: error });
+  }
+}
+
+async function prepareManagedNodeRuntime(payload: NpmUpdatePayload, registryUrl = ''): Promise<void> {
+  if (!process.env.FARMING_MANAGED_NODE_ROOT) return;
+  const packageRoot = String(payload.stagingPackageRoot);
+  const manifest: unknown = JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8'));
+  if (!isObject(manifest)) throw new Error('Invalid Farming package metadata');
+  const pins: unknown = manifest.farmingUserRuntimeDependencies;
+  // Older images declared these as optional dependencies and already carry them.
+  if (pins === undefined) return;
+  const carriers: Record<string, string> = {
+    'linux-x64': 'node-linux-x64', 'linux-arm64': 'node-linux-arm64',
+    'darwin-x64': 'node-darwin-x64', 'darwin-arm64': 'node-bin-darwin-arm64',
+  };
+  const carrier = carriers[`${process.platform}-${process.arch}`];
+  if (!carrier || !isObject(pins)) throw new Error('Unsupported private Node.js runtime metadata');
+  const names = [carrier, 'npm'];
+  for (const name of names) {
+    if (typeof pins[name] !== 'string' || !/^\d+\.\d+\.\d+$/.test(pins[name])) {
+      throw new Error(`Missing exact private runtime pin: ${name}`);
+    }
+  }
+  const runtimePrefix = path.join(String(payload.stagingPrefix), 'user-runtime');
+  await installPackageFromRegistry(payload, names.map(name => `${name}@${pins[name]}`), registryUrl, runtimePrefix);
+  for (const name of names) {
+    const source = path.join(runtimePrefix, 'lib', 'node_modules', name);
+    const installed = JSON.parse(fs.readFileSync(path.join(source, 'package.json'), 'utf8'));
+    if (installed.version !== pins[name]) throw new Error(`Private runtime version mismatch: ${name}`);
+    fs.renameSync(source, path.join(packageRoot, 'node_modules', name));
   }
 }
 

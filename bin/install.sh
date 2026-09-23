@@ -108,6 +108,11 @@ main() {
     run_node "${npm_cli}" install --global --prefix "${prefix}" "${stage}/farming.tgz" \
       --registry="${registry}" --ignore-scripts --include=optional --omit=dev --no-audit --no-fund
     local package_root="${prefix}/lib/node_modules/farming-code"
+    # These pins are installer metadata, not optional application dependencies.
+    # Reuse the verified bootstrap downloads instead of installing a second copy.
+    mkdir -p "${package_root}/node_modules"
+    mv "${stage}/node/package" "${package_root}/node_modules/${carrier}"
+    mv "${stage}/npm/package" "${package_root}/node_modules/npm"
     chmod +x "${package_root}/bin/farming-node" "${package_root}/bin/farming-npm"
     "${package_root}/bin/farming-node" -e \
       'const path=require("path"); const root=process.argv[1]; require(path.join(root,"node_modules/node-pty")); require(path.join(root,"node_modules/npm/package.json")); console.log("Private Node.js and native PTY verified.")' "${package_root}"

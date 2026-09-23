@@ -46,11 +46,9 @@ assert(args.includes('--ignore-scripts')); assert(args.includes('--include=optio
 const prefix = args[args.indexOf('--prefix') + 1];
 const stage = path.dirname(prefix); const target = path.join(prefix, 'lib/node_modules/farming-code');
 fs.cpSync(path.join(stage, 'farming/package'), target, { recursive: true });
-fs.cpSync(path.join(stage, 'node/package'), path.join(target, 'node_modules/${carrier}'), { recursive: true });
-fs.cpSync(path.join(stage, 'npm/package'), path.join(target, 'node_modules/npm'), { recursive: true });
 `));
   pack('farming-code', '1.0.0', root => {
-    fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'farming-code', version: '1.0.0', optionalDependencies: { [carrier]: '22.23.2', npm: '12.1.0' } }));
+    fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'farming-code', version: '1.0.0', farmingUserRuntimeDependencies: { [carrier]: '22.23.2', npm: '12.1.0' } }));
     for (const name of ['farming-node', 'farming-npm']) {
       executable(path.join(root, 'bin', name), fs.readFileSync(path.join(projectRoot, 'bin', name), 'utf8'));
     }
@@ -84,13 +82,14 @@ fs.appendFileSync(process.env.FARMING_TEST_CALLS, JSON.stringify({command:proces
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
   const address = server.address();
   assert(address && typeof address !== 'string');
+  const registryUrl = `http://127.0.0.1:${address.port}`;
   const root = path.join(directory, 'install with spaces');
   const bin = path.join(directory, 'user bin');
   const calls = path.join(directory, 'calls');
   async function shell(args: string[], env: NodeJS.ProcessEnv = {}) {
     const child = spawn('/bin/bash', args, {
       env: { ...process.env, PATH: fakePath, HOME: directory, FARMING_INSTALL_ROOT: root,
-        FARMING_BIN_DIR: bin, FARMING_NPM_REGISTRY: `http://127.0.0.1:${address.port}`,
+        FARMING_BIN_DIR: bin, FARMING_NPM_REGISTRY: registryUrl,
         FARMING_TEST_CALLS: calls, ...env },
       stdio: ['ignore', 'pipe', 'pipe'],
     });

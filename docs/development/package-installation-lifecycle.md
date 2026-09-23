@@ -175,11 +175,24 @@ program directory. The installer does not change shell startup files or register
 an operating-system startup service.
 
 Each managed image owns its pinned Node.js, npm, and compatibility libraries.
+Node.js and npm pins are installer metadata, not application dependencies:
+ordinary npm installations do not download them. The directory installer moves
+its verified bootstrap runtimes into the staged image after npm finishes.
+During managed updates, the existing update operation installs the target's
+exact runtime pins into private staging before preflight and publication.
+Runtime preparation failure leaves the active image untouched; retry, ownership,
+cancellation and cleanup follow the same update operation. No runtime is shared
+mutably across images, and rollback still selects the prior image's runtime.
 Preparation, target startup, and rollback use the selected image's runtime.
 The launch environment must not replace the user's shell PATH or global loader
 configuration. Runtime absence is an explicit repair failure, never a fallback
 to system Node.js. Ordinary npm and source installations retain their existing
 launch contracts.
+
+Frontend-only libraries are development dependencies. Their compiled browser
+assets ship in `dist`; their source dependency trees are not bundled again in
+the npm image. Libraries served directly by the backend remain runtime
+dependencies.
 
 - **Source checkout** follows the repository and package-manager workflow of
   that checkout.

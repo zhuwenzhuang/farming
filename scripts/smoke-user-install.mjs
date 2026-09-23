@@ -95,6 +95,18 @@ if (mode === 'directory') {
   delete env.FARMING_PACKAGE_INSTALLATIONS_DIR;
 }
 const shellQuote = value => `'${value.replace(/'/g, `'\\''`)}'`;
+const runtimeCommand = packageRoot => mode === 'npm'
+  ? path.join(temporary, 'external-toolchain/node') : path.join(packageRoot, 'bin/farming-node');
+function verifySlimImage(packageRoot) {
+  const manifest = JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8'));
+  if (!manifest.farmingUserRuntimeDependencies) return;
+  const excluded = ['@visactor/vtable', 'mermaid', 'monaco-editor'];
+  if (mode === 'npm') excluded.push(...Object.keys(manifest.farmingUserRuntimeDependencies));
+  for (const name of excluded) {
+    assert(!fs.existsSync(path.join(packageRoot, 'node_modules', name)), `Unexpected duplicate dependency: ${name}`);
+  }
+  assert(fs.statSync(path.join(packageRoot, 'dist/frontend-licenses.txt')).size > 0, 'frontend dependency notices must be preserved');
+}
 async function run(command, args, timeout = 600_000) {
   const child = spawn(command, args, { env, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
   const log = [];
@@ -144,7 +156,7 @@ async function waitPhase(expected) {
   throw new Error(`Timed out waiting for ${expected}: ${JSON.stringify(state)}`);
 }
 async function nativePty(packageRoot) {
-  await run(path.join(packageRoot, 'bin/farming-node'), ['-e', `
+  await run(runtimeCommand(packageRoot), ['-e', `
 const pty = require(${JSON.stringify(path.join(packageRoot, 'node_modules/node-pty'))});
 const terminal = pty.spawn('/bin/sh', ['-c', 'printf farming-native-ready'], { env: process.env });
 let output = ''; const timer = setTimeout(() => { terminal.kill(); process.exit(1); }, 10000);
@@ -189,6 +201,7 @@ try {
   const response = await fetch(`http://127.0.0.1:${port}/farming/api/auth/status`, { signal: AbortSignal.timeout(10_000) });
   assert.equal(response.status, 200);
   assert.equal((await response.json()).authRequired, false);
+  verifySlimImage(packageRoot);
   console.log(`Farming ${metadata.version} started and answered HTTP.`);
   if (candidates.length) {
     const initialStatus = await updateStatus();
@@ -200,7 +213,7 @@ try {
     }
     // Six complete historical images exercise the actual startup retention
     // policy without pretending to have performed six more release upgrades.
-    const historical = JSON.parse(await run(path.join(packageRoot, 'bin/farming-node'), ['-e', `
+    const historical = JSON.parse(await run(runtimeCommand(packageRoot), ['-e', `
 const fs = require('node:fs'); const path = require('node:path');
 const p = require(${JSON.stringify(path.join(packageRoot, 'backend/package-installation.cjs'))});
 const context = p.resolvePackageInstallationContext(${JSON.stringify(initialStatus.target.activePackageRoot)}, {
@@ -221,7 +234,7 @@ for (let i = 0; i < 6; i++) {
 console.log(JSON.stringify(result));
 `], 180_000));
     console.log('Seeded six complete historical images, including native dependencies, to verify retention.');
-    const oldRuntimes = JSON.parse(await run(path.join(packageRoot, 'bin/farming-node'), ['-e', `
+    const oldRuntimes = JSON.parse(await run(runtimeCommand(packageRoot), ['-e', `
 const fs = require('node:fs'); const path = require('node:path');
 const storage = require(${JSON.stringify(path.join(packageRoot, 'backend/storage-layout.cjs'))});
 const runtime = require(${JSON.stringify(path.join(packageRoot, 'backend/runtime-dependency-manager.cjs'))});
@@ -257,6 +270,7 @@ console.log(JSON.stringify({caches:result,bindings:storage.runtimeDependencyBind
       const pointer = JSON.parse(fs.readFileSync(path.join(state.installationRoot, 'current.json'), 'utf8'));
       assert.equal(pointer.version, expectedVersion);
       const activeRoot = path.join(state.installationRoot, pointer.relativePath);
+      verifySlimImage(activeRoot);
       await nativePty(activeRoot);
       console.log(`${index === 0 ? 'Upgrade succeeded' : 'Failed activation rolled back'}; HTTP and native PTY verified on ${expectedVersion}.`);
       const remaining = fs.readdirSync(path.join(state.installationRoot, 'versions'));

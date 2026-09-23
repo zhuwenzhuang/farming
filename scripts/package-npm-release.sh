@@ -58,7 +58,6 @@ const rootManifestPath = path.join(stageRoot, 'package.json');
 const lockPath = path.join(stageRoot, 'package-lock.json');
 const hiddenLockPath = path.join(stageRoot, 'node_modules', '.package-lock.json');
 const rootManifest = JSON.parse(fs.readFileSync(rootManifestPath, 'utf8'));
-const lock = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
 
 const writeJson = (filePath, value) => {
   fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`);
@@ -75,37 +74,12 @@ const resolveDependencyManifest = (parentManifestPath, dependencyName) => {
   throw new Error(`Bundled dependency ${dependencyName} is missing for ${parentManifestPath}`);
 };
 
-const globalOverrides = new Map([
-  ['dompurify', rootManifest.overrides?.dompurify],
-]);
-for (const [dependencyName, version] of globalOverrides) {
-  if (typeof version !== 'string' || !version) {
-    throw new Error(`Missing reviewed npm override for ${dependencyName}`);
-  }
-  let patchedEdges = 0;
-  for (const packagePath of Object.keys(lock.packages || {})) {
-    if (!packagePath.startsWith('node_modules/')) continue;
-    const manifestPath = path.join(stageRoot, packagePath, 'package.json');
-    if (!fs.existsSync(manifestPath)) continue;
-    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-    let changed = false;
-    for (const field of ['dependencies', 'optionalDependencies']) {
-      if (!manifest[field]?.[dependencyName]) continue;
-      const dependencyManifestPath = resolveDependencyManifest(manifestPath, dependencyName);
-      const dependencyManifest = JSON.parse(fs.readFileSync(dependencyManifestPath, 'utf8'));
-      if (dependencyManifest.version !== version) {
-        throw new Error(
-          `Override mismatch for ${manifest.name} -> ${dependencyName}: expected ${version}, got ${dependencyManifest.version}`,
-        );
-      }
-      manifest[field][dependencyName] = version;
-      patchedEdges += 1;
-      changed = true;
-    }
-    if (changed) writeJson(manifestPath, manifest);
-  }
-  if (patchedEdges === 0) {
-    throw new Error(`Reviewed npm override ${dependencyName}@${version} no longer owns a production dependency edge`);
+// These dependencies are compiled into browser assets. Shipping their source
+// trees again would duplicate hundreds of megabytes. DOMPurify remains pinned
+// during the frontend build, but no longer has a production dependency edge.
+for (const name of ['@visactor/vtable', 'mermaid', 'monaco-editor', 'dompurify', 'npm', ...Object.keys(rootManifest.farmingUserRuntimeDependencies || {}).filter(name => name.startsWith('node-'))]) {
+  if (fs.existsSync(path.join(stageRoot, 'node_modules', name))) {
+    throw new Error(`Unexpected build-only or private runtime dependency in npm image: ${name}`);
   }
 }
 
@@ -153,6 +127,7 @@ const entries = new Set(execFileSync('tar', ['-tzf', process.argv[2]], { encodin
 for (const name of ['ld-2.28.so', 'libc.so.6', 'libm.so.6', 'libstdc++.so.6', 'libgcc_s.so.1']) {
   if (!entries.has(`package/dist/runtime/glibc228/${name}`)) throw new Error(`npm package omitted private runtime ${name}`);
 }
+if (!entries.has('package/dist/frontend-licenses.txt')) throw new Error('npm package omitted frontend dependency notices');
 NODE
 
 printf '%s\n' "${PACKAGE_TARBALL}"

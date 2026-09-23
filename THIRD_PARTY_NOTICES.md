@@ -9,8 +9,11 @@ with.
 Farming's app bundle installs the production dependency tree pinned by
 `package.json` and `package-lock.json`. Package-level license files are
 preserved in bundled `node_modules` when bundled dependencies are enabled.
+Monaco, Mermaid, and VTable are compiled into browser assets rather than shipped
+as duplicate source dependency trees. Their dependency license and notice files
+are preserved in `dist/frontend-licenses.txt` during the frontend build.
 
-## Direct Runtime Dependencies
+## Direct Application Dependencies
 
 | Package | Version | License | Purpose |
 | --- | --- | --- | --- |

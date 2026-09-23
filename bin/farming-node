@@ -13,11 +13,11 @@ case "$(uname -s)-$(uname -m)" in
 esac
 node_bin="${root}/node_modules/${carrier}/bin/node"
 if [ ! -x "${node_bin}" ]; then
-  echo "Farming's private Node.js is missing. Reinstall with optional dependencies enabled." >&2
+  echo "Farming's private Node.js is missing. Reinstall using the directory installer." >&2
   exit 1
 fi
 if [ ! -f "${root}/node_modules/npm/bin/npm-cli.js" ]; then
-  echo "Farming's private npm is missing. Reinstall with optional dependencies enabled." >&2
+  echo "Farming's private npm is missing. Reinstall using the directory installer." >&2
   exit 1
 fi
 export FARMING_MANAGED_NODE_ROOT="${root}"
