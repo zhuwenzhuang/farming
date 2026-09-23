@@ -1,3 +1,4 @@
+import type { AgentGoal } from '../../../shared/agent-goal'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type ComponentProps, type CSSProperties, type Dispatch, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type RefObject, type SetStateAction, type SyntheticEvent as ReactSyntheticEvent } from 'react'
 import type { Agent, TaskHistoryEntry } from '@/types/agent'
 import { isAcpRuntime } from '@/lib/agent-runtime'
@@ -27,7 +28,7 @@ import { SubagentBody } from './SubagentBody'
 import { CloseGlyph } from '../IconGlyphs'
 import { RelatedSessionNavigation, SubagentNavigation, type RelatedSessionTarget } from './related-session-navigation'
 import { RelatedSessionPanel } from './RelatedSessionPanel'
-import { AgentPlanActivityPreview } from './AgentActivityDock'
+import { AgentPlanActivityPreview, AgentGoalActivityPreview } from './AgentActivityDock'
 import type { AgentTranscriptProcessItem } from './acp/acp-entry-projection'
 import { CodeComposer } from './CodeComposer'
 import { AcpComposer } from './acp/AcpComposer'
@@ -752,6 +753,7 @@ export function CodeMainArea({
   const [chatComposerCollapseRequested, setChatComposerCollapseRequested] = useState(false)
   const [runtimeSwitchExpandedAgentId, setRuntimeSwitchExpandedAgentId] = useState<string | null>(null)
   const [dismissedBrowserPreviewKeys, setDismissedBrowserPreviewKeys] = useState<Set<string>>(() => new Set())
+  const [goalPreview, setGoalPreview] = useState<{ agentId: string; goal: AgentGoal } | null>(null)
   const [activePlanPreview, setActivePlanPreview] = useState<{
     agentId: string
     plan: AgentTranscriptProcessItem
@@ -870,6 +872,7 @@ export function CodeMainArea({
       .filter(resource => !dismissedBrowserPreviewKeys.has(`${resource.id}:${resource.generation}`))
       .sort((left, right) => left.updatedAt - right.updatedAt)
     : []
+  const visibleGoal = goalPreview?.agentId === activeAgent?.id ? goalPreview?.goal : null
   const visibleActivePlan = activePlanPreview && activePlanPreview.agentId === activeAgent?.id
     ? activePlanPreview.plan
     : null
@@ -1016,6 +1019,7 @@ export function CodeMainArea({
   }, [activeAgent?.id])
 
   useEffect(() => {
+    if (expandedAgentActivity === 'goal' && !visibleGoal) setExpandedAgentActivity(null)
     if (expandedAgentActivity === 'plan' && !visibleActivePlan) {
       setExpandedAgentActivity(null)
       return
@@ -1023,7 +1027,14 @@ export function CodeMainArea({
     if (expandedBrowserResourceId && !expandedBrowserAvailable) {
       setExpandedAgentActivity(null)
     }
-  }, [expandedAgentActivity, expandedBrowserAvailable, expandedBrowserResourceId, visibleActivePlan])
+  }, [expandedAgentActivity, expandedBrowserAvailable, expandedBrowserResourceId, visibleActivePlan, visibleGoal])
+
+  const publishGoal = useCallback((agentId: string, goal: AgentGoal | null) => {
+    setGoalPreview(current => {
+      if (!goal) return current?.agentId === agentId ? null : current
+      return current?.agentId === agentId && JSON.stringify(current.goal) === JSON.stringify(goal) ? current : { agentId, goal }
+    })
+  }, [])
 
   const publishActivePlan = useCallback((agentId: string, plan: AgentTranscriptProcessItem | undefined) => {
     setActivePlanPreview(current => {
@@ -1379,6 +1390,7 @@ export function CodeMainArea({
             onRuntimeModeChange={onRuntimeModeChange}
             onForkAgent={onForkAgent}
             onReviewAndCommit={onReviewAndCommit}
+            onGoalChange={publishGoal}
             onActivePlanChange={publishActivePlan}
             onQuoteSelection={onQuoteSelection}
             onQuoteSelectionInSubagent={onQuoteSelectionInSubagent}
@@ -1390,7 +1402,7 @@ export function CodeMainArea({
         ))}
       </div>
 
-      {agentSurfaceVisible && (visibleActivePlan || activeBrowserPreviews.length > 0) ? (
+      {agentSurfaceVisible && (visibleGoal || visibleActivePlan || activeBrowserPreviews.length > 0) ? (
         <section
           className="code-agent-activity-dock"
           data-testid="code-agent-activity-dock"
@@ -1401,6 +1413,9 @@ export function CodeMainArea({
             setExpandedAgentActivity(null)
           }}
         >
+          {visibleGoal ? <AgentGoalActivityPreview goal={visibleGoal}
+            expanded={expandedAgentActivity === 'goal'}
+            onToggle={() => setExpandedAgentActivity(current => current === 'goal' ? null : 'goal')} /> : null}
           {visibleActivePlan ? (
             <AgentPlanActivityPreview
               plan={visibleActivePlan}

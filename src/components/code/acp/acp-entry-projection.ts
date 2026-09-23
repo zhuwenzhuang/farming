@@ -1,3 +1,4 @@
+import { normalizeAgentGoal, type AgentGoal } from '../../../../shared/agent-goal'
 import { createTwoFilesPatch, diffLines } from 'diff'
 import type { AcpTerminalDisplay } from './types'
 
@@ -156,6 +157,7 @@ export interface AgentTranscript {
   replaceFromTurnId?: string
   stopReason?: string
   truncated?: boolean
+  goal?: AgentGoal | null
   plan?: AgentTranscriptProcessItem
   codexSubagents?: {
     version: number
@@ -571,6 +573,12 @@ function codexCollaboration(entry: AcpRecord): AgentTranscriptCollaboration | un
   return undefined
 }
 
+function compactionTitle(status: unknown): string {
+  if (status === 'completed') return 'Context compacted'
+  if (status === 'cancelled' || status === 'failed') return 'Context compaction interrupted'
+  return 'Compacting context'
+}
+
 function processEntry(entry: AcpRecord): AgentTranscriptProcessItem | null {
   if (entry.type === 'error') {
     const kind = stringValue(entry.kind) || 'unknown'
@@ -629,7 +637,7 @@ function processEntry(entry: AcpRecord): AgentTranscriptProcessItem | null {
               : 'tool',
       kind: stringValue(entry.kind) || 'other',
       title: contextCompaction
-        ? (stringValue(entry.status) === 'completed' ? 'Context compacted' : 'Compacting context')
+        ? compactionTitle(entry.status)
         : stringValue(entry.title) || 'Tool',
       detail: [subagentSessionId ? `Session ${subagentSessionId}` : '', inline.detail].filter(Boolean).join('\n\n'),
       detailTruncated: inline.detailTruncated,
@@ -662,7 +670,7 @@ function processEntry(entry: AcpRecord): AgentTranscriptProcessItem | null {
   if (entry.type === 'compaction') {
     return {
       id: stringValue(entry.id), type: 'compaction',
-      title: entry.status === 'completed' ? 'Context compacted' : 'Compacting context',
+      title: compactionTitle(entry.status),
       detail: stringValue(entry.summary), status: stringValue(entry.status) || 'completed',
     }
   }
@@ -735,6 +743,7 @@ function finishTurn(turn: MutableTurn | null, keepTailAsProgress: boolean): Agen
   } else if (turn.processItems.length > 0) {
     turn.status = 'missingFinalReply'
   }
+  if (!hasFinalAssistantResult(turn) && ['cancelled', 'canceled', 'stopped', 'error', 'failed', 'cancel_error'].includes(turn.stopReason || '')) turn.status = 'interrupted'
   const { internal, assistantMessages: _assistantMessages, ...finished } = turn
   if (internal) finished.processItems = []
   return finished.userMessage || finished.finalMessage || finished.userImages.length > 0
@@ -805,6 +814,7 @@ export function projectAcpTranscript(sessionValue: unknown, options: { maxTurns?
       const entryId = stringValue(entry.id) || String(++sequence)
       current = emptyTurn(`acp-turn-${entryId}`, entry.internal === true)
       current.startedAt = entry.turnStartedAt == null ? null : Number(entry.turnStartedAt)
+      current.stopReason = stringValue(entry.turnStopReason)
       current.completedAt = entry.turnCompletedAt == null ? null : Number(entry.turnCompletedAt)
       current.durationMs = Number.isFinite(Number(entry.turnDurationMs)) ? Number(entry.turnDurationMs) : null
       if (!entry.internal) {
@@ -863,13 +873,13 @@ export function projectAcpTranscript(sessionValue: unknown, options: { maxTurns?
     lastTurn.status = 'inProgress'
   } else if (lastTurn && hasFinalAssistantResult(lastTurn)) {
     lastTurn.status = 'completed'
-  } else if (lastTurn && ['cancelled', 'canceled', 'max_tokens', 'max_turn_requests', 'refusal', 'error', 'cancel_error']
+  } else if (lastTurn && ['cancelled', 'canceled', 'max_tokens', 'max_turn_requests', 'refusal', 'error', 'failed', 'stopped', 'cancel_error']
     .includes(stringValue(session.stopReason).toLowerCase())) {
     lastTurn.status = 'interrupted'
   }
   // Result presence and stream termination are separate facts: a final-answer
   // message can still be cut off by cancellation or a provider limit.
-  if (lastTurn && !activeSession) lastTurn.stopReason = stringValue(session.stopReason)
+  if (lastTurn && !activeSession) lastTurn.stopReason = lastTurn.stopReason || stringValue(session.stopReason)
   const maxTurns = Number.isFinite(Number(options.maxTurns)) ? Math.max(1, Math.floor(Number(options.maxTurns))) : 80
   const visibleTurns = turns.slice(-maxTurns)
   const forkOrigin = record(session.forkOrigin)
@@ -906,6 +916,7 @@ export function projectAcpTranscript(sessionValue: unknown, options: { maxTurns?
     revision: Number(session.revision || 0), delta: session.delta === true,
     replaceFromTurnId: session.delta === true ? stringValue(visibleTurns[0]?.id) : '',
     stopReason: stringValue(session.stopReason),
+    goal: normalizeAgentGoal(session.goal),
     plan,
     ...(codexSubagents ? { codexSubagents } : {}),
     nextCursor: typeof session.nextCursor === 'string' ? session.nextCursor : null,

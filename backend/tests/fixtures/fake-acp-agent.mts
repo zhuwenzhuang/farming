@@ -652,6 +652,39 @@ class FakeAgent implements Agent {
       });
       return { stopReason: 'end_turn' };
     }
+    if (promptText === 'goal cancellation fixture') {
+      let release: () => void = () => {};
+      const cancellation = new Promise<void>(resolve => { release = resolve; });
+      cancelledSessions.set(params.sessionId, release);
+      const deadline = setTimeout(release, 60_000);
+      try {
+        await client.sessionUpdate({ sessionId: params.sessionId, update: {
+          sessionUpdate: 'session_info_update', _meta: { goal: {
+            objective: 'Verify service recovery and stability', status: 'active', tokenBudget: 5000, tokensUsed: 120,
+          } },
+        } });
+        await client.sessionUpdate({ sessionId: params.sessionId, update: {
+          sessionUpdate: 'plan', entries: [{ content: 'Check service recovery', status: 'in_progress', priority: 'medium' }],
+        } });
+        await client.sessionUpdate({ sessionId: params.sessionId, update: {
+          sessionUpdate: 'tool_call', toolCallId: 'goal-running-command', title: 'Check service recovery', kind: 'execute', status: 'in_progress',
+        } });
+        await cancellation;
+        return { stopReason: 'cancelled' };
+      } finally {
+        clearTimeout(deadline);
+        cancelledSessions.delete(params.sessionId);
+      }
+    }
+    if (promptText === 'clear goal fixture') {
+      await client.sessionUpdate({ sessionId: params.sessionId, update: {
+        sessionUpdate: 'session_info_update', _meta: { goal: null },
+      } });
+      await client.sessionUpdate({ sessionId: params.sessionId, update: {
+        sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Follow-up received; goal cleared.' },
+      } });
+      return { stopReason: 'end_turn' };
+    }
     if (promptText.includes('clean exit during turn')) process.exit(0);
     if (promptText.includes('cancel then provider error')) {
       await new Promise<void>(resolve => cancelledSessions.set(params.sessionId, resolve));

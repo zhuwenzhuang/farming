@@ -2509,7 +2509,6 @@ class AcpRuntime extends EventEmitter {
       if (binding.nativeTurnId === event.turnId) return;
       if (turn?.nativeTurnId && !turn.nativeCompleted) return;
       if (turn?.nativeCompleted) {
-        this.requireSessionState(binding).completePrompt();
         this.finishTurn(binding, turn, { status: 'completed' }, false);
         turn = null;
       }
@@ -2531,9 +2530,9 @@ class AcpRuntime extends EventEmitter {
       if (!turn || turn.nativeTurnId !== event.turnId) return;
       turn.nativeCompleted = true;
       turn.providerSettled = true;
+      this.requireSessionState(binding).completePrompt(event.status === 'completed' ? 'end_turn' : String(event.status));
       // A submitted ACP request still owns its own response/notification barrier.
       if (!turn.providerInitiated) return;
-      this.requireSessionState(binding).completePrompt();
       binding.state = event.status === 'failed' ? 'error' : 'idle';
       binding.stopReason = event.status === 'completed' ? 'end_turn' : String(event.status);
       if (binding.chatTurn) binding.chatTurn = {
@@ -3415,7 +3414,7 @@ class AcpRuntime extends EventEmitter {
         // ordered transcript and runtime snapshot cannot disagree.
         const sessionState = this.requireSessionState(binding);
         sessionState.recordError(runtimeError.message, acpErrorKind(runtimeError));
-        sessionState.completePrompt();
+        sessionState.completePrompt(binding.chatTurn?.status === 'cancelling' ? 'cancelled' : binding.stopReason);
         binding.state = 'error';
         binding.error = runtimeError.message;
         if (binding.chatTurn) {
@@ -3456,7 +3455,7 @@ class AcpRuntime extends EventEmitter {
           updatedAt: Date.now(),
         };
       }
-      this.requireSessionState(binding).completePrompt();
+      this.requireSessionState(binding).completePrompt(binding.stopReason);
       binding.state = 'idle';
       binding.error = '';
       binding.updatedAt = new Date().toISOString();
@@ -3965,7 +3964,7 @@ class AcpRuntime extends EventEmitter {
       const interruptedTurn = Boolean(binding.activeTurn);
       const stopped = await this.unregisterAgentAndWait(agentId, binding);
       if (!stopped) throw new Error('Idle release could not prove resource cleanup');
-      if (interruptedTurn) binding.sessionState?.completePrompt();
+      if (interruptedTurn) binding.sessionState?.completePrompt('stopped');
       if (this.bindings.has(agentId) || this.reconnectReservations.get(agentId) !== reservation) {
         throw new Error('Idle release lost session ownership');
       }
@@ -5176,7 +5175,7 @@ class AcpRuntime extends EventEmitter {
     }
     if (promptWasActive && binding.sessionState) {
       if (error) binding.sessionState.recordError(binding.error, acpErrorKind(error));
-      binding.sessionState.completePrompt();
+      binding.sessionState.completePrompt(binding.stopReason);
     }
     if (turn) {
       turn.phase = 'completed';

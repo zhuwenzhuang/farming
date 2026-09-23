@@ -1,3 +1,4 @@
+import type { AgentGoal } from '../../../shared/agent-goal'
 import { relatedSessionStatusLabel } from './related-session-status'
 import {
   createContext,
@@ -218,6 +219,7 @@ export interface AgentTranscriptPaneProps {
   onReadLatest?: () => void
   onForkLatest?: () => Promise<void> | void
   onReviewAndCommit?: () => void
+  onGoalChange?: (goal: AgentGoal | null) => void
   onActivePlanChange?: (plan: AgentTranscriptProcessItem | undefined) => void
   onQuoteSelection?: (text: string) => void
   onQuoteSelectionInSubagent?: (text: string) => void
@@ -349,6 +351,9 @@ function turnProcessLabel(
   const duration = durationLabel(turn.durationMs)
   const errorItem = turn.processItems.find(item => item.type === 'error')
   if (errorItem?.title) return errorItem.title
+  if (turn.status === 'interrupted' || ['cancelled', 'canceled', 'stopped'].includes(turn.stopReason || '')) {
+    return copy.agentTranscriptInterrupted
+  }
   return duration
     ? copy.agentTranscriptWorkedFor(duration)
     : turn.status === 'inProgress'
@@ -2975,6 +2980,7 @@ export function AgentTranscriptPane({
   onForkLatest,
   onReviewAndCommit,
   onActivePlanChange,
+  onGoalChange,
   onQuoteSelection,
   onQuoteSelectionInSubagent,
   onQuoteSelectionInParent,
@@ -4039,6 +4045,9 @@ export function AgentTranscriptPane({
     // an ACP refresh cannot jump to the bottom during that first drag frame.
     textSelectionGestureRef.current = true
   }, [markUserScrollGesture])
+  const sessionGoal = active && source === 'acp' ? transcript?.goal ?? null : null
+  useEffect(() => { onGoalChange?.(sessionGoal) }, [sessionGoal, onGoalChange])
+  useEffect(() => () => { onGoalChange?.(null) }, [onGoalChange])
   const sessionPlan = source === 'acp' ? transcript?.plan : undefined
   const activePlan = active
     && turns[turns.length - 1]?.status === 'inProgress'

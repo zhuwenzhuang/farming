@@ -808,3 +808,22 @@ while closing restores the saved inline transform. Source/appearance updates do
 not recreate the gesture owner; removing content releases its listeners and work.
 The gesture library owns scale/translation and gesture cancellation, while Farming
 owns fit dimensions, toolbar state, render revisions and viewer lifetime.
+
+### Read-only Goal and interrupted Turns
+
+Goal is provider-owned session metadata, displayed beside Plan in the activity
+dock. A valid ACP `session_info_update._meta.goal` replaces the read-only
+objective, status, and optional reported usage; omission preserves it and
+explicit null clears it. Invalid payloads do not erase valid state. Revisioned
+snapshots and checkpoints preserve it across reconnects; switching Agents clears
+the previous preview. The dock does not create, pause, resume, complete, or clear
+Goals. Stop retains its current-Turn cancellation semantics.
+
+Cancellation remains owned by the runtime's exact Turn and response barrier.
+Only settlement cancels outstanding tools/compaction, preserves successful tool
+results, and records a terminal reason with the Turn. The collapsed process summary
+explicitly shows interruption. Late tool updates cannot
+reopen cancelled entries. A follow-up waits for the previous cancellation to
+settle; stale completions cannot settle a newer Turn. Timeout remains an explicit
+runtime failure. Historical interruption survives subsequent Turns and checkpoint
+recovery instead of depending on the session's latest stop reason.

@@ -1,3 +1,4 @@
+import type { AgentGoal } from '../../../shared/agent-goal'
 import { useCallback, useLayoutEffect, useRef } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import type { Agent } from '@/types/agent'
@@ -47,6 +48,7 @@ interface AgentWorkPaneProps {
     options?: { targetRuntime?: 'chat'; expectedRevision?: number }
   ) => Promise<void> | void
   onReviewAndCommit?: (agentId: string) => void
+  onGoalChange?: (agentId: string, goal: AgentGoal | null) => void
   onActivePlanChange?: (agentId: string, plan: AgentTranscriptProcessItem | undefined) => void
   onQuoteSelection?: (agentId: string, text: string) => void
   onQuoteSelectionInSubagent?: (agentId: string, text: string) => void
@@ -81,6 +83,7 @@ export function AgentWorkPane({
   onForkAgent,
   onReviewAndCommit,
   onActivePlanChange,
+  onGoalChange,
   onQuoteSelection,
   onQuoteSelectionInSubagent,
   copy,
@@ -113,6 +116,7 @@ export function AgentWorkPane({
   const reviewAndCommitChat = useCallback(() => {
     reviewAndCommitRef.current?.(agent.id)
   }, [agent.id])
+  const publishGoal = useCallback((goal: AgentGoal | null) => { onGoalChange?.(agent.id, goal) }, [agent.id, onGoalChange])
   const publishActivePlan = useCallback((plan: AgentTranscriptProcessItem | undefined) => {
     onActivePlanChange?.(agent.id, plan)
   }, [agent.id, onActivePlanChange])
@@ -177,7 +181,7 @@ export function AgentWorkPane({
           aria-hidden={!active}
           onPointerDown={activateChatView}
         >
-          <AcpTranscriptPane followLatestSignal={followLatestSignal} agentId={agent.id} workspaceRootId={agent.workspaceRootId} readingIdentity={agentWorkPaneModeStorageIdentity(agent)} workspaceRoot={agent.projectWorkspace || agent.cwd} active={active} viewportLayoutKey={viewportLayoutKey} runtimeState={acpRuntime?.state || ''} expectHistory={Boolean(resumedAgentSessionSourceIdentity(agent.source)) || Number(acpRuntime?.sessionRevision || 0) > 0} forkedFromAgent={Boolean(agent.parentAgentId && agent.forkedFromProviderSessionId)} refreshSignal={acpRuntime?.sessionRevision || (acpRuntime?.sessionUpdatedAt ? Date.parse(acpRuntime.sessionUpdatedAt) : 0)} onOpenWorkspaceFilePath={onOpenWorkspaceFilePath} onCopyReadOnlyShareLink={onCopyReadOnlyShareLink} onOpenUrlInFarming={onOpenUrlInFarming ? openChatUrlInFarming : undefined} onReadLatest={readLatestChat} onForkLatest={canForkConversation ? forkLatestChat : undefined} onReviewAndCommit={onReviewAndCommit && !isAgentTurnActive(agent) ? reviewAndCommitChat : undefined} onActivePlanChange={publishActivePlan} onQuoteSelection={onQuoteSelection ? quoteSelection : undefined} onQuoteSelectionInSubagent={onQuoteSelectionInSubagent && canForkConversation && !agent.subagentParentSessionKey ? quoteSelectionInSubagent : undefined} copy={copy} />
+          <AcpTranscriptPane followLatestSignal={followLatestSignal} agentId={agent.id} workspaceRootId={agent.workspaceRootId} readingIdentity={agentWorkPaneModeStorageIdentity(agent)} workspaceRoot={agent.projectWorkspace || agent.cwd} active={active} viewportLayoutKey={viewportLayoutKey} runtimeState={acpRuntime?.state || ''} expectHistory={Boolean(resumedAgentSessionSourceIdentity(agent.source)) || Number(acpRuntime?.sessionRevision || 0) > 0} forkedFromAgent={Boolean(agent.parentAgentId && agent.forkedFromProviderSessionId)} refreshSignal={acpRuntime?.sessionRevision || (acpRuntime?.sessionUpdatedAt ? Date.parse(acpRuntime.sessionUpdatedAt) : 0)} onOpenWorkspaceFilePath={onOpenWorkspaceFilePath} onCopyReadOnlyShareLink={onCopyReadOnlyShareLink} onOpenUrlInFarming={onOpenUrlInFarming ? openChatUrlInFarming : undefined} onReadLatest={readLatestChat} onForkLatest={canForkConversation ? forkLatestChat : undefined} onReviewAndCommit={onReviewAndCommit && !isAgentTurnActive(agent) ? reviewAndCommitChat : undefined} onGoalChange={publishGoal} onActivePlanChange={publishActivePlan} onQuoteSelection={onQuoteSelection ? quoteSelection : undefined} onQuoteSelectionInSubagent={onQuoteSelectionInSubagent && canForkConversation && !agent.subagentParentSessionKey ? quoteSelectionInSubagent : undefined} copy={copy} />
         </div>
       ) : null}
       {switching ? (

@@ -1,3 +1,4 @@
+import { normalizeAgentGoal, type AgentGoal } from '../shared/agent-goal.js';
 const MAX_ACP_UPDATES = 2_000;
 const MAX_ACP_UPDATE_LOG_VALUE_CHARS = 32 * 1024;
 const MAX_CODEX_SUBAGENTS = 128;
@@ -14,6 +15,7 @@ interface AcpContent extends DataRecord {
 }
 
 interface AcpMeta extends DataRecord {
+  goal?: unknown;
   farming?: {
     steer?: unknown;
     turnId?: unknown;
@@ -47,6 +49,7 @@ export interface AcpEntry extends DataRecord {
   turnStartedAt?: unknown;
   turnCompletedAt?: unknown;
   turnDurationMs?: unknown;
+  turnStopReason?: unknown;
   status?: unknown;
   title?: unknown;
   rawOutput?: unknown;
@@ -171,6 +174,7 @@ interface AcpCheckpoint extends DataRecord {
   configOptions?: unknown;
   title?: unknown;
   updatedAt?: unknown;
+  goal?: unknown;
   codexSubagents?: unknown;
   truncated?: unknown;
 }
@@ -311,6 +315,7 @@ class AcpSessionState {
   title: string;
   updatedAt: string;
   promptSuggestion: AcpPromptSuggestion | null;
+  goal: AgentGoal | null = null;
   codexSubagents: CodexSubagents | null;
   truncated: boolean;
   sequence: number;
@@ -407,6 +412,7 @@ class AcpSessionState {
     state.configOptions = clone(source.configOptions || []) as unknown[];
     state.title = String(source.title || '');
     state.updatedAt = String(source.updatedAt || '');
+    state.goal = normalizeAgentGoal(source.goal);
     state.codexSubagents = clone(source.codexSubagents ?? null) as CodexSubagents | null;
     state.truncated = source.truncated === true;
     state.restoreForkOrigin(source.forkOrigin);
@@ -563,15 +569,30 @@ class AcpSessionState {
     return true;
   }
 
-  completePrompt(): void {
-    this.completeContextCompactionTool();
+  completePrompt(stopReason = 'end_turn'): void {
+    const interrupted = ['cancelled', 'canceled', 'stopped', 'error', 'failed', 'cancel_error'].includes(stopReason);
+    const policy = acpSessionProviderPolicy(this.provider);
+    const start = this.entries.findLastIndex(entry => policy.transcriptTurnStart(entry));
+    if (interrupted) {
+      for (const entry of this.entries.slice(Math.max(0, start))) {
+        if ((entry.type === 'tool' || entry.type === 'compaction')
+          && ['pending', 'in_progress'].includes(String(entry.status))) {
+          entry.status = ['error', 'failed', 'cancel_error'].includes(stopReason) ? 'failed' : 'cancelled';
+          if (entry._meta?.contextCompaction) entry.title = 'Context compaction interrupted';
+          this.touchEntry(entry);
+        }
+      }
+    } else {
+      this.completeContextCompactionTool();
+    }
     this.activePlanEntry = null;
     this.plan = null;
     // Runtime completion changes the visible state of the last turn. Touch the
     // existing entry so delta readers can refresh that turn without inventing
     // a protocol entry boundary.
-    const userEntry = this.entries.findLast(entry => entry?.type === 'message' && entry.role === 'user' && entry.turnStartedAt);
+    const userEntry = this.entries[start];
     if (userEntry && !userEntry.turnCompletedAt) {
+      userEntry.turnStopReason = stopReason;
       userEntry.turnCompletedAt = Date.now();
       const startedAt = Number(userEntry.turnStartedAt);
       const completedAt = Number(userEntry.turnCompletedAt);
@@ -644,6 +665,14 @@ class AcpSessionState {
       this.configOptions = clone(update.configOptions || []) as unknown[];
     } else if (kind === 'session_info_update') {
       let metadataChanged = false;
+      if (update._meta && Object.prototype.hasOwnProperty.call(update._meta, 'goal')) {
+        const goal = normalizeAgentGoal(update._meta.goal);
+        // Invalid extension payloads cannot erase the last authoritative value.
+        if (update._meta.goal === null || goal) {
+          metadataChanged = JSON.stringify(goal) !== JSON.stringify(this.goal);
+          this.goal = goal;
+        }
+      }
       if (Object.prototype.hasOwnProperty.call(update, 'title')) {
         const title = String(update.title || '');
         metadataChanged = metadataChanged || title !== this.title;
@@ -776,6 +805,7 @@ class AcpSessionState {
       });
       this.toolEntries.set(id, entry);
     }
+    if (entry.status === 'cancelled') return;
     for (const field of ['title', 'kind', 'status', 'content', 'locations', 'rawInput', 'rawOutput', '_meta']) {
       if (!isPatch || Object.prototype.hasOwnProperty.call(update, field)) {
         if (update[field] !== undefined) entry[field] = clone(update[field]);
@@ -792,6 +822,7 @@ class AcpSessionState {
       entry = this.pushEntry({ id, type: 'compaction', status: 'in_progress', summary: '' });
       this.compactionEntries.set(id, entry);
     }
+    if (entry.status === 'cancelled') return;
     if (Object.prototype.hasOwnProperty.call(update, 'status')) entry.status = String(update.status || 'completed');
     if (Object.prototype.hasOwnProperty.call(update, 'summary')) entry.summary = String(update.summary || '');
     this.touchEntry(entry);
@@ -803,6 +834,7 @@ class AcpSessionState {
       && candidate?._meta?.contextCompaction === true
     ));
     if (!entry) return false;
+    if (entry.status === 'cancelled' || entry.status === 'failed') return true;
     if (entry.status !== 'completed' || entry.title !== 'Context compacted') {
       entry.status = 'completed';
       entry.title = 'Context compacted';
@@ -871,7 +903,7 @@ class AcpSessionState {
         entryPatch: { version: 1, order: page.map(entry => String(entry.id)), pageCursor: options.cursor || null },
         nextCursor: startIndex > 0 ? String(this.entries[startIndex].id) : null,
         forkOrigin: this.forkOriginSnapshot(), revision: this.revision, delta,
-        hasMoreBefore: startIndex > 0, codexSubagents: clone(this.codexSubagents),
+        hasMoreBefore: startIndex > 0, goal: clone(this.goal), codexSubagents: clone(this.codexSubagents),
       };
     }
 
@@ -905,6 +937,7 @@ class AcpSessionState {
       revision: this.revision,
       delta,
       hasMoreBefore: startIndex > 0,
+      goal: clone(this.goal),
       codexSubagents: clone(this.codexSubagents),
     };
   }
@@ -959,6 +992,7 @@ class AcpSessionState {
       currentModeId: this.currentModeId,
       configOptions: clone(this.configOptions),
       promptSuggestion: clone(this.promptSuggestion),
+      goal: clone(this.goal),
       codexSubagents: clone(this.codexSubagents),
     };
     if (options.includeUpdates === true) snapshot.updates = clone(this.updates);
@@ -1011,6 +1045,7 @@ class AcpSessionState {
       configOptions: clone(this.configOptions),
       title: this.title,
       updatedAt: this.updatedAt,
+      goal: clone(this.goal),
       codexSubagents: clone(this.codexSubagents),
       truncated: this.truncated,
     };

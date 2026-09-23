@@ -1,3 +1,4 @@
+import type { AgentGoal } from '../../../shared/agent-goal'
 import type { AgentTranscriptProcessItem } from './acp/acp-entry-projection'
 import { ChevronRightGlyph } from '../IconGlyphs'
 import { planDetailItems } from './agent-plan'
@@ -55,6 +56,31 @@ export function AgentPlanActivityPreview({
           <div className="code-agent-transcript-plan-driver-detail">{plan.detail}</div>
         )
       ) : null}
+    </aside>
+  )
+}
+
+export function AgentGoalActivityPreview({ goal, expanded, onToggle }: {
+  goal: AgentGoal
+  expanded: boolean
+  onToggle: () => void
+}) {
+  return (
+    <aside className={`code-agent-transcript-plan-driver ${expanded ? 'expanded' : ''}`}
+      data-testid="code-agent-goal-driver" aria-label="Current goal">
+      <button type="button" className="code-agent-transcript-plan-driver-summary"
+        aria-expanded={expanded} onClick={onToggle}>
+        <span>Goal</span>
+        <small>{goal.status}</small>
+        <em title={goal.objective}>{goal.objective}</em>
+        <ChevronRightGlyph className="code-agent-transcript-plan-driver-chevron" />
+      </button>
+      {expanded ? <div className="code-agent-transcript-plan-driver-detail">
+        <div>{goal.objective}</div>
+        {goal.tokensUsed !== undefined ? <div>Tokens used: {goal.tokensUsed.toLocaleString()}</div> : null}
+        {goal.tokenBudget !== undefined ? <div>Token budget: {goal.tokenBudget.toLocaleString()}</div> : null}
+        {goal.timeUsedSeconds !== undefined ? <div>Time used: {goal.timeUsedSeconds.toLocaleString()} s</div> : null}
+      </div> : null}
     </aside>
   )
 }

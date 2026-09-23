@@ -2637,7 +2637,11 @@ async function run() {
         _meta: { farmingTurn: { version: 1, turnId, status, sequence } } },
     });
     nativeEvent('native-1', 'started', 1);
-    nativeEvent('native-1', 'completed', 2);
+    nativeHandlers.sessionUpdate({ sessionId: nativeBinding.sessionId, update: {
+      sessionUpdate: 'tool_call', toolCallId: 'native-cancelled-tool', status: 'in_progress', title: 'Native command',
+    } });
+    nativeEvent('native-1', 'cancelled', 2);
+    assert.strictEqual(runtime.getSession('agent-native-lifecycle').entries.find(entry => entry.id === 'native-cancelled-tool').status, 'cancelled');
     nativeEvent('native-2', 'started', 3);
     const autonomousTurn = nativeBinding.activeTurn;
     assert.strictEqual(autonomousTurn.nativeTurnId, 'native-2');
@@ -2646,6 +2650,8 @@ async function run() {
     await managedNative;
     assert.strictEqual(nativeBinding.activeTurn, autonomousTurn, 'late request settlement must preserve autonomous execution');
     assert.strictEqual(runtime.getSession('agent-native-lifecycle').state, 'working');
+    assert.strictEqual(runtime.getSession('agent-native-lifecycle').entries.find(entry => entry.turnStartedAt).turnStopReason, 'cancelled',
+      'late request completion must preserve the native cancellation reason');
     nativeEvent('native-1', 'completed', 4);
     nativeEvent('native-2', 'completed', 2);
     nativeEvent('native-2', 'completed', 5, 'unrelated-session');
