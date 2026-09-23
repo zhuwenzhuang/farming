@@ -91,7 +91,13 @@ async function run() {
     assert(readCalls.some(call => call.method === 'thread/items/list'));
     assert(JSON.stringify(snapshots).includes('Live child history read without resume.'));
     assert.strictEqual(firstBinding.subagentStates.size, 0, 'read projection must not acquire a child runtime or overwrite live state');
-    assert(readCalls.every(call => ['thread/read', 'thread/turns/list', 'thread/items/list', 'thread/list'].includes(call.method)), 'viewing may only read');
+    // Shared app-server startup discovery can finish while the child transcript is read.
+    // Every request in that interval must still be read-only.
+    const readOnlyMethods = new Set([
+      'account/read', 'config/read', 'skills/list', 'model/list',
+      'thread/read', 'thread/turns/list', 'thread/items/list', 'thread/list',
+    ]);
+    assert(readCalls.every(call => readOnlyMethods.has(call.method)), 'viewing may only read');
     assert.strictEqual(firstBinding.child.pid, secondBinding.child.pid);
     await assert.rejects(runtime.getSubagentTranscriptSessionForRead('shared-codex-a', second.sessionId), /not a child/);
 
