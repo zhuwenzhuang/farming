@@ -10,7 +10,7 @@ async function run() {
   const root = path.join(__dirname, '..', '..');
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-codex-archive-'));
   const log = path.join(tmp, 'requests.jsonl');
-  const child = spawn(process.execPath, [path.join(root, 'dist/acp/codex-acp-1.12.0.mjs')], {
+  const child = spawn(process.execPath, [path.join(root, 'dist/acp/codex-acp-1.13.0.mjs')], {
     cwd: root,
     detached: process.platform !== 'win32',
     env: {

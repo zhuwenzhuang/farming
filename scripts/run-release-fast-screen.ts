@@ -98,6 +98,10 @@ const tasks: FastScreenTask[] = [
     name: 'Workspace restoration admission and cancellation',
     args: ['--import', 'tsx', '--test', 'tests/workspace-request-admission.test.ts'],
   },
+  {
+    name: 'Workspace view persistence and bounded Transcript reads',
+    args: ['--import', 'tsx', '--test', 'tests/workspace-view-state.test.ts', 'tests/acp-transcript-session-pool.test.ts'],
+  },
 ];
 
 async function runTask(task: FastScreenTask): Promise<{ name: string; code: number }> {

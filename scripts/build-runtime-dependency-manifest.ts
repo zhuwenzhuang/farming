@@ -62,8 +62,8 @@ const lock = JSON.parse(
 ) as PackageLock;
 const packages = lock.packages || {};
 
-const CODEX_VERSION = '0.155.1';
-const CLAUDE_VERSION = '0.3.274';
+const CODEX_VERSION = '0.156.1';
+const CLAUDE_VERSION = '0.3.280';
 const AGENT_BROWSER_VERSION = agentBrowserSource.version;
 
 const PLATFORM_TARGETS: Record<string, PlatformTarget> = {

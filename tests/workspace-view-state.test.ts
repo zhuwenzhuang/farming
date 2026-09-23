@@ -38,6 +38,9 @@ test('normalizes the complete stable workspace view state', () => {
       'project-a': {
         agentsCollapsed: true,
         agentVisibleLimit: 12.2,
+        repositoriesCollapsed: false,
+        repositoryCollapsed: true,
+        gitHistoryRepositoryPath: ' /repo/submodule ',
         changesCollapsed: false,
         filesCollapsed: false,
         gitHistoryCollapsed: false,
@@ -95,6 +98,9 @@ test('normalizes the complete stable workspace view state', () => {
   assert.deepEqual(state.projectFiles?.['project-a'], {
     agentsCollapsed: true,
     agentVisibleLimit: 12,
+    repositoriesCollapsed: false,
+    repositoryCollapsed: true,
+    gitHistoryRepositoryPath: ' /repo/submodule ',
     changesCollapsed: false,
     filesCollapsed: false,
     gitHistoryCollapsed: false,

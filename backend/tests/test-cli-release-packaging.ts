@@ -104,7 +104,7 @@ function run() {
   assert(
     packagedAcpBridge.includes("PACKAGED_CODEX_ACP_ARG = '--farming-codex-acp'")
       && packagedAcpBridge.includes('omitted its embedded Codex ACP runtime')
-      && bundleCliScript.includes("'codex-acp-1.12.0.mjs'")
+      && bundleCliScript.includes("'codex-acp-1.13.0.mjs'")
       && bundleCliScript.includes('/packaged-(?:codex|claude|pi)-acp\\.(?:cjs|cts)$/'),
     'standalone CLI must bundle a hidden entry for the pinned Codex ACP runtime',
   );
@@ -115,7 +115,7 @@ function run() {
   assert(
     packagedClaudeAcpBridge.includes("PACKAGED_CLAUDE_ACP_ARG = '--farming-claude-acp'")
       && packagedClaudeAcpBridge.includes('omitted its embedded Claude ACP runtime')
-      && bundleCliScript.includes("'claude-agent-acp-0.79.0.mjs'"),
+      && bundleCliScript.includes("'claude-agent-acp-0.81.0.mjs'"),
     'standalone CLI must bundle a hidden entry for the pinned Claude ACP runtime',
   );
   const bundleOutputRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-cli-bundle-test-'));
@@ -294,7 +294,9 @@ function run() {
   );
   assert(
     packageJson.scripts?.['prepare:ripgrep-runtime']
-      && packageJson.scripts?.build.endsWith('npm run prepare:ripgrep-runtime')
+      && packageJson.scripts?.build.split(' && ').includes('vite build')
+      && packageJson.scripts?.build.split(' && ').indexOf('npm run prepare:ripgrep-runtime')
+        > packageJson.scripts?.build.split(' && ').indexOf('vite build')
       && packageJson.scripts?.pretest.includes('prepare:ripgrep-runtime')
       && packageJson.scripts?.['prepare:packaged-runtimes'],
     'source builds must prepare ripgrep after Vite clears dist, while tests, npm, and target releases also prepare it',
@@ -312,11 +314,12 @@ function run() {
       && npmPackageScript.includes('rootManifest.gitHead = gitSha')
       && packageJson.overrides?.['@hono/node-server'] === '2.0.11'
       && !npmPackageScript.includes("['@hono/node-server', rootManifest.overrides?.['@hono/node-server']]")
-      && npmPackageScript.includes("['dompurify', rootManifest.overrides?.dompurify]")
+      && npmPackageScript.includes("'monaco-editor', 'dompurify', 'npm'")
+      && npmPackageScript.includes('package/dist/frontend-licenses.txt')
       && npmPackageScript.includes("expressManifest.version !== '5.2.1'")
       && npmPackageScript.includes("bodyParserManifest.version !== '2.3.0'")
       && npmPackageScript.includes("qsManifest.version !== '6.16.0'"),
-    'npm packaging must stage the locked production tree, retain reviewed development overrides, and pin the reviewed Express body-parsing chain before bundling',
+    'npm packaging must stage the locked production tree, exclude build-only runtime trees while preserving frontend notices, and pin the reviewed Express body-parsing chain',
   );
   assert(
     npmSmokeScript.includes('PACKAGE_TARBALL="${1:-}"')

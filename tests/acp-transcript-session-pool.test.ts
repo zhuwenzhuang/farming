@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { ACP_TRANSCRIPT_UNSETTLED_RETRY_LADDER_LENGTH } from '../src/lib/transcript-fetch-policy'
+import { ACP_TRANSCRIPT_FETCH_RETRY_DELAYS_MS, ACP_TRANSCRIPT_UNSETTLED_RETRY_LADDER_LENGTH } from '../src/lib/transcript-fetch-policy'
 import {
   ACP_TRANSCRIPT_READ_TIMEOUT_MS,
   attachAcpTranscriptSession,
@@ -633,13 +633,19 @@ test('hung transcript reads expire and release foreground capacity', async conte
     }
     assert.equal(requests.length, 3)
     context.mock.timers.tick(ACP_TRANSCRIPT_READ_TIMEOUT_MS)
-    for (let i = 0; i < 20; i++) await Promise.resolve()
+    for (let iteration = 0; iteration < 20; iteration++) await Promise.resolve()
+    assert.equal(getAcpTranscriptSessionSnapshot('hung-a').error, null)
+    assert(requests.some(url => url.includes('foreground')), 'expired reads must release their slots before retrying')
+    context.mock.timers.tick(ACP_TRANSCRIPT_FETCH_RETRY_DELAYS_MS[0])
+    for (let iteration = 0; iteration < 20; iteration++) await Promise.resolve()
+    assert.equal(requests.filter(url => url.includes('hung-a')).length, 2)
+    context.mock.timers.tick(ACP_TRANSCRIPT_READ_TIMEOUT_MS)
+    for (let iteration = 0; iteration < 20; iteration++) await Promise.resolve()
     assert.equal(getAcpTranscriptSessionSnapshot('hung-a').error, 'transport')
     assert.equal(getAcpTranscriptSessionSnapshot('hung-a').loading, false)
-    assert(requests.some(url => url.includes('foreground')), 'expired reads must release their slots')
   } finally {
     resetAcpTranscriptSessionPoolForTests()
-    for (let i = 0; i < 20; i++) await Promise.resolve()
+    for (let iteration = 0; iteration < 20; iteration++) await Promise.resolve()
     globalThis.fetch = previousFetch
     context.mock.timers.reset()
   }

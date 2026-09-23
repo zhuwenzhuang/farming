@@ -1273,18 +1273,24 @@ async function runTests() {
     const packageJson = require('../../package.json');
     const packageLock = require('../../package-lock.json');
     const notices = fs.readFileSync(path.join(process.cwd(), 'THIRD_PARTY_NOTICES.md'), 'utf8');
-    const directSection = notices.match(/## Direct Runtime Dependencies\n([\s\S]*?)\n## Vendored Assets/);
-    assert(directSection, 'third-party notices must include a direct runtime dependency section');
+    const directSection = notices.match(/## Direct Application Dependencies\n([\s\S]*?)\n## Vendored Assets/);
+    assert(directSection, 'third-party notices must include a direct application dependency section');
+    const applicationDependencies = [
+      ...Object.keys(packageJson.dependencies || {}),
+      '@visactor/vtable',
+      'mermaid',
+      'monaco-editor',
+    ];
     const rows = new Map(
       [...directSection[1].matchAll(/^\| `([^`]+)` \| ([^|]+) \|/gm)]
         .map(match => [match[1], match[2].trim()])
     );
     assert.deepStrictEqual(
       [...rows.keys()].sort(),
-      Object.keys(packageJson.dependencies || {}).sort(),
-      'third-party notices must list every direct runtime dependency and no removed dependency'
+      applicationDependencies.sort(),
+      'third-party notices must list runtime and compiled application dependencies without removed dependencies'
     );
-    for (const dependency of Object.keys(packageJson.dependencies || {})) {
+    for (const dependency of applicationDependencies) {
       const locked = packageLock.packages[`node_modules/${dependency}`];
       assert(locked?.version, `missing lockfile package metadata for ${dependency}`);
       assert.strictEqual(rows.get(dependency), locked.version, `stale third-party notice version for ${dependency}`);
