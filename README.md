@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./public/farming-2/app-icon-v2-512.png" alt="Farming Code" width="112">
+  <a href="./public/farming-2/app-icon-v2-512.png"><img src="./public/farming-2/app-icon-v2-512.webp" alt="Farming Code" width="112"></a>
 </p>
 
 <h1 align="center">Farming Code</h1>
@@ -40,11 +40,11 @@ See [installation requirements](https://zhuwenzhuang.github.io/farming/en/get-st
   <img alt="macOS and Linux" src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux-555">
 </p>
 
-![Farming Code workbench](./docs/products/code/assets/01-code-workspace.png)
+[![Farming Code workbench](./docs/products/code/assets/01-code-workspace.webp)](./docs/products/code/assets/01-code-workspace.png)
 
 Farming Code runs on the same development machine as your repositories and coding CLIs. Agent processes, terminals, and project files stay on that machine; a desktop or phone browser connects to those real sessions.
 
-![Start an Agent](./docs/products/code/assets/02-start-agent-picker.png)
+[![Start an Agent](./docs/products/code/assets/02-start-agent-picker.webp)](./docs/products/code/assets/02-start-agent-picker.png)
 
 ## Farming Code
 
@@ -56,7 +56,7 @@ Start or resume Codex, Claude Code, Pi, OpenCode, Qoder, Qwen Code, and other de
 coding Agents. Use structured Chat to read results and inspect the process, or
 Terminal to work directly with the CLI.
 
-![Farming Code structured Agent process](./docs/products/code/assets/11-code-agent-process.png)
+[![Farming Code structured Agent process](./docs/products/code/assets/11-code-agent-process.webp)](./docs/products/code/assets/11-code-agent-process.png)
 
 ### Files and Review
 
@@ -93,7 +93,7 @@ security guidance.
 
 Farming CRT is an optional keyboard-first, retro control-room interface for scanning many Agents, opening their Chat or Terminal sessions, searching history, and viewing usage telemetry.
 
-![Farming CRT multi-agent dashboard](./docs/products/crt/assets/01-crt-dashboard.png)
+[![Farming CRT multi-agent dashboard](./docs/products/crt/assets/01-crt-dashboard.webp)](./docs/products/crt/assets/01-crt-dashboard.png)
 
 Code and CRT use the same backend Agents and sessions. Switching interfaces does not create a second Agent. Farming Code remains the default interface and the supported phone interface. See the [Farming CRT guide](./docs/products/crt/README.md) for controls and workflows.
 
@@ -102,7 +102,7 @@ Code and CRT use the same backend Agents and sessions. Switching interfaces does
 Install with the command above and update from **Settings → Updates**.
 Both installation and updates use the npm registry.
 
-![Farming npm update settings](./docs/products/code/assets/14-code-settings.png)
+[![Farming npm update settings](./docs/products/code/assets/14-code-settings.webp)](./docs/products/code/assets/14-code-settings.png)
 
 Standalone CLI and directory bundles remain available from [GitHub Releases](https://github.com/zhuwenzhuang/farming/releases) for manual installation. The in-app updater never reads GitHub Releases; it is available only to npm installations.
 

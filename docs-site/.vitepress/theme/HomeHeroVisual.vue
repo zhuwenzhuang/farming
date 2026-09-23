@@ -13,7 +13,7 @@ const glyphDelay = (startSeconds: number, index: number, stepSeconds = 0.07) =>
   <div class="farming-home-visual">
     <img
       class="farming-home-illustration"
-      :src="withBase('/farming-hero.png')"
+      :src="withBase('/farming-hero.webp')"
       alt="Farming Code"
     >
 

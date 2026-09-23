@@ -149,7 +149,7 @@ const enSidebar = [
 
 const commonTheme = {
   logo: {
-    light: '/farming-icon.png',
+    light: '/farming-icon.webp',
     dark: '/farming-crt-icon.svg',
   },
 }
@@ -290,7 +290,7 @@ export default defineConfig({
   head: [
     ['script', {}, themeFromUrlScript],
     ['meta', { name: 'theme-color', content: '#f7f4ec' }],
-    ['link', { rel: 'icon', href: `${base}farming-icon.png` }],
+    ['link', { rel: 'icon', href: `${base}farming-favicon.png` }],
   ],
   themeConfig: {
     ...zhTheme,

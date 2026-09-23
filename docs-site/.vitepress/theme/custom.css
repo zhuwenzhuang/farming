@@ -145,7 +145,7 @@
     radial-gradient(ellipse 46% 32% at 80% 8%, rgba(210, 175, 104, 0.1), transparent 72%),
     radial-gradient(ellipse 40% 34% at 18% 23%, rgba(125, 145, 102, 0.08), transparent 70%),
     radial-gradient(ellipse 38% 28% at 58% 66%, rgba(190, 158, 94, 0.06), transparent 72%),
-    url("/farming-paper.png");
+    url("/farming-paper.webp");
   background-size: 100% 100%, 1100px 760px, 980px 780px, 900px 720px, 640px 640px;
 }
 

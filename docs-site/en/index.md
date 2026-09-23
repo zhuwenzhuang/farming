@@ -6,7 +6,7 @@ hero:
   text: A browser workspace for AI coding agents
   tagline: Run coding agents on your machine. Open Farming in your browser.
   image:
-    src: /farming-hero.png
+    src: /farming-hero.webp
     alt: Farming Code
   actions:
     - theme: brand

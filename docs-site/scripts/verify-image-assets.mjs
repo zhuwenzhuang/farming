@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 const siteRoot = path.resolve(import.meta.dirname, '..')
+const repositoryRoot = path.resolve(siteRoot, '..')
 const sourceRoots = ['cn', 'en'].map(locale => path.join(siteRoot, locale))
 const publicRoot = path.join(siteRoot, 'public')
 const outputRoot = path.join(siteRoot, '.vitepress', 'dist')
@@ -29,6 +30,10 @@ for (const sourceRoot of sourceRoots) {
       if (!fs.existsSync(target) || !fs.statSync(target).isFile()) {
         failures.push(`${path.relative(siteRoot, file)} references missing ${reference}`)
       }
+      const companion = target.replace(/\.(?:png|webp)$/, reference.endsWith('.png') ? '.webp' : '.png')
+      if (!fs.existsSync(companion) || !fs.statSync(companion).isFile()) {
+        failures.push(`${path.relative(siteRoot, file)} is missing its ${path.extname(companion)} companion for ${reference}`)
+      }
     }
     for (const match of source.matchAll(/<ThemeImage\b[\s\S]*?\/>/g)) {
       for (const appearance of ['light', 'dark', 'paper']) {
@@ -37,6 +42,17 @@ for (const sourceRoot of sourceRoots) {
         }
       }
     }
+  }
+}
+
+for (const name of ['README.md', 'README.zh_cn.md']) {
+  const source = fs.readFileSync(path.join(repositoryRoot, name), 'utf8')
+  const references = Array.from(source.matchAll(/(?:src="|!\[[^\]]*\]\()(\.\/[^)"\s]+\.webp)/g), match => match[1])
+  for (const reference of references) {
+    const display = path.join(repositoryRoot, reference)
+    const original = display.replace(/\.webp$/, '.png')
+    if (!fs.existsSync(display)) failures.push(`${name} references missing ${reference}`)
+    if (!fs.existsSync(original)) failures.push(`${name} is missing its PNG original for ${reference}`)
   }
 }
 

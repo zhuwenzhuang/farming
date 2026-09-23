@@ -52,7 +52,7 @@ Farming Pet 是可选的番茄钟式休息提醒。可以设置提醒间隔，�
 
 ### 黑洞
 
-![Farming Pet 黑洞休息界面](/cn/assets/pet-black-hole.png)
+![Farming Pet 黑洞休息界面](/cn/assets/pet-black-hole.webp)
 
 ## Updates
 

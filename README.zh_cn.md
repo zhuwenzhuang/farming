@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./public/farming-2/app-icon-v2-512.png" alt="Farming Code" width="112">
+  <a href="./public/farming-2/app-icon-v2-512.png"><img src="./public/farming-2/app-icon-v2-512.webp" alt="Farming Code" width="112"></a>
 </p>
 
 <h1 align="center">Farming Code</h1>
@@ -40,11 +40,11 @@ macOS / Linux；任选一种方式，打开输出的访问地址，选择 **New 
   <img alt="macOS and Linux" src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux-555">
 </p>
 
-![Farming Code 工作台](./docs/products/code/assets/01-code-workspace.png)
+[![Farming Code 工作台](./docs/products/code/assets/01-code-workspace.webp)](./docs/products/code/assets/01-code-workspace.png)
 
 Farming Code 与代码仓库和 Coding CLI 运行在同一台开发机上。Agent 进程、终端和项目文件都留在这台机器上；电脑或手机浏览器连接并操作这些真实 Session。
 
-![启动 Agent](./docs/products/code/assets/02-start-agent-picker.png)
+[![启动 Agent](./docs/products/code/assets/02-start-agent-picker.webp)](./docs/products/code/assets/02-start-agent-picker.png)
 
 ## Farming Code
 
@@ -54,7 +54,7 @@ Farming Code 是默认的桌面与手机界面。它按项目组织工作，把�
 
 启动或恢复 Codex、Claude Code、Pi、OpenCode、Qoder、Qwen Code 以及其他检测到的 Coding Agent。使用结构化 Chat 阅读结果和检查过程，或使用 Terminal 直接操作 CLI。
 
-![Farming Code 结构化 Agent 过程](./docs/products/code/assets/11-code-agent-process.png)
+[![Farming Code 结构化 Agent 过程](./docs/products/code/assets/11-code-agent-process.webp)](./docs/products/code/assets/11-code-agent-process.png)
 
 ### Files 与 Review
 
@@ -86,7 +86,7 @@ Farming 让人和 Agent 使用同一个 Project Browser。详见 [Farming Browse
 
 Farming CRT 是可选的键盘优先复古控制室，用来扫视多个 Agent、打开它们的 Chat 或 Terminal、搜索 History，以及查看用量遥测。
 
-![Farming CRT 多 Agent 仪表盘](./docs/products/crt/assets/01-crt-dashboard.png)
+[![Farming CRT 多 Agent 仪表盘](./docs/products/crt/assets/01-crt-dashboard.webp)](./docs/products/crt/assets/01-crt-dashboard.png)
 
 Code 与 CRT 使用相同的后端 Agent 和 Session，切换界面不会创建第二个 Agent。Farming Code 仍是默认界面，也是受支持的手机界面。控制方式和完整流程见 [Farming CRT 指南](./docs/products/crt/README.zh_cn.md)。
 
@@ -94,7 +94,7 @@ Code 与 CRT 使用相同的后端 Agent 和 Session，切换界面不会创建�
 
 通过上面的命令安装，在 **Settings → Updates** 中更新。安装和更新均使用 npm registry。
 
-![Farming npm 更新设置](./docs/products/code/assets/14-code-settings.png)
+[![Farming npm 更新设置](./docs/products/code/assets/14-code-settings.webp)](./docs/products/code/assets/14-code-settings.png)
 
 独立 CLI 和目录 Bundle 仍可从 [GitHub Releases](https://github.com/zhuwenzhuang/farming/releases) 手动下载安装。应用内更新不会读取 GitHub Releases，只对 npm 安装开放。
 

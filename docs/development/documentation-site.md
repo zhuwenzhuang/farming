@@ -50,6 +50,11 @@ Screenshots in documentation articles open in an enlarged viewer. The viewer
 must support pointer and keyboard activation, an explicit close control,
 `Escape`, backdrop dismissal, focus restoration, and bounded display on mobile.
 Images that already act as links keep their original navigation behavior.
+Pages display quality-95 WebP derivatives and the enlarged viewer opens the
+original PNG. The PNG captures remain the source of truth; the documentation
+build regenerates WebP files, including homepage artwork. README display WebPs
+are checked into the repository and regenerated with
+`cd docs-site && npm run images:readme` after their PNG sources change.
 
 The quick start is an executable, numbered task flow rather than a feature
 inventory. Each major step states an observable checkpoint, while prerequisites,

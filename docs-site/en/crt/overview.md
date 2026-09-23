@@ -6,7 +6,7 @@ description: Farming's keyboard-first interface for monitoring Agents, using Cha
 
 Farming CRT is a keyboard-first second interface for scanning Agents, Chat, Terminal, Search, and History. It connects to the same backend as Farming Code and does not create another set of Sessions.
 
-![Farming CRT control room](/cn/assets/crt-dashboard.png)
+![Farming CRT control room](/cn/assets/crt-dashboard.webp)
 
 ## Main control screen
 
@@ -14,19 +14,19 @@ The main screen arranges Projects and Agent states into a compact control room. 
 
 ## Chat
 
-![Farming CRT structured Chat](/cn/assets/crt-chat.png)
+![Farming CRT structured Chat](/cn/assets/crt-chat.webp)
 
 Agents with structured Chat show messages, progress, and a Composer while retaining keyboard-first navigation.
 
 ## Terminal
 
-![Farming CRT Terminal](/cn/assets/crt-terminal-20260806.png)
+![Farming CRT Terminal](/cn/assets/crt-terminal-20260806.webp)
 
 Terminal connects to the same native PTY Session for complete output and native coding CLI interaction.
 
 ## Token usage
 
-![Farming CRT Token usage](/cn/assets/crt-usage-20260806.png)
+![Farming CRT Token usage](/cn/assets/crt-usage-20260806.webp)
 
 The Token view summarizes current Provider activity and historical usage to reveal active periods, trends, and unusual peaks.
 

@@ -34,7 +34,7 @@ const prepareImages = () => {
 
 const open = async (image: HTMLImageElement) => {
   trigger = image
-  imageSource.value = image.currentSrc || image.src
+  imageSource.value = (image.currentSrc || image.src).replace(/\.webp(?=\?|$)/, '.png')
   imageAlt.value = image.alt
   previousOverflow = document.documentElement.style.overflow
   document.documentElement.style.overflow = 'hidden'

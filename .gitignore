@@ -37,6 +37,8 @@ docs/products/hive/
 .farming/
 .farming-runtime-seed/
 .tmp/
+docs-site/public/**/*.webp
+docs-site/public/farming-favicon.png
 docs-site/public/install.sh
 tmp/
 test-results/

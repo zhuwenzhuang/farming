@@ -6,7 +6,7 @@ hero:
   text: 浏览器中的 AI Coding Agent 工作区
   tagline: 在开发机上运行 Coding Agent，通过浏览器开始使用。
   image:
-    src: /farming-hero.png
+    src: /farming-hero.webp
     alt: Farming Code
   actions:
     - theme: brand

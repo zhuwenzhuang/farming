@@ -47,7 +47,7 @@ It measures foreground use of the current Farming tab and does not pause or alte
 
 ### Black hole
 
-![Farming Pet black-hole rest screen](/cn/assets/pet-black-hole.png)
+![Farming Pet black-hole rest screen](/cn/assets/pet-black-hole.webp)
 
 ## Updates
 

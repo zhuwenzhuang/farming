@@ -9,9 +9,10 @@ const props = defineProps<{
   alt: string
 }>()
 
-const lightSource = computed(() => withBase(props.light))
-const darkSource = computed(() => withBase(props.dark))
-const paperSource = computed(() => withBase(props.paper))
+const displaySource = (source: string) => withBase(source.replace(/\.png$/, '.webp'))
+const lightSource = computed(() => displaySource(props.light))
+const darkSource = computed(() => displaySource(props.dark))
+const paperSource = computed(() => displaySource(props.paper))
 </script>
 
 <template>
