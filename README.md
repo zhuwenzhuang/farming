@@ -13,31 +13,36 @@
   <a href="./README.zh_cn.md">简体中文</a>
 </p>
 
+## Quick Start
+
+**npm installation** — Node.js 22.13+ (22.x) or 24+, with npm's bin directory in PATH.
+
+```bash
+npm install --global farming-code@latest
+farming daemon
+```
+
+**Directory installation** — provides Node.js and compatibility for supported older Linux hosts.
+
+```bash
+curl -fsSL https://zhuwenzhuang.github.io/farming/install.sh | bash
+~/.local/bin/farming daemon
+```
+
+macOS / Linux. Choose one method, then open the printed URL and choose **New Agent**.
+See [installation requirements](https://zhuwenzhuang.github.io/farming/en/get-started/installation).
+
 <p align="center">
   <a href="https://github.com/zhuwenzhuang/farming/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/zhuwenzhuang/farming/actions/workflows/ci.yml/badge.svg"></a>
   <a href="https://github.com/zhuwenzhuang/farming/releases"><img alt="Release" src="https://img.shields.io/github/v/release/zhuwenzhuang/farming?label=release"></a>
   <a href="https://www.npmjs.com/package/farming-code"><img alt="npm" src="https://img.shields.io/npm/v/farming-code?label=npm"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/github/license/zhuwenzhuang/farming"></a>
-  <img alt="Node.js 22.13 LTS or 24+" src="https://img.shields.io/badge/node-22.13_LTS_%7C_24%2B-339933?logo=nodedotjs&amp;logoColor=white">
   <img alt="macOS and Linux" src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux-555">
 </p>
 
 ![Farming Code workbench](./docs/products/code/assets/01-code-workspace.png)
 
 Farming Code runs on the same development machine as your repositories and coding CLIs. Agent processes, terminals, and project files stay on that machine; a desktop or phone browser connects to those real sessions.
-
-## Quick Start
-
-With Node.js 22.13 LTS (22.x) or Node.js 24+ and access to a supported coding
-Agent provider:
-
-```bash
-npm install --global farming-code@latest && farming daemon
-```
-
-Open one of the authenticated URLs printed by the command, choose **New Agent**,
-and start a task. See [Getting started](./docs/getting-started.md) for the complete
-first-run flow.
 
 ![Start an Agent](./docs/products/code/assets/02-start-agent-picker.png)
 
@@ -94,8 +99,8 @@ Code and CRT use the same backend Agents and sessions. Switching interfaces does
 
 ## Installation And Updates
 
-Install with the Quick Start command above. npm installations can update from
-**Settings → Updates**.
+Install with the command above and update from **Settings → Updates**.
+Both installation and updates use the npm registry.
 
 ![Farming npm update settings](./docs/products/code/assets/14-code-settings.png)
 

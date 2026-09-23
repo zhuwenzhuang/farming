@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Only the user-directory installation calls this entry. Keep the user's PATH
+# and dynamic loader environment intact for project shells and native tools.
+root="$(cd "$(dirname "$0")/.." && pwd)"
+case "$(uname -s)-$(uname -m)" in
+  Darwin-arm64) carrier=node-bin-darwin-arm64 ;;
+  Darwin-x86_64) carrier=node-darwin-x64 ;;
+  Linux-x86_64) carrier=node-linux-x64 ;;
+  Linux-aarch64|Linux-arm64) carrier=node-linux-arm64 ;;
+  *) echo "Unsupported Farming runtime platform." >&2; exit 1 ;;
+esac
+node_bin="${root}/node_modules/${carrier}/bin/node"
+if [ ! -x "${node_bin}" ]; then
+  echo "Farming's private Node.js is missing. Reinstall with optional dependencies enabled." >&2
+  exit 1
+fi
+if [ ! -f "${root}/node_modules/npm/bin/npm-cli.js" ]; then
+  echo "Farming's private npm is missing. Reinstall with optional dependencies enabled." >&2
+  exit 1
+fi
+export FARMING_MANAGED_NODE_ROOT="${root}"
+export FARMING_NODE_BIN="${node_bin}"
+export FARMING_NPM_COMMAND="${root}/bin/farming-npm"
+unset FARMING_NODE_LD FARMING_NODE_LIBRARY_PATH
+if [ "$(uname -s)" = Linux ]; then
+  glibc="$(getconf GNU_LIBC_VERSION 2>/dev/null || true)"
+  case "${glibc}" in
+    'glibc 2.'*)
+      minor="${glibc#glibc 2.}"
+      minor="${minor%%.*}"
+      if [ "${minor}" -lt 28 ]; then
+        if [ "${carrier}" != node-linux-x64 ] || [ "${minor}" -lt 17 ]; then
+          echo "Farming requires glibc 2.28+, or glibc 2.17+ on Linux x64." >&2
+          exit 1
+        fi
+        export FARMING_NODE_LIBRARY_PATH="${root}/dist/runtime/glibc228"
+        export FARMING_NODE_LD="${FARMING_NODE_LIBRARY_PATH}/ld-2.28.so"
+        [ -x "${FARMING_NODE_LD}" ] || { echo "Farming's private glibc runtime is missing; reinstall the package." >&2; exit 1; }
+        exec "${FARMING_NODE_LD}" --library-path "${FARMING_NODE_LIBRARY_PATH}" "${node_bin}" "$@"
+      fi
+      ;;
+    *) echo "Farming's npm installer requires a glibc Linux host." >&2; exit 1 ;;
+  esac
+fi
+exec "${node_bin}" "$@"

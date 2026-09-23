@@ -43,6 +43,17 @@ if (!process.pkg) {
   }
 }
 
+// A managed update may select a different image from this stable bootstrap.
+// Restart through that image's Node and loader before loading its application.
+if (process.env.FARMING_MANAGED_NODE_ROOT && !process.pkg
+  && path.resolve(process.env.FARMING_MANAGED_NODE_ROOT) !== activePackageRoot) {
+  const launcher = path.join(activePackageRoot, 'bin', 'farming-node');
+  const args = [path.join(activePackageRoot, 'bin', 'farming'), ...process.argv.slice(2)];
+  const relaunched = spawnSync(launcher, args, { env: process.env, stdio: 'inherit' });
+  if (relaunched.error) throw relaunched.error;
+  process.exit(relaunched.status === null ? 1 : relaunched.status);
+}
+
 const [command, ...args] = process.argv.slice(2);
 if (command === 'browser' || command === 'computer') {
   const capabilityCli = path.join(

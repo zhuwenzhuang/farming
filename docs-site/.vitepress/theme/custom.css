@@ -209,17 +209,6 @@
   letter-spacing: -0.01em;
 }
 
-.VPHero .tagline .farming-hero-description {
-  display: block;
-  margin-top: 14px;
-  color: var(--vp-c-text-1);
-  font-family: var(--farming-font-sans);
-  font-size: 16px;
-  font-weight: 450;
-  line-height: 1.65;
-  letter-spacing: 0;
-}
-
 .VPHero.has-image .text {
   margin-top: 28px !important;
 }
@@ -790,6 +779,16 @@
 .VPHero .image-container {
   width: 360px;
   height: 360px;
+}
+
+/* Put the install command before decorative artwork on small screens. */
+@media (max-width: 959px) {
+  .VPHero .main { order: 0; }
+  .VPHero .image { margin: 24px 0 -32px; }
+}
+
+@media (max-width: 639px) {
+  .VPHero { padding-top: calc(var(--vp-nav-height) + 32px) !important; }
 }
 
 @media (min-width: 640px) {

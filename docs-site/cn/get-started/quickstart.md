@@ -12,7 +12,6 @@ description: 用五个步骤安装 Farming、启动第一个 Coding Agent，并�
 你需要：
 
 - macOS 或 Linux；
-- Node.js 22.13 LTS（22.x）或 Node.js 24+；
 - 至少一个已经可以正常启动的 Coding Agent，例如 Codex、Claude Code、Pi 或 OpenCode。
 
 Farming 不代替 Provider 登录。请先在运行 Farming 的 Mac 或 Linux 主机上完成相应 CLI 的登录，并确认它能独立启动。
@@ -23,12 +22,25 @@ Farming 不代替 Provider 登录。请先在运行 Farming 的 Mac 或 Linux �
 
 ## 安装并打开 Farming
 
-```bash
+已有 Node.js 22.13+（22.x）或 24+，且 npm 的 bin 目录已在 PATH 中时，选择 **npm 安装**。
+否则选择 **指定目录安装**，使用自带的 Node.js，并为受支持的旧 Linux 主机提供兼容运行环境。详见[安装要求](./installation)。
+
+::: code-group
+
+```bash [npm 安装]
 npm install --global farming-code@latest
 farming daemon
 ```
 
-`farming daemon` 会启动后台服务，并输出一个或多个带鉴权的 URL。在同一台机器上使用时，打开本机地址即可。
+```bash [指定目录安装]
+curl -fsSL https://zhuwenzhuang.github.io/farming/install.sh | bash
+~/.local/bin/farming daemon
+```
+
+:::
+
+两种方式都先安装；第二条命令通过 Farming CLI 启动后台服务，输出带鉴权的 URL。
+在同一台机器上使用时，打开本机地址即可。指定目录安装使用完整 CLI 路径，无需修改 PATH。
 
 ::: warning 保管鉴权 URL
 URL 中的 Token 可以访问 Farming。不要把它放进公开日志、截图、Issue 或聊天记录。

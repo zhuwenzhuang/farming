@@ -4,6 +4,7 @@ import '@fontsource-variable/noto-serif-sc'
 import { h } from 'vue'
 import AppearanceControl from './AppearanceControl.vue'
 import HomeHeroVisual from './HomeHeroVisual.vue'
+import HomeInstall from './HomeInstall.vue'
 import ImageViewer from './ImageViewer.vue'
 import IntegrationIcons from './IntegrationIcons.vue'
 import PageActions from './PageActions.vue'
@@ -14,6 +15,7 @@ import './custom.css'
 export default {
   extends: DefaultTheme,
   Layout: () => h(DefaultTheme.Layout, null, {
+    'home-hero-actions-after': () => h(HomeInstall),
     'home-hero-image': () => h(HomeHeroVisual),
     'aside-outline-after': () => h(PageActions, { variant: 'aside' }),
     'doc-footer-before': () => h(PageActions, { variant: 'footer' }),

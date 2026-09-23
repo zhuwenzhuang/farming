@@ -37,6 +37,7 @@ docs/products/hive/
 .farming/
 .farming-runtime-seed/
 .tmp/
+docs-site/public/install.sh
 tmp/
 test-results/
 playwright-report/

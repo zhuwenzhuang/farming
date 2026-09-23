@@ -12,7 +12,6 @@ Follow these five steps to install Farming, start a coding Agent, and complete a
 You need:
 
 - macOS or Linux;
-- Node.js 22.13 LTS (22.x) or Node.js 24+;
 - at least one coding Agent that already starts successfully, such as Codex, Claude Code, Pi, or OpenCode.
 
 Farming does not replace provider authentication. Sign in to the corresponding CLI on the Mac or Linux host running Farming and confirm that it can start independently.
@@ -23,12 +22,23 @@ On the same Mac or Linux host running Farming, the target coding Agent CLI start
 
 ## Install and open Farming
 
-```bash
+Choose **npm install** if Node.js 22.13+ (22.x) or 24+ is already available and npm's bin directory is in PATH. Otherwise, use **Directory install** for a private Node.js runtime, including compatibility for supported older Linux hosts. See [installation requirements](./installation).
+
+::: code-group
+
+```bash [npm install]
 npm install --global farming-code@latest
 farming daemon
 ```
 
-`farming daemon` starts the background service and prints one or more authenticated URLs. On the same machine, open the local address.
+```bash [Directory install]
+curl -fsSL https://zhuwenzhuang.github.io/farming/install.sh | bash
+~/.local/bin/farming daemon
+```
+
+:::
+
+Both methods install first; the second command starts Farming in the background and prints authenticated URLs. On the same machine, open the local address. The user-directory command uses the full CLI path so it works without modifying PATH.
 
 ::: warning Protect authenticated URLs
 The Token in an authenticated URL grants access to Farming. Do not put it in public logs, screenshots, issues, or chat messages.

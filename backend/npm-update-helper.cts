@@ -14,6 +14,7 @@ import {
 } from './package-installation.cjs';
 import type { ActivatePackageImageResult, PackageInstallationContext } from './package-installation.cjs';
 import { canonicalConfigDir } from './config-instance.cjs';
+import { runtimeExecutableInvocation } from './runtime-executable-invocation.cjs';
 import {
   acquireUpdateStateLock,
   commitUpdateOperationState,
@@ -366,6 +367,11 @@ function commandEnvironment(): NodeJS.ProcessEnv {
   delete env.FARMING_RUN_NATIVE_PTY_HOST;
   delete env.FARMING_ACTIVE_PACKAGE_ROOT;
   delete env.FARMING_MANAGED_PACKAGE_ROOT;
+  // The invoked package owns selection. A staging preflight must not inherit
+  // the running image's pointer and silently verify the old version instead.
+  delete env.FARMING_PACKAGE_INSTALLATION_ID;
+  delete env.FARMING_PACKAGE_INSTALLATION_ROOT;
+  delete env.FARMING_BOOTSTRAP_PACKAGE_ROOT;
   return env;
 }
 
@@ -451,7 +457,7 @@ async function installPackageFromRegistry(
   const args = ['install', '--global'];
   args.push('--prefix', String(payload.stagingPrefix));
   if (registryUrl) args.push('--registry', registryUrl);
-  args.push(packageSpec, '--no-audit', '--no-fund');
+  args.push(packageSpec, '--ignore-scripts', '--include=optional', '--no-audit', '--no-fund');
   const offset = logSize(payload.logPath);
   try {
     await runCommand(payload.npmCommand || 'npm', args, {
@@ -470,11 +476,21 @@ async function startServer(
   version = payload.targetVersion,
 ): Promise<void> {
   appendLog(payload.logPath, `Starting Farming ${version}`);
-  await runCommand(payload.nodePath, startArguments(payload, packageRoot), {
+  const invocation = packageNodeInvocation(payload, packageRoot, startArguments(payload, packageRoot));
+  await runCommand(invocation.command, invocation.args, {
     cwd: payload.configDir,
     env: commandEnvironment(),
     logPath: payload.logPath,
   });
+}
+
+function packageNodeInvocation(payload: NpmUpdatePayload, packageRoot: string, args: string[]) {
+  if (process.env.FARMING_MANAGED_NODE_ROOT) {
+    // Fail if a target lacks its runtime. Never restart a new image with the
+    // prior image's Node or libraries, including during rollback.
+    return { command: path.join(packageRoot, 'bin', 'farming-node'), args };
+  }
+  return runtimeExecutableInvocation(payload.nodePath, args);
 }
 
 function installationContext(payload: NpmUpdatePayload): PackageInstallationContext {
@@ -503,14 +519,15 @@ async function prepareNpmUpdate(payload: NpmUpdatePayload): Promise<void> {
     verifyInstalledVersion(payload, payload.targetVersion, String(payload.stagingPackageRoot));
     writeOperationState(payload, 'preparing-runtimes');
     appendLog(payload.logPath, `Preparing Farming ${payload.targetVersion} startup dependencies`);
-    await runCommand(payload.nodePath, [
+    const preparation = packageNodeInvocation(payload, String(payload.stagingPackageRoot), [
       path.join(String(payload.stagingPackageRoot), 'bin', 'farming'),
       'runtime',
       'prepare',
       '--config-dir',
       payload.configDir,
       '--no-activate',
-    ], {
+    ]);
+    await runCommand(preparation.command, preparation.args, {
       cwd: payload.configDir,
       env: commandEnvironment(),
       logPath: payload.logPath,

@@ -137,6 +137,50 @@ or startup recovery remains responsible for durable reconciliation.
 
 ## Installation Boundaries
 
+The two public setup paths are a standard npm global installation using the
+host's supported Node.js and npm, and a user-directory installation with private
+runtime carriers. Both consume the same npm release and require an explicit CLI
+start. The latter is not a project-local `npm install`; it owns a separate
+application directory. Compatibility preparation belongs to that installer and
+its published image, not to a normal global npm installation or its hooks.
+
+### User-directory bootstrap
+
+The public installer downloads Farming and its pinned Node.js and npm carriers
+from the selected npm registry. A system Node.js, global npm prefix, root
+permission, and npm lifecycle scripts are not prerequisites. Linux x64 images
+carry the reviewed private glibc runtime for hosts with glibc 2.17–2.27.
+
+The installer owns only its private staging directory and installation lock.
+Its transitions are downloading, verifying, preparing, publishing, and installed.
+All archives are integrity-checked before extraction, and native runtime
+preflight must succeed before an atomic directory rename publishes an install.
+Failure before publication removes only staging; failure after publication
+leaves the installation available for diagnosis and repair. Concurrent
+installers fail explicitly. Repeating the installer preserves the existing managed
+installation and prints the CLI startup command; updates use the existing npm
+update state machine rather than overwriting a live bootstrap directory.
+
+The installation retains its selected npm registry for later launches and updates, without rewriting the user's npm configuration.
+Its npm cache and default Package Image store live inside the installation
+directory, including bootstrap downloads. Selecting a directory on another disk
+must not require a separate cache or package-storage environment override.
+
+The stable entry lives in the user's bin directory and invokes an absolute
+private runtime path. Installation never starts, stops, or restarts a Server;
+users start Farming explicitly through the CLI. The user-directory example invokes that
+entry by its full path so first use does not depend on PATH configuration.
+Configuration, credentials, and session data remain separate from the
+program directory. The installer does not change shell startup files or register
+an operating-system startup service.
+
+Each managed image owns its pinned Node.js, npm, and compatibility libraries.
+Preparation, target startup, and rollback use the selected image's runtime.
+The launch environment must not replace the user's shell PATH or global loader
+configuration. Runtime absence is an explicit repair failure, never a fallback
+to system Node.js. Ordinary npm and source installations retain their existing
+launch contracts.
+
 - **Source checkout** follows the repository and package-manager workflow of
   that checkout.
 - **npm installation** may use in-app update and immutable Package Images.
@@ -173,6 +217,9 @@ untouched and reports a retryable failure.
 ## Acceptance Criteria
 
 Verification must cover installation with npm lifecycle scripts disabled,
+user-directory installation without system Node.js or a configured executable
+PATH, integrity/preflight failures before publication, repeat/concurrent
+installation, and per-image Node.js selection during update and rollback,
 first installation without startup downloads, concurrent Configs, update
 preparation while serving traffic, a configured registry failure followed by a
 clean authoritative-registry retry without inspecting error text, stale
@@ -181,3 +228,14 @@ each supported installation form's boundary. The focused npm update state-machin
 test is a release-preparation gate, not only an ordinary unit test. Deterministic
 timeout coverage must prove that late detached-helper commits cannot replace the
 terminal timeout state.
+
+Release preparation must also run the installer against the actual npm tarball,
+covering repeat installation, a real PTY, HTTP startup, and exact cleanup of its
+isolated Config.
+
+Installation or update changes also require an isolated cross-version smoke on
+legacy Linux: activate an actual npm candidate, verify HTTP and native PTY,
+force a target startup failure and verify recovery, and inspect removal of old
+Images and runtime dependencies under the default retention policy. Distinguish
+unpublished candidates and seeded historical fixtures from published releases
+and actual upgrade attempts. Preserve the bootstrap and npm download cache.

@@ -40,6 +40,12 @@ sections, customer-proof patterns, or repeated feature inventories. Screenshots
 should explain a specific workflow or interface; they are evidence, not a
 substitute for documentation.
 
+The installation command panel uses one theme surface for its method controls,
+copy action, and code. Its compact header contains the controls; commands use
+15px monospace text with 26px line height on desktop, and 14px text with 24px line
+height on smaller screens. Code has a transparent background and wraps on narrow
+screens. Environment requirements remain outside the panel.
+
 Screenshots in documentation articles open in an enlarged viewer. The viewer
 must support pointer and keyboard activation, an explicit close control,
 `Escape`, backdrop dismissal, focus restoration, and bounded display on mobile.
@@ -101,6 +107,22 @@ Do not add documentation-site dependencies to the root `package.json`, use an
 npm workspace, or make the Farming application build depend on this project.
 
 ## Publishing
+
+Below the quick-start actions, the home hero offers npm and user-directory
+installation. npm is selected initially for hosts with a supported Node.js;
+the user-directory option supplies a private runtime for missing Node.js or
+supported older Linux hosts. Each selection exposes two copyable commands:
+install, then start explicitly with the Farming CLI. Switching methods clears
+copy feedback; clipboard failures leave the selected commands available to copy
+manually. Neither method configures the user's shell environment.
+
+The documentation
+build copies `bin/install.sh` verbatim to the public `install.sh` endpoint;
+the script has one source owner and is also included in npm packages. The first
+publication of this entry requires an npm release carrying the private runtime
+dependencies and Linux compatibility libraries. Deployment keeps the existing
+site until npm's latest version advertises installer support; a successful
+Publish Release workflow triggers the documentation workflow again.
 
 `.github/workflows/docs.yml` builds the site from `main` and deploys the static
 artifact to GitHub Pages. The repository Pages source must be set to GitHub

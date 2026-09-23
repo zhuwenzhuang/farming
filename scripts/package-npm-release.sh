@@ -26,6 +26,7 @@ rm -f "${PACKAGE_TARBALL}"
 
 echo "==> Building npm package runtime" >&2
 (cd "${PROJECT_ROOT}" && npm run prepack >&2)
+(cd "${PROJECT_ROOT}" && bash scripts/prepare-user-install-runtime.sh >&2)
 
 echo "==> Preparing isolated production dependency tree" >&2
 rsync -a \
@@ -143,5 +144,15 @@ if [ ! -f "${PACKAGE_TARBALL}" ]; then
   echo "npm pack did not create ${PACKAGE_TARBALL}" >&2
   exit 1
 fi
+
+# npm does not publish symlinks: the old-Linux runtime must retain its actual
+# loader and SONAME entries in the archive, not merely in the staging tree.
+node - "${PACKAGE_TARBALL}" <<'NODE'
+const { execFileSync } = require('node:child_process');
+const entries = new Set(execFileSync('tar', ['-tzf', process.argv[2]], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 }).trim().split('\n'));
+for (const name of ['ld-2.28.so', 'libc.so.6', 'libm.so.6', 'libstdc++.so.6', 'libgcc_s.so.1']) {
+  if (!entries.has(`package/dist/runtime/glibc228/${name}`)) throw new Error(`npm package omitted private runtime ${name}`);
+}
+NODE
 
 printf '%s\n' "${PACKAGE_TARBALL}"

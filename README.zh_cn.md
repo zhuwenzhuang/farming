@@ -13,29 +13,36 @@
   <a href="./README.md">English</a>
 </p>
 
+## 快速开始
+
+**npm 安装** — 已有 Node.js 22.13+（22.x）或 24+，且 npm 的 bin 目录已在 PATH 中。
+
+```bash
+npm install --global farming-code@latest
+farming daemon
+```
+
+**指定目录安装** — 自带 Node.js，并为受支持的旧 Linux 主机提供兼容运行环境。
+
+```bash
+curl -fsSL https://zhuwenzhuang.github.io/farming/install.sh | bash
+~/.local/bin/farming daemon
+```
+
+macOS / Linux；任选一种方式，打开输出的访问地址，选择 **New Agent** 即可开始。
+详见[安装要求](https://zhuwenzhuang.github.io/farming/cn/get-started/installation)。
+
 <p align="center">
   <a href="https://github.com/zhuwenzhuang/farming/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/zhuwenzhuang/farming/actions/workflows/ci.yml/badge.svg"></a>
   <a href="https://github.com/zhuwenzhuang/farming/releases"><img alt="Release" src="https://img.shields.io/github/v/release/zhuwenzhuang/farming?label=release"></a>
   <a href="https://www.npmjs.com/package/farming-code"><img alt="npm" src="https://img.shields.io/npm/v/farming-code?label=npm"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/github/license/zhuwenzhuang/farming"></a>
-  <img alt="Node.js 22.13 LTS or 24+" src="https://img.shields.io/badge/node-22.13_LTS_%7C_24%2B-339933?logo=nodedotjs&amp;logoColor=white">
   <img alt="macOS and Linux" src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux-555">
 </p>
 
 ![Farming Code 工作台](./docs/products/code/assets/01-code-workspace.png)
 
 Farming Code 与代码仓库和 Coding CLI 运行在同一台开发机上。Agent 进程、终端和项目文件都留在这台机器上；电脑或手机浏览器连接并操作这些真实 Session。
-
-## 快速开始
-
-准备好 Node.js 22.13 LTS（22.x）或 Node.js 24+，并确保至少有一个可用的
-Coding Agent Provider：
-
-```bash
-npm install --global farming-code@latest && farming daemon
-```
-
-打开命令输出的任意一个带鉴权 URL，选择 **New Agent**，然后启动任务。完整首次使用流程见[快速开始](./docs/getting-started.zh_cn.md)。
 
 ![启动 Agent](./docs/products/code/assets/02-start-agent-picker.png)
 
@@ -85,7 +92,7 @@ Code 与 CRT 使用相同的后端 Agent 和 Session，切换界面不会创建�
 
 ## 安装与更新
 
-按上面的快速开始命令安装即可。npm 安装可以从 **Settings → Updates** 更新。
+通过上面的命令安装，在 **Settings → Updates** 中更新。安装和更新均使用 npm registry。
 
 ![Farming npm 更新设置](./docs/products/code/assets/14-code-settings.png)
 

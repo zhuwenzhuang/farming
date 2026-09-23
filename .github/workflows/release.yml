@@ -575,6 +575,7 @@ jobs:
           npm run release:npm:pack -- "${package_dir}"
           package_tarball="${package_dir}/farming-code-${RELEASE_VERSION}.tgz"
           npm run release:npm:smoke -- "${package_tarball}"
+          node scripts/smoke-user-install.mjs "${package_tarball}"
           mkdir -p npm-upload
           cp "${package_tarball}" npm-upload/
           if command -v sha256sum >/dev/null 2>&1; then

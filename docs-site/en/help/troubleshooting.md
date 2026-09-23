@@ -13,6 +13,12 @@ If the service is stopped, run `farming daemon`. If it works on the Host but not
 
 ## `farming` is missing after installation
 
+For a script installation, run `~/.local/bin/farming daemon` directly. To use the
+shorter `farming` command, run `export PATH="$HOME/.local/bin:$PATH"`; add that line
+to your shell startup file to keep it available in new terminals.
+
+For a global npm installation, check the npm prefix:
+
 ```bash
 npm config get prefix
 command -v farming
@@ -60,7 +66,9 @@ Open **Plugins → Browser** for source and dependency state. Ordinary installat
 
 Record current version, target version, and installation source from Settings, then read `farming logs`. Do not repeatedly click update after an ambiguous network result.
 
-For an npm installation:
+For a user-directory installation, inspect `~/.local/bin/farming logs` and use **Settings → Updates**. See [Installation and updates](../get-started/installation).
+
+For an installation originally created with global npm:
 
 ```bash
 npm install --global farming-code@latest
