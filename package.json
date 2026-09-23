@@ -251,8 +251,8 @@
     "zod"
   ],
   "devDependencies": {
-    "@agentclientprotocol/claude-agent-acp": "0.81.0",
-    "@agentclientprotocol/codex-acp": "1.13.0",
+    "@agentclientprotocol/claude-agent-acp": "0.81.1",
+    "@agentclientprotocol/codex-acp": "1.13.1",
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.59.1",
     "@types/node": "^26.1.1",

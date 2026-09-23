@@ -63,4 +63,22 @@ for (const provider of ['codex', 'claude', 'qwen']) {
   assert.equal(projected.turns[2].status, 'interrupted');
   assert.equal(projected.turns[3].status, 'inProgress');
 }
+const nativeState = new AcpSessionState({ provider: 'codex', sessionId: 'native-parent' });
+const nativeUpdate = (value: Record<string, unknown>) => nativeState.apply({ sessionId: 'native-parent', update: value });
+nativeState.beginPrompt('Start a background child');
+nativeUpdate({
+  sessionUpdate: 'tool_call',
+  toolCallId: 'native-subagent:child',
+  status: 'in_progress',
+  _meta: { farming: { nativeSubagent: true, state: 'running' } },
+});
+nativeState.completePrompt('cancelled');
+assert.equal(nativeState.entries.find(entry => entry.id === 'native-subagent:child')?.status, 'in_progress');
+nativeUpdate({
+  sessionUpdate: 'tool_call_update',
+  toolCallId: 'native-subagent:child',
+  status: 'completed',
+  _meta: { farming: { nativeSubagent: true, state: 'completed' } },
+});
+assert.equal(nativeState.entries.find(entry => entry.id === 'native-subagent:child')?.status, 'completed');
 console.log('test-acp-goal-cancellation passed');

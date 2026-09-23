@@ -14,7 +14,7 @@ function killTestProcessGroup(child: ChildProcess) {
 
 async function run() {
   const root = path.resolve(__dirname, '../..');
-  const child = spawn(process.execPath, [path.join(root, 'dist/acp/codex-acp-1.13.0.mjs')], {
+  const child = spawn(process.execPath, [path.join(root, 'dist/acp/codex-acp-1.13.1.mjs')], {
     cwd: root,
     env: { ...process.env, CODEX_PATH: path.join(__dirname, 'fixtures/fake-codex-app-server.ts'),
       FARMING_TEST_LARGE_HISTORY: '1', FARMING_TEST_SPLIT_UTF8: '1' },

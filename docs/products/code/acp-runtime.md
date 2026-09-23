@@ -378,6 +378,9 @@ request may join the existing result, but a request with different content is
 rejected. When transport failure leaves Provider ownership uncertain, Farming
 does not replay the Prompt or Steer automatically. Cancellation targets the
 exact active Turn and reaches a visible terminal result.
+Composer admission uses one deadline across control-queue waits, checkpoint
+writes, and the final Provider send. Expiry before that send rejects the message
+without dispatching it.
 
 The Composer's temporary Prompt-start guard ends when authoritative activity or
 a newer Session revision confirms the transition. Completion may arrive before

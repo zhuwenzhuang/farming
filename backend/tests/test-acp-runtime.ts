@@ -62,8 +62,8 @@ async function run() {
   assert.strictEqual(classifyLinuxProcessGroupStats([
     '600 (unrelated) S 1 600 0',
   ], 574), 'missing');
-  assert.strictEqual(resolveAcpLaunch('codex').version, '1.13.0');
-  assert.strictEqual(resolveAcpLaunch('claude').version, '0.81.0');
+  assert.strictEqual(resolveAcpLaunch('codex').version, '1.13.1');
+  assert.strictEqual(resolveAcpLaunch('claude').version, '0.81.1');
   assert.strictEqual(resolveAcpLaunch('pi', piLaunchOptions).version, '0.0.33');
   assert.strictEqual(resolveAcpLaunch('qwen').version, 'native');
   const codexAcpSource = fs.readFileSync(
@@ -1006,11 +1006,11 @@ async function run() {
     '/opt/farming/lib',
     '/opt/farming/node',
   ]);
-  assert.match(compatibleCodexLaunch.args[3], /(?:dist\/acp\/codex-acp-1\.13\.0\.mjs|codex-acp\/dist\/index\.js)$/);
+  assert.match(compatibleCodexLaunch.args[3], /(?:dist\/acp\/codex-acp-1\.13\.1\.mjs|codex-acp\/dist\/index\.js)$/);
   const compatibleClaudeLaunch = resolveAcpLaunch('claude');
   assert.match(
     compatibleClaudeLaunch.args.at(-1),
-    /(?:dist\/acp\/claude-agent-acp-0\.81\.0\.mjs|claude-agent-acp\/dist\/index\.js)$/,
+    /(?:dist\/acp\/claude-agent-acp-0\.81\.1\.mjs|claude-agent-acp\/dist\/index\.js)$/,
   );
   const compatiblePiLaunch = resolveAcpLaunch('pi', piLaunchOptions);
   assert.match(compatiblePiLaunch.args[0], /dist\/acp\/pi-acp-0\.0\.33\.mjs$/);
@@ -2540,6 +2540,91 @@ async function run() {
     assert.strictEqual(staleSteerRequests, 0, 'steer must revalidate the exact Turn after checkpoint IO');
     assert.strictEqual((await steerCompletionPrompt).stopReason, 'end_turn');
     runtime.markCheckpointDirty = markCheckpointDirty;
+
+    const waitForSteerTest = async (ready, label) => {
+      for (let attempt = 0; attempt < 200; attempt += 1) {
+        if (ready()) return;
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+      throw new Error(`Timed out waiting for ${label}`);
+    };
+    for (const delivery of ['steer', 'auto']) {
+      let resolveActivePrompt;
+      steerCompletionBinding.connection.prompt = () => new Promise(resolve => {
+        resolveActivePrompt = resolve;
+      });
+      const activePrompt = runtime.prompt('agent-acp-steer-completion-race', `deadline ${delivery}`);
+      await waitForSteerTest(() => steerCompletionBinding.activeTurn?.phase === 'running', 'active steer turn');
+      let releaseDeadlineCheckpoint;
+      runtime.markCheckpointDirty = async binding => {
+        if (binding !== steerCompletionBinding) return markCheckpointDirty(binding);
+        await new Promise(resolve => {
+          releaseDeadlineCheckpoint = resolve;
+        });
+      };
+      let lateSteerRequests = 0;
+      steerCompletionBinding.connection.request = async () => {
+        lateSteerRequests += 1;
+        return { turnId: 'late-steer' };
+      };
+      const admissionDeadline = Date.now() + 60_000;
+      const expiredSteer = runtime.submitMessage(
+        'agent-acp-steer-completion-race',
+        [{ type: 'text', text: 'must not arrive after admission expiry' }],
+        { delivery, admissionDeadline },
+      );
+      void expiredSteer.catch(() => {});
+      await waitForSteerTest(() => Boolean(releaseDeadlineCheckpoint), 'steer checkpoint');
+      const actualNow = Date.now;
+      try {
+        Date.now = () => admissionDeadline + 1;
+        releaseDeadlineCheckpoint();
+        await assert.rejects(expiredSteer, /Chat admission expired before dispatch/);
+      } finally {
+        Date.now = actualNow;
+      }
+      assert.strictEqual(lateSteerRequests, 0, `${delivery} must not dispatch after admission expiry`);
+      resolveActivePrompt({ stopReason: 'end_turn' });
+      assert.strictEqual((await activePrompt).stopReason, 'end_turn');
+      runtime.markCheckpointDirty = markCheckpointDirty;
+    }
+
+    let resolveQueuedPrompt;
+    steerCompletionBinding.connection.prompt = () => new Promise(resolve => {
+      resolveQueuedPrompt = resolve;
+    });
+    const queuedPrompt = runtime.prompt('agent-acp-steer-completion-race', 'turn with blocked control queue');
+    await waitForSteerTest(() => steerCompletionBinding.activeTurn?.phase === 'running', 'queued steer turn');
+    let releaseControlQueue;
+    const heldControl = runtime.enqueueTurnControl(
+      steerCompletionBinding.activeTurn,
+      () => new Promise(resolve => { releaseControlQueue = resolve; }),
+    );
+    await waitForSteerTest(() => Boolean(releaseControlQueue), 'held control queue');
+    let queuedSteerRequests = 0;
+    steerCompletionBinding.connection.request = async () => {
+      queuedSteerRequests += 1;
+      return { turnId: 'late-queued-steer' };
+    };
+    const queuedAdmissionDeadline = Date.now() + 60_000;
+    const expiredQueuedSteer = runtime.submitMessage(
+      'agent-acp-steer-completion-race',
+      [{ type: 'text', text: 'queued steer must expire' }],
+      { delivery: 'steer', admissionDeadline: queuedAdmissionDeadline },
+    );
+    void expiredQueuedSteer.catch(() => {});
+    const actualNow = Date.now;
+    try {
+      Date.now = () => queuedAdmissionDeadline + 1;
+      releaseControlQueue();
+      await heldControl;
+      await assert.rejects(expiredQueuedSteer, /Chat admission expired before dispatch/);
+    } finally {
+      Date.now = actualNow;
+    }
+    assert.strictEqual(queuedSteerRequests, 0, 'expired control queue wait must not dispatch steer');
+    resolveQueuedPrompt({ stopReason: 'end_turn' });
+    assert.strictEqual((await queuedPrompt).stopReason, 'end_turn');
 
     await runtime.prepareAgent({
       agentId: 'agent-acp-steer-cancel-order',

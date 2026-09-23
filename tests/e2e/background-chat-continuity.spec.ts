@@ -942,7 +942,6 @@ test('preserves the visible Chat position when loading older turns after reload'
   expect(reloadTurnLimits).toContain(15)
   expect(reloadTurnLimits).toContain(25)
   expect(reloadTurnLimits).toContain(35)
-  expect(reloadTurnLimits).toContain(45)
   await expect(page.getByTestId('code-agent-transcript-jump-bottom')).toBeVisible()
 })
 

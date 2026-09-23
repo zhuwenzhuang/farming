@@ -265,6 +265,8 @@ Provider 前拒绝；历史、配置和重连仍然可用。重连使用新目�
 Prompt Submission 有明确身份。相同请求的重复提交可以加入已有结果，内容不同的同 ID 请求
 必须拒绝。Transport Failure 导致 Provider Ownership 不确定时，Farming 不会自动重放 Prompt
 或 Steer。Cancel 精确指向当前 Active Turn，并到达可见终态。
+Composer 准入在控制队列等待、Checkpoint 写入和最终发送给 Provider 时共用同一个截止时间。
+如果在实际发送前超时，消息必须被拒绝，不能再发给 Provider。
 
 Composer 的临时 Prompt 启动保护在权威活动状态或更新的 Session Revision 确认转换后结束。
 完成状态可能先于提交确认到达；迟到的确认不得让已完成 Turn 的 Composer 重新显示忙碌。

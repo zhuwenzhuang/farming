@@ -331,11 +331,11 @@ const CODEX_SET_SESSION_MODEL_METHOD = 'session/set_model';
 const CODEX_STEER_METHOD = '_codex/session/steer';
 const SESSION_STEERING_METHOD = '_session/steering';
 const CODEX_ACP_PACKAGE = '@agentclientprotocol/codex-acp';
-const CODEX_ACP_VERSION = '1.13.0';
-const CODEX_ACP_SHA256 = '2a441db421f7cb5dd10b51ec8e2e5099bc4c23835de5a201d96a572e7f3ee525';
+const CODEX_ACP_VERSION = '1.13.1';
+const CODEX_ACP_SHA256 = '93922560a1c28d3efe904d033f77e62db8ece81c38ed942f53da4948fa488761';
 const CLAUDE_ACP_PACKAGE = '@agentclientprotocol/claude-agent-acp';
-const CLAUDE_ACP_VERSION = '0.81.0';
-const CLAUDE_ACP_SHA256 = '13d4e300ef3476723364fd50b083cf233275609d969d2184e34a6b12bf08d9f6';
+const CLAUDE_ACP_VERSION = '0.81.1';
+const CLAUDE_ACP_SHA256 = '41646bf9877c1acfcd0f50e6107f7d0381109f058478dccb66533b9c62a9dd88';
 const PI_ACP_PACKAGE = 'pi-acp';
 const PI_ACP_VERSION = '0.0.33';
 const PI_ACP_SHA256 = 'a750044ca2135463763d373c49744031aa1e9ff08f77011f1626156e3b4c8981';
@@ -3289,7 +3289,7 @@ class AcpRuntime extends EventEmitter {
       ) {
         throw new Error('No active ACP turn to steer');
       }
-      const result = await this.steer(agentId, prompt);
+      const result = await this.steer(agentId, prompt, options);
       options.onSubmitted?.({ steered: true });
       return { steered: true, ...result };
     }
@@ -3306,7 +3306,7 @@ class AcpRuntime extends EventEmitter {
         && binding.supportsSteer === true
       ) {
         try {
-          const result = await this.steer(agentId, prompt);
+          const result = await this.steer(agentId, prompt, options);
           options.onSubmitted?.({ steered: true });
           return { steered: true, ...result };
         } catch (error) {
@@ -3483,7 +3483,7 @@ class AcpRuntime extends EventEmitter {
       && Boolean(binding.connection);
   }
 
-  async steer(agentId: string, prompt: PromptBlock[]) {
+  async steer(agentId: string, prompt: PromptBlock[], options: PrepareAgentOptions = {}) {
     const binding = this.requireBinding(agentId);
     const method = steeringMethod(binding.initializeResponse);
     if (!method || binding.supportsSteer !== true) {
@@ -3498,6 +3498,7 @@ class AcpRuntime extends EventEmitter {
     this.requireCurrentTurn(binding, turn, ['running']);
     const clientMessageId = `farming-steer-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
     const operation = async () => {
+      if (options.admissionDeadline !== undefined) this.admissionRemaining(options);
       this.requireCurrentTurn(binding, turn, ['running']);
       if (turn.providerSettled) throw new Error('No active ACP turn to steer');
       await this.markCheckpointDirty(binding);
@@ -3506,6 +3507,7 @@ class AcpRuntime extends EventEmitter {
       this.requireSavedSessionModel(binding);
       const sessionState = this.requireSessionState(binding);
       const insertionIndex = sessionState.entries.length;
+      if (options.admissionDeadline !== undefined) this.admissionRemaining(options);
       const response = await withTimeout(
         binding.connection.request(method, {
           sessionId: binding.sessionId,

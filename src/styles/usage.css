@@ -1039,7 +1039,6 @@
   body.code-mode.code-compact-layout .code-usage-detail-chart .code-usage-calendar-viewport {
       overflow-x: auto;
       overscroll-behavior-x: contain;
-      scrollbar-width: thin;
     }
 
   body.code-mode.code-compact-layout .code-usage-detail-chart .code-usage-daily-heatmap {

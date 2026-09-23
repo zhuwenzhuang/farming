@@ -44,6 +44,7 @@ import { useWorkspaceFileTreeKeyboard } from './useWorkspaceFileTreeKeyboard'
 const FILES_REFRESH_MINIMUM_PENDING_MS = 350
 const FILES_REFRESH_SUCCESS_VISIBLE_MS = 1400
 const EMPTY_FILE_PATHS = new Set<string>()
+const EMPTY_DIRECTORY_ERRORS: Array<{ path: string; message: string; tooLarge: boolean }> = []
 
 function currentFileRowHeight() {
   // Virtual row positions and the rendered rows consume the same CSS metric.
@@ -289,7 +290,9 @@ export function ProjectFilesSection({
   })
 
   const fileChanges = useWorkspaceFileChanges(readOnly ? null : agentId, openFiles)
-  const repositoryPaths = useMemo(() => new Set(fileChanges.repositories?.map(repository => repository.path).filter(Boolean) ?? []), [fileChanges.repositories])
+  const repositoryPathNames = fileChanges.repositories?.map(repository => repository.path).filter(Boolean) ?? []
+  const repositoryPathsKey = repositoryPathNames.join('\0')
+  const repositoryPaths = useMemo(() => new Set(repositoryPathsKey ? repositoryPathsKey.split('\0') : []), [repositoryPathsKey])
   // The hook returns a fresh object each render, so hold the stable callback itself
   // instead of depending on `fileChanges` and rebuilding callbacks every render.
   const refreshFileChanges = fileChanges.refreshChanges
@@ -596,11 +599,18 @@ export function ProjectFilesSection({
   const stableHandleTreeKeyDownCapture = useStableEventCallback(handleTreeKeyDownCapture)
   const stableOpenFilePath = useStableEventCallback(openFilePath)
   const stableSubmitFileOperation = useStableEventCallback(submitFileOperation)
-  const directoryErrors = useMemo(() => Object.entries(directories).flatMap(([path, directory]) => (
-    directory.error && (!path || openDirectoryPaths.has(path))
-      ? [{ path, message: directory.error, tooLarge: directory.tooLarge === true }]
-      : []
-  )), [directories, openDirectoryPaths])
+  const stableSearchDirectory = useStableEventCallback((path: string) => {
+    fileSearch.searchInDirectory(path)
+    focusFileSearchInput()
+  })
+  const directoryErrors = useMemo(() => {
+    const errors = Object.entries(directories).flatMap(([path, directory]) => (
+      directory.error && (!path || openDirectoryPaths.has(path))
+        ? [{ path, message: directory.error, tooLarge: directory.tooLarge === true }]
+        : []
+    ))
+    return errors.length ? errors : EMPTY_DIRECTORY_ERRORS
+  }, [directories, openDirectoryPaths])
 
   const viewModel = useProjectFilesSectionViewModel({
     activeFilePath,
@@ -649,10 +659,7 @@ export function ProjectFilesSection({
     onFocusFileTreeTarget: focusFileTreeTarget,
     onOpenFileContextMenu: openFileContextMenu,
     onOpenFileJumpQuery: openFileJumpQuery,
-    onSearchDirectory: (path: string) => {
-      fileSearch.searchInDirectory(path)
-      focusFileSearchInput()
-    },
+    onSearchDirectory: stableSearchDirectory,
     onOpenFilePath: stableOpenFilePath,
     onOpenFileSearchMatch: openFileSearchMatch,
     onOpenNewAgentFromFileMenu: openNewAgentFromFileMenu,

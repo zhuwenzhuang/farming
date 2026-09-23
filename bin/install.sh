@@ -35,7 +35,10 @@ main() {
     fi
   fi
   mkdir -p "$(dirname "${root}")" "${bin_dir}"
-  local lock="${root}.install-lock" stage=''
+  # EXIT may run after errexit has unwound main; these cleanup identities must
+  # outlive its local scope.
+  lock="${root}.install-lock"
+  stage=''
   if ! mkdir "${lock}" 2>/dev/null; then
     echo "Another installation owns ${lock}. If its process has exited, remove that empty lock directory and retry." >&2
     return 1

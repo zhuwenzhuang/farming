@@ -578,6 +578,7 @@ class AcpSessionState {
     if (interrupted) {
       for (const entry of this.entries.slice(Math.max(0, start))) {
         if ((entry.type === 'tool' || entry.type === 'compaction')
+          && entry._meta?.farming?.nativeSubagent !== true
           && ['pending', 'in_progress'].includes(String(entry.status))) {
           entry.status = ['error', 'failed', 'cancel_error'].includes(stopReason) ? 'failed' : 'cancelled';
           if (entry._meta?.contextCompaction) entry.title = 'Context compaction interrupted';
