@@ -291,7 +291,7 @@ export function useComposerFollowUpController({
       || !activeComposerKey
       || !activeAgentTurnActive
       || !isAcpRuntime(activeAgent)
-      || activeAgent.runtimeBinding.supportsSteer !== true
+      || activeAgent.runtimeBinding.canSteer !== true
     ) return
     const message = composerByAgentKey[activeComposerKey]?.pendingFollowUp?.messages.find(candidate => (
       candidate.id === messageId

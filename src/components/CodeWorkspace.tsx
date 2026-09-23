@@ -2607,7 +2607,7 @@ export function CodeWorkspace({
       followUpBehavior: resolveAcpFollowUpBehavior(
         uiPreferences.composerFollowUpBehavior,
         options?.oppositeFollowUpBehavior === true,
-        activeAcpRuntime?.supportsSteer === true,
+        activeAcpRuntime?.canSteer === true,
       ),
       sendMessage: (agent, message, attachments, requestId, delivery) => sendComposerMessageToAgent(
         agent,
@@ -3323,7 +3323,8 @@ export function CodeWorkspace({
         return
       }
     }
-    setRelatedSession(null)
+    setRelatedSession(current => current?.parentAgentId === agentId
+      && current.parentSessionKey === child?.providerSessionKey ? current : null)
     openAgentTargetRef.current(agentId, options)
   }, [agents, copy.subagent])
 
@@ -6255,7 +6256,7 @@ export function CodeWorkspace({
           pendingFollowUp: activePendingFollowUp ?? null,
           submissions: activeComposerSubmissions ?? [],
           canSteerPendingFollowUp: activeAgentTurnActive
-            && activeAcpRuntime?.supportsSteer === true,
+            && activeAcpRuntime?.canSteer === true,
           submitAction: acpComposerSubmitAction,
           textareaRef: composerTextareaRef,
           attachmentInputRef,

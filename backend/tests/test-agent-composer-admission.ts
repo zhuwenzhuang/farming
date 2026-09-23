@@ -102,6 +102,17 @@ class ComposerAdmissionHarness {
   }
 }
 
+test('explicit provider rejection includes its reason in the first terminal phase', async () => {
+  const harness = new ComposerAdmissionHarness();
+  harness.delivery = async () => { throw new Error('No active ACP turn to steer'); };
+  const statuses: Array<{ phase: string; message?: string }> = [];
+  await assert.rejects(harness.coordinator().request({ agent: harness.agent, message: 'follow up',
+    requestId: 'rejected-steer', onPhase: status => statuses.push(status),
+  }), /No active ACP turn to steer/);
+  assert.deepEqual(statuses.filter(status => status.phase === 'failed').map(status => status.message),
+    ['No active ACP turn to steer']);
+});
+
 test('same Composer admission joins one delivery and conflicting content is rejected', async () => {
   const harness = new ComposerAdmissionHarness();
   const delivery = deferred<unknown>();

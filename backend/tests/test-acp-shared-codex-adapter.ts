@@ -112,6 +112,13 @@ async function run() {
       sessionUpdate: 'subagent_state_update', subagentSessionId: 'opaque-native-child', state: 'completed',
     } });
     assert.strictEqual(runtime.getSubagentTranscriptSession('shared-codex-a', 'opaque-native-child').state, 'idle');
+    await handlers.sessionUpdate({ sessionId: first.sessionId, update: {
+      sessionUpdate: 'subagent_state_update', subagentSessionId: 'opaque-native-child', state: 'cancelled',
+    } });
+    assert.strictEqual(runtime.getSubagentTranscriptSession('shared-codex-a', 'opaque-native-child').stopReason, 'cancelled',
+      'a native child interruption must remain distinguishable from successful completion');
+    assert.strictEqual((await runtime.listSubagents('shared-codex-a')).children
+      .find(child => child.sessionId === 'opaque-native-child').stopReason, 'cancelled');
 
     const firstProviderUpdate = firstBinding.connection.request('providers/set', {
       providerId: 'openai',

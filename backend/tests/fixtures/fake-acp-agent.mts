@@ -2001,6 +2001,47 @@ class FakeAgent implements Agent {
       });
       return { stopReason: 'end_turn' };
     }
+    if (promptText.includes('（状态演示）')) {
+      const childId = (key: string) => deterministicE2eSessionId(`${params.sessionId}:${key}`);
+      const notify = (update: Record<string, unknown>) => process.stdout.write(JSON.stringify({
+        jsonrpc: '2.0', method: 'session/update', params: { sessionId: params.sessionId, update },
+      }) + '\n');
+      const children = [
+        { key: 'implementation', name: '实现检查', task: '检查解析器实现和边界条件。', text: '正在检查 `parse()` 的空输入和 Unicode 边界，随后核对回归测试。', state: 'running' },
+        { key: 'security', name: '安全审查', task: '检查权限边界，需要授权后运行本地安全检查。', text: '已完成静态检查，正在等待运行本地安全检查的授权。', state: 'permission' },
+        { key: 'scope', name: '需求澄清', task: '确认旧版接口是否需要兼容。', text: '实现前需要确认：本次修改是否继续支持旧版接口？', state: 'input' },
+        { key: 'parser', name: '解析器审查', task: '验证空输入、空白字符和错误输入。', text: '**审查完成**\n\n- 空输入返回空结果。\n- 空白字符处理符合预期。\n- 8 项边界测试通过。\n\n本轮只读检查，没有修改文件。', state: 'completed' },
+        { key: 'integration', name: '集成测试', task: '运行集成测试并确认服务依赖。', text: '**集成检查失败**\n\n测试依赖服务不可用，暂时无法验证端到端链路。\n\n已保留检查结果，等待依赖恢复后继续。', state: 'failed' },
+        { key: 'migration', name: '迁移检查', task: '检查迁移脚本的兼容性。', text: '检查已中断。当前未修改文件，也未执行迁移。', state: 'cancelled' },
+      ];
+      for (const child of children) {
+        const id = childId(child.key);
+        notify({ sessionUpdate: 'subagent_spawned', subagentSessionId: id, name: child.name, task: child.task, capabilities: {} });
+        await client.sessionUpdate({ sessionId: id, update: { sessionUpdate: 'user_message_chunk', messageId: `${child.key}-task`, content: { type: 'text', text: child.task } } });
+        await client.sessionUpdate({ sessionId: id, update: { sessionUpdate: 'agent_message_chunk', messageId: `${child.key}-answer`, content: { type: 'text', text: child.text } } });
+        if (['completed', 'failed', 'cancelled'].includes(child.state)) {
+          notify({ sessionUpdate: 'subagent_state_update', subagentSessionId: id, state: child.state });
+        }
+        await client.sessionUpdate({ sessionId: params.sessionId, update: {
+          sessionUpdate: 'tool_call', toolCallId: `gallery-${child.key}`, title: child.task, kind: 'other', status: 'completed',
+          rawInput: { senderThreadId: params.sessionId, receiverThreadIds: [id],
+            agentsStates: { [id]: { status: child.state === 'failed' ? 'errored' : child.state === 'cancelled' ? 'interrupted' : child.state === 'completed' ? 'completed' : 'running', message: child.text } } },
+          _meta: { codex: { collaboration: { tool: 'wait', senderThreadId: params.sessionId, receiverThreadIds: [id] } } },
+        } });
+      }
+      // Keep independent child requests pending until the isolated fixture is
+      // cleaned up; captures wait on authoritative states, never timed sleeps.
+      void client.requestPermission({ sessionId: childId('security'),
+        toolCall: { toolCallId: 'gallery-security-command', title: '运行本地安全检查', kind: 'execute' },
+        options: [{ optionId: 'allow', name: '允许一次', kind: 'allow_once' }, { optionId: 'reject', name: '拒绝', kind: 'reject_once' }],
+      }).catch(() => {});
+      void client.createElicitation({ sessionId: childId('scope'), mode: 'form', message: '是否保留旧版接口兼容？',
+        requestedSchema: { type: 'object', required: ['compatible'], properties: { compatible: { type: 'boolean', title: '保留兼容' } } },
+      }).catch(() => {});
+      await client.sessionUpdate({ sessionId: params.sessionId, update: { sessionUpdate: 'agent_message_chunk',
+        content: { type: 'text', text: '已分配六项并行检查。\n\n解析器审查已完成，实现检查继续运行。安全审查等待授权，需求澄清等待输入；集成测试遇到依赖错误，迁移检查已中断。\n\n可从左侧打开各个子 Agent，查看其任务、进展与结果。' } } });
+      return { stopReason: 'end_turn' };
+    }
     if (promptText.includes('related workflow demo')) {
       const notify = (update: Record<string, unknown>) => process.stdout.write(JSON.stringify({
         jsonrpc: '2.0', method: 'session/update', params: { sessionId: params.sessionId, update },
@@ -2042,6 +2083,12 @@ class FakeAgent implements Agent {
       await client.sessionUpdate({ sessionId: childSessionId, update: { sessionUpdate: 'agent_message_chunk',
         messageId: 'native-result', content: { type: 'text', text: '**Review complete**\n\n- Empty input returns an empty result.\n- Surrounding whitespace is trimmed before parsing.\n- The existing tests cover both cases.\n\nNo files changed. This is a simulated review for UI verification.' } } });
       notifyNative({ sessionUpdate: 'subagent_state_update', subagentSessionId: childSessionId, state: 'completed' });
+      await client.sessionUpdate({ sessionId: params.sessionId, update: {
+        sessionUpdate: 'tool_call', toolCallId: 'native-review-finished', title: 'Wait for parser reviewer', kind: 'other', status: 'completed',
+        rawInput: { senderThreadId: params.sessionId, receiverThreadIds: [childSessionId],
+          agentsStates: { [childSessionId]: { status: 'completed', message: '**Review complete** — checked `parse()` and empty input.' } } },
+        _meta: { codex: { collaboration: { tool: 'wait', senderThreadId: params.sessionId, receiverThreadIds: [childSessionId] } } },
+      } });
       await client.sessionUpdate({ sessionId: params.sessionId, update: { sessionUpdate: 'agent_message_chunk',
         content: { type: 'text', text: 'Parent completed without interruption.' } } });
       return { stopReason: 'end_turn' };

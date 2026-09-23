@@ -86,7 +86,7 @@ export function SubagentComposer({ agent: structuralAgent, active, controller, c
       attachments: state.attachments, composerMode: state.mode,
       turnActive: followUps.activeAgentTurnActive,
       followUpBehavior: resolveAcpFollowUpBehavior(controller.followUpBehavior,
-        options?.oppositeFollowUpBehavior === true, runtime?.supportsSteer === true),
+        options?.oppositeFollowUpBehavior === true, runtime?.canSteer === true),
       sendMessage: controller.send, updateComposerState: controller.update,
     })
     return Promise.resolve(result).then(accepted => {
@@ -101,7 +101,7 @@ export function SubagentComposer({ agent: structuralAgent, active, controller, c
       runtimeError={runtime?.error || ''} draft={state.draft} attachments={state.attachments}
       composerMode={state.mode} contextWindow={null}
       pendingFollowUp={state.pendingFollowUp ?? null} submissions={state.submissions ?? []}
-      canSteerPendingFollowUp={followUps.activeAgentTurnActive && runtime?.supportsSteer === true}
+      canSteerPendingFollowUp={followUps.activeAgentTurnActive && runtime?.canSteer === true}
       submitAction={!isAcpComposerAvailable(agent) ? 'disabled'
         : composerAttachmentsCanSubmit(state.attachments) && (state.draft.trim() || state.attachments.length) ? 'send'
           : followUps.activeAgentCanInterrupt ? 'interrupt' : 'disabled'}

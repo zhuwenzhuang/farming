@@ -5,6 +5,7 @@ import { AgentTranscriptSubagentPreview } from './AgentTranscriptPane'
 import { projectAcpTranscript, type AgentTranscript } from './acp/acp-entry-projection'
 import type { RelatedSessionTarget } from './related-session-navigation'
 import { codeCopyForLanguage } from './copy'
+import { CollaborationAgentIcon } from './CollaborationAgentIcon'
 
 export function RelatedSessionPanel({ target, refreshSignal, onClose, language, onQuoteInParent }: {
   target: RelatedSessionTarget
@@ -82,6 +83,7 @@ export function RelatedSessionPanel({ target, refreshSignal, onClose, language, 
   return (
     <aside className="code-related-session-panel" data-testid="code-related-session-panel" aria-label={target.title}>
       <header className="code-related-session-header">
+        <CollaborationAgentIcon sessionId={target.sessionId} />
         <strong title={target.title}>{target.title}</strong>
         <button ref={closeRef} type="button" className="code-agent-transcript-subagent-control"
           onClick={onClose} aria-label={chinese ? '收起关联会话' : 'Collapse related session'}>

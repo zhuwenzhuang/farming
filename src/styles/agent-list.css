@@ -866,18 +866,42 @@ body.code-mode:not(.code-compact-layout) .code-agent-row:has(.code-agent-row-act
   color: var(--code-success);
 }
 
-.code-agent-row.related-child { margin-inline-start: 20px; width: calc(100% - 20px); }
+.code-agent-related-rows:not([hidden]) { display: contents; }
 
-/* Child identity occupies the existing indentation gutter; labels do not move. */
-.code-agent-row.related-child > .code-collaboration-agent-icon {
+.code-agent-row.related-child,
+.code-agent-row.related-child.has-provider,
+body.code-mode.code-compact-layout .code-agent-row.related-child {
+  --related-label-inset: 26px;
+  margin-inline-start: 0;
+  width: 100%;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding-inline-start: var(--related-label-inset);
+}
+
+body.code-mode.code-compact-layout .code-agent-row.related-child {
+  --related-label-inset: 27px;
+}
+
+/* Icons occupy the indentation gutter without adding a column to the label layout. */
+.code-agent-row.related-child > .code-collaboration-agent-icon,
+.code-agent-row.related-child > .code-related-disclosure-icon,
+.code-agent-row.related-child > .code-agent-row-provider-icon,
+body.code-mode.code-compact-layout .code-agent-row.related-child > .code-agent-row-provider-icon {
   position: absolute;
-  inset-inline-start: -17px;
-  top: 50%;
-  transform: translateY(-50%);
+  inset-inline-start: calc(var(--related-label-inset) - 21px);
+  top: calc(50% - 7px);
+  display: inline-grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  transform: none;
 }
 
 .code-agent-row.related-child > .code-related-disclosure-icon {
-  position: absolute;
-  inset-inline-start: -17px;
   top: calc(50% - 6px);
+}
+
+.code-agent-row.related-child > .code-agent-row-provider-icon .agent-launch-icon {
+  width: 14px;
+  height: 14px;
 }

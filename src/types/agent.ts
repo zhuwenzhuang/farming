@@ -198,6 +198,7 @@ export interface AcpRuntimeBinding {
   error: string
   stopReason: string
   supportsSteer: boolean
+  canSteer?: boolean
   supportsFork?: boolean
   pendingPermission: AcpPendingPermission | null
   pendingPermissions: AcpPendingPermission[]

@@ -1537,6 +1537,15 @@
   background: var(--code-bg-hover);
 }
 
+.code-agent-transcript-subagent-control.text {
+  width: fit-content;
+  height: auto;
+  min-height: 22px;
+  padding: 2px 6px;
+  white-space: nowrap;
+  font: inherit;
+}
+
 .code-agent-transcript-subagent-control.stop {
   color: var(--code-danger);
 }

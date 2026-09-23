@@ -19,6 +19,8 @@ interface AcpMeta extends DataRecord {
   farming?: {
     steer?: unknown;
     turnId?: unknown;
+    nativeSubagent?: boolean;
+    state?: string;
   };
   codex?: {
     phase?: unknown;

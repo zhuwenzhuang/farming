@@ -2637,10 +2637,14 @@ async function run() {
         _meta: { farmingTurn: { version: 1, turnId, status, sequence } } },
     });
     nativeEvent('native-1', 'started', 1);
+    assert.strictEqual(runtime.getSession('agent-native-lifecycle').canSteer, true);
     nativeHandlers.sessionUpdate({ sessionId: nativeBinding.sessionId, update: {
       sessionUpdate: 'tool_call', toolCallId: 'native-cancelled-tool', status: 'in_progress', title: 'Native command',
     } });
     nativeEvent('native-1', 'cancelled', 2);
+    assert.strictEqual(runtime.getSession('agent-native-lifecycle').supportsSteer, true);
+    assert.strictEqual(runtime.getSession('agent-native-lifecycle').canSteer, false,
+      'native completion disables steer before the ACP prompt response arrives');
     assert.strictEqual(runtime.getSession('agent-native-lifecycle').entries.find(entry => entry.id === 'native-cancelled-tool').status, 'cancelled');
     nativeEvent('native-2', 'started', 3);
     const autonomousTurn = nativeBinding.activeTurn;

@@ -211,6 +211,7 @@ export interface AcpRuntimeEvent extends Record<string, unknown> {
   sessionId?: string;
   stopReason?: string;
   supportsSteer?: boolean;
+  canSteer?: boolean;
   supportsFork?: boolean;
   pendingPermission?: AcpPermissionRequest | null;
   pendingPermissions?: AcpPermissionRequest[];

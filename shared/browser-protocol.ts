@@ -914,6 +914,7 @@ const AGENT_UPDATE_PATCH_VALIDATORS = {
         && typeof value.error === 'string'
         && typeof value.stopReason === 'string'
         && typeof value.supportsSteer === 'boolean'
+        && (value.canSteer === undefined || typeof value.canSteer === 'boolean')
         && typeof value.supportsFork === 'boolean'
         && Array.isArray(value.pendingPermissions)
         && Array.isArray(value.pendingElicitations)

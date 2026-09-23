@@ -18,18 +18,6 @@ export function relatedSessionFinished(state: string) {
   return ['idle', 'completed', 'closed', 'shutdown'].includes(state)
 }
 
-export function relatedSessionCounts(states: string[]) {
-  let running = 0
-  let attention = 0
-  let finished = 0
-  for (const state of states) {
-    if (relatedSessionFinished(state)) finished++
-    else if (['running', 'working', 'active', 'pending', 'pendingInit', 'connecting'].includes(state)) running++
-    else attention++
-  }
-  return { running, attention, finished }
-}
-
 /** Native children share the main Agent indicator without inventing runtime records. */
 export function relatedSessionIndicator(key: string, state: string, copy: CodeCopy, stopReason = ''): AgentStatusDisplayState {
   const label = relatedSessionStatusLabel(state, copy, stopReason)

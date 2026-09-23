@@ -40,13 +40,27 @@ Project
 Related rows appear directly beneath their parent, using one shared navigation-row
 family with an indented hierarchy variant. Purpose has a shared chat/Agent icon
 and an accessible label; the title is a short topic or delegated task. There is
-no permanent intermediate "Subagents" group. The side-chat row comes first;
+no permanent intermediate "Subagents" group or aggregate status row. Related icons
+occupy the indentation gutter inside the selection surface without shifting
+labels or subsequent rows. Finished grouping preserves the same child hierarchy
+and label position. The side-chat row comes first;
 delegated rows keep stable creation order rather than moving on every update.
 Large collections use bounded paging and the shared Show more interaction;
 backend totals cover children outside the visible page.
 
 Provider-created children update the list without stealing selection, expanding
 ancestors or scrolling away from the user's current work.
+
+A parent with related rows offers the existing eye/eye-off visibility control
+inside its ordinary row actions, using the same hover and keyboard-focus reveal
+rules as its sibling buttons. The compact layout exposes the same action in the
+existing row menu. The browser sidebar owns expanded/collapsed state per parent
+Agent and Provider Session identity. It starts expanded and changes
+only on an explicit toggle; selection, inventory updates and row remounts do not
+expand it. A new parent session starts expanded. Collapsing hides side chats,
+native children and their finished group, while preserving the open details,
+pagination and child execution. Inventory refresh and its bounded error handling
+continue unchanged; the toggle performs no runtime mutation.
 
 Native-child inventory reads require an established parent Provider Session and
 a readable ACP runtime (idle, working, waiting, or interrupting). Starting,

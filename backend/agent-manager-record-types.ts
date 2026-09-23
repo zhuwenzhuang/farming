@@ -23,6 +23,7 @@ export interface AcpRuntimeBinding {
   stopReason: string;
   supportsFork: boolean;
   supportsSteer: boolean;
+  canSteer?: boolean;
 }
 
 export type RuntimeBinding = TerminalRuntimeBinding | AcpRuntimeBinding;

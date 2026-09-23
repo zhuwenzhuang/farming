@@ -376,7 +376,7 @@ export class AgentComposerAdmissionCoordinator {
             outcomeUncertain = true;
           }
         }
-        this.phase(agent.id, requestId, outcomeUncertain ? 'unknown' : 'failed');
+        this.phase(agent.id, requestId, outcomeUncertain ? 'unknown' : 'failed', failed.error);
         if (agentAdmissions.get(requestId) === entry) agentAdmissions.delete(requestId);
         rejectAdmission(composerAdmissionError(failed.error, outcomeUncertain));
       })
@@ -391,10 +391,10 @@ export class AgentComposerAdmissionCoordinator {
     return admissionPromise;
   }
 
-  phase(agentId: string, requestId: string, phase: ComposerSubmissionPhase) {
+  phase(agentId: string, requestId: string, phase: ComposerSubmissionPhase, message?: string) {
     const entry = this.#admissions.get(agentId)?.get(requestId);
     if (!entry || ['submitted', 'failed'].includes(entry.status.phase) || (entry.status.phase === 'unknown' && !['submitted', 'failed'].includes(phase))) return;
-    entry.status = { phase, updatedAt: Date.now() };
+    entry.status = { phase, updatedAt: Date.now(), ...(message ? { message } : {}) };
     try { entry.observer?.(entry.status); } catch { /* Observation cannot change admission. */ }
   }
 

@@ -13,6 +13,9 @@ const splitUtf8 = process.env.FARMING_TEST_SPLIT_UTF8 === '1';
 const requestLogFile = process.env.FARMING_TEST_REQUEST_LOG_FILE || '';
 const providerResumeGatePrefix = process.env.FARMING_TEST_PROVIDER_RESUME_GATE_PREFIX || '';
 const emitSubagentAfterResume = process.env.FARMING_TEST_EMIT_SUBAGENT_AFTER_RESUME === '1';
+const backgroundChild = process.env.FARMING_TEST_BACKGROUND_CHILD === '1';
+const childCompletionGate = process.env.FARMING_TEST_CHILD_COMPLETION_GATE || '';
+let nextTurn = 1;
 let nextThread = 1;
 const archivedThreads = new Set<string>();
 
@@ -106,8 +109,8 @@ async function resultFor(method, params) {
       serviceTier: null,
     };
   }
-  if (method === 'thread/start' && (stallPrompt || multiSession)) {
-    const id = multiSession
+  if (method === 'thread/start' && (stallPrompt || multiSession || backgroundChild)) {
+    const id = multiSession || backgroundChild
       ? `019f0000-0000-7000-8000-${String(nextThread++).padStart(12, '0')}`
       : sessionId;
     return {
@@ -122,10 +125,10 @@ async function resultFor(method, params) {
     const id = `019f0000-0000-7000-8001-${String(nextThread++).padStart(12, '0')}`;
     return { thread: { ...thread(id), forkedFromId: params.threadId, turns: [] } };
   }
-  if (method === 'turn/start' && stallPrompt) {
+  if (method === 'turn/start' && (stallPrompt || backgroundChild)) {
     return {
       turn: {
-        id: 'turn-stalled-title',
+        id: backgroundChild ? params.outputSchema ? 'turn-title' : `turn-parent-${nextTurn++}` : 'turn-stalled-title',
         items: [],
         status: 'inProgress',
         error: null,
@@ -133,7 +136,11 @@ async function resultFor(method, params) {
     };
   }
   if (method === 'thread/read') {
-    return { thread: { ...thread(params.threadId), turns: [] } };
+    return { thread: { ...thread(params.threadId), turns: [],
+      ...(backgroundChild && params.threadId.endsWith('-child') ? {
+        agentNickname: 'Background reviewer', status: { type: childCompletionGate && fs.existsSync(childCompletionGate) ? 'idle' : 'active' },
+      } : {}),
+    } };
   }
   if (method === 'thread/items/list') {
     return { data: [{ turnId: 'child-turn', item: { id: 'child-question', type: 'userMessage', content: [{ type: 'text', text: 'Inspect the parser', text_elements: [] }] } },
@@ -151,7 +158,9 @@ async function resultFor(method, params) {
         ] };
       }), nextCursor: start > 0 ? String(start) : null };
     }
-    if (String(params.threadId).endsWith('-child')) return { data: [{ id: 'child-turn', items: [], itemsView: { type: 'summary' }, status: 'inProgress' }], nextCursor: null };
+    if (String(params.threadId).endsWith('-child')) return { data: [{ id: 'child-turn', items: [], itemsView: { type: 'summary' },
+      status: backgroundChild && childCompletionGate && fs.existsSync(childCompletionGate) ? 'completed' : 'inProgress',
+    }], nextCursor: null };
 
     const turns = thread(params.threadId).turns;
     if (process.env.FARMING_TEST_PAGINATED_HISTORY === '1' && params.cursor !== 'history-older') {
@@ -177,6 +186,13 @@ async function resultFor(method, params) {
   }
   if (method === 'thread/unsubscribe' || method === 'thread/delete') return {};
   if (method === 'thread/list') {
+    // App-server's default source filter excludes native children even when
+    // ancestorThreadId is set. Exercise the real filter, not a permissive fake.
+    if (params.ancestorThreadId && !params.sourceKinds?.includes('subAgent')) return { data: [], nextCursor: null };
+    if (backgroundChild && params.ancestorThreadId) {
+      const child = (await resultFor('thread/read', { threadId: `${params.ancestorThreadId}-child` })).thread;
+      return { data: [child], nextCursor: null };
+    }
     if (process.env.FARMING_TEST_ARCHIVE_CHILDREN === '1' && params.ancestorThreadId) {
       return { data: [`${params.ancestorThreadId}-child`, `${params.ancestorThreadId}-child-child`]
         .filter(id => !archivedThreads.has(id)).map(id => thread(id)), nextCursor: null };
@@ -253,10 +269,36 @@ async function run() {
           params: request.params,
         })}\n`);
       }
+      const result = await resultFor(request.method, request.params);
       await enqueueResponse({
         id: request.id,
-        result: await resultFor(request.method, request.params),
+        result,
       });
+      if (backgroundChild && request.method === 'turn/start' && request.params.outputSchema) {
+        await enqueueResponse({ method: 'turn/completed', params: { threadId: request.params.threadId,
+          turn: { ...result.turn, status: 'completed' } } });
+      }
+      if (backgroundChild && request.method === 'turn/start' && !request.params.outputSchema) {
+        const parentId = request.params.threadId;
+        const childId = `${parentId}-child`;
+        await enqueueResponse({ method: 'turn/started', params: { threadId: parentId, turn: result.turn } });
+        await enqueueResponse({ method: 'item/started', params: { threadId: parentId, turnId: result.turn.id,
+          item: { type: 'subAgentActivity', id: `activity-${result.turn.id}`, kind: 'message',
+            agentThreadId: childId, agentPath: '/root/reviewer', text: 'Child working independently' } } });
+        await enqueueResponse({ method: 'item/agentMessage/delta', params: {
+          threadId: childId, turnId: 'child-turn', itemId: 'child-answer', delta: `Child update during ${result.turn.id}.`,
+        } });
+        await enqueueResponse({ method: 'turn/completed', params: { threadId: parentId,
+          turn: { ...result.turn, status: request.params.input?.some(item => item.text === 'Cancel parent only') ? 'interrupted' : 'completed' } } });
+      }
+      if (backgroundChild && request.method === 'thread/list' && childCompletionGate && fs.existsSync(childCompletionGate)) {
+        const childId = `${request.params.ancestorThreadId}-child`;
+        await enqueueResponse({ method: 'item/agentMessage/delta', params: {
+          threadId: childId, turnId: 'child-turn', itemId: 'child-answer', delta: 'Child finished after parent prompt returned.',
+        } });
+        await enqueueResponse({ method: 'turn/completed', params: { threadId: childId,
+          turn: { id: 'child-turn', items: [], status: 'completed', error: null } } });
+      }
       if (request.method === 'thread/resume' && emitSubagentAfterResume) {
         const childId = `${request.params.threadId}-child`;
         await enqueueResponse({

@@ -28,6 +28,7 @@ function run() {
     error: '',
     stopReason: '',
     supportsSteer: false,
+    canSteer: false,
     supportsFork: false,
     pendingPermission: null,
     pendingPermissions: [{ requestId: 'permission-1' }],

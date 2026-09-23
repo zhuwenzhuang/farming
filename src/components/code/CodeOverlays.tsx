@@ -20,6 +20,7 @@ import {
   type ContextMenuIconKind,
 } from './menu-model'
 import type { CodeCopy } from './copy'
+import type { RelatedRowsVisibility } from './useWorkspaceContextMenu'
 import type { AgentSessionHistoryItem, ProjectGroup } from './types'
 import type { ShareNoticeAnchor } from './share-notice'
 import {
@@ -31,9 +32,11 @@ import {
   FieldFlagGlyph,
   ForkGlyph,
   TerminalSquareGlyph,
+  VisibilityGlyph,
+  VisibilityOffGlyph,
 } from '@/components/IconGlyphs'
 
-type AgentMenuState = { agentId: string; x: number; y: number } | null
+type AgentMenuState = { agentId: string; x: number; y: number; relatedVisibility?: RelatedRowsVisibility } | null
 type ProjectMenuState = { projectId: string; x: number; y: number } | null
 type AgentSessionMenuState = { provider: string; sessionId: string; x: number; y: number } | null
 
@@ -262,6 +265,14 @@ export function CodeOverlays({
   const canMarkProjectRead = Boolean(contextMenuProject?.agents.some(agent => agent.unread))
   const agentChatMode = contextMenuAgent?.runtimeBinding.kind !== 'terminal'
   const agentMenuEntries = compactContextMenuEntries([
+    {
+      type: 'item',
+      id: 'toggle-related-visibility',
+      label: agentMenu?.relatedVisibility?.collapsed ? copy.showRelatedAgents : copy.hideRelatedAgents,
+      icon: agentMenu?.relatedVisibility?.collapsed ? 'show' : 'hide',
+      hidden: !agentMenu?.relatedVisibility,
+      onSelect: () => agentMenu?.relatedVisibility?.toggle(),
+    },
     {
       type: 'item',
       id: 'pin-agent',
@@ -784,6 +795,8 @@ function RemoveProjectIcon() {
 }
 
 export function ContextMenuIcon({ kind }: { kind: ContextMenuIconKind }) {
+  if (kind === 'show') return <VisibilityGlyph />
+  if (kind === 'hide') return <VisibilityOffGlyph />
   if (kind === 'follow-up') return <FieldFlagGlyph filled />
   if (kind === 'browser') return <BrowserGlyph />
   if (kind === 'desktop') return <DesktopGlyph />

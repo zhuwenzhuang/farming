@@ -1434,7 +1434,9 @@ function AgentTranscriptCollaborationTimeline({
           <span className="code-agent-transcript-collaboration-event-detail">
             <span className="code-agent-transcript-collaboration-agent">{activity.name}</span>{' · '}
             <span className={`code-agent-transcript-collaboration-action ${activity.action}`}>{collaborationActionLabel(activity.action, copy)}</span>
-            <span className="code-agent-transcript-collaboration-event-description">{activity.message || activity.task || activity.title}</span>
+            <span className="code-agent-transcript-collaboration-event-description"><ReactMarkdown
+              allowedElements={['strong', 'em', 'code', 'del']} unwrapDisallowed skipHtml
+            >{activity.message || activity.task || activity.title}</ReactMarkdown></span>
           </span>
           {activity.count > 1 ? <span className="code-agent-transcript-collaboration-event-count">{copy.agentTranscriptProcessCount(activity.count)}</span> : <span />}
           <ChevronRightGlyph className="code-agent-transcript-chevron" />
@@ -2944,7 +2946,7 @@ function AgentTranscriptReadOnly({ transcript, copy, onQuoteInParent }: { transc
       subagentStates={transcript.codexSubagents?.agents ?? EMPTY_SUBAGENT_STATES}
       openCollaborationActivityIds={openActivities} setOpenCollaborationActivityIds={setOpenActivities}
       showLiveActivity={turn.status === 'inProgress' && transcript.state === 'working'}
-    />{onQuoteInParent && turn.finalMessage ? <button type="button" className="code-agent-transcript-subagent-control" onClick={() => onQuoteInParent(turn.finalMessage)}>{copy.quoteInParent}</button> : null}</div>)}
+    />{onQuoteInParent && turn.finalMessage ? <button type="button" className="code-agent-transcript-subagent-control text" onClick={() => onQuoteInParent(turn.finalMessage)}>{copy.quoteInParent}</button> : null}</div>)}
   </div>
 }
 

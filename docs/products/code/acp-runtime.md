@@ -45,6 +45,20 @@ ACP boundary. Connection-local child IDs remain fenced by the parent runtime
 epoch; they are not independently resumable Session identities. Side Chat keeps
 its existing durable Fork identity and lifecycle.
 
+Each parent Turn and native child owns its own completion. A parent Prompt
+settles after its provider Turn and the already-admitted notification prefix;
+background children do not extend that barrier. The session subscription stays
+alive across parent Turns. Parent completion or cancellation must not synthesize
+terminal child events; only authoritative child evidence settles a child.
+Child interruption remains distinct from successful completion in both inventory
+and transcript reads.
+Session close and process loss retain their existing recovery boundaries.
+
+Related inventory uses a negotiated fresh, bounded read when available, fenced
+by parent identity and runtime epoch. Codex explicitly includes subagent sources
+when listing descendants. Providers without that read expose only retained
+native events. Read failure is visible, never an authoritative empty inventory.
+
 Opening native details reads retained child events or a negotiated, bounded
 provider history snapshot through the existing connection. Codex history reads
 verify ancestry, page turns and items, and project a private snapshot without
@@ -83,6 +97,9 @@ Quoting a child's result appends its source and selected text to the parent's dr
 reveals that draft, and never sends it or overwrites existing text.
 
 The related pane serializes refreshes and rejects stale parent identities.
+Selecting the same parent row preserves its open related pane. The child row,
+activity, and pane header share the child's identity icon; activity summaries
+render inline Markdown without introducing interactive links or block layouts.
 Closing it cancels the browser read, not the Agent. Read timeout, missing history,
 identity change, and size limits terminate visibly. Acceptance covers concurrent
 readers, unrelated-thread rejection, live output while viewing, and desktop and
@@ -94,8 +111,11 @@ roles. The pane must not wrap a conversation in a muted summary card, repeat its
 title, or count progress messages as tool actions. Read-only presentation does
 not mean disabled-looking content; execution controls remain capability-bound.
 Sidebar child rows and collaboration cards share the same session-derived icon
-and theme color. The sidebar icon occupies the existing child indentation gutter
-without shifting the label.
+and theme color. Sidebar child labels use a fixed hierarchy inset; icons occupy
+the indentation gutter without moving labels or subsequent rows. Both remain
+inside the selection surface. Finished grouping does not change a child's
+hierarchy or label position. Child states appear on their own rows; the sidebar
+has no aggregate status row.
 
 ## Provider Boundary
 
@@ -387,6 +407,13 @@ steer extension remains an adapter-boundary compatibility path for Agents that
 do not advertise the standard capability. Accepted Steering is recorded with
 provider-neutral Farming metadata so every supporting Agent has the same
 transcript and Composer behavior.
+
+Static `supportsSteer` advertises protocol support; dynamic `canSteer` reports
+whether the backend still owns a running, unsettled Turn. Native completion
+immediately disables steering while the ACP response settles. The Composer
+queues follow-ups during that interval and never replays an uncertain mutation.
+A definitive admission rejection includes its reason in the first terminal
+status, so a later result is not needed to explain a preserved draft.
 
 The Composer's Goal input is intentionally prompt content, not a persistent ACP
 Goal binding. Farming does not create cross-Turn Goal state from that input;

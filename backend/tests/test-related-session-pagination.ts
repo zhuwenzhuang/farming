@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { AcpSessionState } from '../acp-session-state.cts';
-import { relatedSessionCounts, relatedSessionStatusLabel, relatedSessionIndicator } from '../../src/components/code/related-session-status';
+import { relatedSessionStatusLabel, relatedSessionIndicator } from '../../src/components/code/related-session-status';
 import { codeCopyForLanguage } from '../../src/components/code/copy';
 
 const state = new AcpSessionState({ provider: 'codex', sessionId: 'child' });
@@ -27,7 +27,6 @@ assert.equal(seen.size, 260);
 assert(seen.has('user-0'));
 assert.throws(() => state.transcriptSlice({ cursor: 'missing', maxTurns: 24 }), /cursor/);
 assert.equal(state.transcriptSlice({ maxTurns: 1 }).entries[0]?.id, 'user-260');
-assert.deepEqual(relatedSessionCounts(['running', 'completed', 'idle', 'failed', 'unknown', 'waiting-for-permission']), { running: 1, attention: 3, finished: 2 });
 for (const language of ['en', 'zh'] as const) {
   const copy = codeCopyForLanguage(language);
   assert.equal(relatedSessionStatusLabel('idle', copy), relatedSessionStatusLabel('completed', copy));

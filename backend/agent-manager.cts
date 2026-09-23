@@ -1980,7 +1980,7 @@ class AgentManager extends EventEmitter {
     this.acpRuntime.on('submission-phase', (event: { agentId: string; clientPromptId: string; phase: ComposerSubmissionPhase }) => {
       this.composerAdmissionCoordinator.phase(event.agentId, event.clientPromptId, event.phase);
     });
-    this.acpRuntime.on('agent-runtime', ({ agentId, state, error, sessionId, stopReason, supportsSteer, supportsFork, pendingPermission, pendingPermissions, pendingElicitation, pendingElicitations, activeElicitations, updatedAt, lastSettledTurnHandle, lastSettledTurnSummary, chatTurn }: AcpRuntimeEvent) => {
+    this.acpRuntime.on('agent-runtime', ({ agentId, state, error, sessionId, stopReason, supportsSteer, canSteer, supportsFork, pendingPermission, pendingPermissions, pendingElicitation, pendingElicitations, activeElicitations, updatedAt, lastSettledTurnHandle, lastSettledTurnSummary, chatTurn }: AcpRuntimeEvent) => {
       const agent = this.agents.get(agentId);
       if (!agent) return;
       const runtime = runtimeBindingOf(agent, 'acp');
@@ -2003,6 +2003,7 @@ class AgentManager extends EventEmitter {
       runtime.error = error || '';
       runtime.stopReason = stopReason || '';
       runtime.supportsSteer = supportsSteer === true;
+      runtime.canSteer = canSteer === true;
       runtime.supportsFork = supportsFork === true;
       runtime.pendingPermission = pendingPermission || null;
       runtime.pendingPermissions = Array.isArray(pendingPermissions) ? pendingPermissions : [];

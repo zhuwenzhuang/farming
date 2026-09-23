@@ -101,6 +101,18 @@ test('quotes spreadsheet and side-chat results without losing drafts or sending 
   expect((await (await opened).json()).error).toBeFalsy()
   const pane = page.getByTestId('code-subagent-panel')
   await expect(pane).toBeVisible()
+  if (!isMobile) {
+    const parentRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
+    const childRow = page.locator('[data-testid="code-agent-row"].related-child')
+    await expect(childRow).toBeVisible()
+    await parentRow.hover()
+    const visibility = parentRow.getByTestId('code-agent-row-related-visibility')
+    await visibility.click()
+    await expect(childRow).toBeHidden()
+    await expect(pane).toBeVisible()
+    await visibility.click()
+    await expect(childRow).toBeVisible()
+  }
   if (isMobile) await page.getByRole('button', { name: 'Parent', exact: true }).click()
   await parentInput.fill(preserved)
   if (isMobile) await page.getByRole('navigation', { name: 'Related sessions' }).getByRole('button', { name: 'Subagent', exact: true }).click()

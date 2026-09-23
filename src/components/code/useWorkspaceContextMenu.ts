@@ -16,8 +16,10 @@ import type { ProjectGroup } from './types'
 
 const MOBILE_PROJECT_CONTEXT_MENU_WIDTH = 286
 
+export type RelatedRowsVisibility = { collapsed: boolean; toggle: () => void }
+
 export type WorkspaceContextMenu =
-  | { kind: 'agent'; agentId: string; x: number; y: number; focusFirstItem: boolean }
+  | { kind: 'agent'; agentId: string; x: number; y: number; focusFirstItem: boolean; relatedVisibility?: RelatedRowsVisibility }
   | { kind: 'project'; projectId: string; protectedAgentIds: string[]; x: number; y: number; returnFocusTarget: HTMLElement; focusFirstItem: boolean }
   | { kind: 'agent-session'; provider: string; sessionId: string; x: number; y: number; focusFirstItem: boolean }
   | { kind: 'options'; x: number; y: number; returnFocusTarget: HTMLElement | null; focusFirstItem: boolean }
@@ -90,16 +92,22 @@ export function useWorkspaceContextMenu({
       window.requestAnimationFrame(() => closingMenu.returnFocusTarget?.focus({ preventScroll: true }))
     }
   }, [contextMenu, focusAgent, focusAgentSession, focusProject])
-  const openAgentMenu = useCallback((event: WorkspaceContextMenuTriggerEvent, agentId: string) => {
+  const openAgentMenu = useCallback((event: WorkspaceContextMenuTriggerEvent, agentId: string, relatedVisibility?: RelatedRowsVisibility) => {
     if (!prepareMenuTrigger(event)) return
     const agent = agents.find(candidate => candidate.id === agentId)
     const height = estimateAgentContextMenuHeight(agent, {
       canCreateBrowser: canCreateAgentBrowser,
       canCreateDesktop: Boolean(agent && canCreateAgentDesktop(agent)),
     })
-    const point = anchoredMenuPoint(event, height)
-    setContextMenu({ kind: 'agent', agentId, ...point, focusFirstItem: isKeyboardMenuTrigger(event) })
-  }, [agents, canCreateAgentBrowser, canCreateAgentDesktop])
+    const point = anchoredMenuPoint(event, height + (relatedVisibility ? estimateContextMenuHeight(1) - estimateContextMenuHeight(0) : 0))
+    setContextMenu({ kind: 'agent', agentId, ...point, focusFirstItem: isKeyboardMenuTrigger(event),
+      relatedVisibility: relatedVisibility && { ...relatedVisibility, toggle: () => {
+        relatedVisibility.toggle()
+        setContextMenu(null)
+        focusAgent(agentId)
+      } },
+    })
+  }, [agents, canCreateAgentBrowser, canCreateAgentDesktop, focusAgent])
   const openProjectMenu = useCallback((
     event: WorkspaceContextMenuTriggerEvent,
     projectId: string,

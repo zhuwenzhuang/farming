@@ -332,7 +332,7 @@ const CODEX_STEER_METHOD = '_codex/session/steer';
 const SESSION_STEERING_METHOD = '_session/steering';
 const CODEX_ACP_PACKAGE = '@agentclientprotocol/codex-acp';
 const CODEX_ACP_VERSION = '1.12.0';
-const CODEX_ACP_SHA256 = 'df3da296895a6d9a036de6d990e8ec69f8500d49a5d93e3fb8e118659eb71bde';
+const CODEX_ACP_SHA256 = '15b2373146c9790b34019f023ab309daa0e96f7de867883ef5c8d8de4e3a5b5c';
 const CLAUDE_ACP_PACKAGE = '@agentclientprotocol/claude-agent-acp';
 const CLAUDE_ACP_VERSION = '0.79.0';
 const CLAUDE_ACP_SHA256 = 'c2b4cf175e0b7f21557696ed8773c3073c42c77747bb898b4df27bc787472648';
@@ -2532,7 +2532,7 @@ class AcpRuntime extends EventEmitter {
       turn.providerSettled = true;
       this.requireSessionState(binding).completePrompt(event.status === 'completed' ? 'end_turn' : String(event.status));
       // A submitted ACP request still owns its own response/notification barrier.
-      if (!turn.providerInitiated) return;
+      if (!turn.providerInitiated) { this.emitRuntime(binding); return; }
       binding.state = event.status === 'failed' ? 'error' : 'idle';
       binding.stopReason = event.status === 'completed' ? 'end_turn' : String(event.status);
       if (binding.chatTurn) binding.chatTurn = {
@@ -2707,7 +2707,8 @@ class AcpRuntime extends EventEmitter {
     if (!sessionId || !binding.subagentStates.has(sessionId)) return;
     const control = this.ensureSubagentControl(binding, sessionId);
     const status = String(update?.status || '').toLowerCase();
-    if (['cancelled', 'canceled'].includes(status)) {
+    if (['cancelled', 'canceled'].includes(status)
+      || (update._meta?.farming?.nativeSubagent === true && update._meta.farming.state === 'cancelled')) {
       control.phase = 'cancelled';
       control.error = '';
     } else if (['completed', 'complete'].includes(status)) {
@@ -3402,6 +3403,7 @@ class AcpRuntime extends EventEmitter {
       }
       response = await responsePromise;
       turn.providerSettled = true;
+      if (this.isCurrentTurn(binding, turn)) this.emitRuntime(binding);
     } catch (error) {
       turn.providerSettled = true;
       const runtimeError = new Error(acpErrorMessage(error), { cause: error });
@@ -4702,6 +4704,7 @@ class AcpRuntime extends EventEmitter {
       chatTurn: binding.chatTurn,
       providerTurnId: binding.activeTurn?.providerInitiated ? String(binding.activeTurn.nativeTurnId) : null,
       supportsSteer: binding.supportsSteer === true,
+      canSteer: this.canSteer(binding.agentId),
       supportsFork: Boolean(
         binding.initializeResponse?.agentCapabilities?.sessionCapabilities?.fork
         && binding.initializeResponse?.agentCapabilities?.loadSession
@@ -4967,16 +4970,37 @@ class AcpRuntime extends EventEmitter {
     return capability?.version === 1 && typeof capability.method === 'string' ? capability.method : '';
   }
 
-  listSubagents(agentId: string) {
+  async listSubagents(agentId: string) {
     const binding = this.requireBinding(agentId);
+    this.requireOpenBinding(binding);
+    const parentSessionId = binding.sessionId;
+    const capability = binding.initializeResponse?.agentCapabilities?._meta?.relatedSessionRead as UnknownRecord | undefined;
+    const listMethod = capability?.version === 1 && typeof capability.listMethod === 'string' ? capability.listMethod : '';
+    let inventory = (binding.sessionState.codexSubagents?.agents || [])
+      .filter(child => child.parentThreadId === parentSessionId)
+      .map(child => ({ sessionId: child.threadId, title: child.name, state: child.status }));
+    if (listMethod) {
+      if (!binding.connection.extMethod) throw new Error('ACP connection does not support related inventory reads');
+      const response = await withTimeout(binding.connection.extMethod(listMethod, {
+        parentSessionId,
+      }), this.requestTimeoutMs, 'ACP related session inventory');
+      this.requireOpenBinding(binding);
+      if (this.bindings.get(agentId) !== binding || binding.sessionId !== parentSessionId || response.sessionId !== parentSessionId
+        || !Array.isArray(response.children) || response.children.length > 1000
+        || !response.children.every((child: UnknownRecord) => child && typeof child.sessionId === 'string'
+          && child.sessionId.length > 0 && child.sessionId !== parentSessionId
+          && typeof child.title === 'string' && typeof child.state === 'string')) {
+        throw new Error('Invalid or stale related session inventory');
+      }
+      inventory = response.children;
+    }
     const children = new Map<string, { sessionId: string; title: string; state: string; stopReason?: string; readable: boolean }>();
     for (const [sessionId, state] of binding.subagentStates) {
       const transcript = this.getSubagentTranscriptSession(agentId, sessionId, { maxTurns: 1 });
       children.set(sessionId, { sessionId, title: state.title || 'Subagent', state: transcript?.state || '', stopReason: transcript?.stopReason || '', readable: true });
     }
-    for (const child of binding.sessionState.codexSubagents?.agents || []) {
-      if (child.parentThreadId !== binding.sessionId || children.has(child.threadId)) continue;
-      children.set(child.threadId, { sessionId: child.threadId, title: child.name || 'Subagent', state: child.status, readable: Boolean(this.relatedReadMethod(binding)) });
+    for (const child of inventory) {
+      children.set(child.sessionId, { ...child, title: child.title || 'Subagent', readable: Boolean(this.relatedReadMethod(binding)) });
     }
     return { sessionId: binding.sessionId, children: [...children.values()] };
   }
@@ -5117,6 +5141,7 @@ class AcpRuntime extends EventEmitter {
       chatTurn: binding.chatTurn,
       providerTurnId: binding.activeTurn?.providerInitiated ? String(binding.activeTurn.nativeTurnId) : null,
       supportsSteer: binding.supportsSteer === true,
+      canSteer: this.canSteer(binding.agentId),
       supportsFork: Boolean(
         binding.initializeResponse?.agentCapabilities?.sessionCapabilities?.fork
         && binding.initializeResponse?.agentCapabilities?.loadSession

@@ -7,7 +7,8 @@ import type {
   RefObject,
 } from 'react'
 import { createPortal } from 'react-dom'
-import { createContext, lazy, memo, Suspense, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createContext, lazy, memo, Suspense, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import type { RelatedRowsVisibility } from './useWorkspaceContextMenu'
 import {
   BellGlyph,
   BrowserGlyph,
@@ -265,7 +266,7 @@ interface CodeSidebarProps {
   onOpenSubagent?: (agentId: string) => void
   onUpdateAgentFlags: (agent: Agent, flags: Partial<Pick<Agent, 'followUp' | 'pinned' | 'archived'>>) => void
   onReorderAgent: (agentId: string, beforeAgentId: string, afterAgentId: string) => void
-  onOpenAgentMenu: (event: ContextMenuTriggerEvent, agentId: string) => void
+  onOpenAgentMenu: (event: ContextMenuTriggerEvent, agentId: string, relatedVisibility?: RelatedRowsVisibility) => void
   onResumeAgentSession: (provider: string, sessionId: string, providerHomeId?: string) => void
   onOpenAgentSessionMenu: (event: ContextMenuTriggerEvent, provider: string, sessionId: string) => void
   onToggleAgentSessionPinned: (session: AgentSessionHistoryItem) => void
@@ -401,6 +402,15 @@ export function CodeSidebar({
   onRenameInstance,
   copy,
 }: CodeSidebarProps) {
+  const [collapsedRelatedRows, setCollapsedRelatedRows] = useState<ReadonlySet<string>>(() => new Set())
+  const toggleRelatedRows = useCallback((key: string) => {
+    setCollapsedRelatedRows(current => {
+      const next = new Set(current)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }, [])
   const [agentPreview, setAgentPreview] = useState<(AgentPreviewTarget & {
     anchor: HTMLElement
     branch: string
@@ -741,6 +751,8 @@ export function CodeSidebar({
       selected: relatedSession,
       onOpen: onOpenRelatedSession,
       onOpenSubagent,
+      collapsed: collapsedRelatedRows,
+      toggleCollapsed: toggleRelatedRows,
     }}>
     <aside
       ref={navigationDialogRef}
@@ -1224,7 +1236,7 @@ function ProjectAgentCompactStrip({
   claimedAgentSessionKeyByAgentId: ReadonlyMap<string, string>
   now: number
   onOpenAgent: (agentId: string) => void
-  onOpenAgentMenu: (event: ContextMenuTriggerEvent, agentId: string) => void
+  onOpenAgentMenu: (event: ContextMenuTriggerEvent, agentId: string, relatedVisibility?: RelatedRowsVisibility) => void
   onShowPreview: (event: AgentPreviewAnchorEvent, target: AgentPreviewTarget, compact?: boolean) => void
   onHidePreview: () => void
 }) {
@@ -1270,7 +1282,7 @@ function PinnedItemCompactStrip({
   claimedAgentSessionKeyByAgentId: ReadonlyMap<string, string>
   now: number
   onOpenAgent: (agentId: string) => void
-  onOpenAgentMenu: (event: ContextMenuTriggerEvent, agentId: string) => void
+  onOpenAgentMenu: (event: ContextMenuTriggerEvent, agentId: string, relatedVisibility?: RelatedRowsVisibility) => void
   onResumeAgentSession: (provider: string, sessionId: string, providerHomeId?: string) => void
   onOpenAgentSessionMenu: (event: ContextMenuTriggerEvent, provider: string, sessionId: string) => void
   onShowPreview: (event: AgentPreviewAnchorEvent, target: AgentPreviewTarget, compact?: boolean) => void
@@ -1386,7 +1398,7 @@ interface PinnedSectionProps {
   onOpenAgent: (agentId: string) => void
   onUpdateAgentFlags: (agent: Agent, flags: Partial<Pick<Agent, 'followUp' | 'pinned' | 'archived'>>) => void
   onReorderAgent: (agentId: string, beforeAgentId: string, afterAgentId: string) => void
-  onOpenAgentMenu: (event: ContextMenuTriggerEvent, agentId: string) => void
+  onOpenAgentMenu: (event: ContextMenuTriggerEvent, agentId: string, relatedVisibility?: RelatedRowsVisibility) => void
   onResumeAgentSession: (provider: string, sessionId: string, providerHomeId?: string) => void
   onOpenAgentSessionMenu: (event: ContextMenuTriggerEvent, provider: string, sessionId: string) => void
   onToggleAgentSessionPinned: (session: AgentSessionHistoryItem) => void
@@ -1947,7 +1959,7 @@ interface ProjectSectionProps {
   onOpenAgent: (agentId: string) => void
   onUpdateAgentFlags: (agent: Agent, flags: Partial<Pick<Agent, 'followUp' | 'pinned' | 'archived'>>) => void
   onReorderAgent: (agentId: string, beforeAgentId: string, afterAgentId: string) => void
-  onOpenAgentMenu: (event: ContextMenuTriggerEvent, agentId: string) => void
+  onOpenAgentMenu: (event: ContextMenuTriggerEvent, agentId: string, relatedVisibility?: RelatedRowsVisibility) => void
   onResumeAgentSession: (provider: string, sessionId: string, providerHomeId?: string) => void
   onOpenAgentSessionMenu: (event: ContextMenuTriggerEvent, provider: string, sessionId: string) => void
   onToggleAgentSessionPinned: (session: AgentSessionHistoryItem) => void
@@ -2983,7 +2995,9 @@ const RelatedSidebarRows = createContext<{
   selected?: RelatedSessionTarget | null
   onOpen?: (target: RelatedSessionTarget) => void
   onOpenSubagent?: (agentId: string) => void
-}>({ agents: [], activeId: null })
+  collapsed: ReadonlySet<string>
+  toggleCollapsed?: (key: string) => void
+}>({ agents: [], activeId: null, collapsed: new Set() })
 
 function AgentRow({
   agent,
@@ -3029,7 +3043,7 @@ function AgentRow({
   onAgentDragLeave?: (event: ReactDragEvent<HTMLElement>) => void
   onAgentDragOver?: (event: ReactDragEvent<HTMLElement>, agentId: string) => void
   onAgentDrop?: (event: ReactDragEvent<HTMLElement>, agentId: string) => void
-  onOpenAgentMenu?: (event: ContextMenuTriggerEvent, agentId: string) => void
+  onOpenAgentMenu?: (event: ContextMenuTriggerEvent, agentId: string, relatedVisibility?: RelatedRowsVisibility) => void
   onResume?: (provider: string, sessionId: string, providerHomeId?: string) => void
   onOpenSessionMenu?: (event: ContextMenuTriggerEvent, provider: string, sessionId: string) => void
   onToggleSessionPinned?: (session: AgentSessionHistoryItem) => void
@@ -3039,6 +3053,8 @@ function AgentRow({
   copy: CodeCopy
 }) {
   const relatedRows = useContext(RelatedSidebarRows)
+  const [nativeChildrenSession, setNativeChildrenSession] = useState<string | null>(null)
+  const relatedRowsId = useId()
   const draggedRef = useRef(false)
   const liveAgent = useAgentWithLiveState(agent)
   const backing = liveAgent
@@ -3069,6 +3085,15 @@ function AgentRow({
     && canForkAgentConversation(liveAgent)
     && relatedRows.onOpenSubagent,
   )
+  const childAgents = liveAgent?.providerSessionKey && !liveAgent.subagentParentSessionKey
+    ? relatedRows.agents.filter(child => child.subagentParentSessionKey === liveAgent.providerSessionKey) : []
+  const relatedKey = JSON.stringify([liveAgent?.id, liveAgent?.providerSessionKey])
+  const relatedCollapsed = relatedRows.collapsed.has(relatedKey)
+  const hasRelatedRows = childAgents.length > 0 || Boolean(liveAgent?.providerSessionKey && nativeChildrenSession === liveAgent.providerSessionKey)
+  const relatedVisibility: RelatedRowsVisibility | undefined = hasRelatedRows ? {
+    collapsed: relatedCollapsed,
+    toggle: () => relatedRows.toggleCollapsed?.(relatedKey),
+  } : undefined
   const prepareLiveChat = () => {
     if (!liveAgent || !isAcpRuntime(liveAgent)) return
     void fetch(appPath(`/api/agents/${encodeURIComponent(liveAgent.id)}/acp-transcript/prepare`), {
@@ -3120,7 +3145,7 @@ function AgentRow({
       if (sessionProvider && session) onOpenSessionMenu?.(event, sessionProvider, agentSessionId(session))
       return
     }
-    if (liveAgentId) onOpenAgentMenu?.(event, liveAgentId)
+    if (liveAgentId) onOpenAgentMenu?.(event, liveAgentId, relatedVisibility)
   }
   return (
     <>
@@ -3181,13 +3206,14 @@ function AgentRow({
           if (sessionProvider && session) onOpenSessionMenu?.(event, sessionProvider, agentSessionId(session))
           return
         }
-        if (liveAgentId) onOpenAgentMenu?.(event, liveAgentId)
+        if (liveAgentId) onOpenAgentMenu?.(event, liveAgentId, relatedVisibility)
       }}
       onKeyDown={event => {
+        if (event.target !== event.currentTarget) return
         if (requiresResume) {
           if (sessionProvider && session) onOpenSessionMenu?.(event, sessionProvider, agentSessionId(session))
         } else if (liveAgentId) {
-          onOpenAgentMenu?.(event, liveAgentId)
+          onOpenAgentMenu?.(event, liveAgentId, relatedVisibility)
         }
         if (event.defaultPrevented) return
         if (event.key === 'Enter' || event.key === ' ') {
@@ -3264,6 +3290,24 @@ function AgentRow({
                 data-agent-id={liveAgent.id}
               />
             )}
+            {relatedVisibility && (
+              <button
+                type="button"
+                className="code-agent-row-action"
+                data-testid="code-agent-row-related-visibility"
+                aria-expanded={!relatedCollapsed}
+                aria-controls={relatedRowsId}
+                aria-label={relatedCollapsed ? copy.showRelatedAgents : copy.hideRelatedAgents}
+                title={relatedCollapsed ? copy.showRelatedAgents : copy.hideRelatedAgents}
+                onClick={event => {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  relatedVisibility.toggle()
+                }}
+              >
+                {relatedCollapsed ? <VisibilityGlyph /> : <VisibilityOffGlyph />}
+              </button>
+            )}
             {canOpenSubagent && (
               <button
                 type="button"
@@ -3339,14 +3383,16 @@ function AgentRow({
         data-agent-id={liveAgent.id}
       />
     )}
-    {liveAgent?.providerSessionKey && !liveAgent.subagentParentSessionKey ? relatedRows.agents
-      .filter(child => child.subagentParentSessionKey === liveAgent.providerSessionKey)
+    <div id={relatedRowsId} className="code-agent-related-rows" hidden={relatedCollapsed}>
+    {childAgents
       .map(child => <AgentRow key={child.providerSessionKey || child.id} agent={child}
         active={relatedRows.activeId === child.id} searchSelected={false} now={now}
         onOpenAgent={onOpenAgent} onUpdateAgentFlags={onUpdateAgentFlags}
-        onShowPreview={onShowPreview} onHidePreview={onHidePreview} copy={copy} />) : null}
+        onShowPreview={onShowPreview} onHidePreview={onHidePreview} copy={copy} />)}
     {liveAgent && !liveAgent.subagentParentSessionKey && relatedRows.onOpen ? <NativeRelatedRows parent={liveAgent} copy={copy}
-      active={active || relatedRows.selected?.parentAgentId === liveAgent.id} selected={relatedRows.selected || null} onOpen={relatedRows.onOpen} /> : null}
+      active={active || relatedRows.selected?.parentAgentId === liveAgent.id} selected={relatedRows.selected || null} onOpen={relatedRows.onOpen}
+      onChildrenSessionChange={setNativeChildrenSession} /> : null}
+    </div>
     </>
   )
 }

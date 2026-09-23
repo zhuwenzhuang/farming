@@ -25,6 +25,8 @@ export interface CodeCopy {
   appModeFullscreenTitle: string
   appModeFullscreenDescription: string
   subagent: string
+  showRelatedAgents: string
+  hideRelatedAgents: string
   quoteSelection: string
   quoteInParent: string
   sideChatDescription: string
@@ -32,7 +34,6 @@ export interface CodeCopy {
   relatedWaitingPermission: string
   relatedWaitingInput: string
   relatedStatusUnavailable: string
-  relatedSummary: (running: number, attention: number, finished: number) => string
   relatedFinished: (count: number) => string
   relatedOpenDetails: string
   relatedShowMore: string
@@ -701,6 +702,8 @@ const EN_COPY: CodeCopy = {
   appModeFullscreenTitle: 'Fullscreen for now',
   appModeFullscreenDescription: 'Hide browser controls for this window. Press Esc to leave fullscreen.',
   subagent: 'Subagent',
+  showRelatedAgents: 'Show subagents',
+  hideRelatedAgents: 'Hide subagents',
   quoteSelection: 'Quote in chat',
   quoteInParent: 'Quote in parent chat',
   sideChatDescription: 'Side chat · You can reply. Accepted work continues while you are away.',
@@ -708,7 +711,6 @@ const EN_COPY: CodeCopy = {
   relatedWaitingPermission: 'Waiting for approval',
   relatedWaitingInput: 'Waiting for input',
   relatedStatusUnavailable: 'Status unavailable',
-  relatedSummary: (running, attention, finished) => `${running} running · ${attention} need attention · ${finished} finished`,
   relatedFinished: count => `Finished · ${count}`,
   relatedOpenDetails: 'Open subagent details',
   relatedShowMore: 'Show more',
@@ -1410,6 +1412,8 @@ const ZH_COPY: CodeCopy = {
   appModeFullscreenTitle: '暂时全屏',
   appModeFullscreenDescription: '只为当前窗口隐藏浏览器控制，按 Esc 即可退出。',
   subagent: '子 Agent',
+  showRelatedAgents: '显示子 Agent',
+  hideRelatedAgents: '隐藏子 Agent',
   quoteSelection: '引用提问',
   quoteInParent: '引用到父会话',
   sideChatDescription: '旁聊 · 可继续提问，已接受的任务会在你离开后继续执行。',
@@ -1417,7 +1421,6 @@ const ZH_COPY: CodeCopy = {
   relatedWaitingPermission: '等待批准',
   relatedWaitingInput: '等待输入',
   relatedStatusUnavailable: '状态不可用',
-  relatedSummary: (running, attention, finished) => `${running} 个执行中 · ${attention} 个待处理 · ${finished} 个已结束`,
   relatedFinished: count => `已结束 · ${count}`,
   relatedOpenDetails: '查看子 Agent 详情',
   relatedShowMore: '显示更多',
