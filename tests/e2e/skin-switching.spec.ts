@@ -598,6 +598,7 @@ test('keeps Code Usage to real token sources and renders a compact activity heat
   await expect.poll(() => calendarViewport.evaluate(element => element.scrollLeft)).toBe(0)
   await page.setViewportSize({ width: 390, height: 844 })
   await expect.poll(() => calendarViewport.evaluate(element => element.scrollLeft)).toBe(0)
+  await expect.poll(() => mobileDetail.evaluate(element => element.getBoundingClientRect().width)).toBe(390)
   await expect(mobileDetail.locator('.code-usage-mobile-quota .code-usage-provider')).toHaveCount(1)
   const mobileHistogram = mobileDetail.getByTestId('code-usage-day-histogram')
   await expect(mobileHistogram).toBeVisible()
