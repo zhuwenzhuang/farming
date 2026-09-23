@@ -1808,7 +1808,7 @@ test.describe('display-backed agent flows', () => {
     await expect(worktreeMenu.locator('.code-worktree-list .code-worktree-row[data-current="true"]')).toContainText('feature/topic')
     await expect(worktreeMenu.locator('.code-worktree-list .code-worktree-row[data-main="true"] .code-worktree-row-path')).toContainText('base-repo')
     await expect(worktreeMenu.getByText('Branches', { exact: true })).toBeVisible()
-    await expect(worktreeMenu).toContainText('Finish or stop the Agents using this project before switching branches.')
+    await expect(worktreeMenu).toContainText('Branches can only be switched from the repository main worktree.')
     await expect(worktreeMenu.getByTestId('code-project-branch-switch-target')).toBeDisabled()
     await worktreeMenu.locator('.code-worktree-list .code-worktree-row[data-main="true"]').click()
 

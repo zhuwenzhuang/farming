@@ -105,6 +105,56 @@ async function run() {
     assert.deepStrictEqual(stoppedAgentInventory.blockingAgentIds, []);
     manager.agents.delete('branch-switch-stopped-agent');
 
+    manager.agents.set('branch-switch-idle-terminal', {
+      id: 'branch-switch-idle-terminal',
+      command: 'codex',
+      cwd: repository,
+      projectWorkspace: repository,
+      isMain: false,
+      status: 'running',
+      runtimeBinding: { kind: 'terminal' },
+      terminalBusy: false,
+      previewText: '',
+      startedAt: Date.now(),
+      lastActivityAt: Date.now(),
+    });
+    assert.strictEqual((await manager.inspectProjectBranches(repository)).canSwitch, true, 'an idle Terminal can remain open');
+    manager.agents.get('branch-switch-idle-terminal').terminalBusy = true;
+    assert.deepStrictEqual(
+      (await manager.inspectProjectBranches(repository)).blockingAgentIds,
+      ['branch-switch-idle-terminal'],
+    );
+    manager.agents.get('branch-switch-idle-terminal').terminalBusy = false;
+
+    const chatStates = new Map([['branch-switch-idle-chat', 'idle']]);
+    const originalGetChatSession = manager.acpRuntime.getSession.bind(manager.acpRuntime);
+    manager.acpRuntime.getSession = agentId => {
+      const state = chatStates.get(agentId);
+      if (state === 'unavailable') throw new Error('Chat runtime unavailable');
+      return { state: state || 'working' };
+    };
+    manager.agents.set('branch-switch-idle-chat', {
+      id: 'branch-switch-idle-chat',
+      command: 'codex',
+      cwd: repository,
+      projectWorkspace: repository,
+      isMain: false,
+      status: 'running',
+      runtimeBinding: { kind: 'acp', state: 'idle' },
+      startedAt: Date.now(),
+      lastActivityAt: Date.now(),
+    });
+    const idleChatInventory = await manager.inspectProjectBranches(repository);
+    assert.strictEqual(idleChatInventory.canSwitch, true, 'an idle Chat session can remain in the Project');
+    assert.deepStrictEqual(idleChatInventory.blockingAgentIds, []);
+    chatStates.set('branch-switch-idle-chat', 'working');
+    const workingChatInventory = await manager.inspectProjectBranches(repository);
+    assert.strictEqual(workingChatInventory.canSwitch, false);
+    assert.deepStrictEqual(workingChatInventory.blockingAgentIds, ['branch-switch-idle-chat']);
+    chatStates.set('branch-switch-idle-chat', 'unavailable');
+    assert.strictEqual((await manager.inspectProjectBranches(repository)).canSwitch, false, 'unknown Chat state must block');
+    chatStates.set('branch-switch-idle-chat', 'idle');
+
     let releasePendingStart: (() => void) | null = null;
     let pendingStartEntered: (() => void) | null = null;
     const pendingStartGate = new Promise<void>(resolve => { releasePendingStart = resolve; });
@@ -147,12 +197,53 @@ async function run() {
     assert.strictEqual(git(repository, 'branch', '--show-current'), initialBranch);
     manager.agents.delete('branch-switch-pending-agent');
 
+    let releaseTerminalInput: (() => void) | null = null;
+    let terminalInputEntered: (() => void) | null = null;
+    const terminalInputGate = new Promise<void>(resolve => { releaseTerminalInput = resolve; });
+    const terminalInputReady = new Promise<void>(resolve => { terminalInputEntered = resolve; });
+    const pendingTerminalInput = manager.inputCoordinator.enqueue('branch-switch-idle-terminal', async () => {
+      terminalInputEntered?.();
+      await terminalInputGate;
+    });
+    await terminalInputReady;
+    let terminalInputSwitchSettled = false;
+    const switchDuringTerminalInput = manager.switchProjectBranch(repository, {
+      branch: 'branch-switch-target',
+      expectedBranch: initialBranch,
+      expectedHead: initialHead,
+      requestId: 'branch-switch-terminal-input-block',
+    }).finally(() => { terminalInputSwitchSettled = true; });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.strictEqual(terminalInputSwitchSettled, false, 'branch switching must drain admitted Terminal input');
+    releaseTerminalInput?.();
+    await pendingTerminalInput;
+    const blockedByTerminalInput = await switchDuringTerminalInput;
+    assert.strictEqual(blockedByTerminalInput.switched, false);
+    assert.strictEqual(blockedByTerminalInput.inventory?.blockedReasonCode, 'active-agents');
+    assert.deepStrictEqual(blockedByTerminalInput.inventory?.blockingAgentIds, ['branch-switch-idle-terminal']);
+    assert.strictEqual(git(repository, 'branch', '--show-current'), initialBranch);
+
     const originalSwitchLocalBranch = manager.worktreeGitService.switchLocalBranch.bind(manager.worktreeGitService);
+    const originalWhenComposerIdle = manager.composerAdmissionCoordinator.whenIdle.bind(manager.composerAdmissionCoordinator);
+    let releaseChatDrain: (() => void) | null = null;
+    let chatDrainEntered: (() => void) | null = null;
+    const chatDrainGate = new Promise<void>(resolve => { releaseChatDrain = resolve; });
+    const chatDrainReady = new Promise<void>(resolve => { chatDrainEntered = resolve; });
+    manager.composerAdmissionCoordinator.whenIdle = async agentId => {
+      if (agentId === 'branch-switch-idle-chat') {
+        chatDrainEntered?.();
+        await chatDrainGate;
+        return true;
+      }
+      return originalWhenComposerIdle(agentId);
+    };
     let releaseExclusiveSwitch: (() => void) | null = null;
     let exclusiveSwitchEntered: (() => void) | null = null;
+    let gitSwitchStarted = false;
     const exclusiveSwitchGate = new Promise<void>(resolve => { releaseExclusiveSwitch = resolve; });
     const exclusiveSwitchReady = new Promise<void>(resolve => { exclusiveSwitchEntered = resolve; });
     manager.worktreeGitService.switchLocalBranch = async () => {
+      gitSwitchStarted = true;
       exclusiveSwitchEntered?.();
       await exclusiveSwitchGate;
       return {
@@ -167,7 +258,22 @@ async function run() {
       expectedHead: initialHead,
       requestId: 'branch-switch-exclusive-start-race',
     });
+    await chatDrainReady;
+    assert.strictEqual(gitSwitchStarted, false, 'Git must wait for admitted Chat messages to settle');
+    await assert.rejects(
+      manager.sendComposerMessage('branch-switch-idle-chat', 'new work while Git switches'),
+      /Project branch switch in progress/,
+    );
+    assert.deepStrictEqual(
+      await manager.sendInput('branch-switch-idle-terminal', ['new work\r']),
+      { status: 'input-rejected', reason: 'project-branch-switch' },
+    );
+    releaseChatDrain?.();
     await exclusiveSwitchReady;
+    await assert.rejects(
+      manager.sendComposerMessage('branch-switch-idle-chat', 'new work during Git switch'),
+      /Project branch switch in progress/,
+    );
     let rejectedAncestorStartError = '';
     const rejectedAncestorStart = await manager.startAgent('bash', root, (_agentId, error) => {
       rejectedAncestorStartError = error || '';
@@ -179,6 +285,7 @@ async function run() {
     assert.strictEqual(heldSwitchResult.switched, false);
     assert.strictEqual(heldSwitchResult.uncertain, false);
     manager.worktreeGitService.switchLocalBranch = originalSwitchLocalBranch;
+    manager.composerAdmissionCoordinator.whenIdle = originalWhenComposerIdle;
 
     let uncertainSwitchCalls = 0;
     manager.worktreeGitService.switchLocalBranch = async () => {
@@ -245,6 +352,11 @@ async function run() {
     assert.strictEqual(switchedBranch.inventory?.head, git(repository, 'rev-parse', 'HEAD'));
     assert.strictEqual(git(repository, 'branch', '--show-current'), 'branch-switch-target');
     assert.strictEqual(configManager.getProjectOperation('branch-switch-success').state, 'succeeded');
+    assert.strictEqual(manager.agents.get('branch-switch-idle-chat')?.status, 'running', 'idle Chat stays open after the switch');
+    assert.strictEqual(manager.agents.get('branch-switch-idle-terminal')?.status, 'running', 'idle Terminal stays open after the switch');
+    manager.agents.delete('branch-switch-idle-chat');
+    manager.agents.delete('branch-switch-idle-terminal');
+    manager.acpRuntime.getSession = originalGetChatSession;
     git(repository, 'switch', initialBranch);
     const replayedSwitchedBranch = await manager.switchProjectBranch(repository, {
       branch: 'branch-switch-target',

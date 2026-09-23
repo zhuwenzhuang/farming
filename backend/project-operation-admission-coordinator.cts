@@ -9,6 +9,7 @@ type ProjectExclusiveAdmission<Result> = {
   operationKey: string;
   promise: Promise<Result>;
   requestId: string;
+  purpose: string;
 };
 
 class ProjectOperationAdmissionCoordinator {
@@ -43,6 +44,7 @@ class ProjectOperationAdmissionCoordinator {
     operation: () => Promise<Result>,
     matches: (left: string, right: string) => boolean = (left, right) => left === right,
     operationKey: string = requestId,
+    purpose = '',
   ): Promise<Result> {
     if (!key) return operation();
     const currentEntry = [...this.exclusive.entries()]
@@ -57,10 +59,10 @@ class ProjectOperationAdmissionCoordinator {
       }
       return current.promise
         .catch(() => {})
-        .then(() => this.runExclusive(key, requestId, operation, matches, operationKey));
+        .then(() => this.runExclusive(key, requestId, operation, matches, operationKey, purpose));
     }
     const promise = operation();
-    const admission: ProjectExclusiveAdmission<Result> = { operationKey, requestId, promise };
+    const admission: ProjectExclusiveAdmission<Result> = { operationKey, requestId, promise, purpose };
     this.exclusive.set(key, admission);
     void promise.finally(() => {
       if (this.exclusive.get(key) === admission) this.exclusive.delete(key);
@@ -71,9 +73,11 @@ class ProjectOperationAdmissionCoordinator {
   findExclusiveKey(
     candidate: string,
     matches: (exclusiveKey: string, candidate: string) => boolean,
+    purpose = '',
   ): string {
     if (!candidate) return '';
-    return [...this.exclusive.keys()].find(key => matches(key, candidate)) || '';
+    return [...this.exclusive.entries()]
+      .find(([key, admission]) => matches(key, candidate) && (!purpose || admission.purpose === purpose))?.[0] || '';
   }
 
   pendingOperations(): Promise<unknown>[] {

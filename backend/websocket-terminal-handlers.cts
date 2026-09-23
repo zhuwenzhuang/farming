@@ -36,6 +36,7 @@ type TerminalInputRejectionResult = {
 };
 
 const TERMINAL_INPUT_REJECTION_MESSAGES: Record<string, string> = {
+  'project-branch-switch': 'Terminal input was not sent: a Project branch switch is in progress. Retry after it finishes.',
   'uncertain-input-fence': 'Terminal input was not sent: an earlier write has an uncertain outcome until the terminal checkpoint recovers.',
   'runtime-epoch-mismatch': 'Terminal input was not sent: the terminal runtime changed.',
   'terminal-write-rejected': 'Terminal input was not sent: the terminal rejected the write.',

@@ -120,6 +120,13 @@ async function run() {
   assert.strictEqual(errors()[5].reason, 'terminal-write-rejected');
   assert.match(errors()[5].message, /was not sent/);
   assert.strictEqual(validateServerMessage(errors()[5]).ok, true);
+
+  inputResults.push({ status: 'input-rejected', reason: 'project-branch-switch' });
+  handlers.input(client, { agentId: 'agent-a', input: 'x' });
+  await flush();
+  assert.strictEqual(errors()[6].reason, 'project-branch-switch');
+  assert.match(errors()[6].message, /branch switch is in progress/);
+  assert.strictEqual(validateServerMessage(errors()[6]).ok, true);
 }
 
 run().then(() => {

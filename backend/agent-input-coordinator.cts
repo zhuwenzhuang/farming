@@ -69,6 +69,16 @@ class AgentInputCoordinator {
     return new Set(this.#active);
   }
 
+  async whenIdle(agentId: string): Promise<boolean> {
+    let waited = false;
+    while (true) {
+      const pending = this.#queues.get(agentId);
+      if (!pending) return waited;
+      waited = true;
+      await pending.catch(() => {});
+    }
+  }
+
   dispose(): void {
     this.#active.clear();
     this.#queues.clear();

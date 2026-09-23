@@ -6379,6 +6379,9 @@ class AgentManager extends EventEmitter {
     input: TerminalInput,
     options: TerminalInputOptions = {},
   ): Promise<TerminalInputResult | undefined> {
+    if (this.projectBranchSwitchBlocksInput(agentId)) {
+      return { status: 'input-rejected', reason: 'project-branch-switch' };
+    }
     let admission: TerminalInputAdmission;
     try {
       admission = this.captureTerminalInputAdmission(agentId);
@@ -6427,6 +6430,7 @@ class AgentManager extends EventEmitter {
     options: ComposerMessageOptions = {},
   ): Promise<unknown> {
     this.assertSubagentParentAvailable(agentId);
+    this.assertProjectInputAvailable(agentId);
     const lifecycleOperation = this.lifecycleCoordinator.get(agentId);
     if (lifecycleOperation) {
       return Promise.reject(new Error(
@@ -6484,6 +6488,7 @@ class AgentManager extends EventEmitter {
     options: ComposerMessageOptions = {},
   ): Promise<unknown> {
     this.assertSubagentParentAvailable(agentId);
+    this.assertProjectInputAvailable(agentId);
     const lifecycleOperation = this.lifecycleCoordinator.get(agentId);
     if (lifecycleOperation) {
       throw new Error(`Agent lifecycle change already in progress: ${lifecycleOperation.label}`);
@@ -6838,11 +6843,13 @@ class AgentManager extends EventEmitter {
       .trim();
 
     if (isAcpAgent(agent)) {
+      this.assertProjectInputAvailable(agentId);
       this.requireLiveAcpAgent(agentId);
       options.onPhase?.({ phase: 'preparing', updatedAt: Date.now() });
       await this.reconnectAcpAgent(agentId);
       options.assertDeliveryOwner?.();
       this.assertSubagentParentAvailable(agentId);
+      this.assertProjectInputAvailable(agentId);
       this.requireLiveAcpAgent(agentId);
       const result = await this.acpRuntime.submitMessage(agentId, prompt, {
         delivery: options.delivery,
@@ -7188,8 +7195,12 @@ class AgentManager extends EventEmitter {
 
   inputAcpTerminal(agentId: AgentId, terminalId: string, input: string, operationId?: string) {
     this.assertAgentOperationAdmission();
+    this.assertProjectInputAvailable(agentId);
     this.getAcpSession(agentId);
-    return this.acpRuntime.inputTerminal(agentId, terminalId, input, operationId);
+    return this.enqueueInputOperation(agentId, () => {
+      this.assertProjectInputAvailable(agentId);
+      return this.acpRuntime.inputTerminal(agentId, terminalId, input, operationId);
+    });
   }
 
   resizeAcpTerminal(agentId: AgentId, terminalId: string, cols: number, rows: number) {
@@ -7514,6 +7525,12 @@ class AgentManager extends EventEmitter {
     if (result && 'sent' in result && result.sent === true) return;
     const composerRecordExact = this.agents.get(agentId) === agent;
     if (result && 'status' in result && result.status === 'input-rejected') {
+      if (result.reason === 'project-branch-switch') {
+        throw Object.assign(
+          new Error('Project branch switch in progress; retry the Agent message after it finishes'),
+          { code: 'TERMINAL_INPUT_PROJECT_BRANCH_SWITCH', composerRecordExact, composerZeroEffect: true },
+        );
+      }
       if (result.reason === 'uncertain-input-fence') {
         throw Object.assign(
           new Error('Terminal input is fenced after an uncertain write until an authoritative checkpoint reconciles it'),
@@ -7565,6 +7582,9 @@ class AgentManager extends EventEmitter {
     const agent = this.agents.get(agentId);
     if (!agent) return;
     if (runtimeKind(agent) !== 'terminal') return;
+    if (this.projectBranchSwitchBlocksInput(agentId)) {
+      return { status: 'input-rejected', reason: 'project-branch-switch' };
+    }
     const fence = this.currentTerminalInputFence(agentId);
     if (
       fence
@@ -7675,6 +7695,7 @@ class AgentManager extends EventEmitter {
     options: InterruptOptions = {},
   ): Promise<TerminalInputResult | undefined> {
     this.assertAgentOperationAdmission();
+    this.assertProjectInputAvailable(agentId);
     const agent = this.agents.get(agentId);
     if (!agent) return;
     if (isAcpAgent(agent)) {
@@ -8905,13 +8926,13 @@ class AgentManager extends EventEmitter {
   ): LocalBranchInventory {
     const blockingAgentIds = Array.from(this.agents.values())
       .filter((value: unknown): value is TypedAgentRecord => isRecord(value) && typeof value.id === 'string')
-      .filter(agent => !agent.isMain && !['dead', 'stopped'].includes(String(agent.status || '')))
       .filter(agent => {
         const agentWorkspace = canonicalWorkspacePath(
           this.expandWorkspacePath(effectiveAgentWorkspaceRoot(agent)),
         );
-        return Boolean(agentWorkspace && workspacePathsOverlap(workspaceKey, agentWorkspace));
+        return Boolean(!agent.isMain && agentWorkspace && workspacePathsOverlap(workspaceKey, agentWorkspace));
       })
+      .filter(agent => this.agentBlocksProjectBranchSwitch(agent))
       .map(agent => agent.id)
       .sort();
     const pendingAgentStarts = this.startAdmissionCoordinator.pendingForWorkspace(
@@ -8934,6 +8955,37 @@ class AgentManager extends EventEmitter {
       blockedReason,
       blockedReasonCode,
     };
+  }
+
+  private agentBlocksProjectBranchSwitch(agent: TypedAgentRecord): boolean {
+    if (agent.status === 'dead' || agent.status === 'stopped') return false;
+    if (agent.status !== 'running') return true;
+    if (runtimeKind(agent) === 'terminal') {
+      return this.currentTerminalInputFence(agent.id)?.active === true
+        || deriveAgentTerminalStatus(agent, { previewText: agent.previewText || '' }).activity !== 'idle';
+    }
+    try {
+      const session = this.acpRuntime.getSession(agent.id, { includeEntries: false, includeUpdates: false });
+      return session.state !== 'idle';
+    } catch {
+      // A missing or disconnected runtime is not proof that the Agent is idle.
+      return true;
+    }
+  }
+
+  private assertProjectInputAvailable(agentId: AgentId): void {
+    if (this.projectBranchSwitchBlocksInput(agentId)) {
+      throw new Error('Project branch switch in progress; retry the Agent message after it finishes');
+    }
+  }
+
+  private projectBranchSwitchBlocksInput(agentId: AgentId): boolean {
+    const agent = this.agents.get(agentId);
+    if (!agent) return false;
+    const agentWorkspace = effectiveAgentWorkspaceRoot(agent);
+    if (!agentWorkspace) return false;
+    const workspace = canonicalWorkspacePath(this.expandWorkspacePath(agentWorkspace));
+    return Boolean(this.projectAdmissionCoordinator.findExclusiveKey(workspace, workspacePathsOverlap, 'switch-branch'));
   }
 
   async inspectProjectBranches(workspace: string): Promise<LocalBranchInventory> {
@@ -8966,6 +9018,7 @@ class AgentManager extends EventEmitter {
         () => this.switchProjectBranchAdmitted(expanded, request, signature),
         workspacePathsOverlap,
         signature,
+        'switch-branch',
       ),
     );
   }
@@ -9075,12 +9128,43 @@ class AgentManager extends EventEmitter {
       workspaceKey,
       workspacePathsOverlap,
     );
+    let agentInputDrainedIds: string[] = [];
     try {
       await withBoundedWait(
         Promise.allSettled(relatedStarts),
         WORKTREE_BRANCH_SWITCH_START_DRAIN_TIMEOUT_MS,
         `Project ${workspaceKey} Agent start drain`,
       );
+      const relatedChatAgents = [...this.agents.values()].filter(agent => (
+        !agent.isMain
+        && agent.status === 'running'
+        && runtimeKind(agent) === 'acp'
+        && workspacePathsOverlap(
+          workspaceKey,
+          canonicalWorkspacePath(this.expandWorkspacePath(effectiveAgentWorkspaceRoot(agent))),
+        )
+      ));
+      await withBoundedWait(
+        Promise.all(relatedChatAgents.map(agent => this.composerAdmissionCoordinator.whenIdle(agent.id))),
+        WORKTREE_BRANCH_SWITCH_START_DRAIN_TIMEOUT_MS,
+        `Project ${workspaceKey} Agent message drain`,
+      );
+      const relatedInputAgents = [...this.agents.values()].filter(agent => (
+        !agent.isMain
+        && agent.status === 'running'
+        && workspacePathsOverlap(
+          workspaceKey,
+          canonicalWorkspacePath(this.expandWorkspacePath(effectiveAgentWorkspaceRoot(agent))),
+        )
+      ));
+      const inputDrains = await withBoundedWait(
+        Promise.all(relatedInputAgents.map(agent => this.inputCoordinator.whenIdle(agent.id))),
+        WORKTREE_BRANCH_SWITCH_START_DRAIN_TIMEOUT_MS,
+        `Project ${workspaceKey} Agent input drain`,
+      );
+      agentInputDrainedIds = relatedInputAgents
+        .filter((_, index) => inputDrains[index])
+        .map(agent => agent.id);
     } catch (caught) {
       const error = caught as ErrorRecord;
       let inventory: LocalBranchInventory | undefined;
@@ -9106,6 +9190,17 @@ class AgentManager extends EventEmitter {
         uncertain: false,
         error: error.message || 'Fresh branch state could not be inspected',
       };
+    }
+    if (agentInputDrainedIds.length > 0) {
+      const blockedReason = 'Agent input was already in progress; wait for the Agent to become idle and refresh before switching branches';
+      const blockedInventory: LocalBranchInventory = {
+        ...inventory,
+        blockingAgentIds: [...new Set([...inventory.blockingAgentIds, ...agentInputDrainedIds])].sort(),
+        blockedReason,
+        blockedReasonCode: 'active-agents',
+        canSwitch: false,
+      };
+      return { inventory: blockedInventory, switched: false, uncertain: false, error: blockedReason };
     }
     if (inventory.blockedReasonCode === 'active-agents' || inventory.blockedReasonCode === 'pending-agent-starts') {
       return {

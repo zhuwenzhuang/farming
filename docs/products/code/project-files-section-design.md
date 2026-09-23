@@ -466,12 +466,17 @@ two explicit operations inside its popover: opening an already registered
 worktree and switching the current repository main worktree to an existing
 local branch. Worktree rows never imply a branch switch. Branch switching
 requires a fresh server-side read that proves the exact main worktree is clean,
-the target branch is not checked out elsewhere, and no live Farming Agent owns
-that workspace. It never fetches, creates a tracking branch, stashes, or forces
-through changes. The server serializes the mutation with other Project
-operations, fences it with the expected branch and HEAD, and reconciles the
-authoritative branch after a timeout or command failure without automatically
-replaying the switch. Blocked and uncertain outcomes remain visible in the
+the target branch is not checked out elsewhere, and no Agent is actively using
+that workspace. Idle Chat and Terminal Agents may remain open; active or
+unverifiable Agent activity blocks switching. The Server fences new Chat and
+Terminal input during the switch and drains already admitted input before the
+final Agent-state check. A switch that drains prior Terminal input fails so a
+new idle observation is required before retrying. It never fetches, creates a
+tracking branch, stashes, or forces through changes. The server serializes the
+mutation with other Project operations, fences it with the expected branch and
+HEAD, and reconciles the authoritative branch after a timeout or command
+failure without automatically replaying the switch. Blocked and uncertain
+outcomes remain visible in the
 popover; success refreshes the worktree, Files, Changes, and History views.
 
 Blame annotations load bounded Git porcelain output and keep commit details
