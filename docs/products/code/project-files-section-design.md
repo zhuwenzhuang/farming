@@ -427,9 +427,32 @@ remain visible failures, never empty successful change inventories. Refresh
 rebuilds discovery; no child operation changes the parent's index.
 
 
-Working-copy Changes and committed Git History live inside Files. History is
-Project-scoped and loads bounded pages; expanding a commit reveals its changed
-files and parent comparison without implementing a second diff viewer.
+Working-copy Changes and committed Git History live inside Files. A single
+repository has no explicit Main repository wrapper. With submodules, Changes
+owns independently collapsible repository groups, followed by tracked and
+untracked lists. Repository-relative display paths retain Project-relative file
+identity. Repository Review captures tracked changes; the expanded untracked
+list offers an explicitly scoped Review without an implicit age filter.
+The directory tree remains one Project tree; submodule directories carry the
+same secondary repository-type label as their Changes group.
+
+History selects one repository within the Project and loads bounded pages;
+expanding a commit reveals its changed files and parent comparison without
+implementing a second diff viewer. The backend validates the selected child as
+an initialized repository inside the authorized Project; it never substitutes
+the parent when a child disappears. Switching repository cancels old requests,
+clears their results and preserves the History disclosure state. Only the
+current repository may publish results. Failure terminates loading and requires
+explicit retry; refresh rediscovers repository inventory.
+
+The backend owns repository inventory, errors and per-scope completeness,
+including omissions caused by the shared response limit. Browser-local
+disclosure state is independent for each repository and list; refresh cannot
+reopen a collapsed group. Counts describe returned entries, with a partial
+indicator only for affected scopes. Repository errors appear on that repository;
+discovery/request errors appear once at the Changes boundary. Collapsed groups
+keep a compact status marker; expanded incomplete lists explain the bound and
+offer their complete-scope Review, which retains its explicit capture limits.
 
 Line changes explain a local hunk near the current line. Full Review uses the
 main comparison surface and stable Review identity. These are different
@@ -465,7 +488,8 @@ non-HTTP(S), or invalid rules remain plain text.
 - File entries in Open Editors, Changes, and the directory tree share a 24px
   desktop row and a 28px compact row, regardless of pointer type. Compact
   Project and Agent navigation keeps its separate 44px row. File section
-  controls fit their row without overlapping neighboring targets; primary
+  controls fit their row without overlapping neighboring targets; the shared
+  sidebar selector variant uses that same row height and label typography. Primary
   navigation actions retain their larger targets and align to the row center.
   Open Editors and Files headings share the same leading column. Both file
   trees use an 8px depth step and one icon-or-chevron slot; deep indentation

@@ -19,6 +19,7 @@ import { useFileTreeRowInteractions } from './useFileTreeRowInteractions'
 import { recordPerformanceTestRender } from '@/lib/performance-test-observer'
 
 interface FileTreeRowProps {
+  isSubmodule?: boolean
   activeFilePath?: string
   agentId: string
   copy: CodeCopy
@@ -49,6 +50,7 @@ interface FileTreeRowProps {
 
 export function FileTreeRow({
   activeFilePath,
+  isSubmodule,
   agentId,
   copy,
   decoration,
@@ -158,6 +160,7 @@ export function FileTreeRow({
       ) : (
         <FileTreeRowStatus
           copy={copy}
+          isSubmodule={isSubmodule}
           directoryError={directoryError}
           item={item}
           viewState={viewState}

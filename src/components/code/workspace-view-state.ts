@@ -33,6 +33,9 @@ export interface CodeProjectFilesViewState {
   agentsCollapsed?: boolean
   agentVisibleLimit?: number
   changesCollapsed?: boolean
+  repositoriesCollapsed?: boolean
+  repositoryCollapsed?: boolean
+  gitHistoryRepositoryPath?: string
   filesCollapsed?: boolean
   gitHistoryCollapsed?: boolean
   gitHistoryScope?: 'current' | 'all'
@@ -223,6 +226,9 @@ function normalizeProjectFiles(value: unknown) {
     result[workspace] = {
       agentsCollapsed: typeof state.agentsCollapsed === 'boolean' ? state.agentsCollapsed : undefined,
       agentVisibleLimit: normalizeBoundedInteger(state.agentVisibleLimit, 1, 200),
+      repositoriesCollapsed: typeof state.repositoriesCollapsed === 'boolean' ? state.repositoriesCollapsed : undefined,
+      repositoryCollapsed: typeof state.repositoryCollapsed === 'boolean' ? state.repositoryCollapsed : undefined,
+      gitHistoryRepositoryPath: normalizeStringId(state.gitHistoryRepositoryPath) || undefined,
       changesCollapsed: typeof state.changesCollapsed === 'boolean' ? state.changesCollapsed : undefined,
       filesCollapsed: typeof state.filesCollapsed === 'boolean' ? state.filesCollapsed : undefined,
       gitHistoryCollapsed: typeof state.gitHistoryCollapsed === 'boolean' ? state.gitHistoryCollapsed : undefined,

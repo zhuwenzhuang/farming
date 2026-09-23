@@ -116,7 +116,8 @@
 }
 
 /* Toolbar choices are compact and borderless; form choices retain field chrome. */
-.code-select.toolbar .code-select-trigger {
+.code-select.toolbar .code-select-trigger,
+.code-select.sidebar .code-select-trigger {
   height: 28px;
   padding: 3px 8px;
   border: 0;
@@ -126,6 +127,16 @@
 }
 
 .code-select.toolbar .code-select-trigger:hover:not(:disabled),
-.code-select.toolbar.open .code-select-trigger {
+.code-select.toolbar.open .code-select-trigger,
+.code-select.sidebar .code-select-trigger:hover:not(:disabled),
+.code-select.sidebar.open .code-select-trigger {
   background: var(--code-bg-hover);
+}
+
+/* Sidebar choices share file-section row geometry. */
+.code-select.sidebar .code-select-trigger {
+  height: var(--code-file-entry-height);
+  font-size: var(--code-file-entry-font-size);
+  line-height: var(--code-file-entry-line-height);
+  padding: 2px 6px;
 }

@@ -12,7 +12,7 @@ const yauzl = require('yauzl') as {
   ): Promise<{ eachEntry(): AsyncIterable<{ fileName: string; uncompressedSize: number }> }>;
 };
 import { isSameOrDescendantPath as isInside } from './path-containment.cjs';
-import { discoverWorkspaceRepositories, repositoryForFile } from './workspace-repositories.cjs';
+import { discoverWorkspaceRepositories, exactChildRepository, repositoryForFile } from './workspace-repositories.cjs';
 import { assertManagedRipgrep } from './ripgrep-runtime.cjs';
 
 const DEFAULT_MAX_FILE_SIZE = 10 * 1024 * 1024;
@@ -216,10 +216,14 @@ interface WorkspaceChangeItem {
   repositoryPath?: string;
   repositoryFilePath?: string;
 }
-interface WorkspaceChangesResult {
+interface WorkspaceChangesCompleteness {
+  trackedTruncated?: boolean;
+  untrackedTruncated?: boolean;
+}
+interface WorkspaceChangesResult extends WorkspaceChangesCompleteness {
   items: WorkspaceChangeItem[];
   truncated: boolean;
-  repositories?: Array<{ path: string; error?: string; truncated: boolean }>;
+  repositories?: Array<WorkspaceChangesCompleteness & { path: string; error?: string; truncated: boolean }>;
 }
 
 interface GitStatusEntry {
@@ -2497,8 +2501,19 @@ class WorkspaceFileService {
     }
   }
 
-  async gitHistory(workspaceRoot: unknown, options: Record<string, unknown> = {}) {
+  async resolveHistoryRepository(workspaceRoot: unknown, repositoryPath: unknown): Promise<string> {
     const root = await this.resolveRoot(workspaceRoot);
+    if (repositoryPath === undefined || repositoryPath === '') return root;
+    if (typeof repositoryPath !== 'string') throw new WorkspaceFileError('Invalid repository path', 400);
+    try {
+      return await exactChildRepository(this, root, repositoryPath);
+    } catch (error) {
+      throw new WorkspaceFileError(error instanceof Error ? error.message : 'Repository unavailable', 409);
+    }
+  }
+
+  async gitHistory(workspaceRoot: unknown, options: Record<string, unknown> = {}) {
+    const root = await this.resolveHistoryRepository(workspaceRoot, options.repositoryPath);
     const limit = normalizeGitHistoryLimit(options.limit);
     const skip = normalizeGitHistorySkip(options.skip);
     const scope = options.scope === 'all' ? 'all' : 'current';
@@ -2585,7 +2600,7 @@ class WorkspaceFileService {
     parentValue: unknown,
     options: Record<string, unknown> = {},
   ) {
-    const root = await this.resolveRoot(workspaceRoot);
+    const root = await this.resolveHistoryRepository(workspaceRoot, options.repositoryPath);
     const commit = normalizeGitObjectId(commitValue);
     const requestedParent = parentValue ? normalizeGitObjectId(parentValue, 'parent') : '';
     const limit = Math.max(1, Math.min(2000, Number(options.limit) || DEFAULT_GIT_CHANGES_LIMIT));
@@ -2664,19 +2679,34 @@ class WorkspaceFileService {
       const repositories = await discoverWorkspaceRepositories(this, root);
       const groups = await mapWithConcurrency(repositories, 4, async repository => {
         if (repository.error) return { ...repository, items: [], truncated: false };
-        const result = await this.changes(repository.root, { ...options, repositories: false, limit });
-        return { ...repository, ...result };
+        try {
+          const result = await this.changes(repository.root, { ...options, repositories: false, limit });
+          return { ...repository, ...result };
+        } catch (error) {
+          return { ...repository, items: [], truncated: false, error: error instanceof Error ? error.message : 'Repository changes unavailable' };
+        }
+      });
+      const items = groups.flatMap(group => group.items.map(item => ({
+        ...item,
+        path: group.path ? `${group.path}/${item.path}` : item.path,
+        ...(item.previousPath ? { previousPath: group.path ? `${group.path}/${item.previousPath}` : item.previousPath } : {}),
+        repositoryPath: group.path,
+        repositoryFilePath: item.path,
+      }))).sort((a, b) => gitStatusReviewRank(a.gitStatus) - gitStatusReviewRank(b.gitStatus) || a.path.localeCompare(b.path));
+      const omitted = items.slice(limit);
+      const inventory = groups.map(group => {
+        const missing = omitted.filter(item => item.repositoryPath === group.path);
+        const trackedTruncated = Boolean(group.trackedTruncated) || missing.some(item => item.gitStatus !== 'untracked');
+        const untrackedTruncated = Boolean(group.untrackedTruncated) || missing.some(item => item.gitStatus === 'untracked');
+        return { path: group.path, ...(group.error ? { error: group.error } : {}),
+          trackedTruncated, untrackedTruncated, truncated: trackedTruncated || untrackedTruncated };
       });
       return {
-        items: groups.flatMap(group => group.items.map(item => ({
-          ...item,
-          path: group.path ? `${group.path}/${item.path}` : item.path,
-          ...(item.previousPath ? { previousPath: group.path ? `${group.path}/${item.previousPath}` : item.previousPath } : {}),
-          repositoryPath: group.path,
-          repositoryFilePath: item.path,
-        }))).sort((a, b) => gitStatusReviewRank(a.gitStatus) - gitStatusReviewRank(b.gitStatus) || a.path.localeCompare(b.path)).slice(0, limit),
-        repositories: groups.map(({ path, error, truncated }) => ({ path, ...(error ? { error } : {}), truncated })),
-        truncated: groups.some(group => group.truncated) || groups.reduce((count, group) => count + group.items.length, 0) > limit,
+        items: items.slice(0, limit),
+        repositories: inventory,
+        trackedTruncated: inventory.some(group => group.trackedTruncated),
+        untrackedTruncated: inventory.some(group => group.untrackedTruncated),
+        truncated: inventory.some(group => group.truncated),
       };
     }
     const gitStatusByPath = await this.loadGitStatusByPath(root, {
@@ -2708,10 +2738,14 @@ class WorkspaceFileService {
         ...(status.previousPath ? { previousPath: status.previousPath } : {}),
       })));
 
-    const typedGitStatusByPath = gitStatusByPath;
+    const omitted = visibleEntries.slice(limit);
+    const trackedTruncated = scope !== 'untracked' && (gitStatusByPath.truncated === true || omitted.some(([, status]) => status.kind !== 'untracked'));
+    const untrackedTruncated = scope !== 'tracked' && (gitStatusByPath.truncated === true || omitted.some(([, status]) => status.kind === 'untracked'));
     return {
       items: allItems,
-      truncated: typedGitStatusByPath.truncated === true || visibleEntries.length > limit,
+      trackedTruncated,
+      untrackedTruncated,
+      truncated: trackedTruncated || untrackedTruncated,
     };
   }
 

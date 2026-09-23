@@ -56,6 +56,25 @@ async function run() {
     assert.equal((await files.blameCapability(root, 'lib/code.txt')).available, true);
     assert.ok((await files.blame(root, 'lib/code.txt')).lines.length);
     assert.match(String((await files.diff(root, 'lib/code.txt')).patch), /unstaged change/);
+    const childHistory = await files.gitHistory(root, { repositoryPath: 'lib' });
+    assert.equal(childHistory.items[0].subject, 'Child change');
+    assert.equal((await files.gitHistory(root)).items[0].subject, 'Parent head');
+    const childCommit = git(child, 'rev-parse', 'HEAD');
+    const childCommitChanges = await files.gitHistoryChanges(root, childCommit, undefined, { repositoryPath: 'lib' });
+    assert.deepEqual(childCommitChanges.items.map(item => item.path), ['code.txt']);
+    await assert.rejects(files.gitHistory(root, { repositoryPath: '../source' }), /Invalid submodule path/);
+    await assert.rejects(files.gitHistory(root, { repositoryPath: 'main.txt' }), /git|directory|ENOTDIR/i);
+    fs.symlinkSync(source, path.join(root, 'escaped'), 'dir');
+    await assert.rejects(files.gitHistory(root, { repositoryPath: 'escaped' }), /outside the project/);
+    fs.unlinkSync(path.join(root, 'escaped'));
+    fs.writeFileSync(path.join(root, 'untracked.txt'), 'parent untracked');
+    const limited = await files.changes(root, { repositories: true, limit: 2 });
+    assert.equal(limited.truncated, true);
+    assert.equal(limited.repositories?.find(repo => repo.path === 'lib')?.trackedTruncated, false);
+    assert.equal(limited.repositories?.find(repo => repo.path === 'lib')?.untrackedTruncated, true);
+    assert.equal(limited.repositories?.find(repo => repo.path === '')?.trackedTruncated, false);
+    assert.equal(limited.repositories?.find(repo => repo.path === '')?.untrackedTruncated, true);
+    fs.unlinkSync(path.join(root, 'untracked.txt'));
     const reviews = new ReviewDiffService(null, files);
     const snapshot = await reviews.getGitRange(undefined, { root, base, head, metadataOnly: true });
     assert.deepEqual(snapshot.files.map(file => file.path), ['lib', 'lib/code.txt']);
@@ -83,6 +102,8 @@ async function run() {
     fs.renameSync(child, path.join(temp, 'parked-child')); fs.mkdirSync(child);
     const unavailable = await files.changes(root, { repositories: true });
     assert.match(unavailable.repositories?.find(repo => repo.path === 'lib')?.error || '', /not initialized/);
+    await assert.rejects(files.gitHistory(root, { repositoryPath: 'lib' }), /not initialized/);
+    await assert.rejects(files.gitHistoryChanges(root, childCommit, undefined, { repositoryPath: 'lib' }), /not initialized/);
     console.log('test-workspace-submodules passed');
   } finally {
     await files.dispose();

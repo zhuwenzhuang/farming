@@ -313,7 +313,7 @@
   justify-content: flex-end;
   color: var(--code-text-subtle);
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 400;
   line-height: 1;
 }
 
@@ -394,12 +394,13 @@
 }
 
 .code-file-change-review {
-  min-height: var(--code-sidebar-file-row-height);
+  min-height: var(--code-file-entry-height);
   margin-right: 4px;
-  padding: 2px 3px;
+  padding: 2px 6px;
   border: 0;
+  border-radius: 4px;
   background: transparent;
-  color: var(--code-accent);
+  color: var(--code-text-subtle);
   font: inherit;
   font-size: 11px;
   font-weight: 500;
@@ -409,9 +410,37 @@
 
 .code-file-change-review:hover,
 .code-file-change-review:focus-visible {
-  color: var(--code-accent);
-  text-decoration: underline;
-  text-underline-offset: 2px;
+  color: var(--code-text);
+  background: var(--code-bg-hover);
+}
+
+.code-file-repository,
+.code-file-repository-body {
+  margin-left: 8px;
+}
+
+.code-file-repository-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.code-file-repository-label > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.code-file-repository-kind,
+.code-file-repository-status {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--code-text-subtle);
+}
+
+.code-file-change-scope-actions {
+  padding-left: 22px;
 }
 
 body.code-mode .code-file-change-group-toggle {
@@ -421,6 +450,7 @@ body.code-mode .code-file-change-group-toggle {
 }
 
 .code-file-change-group-toggle {
+  border-radius: 4px;
   padding-left: 6px;
   cursor: pointer;
   color: var(--code-text-muted);
@@ -439,10 +469,10 @@ body.code-mode .code-file-change-group-toggle {
   white-space: nowrap;
 }
 
-.code-file-change-group-toggle > span:last-child {
+.code-file-change-group-toggle > .code-file-changes-count {
   color: var(--code-text-subtle);
   font-size: inherit;
-  font-weight: 600;
+  font-weight: 400;
   line-height: 1;
 }
 
@@ -475,10 +505,11 @@ body.code-mode .code-file-change-group-toggle {
 }
 
 .code-file-change-row.active {
-  background: var(--code-bg-hover-strong);
+  background: var(--code-bg-hover);
 }
 
 .code-file-change-main {
+  border-radius: inherit;
   min-width: 0;
   width: 100%;
   display: grid;
@@ -1994,4 +2025,12 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
 
 .code-file-tree-row.active {
   color: var(--code-accent);
+}
+
+.code-file-repository > .code-file-change-group-header .code-file-change-group-toggle {
+  text-transform: none;
+}
+
+.code-file-submodule-label {
+  margin-left: 6px;
 }

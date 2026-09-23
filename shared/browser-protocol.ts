@@ -166,8 +166,8 @@ export type WorkspaceRequest =
   | { operation: 'branches'; rootId: string }
   | { operation: 'branch'; rootId: string }
   | { operation: 'switch-branch'; rootId: string; branch: string; expectedBranch: string; expectedHead: string; operationId: string }
-  | { operation: 'history'; rootId: string; limit?: number; skip?: number; scope?: 'current' | 'all' }
-  | { operation: 'history-changes'; rootId: string; commit: string; parent?: string; limit?: number }
+  | { operation: 'history'; rootId: string; repositoryPath?: string; limit?: number; skip?: number; scope?: 'current' | 'all' }
+  | { operation: 'history-changes'; rootId: string; repositoryPath?: string; commit: string; parent?: string; limit?: number }
   | { operation: 'line-changes'; rootId: string; path: string; lineNumber: number; mode: 'working' | 'previous' }
 
 export interface WorkspaceRequestMessage extends ExtensibleMessage {
@@ -723,11 +723,13 @@ function workspaceRequest(value: unknown): value is WorkspaceRequest {
         && boundedStringField(value, 'operationId', 160)
     case 'history':
       return boundedStringField(value, 'rootId', 4096)
+        && boundedStringField(value, 'repositoryPath', 4096, true)
         && optionalNonNegativeIntegerField(value, 'limit')
         && optionalNonNegativeIntegerField(value, 'skip')
         && (value.scope === undefined || value.scope === 'current' || value.scope === 'all')
     case 'history-changes':
       return boundedStringField(value, 'rootId', 4096)
+        && boundedStringField(value, 'repositoryPath', 4096, true)
         && boundedStringField(value, 'commit', 128)
         && boundedStringField(value, 'parent', 128, true)
         && optionalNonNegativeIntegerField(value, 'limit')

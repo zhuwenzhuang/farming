@@ -734,6 +734,7 @@ async function executeWorkspaceFileRequest(
         throw new WorkspaceFileError('global files do not support git history', 403);
       }
       return fileService.gitHistory(resolveRequestRoot(request).root, {
+        repositoryPath: request.repositoryPath,
         limit: request.limit,
         skip: request.skip,
         scope: request.scope,
@@ -747,7 +748,7 @@ async function executeWorkspaceFileRequest(
         resolveRequestRoot(request).root,
         request.commit,
         request.parent,
-        { limit: request.limit },
+        { limit: request.limit, repositoryPath: request.repositoryPath },
       );
     }
     case 'line-changes': {

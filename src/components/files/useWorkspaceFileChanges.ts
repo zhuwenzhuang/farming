@@ -15,6 +15,8 @@ const WORKSPACE_CHANGES_LIMIT = 200
 const WORKSPACE_CHANGES_TIMEOUT_MS = 15_000
 
 interface WorkspaceFileChangesState {
+  trackedTruncated?: boolean
+  untrackedTruncated?: boolean
   repositories?: WorkspaceFileChanges['repositories']
   error: string | null
   items: WorkspaceFileChange[]
@@ -79,6 +81,8 @@ export function useWorkspaceFileChanges(
         error: null,
         items: changes.items,
         repositories: changes.repositories,
+        trackedTruncated: changes.trackedTruncated,
+        untrackedTruncated: changes.untrackedTruncated,
         loaded: true,
         loading: false,
         truncated: changes.truncated,

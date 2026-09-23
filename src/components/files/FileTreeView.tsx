@@ -27,6 +27,7 @@ const FILE_TREE_OVERSCAN_ROWS = 6
 const FILE_TREE_INITIAL_VIEWPORT_ROWS = 24
 
 export interface FileTreeViewProps {
+  repositoryPaths?: ReadonlySet<string>
   activeFilePath?: string
   agentId: string
   copy: CodeCopy
@@ -233,6 +234,7 @@ const SubscribedFileTreeRow = memo(function SubscribedFileTreeRow({
       // editor keeps its path active for navigation, but it must not paint a
       // second row after the user selects a directory or another file.
       activeFilePath={active && selected ? node.data.path : undefined}
+      isSubmodule={rowProps.repositoryPaths?.has(node.data.path) || node.data.compactedPaths?.some(path => rowProps.repositoryPaths?.has(path))}
       decoration={decoration}
       directoryError={directoryError}
       node={node}
@@ -261,6 +263,7 @@ const FileTreeViewContent = memo(function FileTreeViewContent({
   selectedFilePathStore,
   agentId,
   copy,
+  repositoryPaths,
   directoryErrors,
   editorDirtyFilePaths,
   editorExternalChangedFilePaths,
@@ -483,6 +486,7 @@ const FileTreeViewContent = memo(function FileTreeViewContent({
     selectedFilePathStore,
     agentId,
     copy,
+    repositoryPaths,
     directoryErrors,
     editorDirtyFilePaths,
     editorExternalChangedFilePaths,
@@ -509,6 +513,7 @@ const FileTreeViewContent = memo(function FileTreeViewContent({
     selectedFilePathStore,
     agentId,
     copy,
+    repositoryPaths,
     directoryErrors,
     editorDirtyFilePaths,
     editorExternalChangedFilePaths,

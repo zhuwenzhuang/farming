@@ -45,6 +45,9 @@ function run() {
     agentsCollapsed: undefined,
     agentVisibleLimit: undefined,
     changesCollapsed: undefined,
+    repositoriesCollapsed: undefined,
+    repositoryCollapsed: undefined,
+    gitHistoryRepositoryPath: undefined,
     filesCollapsed: false,
     gitHistoryCollapsed: undefined,
     gitHistoryScope: undefined,
@@ -72,6 +75,10 @@ function run() {
     dynamicPinningEnabled: 'yes',
   }).dynamicPinningEnabled, undefined);
 
+  const repositoryMemory = normalizeCodeWorkspaceViewState({ projectFiles: { '/repo': { repositoriesCollapsed: false, repositoryCollapsed: true, gitHistoryRepositoryPath: 'lib/engine' } } });
+  assert.strictEqual(repositoryMemory.projectFiles['/repo'].repositoryCollapsed, true);
+  assert.strictEqual(repositoryMemory.projectFiles['/repo'].repositoriesCollapsed, false);
+  assert.strictEqual(repositoryMemory.projectFiles['/repo'].gitHistoryRepositoryPath, 'lib/engine');
   console.log('test-code-workspace-view-state passed');
 }
 

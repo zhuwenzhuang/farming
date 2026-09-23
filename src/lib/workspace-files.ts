@@ -128,8 +128,13 @@ export interface WorkspaceFileChange {
   previousPath?: string
 }
 
-export interface WorkspaceFileChanges {
-  repositories?: Array<{ path: string; error?: string; truncated: boolean }>
+export interface WorkspaceChangesCompleteness {
+  trackedTruncated?: boolean
+  untrackedTruncated?: boolean
+}
+
+export interface WorkspaceFileChanges extends WorkspaceChangesCompleteness {
+  repositories?: Array<WorkspaceChangesCompleteness & { path: string; error?: string; truncated: boolean }>
   items: WorkspaceFileChange[]
   truncated: boolean
 }
@@ -590,10 +595,11 @@ export async function switchWorkspaceGitBranch(
   }, { mutation: true, signal: options.signal })
 }
 
-export async function fetchWorkspaceGitHistory(rootId: string, options: { limit?: number; skip?: number; scope?: WorkspaceGitHistory['scope']; signal?: AbortSignal } = {}) {
+export async function fetchWorkspaceGitHistory(rootId: string, options: { repositoryPath?: string; limit?: number; skip?: number; scope?: WorkspaceGitHistory['scope']; signal?: AbortSignal } = {}) {
   return runWorkspaceRequest<WorkspaceGitHistory>({
     operation: 'history',
     rootId,
+    ...(options.repositoryPath ? { repositoryPath: options.repositoryPath } : {}),
     ...(options.limit ? { limit: options.limit } : {}),
     ...(options.skip ? { skip: options.skip } : {}),
     ...(options.scope ? { scope: options.scope } : {}),
@@ -603,11 +609,12 @@ export async function fetchWorkspaceGitHistory(rootId: string, options: { limit?
 export async function fetchWorkspaceGitHistoryChanges(
   rootId: string,
   commit: string,
-  options: { parent?: string; limit?: number; signal?: AbortSignal } = {},
+  options: { repositoryPath?: string; parent?: string; limit?: number; signal?: AbortSignal } = {},
 ) {
   return runWorkspaceRequest<WorkspaceGitHistoryChanges>({
     operation: 'history-changes',
     rootId,
+    ...(options.repositoryPath ? { repositoryPath: options.repositoryPath } : {}),
     commit,
     ...(options.parent ? { parent: options.parent } : {}),
     ...(options.limit ? { limit: options.limit } : {}),

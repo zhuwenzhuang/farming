@@ -18,10 +18,16 @@ export function NativeRelatedRows({ parent, active, selected, onOpen, copy }: {
   const [visibleCount, setVisibleCount] = useState(6)
   const [finishedCount, setFinishedCount] = useState(6)
   const refreshRef = useRef<(() => void) | null>(null)
-  const structured = isAcpRuntime(parent)
+  const readable = isAcpRuntime(parent) && Boolean(parent.providerSessionKey)
+    && ['idle', 'working', 'waiting-for-permission', 'waiting-for-input', 'interrupting'].includes(parent.runtimeBinding.state)
+  const lastRevisionRef = useRef(0)
   const revision = isAcpRuntime(parent) ? parent.runtimeBinding.sessionRevision : 0
+  const revisionRef = useRef(revision)
+  revisionRef.current = revision
   useEffect(() => {
-    if (!active || !structured) return
+    setError('')
+    if (!active || !readable) return
+    lastRevisionRef.current = revisionRef.current
     let current = true
     let dirty = false
     let running = false
@@ -51,10 +57,14 @@ export function NativeRelatedRows({ parent, active, selected, onOpen, copy }: {
     void refresh()
     return () => { current = false; request?.abort(); refreshRef.current = null }
   // Runtime revisions request a serial refresh below; they never abort a read.
-  }, [parent.id, parent.providerSessionKey, active, structured])
-  useEffect(() => { if (active) refreshRef.current?.() }, [revision, active])
-  if (!inventory || inventory.parentSessionKey !== parent.providerSessionKey) return error && active
-    ? <button type="button" className="code-agent-row related-child" onClick={() => refreshRef.current?.()} title={error}>Related sessions unavailable · Retry</button> : null
+  }, [parent.id, parent.providerSessionKey, active, readable])
+  useEffect(() => {
+    if (!active || !readable || lastRevisionRef.current === revision) return
+    lastRevisionRef.current = revision
+    refreshRef.current?.()
+  }, [revision, active, readable])
+  if (!inventory || inventory.parentSessionKey !== parent.providerSessionKey) return error && active && readable
+    ? <button type="button" className="code-agent-row related-child" data-testid="code-related-inventory-error" onClick={() => refreshRef.current?.()} title={error}>Related sessions unavailable · Retry</button> : null
   const isSelected = (child: Inventory['children'][number]) => selected?.parentAgentId === parent.id
     && selected.parentSessionKey === parent.providerSessionKey && !selected.subagentSessionKey && selected.sessionId === child.sessionId
   const current = inventory.children.filter(child => !relatedSessionFinished(child.state) || isSelected(child))
@@ -79,6 +89,6 @@ export function NativeRelatedRows({ parent, active, selected, onOpen, copy }: {
       {finished.length > finishedCount ? <button type="button" className="code-agent-row related-child" onClick={() => setFinishedCount(value => value + 6)}>{copy.relatedShowMore}</button> : null}
       {finishedCount > 6 ? <button type="button" className="code-agent-row related-child" onClick={() => setFinishedCount(6)}>{copy.relatedShowLess}</button> : null}
     </details> : null}
-    {error && active ? <button type="button" className="code-agent-row related-child" title={error} onClick={() => refreshRef.current?.()}>Refresh related sessions</button> : null}
+    {error && active && readable ? <button type="button" className="code-agent-row related-child" title={error} onClick={() => refreshRef.current?.()}>Refresh related sessions</button> : null}
   </>
 }

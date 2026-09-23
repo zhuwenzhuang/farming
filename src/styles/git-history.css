@@ -636,3 +636,15 @@ button.code-git-history-change:focus-visible {
 .code-git-history-branch {
   color: var(--code-text);
 }
+
+/* Repository and branch selection use separate rows so long paths retain space. */
+.code-git-history-repository {
+  max-width: 60%;
+}
+
+.code-git-history-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+}

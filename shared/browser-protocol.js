@@ -163,11 +163,13 @@ function workspaceRequest(value) {
                 && boundedStringField(value, 'operationId', 160);
         case 'history':
             return boundedStringField(value, 'rootId', 4096)
+                && boundedStringField(value, 'repositoryPath', 4096, true)
                 && optionalNonNegativeIntegerField(value, 'limit')
                 && optionalNonNegativeIntegerField(value, 'skip')
                 && (value.scope === undefined || value.scope === 'current' || value.scope === 'all');
         case 'history-changes':
             return boundedStringField(value, 'rootId', 4096)
+                && boundedStringField(value, 'repositoryPath', 4096, true)
                 && boundedStringField(value, 'commit', 128)
                 && boundedStringField(value, 'parent', 128, true)
                 && optionalNonNegativeIntegerField(value, 'limit');

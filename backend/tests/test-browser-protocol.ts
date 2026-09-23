@@ -148,6 +148,15 @@ assert.strictEqual(validateClientMessage({ type: 'watch-workspace-files', rootId
 assert.strictEqual(validateClientMessage({ type: 'watch-workspace-files', rootId: 'a' }).ok, false);
 assert.strictEqual(validateClientMessage({ type: 'watch-workspace-files', rootId: 'a', paths: [] }).ok, false);
 assert.strictEqual(validateClientMessage({ type: 'watch-workspace-files', rootId: 'a', paths: ['same.ts', 'same.ts'] }).ok, false);
+for (const operation of ['history', 'history-changes']) {
+  const request = { operation, rootId: 'root-1', commit: 'a'.repeat(40) };
+  for (const repositoryPath of [undefined, 'packages/engine']) {
+    assert.strictEqual(validateClientMessage({ type: 'workspace-request', requestId: 'history', request: { ...request, repositoryPath } }).ok, true);
+  }
+  for (const repositoryPath of [42, 'x'.repeat(4097)]) {
+    assert.strictEqual(validateClientMessage({ type: 'workspace-request', requestId: 'history', request: { ...request, repositoryPath } }).ok, false);
+  }
+}
 assert.strictEqual(validateClientMessage({
   type: 'workspace-request',
   requestId: 'workspace-1',

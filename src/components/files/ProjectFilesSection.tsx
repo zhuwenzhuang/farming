@@ -289,6 +289,7 @@ export function ProjectFilesSection({
   })
 
   const fileChanges = useWorkspaceFileChanges(readOnly ? null : agentId, openFiles)
+  const repositoryPaths = useMemo(() => new Set(fileChanges.repositories?.map(repository => repository.path).filter(Boolean) ?? []), [fileChanges.repositories])
   // The hook returns a fresh object each render, so hold the stable callback itself
   // instead of depending on `fileChanges` and rebuilding callbacks every render.
   const refreshFileChanges = fileChanges.refreshChanges
@@ -716,6 +717,7 @@ export function ProjectFilesSection({
             )}
             {!readOnly && (
               <GitHistorySection
+                repositories={fileChanges.repositories}
                 agentId={agentId}
                 copy={copy}
                 projectId={projectId}
@@ -723,7 +725,7 @@ export function ProjectFilesSection({
                 refreshToken={refreshToken}
               />
             )}
-            <FileSectionBody {...viewModel.sectionBody} />
+            <FileSectionBody {...viewModel.sectionBody} tree={{ ...viewModel.sectionBody.tree, repositoryPaths }} />
           </>
         )}
       </div>

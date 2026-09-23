@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { CheckGlyph, ChevronDownGlyph, ChevronRightGlyph, ExternalLinkGlyph } from '@/components/IconGlyphs'
 import { CodeSelect } from '@/components/CodeSelect'
@@ -9,6 +9,7 @@ import {
   fetchWorkspaceGitHistory,
   fetchWorkspaceGitHistoryChanges,
   type WorkspaceGitHistory,
+  type WorkspaceFileChanges,
   type WorkspaceGitHistoryChange,
   type WorkspaceGitHistoryChanges,
   type WorkspaceGitHistoryItem,
@@ -30,6 +31,7 @@ interface GitHistorySectionProps {
   projectId: string
   projectWorkspace: string
   refreshToken?: number
+  repositories?: WorkspaceFileChanges['repositories']
 }
 
 function commitTimestamp(timestamp?: number) {
@@ -59,15 +61,41 @@ function commitMessageBody(commit: WorkspaceGitHistoryItem) {
   return message
 }
 
-export function GitHistorySection({
+export function GitHistorySection(props: GitHistorySectionProps) {
+  const [saved] = useState(() => loadCodeProjectFilesViewState(props.projectId))
+  const [collapsed, setCollapsed] = useState(saved.gitHistoryCollapsed ?? true)
+  const [selectedPath, setSelectedPath] = useState(saved.gitHistoryRepositoryPath ?? '')
+  const repositories = props.repositories
+  // Do not fall back to the parent while inventory loads or a selected child disappears.
+  const repositoryPath = selectedPath
+  const showSelector = (repositories?.length ?? 0) > 1 || Boolean(selectedPath)
+  const options = (repositories ?? [{ path: '', truncated: false }]).map(repository => ({
+    value: repository.path,
+    label: repository.path || props.copy.mainRepository,
+  }))
+  if (selectedPath && !options.some(option => option.value === selectedPath)) {
+    options.push({ value: selectedPath, label: selectedPath })
+  }
+  useEffect(() => {
+    saveCodeProjectFilesViewState(props.projectId, { gitHistoryCollapsed: collapsed, gitHistoryRepositoryPath: selectedPath })
+  }, [collapsed, props.projectId, selectedPath])
+  const root = repositoryPath ? `${props.projectWorkspace.replace(/\/$/, '')}/${repositoryPath}` : props.projectWorkspace
+  return <RepositoryGitHistorySection {...props} key={repositoryPath} repositoryPath={repositoryPath}
+    projectWorkspace={root} projectId={repositoryPath ? `${props.projectId}:repository:${repositoryPath}` : props.projectId}
+    collapsed={collapsed} onToggleCollapsed={() => setCollapsed(value => !value)}
+    repositorySelector={showSelector ? <CodeSelect density="sidebar" className="code-git-history-repository"
+      ariaLabel={props.copy.historyRepository} testId="code-git-history-repository" value={repositoryPath}
+      options={options} onChange={setSelectedPath} /> : null} />
+}
+
+function RepositoryGitHistorySection({
   agentId,
   copy,
   projectId,
   projectWorkspace,
-  refreshToken = 0,
-}: GitHistorySectionProps) {
+  refreshToken = 0, repositoryPath, collapsed, onToggleCollapsed, repositorySelector,
+}: GitHistorySectionProps & { repositoryPath: string; collapsed: boolean; onToggleCollapsed: () => void; repositorySelector: ReactNode }) {
   const [initialProjectViewState] = useState(() => loadCodeProjectFilesViewState(projectId))
-  const [collapsed, setCollapsed] = useState(initialProjectViewState.gitHistoryCollapsed ?? true)
   const [history, setHistory] = useState<WorkspaceGitHistory | null>(null)
   const [historyScope, setHistoryScope] = useState<WorkspaceGitHistory['scope']>(
     initialProjectViewState.gitHistoryScope ?? 'current',
@@ -111,7 +139,6 @@ export function GitHistorySection({
     historyRequestRef.current = null
     changesRequestRef.current = null
     changesCacheRef.current.clear()
-    setCollapsed(saved.gitHistoryCollapsed ?? true)
     setHistory(null)
     setHistoryScope(saved.gitHistoryScope ?? 'current')
     setHistoryLoading(false)
@@ -151,6 +178,7 @@ export function GitHistorySection({
         limit,
         skip,
         scope,
+        repositoryPath,
         signal: controller.signal,
       })
       if (controller.signal.aborted) return
@@ -170,14 +198,14 @@ export function GitHistorySection({
         setHistoryLoading(false)
       }
     }
-  }, [agentId, historyScope])
+  }, [agentId, historyScope, repositoryPath])
 
   useEffect(() => {
-    if (collapsed || history || historyLoading) return
+    if (collapsed || history || historyLoading || historyError) return
     const visibleLimit = loadCodeProjectFilesViewState(projectId).gitHistoryVisibleLimit
       ?? GIT_HISTORY_PAGE_SIZE
     void loadHistoryPage(0, true, historyScope, visibleLimit)
-  }, [collapsed, history, historyLoading, historyScope, loadHistoryPage, projectId])
+  }, [collapsed, history, historyError, historyLoading, historyScope, loadHistoryPage, projectId])
 
   useEffect(() => {
     if (!refreshToken || refreshToken === externalRefreshTokenRef.current) return
@@ -214,6 +242,7 @@ export function GitHistorySection({
     try {
       const changes = await fetchWorkspaceGitHistoryChanges(agentId, commit.id, {
         parent: parent || undefined,
+        repositoryPath,
         signal: controller.signal,
       })
       if (controller.signal.aborted) return
@@ -232,7 +261,7 @@ export function GitHistorySection({
         setChangesLoading(false)
       }
     }
-  }, [agentId])
+  }, [agentId, repositoryPath])
 
   useEffect(() => {
     if (!history || !selectedCommitId || selectedChanges || changesLoading) return
@@ -253,7 +282,6 @@ export function GitHistorySection({
 
   useEffect(() => {
     saveCodeProjectFilesViewState(projectId, {
-      gitHistoryCollapsed: collapsed,
       gitHistoryScope: historyScope,
       gitHistorySelectedCommitId: selectedCommitId || undefined,
       gitHistorySelectedParent: selectedParent || undefined,
@@ -262,10 +290,8 @@ export function GitHistorySection({
   }, [collapsed, history?.items.length, historyScope, projectId, selectedCommitId, selectedParent])
 
   const toggleCollapsed = () => {
-    setCollapsed(current => {
-      if (current && !history && !historyLoading) void loadHistoryPage(0, true)
-      return !current
-    })
+    if (collapsed && !history && !historyLoading) void loadHistoryPage(0, true)
+    onToggleCollapsed()
   }
 
   const refreshHistory = () => {
@@ -328,6 +354,62 @@ export function GitHistorySection({
     [history?.head, history?.items],
   )
 
+  const historyControls = !collapsed ? <div className="code-git-history-controls">
+      <button
+        ref={scopeButtonRef}
+        type="button"
+        className="code-git-history-scope"
+        aria-label={copy.gitHistoryView}
+        title={copy.gitHistoryView}
+        aria-haspopup="menu"
+        aria-expanded={scopeMenu ? true : undefined}
+        disabled={historyLoading}
+        onClick={toggleScopeMenu}
+      >
+        <span>{historyScope === 'current' ? copy.gitHistoryCurrentScope : copy.gitHistoryAllScope}</span>
+        <ChevronDownGlyph aria-hidden="true" />
+      </button>
+      {scopeMenu && typeof document !== 'undefined' && createPortal(
+        <div
+          ref={scopeMenuRef}
+          className="code-git-history-scope-menu"
+          data-testid="code-git-history-scope-menu"
+          role="menu"
+          aria-label={copy.gitHistoryView}
+          style={{ left: scopeMenu.x, top: scopeMenu.y }}
+        >
+          {([
+            ['current', copy.gitHistoryCurrentBranch],
+            ['all', copy.gitHistoryAllBranches],
+          ] as const).map(([scope, label]) => (
+            <button
+              key={scope}
+              type="button"
+              role="menuitemradio"
+              aria-checked={historyScope === scope}
+              onClick={() => changeHistoryScope(scope)}
+            >
+              <span className="code-git-history-scope-check" aria-hidden="true">
+                {historyScope === scope && <CheckGlyph />}
+              </span>
+              <span>{label}</span>
+            </button>
+          ))}
+        </div>,
+        document.body,
+      )}
+      <button
+        type="button"
+        className={`code-git-history-refresh ${historyLoading ? 'loading' : ''}`}
+        title={copy.refresh}
+        aria-label={copy.refresh}
+        disabled={historyLoading}
+        onClick={refreshHistory}
+      >
+        ↻
+      </button>
+    </div> : null
+
   return (
     <section
       className={`code-git-history-section ${collapsed ? 'collapsed' : ''}`}
@@ -347,64 +429,10 @@ export function GitHistorySection({
           </span>
           <span>{copy.gitHistory}</span>
         </button>
-        {!collapsed && (
-          <>
-            <button
-              ref={scopeButtonRef}
-              type="button"
-              className="code-git-history-scope"
-              aria-label={copy.gitHistoryView}
-              title={copy.gitHistoryView}
-              aria-haspopup="menu"
-              aria-expanded={scopeMenu ? true : undefined}
-              disabled={historyLoading}
-              onClick={toggleScopeMenu}
-            >
-              <span>{historyScope === 'current' ? copy.gitHistoryCurrentScope : copy.gitHistoryAllScope}</span>
-              <ChevronDownGlyph aria-hidden="true" />
-            </button>
-            {scopeMenu && typeof document !== 'undefined' && createPortal(
-              <div
-                ref={scopeMenuRef}
-                className="code-git-history-scope-menu"
-                data-testid="code-git-history-scope-menu"
-                role="menu"
-                aria-label={copy.gitHistoryView}
-                style={{ left: scopeMenu.x, top: scopeMenu.y }}
-              >
-                {([
-                  ['current', copy.gitHistoryCurrentBranch],
-                  ['all', copy.gitHistoryAllBranches],
-                ] as const).map(([scope, label]) => (
-                  <button
-                    key={scope}
-                    type="button"
-                    role="menuitemradio"
-                    aria-checked={historyScope === scope}
-                    onClick={() => changeHistoryScope(scope)}
-                  >
-                    <span className="code-git-history-scope-check" aria-hidden="true">
-                      {historyScope === scope && <CheckGlyph />}
-                    </span>
-                    <span>{label}</span>
-                  </button>
-                ))}
-              </div>,
-              document.body,
-            )}
-            <button
-              type="button"
-              className={`code-git-history-refresh ${historyLoading ? 'loading' : ''}`}
-              title={copy.refresh}
-              aria-label={copy.refresh}
-              disabled={historyLoading}
-              onClick={refreshHistory}
-            >
-              ↻
-            </button>
-          </>
-        )}
+        {repositorySelector}
+        {!repositorySelector && historyControls}
       </div>
+      {repositorySelector && historyControls}
 
       {!collapsed && (
         <div className="code-git-history-body">

@@ -48,6 +48,15 @@ backend totals cover children outside the visible page.
 Provider-created children update the list without stealing selection, expanding
 ancestors or scrolling away from the user's current work.
 
+Native-child inventory reads require an established parent Provider Session and
+a readable ACP runtime (idle, working, waiting, or interrupting). Starting,
+connecting and reconnecting are parent lifecycle states, not child inventory
+failures, and must not insert a temporary Retry row. Becoming readable starts
+one bounded read; later revisions coalesce serial refreshes. Losing readiness,
+changing parent identity or unmounting cancels obsolete reads. An admitted read
+failure remains explicit and retryable; an empty successful inventory adds no
+child rows.
+
 - The Side Chat command is available in the existing parent action menu. Opening
   it expands the parent and activates the child after creation settles. Repeated
   clicks and multiple browsers join the same backend operation.

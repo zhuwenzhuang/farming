@@ -22,7 +22,7 @@ interface CodeSelectProps {
   ariaLabel?: string
   className?: string
   disabled?: boolean
-  density?: 'field' | 'toolbar'
+  density?: 'field' | 'toolbar' | 'sidebar'
   label?: ReactNode
   menuClassName?: string
   options: CodeSelectOption[]

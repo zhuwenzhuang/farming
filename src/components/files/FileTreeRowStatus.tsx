@@ -8,6 +8,7 @@ import { MoreHorizontalGlyph } from '@/components/IconGlyphs'
 import type { CodeCopy } from '../code/copy'
 
 interface FileTreeRowStatusProps {
+  isSubmodule?: boolean
   copy: CodeCopy
   directoryError?: { path: string; message: string; tooLarge: boolean }
   item: FileExplorerNode
@@ -18,6 +19,7 @@ interface FileTreeRowStatusProps {
 
 export function FileTreeRowStatus({
   copy,
+  isSubmodule,
   directoryError,
   item,
   viewState,
@@ -41,6 +43,7 @@ export function FileTreeRowStatus({
     <>
       <span className="code-file-label">
         <span className="code-file-name">{item.displayName ?? item.name}</span>
+        {isDirectory && isSubmodule && <span className="code-file-repository-kind code-file-submodule-label">{copy.submodule}</span>}
         {directoryError && (
           <span
             className="code-file-directory-error"
