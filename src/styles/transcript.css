@@ -2476,7 +2476,7 @@ button.code-agent-transcript-result-summary:is(:hover, :focus-visible) .code-age
     }
 
   body.code-mode.code-compact-layout .code-agent-transcript-jump-bottom {
-      bottom: var(--mobile-composer-reserved-height, 84px);
+      bottom: 14px;
     }
 }
 

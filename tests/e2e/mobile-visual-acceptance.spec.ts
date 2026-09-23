@@ -180,6 +180,20 @@ test('audits compact Composer and sidebar geometry across mobile widths and appe
               sampledAt,
               source: 'no local token history',
             },
+          }, {
+            provider: 'claude',
+            providerName: 'Claude Code',
+            auth: { available: true, status: 'Logged in', source: 'playwright' },
+            quota: { available: false, source: 'playwright', reason: 'No quota data' },
+            tokenUsage: {
+              available: true,
+              totalTokens: 0,
+              tokensPerMinute: 0,
+              windowMs: 5 * 60 * 1000,
+              eventCount: 0,
+              sampledAt,
+              source: 'playwright',
+            },
           }],
           agentUsage: null,
           systemStats: null,
@@ -278,6 +292,7 @@ test('audits compact Composer and sidebar geometry across mobile widths and appe
       const quota = page.getByTestId('code-usage-mobile-quota')
       await expect(quota).toContainText('5h')
       await expect(quota).toContainText('Weekly')
+      await expect(quota.locator('.code-usage-provider')).toHaveCount(2)
       await evidence.capture({
         page,
         testInfo,

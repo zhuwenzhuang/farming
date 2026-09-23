@@ -55,3 +55,36 @@ for (const appearance of ['light', 'dark', 'paper']) {
     await expect.poll(() => scroll.evaluate(e => e.scrollHeight - e.clientHeight - e.scrollTop)).toBeLessThanOrEqual(1)
   })
 }
+
+test('a just-sent long mobile message follows latest without a jump control', async ({ page, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'mobile-send-scroll')
+  fs.mkdirSync(workspace, { recursive: true })
+  const response = await page.request.post('/farming/api/control/agents', {
+    data: { command: 'codex', workspace, agentRuntimeMode: 'chat' },
+  })
+  expect(response.ok()).toBeTruthy()
+  const { agentId } = await response.json() as { agentId: string }
+  await page.setViewportSize({ width: 390, height: 844 })
+  await openFarming(page)
+  await page.getByTestId('code-mobile-menu').click()
+  await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+  const message = Array.from({ length: 55 }, (_, index) => `Mobile message line ${index + 1}`).join('\n')
+  await page.getByTestId('code-acp-composer-input').fill(message)
+  await page.getByTestId('code-acp-composer-send').click()
+  const scroll = page.getByTestId('code-agent-transcript-scroll')
+  const jump = page.getByTestId('code-agent-transcript-jump-bottom')
+  await expect(scroll.locator('.code-agent-transcript-user')).toContainText('Mobile message line 55')
+  await expect.poll(() => scroll.evaluate(element => element.scrollHeight - element.clientHeight - element.scrollTop)).toBeLessThanOrEqual(96)
+  await expect(jump).toHaveCount(0)
+  await scroll.hover()
+  await page.mouse.wheel(0, -3000)
+  await expect(jump).toBeVisible()
+  const buttonGap = await jump.evaluate(element => {
+    const transcript = element.closest('.code-agent-transcript')!
+    return transcript.getBoundingClientRect().bottom - element.getBoundingClientRect().bottom
+  })
+  expect(buttonGap).toBeGreaterThanOrEqual(10)
+  expect(buttonGap).toBeLessThanOrEqual(18)
+  await jump.click()
+  await expect(jump).toHaveCount(0)
+})

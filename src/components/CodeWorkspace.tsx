@@ -2467,9 +2467,14 @@ export function CodeWorkspace({
         }
         return accepted
       }
-      return typeof submitted === 'boolean'
-        ? followAcceptedMessage(submitted)
-        : submitted.then(followAcceptedMessage)
+      if (typeof submitted === 'boolean') return followAcceptedMessage(submitted)
+      // The transcript can show the new user turn before its send acknowledgement.
+      // Follow the explicit send now so that interim layout changes do not expose
+      // a stale jump-to-latest control over the just-submitted message.
+      if (activeTerminalIdRef.current === agent.id) {
+        setChatFollowLatestRequest(current => ({ agentId: agent.id, nonce: (current?.nonce ?? 0) + 1 }))
+      }
+      return submitted
     }
     if (
       agentKindForCommand(agent.command) === 'shell'

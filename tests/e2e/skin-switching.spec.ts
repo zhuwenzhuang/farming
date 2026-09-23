@@ -582,6 +582,23 @@ test('keeps Code Usage to real token sources and renders a compact activity heat
   const mobileDetail = page.getByTestId('code-usage-detail-dialog')
   await expect(mobileDetail).toBeVisible()
   await expect(mobileDetail.getByRole('tablist')).toHaveCount(0)
+  const calendarViewport = mobileDetail.getByTestId('code-usage-calendar-viewport')
+  await expect.poll(() => calendarViewport.evaluate(element => ({
+    canScroll: element.scrollWidth > element.clientWidth,
+    atLatest: Math.abs(element.scrollWidth - element.clientWidth - element.scrollLeft) <= 1,
+  }))).toEqual({ canScroll: true, atLatest: true })
+  await expect(mobileDetail.getByText('Swipe right for earlier days')).toBeVisible()
+  for (const appearance of ['light', 'dark', 'paper']) {
+    await page.evaluate(value => { document.body.dataset.appearance = value }, appearance)
+    await mobileDetail.screenshot({ path: test.info().outputPath(`mobile-year-${appearance}.png`) })
+  }
+  await calendarViewport.evaluate(element => { element.scrollLeft = 0 })
+  await expect.poll(() => calendarViewport.evaluate(element => element.scrollLeft)).toBe(0)
+  await page.setViewportSize({ width: 320, height: 844 })
+  await expect.poll(() => calendarViewport.evaluate(element => element.scrollLeft)).toBe(0)
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect.poll(() => calendarViewport.evaluate(element => element.scrollLeft)).toBe(0)
+  await expect(mobileDetail.locator('.code-usage-mobile-quota .code-usage-provider')).toHaveCount(1)
   const mobileHistogram = mobileDetail.getByTestId('code-usage-day-histogram')
   await expect(mobileHistogram).toBeVisible()
   const mobileDatePicker = mobileDetail.getByTestId('code-usage-mobile-date-picker')

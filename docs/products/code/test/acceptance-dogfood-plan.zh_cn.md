@@ -153,6 +153,7 @@ Tab、Home、Kind、Detail 与 Scroll Location。
 验证 Provider-backed Usage、No-data/Failure、Completion Notification、Unread、Keyboard Focus
 Restore、Menu Dismiss、Accessible Name、Phone Navigation、Software Keyboard、Refresh 与 Remote
 Reconnect。缺失 Telemetry 应省略或解释，不能虚构。
+手机上 52 周活动图默认显示最近日期，可横向滚动查看更早日期；各 Provider 摘要保持易读，日期格不应被压得过窄。
 
 可见的 Code 变更还要在 Linux Chromium 上为 Light、Dark、Paper 三种外观生成确定性的
 Base/Head 截图，并覆盖 Settings、Search、History 与 Plugins 视图。Computed Style 断言保护

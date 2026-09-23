@@ -1,4 +1,4 @@
-import { memo, useEffect, useState } from 'react'
+import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
   ChevronDownGlyph,
@@ -562,6 +562,23 @@ function DailyUsageHeatmap({
   showDayHighlight?: boolean
 }) {
   const [previewInspection, setPreviewInspection] = useState<UsageHeatmapInspection | null>(null)
+  const calendarViewportRef = useRef<HTMLDivElement | null>(null)
+  const firstDate = points[0]?.date
+  const lastDate = points[points.length - 1]?.date
+  useLayoutEffect(() => {
+    if (!showDayHighlight || layout !== 'calendar') return
+    const viewport = calendarViewportRef.current
+    if (!viewport) return
+    const showLatest = () => { viewport.scrollLeft = viewport.scrollWidth - viewport.clientWidth }
+    showLatest()
+    let previousMaxScroll = viewport.scrollWidth - viewport.clientWidth
+    const handleResize = () => {
+      if (previousMaxScroll <= 1 || viewport.scrollLeft >= previousMaxScroll - 1) showLatest()
+      previousMaxScroll = viewport.scrollWidth - viewport.clientWidth
+    }
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [showDayHighlight, layout, firstDate, lastDate])
   const activeDays = points.filter(point => point.totalTokens > 0).length
   const recentStartIndex = Math.max(0, points.length - 7)
   const recentTokens = points.slice(recentStartIndex).reduce((sum, point) => sum + point.totalTokens, 0)
@@ -595,17 +612,22 @@ function DailyUsageHeatmap({
           <span>7d {formatCompactNumber(recentTokens)}</span>
         )}
       </div>
-      <DailyUsageGrid
-        points={points}
-        layout={layout}
-        peakDay={peakDay}
-        recentStartIndex={recentStartIndex}
-        selectedDay={selectedDay}
-        showDayHighlight={showDayHighlight}
-        onInspect={onInspect}
-        onPreview={setPreviewInspection}
-        ariaLabel={`Daily token activity over ${rangeLabel}, ${activeDays} active days`}
-      />
+      <div className="code-usage-calendar-viewport" ref={calendarViewportRef} data-testid="code-usage-calendar-viewport">
+        <DailyUsageGrid
+          points={points}
+          layout={layout}
+          peakDay={peakDay}
+          recentStartIndex={recentStartIndex}
+          selectedDay={selectedDay}
+          showDayHighlight={showDayHighlight}
+          onInspect={onInspect}
+          onPreview={setPreviewInspection}
+          ariaLabel={`Daily token activity over ${rangeLabel}, ${activeDays} active days`}
+        />
+      </div>
+      {showDayHighlight && layout === 'calendar' ? (
+        <span className="code-usage-calendar-hint">Swipe right for earlier days</span>
+      ) : null}
       {showDayHighlight && (selectedDay ?? today) && (
         <label className="code-usage-mobile-date-picker">
           <span>Selected day</span>
@@ -1211,7 +1233,7 @@ function ProviderUsage({
 
   return (
     <div className="code-usage-provider">
-      <div className="code-usage-row">
+      <div className="code-usage-row code-usage-provider-heading">
         <span>{provider.providerName}</span>
         <strong title={provider.auth?.status}>{formatAuthStatus(provider)}</strong>
       </div>

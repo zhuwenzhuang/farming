@@ -9,6 +9,8 @@ editor is local presentation state, never another draft or submission path.
 
 When submission returns a pending result, the send control immediately shows its sending state and prevents duplicate submissions for that Agent. The draft remains editable; acceptance clears only the submitted draft, while failure or an uncertain result preserves it. Changing Agents does not transfer the pending indicator or let an earlier completion clear the new draft.
 
+An explicit Chat send follows the latest transcript immediately, including while acknowledgement is pending. The jump-to-latest control appears only after the reader scrolls away from the latest content and sits at the bottom of the transcript viewport on compact layouts.
+
 ## Compact And Expanded Editing
 
 On compact layouts the textarea grows with its content to a bounded height

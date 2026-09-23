@@ -180,6 +180,7 @@ Verify provider-backed usage data, no-data and failure states, completion
 notifications, unread state, keyboard focus restoration, menu dismissal,
 accessible names, phone navigation, software-keyboard behavior, refresh, and
 remote reconnect. Missing telemetry is omitted or explained; it is not invented.
+On phones, the 52-week activity grid starts at the latest days and scrolls horizontally to earlier days; provider summaries remain readable without narrowing daily cells.
 
 Visible Code changes also produce deterministic Linux Chromium base/head
 captures for Light, Dark, and Paper across the Settings, Search, History, and
