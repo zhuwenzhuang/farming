@@ -3406,6 +3406,8 @@ test.describe('display-backed agent flows', () => {
     await expect(archivedCodexSessionCard.first()).not.toContainText('resume codex:019f00...000100')
     await expect(page.getByTestId('code-session-history-card').filter({ hasText: 'Deep Codex Session' })).toHaveCount(0)
     await expect(page.getByTestId('code-session-history-card').filter({ hasText: 'Plain Codex Session' })).toHaveCount(0)
+    // Other test-created history can fill the first page; find this session by its own title.
+    await historySearchInput.fill('Pinned Claude Session')
     await expect(page.getByTestId('code-session-history-card').filter({ hasText: 'Pinned Claude Session' })).toHaveCount(1)
     await historySearchInput.fill('archived codex')
     await expect(archivedCodexSessionCard).toHaveCount(1)
@@ -3414,7 +3416,6 @@ test.describe('display-backed agent flows', () => {
     await expect(page.getByTestId('code-empty-history-search')).toBeVisible()
     await page.getByTestId('code-history-search-box').getByRole('button', { name: 'Clear search' }).click()
     await expect(archivedCodexSessionCard).toHaveCount(1)
-    await expect(page.getByTestId('code-session-history-card').filter({ hasText: 'Pinned Claude Session' })).toHaveCount(1)
     await page.keyboard.press('Escape')
     await expect(page.getByTestId('code-terminal-grid')).toBeVisible()
     await expect(primaryRow).toBeFocused()
