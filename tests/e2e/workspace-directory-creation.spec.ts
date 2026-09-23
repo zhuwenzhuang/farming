@@ -109,6 +109,12 @@ test.describe('New Agent workspace directory creation', () => {
   test('uses the same explicit confirmation flow in the CRT skin', async ({ page, workspaceRoot }) => {
     const workspace = path.join(workspaceRoot, 'crt-new-project')
     await openFarming(page)
+    await expect.poll(async () => {
+      const response = await page.request.get('/farming/api/control/agents')
+      expect(response.ok()).toBeTruthy()
+      const payload = await response.json() as { mainAgentId?: string }
+      return payload.mainAgentId || ''
+    }, { timeout: 30_000 }).not.toBe('')
 
     await page.goto('/farming/crt/', { waitUntil: 'networkidle' })
     await page.keyboard.press('n')

@@ -19,6 +19,17 @@ async function expectDiagramFits(container: Locator) {
   })).toBe(true)
 }
 
+async function waitForWiderSvgBox(svg: Locator, previousWidth: number) {
+  let observed: { x: number; y: number; width: number; height: number } | null = null
+  await expect.poll(async () => {
+    const box = await svg.boundingBox()
+    if (box && box.width > previousWidth) observed = box
+    return observed !== null
+  }).toBe(true)
+  if (!observed) throw new Error('Zoomed diagram bounds are unavailable')
+  return observed
+}
+
 for (const appearance of ['light', 'dark', 'paper'] as const) {
   test(`unifies streaming rich content and fullscreen inspection in ${appearance}`, async ({ page, workspaceRoot, browserName, isMobile }) => {
     test.setTimeout(120_000)
@@ -134,8 +145,7 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
         await page.mouse.wheel(0, -100)
         await page.keyboard.up('Control')
       }
-      await expect.poll(async () => (await viewer.locator('.code-markdown-mermaid-canvas > svg').boundingBox())!.width).toBeGreaterThan(svgBefore.width)
-      const svgAfter = (await viewer.locator('.code-markdown-mermaid-canvas > svg').boundingBox())!
+      const svgAfter = await waitForWiderSvgBox(viewer.locator('.code-markdown-mermaid-canvas > svg'), svgBefore.width)
       expect((point.x - svgAfter.x) / svgAfter.width).toBeCloseTo(0.3, 2)
       expect((point.y - svgAfter.y) / svgAfter.height).toBeCloseTo(0.4, 2)
       // Unmodified wheel input is not consumed by the diagram.
@@ -146,8 +156,7 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
       })).toBe(false)
       await viewer.getByRole('button', { name: 'Fit diagram to view' }).click()
       await page.mouse.dblclick(point.x, point.y)
-      await expect.poll(async () => (await viewer.locator('.code-markdown-mermaid-canvas > svg').boundingBox())!.width).toBeGreaterThan(svgBefore.width)
-      const afterDoubleClick = (await viewer.locator('.code-markdown-mermaid-canvas > svg').boundingBox())!
+      const afterDoubleClick = await waitForWiderSvgBox(viewer.locator('.code-markdown-mermaid-canvas > svg'), svgBefore.width)
       expect((point.x - afterDoubleClick.x) / afterDoubleClick.width).toBeCloseTo(0.3, 2)
       await viewer.getByRole('button', { name: 'Fit diagram to view' }).click()
       await viewer.getByRole('button', { name: 'Zoom in', exact: true }).click()
@@ -274,7 +283,7 @@ test.describe('initial touch inspection', () => {
           }
         }, center)
       }
-      await expect.poll(async () => (await viewer.locator('.code-markdown-mermaid-canvas > svg').boundingBox())!.width).toBeGreaterThan(beforePinch.width * 1.2)
+      await expect.poll(async () => (await viewer.locator('.code-markdown-mermaid-canvas > svg').boundingBox())?.width ?? 0).toBeGreaterThan(beforePinch.width * 1.2)
       await page.screenshot({ path: test.info().outputPath('pinch-touch-paper.png') })
       await viewer.getByRole('button', { name: 'Fit diagram to view' }).tap()
       await expectDiagramFits(viewer)

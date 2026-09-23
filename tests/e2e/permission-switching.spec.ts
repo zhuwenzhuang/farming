@@ -731,38 +731,41 @@ test.describe('permission switching', () => {
     const codexAgentId = await createControlAgent(page, `codex resume ${sessionId}`, workspace)
     const bashAgentId = await createControlAgent(page, 'bash', workspace)
     const observerPage = await context.newPage()
+    try {
+      await openPermissionTestApp(page)
+      await openPermissionTestApp(observerPage)
+      await agentRow(observerPage, codexAgentId).click()
+      await expect(
+        observerPage.getByTestId('code-terminal-mode-toggle').getByRole('button', { name: 'Terminal' }),
+      ).toHaveAttribute('aria-pressed', 'true')
+      const observerDraft = 'keep the observing browser draft and view'
+      await observerPage.getByTestId('code-composer-input').fill(observerDraft)
+      await observerPage.getByTestId('code-nav-history').click()
+      await expect(observerPage.getByTestId('code-history-panel')).toBeVisible()
 
-    await openPermissionTestApp(page)
-    await openPermissionTestApp(observerPage)
-    await agentRow(observerPage, codexAgentId).click()
-    await expect(
-      observerPage.getByTestId('code-terminal-mode-toggle').getByRole('button', { name: 'Terminal' }),
-    ).toHaveAttribute('aria-pressed', 'true')
-    const observerDraft = 'keep the observing browser draft and view'
-    await observerPage.getByTestId('code-composer-input').fill(observerDraft)
-    await observerPage.getByTestId('code-nav-history').click()
-    await expect(observerPage.getByTestId('code-history-panel')).toBeVisible()
+      await agentRow(page, codexAgentId).click()
+      await page.getByTestId('code-composer-approval').click()
+      await page.getByTestId('code-approval-menu').getByRole('menuitemradio', { name: /Full access/ }).click()
 
-    await agentRow(page, codexAgentId).click()
-    await page.getByTestId('code-composer-approval').click()
-    await page.getByTestId('code-approval-menu').getByRole('menuitemradio', { name: /Full access/ }).click()
-
-    let replacementAgentId = ''
-    await expect.poll(async () => {
-      const agents = await controlAgents(page)
-      replacementAgentId = agents.find(agent => (
-        agent.cwd === workspace && agent.id !== codexAgentId && agent.id !== bashAgentId
-      ))?.id ?? ''
-      return replacementAgentId
-    }).not.toBe('')
-    await expect(agentRow(observerPage, replacementAgentId)).toHaveClass(/active/)
-    await expect(agentRow(observerPage, codexAgentId)).toHaveCount(0)
-    await expect(agentRow(observerPage, bashAgentId)).not.toHaveClass(/active/)
-    await expect(observerPage.getByTestId('code-history-panel')).toBeVisible()
-    await observerPage.keyboard.press('Escape')
-    await expect(observerPage.getByTestId('code-agent-terminal-view')).toHaveClass(/active/)
-    await expect(observerPage.getByTestId('code-agent-chat-view')).toHaveCount(0)
-    await expect(observerPage.getByTestId('code-composer-input')).toHaveValue(observerDraft)
+      let replacementAgentId = ''
+      await expect.poll(async () => {
+        const agents = await controlAgents(page)
+        replacementAgentId = agents.find(agent => (
+          agent.cwd === workspace && agent.id !== codexAgentId && agent.id !== bashAgentId
+        ))?.id ?? ''
+        return replacementAgentId
+      }).not.toBe('')
+      await expect(agentRow(observerPage, replacementAgentId)).toHaveClass(/active/)
+      await expect(agentRow(observerPage, codexAgentId)).toHaveCount(0)
+      await expect(agentRow(observerPage, bashAgentId)).not.toHaveClass(/active/)
+      await expect(observerPage.getByTestId('code-history-panel')).toBeVisible()
+      await observerPage.keyboard.press('Escape')
+      await expect(observerPage.getByTestId('code-agent-terminal-view')).toHaveClass(/active/)
+      await expect(observerPage.getByTestId('code-agent-chat-view')).toHaveCount(0)
+      await expect(observerPage.getByTestId('code-composer-input')).toHaveValue(observerDraft)
+    } finally {
+      await observerPage.close()
+    }
   })
 
   test('preserves explicit navigation and Terminal view across a resumable restart', async ({ page, workspaceRoot }) => {
