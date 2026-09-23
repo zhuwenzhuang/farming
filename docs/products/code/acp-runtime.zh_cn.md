@@ -397,6 +397,11 @@ Runtime-wide Discovery 工作。
 
 ## 生命周期与恢复
 
+历史传输必须以线性时间处理分块消息，保留跨分块的 UTF-8 字符，并仅在 JSON 消息完整时
+合并一次。按回合数分页不能限制响应字节数：单页历史可能包含数十 MB 的工具输出。
+验收必须覆盖这类分块响应，并在现有 Session 初始化期限内完成，不丢弃历史，也不通过
+延长期限掩盖传输开销。
+
 有业务意义的 Session 状态包括 Connecting、Idle、Working、Waiting for User、Interrupting、
 Recoverable Error 与 Terminal Failure。Idle 是普通 Live State；Session 会一直保持 Live，
 直到用户归档、系统替换或清理它，或精确证明 Runtime 已失败。

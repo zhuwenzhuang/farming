@@ -14,7 +14,7 @@ import {
   resumedAgentSource,
 } from './main-page-session.cjs';
 import { providerConversationForkCapability, providerSessionResumeOptions } from './provider-adapters.cjs';
-import { activeLifecycleOperation } from './agent-lifecycle-journal.cjs';
+import { activeLifecycleOperation, latestLifecycleOperation } from './agent-lifecycle-journal.cjs';
 
 interface ResumeOptions {
   acpHistoryMode?: string;
@@ -787,6 +787,13 @@ class AgentSessionResumeCoordinator {
         state: 'blocked',
         error: operation.error || `The previous ${operation.type} operation has not completed.`,
       } };
+      const latest = latestLifecycleOperation({ lifecycleJournal: saved?.lifecycleJournal });
+      if (latest?.type === 'create' && latest.state === 'failed') {
+        return { status: 200, body: {
+          state: 'failed',
+          error: latest.error || 'The previous Agent session start failed.',
+        } };
+      }
     }
     return { status: 200, body: claim?.id
       ? { state: 'ready', agentId: claim.id, ...projectMembership(this.ports.getSettings()) }

@@ -1622,15 +1622,34 @@ async function testReadOnlyResumeStatus() {
     state: 'blocked', error: 'Provider archive failed',
   }, 'status reads retain the original lifecycle failure instead of reporting absent');
 
+  ports.getSavedAgentSession = () => ({ lifecycleJournal: { sequence: 2, entries: [{
+    id: 'aop_2', type: 'create', state: 'failed', requestKey: 'create:failed-agent',
+    error: 'ACP session/load timed out after 120000ms',
+  }] } });
+  assert.deepStrictEqual(coordinator.resumeStatus('codex', 'session-alpha', 'work').body, {
+    state: 'failed', error: 'ACP session/load timed out after 120000ms',
+  }, 'a persisted terminal create failure must survive Server restart');
+  claims[1].status = 'running';
+  assert.equal(coordinator.resumeStatus('codex', 'session-alpha', 'work').body.state, 'ready',
+    'an authoritative live claim supersedes an older failure');
+  claims[1].status = 'stopped';
+  ports.getSavedAgentSession = () => ({ lifecycleJournal: { sequence: 3, entries: [{
+    id: 'aop_2', type: 'create', state: 'failed', error: 'old failure',
+  }, { id: 'aop_3', type: 'create', state: 'succeeded' }] } });
+  assert.equal(coordinator.resumeStatus('codex', 'session-alpha', 'work').body.state, 'absent',
+    'an older failure cannot prove the outcome of a newer operation');
+
   const gate = deferred<void>();
   const pending = new AgentSessionResumeCoordinator(basePorts({ waitForAgentRecovery: () => gate.promise }));
   const operation = pending.resumeHttp('codex', 'session-alpha', {});
+  // An earlier durable failure cannot settle a newly admitted resume.
+  pending.ports.getSavedAgentSession = () => ({ lifecycleJournal: { entries: [{ id: 'aop_1', type: 'create', state: 'failed', error: 'old failure' }] } });
   assert.deepStrictEqual(pending.resumeStatus('codex', 'session-alpha', '').body, { state: 'pending' });
-  assert.deepStrictEqual(pending.resumeStatus('codex', 'session-alpha', 'other').body, { state: 'absent' });
+  assert.deepStrictEqual(pending.resumeStatus('codex', 'session-alpha', 'other').body, { state: 'failed', error: 'old failure' });
   gate.resolve();
   await operation;
   await drainAsyncWork();
-  assert.deepStrictEqual(pending.resumeStatus('codex', 'session-alpha', 'default').body, { state: 'absent' });
+  assert.deepStrictEqual(pending.resumeStatus('codex', 'session-alpha', 'default').body, { state: 'failed', error: 'old failure' });
 }
 
 async function run() {

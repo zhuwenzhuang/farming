@@ -565,6 +565,13 @@ must not serialize behind duplicate runtime-wide discovery work.
 
 ## Lifecycle And Recovery
 
+History transport must process fragmented messages in linear time, preserving
+UTF-8 across chunk boundaries and joining a complete JSON message only once.
+Turn-count pagination does not bound response bytes: one history page can contain
+tens of megabytes of tool output. Acceptance includes such a fragmented page
+within the existing Session setup deadline, without dropping history or raising
+that deadline to conceal transport overhead.
+
 The meaningful Session states are connecting, idle, working, waiting for user
 input, interrupting, recoverable error, and terminal failure. Idle is an
 ordinary live state. A Session remains live until the user archives it, the

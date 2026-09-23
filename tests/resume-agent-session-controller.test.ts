@@ -199,3 +199,30 @@ test('preserves authoritative HTTP reuse and read-only reconciliation reports an
   assert.deepEqual(await subject.controller.resume(identity), { status: 'succeeded', agentId: 'existing', reused: true })
   assert.deepEqual(await subject.controller.reconcile(identity), { status: 'succeeded', agentId: 'existing', reused: true })
 })
+
+test('a confirmed terminal failure clears uncertainty and permits only an explicit retry', async () => {
+  let posts = 0
+  const subject = fixture({
+    request: async () => {
+      if (++posts === 1) throw new Error('lost reply')
+      return response({ agentId: 'retried' })
+    },
+    readStatus: async () => response({ state: 'failed', error: 'ACP session/load timed out after 120000ms' }),
+  })
+  failed(await subject.controller.resume(identity), true)
+  failed(await subject.controller.reconcile(identity), false, /session\/load timed out/)
+  assert.equal(posts, 1, 'a status check must never replay the mutation')
+  assert.deepEqual(subject.events, [])
+  assert.deepEqual(await subject.controller.resume(identity), { status: 'succeeded', agentId: 'retried', reused: false })
+  assert.equal(posts, 2)
+  assert.equal(subject.timers.size, 0)
+})
+
+test('a failed HTTP status or malformed failure cannot authorize a retry', async () => {
+  for (const status of [response({ state: 'failed', error: 'proxy failure' }, false), response({ state: 'failed' })]) {
+    const subject = fixture({ request: async () => { throw new Error('lost reply') }, readStatus: async () => status })
+    failed(await subject.controller.resume(identity), true)
+    failed(await subject.controller.reconcile(identity), true)
+    failed(await subject.controller.resume(identity), true)
+  }
+})

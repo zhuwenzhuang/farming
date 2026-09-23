@@ -147,6 +147,11 @@ async function resultFor(method, params) {
       { turnId: 'child-turn', item: { id: 'child-answer', type: 'agentMessage', text: 'Live child history read without resume.', phase: 'final_answer' } }], nextCursor: null };
   }
   if (method === 'thread/turns/list') {
+    if (process.env.FARMING_TEST_LARGE_HISTORY === '1') {
+      // A full history page can exceed 64 MiB even with fewer than 50 turns.
+      // Keep this transport payload out of the emitted ACP transcript.
+      return { fixturePadding: `${'x'.repeat(1020)}恢复🌱`.repeat(65536), data: thread(params.threadId).turns, nextCursor: null };
+    }
     if (process.env.FARMING_TEST_PAGED_CHILD_HISTORY === '1' && String(params.threadId).endsWith('-child')) {
       const end = params.cursor == null ? 260 : Number(params.cursor);
       const start = Math.max(0, end - Number(params.limit));
@@ -230,6 +235,15 @@ async function resultFor(method, params) {
 
 async function writeResponse(message) {
   const bytes = Buffer.from(`${JSON.stringify(message)}\n`);
+  if (process.env.FARMING_TEST_LARGE_HISTORY === '1') {
+    // Odd-sized chunks also split multi-byte characters and JSON delimiters.
+    for (let offset = 0; offset < bytes.length; offset += 32749) {
+      if (!process.stdout.write(bytes.subarray(offset, offset + 32749))) {
+        await new Promise<void>(resolve => process.stdout.once('drain', resolve));
+      }
+    }
+    return;
+  }
   if (!splitUtf8) {
     process.stdout.write(bytes);
     return;

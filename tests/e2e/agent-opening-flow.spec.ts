@@ -124,13 +124,14 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
     await page.route(/\/api\/agent-sessions\/codex\/[^/]+\/resume$/, async route => {
       posts++
       if (posts === 1) await route.fulfill({ status: 404, json: { error: 'Example session is unavailable' } })
-      else await route.abort('connectionreset')
+      else if (posts === 2) await route.abort('connectionreset')
+      else await route.fulfill({ json: { agentId, projectWorkspaces: [f.root] } })
     })
     await page.route(/\/api\/agent-sessions\/codex\/[^/]+\/resume-status(?:\?.*)?$/, async route => {
       checks++
       await route.fulfill({ json: checks === 1 ? { state: 'pending' } : checks === 2 ? { state: 'absent' }
         : checks === 3 ? { state: 'blocked', error: 'The previous archive could not stop this Agent. Resolve it before resuming.' }
-          : { state: 'ready', agentId, projectWorkspaces: [f.root] } })
+          : { state: 'failed', error: 'ACP session/load timed out after 120000ms' } })
     })
     try {
       await page.emulateMedia({ colorScheme: appearance === 'dark' ? 'dark' : 'light', reducedMotion: 'reduce' })
@@ -150,7 +151,7 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
       for (let i = 1; i <= 4; i++) {
         await opening.getByRole('button', { name: 'Check status' }).click()
         await expect.poll(() => checks).toBe(i)
-        await expect(opening).toHaveAttribute('data-phase', i === 4 ? 'ready' : 'failed')
+        await expect(opening).toHaveAttribute('data-phase', 'failed')
         if (i === 3) {
           await expect(opening.getByRole('alert')).toContainText('The previous archive could not stop this Agent')
           await test.info().attach(`agent-opening-blocked-${appearance}`, {
@@ -160,6 +161,16 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
         }
       }
       expect(posts).toBe(2)
+      await expect(opening.getByRole('alert')).toContainText('ACP session/load timed out after 120000ms')
+      await expect(opening.getByRole('button', { name: 'Check status' })).toHaveCount(0)
+      await expect(opening.getByRole('button', { name: 'Retry', exact: true })).toBeVisible()
+      await test.info().attach(`agent-opening-confirmed-failure-${appearance}`, {
+        body: await page.getByTestId('code-main').screenshot({ mask: [page.locator('.code-agent-opening-identity').first()] }),
+        contentType: 'image/png',
+      })
+      await opening.getByRole('button', { name: 'Retry', exact: true }).click()
+      await expect(opening).toHaveAttribute('data-phase', 'ready')
+      expect(posts).toBe(3)
       await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${agentId}"]`)).toBeVisible()
     } finally { await f.cleanup() }
   })

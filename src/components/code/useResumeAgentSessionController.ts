@@ -236,7 +236,7 @@ export class ResumeAgentSessionController {
     }
   }
 
-  /** A read cannot establish that a lost mutation is safe to replay. */
+  /** Only an authoritative terminal failure can release an uncertain mutation. */
   reconcile(identity: ResumeAgentSessionIdentity): Promise<ResumeAgentSessionOutcome> {
     if (this.disposed) return Promise.resolve({ status: 'stale' })
     const key = identityKey(identity)
@@ -248,7 +248,7 @@ export class ResumeAgentSessionController {
         settled = true
         ;(this.ports.clearTimer || clearTimeout)(timer as number)
         this.checks.delete(cancel)
-        if (outcome.status === 'succeeded') this.uncertain.delete(key)
+        if (outcome.status === 'succeeded' || (outcome.status === 'failed' && !outcome.uncertain)) this.uncertain.delete(key)
         else if (outcome.status === 'failed') this.uncertain.add(key)
         resolve(outcome)
       }
@@ -266,6 +266,8 @@ export class ResumeAgentSessionController {
         if (response.ok && raw?.state === 'ready' && data) {
           this.ports.applyProjectMembership(data)
           finish(this.finish(identityParts(identity), data.agentId, true))
+        } else if (response.ok && raw?.state === 'failed' && typeof raw.error === 'string' && raw.error.trim()) {
+          finish({ status: 'failed', uncertain: false, message: raw.error })
         } else {
           finish({ status: 'failed', uncertain: true, message: raw?.state === 'blocked' && typeof raw.error === 'string' && raw.error
             ? raw.error

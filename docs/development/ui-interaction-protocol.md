@@ -108,6 +108,12 @@ mutation failed, especially across backend restart; uncertainty must remain
 visible. A fresh status check can publish current Agent state for reconnect
 reconciliation, but cannot start or resume an Agent.
 
+A status read may establish failure only from the latest persisted terminal
+Create failure for that exact Session, with no pending resume or live claim.
+It returns the recorded error, clears browser uncertainty, and exposes explicit
+Retry without submitting another mutation. Pending admission and live claims
+take precedence over old failures; an absent claim alone remains uncertain.
+
 Acceptance includes HTTP/state arrival in both orders, delayed history, stopped
 Agents, exact Home identity, repeated activation, A/B completion reordering,
 leaving while pending, known and uncertain failures, bounded waits, and return
