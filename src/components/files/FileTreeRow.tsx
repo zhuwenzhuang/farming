@@ -23,6 +23,7 @@ interface FileTreeRowProps {
   agentId: string
   copy: CodeCopy
   decoration: WorkspaceFileDecoration
+  directoryError?: { path: string; message: string; tooLarge: boolean }
   editorDirtyFilePaths: ReadonlySet<string>
   editorExternalChangedFilePaths: ReadonlySet<string>
   fileOperation: WorkspaceFileOperationState | null
@@ -40,6 +41,7 @@ interface FileTreeRowProps {
   onOpenFilePath: (filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void>
   onSelectFilePath: (filePath: string) => () => void
   onRememberFileOperationName: (name: string) => void
+  onSearchDirectory: (path: string) => void
   onToggleDirectory: (path: string) => boolean
   onSubmitFileOperation: () => Promise<void>
   onUpdateFileOperationName: (name: string) => void
@@ -50,6 +52,7 @@ export function FileTreeRow({
   agentId,
   copy,
   decoration,
+  directoryError,
   editorDirtyFilePaths,
   editorExternalChangedFilePaths,
   fileOperation,
@@ -67,6 +70,7 @@ export function FileTreeRow({
   onOpenFilePath,
   onSelectFilePath,
   onRememberFileOperationName,
+  onSearchDirectory,
   onToggleDirectory,
   onSubmitFileOperation,
 }: FileTreeRowProps) {
@@ -123,7 +127,7 @@ export function FileTreeRow({
       data-file-path={item.path}
       data-file-type={item.type}
       data-tree-level={node.level}
-      aria-label={item.path}
+      aria-label={directoryError ? `${item.path}: ${directoryError.tooLarge ? copy.directoryTooLarge : directoryError.message}` : item.path}
       title={item.linkTarget ? `${item.path} ↷ ${item.linkTarget}` : item.linkError ? `${item.path} (${item.linkError})` : undefined}
       tabIndex={-1}
       aria-expanded={isDirectory ? node.isOpen : undefined}
@@ -154,9 +158,11 @@ export function FileTreeRow({
       ) : (
         <FileTreeRowStatus
           copy={copy}
+          directoryError={directoryError}
           item={item}
           viewState={viewState}
           onOpenActions={handleRowActions}
+          onSearchDirectory={onSearchDirectory}
         />
       )}
     </div>

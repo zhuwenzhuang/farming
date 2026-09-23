@@ -1093,6 +1093,16 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
   flex: 0 1 auto;
 }
 
+.code-file-directory-error {
+  min-width: 0;
+  margin-left: 6px;
+  flex: 0 0 auto;
+  overflow: hidden;
+  color: var(--code-danger);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .code-file-trailing {
   min-width: 0;
   display: inline-flex;
@@ -1230,6 +1240,13 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
 .code-file-directory-search-action:hover,
 .code-file-directory-search-action:focus-visible {
   text-decoration: underline;
+}
+
+.code-file-directory-search-action.inline {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 2px 4px;
+  white-space: nowrap;
 }
 
 .code-file-inline-operation {

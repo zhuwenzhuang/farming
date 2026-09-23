@@ -60,6 +60,7 @@ export interface CodeCopy {
   agentTranscriptEmpty: string
   agentTranscriptWaiting: string
   agentTranscriptMissingFinalReply: string
+  agentTranscriptInterrupted: string
   agentTranscriptProcess: string
   agentTranscriptWorking: string
   agentTranscriptThinking: string
@@ -437,7 +438,9 @@ export interface CodeCopy {
   searchFilesOrJump: string
   searchInDirectory: string
   searchThisDirectory: string
+  searchThisDirectoryShort: string
   directoryTooLarge: string
+  directoryTooLargeShort: string
   openEditors: string
   loading: string
   slashCatalogUnavailable: string
@@ -728,6 +731,7 @@ const EN_COPY: CodeCopy = {
   agentTranscriptEmpty: 'No conversation yet.',
   agentTranscriptWaiting: 'Agent is still working...',
   agentTranscriptMissingFinalReply: 'This turn did not produce a final reply',
+  agentTranscriptInterrupted: 'Interrupted',
   agentTranscriptProcess: 'Process',
   agentTranscriptWorking: 'Processing',
   agentTranscriptThinking: 'Thinking',
@@ -1138,7 +1142,9 @@ const EN_COPY: CodeCopy = {
   searchFilesOrJump: 'Search files or jump to path line',
   searchInDirectory: 'Search in',
   searchThisDirectory: 'Search this directory',
+  searchThisDirectoryShort: 'Search',
   directoryTooLarge: 'This directory has more than 4096 entries.',
+  directoryTooLargeShort: '>4096',
   openEditors: 'OPEN EDITORS',
   loading: 'Loading...',
   slashCatalogUnavailable: 'Skills are temporarily unavailable.',
@@ -1429,6 +1435,7 @@ const ZH_COPY: CodeCopy = {
   agentTranscriptEmpty: '还没有对话。',
   agentTranscriptWaiting: 'Agent 仍在工作...',
   agentTranscriptMissingFinalReply: '本轮执行未产生最终回复',
+  agentTranscriptInterrupted: '已中止',
   agentTranscriptProcess: '执行过程',
   agentTranscriptWorking: '处理中',
   agentTranscriptThinking: '思考中',
@@ -1875,7 +1882,9 @@ const ZH_COPY: CodeCopy = {
   searchFilesOrJump: '搜索文件或跳转到路径行号',
   searchInDirectory: '搜索目录',
   searchThisDirectory: '搜索此目录',
+  searchThisDirectoryShort: '搜索',
   directoryTooLarge: '此目录超过 4096 项。',
+  directoryTooLargeShort: '超过 4096 项',
   openEditors: '打开的编辑器',
   loading: '加载中...',
   slashCatalogUnavailable: 'Skills 暂时不可用。',

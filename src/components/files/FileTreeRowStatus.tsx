@@ -9,16 +9,20 @@ import type { CodeCopy } from '../code/copy'
 
 interface FileTreeRowStatusProps {
   copy: CodeCopy
+  directoryError?: { path: string; message: string; tooLarge: boolean }
   item: FileExplorerNode
   viewState: WorkspaceFileTreeRowViewState
   onOpenActions: (event: ReactMouseEvent<HTMLButtonElement>) => void
+  onSearchDirectory: (path: string) => void
 }
 
 export function FileTreeRowStatus({
   copy,
+  directoryError,
   item,
   viewState,
   onOpenActions,
+  onSearchDirectory,
 }: FileTreeRowStatusProps) {
   const {
     directoryDotClassName,
@@ -37,11 +41,36 @@ export function FileTreeRowStatus({
     <>
       <span className="code-file-label">
         <span className="code-file-name">{item.displayName ?? item.name}</span>
+        {directoryError && (
+          <span
+            className="code-file-directory-error"
+            role="alert"
+            aria-label={directoryError.tooLarge ? copy.directoryTooLarge : directoryError.message}
+            title={directoryError.tooLarge ? copy.directoryTooLarge : directoryError.message}
+          >
+            {directoryError.tooLarge ? copy.directoryTooLargeShort : directoryError.message}
+          </span>
+        )}
         {item.symbolicLink && (
           <span className="code-file-symbolic-link" aria-hidden="true">↷</span>
         )}
       </span>
       <span className="code-file-trailing">
+        {directoryError?.tooLarge && (
+          <button
+            type="button"
+            className="code-file-directory-search-action inline"
+            aria-label={copy.searchThisDirectory}
+            onPointerDown={event => event.stopPropagation()}
+            onMouseDown={event => event.stopPropagation()}
+            onClick={event => {
+              event.stopPropagation()
+              onSearchDirectory(directoryError.path)
+            }}
+          >
+            {copy.searchThisDirectoryShort}
+          </button>
+        )}
         {fileOpening && (
           <span className="code-file-open-spinner" title={copy.loading} aria-hidden="true" />
         )}

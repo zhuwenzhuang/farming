@@ -37,7 +37,7 @@ export interface FileSectionBodySearchActions {
   onSelectMatchIndex: (index: number) => void
 }
 
-export type FileSectionBodyTree = Omit<FileTreeViewProps, 'copy'>
+export type FileSectionBodyTree = Omit<FileTreeViewProps, 'copy' | 'directoryErrors' | 'onSearchDirectory'>
 
 interface FileSectionBodyProps {
   copy: CodeCopy
@@ -91,7 +91,7 @@ export function FileSectionBody({
       {rootDirectoryLoading && !rootDirectoryHasItems && (
         <div className="code-file-status" style={workspaceFileTreeDepthStyle(0)}>{copy.loading}</div>
       )}
-      {directoryErrors.map(({ path, message, tooLarge }) => (
+      {directoryErrors.filter(({ path }) => !path).map(({ path, message, tooLarge }) => (
         <div key={path} className="code-file-status error" role="alert" style={workspaceFileTreeDepthStyle(0)}>
           {path ? `${path}: ` : ''}{tooLarge ? copy.directoryTooLarge : message}
           {tooLarge && path && (
@@ -131,6 +131,8 @@ export function FileSectionBody({
       <FileTreeView
         {...tree}
         copy={copy}
+        directoryErrors={directoryErrors}
+        onSearchDirectory={onSearchDirectory}
       />
       <FileSectionOverlays
         agentId={tree.agentId}

@@ -1,6 +1,6 @@
 import { appPath } from '@/lib/base-path'
 import { COMPACT_VIEWPORT_QUERY } from '@/lib/responsive-mode'
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { getBackendConnectionSnapshot } from '@/lib/backend-live-status'
 import type { WorkspaceFileOpenTarget } from '@/lib/workspace-file-search'
 import { parentDirectory, type WorkspaceFileTreeNode } from '@/lib/workspace-file-tree'
@@ -595,6 +595,11 @@ export function ProjectFilesSection({
   const stableHandleTreeKeyDownCapture = useStableEventCallback(handleTreeKeyDownCapture)
   const stableOpenFilePath = useStableEventCallback(openFilePath)
   const stableSubmitFileOperation = useStableEventCallback(submitFileOperation)
+  const directoryErrors = useMemo(() => Object.entries(directories).flatMap(([path, directory]) => (
+    directory.error && (!path || openDirectoryPaths.has(path))
+      ? [{ path, message: directory.error, tooLarge: directory.tooLarge === true }]
+      : []
+  )), [directories, openDirectoryPaths])
 
   const viewModel = useProjectFilesSectionViewModel({
     activeFilePath,
@@ -623,11 +628,7 @@ export function ProjectFilesSection({
     openFilePendingPath,
     projectId,
     renderFileTreeRow,
-    directoryErrors: Object.entries(directories).flatMap(([path, directory]) => (
-      directory.error && (!path || openDirectoryPaths.has(path))
-        ? [{ path, message: directory.error, tooLarge: directory.tooLarge === true }]
-        : []
-    )),
+    directoryErrors,
     rootDirectoryHasItems: Boolean(directories['']?.items.length),
     rootDirectoryLoading: Boolean(directories['']?.loading),
     rowHeight: fileRowHeight,

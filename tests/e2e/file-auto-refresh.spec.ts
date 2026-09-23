@@ -87,8 +87,11 @@ test('restores and refreshes one hundred expanded directories without overflowin
 for (const appearance of ['light', 'dark', 'paper']) {
   test(`oversized directory fails locally while ordinary files remain usable in ${appearance}`, async ({ page, workspaceRoot }, testInfo) => {
     const workspace = path.join(workspaceRoot, 'bounded-tree')
-    const large = path.join(workspace, 'large')
+    const largePath = 'apsarapangu/disk10/tmp'
+    const large = path.join(workspace, largePath)
     fs.mkdirSync(large, { recursive: true })
+    fs.mkdirSync(path.join(workspace, 'apsarapangu/disk6'), { recursive: true })
+    fs.writeFileSync(path.join(workspace, 'apsarapangu/disk10/README.md'), '# Neighbor\n')
     for (let i = 0; i < 4097; i++) fs.writeFileSync(path.join(large, `entry-${i}`), '')
     fs.writeFileSync(path.join(large, 'target-find-me.md'), '# Found in large directory\n')
     fs.writeFileSync(path.join(workspace, 'target-find-me-outside.md'), '# Outside large directory\n')
@@ -99,14 +102,20 @@ for (const appearance of ['light', 'dark', 'paper']) {
     await openProjectFile(page, 'bounded-tree', 'guide.md')
     const project = page.getByTestId('code-project-group').filter({ hasText: 'bounded-tree' })
     const files = project.getByTestId('code-files-section')
-    await files.locator('[data-file-path="large"]').click()
-    await expect(files).toContainText('This directory has more than 4096 entries.')
+    for (const directoryPath of ['apsarapangu', 'apsarapangu/disk10']) {
+      await files.locator(`[data-testid="code-file-row"][data-file-path="${directoryPath}"]`).click()
+    }
+    const largeRow = files.locator(`[data-testid="code-file-row"][data-file-path="${largePath}"]`)
+    await largeRow.click()
+    await expect(largeRow).toContainText('>4096')
+    await expect(largeRow.getByRole('button', { name: 'Search this directory' })).toBeVisible()
+    await expect(files.locator('.code-file-status.error')).toHaveCount(0)
     await testInfo.attach(`oversized-directory-${appearance}`, {
       body: await files.screenshot(),
       contentType: 'image/png',
     })
-    await files.getByRole('button', { name: 'Search this directory' }).click()
-    const searchInput = files.getByRole('combobox', { name: 'Search in large' })
+    await largeRow.getByRole('button', { name: 'Search this directory' }).click()
+    const searchInput = files.getByRole('combobox', { name: `Search in ${largePath}` })
     await expect(searchInput).toBeFocused()
     await searchInput.fill('target-find-me')
     await expect(files.getByTestId('code-file-search-results')).toContainText('target-find-me.md')
@@ -114,7 +123,8 @@ for (const appearance of ['light', 'dark', 'paper']) {
     await files.getByTestId('code-file-search-results').getByRole('option', { name: /target-find-me/ }).click()
     await expect(page.getByTestId('code-file-markdown-preview').getByRole('heading', { name: 'Found in large directory' })).toBeVisible()
     // Collapse the failed branch and refresh the ordinary project through the UI.
-    await files.locator('[data-file-path="large"]').click()
+    await largeRow.locator('.code-file-name').click()
+    await expect(largeRow).toHaveAttribute('aria-expanded', 'false')
     await project.getByTestId('code-files-refresh').focus()
     await project.getByTestId('code-files-refresh').press('Enter')
     await expect(project.getByTestId('code-files-refresh')).toHaveAttribute('data-refresh-status', 'success')

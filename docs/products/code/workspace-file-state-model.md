@@ -140,11 +140,12 @@ concurrency. Cancellation and deadlines stop enumeration and further metadata
 scheduling, close directory handles, and fence late completion. Existing
 snapshots survive failures; users can open a subdirectory or search for a
 specific file without an oversized read blocking unrelated work.
-Failures for expanded child directories include their path in the shared Files
-error surface, so a rejected listing cannot look like an empty directory.
-An oversized-directory failure offers a search scoped to that exact authorized
-directory. Search does not enumerate the filesystem root or turn the rejected
-listing into a partial snapshot; leaving search restores ordinary Project search.
+Failures for expanded child directories appear on the affected directory row,
+so a rejected listing cannot look like an empty directory. Root failures remain
+in the Files status surface. An oversized-directory failure offers a search
+scoped to that exact authorized directory. Search does not enumerate the
+filesystem root or turn the rejected listing into a partial snapshot; leaving
+search restores ordinary Project search.
 
 Explicit pointer or keyboard directory expansion revalidates that directory while
 retaining its visible snapshot. Collapsing a directory stays local and starts no

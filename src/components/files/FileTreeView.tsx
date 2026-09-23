@@ -30,6 +30,7 @@ export interface FileTreeViewProps {
   activeFilePath?: string
   agentId: string
   copy: CodeCopy
+  directoryErrors: Array<{ path: string; message: string; tooLarge: boolean }>
   decorations: WorkspaceFileDecorationStore
   editorDirtyFilePaths: ReadonlySet<string>
   editorExternalChangedFilePaths: ReadonlySet<string>
@@ -58,6 +59,7 @@ export interface FileTreeViewProps {
   ) => void
   onOpenFilePath: (filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void>
   onRememberFileOperationName: (name: string) => void
+  onSearchDirectory: (path: string) => void
   onToggleDirectory: (path: string) => boolean
   onSubmitFileOperation: () => Promise<void>
   onToggleTreeNode: (path: string) => void
@@ -221,6 +223,9 @@ const SubscribedFileTreeRow = memo(function SubscribedFileTreeRow({
     [decorations, node.data.path],
   )
   const decoration = useSyncExternalStore(subscribeDecoration, getDecorationSnapshot, getDecorationSnapshot)
+  const directoryError = rowProps.directoryErrors.find(error => (
+    error.path === node.data.path || node.data.compactedPaths?.includes(error.path)
+  ))
   return (
     <FileTreeRow
       {...rowProps}
@@ -229,6 +234,7 @@ const SubscribedFileTreeRow = memo(function SubscribedFileTreeRow({
       // second row after the user selects a directory or another file.
       activeFilePath={active && selected ? node.data.path : undefined}
       decoration={decoration}
+      directoryError={directoryError}
       node={node}
       openFilePendingPath={pending ? node.data.path : undefined}
       selected={selected}
@@ -255,6 +261,7 @@ const FileTreeViewContent = memo(function FileTreeViewContent({
   selectedFilePathStore,
   agentId,
   copy,
+  directoryErrors,
   editorDirtyFilePaths,
   editorExternalChangedFilePaths,
   decorations,
@@ -277,6 +284,7 @@ const FileTreeViewContent = memo(function FileTreeViewContent({
   onOpenFilePath,
   onSelectFilePath,
   onRememberFileOperationName,
+  onSearchDirectory,
   onToggleDirectory,
   onSubmitFileOperation,
   onToggleTreeNode,
@@ -475,6 +483,7 @@ const FileTreeViewContent = memo(function FileTreeViewContent({
     selectedFilePathStore,
     agentId,
     copy,
+    directoryErrors,
     editorDirtyFilePaths,
     editorExternalChangedFilePaths,
     decorations,
@@ -490,6 +499,7 @@ const FileTreeViewContent = memo(function FileTreeViewContent({
     onOpenFilePath,
     onSelectFilePath,
     onRememberFileOperationName,
+    onSearchDirectory,
     onToggleDirectory,
     onSubmitFileOperation,
     onUpdateFileOperationName,
@@ -499,6 +509,7 @@ const FileTreeViewContent = memo(function FileTreeViewContent({
     selectedFilePathStore,
     agentId,
     copy,
+    directoryErrors,
     editorDirtyFilePaths,
     editorExternalChangedFilePaths,
     decorations,
@@ -514,6 +525,7 @@ const FileTreeViewContent = memo(function FileTreeViewContent({
     onOpenFilePath,
     onSelectFilePath,
     onRememberFileOperationName,
+    onSearchDirectory,
     onToggleDirectory,
     onSubmitFileOperation,
     onUpdateFileOperationName,
