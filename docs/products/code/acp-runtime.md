@@ -377,6 +377,9 @@ awaiting admission do not change this state. Ordinary transcript updates preserv
 history reading; a new user scroll can pause following again. Hidden Agents do
 not replay a send's scroll request when reopened. This contract is shared by all
 ACP providers and does not retry or otherwise change message delivery.
+Returning to latest clears history navigation intent. Scroll events caused by
+that action or by viewport resizing cannot load an older page; history paging
+requires a user scroll gesture, including on a latest page shorter than the viewport.
 
 Farming negotiates standard Steering from the Agent's initialize response and
 uses `_session/steering` only while it owns an active Turn. The older Codex

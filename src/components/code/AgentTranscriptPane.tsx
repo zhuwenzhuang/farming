@@ -4021,7 +4021,9 @@ export function AgentTranscriptPane({
       && element.scrollHeight > element.clientHeight + TRANSCRIPT_BOTTOM_FOLLOW_THRESHOLD,
     )
     if (active && nearBottom && isPageActive()) onReadLatest?.()
-    if (element.scrollTop <= TRANSCRIPT_LOAD_MORE_THRESHOLD) requestOlderTurns(element)
+    // Returning to latest or resizing can put a short page near its top.
+    // Only a user scroll may navigate back into history from that position.
+    if (userScrollGestureRef.current && element.scrollTop <= TRANSCRIPT_LOAD_MORE_THRESHOLD) requestOlderTurns(element)
   }, [active, onReadLatest, readingAnchorAgentId, requestOlderTurns, scheduleReadingAnchorSave])
   const handleWheel = useCallback((event: ReactWheelEvent<HTMLDivElement>) => {
     markUserScrollGesture()
