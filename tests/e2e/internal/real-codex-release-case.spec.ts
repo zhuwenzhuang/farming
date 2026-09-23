@@ -1037,7 +1037,7 @@ test.describe('real Codex pre-release composite case', () => {
       await page.waitForTimeout(250)
     } while (Date.now() < terminalProfileDeadline)
     expect(terminalProfileResponse.ok(), terminalProfileBody.error || 'Failed to set the real Codex Terminal profile').toBeTruthy()
-    await expect.poll(async () => (await codeRows(page, agentId)).join('\n'), { timeout: 60_000 })
+    await expect.poll(async () => (await codeRows(page, agentId)).join('\n').toLowerCase(), { timeout: 60_000 })
       .toContain(`${launchModel?.value} ${PRIMARY_EFFORT}`)
     expect((await codeRows(page, agentId)).join('\n')).not.toContain('Do you trust the contents of this directory?')
 
@@ -1053,6 +1053,7 @@ test.describe('real Codex pre-release composite case', () => {
       const variant = PRIMARY_MODEL.match(/-(sol|terra|luna)$/i)?.[1]?.toLowerCase()
       expect(variant).toBeTruthy()
       const target = page.getByTestId(`code-model-matrix-cell-${variant}-${PRIMARY_EFFORT}`)
+        .and(page.locator(`[data-model="${PRIMARY_MODEL}"]`))
       await expect(target).toBeVisible()
       await expect(target).toBeEnabled({ timeout: 60_000 })
       await target.press('Enter')
