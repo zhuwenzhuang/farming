@@ -292,3 +292,7 @@ development and product documents for subsystem-specific gates.
 - Use anonymous demo workspaces and example hostnames in screenshots.
 - Build and publish through repository scripts and workflows; do not commit
   generated release artifacts.
+- Do not infer a manual approval requirement from a staging state alone: npm
+  staging can also mean automated validation. Verify authoritative status before
+  asking the user to intervene or retrying publication; follow the
+  [release publication contract](docs/development/release-pipeline-acceleration-plan.md#a5-publish-npm-last).

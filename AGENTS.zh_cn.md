@@ -241,3 +241,6 @@ npm run test:e2e:playwright
 - 配置示例保持通用。
 - Screenshot 使用匿名 Demo Workspace 与示例 Hostname。
 - 通过仓库脚本与 Workflow 构建和发布；不得提交生成的 Release Artifact。
+- 不得仅凭暂存状态推断需要人工批准：npm 暂存也可能表示自动校验中。要求用户
+  介入或重试发布前，必须核对权威状态，并遵循
+  [发布契约](docs/development/release-pipeline-acceleration-plan.zh_cn.md#a5-npm-最后发布)。

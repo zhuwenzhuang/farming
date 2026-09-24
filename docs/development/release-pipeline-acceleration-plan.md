@@ -607,6 +607,15 @@ without reducing coverage.
 - Verify the public tag target, asset inventory, manifest, checksums, and at
   least one public asset download.
 - Only after that verification, publish npm and reconcile its `gitHead`.
+- A successful upload may not be immediately visible in the public registry.
+  A `staged` response or conflict alone does not prove that maintainer approval
+  is required: npm staging includes automated validation as well as maintainer
+  review. Preserve the exact tarball and reconcile the public version, source
+  SHA, and digest with bounded reads before considering another publish.
+- Ask for maintainer approval or 2FA only when authoritative evidence establishes
+  that requirement. If authenticated staging details are unavailable, report
+  the outcome as uncertain rather than declaring manual approval mandatory.
+  See the [npm staging API](https://api-docs.npmjs.com/#tag/Stage).
 
 ## Workstream B: Test And Failure Feedback
 

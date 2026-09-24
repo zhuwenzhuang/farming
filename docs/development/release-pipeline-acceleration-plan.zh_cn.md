@@ -488,6 +488,12 @@ Changed Files + Failure Signatures
 - 正式公开 GitHub Release。
 - 验证公开 Tag Target、资产清单、Manifest、Checksum，并至少下载一个公开资产。
 - 只有验证成功后才发布 npm，并核对 npm `gitHead`。
+- 上传成功后，公共 Registry 可能暂时不可见。仅凭 `staged` 响应或冲突，不能判定
+  需要维护者批准：npm 暂存既包含自动校验，也包含维护者审阅。保留精确 Tarball，
+  在考虑再次发布前，以有界只读查询核对公开版本、源码 SHA 和摘要。
+- 只有权威证据明确要求时，才请求维护者批准或 2FA。若无法读取需要认证的暂存
+  详情，应报告结果尚不确定，不得断言必须人工批准。参见
+  [npm 暂存 API](https://api-docs.npmjs.com/#tag/Stage)。
 
 ## 改造 B：测试与失败反馈
 
