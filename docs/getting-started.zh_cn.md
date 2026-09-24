@@ -14,11 +14,11 @@ npm install --global farming-code@latest
 farming daemon
 ```
 
-没有系统 Node.js，或使用受支持的旧 Linux 主机时，选择用户目录安装：
+没有系统 Node.js，或使用受支持的旧 Linux 主机时，安装到自己指定的目录：
 
 ```bash
-curl -fsSL https://zhuwenzhuang.github.io/farming/install.sh | bash
-~/.local/bin/farming daemon
+curl -fsSL https://zhuwenzhuang.github.io/farming/install.sh | FARMING_INSTALL_ROOT="$HOME/farming" bash
+"$HOME/farming/farming" daemon
 ```
 
 打开 daemon 输出的带鉴权 URL，然后选择 **New Agent**。对应 Provider 必须已经能在

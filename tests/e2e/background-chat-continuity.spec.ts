@@ -1319,3 +1319,41 @@ test('keeps following the bottom when a new ACP turn first grows', async ({ page
   }
   await expect(page.getByTestId('code-agent-transcript-jump-bottom')).toHaveCount(0)
 })
+
+for (const appearance of ['light', 'dark', 'paper'] as const) {
+  test(`live transcript read failure exposes Retry in ${appearance}`, async ({ page, workspaceRoot }, testInfo) => {
+    const workspace = path.join(workspaceRoot, `live-read-failure-${appearance}`)
+    fs.mkdirSync(workspace, { recursive: true })
+    const agentId = await createAcpAgent(page, workspace)
+    await openFarming(page)
+    await selectAgentOnCompactLayout(page, agentId)
+    await page.locator('body').evaluate((body, value) => { body.dataset.appearance = value }, appearance)
+    await page.getByTestId('code-acp-composer-input').fill('scroll stability')
+    await page.getByTestId('code-acp-composer-send').click()
+    await expect(page.getByText('Streaming tail 1', { exact: false })).toBeAttached()
+    const pattern = `**/api/agents/${agentId}/acp-transcript?*`
+    let recovering = false
+    let releaseRecovery!: () => void
+    const recovery = new Promise<void>(resolve => { releaseRecovery = resolve })
+    await page.route(pattern, async route => {
+      if (!recovering) return route.fulfill({ status: 503, body: 'Unavailable' })
+      await recovery
+      return route.continue()
+    })
+    try {
+      const retry = page.getByRole('button', { name: /^(Retry|重试)$/ })
+      await expect(retry).toBeVisible()
+      await page.screenshot({ path: testInfo.outputPath(`live-read-failure-${appearance}.png`), animations: 'disabled', caret: 'hide' })
+      // Hold recovery responses until the click; a live completion read must
+      // not remove the Retry button between enabling the route and clicking it.
+      recovering = true
+      await retry.click()
+      releaseRecovery()
+      await expect(page.getByText('Streaming tail 6', { exact: false })).toBeAttached()
+      await expect(retry).toHaveCount(0)
+    } finally {
+      releaseRecovery()
+      await page.unroute(pattern)
+    }
+  })
+}

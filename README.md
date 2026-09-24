@@ -13,6 +13,14 @@
   <a href="./README.zh_cn.md">简体中文</a>
 </p>
 
+<p align="center">
+  <a href="https://github.com/zhuwenzhuang/farming/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/zhuwenzhuang/farming/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/zhuwenzhuang/farming/releases"><img alt="Release" src="https://img.shields.io/github/v/release/zhuwenzhuang/farming?label=release"></a>
+  <a href="https://www.npmjs.com/package/farming-code"><img alt="npm" src="https://img.shields.io/npm/v/farming-code?label=npm"></a>
+  <a href="./LICENSE"><img alt="License" src="https://img.shields.io/github/license/zhuwenzhuang/farming"></a>
+  <img alt="macOS and Linux" src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux-555">
+</p>
+
 ## Quick Start
 
 **npm installation** — Node.js 22.13+ (22.x) or 24+, with npm's bin directory in PATH.
@@ -22,23 +30,15 @@ npm install --global farming-code@latest
 farming daemon
 ```
 
-**Directory installation** — provides Node.js and compatibility for supported older Linux hosts.
+**Directory installation** — installs into a directory you choose, with its own Node.js and compatibility for supported older Linux hosts.
 
 ```bash
-curl -fsSL https://zhuwenzhuang.github.io/farming/install.sh | bash
-~/.local/bin/farming daemon
+curl -fsSL https://zhuwenzhuang.github.io/farming/install.sh | FARMING_INSTALL_ROOT="$HOME/farming" bash
+"$HOME/farming/farming" daemon
 ```
 
 macOS / Linux. Choose one method, then open the printed URL and choose **New Agent**.
 See [installation requirements](https://zhuwenzhuang.github.io/farming/en/get-started/installation).
-
-<p align="center">
-  <a href="https://github.com/zhuwenzhuang/farming/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/zhuwenzhuang/farming/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="https://github.com/zhuwenzhuang/farming/releases"><img alt="Release" src="https://img.shields.io/github/v/release/zhuwenzhuang/farming?label=release"></a>
-  <a href="https://www.npmjs.com/package/farming-code"><img alt="npm" src="https://img.shields.io/npm/v/farming-code?label=npm"></a>
-  <a href="./LICENSE"><img alt="License" src="https://img.shields.io/github/license/zhuwenzhuang/farming"></a>
-  <img alt="macOS and Linux" src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux-555">
-</p>
 
 [![Farming Code workbench](./docs/products/code/assets/01-code-workspace.webp)](./docs/products/code/assets/01-code-workspace.png)
 

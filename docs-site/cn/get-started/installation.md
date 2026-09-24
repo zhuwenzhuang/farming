@@ -21,20 +21,20 @@ farming daemon
 
 ## 指定目录安装
 
-安装脚本准备专用的 Node.js 和 npm。这是独立应用目录，不是项目内的 `npm install`。
+安装脚本准备专用的 Node.js 和 npm。这是独立应用目录，不是项目内的 `npm install`。下面的示例指定 `$HOME/farming`：
 
 ```bash
-curl -fsSL https://zhuwenzhuang.github.io/farming/install.sh | bash
+curl -fsSL https://zhuwenzhuang.github.io/farming/install.sh | FARMING_INSTALL_ROOT="$HOME/farming" bash
 ```
 
 无需 sudo 或系统 Node.js。脚本只负责安装，重复执行会保留已有安装，不启动或重启 Farming；更新通过设置完成。
 
-程序默认位于 `~/.local/share/farming/app`（支持 `XDG_DATA_HOME`）。命令入口是 `~/.local/bin/farming`；将 `~/.local/bin` 加入 `PATH` 后可直接使用 `farming`。下方使用完整 CLI 路径，无需修改 PATH。
+示例中的程序目录是 `$HOME/farming`，启动入口是 `$HOME/farming/farming`。不设置 `FARMING_INSTALL_ROOT` 时，程序默认位于 `~/.local/share/farming/app`（支持 `XDG_DATA_HOME`）。安装脚本默认还会在 `~/.local/bin/farming` 创建指向程序目录的命令链接；下方命令不依赖该链接或 PATH。
 
 指定 npm registry：
 
 ```bash
-curl -fsSL https://zhuwenzhuang.github.io/farming/install.sh | FARMING_NPM_REGISTRY=https://registry.npmjs.org bash
+curl -fsSL https://zhuwenzhuang.github.io/farming/install.sh | FARMING_INSTALL_ROOT="$HOME/farming" FARMING_NPM_REGISTRY=https://registry.npmjs.org bash
 ```
 
 已有 npm registry 配置可用时会自动沿用，所选 registry 会保留给后续启动和更新。`FARMING_VERSION` 可指定版本，`FARMING_INSTALL_ROOT` 和 `FARMING_BIN_DIR` 可指定绝对安装路径。自定义 bin 目录时，请使用安装脚本输出的 CLI 启动命令。
@@ -44,7 +44,7 @@ npm 下载缓存和保留的更新版本都在安装目录内。选择其它磁�
 ## 启动后台服务
 
 ```bash
-~/.local/bin/farming daemon
+"$HOME/farming/farming" daemon
 ```
 
 打开 CLI 输出的带鉴权 URL 即可使用。默认情况下，Farming 使用自己的配置目录和端口。只有需要隔离不同实例或端口冲突时，才传入 `--config-dir`、`--port` 或 `--base-path`。
@@ -70,10 +70,10 @@ npm uninstall --global farming-code
 指定目录安装：先停止服务。
 
 ```bash
-~/.local/bin/farming stop
+"$HOME/farming/farming" stop
 ```
 
-停止使用此安装的所有 Config 后，删除程序目录和 `~/.local/bin/farming` 软链接，也会一并删除私有 npm 缓存和保留的更新版本。`~/.farming` 下的配置和历史数据独立保留。
+停止使用此安装的所有 Config 后，删除选定的程序目录及其 `~/.local/bin/farming` 软链接，也会一并删除私有 npm 缓存和保留的更新版本。`~/.farming` 下的配置和历史数据独立保留。
 
 ## 平台说明
 

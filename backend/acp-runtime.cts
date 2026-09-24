@@ -2534,9 +2534,12 @@ class AcpRuntime extends EventEmitter {
       // A submitted ACP request still owns its own response/notification barrier.
       if (!turn.providerInitiated) { this.emitRuntime(binding); return; }
       binding.state = event.status === 'failed' ? 'error' : 'idle';
+      binding.error = event.status === 'failed'
+        ? acpErrorMessage(event.error || event.message || 'Agent turn failed') : '';
       binding.stopReason = event.status === 'completed' ? 'end_turn' : String(event.status);
       if (binding.chatTurn) binding.chatTurn = {
         ...binding.chatTurn, status: event.status as 'completed' | 'cancelled' | 'failed',
+        message: binding.error,
         updatedAt: Date.now(),
       };
       this.finishTurn(binding, turn, { status: event.status });
@@ -5042,9 +5045,9 @@ class AcpRuntime extends EventEmitter {
                 ? 'working'
                 : failed
                   ? 'error'
-                  : 'idle';
+                  : status === 'completed' ? 'idle' : status || 'unknown';
     const controlFailed = control.phase === 'error';
-    const cancelled = control.phase === 'cancelled';
+    const cancelled = control.phase === 'cancelled' || ['cancelled', 'canceled', 'interrupted'].includes(status);
     return {
       version: 2,
       protocol: 'acp',
@@ -5058,7 +5061,7 @@ class AcpRuntime extends EventEmitter {
       state: stateName,
       error: controlFailed ? control.error : failed ? String(parentTool?.title || 'Subagent failed') : '',
       errorKind: controlFailed || failed ? 'agent' : '',
-      stopReason: controlFailed || failed ? 'error' : cancelled ? 'cancelled' : active ? '' : 'end_turn',
+      stopReason: controlFailed || failed ? 'error' : cancelled ? 'cancelled' : stateName === 'idle' ? 'end_turn' : '',
       ...state.transcriptSlice(options),
     };
   }
@@ -5085,11 +5088,18 @@ class AcpRuntime extends EventEmitter {
     // A read projects a private snapshot, never overwriting the live reducer.
     const snapshot = new AcpSessionState({ provider: binding.provider, sessionId, cwd: binding.cwd, maxUpdates: this.maxUpdates });
     for (const update of response.updates) snapshot.apply({ sessionId, update });
+    const status = typeof response.status === 'string' ? response.status : 'unknown';
+    const failed = ['systemError', 'error', 'failed', 'errored'].includes(status);
+    const cancelled = ['cancelled', 'canceled', 'interrupted'].includes(status);
     return { version: 2, protocol: 'acp', provider: binding.provider, sessionId,
       cwd: binding.cwd, title: String(response.title || 'Subagent'),
-      state: response.status === 'active' ? 'working' : response.status === 'systemError' ? 'error' : 'idle',
-      canCancel: false, inlineReadMedia: true, error: '', stopReason: '',
+      state: status === 'active' ? 'working' : failed ? 'error' : status,
+      canCancel: false, inlineReadMedia: true,
+      error: failed ? acpErrorMessage(response.error || 'Subagent failed') : '',
+      stopReason: typeof response.stopReason === 'string' && response.stopReason
+        ? response.stopReason : failed ? 'error' : cancelled ? 'cancelled' : '',
       ...snapshot.transcriptSlice({ ...options, cursor: undefined }),
+      includesLatest: !options.cursor,
       nextCursor: typeof response.nextCursor === 'string' ? response.nextCursor : null,
       truncated: response.truncated === true, hasMoreBefore: response.truncated === true,
     };

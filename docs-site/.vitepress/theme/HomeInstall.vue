@@ -7,7 +7,7 @@ const chinese = computed(() => lang.value.startsWith('zh'))
 const method = ref<'npm' | 'local'>('npm')
 const command = computed(() => method.value === 'npm'
   ? 'npm install --global farming-code@latest\nfarming daemon'
-  : 'curl -fsSL https://zhuwenzhuang.github.io/farming/install.sh | bash\n~/.local/bin/farming daemon')
+  : 'curl -fsSL https://zhuwenzhuang.github.io/farming/install.sh | FARMING_INSTALL_ROOT="$HOME/farming" bash\n"$HOME/farming/farming" daemon')
 const copied = ref(false)
 const failed = ref(false)
 let timer: ReturnType<typeof setTimeout> | undefined

@@ -101,6 +101,25 @@ async function run() {
     assert.strictEqual(firstBinding.child.pid, secondBinding.child.pid);
     await assert.rejects(runtime.getSubagentTranscriptSessionForRead('shared-codex-a', second.sessionId), /not a child/);
 
+    const readExtension = firstBinding.connection.extMethod;
+    try {
+      for (const [status, expectedState, expectedStop] of [
+        ['unknown', 'unknown', ''], ['active', 'working', ''],
+        ['failed', 'error', 'error'], ['systemError', 'error', 'error'],
+        ['cancelled', 'cancelled', 'cancelled'], ['idle', 'idle', ''],
+      ]) {
+        firstBinding.connection.extMethod = async () => ({
+          sessionId: `${first.sessionId}-child`, status, updates: [],
+        });
+        const child = await runtime.getSubagentTranscriptSessionForRead('shared-codex-a', `${first.sessionId}-child`);
+        assert.strictEqual(child.state, expectedState);
+        assert.strictEqual(child.stopReason, expectedStop);
+        if (expectedState === 'error') assert.ok(child.error);
+      }
+    } finally {
+      firstBinding.connection.extMethod = readExtension;
+    }
+
     const handlers = runtime.clientHandlers(firstBinding);
     await handlers.sessionUpdate({ sessionId: first.sessionId, update: {
       sessionUpdate: 'subagent_spawned', subagentSessionId: 'opaque-native-child', name: 'Native reviewer', task: 'Review', capabilities: {},

@@ -122,7 +122,7 @@ function agentRowStateFromAgent(
   const turnActive = terminalState.turnActive
   const failureMessage = agent.runtimeBinding.kind === 'acp'
     && (agent.chatTurn?.status === 'failed' || agent.chatTurn?.status === 'interrupted')
-    ? agent.chatTurn.message
+    ? agent.chatTurn.message || (agent.chatTurn.status === 'interrupted' ? 'Chat turn interrupted' : 'Chat turn failed')
     : ''
   const title = agentRowTitle(agent)
   const commandTitle = agentCommandTitle(agent, turnActive, now)

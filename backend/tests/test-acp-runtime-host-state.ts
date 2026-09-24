@@ -95,7 +95,7 @@ async function main() {
   const active = host.promptOperation('agent-1', 'prompt-1');
   assert.strictEqual(active.status, 'provider-owned');
   assert.strictEqual(active.turnHandle, 'binding-1:1');
-  assert.strictEqual(host.binding('agent-1').state, 'working');
+  assert.strictEqual(host.binding('agent-1').state, 'idle');
 
   host.disconnectController(firstController);
   await assert.rejects(
@@ -325,7 +325,7 @@ async function main() {
   await new Promise(resolve => setImmediate(resolve));
   assert.strictEqual(host.promptOperation('agent-1', 'prompt-admitting').status, 'admitting');
   assert.strictEqual(host.promptOperation('agent-1', 'prompt-admitting').kind, 'turn');
-  assert.strictEqual(host.binding('agent-1').state, 'working');
+  assert.strictEqual(host.binding('agent-1').state, 'idle');
   const joinedAdmission = host.submitPrompt(secondController, {
     agentId: 'agent-1',
     bindingEpoch: 'binding-1',
@@ -380,7 +380,9 @@ async function main() {
     /provider prompt failed/,
   );
   const providerFailureBinding = host.binding('agent-provider-failure');
-  assert.strictEqual(providerFailureBinding.state, 'error');
+  assert.strictEqual(providerFailureBinding.state, 'idle');
+  assert.strictEqual(providerFailureBinding.lastSettledTurnStopReason, 'error');
+  assert.strictEqual(host.promptOperation('agent-provider-failure', 'provider-failure').status, 'failed');
   assert.strictEqual(providerFailureBinding.lastSettledTurnHandle, 'binding-provider-failure:1');
 
   for (let index = 0; index < 70; index += 1) {

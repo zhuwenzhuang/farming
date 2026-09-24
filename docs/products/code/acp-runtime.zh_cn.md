@@ -299,6 +299,32 @@ Prompt 或 Steer 被接受后，恢复跟随、清除待恢复的阅读位置，
 
 ## Transcript 协议
 
+### 状态与同步不变量
+
+运行状态、Turn 结果与请求归属是独立事实。ACP Runtime 拥有执行和 Turn 转换，
+Host 操作记录拥有请求身份与结算屏障。未返回的请求不能覆盖已观察到的等待审批或
+Runtime 故障。只有确认运行绑定丢失才能中断持久化的活动 Turn；兼容重连保留
+运行中的 Turn。Provider 没有提供错误文案时，结构化失败结果仍然有效。
+
+每次读取标明 Agent、Session、epoch、revision 与覆盖范围。最新版本属于实时尾部；
+历史页不能推进它，也不能把 Session 当前的活动状态或停止原因应用到历史 Turn。
+Entry 增量声明连续范围和可选的所属 Prompt 锚点；仅有锚点不能证明范围重叠。
+历史和实时读取共用串行调度，但分页游标只属于单次读取。身份变化拒绝全部旧响应；
+reset 使历史缓存失效，普通更新只替换声明的范围。
+
+浏览器维护一个最多 2,048 条 Entry（含可选 Prompt 锚点）的连续窗口。实时读取从最旧端逐出内容；
+历史读取从最新端逐出并保留明确的历史窗口，可返回最新内容。实时通知和重连不改变历史阅读位置；
+历史 Turn 的尾部未加载不能推断为缺少最终回复。缺口不得静默拼接。
+查看历史时，Runtime 控制状态继续更新。历史窗口是各页在各自读取时刻的冻结阅读缓存，
+不承诺整窗属于同一原子快照。保留的 revision 只表示最后确认的实时版本，尾部逐出后不能
+用作实时增量基线；返回最新始终读取 Checkpoint。排队期限为 30 秒，读取期限为 15 秒；有限重试耗尽后显示
+明确的读取错误，只有新证据或显式重试才能开始另一轮尝试。
+
+验收在实时对账完成后（或历史页同版本时），对同一身份、版本和范围比较增量结果与独立权威快照。
+跨版本历史页验证身份、游标连续、内容保留与状态不误判。另验证
+完成、取消、重连、重启交错中的旧响应隔离、历史页隔离、存储上限和失败期限。
+成功追赶以传输和调度可用为前提；永久失败仍须明确结束读取，不能宣称已经同步。
+
 浏览器把 Chat 历史读取限定在 15 秒内。读取是只读操作，因此超时后可自动重试一次；
 再次超时则显示错误和显式“重试”。重连与新 revision 仍触发各自的权威读取，不重放 mutation。
 
@@ -375,10 +401,14 @@ Browser 为最近 Chat 保留有界 LRU 的完整结构化 Transcript Record，�
 只合并到一个最新 High-water，每个 Agent 只允许一个 Transcript Read in-flight，同时对后台读取
 Cadence 与全局读取并发设界。只有当前可见 Chat 持有 React、Markdown 与 Tool Card DOM。
 重新 Attach 的 Retained Record 如果已观察到的 Session 与 Runtime Epoch 仍匹配，就立即显示，
-并从现有 Revision 继续；不能只因为它重新可见就请求 Checkpoint。冷启动或已淘汰的 Chat、重连、
+并从现有 Revision 继续；不能只因为它重新可见就请求 Checkpoint。重新 Attach 时会重新校验尚未
+完成的 Turn，避免漏掉完成通知后一直显示运行中。冷启动或已淘汰的 Chat、重连、
 Identity 变化、检测到缺口、Reset 或分页范围变化，仍必须先取得权威 Checkpoint，才能显示替换
 内容。阅读位置绑定稳定 Turn 或 Process Item，而不只记录 Pixel；Transcript Record 与 Pooled
 Terminal 共用 20-view Working-set 边界。
+较早历史记录的游标只属于一次分页读取；该读取结束后，Live Revision 通知必须重新读取
+不带分页游标的最新 Turn。即使旧页响应带有较新的 Session Revision，也不能据此推进最新
+Turn 的 Revision。
 
 ACP Session 控件沿用同一套 Agent-scoped Working-set Ownership。Browser 会保留最近每个
 Agent 最后一次已确认的 Mode、Model、Reasoning、Permission 与 Account Snapshot，切换到
@@ -528,8 +558,8 @@ Live Chat Agent 只允许显式用户重命名或 Agent-managed Adaptive Title �
 由第一条 Prompt 派生的 Provider Session Title 属于 History Metadata，不能重命名 Live Agent；
 恢复的 History Agent 在没有更强标题来源时可以使用其持久 Provider Session Title。
 
-尚未 Settled 但已包含 Turn 的权威 Transcript 必须立即进入显示，同时先在后台执行有界的快速
-稳定重试，之后以更慢的恢复节奏继续对账，直到获得权威 Settled Response。只有“预期存在历史
+尚未 Settled 但已包含 Turn 的权威 Transcript 必须立即进入显示，同时在后台执行有界的
+稳定重试。耗尽后保留已有内容并显示读取错误；新证据或显式重试可以开始下一轮有界读取。只有“预期存在历史
 但权威响应仍为空”时，Transcript 区域才继续显示同步反馈。
 
 Live Transcript Revision 在已有读取进行中时进入合并队列，而不是反复取消该读取，因此持续

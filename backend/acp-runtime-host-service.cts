@@ -99,7 +99,6 @@ class AcpRuntimeHostService extends EventEmitter {
     } else if (current?.providerTurnId) {
       summary.turnHandle = '';
     } else if (activePrompt && current?.bindingEpoch === bindingEpoch) {
-      summary.state = current.state;
       summary.turnHandle = current.turnHandle;
     }
     this.state.upsertBinding({

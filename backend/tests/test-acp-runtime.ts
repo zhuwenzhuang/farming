@@ -2756,6 +2756,9 @@ async function run() {
     assert.strictEqual(nativeBinding.activeTurn, null, 'duplicate completed identity cannot start another turn');
     nativeEvent('native-3', 'started', 9);
     nativeEvent('native-3', 'failed', 10);
+    assert.strictEqual(runtime.getSession('agent-native-lifecycle').chatTurn.status, 'failed');
+    assert.strictEqual(runtime.getSession('agent-native-lifecycle').chatTurn.message, 'Agent turn failed');
+    assert.strictEqual(runtime.getSession('agent-native-lifecycle').error, 'Agent turn failed');
     assert.strictEqual(runtime.getSession('agent-native-lifecycle').state, 'error');
 
     await runtime.prepareAgent({

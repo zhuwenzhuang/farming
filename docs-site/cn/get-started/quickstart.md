@@ -23,7 +23,7 @@ Farming 不代替 Provider 登录。请先在运行 Farming 的 Mac 或 Linux �
 ## 安装并打开 Farming
 
 已有 Node.js 22.13+（22.x）或 24+，且 npm 的 bin 目录已在 PATH 中时，选择 **npm 安装**。
-否则选择 **指定目录安装**，使用自带的 Node.js，并为受支持的旧 Linux 主机提供兼容运行环境。详见[安装要求](./installation)。
+否则选择 **指定目录安装**，把 Farming 和自带的 Node.js 装到你选择的目录，并为受支持的旧 Linux 主机提供兼容运行环境。详见[安装要求](./installation)。
 
 ::: code-group
 
@@ -33,14 +33,14 @@ farming daemon
 ```
 
 ```bash [指定目录安装]
-curl -fsSL https://zhuwenzhuang.github.io/farming/install.sh | bash
-~/.local/bin/farming daemon
+curl -fsSL https://zhuwenzhuang.github.io/farming/install.sh | FARMING_INSTALL_ROOT="$HOME/farming" bash
+"$HOME/farming/farming" daemon
 ```
 
 :::
 
 两种方式都先安装；第二条命令通过 Farming CLI 启动后台服务，输出带鉴权的 URL。
-在同一台机器上使用时，打开本机地址即可。指定目录安装使用完整 CLI 路径，无需修改 PATH。
+在同一台机器上使用时，打开本机地址即可。示例直接从指定目录启动，无需修改 PATH。
 
 ::: warning 保管鉴权 URL
 URL 中的 Token 可以访问 Farming。不要把它放进公开日志、截图、Issue 或聊天记录。

@@ -152,6 +152,87 @@ test('rejects stale epochs and wrong-Agent transcript responses', () => {
   assert.equal(rejected.transcript?.runtimeEpoch, 'epoch-a')
 })
 
+test('a bounded entry patch keeps loaded history before its covered window', () => {
+  const prompt = { id: 'long-user', type: 'message', role: 'user', content: [{ type: 'text', text: 'Long turn' }] }
+  const tool = (index: number, detail = `detail-${index}`) => ({
+    id: `tool-${index}`, type: 'tool', kind: 'execute', title: `Tool ${index}`,
+    status: 'completed', transcriptDetail: detail,
+  })
+  const patched = (revision: number, entries: unknown[], order: string[], options: {
+    replace?: boolean; fromRevision?: number; pageCursor?: string; nextCursor?: string | null; hasMoreBefore?: boolean,
+  } = {}) => projectAcpTranscriptResponse({
+    version: 1, agentId: 'agent-a', sessionId: 'session-a', runtimeEpoch: 'epoch-a',
+    fromRevision: options.replace === false ? options.fromRevision : null,
+    toRevision: revision, replace: options.replace !== false, settled: true,
+    hasMoreBefore: options.hasMoreBefore ?? false,
+    transcript: {
+      sessionId: 'session-a', state: 'idle', revision, entries,
+      entryPatch: { version: 1, order, pageCursor: options.pageCursor ?? null },
+      nextCursor: options.nextCursor ?? null,
+      hasMoreBefore: options.hasMoreBefore ?? false,
+    },
+  }, 'agent-a', { maxTurns: 5 })
+
+  const latestOrder = [prompt.id, ...Array.from({ length: 256 }, (_, index) => `tool-${index + 45}`)]
+  const latest = patched(1, [prompt, ...Array.from({ length: 256 }, (_, index) => tool(index + 45))], latestOrder, {
+    nextCursor: 'tool-45', hasMoreBefore: true,
+  })
+  const olderOrder = [prompt.id, ...Array.from({ length: 44 }, (_, index) => `tool-${index + 1}`)]
+  const older = patched(1, [prompt, ...Array.from({ length: 44 }, (_, index) => tool(index + 1))], olderOrder, {
+    pageCursor: 'tool-45', nextCursor: null,
+  })
+  const loaded = mergeAcpTranscript(latest, older)
+  assert.equal(loaded.transcript?.entrySnapshot?.order.length, 301)
+  assert.equal(loaded.transcript?.hasMoreBefore, false)
+
+  const changedOrder = [prompt.id, ...Array.from({ length: 257 }, (_, index) => `tool-${index + 44}`)
+    .filter(id => id !== 'tool-299')]
+  const delta = patched(2, [tool(300, 'corrected')], changedOrder, {
+    replace: false, fromRevision: 1, nextCursor: 'tool-44', hasMoreBefore: true,
+  })
+  const advanced = mergeAcpTranscript(loaded.transcript, delta)
+  assert.equal(advanced.needsCheckpoint, false)
+  assert.equal(advanced.transcript?.entrySnapshot?.order.length, 300)
+  assert.ok(advanced.transcript?.entrySnapshot?.order.includes('tool-1'))
+  assert.equal(advanced.transcript?.entrySnapshot?.order.includes('tool-299'), false)
+  assert.equal(advanced.transcript?.hasMoreBefore, false)
+  assert.equal(advanced.transcript?.nextCursor, null)
+  assert.equal(advanced.transcript?.entrySnapshot?.entries.find(entry => entry.id === 'tool-300')?.transcriptDetail, 'corrected')
+})
+
+test('continuous entry patches retain only the requested Turn window and a usable older cursor', () => {
+  const response = (revision: number, fromRevision: number | null, start: number, end: number) => {
+    const entries = Array.from({ length: end - start + 1 }, (_, offset) => {
+      const index = start + offset
+      return [
+        { id: `user-${index}`, type: 'message', role: 'user', content: [{ type: 'text', text: `question-${index}` }] },
+        { id: `answer-${index}`, type: 'message', role: 'assistant', content: [{ type: 'text', text: `answer-${index}` }],
+          _meta: { codex: { phase: 'final_answer' } } },
+      ]
+    }).flat()
+    return projectAcpTranscriptResponse({
+      version: 1, agentId: 'agent-a', sessionId: 'session-a', runtimeEpoch: 'epoch-a',
+      fromRevision, toRevision: revision, replace: fromRevision === null, settled: true,
+      hasMoreBefore: start > 1,
+      transcript: {
+        sessionId: 'session-a', state: 'idle', revision, entries: fromRevision === null ? entries : entries.slice(-2),
+        entryPatch: { version: 1, order: entries.map(entry => entry.id), pageCursor: null },
+        nextCursor: start > 1 ? `user-${start}` : null, hasMoreBefore: start > 1,
+      },
+    }, 'agent-a', { maxTurns: 5 })
+  }
+  let current = response(5, null, 1, 5)
+  for (let revision = 6; revision <= 100; revision += 1) {
+    const result = mergeAcpTranscript(current, response(revision, revision - 1, revision - 4, revision))
+    assert.equal(result.needsCheckpoint, false)
+    current = result.transcript!
+    assert.equal(current.entrySnapshot?.order.length, 10)
+    assert.equal(current.turns.length, 5)
+    assert.equal(current.nextCursor, `user-${revision - 4}`)
+    assert.equal(current.hasMoreBefore, true)
+  }
+})
+
 test('rebuilds the missing-final-reply status from a refreshed transcript projection', () => {
   const processOnlyEntries = [
     {

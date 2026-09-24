@@ -94,6 +94,7 @@ async function run() {
       projectWorkspace: process.cwd(),
       status: 'running',
       archived: false,
+      chatTurn: { turnId: `turn-${index}`, status: index === 1 ? 'completed' : 'active', message: '', updatedAt: 1 },
       acpRuntimeMode: 'custom',
       acpRuntimeExecutable: process.execPath,
       structuredRuntimeProcess: { ...sharedProcessIdentity },
@@ -152,6 +153,9 @@ async function run() {
     runtime.release();
     await recovery;
 
+    assert.strictEqual(manager.agents.get('agent-0').chatTurn.status, 'interrupted');
+    assert.match(manager.agents.get('agent-0').chatTurn.message, /could not be confirmed/);
+    assert.strictEqual(manager.agents.get('agent-1').chatTurn.status, 'completed');
     assert.strictEqual(runtime.startedAgentIds.length, AGENT_COUNT);
     assert.strictEqual(runtime.maxActive, EXPECTED_RECOVERY_CONCURRENCY);
     assert.strictEqual(

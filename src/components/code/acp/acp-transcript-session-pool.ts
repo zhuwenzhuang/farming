@@ -10,6 +10,7 @@ import type { AgentTranscript } from './acp-entry-projection'
 import {
   mergeAcpTranscript,
   projectAcpTranscriptResponse,
+  preserveCompletedTranscriptTurns,
 } from './acp-transcript-envelope'
 
 export const INITIAL_ACP_TRANSCRIPT_TURN_LIMIT = 5
@@ -18,6 +19,7 @@ export const MAX_ACP_TRANSCRIPT_TURN_LIMIT = 1000
 
 const MAX_CONCURRENT_TRANSCRIPT_READS = 3
 export const ACP_TRANSCRIPT_READ_TIMEOUT_MS = 15_000
+export const ACP_TRANSCRIPT_QUEUE_TIMEOUT_MS = 30_000
 const BACKGROUND_TRANSCRIPT_REFRESH_MS = 500
 
 export interface AcpTranscriptSessionSnapshot {
@@ -30,7 +32,7 @@ export interface AcpTranscriptSessionSnapshot {
 
 interface AcpTranscriptSessionRecord {
   agentId: string
-  pageCursor: string
+  pendingPageCursor: string
   snapshot: AcpTranscriptSessionSnapshot
   subscribers: Set<() => void>
   retained: boolean
@@ -38,7 +40,9 @@ interface AcpTranscriptSessionRecord {
   controller: AbortController | null
   timer: ReturnType<typeof setTimeout> | null
   timerDueAt: number
+  queueDeadline: ReturnType<typeof setTimeout> | null
   requestGeneration: number
+  readEpoch: number
   inFlight: boolean
   queued: boolean
   refreshRequested: boolean
@@ -59,7 +63,7 @@ let activeReads = 0
 function createRecord(agentId: string): AcpTranscriptSessionRecord {
   return {
     agentId,
-    pageCursor: '',
+    pendingPageCursor: '',
     snapshot: {
       transcript: null,
       loading: true,
@@ -73,7 +77,9 @@ function createRecord(agentId: string): AcpTranscriptSessionRecord {
     controller: null,
     timer: null,
     timerDueAt: 0,
+    queueDeadline: null,
     requestGeneration: 0,
+    readEpoch: 0,
     inFlight: false,
     queued: false,
     refreshRequested: false,
@@ -156,8 +162,19 @@ function clearRecordTimer(record: AcpTranscriptSessionRecord) {
   record.timerDueAt = 0
 }
 
+function clearQueueDeadline(record: AcpTranscriptSessionRecord) {
+  if (record.queueDeadline !== null) clearTimeout(record.queueDeadline)
+  record.queueDeadline = null
+}
+
+function invalidateRead(record: AcpTranscriptSessionRecord) {
+  record.readEpoch += 1
+  record.controller?.abort()
+}
+
 function disposeRecord(record: AcpTranscriptSessionRecord) {
   clearRecordTimer(record)
+  clearQueueDeadline(record)
   readQueue.delete(record)
   record.queued = false
   record.requestGeneration += 1
@@ -167,12 +184,8 @@ function disposeRecord(record: AcpTranscriptSessionRecord) {
 }
 
 function nextQueuedRecord() {
-  let background: AcpTranscriptSessionRecord | null = null
-  for (const record of readQueue) {
-    if (record.attachments > 0) return record
-    background ??= record
-  }
-  return activeReads < MAX_CONCURRENT_TRANSCRIPT_READS - 1 ? background : null
+  // FIFO prevents a stream of foreground refreshes starving retained sessions.
+  return readQueue.values().next().value as AcpTranscriptSessionRecord | undefined
 }
 
 function pumpReadQueue() {
@@ -180,6 +193,7 @@ function pumpReadQueue() {
     const record = nextQueuedRecord()
     if (!record) return
     readQueue.delete(record)
+    clearQueueDeadline(record)
     record.queued = false
     if ((!record.retained && record.attachments === 0) || record.inFlight) continue
     activeReads += 1
@@ -198,6 +212,15 @@ function queueRecord(record: AcpTranscriptSessionRecord) {
   if (record.queued) return
   record.queued = true
   readQueue.add(record)
+  record.queueDeadline = setTimeout(() => {
+    readQueue.delete(record)
+    record.queued = false
+    record.queueDeadline = null
+    record.pendingPageCursor = ''
+    record.forceCheckpoint = false
+    record.refreshRequested = false
+    updateSnapshot(record, { loading: false, loadingOlder: false, error: 'transport' })
+  }, ACP_TRANSCRIPT_QUEUE_TIMEOUT_MS)
   pumpReadQueue()
 }
 
@@ -242,6 +265,13 @@ function scheduleRecord(
 }
 
 function retryRequiredCheckpoint(record: AcpTranscriptSessionRecord) {
+  record.pendingPageCursor = ''
+  if (record.snapshot.transcript?.historyPage) {
+    record.forceCheckpoint = false
+    record.refreshRequested = false
+    updateSnapshot(record, { loading: false, loadingOlder: false, error: 'response' })
+    return
+  }
   const retryDelay = acpTranscriptUnsettledRetryDelayMs(record.unsettledRetryAttempt, false)
   if (retryDelay !== undefined) {
     record.unsettledRetryAttempt = Math.min(
@@ -276,6 +306,7 @@ async function loadRecord(record: AcpTranscriptSessionRecord) {
   record.requestedDelayMs = Number.POSITIVE_INFINITY
   record.lastLoadStartedAt = performance.now()
   const generation = ++record.requestGeneration
+  const readEpoch = record.readEpoch
   const controller = new AbortController()
   record.controller = controller
   let timedOut = false
@@ -286,18 +317,21 @@ async function loadRecord(record: AcpTranscriptSessionRecord) {
     controller.abort()
     expire(new Error('Transcript read deadline exceeded'))
   }, ACP_TRANSCRIPT_READ_TIMEOUT_MS)
+  const pageCursor = record.pendingPageCursor
+  record.pendingPageCursor = ''
+  const historyPageRequested = Boolean(pageCursor)
   const checkpointRequested = record.forceCheckpoint
   record.forceCheckpoint = false
   const current = record.snapshot.transcript
   const params = new URLSearchParams({
-    maxTurns: String(record.pageCursor ? ACP_TRANSCRIPT_TURN_PAGE_SIZE : record.snapshot.turnLimit),
+    maxTurns: String(pageCursor ? ACP_TRANSCRIPT_TURN_PAGE_SIZE : record.snapshot.turnLimit),
     media: 'external-v1',
     entryPatches: 'v1',
-    ...(record.pageCursor ? { cursor: record.pageCursor } : {}),
+    ...(pageCursor ? { cursor: pageCursor } : {}),
   })
   if (
     !checkpointRequested
-    && !record.pageCursor
+    && !pageCursor
     && current?.sessionId
     && current.turnLimit === record.snapshot.turnLimit
     && Number.isFinite(current.revision)
@@ -309,6 +343,7 @@ async function loadRecord(record: AcpTranscriptSessionRecord) {
     const response = await Promise.race([expired, fetch(appPath(
       `/api/agents/${encodeURIComponent(record.agentId)}/acp-transcript?${params.toString()}`,
     ), { signal: controller.signal })])
+    if (generation !== record.requestGeneration || readEpoch !== record.readEpoch) return
     responseReceived = true
     if (response.status === 202) {
       updateSnapshot(record, {
@@ -324,11 +359,13 @@ async function loadRecord(record: AcpTranscriptSessionRecord) {
           ACP_TRANSCRIPT_UNSETTLED_RETRY_LADDER_LENGTH,
         )
         record.forceCheckpoint ||= checkpointRequested
+        record.pendingPageCursor ||= pageCursor
         scheduleRecord(record, { delayMs: retryDelay })
       } else {
         // A 202 without any authoritative Turns is a transient state, but it
         // still needs a bounded terminal outcome. Leaving `loading` true after
         // the retry ladder makes the Pane spin forever with no future trigger.
+        record.pendingPageCursor = ''
         record.unsettledRetryAttempt = 0
         record.forceCheckpoint = false
         record.refreshRequested = false
@@ -343,7 +380,7 @@ async function loadRecord(record: AcpTranscriptSessionRecord) {
     }
     if (!response.ok) throw new Error('Transcript unavailable')
     const payload = await Promise.race([expired, response.json()])
-    if (generation !== record.requestGeneration) return
+    if (generation !== record.requestGeneration || readEpoch !== record.readEpoch) return
     record.retryAttempt = 0
     const nextTranscript = projectAcpTranscriptResponse(
       payload,
@@ -367,12 +404,21 @@ async function loadRecord(record: AcpTranscriptSessionRecord) {
       record.latestRuntimeEpoch = nextTranscript.runtimeEpoch || ''
       record.latestRevision = Math.max(record.latestRevision, Number(nextTranscript.revision))
     }
-    const mergeResult = mergeAcpTranscript(record.snapshot.transcript, nextTranscript)
-    if (mergeResult.needsCheckpoint) {
+    if (checkpointRequested && !historyPageRequested && nextTranscript.envelopeVersion === 1 && !nextTranscript.replace) {
       retryRequiredCheckpoint(record)
       return
     }
-    const merged = mergeResult.transcript
+    const mergeResult = mergeAcpTranscript(record.snapshot.transcript, nextTranscript, {
+      replaceHistory: checkpointRequested && !historyPageRequested,
+    })
+    if (mergeResult.needsCheckpoint || (
+      checkpointRequested && !historyPageRequested && !mergeResult.accepted
+      && record.snapshot.transcript?.includesLatest === false
+    )) {
+      retryRequiredCheckpoint(record)
+      return
+    }
+    const merged = preserveCompletedTranscriptTurns(record.snapshot.transcript, mergeResult.transcript)
     if (nextTranscript?.envelopeVersion === 1 && !nextTranscript.settled) {
       const hasAuthoritativeTurns = Boolean(merged?.available && merged.turns.length > 0)
       if (hasAuthoritativeTurns) {
@@ -387,7 +433,7 @@ async function loadRecord(record: AcpTranscriptSessionRecord) {
       }
       const retryDelay = acpTranscriptUnsettledRetryDelayMs(
         record.unsettledRetryAttempt,
-        hasAuthoritativeTurns,
+        false,
       )
       if (retryDelay !== undefined) {
         record.unsettledRetryAttempt = Math.min(
@@ -397,13 +443,19 @@ async function loadRecord(record: AcpTranscriptSessionRecord) {
         scheduleRecord(record, { delayMs: retryDelay })
       } else {
         record.unsettledRetryAttempt = 0
-        const checkpointPending = attachmentCheckpointPending(record)
+        record.refreshRequested = false
         updateSnapshot(record, {
-          loading: checkpointPending,
+          loading: false,
           loadingOlder: false,
-          error: checkpointPending || hasAuthoritativeTurns ? null : 'response',
+          error: 'response',
         })
       }
+      return
+    }
+    if (!historyPageRequested && merged?.includesLatest !== false
+      && Number(merged?.revision) <= Number(current?.revision)
+      && record.latestRevision > Number(merged?.revision)) {
+      retryRequiredCheckpoint(record)
       return
     }
     record.unsettledRetryAttempt = 0
@@ -414,7 +466,9 @@ async function loadRecord(record: AcpTranscriptSessionRecord) {
       error: null,
     })
   } catch (reason) {
-    if (generation !== record.requestGeneration || (!timedOut && (reason as { name?: string })?.name === 'AbortError')) return
+    if (generation !== record.requestGeneration
+      || readEpoch !== record.readEpoch
+      || (!timedOut && (reason as { name?: string })?.name === 'AbortError')) return
     // Transcript reads are read-only. One timed-out checkpoint may be retried
     // after a brief delay while the Host finishes recovery or a large projection.
     const retryDelay = timedOut && record.retryAttempt === 0
@@ -424,19 +478,19 @@ async function loadRecord(record: AcpTranscriptSessionRecord) {
         : undefined
     if (retryDelay !== undefined) {
       record.retryAttempt += 1
+      record.forceCheckpoint ||= checkpointRequested
+      record.pendingPageCursor ||= pageCursor
       scheduleRecord(record, { delayMs: retryDelay })
       return
     }
     record.retryAttempt = 0
+    record.pendingPageCursor = ''
     const hasDisplayableTranscript = currentTranscriptIsDisplayable(record)
-    const checkpointFailure = checkpointRequested || attachmentCheckpointPending(record)
     updateSnapshot(record, {
       transcript: hasDisplayableTranscript ? record.snapshot.transcript : null,
       loading: false,
       loadingOlder: false,
-      error: hasDisplayableTranscript && !checkpointFailure && !timedOut
-        ? null
-        : (responseReceived && !timedOut ? 'response' : 'transport'),
+      error: responseReceived && !timedOut ? 'response' : 'transport',
     })
   } finally {
     clearTimeout(deadline)
@@ -446,11 +500,27 @@ async function loadRecord(record: AcpTranscriptSessionRecord) {
       const revision = Number(record.snapshot.transcript?.revision)
       const currentTranscriptMatchesIdentity = transcriptIdentityIsCurrent(record)
       if (
+        historyPageRequested
+        && record.snapshot.transcript?.includesLatest !== false
+        && record.snapshot.error !== null
+        && currentTranscriptMatchesIdentity
+        && Number.isInteger(record.latestRevision)
+        && record.latestRevision > revision
+      ) {
+        // The page failed after a newer live revision was observed. Retry the
+        // latest view once; another failure remains terminal and visible.
+        record.forceCheckpoint = true
+      }
+      if (record.snapshot.transcript?.includesLatest === false && !record.forceCheckpoint && !record.pendingPageCursor) {
+        record.refreshRequested = false
+      }
+      if (
         record.refreshRequested
         || record.forceCheckpoint
         || (
           record.snapshot.error === null
-          && !record.pageCursor
+          && record.snapshot.transcript?.includesLatest !== false
+          && !record.pendingPageCursor
           && currentTranscriptMatchesIdentity
           && Number.isInteger(record.latestRevision)
           && record.latestRevision > revision
@@ -512,7 +582,7 @@ export function observeAcpTranscriptRevision(
   if (identityChanged || (!currentIdentityMatches && !initialCheckpointInFlight)) {
     record.forceCheckpoint = true
     if (identityChanged) {
-      record.pageCursor = ''
+      record.pendingPageCursor = ''
       updateSnapshot(record, {
         transcript: null,
         loading: record.attachments > 0,
@@ -525,7 +595,7 @@ export function observeAcpTranscriptRevision(
     scheduleRecord(record, { immediate: true })
     return
   }
-  if (record.pageCursor) return
+  if (current?.includesLatest === false) return
   const currentRevision = Number(record.snapshot.transcript?.revision)
   if (!Number.isInteger(currentRevision) || session.revision > currentRevision) {
     scheduleRecord(record)
@@ -545,11 +615,17 @@ export function attachAcpTranscriptSession(agentId: string) {
   record.attachments += 1
   if (canReuseRetainedTranscript) {
     updateSnapshot(record, { loading: false, loadingOlder: false, error: null })
+    if (current?.includesLatest === false) return releaseAttachment(record)
     if (
       !record.inFlight
       && Number.isInteger(record.latestRevision)
       && record.latestRevision > Number(current?.revision)
     ) {
+      scheduleRecord(record, { immediate: true })
+    } else if (current?.turns[current.turns.length - 1]?.status === 'inProgress') {
+      // A completion revision can be missed while this Chat is detached.
+      // Revalidate an unfinished Turn before keeping its running state visible.
+      record.forceCheckpoint = true
       scheduleRecord(record, { immediate: true })
     }
   } else {
@@ -557,6 +633,10 @@ export function attachAcpTranscriptSession(agentId: string) {
     updateSnapshot(record, { loading: true, loadingOlder: false, error: null })
     scheduleRecord(record, { immediate: true })
   }
+  return releaseAttachment(record)
+}
+
+function releaseAttachment(record: AcpTranscriptSessionRecord) {
   let released = false
   return () => {
     if (released) return
@@ -578,8 +658,11 @@ export function getAcpTranscriptSessionSnapshot(agentId: string) {
 
 export function refreshAcpTranscriptSession(agentId: string, checkpoint = false) {
   const record = recordFor(agentId)
+  if (!checkpoint && record.snapshot.transcript?.includesLatest === false) return
   record.forceCheckpoint ||= checkpoint
   if (checkpoint) {
+    invalidateRead(record)
+    record.pendingPageCursor = ''
     // Explicit retry is a new bounded read attempt. Clear the previous
     // terminal presentation immediately, and do not inherit an exhausted
     // retry ladder from the failed attempt.
@@ -594,7 +677,8 @@ export function refreshAcpTranscriptSession(agentId: string, checkpoint = false)
 
 export function returnToLatestAcpTranscript(agentId: string) {
   const record = recordFor(agentId)
-  record.pageCursor = ''
+  invalidateRead(record)
+  record.pendingPageCursor = ''
   record.forceCheckpoint = true
   updateSnapshot(record, { turnLimit: INITIAL_ACP_TRANSCRIPT_TURN_LIMIT, loading: true, loadingOlder: false })
   scheduleRecord(record, { immediate: true })
@@ -608,6 +692,16 @@ export function discardAcpTranscriptSession(agentId: string) {
 export function reconnectAcpTranscriptSessions() {
   for (const record of records.values()) {
     if (!record.retained && record.attachments === 0) continue
+    invalidateRead(record)
+    record.pendingPageCursor = ''
+    if (record.snapshot.transcript?.includesLatest === false) {
+      // Keep the historical reading position. Agent control state reconnects
+      // independently; explicit Return to latest obtains a fresh body snapshot.
+      record.forceCheckpoint = false
+      record.refreshRequested = false
+      updateSnapshot(record, { loading: false, loadingOlder: false })
+      continue
+    }
     record.latestSessionId = ''
     record.latestRuntimeEpoch = ''
     record.latestRevision = -1
@@ -626,8 +720,9 @@ export function setAcpTranscriptTurnLimit(agentId: string, turnLimit: number) {
     Math.min(MAX_ACP_TRANSCRIPT_TURN_LIMIT, Math.floor(turnLimit)),
   )
   if (normalized === record.snapshot.turnLimit) return
+  invalidateRead(record)
   if (normalized > record.snapshot.turnLimit && record.snapshot.transcript?.entrySnapshot && record.snapshot.transcript.nextCursor) {
-    record.pageCursor = record.snapshot.transcript.nextCursor
+    record.pendingPageCursor = record.snapshot.transcript.nextCursor
   }
   record.forceCheckpoint = true
   updateSnapshot(record, { turnLimit: normalized, loadingOlder: true, error: null })

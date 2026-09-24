@@ -14,11 +14,11 @@ npm install --global farming-code@latest
 farming daemon
 ```
 
-Without system Node.js, or on a supported older Linux host, use the user-directory installer:
+Without system Node.js, or on a supported older Linux host, install into a directory you choose:
 
 ```bash
-curl -fsSL https://zhuwenzhuang.github.io/farming/install.sh | bash
-~/.local/bin/farming daemon
+curl -fsSL https://zhuwenzhuang.github.io/farming/install.sh | FARMING_INSTALL_ROOT="$HOME/farming" bash
+"$HOME/farming/farming" daemon
 ```
 
 Open an authenticated URL printed by the daemon and choose **New Agent**.

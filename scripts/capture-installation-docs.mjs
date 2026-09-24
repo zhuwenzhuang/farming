@@ -33,7 +33,7 @@ try {
             const command = page.locator('.home-install-command');
             const expected = method === 'npm'
               ? 'npm install --global farming-code@latest\nfarming daemon'
-              : 'curl -fsSL https://zhuwenzhuang.github.io/farming/install.sh | bash\n~/.local/bin/farming daemon';
+              : 'curl -fsSL https://zhuwenzhuang.github.io/farming/install.sh | FARMING_INSTALL_ROOT="$HOME/farming" bash\n"$HOME/farming/farming" daemon';
             assert.equal(await command.locator('code').textContent(), expected);
             const panel = page.locator('.home-install-panel');
             const box = await panel.boundingBox();

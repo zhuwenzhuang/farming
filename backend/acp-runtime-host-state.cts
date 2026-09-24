@@ -28,7 +28,6 @@ interface PromptOperation extends Record<string, unknown> {
   error: string;
   errorEvidence: Record<string, unknown>;
   result: unknown;
-  previousState: string;
   status: 'admitting' | 'provider-owned' | 'settled' | 'failed';
   turnHandle: string;
   turnSequence: number;
@@ -398,7 +397,6 @@ class AcpRuntimeHostState extends EventEmitter {
       status: 'admitting',
       turnHandle: '',
       turnSequence: 0,
-      previousState: '',
       result: null,
       error: '',
       errorEvidence: {},
@@ -409,13 +407,11 @@ class AcpRuntimeHostState extends EventEmitter {
 
     let execution: Promise<unknown>;
     try {
-      const onTurnAdmitted = (admission?: { previousState?: string }) => {
+      const onTurnAdmitted = () => {
         if (operation.status !== 'admitting' || operation.kind !== 'pending') return;
         operation.kind = 'turn';
         operation.turnHandle = this.nextTurnHandle(binding);
         operation.turnSequence = this.turnSequences.get(binding.agentId) || 0;
-        operation.previousState = String(admission?.previousState || binding.state || 'idle');
-        binding.state = 'working';
         binding.turnHandle = operation.turnHandle;
         operation.updatedAt = Date.now();
         this.publish('prompt-operation', operation);
@@ -443,17 +439,15 @@ class AcpRuntimeHostState extends EventEmitter {
       if (operation.kind === 'turn') {
         if (providerOwned) {
           if (operation.turnSequence > Number(binding.lastSettledTurnSequence || 0)) {
-            binding.stopReason = 'error';
+            binding.lastSettledTurnStopReason = 'error';
             binding.lastSettledTurnHandle = operation.turnHandle;
             binding.lastSettledTurnSequence = operation.turnSequence;
             binding.lastSettledTurnSummary = '';
           }
           if (binding.turnHandle === operation.turnHandle) {
-            binding.state = 'error';
             delete binding.turnHandle;
           }
         } else if (binding.turnHandle === operation.turnHandle) {
-          binding.state = operation.previousState || 'idle';
           delete binding.turnHandle;
         }
         this.publish('binding', binding);
@@ -476,7 +470,7 @@ class AcpRuntimeHostState extends EventEmitter {
         && binding.bindingEpoch === operation.bindingEpoch
       ) {
         if (operation.turnSequence > Number(binding.lastSettledTurnSequence || 0)) {
-          binding.stopReason = String(
+          binding.lastSettledTurnStopReason = String(
             envelope?.stopReason
             || (settledResult && typeof settledResult === 'object'
               ? (settledResult as Record<string, unknown>).stopReason
@@ -488,7 +482,6 @@ class AcpRuntimeHostState extends EventEmitter {
           binding.lastSettledTurnSummary = String(envelope?.turnSummary || '');
         }
         if (binding.turnHandle === operation.turnHandle) {
-          binding.state = 'idle';
           delete binding.turnHandle;
         }
         this.publish('binding', binding);
@@ -509,17 +502,15 @@ class AcpRuntimeHostState extends EventEmitter {
       ) {
         if (providerOwned) {
           if (operation.turnSequence > Number(binding.lastSettledTurnSequence || 0)) {
-            binding.stopReason = 'error';
+            binding.lastSettledTurnStopReason = 'error';
             binding.lastSettledTurnHandle = operation.turnHandle;
             binding.lastSettledTurnSequence = operation.turnSequence;
             binding.lastSettledTurnSummary = '';
           }
           if (binding.turnHandle === operation.turnHandle) {
-            binding.state = 'error';
             delete binding.turnHandle;
           }
         } else if (binding.turnHandle === operation.turnHandle) {
-          binding.state = operation.previousState || 'idle';
           delete binding.turnHandle;
         }
         this.publish('binding', binding);
@@ -569,7 +560,6 @@ class AcpRuntimeHostState extends EventEmitter {
       updatedAt: Date.now(),
     };
     this.cancelOperations.set(key, operation);
-    binding.state = 'interrupting';
     this.publish('cancel-operation', operation);
     this.publish('binding', binding);
     let execution;
@@ -606,7 +596,6 @@ class AcpRuntimeHostState extends EventEmitter {
         && binding.bindingEpoch === operation.bindingEpoch
         && binding.turnHandle === operation.turnHandle
       ) {
-        binding.state = admittingPrompt.previousState || 'idle';
         delete binding.turnHandle;
         this.publish('binding', binding);
       }

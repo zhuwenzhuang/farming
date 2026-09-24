@@ -22,7 +22,7 @@ On the same Mac or Linux host running Farming, the target coding Agent CLI start
 
 ## Install and open Farming
 
-Choose **npm install** if Node.js 22.13+ (22.x) or 24+ is already available and npm's bin directory is in PATH. Otherwise, use **Directory install** for a private Node.js runtime, including compatibility for supported older Linux hosts. See [installation requirements](./installation).
+Choose **npm install** if Node.js 22.13+ (22.x) or 24+ is already available and npm's bin directory is in PATH. Otherwise, use **Directory install** to put Farming and its private Node.js runtime in a directory you choose, including compatibility for supported older Linux hosts. See [installation requirements](./installation).
 
 ::: code-group
 
@@ -32,13 +32,13 @@ farming daemon
 ```
 
 ```bash [Directory install]
-curl -fsSL https://zhuwenzhuang.github.io/farming/install.sh | bash
-~/.local/bin/farming daemon
+curl -fsSL https://zhuwenzhuang.github.io/farming/install.sh | FARMING_INSTALL_ROOT="$HOME/farming" bash
+"$HOME/farming/farming" daemon
 ```
 
 :::
 
-Both methods install first; the second command starts Farming in the background and prints authenticated URLs. On the same machine, open the local address. The user-directory command uses the full CLI path so it works without modifying PATH.
+Both methods install first; the second command starts Farming in the background and prints authenticated URLs. On the same machine, open the local address. The directory example runs the CLI from the chosen installation directory without modifying PATH.
 
 ::: warning Protect authenticated URLs
 The Token in an authenticated URL grants access to Farming. Do not put it in public logs, screenshots, issues, or chat messages.

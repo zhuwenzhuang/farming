@@ -127,6 +127,7 @@ export interface AgentTranscriptTurn {
 export interface AgentTranscript {
   entrySnapshot?: { session: Record<string, unknown>; entries: Record<string, unknown>[]; order: string[] }
   historyPage?: boolean
+  includesLatest?: boolean
   canCancel?: boolean
   forkOrigin?: {
     sourceSessionId: string
@@ -743,7 +744,7 @@ function finishTurn(turn: MutableTurn | null, keepTailAsProgress: boolean): Agen
   } else if (turn.processItems.length > 0) {
     turn.status = 'missingFinalReply'
   }
-  if (!hasFinalAssistantResult(turn) && ['cancelled', 'canceled', 'stopped', 'error', 'failed', 'cancel_error'].includes(turn.stopReason || '')) turn.status = 'interrupted'
+  if (['cancelled', 'canceled', 'stopped', 'error', 'failed', 'cancel_error'].includes(turn.stopReason || '')) turn.status = 'interrupted'
   const { internal, assistantMessages: _assistantMessages, ...finished } = turn
   if (internal) finished.processItems = []
   return finished.userMessage || finished.finalMessage || finished.userImages.length > 0
@@ -770,7 +771,8 @@ export function projectAcpTranscript(sessionValue: unknown, options: { maxTurns?
   const turns: AgentTranscriptTurn[] = []
   let current: MutableTurn | null = null
   let sequence = 0
-  const activeSession = ['working', 'waiting-for-permission', 'waiting-for-input', 'interrupting'].includes(stringValue(session.state))
+  const includesLatest = session.includesLatest !== false && !record(session.entryPatch).pageCursor
+  const activeSession = includesLatest && ['working', 'waiting-for-permission', 'waiting-for-input', 'interrupting'].includes(stringValue(session.state))
   const flush = (keepTailAsProgress = false) => {
     const finished = finishTurn(current, keepTailAsProgress)
     if (finished) turns.push(finished)
@@ -869,17 +871,18 @@ export function projectAcpTranscript(sessionValue: unknown, options: { maxTurns?
   flush(activeSession)
 
   const lastTurn: AgentTranscriptTurn | undefined = turns[turns.length - 1]
+  if (lastTurn && !includesLatest && lastTurn.status === 'missingFinalReply') {
+    lastTurn.status = 'partial'
+  }
   if (lastTurn && activeSession) {
     lastTurn.status = 'inProgress'
-  } else if (lastTurn && hasFinalAssistantResult(lastTurn)) {
-    lastTurn.status = 'completed'
-  } else if (lastTurn && ['cancelled', 'canceled', 'max_tokens', 'max_turn_requests', 'refusal', 'error', 'failed', 'stopped', 'cancel_error']
+  } else if (lastTurn && includesLatest && ['cancelled', 'canceled', 'max_tokens', 'max_turn_requests', 'refusal', 'error', 'failed', 'stopped', 'cancel_error']
     .includes(stringValue(session.stopReason).toLowerCase())) {
     lastTurn.status = 'interrupted'
   }
   // Result presence and stream termination are separate facts: a final-answer
   // message can still be cut off by cancellation or a provider limit.
-  if (lastTurn && !activeSession) lastTurn.stopReason = lastTurn.stopReason || stringValue(session.stopReason)
+  if (lastTurn && includesLatest && !activeSession) lastTurn.stopReason = lastTurn.stopReason || stringValue(session.stopReason)
   const maxTurns = Number.isFinite(Number(options.maxTurns)) ? Math.max(1, Math.floor(Number(options.maxTurns))) : 80
   const visibleTurns = turns.slice(-maxTurns)
   const forkOrigin = record(session.forkOrigin)
@@ -902,6 +905,7 @@ export function projectAcpTranscript(sessionValue: unknown, options: { maxTurns?
     : undefined
   return {
     version: 2,
+    includesLatest,
     forkOrigin: typeof forkOrigin.sourceSessionId === 'string' && forkOrigin.sourceSessionId
       ? {
           sourceSessionId: forkOrigin.sourceSessionId,

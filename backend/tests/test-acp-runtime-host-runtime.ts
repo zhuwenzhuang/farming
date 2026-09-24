@@ -79,11 +79,18 @@ class FakeRuntime extends EventEmitter {
     };
   }
 
-  submitMessage(_agentId, _prompt, options: { onSubmitted?: () => void } = {}) {
+  submitMessage(agentId, _prompt, options: { onSubmitted?: () => void } = {}) {
     this.promptCalls += 1;
+    const session = this.sessions.get(agentId);
+    session.state = 'working';
+    this.emit('agent-runtime', session);
     options.onSubmitted?.();
     return new Promise(resolve => {
-      this.promptCompletion = resolve;
+      this.promptCompletion = result => {
+        session.state = 'idle';
+        this.emit('agent-runtime', session);
+        resolve(result);
+      };
     });
   }
 

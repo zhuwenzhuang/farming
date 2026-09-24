@@ -4,12 +4,47 @@ import {
   type AgentTranscriptTurn,
 } from './acp-entry-projection'
 
+export const MAX_LOADED_ACP_ENTRIES = 2048
+
 type DataRecord = Record<string, unknown>
 
 function record(value: unknown): DataRecord {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? value as DataRecord
     : {}
+}
+
+function transcriptTurnStart(entry: DataRecord): boolean {
+  if (entry.type !== 'message' || entry.role !== 'user' || entry.internalScope === 'entry') return false
+  const meta = record(entry._meta)
+  return record(meta.farming).steer !== true && record(meta.codex).steer !== true
+}
+
+function boundedEntryOrder(
+  order: string[],
+  entries: Map<string, DataRecord>,
+  turnLimit: number,
+) {
+  let remaining = Math.max(1, Math.floor(turnLimit))
+  for (let index = order.length - 1; index > 0; index -= 1) {
+    if (!transcriptTurnStart(entries.get(order[index]!) || {})) continue
+    remaining -= 1
+    if (remaining === 0) {
+      order = order.slice(index)
+      break
+    }
+  }
+  if (order.length <= MAX_LOADED_ACP_ENTRIES) return order
+  const suffix = order.slice(-(MAX_LOADED_ACP_ENTRIES - 1))
+  const anchor = order.slice(0, order.length - suffix.length).reverse()
+    .find(id => transcriptTurnStart(entries.get(id) || {}))
+  return anchor ? [anchor, ...suffix] : order.slice(-MAX_LOADED_ACP_ENTRIES)
+}
+
+function coveredStart(transcript: AgentTranscript): string | null {
+  const patch = record(transcript.entrySnapshot?.session.entryPatch)
+  return typeof patch.startId === 'string' ? patch.startId
+    : transcript.nextCursor || transcript.entrySnapshot?.order[0] || null
 }
 
 function projectedValueUnchanged(current: unknown, next: unknown): boolean {
@@ -156,6 +191,15 @@ export function projectAcpTranscriptResponse(
     ? { session: transcriptValue, entries: (Array.isArray(transcriptValue.entries) ? transcriptValue.entries : []).map(record), order: patch.order as string[] }
     : undefined
   if (transcriptValue.entryPatch && !entrySnapshot) throw new Error('Invalid ACP entry patch')
+  if (entrySnapshot) {
+    const ids = entrySnapshot.entries.map(entry => String(entry.id || ''))
+    const order = new Set(entrySnapshot.order)
+    if (new Set(ids).size !== ids.length || ids.some(id => !id || !order.has(id))
+      || (replace && ids.length !== order.size)
+      || (typeof patch.startId === 'string' && !order.has(patch.startId))) {
+      throw new Error('Invalid ACP entry coverage')
+    }
+  }
   return {
     ...projectAcpTranscript(transcriptValue, options),
     ...(entrySnapshot ? { entrySnapshot, historyPage: typeof patch.pageCursor === 'string' } : {}),
@@ -188,30 +232,38 @@ function mergeAcpTranscriptHistoryPage(
     return preserveCompletedTranscriptTurns(current, {
       ...current,
       ...next,
-      revision: Math.max(Number(current.revision), Number(next.revision)),
+      // An older page does not contain the latest Turn, even if the backend
+      // reached a newer revision before producing this page.
+      revision: current.revision,
       turns: [...turns.values()].slice(-turnLimit),
     })!
   }
 
   const entries = new Map(next.entrySnapshot.entries.map(entry => [String(entry.id), entry]))
   current.entrySnapshot.entries.forEach(entry => entries.set(String(entry.id), entry))
-  const order = [...new Set([
+  const mergedOrder = [...new Set([
     ...next.entrySnapshot.order,
     ...current.entrySnapshot.order,
   ])]
+  // Older reads grow towards the past. At capacity evict the newest content
+  // and stop claiming that this contiguous window contains the live tail.
+  const order = mergedOrder.slice(0, MAX_LOADED_ACP_ENTRIES)
+  const includesLatest = current.includesLatest !== false && order.length === mergedOrder.length
   const ordered = order.map(id => entries.get(id)).filter((entry): entry is DataRecord => Boolean(entry))
   const nextSession = next.entrySnapshot.session
   const currentSession = current.entrySnapshot.session
-  const revision = Math.max(Number(current.revision), Number(next.revision))
+  const revision = Number(current.revision)
   const session = {
     ...nextSession,
     ...currentSession,
     revision,
+    includesLatest,
     entries: ordered,
     nextCursor: nextSession.nextCursor,
     hasMoreBefore: nextSession.hasMoreBefore,
     entryPatch: {
       ...record(nextSession.entryPatch),
+      pageCursor: null,
       order,
     },
   }
@@ -229,6 +281,7 @@ function mergeAcpTranscriptHistoryPage(
 export function mergeAcpTranscript(
   current: AgentTranscript | null,
   next: AgentTranscript | null,
+  options: { replaceHistory?: boolean } = {},
 ): AcpTranscriptMergeResult {
   if (next?.envelopeVersion !== 1) {
     return {
@@ -236,6 +289,10 @@ export function mergeAcpTranscript(
       accepted: true,
       needsCheckpoint: false,
     }
+  }
+
+  if (current?.includesLatest === false && !next.historyPage && !options.replaceHistory) {
+    return { transcript: current, accepted: false, needsCheckpoint: false }
   }
 
   if (next.replace) {
@@ -246,6 +303,10 @@ export function mergeAcpTranscript(
       && current.sessionId === next.sessionId
       && current.runtimeEpoch === next.runtimeEpoch
     ) {
+      const cursor = record(next.entrySnapshot?.session.entryPatch).pageCursor
+      if (cursor !== current.nextCursor || Number(next.revision) < Number(current.revision)) {
+        return { transcript: current, accepted: false, needsCheckpoint: true }
+      }
       return {
         transcript: mergeAcpTranscriptHistoryPage(current, next),
         accepted: true,
@@ -280,15 +341,47 @@ export function mergeAcpTranscript(
 
   if (next.entrySnapshot) {
     if (!current.entrySnapshot) return { transcript: current, accepted: false, needsCheckpoint: true }
+    const currentOrder = current.entrySnapshot.order
+    const windowOrder = next.entrySnapshot.order
+    const windowStartId = coveredStart(next)
+    let retainedPrefix: string[] = []
+    if (windowStartId && next.hasMoreBefore) {
+      const currentStart = currentOrder.indexOf(windowStartId)
+      const windowStart = windowOrder.indexOf(windowStartId)
+      if (currentStart < 0 || windowStart < 0) {
+        return { transcript: current, accepted: false, needsCheckpoint: true }
+      }
+      retainedPrefix = currentOrder.slice(0, currentStart)
+      const prefixIds = new Set(retainedPrefix)
+      // The backend may include the owning prompt before its bounded window.
+      // It must already be part of the loaded prefix to preserve its position.
+      if (windowOrder.slice(0, windowStart).some(id => !prefixIds.has(id))) {
+        return { transcript: current, accepted: false, needsCheckpoint: true }
+      }
+    }
     const entries = new Map(current.entrySnapshot.entries.map(entry => [String(entry.id), entry]))
     next.entrySnapshot.entries.forEach(entry => entries.set(String(entry.id), entry))
-    if (next.entrySnapshot.order.some(id => !entries.has(id))) return { transcript: current, accepted: false, needsCheckpoint: true }
-    const ordered = next.entrySnapshot.order.map(id => entries.get(id)!)
-    const session = { ...next.entrySnapshot.session, entries: ordered }
+    const retainedIds = new Set(retainedPrefix)
+    const order = [...retainedPrefix, ...windowOrder.filter(id => !retainedIds.has(id))]
+    if (order.some(id => !entries.has(id))) return { transcript: current, accepted: false, needsCheckpoint: true }
+    const boundedOrder = boundedEntryOrder(order, entries, next.turnLimit || current.turnLimit || 80)
+    const trimmed = boundedOrder.length < order.length
+    const contiguousStart = trimmed && boundedOrder.length > 1
+      && order.indexOf(boundedOrder[1]!) > order.indexOf(boundedOrder[0]!) + 1
+      ? boundedOrder[1] : boundedOrder[0]
+    const ordered = boundedOrder.map(id => entries.get(id)!)
+    const session = {
+      ...next.entrySnapshot.session,
+      entries: ordered,
+      nextCursor: trimmed ? contiguousStart : retainedPrefix.length > 0 ? current.nextCursor : next.nextCursor,
+      hasMoreBefore: trimmed || (retainedPrefix.length > 0 ? current.hasMoreBefore : next.hasMoreBefore),
+      entryPatch: { ...record(next.entrySnapshot.session.entryPatch), order: boundedOrder,
+        startId: trimmed ? contiguousStart : retainedPrefix.length > 0 ? coveredStart(current) : coveredStart(next) },
+    }
     const projected = projectAcpTranscript(session, { maxTurns: next.turnLimit })
     return {
       transcript: preserveCompletedTranscriptTurns(current, { ...next, ...projected,
-        entrySnapshot: { ...next.entrySnapshot, session, entries: ordered } }),
+        entrySnapshot: { session, entries: ordered, order: boundedOrder } }),
       accepted: true, needsCheckpoint: false,
     }
   }

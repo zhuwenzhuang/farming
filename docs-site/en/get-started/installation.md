@@ -20,20 +20,20 @@ This method uses your existing Node.js and npm configuration; it does not config
 
 ## Directory installation
 
-The installer provides private Node.js and npm. This is a separate application directory, not a project-local `npm install`.
+The installer provides private Node.js and npm. This is a separate application directory, not a project-local `npm install`. This example chooses `$HOME/farming`:
 
 ```bash
-curl -fsSL https://zhuwenzhuang.github.io/farming/install.sh | bash
+curl -fsSL https://zhuwenzhuang.github.io/farming/install.sh | FARMING_INSTALL_ROOT="$HOME/farming" bash
 ```
 
 No sudo or system Node.js is required. The installer only installs; repeating it preserves the existing installation without starting or restarting Farming. Update it through Settings.
 
-The default program directory is `~/.local/share/farming/app` (`XDG_DATA_HOME` is respected). The command is `~/.local/bin/farming`; add `~/.local/bin` to `PATH` to use the shorter `farming` command. The full CLI path below works without changing PATH.
+The example's program and launcher are at `$HOME/farming` and `$HOME/farming/farming`. Without `FARMING_INSTALL_ROOT`, the default program directory is `~/.local/share/farming/app` (`XDG_DATA_HOME` is respected). The installer also creates a command link at `~/.local/bin/farming` by default; it points to the chosen program directory and is optional for the commands shown here.
 
 Use your preferred npm registry:
 
 ```bash
-curl -fsSL https://zhuwenzhuang.github.io/farming/install.sh | FARMING_NPM_REGISTRY=https://registry.npmjs.org bash
+curl -fsSL https://zhuwenzhuang.github.io/farming/install.sh | FARMING_INSTALL_ROOT="$HOME/farming" FARMING_NPM_REGISTRY=https://registry.npmjs.org bash
 ```
 
 Existing npm registry configuration is used when available. The selected registry is saved for later launches and updates. `FARMING_VERSION` selects an exact release; `FARMING_INSTALL_ROOT` and `FARMING_BIN_DIR` select absolute installation paths. For a custom bin directory, use the CLI startup command printed by the installer.
@@ -43,7 +43,7 @@ The npm download cache and retained update versions stay inside the installation
 ## Start the background service
 
 ```bash
-~/.local/bin/farming daemon
+"$HOME/farming/farming" daemon
 ```
 
 Open an authenticated URL printed by the CLI. Farming normally uses its own configuration directory and port. Pass `--config-dir`, `--port`, or `--base-path` only when isolating instances or resolving a port conflict.
@@ -68,10 +68,10 @@ npm uninstall --global farming-code
 For a user-directory installation, stop the service first:
 
 ```bash
-~/.local/bin/farming stop
+"$HOME/farming/farming" stop
 ```
 
-After stopping every Config using this installation, remove its program directory and the `~/.local/bin/farming` symlink. This also removes its private npm cache and retained update versions. Configuration and history under `~/.farming` remain separate.
+After stopping every Config using this installation, remove the chosen program directory and its `~/.local/bin/farming` link. This also removes its private npm cache and retained update versions. Configuration and history under `~/.farming` remain separate.
 
 ## Platforms
 

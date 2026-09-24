@@ -186,11 +186,17 @@ async function main() {
 
   service.disconnectController(first);
   await service.registerController(second);
+  for (const state of ['waiting-for-permission', 'waiting-for-input', 'error']) {
+    runtime.sessions.get('agent-1').state = state;
+    runtime.emit('agent-runtime', { agentId: 'agent-1' });
+    assert.strictEqual(service.state.binding('agent-1').state, state);
+    assert.strictEqual(service.state.binding('agent-1').turnHandle, 'binding-1:1');
+  }
   runtime.emitIdleBeforePromptSettlement('agent-1');
   assert.strictEqual(
     service.state.binding('agent-1').state,
-    'working',
-    'an early runtime idle event must not release Host Turn admission before settlement',
+    'idle',
+    'Runtime owns lifecycle even while Host retains unsettled request ownership',
   );
   const successor = service.submitPrompt(second, {
     agentId: 'agent-1',
@@ -266,7 +272,7 @@ async function main() {
   assert.strictEqual((await latePredecessor).stopReason, 'max_tokens');
   const lateBinding = service.state.binding('agent-late-predecessor');
   assert.strictEqual(lateBinding.state, 'idle');
-  assert.strictEqual(lateBinding.stopReason, 'end_turn');
+  assert.strictEqual(lateBinding.lastSettledTurnStopReason, 'end_turn');
   assert.strictEqual(lateBinding.lastSettledTurnHandle, 'binding-late:2');
   assert.strictEqual(lateBinding.lastSettledTurnSummary, 'Successor exact answer');
 
@@ -297,7 +303,7 @@ async function main() {
   await assert.rejects(lateFailure, /late provider failure/);
   const lateErrorBinding = service.state.binding('agent-late-error');
   assert.strictEqual(lateErrorBinding.state, 'idle');
-  assert.strictEqual(lateErrorBinding.stopReason, 'end_turn');
+  assert.strictEqual(lateErrorBinding.lastSettledTurnStopReason, 'end_turn');
   assert.strictEqual(lateErrorBinding.lastSettledTurnHandle, 'binding-late-error:2');
   assert.strictEqual(lateErrorBinding.lastSettledTurnSummary, 'New success answer');
 

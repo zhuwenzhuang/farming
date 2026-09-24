@@ -59,6 +59,13 @@ function run() {
     isAgentDynamicallyPinned,
   } = importTsModule('src/lib/dynamic-pinning.ts');
 
+  for (const status of ['failed', 'interrupted']) {
+    const row = buildAgentRowDisplayState({ kind: 'agent', agent: agent({
+      agentRuntimeMode: 'acp', chatTurn: { turnId: 'empty-error', status, message: '', updatedAt: 1 },
+    }) }, 100_000);
+    assert.ok(row.failureMessage, 'failure identity must not depend on optional provider prose');
+  }
+
   const now = 100_000 + 2 * 24 * 60 * 60 * 1000;
   for (const status of ['active', 'cancelling', 'completed', 'cancelled', 'failed', 'interrupted']) {
     const chatTurn = { turnId: 'epoch:1', status, message: 'Provider request failed', updatedAt: now };

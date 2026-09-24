@@ -21,6 +21,7 @@ function envelope(
     answer?: string
     runtimeEpoch?: string
     sessionId?: string
+    state?: string
   } = {},
 ) {
   const replace = options.fromRevision === undefined
@@ -39,7 +40,7 @@ function envelope(
     transcript: {
       sessionId,
       revision,
-      state: 'idle',
+      state: options.state ?? 'idle',
       updatedAt: `2026-08-19T00:00:0${revision}.000Z`,
       entries: [
         { id: 'user-1', type: 'message', role: 'user', content: [{ type: 'text', text: 'question' }] },
@@ -58,7 +59,7 @@ function envelope(
 function pagedEnvelope(
   agentId: string,
   turns: number[],
-  options: { pageCursor?: string; nextCursor: string | null; hasMoreBefore: boolean },
+  options: { pageCursor?: string; nextCursor: string | null; hasMoreBefore: boolean; state?: string; revision?: number },
 ) {
   const entries = turns.flatMap(turn => [
     { id: `user-${turn}`, type: 'message', role: 'user', content: [{ type: 'text', text: `question-${turn}` }] },
@@ -77,14 +78,14 @@ function pagedEnvelope(
     sessionId,
     runtimeEpoch: `epoch-${agentId}`,
     fromRevision: null,
-    toRevision: 1,
+    toRevision: options.revision ?? 1,
     replace: true,
     settled: true,
     hasMoreBefore: options.hasMoreBefore,
     transcript: {
       sessionId,
-      revision: 1,
-      state: 'idle',
+      revision: options.revision ?? 1,
+      state: options.state ?? 'idle',
       updatedAt: '2026-08-19T00:00:01.000Z',
       entries,
       entryPatch: {
@@ -170,6 +171,33 @@ test('reattach reuses a current retained Transcript without another read', async
   }
 })
 
+test('reattach revalidates an unfinished retained Turn after a missed completion revision', async () => {
+  const previousFetch = globalThis.fetch
+  const urls: string[] = []
+  globalThis.fetch = async input => {
+    urls.push(String(input))
+    return jsonResponse(envelope('agent-missed-completion', 1, {
+      state: urls.length === 1 ? 'working' : 'idle',
+    }))
+  }
+  try {
+    retainAcpTranscriptSessions(['agent-missed-completion'])
+    const firstRelease = attachAcpTranscriptSession('agent-missed-completion')
+    await waitFor(() => getAcpTranscriptSessionSnapshot('agent-missed-completion').transcript?.turns[0]?.status === 'inProgress')
+    firstRelease()
+
+    const secondRelease = attachAcpTranscriptSession('agent-missed-completion')
+    assert.equal(getAcpTranscriptSessionSnapshot('agent-missed-completion').loading, false)
+    await waitFor(() => getAcpTranscriptSessionSnapshot('agent-missed-completion').transcript?.turns[0]?.status === 'completed')
+    assert.equal(urls.length, 2)
+    assert.equal(new URL(urls[1], 'http://localhost').searchParams.has('sinceRevision'), false)
+    secondRelease()
+  } finally {
+    resetAcpTranscriptSessionPoolForTests()
+    globalThis.fetch = previousFetch
+  }
+})
+
 test('an exhausted recovery checkpoint exposes a transport error and can reconnect', async () => {
   const previousFetch = globalThis.fetch
   let attempts = 0
@@ -209,6 +237,49 @@ test('an exhausted recovery checkpoint exposes a transport error and can reconne
   }
 })
 
+test('reconnect discards an in-flight delta from the previous runtime epoch', async () => {
+  const previousFetch = globalThis.fetch
+  const urls: string[] = []
+  let releaseOldDelta!: () => void
+  const oldDeltaGate = new Promise<void>(resolve => { releaseOldDelta = resolve })
+  globalThis.fetch = async input => {
+    urls.push(String(input))
+    if (urls.length === 1) return jsonResponse(envelope('agent-reconnect-epoch', 1, {
+      sessionId: 'session-old', runtimeEpoch: 'epoch-old',
+    }))
+    if (urls.length === 2) {
+      await oldDeltaGate
+      return jsonResponse(envelope('agent-reconnect-epoch', 2, {
+        fromRevision: 1, sessionId: 'session-old', runtimeEpoch: 'epoch-old',
+      }))
+    }
+    return jsonResponse(envelope('agent-reconnect-epoch', 1, {
+      sessionId: 'session-new', runtimeEpoch: 'epoch-new',
+    }))
+  }
+  try {
+    retainAcpTranscriptSessions(['agent-reconnect-epoch'])
+    const release = attachAcpTranscriptSession('agent-reconnect-epoch')
+    await waitFor(() => getAcpTranscriptSessionSnapshot('agent-reconnect-epoch').transcript?.runtimeEpoch === 'epoch-old')
+    observeAcpTranscriptRevision({
+      agentId: 'agent-reconnect-epoch', sessionId: 'session-old',
+      runtimeEpoch: 'epoch-old', revision: 2,
+      updatedAt: '2026-08-19T00:00:02.000Z',
+    })
+    await waitFor(() => urls.length === 2)
+    reconnectAcpTranscriptSessions()
+    releaseOldDelta()
+    await waitFor(() => getAcpTranscriptSessionSnapshot('agent-reconnect-epoch').transcript?.runtimeEpoch === 'epoch-new')
+    assert.equal(urls.length, 3)
+    assert.doesNotMatch(urls[2] ?? '', /sinceRevision=|cursor=/)
+    release()
+  } finally {
+    releaseOldDelta()
+    resetAcpTranscriptSessionPoolForTests()
+    globalThis.fetch = previousFetch
+  }
+})
+
 test('an explicit retry clears a terminal read error and starts a fresh checkpoint', async () => {
   const previousFetch = globalThis.fetch
   const urls: string[] = []
@@ -230,6 +301,35 @@ test('an explicit retry clears a terminal read error and starts a fresh checkpoi
 
     assert.equal(urls.length, 2)
     assert.doesNotMatch(urls[1] ?? '', /sinceRevision=/)
+    release()
+  } finally {
+    resetAcpTranscriptSessionPoolForTests()
+    globalThis.fetch = previousFetch
+  }
+})
+
+test('a failed live delta stops retrying and exposes stale running content', async () => {
+  const previousFetch = globalThis.fetch
+  let reads = 0
+  globalThis.fetch = async () => {
+    reads += 1
+    return reads === 1
+      ? jsonResponse(envelope('agent-delta-failed', 1, { state: 'working' }))
+      : new Response('Unavailable', { status: 503 })
+  }
+  try {
+    retainAcpTranscriptSessions(['agent-delta-failed'])
+    const release = attachAcpTranscriptSession('agent-delta-failed')
+    await waitFor(() => getAcpTranscriptSessionSnapshot('agent-delta-failed').transcript?.revision === 1)
+    observeAcpTranscriptRevision({
+      agentId: 'agent-delta-failed', sessionId: 'session-agent-delta-failed',
+      runtimeEpoch: 'epoch-agent-delta-failed', revision: 2,
+      updatedAt: '2026-08-19T00:00:02.000Z',
+    })
+    await waitFor(() => getAcpTranscriptSessionSnapshot('agent-delta-failed').error === 'response')
+    await new Promise(resolve => setTimeout(resolve, 150))
+    assert.equal(reads, 2)
+    assert.equal(getAcpTranscriptSessionSnapshot('agent-delta-failed').transcript?.turns[0]?.status, 'inProgress')
     release()
   } finally {
     resetAcpTranscriptSessionPoolForTests()
@@ -316,6 +416,178 @@ test('loading older ACP history prepends a fixed page without replacing the late
     assert.equal(snapshot.transcript?.nextCursor, 'user-6')
     release()
   } finally {
+    resetAcpTranscriptSessionPoolForTests()
+    globalThis.fetch = previousFetch
+  }
+})
+
+test('a completed Turn updates live after loading an older history page', async () => {
+  const previousFetch = globalThis.fetch
+  const urls: string[] = []
+  globalThis.fetch = async input => {
+    const url = String(input)
+    urls.push(url)
+    if (urls.length === 1) {
+      return jsonResponse(pagedEnvelope('agent-history-live', [1], {
+        nextCursor: 'user-1', hasMoreBefore: true, state: 'working',
+      }))
+    }
+    if (urls.length === 2) {
+      return jsonResponse(pagedEnvelope('agent-history-live', [0], {
+        pageCursor: 'user-1', nextCursor: null, hasMoreBefore: false, state: 'working',
+      }))
+    }
+    return jsonResponse(envelope('agent-history-live', 2, { fromRevision: 1 }))
+  }
+  try {
+    retainAcpTranscriptSessions(['agent-history-live'])
+    const release = attachAcpTranscriptSession('agent-history-live')
+    await waitFor(() => getAcpTranscriptSessionSnapshot('agent-history-live').transcript?.turns[0]?.status === 'inProgress')
+    setAcpTranscriptTurnLimit('agent-history-live', 15)
+    await waitFor(() => getAcpTranscriptSessionSnapshot('agent-history-live').transcript?.turns.length === 2)
+
+    observeAcpTranscriptRevision({
+      agentId: 'agent-history-live',
+      sessionId: 'session-agent-history-live',
+      runtimeEpoch: 'epoch-agent-history-live',
+      revision: 2,
+      updatedAt: '2026-08-19T00:00:02.000Z',
+    })
+    await waitFor(() => getAcpTranscriptSessionSnapshot('agent-history-live').transcript?.revision === 2)
+    const transcript = getAcpTranscriptSessionSnapshot('agent-history-live').transcript
+    assert.equal(transcript?.state, 'idle')
+    assert.equal(transcript?.turns[transcript.turns.length - 1]?.status, 'completed')
+    assert.equal(urls.length, 3)
+    assert.match(urls[2] ?? '', /sinceRevision=1/)
+    assert.doesNotMatch(urls[2] ?? '', /cursor=/)
+    release()
+  } finally {
+    resetAcpTranscriptSessionPoolForTests()
+    globalThis.fetch = previousFetch
+  }
+})
+
+test('an older page at a newer revision still fetches the latest completed Turn', async () => {
+  const previousFetch = globalThis.fetch
+  const urls: string[] = []
+  globalThis.fetch = async input => {
+    urls.push(String(input))
+    if (urls.length === 1) {
+      return jsonResponse(pagedEnvelope('agent-history-newer', [1], {
+        nextCursor: 'user-1', hasMoreBefore: true, state: 'working',
+      }))
+    }
+    if (urls.length === 2) {
+      return jsonResponse(pagedEnvelope('agent-history-newer', [0], {
+        pageCursor: 'user-1', nextCursor: null, hasMoreBefore: false,
+        state: 'working', revision: 2,
+      }))
+    }
+    return jsonResponse(envelope('agent-history-newer', 2, { fromRevision: 1 }))
+  }
+  try {
+    retainAcpTranscriptSessions(['agent-history-newer'])
+    const release = attachAcpTranscriptSession('agent-history-newer')
+    await waitFor(() => getAcpTranscriptSessionSnapshot('agent-history-newer').transcript?.turns[0]?.status === 'inProgress')
+    setAcpTranscriptTurnLimit('agent-history-newer', 15)
+    await waitFor(() => getAcpTranscriptSessionSnapshot('agent-history-newer').transcript?.revision === 2)
+    const transcript = getAcpTranscriptSessionSnapshot('agent-history-newer').transcript
+    assert.equal(transcript?.state, 'idle')
+    assert.equal(transcript?.turns[transcript.turns.length - 1]?.status, 'completed')
+    assert.equal(urls.length, 3)
+    assert.match(urls[2] ?? '', /sinceRevision=1/)
+    release()
+  } finally {
+    resetAcpTranscriptSessionPoolForTests()
+    globalThis.fetch = previousFetch
+  }
+})
+
+test('a completion revision received during an older page read resumes live updates', async () => {
+  const previousFetch = globalThis.fetch
+  const urls: string[] = []
+  let releaseOlderPage!: () => void
+  const olderPageGate = new Promise<void>(resolve => { releaseOlderPage = resolve })
+  globalThis.fetch = async input => {
+    urls.push(String(input))
+    if (urls.length === 1) {
+      return jsonResponse(pagedEnvelope('agent-history-race', [1], {
+        nextCursor: 'user-1', hasMoreBefore: true, state: 'working',
+      }))
+    }
+    if (urls.length === 2) {
+      await olderPageGate
+      return jsonResponse(pagedEnvelope('agent-history-race', [0], {
+        pageCursor: 'user-1', nextCursor: null, hasMoreBefore: false, state: 'working',
+      }))
+    }
+    return jsonResponse(envelope('agent-history-race', 2, { fromRevision: 1 }))
+  }
+  try {
+    retainAcpTranscriptSessions(['agent-history-race'])
+    const release = attachAcpTranscriptSession('agent-history-race')
+    await waitFor(() => getAcpTranscriptSessionSnapshot('agent-history-race').transcript?.turns[0]?.status === 'inProgress')
+    setAcpTranscriptTurnLimit('agent-history-race', 15)
+    await waitFor(() => urls.length === 2)
+    observeAcpTranscriptRevision({
+      agentId: 'agent-history-race',
+      sessionId: 'session-agent-history-race',
+      runtimeEpoch: 'epoch-agent-history-race',
+      revision: 2,
+      updatedAt: '2026-08-19T00:00:02.000Z',
+    })
+    releaseOlderPage()
+    await waitFor(() => getAcpTranscriptSessionSnapshot('agent-history-race').transcript?.revision === 2)
+    assert.equal(getAcpTranscriptSessionSnapshot('agent-history-race').transcript?.state, 'idle')
+    assert.equal(urls.length, 3)
+    assert.match(urls[2] ?? '', /sinceRevision=1/)
+    release()
+  } finally {
+    releaseOlderPage()
+    resetAcpTranscriptSessionPoolForTests()
+    globalThis.fetch = previousFetch
+  }
+})
+
+test('a failed older page read does not block an already observed completion', async () => {
+  const previousFetch = globalThis.fetch
+  const urls: string[] = []
+  let releaseOlderPage!: () => void
+  const olderPageGate = new Promise<void>(resolve => { releaseOlderPage = resolve })
+  globalThis.fetch = async input => {
+    urls.push(String(input))
+    if (urls.length === 1) {
+      return jsonResponse(pagedEnvelope('agent-history-failed', [1], {
+        nextCursor: 'user-1', hasMoreBefore: true, state: 'working',
+      }))
+    }
+    if (urls.length === 2) {
+      await olderPageGate
+      return new Response('Older page unavailable', { status: 503 })
+    }
+    return jsonResponse(envelope('agent-history-failed', 2))
+  }
+  try {
+    retainAcpTranscriptSessions(['agent-history-failed'])
+    const release = attachAcpTranscriptSession('agent-history-failed')
+    await waitFor(() => getAcpTranscriptSessionSnapshot('agent-history-failed').transcript?.turns[0]?.status === 'inProgress')
+    setAcpTranscriptTurnLimit('agent-history-failed', 15)
+    await waitFor(() => urls.length === 2)
+    observeAcpTranscriptRevision({
+      agentId: 'agent-history-failed',
+      sessionId: 'session-agent-history-failed',
+      runtimeEpoch: 'epoch-agent-history-failed',
+      revision: 2,
+      updatedAt: '2026-08-19T00:00:02.000Z',
+    })
+    releaseOlderPage()
+    await waitFor(() => getAcpTranscriptSessionSnapshot('agent-history-failed').transcript?.revision === 2)
+    assert.equal(getAcpTranscriptSessionSnapshot('agent-history-failed').transcript?.state, 'idle')
+    assert.equal(urls.length, 3)
+    assert.doesNotMatch(urls[2] ?? '', /cursor=|sinceRevision=/)
+    release()
+  } finally {
+    releaseOlderPage()
     resetAcpTranscriptSessionPoolForTests()
     globalThis.fetch = previousFetch
   }
@@ -629,7 +901,6 @@ test('hung transcript reads expire and release foreground capacity', async conte
   try {
     for (const id of ['hung-a', 'hung-b', 'hung-c', 'foreground']) {
       attachAcpTranscriptSession(id)
-      refreshAcpTranscriptSession(id, true)
     }
     assert.equal(requests.length, 3)
     context.mock.timers.tick(ACP_TRANSCRIPT_READ_TIMEOUT_MS)
@@ -650,3 +921,112 @@ test('hung transcript reads expire and release foreground capacity', async conte
     context.mock.timers.reset()
   }
 })
+
+for (const withNewRevision of [false, true]) {
+  test(`older-page failure terminates even when latest read also fails (new revision: ${withNewRevision})`, async () => {
+    const previousFetch = globalThis.fetch
+    const urls: string[] = []
+    let releasePage!: () => void
+    const gate = new Promise<void>(resolve => { releasePage = resolve })
+    globalThis.fetch = async input => {
+      urls.push(String(input))
+      if (urls.length === 1) return jsonResponse(pagedEnvelope('finite-history', [1], {
+        nextCursor: 'user-1', hasMoreBefore: true, state: 'working',
+      }))
+      if (urls.length === 2) await gate
+      return new Response('Unavailable', { status: 503 })
+    }
+    try {
+      const release = attachAcpTranscriptSession('finite-history')
+      await waitFor(() => getAcpTranscriptSessionSnapshot('finite-history').transcript !== null)
+      setAcpTranscriptTurnLimit('finite-history', 15)
+      await waitFor(() => urls.length === 2)
+      if (withNewRevision) observeAcpTranscriptRevision({
+        agentId: 'finite-history', sessionId: 'session-finite-history', runtimeEpoch: 'epoch-finite-history',
+        revision: 2, updatedAt: '',
+      })
+      releasePage()
+      await waitFor(() => getAcpTranscriptSessionSnapshot('finite-history').error === 'response')
+      await new Promise(resolve => setTimeout(resolve, 200))
+      assert.equal(urls.length, withNewRevision ? 3 : 2)
+      assert.equal(getAcpTranscriptSessionSnapshot('finite-history').loading, false)
+      assert.equal(getAcpTranscriptSessionSnapshot('finite-history').loadingOlder, false)
+      release()
+    } finally {
+      releasePage()
+      resetAcpTranscriptSessionPoolForTests()
+      globalThis.fetch = previousFetch
+    }
+  })
+}
+
+test('a live response cannot erase a newer historical navigation request', async () => {
+  const previousFetch = globalThis.fetch
+  const urls: string[] = []
+  let releaseDelta!: () => void
+  const gate = new Promise<void>(resolve => { releaseDelta = resolve })
+  globalThis.fetch = async input => {
+    urls.push(String(input))
+    if (urls.length === 1) return jsonResponse(pagedEnvelope('navigation', [1], {
+      nextCursor: 'user-1', hasMoreBefore: true,
+    }))
+    if (urls.length === 2) {
+      await gate
+      return jsonResponse(envelope('navigation', 2, { fromRevision: 1 }))
+    }
+    return jsonResponse(pagedEnvelope('navigation', [0], {
+      pageCursor: 'user-1', nextCursor: null, hasMoreBefore: false,
+    }))
+  }
+  try {
+    const release = attachAcpTranscriptSession('navigation')
+    await waitFor(() => getAcpTranscriptSessionSnapshot('navigation').transcript !== null)
+    refreshAcpTranscriptSession('navigation')
+    await waitFor(() => urls.length === 2)
+    setAcpTranscriptTurnLimit('navigation', 15)
+    releaseDelta()
+    await waitFor(() => getAcpTranscriptSessionSnapshot('navigation').transcript?.turns.length === 2)
+    assert.match(urls[2]!, /cursor=user-1/)
+    assert.equal(getAcpTranscriptSessionSnapshot('navigation').transcript?.revision, 1)
+    release()
+  } finally {
+    releaseDelta()
+    resetAcpTranscriptSessionPoolForTests()
+    globalThis.fetch = previousFetch
+  }
+})
+
+for (const mode of ['unsettled-content', 'stalled-watermark'] as const) {
+  test(`${mode} reaches a visible bounded failure while retaining its last content`, async () => {
+    const previousFetch = globalThis.fetch
+    const previousSetTimeout = globalThis.setTimeout
+    let calls = 0
+    globalThis.fetch = async () => {
+      calls++
+      const payload = envelope(mode, 1)
+      if (mode === 'unsettled-content' && calls > 1) payload.settled = false
+      return jsonResponse(payload)
+    }
+    try {
+      const release = attachAcpTranscriptSession(mode)
+      await waitFor(() => getAcpTranscriptSessionSnapshot(mode).transcript?.revision === 1)
+      globalThis.setTimeout = ((handler: TimerHandler, timeout?: number, ...args: unknown[]) => (
+        previousSetTimeout(handler, Math.min(Number(timeout) || 0, 1), ...args)
+      )) as typeof setTimeout
+      observeAcpTranscriptRevision({ agentId: mode, sessionId: `session-${mode}`,
+        runtimeEpoch: `epoch-${mode}`, revision: 2, updatedAt: '' })
+      await waitFor(() => getAcpTranscriptSessionSnapshot(mode).error === 'response')
+      assert.equal(getAcpTranscriptSessionSnapshot(mode).loading, false)
+      assert.equal(getAcpTranscriptSessionSnapshot(mode).transcript?.revision, 1)
+      const stoppedAt = calls
+      assert.equal(stoppedAt, ACP_TRANSCRIPT_UNSETTLED_RETRY_LADDER_LENGTH + 2)
+      await new Promise(resolve => previousSetTimeout(resolve, 50))
+      assert.equal(calls, stoppedAt)
+      release()
+    } finally {
+      resetAcpTranscriptSessionPoolForTests()
+      globalThis.fetch = previousFetch
+      globalThis.setTimeout = previousSetTimeout
+    }
+  })
+}

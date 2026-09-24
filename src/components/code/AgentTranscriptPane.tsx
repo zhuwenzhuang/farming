@@ -3341,7 +3341,7 @@ export function AgentTranscriptPane({
       setLoading(snapshot.loading)
       setLoadingOlder(snapshot.loadingOlder)
       setTurnLimit(current => current === snapshot.turnLimit ? current : snapshot.turnLimit)
-      const visibleError = snapshot.error && expectHistoryRef.current
+      const visibleError = snapshot.error && (expectHistoryRef.current || Boolean(snapshot.transcript?.turns.length))
       setError(visibleError ? copy.agentTranscriptUnavailable : '')
       if (snapshot.loading) return
       const pooledTranscript = snapshot.transcript

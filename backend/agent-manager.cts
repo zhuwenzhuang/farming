@@ -1,6 +1,6 @@
 import type { ComposerSubmissionPhase, ComposerSubmissionStatus } from '../shared/composer-submission.js';
 import { EventEmitter } from 'events';
-import { isChatTurnState } from '../shared/chat-turn-state.js';
+import { interruptChatTurn, isChatTurnState } from '../shared/chat-turn-state.js';
 import { acpHomeDefaultsPatch, type AgentHomeDefaults } from './agent-home-defaults.cjs';
 import type {
   AcpConfigChange,
@@ -1980,7 +1980,7 @@ class AgentManager extends EventEmitter {
     this.acpRuntime.on('submission-phase', (event: { agentId: string; clientPromptId: string; phase: ComposerSubmissionPhase }) => {
       this.composerAdmissionCoordinator.phase(event.agentId, event.clientPromptId, event.phase);
     });
-    this.acpRuntime.on('agent-runtime', ({ agentId, state, error, sessionId, stopReason, supportsSteer, canSteer, supportsFork, pendingPermission, pendingPermissions, pendingElicitation, pendingElicitations, activeElicitations, updatedAt, lastSettledTurnHandle, lastSettledTurnSummary, chatTurn }: AcpRuntimeEvent) => {
+    this.acpRuntime.on('agent-runtime', ({ agentId, state, error, sessionId, stopReason, supportsSteer, canSteer, supportsFork, pendingPermission, pendingPermissions, pendingElicitation, pendingElicitations, activeElicitations, updatedAt, lastSettledTurnHandle, lastSettledTurnSummary, lastSettledTurnStopReason, chatTurn }: AcpRuntimeEvent) => {
       const agent = this.agents.get(agentId);
       if (!agent) return;
       const runtime = runtimeBindingOf(agent, 'acp');
@@ -2068,7 +2068,7 @@ class AgentManager extends EventEmitter {
           ? lastSettledTurnSummary
           : null,
         settledTurnHandle,
-        stopReason: String(stopReason || ''),
+        stopReason: String(lastSettledTurnStopReason ?? stopReason ?? ''),
       });
     });
     this.acpRuntime.on('session', ({ agentId, revision, title }: AcpSessionEvent) => {
@@ -3593,6 +3593,11 @@ class AgentManager extends EventEmitter {
       if (!agent || (!sessionId && !liveHostBinding) || !providerSupportsRuntime(provider, 'acp')) continue;
       if (lifecycleOperationBlocksRuntimeStart(record) && !liveHostBinding) continue;
       if (!liveHostBinding) {
+        // Authoritative Host enumeration proved that this execution no longer
+        // exists. Restore the conversation without reviving its old Turn.
+        agent.chatTurn = interruptChatTurn(agent.chatTurn,
+          'Chat runtime was lost; the turn outcome could not be confirmed');
+        this.sessionPersistence.persist(agent);
         coldRecords.push(record);
         continue;
       }

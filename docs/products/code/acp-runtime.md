@@ -424,6 +424,46 @@ the submitted text remains the complete source of truth.
 
 ## Transcript Protocol
 
+### State and synchronization invariants
+
+Runtime state, Turn outcome, and request ownership are separate facts. The ACP
+Runtime owns execution and Turn transitions; Host operation records own request
+identity and settlement barriers. A pending request never overrides an observed
+permission wait or Runtime failure. Only proven binding loss interrupts a
+persisted active Turn; compatible reconnection preserves the live Turn. Failure
+is a structured outcome even when the Provider supplies no explanatory text.
+
+A transcript read names its Agent, Session, epoch, revision, and covered range.
+The latest revision belongs to the live tail. An older page cannot advance it
+or apply the Session's current activity or stop reason to a historical Turn.
+Entry patches describe a contiguous range plus an optional owning-prompt anchor;
+the anchor alone does not establish overlap. History and live reads share one
+serialized scheduler, but the pagination cursor belongs to the individual read.
+An identity change fences all older responses. A reset invalidates cached
+history; ordinary updates replace only the declared range.
+
+The browser retains one contiguous window with a 2,048 Entry budget (including
+an optional prompt anchor). Live reads
+evict from the oldest end; older-page reads evict from the newest end and retain
+an explicit historical window with Return to latest. Live notifications and
+reconnect do not move that historical reading position. A partial historical
+Turn does not imply a missing final reply. A gap cannot be silently joined. Runtime control state continues to update while history is being read.
+A historical window is a frozen reading cache of pages from their respective
+read times, not one atomic snapshot. Its retained revision is only the last
+confirmed live revision and cannot serve as a delta baseline after the tail is
+evicted. Return to latest always reads a checkpoint.
+Queueing expires after 30 seconds and reads after 15 seconds; retries are finite and end in a visible read
+error. Only fresh evidence or explicit Retry starts another attempt.
+
+Acceptance compares incremental state with an independent authoritative snapshot
+for the same identity, revision, and covered range after live reconciliation
+(or same-version historical reads). Mixed-version historical pages instead
+require identity, cursor continuity, preserved content, and no inferred live status. It also
+checks stale-response exclusion, historical-page isolation, bounded storage and
+bounded failure under completion, cancellation, reconnect, and restart ordering.
+Successful catch-up assumes available transport and scheduling; permanent failure
+must still terminate the read visibly instead of claiming synchronization.
+
 The browser bounds a Chat history read to 15 seconds. One timed-out read may
 retry because it is read-only; a second timeout reaches a visible error and
 explicit Retry. Reconnect and fresh revision signals still trigger their own
@@ -537,11 +577,17 @@ read cadence plus global read concurrency are bounded. Only the visible Chat
 owns the React, Markdown, and tool-card DOM. Reattaching a retained record whose
 observed Session and runtime epoch still match shows it immediately and
 continues from its revision without requesting a checkpoint solely because it
-became visible. A cold or evicted Chat, reconnect, identity change, detected
+became visible. An unfinished retained Turn is revalidated on reattachment so
+a missed completion notification cannot leave it appearing to run indefinitely.
+A cold or evicted Chat, reconnect, identity change, detected
 gap, reset, or pagination-range change still requires an authoritative
 checkpoint before replacement content becomes visible. Reading position is
 anchored to a stable Turn or process item rather than raw pixels, and transcript
 records share the same 20-view working-set boundary as pooled Terminals.
+An older-history cursor belongs to one page read; after that read settles, live
+revision notifications must again fetch the newest Turn without a page cursor.
+An older page never advances the latest-Turn revision, even when the page
+response carries a newer Session revision.
 
 ACP Session controls use the same Agent-scoped working-set ownership. The
 browser retains each recent Agent's last confirmed mode, model, reasoning,
@@ -738,9 +784,9 @@ history Agent may use its durable Provider Session title when no stronger title
 exists.
 
 An unsettled authoritative transcript that already contains Turns is admitted
-immediately while bounded fast settlement retries continue in the background,
-followed by a slower recovery cadence until an authoritative settled response
-arrives. Only an expected history response that is still empty blocks the
+immediately while bounded settlement retries continue in the background.
+Exhaustion exposes a read error while retaining that content; new evidence or
+explicit Retry can start another bounded attempt. Only an expected history response that is still empty blocks the
 transcript surface behind synchronization feedback. A delta's omitted prefix
 refers to its update window, not missing browser history. Once the beginning is
 loaded, subsequent deltas retain that fact unless loaded Turns are evicted;

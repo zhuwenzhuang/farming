@@ -13,6 +13,14 @@
   <a href="./README.md">English</a>
 </p>
 
+<p align="center">
+  <a href="https://github.com/zhuwenzhuang/farming/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/zhuwenzhuang/farming/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/zhuwenzhuang/farming/releases"><img alt="Release" src="https://img.shields.io/github/v/release/zhuwenzhuang/farming?label=release"></a>
+  <a href="https://www.npmjs.com/package/farming-code"><img alt="npm" src="https://img.shields.io/npm/v/farming-code?label=npm"></a>
+  <a href="./LICENSE"><img alt="License" src="https://img.shields.io/github/license/zhuwenzhuang/farming"></a>
+  <img alt="macOS and Linux" src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux-555">
+</p>
+
 ## 快速开始
 
 **npm 安装** — 已有 Node.js 22.13+（22.x）或 24+，且 npm 的 bin 目录已在 PATH 中。
@@ -22,23 +30,15 @@ npm install --global farming-code@latest
 farming daemon
 ```
 
-**指定目录安装** — 自带 Node.js，并为受支持的旧 Linux 主机提供兼容运行环境。
+**指定目录安装** — 安装到你选择的目录，自带 Node.js，并为受支持的旧 Linux 主机提供兼容运行环境。
 
 ```bash
-curl -fsSL https://zhuwenzhuang.github.io/farming/install.sh | bash
-~/.local/bin/farming daemon
+curl -fsSL https://zhuwenzhuang.github.io/farming/install.sh | FARMING_INSTALL_ROOT="$HOME/farming" bash
+"$HOME/farming/farming" daemon
 ```
 
 macOS / Linux；任选一种方式，打开输出的访问地址，选择 **New Agent** 即可开始。
 详见[安装要求](https://zhuwenzhuang.github.io/farming/cn/get-started/installation)。
-
-<p align="center">
-  <a href="https://github.com/zhuwenzhuang/farming/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/zhuwenzhuang/farming/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="https://github.com/zhuwenzhuang/farming/releases"><img alt="Release" src="https://img.shields.io/github/v/release/zhuwenzhuang/farming?label=release"></a>
-  <a href="https://www.npmjs.com/package/farming-code"><img alt="npm" src="https://img.shields.io/npm/v/farming-code?label=npm"></a>
-  <a href="./LICENSE"><img alt="License" src="https://img.shields.io/github/license/zhuwenzhuang/farming"></a>
-  <img alt="macOS and Linux" src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux-555">
-</p>
 
 [![Farming Code 工作台](./docs/products/code/assets/01-code-workspace.webp)](./docs/products/code/assets/01-code-workspace.png)
 

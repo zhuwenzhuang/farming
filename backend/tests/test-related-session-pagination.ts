@@ -1,3 +1,4 @@
+import { projectAcpTranscript } from '../../src/components/code/acp/acp-entry-projection';
 import assert from 'node:assert/strict';
 import { AcpSessionState } from '../acp-session-state.cts';
 import { relatedSessionStatusLabel, relatedSessionIndicator } from '../../src/components/code/related-session-status';
@@ -42,3 +43,10 @@ assert.equal(relatedSessionIndicator('child', 'completed', copy).statusIndicator
 assert.equal(relatedSessionIndicator('child', 'waiting-for-input', copy).lifecycleStatus, 'pending');
 assert.equal(relatedSessionIndicator('child', 'failed', copy).failureMessage, 'Failed');
 assert.equal(relatedSessionIndicator('child', 'unknown', copy).statusIndicatorVisible, true);
+
+// Current Session activity never activates the last Turn of a historical page.
+
+const latest = state.transcriptSlice({ maxTurns: 1 });
+const historical = state.transcriptSlice({ maxTurns: 1, cursor: latest.nextCursor });
+assert.equal(projectAcpTranscript({ ...historical, state: 'working' }).turns.at(-1)?.status, 'completed');
+assert.equal(projectAcpTranscript({ ...latest, state: 'working' }).turns.at(-1)?.status, 'inProgress');

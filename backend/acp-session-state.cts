@@ -869,6 +869,9 @@ class AcpSessionState {
     this.activePlanEntry = null;
     this.plan = null;
     this.touchCurrentTurn();
+    // A removed entry cannot appear in a delta's changed-entry list. Force a
+    // replacement for readers whose revision predates this deletion.
+    this.resetBeforeRevision = Math.max(this.resetBeforeRevision, this.revision - 1);
   }
 
   transcriptSlice(options: TranscriptSliceOptions = {}) {
@@ -900,12 +903,21 @@ class AcpSessionState {
       if (anchor < startIndex && providerPolicy.transcriptTurnStart(this.entries[anchor])) {
         page.unshift(...this.sanitizedEntries(anchor, { forTranscript: true, endIndex: anchor + 1 }));
       }
-      const changedIds = delta ? new Set(this.entries.filter(entry => Number(entry._revision || 0) > requestedRevision).map(entry => entry.id)) : null;
+      // The bounded entry order is authoritative only for its covered suffix.
+      // A changed entry before that suffix requires a replacement checkpoint;
+      // otherwise a browser retaining older pages would keep stale content.
+      const changedBeforeWindow = delta && this.entries.slice(0, startIndex)
+        .some(entry => Number(entry._revision || 0) > requestedRevision);
+      const boundedDelta = delta && !changedBeforeWindow;
+      const changedIds = boundedDelta ? new Set(this.entries.filter(entry => Number(entry._revision || 0) > requestedRevision).map(entry => entry.id)) : null;
       return {
         entries: changedIds ? page.filter(entry => changedIds.has(entry.id)) : page,
-        entryPatch: { version: 1, order: page.map(entry => String(entry.id)), pageCursor: options.cursor || null },
+        includesLatest: !options.cursor,
+        entryPatch: { version: 1, order: page.map(entry => String(entry.id)),
+          startId: this.entries[startIndex] ? String(this.entries[startIndex].id) : null,
+          pageCursor: options.cursor || null },
         nextCursor: startIndex > 0 ? String(this.entries[startIndex].id) : null,
-        forkOrigin: this.forkOriginSnapshot(), revision: this.revision, delta,
+        forkOrigin: this.forkOriginSnapshot(), revision: this.revision, delta: boundedDelta,
         hasMoreBefore: startIndex > 0, goal: clone(this.goal), codexSubagents: clone(this.codexSubagents),
       };
     }
@@ -935,6 +947,7 @@ class AcpSessionState {
 
     return {
       entries: this.sanitizedEntries(startIndex, { forTranscript: true, endIndex }),
+      includesLatest: !options.cursor,
       nextCursor: startIndex > 0 ? String(this.entries[startIndex]?.id || '') : null,
       forkOrigin: this.forkOriginSnapshot(),
       revision: this.revision,
