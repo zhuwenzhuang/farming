@@ -625,7 +625,6 @@ export function attachAcpTranscriptSession(agentId: string) {
     } else if (current?.turns[current.turns.length - 1]?.status === 'inProgress') {
       // A completion revision can be missed while this Chat is detached.
       // Revalidate an unfinished Turn before keeping its running state visible.
-      record.forceCheckpoint = true
       scheduleRecord(record, { immediate: true })
     }
   } else {

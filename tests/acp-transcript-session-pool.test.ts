@@ -176,7 +176,8 @@ test('reattach revalidates an unfinished retained Turn after a missed completion
   const urls: string[] = []
   globalThis.fetch = async input => {
     urls.push(String(input))
-    return jsonResponse(envelope('agent-missed-completion', 1, {
+    return jsonResponse(envelope('agent-missed-completion', urls.length === 1 ? 1 : 2, {
+      fromRevision: urls.length === 1 ? undefined : 1,
       state: urls.length === 1 ? 'working' : 'idle',
     }))
   }
@@ -190,7 +191,7 @@ test('reattach revalidates an unfinished retained Turn after a missed completion
     assert.equal(getAcpTranscriptSessionSnapshot('agent-missed-completion').loading, false)
     await waitFor(() => getAcpTranscriptSessionSnapshot('agent-missed-completion').transcript?.turns[0]?.status === 'completed')
     assert.equal(urls.length, 2)
-    assert.equal(new URL(urls[1], 'http://localhost').searchParams.has('sinceRevision'), false)
+    assert.equal(new URL(urls[1], 'http://localhost').searchParams.get('sinceRevision'), '1')
     secondRelease()
   } finally {
     resetAcpTranscriptSessionPoolForTests()

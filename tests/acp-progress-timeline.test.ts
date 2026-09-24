@@ -103,38 +103,40 @@ test('projects a settled ACP turn with process evidence and no final reply as mi
   assert.equal(transcript.turns[0]?.finalMessage, '')
 })
 
-test('keeps an ACP turn completed when process evidence has a final assistant result', () => {
-  const transcript = projectAcpTranscript({
-    sessionId: 'completed-final-reply-session',
-    state: 'idle',
-    stopReason: 'error',
-    entries: [
-      {
-        id: 'user-1',
-        type: 'message',
-        role: 'user',
-        content: [{ type: 'text', text: 'Run the checks' }],
-      },
-      {
-        id: 'tool-1',
-        type: 'tool',
-        title: 'Run checks',
-        kind: 'execute',
-        status: 'completed',
-      },
-      {
-        id: 'answer-1',
-        type: 'message',
-        role: 'assistant',
-        _meta: { codex: { phase: 'final_answer' } },
-        content: [{ type: 'text', text: 'Checks completed.' }],
-      },
-    ],
-  })
+for (const stopReason of ['end_turn', 'error', 'cancelled'] as const) {
+  test(`preserves the authoritative ${stopReason} outcome alongside a final assistant result`, () => {
+    const transcript = projectAcpTranscript({
+      sessionId: 'completed-final-reply-session',
+      state: 'idle',
+      stopReason,
+      entries: [
+        {
+          id: 'user-1',
+          type: 'message',
+          role: 'user',
+          content: [{ type: 'text', text: 'Run the checks' }],
+        },
+        {
+          id: 'tool-1',
+          type: 'tool',
+          title: 'Run checks',
+          kind: 'execute',
+          status: 'completed',
+        },
+        {
+          id: 'answer-1',
+          type: 'message',
+          role: 'assistant',
+          _meta: { codex: { phase: 'final_answer' } },
+          content: [{ type: 'text', text: 'Checks completed.' }],
+        },
+      ],
+    })
 
-  assert.equal(transcript.turns[0]?.status, 'completed')
-  assert.equal(transcript.turns[0]?.finalMessage, 'Checks completed.')
-})
+    assert.equal(transcript.turns[0]?.status, stopReason === 'end_turn' ? 'completed' : 'interrupted')
+    assert.equal(transcript.turns[0]?.finalMessage, 'Checks completed.')
+  })
+}
 
 test('keeps an active ACP turn with process evidence in progress', () => {
   const transcript = projectAcpTranscript({
