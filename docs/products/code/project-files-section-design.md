@@ -42,8 +42,8 @@ rows, Open Editors, and Files header form one stacked sticky summary. Their
 measured heights determine the next layer's offset. When the Project reaches
 its trailing boundary, every visible layer releases with the same scroll
 delta; a later layer must never slide over the Project name or branch first.
-Directory rows scroll beneath this summary stack and do not add another
-scroll-linked ancestor summary.
+Directory rows scroll beneath this summary stack. Ancestor context is metadata
+inside the existing Files header, never an additional sticky directory row.
 
 Open Editors is capped at seven responsive file rows. Its list always owns the
 same vertical overflow geometry, and any measured classic scrollbar width is
@@ -359,6 +359,48 @@ reserves at least 48 CSS pixels before trailing status. Deeper levels may share
 the capped inset and long names may ellipsize; the file name itself must retain
 visible space. The row's accessible label continues to expose the full path.
 
+### Files Header Context And Search
+
+The Explorer owns a projection of the displayed tree rows and their real parent
+paths, including compact directory chains. Expansion and data changes rebuild
+that projection. Each mounted tree initializes its expansion from the same
+Explorer state, including reopening Files with unchanged cached data. The first row intersecting the uncovered viewport below the
+Files header determines the path: only its ancestors, already above that
+boundary, appear. Root rows, an offscreen tree and collapsed Files have no
+context. Selection and the active editor never determine this metadata.
+Scroll frames read bounded container geometry and index the projection; they
+must not scan or measure file rows. Context only changes text in a fixed-height,
+width-constrained slot. It never writes scroll position, tree transforms,
+indentation, expansion or selection, and its rendered text is not a geometry
+input to the viewport decision.
+
+A full project-relative path is preferred. When it cannot fit, remove complete
+leading segments, mark them with an ellipsis, and retain as many trailing
+segments as fit (preferably the last two). Only the final directory name may
+ellipsize when even one segment cannot fit. Hover, keyboard focus or touch
+activation exposes the complete path in a wrapping, viewport-bounded tooltip.
+The tooltip does not navigate; the shared interaction layer owns outside-pointer
+and Escape dismissal. Scroll, path change and unmount dismiss it.
+
+The search owner has closed, editing and suggestions-dismissed states. The
+search toggle, tree keyboard shortcut and explicit directory-search action open
+editing and focus the input without scrolling. Typing opens suggestions; the
+first Escape dismisses suggestions while retaining query and input focus, and
+the next Escape closes search, clears its query/scope and returns focus to the
+toggle. Close performs the latter transition directly. IME Escape belongs to
+composition. Enter only accepts a visible suggestion. Choosing a result clears
+search through its existing navigation owner. Network generation, cancellation, timeout and failure handling remain
+with search; closing aborts pending work and late results cannot reopen it.
+Collapsing Files closes search and clears its query and scope.
+All observers and scheduled frames are released on unmount. Search and tooltip
+output cannot cause a tree-layout feedback loop.
+
+Acceptance covers real scrollbar dragging, wheel/touch scrolling across parent
+boundaries, compact chains, long names, resize, preceding section disclosure,
+multiple Projects, search shortcuts/scope/IME/two-stage Escape, late search
+results and Light/Dark/Paper. Verify intermediate row geometry and bounded work,
+not merely final DOM presence.
+
 Text uses the lightweight editor. Markdown and static HTML may switch between
 source and bounded preview within the same file identity. Images, PDFs, binary
 files, and oversized text use read-only viewers. Every Viewer uses the same
@@ -513,11 +555,11 @@ non-HTTP(S), or invalid rules remain plain text.
 - At every layout width and one tree depth, a file icon occupies the same
   leading slot as a directory chevron; files do not reserve an additional empty
   chevron column.
-- On pointer layouts, the Files search and refresh controls use progressive
-  disclosure on header hover. A focused or non-empty search remains visible;
-  compact touch layouts keep search visible without requiring hover. When refresh
-  success feedback expires outside hover or keyboard focus, hide the control
-  atomically with its return to idle; do not flash the idle glyph during a fade.
+- The Files header keeps its title, search toggle and refresh action in fixed
+  slots on pointer and touch layouts. Its middle slot shows viewport directory
+  context or an explicitly opened search input; hover never switches modes.
+  Search remains project-scoped unless the user explicitly chooses directory
+  search. Viewport context never changes the search scope.
 - Open Editors appears only when needed and stays separate from the tree.
 - At 393 CSS pixels and narrower, available Save, source/preview,
   overwrite-conflict, and Agent-side controls remain direct primary actions.

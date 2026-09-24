@@ -40,6 +40,7 @@ export interface FileTreeViewProps {
   handleTreeKeyDownCapture: (event: ReactKeyboardEvent<HTMLDivElement>) => void
   lastFocusedFilePathRef: MutableRefObject<string | null>
   locatedFilePath?: string | null
+  openDirectoryPaths: ReadonlySet<string>
   openFilePendingPath?: string | null
   renderFileTreeRow: NonNullable<Parameters<typeof Tree<FileExplorerNode>>[0]['renderRow']>
   rowHeight: number
@@ -73,6 +74,7 @@ type FileNodeRendererContextValue = Omit<
   FileTreeViewProps,
   | 'activeFilePath'
   | 'handleTreeKeyDownCapture'
+  | 'openDirectoryPaths'
   | 'openFilePendingPath'
   | 'renderFileTreeRow'
   | 'rowHeight'
@@ -273,6 +275,7 @@ const FileTreeViewContent = memo(function FileTreeViewContent({
   handleTreeKeyDownCapture,
   lastFocusedFilePathRef,
   locatedFilePath,
+  openDirectoryPaths,
   renderFileTreeRow,
   rowHeight,
   treeData,
@@ -300,6 +303,11 @@ const FileTreeViewContent = memo(function FileTreeViewContent({
   selectedFilePathStore: SelectedFilePathStore
   onSelectFilePath: (filePath: string) => () => void
 }) {
+  // A new Arborist instance must start from the Explorer state even when the
+  // cached data and expansion set did not change while Files was collapsed.
+  const initialOpenState = useMemo(() => Object.fromEntries(
+    Array.from(openDirectoryPaths, path => [path, true]),
+  ), [openDirectoryPaths])
   const pointerFileClickRef = useRef<{
     clientX: number
     clientY: number
@@ -563,6 +571,7 @@ const FileTreeViewContent = memo(function FileTreeViewContent({
             width="100%"
             overscanCount={FILE_TREE_OVERSCAN_ROWS}
             openByDefault={false}
+            initialOpenState={initialOpenState}
             selectionFollowsFocus
             className="code-file-tree"
             rowClassName="code-file-tree-row"

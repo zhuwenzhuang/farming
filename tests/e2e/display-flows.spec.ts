@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import type { Locator, Page } from '@playwright/test'
 import {
+  openFileSearch,
   expect,
   expectTerminalCanvasToHaveInk,
   fileEditorPosition,
@@ -1289,20 +1290,21 @@ test.describe('display-backed agent flows', () => {
     const fileSearchInput = fileSearchBox.getByRole('combobox')
     const refreshProjectFiles = async () => {
       await filesHeader.hover()
-      await expect(fileSearchBox).toHaveCSS('opacity', '1')
+      await expect(fileSearchBox).toHaveCount(0)
       await expect(filesHeaderActions).toHaveCSS('opacity', '1')
       await filesRefreshButton.click()
     }
     const trackedCount = trackedGroup.getByTestId('code-file-changes-tracked-count')
     const untrackedCount = untrackedGroup.getByTestId('code-file-changes-untracked-count')
     await expect(filesRefreshButton).toHaveAttribute('data-refresh-status', 'idle')
-    await expect(fileSearchBox).toHaveCSS('opacity', '0')
-    await expect(filesHeaderActions).toHaveCSS('opacity', '0')
+    await expect(fileSearchBox).toHaveCount(0)
+    await expect(filesHeaderActions).toHaveCSS('opacity', '1')
+    await openFileSearch(filesSection)
     await fileSearchInput.focus()
     await page.mouse.move(700, 400)
     await expect(fileSearchBox).toHaveCSS('opacity', '1')
-    await fileSearchInput.blur()
-    await expect(fileSearchBox).toHaveCSS('opacity', '0')
+    await filesSection.getByTestId('code-files-search-toggle').click()
+    await expect(fileSearchBox).toHaveCount(0)
     await refreshProjectFiles()
     await expect(filesRefreshButton).toHaveAttribute('data-refresh-status', 'refreshing')
     await expect(filesRefreshButton).toBeDisabled()
@@ -2202,6 +2204,7 @@ test.describe('display-backed agent flows', () => {
     await requestDedupeRow.click()
     await expect(requestDedupeRow).toHaveAttribute('aria-expanded', 'true')
     await expect.poll(directoryReads).toHaveLength(2)
+    await openFileSearch(childFiles)
     await fileSearchInput.fill('poem')
     const folderSearchResults = childFiles.getByTestId('code-file-search-results')
     const poemDirectoryResult = folderSearchResults.locator('.code-file-search-result[title="poem"]')
@@ -2209,17 +2212,18 @@ test.describe('display-backed agent flows', () => {
     await expect(poemDirectoryResult).toContainText('Folder')
     await expect(folderSearchResults.locator('.code-file-search-result[title="poem/collection.zip:1"]')).toHaveCount(0)
     await poemDirectoryResult.click()
-    await expect(fileSearchInput).toHaveValue('')
+    await expect(fileSearchInput).toHaveCount(0)
     const poemRow = childFiles.locator('[data-testid="code-file-row"][data-file-path="poem"]')
     await expect(poemRow).toBeVisible()
     await expect(poemRow).toHaveAttribute('aria-expanded', 'true')
     await expect(childFiles.locator('[data-testid="code-file-row"][data-file-path="poem/collection.zip"]')).toBeVisible()
+    await openFileSearch(childFiles)
     await fileSearchInput.fill('reference/poem')
     const nestedPoemDirectoryResult = folderSearchResults.locator('.code-file-search-result[title="reference/poem"]')
     await expect(nestedPoemDirectoryResult).toBeVisible()
     await expect(nestedPoemDirectoryResult).toContainText('Folder')
     await nestedPoemDirectoryResult.click()
-    await expect(fileSearchInput).toHaveValue('')
+    await expect(fileSearchInput).toHaveCount(0)
     const referenceRow = childFiles.locator('[data-testid="code-file-row"][data-file-path="reference"]')
     await expect(referenceRow).toBeVisible()
     await expect(referenceRow).toHaveAttribute('aria-expanded', 'true')
@@ -2367,13 +2371,17 @@ test.describe('display-backed agent flows', () => {
     await currentChildAgentItem().focus()
     await page.keyboard.press('Control+P')
     await expect(fileSearchInput).toBeFocused()
+    await openFileSearch(childFiles)
     await fileSearchInput.fill('search-target-omega')
     await page.keyboard.press('Escape')
-    await expect(fileSearchInput).toHaveValue('')
-    await expect.poll(async () => childFiles.locator('.code-file-tree-viewport').evaluate(element => element.contains(document.activeElement))).toBe(true)
+    await expect(fileSearchInput).toHaveValue('search-target-omega')
+    await page.keyboard.press('Escape')
+    await expect(fileSearchInput).toHaveCount(0)
+    await expect(childFiles.getByTestId('code-files-search-toggle')).toBeFocused()
     await page.keyboard.press('Control+P')
     await expect(fileSearchInput).toBeVisible()
     await fileSearchInput.click()
+    await openFileSearch(childFiles)
     await fileSearchInput.fill('README.md:4')
     await expect(fileSearchInput).toHaveValue('README.md:4')
     const readmeJumpResult = childFiles.locator('.code-file-search-result.jump')
@@ -2466,6 +2474,7 @@ test.describe('display-backed agent flows', () => {
     await editorContextMenu.getByRole('menuitem', { name: 'Hide Blame' }).click()
     await expect(page.locator('.code-file-inline-blame')).toHaveCount(0)
 
+    await openFileSearch(childFiles)
     await fileSearchInput.fill('deep/nested/inner/blame-multi.py:1')
     await fileSearchInput.press('Enter')
     await expect(page.getByTestId('code-file-editor')).toBeVisible()
@@ -2487,6 +2496,7 @@ test.describe('display-backed agent flows', () => {
     await editorContextMenu.getByRole('menuitem', { name: 'Hide Blame' }).click()
     await expect(page.locator('.code-file-inline-blame')).toHaveCount(0)
 
+    await openFileSearch(childFiles)
     await fileSearchInput.fill('search-target-omega')
     const searchResult = childFiles.locator('.code-file-search-result[title="README.md:3"]')
     await expect(searchResult).toBeVisible()
@@ -2559,6 +2569,7 @@ test.describe('display-backed agent flows', () => {
     await expect(page.getByTestId('code-file-editor').getByRole('tab').filter({ hasText: 'query.sql' })).toHaveCount(0)
     await expect(page.getByTestId('code-file-editor').getByRole('tab').filter({ hasText: 'README.md' })).toHaveCount(1)
 
+    await openFileSearch(childFiles)
     await fileSearchInput.fill('')
     await fileTree.evaluate(element => {
       element.scrollTop = 0
@@ -2594,6 +2605,7 @@ test.describe('display-backed agent flows', () => {
     await expect(childFiles.locator('[role="tree"]')).toBeFocused()
     await page.keyboard.press('Control+P')
     await expect(fileSearchInput).toBeFocused()
+    await openFileSearch(childFiles)
     await fileSearchInput.fill('file-')
     const readFileSearchSelection = async () => childFiles.getByTestId('code-file-search-results').evaluate(container => {
       const rows = Array.from(container.querySelectorAll<HTMLElement>('.code-file-search-result'))
@@ -2616,7 +2628,9 @@ test.describe('display-backed agent flows', () => {
     await expect.poll(async () => (await readFileSearchSelection()).activeIndex).toBe(initialFileSearchSelection.activeIndex + 1)
     await fileSearchInput.press('ArrowUp')
     await expect.poll(async () => (await readFileSearchSelection()).activeIndex).toBe(initialFileSearchSelection.activeIndex)
+    await openFileSearch(childFiles)
     await fileSearchInput.fill('')
+    await openFileSearch(childFiles)
     await fileSearchInput.fill('rename-me.txt:1')
     await expect(childFiles.locator('.code-file-search-result').filter({ hasText: 'rename-me.txt' }).first()).toBeVisible()
     await fileSearchInput.press('Enter')
@@ -2657,6 +2671,7 @@ test.describe('display-backed agent flows', () => {
     await expect(page.getByTestId('code-file-operation-dialog')).toHaveCount(0)
     await expect(deleteRow).toHaveCount(0)
     await expect.poll(() => fs.existsSync(path.join(childWorkspace, 'delete-me.txt'))).toBe(false)
+    await openFileSearch(childFiles)
     await fileSearchInput.fill('deep/nested/inner/file-00.txt:1')
     await fileSearchInput.press('Enter')
     const compactDeepRow = childFiles.locator('[data-testid="code-file-row"][data-file-path="deep/nested/inner"]')
@@ -2759,10 +2774,11 @@ test.describe('display-backed agent flows', () => {
         scrollSurfaces.length === 1 &&
         scrollSurfaces[0]?.includes('code-project-list') === true
     })).toBe(true)
+    await openFileSearch(childFiles)
     await fileSearchInput.fill('deep/nested/inner/file-30.txt:1')
     await expect(childFiles.locator('.code-file-search-result').filter({ hasText: 'file-30.txt' }).first()).toBeVisible()
     await fileSearchInput.press('Enter')
-    await expect(fileSearchInput).toHaveValue('')
+    await expect(fileSearchInput).toHaveCount(0)
     // Opening clears Search itself. Another fill would be new user input,
     // revoking its in-flight reveal lease before the virtual row is mounted.
     // Opening from Search owns the reveal. Mutating the shared Project scroller
@@ -2770,6 +2786,7 @@ test.describe('display-backed agent flows', () => {
     await expect(childFiles.locator(
       '[data-testid="code-file-row"].active[data-file-path="deep/nested/inner/file-30.txt"]',
     )).toBeVisible()
+    await openFileSearch(childFiles)
     await fileSearchInput.fill('deep/nested/inner/file-35.txt:1')
     await fileSearchInput.press('Enter')
     await expect(activeFileTabName(page)).toHaveText('file-35.txt')
@@ -2787,6 +2804,7 @@ test.describe('display-backed agent flows', () => {
 
     for (let index = 0; index < 9; index += 1) {
       const fileName = `file-${String(index).padStart(2, '0')}.txt`
+      await openFileSearch(childFiles)
       await fileSearchInput.fill(`deep/nested/inner/${fileName}:1`)
       await fileSearchInput.press('Enter')
       await expect(activeFileTabName(page)).toHaveText(fileName)
@@ -2860,6 +2878,7 @@ test.describe('display-backed agent flows', () => {
     await filesTitle.click()
     await expect(filesTitle).toHaveAttribute('aria-expanded', 'true')
 
+    await openFileSearch(files)
     await files.getByPlaceholder('Search or path:line').fill('huge-no-match')
     const results = files.getByTestId('code-file-search-results')
     await expect(results).toContainText('No matches')
@@ -2953,6 +2972,7 @@ test.describe('display-backed agent flows', () => {
     await expect(filesTitle).toHaveAttribute('aria-expanded', 'true')
 
     const fileSearchInput = files.getByPlaceholder('Search or path:line')
+    await openFileSearch(files)
     await fileSearchInput.fill('src/App.tsx:2')
     await files.locator('.code-file-search-result.jump').first().click()
     await expect(page.getByTestId('code-file-editor')).toBeVisible()
@@ -2971,6 +2991,7 @@ test.describe('display-backed agent flows', () => {
     await lineChangesPanel.getByRole('button', { name: 'Close line changes' }).click()
     await expect(lineChangesPanel).toHaveCount(0)
 
+    await openFileSearch(files)
     await fileSearchInput.fill('src/App.tsx:1')
     await files.locator('.code-file-search-result.jump').first().click()
     await expect.poll(() => fileEditorPosition(page)).toEqual({ lineNumber: 1, column: 1 })

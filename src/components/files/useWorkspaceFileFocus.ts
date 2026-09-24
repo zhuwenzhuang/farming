@@ -11,7 +11,6 @@ import {
   shouldSelectWorkspaceFileSearchText,
   shouldFocusWorkspaceFileTree,
   shouldSkipWorkspaceFileSearchFocus,
-  workspaceFileTreeFocusTargetPath,
   workspaceFileRevealScrollDelta,
   WORKSPACE_FILE_SEARCH_FOCUS_RETRY_DELAYS,
   WORKSPACE_FILE_TREE_FOCUS_RETRY_DELAYS,
@@ -29,6 +28,7 @@ interface UseWorkspaceFileFocusOptions {
   treeRef: MutableRefObject<TreeApi<WorkspaceFileTreeNode> | undefined>
   treeViewportRef: MutableRefObject<HTMLDivElement | null>
   fileSearchInputRef: MutableRefObject<HTMLInputElement | null>
+  onOpenFileSearch: () => void
   fileOperationActiveRef: MutableRefObject<boolean>
   lastFocusedFilePathRef: MutableRefObject<string | null>
   treeData: WorkspaceFileTreeNode[]
@@ -88,6 +88,7 @@ export function useWorkspaceFileFocus({
   treeRef,
   treeViewportRef,
   fileSearchInputRef,
+  onOpenFileSearch,
   fileOperationActiveRef,
   lastFocusedFilePathRef,
   treeData,
@@ -369,6 +370,7 @@ export function useWorkspaceFileFocus({
 
   const focusFileSearchInput = useCallback(() => {
     cancelPendingFileFocus()
+    onOpenFileSearch()
     const focusSearchInput = (selectText = false) => {
       const input = fileSearchInputRef.current
       if (!input) return
@@ -390,42 +392,7 @@ export function useWorkspaceFileFocus({
     focusSearchInput(true)
     fileSearchFocusFrameRef.current = window.requestAnimationFrame(() => focusSearchInput(false))
     WORKSPACE_FILE_SEARCH_FOCUS_RETRY_DELAYS.forEach(queueFocusRetry)
-  }, [cancelPendingFileFocus, fileSearchInputRef])
-
-  const focusFileTreeFromSearch = useCallback(() => {
-    cancelPendingFileFocus()
-    const focusTree = () => {
-      const searchInput = fileSearchInputRef.current
-      if (searchInput?.value) return
-      fileSearchInputRef.current?.blur()
-      const targetTree = treeViewportRef.current?.querySelector<HTMLElement>('[role="tree"]')
-      const rows = Array.from(treeViewportRef.current?.querySelectorAll<HTMLElement>('[data-file-path]') ?? [])
-      const targetPath = workspaceFileTreeFocusTargetPath({
-        lastFocusedPath: lastFocusedFilePathRef.current,
-        rows: rows.map(element => ({
-          path: element.dataset.filePath ?? '',
-          selected: element.classList.contains('selected'),
-        })).filter(row => row.path),
-      })
-      const targetRow = targetPath ? rows.find(element => element.dataset.filePath === targetPath) : null
-      if (targetRow && targetPath) {
-        lastFocusedFilePathRef.current = targetPath
-        treeRef.current?.get(targetPath)?.select()
-        focusWithoutScrolling(targetTree)
-        return
-      }
-      focusWithoutScrolling(targetTree)
-    }
-
-    const queueFocusRetry = (delay: number) => {
-      const timeoutId = window.setTimeout(focusTree, delay)
-      fileTreeFocusTimeoutsRef.current.push(timeoutId)
-    }
-
-    focusTree()
-    fileTreeFocusFrameRef.current = window.requestAnimationFrame(focusTree)
-    WORKSPACE_FILE_TREE_FOCUS_RETRY_DELAYS.forEach(queueFocusRetry)
-  }, [cancelPendingFileFocus, fileSearchInputRef, lastFocusedFilePathRef, treeRef, treeViewportRef])
+  }, [cancelPendingFileFocus, fileSearchInputRef, onOpenFileSearch])
 
   const focusFileTreePath = useCallback((filePath: string | null) => {
     cancelPendingFileTreeFocus()
@@ -479,7 +446,6 @@ export function useWorkspaceFileFocus({
   return {
     cancelPendingFileFocus,
     focusFileSearchInput,
-    focusFileTreeFromSearch,
     focusFileTreePath,
     focusFileTreeTarget,
     locatedFilePath,

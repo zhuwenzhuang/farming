@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { Page, TestInfo } from '@playwright/test'
-import { expect, interceptWorkspaceRequests, openFarming, terminalCheckpointOutput, test } from './fixtures'
+import { openFileSearch, expect, interceptWorkspaceRequests, openFarming, terminalCheckpointOutput, test } from './fixtures'
 import { createAcceptanceEvidence } from './acceptance-evidence'
 
 const IPHONE_AUDIT_DIR = path.resolve(
@@ -1894,6 +1894,7 @@ test.describe('iPhone mobile layout', () => {
     await expect(mobileFileMenu.getByRole('menuitem', { name: /Delete|删除/ })).toBeVisible()
     await page.keyboard.press('Escape')
     await expect(mobileFileMenu).toBeHidden()
+    await openFileSearch(filesSection)
     const fileSearch = filesSection.getByPlaceholder('Search or path:line')
     const mobileSidebarBackdrop = page.getByTestId('code-mobile-sidebar-backdrop')
     const sidebarScrollBeforeSearchFocus = await page.getByTestId('code-project-list').evaluate(element => element.scrollTop)

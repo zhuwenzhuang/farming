@@ -13,6 +13,13 @@ const DEFAULT_SEARCH_TIMEOUT_MS = 3000
 
 export function useWorkspaceFileSearch(agentId: string | null) {
   const [query, setQuery] = useState('')
+  const [isOpen, setIsOpen] = useState(false)
+  const [suggestionsDismissed, setSuggestionsDismissed] = useState(false)
+  const open = useCallback(() => {
+    setIsOpen(true)
+    setSuggestionsDismissed(false)
+  }, [])
+  const dismissSuggestions = useCallback(() => setSuggestionsDismissed(true), [])
   const [scopePath, setScopePath] = useState('')
   const [matches, setMatches] = useState<WorkspaceFileSearchMatch[]>([])
   const [loading, setLoading] = useState(false)
@@ -23,7 +30,7 @@ export function useWorkspaceFileSearch(agentId: string | null) {
   const [includeIgnored, setIncludeIgnored] = useState(false)
   const requestRef = useRef(0)
 
-  const active = query.trim().length > 0
+  const active = query.trim().length > 0 && !suggestionsDismissed
   const jumpTarget = useMemo<WorkspaceFileJumpQuery | null>(() => (
     active ? parseWorkspaceFileJumpQuery(query) : null
   ), [active, query])
@@ -34,6 +41,8 @@ export function useWorkspaceFileSearch(agentId: string | null) {
 
   const clear = useCallback(() => {
     requestRef.current += 1
+    setIsOpen(false)
+    setSuggestionsDismissed(false)
     setQuery('')
     setScopePath('')
     setMatches([])
@@ -46,12 +55,16 @@ export function useWorkspaceFileSearch(agentId: string | null) {
   }, [])
 
   const setSearchQuery = useCallback((nextQuery: string) => {
+    setIsOpen(true)
+    setSuggestionsDismissed(false)
     setIncludeIgnored(false)
     if (!nextQuery) setScopePath('')
     setQuery(nextQuery)
   }, [])
 
   const searchInDirectory = useCallback((path: string) => {
+    setIsOpen(true)
+    setSuggestionsDismissed(false)
     setQuery('')
     setScopePath(path)
     setMatches([])
@@ -128,6 +141,9 @@ export function useWorkspaceFileSearch(agentId: string | null) {
   }, [matches.length])
 
   return useMemo(() => ({
+    isOpen,
+    open,
+    dismissSuggestions,
     query,
     scopePath,
     setQuery: setSearchQuery,
@@ -148,6 +164,9 @@ export function useWorkspaceFileSearch(agentId: string | null) {
     selectNext,
     selectPrevious,
   }), [
+    isOpen,
+    open,
+    dismissSuggestions,
     active,
     activeMatchIndex,
     clear,

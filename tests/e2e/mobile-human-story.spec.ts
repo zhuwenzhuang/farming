@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import {
+  openFileSearch,
   expect,
   fileEditorPosition,
   openFarming,
@@ -677,6 +678,7 @@ test.describe('mobile Farming Code user story', () => {
     if (await filesToggle.getAttribute('aria-expanded') === 'false') {
       await filesToggle.click()
     }
+    await openFileSearch(filesSection)
     const fileSearch = filesSection.getByPlaceholder('Search or path:line')
     await expect(fileSearch).toHaveAttribute('type', 'search')
     await expect(fileSearch).toHaveAttribute('autocomplete', 'off')

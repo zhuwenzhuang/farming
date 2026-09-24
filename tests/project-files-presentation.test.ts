@@ -15,6 +15,14 @@ function renderHeader(overrides: Partial<Parameters<typeof FileSectionHeader>[0]
   return renderToStaticMarkup(createElement(FileSectionHeader, {
     copy,
     filesCollapsed: false,
+    searchOpen: false,
+    searchTriggerRef: emptyRef,
+    onOpenSearch: () => {},
+    onCloseSearch: () => {},
+    treeData: [],
+    openDirectoryPaths: new Set<string>(),
+    treeViewportRef: emptyRef,
+    rowHeight: 24,
     refreshStatus: 'idle',
     search: {
       active: false,
@@ -56,12 +64,17 @@ function renderSearchResults(overrides: Partial<Parameters<typeof FileSearchResu
 }
 
 test('Files header exposes search and refresh states through native accessibility semantics', () => {
+  const closed = renderHeader()
+  assert.doesNotMatch(closed, /role="combobox"/)
+  assert.match(closed, /data-testid="code-files-search-toggle"/)
+
   const collapsed = renderHeader({ filesCollapsed: true })
   assert.match(collapsed, /aria-expanded="false"/)
   assert.doesNotMatch(collapsed, /role="combobox"/)
 
   const refreshing = renderHeader({
     refreshStatus: 'refreshing',
+    searchOpen: true,
     search: {
       active: true,
       activeOptionId: 'project-files-search-1',
@@ -80,6 +93,7 @@ test('Files header exposes search and refresh states through native accessibilit
   assert.match(refreshing, /role="status"/)
 
   const scoped = renderHeader({
+    searchOpen: true,
     search: { active: false, inputRef: emptyRef, listboxId: 'project-files-search', query: '', scopePath: 'large' },
   })
   assert.match(scoped, /placeholder="Search in large"/)

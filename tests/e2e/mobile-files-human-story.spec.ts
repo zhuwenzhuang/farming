@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { Locator, Page, TestInfo } from '@playwright/test'
 import {
+  openFileSearch,
   expect,
   fileEditorPosition,
   openFarming,
@@ -239,6 +240,7 @@ test.describe('mobile Files production journeys', () => {
     await reviewPage.close()
 
     const reopenedFiles = await projectFiles(page, 'mobile-git-inspection')
+    await openFileSearch(reopenedFiles)
     const search = reopenedFiles.getByPlaceholder('Search or path:line')
     await search.tap()
     await search.fill('src/App.tsx:2')

@@ -1,4 +1,4 @@
-import { request as playwrightRequest, test as base, expect, type Page } from '@playwright/test'
+import { request as playwrightRequest, test as base, expect, type Page, type Locator } from '@playwright/test'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -663,4 +663,13 @@ export async function scrollTerminalToLine(page: Page, agentId: string, line: nu
     },
     { id: agentId, targetLine: line }
   )
+}
+
+/** Enter Files search through its public toggle before interacting with the input. */
+export async function openFileSearch(files: Locator) {
+  const toggle = files.getByTestId('code-files-search-toggle')
+  if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click()
+  const input = files.getByRole('combobox')
+  await expect(input).toBeVisible()
+  return input
 }

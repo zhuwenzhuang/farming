@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { Locator, Page, TestInfo } from '@playwright/test'
 import {
+  openFileSearch,
   expect,
   openFarming,
   openNewAgentDialog,
@@ -396,6 +397,7 @@ test('keeps deep file names visible without a scroll-linked ancestor row', async
   const filesTitle = files.getByRole('button', { name: 'Files', exact: true })
   if (await filesTitle.getAttribute('aria-expanded') !== 'true') await filesTitle.click()
   const search = files.getByPlaceholder('Search or path:line')
+  await openFileSearch(files)
   await search.fill(`${TARGET_FILE}:1`)
   await search.press('Enter')
 
@@ -450,6 +452,7 @@ test('keeps deep file names visible without a scroll-linked ancestor row', async
   })
   await expect(files.getByTestId('code-file-sticky-stack')).toHaveCount(0)
 
+  await openFileSearch(files)
   await search.fill(`${TARGET_FILE}:1`)
   await search.press('Enter')
   await expectVisibleFileName()
@@ -522,6 +525,7 @@ test('keeps explicit user collapses when tabs change or a reveal is still loadin
   await expect(workflow).toHaveAttribute('aria-expanded', 'false')
 
   const pendingLoad = gate.blockNext('tree', 'pending')
+  await openFileSearch(files)
   const search = files.getByPlaceholder('Search or path:line')
   await search.fill('pending/nested.ts:1')
   await search.press('Enter')
@@ -552,6 +556,7 @@ test('keeps the Files header seam opaque over scrolled file rows', async ({ page
   const files = project.getByTestId('code-files-section')
   const filesTitle = files.getByRole('button', { name: 'Files', exact: true })
   if (await filesTitle.getAttribute('aria-expanded') !== 'true') await filesTitle.click()
+  await openFileSearch(files)
   const search = files.getByPlaceholder('Search or path:line')
   await search.fill('file-39.ts:1')
   await search.press('Enter')

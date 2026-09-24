@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { expect, openFarming, test } from './fixtures'
+import { openFileSearch, expect, openFarming, test } from './fixtures'
 
 for (const appearance of ['light', 'dark', 'paper'] as const) {
   test(`Settings and About share modal keyboard ownership in ${appearance}`, async ({ page }, testInfo) => {
@@ -164,6 +164,7 @@ test('file edits and search retain composition and consume Escape once', async (
   await expect(input).toBeHidden()
   expect(fs.existsSync(path.join(workspace, 'sample.txt'))).toBe(true)
   expect(fs.existsSync(path.join(workspace, 'draft-name.txt'))).toBe(false)
+  await openFileSearch(files)
   const search = files.locator('.code-file-search-box input')
   await search.fill('sample')
   await search.dispatchEvent('keydown', { key: 'Escape', isComposing: true, bubbles: true, cancelable: true })
@@ -175,5 +176,7 @@ test('file edits and search retain composition and consume Escape once', async (
   await expect(search).toHaveValue('sample')
   await page.keyboard.up('Escape')
   await page.keyboard.press('Escape')
-  await expect(search).toHaveValue('')
+  await expect(search).toHaveValue('sample')
+  await page.keyboard.press('Escape')
+  await expect(search).toHaveCount(0)
 })

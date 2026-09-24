@@ -16,7 +16,8 @@ interface UseWorkspaceFileSearchControllerOptions {
   fileSearchInputRef: RefObject<HTMLInputElement | null>
   fileSearchResultsRef: RefObject<HTMLDivElement | null>
   filesCollapsed: boolean
-  focusFileTreeFromSearch: () => void
+  fileSearchTriggerRef: RefObject<HTMLButtonElement | null>
+  onCancelPendingFileFocus: () => void
   listboxId: string
   onOpenFilePath: (filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void>
   onRevealDirectoryPath: (directoryPath: string) => Promise<unknown>
@@ -29,7 +30,8 @@ export function useWorkspaceFileSearchController({
   fileSearchInputRef,
   fileSearchResultsRef,
   filesCollapsed,
-  focusFileTreeFromSearch,
+  fileSearchTriggerRef,
+  onCancelPendingFileFocus,
   listboxId,
   onOpenFilePath,
   onRevealDirectoryPath,
@@ -77,7 +79,7 @@ export function useWorkspaceFileSearchController({
       return
     }
 
-    if (event.key !== 'Enter') return
+    if (event.key !== 'Enter' || !fileSearch.active) return
     event.preventDefault()
     event.stopPropagation()
     if (openFileJumpQuery(event.currentTarget.value)) return
@@ -100,12 +102,14 @@ export function useWorkspaceFileSearchController({
   }, [fileSearch.active, fileSearch.activeMatchIndex, fileSearch.matches.length, fileSearchResultsRef])
 
   useInteractionLayer({
-    enabled: !filesCollapsed && fileSearch.active && !fileMenuOpen && !fileOperationActive,
-    elements: () => [fileSearchInputRef.current, fileSearchResultsRef.current],
+    enabled: !filesCollapsed && fileSearch.isOpen && !fileMenuOpen && !fileOperationActive,
+    elements: () => [fileSearchInputRef.current, fileSearchResultsRef.current, fileSearchTriggerRef.current],
     dismissOnPointerOutside: false,
+    returnFocus: () => fileSearch.active ? fileSearchInputRef.current : fileSearchTriggerRef.current,
     onDismiss: () => {
-      fileSearch.clear()
-      focusFileTreeFromSearch()
+      onCancelPendingFileFocus()
+      if (fileSearch.active) fileSearch.dismissSuggestions()
+      else fileSearch.clear()
     },
   })
 

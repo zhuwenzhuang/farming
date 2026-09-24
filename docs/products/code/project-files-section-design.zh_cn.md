@@ -32,7 +32,7 @@ Directory Tree 不能创建互相竞争的 Project 级滚动条。深层目录�
 当某个 Project 占据该 Scroll Surface 顶部时，它的 Project Row、Agent Rows、Open Editors 与
 Files Header 组成同一个分层 Sticky Summary；后一层 Offset 来自前面各层的实测高度。Project
 到达尾部边界后，所有可见层必须以相同 Scroll Delta 一起释放，后层不能先滑过并遮住 Project
-名称或 Branch。Directory Row 从这组 Summary Stack 下方滚过，不再增加随滚动联动的祖先摘要行。
+名称或 Branch。Directory Row 从这组 Summary Stack 下方滚过；祖先上下文仅作为已有 Files Header 内的元数据，不新增吸顶目录行。
 
 Open Editors 最多显示 7 个响应式文件行。列表始终拥有相同的垂直 Overflow 几何；实测的经典
 Scrollbar 宽度放到外部通道，使第 7 项与第 8 项之间的标签和操作 X 坐标、宽度保持不变。
@@ -254,6 +254,32 @@ Directory Tree 不渲染屏外祖先的随滚动联动副本；真实的 Virtual
 保留 48 CSS Pixel。更深层级可以共用达到上限后的缩进，长文件名可以省略显示，但文件名本身必须
 保留可见空间；Row 的 Accessible Label 继续提供完整路径。
 
+### Files Header 上下文与搜索
+
+Explorer 按实际展示的树行生成父目录路径 Projection，包含单目录链压缩。展开状态或目录数据改变时
+重建 Projection。每次挂载的树从同一 Explorer 状态初始化展开目录，包含缓存数据未改变时
+重新展开 Files 的情况。Files Header 下方未被遮挡视口中第一条相交的行决定路径，只展示已经滚过该边界
+的祖先；根层行、视口外的树或折叠的 Files 不展示上下文。选中项和当前 Editor 不决定这里的路径。
+滚动帧只读取有界容器几何并索引 Projection，不遍历或测量文件行。路径只改变固定高度、有限宽度
+区域内的文字，不写入 Scroll Position、Transform、Indentation、Expansion 或 Selection；路径文字
+渲染结果也不能成为可见性计算输入。
+
+优先显示完整的 Project 相对路径。宽度不足时逐段省略左侧目录并标记省略号，保留尽可能多的尾部
+目录（尽量保留末两级）；只有最后一级也放不下时才截断该目录名。Hover、键盘聚焦或触屏点击可
+查看允许换行、限制在视口内的完整路径提示。提示不导航，外部点击和 Escape 由共享交互层处理；
+滚动、路径变化或卸载关闭提示。
+
+搜索状态由搜索 Owner 管理，分为关闭、输入和建议已关闭。点击搜索、文件树搜索快捷键或显式目录
+搜索进入输入状态，无滚动聚焦输入框。输入重新显示建议；第一次 Escape 关闭建议并保留查询和
+焦点，第二次关闭搜索、清空查询及目录范围并将焦点返回搜索按钮。关闭按钮直接执行后者。IME
+Escape 留给输入法；Enter 只接受可见建议。选择结果沿用导航 Owner 并清空搜索。请求代际、取消、
+超时和失败仍由搜索负责；关闭取消待完成请求，迟到结果不能重新打开搜索。折叠 Files 关闭搜索
+并清空查询及目录范围。卸载释放全部 Observer 和待执行帧，搜索及提示输出不得形成树布局反馈循环。
+
+验收覆盖原生滚动条拖拽、滚轮和触屏跨目录滚动、单目录链、长名称、改宽、前置区块展开收起、
+多 Project、搜索快捷键及范围、IME、两阶段 Escape、迟到结果和 Light/Dark/Paper。验证中间帧
+几何及有界工作量，不能只检查最终 DOM 存在。
+
 文本使用轻量 Editor。Markdown 与静态 HTML 可以在同一 File Identity 中切换 Source 与有界
 Preview。Image、PDF、Binary 与 Oversized Text 使用 Read-only Viewer。所有 Viewer 共用同一
 Project Authorization，不能形成独立 File Access Path。
@@ -361,9 +387,9 @@ Issue Reference 遵循 Workspace `.idea/vcs.xml` 内的 IntelliJ
   Label 与 State Slot，但不能移动 Label Origin。
 - 在所有 Layout Width 下，同一 Tree Depth 中的 File Icon 与 Directory Chevron 使用同一个
   前导 Slot；文件不能额外保留一列空 Chevron。
-- 在 Pointer Layout 中，Files Search 与 Refresh Control 在 Header Hover 时渐进显示；
-  Search 获得焦点或内容非空时继续保持可见，Compact Touch Layout 不依赖 Hover 并常显 Search。
-  刷新成功反馈结束时，若没有 Hover 或键盘焦点，应与回到 Idle 同时隐藏控件，不能在淡出过程中闪现 Idle 图标。
+- Files Header 在鼠标与触屏布局中固定保留标题、搜索切换和刷新操作。中间区域显示视口目录上下文，
+  或显式打开的搜索输入框；Hover 不切换模式。搜索默认保持 Project 范围，只有用户明确选择目录搜索
+  才改变范围，视口路径不改变搜索范围。
 - Open Editors 只在需要时出现，并与 Tree 分离。
 - 在 393 CSS Pixel 及更窄布局中，可用的 Save、Source/Preview、Overwrite Conflict 与
   Agent-side Control 继续作为直接主操作。Reveal、Share、Diff、Split Preview、Markdown

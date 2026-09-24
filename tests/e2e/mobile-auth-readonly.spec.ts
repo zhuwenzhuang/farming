@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { devices, type Browser, type BrowserContext, type Page } from '@playwright/test'
-import { expect, test } from './fixtures'
+import { openFileSearch, expect, test } from './fixtures'
 
 const OWNER_TOKEN = 'mobile-auth-owner-fixture-token'
 
@@ -174,6 +174,7 @@ test('enforces Owner and read-only authority across real mobile authentication',
     await expect(fileMenu.getByRole('menuitem', { name: 'New Folder' })).toHaveCount(0)
     await expect(fileMenu.getByRole('menuitem', { name: 'Rename' })).toHaveCount(0)
     await expect(fileMenu.getByRole('menuitem', { name: 'Delete' })).toHaveCount(0)
+    await openFileSearch(guestFiles)
     await guestFiles.getByPlaceholder('Search or path:line').click()
     await expect(fileMenu).toHaveCount(0)
     await readmeRow.click()

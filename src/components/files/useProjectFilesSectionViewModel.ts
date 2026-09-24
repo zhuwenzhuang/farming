@@ -40,6 +40,7 @@ interface UseProjectFilesSectionViewModelOptions {
   handleTreeKeyDownCapture: (event: ReactKeyboardEvent<HTMLDivElement>) => void
   lastFocusedFilePathRef: MutableRefObject<string | null>
   locatedFilePath?: string | null
+  openDirectoryPaths: ReadonlySet<string>
   openEditorsCollapsed: boolean
   openFileError: string | null
   openFilePendingPath: string | null
@@ -108,6 +109,7 @@ export function useProjectFilesSectionViewModel({
   handleTreeKeyDownCapture,
   lastFocusedFilePathRef,
   locatedFilePath,
+  openDirectoryPaths,
   openEditorsCollapsed,
   openFileError,
   openFilePendingPath,
@@ -223,6 +225,7 @@ export function useProjectFilesSectionViewModel({
     lastFocusedFilePathRef,
     locatedFilePath,
     openFilePendingPath,
+    openDirectoryPaths,
     renderFileTreeRow,
     rowHeight,
     treeData,
@@ -254,6 +257,7 @@ export function useProjectFilesSectionViewModel({
     lastFocusedFilePathRef,
     locatedFilePath,
     openFilePendingPath,
+    openDirectoryPaths,
     renderFileTreeRow,
     rowHeight,
     treeData,

@@ -207,6 +207,7 @@ export function ProjectFilesSection({
   const fileOperationActiveRef = useRef(false)
   const filesSectionRef = useRef<HTMLDivElement | null>(null)
   const fileSearchInputRef = useRef<HTMLInputElement | null>(null)
+  const fileSearchTriggerRef = useRef<HTMLButtonElement | null>(null)
   const fileSearchResultsRef = useRef<HTMLDivElement | null>(null)
   const lastAutoRevealedActivePathRef = useRef<string | null>(null)
   const filesRefreshInFlightRef = useRef(false)
@@ -243,7 +244,6 @@ export function ProjectFilesSection({
   const {
     cancelPendingFileFocus,
     focusFileSearchInput,
-    focusFileTreeFromSearch,
     focusFileTreePath,
     focusFileTreeTarget,
     locatedFilePath,
@@ -254,6 +254,7 @@ export function ProjectFilesSection({
     treeViewportRef,
     fileSearchInputRef,
     fileOperationActiveRef,
+    onOpenFileSearch: fileSearch.open,
     lastFocusedFilePathRef,
     treeData,
     isDirectoryLoaded,
@@ -573,8 +574,9 @@ export function ProjectFilesSection({
     fileSearch,
     fileSearchInputRef,
     fileSearchResultsRef,
+    fileSearchTriggerRef,
     filesCollapsed,
-    focusFileTreeFromSearch,
+    onCancelPendingFileFocus: cancelPendingFileFocus,
     listboxId: fileSearchListboxId,
     onOpenFilePath: openFilePath,
     onRevealDirectoryPath: directoryPath => revealExplorerPath(directoryPath, 'directory'),
@@ -634,6 +636,7 @@ export function ProjectFilesSection({
     handleTreeKeyDownCapture: stableHandleTreeKeyDownCapture,
     lastFocusedFilePathRef,
     locatedFilePath,
+    openDirectoryPaths,
     openEditorsCollapsed,
     openFileError,
     openFilePendingPath,
@@ -699,6 +702,14 @@ export function ProjectFilesSection({
       >
         <FileSectionHeader
           {...viewModel.sectionHeader}
+          searchOpen={fileSearch.isOpen}
+          searchTriggerRef={fileSearchTriggerRef}
+          onOpenSearch={fileSearch.open}
+          onCloseSearch={fileSearch.clear}
+          treeData={treeData}
+          openDirectoryPaths={openDirectoryPaths}
+          treeViewportRef={treeViewportRef}
+          rowHeight={fileRowHeight}
           refreshStatus={filesRefreshStatus}
           refreshError={filesRefreshStatus === 'error' ? [
             filesRefreshError,

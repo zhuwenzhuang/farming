@@ -1,5 +1,6 @@
-import type { KeyboardEvent as ReactKeyboardEvent, RefObject } from 'react'
-import { CheckGlyph, ChevronDownGlyph, ChevronRightGlyph, ErrorGlyph } from '@/components/IconGlyphs'
+import { useLayoutEffect, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from 'react'
+import { FileHeaderPath, type FileHeaderPathProps } from './FileHeaderPath'
+import { CheckGlyph, ChevronDownGlyph, ChevronRightGlyph, CloseGlyph, ErrorGlyph, SearchGlyph } from '@/components/IconGlyphs'
 import { isTouchInputViewport } from '@/lib/responsive-mode'
 import type { CodeCopy } from '../code/copy'
 
@@ -14,7 +15,11 @@ export interface FileSectionHeaderSearch {
 
 export type FileSectionRefreshStatus = 'idle' | 'refreshing' | 'success' | 'error'
 
-interface FileSectionHeaderProps {
+interface FileSectionHeaderProps extends FileHeaderPathProps {
+  searchOpen: boolean
+  searchTriggerRef: RefObject<HTMLButtonElement | null>
+  onOpenSearch: () => void
+  onCloseSearch: () => void
   copy: CodeCopy
   filesCollapsed: boolean
   refreshStatus: FileSectionRefreshStatus
@@ -29,6 +34,14 @@ interface FileSectionHeaderProps {
 
 export function FileSectionHeader({
   copy,
+  searchOpen,
+  searchTriggerRef,
+  onOpenSearch,
+  onCloseSearch,
+  treeData,
+  openDirectoryPaths,
+  treeViewportRef,
+  rowHeight,
   filesCollapsed,
   refreshStatus,
   refreshError,
@@ -39,6 +52,10 @@ export function FileSectionHeader({
   onRefreshFiles,
   onToggleFilesCollapsed,
 }: FileSectionHeaderProps) {
+  useLayoutEffect(() => {
+    if (searchOpen && !filesCollapsed) search.inputRef.current?.focus({ preventScroll: true })
+  }, [searchOpen, filesCollapsed, search.inputRef])
+
   const refreshLabel = refreshStatus === 'refreshing'
     ? copy.refreshingFiles
     : refreshStatus === 'success'
@@ -62,7 +79,9 @@ export function FileSectionHeader({
           <span>{copy.files}</span>
         </button>
       </div>
-      {!filesCollapsed && (
+      {!filesCollapsed && !searchOpen && <FileHeaderPath treeData={treeData} openDirectoryPaths={openDirectoryPaths}
+        treeViewportRef={treeViewportRef} rowHeight={rowHeight} label={copy.visibleFileDirectory} />}
+      {!filesCollapsed && searchOpen && (
         <label className="code-file-search-box">
           <span className="code-file-search-icon" aria-hidden="true" />
           <input
@@ -103,6 +122,24 @@ export function FileSectionHeader({
           />
         </label>
       )}
+      {!filesCollapsed && <button ref={searchTriggerRef} type="button"
+        className="code-files-header-search-toggle code-files-refresh"
+        data-testid="code-files-search-toggle"
+        aria-label={searchOpen ? copy.closeFileSearch : copy.searchFilesOrJump}
+        title={searchOpen ? copy.closeFileSearch : copy.searchFilesOrJump}
+        aria-expanded={searchOpen}
+        onPointerDown={event => {
+          if (!isTouchInputViewport()) return
+          event.preventDefault()
+          event.currentTarget.focus({ preventScroll: true })
+        }}
+        onClick={() => {
+          onCancelPendingFileFocus()
+          if (searchOpen) onCloseSearch()
+          else onOpenSearch()
+        }}>
+        <span className="code-files-refresh-glyph">{searchOpen ? <CloseGlyph /> : <SearchGlyph />}</span>
+      </button>}
       <span
         className="code-files-header-actions"
         data-testid="code-files-header-actions"

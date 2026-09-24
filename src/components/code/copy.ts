@@ -442,6 +442,8 @@ export interface CodeCopy {
   gitHistoryChangesTruncated: string
   searchOrPathLine: string
   searchFilesOrJump: string
+  closeFileSearch: string
+  visibleFileDirectory: string
   searchInDirectory: string
   searchThisDirectory: string
   searchThisDirectoryShort: string
@@ -1152,6 +1154,8 @@ const EN_COPY: CodeCopy = {
   gitHistoryChangesTruncated: 'More changed files were omitted',
   searchOrPathLine: 'Search or path:line',
   searchFilesOrJump: 'Search files or jump to path line',
+  closeFileSearch: 'Close file search',
+  visibleFileDirectory: 'Directory of visible files',
   searchInDirectory: 'Search in',
   searchThisDirectory: 'Search this directory',
   searchThisDirectoryShort: 'Search',
@@ -1898,6 +1902,8 @@ const ZH_COPY: CodeCopy = {
   gitHistoryChangesTruncated: '还有部分变更文件未展示',
   searchOrPathLine: '搜索或路径:行号',
   searchFilesOrJump: '搜索文件或跳转到路径行号',
+  closeFileSearch: '关闭文件搜索',
+  visibleFileDirectory: '当前可见内容的目录',
   searchInDirectory: '搜索目录',
   searchThisDirectory: '搜索此目录',
   searchThisDirectoryShort: '搜索',
