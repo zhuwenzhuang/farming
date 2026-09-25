@@ -313,10 +313,14 @@ export function FileEditorPane({
     const editor = editorRef.current
     const selection = editor?.getSelection()
     const model = editor?.getModel()
-    if (!selection || selection.isEmpty() || !model || !onQuoteSelection) return
+    if (!model || !onQuoteSelection) return
+    if (!selection || selection.isEmpty()) {
+      setSelectionQuoteError(copy.quoteSelectFirst)
+      return
+    }
     const text = model.getValueInRange(selection)
     if (text.length > 6000) {
-      setSelectionQuoteError('Selection is too long to attach. Select at most 6,000 characters.')
+      setSelectionQuoteError(copy.quoteSelectionTooLong)
       return
     }
     setSelectionQuoteError('')

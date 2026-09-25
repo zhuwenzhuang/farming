@@ -1241,7 +1241,7 @@ export function CodeMainArea({
         ReadyFileEditorPane ? (
           <ReadyFileEditorPane
             openFile={openWorkspaceFile}
-            onQuoteSelection={!readOnly && resourceAgentId && activeAgent?.id === resourceAgentId && isAcpRuntime(activeAgent) ? (text, context) => {
+            onQuoteSelection={!readOnly && resourceAgentId && activeAgent?.id === resourceAgentId ? (text, context) => {
               onBackToAgentFromFile(resourceAgentId)
               onQuoteSelection(resourceAgentId, text, context)
             } : undefined}

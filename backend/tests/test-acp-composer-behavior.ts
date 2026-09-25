@@ -239,6 +239,29 @@ async function run() {
   assert.strictEqual(state.submissions, undefined);
   assert.deepStrictEqual(state.history.entries, ['submitted draft']);
 
+  let acceptReferenceSubmission;
+  state = {
+    ...createDefaultAgentComposerState(),
+    draft: 'inspect reference',
+    contextReferences: [contextReference],
+  };
+  const referenceResult = submitAcpDraft({
+    agent: contextAgent,
+    composerKey: 'acp:session-1',
+    draft: state.draft,
+    attachments: [],
+    contextReferences: [contextReference],
+    composerMode: 'default',
+    turnActive: false,
+    sendMessage: () => new Promise(resolve => { acceptReferenceSubmission = resolve; }),
+    updateComposerState,
+  });
+  state = { ...state, contextReferences: [] };
+  acceptReferenceSubmission(true);
+  assert.strictEqual(await referenceResult, true);
+  assert.strictEqual(state.draft, 'inspect reference', 'a late ACK must preserve a draft whose references changed');
+  assert.deepStrictEqual(state.contextReferences, []);
+
   let acceptModeSubmission;
   state = {
     ...createDefaultAgentComposerState(),

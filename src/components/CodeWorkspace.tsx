@@ -2448,7 +2448,7 @@ export function CodeWorkspace({
   }, [agents, copy.subagent])
   const quoteSelectionForAgent = useCallback((agentId: string, text: string, context?: Omit<ComposerContextReference, 'id'>) => {
     const agent = agents.find(candidate => candidate.id === agentId)
-    const composerKey = acpComposerStateKeyForAgent(agent)
+    const composerKey = isAcpRuntime(agent) ? acpComposerStateKeyForAgent(agent) : composerStateKeyForAgent(agent)
     const quote = quotedSelectionBlock(text)
     if (!composerKey || (!quote && !context)) return
     const validContext = context && agent && agent.cwd === context.workspace

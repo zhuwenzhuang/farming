@@ -28,6 +28,8 @@ export interface CodeCopy {
   showRelatedAgents: string
   hideRelatedAgents: string
   quoteSelection: string
+  quoteSelectFirst: string
+  quoteSelectionTooLong: string
   quoteInParent: string
   sideChatDescription: string
   nativeChildDescription: string
@@ -726,6 +728,8 @@ const EN_COPY: CodeCopy = {
   showRelatedAgents: 'Show subagents',
   hideRelatedAgents: 'Hide subagents',
   quoteSelection: 'Quote in chat',
+  quoteSelectFirst: 'Select code in the editor first.',
+  quoteSelectionTooLong: 'Selection is too long to attach. Select at most 6,000 characters.',
   quoteInParent: 'Quote in parent chat',
   sideChatDescription: 'Side chat · You can reply. Accepted work continues while you are away.',
   nativeChildDescription: 'Delegated task · The parent Agent controls this conversation.',
@@ -1457,6 +1461,8 @@ const ZH_COPY: CodeCopy = {
   showRelatedAgents: '显示子 Agent',
   hideRelatedAgents: '隐藏子 Agent',
   quoteSelection: '引用提问',
+  quoteSelectFirst: '请先在编辑器中选择代码。',
+  quoteSelectionTooLong: '选区过长，最多可引用 6,000 个字符。',
   quoteInParent: '引用到父会话',
   sideChatDescription: '旁聊 · 可继续提问，已接受的任务会在你离开后继续执行。',
   nativeChildDescription: '委派任务 · 由父 Agent 控制此会话。',
