@@ -123,7 +123,7 @@ export function FileSectionHeader({
         </label>
       )}
       {!filesCollapsed && <button ref={searchTriggerRef} type="button"
-        className="code-files-header-search-toggle code-files-refresh"
+        className="code-files-refresh"
         data-testid="code-files-search-toggle"
         aria-label={searchOpen ? copy.closeFileSearch : copy.searchFilesOrJump}
         title={searchOpen ? copy.closeFileSearch : copy.searchFilesOrJump}
