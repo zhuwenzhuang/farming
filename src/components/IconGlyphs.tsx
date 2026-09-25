@@ -2,6 +2,15 @@ import type { SVGProps } from 'react'
 
 type IconGlyphProps = SVGProps<SVGSVGElement>
 
+export function QuestionGlyph(props: IconGlyphProps) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false" {...props}>
+      <circle cx="8" cy="8" r="6" />
+      <path d="M6.25 6a1.75 1.75 0 0 1 3.5 0c0 1.25-1.75 1.25-1.75 2.75M8 11h.01" />
+    </svg>
+  )
+}
+
 export function BellGlyph({ filled = false, ...props }: IconGlyphProps & { filled?: boolean }) {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false" {...props}>

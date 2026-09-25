@@ -1,3 +1,4 @@
+import { pendingAgentQuestions, revealQuestions } from './acp/acp-elicitation-presentation'
 import { NativeRelatedRows } from './NativeRelatedRows'
 import type { RelatedSessionTarget } from './related-session-navigation'
 import type {
@@ -24,6 +25,7 @@ import {
   NewAgentGlyph,
   PencilGlyph,
   PuzzleGlyph,
+  QuestionGlyph,
   SettingsGlyph,
   SearchGlyph,
   VisibilityGlyph,
@@ -3070,6 +3072,7 @@ function AgentRow({
       : undefined,
     forceAgeVisible: dynamicPinningEnabled,
   })
+  const pendingQuestions = pendingAgentQuestions(liveAgent)
   const requiresResume = rowState.requiresResume
   const liveAgentId = liveAgent?.id ?? ''
   const sessionProvider = session?.provider ?? ''
@@ -3151,7 +3154,7 @@ function AgentRow({
     <>
     <div
       tabIndex={0}
-      className={`code-agent-row ${liveAgent?.subagentParentSessionKey ? 'related-child' : ''} ${providerIcon ? 'has-provider' : ''} ${requiresResume ? 'requires-resume' : ''} ${active ? 'active' : ''} ${searchSelected ? 'search-selected' : ''} ${rowState.pinned ? 'pinned' : ''} ${liveAgent?.followUp === true ? 'follow-up' : ''} ${rowState.unread ? 'unread' : ''} ${dynamicPinningEnabled ? 'force-age' : ''} ${dragging ? 'dragging' : ''} ${dropPosition ? `drop-${dropPosition}` : ''}`}
+      className={`code-agent-row ${pendingQuestions.length ? 'has-pending-questions' : ''} ${liveAgent?.subagentParentSessionKey ? 'related-child' : ''} ${providerIcon ? 'has-provider' : ''} ${requiresResume ? 'requires-resume' : ''} ${active ? 'active' : ''} ${searchSelected ? 'search-selected' : ''} ${rowState.pinned ? 'pinned' : ''} ${liveAgent?.followUp === true ? 'follow-up' : ''} ${rowState.unread ? 'unread' : ''} ${dynamicPinningEnabled ? 'force-age' : ''} ${dragging ? 'dragging' : ''} ${dropPosition ? `drop-${dropPosition}` : ''}`}
       draggable={(reorderable && !isTouchInputViewport()) || undefined}
       data-testid={rowTestId}
       data-agent-id={liveAgent?.id}
@@ -3240,6 +3243,18 @@ function AgentRow({
         )}
       </span>
       <span className="code-agent-row-trailing">
+        {pendingQuestions.length > 0 && liveAgent ? <button type="button"
+          className="code-agent-row-question" data-testid="code-agent-row-question"
+          aria-label={copy.questionCount(pendingQuestions.length)} title={copy.questionCount(pendingQuestions.length)}
+          onClick={event => {
+            event.preventDefault()
+            event.stopPropagation()
+            onHidePreview?.()
+            revealQuestions(liveAgent.id, pendingQuestions)
+            openRow()
+          }}>
+          <QuestionGlyph /><span>{pendingQuestions.length > 99 ? '99+' : pendingQuestions.length}</span>
+        </button> : null}
         <AgentStatusIndicator state={rowState} className="code-agent-dot" />
         {rowState.forkedToNewWorktree && (
           <span

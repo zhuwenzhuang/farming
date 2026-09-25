@@ -235,6 +235,26 @@ and cancellation settle once; settlement releases the cancellation listener.
 Connection loss and runtime replacement retain their existing ownership and
 recovery boundaries and never replay an answer.
 
+Pending questions and Turn execution are independent. Receiving an elicitation
+does not suspend a running Turn. The backend owns request validity and removes
+only answered, declined, cancelled, or invalidated requests. No browser timer
+answers or expires a question. Browser presentation, keyed by Agent and request
+identity, owns collapse and unsubmitted drafts; switching Agents preserves them,
+while runtime replacement cannot reuse them. New requests expand the question
+surface without taking focus. “Later” only collapses it; “Skip” sends `decline`.
+Submission is single-flight, retains the card until authoritative resolution,
+and shows bounded failures. An uncertain response is never automatically replayed.
+
+Questions use a bounded, scrollable inline surface above the Composer. A collapsed
+surface retains its count and an explicit expand action. The Agent row exposes
+the same authoritative pending count as one neutral question button, independent
+of execution status and protected from hover-action overlays. Activating it opens
+the Agent through normal navigation and reveals its questions. Keyboard and
+compact layouts retain the same actions. Accepted URL interactions remain distinct
+from questions awaiting an answer. Acceptance covers concurrent questions,
+collapse without response, draft preservation, answer/withdrawal races, failure,
+background updates, restart, and Light, Dark, and Paper appearances.
+
 Qwen Code's version 1 prompt-suggestion notification is normalized at that
 boundary into ephemeral, provider-neutral Composer state. It can replace the
 empty follow-up placeholder and be copied into the draft with Tab, but it is

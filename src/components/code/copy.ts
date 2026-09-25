@@ -32,6 +32,19 @@ export interface CodeCopy {
   sideChatDescription: string
   nativeChildDescription: string
   relatedWaitingPermission: string
+  questionPending: string
+  questionCount: (count: number) => string
+  questionLater: string
+  questionSkip: string
+  questionSubmit: string
+  questionExpand: string
+  questionCollapse: string
+  questionRunning: string
+  questionSubmitting: string
+  questionUncertain: string
+  questionFailed: string
+  questionChoose: string
+  questionRequired: (label: string) => string
   relatedWaitingInput: string
   relatedStatusUnavailable: string
   relatedFinished: (count: number) => string
@@ -711,6 +724,19 @@ const EN_COPY: CodeCopy = {
   sideChatDescription: 'Side chat · You can reply. Accepted work continues while you are away.',
   nativeChildDescription: 'Delegated task · The parent Agent controls this conversation.',
   relatedWaitingPermission: 'Waiting for approval',
+  questionPending: 'Awaiting answer',
+  questionCount: count => `${count} pending question${count === 1 ? '' : 's'}`,
+  questionLater: 'Answer later',
+  questionSkip: 'Skip',
+  questionSubmit: 'Submit answer',
+  questionExpand: 'Expand',
+  questionCollapse: 'Collapse questions',
+  questionRunning: 'Running',
+  questionSubmitting: 'Submitting…',
+  questionUncertain: 'Answer status unconfirmed. Refresh to check before trying again.',
+  questionFailed: 'Could not submit the answer.',
+  questionChoose: 'Choose…',
+  questionRequired: label => `Please complete ${label}.`,
   relatedWaitingInput: 'Waiting for input',
   relatedStatusUnavailable: 'Status unavailable',
   relatedFinished: count => `Finished · ${count}`,
@@ -1423,6 +1449,19 @@ const ZH_COPY: CodeCopy = {
   sideChatDescription: '旁聊 · 可继续提问，已接受的任务会在你离开后继续执行。',
   nativeChildDescription: '委派任务 · 由父 Agent 控制此会话。',
   relatedWaitingPermission: '等待批准',
+  questionPending: '待回答',
+  questionCount: count => `${count} 个待回答问题`,
+  questionLater: '稍后回答',
+  questionSkip: '跳过',
+  questionSubmit: '提交回答',
+  questionExpand: '展开',
+  questionCollapse: '收起问题',
+  questionRunning: '运行中',
+  questionSubmitting: '正在提交…',
+  questionUncertain: '回答结果尚未确认，请刷新核实状态后再操作。',
+  questionFailed: '回答提交失败。',
+  questionChoose: '请选择…',
+  questionRequired: label => `请填写或选择${label}。`,
   relatedWaitingInput: '等待输入',
   relatedStatusUnavailable: '状态不可用',
   relatedFinished: count => `已结束 · ${count}`,

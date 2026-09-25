@@ -1,4 +1,6 @@
 import { useMemo, useState, type FormEvent } from 'react'
+import type { CodeCopy } from '../copy'
+import type { ElicitationDraft, ElicitationValues } from './acp-elicitation-presentation'
 import { CodeSelect } from '@/components/CodeSelect'
 import type { AcpElicitationProperty, AcpPendingElicitation } from '@/types/agent'
 
@@ -6,6 +8,10 @@ type ElicitationValue = string | number | boolean | string[]
 
 interface AcpElicitationCardProps {
   request: AcpPendingElicitation
+  copy: CodeCopy
+  draft?: ElicitationDraft
+  onValuesChange?: (values: ElicitationValues) => void
+  onLater?: () => void
   onRespond: (
     requestId: string,
     action: 'accept' | 'decline' | 'cancel',
@@ -28,17 +34,18 @@ function initialValue(property: AcpElicitationProperty): ElicitationValue {
     return typeof property.default === 'number' ? property.default : ''
   }
   if (typeof property.default === 'string') return property.default
-  return choices(property)[0]?.value || ''
+  return ''
 }
 
-export function AcpElicitationCard({ request, onRespond }: AcpElicitationCardProps) {
+export function AcpElicitationCard({ request, onRespond, copy, draft, onValuesChange, onLater }: AcpElicitationCardProps) {
   const properties = request.requestedSchema?.properties || {}
   const required = new Set(request.requestedSchema?.required || [])
-  const [values, setValues] = useState<Record<string, ElicitationValue>>(() => Object.fromEntries(
-    Object.entries(properties).map(([name, property]) => [name, initialValue(property)]),
-  ))
+  const defaults = Object.fromEntries(Object.entries(properties).map(([name, property]) => [name, initialValue(property)]))
+  const values = draft?.values || defaults
+  const setValues = (update: (current: ElicitationValues) => ElicitationValues) => onValuesChange?.(update(values))
+  const disabled = Boolean(draft?.status)
   const [validationError, setValidationError] = useState('')
-  const title = request.requestedSchema?.title || 'Input requested'
+  const title = request.requestedSchema?.title || copy.questionPending
   const acceptedUrl = request.mode === 'url' && request.status === 'accepted'
   const safeUrl = useMemo(() => {
     if (request.mode !== 'url' || !request.url) return ''
@@ -52,8 +59,13 @@ export function AcpElicitationCard({ request, onRespond }: AcpElicitationCardPro
 
   const submit = (event: FormEvent) => {
     event.preventDefault()
+    if (disabled) return
     for (const [name, property] of Object.entries(properties)) {
       const value = values[name]
+      if (required.has(name) && value === '') {
+        setValidationError(copy.questionRequired(property.title || name))
+        return
+      }
       if (property.type !== 'array') continue
       const selected = Array.isArray(value) ? value : []
       const minimum = Math.max(required.has(name) ? 1 : 0, Number(property.minItems || 0))
@@ -76,16 +88,17 @@ export function AcpElicitationCard({ request, onRespond }: AcpElicitationCardPro
 
   return (
     <form className="code-acp-request code-acp-elicitation" data-testid="code-acp-elicitation" data-status={request.status || 'pending'} onSubmit={submit}>
-      <header><strong>{title}</strong><span>{request.origin === 'subagent' ? `Subagent · ${request.mode}` : request.mode}</span></header>
-      <p>{request.message}</p>
+      {request.requestedSchema?.title || request.origin === 'subagent' || acceptedUrl ? <header><strong>{title}</strong>{request.origin === 'subagent' ? <span>{copy.subagent}</span> : null}</header> : null}
+      <p className="code-acp-elicitation-message">{request.message}</p>
       {request.requestedSchema?.description ? <small>{request.requestedSchema.description}</small> : null}
+      {draft?.error ? <small className="code-acp-elicitation-error" role="alert">{draft.error}</small> : null}
       {validationError ? <small className="code-acp-elicitation-error" role="alert">{validationError}</small> : null}
       {request.mode === 'url' ? (
         safeUrl ? (
           <a className="code-acp-elicitation-link" href={safeUrl} target="_blank" rel="noreferrer">Open secure link</a>
         ) : <small role="alert">The Agent provided an unsupported link.</small>
       ) : (
-        <div className="code-acp-request-questions">
+        <fieldset className="code-acp-request-questions code-acp-elicitation-fields" disabled={disabled}>
           {Object.entries(properties).map(([name, property]) => {
             const options = choices(property)
             const label = property.title || name
@@ -123,13 +136,26 @@ export function AcpElicitationCard({ request, onRespond }: AcpElicitationCardPro
                 </fieldset>
               )
             }
+            if (options.length > 0 && options.length <= 4) {
+              return <fieldset className="code-acp-elicitation-options" key={name}>
+                <legend>{label}</legend>
+                {options.map(option => <label className="code-acp-elicitation-checkbox" key={option.value}>
+                  <input type="radio" name={`${request.requestId}-${name}`} value={option.value}
+                    checked={values[name] === option.value} required={required.has(name)}
+                    onChange={() => setValues(current => ({ ...current, [name]: option.value }))} />
+                  <span>{option.label}</span>
+                </label>)}
+                {property.description ? <small>{property.description}</small> : null}
+              </fieldset>
+            }
             return options.length > 0 ? (
               <div className="code-acp-select-question" key={name}>
                 <CodeSelect
                   label={label}
                   value={String(values[name] ?? '')}
                   required={required.has(name)}
-                  options={options}
+                  options={[{ value: '', label: copy.questionChoose, disabled: required.has(name) }, ...options]}
+                  disabled={disabled}
                   onChange={value => setValues(current => ({ ...current, [name]: value }))}
                 />
                 {property.description ? <small>{property.description}</small> : null}
@@ -168,15 +194,16 @@ export function AcpElicitationCard({ request, onRespond }: AcpElicitationCardPro
               </label>
             )
           })}
-        </div>
+        </fieldset>
       )}
       {acceptedUrl ? <small className="code-acp-elicitation-waiting">Waiting for the Agent to confirm completion…</small> : (
         <div className="code-acp-request-actions">
-          <button type="submit" className="approve" disabled={request.mode === 'url' && !safeUrl}>
-            {request.mode === 'url' ? 'Continue' : 'Submit'}
+          <button type="submit" className="approve" disabled={disabled || (request.mode === 'url' && !safeUrl)}>
+            {draft?.status === 'submitting' ? copy.questionSubmitting : request.mode === 'url' ? 'Continue' : copy.questionSubmit}
           </button>
-          <button type="button" onClick={() => onRespond(request.requestId, 'decline')}>Decline</button>
-          <button type="button" onClick={() => onRespond(request.requestId, 'cancel')}>Cancel</button>
+          {onLater ? <button type="button" disabled={draft?.status === 'submitting'} onClick={onLater}>{copy.questionLater}</button> : null}
+          <button type="button" disabled={disabled} onClick={() => onRespond(request.requestId, 'decline')}>{copy.questionSkip}</button>
+          {request.mode === 'url' ? <button type="button" disabled={disabled} onClick={() => onRespond(request.requestId, 'cancel')}>{copy.cancel}</button> : null}
         </div>
       )}
     </form>

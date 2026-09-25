@@ -451,7 +451,7 @@
   box-sizing: border-box;
   border: 1px solid var(--code-border);
   border-radius: 8px;
-  background: var(--code-bg-canvas);
+  background: var(--code-input-bg);
   color: var(--code-text-muted);
   font: inherit;
   padding: 7px 8px;
@@ -3541,4 +3541,89 @@ body.code-mode.code-compact-layout .code-composer-approval.orange {
   font-size: 12px;
   line-height: 1.5;
   padding: 2px 12px 6px;
+}
+
+/* Questions are an independent, bounded surface above the ordinary Composer. */
+.code-acp-questions {
+  flex-shrink: 0;
+  min-width: 0;
+  margin: 0 12px 8px;
+  border: 1px solid var(--code-border);
+  border-radius: 12px;
+  background: var(--code-bg-canvas);
+  color: var(--code-text);
+  overflow: hidden;
+  pointer-events: auto;
+}
+
+.code-acp-questions-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 0 10px 0 12px;
+  font-size: 12px;
+}
+
+.code-acp-questions-header > svg,
+.code-acp-questions-toggle svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.code-acp-questions-header > small {
+  margin-left: auto;
+  color: var(--code-text-subtle);
+  font-size: 11px;
+}
+
+.code-acp-questions-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  margin-left: auto;
+  min-width: 28px;
+  min-height: 28px;
+  padding: 4px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--code-text-subtle);
+  font: inherit;
+  cursor: pointer;
+}
+
+.code-acp-questions-header > small + .code-acp-questions-toggle { margin-left: 0; }
+.code-acp-questions-toggle:hover { background: var(--code-bg-hover); color: var(--code-text); }
+.code-acp-questions-toggle:disabled { opacity: 0.45; cursor: default; }
+
+.code-acp-questions-body {
+  max-height: min(40dvh, 360px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.code-acp-questions-body[hidden] { display: none; }
+
+.code-acp-questions .code-acp-elicitation {
+  border-radius: 0;
+  background: transparent;
+  padding-top: 4px;
+}
+.code-acp-questions .code-acp-elicitation + .code-acp-elicitation {
+  border-top: 1px solid var(--code-border);
+  padding-top: 12px;
+}
+.code-acp-elicitation .code-acp-elicitation-message { color: var(--code-text); font-size: 13px; font-weight: 600; }
+.code-acp-elicitation .code-acp-elicitation-fields { min-width: 0; padding: 0; border: 0; gap: 10px; }
+.code-acp-elicitation .code-acp-elicitation-options { display: flex; flex-wrap: wrap; gap: 8px 16px; padding: 0; border: 0; }
+.code-acp-elicitation-options legend { padding: 0 0 6px; }
+.code-acp-elicitation-options label > span { font-weight: 400; }
+.code-acp-elicitation-options input { margin: 0; }
+
+@media (max-width: 767px), (max-width: 980px) and (pointer: coarse) {
+  body.code-mode.code-compact-layout .code-acp-questions { margin: 0 6px 6px; }
+  body.code-mode.code-compact-layout .code-acp-questions-toggle { min-width: 44px; min-height: 44px; }
+  body.code-mode.code-compact-layout .code-acp-questions-body { max-height: min(36dvh, 300px); }
 }

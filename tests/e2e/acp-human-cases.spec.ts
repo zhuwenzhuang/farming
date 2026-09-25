@@ -2579,7 +2579,7 @@ test.describe('ACP human-like browser matrix', () => {
     await sendAcpMessage(page, 'subagent elicitation')
     const elicitation = page.getByTestId('code-acp-elicitation')
     await expect(elicitation).toBeVisible({ timeout: 15_000 })
-    await expect(elicitation).toContainText('Subagent · form')
+    await expect(elicitation).toContainText('Subagent')
     await expect(elicitation).toContainText('Confirm the subagent scope')
     await elicitation.getByRole('checkbox', { name: 'Confirmed for subagent' }).check()
     await elicitation.getByRole('button', { name: 'Submit' }).click()

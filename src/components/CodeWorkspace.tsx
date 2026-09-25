@@ -1,3 +1,4 @@
+import { useQuestionPresentationLifetime } from './code/acp/acp-elicitation-presentation'
 import { attachSubagent } from '@/lib/subagent-supervision'
 import { agentAfterRemoval } from './code/agent-selection'
 import { canonicalProviderSessionKey } from '../../shared/provider-session-identity.js'
@@ -608,6 +609,7 @@ export function CodeWorkspace({
   onUpdateUiPreferences,
 }: CodeWorkspaceProps) {
   recordPerformanceTestRender('codeWorkspace')
+  useQuestionPresentationLifetime(agents)
   const leaveAgentOpeningRef = useRef(() => {})
   const agentNavigationEpochRef = useRef(0)
   const [retainedAgentSource, setRetainedAgentSource] = useState<'search' | 'history' | null>(null)
@@ -2653,8 +2655,8 @@ export function CodeWorkspace({
   }, [activeAgent])
 
   const respondToActiveAcpElicitation = useCallback((requestId: string, action: 'accept' | 'decline' | 'cancel', content?: Record<string, string | number | boolean | string[]>) => {
-    if (!activeAgent) return
-    void respondToAcpElicitation(activeAgent.id, requestId, action, content)
+    if (!activeAgent) return Promise.reject(new Error('Agent is no longer active'))
+    return respondToAcpElicitation(activeAgent.id, requestId, action, content)
   }, [activeAgent])
 
   const openSearch = useCallback(() => {

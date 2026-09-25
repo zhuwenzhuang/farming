@@ -2204,6 +2204,30 @@ class FakeAgent implements Agent {
       });
       return { stopReason: 'cancelled' };
     }
+    if (promptText.includes('pending question design fixture') || promptText === '补充登录流程测试') {
+      await client.sessionUpdate({ sessionId: params.sessionId, update: {
+        sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '我会先检查现有测试结构，并补齐核心用例。\n\n' },
+      } });
+      const answer = client.createElicitation({
+        sessionId: params.sessionId, mode: 'form',
+        message: '这次测试需要覆盖哪些范围？',
+        requestedSchema: { type: 'object', required: ['scope'], properties: {
+          scope: { type: 'string', title: '测试范围', oneOf: [
+            { const: 'core', title: '核心登录流程' },
+            { const: 'full', title: '包含异常与边界情况' },
+          ] },
+          notes: { type: 'string', title: '其他要求', description: '可以稍后回答；我会继续检查现有代码。' },
+        } },
+      });
+      await client.sessionUpdate({ sessionId: params.sessionId, update: {
+        sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '已读取 tests/auth.test.ts，找到 3 个需要补充的边界用例。' },
+      } });
+      const response = await answer;
+      await client.sessionUpdate({ sessionId: params.sessionId, update: {
+        sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `\n\nQuestion resolved: ${JSON.stringify(response)}` },
+      } });
+      return { stopReason: 'end_turn' };
+    }
     if (promptText.includes('request cancellation fixture')) {
       await client.sessionUpdate({ sessionId: params.sessionId, update: {
         sessionUpdate: 'plan', entries: [{ content: 'Verify request isolation', status: 'in_progress', priority: 'medium' }],

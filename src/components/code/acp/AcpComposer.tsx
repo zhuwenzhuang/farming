@@ -23,6 +23,7 @@ import { ComposerEditorHeader } from '../ComposerEditorHeader'
 import type { ComposerMode } from '../types'
 import { AcpPermissionCard } from './AcpPermissionCard'
 import { AcpElicitationCard } from './AcpElicitationCard'
+import { AcpElicitationPanel, type RespondToElicitation } from './AcpElicitationPanel'
 import { AcpAuthenticationCard } from './AcpAuthenticationCard'
 import type { AcpAvailableCommand } from './types'
 import {
@@ -111,7 +112,7 @@ export interface AcpComposerProps {
   onActivateComposerMode: (mode: Exclude<ComposerMode, 'default'>) => void
   onClearComposerMode: () => void
   onRespondToPermission: (requestId: string, optionId?: string, cancelled?: boolean) => void
-  onRespondToElicitation: (requestId: string, action: 'accept' | 'decline' | 'cancel', content?: Record<string, string | number | boolean | string[]>) => void
+  onRespondToElicitation: RespondToElicitation
   copy: CodeCopy
 }
 
@@ -408,7 +409,6 @@ export function AcpComposer({
   )
   const hasAcpRequest = active && Boolean(
     permissions.length
-    || elicitations.length
     || activeElicitations.length
     || authenticationRequired
     || deferredSessionError
@@ -506,6 +506,8 @@ export function AcpComposer({
           <p>{session.configOverrideWarnings.map(warning => warning.message).join(' ')}</p>
         </section>
       ) : null}
+      {active ? <AcpElicitationPanel agentId={agentId} requests={elicitations}
+        running={effectiveRuntimeState === 'working'} onRespond={onRespondToElicitation} copy={copy} /> : null}
       <footer
         className={composerClasses}
         data-testid="code-acp-composer"
@@ -515,11 +517,8 @@ export function AcpComposer({
       {active ? permissions.map(permission => (
         <AcpPermissionCard key={permission.requestId} request={permission} onRespond={onRespondToPermission} copy={copy} />
       )) : null}
-      {active ? elicitations.map(elicitation => (
-        <AcpElicitationCard key={elicitation.requestId} request={elicitation} onRespond={onRespondToElicitation} />
-      )) : null}
       {active ? activeElicitations.map(elicitation => (
-        <AcpElicitationCard key={`active-${elicitation.elicitationId || elicitation.requestId}`} request={elicitation} onRespond={onRespondToElicitation} />
+        <AcpElicitationCard key={`active-${elicitation.elicitationId || elicitation.requestId}`} request={elicitation} copy={copy} onRespond={onRespondToElicitation} />
       )) : null}
       {active && authenticationRequired ? (
         <AcpAuthenticationCard

@@ -651,9 +651,9 @@ function validateElicitationContent(request: UnknownRecord, content: unknown) {
 
 function interactiveRuntimeState(binding: AcpBinding, fallback: string = '') {
   if (binding.pendingPermissions.size > 0) return 'waiting-for-permission';
-  if (binding.pendingElicitations.size > 0) return 'waiting-for-input';
   if (binding.activeTurn?.phase === 'running') return 'working';
   if (binding.activeTurn?.phase === 'cancelling') return 'interrupting';
+  if (binding.pendingElicitations.size > 0) return 'waiting-for-input';
   if (['connecting', 'idle', 'error'].includes(String(fallback || ''))) return fallback;
   return binding.sessionId ? 'idle' : 'connecting';
 }
@@ -3295,7 +3295,7 @@ class AcpRuntime extends EventEmitter {
     };
     binding.interactionOrigins.set(requestId, binding.state);
     binding.pendingElicitations.set(requestId, pending);
-    binding.state = 'waiting-for-input';
+    binding.state = interactiveRuntimeState(binding, binding.state);
     const response = this.waitForInteraction(binding, requestId, binding.elicitationResolvers, signal, () => {
       this.respondElicitation(binding.agentId, requestId, 'cancel', undefined);
     });
@@ -5102,7 +5102,7 @@ class AcpRuntime extends EventEmitter {
     const failed = ['failed', 'error'].includes(status);
     const stateName = pendingPermission
       ? 'waiting-for-permission'
-      : pendingElicitation
+      : pendingElicitation && !active
         ? 'waiting-for-input'
         : control.phase === 'cancelling'
           ? 'interrupting'

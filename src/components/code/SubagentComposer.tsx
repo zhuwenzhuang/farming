@@ -139,7 +139,7 @@ export function SubagentComposer({ agent: structuralAgent, active, controller, c
       onActivateComposerMode={mode => update(current => ({ ...current, mode }))}
       onClearComposerMode={() => update(current => ({ ...current, mode: 'default' }))}
       onRespondToPermission={(id, option, cancelled) => { void perform(respondToAcpPermission(agent.id, id, option, cancelled, AbortSignal.timeout(15000))) }}
-      onRespondToElicitation={(id, action, content) => { void perform(respondToAcpElicitation(agent.id, id, action, content, AbortSignal.timeout(15000))) }}
+      onRespondToElicitation={(id, action, content) => respondToAcpElicitation(agent.id, id, action, content)}
       copy={copy} />
   </>
 }

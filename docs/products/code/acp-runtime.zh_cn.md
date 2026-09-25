@@ -163,6 +163,18 @@ Authentication、Elicitation、Terminal、Media、Plan 与 Fork 能力。Provide
 其他请求或 Turn。提交答案与取消竞争时只结算一次，结算后释放取消监听器。连接丢失和
 Runtime 替换继续遵守已有的所有权与恢复边界，绝不重放答案。
 
+待回答问题与 Turn 执行相互独立，收到 Elicitation 不会暂停运行中的 Turn。后端拥有请求
+有效性，只移除已回答、拒绝、取消或失效的请求。浏览器定时器不得代答或使问题过期。
+浏览器按 Agent 和请求身份维护收起状态与未提交草稿，切换 Agent 时保留，Runtime 替换
+不得复用。新问题展开但不抢焦点；“稍后回答”只收起，“跳过”发送 `decline`。提交保持
+单飞，直到权威状态确认才移除卡片，并展示有界失败；结果不确定时绝不自动重放。
+
+问题使用 Composer 上方有高度上限、可滚动的内联区域。收起后保留数量和展开入口。
+AgentRow 用一个中性问题按钮展示相同的权威待回答数量，与执行状态独立，且不被悬停
+操作层遮挡。点击通过正常导航打开 Agent 并展开问题。键盘与紧凑布局保留相同行为。
+已接受的 URL 交互与待回答问题分开展示。验收覆盖并发问题、收起不响应、草稿保留、
+回答与撤回竞争、失败、后台更新、重启，以及 Light、Dark、Paper 三种主题。
+
 Qwen Code 的 v1 Prompt Suggestion Notification 会在该边界归一化为临时、Provider-neutral
 的 Composer State。它可以替代空输入框的 Follow-up Placeholder，并通过 Tab 填入草稿，
 但不会成为 Transcript Entry，也不会写入持久 Checkpoint。新 Prompt 会使旧建议失效；没有

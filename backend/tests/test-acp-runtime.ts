@@ -3153,7 +3153,7 @@ async function run() {
       pendingElicitation: { requestId: string };
     }>(resolve => {
       const listener = event => {
-        if (event.agentId !== 'agent-acp-client-services' || event.state !== 'waiting-for-input') return;
+        if (event.agentId !== 'agent-acp-client-services' || !event.pendingElicitation) return;
         runtime.off('agent-runtime', listener);
         resolve(event);
       };
@@ -3593,6 +3593,7 @@ async function run() {
     }, 'request-scoped cancellation cleanup');
     assert.strictEqual(runtime.getSession('agent-acp-permission').pendingElicitations[0].requestId, retainedId);
     assert.strictEqual(permissionBinding.activeTurn?.phase, 'running');
+    assert.strictEqual(runtime.getSession('agent-acp-permission').state, 'working', 'pending questions do not suspend a live turn');
     assert.throws(() => runtime.respondElicitation('agent-acp-permission', withdrawnId, 'accept', {}), /no longer pending/);
     assert.throws(() => runtime.respondPermission('agent-acp-permission', permissionId, 'allow'), /no longer pending/);
     runtime.respondElicitation('agent-acp-permission', retainedId, 'accept', {});

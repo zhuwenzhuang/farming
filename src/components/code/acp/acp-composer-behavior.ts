@@ -166,6 +166,6 @@ export function respondToAcpElicitation(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ requestId, action, content }),
-    signal,
+    signal: signal ?? AbortSignal.timeout(15000),
   })
 }

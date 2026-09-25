@@ -333,8 +333,13 @@
 .code-agent-row:focus-visible .code-agent-row-actions,
 .code-agent-row:has(.code-agent-row-actions :focus-visible) .code-agent-row-actions {
   opacity: 1;
-  pointer-events: auto;
+  pointer-events: none;
   z-index: 3;
+}
+
+/* The hover surface must not intercept navigation through its empty padding. */
+.code-agent-row:is(:hover, :focus-visible, :has(.code-agent-row-actions :focus-visible)) .code-agent-row-actions button {
+  pointer-events: auto;
 }
 
 body.code-mode:not(.code-compact-layout) .code-agent-row:hover:has(.code-agent-dot.turn-active) .code-agent-dot.turn-active,
@@ -904,4 +909,36 @@ body.code-mode.code-compact-layout .code-agent-row.related-child > .code-agent-r
 .code-agent-row.related-child > .code-agent-row-provider-icon .agent-launch-icon {
   width: 14px;
   height: 14px;
+}
+
+/* The question button stays reachable when hover actions replace metadata. */
+.code-agent-row-question {
+  position: absolute;
+  right: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 42px;
+  height: 24px;
+  padding: 0 3px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--code-text-subtle);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  z-index: 4;
+}
+.code-agent-row-question svg { width: 16px; height: 16px; flex-shrink: 0; }
+.code-agent-row-question:hover { background: var(--code-bg-hover); color: var(--code-text); }
+.code-agent-row.has-pending-questions .code-agent-row-trailing { padding-right: 46px; }
+.code-agent-row.has-pending-questions .code-agent-row-actions { right: 52px; }
+.code-agent-row.has-pending-questions:has(.code-agent-chat-failure) .code-agent-row-trailing { padding-right: 68px; }
+.code-agent-row.has-pending-questions:has(.code-agent-chat-failure) .code-agent-row-actions { right: 74px; }
+.code-agent-row.has-pending-questions .code-agent-dot.code-agent-chat-failure { right: 52px; }
+
+@media (max-width: 767px), (max-width: 980px) and (pointer: coarse) {
+  body.code-mode.code-compact-layout .code-agent-row-question { min-height: 32px; }
 }
