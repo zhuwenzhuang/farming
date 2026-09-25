@@ -154,6 +154,15 @@ Launch Working Directory 解释 `settings.json` 中的相对 `sessionDir`，因�
 Authentication、Elicitation、Terminal、Media、Plan 与 Fork 能力。Provider Extension 必须
 带版本、可协商，并留在 Adapter 边界。
 
+能力声明必须覆盖协商契约的完整语义。Farming 支持基础的单个 `plan` 更新；在按 ID 管理
+状态和展示都得到支持前，不声明实验性多计划操作。未协商的计划操作不得覆盖或删除基础
+计划。工具名称是信息性元数据，在更新和 Checkpoint 中保留，不授权操作，也不替代展示标题。
+
+请求级取消与 Turn 取消相互独立。SDK 请求上下文拥有待处理 Permission 或 Elicitation 的
+取消权。取消只撤回该精确的活动请求，移除其 UI 与 Resolver，并拒绝迟到的回答，不影响
+其他请求或 Turn。提交答案与取消竞争时只结算一次，结算后释放取消监听器。连接丢失和
+Runtime 替换继续遵守已有的所有权与恢复边界，绝不重放答案。
+
 Qwen Code 的 v1 Prompt Suggestion Notification 会在该边界归一化为临时、Provider-neutral
 的 Composer State。它可以替代空输入框的 Follow-up Placeholder，并通过 Tab 填入草稿，
 但不会成为 Transcript Entry，也不会写入持久 Checkpoint。新 Prompt 会使旧建议失效；没有

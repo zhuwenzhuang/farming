@@ -63,20 +63,22 @@ interface ErrorLike {
   runtimeCleanupVerified?: boolean;
 }
 type AcpSdk = typeof import('@agentclientprotocol/sdk');
-type AcpSingleRequestHandler = (request: UnknownRecord) => unknown;
+type PermissionResponse = import('@agentclientprotocol/sdk').RequestPermissionResponse;
+type ElicitationResponse = import('@agentclientprotocol/sdk').CreateElicitationResponse;
+type AcpSingleRequestHandler<T = unknown> = (request: UnknownRecord, signal?: AbortSignal) => T | Promise<T>;
 type AcpExtensionNotificationHandler = (method: string, params: UnknownRecord) => unknown;
 interface AcpClientHandlers {
   sessionUpdate: AcpSingleRequestHandler;
   extNotification: AcpExtensionNotificationHandler;
-  requestPermission: AcpSingleRequestHandler;
-  readTextFile: AcpSingleRequestHandler;
-  writeTextFile: AcpSingleRequestHandler;
-  createTerminal: AcpSingleRequestHandler;
-  terminalOutput: AcpSingleRequestHandler;
-  waitForTerminalExit: AcpSingleRequestHandler;
-  killTerminal: AcpSingleRequestHandler;
-  releaseTerminal: AcpSingleRequestHandler;
-  createElicitation: AcpSingleRequestHandler;
+  requestPermission: AcpSingleRequestHandler<PermissionResponse>;
+  readTextFile: AcpSingleRequestHandler<import('@agentclientprotocol/sdk').ReadTextFileResponse>;
+  writeTextFile: AcpSingleRequestHandler<import('@agentclientprotocol/sdk').WriteTextFileResponse>;
+  createTerminal: AcpSingleRequestHandler<import('@agentclientprotocol/sdk').CreateTerminalResponse>;
+  terminalOutput: AcpSingleRequestHandler<import('@agentclientprotocol/sdk').TerminalOutputResponse>;
+  waitForTerminalExit: AcpSingleRequestHandler<import('@agentclientprotocol/sdk').WaitForTerminalExitResponse>;
+  killTerminal: AcpSingleRequestHandler<import('@agentclientprotocol/sdk').KillTerminalResponse>;
+  releaseTerminal: AcpSingleRequestHandler<import('@agentclientprotocol/sdk').ReleaseTerminalResponse>;
+  createElicitation: AcpSingleRequestHandler<ElicitationResponse>;
   completeElicitation: AcpSingleRequestHandler;
 }
 type AcpSingleRequestHandlerName = Exclude<keyof AcpClientHandlers, 'extNotification'>;
@@ -174,8 +176,8 @@ interface AcpBinding {
   sessionId: string; untrustedSessionId: string; state: string; error: string; stopReason: string;
   modes: SessionResponse['modes'] | null; configOptions: SessionConfigOption[];
   configOverrideWarnings: AcpConfigOverrideWarning[];
-  pendingPermissions: Map<string, PermissionRequest>; permissionResolvers: Map<string, (value: unknown) => void>;
-  pendingElicitations: Map<string, ElicitationRequest>; elicitationResolvers: Map<string, (value: unknown) => void>;
+  pendingPermissions: Map<string, PermissionRequest>; permissionResolvers: Map<string, (value: PermissionResponse) => void>;
+  pendingElicitations: Map<string, ElicitationRequest>; elicitationResolvers: Map<string, (value: ElicitationResponse) => void>;
   activeElicitations: Map<string, ElicitationRequest>; subagentStates: Map<string, AcpSessionState>;
   subagentControls: Map<string, SubagentControl>; nextSubagentGeneration: number;
   ownedSessionKeys: Map<string, string>;
@@ -513,7 +515,7 @@ function codexAcpEnvironment(options: PrepareAgentOptions = {}) {
   return adapter.prepareAcpEnvironment(options);
 }
 
-function selectedPermission(option: PermissionOption) {
+function selectedPermission(option: PermissionOption): PermissionResponse {
   return { outcome: { outcome: 'selected', optionId: option.optionId } };
 }
 
@@ -563,7 +565,7 @@ function isStructuredReconnectableFailure(binding: AcpBinding, error: unknown) {
   ]).has(code);
 }
 
-function autoPermissionResponse(request: UnknownRecord, approvalMode: string) {
+function autoPermissionResponse(request: UnknownRecord, approvalMode: string): PermissionResponse | null {
   const options = Array.isArray(request?.options) ? request.options : [];
   if (approvalMode === 'full') {
     const option = options.find(item => item.kind === 'allow_always')
@@ -1492,7 +1494,6 @@ class AcpRuntime extends EventEmitter {
           subagents: {},
           auth: { terminal: true },
           session: { configOptions: { boolean: {} } },
-          plan: {},
           elicitation: { form: {}, url: {} },
           // SDK peers that predate the typed capability negotiate the same
           // native session events through their existing AIR extension.
@@ -2959,18 +2960,58 @@ class AcpRuntime extends EventEmitter {
     return false;
   }
 
-  async officialConnection(handlers: AcpClientHandlers, child: import('child_process').ChildProcessWithoutNullStreams) {
+  async officialConnection(handlers: AcpClientHandlers, child: import('child_process').ChildProcessWithoutNullStreams): Promise<AcpConnection> {
     const sdk = await loadAcpSdk();
     const stream = sdk.ndJsonStream(Writable.toWeb(child.stdin), Readable.toWeb(child.stdout));
     const readable = stream.readable.pipeThrough(new TransformStream({
-      transform(message, controller) {
+      async transform(message, controller) {
         if ('method' in message && message.method === 'session/update' && message.params) {
           message = { ...message, params: normalizeNativeSubagentNotification(message.params as UnknownRecord) };
+        }
+        if ('method' in message && !('id' in message)
+          && !Object.values(sdk.CLIENT_METHODS).some(method => method === message.method)
+          && message.method !== sdk.PROTOCOL_METHODS.cancel_request) {
+          await handlers.extNotification(message.method, recordValue(message.params));
+          return;
         }
         controller.enqueue(message);
       },
     }));
-    return new sdk.ClientSideConnection(() => handlers as never, { ...stream, readable }) as unknown as AcpConnection;
+    const app = sdk.client()
+      .onNotification('session/update', async ({ params }) => { await handlers.sessionUpdate(params); })
+      .onNotification('elicitation/complete', async ({ params }) => { await handlers.completeElicitation(params); })
+      .onRequest('session/request_permission', ({ params, signal }) => handlers.requestPermission(params, signal))
+      .onRequest('elicitation/create', ({ params, signal }) => handlers.createElicitation(params, signal))
+      .onRequest('fs/read_text_file', ({ params }) => handlers.readTextFile(params))
+      .onRequest('fs/write_text_file', ({ params }) => handlers.writeTextFile(params))
+      .onRequest('terminal/create', ({ params }) => handlers.createTerminal(params))
+      .onRequest('terminal/output', ({ params }) => handlers.terminalOutput(params))
+      .onRequest('terminal/wait_for_exit', ({ params }) => handlers.waitForTerminalExit(params))
+      .onRequest('terminal/kill', ({ params }) => handlers.killTerminal(params))
+      .onRequest('terminal/release', ({ params }) => handlers.releaseTerminal(params));
+    const connection = app.connect({ ...stream, readable });
+    const sessionRequest = (method: string) => (params: UnknownRecord) => connection.agent.request<SessionResponse>(method, params);
+    return {
+      signal: connection.signal,
+      closed: connection.closed,
+      close: () => connection.close(),
+      request: (method, params) => connection.agent.request(method, params),
+      extMethod: (method, params) => connection.agent.request<UnknownRecord>(method, params),
+      initialize: params => connection.agent.request<InitializeResponse>('initialize', params),
+      newSession: sessionRequest('session/new'),
+      loadSession: sessionRequest('session/load'),
+      resumeSession: sessionRequest('session/resume'),
+      unstable_forkSession: sessionRequest('session/fork'),
+      closeSession: sessionRequest('session/close'),
+      deleteSession: sessionRequest('session/delete'),
+      listSessions: params => connection.agent.request('session/list', params),
+      prompt: params => connection.agent.request<UnknownRecord>('session/prompt', params),
+      cancel: params => connection.agent.notify('session/cancel', params),
+      authenticate: params => connection.agent.request('authenticate', params),
+      logout: params => connection.agent.request('logout', params),
+      setSessionMode: sessionRequest('session/set_mode'),
+      setSessionConfigOption: sessionRequest('session/set_config_option'),
+    };
   }
 
   async waitForHistoryReplay(binding: AcpBinding) {
@@ -2994,12 +3035,11 @@ class AcpRuntime extends EventEmitter {
   }
 
   sharedClientHandlers(runtime: AcpRuntimeProcess) {
-    const handler = (name: AcpSingleRequestHandlerName, request: UnknownRecord) => {
+    const handler = <K extends AcpSingleRequestHandlerName>(name: K, request: UnknownRecord): AcpClientHandlers[K] | null => {
       const binding = this.bindingForRuntimeSession(runtime, String(request?.sessionId || ''));
-      return binding ? runtime.handlers.get(binding.agentId)?.[name] : null;
+      return binding ? runtime.handlers.get(binding.agentId)?.[name] ?? null : null;
     };
-    const request = (name: AcpSingleRequestHandlerName) => async (params: UnknownRecord) => {
-      const target = handler(name, params);
+    const request = <T,>(target: AcpSingleRequestHandler<T> | null, params: UnknownRecord) => {
       if (!target) throw new Error('ACP request does not match an active Session');
       return target(params);
     };
@@ -3009,20 +3049,20 @@ class AcpRuntime extends EventEmitter {
         const binding = this.bindingForRuntimeSession(runtime, String(params?.sessionId || ''));
         return binding ? runtime.handlers.get(binding.agentId)?.extNotification(method, params) : undefined;
       },
-      requestPermission: async (params: UnknownRecord) => {
+      requestPermission: async (params: UnknownRecord, signal?: AbortSignal): Promise<PermissionResponse> => {
         const target = handler('requestPermission', params);
-        return target ? target(params) : { outcome: { outcome: 'cancelled' } };
+        return target ? target(params, signal) : { outcome: { outcome: 'cancelled' } };
       },
-      readTextFile: request('readTextFile'),
-      writeTextFile: request('writeTextFile'),
-      createTerminal: request('createTerminal'),
-      terminalOutput: request('terminalOutput'),
-      waitForTerminalExit: request('waitForTerminalExit'),
-      killTerminal: request('killTerminal'),
-      releaseTerminal: request('releaseTerminal'),
-      createElicitation: async (params: UnknownRecord) => {
+      readTextFile: (params: UnknownRecord) => request(handler('readTextFile', params), params),
+      writeTextFile: (params: UnknownRecord) => request(handler('writeTextFile', params), params),
+      createTerminal: (params: UnknownRecord) => request(handler('createTerminal', params), params),
+      terminalOutput: (params: UnknownRecord) => request(handler('terminalOutput', params), params),
+      waitForTerminalExit: (params: UnknownRecord) => request(handler('waitForTerminalExit', params), params),
+      killTerminal: (params: UnknownRecord) => request(handler('killTerminal', params), params),
+      releaseTerminal: (params: UnknownRecord) => request(handler('releaseTerminal', params), params),
+      createElicitation: async (params: UnknownRecord, signal?: AbortSignal): Promise<ElicitationResponse> => {
         const target = handler('createElicitation', params);
-        return target ? target(params) : { action: 'cancel' };
+        return target ? target(params, signal) : { action: 'cancel' };
       },
       completeElicitation: (notification: UnknownRecord) => (
         handler('completeElicitation', notification)?.(notification)
@@ -3031,7 +3071,7 @@ class AcpRuntime extends EventEmitter {
   }
 
   clientHandlers(binding: AcpBinding) {
-    const openClientRequest = (handler: (request: UnknownRecord) => Promise<unknown> | unknown) => async (request: UnknownRecord) => {
+    const openClientRequest = <T,>(handler: (request: UnknownRecord) => Promise<T> | T) => async (request: UnknownRecord) => {
       this.requireOpenBinding(binding);
       if (binding.state === 'closed') throw new Error('ACP session is closed');
       const response = await handler(request);
@@ -3140,7 +3180,7 @@ class AcpRuntime extends EventEmitter {
         binding.updatedAt = new Date().toISOString();
         this.emitSession(binding);
       },
-      requestPermission: (request: UnknownRecord) => this.requestPermission(binding, request),
+      requestPermission: (request: UnknownRecord, signal?: AbortSignal) => this.requestPermission(binding, request, signal),
       readTextFile: openClientRequest((request: UnknownRecord) => this.clientFileSystem.readTextFile(binding, request)),
       writeTextFile: openClientRequest((request: UnknownRecord) => this.clientFileSystem.writeTextFile(binding, request)),
       createTerminal: openClientRequest((request: UnknownRecord) => this.clientTerminals.create(binding, request)),
@@ -3148,13 +3188,13 @@ class AcpRuntime extends EventEmitter {
       waitForTerminalExit: openClientRequest((request: UnknownRecord) => this.clientTerminals.waitForExit(binding, request)),
       killTerminal: openClientRequest((request: UnknownRecord) => this.clientTerminals.kill(binding, request)),
       releaseTerminal: openClientRequest((request: UnknownRecord) => this.clientTerminals.release(binding, request)),
-      createElicitation: (request: UnknownRecord) => this.requestElicitation(binding, request),
+      createElicitation: (request: UnknownRecord, signal?: AbortSignal) => this.requestElicitation(binding, request, signal),
       completeElicitation: (notification: UnknownRecord) => this.completeElicitation(binding, notification),
     };
   }
 
-  async requestPermission(binding: AcpBinding, request: UnknownRecord) {
-    if (!this.isOpenBinding(binding) || binding.state === 'closed') {
+  async requestPermission(binding: AcpBinding, request: UnknownRecord, signal?: AbortSignal): Promise<PermissionResponse> {
+    if (signal?.aborted || !this.isOpenBinding(binding) || binding.state === 'closed') {
       return { outcome: { outcome: 'cancelled' } };
     }
     const requestSessionId = String(request?.sessionId || '');
@@ -3178,8 +3218,34 @@ class AcpRuntime extends EventEmitter {
       : 'agent';
     pending.securityWarnings = permissionSecurityWarnings(pending);
     binding.pendingPermissions.set(requestId, pending);
+    const response = this.waitForInteraction(binding, requestId, binding.permissionResolvers, signal, () => {
+      this.respondPermission(binding.agentId, requestId, '', true);
+    });
     this.emitRuntime(binding);
-    return new Promise(resolve => binding.permissionResolvers.set(requestId, resolve));
+    return response;
+  }
+
+  private waitForInteraction<T>(
+    binding: AcpBinding,
+    requestId: string,
+    resolvers: Map<string, (value: T) => void>,
+    signal: AbortSignal | undefined,
+    cancel: () => void,
+  ): Promise<T> {
+    return new Promise(resolve => {
+      const onAbort = () => {
+        // Request cancellation belongs to this exact live binding and request.
+        // A replacement runtime or a winning user response cannot be affected.
+        if (this.isOpenBinding(binding) && resolvers.get(requestId) === settle) cancel();
+      };
+      const settle = (value: T) => {
+        signal?.removeEventListener('abort', onAbort);
+        resolve(value);
+      };
+      resolvers.set(requestId, settle);
+      signal?.addEventListener('abort', onAbort, { once: true });
+      if (signal?.aborted) onAbort();
+    });
   }
 
   respondPermission(agentId: string, requestId: string, optionId: string, cancelled: boolean = false) {
@@ -3187,7 +3253,7 @@ class AcpRuntime extends EventEmitter {
     const pending = binding.pendingPermissions.get(String(requestId || ''));
     const resolve = binding.permissionResolvers.get(String(requestId || ''));
     if (!pending || pending.requestId !== requestId || !resolve) throw new Error('ACP permission request is no longer pending');
-    let response = { outcome: { outcome: 'cancelled' } };
+    let response: PermissionResponse = { outcome: { outcome: 'cancelled' } };
     if (!cancelled) {
       const option = pending.options.find((item: PermissionOption) => item.optionId === optionId);
       if (!option) throw new Error('Unknown ACP permission option');
@@ -3203,8 +3269,8 @@ class AcpRuntime extends EventEmitter {
     return response;
   }
 
-  async requestElicitation(binding: AcpBinding, request: UnknownRecord) {
-    if (!this.isOpenBinding(binding) || binding.state === 'closed') return { action: 'cancel' };
+  async requestElicitation(binding: AcpBinding, request: UnknownRecord, signal?: AbortSignal): Promise<ElicitationResponse> {
+    if (signal?.aborted || !this.isOpenBinding(binding) || binding.state === 'closed') return { action: 'cancel' };
     const hasSessionScope = typeof request?.sessionId === 'string' && request.sessionId.length > 0;
     const requestSessionId = hasSessionScope ? String(request.sessionId) : '';
     const isPrimarySession = hasSessionScope && requestSessionId === binding.sessionId;
@@ -3230,8 +3296,11 @@ class AcpRuntime extends EventEmitter {
     binding.interactionOrigins.set(requestId, binding.state);
     binding.pendingElicitations.set(requestId, pending);
     binding.state = 'waiting-for-input';
+    const response = this.waitForInteraction(binding, requestId, binding.elicitationResolvers, signal, () => {
+      this.respondElicitation(binding.agentId, requestId, 'cancel', undefined);
+    });
     this.emitRuntime(binding);
-    return new Promise(resolve => binding.elicitationResolvers.set(requestId, resolve));
+    return response;
   }
 
   respondElicitation(agentId: string, requestId: string, action: string, content: unknown) {
@@ -3242,7 +3311,7 @@ class AcpRuntime extends EventEmitter {
     if (!pending || !resolve) throw new Error('ACP input request is no longer pending');
     const normalizedAction = String(action || 'cancel');
     if (!['accept', 'decline', 'cancel'].includes(normalizedAction)) throw new Error('Unknown ACP input action');
-    const response = normalizedAction === 'accept'
+    const response: ElicitationResponse = normalizedAction === 'accept'
       ? { action: 'accept', ...(pending.mode === 'form' ? { content: validateElicitationContent(pending, content) } : {}) }
       : { action: normalizedAction };
     binding.elicitationResolvers.delete(id);

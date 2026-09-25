@@ -220,6 +220,21 @@ authentication, elicitation, terminal, media, plan, and fork capabilities when
 the live Agent advertises them. Provider extensions must be versioned,
 negotiated, and confined to the adapter boundary.
 
+Capability declarations cover the complete negotiated contract. Farming supports
+the baseline single `plan` update; it does not advertise experimental multi-plan
+operations until ID-based state and presentation are supported together.
+Unnegotiated plan operations must not overwrite or remove the baseline plan.
+Tool names are informational metadata preserved across updates and checkpoints;
+they do not authorize operations or replace display titles.
+
+Request-level cancellation is distinct from Turn cancellation. The SDK request
+context owns cancellation of a pending permission or elicitation. Cancellation
+withdraws only that exact live request, removes its UI and resolver, and rejects
+late answers without affecting other requests or the Turn. A submitted answer
+and cancellation settle once; settlement releases the cancellation listener.
+Connection loss and runtime replacement retain their existing ownership and
+recovery boundaries and never replay an answer.
+
 Qwen Code's version 1 prompt-suggestion notification is normalized at that
 boundary into ephemeral, provider-neutral Composer state. It can replace the
 empty follow-up placeholder and be copied into the draft with Tab, but it is

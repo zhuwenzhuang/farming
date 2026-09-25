@@ -1225,8 +1225,8 @@ async function run() {
     sessionUpdate: 'usage_update', used: 53_000, size: 200_000, cost: { amount: 0.045, currency: 'USD' },
   });
   state.apply({ sessionId: 's1', update: {
-    sessionUpdate: 'plan_update',
-    plan: { type: 'items', planId: 'plan-1', entries: [{ content: 'Finish', status: 'in_progress' }] },
+    sessionUpdate: 'plan',
+    entries: [{ content: 'Finish', status: 'in_progress', priority: 'medium' }],
   } });
   assert.strictEqual(state.snapshot().entries.find(entry => entry.type === 'plan').plan.entries[0].content, 'Finish');
   state.apply({ sessionId: 's1', update: {
@@ -1241,8 +1241,8 @@ async function run() {
   state.beginPrompt('limited');
   assert.strictEqual(state.plan, null, 'a new Prompt must not inherit the previous Turn plan');
   state.apply({ sessionId: 's1', update: {
-    sessionUpdate: 'plan_update',
-    plan: { type: 'items', planId: 'plan-2', entries: [{ content: 'Finish current turn', status: 'in_progress' }] },
+    sessionUpdate: 'plan',
+    entries: [{ content: 'Finish current turn', status: 'in_progress', priority: 'medium' }],
   } });
   assert.strictEqual(state.plan.entries[0].content, 'Finish current turn');
   state.completePrompt('max_tokens');
@@ -3551,6 +3551,55 @@ async function run() {
     assert.strictEqual(runtime.getSession('agent-acp-permission').activeElicitations[0].elicitationId, 'login-1');
     runtime.completeElicitation(permissionBinding, { elicitationId: 'login-1' });
     assert.strictEqual(runtime.getSession('agent-acp-permission').activeElicitations.length, 0);
+
+    const cancelledInputController = new AbortController();
+    const cancellableRequest = {
+      sessionId: permissionBinding.sessionId, mode: 'form', message: 'Cancellable input',
+      requestedSchema: { type: 'object', properties: {} },
+    };
+    const cancelledInput = runtime.requestElicitation(permissionBinding, cancellableRequest, cancelledInputController.signal);
+    const cancelledInputId = runtime.getSession('agent-acp-permission').pendingElicitations[0].requestId;
+    cancelledInputController.abort();
+    assert.deepStrictEqual(await cancelledInput, { action: 'cancel' });
+    assert.strictEqual(permissionBinding.elicitationResolvers.size, 0);
+    assert.strictEqual(permissionBinding.interactionOrigins.size, 0);
+    assert.throws(() => runtime.respondElicitation('agent-acp-permission', cancelledInputId, 'accept', {}), /no longer pending/);
+    assert.deepStrictEqual(
+      await runtime.requestElicitation(permissionBinding, cancellableRequest, cancelledInputController.signal),
+      { action: 'cancel' },
+    );
+    assert.strictEqual(permissionBinding.pendingElicitations.size, 0, 'an already-cancelled request must not publish a card');
+    const answerWinsController = new AbortController();
+    const answeredInput = runtime.requestElicitation(permissionBinding, cancellableRequest, answerWinsController.signal);
+    const answeredInputId = runtime.getSession('agent-acp-permission').pendingElicitations[0].requestId;
+    runtime.respondElicitation('agent-acp-permission', answeredInputId, 'accept', {});
+    answerWinsController.abort();
+    assert.deepStrictEqual(await answeredInput, { action: 'accept', content: {} });
+
+    // Exercise the real SDK request context over stdio. One permission and one
+    // input are withdrawn while a different input and the prompt remain live.
+    const cancellationPrompt = runtime.prompt('agent-acp-permission', 'request cancellation fixture');
+    await waitForSteerTest(() => runtime.getSession('agent-acp-permission').pendingElicitations.length === 3, 'parallel cancellation inputs');
+    const beforeWithdrawal = runtime.getSession('agent-acp-permission');
+    assert.strictEqual(beforeWithdrawal.pendingPermissions.length, 1);
+    const withdrawnId = beforeWithdrawal.pendingElicitations.find(input => input.message === 'Withdrawn question').requestId;
+    const permissionId = beforeWithdrawal.pendingPermissions[0].requestId;
+    const retainedId = beforeWithdrawal.pendingElicitations.find(input => input.message === 'Retained question').requestId;
+    const barrierId = beforeWithdrawal.pendingElicitations.find(input => input.message === 'Ready to withdraw').requestId;
+    runtime.respondElicitation('agent-acp-permission', barrierId, 'accept', {});
+    await waitForSteerTest(() => {
+      const snapshot = runtime.getSession('agent-acp-permission');
+      return snapshot.pendingElicitations.length === 1 && snapshot.pendingPermissions.length === 0;
+    }, 'request-scoped cancellation cleanup');
+    assert.strictEqual(runtime.getSession('agent-acp-permission').pendingElicitations[0].requestId, retainedId);
+    assert.strictEqual(permissionBinding.activeTurn?.phase, 'running');
+    assert.throws(() => runtime.respondElicitation('agent-acp-permission', withdrawnId, 'accept', {}), /no longer pending/);
+    assert.throws(() => runtime.respondPermission('agent-acp-permission', permissionId, 'allow'), /no longer pending/);
+    runtime.respondElicitation('agent-acp-permission', retainedId, 'accept', {});
+    assert.strictEqual((await cancellationPrompt).stopReason, 'end_turn');
+    assert.strictEqual(permissionBinding.permissionResolvers.size, 0);
+    assert.strictEqual(permissionBinding.elicitationResolvers.size, 0);
+    assert.strictEqual(permissionBinding.interactionOrigins.size, 0);
 
     const cancelledPermission = runtime.requestPermission(permissionBinding, request);
     assert.strictEqual(runtime.getSession('agent-acp-permission').pendingPermissions.length, 1);

@@ -652,10 +652,6 @@ class AcpSessionState {
       this.applyToolCall(update, true, receivedAt);
     } else if (kind === 'plan') {
       this.applyPlan({ type: 'items', entries: clone(update.entries || []) });
-    } else if (kind === 'plan_update') {
-      this.applyPlan(clone(update.plan));
-    } else if (kind === 'plan_removed') {
-      this.removePlan();
     } else if (kind === 'context_compaction' || kind === 'context_compaction_update') {
       this.applyCompaction(update);
     } else if (kind === 'usage_update') {
@@ -809,7 +805,7 @@ class AcpSessionState {
       this.toolEntries.set(id, entry);
     }
     if (entry.status === 'cancelled') return;
-    for (const field of ['title', 'kind', 'status', 'content', 'locations', 'rawInput', 'rawOutput', '_meta']) {
+    for (const field of ['name', 'title', 'kind', 'status', 'content', 'locations', 'rawInput', 'rawOutput', '_meta']) {
       if (!isPatch || Object.prototype.hasOwnProperty.call(update, field)) {
         if (update[field] !== undefined) entry[field] = clone(update[field]);
       }
@@ -859,19 +855,6 @@ class AcpSessionState {
     }
     this.activePlanEntry.plan = clone(plan);
     this.touchEntry(this.activePlanEntry);
-  }
-
-  removePlan(): void {
-    if (this.activePlanEntry) {
-      const index = this.entries.indexOf(this.activePlanEntry);
-      if (index >= 0) this.entries.splice(index, 1);
-    }
-    this.activePlanEntry = null;
-    this.plan = null;
-    this.touchCurrentTurn();
-    // A removed entry cannot appear in a delta's changed-entry list. Force a
-    // replacement for readers whose revision predates this deletion.
-    this.resetBeforeRevision = Math.max(this.resetBeforeRevision, this.revision - 1);
   }
 
   transcriptSlice(options: TranscriptSliceOptions = {}) {

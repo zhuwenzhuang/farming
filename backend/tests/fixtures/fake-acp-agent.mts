@@ -238,6 +238,7 @@ class FakeAgent implements Agent {
       || !params.clientCapabilities?._meta?.jetbrains?.air?.capabilities?.includes('nativeSubagentSessions')
       || !params.clientCapabilities?.elicitation?.form
       || !params.clientCapabilities?.elicitation?.url
+      || params.clientCapabilities?.plan != null
     ) {
       throw new Error('Farming did not advertise the expected ACP client capabilities');
     }
@@ -2202,6 +2203,38 @@ class FakeAgent implements Agent {
         update: { sessionUpdate: 'agent_message_chunk', messageId: 'long-subagent-answer', content: { type: 'text', text: 'Subagent stopped.' } },
       });
       return { stopReason: 'cancelled' };
+    }
+    if (promptText.includes('request cancellation fixture')) {
+      await client.sessionUpdate({ sessionId: params.sessionId, update: {
+        sessionUpdate: 'plan', entries: [{ content: 'Verify request isolation', status: 'in_progress', priority: 'medium' }],
+      } });
+      const question = (message: string) => ({
+        sessionId: params.sessionId, mode: 'form' as const, message,
+        requestedSchema: { type: 'object' as const, properties: {} },
+      });
+      const inputAbort = new AbortController();
+      const permissionAbort = new AbortController();
+      const withdrawnInput = client.request('elicitation/create', question('Withdrawn question'), {
+        cancellationSignal: inputAbort.signal,
+      }).catch(() => null);
+      const withdrawnPermission = client.request('session/request_permission', {
+        sessionId: params.sessionId,
+        toolCall: { toolCallId: 'withdrawn-tool', title: 'Withdrawn permission', kind: 'execute', status: 'pending' },
+        options: [{ optionId: 'allow', name: 'Allow once', kind: 'allow_once' }],
+      }, { cancellationSignal: permissionAbort.signal }).catch(() => null);
+      const retained = client.createElicitation(question('Retained question'));
+      await client.createElicitation(question('Ready to withdraw'));
+      inputAbort.abort();
+      permissionAbort.abort();
+      await Promise.all([withdrawnInput, withdrawnPermission]);
+      await client.sessionUpdate({ sessionId: params.sessionId, update: {
+        sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Withdrawals sent; unrelated question remains.' },
+      } });
+      await retained;
+      await client.sessionUpdate({ sessionId: params.sessionId, update: {
+        sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Request cancellation verified.' },
+      } });
+      return { stopReason: 'end_turn' };
     }
     if (promptText.includes('client services')) {
       const filePath = path.join(process.cwd(), 'acp-client-roundtrip.txt');
