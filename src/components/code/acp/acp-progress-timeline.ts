@@ -14,7 +14,7 @@ type ActionKind = 'edit' | 'read' | 'search' | 'execute' | 'fetch' | 'tool'
 function actionKind(item: AcpProgressTimelineItem): ActionKind | null {
   const type = String(item.type || '').trim().toLowerCase()
   const kind = String(item.kind || '').trim().toLowerCase()
-  if (type === 'thought' || type === 'progress' || type === 'plan') return null
+  if (type === 'thought' || type === 'progress' || type === 'plan' || type === 'question') return null
   if (type === 'patch' || ['edit', 'delete', 'move'].includes(kind)) return 'edit'
   if (kind === 'read' || type === 'file-read' || type === 'read') return 'read'
   if (kind === 'search' || type === 'search' || type === 'web-search') return 'search'
@@ -55,7 +55,7 @@ export function isAcpProgressUpdate(item: AcpProgressTimelineItem) {
 
 function isAcpProgressBoundary(item: AcpProgressTimelineItem) {
   const type = String(item.type || '').trim().toLowerCase()
-  return type === 'progress' || type === 'user-steer' || type === 'error'
+  return type === 'progress' || type === 'user-steer' || type === 'error' || type === 'question'
 }
 
 export function acpProgressFlowEntries<T extends AcpProgressTimelineItem>(

@@ -32,6 +32,11 @@ export interface CodeCopy {
   sideChatDescription: string
   nativeChildDescription: string
   relatedWaitingPermission: string
+  questionLocateFailed: string
+  questionAnswered: string
+  questionSkipped: string
+  questionUnavailable: string
+  questionClosed: string
   questionDetails: string
   questionPending: string
   questionCount: (count: number) => string
@@ -725,6 +730,11 @@ const EN_COPY: CodeCopy = {
   sideChatDescription: 'Side chat · You can reply. Accepted work continues while you are away.',
   nativeChildDescription: 'Delegated task · The parent Agent controls this conversation.',
   relatedWaitingPermission: 'Waiting for approval',
+  questionLocateFailed: 'Could not locate this question in the available conversation history.',
+  questionAnswered: 'Answered',
+  questionSkipped: 'Skipped',
+  questionUnavailable: 'Currently unavailable to answer',
+  questionClosed: 'This request has ended',
   questionDetails: 'Optional details',
   questionPending: 'Awaiting answer',
   questionCount: count => `${count} pending question${count === 1 ? '' : 's'}`,
@@ -1451,6 +1461,11 @@ const ZH_COPY: CodeCopy = {
   sideChatDescription: '旁聊 · 可继续提问，已接受的任务会在你离开后继续执行。',
   nativeChildDescription: '委派任务 · 由父 Agent 控制此会话。',
   relatedWaitingPermission: '等待批准',
+  questionLocateFailed: '未能在当前可读取的聊天记录中定位该问题。',
+  questionAnswered: '已回答',
+  questionSkipped: '已跳过',
+  questionUnavailable: '当前无法回答',
+  questionClosed: '该提问已结束',
   questionDetails: '补充要求',
   questionPending: '待回答',
   questionCount: count => `${count} 个待回答问题`,

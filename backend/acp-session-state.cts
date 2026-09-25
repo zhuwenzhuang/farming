@@ -386,6 +386,7 @@ class AcpSessionState {
     let maximumRevision = 0;
     for (const entry of state.entries) {
       maximumRevision = Math.max(maximumRevision, Number(entry?._revision || 0));
+      if (entry?.type === 'question' && entry.status === 'pending') state.pendingQuestionEntries.set(String(entry.id), entry);
       if (entry?.type === 'tool' && entry.id) state.toolEntries.set(String(entry.id), entry);
       if (entry?.type === 'compaction' && entry.id) state.compactionEntries.set(String(entry.id), entry);
     }
@@ -483,7 +484,10 @@ class AcpSessionState {
     return id;
   }
 
+  readonly pendingQuestionEntries = new Map<string, AcpEntry>();
+
   pushEntry(entry: AcpEntry): AcpEntry {
+    if (entry.type === 'question' && entry.status === 'pending') this.pendingQuestionEntries.set(String(entry.id), entry);
     this.entryIds.add(String(entry.id));
     this.touchEntry(entry);
     this.entries.push(entry);

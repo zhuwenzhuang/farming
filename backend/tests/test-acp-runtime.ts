@@ -3601,6 +3601,18 @@ async function run() {
     assert.strictEqual(permissionBinding.permissionResolvers.size, 0);
     assert.strictEqual(permissionBinding.elicitationResolvers.size, 0);
     assert.strictEqual(permissionBinding.interactionOrigins.size, 0);
+    assert.strictEqual(permissionBinding.sessionState.entries.find(entry => entry.id === withdrawnId)?.status, 'closed');
+    assert.strictEqual(permissionBinding.sessionState.entries.find(entry => entry.id === retainedId)?.status, 'answered');
+    assert.strictEqual(permissionBinding.sessionState.pendingQuestionEntries.size, 0);
+
+    const deferredPrompt = await runtime.prompt('agent-acp-permission', '补充登录流程测试');
+    assert.strictEqual(deferredPrompt.stopReason, 'end_turn');
+    const deferredQuestion = runtime.getSession('agent-acp-permission').pendingElicitations[0];
+    assert.ok(deferredQuestion, 'an unanswered request may survive a completed turn');
+    await runtime.prompt('agent-acp-permission', 'Continue independently');
+    assert.strictEqual(runtime.getSession('agent-acp-permission').pendingElicitations[0].requestId, deferredQuestion.requestId);
+    runtime.respondElicitation('agent-acp-permission', deferredQuestion.requestId, 'accept', { scope: 'core' });
+    assert.strictEqual(permissionBinding.sessionState.entries.find(entry => entry.id === deferredQuestion.requestId)?.status, 'answered');
 
     const cancelledPermission = runtime.requestPermission(permissionBinding, request);
     assert.strictEqual(runtime.getSession('agent-acp-permission').pendingPermissions.length, 1);

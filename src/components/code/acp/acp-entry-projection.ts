@@ -79,6 +79,7 @@ export interface AgentTranscriptProcessItem {
   terminals?: AgentTranscriptTerminal[]
   subagentSessionId?: string
   subagentTranscript?: AgentTranscript
+  question?: { requestId: string; message: string; status: string; answer: string }
   collaboration?: AgentTranscriptCollaboration
 }
 
@@ -581,6 +582,10 @@ function compactionTitle(status: unknown): string {
 }
 
 function processEntry(entry: AcpRecord): AgentTranscriptProcessItem | null {
+  if (entry.type === 'question') {
+    const question = { requestId: stringValue(entry.id), message: stringValue(entry.message), status: stringValue(entry.status), answer: stringValue(entry.answer) }
+    return { id: question.requestId, type: 'question', title: question.message, status: question.status, question }
+  }
   if (entry.type === 'error') {
     const kind = stringValue(entry.kind) || 'unknown'
     return { id: stringValue(entry.id), type: 'error', kind, title: errorTitle(kind), detail: stringValue(entry.message), status: 'failed' }

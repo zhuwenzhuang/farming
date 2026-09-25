@@ -6,15 +6,15 @@ export type ElicitationValues = Record<string, string | number | boolean | strin
 export interface ElicitationDraft {
   values?: ElicitationValues
   detailsExpanded?: boolean
+  collapsed?: boolean
   status?: 'submitting' | 'submitted' | 'uncertain'
   error?: string
 }
 interface Presentation {
-  collapsed: boolean
   reveal: number
   requests: Record<string, ElicitationDraft>
 }
-const empty: Presentation = { collapsed: false, reveal: 0, requests: {} }
+const empty: Presentation = { reveal: 0, requests: {} }
 const presentations = new Map<string, Presentation>()
 const listeners = new Set<() => void>()
 const publish = (agentId: string, value: Presentation) => {
@@ -39,17 +39,14 @@ export function reconcileQuestions(agentId: string, requests: AcpPendingElicitat
   }
   publish(agentId, {
     ...previous,
-    collapsed: previous.collapsed && ids.every(id => previous.requests[id]),
     requests: Object.fromEntries(ids.map(id => [id, previous.requests[id] || {}])),
   })
-}
-export function collapseQuestions(agentId: string, collapsed: boolean) {
-  publish(agentId, { ...questionPresentation(agentId), collapsed })
 }
 export function revealQuestions(agentId: string, requests: AcpPendingElicitation[]) {
   reconcileQuestions(agentId, requests)
   const previous = questionPresentation(agentId)
-  publish(agentId, { ...previous, collapsed: false, reveal: previous.reveal + 1 })
+  publish(agentId, { ...previous, reveal: previous.reveal + 1,
+    requests: Object.fromEntries(Object.entries(previous.requests).map(([id, draft]) => [id, { ...draft, collapsed: false }])) })
 }
 export function updateQuestionDraft(agentId: string, requestId: string, update: Partial<ElicitationDraft>) {
   const previous = questionPresentation(agentId)

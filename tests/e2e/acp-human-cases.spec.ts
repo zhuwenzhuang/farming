@@ -2568,7 +2568,7 @@ test.describe('ACP human-like browser matrix', () => {
     await expect(page.getByTestId('code-agent-terminal-view')).toHaveCount(0)
   })
 
-  test('answers an ACP elicitation from a child session in the parent composer', async ({ page, workspaceRoot }) => {
+  test('answers an ACP elicitation from a child session in the parent conversation', async ({ page, workspaceRoot }) => {
     test.setTimeout(60_000)
     const workspace = path.join(workspaceRoot, 'acp-subagent-elicitation')
     fs.mkdirSync(workspace, { recursive: true })

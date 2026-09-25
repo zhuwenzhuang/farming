@@ -480,6 +480,7 @@
 }
 
 .code-acp-elicitation-checkbox input {
+  accent-color: var(--code-accent);
   width: auto;
 }
 
@@ -3543,11 +3544,11 @@ body.code-mode.code-compact-layout .code-composer-approval.orange {
   padding: 2px 12px 6px;
 }
 
-/* Questions are an independent, bounded surface above the ordinary Composer. */
+/* Question forms stay compact within their conversation entry. */
 .code-acp-questions {
   flex-shrink: 0;
   min-width: 0;
-  margin: 0 12px 4px;
+  margin: 0;
   color: var(--code-text);
   overflow: hidden;
   pointer-events: auto;
@@ -3651,7 +3652,7 @@ body.code-mode.code-compact-layout .code-composer-approval.orange {
 .code-acp-elicitation-heading .code-acp-questions-toggle:disabled { opacity: 0.45; cursor: default; }
 
 @media (max-width: 767px), (max-width: 980px) and (pointer: coarse) {
-  body.code-mode.code-compact-layout .code-acp-questions { margin: 0 6px 4px; }
+  body.code-mode.code-compact-layout .code-acp-questions { margin: 0; }
   body.code-mode.code-compact-layout .code-acp-questions-header { min-height: 36px; }
   body.code-mode.code-compact-layout .code-acp-questions .code-acp-elicitation { padding: 2px 8px; }
   body.code-mode.code-compact-layout .code-acp-questions-toggle { min-width: 32px; min-height: 36px; }
@@ -3661,3 +3662,19 @@ body.code-mode.code-compact-layout .code-composer-approval.orange {
   body.code-mode.code-compact-layout .code-acp-elicitation-options label { min-height: 44px; }
   body.code-mode.code-compact-layout .code-acp-questions-body { max-height: min(30dvh, 240px); }
 }
+
+/* Questions are durable conversation events using the shared grouped-form surface. */
+.code-acp-question-history {
+  margin: 12px 0;
+  border: 1px solid var(--code-border);
+  border-radius: 10px;
+  background: var(--code-panel-surface);
+  color: var(--code-text);
+  overflow: hidden;
+}
+.code-acp-question-result { padding: 10px 12px; font-size: 12px; }
+.code-acp-question-result > div { display: flex; align-items: center; gap: 8px; }
+.code-acp-question-result svg { width: 16px; height: 16px; flex-shrink: 0; }
+.code-acp-question-result small { margin-left: auto; color: var(--code-text-subtle); white-space: nowrap; }
+.code-acp-question-result pre { margin: 8px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
+.code-acp-request input:focus { outline: none; box-shadow: none; border-color: var(--code-border); }

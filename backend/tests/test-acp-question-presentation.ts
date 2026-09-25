@@ -1,21 +1,22 @@
 import assert from 'node:assert/strict'
-import { collapseQuestions, questionPresentation, reconcileQuestions, revealQuestions, updateQuestionDraft } from '../../src/components/code/acp/acp-elicitation-presentation'
+import { questionPresentation, reconcileQuestions, revealQuestions, updateQuestionDraft } from '../../src/components/code/acp/acp-elicitation-presentation'
 
 const question = (requestId: string) => ({ requestId, mode: 'form', message: requestId })
 reconcileQuestions('a', [question('one'), question('two')])
 updateQuestionDraft('a', 'one', { values: { notes: 'Keep my draft' } })
-collapseQuestions('a', true)
+updateQuestionDraft('a', 'one', { collapsed: true })
 reconcileQuestions('a', [question('one'), question('two')])
-assert.equal(questionPresentation('a').collapsed, true, 'ordinary runtime updates must not reopen deferred questions')
+assert.equal(questionPresentation('a').requests.one.collapsed, true, 'ordinary runtime updates must not reopen deferred questions')
 assert.deepEqual(questionPresentation('a').requests.one.values, { notes: 'Keep my draft' })
 reconcileQuestions('b', [question('other')])
 revealQuestions('b', [question('other')])
-assert.equal(questionPresentation('a').collapsed, true, 'opening another Agent preserves presentation')
+assert.equal(questionPresentation('a').requests.one.collapsed, true, 'opening another Agent preserves presentation')
 reconcileQuestions('a', [question('one')])
-assert.equal(questionPresentation('a').collapsed, true, 'withdrawal removes only its request')
+assert.equal(questionPresentation('a').requests.one.collapsed, true, 'withdrawal removes only its request')
 assert.equal(questionPresentation('a').requests.two, undefined)
 reconcileQuestions('a', [question('one'), question('new')])
-assert.equal(questionPresentation('a').collapsed, false, 'new questions should be discoverable')
+assert.equal(questionPresentation('a').requests.new.collapsed, undefined, 'new questions should be discoverable')
+assert.equal(questionPresentation('a').requests.one.collapsed, true, 'new questions must not reopen an older deferred question')
 updateQuestionDraft('a', 'one', { status: 'submitting' })
 reconcileQuestions('a', [])
 updateQuestionDraft('a', 'one', { status: 'uncertain', error: 'late transport response' })

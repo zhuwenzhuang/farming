@@ -23,7 +23,7 @@ import { ComposerEditorHeader } from '../ComposerEditorHeader'
 import type { ComposerMode } from '../types'
 import { AcpPermissionCard } from './AcpPermissionCard'
 import { AcpElicitationCard } from './AcpElicitationCard'
-import { AcpElicitationPanel, type RespondToElicitation } from './AcpElicitationPanel'
+import { type RespondToElicitation } from './AcpElicitationPanel'
 import { AcpAuthenticationCard } from './AcpAuthenticationCard'
 import type { AcpAvailableCommand } from './types'
 import {
@@ -134,7 +134,6 @@ export function AcpComposer({
   textareaRef,
   attachmentInputRef,
   permissions,
-  elicitations,
   activeElicitations,
   hostCommands = [],
   speechSupported,
@@ -215,7 +214,6 @@ export function AcpComposer({
     && !pendingFollowUp
     && submissions.length === 0
     && permissions.length === 0
-    && elicitations.length === 0
     && activeElicitations.length === 0
     && promptSuggestion?.promptId !== dismissedPromptSuggestionId
     ? promptSuggestion
@@ -506,8 +504,6 @@ export function AcpComposer({
           <p>{session.configOverrideWarnings.map(warning => warning.message).join(' ')}</p>
         </section>
       ) : null}
-      {active ? <AcpElicitationPanel agentId={agentId} requests={elicitations}
-        running={effectiveRuntimeState === 'working'} onRespond={onRespondToElicitation} copy={copy} /> : null}
       <footer
         className={composerClasses}
         data-testid="code-acp-composer"

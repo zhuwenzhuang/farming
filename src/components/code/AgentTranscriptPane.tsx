@@ -1,3 +1,6 @@
+import { useQuestionPresentation } from './acp/acp-elicitation-presentation'
+import { AcpQuestionContext, AcpTranscriptQuestion } from './acp/AcpTranscriptQuestion'
+import type { AcpPendingElicitation } from '@/types/agent'
 import type { AgentGoal } from '../../../shared/agent-goal'
 import { relatedSessionStatusLabel } from './related-session-status'
 import {
@@ -207,6 +210,7 @@ export interface AgentTranscriptPaneProps {
   active: boolean
   viewportLayoutKey?: string
   source: 'acp' | 'json-cli'
+  pendingElicitations?: AcpPendingElicitation[]
   refreshSignal?: number
   followLatestSignal?: number
   runtimeState?: string
@@ -1249,7 +1253,7 @@ function compactProcessEntries(
   turnStatus: AgentTranscriptTurn['status'],
   source: string,
 ) {
-  if (source === 'acp' && turnStatus === 'inProgress') {
+  if (source === 'acp' && (turnStatus === 'inProgress' || entries.some(entry => entry.kind === 'item' && entry.item.question))) {
     return {
       entries,
       items: entries.flatMap(entry => entry.kind === 'group' ? entry.items : [entry.item]),
@@ -2703,7 +2707,7 @@ function AgentTranscriptTurnView({
                   )
                 }
                 const item = entry.item
-                return source === 'acp' && isAcpProgressUpdate(item) ? (
+                return item.question ? <AcpTranscriptQuestion key={item.id} question={item.question} copy={copy} /> : source === 'acp' && isAcpProgressUpdate(item) ? (
                   <AgentTranscriptProgressUpdate
                     key={item.id}
                     item={item}
@@ -2765,6 +2769,7 @@ function AgentTranscriptTurnView({
                     />
                   )
                 }
+                if (entry.item.question) return <AcpTranscriptQuestion key={entry.item.id} question={entry.item.question} copy={copy} />
                 if (source === 'acp' && isAcpProgressUpdate(entry.item)) {
                   return (
                     <AgentTranscriptProgressUpdate
@@ -2972,6 +2977,7 @@ export function AgentTranscriptPane({
   refreshSignal = 0,
   followLatestSignal = 0,
   runtimeState = '',
+  pendingElicitations,
   expectHistory = false,
   forkedFromAgent = false,
   onOpenWorkspaceFilePath,
@@ -2989,6 +2995,8 @@ export function AgentTranscriptPane({
   groupProcessActions = true,
   copy,
 }: AgentTranscriptPaneProps) {
+  const questionPresentation = useQuestionPresentation(agentId)
+  const questionNavigation = useRef<{ reveal: number; requestId: string; done: boolean }>({ reveal: 0, requestId: '', done: true })
   const readingAnchorAgentId = readingIdentity || agentId
   const [transcript, setTranscript] = useState<AgentTranscript | null>(null)
   const transcriptRef = useRef<AgentTranscript | null>(null)
@@ -3982,6 +3990,37 @@ export function AgentTranscriptPane({
       return next
     })
   }, [loadingOlder, source, transcript?.hasMoreBefore, turnLimit, turns.length])
+  useEffect(() => {
+    if (!active || source !== 'acp') return
+    if (questionPresentation.reveal !== questionNavigation.current.reveal) {
+      questionNavigation.current = { reveal: questionPresentation.reveal, requestId: pendingElicitations?.[0]?.requestId || '', done: false }
+    }
+    const navigation = questionNavigation.current
+    if (navigation.done || !navigation.requestId || loading || loadingOlder || error) return
+    if (turns.some(turn => turn.processItems.some(item => item.question?.requestId === navigation.requestId))) {
+      const element = scrollRef.current
+      const target = element && [...element.querySelectorAll<HTMLElement>('[data-request-id]')]
+        .find(candidate => candidate.dataset.requestId === navigation.requestId)
+      if (!element || !target) return
+      followBottomRef.current = false
+      pendingReadingAnchorRestoreRef.current = false
+      pendingPrependAnchorRef.current = null
+      target.scrollIntoView({ block: 'center' })
+      stationaryScrollTopRef.current = element.scrollTop
+      setShowJumpToBottom(!isTranscriptNearBottom(element))
+      scheduleReadingAnchorSave(readingAnchorAgentId, element)
+      target.querySelector<HTMLElement>('[data-testid="code-acp-questions"]')?.focus({ preventScroll: true })
+      navigation.done = true
+      return
+    }
+    if (transcript?.hasMoreBefore && turnLimit < MAX_TRANSCRIPT_TURN_LIMIT && scrollRef.current) {
+      requestOlderTurns(scrollRef.current)
+    } else {
+      navigation.done = true
+      setError(copy.questionLocateFailed)
+    }
+  }, [active, source, questionPresentation.reveal, pendingElicitations, loading, loadingOlder, error, turns, transcript?.hasMoreBefore, turnLimit, requestOlderTurns, copy.questionLocateFailed, scheduleReadingAnchorSave, readingAnchorAgentId])
+  useEffect(() => { questionNavigation.current = { reveal: 0, requestId: '', done: true } }, [agentId])
   const handleTouchStart = useCallback(() => {
     markUserScrollGesture()
   }, [markUserScrollGesture])
@@ -4147,6 +4186,7 @@ export function AgentTranscriptPane({
   return (
     <TranscriptImagePreviewContext.Provider value={openImagePreview}>
       <TranscriptFileOpenContext.Provider value={transcriptFileOpenContext}>
+      <AcpQuestionContext.Provider value={{ agentId, requests: pendingElicitations || [] }}>
       <div
         className="code-agent-transcript"
         data-testid="code-agent-transcript"
@@ -4284,6 +4324,7 @@ export function AgentTranscriptPane({
           <img src={imagePreview.url} alt={imagePreview.label} onClick={event => event.stopPropagation()} />
         </div>
       </ContentViewerDialog> : null}
+      </AcpQuestionContext.Provider>
       </TranscriptFileOpenContext.Provider>
     </TranscriptImagePreviewContext.Provider>
   )

@@ -229,7 +229,7 @@ they do not authorize operations or replace display titles.
 
 Request-level cancellation is distinct from Turn cancellation. The SDK request
 context owns cancellation of a pending permission or elicitation. Cancellation
-withdraws only that exact live request, removes its UI and resolver, and rejects
+withdraws only that exact live request, removes its live controls and resolver, and rejects
 late answers without affecting other requests or the Turn. A submitted answer
 and cancellation settle once; settlement releases the cancellation listener.
 Connection loss and runtime replacement retain their existing ownership and
@@ -242,23 +242,28 @@ answers or expires a question. Browser presentation, keyed by Agent and request
 identity, owns collapse and unsubmitted drafts; switching Agents preserves them,
 while runtime replacement cannot reuse them. New requests expand the question
 surface without taking focus. “Later” only collapses it; “Skip” sends `decline`.
-Submission is single-flight, retains the card until authoritative resolution,
+Submission is single-flight, retains the form until authoritative resolution,
 and shows bounded failures. An uncertain response is never automatically replayed.
 
-Questions use a borderless, bounded inline surface above the Composer, subordinate
-to the main input. A simple choice uses two compact rows (question and choices
-with actions), without a duplicate count heading or visible field legend. Optional
-text details expand explicitly and preserve their draft and disclosure per request;
-required fields always remain visible, and invalid hidden fields reveal for correction.
-A collapsed surface retains its count and an explicit expand action. Multiple or
-complex questions scroll within the same bounded surface. The Agent row exposes
-the same authoritative pending count as one neutral question button, independent
-of execution status and protected from hover-action overlays. Activating it opens
-the Agent through normal navigation and reveals its questions. Keyboard and
-compact layouts retain the same actions. Accepted URL interactions remain distinct
-from questions awaiting an answer. Acceptance covers concurrent questions,
-collapse without response, draft preservation, answer/withdrawal races, failure,
-background updates, restart, and Light, Dark, and Paper appearances.
+Questions are durable entries in the conversation at their original arrival position.
+Later output follows them; questions never occupy or displace the Composer. The
+shared grouped-form recipe supplies borders in Light/Dark and a neutral surface
+in Paper, with distinct input surfaces in every appearance. Simple questions remain
+compact; optional text details expand explicitly without hiding required fields.
+The browser preserves per-request disclosure and drafts; invalid hidden fields
+reveal for correction. “Later” collapses only that question, with no protocol reply.
+
+The backend stores question identity, message and settlement in the ordered Session
+entry stream. Answered, skipped and withdrawn questions remain as read-only history;
+a restored record without a live resolver is unavailable, never replayable. The
+live pending set alone authorizes answering. A provider may continue or finish a
+Turn while its request remains valid; Farming neither blocks that progress nor
+invents an answer or a provider default. Requests explicitly withdrawn by the
+provider cannot be answered later. The Agent row retains the authoritative pending
+count and reveals the question through normal navigation. Accepted URL interactions
+retain their separate completion state. Acceptance covers chronological placement,
+output and later Turns before answering, reload, per-request collapse, settlement,
+withdrawal, draft preservation and Light/Dark/Paper on desktop and compact layouts.
 
 Qwen Code's version 1 prompt-suggestion notification is normalized at that
 boundary into ephemeral, provider-neutral Composer state. It can replace the

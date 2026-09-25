@@ -2204,6 +2204,12 @@ class FakeAgent implements Agent {
       });
       return { stopReason: 'cancelled' };
     }
+    if (promptText.startsWith('Continue independently') || promptText === '继续检查错误处理') {
+      await client.sessionUpdate({ sessionId: params.sessionId, update: {
+        sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `已继续检查：${promptText}` },
+      } });
+      return { stopReason: 'end_turn' };
+    }
     if (promptText.includes('pending question design fixture') || promptText === '补充登录流程测试') {
       await client.sessionUpdate({ sessionId: params.sessionId, update: {
         sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '我会先检查现有测试结构，并补齐核心用例。\n\n' },
@@ -2222,6 +2228,15 @@ class FakeAgent implements Agent {
       await client.sessionUpdate({ sessionId: params.sessionId, update: {
         sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '已读取 tests/auth.test.ts，找到 3 个需要补充的边界用例。' },
       } });
+      if (promptText === '补充登录流程测试') {
+        await client.sessionUpdate({ sessionId: params.sessionId, update: {
+          sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '\n\n我先按核心登录流程补充了测试，接着核对了会话过期的处理。你可以随时回来补充测试范围。' },
+        } });
+        void answer.then(response => client.sessionUpdate({ sessionId: params.sessionId, update: {
+          sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `\n\nQuestion resolved: ${JSON.stringify(response)}` },
+        } }));
+        return { stopReason: 'end_turn' };
+      }
       const response = await answer;
       await client.sessionUpdate({ sessionId: params.sessionId, update: {
         sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `\n\nQuestion resolved: ${JSON.stringify(response)}` },

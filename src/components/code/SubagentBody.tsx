@@ -21,7 +21,7 @@ export function SubagentBody({ agent: structuralAgent, active, renderComposer, o
   const quoteSelection = useCallback((text: string) => onQuoteSelection(agent.id, text), [agent.id, onQuoteSelection])
   return <>
     <div className="code-related-session-source">{copy.sideChatDescription}</div>
-    <AcpTranscriptPane agentId={agent.id} readingIdentity={agent.providerSessionKey}
+    <AcpTranscriptPane pendingElicitations={runtime?.pendingElicitations} agentId={agent.id} readingIdentity={agent.providerSessionKey}
       workspaceRootId={agent.workspaceRootId} workspaceRoot={agent.projectWorkspace || agent.cwd}
       active={active} expectHistory forkedFromAgent copy={copy}
       refreshSignal={runtime?.sessionRevision || 0} runtimeState={runtime?.state || ''}

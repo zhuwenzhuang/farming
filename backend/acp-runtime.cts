@@ -3295,6 +3295,9 @@ class AcpRuntime extends EventEmitter {
     };
     binding.interactionOrigins.set(requestId, binding.state);
     binding.pendingElicitations.set(requestId, pending);
+    binding.sessionState.pushEntry({ id: requestId, type: 'question', message: String(pending.message || ''), status: 'pending' });
+    this.emitSession(binding);
+    this.scheduleCheckpoint(binding);
     binding.state = interactiveRuntimeState(binding, binding.state);
     const response = this.waitForInteraction(binding, requestId, binding.elicitationResolvers, signal, () => {
       this.respondElicitation(binding.agentId, requestId, 'cancel', undefined);
@@ -3316,6 +3319,14 @@ class AcpRuntime extends EventEmitter {
       : { action: normalizedAction };
     binding.elicitationResolvers.delete(id);
     binding.pendingElicitations.delete(id);
+    const question = binding.sessionState.pendingQuestionEntries.get(id);
+    if (question) {
+      question.status = normalizedAction === 'accept' ? 'answered' : normalizedAction === 'decline' ? 'skipped' : 'closed';
+      question.answer = response.action === 'accept' && pending.mode === 'form' ? JSON.stringify(response.content) : '';
+      binding.sessionState.touchEntry(question);
+      this.emitSession(binding);
+      this.scheduleCheckpoint(binding);
+    }
     if (pending.mode === 'url' && normalizedAction === 'accept') {
       binding.activeElicitations.set(String(pending.elicitationId || id), { ...pending, status: 'accepted' });
     }
@@ -5209,6 +5220,20 @@ class AcpRuntime extends EventEmitter {
 
   emitRuntime(binding: AcpBinding) {
     if (!this.isCurrentBinding(binding)) return false;
+    let questionsClosed = false;
+    for (const entry of binding.sessionState?.pendingQuestionEntries.values() || []) {
+      if (entry.status !== 'pending') binding.sessionState.pendingQuestionEntries.delete(String(entry.id));
+      if (entry.type === 'question' && entry.status === 'pending' && !binding.pendingElicitations.has(String(entry.id))) {
+        entry.status = 'closed';
+        binding.sessionState.pendingQuestionEntries.delete(String(entry.id));
+        binding.sessionState.touchEntry(entry);
+        questionsClosed = true;
+      }
+    }
+    if (questionsClosed) {
+      this.emitSession(binding);
+      this.scheduleCheckpoint(binding);
+    }
     binding.transcriptProjectionRevision += 1;
     this.emit('agent-runtime', {
       agentId: binding.agentId,
