@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+  composerCommandGroup,
   composerCommandTestId,
   findComposerCommandTrigger,
   matchesComposerCommand,
@@ -37,6 +38,15 @@ test('matches, ranks, and identifies slash and skill commands consistently', () 
   assert.equal(matchesComposerCommand(goalCommand, 'go', '/'), true)
   assert.equal(matchesComposerCommand(planCommand, 'go', '/'), false)
   assert.equal(matchesComposerCommand(browserCommand, 'browser', '$'), true)
+  assert.equal(matchesComposerCommand(browserCommand, 'browser', '/'), true)
+  assert.equal(matchesComposerCommand(goalCommand, 'goal', '$'), false)
+  assert.equal(findComposerCommandTrigger('email@example.com', 17), null)
+  assert.equal(findComposerCommandTrigger('echo $HOME', 10), null)
+  assert.deepEqual(findComposerCommandTrigger('请用（$翻译', 6), {
+    start: 3, end: 6, query: '翻译', trigger: '$',
+  })
+  assert.equal(composerCommandGroup(browserCommand), 'Skills')
+  assert.equal(composerCommandGroup({ ...goalCommand, source: 'farming' }), 'Farming actions')
   assert.equal(rankComposerCommand(goalCommand, 'go'), 0)
   assert.equal(rankComposerCommand(goalCommand, 'set'), 1)
   assert.equal(composerCommandTestId('$browser.control'), 'code-slash-command-browser-control')

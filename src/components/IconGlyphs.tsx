@@ -321,6 +321,14 @@ export function FolderGlyph(props: IconGlyphProps) {
   )
 }
 
+export function FileGlyph(props: IconGlyphProps) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false" {...props}>
+      <path d="M3.25 1.75h6l3.5 3.5v9H3.25zM9.25 1.75v3.5h3.5M5.5 8h5M5.5 10.5h5" />
+    </svg>
+  )
+}
+
 export function HandGlyph(props: IconGlyphProps) {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false" {...props}>

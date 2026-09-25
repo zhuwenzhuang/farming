@@ -733,6 +733,7 @@ test.describe('human Farming Agent story', () => {
       'PDF skill body should stay server-side.',
       '',
     ].join('\n'))
+    fs.writeFileSync(path.join(slashWorkspace, 'context.txt'), 'Relevant workspace context\n')
 
     await openFarming(page)
     await openNewAgentDialog(page)
@@ -770,7 +771,18 @@ test.describe('human Farming Agent story', () => {
     await expect(page.getByTestId('code-slash-command-goal')).toHaveCount(0)
     await expect(page.getByTestId('code-slash-menu')).not.toContainText('PDF skill body')
     await textarea.press('Enter')
-    await expect(textarea).toHaveValue('Use $pdf ')
+    await expect(textarea).toHaveValue('Use ')
+    await expect(page.getByTestId('code-composer-context-chip')).toContainText(/pdf/i)
+    await page.getByTestId('code-composer-context-chip').locator('.code-composer-attachment-remove').click()
+    await textarea.fill('')
+
+    await textarea.fill('Check @cont')
+    await expect(page.getByTestId('code-composer-context-menu')).toBeVisible()
+    await expect(page.getByTestId('code-composer-context-option').filter({ hasText: 'context.txt' })).toBeVisible()
+    await textarea.press('Enter')
+    await expect(textarea).toHaveValue('Check context.txt')
+    await expect(page.getByTestId('code-composer-context-chip')).toContainText('context.txt')
+    await page.getByTestId('code-composer-context-chip').locator('.code-composer-attachment-remove').click()
     await textarea.fill('')
 
     await textarea.fill('/g')

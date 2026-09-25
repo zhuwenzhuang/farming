@@ -109,18 +109,27 @@ async function parseSkillFrontMatter(skillFile: string): Promise<SkillFrontMatte
   if (!match) return {};
 
   const metadata: SkillFrontMatter = {};
-  match[1].split(/\r?\n/).forEach(line => {
+  const lines = match[1].split(/\r?\n/);
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index];
     const field = line.match(/^([A-Za-z0-9_-]+):\s*(.*)$/);
-    if (!field) return;
+    if (!field) continue;
     const fieldName = field[1];
-    const value = field[2]
+    let value = field[2]
       .trim()
       .replace(/^['"]|['"]$/g, '')
       .trim();
+    if (/^[>|][-+]?$/.test(value) && (fieldName === 'name' || fieldName === 'description')) {
+      const block: string[] = [];
+      while (index + 1 < lines.length && /^\s+\S/.test(lines[index + 1])) {
+        block.push(lines[++index].trim());
+      }
+      value = block.join(' ');
+    }
     if (fieldName === 'name' || fieldName === 'description') {
       metadata[fieldName] = value;
     }
-  });
+  }
   return metadata;
 }
 

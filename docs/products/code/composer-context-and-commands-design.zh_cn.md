@@ -2,8 +2,14 @@
 
 > English version: [composer-context-and-commands-design.md](composer-context-and-commands-design.md)
 
-状态：设计提案，尚未实现。本文定义下一阶段的 Composer 增量；已有编辑、展开与提交行为
+状态：第一阶段 Composer 增量已实现。本文也记录后续设计目标；编辑、展开与提交行为
 仍以 [Composer 输入](composer-input.zh_cn.md) 为准。
+
+当前实现包含 Chat 和 Terminal 中的 `@` 文件／目录查找、编辑器选区快照、分类 `/`
+命令和 `$` 技能选择。选中的引用保存在现有草稿中，并通过现有提交路径以带来源的路径或
+选区文本投递。查找使用已授权的工作区文件服务；提交时检查当前工作区身份和技能目录。
+独立的 ACP 资源块投递、实际派发前的文件存活检查以及多根目录选择仍属后续工作；
+因此，失效的位置可能由 Agent 报告为不存在。
 
 ## 方向与范围
 

@@ -149,8 +149,10 @@ import {
   composerAttachmentMessageBlocks,
   composerAttachmentsCanSubmit,
   composerMessageForNativeAttachments,
+  composerMessageWithContext,
   composerMessageWithAttachments,
   composerPromptAttachments,
+  composerContextReferenceId,
   createComposerAttachmentId,
   createImageAttachmentPreviewUrl,
   fileDisplayName,
@@ -164,6 +166,7 @@ import {
   revokeComposerAttachmentPreview,
   uploadImageAttachment,
   type ComposerAttachment,
+  type ComposerContextReference,
   type ComposerPromptAttachment,
 } from './code/composer-message'
 import { terminalInputPartsForComposerMessage } from './code/composer-submit'
@@ -1470,6 +1473,7 @@ export function CodeWorkspace({
     : DEFAULT_AGENT_COMPOSER_STATE
   const draft = activeComposerState.draft
   const composerAttachments = activeComposerState.attachments
+  const composerContextReferences = useMemo(() => activeComposerState.contextReferences || [], [activeComposerState.contextReferences])
   const composerMode = activeComposerState.mode
   const { plusMenuOpen, approvalMenuOpen, modelMenuOpen, modelPickerPane } = activeComposerState.ui
   const activeAgentTerminalState = useMemo(
@@ -2141,6 +2145,26 @@ export function CodeWorkspace({
     focusComposerTextarea()
   }, [focusComposerTextarea, updateActiveComposerState])
 
+  const addComposerContextReference = useCallback((reference: Omit<ComposerContextReference, 'id'>) => {
+    if (!activeAgent || !activeComposerKey) return
+    if (reference.kind !== 'skill' && (
+      reference.workspace !== activeAgent.cwd
+      || reference.rootId !== projectFilesWorkspaceId(activeAgent.cwd)
+    )) return
+    const item = { ...reference, id: composerContextReferenceId(reference) }
+    updateComposerStateForKey(activeComposerKey, state => state.contextReferences?.some(existing => existing.id === item.id)
+      ? state
+      : { ...state, contextReferences: [...(state.contextReferences || []), item] })
+  }, [activeAgent, activeComposerKey, updateComposerStateForKey])
+
+  const removeComposerContextReference = useCallback((referenceId: string) => {
+    updateActiveComposerState(state => ({
+      ...state,
+      contextReferences: (state.contextReferences || []).filter(reference => reference.id !== referenceId),
+    }))
+    focusComposerTextarea()
+  }, [focusComposerTextarea, updateActiveComposerState])
+
   const handleAttachmentFiles = useCallback((event: ReactChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files ?? [])
     event.target.value = ''
@@ -2422,14 +2446,19 @@ export function CodeWorkspace({
       setOpeningSubagent('')
     }
   }, [agents, copy.subagent])
-  const quoteSelectionForAgent = useCallback((agentId: string, text: string) => {
+  const quoteSelectionForAgent = useCallback((agentId: string, text: string, context?: Omit<ComposerContextReference, 'id'>) => {
     const agent = agents.find(candidate => candidate.id === agentId)
     const composerKey = acpComposerStateKeyForAgent(agent)
     const quote = quotedSelectionBlock(text)
-    if (!composerKey || !quote) return
+    if (!composerKey || (!quote && !context)) return
+    const validContext = context && agent && agent.cwd === context.workspace
+      && context.rootId === projectFilesWorkspaceId(agent.cwd)
+      ? { ...context, id: composerContextReferenceId(context) } : null
     updateComposerStateForKey(composerKey, state => ({
       ...state,
-      draft: appendDraftBlock(state.draft, quote),
+      draft: validContext ? state.draft : appendDraftBlock(state.draft, quote),
+      contextReferences: validContext && !state.contextReferences?.some(reference => reference.id === validContext.id)
+        ? [...(state.contextReferences || []), validContext] : state.contextReferences,
       history: { ...state.history, cursor: null },
     }))
     if (activeTerminalIdRef.current === agentId) window.requestAnimationFrame(focusComposerTextarea)
@@ -2517,9 +2546,16 @@ export function CodeWorkspace({
   } = composerFollowUps
   const composerHasAttachmentMessage = composerAttachmentMessageBlocks(composerAttachments).length > 0
   const composerAttachmentsSendable = composerAttachmentsCanSubmit(composerAttachments)
+  const unavailableContextReferenceIds = composerContextReferences.filter(reference => reference.kind === 'skill'
+    ? slashCatalogStatus !== 'ready' || !discoveredSlashCommands.some(command => command.source === 'skill'
+      && command.command === reference.command && command.scope === reference.source)
+    : !activeAgent || reference.workspace !== activeAgent.cwd
+      || reference.rootId !== projectFilesWorkspaceId(activeAgent.cwd)
+      || !reference.path).map(reference => reference.id)
+  const composerContextSendable = Boolean(activeAgent) && unavailableContextReferenceIds.length === 0
   const composerSubmitAction = activeCodexTerminalProfileApplying
     ? 'disabled'
-    : activeAgent && composerAttachmentsSendable && (draft.trim() || composerHasAttachmentMessage)
+    : activeAgent && composerAttachmentsSendable && composerContextSendable && (draft.trim() || composerHasAttachmentMessage || composerContextReferences.length > 0)
       ? 'send'
       : activeAgentCanInterrupt
         ? 'interrupt'
@@ -2543,13 +2579,14 @@ export function CodeWorkspace({
 
   const submitDraft = useCallback((submittedDraft?: string) => {
     const latestDraft = submittedDraft ?? composerTextareaRef.current?.value ?? draft
-    if (!activeAgent || !activeComposerKey || !composerAttachmentsCanSubmit(composerAttachments)) return false
+    if (!activeAgent || !activeComposerKey || !composerAttachmentsCanSubmit(composerAttachments) || !composerContextSendable) return false
     const nativeAttachments = isStructuredRuntime(activeAgent)
       ? composerPromptAttachments(composerAttachments)
       : []
-    const text = nativeAttachments.length > 0
+    const baseText = nativeAttachments.length > 0
       ? composerMessageForNativeAttachments(latestDraft, composerAttachments)
       : composerMessageWithAttachments(latestDraft, composerAttachments)
+    const text = composerMessageWithContext(baseText, composerContextReferences)
     if (!text && nativeAttachments.length === 0) return false
 
     const message = formatComposerMessageForAgent(composerMode, text, activeAgent)
@@ -2562,7 +2599,7 @@ export function CodeWorkspace({
           pendingFollowUp: {
             messages: [
               ...(existing?.messages || []),
-              createPendingFollowUpMessage(message, [], latestDraft, composerMode),
+              createPendingFollowUpMessage(message, [], latestDraft, composerMode, composerContextReferences),
             ],
             createdAt: existing?.createdAt || Date.now(),
           },
@@ -2573,12 +2610,17 @@ export function CodeWorkspace({
     }
     const clearAcceptedDraft = () => {
       updateComposerStateForKey(activeComposerKey, state => {
-        if (state.draft !== latestDraft) return state
+        if (state.draft !== latestDraft
+          || state.attachments.length !== composerAttachments.length
+          || state.attachments.some((attachment, index) => attachment.id !== composerAttachments[index]?.id)
+          || (state.contextReferences || []).length !== composerContextReferences.length
+          || (state.contextReferences || []).some((reference, index) => reference.id !== composerContextReferences[index]?.id)) return state
         state.attachments.forEach(revokeComposerAttachmentPreview)
         return {
           ...state,
           draft: '',
           attachments: [],
+          contextReferences: [],
           mode: 'default',
           history: addComposerHistoryEntry(state.history, latestDraft),
         }
@@ -2593,7 +2635,7 @@ export function CodeWorkspace({
       if (accepted) clearAcceptedDraft()
       return accepted
     })
-  }, [activeAgent, activeComposerKey, composerAttachments, composerMode, draft, focusComposerTextarea, sendComposerMessageToAgent, updateComposerStateForKey])
+  }, [activeAgent, activeComposerKey, composerAttachments, composerContextReferences, composerContextSendable, composerMode, draft, focusComposerTextarea, sendComposerMessageToAgent, updateComposerStateForKey])
 
   const submitAcpDraft = useCallback((
     submittedDraft?: string,
@@ -2609,6 +2651,8 @@ export function CodeWorkspace({
       composerKey: activeComposerKey,
       draft: latestDraft,
       attachments: composerAttachments,
+      contextReferences: composerContextReferences,
+      contextValid: composerContextSendable,
       composerMode,
       turnActive: activeAgentTurnActive || promptStartFenced,
       followUpBehavior: resolveAcpFollowUpBehavior(
@@ -2640,7 +2684,7 @@ export function CodeWorkspace({
       commitAccepted(accepted, false)
       return accepted
     })
-  }, [activeAcpRuntime, activeAgent, activeAgentTurnActive, activeComposerKey, activePromptStartFenced, composerAttachments, composerMode, draft, focusComposerTextarea, markPromptStart, sendComposerMessageToAgent, uiPreferences.composerFollowUpBehavior, updateComposerStateForKey])
+  }, [activeAcpRuntime, activeAgent, activeAgentTurnActive, activeComposerKey, activePromptStartFenced, composerAttachments, composerContextReferences, composerContextSendable, composerMode, draft, focusComposerTextarea, markPromptStart, sendComposerMessageToAgent, uiPreferences.composerFollowUpBehavior, updateComposerStateForKey])
 
   const reconnectActiveAcpAgent = useCallback(() => {
     if (!activeAgent || !isAcpRuntime(activeAgent)) return
@@ -6258,6 +6302,11 @@ export function CodeWorkspace({
           runtimeError: activeAcpRuntime?.error || '',
           draft,
           attachments: composerAttachments,
+          contextReferences: composerContextReferences,
+          unavailableReferenceIds: unavailableContextReferenceIds,
+          onAddContextReference: addComposerContextReference,
+          onRemoveContextReference: removeComposerContextReference,
+          workspace: activeAgent?.cwd || '',
           composerMode,
           contextWindow: activeAgentContextWindow,
           pendingFollowUp: activePendingFollowUp ?? null,
@@ -6278,6 +6327,8 @@ export function CodeWorkspace({
               ? [activeAcpRuntime.pendingElicitation]
               : [],
           activeElicitations: activeAcpRuntime?.activeElicitations || [],
+          catalogCommands: discoveredSlashCommands,
+          slashCatalogStatus,
           speechSupported,
           speechListening,
           onDraftChange: handleDraftChange,
@@ -6312,6 +6363,11 @@ export function CodeWorkspace({
           slashCatalogTargetKey,
           draft,
           attachments: composerAttachments,
+          contextReferences: composerContextReferences,
+          unavailableReferenceIds: unavailableContextReferenceIds,
+          onAddContextReference: addComposerContextReference,
+          onRemoveContextReference: removeComposerContextReference,
+          workspace: activeAgent?.cwd || '',
           composerMode,
           plusMenuOpen,
           approvalMenuOpen,

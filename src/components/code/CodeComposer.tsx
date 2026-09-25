@@ -10,6 +10,7 @@ import type {
   PointerEvent,
 } from 'react'
 import type { AgentContextWindowUsage } from '@/types/agent'
+import { projectFilesWorkspaceId } from '@/lib/project-workspaces'
 import {
   ArrowUpGlyph, LoadingGlyph,
   CheckGlyph,
@@ -33,7 +34,12 @@ import {
 import type { CodeCopy } from './copy'
 import type { PermissionModeColor, PermissionModeOption } from './composer-profile'
 import { ComposerAttachments, type ComposerAttachmentView } from './ComposerAttachments'
+import { ComposerContextMenu } from './ComposerContextMenu'
+import { useComposerContextCompletion, type ComposerContextCandidate } from './useComposerContextCompletion'
+import type { ComposerContextReference } from './composer-message'
+import { ComposerCommandIcon } from './ComposerCommandIcon'
 import {
+  composerCommandGroup,
   composerCommandTestId,
   findComposerCommandTrigger,
   matchesComposerCommand,
@@ -120,6 +126,8 @@ interface CodeComposerProps {
   slashCatalogTargetKey: string
   draft: string
   attachments: ComposerAttachmentView[]
+  contextReferences: ComposerContextReference[]
+  workspace: string
   composerMode: ComposerMode
   plusMenuOpen: boolean
   approvalMenuOpen: boolean
@@ -155,6 +163,9 @@ interface CodeComposerProps {
   onDraftChange: (value: string) => void
   onNavigateHistory: (direction: ComposerHistoryDirection, input: ComposerHistoryNavigationInput) => string | null
   onRemoveAttachment: (id: string) => void
+  onAddContextReference: (reference: Omit<ComposerContextReference, 'id'>) => void
+  onRemoveContextReference: (id: string) => void
+  unavailableReferenceIds?: string[]
   onSubmit: (draft?: string) => boolean | Promise<boolean>
   onInterrupt: () => void
   onSendPendingFollowUp: (messageId: string) => void
@@ -193,6 +204,8 @@ export function CodeComposer({
   slashCatalogTargetKey,
   draft,
   attachments,
+  contextReferences,
+  workspace,
   composerMode,
   plusMenuOpen,
   approvalMenuOpen,
@@ -228,6 +241,9 @@ export function CodeComposer({
   onDraftChange,
   onNavigateHistory,
   onRemoveAttachment,
+  onAddContextReference,
+  onRemoveContextReference,
+  unavailableReferenceIds = [],
   onSubmit,
   onInterrupt,
   onSendPendingFollowUp,
@@ -290,6 +306,7 @@ export function CodeComposer({
   const compositionActiveRef = useRef(false)
   const lastCompositionEndAtRef = useRef(0)
   const latestDraftRef = useRef(draft)
+  const contextCompletion = useComposerContextCompletion({ agentId, workspace, draft, selectionStart: textareaSelectionStart, active, focused: textareaFocused })
   const mobileSpeechPointerHandledRef = useRef(false)
   const editor = useComposerExpandedEditor({ agentId, enabled: compactComposerViewport && active && !speechListening, textareaRef, composerRef })
   useComposerTextareaAutoSize(textareaRef, draft, editor.expanded)
@@ -305,31 +322,40 @@ export function CodeComposer({
     : ''
   const filteredSlashCommands = useMemo(
     () => slashTrigger
-      ? slashCommands
+      ? [
+        ...(slashTrigger.trigger === '/' && showModelPicker ? [{ command: '/model', label: 'Model', description: 'Open model settings', source: 'farming' as const }] : []),
+        ...(slashTrigger.trigger === '/' && showPermissionMode ? [{ command: '/permissions', label: 'Permissions', description: 'Open permission settings', source: 'farming' as const }] : []),
+        ...slashCommands,
+      ]
         .filter(command => matchesComposerCommand(command, slashTrigger.query, slashTrigger.trigger))
-        .sort((a, b) => rankComposerCommand(a, slashTrigger.query) - rankComposerCommand(b, slashTrigger.query))
+        .sort((a, b) => {
+          const groups = ['Farming actions', 'Agent commands', 'Skills']
+          return groups.indexOf(composerCommandGroup(a)) - groups.indexOf(composerCommandGroup(b))
+            || rankComposerCommand(a, slashTrigger.query) - rankComposerCommand(b, slashTrigger.query)
+        })
       : [],
-    [slashCommands, slashTrigger]
+    [slashCommands, slashTrigger, showModelPicker, showPermissionMode]
   )
   const showSlashMenu = active
     && textareaFocused
+    && !contextCompletion.open
     && !baseComposerMenuOpen
     && Boolean(slashTrigger)
     && slashTriggerId !== dismissedSlashTriggerId
-    && filteredSlashCommands.length > 0
+    && (filteredSlashCommands.length > 0 || slashCatalogStatus === 'ready')
   const showSlashCatalogLoading = active
     && textareaFocused
     && !baseComposerMenuOpen
-    && slashTrigger?.trigger === '$'
+    && Boolean(slashTrigger)
     && slashTriggerId !== dismissedSlashTriggerId
     && slashCatalogStatus === 'loading'
   const showSlashCatalogError = active
     && textareaFocused
     && !baseComposerMenuOpen
-    && slashTrigger?.trigger === '$'
+    && Boolean(slashTrigger)
     && slashTriggerId !== dismissedSlashTriggerId
     && slashCatalogStatus === 'error'
-  const composerMenuOpen = baseComposerMenuOpen || showSlashMenu || showSlashCatalogLoading || showSlashCatalogError
+  const composerMenuOpen = baseComposerMenuOpen || contextCompletion.open || showSlashMenu || showSlashCatalogLoading || showSlashCatalogError
   const selectedSlashCommand = filteredSlashCommands[activeSlashIndex] ?? filteredSlashCommands[0] ?? null
   const displayedPermissionLabel = copy.permissionModeLabel(currentPermissionMode, currentPermissionLabel)
   const displayedReasoningLabel = copy.reasoningOptionLabel(agentReasoningEffort, currentReasoningLabel)
@@ -469,7 +495,7 @@ export function CodeComposer({
 
   useEffect(() => {
     if (!showSlashMenu || !selectedSlashCommand) return
-    const selectedButton = slashCommandRefs.current.get(selectedSlashCommand.command)
+    const selectedButton = slashCommandRefs.current.get(`${selectedSlashCommand.source}:${selectedSlashCommand.scope || ''}:${selectedSlashCommand.command}`)
     selectedButton?.scrollIntoView({ block: 'nearest' })
   }, [showSlashMenu, selectedSlashCommand])
 
@@ -481,12 +507,37 @@ export function CodeComposer({
   function insertSlashCommand(command: SlashCommandOption) {
     if (!slashTrigger) return
 
-    const insertText = `${command.command} `
+    const localAction = command.source === 'farming'
+    const skill = command.source === 'skill'
+    const insertText = localAction || skill ? '' : `${command.command} `
     const nextDraft = `${draft.slice(0, slashTrigger.start)}${insertText}${draft.slice(slashTrigger.end)}`
     const nextCursor = slashTrigger.start + insertText.length
+    if (skill) onAddContextReference({ kind: 'skill', label: command.label, command: command.command, source: command.scope })
     onDraftChange(nextDraft)
     setTextareaSelectionStart(nextCursor)
     setDismissedSlashTriggerId(null)
+    if (localAction) {
+      if (command.command === '/model') onToggleModelMenu()
+      if (command.command === '/permissions') onToggleApprovalMenu()
+    }
+    window.requestAnimationFrame(() => {
+      const textarea = textareaRef.current
+      if (!textarea) return
+      textarea.focus({ preventScroll: true })
+      textarea.setSelectionRange(nextCursor, nextCursor)
+      updateSelectionFromTextarea(textarea)
+    })
+  }
+
+  function insertContext(candidate: ComposerContextCandidate) {
+    const trigger = contextCompletion.trigger
+    if (!trigger) return
+    onAddContextReference({ kind: candidate.kind, rootId: projectFilesWorkspaceId(workspace), workspace, path: candidate.path, label: candidate.path })
+    const inserted = candidate.kind === 'directory' ? `${candidate.path}/` : candidate.path
+    const nextDraft = `${draft.slice(0, trigger.start)}${inserted}${draft.slice(trigger.end)}`
+    const nextCursor = trigger.start + inserted.length
+    onDraftChange(nextDraft)
+    setTextareaSelectionStart(nextCursor)
     window.requestAnimationFrame(() => {
       const textarea = textareaRef.current
       if (!textarea) return
@@ -501,7 +552,7 @@ export function CodeComposer({
     editor.expanded ? 'editor-expanded' : '',
     composerMenuOpen ? 'menu-open' : '',
     showMobileRecordingBar ? 'recording' : '',
-    attachments.length > 0 ? 'has-attachments' : '',
+    attachments.length > 0 || contextReferences.length > 0 ? 'has-attachments' : '',
     pendingFollowUp && active ? 'has-pending-followup' : '',
   ].filter(Boolean).join(' ')
 
@@ -553,49 +604,58 @@ export function CodeComposer({
           ))}
         </div>
       )}
-      {(showSlashMenu || showSlashCatalogLoading || showSlashCatalogError) && (
+      {contextCompletion.open ? <ComposerContextMenu candidates={contextCompletion.candidates} status={contextCompletion.status}
+        truncated={contextCompletion.truncated} activeIndex={contextCompletion.activeIndex}
+        onActiveIndexChange={contextCompletion.setActiveIndex} onChoose={insertContext} /> : null}
+      {(showSlashMenu || showSlashCatalogLoading || showSlashCatalogError) && !contextCompletion.open && (
         <div
           className="code-menu-surface code-slash-menu code-composer-menu"
           data-testid="code-slash-menu"
           role="listbox"
           aria-label={commandMenuTitle}
         >
-          <div className="code-slash-menu-header">{commandMenuTitle}</div>
+          {slashTrigger?.trigger === '$' ? <div className="code-slash-menu-header">{commandMenuTitle}</div> : null}
           {showSlashCatalogLoading && (
             <div className="code-slash-command-loading" role="status">{copy.loading}</div>
           )}
           {showSlashCatalogError && (
             <div className="code-slash-command-loading" role="alert">{copy.slashCatalogUnavailable}</div>
           )}
+          {filteredSlashCommands.length === 0 && !showSlashCatalogLoading && !showSlashCatalogError ? (
+            <div className="code-slash-command-loading" role="status">No matching commands</div>
+          ) : null}
           {filteredSlashCommands.map((command, index) => (
+            <div key={`${command.source}:${command.scope || ''}:${command.command}`}>
+            {(index === 0 || composerCommandGroup(filteredSlashCommands[index - 1]!) !== composerCommandGroup(command)) && slashTrigger?.trigger === '/' ? (
+              <div className="code-slash-menu-header">{composerCommandGroup(command)}</div>
+            ) : null}
             <button
-              key={command.command}
               type="button"
-              className={`code-menu-item code-slash-command ${index === activeSlashIndex ? 'active' : ''}`}
-              data-testid={composerCommandTestId(command.command)}
+              className={`code-menu-item code-slash-command ${command.source === 'skill' ? 'code-slash-command-skill' : ''} ${index === activeSlashIndex ? 'active' : ''}`}
+              data-testid={`${composerCommandTestId(command.command)}${command.source === 'farming' ? '-farming' : ''}`}
               role="option"
               aria-selected={index === activeSlashIndex}
               ref={element => {
                 if (element) {
-                  slashCommandRefs.current.set(command.command, element)
+                  slashCommandRefs.current.set(`${command.source}:${command.scope || ''}:${command.command}`, element)
                 } else {
-                  slashCommandRefs.current.delete(command.command)
+                  slashCommandRefs.current.delete(`${command.source}:${command.scope || ''}:${command.command}`)
                 }
               }}
               onMouseMove={() => setActiveSlashIndex(index)}
               onMouseDown={event => event.preventDefault()}
               onClick={() => insertSlashCommand(command)}
             >
-              <span className="code-slash-command-icon" aria-hidden="true">{slashTrigger?.trigger ?? '/'}</span>
+              <span className="code-slash-command-icon" aria-hidden="true"><ComposerCommandIcon command={command} /></span>
               <span className="code-slash-command-copy">
                 <span className="code-slash-command-title">
-                  <code>{command.command}</code>
-                  <strong>{command.label}</strong>
+                  <code title={command.command}>{command.source === 'skill' ? command.label : command.command}</code>
                 </span>
                 <small>{command.description}</small>
               </span>
-              {command.scope && <span className="code-slash-command-source">{command.scope}</span>}
+              <span className="code-slash-command-source">{command.scope || (command.source === 'farming' ? 'Farming' : command.source)}</span>
             </button>
+            </div>
           ))}
         </div>
       )}
@@ -652,7 +712,47 @@ export function CodeComposer({
               return
             }
 
-            if (showSlashMenu) {
+            if (contextCompletion.open) {
+              if (event.key === 'Escape') {
+                event.preventDefault()
+                event.stopPropagation()
+                contextCompletion.dismiss()
+                return
+              }
+              if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                event.preventDefault()
+                event.stopPropagation()
+                if (contextCompletion.candidates.length > 0) contextCompletion.setActiveIndex(index => (index + (event.key === 'ArrowDown' ? 1 : -1) + contextCompletion.candidates.length) % contextCompletion.candidates.length)
+                return
+              }
+              if (event.key === 'Home' || event.key === 'End') {
+                event.preventDefault()
+                event.stopPropagation()
+                if (contextCompletion.candidates.length > 0) contextCompletion.setActiveIndex(event.key === 'Home' ? 0 : contextCompletion.candidates.length - 1)
+                return
+              }
+              if (event.key === 'Enter' || event.key === 'Tab') {
+                event.preventDefault()
+                event.stopPropagation()
+                const candidate = contextCompletion.candidates[contextCompletion.activeIndex]
+                if (candidate && contextCompletion.status === 'ready') insertContext(candidate)
+                return
+              }
+            }
+            if (showSlashMenu || showSlashCatalogLoading || showSlashCatalogError) {
+              if ((event.key === 'Enter' || event.key === 'Tab') && !selectedSlashCommand) {
+                event.preventDefault()
+                event.stopPropagation()
+                return
+              }
+              if (event.key === 'Escape') {
+                event.preventDefault()
+                event.stopPropagation()
+                setDismissedSlashTriggerId(slashTriggerId)
+                return
+              }
+            }
+            if (showSlashMenu && filteredSlashCommands.length > 0) {
               if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
                 event.preventDefault()
                 event.stopPropagation()
@@ -672,13 +772,6 @@ export function CodeComposer({
                 event.preventDefault()
                 event.stopPropagation()
                 setActiveSlashIndex(filteredSlashCommands.length - 1)
-                return
-              }
-
-              if (event.key === 'Escape') {
-                event.preventDefault()
-                event.stopPropagation()
-                setDismissedSlashTriggerId(slashTriggerId)
                 return
               }
 
@@ -744,7 +837,8 @@ export function CodeComposer({
           {copy.mobileDictationHint}
         </div>
       )}
-      <ComposerAttachments attachments={attachments} onRemove={onRemoveAttachment} />
+      <ComposerAttachments attachments={attachments} onRemove={onRemoveAttachment} references={contextReferences}
+        onRemoveReference={onRemoveContextReference} unavailableReferenceIds={unavailableReferenceIds} />
       <input
         ref={attachmentInputRef}
         className="code-composer-file-input"

@@ -8,7 +8,7 @@ import { agentKindForProvider } from './agent-kind'
 export { agentKindForCommand, type ComposerAgentKind } from './agent-kind'
 export { inferAgentTerminalState, isAgentTurnActive, isCodexAgentWorking } from './agent-working-state'
 
-export type SlashCommandSource = 'codex' | 'claude' | 'skill' | 'custom' | 'plugin'
+export type SlashCommandSource = 'codex' | 'claude' | 'skill' | 'custom' | 'plugin' | 'farming'
 
 export interface SlashCommandOption {
   command: string
@@ -264,7 +264,7 @@ export function slashCommandsForAgentKind(kind: ComposerAgentKind): SlashCommand
 export function mergeSlashCommands(commands: SlashCommandOption[]) {
   const seen = new Set<string>()
   return commands.filter(command => {
-    const commandId = command.command.trim().toLowerCase()
+    const commandId = `${command.source}:${command.scope || ''}:${command.command.trim().toLowerCase()}`
     if (!commandId || seen.has(commandId)) return false
     seen.add(commandId)
     return true

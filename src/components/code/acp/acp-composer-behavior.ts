@@ -1,15 +1,18 @@
 import type { Agent } from '@/types/agent'
 import { appPath } from '@/lib/base-path'
+import { projectFilesWorkspaceId } from '@/lib/project-workspaces'
 import { addComposerHistoryEntry } from '../composer-history'
 import { createPendingFollowUpMessage } from '../composer-state'
 import type { AgentComposerState } from '../composer-state'
 import {
   composerAttachmentsCanSubmit,
   composerMessageForNativeAttachments,
+  composerMessageWithContext,
   composerPromptAttachments,
   formatComposerMessage,
   revokeComposerAttachmentPreview,
   type ComposerAttachment,
+  type ComposerContextReference,
   type ComposerPromptAttachment,
 } from '../composer-message'
 import type { ComposerMode } from '../types'
@@ -20,6 +23,8 @@ interface SubmitAcpDraftInput {
   composerKey: string
   draft: string
   attachments: ComposerAttachment[]
+  contextReferences?: ComposerContextReference[]
+  contextValid?: boolean
   composerMode: ComposerMode
   turnActive: boolean
   followUpBehavior?: ComposerFollowUpBehavior
@@ -66,25 +71,35 @@ export function submitAcpDraft({
   composerKey,
   draft,
   attachments,
+  contextReferences = [],
+  contextValid = true,
   composerMode,
   turnActive,
   followUpBehavior = 'queue',
   sendMessage,
   updateComposerState,
 }: SubmitAcpDraftInput) {
-  if (!composerAttachmentsCanSubmit(attachments)) return false
+  if (!composerAttachmentsCanSubmit(attachments) || !contextValid) return false
+  if (contextReferences.some(reference => reference.kind !== 'skill' && (
+    !agent?.cwd || reference.workspace !== agent.cwd || reference.rootId !== projectFilesWorkspaceId(agent.cwd) || !reference.path
+  ))) return false
   const promptAttachments = composerPromptAttachments(attachments)
-  const text = formatComposerMessage(composerMode, composerMessageForNativeAttachments(draft, attachments).trim())
+  const text = formatComposerMessage(composerMode, composerMessageWithContext(
+    composerMessageForNativeAttachments(draft, attachments).trim(), contextReferences,
+  ))
   if ((!text && promptAttachments.length === 0) || !agent || !isAcpComposerAvailable(agent) || !composerKey) return false
   const clearOwnedDraft = (state: AgentComposerState) => {
     const ownsDraft = state.draft === draft
       && state.attachments.length === attachments.length
       && state.attachments.every((attachment, index) => attachment.id === attachments[index]?.id)
+      && (state.contextReferences || []).length === contextReferences.length
+      && (state.contextReferences || []).every((reference, index) => reference.id === contextReferences[index]?.id)
     if (!ownsDraft) return state
     return {
       ...state,
       draft: '',
       attachments: [],
+      contextReferences: [],
       mode: state.mode === composerMode ? 'default' as const : state.mode,
     }
   }
@@ -99,7 +114,7 @@ export function submitAcpDraft({
         pendingFollowUp: {
           messages: [
             ...(cleared.pendingFollowUp?.messages || []),
-            createPendingFollowUpMessage(text, promptAttachments, draft, composerMode),
+            createPendingFollowUpMessage(text, promptAttachments, draft, composerMode, contextReferences),
           ],
           createdAt: cleared.pendingFollowUp?.createdAt || Date.now(),
         },

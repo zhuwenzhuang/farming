@@ -12,7 +12,7 @@ export function findComposerCommandTrigger(draft: string, selectionStart: number
   const lineStart = draft.lastIndexOf('\n', Math.max(0, cursor - 1)) + 1
   const lineBeforeCursor = draft.slice(lineStart, cursor)
 
-  const slashMatch = lineBeforeCursor.match(/^(\s*)\/([A-Za-z0-9._:-]*)$/)
+  const slashMatch = lineBeforeCursor.match(/^(\s*)\/([^\s/]*)$/u)
   if (slashMatch) {
     return {
       start: lineStart + (slashMatch[1]?.length ?? 0),
@@ -22,8 +22,9 @@ export function findComposerCommandTrigger(draft: string, selectionStart: number
     }
   }
 
-  const mentionMatch = lineBeforeCursor.match(/(^|\s)\$([A-Za-z0-9._:-]*)$/)
+  const mentionMatch = lineBeforeCursor.match(/(^|[\s([{（【「])\$([^\s$]*)$/u)
   if (!mentionMatch) return null
+  if (mentionMatch[2] && /^[A-Z][A-Z0-9_]*$/.test(mentionMatch[2])) return null
 
   return {
     start: lineStart + (mentionMatch.index ?? 0) + (mentionMatch[1]?.length ?? 0),
@@ -35,18 +36,27 @@ export function findComposerCommandTrigger(draft: string, selectionStart: number
 
 export function matchesComposerCommand(command: SlashCommandOption, query: string, trigger: '/' | '$') {
   const normalizedQuery = query.trim().toLowerCase()
-  if (!command.command.startsWith(trigger)) return false
+  if (trigger === '$' && command.source !== 'skill') return false
+  if (trigger === '/' && !command.command.startsWith('/') && command.source !== 'skill') return false
   if (!normalizedQuery) return true
+  const name = command.command.replace(/^[/$]/, '').toLowerCase()
   return (
-    command.command.slice(1).toLowerCase().startsWith(normalizedQuery)
+    name.startsWith(normalizedQuery)
     || command.label.toLowerCase().includes(normalizedQuery)
+    || (normalizedQuery.length >= 3 && command.description.toLowerCase().includes(normalizedQuery))
   )
 }
 
 export function rankComposerCommand(command: SlashCommandOption, query: string) {
   const normalizedQuery = query.trim().toLowerCase()
   if (!normalizedQuery) return 0
-  return command.command.slice(1).toLowerCase().startsWith(normalizedQuery) ? 0 : 1
+  return command.command.replace(/^[/$]/, '').toLowerCase().startsWith(normalizedQuery) ? 0 : 1
+}
+
+export function composerCommandGroup(command: SlashCommandOption): 'Farming actions' | 'Agent commands' | 'Skills' {
+  if (command.source === 'skill') return 'Skills'
+  if (command.source === 'farming') return 'Farming actions'
+  return 'Agent commands'
 }
 
 export function composerCommandTestId(command: string) {

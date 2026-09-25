@@ -2,9 +2,18 @@
 
 > Chinese version: [composer-context-and-commands-design.zh_cn.md](composer-context-and-commands-design.zh_cn.md)
 
-Status: proposal, not an implemented feature. This document defines the next
-Composer increment; [Composer input](composer-input.md) remains the contract for
-existing editing, expansion and submission behavior.
+Status: the first Composer increment is implemented. This document also records
+the remaining design targets. [Composer input](composer-input.md) remains the
+contract for editing, expansion and submission behavior.
+
+The current increment provides `@` file/directory lookup, editor selection
+snapshots, categorized `/` commands and `$` skill selection in Chat and
+Terminal. Selected references are staged in the existing draft and delivered
+as labeled path or selection text through the existing submission path. Search
+uses the authorized workspace file service; submission checks the current
+workspace identity and skill catalog. Separate ACP resource-part delivery,
+live file existence checks before dispatch and multi-root selection remain
+future work. A stale location can therefore be reported as missing by the Agent.
 
 ## Direction And Scope
 

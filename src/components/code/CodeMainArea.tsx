@@ -33,6 +33,7 @@ import type { AgentTranscriptProcessItem } from './acp/acp-entry-projection'
 import { CodeComposer } from './CodeComposer'
 import { AcpComposer } from './acp/AcpComposer'
 import type { AcpAvailableCommand } from './acp/types'
+import type { ComposerContextReference } from './composer-message'
 import { canForkAgentConversation } from './capabilities'
 import { AgentOpeningPane } from './AgentOpeningPane'
 import type { AgentOpeningState } from './useAgentOpeningController'
@@ -281,7 +282,7 @@ interface CodeMainAreaProps {
   onOpenSubagent: (parentAgentId: string) => void
   openingSubagent: string
   subagentError: string
-  onQuoteSelection: (agentId: string, text: string) => void
+  onQuoteSelection: (agentId: string, text: string, context?: Omit<ComposerContextReference, 'id'>) => void
   onQuoteSelectionInSubagent: (agentId: string, text: string) => void
   relatedAgents: Agent[]
   renderSubagentComposer: (agent: Agent, active: boolean) => ReactNode
@@ -1240,9 +1241,9 @@ export function CodeMainArea({
         ReadyFileEditorPane ? (
           <ReadyFileEditorPane
             openFile={openWorkspaceFile}
-            onQuoteSelection={!readOnly && resourceAgentId && activeAgent?.id === resourceAgentId && isAcpRuntime(activeAgent) ? text => {
+            onQuoteSelection={!readOnly && resourceAgentId && activeAgent?.id === resourceAgentId && isAcpRuntime(activeAgent) ? (text, context) => {
               onBackToAgentFromFile(resourceAgentId)
-              onQuoteSelection(resourceAgentId, text)
+              onQuoteSelection(resourceAgentId, text, context)
             } : undefined}
             globalReadOnly={readOnly}
             openFiles={openWorkspaceFiles}

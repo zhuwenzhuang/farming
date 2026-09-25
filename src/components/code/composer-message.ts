@@ -37,6 +37,40 @@ export interface ComposerPromptAttachment {
   size: number
 }
 
+export interface ComposerContextReference {
+  id: string
+  kind: 'file' | 'directory' | 'selection' | 'skill'
+  label: string
+  rootId?: string
+  workspace?: string
+  path?: string
+  text?: string
+  startLine?: number
+  endLine?: number
+  sourceRevision?: string
+  command?: string
+  source?: string
+}
+
+export function composerContextReferenceId(reference: Omit<ComposerContextReference, 'id'>) {
+  return JSON.stringify([reference.kind, reference.rootId, reference.path, reference.startLine, reference.endLine, reference.text, reference.sourceRevision, reference.command, reference.source])
+}
+
+export function composerMessageWithContext(draft: string, references: ComposerContextReference[]) {
+  if (references.length === 0) return draft
+  const skills = references.filter(reference => reference.kind === 'skill' && reference.command)
+    .map(reference => `Use the ${reference.command} skill.`)
+  const locations = references.filter(reference => reference.kind === 'file' || reference.kind === 'directory')
+    .map(reference => `- ${reference.kind === 'directory' ? 'Directory' : 'File'}: ${reference.workspace}/${reference.path}`)
+  const selections = references.filter(reference => reference.kind === 'selection')
+    .map(reference => `- Selection from ${reference.workspace}/${reference.path}${reference.startLine ? `:${reference.startLine}${reference.endLine && reference.endLine !== reference.startLine ? `-${reference.endLine}` : ''}` : ''}:\n${reference.text || ''}`)
+  return [
+    ...skills,
+    draft,
+    locations.length || selections.length ? `Referenced context:\n${[...locations, ...selections].join('\n')}` : '',
+  ].filter(Boolean).join('\n\n')
+}
+
 export function appendDraftBlock(current: string, block: string) {
   const nextBlock = block.trimEnd()
   if (!nextBlock) return current

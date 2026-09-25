@@ -1,7 +1,7 @@
 import type { Agent } from '@/types/agent'
 import { agentSessionId } from './model'
 import { createDefaultComposerHistoryState, type ComposerHistoryState } from './composer-history'
-import type { ComposerAttachment, ComposerPromptAttachment } from './composer-message'
+import type { ComposerAttachment, ComposerContextReference, ComposerPromptAttachment } from './composer-message'
 import type { CodeModelPickerPane, ComposerMode } from './types'
 import { claimedAgentSessionIdFromSource } from './session-display'
 import {
@@ -15,6 +15,7 @@ export interface AgentComposerPendingFollowUpMessage {
   text: string
   createdAt: number
   attachments?: ComposerPromptAttachment[]
+  contextReferences?: ComposerContextReference[]
   editableText?: string
   composerMode?: ComposerMode
 }
@@ -40,6 +41,7 @@ export interface AgentComposerUiState {
 export interface AgentComposerState {
   draft: string
   attachments: ComposerAttachment[]
+  contextReferences?: ComposerContextReference[]
   mode: ComposerMode
   history: ComposerHistoryState
   pendingFollowUp?: AgentComposerPendingFollowUp
@@ -60,6 +62,7 @@ export function createDefaultAgentComposerState(): AgentComposerState {
   return {
     draft: '',
     attachments: [],
+    contextReferences: [],
     mode: 'default',
     history: createDefaultComposerHistoryState(),
     ui: { ...DEFAULT_AGENT_COMPOSER_UI_STATE },
@@ -70,7 +73,8 @@ export function createPendingFollowUpMessage(
   text: string,
   attachments: ComposerPromptAttachment[] = [],
   editableText = text,
-  composerMode: ComposerMode = 'default'
+  composerMode: ComposerMode = 'default',
+  contextReferences: ComposerContextReference[] = [],
 ): AgentComposerPendingFollowUpMessage {
   const randomId = typeof crypto !== 'undefined' && 'randomUUID' in crypto
     ? crypto.randomUUID()
@@ -80,6 +84,7 @@ export function createPendingFollowUpMessage(
     text,
     createdAt: Date.now(),
     ...(attachments.length > 0 ? { attachments } : {}),
+    ...(contextReferences.length > 0 ? { contextReferences } : {}),
     ...(editableText !== text ? { editableText } : {}),
     ...(composerMode !== 'default' ? { composerMode } : {}),
   }
@@ -110,6 +115,7 @@ export function restorePendingFollowUpMessageForEdit(
     ...state,
     draft,
     attachments: [...state.attachments, ...restoredAttachments],
+    contextReferences: [...(state.contextReferences || []), ...(message.contextReferences || []).filter(reference => !state.contextReferences?.some(existing => existing.id === reference.id))],
     mode: state.draft.trim() ? state.mode : (message.composerMode ?? 'default'),
     history: { ...state.history, cursor: null },
     pendingFollowUp: removePendingFollowUpMessage(state.pendingFollowUp, messageId),
@@ -179,6 +185,7 @@ export function mergeAgentComposerStates(primary: AgentComposerState, incoming: 
     ...primary,
     draft: primary.draft || incoming.draft,
     attachments: [...incoming.attachments, ...primary.attachments],
+    contextReferences: [...(incoming.contextReferences || []), ...(primary.contextReferences || []).filter(reference => !incoming.contextReferences?.some(existing => existing.id === reference.id))],
     mode: primary.mode !== 'default' ? primary.mode : incoming.mode,
     history: {
       entries: [...incoming.history.entries, ...primary.history.entries].slice(-100),

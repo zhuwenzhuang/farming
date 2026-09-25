@@ -21,6 +21,8 @@ import {
   workspaceEditorTabDomId as fileEditorTabDomId,
 } from '@/lib/workspace-editor-model'
 import { isGlobalWorkspaceFilesAgentId } from '@/lib/global-workspace-files'
+import { projectFilesWorkspaceId } from '@/lib/project-workspaces'
+import type { ComposerContextReference } from '../code/composer-message'
 import type {
   OpenWorkspaceFile,
   WorkspaceFileOpenTarget,
@@ -86,7 +88,7 @@ interface FileEditorPaneProps {
   agentSidePanelOpen: boolean
   onToggleAgentSidePanel?: () => void
   copy: CodeCopy
-  onQuoteSelection?: (text: string) => void
+  onQuoteSelection?: (text: string, context?: Omit<ComposerContextReference, 'id'>) => void
 }
 
 const WORD_WRAP_STORAGE_KEY = 'farming.code.fileEditor.wordWrap'
@@ -306,6 +308,31 @@ export function FileEditorPane({
     },
     onOpenContextMenuRef: openEditorContextMenuRef,
   })
+  const [selectionQuoteError, setSelectionQuoteError] = useState('')
+  const quoteCodeSelection = () => {
+    const editor = editorRef.current
+    const selection = editor?.getSelection()
+    const model = editor?.getModel()
+    if (!selection || selection.isEmpty() || !model || !onQuoteSelection) return
+    const text = model.getValueInRange(selection)
+    if (text.length > 6000) {
+      setSelectionQuoteError('Selection is too long to attach. Select at most 6,000 characters.')
+      return
+    }
+    setSelectionQuoteError('')
+    const workspace = openFile.workspaceRoot
+    onQuoteSelection(text, workspace ? {
+      kind: 'selection',
+      rootId: projectFilesWorkspaceId(workspace),
+      workspace,
+      path: openFile.file.path,
+      label: `${openFile.file.path}:${selection.startLineNumber}${selection.endLineNumber !== selection.startLineNumber ? `-${selection.endLineNumber}` : ''}`,
+      startLine: selection.startLineNumber,
+      endLine: selection.endLineNumber,
+      text,
+      sourceRevision: openFile.dirty ? `draft:${openFile.revision}` : openFile.file.sha1,
+    } : undefined)
+  }
 
   const languageServer = useLanguageServerController({
     enabled: globalReadOnly !== true,
@@ -650,6 +677,7 @@ export function FileEditorPane({
               onToggleMarkdownWideLayout={toggleMarkdownWideLayout}
               onToggleWordWrap={toggleWordWrap}
               onToggleDiff={toggleDiff}
+              onQuoteCodeSelection={onQuoteSelection && editorMode.canEditText ? quoteCodeSelection : undefined}
               agentSidePanelOpen={agentSidePanelOpen}
               onToggleAgentSidePanel={onToggleAgentSidePanel}
               canPreviewMarkdown={canPreviewMarkdown}
@@ -672,6 +700,7 @@ export function FileEditorPane({
                 {copy.copyFailed}
               </div>
             )}
+            {selectionQuoteError && <div className="code-file-editor-alert" role="alert">{selectionQuoteError}</div>}
             {largeTextPreview && (
               <div className="code-file-editor-alert" data-testid="code-file-large-text-alert" role="status">
                 {largeTextPreview.truncated ? copy.largeFileTruncated : copy.largeFileReadOnly}

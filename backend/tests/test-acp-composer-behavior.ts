@@ -3,7 +3,8 @@ const {
   resolveAcpFollowUpBehavior,
   submitAcpDraft,
 } = require('../../src/components/code/acp/acp-composer-behavior.ts');
-const { createDefaultAgentComposerState } = require('../../src/components/code/composer-state.ts');
+const { createDefaultAgentComposerState, restorePendingFollowUpMessageForEdit } = require('../../src/components/code/composer-state.ts');
+const { projectFilesWorkspaceId } = require('../../src/lib/project-workspaces.ts');
 
 function readyImage() {
   return {
@@ -34,6 +35,34 @@ async function run() {
     sent.push({ text, attachments, requestId, delivery });
     return true;
   };
+
+  const contextAgent = { ...agent, cwd: '/workspace' };
+  const contextReference = {
+    id: 'src/index.ts', kind: 'file', label: 'src/index.ts',
+    workspace: '/workspace', rootId: projectFilesWorkspaceId('/workspace'), path: 'src/index.ts',
+  };
+  state = { ...createDefaultAgentComposerState(), draft: 'inspect', contextReferences: [contextReference] };
+  assert.strictEqual(submitAcpDraft({
+    agent: contextAgent, composerKey: 'acp:session-1', draft: state.draft,
+    attachments: [], contextReferences: [contextReference], composerMode: 'default',
+    turnActive: true, sendMessage, updateComposerState,
+  }), true);
+  assert.strictEqual(state.contextReferences.length, 0);
+  assert.strictEqual(state.pendingFollowUp.messages[0].contextReferences[0].id, contextReference.id);
+  assert(state.pendingFollowUp.messages[0].text.includes('/workspace/src/index.ts'));
+  state = restorePendingFollowUpMessageForEdit(state, state.pendingFollowUp.messages[0].id);
+  assert.strictEqual(state.draft, 'inspect');
+  assert.strictEqual(state.contextReferences[0].id, contextReference.id);
+  assert.strictEqual(state.pendingFollowUp, undefined);
+
+  const sentBeforeInvalidContext = sent.length;
+  assert.strictEqual(submitAcpDraft({
+    agent: contextAgent, composerKey: 'acp:session-1', draft: state.draft,
+    attachments: [], contextReferences: [{ ...contextReference, workspace: '/other' }], composerMode: 'default',
+    turnActive: false, sendMessage, updateComposerState,
+  }), false);
+  assert.strictEqual(sent.length, sentBeforeInvalidContext);
+  state = { ...createDefaultAgentComposerState(), draft: 'inspect this', attachments: [queuedAttachment] };
 
   assert.strictEqual(submitAcpDraft({
     agent,

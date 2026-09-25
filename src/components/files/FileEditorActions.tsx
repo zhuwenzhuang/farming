@@ -124,6 +124,7 @@ interface FileEditorActionsProps {
   onToggleSourcePreview: () => void
   onToggleWordWrap: () => void
   onToggleDiff: () => void
+  onQuoteCodeSelection?: () => void
   onToggleAgentSidePanel?: () => void
   onRevealInExplorer: (agentId: string, filePath: string, kind: 'directory' | 'file') => void
 }
@@ -147,6 +148,7 @@ export function FileEditorActions({
   onToggleSourcePreview,
   onToggleWordWrap,
   onToggleDiff,
+  onQuoteCodeSelection,
   onToggleAgentSidePanel,
   onRevealInExplorer,
 }: FileEditorActionsProps) {
@@ -369,6 +371,11 @@ export function FileEditorActions({
           style={{ left: morePosition.left, top: morePosition.top }}
           onKeyDown={handleMoreMenuKeyDown}
         >
+          {onQuoteCodeSelection ? <button type="button" role="menuitem" data-testid="code-file-editor-more-quote-selection"
+            onClick={() => runMoreAction(onQuoteCodeSelection)}>
+            <ShareGlyph aria-hidden="true" />
+            <span>{copy.quoteSelection}</span>
+          </button> : null}
           {!openFile.exactExternal && openFile.file.path && (
             <button
               type="button"

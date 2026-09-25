@@ -91,7 +91,9 @@ async function run() {
     fs.writeFileSync(path.join(workspace, '.agents', 'skills', 'repo-skill', 'SKILL.md'), [
       '---',
       'name: repo-skill',
-      'description: Repo skill summary',
+      'description: |',
+      '  Repo skill summary',
+      '  Continued detail',
       '---',
       'secret repo body',
       '',
@@ -142,6 +144,7 @@ async function run() {
     ));
     const codexNames = codexCommands.map(command => command.command);
     assert(codexNames.includes('$repo-skill'), 'repo Codex skills should become $skill mentions');
+    assert(codexCommands.some(command => command.command === '$repo-skill' && command.description === 'Repo skill summary Continued detail'));
     assert(codexNames.includes('$home-codex'), 'home Codex skills should become $skill mentions');
     assert(codexNames.includes('$skill-creator'), 'system Codex skills should become $skill mentions');
     assert(codexNames.includes('$pdf:pdf'), 'plugin Codex skills should include the plugin namespace');

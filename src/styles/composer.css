@@ -1197,18 +1197,23 @@
   display: inline-grid;
   place-items: center;
   border: 0;
-  background: var(--code-bg-inset);
+  background: transparent;
   border-radius: 6px;
   color: var(--code-text-muted);
   font-size: 14px;
   line-height: 1;
 }
 
+.code-slash-command-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
 .code-slash-command-copy {
   min-width: 0;
   display: flex;
-  flex-direction: column;
-  gap: 3px;
+  align-items: baseline;
+  gap: 10px;
 }
 
 .code-slash-command-title {
@@ -1216,29 +1221,32 @@
   display: flex;
   align-items: baseline;
   gap: 8px;
+  flex: 0 1 auto;
+  max-width: 45%;
+  overflow: hidden;
+}
+
+.code-slash-command-skill .code-slash-command-title {
+  flex: 0 0 clamp(100px, 30%, 180px);
 }
 
 .code-slash-command-copy code {
-  flex: 0 0 auto;
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
   color: var(--code-text);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 13px;
-  line-height: 1.25;
-}
-
-.code-slash-command-copy strong {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--code-text);
-  font-size: 13px;
-  font-weight: 500;
   line-height: 1.25;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .code-slash-command-copy small {
-  display: block;
+  min-width: 0;
+  display: inline-block;
+  flex: 1 1 auto;
   overflow: hidden;
   color: var(--code-text-subtle);
   font-size: 12px;
@@ -2291,12 +2299,73 @@ body.code-mode .code-composer textarea::placeholder {
 }
 
 .code-composer-attachments {
+  position: relative;
   min-width: 0;
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
   align-items: flex-start;
   margin-top: -2px;
+}
+
+.code-composer-attachments.has-context:not(.expanded) {
+  flex-wrap: nowrap;
+  overflow: visible;
+}
+
+.code-composer-context-preview-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  height: 26px;
+  padding: 0 3px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.code-composer-context-preview-button:hover,
+.code-composer-context-preview-button:focus-visible {
+  background: var(--code-bg-hover);
+  outline: 0;
+}
+
+.code-composer-context-preview-button svg {
+  width: 16px;
+  height: 16px;
+}
+
+.code-composer-context-overflow {
+  height: 32px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--code-bg-inset);
+  color: var(--code-text-muted);
+  cursor: pointer;
+}
+
+.code-composer-context-preview {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 10006;
+  display: grid;
+  gap: 6px;
+  min-width: min(320px, calc(100vw - 32px));
+  max-width: min(520px, calc(100vw - 32px));
+  padding: 10px;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+
+.code-composer-context-preview pre {
+  max-height: 160px;
+  overflow: auto;
+  white-space: pre-wrap;
 }
 
 .code-composer-attachment {

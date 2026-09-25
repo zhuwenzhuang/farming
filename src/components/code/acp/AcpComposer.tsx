@@ -2,8 +2,13 @@ import { useInteractionLayer } from '@/hooks/useInteractionLayer'
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type CSSProperties, type KeyboardEvent, type MouseEvent, type RefObject } from 'react'
 import { ArrowUpGlyph, LoadingGlyph, CloseGlyph, PencilGlyph, PlusGlyph, ReplyGlyph } from '@/components/IconGlyphs'
 import { COMPACT_VIEWPORT_QUERY, isCompactViewport } from '@/lib/responsive-mode'
+import { projectFilesWorkspaceId } from '@/lib/project-workspaces'
 import type { AcpPendingElicitation, AcpPendingPermission, AgentContextWindowUsage } from '@/types/agent'
 import { ComposerAttachments, type ComposerAttachmentView } from '../ComposerAttachments'
+import { ComposerContextMenu } from '../ComposerContextMenu'
+import { useComposerContextCompletion, type ComposerContextCandidate } from '../useComposerContextCompletion'
+import type { ComposerContextReference } from '../composer-message'
+import { ComposerCommandIcon } from '../ComposerCommandIcon'
 import type { AgentComposerPendingFollowUp } from '../composer-state'
 import type { ComposerHistoryDirection, ComposerHistoryNavigationInput } from '../composer-history'
 import {
@@ -13,7 +18,8 @@ import {
   shouldSuppressComposerEnterAfterComposition,
   shouldSubmitComposerEnter,
 } from '../composer-keyboard'
-import { findComposerCommandTrigger } from '../composer-slash-commands'
+import { composerCommandGroup, findComposerCommandTrigger, matchesComposerCommand, rankComposerCommand } from '../composer-slash-commands'
+import type { SlashCommandOption } from '../capabilities'
 import { ComposerMicIcon, formatContextTokens } from '../composer-presentation'
 import type { CodeCopy } from '../copy'
 import { useMobileComposerHeight } from '../useMobileComposerHeight'
@@ -79,6 +85,8 @@ export interface AcpComposerProps {
   runtimeError: string
   draft: string
   attachments: ComposerAttachmentView[]
+  contextReferences?: ComposerContextReference[]
+  workspace?: string
   composerMode: ComposerMode
   contextWindow: AgentContextWindowUsage | null
   pendingFollowUp: AgentComposerPendingFollowUp | null
@@ -91,11 +99,16 @@ export interface AcpComposerProps {
   elicitations: AcpPendingElicitation[]
   activeElicitations: AcpPendingElicitation[]
   hostCommands?: AcpAvailableCommand[]
+  catalogCommands?: SlashCommandOption[]
+  slashCatalogStatus?: 'disabled' | 'loading' | 'ready' | 'error'
   speechSupported: boolean
   speechListening: boolean
   onDraftChange: (value: string) => void
   onNavigateHistory: (direction: ComposerHistoryDirection, input: ComposerHistoryNavigationInput) => string | null
   onRemoveAttachment: (id: string) => void
+  onAddContextReference?: (reference: Omit<ComposerContextReference, 'id'>) => void
+  onRemoveContextReference?: (id: string) => void
+  unavailableReferenceIds?: string[]
   onSubmit: (draft?: string, options?: { oppositeFollowUpBehavior?: boolean }) => boolean | Promise<boolean>
   onInterrupt: () => void
   onReconnect: () => void
@@ -125,6 +138,8 @@ export function AcpComposer({
   runtimeError,
   draft,
   attachments,
+  contextReferences = [],
+  workspace = '',
   composerMode,
   contextWindow,
   pendingFollowUp,
@@ -136,11 +151,16 @@ export function AcpComposer({
   permissions,
   activeElicitations,
   hostCommands = [],
+  catalogCommands = [],
+  slashCatalogStatus = 'disabled',
   speechSupported,
   speechListening,
   onDraftChange,
   onNavigateHistory,
   onRemoveAttachment,
+  onAddContextReference,
+  onRemoveContextReference,
+  unavailableReferenceIds = [],
   onSubmit,
   onInterrupt,
   onReconnect,
@@ -168,6 +188,7 @@ export function AcpComposer({
   const [focused, setFocused] = useState(false)
   const [selectionStart, setSelectionStart] = useState(draft.length)
   const [activeCommandIndex, setActiveCommandIndex] = useState(0)
+  const [dismissedCommandTriggerId, setDismissedCommandTriggerId] = useState('')
   const [openMenu, setOpenMenu] = useState<AcpComposerMenu>(null)
   const [modelPane, setModelPane] = useState<'model' | 'speed' | null>(null)
   const [dismissedPromptSuggestionId, setDismissedPromptSuggestionId] = useState('')
@@ -178,6 +199,7 @@ export function AcpComposer({
     `${runtimeState}:${sessionRevision || 0}:${sessionUpdatedAt || ''}`,
   )
   latestDraftRef.current = draft
+  const contextCompletion = useComposerContextCompletion({ agentId, workspace, draft, selectionStart, active, focused })
   const interrupting = submitAction === 'interrupt'
   const disabled = submitAction === 'disabled'
 
@@ -185,25 +207,37 @@ export function AcpComposer({
     () => findAcpCommandTrigger(draft, selectionStart),
     [draft, selectionStart]
   )
+  const commandTriggerId = commandTrigger
+    ? `${agentId}:${commandTrigger.trigger}:${commandTrigger.start}:${commandTrigger.end}:${commandTrigger.query}`
+    : ''
   const filteredCommands = useMemo(() => {
     if (!commandTrigger) return []
-    const query = commandTrigger.query.toLowerCase()
-    const seen = new Set<string>()
-    return [
+    const local: SlashCommandOption[] = commandTrigger.trigger === '/' && sessionAuthoritative && session
+      ? [
+        ...(session.configOptions.length > 0 ? [{ command: '/model', label: 'Model', description: 'Open model and session settings', source: 'farming' as const }] : []),
+        ...(session.modes?.availableModes.length || session.configOptions.some(option => option.category === 'mode')
+          ? [{ command: '/mode', label: 'Mode', description: 'Open Agent mode settings', source: 'farming' as const }] : []),
+      ] : []
+    const provider: SlashCommandOption[] = [
       ...hostCommands,
       ...(sessionAuthoritative ? session?.availableCommands || [] : []),
-    ]
-      .filter(command => {
-        const name = command.name.toLowerCase()
-        if (seen.has(name)) return false
-        seen.add(name)
-        if (commandTrigger.trigger === '$' && !name.startsWith('$')) return false
-        const searchableName = commandTrigger.trigger === '$' ? name.slice(1) : name
-        return searchableName.startsWith(query) || command.description.toLowerCase().includes(query)
-      })
-      .slice(0, 12)
-  }, [commandTrigger, hostCommands, session?.availableCommands, sessionAuthoritative])
-  const showCommands = active && focused && filteredCommands.length > 0
+    ].map(command => ({
+      command: `/${command.name.replace(/^\//, '')}`,
+      label: command.name,
+      description: `${command.description}${command.input?.hint ? ` · ${command.input.hint}` : ''}`,
+      source: 'custom',
+    }))
+    const skills = catalogCommands.filter(command => command.source === 'skill')
+    const groups = ['Farming actions', 'Agent commands', 'Skills']
+    return [...local, ...provider, ...skills]
+      .filter(command => matchesComposerCommand(command, commandTrigger.query, commandTrigger.trigger))
+      .sort((a, b) => groups.indexOf(composerCommandGroup(a)) - groups.indexOf(composerCommandGroup(b))
+        || rankComposerCommand(a, commandTrigger.query) - rankComposerCommand(b, commandTrigger.query))
+      .slice(0, 24)
+  }, [commandTrigger, hostCommands, session, sessionAuthoritative, catalogCommands])
+  const showCommands = active && focused && !contextCompletion.open && !openMenu && Boolean(commandTrigger)
+    && commandTriggerId !== dismissedCommandTriggerId
+    && (filteredCommands.length > 0 || commandTrigger?.trigger === '$' || slashCatalogStatus !== 'disabled')
   const selectedCommand = filteredCommands[activeCommandIndex] || filteredCommands[0] || null
   const promptSuggestion = session?.promptSuggestion
   const visiblePromptSuggestion = active
@@ -254,12 +288,31 @@ export function AcpComposer({
     returnFocus: () => textareaRef.current,
   })
 
-  const insertCommand = (name: string) => {
+  const insertCommand = (command: SlashCommandOption) => {
     if (!commandTrigger) return
-    const insertText = `/${name} `
+    const insertText = command.source === 'farming' || command.source === 'skill' ? '' : `${command.command} `
     const nextDraft = `${draft.slice(0, commandTrigger.start)}${insertText}${draft.slice(commandTrigger.end)}`
     const nextCursor = commandTrigger.start + insertText.length
-    setOpenMenu(null)
+    setDismissedCommandTriggerId('')
+    if (command.source === 'skill') onAddContextReference?.({ kind: 'skill', label: command.label, command: command.command, source: command.scope })
+    if (command.source === 'farming') setOpenMenu(command.command === '/mode' ? 'mode' : 'model')
+    latestDraftRef.current = nextDraft
+    onDraftChange(nextDraft)
+    window.requestAnimationFrame(() => {
+      textareaRef.current?.focus({ preventScroll: true })
+      textareaRef.current?.setSelectionRange(nextCursor, nextCursor)
+      setSelectionStart(nextCursor)
+    })
+  }
+
+  const insertContext = (candidate: ComposerContextCandidate) => {
+    const trigger = contextCompletion.trigger
+    if (!trigger || !onAddContextReference) return
+    const rootId = projectFilesWorkspaceId(workspace)
+    onAddContextReference({ kind: candidate.kind, rootId, workspace, path: candidate.path, label: candidate.path })
+    const inserted = candidate.kind === 'directory' ? `${candidate.path}/` : candidate.path
+    const nextDraft = `${draft.slice(0, trigger.start)}${inserted}${draft.slice(trigger.end)}`
+    const nextCursor = trigger.start + inserted.length
     latestDraftRef.current = nextDraft
     onDraftChange(nextDraft)
     window.requestAnimationFrame(() => {
@@ -279,7 +332,45 @@ export function AcpComposer({
       event.stopPropagation()
       return
     }
-    if (showCommands && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+    if (contextCompletion.open) {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        event.stopPropagation()
+        contextCompletion.dismiss()
+        return
+      }
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault()
+        event.stopPropagation()
+        if (contextCompletion.candidates.length > 0) contextCompletion.setActiveIndex(index => (index + (event.key === 'ArrowDown' ? 1 : -1) + contextCompletion.candidates.length) % contextCompletion.candidates.length)
+        return
+      }
+      if (event.key === 'Home' || event.key === 'End') {
+        event.preventDefault()
+        event.stopPropagation()
+        if (contextCompletion.candidates.length > 0) contextCompletion.setActiveIndex(event.key === 'Home' ? 0 : contextCompletion.candidates.length - 1)
+        return
+      }
+      if (event.key === 'Enter' || event.key === 'Tab') {
+        event.preventDefault()
+        event.stopPropagation()
+        const candidate = contextCompletion.candidates[contextCompletion.activeIndex]
+        if (candidate && contextCompletion.status === 'ready') insertContext(candidate)
+        return
+      }
+    }
+    if (showCommands && event.key === 'Escape') {
+      event.preventDefault()
+      event.stopPropagation()
+      setDismissedCommandTriggerId(commandTriggerId)
+      return
+    }
+    if (showCommands && (event.key === 'Enter' || event.key === 'Tab') && !selectedCommand) {
+      event.preventDefault()
+      event.stopPropagation()
+      return
+    }
+    if (showCommands && filteredCommands.length > 0 && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
       event.preventDefault()
       const direction = event.key === 'ArrowDown' ? 1 : -1
       setActiveCommandIndex(index => (index + direction + filteredCommands.length) % filteredCommands.length)
@@ -298,7 +389,7 @@ export function AcpComposer({
     if (showCommands && (event.key === 'Enter' || event.key === 'Tab') && selectedCommand) {
       event.preventDefault()
       event.stopPropagation()
-      insertCommand(selectedCommand.name)
+      insertCommand(selectedCommand)
       return
     }
     if (shouldAcceptComposerSuggestion(event, {
@@ -422,8 +513,8 @@ export function AcpComposer({
     'code-composer',
     'code-acp-composer',
     editor.expanded ? 'editor-expanded' : '',
-    openMenu ? 'menu-open' : '',
-    attachments.length > 0 ? 'has-attachments' : '',
+    openMenu || showCommands || contextCompletion.open ? 'menu-open' : '',
+    attachments.length > 0 || contextReferences.length > 0 ? 'has-attachments' : '',
     (pendingFollowUp || submissions.length > 0) && active ? 'has-pending-followup' : '',
     hasAcpRequest ? 'has-acp-request' : '',
   ].filter(Boolean).join(' ')
@@ -537,27 +628,38 @@ export function AcpComposer({
           ) : null}
         </section>
       ) : null}
+      {contextCompletion.open ? <ComposerContextMenu candidates={contextCompletion.candidates} status={contextCompletion.status}
+        truncated={contextCompletion.truncated} activeIndex={contextCompletion.activeIndex}
+        onActiveIndexChange={contextCompletion.setActiveIndex} onChoose={insertContext} /> : null}
       {showCommands ? (
         <div ref={commandMenuRef} className="code-menu-surface code-slash-menu code-composer-menu" data-testid="code-acp-command-menu" role="listbox" aria-label="ACP commands">
-          <div className="code-slash-menu-header">{commandTrigger?.trigger === '$' ? 'Skills' : 'Commands'}</div>
+          {commandTrigger?.trigger === '$' ? <div className="code-slash-menu-header">Skills</div> : null}
+          {filteredCommands.length === 0 ? <div className="code-slash-command-loading" role={slashCatalogStatus === 'error' ? 'alert' : 'status'}>
+            {slashCatalogStatus === 'loading' ? copy.loading : slashCatalogStatus === 'error' ? copy.slashCatalogUnavailable : commandTrigger?.trigger === '$' ? 'No available skills' : 'No matching commands'}
+          </div> : null}
           {filteredCommands.map((command, index) => (
+            <div key={`${command.source}:${command.scope || ''}:${command.command}`}>
+            {(index === 0 || composerCommandGroup(filteredCommands[index - 1]!) !== composerCommandGroup(command)) && commandTrigger?.trigger === '/' ? (
+              <div className="code-slash-menu-header">{composerCommandGroup(command)}</div>
+            ) : null}
             <button
-              key={command.name}
               type="button"
-              className={`code-menu-item code-slash-command ${index === activeCommandIndex ? 'active' : ''}`}
-              data-testid={`code-acp-command-${command.name}`}
+              className={`code-menu-item code-slash-command ${command.source === 'skill' ? 'code-slash-command-skill' : ''} ${index === activeCommandIndex ? 'active' : ''}`}
+              data-testid={`code-acp-command-${command.command.replace(/^[/$]/, '')}${command.source === 'farming' ? '-farming' : ''}`}
               role="option"
               aria-selected={index === activeCommandIndex}
               onMouseDown={event => event.preventDefault()}
               onMouseMove={() => setActiveCommandIndex(index)}
-              onClick={() => insertCommand(command.name)}
+              onClick={() => insertCommand(command)}
             >
-              <span className="code-slash-command-icon" aria-hidden="true">/</span>
+              <span className="code-slash-command-icon" aria-hidden="true"><ComposerCommandIcon command={command} /></span>
               <span className="code-slash-command-copy">
-                <span className="code-slash-command-title"><code>/{command.name}</code></span>
-                <small>{command.description}{command.input?.hint ? ` · ${command.input.hint}` : ''}</small>
+                <span className="code-slash-command-title"><code title={command.command}>{command.source === 'skill' ? command.label : command.command}</code></span>
+                <small>{command.description}</small>
               </span>
+              <span className="code-slash-command-source">{command.scope || (command.source === 'farming' ? 'Farming' : command.source === 'skill' ? 'Skill' : 'Agent')}</span>
             </button>
+            </div>
           ))}
         </div>
       ) : null}
@@ -616,7 +718,8 @@ export function AcpComposer({
           data-bwignore="true"
           data-form-type="other"
       />
-      <ComposerAttachments attachments={attachments} onRemove={onRemoveAttachment} />
+      <ComposerAttachments attachments={attachments} onRemove={onRemoveAttachment} references={contextReferences}
+        onRemoveReference={onRemoveContextReference} unavailableReferenceIds={unavailableReferenceIds} />
       <input
         ref={attachmentInputRef}
         className="code-composer-file-input"
