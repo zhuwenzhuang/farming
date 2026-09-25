@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef } from 'react'
-import { ChevronDownGlyph, ChevronUpGlyph, QuestionGlyph } from '@/components/IconGlyphs'
+import { ChevronDownGlyph, QuestionGlyph } from '@/components/IconGlyphs'
 import type { AcpPendingElicitation } from '@/types/agent'
 import type { CodeCopy } from '../copy'
 import { AcpElicitationCard } from './AcpElicitationCard'
@@ -59,19 +59,20 @@ export function AcpElicitationPanel({ agentId, requests, running, onRespond, cop
   const busy = Object.values(presentation.requests).some(request => request.status === 'submitting')
   return (
     <section ref={panelRef} className="code-acp-questions" data-testid="code-acp-questions" tabIndex={-1} aria-label={copy.questionCount(requests.length)}>
-      <header className="code-acp-questions-header">
+      <header className="code-acp-questions-header" hidden={!presentation.collapsed}>
         <QuestionGlyph />
         <span>{copy.questionCount(requests.length)}</span>
         {running ? <small data-testid="code-acp-questions-running">{copy.questionRunning}</small> : null}
         <button ref={expandRef} type="button" className="code-acp-questions-toggle" aria-expanded={!presentation.collapsed}
           aria-label={presentation.collapsed ? copy.questionExpand : copy.questionCollapse}
           disabled={busy} onClick={() => collapseQuestions(agentId, !presentation.collapsed)}>
-          {presentation.collapsed ? <><span>{copy.questionExpand}</span><ChevronDownGlyph /></> : <ChevronUpGlyph />}
+          <span>{copy.questionExpand}</span><ChevronDownGlyph />
         </button>
       </header>
       <div className="code-acp-questions-body" hidden={presentation.collapsed}>
         {requests.map(request => <AcpElicitationCard key={request.requestId} request={request} copy={copy}
           draft={presentation.requests[request.requestId]}
+          onDetailsChange={detailsExpanded => updateQuestionDraft(agentId, request.requestId, { detailsExpanded })}
           onValuesChange={values => updateQuestionDraft(agentId, request.requestId, { values })}
           onLater={later} onRespond={(id, action, content) => { void respond(id, action, content) }} />)}
       </div>

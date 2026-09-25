@@ -5,6 +5,7 @@ import { agentWithCurrentLiveState, subscribeAgentRuntimeBindingEvents } from '@
 export type ElicitationValues = Record<string, string | number | boolean | string[]>
 export interface ElicitationDraft {
   values?: ElicitationValues
+  detailsExpanded?: boolean
   status?: 'submitting' | 'submitted' | 'uncertain'
   error?: string
 }

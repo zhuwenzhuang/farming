@@ -2216,7 +2216,7 @@ class FakeAgent implements Agent {
             { const: 'core', title: '核心登录流程' },
             { const: 'full', title: '包含异常与边界情况' },
           ] },
-          notes: { type: 'string', title: '其他要求', description: '可以稍后回答；我会继续检查现有代码。' },
+          notes: { type: 'string', title: '其他要求', minLength: 2, description: '可以稍后回答；我会继续检查现有代码。' },
         } },
       });
       await client.sessionUpdate({ sessionId: params.sessionId, update: {

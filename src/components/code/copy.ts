@@ -32,6 +32,7 @@ export interface CodeCopy {
   sideChatDescription: string
   nativeChildDescription: string
   relatedWaitingPermission: string
+  questionDetails: string
   questionPending: string
   questionCount: (count: number) => string
   questionLater: string
@@ -724,6 +725,7 @@ const EN_COPY: CodeCopy = {
   sideChatDescription: 'Side chat · You can reply. Accepted work continues while you are away.',
   nativeChildDescription: 'Delegated task · The parent Agent controls this conversation.',
   relatedWaitingPermission: 'Waiting for approval',
+  questionDetails: 'Optional details',
   questionPending: 'Awaiting answer',
   questionCount: count => `${count} pending question${count === 1 ? '' : 's'}`,
   questionLater: 'Answer later',
@@ -1449,6 +1451,7 @@ const ZH_COPY: CodeCopy = {
   sideChatDescription: '旁聊 · 可继续提问，已接受的任务会在你离开后继续执行。',
   nativeChildDescription: '委派任务 · 由父 Agent 控制此会话。',
   relatedWaitingPermission: '等待批准',
+  questionDetails: '补充要求',
   questionPending: '待回答',
   questionCount: count => `${count} 个待回答问题`,
   questionLater: '稍后回答',

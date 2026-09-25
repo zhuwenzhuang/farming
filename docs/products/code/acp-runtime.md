@@ -245,8 +245,13 @@ surface without taking focus. “Later” only collapses it; “Skip” sends `d
 Submission is single-flight, retains the card until authoritative resolution,
 and shows bounded failures. An uncertain response is never automatically replayed.
 
-Questions use a bounded, scrollable inline surface above the Composer. A collapsed
-surface retains its count and an explicit expand action. The Agent row exposes
+Questions use a borderless, bounded inline surface above the Composer, subordinate
+to the main input. A simple choice uses two compact rows (question and choices
+with actions), without a duplicate count heading or visible field legend. Optional
+text details expand explicitly and preserve their draft and disclosure per request;
+required fields always remain visible, and invalid hidden fields reveal for correction.
+A collapsed surface retains its count and an explicit expand action. Multiple or
+complex questions scroll within the same bounded surface. The Agent row exposes
 the same authoritative pending count as one neutral question button, independent
 of execution status and protected from hover-action overlays. Activating it opens
 the Agent through normal navigation and reveals its questions. Keyboard and
