@@ -495,7 +495,7 @@ export function CodeComposer({
 
   useEffect(() => {
     if (!showSlashMenu || !selectedSlashCommand) return
-    const selectedButton = slashCommandRefs.current.get(`${selectedSlashCommand.source}:${selectedSlashCommand.scope || ''}:${selectedSlashCommand.command}`)
+    const selectedButton = slashCommandRefs.current.get(`${selectedSlashCommand.source}:${selectedSlashCommand.scope || ''}:${selectedSlashCommand.command}:${selectedSlashCommand.skillPath || ''}`)
     selectedButton?.scrollIntoView({ block: 'nearest' })
   }, [showSlashMenu, selectedSlashCommand])
 
@@ -512,7 +512,7 @@ export function CodeComposer({
     const insertText = localAction || skill ? '' : `${command.command} `
     const nextDraft = `${draft.slice(0, slashTrigger.start)}${insertText}${draft.slice(slashTrigger.end)}`
     const nextCursor = slashTrigger.start + insertText.length
-    if (skill) onAddContextReference({ kind: 'skill', label: command.label, command: command.command, source: command.scope })
+    if (skill) onAddContextReference({ kind: 'skill', path: command.skillPath, label: command.label, command: command.command, source: command.scope })
     onDraftChange(nextDraft)
     setTextareaSelectionStart(nextCursor)
     setDismissedSlashTriggerId(null)
@@ -625,7 +625,7 @@ export function CodeComposer({
             <div className="code-slash-command-loading" role="status">No matching commands</div>
           ) : null}
           {filteredSlashCommands.map((command, index) => (
-            <div key={`${command.source}:${command.scope || ''}:${command.command}`}>
+            <div key={`${command.source}:${command.scope || ''}:${command.command}:${command.skillPath || ''}`}>
             {(index === 0 || composerCommandGroup(filteredSlashCommands[index - 1]!) !== composerCommandGroup(command)) && slashTrigger?.trigger === '/' ? (
               <div className="code-slash-menu-header">{composerCommandGroup(command)}</div>
             ) : null}
@@ -637,9 +637,9 @@ export function CodeComposer({
               aria-selected={index === activeSlashIndex}
               ref={element => {
                 if (element) {
-                  slashCommandRefs.current.set(`${command.source}:${command.scope || ''}:${command.command}`, element)
+                  slashCommandRefs.current.set(`${command.source}:${command.scope || ''}:${command.command}:${command.skillPath || ''}`, element)
                 } else {
-                  slashCommandRefs.current.delete(`${command.source}:${command.scope || ''}:${command.command}`)
+                  slashCommandRefs.current.delete(`${command.source}:${command.scope || ''}:${command.command}:${command.skillPath || ''}`)
                 }
               }}
               onMouseMove={() => setActiveSlashIndex(index)}

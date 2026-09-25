@@ -11,9 +11,11 @@ snapshots, categorized `/` commands and `$` skill selection in Chat and
 Terminal. Selected references are staged in the existing draft and delivered
 as labeled path or selection text through the existing submission path. Search
 uses the authorized workspace file service; submission checks the current
-workspace identity and skill catalog. Separate ACP resource-part delivery,
-live file existence checks before dispatch and multi-root selection remain
-future work. A stale location can therefore be reported as missing by the Agent.
+workspace identity and a fresh skill catalog. Live locations are checked through
+workspace authorization before every dispatch, including queue delivery. Skills
+are encoded as explicit instructions to read the exact discovered SKILL.md;
+this representation does not claim a native slash-command invocation. Separate
+ACP resource-part delivery and multi-root selection remain future work.
 
 ## Direction And Scope
 
@@ -99,8 +101,9 @@ execute merely because a completion row was accepted.
 Agent commands are staged with their arguments for explicit send. Skills selected
 through `/` or `$` use one identity and the same visible skill chip; their query
 text is consumed, while ordinary surrounding text remains editable. Selecting
-the same skill twice does not duplicate it. Provider spellings are serialized at
-the adapter boundary, not embedded in generic UI rules. A selected skill does not
+the same skill twice does not duplicate it. The catalog carries the exact skill
+path together with its provider spelling and scope; dispatch rechecks all three
+and never resolves a selected skill by display name alone. A selected skill does not
 enable an integration, change permissions or create an Agent.
 
 Agent commands come from the current session's authoritative advertised command
@@ -113,7 +116,7 @@ a similarly named command from another source.
 
 ## Search, Keyboard And Presentation
 
-Empty `@` search shows recent eligible paths; queries search authorized files and
+Empty `@` search shows eligible entries in the current workspace root; queries search authorized files and
 directories. Rank exact matches, name prefixes, path/word prefixes and then fuzzy
 matches, with stable tie ordering. Commands and skills use the same text matching
 rules within their groups. Fetch and render bounded results and explicitly show
@@ -144,6 +147,12 @@ boundary remains recognizable in every appearance. Compact and expanded editors
 retain the same textarea and keep send reachable above the software keyboard.
 
 ## Ownership And State Transitions
+
+Draft checkpoints retain bounded typed references in drafts, queued messages and
+failed submissions. Reference-only drafts survive refresh and Agent replacement.
+Main and side Chat submit the same complete snapshot. Context preparation reserves
+the existing per-Agent submission owner across both surfaces and has an eight-second
+read deadline; failed preparation leaves the draft intact.
 
 The Agent composer owner holds text, references, selected skills and attachments
 as one draft revision. Menus own only presentation/query state. The backend owns

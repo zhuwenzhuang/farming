@@ -59,7 +59,7 @@ export function composerContextReferenceId(reference: Omit<ComposerContextRefere
 export function composerMessageWithContext(draft: string, references: ComposerContextReference[]) {
   if (references.length === 0) return draft
   const skills = references.filter(reference => reference.kind === 'skill' && reference.command)
-    .map(reference => `Use the ${reference.command} skill.`)
+    .map(reference => reference.path ? `Use the skill ${reference.command} defined at ${reference.path}. Read that exact SKILL.md and follow its instructions.` : `Use the ${reference.command} skill.`)
   const locations = references.filter(reference => reference.kind === 'file' || reference.kind === 'directory')
     .map(reference => `- ${reference.kind === 'directory' ? 'Directory' : 'File'}: ${reference.workspace}/${reference.path}`)
   const selections = references.filter(reference => reference.kind === 'selection')

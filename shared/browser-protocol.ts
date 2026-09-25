@@ -146,6 +146,7 @@ export interface WatchWorkspaceFilesMessage extends ExtensibleMessage {
 }
 
 export type WorkspaceRequest =
+  | { operation: 'context-paths'; rootId: string; entries: Array<{ path: string; kind: 'file' | 'directory' }> }
   | { operation: 'tree'; rootId: string; path?: string }
   | { operation: 'tree-decorations'; rootId: string; path?: string; entryPaths: string[] }
   | { operation: 'read-file'; rootId: string; path: string; exactExternal?: boolean }
@@ -161,7 +162,7 @@ export type WorkspaceRequest =
   | { operation: 'blame'; rootId: string; path: string }
   | { operation: 'blame-capability'; rootId: string; path: string }
   | { operation: 'diff'; rootId: string; path: string }
-  | { operation: 'changes'; rootId: string; limit?: number }
+  | { operation: 'changes'; rootId: string; limit?: number; inventory?: boolean; repositoryPath?: string; scope?: 'tracked' | 'untracked'; cursor?: string }
   | { operation: 'worktrees'; rootId: string }
   | { operation: 'branches'; rootId: string }
   | { operation: 'branch'; rootId: string }
@@ -709,8 +710,14 @@ function workspaceRequest(value: unknown): value is WorkspaceRequest {
     case 'blame-capability':
     case 'diff':
       return rootPath()
+    case 'context-paths':
+      return boundedStringField(value, 'rootId', 4096) && Array.isArray(value.entries) && value.entries.length <= 64
+        && value.entries.every(entry => objectMessage(entry) && boundedStringField(entry, 'path', 4096) && (entry.kind === 'file' || entry.kind === 'directory'))
     case 'changes':
       return boundedStringField(value, 'rootId', 4096) && optionalNonNegativeIntegerField(value, 'limit')
+        && optionalBooleanField(value, 'inventory') && boundedStringField(value, 'repositoryPath', 4096, true)
+        && boundedStringField(value, 'cursor', 128, true)
+        && (value.scope === undefined || value.scope === 'tracked' || value.scope === 'untracked')
     case 'worktrees':
     case 'branches':
     case 'branch':

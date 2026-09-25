@@ -149,8 +149,14 @@ function workspaceRequest(value) {
         case 'blame-capability':
         case 'diff':
             return rootPath();
+        case 'context-paths':
+            return boundedStringField(value, 'rootId', 4096) && Array.isArray(value.entries) && value.entries.length <= 64
+                && value.entries.every(entry => objectMessage(entry) && boundedStringField(entry, 'path', 4096) && (entry.kind === 'file' || entry.kind === 'directory'));
         case 'changes':
-            return boundedStringField(value, 'rootId', 4096) && optionalNonNegativeIntegerField(value, 'limit');
+            return boundedStringField(value, 'rootId', 4096) && optionalNonNegativeIntegerField(value, 'limit')
+                && optionalBooleanField(value, 'inventory') && boundedStringField(value, 'repositoryPath', 4096, true)
+                && boundedStringField(value, 'cursor', 128, true)
+                && (value.scope === undefined || value.scope === 'tracked' || value.scope === 'untracked');
         case 'worktrees':
         case 'branches':
         case 'branch':

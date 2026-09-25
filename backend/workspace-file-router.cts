@@ -70,6 +70,9 @@ interface TransportFileResult extends ResourceFileResult {
 }
 
 interface WorkspaceFileServiceLike {
+  resolvePath(root: string, userPath: unknown): Promise<{ target: string }>;
+  changesInventory(root: string): Promise<unknown>;
+  changesPage(root: string, options: { repositoryPath?: string; scope: 'tracked' | 'untracked'; cursor?: string; limit?: number }): Promise<unknown>;
   blame(root: string, userPath: unknown): Promise<unknown>;
   blameCapability(root: string, userPath: unknown, options?: ReadOptions): Promise<unknown>;
   changes(root: string, options?: InputRecord): Promise<unknown>;
@@ -680,11 +683,26 @@ async function executeWorkspaceFileRequest(
       }
       return fileService.diff(resolveRequestRoot(request).root, request.path);
     }
+    case 'context-paths': {
+      if (isGlobalWorkspaceFilesAgentId(request.rootId)) throw new WorkspaceFileError('Composer context requires a project workspace', 403);
+      const root = resolveRequestRoot(request).root;
+      for (const entry of request.entries) {
+        const resolved = await fileService.resolvePath(root, entry.path);
+        const stat = await fs.promises.stat(resolved.target);
+        if (entry.kind === 'directory' ? !stat.isDirectory() : !stat.isFile()) {
+          throw new WorkspaceFileError(`Context location changed type: ${entry.path}`, 409);
+        }
+      }
+      return { valid: true };
+    }
     case 'changes': {
       if (isGlobalWorkspaceFilesAgentId(request.rootId)) {
         throw new WorkspaceFileError('global files do not support workspace changes', 403);
       }
-      return fileService.changes(resolveRequestRoot(request).root, { limit: request.limit, repositories: true });
+      const root = resolveRequestRoot(request).root;
+      if (request.inventory) return fileService.changesInventory(root);
+      if (request.scope) return fileService.changesPage(root, { repositoryPath: request.repositoryPath, scope: request.scope, cursor: request.cursor, limit: request.limit });
+      return fileService.changes(root, { limit: request.limit, repositories: true });
     }
     case 'branch': {
       if (isGlobalWorkspaceFilesAgentId(request.rootId)) {

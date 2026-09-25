@@ -4,7 +4,7 @@ import {
   type AgentComposerState,
   type AgentComposerSubmission,
 } from './composer-state'
-import type { ComposerAttachment, ComposerPromptAttachment } from './composer-message'
+import type { ComposerAttachment, ComposerContextReference, ComposerPromptAttachment } from './composer-message'
 import type { ComposerMode } from './types'
 
 export const AGENT_COMPOSER_CHECKPOINT_STORAGE_KEY = 'farming.code.agentComposerCheckpoint.v1'
@@ -41,6 +41,7 @@ interface PersistedComposerAttachment {
 }
 
 interface PersistedPendingMessage {
+  contextReferences?: ComposerContextReference[];
   id: string
   text: string
   createdAt: number
@@ -56,6 +57,7 @@ interface PersistedSubmission extends PersistedPendingMessage {
 }
 
 interface PersistedComposerState {
+  contextReferences?: ComposerContextReference[];
   updatedAt: number
   draft?: string
   attachments?: PersistedComposerAttachment[]
@@ -171,6 +173,33 @@ function persistedPromptAttachments(attachments: ComposerPromptAttachment[] | un
   return normalized.length > 0 ? normalized : undefined
 }
 
+// Checkpoints are untrusted browser data. Reject an invalid reference set as a
+// unit, so recovery never silently sends a different subset of the draft.
+function persistedContextReferences(value: unknown): ComposerContextReference[] | null {
+  if (value === undefined) return []
+  if (!Array.isArray(value) || value.length > 64) return null
+  const result: ComposerContextReference[] = []
+  for (const item of value) {
+    if (!isRecord(item) || !['file', 'directory', 'selection', 'skill'].includes(String(item.kind))) return null
+    if (typeof item.id !== 'string' || !item.id || item.id.length > 32_000
+      || typeof item.label !== 'string' || item.label.length > 4096) return null
+    const reference: ComposerContextReference = { id: item.id, kind: item.kind as ComposerContextReference['kind'], label: item.label }
+    for (const field of ['rootId', 'workspace', 'path', 'text', 'sourceRevision', 'command', 'source'] as const) {
+      if (item[field] === undefined) continue
+      const text = boundedString(item[field], field === 'text' ? 6000 : 4096)
+      if (text === null) return null
+      reference[field] = text
+    }
+    for (const field of ['startLine', 'endLine'] as const) {
+      if (item[field] === undefined) continue
+      if (typeof item[field] !== 'number' || !Number.isSafeInteger(item[field]) || item[field] < 1) return null
+      reference[field] = item[field]
+    }
+    result.push(reference)
+  }
+  return result
+}
+
 function persistedMessage(message: AgentComposerPendingFollowUpMessage): PersistedPendingMessage | null {
   const id = validMessageId(message.id)
   const text = boundedString(message.text, MAX_MESSAGE_CHARS)
@@ -178,6 +207,8 @@ function persistedMessage(message: AgentComposerPendingFollowUpMessage): Persist
     ? undefined
     : boundedString(message.editableText, MAX_MESSAGE_CHARS)
   if (!id || text === null || editableText === null) return null
+  const contextReferences = persistedContextReferences(message.contextReferences)
+  if (!contextReferences) return null
   const mode = composerMode(message.composerMode)
   const attachments = persistedPromptAttachments(message.attachments)
   if (!text.trim() && !attachments) return null
@@ -186,6 +217,7 @@ function persistedMessage(message: AgentComposerPendingFollowUpMessage): Persist
     text,
     createdAt: finiteTimestamp(message.createdAt),
     ...(attachments ? { attachments } : {}),
+    ...(contextReferences.length ? { contextReferences } : {}),
     ...(editableText !== undefined ? { editableText } : {}),
     ...(mode !== 'default' ? { composerMode: mode } : {}),
   }
@@ -201,12 +233,15 @@ function restoredMessage(value: unknown): AgentComposerPendingFollowUpMessage | 
   if (!id || text === null || editableText === null) return null
   const attachments = persistedPromptAttachments(Array.isArray(value.attachments) ? value.attachments as ComposerPromptAttachment[] : undefined)
   if (!text.trim() && !attachments) return null
+  const contextReferences = persistedContextReferences(value.contextReferences)
+  if (!contextReferences) return null
   const mode = composerMode(value.composerMode)
   return {
     id,
     text,
     createdAt: finiteTimestamp(value.createdAt),
     ...(attachments ? { attachments } : {}),
+    ...(contextReferences.length ? { contextReferences } : {}),
     ...(editableText !== undefined ? { editableText } : {}),
     ...(mode !== 'default' ? { composerMode: mode } : {}),
   }
@@ -227,6 +262,7 @@ function boundedHistory(entries: string[]) {
 function hasPersistableState(state: AgentComposerState) {
   return Boolean(
     state.draft
+    || state.contextReferences?.length
     || state.attachments.some(attachment => attachment.status === 'ready' && attachment.path)
     || state.mode !== 'default'
     || state.history.entries.length > 0
@@ -237,6 +273,8 @@ function hasPersistableState(state: AgentComposerState) {
 
 function serializeState(state: AgentComposerState, updatedAt: number): PersistedComposerState | null {
   if (!hasPersistableState(state)) return null
+  const contextReferences = persistedContextReferences(state.contextReferences)
+  if (!contextReferences) return null
   const draft = boundedString(state.draft, MAX_DRAFT_CHARS)
   if (draft === null) return null
   if ((state.pendingFollowUp?.messages.length ?? 0) > MAX_PENDING_MESSAGES) return null
@@ -259,6 +297,7 @@ function serializeState(state: AgentComposerState, updatedAt: number): Persisted
   const historyEntries = boundedHistory(state.history.entries)
   return {
     updatedAt,
+    ...(contextReferences.length ? { contextReferences } : {}),
     ...(draft ? { draft } : {}),
     ...(attachments.length > 0 ? { attachments } : {}),
     ...(state.mode !== 'default' ? { mode: state.mode } : {}),
@@ -295,7 +334,10 @@ function restoreState(value: unknown): AgentComposerState | null {
   const historyEntries = boundedHistory(Array.isArray(value.historyEntries)
     ? value.historyEntries.filter((entry): entry is string => typeof entry === 'string')
     : [])
+  const contextReferences = persistedContextReferences(value.contextReferences)
+  if (!contextReferences) return null
   const state = createDefaultAgentComposerState()
+  state.contextReferences = contextReferences
   state.draft = draft
   state.attachments = restoredDraftAttachments(value.attachments)
   state.mode = composerMode(value.mode)

@@ -188,6 +188,7 @@ export function useAgentComposerState({
         // the preserved key. Empty UI-only state is still safe to discard.
         if (
           state.draft
+          || (state.contextReferences?.length ?? 0) > 0
           || state.attachments.length > 0
           || state.mode !== 'default'
           || state.history.entries.length > 0

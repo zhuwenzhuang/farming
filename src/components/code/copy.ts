@@ -408,6 +408,8 @@ export interface CodeCopy {
   files: string
   mainRepository: string
   reviewUntracked: string
+  loadMoreChanges: string
+  submoduleVersionChange: string
   partialChanges: string
   partialChangesDescription: string
   repositoryUnavailable: string
@@ -1141,6 +1143,8 @@ const EN_COPY: CodeCopy = {
   files: 'Files',
   mainRepository: 'Main repository',
   reviewUntracked: 'Review untracked',
+  loadMoreChanges: 'Load more',
+  submoduleVersionChange: 'Submodule version change',
   partialChanges: 'Partial',
   partialChangesDescription: 'The sidebar display limit was reached. Open Review to inspect this repository’s selected change category.',
   repositoryUnavailable: 'Unavailable',
@@ -1910,6 +1914,8 @@ const ZH_COPY: CodeCopy = {
   files: '文件',
   mainRepository: '主仓库',
   reviewUntracked: '审阅未跟踪文件',
+  loadMoreChanges: '加载更多',
+  submoduleVersionChange: '子模块版本变更',
   partialChanges: '部分结果',
   partialChangesDescription: '侧栏展示数量已达上限。可打开 Review 审阅此仓库的这类变更。',
   repositoryUnavailable: '不可用',

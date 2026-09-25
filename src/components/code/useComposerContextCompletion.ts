@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { projectFilesWorkspaceId } from '@/lib/project-workspaces'
-import { searchWorkspaceFiles } from '@/lib/workspace-files'
+import { fetchWorkspaceTree, searchWorkspaceFiles } from '@/lib/workspace-files'
 import { findComposerContextTrigger } from './composer-context-trigger'
 
 const SEARCH_DEADLINE_MS = 2_500
@@ -35,12 +35,18 @@ export function useComposerContextCompletion({ agentId, workspace, draft, select
     }, SEARCH_DEADLINE_MS)
     const debounce = window.setTimeout(() => {
       const rootId = projectFilesWorkspaceId(workspace)
-      void searchWorkspaceFiles(rootId, trigger.query || '.', { scope: 'entries', limit: 16, signal: controller.signal })
+      const searchRequest = trigger.query
+        ? searchWorkspaceFiles(rootId, trigger.query, { scope: 'entries', limit: 16, signal: controller.signal })
+        : fetchWorkspaceTree(rootId, '', { signal: controller.signal }).then(tree => ({
+          matches: tree.items.map(entry => ({ entryType: entry.type, path: entry.path })),
+          truncated: false,
+        }))
+      void searchRequest
         .then(search => {
           if (controller.signal.aborted) return
           setResult({
             id: triggerId,
-            candidates: search.matches.flatMap(match => match.entryType === 'file' || match.entryType === 'directory'
+            candidates: search.matches.flatMap(match => match.path && (match.entryType === 'file' || match.entryType === 'directory')
               ? [{ kind: match.entryType, path: match.path }]
               : []).slice(0, 12),
             status: 'ready',

@@ -6,7 +6,7 @@ import {
   nextAgentComposerCheckpointTimestamp,
   saveAgentComposerCheckpoint,
 } from '../src/components/code/composer-persistence'
-import { createDefaultAgentComposerState } from '../src/components/code/composer-state'
+import { createDefaultAgentComposerState, createPendingFollowUpMessage, restorePendingFollowUpMessageForEdit } from '../src/components/code/composer-state'
 
 class MemoryStorage {
   values = new Map<string, string>()
@@ -285,4 +285,26 @@ test('keeps the latest one hundred history entries', () => {
   assert.equal(entries?.length, 100)
   assert.equal(entries?.[0], 'prompt-20')
   assert.equal(entries?.at(-1), 'prompt-119')
+})
+
+
+test('reference-only drafts and queued selections survive reload and queue editing', () => {
+  const storage = new MemoryStorage()
+  const state = createDefaultAgentComposerState()
+  const reference = { id: 'selection:1', kind: 'selection' as const, label: 'main.ts:1', path: 'main.ts',
+    workspace: '/workspace', rootId: 'root', startLine: 1, endLine: 1, text: 'const value = 42', sourceRevision: 'draft:2' }
+  state.contextReferences = [reference]
+  const queued = createDefaultAgentComposerState()
+  const message = createPendingFollowUpMessage('Captured context', [], '', 'default', [reference])
+  queued.pendingFollowUp = { messages: [message], createdAt: message.createdAt }
+  queued.submissions = [{ ...message, id: 'submission', status: 'submitting' }]
+  const now = Date.now()
+  assert.equal(saveAgentComposerCheckpoint({ draft: state, queue: queued }, new Map(), new Map(), storage, now), true)
+  const restored = loadAgentComposerCheckpoint(storage, now).states
+  assert.deepEqual(restored.draft.contextReferences, [reference])
+  assert.deepEqual(restored.queue.submissions?.[0].contextReferences, [reference])
+  assert.equal(restored.queue.submissions?.[0].status, 'failed')
+  const edited = restorePendingFollowUpMessageForEdit(restored.queue, message.id)
+  assert.equal(edited.draft, '')
+  assert.deepEqual(edited.contextReferences, [reference])
 })

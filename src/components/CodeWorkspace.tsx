@@ -1,3 +1,5 @@
+import { prepareComposerSubmission } from './code/composer-submission-state'
+import { validateComposerReferences } from './code/composer-context-admission'
 import { useQuestionPresentationLifetime } from './code/acp/acp-elicitation-presentation'
 import { attachSubagent } from '@/lib/subagent-supervision'
 import { agentAfterRemoval } from './code/agent-selection'
@@ -2485,36 +2487,44 @@ export function CodeWorkspace({
     attachments: ComposerPromptAttachment[] = [],
     requestId?: string,
     delivery?: 'prompt' | 'steer',
+    contextReferences: ComposerContextReference[] = [],
   ) => {
-    if (isStructuredRuntime(agent)) {
-      const submitted = sendComposerInput(message, agent.id, attachments, {
-        awaitResult: true,
-        requestId,
-        delivery,
-      })
-      const followAcceptedMessage = (accepted: boolean) => {
-        if (accepted && activeTerminalIdRef.current === agent.id) {
+    const dispatch = () => {
+      if (isStructuredRuntime(agent)) {
+        const submitted = sendComposerInput(message, agent.id, attachments, {
+          awaitResult: true,
+          requestId,
+          delivery,
+        })
+        const followAcceptedMessage = (accepted: boolean) => {
+          if (accepted && activeTerminalIdRef.current === agent.id) {
+            setChatFollowLatestRequest(current => ({ agentId: agent.id, nonce: (current?.nonce ?? 0) + 1 }))
+          }
+          return accepted
+        }
+        if (typeof submitted === 'boolean') return followAcceptedMessage(submitted)
+        // The transcript can show the new user turn before its send acknowledgement.
+        // Follow the explicit send now so that interim layout changes do not expose
+        // a stale jump-to-latest control over the just-submitted message.
+        if (activeTerminalIdRef.current === agent.id) {
           setChatFollowLatestRequest(current => ({ agentId: agent.id, nonce: (current?.nonce ?? 0) + 1 }))
         }
-        return accepted
+        return submitted
       }
-      if (typeof submitted === 'boolean') return followAcceptedMessage(submitted)
-      // The transcript can show the new user turn before its send acknowledgement.
-      // Follow the explicit send now so that interim layout changes do not expose
-      // a stale jump-to-latest control over the just-submitted message.
-      if (activeTerminalIdRef.current === agent.id) {
-        setChatFollowLatestRequest(current => ({ agentId: agent.id, nonce: (current?.nonce ?? 0) + 1 }))
+      if (
+        agentKindForCommand(agent.command) === 'shell'
+        || capabilitiesForAgent(agent).kind === 'shell'
+        || isPlainTextComposerAgent(agent)
+      ) {
+        return sendTerminalSessionInput(agent.id, `${message}\r`)
       }
-      return submitted
+      return sendTerminalSessionInput(agent.id, terminalInputPartsForComposerMessage(message))
     }
-    if (
-      agentKindForCommand(agent.command) === 'shell'
-      || capabilitiesForAgent(agent).kind === 'shell'
-      || isPlainTextComposerAgent(agent)
-    ) {
-      return sendTerminalSessionInput(agent.id, `${message}\r`)
-    }
-    return sendTerminalSessionInput(agent.id, terminalInputPartsForComposerMessage(message))
+    if (!contextReferences.length) return dispatch()
+    return prepareComposerSubmission(agent.id, () => validateComposerReferences(agent, contextReferences), dispatch).catch(error => {
+      setCopyNotice({ id: Date.now(), kind: 'error', message: error instanceof Error ? error.message : 'Context validation failed' })
+      return false
+    })
   }, [sendComposerInput])
 
   const composerFollowUpOwnership = useRef({ admissions: new ComposerFollowUpAdmissions(), promptStartFences: {} }).current
@@ -2548,7 +2558,7 @@ export function CodeWorkspace({
   const composerAttachmentsSendable = composerAttachmentsCanSubmit(composerAttachments)
   const unavailableContextReferenceIds = composerContextReferences.filter(reference => reference.kind === 'skill'
     ? slashCatalogStatus !== 'ready' || !discoveredSlashCommands.some(command => command.source === 'skill'
-      && command.command === reference.command && command.scope === reference.source)
+      && command.command === reference.command && command.scope === reference.source && Boolean(reference.path) && command.skillPath === reference.path)
     : !activeAgent || reference.workspace !== activeAgent.cwd
       || reference.rootId !== projectFilesWorkspaceId(activeAgent.cwd)
       || !reference.path).map(reference => reference.id)
@@ -2606,7 +2616,7 @@ export function CodeWorkspace({
         }
       })
     } else {
-      submitted = sendComposerMessageToAgent(activeAgent, message, nativeAttachments)
+      submitted = sendComposerMessageToAgent(activeAgent, message, nativeAttachments, undefined, undefined, composerContextReferences)
     }
     const clearAcceptedDraft = () => {
       updateComposerStateForKey(activeComposerKey, state => {
@@ -2660,13 +2670,7 @@ export function CodeWorkspace({
         options?.oppositeFollowUpBehavior === true,
         activeAcpRuntime?.canSteer === true,
       ),
-      sendMessage: (agent, message, attachments, requestId, delivery) => sendComposerMessageToAgent(
-        agent,
-        message,
-        attachments,
-        requestId,
-        delivery,
-      ),
+      sendMessage: sendComposerMessageToAgent,
       updateComposerState: updateComposerStateForKey,
     })
     const commitAccepted = (accepted: boolean, restoreFocus: boolean) => {

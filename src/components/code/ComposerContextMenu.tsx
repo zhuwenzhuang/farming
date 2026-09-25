@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import { FileGlyph, FolderGlyph } from '@/components/IconGlyphs'
 import type { ComposerContextCandidate } from './useComposerContextCompletion'
 
@@ -9,8 +10,12 @@ export function ComposerContextMenu({ candidates, status, truncated, activeIndex
   onActiveIndexChange: (index: number) => void
   onChoose: (candidate: ComposerContextCandidate) => void
 }) {
+  const menuRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    menuRef.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' })
+  }, [activeIndex, candidates])
   return (
-    <div className="code-menu-surface code-slash-menu code-composer-menu" data-testid="code-composer-context-menu" role="listbox" aria-label="Files and folders">
+    <div ref={menuRef} className="code-menu-surface code-slash-menu code-composer-menu" data-testid="code-composer-context-menu" role="listbox" aria-label="Files and folders">
       <div className="code-slash-menu-header">Files and folders</div>
       {status !== 'ready' || candidates.length === 0 ? (
         <div className="code-slash-command-loading" role={status === 'error' ? 'alert' : 'status'}>

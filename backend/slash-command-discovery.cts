@@ -34,6 +34,7 @@ type SupportedProvider = 'codex' | 'claude';
 type CommandSource = 'custom' | 'plugin' | 'skill';
 
 interface DiscoveredCommand {
+  skillPath?: string;
   command: string;
   description: string;
   label: string;
@@ -168,7 +169,8 @@ async function workspaceSkillRoots(workspace: unknown, homeDir: string): Promise
 
 function addCommand(commands: DiscoveredCommand[], command: DiscoveredCommand): void {
   const commandId = command.command.toLowerCase();
-  if (commands.some(item => item.command.toLowerCase() === commandId)) return;
+  if (commands.some(item => item.command.toLowerCase() === commandId
+    && (command.source !== 'skill' || (item.source === 'skill' && item.scope === command.scope && item.skillPath === command.skillPath)))) return;
   commands.push(command);
 }
 
@@ -185,6 +187,7 @@ async function addSkillMention(commands: DiscoveredCommand[], skillFile: string,
 
   const mentionName = mentionPrefix ? `${mentionPrefix}:${rawName}` : rawName;
   addCommand(commands, {
+    skillPath: skillFile,
     command: `$${mentionName}`,
     label: commandLabel(rawName),
     description: metadata.description || `Codex skill from ${scope.toLowerCase()}`,
@@ -209,6 +212,7 @@ async function discoverClaudeSkillCommands(
     if (!entry.isDirectory() || !SAFE_COMMAND_NAME.test(entry.name)) continue;
     if (!await pathExists(path.join(skillsDir, entry.name, 'SKILL.md'))) continue;
     addCommand(commands, {
+      skillPath: path.join(skillsDir, entry.name, 'SKILL.md'),
       command: `/${entry.name}`,
       label: commandLabel(entry.name),
       description: `Claude skill from ${sourceLabel}`,
@@ -254,6 +258,7 @@ async function discoverClaudePluginComponents(
     const skillName = path.basename(path.dirname(skillFile));
     const metadata = await parseSkillFrontMatter(skillFile);
     addCommand(commands, {
+      skillPath: skillFile,
       command: `/${pluginName}:${skillName}`,
       label: commandLabel(metadata.name || skillName),
       description: metadata.description || `Claude skill from ${pluginName}`,

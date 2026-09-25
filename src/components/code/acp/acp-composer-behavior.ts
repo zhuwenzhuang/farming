@@ -34,6 +34,7 @@ interface SubmitAcpDraftInput {
     attachments?: ComposerPromptAttachment[],
     requestId?: string,
     delivery?: 'prompt' | 'steer',
+    contextReferences?: ComposerContextReference[],
   ) => boolean | Promise<boolean>
   updateComposerState: (
     key: string,
@@ -147,6 +148,7 @@ export function submitAcpDraft({
       promptAttachments,
       undefined,
       turnActive ? 'steer' : 'prompt',
+      contextReferences,
     )
   } catch {
     return false

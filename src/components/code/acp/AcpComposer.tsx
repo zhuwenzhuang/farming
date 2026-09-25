@@ -294,7 +294,7 @@ export function AcpComposer({
     const nextDraft = `${draft.slice(0, commandTrigger.start)}${insertText}${draft.slice(commandTrigger.end)}`
     const nextCursor = commandTrigger.start + insertText.length
     setDismissedCommandTriggerId('')
-    if (command.source === 'skill') onAddContextReference?.({ kind: 'skill', label: command.label, command: command.command, source: command.scope })
+    if (command.source === 'skill') onAddContextReference?.({ kind: 'skill', path: command.skillPath, label: command.label, command: command.command, source: command.scope })
     if (command.source === 'farming') setOpenMenu(command.command === '/mode' ? 'mode' : 'model')
     latestDraftRef.current = nextDraft
     onDraftChange(nextDraft)
@@ -638,7 +638,7 @@ export function AcpComposer({
             {slashCatalogStatus === 'loading' ? copy.loading : slashCatalogStatus === 'error' ? copy.slashCatalogUnavailable : commandTrigger?.trigger === '$' ? 'No available skills' : 'No matching commands'}
           </div> : null}
           {filteredCommands.map((command, index) => (
-            <div key={`${command.source}:${command.scope || ''}:${command.command}`}>
+            <div key={`${command.source}:${command.scope || ''}:${command.command}:${command.skillPath || ''}`}>
             {(index === 0 || composerCommandGroup(filteredCommands[index - 1]!) !== composerCommandGroup(command)) && commandTrigger?.trigger === '/' ? (
               <div className="code-slash-menu-header">{composerCommandGroup(command)}</div>
             ) : null}

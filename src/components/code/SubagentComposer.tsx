@@ -6,6 +6,10 @@ import { isAcpRuntime } from '@/lib/agent-runtime'
 import { readRecentClipboardWrite } from '@/lib/clipboard'
 import { appPath } from '@/lib/base-path'
 import type { ComposerFollowUpBehavior } from '@/lib/ui-preferences'
+import { projectFilesWorkspaceId } from '@/lib/project-workspaces'
+import { capabilitiesForAgent } from './capabilities'
+import { useComposerProviderCatalog } from './useComposerProviderCatalog'
+import { composerContextReferenceId } from './composer-message'
 import { AcpComposer } from './acp/AcpComposer'
 import { acpComposerStateKeyForAgent } from './acp/acp-composer-state'
 import { isAcpComposerAvailable, respondToAcpElicitation, respondToAcpPermission, resolveAcpFollowUpBehavior, submitAcpDraft } from './acp/acp-composer-behavior'
@@ -39,6 +43,17 @@ export function SubagentComposer({ agent: structuralAgent, active, controller, c
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const attachmentInputRef = useRef<HTMLInputElement>(null)
   const [error, setError] = useState('')
+  const { discoveredSlashCommands, slashCatalogStatus } = useComposerProviderCatalog({
+    providerKind: capabilitiesForAgent(agent).kind || '',
+    homeId: agent.providerHomeId || 'default', workspace: agent.cwd,
+    slashCommandDiscovery: agent.providerCapabilities?.slashCommandDiscovery === true,
+    modelCatalogOpen: false, onModelCatalogError: setError,
+  })
+  const references = state.contextReferences || []
+  const unavailableReferenceIds = references.filter(reference => reference.kind === 'skill'
+    ? slashCatalogStatus !== 'ready' || !discoveredSlashCommands.some(command => command.source === 'skill'
+      && command.command === reference.command && command.scope === reference.source && Boolean(reference.path) && command.skillPath === reference.path)
+    : reference.workspace !== agent.cwd || reference.rootId !== projectFilesWorkspaceId(agent.cwd) || !reference.path).map(reference => reference.id)
   const pasteSequence = useRef(0)
   const focus = useCallback(() => { textareaRef.current?.focus({ preventScroll: true }) }, [])
   const update = (fn: (value: AgentComposerState) => AgentComposerState) => controller.update(key, fn)
@@ -84,6 +99,7 @@ export function SubagentComposer({ agent: structuralAgent, active, controller, c
     const result = submitAcpDraft({
       agent, composerKey: key, draft: text ?? textareaRef.current?.value ?? state.draft,
       attachments: state.attachments, composerMode: state.mode,
+      contextReferences: references, contextValid: unavailableReferenceIds.length === 0,
       turnActive: followUps.activeAgentTurnActive,
       followUpBehavior: resolveAcpFollowUpBehavior(controller.followUpBehavior,
         options?.oppositeFollowUpBehavior === true, runtime?.canSteer === true),
@@ -99,11 +115,20 @@ export function SubagentComposer({ agent: structuralAgent, active, controller, c
     <AcpComposer active={active} agentId={agent.id} runtimeState={runtime?.state || ''}
       sessionRevision={runtime?.sessionRevision} sessionUpdatedAt={runtime?.sessionUpdatedAt}
       runtimeError={runtime?.error || ''} draft={state.draft} attachments={state.attachments}
-      composerMode={state.mode} contextWindow={null}
+      composerMode={state.mode} contextWindow={null} workspace={agent.cwd}
+      contextReferences={references} unavailableReferenceIds={unavailableReferenceIds}
+      catalogCommands={discoveredSlashCommands} slashCatalogStatus={slashCatalogStatus}
+      onAddContextReference={reference => {
+        if (reference.kind !== 'skill' && (reference.workspace !== agent.cwd || reference.rootId !== projectFilesWorkspaceId(agent.cwd))) return
+        const item = { ...reference, id: composerContextReferenceId(reference) }
+        update(current => current.contextReferences?.some(existing => existing.id === item.id) ? current
+          : { ...current, contextReferences: [...(current.contextReferences || []), item] })
+      }}
+      onRemoveContextReference={id => update(current => ({ ...current, contextReferences: (current.contextReferences || []).filter(item => item.id !== id) }))}
       pendingFollowUp={state.pendingFollowUp ?? null} submissions={state.submissions ?? []}
       canSteerPendingFollowUp={followUps.activeAgentTurnActive && runtime?.canSteer === true}
       submitAction={!isAcpComposerAvailable(agent) ? 'disabled'
-        : composerAttachmentsCanSubmit(state.attachments) && (state.draft.trim() || state.attachments.length) ? 'send'
+        : unavailableReferenceIds.length === 0 && composerAttachmentsCanSubmit(state.attachments) && (state.draft.trim() || state.attachments.length || references.length) ? 'send'
           : followUps.activeAgentCanInterrupt ? 'interrupt' : 'disabled'}
       textareaRef={textareaRef} attachmentInputRef={attachmentInputRef}
       permissions={runtime?.pendingPermissions?.length ? runtime.pendingPermissions : runtime?.pendingPermission ? [runtime.pendingPermission] : []}

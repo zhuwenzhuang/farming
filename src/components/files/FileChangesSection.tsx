@@ -14,6 +14,7 @@ import {
   loadCodeProjectFilesViewState,
   saveCodeProjectFilesViewState,
 } from '../code/workspace-view-state'
+import { useWorkspaceChangePage } from './useWorkspaceChangePage'
 import type { WorkspaceFileChangesController } from './useWorkspaceFileChanges'
 
 interface FileChangesSectionProps {
@@ -130,7 +131,7 @@ function buildChangeTree(changes: WorkspaceFileChange[], groupId: string): FileC
     if (segments.length === 0) return
 
     let parentPath = ''
-    const isDirectoryChange = change.type === 'directory' || change.path.endsWith('/')
+    const isDirectoryChange = !change.submodule && (change.type === 'directory' || change.path.endsWith('/'))
     const directorySegmentCount = isDirectoryChange ? segments.length : segments.length - 1
     for (let index = 0; index < directorySegmentCount; index += 1) {
       const segment = segments[index]
@@ -181,7 +182,7 @@ function FileChangeRow({
   const stageLabel = change.gitStatus !== 'untracked' && (change.indexStatus || change.workingTreeStatus)
     ? change.indexStatus?.trim() && change.workingTreeStatus?.trim() ? copy.stagedAndUnstagedChanges : change.indexStatus?.trim() ? copy.stagedChanges : copy.unstagedChanges
     : ''
-  const pathContext = [change.previousPath ? workspaceFileChangePathLabel(change) : '', stageLabel].filter(Boolean).join(' · ')
+  const pathContext = [change.submodule ? copy.submoduleVersionChange : '', change.previousPath ? workspaceFileChangePathLabel(change) : '', stageLabel].filter(Boolean).join(' · ')
   return (
     <div
       key={workspaceFileChangeRowKey(change)}
@@ -313,8 +314,12 @@ function RepositoryFileChangesSection({
   const [initialState] = useState(() => loadCodeProjectFilesViewState(projectId))
   const [untrackedCollapsed, setUntrackedCollapsed] = useState(initialState.untrackedChangesCollapsed ?? true)
   const [openDirectoryIds, setOpenDirectoryIds] = useState<ReadonlySet<string>>(() => new Set(initialState.openChangeDirectoryIds ?? []))
-  const trackedChanges = useMemo(() => changes.items.filter(change => change.gitStatus !== 'untracked'), [changes.items])
-  const untrackedChanges = useMemo(() => changes.items.filter(change => change.gitStatus === 'untracked'), [changes.items])
+  const summary = changes.repository
+  const paged = Boolean(summary?.revision && changes.rootId)
+  const trackedPage = useWorkspaceChangePage(changes.rootId, summary?.path || '', 'tracked', summary?.revision, paged && !changes.loading && !collapsed && (summary?.trackedCount ?? 0) > 0, changes.refreshRevision)
+  const untrackedPage = useWorkspaceChangePage(changes.rootId, summary?.path || '', 'untracked', summary?.revision, paged && !changes.loading && !untrackedCollapsed && (summary?.untrackedCount ?? 0) > 0, changes.refreshRevision)
+  const trackedChanges = useMemo(() => paged ? trackedPage.page.items : changes.items.filter(change => change.gitStatus !== 'untracked'), [paged, trackedPage.page.items, changes.items])
+  const untrackedChanges = useMemo(() => paged ? untrackedPage.page.items : changes.items.filter(change => change.gitStatus === 'untracked'), [paged, untrackedPage.page.items, changes.items])
   const trackedTree = useMemo(() => buildChangeTree(trackedChanges, 'tracked'), [trackedChanges])
   const untrackedTree = useMemo(() => buildChangeTree(untrackedChanges, 'untracked'), [untrackedChanges])
   const countsRefreshing = refreshing || changes.loading
@@ -330,28 +335,28 @@ function RepositoryFileChangesSection({
     return next
   })
   const groups = [
-    { scope: 'tracked', label: grouped ? copy.trackedChanges : copy.changes, items: trackedChanges, tree: trackedTree,
+    { scope: 'tracked', page: trackedPage, total: summary?.trackedCount, label: grouped ? copy.trackedChanges : copy.changes, items: trackedChanges, tree: trackedTree,
       collapsed, truncated: changes.trackedTruncated ?? changes.truncated, toggle: onToggleCollapsed },
-    { scope: 'untracked', label: copy.untrackedChanges, items: untrackedChanges, tree: untrackedTree,
+    { scope: 'untracked', page: untrackedPage, total: summary?.untrackedCount, label: copy.untrackedChanges, items: untrackedChanges, tree: untrackedTree,
       collapsed: untrackedCollapsed, truncated: changes.untrackedTruncated ?? changes.truncated,
       toggle: () => setUntrackedCollapsed(current => !current) },
   ] as const
-  if (!changes.items.length && !changes.error && !changes.truncated) return null
+  if (!changes.items.length && !changes.error && !changes.truncated && !summary?.trackedCount && !summary?.untrackedCount) return null
   return <div className="code-file-changes-section" data-testid="code-file-changes-section" data-project-id={projectId}
     aria-label={copy.changedFiles} aria-busy={countsRefreshing}>
-    {groups.map(group => (group.items.length > 0 || group.truncated) && <div key={group.scope}
+    {groups.map(group => (group.items.length > 0 || (group.total ?? 0) > 0 || group.truncated) && <div key={group.scope}
       className={`code-file-change-group ${group.scope} ${group.collapsed ? 'collapsed' : ''}`}
       data-testid={`code-file-change-${group.scope}-group`}>
       <div className="code-file-change-group-header">
         <button type="button" className="code-file-change-group-toggle" aria-expanded={!group.collapsed}
-          onClick={() => { if (group.collapsed) void changes.refreshChanges(); group.toggle() }}>
+          onClick={() => { if (group.collapsed && !paged) void changes.refreshChanges(); group.toggle() }}>
           <span className="code-file-section-chevron" aria-hidden="true">{group.collapsed ? <ChevronRightGlyph /> : <ChevronDownGlyph />}</span>
           <span>{group.label}</span>
           <span className={`code-file-changes-count ${countRefreshState}`} data-testid={`code-file-changes-${group.scope}-count`}
             data-refresh-state={countRefreshState} aria-label={countsRefreshing ? copy.refreshingFiles : undefined}
             title={changes.error ?? (group.truncated ? copy.partialChanges : undefined)}>
             {countsRefreshing ? <span className="code-file-changes-count-loader" aria-hidden="true">···</span>
-              : <>{group.items.length}{group.truncated ? '+' : ''}</>}
+              : <>{group.total ?? group.items.length}{!paged && group.truncated ? '+' : ''}</>}
           </span>
         </button>
         {!grouped && group.scope === 'tracked' && <button type="button" className="code-file-change-review"
@@ -362,7 +367,10 @@ function RepositoryFileChangesSection({
           onClick={() => openRepositoryReview(projectWorkspace, 'untracked')}>{copy.reviewUntracked}</button></div>}
         <FileChangeTreeRows activeFilePath={activeFilePath} copy={copy} depth={0} nodes={group.tree}
           openDirectoryIds={openDirectoryIds} onOpenChange={onOpenChange} onToggleDirectory={toggleDirectory} />
-        {group.truncated && <div className="code-file-changes-status" role="status">{copy.partialChangesDescription}</div>}
+        {paged && group.page.loading && <div className="code-file-changes-status" role="status">{copy.loading}</div>}
+        {paged && group.page.error && <div className="code-file-changes-status error" role="alert">{group.page.error}<button type="button" className="code-file-change-review" onClick={() => { void changes.refreshChanges() }}>{copy.refreshFiles}</button></div>}
+        {paged && group.page.page.nextCursor && !group.page.error && <div className="code-file-change-scope-actions"><button type="button" className="code-file-change-review" disabled={group.page.loading} onClick={group.page.loadMore}>{copy.loadMoreChanges} ({group.items.length}/{group.page.page.total})</button></div>}
+        {!paged && group.truncated && <div className="code-file-changes-status" role="status">{copy.partialChangesDescription}</div>}
       </>}
     </div>)}
     {changes.error && <div className="code-file-changes-status error" data-testid="code-file-changes-error" role="alert">{changes.error}</div>}
@@ -382,9 +390,9 @@ function RepositoryChangesGroup({ repository, ...props }: FileChangesSectionProp
       ...(repository.path ? { changesCollapsed: childTrackedCollapsed } : {}) })
   }, [collapsed, projectId, childTrackedCollapsed, repository.path])
   const items = props.changes.items.filter(item => (item.repositoryPath ?? '') === repository.path)
-  if (!items.length && !repository.error && !repository.truncated) return null
+  if (!items.length && !repository.error && !repository.truncated && !repository.trackedCount && !repository.untrackedCount) return null
   const root = repository.path ? `${props.projectWorkspace.replace(/\/$/, '')}/${repository.path}` : props.projectWorkspace
-  const canReview = !repository.error && (items.some(item => item.gitStatus !== 'untracked') || repository.trackedTruncated)
+  const canReview = !repository.error && (items.some(item => item.gitStatus !== 'untracked') || repository.trackedTruncated || (repository.trackedCount ?? 0) > 0)
   return <div className="code-file-repository" data-repository-path={repository.path}>
     <div className="code-file-change-group-header">
       <button type="button" className="code-file-change-group-toggle" aria-expanded={!collapsed}
@@ -403,7 +411,7 @@ function RepositoryChangesGroup({ repository, ...props }: FileChangesSectionProp
     {!collapsed && <div className="code-file-repository-body"><RepositoryFileChangesSection {...props} grouped
       projectWorkspace={root} projectId={projectId} collapsed={trackedCollapsed}
       onToggleCollapsed={repository.path ? () => setChildTrackedCollapsed(value => !value) : props.onToggleCollapsed}
-      changes={{ ...props.changes, items, truncated: repository.truncated, trackedTruncated: repository.trackedTruncated,
+      changes={{ ...props.changes, repository, items, truncated: repository.truncated, trackedTruncated: repository.trackedTruncated,
         untrackedTruncated: repository.untrackedTruncated, error: repository.error ?? null }} /></div>}
   </div>
 }
@@ -413,8 +421,8 @@ export function FileChangesSection(props: FileChangesSectionProps) {
   useEffect(() => { saveCodeProjectFilesViewState(props.projectId, { repositoriesCollapsed: collapsed }) }, [collapsed, props.projectId])
   const repositories = props.changes.repositories
   if (!repositories || repositories.length <= 1) return <RepositoryFileChangesSection {...props}
-    changes={{ ...props.changes, error: props.changes.error || repositories?.[0]?.error || null }} />
-  if (!props.changes.items.length && !props.changes.error && !props.changes.truncated && !repositories.some(repository => repository.error)) return null
+    changes={{ ...props.changes, repository: repositories?.[0], error: props.changes.error || repositories?.[0]?.error || null }} />
+  if (!props.changes.items.length && !props.changes.error && !props.changes.truncated && !repositories.some(repository => repository.error || repository.trackedCount || repository.untrackedCount)) return null
   return <div data-testid="code-repository-changes">
     <div className="code-file-change-group-header">
       <ChangesDisclosure collapsed={collapsed} label={props.copy.changes}

@@ -11,6 +11,7 @@ export { inferAgentTerminalState, isAgentTurnActive, isCodexAgentWorking } from 
 export type SlashCommandSource = 'codex' | 'claude' | 'skill' | 'custom' | 'plugin' | 'farming'
 
 export interface SlashCommandOption {
+  skillPath?: string
   command: string
   label: string
   description: string

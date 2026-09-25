@@ -11,10 +11,10 @@ import {
   type WorkspaceFileChanges,
 } from '@/lib/workspace-files'
 
-const WORKSPACE_CHANGES_LIMIT = 200
 const WORKSPACE_CHANGES_TIMEOUT_MS = 15_000
 
 interface WorkspaceFileChangesState {
+  owner: string | null
   trackedTruncated?: boolean
   untrackedTruncated?: boolean
   repositories?: WorkspaceFileChanges['repositories']
@@ -26,6 +26,7 @@ interface WorkspaceFileChangesState {
 }
 
 const EMPTY_CHANGES_STATE: WorkspaceFileChangesState = {
+  owner: null,
   error: null,
   items: [],
   loaded: false,
@@ -34,6 +35,9 @@ const EMPTY_CHANGES_STATE: WorkspaceFileChangesState = {
 }
 
 export interface WorkspaceFileChangesController extends WorkspaceFileChangesState {
+  refreshRevision?: number
+  rootId?: string | null
+  repository?: NonNullable<WorkspaceFileChanges['repositories']>[number]
   refreshChanges: () => Promise<boolean>
 }
 
@@ -67,17 +71,19 @@ export function useWorkspaceFileChanges(
     const requestId = requestIdRef.current + 1
     requestIdRef.current = requestId
     setState(current => ({
-      ...current,
+      ...(current.owner === agentId ? current : EMPTY_CHANGES_STATE),
+      owner: agentId,
       error: null,
       loading: true,
     }))
 
     return fetchWorkspaceChanges(agentId, {
-      limit: WORKSPACE_CHANGES_LIMIT,
+      inventory: true,
       signal: abortController.signal,
     }).then(changes => {
       if (requestIdRef.current !== requestId) return false
       setState({
+        owner: agentId,
         error: null,
         items: changes.items,
         repositories: changes.repositories,
@@ -141,7 +147,9 @@ export function useWorkspaceFileChanges(
   }, [])
 
   return {
-    ...state,
+    ...(state.owner === agentId ? state : EMPTY_CHANGES_STATE),
+    refreshRevision: requestIdRef.current,
+    rootId: agentId,
     refreshChanges,
   }
 }

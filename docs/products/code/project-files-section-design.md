@@ -487,14 +487,28 @@ clears their results and preserves the History disclosure state. Only the
 current repository may publish results. Failure terminates loading and requires
 explicit retry; refresh rediscovers repository inventory.
 
-The backend owns repository inventory, errors and per-scope completeness,
-including omissions caused by the shared response limit. Browser-local
-disclosure state is independent for each repository and list; refresh cannot
-reopen a collapsed group. Counts describe returned entries, with a partial
-indicator only for affected scopes. Repository errors appear on that repository;
-discovery/request errors appear once at the Changes boundary. Collapsed groups
-keep a compact status marker; expanded incomplete lists explain the bound and
-offer their complete-scope Review, which retains its explicit capture limits.
+The backend owns repository inventory, exact per-category counts and errors.
+Inventory reads must finish within bounded Git time and output budgets; exceeding
+these budgets is an explicit failure, never a partial count presented as complete.
+The sidebar does not share a result quota between repositories or categories.
+Expanding a category reads its first page; Load more continues that category only.
+Counts describe the complete inventory, while the continuation action states the
+loaded count. A zero count never means an omitted, unqueried category.
+
+Pages carry a fingerprint of the repository's change listing and an offset.
+Before serving another page the backend rechecks that fingerprint. Changed
+membership or status rejects continuation and asks for a refresh instead of
+combining different listings. The browser fences reads by Project, repository,
+category and refresh generation; stale responses cannot replace or append to a
+new owner. Errors remain visible with an explicit refresh action. Refresh cancels
+old reads and restarts pages without reopening collapsed groups. Review remains
+an independent scoped comparison action, not the only way to see omitted files.
+
+Submodule working-tree dirtiness is displayed only inside its own repository.
+The parent retains actual gitlink version, staging, removal and conflict changes,
+marked explicitly as submodule changes rather than duplicate folder contents.
+Repository errors appear on that repository; discovery/request errors appear once
+at the Changes boundary.
 
 Line changes explain a local hunk near the current line. Full Review uses the
 main comparison surface and stable Review identity. These are different

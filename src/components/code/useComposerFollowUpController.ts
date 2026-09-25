@@ -16,7 +16,7 @@ import {
   type AgentComposerState,
 } from './composer-state'
 import { addComposerHistoryEntry } from './composer-history'
-import type { ComposerPromptAttachment } from './composer-message'
+import type { ComposerContextReference, ComposerPromptAttachment } from './composer-message'
 
 export type ComposerMessageSender = (
   agent: Agent,
@@ -24,6 +24,7 @@ export type ComposerMessageSender = (
   attachments?: ComposerPromptAttachment[],
   requestId?: string,
   delivery?: 'prompt' | 'steer',
+  contextReferences?: ComposerContextReference[],
 ) => boolean | Promise<boolean>
 
 // Structured transport owns the durable requestId and normally settles at its
@@ -32,7 +33,7 @@ export type ComposerMessageSender = (
 // forever. A timeout is treated as not accepted; ACP queues become explicit
 // failed UI submissions whose retry reconciles the same requestId. This does
 // not claim the backend effect failed, and this owner never blindly replays it.
-const COMPOSER_FOLLOW_UP_SETTLE_TIMEOUT_MS = 16_000
+const COMPOSER_FOLLOW_UP_SETTLE_TIMEOUT_MS = 30_000
 
 type ComposerStateUpdater = (
   composerKey: string,
@@ -279,6 +280,7 @@ export function useComposerFollowUpController({
         submission.attachments,
         submission.id,
         submission.delivery || 'prompt',
+        submission.contextReferences,
       ), settle)
     } catch {
       settle(false)
@@ -307,7 +309,7 @@ export function useComposerFollowUpController({
       admissionsRef.current.finishSubmission(activeComposerKey, messageId)
     }
     try {
-      settleComposerDelivery(sendMessage(activeAgent, message.text, message.attachments, message.id, 'steer'), settle)
+      settleComposerDelivery(sendMessage(activeAgent, message.text, message.attachments, message.id, 'steer', message.contextReferences), settle)
     } catch {
       settle(false)
     }
@@ -342,7 +344,7 @@ export function useComposerFollowUpController({
       focusComposer()
     }
     try {
-      settleComposerDelivery(sendMessage(activeAgent, message.text, message.attachments, message.id, 'prompt'), settle)
+      settleComposerDelivery(sendMessage(activeAgent, message.text, message.attachments, message.id, 'prompt', message.contextReferences), settle)
     } catch {
       settle(false)
     }
@@ -432,7 +434,7 @@ export function useComposerFollowUpController({
         updateExistingComposerState(composerKey, state => failQueuedAcpFollowUp(state, message))
       }
       try {
-        settleComposerDelivery(sendMessage(agent, message.text, message.attachments, message.id, 'prompt'), settle)
+        settleComposerDelivery(sendMessage(agent, message.text, message.attachments, message.id, 'prompt', message.contextReferences), settle)
       } catch {
         settle(false)
       }

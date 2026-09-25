@@ -49,13 +49,26 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
       await expect(tracked.getByTestId('code-file-change-directory-row')).toHaveCount(0)
       await expect(childGroup.locator('.code-file-repository-status')).toHaveCount(0)
       const mainGroup = groups.locator('[data-repository-path=""]')
-      await expect(mainGroup.getByTestId('code-file-changes-tracked-count')).toHaveText('2')
-      await expect(mainGroup.getByTestId('code-file-changes-untracked-count')).toHaveText(/\+$/)
+      await expect(mainGroup.getByTestId('code-file-changes-tracked-count')).toHaveText('1')
+      await expect(mainGroup.getByTestId('code-file-changes-untracked-count')).toHaveText('220')
+      await expect(groups).not.toContainText('0+')
+      const mainUntracked = mainGroup.getByTestId('code-file-change-untracked-group')
+      await mainUntracked.locator('.code-file-change-group-toggle').click()
+      await expect(mainUntracked.getByTestId('code-file-change-row')).toHaveCount(100)
+      await mainUntracked.getByRole('button', { name: /Load more/ }).click()
+      await expect(mainUntracked.getByTestId('code-file-change-row')).toHaveCount(200)
+      await mainUntracked.getByRole('button', { name: /Load more/ }).click()
+      await expect(mainUntracked.getByTestId('code-file-change-row')).toHaveCount(220)
+      await expect(mainUntracked.getByRole('button', { name: /Load more/ })).toHaveCount(0)
+      await mainUntracked.locator('.code-file-change-group-toggle').click()
       await expect(groups).not.toContainText('Some changed files are not shown')
       const mainTracked = mainGroup.getByTestId('code-file-change-tracked-group').locator('.code-file-change-group-toggle')
       await expect(mainTracked).toHaveAttribute('aria-expanded', 'false')
       await mainTracked.click()
       await expect(mainTracked).toHaveAttribute('aria-expanded', 'true')
+      await expect(mainGroup.getByTestId('code-file-change-row')).toHaveCount(1)
+      await expect(mainGroup.getByTestId('code-file-change-row')).toContainText('main.ts')
+      await page.screenshot({ path: testInfo.outputPath(`submodule-deduplicated-${appearance}.png`), animations: 'disabled' })
       await mainGroup.locator(':scope > .code-file-change-group-header > button').first().click()
       await expect(tracked).toBeVisible()
       await expect(tracked.locator('.code-file-change-group-toggle')).toHaveAttribute('aria-expanded', 'true')
@@ -215,6 +228,48 @@ test('fences old history reads and keeps missing child failures explicit', async
     await expect(history.locator('.code-git-history-status.error')).toContainText('not initialized')
   } finally {
     releaseParent?.()
+    await page.request.delete(`/farming/api/control/agents/${agentId}?recordHistory=0`)
+  }
+})
+
+test('refresh retries a failed page even when the repository inventory is unchanged', async ({ page, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'page-recovery')
+  fs.mkdirSync(workspace, { recursive: true })
+  git(workspace, 'init', '-q')
+  for (let index = 0; index < 120; index++) fs.writeFileSync(path.join(workspace, `note-${index}.txt`), 'fixture\n')
+  let failNextPage = true
+  let pageReads = 0
+  await interceptWorkspaceRequests(page, request => {
+    if (request.operation !== 'changes' || request.scope !== 'untracked') return
+    pageReads++
+    if (request.cursor?.endsWith(':100') && failNextPage) {
+      failNextPage = false
+      return { response: { ok: false, error: { code: 'FIXTURE_READ_FAILURE', status: 503, message: 'Change list temporarily unavailable' } } }
+    }
+  })
+  const response = await page.request.post('/farming/api/control/agents', { data: { command: 'bash', workspace } })
+  const { agentId } = await response.json() as { agentId: string }
+  try {
+    await openFarming(page)
+    const files = page.getByTestId('code-project-group').filter({ hasText: 'page-recovery' }).getByTestId('code-files-section')
+    if (await files.locator('.code-files-title').getAttribute('aria-expanded') !== 'true') await files.locator('.code-files-title').click()
+    const untracked = files.getByTestId('code-file-change-untracked-group')
+    await expect(untracked.getByTestId('code-file-changes-untracked-count')).toHaveText('120')
+    await untracked.locator('.code-file-change-group-toggle').click()
+    await expect(untracked.getByTestId('code-file-change-row')).toHaveCount(100)
+    await untracked.getByRole('button', { name: /Load more/ }).click()
+    const error = untracked.getByRole('alert')
+    await expect(error).toContainText('Change list temporarily unavailable')
+    await expect(untracked.getByTestId('code-file-change-row')).toHaveCount(100)
+    const failedReads = pageReads
+    await error.getByRole('button', { name: 'Refresh files', exact: true }).click()
+    await expect(error).toHaveCount(0)
+    await expect.poll(() => pageReads).toBeGreaterThan(failedReads)
+    await expect(untracked.getByTestId('code-file-change-row')).toHaveCount(100)
+    await untracked.getByRole('button', { name: /Load more/ }).click()
+    await expect(untracked.getByTestId('code-file-change-row')).toHaveCount(120)
+    await expect(untracked.getByRole('button', { name: /Load more/ })).toHaveCount(0)
+  } finally {
     await page.request.delete(`/farming/api/control/agents/${agentId}?recordHistory=0`)
   }
 })

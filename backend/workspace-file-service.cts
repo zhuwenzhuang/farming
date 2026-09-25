@@ -2671,6 +2671,96 @@ class WorkspaceFileService {
     }
   }
 
+  // The inventory contains exact counts only after a complete, bounded Git
+  // read. Pages are fenced by that inventory, not a mutable numeric offset.
+  async changeSnapshot(root: string) {
+    let stdout: unknown;
+    try {
+      ({ stdout } = await this.execFile(this.gitPath, [
+        'status', '--porcelain=v2', '-z', '--untracked-files=all',
+        '--ignore-submodules=dirty', '--ignored=no', '--', '.',
+      ], { cwd: root, timeout: this.gitStatusTimeoutMs, maxBuffer: DEFAULT_GIT_CHANGES_MAX_BUFFER }));
+    } catch (caught) {
+      const error = processError(caught);
+      if (/not a git repository/i.test(String(error.stderr || ''))) return { revision: 'non-git', items: [] as WorkspaceChangeItem[] };
+      if (error.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') throw new WorkspaceFileError('Change inventory exceeds the Git read limit; open a smaller project', 413);
+      throw new WorkspaceFileError(String(error.stderr || error.message || 'Change inventory unavailable'), 500);
+    }
+    const records = String(stdout || '').split('\0');
+    const items: WorkspaceChangeItem[] = [];
+    for (let index = 0; index < records.length; index++) {
+      const record = records[index];
+      if (!record) continue;
+      if (record.startsWith('? ')) {
+        const filePath = record.slice(2);
+        if (!shouldHidePath(filePath)) items.push({ path: filePath, name: path.posix.basename(filePath), type: 'file', gitStatus: 'untracked', gitStatusLabel: '?', indexStatus: '?', workingTreeStatus: '?' });
+        continue;
+      }
+      const type = record[0];
+      const fieldCount = type === '1' ? 8 : type === '2' ? 9 : type === 'u' ? 10 : 0;
+      if (!fieldCount) throw new WorkspaceFileError('Unsupported Git status record', 500);
+      const fields: string[] = [];
+      let offset = 0;
+      for (let part = 0; part < fieldCount; part++) {
+        const end = record.indexOf(' ', offset);
+        if (end < 0) throw new WorkspaceFileError('Incomplete Git status record', 500);
+        fields.push(record.slice(offset, end)); offset = end + 1;
+      }
+      const filePath = record.slice(offset);
+      const previousPath = type === '2' ? records[++index] : undefined;
+      if (!filePath || (type === '2' && !previousPath)) throw new WorkspaceFileError('Incomplete Git rename record', 500);
+      if (shouldHidePath(filePath)) continue;
+      const statusCode = fields[1].replaceAll('.', ' ');
+      const kind = type === 'u' ? 'conflicted' : gitStatusKind(statusCode);
+      const submodule = fields.slice(3, type === 'u' ? 7 : 6).includes('160000');
+      items.push({ path: filePath, name: path.posix.basename(filePath), type: submodule ? 'directory' : 'file',
+        gitStatus: kind, gitStatusLabel: gitStatusLabel(kind), indexStatus: statusCode[0], workingTreeStatus: statusCode[1],
+        ...(previousPath ? { previousPath } : {}), ...(submodule ? { submodule: true } : {}) });
+    }
+    items.sort((a, b) => a.path.localeCompare(b.path));
+    const revision = crypto.createHash('sha256').update(root).update(JSON.stringify(items)).digest('hex') as string;
+    return { revision, items };
+  }
+
+  async changesInventory(workspaceRoot: unknown) {
+    const root = await this.resolveRoot(workspaceRoot);
+    const repositories = await discoverWorkspaceRepositories(this, root);
+    const inventory = await mapWithConcurrency(repositories, 4, async repository => {
+      try {
+        if (repository.error) throw new Error(repository.error);
+        const snapshot = await this.changeSnapshot(repository.root);
+        return { path: repository.path, revision: snapshot.revision,
+          trackedCount: snapshot.items.filter(item => item.gitStatus !== 'untracked').length,
+          untrackedCount: snapshot.items.filter(item => item.gitStatus === 'untracked').length, truncated: false };
+      } catch (caught) {
+        return { path: repository.path, error: caught instanceof Error ? caught.message : 'Repository changes unavailable', truncated: false };
+      }
+    });
+    return { items: [], repositories: inventory, truncated: false };
+  }
+
+  async changesPage(workspaceRoot: unknown, options: { repositoryPath?: string; scope: 'tracked' | 'untracked'; cursor?: string; limit?: number }) {
+    const root = await this.resolveHistoryRepository(workspaceRoot, options.repositoryPath);
+    const { revision, items } = await this.changeSnapshot(root);
+    let offset = 0;
+    if (options.cursor) {
+      const match = /^([a-f0-9]{64}|non-git):(\d+)$/.exec(options.cursor);
+      if (!match || !Number.isSafeInteger(Number(match[2]))) throw new WorkspaceFileError('Invalid changes cursor', 400);
+      if (match[1] !== revision) throw new WorkspaceFileError('Repository changes changed. Refresh the list before loading more.', 409);
+      offset = Number(match[2]);
+    }
+    const selected = items.filter(item => (item.gitStatus === 'untracked') === (options.scope === 'untracked'));
+    if (offset > selected.length) throw new WorkspaceFileError('Invalid changes cursor offset', 400);
+    const limit = Math.max(1, Math.min(200, Number(options.limit) || 100));
+    const page = selected.slice(offset, offset + limit).map(item => ({ ...item,
+      repositoryPath: options.repositoryPath || '', repositoryFilePath: item.path,
+      path: options.repositoryPath ? `${options.repositoryPath}/${item.path}` : item.path,
+      ...(item.previousPath && options.repositoryPath ? { previousPath: `${options.repositoryPath}/${item.previousPath}` } : {}),
+    }));
+    const nextOffset = offset + page.length;
+    return { items: page, total: selected.length, revision, nextCursor: nextOffset < selected.length ? `${revision}:${nextOffset}` : null };
+  }
+
   async changes(workspaceRoot: unknown, options: Record<string, unknown> = {}): Promise<WorkspaceChangesResult> {
     const root = await this.resolveRoot(workspaceRoot);
     const limit = Math.max(1, Math.min(2000, Number(options.limit) || DEFAULT_GIT_CHANGES_LIMIT));

@@ -116,6 +116,7 @@ export interface WorkspaceFileDiff {
 }
 
 export interface WorkspaceFileChange {
+  submodule?: boolean
   repositoryPath?: string
   repositoryFilePath?: string
   indexStatus?: string
@@ -129,6 +130,9 @@ export interface WorkspaceFileChange {
 }
 
 export interface WorkspaceChangesCompleteness {
+  revision?: string
+  trackedCount?: number
+  untrackedCount?: number
   trackedTruncated?: boolean
   untrackedTruncated?: boolean
 }
@@ -334,6 +338,10 @@ async function runWorkspaceRequest<T>(
     }
     throw error
   }
+}
+
+export function validateWorkspaceContext(rootId: string, entries: Array<{ path: string; kind: 'file' | 'directory' }>, signal?: AbortSignal) {
+  return runWorkspaceRequest<{ valid: true }>({ operation: 'context-paths', rootId, entries }, { signal })
 }
 
 export async function fetchWorkspaceTree(rootId: string, directoryPath = '', options: { signal?: AbortSignal } = {}) {
@@ -561,12 +569,24 @@ export async function fetchWorkspaceDiff(rootId: string, filePath: string) {
   return runWorkspaceRequest<WorkspaceFileDiff>({ operation: 'diff', rootId, path: filePath })
 }
 
-export async function fetchWorkspaceChanges(rootId: string, options: { limit?: number; signal?: AbortSignal } = {}) {
+export async function fetchWorkspaceChanges(rootId: string, options: { inventory?: boolean; limit?: number; signal?: AbortSignal } = {}) {
   return runWorkspaceRequest<WorkspaceFileChanges>({
     operation: 'changes',
     rootId,
+    ...(options.inventory ? { inventory: true } : {}),
     ...(options.limit ? { limit: options.limit } : {}),
   }, { signal: options.signal })
+}
+
+export interface WorkspaceChangePage {
+  items: WorkspaceFileChange[]
+  total: number
+  revision: string
+  nextCursor: string | null
+}
+
+export function fetchWorkspaceChangePage(rootId: string, repositoryPath: string, scope: 'tracked' | 'untracked', cursor?: string, signal?: AbortSignal) {
+  return runWorkspaceRequest<WorkspaceChangePage>({ operation: 'changes', rootId, repositoryPath, scope, cursor, limit: 100 }, { signal })
 }
 
 export async function fetchWorkspaceGitWorktrees(rootId: string, options: { signal?: AbortSignal } = {}) {
