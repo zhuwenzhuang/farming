@@ -55,6 +55,139 @@ async function selectTreeFile(page: Page, file: string) {
   await expect(page.getByRole('tab').filter({ hasText: file })).toHaveAttribute('aria-selected', 'true')
 }
 
+async function openDiff(page: Page, directory: string) {
+  fs.writeFileSync(path.join(directory, 'a.txt'), 'inserted line\nfirst line\nchanged second line\nthird line\n')
+  await openFile(page, directory)
+  await page.getByRole('button', { name: 'Open File Diff', exact: true }).click()
+  await expect(page.getByTestId('code-file-diff-monaco').locator('.editor.modified .view-lines')).toContainText('inserted line')
+}
+
+for (const appearance of ['light', 'dark', 'paper'] as const) {
+  test(`diff blame preserves each side's revision and line positions in ${appearance}`, async ({ page, workspaceRoot }, testInfo) => {
+    const directory = repository(workspaceRoot)
+    execFileSync('git', ['remote', 'add', 'origin', 'https://github.com/example/project.git'], { cwd: directory, stdio: 'ignore' })
+    const commit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: directory, encoding: 'utf8' }).trim()
+    await openDiff(page, directory)
+    await page.locator('body').evaluate((body, value) => { body.dataset.appearance = value }, appearance)
+    const diff = page.getByTestId('code-file-diff-view')
+    const original = diff.locator('.editor.original')
+    const modified = diff.locator('.editor.modified')
+    const menu = page.getByTestId('code-editor-context-menu')
+    // A newer HEAD must not change attribution in the already-open original side.
+    execFileSync('git', ['-c', 'user.name=Later Author', 'commit', '-am', 'Commit after opening diff'], { cwd: directory, stdio: 'ignore' })
+    await original.locator('.line-numbers').filter({ hasText: /^2$/ }).click({ button: 'right' })
+    await menu.getByRole('menuitem', { name: 'Annotate with Blame' }).click()
+    const oldAnnotations = original.locator('.code-file-inline-blame')
+    await expect(oldAnnotations).toHaveCount(3)
+    await expect(oldAnnotations.nth(1)).toContainText('Second Author')
+    await oldAnnotations.nth(1).click()
+    await expect(diff.getByTestId('code-file-blame-detail')).toContainText('Change second line')
+    await expect(diff.getByTestId('code-file-blame-detail')).toContainText('Second Author')
+    await expect(diff.locator('.code-file-blame-detail-commit-link')).toHaveAttribute('href', `https://github.com/example/project/commit/${commit}`)
+    await expect(oldAnnotations.nth(1)).toHaveText(/^Second Author/)
+    await page.keyboard.press('Escape')
+    await expect(diff.getByTestId('code-file-blame-detail')).toHaveCount(0)
+    await expect(diff).toBeVisible()
+
+    // Code text, as well as the gutter, exposes the action on the modified side.
+    await modified.locator('.view-line').filter({ hasText: 'changed second line' }).click({ button: 'right' })
+    await menu.getByRole('menuitem', { name: 'Annotate with Blame' }).click()
+    const newAnnotations = modified.locator('.code-file-inline-blame')
+    await expect(newAnnotations).toHaveCount(4)
+    await expect(newAnnotations.nth(2)).toContainText('Second Author')
+    await expect(newAnnotations.first()).toContainText('Later Author')
+    await newAnnotations.nth(2).click()
+    await expect(diff.getByTestId('code-file-blame-detail')).toContainText('Change second line')
+    await diff.screenshot({ path: testInfo.outputPath(`diff-blame-${appearance}.png`) })
+    await page.keyboard.press('Escape')
+    await oldAnnotations.first().click({ button: 'right' })
+    await menu.getByRole('menuitem', { name: 'Hide Blame' }).click()
+    await expect(oldAnnotations).toHaveCount(0)
+    await expect(newAnnotations).toHaveCount(4)
+    await newAnnotations.first().click({ button: 'right' })
+    await page.keyboard.press('Escape')
+    await expect(menu).toHaveCount(0)
+    await expect(diff).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(diff).toHaveCount(0)
+  })
+
+  test(`diff blame clips scrolling annotations around inserted and deleted blocks in ${appearance}`, async ({ page, workspaceRoot }, testInfo) => {
+    const directory = repository(workspaceRoot)
+    const filePath = path.join(directory, 'large.ts')
+    fs.writeFileSync(filePath, fs.readFileSync(filePath, 'utf8')
+      .replace('    const value80 = 80;', '    const addedA = 1;\n    const addedB = 2;\n    const value80 = 80;')
+      .replace('    const value90 = 90;\n', ''))
+    await openFile(page, directory, 'large.ts')
+    await page.getByRole('button', { name: 'Open File Diff', exact: true }).click()
+    await page.locator('body').evaluate((body, value) => { body.dataset.appearance = value }, appearance)
+    const diff = page.getByTestId('code-file-diff-view')
+    const original = diff.locator('.editor.original')
+    const modified = diff.locator('.editor.modified')
+    for (const side of [original, modified]) {
+      await side.locator('.margin-view-overlays .line-numbers').first().click({ button: 'right' })
+      await page.getByTestId('code-editor-context-menu').getByRole('menuitem', { name: 'Annotate with Blame' }).click()
+      await expect(side.locator('.code-file-inline-blame').first()).toBeVisible()
+    }
+    await modified.locator('.view-line').first().click()
+    await page.keyboard.press('Control+g')
+    await page.locator('.quick-input-widget input').fill(':83')
+    await page.keyboard.press('Enter')
+    await expect(modified.locator('.view-lines')).toContainText('addedA')
+    await modified.hover()
+    await page.mouse.wheel(0, 13)
+    await expect(modified.locator('.code-file-inline-blame.uncommitted').first()).toBeVisible()
+    for (const side of [original, modified]) {
+      await expect.poll(async () => side.evaluate(host => {
+        const annotations = [...host.querySelectorAll<HTMLElement>('.code-file-inline-blame')]
+        const numbers = [...host.querySelectorAll<HTMLElement>('.margin-view-overlays .line-numbers')]
+        return annotations.every(annotation => {
+          const number = numbers.find(item => Number(item.textContent?.replace(/\D/g, '')) === Number(annotation.dataset.lineNumber))
+          return !number || Math.abs(number.getBoundingClientRect().top - annotation.getBoundingClientRect().top) <= 1
+        })
+      })).toBe(true)
+      await expect.poll(async () => side.locator('.code-file-inline-blame-layer').evaluate(element => Number.parseFloat(getComputedStyle(element).clipPath.replace('inset(', '')))).toBeGreaterThan(0)
+    }
+    await diff.screenshot({ path: testInfo.outputPath(`diff-blame-scrolled-${appearance}.png`) })
+    await modified.locator('.code-file-inline-blame.uncommitted').first().click()
+    await expect(diff.getByTestId('code-file-blame-detail')).toContainText('uncommitted')
+  })
+}
+
+test('diff blame rejects changed contents and ignores results after hiding or closing', async ({ page, workspaceRoot }) => {
+  const directory = repository(workspaceRoot)
+  const held = gate()
+  let requests = 0
+  let results = 0
+  await interceptWorkspaceRequests(page, request => {
+    if (request.operation !== 'blame' || request.revision) return
+    requests += 1
+    if (requests === 1) return { onResult: async result => { await held.promise; results += 1; return result } }
+  })
+  try {
+    await openDiff(page, directory)
+    const diff = page.getByTestId('code-file-diff-view')
+    const modified = diff.locator('.editor.modified')
+    const menu = page.getByTestId('code-editor-context-menu')
+    const openMenu = async () => modified.locator('.line-numbers').filter({ hasText: /^2$/ }).click({ button: 'right' })
+    await openMenu()
+    await menu.getByRole('menuitem', { name: 'Annotate with Blame' }).click()
+    await expect.poll(() => requests).toBe(1)
+    await openMenu()
+    await menu.getByRole('menuitem', { name: 'Hide Blame' }).click()
+    held.release()
+    await expect.poll(() => results).toBe(1)
+    await expect(diff.locator('.code-file-inline-blame')).toHaveCount(0)
+    fs.writeFileSync(path.join(directory, 'a.txt'), 'externally changed\n')
+    await openMenu()
+    await menu.getByRole('menuitem', { name: 'Annotate with Blame' }).click()
+    await expect(diff.getByTestId('code-file-blame-state')).toContainText('Reopen File Diff')
+    await expect(diff.locator('.code-file-inline-blame')).toHaveCount(0)
+    await diff.getByRole('button', { name: 'Close diff' }).click()
+    await expect(page.getByTestId('code-file-blame-state')).toHaveCount(0)
+  } finally { held.release() }
+})
+
 for (const appearance of ['light', 'dark', 'paper'] as const) {
   test(`blame capability loading and failure remain explicit in ${appearance}`, async ({ page, workspaceRoot }, testInfo) => {
     let held = gate()

@@ -1408,7 +1408,7 @@ function run() {
   assert.strictEqual(workspaceEditorLanguageLabel('unknown-language'), 'unknown-language');
   assert.ok(formatWorkspaceBlameTime(1704067200).includes('2024'));
   assert.strictEqual(workspaceBlameInlineLabel({ author: '', authorTime: null }), 'Unknown');
-  assert.ok(workspaceBlameInlineLabel({ author: 'Ada Lovelace', authorTime: 1704067200 }).includes('Ada Lovelace'));
+  assert.ok(workspaceBlameInlineLabel({ author: 'Ada Lovelace', authorTime: 1704067200 }).startsWith('Ada Lovelace   '));
   assert.strictEqual(estimateWorkspaceBlameLabelWidth([], false), 112);
   assert.strictEqual(estimateWorkspaceBlameLabelWidth([{ author: 'A'.repeat(100), authorTime: null }], true), 110);
   assert.deepStrictEqual(workspaceEditorVisibleLineWindow({

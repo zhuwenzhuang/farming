@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, type KeyboardEvent as ReactKeyboardEvent } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useInteractionLayer } from '@/hooks/useInteractionLayer'
 import * as monaco from 'monaco-editor'
 import {
   applyWorkspaceEditorMonacoTheme,
@@ -15,6 +16,7 @@ import type { OpenWorkspaceFile } from '@/lib/workspace-open-files'
 import { isCompactViewport } from '@/lib/responsive-mode'
 import type { CodeCopy } from '../code/copy'
 import type { FileEditorDiffState } from './useFileEditorDiffController'
+import { FileEditorDiffBlame } from './FileEditorDiffBlame'
 
 interface FileEditorDiffViewProps {
   openFile: OpenWorkspaceFile
@@ -51,8 +53,8 @@ function canShowDiffEditor(diffState: FileEditorDiffState) {
   )
 }
 
-function diffModelUri(openFile: OpenWorkspaceFile, side: 'original' | 'modified') {
-  const resourceKey = workspaceFileResourceKey(openFile.file.path, openFile.workspaceRoot)
+function diffModelUri(filePath: string, workspaceRoot: string | undefined, side: 'original' | 'modified') {
+  const resourceKey = workspaceFileResourceKey(filePath, workspaceRoot)
   return monaco.Uri.from({
     scheme: 'farming-diff',
     path: resourceKey.startsWith('/') ? resourceKey : `/${resourceKey}`,
@@ -60,8 +62,8 @@ function diffModelUri(openFile: OpenWorkspaceFile, side: 'original' | 'modified'
   })
 }
 
-function createDiffTextModel(openFile: OpenWorkspaceFile, side: 'original' | 'modified', value: string, languageId: string) {
-  const uri = diffModelUri(openFile, side)
+function createDiffTextModel(filePath: string, workspaceRoot: string | undefined, side: 'original' | 'modified', value: string, languageId: string) {
+  const uri = diffModelUri(filePath, workspaceRoot, side)
   monaco.editor.getModel(uri)?.dispose()
   return monaco.editor.createModel(value, languageId, uri)
 }
@@ -77,19 +79,27 @@ export function FileEditorDiffView({
   const diffEditorRef = useRef<monaco.editor.IStandaloneDiffEditor | null>(null)
   const originalModelRef = useRef<monaco.editor.ITextModel | null>(null)
   const modifiedModelRef = useRef<monaco.editor.ITextModel | null>(null)
+  const [editors, setEditors] = useState<{
+    original: monaco.editor.IStandaloneCodeEditor
+    modified: monaco.editor.IStandaloneCodeEditor
+    snapshot: FileEditorDiffState['diff']
+    modelKey: string
+  } | null>(null)
   const showDiffEditor = canShowDiffEditor(diffState)
+  const filePath = openFile.file.path
+  const workspaceRoot = openFile.workspaceRoot
   const statusText = useMemo(() => diffStatusText(diffState, copy), [copy, diffState])
 
   useEffect(() => {
     viewRef.current?.focus({ preventScroll: true })
   }, [])
 
-  const handleKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
-    if (event.key !== 'Escape') return
-    event.preventDefault()
-    event.stopPropagation()
-    onClose()
-  }
+  useInteractionLayer({
+    enabled: true,
+    elements: () => [viewRef.current],
+    dismissOnPointerOutside: false,
+    onDismiss: onClose,
+  })
 
   useEffect(() => {
     if (!showDiffEditor) return undefined
@@ -107,6 +117,7 @@ export function FileEditorDiffView({
       renderSideBySide: !isCompactViewport(),
       originalEditable: false,
       readOnly: true,
+      contextmenu: false,
       minimap: { enabled: false },
       scrollBeyondLastLine: false,
       ...workspaceEditorFontOptions(),
@@ -151,6 +162,7 @@ export function FileEditorDiffView({
       originalModelRef.current = null
       modifiedModelRef.current = null
       diffEditorRef.current = null
+      setEditors(null)
     }
   }, [showDiffEditor])
 
@@ -160,18 +172,22 @@ export function FileEditorDiffView({
     if (!diffEditor) return
     originalModelRef.current?.dispose()
     modifiedModelRef.current?.dispose()
-    const languageId = workspaceEditorLanguageForPath(openFile.file.path, diffState.diff.modifiedContent)
-    const originalModel = createDiffTextModel(openFile, 'original', diffState.diff.originalContent ?? '', languageId)
-    const modifiedModel = createDiffTextModel(openFile, 'modified', diffState.diff.modifiedContent ?? '', languageId)
+    const languageId = workspaceEditorLanguageForPath(filePath, diffState.diff.modifiedContent)
+    const originalModel = createDiffTextModel(filePath, workspaceRoot, 'original', diffState.diff.originalContent ?? '', languageId)
+    const modifiedModel = createDiffTextModel(filePath, workspaceRoot, 'modified', diffState.diff.modifiedContent ?? '', languageId)
     originalModelRef.current = originalModel
     modifiedModelRef.current = modifiedModel
     diffEditor.setModel({
       original: originalModel,
       modified: modifiedModel,
     })
+    setEditors({
+      original: diffEditor.getOriginalEditor(), modified: diffEditor.getModifiedEditor(),
+      snapshot: diffState.diff, modelKey: originalModel.id,
+    })
     const layoutFrame = window.requestAnimationFrame(() => diffEditor.layout())
     return () => window.cancelAnimationFrame(layoutFrame)
-  }, [diffState.diff, openFile, showDiffEditor])
+  }, [diffState.diff, filePath, workspaceRoot, showDiffEditor])
 
   return (
     <section
@@ -180,7 +196,6 @@ export function FileEditorDiffView({
       data-testid="code-file-diff-view"
       aria-label={copy.fileDiff}
       tabIndex={-1}
-      onKeyDownCapture={handleKeyDown}
     >
       <header className="code-file-diff-header">
         <div className="code-file-diff-title">
@@ -204,6 +219,21 @@ export function FileEditorDiffView({
         className={`code-file-diff-monaco ${showDiffEditor ? '' : 'hidden'}`}
         data-testid="code-file-diff-monaco"
       />
+      {showDiffEditor && editors && diffState.diff && editors.snapshot === diffState.diff && (['original', 'modified'] as const).map(side => {
+        const diff = diffState.diff!
+        const content = (side === 'original' ? diff.originalContent : diff.modifiedContent) ?? ''
+        const revision = side === 'original' ? diff.originalRevision : undefined
+        const filePath = side === 'original' ? diff.originalPath ?? openFile.file.path : openFile.file.path
+        return <FileEditorDiffBlame
+          key={`${side}:${editors.modelKey}`}
+          openFile={{ ...openFile, dirty: false, file: { ...openFile.file, path: filePath } }}
+          editor={editors[side]}
+          content={content}
+          revision={revision}
+          disabled={Boolean(diff.untracked || (side === 'original' ? !revision : diff.deleted))}
+          copy={copy}
+        />
+      })}
     </section>
   )
 }

@@ -147,6 +147,7 @@ function workspaceRequest(value) {
                 && (value.scope === undefined || value.scope === 'all' || value.scope === 'file-path' || value.scope === 'entries');
         case 'blame':
         case 'blame-capability':
+            return rootPath() && (value.revision === undefined || (typeof value.revision === 'string' && /^[0-9a-f]{40}$/.test(value.revision)));
         case 'diff':
             return rootPath();
         case 'context-paths':

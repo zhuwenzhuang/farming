@@ -24,6 +24,7 @@ interface UseFileEditorBlameControllerOptions {
   openFile: OpenWorkspaceFile
   disabled: boolean
   onRevealLine: (lineNumber: number, options?: { focusEditor?: boolean }) => void
+  snapshot?: { revision?: string; content: string; mismatchMessage: string }
 }
 
 function isPermanentBlameFailure(error: unknown) {
@@ -34,8 +35,9 @@ export function useFileEditorBlameController({
   openFile,
   disabled,
   onRevealLine,
+  snapshot,
 }: UseFileEditorBlameControllerOptions) {
-  const currentOpenFileKey = openFileKey(openFile)
+  const currentOpenFileKey = `${openFileKey(openFile)}\u0000${snapshot?.revision ?? ''}`
   const snapshotKey = `${currentOpenFileKey}\u0000${openFile.file.sha1 ?? ''}`
   const blameRequestFenceRef = useRef(new RequestOwnershipFence(snapshotKey))
   const blameCapabilityRequestFenceRef = useRef(new RequestOwnershipFence(currentOpenFileKey))
@@ -76,8 +78,14 @@ export function useFileEditorBlameController({
     setBlameLoading(true)
     setBlameError(null)
     try {
-      const nextBlame = await fetchWorkspaceBlame(openFile.agentId, openFile.file.path)
+      const nextBlame = await fetchWorkspaceBlame(openFile.agentId, openFile.file.path, snapshot?.revision)
       if (!lease.isCurrent()) return null
+      if (snapshot && nextBlame.isGitRepo) {
+        const lines = snapshot.content === '' ? [] : snapshot.content.replace(/\n$/, '').split('\n')
+        if (lines.length !== nextBlame.lines.length || nextBlame.lines.some((line, index) => (
+          line.lineNumber !== index + 1 || line.content.replace(/\r$/, '') !== lines[index]?.replace(/\r$/, '')
+        ))) throw new Error(snapshot.mismatchMessage)
+      }
       setBlame(nextBlame)
       setBlameCapability(nextBlame.isGitRepo && nextBlame.lines.length > 0 ? 'available' : 'unavailable')
       return nextBlame
@@ -90,7 +98,7 @@ export function useFileEditorBlameController({
     } finally {
       if (lease.isCurrent()) setBlameLoading(false)
     }
-  }, [openFile.agentId, openFile.file.path])
+  }, [openFile.agentId, openFile.file.path, snapshot])
 
   const checkBlameCapability = useCallback(async (): Promise<BlameCapability | null> => {
     if (disabled) {
@@ -100,7 +108,7 @@ export function useFileEditorBlameController({
     const lease = blameCapabilityRequestFenceRef.current.begin()
     setBlameCapability('checking')
     try {
-      const capability = await fetchWorkspaceBlameCapability(openFile.agentId, openFile.file.path)
+      const capability = await fetchWorkspaceBlameCapability(openFile.agentId, openFile.file.path, snapshot?.revision)
       if (!lease.isCurrent()) return null
       const nextCapability = capability.available ? 'available' : 'unavailable'
       setBlameCapability(nextCapability)
@@ -110,7 +118,7 @@ export function useFileEditorBlameController({
       setBlameCapability('error')
       return 'error'
     }
-  }, [disabled, openFile.agentId, openFile.file.path])
+  }, [disabled, openFile.agentId, openFile.file.path, snapshot?.revision])
 
   const toggleBlame = useCallback(async () => {
     if (disabled) return

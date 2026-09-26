@@ -23,7 +23,7 @@ interface UseFileEditorBlameOverlayControllerOptions {
     regular: number
   }
   blameOpen: boolean
-  editorHostRef: MutableRefObject<HTMLDivElement | null>
+  editorHostRef: MutableRefObject<HTMLElement | null>
   editorRef: MutableRefObject<monaco.editor.IStandaloneCodeEditor | null>
   disabled: boolean
 }

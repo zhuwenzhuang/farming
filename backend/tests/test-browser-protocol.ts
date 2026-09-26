@@ -148,6 +148,14 @@ assert.strictEqual(validateClientMessage({ type: 'watch-workspace-files', rootId
 assert.strictEqual(validateClientMessage({ type: 'watch-workspace-files', rootId: 'a' }).ok, false);
 assert.strictEqual(validateClientMessage({ type: 'watch-workspace-files', rootId: 'a', paths: [] }).ok, false);
 assert.strictEqual(validateClientMessage({ type: 'watch-workspace-files', rootId: 'a', paths: ['same.ts', 'same.ts'] }).ok, false);
+for (const operation of ['blame', 'blame-capability']) {
+  for (const revision of [undefined, 'a'.repeat(40), 'HEAD', '--help', '', 42]) {
+    assert.strictEqual(validateClientMessage({
+      type: 'workspace-request', requestId: 'blame',
+      request: { operation, rootId: 'root-1', path: 'file.txt', revision },
+    }).ok, revision === undefined || revision === 'a'.repeat(40));
+  }
+}
 for (const operation of ['history', 'history-changes']) {
   const request = { operation, rootId: 'root-1', commit: 'a'.repeat(40) };
   for (const repositoryPath of [undefined, 'packages/engine']) {

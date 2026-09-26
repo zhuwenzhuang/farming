@@ -245,7 +245,9 @@ Cut removes the selected text only after a confirmed clipboard write. A failed
 write preserves the document and shows the shared inline error feedback; a new
 action or file/view change clears that feedback.
 
-Git blame uses the same gutter menu from both line numbers and author/date
+Git blame puts the author before the date so narrow gutters prioritize who changed
+the line; commit details expose the author, commit identifier, message, and date.
+It uses the same gutter menu from both line numbers and author/date
 annotations, including Hide Blame while loading or after failure. Annotation
 availability checks keep a disabled checking action visible; failed checks show
 an explicit retry action instead of implying that the file cannot be blamed.
@@ -254,6 +256,15 @@ rows stay clipped to the editor viewport and below Monaco's sticky headers;
 they cannot cover breadcrumbs, preview panes, or blame details. Clipping follows
 actual sticky-header geometry even when it resolves after a scroll event. Details follow
 the shared outside-pointer and Escape dismissal protocol.
+
+File Diff exposes the same Blame action from code, line numbers, and annotations
+on either side. Each side owns its annotation visibility and pending requests.
+The original side uses the exact commit and historical path returned with the
+diff, including renamed or deleted files; the modified side uses the saved
+working file. Before displaying annotations, their line contents must match that
+side's displayed snapshot. A mismatch asks the user to reopen File Diff rather
+than assigning authors to shifted lines. Closing the diff or navigating away
+revokes pending results. Escape dismisses a menu or commit detail before the diff.
 
 Blame is a projection of the saved working file. Unsaved edits pause annotations
 with an explicit save/undo prompt instead of assigning old line ownership to a

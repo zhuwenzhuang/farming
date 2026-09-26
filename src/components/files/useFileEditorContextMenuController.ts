@@ -34,6 +34,7 @@ interface UseFileEditorContextMenuControllerOptions {
   onToggleBlame: () => Promise<void>
   languageServerAvailable: boolean
   onRunLanguageServerAction: (action: FileEditorContextAction) => Promise<void>
+  blameInEditorContext?: boolean
 }
 
 export function useFileEditorContextMenuController({
@@ -52,6 +53,7 @@ export function useFileEditorContextMenuController({
   onToggleBlame,
   languageServerAvailable,
   onRunLanguageServerAction,
+  blameInEditorContext = false,
 }: UseFileEditorContextMenuControllerOptions) {
   const [clipboardWriteFailed, setClipboardWriteFailed] = useState(false)
   const [menuState, setEditorContextMenu] = useState<FileEditorContextMenuState | null>(null)
@@ -93,8 +95,8 @@ export function useFileEditorContextMenuController({
     })
     // The menu owns dismissal immediately. Capability completion only updates
     // available actions; it must never reopen or replace a later menu.
-    if (kind === 'gutter' && canShowBlame && !blameOpen) void onCheckBlameCapability()
-  }, [active, scope, blameOpen, canShowBlame, onCheckBlameCapability, onClearBlameDetail, onCloseTabContextMenu])
+    if ((kind === 'gutter' || blameInEditorContext) && canShowBlame && !blameOpen) void onCheckBlameCapability()
+  }, [active, scope, blameOpen, blameInEditorContext, canShowBlame, onCheckBlameCapability, onClearBlameDetail, onCloseTabContextMenu])
 
   const openEditorContextMenu = useCallback((event: monaco.editor.IEditorMouseEvent) => {
     const targetType = event.target.type
@@ -185,7 +187,7 @@ export function useFileEditorContextMenuController({
     }
   }, [canShowBlame, canShowLineChanges, closeEditorContextMenu, editorContextMenu, editorRef, onCheckBlameCapability, onOpenLineChanges, onRunLanguageServerAction, onToggleBlame, readOnly])
 
-  const showBlameContextAction = Boolean(editorContextMenu && editorContextMenu.kind === 'gutter' && canShowBlame && (blameOpen || blameCapability !== 'unavailable'))
+  const showBlameContextAction = Boolean(editorContextMenu && (editorContextMenu.kind === 'gutter' || blameInEditorContext) && canShowBlame && (blameOpen || blameCapability !== 'unavailable'))
   const showLineChangesContextActions = Boolean(editorContextMenu && editorContextMenu.kind === 'gutter' && canShowLineChanges)
   const showLanguageServerActions = Boolean(editorContextMenu && editorContextMenu.kind === 'editor' && languageServerAvailable)
 

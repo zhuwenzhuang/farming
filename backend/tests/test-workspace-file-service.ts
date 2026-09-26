@@ -1135,7 +1135,7 @@ setInterval(() => {}, 1000);
       let capturedDiffArgs = null;
       const originalDiffOptionsExecFile = service.execFile.bind(service);
       service.execFile = async (command, args, options) => {
-        if (command === service.gitPath && args.includes('diff') && args.includes('HEAD')) {
+        if (command === service.gitPath && args.includes('diff')) {
           capturedDiffArgs = args;
         }
         return originalDiffOptionsExecFile(command, args, options);
@@ -1147,6 +1147,7 @@ setInterval(() => {}, 1000);
       }
       assert(capturedDiffArgs.includes('--ignore-all-space'));
       assert(capturedDiffArgs.includes('--unified=25'));
+      assert(capturedDiffArgs.includes(diff.originalRevision));
       const workingLineChanges = await service.lineChanges(workspace, 'src/App.tsx', 1, 'working');
       assert.strictEqual(workingLineChanges.isGitRepo, true);
       assert.strictEqual(workingLineChanges.available, true);

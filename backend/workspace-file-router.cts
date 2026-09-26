@@ -73,8 +73,8 @@ interface WorkspaceFileServiceLike {
   resolvePath(root: string, userPath: unknown): Promise<{ target: string }>;
   changesInventory(root: string): Promise<unknown>;
   changesPage(root: string, options: { repositoryPath?: string; scope: 'tracked' | 'untracked'; cursor?: string; limit?: number }): Promise<unknown>;
-  blame(root: string, userPath: unknown): Promise<unknown>;
-  blameCapability(root: string, userPath: unknown, options?: ReadOptions): Promise<unknown>;
+  blame(root: string, userPath: unknown, revision?: string): Promise<unknown>;
+  blameCapability(root: string, userPath: unknown, options?: ReadOptions & { revision?: string }): Promise<unknown>;
   changes(root: string, options?: InputRecord): Promise<unknown>;
   createEntry(root: string, parentPath: unknown, name: unknown, type: unknown, content: unknown): Promise<InputRecord>;
   deleteEntry(root: string, userPath: unknown, options?: MutationVersionOptions): Promise<unknown>;
@@ -782,14 +782,14 @@ async function executeWorkspaceFileRequest(
     }
     case 'blame': {
       if (isGlobalWorkspaceFilesAgentId(request.rootId)) assertGlobalWorkspacePathAllowed(agentManager, request.path);
-      return fileService.blame(resolveRequestRoot(request).root, request.path);
+      return fileService.blame(resolveRequestRoot(request).root, request.path, request.revision);
     }
     case 'blame-capability': {
       if (isGlobalWorkspaceFilesAgentId(request.rootId)) assertGlobalWorkspacePathAllowed(agentManager, request.path);
       return fileService.blameCapability(
         resolveRequestRoot(request).root,
         request.path,
-        readOptionsForAgent(agentManager, request.rootId),
+        { ...readOptionsForAgent(agentManager, request.rootId), revision: request.revision },
       );
     }
   }

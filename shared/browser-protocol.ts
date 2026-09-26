@@ -159,8 +159,8 @@ export type WorkspaceRequest =
   | { operation: 'rename-entry'; rootId: string; path: string; name: string; expectedVersion?: string }
   | { operation: 'delete-entry'; rootId: string; path: string; expectedVersion?: string }
   | { operation: 'search'; rootId: string; query: string; path?: string; includeIgnored?: boolean; limit?: number; scope?: 'all' | 'file-path' | 'entries' }
-  | { operation: 'blame'; rootId: string; path: string }
-  | { operation: 'blame-capability'; rootId: string; path: string }
+  | { operation: 'blame'; rootId: string; path: string; revision?: string }
+  | { operation: 'blame-capability'; rootId: string; path: string; revision?: string }
   | { operation: 'diff'; rootId: string; path: string }
   | { operation: 'changes'; rootId: string; limit?: number; inventory?: boolean; repositoryPath?: string; scope?: 'tracked' | 'untracked'; cursor?: string }
   | { operation: 'worktrees'; rootId: string }
@@ -708,6 +708,7 @@ function workspaceRequest(value: unknown): value is WorkspaceRequest {
         && (value.scope === undefined || value.scope === 'all' || value.scope === 'file-path' || value.scope === 'entries')
     case 'blame':
     case 'blame-capability':
+      return rootPath() && (value.revision === undefined || (typeof value.revision === 'string' && /^[0-9a-f]{40}$/.test(value.revision)))
     case 'diff':
       return rootPath()
     case 'context-paths':

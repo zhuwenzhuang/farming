@@ -480,7 +480,7 @@ export function formatWorkspaceBlameTime(authorTime: number | null) {
 export function workspaceBlameInlineLabel(line: WorkspaceBlameDisplayLine) {
   const time = formatWorkspaceBlameTime(line.authorTime)
   const author = line.author || 'Unknown'
-  return time ? `${time}   ${author}` : author
+  return time ? `${author}   ${time}` : author
 }
 
 export function estimateWorkspaceBlameLabelWidth(lines: readonly WorkspaceBlameDisplayLine[], compact: boolean) {

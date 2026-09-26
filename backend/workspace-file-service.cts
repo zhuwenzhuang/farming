@@ -3000,7 +3000,17 @@ class WorkspaceFileService {
     };
   }
 
-  async blameCapability(workspaceRoot: unknown, userPath: unknown, options: ResolvePathOptions = {}) {
+  async blameCapability(workspaceRoot: unknown, userPath: unknown, options: ResolvePathOptions & { revision?: string } = {}) {
+    if (options.revision !== undefined) {
+      const revision = normalizeGitObjectId(options.revision, 'revision');
+      const resolved = await this.resolvePath(workspaceRoot, userPath, { allowMissing: true });
+      const owner = await repositoryForFile(this, resolved.root, resolved.actualRelativePath || resolved.relativePath);
+      // The historical blob, not the current file or index, owns availability.
+      const { stdout } = await this.execFile(this.gitPath, ['cat-file', '-s', `${revision}:${owner.path}`], {
+        cwd: owner.root, timeout: this.blameTimeoutMs, maxBuffer: 1024,
+      });
+      return { isGitRepo: true, path: resolved.relativePath, available: Number(stdout) <= this.maxFileSize };
+    }
     const { root: projectRoot, target, relativePath, actualRelativePath, external } = await this.resolvePath(workspaceRoot, userPath, options);
     const capability = (available: boolean, reason = '') => ({
       isGitRepo: reason !== 'not-git-repo' && reason !== 'git-unavailable',
@@ -3702,6 +3712,7 @@ class WorkspaceFileService {
 
   async diff(workspaceRoot: unknown, userPath: unknown = '', options: Record<string, unknown> = {}) {
     let root = await this.resolveRoot(workspaceRoot);
+    const projectRoot = root;
     const normalized = normalizeUserPath(userPath);
     let target = null;
     let relativePath = normalized;
@@ -3731,6 +3742,12 @@ class WorkspaceFileService {
     if (normalized) args.push(gitRelativePath);
 
     try {
+      const originalRevision = normalized
+        ? String((await this.execFile(this.gitPath, ['rev-parse', '--verify', 'HEAD'], {
+          cwd: root, timeout: this.diffTimeoutMs, maxBuffer: 1024,
+        })).stdout).trim()
+        : 'HEAD';
+      args[args.indexOf('HEAD')] = originalRevision;
       const { stdout } = await this.execFile(this.gitPath, args, {
         cwd: root,
         timeout: this.diffTimeoutMs,
@@ -3754,7 +3771,7 @@ class WorkspaceFileService {
           '-C',
           root,
           'show',
-          `HEAD:${gitRelativePath}`,
+          `${originalRevision}:${gitRelativePath}`,
         ], { cwd: root, encoding: 'buffer' });
         const originalContent = Buffer.isBuffer(original.stdout)
           ? original.stdout.toString('utf8')
@@ -3762,6 +3779,8 @@ class WorkspaceFileService {
         return {
           ...result,
           originalContent,
+          originalRevision,
+          originalPath: relativePath,
           modifiedContent: '',
           deleted: true,
         };
@@ -3800,7 +3819,7 @@ class WorkspaceFileService {
           '-C',
           root,
           'show',
-          `HEAD:${originalGitPath}`,
+          `${originalRevision}:${originalGitPath}`,
         ], { cwd: root, encoding: 'buffer' });
         originalContent = Buffer.isBuffer(original.stdout)
           ? original.stdout.toString('utf8')
@@ -3818,6 +3837,8 @@ class WorkspaceFileService {
         ...result,
         path: relativePath,
         originalContent,
+        originalRevision,
+        originalPath: relativeFromRoot(projectRoot, path.join(root, originalGitPath)),
         modifiedContent: modifiedBuffer.toString('utf8'),
         untracked,
       };
@@ -4025,25 +4046,34 @@ class WorkspaceFileService {
     }
   }
 
-  async blame(workspaceRoot: unknown, userPath: unknown) {
-    const { root: projectRoot, target, relativePath, actualRelativePath } = await this.resolvePath(workspaceRoot, userPath);
+  async blame(workspaceRoot: unknown, userPath: unknown, revisionValue?: string) {
+    const revision = revisionValue === undefined ? undefined : normalizeGitObjectId(revisionValue, 'revision');
+    const { root: projectRoot, target, relativePath, actualRelativePath } = await this.resolvePath(workspaceRoot, userPath, { allowMissing: Boolean(revision) });
     const owner = await repositoryForFile(this, projectRoot, actualRelativePath || relativePath);
     const root = owner.root;
-    const stat = await fsp.stat(target);
-    if (!stat.isFile()) {
-      throw new WorkspaceFileError('path must be a file', 400);
-    }
-    if (stat.size > this.maxFileSize) {
-      throw new WorkspaceFileError('file is too large to blame', 413, { size: stat.size });
-    }
-    if (await isProbablyBinaryFile(target)) {
-      throw new WorkspaceFileError('binary files cannot be blamed as text', 415);
+    if (revision) {
+      const { stdout } = await this.execFile(this.gitPath, ['cat-file', '-s', `${revision}:${owner.path}`], {
+        cwd: root, timeout: this.blameTimeoutMs, maxBuffer: 1024,
+      });
+      if (Number(stdout) > this.maxFileSize) throw new WorkspaceFileError('file is too large to blame', 413);
+    } else {
+      const stat = await fsp.stat(target);
+      if (!stat.isFile()) {
+        throw new WorkspaceFileError('path must be a file', 400);
+      }
+      if (stat.size > this.maxFileSize) {
+        throw new WorkspaceFileError('file is too large to blame', 413, { size: stat.size });
+      }
+      if (await isProbablyBinaryFile(target)) {
+        throw new WorkspaceFileError('binary files cannot be blamed as text', 415);
+      }
     }
 
     try {
       const { stdout } = await this.execFile(this.gitPath, [
         'blame',
         '--porcelain',
+        ...(revision ? [revision] : []),
         '--',
         owner.path,
       ], { cwd: root, timeout: this.blameTimeoutMs, maxBuffer: DEFAULT_BLAME_MAX_BUFFER });

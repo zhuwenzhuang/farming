@@ -109,6 +109,8 @@ export interface WorkspaceFileDiff {
   patch: string
   truncated?: boolean
   originalContent?: string
+  originalRevision?: string
+  originalPath?: string
   modifiedContent?: string
   binary?: boolean
   untracked?: boolean
@@ -557,12 +559,12 @@ export async function deleteWorkspaceEntry(
   }, { mutation: true, signal: options.signal })
 }
 
-export async function fetchWorkspaceBlame(rootId: string, filePath: string) {
-  return runWorkspaceRequest<WorkspaceFileBlame>({ operation: 'blame', rootId, path: filePath })
+export async function fetchWorkspaceBlame(rootId: string, filePath: string, revision?: string) {
+  return runWorkspaceRequest<WorkspaceFileBlame>({ operation: 'blame', rootId, path: filePath, ...(revision ? { revision } : {}) })
 }
 
-export async function fetchWorkspaceBlameCapability(rootId: string, filePath: string) {
-  return runWorkspaceRequest<WorkspaceFileBlameCapability>({ operation: 'blame-capability', rootId, path: filePath })
+export async function fetchWorkspaceBlameCapability(rootId: string, filePath: string, revision?: string) {
+  return runWorkspaceRequest<WorkspaceFileBlameCapability>({ operation: 'blame-capability', rootId, path: filePath, ...(revision ? { revision } : {}) })
 }
 
 export async function fetchWorkspaceDiff(rootId: string, filePath: string) {
