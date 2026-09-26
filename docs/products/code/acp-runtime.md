@@ -787,6 +787,9 @@ keep stable layout slots and become visually prominent on hover or keyboard
 focus. Intermediate Tool failures remain available within their action groups
 without replacing those groups' action-oriented summaries; authoritative Turn
 and Runtime failures remain visible at the higher level.
+While a Turn runs, its collapsed view shows one cumulative action group across
+ordinary progress updates. Expanding the process preserves the original order
+of progress messages and tool evidence.
 When a non-active Turn has structured process evidence but neither a final
 assistant result nor a stronger explicit interrupted state, its process ends
 with one lightweight line stating that no final reply was produced. This state

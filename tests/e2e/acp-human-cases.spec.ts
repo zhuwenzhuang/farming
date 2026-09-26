@@ -2433,7 +2433,7 @@ test.describe('ACP human-like browser matrix', () => {
     await expect(failedItem.locator('.code-agent-transcript-terminal-meta')).toContainText('Exit 2')
   })
 
-  test('segments dense evidence around full commentary while keeping every detail folded', async ({ page, workspaceRoot }) => {
+  test('keeps one compact action group across live commentary while retaining full evidence order', async ({ page, workspaceRoot }) => {
     test.setTimeout(60_000)
     const workspace = path.join(workspaceRoot, 'acp-dense-multi-step-progress')
     fs.mkdirSync(workspace, { recursive: true })
@@ -2450,19 +2450,18 @@ test.describe('ACP human-like browser matrix', () => {
     await expect(collapsedProgress).toHaveCount(2, { timeout: 10_000 })
     await expect(collapsedProgress.last()).toContainText('The second verification phase passed; final checks are running.')
     const compactGroups = turn.getByTestId('code-agent-transcript-process-group')
-    await expect(compactGroups).toHaveCount(3)
+    await expect(compactGroups).toHaveCount(1)
+    await expect(compactGroups.getByTestId('code-agent-transcript-process-group-toggle')).toContainText('Ran commands')
     expect(await turn.getByTestId('code-agent-transcript-process-compact-list').locator(
       ':scope > [data-testid="code-agent-transcript-process-group"], :scope > [data-testid="code-acp-progress-update"]',
     ).evaluateAll(elements => elements.map(element => element.getAttribute('data-testid')))).toEqual([
       'code-agent-transcript-process-group',
       'code-acp-progress-update',
-      'code-agent-transcript-process-group',
       'code-acp-progress-update',
-      'code-agent-transcript-process-group',
     ])
     expect(await compactGroups.getByTestId('code-agent-transcript-process-group-toggle').evaluateAll(
       toggles => toggles.map(toggle => toggle.getAttribute('aria-expanded')),
-    )).toEqual(['false', 'false', 'false'])
+    )).toEqual(['false'])
     await processSummary.click()
     const groups = turn.getByTestId('code-agent-transcript-process-group')
     await expect(groups).toHaveCount(3)

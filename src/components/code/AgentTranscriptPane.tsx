@@ -1253,7 +1253,29 @@ function compactProcessEntries(
   turnStatus: AgentTranscriptTurn['status'],
   source: string,
 ) {
-  if (source === 'acp' && (turnStatus === 'inProgress' || entries.some(entry => entry.kind === 'item' && entry.item.question))) {
+  if (source === 'acp' && turnStatus === 'inProgress') {
+    const compactEntries: ProcessEntry[] = []
+    let groupIndex = -1
+    for (const entry of entries) {
+      if (entry.kind === 'group') {
+        if (groupIndex < 0) {
+          groupIndex = compactEntries.length
+          compactEntries.push({ ...entry, items: [...entry.items] })
+        } else {
+          const group = compactEntries[groupIndex]
+          if (group?.kind === 'group') group.items.push(...entry.items)
+        }
+      } else {
+        compactEntries.push(entry)
+        if (!isAcpProgressUpdate(entry.item)) groupIndex = -1
+      }
+    }
+    return {
+      entries: compactEntries,
+      items: compactEntries.flatMap(entry => entry.kind === 'group' ? entry.items : [entry.item]),
+    }
+  }
+  if (source === 'acp' && entries.some(entry => entry.kind === 'item' && entry.item.question)) {
     return {
       entries,
       items: entries.flatMap(entry => entry.kind === 'group' ? entry.items : [entry.item]),
