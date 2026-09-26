@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   completeReviewFileDiffLoad,
+  createReviewDiffQueue,
   failReviewFileDiffLoad,
 } from '../src/lib/review/effects'
 import type { ReviewFileDiffLoadEffect } from '../src/lib/review/effects'
@@ -171,4 +172,24 @@ test('turns lazy file diff failures into path-scoped state-machine actions', () 
     reviewId: 'review-old',
     type: 'fail-file-diff-load',
   })
+})
+
+
+test('diff queue bounds concurrency and drops queued requests from an abandoned review', async () => {
+  const enqueue = createReviewDiffQueue(4)
+  let current = true
+  let started = 0
+  const releases: Array<() => void> = []
+  for (let index = 0; index < 200; index++) enqueue(async () => {
+    started++
+    await new Promise<void>(resolve => releases.push(resolve))
+  }, () => current)
+  assert.equal(started, 4)
+  current = false
+  for (const release of releases) release()
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(started, 4)
+  let next = false
+  enqueue(async () => { next = true }, () => true)
+  assert.equal(next, true)
 })

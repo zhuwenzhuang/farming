@@ -188,7 +188,7 @@ test('file row model exposes lazy diff pending and failure state', () => {
   })
   const loading = transitionReviewState(initial, { path: 'src/lazy.ts', type: 'toggle-file-expanded' }, lazyCatalog).state
   assert.deepEqual(reviewFileRowModel(loading, lazyCatalog['Patchset 2'][0]), {
-    action: { ariaLabel: 'Mark as unreviewed', disabled: false, label: 'MARK UNREVIEWED', nextReviewed: false, visibility: 'on-row-interaction' },
+    action: { ariaLabel: 'Mark as reviewed', disabled: false, label: 'MARK REVIEWED', nextReviewed: true, visibility: 'on-row-interaction' },
     added: 1,
     binary: false,
     changeLabel: 'M',
@@ -199,10 +199,10 @@ test('file row model exposes lazy diff pending and failure state', () => {
     diffTooExpensive: false,
     expanded: true,
     path: 'src/lazy.ts',
-    pending: true,
-    reviewed: true,
+    pending: false,
+    reviewed: false,
     reviewStatusLoaded: true,
-    reviewedLabel: 'Reviewed',
+    reviewedLabel: null,
   })
 
   const failed = transitionReviewState(loading, {
@@ -212,7 +212,7 @@ test('file row model exposes lazy diff pending and failure state', () => {
     type: 'fail-file-diff-load',
   }, lazyCatalog).state
   assert.deepEqual(reviewFileRowModel(failed, lazyCatalog['Patchset 2'][0]), {
-    action: { ariaLabel: 'Mark as unreviewed', disabled: false, label: 'MARK UNREVIEWED', nextReviewed: false, visibility: 'on-row-interaction' },
+    action: { ariaLabel: 'Mark as reviewed', disabled: false, label: 'MARK REVIEWED', nextReviewed: true, visibility: 'on-row-interaction' },
     added: 1,
     binary: false,
     changeLabel: 'M',
@@ -224,10 +224,10 @@ test('file row model exposes lazy diff pending and failure state', () => {
     diffTooExpensive: false,
     expanded: true,
     path: 'src/lazy.ts',
-    pending: true,
-    reviewed: true,
+    pending: false,
+    reviewed: false,
     reviewStatusLoaded: true,
-    reviewedLabel: 'Reviewed',
+    reviewedLabel: null,
   })
 })
 

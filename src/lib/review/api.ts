@@ -3,6 +3,11 @@ import { normalizeReviewGitRevision, type GitRangeReviewDiffSnapshotRequest, typ
 import { isReviewSpecialFilePath, reviewFileHasLoadedNegativeDiff, validReviewCommentRange } from './state'
 import type { ReviewComment, ReviewDiffCell, ReviewDiffFileMeta, ReviewDiffHunk, ReviewDiffRow, ReviewDiffSyntaxBlock, ReviewDiffWebLink, ReviewFile, ReviewPreferences } from './state'
 
+// Bound reads and mutations alike. A timed-out mutation is reconciled, never replayed automatically.
+function reviewFetch(input: RequestInfo | URL, init?: RequestInit) {
+  return fetch(input, { ...init, signal: AbortSignal.timeout(60_000) })
+}
+
 export type ReviewedPatchsetState = {
   reviewedPaths: string[]
   revision: number
@@ -243,7 +248,7 @@ export async function createReviewSession(
   const normalizedBase = normalizeReviewGitRevision(base)
   const targetValue = 'root' in target ? target.root : target.agentId
   if (!targetValue.trim() || !normalizedBase) throw new ReviewApiError('review capture target is invalid')
-  const response = await fetch(appPath('/api/review-sessions'), {
+  const response = await reviewFetch(appPath('/api/review-sessions'), {
     body: JSON.stringify({ base: normalizedBase, ...target, ...options }),
     headers: { 'Content-Type': 'application/json' },
     method: 'POST',
@@ -258,7 +263,7 @@ export async function createAcpReviewSession(
   if (!agentId.trim() || itemIds.length === 0 || itemIds.some(itemId => !itemId.trim())) {
     throw new ReviewApiError('ACP review capture target is invalid')
   }
-  const response = await fetch(appPath('/api/review-sessions/acp'), {
+  const response = await reviewFetch(appPath('/api/review-sessions/acp'), {
     body: JSON.stringify({ agentId, itemIds }),
     headers: { 'Content-Type': 'application/json' },
     method: 'POST',
@@ -273,7 +278,7 @@ export async function loadAcpReviewPreview(
   if (!agentId.trim() || itemIds.length === 0 || itemIds.some(itemId => !itemId.trim())) {
     throw new ReviewApiError('ACP review preview target is invalid')
   }
-  const response = await fetch(appPath('/api/review-sessions/acp/preview'), {
+  const response = await reviewFetch(appPath('/api/review-sessions/acp/preview'), {
     body: JSON.stringify({ agentId, itemIds }),
     headers: { 'Content-Type': 'application/json' },
     method: 'POST',
@@ -300,13 +305,13 @@ export async function loadAcpReviewPreview(
 
 export async function refreshReviewSession(reviewId: string): Promise<ReviewSessionRevision> {
   if (!isReviewKey(reviewId)) throw new ReviewApiError('review session id is invalid')
-  const response = await fetch(appPath(`/api/review-sessions/${encodeURIComponent(reviewId)}/revisions`), { method: 'POST' })
+  const response = await reviewFetch(appPath(`/api/review-sessions/${encodeURIComponent(reviewId)}/revisions`), { method: 'POST' })
   return readReviewSessionRevision(response, 'review refresh failed')
 }
 
 export async function loadReviewSession(reviewId: string): Promise<ReviewSession> {
   if (!isReviewKey(reviewId)) throw new ReviewApiError('review session id is invalid')
-  const response = await fetch(appPath(`/api/review-sessions/${encodeURIComponent(reviewId)}`))
+  const response = await reviewFetch(appPath(`/api/review-sessions/${encodeURIComponent(reviewId)}`))
   const value: unknown = await response.json().catch(() => null)
   if (
     !response.ok
@@ -325,7 +330,7 @@ export async function loadReviewComparisonSources(
   const params = new URLSearchParams()
   if ('root' in target) params.set('root', target.root)
   else params.set('agentId', target.agentId)
-  const response = await fetch(`${appPath('/api/reviews/comparison-sources')}?${params.toString()}`)
+  const response = await reviewFetch(`${appPath('/api/reviews/comparison-sources')}?${params.toString()}`)
   const value: unknown = await response.json().catch(() => null)
   if (!response.ok || !value || typeof value !== 'object') {
     throw new ReviewApiError(errorMessageFromValue(value, 'review comparison sources could not be loaded'))
@@ -366,7 +371,7 @@ export function reviewRequestForSessionRevision(
 
 export async function loadReviewedFiles(reviewId: string, patchset: string): Promise<ReviewedPatchsetState> {
   assertReviewIdentity(reviewId, patchset)
-  const response = await fetch(`${revisionFilesPath(reviewId, patchset)}?reviewed`)
+  const response = await reviewFetch(`${revisionFilesPath(reviewId, patchset)}?reviewed`)
   const value: unknown = await response.json().catch(() => null)
   if (!response.ok || !Array.isArray(value) || !value.every(isReviewPath) || !hasUniqueReviewPaths(value)) {
     throw new ReviewApiError(errorMessageFromValue(value, 'reviewed files request failed'))
@@ -394,7 +399,7 @@ async function setReviewedFilePrimitive({
 }) {
   assertReviewIdentity(reviewId, patchset)
   assertReviewPath(path)
-  const response = await fetch(revisionReviewedFilePath(reviewId, patchset, path), {
+  const response = await reviewFetch(revisionReviewedFilePath(reviewId, patchset, path), {
     method: reviewed ? 'PUT' : 'DELETE',
   })
   if (!response.ok) throw new ReviewApiError(await readError(response, 'review status request failed'))
@@ -505,7 +510,7 @@ async function readCommentResponse(response: Response) {
 
 export async function loadReviewComments(reviewId: string, patchset: string) {
   assertReviewIdentity(reviewId, patchset)
-  const response = await fetch(commentPath(reviewId, patchset))
+  const response = await reviewFetch(commentPath(reviewId, patchset))
   const comments = await readCommentResponse(response)
   if (!response.ok || !Array.isArray(comments)) throw new ReviewApiError('review comment request failed')
   return comments
@@ -514,7 +519,7 @@ export async function loadReviewComments(reviewId: string, patchset: string) {
 export async function saveReviewComment(reviewId: string, comment: ReviewComment) {
   assertReviewIdentity(reviewId, comment.patchset)
   if (!isReviewComment(comment)) throw new ReviewApiError('review comment is invalid')
-  const response = await fetch(commentPath(reviewId, comment.patchset), {
+  const response = await reviewFetch(commentPath(reviewId, comment.patchset), {
     body: JSON.stringify(comment),
     headers: { 'Content-Type': 'application/json' },
     method: 'POST',
@@ -527,7 +532,7 @@ export async function saveReviewComment(reviewId: string, comment: ReviewComment
 export async function deleteReviewComment(reviewId: string, patchset: string, commentId: string) {
   assertReviewIdentity(reviewId, patchset)
   assertReviewCommentId(commentId)
-  const response = await fetch(`${commentPath(reviewId, patchset)}/${encodeURIComponent(commentId)}`, { method: 'DELETE' })
+  const response = await reviewFetch(`${commentPath(reviewId, patchset)}/${encodeURIComponent(commentId)}`, { method: 'DELETE' })
   const comments = await readCommentResponse(response)
   if (!response.ok || !Array.isArray(comments)) throw new ReviewApiError('review comment request failed')
   return comments
@@ -536,7 +541,7 @@ export async function deleteReviewComment(reviewId: string, patchset: string, co
 export async function updateReviewCommentStatus(reviewId: string, patchset: string, commentId: string, status: 'open' | 'resolved') {
   assertReviewIdentity(reviewId, patchset)
   assertReviewCommentId(commentId)
-  const response = await fetch(`${commentPath(reviewId, patchset)}/${encodeURIComponent(commentId)}`, {
+  const response = await reviewFetch(`${commentPath(reviewId, patchset)}/${encodeURIComponent(commentId)}`, {
     body: JSON.stringify({ status }),
     headers: { 'Content-Type': 'application/json' },
     method: 'PATCH',
@@ -789,7 +794,7 @@ export function reviewSnapshotUrl(request: ReviewDiffSnapshotRequest) {
 }
 
 export async function loadWorkingCopyReview(agentId: string, limit?: number, metadataOnly?: boolean, ignoreWhitespace?: ReviewPreferences['ignoreWhitespace'], context?: number): Promise<WorkingCopyReview> {
-  const response = await fetch(reviewSnapshotUrl({ agentId, context, ignoreWhitespace, limit, metadataOnly, source: 'working-copy' }))
+  const response = await reviewFetch(reviewSnapshotUrl({ agentId, context, ignoreWhitespace, limit, metadataOnly, source: 'working-copy' }))
   const value: unknown = await response.json().catch(() => null)
   if (!response.ok || !value || typeof value !== 'object' || !Array.isArray((value as WorkingCopyReview).files)) {
     const message = value && typeof value === 'object' && typeof (value as { error?: unknown }).error === 'string'
@@ -819,7 +824,7 @@ export async function loadWorkingCopyReview(agentId: string, limit?: number, met
 }
 
 export async function loadGitRangeReview(agentId: string, base: string, head: string, limit?: number, metadataOnly?: boolean, ignoreWhitespace?: ReviewPreferences['ignoreWhitespace'], context?: number): Promise<ReviewDiffSnapshot> {
-  const response = await fetch(reviewSnapshotUrl({ agentId, base, context, head, ignoreWhitespace, limit, metadataOnly, source: 'git-range' }))
+  const response = await reviewFetch(reviewSnapshotUrl({ agentId, base, context, head, ignoreWhitespace, limit, metadataOnly, source: 'git-range' }))
   const value: unknown = await response.json().catch(() => null)
   if (!response.ok || !value || typeof value !== 'object' || !Array.isArray((value as WorkingCopyReview).files)) {
     const message = value && typeof value === 'object' && typeof (value as { error?: unknown }).error === 'string'
@@ -850,7 +855,7 @@ export async function loadWorkingCopyReviewFile(agentId: string, path: string, i
   const params = new URLSearchParams({ agentId })
   appendDiffContext(params, context)
   appendIgnoreWhitespace(params, ignoreWhitespace)
-  const response = await fetch(`${reviewWorkingCopyFileDiffPath(path)}?${params.toString()}`)
+  const response = await reviewFetch(`${reviewWorkingCopyFileDiffPath(path)}?${params.toString()}`)
   const value: unknown = await response.json().catch(() => null)
   if (!response.ok || !isExpectedReviewFileResponse(value, path)) {
     throw new ReviewApiError(errorMessageFromValue(value, 'review file diff request failed'))
@@ -864,7 +869,7 @@ export async function loadGitRangeReviewFile(agentId: string, base: string, head
   const params = new URLSearchParams({ agentId, base: revisions.base, head: revisions.head })
   appendDiffContext(params, context)
   appendIgnoreWhitespace(params, ignoreWhitespace)
-  const response = await fetch(`${reviewGitRangeFileDiffPath(path)}?${params.toString()}`)
+  const response = await reviewFetch(`${reviewGitRangeFileDiffPath(path)}?${params.toString()}`)
   const value: unknown = await response.json().catch(() => null)
   if (!response.ok || !isExpectedReviewFileResponse(value, path)) {
     throw new ReviewApiError(errorMessageFromValue(value, 'review git range file diff request failed'))
@@ -873,7 +878,7 @@ export async function loadGitRangeReviewFile(agentId: string, base: string, head
 }
 
 export async function loadReviewDiffSnapshot(request: ReviewDiffSnapshotRequest): Promise<ReviewDiffSnapshot> {
-  const response = await fetch(reviewSnapshotUrl(request))
+  const response = await reviewFetch(reviewSnapshotUrl(request))
   const value: unknown = await response.json().catch(() => null)
   const fallback = request.source === 'git-range' ? 'git range request failed' : 'working copy request failed'
   if (!response.ok || !value || typeof value !== 'object' || !Array.isArray((value as WorkingCopyReview).files)) {
@@ -918,7 +923,7 @@ export function reviewFileDiffUrl(request: ReviewDiffSnapshotRequest, path: stri
 }
 
 export async function loadReviewFileDiff(request: ReviewDiffSnapshotRequest, path: string): Promise<ReviewFile> {
-  const response = await fetch(reviewFileDiffUrl(request, path))
+  const response = await reviewFetch(reviewFileDiffUrl(request, path))
   const value: unknown = await response.json().catch(() => null)
   if (!response.ok || !isExpectedReviewFileResponse(value, path)) {
     throw new ReviewApiError(errorMessageFromValue(value, request.source === 'git-range' ? 'review git range file diff request failed' : 'review file diff request failed'))
@@ -975,7 +980,7 @@ export function reviewFileContextUrl(request: ReviewDiffSnapshotRequest, path: s
 }
 
 export async function loadReviewFileContext(request: ReviewDiffSnapshotRequest, path: string, range: ReviewContextRange): Promise<ReviewContextRows> {
-  const response = await fetch(reviewFileContextUrl(request, path, range))
+  const response = await reviewFetch(reviewFileContextUrl(request, path, range))
   const value: unknown = await response.json().catch(() => null)
   if (!response.ok || !isReviewContextRows(value) || value.rows.length !== range.lines) {
     throw new ReviewApiError(errorMessageFromValue(value, 'review context request failed'))
@@ -1010,7 +1015,7 @@ export function reviewPatchUrl(request: ReviewDiffSnapshotRequest) {
 }
 
 export async function loadReviewPatch(request: ReviewDiffSnapshotRequest): Promise<ReviewPatchText> {
-  const response = await fetch(reviewPatchUrl(request))
+  const response = await reviewFetch(reviewPatchUrl(request))
   const text = await response.text()
   if (!response.ok) {
     try {

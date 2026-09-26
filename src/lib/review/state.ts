@@ -144,6 +144,7 @@ export type ReviewCommentRange = {
 }
 
 export type ReviewCommentDraft = Omit<ReviewComment, 'body' | 'id'> & {
+  id?: string
   body: string
 }
 
@@ -217,6 +218,7 @@ export type ReviewAction =
   | { patchset: string; type: 'select-patchset' }
   | { mode: ReviewDiffMode; type: 'set-diff-mode' }
   | { path: string; type: 'toggle-file-expanded' }
+  | { path: string; type: 'retry-file-diff' }
   | { expanded: boolean; paths: string[]; type: 'set-all-files-expanded' }
   | { patchset: string; path: string; reviewId?: string; type: 'commit-file-diff-load' }
   | { error: string; patchset: string; path: string; reviewId?: string; type: 'fail-file-diff-load' }
@@ -226,8 +228,9 @@ export type ReviewAction =
   | { patchset: string; reviewedPaths: string[]; reviewId?: string; revision: number; type: 'hydrate-reviewed-status' }
   | { patchset: string; paths?: string[]; path?: string; reviewId?: string; revision: number; reviewedPaths?: string[]; type: 'commit-reviewed-status' }
   | { patchset: string; reviewedPaths: string[]; reviewId?: string; revision: number; type: 'restore-reviewed-status' }
+  | { patchset: string; reviewId?: string; type: 'invalidate-reviewed-status' }
   | { preferences: ReviewPreferences; type: 'set-preferences' }
-  | { line: number; path: string; range?: ReviewCommentRange; side: ReviewCommentSide; type: 'start-comment' }
+  | { id?: string; line: number; path: string; range?: ReviewCommentRange; side: ReviewCommentSide; type: 'start-comment' }
   | { body: string; type: 'update-comment-draft' }
   | { type: 'cancel-comment' }
   | { id: string; type: 'save-comment' }
@@ -733,12 +736,27 @@ export function commentsForFilePaths(state: ReviewState, paths: readonly string[
 }
 
 export function transitionReviewState(state: ReviewState, action: ReviewAction, catalog: ReviewCatalog): ReviewTransition {
+  const result = transitionReviewStateCore(state, action, catalog)
+  const current = activePatchsetState(result.state)
+  if (!result.state.preferences.autoMarkReviewed || !current.reviewedLoaded || current.pendingReview) return result
+  const paths = current.autoReviewPaths.filter(path => current.expandedPaths.includes(path)
+    && !current.pendingDiffPaths.includes(path) && !current.diffLoadErrors[path]
+    && patchsetFiles(catalog, result.state.patchRange.patchset).some(file => file.path === path && file.diffLoaded !== false)
+    && !current.reviewedPaths.includes(path))
+  if (!paths.length) return result
+  const reviewed = transitionReviewStateCore(result.state, {
+    type: 'set-files-reviewed', changes: paths.map(path => ({ path, reviewed: true })),
+  }, catalog)
+  return { state: reviewed.state, effects: [...result.effects, ...reviewed.effects] }
+}
+
+function transitionReviewStateCore(state: ReviewState, action: ReviewAction, catalog: ReviewCatalog): ReviewTransition {
   const patchset = state.patchRange.patchset
   const patchsetState = activePatchsetState(state)
 
   switch (action.type) {
     case 'select-patchset': {
-      if (!catalog[action.patchset] || action.patchset === patchset) return ignored(state)
+      if (!catalog[action.patchset] || action.patchset === patchset || state.commentDraft?.body.trim() || patchsetState.pendingComment) return ignored(state)
       return {
         effects: [],
         state: {
@@ -754,14 +772,23 @@ export function transitionReviewState(state: ReviewState, action: ReviewAction, 
     }
     case 'set-preferences':
       return { effects: [], state: { ...state, preferences: normalizeReviewPreferences(action.preferences) } }
+    case 'retry-file-diff': {
+      if (!hasFile(catalog, patchset, action.path) || patchsetState.pendingDiffPaths.includes(action.path)) return ignored(state)
+      return {
+        effects: [loadFileDiffEffect(state, patchset, action.path)],
+        state: updateActivePatchset(state, current => ({ ...current,
+          diffLoadErrors: omitRecordKey(current.diffLoadErrors, action.path),
+          pendingDiffPaths: updatePathList(current.pendingDiffPaths, action.path, true),
+        })),
+      }
+    }
     case 'toggle-file-expanded': {
       if (!hasFile(catalog, patchset, action.path)) return ignored(state)
       const expanded = !patchsetState.expandedPaths.includes(action.path)
       const diffLoadPaths = expanded ? pendingDiffLoadPaths(catalog, patchset, patchsetState, [action.path]) : []
-      const status = reviewFileState(state, action.path)
       const next = updateActivePatchset(state, current => ({
         ...current,
-        autoReviewPaths: expanded && !status.loaded
+        autoReviewPaths: expanded && state.preferences.autoMarkReviewed
           ? updatePathList(current.autoReviewPaths, action.path, true)
           : updatePathList(current.autoReviewPaths, action.path, false),
         diffLoadErrors: expanded ? omitRecordKey(current.diffLoadErrors, action.path) : current.diffLoadErrors,
@@ -769,18 +796,7 @@ export function transitionReviewState(state: ReviewState, action: ReviewAction, 
         pendingDiffPaths: uniquePaths([...current.pendingDiffPaths, ...diffLoadPaths]),
       }))
       const effects: ReviewEffect[] = diffLoadPaths.map(path => loadFileDiffEffect(state, patchset, path))
-      if (!expanded || !status.loaded || status.status === 'reviewed') {
-        return { effects, state: next }
-      }
-      const reviewedTransition = transitionReviewState(next, {
-        path: action.path,
-        reviewed: true,
-        type: 'set-file-reviewed',
-      }, catalog)
-      return {
-        effects: [...effects, ...reviewedTransition.effects],
-        state: reviewedTransition.state,
-      }
+      return { effects, state: next }
     }
     case 'set-all-files-expanded': {
       if (typeof action.expanded !== 'boolean' || !Array.isArray(action.paths)) return ignored(state)
@@ -875,24 +891,15 @@ export function transitionReviewState(state: ReviewState, action: ReviewAction, 
       if (current.pendingReview || action.revision < current.reviewedRevision) return ignored(state)
       const validPaths = new Set(patchsetFiles(catalog, action.patchset).map(file => file.path))
       const reviewedPaths = uniquePaths(action.reviewedPaths.filter(path => validPaths.has(path)))
-      const autoReviewChanges = normalizeReviewStatusChanges(
-        catalog,
-        action.patchset,
-        reviewedPaths,
-        current.autoReviewPaths.map(path => ({ path, reviewed: true }))
-      )
       const patchsetState = {
         ...current,
-        autoReviewPaths: [],
-        ...(autoReviewChanges.length ? { pendingReview: { changes: autoReviewChanges } } : {}),
+        autoReviewPaths: current.autoReviewPaths,
         reviewedLoaded: true,
-        reviewedPaths: autoReviewChanges.length ? applyReviewStatusChanges(reviewedPaths, autoReviewChanges) : reviewedPaths,
+        reviewedPaths,
         reviewedRevision: action.revision,
       }
       return {
-        effects: autoReviewChanges.length
-          ? [saveReviewedStatusEffect(state, action.patchset, action.revision, autoReviewChanges)]
-          : [],
+        effects: [],
         state: {
           ...state,
           patchsets: {
@@ -938,6 +945,12 @@ export function transitionReviewState(state: ReviewState, action: ReviewAction, 
         },
       }
     }
+    case 'invalidate-reviewed-status': {
+      if (!matchesReviewIdentity(state, action.reviewId)) return ignored(state)
+      return { effects: [], state: updatePatchset(state, action.patchset, current => ({
+        ...current, pendingReview: undefined, reviewedLoaded: false, autoReviewPaths: [],
+      })) }
+    }
     case 'restore-reviewed-status': {
       if (!catalog[action.patchset] || !Array.isArray(action.reviewedPaths) || !Number.isInteger(action.revision) || action.revision < 0) return ignored(state)
       if (!matchesReviewIdentity(state, action.reviewId)) return ignored(state)
@@ -964,6 +977,7 @@ export function transitionReviewState(state: ReviewState, action: ReviewAction, 
       }
     }
     case 'start-comment':
+      if (state.commentDraft?.body.trim() || patchsetState.pendingComment) return ignored(state)
       if (
         !hasCommentPath(catalog, patchset, action.path)
         || !Number.isInteger(action.line) || action.line < 1
@@ -976,6 +990,7 @@ export function transitionReviewState(state: ReviewState, action: ReviewAction, 
           ...state,
           commentDraft: {
             body: '',
+            ...(action.id && /^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(action.id) ? { id: action.id } : {}),
             line: action.line,
             patchset,
             path: action.path,
@@ -985,9 +1000,9 @@ export function transitionReviewState(state: ReviewState, action: ReviewAction, 
         },
       }
     case 'update-comment-draft':
-      return state.commentDraft ? { effects: [], state: { ...state, commentDraft: { ...state.commentDraft, body: action.body } } } : ignored(state)
+      return state.commentDraft && !patchsetState.pendingComment ? { effects: [], state: { ...state, commentDraft: { ...state.commentDraft, body: action.body } } } : ignored(state)
     case 'cancel-comment':
-      return state.commentDraft ? { effects: [], state: { ...state, commentDraft: undefined } } : ignored(state)
+      return state.commentDraft && !patchsetState.pendingComment ? { effects: [], state: { ...state, commentDraft: undefined } } : ignored(state)
     case 'save-comment': {
       const draft = state.commentDraft
       const body = draft?.body.trim()
@@ -1001,7 +1016,7 @@ export function transitionReviewState(state: ReviewState, action: ReviewAction, 
         effects: [reviewCommentEffect(state, 'save-comment', comment)],
         state: updateActivePatchset({
           ...state,
-          commentDraft: undefined,
+          commentDraft: { ...draft, id: action.id },
           comments: [...state.comments, comment],
         }, current => ({ ...current, pendingComment: { id: comment.id, type: 'save' } })),
       }
@@ -1036,7 +1051,7 @@ export function transitionReviewState(state: ReviewState, action: ReviewAction, 
       if (!matchesPendingComment(current.pendingComment, action)) return ignored(state)
       return {
         effects: [],
-        state: updatePatchset(state, action.patchset, patchsetState => ({ ...patchsetState, pendingComment: undefined })),
+        state: updatePatchset({ ...state, commentDraft: action.pendingType === 'save' ? undefined : state.commentDraft }, action.patchset, patchsetState => ({ ...patchsetState, pendingComment: undefined })),
       }
     }
     case 'restore-comments': {
@@ -1050,6 +1065,7 @@ export function transitionReviewState(state: ReviewState, action: ReviewAction, 
         state: updatePatchset({
           ...state,
           comments: [...state.comments.filter(comment => comment.patchset !== action.patchset), ...comments],
+          commentDraft: action.pendingType === 'save' && comments.some(comment => comment.id === action.id) ? undefined : state.commentDraft,
         }, action.patchset, patchsetState => ({ ...patchsetState, pendingComment: undefined })),
       }
     }

@@ -95,6 +95,21 @@ Comment ID 与 Operation Type。Stale Response 不能修改更新 Review，也�
 
 ## UI Contract
 
+捕获比较后，刷新、切换 Revision 视图和重新打开必须保留比较来源标签。工作区快照
+不能被称为 Agent 的上一轮；Agent 证据显示 Agent changes，缺少来源信息的旧快照
+显示 Changes。比较菜单区分已捕获版本与重新读取的工作区比较。
+Capture 接受 Commit 或 Tree 作为 Base，包括 Unstaged 使用的 Index Tree；Base 与
+Candidate 均保留 Review 引用，后续 Index 变化不能改变已有快照。
+
+文件路径在空间不足时优先保留文件名，紧凑行缩略目录。当前和旧路径均保留完整
+提示及可选中的文字；拖选路径不能触发展开 Diff。
+
+Diff 使用原生文字选择。双栏中按下指针确定可选的一侧；复制从原始代码提取选区，
+排除行号、另一侧代码、评论及空白显示符号。松开指针后保留选区和焦点；通过明确的
+评论入口或 `c` 快捷键评论选区，通过行号评论单行。只有主动评论才将焦点转移到
+编辑框。重新选择、Escape 或切换比较会关闭选区评论入口；选择本身不创建草稿或
+写入 Review 状态。
+
 Review 使用一套 File-list-first Workspace。File Row 展示 Change Type、Summary、Reviewed State、
 Comment 与可展开 Inline Diff，不在其它 Panel 重复同一 Catalog。
 
@@ -122,3 +137,21 @@ Pending Load、Selection、Comment 或 Reviewed Write 留在无关 Row 上。
 Immutable Capture、Revision Refresh、File-list-first Loading、Rename/Copy Comment、Reviewed
 State Reconciliation、Partial Failure、Stale Async Completion、Binary/Truncated File、Split/
 Unified Presentation、Keyboard Navigation 与 Large Review。
+
+
+## Review 交互状态转换
+
+- 每次打开比较菜单都执行新的有界查询。选择实时工作区时，先捕获固定快照再展示文件列表。
+  Revision 和 Final change／Fixes since review 选择器始终对应不可变对象。
+- 同时编辑一条草稿，直到保存或明确丢弃；导航不能覆盖非空草稿。正文和稳定保存 ID
+  按 Review revision 保存在本地，重新打开后恢复。保存期间冻结编辑；确认成功后清除。
+  失败保留草稿，结果不确定时先读取服务端状态，再允许编辑或使用相同 ID 重试。
+- Reviewed 默认手动标记。自动标记要求单独打开文件、diff 加载成功且 Reviewed 状态已读取。
+  全部展开不批量标记。写入结果不确定时状态变为未知，直到重新读取成功。
+- diff 加载共享四请求并发限制；切换比较后丢弃旧队列、忽略旧结果。diff 失败提供 Retry，
+  评论或 Reviewed 读取失败提供 Reload review state；所有 Review HTTP 操作均有超时边界。
+- 文件行展示未解决／总评论数和文件权限变化。支持相邻文件、下一个未审阅文件、变更块和评论导航。
+  `[`／`]` 切换文件，`p`／`n` 切换变更块，加 Shift 切换评论；文本输入保留原生键盘行为。
+- 评论范围使用不改写代码 DOM 的文字标注。刷新只在未修改的行区间映射候选版本评论，
+  与编辑重叠的锚点保留为 outdated。原始 base 评论保持原坐标；Fixes 视图单独展示这些评论，
+  新增 base 侧评论需切换 Final change，以保证左侧对象和锚点一致。

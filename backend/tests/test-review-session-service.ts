@@ -4,7 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { promisify } = require('util');
-const { ReviewSessionService, changedPathsFromNameStatus, normalizeHistoricalReviewChanges } = require('../review-session-service.cjs');
+const { mapReviewCommentAnchor, ReviewSessionService, changedPathsFromNameStatus, normalizeHistoricalReviewChanges } = require('../review-session-service.cjs');
 const { ReviewSessionStore } = require('../review-session-store.cjs');
 const { ReviewStateStore } = require('../review-state-store.cjs');
 const { WorkspaceFileService, gitCommandEnvironment } = require('../workspace-file-service.cjs');
@@ -42,6 +42,13 @@ function nextTurn() {
 }
 
 async function run() {
+  const anchor = { id: 'anchor', body: 'check', patchset: 'old', path: 'a.ts', side: 'right', line: 10, range: { start_line: 9, end_line: 10, start_character: 0, end_character: 3 } };
+  assert.deepStrictEqual(mapReviewCommentAnchor(anchor, '@@ -2,0 +3,2 @@\n+new\n+new'), { line: 12, range: { ...anchor.range, start_line: 11, end_line: 12 } });
+  assert.strictEqual(mapReviewCommentAnchor(anchor, '@@ -9,1 +9,1 @@\n-old\n+new'), null);
+  assert.strictEqual(mapReviewCommentAnchor(anchor, '@@ -9,0 +10,2 @@\n+new'), null);
+  assert.strictEqual(mapReviewCommentAnchor(anchor, 'deleted file mode 100644'), null);
+  assert.deepStrictEqual(mapReviewCommentAnchor({ ...anchor, side: 'left' }, '@@ -9,1 +9,1 @@'), { line: 10, range: anchor.range });
+
   assert.deepStrictEqual(changedPathsFromNameStatus(['M', 'src/a.ts', 'R100', 'old.ts', 'new.ts', ''].join('\0')), [
     'src/a.ts',
     'old.ts',
@@ -89,6 +96,13 @@ async function run() {
     const sessionStore = new ReviewSessionStore(configDir);
     const stateStore = new ReviewStateStore(configDir);
     const service = new ReviewSessionService(fileService, sessionStore, stateStore);
+    const indexTree = await git(repository, 'write-tree');
+    const fromIndex = await service.create({ base: indexTree, root: repository });
+    assert.strictEqual(fromIndex.base, indexTree);
+    assert.strictEqual(await git(repository, 'rev-parse', `refs/farming/reviews/${fromIndex.reviewId}/base`), indexTree);
+    service.assertRange(fromIndex.reviewId, repository, fromIndex.base, fromIndex.head);
+    const blob = await git(repository, 'rev-parse', 'HEAD:a.txt');
+    await assert.rejects(() => service.create({ base: blob, root: repository }), /base must be a commit or tree/);
     const tracked = await service.create({ base: 'HEAD', root: repository, scope: 'tracked' });
     assert.strictEqual(tracked.scope, 'tracked');
     assert.strictEqual(await git(repository, 'show', `${tracked.head}:a.txt`), 'a1');

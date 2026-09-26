@@ -62,3 +62,21 @@ export function failReviewFileDiffLoad(
     type: 'fail-file-diff-load',
   }
 }
+
+/** One page-wide budget, including loads left in flight by an earlier revision. */
+export function createReviewDiffQueue(limit = 4) {
+  let active = 0
+  const pending: Array<{ current: () => boolean; run: () => Promise<void> }> = []
+  const pump = () => {
+    while (active < limit && pending.length) {
+      const task = pending.shift()!
+      if (!task.current()) continue
+      active++
+      void task.run().finally(() => { active--; pump() })
+    }
+  }
+  return (run: () => Promise<void>, current: () => boolean) => {
+    pending.push({ current, run })
+    pump()
+  }
+}

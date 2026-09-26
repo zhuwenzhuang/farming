@@ -10,14 +10,14 @@ const MAX_COMMENT_BODY_LENGTH = 20000;
 type ReviewCommentSide = 'left' | 'right' | 'unified';
 type ReviewCommentStatus = 'open' | 'resolved' | 'outdated';
 
-interface ReviewCommentRange {
+export interface ReviewCommentRange {
   end_character: number;
   end_line: number;
   start_character: number;
   start_line: number;
 }
 
-interface ReviewComment {
+export interface ReviewComment {
   body: string;
   id: string;
   line: number;
@@ -361,11 +361,13 @@ class ReviewStateStore {
     previousPatchset,
     nextPatchset,
     changedPaths,
+    preservedAnchors = {},
   }: {
     reviewId: string;
     previousPatchset: string;
     nextPatchset: string;
     changedPaths: unknown;
+    preservedAnchors?: Record<string, Pick<ReviewComment, 'line' | 'range'>>;
   }): ReviewPatchsetState {
     if (!isSafeKey(reviewId) || !isSafeKey(previousPatchset) || !isSafeKey(nextPatchset) || !Array.isArray(changedPaths)) {
       throw new TypeError('invalid review patchset inheritance');
@@ -380,7 +382,8 @@ class ReviewStateStore {
       comments: previous.comments.map((comment): ReviewComment => ({
         ...comment,
         patchset: nextPatchset,
-        ...(changed.has(comment.path)
+        ...(preservedAnchors[comment.id] && comment.status !== 'outdated' ? preservedAnchors[comment.id] : {}),
+        ...(changed.has(comment.path) && !preservedAnchors[comment.id]
           ? { sourcePatchset: previousPatchset, status: 'outdated' }
           : { status: comment.status || 'open' }),
       })),

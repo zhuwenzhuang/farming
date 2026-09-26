@@ -1,3 +1,4 @@
+import type { ReviewComment } from './review-state-store.cjs';
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -76,12 +77,39 @@ interface ReviewSessionStore {
 }
 
 interface ReviewStateStore {
+  getComments?(reviewId: string, patchset: string): ReviewComment[];
   inheritPatchset?(input: {
     changedPaths: string[];
+    preservedAnchors?: Record<string, Pick<ReviewComment, 'line' | 'range'>>;
     nextPatchset: string;
     previousPatchset: string;
     reviewId: string;
   }): unknown;
+}
+
+/** Preserve only anchors entirely outside changed intervals; ambiguous evidence stays outdated. */
+export function mapReviewCommentAnchor(comment: ReviewComment, patch: string): Pick<ReviewComment, 'line' | 'range'> | null {
+  if (comment.status === 'outdated' || comment.side === 'unified') return null;
+  if (comment.side === 'left') return { line: comment.line, range: comment.range };
+  if (/^deleted file mode|^new file mode|^Binary files|^GIT binary patch/m.test(patch)) return null;
+  const start = comment.range?.start_line ?? comment.line;
+  const end = comment.range?.end_line ?? comment.line;
+  let offset = 0;
+  for (const match of patch.matchAll(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/gm)) {
+    const oldStart = Number(match[1]);
+    const oldCount = match[2] === undefined ? 1 : Number(match[2]);
+    const newCount = match[4] === undefined ? 1 : Number(match[4]);
+    if (oldCount === 0) {
+      if (start <= oldStart && end > oldStart) return null;
+      if (oldStart < start) offset += newCount;
+    } else {
+      if (start < oldStart + oldCount && end >= oldStart) return null;
+      if (oldStart + oldCount <= start) offset += newCount - oldCount;
+    }
+  }
+  return { line: comment.line + offset, ...(comment.range ? { range: {
+    ...comment.range, start_line: start + offset, end_line: end + offset,
+  } } : {}) };
 }
 
 interface GitResult {
@@ -405,9 +433,14 @@ class ReviewSessionService {
     if (typeof base !== 'string' || !base.trim() || base.trim().startsWith('-')) {
       throw new ReviewSessionError('review base is required');
     }
-    const { stdout } = await this.git(root, ['rev-parse', '--verify', `${base.trim()}^{commit}`]);
+    const { stdout } = await this.git(root, ['rev-parse', '--verify', `${base.trim()}^{}`]);
     const resolved = String(stdout).trim();
     if (!OBJECT_ID_PATTERN.test(resolved)) throw new ReviewSessionError('review base is invalid');
+    // Unstaged comparisons use an immutable index tree, not a commit.
+    const { stdout: type } = await this.git(root, ['cat-file', '-t', resolved]);
+    if (!['commit', 'tree'].includes(String(type).trim())) {
+      throw new ReviewSessionError('review base must be a commit or tree');
+    }
     return resolved;
   }
 
@@ -495,9 +528,9 @@ class ReviewSessionService {
     const requestedPaths = normalizeCapturePaths(options.paths);
     if (requestedPaths !== undefined) return requestedPaths;
     const scope = normalizeWorkingCopyScope(options.scope);
+    const changes = await this.fileService.changes(root, { limit: MAX_CAPTURE_FILES, ...(scope ? { scope } : {}) });
+    if (changes.truncated) throw new ReviewSessionError('too many workspace files to capture this review; narrow the scope or choose Staged or a commit', 413);
     if (!scope) return undefined;
-    const changes = await this.fileService.changes(root, { limit: MAX_CAPTURE_FILES, scope });
-    if (changes.truncated) throw new ReviewSessionError('too many workspace files to capture this review', 413);
     const selected = filterWorkingCopyChangeItems(root, changes.items, {
       scope,
       modifiedWithinDays: options.modifiedWithinDays,
@@ -524,6 +557,7 @@ class ReviewSessionService {
     const paths = await this.capturePaths(root, { scope, modifiedWithinDays, paths: explicitPaths });
     const tree = await this.captureStableTree(root, paths);
     const reviewId = this.sessionStore.newId();
+    await this.git(root, ['update-ref', `refs/farming/reviews/${reviewId}/base`, resolvedBase]);
     await this.keepRevision(root, reviewId, 1, tree);
     const session = this.sessionStore.create({ base: resolvedBase, id: reviewId, root, tree, scope, modifiedWithinDays, paths: explicitPaths });
     return publicRevision(session, session.revisions[0]);
@@ -607,11 +641,22 @@ class ReviewSessionService {
       if (previous.tree === tree) return { ...publicRevision(current, previous), changedPaths: [], unchanged: true };
       const nextNumber = previous.number + 1;
       const changedPaths = await this.changedPaths(current.root, previous.tree, tree);
+      const preservedAnchors: Record<string, Pick<ReviewComment, 'line' | 'range'>> = {};
+      const comments = this.reviewStateStore?.getComments?.(reviewId, previous.tree) ?? [];
+      // Bounded by the comments' distinct changed paths; Git commands retain the service timeout/output limits.
+      for (const filePath of changedPaths.filter(filePath => comments.some(comment => comment.path === filePath))) {
+        const { stdout } = await this.git(current.root, ['diff', '--no-ext-diff', '--no-textconv', '--no-renames', '--unified=0', previous.tree, tree, '--', filePath]);
+        for (const comment of comments.filter(comment => comment.path === filePath)) {
+          const anchor = mapReviewCommentAnchor(comment, String(stdout));
+          if (anchor) preservedAnchors[comment.id] = anchor;
+        }
+      }
       await this.keepRevision(current.root, reviewId, nextNumber, tree);
       const result = this.sessionStore.appendRevision(reviewId, tree);
       const next = result.session.revisions[result.session.revisions.length - 1];
       this.reviewStateStore?.inheritPatchset?.({
         changedPaths,
+        preservedAnchors,
         nextPatchset: tree,
         previousPatchset: previous.tree,
         reviewId,

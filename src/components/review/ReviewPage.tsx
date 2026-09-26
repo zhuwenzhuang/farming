@@ -1,5 +1,5 @@
 import { useInteractionLayer } from '@/hooks/useInteractionLayer'
-import { Fragment, type ReactNode, useEffect, useRef, useState } from 'react'
+import { Fragment, memo, type ReactNode, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import hljs from 'highlight.js/lib/core'
 import bash from 'highlight.js/lib/languages/bash'
@@ -25,8 +25,8 @@ import {
 } from '@/components/IconGlyphs'
 import { CodeSelect } from '@/components/CodeSelect'
 import { useModalFocusScope } from '@/hooks/useModalFocusScope'
-import { completeReviewFileDiffLoad, failReviewFileDiffLoad } from '@/lib/review/effects'
-import { reviewFileRowModel, type ReviewFileRowAction, type ReviewFileRowModel } from '@/lib/review/file-list'
+import { completeReviewFileDiffLoad, createReviewDiffQueue, failReviewFileDiffLoad } from '@/lib/review/effects'
+import { reviewAdjacentFilePath, reviewAdjacentUnreviewedFilePath, reviewFileRowModel, type ReviewFileRowAction, type ReviewFileRowModel } from '@/lib/review/file-list'
 import { acpReviewCaptureRequestFromSearch, reviewSnapshotRequestFromLocation } from '@/lib/review/route-target'
 import { createReviewStateFromSnapshot, reviewCatalogFromSnapshot, reviewCatalogWithFile, reviewCatalogWithUnmodifiedPaths, reviewSnapshotRequestKey, type ReviewComparison, type ReviewDiffSnapshotRequest } from '@/lib/review/snapshot'
 import {
@@ -40,6 +40,7 @@ import {
   transitionReviewState,
   type ReviewComment,
   type ReviewCommentRange,
+  type ReviewCommentDraft,
   type ReviewCommentSide,
   type ReviewDiffCell,
   type ReviewDiffHunk,
@@ -342,6 +343,23 @@ function basename(path: string) {
   return segments[segments.length - 1] || path
 }
 
+function ReviewPath({ path, previous = false }: { path: string; previous?: boolean }) {
+  const separator = path.lastIndexOf('/')
+  return <span className={`${previous ? 'review-file-previous-path' : 'review-file-name'}${separator >= 0 ? ' review-path-with-directory' : ''}`} title={previous ? `Previous path: ${path}` : path} aria-label={path}>
+    {separator >= 0 ? <span className="review-path-directory">{path.slice(0, separator)}</span> : null}
+    <span className="review-path-basename">{separator >= 0 ? path.slice(separator) : path}</span>
+  </span>
+}
+
+function comparisonLabel(id: string) {
+  if (id === 'unstaged') return 'Unstaged'
+  if (id === 'staged') return 'Staged'
+  if (id === 'working-copy') return 'Working copy'
+  if (id === 'untracked') return 'Untracked'
+  if (id === 'agent-changes') return 'Agent changes'
+  return 'Changes'
+}
+
 function formatBytes(value: number) {
   const absolute = Math.abs(value)
   if (absolute < 1024) return `${value} B`
@@ -433,7 +451,8 @@ export function diffLanguageForPath(path: string) {
   return 'typescript'
 }
 
-function CodeCell({
+// Selection UI must not rewrite highlighted DOM nodes while the user selects them.
+const CodeCell = memo(function CodeCell({
   intraline,
   language,
   line,
@@ -461,7 +480,11 @@ function CodeCell({
   if (trailingWhitespace) {
     html += `<span class="review-trailing-whitespace">${trailingWhitespace.replace(/[ \t]/g, '·')}</span>`
   }
-  return <code {...commentAttributes} dangerouslySetInnerHTML={{ __html: html }} />
+  return <code {...commentAttributes} data-review-text={text} dangerouslySetInnerHTML={{ __html: html }} />
+})
+
+function LineNumber({ line, side }: { line?: number; side: CommentSide }) {
+  return line ? <button type="button" className="review-line-number" data-review-line={line} data-review-side={side} aria-label={`Comment on ${side === 'left' ? 'base' : 'patchset'} line ${line}`}>{line}</button> : <span />
 }
 
 function renderCodeHtml(text: string, language: string, preferences: DiffPreferences) {
@@ -508,7 +531,7 @@ function UnifiedRow({
 }) {
   return (
     <>
-      <div className={`review-diff-row unified ${kind}`}><span>{line ?? ''}</span><CodeCell intraline={intraline} language={language} line={line} side={side} text={text} preferences={preferences} /></div>
+      <div className={`review-diff-row unified ${kind}`}><LineNumber line={line} side={side} /><CodeCell intraline={intraline} language={language} line={line} side={side} text={text} preferences={preferences} /></div>
       {line ? renderAttachment?.(line, [side]) : null}
     </>
   )
@@ -537,18 +560,14 @@ function SplitRow({
   preferences: DiffPreferences
   renderAttachment?: (line: number, sides: CommentSide[]) => ReactNode
 }) {
-  const line = rightLine ?? leftLine
-  const sides = [
-    ...(leftLine ? ['left' as const] : []),
-    ...(rightLine ? ['right' as const] : []),
-  ]
   return (
     <>
       <div className={`review-diff-row ${kind}`}>
-        <span>{leftLine ?? ''}</span><CodeCell intraline={leftIntraline} language={language} line={leftLine} side="left" text={leftText ?? ''} preferences={preferences} />
-        <span>{rightLine ?? ''}</span><CodeCell intraline={rightIntraline} language={language} line={rightLine} side="right" text={rightText ?? ''} preferences={preferences} />
+        <LineNumber line={leftLine} side="left" /><CodeCell intraline={leftIntraline} language={language} line={leftLine} side="left" text={leftText ?? ''} preferences={preferences} />
+        <LineNumber line={rightLine} side="right" /><CodeCell intraline={rightIntraline} language={language} line={rightLine} side="right" text={rightText ?? ''} preferences={preferences} />
       </div>
-      {line ? renderAttachment?.(line, sides) : null}
+      {leftLine ? renderAttachment?.(leftLine, leftLine === rightLine ? ['left', 'right'] : ['left']) : null}
+      {rightLine && rightLine !== leftLine ? renderAttachment?.(rightLine, ['right']) : null}
     </>
   )
 }
@@ -858,7 +877,7 @@ function DiffRows({
       {file.diff.hunks.map((hunk, index) => (
         <Fragment key={`${hunk.header}:${index}`}>
           {renderGap(gapsBefore[index]!, index)}
-          {renderRows(splitOuterContext(hunk.rows).body, index, 'change')}
+          <div tabIndex={-1} data-review-hunk={index}>{renderRows(splitOuterContext(hunk.rows).body, index, 'change')}</div>
         </Fragment>
       ))}
       {bottomGap ? renderGap(bottomGap, file.diff.hunks.length) : null}
@@ -874,9 +893,9 @@ function DiffRows({
   )
 }
 
-function DiffStatusMessage({ row }: { row: ReviewFileRowModel }) {
+function DiffStatusMessage({ row, onRetry }: { row: ReviewFileRowModel; onRetry: () => void }) {
   if (row.diffLoadError) {
-    return <div className="review-diff-message error" role="alert">Could not load diff: {row.diffLoadError}</div>
+    return <div className="review-diff-message error" role="alert">Could not load diff: {row.diffLoadError} <button type="button" className="code-rich-content-retry" onClick={onRetry}>RETRY</button></div>
   }
   if (row.diffLoadPending) {
     return <div className="review-diff-message" role="status">Loading diff…</div>
@@ -931,12 +950,14 @@ function CommentEditor({
         data-bwignore="true"
         data-form-type="other"
         autoFocus
+        maxLength={20000}
+        disabled={disabled}
         placeholder="Leave a review comment…"
         value={draft}
         onChange={event => onDraftChange(event.target.value)}
       />
       <footer>
-        <button type="button" onClick={onCancel}>CANCEL</button>
+        <button type="button" disabled={disabled} onClick={onCancel}>DISCARD</button>
         <button type="submit" disabled={disabled || !draft.trim()}>{disabled ? 'SAVING…' : 'SAVE COMMENT'}</button>
       </footer>
     </form>
@@ -962,7 +983,7 @@ function CommentThread({
       : `${targetName} lines ${comment.range.start_line}–${comment.range.end_line}`
     : `${targetName} line ${comment.line}`
   return (
-    <article className={`review-comment-thread ${status}`}>
+    <article tabIndex={-1} className={`review-comment-thread ${status}`}>
       <header>
         <span>{status === 'outdated' ? `Outdated · ${targetLabel}` : targetLabel}</span>
         <span className="review-comment-actions">
@@ -990,6 +1011,23 @@ function characterOffsetInCell(cell: HTMLElement, node: Node, offset: number) {
     return 0
   }
   return range.toString().length
+}
+
+function selectedDiffText(container: HTMLElement, mode: DiffMode) {
+  const selection = window.getSelection()
+  if (!selection || selection.isCollapsed || selection.rangeCount !== 1) return null
+  const range = selection.getRangeAt(0)
+  const start = codeCellForSelectionNode(range.startContainer, container)
+  const end = codeCellForSelectionNode(range.endContainer, container)
+  if (!start || !end || (mode === 'split' && start.dataset.reviewSide !== end.dataset.reviewSide)) return null
+  const cells = Array.from(container.querySelectorAll<HTMLElement>('code[data-review-line]'))
+    .filter(cell => range.intersectsNode(cell) && (mode === 'unified' || cell.dataset.reviewSide === start.dataset.reviewSide))
+  return cells.map(cell => {
+    const text = cell.dataset.reviewText ?? ''
+    const from = cell === start ? characterOffsetInCell(cell, range.startContainer, range.startOffset) : 0
+    const to = cell === end ? characterOffsetInCell(cell, range.endContainer, range.endOffset) : text.length
+    return text.slice(from, to)
+  }).join('\n')
 }
 
 function commentRangeFromSelection(container: HTMLElement): { line: number; range: ReviewCommentRange; side: CommentSide } | null {
@@ -1022,6 +1060,22 @@ function commentRangeFromSelection(container: HTMLElement): { line: number; rang
   }
 }
 
+function textPosition(cell: HTMLElement, offset: number): [Node, number] {
+  const walker = document.createTreeWalker(cell, NodeFilter.SHOW_TEXT)
+  let node = walker.nextNode()
+  while (node) {
+    const length = node.textContent?.length ?? 0
+    if (offset <= length) return [node, offset]
+    offset -= length
+    node = walker.nextNode()
+  }
+  return [cell, cell.childNodes.length]
+}
+
+function reviewDraftKey(reviewId: string, patchset: string) {
+  return `farming:review-draft:${reviewId}:${patchset}`
+}
+
 export function ReviewPage() {
   const fixtureMode = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('fixture') === '1'
   const [acpCaptureTarget] = useState(() => {
@@ -1041,6 +1095,10 @@ export function ReviewPage() {
     captureRouteRequest || acpCaptureTarget.requested ? null : reviewRouteTarget.request
   ))
   const [reviewSessionRevision, setReviewSessionRevision] = useState<ReviewSessionRevision | null>(null)
+  const [sessionRevisions, setSessionRevisions] = useState<ReviewSessionRevision[]>([])
+  const [snapshotPending, setSnapshotPending] = useState(false)
+  const [snapshotRetry, setSnapshotRetry] = useState(0)
+  const [stateRetry, setStateRetry] = useState(0)
   const [reviewView, setReviewView] = useState<'final' | 'fixes'>('final')
   const [capturePending, setCapturePending] = useState(Boolean(captureRouteRequest || acpCaptureRoute))
   const routeTargetError = acpCaptureTarget.requested
@@ -1067,11 +1125,15 @@ export function ReviewPage() {
       reviewId: externalReview ? undefined : REVIEW_FIXTURE_ID,
     })
   })
+  const [enqueueDiff] = useState(() => createReviewDiffQueue())
+  const mountedRef = useRef(true)
+  useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false } }, [])
+  const uncertainCommentRef = useRef<string | null>(null)
   const reviewStateRef = useRef(reviewState)
   const catalogRef = useRef(catalog)
   const reviewRequestIdentityRef = useRef(reviewRequestIdentityKey(reviewRequestBase))
   catalogRef.current = catalog
-  const replaceReviewRequest = (request: ReviewDiffSnapshotRequest) => {
+  const replaceReviewRequest = (request: ReviewDiffSnapshotRequest | null) => {
     const nextIdentity = reviewRequestIdentityKey(request)
     if (nextIdentity !== reviewRequestIdentityRef.current) {
       reviewRequestIdentityRef.current = nextIdentity
@@ -1094,6 +1156,8 @@ export function ReviewPage() {
       setReviewLoadError('')
       setReviewStatusError('')
       setReviewCommentError('')
+      setCommentsLoadState('loading')
+      uncertainCommentRef.current = null
       setContextLoadPaths([])
       setContextGapExpansions({})
       setReviewingPath('')
@@ -1116,13 +1180,28 @@ export function ReviewPage() {
   const [commitCopied, setCommitCopied] = useState(false)
   const [reviewStatusError, setReviewStatusError] = useState('')
   const [reviewCommentError, setReviewCommentError] = useState('')
+  const [commentsLoadState, setCommentsLoadState] = useState<'loading' | 'loaded' | 'error'>('loading')
   const [reviewingPath, setReviewingPath] = useState('')
   const [contextLoadPaths, setContextLoadPaths] = useState<string[]>([])
   const [contextGapExpansions, setContextGapExpansions] = useState<Record<string, ContextGapExpansion>>({})
+  const [selectedCommentTarget, setSelectedCommentTarget] = useState<CommentTarget | null>(null)
+  const selectionActionRef = useRef<HTMLButtonElement>(null)
   const [comparisonSources, setComparisonSources] = useState<ReviewComparisonSources | null>(null)
   const [comparisonSourceError, setComparisonSourceError] = useState('')
   const [comparisonSourcesPending, setComparisonSourcesPending] = useState(false)
   const [comparisonSourceId, setComparisonSourceId] = useState(() => new URLSearchParams(window.location.search).get('comparison') || '')
+  // Capture freezes a comparison; it does not turn workspace edits into an Agent turn.
+  // Legacy last-turn links have no evidence of an Agent origin, so use Changes.
+  const [capturedSourceId, setCapturedSourceId] = useState(() => {
+    if (acpCaptureRoute) return 'agent-changes'
+    const source = new URLSearchParams(window.location.search).get('comparison')
+    if (source && source !== 'last-turn') return source
+    const request = reviewRouteTarget.request
+    if (request?.source === 'working-copy' && request.scope === 'untracked') return 'untracked'
+    if (request?.source === 'working-copy' && request.scope === 'tracked') return 'changes'
+    return request?.source === 'working-copy' ? 'working-copy' : 'changes'
+  })
+  const initialCapturedSourceId = useRef(capturedSourceId).current
   const [showComparisonSources, setShowComparisonSources] = useState(false)
   const comparisonSourceRef = useRef<HTMLDivElement>(null)
   const reviewId = externalReview ? reviewState.reviewId ?? '' : REVIEW_FIXTURE_ID
@@ -1131,6 +1210,7 @@ export function ReviewPage() {
   const patchsetState = reviewStateForPatchset(reviewState, patchset)
   const expandedPaths = new Set(patchsetState.expandedPaths)
   const diffMode = reviewState.diffMode
+  useEffect(() => setSelectedCommentTarget(null), [reviewId, patchset, diffMode])
   const reviewSessionActive = Boolean(
     reviewSessionRevision
     && reviewRequestBase?.source === 'git-range'
@@ -1163,6 +1243,13 @@ export function ReviewPage() {
     if (transition.state === reviewStateRef.current) return
     reviewStateRef.current = transition.state
     setReviewState(transition.state)
+    if (transition.state.reviewId && ['start-comment', 'update-comment-draft', 'cancel-comment', 'save-comment', 'commit-comment', 'restore-comments'].includes(action.type)) {
+      try {
+        const key = reviewDraftKey(transition.state.reviewId, transition.state.patchRange.patchset)
+        if (transition.state.commentDraft) window.localStorage.setItem(key, JSON.stringify(transition.state.commentDraft))
+        else window.localStorage.removeItem(key)
+      } catch { setReviewCommentError('Draft is kept in this page, but browser storage is unavailable. Save before closing.') }
+    }
     for (const effect of transition.effects) {
       const effectRequestIdentity = reviewRequestIdentityRef.current
       if (effect.type === 'load-file-diff') {
@@ -1171,7 +1258,7 @@ export function ReviewPage() {
           applyReviewAction(failReviewFileDiffLoad(effect, 'review file diff source is unavailable'))
           continue
         }
-        void loadReviewFileDiff(request, effect.path)
+        enqueueDiff(() => loadReviewFileDiff(request, effect.path)
           .then(file => {
             if (reviewRequestIdentityRef.current !== effectRequestIdentity) return
             const completed = completeReviewFileDiffLoad(catalogRef.current, effect, file, { reviewId: reviewStateRef.current.reviewId })
@@ -1182,7 +1269,7 @@ export function ReviewPage() {
           .catch(error => {
             if (reviewRequestIdentityRef.current !== effectRequestIdentity) return
             applyReviewAction(failReviewFileDiffLoad(effect, error))
-          })
+          }), () => mountedRef.current && reviewRequestIdentityRef.current === effectRequestIdentity)
       }
       if (effect.type === 'save-reviewed-status') {
         const effectReviewId = effect.reviewId ?? reviewId
@@ -1200,27 +1287,23 @@ export function ReviewPage() {
           })
           .catch(async error => {
             if (reviewRequestIdentityRef.current !== effectRequestIdentity) return
-            let restored = error instanceof ReviewApiError && error.state
+            const restored = error instanceof ReviewApiError && error.state
               ? error.state
               : await loadReviewedPatchsetState(effectReviewId, effect.patchset).catch(() => null)
             if (reviewRequestIdentityRef.current !== effectRequestIdentity) return
-          if (!restored) {
-            const current = reviewStateForPatchset(reviewStateRef.current, effect.patchset)
-            const reviewedPaths = new Set(current.reviewedPaths)
-            for (const change of effect.changes) {
-              if (change.reviewed) reviewedPaths.delete(change.path)
-              else reviewedPaths.add(change.path)
+            if (!restored) {
+              applyReviewAction({ patchset: effect.patchset, reviewId: effect.reviewId, type: 'invalidate-reviewed-status' })
+              setReviewStatusError('Reviewed save outcome is unknown. Reload review state before continuing.')
+              return
             }
-            restored = { reviewedPaths: [...reviewedPaths], revision: effect.revision }
-          }
-          applyReviewAction({
-            patchset: effect.patchset,
-            reviewedPaths: restored.reviewedPaths,
-            ...(effect.reviewId ? { reviewId: effect.reviewId } : {}),
-            revision: restored.revision,
-            type: 'restore-reviewed-status',
-          })
-          setReviewStatusError(error instanceof Error ? `Could not save Reviewed: ${error.message}` : 'Could not save Reviewed status')
+            applyReviewAction({
+              patchset: effect.patchset,
+              reviewedPaths: restored.reviewedPaths,
+              ...(effect.reviewId ? { reviewId: effect.reviewId } : {}),
+              revision: restored.revision,
+              type: 'restore-reviewed-status',
+            })
+            setReviewStatusError(error instanceof Error ? `Could not save Reviewed: ${error.message}` : 'Could not save Reviewed status')
           })
       }
       if (effect.type === 'save-comment') {
@@ -1238,8 +1321,14 @@ export function ReviewPage() {
           })
           .catch(async error => {
             if (reviewRequestIdentityRef.current !== effectRequestIdentity) return
-            const comments = await loadReviewComments(effectReviewId, effect.comment.patchset)
-              .catch(() => reviewStateRef.current.comments.filter(comment => comment.id !== effect.comment.id))
+            const comments = await loadReviewComments(effectReviewId, effect.comment.patchset).catch(() => null)
+            if (!comments) {
+              if (reviewRequestIdentityRef.current === effectRequestIdentity) {
+                uncertainCommentRef.current = effect.comment.id
+                setReviewCommentError('Comment save outcome is unknown. Reload review state to reconcile; your draft is retained.')
+              }
+              return
+            }
             if (reviewRequestIdentityRef.current !== effectRequestIdentity) return
             applyReviewAction({
               comments,
@@ -1301,6 +1390,12 @@ export function ReviewPage() {
     returnFocus: () => comparisonSourceRef.current?.querySelector('button'),
   })
 
+  useInteractionLayer({
+    enabled: Boolean(selectedCommentTarget),
+    elements: () => [selectionActionRef.current],
+    onDismiss: () => setSelectedCommentTarget(null),
+  })
+
   useEffect(() => {
     if (!captureRouteRequest && !acpCaptureRoute) return
     let active = true
@@ -1333,11 +1428,12 @@ export function ReviewPage() {
         params.set('base', request.base)
         params.set('head', request.head)
         params.set('reviewId', revision.reviewId)
-        params.set('comparison', 'last-turn')
+        params.set('comparison', initialCapturedSourceId)
         window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`)
+        setSessionRevisions([revision])
         setReviewSessionRevision(revision)
         setReviewView('final')
-        setComparisonSourceId('last-turn')
+        setComparisonSourceId(initialCapturedSourceId)
         replaceReviewRequestRef.current(request)
         setReviewLoadError('')
       })
@@ -1347,57 +1443,47 @@ export function ReviewPage() {
       })
       .finally(() => { if (active) setCapturePending(false) })
     return () => { active = false }
-  }, [acpCaptureRoute, captureRouteRequest])
+  }, [acpCaptureRoute, captureRouteRequest, initialCapturedSourceId])
 
   useEffect(() => {
-    if (captureRouteRequest || acpCaptureRoute || reviewRequestBase?.source !== 'git-range' || !reviewRequestBase.reviewId) return
+    if (reviewRequestBase?.source !== 'git-range' || !reviewRequestBase.reviewId) return
     let active = true
     void loadReviewSession(reviewRequestBase.reviewId)
       .then(session => {
         if (!active) return
+        setSessionRevisions(session.revisions)
         const revision = session.revisions.find(item => item.head === reviewRequestBase.head) ?? session
         setReviewSessionRevision(revision)
-        setComparisonSourceId(current => current || 'last-turn')
+        setComparisonSourceId(current => current || capturedSourceId)
         setReviewView(reviewRequestBase.base === revision.fixesBase && revision.fixesBase !== revision.base ? 'fixes' : 'final')
       })
       .catch(() => {
         // The diff endpoint still reports a precise session/range error if this lookup fails.
       })
     return () => { active = false }
-  }, [acpCaptureRoute, captureRouteRequest, reviewRequestBase])
+  }, [acpCaptureRoute, captureRouteRequest, capturedSourceId, reviewRequestBase])
 
   useEffect(() => {
     if (!reviewRequestBase) return
     let active = true
     const requestIdentity = reviewRequestIdentityKey(reviewRequestBase)
     const preferences = readStoredDiffPreferences()
+    setSnapshotPending(true)
     void loadReviewDiffSnapshot({ ...reviewRequestBase, context: preferences.context, ignoreWhitespace: preferences.ignoreWhitespace, metadataOnly: true })
-      .then(async review => {
-        const [savedReviewState, loadedComments] = await Promise.all([
-          loadReviewedPatchsetState(review.reviewId, review.patchset).catch(() => null),
-          loadReviewComments(review.reviewId, review.patchset).catch(() => []),
-        ])
+      .then(review => {
+        if (review.truncated) throw new Error('Review file list exceeds its limit. Narrow the comparison before reviewing.')
+        const loadedComments: ReviewComment[] = []
         if (!active || reviewRequestIdentityRef.current !== requestIdentity) return
         const nextCatalog = reviewCatalogWithUnmodifiedPaths(
           reviewCatalogFromSnapshot(review),
           review.patchset,
           loadedComments.map(comment => comment.path),
         )
-        let nextState = createReviewStateFromSnapshot({
+        const nextState = createReviewStateFromSnapshot({
           comments: loadedComments,
           preferences,
-          ...(savedReviewState ? { reviewedPaths: savedReviewState.reviewedPaths } : {}),
           snapshot: review,
         })
-        if (savedReviewState) {
-          nextState = transitionReviewState(nextState, {
-            patchset: review.patchset,
-            reviewedPaths: savedReviewState.reviewedPaths,
-            reviewId: review.reviewId,
-            revision: savedReviewState.revision,
-            type: 'hydrate-reviewed-status',
-          }, nextCatalog).state
-        }
         reviewStateRef.current = nextState
         catalogRef.current = nextCatalog
         setReviewComparison(review.comparison ?? null)
@@ -1409,20 +1495,9 @@ export function ReviewPage() {
         if (!active || reviewRequestIdentityRef.current !== requestIdentity) return
         setReviewLoadError(error instanceof Error ? error.message : 'review diff request failed')
       })
+      .finally(() => { if (active) setSnapshotPending(false) })
     return () => { active = false }
-  }, [reviewRequestBase])
-
-  useEffect(() => {
-    if (!reviewStatusError) return
-    const timer = window.setTimeout(() => setReviewStatusError(''), 4000)
-    return () => window.clearTimeout(timer)
-  }, [reviewStatusError])
-
-  useEffect(() => {
-    if (!reviewCommentError) return
-    const timer = window.setTimeout(() => setReviewCommentError(''), 4000)
-    return () => window.clearTimeout(timer)
-  }, [reviewCommentError])
+  }, [reviewRequestBase, snapshotRetry])
 
   useEffect(() => {
     try {
@@ -1433,12 +1508,13 @@ export function ReviewPage() {
   }, [diffPreferences])
 
   useEffect(() => {
-    if (externalReview || !reviewId || !catalogRef.current[patchset]) return
+    if (!reviewId || !catalogRef.current[patchset]) return
     let active = true
     const requestIdentity = reviewRequestIdentityRef.current
     void loadReviewedPatchsetState(reviewId, patchset)
       .then(saved => {
         if (!active || reviewRequestIdentityRef.current !== requestIdentity) return
+        setReviewStatusError('')
         applyReviewActionRef.current({
           patchset,
           reviewedPaths: saved.reviewedPaths,
@@ -1447,24 +1523,72 @@ export function ReviewPage() {
           type: 'hydrate-reviewed-status',
         })
       })
-      .catch(() => {
-        // The seeded page remains usable if the review-state endpoint is temporarily unavailable.
-      })
+      .catch(error => { if (active) setReviewStatusError(`Could not load Reviewed: ${error instanceof Error ? error.message : 'request failed'}`) })
+    setCommentsLoadState('loading')
+    const uncertainCommentAtRead = uncertainCommentRef.current
     void loadReviewComments(reviewId, patchset)
       .then(loadedComments => {
         if (!active || reviewRequestIdentityRef.current !== requestIdentity) return
+        setReviewCommentError('')
+        setCommentsLoadState('loaded')
         const nextCatalog = reviewCatalogWithUnmodifiedPaths(catalogRef.current, patchset, loadedComments.map(comment => comment.path))
         if (nextCatalog !== catalogRef.current) {
           catalogRef.current = nextCatalog
           setCatalog(nextCatalog)
         }
-        applyReviewActionRef.current({ comments: loadedComments, patchset, reviewId, type: 'hydrate-comments' })
+        const pending = reviewStateForPatchset(reviewStateRef.current, patchset).pendingComment
+        if (pending && pending.id === uncertainCommentAtRead) {
+          applyReviewActionRef.current({ comments: loadedComments, patchset, reviewId, id: pending.id, pendingType: pending.type, type: 'restore-comments' })
+          uncertainCommentRef.current = null
+        }
+        else applyReviewActionRef.current({ comments: loadedComments, patchset, reviewId, type: 'hydrate-comments' })
+        if (!reviewStateRef.current.commentDraft) {
+          try {
+            const raw: unknown = JSON.parse(window.localStorage.getItem(reviewDraftKey(reviewId, patchset)) || 'null')
+            if (raw && typeof raw === 'object') {
+              const draft = raw as ReviewCommentDraft
+              if (loadedComments.some(comment => comment.id === draft.id)) {
+                window.localStorage.removeItem(reviewDraftKey(reviewId, patchset))
+              } else if (draft.patchset === patchset && typeof draft.body === 'string' && typeof draft.path === 'string') {
+                applyReviewActionRef.current({ ...draft, type: 'start-comment' })
+                if (reviewStateRef.current.commentDraft) {
+                  // The persisted id makes a retry use the same server-side identity.
+                  applyReviewActionRef.current({ body: draft.body, type: 'update-comment-draft' })
+                  const file = catalogRef.current[patchset]?.find(file => file.path === draft.path || file.previousPath === draft.path)
+                  if (file && !reviewStateForPatchset(reviewStateRef.current, patchset).expandedPaths.includes(file.path)) applyReviewActionRef.current({ path: file.path, type: 'toggle-file-expanded' })
+                }
+              }
+            }
+          } catch { setReviewCommentError('Could not restore the locally saved comment draft.') }
+        }
       })
-      .catch(() => {
-        // Comments remain empty until their review-state endpoint is available.
-      })
+      .catch(error => { if (active) { setCommentsLoadState('error'); setReviewCommentError(`Could not load comments: ${error instanceof Error ? error.message : 'request failed'}`) } })
     return () => { active = false }
-  }, [externalReview, patchset, reviewId])
+  }, [patchset, reviewId, stateRetry])
+
+  useEffect(() => {
+    if (!CSS.highlights || typeof Highlight === 'undefined') return
+    const ranges: Range[] = []
+    for (const row of document.querySelectorAll<HTMLElement>('.review-file-change[data-file-path]')) {
+      const file = catalog[patchset]?.find(file => file.path === row.dataset.filePath)
+      if (!file) continue
+      for (const comment of reviewState.comments) {
+        if (!comment.range || comment.status === 'outdated' || comment.patchset !== patchset
+          || comment.path !== reviewCommentPathForSide(file, comment.side)
+          || (reviewSessionActive && reviewView === 'fixes' && comment.side === 'left')) continue
+        for (const cell of row.querySelectorAll<HTMLElement>('code[data-review-line]')) {
+          const line = Number(cell.dataset.reviewLine)
+          if (cell.dataset.reviewSide !== comment.side || line < comment.range.start_line || line > comment.range.end_line) continue
+          const range = document.createRange()
+          range.setStart(...textPosition(cell, line === comment.range.start_line ? comment.range.start_character : 0))
+          range.setEnd(...textPosition(cell, line === comment.range.end_line ? comment.range.end_character : cell.textContent?.length ?? 0))
+          ranges.push(range)
+        }
+      }
+    }
+    CSS.highlights.set('review-comment-range', new Highlight(...ranges))
+    return () => { CSS.highlights.delete('review-comment-range') }
+  }, [catalog, patchset, reviewState.comments, patchsetState.expandedPaths, diffPreferences, effectiveDiffMode, contextGapExpansions, reviewSessionActive, reviewView])
 
   const expandedPathsSignature = patchsetState.expandedPaths.join('\0')
   useEffect(() => {
@@ -1503,6 +1627,7 @@ export function ReviewPage() {
   }
 
   const selectPatchset = (nextPatchset: string) => {
+    if (guardDraft()) return
     applyReviewAction({ patchset: nextPatchset, type: 'select-patchset' })
   }
 
@@ -1628,14 +1753,27 @@ export function ReviewPage() {
       .catch(failRows)
   }
   const startComment = (path: string, line: number, side: CommentSide, range?: ReviewCommentRange) => {
+    if (guardDraft()) return
+    if (reviewSessionActive && reviewView === 'fixes' && side === 'left') {
+      setReviewCommentError('Switch to Final change to comment on the original base. In this view, comment on the current revision on the right.')
+      return
+    }
+    setSelectedCommentTarget(null)
+    setReviewCommentError('')
     applyReviewAction({ line, path, range, side, type: 'start-comment' })
+  }
+  const guardDraft = () => {
+    if (!reviewStateRef.current.commentDraft?.body.trim() && !reviewStateForPatchset(reviewStateRef.current, reviewStateRef.current.patchRange.patchset).pendingComment) return false
+    setReviewCommentError('Save or discard the current comment before changing its location or comparison.')
+    document.querySelector<HTMLTextAreaElement>('.review-comment-editor textarea')?.focus()
+    return true
   }
   const saveComment = () => {
     if (!commentTarget || !commentDraft.trim()) return
     applyReviewAction({
-      id: typeof crypto?.randomUUID === 'function'
+      id: commentTarget.id ?? (typeof crypto?.randomUUID === 'function'
         ? crypto.randomUUID()
-        : `comment-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        : `comment-${Date.now()}-${Math.random().toString(36).slice(2)}`),
       type: 'save-comment',
     })
   }
@@ -1653,19 +1791,22 @@ export function ReviewPage() {
         setReviewCommentError(error instanceof Error ? error.message : 'review comment status failed')
       })
   }
-  const setSessionRequest = (revision: ReviewSessionRevision, view: 'final' | 'fixes') => {
+  const setSessionRequest = (revision: ReviewSessionRevision, view: 'final' | 'fixes', sourceId = capturedSourceId) => {
+    if (guardDraft()) return
     const request = reviewRequestForSessionRevision(revision, view)
     const params = new URLSearchParams(window.location.search)
-    params.delete('agentId')
+    for (const key of ['agentId', 'acpItem', 'scope', 'path', 'modifiedWithinDays']) params.delete(key)
     params.set('root', revision.root)
     params.set('base', request.base)
     params.set('head', request.head)
     params.set('reviewId', revision.reviewId)
-    params.set('comparison', 'last-turn')
+    params.set('comparison', sourceId)
     window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`)
+    setSessionRevisions(current => [...current.filter(item => item.reviewId === revision.reviewId && item.head !== revision.head), revision].sort((a, b) => a.number - b.number))
     setReviewSessionRevision(revision)
     setReviewView(view)
-    setComparisonSourceId('last-turn')
+    setCapturedSourceId(sourceId)
+    setComparisonSourceId(sourceId)
     setShowComparisonSources(false)
     replaceReviewRequest(request)
   }
@@ -1673,12 +1814,14 @@ export function ReviewPage() {
     if (reviewRequestBase && 'root' in reviewRequestBase && reviewRequestBase.root) return { root: reviewRequestBase.root }
     if (reviewRequestBase && 'agentId' in reviewRequestBase && reviewRequestBase.agentId) return { agentId: reviewRequestBase.agentId }
     if (reviewSessionRevision) return { root: reviewSessionRevision.root }
+    if (comparisonSources) return { root: comparisonSources.root }
     return null
   })()
   const openComparisonSources = () => {
     const nextOpen = !showComparisonSources
     setShowComparisonSources(nextOpen)
-    if (!nextOpen || comparisonSources || comparisonSourcesPending || !reviewWorkspaceTarget) return
+    if (!nextOpen || comparisonSourcesPending || !reviewWorkspaceTarget) return
+    setComparisonSources(null)
     setComparisonSourcesPending(true)
     setComparisonSourceError('')
     void loadReviewComparisonSources(reviewWorkspaceTarget)
@@ -1687,7 +1830,19 @@ export function ReviewPage() {
       .finally(() => setComparisonSourcesPending(false))
   }
   const selectComparisonSource = (source: ReviewComparisonSource) => {
-    if (!comparisonSources) return
+    if (!comparisonSources || capturePending || guardDraft()) return
+    if (source.head === 'now') {
+      replaceReviewRequest(null)
+      setSnapshotPending(false)
+      setComparisonSourceId(source.id)
+      setCapturePending(true)
+      setShowComparisonSources(false)
+      void createReviewSession({ root: comparisonSources.root }, source.base)
+        .then(revision => { setSessionRevisions([revision]); setSessionRequest(revision, 'final', source.id) })
+        .catch(error => setReviewLoadError(error instanceof Error ? error.message : 'review capture failed'))
+        .finally(() => setCapturePending(false))
+      return
+    }
     const request: ReviewDiffSnapshotRequest = {
       base: source.base,
       head: source.head,
@@ -1712,7 +1867,7 @@ export function ReviewPage() {
     replaceReviewRequest(request)
   }
   const refreshCapturedReview = () => {
-    if (!reviewSessionRevision || capturePending) return
+    if (!reviewSessionRevision || capturePending || guardDraft()) return
     setCapturePending(true)
     void refreshReviewSession(reviewSessionRevision.reviewId)
       .then(revision => {
@@ -1726,6 +1881,30 @@ export function ReviewPage() {
     if (!reviewSessionRevision || view === reviewView) return
     setSessionRequest(reviewSessionRevision, view)
   }
+  const navigationPath = reviewingPath || files[0]?.path || ''
+  const previousFile = reviewAdjacentFilePath(files, navigationPath, 'previous')
+  const nextFile = reviewAdjacentFilePath(files, navigationPath, 'next')
+  const nextUnreviewedFile = patchsetState.reviewedLoaded && reviewAdjacentUnreviewedFilePath(reviewState, files, navigationPath)
+  const navigateFile = (direction: 'next' | 'previous', unreviewed = false) => {
+    const current = reviewingPath || document.activeElement?.closest<HTMLElement>('[data-file-path]')?.dataset.filePath || files[0]?.path
+    if (!current) return
+    const path = unreviewed
+      ? reviewAdjacentUnreviewedFilePath(reviewStateRef.current, files, current, direction)
+      : reviewAdjacentFilePath(files, current, direction)
+    if (!path) return
+    if (!expandedPaths.has(path)) applyReviewAction({ path, type: 'toggle-file-expanded' })
+    const row = Array.from(document.querySelectorAll<HTMLElement>('.review-file-change')).find(row => row.dataset.filePath === path)
+    row?.scrollIntoView({ block: 'start' })
+    row?.querySelector<HTMLButtonElement>('.review-file-expand')?.focus({ preventScroll: true })
+    setReviewingPath(path)
+  }
+  const navigateContent = (kind: 'hunk' | 'comment', direction: 'next' | 'previous') => {
+    const elements = Array.from(document.querySelectorAll<HTMLElement>(kind === 'hunk' ? '[data-review-hunk]' : '.review-comment-thread'))
+    const target = direction === 'next' ? elements.find(element => element.getBoundingClientRect().top > 60)
+      : elements.reverse().find(element => element.getBoundingClientRect().top < 0)
+    target?.scrollIntoView({ block: 'start' })
+    target?.focus({ preventScroll: true })
+  }
   const workingCopyScope = reviewScope
   const filesLabel = workingCopyScope === 'tracked' ? 'Changes' : workingCopyScope === 'untracked' ? 'Untracked' : 'Files'
   const selectedComparisonSource = comparisonSources
@@ -1733,13 +1912,13 @@ export function ReviewPage() {
       .find(source => source.id === comparisonSourceId)
     : null
   const comparisonSourceLabel = reviewSessionActive
-    ? 'Last Turn'
+    ? comparisonLabel(capturedSourceId)
     : selectedComparisonSource?.id.startsWith('commit:')
       ? `Commit · ${selectedComparisonSource.label}`
       : selectedComparisonSource?.id.startsWith('branch:')
         ? `Branch · ${selectedComparisonSource.label}`
         : selectedComparisonSource?.label
-          ?? (workingCopy ? 'Working copy' : gitRange ? 'Changes' : filesLabel)
+          ?? (comparisonSourceId ? comparisonLabel(comparisonSourceId) : workingCopy ? 'Working copy' : gitRange ? 'Changes' : filesLabel)
   const comparisonMessageTitle = comparisonSourceId === 'staged'
     ? 'Staged changes'
     : displayedComparison?.workingTree
@@ -1753,7 +1932,7 @@ export function ReviewPage() {
   const comparisonMessageFallback = comparisonSourceId === 'staged'
     ? 'Staged changes are stored in the Git index and do not have a commit author or commit message yet.'
     : 'Uncommitted workspace changes do not have a commit author or commit message yet.'
-  const emptyReviewMessage = capturePending
+  const emptyReviewMessage = snapshotPending ? 'Loading review…' : capturePending
     ? 'Capturing an immutable workspace revision…'
     : !reviewRequestBase
       ? 'Open a real review with: farming review <git-dir> <base> <head|now>'
@@ -1767,20 +1946,26 @@ export function ReviewPage() {
   const reviewLoadLabel = routeTargetError ? 'Could not load review target' : gitRange ? 'Could not load git range' : 'Could not load working copy'
 
   return (
-    <main className="review-root" data-testid="review-page">
+    <main className="review-root" data-testid="review-page" onKeyDown={event => {
+      if (event.ctrlKey || event.metaKey || event.altKey || event.nativeEvent.isComposing
+        || (event.target instanceof HTMLElement && event.target.closest('input, textarea, select, [contenteditable="true"], [role="dialog"], [role="menu"], [role="listbox"]'))) return
+      if (event.key === ']') { event.preventDefault(); navigateFile('next') }
+      if (event.key === '[') { event.preventDefault(); navigateFile('previous') }
+      if (event.key.toLowerCase() === 'n' || event.key.toLowerCase() === 'p') { event.preventDefault(); navigateContent(event.shiftKey ? 'comment' : 'hunk', event.key.toLowerCase() === 'n' ? 'next' : 'previous') }
+    }}>
       <section className="review-files" aria-label="Changed files">
         <header className="review-files-toolbar">
           <div className="review-patch-info">
             <div className="review-source-control" ref={comparisonSourceRef}>
-              <button type="button" className="review-source-trigger" aria-expanded={showComparisonSources} onClick={openComparisonSources}>
+              <button type="button" className="review-source-trigger" aria-expanded={showComparisonSources} disabled={capturePending} onClick={openComparisonSources}>
                 <strong>{comparisonSourceLabel}</strong><ChevronDownGlyph />
               </button>
               {showComparisonSources ? <div className="code-menu-surface code-menu-list review-source-menu" role="menu" aria-label="Compare changes from">
                 {comparisonSourcesPending ? <p>Loading comparisons…</p> : null}
                 {comparisonSourceError ? <p className="error">{comparisonSourceError}</p> : null}
                 {comparisonSources ? <>
-                  <button type="button" role="menuitemradio" aria-checked={comparisonSourceId === 'unstaged'} disabled={!comparisonSources.unstaged.available} onClick={() => selectComparisonSource(comparisonSources.unstaged)}>
-                    <span>Unstaged</span>{comparisonSourceId === 'unstaged' ? <CheckGlyph /> : null}
+                  <button type="button" role="menuitemradio" aria-checked={!reviewSessionActive && comparisonSourceId === 'unstaged'} disabled={!comparisonSources.unstaged.available} onClick={() => selectComparisonSource(comparisonSources.unstaged)}>
+                    <span>Unstaged</span>{!reviewSessionActive && comparisonSourceId === 'unstaged' ? <CheckGlyph /> : null}
                   </button>
                   <button type="button" role="menuitemradio" aria-checked={comparisonSourceId === 'staged'} disabled={!comparisonSources.staged.available} onClick={() => selectComparisonSource(comparisonSources.staged)}>
                     <span>Staged</span>{comparisonSourceId === 'staged' ? <CheckGlyph /> : null}
@@ -1802,7 +1987,7 @@ export function ReviewPage() {
                     )) : <p>No other branches</p>}</div>
                   </details>
                   {reviewSessionRevision ? <button type="button" role="menuitemradio" aria-checked={reviewSessionActive} onClick={() => setSessionRequest(reviewSessionRevision, reviewView)}>
-                    <span>Last Turn</span>{reviewSessionActive ? <CheckGlyph /> : null}
+                    <span>Captured · {comparisonLabel(capturedSourceId)}</span>{reviewSessionActive ? <CheckGlyph /> : null}
                   </button> : null}
                 </> : null}
               </div> : null}
@@ -1824,11 +2009,15 @@ export function ReviewPage() {
                 {commitCopied ? 'Copied' : '34a15ae'}<CopyGlyph />
               </button>
             </> : null}
-            {reviewSessionActive ? <span className="review-revision-label">Revision {reviewSessionRevision?.number}</span> : null}
+            {reviewSessionActive && reviewSessionRevision ? <CodeSelect density="toolbar" disabled={capturePending} ariaLabel="Revision" value={reviewSessionRevision.head}
+              options={(sessionRevisions.length ? sessionRevisions : [reviewSessionRevision]).map(revision => ({ value: revision.head, label: `Revision ${revision.number}` }))}
+              onChange={head => { const revision = sessionRevisions.find(item => item.head === head); if (revision) setSessionRequest(revision, 'final') }} /> : null}
           </div>
           <div className="review-files-actions">
             {reviewSessionActive && reviewSessionRevision ? <>
-              {reviewSessionRevision.number > 1 ? <button type="button" className={reviewView === 'fixes' ? 'active' : ''} onClick={() => selectReviewView('fixes')}>FIXES SINCE REVIEW</button> : null}
+              {reviewSessionRevision.number > 1 ? <CodeSelect density="toolbar" disabled={capturePending} ariaLabel="Comparison view" value={reviewView}
+                options={[{ value: 'final', label: 'Final change' }, { value: 'fixes', label: 'Fixes since review' }]}
+                onChange={value => selectReviewView(value as 'final' | 'fixes')} /> : null}
               <button type="button" disabled={capturePending} onClick={refreshCapturedReview}>{capturePending ? 'CAPTURING…' : 'REFRESH'}</button>
               <span className="review-toolbar-separator" />
             </> : null}
@@ -1845,8 +2034,8 @@ export function ReviewPage() {
             </> : null}
             <button ref={preferencesTriggerRef} type="button" className="review-icon-action" aria-label="Diff preferences" title="Diff preferences" onClick={openPreferences}><SettingsGlyph /></button>
           </div>
-          {reviewStatusError || reviewCommentError ? <span className="review-review-error" role="status">{reviewStatusError || reviewCommentError}</span> : null}
         </header>
+        {reviewStatusError || reviewCommentError ? <div className="review-review-error code-content-toolbar" role="status"><span>{reviewStatusError || reviewCommentError}</span><button type="button" className="code-content-toolbar-text" onClick={() => setStateRetry(value => value + 1)}>RELOAD REVIEW STATE</button></div> : null}
         {externalReview && displayedComparison ? (
           <details className="review-commit-message">
             <summary>
@@ -1871,15 +2060,38 @@ export function ReviewPage() {
             </div>
           </details>
         ) : null}
+        <div className="review-navigation code-content-toolbar" aria-label="Review navigation">
+          <span>{patchsetState.reviewedLoaded ? `${patchsetState.reviewedPaths.length}/${files.length} reviewed` : 'Reviewed status unavailable'} · {commentsLoadState === 'loaded' ? `${reviewState.comments.filter(comment => !comment.status || comment.status === 'open').length} unresolved` : commentsLoadState === 'loading' ? 'Comments loading…' : 'Comments unavailable'}</span>
+          <button type="button" className="code-content-toolbar-text" disabled={!previousFile} onClick={() => navigateFile('previous')} title="Previous file ([)">PREVIOUS FILE</button>
+          <button type="button" className="code-content-toolbar-text" disabled={!nextFile} onClick={() => navigateFile('next')} title="Next file (])">NEXT FILE</button>
+          <button type="button" className="code-content-toolbar-text" disabled={!nextUnreviewedFile} onClick={() => navigateFile('next', true)}>NEXT UNREVIEWED</button>
+          <button type="button" className="code-content-toolbar-text" onClick={() => navigateContent('hunk', 'next')} title="Next change (n), previous (p)">NEXT CHANGE</button>
+          <button type="button" className="code-content-toolbar-text" disabled={!reviewState.comments.length} onClick={() => navigateContent('comment', 'next')}>NEXT COMMENT</button>
+          <CodeSelect className="review-navigation-select" density="toolbar" ariaLabel="Review navigation" value=""
+            options={[
+              { value: '', label: 'Navigate…', disabled: true },
+              { value: 'previous', label: 'Previous file', disabled: !previousFile },
+              { value: 'next', label: 'Next file', disabled: !nextFile },
+              { value: 'unreviewed', label: 'Next unreviewed', disabled: !nextUnreviewedFile },
+              { value: 'hunk', label: 'Next change' },
+              { value: 'comment', label: 'Next comment', disabled: !reviewState.comments.length },
+            ]}
+            onChange={value => { if (value === 'previous' || value === 'next') navigateFile(value); else if (value === 'unreviewed') navigateFile('next', true); else if (value === 'hunk' || value === 'comment') navigateContent(value, 'next') }} />
+        </div>
         <div className="review-files-list">
-          {reviewLoadError ? <p className="review-working-copy-message" role="alert">{reviewLoadLabel}: {reviewLoadError}</p> : null}
+          {reviewLoadError ? <p className="review-working-copy-message" role="alert">{reviewLoadLabel}: {reviewLoadError} {reviewRequestBase ? <button type="button" className="code-rich-content-retry" onClick={() => { if (!guardDraft()) setSnapshotRetry(value => value + 1) }}>RETRY</button> : null}</p> : null}
           {externalReview && !reviewLoadError && files.length === 0 ? <p className="review-working-copy-message" role="status">{emptyReviewMessage}</p> : null}
           {files.map(file => {
             const rowModel = reviewFileRowModel(reviewState, file, { mutationPending: reviewMutationPending })
             const fileComments = commentsForFilePaths(reviewState, rowModel.commentPaths)
-            const outdatedComments = fileComments.filter(comment => comment.status === 'outdated')
+            const outdatedComments = fileComments.filter(comment => comment.status === 'outdated' || (reviewSessionActive && reviewView === 'fixes' && comment.side === 'left'))
             const commentPathForSide = (side: CommentSide) => reviewCommentPathForSide(file, side)
             const renderLineAttachment = (line: number, sides: CommentSide[]) => {
+              const selectedTarget = selectedCommentTarget
+                && selectedCommentTarget.path === commentPathForSide(selectedCommentTarget.side)
+                && selectedCommentTarget.line === line
+                && sides.includes(selectedCommentTarget.side)
+                ? selectedCommentTarget : null
               const activeTarget = commentTarget
                 && commentTarget.path === commentPathForSide(commentTarget.side)
                 && commentTarget.line === line
@@ -1887,14 +2099,15 @@ export function ReviewPage() {
                 ? commentTarget
                 : null
               const lineComments = fileComments.filter(comment => {
-                return comment.status !== 'outdated'
+                return !(reviewSessionActive && reviewView === 'fixes' && comment.side === 'left') && !(commentMutationPending && patchsetState.pendingComment?.type === 'save' && patchsetState.pendingComment.id === comment.id) && comment.status !== 'outdated'
                   && comment.line === line
                   && sides.includes(comment.side)
                   && comment.path === commentPathForSide(comment.side)
               })
-              if (!activeTarget && lineComments.length === 0) return null
+              if (!activeTarget && !selectedTarget && lineComments.length === 0) return null
               return (
-                <div className="review-line-attachment" data-review-comment-line={line}>
+                <div className={!activeTarget && lineComments.length === 0 ? 'review-selection-attachment' : 'review-line-attachment'} data-review-comment-line={line}>
+                  {selectedTarget ? <span className="code-content-toolbar review-selection-toolbar" data-review-side={selectedTarget.side}><button ref={selectionActionRef} type="button" className="code-content-toolbar-text review-selection-comment" onClick={() => startComment(selectedTarget.path, selectedTarget.line, selectedTarget.side, selectedTarget.range)}>Comment on selection</button></span> : null}
                   {activeTarget ? (
                     <CommentEditor
                       disabled={commentMutationPending}
@@ -1923,12 +2136,31 @@ export function ReviewPage() {
                   <button
                     type="button"
                     className="review-file-select"
-                    onClick={() => toggleExpanded(file.path)}
+                    onCopy={event => {
+                      const selection = window.getSelection()
+                      if (!selection || selection.isCollapsed || selection.rangeCount !== 1) return
+                      const range = selection.getRangeAt(0)
+                      const ancestor = range.commonAncestorContainer
+                      const element = ancestor instanceof Element ? ancestor : ancestor.parentElement
+                      const path = element?.closest('.review-file-name, .review-file-previous-path')
+                      if (!path || !event.currentTarget.contains(path)) return
+                      // Flex layout inserts a visual line break between directory and basename.
+                      // Copy the selected text nodes, not those layout separators.
+                      event.clipboardData.setData('text/plain', range.toString())
+                      event.preventDefault()
+                    }}
+                    onClick={() => {
+                      const selection = window.getSelection()
+                      if (selection && !selection.isCollapsed) return
+                      toggleExpanded(file.path)
+                    }}
                   >
                     <span className="review-file-status">{rowModel.changeLabel}</span>
                     <span className="review-file-paths">
-                      <span className="review-file-name">{file.path}</span>
-                      {file.previousPath ? <span className="review-file-previous-path" title={`Previous path: ${file.previousPath}`}>{file.previousPath}</span> : null}
+                      <ReviewPath path={file.path} />
+                      {file.previousPath ? <ReviewPath path={file.previousPath} previous /> : null}
+                    {file.oldMode && file.newMode && file.oldMode !== file.newMode ? <span className="review-file-metadata" title="File mode changed">{file.oldMode} → {file.newMode}</span> : null}
+                  {fileComments.length ? <span className="review-file-metadata" title={`${fileComments.length} comments`}>{fileComments.filter(comment => !comment.status || comment.status === 'open').length} unresolved · {fileComments.length} comments</span> : null}
                     </span>
                     <ChangeBar file={file} maxChangeSize={maxChangeSize} />
                     <FileStats file={file} />
@@ -1942,6 +2174,7 @@ export function ReviewPage() {
                 {rowModel.expanded ? (
                   <section className={`review-inline-diff ${effectiveDiffMode} ${diffPreferences.fitToScreen ? 'fit-to-screen' : ''}`} aria-label={`Diff for ${file.path}`}>
                     {outdatedComments.length ? <div className="review-outdated-comments">
+                      {reviewView === 'fixes' && outdatedComments.some(comment => comment.side === 'left') ? <p>Comments on the original base (see Final change)</p> : null}
                       {outdatedComments.map(comment => <CommentThread
                         comment={comment}
                         disabled={commentMutationPending}
@@ -1951,19 +2184,37 @@ export function ReviewPage() {
                       />)}
                     </div> : null}
                     {file.submoduleError ? <div className="review-diff-status" role="alert">{file.submoduleError}</div> : null}
-                    <div className="review-diff-columns"><span>File</span>{effectiveDiffMode === 'split' ? <span>File</span> : null}</div>
+                    <div className="review-diff-columns"><span>{effectiveDiffMode === 'split' ? reviewSessionActive && reviewView === 'fixes' ? 'Previous revision' : 'Base' : 'Change'}</span>{effectiveDiffMode === 'split' ? <span>{reviewSessionActive ? `Revision ${reviewSessionRevision?.number}` : 'Candidate'}</span> : null}</div>
                     {rowModel.diffStatus !== 'loaded' || rowModel.diffLoadPending || rowModel.diffLoadError ? (
-                      <DiffStatusMessage row={rowModel} />
+                      <DiffStatusMessage row={rowModel} onRetry={() => applyReviewAction({ path: file.path, type: 'retry-file-diff' })} />
                     ) : (
                       <>
                         <div
                           className="review-diff-code"
+                          tabIndex={0}
                           style={{ fontSize: `${diffPreferences.fontSize}px`, tabSize: diffPreferences.tabSize, minWidth: diffPreferences.fitToScreen ? undefined : `${Math.round(diffPreferences.lineLength * diffPreferences.fontSize * 0.62)}px` }}
+                          onMouseDown={event => {
+                            const cell = codeCellForSelectionNode(event.target as Node, event.currentTarget)
+                            if (cell) event.currentTarget.dataset.selectionSide = cell.dataset.reviewSide
+                          }}
+                          onCopy={event => {
+                            if (event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLInputElement) return
+                            const text = selectedDiffText(event.currentTarget, effectiveDiffMode)
+                            if (text === null) return
+                            event.clipboardData.setData('text/plain', text)
+                            event.preventDefault()
+                          }}
+                          onKeyDown={event => {
+                            if (event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLInputElement) return
+                            if (event.key !== 'c' || event.metaKey || event.ctrlKey || event.altKey) return
+                            const selected = commentRangeFromSelection(event.currentTarget)
+                            if (!selected) return
+                            event.preventDefault()
+                            startComment(commentPathForSide(selected.side), selected.line, selected.side, selected.range)
+                          }}
                           onClick={event => {
-                            const selection = window.getSelection()
-                            if (selection && !selection.isCollapsed) return
                             if (!(event.target instanceof Element)) return
-                            const codeCell = event.target.closest<HTMLElement>('code[data-review-line][data-review-side]')
+                            const codeCell = event.target.closest<HTMLElement>('.review-line-number')
                             if (!codeCell) return
                             const line = Number(codeCell.dataset.reviewLine)
                             const side = codeCell.dataset.reviewSide
@@ -1973,7 +2224,7 @@ export function ReviewPage() {
                           onMouseUp={event => {
                             const selected = commentRangeFromSelection(event.currentTarget)
                             if (!selected) return
-                            startComment(commentPathForSide(selected.side), selected.line, selected.side, selected.range)
+                            setSelectedCommentTarget({ ...selected, path: commentPathForSide(selected.side) })
                           }}
                         >
                           <DiffRows contextKeyPrefix={`${reviewId}:${patchset}`} contextGapExpansions={contextGapExpansions} file={file} mode={effectiveDiffMode} preferences={diffPreferences} renderAttachment={renderLineAttachment} onExpandContext={(gap, direction, range) => expandFileContext(file, gap, direction, range)} onExpandSkippedContext={(_gapKey, _hunkIndex, context) => expandRemoteContext(file.path, context)} />
@@ -2008,6 +2259,7 @@ export function ReviewPage() {
               <label>Diff width<input className="code-field" aria-label="Diff width" type="number" autoComplete="off" data-form-type="other" min={40} max={240} value={draftPreferences.lineLength} onChange={event => setDraftPreferences(current => ({ ...current, lineLength: Number(event.target.value) || current.lineLength }))} /></label>
               <label>Tab width<input className="code-field" aria-label="Tab width" type="number" autoComplete="off" data-form-type="other" min={2} max={16} value={draftPreferences.tabSize} onChange={event => setDraftPreferences(current => ({ ...current, tabSize: Number(event.target.value) || current.tabSize }))} /></label>
               <label>Font size<input className="code-field" aria-label="Font size" type="number" autoComplete="off" data-form-type="other" min={10} max={20} value={draftPreferences.fontSize} onChange={event => setDraftPreferences(current => ({ ...current, fontSize: Number(event.target.value) || current.fontSize }))} /></label>
+              <label className="checkbox-row">Automatically mark opened files reviewed<input aria-label="Automatically mark opened files reviewed" type="checkbox" checked={draftPreferences.autoMarkReviewed} onChange={event => setDraftPreferences(current => ({ ...current, autoMarkReviewed: event.target.checked }))} /></label>
               <label className="checkbox-row">Intraline differences<input aria-label="Intraline differences" type="checkbox" checked={draftPreferences.intralineDifference} onChange={event => setDraftPreferences(current => ({ ...current, intralineDifference: event.target.checked }))} /></label>
               <label className="checkbox-row">Show tabs<input aria-label="Show tabs" type="checkbox" checked={draftPreferences.showTabs} onChange={event => setDraftPreferences(current => ({ ...current, showTabs: event.target.checked }))} /></label>
               <label className="checkbox-row">Show trailing whitespace<input aria-label="Show trailing whitespace" type="checkbox" checked={draftPreferences.showTrailingWhitespace} onChange={event => setDraftPreferences(current => ({ ...current, showTrailingWhitespace: event.target.checked }))} /></label>

@@ -126,18 +126,13 @@ test('reviewed state is scoped to the right-side patchset and writes only meanin
   assert.deepEqual(repeated.effects, [])
 })
 
-test('single-file expansion marks the opened file reviewed', () => {
+test('single-file expansion respects the automatic review preference', () => {
   const manual = transitionReviewState(initialState(false), {
     path: 'clis/dataflow.py',
     type: 'toggle-file-expanded',
   }, catalog)
-  assert.equal(isFileReviewed(manual.state, 'clis/dataflow.py'), true)
-  assert.deepEqual(manual.effects, [{
-    changes: [{ path: 'clis/dataflow.py', reviewed: true }],
-    patchset: 'Patchset 20',
-    revision: 0,
-    type: 'save-reviewed-status',
-  }])
+  assert.equal(isFileReviewed(manual.state, 'clis/dataflow.py'), false)
+  assert.deepEqual(manual.effects, [])
 
   const automatic = transitionReviewState(initialState(true), {
     path: 'clis/dataflow.py',
@@ -233,7 +228,7 @@ test('file expansion requests lazy diff loading for file-list-only entries', () 
   assert.deepEqual(reviewStateForPatchset(expandAll.state, 'Patchset 20').pendingDiffPaths, ['src/lazy.ts'])
 })
 
-test('patchset switching retains each patchset review surface and cancels a foreign comment draft', () => {
+test('patchset switching protects a draft until explicitly discarded', () => {
   let state = initialState()
   state = transitionReviewState(state, { path: 'clis/dataflow.py', type: 'toggle-file-expanded' }, catalog).state
   state = transitionReviewState(state, {
@@ -244,6 +239,8 @@ test('patchset switching retains each patchset review surface and cancels a fore
   }, catalog).state
   state = transitionReviewState(state, { body: 'Keep the base range explicit.', type: 'update-comment-draft' }, catalog).state
 
+  assert.strictEqual(transitionReviewState(state, { patchset: 'Patchset 19', type: 'select-patchset' }, catalog).state, state)
+  state = transitionReviewState(state, { type: 'cancel-comment' }, catalog).state
   const patchset19 = transitionReviewState(state, { patchset: 'Patchset 19', type: 'select-patchset' }, catalog)
   assert.equal(patchset19.state.commentDraft, undefined)
   assert.equal(isFileReviewed(patchset19.state, 'clis/dataflow.py'), true)
@@ -297,6 +294,7 @@ test('comment mutations are serialized per patchset and restore authoritative co
   }, catalog)
   assert.equal(commentsForFile(restored.state, 'clis/dataflow.py').length, 0)
   assert.equal(reviewStateForPatchset(restored.state, 'Patchset 20').pendingComment, undefined)
+  assert.equal(restored.state.commentDraft?.body, 'Review this branch.')
 })
 
 test('comment effects and completions are scoped to review identity', () => {
@@ -1338,4 +1336,34 @@ test('review state accepts Gerrit special file paths without allowing arbitrary 
     revision: 0,
     type: 'save-reviewed-status',
   }])
+})
+
+
+test('automatic review waits for both successful diff and reviewed hydration, including retry', () => {
+  const files: ReviewCatalog = { 'Patchset 20': [file({ added: 1, removed: 1, kind: 'modified', path: 'lazy.ts', diffLoaded: false })] }
+  let state = createReviewState({ catalog: files, patchRange: { basePatchset: 'Base', patchset: 'Patchset 20' }, preferences: initialState(true).preferences })
+  state = transitionReviewState(state, { path: 'lazy.ts', type: 'toggle-file-expanded' }, files).state
+  state = transitionReviewState(state, { type: 'hydrate-reviewed-status', patchset: 'Patchset 20', revision: 0, reviewedPaths: [] }, files).state
+  assert.equal(isFileReviewed(state, 'lazy.ts'), false)
+  state = transitionReviewState(state, { type: 'fail-file-diff-load', patchset: 'Patchset 20', path: 'lazy.ts', error: 'offline' }, files).state
+  assert.equal(isFileReviewed(state, 'lazy.ts'), false)
+  const retry = transitionReviewState(state, { type: 'retry-file-diff', path: 'lazy.ts' }, files)
+  assert.equal(retry.effects.length, 1)
+  const loaded = { 'Patchset 20': [{ ...files['Patchset 20'][0], diffLoaded: true }] }
+  const complete = transitionReviewState(retry.state, { type: 'commit-file-diff-load', patchset: 'Patchset 20', path: 'lazy.ts' }, loaded)
+  assert.equal(isFileReviewed(complete.state, 'lazy.ts'), true)
+  assert.equal(complete.effects[0]?.type, 'save-reviewed-status')
+})
+
+test('draft stays at its anchor and survives an unconfirmed save', () => {
+  let state = initialState()
+  state = transitionReviewState(state, { type: 'start-comment', path: 'clis/dataflow.py', line: 1, side: 'right' }, catalog).state
+  state = transitionReviewState(state, { type: 'update-comment-draft', body: 'Do not lose this' }, catalog).state
+  assert.strictEqual(transitionReviewState(state, { type: 'start-comment', path: 'clis/diagnose.py', line: 2, side: 'left' }, catalog).state, state)
+  state = transitionReviewState(state, { type: 'save-comment', id: 'stable-id' }, catalog).state
+  assert.equal(state.commentDraft?.body, 'Do not lose this')
+  assert.strictEqual(transitionReviewState(state, { type: 'cancel-comment' }, catalog).state, state)
+  state = transitionReviewState(state, { type: 'restore-comments', comments: [], id: 'stable-id', pendingType: 'save', patchset: 'Patchset 20' }, catalog).state
+  assert.equal(state.commentDraft?.id, 'stable-id')
+  assert.equal(state.commentDraft?.body, 'Do not lose this')
 })

@@ -33,6 +33,15 @@ base, an explicit Git range, or an immutable Agent File Changes capture. Source
 selection is semantic and must resolve to an exact comparison before the Review
 is shown.
 
+Capturing a comparison preserves its source label through refresh, revision-view
+changes and reopening. A workspace snapshot is not evidence of an Agent's last
+turn. Agent evidence is labeled Agent changes; legacy captures without provenance
+use Changes. The comparison menu distinguishes the captured revision from a fresh
+working-copy comparison.
+Capture accepts both commit and tree bases, including the index tree used by
+Unstaged. Both base and candidate objects stay referenced for the Review lineage;
+later index changes cannot alter an existing capture.
+
 Source discovery bounds each staged, unstaged, and untracked path enumeration.
 An output limit preserves the source's known availability and marks the path
 inventory incomplete, so a large untracked area cannot prevent selecting a
@@ -126,6 +135,19 @@ Review uses one file-list-first workspace. File rows show change type, summary,
 reviewed state, comments, and expandable inline diff without duplicating the
 same catalog in another panel.
 
+File paths prioritize the basename when space is limited; compact rows show an
+abbreviated directory. Current and previous paths retain their full tooltip and
+selectable text. Dragging a path selects text without expanding its diff.
+
+Diff text uses native selection. Pointer-down chooses the selectable side in a
+split diff; copying takes the selected original source text, excluding line
+numbers, the opposite side, comments and whitespace visualization glyphs.
+Selection remains selected and keeps focus on pointer-up. A selection offers an
+explicit comment action (or `c` shortcut); line-number activation opens a line
+comment. Only explicit comment activation transfers focus to the editor. A new
+pointer selection, Escape or a comparison change dismisses the selection action;
+selection alone never creates a draft or writes review state.
+
 Review follows the authoritative Farming Code appearance preference. Its
 canvas, controls, syntax, comments, and diff states consume the shared semantic
 theme roles; the route must not fall back to a fixed Light skin.
@@ -139,6 +161,35 @@ Final change and fixes since the previous revision serve different attention
 needs. The complete base-to-current result remains authoritative, while the
 incremental view is the default way to understand what changed since the last
 Review pass.
+
+### Review Interaction Transitions
+
+- Source discovery is a fresh, bounded read on each menu opening. Selecting a
+  live working tree captures it before showing the new catalog. Revision and
+  Final change / Fixes since review selectors always identify immutable objects.
+- One active comment draft owns its anchor until Save or explicit Discard.
+  Navigation cannot overwrite a nonempty draft. Draft text and its stable save
+  identity are stored locally per Review revision and restored after reopening.
+  Saving freezes the editor; confirmation clears it. Failure retains it, and
+  an uncertain outcome requires authoritative reconciliation before editing or
+  retrying. A retry retains the same comment identity.
+- Reviewed state defaults to manual. Optional automatic marking requires an
+  individually opened file, successful diff loading, and authoritative reviewed
+  hydration. Expand all does not mark files reviewed. Unknown write outcomes
+  invalidate reviewed status until a successful read restores it.
+- Inline diff loads share a four-request budget. Queued requests from an
+  abandoned comparison are dropped and late responses cannot update it. Failed
+  diffs expose Retry; failed comment/reviewed hydration exposes Reload review
+  state. Review HTTP operations have a bounded timeout.
+- File rows expose unresolved/total comment counts and file-mode changes.
+  Navigation offers adjacent files, next unreviewed file, changed hunks and
+  comments. `[` / `]` navigate files; `p` / `n` navigate changed hunks and Shift
+  navigates comments. Text-entry controls retain their native keyboard behavior.
+- Comment ranges have a non-destructive text annotation. Refresh maps candidate
+  anchors only across unchanged line intervals; overlapping edits remain outdated.
+  Original-base comments keep their original coordinates. In Fixes view they are
+  shown separately, and new base-side comments require Final change, whose left
+  object is the authoritative original base.
 
 ## Failure And Recovery
 

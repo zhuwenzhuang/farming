@@ -130,6 +130,8 @@ test('creates and persists a comment for a selected code range', async ({ page }
     first.closest('.review-diff-code')?.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
   }, await rightCells.nth(1).elementHandle())
 
+  await expect(diff.locator('.review-comment-editor')).toHaveCount(0)
+  await diff.getByRole('button', { name: 'Comment on selection' }).click()
   const editor = diff.locator('.review-comment-editor')
   await expect(editor.locator('header')).toContainText(/Patchset lines \d+–\d+/)
   await editor.getByLabel('Review comment').fill('Review the selected range as one unit.')
@@ -159,12 +161,12 @@ test('persists reviewed files and diff preferences across a refresh', async ({ p
   await page.getByRole('button', { name: 'SAVE' }).click()
 
   const diagnoseDiff = review.getByLabel('Diff for clis/diagnose.py')
-  await diagnoseDiff.locator('code[data-review-line="130"][data-review-side="right"]').click()
+  await diagnoseDiff.getByRole('button', { name: 'Comment on patchset line 130', exact: true }).click()
   await page.getByLabel('Review comment').fill('Discard this draft.')
-  await page.getByRole('button', { name: 'CANCEL' }).click()
+  await page.getByRole('button', { name: 'DISCARD' }).click()
   await expect(diagnoseDiff.getByText('Discard this draft.', { exact: true })).toHaveCount(0)
 
-  await diagnoseDiff.locator('code[data-review-line="130"][data-review-side="right"]').click()
+  await diagnoseDiff.getByRole('button', { name: 'Comment on patchset line 130', exact: true }).click()
   const changedLine = diagnoseDiff.locator('.review-diff-row.added:has(code[data-review-line="130"][data-review-side="right"])')
   const attachment = changedLine.locator('xpath=following-sibling::*[1]')
   await expect(attachment).toHaveClass(/review-line-attachment/)
@@ -177,7 +179,7 @@ test('persists reviewed files and diff preferences across a refresh', async ({ p
   await expect(review.getByLabel('Diff for clis/diagnose.py').getByRole('button', { name: 'Show all 126 common lines' })).toBeVisible()
   const persistedDiff = review.getByLabel('Diff for clis/diagnose.py')
   await expect(persistedDiff.getByText('Keep the base range explicit.', { exact: true })).toBeVisible()
-  await persistedDiff.getByRole('button', { name: 'Delete comment on line 13' }).click()
+  await persistedDiff.getByRole('button', { name: 'Delete comment on line 130' }).click()
   await expect(persistedDiff.getByText('Keep the base range explicit.', { exact: true })).toHaveCount(0)
   await page.reload()
   await expect(review.getByLabel('Diff for clis/diagnose.py').getByText('Keep the base range explicit.', { exact: true })).toHaveCount(0)
@@ -265,6 +267,9 @@ test('marks a single opened file reviewed while expand-all does not mark every f
   await page.goto('/farming/review?fixture=1')
 
   const review = page.getByTestId('review-page')
+  await review.getByRole('button', { name: 'Diff preferences' }).click()
+  await page.getByLabel('Automatically mark opened files reviewed').check()
+  await page.getByRole('button', { name: 'SAVE', exact: true }).click()
   const fetchLogview = review.locator('[data-file-path="clis/fetch_logview.py"]')
   const querySls = review.locator('[data-file-path="clis/query_sls.py"]')
 
@@ -294,7 +299,7 @@ test('keeps files, review state, comments, and expanded diffs scoped to each pat
   await diagnose19Switch.click()
   await expect(diagnose19Switch).toHaveAttribute('aria-checked', 'true')
   const diagnose19Diff = review.getByLabel('Diff for clis/diagnose.py')
-  await diagnose19Diff.locator('code[data-review-line="130"][data-review-side="right"]').click()
+  await diagnose19Diff.getByRole('button', { name: 'Comment on patchset line 130', exact: true }).click()
   await page.getByLabel('Review comment').fill('Patchset 19 needs an explicit range.')
   await page.getByRole('button', { name: 'SAVE COMMENT' }).click()
   await expect(diagnose19.getByText('Reviewed', { exact: true })).toBeVisible()
@@ -472,7 +477,7 @@ test('captures an agent working copy as an isolated immutable review session', a
   await review.locator('.review-commit-message summary').click()
   await expect(review.getByText('Uncommitted workspace changes do not have a commit author or commit message yet.', { exact: true })).toBeVisible()
   await expect(review.getByLabel('Patch set', { exact: true })).toHaveCount(0)
-  await expect(review.getByRole('button', { name: 'Last Turn', exact: true })).toBeVisible()
+  await expect(review.getByRole('button', { name: 'Working copy', exact: true })).toBeVisible()
   await expect(workingFile).toBeVisible()
   await expect(binaryFile).toContainText('512 B')
   await expect(review.locator('[data-file-path="clis/dataflow.py"]')).toHaveCount(0)
@@ -488,6 +493,8 @@ test('captures an agent working copy as an isolated immutable review session', a
   await expect(workingDiff.locator('.review-intraline')).toHaveCount(0)
   expect(loadedFileDiff).toBe(true)
   const workingReviewedSwitch = workingFile.getByRole('switch', { name: 'Reviewed' })
+  await expect(workingReviewedSwitch).toHaveAttribute('aria-checked', 'false')
+  await workingReviewedSwitch.click()
   await expect(workingReviewedSwitch).toHaveAttribute('aria-checked', 'true')
   await workingFile.hover()
   await workingReviewedSwitch.click()
@@ -499,7 +506,7 @@ test('captures an agent working copy as an isolated immutable review session', a
   await hugeFile.locator('.review-file-select').click()
   await expect(review.getByLabel('Diff for src/huge.cpp').getByText('Diff too large to render', { exact: true })).toBeVisible()
   await failFile.locator('.review-file-select').click()
-  await expect(review.getByLabel('Diff for src/fail.cpp').getByRole('alert')).toHaveText('Could not load diff: diff backend unavailable')
+  await expect(review.getByLabel('Diff for src/fail.cpp').getByRole('alert')).toContainText('Could not load diff: diff backend unavailable')
 
   await page.setViewportSize({ width: 390, height: 844 })
   expect(page.viewportSize()?.width).toBe(390)
@@ -592,7 +599,7 @@ test('captures recent untracked files as an immutable single-column review', asy
 
   await page.goto('/farming/review?agentId=fsess-demo&scope=untracked&modifiedWithinDays=3')
   const review = page.getByTestId('review-page')
-  await expect(review.getByRole('button', { name: 'Last Turn', exact: true })).toBeVisible()
+  await expect(review.getByRole('button', { name: 'Untracked', exact: true })).toBeVisible()
   await expect(review.getByRole('button', { name: 'Side-by-side diff' })).toHaveCount(0)
   const row = review.locator(`[data-file-path="${filePath}"]`)
   await row.locator('.review-file-select').click()
@@ -714,7 +721,7 @@ test('refreshes a review revision without losing inherited state or attaching ou
 
   await review.getByRole('button', { name: 'REFRESH' }).click()
   await expect(review.getByText('Revision 2', { exact: true })).toBeVisible()
-  await expect(review.getByRole('button', { name: 'FIXES SINCE REVIEW' })).toHaveClass(/active/)
+  await expect(review.getByRole('combobox', { name: 'Comparison view' })).toContainText('Fixes since review')
   await expect(row.getByText('Reviewed', { exact: true })).toHaveCount(0)
   await expect(row.getByRole('switch', { name: 'Reviewed' })).toHaveAttribute('aria-checked', 'false')
   expect(loadedFileDiff).toBe(false)
@@ -910,6 +917,8 @@ test('uses the git-range endpoint when base and head are selected in the review 
     { lines: 10, newStart: 25, oldStart: 25 },
   ]))
   const rangeReviewedSwitch = rangeFile.getByRole('switch', { name: 'Reviewed' })
+  await expect(rangeReviewedSwitch).toHaveAttribute('aria-checked', 'false')
+  await rangeReviewedSwitch.click()
   await expect(rangeReviewedSwitch).toHaveAttribute('aria-checked', 'true')
   await rangeFile.hover()
   await rangeReviewedSwitch.click()
@@ -1158,11 +1167,12 @@ test('restores an optimistic comment when the review API rejects it', async ({ p
 
   const review = page.getByTestId('review-page')
   const diagnoseDiff = review.getByLabel('Diff for clis/diagnose.py')
-  await diagnoseDiff.locator('code[data-review-line="130"][data-review-side="right"]').click()
+  await diagnoseDiff.getByRole('button', { name: 'Comment on patchset line 130', exact: true }).click()
   await page.getByLabel('Review comment').fill('This must not remain local only.')
   await page.getByRole('button', { name: 'SAVE COMMENT' }).click()
   await expect(review.getByText('Could not save comment: comment store unavailable', { exact: true })).toBeVisible()
-  await expect(diagnoseDiff.getByText('This must not remain local only.', { exact: true })).toHaveCount(0)
+  await expect(diagnoseDiff.locator('.review-comment-thread').getByText('This must not remain local only.', { exact: true })).toHaveCount(0)
+  await expect(page.getByLabel('Review comment')).toHaveValue('This must not remain local only.')
 })
 
 test('switches every comparison source against a real Git repository', async ({ page }) => {
@@ -1191,7 +1201,7 @@ test('switches every comparison source against a real Git repository', async ({ 
     await page.goto(`/farming/review?root=${encodeURIComponent(temporaryRoot)}`)
     const review = page.getByTestId('review-page')
     const sourceTrigger = review.locator('.review-source-trigger')
-    await expect(sourceTrigger).toHaveText(/Last Turn/)
+    await expect(sourceTrigger).toHaveText('Working copy')
     await expect(review.getByText('Change summary', { exact: true })).toBeVisible()
     await expect(review.locator('[data-file-path="alpha.txt"]')).toBeVisible()
     await expect(review.locator('[data-file-path="loose.txt"]')).toBeVisible()
@@ -1202,6 +1212,11 @@ test('switches every comparison source against a real Git repository', async ({ 
     await expect(review.getByText('Change summary', { exact: true })).toBeVisible()
     await expect(review.locator('[data-file-path="alpha.txt"]')).toBeVisible()
     await expect(review.locator('[data-file-path="loose.txt"]')).toBeVisible()
+    const capturedText = fs.readFileSync(path.join(temporaryRoot, 'alpha.txt'), 'utf8')
+    fs.writeFileSync(path.join(temporaryRoot, 'alpha.txt'), 'later edit must not leak into this review\n')
+    await review.locator('[data-file-path="alpha.txt"] .review-file-select').click()
+    await expect(review.getByLabel('Diff for alpha.txt')).toContainText(capturedText.trim())
+    await expect(review.getByLabel('Diff for alpha.txt')).not.toContainText('later edit must not leak')
 
     await sourceTrigger.click()
     await review.getByRole('menuitemradio', { name: 'Staged', exact: true }).click()
@@ -1229,8 +1244,8 @@ test('switches every comparison source against a real Git repository', async ({ 
     await expect(review.locator('[data-file-path="beta.txt"]')).toBeVisible()
 
     await sourceTrigger.click()
-    await review.getByRole('menuitemradio', { name: 'Last Turn', exact: true }).click()
-    await expect(sourceTrigger).toHaveText(/Last Turn/)
+    await review.getByRole('menuitemradio', { name: 'Captured · Unstaged', exact: true }).click()
+    await expect(sourceTrigger).toHaveText('Unstaged')
     await expect(review.getByText('Change summary', { exact: true })).toBeVisible()
     await expect(review.locator('.review-workspace')).toHaveCount(0)
     await expect(review.locator('.review-review-scroll')).toHaveCount(0)
@@ -1296,7 +1311,7 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
       await expect(review).not.toContainText('maxBuffer')
       await page.screenshot({ path: testInfo.outputPath(`review-gitlink-sources-${appearance}.png`), animations: 'disabled' })
       await review.getByRole('menuitemradio', { name: 'Unstaged', exact: true }).click()
-      await expect(review.getByRole('alert')).toContainText('Working-copy comparison exceeds the untracked path limit')
+      await expect(review.getByRole('alert')).toContainText('too many workspace files to capture this review')
       await expect(review.getByTestId('review-file-row')).toHaveCount(0)
       await review.locator('.review-source-trigger').click()
       await review.locator('details.review-source-submenu').filter({ hasText: 'Commit' }).locator('summary').click()
@@ -1339,7 +1354,7 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
       expect((await page.request.post('/farming/api/settings', { data: { appearance } })).ok()).toBeTruthy()
       await page.goto(`/farming/review?${new URLSearchParams({ root, base, head })}`)
       await expect(page.locator('body')).toHaveAttribute('data-appearance', appearance)
-      const row = page.getByTestId('review-file-row').filter({ has: page.locator('[class="review-file-name"]').filter({ hasText: 'engine/engine.ts' }) })
+      const row = page.getByTestId('review-file-row').filter({ has: page.locator('.review-file-name').filter({ hasText: 'engine/engine.ts' }) })
       await expect(row).toHaveCount(1)
       await row.locator('.review-file-select').click()
       const diff = page.getByLabel('Diff for engine/engine.ts', { exact: true })
@@ -1365,3 +1380,270 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
     }
   })
 }
+
+for (const appearance of ['light', 'dark', 'paper'] as const) {
+  test(`preserves captured Unstaged identity and readable paths in ${appearance}`, async ({ page, context }, testInfo) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-review-paths-'))
+    const directory = 'modules/worker/src/main/java/org/example/workspace/scheduler'
+    const filePath = `${directory}/LocalWorker.java`
+    const previousPath = `${directory}/PreviousWorker.java`
+    const renamedPath = `${directory}/RenamedWorker.java`
+    try {
+      git(root, 'init', '-b', 'main')
+      git(root, 'config', 'user.email', 'review@example.com')
+      git(root, 'config', 'user.name', 'Review Example')
+      git(root, 'config', 'core.hooksPath', '/dev/null')
+      fs.mkdirSync(path.join(root, directory), { recursive: true })
+      fs.writeFileSync(path.join(root, filePath), 'class LocalWorker {\n\tint slots = 1;  \n}\n')
+      fs.writeFileSync(path.join(root, previousPath), 'class PreviousWorker {\n  int tasks = 3;\n}\n')
+      fs.writeFileSync(path.join(root, 'staged.txt'), 'before\n')
+      git(root, 'add', '.')
+      git(root, 'commit', '-m', 'Base workers')
+      fs.writeFileSync(path.join(root, 'staged.txt'), 'staged only\n')
+      git(root, 'add', 'staged.txt')
+      const index = git(root, 'write-tree')
+      fs.writeFileSync(path.join(root, filePath), 'class LocalWorker {\n\tint slots = 2;  \n}\n')
+      fs.renameSync(path.join(root, previousPath), path.join(root, renamedPath))
+      expect((await page.request.post('/farming/api/settings', { data: { appearance } })).ok()).toBeTruthy()
+      await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+      await page.setViewportSize({ width: 390, height: 844 })
+      await page.goto(`/farming/review?root=${encodeURIComponent(root)}&base=${index}&head=now&comparison=unstaged`)
+      const review = page.getByTestId('review-page')
+      const source = review.locator('.review-source-trigger')
+      const row = review.locator(`[data-file-path="${filePath}"]`)
+      await expect(source).toHaveText('Unstaged')
+      await expect(review.getByText('Revision 1', { exact: true })).toBeVisible()
+      await expect(review.locator('[data-file-path="staged.txt"]')).toHaveCount(0)
+      await expect(row.locator('.review-file-name')).toHaveAttribute('title', filePath)
+      await expect(review.locator(`[data-file-path="${renamedPath}"] .review-file-previous-path`)).toHaveAttribute('title', `Previous path: ${previousPath}`)
+      expect(new URL(page.url()).searchParams.get('comparison')).toBe('unstaged')
+      await source.click()
+      await expect(review.getByRole('menuitemradio', { name: 'Captured · Unstaged', exact: true })).toHaveAttribute('aria-checked', 'true')
+      await expect(review.getByRole('menuitemradio', { name: 'Unstaged', exact: true })).toHaveAttribute('aria-checked', 'false')
+      await page.keyboard.press('Escape')
+      for (const width of [390, 800, 1200]) {
+        await page.setViewportSize({ width, height: 844 })
+        const basename = row.locator('.review-path-basename')
+        expect(await basename.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBeTruthy()
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy()
+        await review.screenshot({ path: testInfo.outputPath(`review-paths-${appearance}-${width}.png`), animations: 'disabled' })
+      }
+      // Drag the actual visible filename, then copy without opening the diff.
+      const name = row.locator('.review-path-basename')
+      const box = await name.boundingBox()
+      if (!box) throw new Error('filename missing')
+      await page.mouse.move(box.x + 1, box.y + box.height / 2)
+      await page.mouse.down()
+      await page.mouse.move(box.x + box.width - 1, box.y + box.height / 2, { steps: 12 })
+      await page.mouse.up()
+      await expect(row).not.toHaveClass(/expanded/)
+      const selectedName = await page.evaluate(() => window.getSelection()?.toString())
+      expect(selectedName).toContain('LocalWorker.java')
+      await page.keyboard.press('ControlOrMeta+c')
+      expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(selectedName)
+      // The abbreviated directory remains real text, available for full-path selection.
+      await row.locator('.review-file-name').evaluate(element => {
+        const range = document.createRange()
+        range.selectNodeContents(element)
+        window.getSelection()?.removeAllRanges()
+        window.getSelection()?.addRange(range)
+      })
+      await page.keyboard.press('ControlOrMeta+c')
+      expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(filePath)
+      await page.reload()
+      await expect(source).toHaveText('Unstaged')
+      await expect(review.getByText('Revision 1', { exact: true })).toBeVisible()
+      const firstCapturedHead = new URL(page.url()).searchParams.get('head')!
+      fs.writeFileSync(path.join(root, filePath), 'class LocalWorker {\n\tint slots = 4;  \n}\n')
+      await review.getByRole('button', { name: 'REFRESH', exact: true }).click()
+      await expect(review.getByText('Revision 2', { exact: true })).toBeVisible()
+      await expect(source).toHaveText('Unstaged')
+      expect(new URL(page.url()).searchParams.get('comparison')).toBe('unstaged')
+      await page.reload()
+      await expect(source).toHaveText('Unstaged')
+      await expect(review.getByText('Revision 2', { exact: true })).toBeVisible()
+      await selectCodeOption(review.getByRole('combobox', { name: 'Comparison view' }), 'final')
+      await expect(row).toBeVisible()
+      await selectCodeOption(review.getByRole('combobox', { name: 'Revision', exact: true }), firstCapturedHead)
+      await row.locator('.review-file-select').click()
+      await expect(review.getByLabel(`Diff for ${filePath}`)).toContainText('slots = 2')
+      await expect(review.getByLabel(`Diff for ${filePath}`)).not.toContainText('slots = 4')
+    } finally {
+      await page.goto('about:blank')
+      fs.rmSync(root, { force: true, recursive: true })
+    }
+  })
+
+  test(`selects and copies original diff text without opening comments in ${appearance}`, async ({ page, context }, testInfo) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+    expect((await page.request.post('/farming/api/settings', { data: { appearance } })).ok()).toBeTruthy()
+    await page.goto('/farming/review?fixture=1')
+    const diff = page.getByLabel('Diff for clis/diagnose.py')
+    const code = diff.locator('.review-diff-code')
+    for (const side of ['left', 'right']) {
+      const cell = diff.locator(`code[data-review-line="130"][data-review-side="${side}"]`)
+      const box = await cell.boundingBox()
+      if (!box) throw new Error('code cell missing')
+      await page.mouse.move(box.x + 9, box.y + box.height / 2)
+      await page.mouse.down()
+      await page.mouse.move(box.x + Math.min(210, box.width - 10), box.y + box.height / 2, { steps: 15 })
+      await page.mouse.up()
+      await expect(diff.locator('.review-comment-editor')).toHaveCount(0)
+      expect(await page.evaluate(() => window.getSelection()?.isCollapsed)).toBe(false)
+      await expect(diff.getByRole('button', { name: 'Comment on selection' })).toBeVisible()
+      await page.keyboard.press('ControlOrMeta+c')
+      const copied = await page.evaluate(() => navigator.clipboard.readText())
+      expect(copied.length).toBeGreaterThan(5)
+      expect(await cell.getAttribute('data-review-text')).toContain(copied)
+      await diff.screenshot({ path: testInfo.outputPath(`review-selection-${appearance}-${side}.png`), animations: 'disabled' })
+      await page.keyboard.press('Escape')
+      await expect(diff.getByRole('button', { name: 'Comment on selection' })).toHaveCount(0)
+    }
+    // Native double-click selects a word instead of focusing a comment editor.
+    await diff.locator('code[data-review-line="130"][data-review-side="right"]').dblclick({ position: { x: 85, y: 8 } })
+    await expect(diff.locator('.review-comment-editor')).toHaveCount(0)
+    expect(await page.evaluate(() => window.getSelection()?.toString().trim().length)).toBeGreaterThan(0)
+    for (const mode of ['split', 'unified']) {
+      if (mode === 'unified') await page.getByRole('button', { name: 'Unified diff', exact: true }).click()
+      const cells = diff.locator('code[data-review-side="right"][data-review-line]')
+      const expected = await cells.evaluateAll(elements => elements.map(element => (element as HTMLElement).dataset.reviewText).join('\n'))
+      await code.focus()
+      await cells.first().evaluate((first, last) => {
+        if (!(last instanceof HTMLElement)) throw new Error('last cell missing')
+        const range = document.createRange()
+        range.setStart(first, 0)
+        range.setEnd(last, last.childNodes.length)
+        window.getSelection()?.removeAllRanges()
+        window.getSelection()?.addRange(range)
+      }, await cells.last().elementHandle())
+      await page.keyboard.press('ControlOrMeta+c')
+      const copied = await page.evaluate(() => navigator.clipboard.readText())
+      if (mode === 'split') expect(copied).toBe(expected)
+      else {
+        expect(copied).toContain('normalize_changes')
+        expect(copied).toContain('create_review_entries')
+      }
+      expect(copied).not.toContain('⇥')
+      expect(copied).not.toContain('·')
+      await expect(diff.locator('.review-comment-editor')).toHaveCount(0)
+    }
+  })
+}
+
+
+for (const appearance of ['light', 'dark', 'paper']) {
+  test(`protects and recovers review drafts with manual Reviewed in ${appearance}`, async ({ page }, testInfo) => {
+    await page.request.post('/farming/api/settings', { data: { appearance } })
+    let failSave = true
+    let savedCommentId = ''
+    const draftText = `Keep this ${appearance} draft across navigation and failure`
+    try {
+    await page.route('**/api/reviews/**/comments', async route => {
+      if (route.request().method() === 'POST' && failSave) {
+        await route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'temporary save failure' }) })
+      } else {
+        if (route.request().method() === 'POST') savedCommentId = route.request().postDataJSON().id
+        await route.continue()
+      }
+    })
+    await page.goto('/farming/review?fixture=1')
+    const row = page.locator('[data-file-path="clis/dataflow.py"]')
+    await row.locator('.review-file-select').click()
+    await row.locator('button.review-line-number[data-review-side="right"]').nth(0).click()
+    const editor = row.locator('.review-comment-editor textarea')
+    await editor.fill(draftText)
+    await row.locator('button.review-line-number[data-review-side="right"]').nth(1).click()
+    await expect(editor).toHaveValue(draftText)
+    await page.reload()
+    await expect(editor).toHaveValue(draftText)
+    await row.getByRole('button', { name: 'SAVE COMMENT' }).click()
+    await expect(editor).toBeEnabled()
+    await expect(editor).toHaveValue(draftText)
+    await expect(page.getByText(/Could not save comment:/)).toBeVisible()
+    await page.screenshot({ path: testInfo.outputPath(`review-recovery-${appearance}.png`), fullPage: true })
+    failSave = false
+    await row.getByRole('button', { name: 'SAVE COMMENT' }).click()
+    await expect(row.locator('.review-comment-editor')).toHaveCount(0)
+    await expect(row.locator('.review-comment-thread').filter({ hasText: draftText })).toHaveCount(1)
+    await expect(row.locator('.review-file-metadata')).toContainText('unresolved')
+    await page.getByRole('button', { name: 'NEXT FILE', exact: true }).click()
+    await expect(page.locator('[data-file-path="clis/diagnose.py"]')).toHaveClass(/expanded/)
+    } finally {
+      if (savedCommentId) expect((await page.request.delete(`/farming/api/reviews/review-fixture-553987/patchsets/Patchset%2020/comments/${savedCommentId}`)).ok()).toBeTruthy()
+    }
+  })
+}
+
+
+test('shows unavailable review state and recovers it with an explicit reload', async ({ page }) => {
+  let unavailable = true
+  await page.route('**/api/reviews/**', async route => {
+    if (unavailable && route.request().method() === 'GET') await route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'state unavailable' }) })
+    else await route.continue()
+  })
+  await page.goto('/farming/review?fixture=1')
+  await expect(page.getByText(/Comments unavailable/)).toBeVisible()
+  unavailable = false
+  await page.getByRole('button', { name: 'RELOAD REVIEW STATE' }).click()
+  await expect(page.locator('.review-navigation > span')).toContainText('unresolved')
+  await expect(page.getByText(/Could not load/)).toHaveCount(0)
+})
+
+
+test('does not reconcile an in-flight comment save with an older read', async ({ page }) => {
+  let releaseRead!: () => void
+  let releaseSave!: () => void
+  const readGate = new Promise<void>(resolve => { releaseRead = resolve })
+  const saveGate = new Promise<void>(resolve => { releaseSave = resolve })
+  await page.route('**/api/reviews/**/comments', async route => {
+    if (route.request().method() === 'POST') {
+      await saveGate
+      await route.fulfill({ contentType: 'application/json', body: JSON.stringify(route.request().postDataJSON()) })
+    } else {
+      await readGate
+      await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ comments: [] }) })
+    }
+  })
+  try {
+    await page.goto('/farming/review?fixture=1')
+    const diff = page.getByLabel('Diff for clis/diagnose.py')
+    await diff.getByRole('button', { name: 'Comment on patchset line 130', exact: true }).click()
+    await page.getByLabel('Review comment').fill('Concurrent save keeps its own state')
+    await page.getByRole('button', { name: 'SAVE COMMENT' }).click()
+    releaseRead()
+    await expect(page.locator('.review-navigation > span')).toContainText('unresolved')
+    await expect(page.getByLabel('Review comment')).toBeDisabled()
+    releaseSave()
+    await expect(page.getByLabel('Review comment')).toHaveCount(0)
+    await expect(diff.locator('.review-comment-thread')).toContainText('Concurrent save keeps its own state')
+  } finally { releaseRead(); releaseSave() }
+})
+
+test('reconciles uncertain comment saves before retrying the same identity', async ({ page }) => {
+  const ids: string[] = []
+  let reconcileFails = false
+  await page.route('**/api/reviews/**/comments', async route => {
+    if (route.request().method() === 'POST') {
+      const body = route.request().postDataJSON()
+      ids.push(body.id)
+      if (ids.length === 1) { reconcileFails = true; await route.abort('failed') }
+      else await route.fulfill({ contentType: 'application/json', body: JSON.stringify(body) })
+    } else if (reconcileFails) await route.fulfill({ status: 503, contentType: 'application/json', body: '{}' })
+    else await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ comments: [] }) })
+  })
+  await page.goto('/farming/review?fixture=1')
+  const diff = page.getByLabel('Diff for clis/diagnose.py')
+  await diff.getByRole('button', { name: 'Comment on patchset line 130', exact: true }).click()
+  await page.getByLabel('Review comment').fill('Retain the uncertain save')
+  await page.getByRole('button', { name: 'SAVE COMMENT' }).click()
+  await expect(page.getByText(/Comment save outcome is unknown/)).toBeVisible()
+  await expect(page.getByLabel('Review comment')).toBeDisabled()
+  reconcileFails = false
+  await page.getByRole('button', { name: 'RELOAD REVIEW STATE' }).click()
+  await expect(page.getByLabel('Review comment')).toBeEnabled()
+  await expect(page.getByLabel('Review comment')).toHaveValue('Retain the uncertain save')
+  await page.getByRole('button', { name: 'SAVE COMMENT' }).click()
+  await expect(page.getByLabel('Review comment')).toHaveCount(0)
+  expect(ids).toHaveLength(2)
+  expect(ids[0]).toBe(ids[1])
+})
