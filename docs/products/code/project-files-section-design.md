@@ -257,6 +257,17 @@ they cannot cover breadcrumbs, preview panes, or blame details. Clipping follows
 actual sticky-header geometry even when it resolves after a scroll event. Details follow
 the shared outside-pointer and Escape dismissal protocol.
 
+File Diff navigation belongs to the displayed Monaco model pair. Opening a file
+waits for its diff computation, then reveals the first change once, with surrounding
+context. Pointer, wheel, or keyboard interaction with the content cancels a pending
+automatic reveal. Later layout, theme, or diff updates must not restart it.
+The fixed header keeps Previous/Next change and a current/total count available
+in regular and compact layouts. Navigation wraps within the file and follows
+cursor placement on either side, including insertion-only and deletion-only blocks.
+Controls stay disabled before computation or when no inline changes are available;
+existing loading/error and non-text states remain authoritative. Replacing or closing
+the model disposes navigation subscriptions and revokes pending reveal work.
+
 File Diff exposes the same Blame action from code, line numbers, and annotations
 on either side. Each side owns its annotation visibility and pending requests.
 The original side uses the exact commit and historical path returned with the

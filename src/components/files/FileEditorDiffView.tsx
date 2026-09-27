@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useInteractionLayer } from '@/hooks/useInteractionLayer'
+import { ChevronDownGlyph, ChevronUpGlyph } from '@/components/IconGlyphs'
 import * as monaco from 'monaco-editor'
 import {
   applyWorkspaceEditorMonacoTheme,
@@ -79,6 +80,8 @@ export function FileEditorDiffView({
   const diffEditorRef = useRef<monaco.editor.IStandaloneDiffEditor | null>(null)
   const originalModelRef = useRef<monaco.editor.ITextModel | null>(null)
   const modifiedModelRef = useRef<monaco.editor.ITextModel | null>(null)
+  const navigateRef = useRef<((direction: 'previous' | 'next') => void) | null>(null)
+  const [navigation, setNavigation] = useState({ current: 0, total: 0 })
   const [editors, setEditors] = useState<{
     original: monaco.editor.IStandaloneCodeEditor
     modified: monaco.editor.IStandaloneCodeEditor
@@ -177,6 +180,66 @@ export function FileEditorDiffView({
     const modifiedModel = createDiffTextModel(filePath, workspaceRoot, 'modified', diffState.diff.modifiedContent ?? '', languageId)
     originalModelRef.current = originalModel
     modifiedModelRef.current = modifiedModel
+    const original = diffEditor.getOriginalEditor()
+    const modified = diffEditor.getModifiedEditor()
+    let changes: monaco.editor.ILineChange[] = []
+    let current = -1
+    let revealPending = true
+    let navigating = false
+    setNavigation({ current: 0, total: 0 })
+    // Empty ranges use the preceding line in Monaco's public diff API.
+    const startLine = (change: monaco.editor.ILineChange, side: 'original' | 'modified') =>
+      change[`${side}StartLineNumber`] + (change[`${side}EndLineNumber`] === 0 ? 1 : 0)
+    const publish = () => setNavigation({ current: current + 1, total: changes.length })
+    const reveal = (index: number) => {
+      const change = changes[index]
+      if (!change) return
+      navigating = true
+      current = index
+      const line = Math.min(modifiedModel.getLineCount(), startLine(change, 'modified'))
+      modified.setPosition({ lineNumber: line, column: 1 })
+      modified.revealLineInCenter(line, monaco.editor.ScrollType.Immediate)
+      // In split mode a deletion may be taller than its empty modified range.
+      if (change.modifiedEndLineNumber === 0 && !isCompactViewport()) {
+        original.revealLineInCenter(change.originalStartLineNumber, monaco.editor.ScrollType.Immediate)
+      }
+      navigating = false
+      publish()
+    }
+    const followCursor = (side: 'original' | 'modified', line: number) => {
+      if (navigating) return
+      current = -1
+      for (const [index, change] of changes.entries()) {
+        if (startLine(change, side) <= line) current = index
+      }
+      publish()
+    }
+    const updateDiff = () => {
+      const computed = diffEditor.getLineChanges()
+      if (!computed) return
+      changes = computed
+      if (revealPending && changes.length) {
+        revealPending = false
+        diffEditor.layout()
+        reveal(0)
+      } else {
+        followCursor('modified', modified.getPosition()?.lineNumber ?? 1)
+      }
+    }
+    navigateRef.current = direction => {
+      if (!changes.length) return
+      revealPending = false
+      const target = direction === 'next' ? current + 1 : current < 0 ? changes.length - 1 : current - 1
+      reveal((target + changes.length) % changes.length)
+    }
+    const subscriptions = [
+      diffEditor.onDidUpdateDiff(updateDiff),
+      original.onDidChangeCursorPosition(event => followCursor('original', event.position.lineNumber)),
+      modified.onDidChangeCursorPosition(event => followCursor('modified', event.position.lineNumber)),
+    ]
+    const host = hostRef.current
+    const cancelReveal = () => { revealPending = false }
+    for (const event of ['pointerdown', 'wheel', 'keydown']) host?.addEventListener(event, cancelReveal, { passive: true })
     diffEditor.setModel({
       original: originalModel,
       modified: modifiedModel,
@@ -186,7 +249,12 @@ export function FileEditorDiffView({
       snapshot: diffState.diff, modelKey: originalModel.id,
     })
     const layoutFrame = window.requestAnimationFrame(() => diffEditor.layout())
-    return () => window.cancelAnimationFrame(layoutFrame)
+    return () => {
+      window.cancelAnimationFrame(layoutFrame)
+      navigateRef.current = null
+      for (const subscription of subscriptions) subscription.dispose()
+      for (const event of ['pointerdown', 'wheel', 'keydown']) host?.removeEventListener(event, cancelReveal)
+    }
   }, [diffState.diff, filePath, workspaceRoot, showDiffEditor])
 
   return (
@@ -201,6 +269,13 @@ export function FileEditorDiffView({
         <div className="code-file-diff-title">
           <strong>{copy.fileDiff}</strong>
           <span>{openFile.file.path}</span>
+        </div>
+        <div className="code-file-diff-navigation code-content-toolbar" role="group" aria-label={copy.diffNavigation}>
+          <span role="status" aria-label={copy.diffNavigation}>{showDiffEditor ? `${navigation.current} / ${navigation.total}` : '0 / 0'}</span>
+          <button type="button" aria-label={copy.previousDiffChange} title={copy.previousDiffChange}
+            disabled={!showDiffEditor || navigation.total === 0} onClick={() => navigateRef.current?.('previous')}><ChevronUpGlyph /></button>
+          <button type="button" aria-label={copy.nextDiffChange} title={copy.nextDiffChange}
+            disabled={!showDiffEditor || navigation.total === 0} onClick={() => navigateRef.current?.('next')}><ChevronDownGlyph /></button>
         </div>
         <button
           type="button"

@@ -544,7 +544,7 @@
   min-height: 32px;
   flex: 0 0 auto;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 10px;
   padding: 0 10px 0 12px;
@@ -561,6 +561,19 @@
   gap: 9px;
   color: var(--code-text);
   font-size: 12px;
+}
+
+.code-file-diff-navigation {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.code-file-diff-navigation > span {
+  white-space: nowrap;
+  font-size: var(--code-file-entry-font-size);
+  font-variant-numeric: tabular-nums;
+  margin-inline-end: 4px;
 }
 
 .code-file-diff-title strong {

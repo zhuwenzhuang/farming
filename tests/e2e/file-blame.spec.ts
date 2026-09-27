@@ -124,12 +124,14 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
     const diff = page.getByTestId('code-file-diff-view')
     const original = diff.locator('.editor.original')
     const modified = diff.locator('.editor.modified')
+    await expect(diff.getByRole('status', { name: 'Change navigation' })).toHaveText('1 / 2')
     for (const side of [original, modified]) {
-      await side.locator('.margin-view-overlays .line-numbers').first().click({ button: 'right' })
+      // Auto-reveal starts at the change; the first rendered row can be behind sticky code.
+      await side.locator('.margin-view-overlays .line-numbers').filter({ hasText: /^83$/ }).click({ button: 'right' })
       await page.getByTestId('code-editor-context-menu').getByRole('menuitem', { name: 'Annotate with Blame' }).click()
       await expect(side.locator('.code-file-inline-blame').first()).toBeVisible()
     }
-    await modified.locator('.view-line').first().click()
+    await modified.locator('.view-line').filter({ hasText: 'const addedA' }).click()
     await page.keyboard.press('Control+g')
     await page.locator('.quick-input-widget input').fill(':83')
     await page.keyboard.press('Enter')

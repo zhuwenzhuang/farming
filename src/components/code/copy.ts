@@ -547,6 +547,9 @@ export interface CodeCopy {
   openFileDiff: string
   openFileDiffFor: (path: string) => string
   closeDiff: string
+  diffNavigation: string
+  previousDiffChange: string
+  nextDiffChange: string
   openFilePreview: string
   showFileSource: string
   enableWordWrap: string
@@ -1283,6 +1286,9 @@ const EN_COPY: CodeCopy = {
   openFileDiff: 'Open File Diff',
   openFileDiffFor: path => `Open diff for ${path}`,
   closeDiff: 'Close diff',
+  diffNavigation: 'Change navigation',
+  previousDiffChange: 'Previous change',
+  nextDiffChange: 'Next change',
   openFilePreview: 'Open preview',
   showFileSource: 'Show source',
   enableWordWrap: 'Enable word wrap',
@@ -2055,6 +2061,9 @@ const ZH_COPY: CodeCopy = {
   openFileDiff: '打开文件 Diff',
   openFileDiffFor: path => `打开 ${path} 的 Diff`,
   closeDiff: '关闭 Diff',
+  diffNavigation: '变化导航',
+  previousDiffChange: '上一处变化',
+  nextDiffChange: '下一处变化',
   openFilePreview: '打开预览',
   showFileSource: '显示源码',
   enableWordWrap: '开启折行',
