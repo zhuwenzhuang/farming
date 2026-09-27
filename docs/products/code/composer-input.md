@@ -54,6 +54,8 @@ gesture competes with scrolling or selection.
 
 Chat and Terminal command menus keep keyboard selection visible using the shared
 menu selection surface. Hover and selection use the same fill in every appearance.
+Command names occupy the primary line; descriptions sit below and truncate before
+the trailing source label. Long names retain the available primary-line width.
 Arrow keys wrap through the filtered commands; Home and End select their bounds.
 Opening the menu or changing its selected command reveals that row within the
 scrollable menu without moving focus out of the input. Filtering resets selection

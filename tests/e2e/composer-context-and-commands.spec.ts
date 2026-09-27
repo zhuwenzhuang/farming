@@ -10,7 +10,12 @@ test('composer context and command menus keep semantic icons and compact geometr
   fs.writeFileSync(path.join(workspace, 'context.txt'), 'Visible context fixture\n')
   fs.mkdirSync(path.join(workspace, '.agents', 'skills', 'fixture-review'), { recursive: true })
   fs.writeFileSync(path.join(workspace, '.agents', 'skills', 'fixture-review', 'SKILL.md'), '---\nname: fixture-review\ndescription: Review the anonymous fixture\n---\nReview the fixture.\n')
-  await page.route('**/api/slash-commands?**', route => route.fulfill({ json: { commands: [{ command: '$fixture-review', label: 'Fixture review', description: 'Review the anonymous fixture', source: 'skill', scope: 'Repo', skillPath: path.join(workspace, '.agents', 'skills', 'fixture-review', 'SKILL.md') }] } }))
+  fs.mkdirSync(path.join(workspace, '.agents', 'skills', 'mcp-oauth-token-management'), { recursive: true })
+  fs.writeFileSync(path.join(workspace, '.agents', 'skills', 'mcp-oauth-token-management', 'SKILL.md'), '---\nname: mcp-oauth-token-management\ndescription: Manage OAuth tokens\n---\nManage tokens.\n')
+  await page.route('**/api/slash-commands?**', route => route.fulfill({ json: { commands: [
+    { command: '$fixture-review', label: 'Fixture review', description: 'Review the anonymous fixture', source: 'skill', scope: 'Repo', skillPath: path.join(workspace, '.agents', 'skills', 'fixture-review', 'SKILL.md') },
+    { command: '$mcp-oauth-token-management', label: 'MCP OAuth Token Management', description: '自动获取和刷新 MCP 服务端 OAuth Token，用于 Claude Code 集成', source: 'skill', scope: 'Agent', skillPath: path.join(workspace, '.agents', 'skills', 'mcp-oauth-token-management', 'SKILL.md') },
+  ] } }))
   const response = await page.request.post('/farming/api/control/agents', {
     data: { command: 'codex', workspace, agentRuntimeMode: 'chat' },
   })
@@ -55,6 +60,19 @@ test('composer context and command menus keep semantic icons and compact geometr
       await expect(commands).toBeVisible()
       await expect(commands.locator('.code-slash-command-skill').first()).toBeVisible()
       await expect(commands.locator('[role="option"]').first().locator('svg')).toBeVisible()
+      const longSkill = commands.getByRole('option').filter({ hasText: 'MCP OAuth Token Management' })
+      await expect(longSkill).toBeVisible()
+      const textLayout = await longSkill.evaluate(element => {
+        const title = element.querySelector('.code-slash-command-title code')!
+        const description = element.querySelector('.code-slash-command-copy small')!
+        return {
+          titleTop: title.getBoundingClientRect().top,
+          descriptionTop: description.getBoundingClientRect().top,
+          titleFits: title.scrollWidth <= title.clientWidth + 1,
+        }
+      })
+      expect(textLayout.descriptionTop).toBeGreaterThan(textLayout.titleTop)
+      if (layout === 'desktop') expect(textLayout.titleFits).toBe(true)
       await capture('commands')
 
       await input.fill('Check @con')

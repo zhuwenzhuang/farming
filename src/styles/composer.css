@@ -1186,7 +1186,7 @@
   width: 100%;
   display: grid;
   grid-template-columns: 24px minmax(0, 1fr) auto;
-  align-items: center;
+  align-items: start;
   gap: 8px;
   text-align: left;
 }
@@ -1212,22 +1212,14 @@
 .code-slash-command-copy {
   min-width: 0;
   display: flex;
-  align-items: baseline;
-  gap: 10px;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .code-slash-command-title {
   min-width: 0;
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  flex: 0 1 auto;
-  max-width: 45%;
+  width: 100%;
   overflow: hidden;
-}
-
-.code-slash-command-skill .code-slash-command-title {
-  flex: 0 0 clamp(100px, 30%, 180px);
 }
 
 .code-slash-command-copy code {
@@ -1245,8 +1237,8 @@
 
 .code-slash-command-copy small {
   min-width: 0;
-  display: inline-block;
-  flex: 1 1 auto;
+  display: block;
+  width: 100%;
   overflow: hidden;
   color: var(--code-text-subtle);
   font-size: 12px;
