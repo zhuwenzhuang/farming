@@ -10,6 +10,7 @@ import {
 import {
   TRANSCRIPT_BOTTOM_FOLLOW_THRESHOLD,
   captureTranscriptReadingAnchor,
+  isTranscriptAtBottom,
   isTranscriptNearBottom,
   persistTranscriptReadingAnchor,
   restoreTranscriptReadingAnchor,
@@ -127,6 +128,14 @@ test('bottom distance and near-bottom threshold keep the pinned geometry', () =>
     clientHeight: 400,
   }))
   assert.equal(transcriptBottomDistance(scroller), 0)
+  assert.equal(isTranscriptAtBottom(scroller), true)
+  assert.equal(isTranscriptNearBottom(scroller), true)
+
+  scroller.scrollTop = 598
+  assert.equal(isTranscriptAtBottom(scroller), true)
+
+  scroller.scrollTop = 597
+  assert.equal(isTranscriptAtBottom(scroller), false)
   assert.equal(isTranscriptNearBottom(scroller), true)
 
   scroller.scrollTop = 504
@@ -147,6 +156,24 @@ test('capture clears the anchor while following the latest output', () => {
     turns: [makeTurn({ turnId: 'turn-a', top: 100, height: 200 })],
   }))
   assert.equal(captureTranscriptReadingAnchor('agent-a', scroller), null)
+})
+
+test('capture preserves a reading position within the near-bottom range', () => {
+  const scroller = asScroller(makeScroller({
+    scrollTop: 570,
+    scrollHeight: 1000,
+    clientHeight: 400,
+    top: 100,
+    turns: [makeTurn({ turnId: 'turn-a', top: 80, height: 200 })],
+  }))
+  assert.equal(isTranscriptNearBottom(scroller), true)
+  assert.deepEqual(captureTranscriptReadingAnchor('agent-a', scroller), {
+    version: 1,
+    surface: 'chat',
+    resource: { kind: 'agent', id: 'agent-a' },
+    locator: { kind: 'message', id: 'turn-a' },
+    position: { unit: 'fraction', value: 0.1 },
+  })
 })
 
 test('capture reports undefined when no turn intersects the visible top', () => {

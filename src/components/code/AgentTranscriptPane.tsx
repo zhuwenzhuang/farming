@@ -106,6 +106,7 @@ import {
 import {
   TRANSCRIPT_BOTTOM_FOLLOW_THRESHOLD,
   captureTranscriptReadingAnchor,
+  isTranscriptAtBottom,
   isTranscriptNearBottom,
   persistTranscriptReadingAnchor,
   restoreTranscriptReadingAnchor,
@@ -4070,12 +4071,9 @@ export function AgentTranscriptPane({
       return
     }
     const nearBottom = isTranscriptNearBottom(element)
-    if (nearBottom) {
-      followBottomRef.current = true
-      stationaryScrollTopRef.current = null
-    } else if (userScrollGestureRef.current) {
-      followBottomRef.current = false
-      stationaryScrollTopRef.current = element.scrollTop
+    if (userScrollGestureRef.current) {
+      followBottomRef.current = isTranscriptAtBottom(element)
+      stationaryScrollTopRef.current = followBottomRef.current ? null : element.scrollTop
     }
     if (followBottomRef.current) clearReadingAnchor(readingAnchorAgentKey(readingAnchorAgentId, 'chat'))
     else scheduleReadingAnchorSave(readingAnchorAgentId, element)

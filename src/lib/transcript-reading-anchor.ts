@@ -11,6 +11,7 @@ import {
 export type TranscriptAnchorRestoreResult = 'none' | 'restored' | 'missing' | 'expired'
 
 export const TRANSCRIPT_BOTTOM_FOLLOW_THRESHOLD = 96
+const TRANSCRIPT_BOTTOM_EPSILON = 2
 
 export function transcriptBottomDistance(element: HTMLElement) {
   return element.scrollHeight - element.clientHeight - element.scrollTop
@@ -20,8 +21,12 @@ export function isTranscriptNearBottom(element: HTMLElement) {
   return transcriptBottomDistance(element) <= TRANSCRIPT_BOTTOM_FOLLOW_THRESHOLD
 }
 
+export function isTranscriptAtBottom(element: HTMLElement) {
+  return transcriptBottomDistance(element) <= TRANSCRIPT_BOTTOM_EPSILON
+}
+
 export function captureTranscriptReadingAnchor(agentId: string, element: HTMLDivElement): ReadingAnchor | null | undefined {
-  if (isTranscriptNearBottom(element)) {
+  if (isTranscriptAtBottom(element)) {
     return null
   }
   const scrollerRect = element.getBoundingClientRect()
