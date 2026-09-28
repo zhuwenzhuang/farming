@@ -672,7 +672,7 @@ const PROVIDER_ADAPTERS = Object.freeze<ProviderAdapter[]>([
     acp: {
       executablePolicy: 'managed',
       packageName: '@agentclientprotocol/codex-acp',
-      version: '1.13.1',
+      version: '2.0.0',
       sharedRuntime: true,
       normalizeHostMessageChunks: true,
       config: {
@@ -746,7 +746,7 @@ const PROVIDER_ADAPTERS = Object.freeze<ProviderAdapter[]>([
     acp: {
       executablePolicy: 'managed',
       packageName: '@agentclientprotocol/claude-agent-acp',
-      version: '0.81.2',
+      version: '0.82.0',
       sharedRuntime: true,
       config: {
         launchModelAndReasoning: true,

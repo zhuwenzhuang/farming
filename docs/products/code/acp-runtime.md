@@ -188,6 +188,11 @@ scoped dependency override, preserving the reviewed peer-dependency resolution.
 Adapters on another SDK compatibility line retain their own reviewed pin. Every
 resulting vendor bundle requires a reviewed digest and adapter acceptance.
 
+Provider policies normalize negotiated AIR v1 goal and compaction metadata at the
+ACP boundary. Codex phase classification reads both AIR v1 metadata and historical
+Codex metadata; generic transcript and UI consumers keep the shared state contract.
+Unknown extension versions cannot overwrite authoritative session state.
+
 Native Terminal executable discovery returns one normalized compatibility
 result. Provider-specific resume-version requirements and trusted test
 overrides live in the executable discovery registry; Agent lifecycle code does

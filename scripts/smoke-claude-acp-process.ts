@@ -27,7 +27,7 @@ interface JsonRpcResponse {
     agentInfo?: { version?: string };
     _meta?: {
       steering?: { supported?: boolean };
-      goal?: { version?: number; controlMethod?: string; actions?: string[] };
+      jetbrains?: { air?: { version?: number; goal?: { version?: number; controlMethod?: string; actions?: string[] } } };
     };
   };
 }
@@ -124,7 +124,8 @@ async function smokeClaudeAcp(options: SmokeOptions): Promise<void> {
       method: 'initialize',
       params: {
         protocolVersion: 1,
-        clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: true },
+        clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: true,
+          _meta: { jetbrains: { air: { version: 1, capabilities: ['nativeSubagentSessions'] } } } },
         clientInfo: { name: 'farming-release-smoke', version: '1' },
       },
     })}\n`);
@@ -140,13 +141,13 @@ async function smokeClaudeAcp(options: SmokeOptions): Promise<void> {
   if (response.result?.agentCapabilities?.sessionCapabilities?.fork == null) {
     throw new Error('Claude ACP initialize omitted session/fork');
   }
-  if (response.result?.agentInfo?.version !== '0.81.2') {
+  if (response.result?.agentInfo?.version !== '0.82.0') {
     throw new Error(`Claude ACP selected unexpected version: ${response.result?.agentInfo?.version}`);
   }
   if (response.result?._meta?.steering?.supported !== true) {
     throw new Error('Claude ACP initialize omitted provider-neutral steering support');
   }
-  const goal = response.result?._meta?.goal;
+  const goal = response.result?._meta?.jetbrains?.air?.goal;
   if (goal?.version !== 1 || goal.controlMethod !== '_session/goal'
     || !['set', 'clear'].every(action => goal.actions?.includes(action))) {
     throw new Error(`Claude ACP initialize omitted goal support: ${JSON.stringify(goal)}`);

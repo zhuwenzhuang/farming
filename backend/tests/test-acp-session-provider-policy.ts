@@ -77,3 +77,34 @@ assert.strictEqual(
 );
 
 console.log('ACP session provider policy tests passed');
+
+const { acpSessionProviderPolicy } = require('../acp-session-provider-policy.cjs');
+const codexPolicy = acpSessionProviderPolicy('codex');
+const airMeta = value => ({ jetbrains: { air: { version: 1, ...value } } });
+assert.strictEqual(codexPolicy.messagePhase({ _meta: airMeta({ phase: 'commentary' }) }), 'commentary');
+assert.strictEqual(codexPolicy.messagePhase({ _meta: airMeta({ phase: 'final_answer' }) }), 'final_answer');
+assert.strictEqual(codexPolicy.messagePhase({ _meta: { codex: { phase: 'final_answer' } } }), 'final_answer');
+assert.strictEqual(codexPolicy.messagePhase({ _meta: { jetbrains: { air: { version: 2, phase: 'commentary' } } } }), '');
+assert.strictEqual(acpSessionProviderPolicy('claude').messagePhase({ _meta: airMeta({ phase: 'commentary' }) }), '');
+const airGoal = { objective: 'Verify AIR', status: 'active', tokensUsed: 10 };
+for (const provider of ['codex', 'claude']) {
+  const state = new AcpSessionState({ provider, sessionId: `${provider}-air`, cwd: '/tmp' });
+  const notification = { sessionId: state.sessionId, update: { sessionUpdate: 'session_info_update', _meta: airMeta({ goal: airGoal }) } };
+  state.apply(notification);
+  assert.strictEqual(state.goal.objective, 'Verify AIR');
+  assert.strictEqual(notification.update._meta.goal, undefined, 'boundary normalization must not mutate the input');
+  state.apply({ sessionId: state.sessionId, update: { sessionUpdate: 'session_info_update', _meta: airMeta({ goal: { objective: 3 } }) } });
+  assert.strictEqual(state.goal.objective, 'Verify AIR', 'invalid AIR goal must preserve authoritative state');
+  state.apply({ sessionId: state.sessionId, update: { sessionUpdate: 'session_info_update', _meta: airMeta({ goal: null }) } });
+  assert.strictEqual(state.goal, null, 'explicit AIR goal clear must remain authoritative');
+  state.apply({ sessionId: state.sessionId, update: { sessionUpdate: 'agent_message_chunk', messageId: 'compact', content: { type: 'text', text: 'Summary' }, _meta: airMeta({ contextCompaction: { version: 1 } }) } });
+  assert.strictEqual(state.snapshot().entries[0].type, 'compaction');
+}
+console.log('AIR v1 metadata boundary tests passed');
+
+const phasedState = new AcpSessionState({ provider: 'codex', sessionId: 'codex-phases', cwd: '/tmp' });
+for (const phase of ['commentary', 'final_answer']) {
+  applyMessage(phasedState, 'codex-phases', 'assistant', 'A repeated answer', { _meta: airMeta({ phase }) });
+}
+assert.deepStrictEqual(phasedState.snapshot().entries.map(entry => entry._meta.codex.phase), ['commentary', 'final_answer'],
+  'the boundary must preserve phase separation and the shared UI metadata contract');

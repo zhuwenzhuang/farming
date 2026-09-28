@@ -129,6 +129,10 @@ Protocol、Integrity、Recovery 与 Chat/Terminal Compatibility。
 的精确 SDK Pin，并保持已审核的 Peer Dependency 解析。使用另一 SDK 兼容版本线的 Adapter
 保留自身已审核的 Pin。每个生成的 Vendor Bundle 都必须重新审核 Digest 并通过 Adapter 验收。
 
+Provider Policy 在 ACP 边界归一化已协商的 AIR v1 Goal 与 Compaction Metadata。Codex
+Phase 分类同时读取 AIR v1 Metadata 与历史 Codex Metadata，通用 Transcript 和 UI 继续
+消费共享 State Contract。未知 Extension 版本不能覆盖权威 Session State。
+
 Native Terminal Executable Discovery 只返回一种归一化 Compatibility Result。Provider
 特有的 Resume Version 要求与受信 Test Override 留在 Executable Discovery Registry；Agent
 Lifecycle 不选择 Provider-specific Resolver。

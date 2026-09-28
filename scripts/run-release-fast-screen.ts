@@ -91,6 +91,18 @@ const tasks: FastScreenTask[] = [
     args: ['--import', 'tsx', 'backend/tests/test-acp-shared-codex-adapter.ts'],
   },
   {
+    name: 'AIR metadata provider boundary',
+    args: ['--import', 'tsx', 'backend/tests/test-acp-session-provider-policy.ts'],
+  },
+  {
+    name: 'Codex paginated image and steering history',
+    args: ['--import', 'tsx', 'backend/tests/test-codex-acp-history-images.ts'],
+  },
+  {
+    name: 'Codex large fragmented history transport',
+    args: ['--import', 'tsx', 'backend/tests/test-codex-acp-large-history.ts'],
+  },
+  {
     name: 'ACP live Host controller reconnection',
     args: ['--import', 'tsx', 'backend/tests/test-acp-runtime-host-restart.ts'],
   },

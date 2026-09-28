@@ -5,7 +5,7 @@ const path = require('path');
 const { spawn } = require('child_process');
 
 const projectRoot = path.join(__dirname, '..', '..');
-const adapterPath = path.join(projectRoot, 'dist', 'acp', 'codex-acp-1.13.1.mjs');
+const adapterPath = path.join(projectRoot, 'dist', 'acp', 'codex-acp-2.0.0.mjs');
 const fakeCodexPath = path.join(__dirname, 'fixtures', 'fake-codex-app-server.ts');
 const imageData = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=';
 const sessionId = '019f0000-0000-7000-8000-000000000999';
@@ -115,8 +115,8 @@ async function run() {
     assert.deepStrictEqual(contents[5], { type: 'text', text: 'Newest paginated turn' });
     assert.strictEqual(contents.length, 6, 'all history pages must appear once in chronological order');
     const historyRequests = fs.readFileSync(requestLogFile, 'utf8').trim().split('\n')
-      .map(line => JSON.parse(line)).filter(request => request.method === 'thread/turns/list');
-    assert.deepStrictEqual(historyRequests.map(request => request.params.cursor), ['history-start', 'history-older']);
+      .map(line => JSON.parse(line)).filter(request => request.method === 'thread/items/list');
+    assert.deepStrictEqual(historyRequests.map(request => request.params.cursor), ['history-start', null, 'items-newer']);
     assert(!contents.some(content => content?.type === 'text' && content.text.includes('[@image]')));
     console.log('✓ Codex ACP session/load emits native history image blocks');
   } finally {

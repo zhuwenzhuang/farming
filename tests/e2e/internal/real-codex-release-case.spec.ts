@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import type { Page, TestInfo } from '@playwright/test'
+import type { SessionBootstrapState } from '../../../src/lib/terminal-bootstrap'
 import { expect, openFarming, test } from '../fixtures'
 
 // This gate runs against a real Codex account, so every billed turn must stay
@@ -372,6 +373,71 @@ async function assertCodeTerminalHealthy(page: Page, agentId: string) {
     replayTargetRevision: null,
   })
   await expect(page.getByTestId('code-terminal-status-card')).toHaveCount(0)
+}
+
+async function assertCodeTerminalHistory(page: Page, agentId: string, testInfo: TestInfo) {
+  const snapshot = () => page.evaluate(id => {
+    const bridge = window.__farmingTerminalTest
+    const diagnostics = bridge?.getBufferDiagnostics(id) ?? null
+    return { diagnostics, rows: bridge?.getRows(id, diagnostics?.rows ?? 0) ?? [] }
+  }, agentId)
+  const before = await snapshot()
+  const retained = await page.evaluate(async id => (
+    window.__farmingTerminalTest?.requestCheckpoint(id)
+  ), agentId) as SessionBootstrapState | undefined
+  await testInfo.attach('terminal-history-before-read.json', {
+    body: Buffer.from(JSON.stringify({ backendCheckpoint: retained, browserSnapshot: before }, null, 2)),
+    contentType: 'application/json',
+  })
+  expect(before.diagnostics).not.toBeNull()
+  expect(retained?.scrollbackAvailable).toBeGreaterThan((before.diagnostics?.rows ?? 24) * 3)
+  expect(retained?.output).toContain(CLI_BEGIN)
+  expect(retained?.output).toContain('JSON_FORMAT_7F3A')
+  const required = [CLI_BEGIN, 'JSON_FORMAT_7F3A']
+  const found = new Set<string>()
+  const pageLimit = Math.ceil(
+    (retained?.scrollbackAvailable ?? 0) / Math.max(1, (before.diagnostics?.rows ?? 24) - 1),
+  ) + 5
+  const input = page.locator(
+    `[data-testid="code-terminal-pane"][data-agent-id="${agentId}"] .xterm-helper-textarea`,
+  )
+  try {
+    // The browser materializes recent scrollback first. Read older output through
+    // the same PageUp expansion path as a user, within the authoritative horizon.
+    for (let pageIndex = 0; pageIndex < pageLimit; pageIndex += 1) {
+      const current = await snapshot()
+      for (const marker of required) {
+        if (current.rows.some(row => row.includes(marker))) found.add(marker)
+      }
+      if (found.size === required.length) break
+      const state = current.diagnostics
+      if (!state) break
+      if (state.viewportY >= state.scrollbackLength
+        && state.checkpointScrollbackInstalled >= state.checkpointScrollbackAvailable) break
+      await input.focus()
+      await page.keyboard.press('PageUp')
+      await expect.poll(async () => {
+        const next = (await snapshot()).diagnostics
+        return Boolean(next
+          && !next.checkpointRequestInFlight
+          && !next.replayInProgress
+          && (next.viewportY !== state.viewportY
+            || next.checkpointScrollbackInstalled !== state.checkpointScrollbackInstalled))
+      }, { timeout: 15_000 }).toBe(true)
+    }
+    for (const marker of required) expect([...found]).toContain(marker)
+  } finally {
+    await testInfo.attach('terminal-history-after-read.json', {
+      body: Buffer.from(JSON.stringify({ ...(await snapshot()), found: [...found] }, null, 2)),
+      contentType: 'application/json',
+    })
+    await attachScreenshot(page, testInfo, 'terminal-history-read.png')
+    const jump = page.getByTestId('code-terminal-jump-bottom')
+    if (await jump.isVisible()) await jump.click()
+  }
+  await waitForCodeAnchor(page, agentId, COMPOSITE_END)
+  await expect.poll(async () => (await snapshot()).diagnostics?.viewportY).toBe(0)
+  await assertCodeTerminalHealthy(page, agentId)
 }
 
 async function sampleCodeAnchor(page: Page, agentId: string, anchor: string, durationMs = 70) {
@@ -1089,12 +1155,7 @@ test.describe('real Codex pre-release composite case', () => {
       await sendCodeComposerInput(page, COMPOSITE_PROMPT)
       await waitForCompletedTerminalTurn(page, agentId, COMPOSITE_END)
       await waitForCodeAnchor(page, agentId, 'PAGE_06_LINE_18')
-      const rows = await codeRows(page, agentId)
-      const diagnostics = await codeDiagnostics(page, agentId)
-      expect(rows.join('\n')).toContain(CLI_BEGIN)
-      expect(rows.join('\n')).toContain('JSON_FORMAT_7F3A')
-      expect(rows.length).toBeGreaterThan((diagnostics?.rows ?? 24) * 3)
-      await assertCodeTerminalHealthy(page, agentId)
+      await assertCodeTerminalHistory(page, agentId, testInfo)
     })
 
     const terminalAgent = await waitForAgent(page, agentId, current => (
@@ -1172,8 +1233,8 @@ test.describe('real Codex pre-release composite case', () => {
       expect(switched.mode).toBe('terminal')
       await assertSameProviderSession(page, agentId, providerSessionId, 'terminal')
       await waitForCrtTerminal(page)
-      await continueCrtWithoutUntrustedHooks(page, COMPOSITE_END)
-      await waitForCrtAnchor(page, COMPOSITE_END, 180_000)
+      await continueCrtWithoutUntrustedHooks(page, ACP_FOLLOW_UP_ACK)
+      await waitForCrtAnchor(page, ACP_FOLLOW_UP_ACK, 180_000)
       await waitForCrtTerminalIdle(page, agentId)
       // The terminal is intentionally following the latest output. After the
       // ACP follow-up, older composite lines may move into scrollback during a

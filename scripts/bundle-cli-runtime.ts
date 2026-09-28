@@ -17,8 +17,8 @@ const packagedPiBridge = path.join(projectRoot, 'backend', 'acp', 'packaged-pi-a
 const packagedCodexRuntimeBridge = path.join(projectRoot, 'backend', 'acp', 'packaged-codex-acp.cjs');
 const packagedClaudeRuntimeBridge = path.join(projectRoot, 'backend', 'acp', 'packaged-claude-acp.cjs');
 const packagedPiRuntimeBridge = path.join(projectRoot, 'backend', 'acp', 'packaged-pi-acp.cjs');
-const packagedCodexEntry = path.join(projectRoot, 'dist', 'acp', 'codex-acp-1.13.1.mjs');
-const packagedClaudeEntry = path.join(projectRoot, 'dist', 'acp', 'claude-agent-acp-0.81.2.mjs');
+const packagedCodexEntry = path.join(projectRoot, 'dist', 'acp', 'codex-acp-2.0.0.mjs');
+const packagedClaudeEntry = path.join(projectRoot, 'dist', 'acp', 'claude-agent-acp-0.82.0.mjs');
 const packagedPiEntry = path.join(projectRoot, 'dist', 'acp', 'pi-acp-0.0.34.mjs');
 
 const dynamicRequire = [
@@ -74,7 +74,7 @@ const packagedAcpPlugin: esbuild.Plugin = {
       };
     });
 
-    build.onLoad({ filter: /claude-agent-acp-0\.81\.2\.mjs$/ }, async (args) => {
+    build.onLoad({ filter: /claude-agent-acp-0\.82\.0\.mjs$/ }, async (args) => {
       if (path.resolve(args.path) !== path.resolve(packagedClaudeEntry)) return null;
       const source = await fs.promises.readFile(args.path, 'utf8');
       const marker = 'if (process.argv.includes("--cli")) {';

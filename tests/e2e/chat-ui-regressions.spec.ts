@@ -56,7 +56,7 @@ test('shell variables remain literal and exhausted Chat history stays exhausted 
   }
 })
 
-test('file refresh feedback disappears without flashing the idle glyph', async ({ page, workspaceRoot }, testInfo) => {
+test('file refresh feedback returns to the persistent idle action', async ({ page, workspaceRoot }, testInfo) => {
   fs.writeFileSync(path.join(workspaceRoot, 'sample.txt'), 'sample')
   const response = await page.request.post('/farming/api/control/agents', {
     data: { command: 'bash', workspace: workspaceRoot },
@@ -89,7 +89,7 @@ test('file refresh feedback disappears without flashing the idle glyph', async (
       }
       sample()
     }))
-    expect(firstIdleOpacity).toBe('0')
+    expect(firstIdleOpacity).toBe('1')
     await header.hover()
     await expect(actions).toHaveCSS('opacity', '1')
     await expect(refresh).toHaveAccessibleName('Refresh files')

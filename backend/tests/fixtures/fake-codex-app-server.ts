@@ -102,7 +102,7 @@ async function resultFor(method, params) {
     await waitForProviderResumeGate();
     return {
       thread: { ...thread(params.threadId), turns: [] },
-      turnsBackwardsCursor: 'history-start',
+      itemsBackwardsCursor: 'history-start',
       model: 'gpt-5.6',
       modelProvider: 'openai',
       reasoningEffort: 'medium',
@@ -143,15 +143,24 @@ async function resultFor(method, params) {
     } };
   }
   if (method === 'thread/items/list') {
-    return { data: [{ turnId: 'child-turn', item: { id: 'child-question', type: 'userMessage', content: [{ type: 'text', text: 'Inspect the parser', text_elements: [] }] } },
-      { turnId: 'child-turn', item: { id: 'child-answer', type: 'agentMessage', text: 'Live child history read without resume.', phase: 'final_answer' } }], nextCursor: null };
+    const entries = String(params.threadId).endsWith('-child')
+      ? [{ turnId: 'child-turn', item: { id: 'child-question', type: 'userMessage', content: [{ type: 'text', text: 'Inspect the parser', text_elements: [] }] } },
+        { turnId: 'child-turn', item: { id: 'child-answer', type: 'agentMessage', text: 'Live child history read without resume.', phase: 'final_answer' } }]
+      : thread(params.threadId).turns.flatMap(turn => turn.items.map(item => ({ turnId: turn.id, item })));
+    const paginated = process.env.FARMING_TEST_PAGINATED_HISTORY === '1' && !String(params.threadId).endsWith('-child');
+    const newest = { turnId: 'turn-history-newest', item: { id: 'user-history-newest', type: 'userMessage', content: [{ type: 'text', text: 'Newest paginated turn', text_elements: [] }] } };
+    let data;
+    let nextCursor = null;
+    if (params.sortDirection === 'desc') data = [paginated ? newest : entries.at(-1)].filter(Boolean);
+    else if (paginated && params.cursor === 'items-newer') data = [newest];
+    else { data = entries; nextCursor = paginated ? 'items-newer' : null; }
+    // Keep a 64 MiB transport response outside the emitted ACP transcript.
+    const fixturePadding = process.env.FARMING_TEST_LARGE_HISTORY === '1' && params.sortDirection === 'asc'
+      ? `${'x'.repeat(1020)}恢复🌱`.repeat(65536) : undefined;
+    return { data: data.map(entry => ({ ...entry, startedAtMs: null, completedAtMs: null })), nextCursor,
+      ...(fixturePadding ? { fixturePadding } : {}) };
   }
   if (method === 'thread/turns/list') {
-    if (process.env.FARMING_TEST_LARGE_HISTORY === '1') {
-      // A full history page can exceed 64 MiB even with fewer than 50 turns.
-      // Keep this transport payload out of the emitted ACP transcript.
-      return { fixturePadding: `${'x'.repeat(1020)}恢复🌱`.repeat(65536), data: thread(params.threadId).turns, nextCursor: null };
-    }
     if (process.env.FARMING_TEST_PAGED_CHILD_HISTORY === '1' && String(params.threadId).endsWith('-child')) {
       const end = params.cursor == null ? 260 : Number(params.cursor);
       const start = Math.max(0, end - Number(params.limit));

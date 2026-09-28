@@ -630,8 +630,9 @@ class AcpSessionState {
 
   apply(notification: AcpNotification | null | undefined, options: AcpApplyOptions = {}): boolean {
     if (!notification || notification.sessionId !== this.sessionId) return false;
-    const update = notification.update as AcpUpdate;
-    if (!update || typeof update !== 'object') return false;
+    const rawUpdate = notification.update as AcpUpdate;
+    if (!rawUpdate || typeof rawUpdate !== 'object') return false;
+    const update = acpSessionProviderPolicy(this.provider).normalizeUpdate(rawUpdate);
     this.updates.push({
       sequence: this.updates.length + 1,
       at: new Date().toISOString(),

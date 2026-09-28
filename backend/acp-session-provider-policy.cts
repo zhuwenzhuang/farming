@@ -25,6 +25,7 @@ interface AcpSessionProviderPolicy {
     type: string,
   ): boolean;
   messagePhase(entryOrUpdate: AcpEntry | AcpUpdate | null | undefined): string;
+  normalizeUpdate(update: AcpUpdate): AcpUpdate;
   sanitizeEntries(entries: AcpEntry[], sourceEntries: AcpEntry[], safeStart: number): AcpEntry[];
   transcriptTurnStart(entry: AcpEntry | null | undefined): boolean;
 }
@@ -60,8 +61,45 @@ function codexInternalUserScope(entry: AcpEntry | null | undefined): InternalUse
   return parseHeartbeatEnvelope(text) ? 'turn' : 'entry';
 }
 
+function dataRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function readAirMetadata(entryOrUpdate: AcpEntry | AcpUpdate | null | undefined): Record<string, unknown> | null {
+  const jetbrains = dataRecord(entryOrUpdate?._meta?.jetbrains);
+  const air = dataRecord(jetbrains?.air);
+  return air?.version === 1 ? air : null;
+}
+
+function normalizeAirUpdate(update: AcpUpdate): AcpUpdate {
+  const air = readAirMetadata(update);
+  if (!air) return update;
+  const metadata = { ...update._meta };
+  if (Object.prototype.hasOwnProperty.call(air, 'goal')) metadata.goal = air.goal;
+  if (dataRecord(air.contextCompaction)?.version === 1) {
+    metadata.contextCompaction = true;
+    if (update.sessionUpdate === 'agent_message_chunk') metadata.context_compaction = {};
+  }
+  return { ...update, _meta: metadata };
+}
+
+function normalizeCodexUpdate(update: AcpUpdate): AcpUpdate {
+  const normalized = normalizeAirUpdate(update);
+  const phase = readAirMetadata(update)?.phase;
+  if (phase !== 'commentary' && phase !== 'final_answer') return normalized;
+  return {
+    ...normalized,
+    _meta: { ...normalized._meta, codex: { ...normalized._meta?.codex, phase } },
+  };
+}
+
 function codexMessagePhase(entryOrUpdate: AcpEntry | AcpUpdate | null | undefined): string {
-  return String(entryOrUpdate?._meta?.codex?.phase || '');
+  const phase = readAirMetadata(entryOrUpdate)?.phase;
+  return phase === 'commentary' || phase === 'final_answer'
+    ? phase
+    : String(entryOrUpdate?._meta?.codex?.phase || '');
 }
 
 function isCodexMirroredAssistantMessage(
@@ -171,17 +209,20 @@ const DEFAULT_ACP_SESSION_PROVIDER_POLICY: AcpSessionProviderPolicy = {
   isMirroredUserMessage: () => false,
   isMirroredAssistantMessage: () => false,
   messagePhase: () => '',
+  normalizeUpdate: update => update,
   sanitizeEntries: entries => entries,
   transcriptTurnStart: genericTranscriptTurnStart,
 };
 
 const ACP_SESSION_PROVIDER_POLICIES: Readonly<Record<string, AcpSessionProviderPolicy>> = {
+  claude: { ...DEFAULT_ACP_SESSION_PROVIDER_POLICY, normalizeUpdate: normalizeAirUpdate },
   codex: {
     contextCompactionText: content => isCodexContextCompactionMessage(contentText(content)),
     isInternalEntry: isCodexInternalEntry,
     isMirroredUserMessage: isCodexMirroredUserMessage,
     isMirroredAssistantMessage: isCodexMirroredAssistantMessage,
     messagePhase: codexMessagePhase,
+    normalizeUpdate: normalizeCodexUpdate,
     sanitizeEntries: sanitizeCodexEntries,
     transcriptTurnStart: entry => genericTranscriptTurnStart(entry) && codexInternalUserScope(entry) !== 'entry',
   },
