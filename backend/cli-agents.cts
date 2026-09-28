@@ -83,6 +83,9 @@ const CLAUDE_PERMISSION_MODES = ['acceptEdits', 'auto', 'bypassPermissions', 'de
 
 const CODEX_LAUNCH_POLICY: AgentLaunchPolicy = {
   applyProfile(launchArgs, options, profile) {
+    // Farming owns the complete Terminal process tree; a shared Codex daemon
+    // would survive a hard stop and could serve another Agent's session.
+    if (!launchArgs.includes('--no-daemon')) launchArgs.unshift('--no-daemon');
     const explicitPermissionMode = typeof options.codexApprovalMode === 'string'
       && CODEX_APPROVAL_MODES.includes(options.codexApprovalMode);
     const permissionMode = explicitPermissionMode

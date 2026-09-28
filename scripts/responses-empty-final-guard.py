@@ -23,6 +23,7 @@ MAX_REQUEST_BYTES = 16 * 1024 * 1024
 HOP_HEADERS = {"host", "content-length", "connection", "accept-encoding", "transfer-encoding"}
 RESPONSE_HOP_HEADERS = {"content-length", "connection", "transfer-encoding", "content-encoding"}
 LEADING_MARKERS = re.compile(r"^(?:\s|</think>|<\|assistant\|>)+")
+SSE_EVENT_END = re.compile(rb"\r?\n\r?\n")
 
 
 def has_visible_result(response):
@@ -117,9 +118,8 @@ class GuardHandler(BaseHTTPRequestHandler):
                     pending += chunk
                     if len(pending) > 8 * 1024 * 1024:
                         raise ValueError("upstream SSE event exceeds 8 MiB")
-                    while b"\n\n" in pending:
-                        event, pending = pending.split(b"\n\n", 1)
-                        event += b"\n\n"
+                    while match := SSE_EVENT_END.search(pending):
+                        event, pending = pending[:match.end()], pending[match.end():]
                         completed = completed_response(event)
                         if completed is not None and not has_visible_result(completed):
                             print("rejected completed response without answer or tool call",

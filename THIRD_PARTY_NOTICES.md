@@ -83,7 +83,7 @@ files under `dist/acp/`:
 | `@openai/codex` | 0.153.0 | Apache-2.0 | Codex executable discovery and launch bridge; platform CLI binaries are excluded |
 | `@agentclientprotocol/claude-agent-acp` | 0.73.0 | Apache-2.0 | Claude Code ACP adapter |
 | `@anthropic-ai/claude-agent-sdk` | 0.3.257 | Anthropic commercial terms | Claude Agent SDK bridge; platform CLI binaries are excluded |
-| `pi-acp` | 0.0.33 | MIT | Pi ACP adapter, with Farming Agent Home isolation and bootstrap patches |
+| `pi-acp` | 0.0.34 | MIT | Pi ACP adapter, with Farming Agent Home isolation and bootstrap patches |
 | `@agentclientprotocol/sdk` | 0.26.0 | Apache-2.0 | Protocol runtime bundled inside the Pi ACP adapter |
 | `zod` | 3.25.76 | MIT | Schema validation bundled inside the Pi ACP adapter |
 

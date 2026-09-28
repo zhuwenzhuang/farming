@@ -113,8 +113,8 @@ if [ ! -x "${RIPGREP_BIN}" ] || ! "${RIPGREP_BIN}" --version | grep -q '^ripgrep
   exit 1
 fi
 CODEX_ACP_VENDOR="${PACKAGE_ROOT}/dist/acp/codex-acp-1.13.1.mjs"
-CLAUDE_ACP_VENDOR="${PACKAGE_ROOT}/dist/acp/claude-agent-acp-0.81.1.mjs"
-PI_ACP_VENDOR="${PACKAGE_ROOT}/dist/acp/pi-acp-0.0.33.mjs"
+CLAUDE_ACP_VENDOR="${PACKAGE_ROOT}/dist/acp/claude-agent-acp-0.81.2.mjs"
+PI_ACP_VENDOR="${PACKAGE_ROOT}/dist/acp/pi-acp-0.0.34.mjs"
 for packaged_ui_file in \
   frontend/agent-state-bridge.js \
   frontend/runtime-paths.js \

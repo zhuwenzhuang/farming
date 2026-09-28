@@ -5,11 +5,11 @@ import path from 'node:path';
 import * as esbuild from 'esbuild';
 
 const projectRoot = path.join(__dirname, '..');
-const expectedVersion = '0.0.33';
+const expectedVersion = '0.0.34';
 const expectedSdkVersion = '0.26.0';
 const expectedZodVersion = '3.25.76';
-const expectedUpstreamSha256 = '24ff73fda6e3c76ddce2d359a79f5c4b8f292eb290e4d2ab85aac94676b2c2dc';
-const expectedBundleSha256 = 'a750044ca2135463763d373c49744031aa1e9ff08f77011f1626156e3b4c8981';
+const expectedUpstreamSha256 = '324aeb8bba1228937e16b1326fb3e014e2a625b2dea549dbcd49b006cd5df6a2';
+const expectedBundleSha256 = 'e8d0471a41ae9a66d0237357febc2affbbe1e1e4f0b78dcf7d84239e5f123e2b';
 const packageRoot = path.dirname(require.resolve('pi-acp/package.json'));
 const packageJsonPath = path.join(packageRoot, 'package.json');
 const sourceEntry = path.join(packageRoot, 'dist', 'index.js');
@@ -229,31 +229,16 @@ function farmingPiPlugin(): esbuild.Plugin {
         );
         source = replaceExactly(
           source,
-          'case "agent_settled": {\n        void this.flushEmits().finally(() => {',
+          'return { sessionUpdate: "usage_update", used, size };',
           [
-            'case "agent_settled": {',
-            '        void this.flushEmits().then(async () => {',
-            '          try {',
-            '            const stats = await this.proc.getSessionStats();',
-            '            const used = Number(stats?.contextUsage?.tokens);',
-            '            const size = Number(stats?.contextUsage?.contextWindow);',
-            '            if (Number.isFinite(used) && used >= 0 && Number.isFinite(size) && size > 0) {',
-            '              const amount = Number(stats?.cost);',
-            '              this.emit({',
-            '                sessionUpdate: "usage_update",',
-            '                used,',
-            '                size,',
-            '                ...Number.isFinite(amount) && amount >= 0',
-            '                  ? { cost: { amount, currency: "USD" } }',
-            '                  : {}',
-            '              });',
-            '              await this.flushEmits();',
-            '            }',
-            '          } catch {',
-            '          }',
-            '        }).finally(() => {',
-          ].join('\n'),
-          'ACP usage update',
+            'const amount = Number(stats?.cost);',
+            '  return { sessionUpdate: "usage_update", used, size,',
+            '    ...Number.isFinite(amount) && amount >= 0',
+            '      ? { cost: { amount, currency: "USD" } }',
+            '      : {}',
+            '  };',
+          ].join('\n  '),
+          'ACP usage cost',
         );
         source = replaceExactly(
           source,
@@ -309,6 +294,7 @@ async function preparePiAcpVendor({ copy = false } = {}): Promise<void> {
       platform: 'node',
       format: 'esm',
       target: 'node22',
+      banner: { js: 'import { createRequire } from "node:module"; const require = createRequire(import.meta.url);' },
       minify: false,
       legalComments: 'none',
       sourcemap: false,

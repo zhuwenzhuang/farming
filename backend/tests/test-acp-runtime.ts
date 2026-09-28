@@ -63,8 +63,8 @@ async function run() {
     '600 (unrelated) S 1 600 0',
   ], 574), 'missing');
   assert.strictEqual(resolveAcpLaunch('codex').version, '1.13.1');
-  assert.strictEqual(resolveAcpLaunch('claude').version, '0.81.1');
-  assert.strictEqual(resolveAcpLaunch('pi', piLaunchOptions).version, '0.0.33');
+  assert.strictEqual(resolveAcpLaunch('claude').version, '0.81.2');
+  assert.strictEqual(resolveAcpLaunch('pi', piLaunchOptions).version, '0.0.34');
   assert.strictEqual(resolveAcpLaunch('qwen').version, 'native');
   const codexAcpSource = fs.readFileSync(
     path.join(path.dirname(require.resolve('@agentclientprotocol/codex-acp/package.json')), 'dist', 'index.js'),

@@ -142,6 +142,9 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
   else if (request.type === 'get_available_models') data = {
     models: [{ provider: 'fake', id: 'model', name: 'Packaged Smoke Model' }],
   };
+  else if (request.type === 'get_available_thinking_levels') data = {
+    levels: ['off', 'low', 'medium', 'high'],
+  };
   else if (request.type === 'get_commands') data = { commands: [] };
   process.stdout.write(JSON.stringify({
     type: 'response',
@@ -256,7 +259,7 @@ async function smokePiAcp(options: SmokeOptions): Promise<void> {
     if (
       result?.protocolVersion !== 1
       || result.agentInfo?.name !== 'pi-acp'
-      || result.agentInfo?.version !== '0.0.33'
+      || result.agentInfo?.version !== '0.0.34'
       || result.agentCapabilities?.loadSession !== true
       || result.agentCapabilities?.promptCapabilities?.image !== true
       || result.agentCapabilities?.sessionCapabilities?.list == null

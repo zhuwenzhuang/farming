@@ -19,6 +19,10 @@ Terminal and ACP are independent executable-ownership boundaries:
 - ACP uses Farming-owned, version-pinned adapter and runtime artifacts,
   independently of the Terminal selection.
 
+Farming launches Codex Terminal with `--no-daemon` so the CLI stays inside the
+Terminal's owned process tree. Stop and runtime switching can then kill the
+complete owned process set without leaving a shared Codex server behind.
+
 New ACP Chat Sessions use the release-pinned managed executable for their exact
 Codex Agent Home; Plugins does not expose a custom executable choice. Terminal
 discovery remains independent, and existing Sessions keep their persisted

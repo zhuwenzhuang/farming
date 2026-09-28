@@ -29,7 +29,7 @@ async function run(): Promise<void> {
   const globalHome = path.join(root, 'global-home');
   const fakePi = path.join(root, 'fake-pi.cjs');
   const launchLog = path.join(root, 'pi-launch.json');
-  const vendorEntry = path.resolve(__dirname, '..', '..', 'dist', 'acp', 'pi-acp-0.0.33.mjs');
+  const vendorEntry = path.resolve(__dirname, '..', '..', 'dist', 'acp', 'pi-acp-0.0.34.mjs');
   let child: ChildProcess | null = null;
   try {
     fs.mkdirSync(agentHome, { recursive: true });
@@ -72,6 +72,9 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
   };
   else if (request.type === 'get_available_models') data = {
     models: [{ provider: 'fake', id: 'model', name: 'Smoke Model' }],
+  };
+  else if (request.type === 'get_available_thinking_levels') data = {
+    levels: ['off', 'low', 'medium', 'high'],
   };
   else if (request.type === 'get_commands') data = { commands: [] };
   else if (request.type === 'get_session_stats') data = {

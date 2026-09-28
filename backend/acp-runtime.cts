@@ -336,10 +336,10 @@ const CODEX_ACP_PACKAGE = '@agentclientprotocol/codex-acp';
 const CODEX_ACP_VERSION = '1.13.1';
 const CODEX_ACP_SHA256 = '93922560a1c28d3efe904d033f77e62db8ece81c38ed942f53da4948fa488761';
 const CLAUDE_ACP_PACKAGE = '@agentclientprotocol/claude-agent-acp';
-const CLAUDE_ACP_VERSION = '0.81.1';
+const CLAUDE_ACP_VERSION = '0.81.2';
 const CLAUDE_ACP_SHA256 = '41646bf9877c1acfcd0f50e6107f7d0381109f058478dccb66533b9c62a9dd88';
 const PI_ACP_PACKAGE = 'pi-acp';
-const PI_ACP_VERSION = '0.0.33';
+const PI_ACP_VERSION = '0.0.34';
 const PI_ACP_SHA256 = 'a750044ca2135463763d373c49744031aa1e9ff08f77011f1626156e3b4c8981';
 const CODEX_ACP_VENDOR_ENTRY = path.join(
   __dirname,

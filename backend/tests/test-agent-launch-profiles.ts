@@ -2,6 +2,11 @@ const assert = require('assert');
 const { CLI_AGENTS, parseCommand, resolveLaunchCommand } = require('../cli-agents.cjs');
 const { renderFarmingAgentBootstrap } = require('../farming-agent-bootstrap.cjs');
 
+function assertCodexArgs(actual: string[], expected: string[], message?: string): void {
+  assert.strictEqual(actual.filter(arg => arg === '--no-daemon').length, 1);
+  assert.deepStrictEqual(actual.filter(arg => arg !== '--no-daemon'), expected, message);
+}
+
 function run() {
   const farmingSystemPrompt = renderFarmingAgentBootstrap();
   assert.match(farmingSystemPrompt, /wraps `agent-browser` as Farming Browser/);
@@ -41,26 +46,28 @@ function run() {
   assert.strictEqual(claudeExplicitDefault.permissionMode, '');
 
   const codexSkip = resolveLaunchCommand('codex', { dangerouslySkipPermissions: true });
-  assert.deepStrictEqual(codexSkip.args, ['--dangerously-bypass-approvals-and-sandbox']);
+  assert.ok(codexSkip.args.includes('--no-daemon'));
+  assertCodexArgs(resolveLaunchCommand('codex --no-daemon').args, []);
+  assertCodexArgs(codexSkip.args, ['--dangerously-bypass-approvals-and-sandbox']);
   assert.strictEqual(codexSkip.permissionMode, 'full');
 
   const codexAsk = resolveLaunchCommand('codex', { codexApprovalMode: 'ask', dangerouslySkipPermissions: true });
-  assert.deepStrictEqual(codexAsk.args, ['--ask-for-approval', 'untrusted', '--sandbox', 'workspace-write']);
+  assertCodexArgs(codexAsk.args, ['--ask-for-approval', 'untrusted', '--sandbox', 'workspace-write']);
   assert.strictEqual(codexAsk.permissionMode, 'ask');
 
   const codexApprove = resolveLaunchCommand('codex --search', { codexApprovalMode: 'approve' });
-  assert.deepStrictEqual(codexApprove.args, ['--ask-for-approval', 'on-request', '--sandbox', 'workspace-write', '--search']);
+  assertCodexArgs(codexApprove.args, ['--ask-for-approval', 'on-request', '--sandbox', 'workspace-write', '--search']);
   assert.strictEqual(codexApprove.permissionMode, 'approve');
 
   const codexModel = resolveLaunchCommand('codex', { codexModelPreset: 'gpt-5.5-pro:high' });
-  assert.deepStrictEqual(codexModel.args, ['-c', 'model_reasoning_effort="high"', '--model', 'gpt-5.5-pro']);
+  assertCodexArgs(codexModel.args, ['-c', 'model_reasoning_effort="high"', '--model', 'gpt-5.5-pro']);
 
   const codexSplitModel = resolveLaunchCommand('codex', {
     codexModel: 'gpt-5.5',
     codexReasoningEffort: 'xhigh',
     codexServiceTier: 'priority',
   });
-  assert.deepStrictEqual(codexSplitModel.args, [
+  assertCodexArgs(codexSplitModel.args, [
     '-c',
     'service_tier="priority"',
     '-c',
@@ -74,7 +81,7 @@ function run() {
     codexReasoningEffort: 'high',
     codexServiceTier: 'default',
   });
-  assert.deepStrictEqual(codexStandardSpeed.args, [
+  assertCodexArgs(codexStandardSpeed.args, [
     '-c',
     'service_tier="default"',
     '-c',
@@ -84,14 +91,14 @@ function run() {
   ], 'Standard speed must override a Fast value inherited from the user config');
 
   const codexManualModel = resolveLaunchCommand('codex --model gpt-5.5', { codexModelPreset: 'gpt-5.5-pro:xhigh' });
-  assert.deepStrictEqual(codexManualModel.args, ['--model', 'gpt-5.5']);
+  assertCodexArgs(codexManualModel.args, ['--model', 'gpt-5.5']);
 
   const codexFull = resolveLaunchCommand('codex', { codexApprovalMode: 'full' });
-  assert.deepStrictEqual(codexFull.args, ['--dangerously-bypass-approvals-and-sandbox']);
+  assertCodexArgs(codexFull.args, ['--dangerously-bypass-approvals-and-sandbox']);
   assert.strictEqual(codexFull.permissionMode, 'full');
 
   const codexManualApproval = resolveLaunchCommand('codex --ask-for-approval never', { codexApprovalMode: 'ask' });
-  assert.deepStrictEqual(codexManualApproval.args, ['--ask-for-approval', 'never']);
+  assertCodexArgs(codexManualApproval.args, ['--ask-for-approval', 'never']);
   assert.strictEqual(codexManualApproval.permissionMode, 'custom');
 
   assert.deepStrictEqual(
@@ -101,7 +108,7 @@ function run() {
   const codexResume = resolveLaunchCommand("codex resume -C '/repo/with space' 019f0000-0000-7000-8000-000000000101", {
     codexApprovalMode: 'approve',
   });
-  assert.deepStrictEqual(codexResume.args, [
+  assertCodexArgs(codexResume.args, [
     '--ask-for-approval',
     'on-request',
     '--sandbox',
@@ -116,7 +123,7 @@ function run() {
   const codexFullResume = resolveLaunchCommand("codex resume -C '/repo/with space' 019f0000-0000-7000-8000-000000000101", {
     codexApprovalMode: 'full',
   });
-  assert.deepStrictEqual(codexFullResume.args, [
+  assertCodexArgs(codexFullResume.args, [
     '--dangerously-bypass-approvals-and-sandbox',
     'resume',
     '-C',
@@ -126,11 +133,11 @@ function run() {
   assert.strictEqual(codexFullResume.permissionMode, 'full');
 
   const codexCustom = resolveLaunchCommand('codex', { codexApprovalMode: 'custom', dangerouslySkipPermissions: false });
-  assert.deepStrictEqual(codexCustom.args, []);
+  assertCodexArgs(codexCustom.args, []);
   assert.strictEqual(codexCustom.permissionMode, 'custom');
 
   const codexCustomResume = resolveLaunchCommand('codex resume codex-session-123', { codexApprovalMode: 'custom' });
-  assert.deepStrictEqual(codexCustomResume.args, ['resume', 'codex-session-123']);
+  assertCodexArgs(codexCustomResume.args, ['resume', 'codex-session-123']);
   assert.strictEqual(codexCustomResume.permissionMode, 'custom');
 
   const codexUnifiedProfile = resolveLaunchCommand('codex --search', {
@@ -143,7 +150,7 @@ function run() {
       },
     },
   });
-  assert.deepStrictEqual(codexUnifiedProfile.args, [
+  assertCodexArgs(codexUnifiedProfile.args, [
     '--ask-for-approval',
     'untrusted',
     '--sandbox',
@@ -203,7 +210,7 @@ function run() {
     dangerouslySkipPermissions: true,
     agentLaunchProfiles: { codex: { approvalMode: 'approve' } },
   });
-  assert.deepStrictEqual(codexDangerousOverridesProfile.args, ['--dangerously-bypass-approvals-and-sandbox']);
+  assertCodexArgs(codexDangerousOverridesProfile.args, ['--dangerously-bypass-approvals-and-sandbox']);
   assert.strictEqual(codexDangerousOverridesProfile.permissionMode, 'full');
 
   const qwenSkip = resolveLaunchCommand('qwen', { dangerouslySkipPermissions: true });

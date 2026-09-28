@@ -18,6 +18,9 @@ Terminal 与 ACP 是相互独立的 Executable Ownership Boundary：
   Farming 自有 Executable。
 - ACP 独立使用 Farming 自有、版本锁定的 Adapter 与 Runtime Artifact，不继承 Terminal 选择。
 
+Farming 启动 Codex Terminal 时传入 `--no-daemon`，使 CLI 留在该 Terminal 所属的进程树中。
+停止或切换 Runtime 时可直接杀死完整的自有进程集合，不遗留共享的 Codex Server。
+
 新建 ACP Chat Session 按精确 Codex Agent Home 使用版本锁定的 Managed Executable；
 Plugins 不提供 Custom Executable 选择。Terminal Discovery 继续独立，已有 Session 保留
 持久化 Launch Identity，包括精确恢复所需的旧 Custom Binding。

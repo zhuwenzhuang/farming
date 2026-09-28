@@ -846,7 +846,7 @@ function run() {
   const piAdapter = getProviderAdapter('pi');
   assert.strictEqual(piAdapter.acp.executablePolicy, 'system');
   assert.strictEqual(piAdapter.acp.packageName, 'pi-acp');
-  assert.strictEqual(piAdapter.acp.version, '0.0.33');
+  assert.strictEqual(piAdapter.acp.version, '0.0.34');
   assert.strictEqual(piAdapter.acp.sharedRuntime, false);
   assert.strictEqual(providerArgsContinueSession('pi', ['--session', 'pi-session-1']), true);
   assert.strictEqual(providerArgsContinueSession('pi', ['--fork=pi-session-1']), true);
