@@ -407,8 +407,8 @@ async function assertCodeTerminalCheckpointContinuity(page: Page, agentId: strin
     const current = (await snapshot()).diagnostics
     return Boolean(current
       && current.runtimeEpoch === checkpoint?.runtimeEpoch
-      && current.lastOutputSeq >= (checkpoint?.outputSeq ?? 0)
-      && current.stateRevision >= (checkpoint?.stateRevision ?? 0))
+      && (current.lastOutputSeq ?? 0) >= (checkpoint?.outputSeq ?? 0)
+      && (current.stateRevision ?? 0) >= (checkpoint?.stateRevision ?? 0))
   }, { timeout: 15_000 }).toBe(true)
   const after = await snapshot()
   await testInfo.attach('terminal-checkpoint-after-read.json', {
