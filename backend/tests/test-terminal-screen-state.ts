@@ -126,6 +126,9 @@ async function run() {
     try {
       await mouseScreen.write('\x1b[?1049h\x1b[?1002h\x1b[?1006hQwen Code');
       const mouseState = mouseScreen.getState();
+      assert.strictEqual(mouseState.scrollbackAvailable, 0,
+        'an application-owned alternate screen has no native scrollback');
+      assert.strictEqual(mouseState.renderedScrollback, 0);
       assert.ok(mouseState.renderOutput.includes('\x1b[?1002h'));
       assert.ok(mouseState.renderOutput.includes('\x1b[?1006h'));
 

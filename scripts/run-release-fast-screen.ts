@@ -31,6 +31,10 @@ const tasks: FastScreenTask[] = [
     args: ['--import', 'tsx', 'backend/tests/test-native-pty-publication.ts'],
   },
   {
+    name: 'terminal checkpoint native and alternate buffer state',
+    args: ['--import', 'tsx', 'backend/tests/test-terminal-screen-state.ts'],
+  },
+  {
     name: 'Codex Terminal model menu transaction',
     args: ['--import', 'tsx', 'backend/tests/test-codex-terminal-profile.ts'],
   },

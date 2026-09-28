@@ -375,68 +375,51 @@ async function assertCodeTerminalHealthy(page: Page, agentId: string) {
   await expect(page.getByTestId('code-terminal-status-card')).toHaveCount(0)
 }
 
-async function assertCodeTerminalHistory(page: Page, agentId: string, testInfo: TestInfo) {
+async function assertCodeTerminalCheckpointContinuity(page: Page, agentId: string, testInfo: TestInfo) {
   const snapshot = () => page.evaluate(id => {
     const bridge = window.__farmingTerminalTest
     const diagnostics = bridge?.getBufferDiagnostics(id) ?? null
     return { diagnostics, rows: bridge?.getRows(id, diagnostics?.rows ?? 0) ?? [] }
   }, agentId)
   const before = await snapshot()
-  const retained = await page.evaluate(async id => (
+  const checkpoint = await page.evaluate(async id => (
     window.__farmingTerminalTest?.requestCheckpoint(id)
   ), agentId) as SessionBootstrapState | undefined
-  await testInfo.attach('terminal-history-before-read.json', {
-    body: Buffer.from(JSON.stringify({ backendCheckpoint: retained, browserSnapshot: before }, null, 2)),
+  await testInfo.attach('terminal-checkpoint-before-read.json', {
+    body: Buffer.from(JSON.stringify({ backendCheckpoint: checkpoint, browserSnapshot: before }, null, 2)),
     contentType: 'application/json',
   })
   expect(before.diagnostics).not.toBeNull()
-  expect(retained?.scrollbackAvailable).toBeGreaterThan((before.diagnostics?.rows ?? 24) * 3)
-  expect(retained?.output).toContain(CLI_BEGIN)
-  expect(retained?.output).toContain('JSON_FORMAT_7F3A')
-  const required = [CLI_BEGIN, 'JSON_FORMAT_7F3A']
-  const found = new Set<string>()
-  const pageLimit = Math.ceil(
-    (retained?.scrollbackAvailable ?? 0) / Math.max(1, (before.diagnostics?.rows ?? 24) - 1),
-  ) + 5
-  const input = page.locator(
-    `[data-testid="code-terminal-pane"][data-agent-id="${agentId}"] .xterm-helper-textarea`,
-  )
-  try {
-    // The browser materializes recent scrollback first. Read older output through
-    // the same PageUp expansion path as a user, within the authoritative horizon.
-    for (let pageIndex = 0; pageIndex < pageLimit; pageIndex += 1) {
-      const current = await snapshot()
-      for (const marker of required) {
-        if (current.rows.some(row => row.includes(marker))) found.add(marker)
-      }
-      if (found.size === required.length) break
-      const state = current.diagnostics
-      if (!state) break
-      if (state.viewportY >= state.scrollbackLength
-        && state.checkpointScrollbackInstalled >= state.checkpointScrollbackAvailable) break
-      await input.focus()
-      await page.keyboard.press('PageUp')
-      await expect.poll(async () => {
-        const next = (await snapshot()).diagnostics
-        return Boolean(next
-          && !next.checkpointRequestInFlight
-          && !next.replayInProgress
-          && (next.viewportY !== state.viewportY
-            || next.checkpointScrollbackInstalled !== state.checkpointScrollbackInstalled))
-      }, { timeout: 15_000 }).toBe(true)
-    }
-    for (const marker of required) expect([...found]).toContain(marker)
-  } finally {
-    await testInfo.attach('terminal-history-after-read.json', {
-      body: Buffer.from(JSON.stringify({ ...(await snapshot()), found: [...found] }, null, 2)),
-      contentType: 'application/json',
-    })
-    await attachScreenshot(page, testInfo, 'terminal-history-read.png')
-    const jump = page.getByTestId('code-terminal-jump-bottom')
-    if (await jump.isVisible()) await jump.click()
+  expect(checkpoint?.runtimeEpoch).toBe(before.diagnostics?.runtimeEpoch)
+  expect({ cols: checkpoint?.cols, rows: checkpoint?.rows }).toEqual({
+    cols: before.diagnostics?.cols, rows: before.diagnostics?.rows,
+  })
+  expect(checkpoint?.outputSeq).toBeGreaterThanOrEqual(before.diagnostics?.lastOutputSeq ?? 0)
+  expect(checkpoint?.stateRevision).toBeGreaterThanOrEqual(before.diagnostics?.stateRevision ?? 0)
+  expect(checkpoint?.renderedScrollback).toBeLessThanOrEqual(checkpoint?.scrollbackAvailable ?? 0)
+  for (const marker of [COMPOSITE_END, 'PAGE_06_LINE_18']) {
+    expect(checkpoint?.output).toContain(marker)
   }
-  await waitForCodeAnchor(page, agentId, COMPOSITE_END)
-  await expect.poll(async () => (await snapshot()).diagnostics?.viewportY).toBe(0)
+  // Codex owns a full-screen virtual viewport (terminalReadingAnchor=false).
+  // Its checkpoint represents the current PTY frame, which may have no native
+  // scrollback. Earlier conversation turns are verified through provider history.
+  await expect.poll(async () => {
+    const current = (await snapshot()).diagnostics
+    return Boolean(current
+      && current.runtimeEpoch === checkpoint?.runtimeEpoch
+      && current.lastOutputSeq >= (checkpoint?.outputSeq ?? 0)
+      && current.stateRevision >= (checkpoint?.stateRevision ?? 0))
+  }, { timeout: 15_000 }).toBe(true)
+  const after = await snapshot()
+  await testInfo.attach('terminal-checkpoint-after-read.json', {
+    body: Buffer.from(JSON.stringify(after, null, 2)),
+    contentType: 'application/json',
+  })
+  for (const marker of [COMPOSITE_END, 'PAGE_06_LINE_18']) {
+    expect(after.rows.join('\n')).toContain(marker)
+  }
+  expect(after.diagnostics?.viewportY).toBe(0)
+  await attachScreenshot(page, testInfo, 'terminal-checkpoint-continuity.png')
   await assertCodeTerminalHealthy(page, agentId)
 }
 
@@ -708,6 +691,30 @@ async function assertChatFormats(page: Page, agentId: string) {
   await expect(assistant.locator('ol')).not.toHaveCount(0)
   await expect(assistant).toContainText('PAGE_06_LINE_18')
 }
+
+async function assertTerminalTurnsInProviderHistory(page: Page, agentId: string) {
+  const expected = [CLI_BEGIN, CLI_END, 'JSON_FORMAT_7F3A', COMPOSITE_END]
+  for (let section = 1; section <= 6; section += 1) {
+    for (let line = 1; line <= 18; line += 1) {
+      expected.push(`PAGE_${String(section).padStart(2, '0')}_LINE_${String(line).padStart(2, '0')}`)
+    }
+  }
+  await expect.poll(async () => {
+    const response = await page.request.get(
+      `/farming/api/agents/${encodeURIComponent(agentId)}/acp-transcript?maxTurns=1000`,
+    )
+    if (!response.ok()) return false
+    const payload = await response.json() as {
+      transcript?: { entries?: Array<{ role?: string, content?: unknown }> }
+    }
+    const assistantText = (payload.transcript?.entries ?? [])
+      .filter(entry => entry.role === 'assistant')
+      .map(entry => JSON.stringify(entry.content))
+      .join('\n')
+    return expected.every(anchor => assistantText.includes(anchor))
+  }, { timeout: 60_000 }).toBe(true)
+}
+
 
 async function resizeStructuredView(page: Page, anchor: string) {
   for (const size of resizePath(NORMAL_VIEWPORT, COMPACT_VIEWPORT)) {
@@ -1155,7 +1162,7 @@ test.describe('real Codex pre-release composite case', () => {
       await sendCodeComposerInput(page, COMPOSITE_PROMPT)
       await waitForCompletedTerminalTurn(page, agentId, COMPOSITE_END)
       await waitForCodeAnchor(page, agentId, 'PAGE_06_LINE_18')
-      await assertCodeTerminalHistory(page, agentId, testInfo)
+      await assertCodeTerminalCheckpointContinuity(page, agentId, testInfo)
     })
 
     const terminalAgent = await waitForAgent(page, agentId, current => (
@@ -1190,6 +1197,7 @@ test.describe('real Codex pre-release composite case', () => {
       await assertSameProviderSession(page, agentId, providerSessionId, 'acp')
       await expect(page.getByTestId('code-agent-chat-view')).toBeVisible({ timeout: 90_000 })
       await assertChatFormats(page, agentId)
+      await assertTerminalTurnsInProviderHistory(page, agentId)
       await pinAcpSessionToPrimaryModel(page, agentId)
       await sendCodeAcpPromptAndSteer(page)
       await expect(page.getByTestId('code-agent-transcript-steer')
