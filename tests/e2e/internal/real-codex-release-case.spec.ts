@@ -8,9 +8,9 @@ import { expect, openFarming, test } from '../fixtures'
 // on one fixed low-cost model. LAUNCH_MODEL is only selected to prove a live
 // model switch; the switch below completes before the first prompt is sent, and
 // each surface re-checks provider truth before it spends anything.
-const PRIMARY_MODEL = 'gpt-5.6-luna'
+const PRIMARY_MODEL = 'gpt-6-luna'
 const PRIMARY_EFFORT = 'low'
-const LAUNCH_MODEL = 'gpt-5.6-terra'
+const LAUNCH_MODEL = 'gpt-6-sol'
 const CLI_BEGIN = 'CLI_FLOW_BEGIN_7F3A'
 const CLI_END = 'CLI_FLOW_END_7F3A'
 const COMPOSITE_BEGIN = 'COMPOSITE_BEGIN_7F3A'
