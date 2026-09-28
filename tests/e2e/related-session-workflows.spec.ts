@@ -308,8 +308,8 @@ test('streams a side-chat reply while the parent stays selected', async ({ page,
   await expect(childInput).toHaveValue('Retain the child draft')
 })
 
-test('reopens the same archived side chat with a live child row', async ({ page, workspaceRoot }, testInfo) => {
-  const workspace = path.join(workspaceRoot, 'reopen-side-chat')
+test('creates a fresh side chat from current context after archiving a child', async ({ page, workspaceRoot }, testInfo) => {
+  const workspace = path.join(workspaceRoot, 'fresh-side-chat')
   fs.mkdirSync(workspace, { recursive: true })
   const fixtureHome = path.join(workspaceRoot, 'side-chat-provider-home')
   fs.mkdirSync(fixtureHome, { recursive: true })
@@ -342,10 +342,11 @@ test('reopens the same archived side chat with a live child row', async ({ page,
   const pane = page.getByTestId('code-subagent-panel')
   await expect(pane.getByTestId('code-acp-composer-input')).toBeEditable()
   const inventory = await (await page.request.get('/farming/api/control/agents')).json() as {
-    agents: Array<{ id: string; providerHomePath: string }>
+    agents: Array<{ id: string; providerHomePath: string; subagentSourceRevision: number }>
   }
-  const home = inventory.agents.find(agent => agent.id === first.agentId)!.providerHomePath
-  // Give the fake provider a durable history file for the real resume coordinator.
+  const firstChild = inventory.agents.find(agent => agent.id === first.agentId)!
+  const home = firstChild.providerHomePath
+  // Give the fake provider durable history so archive retention can be verified.
   expect(home).toBe(fixtureHome)
   const history = path.join(home, 'sessions', `rollout-${first.providerSessionId}.jsonl`)
   const archived = path.join(home, 'archived_sessions', path.basename(history))
@@ -362,6 +363,16 @@ test('reopens the same archived side chat with a live child row', async ({ page,
     // The fake ACP archive acknowledges lifecycle without moving provider files.
     if (fs.existsSync(history)) fs.renameSync(history, archived)
     await parentRow.click()
+    await input.fill('image attachment updated parent context')
+    await page.getByTestId('code-acp-composer-send').click()
+    await expect(page.locator('.code-terminal-grid').locator('.code-agent-transcript-turn').filter({
+      hasText: 'image attachment updated parent context',
+    })).toContainText('Received 0 image.')
+    const updatedInventory = await (await page.request.get('/farming/api/control/agents')).json() as {
+      agents: Array<{ id: string; runtimeBinding: { sessionRevision: number } }>
+    }
+    const sourceRevision = updatedInventory.agents.find(agent => agent.id === agentId)!.runtimeBinding.sessionRevision
+    expect(sourceRevision).toBeGreaterThan(firstChild.subagentSourceRevision)
     await input.fill('/side')
     const reopening = page.waitForResponse(response => response.url().endsWith(`/agents/${agentId}/subagent`))
     await page.getByTestId('code-acp-composer-send').click()
@@ -369,17 +380,26 @@ test('reopens the same archived side chat with a live child row', async ({ page,
     const reopened = await reply.json() as { error?: string; agentId: string; providerSessionKey: string }
     expect(reopened.error).toBeFalsy()
     expect(reply.ok()).toBeTruthy()
-    expect(reopened.providerSessionKey).toBe(first.providerSessionKey)
+    expect(reopened.providerSessionKey).not.toBe(first.providerSessionKey)
+    expect(fs.existsSync(archived)).toBeTruthy()
+    expect(fs.existsSync(history)).toBeFalsy()
     expect(reopened.agentId).not.toBe(first.agentId)
     await expect(pane.getByTestId('code-acp-composer-input')).toBeEditable()
     await expect(page.locator(`[data-testid="code-agent-row"][data-agent-id="${reopened.agentId}"]`)).toBeVisible()
     await expect(pane).not.toContainText('Subagent state has not synchronized.')
-    await pane.getByTestId('code-acp-composer-input').fill('image attachment resumed reply')
+    const newInventory = await (await page.request.get('/farming/api/control/agents')).json() as {
+      agents: Array<{ id: string; subagentSourceRevision: number }>
+    }
+    // The fake provider returns an empty fork transcript; the durable provenance
+    // proves this child captured the updated parent boundary instead of the old one.
+    expect(newInventory.agents.find(agent => agent.id === reopened.agentId)!.subagentSourceRevision).toBe(sourceRevision)
+    await expect(page.locator(`[data-testid="code-agent-row"][data-agent-id="${first.agentId}"]`)).toHaveCount(0)
+    await pane.getByTestId('code-acp-composer-input').fill('image attachment fresh child reply')
     await pane.getByTestId('code-acp-composer-send').click()
     await expect(pane).toContainText('Received 0 image.')
     for (const appearance of ['light', 'dark', 'paper']) {
       await page.locator('body').evaluate((body, value) => { body.dataset.appearance = value }, appearance)
-      await page.screenshot({ path: testInfo.outputPath(`reopened-side-chat-${appearance}.png`), animations: 'disabled' })
+      await page.screenshot({ path: testInfo.outputPath(`fresh-side-chat-${appearance}.png`), animations: 'disabled' })
     }
   } finally {
     for (const file of [history, archived]) if (fs.existsSync(file)) fs.unlinkSync(file)

@@ -19,9 +19,10 @@ list, transcript presentation, attention indicators and capability-driven contro
 Their purpose and controller remain explicit. A child reported by a provider is
 not automatically a Session that Farming can prompt, resume, close or delete.
 
-The initial design provides one retained side chat per parent Provider Session.
-Repeated opening returns to that conversation; automatic runtime release retains its history;
-deleting it permits a fresh snapshot and conversation. Ordinary Conversation Fork
+Each `/side` invocation creates a new side chat from the parent's current safe
+provider-owned context boundary. Existing live, retained or archived children
+are not reused. Selecting an existing related row returns to that exact
+conversation; automatic runtime release retains its history. Ordinary Conversation Fork
 continues to create an independent task. Existing forks are not reclassified.
 Nested user-created side chats, promotion, automatic result merging, worktree
 creation and Farming-owned subagent orchestration are outside the first delivery.
@@ -74,7 +75,7 @@ changing parent identity or unmounting cancels obsolete reads. An admitted read
 failure remains explicit and retryable; an empty successful inventory adds no
 child rows.
 
-- The Side Chat command is available in the existing parent action menu. Opening
+- The Side Chat creation command is available in the existing parent action menu. Opening
   it expands the parent and activates the child after creation settles. Repeated
   clicks and multiple browsers join the same backend operation.
 - Selecting the parent shows its existing Chat or Terminal. Selecting a child
@@ -215,8 +216,8 @@ provider capabilities:
   deleting a chat and supports resizable groups. Adopt parallel visibility and
   presentation-only hiding. Its documented Side Chat availability is limited to
   Copilot and Claude in the Agents window; it does not establish Codex support.
-  Its per-question child creation and inclusion of in-progress context are not
-  this proposal's retained-slot and stable-boundary contract.
+  Per-question child creation matches this proposal; inclusion of in-progress
+  context remains outside its stable-boundary contract.
 - [Zed: Agent panel](https://github.com/zed-industries/zed/blob/main/docs/src/ai/agent-panel.md)
   describes independently running threads with separate context and history and
   project-grouped navigation. This supports identity and navigation separation;
@@ -274,8 +275,8 @@ a second child inventory from raw transcript events.
 
 A Session has one live runtime owner, including when it can also be discovered in
 provider history. Association edges must not create cycles. Native nesting retains
-the provider's actual parent relation and uses the same row family; the one-side-chat
-rule is a product rule, not a limit on native subagent count. Descendants started
+the provider's actual parent relation and uses the same row family. Multiple
+user-created side chats retain independent identities beneath the same parent. Descendants started
 by a side chat belong to that side runtime's cleanup scope, not to the main task.
 
 Capabilities are the intersection of the pinned adapter's verified contract, live
@@ -314,15 +315,17 @@ requests and results remain attributed to the child. Conversation isolation does
 not isolate files: the first delivery shares the existing workspace and does not
 claim a filesystem snapshot or create a worktree.
 
-Opening an archived or detached side chat resumes its exact existing Session through
-the shared resume admission. Success requires a published, non-archived child Agent
-with the expected parent and Session identity; historical metadata alone is not an
-open result. Concurrent opens share one operation, and resume failure is explicit
-without creating another Fork or replaying messages.
+The `/side` command, parent creation action and Ask in subagent action create
+a new conversation, even after a previous child was archived or its runtime
+released. Concurrent creation requests for the same parent join the in-flight
+operation; a later request after settlement creates a new identity and captures
+the current safe context boundary.
 
-Opening an existing side chat does not refresh its parent context; the original
-snapshot boundary remains unchanged. Users can supply selected newer
-information through an ordinary message, or explicitly delete and start again.
+Selecting an existing side chat preserves its original snapshot. Resuming an
+archived or detached child by its exact identity uses shared resume admission,
+with explicit failure and no replacement Fork or message replay. Users can
+supply newer information through a message or create another side chat without
+deleting the existing conversation.
 
 ## Minimal State-Transition Model
 
@@ -332,9 +335,9 @@ separate facts. The labels below describe operations, not another runtime enum.
 
 | Trigger | Guard / authoritative owner | Effect and bounded outcome |
 | --- | --- | --- |
-| Open side chat | Backend serializes the parent's single retained side slot | Return its existing identity, or durably record one creation intent before calling the provider |
+| Create side chat | Backend serializes creation for the exact parent and checks unresolved Fork outcomes | Durably record a fresh creation intent using the current safe boundary; concurrent requests join, settled children never satisfy a new request |
 | Fork completes | Operation identity and source boundary still match | Persist child identity and related membership before publishing success; stale browser intent cannot navigate |
-| Fork rejected | Definitive provider failure, no unresolved child | Publish failure and release the reserved slot; explicit retry may create a new operation |
+| Fork rejected | Definitive provider failure, no unresolved child | Publish failure and settle the creation intent; explicit retry may create a new operation |
 | Fork result uncertain | Timeout, lost response, or crash around identity publication | Retain the journal and reservation; reconcile without replaying creation or claiming that no child exists |
 | Send to retained child | Current capability, owner and operation generation match | Resume exactly that Session when needed, then admit one identified Prompt through the existing queue |
 | Stop reply | Exact child Turn is active and cancellation is supported | Cancel only that Turn; observe completion or an explicit cancellation failure by the existing deadline |
@@ -347,7 +350,7 @@ Creation, resume, End, Delete and parent destruction serialize at the same owner
 Duplicate requests with the same operation identity join; changed payloads do not.
 An End arriving during creation records the intended terminal state and releases
 the exact child if it materializes. If its identity is still unknown, the operation
-stays uncertain; it must not reopen the slot and leak a second fork. Cleanup and
+stays uncertain; it must not admit another creation and leak a second fork. Cleanup and
 deletion acknowledgements are not optimistic UI removal.
 
 ## Resource Reclamation And Parent Lifecycle
@@ -423,7 +426,7 @@ Native-child transcript inspection likewise does not imply prompt support.
 | Gate | Scope and owner | Exit evidence / dependency |
 | --- | --- | --- |
 | 1. Adapter contract | Provider boundary proves stable snapshot, continuation, exact identity and independent release; distinguish active-Turn from idle-only support | Fake-provider contracts plus an isolated real-provider probe; unresolved methods remain disabled |
-| 2. Durable related membership | Backend owns parent slot, native-child normalization, capability projection, list deltas and uncertain-operation reconciliation | Concurrent browsers, duplicate history discovery, stale generations and crash boundaries preserve one identity |
+| 2. Durable related membership | Backend owns parent membership and creation admission, native-child normalization, capability projection, list deltas and uncertain-operation reconciliation | Concurrent browsers, duplicate history discovery, stale generations and crash boundaries preserve one identity |
 | 3. Lifecycle completion | Backend composes creation/resume with idle/disconnect release, parent stop/archive/delete and exact cleanup | Child resources are reclaimed while parent and shared siblings survive; no uncertain mutation is replayed |
 | 4. Shared paired view | Workspace navigation composes parent and child transcripts, shared rows, focus routing, width policy and surface restoration | Both Side Chat and native-child entry points pass identical placement, focus and navigation cases; read-only fixtures can be used before creation is enabled |
 | 5. Enablement | Complete create/send/retain/reopen path using gates 1–4, then enable only verified adapter capabilities | Common end-to-end suite, three-appearance visual evidence and low-volume real-provider smoke; Terminal entry additionally proves exact identity and non-interruption |
@@ -439,7 +442,7 @@ not inferred from its name or an advertised connection-level Fork method.
 | --- | --- |
 | Running parent | Hold the parent's Prompt and tool output open; create and converse with the child; prove the parent receives no cancel/switch and completes normally |
 | Snapshot | Verify the displayed boundary, excluded partial output, unchanged source, isolated child messages and successful child continuation |
-| Shared identity | Same parent across browsers creates one side chat; identical IDs in different Homes stay distinct; native synthetic IDs never become guessed history identities |
+| Shared identity | Concurrent requests for the same parent across browsers create one side chat; sequential requests create distinct children, including after archive or runtime release; identical IDs in different Homes stay distinct; native synthetic IDs never become guessed history identities |
 | Controls | Read-only native child, cancellable-only child and full side chat expose exactly their verified actions; stale capabilities and generations reject mutation |
 | Ordering and failure | Duplicate open/send, End during fork, send versus eviction, delete versus resume, out-of-order events and response loss reconcile without duplicate work |
 | Cleanup | Exact child processes, bindings, tool resources and interactions are reclaimed; shared siblings survive; all idle/disconnect expiry and cleanup-failure paths terminate visibly |

@@ -9783,10 +9783,7 @@ class AgentManager extends EventEmitter {
     });
   }
 
-  async openSubagent(
-    agentId: AgentId,
-    resumeSession: (provider: string, sessionId: string, providerHomeId: string) => Promise<{ agentId?: string; error?: string }>,
-  ): Promise<AgentForkResult> {
+  async openSubagent(agentId: AgentId): Promise<AgentForkResult> {
     await this.recoveryGate.wait();
     const parent = this.agents.get(agentId);
     if (!parent) return { error: 'Agent not found' };
@@ -9801,58 +9798,19 @@ class AgentManager extends EventEmitter {
       return { error: 'Parent is being archived or removed' };
     }
     const request = (async (): Promise<AgentForkResult> => {
-      const records = typeof this.configManager?.listAgentSessionRecords === 'function'
-        ? this.configManager.listAgentSessionRecords()
-        : [];
-      const children = records.filter(record => canonicalProviderSessionKey(record.subagentParentSessionKey) === parentKey);
-      if (children.length > 1) return { error: 'Multiple subagents claim this parent; reconcile their ownership before continuing' };
-      const child = children[0];
-      if (child) {
-        if (activeLifecycleOperation(child)) return { error: 'Subagent has an unresolved lifecycle operation', uncertain: true };
-        return this.runAgentLifecycleOperation(agentId, 'subagent-open', 'update', 'open subagent', async () => {
-          if (parent.archived || !this.agents.has(agentId)) return { error: 'Parent is being archived or removed' };
-          const isAttachedChild = (agent: TypedAgentRecord) => (
-            agent.providerSessionKey === child.providerSessionKey
-            && agent.subagentParentSessionKey === parentKey
-            && !agent.archived && agent.status !== 'stopped' && agent.status !== 'dead'
-          );
-          let attached = [...this.agents.values()].find(isAttachedChild);
-          if (!attached) {
-            const identity = decodeProviderSessionKey(child.providerSessionKey);
-            if (!identity || identity.sessionId !== child.providerSessionId) {
-              return { error: 'Subagent history has no durable provider identity' };
-            }
-            const resumed = await resumeSession(identity.provider, identity.sessionId, identity.providerHomeId);
-            if (resumed.error) return { error: resumed.error };
-            attached = resumed.agentId ? this.agents.get(resumed.agentId) : undefined;
-            if (!attached || !isAttachedChild(attached)) {
-              return { error: 'Subagent resume did not publish the expected child session', uncertain: true };
-            }
-          }
-          this.emitStateChange({ agentIds: [attached.id] });
-          return {
-            agentId: attached.id,
-            providerSessionId: child.providerSessionId,
-            providerSessionKey: child.providerSessionKey,
-            workspace: child.projectWorkspace || child.cwd,
-            retained: true,
-            targetRuntime: 'chat',
-          };
-        });
-      }
       const prior = [...(parent.lifecycleJournal?.entries || [])].reverse().find(operation => (
         operation.type === 'fork' && operation.request?.purpose === 'subagent'
+        && !['succeeded', 'failed', 'cancelled'].includes(operation.state)
       ));
-      // A missing child is not evidence that a previously successful or uncertain
-      // create never happened. Reconcile the durable Fork request, never replay it.
-      const reconcile = prior && !['failed', 'cancelled'].includes(prior.state);
+      // Settled requests do not reserve a parent slot. Only an unresolved Fork
+      // must reconcile its original identity before another creation is admitted.
       const runtime = runtimeBindingOf(parent, 'acp');
       if (!runtime) return { error: 'This parent does not support structured subagent' };
       const result = await this.forkAgent(agentId, 'same-worktree', {
         purpose: 'subagent',
         targetRuntime: 'chat',
-        expectedRevision: reconcile ? Number(prior.request?.expectedRevision) : Number(runtime.sessionRevision || 0),
-        requestId: reconcile ? prior.requestKey.slice('fork-request:'.length) : `subagent-${crypto.randomUUID()}`,
+        expectedRevision: prior ? Number(prior.request?.expectedRevision) : Number(runtime.sessionRevision || 0),
+        requestId: prior ? prior.requestKey.slice('fork-request:'.length) : `subagent-${crypto.randomUUID()}`,
       });
       if (result.error) return result;
       const created = (this.configManager?.listAgentSessionRecords?.() || []).find(record => (

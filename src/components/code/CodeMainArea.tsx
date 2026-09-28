@@ -851,7 +851,7 @@ export function CodeMainArea({
   const subagentHostCommands: AcpAvailableCommand[] = subagentCommandAvailable
     ? [{
       name: 'side',
-      description: language === 'zh' ? '打开或复用子 Agent' : 'Open or reuse Subagent',
+      description: language === 'zh' ? '从当前上下文新建子 Agent' : 'Create Subagent from current context',
     }]
     : []
   const submitAcpComposer = (draft?: string, options?: { oppositeFollowUpBehavior?: boolean }) => {

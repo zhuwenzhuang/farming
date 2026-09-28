@@ -11,37 +11,29 @@ async function run() {
   manager.recoveryGate = { wait: async () => {} };
   manager.agents = new Map([['parent', parent]]);
   manager.subagentRequests = new Map();
-  let records: Record<string, unknown>[] = [];
+  const records: Record<string, unknown>[] = [];
   manager.configManager = { listAgentSessionRecords: () => records };
-  let resumes = 0;
-  let resumeError = '';
-  const childKey = encodeProviderSessionKey('codex', 'child-session', 'default');
-  const resumeSession = async (provider: string, sessionId: string, homeId: string) => {
-    resumes++;
-    assert.equal(provider, 'codex');
-    assert.equal(sessionId, 'child-session');
-    assert.equal(homeId, 'default');
-    if (resumeError) return { error: resumeError };
-    manager.agents.set('resumed-child', { id: 'resumed-child', providerSessionKey: childKey,
-      subagentParentSessionKey: parentKey, status: 'running', archived: false });
-    return { agentId: 'resumed-child' };
-  };
-  const openSubagent = (id: string) => manager.openSubagent(id, resumeSession);
-  manager.emitStateChange = () => {};
-  manager.runAgentLifecycleOperation = async (_id: string, _key: string, _kind: string, _label: string, operation: () => Promise<unknown>) => operation();
+  const openSubagent = (id: string) => manager.openSubagent(id);
   let calls = 0;
   let release: (() => void) | undefined;
+  const requestIds = new Set<string>();
   manager.forkAgent = async (id: string, mode: string, options: Record<string, unknown>) => {
     calls++;
     assert.equal(id, 'parent');
     assert.equal(mode, 'same-worktree');
     assert.equal(options.purpose, 'subagent');
-    assert.equal(options.expectedRevision, 7);
+    assert.equal(options.expectedRevision, parent.runtimeBinding.sessionRevision);
+    assert.ok(!requestIds.has(String(options.requestId)), 'settled requests need a fresh operation identity');
+    requestIds.add(String(options.requestId));
     await new Promise<void>(resolve => { release = resolve; });
-    records = [{ subagentParentSessionKey: parentKey, runtimeAgentId: 'child', providerSessionKey: childKey,
-      provider: 'codex', providerSessionId: 'child-session', providerHomeId: 'default' }];
-    manager.agents.set('child', { id: 'child', providerSessionKey: childKey, subagentParentSessionKey: parentKey, status: 'running' });
-    return { agentId: 'child' };
+    const childId = `child-${calls}`;
+    const childKey = encodeProviderSessionKey('codex', `child-session-${calls}`, 'default');
+    records.push({ subagentParentSessionKey: parentKey, runtimeAgentId: childId, providerSessionKey: childKey,
+      provider: 'codex', providerSessionId: `child-session-${calls}`, providerHomeId: 'default' });
+    manager.agents.set(childId, { id: childId, providerSessionKey: childKey, subagentParentSessionKey: parentKey, status: 'running' });
+    Object.assign(parent, { lifecycleJournal: { entries: [{ type: 'fork', state: 'succeeded',
+      requestKey: `fork-request:${options.requestId}`, request: options }] } });
+    return { agentId: childId };
   };
   const first = openSubagent('parent');
   const second = openSubagent('parent');
@@ -49,36 +41,31 @@ async function run() {
   assert.equal(calls, 1, 'simultaneous windows must join the same fork');
   assert.ok(release); release();
   assert.deepEqual(await first, await second);
-  assert.equal((await openSubagent('parent')).agentId, 'child');
-  assert.equal(calls, 1, 'opening a retained subagent cannot fork again');
-  assert.equal(resumes, 0, 'an attached child needs no resume');
-  manager.agents.delete('child');
+  parent.runtimeBinding.sessionRevision = 8;
+  const next = openSubagent('parent');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(calls, 2, 'a later invocation creates a new child even when the previous one is live');
+  release!();
+  assert.equal((await next).agentId, 'child-2');
+  assert.equal(records.length, 2, 'multiple side chats retain independent membership');
+  manager.agents.delete('child-1');
   records[0].archived = true;
   records[0].runtimeAgentId = '';
-  const reopened = await Promise.all([openSubagent('parent'), openSubagent('parent')]);
-  assert.equal(resumes, 1, 'concurrent archived opens share one exact resume');
-  assert.equal(reopened[0].agentId, 'resumed-child');
-  assert.deepEqual(reopened[0], reopened[1]);
-  assert.equal(calls, 1, 'archived children never fork again');
-  manager.agents.delete('resumed-child');
-  records[0].archived = false;
-  resumeError = 'Provider resume rejected';
-  assert.match((await openSubagent('parent')).error, /Provider resume rejected/);
-  resumeError = '';
-  assert.equal((await openSubagent('parent')).agentId, 'resumed-child', 'cold child reattaches after restart');
-  manager.agents.get('resumed-child').subagentParentSessionKey = 'wrong-parent';
-  const mismatch = await manager.openSubagent('parent', async () => ({ agentId: 'resumed-child' }));
-  assert.equal(mismatch.uncertain, true, 'a mismatched resume cannot report success');
-  records.push({ subagentParentSessionKey: parentKey, runtimeAgentId: 'conflict' });
-  assert.match((await openSubagent('parent')).error, /Multiple subagents/);
-  records = [];
+  manager.agents.get('child-2').subagentRetained = true;
+  parent.runtimeBinding.sessionRevision = 9;
+  const afterArchive = openSubagent('parent');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(calls, 3, 'archived and idle-released children cannot be reused by creation');
+  release!();
+  assert.equal((await afterArchive).agentId, 'child-3');
+  assert.equal(records[0].archived, true, 'creation must leave archived history unchanged');
   Object.assign(parent, { lifecycleJournal: { entries: [{ type: 'fork', state: 'blocked', requestKey: 'fork-request:uncertain', request: { purpose: 'subagent', expectedRevision: 3 } }] } });
   manager.forkAgent = async (_id: string, _mode: string, options: Record<string, unknown>) => {
     assert.equal(options.requestId, 'uncertain');
     assert.equal(options.expectedRevision, 3);
     return { error: 'Uncertain outcome', uncertain: true };
   };
-  assert.equal((await openSubagent('parent')).uncertain, true, 'recovery must reconcile the original request');
+  assert.equal((await openSubagent('parent')).uncertain, true, 'recovery must reconcile the original request even with existing siblings');
   Object.assign(parent, { subagentParentSessionKey: 'codex:default:grandparent' });
   assert.match((await openSubagent('parent')).error, /independent, durable/);
   assert.notEqual(forkRequestSignature(parent, 'same-worktree', { expectedRevision: 7 }),
@@ -132,9 +119,12 @@ async function run() {
   // Archive ordering is owned by the parent lifecycle, including failure.
   const archiveParent = { id: 'archive-parent', providerSessionKey: parentKey, runtimeBinding: { kind: 'acp', state: 'idle' }, providerSessionProvider: 'codex', providerSessionId: 'parent-session' };
   const archiveChild = { id: 'archive-child', providerSessionKey: 'child-key', subagentParentSessionKey: parentKey, runtimeBinding: { kind: 'acp', state: 'idle' } };
+  const archiveSibling = { ...archiveChild, id: 'archive-sibling', providerSessionKey: 'sibling-key' };
   const order: string[] = [];
   const archiveManager = Object.create(AgentManager.prototype);
-  archiveManager.agents = new Map<string, typeof archiveParent | typeof archiveChild>([['archive-parent', archiveParent], ['archive-child', archiveChild]]);
+  archiveManager.agents = new Map<string, typeof archiveParent | typeof archiveChild>([
+    ['archive-parent', archiveParent], ['archive-child', archiveChild], ['archive-sibling', archiveSibling],
+  ]);
   archiveManager.configManager = { listAgentSessionRecords: () => [] };
   archiveManager.lifecycleJournalService = { begin: () => ({ operation: { id: 'archive-op' } }), transition: () => {} };
   archiveManager.emitStateChange = () => {};
@@ -145,7 +135,7 @@ async function run() {
   archiveManager.forgetStoppedAgentRecord = () => {};
   archiveManager.archiveAgent = async (id: string) => { order.push(id); return { archived: true }; };
   await archiveManager.performArchiveAgent('archive-parent', { recordHistory: false }, Symbol('archive'));
-  assert.deepEqual(order, ['archive-child', 'parent-provider', 'parent-stop']);
+  assert.deepEqual(order, ['archive-child', 'archive-sibling', 'parent-provider', 'parent-stop']);
   order.length = 0;
   archiveManager.archiveAgent = async () => { throw new Error('child archive uncertain'); };
   const rejected = await archiveManager.performArchiveAgent('archive-parent', { recordHistory: false }, Symbol('archive'));
