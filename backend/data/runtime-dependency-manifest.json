@@ -225,55 +225,55 @@
       "artifacts": {
         "darwin-arm64": {
           "url": "",
-          "integrity": "sha256-7Dfz+tvePgF9wtpXF0MWAxoh+YpNUdiltf6t0W6QAXM=",
+          "integrity": "sha256-oHJDIC/VOtfwFzF3BIlOV8bBMX+Xg7dmhFzFd1cZvcs=",
           "entry": "agent-browser",
           "packagedEntry": "dist/runtime/agent-browser/darwin-arm64/agent-browser",
-          "packagedIdentity": "ec37f3fadbde3e017dc2da57174316031a21f98a4d51d8a5b5feadd16e900173"
+          "packagedIdentity": "a07243202fd53ad7f017317704894e57c6c1317f9783b766845cc5775719bdcb"
         },
         "darwin-x64": {
           "url": "",
-          "integrity": "sha256-7Dfz+tvePgF9wtpXF0MWAxoh+YpNUdiltf6t0W6QAXM=",
+          "integrity": "sha256-oHJDIC/VOtfwFzF3BIlOV8bBMX+Xg7dmhFzFd1cZvcs=",
           "entry": "agent-browser",
           "packagedEntry": "dist/runtime/agent-browser/darwin-x64/agent-browser",
-          "packagedIdentity": "ec37f3fadbde3e017dc2da57174316031a21f98a4d51d8a5b5feadd16e900173"
+          "packagedIdentity": "a07243202fd53ad7f017317704894e57c6c1317f9783b766845cc5775719bdcb"
         },
         "linux-arm64": {
           "url": "",
-          "integrity": "sha256-7Dfz+tvePgF9wtpXF0MWAxoh+YpNUdiltf6t0W6QAXM=",
+          "integrity": "sha256-oHJDIC/VOtfwFzF3BIlOV8bBMX+Xg7dmhFzFd1cZvcs=",
           "entry": "agent-browser",
           "packagedEntry": "dist/runtime/agent-browser/linux-arm64/agent-browser",
-          "packagedIdentity": "ec37f3fadbde3e017dc2da57174316031a21f98a4d51d8a5b5feadd16e900173"
+          "packagedIdentity": "a07243202fd53ad7f017317704894e57c6c1317f9783b766845cc5775719bdcb"
         },
         "linux-arm64-musl": {
           "url": "",
-          "integrity": "sha256-7Dfz+tvePgF9wtpXF0MWAxoh+YpNUdiltf6t0W6QAXM=",
+          "integrity": "sha256-oHJDIC/VOtfwFzF3BIlOV8bBMX+Xg7dmhFzFd1cZvcs=",
           "entry": "agent-browser",
           "packagedEntry": "dist/runtime/agent-browser/linux-arm64-musl/agent-browser",
-          "packagedIdentity": "ec37f3fadbde3e017dc2da57174316031a21f98a4d51d8a5b5feadd16e900173"
+          "packagedIdentity": "a07243202fd53ad7f017317704894e57c6c1317f9783b766845cc5775719bdcb"
         },
         "linux-x64": {
           "url": "",
-          "integrity": "sha256-7Dfz+tvePgF9wtpXF0MWAxoh+YpNUdiltf6t0W6QAXM=",
+          "integrity": "sha256-oHJDIC/VOtfwFzF3BIlOV8bBMX+Xg7dmhFzFd1cZvcs=",
           "entry": "agent-browser",
           "packagedEntry": "dist/runtime/agent-browser/linux-x64/agent-browser",
-          "packagedIdentity": "ec37f3fadbde3e017dc2da57174316031a21f98a4d51d8a5b5feadd16e900173"
+          "packagedIdentity": "a07243202fd53ad7f017317704894e57c6c1317f9783b766845cc5775719bdcb"
         },
         "linux-x64-musl": {
           "url": "",
-          "integrity": "sha256-7Dfz+tvePgF9wtpXF0MWAxoh+YpNUdiltf6t0W6QAXM=",
+          "integrity": "sha256-oHJDIC/VOtfwFzF3BIlOV8bBMX+Xg7dmhFzFd1cZvcs=",
           "entry": "agent-browser",
           "packagedEntry": "dist/runtime/agent-browser/linux-x64-musl/agent-browser",
-          "packagedIdentity": "ec37f3fadbde3e017dc2da57174316031a21f98a4d51d8a5b5feadd16e900173"
+          "packagedIdentity": "a07243202fd53ad7f017317704894e57c6c1317f9783b766845cc5775719bdcb"
         },
         "win32-x64": {
           "url": "",
-          "integrity": "sha256-7Dfz+tvePgF9wtpXF0MWAxoh+YpNUdiltf6t0W6QAXM=",
+          "integrity": "sha256-oHJDIC/VOtfwFzF3BIlOV8bBMX+Xg7dmhFzFd1cZvcs=",
           "entry": "agent-browser.exe",
           "packagedEntry": "dist/runtime/agent-browser/win32-x64/agent-browser.exe",
-          "packagedIdentity": "ec37f3fadbde3e017dc2da57174316031a21f98a4d51d8a5b5feadd16e900173"
+          "packagedIdentity": "a07243202fd53ad7f017317704894e57c6c1317f9783b766845cc5775719bdcb"
         }
       }
     }
   },
-  "manifestId": "a4c776279893b13b4ee6815a990ea3cf1c685e09d372be7924405f8ed8562ba4"
+  "manifestId": "66c9362a346c7dc5173f276e19e48355e93aa16da26073f0b082b38531ae7b23"
 }

@@ -26,7 +26,7 @@
  
      #[cfg(unix)]
      let pgid = {
-@@ -1542,6 +1561,52 @@
+@@ -1542,6 +1561,40 @@
  #[cfg(test)]
  mod tests {
      use super::*;
@@ -37,25 +37,13 @@
 +    #[test]
 +    #[cfg(unix)]
 +    fn test_farming_stderr_drain_after_endpoint_discovery() {
-+        use std::os::unix::fs::PermissionsExt;
 +        let root = tempfile::tempdir().unwrap();
 +        let profile = root.path().join("profile");
 +        std::fs::create_dir(&profile).unwrap();
-+        let executable = root.path().join("chrome");
-+        std::fs::write(
-+            &executable,
-+            r#"#!/bin/sh
-+for arg in "$@"; do
-+    case "$arg" in --user-data-dir=*) profile=${arg#--user-data-dir=} ;; esac
-+done
-+printf '43210\n/devtools/browser/test\n' > "$profile/DevToolsActivePort"
-+dd if=/dev/zero bs=65536 count=8 1>&2 2>/dev/null
-+touch "$profile/progress"
-+exec sleep 30
-+"#,
-+        )
-+        .unwrap();
-+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
++        // A checked-in executable has no writable descriptor for a parallel
++        // subprocess to inherit between fork and exec (Linux ETXTBSY).
++        let executable = Path::new(env!("CARGO_MANIFEST_DIR"))
++            .join("tests/fixtures/farming-chrome-stderr.sh");
 +        let options = LaunchOptions {
 +            profile: Some(profile.display().to_string()),
 +            ..Default::default()
@@ -79,3 +67,16 @@
      use crate::test_utils::EnvGuard;
  
      #[cfg(unix)]
+diff --git a/cli/tests/fixtures/farming-chrome-stderr.sh b/cli/tests/fixtures/farming-chrome-stderr.sh
+new file mode 100755
+--- /dev/null
++++ b/cli/tests/fixtures/farming-chrome-stderr.sh
+@@ -0,0 +1,8 @@
++#!/bin/sh
++for arg in "$@"; do
++    case "$arg" in --user-data-dir=*) profile=${arg#--user-data-dir=} ;; esac
++done
++printf '43210\n/devtools/browser/test\n' > "$profile/DevToolsActivePort"
++dd if=/dev/zero bs=65536 count=8 1>&2 2>/dev/null
++touch "$profile/progress"
++exec sleep 30

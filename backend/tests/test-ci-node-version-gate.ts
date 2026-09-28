@@ -70,6 +70,20 @@ function run() {
   assert.strictEqual(workflow.env.FARMING_SKIP_INSTALL_RUNTIME_PREPARE, '1');
   assert.strictEqual(workflow.env.PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD, '1');
   assert.strictEqual(workflow.env.PUPPETEER_SKIP_DOWNLOAD, '1');
+  const browserPin = require(path.join(root, 'backend/data/agent-browser-source.json'));
+  const browserPatch = fs.readFileSync(path.join(root, browserPin.patch), 'utf8');
+  assert.strictEqual(
+    require('crypto').createHash('sha256').update(browserPatch).digest('hex'),
+    browserPin.patchSha256,
+    'native Browser construction must use the reviewed source patch',
+  );
+  assert(
+    browserPatch.includes('new file mode 100755')
+      && browserPatch.includes('+++ b/cli/tests/fixtures/farming-chrome-stderr.sh')
+      && browserPatch.includes('Path::new(env!("CARGO_MANIFEST_DIR"))')
+      && !browserPatch.includes('+        std::fs::write('),
+    'Chrome launch regression must execute an immutable fixture: a parallel fork can inherit a writable executable descriptor and cause Linux ETXTBSY',
+  );
   const e2eAgentBrowser = workflow.jobs['e2e-agent-browser'];
   assert(e2eAgentBrowser, 'browser-facing CI must build the reviewed Farming agent-browser runtime');
   assert.deepStrictEqual(nodeMajorsOf(e2eAgentBrowser), [AUTHORITATIVE_NODE_MAJOR]);

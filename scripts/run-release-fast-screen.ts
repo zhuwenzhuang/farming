@@ -59,6 +59,10 @@ const tasks: FastScreenTask[] = [
     args: ['scripts/verify-release-notes.mjs', packageVersion],
   },
   {
+    name: 'CI runtime ownership and immutable Browser launch fixture',
+    args: ['--import', 'tsx', 'backend/tests/test-ci-node-version-gate.ts'],
+  },
+  {
     name: 'release workflow artifact reuse',
     args: ['--import', 'tsx', 'backend/tests/test-release-workflow.ts'],
   },

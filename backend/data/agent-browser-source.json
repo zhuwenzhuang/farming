@@ -4,7 +4,7 @@
   "repository": "https://github.com/vercel-labs/agent-browser.git",
   "commit": "81c336c1c20b80ac648e0416a7b6e0c0ae7878bb",
   "patch": "patches/agent-browser/chrome-stderr-drain.patch",
-  "patchSha256": "479aa26cd5c60353723e84c189f5dd6add40a291b596fa48d51e124910c6e880",
+  "patchSha256": "30c47bc787ffb901aedd42424d19fae83ba55a4e0ed4c8e04df191a37a3bebaf",
   "upstreamFix": "https://github.com/vercel-labs/agent-browser/pull/1527",
   "rust": "1.96.1",
   "pnpm": "11.1.3",
