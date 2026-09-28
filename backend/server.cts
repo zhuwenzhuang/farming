@@ -1610,7 +1610,11 @@ app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-session/reconnect'), asy
 
 app.post(routePath(BASE_PATH, '/api/agents/:agentId/subagent'), async (req, res) => {
   try {
-    const result = await agentManager.openSubagent(req.params.agentId);
+    const result = await agentManager.openSubagent(req.params.agentId, (provider, sessionId, providerHomeId) => (
+      agentSessionResumeCoordinator.resume(provider, sessionId, {
+        providerHomeId, agentRuntimeMode: 'chat', allowUnarchiveArchived: true,
+      })
+    ));
     res.status(result.error ? 409 : 200).json(result);
   } catch (caught) {
     res.status(409).json({ error: caughtError(caught).message || 'Failed to open subagent' });

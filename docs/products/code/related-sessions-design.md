@@ -314,6 +314,12 @@ requests and results remain attributed to the child. Conversation isolation does
 not isolate files: the first delivery shares the existing workspace and does not
 claim a filesystem snapshot or create a worktree.
 
+Opening an archived or detached side chat resumes its exact existing Session through
+the shared resume admission. Success requires a published, non-archived child Agent
+with the expected parent and Session identity; historical metadata alone is not an
+open result. Concurrent opens share one operation, and resume failure is explicit
+without creating another Fork or replaying messages.
+
 Opening an existing side chat does not refresh its parent context; the original
 snapshot boundary remains unchanged. Users can supply selected newer
 information through an ordinary message, or explicitly delete and start again.

@@ -9783,7 +9783,10 @@ class AgentManager extends EventEmitter {
     });
   }
 
-  async openSubagent(agentId: AgentId): Promise<AgentForkResult> {
+  async openSubagent(
+    agentId: AgentId,
+    resumeSession: (provider: string, sessionId: string, providerHomeId: string) => Promise<{ agentId?: string; error?: string }>,
+  ): Promise<AgentForkResult> {
     await this.recoveryGate.wait();
     const parent = this.agents.get(agentId);
     if (!parent) return { error: 'Agent not found' };
@@ -9806,14 +9809,36 @@ class AgentManager extends EventEmitter {
       const child = children[0];
       if (child) {
         if (activeLifecycleOperation(child)) return { error: 'Subagent has an unresolved lifecycle operation', uncertain: true };
-        return {
-          agentId: child.runtimeAgentId,
-          providerSessionId: child.providerSessionId,
-          providerSessionKey: child.providerSessionKey,
-          workspace: child.projectWorkspace || child.cwd,
-          retained: true,
-          targetRuntime: 'chat',
-        };
+        return this.runAgentLifecycleOperation(agentId, 'subagent-open', 'update', 'open subagent', async () => {
+          if (parent.archived || !this.agents.has(agentId)) return { error: 'Parent is being archived or removed' };
+          const isAttachedChild = (agent: TypedAgentRecord) => (
+            agent.providerSessionKey === child.providerSessionKey
+            && agent.subagentParentSessionKey === parentKey
+            && !agent.archived && agent.status !== 'stopped' && agent.status !== 'dead'
+          );
+          let attached = [...this.agents.values()].find(isAttachedChild);
+          if (!attached) {
+            const identity = decodeProviderSessionKey(child.providerSessionKey);
+            if (!identity || identity.sessionId !== child.providerSessionId) {
+              return { error: 'Subagent history has no durable provider identity' };
+            }
+            const resumed = await resumeSession(identity.provider, identity.sessionId, identity.providerHomeId);
+            if (resumed.error) return { error: resumed.error };
+            attached = resumed.agentId ? this.agents.get(resumed.agentId) : undefined;
+            if (!attached || !isAttachedChild(attached)) {
+              return { error: 'Subagent resume did not publish the expected child session', uncertain: true };
+            }
+          }
+          this.emitStateChange({ agentIds: [attached.id] });
+          return {
+            agentId: attached.id,
+            providerSessionId: child.providerSessionId,
+            providerSessionKey: child.providerSessionKey,
+            workspace: child.projectWorkspace || child.cwd,
+            retained: true,
+            targetRuntime: 'chat',
+          };
+        });
       }
       const prior = [...(parent.lifecycleJournal?.entries || [])].reverse().find(operation => (
         operation.type === 'fork' && operation.request?.purpose === 'subagent'

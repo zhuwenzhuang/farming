@@ -13,6 +13,22 @@ async function run() {
   manager.subagentRequests = new Map();
   let records: Record<string, unknown>[] = [];
   manager.configManager = { listAgentSessionRecords: () => records };
+  let resumes = 0;
+  let resumeError = '';
+  const childKey = encodeProviderSessionKey('codex', 'child-session', 'default');
+  const resumeSession = async (provider: string, sessionId: string, homeId: string) => {
+    resumes++;
+    assert.equal(provider, 'codex');
+    assert.equal(sessionId, 'child-session');
+    assert.equal(homeId, 'default');
+    if (resumeError) return { error: resumeError };
+    manager.agents.set('resumed-child', { id: 'resumed-child', providerSessionKey: childKey,
+      subagentParentSessionKey: parentKey, status: 'running', archived: false });
+    return { agentId: 'resumed-child' };
+  };
+  const openSubagent = (id: string) => manager.openSubagent(id, resumeSession);
+  manager.emitStateChange = () => {};
+  manager.runAgentLifecycleOperation = async (_id: string, _key: string, _kind: string, _label: string, operation: () => Promise<unknown>) => operation();
   let calls = 0;
   let release: (() => void) | undefined;
   manager.forkAgent = async (id: string, mode: string, options: Record<string, unknown>) => {
@@ -22,19 +38,39 @@ async function run() {
     assert.equal(options.purpose, 'subagent');
     assert.equal(options.expectedRevision, 7);
     await new Promise<void>(resolve => { release = resolve; });
-    records = [{ subagentParentSessionKey: parentKey, runtimeAgentId: 'child', providerSessionKey: encodeProviderSessionKey('codex', 'child-session', 'default') }];
+    records = [{ subagentParentSessionKey: parentKey, runtimeAgentId: 'child', providerSessionKey: childKey,
+      provider: 'codex', providerSessionId: 'child-session', providerHomeId: 'default' }];
+    manager.agents.set('child', { id: 'child', providerSessionKey: childKey, subagentParentSessionKey: parentKey, status: 'running' });
     return { agentId: 'child' };
   };
-  const first = manager.openSubagent('parent');
-  const second = manager.openSubagent('parent');
+  const first = openSubagent('parent');
+  const second = openSubagent('parent');
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(calls, 1, 'simultaneous windows must join the same fork');
   assert.ok(release); release();
   assert.deepEqual(await first, await second);
-  assert.equal((await manager.openSubagent('parent')).agentId, 'child');
+  assert.equal((await openSubagent('parent')).agentId, 'child');
   assert.equal(calls, 1, 'opening a retained subagent cannot fork again');
+  assert.equal(resumes, 0, 'an attached child needs no resume');
+  manager.agents.delete('child');
+  records[0].archived = true;
+  records[0].runtimeAgentId = '';
+  const reopened = await Promise.all([openSubagent('parent'), openSubagent('parent')]);
+  assert.equal(resumes, 1, 'concurrent archived opens share one exact resume');
+  assert.equal(reopened[0].agentId, 'resumed-child');
+  assert.deepEqual(reopened[0], reopened[1]);
+  assert.equal(calls, 1, 'archived children never fork again');
+  manager.agents.delete('resumed-child');
+  records[0].archived = false;
+  resumeError = 'Provider resume rejected';
+  assert.match((await openSubagent('parent')).error, /Provider resume rejected/);
+  resumeError = '';
+  assert.equal((await openSubagent('parent')).agentId, 'resumed-child', 'cold child reattaches after restart');
+  manager.agents.get('resumed-child').subagentParentSessionKey = 'wrong-parent';
+  const mismatch = await manager.openSubagent('parent', async () => ({ agentId: 'resumed-child' }));
+  assert.equal(mismatch.uncertain, true, 'a mismatched resume cannot report success');
   records.push({ subagentParentSessionKey: parentKey, runtimeAgentId: 'conflict' });
-  assert.match((await manager.openSubagent('parent')).error, /Multiple subagents/);
+  assert.match((await openSubagent('parent')).error, /Multiple subagents/);
   records = [];
   Object.assign(parent, { lifecycleJournal: { entries: [{ type: 'fork', state: 'blocked', requestKey: 'fork-request:uncertain', request: { purpose: 'subagent', expectedRevision: 3 } }] } });
   manager.forkAgent = async (_id: string, _mode: string, options: Record<string, unknown>) => {
@@ -42,9 +78,9 @@ async function run() {
     assert.equal(options.expectedRevision, 3);
     return { error: 'Uncertain outcome', uncertain: true };
   };
-  assert.equal((await manager.openSubagent('parent')).uncertain, true, 'recovery must reconcile the original request');
+  assert.equal((await openSubagent('parent')).uncertain, true, 'recovery must reconcile the original request');
   Object.assign(parent, { subagentParentSessionKey: 'codex:default:grandparent' });
-  assert.match((await manager.openSubagent('parent')).error, /independent, durable/);
+  assert.match((await openSubagent('parent')).error, /independent, durable/);
   assert.notEqual(forkRequestSignature(parent, 'same-worktree', { expectedRevision: 7 }),
     forkRequestSignature(parent, 'same-worktree', { expectedRevision: 7, purpose: 'subagent' }),
     'ordinary forks cannot satisfy subagent admission');
@@ -137,7 +173,7 @@ async function run() {
   await assert.rejects(archiveManager.archiveOwnedSideChats(archiveParent, {}), /belongs to another session/);
   const closedParent = { ...parent, subagentParentSessionKey: '', archived: true };
   manager.agents = new Map([['parent', closedParent]]);
-  assert.match((await manager.openSubagent('parent')).error, /archived or removed/);
+  assert.match((await openSubagent('parent')).error, /archived or removed/);
   console.log('subagent admission tests passed');
 }
 run().catch(error => { console.error(error); process.exitCode = 1; });
