@@ -5,6 +5,13 @@ assertDomainStyleOwnership({
   prefixes: ['code-sidebar', 'code-project', 'code-worktree', 'code-branch', 'code-pinned', 'code-session', 'code-nav', 'code-rename'],
   // Sidebar resource slots have their own extracted owner.
   excludePrefixes: ['code-sidebar-resource'],
+  // Shared workbench splitter paint belongs to the cross-domain layout owner.
+  mainIntegrationSelectors: [
+    ':is(.code-sidebar-resizer, .code-resource-agent-resizer, .code-related-session-resizer)',
+    ':is(.code-sidebar-resizer, .code-resource-agent-resizer, .code-related-session-resizer):is(:hover, :active, :focus-visible)',
+    'body.code-resizing-sidebar .code-sidebar-resizer',
+    ':is(.code-sidebar-resizer, .code-resource-agent-resizer, .code-related-session-resizer):focus-visible',
+  ],
   componentSources: [
     'src/components/code/CodeSidebar.tsx',
     'src/components/CodeWorkspace.tsx',

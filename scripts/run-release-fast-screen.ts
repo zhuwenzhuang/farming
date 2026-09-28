@@ -23,6 +23,10 @@ const tasks: FastScreenTask[] = [
     args: ['--import', 'tsx', 'backend/tests/test-ui-design-ownership.ts'],
   },
   {
+    name: 'sidebar styles and shared workbench splitter ownership',
+    args: ['--import', 'tsx', 'backend/tests/test-sidebar-style-ownership.ts'],
+  },
+  {
     name: 'native PTY socket publication ownership',
     args: ['--import', 'tsx', 'backend/tests/test-native-pty-publication.ts'],
   },
