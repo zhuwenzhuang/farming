@@ -27,6 +27,14 @@ const tasks: FastScreenTask[] = [
     args: ['--import', 'tsx', 'backend/tests/test-sidebar-style-ownership.ts'],
   },
   {
+    name: 'Files header native scrollbar fixture',
+    args: [
+      require.resolve('@playwright/test/cli'), 'test',
+      'tests/e2e/file-header-context.spec.ts', '--project=chromium',
+      '--grep=Files header context and explicit search', '--workers=1',
+    ],
+  },
+  {
     name: 'native PTY socket publication ownership',
     args: ['--import', 'tsx', 'backend/tests/test-native-pty-publication.ts'],
   },

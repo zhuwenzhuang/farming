@@ -153,7 +153,7 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
     await page.mouse.wheel(0, -300)
     await expect.poll(() => scroller.evaluate(element => element.scrollTop)).toBeLessThan(previousScroll)
     // Use a persistent native track instead of macOS's transient overlay thumb.
-    await page.addStyleTag({ content: 'body.code-mode .code-project-list { scrollbar-width: auto; } body.code-mode .code-project-list::-webkit-scrollbar { width: 16px; } body.code-mode .code-project-list::-webkit-scrollbar-thumb { background: #888; }' })
+    await page.addStyleTag({ content: 'body.code-mode .code-project-list { scrollbar-width: auto; scrollbar-color: auto; } body.code-mode .code-project-list::-webkit-scrollbar { width: 16px; } body.code-mode .code-project-list::-webkit-scrollbar-thumb { background: #888; }' })
     await scroller.evaluate(async element => {
       element.scrollTop = 0
       await new Promise(resolve => requestAnimationFrame(resolve))
