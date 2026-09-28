@@ -114,9 +114,11 @@ assert.notEqual(
   'dark inset surfaces must remain distinct from the canvas',
 )
 
+assert.equal(registry.paper.css['--code-workbench-divider'], '#e8e6dc', 'Paper structural dividers stay visible independently of decorative borders')
+
 const lightRoles = Object.keys(registry.light.css).sort()
-// Six chart series and their structural border extend the workbench palette.
-assert(lightRoles.length <= 143, 'the semantic palette must not grow back into a selector-level override matrix')
+// Chart colors and the structural workbench divider extend the shared palette.
+assert(lightRoles.length <= 144, 'the semantic palette must not grow back into a selector-level override matrix')
 assert.equal(
   registry.light.css['--code-active-item-surface'],
   '#eeeeec',
@@ -434,7 +436,7 @@ const borderPurposeContracts = [
   ['src/styles/search.css', '.code-search-panel-input:focus-within', 'border-color', 'transparent'],
   ['src/styles/main.css', '.connection-status.lost,\n.connection-status.business-unavailable', 'border', '1px solid var(--code-border-danger)'],
   ['src/styles/transcript.css', '.code-agent-transcript-result-error', 'border', '1px solid var(--code-border-danger)'],
-  ['src/styles/sidebar.css', '.code-sidebar-resizer', 'background', 'var(--code-border-subtle)'],
+  ['src/styles/main.css', ':is(.code-sidebar-resizer, .code-resource-agent-resizer, .code-related-session-resizer)', 'background', 'var(--code-workbench-divider)'],
   ['src/styles/review.css', '.review-diff-columns span + span', 'border-left', '1px solid var(--code-border)'],
 ] as const
 for (const [sourcePath, selector, property, expectedValue] of borderPurposeContracts) {

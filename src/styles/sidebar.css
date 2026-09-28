@@ -31,7 +31,6 @@
   z-index: 30;
   cursor: col-resize;
   touch-action: none;
-  background: var(--code-border-subtle);
 }
 
 .code-sidebar-resizer::before {
@@ -39,11 +38,6 @@
   position: absolute;
   /* Keep the nine-pixel resize target outside the adjacent native scrollbar. */
   inset: 0 -8px 0 0;
-}
-
-.code-sidebar-resizer:hover,
-body.code-resizing-sidebar .code-sidebar-resizer {
-  background: var(--code-accent);
 }
 
 .code-sidebar-toggle,
@@ -1445,10 +1439,6 @@ body.code-resizing-sidebar .code-sidebar-resizer {
 
 .code-sidebar-project-section {
   color: var(--code-text);
-}
-
-.code-sidebar-resizer.active {
-  background: var(--code-bg-selected);
 }
 
 .code-project-header {

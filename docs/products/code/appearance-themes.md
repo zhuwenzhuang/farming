@@ -33,6 +33,12 @@ equivalence. This document owns their appearance roles and theme lifecycle.
   default when no business-specific status meaning is established.
   Visualization structural borders use `--code-viz-border` independently of
   workbench decoration, so Paper can omit chrome borders without hiding chart axes.
+- Workbench splitters share a dedicated divider role, independent of decorative
+  control borders. Paper uses a one-pixel warm-gray line between navigation,
+  the main workspace, and an open side session or Resource Agent. Hover,
+  dragging, and keyboard focus use the same stronger feedback on either side;
+  the resting line returns when none of those interaction states applies,
+  without changing layout. Each splitter retains its existing resize hit area.
 - Paper is flat color, not a texture filter. Repeated grain or global opacity
   effects reduce code legibility and are not part of the theme.
 - Composer retains its subtle input surface against the reading canvas on both

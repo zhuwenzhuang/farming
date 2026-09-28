@@ -765,24 +765,12 @@ body.code-mode .code-instance-name {
   z-index: 30;
   cursor: col-resize;
   touch-action: none;
-  background: var(--code-border-subtle);
 }
 
 .code-resource-agent-resizer::before {
   content: '';
   position: absolute;
   inset: 0 -4px;
-}
-
-.code-resource-agent-resizer:hover,
-body.code-resizing-resource-agent .code-resource-agent-resizer,
-.code-resource-agent-resizer:focus-visible {
-  background: var(--code-accent);
-}
-
-.code-resource-agent-resizer:focus-visible {
-  outline: 2px solid var(--code-focus-ring);
-  outline-offset: -1px;
 }
 
 .code-resource-agent-toggle.active {
@@ -4071,9 +4059,23 @@ body.code-mode.code-mobile-markdown-reading .code-mobile-topbar-button {
   outline-color: var(--code-focus-ring);
 }
 
-.code-related-session-resizer { grid-column: 2; grid-row: 1 / -1; position: relative; cursor: col-resize; touch-action: none; background: var(--code-border-subtle); z-index: 10; }
+.code-related-session-resizer { grid-column: 2; grid-row: 1 / -1; position: relative; cursor: col-resize; touch-action: none; z-index: 10; }
 .code-related-session-resizer::before { content: ''; position: absolute; inset: 0 -4px; }
-.code-related-session-resizer:focus-visible { outline: 2px solid var(--code-text-subtle); }
+/* Workbench splitters share paint states; each layout owns its hit area. */
+:is(.code-sidebar-resizer, .code-resource-agent-resizer, .code-related-session-resizer) {
+  background: var(--code-workbench-divider);
+}
+
+:is(.code-sidebar-resizer, .code-resource-agent-resizer, .code-related-session-resizer):is(:hover, :active, :focus-visible),
+body.code-resizing-sidebar .code-sidebar-resizer,
+body.code-resizing-resource-agent .code-resource-agent-resizer {
+  background: var(--code-accent);
+}
+
+:is(.code-sidebar-resizer, .code-resource-agent-resizer, .code-related-session-resizer):focus-visible {
+  outline: 2px solid var(--code-focus-ring);
+  outline-offset: -1px;
+}
 .code-related-session-header strong { font-size: 13px; font-weight: 500; }
 
 .code-related-session-notice { position: absolute; top: 48px; right: 16px; max-width: min(420px, 90%); padding: 8px 12px; border-radius: 8px; background: var(--code-bg-inset); z-index: 15; }
