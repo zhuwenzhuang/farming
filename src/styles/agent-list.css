@@ -135,13 +135,15 @@
 
 .code-agent-row {
   --code-agent-row-surface: var(--code-navigation-surface);
+  --code-agent-row-provider-width: 17px;
+  --code-agent-row-column-gap: 7px;
   min-width: 0;
   position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   min-height: var(--code-sidebar-navigation-row-height);
-  gap: 7px;
+  gap: var(--code-agent-row-column-gap);
   padding: 4px 6px;
   /* Agent labels sit between Project headings and file entries in the sidebar hierarchy. */
   color: var(--code-text-muted);
@@ -503,8 +505,8 @@ body.code-mode:not(.code-compact-layout) .code-agent-row:has(.code-agent-row-act
 
 @container code-sidebar (min-width: 360px) {
   .code-agent-row-provider-icon {
-      width: 17px;
-      height: 17px;
+      width: var(--code-agent-row-provider-width);
+      height: var(--code-agent-row-provider-width);
       display: inline-grid;
       place-items: center;
       color: var(--code-text-muted);
@@ -887,11 +889,15 @@ body.code-mode.code-compact-layout .code-agent-row.related-child {
   --related-label-inset: 27px;
 }
 
+@container code-sidebar (min-width: 360px) {
+  .code-agent-row.related-child {
+    --related-label-inset: calc(26px + var(--code-agent-row-provider-width) + var(--code-agent-row-column-gap));
+  }
+}
+
 /* Icons occupy the indentation gutter without adding a column to the label layout. */
 .code-agent-row.related-child > .code-collaboration-agent-icon,
-.code-agent-row.related-child > .code-related-disclosure-icon,
-.code-agent-row.related-child > .code-agent-row-provider-icon,
-body.code-mode.code-compact-layout .code-agent-row.related-child > .code-agent-row-provider-icon {
+.code-agent-row.related-child > .code-related-disclosure-icon {
   position: absolute;
   inset-inline-start: calc(var(--related-label-inset) - 21px);
   top: calc(50% - 7px);
@@ -904,11 +910,6 @@ body.code-mode.code-compact-layout .code-agent-row.related-child > .code-agent-r
 
 .code-agent-row.related-child > .code-related-disclosure-icon {
   top: calc(50% - 6px);
-}
-
-.code-agent-row.related-child > .code-agent-row-provider-icon .agent-launch-icon {
-  width: 14px;
-  height: 14px;
 }
 
 /* The question button stays reachable when hover actions replace metadata. */

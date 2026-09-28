@@ -1,3 +1,4 @@
+import { useAcpRevisionInterest } from '@/lib/acp-revision-interest'
 import { useQuestionPresentation } from './acp/acp-elicitation-presentation'
 import { AcpQuestionContext, AcpTranscriptQuestion } from './acp/AcpTranscriptQuestion'
 import type { AcpPendingElicitation } from '@/types/agent'
@@ -3018,6 +3019,7 @@ export function AgentTranscriptPane({
   groupProcessActions = true,
   copy,
 }: AgentTranscriptPaneProps) {
+  useAcpRevisionInterest(agentId, active && source === 'acp')
   const questionPresentation = useQuestionPresentation(agentId)
   const questionNavigation = useRef<{ reveal: number; requestId: string; done: boolean }>({ reveal: 0, requestId: '', done: true })
   const readingAnchorAgentId = readingIdentity || agentId

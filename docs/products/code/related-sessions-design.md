@@ -38,8 +38,11 @@ Project
 ```
 
 Related rows appear directly beneath their parent, using one shared navigation-row
-family with an indented hierarchy variant. Purpose has a shared chat/Agent icon
-and an accessible label; the title is a short topic or delegated task. There is
+family with an indented hierarchy variant. Child labels stay one hierarchy level
+(20px) beyond their parent labels, including when a wide sidebar adds provider
+icons to parent rows. Each child uses only its session-assigned collaboration
+icon, shared with its detail heading; it does not repeat the provider logo.
+Purpose has an accessible label; the title is a short topic or delegated task. There is
 no permanent intermediate "Subagents" group or aggregate status row. Related icons
 occupy the indentation gutter inside the selection surface without shifting
 labels or subsequent rows. Finished grouping preserves the same child hierarchy
@@ -126,8 +129,8 @@ Project                Fix login                    Side chat · Cache behavior
   Never recursively add a third conversation column.
 - Selecting another child replaces only the right conversation. Each Session
   retains its own draft, attachments, scroll anchor, unread cursor and pending
-  permissions. Selecting the displayed parent focuses the left pane without
-  hiding the right. Navigating to a different top-level task hides the old pair;
+  permissions. Selecting the parent row hides the child pane and returns to
+  the parent-only view; selecting a child row opens the pair again. Navigating to a different top-level task hides the old pair;
   returning restores its last viewed child and layout without starting a runtime.
 - Navigation selection and pane focus are separate. Exactly one sidebar row is
   selected; both visible conversations are not simultaneously selected rows.
@@ -291,9 +294,9 @@ top-level. The first delivery uses a provider-owned boundary before the active
 Turn, consistent with the current ACP contract; it does not copy unfinished tool
 calls. The parent is never cancelled, steered, switched or reloaded to make a fork.
 
-The child pane shows "Context through the last completed turn" and an available
-source reference. An active parent's partial answer and future changes are not
-included. If no safe boundary is available, report that reason without queueing
+The child pane keeps the title, conversation and controls without persistent
+context-boundary or side-chat explanatory hints. An active parent's partial
+answer and future changes are not included. If no safe boundary is available, report that reason without queueing
 an invisible fork behind the parent's entire running Turn. A provider limited to
 idle fork can expose it while idle, but does not qualify as running Side Chat.
 
@@ -311,8 +314,8 @@ requests and results remain attributed to the child. Conversation isolation does
 not isolate files: the first delivery shares the existing workspace and does not
 claim a filesystem snapshot or create a worktree.
 
-Opening an existing side chat does not refresh its parent context. The pane
-continues to expose the original boundary. Users can supply selected newer
+Opening an existing side chat does not refresh its parent context; the original
+snapshot boundary remains unchanged. Users can supply selected newer
 information through an ordinary message, or explicitly delete and start again.
 
 ## Minimal State-Transition Model

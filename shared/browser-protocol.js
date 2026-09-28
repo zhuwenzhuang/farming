@@ -1,7 +1,7 @@
 // Generated from TypeScript. Do not edit.
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.PROJECT_ATTENTION_SCORE_MAX = exports.MAX_INLINE_WORKSPACE_MESSAGE_BYTES = exports.MIN_PROTOCOL_VERSION = exports.PROTOCOL_VERSION = void 0;
+exports.PROJECT_ATTENTION_SCORE_MAX = exports.MAX_INLINE_WORKSPACE_MESSAGE_BYTES = exports.MAX_ACP_TRANSCRIPT_INTEREST = exports.MIN_PROTOCOL_VERSION = exports.PROTOCOL_VERSION = void 0;
 exports.sanitizeAgentUpdatePatch = sanitizeAgentUpdatePatch;
 exports.validateClientMessage = validateClientMessage;
 exports.validateServerMessage = validateServerMessage;
@@ -13,6 +13,7 @@ const agent_state_wire_js_1 = require("./agent-state-wire.js");
 const chat_turn_state_js_1 = require("./chat-turn-state.js");
 exports.PROTOCOL_VERSION = 19;
 exports.MIN_PROTOCOL_VERSION = 19;
+exports.MAX_ACP_TRANSCRIPT_INTEREST = 20;
 exports.MAX_INLINE_WORKSPACE_MESSAGE_BYTES = 1024 * 1024;
 exports.PROJECT_ATTENTION_SCORE_MAX = agent_state_semantics_js_1.PROJECT_ATTENTION_SCORE_MAX;
 const SERVER_MESSAGE_TYPES = new Set([
@@ -443,7 +444,7 @@ function validateClientMessage(value) {
             break;
         case 'watch-acp-transcripts':
             valid = Array.isArray(value.agentIds)
-                && value.agentIds.length <= 20
+                && value.agentIds.length <= exports.MAX_ACP_TRANSCRIPT_INTEREST
                 && value.agentIds.every(agentId => typeof agentId === 'string' && agentId.length > 0 && agentId.length <= 256)
                 && new Set(value.agentIds).size === value.agentIds.length
                 && (!Object.prototype.hasOwnProperty.call(value, 'subagentParentKeys') || (Array.isArray(value.subagentParentKeys) && value.subagentParentKeys.length <= 20

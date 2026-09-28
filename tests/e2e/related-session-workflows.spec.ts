@@ -1,6 +1,21 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import type { Page } from '@playwright/test'
 import { expect, openFarming, test } from './fixtures'
+
+async function resizeSidebar(page: Page, width: number) {
+  const sidebar = page.getByTestId('code-sidebar')
+  const sidebarBox = await sidebar.boundingBox()
+  const resizerBox = await page.getByTestId('code-sidebar-resizer').boundingBox()
+  if (!sidebarBox || !resizerBox) throw new Error('Sidebar resize handles are unavailable')
+
+  const pointerY = resizerBox.y + Math.min(120, resizerBox.height / 2)
+  await page.mouse.move(resizerBox.x + resizerBox.width / 2, pointerY)
+  await page.mouse.down()
+  await page.mouse.move(sidebarBox.x + width, pointerY)
+  await page.mouse.up()
+  await expect.poll(async () => Math.round((await sidebar.boundingBox())?.width ?? 0)).toBe(width)
+}
 
 
 test('keeps an unfinished Composer submission locked across file navigation', { tag: ['@critical-behavior', '@behavior-CODE-COMPOSER-SUBMISSION-OWNERSHIP'] }, async ({ page, workspaceRoot }) => {
@@ -185,4 +200,110 @@ test('keeps active children visible and pages past 200 historical turns', { tag:
   await panel.getByRole('button', { name: 'Return to latest' }).click()
   await expect(panel).toContainText('Answer 259')
   await expect(panel).not.toContainText('Question 0')
+})
+
+
+test('streams a side-chat reply while the parent stays selected', async ({ page, workspaceRoot }, testInfo) => {
+  let watchedAgentIds: string[] = []
+  let watchMessages = 0
+  let disconnect: (() => Promise<void>) | null = null
+  await page.routeWebSocket(/\/farming\/ws(?:\?|$)/, socket => {
+    const server = socket.connectToServer()
+    socket.onMessage(payload => {
+      const message = JSON.parse(String(payload)) as { type?: string; agentIds?: string[] }
+      if (message.type === 'watch-acp-transcripts') {
+        watchedAgentIds = message.agentIds || []
+        watchMessages++
+      }
+      server.send(payload)
+    })
+    disconnect = async () => {
+      await Promise.all([
+        socket.close({ code: 1012, reason: 'side-pane reconnect test' }),
+        server.close({ code: 1012, reason: 'side-pane reconnect test' }),
+      ])
+    }
+  })
+  const workspace = path.join(workspaceRoot, 'side-chat-live-reply')
+  fs.mkdirSync(workspace, { recursive: true })
+  await page.request.post('/farming/api/settings', { data: { language: 'en' } })
+  const response = await page.request.post('/farming/api/control/agents', {
+    data: { command: 'codex', workspace, agentRuntimeMode: 'chat' },
+  })
+  expect(response.ok()).toBeTruthy()
+  const { agentId } = await response.json() as { agentId: string }
+  await openFarming(page)
+  await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+  const parentInput = page.locator('.code-composer-shell').getByTestId('code-acp-composer-input')
+  await expect(parentInput).toBeEditable()
+  await parentInput.fill('image attachment parent context')
+  await page.getByTestId('code-acp-composer-send').click()
+  await expect(page.getByTestId('code-agent-chat-view')).toContainText('Received 0 image.')
+  await parentInput.fill('/side')
+  const opened = page.waitForResponse(res => res.url().endsWith(`/agents/${agentId}/subagent`))
+  await page.getByTestId('code-acp-composer-send').click()
+  expect((await (await opened).json()).error).toBeFalsy()
+  const pane = page.getByTestId('code-subagent-panel')
+  const childInput = pane.getByTestId('code-acp-composer-input')
+  await expect(childInput).toBeEditable()
+  await expect(pane).toContainText('Continued from original Agent')
+  const inventory = await (await page.request.get('/farming/api/control/agents')).json() as {
+    agents: Array<{ id: string; subagentParentSessionKey?: string }>
+  }
+  const child = inventory.agents.find(agent => agent.subagentParentSessionKey)
+  expect(child).toBeDefined()
+  await expect.poll(() => watchedAgentIds).toContain(child!.id)
+  await childInput.fill('progressive answer stream')
+  await pane.getByTestId('code-acp-composer-send').click()
+  await expect(pane).toContainText('Visible segment 10 stays continuous')
+  await expect(pane.getByTestId('code-acp-composer-send')).toBeDisabled()
+  await parentInput.fill('Retain the parent draft')
+  await childInput.fill('Retain the child draft')
+  const parentRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
+  const childRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${child!.id}"]`)
+  await expect(childRow.locator('.code-agent-row-provider-icon')).toHaveCount(0)
+  const childIcon = childRow.locator('.code-collaboration-agent-icon')
+  const headerIcon = pane.locator('.code-related-session-header .code-collaboration-agent-icon')
+  await expect(childIcon).toHaveCount(1)
+  expect(await childIcon.locator('svg').innerHTML()).toBe(await headerIcon.locator('svg').innerHTML())
+  for (const sidebarWidth of [296, 420]) {
+    await resizeSidebar(page, sidebarWidth)
+    const parentLabel = await parentRow.locator('.code-agent-name').boundingBox()
+    const childLabel = await childRow.locator('.code-agent-name').boundingBox()
+    expect(childLabel!.x - parentLabel!.x).toBe(20)
+    for (const appearance of ['light', 'dark', 'paper']) {
+      await page.locator('body').evaluate((element, value) => { element.dataset.appearance = value }, appearance)
+      expect(await childIcon.evaluate(element => getComputedStyle(element).color)).toBe(
+        await headerIcon.evaluate(element => getComputedStyle(element).color),
+      )
+      await page.screenshot({ path: testInfo.outputPath(`side-chat-sidebar-${sidebarWidth}-${appearance}.png`), animations: 'disabled' })
+    }
+  }
+  await resizeSidebar(page, 296)
+  for (const appearance of ['light', 'dark', 'paper']) {
+    await page.locator('body').evaluate((element, value) => { element.dataset.appearance = value }, appearance)
+    await parentRow.click()
+    await expect(pane).toHaveCount(0)
+    await expect.poll(() => watchedAgentIds).not.toContain(child!.id)
+    await expect(parentRow).toHaveClass(/\bactive\b/)
+    await expect(parentInput).toHaveValue('Retain the parent draft')
+    await expect(page.locator('.code-related-session-resizer')).toHaveCount(0)
+    await page.screenshot({ path: testInfo.outputPath(`parent-only-${appearance}.png`), animations: 'disabled' })
+    await childRow.click()
+    await expect(pane).toContainText('Visible segment 10 stays continuous')
+    await expect(childRow).toHaveClass(/\bactive\b/)
+    await expect(childInput).toHaveValue('Retain the child draft')
+    await expect.poll(() => watchedAgentIds).toContain(child!.id)
+  }
+  for (const appearance of ['light', 'dark', 'paper']) {
+    await page.locator('body').evaluate((element, value) => { element.dataset.appearance = value }, appearance)
+    await page.screenshot({ path: testInfo.outputPath(`side-chat-live-${appearance}.png`), animations: 'disabled' })
+  }
+  const previousWatchMessages = watchMessages
+  expect(disconnect).not.toBeNull()
+  await disconnect!()
+  await expect.poll(() => watchMessages).toBeGreaterThan(previousWatchMessages)
+  await expect.poll(() => watchedAgentIds).toContain(child!.id)
+  await expect(pane.locator('.code-agent-transcript-user').filter({ hasText: 'progressive answer stream' })).toHaveCount(1)
+  await expect(childInput).toHaveValue('Retain the child draft')
 })

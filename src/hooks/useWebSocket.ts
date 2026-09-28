@@ -44,6 +44,7 @@ import {
 } from '../../shared/agent-state-reducer.js'
 import {
   claimProtocolUpgradeReload,
+  MAX_ACP_TRANSCRIPT_INTEREST,
   MIN_PROTOCOL_VERSION,
   PROTOCOL_VERSION,
   protocolCompatible,
@@ -452,7 +453,7 @@ export function useWebSocket() {
 
   const watchAcpTranscripts = useCallback((agentIds: readonly string[], subagentParentKeys: readonly string[] = []) => {
     const normalizedParents = Array.from(new Set(subagentParentKeys)).sort().slice(0, 20)
-    const normalizedAgentIds = Array.from(new Set(agentIds)).sort().slice(0, 20)
+    const normalizedAgentIds = Array.from(new Set(agentIds)).slice(0, MAX_ACP_TRANSCRIPT_INTEREST).sort()
     if (sameStringArray(watchedAcpTranscriptAgentIdsRef.current, normalizedAgentIds) && sameStringArray(subagentParentKeysRef.current, normalizedParents)) return true
     subagentParentKeysRef.current = normalizedParents
     watchedAcpTranscriptAgentIdsRef.current = normalizedAgentIds
@@ -1277,7 +1278,8 @@ export function useWebSocket() {
               break
             case 'acp-session-revision':
               acpRevisionListenersRef.current.forEach(listener => listener(msg.session))
-              if (msg.session.agentId === focusedAgentIdRef.current) {
+              if (msg.session.agentId === focusedAgentIdRef.current
+                || watchedAcpTranscriptAgentIdsRef.current.includes(msg.session.agentId)) {
                 updateAgentAcpSessionRevision(msg.session)
               }
               break

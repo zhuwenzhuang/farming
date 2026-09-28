@@ -14,7 +14,12 @@ Farming 使用 Agent Client Protocol 为受支持的 Coding Agent 提供结构�
 未验证 Fork 能力的 Provider 不能创建旁聊。
 
 Code 宽屏左侧显示父会话、右侧显示选中的关联会话，各自拥有草稿、权限和运行控制；
-窄屏在两个视图间切换。收起只影响展示。旁聊和原生子 Agent 行位于其父会话下。
+窄屏在两个视图间切换。收起只影响展示。
+所有可见的 Chat 对话与控制面板按精确 Agent 身份注册版本订阅，包括侧栏会话和 Resource 旁的 Chat。
+原生子 Agent 详情订阅拥有其事件流的父 Runtime。同一会话的多个面板通过引用计数共享订阅；
+隐藏或切换面板只释放自己的订阅。可见面板在有界订阅预算内优先于保留的后台视图。
+重连恢复当前订阅并读取权威快照，不重发消息。Runtime 监督独立于面板订阅：收起旁聊不会取消任务或释放监督。
+旁聊和原生子 Agent 行位于其父会话下。
 原生不透明子项身份受精确父 Runtime Generation 约束；缺少内容读取能力时明确提示。
 
 旁聊空闲五分钟后释放 Runtime；所有显式关注该旁聊的 Owner 客户端失去连接一分钟后也会释放，
@@ -64,7 +69,7 @@ Chat 只展示归属于本轮的子 Agent 动态，按事件顺序排列；完�
 历史不可用和 Epoch 变化均明确提示。引用子会话结果会将来源及所选内容追加到父会话草稿并展示该草稿，
 不自动发送、不覆盖原有文字。
 
-关联面板串行刷新并拒绝过期父身份。再次选择同一父行保留已打开的关联面板。子行、动态与详情标题
+关联面板串行刷新并拒绝过期父身份。选择父行收起关联面板并仅选中父会话；再次选择子行可重新打开，不改变双方会话的执行状态。子行、动态与详情标题
 共享子会话身份图标；动态摘要渲染行内 Markdown，不引入交互链接或块级布局。
 关闭面板只取消浏览器读取，不停止 Agent。读取超时、历史缺失、
 身份变化和大小超限均明确结束。验收覆盖并发查看、无关线程拒绝、查看期间实时输出，以及所有主题下
@@ -377,8 +382,8 @@ ACP Session 读取接口默认只返回控制 Metadata，不包含 Transcript En
 可能很大的 Entry 集合时，调用方才使用 `includeEntries=1`；产品界面统一通过有界 Transcript
 接口取得会话正文。
 
-每个 Browser Connection 都会显式声明当前可见 Agent，以及它拥有结构化 Transcript 的有界
-Retained ACP Chat 集合。ACP Revision Notification 只投递给 Interest 匹配的 Connection。
+每个 Browser Connection 都会按精确 Agent 身份声明所有可见 Chat 面板，再用保留的 ACP Chat
+填充有界 Interest 集合。ACP Revision Notification 只投递给 Interest 匹配的 Connection。
 切换 Focus、新增 Retained Interest 或重连时，会把当前绝对 Cursor（Agent、Provider Session、
 Runtime Epoch 与 Transcript Revision）作为 Agent-scoped Checkpoint 发送。Session 或 Epoch
 被替换时，即使 Revision 从更小数字重新开始也必须投递。

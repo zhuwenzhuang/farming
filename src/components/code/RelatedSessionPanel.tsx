@@ -1,3 +1,4 @@
+import { useAcpRevisionInterest } from '@/lib/acp-revision-interest'
 import { useEffect, useRef, useState } from 'react'
 import { appPath } from '@/lib/base-path'
 import { CloseGlyph } from '@/components/IconGlyphs'
@@ -7,13 +8,15 @@ import type { RelatedSessionTarget } from './related-session-navigation'
 import { codeCopyForLanguage } from './copy'
 import { CollaborationAgentIcon } from './CollaborationAgentIcon'
 
-export function RelatedSessionPanel({ target, refreshSignal, onClose, language, onQuoteInParent }: {
+export function RelatedSessionPanel({ target, active, refreshSignal, onClose, language, onQuoteInParent }: {
   target: RelatedSessionTarget
+  active: boolean
   refreshSignal: number
   onClose: () => void
   onQuoteInParent?: (text: string) => void
   language: string
 }) {
+  useAcpRevisionInterest(target.parentAgentId, active)
   const [transcript, setTranscript] = useState<AgentTranscript | null>(null)
   const [error, setError] = useState('')
   const [cursors, setCursors] = useState<string[]>([''])

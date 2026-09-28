@@ -1,3 +1,4 @@
+import { acpRevisionWatchAgentIds, useVisibleAcpRevisionAgentIds } from '@/lib/acp-revision-interest'
 import { useSubagentSupervision } from '@/lib/subagent-supervision'
 import { useState, useCallback, useMemo, useEffect, useLayoutEffect, useRef } from 'react'
 import { useWebSocket } from '@/hooks/useWebSocket'
@@ -200,6 +201,7 @@ export function App() {
   const focusAgent = ws.focusAgent
   const onAcpSessionRevision = ws.onAcpSessionRevision
   const subagentParentKeys = useSubagentSupervision()
+  const visibleAcpRevisionAgentIds = useVisibleAcpRevisionAgentIds()
   const watchAcpTranscripts = ws.watchAcpTranscripts
   const pageVisible = usePageVisibility()
   const { keyMap } = useAgents(ws.agents, ws.mainAgentId)
@@ -325,10 +327,12 @@ export function App() {
   ), [observedAgentReplacements, retainedAgentViewIds])
   const retainedAcpTranscriptAgentIds = useMemo(() => {
     const retained = new Set(effectiveRetainedAgentViewIds)
-    return displayedAgents
+    const retainedChatIds = displayedAgents
       .filter(agent => retained.has(agent.id) && agent.runtimeBinding.kind === 'acp')
       .map(agent => agent.id)
-  }, [displayedAgents, effectiveRetainedAgentViewIds])
+    return acpRevisionWatchAgentIds(visibleAcpRevisionAgentIds, retainedChatIds)
+  }, [displayedAgents, effectiveRetainedAgentViewIds, visibleAcpRevisionAgentIds])
+
   const effectiveActiveTerminalId = activeTerminalId
     ? observedAgentReplacements.get(activeTerminalId) ?? activeTerminalId
     : null

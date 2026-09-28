@@ -1,3 +1,4 @@
+import { CollaborationAgentIcon } from './CollaborationAgentIcon'
 import type { AgentGoal } from '../../../shared/agent-goal'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type ComponentProps, type CSSProperties, type Dispatch, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type RefObject, type SetStateAction, type SyntheticEvent as ReactSyntheticEvent } from 'react'
 import type { Agent, TaskHistoryEntry } from '@/types/agent'
@@ -1515,16 +1516,18 @@ export function CodeMainArea({
       {openingSubagent === activeTerminalId ? <div className="code-related-session-notice" role="status">{language === 'zh' ? '正在打开子 Agent…' : 'Opening subagent…'}</div> : null}
       {subagentError ? <div className="code-related-session-notice" role="alert">{subagentError}</div> : null}
       {relatedSessionVisible && relatedSession?.subagentSessionKey ? <aside className="code-related-session-panel code-subagent-panel" data-testid="code-subagent-panel" aria-label="Subagent">
-        <header className="code-related-session-header"><strong>{language === 'zh' ? '子 Agent' : 'Subagent'}</strong>
+        <header className="code-related-session-header">
+          <CollaborationAgentIcon sessionId={subagentAgent ? subagentAgent.providerSessionId || subagentAgent.providerSessionKey || subagentAgent.id : relatedSession.sessionId || relatedSession.subagentSessionKey} />
+          <strong>{language === 'zh' ? '子 Agent' : 'Subagent'}</strong>
           <button type="button" className="code-agent-transcript-subagent-control" onClick={closeRelatedSession} aria-label="Collapse related session"><CloseGlyph /></button>
         </header>
-        <div className="code-related-session-source">{language === 'zh' ? '上下文截至上一轮完成' : 'Context through the last completed turn'}</div>
         {subagentAgent ? <SubagentBody agent={subagentAgent} active={relatedSessionFits || compactRelatedActive}
           renderComposer={renderSubagentComposer} onReadLatest={onAgentReadLatest} onOpenFile={onOpenWorkspaceFilePath}
           onQuoteSelection={onQuoteSelection} onQuoteInParent={readOnly ? undefined : quoteRelatedSelectionInParent} copy={copy} /> : subagentLoadingExpired ? <div role="alert">{language === 'zh' ? '子 Agent 状态尚未同步。' : 'Subagent state has not synchronized.'} <button type="button" onClick={() => { requestSubagent(relatedSession.parentAgentId) }}>{language === 'zh' ? '重新核对' : 'Reconcile'}</button></div> : <div role="status">{language === 'zh' ? '正在加载子 Agent…' : 'Loading subagent…'}</div>}
       </aside> : relatedSessionVisible && relatedSession ? <RelatedSessionPanel
         key={`${relatedSession.parentAgentId}:${relatedSession.sessionId}`}
         target={relatedSession}
+        active={relatedSessionFits || compactRelatedActive}
         onQuoteInParent={readOnly ? undefined : quoteRelatedSelectionInParent}
         refreshSignal={isAcpRuntime(activeAgent) ? activeAgent.runtimeBinding.sessionRevision || 0 : 0}
         onClose={closeRelatedSession}

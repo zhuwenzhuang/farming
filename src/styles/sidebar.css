@@ -737,7 +737,7 @@
 
 @container code-sidebar (min-width: 360px) {
   .code-agent-row.has-provider:not(.code-session-show-more) {
-      grid-template-columns: 17px minmax(0, 1fr) auto;
+      grid-template-columns: var(--code-agent-row-provider-width) minmax(0, 1fr) auto;
     }
 }
 

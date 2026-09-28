@@ -31,7 +31,6 @@ export interface CodeCopy {
   quoteSelectFirst: string
   quoteSelectionTooLong: string
   quoteInParent: string
-  sideChatDescription: string
   nativeChildDescription: string
   relatedWaitingPermission: string
   questionLocateFailed: string
@@ -737,7 +736,6 @@ const EN_COPY: CodeCopy = {
   quoteSelectFirst: 'Select code in the editor first.',
   quoteSelectionTooLong: 'Selection is too long to attach. Select at most 6,000 characters.',
   quoteInParent: 'Quote in parent chat',
-  sideChatDescription: 'Side chat · You can reply. Accepted work continues while you are away.',
   nativeChildDescription: 'Delegated task · The parent Agent controls this conversation.',
   relatedWaitingPermission: 'Waiting for approval',
   questionLocateFailed: 'Could not locate this question in the available conversation history.',
@@ -1476,7 +1474,6 @@ const ZH_COPY: CodeCopy = {
   quoteSelectFirst: '请先在编辑器中选择代码。',
   quoteSelectionTooLong: '选区过长，最多可引用 6,000 个字符。',
   quoteInParent: '引用到父会话',
-  sideChatDescription: '旁聊 · 可继续提问，已接受的任务会在你离开后继续执行。',
   nativeChildDescription: '委派任务 · 由父 Agent 控制此会话。',
   relatedWaitingPermission: '等待批准',
   questionLocateFailed: '未能在当前可读取的聊天记录中定位该问题。',

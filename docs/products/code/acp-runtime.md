@@ -20,6 +20,14 @@ verified Fork capability cannot create a Side Chat.
 Code places the parent on the left and the selected related conversation on the
 right, with independently owned drafts, permissions, and turn controls. Narrow
 windows switch between the two views. Collapsing changes presentation only.
+Every visible Chat transcript and control panel registers revision interest for
+its exact Agent, including side panes and Chat beside a Resource. Native child
+details register their parent Runtime, which owns their event stream. Multiple
+surfaces share one reference-counted subscription; hiding or switching a surface
+releases only its interest. Visible panels take priority over retained background
+views within the bounded subscription budget. Reconnect restores current interest
+and reads authoritative checkpoints without resending messages. Runtime supervision
+is independent: hiding a Side Chat does not cancel its work or release supervision.
 Side Chat and native subagent rows remain beneath their owning parent. Native
 opaque child identities are fenced by the exact parent runtime generation;
 missing transcript capability is reported explicitly.
@@ -97,7 +105,8 @@ Quoting a child's result appends its source and selected text to the parent's dr
 reveals that draft, and never sends it or overwrites existing text.
 
 The related pane serializes refreshes and rejects stale parent identities.
-Selecting the same parent row preserves its open related pane. The child row,
+Selecting the parent row collapses its related pane and selects the parent alone;
+selecting the child row reopens it without changing either Session's execution. The child row,
 activity, and pane header share the child's identity icon; activity summaries
 render inline Markdown without introducing interactive links or block layouts.
 Closing it cancels the browser read, not the Agent. Read timeout, missing history,
@@ -543,8 +552,8 @@ Entries by default. A caller that intentionally needs the raw, potentially
 large Entry collection must opt in with `includeEntries=1`; product interfaces
 use the bounded transcript APIs for conversation content.
 
-Each browser connection explicitly identifies its currently visible Agent and
-the bounded set of retained ACP Chats whose structured transcripts it owns.
+Each browser connection explicitly identifies all visible Chat panels by exact
+Agent identity, then fills its bounded interest set with retained ACP Chats.
 ACP revision notifications are delivered only to connections with matching
 interest. Changing focus, adding retained interest, or reconnecting sends the
 current absolute cursor—Agent, provider Session, runtime epoch, and transcript

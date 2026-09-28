@@ -3487,6 +3487,7 @@ export function CodeWorkspace({
 
   const openTerminalFromSidebar = useCallback((agentId: string) => {
     workspaceFileOpenRequestRef.current.invalidate()
+    setRelatedSession(current => current?.parentAgentId === agentId ? null : current)
     if (!resumeColdAgentFromUserActivation(agentId)) {
       openTerminalFromWorkspace(agentId)
     }

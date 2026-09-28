@@ -1,3 +1,4 @@
+import { useAcpRevisionInterest } from '@/lib/acp-revision-interest'
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { appPath } from '@/lib/base-path'
 import { RequestOwnershipFence } from '@/lib/request-ownership'
@@ -78,6 +79,7 @@ function optimisticDeferredSession(session: AcpSessionSnapshot) {
 }
 
 export function useAcpSession(agentId: string, active: boolean, refreshSignal: string) {
+  useAcpRevisionInterest(agentId, active)
   const state = useSyncExternalStore(
     useCallback(listener => subscribeAcpSessionState(agentId, listener), [agentId]),
     useCallback(() => getAcpSessionStateSnapshot(agentId), [agentId]),

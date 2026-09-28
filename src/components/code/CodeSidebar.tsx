@@ -1,3 +1,4 @@
+import { CollaborationAgentIcon } from './CollaborationAgentIcon'
 import { pendingAgentQuestions, revealQuestions } from './acp/acp-elicitation-presentation'
 import { NativeRelatedRows } from './NativeRelatedRows'
 import type { RelatedSessionTarget } from './related-session-navigation'
@@ -3078,7 +3079,9 @@ function AgentRow({
   const sessionProvider = session?.provider ?? ''
   const sessionId = session?.id ?? ''
   const rowTestId = requiresResume ? 'code-active-session-row' : 'code-agent-row'
-  const providerIcon = liveAgent
+  const childSessionId = liveAgent?.subagentParentSessionKey
+    ? liveAgent.providerSessionId || liveAgent.providerSessionKey || liveAgent.id : ''
+  const providerIcon = childSessionId ? null : liveAgent
     ? previewAgentIconNameForAgent(liveAgent)
     : agentIconName(session?.provider)
   const canOpenSubagent = Boolean(
@@ -3225,7 +3228,7 @@ function AgentRow({
         }
       }}
     >
-      {providerIcon && (
+      {childSessionId ? <CollaborationAgentIcon sessionId={childSessionId} /> : providerIcon && (
         <span className="code-agent-row-provider-icon" aria-hidden="true">
           <AgentLaunchIcon name={providerIcon} variant="color" />
         </span>

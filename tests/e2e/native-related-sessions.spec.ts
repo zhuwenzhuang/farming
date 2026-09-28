@@ -1,6 +1,21 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import type { Page } from '@playwright/test'
 import { expect, openFarming, test } from './fixtures'
+
+async function resizeSidebar(page: Page, width: number) {
+  const sidebar = page.getByTestId('code-sidebar')
+  const sidebarBox = await sidebar.boundingBox()
+  const resizerBox = await page.getByTestId('code-sidebar-resizer').boundingBox()
+  if (!sidebarBox || !resizerBox) throw new Error('Sidebar resize handles are unavailable')
+
+  const pointerY = resizerBox.y + Math.min(120, resizerBox.height / 2)
+  await page.mouse.move(resizerBox.x + resizerBox.width / 2, pointerY)
+  await page.mouse.down()
+  await page.mouse.move(sidebarBox.x + width, pointerY)
+  await page.mouse.up()
+  await expect.poll(async () => Math.round((await sidebar.boundingBox())?.width ?? 0)).toBe(width)
+}
 
 for (const width of [1440, 390]) {
   test(`native child detail preserves parent execution at ${width}px`, async ({ page, workspaceRoot }, testInfo) => {
@@ -38,6 +53,17 @@ for (const width of [1440, 390]) {
     await expect(panel.getByRole('button', { name: /stop/i })).toHaveCount(0)
     await openSidebar()
     await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"] .code-agent-name`).click({ position: { x: 8, y: 8 } })
+    await expect(panel).toHaveCount(0)
+    await expect(page.getByTestId('code-agent-chat-view')).toContainText('Parent completed without interruption.')
+    for (const appearance of ['light', 'dark', 'paper']) {
+      await page.locator('body').evaluate((body, value) => { body.dataset.appearance = value }, appearance)
+      await page.screenshot({ path: testInfo.outputPath(`native-parent-only-${width}-${appearance}.png`), animations: 'disabled' })
+    }
+    await openSidebar()
+    const completedChildren = page.getByTestId('code-native-related-finished')
+    await expect(completedChildren).toBeVisible()
+    if (await completedChildren.getAttribute('open') === null) await completedChildren.locator('summary').click()
+    await page.getByTestId('code-native-related-row').filter({ hasText: 'Parser reviewer' }).click()
     await expect(panel).toBeVisible()
     await expect(panel).toContainText('Review complete')
     const headerIcon = panel.locator('.code-related-session-header .code-collaboration-agent-icon')
@@ -115,6 +141,18 @@ for (const width of [1440, 390]) {
         await transcriptIcon.locator('svg').evaluate(element => getComputedStyle(element).color),
       )
       await page.screenshot({ path: testInfo.outputPath(`native-sidebar-${width}-${appearance}.png`), animations: 'disabled' })
+    }
+
+    if (width >= 600) {
+      await resizeSidebar(page, 420)
+      const parentLabel = await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"] .code-agent-name`).boundingBox()
+      expect((await row.locator('.code-agent-name').boundingBox())!.x - parentLabel!.x).toBe(20)
+      expect((await finishedRows.locator('summary .code-agent-name').boundingBox())!.x - parentLabel!.x).toBe(20)
+      await expect(row.locator('.code-agent-row-provider-icon')).toHaveCount(0)
+      for (const appearance of ['light', 'dark', 'paper']) {
+        await page.locator('body').evaluate((body, value) => { body.dataset.appearance = value }, appearance)
+        await page.screenshot({ path: testInfo.outputPath(`native-sidebar-wide-${appearance}.png`), animations: 'disabled' })
+      }
     }
 
     if (width < 600) {

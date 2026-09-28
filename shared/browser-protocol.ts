@@ -6,6 +6,7 @@ import type { AgentStateWire } from './agent-state-wire.js'
 
 export const PROTOCOL_VERSION = 19
 export const MIN_PROTOCOL_VERSION = 19
+export const MAX_ACP_TRANSCRIPT_INTEREST = 20
 export const MAX_INLINE_WORKSPACE_MESSAGE_BYTES = 1024 * 1024
 export const PROJECT_ATTENTION_SCORE_MAX = projectAttentionScoreMax
 
@@ -1016,7 +1017,7 @@ export function validateClientMessage(value: unknown): ValidationResult<ClientMe
       break
     case 'watch-acp-transcripts':
       valid = Array.isArray(value.agentIds)
-        && value.agentIds.length <= 20
+        && value.agentIds.length <= MAX_ACP_TRANSCRIPT_INTEREST
         && value.agentIds.every(agentId => typeof agentId === 'string' && agentId.length > 0 && agentId.length <= 256)
         && new Set(value.agentIds).size === value.agentIds.length
         && (!Object.prototype.hasOwnProperty.call(value, 'subagentParentKeys') || (
