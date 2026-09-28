@@ -150,7 +150,7 @@ async function resultFor(method, params) {
     const paginated = process.env.FARMING_TEST_PAGINATED_HISTORY === '1' && !String(params.threadId).endsWith('-child');
     const newest = { turnId: 'turn-history-newest', item: { id: 'user-history-newest', type: 'userMessage', content: [{ type: 'text', text: 'Newest paginated turn', text_elements: [] }] } };
     let data;
-    let nextCursor = null;
+    let nextCursor: string | null = null;
     if (params.sortDirection === 'desc') data = [paginated ? newest : entries.at(-1)].filter(Boolean);
     else if (paginated && params.cursor === 'items-newer') data = [newest];
     else { data = entries; nextCursor = paginated ? 'items-newer' : null; }

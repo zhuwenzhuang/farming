@@ -59,6 +59,14 @@ const tasks: FastScreenTask[] = [
     args: ['--import', 'tsx', 'backend/tests/test-release-workflow.ts'],
   },
   {
+    name: 'script and fake-Agent harness type boundaries',
+    args: ['node_modules/typescript/bin/tsc', '-p', 'tsconfig.scripts-harness.json'],
+  },
+  {
+    name: 'backend test type boundaries',
+    args: ['node_modules/typescript/bin/tsc', '-p', 'tsconfig.tests.json'],
+  },
+  {
     name: 'release package identity',
     args: ['--import', 'tsx', 'backend/tests/test-cli-release-packaging.ts'],
   },

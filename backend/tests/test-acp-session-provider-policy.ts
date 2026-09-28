@@ -92,7 +92,7 @@ for (const provider of ['codex', 'claude']) {
   const notification = { sessionId: state.sessionId, update: { sessionUpdate: 'session_info_update', _meta: airMeta({ goal: airGoal }) } };
   state.apply(notification);
   assert.strictEqual(state.goal.objective, 'Verify AIR');
-  assert.strictEqual(notification.update._meta.goal, undefined, 'boundary normalization must not mutate the input');
+  assert.strictEqual(Object.hasOwn(notification.update._meta, 'goal'), false, 'boundary normalization must not mutate the input');
   state.apply({ sessionId: state.sessionId, update: { sessionUpdate: 'session_info_update', _meta: airMeta({ goal: { objective: 3 } }) } });
   assert.strictEqual(state.goal.objective, 'Verify AIR', 'invalid AIR goal must preserve authoritative state');
   state.apply({ sessionId: state.sessionId, update: { sessionUpdate: 'session_info_update', _meta: airMeta({ goal: null }) } });
