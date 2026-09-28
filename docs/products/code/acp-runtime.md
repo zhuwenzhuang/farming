@@ -906,6 +906,13 @@ navigation latency without imposing a fixed concurrency ceiling.
 
 ### Streaming rich content and inspection
 
+Shared Markdown rendering in Code, CRT, and file previews accepts paired double
+asterisks next to Chinese punctuation without requiring spaces: for example,
+`**重点。**后文` and `前文**“重点”**后文`. Only exact double-asterisk runs
+relax the punctuation boundary; normal delimiter pairing, code, escapes, math,
+and source positions remain parser-owned. Each streaming snapshot is parsed
+independently; missing closing delimiters are never synthesized.
+
 Turn and message state own whether content is streaming, settled or interrupted.
 An unfinished Mermaid fence uses a stable neutral generating surface; a closed
 block renders immediately, without waiting for Turn completion. An interrupted

@@ -32,6 +32,7 @@ import { shareNoticeAnchor, type ShareNoticeAnchor } from './share-notice'
 import rehypeHighlight from 'rehype-highlight'
 import rehypeKatex from 'rehype-katex'
 import remarkGfm from 'remark-gfm'
+import { remarkChineseStrong } from '../../lib/remark-chinese-strong'
 import remarkMath from 'remark-math'
 import { remarkLiteralShellDollars } from '@/lib/remark-literal-shell-dollars'
 import {
@@ -200,7 +201,8 @@ interface TranscriptImagePreview {
 type OpenTranscriptImagePreview = (preview: TranscriptImagePreview, trigger: HTMLButtonElement) => void
 
 const TranscriptImagePreviewContext = createContext<OpenTranscriptImagePreview | null>(null)
-const TRANSCRIPT_REMARK_PLUGINS = [remarkGfm, remarkMath, remarkLiteralShellDollars]
+const INLINE_REMARK_PLUGINS = [remarkChineseStrong]
+const TRANSCRIPT_REMARK_PLUGINS = [remarkGfm, remarkChineseStrong, remarkMath, remarkLiteralShellDollars]
 
 const EMPTY_SUBAGENT_STATES: AgentTranscriptSubagentState[] = []
 
@@ -406,6 +408,7 @@ function agentTranscriptUrlTransform(value: string, key: string) {
 function AgentTranscriptReasoningMarkdown({ text }: { text: string }) {
   return (
     <ReactMarkdown
+      remarkPlugins={INLINE_REMARK_PLUGINS}
       disallowedElements={['img']}
       skipHtml
       unwrapDisallowed
@@ -1463,6 +1466,7 @@ function AgentTranscriptCollaborationTimeline({
             <span className="code-agent-transcript-collaboration-agent">{activity.name}</span>{' · '}
             <span className={`code-agent-transcript-collaboration-action ${activity.action}`}>{collaborationActionLabel(activity.action, copy)}</span>
             <span className="code-agent-transcript-collaboration-event-description"><ReactMarkdown
+              remarkPlugins={INLINE_REMARK_PLUGINS}
               allowedElements={['strong', 'em', 'code', 'del']} unwrapDisallowed skipHtml
             >{activity.message || activity.task || activity.title}</ReactMarkdown></span>
           </span>

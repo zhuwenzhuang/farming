@@ -21,6 +21,7 @@ import { TransformComponent, TransformWrapper, type ReactZoomPanPinchRef } from 
 import rehypeHighlight from 'rehype-highlight'
 import rehypeKatex from 'rehype-katex'
 import remarkGfm from 'remark-gfm'
+import { remarkChineseStrong } from '../../lib/remark-chinese-strong'
 import remarkMath from 'remark-math'
 import { remarkLiteralShellDollars } from '@/lib/remark-literal-shell-dollars'
 import { parse as parseYaml } from 'yaml'
@@ -88,7 +89,7 @@ const LARGE_MARKDOWN_PREVIEW_CHARACTERS = 256 * 1024
 const LARGE_MARKDOWN_SECTION_BLOCKS = 40
 const LARGE_MARKDOWN_OVERSCAN_PX = 1_200
 const LARGE_MARKDOWN_INITIAL_SECTIONS = 2
-const MARKDOWN_REMARK_PLUGINS = [remarkGfm, remarkMath, remarkLiteralShellDollars, remarkMarkdownPreviewCompatibility]
+const MARKDOWN_REMARK_PLUGINS = [remarkGfm, remarkChineseStrong, remarkMath, remarkLiteralShellDollars, remarkMarkdownPreviewCompatibility]
 const MARKDOWN_REHYPE_PLUGINS = [rehypeGuardInvalidKatex, rehypeKatex]
 const MARKDOWN_HIGHLIGHT_REHYPE_PLUGINS = [rehypeGuardInvalidKatex, rehypeKatex, rehypeHighlight]
 const MarkdownPreviewContext = createContext<MarkdownPreviewContextValue | null>(null)
