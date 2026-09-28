@@ -183,6 +183,11 @@ Farming-owned, version-pinned runtime artifacts; Terminal follows the native
 Terminal policy. Updating an ACP pin requires protocol, integrity, recovery,
 and Chat/Terminal compatibility verification.
 
+A compatible adapter SDK patch upgrade shares Farming's exact SDK pin through a
+scoped dependency override, preserving the reviewed peer-dependency resolution.
+Adapters on another SDK compatibility line retain their own reviewed pin. Every
+resulting vendor bundle requires a reviewed digest and adapter acceptance.
+
 Native Terminal executable discovery returns one normalized compatibility
 result. Provider-specific resume-version requirements and trusted test
 overrides live in the executable discovery registry; Agent lifecycle code does

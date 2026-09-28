@@ -26,6 +26,7 @@ TMP_ROOT="${TMPDIR:-/tmp}"
 WORK_DIR="$(mktemp -d "${TMP_ROOT%/}/farming-cli-smoke.XXXXXX")"
 HOME_DIR="${WORK_DIR}/home"
 WORKSPACE_DIR="${WORK_DIR}/workspace"
+DAEMON_LOG="${WORK_DIR}/daemon.log"
 mkdir -p "${HOME_DIR}" "${WORKSPACE_DIR}"
 
 dump_logs() {
@@ -43,6 +44,7 @@ dump_logs() {
 
 cleanup() {
   HOME="${HOME_DIR}" "${BIN}" stop >/dev/null 2>&1 || true
+  rm -rf "${WORK_DIR}"
 }
 finish() {
   local status="$?"
@@ -59,8 +61,8 @@ if [ -n "${REQUESTED_PORT}" ]; then
   DAEMON_ARGS+=(--port "${REQUESTED_PORT}")
 fi
 
-HOME="${HOME_DIR}" "${BIN}" "${DAEMON_ARGS[@]}" >/tmp/farming-cli-smoke-daemon.$$.log 2>&1 || {
-  cat /tmp/farming-cli-smoke-daemon.$$.log >&2 || true
+HOME="${HOME_DIR}" "${BIN}" "${DAEMON_ARGS[@]}" >"${DAEMON_LOG}" 2>&1 || {
+  cat "${DAEMON_LOG}" >&2 || true
   exit 1
 }
 
@@ -97,7 +99,6 @@ else
 fi
 if [ "${SMOKE_AGENT}" = "0" ]; then
   HOME="${HOME_DIR}" "${BIN}" stop >/dev/null
-  trap - EXIT
   echo "OK binary=${BIN} port=${PORT} home=${HOME_DIR} agent=skipped"
   exit 0
 fi
@@ -131,6 +132,4 @@ else
   HOME="${HOME_DIR}" "${BIN}" kill "${AGENT_ID}" >/dev/null
 fi
 HOME="${HOME_DIR}" "${BIN}" stop >/dev/null
-trap - EXIT
-
 echo "OK binary=${BIN} port=${PORT} home=${HOME_DIR}"

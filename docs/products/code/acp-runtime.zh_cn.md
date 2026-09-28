@@ -125,6 +125,10 @@ ACP 与 Native Terminal 使用相互独立的 Executable Policy。ACP 使用 Far
 锁定的 Runtime Artifact；Terminal 遵循 Native Terminal Policy。更新 ACP Pin 必须验证
 Protocol、Integrity、Recovery 与 Chat/Terminal Compatibility。
 
+兼容的 Adapter SDK Patch 升级通过限定在该 Adapter 的 Dependency Override 共享 Farming
+的精确 SDK Pin，并保持已审核的 Peer Dependency 解析。使用另一 SDK 兼容版本线的 Adapter
+保留自身已审核的 Pin。每个生成的 Vendor Bundle 都必须重新审核 Digest 并通过 Adapter 验收。
+
 Native Terminal Executable Discovery 只返回一种归一化 Compatibility Result。Provider
 特有的 Resume Version 要求与受信 Test Override 留在 Executable Discovery Registry；Agent
 Lifecycle 不选择 Provider-specific Resolver。
