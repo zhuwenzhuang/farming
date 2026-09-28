@@ -1010,10 +1010,10 @@ async function run() {
   const compatibleClaudeLaunch = resolveAcpLaunch('claude');
   assert.match(
     compatibleClaudeLaunch.args.at(-1),
-    /(?:dist\/acp\/claude-agent-acp-0\.81\.1\.mjs|claude-agent-acp\/dist\/index\.js)$/,
+    /(?:dist\/acp\/claude-agent-acp-0\.81\.2\.mjs|claude-agent-acp\/dist\/index\.js)$/,
   );
   const compatiblePiLaunch = resolveAcpLaunch('pi', piLaunchOptions);
-  assert.match(compatiblePiLaunch.args[0], /dist\/acp\/pi-acp-0\.0\.33\.mjs$/);
+  assert.match(compatiblePiLaunch.args[0], /dist\/acp\/pi-acp-0\.0\.34\.mjs$/);
   assert.deepStrictEqual(compatiblePiLaunch.args.slice(1, 3), ['--farming-pi-command', '/opt/bin/pi']);
   const originalProcessPkg = packagedProcess.pkg;
   try {

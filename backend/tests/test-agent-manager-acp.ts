@@ -933,7 +933,7 @@ async function run() {
     });
     assert.match(
       String(piMcpError),
-      /Pi Chat does not support ACP MCP servers with pi-acp 0\.0\.33/,
+      /Pi Chat does not support ACP MCP servers with pi-acp 0\.0\.34/,
       'Pi Chat must reject MCP configuration that its pinned adapter would silently ignore',
     );
   } finally {
