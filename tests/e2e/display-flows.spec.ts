@@ -1367,6 +1367,8 @@ test.describe('display-backed agent flows', () => {
     const deleteDirectoryRow = filesSection.locator('[data-testid="code-file-row"][data-file-path="delete-dir"]')
     await expect(deleteDirectoryRow).toBeVisible()
     await deleteDirectoryRow.click()
+    // The initial directory snapshot must settle before the external mutation.
+    await expect(filesSection.locator('[data-testid="code-file-row"][data-file-path="delete-dir/original.txt"]')).toBeVisible()
     const addedDeepFileRow = filesSection.locator('[data-testid="code-file-row"][data-file-path="delete-dir/added-later.txt"]')
     fs.writeFileSync(path.join(projectDir, 'delete-dir/added-later.txt'), 'added later\n')
     await expect(addedDeepFileRow).toHaveCount(0)
@@ -2545,9 +2547,12 @@ test.describe('display-backed agent flows', () => {
     await expect(filesTitle).toHaveAttribute('aria-expanded', 'false')
     await filesTitle.click()
     await expect(filesTitle).toHaveAttribute('aria-expanded', 'true')
+    // Files retains the scrolled tree position across collapse. Reveal the open
+    // file before asserting a root row in the virtualized viewport.
+    await page.getByTestId('code-file-editor-reveal').click()
     const readmeRow = childFiles.locator('[data-testid="code-file-row"][data-file-path="README.md"]')
     await expect(readmeRow).toBeVisible()
-    await expect(readmeRow).not.toHaveClass(/active/)
+    await expect(readmeRow).toHaveClass(/active/)
     const queryRow = childFiles.locator('[data-testid="code-file-row"][data-file-path="query.sql"]')
     await queryRow.click()
     await expect(activeFileTabName(page)).toHaveText('query.sql')

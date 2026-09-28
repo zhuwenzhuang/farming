@@ -87,7 +87,7 @@ test('keeps composed sidebar density and alignment through resize, expansion, an
       await expect.poll(() => rect(project.locator('.code-open-editor-row'))).toMatchObject({ height })
       await expect.poll(() => rect(readme)).toMatchObject({ height })
       expect((await rect(editorsTitle)).x).toBe((await rect(filesTitle)).x)
-      const refresh = await rect(files.locator('.code-files-refresh'))
+      const refresh = await rect(files.getByTestId('code-files-refresh'))
       const close = await rect(project.locator('.code-open-editor-close'))
       expect(close.x + close.width / 2).toBe(refresh.x + refresh.width / 2)
       if (compact) {

@@ -1835,9 +1835,12 @@ test.describe('ACP human-like browser matrix', () => {
       await clientSummary.click()
       await expect(clientTurn.getByTestId('code-agent-transcript-process-group-toggle')).toContainText('Ran a command')
     })
-    await test.step('42 clear the resolved elicitation without leaving a duplicate notice', async () => {
+    await test.step('42 retain one read-only answered question without a live elicitation', async () => {
       await expect(page.getByTestId('code-acp-elicitation')).toHaveCount(0)
-      await expect(page.getByText('Confirm the protocol round trip', { exact: true })).toHaveCount(0)
+      const answered = page.getByTestId('code-acp-question-history').filter({ hasText: 'Confirm the protocol round trip' })
+      await expect(answered).toHaveCount(1)
+      await expect(answered).toContainText('Answered')
+      await expect(answered.locator('input, button, textarea')).toHaveCount(0)
     })
     }
 

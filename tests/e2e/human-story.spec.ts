@@ -787,7 +787,7 @@ test.describe('human Farming Agent story', () => {
 
     await textarea.fill('/g')
     await expect(page.getByTestId('code-slash-menu')).toBeVisible()
-    await expect(page.getByTestId('code-slash-menu')).toContainText('Commands')
+    await expect(page.getByTestId('code-slash-menu')).toContainText('Agent commands')
     await expect(page.getByTestId('code-slash-command-goal')).toBeVisible()
     await expect(page.getByTestId('code-slash-command-permissions')).toHaveCount(0)
     await textarea.press('Enter')

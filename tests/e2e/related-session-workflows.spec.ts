@@ -282,7 +282,8 @@ test('streams a side-chat reply while the parent stays selected', async ({ page,
   await resizeSidebar(page, 296)
   for (const appearance of ['light', 'dark', 'paper']) {
     await page.locator('body').evaluate((element, value) => { element.dataset.appearance = value }, appearance)
-    await parentRow.click()
+    // Activate the row with the keyboard to avoid secondary action hit areas.
+    await parentRow.press('Enter')
     await expect(pane).toHaveCount(0)
     await expect.poll(() => watchedAgentIds).not.toContain(child!.id)
     await expect(parentRow).toHaveClass(/\bactive\b/)

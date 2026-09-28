@@ -23,12 +23,14 @@ test('captures multiple native Agents with independent states', async ({ page, w
   const scenarios = [
     { name: '实现检查', status: '进行中', appearance: 'light', file: '01-running-light.png' },
     { name: '安全审查', status: '等待批准', appearance: 'light', file: '02-permission-light.png' },
-    { name: '需求澄清', status: '等待输入', appearance: 'dark', file: '03-input-dark.png' },
+    // A pending question does not suspend the provider's still-running child.
+    { name: '需求澄清', status: '进行中', appearance: 'dark', file: '03-input-dark.png' },
     { name: '解析器审查', status: '已完成', appearance: 'dark', file: '04-completed-dark.png' },
     { name: '集成测试', status: '失败', appearance: 'paper', file: '05-failed-paper.png' },
     { name: '迁移检查', status: '已暂停', appearance: 'paper', file: '06-interrupted-paper.png' },
   ]
   const finished = page.getByTestId('code-native-related-finished')
+  await expect(page.getByTestId('code-acp-elicitation').filter({ hasText: '是否保留旧版接口兼容？' })).toBeVisible()
   await expect(finished).toBeVisible()
   await finished.locator('summary').click()
   const parentRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)

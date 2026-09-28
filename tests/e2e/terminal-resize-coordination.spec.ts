@@ -366,8 +366,12 @@ test('coalesces a sustained diagonal window drag into one geometry update', asyn
     { width: 1100, height: 630 },
   ]
   const duringDimensions: Array<{ cols: number; rows: number }> = []
-  await page.clock.install()
-  await page.clock.pauseAt(new Date())
+  const clockEpoch = new Date()
+  await page.clock.install({ time: clockEpoch })
+  // Hold wall time while the pause RPC executes, then allow runFor to advance it.
+  await page.clock.setFixedTime(clockEpoch)
+  await page.clock.pauseAt(clockEpoch)
+  await page.clock.setSystemTime(clockEpoch)
   try {
     for (const size of viewportSizes) {
       await page.setViewportSize(size)
