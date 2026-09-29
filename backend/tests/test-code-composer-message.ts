@@ -1,7 +1,7 @@
 const assert = require('assert');
 const {
   appendDraftBlock,
-  clipboardMediaFiles,
+  clipboardAttachmentFiles,
   composerAttachmentMessageBlocks,
   composerAttachmentsCanSubmit,
   composerMessageForNativeAttachments,
@@ -163,12 +163,12 @@ function run() {
   const wavFile = makeFile({ name: 'paste.wav', type: 'audio/wav' });
   const txtFile = makeFile({ name: 'paste.txt', type: 'text/plain' });
   assert.deepStrictEqual(
-    clipboardMediaFiles({ files: [txtFile, pngFile, wavFile], items: [] }),
-    [pngFile, wavFile],
-    'clipboard file list should prefer native media files'
+    clipboardAttachmentFiles({ files: [txtFile, pngFile, wavFile], items: [] }),
+    [txtFile, pngFile, wavFile],
+    'clipboard file list preserves documents and media together'
   );
   assert.deepStrictEqual(
-    clipboardMediaFiles({
+    clipboardAttachmentFiles({
       files: [],
       items: [
         { kind: 'string', type: 'text/plain', getAsFile: () => txtFile },
@@ -179,7 +179,7 @@ function run() {
     [pngFile, wavFile],
     'clipboard items should fall back to native media file items when files is empty'
   );
-  assert.deepStrictEqual(clipboardMediaFiles(null), []);
+  assert.deepStrictEqual(clipboardAttachmentFiles(null), []);
 
   console.log('test-code-composer-message passed');
 }

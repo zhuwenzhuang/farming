@@ -2,6 +2,7 @@ import path from 'node:path'
 import {
   app,
   BrowserWindow,
+  clipboard,
   dialog,
   ipcMain,
   Notification,
@@ -91,6 +92,16 @@ function registerIpc() {
   const profileStore = profiles
   const connectionManager = connections
   const desktopGateway = gateway
+  ipcMain.handle('desktop:read-clipboard-image', event => {
+    validateSender(event)
+    const image = clipboard.readImage()
+    if (image.isEmpty()) return null
+    const size = image.getSize()
+    if (size.width * size.height > 40_000_000) throw new Error('Clipboard image is too large. Resize it before attaching.')
+    const png = image.toPNG()
+    if (png.length > 12 * 1024 * 1024) throw new Error('Clipboard image exceeds 12 MB. Save and resize it before attaching.')
+    return new Uint8Array(png)
+  })
   ipcMain.handle('desktop:get-state', event => {
     validateSender(event)
     return state()

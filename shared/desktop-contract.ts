@@ -114,6 +114,7 @@ export interface FarmingDesktopNativeBrowserBridge {
 }
 
 export interface FarmingDesktopBridge {
+  readClipboardImage?(): Promise<Uint8Array | null>
   getState(): Promise<DesktopState>
   saveAndActivateBackend(input: DesktopBackendInput): Promise<DesktopState>
   removeBackend(backendId: string): Promise<DesktopState>

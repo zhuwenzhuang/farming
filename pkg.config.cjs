@@ -1,5 +1,6 @@
 const entry = process.env.FARMING_PKG_ENTRY || 'backend/farming-code-cli.js';
 const workerEntry = process.env.FARMING_PKG_WORKER_ENTRY || '';
+const documentWorkerEntry = process.env.FARMING_PKG_DOCUMENT_WORKER_ENTRY || '';
 const usageWorkerEntry = process.env.FARMING_PKG_USAGE_WORKER_ENTRY || '';
 
 module.exports = {
@@ -8,6 +9,7 @@ module.exports = {
   pkg: {
     scripts: [
       ...(process.env.FARMING_PKG_ENTRY ? [entry] : ['backend/*.js']),
+      ...(documentWorkerEntry ? [documentWorkerEntry] : []),
       ...(workerEntry ? [workerEntry] : []),
       ...(usageWorkerEntry ? [usageWorkerEntry] : []),
       'extensions/browser/backend/openclaw-relay/*.cjs',

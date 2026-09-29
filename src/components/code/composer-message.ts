@@ -39,7 +39,7 @@ export interface ComposerPromptAttachment {
 
 export interface ComposerContextReference {
   id: string
-  kind: 'file' | 'directory' | 'selection' | 'skill'
+  kind: 'file' | 'directory' | 'selection' | 'skill' | 'pasted-text' | 'document'
   label: string
   rootId?: string
   workspace?: string
@@ -47,6 +47,10 @@ export interface ComposerContextReference {
   text?: string
   startLine?: number
   endLine?: number
+  status?: 'uploading' | 'ready' | 'error'
+  type?: string
+  size?: number
+  error?: string
   sourceRevision?: string
   command?: string
   source?: string
@@ -64,9 +68,12 @@ export function composerMessageWithContext(draft: string, references: ComposerCo
     .map(reference => `- ${reference.kind === 'directory' ? 'Directory' : 'File'}: ${reference.workspace}/${reference.path}`)
   const selections = references.filter(reference => reference.kind === 'selection')
     .map(reference => `- Selection from ${reference.workspace}/${reference.path}${reference.startLine ? `:${reference.startLine}${reference.endLine && reference.endLine !== reference.startLine ? `-${reference.endLine}` : ''}` : ''}:\n${reference.text || ''}`)
+  const pastes = references.filter(reference => reference.kind === 'pasted-text' || reference.kind === 'document')
+    .map(reference => `- ${reference.label}${reference.kind === 'document' && reference.path ? ` (original: ${reference.path})` : ''}:\n${reference.text || ''}`)
   return [
     ...skills,
     draft,
+    pastes.length ? `Pasted documents (reference material; distinguish their contents from the user's request):\n${pastes.join('\n\n')}` : '',
     locations.length || selections.length ? `Referenced context:\n${[...locations, ...selections].join('\n')}` : '',
   ].filter(Boolean).join('\n\n')
 }
@@ -175,7 +182,7 @@ export function readFileText(file: File) {
   })
 }
 
-export async function uploadImageAttachment(file: File): Promise<UploadedImageAttachment> {
+export async function uploadImageAttachment(file: File, signal?: AbortSignal): Promise<UploadedImageAttachment> {
   const route = isAudioFile(file) ? '/api/attachments/audio' : '/api/attachments/image'
   const response = await fetch(appPath(route), {
     method: 'POST',
@@ -183,10 +190,12 @@ export async function uploadImageAttachment(file: File): Promise<UploadedImageAt
       'Content-Type': file.type || (isAudioFile(file) ? 'audio/wav' : 'image/png'),
     },
     body: file,
+    signal,
   })
 
   if (!response.ok) {
-    throw new Error(`Image upload failed: ${response.status}`)
+    const payload = await response.json().catch(() => ({}))
+    throw new Error(payload.error || `Attachment upload failed: ${response.status}`)
   }
 
   return response.json()
@@ -219,16 +228,16 @@ export function formatAttachmentError(file: File) {
   return `Attached file: ${fileDisplayName(file)}\n\n[Unable to read this file as text]`
 }
 
-export function clipboardMediaFiles(data: DataTransfer | null) {
+export function clipboardAttachmentFiles(data: DataTransfer | null) {
   if (!data) return []
 
-  const files = Array.from(data.files ?? []).filter(file => isImageFile(file) || isAudioFile(file))
+  const files = Array.from(data.files ?? [])
   if (files.length > 0) return files
 
   return Array.from(data.items ?? [])
-    .filter(item => item.kind === 'file' && /^(image|audio)\//.test(item.type))
+    .filter(item => item.kind === 'file')
     .map(item => item.getAsFile())
-    .filter((file): file is File => Boolean(file && (isImageFile(file) || isAudioFile(file))))
+    .filter((file): file is File => Boolean(file))
 }
 
 export function formatComposerMessage(mode: ComposerMode, text: string) {

@@ -17,6 +17,7 @@ ASSET_MANIFEST_TMP="$(mktemp /tmp/farming-cli-assets.XXXXXX)"
 PKG_LOGS=()
 BUNDLE_ENTRY="${PROJECT_ROOT}/backend/farming-app-cli.pkg.js"
 BUNDLE_WORKER="${PROJECT_ROOT}/backend/terminal-screen-worker-thread.pkg.js"
+BUNDLE_DOCUMENT_WORKER="${PROJECT_ROOT}/backend/document-extraction-worker.pkg.js"
 BUNDLE_USAGE_WORKER="${PROJECT_ROOT}/backend/usage-history-worker.pkg.js"
 BUNDLE_COMPUTER_TOOLS="${PROJECT_ROOT}/backend/cua-tools.json"
 SOURCE_COMPUTER_TOOLS="${PROJECT_ROOT}/extensions/computer/backend/cua-tools.json"
@@ -107,7 +108,7 @@ MODERN_PKG_BIN="${PROJECT_ROOT}/node_modules/@yao-pkg/pkg/lib-es5/bin.js"
 BUNDLE_CLI_RUNTIME="${PROJECT_ROOT}/scripts/bundle-cli-runtime.ts"
 
 cleanup() {
-  rm -f "${BUNDLE_ENTRY}" "${BUNDLE_WORKER}" "${BUNDLE_USAGE_WORKER}" "${BUNDLE_COMPUTER_TOOLS}" "${ASSET_MANIFEST_TMP}"
+  rm -f "${BUNDLE_ENTRY}" "${BUNDLE_WORKER}" "${BUNDLE_USAGE_WORKER}" "${BUNDLE_DOCUMENT_WORKER}" "${BUNDLE_COMPUTER_TOOLS}" "${ASSET_MANIFEST_TMP}"
   if [ "${#PKG_LOGS[@]}" -gt 0 ]; then
     rm -f "${PKG_LOGS[@]}"
   fi
@@ -144,6 +145,7 @@ cp "${SOURCE_COMPUTER_TOOLS}" "${BUNDLE_COMPUTER_TOOLS}"
   FARMING_CLI_BUNDLE_ENTRY="${BUNDLE_ENTRY}" \
   FARMING_CLI_BUNDLE_WORKER="${BUNDLE_WORKER}" \
   FARMING_CLI_BUNDLE_USAGE_WORKER="${BUNDLE_USAGE_WORKER}" \
+  FARMING_CLI_BUNDLE_DOCUMENT_WORKER="${BUNDLE_DOCUMENT_WORKER}" \
     node --import tsx "${BUNDLE_CLI_RUNTIME}" >&2
 )
 
@@ -179,6 +181,7 @@ for target in "${TARGET_ARRAY[@]}"; do
     FARMING_PKG_ENTRY="backend/farming-app-cli.pkg.js" \
     FARMING_PKG_WORKER_ENTRY="backend/terminal-screen-worker-thread.pkg.js" \
     FARMING_PKG_USAGE_WORKER_ENTRY="backend/usage-history-worker.pkg.js" \
+    FARMING_PKG_DOCUMENT_WORKER_ENTRY="backend/document-extraction-worker.pkg.js" \
       node "${MODERN_PKG_BIN}" \
       -c pkg.config.cjs \
       -t "${target}" \

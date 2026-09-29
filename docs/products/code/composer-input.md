@@ -13,6 +13,67 @@ When submission returns a pending result, the send control immediately shows its
 
 An explicit Chat send follows the latest transcript immediately, including while acknowledgement is pending. The jump-to-latest control appears only after the reader scrolls away from the latest content and sits at the bottom of the transcript viewport on compact layouts.
 
+## Long Text Paste
+
+A plain-text paste longer than 1,000 Unicode characters becomes a captured text
+reference in the same Agent draft. Short pastes keep native editing behavior;
+media pastes retain their attachment path. Chat, Terminal Composer and side chat
+share this rule. The card uses the shared quoted-context surface, shows an excerpt,
+and supports full preview, removal and “Show in text field”. That action moves the
+complete snapshot to the end of the current draft without duplicating it.
+
+The composer state owns both the draft and snapshots. Paste atomically replaces
+the selected draft range with a reference; repeated pastes have independent
+identities. Preview changes presentation only. Removal deletes only that reference.
+Restoring a card atomically removes it and appends its full text; repeated restore
+events are harmless. No paste or restore sends a message or needs a network request.
+Pastes above 250,000 UTF-16 code units are rejected with an actionable error,
+leaving the draft unchanged; snapshots use the existing bounded checkpoints.
+Submission includes the complete snapshot as referenced material, separately from
+the user's request. Queue editing and failed/uncertain sends retain the snapshot;
+acceptance cannot clear a newer draft or reference. Agent switching preserves
+ownership. No provider-specific file path or upload is required.
+
+## Attachment Intake And Recovery
+
+Paste, file selection and drop share one intake owner and preserve the exact
+Agent draft captured at initiation, including side chat. Mixed clipboard text and
+files retain both. Workspace file-tree drops retain authorized root/path identity;
+OS files are uploaded, never interpreted as paths on a remote backend. Global
+file paste targets the last focused visible conversation and yields to text
+editors, terminals, menus and dialogs. Desktop may supply an image from its native
+clipboard only for an explicit paste with no browser text or files.
+
+Intake reserves each item's identity and order before asynchronous processing.
+Items transition from processing to ready or a visible error within a bounded
+deadline. Processing and failed items block submission; removing an item cancels
+its pending work and fences late completion. Reload keeps unfinished items as
+errors rather than silently discarding them. Switching Agents never redirects
+results. Retrying an uncertain upload is never automatic.
+
+The backend stores original document bytes in the instance attachment root and
+extracts bounded text in isolated workers. Documents are limited to 20 MB; combined
+document text is limited to 250,000 characters, with explicit errors rather than
+truncation. UTF-8/UTF-16 text, PDF, DOCX, PPTX and
+XLSX/XLS are supported. PDF pages, slides and sheets retain boundaries; document
+previews identify extracted text, which does not represent embedded pictures,
+visual layout or OCR. Empty scans, encryption, unsupported binaries, oversized
+archives and extraction timeout fail explicitly. Original files remain available
+for download. Every provider receives the same labeled extracted snapshot and
+stored original location through existing context submission.
+
+Images infer missing MIME types from recognized file extensions. HEIC is converted to PNG; optional
+image optimization bounds dimensions while keeping transparency. Original-size
+delivery is the default. Preview uses the shared full-screen content viewer with
+keyboard dismissal and focus return. Long-paste folding and image optimization
+are browser preferences in the Composer menu; Shift+Cmd/Ctrl+V bypasses folding for that paste.
+
+History recalls text, captured references and ready media together. It preserves
+an existing unsent attachment draft while browsing and restores that draft when
+leaving history. Persistent history is bounded and stores no object URLs; media
+previews resolve through the authenticated instance attachment endpoint. Queues,
+failed sends and newer-draft fencing continue using the same snapshot owner.
+
 ## Compact And Expanded Editing
 
 On compact layouts the textarea grows with its content to a bounded height

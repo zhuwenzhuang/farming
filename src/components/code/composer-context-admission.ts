@@ -13,7 +13,11 @@ export async function validateComposerReferences(agent: Agent, references: Compo
   if (references.length > 64) throw new Error('Too many context references. Remove some before sending.')
   const locations: Array<{ path: string; kind: 'file' | 'directory' }> = []
   for (const reference of references) {
-    if (reference.kind === 'skill') continue
+    if (reference.kind === 'document') {
+      if (reference.status !== 'ready' || !reference.text || !reference.path) throw new Error(`Attachment is not ready: ${reference.label}`)
+      continue
+    }
+    if (reference.kind === 'skill' || (reference.kind === 'pasted-text')) continue
     if (reference.workspace !== agent.cwd || reference.rootId !== projectFilesWorkspaceId(agent.cwd)
       || !reference.path || reference.path.startsWith('/') || reference.path.split('/').includes('..')) {
       throw new Error(`Context belongs to a different workspace: ${reference.label}`)

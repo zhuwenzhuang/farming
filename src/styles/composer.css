@@ -2300,7 +2300,7 @@ body.code-mode .code-composer textarea::placeholder {
   margin-top: -2px;
 }
 
-.code-composer-attachments.has-context:not(.expanded) {
+.code-composer-attachments.has-context:not(.expanded):not(.has-quotes) {
   flex-wrap: nowrap;
   overflow: visible;
 }
@@ -2382,6 +2382,7 @@ body.code-mode .code-composer textarea::placeholder {
 
 .code-composer-attachment.image {
   width: 118px;
+  flex-shrink: 0;
   height: 82px;
   display: block;
   align-items: stretch;
@@ -3739,3 +3740,89 @@ body.code-mode.code-compact-layout .code-composer-approval.orange {
 .code-acp-question-result small { margin-left: auto; color: var(--code-text-subtle); white-space: nowrap; }
 .code-acp-question-result pre { margin: 8px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
 .code-acp-request input:focus { outline: none; box-shadow: none; border-color: var(--code-border); }
+
+/* Quoted text is context, separate from the editable question. */
+.code-composer-attachments.has-quotes {
+  flex-wrap: wrap;
+  max-height: 224px;
+  overflow-y: auto;
+}
+.code-composer-quote {
+  position: relative;
+  flex: 0 0 100%;
+  min-width: 0;
+  padding: 8px 32px 8px 10px;
+  border-radius: 8px;
+  background: var(--code-bg-inset);
+  color: var(--code-text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.code-composer-quote summary { cursor: pointer; }
+.code-composer-quote-excerpt {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  color: var(--code-text);
+}
+.code-composer-quote details[open] .code-composer-quote-excerpt { display: none; }
+.code-composer-quote pre {
+  max-height: 120px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+  color: var(--code-text);
+}
+.code-composer-quote > .code-composer-attachment-remove {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+}
+
+.code-composer.has-quotes:not(.editor-expanded) {
+  grid-template-rows: auto minmax(26px, 1fr) auto;
+}
+body.code-mode.code-compact-layout .code-composer.has-quotes:not(.editor-expanded) {
+  grid-template-rows: minmax(0, 112px) minmax(26px, auto) 44px;
+}
+body.code-mode.code-compact-layout .code-composer.has-quotes:has(> .code-composer-editor-header):not(.editor-expanded) .code-composer-attachments {
+  /* Reserve the existing 44px expand control plus its 4px edge inset. */
+  margin-right: 48px;
+}
+
+/* Composer intake shares the existing focus surface and attachment cards. */
+.code-composer[data-drag-over="true"],
+.code-acp-composer-stack[data-drag-over="true"] {
+  outline: 2px solid var(--code-focus-ring);
+  outline-offset: -2px;
+}
+button.code-composer-attachment-preview {
+  padding: 0;
+  border: 0;
+  cursor: zoom-in;
+  background: transparent;
+}
+.code-composer-document-status {
+  display: block;
+  padding-right: 24px;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.code-composer-document-status[role="alert"] { color: var(--code-danger); }
+.code-composer-attachment.error.chip {
+  height: auto;
+  min-height: 32px;
+  flex-wrap: wrap;
+  padding-right: 28px;
+}
+.code-composer-attachment.error.chip .code-composer-attachment-status {
+  flex: 1 1 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.4;
+}
+.code-composer-attachment.error.chip .code-composer-attachment-remove { position: absolute; right: 4px; top: 4px; }

@@ -183,10 +183,11 @@ export function settleComposerSubmissionState(
   accepted: boolean,
   historyText?: string,
 ) {
+  const submitted = state.submissions?.find(item => item.id === messageId)
   return {
     ...state,
-    ...(accepted && historyText
-      ? { history: addComposerHistoryEntry(state.history, historyText) }
+    ...(accepted && historyText !== undefined
+      ? { history: addComposerHistoryEntry(state.history, historyText, undefined, { attachments: (submitted?.attachments || []).map((item, index) => ({ ...item, id: `history-${messageId}-${index}`, status: 'ready' as const })), contextReferences: submitted?.contextReferences || [] }) }
       : {}),
     submissions: accepted
       ? removeComposerSubmission(state.submissions, messageId)

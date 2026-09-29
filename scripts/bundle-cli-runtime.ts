@@ -131,6 +131,12 @@ const commonOptions: esbuild.BuildOptions = {
 async function main(): Promise<void> {
   await esbuild.build({
     ...commonOptions,
+    target: 'node22',
+    entryPoints: [path.join(projectRoot, 'backend', 'document-extraction-worker.cts')],
+    outfile: process.env.FARMING_CLI_BUNDLE_DOCUMENT_WORKER || path.join(projectRoot, 'backend', 'document-extraction-worker.pkg.js'),
+  });
+  await esbuild.build({
+    ...commonOptions,
     entryPoints: [path.join(projectRoot, 'backend', 'farming-app-cli.cts')],
     outfile: entryOutfile,
     plugins: [expressViewDynamicRequirePlugin, packagedAcpPlugin],

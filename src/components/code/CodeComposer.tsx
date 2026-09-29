@@ -1,3 +1,5 @@
+import { ComposerInputPreferences } from './composer-input-preferences'
+import { useComposerTransfer } from './useComposerTransfer'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type {
   ChangeEvent,
@@ -165,6 +167,7 @@ interface CodeComposerProps {
   onRemoveAttachment: (id: string) => void
   onAddContextReference: (reference: Omit<ComposerContextReference, 'id'>) => void
   onRemoveContextReference: (id: string) => void
+  onRestorePastedText?: (id: string) => void
   unavailableReferenceIds?: string[]
   onSubmit: (draft?: string) => boolean | Promise<boolean>
   onInterrupt: () => void
@@ -243,6 +246,7 @@ export function CodeComposer({
   onRemoveAttachment,
   onAddContextReference,
   onRemoveContextReference,
+  onRestorePastedText,
   unavailableReferenceIds = [],
   onSubmit,
   onInterrupt,
@@ -547,8 +551,13 @@ export function CodeComposer({
     })
   }
 
+  const transferError = useComposerTransfer({ active, agentId, workspace, textareaRef, composerRef, onAddReference: onAddContextReference })
+  const hasQuotes = contextReferences.some(reference => (reference.kind === 'pasted-text' || reference.kind === 'document'))
+  const composerAttachments = (<ComposerAttachments attachments={attachments} onRemove={onRemoveAttachment} references={contextReferences}
+        onRemoveReference={onRemoveContextReference} onRestorePastedText={onRestorePastedText} restorePastedTextLabel={copy.showPastedTextInField} extractedTextLabel={copy.extractedText} downloadOriginalLabel={copy.downloadOriginal} unavailableReferenceIds={unavailableReferenceIds} />)
   const composerClasses = [
     'code-composer',
+    hasQuotes ? 'has-quotes' : '',
     editor.expanded ? 'editor-expanded' : '',
     composerMenuOpen ? 'menu-open' : '',
     showMobileRecordingBar ? 'recording' : '',
@@ -565,6 +574,7 @@ export function CodeComposer({
       data-slash-catalog-target={slashCatalogTargetKey}
       onClick={handleComposerClick}
     >
+      {transferError ? <div role="alert" className="code-related-session-error">{transferError}</div> : null}
       {compactComposerViewport && active && !speechListening ? <ComposerEditorHeader expanded={editor.expanded} onToggle={() => { onCloseMenus(); editor.toggle() }} copy={copy} /> : null}
       {pendingFollowUp && active && (
         <div className="code-pending-followup" data-testid="code-pending-followup">
@@ -659,6 +669,7 @@ export function CodeComposer({
           ))}
         </div>
       )}
+      {hasQuotes ? composerAttachments : null}
       <textarea
           data-testid="code-composer-input"
           ref={textareaRef}
@@ -837,8 +848,7 @@ export function CodeComposer({
           {copy.mobileDictationHint}
         </div>
       )}
-      <ComposerAttachments attachments={attachments} onRemove={onRemoveAttachment} references={contextReferences}
-        onRemoveReference={onRemoveContextReference} unavailableReferenceIds={unavailableReferenceIds} />
+      {!hasQuotes ? composerAttachments : null}
       <input
         ref={attachmentInputRef}
         className="code-composer-file-input"
@@ -910,6 +920,7 @@ export function CodeComposer({
                 onBlur={onComposerMenuBlur}
                 onMouseDown={event => event.preventDefault()}
               >
+                <ComposerInputPreferences copy={copy} />
                 {capabilities.plusMenu ? (
                   <button type="button" role="menuitem" data-testid="code-composer-attach-file" onClick={onChooseAttachmentFile}>
                     <span>{copy.attachFile}</span>

@@ -189,6 +189,7 @@ export function mergeAgentComposerStates(primary: AgentComposerState, incoming: 
     mode: primary.mode !== 'default' ? primary.mode : incoming.mode,
     history: {
       entries: [...incoming.history.entries, ...primary.history.entries].slice(-100),
+      snapshots: [...incoming.history.entries.map((_, index) => incoming.history.snapshots?.[index] || null), ...primary.history.entries.map((_, index) => primary.history.snapshots?.[index] || null)].slice(-100),
       cursor: null,
     },
     pendingFollowUp: pendingMessages.length > 0

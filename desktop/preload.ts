@@ -22,6 +22,7 @@ function nativeBrowserAdapterIdFromArg(argv: readonly string[]): string {
 const nativeBrowserAdapterId = nativeBrowserAdapterIdFromArg(process.argv)
 
 const bridge: FarmingDesktopBridge = {
+  readClipboardImage: () => ipcRenderer.invoke('desktop:read-clipboard-image') as Promise<Uint8Array | null>,
   getState: () => ipcRenderer.invoke('desktop:get-state') as Promise<DesktopState>,
   saveAndActivateBackend: (input: DesktopBackendInput) => ipcRenderer.invoke('desktop:save-and-activate-backend', input) as Promise<DesktopState>,
   removeBackend: (backendId: string) => ipcRenderer.invoke('desktop:remove-backend', backendId) as Promise<DesktopState>,

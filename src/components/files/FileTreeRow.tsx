@@ -123,6 +123,13 @@ export function FileTreeRow({
 
   return (
     <div
+      draggable={!inlineRenameOperation}
+      onDragStart={event => {
+        // This is a Composer reference transfer, not an Arborist tree move.
+        event.stopPropagation()
+        event.dataTransfer.effectAllowed = 'copy'
+        event.dataTransfer.setData('application/x-farming-workspace-reference', JSON.stringify({ owner: agentId, path: item.path, kind: isDirectory ? 'directory' : 'file' }))
+      }}
       className={rowClasses}
       style={workspaceFileTreeDepthStyle(node.level)}
       data-testid="code-file-row"

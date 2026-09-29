@@ -31,8 +31,8 @@ Chat and Terminal share completion interactions, while delivery remains bound to
 their negotiated capabilities and existing submission paths.
 
 Multi-root authorization, conversation/resource mentions, Agent dispatch, shell
-mode through `!`, inline rich-text chips and large-paste conversion are later
-work. A file reference never adds a workspace root or grants filesystem access.
+mode through `!` and inline rich-text chips are later work.
+Long-paste documents and file intake follow the [Composer Input contract](composer-input.md). A file reference never adds a workspace root or grants filesystem access.
 
 ## Trigger Semantics
 

@@ -1,3 +1,5 @@
+import { ContentViewerDialog } from '@/components/ContentViewerDialog'
+import { attachmentPreviewUrl } from './composer-intake'
 import { useRef, useState } from 'react'
 import { useInteractionLayer } from '@/hooks/useInteractionLayer'
 import { CloseGlyph, FileGlyph, FolderGlyph, SkillGlyph, SquareGlyph } from '@/components/IconGlyphs'
@@ -8,6 +10,7 @@ export interface ComposerAttachmentView {
   kind: 'image' | 'audio'
   name: string
   status: 'uploading' | 'ready' | 'error'
+  path?: string
   previewUrl?: string
   error?: string
 }
@@ -17,10 +20,16 @@ interface ComposerAttachmentsProps {
   onRemove: (id: string) => void
   references?: ComposerContextReference[]
   onRemoveReference?: (id: string) => void
+  onRestorePastedText?: (id: string) => void
+  restorePastedTextLabel?: string
+  extractedTextLabel?: string
+  downloadOriginalLabel?: string
   unavailableReferenceIds?: string[]
 }
 
-export function ComposerAttachments({ attachments, onRemove, references = [], onRemoveReference, unavailableReferenceIds = [] }: ComposerAttachmentsProps) {
+export function ComposerAttachments({ attachments, onRemove, references = [], onRemoveReference, onRestorePastedText, restorePastedTextLabel = 'Show in text field', extractedTextLabel = 'Extracted text', downloadOriginalLabel = 'Download original', unavailableReferenceIds = [] }: ComposerAttachmentsProps) {
+  const [imagePreview, setImagePreview] = useState<ComposerAttachmentView | null>(null)
+  const imageTriggerRef = useRef<HTMLButtonElement | null>(null)
   const [expanded, setExpanded] = useState(false)
   const [previewId, setPreviewId] = useState<string | null>(null)
   const stripRef = useRef<HTMLDivElement | null>(null)
@@ -34,9 +43,10 @@ export function ComposerAttachments({ attachments, onRemove, references = [], on
   const visibleReferences = expanded ? references : references.slice(0, 4)
 
   return (
-    <div ref={stripRef} className={`code-composer-attachments ${references.length > 0 ? 'has-context' : ''} ${expanded ? 'expanded' : ''}`} data-testid="code-composer-attachments">
+    <div ref={stripRef} className={`code-composer-attachments ${references.length > 0 ? 'has-context' : ''} ${expanded ? 'expanded' : ''} ${references.some(reference => (reference.kind === 'pasted-text' || reference.kind === 'document')) ? 'has-quotes' : ''}`} data-testid="code-composer-attachments">
       {attachments.map(attachment => {
-        const hasImagePreview = attachment.kind === 'image' && Boolean(attachment.previewUrl)
+        const previewUrl = attachment.previewUrl || attachmentPreviewUrl(attachment.path)
+        const hasImagePreview = attachment.kind === 'image' && Boolean(previewUrl)
         const attachmentClassName = [
           'code-composer-attachment',
           hasImagePreview ? 'image' : 'chip',
@@ -50,9 +60,9 @@ export function ComposerAttachments({ attachments, onRemove, references = [], on
             data-testid="code-composer-attachment"
           >
             {hasImagePreview ? (
-              <div className="code-composer-attachment-preview" data-testid="code-composer-attachment-preview">
-                <img src={attachment.previewUrl} alt={attachment.name} />
-              </div>
+              <button type="button" className="code-composer-attachment-preview" data-testid="code-composer-attachment-preview" aria-label={`Preview ${attachment.name}`} onClick={event => { imageTriggerRef.current = event.currentTarget; setImagePreview({ ...attachment, previewUrl }) }}>
+                <img src={previewUrl} alt={attachment.name} />
+              </button>
             ) : (
               <span className="code-composer-attachment-fallback" aria-hidden="true"><SquareGlyph /></span>
             )}
@@ -63,9 +73,9 @@ export function ComposerAttachments({ attachments, onRemove, references = [], on
               <span
                 className="code-composer-attachment-status"
                 role={attachment.status === 'error' ? 'alert' : 'status'}
-                title={attachment.status === 'error' ? 'Remove this attachment and try again' : undefined}
+                title={attachment.error}
               >
-                {attachment.status === 'uploading' ? 'Uploading' : 'Upload failed'}
+                {attachment.status === 'uploading' ? 'Uploading' : attachment.error || 'Upload failed'}
               </span>
             )}
             <button
@@ -79,7 +89,24 @@ export function ComposerAttachments({ attachments, onRemove, references = [], on
           </div>
         )
       })}
-      {visibleReferences.map(reference => (
+      {visibleReferences.map(reference => (reference.kind === 'pasted-text' || reference.kind === 'document') ? (
+        <div key={reference.id} className="code-composer-quote" data-testid={reference.kind === 'document' ? 'code-composer-document' : reference.kind === 'pasted-text' ? 'code-composer-pasted-text' : 'code-composer-quote'}>
+          {reference.kind === 'document' && reference.status !== 'ready' ? <span className="code-composer-document-status" role={reference.status === 'error' ? 'alert' : 'status'}>{reference.status === 'error' ? reference.error : 'Processing document…'}</span> : null}
+          <details>
+            <summary>{reference.label}<span className="code-composer-quote-excerpt">{reference.text}</span></summary>
+            {reference.kind === 'document' && reference.text ? <small>{extractedTextLabel}</small> : null}
+            <pre>{reference.text}</pre>
+            {reference.kind === 'document' && reference.path ? <a href={attachmentPreviewUrl(reference.path)} download={reference.label}>{downloadOriginalLabel}</a> : null}
+          </details>
+          {reference.kind === 'pasted-text' && onRestorePastedText ? (
+            <button type="button" className="code-composer-context-overflow" onClick={() => onRestorePastedText(reference.id)}>
+              {restorePastedTextLabel}
+            </button>
+          ) : null}
+          <button type="button" className="code-composer-attachment-remove" aria-label={`Remove ${reference.label}`}
+            onClick={() => onRemoveReference?.(reference.id)}><CloseGlyph /></button>
+        </div>
+      ) : (
         <div key={reference.id} className={`code-composer-attachment chip context ${unavailableReferenceIds.includes(reference.id) ? 'error' : ''}`} data-testid="code-composer-context-chip">
           <button type="button" className="code-composer-context-preview-button" onClick={() => setPreviewId(current => current === reference.id ? null : reference.id)}
             title={reference.path || reference.command || reference.label} aria-label={`Inspect ${reference.label}`}>
@@ -93,6 +120,9 @@ export function ComposerAttachments({ attachments, onRemove, references = [], on
       {references.length > 4 ? <button type="button" className="code-composer-context-overflow" onClick={() => setExpanded(value => !value)}>
         {expanded ? 'Show less' : `+${references.length - 4}`}
       </button> : null}
+      {imagePreview ? <ContentViewerDialog title={imagePreview.name} closeLabel="Close preview" onClose={() => setImagePreview(null)} returnFocusRef={imageTriggerRef} testId="composer-image-viewer">
+        <div className="code-content-viewer-image"><img src={imagePreview.previewUrl} alt={imagePreview.name} /></div>
+      </ContentViewerDialog> : null}
       {preview ? <div className="code-menu-surface code-composer-context-preview" role="dialog" aria-label={preview.label}>
         <strong>{preview.label}</strong>
         <span>{preview.kind === 'skill' ? preview.command : `${preview.workspace}/${preview.path}`}</span>

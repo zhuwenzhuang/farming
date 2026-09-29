@@ -1,3 +1,5 @@
+import { ComposerInputPreferences } from '../composer-input-preferences'
+import { useComposerTransfer } from '../useComposerTransfer'
 import { useInteractionLayer } from '@/hooks/useInteractionLayer'
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type CSSProperties, type KeyboardEvent, type MouseEvent, type RefObject } from 'react'
 import { ArrowUpGlyph, LoadingGlyph, CloseGlyph, PencilGlyph, PlusGlyph, ReplyGlyph } from '@/components/IconGlyphs'
@@ -108,6 +110,7 @@ export interface AcpComposerProps {
   onRemoveAttachment: (id: string) => void
   onAddContextReference?: (reference: Omit<ComposerContextReference, 'id'>) => void
   onRemoveContextReference?: (id: string) => void
+  onRestorePastedText?: (id: string) => void
   unavailableReferenceIds?: string[]
   onSubmit: (draft?: string, options?: { oppositeFollowUpBehavior?: boolean }) => boolean | Promise<boolean>
   onInterrupt: () => void
@@ -160,6 +163,7 @@ export function AcpComposer({
   onRemoveAttachment,
   onAddContextReference,
   onRemoveContextReference,
+  onRestorePastedText,
   unavailableReferenceIds = [],
   onSubmit,
   onInterrupt,
@@ -509,8 +513,13 @@ export function AcpComposer({
   })
   useComposerTextareaAutoSize(textareaRef, draft, editor.expanded)
   useMobileComposerHeight(composerRef, `${draft}:${editor.expanded}`)
+  const transferError = useComposerTransfer({ active, agentId, workspace, textareaRef, composerRef, onAddReference: onAddContextReference })
+  const hasQuotes = contextReferences.some(reference => (reference.kind === 'pasted-text' || reference.kind === 'document'))
+  const composerAttachments = (<ComposerAttachments attachments={attachments} onRemove={onRemoveAttachment} references={contextReferences}
+        onRemoveReference={onRemoveContextReference} onRestorePastedText={onRestorePastedText} restorePastedTextLabel={copy.showPastedTextInField} extractedTextLabel={copy.extractedText} downloadOriginalLabel={copy.downloadOriginal} unavailableReferenceIds={unavailableReferenceIds} />)
   const composerClasses = [
     'code-composer',
+    hasQuotes ? 'has-quotes' : '',
     'code-acp-composer',
     editor.expanded ? 'editor-expanded' : '',
     openMenu || showCommands || contextCompletion.open ? 'menu-open' : '',
@@ -526,6 +535,7 @@ export function AcpComposer({
       data-testid="code-acp-composer-stack"
       aria-busy={active && !sessionAuthoritative}
     >
+      {transferError ? <div role="alert" className="code-related-session-error">{transferError}</div> : null}
       {(submissions.length > 0 || pendingFollowUp) && active ? (
         <div className="code-pending-followup code-acp-pending-items" data-testid="code-acp-pending-followup">
           {submissions.map(message => (
@@ -663,6 +673,7 @@ export function AcpComposer({
           ))}
         </div>
       ) : null}
+      {hasQuotes ? composerAttachments : null}
       <textarea
           data-testid="code-acp-composer-input"
           ref={textareaRef}
@@ -718,8 +729,7 @@ export function AcpComposer({
           data-bwignore="true"
           data-form-type="other"
       />
-      <ComposerAttachments attachments={attachments} onRemove={onRemoveAttachment} references={contextReferences}
-        onRemoveReference={onRemoveContextReference} unavailableReferenceIds={unavailableReferenceIds} />
+      {!hasQuotes ? composerAttachments : null}
       <input
         ref={attachmentInputRef}
         className="code-composer-file-input"
@@ -745,6 +755,7 @@ export function AcpComposer({
             </button>
             {openMenu === 'commands' ? (
               <div className="code-menu-surface code-menu-list code-plus-menu code-composer-menu" role="menu" data-testid="code-acp-plus-menu">
+                <ComposerInputPreferences copy={copy} />
                 <button
                   type="button"
                   role="menuitem"

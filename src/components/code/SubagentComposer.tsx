@@ -1,3 +1,5 @@
+import { cancelComposerIntake } from './composer-intake'
+import { readComposerInputPreferences } from './composer-input-preferences'
 import { attachSubagent } from '@/lib/subagent-supervision'
 import { useCallback, useRef, useState } from 'react'
 import type { Agent } from '@/types/agent'
@@ -9,13 +11,14 @@ import type { ComposerFollowUpBehavior } from '@/lib/ui-preferences'
 import { projectFilesWorkspaceId } from '@/lib/project-workspaces'
 import { capabilitiesForAgent } from './capabilities'
 import { useComposerProviderCatalog } from './useComposerProviderCatalog'
+import { attachPastedText, createPastedTextReference, restorePastedText } from './composer-paste'
 import { composerContextReferenceId } from './composer-message'
 import { AcpComposer } from './acp/AcpComposer'
 import { acpComposerStateKeyForAgent } from './acp/acp-composer-state'
 import { isAcpComposerAvailable, respondToAcpElicitation, respondToAcpPermission, resolveAcpFollowUpBehavior, submitAcpDraft } from './acp/acp-composer-behavior'
 import { createDefaultAgentComposerState, type AgentComposerState } from './composer-state'
 import { canUseComposerHistoryNavigation, navigateComposerHistory } from './composer-history'
-import { appendDraftBlock, clipboardMediaFiles, composerAttachmentsCanSubmit, formatAttachmentError, formatAttachmentFile, isAudioFile, isImageFile, revokeComposerAttachmentPreview } from './composer-message'
+import { clipboardAttachmentFiles, composerAttachmentsCanSubmit, revokeComposerAttachmentPreview } from './composer-message'
 import { useComposerFollowUpController, type ComposerFollowUpOwnership, type ComposerMessageSender } from './useComposerFollowUpController'
 import type { CodeCopy } from './copy'
 
@@ -50,7 +53,7 @@ export function SubagentComposer({ agent: structuralAgent, active, controller, c
     modelCatalogOpen: false, onModelCatalogError: setError,
   })
   const references = state.contextReferences || []
-  const unavailableReferenceIds = references.filter(reference => reference.kind === 'skill'
+  const unavailableReferenceIds = references.filter(reference => reference.kind === 'document' ? reference.status !== 'ready' || !reference.text : (reference.kind === 'pasted-text') ? false : reference.kind === 'skill'
     ? slashCatalogStatus !== 'ready' || !discoveredSlashCommands.some(command => command.source === 'skill'
       && command.command === reference.command && command.scope === reference.source && Boolean(reference.path) && command.skillPath === reference.path)
     : reference.workspace !== agent.cwd || reference.rootId !== projectFilesWorkspaceId(agent.cwd) || !reference.path).map(reference => reference.id)
@@ -64,15 +67,8 @@ export function SubagentComposer({ agent: structuralAgent, active, controller, c
     updateExistingComposerState: controller.updateExisting, focusComposer: focus, interruptAgent: controller.interrupt,
   })
   const appendFiles = async (files: File[]) => {
-    const blocks: string[] = []
-    for (const file of files) {
-      if (isImageFile(file) || isAudioFile(file)) controller.addMedia(key, file)
-      else {
-        try { blocks.push(await formatAttachmentFile(file)) }
-        catch { blocks.push(formatAttachmentError(file)) }
-      }
-    }
-    if (blocks.length) update(current => ({ ...current, draft: appendDraftBlock(current.draft, blocks.join('\n\n')) }))
+    if (files.length + state.attachments.length + references.length > 64) { setError('Too many attachments. Keep each message within 64 items.'); return }
+    files.forEach(file => controller.addMedia(key, file))
     focus()
   }
   const perform = async (request: Promise<Response>) => {
@@ -85,9 +81,25 @@ export function SubagentComposer({ agent: structuralAgent, active, controller, c
       setError('')
     } catch (caught) { setError(caught instanceof Error ? caught.message : String(caught)) }
   }
+  const pasteTextAsReference = (text: string, textarea: HTMLTextAreaElement) => {
+    if (!readComposerInputPreferences().foldLongPaste || textarea.dataset.plainPaste === 'true') return false
+    let reference
+    try { reference = createPastedTextReference(text) }
+    catch (error) {
+      setError(error instanceof Error ? error.message : String(error))
+      return true
+    }
+    if (!reference) return false
+    const start = textarea.selectionStart
+    const end = textarea.selectionEnd
+    update(current => attachPastedText(current, reference, start, end))
+    requestAnimationFrame(() => { if (textarea.isConnected) textarea.setSelectionRange(start, start) })
+    return true
+  }
   const pasteRecent = (textarea: HTMLTextAreaElement) => {
     const text = readRecentClipboardWrite()
     if (!text) return
+    if (pasteTextAsReference(text, textarea)) return
     const start = textarea.selectionStart
     const end = textarea.selectionEnd
     const draft = textarea.value.slice(0, start) + text + textarea.value.slice(end)
@@ -124,7 +136,8 @@ export function SubagentComposer({ agent: structuralAgent, active, controller, c
         update(current => current.contextReferences?.some(existing => existing.id === item.id) ? current
           : { ...current, contextReferences: [...(current.contextReferences || []), item] })
       }}
-      onRemoveContextReference={id => update(current => ({ ...current, contextReferences: (current.contextReferences || []).filter(item => item.id !== id) }))}
+      onRemoveContextReference={id => { cancelComposerIntake(id); update(current => ({ ...current, contextReferences: (current.contextReferences || []).filter(item => item.id !== id) })) }}
+      onRestorePastedText={id => { update(current => restorePastedText(current, id)); focus() }}
       pendingFollowUp={state.pendingFollowUp ?? null} submissions={state.submissions ?? []}
       canSteerPendingFollowUp={followUps.activeAgentTurnActive && runtime?.canSteer === true}
       submitAction={!isAcpComposerAvailable(agent) ? 'disabled'
@@ -137,9 +150,9 @@ export function SubagentComposer({ agent: structuralAgent, active, controller, c
       onDraftChange={draft => update(current => ({ ...current, draft, history: { ...current.history, cursor: null } }))}
       onNavigateHistory={(direction, input) => {
         if (!canUseComposerHistoryNavigation(input)) return null
-        const result = navigateComposerHistory(state.history, direction, input.value)
+        const result = navigateComposerHistory(state.history, direction, input.value, { attachments: state.attachments, contextReferences: references })
         if (!result.changed) return null
-        update(current => ({ ...current, draft: result.value, history: result.history }))
+        update(current => ({ ...current, draft: result.value, ...result.snapshot, history: result.history }))
         return result.value
       }}
       onSubmit={submit} onInterrupt={followUps.interruptActiveAgent}
@@ -147,16 +160,26 @@ export function SubagentComposer({ agent: structuralAgent, active, controller, c
       onDiscardPendingFollowUp={followUps.discardPendingFollowUp} onEditPendingFollowUp={followUps.editPendingFollowUp}
       onSteerPendingFollowUp={followUps.steerPendingFollowUp} onRetrySubmission={followUps.retryAcpSubmission}
       onDiscardSubmission={followUps.discardAcpSubmission} onToggleSpeechInput={() => {}}
-      onRemoveAttachment={id => update(current => {
+      onRemoveAttachment={id => { cancelComposerIntake(id); update(current => {
         const attachment = current.attachments.find(item => item.id === id)
         if (attachment) revokeComposerAttachmentPreview(attachment)
         return { ...current, attachments: current.attachments.filter(item => item.id !== id) }
-      })}
+      }) }}
       onPasteAttachment={event => {
         pasteSequence.current++
-        const files = clipboardMediaFiles(event.clipboardData)
-        if (files.length) { event.preventDefault(); void appendFiles(files); return }
-        if (!event.clipboardData.getData('text/plain') && event.currentTarget instanceof HTMLTextAreaElement && readRecentClipboardWrite()) { event.preventDefault(); pasteRecent(event.currentTarget) }
+        if (event.defaultPrevented) return
+        const files = clipboardAttachmentFiles(event.clipboardData)
+        const text = event.clipboardData.getData('text/plain') || event.clipboardData.getData('text/uri-list').split('\n').filter(line => !line.startsWith('#')).join('\n')
+        if (files.length) {
+          event.preventDefault(); void appendFiles(files)
+          if (text && event.currentTarget instanceof HTMLTextAreaElement && !pasteTextAsReference(text, event.currentTarget)) {
+            const start = event.currentTarget.selectionStart; const end = event.currentTarget.selectionEnd
+            update(current => ({ ...current, draft: current.draft.slice(0, start) + text + current.draft.slice(end) }))
+          }
+          return
+        }
+        if (text && event.currentTarget instanceof HTMLTextAreaElement && pasteTextAsReference(text, event.currentTarget)) { event.preventDefault(); return }
+        if (!text && event.currentTarget instanceof HTMLTextAreaElement && readRecentClipboardWrite()) { event.preventDefault(); pasteRecent(event.currentTarget) }
       }}
       onPasteShortcutFallback={textarea => { const sequence = pasteSequence.current; setTimeout(() => { if (pasteSequence.current === sequence && textarea.isConnected) pasteRecent(textarea) }, 0) }}
       onAttachmentFiles={event => { const files = Array.from(event.target.files ?? []); event.target.value = ''; void appendFiles(files) }}

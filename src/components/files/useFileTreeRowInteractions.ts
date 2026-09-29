@@ -87,7 +87,8 @@ export function useFileTreeRowInteractions({
       || event.ctrlKey
       || event.shiftKey
     ) return
-    event.preventDefault()
+    // Cancelling mousedown also cancels native file-reference dragging.
+    if (!event.currentTarget.draggable) event.preventDefault()
     // Finish the tree-focus transition in this discrete pointer event. Doing
     // it later in click batches treeBlur with the active-file render, so a
     // virtualized row can still observe stale treeFocused state and reclaim

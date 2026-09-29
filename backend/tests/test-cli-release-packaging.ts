@@ -130,6 +130,7 @@ function run() {
           FARMING_CLI_BUNDLE_ENTRY: path.join(bundleOutputRoot, 'farming-app-cli.pkg.js'),
           FARMING_CLI_BUNDLE_WORKER: path.join(bundleOutputRoot, 'terminal-screen-worker-thread.pkg.js'),
           FARMING_CLI_BUNDLE_USAGE_WORKER: path.join(bundleOutputRoot, 'usage-history-worker.pkg.js'),
+          FARMING_CLI_BUNDLE_DOCUMENT_WORKER: path.join(bundleOutputRoot, 'document-extraction-worker.pkg.js'),
         },
         stdio: 'pipe',
       },

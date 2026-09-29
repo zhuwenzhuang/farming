@@ -204,8 +204,10 @@
     "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0",
     "remark-parse": "^11.0.0",
+    "saxes": "6.0.0",
     "tar": "7.5.22",
     "unified": "^11.0.5",
+    "unpdf": "1.8.1",
     "vscode-jsonrpc": "9.0.1",
     "vscode-languageserver-protocol": "3.18.2",
     "ws": "^8.21.0",
@@ -255,7 +257,9 @@
     "xlsx",
     "yaml",
     "yauzl",
-    "zod"
+    "zod",
+    "unpdf",
+    "saxes"
   ],
   "devDependencies": {
     "@agentclientprotocol/claude-agent-acp": "0.82.0",
@@ -276,6 +280,7 @@
     "esbuild": "^0.27.7",
     "eslint": "^10.2.0",
     "eslint-plugin-react-hooks": "^7.1.1",
+    "heic-to": "1.5.2",
     "mermaid": "^11.16.1",
     "monaco-editor": "^0.55.1",
     "patch-package": "8.0.1",
@@ -360,7 +365,9 @@
     "xlsx",
     "yaml",
     "yauzl",
-    "zod"
+    "zod",
+    "unpdf",
+    "saxes"
   ],
   "farmingUserRuntimeDependencies": {
     "node-linux-x64": "22.23.2",

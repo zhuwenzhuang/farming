@@ -27,6 +27,11 @@ export interface CodeCopy {
   subagent: string
   showRelatedAgents: string
   hideRelatedAgents: string
+  extractedText: string
+  downloadOriginal: string
+  foldLongPaste: string
+  optimizeImages: string
+  showPastedTextInField: string
   quoteSelection: string
   quoteSelectFirst: string
   quoteSelectionTooLong: string
@@ -732,6 +737,11 @@ const EN_COPY: CodeCopy = {
   subagent: 'Subagent',
   showRelatedAgents: 'Show subagents',
   hideRelatedAgents: 'Hide subagents',
+  extractedText: 'Extracted text',
+  downloadOriginal: 'Download original',
+  foldLongPaste: 'Fold long pasted text',
+  optimizeImages: 'Optimize attached images',
+  showPastedTextInField: 'Show in text field',
   quoteSelection: 'Quote in chat',
   quoteSelectFirst: 'Select code in the editor first.',
   quoteSelectionTooLong: 'Selection is too long to attach. Select at most 6,000 characters.',
@@ -1470,6 +1480,11 @@ const ZH_COPY: CodeCopy = {
   subagent: '子 Agent',
   showRelatedAgents: '显示子 Agent',
   hideRelatedAgents: '隐藏子 Agent',
+  extractedText: '提取的正文',
+  downloadOriginal: '下载原文件',
+  foldLongPaste: '折叠长粘贴文本',
+  optimizeImages: '优化附件图片',
+  showPastedTextInField: '在输入框中显示',
   quoteSelection: '引用提问',
   quoteSelectFirst: '请先在编辑器中选择代码。',
   quoteSelectionTooLong: '选区过长，最多可引用 6,000 个字符。',

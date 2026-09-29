@@ -1,3 +1,4 @@
+import type { ComposerHistorySnapshot } from './composer-history'
 import {
   createDefaultAgentComposerState,
   type AgentComposerPendingFollowUpMessage,
@@ -5,6 +6,7 @@ import {
   type AgentComposerSubmission,
 } from './composer-state'
 import type { ComposerAttachment, ComposerContextReference, ComposerPromptAttachment } from './composer-message'
+import { MAX_PASTED_TEXT_CHARS } from './composer-paste'
 import type { ComposerMode } from './types'
 
 export const AGENT_COMPOSER_CHECKPOINT_STORAGE_KEY = 'farming.code.agentComposerCheckpoint.v1'
@@ -21,7 +23,7 @@ const MAX_HISTORY_TOTAL_CHARS = 250_000
 const MAX_PENDING_MESSAGES = 32
 const MAX_SUBMISSIONS = 32
 const MAX_MESSAGE_CHARS = 250_000
-const MAX_ATTACHMENTS = 8
+const MAX_ATTACHMENTS = 64
 const MAX_ATTACHMENT_PATH_CHARS = 4096
 const MAX_ATTACHMENT_NAME_CHARS = 1000
 const MAX_ATTACHMENT_TYPE_CHARS = 200
@@ -38,6 +40,8 @@ interface PersistedComposerAttachment {
   type: string
   size: number
   path: string
+  status?: 'ready' | 'error'
+  error?: string
 }
 
 interface PersistedPendingMessage {
@@ -63,6 +67,7 @@ interface PersistedComposerState {
   attachments?: PersistedComposerAttachment[]
   mode?: ComposerMode
   historyEntries?: string[]
+  historySnapshots?: Array<ComposerHistorySnapshot | null>
   pendingMessages?: PersistedPendingMessage[]
   submissions?: PersistedSubmission[]
 }
@@ -138,29 +143,26 @@ function normalizeAttachment(value: unknown, includeId: boolean): PersistedCompo
   return { ...(id ? { id } : {}), kind: value.kind, path, name, type, size }
 }
 
-function persistedDraftAttachments(attachments: ComposerAttachment[]) {
-  return attachments
-    .filter(attachment => attachment.status === 'ready' && Boolean(attachment.path))
-    .map(attachment => normalizeAttachment(attachment, true))
-    .filter((attachment): attachment is PersistedComposerAttachment => Boolean(attachment))
-    .slice(0, MAX_ATTACHMENTS)
+function persistedDraftAttachments(attachments: ComposerAttachment[]): PersistedComposerAttachment[] {
+  return attachments.slice(0, MAX_ATTACHMENTS).flatMap(attachment => {
+    const normalized = normalizeAttachment({ ...attachment, path: attachment.path || 'pending' }, true)
+    if (!normalized) return []
+    return [{ ...normalized, path: attachment.path || '', status: attachment.status === 'ready' && attachment.path ? 'ready' as const : 'error' as const,
+      ...(attachment.status !== 'ready' ? { error: attachment.error || 'Attachment interrupted. Remove it and attach it again.' } : {}) }]
+  })
 }
 
 function restoredDraftAttachments(value: unknown): ComposerAttachment[] {
   if (!Array.isArray(value)) return []
-  return value
-    .map(attachment => normalizeAttachment(attachment, true))
-    .filter((attachment): attachment is PersistedComposerAttachment => Boolean(attachment))
-    .slice(0, MAX_ATTACHMENTS)
-    .map((attachment, index) => ({
-      id: attachment.id || `restored-checkpoint-${index}-${attachment.name}`,
-      kind: attachment.kind,
-      name: attachment.name,
-      type: attachment.type,
-      size: attachment.size,
-      status: 'ready' as const,
-      path: attachment.path,
-    }))
+  return value.slice(0, MAX_ATTACHMENTS).flatMap((raw, index) => {
+    if (!isRecord(raw)) return []
+    const attachment = normalizeAttachment({ ...raw, path: raw.path || 'pending' }, true)
+    if (!attachment) return []
+    const ready = Boolean(raw.path) && raw.status !== 'error' && raw.status !== 'uploading'
+    return [{ ...attachment, id: attachment.id || `restored-checkpoint-${index}-${attachment.name}`, path: typeof raw.path === 'string' ? raw.path : undefined,
+      status: ready ? 'ready' as const : 'error' as const,
+      ...(!ready ? { error: boundedString(raw.error, 4096) || 'Attachment interrupted. Remove it and attach it again.' } : {}) }]
+  })
 }
 
 function persistedPromptAttachments(attachments: ComposerPromptAttachment[] | undefined) {
@@ -180,13 +182,13 @@ function persistedContextReferences(value: unknown): ComposerContextReference[] 
   if (!Array.isArray(value) || value.length > 64) return null
   const result: ComposerContextReference[] = []
   for (const item of value) {
-    if (!isRecord(item) || !['file', 'directory', 'selection', 'skill'].includes(String(item.kind))) return null
+    if (!isRecord(item) || !['file', 'directory', 'selection', 'skill', 'pasted-text', 'document'].includes(String(item.kind))) return null
     if (typeof item.id !== 'string' || !item.id || item.id.length > 32_000
       || typeof item.label !== 'string' || item.label.length > 4096) return null
     const reference: ComposerContextReference = { id: item.id, kind: item.kind as ComposerContextReference['kind'], label: item.label }
-    for (const field of ['rootId', 'workspace', 'path', 'text', 'sourceRevision', 'command', 'source'] as const) {
+    for (const field of ['rootId', 'workspace', 'path', 'text', 'sourceRevision', 'command', 'source', 'type', 'error'] as const) {
       if (item[field] === undefined) continue
-      const text = boundedString(item[field], field === 'text' ? 6000 : 4096)
+      const text = boundedString(item[field], field === 'text' ? ((item.kind === 'pasted-text' || item.kind === 'document') ? MAX_PASTED_TEXT_CHARS : 6000) : 4096)
       if (text === null) return null
       reference[field] = text
     }
@@ -194,6 +196,11 @@ function persistedContextReferences(value: unknown): ComposerContextReference[] 
       if (item[field] === undefined) continue
       if (typeof item[field] !== 'number' || !Number.isSafeInteger(item[field]) || item[field] < 1) return null
       reference[field] = item[field]
+    }
+    if (reference.kind === 'document') {
+      reference.status = item.status === 'ready' && reference.text && reference.path ? 'ready' : 'error'
+      reference.error = reference.status === 'error' ? reference.error || 'Attachment interrupted. Remove it and attach it again.' : undefined
+      if (typeof item.size === 'number' && Number.isFinite(item.size) && item.size >= 0) reference.size = item.size
     }
     result.push(reference)
   }
@@ -247,23 +254,34 @@ function restoredMessage(value: unknown): AgentComposerPendingFollowUpMessage | 
   }
 }
 
-function boundedHistory(entries: string[]) {
-  const result: string[] = []
-  let totalChars = 0
-  for (let index = entries.length - 1; index >= 0 && result.length < MAX_HISTORY_ENTRIES; index -= 1) {
-    const entry = boundedString(entries[index], MAX_HISTORY_ENTRY_CHARS)
-    if (entry === null || totalChars + entry.length > MAX_HISTORY_TOTAL_CHARS) continue
-    result.push(entry)
-    totalChars += entry.length
+function boundedHistory(entries: unknown, rawSnapshots?: unknown) {
+  const values = Array.isArray(entries) ? entries : []
+  const snapshots = Array.isArray(rawSnapshots) ? rawSnapshots : []
+  const result: { entry: string; snapshot: ComposerHistorySnapshot | null }[] = []
+  let total = 0
+  for (let index = values.length - 1; index >= 0 && result.length < MAX_HISTORY_ENTRIES; index--) {
+    const entry = boundedString(values[index], MAX_HISTORY_ENTRY_CHARS)
+    if (entry === null) continue
+    const raw = snapshots[index]
+    let snapshot: ComposerHistorySnapshot | null = null
+    if (isRecord(raw)) {
+      const contextReferences = persistedContextReferences(raw.contextReferences)
+      if (!contextReferences) continue
+      snapshot = { attachments: restoredDraftAttachments(raw.attachments), contextReferences }
+    }
+    const length = entry.length + JSON.stringify(snapshot).length
+    if (total + length > MAX_HISTORY_TOTAL_CHARS) continue
+    result.push({ entry, snapshot }); total += length
   }
-  return result.reverse()
+  result.reverse()
+  return { entries: result.map(item => item.entry), ...(rawSnapshots ? { snapshots: result.map(item => item.snapshot) } : {}) }
 }
 
 function hasPersistableState(state: AgentComposerState) {
   return Boolean(
     state.draft
     || state.contextReferences?.length
-    || state.attachments.some(attachment => attachment.status === 'ready' && attachment.path)
+    || state.attachments.length
     || state.mode !== 'default'
     || state.history.entries.length > 0
     || state.pendingFollowUp?.messages.length
@@ -294,14 +312,14 @@ function serializeState(state: AgentComposerState, updatedAt: number): Persisted
   })
   if (pendingMessages.some(message => message === null) || submissions.some(message => message === null)) return null
   const attachments = persistedDraftAttachments(state.attachments)
-  const historyEntries = boundedHistory(state.history.entries)
+  const history = boundedHistory(state.history.entries, state.history.snapshots?.map(snapshot => snapshot ? { ...snapshot, attachments: persistedDraftAttachments(snapshot.attachments) } : null))
   return {
     updatedAt,
     ...(contextReferences.length ? { contextReferences } : {}),
     ...(draft ? { draft } : {}),
     ...(attachments.length > 0 ? { attachments } : {}),
     ...(state.mode !== 'default' ? { mode: state.mode } : {}),
-    ...(historyEntries.length > 0 ? { historyEntries } : {}),
+    ...(history.entries.length > 0 ? { historyEntries: history.entries, historySnapshots: history.snapshots } : {}),
     ...(pendingMessages.length > 0 ? { pendingMessages: pendingMessages as PersistedPendingMessage[] } : {}),
     ...(submissions.length > 0 ? { submissions: submissions as PersistedSubmission[] } : {}),
   }
@@ -331,9 +349,7 @@ function restoreState(value: unknown): AgentComposerState | null {
     } satisfies AgentComposerSubmission
   })
   if (submissions.some(submission => submission === null)) return null
-  const historyEntries = boundedHistory(Array.isArray(value.historyEntries)
-    ? value.historyEntries.filter((entry): entry is string => typeof entry === 'string')
-    : [])
+  const history = boundedHistory(value.historyEntries, value.historySnapshots)
   const contextReferences = persistedContextReferences(value.contextReferences)
   if (!contextReferences) return null
   const state = createDefaultAgentComposerState()
@@ -341,7 +357,7 @@ function restoreState(value: unknown): AgentComposerState | null {
   state.draft = draft
   state.attachments = restoredDraftAttachments(value.attachments)
   state.mode = composerMode(value.mode)
-  state.history = { entries: historyEntries, cursor: null }
+  state.history = { ...history, cursor: null }
   if (pendingMessages.length > 0) {
     const messages = pendingMessages as AgentComposerPendingFollowUpMessage[]
     state.pendingFollowUp = {

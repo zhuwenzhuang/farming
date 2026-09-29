@@ -1,3 +1,5 @@
+import { intakeComposerFile, cancelComposerIntake } from './code/composer-intake'
+import { readComposerInputPreferences } from './code/composer-input-preferences'
 import { prepareComposerSubmission } from './code/composer-submission-state'
 import { validateComposerReferences } from './code/composer-context-admission'
 import { useQuestionPresentationLifetime } from './code/acp/acp-elicitation-presentation'
@@ -147,7 +149,7 @@ import {
 } from './code/capabilities'
 import {
   appendDraftBlock,
-  clipboardMediaFiles,
+  clipboardAttachmentFiles,
   composerAttachmentMessageBlocks,
   composerAttachmentsCanSubmit,
   composerMessageForNativeAttachments,
@@ -155,22 +157,13 @@ import {
   composerMessageWithAttachments,
   composerPromptAttachments,
   composerContextReferenceId,
-  createComposerAttachmentId,
-  createImageAttachmentPreviewUrl,
-  fileDisplayName,
-  formatAttachedAudio,
-  formatAttachedImage,
-  formatAttachmentError,
-  formatAttachmentFile,
   formatComposerMessageForAgent,
-  isImageFile,
-  isAudioFile,
   revokeComposerAttachmentPreview,
-  uploadImageAttachment,
   type ComposerAttachment,
   type ComposerContextReference,
   type ComposerPromptAttachment,
 } from './code/composer-message'
+import { attachPastedText, createPastedTextReference, restorePastedText } from './code/composer-paste'
 import { terminalInputPartsForComposerMessage } from './code/composer-submit'
 import { ComposerFollowUpAdmissions, useComposerFollowUpController } from './code/useComposerFollowUpController'
 import type { RelatedSessionTarget } from './code/related-session-navigation'
@@ -2049,93 +2042,21 @@ export function CodeWorkspace({
   }, [activeComposerKey, updateActiveComposerState])
 
   const addMediaAttachment = useCallback((composerKey: string, file: File) => {
-    const id = createComposerAttachmentId(file)
-    const image = isImageFile(file)
-    const name = fileDisplayName(file, image ? 'pasted image' : 'pasted audio')
-    const previewUrl = image ? createImageAttachmentPreviewUrl(file) : undefined
-    const initialAttachment: ComposerAttachment = {
-      id,
-      kind: image ? 'image' : 'audio',
-      name,
-      type: file.type || (image ? 'image/png' : 'audio/wav'),
-      size: file.size,
-      status: 'uploading',
-      previewUrl,
-    }
-
-    updateComposerStateForKey(composerKey, state => ({
-      ...state,
-      attachments: [...state.attachments, initialAttachment],
-    }))
-
-    void uploadImageAttachment(file)
-      .then(uploaded => {
-        updateExistingComposerStateForKey(composerKey, state => ({
-          ...state,
-          attachments: state.attachments.map(attachment => (
-            attachment.id === id
-              ? {
-                ...attachment,
-                name,
-                type: uploaded.type || attachment.type,
-                size: uploaded.size || attachment.size,
-                status: 'ready',
-                path: uploaded.path,
-                messageBlock: image
-                  ? formatAttachedImage({ ...uploaded, name })
-                  : formatAttachedAudio({ ...uploaded, name }),
-                error: undefined,
-              }
-              : attachment
-          )),
-        }))
-      })
-      .catch(() => {
-        updateExistingComposerStateForKey(composerKey, state => ({
-          ...state,
-          attachments: state.attachments.map(attachment => (
-            attachment.id === id
-              ? {
-                ...attachment,
-                status: 'error',
-                messageBlock: formatAttachmentError(file),
-                error: 'Upload failed',
-              }
-              : attachment
-          )),
-        }))
-      })
+    intakeComposerFile(file, update => updateComposerStateForKey(composerKey, update), update => updateExistingComposerStateForKey(composerKey, update))
   }, [updateComposerStateForKey, updateExistingComposerStateForKey])
 
   const appendAttachmentFiles = useCallback(async (files: File[]) => {
-    if (!activeComposerKey || files.length === 0) return
-
-    const mediaFiles = files.filter(file => isImageFile(file) || isAudioFile(file))
-    mediaFiles.forEach(file => addMediaAttachment(activeComposerKey, file))
-
-    const textFiles = files.filter(file => !isImageFile(file) && !isAudioFile(file))
-    if (textFiles.length === 0) {
-      focusComposerTextarea()
+    if (!activeComposerKey) return
+    if (files.length + activeComposerState.attachments.length + (activeComposerState.contextReferences?.length || 0) > 64) {
+      setCopyNotice({ id: Date.now(), kind: 'error', message: 'Too many attachments. Keep each message within 64 items.' })
       return
     }
-
-    const blocks: string[] = []
-    for (const file of textFiles) {
-      try {
-        blocks.push(await formatAttachmentFile(file))
-      } catch {
-        blocks.push(formatAttachmentError(file))
-      }
-    }
-
-    updateComposerStateForKey(activeComposerKey, state => ({
-      ...state,
-      draft: appendDraftBlock(state.draft, blocks.join('\n\n')),
-    }))
+    files.forEach(file => addMediaAttachment(activeComposerKey, file))
     focusComposerTextarea()
-  }, [activeComposerKey, addMediaAttachment, focusComposerTextarea, updateComposerStateForKey])
+  }, [activeComposerKey, activeComposerState.attachments.length, activeComposerState.contextReferences?.length, addMediaAttachment, focusComposerTextarea])
 
   const removeComposerAttachment = useCallback((attachmentId: string) => {
+    cancelComposerIntake(attachmentId)
     updateActiveComposerState(state => {
       const attachment = state.attachments.find(item => item.id === attachmentId)
       if (attachment) revokeComposerAttachmentPreview(attachment)
@@ -2160,12 +2081,36 @@ export function CodeWorkspace({
   }, [activeAgent, activeComposerKey, updateComposerStateForKey])
 
   const removeComposerContextReference = useCallback((referenceId: string) => {
+    cancelComposerIntake(referenceId)
     updateActiveComposerState(state => ({
       ...state,
       contextReferences: (state.contextReferences || []).filter(reference => reference.id !== referenceId),
     }))
     focusComposerTextarea()
   }, [focusComposerTextarea, updateActiveComposerState])
+
+  const restoreComposerPastedText = useCallback((referenceId: string) => {
+    updateActiveComposerState(state => restorePastedText(state, referenceId))
+    focusComposerTextarea()
+  }, [focusComposerTextarea, updateActiveComposerState])
+
+  const pasteTextAsReference = useCallback((text: string, textarea: HTMLTextAreaElement) => {
+    if (!activeComposerKey || !readComposerInputPreferences().foldLongPaste || textarea.dataset.plainPaste === 'true') return false
+    let reference
+    try { reference = createPastedTextReference(text) }
+    catch (error) {
+      setCopyNotice({ id: Date.now(), kind: 'error', message: error instanceof Error ? error.message : String(error) })
+      return true
+    }
+    if (!reference) return false
+    const start = textarea.selectionStart
+    const end = textarea.selectionEnd
+    updateComposerStateForKey(activeComposerKey, state => attachPastedText(state, reference, start, end))
+    window.requestAnimationFrame(() => {
+      if (textarea.isConnected) textarea.setSelectionRange(start, start)
+    })
+    return true
+  }, [activeComposerKey, updateComposerStateForKey])
 
   const handleAttachmentFiles = useCallback((event: ReactChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files ?? [])
@@ -2177,6 +2122,7 @@ export function CodeWorkspace({
   const insertRecentClipboardWrite = useCallback((textarea: HTMLTextAreaElement) => {
     const fallbackText = readRecentClipboardWrite()
     if (!activeComposerKey || !fallbackText) return
+    if (pasteTextAsReference(fallbackText, textarea)) return
 
     const selectionStart = textarea.selectionStart ?? textarea.value.length
     const selectionEnd = textarea.selectionEnd ?? selectionStart
@@ -2187,24 +2133,35 @@ export function CodeWorkspace({
       textarea.focus({ preventScroll: true })
       textarea.setSelectionRange(nextCursor, nextCursor)
     })
-  }, [activeComposerKey, updateComposerStateForKey])
+  }, [activeComposerKey, pasteTextAsReference, updateComposerStateForKey])
 
   const handlePasteAttachment = useCallback((event: ReactClipboardEvent<HTMLElement>) => {
     pasteEventSequenceRef.current += 1
-    const files = clipboardMediaFiles(event.clipboardData)
+    if (event.defaultPrevented) return
+    const files = clipboardAttachmentFiles(event.clipboardData)
+    const text = event.clipboardData.getData('text/plain') || event.clipboardData.getData('text/uri-list').split('\n').filter(line => !line.startsWith('#')).join('\n')
     if (files.length > 0) {
       event.preventDefault()
       void appendAttachmentFiles(files)
+      if (text && event.currentTarget instanceof HTMLTextAreaElement) {
+        const textarea = event.currentTarget
+        if (!pasteTextAsReference(text, textarea)) {
+          const start = textarea.selectionStart; const end = textarea.selectionEnd
+          updateActiveComposerState(state => ({ ...state, draft: state.draft.slice(0, start) + text + state.draft.slice(end) }))
+        }
+      }
       return
     }
-
-    if (event.clipboardData.getData('text/plain')) return
+    if (text) {
+      if (event.currentTarget instanceof HTMLTextAreaElement && pasteTextAsReference(text, event.currentTarget)) event.preventDefault()
+      return
+    }
     const textarea = event.currentTarget
     if (!(textarea instanceof HTMLTextAreaElement) || !readRecentClipboardWrite()) return
 
     event.preventDefault()
     insertRecentClipboardWrite(textarea)
-  }, [appendAttachmentFiles, insertRecentClipboardWrite])
+  }, [appendAttachmentFiles, insertRecentClipboardWrite, pasteTextAsReference, updateActiveComposerState])
 
   const handlePasteShortcutFallback = useCallback((textarea: HTMLTextAreaElement) => {
     const pasteEventSequence = pasteEventSequenceRef.current
@@ -2301,16 +2258,17 @@ export function CodeWorkspace({
     if (!activeAgent || !activeComposerKey) return null
     if (!canUseComposerHistoryNavigation(input)) return null
 
-    const result = navigateComposerHistory(activeComposerState.history, direction, input.value)
+    const result = navigateComposerHistory(activeComposerState.history, direction, input.value, { attachments: activeComposerState.attachments, contextReferences: activeComposerState.contextReferences || [] })
     if (!result.changed) return null
 
     updateComposerStateForKey(activeComposerKey, state => ({
       ...state,
       draft: result.value,
+      ...result.snapshot,
       history: result.history,
     }))
     return result.value
-  }, [activeAgent, activeComposerKey, activeComposerState.history, updateComposerStateForKey])
+  }, [activeAgent, activeComposerKey, activeComposerState, updateComposerStateForKey])
 
   const applyCodexTerminalProfile = useCallback(async (
     agent: Agent,
@@ -2556,7 +2514,7 @@ export function CodeWorkspace({
   } = composerFollowUps
   const composerHasAttachmentMessage = composerAttachmentMessageBlocks(composerAttachments).length > 0
   const composerAttachmentsSendable = composerAttachmentsCanSubmit(composerAttachments)
-  const unavailableContextReferenceIds = composerContextReferences.filter(reference => reference.kind === 'skill'
+  const unavailableContextReferenceIds = composerContextReferences.filter(reference => reference.kind === 'document' ? reference.status !== 'ready' || !reference.text : (reference.kind === 'pasted-text') ? false : reference.kind === 'skill'
     ? slashCatalogStatus !== 'ready' || !discoveredSlashCommands.some(command => command.source === 'skill'
       && command.command === reference.command && command.scope === reference.source && Boolean(reference.path) && command.skillPath === reference.path)
     : !activeAgent || reference.workspace !== activeAgent.cwd
@@ -2609,7 +2567,7 @@ export function CodeWorkspace({
           pendingFollowUp: {
             messages: [
               ...(existing?.messages || []),
-              createPendingFollowUpMessage(message, [], latestDraft, composerMode, composerContextReferences),
+              createPendingFollowUpMessage(message, composerPromptAttachments(composerAttachments), latestDraft, composerMode, composerContextReferences),
             ],
             createdAt: existing?.createdAt || Date.now(),
           },
@@ -2632,7 +2590,7 @@ export function CodeWorkspace({
           attachments: [],
           contextReferences: [],
           mode: 'default',
-          history: addComposerHistoryEntry(state.history, latestDraft),
+          history: addComposerHistoryEntry(state.history, latestDraft, undefined, { attachments: composerAttachments, contextReferences: composerContextReferences }),
         }
       })
       focusComposerTextarea()
@@ -6311,6 +6269,7 @@ export function CodeWorkspace({
           unavailableReferenceIds: unavailableContextReferenceIds,
           onAddContextReference: addComposerContextReference,
           onRemoveContextReference: removeComposerContextReference,
+          onRestorePastedText: restoreComposerPastedText,
           workspace: activeAgent?.cwd || '',
           composerMode,
           contextWindow: activeAgentContextWindow,
@@ -6372,6 +6331,7 @@ export function CodeWorkspace({
           unavailableReferenceIds: unavailableContextReferenceIds,
           onAddContextReference: addComposerContextReference,
           onRemoveContextReference: removeComposerContextReference,
+          onRestorePastedText: restoreComposerPastedText,
           workspace: activeAgent?.cwd || '',
           composerMode,
           plusMenuOpen,

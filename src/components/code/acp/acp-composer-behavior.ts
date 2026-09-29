@@ -81,7 +81,7 @@ export function submitAcpDraft({
   updateComposerState,
 }: SubmitAcpDraftInput) {
   if (!composerAttachmentsCanSubmit(attachments) || !contextValid) return false
-  if (contextReferences.some(reference => reference.kind !== 'skill' && (
+  if (contextReferences.some(reference => reference.kind === 'document' ? reference.status !== 'ready' || !reference.text : reference.kind !== 'skill' && reference.kind !== 'pasted-text' && (
     !agent?.cwd || reference.workspace !== agent.cwd || reference.rootId !== projectFilesWorkspaceId(agent.cwd) || !reference.path
   ))) return false
   const promptAttachments = composerPromptAttachments(attachments)
@@ -111,7 +111,7 @@ export function submitAcpDraft({
       attachments.forEach(revokeComposerAttachmentPreview)
       return {
         ...cleared,
-        history: addComposerHistoryEntry(cleared.history, draft),
+        history: addComposerHistoryEntry(cleared.history, draft, undefined, { attachments, contextReferences }),
         pendingFollowUp: {
           messages: [
             ...(cleared.pendingFollowUp?.messages || []),
@@ -134,7 +134,7 @@ export function submitAcpDraft({
       }
       return {
         ...cleared,
-        history: addComposerHistoryEntry(cleared.history, draft),
+        history: addComposerHistoryEntry(cleared.history, draft, undefined, { attachments, contextReferences }),
       }
     })
     return true

@@ -69,7 +69,7 @@ const ATTACHMENT_EXTENSIONS: Record<AttachmentKind, Record<string, string>> = {
 
 const DEFAULT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_GC_INTERVAL_MS = 60 * 60 * 1000;
-const ATTACHMENT_FILENAME_RE = /^pasted-(?:image|audio)-\d+-[a-f0-9]{8,64}\.(?:aac|flac|gif|jpg|m4a|mp3|ogg|png|wav|webm|webp)$/;
+export const ATTACHMENT_FILENAME_RE = /^pasted-(?:image|audio|document)-\d+-[a-f0-9]{8,64}\.[a-z0-9]{1,12}$/;
 const MAX_FILENAME_ATTEMPTS = 5;
 
 function processError(error: unknown): AttachmentError {
@@ -107,6 +107,15 @@ class AttachmentUploadStore {
   async store(kind: AttachmentKind, contentType: string, body: Buffer): Promise<StoredAttachment> {
     const extension = attachmentExtension(kind, contentType);
     if (!extension) throw new Error(`Unsupported ${kind} attachment type`);
+    return this.storeBytes(kind, extension, contentType, body);
+  }
+
+  async storeDocument(name: string, contentType: string, body: Buffer): Promise<StoredAttachment> {
+    const extension = path.extname(name).slice(1).toLowerCase();
+    return this.storeBytes('document', /^[a-z0-9]{1,12}$/.test(extension) ? extension : 'txt', contentType, body);
+  }
+
+  private async storeBytes(kind: string, extension: string, contentType: string, body: Buffer): Promise<StoredAttachment> {
     await this.fileOperations.mkdir(this.attachmentsDir, { recursive: true });
 
     for (let attempt = 0; attempt < MAX_FILENAME_ATTEMPTS; attempt += 1) {

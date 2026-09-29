@@ -96,7 +96,7 @@ test('round-trips bounded Composer state without transient browser-only fields',
     size: 12,
     status: 'ready',
     path: '/tmp/farming-attachments/ready.png',
-  }])
+  }, { id: 'uploading-image', kind: 'image', name: 'uploading.png', type: 'image/png', size: 12, status: 'error', path: '', error: 'Attachment interrupted. Remove it and attach it again.' }])
   assert.equal(restored.ui.plusMenuOpen, false)
   assert.equal(restored.pendingFollowUp?.messages[0]?.editableText, 'queued prompt')
   assert.equal(restored.pendingFollowUp?.messages[0]?.composerMode, 'goal')

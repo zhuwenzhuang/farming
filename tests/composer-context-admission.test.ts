@@ -41,3 +41,11 @@ test('context preparation shares the submission fence across Composer surfaces',
   assert.equal(await prepareComposerSubmission('shared-agent', async () => {}, () => true), true)
   assert.equal(sends, 1)
 })
+
+
+test('pasted documents require no workspace path or provider catalog', async () => {
+  await validateComposerReferences(agent, [{ id: 'paste', kind: 'pasted-text', label: 'Document', text: 'x'.repeat(1001) }], {
+    locations: async () => { throw new Error('Unexpected filesystem read') },
+    commands: async () => { throw new Error('Unexpected catalog read') },
+  })
+})

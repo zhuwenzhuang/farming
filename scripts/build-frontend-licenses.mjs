@@ -34,7 +34,7 @@ function visit(directory) {
   }
 }
 
-for (const name of ['@visactor/vtable', 'mermaid', 'monaco-editor']) {
+for (const name of ['@visactor/vtable', 'mermaid', 'monaco-editor', 'heic-to']) {
   const directory = packageRoot(name, root);
   if (!directory) throw new Error(`Missing frontend build dependency: ${name}`);
   visit(directory);

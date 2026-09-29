@@ -306,6 +306,8 @@ import { createAgentMutationRouter, type AgentMutationRecord } from './agent-mut
 import { createProjectMutationRouter } from './project-mutation-router.cjs';
 import { createSettingsMutationRouter } from './settings-mutation-router.cjs';
 import { AttachmentUploadStore, createAttachmentUploadHandler } from './attachment-upload.cjs';
+import { createDocumentAttachmentHandler } from './document-attachment.cjs';
+import { ATTACHMENT_FILENAME_RE } from './attachment-upload.cjs';
 import { createSlashCommandDiscoveryCache } from './slash-command-cache.cjs';
 import { agentExtensionInventoryCacheFile, agentSessionInventoryCacheFile } from './storage-layout.cjs';
 import { FarmingUpdateService } from './update-service.cjs';
@@ -1151,6 +1153,21 @@ const attachmentUploadStore = new AttachmentUploadStore({
   attachmentsDir: path.join(configManager.farmingDir, 'attachments'),
 });
 void attachmentUploadStore.cleanupExpired({ force: true });
+
+app.post(routePath(BASE_PATH, '/api/attachments/document'),
+  express.raw({ type: 'application/octet-stream', limit: '20mb' }),
+  createDocumentAttachmentHandler(attachmentUploadStore));
+app.get(routePath(BASE_PATH, '/api/attachments/:filename'), (req, res) => {
+  const filename = String(req.params.filename || '');
+  if (!ATTACHMENT_FILENAME_RE.test(filename)) { res.status(404).end(); return; }
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
+  if (filename.startsWith('pasted-document-')) res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.sendFile(filename, { root: attachmentUploadStore.attachmentsDir, dotfiles: 'deny' }, error => {
+    if (error && !res.headersSent) res.status(404).end();
+  });
+});
+
 
 app.post(
   routePath(BASE_PATH, '/api/attachments/image'),

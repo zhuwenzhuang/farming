@@ -9,7 +9,7 @@ with.
 Farming's app bundle installs the production dependency tree pinned by
 `package.json` and `package-lock.json`. Package-level license files are
 preserved in bundled `node_modules` when bundled dependencies are enabled.
-Monaco, Mermaid, and VTable are compiled into browser assets rather than shipped
+Monaco, Mermaid, VTable, and heic-to are compiled into browser assets rather than shipped
 as duplicate source dependency trees. Their dependency license and notice files
 are preserved in `dist/frontend-licenses.txt` during the frontend build.
 
@@ -32,6 +32,7 @@ are preserved in `dist/frontend-licenses.txt` during the frontend build.
 | `compression` | 1.8.1 | MIT | HTTP response compression |
 | `diff` | 9.0.0 | BSD-3-Clause | Character-level diff ranges for code review |
 | `express` | 5.2.1 | MIT | HTTP API server |
+| `heic-to` | 1.5.2 | LGPL-3.0 | HEIC/HEIF image decoding in an isolated browser worker |
 | `highlight.js` | 11.11.1 | BSD-3-Clause | Syntax highlighting |
 | `katex` | 0.17.0 | MIT | Mathematical notation rendering |
 | `lucide` | 1.47.0 | ISC | Bundled visualization fragment icons |
@@ -52,7 +53,9 @@ are preserved in `dist/frontend-licenses.txt` during the frontend build.
 | `remark-gfm` | 4.0.1 | MIT | GitHub Flavored Markdown support |
 | `remark-math` | 6.0.0 | MIT | Markdown math syntax support |
 | `remark-parse` | 11.0.0 | MIT | Markdown syntax tree parsing for virtual preview sections |
+| `saxes` | 6.0.0 | ISC | Bounded Office document XML text parsing |
 | `tar` | 7.5.22 | BlueOak-1.0.0 | Safe extraction of version-locked startup dependency archives |
+| `unpdf` | 1.8.1 | MIT (includes Apache-2.0 PDF.js) | PDF document text extraction |
 | `unified` | 11.0.5 | MIT | Markdown parser pipeline for virtual preview sections |
 | `vscode-jsonrpc` | 9.0.1 | MIT | Language Server JSON-RPC stream transport |
 | `vscode-languageserver-protocol` | 3.18.2 | MIT | Language Server Protocol types and contracts |

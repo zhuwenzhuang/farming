@@ -1,6 +1,14 @@
+import type { ComposerAttachment, ComposerContextReference } from './composer-message'
 export type ComposerHistoryDirection = 'previous' | 'next'
 
+export interface ComposerHistorySnapshot {
+  attachments: ComposerAttachment[]
+  contextReferences: ComposerContextReference[]
+}
 export interface ComposerHistoryState {
+  snapshots?: Array<ComposerHistorySnapshot | null>
+  returnSnapshot?: ComposerHistorySnapshot
+
   entries: string[]
   cursor: number | null
 }
@@ -24,18 +32,21 @@ export function createDefaultComposerHistoryState(): ComposerHistoryState {
 export function addComposerHistoryEntry(
   history: ComposerHistoryState,
   value: string,
-  limit = DEFAULT_COMPOSER_HISTORY_LIMIT
+  limit = DEFAULT_COMPOSER_HISTORY_LIMIT,
+  snapshot?: ComposerHistorySnapshot
 ): ComposerHistoryState {
   const entry = value.trimEnd()
-  if (!entry) return { ...history, cursor: null }
-
+  if (!entry && !snapshot?.attachments.length && !snapshot?.contextReferences.length) return { ...history, cursor: null }
+  const saved = snapshot ? {
+    attachments: snapshot.attachments.filter(item => item.status === 'ready').map(({ previewUrl: _preview, ...item }) => item),
+    contextReferences: snapshot.contextReferences.map(item => ({ ...item })),
+  } : null
+  const snapshots = history.entries.map((_, index) => history.snapshots?.[index] || null)
+  const duplicate = history.entries[history.entries.length - 1] === entry && JSON.stringify(snapshots[snapshots.length - 1] || null) === JSON.stringify(saved)
   const maxEntries = Math.max(1, limit)
-  const entries = history.entries[history.entries.length - 1] === entry
-    ? history.entries
-    : [...history.entries, entry].slice(-maxEntries)
-
   return {
-    entries,
+    entries: duplicate ? history.entries : [...history.entries, entry].slice(-maxEntries),
+    ...((snapshot || history.snapshots) ? { snapshots: duplicate ? snapshots : [...snapshots, saved].slice(-maxEntries) } : {}),
     cursor: null,
   }
 }
@@ -53,7 +64,7 @@ export function canUseComposerHistoryNavigation(input: ComposerHistoryNavigation
   return value.indexOf('\n', selectionStart) === -1
 }
 
-export function navigateComposerHistory(
+function navigateTextHistory(
   history: ComposerHistoryState,
   direction: ComposerHistoryDirection,
   value: string
@@ -102,4 +113,13 @@ export function navigateComposerHistory(
     value: nextValue,
     changed: nextValue !== value || history.cursor !== nextCursor,
   }
+}
+
+export function navigateComposerHistory(history: ComposerHistoryState, direction: ComposerHistoryDirection, value: string, current?: ComposerHistorySnapshot) {
+  if (current?.attachments.some(item => item.status === 'uploading') || current?.contextReferences.some(item => item.status === 'uploading')) return { history, value, changed: false, snapshot: undefined }
+  const result = navigateTextHistory(history, direction, value)
+  if (!result.changed || !current) return result as typeof result & { snapshot?: ComposerHistorySnapshot }
+  const returnSnapshot = history.cursor === null ? current : history.returnSnapshot
+  const snapshot = result.history.cursor === null ? returnSnapshot : history.snapshots?.[result.history.cursor]
+  return { ...result, history: { ...result.history, returnSnapshot }, snapshot: snapshot || { attachments: [], contextReferences: [] } }
 }
