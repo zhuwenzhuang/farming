@@ -31,12 +31,14 @@ function formatUsageWindow(minutes: number | null | undefined) {
 }
 
 function formatPercent(value: number | null | undefined) {
+  if (value === null || value === undefined) return '--'
   const percent = Number(value)
   if (!Number.isFinite(percent)) return '--'
   return `${Math.round(percent)}%`
 }
 
 function formatRemainingPercent(value: number | null | undefined) {
+  if (value === null || value === undefined) return '-- left'
   const usedPercent = Number(value)
   if (!Number.isFinite(usedPercent)) return '-- left'
   const remainingPercent = Math.max(0, Math.min(100, 100 - usedPercent))
@@ -94,6 +96,7 @@ function formatCompactNumber(value: number) {
 }
 
 function formatTokenRate(value: number | null | undefined, approximate = false) {
+  if (value === null || value === undefined) return '-- tok/min'
   const rate = Number(value)
   if (!Number.isFinite(rate)) return '-- tok/min'
   const rounded = rate < 10 ? Math.round(rate * 10) / 10 : Math.round(rate)
@@ -103,12 +106,12 @@ function formatTokenRate(value: number | null | undefined, approximate = false) 
 function formatAuthStatus(provider: UsageProviderSummary) {
   const status = provider.auth?.status || ''
   if (!provider.auth?.available) return 'offline'
-  if (/logged in/i.test(status)) return 'logged in'
+  if (/^logged in/i.test(status)) return 'logged in'
   return status || 'available'
 }
 
 function providerHasUsableTokenInfo(provider: UsageProviderSummary) {
-  if (provider.quota.available) return true
+  if (provider.quota.available || provider.auth.available) return true
   if (provider.tokenUsage.available === false) return false
   const eventCount = Number(provider.tokenUsage.eventCount)
   const totalTokens = Number(provider.tokenUsage.totalTokens)
@@ -123,7 +126,9 @@ function visibleUsageProviders(usageSummary: UsageSummary | null) {
 
 function providerLocalTokenRate(usageSummary: UsageSummary | null) {
   const providers = visibleUsageProviders(usageSummary)
-  if (!providers.length) return null
+  if (!providers.length || providers.some(provider => provider.tokenUsage.available === false
+    || typeof provider.tokenUsage.tokensPerMinute !== 'number'
+    || !Number.isFinite(provider.tokenUsage.tokensPerMinute))) return null
   return providers.reduce((sum, provider) => {
     const rate = Number(provider.tokenUsage.tokensPerMinute)
     return sum + (Number.isFinite(rate) ? rate : 0)
@@ -135,6 +140,7 @@ function quotaRemainingPercent(limit: ProviderQuotaLimit) {
   if (typeof forecastRemaining === 'number' && Number.isFinite(forecastRemaining)) {
     return Math.max(0, Math.min(100, forecastRemaining))
   }
+  if (limit.usedPercent === null || limit.usedPercent === undefined) return null
   const usedPercent = Number(limit.usedPercent)
   if (!Number.isFinite(usedPercent)) return null
   return Math.max(0, Math.min(100, 100 - usedPercent))
@@ -148,10 +154,11 @@ function quotaLimitSortWeight(limit: ProviderQuotaLimit) {
 }
 
 function providerQuotaLimits(provider: UsageProviderSummary) {
-  return [provider.quota.primary, provider.quota.secondary]
-    .filter((limit): limit is ProviderQuotaLimit => Boolean(limit))
+  return (provider.quota.accounts || [provider.quota]).filter(quota => quota.available).flatMap(quota =>
+    [quota.primary, quota.secondary].filter((limit): limit is ProviderQuotaLimit => Boolean(limit))
+      .map(limit => ({ ...limit, homeLabel: provider.quota.accounts && provider.quota.accounts.length > 1 ? quota.homeLabel : undefined })))
     .map(limit => ({
-      label: formatUsageWindow(limit.windowMinutes),
+      label: [limit.homeLabel, formatUsageWindow(limit.windowMinutes)].filter(Boolean).join(' · '),
       limit,
       remaining: quotaRemainingPercent(limit),
       exhaustedAt: typeof limit.forecast?.projectedExhaustedAt === 'number' && Number.isFinite(limit.forecast.projectedExhaustedAt)
@@ -273,6 +280,7 @@ interface UsagePanelProps {
   mainAgent: Agent | null
   now: number
   usageSummary: UsageSummary | null
+  usageError?: string
   agentLaunchOptions: AgentLaunchOption[]
   onToggleCollapsed: () => void
   onOpenMainAgent: () => void
@@ -698,30 +706,36 @@ function useUsageDayDetail(date: string, live: boolean) {
       setState({ date: '', detail: null, error: '', loading: false })
       return
     }
-    const controller = new AbortController()
-    setState({ date, detail: null, error: '', loading: true })
-    const params = new URLSearchParams({ date })
-    if (live) params.set('live', '1')
-    fetch(appPath(`/api/usage/day?${params.toString()}`), { signal: controller.signal })
-      .then(async response => {
+    let cancelled = false
+    let controller: AbortController | null = null
+    let timer: number | undefined
+    let deadline: number | undefined
+    const load = async () => {
+      controller = new AbortController()
+      const request = controller
+      deadline = window.setTimeout(() => request.abort(), 20_000)
+      const params = new URLSearchParams({ date })
+      if (live) params.set('live', '1')
+      if (retry) params.set('fresh', '1')
+      try {
+        const response = await fetch(appPath(`/api/usage/day?${params.toString()}`), { signal: request.signal })
         const payload = await response.json() as { detail?: unknown; error?: string }
         if (!response.ok) throw new Error(payload.error || 'Failed to load day activity')
         if (!validUsageDayDetail(payload.detail, date)) throw new Error('Day activity response was incomplete')
-        return payload.detail
-      })
-      .then(detail => {
-        if (!controller.signal.aborted) setState({ date, detail, error: '', loading: false })
-      })
-      .catch(error => {
-        if (controller.signal.aborted) return
-        setState({
-          date,
-          detail: null,
-          error: error instanceof Error ? error.message : 'Failed to load day activity',
-          loading: false,
-        })
-      })
-    return () => controller.abort()
+        if (payload.detail.available === false) throw new Error(payload.detail.reason || 'Local usage history is unavailable')
+        if (request.signal.aborted) throw new Error('Day activity request timed out')
+        if (!cancelled) setState({ date, detail: payload.detail, error: '', loading: false })
+      } catch (error) {
+        if (!cancelled) setState({ date, detail: null, loading: false,
+          error: request.signal.aborted ? 'Day activity request timed out' : error instanceof Error ? error.message : 'Failed to load day activity' })
+      } finally {
+        window.clearTimeout(deadline)
+        if (!cancelled && live) timer = window.setTimeout(() => { void load() }, 15_000)
+      }
+    }
+    setState({ date, detail: null, error: '', loading: true })
+    void load()
+    return () => { cancelled = true; controller?.abort(); window.clearTimeout(timer); window.clearTimeout(deadline) }
   }, [date, live, retry])
 
   return {
@@ -959,7 +973,9 @@ function UsageActivityDialog({
       >
         <header className="code-usage-detail-header">
           <div>
-            <span className="code-usage-detail-eyebrow">Provider limits and local tokens</span>
+            <span className="code-usage-detail-eyebrow">{dayDetail.detail?.timeZone
+              ? `Day boundary: ${dayDetail.detail.timeZone} · includes cached tokens`
+              : 'Provider limits and local tokens'}</span>
             <h2 id="code-usage-detail-title">Usage</h2>
           </div>
           <button type="button" className="code-usage-detail-close" aria-label="Close usage activity" onClick={onClose}>
@@ -989,6 +1005,7 @@ function UsageActivityDialog({
           />
           <div className="code-usage-detail-readout" data-testid="code-usage-detail-readout">
             {yearReadout}
+            {dayDetail.detail && (dayDetail.detail.partial || dayDetail.detail.syncing) && <span role="status"> · {dayDetail.detail.syncing ? 'Syncing history' : 'Incomplete history'}</span>}
           </div>
         </div> : (
           <p className="code-usage-mobile-activity-empty">Local token activity is not available yet.</p>
@@ -1033,7 +1050,7 @@ function UsageActivityHeatmaps({ usageSummary }: { usageSummary: UsageSummary })
   const baseReadout = inspection
     ? `${inspection.label} · ${formatCompactNumber(inspection.tokens)} tokens`
     : `${timelinePoints ? `${timelineLabel} ${formatCompactNumber(timelineTotal)}` : ''}${timelinePoints && compactDailyPoints ? ' · ' : ''}${compactDailyPoints ? `7d ${formatCompactNumber(sevenDayTotal)} · 30d ${formatCompactNumber(dailyTotal)}` : ''}`
-  const readout = `${baseReadout}${usageSummary.daily?.syncing === true ? ' · syncing history' : ''}`
+  const readout = `${baseReadout}${usageSummary.daily?.syncing === true ? ' · syncing history' : ''}${usageSummary.daily?.partial ? ' · incomplete' : ''}`
 
   return (
     <div className="code-usage-activity" onMouseLeave={() => setInspection(null)}>
@@ -1081,6 +1098,7 @@ export function UsagePanel({
   mainAgent,
   now,
   usageSummary,
+  usageError,
   agentLaunchOptions,
   onToggleCollapsed,
   onOpenMainAgent,
@@ -1091,7 +1109,7 @@ export function UsagePanel({
   const [restartMenuOpen, setRestartMenuOpen] = useState(false)
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false)
   const hasLiveSystemStats = useHasBackendSystemStats()
-  if (!usageSummary && !mainAgent && !hasLiveSystemStats) return null
+  if (!usageSummary && !usageError && !mainAgent && !hasLiveSystemStats) return null
   const mobileDetailAvailable = Boolean(usageSummary && (
     providers.length > 0 || validUsageDailyPoints(usageSummary)
   ))
@@ -1137,7 +1155,7 @@ export function UsagePanel({
         </span>
         <span className="code-usage-header-meta">
           {collapsed
-            ? <CollapsedUsageSummary usageSummary={usageSummary} now={now} />
+            ? usageError ? <span className="code-usage-summary" role="status">Usage unavailable</span> : <CollapsedUsageSummary usageSummary={usageSummary} now={now} />
             : (
               <span
                 className="code-usage-summary"
@@ -1151,6 +1169,7 @@ export function UsagePanel({
       </button>
       {!collapsed && (
         <>
+          {usageError && <div className="code-usage-row" role="status">{usageError}</div>}
           {providers.length > 0 && usageSummary?.timeline && <UsageActivityHeatmaps usageSummary={usageSummary} />}
           {mainAgent && (
             <div className="code-usage-main-agent-block">
@@ -1225,11 +1244,7 @@ function ProviderUsage({
 }: {
   provider: UsageProviderSummary
 }) {
-  const primary = provider.quota.primary ?? null
-  const secondary = provider.quota.secondary ?? null
-  const quotaTitle = provider.quota.available
-    ? provider.quota.source
-    : provider.quota.reason || provider.quota.source
+  const accounts = provider.quota.accounts || [provider.quota]
 
   return (
     <div className="code-usage-provider">
@@ -1237,25 +1252,22 @@ function ProviderUsage({
         <span>{provider.providerName}</span>
         <strong title={provider.auth?.status}>{formatAuthStatus(provider)}</strong>
       </div>
-      {provider.quota.available && (
-        <>
-          {primary && (
-            <div className="code-usage-row code-usage-subrow" title={formatQuotaLimitTitle(quotaTitle, primary)}>
-              <span>{formatUsageWindow(primary.windowMinutes)}</span>
-              <strong>{formatQuotaRemaining(primary)}</strong>
-            </div>
-          )}
-          {secondary && (
-            <div className="code-usage-row code-usage-subrow" title={formatQuotaLimitTitle(quotaTitle, secondary)}>
-              <span>{formatUsageWindow(secondary.windowMinutes)}</span>
-              <strong>{formatQuotaRemaining(secondary)}</strong>
-            </div>
-          )}
-        </>
-      )}
-      <div className="code-usage-row code-usage-subrow" title={provider.tokenUsage.source}>
+      {accounts.map((quota, index) => {
+        const title = [quota.reason || quota.source,
+          quota.sampledAt ? `Updated ${new Date(quota.sampledAt).toLocaleString()}` : ''].filter(Boolean).join(' · ')
+        const label = accounts.length > 1 ? `${quota.homeLabel || quota.homeId} · ` : ''
+        if (!quota.available) return <div key={quota.homeId || index} className="code-usage-row code-usage-subrow" title={title}>
+          <span>{label}Quota</span><strong>Unavailable</strong>
+        </div>
+        return [quota.primary, quota.secondary].filter((limit): limit is ProviderQuotaLimit => Boolean(limit)).map((limit, windowIndex) => (
+          <div key={`${quota.homeId || index}:${windowIndex}`} className="code-usage-row code-usage-subrow" title={formatQuotaLimitTitle(title, limit)}>
+            <span>{label}{formatUsageWindow(limit.windowMinutes)}</span><strong>{formatQuotaRemaining(limit)}</strong>
+          </div>
+        ))
+      })}
+      <div className="code-usage-row code-usage-subrow" title={provider.tokenUsage.reason || provider.tokenUsage.source}>
         <span>Local tokens</span>
-        <strong>{formatTokenRate(provider.tokenUsage.tokensPerMinute)}</strong>
+        <strong>{provider.tokenUsage.available === false ? 'Unavailable' : formatTokenRate(provider.tokenUsage.tokensPerMinute)}</strong>
       </div>
     </div>
   )

@@ -377,6 +377,10 @@ export interface ProviderQuotaForecast {
 }
 
 export interface ProviderQuota {
+  sampledAt?: number
+  homeId?: string
+  homeLabel?: string
+  accounts?: ProviderQuota[]
   available: boolean
   source: string
   reason?: string
@@ -487,6 +491,11 @@ export interface UsageDayHour extends UsageDailyTokenBreakdown {
 }
 
 export interface UsageDayDetail {
+  sampledAt?: number
+  available?: boolean
+  partial?: boolean
+  syncing?: boolean
+  reason?: string
   source: string
   date: string
   timeZone: string

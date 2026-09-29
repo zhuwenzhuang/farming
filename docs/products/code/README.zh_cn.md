@@ -14,6 +14,7 @@ Farming Code 是默认的浏览器工作区。用户使用说明统一在公开�
 
 面向维护者的长期契约继续保留在本目录：
 
+- [用量统计](usage-statistics.zh_cn.md)
 - [ACP Runtime](acp-runtime.zh_cn.md)
 - [Codex Runtime](codex-runtime.zh_cn.md)
 - [Agent List 状态协议](agent-list-state-protocol.zh_cn.md)

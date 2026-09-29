@@ -15,6 +15,7 @@ the public documentation site:
 
 Maintainer contracts remain in this directory. Important entry points include:
 
+- [Usage statistics](usage-statistics.md)
 - [ACP runtime](acp-runtime.md)
 - [Codex runtime](codex-runtime.md)
 - [Agent list state protocol](agent-list-state-protocol.md)

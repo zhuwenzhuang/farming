@@ -1150,6 +1150,12 @@
   padding-left: 0;
 }
 
+@media (max-height: 760px) and (min-width: 761px) {
+  .code-usage-mobile-quota {
+    padding-block: 4px;
+  }
+}
+
 .code-usage-mobile-activity-empty {
   margin: 0;
   padding: 18px 16px;

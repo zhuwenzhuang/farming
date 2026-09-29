@@ -368,7 +368,7 @@ test('keeps Code Usage to real token sources and renders a compact activity heat
             {
               provider: 'qoder',
               providerName: 'Qoder',
-              auth: { available: true, status: 'Local sessions', source: 'Qoder session files' },
+              auth: { available: false, status: 'Local sessions', source: 'Qoder session files' },
               quota: { available: false, source: 'Qoder session files', reason: 'Quota unavailable' },
               tokenUsage: { available: false, totalTokens: null, tokensPerMinute: null, windowMs: 300_000, eventCount: 0, sampledAt, source: 'Qoder session files', reason: 'Qoder session files do not expose model token usage.' },
             },
@@ -1404,7 +1404,7 @@ test('renders CRT Billing daily history with a secondary live oscilloscope', asy
             {
               provider: 'qoder',
               providerName: 'Qoder',
-              auth: { available: true, status: 'Local sessions', source: 'Qoder session files' },
+              auth: { available: false, status: 'Local sessions', source: 'Qoder session files' },
               quota: { available: false, source: 'Qoder session files', reason: 'Quota unavailable' },
               tokenUsage: { available: false, totalTokens: null, tokensPerMinute: null, windowMs: 300_000, eventCount: 0, sampledAt: now, source: 'Qoder session files', reason: 'Qoder session files do not expose model token usage.' },
             },

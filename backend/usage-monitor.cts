@@ -8,7 +8,7 @@ import {
   type UsageHistoryProvider,
   type UsageHistoryResult,
 } from './usage-history-client.cjs';
-import { attachQuotaForecasts } from './usage-forecast.cjs';
+import { readCodexAccountQuota, type AccountQuota } from './codex-account-quota.cjs';
 import {
   getProviderAdapter,
   listProviderAdapters,
@@ -18,7 +18,7 @@ import {
 } from './provider-adapters.cjs';
 
 type DataRecord = Record<string, unknown>;
-type ProviderHomes = Record<string, Array<string | { path?: unknown }> | undefined>;
+type ProviderHomes = Record<string, Array<string | { id?: string; path?: unknown }> | undefined>;
 
 interface TokenBreakdown extends DataRecord {
   totalTokens: number;
@@ -65,6 +65,7 @@ interface CommandResult {
 }
 
 interface CommandOptions {
+  env?: NodeJS.ProcessEnv;
   timeoutMs?: number;
 }
 
@@ -86,6 +87,7 @@ type OpenCodeCommandRunner = (
 ) => Promise<CommandResult>;
 
 interface CollectionOptions extends CCStatisticsOptions {
+  codexQuotaReader?: (home: string) => Promise<AccountQuota>;
   days?: number;
   windowMs?: number;
   historyWindowMs?: number;
@@ -221,7 +223,7 @@ const USAGE_TIMELINE_BUCKET_COUNT = 24;
 const USAGE_LIVE_TIMELINE_WINDOW_MS = 60 * 60 * 1000;
 const USAGE_LIVE_TIMELINE_BUCKET_COUNT = 60;
 const USAGE_DAILY_DAYS = 52 * 7;
-const USAGE_DAILY_CACHE_MS = 5 * 60 * 1000;
+const USAGE_DAILY_CACHE_MS = 15_000;
 const USAGE_LIVE_DAY_CACHE_MS = 5 * 1000;
 const USAGE_FOREGROUND_SCAN_BUDGET_MS = 500;
 const COMMAND_TIMEOUT_MS = 2500;
@@ -232,6 +234,7 @@ const OPENCODE_SESSION_CACHE_LIMIT = 5000;
 const openCodeSessionEventCache = new Map<string, OpenCodeSessionCacheEntry>();
 
 function numberOrNull(value: unknown): number | null {
+  if (value === null || value === undefined || value === '' || typeof value === 'boolean') return null;
   const numberValue = Number(value);
   return Number.isFinite(numberValue) ? numberValue : null;
 }
@@ -480,7 +483,7 @@ function buildUsageTimeline(
     for (const event of providerEvents[provider] || []) {
       const timestamp = parseTimestampMs(event?.timestamp);
       const totalTokens = Math.max(0, numberOrNull(event?.totalTokens) ?? 0);
-      if (!timestamp || totalTokens <= 0 || timestamp < startAt || timestamp > endAt + 60_000) continue;
+      if (!timestamp || totalTokens <= 0 || timestamp < startAt || timestamp > now) continue;
       const index = Math.min(bucketCount - 1, Math.max(0, Math.floor((timestamp - startAt) / bucketMs)));
       points[index].providers[provider] += totalTokens;
       points[index].totalTokens += totalTokens;
@@ -527,7 +530,7 @@ function providerUsageFromEvents(
   for (const event of Array.isArray(events) ? events : []) {
     const timestamp = parseTimestampMs(event?.timestamp);
     const eventTokens = Math.max(0, numberOrNull(event?.totalTokens) ?? 0);
-    if (!timestamp || eventTokens <= 0 || timestamp > now + 60_000) continue;
+    if (!timestamp || eventTokens <= 0 || timestamp > now) continue;
     if (timestamp >= now - historyWindowMs) tokenEvents.push(event);
     if (timestamp >= now - windowMs) {
       totalTokens += eventTokens;
@@ -554,6 +557,7 @@ async function defaultCommandRunner(
   const result = await execFileAsync(command, args, {
     timeout: options.timeoutMs ?? COMMAND_TIMEOUT_MS,
     windowsHide: true,
+    env: options.env,
   });
 
   return {
@@ -656,7 +660,9 @@ function buildDailyUsage(
 
   for (const provider of providerNames) {
     for (const event of providerEvents[provider] || []) {
-      const point = byDate.get(localDateKey(parseTimestampMs(event?.timestamp)));
+      const timestamp = parseTimestampMs(event?.timestamp);
+      if (timestamp === null || timestamp > now) continue;
+      const point = byDate.get(localDateKey(timestamp));
       if (!point) continue;
       addTokenBreakdown(point, event);
       addTokenBreakdown(point.providers[provider], event);
@@ -719,7 +725,7 @@ function buildUsageDayDetail(
   for (const provider of providerNames) {
     for (const event of providerEvents[provider] || []) {
       const timestamp = parseTimestampMs(event?.timestamp);
-      if (localDateKey(timestamp) !== date) continue;
+      if (timestamp === null || localDateKey(timestamp) !== date) continue;
       const hour = new Date(timestamp as number).getHours();
       if (!Number.isInteger(hour) || hour < 0 || hour > 23) continue;
       const agentId = String(event?.agentId || 'unattributed');
@@ -790,7 +796,7 @@ function openCodeTokenEventsFromExport(
     const time = asRecord(info?.time);
     if (info?.role !== 'assistant' || !info.tokens) continue;
     const timestamp = parseTimestampMs(time?.completed ?? time?.created);
-    if (!timestamp || timestamp < cutoffMs || timestamp > now + 60_000) continue;
+    if (!timestamp || timestamp < cutoffMs || timestamp > now) continue;
     const breakdown = tokenBreakdownFromOpenCode(info.tokens);
     if (breakdown.totalTokens > 0) events.push({ timestamp, ...breakdown });
   }
@@ -868,7 +874,9 @@ async function collectOpenCodeDailyEvents(
           { openCodeHome: session.openCodeHome, timeoutMs: OPENCODE_COMMAND_TIMEOUT_MS },
         );
         const exported = JSON.parse(String(result?.stdout || '{}')) as unknown;
-        const sessionEvents = openCodeTokenEventsFromExport(exported, { cutoffMs, now })
+        // Cache source events, not a time-filtered observation: a later read may
+        // include records whose timestamp is ahead of this read's clock.
+        const sessionEvents = openCodeTokenEventsFromExport(exported, { cutoffMs: 0, now: Infinity })
           .map(event => attributeUsageEvent(event, 'opencode', session.id));
         successfulExports += 1;
         cacheOpenCodeSessionEvents(
@@ -888,7 +896,10 @@ async function collectOpenCodeDailyEvents(
   ));
 
   return {
-    events,
+    events: events.filter(event => {
+      const timestamp = parseTimestampMs(event.timestamp);
+      return timestamp !== null && timestamp >= cutoffMs && timestamp <= now;
+    }),
     partial,
     available: !partial
       && successfulHomes === homePaths.length
@@ -1012,13 +1023,19 @@ async function collectUsageHistory(options: CollectionOptions = {}) {
       providerEvents[adapter.id] = sessionExports.get(adapter.id)?.events || [];
     }
   }
+  for (const id of Object.keys(providerEvents)) {
+    providerEvents[id] = providerEvents[id]?.filter(event => {
+      const timestamp = parseTimestampMs(event.timestamp);
+      return timestamp !== null && timestamp <= now;
+    });
+  }
   const coverage = listProviderAdapters().map(adapter => providerUsageCoverage(adapter, {
     homePaths,
     localHistory: ccStatistics.result,
     sessionExports,
   }));
   const coverageByProvider = new Map(coverage.map(entry => [entry.provider, entry]));
-  const partial = listProviderAdapters().some(adapter => {
+  const partial = Number(ccStatistics.result.cache?.errors) > 0 || listProviderAdapters().some(adapter => {
     const providerCoverage = coverageByProvider.get(adapter.id);
     return adapter.usage.collection.kind === 'local-history'
       ? providerCoverage?.available !== true
@@ -1041,49 +1058,6 @@ async function collectDailyUsage(options: CollectionOptions = {}) {
   return (await collectUsageHistory(options)).daily;
 }
 
-function parseCodexLimit(limit: unknown) {
-  if (!limit || typeof limit !== 'object') return null;
-  const source = limit as DataRecord;
-  const usedPercent = numberOrNull(source.used_percent ?? source.usedPercent);
-  const windowMinutes = numberOrNull(source.window_minutes ?? source.windowMinutes ?? source.windowDurationMins);
-  const resetsAt = normalizeEpochMs(source.resets_at ?? source.resetsAt);
-  const totalTokens = numberOrNull(source.total_tokens ?? source.totalTokens ?? source.limit_tokens ?? source.limitTokens);
-
-  if (usedPercent === null && windowMinutes === null && resetsAt === null && totalTokens === null) return null;
-  return {
-    usedPercent,
-    windowMinutes,
-    resetsAt,
-    totalTokens,
-  };
-}
-
-function parseCodexRateLimits(rateLimits: unknown) {
-  if (!rateLimits || typeof rateLimits !== 'object') return null;
-  const source = rateLimits as DataRecord;
-  const primary = parseCodexLimit(source.primary);
-  const secondary = parseCodexLimit(source.secondary);
-
-  if (!primary && !secondary) return null;
-  const resetCredits = asRecord(source.rate_limit_reset_credits ?? source.rateLimitResetCredits);
-  const resetCreditsAvailable = numberOrNull(resetCredits?.available_count ?? resetCredits?.availableCount);
-  return {
-    available: true,
-    source: 'codex token_count events',
-    limitId: source.limit_id || source.limitId || '',
-    limitName: source.limit_name ?? source.limitName ?? null,
-    planType: source.plan_type || source.planType || '',
-    resetCreditsAvailable,
-    primary,
-    secondary,
-  };
-}
-
-function isCodexOverallRateLimit(quota: { limitId?: unknown } | null | undefined): boolean {
-  const limitId = String(quota?.limitId || '').trim().toLowerCase();
-  return !limitId || limitId === 'codex';
-}
-
 async function collectCodexUsage(options: CollectionOptions = {}) {
   const now = options.now ?? Date.now();
   const windowMs = options.windowMs ?? USAGE_WINDOW_MS;
@@ -1096,28 +1070,7 @@ async function collectCodexUsage(options: CollectionOptions = {}) {
   const provider = ccStatistics.result.providers.codex;
   const providerSource = provider.source || ccStatistics.result.source;
   const events = ccStatisticsProviderEvents(ccStatistics.result, 'codex');
-  let latestQuota: ReturnType<typeof parseCodexRateLimits> = null;
-  let latestQuotaAt = 0;
-  let latestOverallQuota: ReturnType<typeof parseCodexRateLimits> = null;
-  let latestOverallQuotaAt = 0;
-
-  for (const candidate of provider.quotaCandidates || []) {
-    const timestamp = parseTimestampMs(candidate.timestamp);
-    const rateLimits = parseCodexRateLimits(candidate.rateLimits);
-    if (rateLimits && (!timestamp || timestamp >= latestQuotaAt)) {
-      latestQuota = rateLimits;
-      latestQuotaAt = timestamp ?? latestQuotaAt;
-    }
-    if (rateLimits && isCodexOverallRateLimit(rateLimits) && (!timestamp || timestamp >= latestOverallQuotaAt)) {
-      latestOverallQuota = rateLimits;
-      latestOverallQuotaAt = timestamp ?? latestOverallQuotaAt;
-    }
-  }
-  const quota = latestOverallQuota || latestQuota || {
-    available: false,
-    source: providerSource,
-    reason: provider.reason || 'No Codex token_count event with rate limits was found.',
-  };
+  const quota = { available: false, source: 'Codex account/rateLimits/read', reason: 'Session logs do not establish account quota.' };
   const usage = providerUsageFromEvents(events, {
     now,
     windowMs,
@@ -1130,7 +1083,7 @@ async function collectCodexUsage(options: CollectionOptions = {}) {
   }
 
   return {
-    quota: attachQuotaForecasts(quota, { now }),
+    quota,
     ...usage,
   };
 }
@@ -1171,6 +1124,7 @@ async function collectClaudeUsage(options: CollectionOptions = {}) {
 interface LiveProviderUsageCollector {
   collect(options: CollectionOptions): Promise<{ quota: unknown; tokenUsage: unknown }>;
   readAuth(commandRunner: CommandRunner): Promise<unknown>;
+  readQuota?: (home: string) => Promise<AccountQuota>;
 }
 
 const LIVE_PROVIDER_USAGE_COLLECTORS: Readonly<
@@ -1179,6 +1133,7 @@ const LIVE_PROVIDER_USAGE_COLLECTORS: Readonly<
   'codex-cli': Object.freeze({
     collect: collectCodexUsage,
     readAuth: readCodexAuthStatus,
+    readQuota: readCodexAccountQuota,
   }),
   'claude-cli': Object.freeze({
     collect: collectClaudeUsage,
@@ -1199,13 +1154,6 @@ interface DailyUsageCache {
   value: CollectedUsageHistory | null;
   fetchedAt: number;
   pending: Promise<CollectedUsageHistory> | null;
-}
-
-interface LiveDayCache {
-  date: string;
-  value: UsageDayDetail | null;
-  fetchedAt: number;
-  pending: Promise<UsageDayDetail> | null;
 }
 
 interface ProviderUsageObservation {
@@ -1269,7 +1217,7 @@ function providerUsageSummary(
     provider: adapter.id,
     providerName: adapter.displayName,
     auth: {
-      available: true,
+      available: false,
       status: policy.authStatus || 'Local sessions',
       source: policy.source,
     },
@@ -1308,10 +1256,14 @@ class UsageMonitor {
   dailyCacheMs: number;
   dailyCache: DailyUsageCache;
   liveDayCacheMs: number;
-  liveDayCache: LiveDayCache;
   foregroundScanBudgetMs: number;
+  codexQuotaReader: CollectionOptions['codexQuotaReader'];
+  dailyCacheKey = '';
+  dailyGeneration = 0;
+  dailyPendingGeneration = 0;
 
   constructor(options: UsageMonitorOptions = {}) {
+    this.codexQuotaReader = options.codexQuotaReader;
     this.agentManager = options.agentManager || null;
     this.systemMonitor = options.systemMonitor || this.agentManager?.systemMonitor || null;
     this.commandRunner = options.commandRunner || defaultCommandRunner;
@@ -1330,13 +1282,13 @@ class UsageMonitor {
     this.dailyCacheMs = options.dailyCacheMs ?? USAGE_DAILY_CACHE_MS;
     this.dailyCache = { value: null, fetchedAt: 0, pending: null };
     this.liveDayCacheMs = options.liveDayCacheMs ?? USAGE_LIVE_DAY_CACHE_MS;
-    this.liveDayCache = { date: '', value: null, fetchedAt: 0, pending: null };
     this.foregroundScanBudgetMs = options.scanBudgetMs ?? USAGE_FOREGROUND_SCAN_BUDGET_MS;
   }
 
   invalidateDailyCache(): void {
+    this.dailyGeneration += 1;
     this.dailyCache.fetchedAt = 0;
-    this.liveDayCache.fetchedAt = 0;
+    this.dailyCache.value = null;
   }
 
   usageAgentLabels(): Map<string, string> {
@@ -1369,16 +1321,27 @@ class UsageMonitor {
 
   getDailyUsage(options: UsageReadOptions = {}): Promise<CollectedUsageHistory> {
     const now = options.now ?? Date.now();
+    const providerHomes = this.getProviderHomes ? this.getProviderHomes() : undefined;
+    const key = JSON.stringify([localDateKey(now), providerHomes]);
     if (
       !options.force
+      && key === this.dailyCacheKey
       && this.dailyCache.value
       && this.dailyCache.value.daily.syncing !== true
+      && this.dailyCache.value.daily.partial !== true
       && now - this.dailyCache.fetchedAt <= this.dailyCacheMs
     ) {
       return Promise.resolve(this.dailyCache.value);
     }
-    if (this.dailyCache.pending) return this.dailyCache.pending;
-    const providerHomes = this.getProviderHomes ? this.getProviderHomes() : undefined;
+    if (this.dailyCache.pending) {
+      if (key === this.dailyCacheKey && this.dailyPendingGeneration === this.dailyGeneration && !options.force) return this.dailyCache.pending;
+      const pending = this.dailyCache.pending;
+      return pending.then(() => this.getDailyUsage({ ...options, force: false }));
+    }
+    const generation = this.dailyGeneration;
+    this.dailyPendingGeneration = generation;
+    if (key !== this.dailyCacheKey) this.dailyCache.value = null;
+    this.dailyCacheKey = key;
     this.dailyCache.pending = collectUsageHistory({
       codexHome: this.codexHome,
       claudeHome: this.claudeHome,
@@ -1390,10 +1353,13 @@ class UsageMonitor {
       ccStatisticsClient: this.ccStatisticsClient,
       scanBudgetMs: this.foregroundScanBudgetMs,
       now,
+      fresh: options.force === true,
       days: this.dailyDays,
     }).then(value => {
-      this.dailyCache.value = value;
-      this.dailyCache.fetchedAt = now;
+      if (generation === this.dailyGeneration && key === this.dailyCacheKey) {
+        this.dailyCache.value = value;
+        this.dailyCache.fetchedAt = now;
+      }
       return value;
     }).finally(() => {
       this.dailyCache.pending = null;
@@ -1401,74 +1367,15 @@ class UsageMonitor {
     return this.dailyCache.pending;
   }
 
-  async getUsageDay(date: unknown, options: UsageReadOptions = {}): Promise<UsageDayDetail> {
+  async getUsageDay(date: unknown, options: UsageReadOptions = {}) {
     const now = options.now ?? Date.now();
-    if (options.live === true && String(date || '').trim() === localDateKey(now)) {
-      const liveDate = String(date).trim();
-      const dailyFallback = this.dailyCache.value?.providerEvents
-        ? this.buildUsageDay(this.dailyCache.value.providerEvents, liveDate)
-        : null;
-      const cachedFallback = this.liveDayCache.date === liveDate
-        ? this.liveDayCache.value
-        : null;
-      const fallback = cachedFallback || dailyFallback;
-      const historySyncing = this.dailyCache.value?.daily?.syncing === true;
-      const recoverWithFallback = (error: unknown): UsageDayDetail => {
-        if (!fallback) throw error;
-        if (this.liveDayCache.date === liveDate) {
-          this.liveDayCache.value = fallback;
-          this.liveDayCache.fetchedAt = now;
-        }
-        return fallback;
-      };
-      if (
-        options.fresh !== true
-        && this.liveDayCache.date === liveDate
-        && this.liveDayCache.value
-        && now - this.liveDayCache.fetchedAt < this.liveDayCacheMs
-      ) {
-        return this.liveDayCache.value;
-      }
-      if (this.liveDayCache.pending && this.liveDayCache.date === liveDate) {
-        return options.fresh !== true && historySyncing && fallback
-          ? fallback
-          : options.fresh === true
-            ? this.liveDayCache.pending
-            : this.liveDayCache.pending.catch(recoverWithFallback);
-      }
-      this.liveDayCache.date = liveDate;
-      const pending = collectUsageHistory({
-        codexHome: this.codexHome,
-        claudeHome: this.claudeHome,
-        openCodeHome: this.openCodeHome,
-        qoderHome: this.qoderHome,
-        providerHomes: this.getProviderHomes ? this.getProviderHomes() : undefined,
-        openCodeCommandRunner: this.openCodeCommandRunner,
-        configDir: this.configDir,
-        ccStatisticsClient: this.ccStatisticsClient,
-        scanBudgetMs: this.foregroundScanBudgetMs,
-        now,
-        days: 1,
-      }).then(history => {
-        const detail = this.buildUsageDay(history.providerEvents, liveDate);
-        if (this.liveDayCache.date === liveDate) {
-          this.liveDayCache.value = detail;
-          this.liveDayCache.fetchedAt = now;
-        }
-        return detail;
-      }).finally(() => {
-        if (this.liveDayCache.pending === pending) this.liveDayCache.pending = null;
-      });
-      this.liveDayCache.pending = pending;
-      void pending.catch(() => {});
-      if (options.fresh !== true && historySyncing && fallback) return fallback;
-      return options.fresh === true ? pending : pending.catch(recoverWithFallback);
-    }
-    const history = await this.getDailyUsage({
-      now,
-      force: options.fresh === true,
+    const history = await this.getDailyUsage({ now,
+      force: options.fresh === true || (options.live === true && now - this.dailyCache.fetchedAt >= this.liveDayCacheMs),
     });
-    return this.buildUsageDay(history.providerEvents, date);
+    const detail = this.buildUsageDay(history.providerEvents, date);
+    return { ...detail, sampledAt: history.daily.sampledAt, partial: history.daily.partial,
+      syncing: history.daily.syncing, available: history.coverage.some(entry => entry.available),
+      reason: history.daily.partial ? 'Some provider history is unavailable; totals may be incomplete.' : undefined };
   }
 
   async getUsageSummary(options: UsageReadOptions = {}) {
@@ -1477,31 +1384,39 @@ class UsageMonitor {
     const historyWindowMs = options.historyWindowMs ?? USAGE_TIMELINE_WINDOW_MS;
 
     const providerHomes = this.getProviderHomes ? this.getProviderHomes() : undefined;
-    const liveUsageOptions: CollectionOptions = {
-      codexHome: this.codexHome,
-      claudeHome: this.claudeHome,
-      providerHomes,
-      configDir: this.configDir,
-      ccStatisticsClient: this.ccStatisticsClient,
-      scanBudgetMs: this.foregroundScanBudgetMs,
-      now,
-      windowMs,
-      historyWindowMs,
-    };
     const liveAdapters = listProviderAdapters().filter(adapter => adapter.usage.liveCollector);
     const [observationEntries, history, systemStats] = await Promise.all([
       Promise.all(liveAdapters.map(async adapter => {
-        const collectorId = adapter.usage.liveCollector;
-        if (!collectorId) throw new Error(`Missing live usage collector policy: ${adapter.id}`);
-        const collector = liveProviderUsageCollector(collectorId);
-        const [auth, usage] = await Promise.all([
-          collector.readAuth(this.commandRunner),
-          collector.collect(liveUsageOptions),
-        ]);
+        const collector = liveProviderUsageCollector(adapter.usage.liveCollector!);
+        const homes = providerHomePaths(providerHomes, adapter.id,
+          providerHomeOverride(this, adapter.id) || path.join(os.homedir(), adapter.usage.defaultHomeDirectory));
+        const accounts: Array<AccountQuota & { homeId: string; homeLabel: string }> = [];
+        const authResults: DataRecord[] = [];
+        // Bound process concurrency while retaining every configured Home's own result.
+        for (let offset = 0; offset < homes.length; offset += 2) {
+          await Promise.all(homes.slice(offset, offset + 2).map(async home => {
+            const configured = providerHomes?.[adapter.id]?.find(item => typeof item !== 'string' && item.path === home);
+            const homeId = typeof configured === 'object' ? configured.id || path.basename(home) : path.basename(home);
+            const scopedRunner: CommandRunner = (command, args, opts) => this.commandRunner(command, args, {
+              ...opts, env: { ...process.env, [adapter.homeEnvKey]: home },
+            });
+            const reader = collector.readQuota ? this.codexQuotaReader || collector.readQuota : null;
+            const [auth, quota] = await Promise.all([
+              collector.readAuth(scopedRunner),
+              reader ? reader(home).catch(() => ({ available: false, source: 'Account quota', sampledAt: now,
+                reason: 'Account quota could not be read.' })) : Promise.resolve({ available: false,
+                source: adapter.usage.source, sampledAt: now,
+                reason: adapter.usage.quotaUnavailableReason || 'This provider does not expose account quota.' }),
+            ]);
+            authResults.push(asRecord(auth) || {});
+            accounts.push({ ...quota, homeId, homeLabel: homeId });
+          }));
+        }
+        accounts.sort((a, b) => a.homeId.localeCompare(b.homeId));
         return [adapter.id, {
-          auth,
-          quota: usage.quota,
-          tokenUsage: usage.tokenUsage,
+          auth: authResults.length === 1 ? authResults[0] : { available: authResults.some(auth => auth.available),
+            status: `${authResults.filter(auth => auth.loggedIn === true || /logged in/i.test(String(auth.status))).length}/${homes.length} Homes logged in`, source: 'Agent Home authentication' },
+          quota: { available: accounts.some(account => account.available), source: 'Agent Home account quota', accounts },
         }] as const;
       })),
       this.getDailyUsage({ now, force: options.fresh === true }),
@@ -1519,7 +1434,12 @@ class UsageMonitor {
       bucketCount: USAGE_LIVE_TIMELINE_BUCKET_COUNT,
       alignToBucket: true,
     });
-    const observations = new Map<string, ProviderUsageObservation>(observationEntries);
+    const observations = new Map<string, ProviderUsageObservation>(observationEntries.map(([id, observation]) => {
+      const usage = providerUsageFromEvents(history.providerEvents[id], { now, windowMs, historyWindowMs });
+      const coverage = history.coverage.find(entry => entry.provider === id);
+      return [id, { ...observation, tokenUsage: { ...usage.tokenUsage, available: coverage?.available === true,
+        ...(coverage?.available !== true ? { reason: coverage?.reason || 'Local usage history is unavailable.' } : {}) } }];
+    }));
     const coverageByProvider = new Map(
       history.coverage.map(entry => [entry.provider, entry]),
     );

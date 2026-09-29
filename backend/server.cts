@@ -707,8 +707,9 @@ const usageMonitor = new UsageMonitor({
 const codexContextWindowReader = new CodexContextWindowReader();
 const usageSummaryCache = new AsyncCache(() => usageMonitor.getUsageSummary(), {
   ttlMs: 15_000,
-  staleMs: 2 * 60_000,
+  staleMs: 15_000,
 });
+let usageSummaryIdentity = '';
 const codexModelOptionsCache = new AsyncCache((homePath: string) => listCodexModelOptions({
   env: applyProviderHomeEnvironment({ ...process.env }, 'codex', homePath),
 }), {
@@ -1191,8 +1192,18 @@ app.use(routePath(BASE_PATH, '/api'), createProviderCatalogRouter({
 
 app.use(routePath(BASE_PATH, '/api/usage'), createUsageRouter({
   getUsageDay: (date, options) => usageMonitor.getUsageDay(date, options),
-  getUsageSummary: options => usageSummaryCache.get('summary', options),
-  invalidateDailyCache: () => usageMonitor.invalidateDailyCache(),
+  getUsageSummary: options => {
+    const identity = JSON.stringify([new Date().toDateString(), configuredProviderHomes()]);
+    if (identity !== usageSummaryIdentity) {
+      usageSummaryCache.invalidate();
+      usageSummaryIdentity = identity;
+    }
+    return usageSummaryCache.get('summary', options);
+  },
+  invalidateDailyCache: () => {
+    usageMonitor.invalidateDailyCache();
+    usageSummaryCache.invalidate();
+  },
 }));
 
 const readProviderContextWindows: HttpHandler = async (req, res) => {

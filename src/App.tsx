@@ -237,6 +237,7 @@ export function App() {
   const [permissionSwitch, setPermissionSwitch] = useState<PermissionSwitchState | null>(null)
   const [externalAgentReplacement, setExternalAgentReplacement] = useState<AgentReplacementTransition | null>(null)
   const [usageSummary, setUsageSummary] = useState<UsageSummary | null>(null)
+  const [usageError, setUsageError] = useState('')
   const [contextWindowByAgentId, setContextWindowByAgentId] = useState<Record<string, AgentContextWindowUsage>>({})
   const [uiPreferences, setUiPreferences] = useState<UiPreferences>(() => ({
     ...DEFAULT_UI_PREFERENCES,
@@ -1233,15 +1234,26 @@ export function App() {
       usageRequestRef.current?.abort()
       const controller = new AbortController()
       usageRequestRef.current = controller
-      fetch(appPath('/api/usage'), { signal: controller.signal })
-        .then(response => response.json())
+      const deadline = window.setTimeout(() => controller.abort(), 20_000)
+      fetch(appPath('/api/usage?live=1'), { signal: controller.signal })
+        .then(response => {
+          if (!response.ok) throw new Error('Usage could not be read')
+          return response.json()
+        })
         .then((data: { usage?: UsageSummary }) => {
-          if (!cancelled) setUsageSummary(data.usage ?? null)
+          if (!cancelled && !controller.signal.aborted) {
+            setUsageSummary(data.usage ?? null)
+            setUsageError(data.usage ? '' : 'Usage response was incomplete')
+          }
         })
         .catch(() => {
-          if (!cancelled && !controller.signal.aborted) setUsageSummary(null)
+          if (!cancelled && usageRequestRef.current === controller) {
+            setUsageSummary(null)
+            setUsageError(controller.signal.aborted ? 'Usage request timed out' : 'Usage could not be read')
+          }
         })
         .finally(() => {
+          window.clearTimeout(deadline)
           if (usageRequestRef.current === controller) usageRequestRef.current = null
         })
     }
@@ -1441,6 +1453,7 @@ export function App() {
         activeView={activeWorkspaceView}
         dialogOpen={effectiveDialog !== 'none'}
         usageSummary={usageSummary}
+        usageError={usageError}
         contextWindowByAgentId={contextWindowByAgentId}
         activeTerminalId={effectiveActiveTerminalId}
         permissionSwitchingAgentId={permissionSwitch?.agent.id ?? null}

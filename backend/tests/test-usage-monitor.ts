@@ -243,16 +243,7 @@ async function run() {
     now,
     windowMs,
   });
-  assert.strictEqual(codexUsage.quota.available, true);
-  assert.strictEqual(codexUsage.quota.limitId, 'codex');
-  assert.strictEqual(codexUsage.quota.planType, 'pro');
-  assert.strictEqual(codexUsage.quota.primary.usedPercent, 44);
-  assert.strictEqual(codexUsage.quota.primary.forecast.remainingPercent, 56);
-  assert.strictEqual(codexUsage.quota.primary.forecast.remainingTokens, null);
-  assert.strictEqual(codexUsage.quota.primary.windowMinutes, 300);
-  assert.strictEqual(codexUsage.quota.primary.resetsAt, 1782558828 * 1000);
-  assert.strictEqual(codexUsage.quota.secondary.usedPercent, 9);
-  assert.strictEqual(codexUsage.quota.secondary.forecast.remainingPercent, 91);
+  assert.strictEqual(codexUsage.quota.available, false, 'proxy/session log quotas must never masquerade as account quotas');
   assert.strictEqual(codexUsage.tokenUsage.totalTokens, 600);
   assert.strictEqual(codexUsage.tokenUsage.tokensPerMinute, 120);
 
@@ -412,6 +403,7 @@ async function run() {
   process.env.PATH = `${shadowBin}${path.delimiter}${originalPath}`;
 
   const monitor = new UsageMonitor({
+    codexQuotaReader: async () => ({ available: false, source: 'test', sampledAt: now, reason: 'No account quota' }),
     configDir: root,
     scanBudgetMs: 30_000,
     codexHome,
@@ -488,6 +480,7 @@ async function run() {
   assert(selectedDay.agents.some(agent => agent.provider === 'claude' && agent.sessionId === 'session'));
 
   const unavailableOpenCodeMonitor = new UsageMonitor({
+    codexQuotaReader: async () => ({ available: false, source: 'test', sampledAt: now, reason: 'No account quota' }),
     configDir: root,
     scanBudgetMs: 30_000,
     codexHome,
@@ -508,6 +501,7 @@ async function run() {
   assert.strictEqual(unavailableOpenCode.tokenUsage.available, false);
 
   const failedExportOpenCodeMonitor = new UsageMonitor({
+    codexQuotaReader: async () => ({ available: false, source: 'test', sampledAt: now, reason: 'No account quota' }),
     configDir: root,
     scanBudgetMs: 30_000,
     codexHome,
@@ -563,63 +557,12 @@ async function run() {
   assert.strictEqual(selectedDay.providers.opencode.totalTokens, 300);
   const liveDay = await monitor.getUsageDay(summary.daily.endDate, { now, live: true });
   const cachedLiveDay = await monitor.getUsageDay(summary.daily.endDate, { now: now + 1_000, live: true });
-  assert.strictEqual(cachedLiveDay, liveDay, 'current-day reads should reuse the five-second live cache');
+  assert.strictEqual(cachedLiveDay.sampledAt, liveDay.sampledAt, 'day detail shares the coherent history snapshot');
   const refreshedLiveDay = await monitor.getUsageDay(summary.daily.endDate, { now: now + 5_000, live: true });
-  assert.notStrictEqual(refreshedLiveDay, liveDay, 'current-day reads should refresh after the live cache expires');
-  monitor.liveDayCache = {
-    date: summary.daily.endDate,
-    value: null,
-    fetchedAt: 0,
-    pending: Promise.reject(new Error('transient live scan failure')),
-  };
-  const recoveredLiveDay = await monitor.getUsageDay(summary.daily.endDate, { now: now + 10_000, live: true });
-  assert.strictEqual(
-    recoveredLiveDay.total.totalTokens,
-    summary.daily.summary.todayTokens,
-    'a failed live scan should fall back to the successful daily-history snapshot',
-  );
-  const blockedLiveScan = new Promise(() => {});
-  let syncingScanBudgetMs = 0;
-  const syncingMonitor = new UsageMonitor({
-    configDir: root,
-    codexHome,
-    claudeHome,
-    async openCodeCommandRunner(args) {
-      if (args[0] === 'session' && args[1] === 'list') return { stdout: '[]' };
-      throw new Error(`Unexpected syncing OpenCode command ${args.join(' ')}`);
-    },
-    usageHistoryClient: {
-      collect(options) {
-        syncingScanBudgetMs = options.scanBudgetMs || 0;
-        return blockedLiveScan;
-      },
-    },
-  });
-  syncingMonitor.dailyCache.value = {
-    ...monitor.dailyCache.value,
-    daily: { ...monitor.dailyCache.value.daily, syncing: true },
-  };
-  const syncingLiveDay = await Promise.race([
-    syncingMonitor.getUsageDay(summary.daily.endDate, { now, live: true }),
-    new Promise((_, reject) => setTimeout(() => reject(new Error('syncing live day blocked on background history')), 100)),
-  ]);
-  assert.strictEqual(
-    syncingLiveDay.total.totalTokens,
-    summary.daily.summary.todayTokens,
-    'an in-progress history sync should serve its coherent day snapshot without waiting for the background scan',
-  );
-  assert.strictEqual(syncingScanBudgetMs, 500,
-    'foreground usage reads should hand history scanning back to the UI within 500ms');
-  const freshSyncingResult = await Promise.race([
-    syncingMonitor.getUsageDay(summary.daily.endDate, { now, live: true, fresh: true })
-      .then(() => 'resolved', () => 'rejected'),
-    new Promise(resolve => setTimeout(() => resolve('waiting'), 50)),
-  ]);
-  assert.strictEqual(freshSyncingResult, 'waiting',
-    'an explicit fresh live-day read must not silently return the syncing fallback');
-
+  assert.strictEqual(refreshedLiveDay.sampledAt, now + 5_000);
   let convergenceCollectCalls = 0;
   const convergenceMonitor = new UsageMonitor({
+    codexQuotaReader: async () => ({ available: false, source: 'test', sampledAt: now, reason: 'No account quota' }),
     configDir: root,
     codexHome,
     claudeHome,
@@ -643,7 +586,7 @@ async function run() {
       throw new Error(`Unexpected OpenCode command ${args.join(' ')}`);
     },
   });
-  convergenceMonitor.dailyCache.value = syncingMonitor.dailyCache.value;
+  convergenceMonitor.dailyCache.value = { ...monitor.dailyCache.value, daily: { ...monitor.dailyCache.value.daily, syncing: true } };
   convergenceMonitor.dailyCache.fetchedAt = now;
   const convergedHistory = await convergenceMonitor.getDailyUsage({ now: now + 1 });
   assert.strictEqual(convergenceCollectCalls, 1,
@@ -653,7 +596,7 @@ async function run() {
   const historicalDay = await monitor.getUsageDay(summary.daily.endDate, { now: now + 5_000, live: false });
   assert.notStrictEqual(historicalDay, refreshedLiveDay, 'non-live reads should stay on the heavy daily-history cache');
   const cachedSummary = await monitor.getUsageSummary({ now: now + 1_000 });
-  assert.strictEqual(cachedSummary.daily, summary.daily, 'daily history should reuse its short heavy-scan cache');
+  assert.strictEqual(cachedSummary.daily, monitor.dailyCache.value.daily, 'summary and detail use the same cached history');
   const refreshedSummary = await monitor.getUsageSummary({ now: now + 2_000, fresh: true });
   assert.notStrictEqual(refreshedSummary.daily, summary.daily, 'an explicit fresh read should rebuild daily history');
   process.env.PATH = originalPath;

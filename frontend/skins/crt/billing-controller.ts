@@ -46,6 +46,10 @@ type BillingDayPoint = BillingUsage & {
 };
 type BillingDayDetail = BillingDayPoint & {
   hours: BillingHour[];
+  available?: boolean;
+  partial?: boolean;
+  syncing?: boolean;
+  reason?: string;
   total?: BillingUsage;
 };
 type BillingQuotaLimit = {
@@ -53,6 +57,7 @@ type BillingQuotaLimit = {
   windowMinutes?: number;
   resetsAt?: number;
 };
+type BillingQuota = { available?: boolean; homeLabel?: string; reason?: string; source?: string; sampledAt?: number; primary?: BillingQuotaLimit; secondary?: BillingQuotaLimit; accounts?: BillingQuota[] };
 type BillingProvider = {
   provider?: string;
   providerName?: string;
@@ -63,7 +68,7 @@ type BillingProvider = {
     tokensPerMinute?: number;
   };
   auth?: { available?: boolean; status?: string };
-  quota?: { available?: boolean; primary?: BillingQuotaLimit; secondary?: BillingQuotaLimit };
+  quota?: BillingQuota;
 };
 type BillingTimelinePoint = {
   tokensPerMinute?: number;
@@ -741,11 +746,13 @@ function renderCrtBillingDayInsight() {
         ? 'DAY SIGNAL LOST'
         : billingDayDetailLoading && !selectedDetail
           ? 'READING 24 HOURLY BINS'
-          : selectedDetail && maximum > 0
-            ? '24 HOURLY BINS READY'
-            : selectedDetail
-              ? 'NO HOURLY ACTIVITY'
-              : 'SELECTED DAY DETAIL';
+          : selectedDetail && (selectedDetail.partial || selectedDetail.syncing)
+            ? selectedDetail.syncing ? 'SYNCING HISTORY' : 'INCOMPLETE HISTORY'
+            : selectedDetail && maximum > 0
+              ? '24 HOURLY BINS READY'
+              : selectedDetail
+                ? 'NO HOURLY ACTIVITY'
+                : 'SELECTED DAY DETAIL';
   }
 
   if (!shares) return;
@@ -987,39 +994,46 @@ function renderCrtBillingQuota(summary = billingSummary) {
   let rowCount = 0;
 
   providers.forEach((provider) => {
-    const quota = provider && provider.quota;
-    if (!quota || quota.available === false) return;
-    [quota.primary, quota.secondary].filter((limit): limit is BillingQuotaLimit => Boolean(limit)).forEach((limit) => {
-      const usedPercent = Math.max(0, Math.min(100, Number(limit.usedPercent) || 0));
-      const remainingPercent = Math.max(0, 100 - usedPercent);
-      const row = document.createElement('div');
-      row.className = `billing-quota-row${remainingPercent <= 25 ? ' is-warning' : ''}`;
-      const copy = document.createElement('div');
-      copy.className = 'billing-quota-copy';
-      const label = document.createElement('strong');
-      label.textContent = `${String(provider.providerName || provider.provider || 'PROVIDER').toUpperCase()} ${formatCrtBillingWindow(Number(limit.windowMinutes) || 0)}`;
-      const reset = document.createElement('small');
-      reset.textContent = formatCrtBillingReset(limit.resetsAt);
-      copy.append(label, reset);
-      const track = document.createElement('div');
-      track.className = 'billing-quota-track';
-      track.setAttribute('role', 'meter');
-      track.setAttribute('aria-label', `${label.textContent} remaining`);
-      track.setAttribute('aria-valuemin', '0');
-      track.setAttribute('aria-valuemax', '100');
-      track.setAttribute('aria-valuenow', String(Math.round(remainingPercent)));
-      const fill = document.createElement('span');
-      fill.className = 'billing-quota-fill';
-      fill.style.width = `${remainingPercent}%`;
-      fill.title = `${Math.round(remainingPercent)}% remaining`;
-      track.appendChild(fill);
-      row.append(copy, track);
-      container.appendChild(row);
-      rowCount += 1;
+    const providerQuota = provider && provider.quota;
+    if (!providerQuota) return;
+    (providerQuota.accounts || [providerQuota]).forEach(quota => {
+      if (quota.available === false) {
+        if (providerQuota.accounts) appendCrtBillingMessage(container, `${provider.providerName || provider.provider} ${quota.homeLabel || ''}: QUOTA UNAVAILABLE`);
+        return;
+      }
+      [quota.primary, quota.secondary].filter((limit): limit is BillingQuotaLimit => Boolean(limit)).forEach((limit) => {
+        if (limit.usedPercent === null || limit.usedPercent === undefined || !Number.isFinite(Number(limit.usedPercent))) return;
+        const usedPercent = Math.max(0, Math.min(100, Number(limit.usedPercent)));
+        const remainingPercent = Math.max(0, 100 - usedPercent);
+        const row = document.createElement('div');
+        row.className = `billing-quota-row${remainingPercent <= 25 ? ' is-warning' : ''}`;
+        const copy = document.createElement('div');
+        copy.className = 'billing-quota-copy';
+        const label = document.createElement('strong');
+        label.textContent = `${String(provider.providerName || provider.provider || 'PROVIDER').toUpperCase()} ${providerQuota.accounts && providerQuota.accounts.length > 1 ? `${quota.homeLabel || ''} ` : ''}${formatCrtBillingWindow(Number(limit.windowMinutes) || 0)}`;
+        const reset = document.createElement('small');
+        reset.textContent = formatCrtBillingReset(limit.resetsAt);
+        copy.append(label, reset);
+        const track = document.createElement('div');
+        track.className = 'billing-quota-track';
+        track.setAttribute('role', 'meter');
+        track.setAttribute('aria-label', `${label.textContent} remaining`);
+        track.setAttribute('aria-valuemin', '0');
+        track.setAttribute('aria-valuemax', '100');
+        track.setAttribute('aria-valuenow', String(Math.round(remainingPercent)));
+        const fill = document.createElement('span');
+        fill.className = 'billing-quota-fill';
+        fill.style.width = `${remainingPercent}%`;
+        fill.title = `${Math.round(remainingPercent)}% remaining`;
+        track.appendChild(fill);
+        row.append(copy, track);
+        container.appendChild(row);
+        rowCount += 1;
+      });
     });
   });
 
-  if (rowCount === 0) appendCrtBillingMessage(container, 'NO QUOTA TELEMETRY. LOCAL TOKEN SIGNAL REMAINS AVAILABLE.');
+  if (rowCount === 0 && !container.childElementCount) appendCrtBillingMessage(container, 'NO QUOTA TELEMETRY. LOCAL TOKEN SIGNAL REMAINS AVAILABLE.');
 }
 
 function renderCrtBillingProviders(summary = billingSummary) {
@@ -1392,8 +1406,8 @@ async function loadCrtBillingDayDetail(dateValue: string, { force = false, live 
     });
     failureStatus = response.status;
     const data = await response.json().catch(() => null);
-    if (!response.ok || !data || !data.detail) {
-      throw new Error(data && data.error ? data.error : `Usage day request failed (${response.status})`);
+    if (!response.ok || !data || !data.detail || data.detail.available === false) {
+      throw new Error(data?.detail?.reason || data?.error || `Usage day request failed (${response.status})`);
     }
     if (!token.valid || generation !== billingGeneration || requestSequence !== billingDayDetailRequestSequence) return;
     const previousDetail = cached || (billingDayDetail && billingDayDetail.date === date ? billingDayDetail : null);

@@ -233,6 +233,7 @@ interface CodeSidebarProps {
   now: number
   mainAgent: Agent | null
   usageSummary: UsageSummary | null
+  usageError?: string
   resourceCountsByAgentId: ReadonlyMap<string, AgentResourceCounts>
   instanceName: string
   language: UiLanguage
@@ -352,6 +353,7 @@ export function CodeSidebar({
   now,
   mainAgent,
   usageSummary,
+  usageError,
   resourceCountsByAgentId,
   instanceName,
   language,
@@ -1086,6 +1088,7 @@ export function CodeSidebar({
             mainAgent={mainAgent}
             now={now}
             usageSummary={usageSummary}
+            usageError={usageError}
             agentLaunchOptions={agentLaunchOptions}
             onToggleCollapsed={() => setUsageCollapsed(collapsed => !collapsed)}
             onOpenMainAgent={onOpenMainAgent}

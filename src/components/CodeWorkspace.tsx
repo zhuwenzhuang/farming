@@ -379,6 +379,7 @@ interface CodeWorkspaceProps {
   activeView: WorkspaceView
   dialogOpen: boolean
   usageSummary: UsageSummary | null
+  usageError?: string
   contextWindowByAgentId: Record<string, AgentContextWindowUsage>
   activeTerminalId: string | null
   permissionSwitchingAgentId: string | null
@@ -570,6 +571,7 @@ export function CodeWorkspace({
   activeView,
   dialogOpen,
   usageSummary,
+  usageError,
   contextWindowByAgentId = {},
   activeTerminalId,
   permissionSwitchingAgentId,
@@ -5951,6 +5953,7 @@ export function CodeWorkspace({
         now={now}
         mainAgent={hiddenMainAgent}
         usageSummary={usageSummary}
+        usageError={usageError}
         resourceCountsByAgentId={resourceCountsByAgentId}
         instanceName={instanceName}
         language={uiPreferences.language}
