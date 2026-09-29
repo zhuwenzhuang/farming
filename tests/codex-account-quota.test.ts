@@ -26,7 +26,8 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
  if(!request.id || process.env.TEST_QUOTA_MODE==='hang')return;
  if(process.env.TEST_QUOTA_MODE==='oversize'){process.stdout.write('x'.repeat(2*1024*1024));return;}
  let result={};
- if(request.method==='account/read')result={account:{type:process.env.TEST_QUOTA_MODE==='api'?'apiKey':'chatgpt',id:'account-demo'}};
+ if(request.method==='account/read')result={account:null,requiresOpenaiAuth:false};
+ if(request.method==='account/rateLimits/read' && process.env.TEST_QUOTA_MODE==='api'){process.stdout.write(JSON.stringify({id:request.id,error:{code:-32600,message:'ChatGPT authentication required'}})+'\\n');return;}
  if(request.method==='account/rateLimits/read')result={rateLimits:{primary:{usedPercent:49,windowDurationMins:10080}}};
  process.stdout.write(JSON.stringify({id:request.id,result})+'\\n');
 });
@@ -42,7 +43,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
     }
     const requests = (await readFile(log, 'utf8')).trim().split('\n').map(line => JSON.parse(line) as { method: string; home: string })
     assert.ok(requests.every(row => row.home === path.join(dir, 'selected-home')))
-    assert.ok(requests.every(row => ['initialize', 'initialized', 'account/read', 'account/rateLimits/read'].includes(row.method)))
+    assert.ok(requests.every(row => ['initialize', 'initialized', 'account/rateLimits/read'].includes(row.method)))
     assert.equal((await readCodexAccountQuota(dir, { executable: path.join(dir, 'missing'), timeoutMs: 100 })).available, false)
   } finally { await rm(dir, { recursive: true, force: true }) }
 })

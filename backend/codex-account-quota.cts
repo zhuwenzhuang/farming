@@ -47,7 +47,7 @@ export function readCodexAccountQuota(home: string, options: {
   return new Promise(resolve => {
     const unavailable = (reason: string): AccountQuota => ({ available: false, source: SOURCE, sampledAt: Date.now(), reason });
     let result: AccountQuota | null = null;
-    let pending = ''; let bytes = 0; let expectedId = 1; let accountId: string | undefined;
+    let pending = ''; let bytes = 0; let expectedId = 1;
     const child = spawn(executable, ['app-server'], { env, windowsHide: true,
       detached: process.platform !== 'win32', stdio: ['pipe', 'pipe', 'ignore'] });
     const finish = (value: AccountQuota) => {
@@ -83,14 +83,11 @@ export function readCodexAccountQuota(home: string, options: {
         if (expectedId === 1) {
           expectedId = 2;
           send({ method: 'initialized' });
-          send({ id: 2, method: 'account/read', params: { refreshToken: false } });
-        } else if (expectedId === 2) {
-          const account = record(record(message.result)?.account);
-          if (account?.type !== 'chatgpt') { finish(unavailable('No ChatGPT account is signed in for this Agent Home.')); return; }
-          accountId = typeof account.id === 'string' ? account.id : undefined;
-          expectedId = 3;
-          send({ id: 3, method: 'account/rateLimits/read' });
-        } else finish(normalizeAccountQuota(message.result, Date.now(), accountId));
+          // account/read describes the inference provider and can hide a saved
+          // ChatGPT login when a custom provider is selected. The quota endpoint
+          // authenticates the Home's account itself, independently of that route.
+          send({ id: 2, method: 'account/rateLimits/read' });
+        } else finish(normalizeAccountQuota(message.result, Date.now()));
       }
     });
     send({ id: 1, method: 'initialize', params: { clientInfo: { name: 'farming_usage', version: '1.0.0' } } });

@@ -22,8 +22,9 @@ signed-in account's authoritative quota; custom inference routes and session
 rate-limit events cannot substitute for it. Each Home retains its own result,
 source and observation time; percentages are never added across accounts.
 Unsupported, unauthenticated, malformed and timed-out reads show unavailable.
-Codex uses account/read followed by account/rateLimits/read, preferring the codex
-bucket in rateLimitsByLimitId. It never starts a turn or consumes a reset.
+Codex uses account/rateLimits/read, which authenticates the saved account itself,
+preferring the codex bucket in rateLimitsByLimitId. Inference-provider account
+visibility cannot gate this read. It never starts a turn or consumes a reset.
 
 Reads transition from pending to a bounded success or explicit failure. Concurrent
 summary reads share the instance cache. Home changes and invalidation fence older
