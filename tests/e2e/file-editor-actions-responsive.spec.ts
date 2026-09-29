@@ -156,7 +156,7 @@ test('file actions use a keyboard-accessible More menu without narrow horizontal
     const menu = page.getByTestId('code-file-editor-more-menu')
     await expect(menu).toBeVisible()
     await expect(more).toHaveAttribute('aria-expanded', 'true')
-    const firstItem = menu.getByRole('menuitem').first()
+    const firstItem = menu.getByTestId('code-file-editor-more-quote-selection')
     await expect(firstItem).toBeFocused()
     const bounds = await menu.evaluate(element => {
       const rect = element.getBoundingClientRect()

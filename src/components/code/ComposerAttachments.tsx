@@ -43,7 +43,7 @@ export function ComposerAttachments({ attachments, onRemove, references = [], on
   const visibleReferences = expanded ? references : references.slice(0, 4)
 
   return (
-    <div ref={stripRef} className={`code-composer-attachments ${references.length > 0 ? 'has-context' : ''} ${expanded ? 'expanded' : ''} ${references.some(reference => (reference.kind === 'pasted-text' || reference.kind === 'document')) ? 'has-quotes' : ''}`} data-testid="code-composer-attachments">
+    <div ref={stripRef} className={`code-composer-attachments ${references.length > 0 ? 'has-context' : ''} ${expanded ? 'expanded' : ''} ${references.some(reference => (reference.kind === 'quote' || reference.kind === 'pasted-text' || reference.kind === 'document')) ? 'has-quotes' : ''}`} data-testid="code-composer-attachments">
       {attachments.map(attachment => {
         const previewUrl = attachment.previewUrl || attachmentPreviewUrl(attachment.path)
         const hasImagePreview = attachment.kind === 'image' && Boolean(previewUrl)
@@ -89,7 +89,7 @@ export function ComposerAttachments({ attachments, onRemove, references = [], on
           </div>
         )
       })}
-      {visibleReferences.map(reference => (reference.kind === 'pasted-text' || reference.kind === 'document') ? (
+      {visibleReferences.map(reference => (reference.kind === 'quote' || reference.kind === 'pasted-text' || reference.kind === 'document') ? (
         <div key={reference.id} className="code-composer-quote" data-testid={reference.kind === 'document' ? 'code-composer-document' : reference.kind === 'pasted-text' ? 'code-composer-pasted-text' : 'code-composer-quote'}>
           {reference.kind === 'document' && reference.status !== 'ready' ? <span className="code-composer-document-status" role={reference.status === 'error' ? 'alert' : 'status'}>{reference.status === 'error' ? reference.error : 'Processing document…'}</span> : null}
           <details>

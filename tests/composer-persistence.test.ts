@@ -308,3 +308,16 @@ test('reference-only drafts and queued selections survive reload and queue editi
   assert.equal(edited.draft, '')
   assert.deepEqual(edited.contextReferences, [reference])
 })
+
+
+test('chat quote and independent question survive draft recovery', () => {
+  const storage = new MemoryStorage()
+  const state = createDefaultAgentComposerState()
+  state.draft = 'Keep my question'
+  state.contextReferences = [{ id: 'quote', kind: 'quote', label: 'Quote', text: 'captured answer' }]
+  const now = Date.now()
+  assert.equal(saveAgentComposerCheckpoint({ draft: state }, new Map(), new Map(), storage, now), true)
+  const restored = loadAgentComposerCheckpoint(storage, now).states.draft
+  assert.equal(restored.draft, state.draft)
+  assert.deepEqual(restored.contextReferences, state.contextReferences)
+})

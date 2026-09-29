@@ -182,7 +182,7 @@ function persistedContextReferences(value: unknown): ComposerContextReference[] 
   if (!Array.isArray(value) || value.length > 64) return null
   const result: ComposerContextReference[] = []
   for (const item of value) {
-    if (!isRecord(item) || !['file', 'directory', 'selection', 'skill', 'pasted-text', 'document'].includes(String(item.kind))) return null
+    if (!isRecord(item) || !['file', 'directory', 'selection', 'skill', 'quote', 'pasted-text', 'document'].includes(String(item.kind))) return null
     if (typeof item.id !== 'string' || !item.id || item.id.length > 32_000
       || typeof item.label !== 'string' || item.label.length > 4096) return null
     const reference: ComposerContextReference = { id: item.id, kind: item.kind as ComposerContextReference['kind'], label: item.label }

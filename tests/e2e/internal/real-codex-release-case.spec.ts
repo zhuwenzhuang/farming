@@ -237,13 +237,17 @@ async function continueWithoutUntrustedHooks(page: Page, agentId: string) {
   )
   let directoryTrustAccepted = false
   let hooksAccepted = false
-  for (let transition = 0; transition < 3; transition += 1) {
+  let modelNoticeAccepted = false
+  for (let transition = 0; transition < 4; transition += 1) {
     let startupState = 'waiting'
     await expect.poll(async () => {
       const rendered = (await codeRows(page, agentId)).join('\n')
       const current = await agent(page, agentId)
       if (current?.terminalStatus?.activity === 'idle') {
         startupState = 'ready'
+      } else if (!modelNoticeAccepted && rendered.includes('Meet GPT-6 Luna')
+        && rendered.includes('Use existing model')) {
+        startupState = 'model-notice'
       } else if (!hooksAccepted && rendered.includes('Hooks need review')) {
         startupState = 'hooks'
       } else if (!directoryTrustAccepted && (
@@ -255,10 +259,25 @@ async function continueWithoutUntrustedHooks(page: Page, agentId: string) {
         startupState = 'waiting'
       }
       return startupState
-    }, { timeout: 60_000 }).toMatch(/^(ready|directory-trust|hooks)$/)
+    }, { timeout: 60_000 }).toMatch(/^(ready|model-notice|directory-trust|hooks)$/)
     if (startupState === 'ready') return
 
     await input.focus()
+    if (startupState === 'model-notice') {
+      const options = ['Try new model', 'Use existing model'] as const
+      const selectedOption = async () => {
+        const rows = await codeRows(page, agentId)
+        return options.find(option => rows.some(row => row.includes('›') && row.includes(option))) || ''
+      }
+      await expect.poll(selectedOption, { timeout: 5_000 }).toMatch(/^(Try new model|Use existing model)$/)
+      if (await selectedOption() !== options[1]) {
+        await input.press('ArrowDown')
+        await expect.poll(selectedOption, { timeout: 5_000 }).toBe(options[1])
+      }
+      await input.press('Enter')
+      modelNoticeAccepted = true
+      continue
+    }
     if (startupState === 'directory-trust') {
       const rendered = (await codeRows(page, agentId)).join('\n')
       const options = rendered.includes('Trust and continue')
@@ -714,7 +733,6 @@ async function assertTerminalTurnsInProviderHistory(page: Page, agentId: string)
     return expected.every(anchor => assistantText.includes(anchor))
   }, { timeout: 60_000 }).toBe(true)
 }
-
 
 async function resizeStructuredView(page: Page, anchor: string) {
   for (const size of resizePath(NORMAL_VIEWPORT, COMPACT_VIEWPORT)) {

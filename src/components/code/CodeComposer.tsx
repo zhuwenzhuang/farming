@@ -552,7 +552,7 @@ export function CodeComposer({
   }
 
   const transferError = useComposerTransfer({ active, agentId, workspace, textareaRef, composerRef, onAddReference: onAddContextReference })
-  const hasQuotes = contextReferences.some(reference => (reference.kind === 'pasted-text' || reference.kind === 'document'))
+  const hasQuotes = contextReferences.some(reference => (reference.kind === 'quote' || reference.kind === 'pasted-text' || reference.kind === 'document'))
   const composerAttachments = (<ComposerAttachments attachments={attachments} onRemove={onRemoveAttachment} references={contextReferences}
         onRemoveReference={onRemoveContextReference} onRestorePastedText={onRestorePastedText} restorePastedTextLabel={copy.showPastedTextInField} extractedTextLabel={copy.extractedText} downloadOriginalLabel={copy.downloadOriginal} unavailableReferenceIds={unavailableReferenceIds} />)
   const composerClasses = [

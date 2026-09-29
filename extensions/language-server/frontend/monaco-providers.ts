@@ -4,6 +4,7 @@ import type { OpenWorkspaceFile } from '@/lib/workspace-open-files'
 import type { LanguageServerRefreshMessage } from '@/types/messages'
 import { LanguageServerError, requestLanguageServer } from './client'
 import { TargetBindingRegistry } from './target-binding-registry'
+import { registerLanguageServerRefreshConsumer } from './refresh-dispatch'
 import type {
   LanguageServerDiagnostic,
   LanguageServerDocumentHighlight,
@@ -462,6 +463,8 @@ export function refreshLanguageServerProviders(
   fireProviderRefresh(event.kind)
   return true
 }
+
+registerLanguageServerRefreshConsumer(refreshLanguageServerProviders)
 
 export function markLanguageServerModelDirty(model: monaco.editor.ITextModel) {
   const key = model.uri.toString()

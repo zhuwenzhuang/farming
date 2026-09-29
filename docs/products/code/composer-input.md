@@ -13,6 +13,21 @@ When submission returns a pending result, the send control immediately shows its
 
 An explicit Chat send follows the latest transcript immediately, including while acknowledgement is pending. The jump-to-latest control appears only after the reader scrolls away from the latest content and sits at the bottom of the transcript viewport on compact layouts.
 
+## Quoting Chat Text
+
+The selection toolbar uses a contrasting surface and follows the selected text
+within its transcript viewport as scrolling or layout changes move the anchor.
+It flips below the selection when needed and hides while the anchor is clipped.
+Clearing the selection, leaving the conversation, or dismissing the toolbar ends
+that presentation; quoting never sends a message by itself.
+
+Quoted text is a captured context reference in the owning Composer, separate from
+the editable question. A compact block shows a two-line excerpt, expands to the
+full snapshot, and can be removed without changing the draft. Existing context
+persistence and submission handling retain the quote across recovery or failed
+sends and include it with the question on submission. Main and side conversations
+use the same presentation and retain independent drafts.
+
 ## Long Text Paste
 
 A plain-text paste longer than 1,000 Unicode characters becomes a captured text

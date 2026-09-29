@@ -148,7 +148,6 @@ import {
   slashCommandsForAgentKind,
 } from './code/capabilities'
 import {
-  appendDraftBlock,
   clipboardAttachmentFiles,
   composerAttachmentMessageBlocks,
   composerAttachmentsCanSubmit,
@@ -293,8 +292,11 @@ import {
 
 export type { WorkspaceView } from './code/types'
 
-function quotedSelectionBlock(text: string) {
-  return text.trim().slice(0, 6000).split('\n').map(line => `> ${line}`).join('\n')
+function quotedSelectionReference(text: string, label: string): ComposerContextReference | null {
+  const snapshot = text.trim().slice(0, 6000)
+  if (!snapshot) return null
+  const reference = { kind: 'quote' as const, label, text: snapshot }
+  return { ...reference, id: composerContextReferenceId(reference) }
 }
 
 type RenameDialogState =
@@ -2409,35 +2411,37 @@ export function CodeWorkspace({
   const quoteSelectionForAgent = useCallback((agentId: string, text: string, context?: Omit<ComposerContextReference, 'id'>) => {
     const agent = agents.find(candidate => candidate.id === agentId)
     const composerKey = isAcpRuntime(agent) ? acpComposerStateKeyForAgent(agent) : composerStateKeyForAgent(agent)
-    const quote = quotedSelectionBlock(text)
+    const quote = quotedSelectionReference(text, copy.quoteContextLabel)
     if (!composerKey || (!quote && !context)) return
     const validContext = context && agent && agent.cwd === context.workspace
       && context.rootId === projectFilesWorkspaceId(agent.cwd)
       ? { ...context, id: composerContextReferenceId(context) } : null
+    const reference = validContext || quote
+    if (!reference) return
     updateComposerStateForKey(composerKey, state => ({
       ...state,
-      draft: validContext ? state.draft : appendDraftBlock(state.draft, quote),
-      contextReferences: validContext && !state.contextReferences?.some(reference => reference.id === validContext.id)
-        ? [...(state.contextReferences || []), validContext] : state.contextReferences,
+      contextReferences: state.contextReferences?.some(existing => existing.id === reference.id)
+        ? state.contextReferences : [...(state.contextReferences || []), reference],
       history: { ...state.history, cursor: null },
     }))
     if (activeTerminalIdRef.current === agentId) window.requestAnimationFrame(focusComposerTextarea)
-  }, [agents, focusComposerTextarea, updateComposerStateForKey])
+  }, [agents, copy.quoteContextLabel, focusComposerTextarea, updateComposerStateForKey])
   const quoteSelectionInSubagent = useCallback(async (parentAgentId: string, text: string) => {
     const sessionKey = await openSubagent(parentAgentId)
-    const quote = quotedSelectionBlock(text)
+    const quote = quotedSelectionReference(text, copy.quoteContextLabel)
     if (!sessionKey || !quote) return
     const composerKey = `acp:${canonicalProviderSessionKey(sessionKey)}`
     updateComposerStateForKey(composerKey, state => ({
       ...state,
-      draft: appendDraftBlock(state.draft, quote),
+      contextReferences: state.contextReferences?.some(reference => reference.id === quote.id)
+        ? state.contextReferences : [...(state.contextReferences || []), quote],
       history: { ...state.history, cursor: null },
     }))
     window.requestAnimationFrame(() => {
       document.querySelector<HTMLTextAreaElement>('[data-testid="code-subagent-panel"] [data-testid="code-acp-composer-input"]')
         ?.focus({ preventScroll: true })
     })
-  }, [openSubagent, updateComposerStateForKey])
+  }, [copy.quoteContextLabel, openSubagent, updateComposerStateForKey])
   const [chatFollowLatestRequest, setChatFollowLatestRequest] = useState<{ agentId: string; nonce: number } | null>(null)
   const sendComposerMessageToAgent = useCallback((
     agent: Agent,
@@ -2514,7 +2518,7 @@ export function CodeWorkspace({
   } = composerFollowUps
   const composerHasAttachmentMessage = composerAttachmentMessageBlocks(composerAttachments).length > 0
   const composerAttachmentsSendable = composerAttachmentsCanSubmit(composerAttachments)
-  const unavailableContextReferenceIds = composerContextReferences.filter(reference => reference.kind === 'document' ? reference.status !== 'ready' || !reference.text : (reference.kind === 'pasted-text') ? false : reference.kind === 'skill'
+  const unavailableContextReferenceIds = composerContextReferences.filter(reference => reference.kind === 'document' ? reference.status !== 'ready' || !reference.text : (reference.kind === 'quote' || reference.kind === 'pasted-text') ? false : reference.kind === 'skill'
     ? slashCatalogStatus !== 'ready' || !discoveredSlashCommands.some(command => command.source === 'skill'
       && command.command === reference.command && command.scope === reference.source && Boolean(reference.path) && command.skillPath === reference.path)
     : !activeAgent || reference.workspace !== activeAgent.cwd

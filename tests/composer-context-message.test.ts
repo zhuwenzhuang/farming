@@ -17,3 +17,9 @@ test('context rendering keeps skill identity, live paths and captured selection 
   assert.match(text, /Selection from \/workspace\/src\/auth.ts:3-4:\nconst access = true/)
   assert.notEqual(composerContextReferenceId(file), composerContextReferenceId(selection))
 })
+
+
+test('chat quotes retain captured text without inventing a filesystem path', () => {
+  const quote = { id: 'quote', kind: 'quote' as const, label: 'Quote in chat', text: 'original\nanswer' }
+  assert.equal(composerMessageWithContext('My question', [quote]), 'My question\n\nReferenced context:\n- Quote in chat:\noriginal\nanswer')
+})

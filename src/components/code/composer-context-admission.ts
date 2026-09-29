@@ -17,7 +17,7 @@ export async function validateComposerReferences(agent: Agent, references: Compo
       if (reference.status !== 'ready' || !reference.text || !reference.path) throw new Error(`Attachment is not ready: ${reference.label}`)
       continue
     }
-    if (reference.kind === 'skill' || (reference.kind === 'pasted-text')) continue
+    if (reference.kind === 'skill' || (reference.kind === 'quote' || reference.kind === 'pasted-text')) continue
     if (reference.workspace !== agent.cwd || reference.rootId !== projectFilesWorkspaceId(agent.cwd)
       || !reference.path || reference.path.startsWith('/') || reference.path.split('/').includes('..')) {
       throw new Error(`Context belongs to a different workspace: ${reference.label}`)

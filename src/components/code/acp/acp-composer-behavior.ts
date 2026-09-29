@@ -81,7 +81,7 @@ export function submitAcpDraft({
   updateComposerState,
 }: SubmitAcpDraftInput) {
   if (!composerAttachmentsCanSubmit(attachments) || !contextValid) return false
-  if (contextReferences.some(reference => reference.kind === 'document' ? reference.status !== 'ready' || !reference.text : reference.kind !== 'skill' && reference.kind !== 'pasted-text' && (
+  if (contextReferences.some(reference => reference.kind === 'document' ? reference.status !== 'ready' || !reference.text : reference.kind !== 'skill' && reference.kind !== 'quote' && reference.kind !== 'pasted-text' && (
     !agent?.cwd || reference.workspace !== agent.cwd || reference.rootId !== projectFilesWorkspaceId(agent.cwd) || !reference.path
   ))) return false
   const promptAttachments = composerPromptAttachments(attachments)

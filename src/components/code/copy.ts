@@ -32,6 +32,7 @@ export interface CodeCopy {
   foldLongPaste: string
   optimizeImages: string
   showPastedTextInField: string
+  quoteContextLabel: string
   quoteSelection: string
   quoteSelectFirst: string
   quoteSelectionTooLong: string
@@ -742,6 +743,7 @@ const EN_COPY: CodeCopy = {
   foldLongPaste: 'Fold long pasted text',
   optimizeImages: 'Optimize attached images',
   showPastedTextInField: 'Show in text field',
+  quoteContextLabel: 'Quoted text',
   quoteSelection: 'Quote in chat',
   quoteSelectFirst: 'Select code in the editor first.',
   quoteSelectionTooLong: 'Selection is too long to attach. Select at most 6,000 characters.',
@@ -1485,6 +1487,7 @@ const ZH_COPY: CodeCopy = {
   foldLongPaste: '折叠长粘贴文本',
   optimizeImages: '优化附件图片',
   showPastedTextInField: '在输入框中显示',
+  quoteContextLabel: '引用内容',
   quoteSelection: '引用提问',
   quoteSelectFirst: '请先在编辑器中选择代码。',
   quoteSelectionTooLong: '选区过长，最多可引用 6,000 个字符。',

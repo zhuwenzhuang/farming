@@ -756,7 +756,8 @@ function installTerminalTestApi() {
       if (!buffer || typeof buffer.getLine !== 'function') return []
       const rows: string[] = []
       const baseRow = getTerminalVisibleBufferBase(current.terminal)
-      for (let row = 0; row < rowCount; row += 1) {
+      const availableRows = Math.max(0, buffer.length - baseRow)
+      for (let row = 0; row < Math.min(rowCount, availableRows); row += 1) {
         const line = buffer.getLine(baseRow + row)
         const cells: string[] = []
         const cols = current.terminal.cols || line?.length || 0

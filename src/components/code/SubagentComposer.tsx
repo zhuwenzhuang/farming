@@ -53,7 +53,7 @@ export function SubagentComposer({ agent: structuralAgent, active, controller, c
     modelCatalogOpen: false, onModelCatalogError: setError,
   })
   const references = state.contextReferences || []
-  const unavailableReferenceIds = references.filter(reference => reference.kind === 'document' ? reference.status !== 'ready' || !reference.text : (reference.kind === 'pasted-text') ? false : reference.kind === 'skill'
+  const unavailableReferenceIds = references.filter(reference => reference.kind === 'document' ? reference.status !== 'ready' || !reference.text : (reference.kind === 'quote' || reference.kind === 'pasted-text') ? false : reference.kind === 'skill'
     ? slashCatalogStatus !== 'ready' || !discoveredSlashCommands.some(command => command.source === 'skill'
       && command.command === reference.command && command.scope === reference.source && Boolean(reference.path) && command.skillPath === reference.path)
     : reference.workspace !== agent.cwd || reference.rootId !== projectFilesWorkspaceId(agent.cwd) || !reference.path).map(reference => reference.id)

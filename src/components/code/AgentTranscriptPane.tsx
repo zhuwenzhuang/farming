@@ -1,3 +1,4 @@
+import { useInteractionLayer } from '@/hooks/useInteractionLayer'
 import { useAcpRevisionInterest } from '@/lib/acp-revision-interest'
 import { useQuestionPresentation } from './acp/acp-elicitation-presentation'
 import { AcpQuestionContext, AcpTranscriptQuestion } from './acp/AcpTranscriptQuestion'
@@ -3039,8 +3040,6 @@ export function AgentTranscriptPane({
   const [showJumpToBottom, setShowJumpToBottom] = useState(false)
   const [selectionAction, setSelectionAction] = useState<{
     text: string
-    left: number
-    top: number
   } | null>(null)
   const [imagePreview, setImagePreview] = useState<TranscriptImagePreview | null>(null)
   const imagePreviewTriggerRef = useRef<HTMLButtonElement | null>(null)
@@ -3055,6 +3054,61 @@ export function AgentTranscriptPane({
     uncommittedPaths: ReadonlySet<string> | null
   }>({ owner: '', target: unavailableTranscriptGitDiffTarget, uncommittedPaths: null })
   const scrollRef = useRef<HTMLDivElement | null>(null)
+  const selectionToolbarRef = useRef<HTMLDivElement | null>(null)
+  useInteractionLayer({
+    enabled: Boolean(selectionAction),
+    elements: () => [scrollRef.current, selectionToolbarRef.current],
+    onDismiss: () => setSelectionAction(null),
+  })
+  useLayoutEffect(() => {
+    const toolbar = selectionToolbarRef.current
+    const scroller = scrollRef.current
+    const selection = window.getSelection()
+    if (!selectionAction || !toolbar || !scroller || !selection?.rangeCount) return
+    const range = selection.getRangeAt(0).cloneRange()
+    const backwards = selection.focusNode === range.startContainer && selection.focusOffset === range.startOffset
+    let frame = 0
+    const position = () => {
+      frame = 0
+      toolbar.style.visibility = 'hidden'
+      if (!range.startContainer.isConnected || !range.endContainer.isConnected) return
+      const viewport = window.visualViewport
+      const bounds = scroller.getBoundingClientRect()
+      const left = Math.max(bounds.left, viewport?.offsetLeft || 0) + 8
+      const right = Math.min(bounds.right, (viewport?.offsetLeft || 0) + (viewport?.width || window.innerWidth)) - 8
+      const top = Math.max(bounds.top, viewport?.offsetTop || 0)
+      const bottom = Math.min(bounds.bottom, (viewport?.offsetTop || 0) + (viewport?.height || window.innerHeight))
+      const rects = Array.from(range.getClientRects()).filter(rect => rect.width > 0 && rect.height > 0)
+      const anchor = backwards ? rects[0] : rects[rects.length - 1]
+      if (!anchor || anchor.top < top || anchor.bottom > bottom || anchor.right <= left || anchor.left >= right || right <= left) return
+      toolbar.style.maxWidth = `${right - left}px`
+      const size = toolbar.getBoundingClientRect()
+      const y = anchor.top - size.height - 8 >= top
+        ? anchor.top - size.height - 8 : anchor.bottom + 8
+      if (y + size.height > bottom) return
+      toolbar.style.left = `${Math.max(left, Math.min(right - size.width, anchor.left + anchor.width / 2 - size.width / 2))}px`
+      toolbar.style.top = `${y}px`
+      toolbar.style.visibility = 'visible'
+    }
+    const schedule = () => { if (!frame) frame = window.requestAnimationFrame(position) }
+    position()
+    const observer = new ResizeObserver(schedule)
+    observer.observe(scroller)
+    observer.observe(toolbar)
+    if (scroller.firstElementChild) observer.observe(scroller.firstElementChild)
+    window.addEventListener('scroll', schedule, true)
+    window.addEventListener('resize', schedule)
+    window.visualViewport?.addEventListener('resize', schedule)
+    window.visualViewport?.addEventListener('scroll', schedule)
+    return () => {
+      window.cancelAnimationFrame(frame)
+      observer.disconnect()
+      window.removeEventListener('scroll', schedule, true)
+      window.removeEventListener('resize', schedule)
+      window.visualViewport?.removeEventListener('resize', schedule)
+      window.visualViewport?.removeEventListener('scroll', schedule)
+    }
+  }, [selectionAction])
   useEffect(() => {
     if (!active || !onQuoteSelection) {
       setSelectionAction(null)
@@ -3090,19 +3144,7 @@ export function AgentTranscriptPane({
           return
         }
         const text = selection.toString().trim().slice(0, 6000)
-        const range = selection.getRangeAt(0)
-        const rect = range.getBoundingClientRect().width > 0
-          ? range.getBoundingClientRect()
-          : range.getClientRects()[0]
-        if (!text || !rect) {
-          setSelectionAction(null)
-          return
-        }
-        setSelectionAction({
-          text,
-          left: Math.min(window.innerWidth - 12, Math.max(12, rect.left + rect.width / 2)),
-          top: Math.max(12, rect.top - 8),
-        })
+        setSelectionAction(text ? { text } : null)
       })
     }
     const handleKeyUp = (event: KeyboardEvent) => {
@@ -4328,7 +4370,8 @@ export function AgentTranscriptPane({
         <div
           className="code-agent-transcript-selection-actions"
           data-testid="code-agent-transcript-selection-actions"
-          style={{ left: selectionAction.left, top: selectionAction.top }}
+          ref={selectionToolbarRef}
+          style={{ visibility: 'hidden' }}
           role="toolbar"
           aria-label={copy.quoteSelection}
           onPointerDown={event => {

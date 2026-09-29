@@ -1792,13 +1792,14 @@
   z-index: 140;
   display: inline-flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 2px;
   padding: 4px;
-  border: 1px solid var(--code-panel-border);
+  border: 0;
   border-radius: 10px;
-  background: var(--code-bg-surface);
+  background: var(--code-text-strong);
+  color: var(--code-bg-canvas);
   box-shadow: var(--code-shadow-soft);
-  transform: translate(-50%, -100%);
 }
 
 .code-agent-transcript-selection-actions button {
@@ -1807,7 +1808,7 @@
   border: 0;
   border-radius: 7px;
   background: transparent;
-  color: var(--code-text);
+  color: inherit;
   font: inherit;
   font-size: 13px;
   white-space: nowrap;
@@ -1816,7 +1817,7 @@
 
 .code-agent-transcript-selection-actions button:hover,
 .code-agent-transcript-selection-actions button:focus-visible {
-  background: var(--code-bg-hover);
+  background: color-mix(in srgb, currentColor 15%, transparent);
   outline: none;
 }
 

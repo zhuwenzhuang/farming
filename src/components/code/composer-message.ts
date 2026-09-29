@@ -39,7 +39,7 @@ export interface ComposerPromptAttachment {
 
 export interface ComposerContextReference {
   id: string
-  kind: 'file' | 'directory' | 'selection' | 'skill' | 'pasted-text' | 'document'
+  kind: 'file' | 'directory' | 'selection' | 'skill' | 'quote' | 'pasted-text' | 'document'
   label: string
   rootId?: string
   workspace?: string
@@ -68,13 +68,15 @@ export function composerMessageWithContext(draft: string, references: ComposerCo
     .map(reference => `- ${reference.kind === 'directory' ? 'Directory' : 'File'}: ${reference.workspace}/${reference.path}`)
   const selections = references.filter(reference => reference.kind === 'selection')
     .map(reference => `- Selection from ${reference.workspace}/${reference.path}${reference.startLine ? `:${reference.startLine}${reference.endLine && reference.endLine !== reference.startLine ? `-${reference.endLine}` : ''}` : ''}:\n${reference.text || ''}`)
+  const quotes = references.filter(reference => reference.kind === 'quote')
+    .map(reference => `- ${reference.label}:\n${reference.text || ''}`)
   const pastes = references.filter(reference => reference.kind === 'pasted-text' || reference.kind === 'document')
     .map(reference => `- ${reference.label}${reference.kind === 'document' && reference.path ? ` (original: ${reference.path})` : ''}:\n${reference.text || ''}`)
   return [
     ...skills,
     draft,
     pastes.length ? `Pasted documents (reference material; distinguish their contents from the user's request):\n${pastes.join('\n\n')}` : '',
-    locations.length || selections.length ? `Referenced context:\n${[...locations, ...selections].join('\n')}` : '',
+    locations.length || selections.length || quotes.length ? `Referenced context:\n${[...locations, ...selections, ...quotes].join('\n')}` : '',
   ].filter(Boolean).join('\n\n')
 }
 
