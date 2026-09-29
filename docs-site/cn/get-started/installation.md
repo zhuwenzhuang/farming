@@ -24,17 +24,28 @@ farming daemon
 安装脚本准备专用的 Node.js 和 npm。这是独立应用目录，不是项目内的 `npm install`。下面的示例指定 `$HOME/farming`：
 
 ```bash
-curl -fsSL https://zhuwenzhuang.github.io/farming/install.sh | FARMING_INSTALL_ROOT="$HOME/farming" bash
+curl -fLO https://zhuwenzhuang.github.io/farming/farming_install.sh
+bash farming_install.sh --dir ~/farming
 ```
+
+也可以 <a href="../../farming_install.sh" download="farming_install.sh">下载安装脚本</a>。
+在证书正常的浏览器中下载；如果浏览器和开发机不在同一台机器上，先通过 SSH 将文件传到开发机。
+进入文件所在目录后执行：
+
+```bash
+bash farming_install.sh --dir ~/farming
+```
+
+此方式不要求开发机连接官网，但后续仍需正常验证 npm registry 的 HTTPS 证书。
 
 无需 sudo 或系统 Node.js。脚本只负责安装，重复执行会保留已有安装，不启动或重启 Farming；更新通过设置完成。
 
-示例中的程序目录是 `$HOME/farming`，启动入口是 `$HOME/farming/farming`。不设置 `FARMING_INSTALL_ROOT` 时，程序默认位于 `~/.local/share/farming/app`（支持 `XDG_DATA_HOME`）。安装脚本默认还会在 `~/.local/bin/farming` 创建指向程序目录的命令链接；下方命令不依赖该链接或 PATH。
+示例中的程序目录是 `$HOME/farming`，启动入口是 `$HOME/farming/farming`。不设置 `--dir` 或 `FARMING_INSTALL_ROOT` 时，程序默认位于 `~/.local/share/farming/app`（支持 `XDG_DATA_HOME`）。安装脚本默认还会在 `~/.local/bin/farming` 创建指向程序目录的命令链接；下方命令不依赖该链接或 PATH。
 
 指定 npm registry：
 
 ```bash
-curl -fsSL https://zhuwenzhuang.github.io/farming/install.sh | FARMING_INSTALL_ROOT="$HOME/farming" FARMING_NPM_REGISTRY=https://registry.npmjs.org bash
+FARMING_NPM_REGISTRY=https://registry.npmjs.org bash farming_install.sh --dir ~/farming
 ```
 
 已有 npm registry 配置可用时会自动沿用，所选 registry 会保留给后续启动和更新。`FARMING_VERSION` 可指定版本，`FARMING_INSTALL_ROOT` 和 `FARMING_BIN_DIR` 可指定绝对安装路径。自定义 bin 目录时，请使用安装脚本输出的 CLI 启动命令。
@@ -44,7 +55,8 @@ npm 下载缓存和保留的更新版本都在安装目录内。选择其它磁�
 ## 启动后台服务
 
 ```bash
-"$HOME/farming/farming" daemon
+cd ~/farming
+./farming daemon
 ```
 
 打开 CLI 输出的带鉴权 URL 即可使用。默认情况下，Farming 使用自己的配置目录和端口。只有需要隔离不同实例或端口冲突时，才传入 `--config-dir`、`--port` 或 `--base-path`。
@@ -78,6 +90,10 @@ npm uninstall --global farming-code
 ## 平台说明
 
 指定目录安装脚本面向 macOS x64/arm64 和 glibc Linux x64/arm64。Linux 要求 glibc 2.28+；
-x64 主机的 glibc 2.17–2.27 使用私有兼容运行库。仍需 Bash、curl、tar 和 OpenSSL，
+x64 主机的 glibc 2.17–2.27 使用私有兼容运行库。仍需 Bash、curl、tar，以及 SHA-512 校验工具：`sha512sum` 或 `shasum`（配合 `base64`、`od`），或 OpenSSL；
 不支持 musl Linux 或更旧的 glibc。脚本不会升级系统库、修改 Shell 启动文件或设置开机自启。
 Provider 仍需登录，外部项目工具也有各自的系统要求。
+
+逐条执行命令，每步成功后再继续。`--dir` 的优先级高于 `FARMING_INSTALL_ROOT`。旧系统下载前需具备最新的 CA 信任库。
+若出现 `curl: (60)`，请通过可信系统软件源更新 CA 证书，或用 `CURL_CA_BUNDLE` 指定可信证书包，
+不要关闭 TLS 校验。安装脚本不会修改系统证书或安装系统软件包。

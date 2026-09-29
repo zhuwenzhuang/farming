@@ -32,13 +32,15 @@ farming daemon
 ```
 
 ```bash [Directory install]
-curl -fsSL https://zhuwenzhuang.github.io/farming/install.sh | FARMING_INSTALL_ROOT="$HOME/farming" bash
-"$HOME/farming/farming" daemon
+curl -fLO https://zhuwenzhuang.github.io/farming/farming_install.sh
+bash farming_install.sh --dir ~/farming
+cd ~/farming
+./farming daemon
 ```
 
 :::
 
-Both methods install first; the second command starts Farming in the background and prints authenticated URLs. On the same machine, open the local address. The directory example runs the CLI from the chosen installation directory without modifying PATH.
+Both methods install first, then start Farming in the background and print authenticated URLs. Run each step separately and proceed only after it succeeds. On the same machine, open the local address. The directory example runs the CLI from the chosen installation directory without modifying PATH.
 
 ::: warning Protect authenticated URLs
 The Token in an authenticated URL grants access to Farming. Do not put it in public logs, screenshots, issues, or chat messages.

@@ -40,6 +40,7 @@ docs/products/hive/
 docs-site/public/**/*.webp
 docs-site/public/farming-favicon.png
 docs-site/public/install.sh
+docs-site/public/farming_install.sh
 tmp/
 test-results/
 playwright-report/

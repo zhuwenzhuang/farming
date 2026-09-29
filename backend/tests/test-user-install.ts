@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { spawn, execFileSync } from 'node:child_process';
+import { spawn, spawnSync, execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -10,14 +10,18 @@ import { test } from 'node:test';
 const projectRoot = path.resolve(__dirname, '../..');
 const quote = (value: string) => `'${value.replace(/'/g, `'\\''`)}'`;
 
-async function fixture(legacy = false) {
+type IntegrityTool = 'sha512sum' | 'shasum' | 'openssl';
+const hasTool = (name: string) => spawnSync('/bin/sh', ['-c', `command -v ${name}`]).status === 0;
+
+async function fixture(legacy = false, integrityTool: IntegrityTool = 'openssl') {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-user-install-'));
   const archives = new Map<string, Buffer>();
   const fakePath = path.join(directory, 'tools');
   fs.mkdirSync(fakePath);
+  const integrityTools = integrityTool === 'openssl' ? ['openssl'] : [integrityTool, 'base64', 'od'];
   // Deliberately no node or npm in PATH. Their fixtures call a known absolute
   // executable so these tests neither download nor depend on a system install.
-  for (const name of ['bash', 'dirname', 'mkdir', 'rmdir', 'rm', 'readlink', 'openssl', 'tar', 'gzip', 'curl', 'sed', 'tr', 'mktemp', 'chmod', 'touch', 'mv', 'ln', 'cat']) {
+  for (const name of ['bash', 'dirname', 'mkdir', 'rmdir', 'rm', 'readlink', ...integrityTools, 'tar', 'gzip', 'curl', 'sed', 'tr', 'mktemp', 'chmod', 'touch', 'mv', 'ln', 'cat']) {
     const target = execFileSync('/bin/sh', ['-c', `command -v ${name}`], { encoding: 'utf8' }).trim();
     fs.symlinkSync(target, path.join(fakePath, name));
   }
@@ -27,6 +31,10 @@ async function fixture(legacy = false) {
   };
   executable(path.join(fakePath, 'uname'), `#!/bin/sh\ncase "$1" in -s) echo ${legacy ? 'Linux' : 'Darwin'};; -m) echo ${legacy ? 'x86_64' : 'arm64'};; esac\n`);
   executable(path.join(fakePath, 'getconf'), '#!/bin/sh\necho "glibc 2.17"\n');
+  const extractions = path.join(directory, 'extractions');
+  const tar = fs.readlinkSync(path.join(fakePath, 'tar'));
+  fs.unlinkSync(path.join(fakePath, 'tar'));
+  executable(path.join(fakePath, 'tar'), `#!/bin/sh\nprintf '%s\\n' extracting >> ${quote(extractions)}\nexec ${quote(tar)} "$@"\n`);
   const carrier = legacy ? 'node-linux-x64' : 'node-bin-darwin-arm64';
   function pack(name: string, version: string, prepare: (root: string) => void) {
     const root = path.join(directory, 'packages', name, 'package');
@@ -74,7 +82,7 @@ fs.appendFileSync(process.env.FARMING_TEST_CALLS, JSON.stringify({command:proces
       response.setHeader('content-type', 'application/json');
       response.end(JSON.stringify({ name, dist: {
         tarball: `http://127.0.0.1:${address.port}/${name}/archive.tgz`,
-        integrity: `sha512-${corrupt ? 'invalid' : createHash('sha512').update(body).digest('base64')}`,
+        integrity: `sha512-${createHash('sha512').update(corrupt ? Buffer.from('tampered') : body).digest('base64')}`,
       } }));
     };
     send();
@@ -103,7 +111,7 @@ fs.appendFileSync(process.env.FARMING_TEST_CALLS, JSON.stringify({command:proces
   }
   const run = (args: string[] = [], env: NodeJS.ProcessEnv = {}) => shell([path.join(projectRoot, 'bin/install.sh'), ...args], env);
   const start = (command: string) => shell(['-c', command], { FARMING_NPM_REGISTRY: '', npm_config_registry: '' });
-  return { directory, root, bin, calls, run, start, fakePath,
+  return { directory, root, bin, calls, run, start, fakePath, extractions,
     requests: () => requests,
     corrupt: () => { corrupt = true; },
     async close() {
@@ -113,55 +121,117 @@ fs.appendFileSync(process.env.FARMING_TEST_CALLS, JSON.stringify({command:proces
   };
 }
 
-for (const legacy of [false, true]) {
-  test(`user installer without system Node, legacy=${legacy}`, async () => {
-    const f = await fixture(legacy);
-    try {
-      const first = await f.run();
-      assert.equal(first.code, 0, first.output);
-      assert(fs.existsSync(path.join(f.root, '.farming-user-install-v1')));
-      assert.equal(fs.readlinkSync(path.join(f.bin, 'farming')), path.join(f.root, 'farming'));
-      const installedCalls = fs.readFileSync(f.calls, 'utf8');
-      assert.deepEqual(installedCalls.trim().split('\n').map(line => JSON.parse(line).command), ['runtime'],
-        'installation must verify the runtime without starting a daemon');
-      const startCommand = first.output.match(/Start Farming:\n {2}(.+)\n/)?.[1];
-      assert(startCommand, 'installer must print a shell-safe CLI command');
-      const started = await f.start(startCommand);
-      assert.equal(started.code, 0, started.output);
-      const startedCalls = fs.readFileSync(f.calls, 'utf8');
-      const before = f.requests();
-      const second = await f.run([], { FARMING_NPM_REGISTRY: '', npm_config_registry: '' });
-      assert.equal(second.code, 0, second.output);
-      assert.equal(f.requests(), before, 'repeat install must not overwrite or download');
-      assert.equal(fs.readFileSync(f.calls, 'utf8'), startedCalls, 'repeat install must not invoke the existing application');
-      const restarted = await f.start(startCommand);
-      assert.equal(restarted.code, 0, restarted.output);
-      const calls = fs.readFileSync(f.calls, 'utf8').trim().split('\n').map(line => JSON.parse(line));
-      assert.deepEqual(calls.map(call => call.command), ['runtime', 'daemon', 'daemon']);
-      assert(calls[1].runtime.startsWith(f.root), 'published launcher must not use deleted staging paths');
-      assert.equal(calls[1].cache, path.join(f.root, 'cache/npm'));
-      assert.equal(calls[1].images, path.join(f.root, 'packages'));
-      assert.match(calls[1].registry, /^http:\/\/127\.0\.0\.1:/);
-      assert.equal(calls[2].registry, calls[1].registry, 'subsequent launches and updates must retain the selected registry');
-      assert(!fs.existsSync(`${f.root}.install-lock`));
-    } finally { await f.close(); }
-  });
+for (const integrityTool of ['sha512sum', 'shasum', 'openssl'] as const) {
+  for (const legacy of [false, true]) {
+    test(`user installer without system Node, legacy=${legacy}, SHA-512=${integrityTool}`, { skip: !hasTool(integrityTool) }, async () => {
+      const f = await fixture(legacy, integrityTool);
+      try {
+        const first = await f.run();
+        assert.equal(first.code, 0, first.output);
+        assert(fs.existsSync(path.join(f.root, '.farming-user-install-v1')));
+        assert.equal(fs.readlinkSync(path.join(f.bin, 'farming')), path.join(f.root, 'farming'));
+        const installedCalls = fs.readFileSync(f.calls, 'utf8');
+        assert.deepEqual(installedCalls.trim().split('\n').map(line => JSON.parse(line).command), ['runtime'],
+          'installation must verify the runtime without starting a daemon');
+        const startCommand = first.output.match(/Start Farming:\n {2}(.+)\n/)?.[1];
+        assert(startCommand, 'installer must print a shell-safe CLI command');
+        const started = await f.start(startCommand);
+        assert.equal(started.code, 0, started.output);
+        const startedCalls = fs.readFileSync(f.calls, 'utf8');
+        const before = f.requests();
+        const second = await f.run([], { FARMING_NPM_REGISTRY: '', npm_config_registry: '' });
+        assert.equal(second.code, 0, second.output);
+        assert.equal(f.requests(), before, 'repeat install must not overwrite or download');
+        assert.equal(fs.readFileSync(f.calls, 'utf8'), startedCalls, 'repeat install must not invoke the existing application');
+        const restarted = await f.start(startCommand);
+        assert.equal(restarted.code, 0, restarted.output);
+        const calls = fs.readFileSync(f.calls, 'utf8').trim().split('\n').map(line => JSON.parse(line));
+        assert.deepEqual(calls.map(call => call.command), ['runtime', 'daemon', 'daemon']);
+        assert(calls[1].runtime.startsWith(f.root), 'published launcher must not use deleted staging paths');
+        assert.equal(calls[1].cache, path.join(f.root, 'cache/npm'));
+        assert.equal(calls[1].images, path.join(f.root, 'packages'));
+        assert.match(calls[1].registry, /^http:\/\/127\.0\.0\.1:/);
+        assert.equal(calls[2].registry, calls[1].registry, 'subsequent launches and updates must retain the selected registry');
+        assert(!fs.existsSync(`${f.root}.install-lock`));
+      } finally { await f.close(); }
+    });
+  }
 }
 
 test('installer reports missing base tools together before downloading', async () => {
   const f = await fixture();
   try {
-    fs.unlinkSync(path.join(f.fakePath, 'openssl'));
     fs.unlinkSync(path.join(f.fakePath, 'tar'));
+    fs.unlinkSync(path.join(f.fakePath, 'gzip'));
     const result = await f.run();
     assert.notEqual(result.code, 0);
-    assert.match(result.output, /Missing basic tools: tar openssl/);
+    assert.match(result.output, /Missing basic tools: tar gzip/);
     assert.match(result.output, /Node.js and npm are downloaded automatically/);
     assert.equal(f.requests(), 0);
     assert(!fs.existsSync(f.root));
     assert(!fs.existsSync(`${f.root}.install-lock`));
   } finally { await f.close(); }
 });
+
+test('installer requires a SHA-512 verifier before downloading', async () => {
+  const f = await fixture();
+  try {
+    fs.unlinkSync(path.join(f.fakePath, 'openssl'));
+    const result = await f.run();
+    assert.notEqual(result.code, 0);
+    assert.match(result.output, /Missing SHA-512 tools/);
+    assert.equal(f.requests(), 0);
+    assert(!fs.existsSync(f.root));
+    assert(!fs.existsSync(`${f.root}.install-lock`));
+  } finally { await f.close(); }
+});
+
+test('installer --dir takes precedence over the environment and preserves spaces', async () => {
+  const f = await fixture();
+  try {
+    const unusedRoot = path.join(f.directory, 'unused-install');
+    const result = await f.run(['--dir', f.root], { FARMING_INSTALL_ROOT: unusedRoot });
+    assert.equal(result.code, 0, result.output);
+    assert(fs.existsSync(path.join(f.root, '.farming-user-install-v1')));
+    assert(!fs.existsSync(unusedRoot));
+    assert.equal(fs.readlinkSync(path.join(f.bin, 'farming')), path.join(f.root, 'farming'));
+  } finally { await f.close(); }
+});
+
+for (const tool of ['sha512sum', 'shasum', 'openssl'] as const) {
+  test(`installer rejects tampered archives before extraction with ${tool}`, { skip: !hasTool(tool) }, async () => {
+    const f = await fixture(false, tool);
+    try {
+      f.corrupt();
+      const result = await f.run();
+      assert.notEqual(result.code, 0);
+      assert.match(result.output, /SHA-512 verification failed/);
+      assert(!fs.existsSync(f.extractions));
+      assert(!fs.existsSync(f.root));
+      assert(!fs.existsSync(`${f.root}.install-lock`));
+      assert(!fs.readdirSync(f.directory).some(name => name.includes('.staging.')));
+    } finally { await f.close(); }
+  });
+}
+
+for (const tool of ['sha512sum', 'base64'] as const) {
+  test(`installer stops on ${tool} execution failure without switching tools`, { skip: !hasTool('sha512sum') }, async () => {
+    const f = await fixture(false, 'sha512sum');
+    try {
+      const realTool = fs.readlinkSync(path.join(f.fakePath, tool));
+      fs.unlinkSync(path.join(f.fakePath, tool));
+      // Even correct output must not hide a failed verifier/decoder exit.
+      fs.writeFileSync(path.join(f.fakePath, tool), `#!/bin/sh\n${quote(realTool)} "$@"\nexit 1\n`, { mode: 0o755 });
+      fs.writeFileSync(path.join(f.fakePath, 'openssl'), '#!/bin/sh\necho unexpected-fallback >&2\nexit 1\n', { mode: 0o755 });
+      const result = await f.run();
+      assert.notEqual(result.code, 0);
+      assert.match(result.output, /SHA-512 verification failed/);
+      assert.doesNotMatch(result.output, /unexpected-fallback/);
+      assert(!fs.existsSync(f.extractions));
+      assert(!fs.existsSync(f.root));
+    } finally { await f.close(); }
+  });
+}
 
 for (const failure of ['integrity', 'preflight', 'existing-entry', 'unmanaged-root']) {
   test(`installer preserves user files on ${failure} failure`, async () => {
@@ -201,7 +271,7 @@ test('installer help and unsupported startup options do not install or launch', 
     const help = await f.run(['--help']);
     assert.equal(help.code, 0, help.output);
     assert.match(help.output, /Start it separately with the Farming CLI/);
-    for (const args of [['--start'], ['--no-start'], ['--help', '--start']]) {
+    for (const args of [['--start'], ['--no-start'], ['--help', '--start'], ['--dir'], ['--dir', ''], ['--dir', 'relative'], ['--dir', '/unused', 'extra']]) {
       const result = await f.run(args);
       assert.notEqual(result.code, 0, result.output);
     }

@@ -151,6 +151,16 @@ from the selected npm registry. A system Node.js, global npm prefix, root
 permission, and npm lifecycle scripts are not prerequisites. Linux x64 images
 carry the reviewed private glibc runtime for hosts with glibc 2.17–2.27.
 
+The public setup presents separate download, install, change-directory, and start
+commands. The download must succeed before the user executes the script. `--dir`
+selects an absolute installation directory and overrides `FARMING_INSTALL_ROOT`.
+Downloading requires a trusted host CA store; the installer never disables TLS verification or changes system
+trust. Before downloading packages, it selects an available SHA-512 verifier
+(`sha512sum`, `shasum`, or OpenSSL). The first two use `base64` and `od` to decode
+npm integrity metadata. A missing verifier, failed verification command, or digest
+mismatch fails explicitly before extraction; verification failure never switches
+tools or skips integrity checks.
+
 The installer owns only its private staging directory and installation lock.
 Its transitions are downloading, verifying, preparing, publishing, and installed.
 All archives are integrity-checked before extraction, and native runtime

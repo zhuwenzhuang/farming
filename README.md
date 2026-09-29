@@ -33,8 +33,10 @@ farming daemon
 **Directory installation** — installs into a directory you choose, with its own Node.js and compatibility for supported older Linux hosts.
 
 ```bash
-curl -fsSL https://zhuwenzhuang.github.io/farming/install.sh | FARMING_INSTALL_ROOT="$HOME/farming" bash
-"$HOME/farming/farming" daemon
+curl -fLO https://zhuwenzhuang.github.io/farming/farming_install.sh
+bash farming_install.sh --dir ~/farming
+cd ~/farming
+./farming daemon
 ```
 
 macOS / Linux. Choose one method, then open the printed URL and choose **New Agent**.

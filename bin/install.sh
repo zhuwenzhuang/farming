@@ -1,15 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# This is also served verbatim by the documentation site as /install.sh.
+# Served verbatim as /farming_install.sh; /install.sh remains a compatible URL.
 main() {
-  [ "$#" -le 1 ] || { echo 'Usage: bash install.sh [--help]' >&2; return 1; }
+  local root="${FARMING_INSTALL_ROOT:-${XDG_DATA_HOME:-${HOME}/.local/share}/farming/app}"
   case "${1:-}" in
-    '') ;;
-    --help) printf '%s\n' 'Usage: bash install.sh [--help]' 'Installs Farming only. Start it separately with the Farming CLI.' 'Optional: FARMING_VERSION, FARMING_NPM_REGISTRY, FARMING_INSTALL_ROOT, FARMING_BIN_DIR'; return ;;
+    '') [ "$#" = 0 ] || { echo 'Unexpected empty argument.' >&2; return 1; } ;;
+    --help)
+      [ "$#" = 1 ] || { echo 'Usage: bash farming_install.sh [--dir DIRECTORY] [--help]' >&2; return 1; }
+      printf '%s\n' 'Usage: bash farming_install.sh [--dir DIRECTORY]' '       bash farming_install.sh --help' 'Installs Farming only. Start it separately with the Farming CLI.' '--dir selects an absolute installation directory and overrides FARMING_INSTALL_ROOT.' 'Optional: FARMING_VERSION, FARMING_NPM_REGISTRY, FARMING_INSTALL_ROOT, FARMING_BIN_DIR'
+      return ;;
+    --dir)
+      [ "$#" = 2 ] && [ -n "$2" ] || { echo 'Usage: bash farming_install.sh --dir DIRECTORY' >&2; return 1; }
+      root="$2" ;;
     *) echo "Unknown installer argument: $1" >&2; return 1 ;;
   esac
-  local root="${FARMING_INSTALL_ROOT:-${XDG_DATA_HOME:-${HOME}/.local/share}/farming/app}"
   local bin_dir="${FARMING_BIN_DIR:-${HOME}/.local/bin}"
   case "${root}:${bin_dir}" in /*:/*) ;; *) echo 'Installation and bin directories must be absolute.' >&2; return 1 ;; esac
   local carrier
@@ -71,13 +76,15 @@ main() {
       *) echo 'FARMING_NPM_REGISTRY must be an HTTPS npm registry.' >&2; exit 1 ;;
     esac
     local missing='' command
-    for command in curl tar gzip openssl sed tr mktemp chmod touch mv ln cat; do
+    for command in curl tar gzip sed tr mktemp chmod touch mv ln cat; do
       command -v "${command}" >/dev/null || missing="${missing} ${command}"
     done
     if [ -n "${missing}" ]; then
       echo "Missing basic tools:${missing}. Install these tools and run the installer again. Node.js and npm are downloaded automatically." >&2
       exit 1
     fi
+    local integrity_tool
+    integrity_tool="$(select_integrity_tool)"
     stage="$(mktemp -d "${root}.staging.XXXXXX")"
     local requested="${FARMING_VERSION:-latest}"
     case "${requested}" in *[!A-Za-z0-9.+-]*|'') echo 'Invalid FARMING_VERSION.' >&2; exit 1 ;; esac
@@ -167,8 +174,44 @@ download() {
   curl --fail --silent --show-error --location --connect-timeout 20 --max-time 600 --retry 2 "$1" -o "$2"
 }
 
+select_integrity_tool() {
+  local tool
+  if command -v base64 >/dev/null && command -v od >/dev/null; then
+    for tool in sha512sum shasum; do
+      if command -v "${tool}" >/dev/null; then
+        printf '%s\n' "${tool}"
+        return
+      fi
+    done
+  fi
+  if command -v openssl >/dev/null; then
+    echo openssl
+    return
+  fi
+  echo 'Missing SHA-512 tools: install sha512sum or shasum (with base64 and od), or openssl. Nothing downloaded.' >&2
+  return 1
+}
+
+verify_integrity() {
+  local archive="$1" expected="$2" actual
+  [[ "${expected}" =~ ^sha512-[A-Za-z0-9+/]{86}==$ ]] || return 1
+  if [ "${integrity_tool}" = openssl ]; then
+    actual="sha512-$(openssl dgst -sha512 -binary "${archive}" | openssl base64 -A)" || return 1
+  else
+    expected="$(printf '%s' "${expected#sha512-}" | base64 -d | od -An -v -tx1 | tr -d ' \n')" || return 1
+    [ "${#expected}" = 128 ] || return 1
+    case "${integrity_tool}" in
+      sha512sum) actual="$(sha512sum "${archive}")" || return 1 ;;
+      shasum) actual="$(shasum -a 512 "${archive}")" || return 1 ;;
+      *) return 1 ;;
+    esac
+    actual="${actual%% *}"
+  fi
+  [ "${actual}" = "${expected}" ]
+}
+
 fetch_package() {
-  local name="$1" version="$2" destination="$3" url expected actual
+  local name="$1" version="$2" destination="$3" url expected
   mkdir -p "${destination}"
   download "${registry}/${name}/${version}" "${destination}/metadata.json"
   url="$(json_string tarball "${destination}/metadata.json")"
@@ -177,8 +220,7 @@ fetch_package() {
   case "${url}" in https://*|http://127.0.0.1:*/*|http://localhost:*/*) ;; *) echo "Invalid npm tarball URL for ${name}." >&2; exit 1 ;; esac
   case "${expected}" in sha512-*) ;; *) echo "Missing SHA-512 npm integrity for ${name}." >&2; exit 1 ;; esac
   download "${url}" "${destination}.tgz"
-  actual="sha512-$(openssl dgst -sha512 -binary "${destination}.tgz" | openssl base64 -A)"
-  [ "${actual}" = "${expected}" ] || { echo "Integrity mismatch for ${name}; nothing installed." >&2; exit 1; }
+  verify_integrity "${destination}.tgz" "${expected}" || { echo "SHA-512 verification failed for ${name}; nothing installed." >&2; exit 1; }
   tar -xzf "${destination}.tgz" -C "${destination}"
   [ -f "${destination}/package/package.json" ] || { echo "Invalid package archive: ${name}" >&2; exit 1; }
 }

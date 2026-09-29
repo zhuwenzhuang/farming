@@ -23,17 +23,29 @@ This method uses your existing Node.js and npm configuration; it does not config
 The installer provides private Node.js and npm. This is a separate application directory, not a project-local `npm install`. This example chooses `$HOME/farming`:
 
 ```bash
-curl -fsSL https://zhuwenzhuang.github.io/farming/install.sh | FARMING_INSTALL_ROOT="$HOME/farming" bash
+curl -fLO https://zhuwenzhuang.github.io/farming/farming_install.sh
+bash farming_install.sh --dir ~/farming
 ```
+
+You can also <a href="../../farming_install.sh" download="farming_install.sh">download the installer</a>
+in a browser with a current CA trust store. If the browser is on another machine,
+transfer the file to the development machine over SSH, then run it from the download directory:
+
+```bash
+bash farming_install.sh --dir ~/farming
+```
+
+This avoids connecting to the documentation site from the development machine;
+HTTPS certificate verification for the npm registry is still required.
 
 No sudo or system Node.js is required. The installer only installs; repeating it preserves the existing installation without starting or restarting Farming. Update it through Settings.
 
-The example's program and launcher are at `$HOME/farming` and `$HOME/farming/farming`. Without `FARMING_INSTALL_ROOT`, the default program directory is `~/.local/share/farming/app` (`XDG_DATA_HOME` is respected). The installer also creates a command link at `~/.local/bin/farming` by default; it points to the chosen program directory and is optional for the commands shown here.
+The example's program and launcher are at `$HOME/farming` and `$HOME/farming/farming`. Without `--dir` or `FARMING_INSTALL_ROOT`, the default program directory is `~/.local/share/farming/app` (`XDG_DATA_HOME` is respected). The installer also creates a command link at `~/.local/bin/farming` by default; it points to the chosen program directory and is optional for the commands shown here.
 
 Use your preferred npm registry:
 
 ```bash
-curl -fsSL https://zhuwenzhuang.github.io/farming/install.sh | FARMING_INSTALL_ROOT="$HOME/farming" FARMING_NPM_REGISTRY=https://registry.npmjs.org bash
+FARMING_NPM_REGISTRY=https://registry.npmjs.org bash farming_install.sh --dir ~/farming
 ```
 
 Existing npm registry configuration is used when available. The selected registry is saved for later launches and updates. `FARMING_VERSION` selects an exact release; `FARMING_INSTALL_ROOT` and `FARMING_BIN_DIR` select absolute installation paths. For a custom bin directory, use the CLI startup command printed by the installer.
@@ -43,7 +55,8 @@ The npm download cache and retained update versions stay inside the installation
 ## Start the background service
 
 ```bash
-"$HOME/farming/farming" daemon
+cd ~/farming
+./farming daemon
 ```
 
 Open an authenticated URL printed by the CLI. Farming normally uses its own configuration directory and port. Pass `--config-dir`, `--port`, or `--base-path` only when isolating instances or resolving a port conflict.
@@ -75,4 +88,10 @@ After stopping every Config using this installation, remove the chosen program d
 
 ## Platforms
 
-The user-directory installer targets macOS x64/arm64 and glibc Linux x64/arm64. Linux requires glibc 2.28+, with a private compatibility runtime for x64 hosts on glibc 2.17–2.27. It still requires Bash, curl, tar, and OpenSSL. It does not support musl Linux or older glibc, upgrade system libraries, modify shell startup files, or configure startup at boot. Provider login is still required; external project tools retain their own system requirements.
+The user-directory installer targets macOS x64/arm64 and glibc Linux x64/arm64. Linux requires glibc 2.28+, with a private compatibility runtime for x64 hosts on glibc 2.17–2.27. It still requires Bash, curl, tar, and a SHA-512 verifier: `sha512sum` or `shasum` with `base64` and `od`, or OpenSSL. It does not support musl Linux or older glibc, upgrade system libraries, modify shell startup files, or configure startup at boot. Provider login is still required; external project tools retain their own system requirements.
+
+Run each step separately and proceed only after it succeeds. `--dir` overrides `FARMING_INSTALL_ROOT`.
+Older systems must have an up-to-date CA trust store before downloading the installer.
+For `curl: (60)` errors, update the system CA certificates through your trusted OS source,
+or supply a trusted CA bundle with `CURL_CA_BUNDLE`. Do not disable TLS verification.
+The installer does not change system certificates or install system packages.

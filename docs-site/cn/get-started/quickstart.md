@@ -33,13 +33,15 @@ farming daemon
 ```
 
 ```bash [指定目录安装]
-curl -fsSL https://zhuwenzhuang.github.io/farming/install.sh | FARMING_INSTALL_ROOT="$HOME/farming" bash
-"$HOME/farming/farming" daemon
+curl -fLO https://zhuwenzhuang.github.io/farming/farming_install.sh
+bash farming_install.sh --dir ~/farming
+cd ~/farming
+./farming daemon
 ```
 
 :::
 
-两种方式都先安装；第二条命令通过 Farming CLI 启动后台服务，输出带鉴权的 URL。
+两种方式都先安装；启动命令通过 Farming CLI 启动后台服务，输出带鉴权的 URL。
 在同一台机器上使用时，打开本机地址即可。示例直接从指定目录启动，无需修改 PATH。
 
 ::: warning 保管鉴权 URL

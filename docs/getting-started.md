@@ -17,8 +17,10 @@ farming daemon
 Without system Node.js, or on a supported older Linux host, install into a directory you choose:
 
 ```bash
-curl -fsSL https://zhuwenzhuang.github.io/farming/install.sh | FARMING_INSTALL_ROOT="$HOME/farming" bash
-"$HOME/farming/farming" daemon
+curl -fLO https://zhuwenzhuang.github.io/farming/farming_install.sh
+bash farming_install.sh --dir ~/farming
+cd ~/farming
+./farming daemon
 ```
 
 Open an authenticated URL printed by the daemon and choose **New Agent**.

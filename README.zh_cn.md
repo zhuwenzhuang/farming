@@ -33,8 +33,10 @@ farming daemon
 **指定目录安装** — 安装到你选择的目录，自带 Node.js，并为受支持的旧 Linux 主机提供兼容运行环境。
 
 ```bash
-curl -fsSL https://zhuwenzhuang.github.io/farming/install.sh | FARMING_INSTALL_ROOT="$HOME/farming" bash
-"$HOME/farming/farming" daemon
+curl -fLO https://zhuwenzhuang.github.io/farming/farming_install.sh
+bash farming_install.sh --dir ~/farming
+cd ~/farming
+./farming daemon
 ```
 
 macOS / Linux；任选一种方式，打开输出的访问地址，选择 **New Agent** 即可开始。
