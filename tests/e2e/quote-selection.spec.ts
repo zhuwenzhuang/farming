@@ -19,8 +19,13 @@ test('selection actions track visible text and quote context stays separate from
   await page.getByTestId('code-acp-composer-send').click()
   await expect(page.getByText('Streaming tail 6:', { exact: false })).toBeVisible()
   await input.fill('Keep my question')
+  const scroll = page.getByTestId('code-agent-transcript-scroll')
   const paragraph = page.locator('.code-agent-transcript-answer p').filter({ hasText: 'Reading paragraph 20:' })
+  await scroll.hover()
+  await page.mouse.wheel(0, -600)
+  await expect(page.getByTestId('code-agent-transcript-jump-bottom')).toBeVisible()
   await paragraph.scrollIntoViewIfNeeded()
+  await expect(paragraph).toBeInViewport()
   const select = async () => {
     await paragraph.evaluate(element => {
       const range = document.createRange()
@@ -32,7 +37,6 @@ test('selection actions track visible text and quote context stays separate from
   }
   await select()
   const toolbar = page.getByTestId('code-agent-transcript-selection-actions')
-  const scroll = page.getByTestId('code-agent-transcript-scroll')
   await expect(toolbar).toBeVisible()
   const before = (await toolbar.boundingBox())!
   await scroll.evaluate(element => { element.scrollTop += 45 })

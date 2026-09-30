@@ -30,6 +30,7 @@ const runtimeSources = [
 ].sort();
 const processEntrypoints = new Set([
   'backend/command-runner-child.cts',
+  'backend/document-extraction-worker.cts',
   'backend/server.cts',
 ]);
 

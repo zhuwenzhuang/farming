@@ -1278,6 +1278,7 @@ async function runTests() {
     const applicationDependencies = [
       ...Object.keys(packageJson.dependencies || {}),
       '@visactor/vtable',
+      'heic-to',
       'mermaid',
       'monaco-editor',
     ];
