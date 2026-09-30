@@ -58,6 +58,7 @@ import {
   ToolsGlyph,
 } from '@/components/IconGlyphs'
 import { LocalErrorBoundary, LocalRenderFault } from '@/components/LocalErrorBoundary'
+import { isModuleLoadError } from '@/lib/module-load-error'
 import {
   fetchWorkspaceChanges,
   fetchWorkspaceGitWorktrees,
@@ -424,11 +425,13 @@ function TranscriptLocalErrorFallback({
   copy,
   message = copy.agentTranscriptUnavailable,
   onRetry,
+  retryLabel = copy.retry,
   testId,
 }: {
   copy: CodeCopy
   message?: string
   onRetry: () => void
+  retryLabel?: string
   testId: string
 }) {
   return (
@@ -438,7 +441,7 @@ function TranscriptLocalErrorFallback({
       role="alert"
     >
       <span>{message}</span>
-      <button type="button" onClick={onRetry}>{copy.retry}</button>
+      <button type="button" onClick={onRetry}>{retryLabel}</button>
     </div>
   )
 }
@@ -2637,13 +2640,14 @@ function AgentTranscriptTurnView({
           <LocalErrorBoundary
             label="transcript Mermaid"
             resetKey={mermaidSource}
-            fallback={(_error, retry) => (
+            fallback={(error, retry) => (
               <figure className="code-markdown-mermaid error" aria-label={copy.mermaidDiagram}>
                 <figcaption className="code-markdown-mermaid-error-title">{copy.mermaidRenderFailed}</figcaption>
                 <TranscriptLocalErrorFallback
                   copy={copy}
-                  message={copy.mermaidRenderFailed}
-                  onRetry={retry}
+                  message={isModuleLoadError(error) ? copy.mermaidLoadFailed : copy.mermaidRenderFailed}
+                  retryLabel={isModuleLoadError(error) ? copy.reloadPage : copy.retry}
+                  onRetry={isModuleLoadError(error) ? () => window.location.reload() : retry}
                   testId="code-agent-transcript-mermaid-render-error"
                 />
                 <pre className="code-markdown-mermaid-fallback">

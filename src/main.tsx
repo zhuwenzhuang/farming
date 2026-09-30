@@ -2,6 +2,7 @@ import '../frontend/reading-anchor.js'
 import { Component, type CSSProperties, type ErrorInfo, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { appPath } from './lib/base-path'
+import { isModuleLoadError } from './lib/module-load-error'
 import { installInteractionPerformance } from './lib/interaction-performance'
 import { rememberStartupAccessToken } from './lib/auth-url'
 import { visibleUrlWithoutWorkspaceShareTarget } from './lib/workspace-share-target'
@@ -98,7 +99,7 @@ function safeRequestPath(message: string) {
 function failureDetails(error: unknown, copy: ReturnType<typeof failureCopy>) {
   const message = boundedErrorMessage(error)
   const requestPath = safeRequestPath(message)
-  const resourceFailure = /dynamically imported module|loading chunk|module script/i.test(message)
+  const resourceFailure = isModuleLoadError(error)
   const statusValue = error && typeof error === 'object' && 'status' in error
     ? String((error as { status?: unknown }).status ?? '')
     : ''

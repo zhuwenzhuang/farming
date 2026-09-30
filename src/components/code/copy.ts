@@ -576,6 +576,8 @@ export interface CodeCopy {
   mermaidErrorDetails: string
   mermaidRendering: string
   mermaidRenderFailed: string
+  mermaidLoadFailed: string
+  reloadPage: string
   mermaidZoomIn: string
   mermaidZoomOut: string
   mermaidPanMode: string
@@ -1320,6 +1322,8 @@ const EN_COPY: CodeCopy = {
   mermaidErrorDetails: 'Details and source',
   mermaidRendering: 'Rendering diagram...',
   mermaidRenderFailed: 'Unable to render Mermaid diagram',
+  mermaidLoadFailed: 'Diagram component could not be loaded. Reload the page to recover; running agents will continue.',
+  reloadPage: 'Reload page',
   mermaidZoomIn: 'Zoom in',
   mermaidZoomOut: 'Zoom out',
   mermaidPanMode: 'Toggle pan mode',
@@ -2100,6 +2104,8 @@ const ZH_COPY: CodeCopy = {
   mermaidErrorDetails: '详情与源码',
   mermaidRendering: '正在渲染图表...',
   mermaidRenderFailed: '无法渲染 Mermaid 图表',
+  mermaidLoadFailed: '图表组件加载失败。请重新加载页面恢复，正在运行的 Agent 会继续执行。',
+  reloadPage: '重新加载页面',
   mermaidZoomIn: '放大',
   mermaidZoomOut: '缩小',
   mermaidPanMode: '切换平移模式',

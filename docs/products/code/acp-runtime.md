@@ -938,6 +938,12 @@ Retry. Source and appearance updates retain the previous valid diagram while
 repainting. Unmount revokes publication and releases timers. Code and CRT share
 this content-state and scheduling contract while retaining their product skins.
 
+Chat distinguishes a failed diagram component download from a diagram render
+failure. A failed component import can remain cached after deployment replaces
+its asset, so this state offers an explicit page reload instead of a local
+render retry. It never reloads automatically or replays the Turn; ordinary
+render failures retain local Retry.
+
 Viewing intent is independent of render state. Updates and appearance changes
 preserve an open viewer, zoom and pan. Closing or removing its owning content
 releases the viewer without replaying Agent work. Image and diagram inspection
