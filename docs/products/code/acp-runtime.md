@@ -466,6 +466,11 @@ within the near-bottom range. Following resumes when the user reaches the
 bottom or explicitly returns to latest. Hidden Agents do
 not replay a send's scroll request when reopened. This contract is shared by all
 ACP providers and does not retry or otherwise change message delivery.
+Loading older messages does not by itself keep the return-to-latest control
+visible. If the loaded window still contains the latest Turn, reaching its
+bottom hides the control and resumes following without reloading history. If
+bounded history retention has evicted the latest Turn, the control remains
+available at the window's bottom and explicitly fetches the latest window.
 Returning to latest clears history navigation intent. Scroll events caused by
 that action or by viewport resizing cannot load an older page; history paging
 requires a user scroll gesture, including on a latest page shorter than the viewport.

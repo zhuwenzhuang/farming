@@ -4204,7 +4204,7 @@ export function AgentTranscriptPane({
     })
   }, [])
   const handleJumpToBottom = useCallback(() => {
-    if (source === 'acp' && transcript?.historyPage) returnToLatestAcpTranscript(agentId)
+    if (source === 'acp' && transcript?.includesLatest === false) returnToLatestAcpTranscript(agentId)
     const element = scrollRef.current
     followBottomRef.current = true
     stationaryScrollTopRef.current = null
@@ -4221,7 +4221,7 @@ export function AgentTranscriptPane({
     clearReadingAnchor(readingAnchorAgentKey(readingAnchorAgentId, 'chat'))
     setShowJumpToBottom(false)
     onReadLatest?.()
-  }, [agentId, source, transcript?.historyPage, onReadLatest, readingAnchorAgentId])
+  }, [agentId, source, transcript?.includesLatest, onReadLatest, readingAnchorAgentId])
   useLayoutEffect(() => {
     if (handledFollowLatestSignalRef.current === followLatestSignal) return
     handledFollowLatestSignalRef.current = followLatestSignal
@@ -4358,7 +4358,7 @@ export function AgentTranscriptPane({
           })}
         </div>
       )}
-      {showJumpToBottom || transcript?.historyPage ? (
+      {showJumpToBottom || transcript?.includesLatest === false ? (
         <button
           type="button"
           className="code-agent-transcript-jump-bottom"
