@@ -79,6 +79,10 @@ const tasks: FastScreenTask[] = [
     args: ['--import', 'tsx', 'backend/tests/test-cli-release-packaging.ts'],
   },
   {
+    name: 'Pi ACP fragmented UTF-8 record ownership',
+    args: ['--import', 'tsx', 'backend/tests/test-pi-acp-vendor.ts'],
+  },
+  {
     name: 'app CLI and third-party dependency notices',
     args: ['--import', 'tsx', 'backend/tests/test-farming-app-cli.ts'],
   },

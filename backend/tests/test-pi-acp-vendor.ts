@@ -61,6 +61,17 @@ if (process.argv.includes('--mode')) {
   }));
 }
 const sessionFile = path.join(process.env.PI_CODING_AGENT_DIR, 'sessions', '--fake--', 'fake.jsonl');
+// Each NDJSON record owns stdout until its final byte, even when split across ticks.
+let output = Promise.resolve();
+const write = value => {
+  output = output.then(() => new Promise(resolve => process.stdout.write(value, resolve)));
+};
+const writeSplit = (value, splitAt) => {
+  output = output.then(() => new Promise(resolve => {
+    process.stdout.write(value.subarray(0, splitAt));
+    setImmediate(() => process.stdout.write(value.subarray(splitAt), resolve));
+  }));
+};
 readline.createInterface({ input: process.stdin }).on('line', line => {
   const request = JSON.parse(line);
   let data = {};
@@ -81,21 +92,18 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
     cost: 0.25,
     contextUsage: { tokens: 2048, contextWindow: 131072, percent: 1.5625 },
   };
-  process.stdout.write(JSON.stringify({
+  write(JSON.stringify({
     type: 'response', id: request.id, command: request.type, success: true, data,
   }) + '\\n');
   if (request.type === 'prompt') {
-    process.stdout.write(JSON.stringify({ type: 'agent_start' }) + '\\n');
+    write(JSON.stringify({ type: 'agent_start' }) + '\\n');
     const update = Buffer.from(JSON.stringify({
       type: 'message_update',
       assistantMessageEvent: { type: 'text_delta', delta: '分割中文\\u2028仍是同一条\\u2029结束' },
     }) + '\\n');
     const splitAt = update.indexOf(Buffer.from('中')) + 1;
-    process.stdout.write(update.subarray(0, splitAt));
-    setImmediate(() => {
-      process.stdout.write(update.subarray(splitAt));
-      process.stdout.write(JSON.stringify({ type: 'agent_settled' }) + '\\n');
-    });
+    writeSplit(update, splitAt);
+    write(JSON.stringify({ type: 'agent_settled' }) + '\\n');
   }
 });
 `);
