@@ -194,7 +194,7 @@ async function run() {
     assert.notStrictEqual(failedStartResult.status, 0);
     assert.match(
       failedStartResult.stderr,
-      /Farming Server startup failed; inspect the Config-owned farming-server\.log on the target\./,
+      /Farming Server startup failed; inspect the private farming-server-start\.log on the target\./,
     );
     assert.match(failedStartResult.stderr, /previous image was restored/i);
     assert.doesNotMatch(
@@ -203,6 +203,11 @@ async function run() {
     );
     assert.strictEqual(fs.realpathSync(remoteDir), firstImage);
     assert(!fs.readdirSync(`${remoteDir}.deploy/images`).some(name => name.startsWith(secondSha.slice(0, 12))), 'reconciled failed-start image must be reclaimed');
+    const startupEvidenceRoot = path.join(`${remoteDir}.deploy`, 'failures');
+    const startupEvidenceImage = fs.readdirSync(startupEvidenceRoot).find(name => name.startsWith(secondSha.slice(0, 12)));
+    const startupLog = path.join(startupEvidenceRoot, startupEvidenceImage, 'farming-server-start.log');
+    assert.strictEqual(fs.readFileSync(startupLog, 'utf8'), `${daemonSecretSentinel}\n`);
+    assert.strictEqual(fs.statSync(startupLog).mode & 0o777, 0o600);
     const eventsAfterStartRollback = fs.readFileSync(path.join(configDir, 'fixture-events.log'), 'utf8');
     assert(eventsAfterStartRollback.split('\n').filter(line => line.startsWith(`daemon:${firstImage}`)).length >= 2);
 

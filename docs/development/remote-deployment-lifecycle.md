@@ -118,7 +118,7 @@ Deployment readiness negotiates the WebSocket protocol and waits for the
 authoritative business-health recovery result before creating smoke Agents.
 Recovery has a three-minute deadline, separate from the one-minute mutation
 deadline. Failure or stopping aborts immediately; mutations are not replayed.
-Rollback retains at most the last 1 MiB of each Server, PTY, and ACP log in a
+Rollback retains at most the last 1 MiB of each startup command, Server, PTY, and ACP log in a
 private, image-keyed failure directory outside Config before restoring it.
 
 Automated verification covers invalid artifacts, rejection of non-local Docker

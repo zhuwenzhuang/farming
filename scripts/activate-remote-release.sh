@@ -220,7 +220,7 @@ restore_config_snapshot() {
   local evidence_dir="${STATE_ROOT}/failures/${IMAGE_ID}"
   mkdir -p -m 700 "${evidence_dir}" || echo "Warning: could not retain deployment failure logs." >&2
   local log_name
-  for log_name in farming-server.log native-pty-host.log acp-runtime-host.log; do
+  for log_name in farming-server-start.log farming-server.log native-pty-host.log acp-runtime-host.log; do
     if [ -f "${CONFIG_DIR}/${log_name}" ] && [ ! -L "${CONFIG_DIR}/${log_name}" ]; then
       (umask 077; tail -c 1048576 "${CONFIG_DIR}/${log_name}" > "${evidence_dir}/${log_name}") || true
     fi
@@ -298,10 +298,10 @@ start_server() {
   local code_root="$2"
   local args=()
   while IFS= read -r value; do args+=("${value}"); done < <(server_args)
-  if run_cli "${runtime_root}" "${code_root}" "${args[@]}" >/dev/null 2>&1; then
+  if (umask 077; run_cli "${runtime_root}" "${code_root}" "${args[@]}" >"${CONFIG_DIR}/farming-server-start.log" 2>&1); then
     return 0
   fi
-  echo "Farming Server startup failed; inspect the Config-owned farming-server.log on the target." >&2
+  echo "Farming Server startup failed; inspect the private farming-server-start.log on the target." >&2
   return 1
 }
 
