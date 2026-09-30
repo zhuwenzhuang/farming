@@ -17,7 +17,7 @@ function commandKey(args: readonly string[]) {
 
 async function run() {
   const allocationNonce = 'a'.repeat(32);
-  const allocationSlug = `20260809-123456-${allocationNonce}`;
+  const allocationSlug = '20260809';
   const parsed = parseGitWorktreeList([
     'worktree /repo',
     'HEAD 0123456',
@@ -326,12 +326,9 @@ async function run() {
     crossInstanceOne.allocatePermanentWorktree('/projects/repo'),
     crossInstanceTwo.allocatePermanentWorktree('/projects/repo'),
   ]);
-  assert.notStrictEqual(
-    crossIdentityOne.workspace,
-    crossIdentityTwo.workspace,
-    'independent Farming instances must not derive the same identity from a shared timestamp',
-  );
-  assert.notStrictEqual(crossIdentityOne.branch, crossIdentityTwo.branch);
+  assert.strictEqual(crossIdentityOne.workspace, crossIdentityTwo.workspace,
+    'previews across separate Config instances are advisory; Git must arbitrate creation');
+  assert.strictEqual(crossIdentityOne.branch, crossIdentityTwo.branch);
   crossInstanceOne.releasePermanentWorktreeReservation(crossIdentityOne);
   crossInstanceTwo.releasePermanentWorktreeReservation(crossIdentityTwo);
 

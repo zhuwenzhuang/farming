@@ -126,8 +126,8 @@ async function run() {
     assert.strictEqual(manager.updateAgentFlags(sourceId, { followUp: true }).followUp, true);
 
     const permanentWorktree = await manager.createPermanentWorktree(repo);
-    assert.match(path.basename(permanentWorktree.workspace), /^repo-farming-worktree-\d{8}-\d{6}-[0-9a-f]{32}(?:-\d+)?$/);
-    assert.match(permanentWorktree.branch, /^farming\/worktree-\d{8}-\d{6}-[0-9a-f]{32}(?:-\d+)?$/);
+    assert.match(path.basename(permanentWorktree.workspace), /^repo-farming-worktree-\d{8}(?:-\d+)?$/);
+    assert.match(permanentWorktree.branch, /^farming\/worktree-\d{8}(?:-\d+)?$/);
     assert.strictEqual(fs.existsSync(permanentWorktree.workspace), true);
     assert.strictEqual(
       execFileSync('git', ['-C', permanentWorktree.workspace, 'branch', '--show-current'], { encoding: 'utf8' }).trim(),

@@ -338,6 +338,7 @@ export interface ProjectOperation {
   startedAt: number;
   state: ProjectOperationState;
   type: ProjectOperationType;
+  phase?: 'checkout' | 'register';
   updatedAt: number;
 }
 
@@ -350,6 +351,9 @@ export interface ProjectMembershipPatch {
 
 export interface CreatePermanentWorktreeOptions {
   requestId?: string;
+  branch?: string;
+  date?: string;
+  expectedHead?: string;
 }
 
 export interface DeleteProjectWorktreeOptions {
@@ -553,6 +557,7 @@ export interface AgentManagerConfig {
   getAgentSessionRecordForProviderSessionKey(sessionKey: string): PersistedAgentPrivateMetadata | null;
   getMainPageSessionKeys(): string[];
   getProjectOperation(requestId: unknown): ProjectOperation | null;
+  hasUnresolvedWorktreeTarget?(workspace: string): boolean;
   getSettings(): AgentManagerSettings;
   listAgentSessionRecords(): PersistedAgentPrivateMetadata[];
   rememberAgentSessionRecord(agent: AgentRecord): string;

@@ -922,6 +922,8 @@ class ConfigManager {
           id,
           type: operation.type,
           state: operation.state,
+          ...(operation.phase === 'checkout' || operation.phase === 'register'
+            ? { phase: operation.phase } : {}),
           signature: typeof operation.signature === 'string' ? operation.signature.slice(0, 128) : '',
           request: objectRecord(operation.request)
             ? objectRecord(JSON.parse(JSON.stringify(operation.request))) || {}
@@ -1559,6 +1561,14 @@ class ConfigManager {
     if (!PROJECT_OPERATION_ID_PATTERN.test(id)) return null;
     const operation = this.settings.projectOperations?.[id];
     return operation ? JSON.parse(JSON.stringify(operation)) : null;
+  }
+
+  hasUnresolvedWorktreeTarget(workspace: string): boolean {
+    return Object.values(this.settings.projectOperations || {}).some(operation => (
+      operation.type === 'create-worktree'
+      && ['pending', 'unknown', 'blocked'].includes(operation.state)
+      && operation.request.workspace === workspace
+    ));
   }
 
   commitProjectOperation(

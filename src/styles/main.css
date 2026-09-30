@@ -638,6 +638,60 @@ body.code-mode .code-instance-name {
   opacity: 0.6;
 }
 
+.code-worktree-create-dialog {
+  justify-items: stretch;
+}
+
+.code-worktree-create-branch,
+.code-worktree-create-preview dd {
+  overflow-wrap: anywhere;
+}
+
+.code-worktree-create-detail,
+.code-worktree-create-preview dt {
+  color: var(--code-text-subtle);
+}
+
+.code-worktree-create-preview {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+}
+
+.code-worktree-create-preview dd {
+  margin: 0 0 6px;
+}
+
+.code-worktree-create-default {
+  justify-self: start;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--code-accent);
+  font: inherit;
+  cursor: pointer;
+}
+
+.code-worktree-create-spinner {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  margin-inline-end: 8px;
+  border: 2px solid var(--code-border);
+  border-top-color: var(--code-accent);
+  border-radius: 50%;
+  vertical-align: -0.1em;
+  animation: code-worktree-spin 0.8s linear infinite;
+}
+
+@keyframes code-worktree-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .code-worktree-create-spinner { animation: none; }
+}
+
 .code-main-agent-restart-menu button {
   border: 0;
   border-radius: 6px;

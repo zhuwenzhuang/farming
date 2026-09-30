@@ -13,7 +13,7 @@ function git(repository, ...args) {
 }
 
 async function run() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-worktree-operation-'));
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'farming-worktree-operation-')));
   const repository = path.join(root, 'repo');
   const configDir = path.join(root, 'config');
   fs.mkdirSync(repository);
@@ -371,6 +371,98 @@ async function run() {
       'a settled successful request must return its stored result without another Git mutation',
     );
 
+    const preview = await manager.previewPermanentWorktree(repository, { date: '20260930' });
+    assert.strictEqual(preview.branch, 'farming/worktree-20260930');
+    assert.strictEqual(preview.workspace, path.join(root, 'repo-farming-worktree-20260930'));
+    assert.strictEqual(preview.sourceHead, git(repository, 'rev-parse', 'HEAD'));
+    assert.deepStrictEqual(await manager.previewPermanentWorktree(repository, { date: '20260930' }), preview,
+      'preview reads must not reserve names or perform a Git mutation');
+    await assert.rejects(() => manager.previewPermanentWorktree(repository, { branch: '../escape' }), /invalid/);
+    await assert.rejects(() => manager.previewPermanentWorktree(repository, { date: '20260230' }), /valid YYYYMMDD/);
+    await assert.rejects(() => manager.createPermanentWorktree(repository, {
+      requestId: 'stale-create', branch: 'feature/stale', expectedHead: '0'.repeat(40),
+    }), /source commit changed/);
+    const named = await manager.createPermanentWorktree(repository, {
+      requestId: 'named-create', branch: 'feature/readable', expectedHead: preview.sourceHead,
+    });
+    assert.strictEqual(named.branch, 'feature/readable');
+    assert.strictEqual(named.workspace, path.join(root, 'repo-feature-readable'));
+    assert.strictEqual(configManager.getProjectOperation('named-create').phase, 'register');
+    await assert.rejects(() => manager.createPermanentWorktree(repository, {
+      requestId: 'named-create', branch: 'feature/different',
+    }), /different parameters/);
+    await assert.rejects(() => manager.previewPermanentWorktree(repository, { branch: 'feature/readable' }), /already in use/);
+    const fromLinked = await manager.createPermanentWorktree(named.workspace, { requestId: 'linked-create', date: '20260930' });
+    assert.strictEqual(fromLinked.workspace, preview.workspace, 'linked Worktrees use the main repository directory prefix');
+    const uncertainTarget = await manager.worktreeGitService.allocatePermanentWorktree(repository, { date: '20261001' });
+    manager.worktreeGitService.releasePermanentWorktreeReservation(uncertainTarget);
+    configManager.commitProjectOperation({ id: 'interrupted-create', type: 'create-worktree', state: 'unknown',
+      signature: 'f'.repeat(64), request: uncertainTarget, result: null, error: 'Transport lost',
+      startedAt: Date.now(), updatedAt: Date.now(), finishedAt: null,
+    });
+    const reservedPreview = await manager.previewPermanentWorktree(repository, { date: '20261001' });
+    assert.strictEqual(reservedPreview.branch, 'farming/worktree-20261001-2',
+      'unresolved durable intents reserve names even when Git has no visible artifacts');
+    await assert.rejects(() => manager.previewPermanentWorktree(repository, { branch: uncertainTarget.branch }), /already in use/);
+    const afterUncertain = await manager.createPermanentWorktree(repository, { requestId: 'after-interrupted-create', date: '20261001' });
+    assert.strictEqual(afterUncertain.branch, reservedPreview.branch);
+    assert.strictEqual((await manager.inspectPermanentWorktreeOperation(repository, 'interrupted-create')).state, 'unknown',
+      'a later operation must never settle an earlier uncertain intent by reusing its target');
+    const nextPreview = await manager.previewPermanentWorktree(repository, { date: '20260930' });
+    assert.strictEqual(nextPreview.branch, 'farming/worktree-20260930-2');
+    const sameNameResults = await Promise.allSettled([
+      manager.createPermanentWorktree(repository, { requestId: 'same-name-one', branch: 'feature/same-name' }),
+      manager.createPermanentWorktree(repository, { requestId: 'same-name-two', branch: 'feature/same-name' }),
+    ]);
+    assert.strictEqual(sameNameResults.filter(result => result.status === 'fulfilled').length, 1);
+    assert.strictEqual(sameNameResults.filter(result => result.status === 'rejected').length, 1);
+
+    const ownedCreate = manager.worktreeGitService.createPermanentWorktree.bind(manager.worktreeGitService);
+    const independentService = new WorktreeGitService();
+    manager.worktreeGitService.createPermanentWorktree = async identity => {
+      const competing = await independentService.allocatePermanentWorktree(repository, { branch: identity.branch });
+      const competingResult = await independentService.createPermanentWorktree(competing);
+      assert.strictEqual(competingResult.commandFailure, null);
+      return ownedCreate(identity);
+    };
+    try {
+      await assert.rejects(() => manager.createPermanentWorktree(repository, {
+        requestId: 'other-config-race', branch: 'feature/other-config',
+      }), /already exists/);
+      assert.strictEqual(configManager.getProjectOperation('other-config-race').state, 'failed');
+      assert.strictEqual((await manager.inspectPermanentWorktreeOperation(repository, 'other-config-race')).state, 'failed');
+      assert(!configManager.getSettings().projectWorkspaces.includes(path.join(root, 'repo-feature-other-config')),
+        'a Git name rejection must not adopt another Config instance’s Worktree');
+    } finally { manager.worktreeGitService.createPermanentWorktree = ownedCreate; }
+
+    const originalCreate = manager.worktreeGitService.createPermanentWorktree.bind(manager.worktreeGitService);
+    let enteredCreate = () => {};
+    let finishCreate = () => {};
+    const entered = new Promise<void>(resolve => { enteredCreate = resolve; });
+    const finish = new Promise<void>(resolve => { finishCreate = resolve; });
+    manager.worktreeGitService.createPermanentWorktree = async identity => {
+      enteredCreate();
+      await finish;
+      return originalCreate(identity);
+    };
+    const progressing = manager.createPermanentWorktree(repository, { requestId: 'progress-create', branch: 'feature/progress' });
+    try {
+      await entered;
+      const progress = await manager.inspectPermanentWorktreeOperation(repository, 'progress-create');
+      assert.strictEqual(progress.state, 'pending');
+      assert.strictEqual(progress.phase, 'checkout');
+      await assert.rejects(() => manager.createPermanentWorktree(repository, {
+        requestId: 'progress-create', branch: 'feature/wrong',
+      }), /different parameters/);
+    } finally {
+      finishCreate();
+      await progressing;
+      manager.worktreeGitService.createPermanentWorktree = originalCreate;
+    }
+    assert.strictEqual((await manager.inspectPermanentWorktreeOperation(repository, 'progress-create')).state, 'succeeded');
+    assert.strictEqual(await manager.inspectPermanentWorktreeOperation(named.workspace, 'progress-create'), null,
+      'status reads are scoped to the exact source Worktree');
+
     const createRequestId = 'create-worktree-request-1';
     const created = await manager.createPermanentWorktree(repository, { requestId: createRequestId });
     assert.strictEqual(fs.existsSync(created.workspace), true);
@@ -490,6 +582,8 @@ async function run() {
       'membership must not publish before the terminal operation commit',
     );
     failCreateResultCommit = false;
+    assert.strictEqual((await manager.inspectPermanentWorktreeOperation(repository, 'create-worktree-request-2')).state, 'succeeded',
+      'read-only Git reconciliation settles a completed side effect without replay');
     const reconciledCreate = await manager.createPermanentWorktree(repository, {
       requestId: 'create-worktree-request-2',
     });

@@ -87,6 +87,10 @@ class ProjectOperationAdmissionCoordinator {
     ])];
   }
 
+  hasRequest(requestId: string): boolean {
+    return this.requests.has(requestId);
+  }
+
   clear(): void {
     this.requests.clear();
     this.exclusive.clear();

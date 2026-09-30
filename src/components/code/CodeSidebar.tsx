@@ -207,6 +207,7 @@ const ProjectFilesSection = lazy(() => import('../files/ProjectFilesSection').th
 })))
 
 interface CodeSidebarProps {
+  worktreeCreation?: { statusByWorkspace: Record<string, string>; onOpen: (workspace: string) => void }
   relatedSession?: RelatedSessionTarget | null
   onOpenRelatedSession?: (target: RelatedSessionTarget) => void
   readOnly: boolean
@@ -327,6 +328,7 @@ function trapFocusInContainer(event: ReactKeyboardEvent<HTMLElement>, container:
 }
 
 export function CodeSidebar({
+  worktreeCreation,
   relatedSession = null,
   onOpenRelatedSession,
   readOnly,
@@ -954,6 +956,8 @@ export function CodeSidebar({
           <ProjectSection
             key={project.id}
             project={project}
+            worktreeCreationStatus={worktreeCreation?.statusByWorkspace[project.workspace]}
+            onOpenWorktreeCreation={() => worktreeCreation?.onOpen(project.workspace)}
             readOnly={readOnly}
             agentInventoryComplete={agentInventoryComplete}
             collapsed={collapsedProjectIds.has(project.id) && !normalizedSearch}
@@ -1924,6 +1928,8 @@ function currentWorktreeName(worktrees: WorkspaceGitWorktrees | null) {
 }
 
 interface ProjectSectionProps {
+  worktreeCreationStatus?: string
+  onOpenWorktreeCreation?: () => void
   project: ProjectGroup
   readOnly: boolean
   agentInventoryComplete: boolean
@@ -2073,6 +2079,8 @@ function ProjectSection(props: ProjectSectionProps) {
 }
 
 const ProjectSectionContent = memo(function ProjectSectionContent({
+  worktreeCreationStatus,
+  onOpenWorktreeCreation,
   project,
   readOnly,
   followUpCount,
@@ -2505,6 +2513,13 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
               </span>
             )}
           </button>
+          {worktreeCreationStatus && (
+            <button type="button" className="code-project-worktree" data-testid="code-project-worktree-creation"
+              aria-haspopup="dialog" onClick={onOpenWorktreeCreation}>
+              <span className="code-project-worktree-icon" aria-hidden="true"><BranchGlyph /></span>
+              <span className="code-project-worktree-name">{worktreeCreationStatus}</span>
+            </button>
+          )}
           {!collapsed && currentProjectWorktreeName && repositoryWorktrees && (
             <button
               ref={worktreeButtonRef}

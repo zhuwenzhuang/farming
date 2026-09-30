@@ -115,6 +115,7 @@ import {
   type RemoveProjectDialogView,
 } from './code/CodeOverlays'
 import { CodeSidebar } from './code/CodeSidebar'
+import { WorktreeCreationDialog, useWorktreeCreation } from './code/WorktreeCreationDialog'
 import { LatestRequestFence } from './code/latest-request-fence'
 import type { RequestOwnershipLease } from '@/lib/request-ownership'
 import { BrowserSidebarPortals } from '../../extensions/browser/frontend/BrowserSidebarPortals'
@@ -982,7 +983,6 @@ export function CodeWorkspace({
   const restoreProjectListFocusRef = useRef<'active' | 'active-force' | 'list' | null>(null)
   const pendingArchivedFocusAgentRef = useRef<Agent | null>(null)
   const pendingRestoredFocusAgentRef = useRef<string | null>(null)
-  const projectOperationRequestIdsRef = useRef(new Map<string, string>())
   const trackedMainPageAgentKeysRef = useRef<Set<string>>(new Set())
   const sidebarResizeGestureRef = useRef<{
     pointerId: number
@@ -5208,41 +5208,28 @@ export function CodeWorkspace({
     focusProjectTitle(projectId)
   }, [closeContextMenu, contextMenuProject, copy.revealInFinderFailed, focusProjectTitle])
 
-  const createContextProjectPermanentWorktree = useCallback(async () => {
+  const openCreatedWorktreeProject = useCallback((workspace: string) => {
+    setLastProjectWorkspace(workspace)
+    setCollapsedProjectIds(previous => {
+      const next = new Set(previous)
+      next.delete(workspace)
+      return next
+    })
+    onWorkspaceViewChange('projects')
+    focusProjectTitle(workspace)
+  }, [onWorkspaceViewChange, focusProjectTitle])
+  const worktreeCreation = useWorktreeCreation((workspace, open) => {
+    setCopyNotice({ id: Date.now(), kind: 'success', message: copy.permanentWorktreeCreated })
+    if (open) openCreatedWorktreeProject(workspace)
+  }, readOnly)
+  const worktreeCreationOpen = Boolean(worktreeCreation.target)
+  const createContextProjectPermanentWorktree = useCallback(() => {
     if (!contextMenuProject?.workspace) return
-    const projectId = contextMenuProject.id
-    const rootId = projectFilesWorkspaceId(contextMenuProject.workspace)
+    worktreeCreation.open({ workspace: contextMenuProject.workspace, name: contextMenuProject.name })
+    worktreeCreation.returnFocusRef.current = [...(projectListRef.current?.querySelectorAll<HTMLElement>('[data-testid="code-project-title"]') ?? [])]
+      .find(title => title.dataset.projectId === contextMenuProject.id) || null
     closeContextMenu()
-    const requestKey = `create:${rootId}`
-    const requestId = projectOperationRequestIdsRef.current.get(requestKey)
-      || globalThis.crypto?.randomUUID?.()
-      || `${Date.now()}-${Math.random()}`
-    projectOperationRequestIdsRef.current.set(requestKey, requestId)
-    try {
-      const response = await fetch(appPath('/api/projects/create-worktree'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rootId, requestId }),
-      })
-      const result = await response.json().catch(() => null) as {
-        error?: string
-        retryable?: boolean
-        uncertain?: boolean
-      } | null
-      if (response.ok || (result?.retryable !== true && result?.uncertain !== true)) {
-        projectOperationRequestIdsRef.current.delete(requestKey)
-      }
-      if (!response.ok) throw new Error(result?.error || copy.permanentWorktreeFailed)
-      setCopyNotice({ id: Date.now(), kind: 'success', message: copy.permanentWorktreeCreated })
-    } catch (error) {
-      setCopyNotice({
-        id: Date.now(),
-        kind: 'error',
-        message: error instanceof Error ? error.message : copy.permanentWorktreeFailed,
-      })
-    }
-    focusProjectTitle(projectId)
-  }, [closeContextMenu, contextMenuProject, copy.permanentWorktreeCreated, copy.permanentWorktreeFailed, focusProjectTitle])
+  }, [closeContextMenu, contextMenuProject, worktreeCreation])
 
   const markContextProjectRead = useCallback(() => {
     if (!contextMenuProject) return
@@ -5472,7 +5459,7 @@ export function CodeWorkspace({
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       if (event.defaultPrevented || interactionLayerOwnsEscape(event)) return
-      if (dialogOpen) return
+      if (dialogOpen || worktreeCreationOpen) return
 
       const target = event.target
       if (
@@ -5598,7 +5585,7 @@ export function CodeWorkspace({
 
     window.addEventListener('keydown', handleKeyDown, true)
     return () => window.removeEventListener('keydown', handleKeyDown, true)
-  }, [activeView, approvalMenuOpen, archiveExitDialog, clearSearch, closeActiveComposerMenus, closeContextMenu, closeContextMenuAndRestoreFocus, contextMenu, contextMenuRef, deleteWorktreeDialog, dialogOpen, focusComposerTextarea, focusWorkspaceFilesSearch, handleContextMenuNavigation, keyboardShortcutsEnabled, mobileNavigationModalOpen, mobileShareTicket, modelMenuOpen, navigateWorkspaceHistory, onWorkspaceViewChange, openSearch, plusMenuOpen, projectFileSearchId, projectFileSearchIdForShortcutTarget, removeProjectDialog, renameDialog, reopenLastClosedWorkspaceFile, toggleSidebar])
+  }, [activeView, approvalMenuOpen, archiveExitDialog, clearSearch, closeActiveComposerMenus, closeContextMenu, closeContextMenuAndRestoreFocus, contextMenu, contextMenuRef, deleteWorktreeDialog, dialogOpen, worktreeCreationOpen, focusComposerTextarea, focusWorkspaceFilesSearch, handleContextMenuNavigation, keyboardShortcutsEnabled, mobileNavigationModalOpen, mobileShareTicket, modelMenuOpen, navigateWorkspaceHistory, onWorkspaceViewChange, openSearch, plusMenuOpen, projectFileSearchId, projectFileSearchIdForShortcutTarget, removeProjectDialog, renameDialog, reopenLastClosedWorkspaceFile, toggleSidebar])
 
   useEffect(() => {
     const dialog = renameDialogStateRef.current
@@ -5923,7 +5910,19 @@ export function CodeWorkspace({
       ref={workspaceRef}
       style={workspaceStyle}
     >
+      {!readOnly && <WorktreeCreationDialog controller={worktreeCreation} copy={copy} onOpenProject={openCreatedWorktreeProject} />}
       <CodeSidebar
+        worktreeCreation={readOnly ? undefined : {
+          statusByWorkspace: Object.fromEntries(Object.values(worktreeCreation.creations).map(creation => [creation.workspace,
+            creation.state === 'succeeded' ? copy.worktreeCreation.created
+              : creation.state === 'unknown' ? copy.worktreeCreation.unconfirmed
+                : creation.state === 'confirming' ? copy.worktreeCreation.verifying
+                : creation.state === 'failed' ? copy.permanentWorktreeFailed
+                  : creation.phase === 'register' ? copy.worktreeCreation.register
+                    : creation.phase === 'checkout' ? copy.worktreeCreation.checkout : copy.worktreeCreation.checking,
+          ])),
+          onOpen: worktreeCreation.reopen,
+        }}
         relatedSession={relatedSession}
         onOpenRelatedSession={target => { setRelatedSession(target); openAgentTargetRef.current(target.parentAgentId, { focusTerminal: false }) }}
         readOnly={readOnly}
@@ -5931,7 +5930,7 @@ export function CodeWorkspace({
         navigationModalOpen={mobileNavigationModalOpen}
         navigationViewport={mobileNavigationViewport}
         navigationDialogRef={mobileNavigationDialogRef}
-        hoverPreviewsPaused={Boolean(projectMenu)}
+        hoverPreviewsPaused={Boolean(projectMenu) || worktreeCreationOpen}
         emptyHomeActionRequest={emptyHomeSidebarActionRequest}
         activeView={activeView}
         searchOpen={searchOpen}
@@ -5965,6 +5964,7 @@ export function CodeWorkspace({
           || Boolean(archiveExitDialog)
           || Boolean(removeProjectDialog)
           || Boolean(deleteWorktreeDialog)
+          || Boolean(worktreeCreation.target)
           || dialogOpen
         }
         shareTarget={shareTarget}

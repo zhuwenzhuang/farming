@@ -365,6 +365,24 @@ Review Identity。这是两种不同交互层级，不能挤进同一个狭窄 S
 Git Operation 使用确定、Path-safe Input；Truncation 或 Timeout 作为可见 Partial Result，
 不能被解释成 Clean Workspace。
 
+创建永久 Worktree 前先打开命名窗口，不执行 Git 变更。默认 Branch 为
+`farming/worktree-YYYYMMDD`，日期取用户本地日期；Branch、目录或在途预留被占用时，
+依次添加 `-2`、`-3`。用户可编辑完整 Branch 名称，自定义名称严格保持用户输入，
+无效或重名时保留草稿并显示可操作的错误。目标目录安全地生成在仓库主 Worktree 旁，
+不含时间、随机标识或重复嵌套的 Worktree 前缀。
+
+Backend 拥有名称准入、操作身份和完成状态。Request ID 绑定源、命名策略和起始提交，
+重复投递加入同一操作。预览是权威读取而非预留，创建时再次检查可用性。
+窗口立即显示检查、检出和注册阶段及耗时；收起后源 Project 保留状态入口，收起不取消 Git。
+未结算的持久化操作即使没有可见目录也保留目标名称，防止把后续创建误判为旧操作的结果。
+编辑阶段取消不产生文件系统副作用；创建阶段禁用重复提交并有界读取持久化状态。
+成功发布精确新 Project，仅在窗口仍拥有查看意图时自动打开；失败保留名称和原因，
+用户明确重试使用新 Request ID。不确定或断线时只核对原操作，不重放 Git；
+记录缺失不证明失败，两分钟后停止自动观察并提供明确的状态检查。
+刷新页面恢复待处理记录并读取权威状态。Backend 中断后，完整 Git 后置条件可结算原操作，
+部分或无法证明的结果保持不确定。所有主题均验证自定义重名、并发默认命名、重复投递、
+慢速 Git、收起、页面刷新和不确定结果。
+
 现有 Project Worktree Control 保持 Project Row 紧凑，并在 Popover 内承载两个明确操作：
 打开一个已注册 Worktree，以及把当前仓库主 Worktree 切换到已有 Local Branch。Worktree Row
 绝不暗示 Branch Switch。切换分支前，Server 必须 Fresh Read 并证明目标是同一个主

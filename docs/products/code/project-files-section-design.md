@@ -539,6 +539,37 @@ interaction levels and should not be collapsed into one narrow sidebar panel.
 Git operations use deterministic, path-safe input and treat truncation or
 timeouts as visible partial results, never as proof of a clean workspace.
 
+Creating a permanent Worktree opens a naming dialog before any Git mutation.
+The default branch is `farming/worktree-YYYYMMDD`, using the user's local date;
+occupied branches, directories, and in-flight reservations add `-2`, `-3`, and
+so on. The user may edit the complete branch name. Custom names are exact:
+invalid or occupied names retain the draft and expose an actionable error.
+The target directory is derived safely beside the repository's main Worktree,
+without timestamps, random identifiers, or nested Worktree-name prefixes.
+
+The backend owns naming admission, operation identity, and completion. One
+request ID binds the source, naming policy, and starting commit; repeated
+delivery joins that operation. Preview is a fresh read, not a reservation, so
+creation rechecks availability. The dialog immediately shows checking, checkout,
+and registration stages with elapsed time. It may be minimized while the source
+Project retains a status control; minimizing does not cancel Git work.
+Unresolved persisted operations retain their target names even when no directory
+is visible, so a later creation cannot be mistaken for an earlier uncertain one.
+
+| State | Effect and exit |
+| --- | --- |
+| Editing | Fresh preview validates the name and shows source and destination; Cancel has no filesystem effect. |
+| Creating | Disable duplicate submission; observe the persisted operation through bounded status reads. |
+| Succeeded | Publish the exact new Project; open it only while the dialog still owns viewing intent. |
+| Failed | Preserve the draft and concrete error; a deliberate retry gets a new request ID. |
+| Unknown or disconnected | Reconcile the original operation without replaying Git. An absent record does not prove failure; after two minutes stop automatic observation and expose an explicit status check. |
+
+Reload restores pending viewing records and checks authoritative operation
+state. After backend interruption, a complete Git postcondition may settle the
+original operation; partial or unverifiable results remain uncertain. Custom
+name collisions, concurrent default allocation, duplicate delivery, slow Git,
+minimization, reload, and uncertain outcomes require acceptance in every theme.
+
 The existing Project worktree control keeps the Project row compact and owns
 two explicit operations inside its popover: opening an already registered
 worktree and switching the current repository main worktree to an existing

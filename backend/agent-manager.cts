@@ -9313,12 +9313,50 @@ class AgentManager extends EventEmitter {
     }
   }
 
+  async previewPermanentWorktree(workspace: string, options: CreatePermanentWorktreeOptions = {}) {
+    const root = await this.resolveGitWorktreeSourceRoot(workspace);
+    const inventory = await this.worktreeGitService.inspectLocalBranches(root);
+    if (!inventory.isGitRepo || !inventory.head) throw new Error('Source workspace is not inside a Git repository with a commit');
+    const identity = await this.worktreeGitService.allocatePermanentWorktree(root, {
+      ...options,
+      directoryRoot: inventory.mainWorkspace || root,
+      preview: true,
+      isReserved: target => this.configManager?.hasUnresolvedWorktreeTarget?.(target) === true,
+    });
+    return { ...identity, sourceBranch: inventory.currentBranch, sourceHead: inventory.head };
+  }
+
+  async inspectPermanentWorktreeOperation(workspace: string, requestId: string) {
+    const configManager = this.configManager;
+    if (!configManager) throw new Error('Worktree operation status requires a Config');
+    const root = await this.resolveGitWorktreeSourceRoot(workspace);
+    let operation = configManager.getProjectOperation(requestId);
+    if (!operation || operation.type !== 'create-worktree' || operation.request.sourceWorkspace !== root) return null;
+    if (['pending', 'unknown'].includes(operation.state) && !this.projectAdmissionCoordinator.hasRequest(requestId)) {
+      const target = String(operation.request.workspace || '');
+      const branch = String(operation.request.branch || '');
+      const postcondition = await this.inspectGitWorktreePostcondition(root, target, branch);
+      if (postcondition.proven && postcondition.exists && postcondition.registered && postcondition.branchMatches && postcondition.branchExists) {
+        this.commitPersistentProjectOperation(operation, 'succeeded', {
+          workspace: target, branch, sourceWorkspace: root, requestId,
+        }, '', { mountWorkspace: target });
+      } else {
+        const detail = postcondition.error || operation.error || 'Worktree creation was interrupted; its outcome requires verification';
+        if (operation.state !== 'unknown' || operation.error !== detail) {
+          this.commitPersistentProjectOperation(operation, 'unknown', null, detail);
+        }
+      }
+      operation = configManager.getProjectOperation(requestId);
+    }
+    return operation;
+  }
+
   createPermanentWorktree(workspace: string, options: CreatePermanentWorktreeOptions = {}) {
     const requestId = String(options.requestId || '').trim().slice(0, 160);
     const workspaceKey = canonicalWorkspacePath(this.expandWorkspacePath(workspace));
     return this.projectAdmissionCoordinator.runRequest(
       requestId,
-      workspaceKey,
+      projectOperationSignature({ workspaceKey, ...options }),
       () => this.createPermanentWorktreeAdmitted(workspace, options),
     );
   }
@@ -9329,7 +9367,11 @@ class AgentManager extends EventEmitter {
   ): Promise<CreatePermanentWorktreeResult | UnknownRecord> {
     const root = await this.resolveGitWorktreeSourceRoot(workspace);
     const requestId = String(options.requestId || '').trim().slice(0, 160);
-    const signature = projectOperationSignature({ sourceWorkspace: root, type: 'create-worktree' });
+    const signature = projectOperationSignature({ sourceWorkspace: root, type: 'create-worktree',
+      ...(options.branch !== undefined ? { requestedBranch: options.branch } : {}),
+      ...(options.date ? { date: options.date } : {}),
+      ...(options.expectedHead ? { expectedHead: options.expectedHead } : {}),
+    });
     const existingOperation = requestId && typeof this.configManager?.getProjectOperation === 'function'
       ? this.configManager.getProjectOperation(requestId)
       : null;
@@ -9358,7 +9400,14 @@ class AgentManager extends EventEmitter {
     let operation = existingOperation;
     let reservedIdentity: Awaited<ReturnType<WorktreeGitServicePort['allocatePermanentWorktree']>> | null = null;
     if (!operation) {
-      const identity = await this.worktreeGitService.allocatePermanentWorktree(root);
+      const inventory = await this.worktreeGitService.inspectLocalBranches(root);
+      if (options.expectedHead && inventory.head !== options.expectedHead) {
+        throw new Error('The source commit changed. Review the updated preview before creating the Worktree');
+      }
+      const identity = await this.worktreeGitService.allocatePermanentWorktree(root, {
+        ...options, directoryRoot: inventory.mainWorkspace || root,
+        isReserved: target => this.configManager?.hasUnresolvedWorktreeTarget?.(target) === true,
+      });
       reservedIdentity = identity;
       target = identity.workspace;
       branch = identity.branch;
@@ -9367,6 +9416,7 @@ class AgentManager extends EventEmitter {
           sourceWorkspace: root,
           workspace: target,
           branch,
+          ...(options.expectedHead ? { expectedHead: options.expectedHead } : {}),
         });
         if ('error' in admission) throw new Error(admission.error);
         operation = admission.operation || null;
@@ -9423,12 +9473,32 @@ class AgentManager extends EventEmitter {
       }
     }
 
-    const mutation = await this.worktreeGitService.createPermanentWorktree(reservedIdentity || {
+    const creationIdentity = reservedIdentity || {
       sourceWorkspace: root,
       workspace: target,
       branch,
-    });
+    };
+    if (options.expectedHead) creationIdentity.head = options.expectedHead;
+    let mutation: Awaited<ReturnType<WorktreeGitServicePort['createPermanentWorktree']>>;
+    try {
+      if (operation && this.configManager) {
+        operation = { ...operation, phase: 'checkout', updatedAt: Date.now() };
+        this.configManager.commitProjectOperation(operation);
+      }
+      mutation = await this.worktreeGitService.createPermanentWorktree(creationIdentity);
+    } finally {
+      if (reservedIdentity) this.worktreeGitService.releasePermanentWorktreeReservation(reservedIdentity);
+    }
     const postcondition = mutation.postcondition;
+    // Git can reject a name concurrently claimed by another Config instance.
+    // A complete worktree at that path is then not evidence that we created it.
+    if (mutation.commandFailure && isRecord(mutation.commandFailure.cause)
+      && typeof mutation.commandFailure.cause.code === 'number' && mutation.commandFailure.cause.code !== 0 && postcondition.proven
+      && postcondition.exists && postcondition.registered) {
+      const detail = mutation.commandFailure.message;
+      if (operation) this.commitPersistentProjectOperation(operation, 'failed', null, detail);
+      throw new Error(detail, { cause: mutation.commandFailure.cause });
+    }
     if (
       postcondition.proven
       && postcondition.exists
@@ -9436,6 +9506,10 @@ class AgentManager extends EventEmitter {
       && postcondition.branchMatches
       && postcondition.branchExists
     ) {
+      if (operation && this.configManager) {
+        operation = { ...operation, phase: 'register', updatedAt: Date.now() };
+        this.configManager.commitProjectOperation(operation);
+      }
       return commitSuccess();
     }
     if (mutation.commandFailure) {

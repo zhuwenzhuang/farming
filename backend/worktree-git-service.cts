@@ -73,6 +73,15 @@ interface PermanentWorktreeIdentity {
   branch: string;
   sourceWorkspace: string;
   workspace: string;
+  head?: string;
+}
+
+interface PermanentWorktreeAllocationOptions {
+  branch?: string;
+  date?: string;
+  directoryRoot?: string;
+  preview?: boolean;
+  isReserved?: (workspace: string) => boolean;
 }
 
 const reservationTokenProperty: unique symbol = Symbol('permanentWorktreeReservation');
@@ -154,7 +163,7 @@ interface WorktreeGitServiceOptions {
 
 interface WorktreeGitServicePort {
   allocateTemporaryWorktree(sourceWorkspace: string): Promise<TemporaryWorktreeIdentity>;
-  allocatePermanentWorktree(sourceWorkspace: string): Promise<PermanentWorktreeIdentity>;
+  allocatePermanentWorktree(sourceWorkspace: string, options?: PermanentWorktreeAllocationOptions): Promise<PermanentWorktreeIdentity>;
   createPermanentWorktree(identity: PermanentWorktreeIdentity): Promise<PermanentWorktreeMutation>;
   createTemporaryWorktree(identity: TemporaryWorktreeIdentity): Promise<TemporaryWorktreeMutation>;
   deleteWorktree(identity: TemporaryWorktreeIdentity, force?: boolean): Promise<WorktreeDeleteMutation>;
@@ -318,7 +327,7 @@ class WorktreeGitService implements WorktreeGitServicePort {
   }
 
   private reservationKey(identity: Pick<PermanentWorktreeIdentity, 'sourceWorkspace' | 'workspace'>): string {
-    return `${path.resolve(identity.sourceWorkspace)}\0${path.resolve(identity.workspace)}`;
+    return path.resolve(identity.workspace);
   }
 
   private reservationToken(identity: PermanentWorktreeIdentity): symbol | undefined {
@@ -675,23 +684,45 @@ class WorktreeGitService implements WorktreeGitServicePort {
     }
   }
 
-  async allocatePermanentWorktree(sourceWorkspace: string): Promise<PermanentWorktreeIdentity> {
-    const parentDir = path.dirname(sourceWorkspace);
-    const baseName = path.basename(sourceWorkspace);
-    const nonce = String(this.identityNonce()).trim().toLowerCase();
-    if (!/^[a-z0-9]{16,64}$/.test(nonce)) {
-      throw new Error('Permanent worktree identity nonce is invalid');
+  async allocatePermanentWorktree(sourceWorkspace: string, options: PermanentWorktreeAllocationOptions = {}): Promise<PermanentWorktreeIdentity> {
+    const directoryRoot = options.directoryRoot || sourceWorkspace;
+    const parentDir = path.dirname(directoryRoot);
+    const baseName = path.basename(directoryRoot);
+    const date = options.date || timestampSlug(this.now()).slice(0, 8);
+    const parsedDate = new Date(`${date.slice(0, 4)}-${date.slice(4, 6)}-${date.slice(6, 8)}T12:00:00Z`);
+    if (!/^\d{8}$/.test(date) || !Number.isFinite(parsedDate.getTime())
+      || parsedDate.toISOString().slice(0, 10).replace(/-/g, '') !== date) {
+      throw new Error('Worktree date must be a valid YYYYMMDD date');
     }
-    const slug = `${timestampSlug(this.now())}-${nonce}`;
+    const customBranch = options.branch?.trim();
+    if (options.branch !== undefined) {
+      if (!customBranch || customBranch !== options.branch || customBranch.length > 160 || customBranch.startsWith('-')) {
+        throw new Error('Worktree branch name is invalid');
+      }
+      try {
+        await this.execFile('git', ['check-ref-format', `refs/heads/${customBranch}`], {
+          timeout: 15_000, maxBuffer: 1024 * 1024,
+        });
+      } catch {
+        throw new Error('Worktree branch name is invalid');
+      }
+    }
+    const allocationDeadline = Date.now() + 15_000;
     for (let suffix = 1; suffix < 1000; suffix += 1) {
+      if (Date.now() > allocationDeadline) throw new Error('Worktree name allocation timed out');
       const suffixText = suffix === 1 ? '' : `-${suffix}`;
-      const workspace = path.join(parentDir, `${baseName}-farming-worktree-${slug}${suffixText}`);
-      const branch = `farming/worktree-${slug}${suffixText}`;
+      const branch = customBranch || `farming/worktree-${date}${suffixText}`;
+      const workspace = path.join(parentDir, `${baseName}-${branch.replace(/\//g, '-')}`);
+      if (Buffer.byteLength(path.basename(workspace)) > 255) throw new Error('Worktree directory name is too long; use a shorter branch name');
       const identity = { sourceWorkspace, workspace, branch };
       const key = this.reservationKey(identity);
-      if (this.permanentWorktreeReservations.has(key)) continue;
-      if (await this.pathExists(workspace) || await this.branchExists(sourceWorkspace, branch)) continue;
-      if (this.permanentWorktreeReservations.has(key)) continue;
+      const occupied = () => {
+        if (customBranch) throw new Error('Worktree branch name or directory is already in use');
+      };
+      if (this.permanentWorktreeReservations.has(key) || options.isReserved?.(workspace)) { occupied(); continue; }
+      if (await this.pathExists(workspace) || await this.branchExists(sourceWorkspace, branch)) { occupied(); continue; }
+      if (this.permanentWorktreeReservations.has(key) || options.isReserved?.(workspace)) { occupied(); continue; }
+      if (options.preview) return identity;
       const token = Symbol(key);
       this.permanentWorktreeReservations.set(key, token);
       return this.reservedIdentity(identity, token);
@@ -907,7 +938,7 @@ class WorktreeGitService implements WorktreeGitServicePort {
       try {
         await this.execFile('git', [
           '-C', identity.sourceWorkspace,
-          'worktree', 'add', '-b', identity.branch, identity.workspace, 'HEAD',
+          'worktree', 'add', '-b', identity.branch, identity.workspace, identity.head || 'HEAD',
         ], { timeout: 60_000, maxBuffer: 4 * 1024 * 1024 });
       } catch (caught) {
         commandFailure = {

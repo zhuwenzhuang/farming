@@ -201,6 +201,12 @@ export interface CodeCopy {
   revealInFinder: string
   revealInFinderFailed: string
   createPermanentWorktree: string
+  worktreeCreation: {
+    title: string; branch: string; source: string; directory: string; create: string; creating: string;
+    checking: string; checkout: string; register: string; minimize: string;
+    verifying: string; unconfirmed: string; checkStatus: string; useDefault: string; elapsed: string;
+    open: string; created: string; previewFailed: string; storageFailed: string;
+  }
   permanentWorktreeCreated: string
   permanentWorktreeFailed: string
   markAllAsRead: string
@@ -921,6 +927,14 @@ const EN_COPY: CodeCopy = {
   revealInFinder: 'Reveal in Finder',
   revealInFinderFailed: 'Failed to reveal project in Finder',
   createPermanentWorktree: 'Create permanent worktree',
+  worktreeCreation: {
+    title: 'Create Worktree', branch: 'Branch name', source: 'Starting point', directory: 'Directory',
+    create: 'Create', creating: 'Creating…', checking: 'Checking name and directory', checkout: 'Checking out files',
+    register: 'Adding to Projects', minimize: 'Minimize', verifying: 'Confirming creation result', unconfirmed: 'Creation result is not yet confirmed',
+    checkStatus: 'Check status', useDefault: 'Use available default name', elapsed: 'seconds elapsed',
+    open: 'Open Project', created: 'Worktree created', previewFailed: 'Could not check the Worktree name',
+    storageFailed: 'Could not save the operation for recovery. Creation has not started.',
+  },
   permanentWorktreeCreated: 'Permanent worktree created',
   permanentWorktreeFailed: 'Failed to create permanent worktree',
   markAllAsRead: 'Mark all as read',
@@ -1667,6 +1681,13 @@ const ZH_COPY: CodeCopy = {
   revealInFinder: '在访达中显示',
   revealInFinderFailed: '无法在访达中显示项目',
   createPermanentWorktree: '创建永久 worktree',
+  worktreeCreation: {
+    title: '创建 Worktree', branch: '分支名称', source: '起点', directory: '目录', create: '创建', creating: '创建中…',
+    checking: '检查名称与目录', checkout: '正在检出文件', register: '添加到项目列表', minimize: '收起',
+    verifying: '正在确认创建结果', unconfirmed: '创建结果尚未确认', checkStatus: '检查状态', useDefault: '使用可用的默认名称',
+    elapsed: '秒', open: '打开项目', created: 'Worktree 已创建',
+    previewFailed: '无法检查 Worktree 名称', storageFailed: '无法保存用于恢复的操作记录，尚未开始创建。',
+  },
   permanentWorktreeCreated: '已创建永久 worktree',
   permanentWorktreeFailed: '创建永久 worktree 失败',
   markAllAsRead: '全部标为已读',

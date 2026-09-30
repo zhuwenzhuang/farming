@@ -1873,6 +1873,41 @@ app.use(routePath(BASE_PATH, '/api/projects'), createProjectMutationRouter({
   },
 }));
 
+app.get(routePath(BASE_PATH, '/api/projects/worktree-preview'), async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  if (req.authAccessMode === 'read-only') { res.status(403).json({ error: 'Worktree creation requires owner access' }); return; }
+  try {
+    const root = resolveProjectActionRoot(typeof req.query.rootId === 'string' ? req.query.rootId : '');
+    res.json(await agentManager.previewPermanentWorktree(root.canonicalPath, {
+      ...(typeof req.query.branch === 'string' ? { branch: req.query.branch } : {}),
+      ...(typeof req.query.date === 'string' ? { date: req.query.date } : {}),
+    }));
+  } catch (caught) {
+    res.status(400).json({ error: caughtError(caught).message || 'Failed to preview Worktree' });
+  }
+});
+
+app.get(routePath(BASE_PATH, '/api/projects/worktree-operation'), async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  if (req.authAccessMode === 'read-only') { res.status(403).json({ error: 'Worktree operation status requires owner access' }); return; }
+  const requestId = typeof req.query.requestId === 'string' ? req.query.requestId : '';
+  if (!/^[A-Za-z0-9._:-]{1,160}$/.test(requestId)) {
+    res.status(400).json({ error: 'A valid Worktree operation requestId is required' }); return;
+  }
+  try {
+    const root = resolveProjectActionRoot(typeof req.query.rootId === 'string' ? req.query.rootId : '');
+    const operation = await agentManager.inspectPermanentWorktreeOperation(root.canonicalPath, requestId);
+    if (!operation) { res.status(404).json({ error: 'Worktree operation has not been observed' }); return; }
+    if (operation.state === 'succeeded') {
+      stateBroadcastScheduler.queueMetadata(currentAgentListMetadata());
+      broadcastState();
+    }
+    res.json(operation);
+  } catch (caught) {
+    res.status(400).json({ error: caughtError(caught).message });
+  }
+});
+
 app.post(routePath(BASE_PATH, '/api/projects/create-worktree'), express.json(), async (req, res) => {
   const requestId = typeof req.body?.requestId === 'string' ? req.body.requestId.trim() : '';
   if (!/^[A-Za-z0-9._:-]{1,160}$/.test(requestId)) {
@@ -1881,7 +1916,17 @@ app.post(routePath(BASE_PATH, '/api/projects/create-worktree'), express.json(), 
   }
   try {
     const root = resolveProjectActionRoot(typeof req.body?.rootId === 'string' ? req.body.rootId : '');
-    const created = await agentManager.createPermanentWorktree(root.canonicalPath, { requestId });
+    for (const field of ['branch', 'date', 'expectedHead']) {
+      if (req.body?.[field] !== undefined && typeof req.body[field] !== 'string') {
+        res.status(400).json({ error: `Worktree ${field} must be a string` }); return;
+      }
+    }
+    const created = await agentManager.createPermanentWorktree(root.canonicalPath, {
+      requestId,
+      ...(typeof req.body?.branch === 'string' ? { branch: req.body.branch } : {}),
+      ...(typeof req.body?.date === 'string' ? { date: req.body.date } : {}),
+      ...(typeof req.body?.expectedHead === 'string' ? { expectedHead: req.body.expectedHead } : {}),
+    });
     if (!isRecord(created)) throw new Error('Project worktree creation returned an invalid result');
     stateBroadcastScheduler.queueMetadata(currentAgentListMetadata());
     broadcastState();
