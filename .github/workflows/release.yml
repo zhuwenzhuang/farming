@@ -437,7 +437,9 @@ jobs:
         with:
           path: ${{ runner.temp }}/farming-agent-browser-cargo-target
           key: agent-browser-cargo-v2-${{ runner.os }}-${{ runner.arch }}-rust-1.96.1-darwin-${{ matrix.arch }}-source-${{ hashFiles('backend/data/agent-browser-source.json', 'patches/agent-browser/*.patch', 'scripts/build-agent-browser-runtime.mjs') }}
-          restore-keys: agent-browser-cargo-v2-${{ runner.os }}-${{ runner.arch }}-rust-1.96.1-darwin-${{ matrix.arch }}-source-
+          restore-keys: |
+            agent-browser-cargo-v2-${{ runner.os }}-${{ runner.arch }}-rust-1.96.1-darwin-${{ matrix.arch }}-source-
+            agent-browser-cargo-v1-${{ runner.os }}-${{ runner.arch }}-rust-1.96.1-darwin-${{ matrix.arch }}-
 
       - name: Build native macOS browser runtime on packaging runner
         if: matrix.kind == 'app'

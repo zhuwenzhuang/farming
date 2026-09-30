@@ -479,9 +479,10 @@ Changed Files + Failure Signatures
   Architecture、Target、固定 Toolchain、Upstream Source、Patch 与 Build Script 隔离缓存；
   Restore 后始终重新 Test、Build，并生成当前 Candidate Identity。
   Source 或 Patch 升级后，仅在相同 Host OS、Architecture、Target 和固定 Toolchain 内
-  Restore；由 Cargo Fingerprint 判定哪些中间产物仍有效。Native 回归测试与制品使用相同
-  Release Profile 和 Target，复用依赖编译结果。Linux 测试保留 Host Test Profile，再独立
-  进行 Zig Compatibility Build；后者的 Compiler/Linker 输入不同，无法复用该依赖编译图。
+  Restore；由 Cargo Fingerprint 判定哪些中间产物仍有效。回归测试保留 Host Test Profile，
+  正式制品保留 Release Profile 和 Target。Release Profile 测试会另外链接一个 Full-LTO
+  测试程序，不能省掉正式制品的链接。Linux 制品仍独立进行 Zig Compatibility Build；
+  后者的 Compiler/Linker 输入不同，无法复用 Host Test 的依赖编译图。
   Native Browser 与 App Smoke 通过后，App Job 向全平台 Packager 发布已验证的 Darwin
   Browser Artifact；它是该 Architecture 的唯一 Native Producer，无需第二个 Darwin Build Lane。
 - 保留精确 App Assembly Directory 直到 Smoke 完成；Archive 继续完整 Verify，但 Smoke 不再先解压

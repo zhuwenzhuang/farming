@@ -299,7 +299,10 @@ function run() {
   const macosRuntimeBuild = macosJob.steps
     .find(step => step.name === 'Build native macOS browser runtime on packaging runner');
   const macosCargoCache = macosJob.steps.find(step => step.name === 'Cache patched browser Cargo intermediates');
-  assert.strictEqual(macosCargoCache?.with['restore-keys'], 'agent-browser-cargo-v2-${{ runner.os }}-${{ runner.arch }}-rust-1.96.1-darwin-${{ matrix.arch }}-source-');
+  assert.deepStrictEqual(macosCargoCache?.with['restore-keys'].trim().split('\n'), [
+    'agent-browser-cargo-v2-${{ runner.os }}-${{ runner.arch }}-rust-1.96.1-darwin-${{ matrix.arch }}-source-',
+    'agent-browser-cargo-v1-${{ runner.os }}-${{ runner.arch }}-rust-1.96.1-darwin-${{ matrix.arch }}-',
+  ]);
   assert.strictEqual(macosRuntimeBuild?.if, "matrix.kind == 'app'");
   assert(
     macosRuntimeBuild?.run.includes('--platform "darwin-${{ matrix.arch }}"')

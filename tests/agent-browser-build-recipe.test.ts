@@ -7,7 +7,7 @@ import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import pin from '../backend/data/agent-browser-source.json';
 
-test('native tests reuse the release target while Linux tests remain host-native; every artifact has fresh identity', () => {
+test('host-profile regressions gate production release artifacts with fresh identities', () => {
   const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-browser-recipe-'));
   try {
     const project = path.join(fixture, 'project');
@@ -59,8 +59,7 @@ if(command==='git'){
       const cargo = calls.filter(call => call.command === 'cargo');
       const unit = cargo.find(call => call.args.includes('test')).args;
       const build = cargo.find(call => call.args.includes('build') || call.args.includes('zigbuild')).args;
-      assert.deepEqual(unit, [`+${pin.rust}`, 'test', '--locked',
-        ...(platform.startsWith('linux-') ? [] : ['--release', '--target', target]), 'native::cdp::chrome::tests', '--', '--nocapture']);
+      assert.deepEqual(unit, [`+${pin.rust}`, 'test', '--locked', 'native::cdp::chrome::tests', '--', '--nocapture']);
       assert.deepEqual(build, [`+${pin.rust}`, platform.startsWith('linux-') ? 'zigbuild' : 'build', '--locked', '--release',
         '--target', platform === 'linux-x64' ? `${target}.2.28` : target]);
       const directory = path.join(fixture, 'artifacts', platform);

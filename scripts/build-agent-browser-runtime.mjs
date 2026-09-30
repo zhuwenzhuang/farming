@@ -81,12 +81,10 @@ try {
   const cli = path.join(work, 'cli');
   const target = targets[platformKey];
   const zig = platformKey.startsWith('linux-');
-  // Exercise the production optimization profile. Native test and build targets
-  // share compiled dependencies instead of compiling a second debug graph.
-  // Linux tests retain the host test profile: Zig's compatibility target uses
-  // different compiler/linker inputs and cannot share that dependency graph.
-  run('cargo', [`+${pin.rust}`, 'test', '--locked',
-    ...(zig ? [] : ['--release', '--target', target]), 'native::cdp::chrome::tests', '--', '--nocapture'], cli);
+  // Keep regressions in the host test profile. Release tests require a separate
+  // full-LTO test executable, so sharing dependency compilation does not remove
+  // their expensive link. The artifact always retains production release flags.
+  run('cargo', [`+${pin.rust}`, 'test', '--locked', 'native::cdp::chrome::tests', '--', '--nocapture'], cli);
   if (zig) {
     // zigbuild's cargo subcommand does not implement --version. Cargo owns the
     // installed tool receipt; match its complete package header, not a substring.

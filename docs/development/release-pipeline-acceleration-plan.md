@@ -599,10 +599,11 @@ without reducing coverage.
   script; always test, build, and emit a fresh candidate identity after restore.
   After a source or patch upgrade, restore only within the same host OS,
   architecture, target and pinned toolchain; Cargo fingerprints decide which
-  intermediates remain valid. Native regression tests use the production
-  release profile and target, so tests and packaging share dependency builds.
-  Linux tests retain their host test profile before the separate Zig
-  compatibility build, whose compiler/linker inputs cannot share that graph.
+  intermediates remain valid. Regression tests retain the host test profile;
+  production artifacts retain the release profile and target. Release-profile
+  tests would link a separate full-LTO test executable and do not eliminate
+  artifact linking. Linux artifacts retain their separate Zig compatibility
+  build, whose compiler/linker inputs cannot share the host test graph.
   After native Browser and app smoke pass, the app job publishes its verified
   Darwin Browser artifact to the all-platform packagers. It is the sole native
   producer for its architecture; a second Darwin build lane is unnecessary.
