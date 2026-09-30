@@ -1,0 +1,81 @@
+name: Browser native transfer probe
+
+on:
+  workflow_dispatch:
+    inputs:
+      preparation_run_id:
+        description: 'Successful release preparation that produced the native Browser artifacts'
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  probe:
+    name: Native transfer ${{ matrix.arch }}
+    timeout-minutes: 8
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: macos-15-intel
+          - arch: arm64
+            runner: macos-15
+    runs-on: ${{ matrix.runner }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      ORIGIN_RUN_ID: ${{ inputs.preparation_run_id }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Read immutable origin preparation
+        shell: bash
+        run: |
+          [[ "${ORIGIN_RUN_ID}" =~ ^[0-9]+$ ]]
+          node scripts/observe-release-gh.mjs api \
+            "repos/${GITHUB_REPOSITORY}/actions/runs/${ORIGIN_RUN_ID}" > origin-run.json
+      - name: Download native Browser artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: farming-agent-browser-darwin-${{ matrix.arch }}
+          path: ${{ runner.temp }}/farming-browser-transfer-input
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.preparation_run_id }}
+      - name: Authenticate unchanged build inputs and probe native launch
+        shell: bash
+        run: |
+          node scripts/probe-browser-native-transfer.mjs \
+            "${RUNNER_TEMP}/farming-browser-transfer-input/agent-browser" \
+            "${RUNNER_TEMP}/farming-browser-transfer-signed" \
+            origin-run.json transfer-evidence.json
+      - name: Install smoke harness dependencies
+        run: |
+          FARMING_SKIP_INSTALL_RUNTIME_PREPARE=1 PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 PUPPETEER_SKIP_DOWNLOAD=1 \
+            npm ci --registry=https://registry.npmjs.org/ --ignore-scripts --no-audit --no-fund
+      - name: Smoke transferred native Browser with real Chrome
+        shell: bash
+        run: |
+          npx tsx scripts/smoke-browser-idle.ts \
+            "${RUNNER_TEMP}/farming-browser-transfer-signed" \
+            '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+      - name: Retain diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: farming-browser-transfer-${{ matrix.arch }}
+          path: transfer-evidence.json
+          if-no-files-found: warn
+      - name: Remove owned probe files
+        if: always()
+        shell: bash
+        run: |
+          rm -rf -- "${RUNNER_TEMP}/farming-browser-transfer-input"
+          rm -f -- "${RUNNER_TEMP}/farming-browser-transfer-signed"

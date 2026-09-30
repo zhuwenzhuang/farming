@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "dependencies": {
     "codex": {
-      "version": "0.159.2",
+      "version": "0.159.3",
       "probe": {
         "args": [
           "--version"
@@ -10,98 +10,98 @@
       },
       "artifacts": {
         "darwin-arm64": {
-          "url": "https://registry.npmjs.org/@openai/codex/-/codex-0.159.2-darwin-arm64.tgz",
-          "integrity": "sha512-7SPaPFU0tdqapQ5VEgrF+wb+p9dxfWfLMXMKZMRKoWPn/tLMajlMjYBBnu8o6VtaVH2DHQ6kpnp5TMkv5bqvrg==",
+          "url": "https://registry.npmjs.org/@openai/codex/-/codex-0.159.3-darwin-arm64.tgz",
+          "integrity": "sha512-aI4UY14YURYxJxnRK+AE4QU+aek0mgtyyo7Rw9rNbCQUYETRQ0NYdJzU9ytljERGpPlht3dHHI1u4NhqHoDJDQ==",
           "archive": "tgz",
           "archivePrefix": "package/vendor/aarch64-apple-darwin",
           "entry": "bin/codex",
           "installedPackage": {
             "name": "@openai/codex-darwin-arm64",
-            "version": "0.159.2-darwin-arm64",
+            "version": "0.159.3-darwin-arm64",
             "entry": "vendor/aarch64-apple-darwin/bin/codex"
           }
         },
         "darwin-x64": {
-          "url": "https://registry.npmjs.org/@openai/codex/-/codex-0.159.2-darwin-x64.tgz",
-          "integrity": "sha512-VPZGYHH2yVn8S3IuxJk38vxhBADJZp68IBL8hr4quJ2R7jM16l43TLCwRemN+1J27V/cs771fbx63aGRf5F8JA==",
+          "url": "https://registry.npmjs.org/@openai/codex/-/codex-0.159.3-darwin-x64.tgz",
+          "integrity": "sha512-KTOQOD184DMXpR3TqnDUnLsgad14WJn+x3XmjBaXRHchKYGttjREwqrwzC61xQYFeh6VkogAceybR+SMbbgvYQ==",
           "archive": "tgz",
           "archivePrefix": "package/vendor/x86_64-apple-darwin",
           "entry": "bin/codex",
           "installedPackage": {
             "name": "@openai/codex-darwin-x64",
-            "version": "0.159.2-darwin-x64",
+            "version": "0.159.3-darwin-x64",
             "entry": "vendor/x86_64-apple-darwin/bin/codex"
           }
         },
         "linux-arm64": {
-          "url": "https://registry.npmjs.org/@openai/codex/-/codex-0.159.2-linux-arm64.tgz",
-          "integrity": "sha512-Pm0W2PnFeTEqPx+AOIwgOVB4dBtY24cuD0tx1hjCor60CbSAT7WBPZVNUINSrTCDrMndvQC67p71ZEz+gmPPkA==",
+          "url": "https://registry.npmjs.org/@openai/codex/-/codex-0.159.3-linux-arm64.tgz",
+          "integrity": "sha512-84C1yhAI+i0hqh77Akp/Ma09Z4d5oLKcZKqW1WZpEDh8bKbNvvbNEd6pE+GMUe2Kwg7jCbuvkRNH1zgK+SCM3Q==",
           "archive": "tgz",
           "archivePrefix": "package/vendor/aarch64-unknown-linux-musl",
           "entry": "bin/codex",
           "installedPackage": {
             "name": "@openai/codex-linux-arm64",
-            "version": "0.159.2-linux-arm64",
+            "version": "0.159.3-linux-arm64",
             "entry": "vendor/aarch64-unknown-linux-musl/bin/codex"
           }
         },
         "linux-arm64-musl": {
-          "url": "https://registry.npmjs.org/@openai/codex/-/codex-0.159.2-linux-arm64.tgz",
-          "integrity": "sha512-Pm0W2PnFeTEqPx+AOIwgOVB4dBtY24cuD0tx1hjCor60CbSAT7WBPZVNUINSrTCDrMndvQC67p71ZEz+gmPPkA==",
+          "url": "https://registry.npmjs.org/@openai/codex/-/codex-0.159.3-linux-arm64.tgz",
+          "integrity": "sha512-84C1yhAI+i0hqh77Akp/Ma09Z4d5oLKcZKqW1WZpEDh8bKbNvvbNEd6pE+GMUe2Kwg7jCbuvkRNH1zgK+SCM3Q==",
           "archive": "tgz",
           "archivePrefix": "package/vendor/aarch64-unknown-linux-musl",
           "entry": "bin/codex",
           "installedPackage": {
             "name": "@openai/codex-linux-arm64",
-            "version": "0.159.2-linux-arm64",
+            "version": "0.159.3-linux-arm64",
             "entry": "vendor/aarch64-unknown-linux-musl/bin/codex"
           }
         },
         "linux-x64": {
-          "url": "https://registry.npmjs.org/@openai/codex/-/codex-0.159.2-linux-x64.tgz",
-          "integrity": "sha512-RrCZ1X52wpa1lOsXtCtSyhjOFdQPh7LH5Ccv8HsKmd/2UXbUwxXFqWXFK3JzatquUNGtW/TLox5Y7qVOGkV0/Q==",
+          "url": "https://registry.npmjs.org/@openai/codex/-/codex-0.159.3-linux-x64.tgz",
+          "integrity": "sha512-xlHydfOksnNt/qz4BEVFvjMWunweaVSNtha/DkVUwWZnVZxbqiJwsXSl2iZDk04b6k/g0OI7jU06XqzHB2s5og==",
           "archive": "tgz",
           "archivePrefix": "package/vendor/x86_64-unknown-linux-musl",
           "entry": "bin/codex",
           "installedPackage": {
             "name": "@openai/codex-linux-x64",
-            "version": "0.159.2-linux-x64",
+            "version": "0.159.3-linux-x64",
             "entry": "vendor/x86_64-unknown-linux-musl/bin/codex"
           }
         },
         "linux-x64-musl": {
-          "url": "https://registry.npmjs.org/@openai/codex/-/codex-0.159.2-linux-x64.tgz",
-          "integrity": "sha512-RrCZ1X52wpa1lOsXtCtSyhjOFdQPh7LH5Ccv8HsKmd/2UXbUwxXFqWXFK3JzatquUNGtW/TLox5Y7qVOGkV0/Q==",
+          "url": "https://registry.npmjs.org/@openai/codex/-/codex-0.159.3-linux-x64.tgz",
+          "integrity": "sha512-xlHydfOksnNt/qz4BEVFvjMWunweaVSNtha/DkVUwWZnVZxbqiJwsXSl2iZDk04b6k/g0OI7jU06XqzHB2s5og==",
           "archive": "tgz",
           "archivePrefix": "package/vendor/x86_64-unknown-linux-musl",
           "entry": "bin/codex",
           "installedPackage": {
             "name": "@openai/codex-linux-x64",
-            "version": "0.159.2-linux-x64",
+            "version": "0.159.3-linux-x64",
             "entry": "vendor/x86_64-unknown-linux-musl/bin/codex"
           }
         },
         "win32-arm64": {
-          "url": "https://registry.npmjs.org/@openai/codex/-/codex-0.159.2-win32-arm64.tgz",
-          "integrity": "sha512-8+xM4Wj2J38ieRse9kzbMRQQc2d+kvck2Zm2+gX2sth5RXPZQ1yqYhFmevHLC8IO73syk2xiIclH0qvoc97pgg==",
+          "url": "https://registry.npmjs.org/@openai/codex/-/codex-0.159.3-win32-arm64.tgz",
+          "integrity": "sha512-4C+EuH1zE4rO5w1MsrnS98Tvq6Ff4+zeNr3pVeR/UsQ+VrTY5BCA9nZuXuCXNLKak1tLOw81b+fQM4jKGFCeDA==",
           "archive": "tgz",
           "archivePrefix": "package/vendor/aarch64-pc-windows-msvc",
           "entry": "bin/codex.exe",
           "installedPackage": {
             "name": "@openai/codex-win32-arm64",
-            "version": "0.159.2-win32-arm64",
+            "version": "0.159.3-win32-arm64",
             "entry": "vendor/aarch64-pc-windows-msvc/bin/codex.exe"
           }
         },
         "win32-x64": {
-          "url": "https://registry.npmjs.org/@openai/codex/-/codex-0.159.2-win32-x64.tgz",
-          "integrity": "sha512-1ZJVTO40/ZaHPUUWc3uCX73jwzJRaDxAjRQEf37dC5Q3h1fp/Z7+1L8oX3bPlXgjhEY6kHW3rm0wz2sdQ5rxNw==",
+          "url": "https://registry.npmjs.org/@openai/codex/-/codex-0.159.3-win32-x64.tgz",
+          "integrity": "sha512-h8w5nslfQyoYbonZaRlLwvPKFS9Mcxz5vUeCeoHKF5SsZUP9jSBH7hxUdc8RWJffJtfbV2qxdnImVAj9zy2fwA==",
           "archive": "tgz",
           "archivePrefix": "package/vendor/x86_64-pc-windows-msvc",
           "entry": "bin/codex.exe",
           "installedPackage": {
             "name": "@openai/codex-win32-x64",
-            "version": "0.159.2-win32-x64",
+            "version": "0.159.3-win32-x64",
             "entry": "vendor/x86_64-pc-windows-msvc/bin/codex.exe"
           }
         }
@@ -275,5 +275,5 @@
       }
     }
   },
-  "manifestId": "2f42a8f039be56e03b5666b6004a6a4ec5ca6448da4dcc672635f973c63a3d6c"
+  "manifestId": "8cfb1bfef6e6b26333373d015014ad98e4f91c285fea7a3073c39b917c82a2bf"
 }

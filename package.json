@@ -295,7 +295,7 @@
   "overrides": {
     "@hono/node-server": "2.0.11",
     "dompurify": "3.4.13",
-    "@openai/codex": "0.159.2",
+    "@openai/codex": "0.159.3",
     "lodash": "4.18.1",
     "minimist": "1.2.8",
     "@agentclientprotocol/claude-agent-acp": {
@@ -311,12 +311,12 @@
     "@anthropic-ai/claude-agent-sdk-linux-x64-musl": "0.3.284",
     "@anthropic-ai/claude-agent-sdk-win32-arm64": "0.3.284",
     "@anthropic-ai/claude-agent-sdk-win32-x64": "0.3.284",
-    "@openai/codex-darwin-arm64": "npm:@openai/codex@0.159.2-darwin-arm64",
-    "@openai/codex-darwin-x64": "npm:@openai/codex@0.159.2-darwin-x64",
-    "@openai/codex-linux-arm64": "npm:@openai/codex@0.159.2-linux-arm64",
-    "@openai/codex-linux-x64": "npm:@openai/codex@0.159.2-linux-x64",
-    "@openai/codex-win32-arm64": "npm:@openai/codex@0.159.2-win32-arm64",
-    "@openai/codex-win32-x64": "npm:@openai/codex@0.159.2-win32-x64"
+    "@openai/codex-darwin-arm64": "npm:@openai/codex@0.159.3-darwin-arm64",
+    "@openai/codex-darwin-x64": "npm:@openai/codex@0.159.3-darwin-x64",
+    "@openai/codex-linux-arm64": "npm:@openai/codex@0.159.3-linux-arm64",
+    "@openai/codex-linux-x64": "npm:@openai/codex@0.159.3-linux-x64",
+    "@openai/codex-win32-arm64": "npm:@openai/codex@0.159.3-win32-arm64",
+    "@openai/codex-win32-x64": "npm:@openai/codex@0.159.3-win32-x64"
   },
   "allowScripts": {
     "esbuild@0.27.7": true,
