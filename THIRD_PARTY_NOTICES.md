@@ -87,7 +87,7 @@ files under `dist/acp/`:
 | `@agentclientprotocol/codex-acp` | 2.0.1 | Apache-2.0 | Reviewed and patched Codex ACP adapter |
 | `@openai/codex` | 0.159.2 | Apache-2.0 | Codex executable discovery and launch bridge; platform CLI binaries are excluded |
 | `@agentclientprotocol/claude-agent-acp` | 0.84.0 | Apache-2.0 | Claude Code ACP adapter |
-| `diff` | 8.0.4 | BSD-3-Clause | Exact patch generation bundled inside the Claude ACP adapter |
+| `diff` | 9.0.0 | BSD-3-Clause | Exact patch generation bundled inside the Claude ACP adapter |
 | `@anthropic-ai/claude-agent-sdk` | 0.3.284 | Anthropic commercial terms | Claude Agent SDK bridge; platform CLI binaries are excluded |
 | `pi-acp` | 0.0.34 | MIT | Pi ACP adapter, with Farming Agent Home isolation and bootstrap patches |
 | `@agentclientprotocol/sdk` | 0.26.0 | Apache-2.0 | Protocol runtime bundled inside the Pi ACP adapter |
@@ -238,7 +238,7 @@ are separate from the software and assets identified above.
 
 ## Vendored JsDiff License
 
-The Claude ACP runtime embeds JsDiff 8.0.4 with the following license:
+The Claude ACP runtime embeds JsDiff 9.0.0 with the following license:
 
 ```text
 BSD 3-Clause License
