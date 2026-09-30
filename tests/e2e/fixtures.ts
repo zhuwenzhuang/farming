@@ -389,30 +389,28 @@ export const test = base.extend<{ workspaceRoot: string }>({
     await page.addInitScript(() => {
       window.__FARMING_E2E__ = true
     })
-    // Cleanup owns an API context independent of the page closed before
-    // teardown. Authenticated projects also need owner access before login.
-    const cleanupContext = await playwrightRequest.newContext({
-      baseURL: `http://127.0.0.1:${process.env.FARMING_PLAYWRIGHT_PORT || '4173'}`,
-      ...(process.env.FARMING_PLAYWRIGHT_AUTH === '1'
-        ? { extraHTTPHeaders: { Authorization: `Bearer ${AUTHENTICATED_CLEANUP_TOKEN}` } }
-        : {}),
-    })
-    const cleanup = () => cleanupAgents(
-      cleanupContext,
-      { archiveCodex: process.env.FARMING_E2E_REAL_CODEX === '1' },
-    )
-    try {
-      await cleanup()
-      await resetSettings(page)
-      await use(page)
-      // Stop UI-owned state transitions (especially automatic main-Agent
-      // recovery) before asking the backend to remove this test's Agents.
-      await page.close()
-      await reportAgentCleanupFailure(cleanup, testInfo)
-      await resetSettings(page)
-    } finally {
-      await cleanupContext.dispose()
+    // Each pass owns a fresh API context, independent of both the closed
+    // page and sockets left idle during UI work. Never replay cleanup mutations.
+    const cleanup = async () => {
+      const cleanupContext = await playwrightRequest.newContext({
+        baseURL: `http://127.0.0.1:${process.env.FARMING_PLAYWRIGHT_PORT || '4173'}`,
+        extraHTTPHeaders: {
+          Connection: 'close',
+          ...(process.env.FARMING_PLAYWRIGHT_AUTH === '1'
+            ? { Authorization: `Bearer ${AUTHENTICATED_CLEANUP_TOKEN}` } : {}),
+        },
+      })
+      try { await cleanupAgents(cleanupContext, { archiveCodex: process.env.FARMING_E2E_REAL_CODEX === '1' }) }
+      finally { await cleanupContext.dispose() }
     }
+    await cleanup()
+    await resetSettings(page)
+    await use(page)
+    // Stop UI-owned state transitions (especially automatic main-Agent
+    // recovery) before asking the backend to remove this test's Agents.
+    await page.close()
+    await reportAgentCleanupFailure(cleanup, testInfo)
+    await resetSettings(page)
   },
 })
 
