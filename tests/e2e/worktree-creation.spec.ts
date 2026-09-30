@@ -53,6 +53,10 @@ setTimeout(() => process.exit(1), 25000);
 
 for (const appearance of ['light', 'dark', 'paper']) {
   test(`names, tracks, minimizes and restores a real Worktree in ${appearance}`, async ({ page, workspaceRoot }, testInfo) => {
+    // Trusted HTTP exposes getRandomValues but not the secure-context randomUUID API.
+    await page.addInitScript(() => {
+      Object.defineProperty(crypto, 'randomUUID', { value: undefined, configurable: true })
+    })
     const repository = await repositoryFixture(page, workspaceRoot)
     git(repository, 'branch', 'feature/taken')
     await openFarming(page)
@@ -89,6 +93,7 @@ for (const appearance of ['light', 'dark', 'paper']) {
       await page.keyboard.press('Escape')
       await expect(dialog).toBeVisible()
       expect(createRequests).toHaveLength(1)
+      expect(createRequests[0]).toMatch(/^[a-f0-9]{32}$/)
       await dialog.screenshot({ path: testInfo.outputPath(`worktree-progress-${appearance}.png`), animations: 'disabled' })
       await dialog.getByRole('button', { name: 'Minimize' }).click()
       await expect(dialog).toHaveCount(0)

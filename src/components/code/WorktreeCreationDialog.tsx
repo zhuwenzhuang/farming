@@ -117,8 +117,10 @@ export function useWorktreeCreation(onCreated: (workspace: string, open: boolean
   const start = useCallback(async (project: ProjectTarget, preview: Preview, date: string, custom: boolean, storageError: string) => {
     const current = creationsRef.current[project.workspace]
     if (current && ['pending', 'confirming', 'unknown'].includes(current.state)) return
+    const requestId = Array.from(crypto.getRandomValues(new Uint8Array(16)),
+      byte => byte.toString(16).padStart(2, '0')).join('')
     const creation: Creation = {
-      ...project, requestId: crypto.randomUUID(), date, branch: preview.branch, state: 'pending', startedAt: Date.now(),
+      ...project, requestId, date, branch: preview.branch, state: 'pending', startedAt: Date.now(),
     }
     const records = { ...creationsRef.current, [project.workspace]: creation }
     try { sessionStorage.setItem(STORAGE_KEY, JSON.stringify(records)) }

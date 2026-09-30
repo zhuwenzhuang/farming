@@ -550,7 +550,9 @@ without timestamps, random identifiers, or nested Worktree-name prefixes.
 The backend owns naming admission, operation identity, and completion. One
 request ID binds the source, naming policy, and starting commit; repeated
 delivery joins that operation. Preview is a fresh read, not a reservation, so
-creation rechecks availability. The dialog immediately shows checking, checkout,
+creation rechecks availability. The browser generates and persists the request
+identity before submission in both trusted HTTP and HTTPS contexts.
+The dialog immediately shows checking, checkout,
 and registration stages with elapsed time. It may be minimized while the source
 Project retains a status control; minimizing does not cancel Git work.
 Unresolved persisted operations retain their target names even when no directory
