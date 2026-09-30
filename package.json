@@ -1,6 +1,6 @@
 {
   "name": "farming-code",
-  "version": "2.2.73",
+  "version": "2.2.74",
   "farmingUserInstall": 1,
   "description": "Farming Code is a self-hosted browser workspace for running and supervising AI coding agents",
   "main": "backend/server.cjs",
@@ -262,8 +262,8 @@
     "saxes"
   ],
   "devDependencies": {
-    "@agentclientprotocol/claude-agent-acp": "0.82.0",
-    "@agentclientprotocol/codex-acp": "2.0.0",
+    "@agentclientprotocol/claude-agent-acp": "0.84.0",
+    "@agentclientprotocol/codex-acp": "2.0.1",
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.59.1",
     "@types/node": "^26.1.1",
@@ -293,7 +293,7 @@
   "overrides": {
     "@hono/node-server": "2.0.11",
     "dompurify": "3.4.13",
-    "@openai/codex": "0.158.0",
+    "@openai/codex": "0.159.2",
     "lodash": "4.18.1",
     "minimist": "1.2.8",
     "@agentclientprotocol/claude-agent-acp": {
@@ -301,20 +301,20 @@
     }
   },
   "optionalDependencies": {
-    "@anthropic-ai/claude-agent-sdk-darwin-arm64": "0.3.280",
-    "@anthropic-ai/claude-agent-sdk-darwin-x64": "0.3.280",
-    "@anthropic-ai/claude-agent-sdk-linux-arm64": "0.3.280",
-    "@anthropic-ai/claude-agent-sdk-linux-arm64-musl": "0.3.280",
-    "@anthropic-ai/claude-agent-sdk-linux-x64": "0.3.280",
-    "@anthropic-ai/claude-agent-sdk-linux-x64-musl": "0.3.280",
-    "@anthropic-ai/claude-agent-sdk-win32-arm64": "0.3.280",
-    "@anthropic-ai/claude-agent-sdk-win32-x64": "0.3.280",
-    "@openai/codex-darwin-arm64": "npm:@openai/codex@0.158.0-darwin-arm64",
-    "@openai/codex-darwin-x64": "npm:@openai/codex@0.158.0-darwin-x64",
-    "@openai/codex-linux-arm64": "npm:@openai/codex@0.158.0-linux-arm64",
-    "@openai/codex-linux-x64": "npm:@openai/codex@0.158.0-linux-x64",
-    "@openai/codex-win32-arm64": "npm:@openai/codex@0.158.0-win32-arm64",
-    "@openai/codex-win32-x64": "npm:@openai/codex@0.158.0-win32-x64"
+    "@anthropic-ai/claude-agent-sdk-darwin-arm64": "0.3.284",
+    "@anthropic-ai/claude-agent-sdk-darwin-x64": "0.3.284",
+    "@anthropic-ai/claude-agent-sdk-linux-arm64": "0.3.284",
+    "@anthropic-ai/claude-agent-sdk-linux-arm64-musl": "0.3.284",
+    "@anthropic-ai/claude-agent-sdk-linux-x64": "0.3.284",
+    "@anthropic-ai/claude-agent-sdk-linux-x64-musl": "0.3.284",
+    "@anthropic-ai/claude-agent-sdk-win32-arm64": "0.3.284",
+    "@anthropic-ai/claude-agent-sdk-win32-x64": "0.3.284",
+    "@openai/codex-darwin-arm64": "npm:@openai/codex@0.159.2-darwin-arm64",
+    "@openai/codex-darwin-x64": "npm:@openai/codex@0.159.2-darwin-x64",
+    "@openai/codex-linux-arm64": "npm:@openai/codex@0.159.2-linux-arm64",
+    "@openai/codex-linux-x64": "npm:@openai/codex@0.159.2-linux-x64",
+    "@openai/codex-win32-arm64": "npm:@openai/codex@0.159.2-win32-arm64",
+    "@openai/codex-win32-x64": "npm:@openai/codex@0.159.2-win32-x64"
   },
   "allowScripts": {
     "esbuild@0.27.7": true,

@@ -135,7 +135,7 @@ try {
   const unsupportedPlugin = path.join(codexHome, 'plugins', 'unsupported-standard');
   fs.mkdirSync(path.join(unsupportedPlugin, 'skills', 'must-not-load'), { recursive: true });
   fs.writeFileSync(path.join(unsupportedPlugin, 'plugin.json'), JSON.stringify({
-    $schema: 'https://agent-plugins.org/schemas/2.0.0/plugin.schema.json',
+    $schema: 'https://agent-plugins.org/schemas/2.0.1/plugin.schema.json',
     name: 'unsupported-standard',
   }));
   fs.writeFileSync(path.join(unsupportedPlugin, 'skills', 'must-not-load', 'SKILL.md'), '---\nname: Unsupported Skill\n---\n');
