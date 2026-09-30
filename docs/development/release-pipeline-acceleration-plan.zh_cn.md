@@ -472,7 +472,8 @@ Changed Files + Failure Signatures
 
 - Linux CLI、标准 App Bundle、Legacy App Bundle 在同一 Metadata Gate 后作为三个并行 Job。
 - 每个 macOS Architecture 的 Native CLI 与 App Bundle 作为两个并行 Job。
-- macOS Job 在 Preflight 后直接启动，不等待独立的跨平台 Browser Matrix；每个 App 仍在
+- macOS App Job 在 Preflight 后直接启动，不等待独立的跨平台 Browser Matrix；独立 CLI Job
+  必须等待完整 Matrix，因为每个 Standalone CLI 会嵌入全部受支持的 Runtime。每个 App 仍在
   自己的 Packaging Runner 上构建并 Smoke Native Browser。Cargo 中间产物按 Host OS、
   Architecture、Target、固定 Toolchain、Upstream Source、Patch 与 Build Script 隔离缓存；
   Restore 后始终重新 Test、Build，并生成当前 Candidate Identity。

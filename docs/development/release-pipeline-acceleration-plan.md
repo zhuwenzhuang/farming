@@ -589,8 +589,10 @@ without reducing coverage.
 - Run Linux CLI, standard app-bundle, and legacy app-bundle as three parallel
   jobs after one metadata gate.
 - Run native CLI and app-bundle as two parallel jobs for each macOS architecture.
-- Start those macOS jobs after preflight; they do not wait for the independent
-  cross-platform Browser matrix. Each macOS app builds and smokes its native
+- Start macOS app jobs after preflight; they do not wait for the independent
+  cross-platform Browser matrix. The separate CLI jobs wait for that complete
+  matrix because each standalone CLI embeds every supported runtime. Each macOS
+  app builds and smokes its native
   Browser on its own packaging runner. Cache Cargo intermediates by host OS,
   architecture, target, pinned toolchain, upstream source, patch, and build
   script; always test, build, and emit a fresh candidate identity after restore.

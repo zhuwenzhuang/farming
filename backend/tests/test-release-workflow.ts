@@ -112,9 +112,10 @@ function run() {
     ['cli', 'app', 'legacy'],
   );
   assert.deepStrictEqual(
-    preparationWorkflow.jobs['build-macos'].strategy.matrix.include
+    [...preparationWorkflow.jobs['build-macos'].strategy.matrix.include,
+      ...preparationWorkflow.jobs['build-macos-cli'].strategy.matrix.include]
       .map(entry => `${entry.arch}:${entry.kind}`),
-    ['x64:cli', 'x64:app', 'arm64:cli', 'arm64:app'],
+    ['x64:app', 'arm64:app', 'x64:cli', 'arm64:cli'],
   );
   const agentBrowserJob = preparationWorkflow.jobs['build-agent-browser'];
   assert(agentBrowserJob, 'release preparation must build the patched agent-browser runtimes');
@@ -197,7 +198,7 @@ function run() {
   );
   assert(candidateWorkflowGate, 'release publication must require every workflow from the exact candidate push');
   assert.strictEqual(candidateWorkflowGate.env.GH_TOKEN, '${{ github.token }}');
-  for (const jobName of ['build-linux', 'prepare-npm']) {
+  for (const jobName of ['build-linux', 'build-macos-cli', 'prepare-npm']) {
     const job = preparationWorkflow.jobs[jobName];
     assert.deepStrictEqual(job.needs, ['preflight', 'build-agent-browser']);
     assert.strictEqual(job.env.FARMING_AGENT_BROWSER_ARTIFACTS, '${{ github.workspace }}/../release-agent-browser-artifacts');

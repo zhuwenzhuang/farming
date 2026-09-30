@@ -359,19 +359,9 @@ jobs:
         include:
           - runner: macos-15-intel
             arch: x64
-            kind: cli
-            cliTarget: node22-macos-x64
-            cliAsset: darwin_amd64
-          - runner: macos-15-intel
-            arch: x64
             kind: app
             cliTarget: node22-macos-x64
             cliAsset: darwin_amd64
-          - runner: macos-15
-            arch: arm64
-            kind: cli
-            cliTarget: node22-macos-arm64
-            cliAsset: darwin_arm64
           - runner: macos-15
             arch: arm64
             kind: app
@@ -524,6 +514,106 @@ jobs:
               "release-upload/release-metadata-${archive%.tar.gz}.json"
           fi
 
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: farming-macos-${{ steps.version.outputs.value }}-${{ matrix.arch }}-${{ matrix.kind }}
+          path: release-upload/*
+          if-no-files-found: error
+          compression-level: 0
+
+  build-macos-cli:
+    name: Build macOS ${{ matrix.arch }} ${{ matrix.kind }} artifacts
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15-intel
+            arch: x64
+            kind: cli
+            cliTarget: node22-macos-x64
+            cliAsset: darwin_amd64
+          - runner: macos-15
+            arch: arm64
+            kind: cli
+            cliTarget: node22-macos-arm64
+            cliAsset: darwin_arm64
+    runs-on: ${{ matrix.runner }}
+    needs:
+      - preflight
+      - build-agent-browser
+    env:
+      FARMING_BASE_PATH: /farming
+      FARMING_RELEASE_VERSION: ${{ inputs.release_version }}
+      FARMING_RELEASE_INTEGRATION_REF: refs/remotes/origin/main
+      FARMING_AGENT_BROWSER_ARTIFACTS: ${{ github.workspace }}/../release-agent-browser-artifacts
+    steps:
+      - name: Normalize release version
+        id: version
+        shell: bash
+        run: |
+          version="${FARMING_RELEASE_VERSION}"
+          echo "value=${version}" >> "${GITHUB_OUTPUT}"
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify release version
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.value }}
+        shell: bash
+        run: |
+          package_version="$(node -p "require('./package.json').version")"
+          lock_version="$(node -p "require('./package-lock.json').packages[''].version")"
+          if [[ "${RELEASE_VERSION}" != "${package_version}" || "${RELEASE_VERSION}" != "${lock_version}" ]]; then
+            echo "Tag, package.json, and package-lock.json versions must match: tag=${RELEASE_VERSION}, package=${package_version}, lock=${lock_version}" >&2
+            exit 1
+          fi
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      - name: Download patched agent-browser runtimes
+        uses: actions/download-artifact@v4
+        with:
+          pattern: farming-agent-browser-*
+          path: ${{ github.workspace }}/../release-agent-browser-artifacts
+          merge-multiple: true
+      - name: Verify native runner architecture
+        shell: bash
+        run: |
+          case "${{ matrix.arch }}:$(uname -m)" in
+            x64:x86_64|arm64:arm64) ;;
+            *) echo "Runner architecture does not match release target: target=${{ matrix.arch }}, host=$(uname -m)" >&2; exit 1 ;;
+          esac
+      - name: Install dependencies
+        run: |
+          npm install --global npm@12.0.2
+          FARMING_SKIP_INSTALL_RUNTIME_PREPARE=1 PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 PUPPETEER_SKIP_DOWNLOAD=1 npm ci --registry=https://registry.npmjs.org/ --no-audit --no-fund
+      - name: Build native macOS CLI
+        env:
+          FARMING_RELEASE_VERSION: ${{ steps.version.outputs.value }}
+          FARMING_CLI_TARGETS: ${{ matrix.cliTarget }}
+        run: npm run release:cli
+      - name: Smoke-test native macOS CLI
+        env:
+          FARMING_RELEASE_VERSION: ${{ steps.version.outputs.value }}
+        run: npm run release:cli:smoke -- "releases/${FARMING_RELEASE_VERSION}/farming_${FARMING_RELEASE_VERSION}_${{ matrix.cliAsset }}"
+      - name: Collect macOS release assets
+        env:
+          FARMING_RELEASE_VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          mkdir -p release-upload
+          if [[ "${{ matrix.kind }}" == "cli" ]]; then
+            cp "releases/${FARMING_RELEASE_VERSION}/farming_${FARMING_RELEASE_VERSION}_${{ matrix.cliAsset }}" release-upload/
+          else
+            archive="farming-${FARMING_RELEASE_VERSION}-darwin-${{ matrix.arch }}.tar.gz"
+            cp "releases/${FARMING_RELEASE_VERSION}/${archive}" release-upload/
+            cp "${RUNNER_TEMP}/farming-release-stage-app/farming-${FARMING_RELEASE_VERSION}-darwin-${{ matrix.arch }}/RELEASE.json" \
+              "release-upload/release-metadata-${archive%.tar.gz}.json"
+          fi
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4
         with:
