@@ -130,6 +130,7 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
         return event.defaultPrevented
       })).toBe(true)
       await viewer.getByRole('button', { name: 'Fit diagram to view' }).click()
+      await expect(viewer.locator('.code-markdown-mermaid-canvas > svg')).toBeVisible()
       const svgBefore = (await viewer.locator('.code-markdown-mermaid-canvas > svg').boundingBox())!
       const point = { x: svgBefore.x + svgBefore.width * 0.3, y: svgBefore.y + svgBefore.height * 0.4 }
       await page.mouse.move(point.x, point.y)

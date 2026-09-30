@@ -386,11 +386,12 @@ test.describe('additional Farming Code user scenarios', () => {
       await expect(page.getByTestId('code-composer-send')).toBeVisible()
     })
 
-    await scenario('text attachment appends readable context to the composer and can be sent', async () => {
+    await scenario('text attachment retains readable context separately from the draft and can be sent', async () => {
       await selectAgentById(page, bashAgentId)
       const textarea = page.getByTestId('code-composer').locator('textarea')
       await page.getByTestId('code-composer-file-input').setInputFiles(attachmentPath)
-      await expect(textarea).toContainText('attached context line')
+      await expect(page.getByTestId('code-composer-document')).toContainText('attached context line')
+      await expect(textarea).toHaveValue('')
       await textarea.fill('echo additional-desktop-context')
       await page.getByTestId('code-composer-send').click()
       await expect.poll(async () => terminalText(page, bashAgentId)).toContain('additional-desktop-context')
@@ -544,7 +545,8 @@ test.describe('additional Farming Code user scenarios', () => {
       const textarea = page.getByTestId('code-composer').locator('textarea')
       await textarea.fill('')
       await page.getByTestId('code-composer-file-input').setInputFiles(longAttachmentPath)
-      await expect(textarea).toContainText('long attachment context')
+      await expect(page.getByTestId('code-composer-document')).toContainText('long attachment context')
+      await expect(textarea).toHaveValue('')
       await expectNoInlineOverflow(page.getByTestId('code-composer'))
     })
 

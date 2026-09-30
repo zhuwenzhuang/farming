@@ -244,7 +244,7 @@ test('blocks ACP submission when an image upload fails', async ({ page, workspac
 
   const attachment = page.getByTestId('code-composer-attachment')
   await expect(attachment).toHaveClass(/error/)
-  await expect(attachment).toContainText('Upload failed')
+  await expect(attachment.getByRole('alert')).toHaveText('simulated upload failure')
   await expect(send).toBeDisabled()
   await expect(send).toHaveAttribute('data-action', 'disabled')
   await input.press('Enter')

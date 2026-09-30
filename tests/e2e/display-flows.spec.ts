@@ -1802,6 +1802,9 @@ test.describe('display-backed agent flows', () => {
     expect(revealedProjectRootId).toBe('')
     await openProjectActions()
     await page.getByTestId('code-project-context-menu').getByRole('menuitem', { name: 'Create permanent worktree' }).click()
+    const creationDialog = page.getByTestId('code-worktree-create-dialog')
+    await expect(creationDialog.getByRole('textbox', { name: 'Branch name' })).toBeEditable()
+    await creationDialog.getByRole('button', { name: 'Create', exact: true }).click()
     await expect.poll(() => createdWorktreeRootId).toMatch(/^wroot_[0-9a-f]{16}$/)
     await expect(page.getByTestId('code-copy-toast')).toHaveText('Permanent worktree created')
 
@@ -3584,7 +3587,7 @@ test.describe('display-backed agent flows', () => {
       if (process.platform === 'darwin') {
         await expect(page.getByTestId('code-composer-plus-menu')).toHaveScreenshot('desktop-composer-plus-menu.png')
       }
-      await expect(page.getByTestId('code-composer-attach-file')).toBeFocused()
+      await expect(page.getByTestId('composer-foldLongPaste')).toBeFocused()
       const fileChooserPromise = page.waitForEvent('filechooser')
       await page.getByTestId('code-composer-attach-file').click()
       const fileChooser = await fileChooserPromise
@@ -3593,13 +3596,14 @@ test.describe('display-backed agent flows', () => {
         mimeType: 'text/plain',
         buffer: Buffer.from('attached note'),
       })
-      await expect(page.getByTestId('code-composer').locator('textarea')).toHaveValue(/Attached file: note\.txt[\s\S]*attached note/)
+      await expect(page.getByTestId('code-composer-document')).toContainText('attached note')
+      await expect(page.getByTestId('code-composer').locator('textarea')).toHaveValue('')
       await expect(page.getByTestId('code-composer').locator('textarea')).toBeFocused()
       await page.getByTestId('code-composer-file-input').dispatchEvent('cancel')
       await expect(page.getByTestId('code-composer').locator('textarea')).toBeFocused()
       await page.getByTestId('code-composer').locator('textarea').fill('')
       await page.getByTestId('code-composer-add').click()
-      await expect(page.getByTestId('code-composer-attach-file')).toBeFocused()
+      await expect(page.getByTestId('composer-foldLongPaste')).toBeFocused()
       await page.keyboard.press('Escape')
       await expect(page.getByTestId('code-composer-plus-menu')).toBeHidden()
       await expect(page.getByTestId('code-composer').locator('textarea')).toBeFocused()
@@ -3608,7 +3612,7 @@ test.describe('display-backed agent flows', () => {
       await page.getByTestId('code-composer').locator('textarea').fill('')
       await page.getByTestId('code-composer-add').click()
       await expect(page.getByTestId('code-composer-plus-menu')).toBeVisible()
-      await expect(page.getByTestId('code-composer-attach-file')).toBeFocused()
+      await expect(page.getByTestId('composer-foldLongPaste')).toBeFocused()
       await page.keyboard.press('n')
       await expect(page.getByTestId('input-dialog')).toBeHidden()
       await expect(page.getByTestId('code-composer-plus-menu')).toBeVisible()
@@ -3635,6 +3639,10 @@ test.describe('display-backed agent flows', () => {
       await expect(page.getByTestId('code-composer').locator('textarea')).toHaveValue('line one\nline two')
       await page.getByTestId('code-composer').locator('textarea').fill('')
       await page.getByTestId('code-composer-add').click()
+      await expect(page.getByTestId('composer-foldLongPaste')).toBeFocused()
+      await page.keyboard.press('ArrowDown')
+      await expect(page.getByTestId('composer-optimizeImages')).toBeFocused()
+      await page.keyboard.press('ArrowDown')
       await expect(page.getByTestId('code-composer-attach-file')).toBeFocused()
       await page.keyboard.press('ArrowDown')
       await expect(page.getByTestId('code-composer-goal-mode')).toBeFocused()

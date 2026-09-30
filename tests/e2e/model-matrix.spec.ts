@@ -162,7 +162,12 @@ test('model matrix follows the advertised catalog across generations and appeara
       const trackBounds = await track.boundingBox()
       expect(Math.abs(trackBounds!.y - surface!.y)).toBeLessThanOrEqual(1)
       expect(Math.abs(trackBounds!.height - surface!.height)).toBeLessThanOrEqual(1)
-      expect(await ultra.boundingBox()).toEqual(trackBounds)
+      await expect.poll(() => matrix.evaluate(element => {
+        const track = element.querySelector('.code-model-matrix-rocker-control')!.getBoundingClientRect()
+        const ultra = element.querySelector('[aria-label="Ultra reasoning"]')!.getBoundingClientRect()
+        return track.x === ultra.x && track.y === ultra.y
+          && track.width === ultra.width && track.height === ultra.height
+      })).toBe(true)
       await expect(matrix).toHaveScreenshot(`model-matrix-catalog-${width}-${appearance}.png`)
       await ultra.click()
       await expect(ultra).toHaveAttribute('aria-pressed', 'true')
