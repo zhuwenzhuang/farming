@@ -59,8 +59,8 @@ if(command==='git'){
       const cargo = calls.filter(call => call.command === 'cargo');
       const unit = cargo.find(call => call.args.includes('test')).args;
       const build = cargo.find(call => call.args.includes('build') || call.args.includes('zigbuild')).args;
-      assert.deepEqual(unit, [`+${pin.rust}`, 'test', '--locked', '--release',
-        ...(platform.startsWith('linux-') ? [] : ['--target', target]), 'native::cdp::chrome::tests', '--', '--nocapture']);
+      assert.deepEqual(unit, [`+${pin.rust}`, 'test', '--locked',
+        ...(platform.startsWith('linux-') ? [] : ['--release', '--target', target]), 'native::cdp::chrome::tests', '--', '--nocapture']);
       assert.deepEqual(build, [`+${pin.rust}`, platform.startsWith('linux-') ? 'zigbuild' : 'build', '--locked', '--release',
         '--target', platform === 'linux-x64' ? `${target}.2.28` : target]);
       const directory = path.join(fixture, 'artifacts', platform);

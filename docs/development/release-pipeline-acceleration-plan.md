@@ -600,7 +600,8 @@ without reducing coverage.
   architecture, target and pinned toolchain; Cargo fingerprints decide which
   intermediates remain valid. Native regression tests use the production
   release profile and target, so tests and packaging share dependency builds.
-  Linux tests remain host-native before the separate Zig compatibility build.
+  Linux tests retain their host test profile before the separate Zig
+  compatibility build, whose compiler/linker inputs cannot share that graph.
 - Retain the exact app assembly directory until smoke completes. Verify the
   archive and smoke the retained directory instead of extracting the large
   archive immediately after creating it.
