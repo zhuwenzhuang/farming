@@ -7,7 +7,9 @@ if [[ -z "${CANDIDATE_SHA}" ]]; then
   exit 2
 fi
 
-REPOSITORY="${2:-$(gh repo view --json nameWithOwner --jq .nameWithOwner)}"
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+observe_gh() { node "${PROJECT_ROOT}/scripts/observe-release-gh.mjs" "$@"; }
+REPOSITORY="${2:-$(observe_gh repo view --json nameWithOwner --jq .nameWithOwner)}"
 TIMEOUT_SECONDS="${3:-900}"
 MODE="${4:-wait}"
 if [[ "${MODE}" != "wait" && "${MODE}" != "once" ]]; then
@@ -17,7 +19,6 @@ fi
 POLL_SECONDS="${FARMING_RELEASE_WORKFLOW_POLL_SECONDS:-5}"
 DISCOVERY_SECONDS="${FARMING_RELEASE_WORKFLOW_DISCOVERY_SECONDS:-20}"
 NO_RUN_TIMEOUT_SECONDS="${FARMING_RELEASE_WORKFLOW_NO_RUN_TIMEOUT_SECONDS:-60}"
-PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUNDLE_ROOT="${FARMING_RELEASE_WATCH_DIR:-${PROJECT_ROOT}/.tmp/release-watch}"
 BUNDLE_DIR="${BUNDLE_ROOT}/candidate-${CANDIDATE_SHA}"
 STARTED_AT="$(date +%s)"
@@ -28,14 +29,20 @@ mkdir -p "${BUNDLE_DIR}"
 while true; do
   NOW="$(date +%s)"
   ELAPSED="$((NOW - STARTED_AT))"
-  RUNS_JSON="$(
-    gh run list \
+  if ! RUNS_JSON="$(
+    observe_gh run list \
       --repo "${REPOSITORY}" \
       --commit "${CANDIDATE_SHA}" \
       --event push \
       --limit 100 \
       --json databaseId,workflowName,status,conclusion,createdAt,updatedAt,url,event
-  )"
+  )"; then
+    printf '%s observation failed for candidate %s; outcome remains unknown.\n' "$(date -u +%FT%TZ)" "${CANDIDATE_SHA}" >&2
+    if [[ "${MODE}" == "once" ]]; then exit 2; fi
+    if (( $(date +%s) - STARTED_AT >= TIMEOUT_SECONDS )); then exit 124; fi
+    sleep "${POLL_SECONDS}"
+    continue
+  fi
   printf '%s\n' "${RUNS_JSON}" > "${BUNDLE_DIR}/workflows.json"
 
   SNAPSHOT="$(
@@ -69,7 +76,7 @@ NODE
   if [[ "${FAILURE_COUNT}" -gt 0 ]]; then
     while IFS=$'\t' read -r RUN_ID WORKFLOW CONCLUSION URL; do
       [[ -n "${RUN_ID}" ]] || continue
-      gh run view "${RUN_ID}" --repo "${REPOSITORY}" --log-failed \
+      observe_gh run view "${RUN_ID}" --repo "${REPOSITORY}" --log-failed \
         > "${BUNDLE_DIR}/${RUN_ID}-failure.log" 2>&1 || true
       printf 'Candidate workflow failed: %s (%s) %s\n' "${WORKFLOW}" "${CONCLUSION}" "${URL}" >&2
       FIRST_ERROR="$(

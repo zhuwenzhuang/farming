@@ -7,8 +7,9 @@ if [[ -z "${RUN_ID}" ]]; then
   exit 2
 fi
 
-REPOSITORY="${2:-$(gh repo view --json nameWithOwner --jq .nameWithOwner)}"
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+observe_gh() { node "${PROJECT_ROOT}/scripts/observe-release-gh.mjs" "$@"; }
+REPOSITORY="${2:-$(observe_gh repo view --json nameWithOwner --jq .nameWithOwner)}"
 BUNDLE_ROOT="${FARMING_RELEASE_WATCH_DIR:-${PROJECT_ROOT}/.tmp/release-watch}"
 BUNDLE_DIR="${BUNDLE_ROOT}/${RUN_ID}"
 mkdir -p "${BUNDLE_DIR}"
@@ -19,7 +20,7 @@ if [[ ! "${POLL_SECONDS}" =~ ^[1-9][0-9]*$ || "${POLL_SECONDS}" -gt 60 ]]; then
 fi
 
 while true; do
-  if ! RUN_JSON="$(gh run view "${RUN_ID}" --repo "${REPOSITORY}" --json status,conclusion,headSha,workflowName,url,jobs)"; then
+  if ! RUN_JSON="$(observe_gh run view "${RUN_ID}" --repo "${REPOSITORY}" --json status,conclusion,headSha,workflowName,url,jobs)"; then
     printf '%s observation failed for run %s; rechecking the same run.\n' "$(date -u +%FT%TZ)" "${RUN_ID}" >&2
     sleep "${POLL_SECONDS}"
     continue
@@ -61,8 +62,8 @@ NODE
     JOB_ID="$(FAILURE_JOB="${FAILURE_JOB}" node -p "JSON.parse(process.env.FAILURE_JOB).id")"
     JOB_NAME="$(FAILURE_JOB="${FAILURE_JOB}" node -p "JSON.parse(process.env.FAILURE_JOB).name")"
     HEAD_SHA="$(RUN_JSON="${RUN_JSON}" node -p "JSON.parse(process.env.RUN_JSON).headSha")"
-    gh run view "${RUN_ID}" --repo "${REPOSITORY}" --job "${JOB_ID}" --log-failed > "${BUNDLE_DIR}/failure.log" || true
-    gh api "repos/${REPOSITORY}/commits/${HEAD_SHA}" --jq '.files[]?.filename' > "${BUNDLE_DIR}/changed-files.txt" || true
+    observe_gh run view "${RUN_ID}" --repo "${REPOSITORY}" --job "${JOB_ID}" --log-failed > "${BUNDLE_DIR}/failure.log" || true
+    observe_gh api "repos/${REPOSITORY}/commits/${HEAD_SHA}" --jq '.files[]?.filename' > "${BUNDLE_DIR}/changed-files.txt" || true
     FIRST_ERROR="$(rg -i -m1 -n 'npm[[:space:]]+error|[[:space:]]Error:|##\[error\]|[[:space:]]failed([[:space:]:]|$)|[[:space:]]failure([[:space:]:]|$)' "${BUNDLE_DIR}/failure.log" || true)"
     RUN_ID="${RUN_ID}" RUN_JSON="${RUN_JSON}" FAILURE_JOB="${FAILURE_JOB}" FIRST_ERROR="${FIRST_ERROR}" BUNDLE_DIR="${BUNDLE_DIR}" node <<'NODE'
 const fs = require('fs');

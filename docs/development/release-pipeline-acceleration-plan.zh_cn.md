@@ -343,6 +343,9 @@ Exact-SHA CI 时完成；npm 仍严格位于 GitHub 公开验证之后，作为�
 仓库新增 `scripts/release-snapshot.sh`，一次采集初始 Candidate 状态；新增
 `scripts/watch-run.sh`，由脚本持续监控并在失败时生成有边界的 Failure Bundle，Agent 不再反复
 手工轮询。
+每次 GitHub 状态读取有 30 秒请求时限。传输失败时保留最后一次成功的 Checkpoint，并重新
+读取同一 Workflow Identity；不能因此重新 Dispatch 或发布。发布前的一次性检查在无法
+取得新鲜读取结果时明确拒绝继续。
 
 ## v2.2.55 复盘与 Artifact 复用改造
 

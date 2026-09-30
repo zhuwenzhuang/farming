@@ -434,6 +434,10 @@ step after public GitHub verification.
 The repository now provides `scripts/release-snapshot.sh` for one initial
 candidate snapshot and `scripts/watch-run.sh` for script-owned monitoring and a
 bounded failure bundle. This removes the need for repeated Agent polling.
+Each GitHub observation has a 30-second request deadline. A transport failure
+preserves the last successful checkpoint and triggers another read of the same
+workflow identity; it does not authorize a new dispatch or publication. A
+one-pass publication check fails closed if that fresh read is unavailable.
 
 ## v2.2.55 Retrospective And Artifact-Reuse Change
 
