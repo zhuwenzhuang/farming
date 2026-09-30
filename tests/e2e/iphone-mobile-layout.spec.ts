@@ -554,7 +554,7 @@ test.describe('iPhone mobile layout', () => {
     const geometry = await page.evaluate(() => {
       const composer = document.querySelector<HTMLElement>('[data-testid="code-acp-composer"]')?.getBoundingClientRect()
       const attachment = document.querySelector<HTMLElement>('[data-testid="code-composer-attachment"]')?.getBoundingClientRect()
-      const remove = document.querySelector<HTMLElement>('[data-testid="code-composer-attachment"] button')?.getBoundingClientRect()
+      const remove = document.querySelector<HTMLElement>('[data-testid="code-composer-attachment"] .code-composer-attachment-remove')?.getBoundingClientRect()
       const toolbar = document.querySelector<HTMLElement>('[data-testid="code-acp-composer-toolbar"]')?.getBoundingClientRect()
       if (!composer || !attachment || !remove || !toolbar) throw new Error('Attachment geometry is incomplete')
       const hit = document.elementFromPoint(remove.left + remove.width / 2, remove.top + remove.height / 2)
