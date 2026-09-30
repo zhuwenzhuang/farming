@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
+import pin from '../backend/data/agent-browser-source.json';
 
 test('native tests reuse the release target while Linux tests remain host-native; every artifact has fresh identity', () => {
   const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-browser-recipe-'));
@@ -13,7 +14,6 @@ test('native tests reuse the release target while Linux tests remain host-native
     const bin = path.join(fixture, 'bin');
     for (const directory of ['scripts', 'backend/data', 'patches/agent-browser']) fs.mkdirSync(path.join(project, directory), { recursive: true });
     fs.mkdirSync(bin);
-    const pin = JSON.parse(fs.readFileSync('backend/data/agent-browser-source.json', 'utf8'));
     for (const file of ['scripts/build-agent-browser-runtime.mjs', 'backend/data/agent-browser-source.json', pin.patch]) {
       fs.copyFileSync(file, path.join(project, file));
     }
