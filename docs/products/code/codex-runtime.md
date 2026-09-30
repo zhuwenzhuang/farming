@@ -167,8 +167,10 @@ another model; Farming must not silently submit using the Provider default.
 The Composer model matrix uses the advertised model inventory and its order,
 across model generations. Identity styling does not filter the catalog: Astra
 uses a blue-white stellar accent, Sol orange, Terra green, Luna violet, and
-unrecognized identities use neutral styling. Rows grow with the inventory and
-long labels retain their full identity in the accessible cell label. The matrix
+unrecognized identities use neutral styling. Visible row labels retain the model
+version alongside its family name so generations remain distinguishable. Rows
+grow with the inventory and long labels retain their full identity in the
+accessible cell label. The matrix
 uses the reasoning choices supplied by its runtime; Advanced remains available
 for the full configuration controls. The Ultra track aligns with the matrix
 height; its hit area, knob travel, and energy fill adapt together as rows grow,

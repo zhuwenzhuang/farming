@@ -99,7 +99,10 @@ test('model matrix follows the advertised catalog across generations and appeara
   const agentId = await createAcpAgent(page, workspace)
   let state: MatrixState = { model: 'gpt-5.6-sol', reasoning: 'high', fast: false }
   const models = [
+    { value: 'gpt-6.1-sol', name: 'GPT 6.1 Sol' },
     { value: 'gpt-6-astra', name: 'GPT 6.0 Astra' },
+    { value: 'gpt-6-sol', name: 'GPT 6 Sol' },
+    { value: 'gpt-6-luna', name: 'GPT 6 Luna' },
     ...MODEL_OPTIONS,
     { value: 'gpt-5.5', name: 'GPT 5.5' },
     { value: 'gpt-5.4', name: 'GPT 5.4' },
@@ -126,7 +129,7 @@ test('model matrix follows the advertised catalog across generations and appeara
   await picker.click()
   const matrix = page.getByTestId('code-model-matrix-picker')
   const labels = matrix.locator('.code-model-matrix-labels span')
-  await expect(labels).toHaveText(['Astra', 'Sol', 'Terra', 'Luna', '5.5', '5.4', '5.4 Mini', '5.3 Codex Spark', 'Future Model With A Long Name'])
+  await expect(labels).toHaveText(['6.1 Sol', '6.0 Astra', '6 Sol', '6 Luna', '5.6-Sol', '5.6-Terra', '5.6-Luna', '5.5', '5.4', '5.4 Mini', '5.3 Codex Spark', 'Future Model With A Long Name'])
   const astra = matrix.getByRole('radio', { name: 'GPT 6.0 Astra, high', exact: true })
   await astra.focus()
   await page.keyboard.press('Space')
@@ -136,6 +139,7 @@ test('model matrix follows the advertised catalog across generations and appeara
 
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 })
+    if (width === 390) await expect(page.locator('body')).toHaveClass(/code-compact-layout/)
     for (const appearance of ['light', 'dark', 'paper']) {
       await page.evaluate(value => {
         document.documentElement.dataset.appearance = value
@@ -148,6 +152,11 @@ test('model matrix follows the advertised catalog across generations and appeara
       expect(bounds!.y).toBeGreaterThanOrEqual(0)
       expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width)
       const surface = await matrix.locator('.code-model-matrix-surface').boundingBox()
+      await expect.poll(() => matrix.evaluate(element => {
+        const surface = element.querySelector('.code-model-matrix-surface')!.getBoundingClientRect()
+        return Array.from(element.querySelectorAll('.code-model-matrix-labels span')).slice(0, 7)
+          .every(label => label.getBoundingClientRect().right <= surface.left && label.scrollWidth <= label.clientWidth)
+      })).toBeTruthy()
       const ultra = matrix.getByRole('button', { name: 'Ultra reasoning', exact: true })
       const track = matrix.locator('.code-model-matrix-rocker-control')
       const trackBounds = await track.boundingBox()

@@ -2105,7 +2105,7 @@
   }
 
   .code-model-matrix {
-    grid-template-columns: 34px minmax(140px, 1fr) minmax(66px, auto);
+    grid-template-columns: max-content minmax(140px, 1fr) minmax(66px, auto);
     column-gap: 4px;
     padding-inline: 7px;
   }
