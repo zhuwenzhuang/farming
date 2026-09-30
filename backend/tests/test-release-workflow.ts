@@ -171,6 +171,7 @@ function run() {
   for (const input of ['runner.os', 'runner.arch', 'matrix.platform', 'rust-1.96.1', 'backend/data/agent-browser-source.json', 'patches/agent-browser/*.patch', 'scripts/build-agent-browser-runtime.mjs']) {
     assert(cargoCache?.with.key.includes(input), `Cargo cache must isolate ${input}`);
   }
+  assert.strictEqual(cargoCache.with['restore-keys'], 'agent-browser-cargo-v1-${{ runner.os }}-${{ runner.arch }}-rust-1.96.1-${{ matrix.platform }}-');
   assert.strictEqual(agentBrowserJob.steps.find(step => step.name === 'Build and verify patched agent-browser')?.env.CARGO_TARGET_DIR, cargoCache.with.path);
   const npmPrep = preparationWorkflow.jobs['prepare-npm'].steps;
   assert(npmPrep.some(step => step.name === 'Upload npm smoke receipt'
@@ -261,6 +262,8 @@ function run() {
   );
   const macosRuntimeBuild = macosJob.steps
     .find(step => step.name === 'Build native macOS browser runtime on packaging runner');
+  const macosCargoCache = macosJob.steps.find(step => step.name === 'Cache patched browser Cargo intermediates');
+  assert.strictEqual(macosCargoCache?.with['restore-keys'], 'agent-browser-cargo-v1-${{ runner.os }}-${{ runner.arch }}-rust-1.96.1-darwin-${{ matrix.arch }}-');
   assert.strictEqual(macosRuntimeBuild?.if, "matrix.kind == 'app'");
   assert(
     macosRuntimeBuild?.run.includes('--platform "darwin-${{ matrix.arch }}"')

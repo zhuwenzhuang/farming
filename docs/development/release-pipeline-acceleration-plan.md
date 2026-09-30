@@ -596,6 +596,11 @@ without reducing coverage.
   Browser on its own packaging runner. Cache Cargo intermediates by host OS,
   architecture, target, pinned toolchain, upstream source, patch, and build
   script; always test, build, and emit a fresh candidate identity after restore.
+  After a source or patch upgrade, restore only within the same host OS,
+  architecture, target and pinned toolchain; Cargo fingerprints decide which
+  intermediates remain valid. Native regression tests use the production
+  release profile and target, so tests and packaging share dependency builds.
+  Linux tests remain host-native before the separate Zig compatibility build.
 - Retain the exact app assembly directory until smoke completes. Verify the
   archive and smoke the retained directory instead of extracting the large
   archive immediately after creating it.

@@ -153,6 +153,7 @@ jobs:
         with:
           path: ${{ runner.temp }}/farming-agent-browser-cargo-target
           key: agent-browser-cargo-v1-${{ runner.os }}-${{ runner.arch }}-rust-1.96.1-${{ matrix.platform }}-${{ hashFiles('backend/data/agent-browser-source.json', 'patches/agent-browser/*.patch', 'scripts/build-agent-browser-runtime.mjs') }}
+          restore-keys: agent-browser-cargo-v1-${{ runner.os }}-${{ runner.arch }}-rust-1.96.1-${{ matrix.platform }}-
 
       - name: Build and verify patched agent-browser
         shell: bash
@@ -444,6 +445,7 @@ jobs:
         with:
           path: ${{ runner.temp }}/farming-agent-browser-cargo-target
           key: agent-browser-cargo-v1-${{ runner.os }}-${{ runner.arch }}-rust-1.96.1-darwin-${{ matrix.arch }}-${{ hashFiles('backend/data/agent-browser-source.json', 'patches/agent-browser/*.patch', 'scripts/build-agent-browser-runtime.mjs') }}
+          restore-keys: agent-browser-cargo-v1-${{ runner.os }}-${{ runner.arch }}-rust-1.96.1-darwin-${{ matrix.arch }}-
 
       - name: Build native macOS browser runtime on packaging runner
         if: matrix.kind == 'app'

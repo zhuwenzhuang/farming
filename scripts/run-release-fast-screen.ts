@@ -11,6 +11,10 @@ const projectRoot = path.resolve(__dirname, '..');
 const packageVersion = require(path.join(projectRoot, 'package.json')).version;
 const tasks: FastScreenTask[] = [
   {
+    name: 'Browser production build recipe and failed-test publication fence',
+    args: ['--import', 'tsx', '--test', 'tests/agent-browser-build-recipe.test.ts'],
+  },
+  {
     name: 'persistent workflow observations and transport recovery',
     args: ['--import', 'tsx', '--test', 'tests/release-workflow-monitor.test.ts'],
   },

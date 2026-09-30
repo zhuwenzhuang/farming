@@ -79,9 +79,13 @@ try {
     throw new Error('Release dashboard was not built');
   }
   const cli = path.join(work, 'cli');
-  run('cargo', [`+${pin.rust}`, 'test', '--locked', 'native::cdp::chrome::tests', '--', '--nocapture'], cli);
   const target = targets[platformKey];
   const zig = platformKey.startsWith('linux-');
+  // Exercise the production optimization profile. Native test and build targets
+  // share compiled dependencies instead of compiling a second debug graph.
+  // Linux tests stay host-native; Zig owns the separate compatibility target.
+  run('cargo', [`+${pin.rust}`, 'test', '--locked', '--release',
+    ...(zig ? [] : ['--target', target]), 'native::cdp::chrome::tests', '--', '--nocapture'], cli);
   if (zig) {
     // zigbuild's cargo subcommand does not implement --version. Cargo owns the
     // installed tool receipt; match its complete package header, not a substring.

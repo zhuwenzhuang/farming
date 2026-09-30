@@ -130,6 +130,7 @@ function run() {
   assert.strictEqual(mobile.steps.find(step => step.name === 'Screen mobile Composer geometry and image hit targets')?.if, 'matrix.human');
   const cargoCache = e2eAgentBrowser.steps.find(step => step.name === 'Cache patched browser Cargo intermediates');
   assert(cargoCache.with.key.includes('linux-x64'));
+  assert.strictEqual(cargoCache.with['restore-keys'], 'agent-browser-cargo-v1-${{ runner.os }}-${{ runner.arch }}-rust-1.96.1-linux-x64-');
   assert.strictEqual(e2eAgentBrowser.steps.find(step => step.name === 'Build and verify patched agent-browser')?.env.CARGO_TARGET_DIR, cargoCache.with.path);
   const browserRunStep = workflow.jobs.browser.steps.find(
     step => step.name === 'Run Chromium browser checks',

@@ -477,6 +477,10 @@ Changed Files + Failure Signatures
   自己的 Packaging Runner 上构建并 Smoke Native Browser。Cargo 中间产物按 Host OS、
   Architecture、Target、固定 Toolchain、Upstream Source、Patch 与 Build Script 隔离缓存；
   Restore 后始终重新 Test、Build，并生成当前 Candidate Identity。
+  Source 或 Patch 升级后，仅在相同 Host OS、Architecture、Target 和固定 Toolchain 内
+  Restore；由 Cargo Fingerprint 判定哪些中间产物仍有效。Native 回归测试与制品使用相同
+  Release Profile 和 Target，复用依赖编译结果。Linux 测试仍在 Host 上执行，再独立进行
+  Zig Compatibility Build。
 - 保留精确 App Assembly Directory 直到 Smoke 完成；Archive 继续完整 Verify，但 Smoke 不再先解压
   刚生成的大型 Archive。
 - Exact-SHA CI 和全部 Package-specific Gate 变绿前，所有 Job 都保持可逆，不执行公开 Mutation。
