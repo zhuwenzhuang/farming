@@ -472,8 +472,9 @@ Changed Files + Failure Signatures
 
 - Linux CLI、标准 App Bundle、Legacy App Bundle 在同一 Metadata Gate 后作为三个并行 Job。
 - 每个 macOS Architecture 的 Native CLI 与 App Bundle 作为两个并行 Job。
-- macOS App Job 在 Preflight 后直接启动，不等待独立的跨平台 Browser Matrix；独立 CLI Job
-  必须等待完整 Matrix，因为每个 Standalone CLI 会嵌入全部受支持的 Runtime。每个 App 仍在
+- macOS App Job 在 Preflight 后直接启动，不等待独立的 Linux/Windows Browser Matrix；独立
+  CLI、Linux 和 npm Job 必须等待该 Matrix 与 Native App Job，因为完整 Image 需要全部
+  受支持的 Runtime。每个 App 仍在
   自己的 Packaging Runner 上构建并 Smoke Native Browser。Cargo 中间产物按 Host OS、
   Architecture、Target、固定 Toolchain、Upstream Source、Patch 与 Build Script 隔离缓存；
   Restore 后始终重新 Test、Build，并生成当前 Candidate Identity。
@@ -481,6 +482,8 @@ Changed Files + Failure Signatures
   Restore；由 Cargo Fingerprint 判定哪些中间产物仍有效。Native 回归测试与制品使用相同
   Release Profile 和 Target，复用依赖编译结果。Linux 测试保留 Host Test Profile，再独立
   进行 Zig Compatibility Build；后者的 Compiler/Linker 输入不同，无法复用该依赖编译图。
+  Native Browser 与 App Smoke 通过后，App Job 向全平台 Packager 发布已验证的 Darwin
+  Browser Artifact；它是该 Architecture 的唯一 Native Producer，无需第二个 Darwin Build Lane。
 - 保留精确 App Assembly Directory 直到 Smoke 完成；Archive 继续完整 Verify，但 Smoke 不再先解压
   刚生成的大型 Archive。
 - Exact-SHA CI 和全部 Package-specific Gate 变绿前，所有 Job 都保持可逆，不执行公开 Mutation。

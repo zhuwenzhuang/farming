@@ -85,14 +85,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: darwin-arm64
-            runner: macos-15
-            rustTarget: aarch64-apple-darwin
-            zig: false
-          - platform: darwin-x64
-            runner: macos-15-intel
-            rustTarget: x86_64-apple-darwin
-            zig: false
           - platform: linux-arm64
             runner: ubuntu-24.04-arm
             rustTarget: aarch64-unknown-linux-gnu
@@ -172,7 +164,7 @@ jobs:
   build-linux:
     name: Build Linux ${{ matrix.kind }} artifacts
     runs-on: ubuntu-latest
-    needs: [preflight, build-agent-browser]
+    needs: [preflight, build-agent-browser, build-macos]
     strategy:
       fail-fast: false
       matrix:
@@ -502,6 +494,18 @@ jobs:
         run: |
           npm run release:cli:smoke -- "${RUNNER_TEMP}/farming-release-stage-app/farming-${FARMING_RELEASE_VERSION}-darwin-${{ matrix.arch }}/farming"
 
+      # This job already owns same-runner native construction and Chrome/app
+      # smoke. Hand its verified runtime to all-platform packagers instead of
+      # compiling a second Darwin copy on another runner.
+      - name: Upload verified native macOS browser runtime
+        if: matrix.kind == 'app'
+        uses: actions/upload-artifact@v4
+        with:
+          name: farming-agent-browser-darwin-${{ matrix.arch }}
+          path: ${{ runner.temp }}/native-agent-browser-artifacts
+          if-no-files-found: error
+          compression-level: 0
+
       - name: Collect macOS release assets
         env:
           FARMING_RELEASE_VERSION: ${{ steps.version.outputs.value }}
@@ -544,6 +548,7 @@ jobs:
     needs:
       - preflight
       - build-agent-browser
+      - build-macos
     env:
       FARMING_BASE_PATH: /farming
       FARMING_RELEASE_VERSION: ${{ inputs.release_version }}
@@ -627,7 +632,7 @@ jobs:
   prepare-npm:
     name: Prepare and smoke npm package
     runs-on: ubuntu-latest
-    needs: [preflight, build-agent-browser]
+    needs: [preflight, build-agent-browser, build-macos]
     permissions:
       contents: read
     env:

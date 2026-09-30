@@ -590,8 +590,9 @@ without reducing coverage.
   jobs after one metadata gate.
 - Run native CLI and app-bundle as two parallel jobs for each macOS architecture.
 - Start macOS app jobs after preflight; they do not wait for the independent
-  cross-platform Browser matrix. The separate CLI jobs wait for that complete
-  matrix because each standalone CLI embeds every supported runtime. Each macOS
+  Linux/Windows Browser matrix. The separate CLI, Linux, and npm jobs wait for
+  both that matrix and the native app jobs because each complete image needs
+  every supported runtime. Each macOS
   app builds and smokes its native
   Browser on its own packaging runner. Cache Cargo intermediates by host OS,
   architecture, target, pinned toolchain, upstream source, patch, and build
@@ -602,6 +603,9 @@ without reducing coverage.
   release profile and target, so tests and packaging share dependency builds.
   Linux tests retain their host test profile before the separate Zig
   compatibility build, whose compiler/linker inputs cannot share that graph.
+  After native Browser and app smoke pass, the app job publishes its verified
+  Darwin Browser artifact to the all-platform packagers. It is the sole native
+  producer for its architecture; a second Darwin build lane is unnecessary.
 - Retain the exact app assembly directory until smoke completes. Verify the
   archive and smoke the retained directory instead of extracting the large
   archive immediately after creating it.

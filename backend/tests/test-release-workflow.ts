@@ -123,8 +123,6 @@ function run() {
   assert.deepStrictEqual(
     agentBrowserJob.strategy.matrix.include.map(entry => entry.platform),
     [
-      'darwin-arm64',
-      'darwin-x64',
       'linux-arm64',
       'linux-x64',
       'linux-arm64-musl',
@@ -134,7 +132,7 @@ function run() {
   );
   assert.deepStrictEqual(
     agentBrowserJob.strategy.matrix.include.map(entry => entry.runner),
-    ['macos-15', 'macos-15-intel', 'ubuntu-24.04-arm', 'ubuntu-24.04', 'ubuntu-24.04-arm', 'ubuntu-24.04', 'windows-latest'],
+    ['ubuntu-24.04-arm', 'ubuntu-24.04', 'ubuntu-24.04-arm', 'ubuntu-24.04', 'windows-latest'],
   );
   const lineEndingSetupIndex = agentBrowserJob.steps.findIndex(
     step => step.name === 'Preserve pinned source line endings',
@@ -209,7 +207,7 @@ function run() {
   assert.strictEqual(candidateWorkflowGate.env.GH_TOKEN, '${{ github.token }}');
   for (const jobName of ['build-linux', 'build-macos-cli', 'prepare-npm']) {
     const job = preparationWorkflow.jobs[jobName];
-    assert.deepStrictEqual(job.needs, ['preflight', 'build-agent-browser']);
+    assert.deepStrictEqual(job.needs, ['preflight', 'build-agent-browser', 'build-macos']);
     assert.strictEqual(job.env.FARMING_AGENT_BROWSER_ARTIFACTS, '${{ github.workspace }}/../release-agent-browser-artifacts');
     const installScripts = job.steps.map(step => step.run ?? '').join('\n');
     assert(
@@ -228,6 +226,36 @@ function run() {
   assert(!macJob.steps.some(step => step.name === 'Download patched agent-browser runtimes'));
   assert(macJob.steps.some(step => step.name === 'Build native macOS browser runtime on packaging runner'
     && step.if === "matrix.kind == 'app'" && step.run.includes('FARMING_AGENT_BROWSER_ARTIFACTS=')));
+  const macNativeUpload = macJob.steps.find(step => step.name === 'Upload verified native macOS browser runtime');
+  assert.strictEqual(macNativeUpload?.if, "matrix.kind == 'app'");
+  assert.strictEqual(macNativeUpload?.with.name, 'farming-agent-browser-darwin-${{ matrix.arch }}');
+  assert.strictEqual(macNativeUpload?.with.path, '${{ runner.temp }}/native-agent-browser-artifacts');
+  assert.strictEqual(macNativeUpload?.with['if-no-files-found'], 'error');
+  for (const name of ['Smoke-test patched browser runtime on macOS', 'Verify macOS app bundle', 'Smoke-test macOS app bundle']) {
+    const index = macJob.steps.findIndex(step => step.name === name);
+    assert(index >= 0 && index < macJob.steps.indexOf(macNativeUpload),
+      'native artifacts must not be published before Browser and app acceptance');
+  }
+  const runtimePlatforms = [
+    ...agentBrowserJob.strategy.matrix.include.map(entry => entry.platform),
+    ...macJob.strategy.matrix.include.map(entry => `darwin-${entry.arch}`),
+  ];
+  assert.deepStrictEqual([...runtimePlatforms].sort(),
+    ['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-arm64-musl', 'linux-x64', 'linux-x64-musl', 'win32-x64']);
+  assert.strictEqual(new Set(runtimePlatforms).size, runtimePlatforms.length, 'each runtime platform has one producer');
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+  const visit = (name: string): void => {
+    assert(preparationWorkflow.jobs[name], `unknown workflow dependency: ${name}`);
+    assert(!visiting.has(name), `release preparation dependency cycle at ${name}`);
+    if (visited.has(name)) return;
+    visiting.add(name);
+    const dependencies = preparationWorkflow.jobs[name].needs;
+    for (const dependency of Array.isArray(dependencies) ? dependencies : dependencies ? [dependencies] : []) visit(dependency);
+    visiting.delete(name);
+    visited.add(name);
+  };
+  for (const name of Object.keys(preparationWorkflow.jobs)) visit(name);
   const linuxJob = preparationWorkflow.jobs['build-linux'];
   const linuxChrome = linuxJob.steps.find(step => step.name === 'Setup Chrome for patched runtime smoke');
   assert.strictEqual(linuxChrome?.if, "matrix.kind == 'app'");
