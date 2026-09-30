@@ -91,6 +91,14 @@ Agent SDK 的最新版本，同时要求受管 Claude Runtime 与当前 Claude A
 变化，更新所有受影响的 Pin、已审查 Patch 与完整性 Hash，并重新运行必需的 Acceptance Evidence；
 发现新版本本身并不能证明升级兼容。
 
+Campaign 开始时只运行一次 `npm run release:dependencies:plan -- PLAN_PATH`。不可覆盖的 JSON
+Plan 将精确 Direct Pin、全部 Codex Platform Alias、选中 Claude Adapter 的 SDK Platform Pin
+集中列出，并保留 Deferred 与不完整发布。一次性应用 Manifest 修改、只解析一次 Lock。
+Plan 还自动发现源码和测试中残留的版本引用，但不修改它们，也不把生成的 Runtime Output 当成
+权威源。审查变化的 Vendor Patch 和 Hash，先跑聚焦 Fast Screen，再 Push 最终 Candidate。生成的 Runtime Manifest
+从根 Override 读取 Codex Pin，从 Adapter 的 Locked Dependency 读取 Claude SDK Pin，不再维护
+另一份需要手动更新的版本对。发现和生成 Plan 不能代替上游兼容性审查或最终 Exact-SHA 门禁。
+
 ### 候选提交触发的 Workflow 全覆盖
 
 Release Coordinator 必须监控 Exact Candidate Push 创建的每个 Workflow，不能只盯 `CI` 和
@@ -464,6 +472,10 @@ Changed Files + Failure Signatures
 
 - Linux CLI、标准 App Bundle、Legacy App Bundle 在同一 Metadata Gate 后作为三个并行 Job。
 - 每个 macOS Architecture 的 Native CLI 与 App Bundle 作为两个并行 Job。
+- macOS Job 在 Preflight 后直接启动，不等待独立的跨平台 Browser Matrix；每个 App 仍在
+  自己的 Packaging Runner 上构建并 Smoke Native Browser。Cargo 中间产物按 Host OS、
+  Architecture、Target、固定 Toolchain、Upstream Source、Patch 与 Build Script 隔离缓存；
+  Restore 后始终重新 Test、Build，并生成当前 Candidate Identity。
 - 保留精确 App Assembly Directory 直到 Smoke 完成；Archive 继续完整 Verify，但 Smoke 不再先解压
   刚生成的大型 Archive。
 - Exact-SHA CI 和全部 Package-specific Gate 变绿前，所有 Job 都保持可逆，不执行公开 Mutation。
@@ -480,12 +492,18 @@ Changed Files + Failure Signatures
 
 - 扩展 npm Package Smoke，使其接受或导出明确 Tarball Path。
 - Smoke 前和 Workflow Artifact 传输后都计算 SHA-256。
+- Smoke 后保存包含字节数、SHA-256、SHA-512 Integrity 和 SHA-1 Shasum 的小型 Exact-SHA
+  Receipt，同时放在 Tarball 旁边并独立上传；协调器读取 Receipt，无需再次下载完整 Tarball。
 - 正式发布直接使用该 Tarball，不得再次运行 `prepack`、`npm pack` 或生产依赖安装。
 
 ### A5. npm 最后发布
 
 - 使用全部已验证资产组装 GitHub Draft Release。
 - 正式公开 GitHub Release。
+- Publication 校验传输后的字节与 Smoke Receipt 一致，完成公开 GitHub 资产验证后才上传 npm；
+  上传后自动核对公开 Name、Version、Source SHA、Integrity 和 Shasum，最长十分钟，单次请求
+  最长十秒。成功或失败都保留带时间戳的状态与上传结果。尝试上传后的恢复只读，包括公开
+  Registry 返回 404 时；上传步骤尚未执行的恢复可以进行第一次上传。
 - 验证公开 Tag Target、资产清单、Manifest、Checksum，并至少下载一个公开资产。
 - 只有验证成功后才发布 npm，并核对 npm `gitHead`。
 - 上传成功后，公共 Registry 可能暂时不可见。仅凭 `staged` 响应或冲突，不能判定
@@ -511,8 +529,15 @@ Changed Files + Failure Signatures
   Sample 的位置使用有界默认值。通过重分配现有 Job 均衡慢测试，不增加 Worker 或远端 Job。
 - 每个 Job 仍然严格单 Worker；共享同一源码位置的 Generated Test 保持原子分组，同一 Backend
   不并发执行测试。
+- Mobile CI 使用三个隔离的单 Worker Job：两个均衡的 iPhone Layout Shard，以及一个依次执行
+  iPhone/Android Human Journey 与 Authenticated Share 的 Lane。原有 Project 和测试位置全部
+  保留，Mobile Fast Screen 只在 Human Lane 执行一次。增加两个 Job 后应将排队计入并发上限，
+  不能假定耗时线性下降。
 
 ### B3. 第一次失败立即生成诊断包
+
+Run Watcher 为每次成功观察原子保存带时间戳的状态、活动 Job 和 Step，只在进展变化时输出。
+Transport 观察失败时重新读取同一个 Run，不能据此启动新的 Run。
 
 第一个必需 Job 失败时，生成一份机器可读和人可读的 Failure Bundle：
 

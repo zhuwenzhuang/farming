@@ -1,5 +1,8 @@
 const assert = require('assert');
 const EventEmitter = require('events');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const { TerminalScreenWorker } = require('../terminal-screen-worker.cjs');
 
 class FakeWorker extends EventEmitter {
@@ -59,15 +62,26 @@ async function run() {
 
   try {
     const previousPackagedRuntime = process.env.FARMING_PACKAGED_RUNTIME;
+    const resolutionRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-worker-resolution-'));
     try {
+      const modulePath = path.join(resolutionRoot, 'terminal-screen-worker.cjs');
+      fs.copyFileSync(path.join(__dirname, '../terminal-screen-worker.cjs'), modulePath);
+      const { TerminalScreenWorker: IsolatedWorker } = require(modulePath);
+      delete process.env.FARMING_PACKAGED_RUNTIME;
+      assert.strictEqual(IsolatedWorker.resolveWorkerFile(), 'terminal-screen-worker-thread.cjs');
       process.env.FARMING_PACKAGED_RUNTIME = '1';
-      assert.strictEqual(TerminalScreenWorker.resolveWorkerFile(), 'terminal-screen-worker-thread.cjs');
+      assert.strictEqual(IsolatedWorker.resolveWorkerFile(), 'terminal-screen-worker-thread.cjs');
+      fs.writeFileSync(path.join(resolutionRoot, 'terminal-screen-worker-thread.pkg.js'), '// owned resolution fixture\n');
+      assert.strictEqual(IsolatedWorker.resolveWorkerFile(), 'terminal-screen-worker-thread.pkg.js');
+      delete process.env.FARMING_PACKAGED_RUNTIME;
+      assert.strictEqual(IsolatedWorker.resolveWorkerFile(), 'terminal-screen-worker-thread.cjs');
     } finally {
       if (previousPackagedRuntime === undefined) {
         delete process.env.FARMING_PACKAGED_RUNTIME;
       } else {
         process.env.FARMING_PACKAGED_RUNTIME = previousPackagedRuntime;
       }
+      fs.rmSync(resolutionRoot, { recursive: true, force: true });
     }
 
     await worker.setRuntimeEpoch('runtime-epoch-7', 12, 4);

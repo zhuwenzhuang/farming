@@ -117,6 +117,20 @@ function run() {
     );
   }
   assert.strictEqual(workflow.jobs.browser.strategy.matrix.shard.length, 9);
+  const mobile = workflow.jobs.mobile;
+  assert.strictEqual(mobile.strategy['fail-fast'], false);
+  assert.deepStrictEqual(mobile.strategy.matrix.include.map(lane => [lane.shard, lane.human]), [[1, false], [2, false], [0, true]]);
+  const layout = mobile.steps.find(step => step.name === 'Run balanced iPhone layout checks');
+  assert.strictEqual(layout.if, '!matrix.human');
+  assert(layout.run.includes('--project iphone-webkit --shard ${{ matrix.shard }}/2'));
+  const human = mobile.steps.find(step => step.name === 'Run mobile browser checks');
+  assert.strictEqual(human.if, 'matrix.human');
+  assert.strictEqual(human.run, 'npx playwright test --project=iphone-human-webkit --project=android-human-chromium');
+  assert.strictEqual(mobile.steps.find(step => step.name === 'Run authenticated mobile share contract')?.if, 'matrix.human');
+  assert.strictEqual(mobile.steps.find(step => step.name === 'Screen mobile Composer geometry and image hit targets')?.if, 'matrix.human');
+  const cargoCache = e2eAgentBrowser.steps.find(step => step.name === 'Cache patched browser Cargo intermediates');
+  assert(cargoCache.with.key.includes('linux-x64'));
+  assert.strictEqual(e2eAgentBrowser.steps.find(step => step.name === 'Build and verify patched agent-browser')?.env.CARGO_TARGET_DIR, cargoCache.with.path);
   const browserRunStep = workflow.jobs.browser.steps.find(
     step => step.name === 'Run Chromium browser checks',
   );

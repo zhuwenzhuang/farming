@@ -96,6 +96,30 @@ async function run() {
       codexRuntimeUpdate.mismatches.map(dependency => dependency.name),
       ['@agentclientprotocol/claude-agent-acp', '@openai/codex'],
     );
+    const upgradePlan = await checker.createManagedReleaseUpgradePlan(codexRuntimeUpdate, {
+      registry: 'https://registry.test/',
+      fetchImpl: async () => new Response(JSON.stringify({
+        name: '@agentclientprotocol/claude-agent-acp',
+        version: currentVersions.get('@agentclientprotocol/claude-agent-acp'),
+        dependencies: { '@anthropic-ai/claude-agent-sdk': '0.3.220' },
+      })),
+    });
+    assert.strictEqual(upgradePlan.status, 'upgrade-required');
+    assert.strictEqual(upgradePlan.edits.filter(edit => edit.name.startsWith('@openai/codex-')).length, 6);
+    assert(upgradePlan.edits.filter(edit => edit.name.startsWith('@openai/codex-')).every(edit => edit.version.startsWith('npm:@openai/codex@0.147.0-')));
+    assert.strictEqual(upgradePlan.edits.filter(edit => edit.name.startsWith('@anthropic-ai/claude-agent-sdk-')).length, 8);
+    assert(upgradePlan.edits.filter(edit => edit.name.startsWith('@anthropic-ai/claude-agent-sdk-')).every(edit => edit.version === '0.3.220'));
+    assert.strictEqual(upgradePlan.commands.filter(command => command.includes('--package-lock-only')).length, 1);
+    assert(upgradePlan.reviewedVendors.some(vendor => vendor.source === 'scripts/prepare-claude-acp-vendor.ts'));
+    await assert.rejects(checker.createManagedReleaseUpgradePlan(codexRuntimeUpdate, {
+      fetchImpl: async () => new Response(JSON.stringify({ name: 'wrong-adapter', version: '1.0.0' })),
+    }), /metadata identity mismatch/);
+    fs.mkdirSync(path.join(temporaryRoot, 'scripts'));
+    fs.writeFileSync(path.join(temporaryRoot, 'scripts/owned-source.ts'), "const version = '0.146.0';\nconst another = '0.146.00';\n");
+    fs.writeFileSync(path.join(temporaryRoot, 'scripts/generated.cjs'), "const version = '0.146.0';\n");
+    assert.deepStrictEqual(checker.findManagedUpgradeReferences(temporaryRoot, codexRuntimeUpdate.mismatches), [{
+      name: '@openai/codex', version: '0.146.0', file: 'scripts/owned-source.ts', line: 1,
+    }]);
 
     missingVersions.add('@openai/codex@0.147.0-darwin-x64');
     const incompleteCodexRuntimeUpdate = await checker.inspectManagedReleaseDependencies(
@@ -106,6 +130,11 @@ async function run() {
       },
     );
     assert.deepStrictEqual(incompleteCodexRuntimeUpdate.mismatches, []);
+    const deferredPlan = await checker.createManagedReleaseUpgradePlan(incompleteCodexRuntimeUpdate, {
+      fetchImpl: async () => { throw new Error('deferred upgrade must not query another adapter'); },
+    });
+    assert.deepStrictEqual(deferredPlan.edits, []);
+    assert.strictEqual(deferredPlan.status, 'current');
     assert.deepStrictEqual(
       incompleteCodexRuntimeUpdate.deferred.map(dependency => dependency.name),
       ['@agentclientprotocol/claude-agent-acp', '@openai/codex'],

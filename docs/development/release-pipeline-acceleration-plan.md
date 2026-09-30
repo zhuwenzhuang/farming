@@ -122,6 +122,19 @@ maintainer must review the upstream change, update every affected pin, reviewed
 patch and integrity hash, and rerun the required acceptance evidence; discovering
 a version does not by itself prove that the upgrade is compatible.
 
+At campaign start, run `npm run release:dependencies:plan -- PLAN_PATH` once.
+The immutable JSON plan groups exact direct pins, all Codex platform aliases,
+and the selected Claude adapter's SDK platform pins, while retaining deferred
+and incomplete publications. Apply its manifest edits together and resolve the
+lock once. The plan also discovers remaining source and test version references
+without editing them or treating generated runtime outputs as authoritative.
+Review changed vendor patches and hashes, then run the focused fast
+screen before pushing the final candidate. The generated runtime manifest reads
+its Codex pin from the root override and its Claude SDK pin from the adapter's
+locked dependency; it does not maintain another manually updated version pair.
+Discovery and plan generation do not approve upstream compatibility or replace
+the final exact-SHA gates.
+
 ### Candidate-triggered workflow coverage
 
 The release coordinator monitors every workflow created by the exact candidate
@@ -576,6 +589,11 @@ without reducing coverage.
 - Run Linux CLI, standard app-bundle, and legacy app-bundle as three parallel
   jobs after one metadata gate.
 - Run native CLI and app-bundle as two parallel jobs for each macOS architecture.
+- Start those macOS jobs after preflight; they do not wait for the independent
+  cross-platform Browser matrix. Each macOS app builds and smokes its native
+  Browser on its own packaging runner. Cache Cargo intermediates by host OS,
+  architecture, target, pinned toolchain, upstream source, patch, and build
+  script; always test, build, and emit a fresh candidate identity after restore.
 - Retain the exact app assembly directory until smoke completes. Verify the
   archive and smoke the retained directory instead of extracting the large
   archive immediately after creating it.
@@ -597,6 +615,9 @@ without reducing coverage.
 
 - Extend npm package smoke to accept or export an explicit tarball path.
 - Compute the tarball SHA-256 before smoke and after workflow-artifact transfer.
+- After smoke, retain a small exact-SHA receipt with byte length, SHA-256,
+  SHA-512 integrity, and SHA-1 shasum, both beside the tarball and as a separate
+  artifact. Coordination reads the receipt without downloading the tarball.
 - Publish that exact tarball directly. Publication must not run `prepack`,
   `npm pack`, or another production dependency installation.
 
@@ -607,6 +628,12 @@ without reducing coverage.
 - Verify the public tag target, asset inventory, manifest, checksums, and at
   least one public asset download.
 - Only after that verification, publish npm and reconcile its `gitHead`.
+- Publication verifies transferred bytes against the smoke receipt and then
+  automatically reconciles public name, version, source SHA, integrity, and
+  shasum for at most ten minutes with ten-second request bounds. Timestamped
+  observation checkpoints and upload outcome are retained on success or failure.
+  Recovery after an attempted upload is read-only, including during public 404
+  responses; recovery before the upload step may perform the first upload.
 - A successful upload may not be immediately visible in the public registry.
   A `staged` response or conflict alone does not prove that maintainer approval
   is required: npm staging includes automated validation as well as maintainer
@@ -637,8 +664,17 @@ without reducing coverage.
   workers or more remote Jobs.
 - Keep exactly one worker per job. Generated tests sharing one source location
   remain atomic, and no backend receives concurrent tests.
+- Mobile CI uses three isolated single-worker jobs: two balanced iPhone layout
+  shards and one sequential iPhone/Android human-journey and authenticated-share
+  lane. Preserve every original project and location; the mobile fast screen
+  runs once in the human lane. This adds two jobs; account for their queueing
+  against the concurrency ceiling rather than assuming linear speedup.
 
 ### B3. Produce a failure bundle immediately
+
+The run watcher atomically checkpoints each successful observation with a
+timestamp and active job/step, emitting progress only when it changes. A failed
+transport observation rechecks the same run; it never authorizes a new run.
 
 For the first required job failure, generate one machine-readable and
 human-readable bundle containing:

@@ -11,6 +11,18 @@ const projectRoot = path.resolve(__dirname, '..');
 const packageVersion = require(path.join(projectRoot, 'package.json')).version;
 const tasks: FastScreenTask[] = [
   {
+    name: 'persistent workflow observations and transport recovery',
+    args: ['--import', 'tsx', '--test', 'tests/release-workflow-monitor.test.ts'],
+  },
+  {
+    name: 'source and packaged Terminal Worker resolution',
+    args: ['--import', 'tsx', 'backend/tests/test-terminal-screen-worker.ts'],
+  },
+  {
+    name: 'bounded npm publication evidence and recovery',
+    args: ['--import', 'tsx', '--test', 'tests/npm-release-evidence.test.ts'],
+  },
+  {
     name: 'authoritative release lineage',
     args: ['--import', 'tsx', '--test', 'tests/release-lineage.test.ts'],
   },

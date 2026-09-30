@@ -59,6 +59,7 @@ function run() {
   assert(publicationJob.includes('npm install --global npm@latest'));
   assert(publicationJob.includes('sha256sum --check'));
   assert(publicationJob.includes('npm publish "./${package_tarball}"'));
+  assert(publicationJob.includes('NPM_UPLOAD_MAY_HAVE_STARTED=${recoverableNpmPublicationFailure'));
   assert(publicationJob.includes('run-id: ${{ inputs.preparation_run_id }}'));
   assert(publicationJob.includes('github-token: ${{ github.token }}'));
   assert(publicationJob.includes("workflow.path !== '.github/workflows/release.yml'"));
@@ -86,6 +87,15 @@ function run() {
 
   const preparationWorkflow = YAML.parse(preparationWorkflowSource);
   const publicationWorkflow = YAML.parse(publicationWorkflowSource);
+  const npmStep = publicationWorkflow.jobs['publish-release'].steps.find(
+    step => step.name === 'Verify and publish npm package with provenance',
+  );
+  assert(npmStep.run.indexOf('npm-release-evidence.mjs verify') < npmStep.run.indexOf('npm publish'));
+  assert(npmStep.run.indexOf('NPM_UPLOAD_MAY_HAVE_STARTED:-0') < npmStep.run.indexOf('npm publish'));
+  assert(npmStep.run.includes('|| upload_exit=$?'), 'uncertain upload failures must reconcile without replay');
+  assert.strictEqual(publicationWorkflow.jobs['publish-release'].steps.find(
+    step => step.name === 'Upload npm publication evidence',
+  )?.if, 'always()');
   assert.deepStrictEqual(preparationWorkflow.permissions, { contents: 'read' });
   assert.deepStrictEqual(
     publicationWorkflow.permissions,
@@ -155,6 +165,16 @@ function run() {
     'node scripts/build-agent-browser-runtime.mjs --platform "${{ matrix.platform }}" --output "$RUNNER_TEMP/agent-browser-artifacts"',
   );
   const nativeUpload = agentBrowserJob.steps.find(step => step.name === 'Upload patched agent-browser runtime');
+  const cargoCache = agentBrowserJob.steps.find(step => step.name === 'Cache patched browser Cargo intermediates');
+  assert.strictEqual(cargoCache?.with.path, '${{ runner.temp }}/farming-agent-browser-cargo-target');
+  for (const input of ['runner.os', 'runner.arch', 'matrix.platform', 'rust-1.96.1', 'backend/data/agent-browser-source.json', 'patches/agent-browser/*.patch', 'scripts/build-agent-browser-runtime.mjs']) {
+    assert(cargoCache?.with.key.includes(input), `Cargo cache must isolate ${input}`);
+  }
+  assert.strictEqual(agentBrowserJob.steps.find(step => step.name === 'Build and verify patched agent-browser')?.env.CARGO_TARGET_DIR, cargoCache.with.path);
+  const npmPrep = preparationWorkflow.jobs['prepare-npm'].steps;
+  assert(npmPrep.some(step => step.name === 'Upload npm smoke receipt'
+    && step.with.path === 'npm-upload/npm-smoke-receipt.json'));
+  assert(npmPrep.find(step => step.name === 'Build and smoke one npm tarball')?.run.includes('npm-release-evidence.mjs write'));
   assert.strictEqual(nativeUpload?.with.name, 'farming-agent-browser-${{ matrix.platform }}');
   assert.strictEqual(nativeUpload?.with.path, '${{ runner.temp }}/agent-browser-artifacts');
   assert(
@@ -177,7 +197,7 @@ function run() {
   );
   assert(candidateWorkflowGate, 'release publication must require every workflow from the exact candidate push');
   assert.strictEqual(candidateWorkflowGate.env.GH_TOKEN, '${{ github.token }}');
-  for (const jobName of ['build-linux', 'build-macos', 'prepare-npm']) {
+  for (const jobName of ['build-linux', 'prepare-npm']) {
     const job = preparationWorkflow.jobs[jobName];
     assert.deepStrictEqual(job.needs, ['preflight', 'build-agent-browser']);
     assert.strictEqual(job.env.FARMING_AGENT_BROWSER_ARTIFACTS, '${{ github.workspace }}/../release-agent-browser-artifacts');
@@ -193,6 +213,11 @@ function run() {
     assert.strictEqual(download.with.path, '${{ github.workspace }}/../release-agent-browser-artifacts');
     assert.strictEqual(download.with['merge-multiple'], true);
   }
+  const macJob = preparationWorkflow.jobs['build-macos'];
+  assert.strictEqual(macJob.needs, 'preflight', 'same-runner macOS construction must overlap the independent runtime matrix');
+  assert(!macJob.steps.some(step => step.name === 'Download patched agent-browser runtimes'));
+  assert(macJob.steps.some(step => step.name === 'Build native macOS browser runtime on packaging runner'
+    && step.if === "matrix.kind == 'app'" && step.run.includes('FARMING_AGENT_BROWSER_ARTIFACTS=')));
   const linuxJob = preparationWorkflow.jobs['build-linux'];
   const linuxChrome = linuxJob.steps.find(step => step.name === 'Setup Chrome for patched runtime smoke');
   assert.strictEqual(linuxChrome?.if, "matrix.kind == 'app'");

@@ -24,7 +24,7 @@ const {
   selectedDependencyDefinitions,
   verifyExecutable,
 } = require('../runtime-dependency-manager.cjs');
-const { buildManifest } = require('../../scripts/build-runtime-dependency-manifest');
+const { buildManifest, readRuntimeDependencyPins } = require('../../scripts/build-runtime-dependency-manifest');
 
 type RuntimeArtifactFixture = {
   url: string;
@@ -49,6 +49,14 @@ function writeVersionExecutable(directory, name, version) {
 }
 
 async function run() {
+  const pinManifest = { overrides: { '@openai/codex': '9.8.7' } };
+  const pinLock = { packages: { 'node_modules/@agentclientprotocol/claude-agent-acp': {
+    dependencies: { '@anthropic-ai/claude-agent-sdk': '6.5.4' },
+  } } };
+  assert.deepStrictEqual(readRuntimeDependencyPins(pinManifest, pinLock), { codexVersion: '9.8.7', claudeVersion: '6.5.4' });
+  assert.throws(() => readRuntimeDependencyPins({ overrides: { '@openai/codex': '^9.8.7' } }, pinLock), /exact Codex override/);
+  pinLock.packages['node_modules/@agentclientprotocol/claude-agent-acp'].dependencies['@anthropic-ai/claude-agent-sdk'] = '^6.5.4';
+  assert.throws(() => readRuntimeDependencyPins(pinManifest, pinLock), /exact Claude adapter SDK/);
   assert.deepStrictEqual(buildManifest(), MANIFEST, 'checked-in runtime manifest must match package-lock');
   assert.strictEqual(SOURCE_CONFIG.authoritativeNpmRegistry, 'https://registry.npmjs.org/');
   assert.strictEqual(SOURCE_CONFIG.defaultNpmMirror, 'https://registry.npmmirror.com/');

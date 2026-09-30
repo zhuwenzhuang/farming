@@ -12,9 +12,43 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUNDLE_ROOT="${FARMING_RELEASE_WATCH_DIR:-${PROJECT_ROOT}/.tmp/release-watch}"
 BUNDLE_DIR="${BUNDLE_ROOT}/${RUN_ID}"
 mkdir -p "${BUNDLE_DIR}"
+POLL_SECONDS="${FARMING_RELEASE_WORKFLOW_POLL_SECONDS:-5}"
+if [[ ! "${POLL_SECONDS}" =~ ^[1-9][0-9]*$ || "${POLL_SECONDS}" -gt 60 ]]; then
+  echo 'Workflow poll interval must be an integer between 1 and 60 seconds.' >&2
+  exit 2
+fi
 
 while true; do
-  RUN_JSON="$(gh run view "${RUN_ID}" --repo "${REPOSITORY}" --json status,conclusion,headSha,workflowName,url,jobs)"
+  if ! RUN_JSON="$(gh run view "${RUN_ID}" --repo "${REPOSITORY}" --json status,conclusion,headSha,workflowName,url,jobs)"; then
+    printf '%s observation failed for run %s; rechecking the same run.\n' "$(date -u +%FT%TZ)" "${RUN_ID}" >&2
+    sleep "${POLL_SECONDS}"
+    continue
+  fi
+  RUN_ID="${RUN_ID}" RUN_JSON="${RUN_JSON}" BUNDLE_DIR="${BUNDLE_DIR}" node <<'NODE'
+const fs = require('node:fs');
+const path = require('node:path');
+const run = JSON.parse(process.env.RUN_JSON);
+const stateFile = path.join(process.env.BUNDLE_DIR, 'latest.json');
+const previous = fs.existsSync(stateFile) ? JSON.parse(fs.readFileSync(stateFile, 'utf8')) : null;
+const progress = {
+  status: run.status, conclusion: run.conclusion,
+  jobs: (run.jobs || []).map(job => ({
+    name: job.name, status: job.status, conclusion: job.conclusion,
+    step: (job.steps || []).find(step => step.status === 'in_progress')?.name || '',
+  })),
+};
+const state = { runId: process.env.RUN_ID, observedAt: new Date().toISOString(), ...run, progress };
+const temporary = `${stateFile}.${process.pid}.tmp`;
+try {
+  fs.writeFileSync(temporary, `${JSON.stringify(state, null, 2)}\n`, { flag: 'wx' });
+  fs.renameSync(temporary, stateFile);
+} finally {
+  fs.rmSync(temporary, { force: true });
+}
+if (JSON.stringify(previous?.progress) !== JSON.stringify(progress)) {
+  console.log(`${state.observedAt} run=${state.runId} workflow=${run.workflowName} progress=${JSON.stringify(progress)}`);
+}
+NODE
   FAILURE_JOB="$({ RUN_JSON="${RUN_JSON}" node <<'NODE'
 const run = JSON.parse(process.env.RUN_JSON);
 const terminalFailures = new Set(['failure', 'cancelled', 'timed_out', 'action_required', 'startup_failure']);
@@ -62,5 +96,5 @@ NODE
     exit
   fi
 
-  sleep 5
+  sleep "${POLL_SECONDS}"
 done

@@ -9,6 +9,7 @@ interface PackageLockRecord {
   version?: string;
   resolved?: string;
   integrity?: string;
+  dependencies?: Record<string, string>;
 }
 
 interface PackageLock {
@@ -62,8 +63,23 @@ const lock = JSON.parse(
 ) as PackageLock;
 const packages = lock.packages || {};
 
-const CODEX_VERSION = '0.159.2';
-const CLAUDE_VERSION = '0.3.284';
+export function readRuntimeDependencyPins(
+  manifest: { overrides?: Record<string, unknown> },
+  packageLock: PackageLock,
+): { codexVersion: string; claudeVersion: string } {
+  const codexVersion = manifest.overrides?.['@openai/codex'];
+  const claudeVersion = packageLock.packages?.['node_modules/@agentclientprotocol/claude-agent-acp']
+    ?.dependencies?.['@anthropic-ai/claude-agent-sdk'];
+  if (typeof codexVersion !== 'string' || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(codexVersion)
+    || typeof claudeVersion !== 'string' || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(claudeVersion)) {
+    throw new Error('Runtime pins require an exact Codex override and exact Claude adapter SDK dependency.');
+  }
+  return { codexVersion, claudeVersion };
+}
+
+const { codexVersion: CODEX_VERSION, claudeVersion: CLAUDE_VERSION } = readRuntimeDependencyPins(
+  JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')), lock,
+);
 const AGENT_BROWSER_VERSION = agentBrowserSource.version;
 
 const PLATFORM_TARGETS: Record<string, PlatformTarget> = {
@@ -119,7 +135,7 @@ const AGENT_BROWSER_ENTRIES: Record<string, string> = {
   'win32-x64': 'agent-browser-win32-x64.exe',
 };
 
-function packageRecord(packageName: string, version: string): Required<PackageLockRecord> {
+function packageRecord(packageName: string, version: string): Required<Pick<PackageLockRecord, 'version' | 'resolved' | 'integrity'>> {
   const record = packages[`node_modules/${packageName}`];
   if (!record || record.version !== version || !record.resolved || !record.integrity) {
     throw new Error(`package-lock.json does not pin ${packageName} ${version}`);
@@ -127,7 +143,7 @@ function packageRecord(packageName: string, version: string): Required<PackageLo
   if (!record.resolved.startsWith('https://registry.npmjs.org/')) {
     throw new Error(`${packageName} ${version} must resolve from the public npm registry`);
   }
-  return record as Required<PackageLockRecord>;
+  return { version: record.version, resolved: record.resolved, integrity: record.integrity };
 }
 
 function npmArtifact(

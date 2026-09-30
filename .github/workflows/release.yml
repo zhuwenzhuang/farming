@@ -148,8 +148,16 @@ jobs:
           python -m pip install ziglang==0.15.2
           cargo install cargo-zigbuild --version 0.22.3 --locked
 
+      - name: Cache patched browser Cargo intermediates
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/farming-agent-browser-cargo-target
+          key: agent-browser-cargo-v1-${{ runner.os }}-${{ runner.arch }}-rust-1.96.1-${{ matrix.platform }}-${{ hashFiles('backend/data/agent-browser-source.json', 'patches/agent-browser/*.patch', 'scripts/build-agent-browser-runtime.mjs') }}
+
       - name: Build and verify patched agent-browser
         shell: bash
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/farming-agent-browser-cargo-target
         run: node scripts/build-agent-browser-runtime.mjs --platform "${{ matrix.platform }}" --output "$RUNNER_TEMP/agent-browser-artifacts"
 
       - name: Upload patched agent-browser runtime
@@ -370,12 +378,11 @@ jobs:
             cliTarget: node22-macos-arm64
             cliAsset: darwin_arm64
     runs-on: ${{ matrix.runner }}
-    needs: [preflight, build-agent-browser]
+    needs: preflight
     env:
       FARMING_BASE_PATH: /farming
       FARMING_RELEASE_VERSION: ${{ inputs.release_version }}
       FARMING_RELEASE_INTEGRATION_REF: refs/remotes/origin/main
-      FARMING_AGENT_BROWSER_ARTIFACTS: ${{ github.workspace }}/../release-agent-browser-artifacts
     steps:
       - name: Normalize release version
         id: version
@@ -407,13 +414,6 @@ jobs:
           node-version: '22'
           cache: npm
           registry-url: https://registry.npmjs.org
-
-      - name: Download patched agent-browser runtimes
-        uses: actions/download-artifact@v4
-        with:
-          pattern: farming-agent-browser-*
-          path: ${{ github.workspace }}/../release-agent-browser-artifacts
-          merge-multiple: true
 
       - name: Verify native runner architecture
         shell: bash
@@ -448,9 +448,18 @@ jobs:
           target: ${{ matrix.arch == 'arm64' && 'aarch64-apple-darwin' || 'x86_64-apple-darwin' }}
           rustflags: ''
 
+      - name: Cache patched browser Cargo intermediates
+        if: matrix.kind == 'app'
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/farming-agent-browser-cargo-target
+          key: agent-browser-cargo-v1-${{ runner.os }}-${{ runner.arch }}-rust-1.96.1-darwin-${{ matrix.arch }}-${{ hashFiles('backend/data/agent-browser-source.json', 'patches/agent-browser/*.patch', 'scripts/build-agent-browser-runtime.mjs') }}
+
       - name: Build native macOS browser runtime on packaging runner
         if: matrix.kind == 'app'
         shell: bash
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/farming-agent-browser-cargo-target
         run: |
           native_artifacts="${RUNNER_TEMP}/native-agent-browser-artifacts"
           node scripts/build-agent-browser-runtime.mjs \
@@ -577,12 +586,20 @@ jobs:
           npm run release:npm:smoke -- "${package_tarball}"
           node scripts/smoke-user-install.mjs "${package_tarball}"
           mkdir -p npm-upload
+          node scripts/npm-release-evidence.mjs write "${package_tarball}" "farming-code@${RELEASE_VERSION}" "$(git rev-parse HEAD)" npm-upload/npm-smoke-receipt.json
           cp "${package_tarball}" npm-upload/
           if command -v sha256sum >/dev/null 2>&1; then
             sha256sum "${package_tarball}" | sed 's#  .*/#  #' > "npm-upload/farming-code-${RELEASE_VERSION}.tgz.sha256"
           else
             shasum -a 256 "${package_tarball}" | sed 's#  .*/#  #' > "npm-upload/farming-code-${RELEASE_VERSION}.tgz.sha256"
           fi
+
+      - name: Upload npm smoke receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: farming-npm-receipt-${{ inputs.release_version }}
+          path: npm-upload/npm-smoke-receipt.json
+          if-no-files-found: error
 
       - name: Upload verified npm tarball
         uses: actions/upload-artifact@v4

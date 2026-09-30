@@ -155,6 +155,8 @@ jobs:
               `Publication did not stop at a recoverable boundary: public=${publicVerification?.conclusion || 'missing'}, npm=${npmPublication?.conclusion || 'missing'}`,
             );
           }
+          require('node:fs').appendFileSync(process.env.GITHUB_ENV,
+            `NPM_UPLOAD_MAY_HAVE_STARTED=${recoverableNpmPublicationFailure ? '1' : '0'}\n`);
           NODE
           fi
 
@@ -529,16 +531,32 @@ jobs:
             actual="$(shasum -a 256 "${package_tarball}" | awk '{print $1}')"
             [[ "${actual}" == "${expected}" ]]
           fi
-          if npm view "farming-code@${version}" version >/dev/null 2>&1; then
-            bash scripts/verify-npm-release-source.sh "farming-code@${version}" "${candidate_sha}"
-            configured_registry="$(npm config get registry)"
-            bash scripts/reconcile-npm-registry-tarball.sh "${package_tarball}" "farming-code@${version}" --registry "${configured_registry}"
-            echo "Registry already publishes the identical farming-code@${version} tarball; reusing it."
+          receipt="npm-package/npm-smoke-receipt.json"
+          node scripts/npm-release-evidence.mjs verify "${receipt}" "${candidate_sha}" "${package_tarball}"
+          mkdir -p npm-evidence
+          cp "${receipt}" npm-evidence/
+          # Recovery is read-only even while the registry returns 404: an
+          # ambiguous prior upload must never authorize a second upload.
+          if [[ "${NPM_UPLOAD_MAY_HAVE_STARTED:-0}" == '1' ]] || npm view "farming-code@${version}" version >/dev/null 2>&1; then
+            node scripts/npm-release-evidence.mjs watch "${receipt}" "${candidate_sha}" npm-evidence/publication-state.json
             exit 0
           fi
           dist_tag="latest"
           if [[ "${version}" == *-* ]]; then
             dist_tag="next"
           fi
-          npm publish "./${package_tarball}" --access public --provenance --tag "${dist_tag}" --loglevel=error
-          bash scripts/verify-npm-release-source.sh "farming-code@${version}" "${candidate_sha}"
+          # A nonzero upload result may still have mutated registry state.
+          # Reconcile the same receipt after either outcome, without replay.
+          printf '{"status":"upload-intent","observedAt":"%s"}\n' "$(date -u +%FT%TZ)" > npm-evidence/upload-intent.json
+          upload_exit=0
+          npm publish "./${package_tarball}" --access public --provenance --tag "${dist_tag}" --loglevel=error || upload_exit=$?
+          printf '{"uploadExitCode":%s,"observedAt":"%s"}\n' "${upload_exit}" "$(date -u +%FT%TZ)" > npm-evidence/upload-result.json
+          node scripts/npm-release-evidence.mjs watch "${receipt}" "${candidate_sha}" npm-evidence/publication-state.json
+
+      - name: Upload npm publication evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: farming-npm-publication-${{ inputs.release_version }}
+          path: npm-evidence/*.json
+          if-no-files-found: ignore

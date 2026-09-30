@@ -1,6 +1,6 @@
 {
   "name": "farming-code",
-  "version": "2.2.74",
+  "version": "2.2.75",
   "farmingUserInstall": 1,
   "description": "Farming Code is a self-hosted browser workspace for running and supervising AI coding agents",
   "main": "backend/server.cjs",
@@ -92,6 +92,7 @@
     "release:remote": "./scripts/install-remote-release.sh",
     "release:remote:linux-compat": "./scripts/install-remote-linux-compat-release.sh",
     "release:dependencies:check": "node scripts/check-release-managed-dependency-updates.mjs",
+    "release:dependencies:plan": "node scripts/check-release-managed-dependency-updates.mjs --plan",
     "release:coordinator:linux:check": "./scripts/check-linux-release-coordinator.sh",
     "release:fast-screen": "tsx scripts/run-release-fast-screen.ts",
     "release:fast-screen:workspace": "playwright test tests/e2e/file-auto-refresh.spec.ts tests/e2e/mobile-visual-acceptance.spec.ts tests/e2e/file-header-context.spec.ts tests/e2e/chat-ui-regressions.spec.ts --project=chromium --workers=1 --retries=0 --grep 'one hundred expanded|menu stays open when remembered|Files header context and explicit search|file refresh feedback'",
