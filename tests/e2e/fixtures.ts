@@ -389,18 +389,16 @@ export const test = base.extend<{ workspaceRoot: string }>({
     await page.addInitScript(() => {
       window.__FARMING_E2E__ = true
     })
-    // Authenticated mobile projects need cleanup before the test page has
-    // intentionally logged in. Use a separate owner API context so setup and
-    // teardown remain authoritative while the browser page still exercises
-    // the authentication boundary.
-    const cleanupContext = process.env.FARMING_PLAYWRIGHT_AUTH === '1'
-      ? await playwrightRequest.newContext({
-        baseURL: `http://127.0.0.1:${process.env.FARMING_PLAYWRIGHT_PORT || '4173'}`,
-        extraHTTPHeaders: { Authorization: `Bearer ${AUTHENTICATED_CLEANUP_TOKEN}` },
-      })
-      : null
+    // Cleanup owns an API context independent of the page closed before
+    // teardown. Authenticated projects also need owner access before login.
+    const cleanupContext = await playwrightRequest.newContext({
+      baseURL: `http://127.0.0.1:${process.env.FARMING_PLAYWRIGHT_PORT || '4173'}`,
+      ...(process.env.FARMING_PLAYWRIGHT_AUTH === '1'
+        ? { extraHTTPHeaders: { Authorization: `Bearer ${AUTHENTICATED_CLEANUP_TOKEN}` } }
+        : {}),
+    })
     const cleanup = () => cleanupAgents(
-      cleanupContext || page.request,
+      cleanupContext,
       { archiveCodex: process.env.FARMING_E2E_REAL_CODEX === '1' },
     )
     try {
@@ -413,7 +411,7 @@ export const test = base.extend<{ workspaceRoot: string }>({
       await reportAgentCleanupFailure(cleanup, testInfo)
       await resetSettings(page)
     } finally {
-      await cleanupContext?.dispose()
+      await cleanupContext.dispose()
     }
   },
 })
