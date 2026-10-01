@@ -25,7 +25,7 @@ elif [[ "$count" == 3 ]]; then
   printf '%s' "$!" > "$TEST_ROOT/descendant-pid"
   wait
 else
-  node -e 'const s=require(process.env.TEST_ROOT+"/evidence/123/latest.json"); if(s.conclusion!=="" || s.progress.jobs[0].step!=="Build native browser") process.exit(1)'
+  cp "$TEST_ROOT/evidence/123/latest.json" "$TEST_ROOT/prior-checkpoint.json"
   cat "$TEST_ROOT/completed.json"
 fi
 `, { mode: 0o755 });
@@ -44,6 +44,9 @@ fi
     assert.match(result.stderr, /rechecking the same run/);
     assert.match(result.stderr, /exceeded 400ms; workflow outcome remains unknown/);
     assert.match(result.stdout, /Build native browser/);
+    const preserved = JSON.parse(fs.readFileSync(path.join(directory, 'prior-checkpoint.json'), 'utf8'));
+    assert.equal(preserved.conclusion, '');
+    assert.equal(preserved.progress.jobs[0].step, 'Build native browser');
     const latest = JSON.parse(fs.readFileSync(path.join(directory, 'evidence/123/latest.json'), 'utf8'));
     assert.equal(latest.runId, '123');
     assert.equal(latest.headSha, run.headSha);
