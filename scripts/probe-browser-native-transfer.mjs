@@ -37,6 +37,9 @@ const version = binary => {
   }
   return { status: result.status, signal: result.signal, error: result.error?.code, stdout: String(result.stdout || '').trim(), stderr: String(result.stderr || '').trim() };
 };
+// Artifact download does not preserve executable mode. Restore it before the
+// control launch, so permission failure cannot be mistaken for signing failure.
+fs.chmodSync(input, 0o755);
 const original = version(input);
 fs.copyFileSync(input, output);
 fs.chmodSync(output, 0o755);

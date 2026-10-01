@@ -15,7 +15,7 @@ permissions:
 jobs:
   probe:
     name: Native transfer ${{ matrix.arch }}
-    timeout-minutes: 8
+    timeout-minutes: 12
     strategy:
       fail-fast: false
       matrix:
@@ -41,7 +41,7 @@ jobs:
         run: |
           [[ "${ORIGIN_RUN_ID}" =~ ^[0-9]+$ ]]
           node scripts/observe-release-gh.mjs api \
-            "repos/${GITHUB_REPOSITORY}/actions/runs/${ORIGIN_RUN_ID}" > origin-run.json
+            "repos/${GITHUB_REPOSITORY}/actions/runs/${ORIGIN_RUN_ID}" > "${RUNNER_TEMP}/farming-browser-transfer-origin.json"
       - name: Download native Browser artifact
         uses: actions/download-artifact@v4
         with:
@@ -55,27 +55,68 @@ jobs:
           node scripts/probe-browser-native-transfer.mjs \
             "${RUNNER_TEMP}/farming-browser-transfer-input/darwin-${{ matrix.arch }}/agent-browser" \
             "${RUNNER_TEMP}/farming-browser-transfer-signed" \
-            origin-run.json transfer-evidence.json
+            "${RUNNER_TEMP}/farming-browser-transfer-origin.json" "${RUNNER_TEMP}/farming-browser-transfer-evidence.json"
       - name: Install smoke harness dependencies
         run: |
           FARMING_SKIP_INSTALL_RUNTIME_PREPARE=1 PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 PUPPETEER_SKIP_DOWNLOAD=1 \
-            npm ci --registry=https://registry.npmjs.org/ --ignore-scripts --no-audit --no-fund
+            npm ci --registry=https://registry.npmjs.org/ --no-audit --no-fund
       - name: Smoke transferred native Browser with real Chrome
         shell: bash
         run: |
           npx tsx scripts/smoke-browser-idle.ts \
             "${RUNNER_TEMP}/farming-browser-transfer-signed" \
             '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+      - name: Assemble diagnostic candidate runtime with compilation provenance
+        shell: bash
+        run: |
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          import crypto from 'node:crypto';
+          const source=path.join(process.env.RUNNER_TEMP,'farming-browser-transfer-input','darwin-${{ matrix.arch }}');
+          const destination=path.join(process.env.RUNNER_TEMP,'farming-browser-transfer-packaged','darwin-${{ matrix.arch }}');
+          const identity=JSON.parse(fs.readFileSync(path.join(source,'identity.json')));
+          const evidence=JSON.parse(fs.readFileSync(path.join(process.env.RUNNER_TEMP,'farming-browser-transfer-evidence.json')));
+          const bytes=fs.readFileSync(path.join(process.env.RUNNER_TEMP,'farming-browser-transfer-signed'));
+          const digest=crypto.createHash('sha256').update(bytes).digest('hex');
+          if(digest!==evidence.signedDigest || evidence.signed.status!==0) throw Error('Diagnostic runtime not verified');
+          fs.mkdirSync(destination,{recursive:true});
+          fs.writeFileSync(path.join(destination,'agent-browser'),bytes,{flag:'wx',mode:0o755});
+          for(const name of ['LICENSE','NOTICE'])if(fs.existsSync(path.join(source,name)))fs.copyFileSync(path.join(source,name),path.join(destination,name));
+          fs.writeFileSync(path.join(destination,'identity.json'),JSON.stringify({...identity,
+            farmingSha:process.env.GITHUB_SHA,sha256:digest,
+            compilationOrigin:{farmingSha:evidence.originSha,runId:evidence.originRunId,recipeSha256:evidence.recipeSha256}},null,2)+'\n',{flag:'wx'});
+          JS
+      - name: Build diagnostic native App
+        env:
+          FARMING_AGENT_BROWSER_ARTIFACTS: ${{ runner.temp }}/farming-browser-transfer-packaged
+          FARMING_RELEASE_PLATFORM: darwin
+          FARMING_RELEASE_ARCH: ${{ matrix.arch }}
+          FARMING_RELEASE_STAGE_ROOT: ${{ runner.temp }}/farming-browser-transfer-app
+          FARMING_BASE_PATH: /farming
+        run: npm run release:app
+      - name: Verify and smoke complete native App
+        shell: bash
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          node --import tsx scripts/verify-release-bundle.ts "releases/${version}/farming-${version}-darwin-${{ matrix.arch }}.tar.gz"
+          npm run release:cli:smoke -- "${RUNNER_TEMP}/farming-browser-transfer-app/farming-${version}-darwin-${{ matrix.arch }}/farming"
+          npx tsx scripts/smoke-browser-idle.ts \
+            "${RUNNER_TEMP}/farming-browser-transfer-app/farming-${version}-darwin-${{ matrix.arch }}/dist/runtime/agent-browser/darwin-${{ matrix.arch }}/agent-browser" \
+            '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
       - name: Retain diagnostic evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: farming-browser-transfer-${{ matrix.arch }}
-          path: transfer-evidence.json
+          path: ${{ runner.temp }}/farming-browser-transfer-evidence.json
           if-no-files-found: warn
       - name: Remove owned probe files
         if: always()
         shell: bash
         run: |
           rm -rf -- "${RUNNER_TEMP}/farming-browser-transfer-input"
+          rm -rf -- "${RUNNER_TEMP}/farming-browser-transfer-packaged"
+          rm -rf -- "${RUNNER_TEMP}/farming-browser-transfer-app"
           rm -f -- "${RUNNER_TEMP}/farming-browser-transfer-signed"
+          rm -f -- "${RUNNER_TEMP}/farming-browser-transfer-origin.json"
