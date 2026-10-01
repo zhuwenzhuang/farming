@@ -96,7 +96,7 @@ function run() {
   assert.strictEqual(publicationWorkflow.jobs['publish-release'].steps.find(
     step => step.name === 'Upload npm publication evidence',
   )?.if, 'always()');
-  assert.deepStrictEqual(preparationWorkflow.permissions, { contents: 'read' });
+  assert.deepStrictEqual(preparationWorkflow.permissions, { contents: 'read', actions: 'read' });
   assert.deepStrictEqual(
     publicationWorkflow.permissions,
     { actions: 'read', contents: 'read', statuses: 'read' },
@@ -156,7 +156,7 @@ function run() {
     'the pinned upstream runtime must not inherit setup-rust-toolchain -D warnings',
   );
   const zigSetup = agentBrowserJob.steps.find(step => step.name === 'Install pinned Zig cross-build tools');
-  assert.strictEqual(zigSetup?.if, 'matrix.zig');
+  assert.strictEqual(zigSetup?.if, "matrix.zig && needs.preflight.outputs.browser_origin_run_id == ''");
   assert(zigSetup?.run.includes('ziglang==0.15.2'));
   assert(zigSetup?.run.includes('cargo-zigbuild --version 0.22.3 --locked'));
   assert.strictEqual(
@@ -225,7 +225,15 @@ function run() {
   assert.strictEqual(macJob.needs, 'preflight', 'same-runner macOS construction must overlap the independent runtime matrix');
   assert(!macJob.steps.some(step => step.name === 'Download patched agent-browser runtimes'));
   assert(macJob.steps.some(step => step.name === 'Build native macOS browser runtime on packaging runner'
-    && step.if === "matrix.kind == 'app'" && step.run.includes('FARMING_AGENT_BROWSER_ARTIFACTS=')));
+    && step.if === "matrix.kind == 'app' && needs.preflight.outputs.browser_origin_run_id == ''" && step.run.includes('FARMING_AGENT_BROWSER_ARTIFACTS=')));
+  for (const job of [agentBrowserJob, macJob]) {
+    const assembly = job.steps.find(step => step.name.includes('component for candidate'));
+    assert(assembly, 'an unchanged component must be assembled for the current candidate');
+    assert.strictEqual(assembly.if, "needs.preflight.outputs.browser_origin_run_id != ''");
+    assert(assembly.run.includes('scripts/reuse-agent-browser-runtime.mjs emit'));
+    const originDownload = job.steps.find(step => step.name.includes('Download unchanged'));
+    assert.strictEqual(originDownload?.with['run-id'], '${{ needs.preflight.outputs.browser_origin_run_id }}');
+  }
   const macNativeUpload = macJob.steps.find(step => step.name === 'Upload verified native macOS browser runtime');
   assert.strictEqual(macNativeUpload?.if, "matrix.kind == 'app'");
   assert.strictEqual(macNativeUpload?.with.name, 'farming-agent-browser-darwin-${{ matrix.arch }}');
@@ -290,7 +298,7 @@ function run() {
   );
   const macosRuntimeRust = macosJob.steps
     .find(step => step.name === 'Setup Rust for native macOS browser runtime');
-  assert.strictEqual(macosRuntimeRust?.if, "matrix.kind == 'app'");
+  assert.strictEqual(macosRuntimeRust?.if, "matrix.kind == 'app' && needs.preflight.outputs.browser_origin_run_id == ''");
   assert.strictEqual(macosRuntimeRust?.with.toolchain, '1.96.1');
   assert.strictEqual(
     macosRuntimeRust?.with.target,
@@ -303,7 +311,7 @@ function run() {
     'agent-browser-cargo-v2-${{ runner.os }}-${{ runner.arch }}-rust-1.96.1-darwin-${{ matrix.arch }}-source-',
     'agent-browser-cargo-v1-${{ runner.os }}-${{ runner.arch }}-rust-1.96.1-darwin-${{ matrix.arch }}-',
   ]);
-  assert.strictEqual(macosRuntimeBuild?.if, "matrix.kind == 'app'");
+  assert.strictEqual(macosRuntimeBuild?.if, "matrix.kind == 'app' && needs.preflight.outputs.browser_origin_run_id == ''");
   assert(
     macosRuntimeBuild?.run.includes('--platform "darwin-${{ matrix.arch }}"')
       && macosRuntimeBuild.run.includes('FARMING_AGENT_BROWSER_ARTIFACTS=${native_artifacts}')

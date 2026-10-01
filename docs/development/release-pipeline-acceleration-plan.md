@@ -596,11 +596,21 @@ without reducing coverage.
 - Start macOS app jobs after preflight; they do not wait for the independent
   Linux/Windows Browser matrix. The separate CLI, Linux, and npm jobs wait for
   both that matrix and the native app jobs because each complete image needs
-  every supported runtime. Each macOS
-  app builds and smokes its native
-  Browser on its own packaging runner. Cache Cargo intermediates by host OS,
+  every supported runtime. Reuse unchanged Browser components only from a
+  successful in-repository preparation whose commit is an ancestor of the
+  candidate and whose pin, patch and production recipe are byte-identical.
+  Every platform artifact must still be retained; an expired or incomplete
+  origin requires fresh compilation. A rejected artifact fails closed.
+  Candidate assembly records the current Farming SHA and digest separately
+  from immutable compilation provenance. Each macOS app signs and exercises
+  its native Browser on its own packaging runner, including complete App
+  verification and smoke. Unchanged component source-regression evidence is
+  bound to the authenticated origin; candidate product/package acceptance is
+  always fresh. Changed source or recipe uses the original test/build path.
+  Cache Cargo intermediates by host OS,
   architecture, target, pinned toolchain, upstream source, patch, and build
-  script; always test, build, and emit a fresh candidate identity after restore.
+  script; source compilation always tests, builds and emits a fresh identity
+  after intermediate-cache restore.
   After a source or patch upgrade, restore only within the same host OS,
   architecture, target and pinned toolchain; Cargo fingerprints decide which
   intermediates remain valid. Regression tests retain the host test profile;

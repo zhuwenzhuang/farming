@@ -477,10 +477,15 @@ Changed Files + Failure Signatures
 - 每个 macOS Architecture 的 Native CLI 与 App Bundle 作为两个并行 Job。
 - macOS App Job 在 Preflight 后直接启动，不等待独立的 Linux/Windows Browser Matrix；独立
   CLI、Linux 和 npm Job 必须等待该 Matrix 与 Native App Job，因为完整 Image 需要全部
-  受支持的 Runtime。每个 App 仍在
-  自己的 Packaging Runner 上构建并 Smoke Native Browser。Cargo 中间产物按 Host OS、
+  受支持的 Runtime。仅当同仓库已成功的 Preparation Commit 是当前 Candidate 的祖先，且
+  Pin、Patch 和 Production Recipe 字节完全一致时，才能复用未变化的 Browser Component。
+  必须保留全部平台的 Artifact；过期或不完整的 Origin 要重新编译，产物校验失败则明确拒绝。
+  Candidate Assembly 单独记录当前 Farming SHA、Digest 与不可变的 Compilation Provenance。
+  每个 macOS App 在自己的 Packaging Runner 上签名并运行 Native Browser，保留完整 App
+  校验与 Smoke。未变化组件的源码回归证据绑定已认证 Origin；当前 Candidate 的产品和包
+  验收始终重新执行。源码或 Recipe 变化时走原有 Test/Build 路径。Cargo 中间产物按 Host OS、
   Architecture、Target、固定 Toolchain、Upstream Source、Patch 与 Build Script 隔离缓存；
-  Restore 后始终重新 Test、Build，并生成当前 Candidate Identity。
+  从中间产物 Cache Restore 后，源码编译路径始终重新 Test、Build，并生成当前 Identity。
   Source 或 Patch 升级后，仅在相同 Host OS、Architecture、Target 和固定 Toolchain 内
   Restore；由 Cargo Fingerprint 判定哪些中间产物仍有效。回归测试保留 Host Test Profile，
   正式制品保留 Release Profile 和 Target。Release Profile 测试会另外链接一个 Full-LTO
