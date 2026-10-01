@@ -266,7 +266,7 @@ export function findManagedUpgradeReferences(projectRoot, mismatches) {
         const lines = fs.readFileSync(file, 'utf8').split(/\r?\n/);
         for (const mismatch of mismatches) {
           const version = mismatch.current.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-          const pattern = new RegExp(`(?<![\\w.])${version}(?![\\w.])`);
+          const pattern = new RegExp(`(?<![\\w.])${version}(?![\\w]|\\.\\d)`);
           lines.forEach((line, index) => {
             if (pattern.test(line)) references.push({ name: mismatch.name, version: mismatch.current,
               file: path.relative(projectRoot, file).split(path.sep).join('/'), line: index + 1 });

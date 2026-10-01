@@ -7,6 +7,7 @@ const fs = require('fs');
 const sessionId = '019f0000-0000-7000-8000-000000000999';
 const imagePath = process.env.FARMING_TEST_HISTORY_IMAGE_PATH || '';
 const dataUrl = process.env.FARMING_TEST_HISTORY_IMAGE_DATA_URL || '';
+const userInputResultFile = process.env.FARMING_TEST_USER_INPUT_RESULT_FILE || '';
 const stallPrompt = process.env.FARMING_TEST_STALL_PROMPT === '1';
 const multiSession = process.env.FARMING_TEST_MULTI_SESSION === '1';
 const splitUtf8 = process.env.FARMING_TEST_SPLIT_UTF8 === '1';
@@ -100,6 +101,7 @@ async function resultFor(method, params) {
   }
   if (method === 'thread/resume') {
     await waitForProviderResumeGate();
+    if (process.env.FARMING_TEST_ACTIVE_WRITER === '1') throw new Error(`thread ${params.threadId} already has an active writer`);
     return {
       thread: { ...thread(params.threadId), turns: [] },
       itemsBackwardsCursor: 'history-start',
@@ -109,7 +111,7 @@ async function resultFor(method, params) {
       serviceTier: null,
     };
   }
-  if (method === 'thread/start' && (stallPrompt || multiSession || backgroundChild)) {
+  if (method === 'thread/start' && (stallPrompt || multiSession || backgroundChild || userInputResultFile)) {
     const id = multiSession || backgroundChild
       ? `019f0000-0000-7000-8000-${String(nextThread++).padStart(12, '0')}`
       : sessionId;
@@ -125,7 +127,7 @@ async function resultFor(method, params) {
     const id = `019f0000-0000-7000-8001-${String(nextThread++).padStart(12, '0')}`;
     return { thread: { ...thread(id), forkedFromId: params.threadId, turns: [] } };
   }
-  if (method === 'turn/start' && (stallPrompt || backgroundChild)) {
+  if (method === 'turn/start' && (stallPrompt || backgroundChild || userInputResultFile)) {
     return {
       turn: {
         id: backgroundChild ? params.outputSchema ? 'turn-title' : `turn-parent-${nextTurn++}` : 'turn-stalled-title',
@@ -297,9 +299,17 @@ async function run() {
         id: request.id,
         result,
       });
-      if (backgroundChild && request.method === 'turn/start' && request.params.outputSchema) {
+      if ((backgroundChild || userInputResultFile) && request.method === 'turn/start' && request.params.outputSchema) {
         await enqueueResponse({ method: 'turn/completed', params: { threadId: request.params.threadId,
           turn: { ...result.turn, status: 'completed' } } });
+      }
+      if (userInputResultFile && request.method === 'turn/start' && !request.params.outputSchema) {
+        await enqueueResponse({ method: 'turn/started', params: { threadId: request.params.threadId, turn: result.turn } });
+        await enqueueResponse({ id: 'fixture-user-input', method: 'item/tool/requestUserInput', params: {
+          threadId: request.params.threadId, turnId: result.turn.id, itemId: 'question', autoResolutionMs: null,
+          questions: [{ id: 'choice', header: 'Choice', question: 'Choose a target', isOther: true, isSecret: false,
+            options: [{ label: 'Local', description: 'This machine' }, { label: 'Remote', description: 'Another machine' }] }],
+        } });
       }
       if (backgroundChild && request.method === 'turn/start' && !request.params.outputSchema) {
         const parentId = request.params.threadId;
@@ -345,6 +355,12 @@ async function run() {
   for await (const line of lines) {
     if (!line.trim()) continue;
     const request = JSON.parse(line);
+    if (request.id === 'fixture-user-input' && !request.method) {
+      fs.writeFileSync(userInputResultFile, JSON.stringify(request));
+      await enqueueResponse({ method: 'turn/completed', params: { threadId: sessionId,
+        turn: { id: 'turn-stalled-title', items: [], status: 'completed', error: null } } });
+      continue;
+    }
     if (request.id === undefined) continue;
     if (!providerResumeGatePrefix) {
       await handleRequest(request);

@@ -1,6 +1,6 @@
 {
   "name": "farming-code",
-  "version": "2.2.76",
+  "version": "2.2.77",
   "farmingUserInstall": 1,
   "description": "Farming Code is a self-hosted browser workspace for running and supervising AI coding agents",
   "main": "backend/server.cjs",
@@ -265,7 +265,7 @@
   ],
   "devDependencies": {
     "@agentclientprotocol/claude-agent-acp": "0.84.0",
-    "@agentclientprotocol/codex-acp": "2.0.1",
+    "@agentclientprotocol/codex-acp": "2.1.0",
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.59.1",
     "@types/node": "^26.1.1",

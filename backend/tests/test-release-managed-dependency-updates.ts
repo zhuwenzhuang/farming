@@ -115,10 +115,12 @@ async function run() {
       fetchImpl: async () => new Response(JSON.stringify({ name: 'wrong-adapter', version: '1.0.0' })),
     }), /metadata identity mismatch/);
     fs.mkdirSync(path.join(temporaryRoot, 'scripts'));
-    fs.writeFileSync(path.join(temporaryRoot, 'scripts/owned-source.ts'), "const version = '0.146.0';\nconst another = '0.146.00';\n");
+    fs.writeFileSync(path.join(temporaryRoot, 'scripts/owned-source.ts'), "const version = '0.146.0';\nconst another = '0.146.00';\nconst vendor = 'codex-acp-0.146.0.mjs';\nconst longer = 'codex-acp-0.146.0.1.mjs';\n");
     fs.writeFileSync(path.join(temporaryRoot, 'scripts/generated.cjs'), "const version = '0.146.0';\n");
     assert.deepStrictEqual(checker.findManagedUpgradeReferences(temporaryRoot, codexRuntimeUpdate.mismatches), [{
       name: '@openai/codex', version: '0.146.0', file: 'scripts/owned-source.ts', line: 1,
+    }, {
+      name: '@openai/codex', version: '0.146.0', file: 'scripts/owned-source.ts', line: 3,
     }]);
 
     missingVersions.add('@openai/codex@0.147.0-darwin-x64');
