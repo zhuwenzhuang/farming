@@ -667,7 +667,21 @@ without reducing coverage.
   observation checkpoints and upload outcome are retained on success or failure.
   Recovery after an attempted upload is read-only, including during public 404
   responses; recovery before the upload step may perform the first upload.
+- An accepted upload and public verification are separate states. A successful
+  upload followed by public absence or incomplete metadata is `awaiting-public`:
+  show "Uploaded successfully; waiting for public availability" in the workflow
+  summary and retain a pending `farming/npm-publication/<version>` commit status.
+  The bounded observation job may complete while that publication status remains
+  pending; workflow success alone is not proof of a public npm release. Resume
+  the earlier run through the existing recovery input, preserving its upload
+  evidence and performing read-only verification. Only matching public source
+  and digests make the publication status successful. A conflicting public
+  identity fails; an ambiguous upload or failed observation remains uncertain.
+  Never classify normal public-availability waiting as an upload failure.
 - A successful upload may not be immediately visible in the public registry.
+  npm performs publish-time scanning, typically taking about five minutes and
+  sometimes fifteen minutes or more; these times are not a service guarantee.
+  See [npm publish-time scanning](https://github.blog/changelog/2026-07-28-npm-publish-time-malware-scanning-and-dual-use-metadata/).
   A `staged` response or conflict alone does not prove that maintainer approval
   is required: npm staging includes automated validation as well as maintainer
   review. Preserve the exact tarball and reconcile the public version, source

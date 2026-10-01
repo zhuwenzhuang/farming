@@ -20,7 +20,7 @@ on:
         required: true
         type: string
       failed_publication_run_id:
-        description: 'Optional failed Publish Release run that already made the GitHub Release public'
+        description: 'Optional earlier Publish Release run to resume (failed or awaiting npm public availability)'
         required: false
         default: ''
         type: string
@@ -29,6 +29,11 @@ permissions:
   actions: read
   contents: read
   statuses: read
+
+# One owner may upload or update the publication status for a version at a time.
+concurrency:
+  group: farming-publication-${{ inputs.release_version }}
+  cancel-in-progress: false
 
 jobs:
   publish-release:
@@ -42,7 +47,7 @@ jobs:
       actions: read
       contents: write
       id-token: write
-      statuses: read
+      statuses: write
     steps:
       - name: Normalize release version
         id: version
@@ -126,7 +131,9 @@ jobs:
           const jobs = JSON.parse(process.env.JOBS_JSON).jobs || [];
           const workflow = JSON.parse(process.env.WORKFLOW_JSON);
           if (workflow.path !== '.github/workflows/publish-release.yml') throw new Error(`Unexpected failed workflow: ${workflow.path}`);
-          if (run.event !== 'workflow_dispatch' || run.conclusion !== 'failure') throw new Error(`Publication run is not a failed dispatch: ${run.event}/${run.conclusion}`);
+          if (run.event !== 'workflow_dispatch' || run.status !== 'completed' || !['failure', 'success'].includes(run.conclusion)) {
+            throw new Error(`Publication run is not a completed recoverable dispatch: ${run.event}/${run.status}/${run.conclusion}`);
+          }
           if (run.head_sha !== process.env.CANDIDATE_SHA) throw new Error(`Publication run SHA mismatch: ${run.head_sha}`);
           const job = jobs.find(entry => entry.name === 'Publish verified release');
           if (!job) throw new Error('Failed publication job is missing');
@@ -146,10 +153,12 @@ jobs:
           const npmPublication = (job.steps || []).find(
             entry => entry.name === 'Verify and publish npm package with provenance',
           );
+          const publicWait = (job.steps || []).find(entry => entry.name === 'Wait for npm package to become public');
           const recoverablePublicVerificationFailure = publicVerification?.conclusion === 'failure'
             && npmPublication?.conclusion === 'skipped';
           const recoverableNpmPublicationFailure = publicVerification?.conclusion === 'success'
-            && npmPublication?.conclusion === 'failure';
+            && (npmPublication?.conclusion === 'failure'
+              || (npmPublication?.conclusion === 'success' && ['success', 'failure'].includes(publicWait?.conclusion)));
           if (!recoverablePublicVerificationFailure && !recoverableNpmPublicationFailure) {
             throw new Error(
               `Publication did not stop at a recoverable boundary: public=${publicVerification?.conclusion || 'missing'}, npm=${npmPublication?.conclusion || 'missing'}`,
@@ -507,6 +516,15 @@ jobs:
           done < "${release_index}"
           node scripts/verify-public-release-assets.mjs "${release_dir}" "${candidate_sha}" "${RELEASE_VERSION}"
 
+      - name: Download prior npm publication evidence
+        if: inputs.failed_publication_run_id != '' && env.NPM_UPLOAD_MAY_HAVE_STARTED == '1'
+        uses: actions/download-artifact@v4
+        with:
+          name: farming-npm-publication-${{ inputs.release_version }}
+          path: prior-npm-evidence
+          run-id: ${{ inputs.failed_publication_run_id }}
+          github-token: ${{ github.token }}
+
       - name: Verify and publish npm package with provenance
         env:
           CANDIDATE_SHA: ${{ inputs.candidate_sha }}
@@ -535,10 +553,12 @@ jobs:
           node scripts/npm-release-evidence.mjs verify "${receipt}" "${candidate_sha}" "${package_tarball}"
           mkdir -p npm-evidence
           cp "${receipt}" npm-evidence/
+          if [[ -f prior-npm-evidence/upload-result.json ]]; then
+            cp prior-npm-evidence/upload-result.json npm-evidence/
+          fi
           # Recovery is read-only even while the registry returns 404: an
           # ambiguous prior upload must never authorize a second upload.
           if [[ "${NPM_UPLOAD_MAY_HAVE_STARTED:-0}" == '1' ]] || npm view "farming-code@${version}" version >/dev/null 2>&1; then
-            node scripts/npm-release-evidence.mjs watch "${receipt}" "${candidate_sha}" npm-evidence/publication-state.json
             exit 0
           fi
           dist_tag="latest"
@@ -550,8 +570,49 @@ jobs:
           printf '{"status":"upload-intent","observedAt":"%s"}\n' "$(date -u +%FT%TZ)" > npm-evidence/upload-intent.json
           upload_exit=0
           npm publish "./${package_tarball}" --access public --provenance --tag "${dist_tag}" --loglevel=error || upload_exit=$?
-          printf '{"uploadExitCode":%s,"observedAt":"%s"}\n' "${upload_exit}" "$(date -u +%FT%TZ)" > npm-evidence/upload-result.json
-          node scripts/npm-release-evidence.mjs watch "${receipt}" "${candidate_sha}" npm-evidence/publication-state.json
+          printf '{"packageName":"farming-code","version":"%s","gitHead":"%s","uploadExitCode":%s,"observedAt":"%s"}\n' "${version}" "${candidate_sha}" "${upload_exit}" "$(date -u +%FT%TZ)" > npm-evidence/upload-result.json
+
+      - name: Wait for npm package to become public
+        id: npm-publication
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          receipt="npm-evidence/npm-smoke-receipt.json"
+          upload_options=()
+          description='Checking npm public availability; no upload will be replayed'
+          if [[ -f npm-evidence/upload-result.json ]]; then
+            upload_options=(--upload-result npm-evidence/upload-result.json)
+            if [[ "$(node -p 'JSON.parse(require("fs").readFileSync("npm-evidence/upload-result.json")).uploadExitCode')" == '0' ]]; then
+              description='Uploaded successfully; waiting for public availability'
+            fi
+          fi
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/statuses/${CANDIDATE_SHA}" \
+            -f state=pending -f context="farming/npm-publication/${FARMING_RELEASE_VERSION}" \
+            -f description="${description}" \
+            -f target_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" >/dev/null
+          printf '### npm publication\n\n%s.\n' "${description}" >> "${GITHUB_STEP_SUMMARY}"
+          observation_exit=0
+          node scripts/npm-release-evidence.mjs watch "${receipt}" "${CANDIDATE_SHA}" npm-evidence/publication-state.json ${upload_options[@]+"${upload_options[@]}"} || observation_exit=$?
+          node scripts/npm-release-evidence.mjs report "${receipt}" "${CANDIDATE_SHA}" npm-evidence/publication-state.json
+          # Exit 3 proves an accepted upload is still awaiting public metadata.
+          # Completing observation does not mark the publication status green.
+          if [[ "${observation_exit}" != '0' && "${observation_exit}" != '3' ]]; then
+            exit "${observation_exit}"
+          fi
+
+      - name: Record npm publication status
+        if: always() && steps.npm-publication.outputs.commit_state != ''
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          PUBLICATION_STATE: ${{ steps.npm-publication.outputs.commit_state }}
+          PUBLICATION_DESCRIPTION: ${{ steps.npm-publication.outputs.description }}
+        run: |
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/statuses/${CANDIDATE_SHA}" \
+            -f state="${PUBLICATION_STATE}" -f context="farming/npm-publication/${FARMING_RELEASE_VERSION}" \
+            -f description="${PUBLICATION_DESCRIPTION}" \
+            -f target_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" >/dev/null
 
       - name: Upload npm publication evidence
         if: always()

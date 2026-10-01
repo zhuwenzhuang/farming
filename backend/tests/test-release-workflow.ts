@@ -87,12 +87,27 @@ function run() {
 
   const preparationWorkflow = YAML.parse(preparationWorkflowSource);
   const publicationWorkflow = YAML.parse(publicationWorkflowSource);
+  assert.deepStrictEqual(publicationWorkflow.concurrency, {
+    group: 'farming-publication-${{ inputs.release_version }}', 'cancel-in-progress': false,
+  }, 'one workflow must own a version upload and its publication status at a time');
   const npmStep = publicationWorkflow.jobs['publish-release'].steps.find(
     step => step.name === 'Verify and publish npm package with provenance',
   );
   assert(npmStep.run.indexOf('npm-release-evidence.mjs verify') < npmStep.run.indexOf('npm publish'));
   assert(npmStep.run.indexOf('NPM_UPLOAD_MAY_HAVE_STARTED:-0') < npmStep.run.indexOf('npm publish'));
   assert(npmStep.run.includes('|| upload_exit=$?'), 'uncertain upload failures must reconcile without replay');
+  const npmObservation = publicationWorkflow.jobs['publish-release'].steps.find(
+    step => step.name === 'Wait for npm package to become public',
+  );
+  assert(npmObservation.run.includes("!= '3'"),
+    'normal awaiting-public observation must not fail the upload workflow');
+  assert(npmObservation.run.includes('npm-release-evidence.mjs report'));
+  const npmStatus = publicationWorkflow.jobs['publish-release'].steps.find(
+    step => step.name === 'Record npm publication status',
+  );
+  assert.strictEqual(npmStatus.if, "always() && steps.npm-publication.outputs.commit_state != ''");
+  assert(npmStatus.run.includes('farming/npm-publication/${FARMING_RELEASE_VERSION}'),
+    'workflow completion and authoritative npm publication must have separate status');
   assert.strictEqual(publicationWorkflow.jobs['publish-release'].steps.find(
     step => step.name === 'Upload npm publication evidence',
   )?.if, 'always()');
@@ -354,7 +369,7 @@ function run() {
   );
   assert.deepStrictEqual(
     publicationWorkflow.jobs['publish-release'].permissions,
-    { actions: 'read', contents: 'write', 'id-token': 'write', statuses: 'read' },
+    { actions: 'read', contents: 'write', 'id-token': 'write', statuses: 'write' },
   );
   assert(publicationWorkflowSource.includes("if: inputs.failed_publication_run_id == ''"));
   assert(publicationWorkflowSource.includes("if: inputs.failed_publication_run_id != ''"));

@@ -339,7 +339,7 @@ function run() {
       && npmSourceVerificationScript.includes('sleep "${RETRY_DELAY_SECONDS}"')
       && releaseWorkflow.match(/bash scripts\/verify-npm-release-source\.sh/g)?.length === 1
       && releaseWorkflow.includes('node scripts/npm-release-evidence.mjs verify')
-      && releaseWorkflow.match(/node scripts\/npm-release-evidence\.mjs watch/g)?.length === 2,
+      && releaseWorkflow.match(/node scripts\/npm-release-evidence\.mjs watch/g)?.length === 1,
     'release source verification must retry missing npm gitHead metadata and reject a conflicting revision',
   );
   assert(

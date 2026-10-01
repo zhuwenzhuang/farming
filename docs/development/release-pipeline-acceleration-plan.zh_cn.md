@@ -525,9 +525,19 @@ Changed Files + Failure Signatures
   上传后自动核对公开 Name、Version、Source SHA、Integrity 和 Shasum，最长十分钟，单次请求
   最长十秒。成功或失败都保留带时间戳的状态与上传结果。尝试上传后的恢复只读，包括公开
   Registry 返回 404 时；上传步骤尚未执行的恢复可以进行第一次上传。
+- 已接受上传与公开验证是不同状态。上传成功后，若公开版本尚不存在或元数据不完整，
+  状态为 `awaiting-public`：Workflow Summary 显示“已上传成功，等待公开可用”，并保留
+  `farming/npm-publication/<version>` Commit Status 为 Pending。有界观察 Job 可以完成，
+  但发布状态仍然 Pending；仅凭 Workflow 成功不能认定 npm 已公开。通过现有恢复输入
+  继续先前 Run，保留上传证据并只读验证。只有公开源码和摘要匹配才标记发布成功；
+  公开身份冲突应失败，上传结果不明或观察失败仍应报告不确定。不得把正常等待公开
+  归类为上传失败。
 - 验证公开 Tag Target、资产清单、Manifest、Checksum，并至少下载一个公开资产。
 - 只有验证成功后才发布 npm，并核对 npm `gitHead`。
-- 上传成功后，公共 Registry 可能暂时不可见。仅凭 `staged` 响应或冲突，不能判定
+- 上传成功后，公共 Registry 可能暂时不可见。npm 在公开前执行扫描，通常约五分钟，
+  有时十五分钟甚至更久，这些时间不是服务保证。参见
+  [npm 发布时扫描说明](https://github.blog/changelog/2026-07-28-npm-publish-time-malware-scanning-and-dual-use-metadata/)。
+  仅凭 `staged` 响应或冲突，不能判定
   需要维护者批准：npm 暂存既包含自动校验，也包含维护者审阅。保留精确 Tarball，
   在考虑再次发布前，以有界只读查询核对公开版本、源码 SHA 和摘要。
 - 只有权威证据明确要求时，才请求维护者批准或 2FA。若无法读取需要认证的暂存
