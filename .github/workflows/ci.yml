@@ -399,9 +399,19 @@ jobs:
           - name: iPhone layout 2
             shard: 2
             human: false
-          - name: Human journeys and authenticated share
+          - name: iPhone human journeys
             shard: 0
             human: true
+            project: iphone-human-webkit
+            screen: true
+          - name: Android human journeys
+            shard: 0
+            human: true
+            project: android-human-chromium
+          - name: Authenticated share
+            shard: 0
+            human: false
+            auth: true
     needs: [frontend, e2e-agent-browser]
     runs-on: ubuntu-latest
     env:
@@ -470,25 +480,25 @@ jobs:
         run: npx playwright install webkit chromium
 
       - name: Screen mobile Composer geometry and image hit targets
-        if: matrix.human
+        if: matrix.screen
         run: npm run release:fast-screen:mobile
         env:
           FARMING_PLAYWRIGHT_SKIP_BUILD: '1'
 
       - name: Run balanced iPhone layout checks
-        if: '!matrix.human'
+        if: matrix.shard > 0
         run: node scripts/run-playwright-balanced-shard.mjs --project iphone-webkit --shard ${{ matrix.shard }}/2
         env:
           FARMING_PLAYWRIGHT_SKIP_BUILD: '1'
 
       - name: Run mobile browser checks
         if: matrix.human
-        run: npx playwright test --project=iphone-human-webkit --project=android-human-chromium
+        run: npx playwright test --project="${{ matrix.project }}"
         env:
           FARMING_PLAYWRIGHT_SKIP_BUILD: '1'
 
       - name: Run authenticated mobile share contract
-        if: matrix.human
+        if: matrix.auth
         run: npx playwright test --project=mobile-auth-webkit
         env:
           FARMING_PLAYWRIGHT_AUTH: '1'

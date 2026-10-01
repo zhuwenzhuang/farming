@@ -135,15 +135,24 @@ function run() {
   assert.strictEqual(workflow.jobs.browser.strategy.matrix.shard.length, 9);
   const mobile = workflow.jobs.mobile;
   assert.strictEqual(mobile.strategy['fail-fast'], false);
-  assert.deepStrictEqual(mobile.strategy.matrix.include.map(lane => [lane.shard, lane.human]), [[1, false], [2, false], [0, true]]);
+  const lanes = mobile.strategy.matrix.include;
+  assert.deepStrictEqual(lanes.filter(lane => lane.shard > 0).map(lane => lane.shard), [1, 2]);
+  assert.deepStrictEqual(lanes.filter(lane => lane.human).map(lane => lane.project),
+    ['iphone-human-webkit', 'android-human-chromium']);
+  assert.strictEqual(lanes.filter(lane => lane.auth).length, 1);
+  assert(lanes.filter(lane => lane.auth).every(lane => !lane.human && lane.shard === 0));
+  assert.strictEqual(lanes.filter(lane => lane.screen).length, 1);
+  assert(lanes.filter(lane => lane.screen).every(lane => lane.human));
+  assert(lanes.every(lane => [lane.shard > 0, !!lane.human, !!lane.auth].filter(Boolean).length === 1),
+    'every mobile lane must execute exactly one complete suite');
   const layout = mobile.steps.find(step => step.name === 'Run balanced iPhone layout checks');
-  assert.strictEqual(layout.if, '!matrix.human');
+  assert.strictEqual(layout.if, 'matrix.shard > 0');
   assert(layout.run.includes('--project iphone-webkit --shard ${{ matrix.shard }}/2'));
   const human = mobile.steps.find(step => step.name === 'Run mobile browser checks');
   assert.strictEqual(human.if, 'matrix.human');
-  assert.strictEqual(human.run, 'npx playwright test --project=iphone-human-webkit --project=android-human-chromium');
-  assert.strictEqual(mobile.steps.find(step => step.name === 'Run authenticated mobile share contract')?.if, 'matrix.human');
-  assert.strictEqual(mobile.steps.find(step => step.name === 'Screen mobile Composer geometry and image hit targets')?.if, 'matrix.human');
+  assert.strictEqual(human.run, 'npx playwright test --project="${{ matrix.project }}"');
+  assert.strictEqual(mobile.steps.find(step => step.name === 'Run authenticated mobile share contract')?.if, 'matrix.auth');
+  assert.strictEqual(mobile.steps.find(step => step.name === 'Screen mobile Composer geometry and image hit targets')?.if, 'matrix.screen');
   const cargoCache = e2eAgentBrowser.steps.find(step => step.name === 'Cache patched browser Cargo intermediates');
   assert(cargoCache.with.key.includes('linux-x64'));
   assert.strictEqual(cargoCache.with['restore-keys'], 'agent-browser-cargo-v2-${{ runner.os }}-${{ runner.arch }}-rust-1.96.1-linux-x64-source-');

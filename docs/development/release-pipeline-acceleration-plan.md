@@ -697,11 +697,12 @@ without reducing coverage.
   workers or more remote Jobs.
 - Keep exactly one worker per job. Generated tests sharing one source location
   remain atomic, and no backend receives concurrent tests.
-- Mobile CI uses three isolated single-worker jobs: two balanced iPhone layout
-  shards and one sequential iPhone/Android human-journey and authenticated-share
-  lane. Preserve every original project and location; the mobile fast screen
-  runs once in the human lane. This adds two jobs; account for their queueing
-  against the concurrency ceiling rather than assuming linear speedup.
+- Mobile CI uses five isolated single-worker jobs: two balanced iPhone layout
+  shards, separate complete iPhone and Android human-journey suites, and an
+  authenticated-share suite with its own auth-enabled server. Preserve every
+  original project and location; the complete mobile fast screen runs once in
+  the iPhone human lane. Account for queueing against the shared concurrency
+  ceiling when measuring the complete release; do not assume linear speedup.
 
 ### B3. Produce a failure bundle immediately
 

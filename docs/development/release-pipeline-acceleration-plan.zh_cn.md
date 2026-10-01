@@ -550,10 +550,10 @@ Changed Files + Failure Signatures
   Sample 的位置使用有界默认值。通过重分配现有 Job 均衡慢测试，不增加 Worker 或远端 Job。
 - 每个 Job 仍然严格单 Worker；共享同一源码位置的 Generated Test 保持原子分组，同一 Backend
   不并发执行测试。
-- Mobile CI 使用三个隔离的单 Worker Job：两个均衡的 iPhone Layout Shard，以及一个依次执行
-  iPhone/Android Human Journey 与 Authenticated Share 的 Lane。原有 Project 和测试位置全部
-  保留，Mobile Fast Screen 只在 Human Lane 执行一次。增加两个 Job 后应将排队计入并发上限，
-  不能假定耗时线性下降。
+- Mobile CI 使用五个隔离的单 Worker Job：两个均衡的 iPhone Layout Shard、各自完整的
+  iPhone 和 Android Human Journey Suite，以及使用独立鉴权 Server 的 Authenticated Share
+  Suite。原有 Project 和测试位置全部保留，完整 Mobile Fast Screen 仅在 iPhone Human Lane
+  执行一次。衡量完整发布时须计入共享并发上限导致的排队，不能假定耗时线性下降。
 
 ### B3. 第一次失败立即生成诊断包
 
