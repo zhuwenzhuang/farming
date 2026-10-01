@@ -192,6 +192,9 @@ Provider policies normalize negotiated AIR v1 goal and compaction metadata at th
 ACP boundary. Codex phase classification reads both AIR v1 metadata and historical
 Codex metadata; generic transcript and UI consumers keep the shared state contract.
 Unknown extension versions cannot overwrite authoritative session state.
+Declaring one AIR extension does not opt into every AIR interaction. Codex
+choice prompts retain explicit alternative-answer options unless the client
+negotiates custom-answer input; schema validation and UI remain generic.
 
 Native Terminal executable discovery returns one normalized compatibility
 result. Provider-specific resume-version requirements and trusted test

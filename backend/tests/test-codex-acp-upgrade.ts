@@ -6,7 +6,7 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import readline from 'node:readline';
 
-async function scenario(kind: 'writer' | 'air' | 'standard'): Promise<void> {
+async function scenario(kind: 'writer' | 'air' | 'air-native' | 'standard'): Promise<void> {
   const root = path.join(__dirname, '..', '..');
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-acp-upgrade-'));
   const resultFile = path.join(tmp, 'answer.json');
@@ -26,8 +26,12 @@ async function scenario(kind: 'writer' | 'air' | 'standard'): Promise<void> {
     const message = JSON.parse(line);
     if (message.method === 'elicitation/create') {
       schema = message.params.requestedSchema.properties;
+      const noteName = Object.entries(schema || {}).find(([, field]) => field._meta?.codex
+        && (field._meta.codex as { role: string }).role === 'user_note')?.[0];
+      assert.ok(noteName, 'alternative answers must retain the generic note field');
       child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: message.id,
-        result: { action: 'accept', content: { choice: kind === 'air' ? '  A third host  ' : 'None of the above' } } }) + '\n');
+        result: { action: 'accept', content: { choice: kind === 'air' ? '  A third host  ' : 'None of the above',
+          ...(kind !== 'air' ? { [noteName]: '  A third host  ' } : {}) } } }) + '\n');
       return;
     }
     const request = pending.get(message.id);
@@ -45,7 +49,7 @@ async function scenario(kind: 'writer' | 'air' | 'standard'): Promise<void> {
   });
   try {
     await request('initialize', { protocolVersion: 1, clientInfo: { name: 'farming-upgrade-test', version: '1' },
-      clientCapabilities: { elicitation: { form: {} }, ...(kind === 'air' ? { _meta: { jetbrains: { air: { version: 1 } } } } : {}) } });
+      clientCapabilities: { elicitation: { form: {} }, ...(kind === 'air' || kind === 'air-native' ? { _meta: { jetbrains: { air: { version: 1, capabilities: [kind === 'air' ? 'customAnswer' : 'nativeSubagentSessions'] } } } } : {}) } });
     if (kind === 'writer') {
       await assert.rejects(request('session/load', { sessionId: '019f0000-0000-7000-8000-000000000999', cwd: tmp, mcpServers: [] }),
         (error: Error & { data?: { reason: string; threadId: string }; code?: number }) => {
@@ -62,7 +66,7 @@ async function scenario(kind: 'writer' | 'air' | 'standard'): Promise<void> {
     assert.ok(schema, 'the pinned adapter must issue a real ACP elicitation');
     assert.deepEqual(schema.choice.oneOf?.map(option => option.const), kind === 'air' ? ['Local', 'Remote'] : ['Local', 'Remote', 'None of the above']);
     const response = JSON.parse(fs.readFileSync(resultFile, 'utf8'));
-    assert.deepEqual(response.result.answers.choice.answers, kind === 'air' ? ['None of the above', 'user_note: A third host'] : ['None of the above']);
+    assert.deepEqual(response.result.answers.choice.answers, ['None of the above', 'user_note: A third host']);
     const note = Object.values(schema).find(field => field._meta?.codex && (field._meta.codex as { role: string }).role === 'user_note');
     assert.ok(note);
     if (kind === 'air') assert.deepEqual(note._meta?.jetbrains, { air: { version: 1, customAnswer: true } });
@@ -80,6 +84,6 @@ async function scenario(kind: 'writer' | 'air' | 'standard'): Promise<void> {
   }
 }
 (async () => {
-  for (const kind of ['writer', 'air', 'standard'] as const) await scenario(kind);
+  for (const kind of ['writer', 'air', 'air-native', 'standard'] as const) await scenario(kind);
   console.log('Codex ACP upgrade: active writer rejection and AIR/standard choice round trips passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });

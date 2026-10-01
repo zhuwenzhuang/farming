@@ -264,7 +264,7 @@ const path = require('path');
 
 const [packageRoot, codexVendorEntry, claudeVendorEntry, piVendorEntry] = process.argv.slice(2);
 const sha256 = filePath => crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
-const expectedCodexVendor = '8979272dffb79c378a14d62a51a2242d7ebcb64f1562ec30161d782cb44f8199';
+const expectedCodexVendor = 'cff93fc8d1a3befd3dbfa12afe466e16dc2b38e92e459741ec80d86ef31aa548';
 const expectedClaudeVendor = '2723b81ed5635af6a506685325e7664c4c3acdb60bcfe4d4d6b951b5ae3f6f84';
 const expectedPiVendor = 'e8d0471a41ae9a66d0237357febc2affbbe1e1e4f0b78dcf7d84239e5f123e2b';
 if (sha256(codexVendorEntry) !== expectedCodexVendor) {

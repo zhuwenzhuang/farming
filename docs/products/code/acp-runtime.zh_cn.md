@@ -163,6 +163,9 @@ Usage Update，因此 Chat 的 Context Usage 与 Cost 使用 Live Pi Session 的
 Launch Working Directory 解释 `settings.json` 中的相对 `sessionDir`，因此 Farming 不猜测该目录；
 需要 Farming Inventory 时，应在所选 Pi Agent Home 的 `settings.json` 中配置绝对 `sessionDir`。
 
+声明一种 AIR Extension 不等于支持全部 AIR 交互。只有客户端协商了自定义答案输入，
+Codex 才使用该交互；否则保留显式的其他答案选项，Schema 校验与 UI 继续采用共享契约。
+
 只有 Live Agent 明确声明时，Farming 才启用标准 ACP Session、Prompt、Cancel、Config、
 Authentication、Elicitation、Terminal、Media、Plan 与 Fork 能力。Provider Extension 必须
 带版本、可协商，并留在 Adapter 边界。
