@@ -62,7 +62,7 @@ NODE
     JOB_ID="$(FAILURE_JOB="${FAILURE_JOB}" node -p "JSON.parse(process.env.FAILURE_JOB).id")"
     JOB_NAME="$(FAILURE_JOB="${FAILURE_JOB}" node -p "JSON.parse(process.env.FAILURE_JOB).name")"
     HEAD_SHA="$(RUN_JSON="${RUN_JSON}" node -p "JSON.parse(process.env.RUN_JSON).headSha")"
-    observe_gh run view "${RUN_ID}" --repo "${REPOSITORY}" --job "${JOB_ID}" --log-failed > "${BUNDLE_DIR}/failure.log" || true
+    observe_gh api "repos/${REPOSITORY}/actions/jobs/${JOB_ID}/logs" > "${BUNDLE_DIR}/failure.log" || true
     observe_gh api "repos/${REPOSITORY}/commits/${HEAD_SHA}" --jq '.files[]?.filename' > "${BUNDLE_DIR}/changed-files.txt" || true
     FIRST_ERROR="$(rg -i -m1 -n 'npm[[:space:]]+error|[[:space:]]Error:|##\[error\]|[[:space:]]failed([[:space:]:]|$)|[[:space:]]failure([[:space:]:]|$)' "${BUNDLE_DIR}/failure.log" || true)"
     RUN_ID="${RUN_ID}" RUN_JSON="${RUN_JSON}" FAILURE_JOB="${FAILURE_JOB}" FIRST_ERROR="${FIRST_ERROR}" BUNDLE_DIR="${BUNDLE_DIR}" node <<'NODE'

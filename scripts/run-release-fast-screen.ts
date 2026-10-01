@@ -11,6 +11,10 @@ const projectRoot = path.resolve(__dirname, '..');
 const packageVersion = require(path.join(projectRoot, 'package.json')).version;
 const tasks: FastScreenTask[] = [
   {
+    name: 'cold Codex ACP patch-package installation',
+    args: ['--import', 'tsx', '--test', 'tests/codex-acp-cold-install.test.ts'],
+  },
+  {
     name: 'Codex ACP upstream upgrade user input and session writer compatibility',
     args: ['--import', 'tsx', 'backend/tests/test-codex-acp-upgrade.ts'],
   },
