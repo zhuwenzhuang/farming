@@ -1006,7 +1006,7 @@ async function run() {
     '/opt/farming/lib',
     '/opt/farming/node',
   ]);
-  assert.match(compatibleCodexLaunch.args[3], /(?:dist\/acp\/codex-acp-2\.0\.1\.mjs|codex-acp\/dist\/index\.js)$/);
+  assert.match(compatibleCodexLaunch.args[3], /(?:dist\/acp\/codex-acp-2\.1\.0\.mjs|codex-acp\/dist\/index\.js)$/);
   const compatibleClaudeLaunch = resolveAcpLaunch('claude');
   assert.match(
     compatibleClaudeLaunch.args.at(-1),

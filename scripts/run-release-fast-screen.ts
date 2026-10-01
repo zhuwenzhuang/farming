@@ -11,6 +11,10 @@ const projectRoot = path.resolve(__dirname, '..');
 const packageVersion = require(path.join(projectRoot, 'package.json')).version;
 const tasks: FastScreenTask[] = [
   {
+    name: 'ACP adapter launch, required input and runtime lifecycle ownership',
+    args: ['--import', 'tsx', 'backend/tests/test-acp-runtime.ts'],
+  },
+  {
     name: 'cold Codex ACP patch-package installation',
     args: ['--import', 'tsx', '--test', 'tests/codex-acp-cold-install.test.ts'],
   },
