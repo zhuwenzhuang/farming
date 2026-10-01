@@ -120,13 +120,18 @@ function run() {
   for (const jobName of ['build-linux', 'build-macos', 'build-macos-cli', 'prepare-npm']) {
     const job = preparationWorkflow.jobs[jobName];
     const archiveCache = job.steps.find(step => step.name === 'Cache pinned ripgrep archives');
-    assert.strictEqual(job.env.FARMING_RIPGREP_ARCHIVE_CACHE, '${{ runner.temp }}/farming-ripgrep-archives');
+    assert.strictEqual(job.env.FARMING_RIPGREP_ARCHIVE_CACHE, undefined,
+      'runner context is unavailable in job-level env');
+    const cacheRoot = job.steps.find(step => step.name === 'Set pinned download cache root');
+    assert.strictEqual(cacheRoot?.run,
+      'echo "FARMING_RIPGREP_ARCHIVE_CACHE=${RUNNER_TEMP}/farming-ripgrep-archives" >> "${GITHUB_ENV}"');
     assert.strictEqual(archiveCache?.uses, 'actions/cache@v4');
-    assert.strictEqual(archiveCache?.with.path, job.env.FARMING_RIPGREP_ARCHIVE_CACHE);
+    assert.strictEqual(archiveCache?.with.path, '${{ runner.temp }}/farming-ripgrep-archives');
     assert.strictEqual(archiveCache?.with.key,
       `managed-ripgrep-v1-\${{ runner.os }}-\${{ runner.arch }}-${jobName}-\${{ hashFiles('backend/ripgrep-runtime.cts') }}`);
     assert.strictEqual(archiveCache.with['restore-keys'], undefined,
       'an upgraded inventory must not restore the old download set');
+    assert(job.steps.indexOf(cacheRoot) < job.steps.indexOf(archiveCache));
     assert(job.steps.indexOf(archiveCache) < job.steps.findIndex(step => step.name === 'Install dependencies'),
       'archive retention must survive the clean source install');
   }

@@ -217,7 +217,6 @@ jobs:
       FARMING_BASE_PATH: /farming
       FARMING_RELEASE_VERSION: ${{ inputs.release_version }}
       FARMING_RELEASE_INTEGRATION_REF: refs/remotes/origin/main
-      FARMING_RIPGREP_ARCHIVE_CACHE: ${{ runner.temp }}/farming-ripgrep-archives
       FARMING_AGENT_BROWSER_ARTIFACTS: ${{ github.workspace }}/../release-agent-browser-artifacts
     steps:
       - name: Normalize release version
@@ -257,6 +256,10 @@ jobs:
           pattern: farming-agent-browser-*
           path: ${{ github.workspace }}/../release-agent-browser-artifacts
           merge-multiple: true
+
+      - name: Set pinned download cache root
+        shell: bash
+        run: echo "FARMING_RIPGREP_ARCHIVE_CACHE=${RUNNER_TEMP}/farming-ripgrep-archives" >> "${GITHUB_ENV}"
 
       - name: Cache pinned ripgrep archives
         uses: actions/cache@v4
@@ -417,7 +420,6 @@ jobs:
       FARMING_BASE_PATH: /farming
       FARMING_RELEASE_VERSION: ${{ inputs.release_version }}
       FARMING_RELEASE_INTEGRATION_REF: refs/remotes/origin/main
-      FARMING_RIPGREP_ARCHIVE_CACHE: ${{ runner.temp }}/farming-ripgrep-archives
     steps:
       - name: Normalize release version
         id: version
@@ -457,6 +459,10 @@ jobs:
             x64:x86_64|arm64:arm64) ;;
             *) echo "Runner architecture does not match release target: target=${{ matrix.arch }}, host=$(uname -m)" >&2; exit 1 ;;
           esac
+
+      - name: Set pinned download cache root
+        shell: bash
+        run: echo "FARMING_RIPGREP_ARCHIVE_CACHE=${RUNNER_TEMP}/farming-ripgrep-archives" >> "${GITHUB_ENV}"
 
       - name: Cache pinned ripgrep archives
         uses: actions/cache@v4
@@ -637,7 +643,6 @@ jobs:
       FARMING_BASE_PATH: /farming
       FARMING_RELEASE_VERSION: ${{ inputs.release_version }}
       FARMING_RELEASE_INTEGRATION_REF: refs/remotes/origin/main
-      FARMING_RIPGREP_ARCHIVE_CACHE: ${{ runner.temp }}/farming-ripgrep-archives
       FARMING_AGENT_BROWSER_ARTIFACTS: ${{ github.workspace }}/../release-agent-browser-artifacts
     steps:
       - name: Normalize release version
@@ -680,6 +685,10 @@ jobs:
             x64:x86_64|arm64:arm64) ;;
             *) echo "Runner architecture does not match release target: target=${{ matrix.arch }}, host=$(uname -m)" >&2; exit 1 ;;
           esac
+      - name: Set pinned download cache root
+        shell: bash
+        run: echo "FARMING_RIPGREP_ARCHIVE_CACHE=${RUNNER_TEMP}/farming-ripgrep-archives" >> "${GITHUB_ENV}"
+
       - name: Cache pinned ripgrep archives
         uses: actions/cache@v4
         with:
@@ -729,7 +738,6 @@ jobs:
     env:
       FARMING_RELEASE_VERSION: ${{ inputs.release_version }}
       FARMING_RELEASE_INTEGRATION_REF: refs/remotes/origin/main
-      FARMING_RIPGREP_ARCHIVE_CACHE: ${{ runner.temp }}/farming-ripgrep-archives
       FARMING_AGENT_BROWSER_ARTIFACTS: ${{ github.workspace }}/../release-agent-browser-artifacts
     steps:
       - name: Checkout
@@ -753,6 +761,10 @@ jobs:
 
       - name: Install current npm CLI
         run: npm install --global npm@12.0.2
+
+      - name: Set pinned download cache root
+        shell: bash
+        run: echo "FARMING_RIPGREP_ARCHIVE_CACHE=${RUNNER_TEMP}/farming-ripgrep-archives" >> "${GITHUB_ENV}"
 
       - name: Cache pinned ripgrep archives
         uses: actions/cache@v4
