@@ -37,6 +37,7 @@ async function observe(
     timeout?: number;
     state?: (directory: string) => string;
     uploadResult?: { exitCode: number; gitHead?: string };
+    advanceAbortByMs?: number;
     workflow?: { recovery: boolean; exists: boolean; uploadExit: number; corrupt?: boolean; priorUploadExit?: number; automatic?: boolean; candidatePublicationRunId?: string };
   } = {},
 ) {
@@ -51,6 +52,11 @@ async function observe(
     if (options.uploadResult) fs.writeFileSync(uploadResult, JSON.stringify({ packageName: 'farming-code', version: '1.2.3',
       gitHead: options.uploadResult.gitHead || candidate, uploadExitCode: options.uploadResult.exitCode, observedAt: new Date().toISOString() }));
     const env: NodeJS.ProcessEnv = { ...process.env, NPM_TOKEN: 'private-token-never-sent' };
+    if (options.advanceAbortByMs) {
+      const preload = path.join(files.directory, 'coarse-abort-timer.mjs');
+      fs.writeFileSync(preload, `const timeout = AbortSignal.timeout.bind(AbortSignal);\nAbortSignal.timeout = milliseconds => timeout(Math.max(1, milliseconds - ${options.advanceAbortByMs}));\n`);
+      env.NODE_OPTIONS = `${env.NODE_OPTIONS || ''} --import=${preload}`;
+    }
     if (options.workflow) {
       const bin = path.join(files.directory, 'bin');
       const packageDirectory = path.join(files.directory, 'npm-package');
@@ -654,4 +660,28 @@ test('first recovery upload checkpoints the actual uploader separately from the 
   assert.equal(result.origin.candidateSha, candidate);
   assert.equal(result.origin.preparationRunId, '99');
   assert.equal(result.state.status, 'awaiting-public');
+});
+
+test('an owned observer-deadline abort preserves confirmed absence even when timer precision fires it early', async () => {
+  let reads = 0;
+  const result = await observe((_request, response) => {
+    if (++reads === 1) response.writeHead(404).end();
+    // The next request stalls until the observer-owned timeout fires.
+  }, { timeout: 150, uploadResult: { exitCode: 0 }, advanceAbortByMs: 5 });
+  assert(reads >= 2);
+  assert.equal(result.code, 3, result.output);
+  assert.equal(result.state.status, 'awaiting-public');
+  assert.equal(result.state.uploadStatus, 'accepted');
+});
+
+test('ordinary transport failure before the global deadline does not preserve prior public absence', async () => {
+  let reads = 0;
+  const result = await observe((request, response) => {
+    if (++reads === 1) response.writeHead(404).end();
+    else request.socket.destroy();
+  }, { timeout: 150, uploadResult: { exitCode: 0 } });
+  assert(reads >= 2);
+  assert.equal(result.code, 2, result.output);
+  assert.equal(result.state.status, 'uncertain');
+  assert.equal(result.state.uploadStatus, 'accepted');
 });

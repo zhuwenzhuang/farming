@@ -81,7 +81,9 @@ async function watch(receipt, file, options) {
     let result;
     const previousAwaitingPublic = awaitingPublic;
     awaitingPublic = false;
-    const signal = AbortSignal.timeout(Math.max(1, Math.min(10_000, timeoutMs - Math.ceil(performance.now() - started))));
+    const remainingMs = timeoutMs - (performance.now() - started);
+    const observationDeadlineOwnsAbort = remainingMs <= 10_000;
+    const signal = AbortSignal.timeout(Math.max(1, Math.min(10_000, Math.ceil(remainingMs))));
     try {
       const response = await fetch(publicUrl, {
         headers, redirect: 'error', signal,
@@ -114,7 +116,10 @@ async function watch(receipt, file, options) {
       reason = 'Public registry transport or metadata read failed.';
       // Our own observation deadline does not invalidate the last confirmed
       // public absence. A transport failure before that deadline still does.
-      if (signal.aborted && performance.now() - started >= timeoutMs) awaitingPublic = previousAwaitingPublic;
+      if (signal.aborted && observationDeadlineOwnsAbort) {
+        awaitingPublic = previousAwaitingPublic;
+        reason = 'The bounded observation window ended before the public read completed.';
+      }
     }
     if (result) {
       emit(result[0], result[1]);
