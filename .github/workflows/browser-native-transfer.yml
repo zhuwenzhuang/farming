@@ -53,7 +53,7 @@ jobs:
         shell: bash
         run: |
           node scripts/probe-browser-native-transfer.mjs \
-            "${RUNNER_TEMP}/farming-browser-transfer-input/agent-browser" \
+            "${RUNNER_TEMP}/farming-browser-transfer-input/darwin-${{ matrix.arch }}/agent-browser" \
             "${RUNNER_TEMP}/farming-browser-transfer-signed" \
             origin-run.json transfer-evidence.json
       - name: Install smoke harness dependencies
