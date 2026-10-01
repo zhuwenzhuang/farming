@@ -494,6 +494,9 @@ Changed Files + Failure Signatures
   后者的 Compiler/Linker 输入不同，无法复用 Host Test 的依赖编译图。
   Native Browser 与 App Smoke 通过后，App Job 向全平台 Packager 发布已验证的 Darwin
   Browser Artifact；它是该 Architecture 的唯一 Native Producer，无需第二个 Darwin Build Lane。
+- 固定版本的 ripgrep 下载 Archive 保留在干净源码安装目录之外。Workflow Cache
+  按 Producer、Runner OS/Architecture 和经过 Review 的制品清单隔离；每个恢复的
+  Archive 都必须在解压前通过固定 SHA-256 校验，缺失的 Archive 使用有界的官方下载路径。
 - 保留精确 App Assembly Directory 直到 Smoke 完成；Archive 继续完整 Verify，但 Smoke 不再先解压
   刚生成的大型 Archive。
 - Exact-SHA CI 和全部 Package-specific Gate 变绿前，所有 Job 都保持可逆，不执行公开 Mutation。

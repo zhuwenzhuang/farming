@@ -623,6 +623,10 @@ without reducing coverage.
   After native Browser and app smoke pass, the app job publishes its verified
   Darwin Browser artifact to the all-platform packagers. It is the sole native
   producer for its architecture; a second Darwin build lane is unnecessary.
+- Retain pinned ripgrep download archives outside the clean source installation.
+  Isolate workflow caches by producer, runner OS/architecture and the reviewed
+  artifact inventory. Every restored archive must pass its pinned SHA-256 before
+  extraction; a missing archive uses the bounded official download path.
 - Retain the exact app assembly directory until smoke completes. Verify the
   archive and smoke the retained directory instead of extracting the large
   archive immediately after creating it.

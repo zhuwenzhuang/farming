@@ -217,6 +217,7 @@ jobs:
       FARMING_BASE_PATH: /farming
       FARMING_RELEASE_VERSION: ${{ inputs.release_version }}
       FARMING_RELEASE_INTEGRATION_REF: refs/remotes/origin/main
+      FARMING_RIPGREP_ARCHIVE_CACHE: ${{ runner.temp }}/farming-ripgrep-archives
       FARMING_AGENT_BROWSER_ARTIFACTS: ${{ github.workspace }}/../release-agent-browser-artifacts
     steps:
       - name: Normalize release version
@@ -256,6 +257,12 @@ jobs:
           pattern: farming-agent-browser-*
           path: ${{ github.workspace }}/../release-agent-browser-artifacts
           merge-multiple: true
+
+      - name: Cache pinned ripgrep archives
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/farming-ripgrep-archives
+          key: managed-ripgrep-v1-${{ runner.os }}-${{ runner.arch }}-build-linux-${{ hashFiles('backend/ripgrep-runtime.cts') }}
 
       - name: Install dependencies
         run: |
@@ -410,6 +417,7 @@ jobs:
       FARMING_BASE_PATH: /farming
       FARMING_RELEASE_VERSION: ${{ inputs.release_version }}
       FARMING_RELEASE_INTEGRATION_REF: refs/remotes/origin/main
+      FARMING_RIPGREP_ARCHIVE_CACHE: ${{ runner.temp }}/farming-ripgrep-archives
     steps:
       - name: Normalize release version
         id: version
@@ -449,6 +457,12 @@ jobs:
             x64:x86_64|arm64:arm64) ;;
             *) echo "Runner architecture does not match release target: target=${{ matrix.arch }}, host=$(uname -m)" >&2; exit 1 ;;
           esac
+
+      - name: Cache pinned ripgrep archives
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/farming-ripgrep-archives
+          key: managed-ripgrep-v1-${{ runner.os }}-${{ runner.arch }}-build-macos-${{ hashFiles('backend/ripgrep-runtime.cts') }}
 
       - name: Install dependencies
         run: |
@@ -623,6 +637,7 @@ jobs:
       FARMING_BASE_PATH: /farming
       FARMING_RELEASE_VERSION: ${{ inputs.release_version }}
       FARMING_RELEASE_INTEGRATION_REF: refs/remotes/origin/main
+      FARMING_RIPGREP_ARCHIVE_CACHE: ${{ runner.temp }}/farming-ripgrep-archives
       FARMING_AGENT_BROWSER_ARTIFACTS: ${{ github.workspace }}/../release-agent-browser-artifacts
     steps:
       - name: Normalize release version
@@ -665,6 +680,12 @@ jobs:
             x64:x86_64|arm64:arm64) ;;
             *) echo "Runner architecture does not match release target: target=${{ matrix.arch }}, host=$(uname -m)" >&2; exit 1 ;;
           esac
+      - name: Cache pinned ripgrep archives
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/farming-ripgrep-archives
+          key: managed-ripgrep-v1-${{ runner.os }}-${{ runner.arch }}-build-macos-cli-${{ hashFiles('backend/ripgrep-runtime.cts') }}
+
       - name: Install dependencies
         run: |
           npm install --global npm@12.0.2
@@ -708,6 +729,7 @@ jobs:
     env:
       FARMING_RELEASE_VERSION: ${{ inputs.release_version }}
       FARMING_RELEASE_INTEGRATION_REF: refs/remotes/origin/main
+      FARMING_RIPGREP_ARCHIVE_CACHE: ${{ runner.temp }}/farming-ripgrep-archives
       FARMING_AGENT_BROWSER_ARTIFACTS: ${{ github.workspace }}/../release-agent-browser-artifacts
     steps:
       - name: Checkout
@@ -731,6 +753,12 @@ jobs:
 
       - name: Install current npm CLI
         run: npm install --global npm@12.0.2
+
+      - name: Cache pinned ripgrep archives
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/farming-ripgrep-archives
+          key: managed-ripgrep-v1-${{ runner.os }}-${{ runner.arch }}-prepare-npm-${{ hashFiles('backend/ripgrep-runtime.cts') }}
 
       - name: Install dependencies
         run: FARMING_SKIP_INSTALL_RUNTIME_PREPARE=1 PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 PUPPETEER_SKIP_DOWNLOAD=1 npm ci --registry=https://registry.npmjs.org/ --no-audit --no-fund

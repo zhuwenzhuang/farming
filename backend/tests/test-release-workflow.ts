@@ -117,6 +117,19 @@ function run() {
       .map(entry => `${entry.arch}:${entry.kind}`),
     ['x64:app', 'arm64:app', 'x64:cli', 'arm64:cli'],
   );
+  for (const jobName of ['build-linux', 'build-macos', 'build-macos-cli', 'prepare-npm']) {
+    const job = preparationWorkflow.jobs[jobName];
+    const archiveCache = job.steps.find(step => step.name === 'Cache pinned ripgrep archives');
+    assert.strictEqual(job.env.FARMING_RIPGREP_ARCHIVE_CACHE, '${{ runner.temp }}/farming-ripgrep-archives');
+    assert.strictEqual(archiveCache?.uses, 'actions/cache@v4');
+    assert.strictEqual(archiveCache?.with.path, job.env.FARMING_RIPGREP_ARCHIVE_CACHE);
+    assert.strictEqual(archiveCache?.with.key,
+      `managed-ripgrep-v1-\${{ runner.os }}-\${{ runner.arch }}-${jobName}-\${{ hashFiles('backend/ripgrep-runtime.cts') }}`);
+    assert.strictEqual(archiveCache.with['restore-keys'], undefined,
+      'an upgraded inventory must not restore the old download set');
+    assert(job.steps.indexOf(archiveCache) < job.steps.findIndex(step => step.name === 'Install dependencies'),
+      'archive retention must survive the clean source install');
+  }
   const agentBrowserJob = preparationWorkflow.jobs['build-agent-browser'];
   assert(agentBrowserJob, 'release preparation must build the patched agent-browser runtimes');
   assert.strictEqual(agentBrowserJob.needs, 'preflight');
