@@ -93,6 +93,22 @@ function run() {
     ),
     'E2E runtime construction must use the exact-SHA native builder',
   );
+  const origin = e2eAgentBrowser.steps.find(step => step.id === 'browser-origin');
+  assert(origin?.run.includes('reuse-agent-browser-runtime.mjs select'));
+  assert.strictEqual(origin?.env.GH_TOKEN, '${{ github.token }}');
+  for (const name of ['Setup Rust', 'Setup Python for Zig', 'Install pinned Zig cross-build tools',
+    'Cache patched browser Cargo intermediates', 'Build and verify patched agent-browser']) {
+    assert.strictEqual(e2eAgentBrowser.steps.find(step => step.name === name)?.if, "steps.browser-origin.outputs.run_id == ''");
+  }
+  const downloadOrigin = e2eAgentBrowser.steps.find(step => step.name === 'Download unchanged Browser component');
+  assert.strictEqual(downloadOrigin?.if, "steps.browser-origin.outputs.run_id != ''");
+  assert.strictEqual(downloadOrigin?.with['run-id'], '${{ steps.browser-origin.outputs.run_id }}');
+  assert.strictEqual(downloadOrigin?.with.name, 'farming-agent-browser-linux-x64');
+  const assemble = e2eAgentBrowser.steps.find(step => step.name === 'Assemble verified Browser component for candidate');
+  assert.strictEqual(assemble?.if, "steps.browser-origin.outputs.run_id != ''");
+  assert(assemble?.run.includes('reuse-agent-browser-runtime.mjs emit linux-x64'));
+  assert(assemble?.run.includes('"$RUNNER_TEMP/browser-origin.json"'));
+  assert(assemble?.run.includes('"$RUNNER_TEMP/e2e-agent-browser"'));
   for (const jobName of ['behavior', 'browser', 'mobile']) {
     const job = workflow.jobs[jobName];
     assert.deepStrictEqual(job.needs, ['frontend', 'e2e-agent-browser']);
@@ -206,7 +222,7 @@ function run() {
     `${name} must stay bounded and must not duplicate Chromium, audit, build, or lint work`,
   );
 
-  assert.deepStrictEqual(workflow.permissions, { contents: 'read' });
+  assert.deepStrictEqual(workflow.permissions, { contents: 'read', actions: 'read' });
 
   const documentationWorkflow = YAML.parse(
     fs.readFileSync(path.join(root, '.github/workflows/docs.yml'), 'utf8'),

@@ -606,7 +606,9 @@ without reducing coverage.
   its native Browser on its own packaging runner, including complete App
   verification and smoke. Unchanged component source-regression evidence is
   bound to the authenticated origin; candidate product/package acceptance is
-  always fresh. Changed source or recipe uses the original test/build path.
+  always fresh. Browser-facing CI uses the same authenticated component
+  selection and current-SHA assembly before running its full interaction gates.
+  Changed source or recipe uses the original test/build path.
   Cache Cargo intermediates by host OS,
   architecture, target, pinned toolchain, upstream source, patch, and build
   script; source compilation always tests, builds and emits a fresh identity

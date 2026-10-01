@@ -483,7 +483,8 @@ Changed Files + Failure Signatures
   Candidate Assembly 单独记录当前 Farming SHA、Digest 与不可变的 Compilation Provenance。
   每个 macOS App 在自己的 Packaging Runner 上签名并运行 Native Browser，保留完整 App
   校验与 Smoke。未变化组件的源码回归证据绑定已认证 Origin；当前 Candidate 的产品和包
-  验收始终重新执行。源码或 Recipe 变化时走原有 Test/Build 路径。Cargo 中间产物按 Host OS、
+  验收始终重新执行。Browser CI 在完整交互测试前采用相同的已认证组件选择与当前 SHA
+  Assembly。源码或 Recipe 变化时走原有 Test/Build 路径。Cargo 中间产物按 Host OS、
   Architecture、Target、固定 Toolchain、Upstream Source、Patch 与 Build Script 隔离缓存；
   从中间产物 Cache Restore 后，源码编译路径始终重新 Test、Build，并生成当前 Identity。
   Source 或 Patch 升级后，仅在相同 Host OS、Architecture、Target 和固定 Toolchain 内
