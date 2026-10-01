@@ -537,6 +537,7 @@ for (const firstUploadInRecovery of [false, true]) test(firstUploadInRecovery
   ] }] };
   const artifact = { id: 3, name: 'farming-npm-publication-1.2.3', expired: false, size_in_bytes: 4096 };
   const candidateRun = firstUploadInRecovery ? { ...files.run, conclusion: 'failure' } : files.run;
+  const preparationRun = { ...files.run, id: 99, workflow_id: 8 };
   const candidateJobs = firstUploadInRecovery ? { ...files.jobs, jobs: [{ ...files.jobs.jobs[0],
     steps: files.jobs.jobs[0].steps.map(step => step.name === 'Verify public tag, assets, and manifest'
       ? { ...step, conclusion: 'failure' } : ['Verify and publish npm package with provenance', 'Wait for npm package to become public'].includes(step.name)
@@ -546,7 +547,7 @@ for (const firstUploadInRecovery of [false, true]) test(firstUploadInRecovery
     [`${prefix}/actions/runs/101/attempts/1`]: candidateRun,
     [`${prefix}/actions/runs/202/attempts/1`]: triggerRun,
     [`${prefix}/actions/workflows/7`]: files.workflow,
-    [`${prefix}/actions/runs/99`]: { ...files.run, id: 99, workflow_id: 8 },
+    [`${prefix}/actions/runs/99`]: preparationRun,
     [`${prefix}/actions/workflows/8`]: { id: 8, path: '.github/workflows/release.yml' },
     [`${prefix}/actions/runs/101/attempts/1/jobs?per_page=100`]: candidateJobs,
     [`${prefix}/actions/runs/202/attempts/1/jobs?per_page=100`]: recoveryJobs,
@@ -587,13 +588,13 @@ for (const firstUploadInRecovery of [false, true]) test(firstUploadInRecovery
     assert.notEqual(spawnSync(process.execPath, [continuationScript, 'validate', 'trigger', 'canonical'], { env, cwd: files.directory, encoding: 'utf8', timeout: 5_000 }).status, 0);
     if (firstUploadInRecovery) {
       fs.writeFileSync(path.join(files.directory, 'trigger/npm-smoke-receipt.json'), JSON.stringify(files.evidence.receipt));
-      responses[`${prefix}/actions/runs/99`].head_sha = triggerRun.head_sha;
+      preparationRun.head_sha = triggerRun.head_sha;
       fs.writeFileSync(responseFile, JSON.stringify(responses));
       const preparationMismatch = spawnSync(process.execPath, [continuationScript, 'validate', 'trigger', 'canonical'], { env, cwd: files.directory, encoding: 'utf8', timeout: 5_000 });
       assert.notEqual(preparationMismatch.status, 0);
       assert.match(preparationMismatch.stderr, /Preparation does not prove the exact candidate source/);
-      responses[`${prefix}/actions/runs/99`].head_sha = candidate;
-      responses[`${prefix}/actions/runs/101/attempts/1`].head_sha = triggerRun.head_sha;
+      preparationRun.head_sha = candidate;
+      candidateRun.head_sha = triggerRun.head_sha;
       fs.writeFileSync(responseFile, JSON.stringify(responses));
       const candidateMismatch = spawnSync(process.execPath, [continuationScript, 'validate', 'trigger', 'canonical'], { env, cwd: files.directory, encoding: 'utf8', timeout: 5_000 });
       assert.notEqual(candidateMismatch.status, 0);
