@@ -205,10 +205,108 @@ jobs:
           if-no-files-found: error
           compression-level: 0
 
+  build-macos-browser:
+    name: Prepare native Browser darwin-${{ matrix.arch }}
+    needs: preflight
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15-intel
+            arch: x64
+          - runner: macos-15
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Verify native runner architecture
+        shell: bash
+        run: |
+          case "${{ matrix.arch }}:$(uname -m)" in
+            x64:x86_64|arm64:arm64) ;;
+            *) echo "Runner architecture does not match Browser target" >&2; exit 1 ;;
+          esac
+      - name: Setup Rust for native macOS browser runtime
+        if: needs.preflight.outputs.browser_origin_run_id == ''
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: 1.96.1
+          target: ${{ matrix.arch == 'arm64' && 'aarch64-apple-darwin' || 'x86_64-apple-darwin' }}
+          rustflags: ''
+
+      - name: Cache patched browser Cargo intermediates
+        if: needs.preflight.outputs.browser_origin_run_id == ''
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/farming-agent-browser-cargo-target
+          key: agent-browser-cargo-v2-${{ runner.os }}-${{ runner.arch }}-rust-1.96.1-darwin-${{ matrix.arch }}-source-${{ hashFiles('backend/data/agent-browser-source.json', 'patches/agent-browser/*.patch', 'scripts/build-agent-browser-runtime.mjs') }}
+          restore-keys: |
+            agent-browser-cargo-v2-${{ runner.os }}-${{ runner.arch }}-rust-1.96.1-darwin-${{ matrix.arch }}-source-
+            agent-browser-cargo-v1-${{ runner.os }}-${{ runner.arch }}-rust-1.96.1-darwin-${{ matrix.arch }}-
+
+      - name: Build native macOS browser runtime
+        if: needs.preflight.outputs.browser_origin_run_id == ''
+        shell: bash
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/farming-agent-browser-cargo-target
+        run: |
+          native_artifacts="${RUNNER_TEMP}/native-agent-browser-artifacts"
+          node scripts/build-agent-browser-runtime.mjs \
+            --platform "darwin-${{ matrix.arch }}" \
+            --output "${native_artifacts}"
+          echo "FARMING_AGENT_BROWSER_ARTIFACTS=${native_artifacts}" >> "${GITHUB_ENV}"
+
+      - name: Download authenticated Browser origin
+        if: needs.preflight.outputs.browser_origin_run_id != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: farming-browser-origin-${{ inputs.release_version }}
+          path: ${{ runner.temp }}/browser-origin
+
+      - name: Download unchanged native Browser component
+        if: needs.preflight.outputs.browser_origin_run_id != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: farming-agent-browser-darwin-${{ matrix.arch }}
+          path: ${{ runner.temp }}/browser-origin-artifacts
+          github-token: ${{ github.token }}
+          run-id: ${{ needs.preflight.outputs.browser_origin_run_id }}
+
+      - name: Assemble and sign native Browser component for candidate
+        if: needs.preflight.outputs.browser_origin_run_id != ''
+        shell: bash
+        run: |
+          native_artifacts="${RUNNER_TEMP}/native-agent-browser-artifacts"
+          node scripts/reuse-agent-browser-runtime.mjs emit "darwin-${{ matrix.arch }}" \
+            "$RUNNER_TEMP/browser-origin-artifacts" "$RUNNER_TEMP/browser-origin/browser-origin.json" \
+            "${native_artifacts}"
+          echo "FARMING_AGENT_BROWSER_ARTIFACTS=${native_artifacts}" >> "${GITHUB_ENV}"
+
+      - name: Sign and verify native candidate Browser
+        run: >-
+          node scripts/transfer-native-browser-runtime.mjs
+          "darwin-${{ matrix.arch }}"
+          "${{ runner.temp }}/native-agent-browser-artifacts"
+          "${{ runner.temp }}/signed-agent-browser-artifacts"
+      - name: Upload verified native macOS browser runtime
+        uses: actions/upload-artifact@v4
+        with:
+          name: farming-agent-browser-darwin-${{ matrix.arch }}
+          path: ${{ runner.temp }}/signed-agent-browser-artifacts
+          if-no-files-found: error
+          compression-level: 0
+
   build-linux:
     name: Build Linux ${{ matrix.kind }} artifacts
     runs-on: ubuntu-latest
-    needs: [preflight, build-agent-browser, build-macos]
+    needs: [preflight, build-agent-browser, build-macos-browser]
     strategy:
       fail-fast: false
       matrix:
@@ -415,7 +513,7 @@ jobs:
             cliTarget: node22-macos-arm64
             cliAsset: darwin_arm64
     runs-on: ${{ matrix.runner }}
-    needs: preflight
+    needs: [preflight, build-macos-browser]
     env:
       FARMING_BASE_PATH: /farming
       FARMING_RELEASE_VERSION: ${{ inputs.release_version }}
@@ -485,60 +583,17 @@ jobs:
 
       # Reuse only authenticated unchanged components. Restore native signing
       # and exercise Browser plus complete App on this packaging runner.
-      - name: Setup Rust for native macOS browser runtime
-        if: matrix.kind == 'app' && needs.preflight.outputs.browser_origin_run_id == ''
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          toolchain: 1.96.1
-          target: ${{ matrix.arch == 'arm64' && 'aarch64-apple-darwin' || 'x86_64-apple-darwin' }}
-          rustflags: ''
-
-      - name: Cache patched browser Cargo intermediates
-        if: matrix.kind == 'app' && needs.preflight.outputs.browser_origin_run_id == ''
-        uses: actions/cache@v4
-        with:
-          path: ${{ runner.temp }}/farming-agent-browser-cargo-target
-          key: agent-browser-cargo-v2-${{ runner.os }}-${{ runner.arch }}-rust-1.96.1-darwin-${{ matrix.arch }}-source-${{ hashFiles('backend/data/agent-browser-source.json', 'patches/agent-browser/*.patch', 'scripts/build-agent-browser-runtime.mjs') }}
-          restore-keys: |
-            agent-browser-cargo-v2-${{ runner.os }}-${{ runner.arch }}-rust-1.96.1-darwin-${{ matrix.arch }}-source-
-            agent-browser-cargo-v1-${{ runner.os }}-${{ runner.arch }}-rust-1.96.1-darwin-${{ matrix.arch }}-
-
-      - name: Build native macOS browser runtime on packaging runner
-        if: matrix.kind == 'app' && needs.preflight.outputs.browser_origin_run_id == ''
-        shell: bash
-        env:
-          CARGO_TARGET_DIR: ${{ runner.temp }}/farming-agent-browser-cargo-target
-        run: |
-          native_artifacts="${RUNNER_TEMP}/native-agent-browser-artifacts"
-          node scripts/build-agent-browser-runtime.mjs \
-            --platform "darwin-${{ matrix.arch }}" \
-            --output "${native_artifacts}"
-          echo "FARMING_AGENT_BROWSER_ARTIFACTS=${native_artifacts}" >> "${GITHUB_ENV}"
-
-      - name: Download authenticated Browser origin
-        if: needs.preflight.outputs.browser_origin_run_id != ''
-        uses: actions/download-artifact@v4
-        with:
-          name: farming-browser-origin-${{ inputs.release_version }}
-          path: ${{ runner.temp }}/browser-origin
-
-      - name: Download unchanged native Browser component
-        if: needs.preflight.outputs.browser_origin_run_id != ''
+      - name: Download native candidate Browser
         uses: actions/download-artifact@v4
         with:
           name: farming-agent-browser-darwin-${{ matrix.arch }}
-          path: ${{ runner.temp }}/browser-origin-artifacts
-          github-token: ${{ github.token }}
-          run-id: ${{ needs.preflight.outputs.browser_origin_run_id }}
-
-      - name: Assemble and sign native Browser component for candidate
-        if: needs.preflight.outputs.browser_origin_run_id != ''
+          path: ${{ runner.temp }}/native-browser-input
+      - name: Restore and verify transferred native Browser
         shell: bash
         run: |
           native_artifacts="${RUNNER_TEMP}/native-agent-browser-artifacts"
-          node scripts/reuse-agent-browser-runtime.mjs emit "darwin-${{ matrix.arch }}" \
-            "$RUNNER_TEMP/browser-origin-artifacts" "$RUNNER_TEMP/browser-origin/browser-origin.json" \
-            "${native_artifacts}"
+          node scripts/transfer-native-browser-runtime.mjs "darwin-${{ matrix.arch }}" \
+            "${RUNNER_TEMP}/native-browser-input" "${native_artifacts}"
           echo "FARMING_AGENT_BROWSER_ARTIFACTS=${native_artifacts}" >> "${GITHUB_ENV}"
 
       - name: Build native macOS CLI
@@ -584,18 +639,6 @@ jobs:
         run: |
           npm run release:cli:smoke -- "${RUNNER_TEMP}/farming-release-stage-app/farming-${FARMING_RELEASE_VERSION}-darwin-${{ matrix.arch }}/farming"
 
-      # This job already owns same-runner native construction and Chrome/app
-      # smoke. Hand its verified runtime to all-platform packagers instead of
-      # compiling a second Darwin copy on another runner.
-      - name: Upload verified native macOS browser runtime
-        if: matrix.kind == 'app'
-        uses: actions/upload-artifact@v4
-        with:
-          name: farming-agent-browser-darwin-${{ matrix.arch }}
-          path: ${{ runner.temp }}/native-agent-browser-artifacts
-          if-no-files-found: error
-          compression-level: 0
-
       - name: Collect macOS release assets
         env:
           FARMING_RELEASE_VERSION: ${{ steps.version.outputs.value }}
@@ -638,7 +681,7 @@ jobs:
     needs:
       - preflight
       - build-agent-browser
-      - build-macos
+      - build-macos-browser
     env:
       FARMING_BASE_PATH: /farming
       FARMING_RELEASE_VERSION: ${{ inputs.release_version }}
@@ -732,7 +775,7 @@ jobs:
   prepare-npm:
     name: Prepare and smoke npm package
     runs-on: ubuntu-latest
-    needs: [preflight, build-agent-browser, build-macos]
+    needs: [preflight, build-agent-browser, build-macos-browser]
     permissions:
       contents: read
     env:

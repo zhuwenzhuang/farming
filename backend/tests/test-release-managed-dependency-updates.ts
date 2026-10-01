@@ -110,6 +110,9 @@ async function run() {
     assert.strictEqual(upgradePlan.edits.filter(edit => edit.name.startsWith('@anthropic-ai/claude-agent-sdk-')).length, 8);
     assert(upgradePlan.edits.filter(edit => edit.name.startsWith('@anthropic-ai/claude-agent-sdk-')).every(edit => edit.version === '0.3.220'));
     assert.strictEqual(upgradePlan.commands.filter(command => command.includes('--package-lock-only')).length, 1);
+    assert(upgradePlan.commands.indexOf('npm run release:upgrade:screen')
+      < upgradePlan.commands.indexOf('npm run release:fast-screen'),
+    'upgrade compatibility must fail before the broad release screen');
     assert(upgradePlan.reviewedVendors.some(vendor => vendor.source === 'scripts/prepare-claude-acp-vendor.ts'));
     await assert.rejects(checker.createManagedReleaseUpgradePlan(codexRuntimeUpdate, {
       fetchImpl: async () => new Response(JSON.stringify({ name: 'wrong-adapter', version: '1.0.0' })),

@@ -79,11 +79,7 @@ NODE
       observe_gh run view "${RUN_ID}" --repo "${REPOSITORY}" --log-failed \
         > "${BUNDLE_DIR}/${RUN_ID}-failure.log" 2>&1 || true
       printf 'Candidate workflow failed: %s (%s) %s\n' "${WORKFLOW}" "${CONCLUSION}" "${URL}" >&2
-      FIRST_ERROR="$(
-        rg -i -m1 -n \
-          'npm[[:space:]]+error|[[:space:]]Error:|##\[error\]|Timeout reached|deployment_queued|[[:space:]]failed([[:space:]:]|$)' \
-          "${BUNDLE_DIR}/${RUN_ID}-failure.log" || true
-      )"
+      FIRST_ERROR="$(node "${PROJECT_ROOT}/scripts/release-workflow-first-error.mjs" "${BUNDLE_DIR}/${RUN_ID}-failure.log")"
       printf 'First error: %s\n' "${FIRST_ERROR:-not found in failed-step log}" >&2
     done < <(
       FAILURE_RUNS="${FAILURE_RUNS}" node <<'NODE'

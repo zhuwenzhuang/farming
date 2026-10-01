@@ -70,6 +70,14 @@ function run() {
   assert.strictEqual(workflow.env.FARMING_SKIP_INSTALL_RUNTIME_PREPARE, '1');
   assert.strictEqual(workflow.env.PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD, '1');
   assert.strictEqual(workflow.env.PUPPETEER_SKIP_DOWNLOAD, '1');
+  const checkSteps = workflow.jobs.check.steps as WorkflowStep[];
+  const upgradeStep = checkSteps.findIndex(step => step.name === 'Screen managed Agent upgrade compatibility');
+  const ordinaryStep = checkSteps.findIndex(step => step.name === 'Run checks');
+  assert(upgradeStep >= 0 && upgradeStep < ordinaryStep,
+    'managed upgrade compatibility must be screened before the broad repository checks');
+  assert.strictEqual(checkSteps[upgradeStep].run, 'npm run release:upgrade:screen');
+  assert(packageJson.scripts['release:upgrade:screen'].includes('npm run prepare:acp-vendor'),
+    'the early screen must exercise freshly prepared reviewed adapters');
   const browserPin = require(path.join(root, 'backend/data/agent-browser-source.json'));
   const browserPatch = fs.readFileSync(path.join(root, browserPin.patch), 'utf8');
   assert.strictEqual(

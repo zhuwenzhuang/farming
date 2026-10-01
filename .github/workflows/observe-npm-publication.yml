@@ -1,0 +1,139 @@
+name: Observe npm Publication
+
+on:
+  workflow_run:
+    workflows: [Publish Release]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  identify:
+    name: Identify accepted original npm upload
+    if: github.event.workflow_run.event == 'workflow_dispatch' && (github.event.workflow_run.conclusion == 'success' || github.event.workflow_run.conclusion == 'failure')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+    outputs:
+      eligible: ${{ steps.origin.outputs.eligible }}
+      version: ${{ steps.trigger.outputs.version }}
+      candidate_sha: ${{ steps.origin.outputs.candidate_sha }}
+      original_run_id: ${{ steps.origin.outputs.original_run_id }}
+      original_artifact_id: ${{ steps.origin.outputs.original_artifact_id }}
+      trigger_run_id: ${{ steps.trigger.outputs.trigger_run_id }}
+      trigger_run_attempt: ${{ steps.trigger.outputs.trigger_run_attempt }}
+      trigger_artifact_id: ${{ steps.trigger.outputs.trigger_artifact_id }}
+    steps:
+      # workflow_run uses trusted integration code, never the triggering head.
+      - name: Checkout trusted publication verifier
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Authenticate triggering publication
+        id: trigger
+        run: node scripts/continue-npm-publication.mjs locate
+      - name: Download triggering publication evidence
+        if: steps.trigger.outputs.eligible == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ steps.trigger.outputs.trigger_artifact_id }}
+          merge-multiple: true
+          path: trigger-npm-evidence
+          run-id: ${{ steps.trigger.outputs.trigger_run_id }}
+          github-token: ${{ github.token }}
+      - name: Authenticate original upload identity
+        if: steps.trigger.outputs.eligible == 'true'
+        id: origin
+        env:
+          RELEASE_VERSION: ${{ steps.trigger.outputs.version }}
+        run: node scripts/continue-npm-publication.mjs identify trigger-npm-evidence
+
+  observe:
+    name: Continue read-only npm public verification
+    needs: identify
+    if: needs.identify.outputs.eligible == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    # Share the publication owner; a manual recovery cannot race status updates.
+    concurrency:
+      group: farming-publication-${{ needs.identify.outputs.version }}
+      cancel-in-progress: false
+    permissions:
+      actions: read
+      contents: read
+      statuses: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_VERSION: ${{ needs.identify.outputs.version }}
+      CANDIDATE_SHA: ${{ needs.identify.outputs.candidate_sha }}
+      TRIGGER_RUN_ID: ${{ needs.identify.outputs.trigger_run_id }}
+      TRIGGER_RUN_ATTEMPT: ${{ needs.identify.outputs.trigger_run_attempt }}
+    steps:
+      - name: Checkout trusted publication verifier
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Download triggering publication evidence
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.identify.outputs.trigger_artifact_id }}
+          merge-multiple: true
+          path: trigger-npm-evidence
+          run-id: ${{ needs.identify.outputs.trigger_run_id }}
+          github-token: ${{ github.token }}
+      - name: Download authenticated original upload evidence
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.identify.outputs.original_artifact_id }}
+          merge-multiple: true
+          path: original-npm-evidence
+          run-id: ${{ needs.identify.outputs.original_run_id }}
+          github-token: ${{ github.token }}
+      - name: Verify unchanged original source and smoke receipt
+        run: node scripts/continue-npm-publication.mjs validate trigger-npm-evidence original-npm-evidence
+      - name: Observe accepted upload without replay
+        id: observation
+        shell: bash
+        run: |
+          set -euo pipefail
+          observation_exit=0
+          node scripts/npm-release-evidence.mjs watch npm-evidence/npm-smoke-receipt.json "${CANDIDATE_SHA}" \
+            npm-evidence/publication-state.json --upload-result npm-evidence/upload-result.json \
+            --timeout-ms 1200000 || observation_exit=$?
+          node scripts/continue-npm-publication.mjs finish npm-evidence
+          node scripts/npm-release-evidence.mjs report npm-evidence/npm-smoke-receipt.json "${CANDIDATE_SHA}" npm-evidence/publication-state.json
+          # An ended observer and pending external publication are distinct.
+          # Public 404 after an accepted upload remains pending, not an error.
+          if [[ "${observation_exit}" != '0' && "${observation_exit}" != '3' ]]; then
+            exit "${observation_exit}"
+          fi
+      - name: Record npm publication status
+        if: always() && steps.observation.outputs.commit_state != ''
+        env:
+          PUBLICATION_STATE: ${{ steps.observation.outputs.commit_state }}
+          PUBLICATION_DESCRIPTION: ${{ steps.observation.outputs.description }}
+        run: |
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/statuses/${CANDIDATE_SHA}" \
+            -f state="${PUBLICATION_STATE}" -f context="farming/npm-publication/${RELEASE_VERSION}" \
+            -f description="${PUBLICATION_DESCRIPTION}" \
+            -f target_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" >/dev/null
+      - name: Upload continued npm publication evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: farming-npm-observation-${{ needs.identify.outputs.version }}
+          path: npm-evidence/*.json
+          if-no-files-found: ignore

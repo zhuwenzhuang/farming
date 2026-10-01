@@ -240,7 +240,7 @@ function run() {
   assert.strictEqual(candidateWorkflowGate.env.GH_TOKEN, '${{ github.token }}');
   for (const jobName of ['build-linux', 'build-macos-cli', 'prepare-npm']) {
     const job = preparationWorkflow.jobs[jobName];
-    assert.deepStrictEqual(job.needs, ['preflight', 'build-agent-browser', 'build-macos']);
+    assert.deepStrictEqual(job.needs, ['preflight', 'build-agent-browser', 'build-macos-browser']);
     assert.strictEqual(job.env.FARMING_AGENT_BROWSER_ARTIFACTS, '${{ github.workspace }}/../release-agent-browser-artifacts');
     const installScripts = job.steps.map(step => step.run ?? '').join('\n');
     assert(
@@ -255,11 +255,16 @@ function run() {
     assert.strictEqual(download.with['merge-multiple'], true);
   }
   const macJob = preparationWorkflow.jobs['build-macos'];
-  assert.strictEqual(macJob.needs, 'preflight', 'same-runner macOS construction must overlap the independent runtime matrix');
-  assert(!macJob.steps.some(step => step.name === 'Download patched agent-browser runtimes'));
-  assert(macJob.steps.some(step => step.name === 'Build native macOS browser runtime on packaging runner'
-    && step.if === "matrix.kind == 'app' && needs.preflight.outputs.browser_origin_run_id == ''" && step.run.includes('FARMING_AGENT_BROWSER_ARTIFACTS=')));
-  for (const job of [agentBrowserJob, macJob]) {
+  const nativeProducer = preparationWorkflow.jobs['build-macos-browser'];
+  assert.strictEqual(nativeProducer.needs, 'preflight');
+  assert.deepStrictEqual(macJob.needs, ['preflight', 'build-macos-browser']);
+  assert(!macJob.steps.some(step => step.run?.includes('build-agent-browser-runtime.mjs')),
+    'App assembly must not compile a second native Browser');
+  const transfer = macJob.steps.find(step => step.name === 'Restore and verify transferred native Browser');
+  assert(transfer?.run.includes('scripts/transfer-native-browser-runtime.mjs'));
+  assert(macJob.steps.some(step => step.name === 'Download native candidate Browser'
+    && step.with.name === 'farming-agent-browser-darwin-${{ matrix.arch }}'));
+  for (const job of [agentBrowserJob, nativeProducer]) {
     const assembly = job.steps.find(step => step.name.includes('component for candidate'));
     assert(assembly, 'an unchanged component must be assembled for the current candidate');
     assert.strictEqual(assembly.if, "needs.preflight.outputs.browser_origin_run_id != ''");
@@ -267,19 +272,19 @@ function run() {
     const originDownload = job.steps.find(step => step.name.includes('Download unchanged'));
     assert.strictEqual(originDownload?.with['run-id'], '${{ needs.preflight.outputs.browser_origin_run_id }}');
   }
-  const macNativeUpload = macJob.steps.find(step => step.name === 'Upload verified native macOS browser runtime');
-  assert.strictEqual(macNativeUpload?.if, "matrix.kind == 'app'");
+  const macNativeUpload = nativeProducer.steps.find(step => step.name === 'Upload verified native macOS browser runtime');
   assert.strictEqual(macNativeUpload?.with.name, 'farming-agent-browser-darwin-${{ matrix.arch }}');
-  assert.strictEqual(macNativeUpload?.with.path, '${{ runner.temp }}/native-agent-browser-artifacts');
+  assert.strictEqual(macNativeUpload?.with.path, '${{ runner.temp }}/signed-agent-browser-artifacts');
   assert.strictEqual(macNativeUpload?.with['if-no-files-found'], 'error');
+  assert(nativeProducer.steps.findIndex(step => step.name === 'Sign and verify native candidate Browser')
+    < nativeProducer.steps.indexOf(macNativeUpload));
   for (const name of ['Smoke-test patched browser runtime on macOS', 'Verify macOS app bundle', 'Smoke-test macOS app bundle']) {
-    const index = macJob.steps.findIndex(step => step.name === name);
-    assert(index >= 0 && index < macJob.steps.indexOf(macNativeUpload),
-      'native artifacts must not be published before Browser and app acceptance');
+    assert(macJob.steps.some(step => step.name === name && step.if === "matrix.kind == 'app'"),
+      'complete native acceptance remains required before preparation can succeed');
   }
   const runtimePlatforms = [
     ...agentBrowserJob.strategy.matrix.include.map(entry => entry.platform),
-    ...macJob.strategy.matrix.include.map(entry => `darwin-${entry.arch}`),
+    ...nativeProducer.strategy.matrix.include.map(entry => `darwin-${entry.arch}`),
   ];
   assert.deepStrictEqual([...runtimePlatforms].sort(),
     ['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-arm64-musl', 'linux-x64', 'linux-x64-musl', 'win32-x64']);
@@ -329,27 +334,27 @@ function run() {
       && macosChrome.run.includes('--version'),
     'macOS app smoke must exercise the system Chrome used by the released product',
   );
-  const macosRuntimeRust = macosJob.steps
+  const macosRuntimeRust = nativeProducer.steps
     .find(step => step.name === 'Setup Rust for native macOS browser runtime');
-  assert.strictEqual(macosRuntimeRust?.if, "matrix.kind == 'app' && needs.preflight.outputs.browser_origin_run_id == ''");
+  assert.strictEqual(macosRuntimeRust?.if, "needs.preflight.outputs.browser_origin_run_id == ''");
   assert.strictEqual(macosRuntimeRust?.with.toolchain, '1.96.1');
   assert.strictEqual(
     macosRuntimeRust?.with.target,
     "${{ matrix.arch == 'arm64' && 'aarch64-apple-darwin' || 'x86_64-apple-darwin' }}",
   );
-  const macosRuntimeBuild = macosJob.steps
-    .find(step => step.name === 'Build native macOS browser runtime on packaging runner');
-  const macosCargoCache = macosJob.steps.find(step => step.name === 'Cache patched browser Cargo intermediates');
+  const macosRuntimeBuild = nativeProducer.steps
+    .find(step => step.name === 'Build native macOS browser runtime');
+  const macosCargoCache = nativeProducer.steps.find(step => step.name === 'Cache patched browser Cargo intermediates');
   assert.deepStrictEqual(macosCargoCache?.with['restore-keys'].trim().split('\n'), [
     'agent-browser-cargo-v2-${{ runner.os }}-${{ runner.arch }}-rust-1.96.1-darwin-${{ matrix.arch }}-source-',
     'agent-browser-cargo-v1-${{ runner.os }}-${{ runner.arch }}-rust-1.96.1-darwin-${{ matrix.arch }}-',
   ]);
-  assert.strictEqual(macosRuntimeBuild?.if, "matrix.kind == 'app' && needs.preflight.outputs.browser_origin_run_id == ''");
+  assert.strictEqual(macosRuntimeBuild?.if, "needs.preflight.outputs.browser_origin_run_id == ''");
   assert(
     macosRuntimeBuild?.run.includes('--platform "darwin-${{ matrix.arch }}"')
       && macosRuntimeBuild.run.includes('FARMING_AGENT_BROWSER_ARTIFACTS=${native_artifacts}')
       && macosRuntimeBuild.run.includes('${GITHUB_ENV}'),
-    'macOS app packaging must build and select the patched native runtime on its final runner',
+    'native Browser construction must select one production runtime before parallel packaging',
   );
   assert(
     macosJob.steps

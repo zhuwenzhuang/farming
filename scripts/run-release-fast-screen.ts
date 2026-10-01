@@ -5,6 +5,7 @@ import path from 'node:path';
 interface FastScreenTask {
   name: string;
   args: string[];
+  managedUpgrade?: boolean;
 }
 
 const projectRoot = path.resolve(__dirname, '..');
@@ -12,19 +13,31 @@ const packageVersion = require(path.join(projectRoot, 'package.json')).version;
 const tasks: FastScreenTask[] = [
   {
     name: 'ACP adapter launch, required input and runtime lifecycle ownership',
+    managedUpgrade: true,
     args: ['--import', 'tsx', 'backend/tests/test-acp-runtime.ts'],
   },
   {
     name: 'cold Codex ACP patch-package installation',
+    managedUpgrade: true,
     args: ['--import', 'tsx', '--test', 'tests/codex-acp-cold-install.test.ts'],
   },
   {
     name: 'Codex ACP upstream upgrade user input and session writer compatibility',
+    managedUpgrade: true,
     args: ['--import', 'tsx', 'backend/tests/test-codex-acp-upgrade.ts'],
   },
   {
     name: 'Browser component provenance and candidate assembly fences',
     args: ['--import', 'tsx', '--test', 'tests/agent-browser-reuse.test.ts'],
+  },
+  {
+    name: 'native Browser transfer identity and immutable compilation provenance',
+    args: ['--import', 'tsx', 'backend/tests/test-release-component-transfer.ts'],
+  },
+  {
+    name: 'provider-neutral ACP protocol compatibility',
+    managedUpgrade: true,
+    args: ['--import', 'tsx', 'backend/tests/test-acp-protocol-compatibility.ts'],
   },
   {
     name: 'source-inspection contract registration',
@@ -116,6 +129,7 @@ const tasks: FastScreenTask[] = [
   },
   {
     name: 'Pi ACP fragmented UTF-8 record ownership',
+    managedUpgrade: true,
     args: ['--import', 'tsx', 'backend/tests/test-pi-acp-vendor.ts'],
   },
   {
@@ -124,6 +138,7 @@ const tasks: FastScreenTask[] = [
   },
   {
     name: 'managed dependency policy tests',
+    managedUpgrade: true,
     args: ['--import', 'tsx', 'backend/tests/test-release-managed-dependency-updates.ts'],
   },
   {
@@ -196,16 +211,22 @@ async function runTask(task: FastScreenTask): Promise<{ name: string; code: numb
 }
 
 async function main(): Promise<void> {
+  const args = process.argv.slice(2);
+  if (args.length > 1 || (args.length === 1 && args[0] !== '--managed-upgrade')) {
+    throw new Error('Usage: run-release-fast-screen.ts [--managed-upgrade]');
+  }
+  const selected = args.length === 0 ? tasks : tasks.filter(task => task.managedUpgrade);
+  const label = args.length === 0 ? 'Release fast screen' : 'Managed upgrade screen';
   const startedAt = Date.now();
-  const results = await Promise.all(tasks.map(runTask));
+  const results = await Promise.all(selected.map(runTask));
   const failures = results.filter(result => result.code !== 0);
   const elapsedSeconds = ((Date.now() - startedAt) / 1000).toFixed(2);
   if (failures.length > 0) {
     throw new Error(
-      `Release fast screen failed after ${elapsedSeconds}s: ${failures.map(result => result.name).join(', ')}`,
+      `${label} failed after ${elapsedSeconds}s: ${failures.map(result => result.name).join(', ')}`,
     );
   }
-  console.log(`Release fast screen passed ${tasks.length} gates in ${elapsedSeconds}s.`);
+  console.log(`${label} passed ${selected.length} gates in ${elapsedSeconds}s.`);
 }
 
 main().catch(error => {

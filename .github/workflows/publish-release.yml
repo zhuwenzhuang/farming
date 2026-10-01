@@ -165,7 +165,8 @@ jobs:
             );
           }
           require('node:fs').appendFileSync(process.env.GITHUB_ENV,
-            `NPM_UPLOAD_MAY_HAVE_STARTED=${recoverableNpmPublicationFailure ? '1' : '0'}\n`);
+            `NPM_UPLOAD_MAY_HAVE_STARTED=${recoverableNpmPublicationFailure ? '1' : '0'}\n`
+            + `NPM_CANDIDATE_PUBLICATION_RUN_ID=${run.id}\nNPM_CANDIDATE_PUBLICATION_RUN_ATTEMPT=${run.run_attempt}\n`);
           NODE
           fi
 
@@ -528,6 +529,7 @@ jobs:
       - name: Verify and publish npm package with provenance
         env:
           CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          PREPARATION_RUN_ID: ${{ inputs.preparation_run_id }}
           FARMING_RELEASE_VERSION: ${{ steps.version.outputs.value }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
         shell: bash
@@ -556,6 +558,9 @@ jobs:
           if [[ -f prior-npm-evidence/upload-result.json ]]; then
             cp prior-npm-evidence/upload-result.json npm-evidence/
           fi
+          if [[ -f prior-npm-evidence/upload-origin.json ]]; then
+            cp prior-npm-evidence/upload-origin.json npm-evidence/
+          fi
           # Recovery is read-only even while the registry returns 404: an
           # ambiguous prior upload must never authorize a second upload.
           if [[ "${NPM_UPLOAD_MAY_HAVE_STARTED:-0}" == '1' ]] || npm view "farming-code@${version}" version >/dev/null 2>&1; then
@@ -565,6 +570,19 @@ jobs:
           if [[ "${version}" == *-* ]]; then
             dist_tag="next"
           fi
+          # Bind later read-only observers to the authenticated first upload,
+          # even when a recovery verifier runs from a newer integration SHA.
+          CANDIDATE_SHA="${candidate_sha}" node <<'NODE'
+          const fs = require('node:fs');
+          fs.writeFileSync('npm-evidence/upload-origin.json', JSON.stringify({
+            schemaVersion: 1, repository: process.env.GITHUB_REPOSITORY,
+            runId: process.env.GITHUB_RUN_ID, runAttempt: process.env.GITHUB_RUN_ATTEMPT || '1',
+            candidatePublicationRunId: process.env.NPM_CANDIDATE_PUBLICATION_RUN_ID || process.env.GITHUB_RUN_ID,
+            candidatePublicationRunAttempt: process.env.NPM_CANDIDATE_PUBLICATION_RUN_ATTEMPT || process.env.GITHUB_RUN_ATTEMPT || '1',
+            candidateSha: process.env.CANDIDATE_SHA, version: process.env.FARMING_RELEASE_VERSION,
+            preparationRunId: process.env.PREPARATION_RUN_ID,
+          }, null, 2) + '\n');
+          NODE
           # A nonzero upload result may still have mutated registry state.
           # Reconcile the same receipt after either outcome, without replay.
           printf '{"status":"upload-intent","observedAt":"%s"}\n' "$(date -u +%FT%TZ)" > npm-evidence/upload-intent.json

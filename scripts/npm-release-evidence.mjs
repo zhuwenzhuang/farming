@@ -3,11 +3,12 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
+import { fileURLToPath } from 'node:url';
 
 const semver = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 const sha = /^[a-f0-9]{40}$/;
 
-function validateReceipt(receipt, expectedSha) {
+export function validateReceipt(receipt, expectedSha) {
   if (receipt.schemaVersion !== 1 || receipt.packageName !== 'farming-code'
     || !semver.test(receipt.version) || !sha.test(expectedSha) || receipt.gitHead !== expectedSha
     || receipt.filename !== `farming-code-${receipt.version}.tgz`
@@ -60,7 +61,7 @@ async function watch(receipt, file, options) {
   if (!registry.pathname.endsWith('/')) registry.pathname += '/';
   const timeoutMs = Number(options['timeout-ms'] || 600_000);
   const pollMs = Number(options['poll-ms'] || 20_000);
-  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 600_000
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 1_200_000
     || !Number.isSafeInteger(pollMs) || pollMs < 1 || pollMs > 60_000) throw new Error('Invalid bounded reconciliation timing.');
   const started = performance.now();
   const headers = { accept: 'application/json', 'cache-control': 'no-cache' };
@@ -172,7 +173,9 @@ async function main() {
     if (process.env.GITHUB_OUTPUT) fs.appendFileSync(process.env.GITHUB_OUTPUT, output);
     if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,
       `### npm publication: ${description}\n\nPackage: \`${receipt.packageName}@${receipt.version}\`\n\nCandidate: \`${receipt.gitHead}\`\n\nState: \`${state.status}\`\n\n${state.status === 'awaiting-public'
-        ? 'Upload has completed. Release verification remains pending. Resume the original upload run in read-only recovery mode; do not publish again.'
+        ? `Upload has completed. Release verification remains pending. ${state.observationStatus === 'ended'
+          ? 'The bounded automatic continuation has ended; public availability is still pending. Resume the original upload run in read-only recovery mode if further observation is needed; do not publish again.'
+          : 'A bounded automatic read-only continuation follows when the original-upload identity is available; do not publish again.'}`
         : state.status === 'verified' ? 'The public package matches the smoke-accepted source and tarball.'
           : 'Retain the evidence and reconcile before considering any publication mutation.'}\n`);
     console.log(output.trim());
@@ -189,7 +192,7 @@ async function main() {
   process.exitCode = await watch(receipt, third, options);
 }
 
-main().catch(error => {
+if (process.argv[1] && fs.realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) main().catch(error => {
   const reason = error?.code || (error instanceof SyntaxError ? 'Invalid JSON receipt.' : error?.message);
   console.error(`npm evidence operation failed: ${reason || 'Invalid input or observation storage.'}`);
   process.exitCode = 2;

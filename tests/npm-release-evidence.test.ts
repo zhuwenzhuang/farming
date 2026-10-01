@@ -37,7 +37,7 @@ async function observe(
     timeout?: number;
     state?: (directory: string) => string;
     uploadResult?: { exitCode: number; gitHead?: string };
-    workflow?: { recovery: boolean; exists: boolean; uploadExit: number; corrupt?: boolean; priorUploadExit?: number };
+    workflow?: { recovery: boolean; exists: boolean; uploadExit: number; corrupt?: boolean; priorUploadExit?: number; automatic?: boolean; candidatePublicationRunId?: string };
   } = {},
 ) {
   const files = fixture();
@@ -69,12 +69,38 @@ async function observe(
         fs.writeFileSync(path.join(files.directory, 'prior-npm-evidence/upload-result.json'), JSON.stringify({
           uploadExitCode: options.workflow.priorUploadExit, observedAt: new Date().toISOString(),
         }));
+        if (options.workflow.automatic) fs.writeFileSync(path.join(files.directory, 'prior-npm-evidence/upload-origin.json'), JSON.stringify({
+          schemaVersion: 1, repository: 'example/farming', runId: '101', runAttempt: '1',
+          candidatePublicationRunId: '101', candidatePublicationRunAttempt: '1',
+          candidateSha: candidate, version: '1.2.3', preparationRunId: '99',
+        }));
       }
-      fs.writeFileSync(path.join(bin, 'node'), '#!/bin/bash\nif [[ "$2" == watch ]]; then exec "$TEST_NODE" "$@" --registry "$TEST_REGISTRY" --timeout-ms "$TEST_TIMEOUT" --poll-ms 10; fi\nexec "$TEST_NODE" "$@"\n', { mode: 0o755 });
+      fs.writeFileSync(path.join(bin, 'node'), `#!/bin/bash
+if [[ "$2" == watch ]]; then
+  args=("$@")
+  timeout_present=0
+  for index in "\${!args[@]}"; do
+    if [[ "\${args[index]}" == '--timeout-ms' ]]; then
+      args[index+1]="$TEST_TIMEOUT"
+      timeout_present=1
+    fi
+  done
+  if [[ "$timeout_present" == 0 ]]; then args+=(--timeout-ms "$TEST_TIMEOUT"); fi
+  exec "$TEST_NODE" "\${args[@]}" --registry "$TEST_REGISTRY" --poll-ms 10
+fi
+exec "$TEST_NODE" "$@"
+`, { mode: 0o755 });
       Object.assign(env, { PATH: `${bin}${path.delimiter}${env.PATH}`, NPM_TOKEN: '', CANDIDATE_SHA: candidate, FARMING_RELEASE_VERSION: '1.2.3',
         NPM_UPLOAD_MAY_HAVE_STARTED: options.workflow.recovery ? '1' : '0', TEST_EXISTS_EXIT: options.workflow.exists ? '0' : '1',
         TEST_UPLOAD_EXIT: String(options.workflow.uploadExit), TEST_UPLOADS: path.join(files.directory, 'uploads'),
-        TEST_PUBLISH_SCRIPT: publicationScript, TEST_OBSERVE_SCRIPT: observationScript, TEST_STATUS_SCRIPT: statusScript,
+        TEST_PUBLISH_SCRIPT: publicationScript,
+        TEST_OBSERVE_SCRIPT: options.workflow.automatic
+          ? continuationWorkflow.jobs.observe.steps.find((step: { name: string }) => step.name === 'Observe accepted upload without replay').run : observationScript,
+        TEST_STATUS_SCRIPT: options.workflow.automatic
+          ? continuationWorkflow.jobs.observe.steps.find((step: { name: string }) => step.name === 'Record npm publication status').run : statusScript,
+        RELEASE_VERSION: '1.2.3', PREPARATION_RUN_ID: '99', GITHUB_RUN_ATTEMPT: '1',
+        NPM_CANDIDATE_PUBLICATION_RUN_ID: options.workflow.candidatePublicationRunId || '',
+        NPM_CANDIDATE_PUBLICATION_RUN_ATTEMPT: options.workflow.candidatePublicationRunId ? '1' : '',
         GITHUB_OUTPUT: path.join(files.directory, 'outputs'), GITHUB_STEP_SUMMARY: path.join(files.directory, 'summary'),
         GITHUB_REPOSITORY: 'example/farming', GITHUB_SERVER_URL: 'https://github.com', GITHUB_RUN_ID: '123',
         TEST_STATUSES: path.join(files.directory, 'statuses'), TEST_REGISTRY: registry, TEST_NODE: process.execPath, TEST_TIMEOUT: String(options.timeout || 2_000) });
@@ -109,7 +135,9 @@ async function observe(
     const uploadsFile = path.join(files.directory, 'uploads');
     const uploads = fs.existsSync(uploadsFile) ? fs.readFileSync(uploadsFile, 'utf8').trim().split('\n').length : 0;
     const read = (name: string) => fs.existsSync(path.join(files.directory, name)) ? fs.readFileSync(path.join(files.directory, name), 'utf8') : '';
-    return { ...result, state, uploads, summary: read('summary'), statuses: read('statuses') };
+    const originFile = path.join(files.directory, 'npm-evidence/upload-origin.json');
+    const origin = fs.existsSync(originFile) ? JSON.parse(fs.readFileSync(originFile, 'utf8')) : null;
+    return { ...result, state, uploads, origin, summary: read('summary'), statuses: read('statuses') };
   } finally {
     server.closeAllConnections();
     await new Promise<void>(resolve => server.close(() => resolve()));
@@ -366,7 +394,7 @@ test('recovery authenticates completed original runs and separates pre-upload fr
       const result = spawnSync(process.execPath, ['-e', recovery], {
         encoding: 'utf8', timeout: 5_000,
         env: { ...process.env, CANDIDATE_SHA: candidate, GITHUB_ENV: environmentFile,
-          RUN_JSON: JSON.stringify({ event: 'workflow_dispatch', status: 'completed', conclusion: scenario.conclusion,
+          RUN_JSON: JSON.stringify({ id: 101, run_attempt: 1, event: 'workflow_dispatch', status: 'completed', conclusion: scenario.conclusion,
             head_sha: scenario.headSha || candidate }),
           JOBS_JSON: JSON.stringify({ jobs: [{ name: 'Publish verified release', steps }] }),
           WORKFLOW_JSON: JSON.stringify({ path: '.github/workflows/publish-release.yml' }) },
@@ -376,8 +404,254 @@ test('recovery authenticates completed original runs and separates pre-upload fr
         assert(!fs.existsSync(environmentFile));
       } else {
         assert.equal(result.status, 0, result.stderr);
-        assert.equal(fs.readFileSync(environmentFile, 'utf8'), `NPM_UPLOAD_MAY_HAVE_STARTED=${scenario.expected}\n`);
+        assert.equal(fs.readFileSync(environmentFile, 'utf8'), `NPM_UPLOAD_MAY_HAVE_STARTED=${scenario.expected}\nNPM_CANDIDATE_PUBLICATION_RUN_ID=101\nNPM_CANDIDATE_PUBLICATION_RUN_ATTEMPT=1\n`);
       }
     }
   } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+});
+
+const continuationScript = path.resolve(__dirname, '../scripts/continue-npm-publication.mjs');
+const continuationWorkflow = YAML.parse(fs.readFileSync(path.resolve(__dirname, '../.github/workflows/observe-npm-publication.yml'), 'utf8'));
+
+function continuationFixture() {
+  const files = fixture();
+  const repository = 'example/farming';
+  const origin = { schemaVersion: 1, repository, runId: '101', runAttempt: '1', candidateSha: candidate,
+    candidatePublicationRunId: '101', candidatePublicationRunAttempt: '1',
+    version: '1.2.3', preparationRunId: '99' };
+  const upload = { packageName: 'farming-code', version: '1.2.3', gitHead: candidate,
+    uploadExitCode: 0, observedAt: '2026-10-01T04:29:39.000Z' };
+  const state = { packageName: 'farming-code', version: '1.2.3', gitHead: candidate,
+    uploadStatus: 'accepted', status: 'awaiting-public' };
+  const evidence = { origin, upload, state, receipt: files.evidence };
+  const steps = ['Verify exact preparation run', 'Require successful candidate push workflows',
+    'Require successful automated and Computer Use acceptance', 'Publish the matching draft release',
+    'Verify public tag, assets, and manifest', 'Verify and publish npm package with provenance',
+    'Wait for npm package to become public'].map(name => ({ name, conclusion: 'success' }));
+  const jobs = { total_count: 1, jobs: [{ name: 'Publish verified release', steps }] };
+  const run = { id: 101, run_attempt: 1, repository: { full_name: repository }, head_repository: { full_name: repository },
+    workflow_id: 7, event: 'workflow_dispatch', status: 'completed', conclusion: 'success', head_sha: candidate };
+  const workflow = { id: 7, path: '.github/workflows/publish-release.yml' };
+  return { ...files, repository, evidence, jobs, run, workflow };
+}
+
+function callContinuationValidation(operation: string, payload: unknown) {
+  return spawnSync(process.execPath, ['--input-type=module', '-e', `
+    const module = await import(process.env.TEST_CONTINUATION_SCRIPT);
+    const payload = JSON.parse(process.env.TEST_CONTINUATION_PAYLOAD);
+    try { console.log(JSON.stringify(module[process.env.TEST_CONTINUATION_OPERATION](...payload))); }
+    catch (error) { console.error(error.message); process.exitCode = 1; }
+  `], { encoding: 'utf8', timeout: 5_000, env: { ...process.env, TEST_CONTINUATION_SCRIPT: continuationScript,
+    TEST_CONTINUATION_OPERATION: operation, TEST_CONTINUATION_PAYLOAD: JSON.stringify(payload) } });
+}
+
+test('automatic observation uses a trusted completion lifecycle with no npm upload authority or recursive trigger', () => {
+  assert.deepEqual(continuationWorkflow.on.workflow_run, { workflows: ['Publish Release'], types: ['completed'] });
+  assert.equal(continuationWorkflow.on.schedule, undefined);
+  assert.equal(continuationWorkflow.permissions.contents, 'read');
+  const observer = continuationWorkflow.jobs.observe;
+  assert.deepEqual(observer.permissions, { actions: 'read', contents: 'read', statuses: 'write' });
+  assert.equal(observer.timeoutMinutes ?? observer['timeout-minutes'], 25);
+  assert.equal(observer.concurrency.group, 'farming-publication-${{ needs.identify.outputs.version }}');
+  for (const job of Object.values(continuationWorkflow.jobs) as Array<{ steps: Array<{ name: string; run?: string; with?: Record<string, unknown> }> }>) {
+    const checkout = job.steps.find(step => step.name === 'Checkout trusted publication verifier');
+    assert.equal(checkout?.with?.ref, '${{ github.sha }}');
+    assert.equal(checkout?.with?.['persist-credentials'], false);
+    const scripts = job.steps.map(step => step.run || '').join('\n');
+    assert(!scripts.includes('npm publish'));
+    assert(!scripts.includes('NPM_TOKEN'));
+    assert(!scripts.includes('gh release'));
+  }
+});
+
+test('original upload authentication rejects forged event, repository, workflow, incomplete jobs and candidate identities', () => {
+  const files = continuationFixture();
+  try {
+    const valid = callContinuationValidation('authenticateRun', [files.run, files.workflow, files.jobs, files.repository, '101', '1']);
+    assert.equal(valid.status, 0, valid.stderr);
+    assert.equal(valid.stdout.trim(), 'true');
+    for (const mutated of [
+      { ...files.run, event: 'pull_request' }, { ...files.run, status: 'in_progress' },
+      { ...files.run, conclusion: 'cancelled' }, { ...files.run, run_attempt: 2 },
+      { ...files.run, head_repository: { full_name: 'attacker/farming' } },
+      { ...files.run, repository: { full_name: 'attacker/farming' } }, { ...files.run, head_sha: 'invalid' },
+    ]) {
+      const result = callContinuationValidation('authenticateRun', [mutated, files.workflow, files.jobs, files.repository, '101', '1']);
+      assert.notEqual(result.status, 0, JSON.stringify(mutated));
+    }
+    assert.notEqual(callContinuationValidation('authenticateRun', [files.run, { ...files.workflow, path: '.github/workflows/fake.yml' }, files.jobs, files.repository, '101', '1']).status, 0);
+    assert.notEqual(callContinuationValidation('authenticateRun', [files.run, files.workflow, { ...files.jobs, total_count: 2 }, files.repository, '101', '1']).status, 0);
+    const preUpload = { ...files.jobs, jobs: [{ ...files.jobs.jobs[0], steps: files.jobs.jobs[0].steps.filter(step => step.name !== 'Verify public tag, assets, and manifest') }] };
+    const earlyFailure = callContinuationValidation('authenticateRun', [files.run, files.workflow, preUpload, files.repository, '101', '1']);
+    assert.equal(earlyFailure.status, 0);
+    assert.equal(earlyFailure.stdout.trim(), 'false');
+  } finally { fs.rmSync(files.directory, { recursive: true, force: true }); }
+});
+
+test('canonical original evidence rejects changed source, digest, upload timestamp and uncertain upload', () => {
+  const files = continuationFixture();
+  try {
+    const valid = callContinuationValidation('validateEvidence', [files.evidence, files.evidence, files.run, files.repository, '1.2.3']);
+    assert.equal(valid.status, 0, valid.stderr);
+    const modifications = [
+      { ...files.evidence, origin: { ...files.evidence.origin, runId: '102' } },
+      { ...files.evidence, origin: { ...files.evidence.origin, candidateSha: 'b'.repeat(40) } },
+      { ...files.evidence, receipt: { ...files.evidence.receipt, integrity: `sha512-${'A'.repeat(86)}==` } },
+      { ...files.evidence, upload: { ...files.evidence.upload, observedAt: '2026-10-01T05:00:00.000Z' } },
+      { ...files.evidence, upload: { ...files.evidence.upload, uploadExitCode: 1 } },
+      { ...files.evidence, state: { ...files.evidence.state, status: 'verified' } },
+    ];
+    for (const trigger of modifications) {
+      assert.notEqual(callContinuationValidation('validateEvidence', [trigger, files.evidence, files.run, files.repository, '1.2.3']).status, 0);
+    }
+    assert.notEqual(callContinuationValidation('validateEvidence', [files.evidence, files.evidence, { ...files.run, head_sha: 'b'.repeat(40) }, files.repository, '1.2.3']).status, 0);
+  } finally { fs.rmSync(files.directory, { recursive: true, force: true }); }
+});
+
+test('canonical artifact selection rejects duplicate, expired and oversized evidence instead of guessing', () => {
+  const artifact = { id: 3, name: 'farming-npm-publication-1.2.3', expired: false, size_in_bytes: 4096 };
+  assert.equal(callContinuationValidation('selectEvidenceArtifact', [{ total_count: 1, artifacts: [artifact] }, '1.2.3']).status, 0);
+  for (const artifacts of [[artifact, { ...artifact, id: 4 }], [{ ...artifact, expired: true }], [{ ...artifact, size_in_bytes: 1_000_001 }], []]) {
+    assert.notEqual(callContinuationValidation('selectEvidenceArtifact', [{ total_count: artifacts.length, artifacts }, '1.2.3']).status, 0);
+  }
+});
+
+for (const firstUploadInRecovery of [false, true]) test(firstUploadInRecovery
+  ? 'first upload in a newer pre-upload recovery preserves exact candidate gate lineage and preparation'
+  : 'a newer recovery verifier observes the original candidate only after authenticated canonical identity checks', () => {
+  const files = continuationFixture();
+  if (firstUploadInRecovery) files.evidence.origin.runId = '202';
+  const prefix = `repos/${files.repository}`;
+  const triggerRun = { ...files.run, id: 202, head_sha: 'b'.repeat(40) };
+  const recoveryJobs = { total_count: 1, jobs: [{ name: 'Publish verified release', steps: [
+    ...files.jobs.jobs[0].steps.map(step => ['Require successful candidate push workflows', 'Publish the matching draft release'].includes(step.name)
+      ? { ...step, conclusion: 'skipped' } : step),
+    { name: 'Checkout recovery verifier', conclusion: 'success' },
+    { name: 'Download prior npm publication evidence', conclusion: firstUploadInRecovery ? 'skipped' : 'success' },
+  ] }] };
+  const artifact = { id: 3, name: 'farming-npm-publication-1.2.3', expired: false, size_in_bytes: 4096 };
+  const candidateRun = firstUploadInRecovery ? { ...files.run, conclusion: 'failure' } : files.run;
+  const candidateJobs = firstUploadInRecovery ? { ...files.jobs, jobs: [{ ...files.jobs.jobs[0],
+    steps: files.jobs.jobs[0].steps.map(step => step.name === 'Verify public tag, assets, and manifest'
+      ? { ...step, conclusion: 'failure' } : ['Verify and publish npm package with provenance', 'Wait for npm package to become public'].includes(step.name)
+        ? { ...step, conclusion: 'skipped' } : step),
+  }] } : files.jobs;
+  const responses = {
+    [`${prefix}/actions/runs/101/attempts/1`]: candidateRun,
+    [`${prefix}/actions/runs/202/attempts/1`]: triggerRun,
+    [`${prefix}/actions/workflows/7`]: files.workflow,
+    [`${prefix}/actions/runs/99`]: { ...files.run, id: 99, workflow_id: 8 },
+    [`${prefix}/actions/workflows/8`]: { id: 8, path: '.github/workflows/release.yml' },
+    [`${prefix}/actions/runs/101/attempts/1/jobs?per_page=100`]: candidateJobs,
+    [`${prefix}/actions/runs/202/attempts/1/jobs?per_page=100`]: recoveryJobs,
+    [`${prefix}/compare/${candidate}...main`]: { status: 'ahead', base_commit: { sha: candidate } },
+    [`${prefix}/compare/${'b'.repeat(40)}...main`]: { status: 'identical', base_commit: { sha: 'b'.repeat(40) } },
+    [`${prefix}/actions/runs/101/artifacts?per_page=100`]: { total_count: 1, artifacts: [artifact] },
+    [`${prefix}/actions/runs/202/artifacts?per_page=100`]: { total_count: 1, artifacts: [{ ...artifact, id: 4 }] },
+  };
+  try {
+    assert.equal(callContinuationValidation('authenticateRun', [triggerRun, files.workflow, recoveryJobs, files.repository, '202', '1', 'trigger']).stdout.trim(), 'true');
+    assert.equal(callContinuationValidation('authenticateRun', [triggerRun, files.workflow, recoveryJobs, files.repository, '202', '1']).stdout.trim(), 'false');
+    const bin = path.join(files.directory, 'bin');
+    fs.mkdirSync(bin);
+    fs.writeFileSync(path.join(bin, 'gh'), `#!${process.execPath}\nconst fs=require('node:fs'); const responses=JSON.parse(fs.readFileSync(process.env.TEST_API_FILE)); const response=responses[process.argv[3]]; if (!response) process.exit(91); console.log(JSON.stringify(response));\n`, { mode: 0o755 });
+    const responseFile = path.join(files.directory, 'responses.json');
+    fs.writeFileSync(responseFile, JSON.stringify(responses));
+    const eventFile = path.join(files.directory, 'event.json');
+    fs.writeFileSync(eventFile, JSON.stringify({ action: 'completed', repository: { full_name: files.repository }, workflow_run: triggerRun }));
+    for (const name of ['trigger', 'canonical']) {
+      fs.mkdirSync(path.join(files.directory, name));
+      for (const [filename, content] of Object.entries({ 'upload-origin.json': files.evidence.origin,
+        'upload-result.json': files.evidence.upload, 'npm-smoke-receipt.json': files.evidence.receipt,
+        'publication-state.json': files.evidence.state })) fs.writeFileSync(path.join(files.directory, name, filename), JSON.stringify(content));
+    }
+    const env = { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}`,
+      TEST_API_FILE: responseFile, GITHUB_EVENT_PATH: eventFile, GITHUB_REPOSITORY: files.repository,
+      RELEASE_VERSION: '1.2.3', TRIGGER_RUN_ID: '202', TRIGGER_RUN_ATTEMPT: '1' };
+    for (const args of [['locate'], ['identify', 'trigger'], ['validate', 'trigger', 'canonical']]) {
+      const result = spawnSync(process.execPath, [continuationScript, ...args], { env, cwd: files.directory, encoding: 'utf8', timeout: 5_000 });
+      assert.equal(result.status, 0, result.stderr);
+    }
+    const preserved = JSON.parse(fs.readFileSync(path.join(files.directory, 'npm-evidence/upload-origin.json'), 'utf8'));
+    assert.equal(preserved.candidateSha, candidate);
+    assert.equal(preserved.runId, firstUploadInRecovery ? '202' : '101');
+    assert.equal(preserved.candidatePublicationRunId, '101');
+    assert.notEqual(preserved.candidateSha, triggerRun.head_sha);
+    fs.writeFileSync(path.join(files.directory, 'trigger/npm-smoke-receipt.json'), JSON.stringify({ ...files.evidence.receipt, shasum: 'b'.repeat(40) }));
+    assert.notEqual(spawnSync(process.execPath, [continuationScript, 'validate', 'trigger', 'canonical'], { env, cwd: files.directory, encoding: 'utf8', timeout: 5_000 }).status, 0);
+    if (firstUploadInRecovery) {
+      fs.writeFileSync(path.join(files.directory, 'trigger/npm-smoke-receipt.json'), JSON.stringify(files.evidence.receipt));
+      responses[`${prefix}/actions/runs/99`].head_sha = triggerRun.head_sha;
+      fs.writeFileSync(responseFile, JSON.stringify(responses));
+      const preparationMismatch = spawnSync(process.execPath, [continuationScript, 'validate', 'trigger', 'canonical'], { env, cwd: files.directory, encoding: 'utf8', timeout: 5_000 });
+      assert.notEqual(preparationMismatch.status, 0);
+      assert.match(preparationMismatch.stderr, /Preparation does not prove the exact candidate source/);
+      responses[`${prefix}/actions/runs/99`].head_sha = candidate;
+      responses[`${prefix}/actions/runs/101/attempts/1`].head_sha = triggerRun.head_sha;
+      fs.writeFileSync(responseFile, JSON.stringify(responses));
+      const candidateMismatch = spawnSync(process.execPath, [continuationScript, 'validate', 'trigger', 'canonical'], { env, cwd: files.directory, encoding: 'utf8', timeout: 5_000 });
+      assert.notEqual(candidateMismatch.status, 0);
+      assert.match(candidateMismatch.stderr, /exact candidate publication/);
+    }
+  } finally { fs.rmSync(files.directory, { recursive: true, force: true }); }
+});
+
+test('automatic observer deadline retains accepted waiting state and records ended observation without uploading', async () => {
+  const result = await observe((_request, response) => response.writeHead(404).end(), {
+    timeout: 150, workflow: { recovery: true, exists: false, uploadExit: 90, priorUploadExit: 0, automatic: true },
+  });
+  assert.equal(result.code, 0, result.output);
+  assert.equal(result.uploads, 0);
+  assert.equal(result.state.status, 'awaiting-public');
+  assert.equal(result.state.observationStatus, 'ended');
+  assert.equal(result.state.originalUploadRunId, '101');
+  assert.match(result.summary, /bounded automatic continuation has ended/);
+  assert.match(result.statuses, /state=pending/);
+  assert(!result.statuses.includes('state=error'));
+});
+
+test('automatic observer updates the exact candidate to success only when the original digests become public', async () => {
+  const files = fixture();
+  try {
+    const result = await observe((_request, response) => response.writeHead(200).end(JSON.stringify(files.metadata)), {
+      workflow: { recovery: true, exists: false, uploadExit: 90, priorUploadExit: 0, automatic: true },
+    });
+    assert.equal(result.code, 0, result.output);
+    assert.equal(result.uploads, 0);
+    assert.equal(result.state.status, 'verified');
+    assert.equal(result.state.observationStatus, 'ended');
+    assert.match(result.statuses, new RegExp(`statuses/${candidate}`));
+    assert.match(result.statuses, /state=success/);
+  } finally { fs.rmSync(files.directory, { recursive: true, force: true }); }
+});
+
+test('automatic observer records conflict as failure and registry transport uncertainty as error', async () => {
+  const files = fixture();
+  try {
+    const conflict = await observe((_request, response) => response.writeHead(200).end(JSON.stringify({ ...files.metadata, gitHead: 'b'.repeat(40) })), {
+      workflow: { recovery: true, exists: false, uploadExit: 90, priorUploadExit: 0, automatic: true },
+    });
+    assert.equal(conflict.code, 1, conflict.output);
+    assert.equal(conflict.uploads, 0);
+    assert.match(conflict.statuses, /state=failure/);
+    const uncertain = await observe((_request, response) => response.writeHead(503).end(), {
+      timeout: 150, workflow: { recovery: true, exists: false, uploadExit: 90, priorUploadExit: 0, automatic: true },
+    });
+    assert.equal(uncertain.code, 2, uncertain.output);
+    assert.equal(uncertain.uploads, 0);
+    assert.match(uncertain.statuses, /state=error/);
+  } finally { fs.rmSync(files.directory, { recursive: true, force: true }); }
+});
+
+test('first recovery upload checkpoints the actual uploader separately from the authenticated candidate dispatch', async () => {
+  const result = await observe((_request, response) => response.writeHead(404).end(), {
+    timeout: 150, workflow: { recovery: false, exists: false, uploadExit: 0, candidatePublicationRunId: '101' },
+  });
+  assert.equal(result.code, 0, result.output);
+  assert.equal(result.uploads, 1);
+  assert.equal(result.origin.runId, '123');
+  assert.equal(result.origin.candidatePublicationRunId, '101');
+  assert.equal(result.origin.candidateSha, candidate);
+  assert.equal(result.origin.preparationRunId, '99');
+  assert.equal(result.state.status, 'awaiting-public');
 });

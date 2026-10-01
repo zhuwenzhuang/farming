@@ -135,6 +135,15 @@ locked dependency; it does not maintain another manually updated version pair.
 Discovery and plan generation do not approve upstream compatibility or replace
 the final exact-SHA gates.
 
+Run `npm run release:upgrade:screen` immediately after the single clean install.
+It prepares the reviewed adapters and runtime manifest, then exercises the
+provider-neutral ACP boundary and owning adapter compatibility checks, including
+cold patch installation. CI runs this screen before the broad repository checks
+so an upgrade defect is actionable early. Its isolated deterministic fixtures
+do not require provider credentials or registry mutations; a preparation or
+compatibility failure stops the screen. It does not replace full CI, installed
+package acceptance, or the real-provider gate.
+
 ### Candidate-triggered workflow coverage
 
 The release coordinator monitors every workflow created by the exact candidate
@@ -620,9 +629,13 @@ without reducing coverage.
   tests would link a separate full-LTO test executable and do not eliminate
   artifact linking. Linux artifacts retain their separate Zig compatibility
   build, whose compiler/linker inputs cannot share the host test graph.
-  After native Browser and app smoke pass, the app job publishes its verified
-  Darwin Browser artifact to the all-platform packagers. It is the sole native
-  producer for its architecture; a second Darwin build lane is unnecessary.
+  Independent native Browser producers sign, strictly verify and launch each
+  Darwin component before transferring its current-SHA artifact. App consumers
+  repeat native signature and version verification on their matching host, then
+  run complete Browser, App and PTY acceptance. CLI, Linux and npm packagers
+  consume the component without waiting for App acceptance; publication still
+  requires all package gates. Transfer preserves immutable compilation
+  provenance and never adds a second Rust compilation.
 - Retain pinned ripgrep download archives outside the clean source installation.
   Isolate workflow caches by producer, runner OS/architecture and the reviewed
   artifact inventory. Every restored archive must pass its pinned SHA-256 before
@@ -672,9 +685,18 @@ without reducing coverage.
   show "Uploaded successfully; waiting for public availability" in the workflow
   summary and retain a pending `farming/npm-publication/<version>` commit status.
   The bounded observation job may complete while that publication status remains
-  pending; workflow success alone is not proof of a public npm release. Resume
-  the earlier run through the existing recovery input, preserving its upload
-  evidence and performing read-only verification. Only matching public source
+  pending; workflow success alone is not proof of a public npm release. A
+  trusted `workflow_run` continuation performs one further read-only observation
+  for at most twenty minutes, authenticated to the original upload run, attempt,
+  candidate publication, SHA and canonical smoke receipt. If recovery performs
+  the first upload, its uploader identity remains separate from the exact-SHA
+  candidate publication and successful preparation proof. It shares per-version concurrency
+  with publication and needs no npm credential. A recovery verifier may use
+  newer integration code while preserving the original upload identity. When
+  observation ends during normal public absence, record `observationStatus=ended`
+  and retain pending publication status with read-only recovery instructions.
+  Historical evidence without an authenticated upload-origin checkpoint uses
+  explicit recovery instead of automatic continuation. Only matching public source
   and digests make the publication status successful. A conflicting public
   identity fails; an ambiguous upload or failed observation remains uncertain.
   Never classify normal public-availability waiting as an upload failure.
@@ -733,8 +755,16 @@ human-readable bundle containing:
 - trace, screenshot, and relevant server/browser logs;
 - a stable failure signature used to detect recurrence.
 
-The release watcher exits on the first terminal required-job failure and
-returns this bundle. It does not require repeated Agent polling.
+The release watcher defaults to `fail-fast`: it returns the first required-job
+failure bundle and records its stopped state and exit code separately from the
+authoritative run status, which may still be `in_progress`. Consumers must not
+wait on that preserved snapshot as though the watcher were still running.
+`wait-terminal` retains the first failure once and continues observing the same
+run until its actual terminal result. Error extraction excludes echoed script
+source and prefers the real runtime diagnostic. Each GitHub read remains bounded
+at thirty seconds and cancellation cleans up its exact owned process group.
+Deterministic timeout tests synchronize fixture readiness independently of the
+production deadline. Repeated Agent polling is unnecessary.
 
 ### B4. Run balanced shards in isolated local lanes
 

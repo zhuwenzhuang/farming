@@ -99,6 +99,12 @@ Plan 还自动发现源码和测试中残留的版本引用，但不修改它们
 从根 Override 读取 Codex Pin，从 Adapter 的 Locked Dependency 读取 Claude SDK Pin，不再维护
 另一份需要手动更新的版本对。发现和生成 Plan 不能代替上游兼容性审查或最终 Exact-SHA 门禁。
 
+一次干净安装后立即运行 `npm run release:upgrade:screen`。该门禁准备已审查 Adapter 与
+Runtime Manifest，验证 Provider-neutral ACP 边界及 Adapter 自身的兼容性，包括冷安装
+Patch。CI 在广泛仓库检查之前运行它，使升级缺陷尽早可诊断。独立、确定性的 Fixture
+无需 Provider 凭证或 Registry Mutation；准备或兼容性失败会终止门禁。它不替代完整 CI、
+安装包验收或真实 Provider 门禁。
+
 ### 候选提交触发的 Workflow 全覆盖
 
 Release Coordinator 必须监控 Exact Candidate Push 创建的每个 Workflow，不能只盯 `CI` 和
@@ -492,8 +498,11 @@ Changed Files + Failure Signatures
   正式制品保留 Release Profile 和 Target。Release Profile 测试会另外链接一个 Full-LTO
   测试程序，不能省掉正式制品的链接。Linux 制品仍独立进行 Zig Compatibility Build；
   后者的 Compiler/Linker 输入不同，无法复用 Host Test 的依赖编译图。
-  Native Browser 与 App Smoke 通过后，App Job 向全平台 Packager 发布已验证的 Darwin
-  Browser Artifact；它是该 Architecture 的唯一 Native Producer，无需第二个 Darwin Build Lane。
+  独立 Native Browser Producer 对各 Darwin 组件签名、严格校验并运行版本检查后，传递
+  当前 SHA 的 Artifact。App Consumer 在匹配的原生 Host 再次校验签名和版本，然后执行
+  完整 Browser、App 与 PTY 验收。CLI、Linux 和 npm Packager 无需等待 App 验收即可
+  消费组件；正式发布仍要求所有 Package Gate 成功。传递保留不可变编译来源，不增加
+  第二次 Rust 编译。
 - 固定版本的 ripgrep 下载 Archive 保留在干净源码安装目录之外。Workflow Cache
   按 Producer、Runner OS/Architecture 和经过 Review 的制品清单隔离；每个恢复的
   Archive 都必须在解压前通过固定 SHA-256 校验，缺失的 Archive 使用有界的官方下载路径。
@@ -528,8 +537,15 @@ Changed Files + Failure Signatures
 - 已接受上传与公开验证是不同状态。上传成功后，若公开版本尚不存在或元数据不完整，
   状态为 `awaiting-public`：Workflow Summary 显示“已上传成功，等待公开可用”，并保留
   `farming/npm-publication/<version>` Commit Status 为 Pending。有界观察 Job 可以完成，
-  但发布状态仍然 Pending；仅凭 Workflow 成功不能认定 npm 已公开。通过现有恢复输入
-  继续先前 Run，保留上传证据并只读验证。只有公开源码和摘要匹配才标记发布成功；
+  但发布状态仍然 Pending；仅凭 Workflow 成功不能认定 npm 已公开。受信任的
+  `workflow_run` 自动进行一次最长二十分钟的只读续查，绑定原始上传 Run、Attempt、
+  Candidate 发布、SHA 与规范 Smoke Receipt。若恢复任务首次上传，其上传身份与
+  Exact-SHA Candidate 发布及成功 Preparation 证明分开保存。续查和发布共享按版本
+  的并发所有权，无需 npm 凭据。
+  恢复验证器可以使用较新的集成代码，但必须保留原始上传身份。正常等待公开时若观察
+  结束，记录 `observationStatus=ended`，保留 Pending 发布状态并提供只读恢复指引。
+  缺少已认证 Upload-origin Checkpoint 的历史证据使用显式恢复，不自动续查。
+  只有公开源码和摘要匹配才标记发布成功；
   公开身份冲突应失败，上传结果不明或观察失败仍应报告不确定。不得把正常等待公开
   归类为上传失败。
 - 验证公开 Tag Target、资产清单、Manifest、Checksum，并至少下载一个公开资产。
@@ -578,7 +594,12 @@ Transport 观察失败时重新读取同一个 Run，不能据此启动新的 Ru
 - Trace、Screenshot 和相关 Server/Browser Log；
 - 用于识别重复问题的稳定 Failure Signature。
 
-Release Watcher 在第一个必需 Job 终止失败时直接返回该 Bundle，不再要求 Agent 反复轮询。
+Release Watcher 默认使用 `fail-fast`：返回第一个必需 Job 的失败包，单独记录监控已停止
+及退出码，同时保留可能仍为 `in_progress` 的权威 Run 状态。调用方不得把这个快照当作
+监控仍在运行而继续等待。`wait-terminal` 只保留一次首错，继续观察同一个 Run 直到真实
+终态。首错提取排除回显脚本源码，优先使用实际运行诊断。每次 GitHub 读取仍限制为
+三十秒，取消时清理精确归属的进程组。确定性超时测试独立同步 Fixture 就绪，不改变
+生产期限。无需 Agent 反复轮询。
 
 ### B4. 使用隔离本地 Lane 运行均衡 Shard
 

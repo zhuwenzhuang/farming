@@ -240,8 +240,7 @@ export async function createManagedReleaseUpgradePlan(report, {
     commands: edits.length ? [
       'npm install --package-lock-only --ignore-scripts --registry=https://registry.npmjs.org/ --no-audit --no-fund',
       'npm ci --registry=https://registry.npmjs.org/ --no-audit --no-fund',
-      'npm run prepare:acp-vendor',
-      'npm run prepare:runtime-manifest',
+      'npm run release:upgrade:screen',
       'npm run release:fast-screen',
       'npm run test:pre-release:codex-ui',
     ] : [],
