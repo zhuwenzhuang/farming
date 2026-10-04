@@ -4,7 +4,7 @@ import { prepareComposerSubmission } from './code/composer-submission-state'
 import { validateComposerReferences } from './code/composer-context-admission'
 import { useQuestionPresentationLifetime } from './code/acp/acp-elicitation-presentation'
 import { attachSubagent } from '@/lib/subagent-supervision'
-import { agentAfterRemoval } from './code/agent-selection'
+import { agentAfterRemoval, isOpenableAgent } from './code/agent-selection'
 import { canonicalProviderSessionKey } from '../../shared/provider-session-identity.js'
 import type { MainPaneMode } from './code/types'
 import { interactionLayerOwnsEscape } from '@/lib/interaction-layer'
@@ -6264,7 +6264,7 @@ export function CodeWorkspace({
         canLoadMoreHistoryAgentSessions={agentSessionsHasMore}
         now={now}
         acpComposerProps={{
-          active: Boolean(activeAgent) && !activeAgentPermissionSwitching,
+          active: Boolean(activeAgent && isOpenableAgent(activeAgent)) && !activeAgentPermissionSwitching,
           agentId: activeAgent?.id || '',
           runtimeState: activeAcpRuntime?.state || '',
           sessionRevision: activeAcpRuntime?.sessionRevision || 0,
@@ -6326,7 +6326,7 @@ export function CodeWorkspace({
           onRespondToElicitation: respondToActiveAcpElicitation,
         }}
         composerProps={{
-          active: Boolean(activeAgent) && !activeAgentPermissionSwitching,
+          active: Boolean(activeAgent && isOpenableAgent(activeAgent)) && !activeAgentPermissionSwitching,
           agentKind: composerAgentKind,
           capabilities: activeAgentCapabilities.composer,
           slashCommands: composerSlashCommands,

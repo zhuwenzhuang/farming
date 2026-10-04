@@ -87,3 +87,24 @@ test('removed inventory identity retains its Project and position; worktree cwd 
   assert.equal(agentAfterRemoval(rows, current, new Set(['removed'])), 'next')
   assert.equal(agentAfterRemoval(rows, current, new Set(['removed', 'next'])), 'previous')
 })
+
+
+test('an exited temporary Provider launch remains selected across snapshots and reload without becoming an automatic successor', () => {
+  for (const provider of ['codex', 'claude', 'qwen']) {
+    for (const status of ['stopped', 'dead'] as const) {
+      const stopped = agent('exited', 30, {
+        status,
+        providerSessionProvider: provider,
+        providerSessionTemporary: true,
+        cwd: '/project',
+      })
+      const running = agent('running', 10, { cwd: '/project' })
+      const rows = [running, stopped]
+      assert.equal(resolveActiveAgentId(rows, stopped.id), stopped.id)
+      assert.equal(resolveActiveAgentId(rows, 'missing'), running.id)
+      assert.equal(agentAfterRemoval(rows, running, new Set([running.id])), null)
+      assert.equal(resolveActiveAgentId([{ ...stopped, archived: true }], stopped.id), null)
+      assert.equal(resolveActiveAgentId([{ ...stopped, isMain: true }], stopped.id), null)
+    }
+  }
+})

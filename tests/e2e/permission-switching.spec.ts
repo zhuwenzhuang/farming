@@ -190,6 +190,47 @@ async function openPermissionTestApp(page: Page) {
 }
 
 test.describe('permission switching', () => {
+  test('keeps runtime switching visible while provider identity is unconfirmed', async ({ page, workspaceRoot }, testInfo) => {
+    const original = runtimeSwitchAgent({
+      id: 'runtime-identity-pending', workspace: workspaceRoot,
+      sessionId: 'temporary-provider-session', runtime: 'terminal', startedAt: Date.now(),
+    })
+    original.providerSessionTemporary = true
+    original.terminalInputReceived = false
+    const state = (agent: Agent): SwitchState => ({
+      agents: [agent], taskHistory: [], mainPageSessionKeys: [], mainAgentId: null, systemStats: null,
+    })
+    await installSwitchStateSocket(page, state(original))
+    await openPermissionTestApp(page)
+    await agentRow(page, original.id).click()
+    const toggle = page.getByTestId('code-terminal-mode-toggle')
+    const chat = toggle.getByRole('button', { name: 'Chat' })
+    await expect(chat).toBeEnabled()
+    const pending = { ...original, terminalInputReceived: true }
+    await page.evaluate(next => window.__farmingEmitSwitchState?.(next), state(pending))
+    await expect(toggle).toBeVisible()
+    await expect(chat).toBeDisabled()
+    await expect(toggle).toHaveAttribute('title', /verified resumable session/)
+    for (const appearance of ['light', 'dark', 'paper'] as const) {
+      await page.evaluate(value => {
+        document.documentElement.dataset.appearance = value
+        document.body.dataset.appearance = value
+      }, appearance)
+      await toggle.screenshot({ path: testInfo.outputPath(`runtime-switch-pending-${appearance}.png`) })
+    }
+    await agentRow(page, original.id).click({ button: 'right' })
+    const menuSwitch = page.getByRole('menuitem', { name: 'Switch to Chat' })
+    await expect(menuSwitch).toBeVisible()
+    await expect(menuSwitch).toBeDisabled()
+    await expect(menuSwitch).toHaveAttribute('title', /verified resumable session/)
+    await page.keyboard.press('Escape')
+    await page.evaluate(next => window.__farmingEmitSwitchState?.(next), state({
+      ...pending, providerSessionTemporary: false, providerSessionId: 'verified-session',
+    }))
+    await expect(chat).toBeEnabled()
+    await expect(toggle).not.toHaveAttribute('title', /verified resumable session/)
+  })
+
   test('waits for the HTTP-owned Terminal to Chat replacement before selecting WS descendants', {
     tag: ['@critical-behavior', '@behavior-CODE-RUNTIME-SWITCHING'],
   }, async ({ page, workspaceRoot }) => {

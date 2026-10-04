@@ -148,6 +148,12 @@ conversation. After input, switching, permission restart, recovery, and Fork
 require a verified resumable identity. Terminal presentation must not infer that
 identity from arbitrary output text.
 
+The Chat/Terminal control remains visible for a Provider that supports both
+runtimes. While resumable identity is unconfirmed after input, switching is
+disabled with an explicit explanation; confirmation enables the same control.
+Process exit does not archive an unconfirmed conversation: its stopped Agent
+remains inspectable without claiming a resumable Provider Session.
+
 A fresh Codex Terminal therefore starts with a Farming-only temporary identity,
 not a guessed resume id. Once the exact runtime is idle, the Codex Terminal
 Control performs one bounded `/status` probe through the ordered input path

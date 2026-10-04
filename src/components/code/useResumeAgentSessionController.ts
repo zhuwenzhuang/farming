@@ -11,6 +11,9 @@ import type { ProjectMembership } from './useProjectMembershipController'
 const RESUME_AGENT_SESSION_TIMEOUT_MS = 60_000
 
 export type ResumeAgentCandidate = {
+  isMain?: boolean
+  providerSessionProvider?: string
+  providerSessionTemporary?: boolean
   archived?: boolean
   id: string
   providerSessionKey?: string

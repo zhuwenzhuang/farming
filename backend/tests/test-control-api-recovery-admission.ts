@@ -6,7 +6,7 @@ async function run() {
     async requestKillAgent() {
       throw new Error('simulated Agent lifecycle recovery failure');
     },
-  });
+  }, { mountProjectWorkspace() {} });
   const deleteLayer = router.stack.find(layer => (
     layer.route?.path === '/agents/:agentId'
     && layer.route.methods.delete === true

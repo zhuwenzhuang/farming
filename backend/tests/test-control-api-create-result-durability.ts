@@ -29,7 +29,7 @@ async function run() {
       },
     },
   };
-  const router = createControlRouter(manager);
+  const router = createControlRouter(manager, { mountProjectWorkspace() {} });
   const createLayer = router.stack.find(layer => (
     layer.route?.path === '/agents'
     && layer.route.methods.post === true

@@ -67,7 +67,10 @@ anchored. Navigation to an offscreen Agent may reveal it in that surface.
 A Project is a persisted workspace mounted in Farming. Agent creation, file
 opening, restored Project sessions, and Git worktree selection all refer to that
 same workspace identity. Losing the last Agent or editor does not silently
-remove the Project; explicit removal is the unmount action. Opening another file
+remove the Project; explicit removal is the unmount action. Browser and Control
+API Agent creation both persist this membership before reporting success or
+delivering an initial task. A mount failure archives the exact new Agent without
+provider-history mutation; cleanup failure remains explicit. Opening another file
 inside an already mounted Project reuses that membership and must not replay the
 Project-mount mutation on the file-open critical path. Concurrent opens that
 discover the same absent Project share one mount mutation. Cancelling an

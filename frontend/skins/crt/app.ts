@@ -2628,6 +2628,8 @@ function disposeCrtTerminalReplication() {
 function queueCrtTerminalInput(input: unknown) {
   const replication = crtTerminalReplication;
   if (!replication || replication.disposed) return false;
+  const agent = state?.agents.find(candidate => candidate.id === replication.agentId);
+  if (!isCrtAgentInteractive(agent) || agent.archived === true) return false;
   const text = String(input || '');
   if (!text) return false;
   return Boolean(getSessionClient()?.sendTerminalInput(replication.agentId, text));
@@ -4683,7 +4685,7 @@ function openCrtAgentDeeplinkIfReady() {
     return false;
   }
   const agent = agentId
-    ? state.agents.find((candidate) => candidate.id === agentId && isCrtLiveAgent(candidate))
+    ? state.agents.find((candidate) => candidate.id === agentId && isCrtViewableAgent(candidate))
     : null;
   if (!agent) {
     if (state.agentInventoryScope === 'focused') {
@@ -4764,6 +4766,7 @@ function applyCrtWorkspaceState(
       updateSessionTitleDisplay(focusedTitle);
     }
     updateCrtRuntimeSwitchControl(focusedAgent);
+    updateCrtTerminalInputState(focusedAgent);
     if (focusedAgent && isStructuredRuntimeAgent(focusedAgent)) {
       updateStructuredComposerState(focusedAgent);
     }
@@ -5264,7 +5267,7 @@ function getCrtMainAgentDialogAction({
   // A live regular Agent is already a valid supervision surface. Do not let
   // the optional Main Agent onboarding dialog re-open over its session or the
   // surrounding search/billing controls after an asynchronous state refresh.
-  if (getCrtLiveAgents(currentState).length > 0) {
+  if (getCrtLiveAgents(currentState).length > 0 || getCrtRegularAgents(currentState).length > 0) {
     return dialogActive && pendingMainAgent ? 'hide' : 'none';
   }
   if (mainView !== 'agents' || dialogActive) return 'none';
@@ -5349,6 +5352,17 @@ function isCrtLiveAgent(agent: CrtAgent | null | undefined): agent is CrtAgent {
   );
 }
 
+function isCrtViewableAgent(agent: CrtAgent | null | undefined): agent is CrtAgent {
+  return Boolean(
+    agent
+    && agent.isMain !== true
+    && agent.archived !== true
+    && (agent.status === 'stopped' || agent.status === 'dead')
+    && agent.providerSessionProvider
+    && agent.providerSessionTemporary === true
+  ) || isCrtLiveAgent(agent);
+}
+
 function getCrtLiveAgents(currentState = state) {
   if (!currentState || !Array.isArray(currentState.agents)) return [];
   return currentState.agents.filter(isCrtLiveAgent);
@@ -5356,7 +5370,7 @@ function getCrtLiveAgents(currentState = state) {
 
 function getCrtRegularAgents(currentState = state) {
   if (!currentState || !Array.isArray(currentState.agents)) return [];
-  return getCrtLiveAgents(currentState).filter((agent) => (
+  return currentState.agents.filter(isCrtViewableAgent).filter((agent) => (
     agent.id !== currentState.mainAgentId && agent.isMain !== true
   ));
 }
@@ -5434,7 +5448,7 @@ function renderState() {
   lastCrtDashboardSignature = crtDashboardStateSignature(state);
 
   // 更新吊顶的 Agent 数量
-  const visibleAgents = getCrtLiveAgents(state);
+  const visibleAgents = state.agents.filter(isCrtViewableAgent);
   updateCrtAgentInventoryStatus(state);
   updateCrtBrandState(state);
 
@@ -5641,6 +5655,13 @@ function selectCrtStartedAgent(agentId: unknown) {
 
 function isCrtAgentInteractive(agent: CrtAgent | null | undefined): agent is CrtAgent {
   return Boolean(agent && (agent.status === 'running' || agent.status === 'pending'));
+}
+
+function updateCrtTerminalInputState(agent: CrtAgent | null | undefined) {
+  if (!terminal || isStructuredRuntimeAgent(agent)) return;
+  const interactive = isCrtAgentInteractive(agent) && agent.archived !== true;
+  terminal.options.disableStdin = !interactive;
+  updateSessionTitleDisplay(`${getCrtAgentTitle(agent ?? undefined)}${interactive ? '' : ' [READ ONLY]'}`);
 }
 
 function structuredRuntimeKind(agent: CrtAgent | null | undefined) {
@@ -7523,7 +7544,6 @@ async function openSession(agentId: string|null|undefined) {
           : '',
         onData: (data: string) => {
           if (runtime && !runtime.isCurrentSession(agentId, sessionToken)) return;
-          if (!interactiveTerminal) return;
           sendTerminalInput(data);
         },
         onResize: (cols: number, rows: number) => {
@@ -7557,6 +7577,7 @@ async function openSession(agentId: string|null|undefined) {
   terminal = mountedTerminal ? mountedTerminal.terminal : terminalBundle.terminal;
   fitAddon = mountedTerminal ? mountedTerminal.fitAddon : terminalBundle.fitAddon;
   registerTerminalLinks(terminal);
+  updateCrtTerminalInputState(state?.agents.find(candidate => candidate.id === agentId));
   if (terminal && typeof terminal.onTitleChange === 'function') {
     terminal.onTitleChange((title: string) => {
       if (runtime && !runtime.isCurrentSession(agentId, sessionToken)) return;
@@ -7585,7 +7606,6 @@ async function openSession(agentId: string|null|undefined) {
     terminal.loadAddon(fitAddon);
     terminal.onData((data: string) => {
       if (runtime && !runtime.isCurrentSession(agentId, sessionToken)) return;
-      if (!interactiveTerminal) return;
       sendTerminalInput(data);
     });
     terminal.onResize(({ cols, rows }) => {

@@ -6,6 +6,7 @@ export type ContextMenuEntry =
     id: string
     label: string
     ariaLabel?: string
+    title?: string
     icon?: ContextMenuIconKind
     trailingIcon?: ContextMenuIconKind
     removeIcon?: boolean

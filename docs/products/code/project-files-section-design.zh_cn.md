@@ -50,7 +50,9 @@ Project 同一时间只显示一个“显示更多”操作，并先展示剩余
 
 Project 是持久挂载到 Farming 的 Workspace。Agent 创建、文件打开、恢复的 Project Session
 与 Git Worktree 选择都引用同一个 Workspace Identity。最后一个 Agent 或 Editor 消失时不能
-静默移除 Project；显式 Remove 才是 Unmount Action。在已挂载 Project 内打开其他文件时复用
+静默移除 Project；显式 Remove 才是 Unmount Action。浏览器与 Control API 创建 Agent 都必须
+在报告成功或投递初始任务前持久化该 Membership。挂载失败时归档精确的新 Agent，不修改
+Provider 历史；清理失败必须明确显示。在已挂载 Project 内打开其他文件时复用
 现有 Membership，不得在文件打开关键路径上重复执行 Project Mount Mutation。并发打开
 如果发现同一个 Project 尚未挂载，共用一次 Mount Mutation。取消某个 File-open Waiter
 不会取消或重放该 Mutation；其结果仍会更新 Browser 中的权威 Membership，而只有当前

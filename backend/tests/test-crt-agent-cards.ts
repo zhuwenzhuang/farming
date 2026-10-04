@@ -76,6 +76,21 @@ function run() {
     ['agent-live', 'agent-pending'],
     'stopped, dead, and archived Agent records should not occupy CRT dashboard bays',
   );
+  for (const provider of ['codex', 'claude', 'qwen']) {
+    for (const status of ['stopped', 'dead']) {
+      const exited = {
+        id: 'exited-launch', status,
+        providerSessionProvider: provider, providerSessionTemporary: true,
+      };
+      const exitedState = { mainAgentId: null, agents: [exited] };
+      assert.deepStrictEqual(getCrtRegularAgents(exitedState).map(agent => agent.id), ['exited-launch'],
+        'CRT retains the exact exited launch when no Provider history row can replace it');
+      assert.strictEqual(isCrtLiveAgent(exited), false, 'viewable stopped records do not become live runtimes');
+      assert.strictEqual(getCrtMainAgentDialogAction({ currentState: exitedState }), 'none');
+      assert.deepStrictEqual(getCrtRegularAgents({ ...exitedState, agents: [{ ...exited, archived: true }] }), []);
+      assert.deepStrictEqual(getCrtRegularAgents({ ...exitedState, agents: [{ ...exited, isMain: true }] }), []);
+    }
+  }
   assert.deepStrictEqual(crtAgentInventoryCounts(liveDashboardState), {
     running: 2,
     total: 3,

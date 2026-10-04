@@ -3,11 +3,29 @@ import { projectWorkspaceFromAgentState } from '../../../shared/agent-state-sema
 
 type AgentSelectionCandidate = Pick<
   Agent,
-  'id' | 'archived' | 'status' | 'isMain' | 'lastActivity' | 'startedAt'
+  'id' | 'archived' | 'status' | 'isMain' | 'lastActivity' | 'startedAt' | 'providerSessionProvider' | 'providerSessionTemporary'
 >
 
-export function isOpenableAgent(agent: Pick<Agent, 'archived' | 'status'>) {
+export function isOpenableAgent(agent: { archived?: boolean; status: string }) {
   return !agent.archived && agent.status !== 'dead' && agent.status !== 'stopped'
+}
+
+// An exited launch without a materialized Provider Session has no history row
+// to replace it. Keep its exact Agent view without implying it can be resumed.
+export function isViewableAgent(agent: {
+  archived?: boolean
+  status: string
+  isMain?: boolean
+  providerSessionProvider?: string
+  providerSessionTemporary?: boolean
+}) {
+  return isOpenableAgent(agent) || (
+    !agent.archived
+    && !agent.isMain
+    && (agent.status === 'stopped' || agent.status === 'dead')
+    && Boolean(agent.providerSessionProvider)
+    && agent.providerSessionTemporary === true
+  )
 }
 
 function agentUpdatedAt(agent: AgentSelectionCandidate) {
@@ -51,7 +69,7 @@ export function resolveActiveAgentId<T extends AgentSelectionCandidate>(
     currentAgentId
     && (
       currentAgentId === transientAgentId
-      || agents.some(agent => agent.id === currentAgentId && isOpenableAgent(agent))
+      || agents.some(agent => agent.id === currentAgentId && isViewableAgent(agent))
     )
   ) {
     return currentAgentId

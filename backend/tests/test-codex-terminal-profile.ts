@@ -125,6 +125,17 @@ async function run() {
   assert.strictEqual(isCodexTerminalComposerPreview(QUICK_MODEL_MENU.replace(/\n/g, '\r\n')), false,
     'CRLF terminal previews must recognize the same quick-mode picker');
 
+  const workingPreview = `${IDLE_55}\nWorking (2s • esc to interrupt)`;
+  assert.strictEqual(identityControl.canResolveFromPreview(workingPreview), false,
+    'an older model footer must not admit a status probe while the current turn is working');
+  assert.strictEqual(identityControl.canResolveFromPreview(`${workingPreview}\n${IDLE_55}`), true,
+    'the subsequent idle composer may admit the deferred identity probe');
+  await assert.rejects(resolveCodexTerminalSessionId({
+    readPreview: async () => workingPreview,
+    sendInput: async () => assert.fail('active turns must not receive an identity probe'),
+    timeoutMs: 1000,
+  }), /not at its idle composer/);
+
   let identityPreview = IDLE_55;
   const identityInputs = [];
   const resolvedIdentity = await resolveCodexTerminalSessionId({

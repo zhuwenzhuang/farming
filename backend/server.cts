@@ -1081,6 +1081,7 @@ app.use(routePath(BASE_PATH, '/api/control'), createControlRouter(
   agentManager,
   {
   notifyUpdate: broadcastState,
+  mountProjectWorkspace: workspace => configManager.mountProjectWorkspace(workspace),
   allowConcurrentTestControl: process.env.NODE_ENV === 'test'
     && process.env.FARMING_E2E_FAKE_EXECUTABLES === '1',
   },

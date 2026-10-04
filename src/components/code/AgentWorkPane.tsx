@@ -10,7 +10,7 @@ import { AgentTerminalPane } from '../AgentTerminalPane'
 import { ChatBubblesGlyph, TerminalSquareGlyph } from '../IconGlyphs'
 import { AcpTranscriptPane } from './acp/AcpTranscriptPane'
 import type { AgentTranscriptProcessItem } from './acp/acp-entry-projection'
-import { canForkAgentConversation, canSwitchAgentRuntime } from './capabilities'
+import { canForkAgentConversation, canSwitchAgentRuntime, supportsAgentRuntimeSwitch } from './capabilities'
 import { isAgentTurnActive } from './agent-working-state'
 import type { CodeCopy } from './copy'
 import type { ShareNoticeAnchor } from './share-notice'
@@ -95,8 +95,10 @@ export function AgentWorkPane({
   }, [onReviewAndCommit])
   const acpChat = Boolean(acpRuntime)
   const chatMode = acpChat
-  const canSwitchRuntime = runtimeSwitchVisible && canSwitchAgentRuntime(agent)
-  const runtimeSwitchDisabled = switching || isAgentTurnActive(agent)
+  const showRuntimeSwitch = runtimeSwitchVisible && supportsAgentRuntimeSwitch(agent)
+  const runtimeIdentityReady = canSwitchAgentRuntime(agent)
+  const runtimeSwitchDisabled = switching || isAgentTurnActive(agent) || !runtimeIdentityReady
+  const runtimeSwitchReason = runtimeIdentityReady ? undefined : copy.runtimeSwitchIdentityUnavailable
   const canForkConversation = canForkAgentConversation(agent)
   const readLatestChat = useCallback(() => {
     const attentionSeq = Number.isFinite(agent.attentionSeq) ? Math.max(0, Number(agent.attentionSeq)) : 0
@@ -134,18 +136,18 @@ export function AgentWorkPane({
 
   return (
     <section
-      className={`code-agent-work-pane ${active ? 'active' : ''} ${canSwitchRuntime ? 'runtime-switchable' : ''}`}
+      className={`code-agent-work-pane ${active ? 'active' : ''} ${showRuntimeSwitch ? 'runtime-switchable' : ''}`}
       data-testid="code-agent-work-pane"
       data-agent-id={agent.id}
       hidden={!active}
       aria-busy={switching}
     >
-      {canSwitchRuntime ? (
-        <div className="code-terminal-mode-toggle" data-testid="code-terminal-mode-toggle" onPointerDown={event => event.stopPropagation()} onMouseDown={event => event.stopPropagation()}>
-          <button type="button" className={chatMode ? 'active' : ''} aria-pressed={chatMode} aria-label={copy.transcriptView} title={copy.transcriptView} disabled={runtimeSwitchDisabled} onClick={() => !chatMode && onRuntimeModeChange?.(agent.id, 'chat')}>
+      {showRuntimeSwitch ? (
+        <div className="code-terminal-mode-toggle" data-testid="code-terminal-mode-toggle" title={runtimeSwitchReason} onPointerDown={event => event.stopPropagation()} onMouseDown={event => event.stopPropagation()}>
+          <button type="button" className={chatMode ? 'active' : ''} aria-pressed={chatMode} aria-label={copy.transcriptView} title={runtimeSwitchReason || copy.transcriptView} disabled={runtimeSwitchDisabled} onClick={() => !chatMode && onRuntimeModeChange?.(agent.id, 'chat')}>
             <ChatBubblesGlyph />
           </button>
-          <button type="button" className={!chatMode ? 'active' : ''} aria-pressed={!chatMode} aria-label={copy.terminalView} title={copy.terminalView} disabled={runtimeSwitchDisabled} onClick={() => chatMode && onRuntimeModeChange?.(agent.id, 'terminal')}>
+          <button type="button" className={!chatMode ? 'active' : ''} aria-pressed={!chatMode} aria-label={copy.terminalView} title={runtimeSwitchReason || copy.terminalView} disabled={runtimeSwitchDisabled} onClick={() => chatMode && onRuntimeModeChange?.(agent.id, 'terminal')}>
             <TerminalSquareGlyph />
           </button>
         </div>

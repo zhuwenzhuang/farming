@@ -155,6 +155,29 @@ function run() {
     'stopped resumed runtime rows should not claim provider sessions; history/session rows own resume'
   );
 
+  for (const provider of ['codex', 'claude', 'qwen']) {
+    for (const status of ['stopped', 'dead']) {
+      const exited = agent({
+        id: `exited-${provider}`,
+        status,
+        providerSessionProvider: provider,
+        providerSessionTemporary: true,
+        providerSessionId: 'unmaterialized',
+        providerSessionKey: encodeProviderSessionKey(provider, 'unmaterialized', 'default'),
+      });
+      const retained = buildAgentListState({
+        allAgents: [exited], liveAgents: [exited], sessions: [], mainPageSessionKeys: new Set(),
+      });
+      assert.deepStrictEqual(retained.liveAgents.map(item => item.id), [exited.id],
+        'an exited temporary Provider launch has no history substitute and retains its Agent row');
+      assert.strictEqual(retained.claimedAgentSessionKeys.size, 0,
+        'retaining an exited launch never claims an unmaterialized Provider Session');
+      assert.strictEqual(agentListRowIdentity(exited, retained.claimedAgentSessionKeyByAgentId), `agent:${exited.id}`);
+      assert.strictEqual(isAgentListLiveAgent({ ...exited, archived: true }), false);
+      assert.strictEqual(isAgentListLiveAgent({ ...exited, isMain: true }), false);
+    }
+  }
+
   const paginatedSessions = Array.from({ length: 7 }, (_, index) => session({
     id: `pagination-${index + 1}`,
     updatedAt: new Date(700_000 - index * 1_000).toISOString(),

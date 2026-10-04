@@ -108,6 +108,10 @@ Conversation 开头。
 重启、恢复与 Fork 都需要已验证的可恢复身份。Terminal Presentation 不得从任意 Output Text
 推断该身份。
 
+支持两种 Runtime 的 Provider 始终显示 Chat/Terminal 控件。收到输入后若可恢复身份尚未确认，
+控件保持可见、禁用并解释原因；确认身份后在原位置启用。进程退出不等于归档尚未确认的会话：
+其已停止 Agent 仍可查看，但不能认领可恢复的 Provider Session。
+
 因此，全新 Codex Terminal 先使用仅属于 Farming 的 Temporary Identity，而不是猜测 Resume
 ID。精确 Runtime 进入 Idle 后，Codex Terminal Control 通过有序 Input Path 执行一次有界
 `/status` Probe，且不把它标记为用户输入。写入结果不确定时只从渲染出的 Status 对账，绝不

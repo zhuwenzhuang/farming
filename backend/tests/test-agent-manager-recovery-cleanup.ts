@@ -345,6 +345,23 @@ async function run() {
 
   const missingTerminalRecords = [
     {
+      id: 'fsess_missing_temporary_provider',
+      runtimeAgentId: 'missing-temporary-provider',
+      command: 'codex',
+      cwd: '/repo',
+      projectWorkspace: '/repo',
+      provider: 'codex',
+      providerHomeId: 'default',
+      providerSessionId: 'tmp_uuid_missing-terminal',
+      providerSessionTemporary: true,
+      terminalInputReceived: true,
+      agentRuntimeMode: 'terminal',
+      visibleOnMainPage: true,
+      archived: false,
+      wantsMain: false,
+      updatedAt: 100,
+    },
+    {
       id: 'fsess_missing_main',
       runtimeAgentId: 'missing-main-bash',
       command: 'bash',
@@ -425,6 +442,15 @@ async function run() {
 
     const missingVisible = missingTerminalManager.agents.get('missing-visible-bash');
     assert.strictEqual(missingVisible, undefined, 'an unrecoverable Shell must not leave an inventory row');
+    const missingTemporary = missingTerminalManager.agents.get('missing-temporary-provider');
+    assert(missingTemporary, 'a provider Terminal without a confirmed Session must remain available after process loss');
+    assert.strictEqual(missingTemporary.status, 'stopped');
+    assert.strictEqual(missingTemporary.engineStarted, false);
+    assert.strictEqual(missingTemporary.providerSessionTemporary, true);
+    assert.strictEqual(missingTemporary.terminalInputReceived, true);
+    assert.strictEqual(missingTemporary.projectWorkspace, '/repo');
+    assert.deepStrictEqual(missingTerminalManager.mainPageSessionIndex.list(), [],
+      'retaining the stopped Agent must never promote its temporary identity into resumable history');
     assert.deepStrictEqual(persistedMissingStatuses.get('missing-main-bash'), {
       status: 'dead',
       engineStatus: 'recovery-failed',

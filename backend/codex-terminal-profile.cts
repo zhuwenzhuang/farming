@@ -3,6 +3,7 @@
 import type { AgentRecord as TypedAgentRecord } from './agent-manager-record-types.js';
 import { runtimeKind } from './agent-runtime-binding.cjs';
 import { providerForProgram } from './provider-adapters.cjs';
+import { inferProviderTerminalActivity } from './provider-terminal-observers.cjs';
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_POLL_INTERVAL_MS = 100;
@@ -279,7 +280,11 @@ function codexTerminalSessionIdFromStatus(previewText: unknown): string {
 
 function isCodexTerminalComposerPreview(previewText: unknown): boolean {
   const preview = String(previewText || '');
-  return Boolean(codexTerminalProfileFromPreview(preview))
+  // An initial user task may start after a probe is queued. A retained model
+  // footer alone does not prove that it is still safe to send local commands.
+  const activity = inferProviderTerminalActivity('codex', 'codex', { previewText: preview, title: '' });
+  return activity?.activity !== 'busy'
+    && Boolean(codexTerminalProfileFromPreview(preview))
     && !codexQuickModelMenuOptions(preview)
     && !codexModelMenuOptions(preview)
     && !codexReasoningMenuOptions(preview)

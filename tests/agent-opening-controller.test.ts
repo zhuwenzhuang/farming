@@ -199,3 +199,13 @@ test('an invalid target fails explicitly without an unbounded loading state', ()
   assert.equal(s.calls.length, 0)
   assert.equal(s.timers.size, 0)
 })
+
+
+test('explicitly opens an exited temporary Provider Agent for inspection without Resume', () => {
+  const s = fixture()
+  s.agents([{ ...live('exited', 'stopped'), providerSessionProvider: 'codex', providerSessionTemporary: true }])
+  s.controller.open({ title: 'Exited launch', workspace: '/repo', agentId: 'exited', source: 'projects' })
+  assert.deepEqual(s.opened, ['exited'])
+  assert.equal(s.state()?.phase, 'ready')
+  assert.equal(s.calls.length, 0)
+})

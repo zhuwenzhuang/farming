@@ -151,7 +151,7 @@ async function run() {
   manager.agents.set(acpAgent.id, acpAgent);
 
   const app = express();
-  app.use('/api/control', createControlRouter(manager));
+  app.use('/api/control', createControlRouter(manager, { mountProjectWorkspace: workspace => configManager.mountProjectWorkspace(workspace) }));
   const server = await new Promise<HttpServer>(resolve => {
     const listener = app.listen(0, () => resolve(listener));
   });

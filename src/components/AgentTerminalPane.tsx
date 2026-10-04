@@ -124,6 +124,7 @@ export function AgentTerminalPane({
   onReadLatest,
   copy,
 }: AgentTerminalPaneProps) {
+  const terminalEnded = agent.status === 'stopped' || agent.status === 'dead'
   const terminalPaneRef = useRef<HTMLElement>(null)
   const terminalContainerRef = useRef<HTMLDivElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
@@ -171,7 +172,7 @@ export function AgentTerminalPane({
     agentId: agent.id,
     containerRef: terminalContainerRef,
     onSessionOutput,
-    inputDisabled: false,
+    inputDisabled: terminalEnded || agent.archived === true,
     manageReadingAnchor: agent.providerCapabilities?.terminalReadingAnchor !== false,
     onFollowOutputChange: handleFollowOutputChange,
     onPathOpen: onOpenPath,
@@ -448,7 +449,7 @@ export function AgentTerminalPane({
         ref={terminalContainerRef}
         onClick={refreshTerminalLayoutAfterClick}
       />
-      {terminalRecovering && terminalRecoveryVisible ? (
+      {!terminalEnded && terminalRecovering && terminalRecoveryVisible ? (
         <div
           className="code-terminal-recovery"
           data-testid="code-terminal-recovery"
@@ -464,7 +465,12 @@ export function AgentTerminalPane({
           </span>
         </div>
       ) : null}
-      {terminalError ? (
+      {terminalEnded ? (
+        <div className="code-terminal-status-card" data-testid="code-terminal-stopped" role="status">
+          <span>{copy.terminalStopped}</span>
+        </div>
+      ) : null}
+      {!terminalEnded && terminalError ? (
         <div
           className="code-terminal-status-card"
           data-testid="code-terminal-status-card"

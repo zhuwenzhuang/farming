@@ -3,6 +3,9 @@ const { importTsModule } = require('./helpers/import-ts-module');
 
 const {
   canForkAgentConversation,
+  canSwitchAgentRuntime,
+  supportsAgentRuntimeSwitch,
+  agentMenuAvailability,
   capabilitiesForAgent,
 } = importTsModule('src/components/code/capabilities.ts');
 
@@ -53,6 +56,20 @@ function agent(provider, goalSubmission, overrides = {}) {
 }
 
 function run() {
+  for (const provider of ['codex', 'claude', 'future-provider']) {
+    const fresh = agent(provider, null, { providerSessionTemporary: true, terminalInputReceived: false });
+    assert.strictEqual(supportsAgentRuntimeSwitch(fresh), true);
+    assert.strictEqual(canSwitchAgentRuntime(fresh), true);
+    const pending = { ...fresh, terminalInputReceived: true };
+    assert.strictEqual(supportsAgentRuntimeSwitch(pending), true);
+    assert.strictEqual(agentMenuAvailability(pending).switchRuntime, true, 'pending identity must not hide the switch');
+    assert.strictEqual(canSwitchAgentRuntime(pending), false, 'input requires a verified resumable identity');
+    assert.strictEqual(canSwitchAgentRuntime({ ...pending, providerSessionTemporary: false }), true);
+    assert.strictEqual(canSwitchAgentRuntime({ ...pending, providerSessionId: '' }), false);
+  }
+  assert.strictEqual(supportsAgentRuntimeSwitch(agent('shell', null)), false);
+  assert.strictEqual(canSwitchAgentRuntime(agent('shell', null)), false);
+
   const codexTerminalCapabilities = capabilitiesForAgent(agent('codex', null)).composer;
   assert.strictEqual(codexTerminalCapabilities.modelPicker, true);
   assert.strictEqual(codexTerminalCapabilities.reasoningEffort, true);

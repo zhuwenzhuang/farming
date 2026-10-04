@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { isViewableAgent } from './agent-selection'
 import type { ResumeAgentCandidate, ResumeAgentSessionIdentity, ResumeAgentSessionOutcome } from './useResumeAgentSessionController'
 
 export type AgentOpeningTarget = {
@@ -109,7 +110,7 @@ export class AgentOpeningController {
     const agent = this.ports.getAgents().find(candidate => candidate.id === state.agentId)
     if (!agent) return
     this.clearWait()
-    if (agent.archived || agent.status === 'dead' || agent.status === 'stopped') {
+    if (!isViewableAgent(agent)) {
       this.publish({ ...state, phase: 'failed', uncertain: false, message: 'This Agent stopped before it could be opened.' })
       return
     }

@@ -46,6 +46,12 @@ async function run() {
   let recoveryFailure = '';
   let createResultPersistenceFailure = '';
   let stateReads = 0;
+  const mountedProjects = new Set<string>();
+  let projectMountFailure = '';
+  let projectRollbackFailure = '';
+  let startedProjectWorkspace = '';
+
+  const mountAttempts: string[] = [];
   const durableCreateResults = new Map();
   const agentManager = {
     on: events.on.bind(events),
@@ -77,7 +83,9 @@ async function run() {
       agents.set(id, {
         id,
         command,
+        source: options.source,
         cwd: workspace,
+        projectWorkspace: startedProjectWorkspace,
         status: 'running',
         parentAgentId: options.parentAgentId,
         task: options.task,
@@ -124,6 +132,13 @@ async function run() {
       events.emit('update');
       return { agentId, killed: true };
     },
+    async archiveAgent(agentId, options) {
+      calls.push({ type: 'archiveAgent', agentId, options });
+      if (projectRollbackFailure) return { error: projectRollbackFailure };
+      agents.get(agentId).archived = true;
+      agents.get(agentId).status = 'stopped';
+      return {};
+    },
     async requestKillAgent(agentId, options = {}) {
       await this.whenRecovered();
       const result = await this.killAgent(agentId, options);
@@ -142,6 +157,11 @@ async function run() {
   const app = express();
   app.use('/api/control', createControlRouter(agentManager, {
     initialInputTimeoutMs: 100,
+    mountProjectWorkspace(workspace) {
+      mountAttempts.push(workspace);
+      if (projectMountFailure) throw new Error(projectMountFailure);
+      mountedProjects.add(workspace);
+    },
   }));
 
   const server = await new Promise<HttpServer>((resolve) => {
@@ -387,6 +407,52 @@ async function run() {
     assert.strictEqual(recoveryBlockedKill.body.retryable, true);
     assert.match(recoveryBlockedKill.body.error, /simulated recovery failure/);
     recoveryFailure = '';
+
+    startedProjectWorkspace = '/retained-project';
+    const mounted = await fetchJson(baseUrl, '/api/control/agents', {
+      method: 'POST', body: JSON.stringify({ command: 'codex', workspace: '/retained-project/subdirectory' }),
+    });
+    assert.strictEqual(mounted.response.status, 201);
+    assert(mountedProjects.has('/retained-project'));
+    await fetchJson(baseUrl, `/api/control/agents/${mounted.body.agentId}`, { method: 'DELETE' });
+    assert(mountedProjects.has('/retained-project'), 'removing the last Agent must retain Project membership');
+
+    assert.strictEqual(mountedProjects.has('/retained-project/subdirectory'), false, 'mount the authoritative Project boundary');
+    startedProjectWorkspace = '';
+    projectMountFailure = 'Project membership disk failure';
+    const mountsBeforeSmoke = mountAttempts.length;
+    const smoke = await fetchJson(baseUrl, '/api/control/agents', {
+      method: 'POST', body: JSON.stringify({
+        command: 'codex', workspace: '/internal-deployment-smoke', source: 'deployment-smoke',
+      }),
+    });
+    assert.strictEqual(smoke.response.status, 201, 'hidden deployment probes must not mount a Project');
+    assert.strictEqual(mountAttempts.length, mountsBeforeSmoke);
+    assert.strictEqual(mountedProjects.has('/internal-deployment-smoke'), false);
+    await fetchJson(baseUrl, `/api/control/agents/${smoke.body.agentId}`, { method: 'DELETE' });
+
+    for (const rollbackFailure of ['', 'runtime cleanup failed']) {
+      projectRollbackFailure = rollbackFailure;
+      const requestId = `mount-failed-${rollbackFailure ? 'rollback' : 'clean'}`;
+      const request = { method: 'POST', body: JSON.stringify({
+        command: 'codex', workspace: '/failed-project', task: 'must not deliver', requestId,
+      }) };
+      const inputsBefore = calls.filter(call => call.type === 'sendInput').length;
+      const failed = await fetchJson(baseUrl, '/api/control/agents', request);
+      assert.strictEqual(failed.response.status, 500);
+      assert.strictEqual(failed.body.code, 'project-mount-failed');
+      assert.strictEqual(failed.body.initialInputDelivered, false);
+      assert.strictEqual(agents.get(failed.body.agentId).archived === true, !rollbackFailure);
+      assert.strictEqual(calls.filter(call => call.type === 'sendInput').length, inputsBefore);
+      assert.deepStrictEqual(calls.findLast(call => call.type === 'archiveAgent').options, {
+        reason: 'project-mount-failed', recordHistory: false, requireEngineExit: true, scheduleProviderArchive: false,
+      });
+      if (rollbackFailure) assert.match(failed.body.error, /Rollback failed: runtime cleanup failed/);
+      const attemptsBefore = mountAttempts.length;
+      const replay = await fetchJson(baseUrl, '/api/control/agents', request);
+      assert.deepStrictEqual(replay.body, failed.body);
+      assert.strictEqual(mountAttempts.length, attemptsBefore, 'deduplicated Create must not repeat the failed mount');
+    }
 
     console.log('✓ Control API serializes exact-runtime Terminal mutations and readiness-bound startup input');
   } finally {

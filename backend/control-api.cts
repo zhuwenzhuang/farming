@@ -140,6 +140,15 @@ interface ComposerMessageOptions {
 }
 
 interface AgentManager {
+  archiveAgent(
+    agentId: string,
+    options: {
+      reason: string;
+      recordHistory: false;
+      requireEngineExit: true;
+      scheduleProviderArchive: false;
+    },
+  ): Promise<{ error?: string } | null>;
   agentSupportsTerminalInput?(agentId: string): boolean;
   clearAgentSessionBuffer(
     agentId: string,
@@ -184,6 +193,7 @@ interface AgentManager {
 }
 
 interface ControlRouterOptions {
+  mountProjectWorkspace(workspace: string): unknown;
   allowConcurrentTestControl?: boolean;
   initialInputTimeoutMs?: unknown;
   notifyUpdate?: () => void;
@@ -337,7 +347,7 @@ function waitForTerminalInputReadiness(
 
 function createControlRouter(
   agentManager: AgentManager,
-  options: ControlRouterOptions = {},
+  options: ControlRouterOptions,
 ): ExpressRouter {
   const router = expressFactory.Router();
   const createRequestAdmissions = new Map<string, CreateAdmission>();
@@ -445,6 +455,38 @@ function createControlRouter(
       }
 
       const deliveryPromise = (async () => {
+        const started = findAgent(agentManager.getState(), agentId);
+        try {
+          const projectWorkspace = typeof started?.projectWorkspace === 'string' && started.projectWorkspace
+            ? started.projectWorkspace
+            : started?.cwd || workspace || '';
+          // Deployment probes are intentionally absent from the interactive inventory.
+          if (started?.source !== 'deployment-smoke') options.mountProjectWorkspace(projectWorkspace);
+        } catch (mountError) {
+          let rollbackError = '';
+          try {
+            const rollback = await agentManager.archiveAgent(agentId, {
+              reason: 'project-mount-failed',
+              recordHistory: false,
+              requireEngineExit: true,
+              scheduleProviderArchive: false,
+            });
+            if (rollback?.error) rollbackError = rollback.error;
+          } catch (cleanupError) {
+            rollbackError = errorMessage(cleanupError, String(cleanupError));
+          }
+          notifyUpdate();
+          const message = errorMessage(mountError, 'Failed to create Project');
+          return {
+            status: 500,
+            body: {
+              error: rollbackError ? `${message}. Rollback failed: ${rollbackError}` : message,
+              code: 'project-mount-failed',
+              agentId,
+              initialInputDelivered: false,
+            },
+          };
+        }
         if (!initialInput) {
           notifyUpdate();
           return {
@@ -453,7 +495,6 @@ function createControlRouter(
           };
         }
 
-        const started = findAgent(agentManager.getState(), agentId);
         if (!started) throw Object.assign(new Error('Agent disappeared before initial input delivery'), {
           code: 'agent-removed',
         });

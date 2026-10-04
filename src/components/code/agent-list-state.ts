@@ -1,4 +1,5 @@
 import type { Agent } from '@/types/agent'
+import { isViewableAgent } from './agent-selection'
 import type { AgentSessionHistoryItem } from './types'
 import {
   agentSessionId,
@@ -27,8 +28,7 @@ export interface AgentListStateInput {
 export function isAgentListLiveAgent(agent: Agent) {
   return !agent.isMain
     && agent.archived !== true
-    && agent.status !== 'dead'
-    && agent.status !== 'stopped'
+    && isViewableAgent(agent)
 }
 
 export function isAgentListArchivedAgent(agent: Agent) {
@@ -42,7 +42,7 @@ export function claimedAgentSessionKeyByAgentIdForAgents(
   const claimedByAgentId = new Map<string, string>()
 
   agents.forEach(agent => {
-    if (!isAgentListLiveAgent(agent)) return
+    if (!isAgentListLiveAgent(agent) || agent.providerSessionTemporary === true) return
     const sessionHandle = claimedAgentSessionHandle(agent)
     if (sessionHandle) {
       claimedByAgentId.set(agent.id, sessionHandle)

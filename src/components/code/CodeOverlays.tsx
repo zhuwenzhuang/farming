@@ -10,6 +10,7 @@ import { useInteractionLayer } from '@/hooks/useInteractionLayer'
 import type { Agent } from '@/types/agent'
 import {
   agentMenuAvailability,
+  canSwitchAgentRuntime,
   isAgentTurnActive,
   projectCanArchive,
   projectCanDeleteWorktree,
@@ -346,7 +347,8 @@ export function CodeOverlays({
       label: agentChatMode ? copy.switchToTerminal : copy.switchToChat,
       icon: agentChatMode ? 'terminal' : 'chat',
       hidden: !agentMenuAvailabilityState.switchRuntime,
-      disabled: runtimeSwitchDisabled || isAgentTurnActive(contextMenuAgent),
+      disabled: runtimeSwitchDisabled || isAgentTurnActive(contextMenuAgent) || !canSwitchAgentRuntime(contextMenuAgent),
+      title: canSwitchAgentRuntime(contextMenuAgent) ? undefined : copy.runtimeSwitchIdentityUnavailable,
       onSelect: () => {
         if (!contextMenuAgent) return
         onSwitchAgentRuntime(contextMenuAgent.id, agentChatMode ? 'terminal' : 'chat')
@@ -766,6 +768,7 @@ function ContextMenuEntries({ entries }: { entries: ContextMenuEntry[] }) {
             role="menuitem"
             className={entry.danger ? 'danger' : undefined}
             disabled={entry.disabled}
+            title={entry.title}
             onClick={entry.onSelect}
           >
             {(entry.icon || entry.removeIcon) && (

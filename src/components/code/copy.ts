@@ -334,6 +334,7 @@ export interface CodeCopy {
   permissionsPrompt: string
   permissionProfileSavedForNextLaunch: string
   permissionProfileRestarting: string
+  runtimeSwitchIdentityUnavailable: string
   runtimeModeRestarting: string
   terminalProfileApplying: string
   terminalProfileApplied: string
@@ -505,6 +506,7 @@ export interface CodeCopy {
   terminalRecoveryRetrying: (delaySeconds: number) => string
   terminalRecoveryElapsed: (seconds: number) => string
   terminalRecoveryAttempt: (attempt: number) => string
+  terminalStopped: string
   terminalSessionUnavailable: string
   acpPermissionAllow: string
   acpPermissionTitle: string
@@ -1084,6 +1086,7 @@ const EN_COPY: CodeCopy = {
   permissionsPrompt: 'Launch permission profile',
   permissionProfileSavedForNextLaunch: 'Saved for new agents. Running sessions keep the permissions they launched with.',
   permissionProfileRestarting: 'Switching agent permissions…',
+  runtimeSwitchIdentityUnavailable: 'Chat/Terminal switching is unavailable until this conversation has a verified resumable session.',
   runtimeModeRestarting: 'Restarting Agent…',
   terminalProfileApplying: 'Applying model to Codex Terminal…',
   terminalProfileApplied: 'Codex Terminal model updated.',
@@ -1259,6 +1262,7 @@ const EN_COPY: CodeCopy = {
   terminalRecoveryRetrying: delaySeconds => `Terminal state unavailable. Retrying in ${delaySeconds}s…`,
   terminalRecoveryElapsed: seconds => `Waiting ${seconds}s`,
   terminalRecoveryAttempt: attempt => `Attempt ${attempt}`,
+  terminalStopped: 'Agent stopped. Terminal is read-only.',
   terminalSessionUnavailable: 'Terminal session unavailable',
   acpPermissionAllow: 'Allow',
   acpPermissionTitle: 'Agent needs permission',
@@ -1873,6 +1877,7 @@ const ZH_COPY: CodeCopy = {
   permissionsPrompt: '启动权限 profile',
   permissionProfileSavedForNextLaunch: '已保存给新 Agent。运行中的会话保留启动时的权限。',
   permissionProfileRestarting: '正在切换 Agent 权限…',
+  runtimeSwitchIdentityUnavailable: '尚未确认此会话可恢复的 Session 身份，暂时无法切换 Chat/Terminal。',
   runtimeModeRestarting: '正在重启 Agent…',
   terminalProfileApplying: '正在应用 Codex Terminal 模型…',
   terminalProfileApplied: 'Codex Terminal 模型已更新。',
@@ -2048,6 +2053,7 @@ const ZH_COPY: CodeCopy = {
   terminalRecoveryRetrying: delaySeconds => `终端状态获取失败，${delaySeconds} 秒后重试…`,
   terminalRecoveryElapsed: seconds => `已等待 ${seconds} 秒`,
   terminalRecoveryAttempt: attempt => `第 ${attempt} 次尝试`,
+  terminalStopped: 'Agent 已停止，终端为只读。',
   terminalSessionUnavailable: '终端会话不可用',
   acpPermissionAllow: '允许',
   acpPermissionTitle: 'Agent 需要权限',

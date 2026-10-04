@@ -151,6 +151,8 @@ async function run() {
 
     const identitySessionId = '019fc332-185d-73f2-b1be-0054f2778cab';
     const identityCalls = [];
+    const identityInitialInputStarted = deferred();
+    const releaseIdentityInitialInput = deferred();
     let identityPreview = 'Select a startup option\n  1. Continue\n  2. Exit';
     manager.engineBridge.getEngine = () => ({
       async getSessionState() {
@@ -168,6 +170,11 @@ async function run() {
           input,
           inputReceived: manager.agents.get(agentId)?.terminalInputReceived === true,
         });
+        if (input === 'initial task\r') {
+          identityInitialInputStarted.resolve();
+          await releaseIdentityInitialInput.promise;
+          identityPreview += '\nWorking (2s • esc to interrupt)';
+        }
         if (Array.isArray(input) && input[0]?.text === '/status') {
           identityPreview = [
             'OpenAI Codex (v0.146.0)',
@@ -215,7 +222,18 @@ async function run() {
     assert.strictEqual(manager.agents.get('agent-status-identity').terminalDraftInputReceived, true);
     await manager.sendInput('agent-status-identity', '\r');
     assert.strictEqual(manager.agents.get('agent-status-identity').terminalDraftInputReceived, false);
-    manager.agents.get('agent-status-identity').terminalInputReceived = false;
+    identityCalls.length = 0;
+    const initialIdentityTask = manager.sendInput('agent-status-identity', 'initial task\r');
+    await identityInitialInputStarted.promise;
+    const queuedIdentityProbe = manager.resolveCodexTerminalIdentityFromPreview('agent-status-identity', identityPreview);
+    releaseIdentityInitialInput.resolve();
+    await initialIdentityTask;
+    assert.strictEqual(await queuedIdentityProbe, false,
+      'a probe queued behind initial input must recheck the now-working preview');
+    assert.deepStrictEqual(identityCalls.map(call => call.input), ['initial task\r'],
+      'the deferred identity probe must not inject /status into an active turn');
+    assert.strictEqual(manager.agents.get('agent-status-identity').providerSessionTemporary, true);
+    identityPreview = '› Ask Codex\n\n  gpt-5.6-sol high · /tmp';
     identityCalls.length = 0;
     await Promise.all([
       manager.resolveCodexTerminalIdentityFromPreview('agent-status-identity', identityPreview),
@@ -226,7 +244,8 @@ async function run() {
       [{ type: 'paste', text: '/status' }, '\r'],
       [{ type: 'paste', text: 'user task' }, '\r'],
     ], '/status should run once and stay serialized ahead of later user input');
-    assert.deepStrictEqual(identityCalls.map(call => call.inputReceived), [false, true]);
+    assert.deepStrictEqual(identityCalls.map(call => call.inputReceived), [true, true],
+      'a later idle probe must resolve even though the initial task already received input');
     assert.strictEqual(
       manager.agents.get('agent-status-identity').providerSessionId,
       identitySessionId,

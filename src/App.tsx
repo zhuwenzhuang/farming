@@ -49,7 +49,7 @@ import {
   retainAcpTranscriptSessions,
 } from '@/components/code/acp/acp-transcript-session-pool'
 import { retainAcpSessionStates } from '@/components/code/acp/acp-session-state-pool'
-import { agentAfterRemoval, isOpenableAgent, resolveActiveAgentId } from '@/components/code/agent-selection'
+import { agentAfterRemoval, isOpenableAgent, isViewableAgent, resolveActiveAgentId } from '@/components/code/agent-selection'
 import { projectWorkspaceFromAgentState } from '../shared/agent-state-semantics.js'
 
 type DialogState = 'none' | 'input'
@@ -306,7 +306,7 @@ export function App() {
     const candidateIds = new Set([...openTerminalIds, ...retainedAgentViewIds])
     if (activeTerminalId) candidateIds.add(activeTerminalId)
     candidateIds.forEach(agentId => {
-      if (displayedAgents.some(agent => agent.id === agentId && isOpenableAgent(agent))) return
+      if (displayedAgents.some(agent => agent.id === agentId && isViewableAgent(agent))) return
       const replacement = latestRestartDescendant(displayedAgents, agentId)
       if (replacement) replacements.set(agentId, replacement.id)
     })
@@ -721,7 +721,7 @@ export function App() {
 
   useEffect(() => {
     if (!pendingTerminalOpen) return
-    if (!displayedAgents.some(agent => agent.id === pendingTerminalOpen.agentId && isOpenableAgent(agent))) return
+    if (!displayedAgents.some(agent => agent.id === pendingTerminalOpen.agentId && isViewableAgent(agent))) return
 
     setPendingTerminalOpen(null)
     activateTerminal(pendingTerminalOpen.agentId, pendingTerminalOpen.options)
@@ -1299,7 +1299,7 @@ export function App() {
 
   useEffect(() => {
     if (!ws.agentInventoryComplete) return
-    const liveIds = new Set(displayedAgents.filter(isOpenableAgent).map(agent => agent.id))
+    const liveIds = new Set(displayedAgents.filter(isViewableAgent).map(agent => agent.id))
     setOpenTerminalIds(ids => {
       const nextIds = Array.from(new Set(ids.map(id => {
         if (liveIds.has(id)) return id
@@ -1327,7 +1327,7 @@ export function App() {
     if (activeTerminalId && observedAgentReplacements.has(activeTerminalId)) return
     const availableAgents = displayedAgents.filter(agent => !closedAgentIdsRef.current.has(agent.id))
     const currentAvailable = activeTerminalId === permissionSwitch?.agent.id
-      || availableAgents.some(agent => agent.id === activeTerminalId && isOpenableAgent(agent))
+      || availableAgents.some(agent => agent.id === activeTerminalId && isViewableAgent(agent))
     const fallbackId = currentAvailable ? activeTerminalId
       : !selectionInitializedRef.current
         ? resolveActiveAgentId(availableAgents, activeTerminalId, permissionSwitch?.agent.id ?? null)
@@ -1338,7 +1338,7 @@ export function App() {
     // Agents created after load still receive their initial selection.
     if (currentAvailable || fallbackId) selectionInitializedRef.current = true
     for (const id of closedAgentIdsRef.current) {
-      if (!displayedAgents.some(agent => agent.id === id && isOpenableAgent(agent))) {
+      if (!displayedAgents.some(agent => agent.id === id && isViewableAgent(agent))) {
         closedAgentIdsRef.current.delete(id)
       }
     }

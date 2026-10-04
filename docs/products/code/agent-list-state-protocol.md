@@ -210,6 +210,17 @@ fails, affected Terminal rows become explicit recovery errors while the elected
 Main identity remains reserved; an uncertain live runtime is never replaced by
 guessing.
 
+A Provider Terminal that exits before its Provider Session identity materializes
+retains its unarchived Agent row in Code and CRT. Exit changes runtime state to
+stopped or failed; it does not archive the Agent or remove its Project. The
+backend inventory and durable record own this row through refresh and restart.
+The selected row stays open for inspection with an explicit stopped notice. Terminal
+and composer input are disabled after exit. A temporary identity cannot claim a history row or authorize Resume;
+viewing the row never starts a replacement or replays input. Explicit Archive
+removes the row. Such stopped rows are not automatic selection successors when
+another Agent is removed. Ordinary Shell exit and materialized Provider Session
+history replacement keep their existing behavior.
+
 Collapsed Project session pagination is cut before claimed Provider Sessions
 are replaced by their live Agent rows. A user resume therefore replaces the
 selected Session row in the existing window; it does not backfill another

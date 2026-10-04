@@ -54,6 +54,15 @@ Stopped 或 Pending 占位行。Provider Session 仍保留 Stopped 行，尚未�
 如果 Native Host 枚举本身失败，受影响的 Terminal Row 会进入明确的 Recovery Error，同时保留
 当选 Main Identity；系统不能靠猜测替换一个结果不确定的 Live Runtime。
 
+
+Provider Terminal 在 Provider Session 身份尚未落实时退出，Code 和 CRT 仍保留其未归档
+Agent 行。退出将运行状态变为停止或失败，不会归档 Agent 或删除所属 Project。后端 inventory
+与持久记录负责在刷新和重启后恢复该行。当前选中行保持打开以供查看，并明确提示已经停止；退出后禁用
+Terminal 和 Composer 输入。临时身份不能认领历史行或授权 Resume；查看该行不会启动替代 Agent 或重放
+输入。显式 Archive 才移除该行。移除其他 Agent 时，停止行不能成为自动选择的后继。
+普通 Shell 退出和已落实 Provider Session 的历史行替代行为保持不变。
+
+
 折叠状态下的 Project Session 分页必须先切出窗口，再把已由 Live Agent 认领的 Provider Session
 替换为对应 Agent Row。因此用户 Resume 只会替换当前窗口中的所选 Session Row，不会回填另一条
 History Row 或让 Project 列表自动增长；只有显式的“显示更多”操作可以扩大窗口：初始窗口为 5 条，

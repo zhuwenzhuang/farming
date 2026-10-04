@@ -328,6 +328,11 @@ export function capabilitiesForAgent(agent: Agent | null | undefined): AgentCapa
   }
 }
 
+export function supportsAgentRuntimeSwitch(agent: Agent | null | undefined) {
+  return agent?.providerCapabilities?.runtimeSwitch === true
+    && agent.providerCapabilities.supportsChat === true
+}
+
 export function canSwitchAgentRuntime(agent: Agent | null | undefined) {
   if (!agent?.providerCapabilities) return false
   const providerCapabilities = agent.providerCapabilities
@@ -388,7 +393,7 @@ export function agentMenuAvailability(
     ...capabilities.actions,
     createBrowser: environment.canCreateBrowser === true,
     createDesktop: environment.canCreateDesktop === true,
-    switchRuntime: canSwitchAgentRuntime(agent),
+    switchRuntime: supportsAgentRuntimeSwitch(agent),
   }
 }
 
