@@ -18,6 +18,49 @@ async function resizeSidebar(page: Page, width: number) {
   await expect.poll(async () => Math.round((await sidebar.boundingBox())?.width ?? 0)).toBe(width)
 }
 
+for (const language of ['en', 'zh'] as const) {
+  test(`New Agent stays on one line and becomes icon-only in a narrow sidebar (${language})`, async ({ page }, testInfo) => {
+    const settings = await page.request.post('/farming/api/settings', { data: { language } })
+    expect(settings.ok()).toBeTruthy()
+    await openFarming(page)
+    const button = page.getByTestId('code-new-agent')
+    const label = button.locator('.code-nav-label')
+    await expect(button).toHaveAccessibleName(language === 'zh' ? '新建 Agent' : 'New Agent')
+    for (const appearance of ['light', 'dark', 'paper'] as const) {
+      await page.evaluate(value => {
+        document.documentElement.dataset.appearance = value
+        document.body.dataset.appearance = value
+      }, appearance)
+      await resizeSidebar(page, 360)
+      await expect(label).toBeVisible()
+      const height = (await button.boundingBox())!.height
+      for (const width of [220, 296, 360]) {
+        await resizeSidebar(page, width)
+        if (width < 360) {
+          await expect(label).toBeHidden()
+          await expect(button.locator('kbd')).toBeHidden()
+        } else {
+          await expect(label).toBeVisible()
+          expect(await label.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
+        }
+        await expect(button.locator('.code-nav-icon')).toBeVisible()
+        expect((await button.boundingBox())!.height).toBe(height)
+        await page.mouse.move(600, 400)
+        await page.locator('.code-nav-top-row').screenshot({
+          path: testInfo.outputPath(`new-agent-${language}-${appearance}-${width}.png`),
+          animations: 'disabled',
+        })
+      }
+    }
+    await resizeSidebar(page, 220)
+    await button.focus()
+    await page.keyboard.press('Enter')
+    await expect(page.getByTestId('input-dialog')).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(page.getByTestId('input-dialog')).toBeHidden()
+  })
+}
+
 test('ends sidebar resize when a released mouse re-enters without pointerup', async ({ page }) => {
   await openFarming(page)
   const sidebar = page.getByTestId('code-sidebar')

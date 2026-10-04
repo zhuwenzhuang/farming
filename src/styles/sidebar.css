@@ -120,6 +120,19 @@
 
 .code-nav-top-row .code-nav-item {
   min-width: 0;
+  container: code-new-agent / inline-size;
+}
+
+.code-nav-label {
+  white-space: nowrap;
+}
+
+/* Keep the complete label and shortcut only when their button has room. */
+@container code-new-agent (max-width: 9em) {
+  .code-nav-label,
+  .code-nav-item kbd {
+    display: none;
+  }
 }
 
 .code-sidebar.collapsed .code-sidebar-focus-toggle {

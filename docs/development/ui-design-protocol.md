@@ -190,6 +190,12 @@ modal boundaries; visual reuse does not merge different keyboard semantics.
 
 ## Responsive And Input Contract
 
+The sidebar New Agent action keeps its label on one line. When the button's
+available width cannot accommodate the complete label and shortcut, it shows
+only its existing icon, retaining its accessible name, tooltip and keyboard
+action. This responds to the button's allocated width, including sidebar resizing,
+without increasing the toolbar height or shrinking its typography.
+
 Code's shared compact policy applies at widths up to 767 CSS pixels for all
 inputs, and up to 980 CSS pixels when the primary pointer is coarse. Wider
 mouse-driven windows keep desktop navigation and actions; below 900 pixels the

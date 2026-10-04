@@ -34,6 +34,7 @@ the [documentation home](../README.md).
 - [Extension and Resource model](../products/code/extension-model.md)
 - [Chrome extension Browser](../products/code/chrome-extension-browser.md)
 - [Language Server](../products/code/language-server.md)
+- [Language tooling, execution, and debugging proposal](../products/code/language-tooling-design.md)
 - [Project Files design](../products/code/project-files-section-design.md)
 - [Rest reminder state model](../products/code/rest-reminder.md)
 - [Workspace file state model](../products/code/workspace-file-state-model.md)
