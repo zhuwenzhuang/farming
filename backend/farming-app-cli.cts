@@ -1444,7 +1444,7 @@ function serverReadinessPath(
 ): string {
   const basePath = env.FARMING_BASE_PATH || DEFAULT_BASE_PATH;
   if (authDisabled) return routePath(basePath, '/api/auth/status');
-  return `${routePath(basePath, '/api/executables')}?token=${encodeURIComponent(token)}`;
+  return `${routePath(basePath, '/api/auth/status')}?token=${encodeURIComponent(token)}`;
 }
 
 function waitForServer(
@@ -1457,49 +1457,70 @@ function waitForServer(
   const authDisabled = ['1', 'true', 'yes', 'on'].includes(String(env.FARMING_DISABLE_AUTH || '').toLowerCase());
 
   return new Promise<void>((resolve, reject) => {
+    let lastFailure = 'server did not become ready before timeout';
     const tick = () => {
       if (childPid && !isRunning(childPid)) {
         reject(new Error('server process exited before becoming ready'));
         return;
       }
+      if (Date.now() - startedAt >= timeoutMs) {
+        reject(new Error(lastFailure));
+        return;
+      }
       const token = authDisabled ? '' : readTokenForEnv(env);
       if (!authDisabled && !token) {
-        if (Date.now() - startedAt >= timeoutMs) {
-          reject(new Error('server did not create its token file before timeout'));
-          return;
-        }
-        setTimeout(tick, 250);
+        lastFailure = 'server did not create its token file before timeout';
+        setTimeout(tick, Math.min(250, Math.max(1, timeoutMs - (Date.now() - startedAt))));
         return;
       }
       const readyPath = serverReadinessPath(env, authDisabled, token);
+      let attemptFinished = false;
+      let requestDeadline: ReturnType<typeof setTimeout> | undefined;
+      const finishAttempt = (ready: boolean, failure: string) => {
+        if (attemptFinished) return;
+        attemptFinished = true;
+        lastFailure = failure;
+        if (requestDeadline) clearTimeout(requestDeadline);
+        if (ready) {
+          resolve();
+        } else if (Date.now() - startedAt >= timeoutMs) {
+          reject(new Error(failure));
+        } else {
+          setTimeout(tick, Math.min(250, Math.max(1, timeoutMs - (Date.now() - startedAt))));
+        }
+      };
       const req = http.request({
         host: '127.0.0.1',
         port,
         path: readyPath,
         method: 'GET',
-        timeout: 500,
       }, (res) => {
-        res.resume();
-        if (res.statusCode && res.statusCode >= 200 && res.statusCode < 400) {
-          resolve();
-          return;
-        }
-        if (Date.now() - startedAt >= timeoutMs) {
-          reject(new Error(`server did not accept its startup token before timeout (HTTP ${res.statusCode || 0})`));
-          return;
-        }
-        setTimeout(tick, 250);
+        let body = '';
+        res.setEncoding('utf8');
+        res.on('data', (chunk: string) => {
+          body += chunk;
+          if (body.length > 4096) {
+            finishAttempt(false, 'server authentication response exceeded its size bound before timeout');
+            req.destroy();
+          }
+        });
+        res.on('error', () => finishAttempt(false, 'server authentication response failed before timeout'));
+        res.on('end', () => {
+          let status: unknown;
+          try { status = JSON.parse(body); } catch { status = null; }
+          const ready = res.statusCode === 200
+            && typeof status === 'object' && status !== null
+            && 'authRequired' in status && status.authRequired === !authDisabled
+            && 'accessMode' in status && status.accessMode === 'owner';
+          finishAttempt(ready, `server did not confirm startup owner authentication before timeout (HTTP ${res.statusCode || 0})`);
+        });
       });
-      req.on('error', () => {
-        if (Date.now() - startedAt >= timeoutMs) {
-          reject(new Error('server did not become ready before timeout'));
-          return;
-        }
-        setTimeout(tick, 250);
-      });
-      req.on('timeout', () => {
+      req.on('error', () => finishAttempt(false, 'server did not become ready before timeout'));
+      // Bound the whole response, including bodies that send headers and then stall.
+      requestDeadline = setTimeout(() => {
+        finishAttempt(false, 'server did not become ready before timeout');
         req.destroy();
-      });
+      }, Math.min(500, Math.max(1, timeoutMs - (Date.now() - startedAt))));
       req.end();
     };
     tick();
@@ -2001,4 +2022,5 @@ export {
   run,
   serverStateFile,
   waitForDaemonStop,
+  waitForServer,
 };

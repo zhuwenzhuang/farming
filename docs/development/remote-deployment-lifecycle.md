@@ -55,6 +55,10 @@ one install path may stop only the exact Server proven by the selected Config.
 | Succeeded | Current and rollback selections are recorded, and only safe old images outside retention and without a live same-user reference are removed. | Cleanup failure does not invalidate the running image and remains visible. Uncertain live-reference evidence skips all cleanup. |
 | Rolling back | The failed image stops, its working Config copy is isolated, the pre-activation Config checkpoint is restored, the prior image is selected, and its Server starts. | Success ends as a visible failed deployment with the prior image and its compatible Config state restored; rollback failure retains exact snapshots and requires operator action. |
 
+CLI startup readiness uses the bounded authentication-status response to verify
+the configured authentication mode and owner access, without executable discovery.
+The subsequent deployment smoke owns runtime and business-readiness verification.
+
 Only one activation owns a deployment root. Another activation fails immediately
 while the lock owner is live. Preparation is idempotent by artifact checksum;
 activation is not replayed after an ambiguous transport outcome. The operator

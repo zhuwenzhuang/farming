@@ -53,6 +53,9 @@ Config 状态和部署 image 不共享所有权身份。更新一个安装路径
 | Succeeded | 记录 current 与 rollback 选择，只清理保留策略外、且没有存活同用户进程引用的可证明安全旧 image。 | 清理失败不会否定运行中的 image，但必须可见；存活引用证据不确定时跳过全部清理。 |
 | Rolling back | 停止失败 image，隔离其 Config 工作副本，恢复 activation 前的 Config checkpoint，选择旧 image，并启动旧 Server。 | 成功则部署失败，但旧 image 与兼容的旧 Config 状态一同恢复；回滚失败时保留确切快照并要求人工处理。 |
 
+CLI 启动就绪通过有界的认证状态响应验证配置的认证模式与 owner 权限，不触发可执行文件发现。
+后续 deployment smoke 负责运行时与业务就绪验证。
+
 一个部署根目录同时只能有一个 activation。锁的 owner 存活时，另一个 activation 立即
 失败。Artifact preparation 按 checksum 幂等；连接结果不确定时不得重放 activation，
 必须先核对 current symlink 和 Config 拥有的 Server 状态。

@@ -187,8 +187,8 @@ async function runTests() {
   );
   assert.strictEqual(
     serverReadinessPath({ FARMING_BASE_PATH: '/farming' }, false, 'token with spaces'),
-    '/farming/api/executables?token=token%20with%20spaces',
-    'authenticated daemon readiness must not depend on a built frontend entry page',
+    '/farming/api/auth/status?token=token%20with%20spaces',
+    'authenticated daemon readiness must not depend on frontend assets or executable discovery',
   );
 
   {
