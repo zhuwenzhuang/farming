@@ -81,7 +81,9 @@ owned image with matching deployment metadata. Unknown ownership or process
 references preserve the image and produce a warning.
 
 One archive listing validates paths and measures expanded size before extraction;
-an unreadable or unsafe archive fails preparation.
+an unreadable or unsafe archive fails preparation. Parse quoted member names
+separately from link targets so valid internal relative links do not fail the
+member-path check.
 
 Capacity checks account for archive expansion and a complete Config copy on the
 appropriate filesystems, with 1 GiB headroom. A second check immediately before

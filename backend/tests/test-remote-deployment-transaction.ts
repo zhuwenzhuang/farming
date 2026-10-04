@@ -129,6 +129,10 @@ function verifyArchiveScan(root) {
   fs.mkdirSync(fixture);
   fs.writeFileSync(path.join(fixture, 'file with spaces'), '1234567');
   fs.symlinkSync('file with spaces', path.join(fixture, 'link'));
+  fs.mkdirSync(path.join(fixture, 'nested', 'bin'), { recursive: true });
+  fs.symlinkSync('../../file with spaces', path.join(fixture, 'nested', 'bin', 'tool'));
+  fs.linkSync(path.join(fixture, 'file with spaces'), path.join(fixture, 'hard link'));
+  fs.writeFileSync(path.join(fixture, 'quoted "name" \\ with\nnewline -> target'), '');
   const archive = path.join(root, 'scan.tar.gz');
   const scanArchive = () => spawnSync('bash', ['-c', `set -euo pipefail\n${scan}\nprintf '%s' "$ARCHIVE_UNPACKED_BYTES"`], {
     encoding: 'utf8', env: { ...process.env, ARTIFACT: archive },

@@ -252,12 +252,16 @@ fi
 
 # GNU tar preserves absolute paths for validation and emits one fixed-format
 # listing for both path safety and the pre-extraction capacity check.
-ARCHIVE_UNPACKED_BYTES="$(LC_ALL=C tar --absolute-names --numeric-owner --full-time --quoting-style=escape -tvzf "${ARTIFACT}" | awk '
+ARCHIVE_UNPACKED_BYTES="$(LC_ALL=C tar --absolute-names --numeric-owner --full-time --quoting-style=c -tvzf "${ARTIFACT}" | awk '
   {
     if (NF < 6 || $3 !~ /^[0-9]+$/) { bad=1; next }
     total += $3
     name=$0
     for (field=1; field<=5; field++) sub(/^[^[:space:]]+[[:space:]]+/, "", name)
+    # C quoting delimits the member name from symbolic/hard-link targets,
+    # including member names that contain spaces, quotes or " -> ".
+    if (!match(name, /^"([^"\\]|\\.)*"/)) { bad=1; next }
+    name=substr(name, 2, RLENGTH-2)
     if (name ~ /^\//) bad=1
     count=split(name, parts, "/")
     for (i=1; i<=count; i++) if (parts[i] == "..") bad=1

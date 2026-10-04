@@ -206,6 +206,16 @@ test('audits compact Composer and sidebar geometry across mobile widths and appe
     Object.defineProperty(navigator, 'maxTouchPoints', { value: 5, configurable: true })
   })
   await openFarming(page)
+  // Touch capability alone keeps desktop layout. Give the width-responsive
+  // New Agent action enough room before asserting the complete label.
+  await expect(page.locator('body')).not.toHaveClass(/code-compact-layout/)
+  const sidebarBounds = await page.getByTestId('code-sidebar').boundingBox()
+  const resizerBounds = await page.getByTestId('code-sidebar-resizer').boundingBox()
+  if (!sidebarBounds || !resizerBounds) throw new Error('Desktop sidebar resize handle is unavailable')
+  await page.mouse.move(resizerBounds.x + resizerBounds.width / 2, resizerBounds.y + 120)
+  await page.mouse.down()
+  await page.mouse.move(sidebarBounds.x + 360, resizerBounds.y + 120)
+  await page.mouse.up()
   await expect(page.getByTestId('code-new-agent').locator('.code-nav-label')).toHaveText('New Agent')
   await expect(page.getByTestId('code-new-agent').locator('.code-nav-label')).toBeVisible()
   const violations: string[] = []
