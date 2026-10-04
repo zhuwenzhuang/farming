@@ -47,7 +47,6 @@ function run() {
     path.join(root, 'scripts/prepare-claude-acp-vendor.ts'),
     'utf8',
   );
-  const acpRuntimeSource = fs.readFileSync(path.join(root, 'backend/acp-runtime.cts'), 'utf8');
   const preparePiAcpVendorScript = fs.readFileSync(
     path.join(root, 'scripts/prepare-pi-acp-vendor.ts'),
     'utf8',
@@ -162,16 +161,7 @@ function run() {
   const preparedCodexAcpSha256 = prepareCodexAcpVendorScript.match(
     /const expectedPatchedSha256 = '([a-f0-9]{64})';/,
   )?.[1];
-  const runtimeCodexAcpSha256 = acpRuntimeSource.match(
-    /const CODEX_ACP_SHA256 = '([a-f0-9]{64})';/,
-  )?.[1];
-  assert(preparedCodexAcpSha256, 'Codex ACP vendor preparation must pin its reviewed SHA-256');
-  assert(runtimeCodexAcpSha256, 'Codex ACP runtime launch must pin its reviewed SHA-256');
-  assert.strictEqual(
-    runtimeCodexAcpSha256,
-    preparedCodexAcpSha256,
-    'Codex ACP runtime integrity must match the reviewed vendor bytes',
-  );
+  assert(preparedCodexAcpSha256, 'Codex vendor preparation must retain its reviewed digest');
   assert(
     npmSmokeScript.includes(`const expectedCodexVendor = '${preparedCodexAcpSha256}';`),
     'npm package smoke must verify the same reviewed Codex ACP bytes',
@@ -179,16 +169,7 @@ function run() {
   const preparedClaudeAcpSha256 = prepareClaudeAcpVendorScript.match(
     /const expectedBundleSha256 = '([a-f0-9]{64})';/,
   )?.[1];
-  const runtimeClaudeAcpSha256 = acpRuntimeSource.match(
-    /const CLAUDE_ACP_SHA256 = '([a-f0-9]{64})';/,
-  )?.[1];
-  assert(preparedClaudeAcpSha256, 'Claude ACP vendor preparation must pin its reviewed SHA-256');
-  assert(runtimeClaudeAcpSha256, 'Claude ACP runtime launch must pin its reviewed SHA-256');
-  assert.strictEqual(
-    runtimeClaudeAcpSha256,
-    preparedClaudeAcpSha256,
-    'Claude ACP runtime integrity must match the reviewed vendor bytes',
-  );
+  assert(preparedClaudeAcpSha256, 'Claude vendor preparation must retain its reviewed digest');
   assert(
     npmSmokeScript.includes(`const expectedClaudeVendor = '${preparedClaudeAcpSha256}';`),
     'npm package smoke must verify the same reviewed Claude ACP bytes',
@@ -330,7 +311,7 @@ function run() {
       && releaseWorkflow.includes('npm run release:npm:smoke -- "${package_tarball}"')
       && releaseWorkflow.includes('name: farming-npm-${{ inputs.release_version }}')
       && releaseWorkflow.includes('npm publish "./${package_tarball}"')
-      && releaseWorkflow.includes('sha256sum --check'),
+      && releaseWorkflow.includes('npm-release-evidence.mjs verify'),
     'npm smoke and publication must consume the same staged tarball',
   );
   assert(

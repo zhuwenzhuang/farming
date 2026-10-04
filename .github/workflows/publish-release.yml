@@ -541,16 +541,7 @@ jobs:
           version="${FARMING_RELEASE_VERSION}"
           candidate_sha="${CANDIDATE_SHA}"
           package_tarball="npm-package/farming-code-${version}.tgz"
-          digest_file="${package_tarball}.sha256"
           test -f "${package_tarball}"
-          test -f "${digest_file}"
-          if command -v sha256sum >/dev/null 2>&1; then
-            (cd npm-package && sha256sum --check "$(basename "${digest_file}")")
-          else
-            expected="$(awk '{print $1}' "${digest_file}")"
-            actual="$(shasum -a 256 "${package_tarball}" | awk '{print $1}')"
-            [[ "${actual}" == "${expected}" ]]
-          fi
           receipt="npm-package/npm-smoke-receipt.json"
           node scripts/npm-release-evidence.mjs verify "${receipt}" "${candidate_sha}" "${package_tarball}"
           mkdir -p npm-evidence

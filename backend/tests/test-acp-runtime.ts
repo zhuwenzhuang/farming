@@ -62,6 +62,16 @@ async function run() {
   assert.strictEqual(classifyLinuxProcessGroupStats([
     '600 (unrelated) S 1 600 0',
   ], 574), 'missing');
+  const readFileSync = fs.readFileSync;
+  fs.readFileSync = (file, ...args) => {
+    assert(!/dist[\\/]acp[\\/].*\.mjs$/.test(String(file)), 'launch must not rescan prepared adapter bytes');
+    return readFileSync(file, ...args);
+  };
+  try {
+    for (const provider of ['codex', 'claude', 'pi']) resolveAcpLaunch(provider, piLaunchOptions);
+  } finally {
+    fs.readFileSync = readFileSync;
+  }
   assert.strictEqual(resolveAcpLaunch('codex').version, '2.1.0');
   assert.strictEqual(resolveAcpLaunch('claude').version, '0.84.0');
   assert.strictEqual(resolveAcpLaunch('pi', piLaunchOptions).version, '0.0.34');

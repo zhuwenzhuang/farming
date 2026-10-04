@@ -532,6 +532,7 @@ export interface AcpRuntimeContract {
     offset: number,
     maxBytes: number,
     subagentOnly?: boolean,
+    readId?: string,
   ): Promise<Record<string, unknown> | null>;
   getToolEntry(agentId: string, toolCallId: string): AcpTranscriptEntry | null;
   getToolEntryForRead(agentId: string, toolCallId: string): Promise<AcpTranscriptEntry | null>;
@@ -540,12 +541,14 @@ export interface AcpRuntimeContract {
     toolCallId: string,
     offset: number,
     maxChars: number,
+    readId?: string,
   ): Promise<Record<string, unknown> | null>;
   getToolReviewChangesPageForRead?(
     agentId: string,
     toolCallId: string,
     offset: number,
     maxChars: number,
+    readId?: string,
   ): Promise<Record<string, unknown> | null>;
   transcriptProjectionRevision(agentId: string): number;
   getSessionRequestOptions(agentId: string): AcpSessionRequestOptions;

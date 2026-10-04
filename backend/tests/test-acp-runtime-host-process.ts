@@ -319,6 +319,13 @@ async function main() {
     const mediaId = projected.entries[0].content[0].url.split('/').at(-1);
     const mediaChunks = [];
     let mediaOffset = 0;
+    let mediaReadId = '';
+    let mediaReads = 0;
+    const originalMediaRead = transcriptRuntime.getTranscriptEntryForSessionRead.bind(transcriptRuntime);
+    transcriptRuntime.getTranscriptEntryForSessionRead = (...args) => {
+      mediaReads += 1;
+      return originalMediaRead(...args);
+    };
     for (;;) {
       const chunk = await transcriptClient.request('getTranscriptMediaChunkForRead', {
         agentId: 'agent-transcript',
@@ -326,31 +333,46 @@ async function main() {
         entryId: 'large-mobile-screenshot',
         mediaId,
         offset: mediaOffset,
+        readId: mediaReadId,
         maxBytes: 4 * 1024,
       });
       assert(chunk, 'projected transcript media must remain available through bounded Host chunks');
+      mediaReadId = chunk.readId;
       mediaChunks.push(Buffer.from(chunk.dataBase64, 'base64'));
       if (chunk.nextOffset == null) break;
       assert(chunk.nextOffset > mediaOffset);
       mediaOffset = chunk.nextOffset;
     }
     assert.deepStrictEqual(Buffer.concat(mediaChunks), screenshotBytes);
+    assert.strictEqual(mediaReads, 1, 'media must be selected and decoded only once per read');
+    assert.strictEqual(transcriptHost.readSnapshots.size, 0);
 
     let serializedDetail = '';
     let detailOffset = 0;
+    let detailReadId = '';
+    let detailReads = 0;
+    const originalToolRead = transcriptRuntime.getToolEntryForRead.bind(transcriptRuntime);
+    transcriptRuntime.getToolEntryForRead = (...args) => {
+      detailReads += 1;
+      return originalToolRead(...args);
+    };
     for (;;) {
       const page = await transcriptClient.request('getToolDetailPageForRead', {
         agentId: 'agent-transcript',
         toolCallId: 'large-tool-detail',
         offset: detailOffset,
+        readId: detailReadId,
         maxChars: 4 * 1024,
       });
       assert(page, 'large tool detail must remain available through bounded Host pages');
+      detailReadId = page.readId;
       serializedDetail += page.serializedDetail;
       if (page.nextOffset == null) break;
       assert(page.nextOffset > detailOffset);
       detailOffset = page.nextOffset;
     }
+    assert.strictEqual(detailReads, 1, 'tool detail must be projected only once per read');
+    assert.strictEqual(transcriptHost.readSnapshotBytes, 0);
     const detailPayload = JSON.parse(serializedDetail);
     assert(detailPayload.detail.includes('x'.repeat(32 * 1024)));
 
@@ -395,14 +417,17 @@ async function main() {
 
     let serializedReviewChanges = '';
     let reviewOffset = 0;
+    let reviewReadId = '';
     for (;;) {
       const page = await transcriptClient.request('getToolReviewChangesPageForRead', {
         agentId: 'agent-transcript',
         toolCallId: 'large-review-change',
         offset: reviewOffset,
+        readId: reviewReadId,
         maxChars: 4 * 1024,
       });
       assert(page, 'large review changes must remain available through bounded Host pages');
+      reviewReadId = page.readId;
       serializedReviewChanges += page.serializedChanges;
       if (page.nextOffset == null) break;
       assert(page.nextOffset > reviewOffset);
@@ -557,17 +582,20 @@ async function main() {
     }];
     let pagedSerializedDetail = '';
     let pagedDetailOffset = 0;
+    let pagedReadId = '';
     let detailPages = 0;
     for (;;) {
       const page = await hardCapClient.request('getToolDetailPageForRead', {
         agentId: 'agent-hard-cap',
         toolCallId: 'five-hundred-changes',
         offset: pagedDetailOffset,
+        readId: pagedReadId,
         maxChars: 1024 * 1024,
       });
       assert(page, 'the 500-change tool detail must remain readable');
       assertHostResponseFits(page, 'every serialized tool detail page must fit below the Host response cap');
       assert(String(page.serializedDetail || '').length <= 1024 * 1024);
+      pagedReadId = page.readId;
       pagedSerializedDetail += page.serializedDetail;
       detailPages += 1;
       if (page.nextOffset == null) break;

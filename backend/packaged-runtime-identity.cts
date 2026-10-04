@@ -10,8 +10,8 @@ export interface PackagedRuntimeIdentity {
   farmingSha: string;
 }
 
-/** A build-produced digest stays beside the executable, inside the package's trust boundary. */
-export function verifyPackagedRuntimeIdentity(
+/** Validate the installed image identity without rescanning executable bytes. */
+export function readPackagedRuntimeIdentity(
   executable: string,
   expected: Pick<PackagedRuntimeIdentity, 'version' | 'platformKey' | 'sourceId'>,
 ): PackagedRuntimeIdentity {
@@ -26,6 +26,15 @@ export function verifyPackagedRuntimeIdentity(
     || !/^[a-f0-9]{64}$/.test(identity.sha256)) {
     throw new Error('Patched runtime identity does not match the reviewed source and platform');
   }
+  return identity;
+}
+
+/** Full byte verification belongs to build, transfer and installation boundaries. */
+export function verifyPackagedRuntimeIdentity(
+  executable: string,
+  expected: Pick<PackagedRuntimeIdentity, 'version' | 'platformKey' | 'sourceId'>,
+): PackagedRuntimeIdentity {
+  const identity = readPackagedRuntimeIdentity(executable, expected);
   const digest = crypto.createHash('sha256').update(fs.readFileSync(executable)).digest('hex');
   if (digest !== identity.sha256) throw new Error('Patched runtime executable digest mismatch');
   return identity;

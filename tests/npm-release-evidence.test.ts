@@ -67,7 +67,6 @@ async function observe(
       fs.copyFileSync(files.tarball, path.join(packageDirectory, path.basename(files.tarball)));
       const transferredBytes = options.workflow.corrupt ? Buffer.from('corrupted transfer') : files.bytes;
       fs.writeFileSync(path.join(packageDirectory, path.basename(files.tarball)), transferredBytes);
-      fs.writeFileSync(path.join(packageDirectory, `${path.basename(files.tarball)}.sha256`), `${crypto.createHash('sha256').update(transferredBytes).digest('hex')}  ${path.basename(files.tarball)}\n`);
       fs.writeFileSync(path.join(bin, 'npm'), '#!/bin/bash\nif [[ "$1" == view ]]; then exit "$TEST_EXISTS_EXIT"; fi\nif [[ "$1" == publish ]]; then echo upload >> "$TEST_UPLOADS"; exit "$TEST_UPLOAD_EXIT"; fi\nexit 90\n', { mode: 0o755 });
       fs.writeFileSync(path.join(bin, 'gh'), '#!/bin/bash\nprintf "%s\\n" "$*" >> "$TEST_STATUSES"\n', { mode: 0o755 });
       if (options.workflow.priorUploadExit !== undefined) {
@@ -270,7 +269,7 @@ test('a pre-upload recovery may upload once and reconciles an ambiguous CLI fail
   }
 });
 
-test('the workflow checks the smoke receipt before any upload even when a transferred SHA-256 file was also replaced', async () => {
+test('the workflow rejects corrupted bytes before upload using the smoke receipt without a checksum sidecar', async () => {
   const result = await observe((_request, response) => response.end(), {
     workflow: { recovery: false, exists: false, uploadExit: 0, corrupt: true },
   });

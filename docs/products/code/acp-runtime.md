@@ -188,6 +188,12 @@ scoped dependency override, preserving the reviewed peer-dependency resolution.
 Adapters on another SDK compatibility line retain their own reviewed pin. Every
 resulting vendor bundle requires a reviewed digest and adapter acceptance.
 
+Preparation and package acceptance verify those digests. Agent launch selects
+only the prepared vendor entry and checks that it is a regular file, without
+rehashing the bundle. Missing prepared entries fail with a repair instruction;
+launch never selects an unprepared adapter from node_modules.
+
+
 Provider policies normalize negotiated AIR v1 goal and compaction metadata at the
 ACP boundary. Codex phase classification reads both AIR v1 metadata and historical
 Codex metadata; generic transcript and UI consumers keep the shared state contract.
@@ -603,6 +609,19 @@ multi-page read by Session and Runtime epoch before assembling the existing HTTP
 response. Subagent media uses a Session-scoped route so an Entry identity cannot
 resolve against the wrong transcript. A raw transcript Entry is never the
 cross-process payload for these browser APIs.
+
+Each media, tool-detail or review read projects one immutable Host-owned snapshot.
+Continuation pages carry its opaque read ID and exact next offset; they never
+rehash or reserialize the complete payload. The snapshot belongs to its client,
+request identity, Session and Runtime epoch. Concurrent reads are independent;
+live updates do not alter an admitted snapshot. The Server checks identity,
+length and contiguous offsets before returning the assembled response. Completion,
+disconnection, Host disposal or a 30-second deadline releases retained bytes.
+The Host admits at most 32 retained snapshots and 128 MiB in aggregate (strings
+count as two bytes per character); capacity, expiry and identity failures are
+explicit read errors. A new read starts at offset zero, never resumes a lost
+snapshot across reconnect. Content-addressed media URLs still identify the
+selected attachment; local paged transport does not add a second content digest.
 
 Provider replay is authoritative. Local checkpoints accelerate projection and
 preserve reset fences, but cannot replace a full load unless the provider can

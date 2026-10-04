@@ -1,5 +1,4 @@
 const assert = require('assert');
-const crypto = require('crypto');
 const { AgentManager } = require('../agent-manager.cjs');
 const { createTestAcpRuntime, createTestAgentManager } = require('./helpers/test-acp-runtime.ts');
 
@@ -12,10 +11,6 @@ function config() {
     getAgentLaunchProfiles: () => ({}),
     getAgentHome: () => ({ id: 'default', path: '/tmp/.codex' }),
   };
-}
-
-function sha256(value: string | Buffer) {
-  return crypto.createHash('sha256').update(value).digest('hex');
 }
 
 async function run() {
@@ -57,21 +52,21 @@ async function run() {
       terminals: [],
     });
     const detailSplit = Math.floor(detailPayload.length / 2);
-    const detailHash = sha256(detailPayload);
+    const readId = 'detail-snapshot';
     runtime.getToolDetailPageForRead = async (
       requestedAgentId: string,
       toolCallId: string,
       offset: number,
     ) => {
       assert.strictEqual(requestedAgentId, agentId);
-      assert.strictEqual(toolCallId, 'tool-detail-hash-race');
+      assert.strictEqual(toolCallId, 'tool-detail-snapshot-race');
       if (offset === 0) {
         return {
           sessionId: primarySessionId,
           toolCallId,
           offset,
           totalChars: detailPayload.length,
-          detailHash,
+          readId,
           serializedDetail: detailPayload.slice(0, detailSplit),
           nextOffset: detailSplit,
         };
@@ -81,15 +76,15 @@ async function run() {
         toolCallId,
         offset,
         totalChars: detailPayload.length,
-        detailHash: sha256(`${detailPayload}:changed`),
+        readId: 'different-snapshot',
         serializedDetail: detailPayload.slice(detailSplit),
         nextOffset: null,
       };
     };
     await assert.rejects(
-      manager.getAcpToolDetail(agentId, 'tool-detail-hash-race'),
+      manager.getAcpToolDetail(agentId, 'tool-detail-snapshot-race'),
       /ACP tool detail changed during read/,
-      'tool detail pagination must reject a changed page hash',
+      'tool detail pagination must reject a changed snapshot identity',
     );
 
     runtime.getToolDetailPageForRead = async (
@@ -101,7 +96,7 @@ async function run() {
       toolCallId,
       offset,
       totalChars: detailPayload.length,
-      detailHash,
+      readId,
       serializedDetail: detailPayload.slice(0, detailSplit),
       nextOffset: detailSplit,
     } : {
@@ -109,14 +104,14 @@ async function run() {
       toolCallId,
       offset,
       totalChars: detailPayload.length,
-      detailHash,
-      serializedDetail: `${detailPayload.slice(detailSplit, -1)}x`,
+      readId,
+      serializedDetail: detailPayload.slice(detailSplit, -1),
       nextOffset: null,
     };
     await assert.rejects(
       manager.getAcpToolDetail(agentId, 'tool-detail-payload-race'),
       /ACP tool detail changed during read/,
-      'tool detail pagination must reject content that no longer matches the stable metadata hash',
+      'tool detail pagination must reject a truncated snapshot payload',
     );
 
     primarySessionId = 'primary-session-v1';
@@ -136,7 +131,7 @@ async function run() {
       toolCallId,
       offset,
       totalChars: subagentDetailPayload.length,
-      detailHash: sha256(subagentDetailPayload),
+      readId: 'child-snapshot',
       serializedDetail: subagentDetailPayload,
       nextOffset: null,
     });
@@ -192,7 +187,7 @@ async function run() {
         toolCallId,
         offset,
         totalChars: serializedChanges.length,
-        changesHash: sha256(serializedChanges),
+        readId: 'review-snapshot',
         serializedChanges,
         nextOffset: null,
       };
@@ -221,6 +216,21 @@ async function run() {
       'a subagent media route must reject the primary Session id',
     );
     assert.strictEqual(mediaPageReads, 0, 'a rejected primary Session id must not reach the media page reader');
+
+    for (const requestedSessionId of ['', 'child-session']) {
+      primarySessionId = 'primary-session-v1';
+      const media = Buffer.from('media');
+      runtime.getTranscriptMediaChunkForRead = async (_agentId, sessionId, entryId, mediaId, offset) => {
+        primarySessionId = 'primary-session-v2';
+        return { sessionId, entryId, mediaId, offset, type: 'image', mimeType: 'image/png',
+          readId: 'media-read', totalBytes: media.length, dataBase64: media.toString('base64'), nextOffset: null };
+      };
+      await assert.rejects(
+        manager.getAcpTranscriptMedia(agentId, 'entry', 'media', requestedSessionId),
+        /ACP transcript media changed during read/,
+        'media must reject a changed primary Session even when the Runtime epoch is unchanged',
+      );
+    }
 
     console.log('test-agent-manager-acp-paged-read-fencing passed');
   } finally {

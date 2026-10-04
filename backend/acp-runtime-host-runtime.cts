@@ -439,6 +439,7 @@ class AcpRuntimeHostRuntime extends EventEmitter implements AcpRuntimeContract {
     offset: number,
     maxBytes: number,
     subagentOnly = false,
+    readId = '',
   ): Promise<UnknownRecord | null> {
     await this.initialize();
     return this.client.request<UnknownRecord | null>('getTranscriptMediaChunkForRead', {
@@ -449,6 +450,7 @@ class AcpRuntimeHostRuntime extends EventEmitter implements AcpRuntimeContract {
       offset,
       maxBytes,
       subagentOnly,
+      readId,
     });
   }
 
@@ -471,6 +473,7 @@ class AcpRuntimeHostRuntime extends EventEmitter implements AcpRuntimeContract {
     toolCallId: string,
     offset: number,
     maxChars: number,
+    readId = '',
   ): Promise<UnknownRecord | null> {
     await this.initialize();
     return this.client.request<UnknownRecord | null>('getToolDetailPageForRead', {
@@ -478,6 +481,7 @@ class AcpRuntimeHostRuntime extends EventEmitter implements AcpRuntimeContract {
       toolCallId,
       offset,
       maxChars,
+      readId,
     });
   }
 
@@ -486,6 +490,7 @@ class AcpRuntimeHostRuntime extends EventEmitter implements AcpRuntimeContract {
     toolCallId: string,
     offset: number,
     maxChars: number,
+    readId = '',
   ): Promise<UnknownRecord | null> {
     await this.initialize();
     return this.client.request<UnknownRecord | null>('getToolReviewChangesPageForRead', {
@@ -493,6 +498,7 @@ class AcpRuntimeHostRuntime extends EventEmitter implements AcpRuntimeContract {
       toolCallId,
       offset,
       maxChars,
+      readId,
     });
   }
 

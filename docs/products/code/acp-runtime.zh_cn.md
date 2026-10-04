@@ -129,6 +129,10 @@ Protocol、Integrity、Recovery 与 Chat/Terminal Compatibility。
 的精确 SDK Pin，并保持已审核的 Peer Dependency 解析。使用另一 SDK 兼容版本线的 Adapter
 保留自身已审核的 Pin。每个生成的 Vendor Bundle 都必须重新审核 Digest 并通过 Adapter 验收。
 
+ACP Adapter 的内容摘要由 Vendor Preparation 和 Package Acceptance 验证。Agent 启动只选择
+已准备的 Vendor Entry 并检查普通文件类型，不再全文哈希。缺失时明确要求修复，不能回退
+到 node_modules 中尚未准备的 Adapter。
+
 Provider Policy 在 ACP 边界归一化已协商的 AIR v1 Goal 与 Compaction Metadata。Codex
 Phase 分类同时读取 AIR v1 Metadata 与历史 Codex Metadata，通用 Transcript 和 UI 继续
 消费共享 State Contract。未知 Extension 版本不能覆盖权威 Session State。
@@ -418,6 +422,14 @@ Runtime Host 会在 Transcript Page 跨越 Host Response Boundary 之前完成�
 Detail 和 Review Changes 在 Host 内派生，再分页传输。Server 组装现有 HTTP Response 前会用
 Session 和 Runtime Epoch 约束整个多页读取。Subagent Media 使用带 Session Scope 的独立路由，
 避免 Entry Identity 落到错误 Transcript；这些 Browser API 不再让原始 Transcript Entry 跨进程。
+
+每次 Media、Tool Detail 或 Review 读取只在 Host 中投影一次不可变快照。后续页携带不透明
+Read ID 和精确的下一偏移，不再对完整载荷重复哈希或序列化。快照属于其 Client、请求身份、
+Session 和 Runtime Epoch；并发读取独立，Live Update 不改变已接纳的快照。Server 返回
+拼接结果前检查身份、长度和连续偏移。读取完成、连接断开、Host 释放或 30 秒期限到达时
+释放保留内容。Host 最多保留 32 份快照、总计 128 MiB（字符串按每字符两字节计）；容量、
+过期和身份错误均显式失败。新读取从偏移零开始，重连不能续读已丢失的快照。基于内容寻址的
+Media URL 仍标识所选附件，本地分页传输不再增加第二份内容摘要。
 
 Provider Replay 是权威来源。Local Checkpoint 可以加速投影并保留 Reset Fence，但除非 Provider
 能证明 Freshness，否则不能替代完整 Load。结果不确定的 Prompt 会让 Checkpoint 保持 Dirty。

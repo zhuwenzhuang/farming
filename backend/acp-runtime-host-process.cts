@@ -80,6 +80,20 @@ interface HostMutationOperation {
   updatedAt: number;
 }
 
+interface HostReadSnapshot {
+  client: HostClient;
+  context: string;
+  data: string | Buffer;
+  metadata: UnknownRecord;
+  offset: number;
+  bytes: number;
+  timer: NodeJS.Timeout;
+}
+
+const MAX_READ_SNAPSHOT_BYTES = 128 * 1024 * 1024;
+const MAX_READ_SNAPSHOTS = 32;
+const READ_SNAPSHOT_TTL_MS = 30_000;
+
 const DEFAULT_MAX_REQUEST_BYTES = 16 * 1024 * 1024;
 const DEFAULT_MAX_BUFFERED_BYTES = 16 * 1024 * 1024;
 const DEFAULT_IDLE_EXIT_MS = 60000;
@@ -240,6 +254,8 @@ class AcpRuntimeHostProcess {
   controllerCallbacks: Map<string, PendingControllerCallback>;
   forkReservations: Map<string, HostForkReservation>;
   mutationOperations: Map<string, HostMutationOperation>;
+  readonly readSnapshots = new Map<string, HostReadSnapshot>();
+  readSnapshotBytes = 0;
 
   constructor(options: AcpRuntimeHostProcessOptions = {}) {
     const configDir = String(options.configDir || process.env.FARMING_CONFIG_DIR || '').trim();
@@ -362,6 +378,9 @@ class AcpRuntimeHostProcess {
     if (client.disconnected) return;
     client.disconnected = true;
     this.clients.delete(client);
+    for (const [id, snapshot] of this.readSnapshots) {
+      if (snapshot.client === client) this.releaseReadSnapshot(id);
+    }
     if (client.controller && this.activeControllerClient === client) {
       this.activeControllerClient = null;
       this.service.disconnectController(client.controller);
@@ -384,6 +403,72 @@ class AcpRuntimeHostProcess {
       reservation.release();
       this.forkReservations.delete(token);
     }
+  }
+
+  releaseReadSnapshot(id: string): void {
+    const snapshot = this.readSnapshots.get(id);
+    if (!snapshot) return;
+    clearTimeout(snapshot.timer);
+    this.readSnapshotBytes -= snapshot.bytes;
+    this.readSnapshots.delete(id);
+  }
+
+  async readSnapshotPage(
+    client: HostClient,
+    method: string,
+    params: UnknownRecord,
+    limit: number,
+    field: string,
+    create: () => Promise<{ data: string | Buffer; metadata: UnknownRecord } | null>,
+  ): Promise<UnknownRecord | null> {
+    if (this.disposed) throw new Error('ACP runtime host is shutting down');
+    const agentId = String(params.agentId || '');
+    const context = () => JSON.stringify([
+      method, agentId, this.runtime.bindingEpoch(agentId),
+      this.runtime.getSession(agentId, { includeEntries: false, includeUpdates: false }).sessionId,
+      params.sessionId, params.entryId, params.mediaId, params.toolCallId, params.subagentOnly === true,
+    ]);
+    const offset = Number(params.offset ?? 0);
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new Error('Invalid ACP read offset');
+    let readId = String(params.readId || '');
+    let snapshot = this.readSnapshots.get(readId);
+    if (readId) {
+      if (!snapshot || snapshot.client !== client) throw new Error('ACP read snapshot expired or unavailable');
+      if (snapshot.context !== context() || snapshot.offset !== offset) {
+        this.releaseReadSnapshot(readId);
+        throw new Error('ACP read snapshot identity or offset changed');
+      }
+    } else {
+      if (offset !== 0) throw new Error('ACP continuation requires a read snapshot');
+      const identity = context();
+      const projected = await create();
+      if (!projected) return null;
+      if (this.disposed || client.disconnected || identity !== context()) throw new Error('ACP read identity changed');
+      const { data, metadata } = projected;
+      const bytes = typeof data === 'string' ? data.length * 2 : data.length;
+      if (bytes > MAX_READ_SNAPSHOT_BYTES) throw new Error('ACP read exceeds snapshot size limit');
+      readId = crypto.randomUUID();
+      if (data.length <= limit) {
+        return { ...metadata, readId, offset, [field]: typeof data === 'string' ? data : data.toString('base64'), nextOffset: null };
+      }
+      if (this.readSnapshots.size >= MAX_READ_SNAPSHOTS
+        || this.readSnapshotBytes + bytes > MAX_READ_SNAPSHOT_BYTES) {
+        throw new Error('ACP read snapshot capacity exceeded; retry the read later');
+      }
+      const timer = setTimeout(() => this.releaseReadSnapshot(readId), READ_SNAPSHOT_TTL_MS);
+      timer.unref();
+      snapshot = { client, context: identity, data, metadata, offset: 0, bytes, timer };
+      this.readSnapshots.set(readId, snapshot);
+      this.readSnapshotBytes += bytes;
+    }
+    const end = Math.min(snapshot.data.length, offset + limit);
+    const data = typeof snapshot.data === 'string'
+      ? snapshot.data.slice(offset, end)
+      : snapshot.data.subarray(offset, end).toString('base64');
+    const nextOffset = end < snapshot.data.length ? end : null;
+    snapshot.offset = end;
+    if (nextOffset === null) this.releaseReadSnapshot(readId);
+    return { ...snapshot.metadata, readId, offset, [field]: data, nextOffset };
   }
 
   cancelIdleExit(): void {
@@ -569,96 +654,51 @@ class AcpRuntimeHostProcess {
         const sessionId = String(params.sessionId || '');
         const entryId = String(params.entryId || '');
         const mediaId = String(params.mediaId || '');
-        const offset = Math.max(0, Math.floor(Number(params.offset) || 0));
-        const maxBytes = Math.max(1, Math.min(
-          MAX_TRANSCRIPT_MEDIA_CHUNK_BYTES,
-          Math.floor(Number(params.maxBytes) || MAX_TRANSCRIPT_MEDIA_CHUNK_BYTES),
-        ));
-        const entry = this.runtime.getTranscriptEntryForSessionRead(
-          agentId,
-          sessionId,
-          entryId,
-          params.subagentOnly === true,
-        );
-        if (!entry) return null;
-        const media = acpTranscriptMedia(entry, mediaId);
-        const decoded = decodeAcpTranscriptMedia(media);
-        if (!media || !decoded || offset > decoded.content.length) return null;
-        const contentHash = crypto.createHash('sha256').update(decoded.content).digest('hex');
-        const end = Math.min(decoded.content.length, offset + maxBytes);
-        return {
-          sessionId,
-          entryId,
-          mediaId,
-          type: String(media.type || ''),
-          mimeType: decoded.mimeType,
-          totalBytes: decoded.content.length,
-          contentHash,
-          offset,
-          dataBase64: decoded.content.subarray(offset, end).toString('base64'),
-          nextOffset: end < decoded.content.length ? end : null,
-        };
+        const maxBytes = Math.max(1, Math.min(MAX_TRANSCRIPT_MEDIA_CHUNK_BYTES,
+          Math.floor(Number(params.maxBytes) || MAX_TRANSCRIPT_MEDIA_CHUNK_BYTES)));
+        return this.readSnapshotPage(client, method, params, maxBytes, 'dataBase64', async () => {
+          const entry = this.runtime.getTranscriptEntryForSessionRead(
+            agentId, sessionId, entryId, params.subagentOnly === true,
+          );
+          if (!entry) return null;
+          const media = acpTranscriptMedia(entry, mediaId);
+          const decoded = decodeAcpTranscriptMedia(media);
+          if (!media || !decoded) return null;
+          return {
+            data: decoded.content,
+            metadata: { sessionId, entryId, mediaId, type: String(media.type || ''),
+              mimeType: decoded.mimeType, totalBytes: decoded.content.length },
+          };
+        });
       }
       case 'getToolEntryForRead':
         throw new Error('ACP Runtime Host tool entries require a bounded detail read');
-      case 'getToolDetailPageForRead': {
-        const agentId = String(params.agentId || '');
-        const toolCallId = String(params.toolCallId || '');
-        const offset = Math.max(0, Math.floor(Number(params.offset) || 0));
-        const maxChars = Math.max(1, Math.min(
-          MAX_TOOL_DETAIL_PAGE_CHARS,
-          Math.floor(Number(params.maxChars) || MAX_TOOL_DETAIL_PAGE_CHARS),
-        ));
-        const entry = await this.runtime.getToolEntryForRead(agentId, toolCallId);
-        if (!entry) return null;
-        const session = this.runtime.getSession(agentId, { includeEntries: false, includeUpdates: false });
-        const subagentSessionId = String(entry?._meta?.subagent_session_info?.session_id || '');
-        const serializedDetail = JSON.stringify({
-          detail: acpToolDetail(entry),
-          changes: acpToolChanges(entry),
-          terminals: (Array.isArray(entry.content) ? entry.content : [])
-            .filter((block: UnknownRecord) => block.type === 'terminal')
-            .map((block: UnknownRecord) => ({
-              terminalId: String(block.terminalId || ''),
-              ...(block.terminal ? { terminal: block.terminal } : {}),
-            })),
-          ...(subagentSessionId ? { subagentSessionId } : {}),
-        });
-        const detailHash = crypto.createHash('sha256').update(serializedDetail).digest('hex');
-        const end = Math.min(serializedDetail.length, offset + maxChars);
-        return {
-          sessionId: String(session.sessionId || ''),
-          toolCallId,
-          offset,
-          serializedDetail: serializedDetail.slice(offset, end),
-          totalChars: serializedDetail.length,
-          detailHash,
-          nextOffset: end < serializedDetail.length ? end : null,
-        };
-      }
+      case 'getToolDetailPageForRead':
       case 'getToolReviewChangesPageForRead': {
         const agentId = String(params.agentId || '');
         const toolCallId = String(params.toolCallId || '');
-        const offset = Math.max(0, Math.floor(Number(params.offset) || 0));
-        const maxChars = Math.max(1, Math.min(
-          MAX_TOOL_DETAIL_PAGE_CHARS,
-          Math.floor(Number(params.maxChars) || MAX_TOOL_DETAIL_PAGE_CHARS),
-        ));
-        const entry = await this.runtime.getToolEntryForRead(agentId, toolCallId);
-        if (!entry) return null;
-        const session = this.runtime.getSession(agentId, { includeEntries: false, includeUpdates: false });
-        const serializedChanges = JSON.stringify(acpToolReviewChanges(entry));
-        const changesHash = crypto.createHash('sha256').update(serializedChanges).digest('hex');
-        const end = Math.min(serializedChanges.length, offset + maxChars);
-        return {
-          sessionId: String(session.sessionId || ''),
-          toolCallId,
-          offset,
-          serializedChanges: serializedChanges.slice(offset, end),
-          totalChars: serializedChanges.length,
-          changesHash,
-          nextOffset: end < serializedChanges.length ? end : null,
-        };
+        const maxChars = Math.max(1, Math.min(MAX_TOOL_DETAIL_PAGE_CHARS,
+          Math.floor(Number(params.maxChars) || MAX_TOOL_DETAIL_PAGE_CHARS)));
+        const review = method === 'getToolReviewChangesPageForRead';
+        return this.readSnapshotPage(client, method, params, maxChars,
+          review ? 'serializedChanges' : 'serializedDetail', async () => {
+            const entry = await this.runtime.getToolEntryForRead(agentId, toolCallId);
+            if (!entry) return null;
+            const session = this.runtime.getSession(agentId, { includeEntries: false, includeUpdates: false });
+            const subagentSessionId = String(entry?._meta?.subagent_session_info?.session_id || '');
+            const data = JSON.stringify(review ? acpToolReviewChanges(entry) : {
+              detail: acpToolDetail(entry),
+              changes: acpToolChanges(entry),
+              terminals: (Array.isArray(entry.content) ? entry.content : [])
+                .filter((block: UnknownRecord) => block.type === 'terminal')
+                .map((block: UnknownRecord) => ({
+                  terminalId: String(block.terminalId || ''),
+                  ...(block.terminal ? { terminal: block.terminal } : {}),
+                })),
+              ...(subagentSessionId ? { subagentSessionId } : {}),
+            });
+            return { data, metadata: { sessionId: String(session.sessionId || ''), toolCallId, totalChars: data.length } };
+          });
       }
       case 'respondPermission':
         return this.runtime.respondPermission(
@@ -968,6 +1008,7 @@ class AcpRuntimeHostProcess {
   async dispose(): Promise<void> {
     if (this.disposed) return;
     this.disposed = true;
+    for (const id of this.readSnapshots.keys()) this.releaseReadSnapshot(id);
     this.cancelIdleExit();
     const server = this.server;
     this.server = null;

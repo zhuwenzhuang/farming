@@ -59,8 +59,9 @@ export async function prepareSourceBrowserRuntime(options: {
     } finally {
       fs.rmSync(staging, { recursive: true, force: true });
     }
+  } else {
+    verify(cached);
   }
-  verify(cached);
   const destination = path.join(root, artifact.packagedEntry);
   fs.mkdirSync(path.dirname(destination), { recursive: true });
   for (const name of [artifact.entry, 'identity.json', 'LICENSE', 'NOTICE']) {

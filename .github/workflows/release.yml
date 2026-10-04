@@ -838,11 +838,6 @@ jobs:
           mkdir -p npm-upload
           node scripts/npm-release-evidence.mjs write "${package_tarball}" "farming-code@${RELEASE_VERSION}" "$(git rev-parse HEAD)" npm-upload/npm-smoke-receipt.json
           cp "${package_tarball}" npm-upload/
-          if command -v sha256sum >/dev/null 2>&1; then
-            sha256sum "${package_tarball}" | sed 's#  .*/#  #' > "npm-upload/farming-code-${RELEASE_VERSION}.tgz.sha256"
-          else
-            shasum -a 256 "${package_tarball}" | sed 's#  .*/#  #' > "npm-upload/farming-code-${RELEASE_VERSION}.tgz.sha256"
-          fi
 
       - name: Upload npm smoke receipt
         uses: actions/upload-artifact@v4

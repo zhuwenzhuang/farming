@@ -57,7 +57,9 @@ function run() {
   assert(publicationJob.includes('node scripts/verify-public-release-assets.mjs'));
   assert(publicationJob.includes('supplementalPublicFiles'));
   assert(publicationJob.includes('npm install --global npm@latest'));
-  assert(publicationJob.includes('sha256sum --check'));
+  assert(publicationJob.includes('npm-release-evidence.mjs verify'));
+  assert(!publicationJob.includes('sha256sum --check'));
+  assert(!npmPrepareJob.includes('sha256sum "${package_tarball}"'));
   assert(publicationJob.includes('npm publish "./${package_tarball}"'));
   assert(publicationJob.includes('NPM_UPLOAD_MAY_HAVE_STARTED=${recoverableNpmPublicationFailure'));
   assert(publicationJob.includes('run-id: ${{ inputs.preparation_run_id }}'));

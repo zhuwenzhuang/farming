@@ -24,7 +24,8 @@ Config 状态与 Package Image 属于不同 Owner。Config 状态按 Config 身�
 中的 Package Image 只读共享，而每套 Live Config 始终绑定启动它的精确 Image。
 
 固定 Provider、Browser 与 Project Files Search Runtime 在安装或更新前写入 Package Image。
-应用启动只验证已经准备好的 Artifact；缺失或损坏时给出可操作的修复说明，不会在启动中静默下载替代品。
+应用启动检查 Prepared Artifact 身份、路径归属、版本与可执行性；失败时给出修复说明，
+不会静默下载替代品，也不重新扫描可执行文件内容计算哈希。
 
 Project Files Search 只使用 Farming 自带、版本固定且匹配目标 OS 与 Architecture 的原生 ripgrep
 Artifact。Linux Image 使用静态 musl Build，因此该 Runtime 不增加 glibc 兼容分支。Runtime 不会用
@@ -34,6 +35,11 @@ Managed ACP Dependency 必须始终从固定 Manifest 准备；即使系统 Prov
 也不能满足该 Managed Dependency。Prepared Image 还携带目标平台所需的 Child Process
 Invocation Contract，包括必要时使用的兼容 Loader。
 
+Runtime 安装在原子发布目录前验证暂存可执行文件。目录重命名保留已验证的字节与版本探测
+结果，安装流程不立即重复这些检查。后续启动与缓存解析信任已安装 Image，仅检查元数据、
+普通文件、路径范围与配置的版本探测，不比较全文摘要，也不保证发现仍可正常运行的字节编辑。
+构建、下载、传输和安装仍是内容完整性验证边界。
+
 ### npm 生命周期脚本约束
 
 npm 安装不得为了正确运行而依赖 `preinstall`、`install`、`postinstall` 或任何其他 npm
@@ -42,7 +48,7 @@ Runtime Artifact。
 
 Release Pipeline，而不是用户的 npm Client，拥有 Runtime Prepare 与 Platform Selection 的职责。
 它必须随 Package Image 发布所需的预构建 Artifact（或由 Package Manager 声明式选择的平台包）。
-Server 启动只校验这些 Artifact；它们缺失或损坏时给出可操作的修复错误，绝不通过下载或准备来补偿。
+Server 启动检查 Artifact 身份与可执行性，失败时给出修复错误，绝不通过下载或准备来补偿。
 
 npm Image 将精确版本的 Codex 与 Claude Native Carrier 声明为受平台约束的 Optional Dependency，
 由 npm 在不执行生命周期代码的前提下按 OS、Architecture 与 libc 选择；Release Pipeline 则把经过

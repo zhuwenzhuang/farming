@@ -198,10 +198,9 @@ if [ ! -f "${ARTIFACT}" ]; then
   exit 1
 fi
 
-node --import tsx "${PROJECT_ROOT}/scripts/verify-release-bundle.ts" "${ARTIFACT}" >&2
 METADATA="$(cd "${PROJECT_ROOT}" && node --import tsx - "${ARTIFACT}" <<'NODE'
-import { readBundleRelease } from './scripts/verify-release-bundle.ts';
-const { release } = readBundleRelease(process.argv[2]);
+import { verifyReleaseBundle } from './scripts/verify-release-bundle.ts';
+const { release } = verifyReleaseBundle(process.argv[2]);
 process.stdout.write([
   release.gitSha || '', release.platform || '', release.arch || '', release.updateMethod || '',
   String(release.bundledNodeModules === true), String(release.bundledGlibcRuntime === true),
@@ -248,7 +247,7 @@ for ssh_option in ${SSH_OPTIONS[@]+"${SSH_OPTIONS[@]}"}; do
 done
 RSYNC_RSH+=" -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=2"
 echo "==> Uploading verified private Release artifact" >&2
-rsync -a --partial --checksum -e "${RSYNC_RSH}" "${ARTIFACT}" "${DESTINATION}:${REMOTE_ARTIFACT}"
+rsync -a --partial -e "${RSYNC_RSH}" "${ARTIFACT}" "${DESTINATION}:${REMOTE_ARTIFACT}"
 
 ACTIVATION_ARGS=(
   --artifact "${REMOTE_ARTIFACT}"

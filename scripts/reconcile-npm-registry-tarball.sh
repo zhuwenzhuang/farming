@@ -91,26 +91,18 @@ if (registryUrl.username !== '' || registryUrl.password !== '') {
   process.exit(2);
 }
 
-const digestOf = (algorithm, encoding) => {
-  const hash = crypto.createHash(algorithm);
-  const fd = fs.openSync(tarballPath, 'r');
-  try {
-    const buffer = Buffer.allocUnsafe(1024 * 1024);
-    let position = 0;
-    let bytesRead = fs.readSync(fd, buffer, 0, buffer.length, position);
-    while (bytesRead > 0) {
-      hash.update(bytesRead === buffer.length ? buffer : buffer.subarray(0, bytesRead));
-      position += bytesRead;
-      bytesRead = fs.readSync(fd, buffer, 0, buffer.length, position);
-    }
-  } finally {
-    fs.closeSync(fd);
+const hashes = [crypto.createHash('sha512'), crypto.createHash('sha1')];
+const fd = fs.openSync(tarballPath, 'r');
+try {
+  const buffer = Buffer.allocUnsafe(1024 * 1024);
+  for (let bytesRead; (bytesRead = fs.readSync(fd, buffer)) > 0;) {
+    for (const hash of hashes) hash.update(buffer.subarray(0, bytesRead));
   }
-  return hash.digest(encoding);
-};
-
-const localSha512 = `sha512-${digestOf('sha512', 'base64')}`;
-const localSha1 = digestOf('sha1', 'hex');
+} finally {
+  fs.closeSync(fd);
+}
+const localSha512 = `sha512-${hashes[0].digest('base64')}`;
+const localSha1 = hashes[1].digest('hex');
 
 /** SRI integrity may carry several space-separated tokens. */
 function sha512Tokens(integrity) {

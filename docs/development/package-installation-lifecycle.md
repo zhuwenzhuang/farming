@@ -30,9 +30,9 @@ installation, while every live Config remains bound to the exact Image that
 started it.
 
 Fixed provider, Browser, and Project Files search runtimes are prepared in the
-Package Image before installation or update. Application startup verifies an
-already prepared artifact and fails with an actionable repair instruction when
-it is missing or corrupt; startup does not silently download a replacement.
+Package Image before installation or update. Application startup checks prepared
+artifact identity, path ownership and version/executability, with an actionable repair instruction on failure; startup
+does not silently download a replacement or rescan executable contents for hashes.
 
 Project Files search uses the Farming-owned, version-pinned native ripgrep
 artifact for the target OS and architecture. Linux images use the static musl
@@ -45,6 +45,14 @@ matching system provider CLI cannot satisfy that managed dependency. The
 prepared image also carries the child-process invocation contract required by
 the target platform, including a compatibility loader when necessary.
 
+Runtime installation verifies the staged executable before atomically publishing
+its directory. That rename preserves the verified bytes and version-probe result;
+installation does not immediately repeat those checks. Later startup and cache
+resolution trust the installed image, checking metadata, regular files, path
+containment and configured version probes. They do not compare full-file digests
+or detect every byte edit that leaves a runtime functional. Build, download,
+transfer and installation remain the content-integrity boundaries.
+
 ### npm lifecycle-script constraint
 
 An npm installation must not depend on `preinstall`, `install`, `postinstall`,
@@ -55,8 +63,8 @@ verified runtime artifacts required for its target platform.
 The release pipeline, not the user's npm client, owns runtime preparation and
 platform selection. It must publish the required prebuilt artifacts with the
 package image (or declaratively selected platform packages). Server startup
-only verifies those artifacts and gives an actionable repair error if they are
-missing or corrupt; it never compensates by downloading or preparing them.
+checks artifact identity and executability and gives an actionable repair error
+when those checks fail; it never compensates by downloading or preparing them.
 
 The npm image declares the exact Codex and Claude native carrier packages as
 platform-constrained optional dependencies, so npm selects the matching OS,

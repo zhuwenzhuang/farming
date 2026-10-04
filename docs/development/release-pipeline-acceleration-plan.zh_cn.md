@@ -526,6 +526,9 @@ Changed Files + Failure Signatures
   Receipt，同时放在 Tarball 旁边并独立上传；协调器读取 Receipt，无需再次下载完整 Tarball。
 - 正式发布直接使用该 Tarball，不得再次运行 `prepack`、`npm pack` 或生产依赖安装。
 
+每个制品边界只读取一次文件，同时计算 Receipt 所需摘要。Smoke Receipt 是 npm 传输
+完整性的权威凭据；同一阶段不再增加 SHA-256 Sidecar，也不重新哈希同一份未变化 Tarball。
+
 ### A5. npm 最后发布
 
 - 使用全部已验证资产组装 GitHub Draft Release。

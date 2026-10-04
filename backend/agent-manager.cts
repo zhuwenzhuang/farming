@@ -7033,7 +7033,7 @@ class AgentManager extends EventEmitter {
       let mimeType = '';
       let type = '';
       let totalBytes = -1;
-      let contentHash = '';
+      let readId = '';
       const expectedRuntimeEpoch = this.acpRuntime.bindingEpoch(agentId);
       for (;;) {
         const page = await this.acpRuntime.getTranscriptMediaChunkForRead(
@@ -7044,6 +7044,7 @@ class AgentManager extends EventEmitter {
           offset,
           4 * 1024 * 1024,
           Boolean(requestedSessionId),
+          readId,
         );
         if (!page) throw new Error(offset === 0 ? 'ACP transcript media not found' : 'ACP transcript media changed during read');
         if (
@@ -7063,19 +7064,19 @@ class AgentManager extends EventEmitter {
           totalBytes = pageTotal;
           mimeType = String(page.mimeType || '');
           type = String(page.type || '');
-          contentHash = String(page.contentHash || '');
+          readId = String(page.readId || '');
         } else if (
           pageTotal !== totalBytes
           || String(page.mimeType || '') !== mimeType
           || String(page.type || '') !== type
-          || String(page.contentHash || '') !== contentHash
+          || String(page.readId || '') !== readId
         ) {
           throw new Error('ACP transcript media changed during read');
         }
         chunks.push(chunk);
         const nextOffset = page.nextOffset == null ? null : Number(page.nextOffset);
         if (nextOffset === null) break;
-        if (!Number.isSafeInteger(nextOffset) || nextOffset <= offset || nextOffset > totalBytes) {
+        if (!Number.isSafeInteger(nextOffset) || nextOffset !== offset + chunk.length || nextOffset <= offset || nextOffset > totalBytes) {
           throw new Error('ACP transcript media is invalid');
         }
         offset = nextOffset;
@@ -7083,9 +7084,9 @@ class AgentManager extends EventEmitter {
       const content = Buffer.concat(chunks);
       if (
         this.acpRuntime.bindingEpoch(agentId) !== expectedRuntimeEpoch
+        || String(this.getAcpSession(agentId).sessionId || '') !== primarySessionId
         || content.length !== totalBytes
-        || !contentHash
-        || crypto.createHash('sha256').update(content).digest('hex') !== contentHash
+        || !readId
       ) throw new Error('ACP transcript media changed during read');
       return { type, mimeType, data: content.toString('base64') };
     }
@@ -7103,10 +7104,10 @@ class AgentManager extends EventEmitter {
       const expectedRuntimeEpoch = this.acpRuntime.bindingEpoch(agentId);
       let offset = 0;
       let serializedDetail = '';
-      let detailHash = '';
+      let readId = '';
       let detailTotalChars = -1;
       for (;;) {
-        const page = await this.acpRuntime.getToolDetailPageForRead(agentId, toolCallId, offset, 1024 * 1024);
+        const page = await this.acpRuntime.getToolDetailPageForRead(agentId, toolCallId, offset, 1024 * 1024, readId);
         if (!page) throw new Error('ACP tool call not found');
         if (
           String(page.sessionId || '') !== expectedSessionId
@@ -7116,13 +7117,13 @@ class AgentManager extends EventEmitter {
           throw new Error('ACP tool detail changed during read');
         }
         if (offset === 0) {
-          detailHash = String(page.detailHash || '');
+          readId = String(page.readId || '');
           detailTotalChars = Number(page.totalChars);
           if (!Number.isSafeInteger(detailTotalChars) || detailTotalChars < 0 || detailTotalChars > 64 * 1024 * 1024) {
             throw new Error('ACP tool detail is invalid');
           }
         } else if (
-          String(page.detailHash || '') !== detailHash
+          String(page.readId || '') !== readId
           || Number(page.totalChars) !== detailTotalChars
         ) {
           throw new Error('ACP tool detail changed during read');
@@ -7130,7 +7131,7 @@ class AgentManager extends EventEmitter {
         serializedDetail += String(page.serializedDetail || '');
         const nextOffset = page.nextOffset == null ? null : Number(page.nextOffset);
         if (nextOffset === null) break;
-        if (!Number.isSafeInteger(nextOffset) || nextOffset <= offset || nextOffset > Number(page.totalChars)) {
+        if (!Number.isSafeInteger(nextOffset) || nextOffset !== offset + String(page.serializedDetail || '').length || nextOffset <= offset || nextOffset > Number(page.totalChars)) {
           throw new Error('ACP tool detail is invalid');
         }
         offset = nextOffset;
@@ -7140,8 +7141,7 @@ class AgentManager extends EventEmitter {
       }
       if (
         serializedDetail.length !== detailTotalChars
-        || !detailHash
-        || crypto.createHash('sha256').update(serializedDetail).digest('hex') !== detailHash
+        || !readId
       ) throw new Error('ACP tool detail changed during read');
       const detailPayload = JSON.parse(serializedDetail) as Record<string, unknown>;
       const subagentSessionId = String(detailPayload.subagentSessionId || '');
@@ -7273,7 +7273,7 @@ class AgentManager extends EventEmitter {
         const normalizedToolCallId = toolCallId.trim();
         let offset = 0;
         let serializedChanges = '';
-        let changesHash = '';
+        let readId = '';
         let changesTotalChars = -1;
         for (;;) {
           const page = await this.acpRuntime.getToolReviewChangesPageForRead(
@@ -7281,6 +7281,7 @@ class AgentManager extends EventEmitter {
             normalizedToolCallId,
             offset,
             1024 * 1024,
+            readId,
           );
           if (!page) throw new Error('ACP tool call not found');
           if (
@@ -7292,20 +7293,20 @@ class AgentManager extends EventEmitter {
           }
           serializedChanges += String(page.serializedChanges || '');
           if (offset === 0) {
-            changesHash = String(page.changesHash || '');
+            readId = String(page.readId || '');
             changesTotalChars = Number(page.totalChars);
             if (!Number.isSafeInteger(changesTotalChars) || changesTotalChars < 0 || changesTotalChars > 64 * 1024 * 1024) {
               throw new Error('ACP review changes are invalid');
             }
           } else if (
-            String(page.changesHash || '') !== changesHash
+            String(page.readId || '') !== readId
             || Number(page.totalChars) !== changesTotalChars
           ) {
             throw new Error('ACP review changes changed during read');
           }
           const nextOffset = page.nextOffset == null ? null : Number(page.nextOffset);
           if (nextOffset === null) break;
-          if (!Number.isSafeInteger(nextOffset) || nextOffset <= offset || nextOffset > Number(page.totalChars)) {
+          if (!Number.isSafeInteger(nextOffset) || nextOffset !== offset + String(page.serializedChanges || '').length || nextOffset <= offset || nextOffset > Number(page.totalChars)) {
             throw new Error('ACP review changes are invalid');
           }
           offset = nextOffset;
@@ -7316,10 +7317,7 @@ class AgentManager extends EventEmitter {
         if (serializedChanges.length !== changesTotalChars) {
           throw new Error('ACP review changes changed during read');
         }
-        if (
-          !changesHash
-          || crypto.createHash('sha256').update(serializedChanges).digest('hex') !== changesHash
-        ) {
+        if (!readId) {
           throw new Error('ACP review changes changed during read');
         }
         const entryChanges = JSON.parse(serializedChanges);

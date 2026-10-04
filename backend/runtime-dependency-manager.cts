@@ -10,7 +10,7 @@ import {
 import { pipeline } from 'stream/promises';
 import { Readable, Transform, type TransformCallback } from 'stream';
 import * as tar from 'tar';
-import { verifyPackagedRuntimeIdentity } from './packaged-runtime-identity.cjs';
+import { readPackagedRuntimeIdentity, verifyPackagedRuntimeIdentity } from './packaged-runtime-identity.cjs';
 
 interface StorageLayout {
   farmingConfigDir(env?: NodeJS.ProcessEnv): string;
@@ -205,7 +205,6 @@ interface RuntimeCacheRecord {
   platformKey: string;
   integrity: string;
   entry: string;
-  executableSha256: string;
   installedAt: string;
 }
 
@@ -427,10 +426,6 @@ function dependencyCacheDir(
     safeSegment(version, 'version'),
     safeSegment(platformKey, 'platform key'),
   );
-}
-
-function fileSha256(filePath: string): string {
-  return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
 }
 
 function parseIntegrity(integrity: unknown): { algorithm: 'sha256' | 'sha512'; digest: Buffer } {
@@ -917,7 +912,8 @@ async function resolveCachedRuntime(
     || record.integrity !== artifact.integrity
     || record.entry !== artifact.entry
     || !fs.existsSync(executablePath)
-    || fileSha256(executablePath) !== record.executableSha256
+    || !fs.lstatSync(executablePath).isFile()
+    || !fs.realpathSync(executablePath).startsWith(`${fs.realpathSync(cacheDir)}${path.sep}`)
   ) {
     return null;
   }
@@ -986,10 +982,9 @@ async function resolvePackagedRuntime(
   ) {
     return null;
   }
-  if (artifact.sha256 && fileSha256(realExecutablePath) !== artifact.sha256) return null;
   if (artifact.packagedIdentity) {
     try {
-      verifyPackagedRuntimeIdentity(realExecutablePath, {
+      readPackagedRuntimeIdentity(realExecutablePath, {
         version: dependency.version, platformKey, sourceId: artifact.packagedIdentity,
       });
     } catch {
@@ -1187,7 +1182,6 @@ async function installExactRuntime(
       platformKey,
       integrity: artifact.integrity,
       entry: artifact.entry,
-      executableSha256: fileSha256(executablePath),
       installedAt: new Date().toISOString(),
     });
     const hadCache = fs.existsSync(cacheDir);
@@ -1205,14 +1199,15 @@ async function installExactRuntime(
     fs.rmSync(stagingDir, { recursive: true, force: true });
     throw error;
   }
-  const resolved = await resolveCachedRuntime(
-    configDir,
-    definition.id,
+  // The verified staging directory was atomically renamed; its bytes and probe
+  // result are unchanged. Future resolutions check installed identity and version.
+  return {
+    id: definition.id,
+    version: dependency.version,
     platformKey,
-    { env: options.env },
-  );
-  if (!resolved) throw new Error(`${definition.id} runtime did not pass post-install verification`);
-  return resolved;
+    source: 'managed',
+    executablePath: path.resolve(cacheDir, artifact.entry),
+  };
 }
 
 function applyRuntimeEnvironment(

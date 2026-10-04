@@ -667,6 +667,10 @@ without reducing coverage.
 - Publish that exact tarball directly. Publication must not run `prepack`,
   `npm pack`, or another production dependency installation.
 
+At each artifact boundary, compute all receipt digests in one file pass. The
+smoke receipt is the npm transfer-integrity authority; do not add a second
+SHA-256 sidecar or hash the same unchanged tarball again in that stage.
+
 ### A5. Publish npm last
 
 - Assemble a draft GitHub Release from verified assets.

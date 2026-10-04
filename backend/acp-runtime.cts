@@ -3,13 +3,11 @@ import type { ComposerSubmissionPhase } from '../shared/composer-submission.js';
 import { EventEmitter } from 'events';
 import { normalizeNativeSubagentNotification } from './acp-native-subagents.cjs';
 import { interruptChatTurn, type ChatTurnState } from '../shared/chat-turn-state.js';
-const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { execFile, spawn } = require('child_process');
 const { Readable, Writable } = require('stream');
-const { createRequire } = require('module');
 const { pathToFileURL } = require('url');
 const { promisify } = require('util');
 const packageJson = require('../package.json');
@@ -334,13 +332,10 @@ const CODEX_STEER_METHOD = '_codex/session/steer';
 const SESSION_STEERING_METHOD = '_session/steering';
 const CODEX_ACP_PACKAGE = '@agentclientprotocol/codex-acp';
 const CODEX_ACP_VERSION = '2.1.0';
-const CODEX_ACP_SHA256 = 'cff93fc8d1a3befd3dbfa12afe466e16dc2b38e92e459741ec80d86ef31aa548';
 const CLAUDE_ACP_PACKAGE = '@agentclientprotocol/claude-agent-acp';
 const CLAUDE_ACP_VERSION = '0.84.0';
-const CLAUDE_ACP_SHA256 = '2723b81ed5635af6a506685325e7664c4c3acdb60bcfe4d4d6b951b5ae3f6f84';
 const PI_ACP_PACKAGE = 'pi-acp';
 const PI_ACP_VERSION = '0.0.34';
-const PI_ACP_SHA256 = 'e8d0471a41ae9a66d0237357febc2affbbe1e1e4f0b78dcf7d84239e5f123e2b';
 const CODEX_ACP_VENDOR_ENTRY = path.join(
   __dirname,
   '..',
@@ -404,62 +399,20 @@ function sameSessionConfigChanges(left: SessionConfigChange[], right: SessionCon
 }
 
 let sdkPromise: Promise<AcpSdk> | undefined;
-const runtimeRequire = createRequire(__filename);
 function loadAcpSdk() {
   if (!sdkPromise) sdkPromise = import('@agentclientprotocol/sdk');
   return sdkPromise!;
 }
 
-function fileSha256(filePath: string) {
-  return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
-}
-
-function verifiedCodexAcpEntry(entry: string) {
-  const actualSha256 = fileSha256(entry);
-  if (actualSha256 !== CODEX_ACP_SHA256) {
-    throw new Error(
-      `Codex ACP runtime failed integrity verification: expected ${CODEX_ACP_SHA256}, found ${actualSha256}`,
-    );
-  }
-  return entry;
-}
-
 function adapterEntry(packageName: string) {
-  if (packageName === CODEX_ACP_PACKAGE && fs.existsSync(CODEX_ACP_VENDOR_ENTRY)) {
-    return verifiedCodexAcpEntry(CODEX_ACP_VENDOR_ENTRY);
+  // Preparation and package acceptance own byte-integrity verification.
+  // Launch only selects a prepared, pinned adapter; never an unprepared SDK copy.
+  const entry = packageName === CODEX_ACP_PACKAGE ? CODEX_ACP_VENDOR_ENTRY
+    : packageName === CLAUDE_ACP_PACKAGE ? CLAUDE_ACP_VENDOR_ENTRY
+      : packageName === PI_ACP_PACKAGE ? PI_ACP_VENDOR_ENTRY : '';
+  if (!entry || !fs.existsSync(entry) || !fs.lstatSync(entry).isFile()) {
+    throw new Error(`Prepared ACP adapter ${packageName} is unavailable. Reinstall Farming or run npm run prepare:acp-vendor.`);
   }
-  if (packageName === CLAUDE_ACP_PACKAGE && fs.existsSync(CLAUDE_ACP_VENDOR_ENTRY)) {
-    const actualSha256 = fileSha256(CLAUDE_ACP_VENDOR_ENTRY);
-    if (actualSha256 !== CLAUDE_ACP_SHA256) {
-      throw new Error(
-        `Claude ACP runtime failed integrity verification: expected ${CLAUDE_ACP_SHA256}, found ${actualSha256}`,
-      );
-    }
-    return CLAUDE_ACP_VENDOR_ENTRY;
-  }
-  if (packageName === PI_ACP_PACKAGE && fs.existsSync(PI_ACP_VENDOR_ENTRY)) {
-    const actualSha256 = fileSha256(PI_ACP_VENDOR_ENTRY);
-    if (actualSha256 !== PI_ACP_SHA256) {
-      throw new Error(
-        `Pi ACP runtime failed integrity verification: expected ${PI_ACP_SHA256}, found ${actualSha256}`,
-      );
-    }
-    return PI_ACP_VENDOR_ENTRY;
-  }
-  if (packageName === PI_ACP_PACKAGE) {
-    throw new Error(
-      'The reviewed Pi ACP runtime is unavailable. Reinstall Farming or run npm run prepare:acp-vendor.',
-    );
-  }
-  let sdkDirectory;
-  try {
-    sdkDirectory = path.dirname(runtimeRequire.resolve('@agentclientprotocol/sdk'));
-  } catch {
-    throw new Error('ACP runtime packages are unavailable in this installation. Use the npm or app-bundle distribution.');
-  }
-  const entry = path.resolve(sdkDirectory, '..', '..', packageName.split('/').pop(), 'dist', 'index.js');
-  if (!fs.existsSync(entry)) throw new Error(`ACP adapter is not installed: ${packageName}`);
-  if (packageName === CODEX_ACP_PACKAGE) return verifiedCodexAcpEntry(entry);
   return entry;
 }
 

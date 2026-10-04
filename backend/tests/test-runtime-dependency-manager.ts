@@ -160,13 +160,24 @@ async function run() {
     assert.strictEqual(reused.binding.manifestId, MANIFEST.manifestId);
     for (const change of [
       { version: 'other-version' }, { platformKey: 'other-platform' },
-      { integrity: 'changed-artifact' }, { executableSha256: '0'.repeat(64) },
+      { integrity: 'changed-artifact' },
     ]) {
       fs.writeFileSync(recordPath, JSON.stringify({ ...record, ...change }));
       await assert.rejects(prepare, /cache miss/);
     }
     fs.writeFileSync(recordPath, JSON.stringify(record));
-    fs.appendFileSync(executable, '\n// corrupt cached bytes\n');
+    fs.appendFileSync(executable, process.platform === 'win32' ? '\r\nREM local comment\r\n' : '\n// local comment\n');
+    const readFileSync = fs.readFileSync;
+    fs.readFileSync = (file, ...args) => {
+      assert.notStrictEqual(String(file), executable, 'startup must not read executable bytes to hash them');
+      return readFileSync(file, ...args);
+    };
+    try {
+      assert.strictEqual((await prepare()).dependencies[0].executablePath, executable);
+    } finally {
+      fs.readFileSync = readFileSync;
+    }
+    fs.rmSync(executable);
     await assert.rejects(prepare, /cache miss/);
   }
   const seedRoot = path.join(root, 'install-seed');
@@ -245,9 +256,17 @@ async function run() {
   });
   assert.strictEqual(packagedFetches, 0);
   assert.strictEqual(packaged.dependencies[0].source, 'managed');
+  const { readPackagedRuntimeIdentity, verifyPackagedRuntimeIdentity } = require('../packaged-runtime-identity.cjs');
+  const expectedIdentity = { version: browserDependency.version, platformKey: seedPlatformKey, sourceId: browserArtifact.packagedIdentity };
+  fs.writeFileSync(identityFile, JSON.stringify({ ...packagedIdentity, sha256: '0'.repeat(64) }));
+  assert.strictEqual(readPackagedRuntimeIdentity(packagedBrowser, expectedIdentity).version, browserDependency.version);
+  assert.throws(() => verifyPackagedRuntimeIdentity(packagedBrowser, expectedIdentity), /digest mismatch/,
+    'installation/build verification must still reject mismatched bytes');
+  fs.writeFileSync(identityFile, JSON.stringify(packagedIdentity));
+
   // Package-only resolution fails closed even when downloads are permitted.
   for (const identity of [null, { ...packagedIdentity, sourceId: '0'.repeat(64) },
-    { ...packagedIdentity, sha256: '0'.repeat(64) }]) {
+    { ...packagedIdentity, sha256: 'invalid-digest' }]) {
     if (identity) fs.writeFileSync(identityFile, JSON.stringify(identity));
     else fs.rmSync(identityFile);
     await assert.rejects(prepareRuntimeDependencies({
