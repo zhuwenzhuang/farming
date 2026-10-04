@@ -216,7 +216,11 @@ stopped or failed; it does not archive the Agent or remove its Project. The
 backend inventory and durable record own this row through refresh and restart.
 The selected row stays open for inspection with an explicit stopped notice. Terminal
 and composer input are disabled after exit. A temporary identity cannot claim a history row or authorize Resume;
-viewing the row never starts a replacement or replays input. Explicit Archive
+viewing the row never starts a replacement or replays input. Its stopped notice
+offers History navigation and New Agent. New Agent opens the existing launch
+dialog with the same workspace and Provider preselected; only explicit submission
+starts a new conversation. History is a fresh global inventory, not an asserted
+match to the unmaterialized session. Explicit Archive
 removes the row. Such stopped rows are not automatic selection successors when
 another Agent is removed. Ordinary Shell exit and materialized Provider Session
 history replacement keep their existing behavior.

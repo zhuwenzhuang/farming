@@ -121,6 +121,7 @@ function ComposerSpeedIcon() {
 interface CodeComposerProps {
   agentId: string
   active: boolean
+  inactivePlaceholder?: string
   agentKind: ComposerAgentKind
   capabilities: AgentComposerCapabilities
   slashCommands: SlashCommandOption[]
@@ -200,6 +201,7 @@ interface CodeComposerProps {
 export function CodeComposer({
   agentId,
   active,
+  inactivePlaceholder,
   agentKind,
   capabilities,
   slashCommands,
@@ -840,7 +842,7 @@ export function CodeComposer({
             event.stopPropagation()
             editor.submit(() => onSubmit(composerDraftForSubmit(event.currentTarget.value, latestDraftRef.current)))
           }}
-          placeholder={active ? composerModePlaceholder(copy, composerMode, agentKind) : copy.openAgentTerminalFirst}
+          placeholder={active ? composerModePlaceholder(copy, composerMode, agentKind) : inactivePlaceholder || copy.openAgentTerminalFirst}
           disabled={!active}
       />
       {mobileDictationHintVisible && !speechListening && (

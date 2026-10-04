@@ -1381,6 +1381,8 @@ export function CodeMainArea({
             switching={agent.id === permissionSwitchingAgentId}
             switchingKind={agent.id === permissionSwitchingAgentId ? agentSwitchingKind : null}
             onActivate={onOpenTerminal}
+            onOpenHistory={readOnly ? undefined : onOpenHistory}
+            onNewAgent={readOnly ? undefined : onNewAgent}
             onOpenPath={onOpenTerminalPath}
             onResolvePath={onResolveTerminalPath}
             onSearchTerminalWord={onSearchTerminalWord}

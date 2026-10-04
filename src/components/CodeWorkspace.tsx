@@ -6327,6 +6327,7 @@ export function CodeWorkspace({
         }}
         composerProps={{
           active: Boolean(activeAgent && isOpenableAgent(activeAgent)) && !activeAgentPermissionSwitching,
+          inactivePlaceholder: activeAgent?.status === 'stopped' || activeAgent?.status === 'dead' ? copy.terminalStopped : undefined,
           agentKind: composerAgentKind,
           capabilities: activeAgentCapabilities.composer,
           slashCommands: composerSlashCommands,

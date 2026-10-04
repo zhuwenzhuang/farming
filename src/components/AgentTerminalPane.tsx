@@ -31,6 +31,8 @@ interface AgentTerminalPaneProps {
   onSearchWord?: (agentId: string, query: string) => void
   onOpenUrlInFarming?: (agentId: string, url: string) => void
   onFollowOutputChange?: (agentId: string, state: TerminalFollowState) => void
+  onOpenHistory?: () => void
+  onNewAgent?: () => void
   onReadLatest?: (
     agentId: string,
     readCut?: { runtimeEpoch: string; outputSeq: number } | null,
@@ -122,6 +124,8 @@ export function AgentTerminalPane({
   onOpenUrlInFarming,
   onFollowOutputChange,
   onReadLatest,
+  onOpenHistory,
+  onNewAgent,
   copy,
 }: AgentTerminalPaneProps) {
   const terminalEnded = agent.status === 'stopped' || agent.status === 'dead'
@@ -466,8 +470,20 @@ export function AgentTerminalPane({
         </div>
       ) : null}
       {terminalEnded ? (
-        <div className="code-terminal-status-card" data-testid="code-terminal-stopped" role="status">
+        <div
+          className="code-terminal-status-card stopped"
+          data-testid="code-terminal-stopped"
+          role="status"
+          onPointerDown={event => event.stopPropagation()}
+          onMouseDown={event => event.stopPropagation()}
+        >
           <span>{copy.terminalStopped}</span>
+          {agent.providerSessionTemporary === true && (onOpenHistory || onNewAgent) ? (
+            <div className="code-terminal-stopped-actions">
+              {onOpenHistory ? <button type="button" onClick={onOpenHistory}>{copy.history}</button> : null}
+              {onNewAgent ? <button type="button" onClick={onNewAgent}>{copy.newAgent}</button> : null}
+            </div>
+          ) : null}
         </div>
       ) : null}
       {!terminalEnded && terminalError ? (

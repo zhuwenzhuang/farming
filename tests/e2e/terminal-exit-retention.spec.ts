@@ -17,6 +17,12 @@ test('Ctrl+C retains an unmaterialized Provider Terminal and Project across reop
     expect(response.ok()).toBeTruthy()
     return (await response.json() as { agents: Agent[] }).agents.find(agent => agent.id === agentId)
   }
+  let checkingNavigationOnly = false
+  const unexpectedTerminalInputs: string[] = []
+  page.on('websocket', socket => socket.on('framesent', frame => {
+    const message = JSON.parse(String(frame.payload)) as { type: string }
+    if (checkingNavigationOnly && message.type === 'input') unexpectedTerminalInputs.push(String(frame.payload))
+  }))
   await openFarming(page)
   const row = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
   await row.click()
@@ -26,16 +32,43 @@ test('Ctrl+C retains an unmaterialized Provider Terminal and Project across reop
   expect((await readAgent())?.providerSessionTemporary).toBe(true)
   await pane.click()
   await page.keyboard.press('Control+c')
-  await expect.poll(async () => (await readAgent())?.status).toBe('stopped')
+  await expect.poll(async () => (await readAgent())?.status).toMatch(/^(stopped|dead)$/)
   await expect(row).toBeVisible()
   await expect(pane).toBeVisible()
   await expect(page.getByTestId('code-terminal-stopped')).toBeVisible()
   await expect(page.getByTestId('code-composer-input')).toBeDisabled()
+  await expect(page.getByTestId('code-composer-input')).toHaveAttribute('placeholder', 'Agent stopped. Terminal is read-only.')
   await expect(page.getByTestId('code-composer-send')).toBeDisabled()
   await expect(page.getByTestId('code-project-title').filter({ hasText: 'terminal-exit-demo' })).toBeVisible()
   const sentBefore = await page.evaluate(id => window.__farmingTerminalTest?.getInputCount(id), agentId)
   await page.keyboard.type('do not replay')
   expect(await page.evaluate(id => window.__farmingTerminalTest?.getInputCount(id), agentId)).toBe(sentBefore)
+  checkingNavigationOnly = true
+  const beforeActions = await page.request.get('/farming/api/control/agents')
+  const beforeAgentIds = (await beforeActions.json() as { agents: Agent[] }).agents.map(agent => agent.id).sort()
+  const unexpectedMutations: string[] = []
+  page.on('request', request => {
+    if (request.method() === 'POST' && /\/api\/(?:control\/agents(?:\/[^/]+\/input)?|agent-sessions\/[^/]+\/[^/]+\/resume)(?:\?|$)/.test(request.url())) {
+      unexpectedMutations.push(request.url())
+    }
+  })
+  const stoppedNotice = page.getByTestId('code-terminal-stopped')
+  await stoppedNotice.getByRole('button', { name: 'History', exact: true }).click()
+  await expect(page.getByTestId('code-history-panel')).toBeVisible()
+  await row.click()
+  await expect(stoppedNotice).toBeVisible()
+  await stoppedNotice.getByRole('button', { name: 'New Agent', exact: true }).click()
+  await expect(page.getByTestId('input-dialog')).toBeVisible()
+  await expect(page.getByTestId('workspace-input')).toHaveValue(workspace)
+  await expect(page.getByRole('group', { name: 'Codex runtime', exact: true })).toBeVisible()
+  await page.getByTestId('input-dialog-close').click()
+  await expect(page.getByTestId('input-dialog')).toBeHidden()
+  const afterActions = await page.request.get('/farming/api/control/agents')
+  expect((await afterActions.json() as { agents: Agent[] }).agents.map(agent => agent.id).sort()).toEqual(beforeAgentIds)
+  expect(unexpectedMutations).toEqual([])
+  expect(unexpectedTerminalInputs).toEqual([])
+  expect((await readAgent())?.status).toMatch(/^(stopped|dead)$/)
+  await expect(stoppedNotice).toBeVisible()
   for (const appearance of ['light', 'dark', 'paper']) {
     await page.evaluate(value => {
       document.documentElement.dataset.appearance = value
@@ -50,10 +83,12 @@ test('Ctrl+C retains an unmaterialized Provider Terminal and Project across reop
   await page.reload()
   await expect(row).toBeVisible()
   await expect(pane).toBeVisible()
-  expect((await readAgent())?.status).toBe('stopped')
+  expect((await readAgent())?.status).toMatch(/^(stopped|dead)$/)
   await page.goto(`/farming/crt/?agent=${encodeURIComponent(agentId)}`)
   await expect(page.locator('#session-modal')).toHaveClass(/active/)
-  expect((await readAgent())?.status).toBe('stopped')
+  expect(['stopped', 'dead']).toContain((await readAgent())?.status)
+  expect(unexpectedMutations).toEqual([])
+  expect(unexpectedTerminalInputs).toEqual([])
 })
 
 

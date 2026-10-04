@@ -278,6 +278,18 @@
   border-color: var(--code-border);
 }
 
+.code-terminal-status-card.stopped {
+  flex-direction: column;
+  padding: 10px 12px;
+}
+
+.code-terminal-stopped-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
 .code-terminal-status-card span {
   min-width: 0;
   overflow: hidden;
