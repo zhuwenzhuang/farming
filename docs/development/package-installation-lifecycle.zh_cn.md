@@ -27,6 +27,9 @@ Config 状态与 Package Image 属于不同 Owner。Config 状态按 Config 身�
 应用启动检查 Prepared Artifact 身份、路径归属、版本与可执行性；失败时给出修复说明，
 不会静默下载替代品，也不重新扫描可执行文件内容计算哈希。
 
+源码构建在前端输出清理后准备本机运行时。发布构建由 Package Image 的所有者统一准备
+目标平台运行时，确保每个选中的产物只在清理后准备一次。
+
 Project Files Search 只使用 Farming 自带、版本固定且匹配目标 OS 与 Architecture 的原生 ripgrep
 Artifact。Linux Image 使用静态 musl Build，因此该 Runtime 不增加 glibc 兼容分支。Runtime 不会用
 系统 `rg`、WebAssembly 实现或其它 Search Command 替代 Managed Artifact。

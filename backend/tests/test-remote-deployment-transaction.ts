@@ -121,6 +121,35 @@ async function waitForFile(filePath, timeoutMs = 2_000) {
   throw new Error(`Timed out waiting for ${filePath}`);
 }
 
+function verifyArchiveScan(root) {
+  const source = fs.readFileSync(activator, 'utf8');
+  const scan = source.slice(source.indexOf('ARCHIVE_UNPACKED_BYTES='), source.indexOf('\nrun_node() {'));
+  assert(scan.startsWith('ARCHIVE_UNPACKED_BYTES='));
+  const fixture = path.join(root, 'scan-input');
+  fs.mkdirSync(fixture);
+  fs.writeFileSync(path.join(fixture, 'file with spaces'), '1234567');
+  fs.symlinkSync('file with spaces', path.join(fixture, 'link'));
+  const archive = path.join(root, 'scan.tar.gz');
+  const scanArchive = () => spawnSync('bash', ['-c', `set -euo pipefail\n${scan}\nprintf '%s' "$ARCHIVE_UNPACKED_BYTES"`], {
+    encoding: 'utf8', env: { ...process.env, ARTIFACT: archive },
+  });
+  for (const prefix of ['', '../', '/absolute/']) {
+    const packed = spawnSync('tar', ['-czf', archive, ...(prefix ? ['--transform', `s,^,${prefix},`] : []), '-C', fixture, '.'], { encoding: 'utf8' });
+    assert.strictEqual(packed.status, 0, packed.stderr);
+    const result = scanArchive();
+    if (!prefix) {
+      assert.strictEqual(result.status, 0, result.stderr);
+      assert.strictEqual(result.stdout, '7');
+    } else {
+      assert.notStrictEqual(result.status, 0, 'unsafe archive must fail before extraction');
+      assert.match(result.stderr, /unsafe archive path/);
+    }
+  }
+  // A failed tar must not be hidden by a successful downstream awk process.
+  fs.writeFileSync(archive, 'not a gzip archive');
+  assert.notStrictEqual(scanArchive().status, 0);
+}
+
 async function run() {
   if (process.platform !== 'linux' || !commandExists('flock')) {
     console.log('✓ remote deployment transaction test requires Linux flock (skipped)');
@@ -131,6 +160,7 @@ async function run() {
   const remoteDir = path.join(root, 'farming');
   const configDir = path.join(root, 'config');
   try {
+    verifyArchiveScan(root);
     const absentConfigDir = path.join(root, 'absent-config');
     const absentConfigSnapshot = path.join(root, '.absent-config.farming-deploy-backup-old-image');
     fs.mkdirSync(absentConfigSnapshot);

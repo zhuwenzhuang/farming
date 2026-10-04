@@ -34,6 +34,10 @@ Package Image before installation or update. Application startup checks prepared
 artifact identity, path ownership and version/executability, with an actionable repair instruction on failure; startup
 does not silently download a replacement or rescan executable contents for hashes.
 
+Source builds prepare host runtimes after frontend output cleanup. Release builds
+leave platform runtime preparation to the package-image owner, so each selected
+artifact is prepared once after that cleanup.
+
 Project Files search uses the Farming-owned, version-pinned native ripgrep
 artifact for the target OS and architecture. Linux images use the static musl
 build so this runtime does not add a glibc compatibility branch. A system

@@ -80,6 +80,9 @@ successful upgrade before old images can be reclaimed. Deletion requires an
 owned image with matching deployment metadata. Unknown ownership or process
 references preserve the image and produce a warning.
 
+One archive listing validates paths and measures expanded size before extraction;
+an unreadable or unsafe archive fails preparation.
+
 Capacity checks account for archive expansion and a complete Config copy on the
 appropriate filesystems, with 1 GiB headroom. A second check immediately before
 stop includes runtime preparation's actual disk use. These checks reject

@@ -250,14 +250,26 @@ if [ "${ACTUAL_CHECKSUM}" != "${EXPECTED_CHECKSUM}" ]; then
   exit 1
 fi
 
-if tar -tzf "${ARTIFACT}" | awk '
-  /^\// { bad=1 }
-  { count=split($0, parts, "/"); for (i=1; i<=count; i++) if (parts[i] == "..") bad=1 }
-  END { exit bad ? 0 : 1 }
-'; then
-  echo "Deployment artifact contains an unsafe archive path." >&2
+# GNU tar preserves absolute paths for validation and emits one fixed-format
+# listing for both path safety and the pre-extraction capacity check.
+ARCHIVE_UNPACKED_BYTES="$(LC_ALL=C tar --absolute-names --numeric-owner --full-time --quoting-style=escape -tvzf "${ARTIFACT}" | awk '
+  {
+    if (NF < 6 || $3 !~ /^[0-9]+$/) { bad=1; next }
+    total += $3
+    name=$0
+    for (field=1; field<=5; field++) sub(/^[^[:space:]]+[[:space:]]+/, "", name)
+    if (name ~ /^\//) bad=1
+    count=split(name, parts, "/")
+    for (i=1; i<=count; i++) if (parts[i] == "..") bad=1
+  }
+  END {
+    if (bad) exit 1
+    printf "%.0f\n", total
+  }
+')" || {
+  echo "Deployment artifact contains an unsafe archive path or could not be scanned." >&2
   exit 1
-fi
+}
 
 run_node() {
   local runtime_root="$1"
@@ -578,7 +590,7 @@ check_preparation_space() {
   snapshot="$(config_snapshot_bytes)"
   config_filesystem="$(existing_parent "$CONFIG_PARENT")"
   if [ ! -d "$IMAGE_ROOT" ]; then
-    unpacked="$(LC_ALL=C tar -tvzf "$ARTIFACT" | awk '{total += $3} END {printf "%.0f\n", total}')"
+    unpacked="$ARCHIVE_UNPACKED_BYTES"
   fi
   # Account for the Config copy on its own filesystem, plus 1 GiB headroom
   # for compatibility extraction, runtime preparation and concurrent writes.

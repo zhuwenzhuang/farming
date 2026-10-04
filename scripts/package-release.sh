@@ -186,7 +186,7 @@ if [ "${GIT_DIRTY}" = "true" ]; then
 fi
 
 log "Building frontend for base path ${BASE_PATH} ..."
-(cd "${PROJECT_ROOT}" && FARMING_BASE_PATH="${BASE_PATH}" npm run build >&2)
+(cd "${PROJECT_ROOT}" && FARMING_BASE_PATH="${BASE_PATH}" npm run build:package >&2)
 
 runtime_platform_key="${TARGET_PLATFORM}-${TARGET_ARCH}"
 if glibc_runtime_requested; then

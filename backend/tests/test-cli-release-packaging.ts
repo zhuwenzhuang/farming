@@ -88,7 +88,7 @@ function run() {
     packageScript.includes('--public')
       && packageScript.includes('--no-bytecode')
       && packageScript.includes('--fallback-to-source')
-      && packageScript.includes('prepare:ripgrep-runtime -- --platform all')
+      && packageScript.includes('npm run prepare:packaged-runtimes')
       && packageScript.includes('Failed to generate V8 bytecode.*Use --fallback-to-source')
       && packageScript.includes('refusing to publish a broken CLI'),
     'CLI packaging must avoid host-specific bytecode for cross-target binaries and reject missing code',
@@ -276,12 +276,22 @@ function run() {
   );
   assert(
     packageJson.scripts?.['prepare:ripgrep-runtime']
-      && packageJson.scripts?.build.split(' && ').includes('vite build')
+      && packageJson.scripts?.['build:assets'].split(' && ').includes('vite build')
       && packageJson.scripts?.build.split(' && ').indexOf('npm run prepare:ripgrep-runtime')
-        > packageJson.scripts?.build.split(' && ').indexOf('vite build')
+        > packageJson.scripts?.build.split(' && ').indexOf('npm run build:assets')
       && packageJson.scripts?.pretest.includes('prepare:ripgrep-runtime')
       && packageJson.scripts?.['prepare:packaged-runtimes'],
     'source builds must prepare ripgrep after Vite clears dist, while tests, npm, and target releases also prepare it',
+  );
+  assert(
+    !packageJson.scripts.prebuild.includes('prepare:acp-vendor')
+      && packageJson.scripts['build:assets'].indexOf('prepare:acp-vendor') > packageJson.scripts['build:assets'].indexOf('vite build')
+      && packageJson.scripts['build:package'] === 'npm run prebuild && npm run build:assets'
+      && packageJson.scripts.prepack.includes('npm run build:package && npm run prepare:packaged-runtimes')
+      && packageScript.includes('npm run build:package')
+      && appPackageScript.includes('npm run build:package')
+      && !packageScript.includes('npm run prepare:ripgrep-runtime'),
+    'builds prepare ACP only after Vite; packaging prepares target runtimes once through the packaged-runtime owner',
   );
   assert(
     farmingLauncher.includes('FARMING_PACKAGED_RUNTIME_ROOT')
