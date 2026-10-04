@@ -31,8 +31,8 @@ interface AgentTerminalPaneProps {
   onSearchWord?: (agentId: string, query: string) => void
   onOpenUrlInFarming?: (agentId: string, url: string) => void
   onFollowOutputChange?: (agentId: string, state: TerminalFollowState) => void
-  onOpenHistory?: () => void
-  onNewAgent?: () => void
+  onResume?: () => void
+  onArchive?: () => void
   onReadLatest?: (
     agentId: string,
     readCut?: { runtimeEpoch: string; outputSeq: number } | null,
@@ -124,8 +124,8 @@ export function AgentTerminalPane({
   onOpenUrlInFarming,
   onFollowOutputChange,
   onReadLatest,
-  onOpenHistory,
-  onNewAgent,
+  onResume,
+  onArchive,
   copy,
 }: AgentTerminalPaneProps) {
   const terminalEnded = agent.status === 'stopped' || agent.status === 'dead'
@@ -478,10 +478,10 @@ export function AgentTerminalPane({
           onMouseDown={event => event.stopPropagation()}
         >
           <span>{copy.terminalStopped}</span>
-          {agent.providerSessionTemporary === true && (onOpenHistory || onNewAgent) ? (
+          {onResume || onArchive ? (
             <div className="code-terminal-stopped-actions">
-              {onOpenHistory ? <button type="button" onClick={onOpenHistory}>{copy.history}</button> : null}
-              {onNewAgent ? <button type="button" onClick={onNewAgent}>{copy.newAgent}</button> : null}
+              {onResume ? <button type="button" onClick={onResume}>{copy.resumeAgent}</button> : null}
+              {onArchive ? <button type="button" onClick={onArchive}>{copy.archiveAgent}</button> : null}
             </div>
           ) : null}
         </div>

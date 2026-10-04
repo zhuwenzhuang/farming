@@ -346,6 +346,8 @@ interface CodeMainAreaProps {
   now: number
   composerProps: ComposerProps
   acpComposerProps: AcpComposerProps
+  onResumeStoppedAgent: (agentId: string) => void
+  onArchiveStoppedAgent: (agentId: string) => void
   onNewAgent: (workspace?: string, command?: string) => void
   onOpenHistory: () => void
   onOpenPlugins: () => void
@@ -663,6 +665,8 @@ export function CodeMainArea({
   now,
   composerProps,
   acpComposerProps,
+  onResumeStoppedAgent,
+  onArchiveStoppedAgent,
   onNewAgent,
   onOpenHistory,
   onOpenPlugins,
@@ -1381,8 +1385,8 @@ export function CodeMainArea({
             switching={agent.id === permissionSwitchingAgentId}
             switchingKind={agent.id === permissionSwitchingAgentId ? agentSwitchingKind : null}
             onActivate={onOpenTerminal}
-            onOpenHistory={readOnly ? undefined : onOpenHistory}
-            onNewAgent={readOnly ? undefined : onNewAgent}
+            onResumeStoppedAgent={readOnly ? undefined : onResumeStoppedAgent}
+            onArchiveStoppedAgent={readOnly ? undefined : onArchiveStoppedAgent}
             onOpenPath={onOpenTerminalPath}
             onResolvePath={onResolveTerminalPath}
             onSearchTerminalWord={onSearchTerminalWord}

@@ -41,8 +41,8 @@ interface AgentWorkPaneProps {
   onOpenUrlInFarming?: (agentId: string, url: string) => void
   onFollowOutputChange?: (agentId: string, state: TerminalFollowState) => void
   onReadLatest?: (agentId: string, readCut?: { runtimeEpoch: string; outputSeq: number } | null) => void
-  onOpenHistory?: () => void
-  onNewAgent?: (workspace?: string, command?: string) => void
+  onResumeStoppedAgent?: (agentId: string) => void
+  onArchiveStoppedAgent?: (agentId: string) => void
   onRuntimeModeChange?: (agentId: string, mode: 'terminal' | 'chat') => void
   onForkAgent?: (
     agentId: string,
@@ -82,8 +82,8 @@ export function AgentWorkPane({
   onFollowOutputChange,
   onReadLatest,
   onRuntimeModeChange,
-  onOpenHistory,
-  onNewAgent,
+  onResumeStoppedAgent,
+  onArchiveStoppedAgent,
   onForkAgent,
   onReviewAndCommit,
   onActivePlanChange,
@@ -173,8 +173,8 @@ export function AgentWorkPane({
             onOpenUrlInFarming={onOpenUrlInFarming}
             onFollowOutputChange={onFollowOutputChange}
             onReadLatest={onReadLatest}
-            onOpenHistory={onOpenHistory}
-            onNewAgent={onNewAgent ? () => onNewAgent(agent.cwd, agent.providerSessionProvider || agent.command) : undefined}
+            onResume={onResumeStoppedAgent && agent.providerSessionProvider ? () => onResumeStoppedAgent(agent.id) : undefined}
+            onArchive={onArchiveStoppedAgent ? () => onArchiveStoppedAgent(agent.id) : undefined}
             onSessionOutput={onSessionOutput}
             focusSignal={focusSignal}
             copy={copy}

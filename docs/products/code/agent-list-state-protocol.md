@@ -217,10 +217,14 @@ backend inventory and durable record own this row through refresh and restart.
 The selected row stays open for inspection with an explicit stopped notice. Terminal
 and composer input are disabled after exit. A temporary identity cannot claim a history row or authorize Resume;
 viewing the row never starts a replacement or replays input. Its stopped notice
-offers History navigation and New Agent. New Agent opens the existing launch
-dialog with the same workspace and Provider preselected; only explicit submission
-starts a new conversation. History is a fresh global inventory, not an asserted
-match to the unmaterialized session. Explicit Archive
+offers Resume and Archive. A confirmed identity resumes that exact Provider,
+Home, and Session through the ordinary resume lifecycle. An unconfirmed identity
+opens a fresh, bounded history chooser restricted to the same Provider, Home,
+and workspace. No candidate is selected automatically, and only an explicit
+choice authorizes Resume. Cancelling performs no mutation. If the original Agent
+is removed, archived, or starts running, the chooser closes and cannot resume a
+stale selection. Choosing another known Session does not claim that it belonged
+to the stopped Agent and does not automatically archive that Agent. Explicit Archive
 removes the row. Such stopped rows are not automatic selection successors when
 another Agent is removed. Ordinary Shell exit and materialized Provider Session
 history replacement keep their existing behavior.

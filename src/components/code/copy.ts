@@ -506,6 +506,13 @@ export interface CodeCopy {
   terminalRecoveryRetrying: (delaySeconds: number) => string
   terminalRecoveryElapsed: (seconds: number) => string
   terminalRecoveryAttempt: (attempt: number) => string
+  resumeAgent: string
+  resumeStoppedTitle: string
+  resumeStoppedDescription: string
+  resumeStoppedEmpty: string
+  resumeStoppedLoadFailed: string
+  resumeStoppedIncomplete: string
+  resumeStoppedLoadMore: string
   terminalStopped: string
   terminalSessionUnavailable: string
   acpPermissionAllow: string
@@ -1262,6 +1269,13 @@ const EN_COPY: CodeCopy = {
   terminalRecoveryRetrying: delaySeconds => `Terminal state unavailable. Retrying in ${delaySeconds}s…`,
   terminalRecoveryElapsed: seconds => `Waiting ${seconds}s`,
   terminalRecoveryAttempt: attempt => `Attempt ${attempt}`,
+  resumeAgent: 'Resume',
+  resumeStoppedTitle: 'Resume from history',
+  resumeStoppedDescription: 'Choose the conversation to resume. The stopped Agent’s session identity was not confirmed.',
+  resumeStoppedEmpty: 'No matching conversations found in this Agent Home and workspace.',
+  resumeStoppedLoadFailed: 'Could not load session history. Try again.',
+  resumeStoppedIncomplete: 'More history is available. Load more to find other matching conversations.',
+  resumeStoppedLoadMore: 'Load more',
   terminalStopped: 'Agent stopped. Terminal is read-only.',
   terminalSessionUnavailable: 'Terminal session unavailable',
   acpPermissionAllow: 'Allow',
@@ -2053,6 +2067,13 @@ const ZH_COPY: CodeCopy = {
   terminalRecoveryRetrying: delaySeconds => `终端状态获取失败，${delaySeconds} 秒后重试…`,
   terminalRecoveryElapsed: seconds => `已等待 ${seconds} 秒`,
   terminalRecoveryAttempt: attempt => `第 ${attempt} 次尝试`,
+  resumeAgent: '恢复',
+  resumeStoppedTitle: '从历史恢复',
+  resumeStoppedDescription: '请选择要恢复的会话。已退出 Agent 的会话身份尚未确认。',
+  resumeStoppedEmpty: '此 Agent Home 和工作目录中未找到匹配的会话。',
+  resumeStoppedLoadFailed: '会话历史加载失败，请重试。',
+  resumeStoppedIncomplete: '还有更多历史记录，可继续加载查找匹配会话。',
+  resumeStoppedLoadMore: '加载更多',
   terminalStopped: 'Agent 已停止，终端为只读。',
   terminalSessionUnavailable: '终端会话不可用',
   acpPermissionAllow: '允许',

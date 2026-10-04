@@ -1,9 +1,10 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import type { Page } from '@playwright/test'
 import { expect, openFarming, test } from './fixtures'
 import type { Agent } from '../../src/types/agent'
 
-test('Ctrl+C retains an unmaterialized Provider Terminal and Project across reopen, refresh and CRT', async ({ page, workspaceRoot }, testInfo) => {
+async function stoppedCodex(page: Page, workspaceRoot: string) {
   const workspace = path.join(workspaceRoot, 'terminal-exit-demo')
   fs.mkdirSync(workspace, { recursive: true })
   fs.writeFileSync(path.join(workspace, 'README.md'), '# Terminal exit demo\n')
@@ -17,12 +18,6 @@ test('Ctrl+C retains an unmaterialized Provider Terminal and Project across reop
     expect(response.ok()).toBeTruthy()
     return (await response.json() as { agents: Agent[] }).agents.find(agent => agent.id === agentId)
   }
-  let checkingNavigationOnly = false
-  const unexpectedTerminalInputs: string[] = []
-  page.on('websocket', socket => socket.on('framesent', frame => {
-    const message = JSON.parse(String(frame.payload)) as { type: string }
-    if (checkingNavigationOnly && message.type === 'input') unexpectedTerminalInputs.push(String(frame.payload))
-  }))
   await openFarming(page)
   const row = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
   await row.click()
@@ -33,64 +28,139 @@ test('Ctrl+C retains an unmaterialized Provider Terminal and Project across reop
   await pane.click()
   await page.keyboard.press('Control+c')
   await expect.poll(async () => (await readAgent())?.status).toMatch(/^(stopped|dead)$/)
-  await expect(row).toBeVisible()
-  await expect(pane).toBeVisible()
-  await expect(page.getByTestId('code-terminal-stopped')).toBeVisible()
+  const notice = page.getByTestId('code-terminal-stopped')
+  await expect(notice).toBeVisible()
+  return { workspace, agentId, readAgent, row, pane, notice }
+}
+
+function candidates(workspace: string) {
+  const session = (id: string, title: string, overrides = {}) => ({
+    provider: 'codex', providerHomeId: 'default', id, title,
+    cwd: workspace, workspace, updatedAt: '2026-10-04T08:00:00.000Z', ...overrides,
+  })
+  return [
+    session('conversation-a', 'Review terminal behavior'),
+    session('conversation-b', 'Continue workspace changes'),
+    session('conversation-b', 'Different Home', { providerHomeId: 'other' }),
+    session('conversation-c', 'Different Provider', { provider: 'claude' }),
+    session('conversation-d', 'Different workspace', { workspace: `${workspace}-other`, cwd: `${workspace}-other` }),
+  ]
+}
+
+async function mockCandidates(page: Page, workspace: string) {
+  await page.route(/\/api\/agent-sessions\?/, route => route.fulfill({ json: {
+    sessions: candidates(workspace), hasMore: false, nextCursor: '', total: 5,
+  } }))
+}
+
+test('Ctrl+C retains Terminal and Project; Resume chooses history and Archive keeps the Project', async ({ page, workspaceRoot }, testInfo) => {
+  let afterExit = false
+  const unexpectedTerminalInputs: string[] = []
+  page.on('websocket', socket => socket.on('framesent', frame => {
+    const message = JSON.parse(String(frame.payload)) as { type: string }
+    if (afterExit && message.type === 'input') unexpectedTerminalInputs.push(String(frame.payload))
+  }))
+  const f = await stoppedCodex(page, workspaceRoot)
+  afterExit = true
+  await expect(f.row).toBeVisible()
+  await expect(f.pane).toBeVisible()
   await expect(page.getByTestId('code-composer-input')).toBeDisabled()
   await expect(page.getByTestId('code-composer-input')).toHaveAttribute('placeholder', 'Agent stopped. Terminal is read-only.')
   await expect(page.getByTestId('code-composer-send')).toBeDisabled()
-  await expect(page.getByTestId('code-project-title').filter({ hasText: 'terminal-exit-demo' })).toBeVisible()
-  const sentBefore = await page.evaluate(id => window.__farmingTerminalTest?.getInputCount(id), agentId)
+  const project = page.getByTestId('code-project-title').filter({ hasText: 'terminal-exit-demo' })
+  await expect(project).toBeVisible()
   await page.keyboard.type('do not replay')
-  expect(await page.evaluate(id => window.__farmingTerminalTest?.getInputCount(id), agentId)).toBe(sentBefore)
-  checkingNavigationOnly = true
-  const beforeActions = await page.request.get('/farming/api/control/agents')
-  const beforeAgentIds = (await beforeActions.json() as { agents: Agent[] }).agents.map(agent => agent.id).sort()
   const unexpectedMutations: string[] = []
   page.on('request', request => {
     if (request.method() === 'POST' && /\/api\/(?:control\/agents(?:\/[^/]+\/input)?|agent-sessions\/[^/]+\/[^/]+\/resume)(?:\?|$)/.test(request.url())) {
       unexpectedMutations.push(request.url())
     }
   })
-  const stoppedNotice = page.getByTestId('code-terminal-stopped')
-  await stoppedNotice.getByRole('button', { name: 'History', exact: true }).click()
-  await expect(page.getByTestId('code-history-panel')).toBeVisible()
-  await row.click()
-  await expect(stoppedNotice).toBeVisible()
-  await stoppedNotice.getByRole('button', { name: 'New Agent', exact: true }).click()
-  await expect(page.getByTestId('input-dialog')).toBeVisible()
-  await expect(page.getByTestId('workspace-input')).toHaveValue(workspace)
-  await expect(page.getByRole('group', { name: 'Codex runtime', exact: true })).toBeVisible()
-  await page.getByTestId('input-dialog-close').click()
-  await expect(page.getByTestId('input-dialog')).toBeHidden()
-  const afterActions = await page.request.get('/farming/api/control/agents')
-  expect((await afterActions.json() as { agents: Agent[] }).agents.map(agent => agent.id).sort()).toEqual(beforeAgentIds)
-  expect(unexpectedMutations).toEqual([])
-  expect(unexpectedTerminalInputs).toEqual([])
-  expect((await readAgent())?.status).toMatch(/^(stopped|dead)$/)
-  await expect(stoppedNotice).toBeVisible()
+  await mockCandidates(page, f.workspace)
   for (const appearance of ['light', 'dark', 'paper']) {
     await page.evaluate(value => {
       document.documentElement.dataset.appearance = value
       document.body.dataset.appearance = value
     }, appearance)
-    await page.screenshot({ path: testInfo.outputPath(`terminal-exit-${appearance}.png`), animations: 'disabled' })
+    await expect(f.notice.getByRole('button', { name: 'Resume', exact: true })).toBeEnabled()
+    await expect(f.notice.getByRole('button', { name: 'Archive', exact: true })).toBeEnabled()
+    await page.screenshot({ path: testInfo.outputPath(`terminal-resume-stopped-${appearance}.png`), animations: 'disabled' })
+    const fresh = page.waitForRequest(request => /\/api\/agent-sessions\?/.test(request.url()) && new URL(request.url()).searchParams.get('force') === '1')
+    await f.notice.getByRole('button', { name: 'Resume', exact: true }).click()
+    await fresh
+    const dialog = page.getByTestId('code-resume-stopped-dialog')
+    await expect(dialog).toBeVisible()
+    await expect(dialog.getByTestId('code-resume-stopped-candidate')).toHaveCount(2)
+    await expect(dialog.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused()
+    await page.screenshot({ path: testInfo.outputPath(`terminal-resume-picker-${appearance}.png`), animations: 'disabled' })
+    await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+    await expect(dialog).toBeHidden()
   }
-  await page.getByTestId('code-new-agent').click()
-  await page.keyboard.press('Escape')
-  await row.click()
-  await expect(pane).toBeVisible()
+  expect(unexpectedMutations).toEqual([])
+  expect(unexpectedTerminalInputs).toEqual([])
   await page.reload()
-  await expect(row).toBeVisible()
-  await expect(pane).toBeVisible()
-  expect((await readAgent())?.status).toMatch(/^(stopped|dead)$/)
-  await page.goto(`/farming/crt/?agent=${encodeURIComponent(agentId)}`)
+  await expect(f.row).toBeVisible()
+  await expect(f.pane).toBeVisible()
+  await page.goto(`/farming/crt/?agent=${encodeURIComponent(f.agentId)}`)
   await expect(page.locator('#session-modal')).toHaveClass(/active/)
-  expect(['stopped', 'dead']).toContain((await readAgent())?.status)
+  expect(['stopped', 'dead']).toContain((await f.readAgent())?.status)
+  await page.goto('/farming/')
+  await expect(f.notice).toBeVisible()
+  await f.notice.getByRole('button', { name: 'Archive', exact: true }).click()
+  await expect(f.row).toBeHidden()
+  await expect(f.notice).toBeHidden()
+  await expect(project).toBeVisible()
+  await expect.poll(async () => {
+    const agent = await f.readAgent()
+    return !agent || agent.archived === true
+  }).toBe(true)
   expect(unexpectedMutations).toEqual([])
   expect(unexpectedTerminalInputs).toEqual([])
 })
 
+test('Resume retries history reads and only resumes the explicitly selected exact Provider Home session', async ({ page, workspaceRoot }) => {
+  const f = await stoppedCodex(page, workspaceRoot)
+  let failHistory = true
+  await page.route(/\/api\/agent-sessions\?/, route => route.fulfill(failHistory
+    ? { status: 503, json: { error: 'History unavailable' } }
+    : { json: { sessions: candidates(f.workspace), hasMore: false, nextCursor: '', total: 5 } }))
+  const resumes: Array<{ pathname: string; body: unknown }> = []
+  await page.route(/\/api\/agent-sessions\/[^/]+\/[^/]+\/resume$/, async route => {
+    resumes.push({ pathname: new URL(route.request().url()).pathname, body: route.request().postDataJSON() })
+    await route.fulfill({ status: 409, json: { error: 'Fixture session cannot resume' } })
+  })
+  await f.notice.getByRole('button', { name: 'Resume', exact: true }).click()
+  const dialog = page.getByTestId('code-resume-stopped-dialog')
+  await expect(dialog.getByRole('alert')).toBeVisible()
+  expect(resumes).toEqual([])
+  failHistory = false
+  await dialog.getByRole('button', { name: 'Retry', exact: true }).click()
+  await expect(dialog.getByTestId('code-resume-stopped-candidate')).toHaveCount(2)
+  expect(resumes).toEqual([])
+  await dialog.locator('[data-session-id="conversation-b"]').click()
+  await expect(dialog).toBeHidden()
+  await expect(page.getByTestId('code-agent-opening')).toHaveAttribute('data-phase', 'failed')
+  expect(resumes).toEqual([{ pathname: '/farming/api/agent-sessions/codex/conversation-b/resume', body: { providerHomeId: 'default', unarchiveArchived: true, agentRuntimeMode: 'chat', acpHistoryMode: 'load' } }])
+  const original = await f.readAgent()
+  expect(original?.archived).not.toBe(true)
+  expect(['stopped', 'dead']).toContain(original?.status)
+})
+
+test('archiving the original Agent revokes an open Resume chooser', async ({ page, workspaceRoot }) => {
+  const f = await stoppedCodex(page, workspaceRoot)
+  await mockCandidates(page, f.workspace)
+  await f.notice.getByRole('button', { name: 'Resume', exact: true }).click()
+  const dialog = page.getByTestId('code-resume-stopped-dialog')
+  await expect(dialog.getByTestId('code-resume-stopped-candidate')).toHaveCount(2)
+  let resumes = 0
+  await page.route(/\/api\/agent-sessions\/[^/]+\/[^/]+\/resume$/, route => { resumes += 1; return route.abort() })
+  const archived = await page.request.patch(`/farming/api/agents/${f.agentId}`, { data: { archived: true } })
+  expect(archived.ok()).toBeTruthy()
+  await expect(dialog).toBeHidden()
+  await expect(f.row).toBeHidden()
+  await expect(page.getByTestId('code-project-title').filter({ hasText: 'terminal-exit-demo' })).toBeVisible()
+  expect(resumes).toBe(0)
+})
 
 test('CRT stops accepting input when an open Provider Terminal exits', async ({ page, workspaceRoot }) => {
   const workspace = path.join(workspaceRoot, 'crt-terminal-exit-demo')

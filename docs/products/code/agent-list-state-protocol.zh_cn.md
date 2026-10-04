@@ -59,8 +59,11 @@ Provider Terminal 在 Provider Session 身份尚未落实时退出，Code 和 CR
 Agent 行。退出将运行状态变为停止或失败，不会归档 Agent 或删除所属 Project。后端 inventory
 与持久记录负责在刷新和重启后恢复该行。当前选中行保持打开以供查看，并明确提示已经停止；退出后禁用
 Terminal 和 Composer 输入。临时身份不能认领历史行或授权 Resume；查看该行不会启动替代 Agent 或重放
-输入。停止提示提供“历史”和“新建 Agent”：新建入口仅打开现有对话框，预选同一 workspace
-与 Provider，显式提交才启动新会话；历史入口读取全局会话列表，不声称已经匹配未落实的会话。显式 Archive 才移除该行。移除其他 Agent 时，停止行不能成为自动选择的后继。
+输入。停止提示提供 Resume（恢复）和 Archive（归档）。已确认身份直接通过现有恢复流程
+恢复精确的 Provider、Home 和 Session；未确认身份打开重新读取的有界历史选择器，仅展示相同
+Provider、Home 和工作目录的候选。不会自动选中，只有用户显式选择才授权恢复，取消不执行任何
+修改。原 Agent 被删除、归档或重新运行时，选择器关闭且旧选择不能触发恢复。选择其他已知
+Session 不证明它属于原停止 Agent，也不会自动归档原 Agent。显式 Archive 才移除该行。移除其他 Agent 时，停止行不能成为自动选择的后继。
 普通 Shell 退出和已落实 Provider Session 的历史行替代行为保持不变。
 
 

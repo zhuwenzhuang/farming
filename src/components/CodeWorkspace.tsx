@@ -1,3 +1,4 @@
+import { ResumeStoppedAgentDialog, isStoppedAgentResumeCandidate } from './code/ResumeStoppedAgentDialog'
 import { intakeComposerFile, cancelComposerIntake } from './code/composer-intake'
 import { readComposerInputPreferences } from './code/composer-input-preferences'
 import { prepareComposerSubmission } from './code/composer-submission-state'
@@ -5,7 +6,7 @@ import { validateComposerReferences } from './code/composer-context-admission'
 import { useQuestionPresentationLifetime } from './code/acp/acp-elicitation-presentation'
 import { attachSubagent } from '@/lib/subagent-supervision'
 import { agentAfterRemoval, isOpenableAgent } from './code/agent-selection'
-import { canonicalProviderSessionKey } from '../../shared/provider-session-identity.js'
+import { canonicalProviderSessionKey, decodeProviderSessionKey } from '../../shared/provider-session-identity.js'
 import type { MainPaneMode } from './code/types'
 import { interactionLayerOwnsEscape } from '@/lib/interaction-layer'
 import { useInteractionLayer } from '@/hooks/useInteractionLayer'
@@ -908,6 +909,12 @@ export function CodeWorkspace({
     message: string
     anchor?: ShareNoticeAnchor
   } | null>(null)
+  const [stoppedAgentResumeId, setStoppedAgentResumeId] = useState<string | null>(null)
+  const stoppedAgentResumeTarget = !readOnly ? agents.find(agent => agent.id === stoppedAgentResumeId
+    && !agent.archived && (agent.status === 'stopped' || agent.status === 'dead')) : undefined
+  useEffect(() => {
+    if (stoppedAgentResumeId && !stoppedAgentResumeTarget) setStoppedAgentResumeId(null)
+  }, [stoppedAgentResumeId, stoppedAgentResumeTarget])
   const [archivedSessionNotice, setArchivedSessionNotice] = useState<{
     busy: boolean
     error?: string
@@ -4782,6 +4789,32 @@ export function CodeWorkspace({
       focusTerminal: options?.focusTerminal,
     }, options)
   }, [agents, beginAgentOpening, historyAgentSessions, mainPageAgentSessions, searchableAgentSessions])
+  const resumeStoppedAgent = useCallback((agentId: string) => {
+    const agent = agents.find(candidate => candidate.id === agentId)
+    if (readOnly || !agent || agent.archived || (agent.status !== 'stopped' && agent.status !== 'dead')) return
+    const identity = agent.providerSessionTemporary !== true
+      ? decodeProviderSessionKey(claimedAgentSessionHandle(agent)) : null
+    if (identity
+      && identity.provider === agent.providerSessionProvider
+      && identity.providerHomeId === (agent.providerHomeId || 'default')
+      && identity.sessionId === agent.providerSessionId) {
+      resumeAgentSession(identity.provider, identity.sessionId, identity.providerHomeId)
+    } else {
+      setStoppedAgentResumeId(agent.id)
+    }
+  }, [agents, readOnly, resumeAgentSession])
+  const resumeStoppedAgentSelection = useCallback((session: AgentSessionHistoryItem) => {
+    const agent = agents.find(candidate => candidate.id === stoppedAgentResumeId)
+    if (readOnly || !agent || agent.archived || (agent.status !== 'stopped' && agent.status !== 'dead')
+      || !isStoppedAgentResumeCandidate(agent, session)) return
+    setStoppedAgentResumeId(null)
+    resumeAgentSession(session.provider, session.id, session.providerHomeId || 'default', '', session)
+  }, [agents, readOnly, resumeAgentSession, stoppedAgentResumeId])
+  const archiveStoppedAgent = useCallback((agentId: string) => {
+    const agent = agents.find(candidate => candidate.id === agentId)
+    if (readOnly || !agent || agent.archived || (agent.status !== 'stopped' && agent.status !== 'dead')) return
+    updateSidebarAgentFlags(agent, { archived: true })
+  }, [agents, readOnly, updateSidebarAgentFlags])
   resumeAgentSessionRef.current = resumeAgentSession
   openAgentTargetRef.current = (agentId, options) => {
     if (resumeColdAgentFromUserActivation(agentId, options)) return
@@ -5910,6 +5943,15 @@ export function CodeWorkspace({
       ref={workspaceRef}
       style={workspaceStyle}
     >
+      {stoppedAgentResumeTarget ? (
+        <ResumeStoppedAgentDialog
+          key={stoppedAgentResumeTarget.id}
+          agent={stoppedAgentResumeTarget}
+          copy={copy}
+          onClose={() => setStoppedAgentResumeId(null)}
+          onResume={resumeStoppedAgentSelection}
+        />
+      ) : null}
       {!readOnly && <WorktreeCreationDialog controller={worktreeCreation} copy={copy} onOpenProject={openCreatedWorktreeProject} />}
       <CodeSidebar
         worktreeCreation={readOnly ? undefined : {
@@ -6449,6 +6491,8 @@ export function CodeWorkspace({
           onUpdateServiceTierInline: updateAgentServiceTierInline,
           onToggleSpeechInput: toggleSpeechInput,
         }}
+        onResumeStoppedAgent={resumeStoppedAgent}
+        onArchiveStoppedAgent={archiveStoppedAgent}
         onNewAgent={onNewAgent}
         onOpenHistory={() => openWorkspaceViewFromSidebar('history')}
         onOpenPlugins={() => openWorkspaceViewFromSidebar('plugins')}
