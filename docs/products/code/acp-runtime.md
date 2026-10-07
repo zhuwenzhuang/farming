@@ -1014,6 +1014,14 @@ snapshots and checkpoints preserve it across reconnects; switching Agents clears
 the previous preview. The dock does not create, pause, resume, complete, or clear
 Goals. Stop retains its current-Turn cancellation semantics.
 
+An active Goal is distinct from an active Turn. Provider-initiated continuation
+Turns must publish the same ordered start and terminal lifecycle as submitted
+Turns, including completion, interruption, and failure. Settling an earlier
+Prompt cannot clear a newer Turn's identity or its controls. Codex refreshes
+Goal metadata after each root Turn ends; usage-only changes must reach the dock
+even when the objective and status are unchanged. Acceptance exercises the
+prepared adapter, not only synthetic runtime notifications.
+
 Cancellation remains owned by the runtime's exact Turn and response barrier.
 Only settlement cancels outstanding tools/compaction, preserves successful tool
 results, and records a terminal reason with the Turn. The collapsed process summary

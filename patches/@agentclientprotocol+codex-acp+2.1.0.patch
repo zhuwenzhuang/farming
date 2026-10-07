@@ -1,5 +1,5 @@
 diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_modules/@agentclientprotocol/codex-acp/dist/index.js
-index 51d20c56..cf3c4544 100755
+index 51d20c56..d68e914f 100755
 --- a/node_modules/@agentclientprotocol/codex-acp/dist/index.js
 +++ b/node_modules/@agentclientprotocol/codex-acp/dist/index.js
 @@ -29104,6 +29104,10 @@ var GOAL_EXTENSION_VERSION = 1;
@@ -13,6 +13,15 @@ index 51d20c56..cf3c4544 100755
  
  // src/ThreadGoalSnapshot.ts
  function toGoalStatus(status) {
+@@ -29136,7 +29140,7 @@
+ function sameThreadGoalSnapshot(left, right) {
+   if (left === void 0) return false;
+   if (left === null || right === null) return left === right;
+-  return left.objective === right.objective && left.status === right.status && left.tokenBudget === right.tokenBudget && left.createdAt === right.createdAt;
++  return left.objective === right.objective && left.status === right.status && left.tokenBudget === right.tokenBudget && left.createdAt === right.createdAt && left.tokensUsed === right.tokensUsed && left.timeUsedSeconds === right.timeUsedSeconds && left.updatedAt === right.updatedAt;
+ }
+ function goalSessionInfoUpdate(goal, airClient) {
+   if (!airClient) return null;
 @@ -29323,9 +29327,7 @@ var CodexSubagentEventRouter = class _CodexSubagentEventRouter {
        const childTurn = this.isKnownChild(notification.params.threadId);
        const state = terminalStateFromTurn(notification.params.turn.status);
@@ -42,7 +51,7 @@ index 51d20c56..cf3c4544 100755
          this.sessionState.currentTurnId = notification.params.turn.id;
          await this.flushPendingErrors();
 -        return null;
-+        return createTurnLifecycleUpdate(notification.params.turn.id, "inProgress");
++        return this.createTurnLifecycleUpdate(notification.params.turn.id, "started");
        case "turn/completed":
          await this.plans.flush();
          this.plans.clearTurn();
@@ -52,7 +61,7 @@ index 51d20c56..cf3c4544 100755
 +        }
          this.sessionState.toolCallReports.releaseOpen(this.subagents.notificationSessionId(notification));
 -        return null;
-+        return createTurnLifecycleUpdate(notification.params.turn.id, notification.params.turn.status);
++        return this.createTurnLifecycleUpdate(notification.params.turn.id, notification.params.turn.status === "interrupted" ? "cancelled" : notification.params.turn.status);
        case "thread/tokenUsage/updated":
          return this.createUsageUpdate(notification.params);
        case "thread/name/updated":
@@ -649,7 +658,7 @@ index 51d20c56..cf3c4544 100755
 +        if (!sessionState) {
 +          throw RequestError.invalidParams(void 0, `Unknown session: ${methodRequest.params.sessionId}`);
 +        }
-+        if (!this.activePrompts.has(sessionState.sessionId) || !sessionState.currentTurnId) {
++        if (!sessionState.currentTurnId) {
 +          throw RequestError.invalidRequest({ details: "No active Codex turn to steer" });
 +        }
 +        const response = await this.runWithProcessCheck(() => this.codexAcpClient.steerPrompt(
@@ -1157,7 +1166,17 @@ index 51d20c56..cf3c4544 100755
        }
        case "skill":
          return [{ type: "text", text: `skill:${input2.name} (${input2.path})` }];
-@@ -39663,6 +40349,10 @@ Check ${configPath} and project .codex directories, especially their config.toml
+@@ -39515,6 +40201,9 @@
+         params.sessionId,
+         async (event) => {
+           await observeInteraction(event);
++          if (event.method === "turn/completed" && event.params.threadId === sessionState.sessionId) {
++            void this.publishCurrentGoalBestEffort(sessionState, this.getSessionGeneration(sessionState.sessionId), false);
++          }
+           if (!promptNotificationsActive) {
+             await promptEventHandler.handleSessionScopedNotification(event);
+             return;
+@@ -39663,6 +40352,10 @@ Check ${configPath} and project .codex directories, especially their config.toml
            logger.error(`Prompt for cancelled session ${params.sessionId} failed after prompt returned`, err);
          }
        });
@@ -1168,7 +1187,7 @@ index 51d20c56..cf3c4544 100755
        let turnCompleted = await Promise.race([
          sendPromptPromise,
          activePrompt.closeSignal,
-@@ -39672,15 +40362,7 @@ Check ${configPath} and project .codex directories, especially their config.toml
+@@ -39672,15 +40365,7 @@ Check ${configPath} and project .codex directories, especially their config.toml
          return cancelledPromptResponse();
        }
        await this.codexAcpClient.waitForSessionNotifications(params.sessionId);
@@ -1185,7 +1204,7 @@ index 51d20c56..cf3c4544 100755
        await eventHandler.flushPendingErrors();
        await eventHandler.handleFailedTurn(turnCompleted.turn);
        promptNotificationsActive = false;
-@@ -39761,15 +40443,7 @@ Check ${configPath} and project .codex directories, especially their config.toml
+@@ -39761,15 +40446,7 @@ Check ${configPath} and project .codex directories, especially their config.toml
              return cancelledPromptResponse();
            }
            await this.codexAcpClient.waitForSessionNotifications(params.sessionId);
@@ -1202,7 +1221,7 @@ index 51d20c56..cf3c4544 100755
            await eventHandler.flushPendingErrors();
            await eventHandler.handleFailedTurn(turnCompleted.turn);
            promptNotificationsActive = false;
-@@ -39842,11 +40516,8 @@ Check ${configPath} and project .codex directories, especially their config.toml
+@@ -39842,11 +40519,8 @@ Check ${configPath} and project .codex directories, especially their config.toml
        promptNotificationsActive = false;
        try {
          await this.codexAcpClient.waitForSessionNotifications(params.sessionId);
@@ -1215,7 +1234,18 @@ index 51d20c56..cf3c4544 100755
        }
        if (agentFileChangeReportRequest !== null && agentFileChangeWorkspace !== null) {
          if (promptWasCancelled || activePrompt.signal.aborted || this.sessionIsClosing(params.sessionId)) {
-@@ -40191,6 +40862,11 @@ var asyncTaskStopParamsParser = external_exports.object({
+@@ -39868,7 +40542,9 @@
+       logger.log("Prompt completed", { sessionId: params.sessionId });
+       await eventHandler?.dispose();
+       disposePromptRequestCancellation();
+-      sessionState.currentTurnId = null;
++      if (sessionState.currentTurnId === activePrompt.currentTurn?.turnId) {
++        sessionState.currentTurnId = null;
++      }
+       const registeredPendingTurnStart = this.pendingTurnStarts.get(params.sessionId);
+       if (registeredPendingTurnStart !== void 0) {
+         this.pendingTurnStarts.delete(params.sessionId);
+@@ -40191,6 +40867,11 @@ var asyncTaskStopParamsParser = external_exports.object({
    sessionId: external_exports.string().trim().min(1),
    asyncTaskId: external_exports.string().trim().min(1)
  }).passthrough();
@@ -1227,7 +1257,7 @@ index 51d20c56..cf3c4544 100755
  if (process.argv.includes("--version")) {
    console.log(`${package_default.name} ${package_default.version}`);
    process.exit(0);
-@@ -40271,5 +40947,5 @@ function startAcpServer() {
+@@ -40271,5 +40952,5 @@ function startAcpServer() {
          codexAcpServer = null;
        }
      });

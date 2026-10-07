@@ -16,6 +16,7 @@ const providerResumeGatePrefix = process.env.FARMING_TEST_PROVIDER_RESUME_GATE_P
 const emitSubagentAfterResume = process.env.FARMING_TEST_EMIT_SUBAGENT_AFTER_RESUME === '1';
 const backgroundChild = process.env.FARMING_TEST_BACKGROUND_CHILD === '1';
 const childCompletionGate = process.env.FARMING_TEST_CHILD_COMPLETION_GATE || '';
+const goalCompletionGate = process.env.FARMING_TEST_GOAL_COMPLETION_GATE || '';
 let nextTurn = 1;
 let nextThread = 1;
 const archivedThreads = new Set<string>();
@@ -111,7 +112,7 @@ async function resultFor(method, params) {
       serviceTier: null,
     };
   }
-  if (method === 'thread/start' && (stallPrompt || multiSession || backgroundChild || userInputResultFile)) {
+  if (method === 'thread/start' && (stallPrompt || multiSession || backgroundChild || userInputResultFile || goalCompletionGate)) {
     const id = multiSession || backgroundChild
       ? `019f0000-0000-7000-8000-${String(nextThread++).padStart(12, '0')}`
       : sessionId;
@@ -127,7 +128,7 @@ async function resultFor(method, params) {
     const id = `019f0000-0000-7000-8001-${String(nextThread++).padStart(12, '0')}`;
     return { thread: { ...thread(id), forkedFromId: params.threadId, turns: [] } };
   }
-  if (method === 'turn/start' && (stallPrompt || backgroundChild || userInputResultFile)) {
+  if (method === 'turn/start' && (stallPrompt || backgroundChild || userInputResultFile || goalCompletionGate)) {
     return {
       turn: {
         id: backgroundChild ? params.outputSchema ? 'turn-title' : `turn-parent-${nextTurn++}` : 'turn-stalled-title',
@@ -239,7 +240,22 @@ async function resultFor(method, params) {
     };
   }
   if (method === 'thread/goal/get') {
+    if (goalCompletionGate) return { goal: {
+      threadId: params.threadId, objective: 'Continue the goal', status: 'active',
+      tokensUsed: fs.existsSync(goalCompletionGate) ? 42 : 0,
+      timeUsedSeconds: fs.existsSync(goalCompletionGate) ? 12 : 0,
+      createdAt: 1, updatedAt: fs.existsSync(goalCompletionGate) ? 2 : 1,
+    } };
     return { goal: null, revision: 0 };
+  }
+  if (goalCompletionGate && method === 'turn/steer') {
+    if (params.expectedTurnId !== 'goal-continuation') throw new Error('Steer targeted the wrong turn');
+    return { turnId: 'goal-continuation' };
+  }
+  if (goalCompletionGate && method === 'turn/interrupt') {
+    if (params.turnId !== 'goal-continuation') throw new Error('Interrupt targeted the wrong turn');
+    fs.writeFileSync(goalCompletionGate, 'interrupted');
+    return {};
   }
   throw new Error(`Unexpected fake Codex app-server request: ${method} ${JSON.stringify(params)}`);
 }
@@ -299,9 +315,31 @@ async function run() {
         id: request.id,
         result,
       });
-      if ((backgroundChild || userInputResultFile) && request.method === 'turn/start' && request.params.outputSchema) {
+      if ((backgroundChild || userInputResultFile || goalCompletionGate) && request.method === 'turn/start' && request.params.outputSchema) {
         await enqueueResponse({ method: 'turn/completed', params: { threadId: request.params.threadId,
           turn: { ...result.turn, status: 'completed' } } });
+      }
+      if (goalCompletionGate && request.method === 'turn/start' && !request.params.outputSchema) {
+        const threadId = request.params.threadId;
+        const emitTurn = (turn, status) => enqueueResponse({ method: status === 'inProgress' ? 'turn/started' : 'turn/completed',
+          params: { threadId, turn: { ...turn, status } } });
+        await emitTurn(result.turn, 'inProgress');
+        await emitTurn(result.turn, 'completed');
+        const autonomous = { ...result.turn, id: 'goal-continuation' };
+        await emitTurn(autonomous, 'inProgress');
+        await enqueueResponse({ method: 'item/agentMessage/delta', params: {
+          threadId, turnId: autonomous.id, itemId: 'goal-answer', delta: 'Autonomous goal work is visible.',
+        } });
+        const completion = (async () => {
+          const deadline = Date.now() + 10000;
+          while (!fs.existsSync(goalCompletionGate)) {
+            if (Date.now() >= deadline) throw new Error('Goal completion gate timed out');
+            await new Promise(resolve => setTimeout(resolve, 10));
+          }
+          await emitTurn(autonomous, fs.readFileSync(goalCompletionGate, 'utf8'));
+        })();
+        pending.add(completion);
+        void completion.finally(() => pending.delete(completion));
       }
       if (userInputResultFile && request.method === 'turn/start' && !request.params.outputSchema) {
         await enqueueResponse({ method: 'turn/started', params: { threadId: request.params.threadId, turn: result.turn } });
