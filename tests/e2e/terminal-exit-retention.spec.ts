@@ -30,6 +30,7 @@ async function stoppedCodex(page: Page, workspaceRoot: string) {
   await expect.poll(async () => (await readAgent())?.status).toMatch(/^(stopped|dead)$/)
   const notice = page.getByTestId('code-terminal-stopped')
   await expect(notice).toBeVisible()
+  await expect(row).toBeHidden()
   return { workspace, agentId, readAgent, row, pane, notice }
 }
 
@@ -53,7 +54,7 @@ async function mockCandidates(page: Page, workspace: string) {
   } }))
 }
 
-test('Ctrl+C retains Terminal and Project; Resume chooses history and Archive keeps the Project', async ({ page, workspaceRoot }, testInfo) => {
+test('Ctrl+C hides the sidebar row while retaining Terminal inspection, Resume and Project', async ({ page, workspaceRoot }, testInfo) => {
   let afterExit = false
   const unexpectedTerminalInputs: string[] = []
   page.on('websocket', socket => socket.on('framesent', frame => {
@@ -62,7 +63,7 @@ test('Ctrl+C retains Terminal and Project; Resume chooses history and Archive ke
   }))
   const f = await stoppedCodex(page, workspaceRoot)
   afterExit = true
-  await expect(f.row).toBeVisible()
+  await expect(f.row).toBeHidden()
   await expect(f.pane).toBeVisible()
   await expect(page.getByTestId('code-composer-input')).toBeDisabled()
   await expect(page.getByTestId('code-composer-input')).toHaveAttribute('placeholder', 'Agent stopped. Terminal is read-only.')
@@ -84,6 +85,7 @@ test('Ctrl+C retains Terminal and Project; Resume chooses history and Archive ke
     }, appearance)
     await expect(f.notice.getByRole('button', { name: 'Resume', exact: true })).toBeEnabled()
     await expect(f.notice.getByRole('button', { name: 'Archive', exact: true })).toBeEnabled()
+    await expect(f.row).toBeHidden()
     await page.screenshot({ path: testInfo.outputPath(`terminal-resume-stopped-${appearance}.png`), animations: 'disabled' })
     const fresh = page.waitForRequest(request => /\/api\/agent-sessions\?/.test(request.url()) && new URL(request.url()).searchParams.get('force') === '1')
     await f.notice.getByRole('button', { name: 'Resume', exact: true }).click()
@@ -99,7 +101,7 @@ test('Ctrl+C retains Terminal and Project; Resume chooses history and Archive ke
   expect(unexpectedMutations).toEqual([])
   expect(unexpectedTerminalInputs).toEqual([])
   await page.reload()
-  await expect(f.row).toBeVisible()
+  await expect(f.row).toBeHidden()
   await expect(f.pane).toBeVisible()
   await page.goto(`/farming/crt/?agent=${encodeURIComponent(f.agentId)}`)
   await expect(page.locator('#session-modal')).toHaveClass(/active/)

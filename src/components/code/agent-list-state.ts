@@ -1,5 +1,5 @@
 import type { Agent } from '@/types/agent'
-import { isViewableAgent } from './agent-selection'
+import { isOpenableAgent } from './agent-selection'
 import type { AgentSessionHistoryItem } from './types'
 import {
   agentSessionId,
@@ -28,7 +28,7 @@ export interface AgentListStateInput {
 export function isAgentListLiveAgent(agent: Agent) {
   return !agent.isMain
     && agent.archived !== true
-    && isViewableAgent(agent)
+    && isOpenableAgent(agent)
 }
 
 export function isAgentListArchivedAgent(agent: Agent) {

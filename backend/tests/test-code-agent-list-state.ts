@@ -168,13 +168,16 @@ function run() {
       const retained = buildAgentListState({
         allAgents: [exited], liveAgents: [exited], sessions: [], mainPageSessionKeys: new Set(),
       });
-      assert.deepStrictEqual(retained.liveAgents.map(item => item.id), [exited.id],
-        'an exited temporary Provider launch has no history substitute and retains its Agent row');
+      assert.deepStrictEqual(retained.liveAgents, [],
+        'stopped temporary launches remain inspectable but do not occupy the Code sidebar');
       assert.strictEqual(retained.claimedAgentSessionKeys.size, 0,
         'retaining an exited launch never claims an unmaterialized Provider Session');
       assert.strictEqual(agentListRowIdentity(exited, retained.claimedAgentSessionKeyByAgentId), `agent:${exited.id}`);
       assert.strictEqual(isAgentListLiveAgent({ ...exited, archived: true }), false);
       assert.strictEqual(isAgentListLiveAgent({ ...exited, isMain: true }), false);
+      assert.strictEqual(isAgentListLiveAgent({ ...exited, pinned: true }), false);
+      assert.strictEqual(isAgentListLiveAgent({ ...exited, status: 'running' }), true);
+      assert.strictEqual(isAgentListLiveAgent({ ...exited, status: 'pending' }), true);
     }
   }
 

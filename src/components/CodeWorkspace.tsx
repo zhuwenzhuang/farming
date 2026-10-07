@@ -5,7 +5,7 @@ import { prepareComposerSubmission } from './code/composer-submission-state'
 import { validateComposerReferences } from './code/composer-context-admission'
 import { useQuestionPresentationLifetime } from './code/acp/acp-elicitation-presentation'
 import { attachSubagent } from '@/lib/subagent-supervision'
-import { agentAfterRemoval, isOpenableAgent } from './code/agent-selection'
+import { agentAfterRemoval, isOpenableAgent, isViewableAgent } from './code/agent-selection'
 import { canonicalProviderSessionKey, decodeProviderSessionKey } from '../../shared/provider-session-identity.js'
 import type { MainPaneMode } from './code/types'
 import { interactionLayerOwnsEscape } from '@/lib/interaction-layer'
@@ -227,7 +227,6 @@ import {
 import {
   buildAgentListState,
   historyAgentSessionsForSessions,
-  isAgentListLiveAgent,
   unclaimedAgentSessions,
 } from './code/agent-list-state'
 import {
@@ -1206,7 +1205,8 @@ export function CodeWorkspace({
   )), [agents, optimisticallyArchivedAgentIds])
   const hiddenMainAgent = useMemo(() => agents.find(agent => agent.isMain) ?? null, [agents])
   const unorderedLiveAgents = useMemo(
-    () => visibleAgents.filter(isAgentListLiveAgent),
+    // Keep an already-open stopped Terminal inspectable independently of sidebar membership.
+    () => visibleAgents.filter(isViewableAgent),
     [visibleAgents]
   )
   const activeAgents = unorderedLiveAgents
