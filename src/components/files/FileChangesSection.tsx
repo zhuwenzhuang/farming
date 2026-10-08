@@ -316,8 +316,8 @@ function RepositoryFileChangesSection({
   const [openDirectoryIds, setOpenDirectoryIds] = useState<ReadonlySet<string>>(() => new Set(initialState.openChangeDirectoryIds ?? []))
   const summary = changes.repository
   const paged = Boolean(summary?.revision && changes.rootId)
-  const trackedPage = useWorkspaceChangePage(changes.rootId, summary?.path || '', 'tracked', summary?.revision, paged && !changes.loading && !collapsed && (summary?.trackedCount ?? 0) > 0, changes.refreshRevision)
-  const untrackedPage = useWorkspaceChangePage(changes.rootId, summary?.path || '', 'untracked', summary?.revision, paged && !changes.loading && !untrackedCollapsed && (summary?.untrackedCount ?? 0) > 0, changes.refreshRevision)
+  const trackedPage = useWorkspaceChangePage(changes.rootId, summary?.path || '', 'tracked', summary?.revision, paged && !changes.loading && !collapsed && (summary?.trackedCount ?? 0) > 0, changes.refreshRevision, changes.refreshChanges, changes.completePageRecovery)
+  const untrackedPage = useWorkspaceChangePage(changes.rootId, summary?.path || '', 'untracked', summary?.revision, paged && !changes.loading && !untrackedCollapsed && (summary?.untrackedCount ?? 0) > 0, changes.refreshRevision, changes.refreshChanges, changes.completePageRecovery)
   const trackedChanges = useMemo(() => paged ? trackedPage.page.items : changes.items.filter(change => change.gitStatus !== 'untracked'), [paged, trackedPage.page.items, changes.items])
   const untrackedChanges = useMemo(() => paged ? untrackedPage.page.items : changes.items.filter(change => change.gitStatus === 'untracked'), [paged, untrackedPage.page.items, changes.items])
   const trackedTree = useMemo(() => buildChangeTree(trackedChanges, 'tracked'), [trackedChanges])

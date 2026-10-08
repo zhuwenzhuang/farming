@@ -41,6 +41,8 @@ async function run() {
     assert.equal(seen.length, 1005); assert.equal(new Set(seen).size, 1005);
     await assert.rejects(service.changesPage(root, { repositoryPath: 'module', scope: 'tracked', cursor: `${inventory.repositories[0].revision}:0` }), /changed/);
     await fs.writeFile(path.join(root, 'newer.txt'), 'new');
+    assert.equal((await service.changesPage(root, { scope: 'untracked', cursor: `${inventory.repositories[0].revision}:100` })).total, 1005, 'cursor pages retain their immutable inventory');
+    await service.changesInventory(root);
     await assert.rejects(service.changesPage(root, { scope: 'untracked', cursor: `${inventory.repositories[0].revision}:100` }), /Refresh/);
     git(child, 'config', 'user.name', 'Fixture'); git(child, 'config', 'user.email', 'fixture@example.test'); git(child, 'config', 'core.hooksPath', '/dev/null');
     git(child, 'add', 'code.txt'); git(child, 'commit', '-qm', 'version');
@@ -72,7 +74,7 @@ async function run() {
     await fs.symlink(source, path.join(root, 'escaped'));
     await assert.rejects(service.changesPage(root, { repositoryPath: 'escaped', scope: 'tracked' }), /outside/);
     await assert.rejects(service.changesPage(root, { repositoryPath: '../source', scope: 'tracked' }), /Invalid/);
-    const bounded = new WorkspaceFileService({ commandRunner: { run: async () => { const e = Object.assign(new Error('large'), { code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' }); throw e; } } });
+    const bounded = new WorkspaceFileService({ commandRunner: { run: async (_command, args) => { if (args.includes('rev-parse')) return { stdout: root }; const e = Object.assign(new Error('large'), { code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' }); throw e; } } });
     try { await assert.rejects(bounded.changeSnapshot(root), /exceeds/); } finally { await bounded.dispose(); }
   } finally { await service.dispose(); await fs.rm(temp, { recursive: true, force: true }); }
 }

@@ -1,7 +1,9 @@
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
-import { exactChildRepository } from './workspace-repositories.cjs';
+import * as os from 'os';
+import * as fsp from 'fs/promises';
+import { exactChildRepository, resolveRepositoryRoot } from './workspace-repositories.cjs';
 
 interface WorkspaceFileErrorInstance extends Error {
   details?: Record<string, unknown>;
@@ -156,7 +158,7 @@ interface ExecResult {
 }
 
 interface ReviewFileService {
-  changes(root: string, options: { limit: number; scope?: ReviewScope }): Promise<WorkingCopyChangesResult>;
+  changes(root: string, options: { limit: number; scope?: ReviewScope; includeHidden?: boolean }): Promise<WorkingCopyChangesResult>;
   diff(root: string, filePath: string, options?: Record<string, unknown>): Promise<FileDiffSource>;
   diffMaxBuffer: number;
   diffTimeoutMs: number;
@@ -566,9 +568,9 @@ function isSafeReviewPath(value: unknown): value is string {
     && value.length > 0
     && value.length <= 4096
     && !value.includes('\0')
-    && !value.startsWith('/')
-    && !value.startsWith('\\')
-    && value.split(/[\\/]/).every(segment => segment && segment !== '.' && segment !== '..');
+    && !path.isAbsolute(value)
+    && (path.sep !== '\\' || !value.includes('\\'))
+    && value.split('/').every(segment => segment && segment !== '.' && segment !== '..');
 }
 
 function nulFields(stdout: unknown): string[] {
@@ -857,7 +859,7 @@ class ReviewDiffService {
     this.fileService = fileService;
   }
 
-  resolveWorkspace(agentId: unknown, requestedRoot: unknown): string {
+  async resolveWorkspace(agentId: unknown, requestedRoot: unknown): Promise<string> {
     if (requestedRoot !== undefined) {
       if (typeof requestedRoot !== 'string' || !requestedRoot.trim() || (typeof agentId === 'string' && agentId.trim())) {
         throw new WorkspaceFileError('exactly one review workspace target is required', 400);
@@ -869,14 +871,41 @@ class ReviewDiffService {
         throw new WorkspaceFileError('review workspace does not exist', 404);
       }
       if (!fs.statSync(root).isDirectory()) throw new WorkspaceFileError('review workspace must be a directory', 400);
-      return root;
+      return this.resolveRepository(root);
     }
     if (typeof agentId !== 'string' || !agentId.trim()) {
       throw new WorkspaceFileError('review workspace target is required', 400);
     }
     const root = this.agentManager?.getAgentWorkspaceRoot?.(agentId);
     if (!root) throw new WorkspaceFileError('agent not found', 404);
-    return root;
+    return this.resolveRepository(root);
+  }
+
+  async resolveRepository(directory: string): Promise<string> {
+    try {
+      return await resolveRepositoryRoot(this.fileService, directory);
+    } catch (error) {
+      if (errorString(error, 'code') === 'ETIMEDOUT' || errorString(error, 'signal') === 'SIGTERM') {
+        throw new WorkspaceFileError('review repository resolution timed out', 504);
+      }
+      throw new WorkspaceFileError(errorString(error, 'stderr') || errorString(error, 'message') || 'review repository unavailable', 400);
+    }
+  }
+
+  async resolveRange(root: string, options: ReviewOptions): Promise<{ base: string; head: string }> {
+    const requestedBase = String(options.base || '').trim();
+    const requestedHead = String(options.head || '').trim();
+    if (!isSafeGitRevision(requestedBase) || !isReviewHead(requestedHead)) {
+      throw new WorkspaceFileError('base and head revisions are required', 400);
+    }
+    const resolve = async (revision: string) => {
+      const { stdout } = await this.git(root, ['rev-parse', '--verify', `${revision}^{}`]);
+      const id = String(stdout).trim();
+      if (!/^[a-f0-9]{40,64}$/i.test(id)) throw new WorkspaceFileError('review revision is invalid', 400);
+      await this.git(root, ['cat-file', '-e', `${id}^{tree}`]);
+      return id;
+    };
+    return { base: await resolve(requestedBase), head: requestedHead === 'now' ? 'now' : await resolve(requestedHead) };
   }
 
   async git(
@@ -890,9 +919,11 @@ class ReviewDiffService {
         timeout: this.fileService.diffTimeoutMs,
         maxBuffer: this.fileService.diffMaxBuffer,
         ...options,
+        env: { GIT_LITERAL_PATHSPECS: '1', GIT_OPTIONAL_LOCKS: '0', ...(options.env as NodeJS.ProcessEnv | undefined) },
       });
     } catch (error) {
-      if (errorString(error, 'code') === 'ETIMEDOUT') {
+      if (errorString(error, 'code') === 'ETIMEDOUT'
+        || (errorString(error, 'signal') === 'SIGTERM' && errorString(error, 'code') !== 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER')) {
         throw new WorkspaceFileError('git comparison source request timed out', 504);
       }
       throw new WorkspaceFileError(
@@ -904,7 +935,7 @@ class ReviewDiffService {
     }
   }
 
-  async gitComparisonPaths(root: string, args: string[]) {
+  async gitComparisonPaths(root: string, args: string[], env?: NodeJS.ProcessEnv) {
     let output = '';
     let truncated = false;
     try {
@@ -912,6 +943,7 @@ class ReviewDiffService {
         cwd: root,
         timeout: this.fileService.diffTimeoutMs,
         maxBuffer: MAX_COMPARISON_PATH_BYTES,
+        env,
       });
       output = String(stdout || '');
     } catch (error) {
@@ -942,23 +974,42 @@ class ReviewDiffService {
   }
 
   async getComparisonSources(agentId: unknown, options: ReviewOptions = {}) {
-    const root = this.resolveWorkspace(agentId, options.root);
-    const [{ stdout: headOutput }, { stdout: indexOutput }, branchResult, logResult, statusResult] = await Promise.all([
-      this.git(root, ['rev-parse', '--verify', 'HEAD']),
-      this.git(root, ['write-tree']),
-      this.git(root, ['symbolic-ref', '--quiet', '--short', 'HEAD']).catch(() => ({ stdout: '' })),
-      this.git(root, ['log', '-n', '12', '--format=%H%x1f%P%x1f%h%x1f%s%x1e', 'HEAD']),
-      Promise.all([
-        this.gitComparisonPaths(root, ['diff', '--name-only', '-z', '--']),
-        this.gitComparisonPaths(root, ['diff', '--cached', '--name-only', '-z', '--']),
-        this.gitComparisonPaths(root, ['ls-files', '--others', '--exclude-standard', '-z']),
-      ]),
-    ]);
-    const head = String(headOutput || '').trim();
-    const indexTree = String(indexOutput || '').trim();
-    if (!/^[a-f0-9]{40,64}$/i.test(head) || !/^[a-f0-9]{40,64}$/i.test(indexTree)) {
-      throw new WorkspaceFileError('git comparison sources are invalid', 500);
-    }
+    const root = await this.resolveWorkspace(agentId, options.root);
+    const head = String((await this.git(root, ['rev-parse', '--verify', 'HEAD'])).stdout).trim();
+    const indexPath = path.resolve(root, String((await this.git(root, ['rev-parse', '--git-path', 'index'])).stdout).trim());
+    const temporary = await fsp.mkdtemp(path.join(os.tmpdir(), 'farming-review-sources-'));
+    const copiedIndex = path.join(temporary, 'index');
+    const fingerprint = async (file: string) => {
+      const hash = crypto.createHash('sha256');
+      try { for await (const chunk of fs.createReadStream(file)) hash.update(chunk); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 'absent'; throw error; }
+      return hash.digest('hex');
+    };
+    try {
+      try { await fsp.copyFile(indexPath, copiedIndex); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+      const indexIdentity = await fingerprint(copiedIndex);
+      const env = { GIT_INDEX_FILE: copiedIndex, GIT_OPTIONAL_LOCKS: '0' };
+      const git = (args: string[]) => this.git(root, args, { env });
+      const conflicts = await git(['ls-files', '--unmerged', '-z']);
+      const indexConflict = Boolean(String(conflicts.stdout));
+      const indexTree = indexConflict ? null : String((await git(['write-tree'])).stdout).trim();
+      const [branchResult, logResult, statusResult] = await Promise.all([
+        git(['symbolic-ref', '--short', 'HEAD']).catch(error => {
+          // Detached HEAD is an expected exit, not an unavailable repository.
+          if (/symbolic ref|symbolic reference/i.test(String(error.message))) return { stdout: '' };
+          throw error;
+        }),
+        git(['log', '-n', '12', '--format=%H%x1f%P%x1f%h%x1f%s%x1e', head]),
+        Promise.all([
+          this.gitComparisonPaths(root, ['diff', '--name-only', '-z', '--'], env),
+          this.gitComparisonPaths(root, ['diff', '--cached', '--name-only', '-z', head, '--'], env),
+          this.gitComparisonPaths(root, ['ls-files', '--others', '--exclude-standard', '-z'], env),
+        ]),
+      ]);
+      if (!/^[a-f0-9]{40,64}$/i.test(head) || (indexTree !== null && !/^[a-f0-9]{40,64}$/i.test(indexTree))) {
+        throw new WorkspaceFileError('git comparison sources are invalid', 500);
+      }
     const currentBranch = String(branchResult.stdout || '').trim();
     const [unstagedResult, stagedResult, untrackedResult] = statusResult;
     const allPaths = [...new Set([
@@ -983,7 +1034,7 @@ class ReviewDiffService {
     const branches = [];
     for (const branch of branchRefs) {
       try {
-        const { stdout } = await this.git(root, ['merge-base', 'HEAD', branch.id]);
+        const { stdout } = await this.git(root, ['merge-base', head, branch.id]);
         const base = String(stdout || '').trim();
         if (!/^[a-f0-9]{40,64}$/i.test(base) || base === head) continue;
         branches.push({
@@ -996,6 +1047,10 @@ class ReviewDiffService {
         // Unrelated branch histories are not useful comparison sources.
       }
     }
+    if (head !== String((await this.git(root, ['rev-parse', '--verify', 'HEAD'])).stdout).trim()
+      || indexIdentity !== await fingerprint(indexPath)) {
+      throw new WorkspaceFileError('Repository changed while loading comparisons; refresh the comparison list', 409, { reason: 'snapshot-stale' });
+    }
     return {
       branches,
       commits: parseComparisonCommits(logResult.stdout),
@@ -1004,20 +1059,23 @@ class ReviewDiffService {
       uncommittedPaths,
       uncommittedPathsTruncated,
       staged: {
-        available: stagedResult.available,
+        available: !indexConflict && stagedResult.available,
+        ...(indexConflict ? { unavailableReason: 'Resolve index conflicts before comparing staged changes' } : {}),
         base: head,
         head: indexTree,
         id: 'staged',
         label: 'Staged',
       },
       unstaged: {
-        available: unstagedResult.available || untrackedResult.available,
+        available: !indexConflict && (unstagedResult.available || untrackedResult.available),
+        ...(indexConflict ? { unavailableReason: 'Resolve index conflicts before comparing unstaged changes' } : {}),
         base: indexTree,
         head: 'now',
         id: 'unstaged',
         label: 'Unstaged',
       },
     };
+    } finally { await fsp.rm(temporary, { recursive: true, force: true }); }
   }
 
   async getWorkingCopyChanges(
@@ -1027,7 +1085,7 @@ class ReviewDiffService {
   ): Promise<WorkingCopyChangesResult> {
     const scope = normalizeWorkingCopyScope(options.scope);
     const scanLimit = scope ? MAX_WORKING_COPY_SCAN_FILES : limit;
-    const changes = await this.fileService.changes(root, { limit: scanLimit, ...(scope ? { scope } : {}) });
+    const changes = await this.fileService.changes(root, { limit: scanLimit, includeHidden: true, ...(scope ? { scope } : {}) });
     const items = filterWorkingCopyChangeItems(root, assertUniqueReviewPaths(changes.items), options);
     return {
       items: items.slice(0, limit),
@@ -1050,7 +1108,7 @@ class ReviewDiffService {
         '--find-renames',
         ...gitRangeRevisionArgs(base, head),
         '--',
-      ], { cwd: root, timeout: this.fileService.diffTimeoutMs, maxBuffer: this.fileService.diffMaxBuffer });
+      ], { cwd: root, env: { GIT_LITERAL_PATHSPECS: '1', GIT_OPTIONAL_LOCKS: '0' }, timeout: this.fileService.diffTimeoutMs, maxBuffer: this.fileService.diffMaxBuffer });
       const changes = parseNameStatus(stdout);
       if (head !== 'now') return changes;
       const untracked = await this.gitComparisonPaths(root, [
@@ -1069,7 +1127,8 @@ class ReviewDiffService {
         && errorString(error, 'message') === 'stdout maxBuffer length exceeded') {
         throw new WorkspaceFileError('Git comparison exceeds the path limit; select a narrower review scope or revision range', 413);
       }
-      if (errorString(error, 'code') === 'ETIMEDOUT') {
+      if (errorString(error, 'code') === 'ETIMEDOUT'
+        || (errorString(error, 'signal') === 'SIGTERM' && errorString(error, 'code') !== 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER')) {
         throw new WorkspaceFileError('git diff timed out', 504);
       }
       throw new WorkspaceFileError(
@@ -1089,7 +1148,7 @@ class ReviewDiffService {
         '-s',
         '--format=%H%x1f%an%x1f%ae%x1f%aI%x1f%B',
         revision,
-      ], { cwd: root, timeout: this.fileService.diffTimeoutMs, maxBuffer: this.fileService.diffMaxBuffer });
+      ], { cwd: root, env: { GIT_LITERAL_PATHSPECS: '1', GIT_OPTIONAL_LOCKS: '0' }, timeout: this.fileService.diffTimeoutMs, maxBuffer: this.fileService.diffMaxBuffer });
       const [id, authorName, authorEmail, authoredAt, ...messageParts] = String(stdout || '').split('\x1f');
       const message = messageParts.join('\x1f').trim();
       if (!/^[a-f0-9]{40,64}$/i.test(id || '') || !message) return null;
@@ -1123,13 +1182,14 @@ class ReviewDiffService {
         root,
         'show',
         `${revision}:${filePath}`,
-      ], { cwd: root, encoding: 'buffer', timeout: this.fileService.diffTimeoutMs, maxBuffer: this.fileService.diffMaxBuffer });
+      ], { cwd: root, encoding: 'buffer', env: { GIT_LITERAL_PATHSPECS: '1', GIT_OPTIONAL_LOCKS: '0' }, timeout: this.fileService.diffTimeoutMs, maxBuffer: this.fileService.diffMaxBuffer });
       const buffer = Buffer.isBuffer(stdout) ? stdout : Buffer.from(String(stdout || ''));
       if (buffer.includes(0)) throw new WorkspaceFileError('binary files do not have expandable text context', 415);
       return textLines(buffer.toString('utf8'));
     } catch (error) {
       if (error instanceof WorkspaceFileError) throw error;
-      if (errorString(error, 'code') === 'ETIMEDOUT') {
+      if (errorString(error, 'code') === 'ETIMEDOUT'
+        || (errorString(error, 'signal') === 'SIGTERM' && errorString(error, 'code') !== 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER')) {
         throw new WorkspaceFileError('git show timed out', 504);
       }
       throw new WorkspaceFileError(
@@ -1196,7 +1256,7 @@ class ReviewDiffService {
     filePath: unknown,
     options: ReviewOptions = {},
   ) {
-    const root = this.resolveWorkspace(agentId, options.root);
+    const root = await this.resolveWorkspace(agentId, options.root);
     if (!isSafeReviewPath(filePath)) throw new WorkspaceFileError('file path is required', 400);
     const changes = await this.getWorkingCopyChanges(root, options, MAX_REVIEW_FILES);
     const change = changes.items.find(item => item.path === filePath);
@@ -1208,13 +1268,9 @@ class ReviewDiffService {
   }
 
   async getGitRangeFileContext(agentId: unknown, options: ReviewOptions = {}): Promise<ReturnType<typeof contextRowsFromSources>> {
-    const root = this.resolveWorkspace(agentId, options.root);
-    const base = String(options.base || '').trim();
-    const head = String(options.head || '').trim();
+    const root = await this.resolveWorkspace(agentId, options.root);
+    const { base, head } = await this.resolveRange(root, options);
     const filePath = typeof options.path === 'string' ? options.path : '';
-    if (!isSafeGitRevision(base) || !isReviewHead(head)) {
-      throw new WorkspaceFileError('base and head revisions are required', 400);
-    }
     if (!isSafeReviewPath(filePath)) throw new WorkspaceFileError('file path is required', 400);
     const changes = assertUniqueReviewPaths(await this.getGitRangeChanges(root, base, head));
     const change = changes.find(item => item.path === filePath);
@@ -1273,7 +1329,7 @@ class ReviewDiffService {
   }
 
   async getWorkingCopy(agentId: unknown, options: ReviewOptions = {}) {
-    const root = this.resolveWorkspace(agentId, options.root);
+    const root = await this.resolveWorkspace(agentId, options.root);
     const limit = normalizeReviewLimit(options.limit);
     const metadataOnly = metadataOnlyOption(options.metadataOnly);
     const contentOptions = diffContentOptions(options);
@@ -1343,7 +1399,7 @@ class ReviewDiffService {
     filePath: unknown,
     options: ReviewOptions = {},
   ): Promise<ReviewFile> {
-    const root = this.resolveWorkspace(agentId, options.root);
+    const root = await this.resolveWorkspace(agentId, options.root);
     const contentOptions = diffContentOptions(options);
     if (!isSafeReviewPath(filePath)) throw new WorkspaceFileError('file path is required', 400);
     const changes = await this.getWorkingCopyChanges(root, options, MAX_REVIEW_FILES);
@@ -1392,7 +1448,7 @@ class ReviewDiffService {
   }
 
   async getWorkingCopyPatch(agentId: unknown, options: ReviewOptions = {}) {
-    const root = this.resolveWorkspace(agentId, options.root);
+    const root = await this.resolveWorkspace(agentId, options.root);
     const limit = normalizeReviewLimit(options.limit);
     const contentOptions = diffContentOptions(options);
     const changes = await this.getWorkingCopyChanges(root, options, limit);
@@ -1471,12 +1527,8 @@ class ReviewDiffService {
   }
 
   async getGitRange(agentId: unknown, options: ReviewOptions = {}): Promise<GitRangeSnapshot> {
-    const root = this.resolveWorkspace(agentId, options.root);
-    const base = String(options.base || '').trim();
-    const head = String(options.head || '').trim();
-    if (!isSafeGitRevision(base) || !isReviewHead(head)) {
-      throw new WorkspaceFileError('base and head revisions are required', 400);
-    }
+    const root = await this.resolveWorkspace(agentId, options.root);
+    const { base, head } = await this.resolveRange(root, options);
     const limit = normalizeReviewLimit(options.limit);
     const ignoreWhitespace = normalizeIgnoreWhitespace(options.ignoreWhitespace);
     const context = normalizeDiffContext(options.context);
@@ -1501,7 +1553,7 @@ class ReviewDiffService {
       return {
         basePatchset: base,
         ...(comparison ? { comparison } : {}),
-        files: await this.expandSubmoduleFiles(root, files, options, limit),
+        files: await this.expandSubmoduleFiles(root, files, { ...options, base, head }, limit),
         isGitRepo: true,
         patchset: head,
         reviewId: options.reviewId || gitRangeReviewId(root, base, head),
@@ -1525,12 +1577,13 @@ class ReviewDiffService {
           ...gitRangeRevisionArgs(base, head),
           '--',
           ...gitDiffPathArgs(change),
-        ], { cwd: root, timeout: this.fileService.diffTimeoutMs, maxBuffer: this.fileService.diffMaxBuffer });
+        ], { cwd: root, env: { GIT_LITERAL_PATHSPECS: '1', GIT_OPTIONAL_LOCKS: '0' }, timeout: this.fileService.diffTimeoutMs, maxBuffer: this.fileService.diffMaxBuffer });
         const file = fileFromPatch(change, stdout);
         const stat = lineStats?.get(change.path);
         return fileWithStats(file, stat);
       } catch (error) {
-        if (errorString(error, 'code') === 'ETIMEDOUT') {
+        if (errorString(error, 'code') === 'ETIMEDOUT'
+        || (errorString(error, 'signal') === 'SIGTERM' && errorString(error, 'code') !== 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER')) {
           throw new WorkspaceFileError('git diff timed out', 504);
         }
         throw new WorkspaceFileError(
@@ -1544,7 +1597,7 @@ class ReviewDiffService {
     return {
       basePatchset: base,
       ...(comparison ? { comparison } : {}),
-      files: await this.expandSubmoduleFiles(root, files, options, limit),
+      files: await this.expandSubmoduleFiles(root, files, { ...options, base, head }, limit),
       isGitRepo: true,
       patchset: head,
       reviewId: options.reviewId || gitRangeReviewId(root, base, head),
@@ -1558,15 +1611,11 @@ class ReviewDiffService {
     agentId: unknown,
     options: ReviewOptions = {},
   ): Promise<ReviewFile> {
-    const root = this.resolveWorkspace(agentId, options.root);
-    const base = String(options.base || '').trim();
-    const head = String(options.head || '').trim();
+    const root = await this.resolveWorkspace(agentId, options.root);
+    const { base, head } = await this.resolveRange(root, options);
     const path = typeof options.path === 'string' ? options.path : '';
     const ignoreWhitespace = normalizeIgnoreWhitespace(options.ignoreWhitespace);
     const context = normalizeDiffContext(options.context);
-    if (!isSafeGitRevision(base) || !isReviewHead(head)) {
-      throw new WorkspaceFileError('base and head revisions are required', 400);
-    }
     if (!isSafeReviewPath(path)) throw new WorkspaceFileError('file path is required', 400);
     const changes = await this.getGitRangeChanges(root, base, head);
     const uniqueChanges = assertUniqueReviewPaths(changes);
@@ -1593,7 +1642,7 @@ class ReviewDiffService {
         ...gitRangeRevisionArgs(base, head),
         '--',
         ...gitDiffPathArgs(change),
-      ], { cwd: root, timeout: this.fileService.diffTimeoutMs, maxBuffer: this.fileService.diffMaxBuffer });
+      ], { cwd: root, env: { GIT_LITERAL_PATHSPECS: '1', GIT_OPTIONAL_LOCKS: '0' }, timeout: this.fileService.diffTimeoutMs, maxBuffer: this.fileService.diffMaxBuffer });
       const file = fileFromPatch(change, stdout);
       const gitlink = isGitlinkMetadata(patchMetadata(stdout));
       if (options.fileMeta === true && (file.binary !== true || gitlink)) {
@@ -1609,7 +1658,8 @@ class ReviewDiffService {
       const stat = stats?.get(change.path);
       return fileWithStats(file, stat);
     } catch (error) {
-      if (errorString(error, 'code') === 'ETIMEDOUT') {
+      if (errorString(error, 'code') === 'ETIMEDOUT'
+        || (errorString(error, 'signal') === 'SIGTERM' && errorString(error, 'code') !== 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER')) {
         throw new WorkspaceFileError('git diff timed out', 504);
       }
       throw new WorkspaceFileError(
@@ -1620,12 +1670,8 @@ class ReviewDiffService {
   }
 
   async getGitRangePatch(agentId: unknown, options: ReviewOptions = {}) {
-    const root = this.resolveWorkspace(agentId, options.root);
-    const base = String(options.base || '').trim();
-    const head = String(options.head || '').trim();
-    if (!isSafeGitRevision(base) || !isReviewHead(head)) {
-      throw new WorkspaceFileError('base and head revisions are required', 400);
-    }
+    const root = await this.resolveWorkspace(agentId, options.root);
+    const { base, head } = await this.resolveRange(root, options);
     const limit = normalizeReviewLimit(options.limit);
     const ignoreWhitespace = normalizeIgnoreWhitespace(options.ignoreWhitespace);
     const context = normalizeDiffContext(options.context);
@@ -1649,10 +1695,11 @@ class ReviewDiffService {
           ...gitRangeRevisionArgs(base, head),
           '--',
           ...gitDiffPathArgs(change),
-        ], { cwd: root, timeout: this.fileService.diffTimeoutMs, maxBuffer: this.fileService.diffMaxBuffer });
+        ], { cwd: root, env: { GIT_LITERAL_PATHSPECS: '1', GIT_OPTIONAL_LOCKS: '0' }, timeout: this.fileService.diffTimeoutMs, maxBuffer: this.fileService.diffMaxBuffer });
         return stdout;
       } catch (error) {
-        if (errorString(error, 'code') === 'ETIMEDOUT') {
+        if (errorString(error, 'code') === 'ETIMEDOUT'
+        || (errorString(error, 'signal') === 'SIGTERM' && errorString(error, 'code') !== 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER')) {
           throw new WorkspaceFileError('git diff timed out', 504);
         }
         throw new WorkspaceFileError(
@@ -1687,10 +1734,11 @@ class ReviewDiffService {
         ...gitRangeRevisionArgs(base, head),
         '--',
         ...gitDiffPathspecArgs(changes),
-      ], { cwd: root, timeout: this.fileService.diffTimeoutMs, maxBuffer: this.fileService.diffMaxBuffer });
+      ], { cwd: root, env: { GIT_LITERAL_PATHSPECS: '1', GIT_OPTIONAL_LOCKS: '0' }, timeout: this.fileService.diffTimeoutMs, maxBuffer: this.fileService.diffMaxBuffer });
       return parseNumstat(stdout, changes);
     } catch (error) {
-      if (errorString(error, 'code') === 'ETIMEDOUT') {
+      if (errorString(error, 'code') === 'ETIMEDOUT'
+        || (errorString(error, 'signal') === 'SIGTERM' && errorString(error, 'code') !== 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER')) {
         throw new WorkspaceFileError('git diff timed out', 504);
       }
       throw new WorkspaceFileError(
@@ -1718,10 +1766,11 @@ class ReviewDiffService {
         ...gitRangeRevisionArgs(base, head),
         '--',
         ...gitDiffPathspecArgs(changes),
-      ], { cwd: root, timeout: this.fileService.diffTimeoutMs, maxBuffer: this.fileService.diffMaxBuffer });
+      ], { cwd: root, env: { GIT_LITERAL_PATHSPECS: '1', GIT_OPTIONAL_LOCKS: '0' }, timeout: this.fileService.diffTimeoutMs, maxBuffer: this.fileService.diffMaxBuffer });
       return parseRawDiffMetadata(stdout);
     } catch (error) {
-      if (errorString(error, 'code') === 'ETIMEDOUT') {
+      if (errorString(error, 'code') === 'ETIMEDOUT'
+        || (errorString(error, 'signal') === 'SIGTERM' && errorString(error, 'code') !== 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER')) {
         throw new WorkspaceFileError('git diff timed out', 504);
       }
       throw new WorkspaceFileError(

@@ -882,7 +882,7 @@
   white-space: nowrap;
 }
 .review-source-menu button svg { width: 15px; height: 15px; fill: currentColor; }
-.review-source-menu p { margin: 6px 8px; color: var(--code-text-subtle); font-size: 12px; line-height: 1.45; }
+.review-source-menu p { margin: 6px 8px; color: var(--code-text-subtle); font-size: 12px; line-height: 1.45; white-space: normal; overflow-wrap: anywhere; }
 .review-source-menu p.error { color: var(--code-danger); }
 .review-source-submenu > summary {
   display: flex;

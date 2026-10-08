@@ -26,6 +26,17 @@ Changing identity clears the previous catalog and summary before loading the
 new source. Failed loads remain empty with an explicit error; late responses
 from the previous identity cannot restore its content.
 
+Repository targets resolve to the canonical top-level directory of the selected
+worktree, including when opened from an ordinary subdirectory. Explicit file
+paths are relative to that root and are literal identities, never Git patterns.
+Nested repositories resolve independently. A shared Git object directory does
+not identify a worktree: HEAD, index, and working files belong to the selected
+checkout. Directory-limited review requires an explicit path selection.
+
+Revision names are resolved once before admitting a catalog. The browser uses
+the returned object IDs and canonical root for all subsequent file, context,
+patch, and review-state requests; symbolic names are not revision identities.
+
 ## Comparison Sources
 
 Review may compare a working tree, staged changes, a commit, a branch merge
@@ -41,6 +52,14 @@ working-copy comparison.
 Capture accepts both commit and tree bases, including the index tree used by
 Unstaged. Both base and candidate objects stay referenced for the Review lineage;
 later index changes cannot alter an existing capture.
+
+Source discovery copies the selected worktree index into an isolated temporary
+index and pins HEAD. Every index comparison uses that copy; HEAD and the original
+index must still match before publication, otherwise the request fails with a
+conflict. The comparison-source client retries that explicitly stale read once;
+a second conflict remains visible. Reads never refresh the real index. An unmerged index disables Staged
+and Unstaged with an explicit reason and unavailable endpoints; commit and branch
+comparisons remain usable. Temporary files are released on success and failure.
 
 Source discovery bounds each staged, unstaged, and untracked path enumeration.
 An output limit preserves the source's known availability and marks the path
@@ -66,6 +85,9 @@ The CLI may open an explicit local Review:
 farming review <git-dir> <old-revision> <new-revision|now>
 ```
 
+Detached HEAD is supported; a named branch is required only when explicitly
+selected with `--branch`.
+
 The resulting Review uses the same identity, comment, reviewed-state, and
 loading contracts as Reviews opened from Farming.
 
@@ -76,6 +98,18 @@ list is presented. Capture must not modify the user's index or worktree. If the
 workspace changes during capture and a coherent result cannot be proven,
 capture fails visibly and may be retried.
 
+Capture transitions from resolving to enumerating, capturing, validating, and
+published. Each attempt pins the worktree HEAD and observes its index, enumerates
+the selected changes afresh around both captures, and compares the resulting
+trees. Only changed paths are materialized over the pinned HEAD tree; unchanged
+objects are reused. Updates operate on exact entries, never recursively importing
+directory contents or ignored descendants. Observed changes to HEAD, index, path membership, or content
+terminate the attempt with a conflict, without publishing a revision or retrying
+automatically. This detects concurrent writes; it does not make external writers
+transactional. Failure always releases the attempt's temporary index and files.
+Git reads and writes have bounded command deadlines and output limits; timeouts
+remain explicit timeout errors. Refresh repeats the same protocol.
+
 Refreshing after fixes creates a new revision in the same Review lineage.
 Unchanged files may retain reviewed state. Changed files become unreviewed, and
 comments whose anchors no longer match become outdated rather than moving to
@@ -85,7 +119,10 @@ For a working-copy Review, the requested tracked or untracked scope is applied
 during the authoritative Git enumeration before the file limit. A large
 untracked area cannot truncate a tracked Review; overflow within the selected
 scope remains an explicit capture failure. Rename captures retain both the
-previous and current path identities.
+previous and current path identities. Selecting either end of a staged rename
+also selects its partner, including when the rename crosses a selected directory.
+An explicit empty path selection captures no changes. Untracked embedded
+repositories must be opened as their own Review instead of captured as files.
 
 Gitlink changes retain their pointer rows and expand into file-level changes
 between the exact referenced child commits. Nested paths are qualified by their

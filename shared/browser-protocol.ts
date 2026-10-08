@@ -4,8 +4,8 @@ import { isAgentStateWire } from './agent-state-wire.js'
 import { isChatTurnState, type ChatTurnState } from './chat-turn-state.js'
 import type { AgentStateWire } from './agent-state-wire.js'
 
-export const PROTOCOL_VERSION = 19
-export const MIN_PROTOCOL_VERSION = 19
+export const PROTOCOL_VERSION = 20
+export const MIN_PROTOCOL_VERSION = 20
 export const MAX_ACP_TRANSCRIPT_INTEREST = 20
 export const MAX_INLINE_WORKSPACE_MESSAGE_BYTES = 1024 * 1024
 export const PROJECT_ATTENTION_SCORE_MAX = projectAttentionScoreMax
@@ -160,7 +160,7 @@ export type WorkspaceRequest =
   | { operation: 'rename-entry'; rootId: string; path: string; name: string; expectedVersion?: string }
   | { operation: 'delete-entry'; rootId: string; path: string; expectedVersion?: string }
   | { operation: 'search'; rootId: string; query: string; path?: string; includeIgnored?: boolean; limit?: number; scope?: 'all' | 'file-path' | 'entries' }
-  | { operation: 'blame'; rootId: string; path: string; revision?: string }
+  | { operation: 'blame'; rootId: string; path: string; revision?: string; cursor?: string }
   | { operation: 'blame-capability'; rootId: string; path: string; revision?: string }
   | { operation: 'diff'; rootId: string; path: string }
   | { operation: 'changes'; rootId: string; limit?: number; inventory?: boolean; repositoryPath?: string; scope?: 'tracked' | 'untracked'; cursor?: string }
@@ -708,8 +708,10 @@ function workspaceRequest(value: unknown): value is WorkspaceRequest {
         && optionalNonNegativeIntegerField(value, 'limit')
         && (value.scope === undefined || value.scope === 'all' || value.scope === 'file-path' || value.scope === 'entries')
     case 'blame':
+      return rootPath() && boundedStringField(value, 'cursor', 128, true)
+        && (value.revision === undefined || (typeof value.revision === 'string' && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(value.revision)))
     case 'blame-capability':
-      return rootPath() && (value.revision === undefined || (typeof value.revision === 'string' && /^[0-9a-f]{40}$/.test(value.revision)))
+      return rootPath() && (value.revision === undefined || (typeof value.revision === 'string' && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(value.revision)))
     case 'diff':
       return rootPath()
     case 'context-paths':

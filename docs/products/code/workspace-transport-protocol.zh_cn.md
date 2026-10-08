@@ -100,6 +100,10 @@ Viewer 仅仅因为 Browser Element 需要 URL，不能形成第二条 Workspace
 最终 Browser 产品路径不能为 WebSocket 控制操作保留自动 HTTP Fallback。主 WS 断开是
 明确的连接失败，不是打开平行 HTTP 控制流量的信号。
 
+Blame 在主 WebSocket 上传输不可变、按字节有界的分页。提交元数据每页按字典去重一次，
+连续行共用一个保留原始行坐标和内容的区间，浏览器还原逐行注解。每个游标绑定授权 Root、文件和 Revision；
+客户端收齐完整快照，并取消过时读取。明确的快照到期允许完整重读一次，不允许重放写入或提高帧大小上限。
+
 ## 协议形状
 
 Workspace Files 与 Language Server 保持不同的强类型 Domain，但共用一个 Request Broker

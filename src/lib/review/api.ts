@@ -53,8 +53,9 @@ export type AcpReviewPreviewChange = {
 
 export type ReviewComparisonSource = {
   available?: boolean
-  base: string
-  head: string
+  unavailableReason?: string
+  base: string | null
+  head: string | null
   id: string
   label: string
 }
@@ -126,8 +127,10 @@ function isComparisonSource(value: unknown): value is ReviewComparisonSource {
   const source = value as ReviewComparisonSource
   return isNonEmptyString(source.id)
     && isNonEmptyString(source.label)
-    && Boolean(normalizeReviewGitRevision(source.base))
-    && Boolean(normalizeReviewGitRevision(source.head))
+    && ((Boolean(normalizeReviewGitRevision(source.base)) && Boolean(normalizeReviewGitRevision(source.head)))
+      || (source.available === false && isNonEmptyString(source.unavailableReason)
+        && (source.base === null || Boolean(normalizeReviewGitRevision(source.base)))
+        && (source.head === null || Boolean(normalizeReviewGitRevision(source.head)))))
     && (source.available === undefined || typeof source.available === 'boolean')
 }
 
@@ -330,8 +333,15 @@ export async function loadReviewComparisonSources(
   const params = new URLSearchParams()
   if ('root' in target) params.set('root', target.root)
   else params.set('agentId', target.agentId)
-  const response = await reviewFetch(`${appPath('/api/reviews/comparison-sources')}?${params.toString()}`)
-  const value: unknown = await response.json().catch(() => null)
+  const read = async () => {
+    const response = await reviewFetch(`${appPath('/api/reviews/comparison-sources')}?${params.toString()}`)
+    const value: unknown = await response.json().catch(() => null)
+    return { response, value }
+  }
+  let { response, value } = await read()
+  if (response.status === 409 && value && typeof value === 'object' && 'details' in value
+    && value.details && typeof value.details === 'object' && 'reason' in value.details
+    && value.details.reason === 'snapshot-stale') ({ response, value } = await read())
   if (!response.ok || !value || typeof value !== 'object') {
     throw new ReviewApiError(errorMessageFromValue(value, 'review comparison sources could not be loaded'))
   }

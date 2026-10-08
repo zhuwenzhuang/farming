@@ -11,8 +11,8 @@ const composer_submission_js_1 = require("./composer-submission.js");
 const agent_state_semantics_js_1 = require("./agent-state-semantics.js");
 const agent_state_wire_js_1 = require("./agent-state-wire.js");
 const chat_turn_state_js_1 = require("./chat-turn-state.js");
-exports.PROTOCOL_VERSION = 19;
-exports.MIN_PROTOCOL_VERSION = 19;
+exports.PROTOCOL_VERSION = 20;
+exports.MIN_PROTOCOL_VERSION = 20;
 exports.MAX_ACP_TRANSCRIPT_INTEREST = 20;
 exports.MAX_INLINE_WORKSPACE_MESSAGE_BYTES = 1024 * 1024;
 exports.PROJECT_ATTENTION_SCORE_MAX = agent_state_semantics_js_1.PROJECT_ATTENTION_SCORE_MAX;
@@ -147,8 +147,10 @@ function workspaceRequest(value) {
                 && optionalNonNegativeIntegerField(value, 'limit')
                 && (value.scope === undefined || value.scope === 'all' || value.scope === 'file-path' || value.scope === 'entries');
         case 'blame':
+            return rootPath() && boundedStringField(value, 'cursor', 128, true)
+                && (value.revision === undefined || (typeof value.revision === 'string' && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(value.revision)));
         case 'blame-capability':
-            return rootPath() && (value.revision === undefined || (typeof value.revision === 'string' && /^[0-9a-f]{40}$/.test(value.revision)));
+            return rootPath() && (value.revision === undefined || (typeof value.revision === 'string' && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(value.revision)));
         case 'diff':
             return rootPath();
         case 'context-paths':

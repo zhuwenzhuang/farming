@@ -145,6 +145,7 @@ interface WorktreeCommandFailure {
 interface WorktreeGitExecOptions {
   maxBuffer: number;
   timeout: number;
+  env?: NodeJS.ProcessEnv;
 }
 
 type WorktreeGitExec = (
@@ -435,7 +436,7 @@ class WorktreeGitService implements WorktreeGitServicePort {
       this.listWorktrees(repositoryWorkspace),
       this.execFile('git', [
         '-C', repositoryWorkspace, 'status', '--porcelain=v2', '--branch', '--untracked-files=all',
-      ], { timeout: GIT_INSPECTION_TIMEOUT_MS, maxBuffer: GIT_INSPECTION_MAX_BUFFER })
+      ], { timeout: GIT_INSPECTION_TIMEOUT_MS, maxBuffer: GIT_INSPECTION_MAX_BUFFER, env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' } })
         .then(result => result.stdout),
       this.execFile('git', [
         '-C', repositoryWorkspace, 'for-each-ref',
@@ -827,7 +828,7 @@ class WorktreeGitService implements WorktreeGitServicePort {
       const sourceWorkspace = worktrees[0]?.workspace || resolvedWorkspace;
       const { stdout: statusOutput } = await this.execFile('git', [
         '-C', resolvedWorkspace, 'status', '--porcelain', '--untracked-files=all',
-      ], { timeout: 30_000, maxBuffer: 4 * 1024 * 1024 });
+      ], { timeout: 30_000, maxBuffer: 4 * 1024 * 1024, env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' } });
       const dirtyEntries = statusEntriesFromPorcelain(statusOutput);
       return {
         workspace: resolvedWorkspace,

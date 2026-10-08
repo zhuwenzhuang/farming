@@ -1,3 +1,4 @@
+import { PROTOCOL_VERSION } from '../../shared/browser-protocol';
 const assert = require('assert');
 const fs = require('fs');
 const http = require('http');
@@ -132,11 +133,11 @@ async function run() {
     });
   });
   websocketServer.on('connection', websocket => {
-    websocket.send(JSON.stringify({ type: 'protocol-hello', protocolVersion: 19 }));
+    websocket.send(JSON.stringify({ type: 'protocol-hello', protocolVersion: PROTOCOL_VERSION }));
     websocket.on('message', data => {
       const message = JSON.parse(String(data));
       if (message.type === 'protocol-hello') {
-        assert.strictEqual(message.protocolVersion, 19);
+        assert.strictEqual(message.protocolVersion, PROTOCOL_VERSION);
         negotiated = true;
         websocket.send(JSON.stringify({ type: 'state', agents: [] }));
       } else if (message.type === 'business-health-probe') {

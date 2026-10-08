@@ -109,6 +109,13 @@ compatibility input only while persisted clients are upgraded.
 | Static HTML preview session create/delete | Request/result | Preview documents and assets |
 | Images, PDFs, audio, binary files, archives | Metadata/request result | Bounded bytes for browser-native viewers |
 
+Blame uses immutable, byte-bounded pages on the main WebSocket. Commit metadata
+is dictionary-encoded once per page, and consecutive lines share one range with
+original line coordinates and content. The browser restores per-line annotations. Each cursor is
+scoped to the authorized root, file, and revision; the client assembles a complete
+snapshot and cancels obsolete reads. Explicit snapshot expiry permits one full
+read restart. It does not permit replaying mutations or raising the frame limit.
+
 HTTP transfer responses are still authorized against the same `rootId`, path,
 access mode, and content version. A Viewer does not become a second Workspace
 authorization path merely because a browser element needs a URL.

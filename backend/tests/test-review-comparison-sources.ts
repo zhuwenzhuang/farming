@@ -108,7 +108,7 @@ async function run() {
     // A short-path inventory can exceed the response count without byte overflow.
     const runRealGit = fileService.execFile.bind(fileService);
     fileService.execFile = async (command: string, args: string[], options: Record<string, unknown>) => {
-      if (args.includes('ls-files')) return { stdout: Array.from({ length: 2100 }, (_, index) => `path-${index}\0`).join('') };
+      if (args.includes('ls-files') && !args.includes('--unmerged')) return { stdout: Array.from({ length: 2100 }, (_, index) => `path-${index}\0`).join('') };
       return runRealGit(command, args, options);
     };
     const countLimited = await service.getComparisonSources(undefined, { root });

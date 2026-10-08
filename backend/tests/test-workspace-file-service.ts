@@ -1221,6 +1221,7 @@ setInterval(() => {}, 1000);
       const boundedChangesService = new WorkspaceFileService({
         commandRunner: {
           run: async (command, args, options) => {
+            if (args.includes('rev-parse')) return { stdout: options.cwd, stderr: '' };
             assert.strictEqual(command, 'git');
             assert(args.includes('--untracked-files=all'));
             assert.strictEqual(args.some(arg => arg.startsWith(':(exclude)')), false);
@@ -1252,7 +1253,8 @@ setInterval(() => {}, 1000);
       const scopedStatusCalls: string[][] = [];
       const scopedChangesService = new WorkspaceFileService({
         commandRunner: {
-          run: async (command, args) => {
+          run: async (command, args, options) => {
+            if (args.includes('rev-parse')) return { stdout: options.cwd, stderr: '' };
             assert.strictEqual(command, 'git');
             scopedStatusCalls.push(args);
             if (args.includes('--untracked-files=no')) {
@@ -1372,7 +1374,8 @@ setInterval(() => {}, 1000);
     const cachedService = new WorkspaceFileService({
       gitStatusCacheTtlMs: 5000,
       commandRunner: {
-        run: async (command, args) => {
+        run: async (command, args, options) => {
+            if (args.includes('rev-parse')) return { stdout: options.cwd, stderr: '' };
           if (command === 'git' && args.includes('status')) {
             gitStatusCalls += 1;
             return { stdout: '?? cached.txt\0', stderr: '' };
@@ -1399,12 +1402,12 @@ setInterval(() => {}, 1000);
     const checkIgnoreBatches: string[][] = [];
     const checkIgnoreService = new WorkspaceFileService({
       commandRunner: {
-        run: async (command, args) => {
+        run: async (command, args, options) => {
+            if (args.includes('rev-parse')) return { stdout: options.cwd, stderr: '' };
           if (command === 'git' && args.includes('check-ignore')) {
-            const separator = args.indexOf('--');
-            const pathBatch = args.slice(separator + 1);
+            const pathBatch = options.input.split('\0').filter(Boolean);
             checkIgnoreBatches.push(pathBatch);
-            return { stdout: `${pathBatch[0]}\n`, stderr: '' };
+            return { stdout: `${pathBatch[0]}\0`, stderr: '' };
           }
           return { stdout: '', stderr: '' };
         },
@@ -1416,7 +1419,7 @@ setInterval(() => {}, 1000);
     );
     try {
       const ignored = await checkIgnoreService.loadGitIgnoredPaths(cacheWorkspace, longDecorationPaths);
-      assert(checkIgnoreBatches.length > 1, 'git check-ignore argv must be bounded independently of protocol batches');
+      assert(checkIgnoreBatches.length > 1, 'git check-ignore input must be bounded independently of protocol batches');
       assert.deepStrictEqual([...ignored], checkIgnoreBatches.map(pathBatch => pathBatch[0]));
       checkIgnoreBatches.forEach(pathBatch => {
         const argumentBytes = pathBatch.reduce((total, entryPath) => (
@@ -1437,7 +1440,8 @@ setInterval(() => {}, 1000);
     const slowStatusService = new WorkspaceFileService({
       gitStatusCacheTtlMs: 5000,
       commandRunner: {
-        run: async (command, args) => {
+        run: async (command, args, options) => {
+            if (args.includes('rev-parse')) return { stdout: options.cwd, stderr: '' };
           if (command === 'git' && args.includes('status')) {
             slowGitStatusCalls += 1;
             await slowGitStatusGate;
@@ -1468,7 +1472,8 @@ setInterval(() => {}, 1000);
     let readFileGitStatusCalls = 0;
     const readFileService = new WorkspaceFileService({
       commandRunner: {
-        run: async (command, args) => {
+        run: async (command, args, options) => {
+            if (args.includes('rev-parse')) return { stdout: options.cwd, stderr: '' };
           if (command === 'git' && args.includes('status')) {
             readFileGitStatusCalls += 1;
           }
@@ -1489,7 +1494,8 @@ setInterval(() => {}, 1000);
     let singleFileLsFilesArgs = null;
     const singleFileCapabilityService = new WorkspaceFileService({
       commandRunner: {
-        run: async (command, args) => {
+        run: async (command, args, options) => {
+            if (args.includes('rev-parse')) return { stdout: options.cwd, stderr: '' };
           if (command === 'git' && args.includes('status')) {
             singleFileGitStatusArgs = args;
             return { stdout: '', stderr: '' };
@@ -1507,7 +1513,8 @@ setInterval(() => {}, 1000);
       assert.strictEqual(capability.available, true);
       const pathspecIndex = singleFileGitStatusArgs.lastIndexOf('--');
       assert(pathspecIndex >= 0);
-      assert.strictEqual(singleFileGitStatusArgs[pathspecIndex + 1], 'cached.txt');
+      assert.strictEqual(singleFileGitStatusArgs[pathspecIndex + 1], ':(literal)cached.txt');
+      assert(singleFileLsFilesArgs.includes('--literal-pathspecs'));
       const lsFilesPathspecIndex = singleFileLsFilesArgs.lastIndexOf('--');
       assert(lsFilesPathspecIndex >= 0);
       assert.strictEqual(singleFileLsFilesArgs[lsFilesPathspecIndex + 1], 'cached.txt');

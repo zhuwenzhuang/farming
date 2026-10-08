@@ -1,3 +1,4 @@
+import { unpackWorkspaceBlameLines, type WorkspaceBlameLine, type WorkspaceBlamePage } from '../../shared/workspace-blame'
 import { appPath } from './base-path'
 import type { WorkspaceRequest } from '../../shared/browser-protocol'
 import {
@@ -68,19 +69,7 @@ export interface WorkspaceFileDeleteResult {
   version?: string
 }
 
-export interface WorkspaceFileBlameLine {
-  lineNumber: number
-  originalLineNumber: number
-  commit: string
-  shortCommit: string
-  author: string
-  authorMail: string
-  authorTime: number | null
-  authorTimeIso: string
-  summary: string
-  content: string
-  uncommitted: boolean
-}
+export type WorkspaceFileBlameLine = WorkspaceBlameLine
 
 export interface WorkspaceIssueLinkRule {
   issueRegexp: string
@@ -310,6 +299,20 @@ export class WorkspaceFileApiError extends Error {
     this.name = 'WorkspaceFileApiError'
     this.status = status
     this.details = details
+  }
+}
+
+export function isWorkspaceSnapshotStale(error: unknown): boolean {
+  return error instanceof WorkspaceFileApiError && error.status === 409
+    && typeof error.details === 'object' && error.details !== null
+    && 'reason' in error.details && error.details.reason === 'snapshot-stale'
+}
+
+// Read-only callers explicitly opt in; mutations never use this helper.
+export async function retryWorkspaceSnapshotRead<T>(read: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+  try { return await read() } catch (error) {
+    if (!isWorkspaceSnapshotStale(error) || signal?.aborted) throw error
+    return read()
   }
 }
 
@@ -559,8 +562,30 @@ export async function deleteWorkspaceEntry(
   }, { mutation: true, signal: options.signal })
 }
 
-export async function fetchWorkspaceBlame(rootId: string, filePath: string, revision?: string) {
-  return runWorkspaceRequest<WorkspaceFileBlame>({ operation: 'blame', rootId, path: filePath, ...(revision ? { revision } : {}) })
+export async function fetchWorkspaceBlame(rootId: string, filePath: string, revision?: string, signal?: AbortSignal) {
+  const boundedSignal = AbortSignal.any([AbortSignal.timeout(60_000), ...(signal ? [signal] : [])])
+  return retryWorkspaceSnapshotRead(async () => {
+    const lines: WorkspaceFileBlameLine[] = []
+    let cursor: string | undefined
+    let total: number | undefined
+    do {
+      const page = await runWorkspaceRequest<WorkspaceBlamePage>({
+        operation: 'blame', rootId, path: filePath, ...(revision ? { revision } : {}), ...(cursor ? { cursor } : {}),
+      }, { signal: boundedSignal })
+      const pageLines = unpackWorkspaceBlameLines(page)
+      if (!Number.isSafeInteger(page.total) || page.total < 0 || (total !== undefined && total !== page.total)
+        || (page.nextCursor && (!pageLines.length || page.nextCursor === cursor))) throw new Error('Invalid blame page')
+      total = page.total
+      for (const line of pageLines) lines.push(line)
+      if (lines.length > total) throw new Error('Invalid blame page length')
+      cursor = page.nextCursor ?? undefined
+      if (!cursor) {
+        if (lines.length !== total) throw new Error('Incomplete blame snapshot')
+        return { ...page, lines }
+      }
+    } while (!boundedSignal.aborted)
+    throw boundedSignal.reason
+  }, boundedSignal)
 }
 
 export async function fetchWorkspaceBlameCapability(rootId: string, filePath: string, revision?: string) {
@@ -572,12 +597,12 @@ export async function fetchWorkspaceDiff(rootId: string, filePath: string) {
 }
 
 export async function fetchWorkspaceChanges(rootId: string, options: { inventory?: boolean; limit?: number; signal?: AbortSignal } = {}) {
-  return runWorkspaceRequest<WorkspaceFileChanges>({
+  return retryWorkspaceSnapshotRead(() => runWorkspaceRequest<WorkspaceFileChanges>({
     operation: 'changes',
     rootId,
     ...(options.inventory ? { inventory: true } : {}),
     ...(options.limit ? { limit: options.limit } : {}),
-  }, { signal: options.signal })
+  }, { signal: options.signal }), options.signal)
 }
 
 export interface WorkspaceChangePage {

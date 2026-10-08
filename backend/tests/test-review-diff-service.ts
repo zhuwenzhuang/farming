@@ -4,6 +4,26 @@ const os = require('os');
 const path = require('path');
 const { ReviewDiffService, fileFromPatch, gitDiffPathspecArgs, gitRangeReviewId, metadataFile, normalizeReviewLimit, patchMetadata, parseComparisonBranches, parseComparisonCommits, parseNameStatus, parseNumstat, parseRawDiffMetadata, untrackedPatch, workingCopyPatchset, workingCopyReviewId } = require('../review-diff-service.cjs');
 
+const RESOLVED_BASE = 'a'.repeat(40);
+const RESOLVED_HEAD = 'b'.repeat(40);
+// These parser/presentation fixtures use virtual repositories. Real directory,
+// ref-resolution and worktree behavior is tested by test-review-git-boundaries.
+class FixtureReviewDiffService extends ReviewDiffService {
+  constructor(agents, files) {
+    super(agents, {
+      ...files,
+      async execFile(command, args, options) {
+        if (args[2] === 'rev-parse' && args[3] === '--verify' && args[4].endsWith('^{}')) {
+          return { stdout: ['HEAD~1^{}', 'BASE^{}'].includes(args[4]) ? RESOLVED_BASE : args[4] === 'HEAD^{}' ? RESOLVED_HEAD : args[4].replace(/\^\{\}$/, '') };
+        }
+        if (args[2] === 'cat-file' && args[3] === '-e') return { stdout: '' };
+        return files.execFile(command, args.map(arg => arg.replaceAll(RESOLVED_BASE, 'HEAD~1').replaceAll(RESOLVED_HEAD, 'HEAD')), options);
+      },
+    });
+  }
+  async resolveRepository(directory) { return directory; }
+}
+
 function pathspecAfterDoubleDash(args) {
   const index = args.lastIndexOf('--');
   return index === -1 ? [] : args.slice(index + 1);
@@ -47,7 +67,7 @@ async function run() {
 
   const comparisonRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-review-comparison-'));
   try {
-    const comparisonService = new ReviewDiffService(null, {
+    const comparisonService = new FixtureReviewDiffService(null, {
       diffMaxBuffer: 1024 * 1024,
       diffTimeoutMs: 5000,
       gitPath: 'git',
@@ -62,7 +82,7 @@ async function run() {
           return { stdout: 'staged.ts\0shared.ts\0' };
         }
         if (gitArgs[0] === 'diff') return { stdout: 'unstaged.ts\0shared.ts\0' };
-        if (gitArgs[0] === 'ls-files') return { stdout: 'new.ts\0' };
+        if (gitArgs[0] === 'ls-files') return { stdout: gitArgs.includes('--unmerged') ? '' : 'new.ts\0' };
         throw new Error(`unexpected comparison git args: ${gitArgs.join(' ')}`);
       },
     });
@@ -81,7 +101,7 @@ async function run() {
   const oldTime = new Date(Date.now() - 4 * 24 * 60 * 60 * 1000);
   fs.utimesSync(path.join(scopeRoot, 'old.txt'), oldTime, oldTime);
   const scopeChangeOptions = [];
-  const scopeService = new ReviewDiffService({
+  const scopeService = new FixtureReviewDiffService({
     getAgentWorkspaceRoot() { return scopeRoot; },
   }, {
     async changes(_root, options) {
@@ -104,10 +124,10 @@ async function run() {
   try {
     const trackedScope = await scopeService.getWorkingCopy('agent-scope', { metadataOnly: true, scope: 'tracked' });
     assert.deepStrictEqual(trackedScope.files.map(file => file.path), ['tracked.ts']);
-    assert.deepStrictEqual(scopeChangeOptions[0], { limit: 2000, scope: 'tracked' });
+    assert.deepStrictEqual(scopeChangeOptions[0], { limit: 2000, includeHidden: true, scope: 'tracked' });
     const untrackedScope = await scopeService.getWorkingCopy('agent-scope', { metadataOnly: true, modifiedWithinDays: 3, scope: 'untracked' });
     assert.deepStrictEqual(untrackedScope.files.map(file => file.path), ['recent.txt']);
-    assert.deepStrictEqual(scopeChangeOptions[1], { limit: 2000, scope: 'untracked' });
+    assert.deepStrictEqual(scopeChangeOptions[1], { limit: 2000, includeHidden: true, scope: 'untracked' });
     assert.notStrictEqual(trackedScope.reviewId, untrackedScope.reviewId);
     await assert.rejects(
       () => scopeService.getWorkingCopyFile('agent-scope', 'old.txt', { modifiedWithinDays: 3, scope: 'untracked' }),
@@ -292,7 +312,7 @@ async function run() {
 
   const diffCalls = [];
   const gitCalls = [];
-  const service = new ReviewDiffService({
+  const service = new FixtureReviewDiffService({
     getAgentWorkspaceRoot(agentId) {
       return agentId === 'agent-1' ? '/workspace' : '';
     },
@@ -536,7 +556,7 @@ async function run() {
   assert.deepStrictEqual(diffCalls.map(call => call.options), [{}, { context: 25 }]);
   await assert.rejects(() => service.getWorkingCopyFile('agent-1', '../bad.ts'), /file path is required/);
   await assert.rejects(() => service.getWorkingCopyFile('agent-1', 'missing.ts'), /review file not found/);
-  const workingContextService = new ReviewDiffService({
+  const workingContextService = new FixtureReviewDiffService({
     getAgentWorkspaceRoot(agentId) {
       return agentId === 'agent-context' ? '/context-workspace' : '';
     },
@@ -594,7 +614,7 @@ async function run() {
   const invalidLimitWorkingCopy = await service.getWorkingCopy('agent-1', { limit: 0, metadataOnly: true });
   assert.strictEqual(invalidLimitWorkingCopy.files.length, 3);
   const hugeUntrackedContent = Array.from({ length: 501 }, (_, index) => `line ${index + 1}`).join('\n');
-  const hugeUntrackedService = new ReviewDiffService({
+  const hugeUntrackedService = new FixtureReviewDiffService({
     getAgentWorkspaceRoot(agentId) {
       return agentId === 'agent-huge' ? '/huge-workspace' : '';
     },
@@ -633,7 +653,7 @@ async function run() {
   assert.match(hugePatch.patch, /\+line 500/);
   assert.doesNotMatch(hugePatch.patch, /\+line 501/);
   const exactUntrackedContent = `${Array.from({ length: 500 }, (_, index) => `line ${index + 1}`).join('\n')}\n`;
-  const exactUntrackedService = new ReviewDiffService({
+  const exactUntrackedService = new FixtureReviewDiffService({
     getAgentWorkspaceRoot(agentId) {
       return agentId === 'agent-exact' ? '/exact-workspace' : '';
     },
@@ -665,7 +685,7 @@ async function run() {
   const exactPatch = await exactUntrackedService.getWorkingCopyPatch('agent-exact');
   assert.strictEqual(exactPatch.truncated, false);
   assert.match(exactPatch.patch, /\+line 500/);
-  const truncatedTrackedPatchService = new ReviewDiffService({
+  const truncatedTrackedPatchService = new FixtureReviewDiffService({
     getAgentWorkspaceRoot(agentId) {
       return agentId === 'agent-truncated-patch' ? '/truncated-workspace' : '';
     },
@@ -715,7 +735,7 @@ async function run() {
   const range = await service.getGitRange('agent-1', { base: 'HEAD~1', head: 'HEAD', limit: 10 });
   assert.ok(gitCalls.some(args => args.includes('--name-status') && args.includes('-z')));
   assert.deepStrictEqual(range, {
-    basePatchset: 'HEAD~1',
+    basePatchset: RESOLVED_BASE,
     files: [
       {
         added: 1,
@@ -792,8 +812,8 @@ async function run() {
       },
     ],
     isGitRepo: true,
-    patchset: 'HEAD',
-    reviewId: gitRangeReviewId('/workspace', 'HEAD~1', 'HEAD'),
+    patchset: RESOLVED_HEAD,
+    reviewId: gitRangeReviewId('/workspace', RESOLVED_BASE, RESOLVED_HEAD),
     root: '/workspace',
     source: 'git-range',
     truncated: false,
@@ -872,7 +892,7 @@ async function run() {
   });
 
   const nulServiceCalls = [];
-  const nulService = new ReviewDiffService({
+  const nulService = new FixtureReviewDiffService({
     getAgentWorkspaceRoot(agentId) {
       return agentId === 'agent-nul' ? '/workspace' : '';
     },
@@ -1083,7 +1103,7 @@ async function run() {
   assert.strictEqual(parsedGitlink.diff.hunks[0].rows[0].left?.text, `Subproject commit ${gitlinkOld}`);
   assert.strictEqual(parsedGitlink.diff.hunks[0].rows[0].right?.text, `Subproject commit ${gitlinkNew}`);
   const gitlinkCalls = [];
-  const gitlinkService = new ReviewDiffService({
+  const gitlinkService = new FixtureReviewDiffService({
     getAgentWorkspaceRoot(agentId) {
       return agentId === 'agent-gitlink' ? '/gitlink-workspace' : '';
     },
@@ -1143,7 +1163,7 @@ async function run() {
   );
   assert.strictEqual(gitlinkCalls.some(args => args[2] === 'show'), false);
 
-  const duplicateWorkingCopyService = new ReviewDiffService({
+  const duplicateWorkingCopyService = new FixtureReviewDiffService({
     getAgentWorkspaceRoot(agentId) {
       return agentId === 'agent-duplicate' ? '/workspace' : '';
     },
@@ -1174,7 +1194,7 @@ async function run() {
     /duplicate file paths/
   );
 
-  const duplicateGitRangeService = new ReviewDiffService({
+  const duplicateGitRangeService = new FixtureReviewDiffService({
     getAgentWorkspaceRoot(agentId) {
       return agentId === 'agent-duplicate' ? '/workspace' : '';
     },
@@ -1209,7 +1229,7 @@ async function run() {
   await assert.rejects(() => service.getGitRangePatch('agent-1', { base: '--bad', head: 'HEAD' }), /base and head revisions are required/);
   await assert.rejects(() => service.getWorkingCopy('missing'), /agent not found/);
 
-  const commitMetadataService = new ReviewDiffService(null, {
+  const commitMetadataService = new FixtureReviewDiffService(null, {
     diffMaxBuffer: 1024 * 1024,
     diffTimeoutMs: 5000,
     gitPath: 'git',

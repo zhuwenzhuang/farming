@@ -11,8 +11,10 @@ const yauzl = require('yauzl') as {
     options: { autoClose: boolean; strictFileNames: boolean; validateEntrySizes: boolean },
   ): Promise<{ eachEntry(): AsyncIterable<{ fileName: string; uncompressedSize: number }> }>;
 };
+import { packWorkspaceBlameLines } from '../shared/workspace-blame.js';
+import { MAX_INLINE_WORKSPACE_MESSAGE_BYTES } from '../shared/browser-protocol.js';
 import { isSameOrDescendantPath as isInside } from './path-containment.cjs';
-import { discoverWorkspaceRepositories, exactChildRepository, repositoryForFile } from './workspace-repositories.cjs';
+import { discoverWorkspaceRepositories, exactChildRepository, repositoryForFile, resolveRepositoryRoot } from './workspace-repositories.cjs';
 import { assertManagedRipgrep } from './ripgrep-runtime.cjs';
 
 const DEFAULT_MAX_FILE_SIZE = 10 * 1024 * 1024;
@@ -53,6 +55,7 @@ interface WorkspaceFileErrorDetails {
 }
 
 interface CommandExecutionOptions {
+  input?: string;
   cwd?: string;
   encoding?: BufferEncoding | 'buffer';
   env?: NodeJS.ProcessEnv;
@@ -598,6 +601,7 @@ class CommandRunner implements WorkspaceCommandRunner {
       env: options.env,
       maxBuffer: options.maxBuffer,
       timeout: options.timeout,
+      input: options.input,
     };
 
     return new Promise<CommandResult>((resolve, reject) => {
@@ -638,7 +642,7 @@ function joinRelativePath(parentPath: unknown, name: unknown): string {
 }
 
 function normalizeUserPath(userPath: unknown = ''): string {
-  const value = String(userPath || '').trim();
+  const value = String(userPath || '');
   if (!value || value === '.') return '';
   if (path.isAbsolute(value)) {
     throw new WorkspaceFileError('absolute paths are not allowed', 400);
@@ -703,7 +707,9 @@ function gitSearchExcludePathspecArgs(includeIgnored = false, searchPath = '.') 
 }
 
 function normalizeGitStatusPath(resultPath: unknown): string {
-  return normalizeSearchResultPath(resultPath).replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+  // Git's NUL-delimited paths already use '/' separators. Backslashes and
+  // surrounding whitespace are literal filename characters on POSIX hosts.
+  return normalizeSearchResultPath(resultPath).replace(/^\/+|\/+$/g, '');
 }
 
 function sha1(buffer: import('crypto').BinaryLike): string {
@@ -864,7 +870,7 @@ function gitCommandArgs(args: string[]): string[] {
 
 function execFileAsync(command: string, args: string[], options: CommandExecutionOptions = {}): Promise<CommandResult> {
   return new Promise<CommandResult>((resolve, reject) => {
-    execFile(command, args, {
+    const child = execFile(command, args, {
       encoding: 'utf8',
       maxBuffer: 2 * 1024 * 1024,
       ...options,
@@ -881,6 +887,10 @@ function execFileAsync(command: string, args: string[], options: CommandExecutio
       }
       resolve({ stdout, stderr });
     });
+    if (options.input !== undefined) {
+      child.stdin.on('error', () => { /* execFile reports command failure through its callback. */ });
+      child.stdin.end(options.input);
+    }
   });
 }
 
@@ -1272,7 +1282,7 @@ function parseGitBlamePorcelain(stdout: unknown) {
 
   while (index < lines.length) {
     const header = lines[index];
-    const match = /^(\^?[0-9a-f]{40}) (\d+) (\d+)(?: (\d+))?$/.exec(header || '');
+    const match = /^(\^?(?:[0-9a-f]{40}|[0-9a-f]{64})) (\d+) (\d+)(?: (\d+))?$/.exec(header || '');
     if (!match) {
       index += 1;
       continue;
@@ -1645,6 +1655,9 @@ class WorkspaceFileService {
   gitHistoryTimeoutMs: number;
   gitPath: string;
   gitStatusCache: Map<string, GitStatusCacheEntry>;
+  changeInventories = new Map<string, { expiresAt: number; snapshots: Map<string, { root: string; scope?: 'tracked' | 'untracked'; items: WorkspaceChangeItem[] }> }>();
+  blameSnapshots = new Map<string, { root: string; path: string; revision?: string; expiresAt: number; bytes: number; result: Awaited<ReturnType<WorkspaceFileService['blame']>> }>();
+  activeChangeReads = new Map<string, { sequence: number; readers: number }>();
   gitStatusCacheTtlMs: number;
   gitStatusTimeoutMs: number;
   maxFileSize: number;
@@ -1694,7 +1707,7 @@ class WorkspaceFileService {
     const commandOptions = {
       maxBuffer: 2 * 1024 * 1024,
       ...options,
-      ...(git ? { env: gitCommandEnvironment(options.env) } : {}),
+      ...(git ? { timeout: options.timeout && options.timeout > 0 ? options.timeout : this.gitStatusTimeoutMs, env: gitCommandEnvironment({ GIT_OPTIONAL_LOCKS: '0', ...options.env }) } : {}),
     };
     const commandArgs = git ? gitCommandArgs(args) : args;
     return options.signal
@@ -2294,14 +2307,14 @@ class WorkspaceFileService {
       return normalizeGitStatusPath(normalizedPath);
     })));
     const owner = await repositoryForFile(this, root, relativePath ? `${relativePath}/.farming-decoration` : '.farming-decoration');
-    const repositoryPrefix = relativeFromRoot(root, owner.root);
-    const toRepositoryPath = (entry: string) => repositoryPrefix ? entry.slice(repositoryPrefix.length + 1) : entry;
+    const toRepositoryPath = (entry: string) => relativeFromRoot(owner.root, path.join(root, entry));
+    const toProjectPath = (entry: string) => relativeFromRoot(root, path.join(owner.root, entry));
     const [repositoryStatus, repositoryIgnored] = await Promise.all([
       this.getGitStatusByPath(owner.root),
       this.loadGitIgnoredPaths(owner.root, normalizedEntryPaths.map(toRepositoryPath)),
     ]);
-    const gitStatusByPath: GitStatusMap = new Map(Array.from(repositoryStatus, ([entry, status]) => [repositoryPrefix ? `${repositoryPrefix}/${entry}` : entry, status]));
-    const ignoredPaths = new Set(Array.from(repositoryIgnored, entry => repositoryPrefix ? `${repositoryPrefix}/${entry}` : entry));
+    const gitStatusByPath: GitStatusMap = new Map(Array.from(repositoryStatus, ([entry, status]) => [toProjectPath(entry), status]));
+    const ignoredPaths = new Set(Array.from(repositoryIgnored, toProjectPath));
     const descendantGitStatusByPath = buildDescendantGitStatusByDirectory(gitStatusByPath);
 
     return {
@@ -2327,6 +2340,12 @@ class WorkspaceFileService {
 
   invalidateGitStatus(root: string) {
     if (!root) return;
+    for (const [owner] of this.changeInventories) {
+      if (isInside(root, owner) || isInside(owner, root)) this.changeInventories.delete(owner);
+    }
+    for (const [owner, read] of this.activeChangeReads) {
+      if (isInside(root, owner) || isInside(owner, root)) read.sequence++;
+    }
     for (const cachedRoot of this.gitStatusCache.keys()) {
       if (isInside(root, cachedRoot)) this.gitStatusCache.delete(cachedRoot);
     }
@@ -2334,10 +2353,21 @@ class WorkspaceFileService {
 
   async loadGitStatusByPath(root: string, options: Record<string, unknown> = {}): Promise<GitStatusMap> {
     const untrackedFiles = options.untrackedFiles || 'normal';
-    const pathspecArgs = options.excludeHidden === false
+    const pathspecArgs = Array.isArray(options.paths)
+      ? ['--', ...options.paths.map(filePath => `:(literal)${filePath}`)]
+      : options.excludeHidden === false
       ? ['--', '.']
       : gitStatusExcludePathspecArgs();
+    let prefix = '';
+    const parseStatus = (stdout: unknown): GitStatusMap => {
+      const parsed = parseGitStatus(stdout);
+      if (!prefix) return parsed;
+      return new Map(Array.from(parsed, ([file, status]) => [path.posix.relative(prefix, file), { ...status,
+        ...(status.previousPath ? { previousPath: path.posix.relative(prefix, status.previousPath) } : {}) }]));
+    };
     try {
+      root = await this.resolveRoot(root);
+      prefix = path.relative(await resolveRepositoryRoot(this, root), root).split(path.sep).join('/');
       const { stdout } = await this.execFile(this.gitPath, [
         'status',
         '--porcelain=v1',
@@ -2347,10 +2377,11 @@ class WorkspaceFileService {
         ...pathspecArgs,
       ], {
         cwd: root,
+        env: { GIT_OPTIONAL_LOCKS: '0' },
         timeout: Number(options.timeoutMs) || this.gitStatusTimeoutMs,
         ...(Number(options.maxBuffer) > 0 ? { maxBuffer: Number(options.maxBuffer) } : {}),
       });
-      return parseGitStatus(stdout);
+      return parseStatus(stdout);
     } catch (caught: unknown) {
       const error = processError(caught);
       if (error.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' && options.allowPartial === true) {
@@ -2362,24 +2393,23 @@ class WorkspaceFileService {
         statusByPath.truncated = true;
         return statusByPath;
       }
-      if (error.code === 'ENOENT') {
-        if (options.throwOnError === true) {
-          throw new WorkspaceFileError('git is not installed', 501);
-        }
-        return new Map() as GitStatusMap;
-      }
+      if (error.code === 'ENOENT') throw new WorkspaceFileError('git is not installed', 501);
       if (error.code === 'ETIMEDOUT' || error.signal === 'SIGTERM') {
         throw new WorkspaceFileError('git status timed out', 504);
       }
       if (error.stderr && /not a git repository/i.test(String(error.stderr))) return new Map() as GitStatusMap;
-      if (options.throwOnError === true) {
-        throw new WorkspaceFileError(String(error.stderr || 'git status failed'), 500);
-      }
-      return new Map() as GitStatusMap;
+      throw this.gitReadError(error, 'git status');
     }
   }
 
-  async loadGitIgnoredPaths(root: string, relativePaths: unknown[]) {
+  gitReadError(error: ProcessError, operation: string): WorkspaceFileError {
+    if (error.code === 'ENOENT') return new WorkspaceFileError('git is not installed', 501);
+    if (error.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') return new WorkspaceFileError(`${operation} output exceeds its limit`, 413);
+    if (error.code === 'ETIMEDOUT' || error.signal === 'SIGTERM') return new WorkspaceFileError(`${operation} timed out`, 504);
+    return new WorkspaceFileError(String(error.stderr || error.message || `${operation} failed`), 500);
+  }
+
+  async loadGitIgnoredPaths(root: string, relativePaths: unknown[]): Promise<Set<string>> {
     const paths: string[] = Array.from(new Set<string>(relativePaths
       .map(normalizeGitStatusPath)
       .filter(Boolean)));
@@ -2405,26 +2435,29 @@ class WorkspaceFileService {
       try {
         const { stdout } = await this.execFile(this.gitPath, [
           'check-ignore',
-          '--',
-          ...pathBatch,
-        ], { cwd: root });
+          '-z',
+          '--stdin',
+        ], { cwd: root, input: `${pathBatch.join('\0')}\0` });
         String(stdout)
-          .split(/\r?\n/)
+          .split('\0')
           .map(normalizeGitStatusPath)
           .filter(Boolean)
           .forEach(entryPath => ignored.add(entryPath));
-      } catch {
-        // git check-ignore exits 1 when none of the paths in this batch match.
+      } catch (caught) {
+        const error = processError(caught);
+        if (error.code !== 1 && !/not a git repository/i.test(String(error.stderr || ''))) throw this.gitReadError(error, 'git ignore query');
       }
     }
     return ignored;
   }
 
   async loadGitStatusForPath(root: string, relativePath: unknown) {
-    const normalizedPath = normalizeGitStatusPath(relativePath);
-    if (!normalizedPath) return null;
-
+    if (!normalizeGitStatusPath(relativePath)) return null;
     try {
+      const owner = await repositoryForFile(this, root, normalizeGitStatusPath(relativePath));
+      root = owner.root;
+      const normalizedPath = owner.path;
+      if (!normalizedPath) return null;
       const { stdout } = await this.execFile(this.gitPath, [
         'status',
         '--porcelain=v1',
@@ -2432,14 +2465,21 @@ class WorkspaceFileService {
         '--untracked-files=normal',
         '--ignored=no',
         '--',
-        normalizedPath,
+        `:(literal)${normalizedPath}`,
       ], { cwd: root });
-      return parseGitStatus(stdout).get(normalizedPath) || null;
+      const status = parseGitStatus(stdout).get(normalizedPath) || null;
+      if (status?.kind === 'added') {
+        const { stdout: renames } = await this.execFile(this.gitPath, ['diff', '--cached', '--name-status', '-z', '--find-renames', '--diff-filter=R', '--'], { cwd: root });
+        const fields = String(renames).split('\0');
+        for (let i = 0; i + 2 < fields.length; i += 3) {
+          if (fields[i + 2] === normalizedPath) return { ...status, kind: 'renamed', previousPath: fields[i + 1] };
+        }
+      }
+      return status;
     } catch (caught: unknown) {
       const error = processError(caught);
-      if (error.code === 'ENOENT') return null;
       if (error.stderr && /not a git repository/i.test(String(error.stderr))) return null;
-      return null;
+      throw this.gitReadError(error, 'git file status');
     }
   }
 
@@ -2481,7 +2521,7 @@ class WorkspaceFileService {
     if (owner.root !== root) return this.getGitStatusForPath(owner.root, owner.path);
 
     const cached = this.gitStatusCache.get(root);
-    if (cached?.value) {
+    if (cached?.value && cached.expiresAt > Date.now()) {
       return cached.value.get(normalizedPath) || null;
     }
 
@@ -2673,18 +2713,21 @@ class WorkspaceFileService {
 
   // The inventory contains exact counts only after a complete, bounded Git
   // read. Pages are fenced by that inventory, not a mutable numeric offset.
-  async changeSnapshot(root: string) {
+  async changeSnapshot(root: string, scope?: 'tracked' | 'untracked') {
+    root = await this.resolveRoot(root);
     let stdout: unknown;
+    let prefix = '';
     try {
+      prefix = path.relative(await resolveRepositoryRoot(this, root), root).split(path.sep).join('/');
       ({ stdout } = await this.execFile(this.gitPath, [
-        'status', '--porcelain=v2', '-z', '--untracked-files=all',
+        'status', '--porcelain=v2', '-z', scope === 'tracked' ? '--untracked-files=no' : '--untracked-files=all',
         '--ignore-submodules=dirty', '--ignored=no', '--', '.',
       ], { cwd: root, timeout: this.gitStatusTimeoutMs, maxBuffer: DEFAULT_GIT_CHANGES_MAX_BUFFER }));
     } catch (caught) {
       const error = processError(caught);
       if (/not a git repository/i.test(String(error.stderr || ''))) return { revision: 'non-git', items: [] as WorkspaceChangeItem[] };
       if (error.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') throw new WorkspaceFileError('Change inventory exceeds the Git read limit; open a smaller project', 413);
-      throw new WorkspaceFileError(String(error.stderr || error.message || 'Change inventory unavailable'), 500);
+      throw this.gitReadError(error, 'Change inventory');
     }
     const records = String(stdout || '').split('\0');
     const items: WorkspaceChangeItem[] = [];
@@ -2692,7 +2735,7 @@ class WorkspaceFileService {
       const record = records[index];
       if (!record) continue;
       if (record.startsWith('? ')) {
-        const filePath = record.slice(2);
+        const filePath = prefix ? path.posix.relative(prefix, record.slice(2)) : record.slice(2);
         if (!shouldHidePath(filePath)) items.push({ path: filePath, name: path.posix.basename(filePath), type: 'file', gitStatus: 'untracked', gitStatusLabel: '?', indexStatus: '?', workingTreeStatus: '?' });
         continue;
       }
@@ -2706,8 +2749,9 @@ class WorkspaceFileService {
         if (end < 0) throw new WorkspaceFileError('Incomplete Git status record', 500);
         fields.push(record.slice(offset, end)); offset = end + 1;
       }
-      const filePath = record.slice(offset);
-      const previousPath = type === '2' ? records[++index] : undefined;
+      const filePath = prefix ? path.posix.relative(prefix, record.slice(offset)) : record.slice(offset);
+      const previous = type === '2' ? records[++index] : undefined;
+      const previousPath = previous && prefix ? path.posix.relative(prefix, previous) : previous;
       if (!filePath || (type === '2' && !previousPath)) throw new WorkspaceFileError('Incomplete Git rename record', 500);
       if (shouldHidePath(filePath)) continue;
       const statusCode = fields[1].replaceAll('.', ' ');
@@ -2718,37 +2762,80 @@ class WorkspaceFileService {
         ...(previousPath ? { previousPath } : {}), ...(submodule ? { submodule: true } : {}) });
     }
     items.sort((a, b) => a.path.localeCompare(b.path));
-    const revision = crypto.createHash('sha256').update(root).update(JSON.stringify(items)).digest('hex') as string;
+    const revision = crypto.createHash('sha256').update(root).update(scope || 'all').update(JSON.stringify(items)).digest('hex') as string;
     return { revision, items };
+  }
+
+  private beginChangeRead(root: string) {
+    const read = this.activeChangeReads.get(root) || { sequence: 0, readers: 0 };
+    this.activeChangeReads.set(root, read);
+    const sequence = ++read.sequence;
+    read.readers++;
+    return {
+      verify: () => {
+        if (sequence !== read.sequence) throw new WorkspaceFileError('Repository changes changed while loading. Refresh the list.', 409, { reason: 'snapshot-stale' });
+      },
+      release: () => { if (--read.readers === 0) this.activeChangeReads.delete(root); },
+    };
+  }
+
+  private rememberChangeInventory(root: string, snapshots: Map<string, { root: string; scope?: 'tracked' | 'untracked'; items: WorkspaceChangeItem[] }>) {
+    for (const [owner, inventory] of this.changeInventories) {
+      if (inventory.expiresAt <= Date.now() || owner === root) this.changeInventories.delete(owner);
+    }
+    while (this.changeInventories.size >= 8) this.changeInventories.delete(this.changeInventories.keys().next().value!);
+    // One Project publishes all of its (at most 32) repositories atomically.
+    this.changeInventories.set(root, { expiresAt: Date.now() + 30000, snapshots });
   }
 
   async changesInventory(workspaceRoot: unknown) {
     const root = await this.resolveRoot(workspaceRoot);
-    const repositories = await discoverWorkspaceRepositories(this, root);
-    const inventory = await mapWithConcurrency(repositories, 4, async repository => {
-      try {
-        if (repository.error) throw new Error(repository.error);
-        const snapshot = await this.changeSnapshot(repository.root);
-        return { path: repository.path, revision: snapshot.revision,
-          trackedCount: snapshot.items.filter(item => item.gitStatus !== 'untracked').length,
-          untrackedCount: snapshot.items.filter(item => item.gitStatus === 'untracked').length, truncated: false };
-      } catch (caught) {
-        return { path: repository.path, error: caught instanceof Error ? caught.message : 'Repository changes unavailable', truncated: false };
-      }
-    });
-    return { items: [], repositories: inventory, truncated: false };
+    const read = this.beginChangeRead(root);
+    try {
+      const repositories = await discoverWorkspaceRepositories(this, root);
+      const snapshots = new Map<string, { root: string; items: WorkspaceChangeItem[] }>();
+      const inventory = await mapWithConcurrency(repositories, 4, async repository => {
+        try {
+          if (repository.error) throw new Error(repository.error);
+          const snapshot = await this.changeSnapshot(repository.root);
+          snapshots.set(snapshot.revision, { root: repository.root, items: snapshot.items });
+          return { path: repository.path, revision: snapshot.revision,
+            trackedCount: snapshot.items.filter(item => item.gitStatus !== 'untracked').length,
+            untrackedCount: snapshot.items.filter(item => item.gitStatus === 'untracked').length, truncated: false };
+        } catch (caught) {
+          return { path: repository.path, error: caught instanceof Error ? caught.message : 'Repository changes unavailable', truncated: false };
+        }
+      });
+      read.verify();
+      this.rememberChangeInventory(root, snapshots);
+      return { items: [], repositories: inventory, truncated: false };
+    } finally { read.release(); }
   }
 
   async changesPage(workspaceRoot: unknown, options: { repositoryPath?: string; scope: 'tracked' | 'untracked'; cursor?: string; limit?: number }) {
     const root = await this.resolveHistoryRepository(workspaceRoot, options.repositoryPath);
-    const { revision, items } = await this.changeSnapshot(root);
     let offset = 0;
+    let snapshot: { revision: string; items: WorkspaceChangeItem[] };
     if (options.cursor) {
       const match = /^([a-f0-9]{64}|non-git):(\d+)$/.exec(options.cursor);
       if (!match || !Number.isSafeInteger(Number(match[2]))) throw new WorkspaceFileError('Invalid changes cursor', 400);
-      if (match[1] !== revision) throw new WorkspaceFileError('Repository changes changed. Refresh the list before loading more.', 409);
+      const inventory = [...this.changeInventories.values()].find(candidate => candidate.expiresAt > Date.now()
+        && candidate.snapshots.get(match[1])?.root === root);
+      const cached = inventory?.snapshots.get(match[1]);
+      if (!cached || (cached.scope && cached.scope !== options.scope)) {
+        throw new WorkspaceFileError('Repository changes snapshot changed or expired. Refresh the list before loading more.', 409, { reason: 'snapshot-stale' });
+      }
+      snapshot = { revision: match[1], items: cached.items };
       offset = Number(match[2]);
+    } else {
+      const read = this.beginChangeRead(root);
+      try {
+        snapshot = await this.changeSnapshot(root, options.scope);
+        read.verify();
+        this.rememberChangeInventory(root, new Map([[snapshot.revision, { root, scope: options.scope, items: snapshot.items }]]));
+      } finally { read.release(); }
     }
+    const { revision, items } = snapshot;
     const selected = items.filter(item => (item.gitStatus === 'untracked') === (options.scope === 'untracked'));
     if (offset > selected.length) throw new WorkspaceFileError('Invalid changes cursor offset', 400);
     const limit = Math.max(1, Math.min(200, Number(options.limit) || 100));
@@ -2805,12 +2892,13 @@ class WorkspaceFileService {
       maxBuffer: DEFAULT_GIT_CHANGES_MAX_BUFFER,
       throwOnError: true,
       untrackedFiles: scope === 'tracked' ? 'no' : 'all',
+      ...(Array.isArray(options.paths) ? { paths: options.paths } : {}),
     });
-    this.invalidateGitStatus(root);
+    this.gitStatusCache.delete(root);
     const visibleEntries = Array.from(gitStatusByPath.entries())
       .filter(([, status]) => scope !== 'tracked' || status.kind !== 'untracked')
       .filter(([, status]) => scope !== 'untracked' || status.kind === 'untracked')
-      .filter(([filePath]) => !shouldHidePath(filePath))
+      .filter(([filePath]) => options.includeHidden === true || !shouldHidePath(filePath))
       .sort((left, right) => (
         gitStatusReviewRank(left[1].kind) - gitStatusReviewRank(right[1].kind)
         || left[0].localeCompare(right[0])
@@ -3042,6 +3130,7 @@ class WorkspaceFileService {
 
     try {
       await this.execFile(this.gitPath, [
+        '--literal-pathspecs',
         'ls-files',
         '--error-unmatch',
         '--',
@@ -3052,7 +3141,8 @@ class WorkspaceFileService {
       const error = processError(caught);
       if (error.code === 'ENOENT') return capability(false, 'git-unavailable');
       if (error.stderr && /not a git repository/i.test(String(error.stderr))) return capability(false, 'not-git-repo');
-      return capability(false, 'untracked');
+      if (error.code === 1) return capability(false, 'untracked');
+      throw this.gitReadError(error, 'git tracked-file query');
     }
   }
 
@@ -3738,10 +3828,12 @@ class WorkspaceFileService {
       root = owner.root;
       gitRelativePath = owner.path;
     }
-    const args = ['-C', root, 'diff', ...gitDiffWhitespaceArgs(options.ignoreWhitespace), ...gitDiffContextArgs(options.context), 'HEAD', '--'];
-    if (normalized) args.push(gitRelativePath);
-
     try {
+      const repositoryRoot = await resolveRepositoryRoot(this, root);
+      if (normalized) gitRelativePath = path.relative(repositoryRoot, path.join(root, gitRelativePath)).split(path.sep).join('/');
+      root = repositoryRoot;
+      const args = ['-C', root, '--literal-pathspecs', 'diff', ...gitDiffWhitespaceArgs(options.ignoreWhitespace), ...gitDiffContextArgs(options.context), 'HEAD', '--'];
+      if (normalized) args.push(gitRelativePath);
       const originalRevision = normalized
         ? String((await this.execFile(this.gitPath, ['rev-parse', '--verify', 'HEAD'], {
           cwd: root, timeout: this.diffTimeoutMs, maxBuffer: 1024,
@@ -3801,14 +3893,7 @@ class WorkspaceFileService {
       }
 
       const modifiedBuffer = await fsp.readFile(target);
-      const gitStatusByPath = await this.loadGitStatusByPath(root);
-      if (this.gitStatusCacheTtlMs > 0) {
-        this.gitStatusCache.set(root, {
-          value: gitStatusByPath,
-          expiresAt: Date.now() + this.gitStatusCacheTtlMs,
-        });
-      }
-      const status = gitStatusByPath.get(normalizeGitStatusPath(gitRelativePath)) || null;
+      const status = await this.loadGitStatusForPath(root, gitRelativePath);
       const originalGitPath = status?.kind === 'renamed' && status.previousPath
         ? status.previousPath
         : gitRelativePath;
@@ -3924,6 +4009,7 @@ class WorkspaceFileService {
         const { stdout } = await this.execFile(this.gitPath, [
           '-C',
           root,
+          '--literal-pathspecs',
           'diff',
           '--unified=20',
           'HEAD',
@@ -3976,6 +4062,7 @@ class WorkspaceFileService {
       const { stdout } = await this.execFile(this.gitPath, [
         '-C',
         root,
+        '--literal-pathspecs',
         'show',
         '--format=',
         '--unified=20',
@@ -4044,6 +4131,50 @@ class WorkspaceFileService {
       }
       throw new WorkspaceFileError(String(error.stderr || 'git line changes failed'), 500);
     }
+  }
+
+  // Capture once, then transfer immutable pages. Every continuation revalidates
+  // its authorized file identity; live HEAD/content changes cannot mix pages.
+  async blamePage(workspaceRoot: unknown, userPath: unknown, revision?: string, cursor?: string) {
+    const { root, relativePath } = await this.resolvePath(workspaceRoot, userPath, { allowMissing: true });
+    for (const [id, snapshot] of this.blameSnapshots) {
+      if (snapshot.expiresAt <= Date.now()) this.blameSnapshots.delete(id);
+    }
+    let id: string;
+    let offset = 0;
+    let snapshot: { root: string; path: string; revision?: string; expiresAt: number; bytes: number; result: Awaited<ReturnType<WorkspaceFileService['blame']>> };
+    if (cursor) {
+      const match = /^([a-f0-9-]{36}):(\d+)$/.exec(cursor);
+      if (!match || !Number.isSafeInteger(Number(match[2]))) throw new WorkspaceFileError('Invalid blame cursor', 400);
+      id = match[1]; offset = Number(match[2]);
+      const cached = this.blameSnapshots.get(id);
+      if (!cached || cached.root !== root || cached.path !== relativePath || cached.revision !== revision) {
+        throw new WorkspaceFileError('Blame snapshot expired. Reload blame.', 409, { reason: 'snapshot-stale' });
+      }
+      snapshot = cached;
+    } else {
+      const result = await this.blame(root, relativePath, revision);
+      const bytes = Buffer.byteLength(JSON.stringify(result));
+      if (bytes > 32 * 1024 * 1024) throw new WorkspaceFileError('Blame snapshot exceeds the 32 MiB limit', 413);
+      let retainedBytes = [...this.blameSnapshots.values()].reduce((sum, entry) => sum + entry.bytes, 0);
+      while (this.blameSnapshots.size >= 8 || retainedBytes + bytes > 32 * 1024 * 1024) {
+        const oldest = this.blameSnapshots.keys().next().value!;
+        retainedBytes -= this.blameSnapshots.get(oldest)!.bytes;
+        this.blameSnapshots.delete(oldest);
+      }
+      id = crypto.randomUUID();
+      snapshot = { root, path: relativePath, revision, result, bytes, expiresAt: Date.now() + 60_000 };
+      this.blameSnapshots.set(id, snapshot);
+    }
+    const { lines, ...metadata } = snapshot.result;
+    if (offset > lines.length) throw new WorkspaceFileError('Invalid blame cursor offset', 400);
+    const budget = MAX_INLINE_WORKSPACE_MESSAGE_BYTES - Buffer.byteLength(JSON.stringify(metadata)) - 8192;
+    const { commits, ranges, count } = packWorkspaceBlameLines(lines, offset, budget);
+    if ((!count && offset < lines.length) || budget < 32) {
+      throw new WorkspaceFileError('A blame line or its metadata exceeds the inline transfer limit', 413);
+    }
+    const next = offset + count;
+    return { ...metadata, commits, ranges, total: lines.length, nextCursor: next < lines.length ? `${id}:${next}` : null };
   }
 
   async blame(workspaceRoot: unknown, userPath: unknown, revisionValue?: string) {
@@ -4557,6 +4688,7 @@ class WorkspaceFileService {
   }
 
   async dispose() {
+    this.blameSnapshots.clear();
     const watchers = Array.from(this.watchers.values());
     const exactWatchers = Array.from(this.exactWatchers.values());
     this.watchers.clear();
@@ -4564,6 +4696,8 @@ class WorkspaceFileService {
     this.disposed = true;
     this.watcherLifecycleGeneration += 1;
     this.gitStatusCache.clear();
+    this.changeInventories.clear();
+    for (const read of this.activeChangeReads.values()) read.sequence++;
     await Promise.all([
       ...watchers.map(record => this.closeWorkspaceWatcherRecord(record)),
       ...exactWatchers.map(async record => {

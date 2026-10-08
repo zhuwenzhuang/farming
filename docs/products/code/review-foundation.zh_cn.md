@@ -22,11 +22,25 @@ Preference 与 Context Size 不会改变 Identity。
 切换 Comparison Identity 时，应先清除上一份文件清单与摘要再加载新 Source。
 加载失败时保持空内容并明确显示错误；上一 Identity 的迟到响应不能恢复旧内容。
 
+仓库目标统一解析为所选 worktree 的 canonical 顶层目录，从普通子目录打开也遵循该规则。
+显式文件路径相对于该根目录，按字面身份解释，不能作为 Git 通配表达式。
+嵌套仓库独立解析；共享 Git 对象目录不能作为 worktree 身份，HEAD、index 和工作文件
+属于所选 checkout。限定目录的 Review 必须显式选择路径范围。
+
+接纳文件清单前只解析一次版本名称。浏览器后续文件、上下文、补丁和 Review State 请求
+统一使用返回的对象 ID 与 canonical root；符号引用不能作为版本身份。
+
 ## Comparison Source
 
 Review 可以比较 Working Tree、Staged Change、Commit、Branch Merge Base、显式 Git Range，或
 不可变的 Agent File Changes Capture。Source Selection 表达真实语义，页面出现前必须解析成
 精确 Comparison。
+
+比较来源读取会复制所选 worktree 的 index 到临时 index，并固定 HEAD。发布前再次校验
+HEAD 与原始 index，变化时返回冲突；来源客户端对明确的快照失效自动重读一次，再次冲突则展示错误。
+读取不刷新真实 index。未合并的 index 仅禁用
+Staged 和 Unstaged，返回明确原因和不可用端点，Commit 与 Branch 比较仍可使用。
+成功或失败均释放临时文件。
 
 Source Discovery 分别有界枚举 Staged、Unstaged 和 Untracked 路径。达到输出上限时保留
 已知的 Source Availability，并标记路径清单不完整，因此大量 Untracked 文件不会阻断
@@ -47,12 +61,22 @@ CLI 可以直接打开本地 Review：
 farming review <git-dir> <old-revision> <new-revision|now>
 ```
 
+CLI 支持 detached HEAD，仅显式 `--branch` 需要分支名。
+
 它与 Farming 内打开的 Review 共用 Identity、Comment、Reviewed State 与 Loading Contract。
 
 ## 不可变 Revision
 
 Working-copy Review 必须先捕获为不可变 Revision，再展示文件列表。Capture 不能修改用户的
 Index 或 Worktree。捕获期间 Workspace 变化、无法证明结果一致时，应显式失败并允许 Retry。
+
+Capture 依次经过解析、枚举、捕获、校验和发布。一次尝试固定 worktree HEAD 并观察其
+index，在两次捕获前后重新枚举选定范围，只在固定 HEAD tree 上写入变更路径，复用
+未变化对象。更新只作用于精确条目，不递归导入目录内容或被忽略的后代文件。
+检测到 HEAD、index、路径集合或内容变化时，以冲突结束，不发布版本、
+不自动重试。这能检测并发写入，但不会把外部写入者变成事务参与者。失败必须释放该
+尝试的临时 index 和文件。Git 命令具有有界执行时间与输出上限，超时明确报告为超时。
+Refresh 重复同一协议。
 
 Agent 修复后 Refresh 会在同一 Review Lineage 中创建新 Revision。未变化文件可以继承
 Reviewed State；变化文件回到 Unreviewed；Comment Anchor 不再匹配时标为 Outdated，不能
@@ -61,6 +85,8 @@ Reviewed State；变化文件回到 Unreviewed；Comment Anchor 不再匹配时�
 Working-copy Review 会在权威 Git 枚举阶段、应用 File Limit 之前应用请求的 Tracked 或
 Untracked Scope。大量 Untracked 文件不能截断 Tracked Review；选定 Scope 内超出上限时，
 Capture 必须显式失败。Rename Capture 会保留 Previous 与 Current 两个 Path Identity。
+显式选择已暂存 Rename 的任意一端会同时选择另一端，包括跨所选目录的 Rename。
+显式空路径选择不捕获任何变更。未跟踪的嵌套仓库应打开自身的 Review，不能当作文件捕获。
 
 Gitlink 变化保留提交指针行，并展开为对应子仓库两个精确提交之间的文件差异。
 子文件使用子模块路径作为前缀，在父 Review 版本中保持唯一身份，评论和已审阅状态

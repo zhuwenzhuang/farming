@@ -559,7 +559,7 @@ function parseReviewArgs(argv: string[]): ParsedReviewArgs {
 
 function runGit(root: string, args: string[]): string {
   try {
-    return execFileSync('git', ['-C', root, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+    return execFileSync('git', ['-C', root, ...args], { encoding: 'utf8', timeout: 15000, maxBuffer: 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] }).trim();
   } catch (error: unknown) {
     const detail = String(errorField(error, 'stderr') || errorString(error) || '').trim();
     throw new Error(detail || `git ${args.join(' ')} failed`, { cause: error });
@@ -569,8 +569,8 @@ function runGit(root: string, args: string[]): string {
 function resolveReviewTarget(parsed: ParsedReviewArgs): ReviewTarget {
   const requestedRoot = path.resolve(parsed.gitDir);
   const root = runGit(requestedRoot, ['rev-parse', '--show-toplevel']);
-  const branch = parsed.branch || runGit(root, ['symbolic-ref', '--quiet', '--short', 'HEAD']);
-  runGit(root, ['rev-parse', '--verify', `${branch}^{commit}`]);
+  const branch = parsed.branch || 'HEAD';
+  if (parsed.branch) runGit(root, ['rev-parse', '--verify', `${branch}^{commit}`]);
   const resolveRevision = (revision: string): string => {
     if (revision === 'now') return 'now';
     const branchRelative = revision === 'HEAD'

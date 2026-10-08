@@ -303,3 +303,55 @@ test('refresh retries a failed page even when the repository inventory is unchan
     await page.request.delete(`/farming/api/control/agents/${agentId}?recordHistory=0`)
   }
 })
+
+
+test('automatically rebuilds stale Changes once and bounds repeated invalidation', async ({ page, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'automatic-page-recovery')
+  fs.mkdirSync(workspace, { recursive: true }); git(workspace, 'init', '-q')
+  for (let index = 0; index < 120; index++) fs.writeFileSync(path.join(workspace, `note-${index}.txt`), 'fixture\n')
+  let inventoryReads = 0
+  let pageReads = 0
+  let failInventory = true
+  let failNextContinuation = true
+  let alwaysStale = false
+  await interceptWorkspaceRequests(page, request => {
+    if (request.operation !== 'changes') return
+    let fail = false
+    if (request.inventory) { inventoryReads++; if (failInventory) { failInventory = false; fail = true } }
+    if (request.scope === 'untracked') {
+      pageReads++
+      if (alwaysStale || (failNextContinuation && request.cursor?.endsWith(':100'))) { failNextContinuation = false; fail = true }
+    }
+    if (fail) return { response: { ok: false, error: { code: 'CONFLICT', status: 409, message: 'Repository changes changed', details: { reason: 'snapshot-stale' } } } }
+  })
+  const response = await page.request.post('/farming/api/control/agents', { data: { command: 'bash', workspace } })
+  const { agentId } = await response.json() as { agentId: string }
+  try {
+    await openFarming(page)
+    const files = page.getByTestId('code-project-group').filter({ hasText: 'automatic-page-recovery' }).getByTestId('code-files-section')
+    if (await files.locator('.code-files-title').getAttribute('aria-expanded') !== 'true') await files.locator('.code-files-title').click()
+    const untracked = files.getByTestId('code-file-change-untracked-group')
+    await expect(untracked.getByTestId('code-file-changes-untracked-count')).toHaveText('120')
+    expect(inventoryReads).toBeGreaterThanOrEqual(2)
+    await untracked.locator('.code-file-change-group-toggle').click()
+    await expect(untracked.getByTestId('code-file-change-row')).toHaveCount(100)
+    const before = inventoryReads
+    await untracked.getByRole('button', { name: /Load more/ }).click()
+    await expect.poll(() => inventoryReads).toBe(before + 1)
+    await expect(untracked.getByTestId('code-file-change-row')).toHaveCount(100)
+    // A second independent invalidation gets its own single recovery budget.
+    failNextContinuation = true
+    await untracked.getByRole('button', { name: /Load more/ }).click()
+    await expect.poll(() => inventoryReads).toBe(before + 2)
+    await expect(untracked.getByTestId('code-file-change-row')).toHaveCount(100)
+    await untracked.getByRole('button', { name: /Load more/ }).click()
+    await expect(untracked.getByTestId('code-file-change-row')).toHaveCount(120)
+    await expect(untracked.getByRole('alert')).toHaveCount(0)
+    alwaysStale = true
+    await files.getByTestId('code-files-refresh').click()
+    await expect(untracked.getByRole('alert')).toContainText('Repository changes changed')
+    const failedReads = pageReads
+    await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+    expect(pageReads).toBe(failedReads)
+  } finally { await page.request.delete(`/farming/api/control/agents/${agentId}?recordHistory=0`) }
+})

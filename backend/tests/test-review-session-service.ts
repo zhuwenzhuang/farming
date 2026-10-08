@@ -130,7 +130,7 @@ async function run() {
     try {
       assert.deepStrictEqual(
         await service.capturePaths(repository, { scope: 'tracked' }),
-        ['old-name.txt', 'new-name.txt'],
+        ['new-name.txt', 'old-name.txt'],
       );
     } finally {
       fileService.changes = originalChanges;

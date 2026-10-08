@@ -9,6 +9,7 @@ interface CommandRequest {
   env?: unknown;
   maxBuffer?: unknown;
   timeout?: unknown;
+  input?: string;
 }
 
 interface CommandError {
@@ -48,7 +49,7 @@ rl.on('line', (line: string) => {
 
   const id = request.id;
   try {
-    execFile(
+    const child = execFile(
       request.command as string,
       Array.isArray(request.args) ? request.args as string[] : [],
       {
@@ -82,6 +83,10 @@ rl.on('line', (line: string) => {
         send({ id, ok: true, stdout, stderr });
       },
     );
+    if (request.input !== undefined) {
+      child.stdin?.on('error', () => { /* execFile reports command failure through its callback. */ });
+      child.stdin?.end(request.input);
+    }
   } catch (error: unknown) {
     const details = commandError(error);
     send({

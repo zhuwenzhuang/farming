@@ -21,7 +21,7 @@ function repository(root: string) {
     ...Array.from({ length: 240 }, (_, index) => `    const value${index} = ${index};`),
     '  }', '}', '',
   ].join('\n'))
-  for (const args of [['init'], ['config', 'user.email', 'review@example.test'], ['config', 'user.name', 'First Author'], ['add', '.'], ['commit', '-m', 'Seed blame fixture']]) {
+  for (const args of [['init'], ['config', 'core.hooksPath', '/dev/null'], ['config', 'user.email', 'review@example.test'], ['config', 'user.name', 'First Author'], ['add', '.'], ['commit', '-m', 'Seed blame fixture']]) {
     execFileSync('git', args, { cwd: directory, stdio: 'ignore' })
   }
   fs.writeFileSync(path.join(directory, 'a.txt'), 'first line\nchanged second line\nthird line\n')
@@ -161,10 +161,11 @@ test('diff blame rejects changed contents and ignores results after hiding or cl
   const held = gate()
   let requests = 0
   let results = 0
+  let responseHeld = false
   await interceptWorkspaceRequests(page, request => {
     if (request.operation !== 'blame' || request.revision) return
     requests += 1
-    if (requests === 1) return { onResult: async result => { await held.promise; results += 1; return result } }
+    if (requests === 1) return { onResult: async result => { responseHeld = true; await held.promise; results += 1; return result } }
   })
   try {
     await openDiff(page, directory)
@@ -175,6 +176,7 @@ test('diff blame rejects changed contents and ignores results after hiding or cl
     await openMenu()
     await menu.getByRole('menuitem', { name: 'Annotate with Blame' }).click()
     await expect.poll(() => requests).toBe(1)
+    await expect.poll(() => responseHeld).toBe(true)
     await openMenu()
     await menu.getByRole('menuitem', { name: 'Hide Blame' }).click()
     held.release()
@@ -458,16 +460,18 @@ test('late blame results cannot undo hide or replace the current file annotation
   let held = gate()
   let requests = 0
   let results = 0
+  let responsesHeld = 0
   await interceptWorkspaceRequests(page, request => {
     if (request.operation !== 'blame' || request.path !== 'a.txt') return
     requests += 1
     const currentGate = held
-    return { onResult: async result => { await currentGate.promise; results += 1; return result } }
+    return { onResult: async result => { responsesHeld++; await currentGate.promise; results += 1; return result } }
   })
   try {
     await openFile(page, directory)
     await annotate(page)
     await expect.poll(() => requests).toBe(1)
+    await expect.poll(() => responsesHeld).toBe(1)
     await (await gutterMenu(page)).getByRole('menuitem', { name: 'Hide Blame' }).click()
     held.release()
     await expect.poll(() => results).toBe(1)
@@ -476,6 +480,7 @@ test('late blame results cannot undo hide or replace the current file annotation
     held = gate()
     await annotate(page)
     await expect.poll(() => requests).toBe(2)
+    await expect.poll(() => responsesHeld).toBe(2)
     await selectTreeFile(page, 'b.txt')
     await expect(page.locator('.code-file-inline-blame')).toHaveCount(3)
     held.release()
@@ -542,10 +547,12 @@ test('a save supersedes pending blame for the previous saved version', async ({ 
   const held = gate()
   let requests = 0
   let oldResultReleased = false
+  let responseHeld = false
   await interceptWorkspaceRequests(page, request => {
     if (request.operation !== 'blame') return
     requests += 1
     if (requests === 1) return { onResult: async result => {
+      responseHeld = true
       await held.promise
       oldResultReleased = true
       return result
@@ -555,6 +562,7 @@ test('a save supersedes pending blame for the previous saved version', async ({ 
     await openFile(page, directory)
     await annotate(page)
     await expect.poll(() => requests).toBe(1)
+    await expect.poll(() => responseHeld).toBe(true)
     expect(await page.evaluate(() => window.__farmingFileEditorTest?.insertText('new line\n'))).toBe(true)
     await page.getByRole('button', { name: 'Save file', exact: true }).click()
     await expect(page.locator('.code-file-inline-blame')).toHaveCount(4)
@@ -594,3 +602,35 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
     expect(await page.evaluate(() => window.__farmingFileEditorTest?.getValue())).toBe('')
   })
 }
+
+
+test('loads large blame through bounded pages and restarts an expired snapshot once', async ({ page, workspaceRoot }, testInfo) => {
+  const directory = repository(workspaceRoot)
+  fs.writeFileSync(path.join(directory, 'paged.txt'), Array.from({ length: 6000 }, (_, index) => `source line ${index} ${'x'.repeat(200)}`).join('\n') + '\n')
+  execFileSync('git', ['add', 'paged.txt'], { cwd: directory })
+  execFileSync('git', ['commit', '-m', 'Large blame fixture'], { cwd: directory })
+  let starts = 0
+  let pages = 0
+  let expired = false
+  await interceptWorkspaceRequests(page, request => {
+    if (request.operation !== 'blame') return
+    if (!request.cursor) starts++
+    else {
+      pages++
+      if (!expired) {
+        expired = true
+        return { response: { ok: false, error: { code: 'CONFLICT', status: 409, message: 'Blame snapshot expired', details: { reason: 'snapshot-stale' } } } }
+      }
+    }
+  })
+  await openFile(page, directory, 'paged.txt')
+  await annotate(page)
+  await expect(page.locator('.code-file-inline-blame').first()).toContainText('First Author')
+  expect(starts).toBe(2)
+  expect(pages).toBeGreaterThan(1)
+  await expect(page.getByText('Workspace result exceeds the inline WebSocket limit')).toHaveCount(0)
+  for (const appearance of ['light', 'dark', 'paper']) {
+    await page.evaluate(value => { document.body.dataset.appearance = value; document.documentElement.dataset.appearance = value }, appearance)
+    await page.getByTestId('code-file-editor').screenshot({ path: testInfo.outputPath(`large-blame-${appearance}.png`), animations: 'disabled' })
+  }
+})

@@ -41,6 +41,7 @@ export function useFileEditorBlameController({
   const snapshotKey = `${currentOpenFileKey}\u0000${openFile.file.sha1 ?? ''}`
   const blameRequestFenceRef = useRef(new RequestOwnershipFence(snapshotKey))
   const blameCapabilityRequestFenceRef = useRef(new RequestOwnershipFence(currentOpenFileKey))
+  const blameAbortRef = useRef<AbortController | null>(null)
   const [blameOpen, setBlameOpen] = useState(false)
   const [blameLoading, setBlameLoading] = useState(false)
   const [blame, setBlame] = useState<WorkspaceFileBlame | null>(null)
@@ -73,12 +74,15 @@ export function useFileEditorBlameController({
   const loadBlame = useCallback(async () => {
     if (!blameRequestFenceRef.current.available) return null
     const lease = blameRequestFenceRef.current.begin()
+    blameAbortRef.current?.abort()
+    const controller = new AbortController()
+    blameAbortRef.current = controller
     setBlame(null)
     setBlameDetail(null)
     setBlameLoading(true)
     setBlameError(null)
     try {
-      const nextBlame = await fetchWorkspaceBlame(openFile.agentId, openFile.file.path, snapshot?.revision)
+      const nextBlame = await fetchWorkspaceBlame(openFile.agentId, openFile.file.path, snapshot?.revision, controller.signal)
       if (!lease.isCurrent()) return null
       if (snapshot && nextBlame.isGitRepo) {
         const lines = snapshot.content === '' ? [] : snapshot.content.replace(/\n$/, '').split('\n')
@@ -160,6 +164,8 @@ export function useFileEditorBlameController({
     setBlameError(null)
     setBlameCapability('unavailable')
   }, [disabled, openFile.agentId, openFile.file.path])
+
+  useEffect(() => () => { blameAbortRef.current?.abort() }, [snapshotKey, disabled, blameOpen, openFile.dirty])
 
   useEffect(() => {
     if (!blameOpen) return

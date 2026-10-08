@@ -1,7 +1,7 @@
 interface TranscriptGitComparisonSource {
   available?: boolean
-  base: string
-  head: string
+  base: string | null
+  head: string | null
 }
 
 interface TranscriptGitComparisonSources {
@@ -29,11 +29,11 @@ export function transcriptUncommittedPathsForRepository(
 export function transcriptGitDiffTargetForRepository(
   sources: TranscriptGitComparisonSources,
 ): TranscriptGitDiffTarget {
-  if (sources.staged.available || sources.unstaged.available) {
+  if (sources.staged.available || sources.unstaged.available || sources.uncommittedPaths.length > 0 || sources.uncommittedPathsTruncated) {
     return workingCopyTranscriptGitDiffTarget
   }
   const latestCommit = sources.commits[0]
-  return latestCommit
+  return latestCommit?.base && latestCommit.head
     ? { base: latestCommit.base, head: latestCommit.head, kind: 'last-commit' }
     : workingCopyTranscriptGitDiffTarget
 }

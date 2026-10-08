@@ -1474,6 +1474,26 @@ export function ReviewPage() {
         if (review.truncated) throw new Error('Review file list exceeds its limit. Narrow the comparison before reviewing.')
         const loadedComments: ReviewComment[] = []
         if (!active || reviewRequestIdentityRef.current !== requestIdentity) return
+        if (reviewRequestBase.source === 'git-range' && !review.basePatchset) throw new Error('Review base is unavailable')
+        if (reviewRequestBase.source === 'git-range' && review.basePatchset
+          && (reviewRequestBase.base !== review.basePatchset || reviewRequestBase.head !== review.patchset
+            || !('root' in reviewRequestBase) || reviewRequestBase.root !== review.root)) {
+          // Admit no catalog or review state under symbolic refs. Every later
+          // file/context request and reopening uses these exact endpoints.
+          const request: ReviewDiffSnapshotRequest = {
+            source: 'git-range', root: review.root, base: review.basePatchset, head: review.patchset,
+            ...(reviewRequestBase.reviewId ? { reviewId: reviewRequestBase.reviewId } : {}),
+            metadataOnly: true,
+          }
+          const params = new URLSearchParams(window.location.search)
+          params.delete('agentId')
+          params.set('root', review.root)
+          params.set('base', review.basePatchset)
+          params.set('head', review.patchset)
+          window.history.replaceState(null, '', `${window.location.pathname}?${params}`)
+          replaceReviewRequestRef.current(request)
+          return
+        }
         const nextCatalog = reviewCatalogWithUnmodifiedPaths(
           reviewCatalogFromSnapshot(review),
           review.patchset,
@@ -1830,7 +1850,7 @@ export function ReviewPage() {
       .finally(() => setComparisonSourcesPending(false))
   }
   const selectComparisonSource = (source: ReviewComparisonSource) => {
-    if (!comparisonSources || capturePending || guardDraft()) return
+    if (!comparisonSources || source.available === false || !source.base || !source.head || capturePending || guardDraft()) return
     if (source.head === 'now') {
       replaceReviewRequest(null)
       setSnapshotPending(false)
@@ -1964,6 +1984,7 @@ export function ReviewPage() {
                 {comparisonSourcesPending ? <p>Loading comparisons…</p> : null}
                 {comparisonSourceError ? <p className="error">{comparisonSourceError}</p> : null}
                 {comparisonSources ? <>
+                  {comparisonSources.staged.unavailableReason ? <p role="status">{comparisonSources.staged.unavailableReason}</p> : null}
                   <button type="button" role="menuitemradio" aria-checked={!reviewSessionActive && comparisonSourceId === 'unstaged'} disabled={!comparisonSources.unstaged.available} onClick={() => selectComparisonSource(comparisonSources.unstaged)}>
                     <span>Unstaged</span>{!reviewSessionActive && comparisonSourceId === 'unstaged' ? <CheckGlyph /> : null}
                   </button>

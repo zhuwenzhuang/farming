@@ -17,6 +17,14 @@ async function git(reader: GitReader, root: string, args: string[]): Promise<str
   return String(result.stdout);
 }
 
+// Ordinary directories locate a repository; they are not implicit review scopes.
+// Git resolves linked worktrees and nested repositories without consulting the
+// main checkout's HEAD or index.
+export async function resolveRepositoryRoot(reader: GitReader, directory: string): Promise<string> {
+  const top = (await git(reader, directory, ['rev-parse', '--show-toplevel'])).trim();
+  return fs.realpath(top);
+}
+
 // An uninitialized child must never resolve to its containing parent repository.
 export async function exactChildRepository(reader: GitReader, parent: string, childPath: string): Promise<string> {
   if (!childPath || childPath.split('/').some(part => !part || part === '.' || part === '..') || path.isAbsolute(childPath)) {
@@ -82,6 +90,7 @@ export async function discoverWorkspaceRepositories(reader: GitReader, root: str
 }
 
 export async function repositoryForFile(reader: GitReader, root: string, filePath: string): Promise<{ root: string; path: string }> {
+  root = await fs.realpath(root);
   let directory = path.dirname(path.join(root, filePath));
   for (let depth = 0; directory !== root; depth++) {
     if (!isSameOrDescendantPath(root, directory)) throw new Error('File is outside the project');
@@ -100,5 +109,11 @@ export async function repositoryForFile(reader: GitReader, root: string, filePat
     }
     directory = path.dirname(directory);
   }
-  return { root, path: filePath };
+  try {
+    const repositoryRoot = await resolveRepositoryRoot(reader, root);
+    return { root: repositoryRoot, path: path.relative(repositoryRoot, path.join(root, filePath)).split(path.sep).join('/') };
+  } catch (error) {
+    if (/not a git repository/i.test(String((error as { stderr?: unknown }).stderr || ''))) return { root, path: filePath };
+    throw error;
+  }
 }

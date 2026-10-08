@@ -735,6 +735,8 @@ test('refreshes a review revision without losing inherited state or attaching ou
 })
 
 test('uses the git-range endpoint when base and head are selected in the review URL', async ({ page }) => {
+  const base = '1'.repeat(40)
+  const head = '2'.repeat(40)
   let loadedRangeFileDiff = 0
   const loadedContexts: string[] = []
   const contextRanges: Array<{ lines: number; newStart: number; oldStart: number }> = []
@@ -806,9 +808,9 @@ test('uses the git-range endpoint when base and head are selected in the review 
         newLines: contextLines + 1,
         rows: [...Array.from({ length: contextLines }, (_, index) => common(55 - contextLines + index)), change(55, 'Tail')],
       }]
-      expect(url).toContain('agentId=fsess-demo')
-      expect(url).toContain('base=HEAD%7E3')
-      expect(url).toContain('head=HEAD')
+      expect(new URL(url).searchParams.get('root')).toBe('/workspace/demo')
+      expect(new URL(url).searchParams.get('base')).toBe(base)
+      expect(new URL(url).searchParams.get('head')).toBe(head)
       await route.fulfill({
         contentType: 'application/json',
         body: JSON.stringify({
@@ -827,14 +829,15 @@ test('uses the git-range endpoint when base and head are selected in the review 
       })
       return
     }
-    if (url.includes('/git-range?agentId=fsess-demo')) {
+    if (new URL(url).pathname.endsWith('/git-range')) {
       expect(url).toContain('metadataOnly=1')
-      expect(url).toContain('base=HEAD%7E3')
-      expect(url).toContain('head=HEAD')
+      const params = new URL(url).searchParams
+      expect(params.get('base')).toBe(params.has('agentId') ? 'HEAD~3' : base)
+      expect(params.get('head')).toBe(params.has('agentId') ? 'HEAD' : head)
       await route.fulfill({
         contentType: 'application/json',
         body: JSON.stringify({
-          basePatchset: 'HEAD~3',
+          basePatchset: base,
           comparison: {
             base: { authoredAt: '2026-07-09T08:00:00.000Z', authorEmail: 'base@example.com', authorName: 'Base Author', id: '1111111111111111111111111111111111111111', message: 'Base commit' },
             head: { authoredAt: '2026-07-11T09:30:00.000Z', authorEmail: 'reviewer@example.com', authorName: 'Review Author', id: '2222222222222222222222222222222222222222', message: 'Make review context interactive\n\nKeep the diff focused.' },
@@ -850,7 +853,7 @@ test('uses the git-range endpoint when base and head are selected in the review 
             status: 'M',
           }],
           isGitRepo: true,
-          patchset: 'HEAD',
+          patchset: head,
           reviewId: 'git-range-test-review',
           root: '/workspace/demo',
           source: 'git-range',
@@ -868,7 +871,7 @@ test('uses the git-range endpoint when base and head are selected in the review 
       return
     }
     if (url.includes('/files/src%2Frange.cpp/reviewed')) {
-      expect(url).toContain('/api/reviews/git-range-test-review/revisions/HEAD/files/src%2Frange.cpp/reviewed')
+      expect(url).toContain(`/api/reviews/git-range-test-review/revisions/${head}/files/src%2Frange.cpp/reviewed`)
       reviewedFiles = request.method() === 'PUT' ? ['src/range.cpp'] : []
       await route.fulfill({
         headers: { 'X-Farming-Review-Revision': String(reviewedFiles.length) },
@@ -1252,6 +1255,54 @@ test('switches every comparison source against a real Git repository', async ({ 
     await expect(review.locator('[data-file-path="alpha.txt"]')).toBeVisible()
   } finally {
     fs.rmSync(temporaryRoot, { force: true, recursive: true })
+  }
+})
+
+test('pins a linked worktree range and literal file diffs in every appearance', async ({ page }, testInfo) => {
+  const temporary = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'farming-review-pinned-')))
+  const root = path.join(temporary, 'repo')
+  const linked = path.join(temporary, 'linked')
+  fs.mkdirSync(root)
+  try {
+    git(root, 'init', '-b', 'main')
+    git(root, 'config', 'user.email', 'review@example.com')
+    git(root, 'config', 'user.name', 'Review Fixture')
+    git(root, 'config', 'core.hooksPath', '/dev/null')
+    fs.mkdirSync(path.join(root, 'inside'))
+    fs.writeFileSync(path.join(root, 'inside', 'keep.txt'), 'keep\n')
+    for (const file of ['[a].txt', 'a.txt']) fs.writeFileSync(path.join(root, file), 'base\n')
+    git(root, 'add', '.')
+    git(root, 'commit', '-m', 'Base')
+    const base = git(root, 'rev-parse', 'HEAD')
+    fs.writeFileSync(path.join(root, '[a].txt'), 'captured bracket\n')
+    fs.writeFileSync(path.join(root, 'a.txt'), 'sibling must stay separate\n')
+    git(root, 'commit', '-am', 'Changes')
+    const head = git(root, 'rev-parse', 'HEAD')
+    git(root, 'worktree', 'add', '--detach', linked, 'HEAD')
+    let pinnedUrl = ''
+    for (const appearance of Object.keys(appearanceExpectations)) {
+      expect((await page.request.post('/farming/api/settings', { data: { appearance } })).ok()).toBeTruthy()
+      await page.goto(pinnedUrl || `/farming/review?${new URLSearchParams({ root: path.join(linked, 'inside'), base: 'HEAD~1', head: 'HEAD' })}`)
+      await expect(page).toHaveURL(new RegExp(`base=${base}&head=${head}`))
+      expect(new URL(page.url()).searchParams.get('root')).toBe(linked)
+      pinnedUrl = page.url()
+      if (appearance === 'light') {
+        // Ref movement after admission must not affect lazy file loads or reopening.
+        fs.writeFileSync(path.join(linked, '[a].txt'), 'later commit must not appear\n')
+        git(linked, 'commit', '-am', 'Later changes')
+      }
+      const row = page.locator('[data-file-path="[a].txt"]')
+      await row.getByRole('button', { name: 'Expand file diff', exact: true }).click()
+      const diff = page.getByLabel('Diff for [a].txt', { exact: true })
+      await expect(diff).toContainText('captured bracket')
+      await expect(diff).not.toContainText('sibling must stay separate')
+      await expect(diff).not.toContainText('later commit must not appear')
+      await expect(page.locator('body')).toHaveAttribute('data-appearance', appearance)
+      await page.screenshot({ path: testInfo.outputPath(`pinned-worktree-${appearance}.png`) })
+    }
+  } finally {
+    await page.goto('about:blank')
+    fs.rmSync(temporary, { recursive: true, force: true })
   }
 })
 
@@ -1646,4 +1697,44 @@ test('reconciles uncertain comment saves before retrying the same identity', asy
   await expect(page.getByLabel('Review comment')).toHaveCount(0)
   expect(ids).toHaveLength(2)
   expect(ids[0]).toBe(ids[1])
+})
+
+
+test('keeps commit comparisons usable during conflicts and recovers a stale source read once', async ({ page }, testInfo) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-review-conflict-'))
+  try {
+    git(root, 'init', '-b', 'main')
+    git(root, 'config', 'user.name', 'Review Fixture')
+    git(root, 'config', 'user.email', 'review@example.test')
+    git(root, 'config', 'core.hooksPath', '/dev/null')
+    fs.writeFileSync(path.join(root, 'file.txt'), 'base\n')
+    git(root, 'add', '.'); git(root, 'commit', '-m', 'Base')
+    git(root, 'checkout', '-b', 'other')
+    fs.writeFileSync(path.join(root, 'file.txt'), 'other\n'); git(root, 'commit', '-am', 'Other')
+    git(root, 'checkout', 'main')
+    fs.writeFileSync(path.join(root, 'file.txt'), 'main\n'); git(root, 'commit', '-am', 'Main')
+    expect(() => git(root, 'merge', 'other')).toThrow()
+    for (const appearance of ['light', 'dark', 'paper']) {
+      await page.request.post('/farming/api/settings', { data: { appearance } })
+      let requests = 0
+      await page.route('**/api/reviews/comparison-sources?**', async route => {
+        requests++
+        if (requests === 1) await route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: 'Repository changed while loading comparisons', details: { reason: 'snapshot-stale' } }) })
+        else await route.continue()
+      })
+      await page.goto(`/farming/review?${new URLSearchParams({ root, base: 'HEAD~1', head: 'HEAD' })}`)
+      await expect(page.locator('[data-file-path="file.txt"]')).toBeVisible()
+      await page.locator('.review-source-trigger').click()
+      await expect(page.getByRole('menu', { name: 'Compare changes from' }).getByRole('status')).toContainText('conflict')
+      expect(requests).toBe(2)
+      expect(await page.getByRole('menu', { name: 'Compare changes from' }).getByRole('status').evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
+      await expect(page.getByRole('menuitemradio', { name: 'Staged', exact: true })).toBeDisabled()
+      await expect(page.getByRole('menuitemradio', { name: 'Unstaged', exact: true })).toBeDisabled()
+      await page.screenshot({ path: testInfo.outputPath(`conflicted-sources-${appearance}.png`), animations: 'disabled' })
+      await page.locator('details.review-source-submenu').filter({ hasText: 'Commit' }).locator('summary').click()
+      await page.getByRole('menuitemradio', { name: `${git(root, 'rev-parse', '--short', 'HEAD')} Main`, exact: true }).click()
+      await expect(page.locator('.review-source-trigger')).toContainText('Commit')
+      await page.unroute('**/api/reviews/comparison-sources?**')
+    }
+  } finally { await page.goto('about:blank'); fs.rmSync(root, { recursive: true, force: true }) }
 })

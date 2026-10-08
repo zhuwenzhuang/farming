@@ -38,7 +38,8 @@ export interface WorkspaceFileChangesController extends WorkspaceFileChangesStat
   refreshRevision?: number
   rootId?: string | null
   repository?: NonNullable<WorkspaceFileChanges['repositories']>[number]
-  refreshChanges: () => Promise<boolean>
+  refreshChanges: (automatic?: string) => Promise<boolean>
+  completePageRecovery?: (key: string) => void
 }
 
 export function useWorkspaceFileChanges(
@@ -52,7 +53,11 @@ export function useWorkspaceFileChanges(
   const openFilesRef = useRef(openFiles)
   const retryAfterReconnectRef = useRef(false)
 
-  const refreshChanges = useCallback(() => {
+  const automaticRefreshUsed = useRef(new Set<string>())
+  const refreshChanges = useCallback((automatic?: string) => {
+    if (automatic && automaticRefreshUsed.current.has(automatic)) return Promise.resolve(false)
+    if (automatic) automaticRefreshUsed.current.add(automatic)
+    else automaticRefreshUsed.current.clear()
     if (!agentId) {
       abortRef.current?.abort()
       requestIdRef.current += 1
@@ -146,7 +151,10 @@ export function useWorkspaceFileChanges(
     retryAfterReconnectRef.current = false
   }, [])
 
+  const completePageRecovery = useCallback((key: string) => { automaticRefreshUsed.current.delete(key) }, [])
+
   return {
+    completePageRecovery,
     ...(state.owner === agentId ? state : EMPTY_CHANGES_STATE),
     refreshRevision: requestIdRef.current,
     rootId: agentId,

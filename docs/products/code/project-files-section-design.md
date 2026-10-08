@@ -248,6 +248,19 @@ Cut removes the selected text only after a confirmed clipboard write. A failed
 write preserves the document and shows the shared inline error feedback; a new
 action or file/view change clears that feedback.
 
+Git inspection resolves the selected worktree and literal repository-relative paths,
+including Projects rooted in an ordinary subdirectory. Display-only reads disable
+optional index writes and use bounded CLI deadlines; failures do not imply clean files.
+
+Blame captures one immutable full-file result and transfers byte-bounded pages over
+the Workspace WebSocket. Each page stores commit metadata once and coalesces
+consecutive line positions into ranges, retaining content for snapshot checks. The backend retains at most eight snapshots and 32 MiB
+for 60 seconds, validates the authorized file and revision on every continuation,
+and returns an explicit stale-snapshot error after expiry or eviction. The client
+assembles one complete snapshot before displaying annotations, cancels obsolete
+loads, and restarts the complete read once after a stale snapshot within its overall
+60-second deadline. Oversized individual lines or snapshots fail explicitly.
+
 Git blame puts the author before the date so narrow gutters prioritize who changed
 the line; commit details expose the author, commit identifier, message, and date.
 It uses the same gutter menu from both line numbers and author/date
@@ -524,12 +537,20 @@ Expanding a category reads its first page; Load more continues that category onl
 Counts describe the complete inventory, while the continuation action states the
 loaded count. A zero count never means an omitted, unqueried category.
 
-Pages carry a fingerprint of the repository's change listing and an offset.
-Before serving another page the backend rechecks that fingerprint. Changed
-membership or status rejects continuation and asks for a refresh instead of
-combining different listings. The browser fences reads by Project, repository,
+Pages carry a fingerprint of an immutable inventory and an offset. Continuation
+reads that captured inventory without another Git scan. Inventories expire after
+30 seconds; at most eight complete Project inventories are retained, each with
+all of its discovered repositories. A fresh inventory for the same Project,
+known workspace writes or watch events, expiry, eviction, and server restart
+invalidate continuation and require refresh. External changes not yet observed
+by a watcher appear on the next fresh read, never halfway through a page sequence.
+Fresh Tracked reads exclude untracked enumeration before parsing and pagination. The browser fences reads by Project, repository,
 category and refresh generation; stale responses cannot replace or append to a
-new owner. Errors remain visible with an explicit refresh action. Refresh cancels
+new owner. An explicitly stale read gets one automatic fresh read. A stale page
+rebuilds the owning inventory and restarts at page one, never appending across
+snapshots. Each repository/category gets one recovery per continuous failure;
+a successful page releases that budget. Repeated failure remains visible with an
+explicit refresh action. Refresh cancels
 old reads and restarts pages without reopening collapsed groups. Review remains
 an independent scoped comparison action, not the only way to see omitted files.
 

@@ -1,4 +1,6 @@
 import type { ReviewComment } from './review-state-store.cjs';
+import * as crypto from 'node:crypto';
+import * as fsp from 'node:fs/promises';
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -19,7 +21,7 @@ const { createTwoFilesPatch, diffLines } = require('diff') as {
   }>;
 };
 import { OBJECT_ID_PATTERN, REVIEW_ID_PATTERN } from './review-session-store.cjs';
-import { filterWorkingCopyChangeItems, normalizeModifiedWithinDays, normalizeWorkingCopyScope } from './review-diff-service.cjs';
+import { filterWorkingCopyChangeItems, normalizeModifiedWithinDays, normalizeWorkingCopyScope, parseNameStatus } from './review-diff-service.cjs';
 
 const MAX_CAPTURE_FILES = 2000;
 const MAX_CAPTURE_PATHS = 256;
@@ -118,7 +120,7 @@ interface GitResult {
 }
 
 interface ReviewFileService {
-  changes(root: string, options: { limit: number; scope?: ReviewScope }): Promise<{
+  changes(root: string, options: { limit: number; scope?: ReviewScope; paths?: string[]; includeHidden?: boolean }): Promise<{
     items: WorkingCopyChange[];
     truncated: boolean;
   }>;
@@ -210,12 +212,12 @@ function normalizeCapturePaths(value: unknown): string[] | undefined {
     throw new ReviewSessionError('review file paths are invalid');
   }
   const paths = value
-    .filter((candidate): candidate is string => typeof candidate === 'string')
-    .map(candidate => candidate.replace(/\\/g, '/').trim());
+    .filter((candidate): candidate is string => typeof candidate === 'string');
   if (paths.some(candidate => (
     !candidate
     || candidate.length > 4096
-    || candidate.startsWith('/')
+    || path.isAbsolute(candidate)
+    || (path.sep === '\\' && candidate.includes('\\'))
     || candidate.includes('\0')
     || candidate.split('/').some(segment => !segment || segment === '.' || segment === '..')
   ))) {
@@ -394,9 +396,12 @@ class ReviewSessionService {
         maxBuffer: this.fileService.diffMaxBuffer,
         timeout: this.fileService.diffTimeoutMs,
         ...options,
+        env: { GIT_LITERAL_PATHSPECS: '1', GIT_OPTIONAL_LOCKS: '0', ...(isObject(options.env) ? options.env : {}) },
       });
     } catch (error: unknown) {
-      if (errorField(error, 'code') === 'ETIMEDOUT') throw new ReviewSessionError('review capture timed out', 504);
+      if (errorField(error, 'code') === 'ETIMEDOUT'
+        || (errorField(error, 'signal') === 'SIGTERM' && errorField(error, 'code') !== 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER')) throw new ReviewSessionError('review capture timed out', 504);
+      if (errorField(error, 'code') === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') throw new ReviewSessionError('review capture output exceeds its limit', 413);
       throw new ReviewSessionError(String(
         errorField(error, 'stderr')
         || errorField(error, 'message')
@@ -444,30 +449,71 @@ class ReviewSessionService {
     return resolved;
   }
 
-  async captureTreeOnce(root: string, paths?: string[]): Promise<string> {
-    const temporaryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-review-capture-'));
-    const temporaryIndex = path.join(temporaryDir, 'index');
-    const env = { ...process.env, GIT_INDEX_FILE: temporaryIndex };
+  async captureTreeOnce(root: string, paths?: string[], head?: string): Promise<string> {
+    const selected = paths ?? await this.capturePaths(root);
+    const baseline = head ?? await this.resolveBase(root, 'HEAD');
+    const temporaryDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'farming-review-capture-'));
+    const env = { GIT_INDEX_FILE: path.join(temporaryDir, 'index') };
     try {
-      await this.git(root, ['read-tree', 'HEAD'], { env });
-      if (paths === undefined) {
-        await this.git(root, ['add', '-A', '--', '.'], { env });
-      } else if (paths.length > 0) {
-        await this.git(root, ['add', '-A', '--', ...paths], { env });
+      await this.git(root, ['read-tree', baseline], { env });
+      // update-index takes exact file identities, never recursive pathspecs.
+      // A staged addition missing on disk is a no-op against HEAD; a deleted
+      // file replaced by a directory must not pull in ignored descendants.
+      let batch: string[] = [];
+      let bytes = 0;
+      const flush = async () => {
+        if (batch.length) await this.git(root, ['update-index', '--add', '--remove', '--replace', '--', ...batch], { env });
+        batch = [];
+        bytes = 0;
+      };
+      for (const file of selected) {
+        const size = Buffer.byteLength(file) + 1;
+        if (bytes + size > 16 * 1024) await flush();
+        batch.push(file);
+        bytes += size;
       }
+      await flush();
       const { stdout } = await this.git(root, ['write-tree'], { env });
       const tree = String(stdout).trim();
       if (!OBJECT_ID_PATTERN.test(tree)) throw new ReviewSessionError('git did not produce a review tree', 500);
       return tree;
     } finally {
-      fs.rmSync(temporaryDir, { force: true, recursive: true });
+      await fsp.rm(temporaryDir, { force: true, recursive: true });
     }
   }
 
-  async captureStableTree(root: string, paths?: string[]): Promise<string> {
-    const first = await this.captureTreeOnce(root, paths);
-    const second = await this.captureTreeOnce(root, paths);
-    if (first !== second) {
+  async indexFingerprint(root: string): Promise<string> {
+    const { stdout } = await this.git(root, ['rev-parse', '--git-path', 'index']);
+    const indexPath = path.resolve(root, String(stdout).trim());
+    try {
+      const hash = crypto.createHash('sha256');
+      for await (const chunk of fs.createReadStream(indexPath)) hash.update(chunk);
+      return hash.digest('hex');
+    } catch (error) {
+      if (errorField(error, 'code') === 'ENOENT') return 'absent';
+      throw error;
+    }
+  }
+
+  async captureStableTree(
+    root: string,
+    paths?: string[],
+    options: CapturePathOptions = {},
+    expectedHead?: string,
+  ): Promise<string> {
+    const head = expectedHead ?? await this.resolveBase(root, 'HEAD');
+    const index = await this.indexFingerprint(root);
+    const selection = { ...options, ...(paths !== undefined ? { paths } : {}) };
+    const before = await this.capturePaths(root, selection);
+    const first = await this.captureTreeOnce(root, before, head);
+    const between = await this.capturePaths(root, selection);
+    const second = await this.captureTreeOnce(root, between, head);
+    const after = await this.capturePaths(root, selection);
+    if (first !== second
+      || JSON.stringify(before) !== JSON.stringify(between)
+      || JSON.stringify(before) !== JSON.stringify(after)
+      || index !== await this.indexFingerprint(root)
+      || head !== await this.resolveBase(root, 'HEAD')) {
       throw new ReviewSessionError('workspace changed during review capture; try again when agent writes have settled', 409);
     }
     return first;
@@ -524,20 +570,36 @@ class ReviewSessionService {
   async capturePaths(
     root: string,
     options: CapturePathOptions = {},
-  ): Promise<string[] | undefined> {
+  ): Promise<string[]> {
     const requestedPaths = normalizeCapturePaths(options.paths);
-    if (requestedPaths !== undefined) return requestedPaths;
     const scope = normalizeWorkingCopyScope(options.scope);
-    const changes = await this.fileService.changes(root, { limit: MAX_CAPTURE_FILES, ...(scope ? { scope } : {}) });
+    if (requestedPaths?.length === 0) return [];
+    const matchesPaths = (candidate: string | undefined, selectedPaths = requestedPaths) => selectedPaths === undefined
+      || selectedPaths.some(selectedPath => candidate === selectedPath || candidate?.startsWith(`${selectedPath}/`));
+    let enumerationPaths = requestedPaths;
+    if (requestedPaths && scope !== 'untracked') {
+      // A status pathspec hides the other end before Git detects a rename.
+      // Discover staged rename pairs without enumerating unrelated untracked
+      // files, then retain both identities when either end was selected.
+      const { stdout } = await this.git(root, ['diff', '--cached', '--name-status', '-z', '--find-renames', '--diff-filter=R', 'HEAD', '--']);
+      enumerationPaths = [...new Set([...requestedPaths, ...parseNameStatus(stdout)
+        .filter(change => matchesPaths(change.path) || matchesPaths(change.previousPath))
+        .flatMap(change => [change.path, ...(change.previousPath ? [change.previousPath] : [])])])];
+    }
+    const changes = await this.fileService.changes(root, { limit: MAX_CAPTURE_FILES, includeHidden: true, ...(scope ? { scope } : {}), ...(enumerationPaths ? { paths: enumerationPaths } : {}) });
     if (changes.truncated) throw new ReviewSessionError('too many workspace files to capture this review; narrow the scope or choose Staged or a commit', 413);
-    if (!scope) return undefined;
+    if (changes.items.some(change => change.path.endsWith('/')
+      || (change.type === 'directory' && change.gitStatus === 'untracked'))) {
+      throw new ReviewSessionError('embedded repository cannot be captured as a file; open its own review', 409);
+    }
     const selected = filterWorkingCopyChangeItems(root, changes.items, {
       scope,
       modifiedWithinDays: options.modifiedWithinDays,
     });
     return [...new Set(selected
+      .filter(change => matchesPaths(change.path, enumerationPaths) || matchesPaths(change.previousPath, enumerationPaths))
       .flatMap(change => [change.previousPath, change.path])
-      .filter((candidate): candidate is string => typeof candidate === 'string' && candidate.length > 0))];
+      .filter((candidate): candidate is string => typeof candidate === 'string' && candidate.length > 0))].sort();
   }
 
   async create({
@@ -549,13 +611,13 @@ class ReviewSessionService {
     paths: requestedPaths,
   }: CreateReviewInput): Promise<PublicRevision> {
     const root = await this.resolveRoot(requestedRoot, agentId);
-    const resolvedBase = await this.resolveBase(root, base);
+    const head = await this.resolveBase(root, 'HEAD');
+    const resolvedBase = base === 'HEAD' ? head : await this.resolveBase(root, base);
     const scope = normalizeWorkingCopyScope(requestedScope);
     const explicitPaths = normalizeCapturePaths(requestedPaths);
     if (scope && explicitPaths !== undefined) throw new ReviewSessionError('review scope and file paths cannot be combined');
     const modifiedWithinDays = scope === 'untracked' ? normalizeModifiedWithinDays(requestedDays) : undefined;
-    const paths = await this.capturePaths(root, { scope, modifiedWithinDays, paths: explicitPaths });
-    const tree = await this.captureStableTree(root, paths);
+    const tree = await this.captureStableTree(root, explicitPaths, { scope, modifiedWithinDays }, head);
     const reviewId = this.sessionStore.newId();
     await this.git(root, ['update-ref', `refs/farming/reviews/${reviewId}/base`, resolvedBase]);
     await this.keepRevision(root, reviewId, 1, tree);
@@ -635,8 +697,7 @@ class ReviewSessionService {
     return this.enqueueRefresh(reviewId, async () => {
       const current = this.sessionStore.get(reviewId);
       if (!current) throw new ReviewSessionError('review session not found', 404);
-      const paths = await this.capturePaths(current.root, current);
-      const tree = await this.captureStableTree(current.root, paths);
+      const tree = await this.captureStableTree(current.root, current.paths, current);
       const previous = current.revisions[current.revisions.length - 1];
       if (previous.tree === tree) return { ...publicRevision(current, previous), changedPaths: [], unchanged: true };
       const nextNumber = previous.number + 1;
