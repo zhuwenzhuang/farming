@@ -637,12 +637,18 @@ button.code-git-history-change:focus-visible {
   color: var(--code-text);
 }
 
-/* Repository and branch selection use separate rows so long paths retain space. */
+/* Keep the section title and actions intact; repository paths take the remaining space. */
+.code-git-history-header.with-repository .code-git-history-title {
+  flex: 0 0 auto;
+}
+
 .code-git-history-repository {
-  max-width: 60%;
+  flex: 1 1 0;
+  min-width: 0;
 }
 
 .code-git-history-controls {
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   justify-content: flex-end;

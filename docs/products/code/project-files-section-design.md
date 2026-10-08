@@ -503,6 +503,10 @@ list offers an explicitly scoped Review without an implicit age filter.
 The directory tree remains one Project tree; submodule directories carry the
 same secondary repository-type label as their Changes group.
 
+History keeps its disclosure title, repository selector, branch scope, and
+refresh action in one header row. Long repository paths truncate within the
+shared Sidebar selector; the title and actions remain visible at narrow widths.
+The selector menu exposes the repository choices without adding a second toolbar.
 History selects one repository within the Project and loads bounded pages;
 expanding a commit reveals its changed files and parent comparison without
 implementing a second diff viewer. The backend validates the selected child as

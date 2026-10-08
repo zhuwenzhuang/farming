@@ -1,3 +1,4 @@
+import type { Locator } from '@playwright/test'
 import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -5,6 +6,28 @@ import { expect, interceptWorkspaceRequests, openFarming, test } from './fixture
 
 function git(root: string, ...args: string[]) {
   return execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
+}
+
+async function expectHistoryHeaderRow(history: Locator) {
+  const header = history.locator('.code-git-history-header')
+  await expect(header.locator('.code-git-history-controls')).toBeVisible()
+  const geometry = await header.evaluate(element => {
+    const outer = element.getBoundingClientRect()
+    const controls = ['.code-git-history-title', '.code-git-history-repository', '.code-git-history-controls']
+      .map(selector => element.querySelector(selector)!.getBoundingClientRect())
+    return {
+      sameRow: controls.every(box => Math.abs(box.y + box.height / 2 - (outer.y + outer.height / 2)) < 2),
+      inside: controls.every(box => box.x >= outer.x && box.right <= outer.right && box.width > 0),
+      nonOverlapping: controls.every((box, index) => index === 0 || box.x >= controls[index - 1].right),
+      labelWidth: element.querySelector('.code-select-value')!.clientWidth,
+      labelScrollWidth: element.querySelector('.code-select-value')!.scrollWidth,
+    }
+  })
+  expect(geometry.sameRow).toBe(true)
+  expect(geometry.inside).toBe(true)
+  expect(geometry.nonOverlapping).toBe(true)
+  expect(geometry.labelWidth).toBeGreaterThan(20)
+  expect(geometry.labelScrollWidth).toBeGreaterThan(geometry.labelWidth)
 }
 
 for (const appearance of ['light', 'dark', 'paper'] as const) {
@@ -21,9 +44,9 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
     fs.writeFileSync(path.join(source, 'engine.ts'), 'export const capacity = 1\n')
     git(source, 'add', '.'); git(source, 'commit', '-qm', 'Engine base')
     fs.writeFileSync(path.join(workspace, 'main.ts'), 'export const enabled = false\n')
-    git(workspace, '-c', 'protocol.file.allow=always', 'submodule', 'add', source, 'engine')
+    git(workspace, '-c', 'protocol.file.allow=always', 'submodule', 'add', source, 'engine-with-a-long-repository-name')
     git(workspace, 'add', '.'); git(workspace, 'commit', '-qm', 'Project base')
-    const child = path.join(workspace, 'engine')
+    const child = path.join(workspace, 'engine-with-a-long-repository-name')
     fs.writeFileSync(path.join(child, 'engine.ts'), 'export const capacity = 2\n')
     git(child, 'add', 'engine.ts')
     fs.writeFileSync(path.join(child, 'engine.ts'), 'export const capacity = 3\n')
@@ -41,9 +64,9 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
       if ((await files.getAttribute('class'))?.includes('collapsed')) await files.locator('.code-files-title').click()
       const groups = files.getByTestId('code-repository-changes')
       await expect(groups.locator('[data-repository-path=""]')).toContainText('Main repository')
-      const childGroup = groups.locator('[data-repository-path="engine"]')
+      const childGroup = groups.locator('[data-repository-path="engine-with-a-long-repository-name"]')
       await expect(childGroup).toContainText('Submodule')
-      await expect(files.locator('[data-testid="code-file-row"][data-file-path="engine"] .code-file-submodule-label')).toHaveText('Submodule')
+      await expect(files.locator('[data-testid="code-file-row"][data-file-path="engine-with-a-long-repository-name"] .code-file-submodule-label')).toHaveText('Submodule')
       const tracked = childGroup.getByTestId('code-file-change-tracked-group')
       if (await tracked.locator('.code-file-change-group-toggle').getAttribute('aria-expanded') === 'false') await tracked.locator('.code-file-change-group-toggle').click()
       await expect(tracked.getByTestId('code-file-change-directory-row')).toHaveCount(0)
@@ -106,14 +129,20 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
       await history.locator('.code-git-history-title').click()
       await expect(history.getByTestId('code-git-history-entry')).toContainText('Project base')
       await history.getByRole('combobox', { name: 'History repository' }).click()
-      await history.getByRole('option', { name: 'engine', exact: true }).click()
+      await history.getByRole('option', { name: 'engine-with-a-long-repository-name', exact: true }).click()
       await expect(history.getByTestId('code-git-history-entry')).toContainText('Engine base')
       await expect(history).not.toContainText('Project base')
+      await expectHistoryHeaderRow(history)
+      await history.getByRole('combobox', { name: 'History repository' }).focus()
+      await page.keyboard.press('ArrowDown')
+      await expect(history.getByRole('option', { name: 'Main repository', exact: true })).toBeFocused()
+      await page.keyboard.press('Escape')
+      await expect(history.getByRole('combobox', { name: 'History repository' })).toBeFocused()
       await history.getByTestId('code-git-history-entry').locator('.code-git-history-commit').click()
       await expect(history.getByTestId('code-git-history-details')).toContainText('engine.ts')
       await page.screenshot({ path: testInfo.outputPath(`submodule-history-${appearance}.png`), animations: 'disabled' })
       await page.reload()
-      await expect(files.getByRole('combobox', { name: 'History repository' })).toContainText('engine')
+      await expect(files.getByRole('combobox', { name: 'History repository' })).toContainText('engine-with-a-long-repository-name')
       await expect(files.getByTestId('code-git-history-entry')).toContainText('Engine base')
       await expect(mainGroup.locator(':scope > .code-file-change-group-header > button').first()).toHaveAttribute('aria-expanded', 'false')
       await expect(tracked.locator('.code-file-change-group-toggle')).toHaveAttribute('aria-expanded', 'true')
@@ -138,6 +167,7 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
       await page.getByTestId('code-project-list').evaluate(element => { element.scrollTop = 0 })
       await expect(files.getByRole('combobox', { name: 'History repository' })).toBeInViewport()
       await expect(groups).toBeInViewport()
+      await expectHistoryHeaderRow(files.getByTestId('code-git-history-section'))
       const screenshot = await page.screenshot({ path: testInfo.outputPath(`submodule-compact-${appearance}.png`), animations: 'disabled' })
       expect(screenshot.readUInt32BE(16)).toBe(393)
       expect(screenshot.readUInt32BE(20)).toBe(852)

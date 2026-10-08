@@ -417,7 +417,7 @@ function RepositoryGitHistorySection({
       data-project-id={projectId}
       aria-label={copy.gitHistory}
     >
-      <div className="code-git-history-header">
+      <div className={`code-git-history-header ${repositorySelector ? 'with-repository' : ''}`}>
         <button
           type="button"
           className="code-git-history-title"
@@ -430,9 +430,8 @@ function RepositoryGitHistorySection({
           <span>{copy.gitHistory}</span>
         </button>
         {repositorySelector}
-        {!repositorySelector && historyControls}
+        {historyControls}
       </div>
-      {repositorySelector && historyControls}
 
       {!collapsed && (
         <div className="code-git-history-body">
