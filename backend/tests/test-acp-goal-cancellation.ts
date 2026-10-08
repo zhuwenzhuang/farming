@@ -82,3 +82,40 @@ nativeUpdate({
 });
 assert.equal(nativeState.entries.find(entry => entry.id === 'native-subagent:child')?.status, 'completed');
 console.log('test-acp-goal-cancellation passed');
+
+// Completion records are durable transcript entries, independent of current metadata.
+for (const provider of ['codex', 'claude', 'qwen']) {
+  const state = new AcpSessionState({ provider, sessionId: 'goal-history' });
+  const goal = { objective: 'Verify recovery', createdAt: 1, status: 'complete', tokensUsed: 42, timeUsedSeconds: 12 };
+  const applyGoal = (value: unknown) => state.apply({ sessionId: 'goal-history', update: {
+    sessionUpdate: 'session_info_update', _meta: { goal: value },
+  } });
+  state.beginPrompt('Check recovery');
+  applyGoal({ ...goal, status: 'active' });
+  applyGoal(goal);
+  const completion = state.entries.find(entry => entry.type === 'goal_completion')!;
+  assert.ok(completion);
+  const revision = state.revision;
+  applyGoal(goal);
+  assert.equal(state.revision, revision, 'duplicate completion is idempotent');
+  state.completePrompt();
+  state.beginPrompt('Next task');
+  applyGoal({ ...goal, tokensUsed: 50 });
+  const delta = projectAcpTranscript(state.transcriptSlice({ sinceRevision: revision }));
+  assert.equal(delta.turns[0].completedGoals?.[0].goal.tokensUsed, 50);
+  assert.equal(state.entries.filter(entry => entry.type === 'goal_completion').length, 1);
+  applyGoal(null);
+  const restored = AcpSessionState.fromCheckpoint(state.exportCheckpoint())!;
+  assert.equal(restored.goal, null);
+  assert.equal(projectAcpTranscript(restored.snapshot()).turns[0].completedGoals?.[0].id, completion.id);
+  applyGoal({ ...goal, createdAt: 2 });
+  assert.equal(state.entries.filter(entry => entry.type === 'goal_completion').length, 2,
+    'a new Goal with the same objective has a separate completion');
+  const checkpoint = state.exportCheckpoint();
+  // Older saved sessions have complete metadata but no completion entry yet.
+  const legacy = AcpSessionState.fromCheckpoint({ ...checkpoint, entries: [] })!;
+  assert.equal(projectAcpTranscript(legacy.snapshot()).turns[0].completedGoals?.length, 1);
+  const reloaded = AcpSessionState.fromCheckpoint(legacy.exportCheckpoint())!;
+  assert.equal(reloaded.entries.filter(entry => entry.type === 'goal_completion').length, 1);
+}
+console.log('Goal completion history passed');

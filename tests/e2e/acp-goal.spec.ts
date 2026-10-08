@@ -70,3 +70,65 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
     await expect(summary).toHaveAttribute('aria-expanded', 'false')
   })
 }
+
+for (const appearance of ['light', 'dark', 'paper'] as const) {
+  test(`completed Goals leave the dock and remain in Chat (${appearance})`, async ({ page, workspaceRoot }, testInfo) => {
+    const workspace = path.join(workspaceRoot, 'goal-completion-demo')
+    fs.mkdirSync(workspace, { recursive: true })
+    const response = await page.request.post('/farming/api/control/agents', {
+      data: { command: 'codex', workspace, agentRuntimeMode: 'chat' },
+    })
+    expect(response.ok()).toBeTruthy()
+    const { agentId } = await response.json() as { agentId: string }
+    await openFarming(page)
+    await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+    await page.locator('body').evaluate((body, value) => { body.dataset.appearance = value }, appearance)
+    const input = page.getByTestId('code-acp-composer-input')
+    const send = page.getByTestId('code-acp-composer-send')
+    const goal = page.getByTestId('code-agent-goal-driver')
+    const records = page.getByTestId('code-agent-goal-completion')
+    const submit = async (text: string) => {
+      await expect(send).not.toHaveAttribute('data-action', 'interrupt')
+      await input.fill(text)
+      await send.click()
+    }
+    for (const status of ['active', 'paused', 'blocked', 'budgetLimited', 'usageLimited']) {
+      await submit(`goal status fixture ${status}`)
+      await expect(goal).toContainText(status)
+    }
+    await goal.getByRole('button').click()
+    await expect(goal.getByRole('button')).toHaveAttribute('aria-expanded', 'true')
+    await submit('goal status fixture complete')
+    await expect(goal).toContainText('complete')
+    await expect(goal.getByRole('button')).toHaveAttribute('aria-expanded', 'false')
+    await expect(records).toHaveCount(1)
+    await expect(goal).toHaveCount(0, { timeout: 8000 })
+    await records.getByRole('button').click()
+    await expect(records).toContainText('Tokens used: 420')
+    await expect(records).toContainText('Time used: 12 s')
+    await page.screenshot({ path: testInfo.outputPath(`goal-completed-${appearance}.png`), animations: 'disabled' })
+    await page.setViewportSize({ width: 390, height: 844 })
+    await expect(records).toBeVisible()
+    await page.screenshot({ path: testInfo.outputPath(`goal-completed-compact-${appearance}.png`), animations: 'disabled' })
+    await page.setViewportSize({ width: 1280, height: 720 })
+    await page.reload()
+    await expect(records).toHaveCount(1)
+    await expect(goal).toHaveCount(0)
+    await submit('goal status fixture complete')
+    await expect(page.getByText('Goal status is complete.', { exact: true })).toHaveCount(2)
+    await expect(records).toHaveCount(1)
+    await expect(goal).toHaveCount(0)
+    await submit('clear goal fixture')
+    await expect(page.getByText('Follow-up received; goal cleared.', { exact: true })).toBeVisible()
+    await expect(records).toHaveCount(1)
+    await submit('goal status fixture active 2')
+    await expect(goal).toContainText('active')
+    await submit('goal status fixture complete 2')
+    await expect(goal).toContainText('complete')
+    await expect(records).toHaveCount(2)
+    await submit('goal status fixture active 3')
+    await expect(goal).toContainText('active')
+    await page.waitForTimeout(5100)
+    await expect(goal).toContainText('active')
+  })
+}

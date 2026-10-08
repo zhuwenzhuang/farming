@@ -2,6 +2,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.normalizeAgentGoal = normalizeAgentGoal;
+exports.sameAgentGoal = sameAgentGoal;
 function normalizeAgentGoal(value) {
     if (!value || typeof value !== 'object' || Array.isArray(value))
         return null;
@@ -10,9 +11,12 @@ function normalizeAgentGoal(value) {
         || typeof raw.status !== 'string' || !raw.status.trim())
         return null;
     const goal = { objective: raw.objective.trim(), status: raw.status.trim() };
-    for (const key of ['tokenBudget', 'tokensUsed', 'timeUsedSeconds']) {
+    for (const key of ['createdAt', 'tokenBudget', 'tokensUsed', 'timeUsedSeconds']) {
         if (typeof raw[key] === 'number' && Number.isFinite(raw[key]) && raw[key] >= 0)
             goal[key] = raw[key];
     }
     return goal;
+}
+function sameAgentGoal(left, right) {
+    return Boolean(left && right && left.objective === right.objective && left.createdAt === right.createdAt);
 }

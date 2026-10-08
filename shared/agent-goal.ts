@@ -2,6 +2,7 @@
 export interface AgentGoal {
   objective: string
   status: string
+  createdAt?: number
   tokenBudget?: number
   tokensUsed?: number
   timeUsedSeconds?: number
@@ -13,8 +14,12 @@ export function normalizeAgentGoal(value: unknown): AgentGoal | null {
   if (typeof raw.objective !== 'string' || !raw.objective.trim()
     || typeof raw.status !== 'string' || !raw.status.trim()) return null
   const goal: AgentGoal = { objective: raw.objective.trim(), status: raw.status.trim() }
-  for (const key of ['tokenBudget', 'tokensUsed', 'timeUsedSeconds'] as const) {
+  for (const key of ['createdAt', 'tokenBudget', 'tokensUsed', 'timeUsedSeconds'] as const) {
     if (typeof raw[key] === 'number' && Number.isFinite(raw[key]) && raw[key] >= 0) goal[key] = raw[key]
   }
   return goal
+}
+
+export function sameAgentGoal(left: AgentGoal | null, right: AgentGoal | null): boolean {
+  return Boolean(left && right && left.objective === right.objective && left.createdAt === right.createdAt)
 }

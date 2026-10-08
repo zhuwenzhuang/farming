@@ -1,4 +1,4 @@
-import { normalizeAgentGoal, type AgentGoal } from '../shared/agent-goal.js';
+import { normalizeAgentGoal, sameAgentGoal, type AgentGoal } from '../shared/agent-goal.js';
 const MAX_ACP_UPDATES = 2_000;
 const MAX_ACP_UPDATE_LOG_VALUE_CHARS = 32 * 1024;
 const MAX_CODEX_SUBAGENTS = 128;
@@ -416,6 +416,7 @@ class AcpSessionState {
     state.title = String(source.title || '');
     state.updatedAt = String(source.updatedAt || '');
     state.goal = normalizeAgentGoal(source.goal);
+    state.recordCompletedGoal(state.goal);
     state.codexSubagents = clone(source.codexSubagents ?? null) as CodexSubagents | null;
     state.truncated = source.truncated === true;
     state.restoreForkOrigin(source.forkOrigin);
@@ -675,6 +676,7 @@ class AcpSessionState {
         if (update._meta.goal === null || goal) {
           metadataChanged = JSON.stringify(goal) !== JSON.stringify(this.goal);
           this.goal = goal;
+          this.recordCompletedGoal(goal);
         }
       }
       if (Object.prototype.hasOwnProperty.call(update, 'title')) {
@@ -691,6 +693,22 @@ class AcpSessionState {
       if (metadataChanged && !subagentsChanged) this.revision += 1;
     }
     return true;
+  }
+
+  private recordCompletedGoal(goal: AgentGoal | null): void {
+    if (goal?.status !== 'complete') return;
+    // Provider metadata can repeat after reconnect or report final usage later.
+    // Update the same durable record without moving it to a later Turn.
+    const existing = this.entries.findLast(entry => entry.type === 'goal_completion'
+      && sameAgentGoal(normalizeAgentGoal(entry.goal), goal));
+    if (existing) {
+      if (JSON.stringify(existing.goal) !== JSON.stringify(goal)) {
+        existing.goal = clone(goal);
+        this.touchEntry(existing);
+      }
+    } else {
+      this.pushEntry({ id: this.nextEntryId('goal'), type: 'goal_completion', goal: clone(goal) });
+    }
   }
 
   applyCodexSubagentUpdate(raw: unknown): boolean {

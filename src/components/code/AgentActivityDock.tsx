@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { AgentGoal } from '../../../shared/agent-goal'
 import type { AgentTranscriptProcessItem } from './acp/acp-entry-projection'
 import { ChevronRightGlyph } from '../IconGlyphs'
@@ -60,14 +61,16 @@ export function AgentPlanActivityPreview({
   )
 }
 
-export function AgentGoalActivityPreview({ goal, expanded, onToggle }: {
+export function AgentGoalActivityPreview({ goal, expanded, onToggle, history = false }: {
+  history?: boolean
   goal: AgentGoal
   expanded: boolean
   onToggle: () => void
 }) {
   return (
     <aside className={`code-agent-transcript-plan-driver ${expanded ? 'expanded' : ''}`}
-      data-testid="code-agent-goal-driver" aria-label="Current goal">
+      data-testid={history ? 'code-agent-goal-completion' : 'code-agent-goal-driver'}
+      aria-label={history ? 'Completed goal' : 'Current goal'}>
       <button type="button" className="code-agent-transcript-plan-driver-summary"
         aria-expanded={expanded} onClick={onToggle}>
         <span>Goal</span>
@@ -83,4 +86,10 @@ export function AgentGoalActivityPreview({ goal, expanded, onToggle }: {
       </div> : null}
     </aside>
   )
+}
+
+export function AgentGoalCompletion({ goal }: { goal: AgentGoal }) {
+  const [expanded, setExpanded] = useState(false)
+  return <AgentGoalActivityPreview goal={goal} history expanded={expanded}
+    onToggle={() => setExpanded(value => !value)} />
 }

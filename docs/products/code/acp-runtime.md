@@ -1014,6 +1014,25 @@ snapshots and checkpoints preserve it across reconnects; switching Agents clears
 the previous preview. The dock does not create, pause, resume, complete, or clear
 Goals. Stop retains its current-Turn cancellation semantics.
 
+The activity dock retains active, paused, blocked, and usage- or budget-limited
+Goals. An observed transition of the same Goal to `complete` collapses its
+preview and shows completion for five seconds, then removes it from the dock.
+Opening or refreshing an already-complete Goal does not replay this notice.
+Switching Agents, clearing the Goal, or starting another Goal cancels the old
+notice timer; late usage updates do not extend it. This is presentation state
+only and never clears provider metadata.
+
+Completion is also a durable transcript record with the objective and reported
+usage, shown through the shared Goal disclosure below its Turn. The backend
+owns this record: repeated complete metadata updates its usage in place rather
+than duplicating or moving it. Identity uses the provider creation timestamp
+and objective (the objective alone when the timestamp is absent). A later Goal
+or explicit metadata clear preserves earlier completion records. Checkpoint
+recovery backfills a record for older complete metadata and remains idempotent.
+Acceptance covers live completion, late usage, repeated notifications, new Goals,
+clear, reconnect/reload, and completion disclosures across all appearances.
+
+
 An active Goal is distinct from an active Turn. Provider-initiated continuation
 Turns must publish the same ordered start and terminal lifecycle as submitted
 Turns, including completion, interruption, and failure. Settling an earlier

@@ -677,6 +677,19 @@ class FakeAgent implements Agent {
         cancelledSessions.delete(params.sessionId);
       }
     }
+    if (promptText.startsWith('goal status fixture ')) {
+      const [, , , status, createdAt = '1'] = promptText.split(' ');
+      await client.sessionUpdate({ sessionId: params.sessionId, update: {
+        sessionUpdate: 'session_info_update', _meta: { goal: {
+          objective: 'Verify service recovery and stability', status, createdAt: Number(createdAt),
+          tokenBudget: 5000, tokensUsed: 420, timeUsedSeconds: 12,
+        } },
+      } });
+      await client.sessionUpdate({ sessionId: params.sessionId, update: {
+        sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `Goal status is ${status}.` },
+      } });
+      return { stopReason: 'end_turn' };
+    }
     if (promptText === 'clear goal fixture') {
       await client.sessionUpdate({ sessionId: params.sessionId, update: {
         sessionUpdate: 'session_info_update', _meta: { goal: null },

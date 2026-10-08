@@ -1,5 +1,5 @@
 import { CollaborationAgentIcon } from './CollaborationAgentIcon'
-import type { AgentGoal } from '../../../shared/agent-goal'
+import { sameAgentGoal, type AgentGoal } from '../../../shared/agent-goal'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type ComponentProps, type CSSProperties, type Dispatch, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type RefObject, type SetStateAction, type SyntheticEvent as ReactSyntheticEvent } from 'react'
 import type { Agent, TaskHistoryEntry } from '@/types/agent'
 import { isAcpRuntime } from '@/lib/agent-runtime'
@@ -759,7 +759,7 @@ export function CodeMainArea({
   const [chatComposerCollapseRequested, setChatComposerCollapseRequested] = useState(false)
   const [runtimeSwitchExpandedAgentId, setRuntimeSwitchExpandedAgentId] = useState<string | null>(null)
   const [dismissedBrowserPreviewKeys, setDismissedBrowserPreviewKeys] = useState<Set<string>>(() => new Set())
-  const [goalPreview, setGoalPreview] = useState<{ agentId: string; goal: AgentGoal } | null>(null)
+  const [goalPreview, setGoalPreview] = useState<{ agentId: string; goal: AgentGoal; completedUntil: number | null } | null>(null)
   const [activePlanPreview, setActivePlanPreview] = useState<{
     agentId: string
     plan: AgentTranscriptProcessItem
@@ -878,7 +878,8 @@ export function CodeMainArea({
       .filter(resource => !dismissedBrowserPreviewKeys.has(`${resource.id}:${resource.generation}`))
       .sort((left, right) => left.updatedAt - right.updatedAt)
     : []
-  const visibleGoal = goalPreview?.agentId === activeAgent?.id ? goalPreview?.goal : null
+  const visibleGoal = goalPreview && goalPreview.agentId === activeAgent?.id
+    && (goalPreview.goal.status !== 'complete' || goalPreview.completedUntil !== null) ? goalPreview.goal : null
   const visibleActivePlan = activePlanPreview && activePlanPreview.agentId === activeAgent?.id
     ? activePlanPreview.plan
     : null
@@ -1035,10 +1036,26 @@ export function CodeMainArea({
     }
   }, [expandedAgentActivity, expandedBrowserAvailable, expandedBrowserResourceId, visibleActivePlan, visibleGoal])
 
+  const goalCompletionDeadline = goalPreview?.completedUntil
+  useEffect(() => {
+    if (!goalCompletionDeadline) return
+    setExpandedAgentActivity(current => current === 'goal' ? null : current)
+    const timer = window.setTimeout(() => {
+      setGoalPreview(current => current?.completedUntil === goalCompletionDeadline
+        ? { ...current, completedUntil: null } : current)
+    }, Math.max(0, goalCompletionDeadline - Date.now()))
+    return () => window.clearTimeout(timer)
+  }, [goalCompletionDeadline])
+
   const publishGoal = useCallback((agentId: string, goal: AgentGoal | null) => {
     setGoalPreview(current => {
       if (!goal) return current?.agentId === agentId ? null : current
-      return current?.agentId === agentId && JSON.stringify(current.goal) === JSON.stringify(goal) ? current : { agentId, goal }
+      if (current?.agentId === agentId && JSON.stringify(current.goal) === JSON.stringify(goal)) return current
+      const sameGoal = current?.agentId === agentId && sameAgentGoal(current.goal, goal)
+      const completedUntil = goal.status === 'complete' && sameGoal
+        ? current.goal.status === 'complete' ? current.completedUntil : Date.now() + 5000
+        : null
+      return { agentId, goal, completedUntil }
     })
   }, [])
 

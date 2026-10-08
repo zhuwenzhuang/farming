@@ -1,3 +1,4 @@
+import { AgentGoalCompletion } from './AgentActivityDock'
 import { useInteractionLayer } from '@/hooks/useInteractionLayer'
 import { useAcpRevisionInterest } from '@/lib/acp-revision-interest'
 import { useQuestionPresentation } from './acp/acp-elicitation-presentation'
@@ -2934,6 +2935,8 @@ function AgentTranscriptTurnView({
         <div className="code-agent-transcript-placeholder">{copy.agentTranscriptWaiting}</div>
       ) : null}
 
+      {turn.completedGoals?.map(record => <AgentGoalCompletion key={record.id} goal={record.goal} />)}
+
       {patchResults.length > 0 ? (
         <div className="code-agent-transcript-results code-agent-transcript-status-row">
           <AgentTranscriptPatchResultCard
@@ -2994,6 +2997,7 @@ function transcriptTurnResetKey(turn: AgentTranscriptTurn) {
     turn.status,
     String(turn.userMessage.length),
     String(turn.finalMessage.length),
+    JSON.stringify(turn.completedGoals),
     String(turn.completedAt || ''),
     turn.processItems.map(item => `${item.id}:${item.status || ''}:${item.detail?.length || 0}`).join('\u0001'),
   ].join('\u0000')

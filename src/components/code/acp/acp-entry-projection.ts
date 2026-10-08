@@ -117,6 +117,7 @@ export interface AgentTranscriptTurn {
   resultFiles?: AgentTranscriptUserFile[]
   resultAudios?: AgentTranscriptAudio[]
   finalMessage: string
+  completedGoals?: Array<{ id: string; goal: AgentGoal }>
   startedAt: number | null
   completedAt: number | null
   durationMs: number | null
@@ -755,7 +756,7 @@ function finishTurn(turn: MutableTurn | null, keepTailAsProgress: boolean): Agen
   return finished.userMessage || finished.finalMessage || finished.userImages.length > 0
     || finished.userAudios.length > 0 || finished.userFiles.length > 0
     || finished.resultImages.length > 0 || finished.resultAudios.length > 0 || finished.resultFiles.length > 0
-    || finished.processItems.length > 0
+    || finished.processItems.length > 0 || Boolean(finished.completedGoals?.length)
     ? finished
     : null
 }
@@ -862,6 +863,13 @@ export function projectAcpTranscript(sessionValue: unknown, options: { maxTurns?
       continue
     }
     if (current.internal || entry.internal === true) continue
+    if (entry.type === 'goal_completion') {
+      const goal = normalizeAgentGoal(entry.goal)
+      if (goal?.status === 'complete') {
+        (current.completedGoals ??= []).push({ id: stringValue(entry.id), goal })
+      }
+      continue
+    }
     if (entry.type === 'plan') continue
     const process = processEntry(entry)
     if (process && isDefaultVisibleMediaTool(entry)) {
