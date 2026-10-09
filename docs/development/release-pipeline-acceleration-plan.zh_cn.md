@@ -101,7 +101,7 @@ Plan 还自动发现源码和测试中残留的版本引用，但不修改它们
 
 一次干净安装后立即运行 `npm run release:upgrade:screen`。该门禁准备已审查 Adapter 与
 Runtime Manifest，验证 Provider-neutral ACP 边界及 Adapter 自身的兼容性，包括冷安装
-Patch。CI 在广泛仓库检查之前运行它，使升级缺陷尽早可诊断。独立、确定性的 Fixture
+Patch、打包 Vendor 的选择与完整性。CI 在广泛仓库检查之前运行它，使升级缺陷尽早可诊断。独立、确定性的 Fixture
 无需 Provider 凭证或 Registry Mutation；准备或兼容性失败会终止门禁。它不替代完整 CI、
 安装包验收或真实 Provider 门禁。
 

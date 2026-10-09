@@ -125,6 +125,7 @@ const tasks: FastScreenTask[] = [
   },
   {
     name: 'release package identity',
+    managedUpgrade: true,
     args: ['--import', 'tsx', 'backend/tests/test-cli-release-packaging.ts'],
   },
   {

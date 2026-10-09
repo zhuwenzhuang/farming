@@ -138,7 +138,8 @@ the final exact-SHA gates.
 Run `npm run release:upgrade:screen` immediately after the single clean install.
 It prepares the reviewed adapters and runtime manifest, then exercises the
 provider-neutral ACP boundary and owning adapter compatibility checks, including
-cold patch installation. CI runs this screen before the broad repository checks
+cold patch installation and packaged vendor selection and integrity. CI runs
+this screen before the broad repository checks
 so an upgrade defect is actionable early. Its isolated deterministic fixtures
 do not require provider credentials or registry mutations; a preparation or
 compatibility failure stops the screen. It does not replace full CI, installed
