@@ -1,14 +1,93 @@
 const assert = require('assert');
-const { execFileSync } = require('child_process');
+const { execFileSync, spawnSync } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+
+function testColdBootstrapSmoke(root: string, appPackageScript: string) {
+  const launcher = appPackageScript.match(/cat > "\$\{APP_DIR\}\/farming" <<'EOF'\n([\s\S]*?)\nEOF/);
+  assert(launcher, 'app packaging must provide its canonical bootstrap launcher');
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-smoke-bootstrap-test-'));
+  try {
+    const bundle = path.join(fixture, 'bundle');
+    const cli = path.join(fixture, 'cli');
+    const tools = path.join(fixture, 'tools');
+    const temporaryRoot = path.join(fixture, 'tmp');
+    for (const directory of [path.join(bundle, 'scripts'), cli, tools, temporaryRoot]) {
+      fs.mkdirSync(directory, { recursive: true });
+    }
+    fs.writeFileSync(path.join(bundle, 'RELEASE.json'), '{"updateMethod":"npm"}');
+    fs.writeFileSync(path.join(bundle, 'farming'), launcher[1], { mode: 0o700 });
+    // Installation owns the initial daemon start; subsequent wrapper commands pass through.
+    fs.writeFileSync(path.join(bundle, 'scripts/install-release.sh'), `#!/usr/bin/env bash
+set -euo pipefail
+mkdir -p "$FARMING_INSTALL_DIR"
+printf '{}' > "$FARMING_INSTALL_DIR/package.json"
+exec "$FARMING_CLI_INSTALL_DIR/farming" daemon
+`, { mode: 0o700 });
+    fs.writeFileSync(path.join(cli, 'farming'), `#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\\t%s\\n' "$HOME" "$1" >> "$FARMING_TEST_TRACE"
+case "$1" in
+  daemon)
+    mkdir -p "$HOME/.farming"
+    test ! -f "$HOME/.farming/running"
+    touch "$HOME/.farming/running" "$HOME/.farming/settings.json" "$HOME/.farming/.session-token"
+    ;;
+  --farming-workspace-tree-smoke)
+    test -f "$HOME/.farming/running"
+    if [ "$FARMING_TEST_WORKER_FAIL" = 1 ]; then exit 7; fi
+    printf '{"entries":65,"pages":3,"snapshotStable":true}\\n'
+    ;;
+  url) printf 'http://127.0.0.1:6696/farming\\n' ;;
+  stop) rm -f "$HOME/.farming/running" ;;
+  *) exit 9 ;;
+esac
+`, { mode: 0o700 });
+    fs.writeFileSync(path.join(tools, 'curl'), '#!/usr/bin/env bash\nprintf \'{"authRequired":true}\\n\'\n', { mode: 0o700 });
+    for (const failWorker of [false, true]) {
+      const trace = path.join(fixture, failWorker ? 'failure.tsv' : 'success.tsv');
+      const result = spawnSync('bash', [path.join(root, 'scripts/smoke-cli-release.sh'), path.join(bundle, 'farming')], {
+        env: {
+          ...process.env,
+          HOME: path.join(fixture, 'ambient-home'),
+          TMPDIR: temporaryRoot,
+          PATH: `${tools}${path.delimiter}${process.env.PATH}`,
+          FARMING_CLI_INSTALL_DIR: cli,
+          FARMING_NPM_PREFIX: '',
+          FARMING_INSTALL_DIR: '',
+          FARMING_SMOKE_AGENT: '0',
+          FARMING_TEST_TRACE: trace,
+          FARMING_TEST_WORKER_FAIL: failWorker ? '1' : '0',
+        },
+        encoding: 'utf8',
+        timeout: 10_000,
+      });
+      assert.ifError(result.error);
+      assert.equal(result.status, failWorker ? 7 : 0, result.stderr);
+      const calls = fs.readFileSync(trace, 'utf8').trim().split('\n').map((line: string) => line.split('\t'));
+      assert.deepEqual(calls.map((call: string[]) => call[1]), failWorker
+        ? ['daemon', '--farming-workspace-tree-smoke', 'stop']
+        : ['daemon', '--farming-workspace-tree-smoke', 'url', 'stop', 'stop']);
+      const ownedHome = calls[0][0];
+      assert(ownedHome.startsWith(path.join(temporaryRoot, 'farming-cli-smoke.')));
+      assert.equal(path.basename(ownedHome), 'home');
+      assert(calls.every((call: string[]) => call[0] === ownedHome));
+      assert(!fs.existsSync(ownedHome), 'smoke must clean its exact HOME on success and Worker failure');
+      assert.deepEqual(fs.readdirSync(temporaryRoot), []);
+      assert(!fs.existsSync(path.join(fixture, 'ambient-home')), 'bootstrap must never touch ambient HOME');
+    }
+  } finally {
+    fs.rmSync(fixture, { recursive: true, force: true });
+  }
+}
 
 function run() {
   const root = path.join(__dirname, '../..');
   const configPath = path.join(root, 'pkg.config.cjs');
   const packageScript = fs.readFileSync(path.join(root, 'scripts/package-cli-release.sh'), 'utf8');
   const appPackageScript = fs.readFileSync(path.join(root, 'scripts/package-release.sh'), 'utf8');
+  testColdBootstrapSmoke(root, appPackageScript);
   const npmPackageScript = fs.readFileSync(path.join(root, 'scripts/package-npm-release.sh'), 'utf8');
   const npmSmokeScript = fs.readFileSync(path.join(root, 'scripts/smoke-npm-package.sh'), 'utf8');
   const npmSourceVerificationScript = fs.readFileSync(

@@ -22,8 +22,6 @@ if [ ! -x "${BIN}" ]; then
   exit 2
 fi
 
-"${BIN}" --farming-workspace-tree-smoke
-
 TMP_ROOT="${TMPDIR:-/tmp}"
 WORK_DIR="$(mktemp -d "${TMP_ROOT%/}/farming-cli-smoke.XXXXXX")"
 HOME_DIR="${WORK_DIR}/home"
@@ -67,6 +65,8 @@ HOME="${HOME_DIR}" "${BIN}" "${DAEMON_ARGS[@]}" >"${DAEMON_LOG}" 2>&1 || {
   cat "${DAEMON_LOG}" >&2 || true
   exit 1
 }
+
+HOME="${HOME_DIR}" "${BIN}" --farming-workspace-tree-smoke
 
 URL="$(HOME="${HOME_DIR}" "${BIN}" url)"
 PORT="$(printf '%s\n' "${URL}" | sed -n 's#^http://[^:]*:\([0-9][0-9]*\).*#\1#p' | head -1)"
