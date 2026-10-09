@@ -350,11 +350,31 @@ export function validateWorkspaceContext(rootId: string, entries: Array<{ path: 
 }
 
 export async function fetchWorkspaceTree(rootId: string, directoryPath = '', options: { signal?: AbortSignal } = {}) {
-  return runWorkspaceRequest<{ path: string; items: WorkspaceFileEntry[] }>({
-    operation: 'tree',
-    rootId,
-    ...(directoryPath ? { path: directoryPath } : {}),
-  }, { signal: options.signal })
+  const items: WorkspaceFileEntry[] = []
+  let cursor: string | undefined
+  let releaseCursor: string | undefined
+  let resolvedPath = directoryPath
+  try {
+    do {
+      options.signal?.throwIfAborted()
+      const page = await runWorkspaceRequest<{ path: string; items: WorkspaceFileEntry[]; nextCursor?: string | null }>({
+        operation: 'tree', rootId, path: directoryPath, ...(cursor ? { cursor } : {}),
+      }, { signal: options.signal })
+      resolvedPath = page.path
+      items.push(...page.items)
+      cursor = page.nextCursor || undefined
+      if (cursor) releaseCursor = cursor
+    } while (cursor)
+    // Only a complete snapshot may replace a directory or remove cached children.
+    options.signal?.throwIfAborted()
+    return { path: resolvedPath, items }
+  } finally {
+    if (releaseCursor) {
+      // Cancellation is best effort; a lost first response is reclaimed by the
+      // server's snapshot TTL. Never let cleanup delay the cancelled UI owner.
+      void runWorkspaceRequest({ operation: 'tree', rootId, path: directoryPath, cursor: releaseCursor, release: true }).catch(() => {})
+    }
+  }
 }
 
 const MAX_WORKSPACE_TREE_DECORATION_ENTRIES = 4096

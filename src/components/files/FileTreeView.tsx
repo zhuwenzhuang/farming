@@ -31,7 +31,7 @@ export interface FileTreeViewProps {
   activeFilePath?: string
   agentId: string
   copy: CodeCopy
-  directoryErrors: Array<{ path: string; message: string; tooLarge: boolean }>
+  directoryErrors: Array<{ path: string; message: string }>
   decorations: WorkspaceFileDecorationStore
   editorDirtyFilePaths: ReadonlySet<string>
   editorExternalChangedFilePaths: ReadonlySet<string>
@@ -61,7 +61,6 @@ export interface FileTreeViewProps {
   ) => void
   onOpenFilePath: (filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void>
   onRememberFileOperationName: (name: string) => void
-  onSearchDirectory: (path: string) => void
   onToggleDirectory: (path: string) => boolean
   onSubmitFileOperation: () => Promise<void>
   onToggleTreeNode: (path: string) => void
@@ -290,7 +289,6 @@ const FileTreeViewContent = memo(function FileTreeViewContent({
   onOpenFilePath,
   onSelectFilePath,
   onRememberFileOperationName,
-  onSearchDirectory,
   onToggleDirectory,
   onSubmitFileOperation,
   onToggleTreeNode,
@@ -511,7 +509,6 @@ const FileTreeViewContent = memo(function FileTreeViewContent({
     onOpenFilePath,
     onSelectFilePath,
     onRememberFileOperationName,
-    onSearchDirectory,
     onToggleDirectory,
     onSubmitFileOperation,
     onUpdateFileOperationName,
@@ -538,7 +535,6 @@ const FileTreeViewContent = memo(function FileTreeViewContent({
     onOpenFilePath,
     onSelectFilePath,
     onRememberFileOperationName,
-    onSearchDirectory,
     onToggleDirectory,
     onSubmitFileOperation,
     onUpdateFileOperationName,

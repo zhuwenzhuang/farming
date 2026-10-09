@@ -151,7 +151,11 @@ type LanguageServerResultMessage = {
 `WorkspaceRequest` 是 Discriminated Union，每个 Operation 都有精确 Payload 与 Result
 Schema。共享协议 Validator 在 Dispatch 前拒绝未知 Operation、存在安全歧义的未知字段、
 非法路径、无界 Array/String，以及超过 Inline Limit 的 Payload。
-Interactive `tree` Operation 返回 Filesystem Structure，不等待 Git；`tree-decorations` 接收
+Interactive `tree` Operation 不等待 Git，按字节预算返回同一排序目录快照的分页。
+不透明的 `cursor` 用于续读，`nextCursor: null` 表示完成。完成或取消后，携带 Cursor
+的 `release` 请求回收快照；客户端无法释放时由过期机制保证有界保留。每次续读重新
+核验访问权限。客户端只提交完整列表，Protocol Version 隔离旧的单页客户端，避免将
+首批结果误认为完整目录。`tree-decorations` 接收
 来自该 Structure Snapshot 的有界 Entry Path，只返回这些 Path 的 Git 与 Ignored Decoration。
 
 Request ID 在一条 Browser Connection 内唯一。只有相同 Request ID 与 Domain 的 Pending

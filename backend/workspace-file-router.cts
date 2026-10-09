@@ -84,7 +84,7 @@ interface WorkspaceFileServiceLike {
   gitHistoryChanges(root: string, commit: unknown, parent: unknown, options?: InputRecord): Promise<unknown>;
   invalidateGitStatus?(root: string): void;
   lineChanges(root: string, userPath: unknown, lineNumber: unknown, mode: unknown): Promise<unknown>;
-  listTree(root: string, userPath: unknown, options?: ReadOptions): Promise<unknown>;
+  listTreePage(root: string, userPath: unknown, options?: TreeReadOptions): Promise<unknown>;
   listTreeDecorations(root: string, userPath: unknown, entryPaths: unknown[]): Promise<unknown>;
   moveEntry(root: string, sourcePath: unknown, targetDirectory: unknown, options?: MutationVersionOptions): Promise<unknown>;
   readFile(root: string, userPath: unknown, options?: ReadOptions): Promise<unknown>;
@@ -152,6 +152,12 @@ interface ExpressRouter {
 interface ExpressFactory {
   Router(): ExpressRouter;
   json(options: { limit: string }): unknown;
+}
+
+interface TreeReadOptions extends ReadOptions {
+  cursor?: string;
+  release?: boolean;
+  maxPageBytes?: number;
 }
 
 interface ReadOptions {
@@ -412,17 +418,18 @@ async function listGlobalWorkspaceTree(
   agentManager: AgentManager,
   fileService: WorkspaceFileServiceLike,
   userPath: unknown = '',
-  signal?: AbortSignal,
+  options: TreeReadOptions = {},
 ): Promise<unknown> {
-  signal?.throwIfAborted();
+  options.signal?.throwIfAborted();
   const { target, allowedRoots } = assertGlobalWorkspacePathAllowed(agentManager, userPath, {
     allowAllowedRootAncestor: true,
   });
   const insideAllowedRoot = allowedRoots.some(root => isSameOrDescendantPath(root, realPathIfPresent(target)));
   if (!insideAllowedRoot) {
+    if (options.cursor) throw new WorkspaceFileError('Directory access changed. Refresh the directory.', 409);
     return globalSyntheticTree(agentManager, userPath);
   }
-  return fileService.listTree(GLOBAL_WORKSPACE_FILES_ROOT, userPath || '', { signal });
+  return fileService.listTreePage(GLOBAL_WORKSPACE_FILES_ROOT, userPath || '', options);
 }
 
 function sendWorkspaceFileError(res: HttpResponse, error: unknown) {
@@ -510,12 +517,13 @@ async function executeWorkspaceFileRequest(
 
   switch (request.operation) {
     case 'tree': {
+      const pageOptions = { signal: options.signal, cursor: request.cursor, release: request.release, maxPageBytes: options.maxInlineResponseBytes };
       const tree = isGlobalWorkspaceFilesAgentId(request.rootId)
-        ? await listGlobalWorkspaceTree(agentManager, fileService, request.path || '', options.signal)
-        : await fileService.listTree(
+        ? await listGlobalWorkspaceTree(agentManager, fileService, request.path || '', pageOptions)
+        : await fileService.listTreePage(
           resolveRequestRoot(request).root,
           request.path || '',
-          { ...readOptionsForAgent(agentManager, request.rootId), signal: options.signal },
+          { ...readOptionsForAgent(agentManager, request.rootId), ...pageOptions },
         );
       return tree;
     }

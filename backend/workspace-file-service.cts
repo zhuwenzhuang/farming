@@ -39,7 +39,10 @@ const DEFAULT_WATCH_DEPTH = 1;
 const MAX_EXACT_WATCH_PATHS_PER_SUBSCRIPTION = 256;
 const MAX_EXACT_WATCH_TARGETS_PER_WORKSPACE = 1_024;
 const EXACT_WATCH_PATH_RESOLVE_CONCURRENCY = 16;
-const MAX_TREE_ENTRIES = 4_096;
+const MAX_TREE_PAGE_ENTRIES = 4_096;
+const MAX_TREE_SNAPSHOT_BYTES = 16 * 1024 * 1024;
+const MAX_RETAINED_TREE_BYTES = 32 * 1024 * 1024;
+const TREE_SNAPSHOT_TTL_MS = 60_000;
 const TREE_METADATA_CONCURRENCY = 16;
 const SEARCH_FILE_LIST_MAX_BUFFER = 16 * 1024 * 1024;
 const BINARY_SNIFF_BYTES = 8192;
@@ -1656,6 +1659,11 @@ class WorkspaceFileService {
   gitPath: string;
   gitStatusCache: Map<string, GitStatusCacheEntry>;
   changeInventories = new Map<string, { expiresAt: number; snapshots: Map<string, { root: string; scope?: 'tracked' | 'untracked'; items: WorkspaceChangeItem[] }> }>();
+  private treeSnapshots = new Map<string, {
+    root: string; path: string; target: string; authority: string; bytes: number;
+    result: Awaited<ReturnType<WorkspaceFileService['listTree']>>;
+    timer: ReturnType<typeof setTimeout>;
+  }>();
   blameSnapshots = new Map<string, { root: string; path: string; revision?: string; expiresAt: number; bytes: number; result: Awaited<ReturnType<WorkspaceFileService['blame']>> }>();
   activeChangeReads = new Map<string, { sequence: number; readers: number }>();
   gitStatusCacheTtlMs: number;
@@ -2209,16 +2217,15 @@ class WorkspaceFileService {
     // Stop before allocating metadata promises for an arbitrarily large directory.
     // The iterator closes the handle on success, error, and cancellation.
     const visibleEntries: import('fs').Dirent[] = [];
+    let enumerationBytes = 0;
     const directory: import('fs').Dir = await fsp.opendir(target);
     for await (const entry of directory) {
       options.signal?.throwIfAborted();
       if (TREE_HIDDEN_NAMES.has(entry.name)) continue;
-      if (visibleEntries.length === MAX_TREE_ENTRIES) {
-        throw new WorkspaceFileError(
-          `Directory has more than ${MAX_TREE_ENTRIES} entries. Open a subdirectory or search for a specific file.`,
-          413,
-          { path: relativePath, limit: MAX_TREE_ENTRIES },
-        );
+      // Account for names, paths and per-entry metadata before scheduling work.
+      enumerationBytes += Buffer.byteLength(entry.name) * 2 + Buffer.byteLength(relativePath) + 512;
+      if (enumerationBytes > MAX_TREE_SNAPSHOT_BYTES) {
+        throw new WorkspaceFileError('Directory exceeds the listing memory budget. Open a smaller directory or search for a file.', 413);
       }
       visibleEntries.push(entry);
     }
@@ -2289,6 +2296,78 @@ class WorkspaceFileService {
       path: relativePath,
       items: visibleItems,
     };
+  }
+
+  private releaseTreeSnapshot(id: string) {
+    const snapshot = this.treeSnapshots.get(id);
+    if (snapshot) clearTimeout(snapshot.timer);
+    this.treeSnapshots.delete(id);
+  }
+
+  // Directory membership and ordering stay fixed for the entire transfer.
+  // Reauthorize every continuation, including changed symlink targets.
+  async listTreePage(workspaceRoot: unknown, userPath: unknown = '', options: ResolvePathOptions & {
+    cursor?: string; release?: boolean; maxPageBytes?: number;
+  } = {}) {
+    options.signal?.throwIfAborted();
+    if (this.disposed) throw new WorkspaceFileError('Directory service is unavailable', 503);
+    const { root, target, relativePath } = await this.resolvePath(workspaceRoot, userPath, options);
+    const authority = JSON.stringify([...(options.allowedExternalRoots || [])].sort());
+    let id = '';
+    let offset = 0;
+    let result: Awaited<ReturnType<WorkspaceFileService['listTree']>>;
+    if (options.cursor) {
+      const match = /^([a-f0-9-]{36}):(\d+)$/.exec(options.cursor);
+      if (!match || !Number.isSafeInteger(Number(match[2]))) throw new WorkspaceFileError('Invalid directory cursor', 400);
+      id = match[1];
+      offset = Number(match[2]);
+      const snapshot = this.treeSnapshots.get(id);
+      if (!snapshot || snapshot.root !== root || snapshot.path !== relativePath
+        || snapshot.target !== target || snapshot.authority !== authority) {
+        throw new WorkspaceFileError('Directory listing expired. Refresh the directory.', 409, { reason: 'snapshot-stale' });
+      }
+      if (options.release) {
+        this.releaseTreeSnapshot(id);
+        return { path: relativePath, items: [], nextCursor: null };
+      }
+      result = snapshot.result;
+      if (offset >= result.items.length) throw new WorkspaceFileError('Invalid directory cursor offset', 400);
+    } else {
+      if (options.release) throw new WorkspaceFileError('Directory cursor is required', 400);
+      result = await this.listTree(root, relativePath, options);
+    }
+    options.signal?.throwIfAborted();
+    if (this.disposed) throw new WorkspaceFileError('Directory service is unavailable', 503);
+    const budget = Math.min(options.maxPageBytes ?? MAX_INLINE_WORKSPACE_MESSAGE_BYTES - 32 * 1024, 256 * 1024);
+    const items: typeof result.items = [];
+    let bytes = Buffer.byteLength(JSON.stringify({ path: relativePath, items: [], nextCursor: 'x'.repeat(64) }));
+    for (let index = offset; index < result.items.length && items.length < MAX_TREE_PAGE_ENTRIES; index++) {
+      const entryBytes = Buffer.byteLength(JSON.stringify(result.items[index])) + 1;
+      if (bytes + entryBytes > budget) break;
+      bytes += entryBytes;
+      items.push(result.items[index]);
+    }
+    if (bytes > budget || (!items.length && result.items.length)) throw new WorkspaceFileError('Directory entry exceeds the transfer budget', 413);
+    const next = offset + items.length;
+    if (next === result.items.length) {
+      return { path: relativePath, items, nextCursor: null };
+    }
+    if (!id) {
+      const retainedBytes = Buffer.byteLength(JSON.stringify(result));
+      if (retainedBytes > MAX_TREE_SNAPSHOT_BYTES) throw new WorkspaceFileError('Directory exceeds the listing memory budget', 413);
+      let total = [...this.treeSnapshots.values()].reduce((sum, entry) => sum + entry.bytes, 0);
+      while (this.treeSnapshots.size >= 8 || total + retainedBytes > MAX_RETAINED_TREE_BYTES) {
+        const oldest = this.treeSnapshots.keys().next().value!;
+        total -= this.treeSnapshots.get(oldest)!.bytes;
+        this.releaseTreeSnapshot(oldest);
+      }
+      id = crypto.randomUUID();
+      const snapshotId = id;
+      const timer = setTimeout(() => this.releaseTreeSnapshot(snapshotId), TREE_SNAPSHOT_TTL_MS);
+      timer.unref();
+      this.treeSnapshots.set(id, { root, path: relativePath, target, authority, bytes: retainedBytes, result, timer });
+    }
+    return { path: relativePath, items, nextCursor: `${id}:${next}` };
   }
 
   async listTreeDecorations(workspaceRoot: unknown, userPath: unknown = '', entryPaths: unknown[] = []) {
@@ -4688,6 +4767,7 @@ class WorkspaceFileService {
   }
 
   async dispose() {
+    for (const id of this.treeSnapshots.keys()) this.releaseTreeSnapshot(id);
     this.blameSnapshots.clear();
     const watchers = Array.from(this.watchers.values());
     const exactWatchers = Array.from(this.exactWatchers.values());

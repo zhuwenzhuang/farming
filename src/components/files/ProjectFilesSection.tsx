@@ -44,7 +44,7 @@ import { useWorkspaceFileTreeKeyboard } from './useWorkspaceFileTreeKeyboard'
 const FILES_REFRESH_MINIMUM_PENDING_MS = 350
 const FILES_REFRESH_SUCCESS_VISIBLE_MS = 1400
 const EMPTY_FILE_PATHS = new Set<string>()
-const EMPTY_DIRECTORY_ERRORS: Array<{ path: string; message: string; tooLarge: boolean }> = []
+const EMPTY_DIRECTORY_ERRORS: Array<{ path: string; message: string }> = []
 
 function currentFileRowHeight() {
   // Virtual row positions and the rendered rows consume the same CSS metric.
@@ -601,14 +601,10 @@ export function ProjectFilesSection({
   const stableHandleTreeKeyDownCapture = useStableEventCallback(handleTreeKeyDownCapture)
   const stableOpenFilePath = useStableEventCallback(openFilePath)
   const stableSubmitFileOperation = useStableEventCallback(submitFileOperation)
-  const stableSearchDirectory = useStableEventCallback((path: string) => {
-    fileSearch.searchInDirectory(path)
-    focusFileSearchInput()
-  })
   const directoryErrors = useMemo(() => {
     const errors = Object.entries(directories).flatMap(([path, directory]) => (
       directory.error && (!path || openDirectoryPaths.has(path))
-        ? [{ path, message: directory.error, tooLarge: directory.tooLarge === true }]
+        ? [{ path, message: directory.error }]
         : []
     ))
     return errors.length ? errors : EMPTY_DIRECTORY_ERRORS
@@ -662,7 +658,6 @@ export function ProjectFilesSection({
     onFocusFileTreeTarget: focusFileTreeTarget,
     onOpenFileContextMenu: openFileContextMenu,
     onOpenFileJumpQuery: openFileJumpQuery,
-    onSearchDirectory: stableSearchDirectory,
     onOpenFilePath: stableOpenFilePath,
     onOpenFileSearchMatch: openFileSearchMatch,
     onOpenNewAgentFromFileMenu: openNewAgentFromFileMenu,

@@ -132,20 +132,27 @@ owner. Same-directory loads join, workspace changes invalidate old results,
 and expansion intent is independent from load completion. Directory caches do
 not become file-content models.
 
-Project and global directory reads enumerate incrementally and admit at most
-4,096 visible entries, matching the decoration protocol's entry budget. An
-oversized directory fails explicitly with `TOO_LARGE` before metadata fan-out;
-it never publishes a partial successful snapshot. Metadata reads have bounded
-concurrency. Cancellation and deadlines stop enumeration and further metadata
-scheduling, close directory handles, and fence late completion. Existing
-snapshots survive failures; users can open a subdirectory or search for a
-specific file without an oversized read blocking unrelated work.
-Failures for expanded child directories appear on the affected directory row,
-so a rejected listing cannot look like an empty directory. Root failures remain
-in the Files status surface. An oversized-directory failure offers a search
-scoped to that exact authorized directory. Search does not enumerate the
-filesystem root or turn the rejected listing into a partial snapshot; leaving
-search restores ordinary Project search.
+Project and global directory reads capture one sorted, immutable listing and
+transfer it in byte-bounded pages. The per-page entry limit is not a directory
+size limit. The backend owns snapshot identity, authorization, memory budgets
+and expiry; every continuation revalidates its root, path and resolved target.
+Metadata concurrency remains bounded and entry versions preserve mutation
+conflict checks. Filesystem changes after capture appear on a fresh read, not
+mixed into subsequent pages; capture is not an atomic filesystem transaction.
+
+The Explorer automatically fetches all pages under one cancellable deadline.
+Only a complete listing may replace a visible snapshot or remove cached
+children. Loading uses the shared directory indicator and existing snapshots
+remain visible. A failure, expiry, cancellation or workspace change cannot
+commit a partial listing. Explicit refresh starts a new read after failure;
+compatible reconnect can replay a still-valid page. Completed and cancelled
+consumers release their snapshot; bounded expiry also reclaims lost responses.
+
+Enumeration memory, retained snapshots and individual response sizes are
+bounded independently. Resource exhaustion or actual access errors appear on
+the affected directory row (or the root Files status surface), never as an empty
+successful directory. Virtual rendering and asynchronous Git decorations keep
+large completed listings usable without rendering every row.
 
 Explicit pointer or keyboard directory expansion revalidates that directory while
 retaining its visible snapshot. Collapsing a directory stays local and starts no

@@ -4,8 +4,8 @@ import { isAgentStateWire } from './agent-state-wire.js'
 import { isChatTurnState, type ChatTurnState } from './chat-turn-state.js'
 import type { AgentStateWire } from './agent-state-wire.js'
 
-export const PROTOCOL_VERSION = 20
-export const MIN_PROTOCOL_VERSION = 20
+export const PROTOCOL_VERSION = 21
+export const MIN_PROTOCOL_VERSION = 21
 export const MAX_ACP_TRANSCRIPT_INTEREST = 20
 export const MAX_INLINE_WORKSPACE_MESSAGE_BYTES = 1024 * 1024
 export const PROJECT_ATTENTION_SCORE_MAX = projectAttentionScoreMax
@@ -148,7 +148,7 @@ export interface WatchWorkspaceFilesMessage extends ExtensibleMessage {
 
 export type WorkspaceRequest =
   | { operation: 'context-paths'; rootId: string; entries: Array<{ path: string; kind: 'file' | 'directory' }> }
-  | { operation: 'tree'; rootId: string; path?: string }
+  | { operation: 'tree'; rootId: string; path?: string; cursor?: string; release?: boolean }
   | { operation: 'tree-decorations'; rootId: string; path?: string; entryPaths: string[] }
   | { operation: 'read-file'; rootId: string; path: string; exactExternal?: boolean }
   | { operation: 'create-preview'; rootId: string; path: string; exactExternal?: boolean; visualization?: boolean; resourceRoot?: string }
@@ -668,6 +668,8 @@ function workspaceRequest(value: unknown): value is WorkspaceRequest {
   switch (value.operation) {
     case 'tree':
       return boundedStringField(value, 'rootId', 4096) && boundedStringField(value, 'path', 4096, true)
+        && boundedStringField(value, 'cursor', 128, true) && optionalBooleanField(value, 'release')
+        && (value.release !== true || typeof value.cursor === 'string')
     case 'tree-decorations':
       return boundedStringField(value, 'rootId', 4096)
         && boundedStringField(value, 'path', 4096, true)

@@ -173,8 +173,13 @@ type LanguageServerResultMessage = {
 payload and result schema. The shared protocol validator rejects unknown
 operations, unknown fields where ambiguity is unsafe, invalid paths, unbounded
 arrays or strings, and payloads above the inline limit before dispatch.
-The interactive `tree` operation returns filesystem structure without waiting
-for Git. `tree-decorations` accepts the bounded entry paths from that structure
+The interactive `tree` operation returns byte-bounded pages of one sorted
+filesystem snapshot without waiting for Git. An opaque `cursor` continues that
+snapshot; `nextCursor: null` completes it. A `release` request with a cursor
+reclaims it after completion or cancellation; expiry bounds retention when the
+client cannot release it. Every continuation revalidates access. Clients commit
+only complete listings, and the protocol version fences older single-page
+clients from interpreting the first page as a complete directory. `tree-decorations` accepts the bounded entry paths from that structure
 snapshot and returns only Git and ignored decoration for those paths.
 
 Request IDs are unique within a browser connection. A result is admitted only

@@ -850,4 +850,14 @@ assert.strictEqual(validateServerMessage({
   type: 'agent-read',
   read: { agentId: 'a', unread: true, attentionSeq: 2, readAttentionSeq: 1 },
 }).ok, false);
+
+for (const fields of [{ cursor: 'cursor', release: true }, { cursor: 'cursor' }]) {
+  assert.strictEqual(validateClientMessage({ type: 'workspace-request', requestId: 'page',
+    request: { operation: 'tree', rootId: 'root', ...fields } }).ok, true);
+}
+for (const fields of [{ cursor: 1 }, { cursor: 'x'.repeat(129) }, { release: true }, { release: 'yes' }]) {
+  assert.strictEqual(validateClientMessage({ type: 'workspace-request', requestId: 'page',
+    request: { operation: 'tree', rootId: 'root', ...fields } }).ok, false);
+}
+
 console.log('browser protocol schema tests passed');

@@ -481,9 +481,6 @@ export interface CodeCopy {
   visibleFileDirectory: string
   searchInDirectory: string
   searchThisDirectory: string
-  searchThisDirectoryShort: string
-  directoryTooLarge: string
-  directoryTooLargeShort: string
   openEditors: string
   loading: string
   slashCatalogUnavailable: string
@@ -1244,9 +1241,6 @@ const EN_COPY: CodeCopy = {
   visibleFileDirectory: 'Directory of visible files',
   searchInDirectory: 'Search in',
   searchThisDirectory: 'Search this directory',
-  searchThisDirectoryShort: 'Search',
-  directoryTooLarge: 'This directory has more than 4096 entries.',
-  directoryTooLargeShort: '>4096',
   openEditors: 'OPEN EDITORS',
   loading: 'Loading...',
   slashCatalogUnavailable: 'Skills are temporarily unavailable.',
@@ -2042,9 +2036,6 @@ const ZH_COPY: CodeCopy = {
   visibleFileDirectory: '当前可见内容的目录',
   searchInDirectory: '搜索目录',
   searchThisDirectory: '搜索此目录',
-  searchThisDirectoryShort: '搜索',
-  directoryTooLarge: '此目录超过 4096 项。',
-  directoryTooLargeShort: '超过 4096 项',
   openEditors: '打开的编辑器',
   loading: '加载中...',
   slashCatalogUnavailable: 'Skills 暂时不可用。',

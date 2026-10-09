@@ -96,8 +96,27 @@ async function run() {
 
     const tree = await executeWorkspaceFileRequest(agentManager, service, {
       operation: 'tree', rootId: 'agent-main', path: '',
-    }, requestOptions);
+    }, { ...requestOptions, maxInlineResponseBytes: 32 * 1024 });
     assert(tree.items.some((item: { path: string }) => item.path === 'README.md'));
+    for (const request of [
+      { operation: 'tree', rootId: 'agent-main', path: '' },
+      { operation: 'tree', rootId: 'wroot_global', path: workspace.replace(/^\//, '') },
+    ]) {
+      const received: string[] = [];
+      let cursor: string | undefined;
+      let releaseCursor: string | undefined;
+      do {
+        const page = await executeWorkspaceFileRequest(agentManager, service, { ...request, cursor },
+          { maxInlineResponseBytes: 800 });
+        assert(Buffer.byteLength(JSON.stringify(page)) <= 800);
+        received.push(...page.items.map((item: { name: string }) => item.name));
+        cursor = page.nextCursor || undefined;
+        if (cursor) releaseCursor = cursor;
+      } while (cursor);
+      assert(releaseCursor, 'both Project and global tree routes continue byte-bounded pages');
+      assert.deepStrictEqual(received.sort(), tree.items.map((item: { name: string }) => item.name).sort());
+      await executeWorkspaceFileRequest(agentManager, service, { ...request, cursor: releaseCursor, release: true });
+    }
     const cancelledTree = new AbortController();
     cancelledTree.abort(new Error('tree request cancelled'));
     for (const request of [

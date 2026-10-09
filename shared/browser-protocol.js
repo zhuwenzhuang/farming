@@ -11,8 +11,8 @@ const composer_submission_js_1 = require("./composer-submission.js");
 const agent_state_semantics_js_1 = require("./agent-state-semantics.js");
 const agent_state_wire_js_1 = require("./agent-state-wire.js");
 const chat_turn_state_js_1 = require("./chat-turn-state.js");
-exports.PROTOCOL_VERSION = 20;
-exports.MIN_PROTOCOL_VERSION = 20;
+exports.PROTOCOL_VERSION = 21;
+exports.MIN_PROTOCOL_VERSION = 21;
 exports.MAX_ACP_TRANSCRIPT_INTEREST = 20;
 exports.MAX_INLINE_WORKSPACE_MESSAGE_BYTES = 1024 * 1024;
 exports.PROJECT_ATTENTION_SCORE_MAX = agent_state_semantics_js_1.PROJECT_ATTENTION_SCORE_MAX;
@@ -106,7 +106,9 @@ function workspaceRequest(value) {
     const expectedVersion = () => boundedStringField(value, 'expectedVersion', 256, true);
     switch (value.operation) {
         case 'tree':
-            return boundedStringField(value, 'rootId', 4096) && boundedStringField(value, 'path', 4096, true);
+            return boundedStringField(value, 'rootId', 4096) && boundedStringField(value, 'path', 4096, true)
+                && boundedStringField(value, 'cursor', 128, true) && optionalBooleanField(value, 'release')
+                && (value.release !== true || typeof value.cursor === 'string');
         case 'tree-decorations':
             return boundedStringField(value, 'rootId', 4096)
                 && boundedStringField(value, 'path', 4096, true)

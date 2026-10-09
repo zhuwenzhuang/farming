@@ -45,7 +45,7 @@ interface FileSectionBodyProps {
   fileMenu: FileContextMenuState | null
   fileMenuRef: RefObject<HTMLDivElement | null>
   openFileError: string | null
-  directoryErrors: Array<{ path: string; message: string; tooLarge: boolean }>
+  directoryErrors: Array<{ path: string; message: string }>
   rootDirectoryHasItems: boolean
   rootDirectoryLoading: boolean
   search: FileSectionBodySearch
@@ -57,7 +57,6 @@ interface FileSectionBodyProps {
   onCopyFileMenuShareUrl: () => void
   onOpenNewAgentFromFileMenu: () => void
   onRefreshFileMenuTarget: () => void
-  onSearchDirectory: (path: string) => void
   onStartAgentFromFileMenu: (command: string) => void
   onStartFileMenuOperation: (kind: WorkspaceFileOperationKind) => void
   readOnly?: boolean
@@ -81,7 +80,6 @@ export function FileSectionBody({
   onCopyFileMenuShareUrl,
   onOpenNewAgentFromFileMenu,
   onRefreshFileMenuTarget,
-  onSearchDirectory,
   onStartAgentFromFileMenu,
   onStartFileMenuOperation,
   readOnly = false,
@@ -91,14 +89,9 @@ export function FileSectionBody({
       {rootDirectoryLoading && !rootDirectoryHasItems && (
         <div className="code-file-status" style={workspaceFileTreeDepthStyle(0)}>{copy.loading}</div>
       )}
-      {directoryErrors.filter(({ path }) => !path).map(({ path, message, tooLarge }) => (
+      {directoryErrors.filter(({ path }) => !path).map(({ path, message }) => (
         <div key={path} className="code-file-status error" role="alert" style={workspaceFileTreeDepthStyle(0)}>
-          {path ? `${path}: ` : ''}{tooLarge ? copy.directoryTooLarge : message}
-          {tooLarge && path && (
-            <button type="button" className="code-file-directory-search-action" onClick={() => onSearchDirectory(path)}>
-              {copy.searchThisDirectory}
-            </button>
-          )}
+          {message}
         </div>
       ))}
       {openFileError && !search.active && (
@@ -132,7 +125,6 @@ export function FileSectionBody({
         {...tree}
         copy={copy}
         directoryErrors={directoryErrors}
-        onSearchDirectory={onSearchDirectory}
       />
       <FileSectionOverlays
         agentId={tree.agentId}
