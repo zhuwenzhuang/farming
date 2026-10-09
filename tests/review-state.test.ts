@@ -1132,7 +1132,7 @@ test('normalizes persisted and submitted preferences before they influence a dif
     syntaxHighlighting: 'true',
     tabSize: 99,
   }), {
-    autoMarkReviewed: false,
+    autoMarkReviewed: true,
     context: 10,
     fitToScreen: true,
     fontSize: 20,
@@ -1366,4 +1366,31 @@ test('draft stays at its anchor and survives an unconfirmed save', () => {
   state = transitionReviewState(state, { type: 'restore-comments', comments: [], id: 'stable-id', pendingType: 'save', patchset: 'Patchset 20' }, catalog).state
   assert.equal(state.commentDraft?.id, 'stable-id')
   assert.equal(state.commentDraft?.body, 'Do not lose this')
+})
+
+test('auto-review preserves a loaded collapsed file while another reviewed save is pending', () => {
+  const first = 'clis/dataflow.py', second = 'clis/diagnose.py'
+  const opened = transitionReviewState(initialState(true), { path: first, type: 'toggle-file-expanded' }, catalog)
+  assert.equal(opened.effects[0]?.type, 'save-reviewed-status')
+  const next = transitionReviewState(opened.state, { path: second, type: 'toggle-file-expanded' }, catalog)
+  assert.deepEqual(next.effects, [])
+  const collapsed = transitionReviewState(next.state, { path: second, type: 'toggle-file-expanded' }, catalog)
+  assert.deepEqual(reviewStateForPatchset(collapsed.state, 'Patchset 20').autoReviewPaths, [second])
+  const saved = transitionReviewState(collapsed.state, { type: 'commit-reviewed-status', patchset: 'Patchset 20', paths: [first], reviewedPaths: [first], revision: 1 }, catalog)
+  assert.deepEqual(saved.effects, [{ type: 'save-reviewed-status', patchset: 'Patchset 20', changes: [{ path: second, reviewed: true }], revision: 1 }])
+  assert.equal(isFileReviewed(saved.state, second), true)
+})
+
+test('choosing manual review cancels queued automatic marks without cancelling the active save', () => {
+  const first = 'clis/dataflow.py', second = 'clis/diagnose.py'
+  let state = transitionReviewState(initialState(true), { path: first, type: 'toggle-file-expanded' }, catalog).state
+  state = transitionReviewState(state, { path: second, type: 'toggle-file-expanded' }, catalog).state
+  state = transitionReviewState(state, { path: second, type: 'toggle-file-expanded' }, catalog).state
+  state = transitionReviewState(state, { preferences: initialState(false).preferences, type: 'set-preferences' }, catalog).state
+  assert.ok(reviewStateForPatchset(state, 'Patchset 20').pendingReview)
+  const saved = transitionReviewState(state, { type: 'commit-reviewed-status', patchset: 'Patchset 20', paths: [first], reviewedPaths: [first], revision: 1 }, catalog)
+  assert.deepEqual(saved.effects, [])
+  const enabled = transitionReviewState(saved.state, { preferences: initialState(true).preferences, type: 'set-preferences' }, catalog)
+  assert.deepEqual(enabled.effects, [])
+  assert.equal(isFileReviewed(enabled.state, second), false)
 })

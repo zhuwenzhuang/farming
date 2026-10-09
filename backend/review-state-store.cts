@@ -8,7 +8,7 @@ const MAX_COMMENT_ID_LENGTH = 256;
 const MAX_COMMENT_BODY_LENGTH = 20000;
 
 type ReviewCommentSide = 'left' | 'right' | 'unified';
-type ReviewCommentStatus = 'open' | 'resolved' | 'outdated';
+type ReviewCommentStatus = 'open' | 'resolved';
 
 export interface ReviewCommentRange {
   end_character: number;
@@ -18,6 +18,7 @@ export interface ReviewCommentRange {
 }
 
 export interface ReviewComment {
+  outdated?: boolean;
   body: string;
   id: string;
   line: number;
@@ -52,6 +53,7 @@ interface ReviewStateStoreOptions {
 }
 
 interface ReviewCommentInput {
+  outdated?: unknown;
   body?: unknown;
   id?: unknown;
   line?: unknown;
@@ -139,11 +141,13 @@ function normalizeComment(value: unknown, patchset: string): ReviewComment | nul
   ) return null;
   const range = value.range === undefined ? undefined : normalizeCommentRange(value.range);
   if (value.range !== undefined && !range) return null;
+  if (value.outdated !== undefined && typeof value.outdated !== 'boolean') return null;
+  const outdated = value.outdated === true || value.status === 'outdated'
+    || (value.outdated === undefined && isSafeKey(value.sourcePatchset));
   const status: ReviewCommentStatus | undefined = value.status === 'open'
     || value.status === 'resolved'
-    || value.status === 'outdated'
     ? value.status
-    : undefined;
+    : value.status === 'outdated' ? 'open' : undefined;
   return {
     body,
     id: value.id,
@@ -153,6 +157,7 @@ function normalizeComment(value: unknown, patchset: string): ReviewComment | nul
     ...(range ? { range } : {}),
     side: value.side,
     ...(status ? { status } : {}),
+    ...(outdated ? { outdated: true } : {}),
     ...(isSafeKey(value.sourcePatchset) ? { sourcePatchset: value.sourcePatchset } : {}),
   };
 }
@@ -362,12 +367,14 @@ class ReviewStateStore {
     nextPatchset,
     changedPaths,
     preservedAnchors = {},
+    replaceExisting = false,
   }: {
     reviewId: string;
     previousPatchset: string;
     nextPatchset: string;
     changedPaths: unknown;
     preservedAnchors?: Record<string, Pick<ReviewComment, 'line' | 'range'>>;
+    replaceExisting?: boolean;
   }): ReviewPatchsetState {
     if (!isSafeKey(reviewId) || !isSafeKey(previousPatchset) || !isSafeKey(nextPatchset) || !Array.isArray(changedPaths)) {
       throw new TypeError('invalid review patchset inheritance');
@@ -375,17 +382,18 @@ class ReviewStateStore {
     const state = this.ensureState();
     const review = ownValue(state.reviews, reviewId);
     const existing = review && ownValue(review.patchsets, nextPatchset);
-    if (existing) return clone(existing);
+    if (existing && !replaceExisting) return clone(existing);
     const previous = this.getPatchsetState(reviewId, previousPatchset);
     const changed = new Set(uniquePaths(changedPaths));
     const next: ReviewPatchsetState = {
       comments: previous.comments.map((comment): ReviewComment => ({
         ...comment,
         patchset: nextPatchset,
-        ...(preservedAnchors[comment.id] && comment.status !== 'outdated' ? preservedAnchors[comment.id] : {}),
-        ...(changed.has(comment.path) && !preservedAnchors[comment.id]
-          ? { sourcePatchset: previousPatchset, status: 'outdated' }
-          : { status: comment.status || 'open' }),
+        ...(preservedAnchors[comment.id] && !comment.outdated ? preservedAnchors[comment.id] : {}),
+        status: comment.status || 'open',
+        ...(comment.outdated || (changed.has(comment.path) && !preservedAnchors[comment.id])
+          ? { sourcePatchset: comment.sourcePatchset || previousPatchset, outdated: true }
+          : {}),
       })),
       reviewedPaths: previous.reviewedPaths.filter(filePath => !changed.has(filePath)),
       revision: 0,

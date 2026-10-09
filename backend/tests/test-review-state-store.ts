@@ -229,6 +229,47 @@ function run() {
       status: 'open',
     }).status, 'open');
 
+    store.inheritPatchset({ reviewId: 'status-review', previousPatchset: 'revision-1', nextPatchset: 'revision-2', changedPaths: ['src/status.ts'] });
+    const statusInput = { reviewId: 'status-review', patchset: 'revision-2', commentId: 'status-note' };
+    const outdated = store.getComments('status-review', 'revision-2')[0];
+    assert.strictEqual(outdated.outdated, true);
+    assert.strictEqual(outdated.status, 'open');
+    assert.strictEqual(outdated.sourcePatchset, 'revision-1');
+    for (const status of ['resolved', 'open', 'resolved']) {
+      const updated = store.updateCommentStatus({ ...statusInput, status });
+      assert.strictEqual(updated.status, status);
+      assert.strictEqual(updated.outdated, true);
+      assert.strictEqual(updated.sourcePatchset, 'revision-1');
+    }
+    const inheritedAgain = store.inheritPatchset({
+      reviewId: 'status-review', previousPatchset: 'revision-2', nextPatchset: 'revision-3', changedPaths: ['src/status.ts'],
+      preservedAnchors: { 'status-note': { line: 99 } },
+    }).comments[0];
+    assert.strictEqual(inheritedAgain.line, 3, 'an outdated anchor cannot be reattached');
+    assert.strictEqual(inheritedAgain.status, 'resolved');
+    assert.strictEqual(inheritedAgain.sourcePatchset, 'revision-1');
+    assert.strictEqual(inheritedAgain.outdated, true);
+    const writeJson = store.writeJson;
+    store.writeJson = () => { throw new Error('injected write failure'); };
+    assert.throws(() => store.updateCommentStatus({ ...statusInput, status: 'open' }), /injected write failure/);
+    assert.strictEqual(store.getComments('status-review', 'revision-2')[0].status, 'resolved');
+    store.writeJson = writeJson;
+    const restarted = new ReviewStateStore(configDir);
+    assert.deepStrictEqual(restarted.getComments('status-review', 'revision-2')[0], { ...outdated, status: 'resolved' });
+
+    const legacyFile = path.join(configDir, 'legacy.json');
+    fs.writeFileSync(legacyFile, JSON.stringify({ reviews: { legacy: { patchsets: { 'revision-2': {
+      comments: [
+        { ...outdated, outdated: undefined, status: 'outdated', id: 'legacy-open' },
+        { ...outdated, outdated: undefined, status: 'resolved', id: 'legacy-resolved' },
+      ], reviewedPaths: [], revision: 0,
+    } } } } }));
+    const legacy = new ReviewStateStore(configDir, { file: legacyFile });
+    const migrated = legacy.getComments('legacy', 'revision-2');
+    assert.deepStrictEqual(migrated.map(comment => [comment.status, comment.outdated]), [['open', true], ['resolved', true]]);
+    legacy.updateCommentStatus({ reviewId: 'legacy', patchset: 'revision-2', commentId: 'legacy-open', status: 'resolved' });
+    assert.strictEqual(new ReviewStateStore(configDir, { file: legacyFile }).getComments('legacy', 'revision-2')[0].outdated, true);
+
     console.log('test-review-state-store passed');
   } finally {
     fs.rmSync(configDir, { recursive: true, force: true });

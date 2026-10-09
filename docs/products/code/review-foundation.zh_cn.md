@@ -70,6 +70,13 @@ CLI 支持 detached HEAD，仅显式 `--branch` 需要分支名。
 Working-copy Review 必须先捕获为不可变 Revision，再展示文件列表。Capture 不能修改用户的
 Index 或 Worktree。捕获期间 Workspace 变化、无法证明结果一致时，应显式失败并允许 Retry。
 
+相同规范化 worktree、解析后的 Base、来源和捕获范围重新打开时，接续后端持久化的 Review。
+后端按此身份串行处理重开和 Refresh，再执行捕获：内容未变返回原 Revision；内容变化则追加
+Revision，按 Refresh 的规则继承状态。不同 Base、Scope、路径选择和 Agent 证据保持隔离。
+历史 Agent 证据重新打开精确的原始 Revision，不替换成最新工作区版本。进程重启后仍可恢复；
+继承状态持久化成功前不发布新 Revision。缺少来源字段的旧 Capture，仅在存储结构能明确证明
+它属于 Working-copy 时自动接续。
+
 Capture 依次经过解析、枚举、捕获、校验和发布。一次尝试固定 worktree HEAD 并观察其
 index，在两次捕获前后重新枚举选定范围，只在固定 HEAD tree 上写入变更路径，复用
 未变化对象。更新只作用于精确条目，不递归导入目录内容或被忽略的后代文件。
@@ -81,6 +88,10 @@ Refresh 重复同一协议。
 Agent 修复后 Refresh 会在同一 Review Lineage 中创建新 Revision。未变化文件可以继承
 Reviewed State；变化文件回到 Unreviewed；Comment Anchor 不再匹配时标为 Outdated，不能
 静默移动到无关代码行。
+评论的解决状态（Open／Resolved）与锚点有效性（Current／Outdated）独立保存。
+Resolve／Reopen 不改变锚点有效性及其原始来源版本，后续 Revision 不重新映射已过期锚点。
+旧 Outdated 状态在存储和 API 边界规范化；未解决计数包含仍开放的过期评论。
+状态写入失败保留原状态，重试使用同一评论身份。
 
 Working-copy Review 会在权威 Git 枚举阶段、应用 File Limit 之前应用请求的 Tracked 或
 Untracked Scope。大量 Untracked 文件不能截断 Tracked Review；选定 Scope 内超出上限时，
@@ -165,6 +176,22 @@ State Reconciliation、Partial Failure、Stale Async Completion、Binary/Truncat
 Unified Presentation、Keyboard Navigation 与 Large Review。
 
 
+页面在展开、收起 diff 或聚焦行控件后保留一个选中文件，相邻文件导航从该文件继续。
+选中态复用 hover 背景，滚动和收起不会清除；切换比较对象或移除该文件时清除。
+吸顶标题的可见状态不会覆盖用户选中的文件。
+收起文件时保留被点击标题行在视口中的位置，包括原先已吸顶的标题；剩余内容不足时在底部补足空白，后续内容增长时回收不再需要的空白。
+
+比较菜单按 Commit 和 Branch 标签自适应宽度，限制在视口内，并支持横向拖动调整宽度。
+长标签列表允许横向滚动，不截断比较来源信息；行样式继续复用共享菜单规范。
+
+Review 独立展示明确的 Base（左侧）与 Candidate（右侧），不依赖比较预设名称来推断版本。
+两端均可选择 commit 或新读取的 index tree；Candidate 还可捕获最新工作区，与所选 Base 比较。
+Unstaged 表示 index 到工作区的差异，并非单独的 Git 版本。后端解析并持有不可变版本身份。
+修改一端保留另一端，建立新的比较身份并清空旧内容；非空草稿阻止切换。
+版本菜单每次打开进行有界读取，忽略已关闭菜单的旧结果并明确展示错误。
+捕获完成或明确失败前禁用竞争选择，不自动重放结果不确定的写入。
+捕获后标记为带对象 ID 的快照版本，不继续宣称实时最新；URL 保留精确的比较两端。
+
 ## Review 交互状态转换
 
 - 每次打开比较菜单都执行新的有界查询。选择实时工作区时，先捕获固定快照再展示文件列表。
@@ -172,10 +199,16 @@ Unified Presentation、Keyboard Navigation 与 Large Review。
 - 同时编辑一条草稿，直到保存或明确丢弃；导航不能覆盖非空草稿。正文和稳定保存 ID
   按 Review revision 保存在本地，重新打开后恢复。保存期间冻结编辑；确认成功后清除。
   失败保留草稿，结果不确定时先读取服务端状态，再允许编辑或使用相同 ID 重试。
-- Reviewed 默认手动标记。自动标记要求单独打开文件、diff 加载成功且 Reviewed 状态已读取。
+- Reviewed 默认自动标记，可在偏好中选择手动；保留已明确保存的偏好。
+  自动标记要求单独打开文件、diff 加载成功且 Reviewed 状态已读取。
+  满足条件后，即使因另一笔 Reviewed 写入而等待，收起也不会丢失待标记记录。
   全部展开不批量标记。写入结果不确定时状态变为未知，直到重新读取成功。
 - diff 加载共享四请求并发限制；切换比较后丢弃旧队列、忽略旧结果。diff 失败提供 Retry，
   评论或 Reviewed 读取失败提供 Reload review state；所有 Review HTTP 操作均有超时边界。
+  修改上下文或空白比较偏好会使包括收起文件在内的缓存 diff 失效；展开文件使用同一加载路径重新读取。
+  旧偏好的异步结果不能覆盖当前 diff 或上下文。
+- 元数据和可展开上下文的源文本每文件上限为 16 MiB，与 patch 输出预算分开。
+  大文件中的少量修改不应被较小的 patch 预算拒绝；超限文本明确提示大小限制。
 - 文件行展示未解决／总评论数和文件权限变化。支持相邻文件、下一个未审阅文件、变更块和评论导航。
   `[`／`]` 切换文件，`p`／`n` 切换变更块，加 Shift 切换评论；文本输入保留原生键盘行为。
 - 评论范围使用不改写代码 DOM 的文字标注。刷新只在未修改的行区间映射候选版本评论，

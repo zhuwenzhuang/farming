@@ -8,6 +8,24 @@ const REVIEW_ID_PATTERN = /^review-[a-f0-9]{32}$/;
 const OBJECT_ID_PATTERN = /^[a-f0-9]{40,64}$/;
 
 type ReviewScope = 'tracked' | 'untracked';
+type ReviewSource = 'working-copy' | 'acp';
+
+export interface ReviewCaptureIdentity {
+  root: string;
+  base: string;
+  source?: ReviewSource;
+  scope?: ReviewScope;
+  paths?: string[];
+  modifiedWithinDays?: number;
+}
+
+export function reviewCaptureKey(input: ReviewCaptureIdentity): string {
+  // Historical ACP captures always had explicit paths. Do not guess provenance
+  // for legacy path-limited captures that could belong to either source.
+  const source = input.source ?? (input.paths === undefined ? 'working-copy' : 'legacy');
+  return JSON.stringify([input.root, input.base, source, input.scope ?? null,
+    input.modifiedWithinDays ?? null, input.paths === undefined ? null : [...new Set(input.paths)].sort()]);
+}
 
 interface ReviewRevision {
   createdAt: string;
@@ -17,6 +35,7 @@ interface ReviewRevision {
 }
 
 interface ReviewSession {
+  source?: ReviewSource;
   base: string;
   createdAt: string;
   id: string;
@@ -38,6 +57,7 @@ interface ReviewSessionStoreOptions {
 }
 
 interface CreateReviewSessionInput {
+  source?: ReviewSource;
   base: string;
   createdAt?: string;
   id: string;
@@ -92,6 +112,7 @@ function validSession(value: unknown): value is ReviewSession {
     && OBJECT_ID_PATTERN.test(value.base)
     && typeof value.createdAt === 'string'
     && typeof value.updatedAt === 'string'
+    && (value.source === undefined || value.source === 'working-copy' || value.source === 'acp')
     && (value.scope === undefined || value.scope === 'tracked' || value.scope === 'untracked')
     && (value.modifiedWithinDays === undefined || (
       typeof value.modifiedWithinDays === 'number'
@@ -161,6 +182,15 @@ class ReviewSessionStore {
     return session ? clone(session) : null;
   }
 
+  findForCapture(identity: ReviewCaptureIdentity, tree?: string): ReviewSession | null {
+    const key = reviewCaptureKey(identity);
+    const session = Object.values(this.ensureState().sessions)
+      .filter(candidate => reviewCaptureKey(candidate) === key
+        && (tree === undefined || candidate.revisions.some(revision => revision.tree === tree)))
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || b.id.localeCompare(a.id))[0];
+    return session ? clone(session) : null;
+  }
+
   create({
     id,
     root,
@@ -169,6 +199,7 @@ class ReviewSessionStore {
     scope,
     modifiedWithinDays,
     paths,
+    source,
     createdAt = new Date().toISOString(),
   }: CreateReviewSessionInput): ReviewSession {
     if (!REVIEW_ID_PATTERN.test(id) || !path.isAbsolute(root) || !OBJECT_ID_PATTERN.test(base) || !OBJECT_ID_PATTERN.test(tree)) {
@@ -182,6 +213,7 @@ class ReviewSessionStore {
       id,
       revisions: [{ createdAt, number: 1, tree }],
       root,
+      ...(source ? { source } : {}),
       ...(scope === 'tracked' || scope === 'untracked' ? { scope } : {}),
       ...(Number.isInteger(modifiedWithinDays) ? { modifiedWithinDays } : {}),
       ...(Array.isArray(paths) ? { paths: [...paths] } : {}),

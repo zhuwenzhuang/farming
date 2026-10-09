@@ -316,6 +316,7 @@ test('keeps files, review state, comments, and expanded diffs scoped to each pat
 })
 
 test('captures an agent working copy as an isolated immutable review session', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('farming.review.diff-preferences', JSON.stringify({ autoMarkReviewed: false })))
   let reviewedFiles: string[] = []
   let loadedFileDiff = false
   const base = '1111111111111111111111111111111111111111'
@@ -735,6 +736,7 @@ test('refreshes a review revision without losing inherited state or attaching ou
 })
 
 test('uses the git-range endpoint when base and head are selected in the review URL', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('farming.review.diff-preferences', JSON.stringify({ autoMarkReviewed: false })))
   const base = '1'.repeat(40)
   const head = '2'.repeat(40)
   let loadedRangeFileDiff = 0
@@ -1362,8 +1364,11 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
       await expect(review).not.toContainText('maxBuffer')
       await page.screenshot({ path: testInfo.outputPath(`review-gitlink-sources-${appearance}.png`), animations: 'disabled' })
       await review.getByRole('menuitemradio', { name: 'Unstaged', exact: true }).click()
-      await expect(review.getByRole('alert')).toContainText('too many workspace files to capture this review')
-      await expect(review.getByTestId('review-file-row')).toHaveCount(0)
+      await expect(review.locator('.review-working-copy-message')).toContainText('too many workspace files to capture this review')
+      // A failed capture must leave the previously loaded comparison usable.
+      await expect(review.getByTestId('review-file-row')).toHaveCount(64)
+      await expect(diff).toContainText(`Subproject commit ${newCommit}`)
+      await expect(page).toHaveURL(new RegExp(`head=${head}`))
       await review.locator('.review-source-trigger').click()
       await review.locator('details.review-source-submenu').filter({ hasText: 'Commit' }).locator('summary').click()
       await review.getByRole('menuitemradio', { name: `${git(root, 'rev-parse', '--short', head)} Update source and dependency`, exact: true }).click()
@@ -1371,6 +1376,7 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
       await expect(review.getByTestId('review-file-row')).toHaveCount(64)
       expect(fs.readFileSync(path.join(root, '.git', 'index'))).toEqual(indexBefore)
     } finally {
+      await page.goto('about:blank')
       fs.rmSync(root, { recursive: true, force: true })
     }
   })
@@ -1584,6 +1590,7 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
 
 for (const appearance of ['light', 'dark', 'paper']) {
   test(`protects and recovers review drafts with manual Reviewed in ${appearance}`, async ({ page }, testInfo) => {
+    await page.addInitScript(() => localStorage.setItem('farming.review.diff-preferences', JSON.stringify({ autoMarkReviewed: false })))
     await page.request.post('/farming/api/settings', { data: { appearance } })
     let failSave = true
     let savedCommentId = ''
@@ -1738,3 +1745,78 @@ test('keeps commit comparisons usable during conflicts and recovers a stale sour
     }
   } finally { await page.goto('about:blank'); fs.rmSync(root, { recursive: true, force: true }) }
 })
+
+for (const appearance of ['light', 'dark', 'paper']) {
+  test(`resumes real Review progress and preserves outdated resolution in ${appearance}`, async ({ page }, testInfo) => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'farming-review-resume-')))
+    const filePath = 'src/TypeChecker.java'
+    const originalUrl = `/farming/review?root=${encodeURIComponent(root)}&scope=tracked`
+    const largeSource = Array.from({ length: 35000 }, (_, i) => `// Ordinary unchanged source line ${i} for review context`).join('\n')
+    try {
+      git(root, 'init', '-b', 'main')
+      git(root, 'config', 'user.name', 'Review Example')
+      git(root, 'config', 'user.email', 'review@example.com')
+      git(root, 'config', 'core.hooksPath', '/dev/null')
+      fs.mkdirSync(path.join(root, 'src'))
+      fs.writeFileSync(path.join(root, filePath), `${largeSource}\n`)
+      for (let i = 0; i < 22; i++) fs.writeFileSync(path.join(root, `src/file-${i}.java`), 'class Example {}\n')
+      git(root, 'add', '.'); git(root, 'commit', '-m', 'Initial implementation')
+      fs.appendFileSync(path.join(root, filePath), '// First candidate\n')
+      for (let i = 0; i < 22; i++) fs.appendFileSync(path.join(root, `src/file-${i}.java`), '// Reviewed change\n')
+      await page.request.post('/farming/api/settings', { data: { appearance } })
+      await page.goto(originalUrl)
+      await expect(page.locator('body')).toHaveAttribute('data-appearance', appearance)
+      await expect(page.locator('.review-file-change')).toHaveCount(23)
+      const firstUrl = new URL(page.url()), reviewId = firstUrl.searchParams.get('reviewId')!, firstHead = firstUrl.searchParams.get('head')!
+      const row = page.locator(`[data-file-path="${filePath}"]`)
+      await row.getByRole('button', { name: 'Expand file diff', exact: true }).click()
+      await expect(row.getByText('// First candidate', { exact: true })).toBeVisible()
+      await expect(row.getByRole('switch', { name: 'Reviewed', exact: true })).toBeChecked()
+      await row.locator('button.review-line-number[data-review-side="right"]').last().click()
+      await row.getByLabel('Review comment').fill('Please check this implementation.')
+      await row.getByRole('button', { name: 'SAVE COMMENT', exact: true }).click()
+      await expect(row.locator('.review-comment-thread')).toContainText('Please check this implementation.')
+      const peer = page.locator('[data-file-path="src/file-0.java"]')
+      await peer.getByRole('button', { name: 'Expand file diff', exact: true }).click()
+      await expect(peer.getByRole('switch', { name: 'Reviewed', exact: true })).toBeChecked()
+      await page.goto(originalUrl)
+      await expect(row.getByRole('switch', { name: 'Reviewed', exact: true })).toBeChecked()
+      expect(new URL(page.url()).searchParams.get('reviewId')).toBe(reviewId)
+      expect(new URL(page.url()).searchParams.get('head')).toBe(firstHead)
+      fs.writeFileSync(path.join(root, filePath), `${largeSource}\n// Second candidate\n`)
+      await page.goto(originalUrl)
+      await expect(row.getByRole('switch', { name: 'Reviewed', exact: true })).not.toBeChecked()
+      await expect(peer.getByRole('switch', { name: 'Reviewed', exact: true })).toBeChecked()
+      expect(new URL(page.url()).searchParams.get('reviewId')).toBe(reviewId)
+      expect(new URL(page.url()).searchParams.get('head')).not.toBe(firstHead)
+      await row.getByRole('button', { name: 'Expand file diff', exact: true }).click()
+      const outdated = row.locator('.review-outdated-comments .review-comment-thread')
+      await expect(outdated).toContainText('Outdated')
+      await expect(row.locator('.review-line-attachment .review-comment-thread')).toHaveCount(0)
+      await outdated.getByRole('button', { name: 'RESOLVE', exact: true }).click()
+      await expect(outdated).toHaveClass(/resolved/)
+      await expect(outdated).toHaveClass(/outdated/)
+      await page.reload()
+      await row.getByRole('button', { name: 'Expand file diff', exact: true }).click()
+      await expect(outdated.getByRole('button', { name: 'REOPEN', exact: true })).toBeVisible()
+      await outdated.getByRole('button', { name: 'REOPEN', exact: true }).click()
+      await expect(outdated).toHaveClass(/open/)
+      await expect(outdated).toContainText('Outdated')
+      await expect(page.locator('.review-navigation')).toContainText('1 unresolved')
+      await expect(row.locator('.review-line-attachment .review-comment-thread')).toHaveCount(0)
+      const currentHead = new URL(page.url()).searchParams.get('head')!
+      const response = await page.request.get(`/farming/api/reviews/${reviewId}/patchsets/${currentHead}/comments`)
+      const saved = (await response.json()).comments[0]
+      expect(saved).toMatchObject({ status: 'open', outdated: true, sourcePatchset: firstHead })
+      await expect(row.getByText('// Second candidate', { exact: true })).toBeVisible()
+      await expect(row.getByRole('switch', { name: 'Reviewed', exact: true })).toBeChecked()
+      await expect(row).not.toContainText('Loading diff...')
+      await page.evaluate(() => window.scrollTo(0, 0))
+      await page.screenshot({ path: testInfo.outputPath(`review-resume-outdated-${appearance}.png`), fullPage: true })
+    } finally {
+      await page.goto('about:blank')
+      await page.request.post('/farming/api/settings', { data: { appearance: 'light' } })
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+}

@@ -125,6 +125,7 @@ export type ReviewPatchsetSummary = {
 }
 
 export type ReviewComment = {
+  outdated?: boolean
   body: string
   id: string
   line: number
@@ -133,7 +134,7 @@ export type ReviewComment = {
   range?: ReviewCommentRange
   side: ReviewCommentSide
   sourcePatchset?: string
-  status?: 'open' | 'resolved' | 'outdated'
+  status?: 'open' | 'resolved'
 }
 
 export type ReviewCommentRange = {
@@ -163,7 +164,7 @@ export type ReviewPreferences = {
 }
 
 export const DEFAULT_REVIEW_PREFERENCES: ReviewPreferences = {
-  autoMarkReviewed: false,
+  autoMarkReviewed: true,
   context: 10,
   fitToScreen: true,
   fontSize: 12,
@@ -219,6 +220,7 @@ export type ReviewAction =
   | { mode: ReviewDiffMode; type: 'set-diff-mode' }
   | { path: string; type: 'toggle-file-expanded' }
   | { path: string; type: 'retry-file-diff' }
+  | { type: 'invalidate-file-diffs' }
   | { expanded: boolean; paths: string[]; type: 'set-all-files-expanded' }
   | { patchset: string; path: string; reviewId?: string; type: 'commit-file-diff-load' }
   | { error: string; patchset: string; path: string; reviewId?: string; type: 'fail-file-diff-load' }
@@ -323,9 +325,9 @@ function hasCommentPath(catalog: ReviewCatalog, patchset: string, path: string) 
  * Hydration actions can originate from a failed or stale request, so they
  * must not be allowed to introduce malformed comments into the state tree.
  */
-function normalizeReviewComment(value: unknown, patchset?: string): ReviewComment | undefined {
+export function normalizeReviewComment(value: unknown, patchset?: string): ReviewComment | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
-  const candidate = value as Partial<ReviewComment>
+  const candidate = value as Omit<Partial<ReviewComment>, 'status'> & { status?: unknown }
   const body = typeof candidate.body === 'string' ? candidate.body.trim() : ''
   const line = typeof candidate.line === 'number' && Number.isInteger(candidate.line)
     ? candidate.line
@@ -338,6 +340,7 @@ function normalizeReviewComment(value: unknown, patchset?: string): ReviewCommen
     || line === null || line < 1 || line > 100000000
     || !validCommentSide(candidate.side)
     || !body || body.length > 20000
+    || (candidate.outdated !== undefined && typeof candidate.outdated !== 'boolean')
   ) return undefined
   return {
     body,
@@ -348,7 +351,10 @@ function normalizeReviewComment(value: unknown, patchset?: string): ReviewCommen
     ...(validReviewCommentRange(candidate.range) ? { range: candidate.range } : {}),
     side: candidate.side,
     ...(typeof candidate.sourcePatchset === 'string' && candidate.sourcePatchset.trim() ? { sourcePatchset: candidate.sourcePatchset } : {}),
-    ...(candidate.status === 'open' || candidate.status === 'resolved' || candidate.status === 'outdated' ? { status: candidate.status } : {}),
+    ...(candidate.status === 'open' || candidate.status === 'resolved' ? { status: candidate.status }
+      : candidate.status === 'outdated' ? { status: 'open' as const } : {}),
+    ...(candidate.outdated === true || candidate.status === 'outdated'
+      || (candidate.outdated === undefined && candidate.sourcePatchset) ? { outdated: true } : {}),
   }
 }
 
@@ -735,13 +741,17 @@ export function commentsForFilePaths(state: ReviewState, paths: readonly string[
   return state.comments.filter(comment => comment.patchset === patchset && pathSet.has(comment.path))
 }
 
+function autoReviewReady(state: ReviewState, catalog: ReviewCatalog, path: string) {
+  const current = activePatchsetState(state)
+  return current.reviewedLoaded && !current.pendingDiffPaths.includes(path) && !current.diffLoadErrors[path]
+    && patchsetFiles(catalog, state.patchRange.patchset).some(file => file.path === path && file.diffLoaded !== false)
+}
+
 export function transitionReviewState(state: ReviewState, action: ReviewAction, catalog: ReviewCatalog): ReviewTransition {
   const result = transitionReviewStateCore(state, action, catalog)
   const current = activePatchsetState(result.state)
   if (!result.state.preferences.autoMarkReviewed || !current.reviewedLoaded || current.pendingReview) return result
-  const paths = current.autoReviewPaths.filter(path => current.expandedPaths.includes(path)
-    && !current.pendingDiffPaths.includes(path) && !current.diffLoadErrors[path]
-    && patchsetFiles(catalog, result.state.patchRange.patchset).some(file => file.path === path && file.diffLoaded !== false)
+  const paths = current.autoReviewPaths.filter(path => autoReviewReady(result.state, catalog, path)
     && !current.reviewedPaths.includes(path))
   if (!paths.length) return result
   const reviewed = transitionReviewStateCore(result.state, {
@@ -770,8 +780,21 @@ function transitionReviewStateCore(state: ReviewState, action: ReviewAction, cat
       const diffMode = normalizeReviewDiffMode(action.mode)
       return diffMode === state.diffMode ? ignored(state) : { effects: [], state: { ...state, diffMode } }
     }
-    case 'set-preferences':
-      return { effects: [], state: { ...state, preferences: normalizeReviewPreferences(action.preferences) } }
+    case 'set-preferences': {
+      const preferences = normalizeReviewPreferences(action.preferences)
+      const next = { ...state, preferences }
+      return { effects: [], state: preferences.autoMarkReviewed ? next : {
+        ...next,
+        patchsets: Object.fromEntries(Object.entries(next.patchsets).map(([key, value]) => [key, { ...value, autoReviewPaths: [] }])),
+      } }
+    }
+    case 'invalidate-file-diffs': {
+      const paths = patchsetState.expandedPaths.filter(path => patchsetFiles(catalog, patchset).some(file => file.path === path && canLoadFileDiff(file)))
+      return {
+        effects: paths.map(path => loadFileDiffEffect(state, patchset, path)),
+        state: updateActivePatchset(state, current => ({ ...current, pendingDiffPaths: paths, diffLoadErrors: {} })),
+      }
+    }
     case 'retry-file-diff': {
       if (!hasFile(catalog, patchset, action.path) || patchsetState.pendingDiffPaths.includes(action.path)) return ignored(state)
       return {
@@ -790,7 +813,8 @@ function transitionReviewStateCore(state: ReviewState, action: ReviewAction, cat
         ...current,
         autoReviewPaths: expanded && state.preferences.autoMarkReviewed
           ? updatePathList(current.autoReviewPaths, action.path, true)
-          : updatePathList(current.autoReviewPaths, action.path, false),
+          : autoReviewReady(state, catalog, action.path) ? current.autoReviewPaths
+            : updatePathList(current.autoReviewPaths, action.path, false),
         diffLoadErrors: expanded ? omitRecordKey(current.diffLoadErrors, action.path) : current.diffLoadErrors,
         expandedPaths: updatePathList(current.expandedPaths, action.path, expanded),
         pendingDiffPaths: uniquePaths([...current.pendingDiffPaths, ...diffLoadPaths]),
@@ -810,7 +834,7 @@ function transitionReviewStateCore(state: ReviewState, action: ReviewAction, cat
             ? validPaths.reduce((errors, path) => omitRecordKey(errors, path), current.diffLoadErrors)
             : current.diffLoadErrors,
           expandedPaths: action.expanded ? validPaths : [],
-          autoReviewPaths: action.expanded ? current.autoReviewPaths : [],
+          autoReviewPaths: action.expanded ? current.autoReviewPaths : current.autoReviewPaths.filter(path => autoReviewReady(state, catalog, path)),
           pendingDiffPaths: uniquePaths([...current.pendingDiffPaths, ...diffLoadPaths]),
         })),
       }

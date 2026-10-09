@@ -219,6 +219,26 @@ async function run() {
     await assert.rejects(headRace.create({ root: move }), conflict);
     assert.equal(await git(move, 'for-each-ref', '--format=%(refname)', 'refs/farming/reviews'), '');
 
+    // Large source metadata and expandable context use a separate budget from
+    // patch output. This is a real repository, not a mocked command response.
+    const large = await init('large-source');
+    const source = Array.from({ length: 35000 }, (_, index) => `// unchanged source line ${index} with ordinary Java context`).join('\n');
+    await write(large, 'Large.java', source); await commit(large);
+    const largeBase = await git(large, 'rev-parse', 'HEAD');
+    await write(large, 'Large.java', `${source}\n// one added line`); await commit(large);
+    const largeHead = await git(large, 'rev-parse', 'HEAD');
+    const largeDiff = await diffs.getGitRangeFile(undefined, { root: large, base: largeBase, head: largeHead, path: 'Large.java', fileMeta: true });
+    assert.equal(largeDiff.added, 1);
+    assert.equal(largeDiff.diff.leftMeta.lines, 35000);
+    assert.equal(largeDiff.diff.rightMeta.lines, 35001);
+    const largeContext = await diffs.getGitRangeFileContext(undefined, { root: large, path: 'Large.java', base: largeBase, head: largeHead, oldStart: 1, newStart: 1, lines: 10 });
+    assert.equal(largeContext.rows.length, 10);
+    await write(large, 'Huge.java', 'x'.repeat(16 * 1024 * 1024)); await commit(large);
+    await assert.rejects(diffs.readGitTextFile(large, 'HEAD', 'Huge.java'),
+      (error: { statusCode?: number; message?: string }) => error.statusCode === 413 && /16 MiB/.test(error.message ?? ''));
+    await assert.rejects(diffs.readWorkingTreeTextFile(large, 'Huge.java'),
+      (error: { statusCode?: number }) => error.statusCode === 413);
+
     // The real command-runner timeout shape carries SIGTERM, not ETIMEDOUT.
     const timeoutService = new ReviewSessionService({ ...files, execFile: async () => {
       throw Object.assign(new Error('Command failed'), { signal: 'SIGTERM', code: null });

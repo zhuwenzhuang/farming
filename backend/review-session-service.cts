@@ -20,7 +20,7 @@ const { createTwoFilesPatch, diffLines } = require('diff') as {
     removed?: boolean;
   }>;
 };
-import { OBJECT_ID_PATTERN, REVIEW_ID_PATTERN } from './review-session-store.cjs';
+import { OBJECT_ID_PATTERN, REVIEW_ID_PATTERN, reviewCaptureKey, type ReviewCaptureIdentity } from './review-session-store.cjs';
 import { filterWorkingCopyChangeItems, normalizeModifiedWithinDays, normalizeWorkingCopyScope, parseNameStatus } from './review-diff-service.cjs';
 
 const MAX_CAPTURE_FILES = 2000;
@@ -54,6 +54,7 @@ interface ReviewRevision {
 }
 
 interface ReviewSession {
+  source?: 'working-copy' | 'acp';
   base: string;
   id: string;
   modifiedWithinDays?: number;
@@ -66,6 +67,7 @@ interface ReviewSession {
 interface ReviewSessionStore {
   appendRevision(reviewId: string, tree: string): { session: ReviewSession };
   create(input: {
+    source?: 'working-copy' | 'acp';
     base: string;
     id: string;
     modifiedWithinDays?: number;
@@ -75,6 +77,7 @@ interface ReviewSessionStore {
     tree: string;
   }): ReviewSession;
   get(reviewId: string): ReviewSession | null;
+  findForCapture(identity: ReviewCaptureIdentity, tree?: string): ReviewSession | null;
   newId(): string;
 }
 
@@ -86,12 +89,13 @@ interface ReviewStateStore {
     nextPatchset: string;
     previousPatchset: string;
     reviewId: string;
+    replaceExisting?: boolean;
   }): unknown;
 }
 
 /** Preserve only anchors entirely outside changed intervals; ambiguous evidence stays outdated. */
 export function mapReviewCommentAnchor(comment: ReviewComment, patch: string): Pick<ReviewComment, 'line' | 'range'> | null {
-  if (comment.status === 'outdated' || comment.side === 'unified') return null;
+  if (comment.outdated || comment.side === 'unified') return null;
   if (comment.side === 'left') return { line: comment.line, range: comment.range };
   if (/^deleted file mode|^new file mode|^Binary files|^GIT binary patch/m.test(patch)) return null;
   const start = comment.range?.start_line ?? comment.line;
@@ -358,7 +362,7 @@ class ReviewSessionService {
   reviewStateStore?: ReviewStateStore;
   resolveAgentRoot?: (agentId: string) => unknown;
   resolveAcpReviewChanges?: (agentId: unknown, itemIds: unknown) => unknown | Promise<unknown>;
-  refreshQueues: Map<string, Promise<unknown>>;
+  captureQueues: Map<string, Promise<unknown>>;
 
   constructor(
     fileService: ReviewFileService,
@@ -371,15 +375,15 @@ class ReviewSessionService {
     this.reviewStateStore = reviewStateStore;
     this.resolveAgentRoot = options.resolveAgentRoot;
     this.resolveAcpReviewChanges = options.resolveAcpReviewChanges;
-    this.refreshQueues = new Map();
+    this.captureQueues = new Map();
   }
 
-  enqueueRefresh<T>(reviewId: string, operation: () => Promise<T>): Promise<T> {
-    const previous = this.refreshQueues.get(reviewId) || Promise.resolve();
+  enqueueCapture<T>(key: string, operation: () => Promise<T>): Promise<T> {
+    const previous = this.captureQueues.get(key) || Promise.resolve();
     const next = previous.catch(() => {}).then(operation);
-    this.refreshQueues.set(reviewId, next);
+    this.captureQueues.set(key, next);
     const cleanup = () => {
-      if (this.refreshQueues.get(reviewId) === next) this.refreshQueues.delete(reviewId);
+      if (this.captureQueues.get(key) === next) this.captureQueues.delete(key);
     };
     next.then(cleanup, cleanup);
     return next;
@@ -617,12 +621,13 @@ class ReviewSessionService {
     const explicitPaths = normalizeCapturePaths(requestedPaths);
     if (scope && explicitPaths !== undefined) throw new ReviewSessionError('review scope and file paths cannot be combined');
     const modifiedWithinDays = scope === 'untracked' ? normalizeModifiedWithinDays(requestedDays) : undefined;
-    const tree = await this.captureStableTree(root, explicitPaths, { scope, modifiedWithinDays }, head);
-    const reviewId = this.sessionStore.newId();
-    await this.git(root, ['update-ref', `refs/farming/reviews/${reviewId}/base`, resolvedBase]);
-    await this.keepRevision(root, reviewId, 1, tree);
-    const session = this.sessionStore.create({ base: resolvedBase, id: reviewId, root, tree, scope, modifiedWithinDays, paths: explicitPaths });
-    return publicRevision(session, session.revisions[0]);
+    const identity: ReviewCaptureIdentity = { root, base: resolvedBase, source: 'working-copy', scope, modifiedWithinDays, paths: explicitPaths };
+    return this.enqueueCapture(reviewCaptureKey(identity), async () => {
+      const tree = await this.captureStableTree(root, explicitPaths, { scope, modifiedWithinDays }, head);
+      const existing = this.sessionStore.findForCapture(identity);
+      if (existing) return this.publishRevision(existing, tree);
+      return this.publishSession(identity, tree);
+    });
   }
 
   async createFromAcp({ agentId, itemIds }: AcpReviewInput): Promise<PublicRevision> {
@@ -632,11 +637,21 @@ class ReviewSessionService {
     const { changes, root } = await this.resolveAcpChanges(agentId, itemIds);
     const { base, head } = await this.captureHistoricalTrees(root, changes);
     if (base === head) throw new ReviewSessionError('ACP review contains no effective file changes');
-    const reviewId = this.sessionStore.newId();
-    await this.git(root, ['update-ref', `refs/farming/reviews/${reviewId}/base`, base]);
-    await this.keepRevision(root, reviewId, 1, head);
     const paths = changes.map(change => change.path);
-    const session = this.sessionStore.create({ base, id: reviewId, root, tree: head, paths });
+    const identity: ReviewCaptureIdentity = { root, base, source: 'acp', paths };
+    return this.enqueueCapture(reviewCaptureKey(identity), async () => {
+      const existing = this.sessionStore.findForCapture(identity, head);
+      const revision = existing?.revisions.find(item => item.tree === head);
+      if (existing && revision) return publicRevision(existing, revision);
+      return this.publishSession(identity, head);
+    });
+  }
+
+  private async publishSession(identity: ReviewCaptureIdentity, tree: string): Promise<PublicRevision> {
+    const reviewId = this.sessionStore.newId();
+    await this.git(identity.root, ['update-ref', `refs/farming/reviews/${reviewId}/base`, identity.base]);
+    await this.keepRevision(identity.root, reviewId, 1, tree);
+    const session = this.sessionStore.create({ ...identity, id: reviewId, tree });
     return publicRevision(session, session.revisions[0]);
   }
 
@@ -694,36 +709,44 @@ class ReviewSessionService {
     if (typeof reviewId !== 'string' || !REVIEW_ID_PATTERN.test(reviewId)) {
       throw new ReviewSessionError('review session id is invalid');
     }
-    return this.enqueueRefresh(reviewId, async () => {
+    const session = this.sessionStore.get(reviewId);
+    if (!session) throw new ReviewSessionError('review session not found', 404);
+    return this.enqueueCapture(reviewCaptureKey(session), async () => {
       const current = this.sessionStore.get(reviewId);
       if (!current) throw new ReviewSessionError('review session not found', 404);
       const tree = await this.captureStableTree(current.root, current.paths, current);
-      const previous = current.revisions[current.revisions.length - 1];
-      if (previous.tree === tree) return { ...publicRevision(current, previous), changedPaths: [], unchanged: true };
-      const nextNumber = previous.number + 1;
-      const changedPaths = await this.changedPaths(current.root, previous.tree, tree);
-      const preservedAnchors: Record<string, Pick<ReviewComment, 'line' | 'range'>> = {};
-      const comments = this.reviewStateStore?.getComments?.(reviewId, previous.tree) ?? [];
-      // Bounded by the comments' distinct changed paths; Git commands retain the service timeout/output limits.
-      for (const filePath of changedPaths.filter(filePath => comments.some(comment => comment.path === filePath))) {
-        const { stdout } = await this.git(current.root, ['diff', '--no-ext-diff', '--no-textconv', '--no-renames', '--unified=0', previous.tree, tree, '--', filePath]);
-        for (const comment of comments.filter(comment => comment.path === filePath)) {
-          const anchor = mapReviewCommentAnchor(comment, String(stdout));
-          if (anchor) preservedAnchors[comment.id] = anchor;
-        }
-      }
-      await this.keepRevision(current.root, reviewId, nextNumber, tree);
-      const result = this.sessionStore.appendRevision(reviewId, tree);
-      const next = result.session.revisions[result.session.revisions.length - 1];
-      this.reviewStateStore?.inheritPatchset?.({
-        changedPaths,
-        preservedAnchors,
-        nextPatchset: tree,
-        previousPatchset: previous.tree,
-        reviewId,
-      });
-      return { ...publicRevision(result.session, next), changedPaths, unchanged: false };
+      return this.publishRevision(current, tree);
     });
+  }
+
+  private async publishRevision(current: ReviewSession, tree: string): Promise<PublicRevision & { changedPaths: string[]; unchanged: boolean }> {
+    const reviewId = current.id;
+    const previous = current.revisions[current.revisions.length - 1];
+    if (previous.tree === tree) return { ...publicRevision(current, previous), changedPaths: [], unchanged: true };
+    const nextNumber = previous.number + 1;
+    const changedPaths = await this.changedPaths(current.root, previous.tree, tree);
+    const preservedAnchors: Record<string, Pick<ReviewComment, 'line' | 'range'>> = {};
+    const comments = this.reviewStateStore?.getComments?.(reviewId, previous.tree) ?? [];
+    // Bounded by the comments' distinct changed paths; Git commands retain the service timeout/output limits.
+    for (const filePath of changedPaths.filter(filePath => comments.some(comment => comment.path === filePath))) {
+      const { stdout } = await this.git(current.root, ['diff', '--no-ext-diff', '--no-textconv', '--no-renames', '--unified=0', previous.tree, tree, '--', filePath]);
+      for (const comment of comments.filter(comment => comment.path === filePath)) {
+        const anchor = mapReviewCommentAnchor(comment, String(stdout));
+        if (anchor) preservedAnchors[comment.id] = anchor;
+      }
+    }
+    await this.keepRevision(current.root, reviewId, nextNumber, tree);
+    this.reviewStateStore?.inheritPatchset?.({
+      changedPaths,
+      preservedAnchors,
+      nextPatchset: tree,
+      previousPatchset: previous.tree,
+      reviewId,
+      replaceExisting: !current.revisions.some(revision => revision.tree === tree),
+    });
+    const result = this.sessionStore.appendRevision(reviewId, tree);
+    const next = result.session.revisions[result.session.revisions.length - 1];
+    return { ...publicRevision(result.session, next), changedPaths, unchanged: false };
   }
 
   get(reviewId: unknown): PublicRevision & { revisions: PublicRevision[] } {

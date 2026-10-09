@@ -1,6 +1,6 @@
 import { appPath } from '@/lib/base-path'
 import { normalizeReviewGitRevision, type GitRangeReviewDiffSnapshotRequest, type ReviewDiffSnapshot, type ReviewDiffSnapshotRequest, type ReviewDiffSource, type WorkingCopyReview } from './snapshot'
-import { isReviewSpecialFilePath, reviewFileHasLoadedNegativeDiff, validReviewCommentRange } from './state'
+import { isReviewSpecialFilePath, normalizeReviewComment, reviewFileHasLoadedNegativeDiff, validReviewCommentRange } from './state'
 import type { ReviewComment, ReviewDiffCell, ReviewDiffFileMeta, ReviewDiffHunk, ReviewDiffRow, ReviewDiffSyntaxBlock, ReviewDiffWebLink, ReviewFile, ReviewPreferences } from './state'
 
 // Bound reads and mutations alike. A timed-out mutation is reconciled, never replayed automatically.
@@ -476,9 +476,11 @@ export async function saveReviewedFilesStatus({
   }
 }
 
-function isReviewComment(value: unknown): value is ReviewComment {
+type WireReviewComment = Omit<ReviewComment, 'status'> & { status?: 'open' | 'resolved' | 'outdated' }
+
+function isReviewComment(value: unknown): value is WireReviewComment {
   if (!value || typeof value !== 'object') return false
-  const comment = value as ReviewComment
+  const comment = value as WireReviewComment
   return typeof comment.id === 'string'
     && /^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(comment.id)
     && typeof comment.body === 'string'
@@ -493,6 +495,7 @@ function isReviewComment(value: unknown): value is ReviewComment {
     && (comment.range === undefined || validReviewCommentRange(comment.range))
     && (comment.status === undefined || comment.status === 'open' || comment.status === 'resolved' || comment.status === 'outdated')
     && (comment.sourcePatchset === undefined || isReviewKey(comment.sourcePatchset))
+    && (comment.outdated === undefined || typeof comment.outdated === 'boolean')
 }
 
 function assertReviewCommentId(commentId: string) {
@@ -501,7 +504,7 @@ function assertReviewCommentId(commentId: string) {
   }
 }
 
-function isCommentResponse(value: unknown): value is { comments: ReviewComment[] } {
+function isCommentResponse(value: unknown): value is { comments: WireReviewComment[] } {
   return Boolean(value)
     && typeof value === 'object'
     && Array.isArray((value as { comments?: unknown }).comments)
@@ -510,8 +513,8 @@ function isCommentResponse(value: unknown): value is { comments: ReviewComment[]
 
 async function readCommentResponse(response: Response) {
   const value: unknown = await response.json().catch(() => null)
-  if (isCommentResponse(value)) return value.comments
-  if (isReviewComment(value)) return value
+  if (isCommentResponse(value)) return value.comments.map(comment => normalizeReviewComment(comment)!)
+  if (isReviewComment(value)) return normalizeReviewComment(value)!
   const message = value && typeof value === 'object' && typeof (value as { error?: unknown }).error === 'string'
     ? (value as { error: string }).error
     : 'review comment request failed'

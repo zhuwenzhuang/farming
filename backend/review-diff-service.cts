@@ -194,6 +194,9 @@ const MAX_WORKING_COPY_SCAN_FILES = 2000;
 const MAX_COMPARISON_PATH_BYTES = 256 * 1024;
 const MAX_UNTRACKED_LINES = 500;
 const MAX_REVIEW_CONTEXT_RANGE_LINES = 10000;
+// A small patch can belong to a large source file. Source metadata/context must
+// not inherit the much smaller patch-output budget.
+const MAX_REVIEW_TEXT_BYTES = 16 * 1024 * 1024;
 const DIFF_CONCURRENCY = 4;
 
 function errorField(error: unknown, field: string): unknown {
@@ -1182,12 +1185,15 @@ class ReviewDiffService {
         root,
         'show',
         `${revision}:${filePath}`,
-      ], { cwd: root, encoding: 'buffer', env: { GIT_LITERAL_PATHSPECS: '1', GIT_OPTIONAL_LOCKS: '0' }, timeout: this.fileService.diffTimeoutMs, maxBuffer: this.fileService.diffMaxBuffer });
+      ], { cwd: root, encoding: 'buffer', env: { GIT_LITERAL_PATHSPECS: '1', GIT_OPTIONAL_LOCKS: '0' }, timeout: this.fileService.diffTimeoutMs, maxBuffer: MAX_REVIEW_TEXT_BYTES });
       const buffer = Buffer.isBuffer(stdout) ? stdout : Buffer.from(String(stdout || ''));
       if (buffer.includes(0)) throw new WorkspaceFileError('binary files do not have expandable text context', 415);
       return textLines(buffer.toString('utf8'));
     } catch (error) {
       if (error instanceof WorkspaceFileError) throw error;
+      if (errorString(error, 'code') === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') {
+        throw new WorkspaceFileError('Review text source exceeds the 16 MiB limit. Open the file in an editor to inspect it.', 413);
+      }
       if (errorString(error, 'code') === 'ETIMEDOUT'
         || (errorString(error, 'signal') === 'SIGTERM' && errorString(error, 'code') !== 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER')) {
         throw new WorkspaceFileError('git show timed out', 504);
@@ -1204,7 +1210,17 @@ class ReviewDiffService {
   async readWorkingTreeTextFile(root: string, filePath: string): Promise<string[]> {
     try {
       const resolved = await this.fileService.resolvePath(root, filePath);
-      const buffer = await fs.promises.readFile(resolved.target);
+      const chunks: Buffer[] = [];
+      let bytes = 0;
+      for await (const chunk of fs.createReadStream(resolved.target)) {
+        const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+        bytes += buffer.length;
+        if (bytes > MAX_REVIEW_TEXT_BYTES) {
+          throw new WorkspaceFileError('Review text source exceeds the 16 MiB limit. Open the file in an editor to inspect it.', 413);
+        }
+        chunks.push(buffer);
+      }
+      const buffer = Buffer.concat(chunks, bytes);
       if (buffer.includes(0)) throw new WorkspaceFileError('binary files do not have expandable text context', 415);
       return textLines(buffer.toString('utf8'));
     } catch (error) {
@@ -1658,6 +1674,7 @@ class ReviewDiffService {
       const stat = stats?.get(change.path);
       return fileWithStats(file, stat);
     } catch (error) {
+      if (error instanceof WorkspaceFileError) throw error;
       if (errorString(error, 'code') === 'ETIMEDOUT'
         || (errorString(error, 'signal') === 'SIGTERM' && errorString(error, 'code') !== 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER')) {
         throw new WorkspaceFileError('git diff timed out', 504);

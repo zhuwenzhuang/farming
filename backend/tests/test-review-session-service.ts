@@ -47,6 +47,7 @@ async function run() {
   assert.strictEqual(mapReviewCommentAnchor(anchor, '@@ -9,1 +9,1 @@\n-old\n+new'), null);
   assert.strictEqual(mapReviewCommentAnchor(anchor, '@@ -9,0 +10,2 @@\n+new'), null);
   assert.strictEqual(mapReviewCommentAnchor(anchor, 'deleted file mode 100644'), null);
+  assert.strictEqual(mapReviewCommentAnchor({ ...anchor, status: 'resolved', outdated: true }, '@@ -2,0 +3,2 @@'), null);
   assert.deepStrictEqual(mapReviewCommentAnchor({ ...anchor, side: 'left' }, '@@ -9,1 +9,1 @@'), { line: 10, range: anchor.range });
 
   assert.deepStrictEqual(changedPathsFromNameStatus(['M', 'src/a.ts', 'R100', 'old.ts', 'new.ts', ''].join('\0')), [
@@ -230,6 +231,13 @@ async function run() {
     assert.strictEqual(await git(repository, 'rev-parse', `refs/farming/reviews/${historical.reviewId}/base`), historical.base);
     assert.strictEqual(await git(repository, 'rev-parse', `refs/farming/reviews/${historical.reviewId}/1`), historical.head);
     historicalService.assertRange(historical.reviewId, repository, historical.base, historical.head);
+    const reopenedHistorical = await historicalService.createFromAcp({ agentId: 'agent-history', itemIds: ['tool-1'] });
+    assert.strictEqual(reopenedHistorical.reviewId, historical.reviewId);
+    await historicalService.refresh(historical.reviewId);
+    const originalEvidence = await historicalService.createFromAcp({ agentId: 'agent-history', itemIds: ['tool-1'] });
+    assert.strictEqual(originalEvidence.reviewId, historical.reviewId);
+    assert.strictEqual(originalEvidence.head, historical.head, 'reopening Agent evidence cannot substitute a newer workspace revision');
+    assert.strictEqual(originalEvidence.number, 1);
     const historicalPreview = await historicalService.previewFromAcp({ agentId: 'agent-history', itemIds: ['tool-1'] });
     assert.deepStrictEqual(historicalPreview.changes.map(({ diff: _diff, ...change }) => change), [
       { added: 1, kind: 'updated', path: 'a.txt', removed: 1 },
@@ -300,8 +308,8 @@ async function run() {
 
     const inherited = stateStore.getPatchsetState(first.reviewId, second.head);
     assert.deepStrictEqual(inherited.reviewedPaths, ['b.txt']);
-    assert.deepStrictEqual(inherited.comments.map(comment => ({ id: comment.id, patchset: comment.patchset, status: comment.status })), [
-      { id: 'a-note', patchset: second.head, status: 'outdated' },
+    assert.deepStrictEqual(inherited.comments.map(comment => ({ id: comment.id, patchset: comment.patchset, status: comment.status, ...(comment.outdated ? { outdated: true } : {}) })), [
+      { id: 'a-note', patchset: second.head, status: 'open', outdated: true },
       { id: 'b-note', patchset: second.head, status: 'open' },
     ]);
 

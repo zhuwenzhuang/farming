@@ -1196,3 +1196,21 @@ test('rejects invalid review state identities before fetch', async () => {
     globalThis.fetch = previousFetch
   }
 })
+
+test('normalizes legacy outdated comments without conflating resolution and anchor validity', async () => {
+  const previousFetch = globalThis.fetch
+  const comment = { id: 'legacy', body: 'Review this anchor', path: 'a.ts', line: 3, side: 'right', patchset: 'p2', sourcePatchset: 'p1' }
+  try {
+    globalThis.fetch = async () => jsonResponse({ comments: [
+      { ...comment, status: 'outdated' },
+      { ...comment, id: 'resolved', status: 'resolved' },
+      { ...comment, id: 'canonical', status: 'open', outdated: true },
+    ] })
+    const comments = await loadReviewComments('review-legacy', 'p2')
+    assert.deepEqual(comments.map(value => [value.status, value.outdated, value.sourcePatchset]), [
+      ['open', true, 'p1'], ['resolved', true, 'p1'], ['open', true, 'p1'],
+    ])
+    globalThis.fetch = async () => jsonResponse({ comments: [{ ...comment, outdated: 'true' }] })
+    await assert.rejects(() => loadReviewComments('review-legacy', 'p2'), /review comment request failed/)
+  } finally { globalThis.fetch = previousFetch }
+})

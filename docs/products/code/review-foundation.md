@@ -98,6 +98,17 @@ list is presented. Capture must not modify the user's index or worktree. If the
 workspace changes during capture and a coherent result cannot be proven,
 capture fails visibly and may be retried.
 
+Opening the same canonical worktree, resolved base, source and capture scope
+resumes the persisted Review lineage. The backend serializes reopen and refresh
+for that identity before capturing: unchanged content returns the existing
+revision; changed content appends a revision with the same inheritance rules as
+Refresh. Different bases, scopes, path selections and Agent evidence stay
+separate. Historical Agent evidence reopens its exact captured revision rather
+than the latest workspace revision. Persistence survives process restart; failed
+publication cannot advertise a revision before its inherited state is durable.
+Legacy captures without source provenance are resumed only where their stored
+shape unambiguously identifies a working-copy capture.
+
 Capture transitions from resolving to enumerating, capturing, validating, and
 published. Each attempt pins the worktree HEAD and observes its index, enumerates
 the selected changes afresh around both captures, and compares the resulting
@@ -114,6 +125,12 @@ Refreshing after fixes creates a new revision in the same Review lineage.
 Unchanged files may retain reviewed state. Changed files become unreviewed, and
 comments whose anchors no longer match become outdated rather than moving to
 unrelated lines.
+Comment resolution (open/resolved) and anchor validity (current/outdated) are
+independent. Resolve and Reopen never change anchor validity or its original
+source revision. Further revisions never remap an already outdated anchor.
+Legacy outdated statuses are normalized at storage and API boundaries; unresolved
+counts include open outdated comments. Failed status writes preserve the prior
+state and retry uses the same comment identity.
 
 For a working-copy Review, the requested tracked or untracked scope is applied
 during the authoritative Git enumeration before the file limit. A large
@@ -176,6 +193,31 @@ File paths prioritize the basename when space is limited; compact rows show an
 abbreviated directory. Current and previous paths retain their full tooltip and
 selectable text. Dragging a path selects text without expanding its diff.
 
+The page retains one selected file after opening or collapsing its diff, or
+focusing its row controls. Adjacent-file navigation starts from that selection.
+Selection uses the shared hover surface and survives scrolling and collapse;
+changing comparison or removing the file clears it. Sticky-header visibility
+does not replace the user's selected file.
+Collapsing a file preserves the clicked header's viewport position, including
+when it was sticky. If remaining content is too short, trailing blank space
+preserves the scroll position; later content growth reclaims unneeded space.
+
+The comparison menu sizes to commit and branch labels within the viewport and
+supports horizontal resizing. Its long-label lists scroll horizontally instead
+of truncating source identities, while retaining the shared menu row styling.
+
+Review displays the exact Base (left) and Candidate (right) independently of
+comparison presets. Each endpoint can select a commit or the freshly discovered
+index tree. Candidate can also capture the latest working tree against the
+selected Base. Unstaged means index-to-working-tree, not a separate Git version.
+The backend resolves and owns both immutable endpoints. Changing one endpoint
+preserves the other, creates a new comparison identity and clears prior content;
+nonempty drafts prevent switching. Endpoint menus perform fresh bounded reads,
+discard abandoned results, and expose failures. Capturing disables competing
+selections until success or explicit failure, without replaying uncertain writes.
+Snapshots are labeled as captured revisions with object IDs, never as live
+latest state after capture. Reopening preserves the exact pair in the URL.
+
 Diff text uses native selection. Pointer-down chooses the selectable side in a
 split diff; copying takes the selected original source text, excluding line
 numbers, the opposite side, comments and whitespace visualization glyphs.
@@ -210,14 +252,22 @@ Review pass.
   Saving freezes the editor; confirmation clears it. Failure retains it, and
   an uncertain outcome requires authoritative reconciliation before editing or
   retrying. A retry retains the same comment identity.
-- Reviewed state defaults to manual. Optional automatic marking requires an
+- Reviewed state defaults to automatic marking, with a manual preference. Existing
+  explicit preferences are preserved. Automatic marking requires an
   individually opened file, successful diff loading, and authoritative reviewed
-  hydration. Expand all does not mark files reviewed. Unknown write outcomes
+  hydration. Once eligible, a file remains queued through collapse while another
+  reviewed write completes. Expand all does not mark files reviewed. Unknown write outcomes
   invalidate reviewed status until a successful read restores it.
 - Inline diff loads share a four-request budget. Queued requests from an
   abandoned comparison are dropped and late responses cannot update it. Failed
   diffs expose Retry; failed comment/reviewed hydration exposes Reload review
   state. Review HTTP operations have a bounded timeout.
+  Changing context or whitespace preferences invalidates cached diffs, including
+  collapsed files. Expanded files reload through the same loader; responses from
+  superseded preferences cannot replace the current diff or context.
+- Source text for metadata and expandable context has a separate 16 MiB per-file
+  budget from patch output; a large unchanged source must not fail under the
+  smaller patch budget. Oversized text produces an explicit size-limit error.
 - File rows expose unresolved/total comment counts and file-mode changes.
   Navigation offers adjacent files, next unreviewed file, changed hunks and
   comments. `[` / `]` navigate files; `p` / `n` navigate changed hunks and Shift

@@ -434,7 +434,7 @@
   border-bottom: 1px solid var(--code-border);
   background: var(--code-bg-raised);
 }
-.review-file-change.reviewing > .review-file-change-header,
+.review-file-change.selected > .review-file-change-header,
 .review-file-change-header:hover { background: linear-gradient(var(--code-bg-hover), var(--code-bg-hover)), var(--code-bg-raised); }
 
 .review-file-expand {
@@ -862,9 +862,12 @@
   top: calc(100% + 4px);
   left: 0;
   z-index: 20;
-  width: min(320px, calc(100vw - 32px));
-  max-height: min(520px, calc(100vh - 64px));
+  width: max-content;
+  min-width: min(320px, calc(100vw - 32px));
+  max-width: calc(100vw - 32px);
+  max-height: min(720px, calc(100dvh - 64px));
   overflow: auto;
+  resize: horizontal;
 }
 .review-source-menu > button,
 .review-source-submenu button {
@@ -877,10 +880,9 @@
 }
 .review-source-menu button:disabled { cursor: default; opacity: 0.38; }
 .review-source-menu button > span:first-child {
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
+.review-source-submenu button { width: max-content; min-width: 100%; }
 .review-source-menu button svg { width: 15px; height: 15px; fill: currentColor; }
 .review-source-menu p { margin: 6px 8px; color: var(--code-text-subtle); font-size: 12px; line-height: 1.45; white-space: normal; overflow-wrap: anywhere; }
 .review-source-menu p.error { color: var(--code-danger); }
@@ -894,7 +896,7 @@
 .review-source-submenu > summary svg { width: 15px; height: 15px; fill: currentColor; transition: transform 140ms ease; }
 .review-source-submenu[open] > summary svg { transform: rotate(90deg); }
 .review-source-submenu > div {
-  max-height: 260px;
+  max-height: min(420px, max(120px, calc(100dvh - 240px)));
   overflow: auto;
   margin: 2px 0 5px 8px;
   padding-left: 5px;
@@ -967,4 +969,20 @@
 @media (max-width: 767px), (max-width: 980px) and (pointer: coarse) {
   .review-navigation > button { display: none; }
   .review-navigation-select { display: block; margin-left: auto; }
+}
+
+.review-comparison-endpoints {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--code-border);
+}
+.review-endpoint-picker { min-width: 0; }
+.review-endpoint-picker.head .review-source-menu { left: auto; right: 0; }
+.review-endpoint-menu > button { width: max-content; min-width: 100%; }
+@media (max-width: 600px) {
+  .review-comparison-endpoints { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .review-comparison-endpoints > span { display: none; }
 }

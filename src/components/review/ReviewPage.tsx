@@ -1,5 +1,5 @@
 import { useInteractionLayer } from '@/hooks/useInteractionLayer'
-import { Fragment, memo, type ReactNode, useEffect, useRef, useState } from 'react'
+import { Fragment, memo, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import hljs from 'highlight.js/lib/core'
 import bash from 'highlight.js/lib/languages/bash'
@@ -24,6 +24,7 @@ import {
   SettingsGlyph,
 } from '@/components/IconGlyphs'
 import { CodeSelect } from '@/components/CodeSelect'
+import { ReviewEndpointPicker } from './ReviewEndpointPicker'
 import { useModalFocusScope } from '@/hooks/useModalFocusScope'
 import { completeReviewFileDiffLoad, createReviewDiffQueue, failReviewFileDiffLoad } from '@/lib/review/effects'
 import { reviewAdjacentFilePath, reviewAdjacentUnreviewedFilePath, reviewFileRowModel, type ReviewFileRowAction, type ReviewFileRowModel } from '@/lib/review/file-list'
@@ -91,27 +92,6 @@ type ContextGapDescriptor = {
 }
 
 type ReviewFileSeed = Omit<ReviewFile, 'diff'>
-
-async function reloadReviewFiles(
-  request: ReviewDiffSnapshotRequest,
-  paths: string[],
-): Promise<{ errors: Error[]; files: ReviewFile[] }> {
-  const files: ReviewFile[] = []
-  const errors: Error[] = []
-  let cursor = 0
-  await Promise.all(Array.from({ length: Math.min(4, paths.length) }, async () => {
-    while (cursor < paths.length) {
-      const path = paths[cursor++]
-      if (!path) continue
-      try {
-        files.push(await loadReviewFileDiff(request, path))
-      } catch (error) {
-        errors.push(error instanceof Error ? error : new Error('review file diff request failed'))
-      }
-    }
-  }))
-  return { errors, files }
-}
 
 function createDemoDiff(file: ReviewFileSeed): ReviewFileDiff {
   const language = diffLanguageForPath(file.path)
@@ -352,6 +332,7 @@ function ReviewPath({ path, previous = false }: { path: string; previous?: boole
 }
 
 function comparisonLabel(id: string) {
+  if (id === 'custom-range') return 'Custom comparison'
   if (id === 'unstaged') return 'Unstaged'
   if (id === 'staged') return 'Staged'
   if (id === 'working-copy') return 'Working copy'
@@ -983,9 +964,9 @@ function CommentThread({
       : `${targetName} lines ${comment.range.start_line}–${comment.range.end_line}`
     : `${targetName} line ${comment.line}`
   return (
-    <article tabIndex={-1} className={`review-comment-thread ${status}`}>
+    <article tabIndex={-1} className={`review-comment-thread ${status}${comment.outdated ? ' outdated' : ''}`}>
       <header>
-        <span>{status === 'outdated' ? `Outdated · ${targetLabel}` : targetLabel}</span>
+        <span>{comment.outdated ? `Outdated · ${targetLabel}` : targetLabel}</span>
         <span className="review-comment-actions">
           <button type="button" disabled={disabled} onClick={() => onStatusChange(status === 'resolved' ? 'open' : 'resolved')}>{status === 'resolved' ? 'REOPEN' : 'RESOLVE'}</button>
           <button type="button" aria-label={`Delete comment on line ${comment.line}`} disabled={disabled} onClick={onDelete}><CloseGlyph /></button>
@@ -1161,6 +1142,10 @@ export function ReviewPage() {
       setContextLoadPaths([])
       setContextGapExpansions({})
       setReviewingPath('')
+      setSelectedPath('')
+      if (scrollTailRef.current) scrollTailRef.current.style.height = '0px'
+      reviewScrollerRef.current = null
+      collapseAnchorRef.current = null
     }
     setReviewRequestBase(request)
   }
@@ -1182,6 +1167,10 @@ export function ReviewPage() {
   const [reviewCommentError, setReviewCommentError] = useState('')
   const [commentsLoadState, setCommentsLoadState] = useState<'loading' | 'loaded' | 'error'>('loading')
   const [reviewingPath, setReviewingPath] = useState('')
+  const [selectedPath, setSelectedPath] = useState('')
+  const collapseAnchorRef = useRef<{ header: HTMLElement; top: number; scroller: HTMLElement } | null>(null)
+  const scrollTailRef = useRef<HTMLDivElement>(null)
+  const reviewScrollerRef = useRef<HTMLElement | null>(null)
   const [contextLoadPaths, setContextLoadPaths] = useState<string[]>([])
   const [contextGapExpansions, setContextGapExpansions] = useState<Record<string, ContextGapExpansion>>({})
   const [selectedCommentTarget, setSelectedCommentTarget] = useState<CommentTarget | null>(null)
@@ -1223,6 +1212,7 @@ export function ReviewPage() {
   const reviewDiffRequest: ReviewDiffSnapshotRequest | null = reviewRequestBase
     ? { ...reviewRequestBase, context: diffPreferences.context, ignoreWhitespace: diffPreferences.ignoreWhitespace }
     : null
+  const diffGenerationRef = useRef(0)
   const reviewDiffRequestRef = useRef(reviewDiffRequest)
   reviewDiffRequestRef.current = reviewDiffRequest
   const displayedComparison: ReviewComparison | null = reviewSessionActive
@@ -1235,6 +1225,10 @@ export function ReviewPage() {
   const commentTarget = reviewState.commentDraft
   const commentDraft = reviewState.commentDraft?.body ?? ''
   const files = catalog[patchset] ?? []
+  useEffect(() => setSelectedPath(''), [patchset])
+  useEffect(() => {
+    setSelectedPath(current => catalog[patchset]?.some(file => file.path === current) ? current : '')
+  }, [catalog, patchset])
   const totalAdded = files.reduce((total, file) => total + file.added, 0)
   const totalRemoved = files.reduce((total, file) => total + file.removed, 0)
   const maxChangeSize = Math.max(1, ...files.map(file => file.added + file.removed))
@@ -1253,6 +1247,7 @@ export function ReviewPage() {
     for (const effect of transition.effects) {
       const effectRequestIdentity = reviewRequestIdentityRef.current
       if (effect.type === 'load-file-diff') {
+        const generation = diffGenerationRef.current
         const request = reviewDiffRequestRef.current
         if (!request) {
           applyReviewAction(failReviewFileDiffLoad(effect, 'review file diff source is unavailable'))
@@ -1260,16 +1255,16 @@ export function ReviewPage() {
         }
         enqueueDiff(() => loadReviewFileDiff(request, effect.path)
           .then(file => {
-            if (reviewRequestIdentityRef.current !== effectRequestIdentity) return
+            if (reviewRequestIdentityRef.current !== effectRequestIdentity || diffGenerationRef.current !== generation) return
             const completed = completeReviewFileDiffLoad(catalogRef.current, effect, file, { reviewId: reviewStateRef.current.reviewId })
             catalogRef.current = completed.catalog
             setCatalog(completed.catalog)
             applyReviewAction(completed.action)
           })
           .catch(error => {
-            if (reviewRequestIdentityRef.current !== effectRequestIdentity) return
+            if (reviewRequestIdentityRef.current !== effectRequestIdentity || diffGenerationRef.current !== generation) return
             applyReviewAction(failReviewFileDiffLoad(effect, error))
-          }), () => mountedRef.current && reviewRequestIdentityRef.current === effectRequestIdentity)
+          }), () => mountedRef.current && reviewRequestIdentityRef.current === effectRequestIdentity && diffGenerationRef.current === generation)
       }
       if (effect.type === 'save-reviewed-status') {
         const effectReviewId = effect.reviewId ?? reviewId
@@ -1509,6 +1504,9 @@ export function ReviewPage() {
         setReviewComparison(review.comparison ?? null)
         setCatalog(nextCatalog)
         setReviewState(nextState)
+        // Retrying the same range also replaces local state. Rehydrate even
+        // when its review and patchset identities have not changed.
+        setStateRetry(value => value + 1)
         setReviewLoadError('')
       })
       .catch(error => {
@@ -1593,7 +1591,7 @@ export function ReviewPage() {
       const file = catalog[patchset]?.find(file => file.path === row.dataset.filePath)
       if (!file) continue
       for (const comment of reviewState.comments) {
-        if (!comment.range || comment.status === 'outdated' || comment.patchset !== patchset
+        if (!comment.range || comment.outdated || comment.patchset !== patchset
           || comment.path !== reviewCommentPathForSide(file, comment.side)
           || (reviewSessionActive && reviewView === 'fixes' && comment.side === 'left')) continue
         for (const cell of row.querySelectorAll<HTMLElement>('code[data-review-line]')) {
@@ -1611,6 +1609,20 @@ export function ReviewPage() {
   }, [catalog, patchset, reviewState.comments, patchsetState.expandedPaths, diffPreferences, effectiveDiffMode, contextGapExpansions, reviewSessionActive, reviewView])
 
   const expandedPathsSignature = patchsetState.expandedPaths.join('\0')
+  useLayoutEffect(() => {
+    const anchor = collapseAnchorRef.current
+    collapseAnchorRef.current = null
+    const tail = scrollTailRef.current
+    const scroller = anchor?.scroller ?? reviewScrollerRef.current
+    if (!tail || !scroller) return
+    if (anchor && !anchor.header.isConnected) return
+    // Measure after collapse, before paint. This also handles a formerly sticky
+    // header returning to its ordinary position far above the viewport.
+    const scrollTop = scroller.scrollTop + (anchor ? anchor.header.getBoundingClientRect().top - anchor.top : 0)
+    const contentHeight = tail.getBoundingClientRect().top + scroller.scrollTop
+    tail.style.height = `${Math.max(0, scrollTop + scroller.clientHeight - contentHeight)}px`
+    scroller.scrollTop = scrollTop
+  }, [expandedPathsSignature, catalog])
   useEffect(() => {
     const updateReviewingPath = () => {
       let nextPath = ''
@@ -1647,12 +1659,26 @@ export function ReviewPage() {
   }
 
   const selectPatchset = (nextPatchset: string) => {
-    if (guardDraft()) return
+    if (nextPatchset === patchset || guardDraft()) return
+    if (scrollTailRef.current) scrollTailRef.current.style.height = '0px'
+    reviewScrollerRef.current = null
+    collapseAnchorRef.current = null
     applyReviewAction({ patchset: nextPatchset, type: 'select-patchset' })
   }
 
   const allVisibleExpanded = files.length > 0 && files.every(file => expandedPaths.has(file.path))
-  const toggleExpanded = (path: string) => {
+  const toggleExpanded = (path: string, control: HTMLElement) => {
+    if (reviewStateForPatchset(reviewStateRef.current, patchset).expandedPaths.includes(path)) {
+      const header = control.closest<HTMLElement>('.review-file-change-header')
+      if (header) {
+        const scroller = document.scrollingElement
+        if (scroller instanceof HTMLElement) {
+          reviewScrollerRef.current = scroller
+          collapseAnchorRef.current = { header, scroller, top: header.getBoundingClientRect().top }
+        }
+      }
+    }
+    setSelectedPath(path)
     applyReviewAction({ path, type: 'toggle-file-expanded' })
   }
 
@@ -1672,30 +1698,19 @@ export function ReviewPage() {
       !externalReview || !reviewRequestBase
       || !diffShapeChanged
     ) return
-    const targetPatchset = patchset
-    const filesByPath = new Map(files.map(file => [file.path, file]))
-    const paths = patchsetState.expandedPaths.filter(path => {
-      const file = filesByPath.get(path)
-      return Boolean(file && file.kind !== 'unmodified' && !file.binary && !file.diffTooExpensive)
-    })
-    if (!paths.length) return
-    const requestIdentity = reviewRequestIdentityRef.current
-    setContextLoadPaths(current => [...new Set([...current, ...paths])])
-    void reloadReviewFiles({ ...reviewRequestBase, context: next.context, ignoreWhitespace: next.ignoreWhitespace }, paths)
-      .then(result => {
-        if (reviewRequestIdentityRef.current !== requestIdentity || reviewStateRef.current.patchRange.patchset !== targetPatchset) return
-        let nextCatalog = catalogRef.current
-        for (const file of result.files) nextCatalog = reviewCatalogWithFile(nextCatalog, targetPatchset, file)
-        catalogRef.current = nextCatalog
-        setCatalog(nextCatalog)
-        const firstError = result.errors[0]
-        if (firstError) setReviewLoadError(firstError.message)
-      })
-      .finally(() => {
-        if (reviewRequestIdentityRef.current !== requestIdentity) return
-        setContextLoadPaths(current => current.filter(path => !paths.includes(path)))
-      })
+    // Invalidate every cached shape, including collapsed files. The same loader
+    // owns reloads, failures and retries; superseded results cannot reenter it.
+    diffGenerationRef.current += 1
+    reviewDiffRequestRef.current = { ...reviewRequestBase, context: next.context, ignoreWhitespace: next.ignoreWhitespace }
+    setContextLoadPaths([])
+    const nextCatalog = { ...catalogRef.current, [patchset]: files.map(file =>
+      file.kind === 'unmodified' || file.binary || file.diffTooExpensive ? file
+        : { ...file, diffLoaded: false, diff: { ...file.diff, hunks: [] } }) }
+    catalogRef.current = nextCatalog
+    setCatalog(nextCatalog)
+    applyReviewAction({ type: 'invalidate-file-diffs' })
   }
+
   const copyCommit = () => {
     if (navigator.clipboard) {
       void navigator.clipboard.writeText('34a15ae').catch(() => {})
@@ -1707,21 +1722,22 @@ export function ReviewPage() {
     const request = reviewDiffRequestRef.current
     if (!request || contextLoadPaths.includes(path)) return
     const requestIdentity = reviewRequestIdentityRef.current
+    const generation = diffGenerationRef.current
     const targetPatchset = patchset
     setContextLoadPaths(current => [...current, path])
     void loadReviewFileDiff({ ...request, context }, path)
       .then(file => {
-        if (reviewRequestIdentityRef.current !== requestIdentity) return
+        if (reviewRequestIdentityRef.current !== requestIdentity || diffGenerationRef.current !== generation) return
         const nextCatalog = reviewCatalogWithFile(catalogRef.current, targetPatchset, file)
         catalogRef.current = nextCatalog
         setCatalog(nextCatalog)
       })
       .catch(error => {
-        if (reviewRequestIdentityRef.current !== requestIdentity) return
+        if (reviewRequestIdentityRef.current !== requestIdentity || diffGenerationRef.current !== generation) return
         setReviewLoadError(error instanceof Error ? error.message : 'review context request failed')
       })
       .finally(() => {
-        if (reviewRequestIdentityRef.current !== requestIdentity) return
+        if (reviewRequestIdentityRef.current !== requestIdentity || diffGenerationRef.current !== generation) return
         setContextLoadPaths(current => current.filter(item => item !== path))
       })
   }
@@ -1729,8 +1745,9 @@ export function ReviewPage() {
     const request = reviewDiffRequestRef.current
     if (gap.expansion.pending || range.lines < 1) return
     const requestIdentity = reviewRequestIdentityRef.current
+    const generation = diffGenerationRef.current
     const commitRows = (rows: ReviewDiffRow[]) => {
-      if (reviewRequestIdentityRef.current !== requestIdentity) return
+      if (reviewRequestIdentityRef.current !== requestIdentity || diffGenerationRef.current !== generation) return
       setContextGapExpansions(current => {
         const previous = current[gap.key] ?? emptyContextGapExpansion()
         return {
@@ -1742,7 +1759,7 @@ export function ReviewPage() {
       })
     }
     const failRows = (error: unknown) => {
-      if (reviewRequestIdentityRef.current !== requestIdentity) return
+      if (reviewRequestIdentityRef.current !== requestIdentity || diffGenerationRef.current !== generation) return
       const message = error instanceof Error ? error.message : 'review context request failed'
       setContextGapExpansions(current => {
         const previous = current[gap.key] ?? emptyContextGapExpansion()
@@ -1849,15 +1866,13 @@ export function ReviewPage() {
       .catch(error => setComparisonSourceError(error instanceof Error ? error.message : 'Comparison sources could not be loaded'))
       .finally(() => setComparisonSourcesPending(false))
   }
-  const selectComparisonSource = (source: ReviewComparisonSource) => {
-    if (!comparisonSources || source.available === false || !source.base || !source.head || capturePending || guardDraft()) return
+  const selectComparisonSource = (source: ReviewComparisonSource, root = comparisonSources?.root) => {
+    if (!root || source.available === false || !source.base || !source.head || capturePending || guardDraft()) return
     if (source.head === 'now') {
-      replaceReviewRequest(null)
-      setSnapshotPending(false)
-      setComparisonSourceId(source.id)
       setCapturePending(true)
+      setReviewLoadError('')
       setShowComparisonSources(false)
-      void createReviewSession({ root: comparisonSources.root }, source.base)
+      void createReviewSession({ root }, source.base)
         .then(revision => { setSessionRevisions([revision]); setSessionRequest(revision, 'final', source.id) })
         .catch(error => setReviewLoadError(error instanceof Error ? error.message : 'review capture failed'))
         .finally(() => setCapturePending(false))
@@ -1867,7 +1882,7 @@ export function ReviewPage() {
       base: source.base,
       head: source.head,
       metadataOnly: true,
-      root: comparisonSources.root,
+      root,
       source: 'git-range',
     }
     const params = new URLSearchParams(window.location.search)
@@ -1876,7 +1891,7 @@ export function ReviewPage() {
     params.delete('path')
     params.delete('scope')
     params.delete('modifiedWithinDays')
-    params.set('root', comparisonSources.root)
+    params.set('root', root)
     params.set('base', source.base)
     params.set('head', source.head)
     params.set('comparison', source.id)
@@ -1885,6 +1900,31 @@ export function ReviewPage() {
     setShowComparisonSources(false)
     setReviewView('final')
     replaceReviewRequest(request)
+  }
+  const endpointRequest = reviewRequestBase?.source === 'git-range' && reviewRequestBase.root
+    ? { ...reviewRequestBase, root: reviewRequestBase.root }
+    : null
+  const endpointLabel = (side: 'base' | 'head') => {
+    const revision = endpointRequest?.[side] ?? ''
+    if (side === 'head' && reviewSessionActive && reviewSessionRevision) {
+      const source = capturedSourceId === 'agent-changes' ? 'Agent changes' : 'working tree'
+      return `Captured ${source} · Revision ${reviewSessionRevision.number} · ${revision.slice(0, 12)}`
+    }
+    const commit = reviewComparison?.[side]
+    if (commit?.id === revision) return `${revision.slice(0, 12)} · ${commit.message.split('\n')[0]}`
+    if ((side === 'head' && comparisonSourceId === 'staged') || (side === 'base' && comparisonSourceId === 'unstaged')) {
+      return `Index snapshot · ${revision.slice(0, 12)}`
+    }
+    return `Revision · ${revision.slice(0, 12)}`
+  }
+  const selectEndpoint = (side: 'base' | 'head', revision: string) => {
+    if (!endpointRequest || revision === endpointRequest[side]) return
+    selectComparisonSource({
+      base: side === 'base' ? revision : endpointRequest.base,
+      head: side === 'head' ? revision : endpointRequest.head,
+      id: 'custom-range',
+      label: 'Custom comparison',
+    }, endpointRequest.root)
   }
   const refreshCapturedReview = () => {
     if (!reviewSessionRevision || capturePending || guardDraft()) return
@@ -1901,12 +1941,12 @@ export function ReviewPage() {
     if (!reviewSessionRevision || view === reviewView) return
     setSessionRequest(reviewSessionRevision, view)
   }
-  const navigationPath = reviewingPath || files[0]?.path || ''
+  const navigationPath = selectedPath || reviewingPath || files[0]?.path || ''
   const previousFile = reviewAdjacentFilePath(files, navigationPath, 'previous')
   const nextFile = reviewAdjacentFilePath(files, navigationPath, 'next')
   const nextUnreviewedFile = patchsetState.reviewedLoaded && reviewAdjacentUnreviewedFilePath(reviewState, files, navigationPath)
   const navigateFile = (direction: 'next' | 'previous', unreviewed = false) => {
-    const current = reviewingPath || document.activeElement?.closest<HTMLElement>('[data-file-path]')?.dataset.filePath || files[0]?.path
+    const current = selectedPath || reviewingPath || document.activeElement?.closest<HTMLElement>('[data-file-path]')?.dataset.filePath || files[0]?.path
     if (!current) return
     const path = unreviewed
       ? reviewAdjacentUnreviewedFilePath(reviewStateRef.current, files, current, direction)
@@ -1916,7 +1956,7 @@ export function ReviewPage() {
     const row = Array.from(document.querySelectorAll<HTMLElement>('.review-file-change')).find(row => row.dataset.filePath === path)
     row?.scrollIntoView({ block: 'start' })
     row?.querySelector<HTMLButtonElement>('.review-file-expand')?.focus({ preventScroll: true })
-    setReviewingPath(path)
+    setSelectedPath(path)
   }
   const navigateContent = (kind: 'hunk' | 'comment', direction: 'next' | 'previous') => {
     const elements = Array.from(document.querySelectorAll<HTMLElement>(kind === 'hunk' ? '[data-review-hunk]' : '.review-comment-thread'))
@@ -1993,16 +2033,16 @@ export function ReviewPage() {
                   </button>
                   <details className="review-source-submenu">
                     <summary>Commit <ChevronRightGlyph /></summary>
-                    <div>{comparisonSources.commits.length ? comparisonSources.commits.map(source => (
-                      <button type="button" role="menuitemradio" aria-checked={comparisonSourceId === source.id} key={source.id} onClick={() => selectComparisonSource(source)}>
+                    <div tabIndex={0} aria-label="Commit comparisons">{comparisonSources.commits.length ? comparisonSources.commits.map(source => (
+                      <button type="button" role="menuitemradio" title={source.label} aria-checked={comparisonSourceId === source.id} key={source.id} onClick={() => selectComparisonSource(source)}>
                         <span>{source.label}</span>{comparisonSourceId === source.id ? <CheckGlyph /> : null}
                       </button>
                     )) : <p>No commits available</p>}</div>
                   </details>
                   <details className="review-source-submenu">
                     <summary>Branch <ChevronRightGlyph /></summary>
-                    <div>{comparisonSources.branches.length ? comparisonSources.branches.map(source => (
-                      <button type="button" role="menuitemradio" aria-checked={comparisonSourceId === source.id} key={source.id} onClick={() => selectComparisonSource(source)}>
+                    <div tabIndex={0} aria-label="Branch comparisons">{comparisonSources.branches.length ? comparisonSources.branches.map(source => (
+                      <button type="button" role="menuitemradio" title={source.label} aria-checked={comparisonSourceId === source.id} key={source.id} onClick={() => selectComparisonSource(source)}>
                         <span>{source.label}</span>{comparisonSourceId === source.id ? <CheckGlyph /> : null}
                       </button>
                     )) : <p>No other branches</p>}</div>
@@ -2057,6 +2097,11 @@ export function ReviewPage() {
           </div>
         </header>
         {reviewStatusError || reviewCommentError ? <div className="review-review-error code-content-toolbar" role="status"><span>{reviewStatusError || reviewCommentError}</span><button type="button" className="code-content-toolbar-text" onClick={() => setStateRetry(value => value + 1)}>RELOAD REVIEW STATE</button></div> : null}
+        {externalReview && endpointRequest ? <div className="review-comparison-endpoints" aria-label="Comparison versions">
+          <ReviewEndpointPicker disabled={capturePending} label={endpointLabel('base')} revision={endpointRequest.base} root={endpointRequest.root} side="base" onSelect={revision => selectEndpoint('base', revision)} />
+          <span aria-hidden="true">→</span>
+          <ReviewEndpointPicker disabled={capturePending} label={endpointLabel('head')} revision={endpointRequest.head} root={endpointRequest.root} side="head" onSelect={revision => selectEndpoint('head', revision)} />
+        </div> : null}
         {externalReview && displayedComparison ? (
           <details className="review-commit-message">
             <summary>
@@ -2105,7 +2150,7 @@ export function ReviewPage() {
           {files.map(file => {
             const rowModel = reviewFileRowModel(reviewState, file, { mutationPending: reviewMutationPending })
             const fileComments = commentsForFilePaths(reviewState, rowModel.commentPaths)
-            const outdatedComments = fileComments.filter(comment => comment.status === 'outdated' || (reviewSessionActive && reviewView === 'fixes' && comment.side === 'left'))
+            const outdatedComments = fileComments.filter(comment => comment.outdated || (reviewSessionActive && reviewView === 'fixes' && comment.side === 'left'))
             const commentPathForSide = (side: CommentSide) => reviewCommentPathForSide(file, side)
             const renderLineAttachment = (line: number, sides: CommentSide[]) => {
               const selectedTarget = selectedCommentTarget
@@ -2120,7 +2165,7 @@ export function ReviewPage() {
                 ? commentTarget
                 : null
               const lineComments = fileComments.filter(comment => {
-                return !(reviewSessionActive && reviewView === 'fixes' && comment.side === 'left') && !(commentMutationPending && patchsetState.pendingComment?.type === 'save' && patchsetState.pendingComment.id === comment.id) && comment.status !== 'outdated'
+                return !(reviewSessionActive && reviewView === 'fixes' && comment.side === 'left') && !(commentMutationPending && patchsetState.pendingComment?.type === 'save' && patchsetState.pendingComment.id === comment.id) && !comment.outdated
                   && comment.line === line
                   && sides.includes(comment.side)
                   && comment.path === commentPathForSide(comment.side)
@@ -2152,11 +2197,12 @@ export function ReviewPage() {
               )
             }
             return (
-              <article className={`review-file-change ${rowModel.expanded ? 'expanded' : ''} ${reviewingPath === file.path ? 'reviewing' : ''}`} key={file.path} data-testid="review-file-row" data-change-kind={file.kind} data-file-path={file.path}>
-                <header className="review-file-change-header">
+              <article className={`review-file-change ${rowModel.expanded ? 'expanded' : ''} ${reviewingPath === file.path ? 'reviewing' : ''} ${selectedPath === file.path ? 'selected' : ''}`} key={file.path} data-testid="review-file-row" data-change-kind={file.kind} data-file-path={file.path}>
+                <header className="review-file-change-header" onFocusCapture={() => setSelectedPath(file.path)}>
                   <button
                     type="button"
                     className="review-file-select"
+                    aria-current={selectedPath === file.path ? 'true' : undefined}
                     onCopy={event => {
                       const selection = window.getSelection()
                       if (!selection || selection.isCollapsed || selection.rangeCount !== 1) return
@@ -2170,10 +2216,10 @@ export function ReviewPage() {
                       event.clipboardData.setData('text/plain', range.toString())
                       event.preventDefault()
                     }}
-                    onClick={() => {
+                    onClick={event => {
                       const selection = window.getSelection()
                       if (selection && !selection.isCollapsed) return
-                      toggleExpanded(file.path)
+                      toggleExpanded(file.path, event.currentTarget)
                     }}
                   >
                     <span className="review-file-status">{rowModel.changeLabel}</span>
@@ -2190,7 +2236,7 @@ export function ReviewPage() {
                     if (!rowModel.action) return
                     toggleReviewed(file.path, rowModel.action.nextReviewed)
                   }} />
-                  <button type="button" className="review-file-expand" aria-label={rowModel.expanded ? 'Collapse file diff' : 'Expand file diff'} onClick={() => toggleExpanded(file.path)}>{rowModel.expanded ? <ChevronDownGlyph /> : <ChevronRightGlyph />}</button>
+                  <button type="button" className="review-file-expand" aria-label={rowModel.expanded ? 'Collapse file diff' : 'Expand file diff'} onClick={event => toggleExpanded(file.path, event.currentTarget)}>{rowModel.expanded ? <ChevronDownGlyph /> : <ChevronRightGlyph />}</button>
                 </header>
                 {rowModel.expanded ? (
                   <section className={`review-inline-diff ${effectiveDiffMode} ${diffPreferences.fitToScreen ? 'fit-to-screen' : ''}`} aria-label={`Diff for ${file.path}`}>
@@ -2258,6 +2304,7 @@ export function ReviewPage() {
             )
           })}
         </div>
+        <div ref={scrollTailRef} className="review-scroll-tail" aria-hidden="true" />
       </section>
       {showPreferences ? createPortal(
         <div className="review-preferences-backdrop" role="presentation">
