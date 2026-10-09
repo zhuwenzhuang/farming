@@ -176,6 +176,7 @@ function workspaceRequest(value) {
         case 'history':
             return boundedStringField(value, 'rootId', 4096)
                 && boundedStringField(value, 'repositoryPath', 4096, true)
+                && boundedStringField(value, 'cursor', 128, true)
                 && optionalNonNegativeIntegerField(value, 'limit')
                 && optionalNonNegativeIntegerField(value, 'skip')
                 && (value.scope === undefined || value.scope === 'current' || value.scope === 'all');

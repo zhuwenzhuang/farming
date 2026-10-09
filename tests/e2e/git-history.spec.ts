@@ -255,3 +255,46 @@ test('restores Changes and Git History navigation after reload', async ({ page, 
   await expect(restoredHistory.getByLabel('History view')).toContainText('All')
   await expect(restoredHistory.locator(`[data-commit-id="${commit}"]`).getByTestId('code-git-history-details')).toBeVisible()
 })
+
+for (const appearance of ['light', 'dark', 'paper'] as const) {
+  test(`continues captured history after reset and refreshes explicitly in ${appearance}`, async ({ page, workspaceRoot }, testInfo) => {
+    git(workspaceRoot, 'init', '-q', '-b', 'main')
+    git(workspaceRoot, 'config', 'core.hooksPath', '/dev/null')
+    git(workspaceRoot, 'config', 'user.email', 'history@example.test')
+    git(workspaceRoot, 'config', 'user.name', 'History Test')
+    const commits: string[] = []
+    for (let index = 0; index < 53; index++) {
+      git(workspaceRoot, 'commit', '--allow-empty', '-qm', `Snapshot commit ${index}`)
+      commits.push(git(workspaceRoot, 'rev-parse', 'HEAD'))
+    }
+    await page.request.post('/farming/api/settings', { data: { appearance } })
+    await openFarming(page)
+    await openNewAgentDialog(page)
+    await startAgentFromOpenDialog(page, 'bash', workspaceRoot)
+    const project = page.getByTestId('code-project-group').filter({
+      has: page.locator('[data-testid="code-agent-row"].active'),
+    })
+    const files = project.getByTestId('code-files-section')
+    await files.getByRole('button', { name: 'Files', exact: true }).click()
+    const history = files.getByTestId('code-git-history-section')
+    await history.getByRole('button', { name: 'History', exact: true }).click()
+    const entries = history.getByTestId('code-git-history-entry')
+    await expect(entries).toHaveCount(50)
+    // A moving HEAD would skip commit 2 if continuation used live --skip=50.
+    git(workspaceRoot, 'reset', '--hard', 'HEAD~1')
+    await history.locator('.code-git-history-load-more').click()
+    await expect(entries).toHaveCount(53)
+    expect(await entries.evaluateAll(elements => elements.map(element => element.getAttribute('data-commit-id'))))
+      .toEqual([...commits].reverse())
+    await expect(history.locator('.code-git-history-status.error')).toHaveCount(0)
+    await history.getByRole('button', { name: 'Refresh', exact: true }).click()
+    await expect(entries).toHaveCount(50)
+    await expect(entries.first()).toHaveAttribute('data-commit-id', commits[51])
+    await history.locator('.code-git-history-load-more').click()
+    await expect(entries).toHaveCount(52)
+    await expect(history.locator('.code-git-history-load-more')).toHaveCount(0)
+    await history.getByRole('button', { name: 'History', exact: true }).scrollIntoViewIfNeeded()
+    await expect(page.locator('body')).toHaveAttribute('data-appearance', appearance)
+    await page.screenshot({ path: testInfo.outputPath(`history-snapshot-${appearance}.png`), animations: 'disabled' })
+  })
+}

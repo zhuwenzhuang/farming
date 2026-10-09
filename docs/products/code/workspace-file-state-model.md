@@ -186,11 +186,24 @@ the entry paths of the corresponding structure snapshot; it updates the
 path-scoped decoration store without changing expansion state or tree data.
 Repeating an identical decoration value produces no subscriber notification.
 
+The backend Git cache admits completion only from the request that still owns
+its entry. Invalidation covers overlapping canonical Project roots; a late
+success cannot repopulate an invalidated entry, and a late failure cannot evict
+a newer request or result.
+
 Create, save, rename, move, and delete remain version-checked operations. A
 timeout or lost response is uncertain, not failed by assumption: reconcile the
 file or parent directory and do not blindly replay. Successful mutations
 refresh or invalidate affected directory snapshots, retained resource models,
 open working copies, tabs, and reveal targets through their existing owners.
+
+The backend serializes Farming mutations across overlapping canonical Project
+roots, including version validation and the filesystem write in the same
+admission. An operation reserves its place before waiting; success and failure
+both release it. Reads waiting for pending writes observe the same overlap rule,
+while disjoint roots remain independent. This ordering does not lock out external
+filesystem writers; content versions and uncertain-outcome reconciliation still
+apply.
 
 ## Performance Contract
 

@@ -95,7 +95,7 @@ async function run() {
     const count = calls.length;
     await files.changesPage(root, { scope: 'tracked', cursor: `${page.revision}:0` });
     assert.equal(calls.length, count);
-    const cached = files.changeInventories.get(await fs.realpath(root)); cached.expiresAt = 0;
+    const cached = files.changeInventories.get(await fs.realpath(root)).get('tracked'); cached.expiresAt = 0;
     await assert.rejects(files.changesPage(root, { scope: 'tracked', cursor: `${page.revision}:0` }), /Refresh/);
     const inventory = await files.changesInventory(root);
     files.invalidateGitStatus(await fs.realpath(root));
@@ -122,6 +122,11 @@ async function run() {
     const plain = path.join(temporary, 'plain'); await fs.mkdir(plain);
     const plainInventory = await files.changesInventory(plain);
     assert.deepEqual((await files.changesPage(plain, { scope: 'tracked', cursor: `${plainInventory.repositories[0].revision}:0` })).items, []);
+    files.invalidateGitStatus(await fs.realpath(plain));
+    await Promise.all(['tracked', 'untracked'].map(scope => files.changesPage(plain, { scope })));
+    for (const scope of ['tracked', 'untracked']) {
+      assert.deepEqual((await files.changesPage(plain, { scope, cursor: 'non-git:0' })).items, []);
+    }
 
     // A complete Project inventory retains every child, beyond eight repos.
     const many = await init('many');
@@ -129,7 +134,8 @@ async function run() {
       await git(many, '-c', 'protocol.file.allow=always', 'submodule', 'add', root, `child-${index}`);
       await write(many, `child-${index}/new.txt`, 'pending');
     }
-    const manyInventory = await files.changesInventory(many);
+    const [manyInventory, sameManyInventory] = await Promise.all([files.changesInventory(many), files.changesInventory(many)]);
+    assert.deepEqual(manyInventory, sameManyInventory);
     assert.equal(manyInventory.repositories.length, 9);
     for (const repository of manyInventory.repositories) {
       assert.equal(repository.error, undefined);
@@ -137,7 +143,8 @@ async function run() {
     }
 
     // An invalidation between capture and publication cannot resurrect a stale
-    // inventory. A newer fresh read also wins over a late older request.
+    // inventory. Concurrent readers share one capture instead of invalidating
+    // one another, including clients loading different category page sizes.
     const realSnapshot = files.changeSnapshot.bind(files);
     files.changeSnapshot = async (...args: [string, 'tracked' | 'untracked' | undefined]) => {
       const snapshot = await realSnapshot(...args);
@@ -159,10 +166,68 @@ async function run() {
     const older = files.changesPage(root, { scope: 'tracked' });
     try {
       await ready;
-      const newer = await files.changesPage(root, { scope: 'tracked' });
+      const newer = files.changesPage(root, { scope: 'tracked', limit: 1 });
       release();
-      await assert.rejects(older, /Refresh/);
-      await files.changesPage(root, { scope: 'tracked', cursor: `${newer.revision}:0` });
+      const [first, second] = await Promise.all([older, newer]);
+      assert.equal(first.revision, second.revision);
+      await files.changesPage(root, { scope: 'tracked', cursor: `${second.revision}:0` });
+    } finally { release(); files.changeSnapshot = realSnapshot; }
+
+    files.changeSnapshot = async () => { throw new Error('fixture Git read failed'); };
+    try {
+      await Promise.all([
+        assert.rejects(files.changesPage(root, { scope: 'tracked' }), /fixture Git read failed/),
+        assert.rejects(files.changesPage(root, { scope: 'tracked' }), /fixture Git read failed/),
+      ]);
+      assert.equal(files.activeChangeReads.size, 0, 'failed shared reads release ownership');
+    } finally { files.changeSnapshot = realSnapshot; }
+    await files.changesPage(root, { scope: 'tracked' });
+
+    // Files inventories and direct category reads are separate consumers.
+    // Neither their reads nor their publication may invalidate the others.
+    await write(root, 'untracked.txt', 'untracked');
+    let fullCaptures = 0;
+    files.changeSnapshot = async (...args: [string, 'tracked' | 'untracked' | undefined]) => {
+      if (!args[1]) fullCaptures++;
+      return realSnapshot(...args);
+    };
+    const concurrent = await Promise.all([
+      files.changesInventory(root), files.changesInventory(root),
+      files.changesPage(root, { scope: 'tracked' }),
+      files.changesPage(root, { scope: 'untracked' }),
+    ]);
+    files.changeSnapshot = realSnapshot;
+    assert.equal(fullCaptures, 1, 'concurrent inventories share their Git capture');
+    assert.deepEqual(concurrent[0], concurrent[1]);
+    for (const [scope, revision] of [
+      ['tracked', concurrent[0].repositories[0].revision],
+      ['untracked', concurrent[1].repositories[0].revision],
+      ['tracked', concurrent[2].revision], ['untracked', concurrent[3].revision],
+    ]) {
+      await files.changesPage(root, { scope, cursor: `${revision}:0` });
+    }
+    assert.equal(files.activeChangeReads.size, 0, 'settled reads release their ownership');
+
+    // A real invalidation must not join an older in-flight capture, and a late
+    // old completion cannot remove the newly published inventory.
+    const invalidationReady = new Promise<void>(resolve => { captured = resolve; });
+    const invalidationGate = new Promise<void>(resolve => { release = resolve; });
+    hold = true;
+    files.changeSnapshot = async (...args: [string, 'tracked' | 'untracked' | undefined]) => {
+      const snapshot = await realSnapshot(...args);
+      if (hold) { hold = false; captured(); await invalidationGate; }
+      return snapshot;
+    };
+    const invalidated = files.changesInventory(root);
+    const rejected = assert.rejects(invalidated, /Refresh/);
+    try {
+      await invalidationReady;
+      files.invalidateGitStatus(await fs.realpath(root));
+      const recovered = await files.changesInventory(root);
+      release();
+      await rejected;
+      await files.changesPage(root, { scope: 'tracked', cursor: `${recovered.repositories[0].revision}:0` });
+      assert.equal(files.activeChangeReads.size, 0);
     } finally { release(); files.changeSnapshot = realSnapshot; }
 
     for (const disableHelper of [false, true]) {

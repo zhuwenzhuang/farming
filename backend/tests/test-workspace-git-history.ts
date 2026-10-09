@@ -93,7 +93,7 @@ async function run() {
     assert.strictEqual(pageOne.hasMore, true);
     assert.strictEqual(pageOne.nextSkip, 2);
 
-    const pageTwo = await service.gitHistory(repository, { limit: 2, skip: pageOne.nextSkip });
+    const pageTwo = await service.gitHistory(repository, { limit: 2, cursor: pageOne.nextCursor });
     assert.strictEqual(pageTwo.items.length, 1);
     assert.strictEqual(pageTwo.hasMore, false);
     assert.strictEqual(pageTwo.nextSkip, null);

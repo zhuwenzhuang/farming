@@ -34,6 +34,9 @@ const DEFAULT_DIFF_TIMEOUT_MS = 5000;
 const DEFAULT_DIFF_MAX_BUFFER = 1024 * 1024;
 const DEFAULT_GIT_HISTORY_LIMIT = 50;
 const MAX_GIT_HISTORY_LIMIT = 100;
+const GIT_HISTORY_SNAPSHOT_TTL_MS = 5 * 60_000;
+const MAX_GIT_HISTORY_SNAPSHOTS = 16;
+const MAX_GIT_HISTORY_REFS_BYTES = 1024 * 1024;
 const DEFAULT_GIT_HISTORY_TIMEOUT_MS = 5000;
 const DEFAULT_GIT_HISTORY_MAX_BUFFER = 8 * 1024 * 1024;
 const DEFAULT_WATCH_DEPTH = 1;
@@ -1646,6 +1649,17 @@ function buildDescendantGitStatusByDirectory(statusByPath: GitStatusMap): Map<st
   return statusByDirectory;
 }
 
+type ChangeReadScope = 'inventory' | 'tracked' | 'untracked';
+type ChangeInventory = {
+  expiresAt: number;
+  snapshots: Map<string, { root: string; scope?: 'tracked' | 'untracked'; items: WorkspaceChangeItem[] }>;
+};
+
+type GitHistorySnapshot = {
+  root: string; scope: 'current' | 'all'; branch: string; head: string;
+  tips: string[]; references: Map<string, GitHistoryReference[]>; expiresAt: number;
+};
+
 class WorkspaceFileService {
   blameTimeoutMs: number;
   commandRunner: WorkspaceCommandRunner;
@@ -1658,14 +1672,18 @@ class WorkspaceFileService {
   gitHistoryTimeoutMs: number;
   gitPath: string;
   gitStatusCache: Map<string, GitStatusCacheEntry>;
-  changeInventories = new Map<string, { expiresAt: number; snapshots: Map<string, { root: string; scope?: 'tracked' | 'untracked'; items: WorkspaceChangeItem[] }> }>();
+  changeInventories = new Map<string, Map<ChangeReadScope, ChangeInventory>>();
+  historySnapshots = new Map<string, GitHistorySnapshot>();
   private treeIndex = new WorkspaceTreeIndex();
   private treeSnapshots = new Map<string, {
     root: string; path: string; target: string; authority: string; total: number;
     timer: ReturnType<typeof setTimeout>;
   }>();
   blameSnapshots = new Map<string, { root: string; path: string; revision?: string; expiresAt: number; bytes: number; result: Awaited<ReturnType<WorkspaceFileService['blame']>> }>();
-  activeChangeReads = new Map<string, { sequence: number; readers: number }>();
+  activeChangeReads = new Map<string, {
+    sequence: number; readers: number;
+    pending: Map<ChangeReadScope, { sequence: number; promise: Promise<unknown> }>;
+  }>();
   gitStatusCacheTtlMs: number;
   gitStatusTimeoutMs: number;
   maxFileSize: number;
@@ -1725,15 +1743,18 @@ class WorkspaceFileService {
 
   async runWorkspaceMutation<T>(workspaceRoot: unknown, operation: (root: string) => Promise<T>): Promise<T> {
     const root = await this.resolveRoot(workspaceRoot);
-    const previous = this.mutationQueues.get(root) || Promise.resolve();
+    // Nested Projects authorize different roots but can mutate the same file.
+    // Register before waiting so later overlapping operations cannot overtake
+    // this one; unrelated roots retain independent queues.
+    const previous = this.pendingWorkspaceMutations(root);
     /** @type {(value?: unknown) => void} */
     let release = () => {};
     const current = new Promise<void>(resolve => {
       release = resolve;
     });
-    const tail = previous.then(() => current);
+    const tail = Promise.all(previous).then(() => current);
     this.mutationQueues.set(root, tail);
-    await previous;
+    await Promise.all(previous);
     try {
       return await operation(root);
     } finally {
@@ -1744,10 +1765,14 @@ class WorkspaceFileService {
     }
   }
 
+  private pendingWorkspaceMutations(root: string) {
+    return [...this.mutationQueues].filter(([owner]) => isInside(root, owner) || isInside(owner, root))
+      .map(([, pending]) => pending);
+  }
+
   async waitForWorkspaceMutations(workspaceRoot: unknown): Promise<string> {
     const root = await this.resolveRoot(workspaceRoot);
-    const pending = this.mutationQueues.get(root);
-    if (pending) await pending;
+    await Promise.all(this.pendingWorkspaceMutations(root));
     return root;
   }
 
@@ -2441,7 +2466,7 @@ class WorkspaceFileService {
       if (isInside(root, owner) || isInside(owner, root)) read.sequence++;
     }
     for (const cachedRoot of this.gitStatusCache.keys()) {
-      if (isInside(root, cachedRoot)) this.gitStatusCache.delete(cachedRoot);
+      if (isInside(root, cachedRoot) || isInside(cachedRoot, root)) this.gitStatusCache.delete(cachedRoot);
     }
   }
 
@@ -2589,13 +2614,15 @@ class WorkspaceFileService {
       }
 
       const promise = this.loadGitStatusByPath(root).then((value) => {
-        this.gitStatusCache.set(root, {
-          value,
-          expiresAt: Date.now() + this.gitStatusCacheTtlMs,
-        });
+        if (this.gitStatusCache.get(root)?.promise === promise) {
+          this.gitStatusCache.set(root, {
+            value,
+            expiresAt: Date.now() + this.gitStatusCacheTtlMs,
+          });
+        }
         return value;
       }, (error) => {
-        this.gitStatusCache.delete(root);
+        if (this.gitStatusCache.get(root)?.promise === promise) this.gitStatusCache.delete(root);
         throw error;
       });
       this.gitStatusCache.set(root, {
@@ -2646,85 +2673,125 @@ class WorkspaceFileService {
     }
   }
 
+  private async captureHistorySnapshot(root: string, scope: 'current' | 'all', branch: string, head: string): Promise<GitHistorySnapshot> {
+    const { stdout } = await this.execFile(this.gitPath, [
+      '-C', root, 'for-each-ref', '--format=%(objectname)%00%(refname)',
+      'refs/heads', 'refs/tags', 'refs/remotes',
+    ], { timeout: this.gitHistoryTimeoutMs, maxBuffer: MAX_GIT_HISTORY_REFS_BYTES });
+    const refs = String(stdout).trim().split('\n').filter(Boolean).map(line => {
+      const [object, name] = line.split('\0');
+      return { object: normalizeGitObjectId(object), reference: gitHistoryReference(name) };
+    });
+    const references = new Map<string, GitHistoryReference[]>([[head, [{ id: 'HEAD', name: 'HEAD', category: 'head' }]]]);
+    const tips = new Set([head]);
+    if (refs.length) {
+      // Peel annotated (including nested) tags in one bounded batch. Tags of
+      // trees or blobs are not commit roots and cannot enter the history walk.
+      const peeled = await this.execFile(this.gitPath, ['-C', root, 'cat-file', '--batch-check=%(objectname) %(objecttype)'], {
+        input: refs.map(ref => `${ref.object}^{commit}\n`).join(''),
+        timeout: this.gitHistoryTimeoutMs, maxBuffer: MAX_GIT_HISTORY_REFS_BYTES,
+      });
+      String(peeled.stdout).trim().split('\n').forEach((line, index) => {
+        const [object, type] = line.split(' ');
+        if (type !== 'commit') return;
+        const commit = normalizeGitObjectId(object);
+        if (scope === 'all') tips.add(commit);
+        const reference = refs[index]?.reference;
+        if (reference) references.set(commit, [...(references.get(commit) || []), reference]);
+      });
+    }
+    const current = await this.execFile(this.gitPath, ['-C', root, 'rev-parse', '--verify', 'HEAD'], {
+      timeout: 1500, maxBuffer: 64 * 1024,
+    });
+    if (String(current.stdout).trim() !== head || await this.gitBranch(root) !== branch) {
+      throw new WorkspaceFileError('Git history changed while loading. Refresh history.', 409, { reason: 'snapshot-stale' });
+    }
+    return { root, scope, branch, head, tips: [...tips], references, expiresAt: Date.now() + GIT_HISTORY_SNAPSHOT_TTL_MS };
+  }
+
   async gitHistory(workspaceRoot: unknown, options: Record<string, unknown> = {}) {
     const root = await this.resolveHistoryRepository(workspaceRoot, options.repositoryPath);
     const limit = normalizeGitHistoryLimit(options.limit);
-    const skip = normalizeGitHistorySkip(options.skip);
     const scope = options.scope === 'all' ? 'all' : 'current';
-    let branch = '';
-    try {
-      branch = await this.gitBranch(root);
-      await this.execFile(this.gitPath, ['-C', root, 'rev-parse', '--is-inside-work-tree'], {
-        timeout: 1500,
-        maxBuffer: 64 * 1024,
-      });
-    } catch (caught: unknown) {
-      const error = processError(caught);
-      if (error.code === 'ENOENT') throw new WorkspaceFileError('git is not installed', 501);
-      if (error.stderr && /not a git repository/i.test(String(error.stderr))) {
-        return { isGitRepo: false, branch: '', head: '', scope, items: [], hasMore: false, nextSkip: null };
+    let skip = 0;
+    let snapshotId = '';
+    let snapshot: GitHistorySnapshot;
+    if (options.cursor !== undefined) {
+      const cursor = typeof options.cursor === 'string' && /^([a-f0-9-]{36}):(\d+)$/.exec(options.cursor);
+      if (!cursor || !Number.isSafeInteger(Number(cursor[2])) || Number(cursor[2]) > 1_000_000) {
+        throw new WorkspaceFileError('Invalid history cursor', 400);
       }
-      throw new WorkspaceFileError(String(error.stderr || 'git history failed'), 500);
-    }
-
-    let head = '';
-    try {
-      const result = await this.execFile(this.gitPath, ['-C', root, 'rev-parse', '--verify', 'HEAD'], {
-        timeout: 1500,
-        maxBuffer: 64 * 1024,
-      });
-      head = String(result.stdout || '').trim();
-    } catch (caught: unknown) {
-      const error = processError(caught);
-      if (error.stderr && /(needed a single revision|unknown revision|bad revision|ambiguous argument)/i.test(String(error.stderr))) {
-        return { isGitRepo: true, branch, head: '', scope, items: [], hasMore: false, nextSkip: null };
+      snapshotId = cursor[1];
+      skip = Number(cursor[2]);
+      const retained = this.historySnapshots.get(snapshotId);
+      if (!retained || retained.root !== root || retained.scope !== scope || retained.expiresAt <= Date.now()) {
+        throw new WorkspaceFileError('Git history snapshot expired. Refresh history.', 409, { reason: 'snapshot-stale' });
       }
-      throw new WorkspaceFileError(String(error.stderr || 'git history failed'), 500);
+      snapshot = retained;
+    } else {
+      if (normalizeGitHistorySkip(options.skip) > 0) throw new WorkspaceFileError('History continuation requires a snapshot cursor. Refresh history.', 400);
+      const branch = await this.gitBranch(root);
+      try {
+        await this.execFile(this.gitPath, ['-C', root, 'rev-parse', '--is-inside-work-tree'], {
+          timeout: 1500, maxBuffer: 64 * 1024,
+        });
+      } catch (caught) {
+        const error = processError(caught);
+        if (/not a git repository/i.test(String(error.stderr || ''))) {
+          return { isGitRepo: false, branch: '', head: '', scope, items: [], hasMore: false, nextSkip: null };
+        }
+        throw this.gitReadError(error, 'Git history');
+      }
+      let head: string;
+      try {
+        const result = await this.execFile(this.gitPath, ['-C', root, 'rev-parse', '--verify', 'HEAD'], {
+          timeout: 1500, maxBuffer: 64 * 1024,
+        });
+        head = normalizeGitObjectId(String(result.stdout).trim());
+      } catch (caught) {
+        const error = processError(caught);
+        if (/(needed a single revision|unknown revision|bad revision|ambiguous argument)/i.test(String(error.stderr || ''))) {
+          return { isGitRepo: true, branch, head: '', scope, items: [], hasMore: false, nextSkip: null };
+        }
+        throw this.gitReadError(error, 'Git history');
+      }
+      try { snapshot = await this.captureHistorySnapshot(root, scope, branch, head); }
+      catch (caught) {
+        if (caught instanceof WorkspaceFileError) throw caught;
+        throw this.gitReadError(processError(caught), 'Git history references');
+      }
+      snapshotId = crypto.randomUUID();
     }
-
     try {
-      const revisionArgs = scope === 'all'
-        ? ['HEAD', '--branches', '--tags', '--remotes']
-        : ['--first-parent', 'HEAD'];
       const { stdout } = await this.execFile(this.gitPath, [
-        '-C', root,
-        'log',
-        '-z',
-        '--date-order',
-        '--decorate=full',
+        '-C', root, 'log', '-z', '--date-order', '--no-decorate',
         '--format=%H%x00%P%x00%an%x00%ae%x00%aI%x00%s%x00%B%x00%D',
-        `--max-count=${limit + 1}`,
-        `--skip=${skip}`,
-        ...revisionArgs,
+        `--max-count=${limit + 1}`, `--skip=${skip}`,
+        ...(scope === 'current' ? ['--first-parent'] : []), '--stdin',
       ], {
-        timeout: this.gitHistoryTimeoutMs,
-        maxBuffer: this.gitHistoryMaxBuffer,
+        input: snapshot.tips.join('\n') + '\n',
+        timeout: this.gitHistoryTimeoutMs, maxBuffer: this.gitHistoryMaxBuffer,
       });
       const parsed = parseGitHistoryLog(stdout);
       const hasMore = parsed.length > limit;
-      const items = parsed.slice(0, limit);
+      const items = parsed.slice(0, limit).map(item => ({ ...item, references: snapshot.references.get(item.id) || [] }));
+      if (hasMore) {
+        for (const [id, captured] of this.historySnapshots) {
+          if (captured.expiresAt <= Date.now()) this.historySnapshots.delete(id);
+        }
+        this.historySnapshots.delete(snapshotId);
+        while (this.historySnapshots.size >= MAX_GIT_HISTORY_SNAPSHOTS) this.historySnapshots.delete(this.historySnapshots.keys().next().value!);
+        snapshot.expiresAt = Date.now() + GIT_HISTORY_SNAPSHOT_TTL_MS;
+        this.historySnapshots.set(snapshotId, snapshot);
+      }
       return {
-        isGitRepo: true,
-        branch,
-        head,
-        scope,
-        items,
-        hasMore,
+        isGitRepo: true, branch: snapshot.branch, head: snapshot.head, scope, items, hasMore,
         nextSkip: hasMore ? skip + items.length : null,
+        nextCursor: hasMore ? `${snapshotId}:${skip + items.length}` : null,
       };
-    } catch (caught: unknown) {
-      const error = processError(caught);
-      if (error.code === 'ENOENT') throw new WorkspaceFileError('git is not installed', 501);
-      if (error.code === 'ETIMEDOUT' || error.signal === 'SIGTERM') {
-        throw new WorkspaceFileError('git history timed out', 504);
-      }
-      if (error.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') {
-        throw new WorkspaceFileError('git history output is too large', 413);
-      }
-      if (error.stderr && /not a git repository/i.test(String(error.stderr))) {
-        return { isGitRepo: false, branch: '', head: '', scope, items: [], hasMore: false, nextSkip: null };
-      }
-      throw new WorkspaceFileError(String(error.stderr || 'git history failed'), 500);
+    } catch (caught) {
+      if (caught instanceof WorkspaceFileError) throw caught;
+      throw this.gitReadError(processError(caught), 'Git history');
     }
   }
 
@@ -2860,32 +2927,48 @@ class WorkspaceFileService {
     return { revision, items };
   }
 
-  private beginChangeRead(root: string) {
-    const read = this.activeChangeReads.get(root) || { sequence: 0, readers: 0 };
-    this.activeChangeReads.set(root, read);
-    const sequence = ++read.sequence;
-    read.readers++;
-    return {
-      verify: () => {
-        if (sequence !== read.sequence) throw new WorkspaceFileError('Repository changes changed while loading. Refresh the list.', 409, { reason: 'snapshot-stale' });
-      },
-      release: () => { if (--read.readers === 0) this.activeChangeReads.delete(root); },
+  private async withChangeRead<T>(root: string, scope: ChangeReadScope, load: (verify: () => void) => Promise<T>): Promise<T> {
+    const read = this.activeChangeReads.get(root) || {
+      sequence: 0, readers: 0,
+      pending: new Map<ChangeReadScope, { sequence: number; promise: Promise<unknown> }>(),
     };
+    this.activeChangeReads.set(root, read);
+    const pending = read.pending.get(scope);
+    // Each scope has one result type and one capture owner. Only actual
+    // invalidation advances the sequence; another reader is not a write.
+    if (pending?.sequence === read.sequence) return pending.promise as Promise<T>;
+    const sequence = read.sequence;
+    read.readers++;
+    const verify = () => {
+      if (sequence !== read.sequence) throw new WorkspaceFileError('Repository changes changed while loading. Refresh the list.', 409, { reason: 'snapshot-stale' });
+    };
+    const promise = Promise.resolve().then(() => load(verify)).finally(() => {
+      if (read.pending.get(scope)?.promise === promise) read.pending.delete(scope);
+      if (--read.readers === 0) this.activeChangeReads.delete(root);
+    });
+    read.pending.set(scope, { sequence, promise });
+    return promise;
   }
 
-  private rememberChangeInventory(root: string, snapshots: Map<string, { root: string; scope?: 'tracked' | 'untracked'; items: WorkspaceChangeItem[] }>) {
-    for (const [owner, inventory] of this.changeInventories) {
-      if (inventory.expiresAt <= Date.now() || owner === root) this.changeInventories.delete(owner);
+  private rememberChangeInventory(root: string, scope: ChangeReadScope, snapshots: ChangeInventory['snapshots']) {
+    for (const [owner, inventories] of this.changeInventories) {
+      for (const [kind, inventory] of inventories) {
+        if (inventory.expiresAt <= Date.now()) inventories.delete(kind);
+      }
+      if (inventories.size === 0) this.changeInventories.delete(owner);
     }
+    const inventories = this.changeInventories.get(root) || new Map<ChangeReadScope, ChangeInventory>();
+    this.changeInventories.delete(root);
     while (this.changeInventories.size >= 8) this.changeInventories.delete(this.changeInventories.keys().next().value!);
-    // One Project publishes all of its (at most 32) repositories atomically.
-    this.changeInventories.set(root, { expiresAt: Date.now() + 30000, snapshots });
+    // A Project retains one full inventory and at most two direct category
+    // captures. Publishing one scope must not evict another scope's cursors.
+    inventories.set(scope, { expiresAt: Date.now() + 30000, snapshots });
+    this.changeInventories.set(root, inventories);
   }
 
   async changesInventory(workspaceRoot: unknown) {
     const root = await this.resolveRoot(workspaceRoot);
-    const read = this.beginChangeRead(root);
-    try {
+    return this.withChangeRead(root, 'inventory', async verify => {
       const repositories = await discoverWorkspaceRepositories(this, root);
       const snapshots = new Map<string, { root: string; items: WorkspaceChangeItem[] }>();
       const inventory = await mapWithConcurrency(repositories, 4, async repository => {
@@ -2900,10 +2983,10 @@ class WorkspaceFileService {
           return { path: repository.path, error: caught instanceof Error ? caught.message : 'Repository changes unavailable', truncated: false };
         }
       });
-      read.verify();
-      this.rememberChangeInventory(root, snapshots);
+      verify();
+      this.rememberChangeInventory(root, 'inventory', snapshots);
       return { items: [], repositories: inventory, truncated: false };
-    } finally { read.release(); }
+    });
   }
 
   async changesPage(workspaceRoot: unknown, options: { repositoryPath?: string; scope: 'tracked' | 'untracked'; cursor?: string; limit?: number }) {
@@ -2913,21 +2996,25 @@ class WorkspaceFileService {
     if (options.cursor) {
       const match = /^([a-f0-9]{64}|non-git):(\d+)$/.exec(options.cursor);
       if (!match || !Number.isSafeInteger(Number(match[2]))) throw new WorkspaceFileError('Invalid changes cursor', 400);
-      const inventory = [...this.changeInventories.values()].find(candidate => candidate.expiresAt > Date.now()
-        && candidate.snapshots.get(match[1])?.root === root);
+      const inventory = [...this.changeInventories.values()].flatMap(inventories => [...inventories.values()])
+        .find(candidate => {
+          const captured = candidate.snapshots.get(match[1]);
+          return candidate.expiresAt > Date.now() && captured?.root === root
+            && (!captured.scope || captured.scope === options.scope);
+        });
       const cached = inventory?.snapshots.get(match[1]);
-      if (!cached || (cached.scope && cached.scope !== options.scope)) {
+      if (!cached) {
         throw new WorkspaceFileError('Repository changes snapshot changed or expired. Refresh the list before loading more.', 409, { reason: 'snapshot-stale' });
       }
       snapshot = { revision: match[1], items: cached.items };
       offset = Number(match[2]);
     } else {
-      const read = this.beginChangeRead(root);
-      try {
-        snapshot = await this.changeSnapshot(root, options.scope);
-        read.verify();
-        this.rememberChangeInventory(root, new Map([[snapshot.revision, { root, scope: options.scope, items: snapshot.items }]]));
-      } finally { read.release(); }
+      snapshot = await this.withChangeRead(root, options.scope, async verify => {
+        const captured = await this.changeSnapshot(root, options.scope);
+        verify();
+        this.rememberChangeInventory(root, options.scope, new Map([[captured.revision, { root, scope: options.scope, items: captured.items }]]));
+        return captured;
+      });
     }
     const { revision, items } = snapshot;
     const selected = items.filter(item => (item.gitStatus === 'untracked') === (options.scope === 'untracked'));
@@ -4786,6 +4873,7 @@ class WorkspaceFileService {
     for (const id of this.treeSnapshots.keys()) this.releaseTreeSnapshot(id);
     await this.treeIndex.dispose();
     this.blameSnapshots.clear();
+    this.historySnapshots.clear();
     const watchers = Array.from(this.watchers.values());
     const exactWatchers = Array.from(this.exactWatchers.values());
     this.watchers.clear();

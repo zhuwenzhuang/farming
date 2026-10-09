@@ -174,9 +174,11 @@ function RepositoryGitHistorySection({
     setHistoryLoading(true)
     setHistoryError('')
     try {
+      const cursor = replace ? undefined : history?.nextCursor || undefined
+      if (!replace && !cursor) throw new Error('History snapshot unavailable. Refresh history.')
       const page = await fetchWorkspaceGitHistory(agentId, {
         limit,
-        skip,
+        ...(replace ? { skip } : { cursor }),
         scope,
         repositoryPath,
         signal: controller.signal,
@@ -198,7 +200,7 @@ function RepositoryGitHistorySection({
         setHistoryLoading(false)
       }
     }
-  }, [agentId, historyScope, repositoryPath])
+  }, [agentId, history, historyScope, repositoryPath])
 
   useEffect(() => {
     if (collapsed || history || historyLoading || historyError) return

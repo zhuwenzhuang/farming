@@ -156,6 +156,12 @@ for (const operation of ['blame', 'blame-capability']) {
     }).ok, revision === undefined || revision === 'a'.repeat(40));
   }
 }
+for (const cursor of [undefined, 'snapshot:50', 42, 'x'.repeat(129)]) {
+  assert.strictEqual(validateClientMessage({
+    type: 'workspace-request', requestId: 'history',
+    request: { operation: 'history', rootId: 'root-1', cursor },
+  }).ok, cursor === undefined || cursor === 'snapshot:50');
+}
 for (const operation of ['history', 'history-changes']) {
   const request = { operation, rootId: 'root-1', commit: 'a'.repeat(40) };
   for (const repositoryPath of [undefined, 'packages/engine']) {

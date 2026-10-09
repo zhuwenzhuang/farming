@@ -222,6 +222,7 @@ export interface WorkspaceGitHistory {
   items: WorkspaceGitHistoryItem[]
   hasMore: boolean
   nextSkip: number | null
+  nextCursor?: string | null
 }
 
 export interface WorkspaceGitHistoryChange {
@@ -678,13 +679,14 @@ export async function switchWorkspaceGitBranch(
   }, { mutation: true, signal: options.signal })
 }
 
-export async function fetchWorkspaceGitHistory(rootId: string, options: { repositoryPath?: string; limit?: number; skip?: number; scope?: WorkspaceGitHistory['scope']; signal?: AbortSignal } = {}) {
+export async function fetchWorkspaceGitHistory(rootId: string, options: { repositoryPath?: string; limit?: number; skip?: number; cursor?: string; scope?: WorkspaceGitHistory['scope']; signal?: AbortSignal } = {}) {
   return runWorkspaceRequest<WorkspaceGitHistory>({
     operation: 'history',
     rootId,
     ...(options.repositoryPath ? { repositoryPath: options.repositoryPath } : {}),
     ...(options.limit ? { limit: options.limit } : {}),
     ...(options.skip ? { skip: options.skip } : {}),
+    ...(options.cursor ? { cursor: options.cursor } : {}),
     ...(options.scope ? { scope: options.scope } : {}),
   }, { signal: options.signal })
 }

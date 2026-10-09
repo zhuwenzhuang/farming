@@ -146,10 +146,17 @@ Snapshot 失败或延迟。Decoration Result 只有在 Workspace Generation 仍�
 属于对应 Structure Snapshot 时才可提交；它只更新 Path-scoped Decoration Store，不改变
 Expansion State 或 Tree Data。重复的相同 Decoration Value 不触发 Subscriber Notification。
 
+后端 Git Cache 只允许仍拥有条目的请求提交完成结果。失效覆盖重叠的规范化 Project Root；
+迟到的成功不能重新填入已失效条目，迟到的失败也不能删除新请求或新结果。
+
 Create、save、rename、move 和 delete 继续使用版本校验。timeout 或 response loss 表示
 结果不确定，不能直接当作失败：必须重新读取文件或父目录进行 reconcile，不能盲目
 重放。成功 mutation 通过现有 owner 刷新或失效相关目录快照、retained resource model、
 open working copy、Tab 与 reveal target。
+
+后端对规范化 Root 重叠的 Project 串行执行 Farming Mutation，版本检查和文件写入属于同一次准入。
+操作先占据队列位置再等待，成功和失败都会释放位置；等待读取前写入完成时遵守相同重叠规则，
+互不重叠的 Root 保持独立。此排序不会锁住外部文件写入者，内容版本校验和不确定结果协调仍然适用。
 
 ## 性能契约
 

@@ -763,6 +763,7 @@ async function executeWorkspaceFileRequest(
         repositoryPath: request.repositoryPath,
         limit: request.limit,
         skip: request.skip,
+        cursor: request.cursor,
         scope: request.scope,
       });
     }

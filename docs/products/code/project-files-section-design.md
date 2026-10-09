@@ -528,6 +528,17 @@ the parent when a child disappears. Switching repository cancels old requests,
 clears their results and preserves the History disclosure state. Only the
 current repository may publish results. Failure terminates loading and requires
 explicit retry; refresh rediscovers repository inventory.
+History's backend owns a bounded snapshot for each page sequence: captured HEAD,
+branch, commit tips and reference labels. Pages walk immutable commit IDs, never
+live refs with a new offset. Concurrent commits, resets, branch switches and ref
+updates do not change an existing sequence; explicit refresh starts a new one.
+Continuation requires a cursor bound to that repository and scope. At most 16
+snapshots are retained, with five minutes of idle lifetime. Expiry, eviction,
+restart or unavailable Git objects end continuation explicitly, preserving
+already displayed entries and offering refresh instead of mixing histories.
+Reference capture and Git walks have output and time bounds; an observed HEAD
+or branch change during capture fails before publishing a mixed snapshot.
+
 
 The backend owns repository inventory, exact per-category counts and errors.
 Inventory reads must finish within bounded Git time and output budgets; exceeding
@@ -539,10 +550,17 @@ loaded count. A zero count never means an omitted, unqueried category.
 
 Pages carry a fingerprint of an immutable inventory and an offset. Continuation
 reads that captured inventory without another Git scan. Inventories expire after
-30 seconds; at most eight complete Project inventories are retained, each with
-all of its discovered repositories. A fresh inventory for the same Project,
-known workspace writes or watch events, expiry, eviction, and server restart
-invalidate continuation and require refresh. External changes not yet observed
+30 seconds; at most eight Projects are retained, each with a complete inventory
+of its discovered repositories and up to two direct category snapshots.
+Concurrent reads of the same Project and scope share one capture; starting a
+read does not invalidate another reader. Full inventories, direct Tracked reads,
+and direct Untracked reads retain independent cursors. A fresh capture replaces
+only its own scope. Known workspace writes or watch events invalidate all
+affected scopes, including captures still in flight; subsequent reads cannot
+join those invalidated captures. Success or failure releases shared read
+ownership, and a cancelled browser consumer cannot cancel another consumer's
+capture. Git deadlines still bound shared work. Expiry, eviction, and server
+restart also invalidate continuation and require refresh. External changes not yet observed
 by a watcher appear on the next fresh read, never halfway through a page sequence.
 Fresh Tracked reads exclude untracked enumeration before parsing and pagination. The browser fences reads by Project, repository,
 category and refresh generation; stale responses cannot replace or append to a
