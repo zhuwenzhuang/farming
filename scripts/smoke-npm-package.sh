@@ -112,8 +112,8 @@ if [ ! -x "${RIPGREP_BIN}" ] || ! "${RIPGREP_BIN}" --version | grep -q '^ripgrep
   echo "npm package omitted or corrupted Farming managed ripgrep: ${RIPGREP_BIN}" >&2
   exit 1
 fi
-CODEX_ACP_VENDOR="${PACKAGE_ROOT}/dist/acp/codex-acp-2.1.0.mjs"
-CLAUDE_ACP_VENDOR="${PACKAGE_ROOT}/dist/acp/claude-agent-acp-0.84.0.mjs"
+CODEX_ACP_VENDOR="${PACKAGE_ROOT}/dist/acp/codex-acp-2.1.1.mjs"
+CLAUDE_ACP_VENDOR="${PACKAGE_ROOT}/dist/acp/claude-agent-acp-0.88.0.mjs"
 PI_ACP_VENDOR="${PACKAGE_ROOT}/dist/acp/pi-acp-0.0.34.mjs"
 for packaged_ui_file in \
   frontend/agent-state-bridge.js \

@@ -1,8 +1,7 @@
 diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_modules/@agentclientprotocol/codex-acp/dist/index.js
-index 51d20c56..d68e914f 100755
 --- a/node_modules/@agentclientprotocol/codex-acp/dist/index.js
 +++ b/node_modules/@agentclientprotocol/codex-acp/dist/index.js
-@@ -29104,6 +29104,10 @@ var GOAL_EXTENSION_VERSION = 1;
+@@ -29105,6 +29105,10 @@
  var GOAL_CONTROL_METHOD = "_session/goal";
  var LEGACY_GOAL_CONTROL_METHOD = "_codex/session/goal_control";
  var GOAL_CONTROL_ACTIONS = ["set", "pause", "resume", "clear"];
@@ -13,7 +12,7 @@ index 51d20c56..d68e914f 100755
  
  // src/ThreadGoalSnapshot.ts
  function toGoalStatus(status) {
-@@ -29136,7 +29140,7 @@
+@@ -29137,7 +29141,7 @@
  function sameThreadGoalSnapshot(left, right) {
    if (left === void 0) return false;
    if (left === null || right === null) return left === right;
@@ -22,7 +21,7 @@ index 51d20c56..d68e914f 100755
  }
  function goalSessionInfoUpdate(goal, airClient) {
    if (!airClient) return null;
-@@ -29323,9 +29327,7 @@ var CodexSubagentEventRouter = class _CodexSubagentEventRouter {
+@@ -29324,9 +29328,7 @@
        const childTurn = this.isKnownChild(notification.params.threadId);
        const state = terminalStateFromTurn(notification.params.turn.status);
        if (!state) return childTurn;
@@ -33,7 +32,7 @@ index 51d20c56..d68e914f 100755
          if (this.pendingSpawns.has(notification.params.threadId)) {
            this.finishPending(notification.params.threadId);
          } else {
-@@ -30170,6 +30172,12 @@ var CodexEventHandler = class {
+@@ -30199,6 +30201,12 @@
     * remains installed until the ACP session closes, so terminal errors need a durable session-level path
     * instead of entering a turn buffer that will never be flushed.
     */
@@ -46,7 +45,7 @@ index 51d20c56..d68e914f 100755
    async handleSessionScopedNotification(notification) {
      if (notification.method !== "error") {
        await this.handleNotification(notification);
-@@ -30385,13 +30393,15 @@ var CodexEventHandler = class {
+@@ -30414,13 +30422,15 @@
        case "turn/started":
          this.sessionState.currentTurnId = notification.params.turn.id;
          await this.flushPendingErrors();
@@ -65,7 +64,7 @@ index 51d20c56..d68e914f 100755
        case "thread/tokenUsage/updated":
          return this.createUsageUpdate(notification.params);
        case "thread/name/updated":
-@@ -32023,7 +32033,7 @@ var CodexElicitationHandler = class {
+@@ -32104,7 +32114,7 @@
      const properties = {};
      const required2 = [];
      const questionIds = new Set(params.questions.map((question) => question.id));
@@ -74,7 +73,7 @@ index 51d20c56..d68e914f 100755
      for (const question of params.questions) {
        const options = question.options ?? [];
        const hasOptions = options.length > 0;
-@@ -32127,7 +32137,7 @@ var CodexElicitationHandler = class {
+@@ -32208,7 +32218,7 @@
      const answers = {};
      const content = contentRecord(response.content);
      const questionIds = new Set(params.questions.map((question) => question.id));
@@ -83,7 +82,7 @@ index 51d20c56..d68e914f 100755
      for (const question of params.questions) {
        const answerValues = [];
        const hasOtherAnswer = question.isOther && question.options != null && question.options.length > 0;
-@@ -33502,6 +33512,9 @@ var CodexAcpClient = class {
+@@ -33583,6 +33593,9 @@
    sessionNotificationQueues = /* @__PURE__ */ new Map();
    subagents;
    skillExtraRoots = [];
@@ -93,7 +92,7 @@ index 51d20c56..d68e914f 100755
    configPath = null;
    constructor(codexClient, codexConfig, modelProvider) {
      this.codexClient = codexClient;
-@@ -33536,12 +33549,17 @@ var CodexAcpClient = class {
+@@ -33617,12 +33630,17 @@
    getHomePath() {
      return this.configPath;
    }
@@ -111,7 +110,7 @@ index 51d20c56..d68e914f 100755
      switch (authRequest.methodId) {
        case "api-key":
          return await this.authenticateWithApiKey(authRequest);
-@@ -33688,6 +33706,7 @@ var CodexAcpClient = class {
+@@ -33769,6 +33787,7 @@
      const accountUpdatedPromise = this.awaitNextAccountUpdated();
      await this.codexClient.accountLogout();
      await accountUpdatedPromise;
@@ -119,7 +118,7 @@ index 51d20c56..d68e914f 100755
    }
    async authRequired() {
      if (this.gatewayConfig != null) {
-@@ -33728,6 +33747,7 @@ var CodexAcpClient = class {
+@@ -33809,6 +33828,7 @@
          wire_api: wireApi
        }
      };
@@ -127,7 +126,7 @@ index 51d20c56..d68e914f 100755
    }
    /**
     * `providers/list`: returns Codex's OpenAI slot. With no ACP override, the
-@@ -33800,6 +33820,7 @@ var CodexAcpClient = class {
+@@ -33881,6 +33901,7 @@
      if (request.providerId === OPENAI_PROVIDER_ID) {
        this.gatewayConfig = null;
        this.gatewayConfigSource = null;
@@ -135,7 +134,7 @@ index 51d20c56..d68e914f 100755
      }
      const current = this.gatewayConfig ? {
        apiType: gatewayApiTypeFromConfig(this.gatewayConfig),
-@@ -33907,7 +33928,7 @@ var CodexAcpClient = class {
+@@ -33988,7 +34009,7 @@
      await this.refreshSkills(request.cwd, additionalDirectories);
      const response = await this.resumeThread({
        excludeTurns: true,
@@ -144,7 +143,7 @@ index 51d20c56..d68e914f 100755
        cwd: request.cwd,
        modelProvider: await this.getResumeModelProvider(),
        threadId: request.sessionId
-@@ -33931,7 +33952,7 @@ var CodexAcpClient = class {
+@@ -34012,7 +34033,7 @@
      return await forkSession(request, additionalDirectories, {
        codexClient: this.codexClient,
        refreshSkills: (cwd, directories) => this.refreshSkills(cwd, directories),
@@ -153,7 +152,7 @@ index 51d20c56..d68e914f 100755
        getResumeModelProvider: () => this.getResumeModelProvider(),
        fetchAvailableModels: () => this.fetchAvailableModels(),
        createCurrentModelId: (models, model, reasoningEffort) => this.createModelId(models, model, reasoningEffort).toString(),
-@@ -33943,7 +33964,7 @@ var CodexAcpClient = class {
+@@ -34024,7 +34045,7 @@
      await this.refreshSkills(request.cwd, additionalDirectories);
      const response = await this.resumeThread({
        excludeTurns: true,
@@ -162,7 +161,7 @@ index 51d20c56..d68e914f 100755
        cwd: request.cwd,
        modelProvider: await this.getResumeModelProvider(),
        threadId: request.sessionId
-@@ -33958,7 +33979,7 @@ var CodexAcpClient = class {
+@@ -34039,7 +34060,7 @@
      } else if (response.materialized) {
        const legacy = (await this.codexClient.threadReadWithHistory(response.thread.id)).thread;
        thread = { ...legacy, turns: [] };
@@ -171,7 +170,7 @@ index 51d20c56..d68e914f 100755
      }
      const codexModels = await this.fetchAvailableModels();
      const currentModelId = this.createModelId(codexModels, response.model, response.reasoningEffort).toString();
-@@ -33975,7 +33996,21 @@ var CodexAcpClient = class {
+@@ -34056,7 +34077,21 @@
        additionalDirectories
      };
    }
@@ -194,7 +193,7 @@ index 51d20c56..d68e914f 100755
     * The items of the turn at `index` of a session, oldest first, in pages.
     * Returns null when the session has fewer turns.
     */
-@@ -34004,7 +34039,7 @@ var CodexAcpClient = class {
+@@ -34085,7 +34120,7 @@
      const additionalDirectories = readAdditionalDirectories(request.cwd, request.additionalDirectories, request._meta);
      await this.refreshSkills(request.cwd, additionalDirectories);
      const response = await this.codexClient.threadStart({
@@ -203,7 +202,7 @@ index 51d20c56..d68e914f 100755
        modelProvider: this.getModelProvider(),
        cwd: request.cwd
      });
-@@ -34033,13 +34068,11 @@ var CodexAcpClient = class {
+@@ -34114,13 +34149,11 @@
    }
    async deleteSession(sessionId) {
      try {
@@ -222,10 +221,11 @@ index 51d20c56..d68e914f 100755
      }
    }
    async renameSession(sessionId, name) {
-@@ -34060,6 +34093,59 @@ var CodexAcpClient = class {
+@@ -34140,6 +34173,59 @@
+   async getGoal(sessionId) {
      const response = await this.codexClient.threadGoalGet({ threadId: sessionId });
      return response?.goal ?? null;
-   }
++  }
 +  onClientTransportEvent(callback) {
 +    this.codexClient.onClientTransportEvent(callback);
 +  }
@@ -278,11 +278,10 @@ index 51d20c56..d68e914f 100755
 +      )
 +    );
 +    return resolved.filter(Boolean);
-+  }
+   }
    async setGoal(sessionId, objective, onTurnStarted, onGoalSet) {
      const params = {
-       threadId: sessionId,
-@@ -34103,8 +34189,20 @@ var CodexAcpClient = class {
+@@ -34184,8 +34270,20 @@
    getMcpServerStartupVersion() {
      return this.codexClient.getMcpServerStartupVersion();
    }
@@ -304,7 +303,7 @@ index 51d20c56..d68e914f 100755
      const activeProvider = this.gatewayConfig ? {
        apiType: gatewayApiTypeFromConfig(this.gatewayConfig),
        baseUrl: this.gatewayConfig.config.base_url
-@@ -34118,6 +34216,12 @@ var CodexAcpClient = class {
+@@ -34199,6 +34297,12 @@
      });
      const mergedConfig = {
        ...forceGitRootTurnDiffPaths(mergeGatewayConfig(this.config, this.gatewayConfig)),
@@ -317,7 +316,7 @@ index 51d20c56..d68e914f 100755
        projects: Object.fromEntries(sessionRoots.map((root) => [root, {
          trust_level: "trusted"
        }]))
-@@ -34171,6 +34275,23 @@ var CodexAcpClient = class {
+@@ -34252,6 +34356,23 @@
        await this.codexClient.skillsExtraRootsSet({ extraRoots: skillExtraRoots });
        this.skillExtraRoots = skillExtraRoots;
      }
@@ -341,7 +340,7 @@ index 51d20c56..d68e914f 100755
    }
    /**
     * Create a codex config entry for MCP server
-@@ -34231,11 +34352,9 @@ var CodexAcpClient = class {
+@@ -34312,11 +34433,9 @@
      });
    }
    async waitForSessionNotifications(sessionId) {
@@ -356,10 +355,11 @@ index 51d20c56..d68e914f 100755
    }
    enqueueSessionNotification(sessionId, operation) {
      const run = async () => {
-@@ -34273,6 +34392,14 @@ var CodexAcpClient = class {
+@@ -34353,6 +34472,14 @@
+       model: modelId.model,
        serviceTier
      }, onTurnStarted);
-   }
++  }
 +  async steerPrompt(sessionId, turnId, prompt, clientMessageId) {
 +    return await this.codexClient.turnSteer({
 +      threadId: sessionId,
@@ -367,11 +367,10 @@ index 51d20c56..d68e914f 100755
 +      expectedTurnId: turnId,
 +      clientUserMessageId: clientMessageId ?? null
 +    });
-+  }
+   }
    async setCollaborationMode(sessionId, mode, currentModelId) {
      await this.codexClient.threadSettingsUpdate({
-       threadId: sessionId,
-@@ -34395,13 +34522,36 @@ var CodexAcpClient = class {
+@@ -34476,13 +34603,36 @@
      });
    }
    async fetchAvailableModels() {
@@ -415,7 +414,7 @@ index 51d20c56..d68e914f 100755
      return models;
    }
  };
-@@ -35040,7 +35190,7 @@ var CodexAppServerClient = class {
+@@ -35121,7 +35271,7 @@
        sortDirection: "asc"
      }));
      for await (const page of pages) {
@@ -424,17 +423,17 @@ index 51d20c56..d68e914f 100755
        const lastIndex = items.findIndex((item) => item.id === lastItemId);
        if (lastIndex >= 0) {
          yield items.slice(0, lastIndex + 1);
-@@ -35088,6 +35238,9 @@ var CodexAppServerClient = class {
+@@ -35168,6 +35318,9 @@
+   }
    async threadArchive(params) {
      return await this.sendRequest({ method: "thread/archive", params });
-   }
++  }
 +  async threadDelete(params) {
 +    return await this.sendRequest({ method: "thread/delete", params });
-+  }
+   }
    async threadUnsubscribe(params) {
      return await this.sendRequest({ method: "thread/unsubscribe", params });
-   }
-@@ -36503,7 +36656,7 @@ function sameAuthStatus(previous, next) {
+@@ -36584,7 +36737,7 @@
  var LEGACY_SET_SESSION_MODEL_METHOD = "session/set_model";
  var SESSION_STEERING_METHOD = "_session/steering";
  function isExtMethodRequest(request) {
@@ -443,7 +442,7 @@ index 51d20c56..d68e914f 100755
  }
  
  // src/tool-calls/ClientCapabilities.ts
-@@ -37262,6 +37415,53 @@ function clientSupportsTypedSessionFailures(capabilities) {
+@@ -37343,6 +37496,53 @@
  function clientSupportsAgentFileChangeReports(capabilities) {
    return clientSupportsAirCapability(capabilities, AIR_AGENT_FILE_CHANGE_REPORT_KEY);
  }
@@ -497,7 +496,7 @@ index 51d20c56..d68e914f 100755
  var CodexAcpServer = class {
    codexAcpClient;
    connection;
-@@ -37287,6 +37487,13 @@ var CodexAcpServer = class {
+@@ -37368,6 +37568,13 @@
    sessionGenerations;
    sessionOpenGenerations;
    goalControlGenerations;
@@ -511,7 +510,7 @@ index 51d20c56..d68e914f 100755
    permissionLifecycleContexts;
    codexProcessState;
    codexProcessGeneration = 0;
-@@ -37302,6 +37509,15 @@ var CodexAcpServer = class {
+@@ -37383,6 +37590,15 @@
      this.sessionGenerations = /* @__PURE__ */ new Map();
      this.sessionOpenGenerations = /* @__PURE__ */ new Map();
      this.goalControlGenerations = /* @__PURE__ */ new Map();
@@ -527,7 +526,7 @@ index 51d20c56..d68e914f 100755
      this.permissionLifecycleContexts = /* @__PURE__ */ new WeakMap();
      this.reportingConnection = new ToolCallReportingConnection(connection);
      this.connection = this.reportingConnection.asClientConnection();
-@@ -37318,6 +37534,7 @@ var CodexAcpServer = class {
+@@ -37399,6 +37615,7 @@
      this.booleanConfigOptionsSupported = false;
      this.currentAuthStatus = null;
      this.availableCommands = this.createAvailableCommands(codexAcpClient);
@@ -535,19 +534,19 @@ index 51d20c56..d68e914f 100755
      this.observeCodexProcess();
    }
    createAvailableCommands(client) {
-@@ -37328,6 +37545,11 @@ var CodexAcpServer = class {
+@@ -37408,6 +37625,11 @@
+       (operation) => this.runWithProcessCheck(operation),
        () => this.refreshAuthState(null)
      );
-   }
++  }
 +  bindClientTransportEvents(client) {
 +    client.onClientTransportEvent((event) => {
 +      this.handleSubagentTransportEvent(event);
 +    });
-+  }
+   }
    async initialize(_params) {
      logger.log("Initialize request received");
-     this.clientInfo = _params.clientInfo ?? null;
-@@ -37346,9 +37568,9 @@ var CodexAcpServer = class {
+@@ -37427,9 +37649,9 @@
      const sessionCapabilities = {
        resume: {},
        list: {},
@@ -558,7 +557,7 @@ index 51d20c56..d68e914f 100755
        additionalDirectories: {},
        subagents: {}
      };
-@@ -37376,6 +37598,12 @@ var CodexAcpServer = class {
+@@ -37457,6 +37679,12 @@
            sse: false
          },
          _meta: {
@@ -571,10 +570,11 @@ index 51d20c56..d68e914f 100755
            // Presence means "this agent pushes `_auth/status_update`". It
            // never carries a payload, and the client never asks for one.
            [AUTH_STATUS_META_KEY]: authStatusCapability()
-@@ -37408,6 +37636,77 @@ var CodexAcpServer = class {
+@@ -37488,6 +37716,77 @@
+         } : {}
        }
      };
-   }
++  }
 +  async listRelatedSessions(params) {
 +    const root = this.sessions.get(params.parentSessionId);
 +    if (!root) throw RequestError.invalidParams(void 0, "Parent session is not active");
@@ -645,11 +645,10 @@ index 51d20c56..d68e914f 100755
 +      truncated: Boolean(page.nextCursor), nextCursor: page.nextCursor || null, status: thread.status?.type || "unknown" };
 +    if (JSON.stringify(result).length > 2 * 1024 * 1024) throw new Error("Subagent history exceeds the read limit");
 +    return result;
-+  }
+   }
    async extMethod(method, params) {
      const methodRequest = { method, params };
-     if (!isExtMethodRequest(methodRequest)) {
-@@ -37496,6 +37795,31 @@ var CodexAcpServer = class {
+@@ -37577,6 +37876,31 @@
          }
          return {};
        }
@@ -681,7 +680,7 @@ index 51d20c56..d68e914f 100755
      }
    }
    async checkAuthorization() {
-@@ -37666,6 +37990,7 @@ Check ${configPath} and project .codex directories, especially their config.toml
+@@ -37747,6 +38071,7 @@
        cwd: request.cwd,
        additionalDirectories: sessionMetadata.additionalDirectories,
        mcpServers: requestedMcpServers,
@@ -689,7 +688,7 @@ index 51d20c56..d68e914f 100755
        fastModeEnabled: sessionMetadata.currentServiceTier === "fast",
        currentModelSupportsFast,
        sessionMcpServers,
-@@ -37797,6 +38122,7 @@ Check ${configPath} and project .codex directories, especially their config.toml
+@@ -37878,6 +38203,7 @@
      }
      await this.getSessionState(sessionId).asyncTasks.reconcile();
      await previousTitleGen?.waitForIdle(TITLE_GENERATION_SETTLE_TIMEOUT_MS);
@@ -697,7 +696,7 @@ index 51d20c56..d68e914f 100755
      logger.log("Session loaded", {
        sessionId,
        modelId: modelState.currentModelId,
-@@ -37808,6 +38134,27 @@ Check ${configPath} and project .codex directories, especially their config.toml
+@@ -37889,6 +38215,27 @@
        ...this.createSessionConfigOptionsResponse(this.getSessionState(sessionId))
      };
    }
@@ -725,7 +724,7 @@ index 51d20c56..d68e914f 100755
    async resumeSession(params) {
      if (this.providerUpdate !== null) {
        await this.providerUpdate;
-@@ -37819,6 +38166,7 @@ Check ${configPath} and project .codex directories, especially their config.toml
+@@ -37900,6 +38247,7 @@
        modelId: modelState.currentModelId,
        availableModelCount: modelState.availableModels.length
      });
@@ -733,7 +732,7 @@ index 51d20c56..d68e914f 100755
      return {
        models: modelState,
        modes: modeState,
-@@ -37862,6 +38210,70 @@ Check ${configPath} and project .codex directories, especially their config.toml
+@@ -37943,6 +38291,70 @@
        })
      };
    }
@@ -804,7 +803,7 @@ index 51d20c56..d68e914f 100755
    async closeSession(params) {
      logger.log("Closing session...", { sessionId: params.sessionId });
      const closeGeneration = this.bumpSessionGeneration(params.sessionId);
-@@ -37880,6 +38292,7 @@ Check ${configPath} and project .codex directories, especially their config.toml
+@@ -37961,6 +38373,7 @@
          await activePrompt.completion;
        }
        await this.runWithProcessCheck(() => this.codexAcpClient.closeSession(params.sessionId));
@@ -812,7 +811,7 @@ index 51d20c56..d68e914f 100755
        logger.log("Session closed", { sessionId: params.sessionId });
      } finally {
        if (this.getSessionGeneration(params.sessionId) === closeGeneration) {
-@@ -37894,7 +38307,259 @@ Check ${configPath} and project .codex directories, especially their config.toml
+@@ -37975,7 +38388,259 @@
      }
      return {};
    }
@@ -1072,7 +1071,7 @@ index 51d20c56..d68e914f 100755
      logger.log("Deleting session...", { sessionId: params.sessionId });
      const sessionId = params.sessionId;
      const shouldCloseLocalSession = this.hasLocalSession(sessionId);
-@@ -38011,6 +38676,7 @@ Check ${configPath} and project .codex directories, especially their config.toml
+@@ -38092,6 +38757,7 @@
        }
        await this.finishAllAsyncTasks("stopped", "before the provider restart");
        const replacement = await this.restartCodexClient();
@@ -1080,7 +1079,7 @@ index 51d20c56..d68e914f 100755
        apply(replacement);
        if (this.initializeRequest === null) {
          throw new Error("Cannot restart Codex app-server before ACP initialization");
-@@ -38026,7 +38692,8 @@ Check ${configPath} and project .codex directories, especially their config.toml
+@@ -38107,7 +38773,8 @@
              sessionId: session.sessionId,
              cwd: session.cwd,
              additionalDirectories: session.additionalDirectories,
@@ -1090,7 +1089,7 @@ index 51d20c56..d68e914f 100755
            });
            session.authProvider = replacement.getModelProvider();
            session.asyncTasks.refresh();
-@@ -38757,6 +39424,7 @@ Check ${configPath} and project .codex directories, especially their config.toml
+@@ -38838,6 +39505,7 @@
        cwd: request.cwd,
        additionalDirectories: sessionMetadata.additionalDirectories,
        mcpServers: requestedMcpServers,
@@ -1098,7 +1097,7 @@ index 51d20c56..d68e914f 100755
        fastModeEnabled: sessionMetadata.currentServiceTier === "fast",
        currentModelSupportsFast,
        sessionMcpServers,
-@@ -39009,8 +39677,17 @@ Check ${configPath} and project .codex directories, especially their config.toml
+@@ -39090,8 +39758,17 @@
    async createHistoryUpdates(item, sessionState) {
      const renderer = new AcpToolCallRenderer(sessionState.clientCapabilities);
      switch (item.type) {
@@ -1118,7 +1117,7 @@ index 51d20c56..d68e914f 100755
        case "hookPrompt":
        case "functionCallOutput":
        case "sleep":
-@@ -39054,11 +39731,11 @@ Check ${configPath} and project .codex directories, especially their config.toml
+@@ -39135,10 +39812,11 @@
          return item.text.length > 0 ? [this.createPlanHistoryUpdate(item)] : [];
      }
    }
@@ -1126,13 +1125,13 @@ index 51d20c56..d68e914f 100755
 +  async createUserMessageUpdates(item) {
      const updates = [];
      const messageId = item.id;
-     for (const input2 of item.content) {
--      const blocks = this.userInputToContentBlocks(input2);
-+      const blocks = await this.userInputToContentBlocks(input2);
-       for (const block of blocks) {
-         updates.push(createUserMessageChunk(block, messageId));
-       }
-@@ -39096,18 +39773,27 @@ Check ${configPath} and project .codex directories, especially their config.toml
+-    const contentBlocks = item.content.map((input2) => this.userInputToContentBlocks(input2));
++    const contentBlocks = [];
++    for (const input2 of item.content) contentBlocks.push(await this.userInputToContentBlocks(input2));
+     const attachmentUris = new Set(contentBlocks.flatMap((blocks, index) => item.content[index]?.type === "text" ? blocks.flatMap((block) => block.type === "resource_link" ? [block.uri] : []) : []));
+     for (const [index, input2] of item.content.entries()) {
+       const nativePath = input2.type === "localImage" || input2.type === "localAudio" || input2.type === "mention" ? input2.path : (input2.type === "image" || input2.type === "audio") && "url" in input2 ? input2.url : null;
+@@ -39181,16 +39859,26 @@
        createMessagePhaseMeta("final_answer", this.capabilities.airClient)
      );
    }
@@ -1140,7 +1139,7 @@ index 51d20c56..d68e914f 100755
 +  async userInputToContentBlocks(input2) {
      switch (input2.type) {
        case "text":
-         return input2.text.length > 0 ? [{ type: "text", text: input2.text }] : [];
+         return desktopAttachmentHistory(input2.text) ?? (input2.text.length > 0 ? [{ type: "text", text: input2.text }] : []);
 -      case "image":
 -        return [{
 -          type: "text",
@@ -1153,20 +1152,19 @@ index 51d20c56..d68e914f 100755
 +          uri: input2.url,
 +          name: "image"
          }];
+-      case "localImage":
 +      }
-       case "localImage": {
-         const uri = input2.path.startsWith("file://") ? input2.path : `file://${input2.path}`;
--        return [{ type: "text", text: this.formatUriAsLink(null, uri) }];
++      case "localImage": {
 +        const image = await historyImageBlockFromLocalPath(input2.path);
-+        return image ? [image] : [{
-+          type: "resource_link",
-+          uri,
-+          name: path5.basename(input2.path) || "image"
-+        }];
-       }
-       case "skill":
-         return [{ type: "text", text: `skill:${input2.name} (${input2.path})` }];
-@@ -39515,6 +40201,9 @@
++        if (image) return [image];
++        const uri = attachmentFileUri(input2.path);
++        const name = input2.path.split(/[\\/]/).pop() || "image";
++        return uri !== null ? [{ type: "resource_link", name, uri }] : [{ type: "text", text: this.formatUriAsLink(name, input2.path) }];
++      }
+       case "localAudio":
+       case "mention": {
+         const uri = attachmentFileUri(input2.path);
+@@ -39602,6 +40290,9 @@
          params.sessionId,
          async (event) => {
            await observeInteraction(event);
@@ -1176,7 +1174,7 @@ index 51d20c56..d68e914f 100755
            if (!promptNotificationsActive) {
              await promptEventHandler.handleSessionScopedNotification(event);
              return;
-@@ -39663,6 +40352,10 @@ Check ${configPath} and project .codex directories, especially their config.toml
+@@ -39750,6 +40441,10 @@
            logger.error(`Prompt for cancelled session ${params.sessionId} failed after prompt returned`, err);
          }
        });
@@ -1187,7 +1185,7 @@ index 51d20c56..d68e914f 100755
        let turnCompleted = await Promise.race([
          sendPromptPromise,
          activePrompt.closeSignal,
-@@ -39672,15 +40365,7 @@ Check ${configPath} and project .codex directories, especially their config.toml
+@@ -39759,15 +40454,7 @@
          return cancelledPromptResponse();
        }
        await this.codexAcpClient.waitForSessionNotifications(params.sessionId);
@@ -1204,7 +1202,7 @@ index 51d20c56..d68e914f 100755
        await eventHandler.flushPendingErrors();
        await eventHandler.handleFailedTurn(turnCompleted.turn);
        promptNotificationsActive = false;
-@@ -39761,15 +40446,7 @@ Check ${configPath} and project .codex directories, especially their config.toml
+@@ -39848,15 +40535,7 @@
              return cancelledPromptResponse();
            }
            await this.codexAcpClient.waitForSessionNotifications(params.sessionId);
@@ -1221,7 +1219,7 @@ index 51d20c56..d68e914f 100755
            await eventHandler.flushPendingErrors();
            await eventHandler.handleFailedTurn(turnCompleted.turn);
            promptNotificationsActive = false;
-@@ -39842,11 +40519,8 @@ Check ${configPath} and project .codex directories, especially their config.toml
+@@ -39929,11 +40608,8 @@
        promptNotificationsActive = false;
        try {
          await this.codexAcpClient.waitForSessionNotifications(params.sessionId);
@@ -1234,7 +1232,7 @@ index 51d20c56..d68e914f 100755
        }
        if (agentFileChangeReportRequest !== null && agentFileChangeWorkspace !== null) {
          if (promptWasCancelled || activePrompt.signal.aborted || this.sessionIsClosing(params.sessionId)) {
-@@ -39868,7 +40542,9 @@
+@@ -39955,7 +40631,9 @@
        logger.log("Prompt completed", { sessionId: params.sessionId });
        await eventHandler?.dispose();
        disposePromptRequestCancellation();
@@ -1245,7 +1243,7 @@ index 51d20c56..d68e914f 100755
        const registeredPendingTurnStart = this.pendingTurnStarts.get(params.sessionId);
        if (registeredPendingTurnStart !== void 0) {
          this.pendingTurnStarts.delete(params.sessionId);
-@@ -40191,6 +40867,11 @@ var asyncTaskStopParamsParser = external_exports.object({
+@@ -40278,6 +40956,11 @@
    sessionId: external_exports.string().trim().min(1),
    asyncTaskId: external_exports.string().trim().min(1)
  }).passthrough();
@@ -1257,10 +1255,11 @@ index 51d20c56..d68e914f 100755
  if (process.argv.includes("--version")) {
    console.log(`${package_default.name} ${package_default.version}`);
    process.exit(0);
-@@ -40271,5 +40952,5 @@ function startAcpServer() {
+@@ -40358,5 +41041,5 @@
          codexAcpServer = null;
        }
      });
 -  }).onRequest(methods.agent.initialize, (ctx) => getAgent().initialize(ctx.params)).onRequest(methods.agent.session.new, (ctx) => getAgent().newSession(ctx.params)).onRequest(methods.agent.session.load, (ctx) => getAgent().loadSession(ctx.params)).onRequest(methods.agent.session.fork, (ctx) => getAgent().forkSession(ctx.params)).onRequest(methods.agent.session.list, (ctx) => getAgent().listSessions(ctx.params)).onRequest(methods.agent.session.delete, (ctx) => getAgent().deleteSession(ctx.params)).onRequest(methods.agent.session.resume, (ctx) => getAgent().resumeSession(ctx.params)).onRequest(methods.agent.session.close, (ctx) => getAgent().closeSession(ctx.params)).onRequest(methods.agent.session.setMode, (ctx) => getAgent().setSessionMode(ctx.params)).onRequest(methods.agent.session.setConfigOption, (ctx) => getAgent().setSessionConfigOption(ctx.params)).onRequest(methods.agent.authenticate, (ctx) => getAgent().authenticate(ctx.params, ctx.requestId)).onRequest(methods.agent.logout, (ctx) => getAgent().logout(ctx.params)).onRequest(methods.agent.providers.list, (ctx) => getAgent().listProviders(ctx.params)).onRequest(methods.agent.providers.set, (ctx) => getAgent().setProvider(ctx.params)).onRequest(methods.agent.providers.disable, (ctx) => getAgent().disableProvider(ctx.params)).onRequest(methods.agent.session.prompt, (ctx) => getAgent().prompt(ctx.params, ctx.signal)).onNotification(methods.agent.session.cancel, (ctx) => getAgent().cancel(ctx.params)).onRequest("authentication/status", emptyExtensionParamsParser, (ctx) => getAgent().extMethod("authentication/status", ctx.params)).onRequest("authentication/logout", emptyExtensionParamsParser, (ctx) => getAgent().extMethod("authentication/logout", ctx.params)).onRequest(LEGACY_SET_SESSION_MODEL_METHOD, legacySetSessionModelParamsParser, (ctx) => getAgent().extMethod(LEGACY_SET_SESSION_MODEL_METHOD, ctx.params)).onRequest(SESSION_STEERING_METHOD, sessionSteerParamsParser, (ctx) => getAgent().extMethod(SESSION_STEERING_METHOD, ctx.params)).onRequest(ASYNC_TASK_STOP_METHOD, asyncTaskStopParamsParser, (ctx) => getAgent().extMethod(ASYNC_TASK_STOP_METHOD, ctx.params)).onRequest(GOAL_CONTROL_METHOD, goalControlParamsParser, (ctx) => getAgent().extMethod(GOAL_CONTROL_METHOD, ctx.params)).connect(acpJsonStream);
+-}
 +  }).onRequest(methods.agent.initialize, (ctx) => getAgent().initialize(ctx.params)).onRequest(methods.agent.session.new, (ctx) => getAgent().newSession(ctx.params)).onRequest(methods.agent.session.load, (ctx) => getAgent().loadSession(ctx.params)).onRequest(methods.agent.session.fork, (ctx) => getAgent().unstable_forkSession(ctx.params)).onRequest(methods.agent.session.list, (ctx) => getAgent().listSessions(ctx.params)).onRequest(methods.agent.session.delete, (ctx) => getAgent().deleteSession(ctx.params)).onRequest(methods.agent.session.resume, (ctx) => getAgent().resumeSession(ctx.params)).onRequest(methods.agent.session.close, (ctx) => getAgent().closeSession(ctx.params)).onRequest(methods.agent.session.setMode, (ctx) => getAgent().setSessionMode(ctx.params)).onRequest(methods.agent.session.setConfigOption, (ctx) => getAgent().setSessionConfigOption(ctx.params)).onRequest(methods.agent.authenticate, (ctx) => getAgent().authenticate(ctx.params, ctx.requestId)).onRequest(methods.agent.logout, (ctx) => getAgent().logout(ctx.params)).onRequest(methods.agent.providers.list, (ctx) => getAgent().listProviders(ctx.params)).onRequest(methods.agent.providers.set, (ctx) => getAgent().setProvider(ctx.params)).onRequest(methods.agent.providers.disable, (ctx) => getAgent().disableProvider(ctx.params)).onRequest(methods.agent.session.prompt, (ctx) => getAgent().prompt(ctx.params, ctx.signal)).onNotification(methods.agent.session.cancel, (ctx) => getAgent().cancel(ctx.params)).onRequest("authentication/status", emptyExtensionParamsParser, (ctx) => getAgent().extMethod("authentication/status", ctx.params)).onRequest("authentication/logout", emptyExtensionParamsParser, (ctx) => getAgent().extMethod("authentication/logout", ctx.params)).onRequest(LEGACY_SET_SESSION_MODEL_METHOD, legacySetSessionModelParamsParser, (ctx) => getAgent().extMethod(LEGACY_SET_SESSION_MODEL_METHOD, ctx.params)).onRequest(SESSION_STEERING_METHOD, sessionSteerParamsParser, (ctx) => getAgent().extMethod(SESSION_STEERING_METHOD, ctx.params)).onRequest(ASYNC_TASK_STOP_METHOD, asyncTaskStopParamsParser, (ctx) => getAgent().extMethod(ASYNC_TASK_STOP_METHOD, ctx.params)).onRequest(GOAL_CONTROL_METHOD, goalControlParamsParser, (ctx) => getAgent().extMethod(GOAL_CONTROL_METHOD, ctx.params)).onRequest(LEGACY_GOAL_CONTROL_METHOD, goalControlParamsParser, (ctx) => getAgent().extMethod(LEGACY_GOAL_CONTROL_METHOD, ctx.params)).onRequest("_farming/related/list", external_exports.object({ parentSessionId: external_exports.string().trim().min(1) }), (ctx) => getAgent().listRelatedSessions(ctx.params)).onRequest("_farming/related/read", external_exports.object({ parentSessionId: external_exports.string().trim().min(1), sessionId: external_exports.string().trim().min(1), maxTurns: external_exports.number().int().min(1).max(200), cursor: external_exports.string().max(4096).nullable().optional() }), (ctx) => getAgent().readRelatedSession(ctx.params)).onRequest("_session/archive", external_exports.object({ sessionId: external_exports.string().trim().min(1) }), (ctx) => getAgent().archiveSession(ctx.params)).onRequest(STEER_METHOD, steerParamsParser, (ctx) => getAgent().extMethod(STEER_METHOD, ctx.params)).connect(acpJsonStream);
- }
++}
