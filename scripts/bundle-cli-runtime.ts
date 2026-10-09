@@ -74,7 +74,7 @@ const packagedAcpPlugin: esbuild.Plugin = {
       };
     });
 
-    build.onLoad({ filter: /claude-agent-acp-0\.84\.0\.mjs$/ }, async (args) => {
+    build.onLoad({ filter: /claude-agent-acp-0\.88\.0\.mjs$/ }, async (args) => {
       if (path.resolve(args.path) !== path.resolve(packagedClaudeEntry)) return null;
       const source = await fs.promises.readFile(args.path, 'utf8');
       const marker = 'if (process.argv.includes("--cli")) {';
