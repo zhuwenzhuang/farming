@@ -107,12 +107,19 @@ for (const appearance of ['light', 'dark', 'paper']) {
     }
     const largeRow = files.locator(`[data-testid="code-file-row"][data-file-path="${largePath}"]`)
     await largeRow.click()
-    await expect(files.locator('.code-file-tree-viewport')).toHaveAttribute('data-visible-row-count', '10008')
+    await expect(files.locator('.code-file-tree-viewport')).toHaveAttribute('data-visible-row-count', '264')
     await expect(files.locator('.code-file-directory-error')).toHaveCount(0)
     await expect.poll(() => files.locator('[data-testid="code-file-row"]').count()).toBeLessThan(100)
     await testInfo.attach(`large-directory-${appearance}`, {
       body: await page.screenshot(), contentType: 'image/png',
     })
+    await expect.poll(async () => {
+      await files.evaluate(section => {
+        const scroller = section.closest<HTMLElement>('.code-project-list')!
+        scroller.scrollTop = scroller.scrollHeight
+      })
+      return files.locator('.code-file-tree-viewport').getAttribute('data-visible-row-count')
+    }, { timeout: 30_000, intervals: [100] }).toBe('10008')
     await files.evaluate(section => {
       const scroller = section.closest<HTMLElement>('.code-project-list')!
       scroller.scrollTop = scroller.scrollHeight

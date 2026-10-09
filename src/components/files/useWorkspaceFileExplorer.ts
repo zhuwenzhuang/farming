@@ -63,8 +63,8 @@ export function useWorkspaceFileExplorer(agentId: string | null, workspaceKey = 
     previousDirectoriesRef.current = directories
     const current = openDirectoryPathsRef.current
     const stale = Object.entries(directories).flatMap(([path, directory]) => {
-      const oldItems = previous[path]?.items
-      if (!oldItems || oldItems === directory.items || directory.loading || directory.error) return []
+      const oldItems = previous[path]?.revalidationItems ?? previous[path]?.items
+      if (!oldItems || oldItems === directory.items || directory.loading || directory.error || directory.nextCursor) return []
       const remaining = new Set(directory.items.filter(item => item.type === 'directory').map(item => item.path))
       return oldItems.filter(item => item.type === 'directory' && !remaining.has(item.path)).map(item => item.path)
     })

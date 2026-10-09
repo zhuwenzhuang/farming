@@ -108,7 +108,7 @@ export function useWorkspaceFileTreeKeyboard({
 
     const tree = treeRef.current
     const targetElement = event.target as HTMLElement | null
-    if (targetElement?.closest('input, textarea, [contenteditable="true"], .code-file-inline-operation')) return
+    if (targetElement?.closest('input, textarea, [contenteditable="true"], .code-file-inline-operation, [data-testid="code-file-next-page"]')) return
 
     if (shouldCancelPendingWorkspaceFileTreeFocus(event.key)) {
       cancelPendingFileFocus()
@@ -132,6 +132,11 @@ export function useWorkspaceFileTreeKeyboard({
     })
     const node = focusedPath ? tree?.get(focusedPath) : tree?.focusedNode ?? tree?.mostRecentNode
     if (!node || node.isRoot) return
+    if (node.data.pageDirectory !== undefined && !['ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) {
+      event.preventDefault()
+      event.stopPropagation()
+      return
+    }
     lastFocusedFilePathRef.current = node.data.path
 
     if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {

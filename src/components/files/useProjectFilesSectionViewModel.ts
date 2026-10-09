@@ -75,6 +75,7 @@ interface UseProjectFilesSectionViewModelOptions {
   onSelectOpenFile?: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => boolean
   onStartAgentFromFileMenu: (command: string) => void
   onSelectSearchMatchIndex: (index: number) => void
+  onLoadDirectoryPage: (path: string, append: boolean) => void
   onToggleDirectory: (path: string) => boolean
   onStartFileMenuOperation: (kind: WorkspaceFileOperationKind) => void
   onSubmitFileOperation: () => Promise<void>
@@ -142,6 +143,7 @@ export function useProjectFilesSectionViewModel({
   onSearchQueryChange,
   onSelectOpenFile,
   onSelectSearchMatchIndex,
+  onLoadDirectoryPage,
   onToggleDirectory,
   onStartAgentFromFileMenu,
   onStartFileMenuOperation,
@@ -237,6 +239,7 @@ export function useProjectFilesSectionViewModel({
     onOpenFileContextMenu,
     onOpenFilePath,
     onRememberFileOperationName,
+    onLoadDirectoryPage,
     onToggleDirectory,
     onSubmitFileOperation,
     onToggleTreeNode,
@@ -269,6 +272,7 @@ export function useProjectFilesSectionViewModel({
     onOpenFileContextMenu,
     onOpenFilePath,
     onRememberFileOperationName,
+    onLoadDirectoryPage,
     onToggleDirectory,
     onSubmitFileOperation,
     onToggleTreeNode,

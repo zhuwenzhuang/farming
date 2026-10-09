@@ -154,8 +154,8 @@ Schema。共享协议 Validator 在 Dispatch 前拒绝未知 Operation、存在�
 Interactive `tree` Operation 不等待 Git，按字节预算返回同一排序目录快照的分页。
 不透明的 `cursor` 用于续读，`nextCursor: null` 表示完成。完成或取消后，携带 Cursor
 的 `release` 请求回收快照；客户端无法释放时由过期机制保证有界保留。每次续读重新
-核验访问权限。客户端只提交完整列表，Protocol Version 隔离旧的单页客户端，避免将
-首批结果误认为完整目录。`tree-decorations` 接收
+核验访问权限。Explorer 按视口需要续读，明确区分部分与完整列表；只有完成后才能核实缺失子项。
+Protocol Version 隔离旧客户端，避免将首批结果误认为完整目录。`tree-decorations` 接收
 来自该 Structure Snapshot 的有界 Entry Path，只返回这些 Path 的 Git 与 Ignored Decoration。
 
 Request ID 在一条 Browser Connection 内唯一。只有相同 Request ID 与 Domain 的 Pending

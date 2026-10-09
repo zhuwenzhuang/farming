@@ -3,6 +3,7 @@ import type { WorkspaceFileEntry } from './workspace-files'
 export interface WorkspaceDirectorySnapshot {
   items: WorkspaceFileEntry[]
   loading?: boolean
+  nextCursor?: string | null
   error?: string | null
 }
 
@@ -14,6 +15,9 @@ export interface WorkspaceFileTreeNode extends WorkspaceFileEntry {
   compactedPaths?: string[]
   iconPath?: string
   loading?: boolean
+  pageDirectory?: string
+  pageCursor?: string
+  pageError?: string | null
   children?: WorkspaceFileTreeNode[]
 }
 
@@ -99,9 +103,10 @@ export function buildWorkspaceFileTreeNodes(
   items: WorkspaceFileEntry[],
   directories: WorkspaceDirectoryMap,
   previousNodes: WorkspaceFileTreeNode[] = [],
+  directoryPath = '',
 ): WorkspaceFileTreeNode[] {
   const previousById = new Map(previousNodes.map(node => [node.id, node]))
-  const nextNodes = items.map(item => {
+  const nextNodes: WorkspaceFileTreeNode[] = items.map(item => {
     if (item.type !== 'directory') {
       const nextNode = {
         ...item,
@@ -120,6 +125,7 @@ export function buildWorkspaceFileTreeNodes(
 
     while (
       !visibleEntry.symbolicLink &&
+      !directories[visibleEntry.path]?.nextCursor &&
       visibleChildren?.length === 1 &&
       visibleChildren[0]?.type === 'directory' &&
       !visibleChildren[0]?.symbolicLink
@@ -137,6 +143,7 @@ export function buildWorkspaceFileTreeNodes(
       visibleChildren ?? [],
       directories,
       previousNode?.children ?? [],
+      visibleEntry.path,
     )
     const nextNode = {
       ...visibleEntry,
@@ -151,6 +158,11 @@ export function buildWorkspaceFileTreeNodes(
       ? previousNode
       : nextNode
   })
+  const directory = directories[directoryPath]
+  if (directory?.nextCursor) {
+    nextNodes.push({ id: `\0page:${directoryPath}`, path: `\0page:${directoryPath}`, name: '', type: 'other', size: 0, mtimeMs: 0,
+      pageDirectory: directoryPath, pageCursor: directory.nextCursor, pageError: directory.error, loading: directory.loading })
+  }
   return previousNodes.length === nextNodes.length
     && previousNodes.every((node, index) => node === nextNodes[index])
     ? previousNodes

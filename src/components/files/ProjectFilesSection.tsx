@@ -666,6 +666,7 @@ export function ProjectFilesSection({
     onSearchQueryChange: updateFileSearchQuery,
     onSelectOpenFile,
     onSelectSearchMatchIndex: fileSearch.selectMatchIndex,
+    onLoadDirectoryPage: loadDirectory,
     onToggleDirectory: toggleTreePathOpen,
     onStartAgentFromFileMenu: startAgentFromFileMenu,
     onStartFileMenuOperation: startFileMenuOperation,

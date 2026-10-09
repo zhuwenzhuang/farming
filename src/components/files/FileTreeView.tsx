@@ -3,6 +3,7 @@ import {
   memo,
   useCallback,
   useContext,
+  useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -61,6 +62,7 @@ export interface FileTreeViewProps {
   ) => void
   onOpenFilePath: (filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void>
   onRememberFileOperationName: (name: string) => void
+  onLoadDirectoryPage: (path: string, append: boolean) => void
   onToggleDirectory: (path: string) => boolean
   onSubmitFileOperation: () => Promise<void>
   onToggleTreeNode: (path: string) => void
@@ -156,6 +158,7 @@ const FileNodeRendererContext = createContext<FileNodeRendererContextValue | nul
 function FileNodeRenderer({ node }: NodeRendererProps<FileExplorerNode>) {
   const props = useContext(FileNodeRendererContext)
   if (!props) return null
+  if (node.data.pageDirectory !== undefined) return <DirectoryPageRow node={node} copy={props.copy} onLoad={props.onLoadDirectoryPage} />
   return (
     <SubscribedFileTreeRow
       {...props}
@@ -167,6 +170,20 @@ function FileNodeRenderer({ node }: NodeRendererProps<FileExplorerNode>) {
       }}
     />
   )
+}
+
+function DirectoryPageRow({ node, copy, onLoad }: {
+  node: NodeRendererProps<FileExplorerNode>['node']; copy: CodeCopy
+  onLoad: (path: string, append: boolean) => void
+}) {
+  const { pageDirectory, pageCursor, pageError } = node.data
+  useEffect(() => {
+    if (pageDirectory !== undefined && !pageError) onLoad(pageDirectory, true)
+  }, [pageDirectory, pageCursor, pageError, onLoad])
+  return <button type="button" className="code-file-status" data-testid="code-file-next-page"
+    onClick={event => { event.stopPropagation(); onLoad(pageDirectory!, !pageError) }}>
+    {pageError ? copy.retry : copy.loading}
+  </button>
 }
 
 interface FileNodeRenderState {
@@ -184,6 +201,7 @@ const SubscribedFileTreeRow = memo(function SubscribedFileTreeRow({
   activeFilePathStore,
   openFilePendingPathStore,
   selectedFilePathStore,
+  onLoadDirectoryPage: _onLoadDirectoryPage,
   decorations,
   node,
   nodeRenderState: _nodeRenderState,
@@ -289,6 +307,7 @@ const FileTreeViewContent = memo(function FileTreeViewContent({
   onOpenFilePath,
   onSelectFilePath,
   onRememberFileOperationName,
+  onLoadDirectoryPage,
   onToggleDirectory,
   onSubmitFileOperation,
   onToggleTreeNode,
@@ -509,6 +528,7 @@ const FileTreeViewContent = memo(function FileTreeViewContent({
     onOpenFilePath,
     onSelectFilePath,
     onRememberFileOperationName,
+    onLoadDirectoryPage,
     onToggleDirectory,
     onSubmitFileOperation,
     onUpdateFileOperationName,
@@ -535,6 +555,7 @@ const FileTreeViewContent = memo(function FileTreeViewContent({
     onOpenFilePath,
     onSelectFilePath,
     onRememberFileOperationName,
+    onLoadDirectoryPage,
     onToggleDirectory,
     onSubmitFileOperation,
     onUpdateFileOperationName,

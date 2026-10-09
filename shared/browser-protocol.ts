@@ -4,8 +4,8 @@ import { isAgentStateWire } from './agent-state-wire.js'
 import { isChatTurnState, type ChatTurnState } from './chat-turn-state.js'
 import type { AgentStateWire } from './agent-state-wire.js'
 
-export const PROTOCOL_VERSION = 21
-export const MIN_PROTOCOL_VERSION = 21
+export const PROTOCOL_VERSION = 22
+export const MIN_PROTOCOL_VERSION = 22
 export const MAX_ACP_TRANSCRIPT_INTEREST = 20
 export const MAX_INLINE_WORKSPACE_MESSAGE_BYTES = 1024 * 1024
 export const PROJECT_ATTENTION_SCORE_MAX = projectAttentionScoreMax

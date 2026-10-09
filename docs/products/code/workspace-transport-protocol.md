@@ -177,9 +177,9 @@ The interactive `tree` operation returns byte-bounded pages of one sorted
 filesystem snapshot without waiting for Git. An opaque `cursor` continues that
 snapshot; `nextCursor: null` completes it. A `release` request with a cursor
 reclaims it after completion or cancellation; expiry bounds retention when the
-client cannot release it. Every continuation revalidates access. Clients commit
-only complete listings, and the protocol version fences older single-page
-clients from interpreting the first page as a complete directory. `tree-decorations` accepts the bounded entry paths from that structure
+client cannot release it. Every continuation revalidates access. Explorer clients fetch further pages on viewport demand and distinguish partial
+listings from complete ones. Only completion permits missing-child reconciliation.
+The protocol version fences older clients from treating one page as a complete directory. `tree-decorations` accepts the bounded entry paths from that structure
 snapshot and returns only Git and ignored decoration for those paths.
 
 Request IDs are unique within a browser connection. A result is admitted only

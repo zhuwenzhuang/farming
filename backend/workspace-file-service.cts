@@ -11,6 +11,7 @@ const yauzl = require('yauzl') as {
     options: { autoClose: boolean; strictFileNames: boolean; validateEntrySizes: boolean },
   ): Promise<{ eachEntry(): AsyncIterable<{ fileName: string; uncompressedSize: number }> }>;
 };
+import { WorkspaceTreeIndex } from './workspace-tree-index.cjs';
 import { packWorkspaceBlameLines } from '../shared/workspace-blame.js';
 import { MAX_INLINE_WORKSPACE_MESSAGE_BYTES } from '../shared/browser-protocol.js';
 import { isSameOrDescendantPath as isInside } from './path-containment.cjs';
@@ -39,10 +40,9 @@ const DEFAULT_WATCH_DEPTH = 1;
 const MAX_EXACT_WATCH_PATHS_PER_SUBSCRIPTION = 256;
 const MAX_EXACT_WATCH_TARGETS_PER_WORKSPACE = 1_024;
 const EXACT_WATCH_PATH_RESOLVE_CONCURRENCY = 16;
-const MAX_TREE_PAGE_ENTRIES = 4_096;
+const MAX_TREE_PAGE_ENTRIES = 256;
 const MAX_TREE_SNAPSHOT_BYTES = 16 * 1024 * 1024;
-const MAX_RETAINED_TREE_BYTES = 32 * 1024 * 1024;
-const TREE_SNAPSHOT_TTL_MS = 60_000;
+const TREE_SNAPSHOT_TTL_MS = 5 * 60_000;
 const TREE_METADATA_CONCURRENCY = 16;
 const SEARCH_FILE_LIST_MAX_BUFFER = 16 * 1024 * 1024;
 const BINARY_SNIFF_BYTES = 8192;
@@ -1659,9 +1659,9 @@ class WorkspaceFileService {
   gitPath: string;
   gitStatusCache: Map<string, GitStatusCacheEntry>;
   changeInventories = new Map<string, { expiresAt: number; snapshots: Map<string, { root: string; scope?: 'tracked' | 'untracked'; items: WorkspaceChangeItem[] }> }>();
+  private treeIndex = new WorkspaceTreeIndex();
   private treeSnapshots = new Map<string, {
-    root: string; path: string; target: string; authority: string; bytes: number;
-    result: Awaited<ReturnType<WorkspaceFileService['listTree']>>;
+    root: string; path: string; target: string; authority: string; total: number;
     timer: ReturnType<typeof setTimeout>;
   }>();
   blameSnapshots = new Map<string, { root: string; path: string; revision?: string; expiresAt: number; bytes: number; result: Awaited<ReturnType<WorkspaceFileService['blame']>> }>();
@@ -2230,10 +2230,26 @@ class WorkspaceFileService {
       visibleEntries.push(entry);
     }
     options.signal?.throwIfAborted();
-    const items = await mapWithConcurrency(visibleEntries, TREE_METADATA_CONCURRENCY,
-      async (entry) => {
+    const items = await this.readTreeEntries(root, target, relativePath, parentExternal, visibleEntries.map(entry => entry.name), options);
+    options.signal?.throwIfAborted();
+    const visibleItems = items.filter(item => item !== null);
+
+    visibleItems.sort((a, b) => {
+      if (a.type === 'directory' && b.type !== 'directory') return -1;
+      if (a.type !== 'directory' && b.type === 'directory') return 1;
+      return a.name.localeCompare(b.name);
+    });
+
+    return {
+      path: relativePath,
+      items: visibleItems,
+    };
+  }
+
+  private readTreeEntries(root: string, target: string, relativePath: string, parentExternal: boolean, names: string[], options: ResolvePathOptions) {
+    return mapWithConcurrency(names, TREE_METADATA_CONCURRENCY, async name => {
         options.signal?.throwIfAborted();
-        const absolute = path.join(target, entry.name);
+        const absolute = path.join(target, name);
         let entryStat;
         try {
           entryStat = await fsp.lstat(absolute);
@@ -2242,7 +2258,7 @@ class WorkspaceFileService {
           if (error && error.code === 'ENOENT') return null;
           throw error;
         }
-        const itemPath = joinRelativePath(relativePath, entry.name);
+        const itemPath = joinRelativePath(relativePath, name);
         let type = entryStat.isDirectory() ? 'directory' : entryStat.isFile() ? 'file' : 'other';
         let symbolicLink = false;
         let external = parentExternal;
@@ -2270,7 +2286,7 @@ class WorkspaceFileService {
           }
         }
         return {
-          name: entry.name,
+          name: name,
           path: itemPath,
           type,
           size: targetStat.size,
@@ -2282,26 +2298,14 @@ class WorkspaceFileService {
           ...(linkTarget ? { linkTarget } : {}),
           ...(linkError ? { linkError } : {}),
         };
-      });
-    options.signal?.throwIfAborted();
-    const visibleItems = items.filter(item => item !== null);
-
-    visibleItems.sort((a, b) => {
-      if (a.type === 'directory' && b.type !== 'directory') return -1;
-      if (a.type !== 'directory' && b.type === 'directory') return 1;
-      return a.name.localeCompare(b.name);
     });
-
-    return {
-      path: relativePath,
-      items: visibleItems,
-    };
   }
 
   private releaseTreeSnapshot(id: string) {
     const snapshot = this.treeSnapshots.get(id);
     if (snapshot) clearTimeout(snapshot.timer);
     this.treeSnapshots.delete(id);
+    this.treeIndex.release(id);
   }
 
   // Directory membership and ordering stay fixed for the entire transfer.
@@ -2315,59 +2319,68 @@ class WorkspaceFileService {
     const authority = JSON.stringify([...(options.allowedExternalRoots || [])].sort());
     let id = '';
     let offset = 0;
-    let result: Awaited<ReturnType<WorkspaceFileService['listTree']>>;
+    let total = 0;
     if (options.cursor) {
       const match = /^([a-f0-9-]{36}):(\d+)$/.exec(options.cursor);
       if (!match || !Number.isSafeInteger(Number(match[2]))) throw new WorkspaceFileError('Invalid directory cursor', 400);
-      id = match[1];
-      offset = Number(match[2]);
+      id = match[1]; offset = Number(match[2]);
       const snapshot = this.treeSnapshots.get(id);
-      if (!snapshot || snapshot.root !== root || snapshot.path !== relativePath
-        || snapshot.target !== target || snapshot.authority !== authority) {
+      if (!snapshot || snapshot.root !== root || snapshot.path !== relativePath || snapshot.target !== target || snapshot.authority !== authority) {
         throw new WorkspaceFileError('Directory listing expired. Refresh the directory.', 409, { reason: 'snapshot-stale' });
       }
       if (options.release) {
         this.releaseTreeSnapshot(id);
-        return { path: relativePath, items: [], nextCursor: null };
+        return { path: relativePath, items: [], total: snapshot.total, nextCursor: null };
       }
-      result = snapshot.result;
-      if (offset >= result.items.length) throw new WorkspaceFileError('Invalid directory cursor offset', 400);
+      total = snapshot.total;
+      if (offset >= total) throw new WorkspaceFileError('Invalid directory cursor offset', 400);
+      clearTimeout(snapshot.timer);
+      snapshot.timer = setTimeout(() => this.releaseTreeSnapshot(id), TREE_SNAPSHOT_TTL_MS);
+      snapshot.timer.unref();
     } else {
       if (options.release) throw new WorkspaceFileError('Directory cursor is required', 400);
-      result = await this.listTree(root, relativePath, options);
-    }
-    options.signal?.throwIfAborted();
-    if (this.disposed) throw new WorkspaceFileError('Directory service is unavailable', 503);
-    const budget = Math.min(options.maxPageBytes ?? MAX_INLINE_WORKSPACE_MESSAGE_BYTES - 32 * 1024, 256 * 1024);
-    const items: typeof result.items = [];
-    let bytes = Buffer.byteLength(JSON.stringify({ path: relativePath, items: [], nextCursor: 'x'.repeat(64) }));
-    for (let index = offset; index < result.items.length && items.length < MAX_TREE_PAGE_ENTRIES; index++) {
-      const entryBytes = Buffer.byteLength(JSON.stringify(result.items[index])) + 1;
-      if (bytes + entryBytes > budget) break;
-      bytes += entryBytes;
-      items.push(result.items[index]);
-    }
-    if (bytes > budget || (!items.length && result.items.length)) throw new WorkspaceFileError('Directory entry exceeds the transfer budget', 413);
-    const next = offset + items.length;
-    if (next === result.items.length) {
-      return { path: relativePath, items, nextCursor: null };
-    }
-    if (!id) {
-      const retainedBytes = Buffer.byteLength(JSON.stringify(result));
-      if (retainedBytes > MAX_TREE_SNAPSHOT_BYTES) throw new WorkspaceFileError('Directory exceeds the listing memory budget', 413);
-      let total = [...this.treeSnapshots.values()].reduce((sum, entry) => sum + entry.bytes, 0);
-      while (this.treeSnapshots.size >= 8 || total + retainedBytes > MAX_RETAINED_TREE_BYTES) {
-        const oldest = this.treeSnapshots.keys().next().value!;
-        total -= this.treeSnapshots.get(oldest)!.bytes;
-        this.releaseTreeSnapshot(oldest);
-      }
+      await this.waitForWorkspaceMutations(root);
       id = crypto.randomUUID();
-      const snapshotId = id;
-      const timer = setTimeout(() => this.releaseTreeSnapshot(snapshotId), TREE_SNAPSHOT_TTL_MS);
-      timer.unref();
-      this.treeSnapshots.set(id, { root, path: relativePath, target, authority, bytes: retainedBytes, result, timer });
+      try {
+        const result = await this.treeIndex.request({ operation: 'capture', id, target, root,
+          allowedRoots: options.allowedExternalRoots, hiddenNames: [...TREE_HIDDEN_NAMES] }, options.signal);
+        options.signal?.throwIfAborted();
+        if (this.disposed) throw new Error('Directory service stopped');
+        total = result.total || 0;
+        while (this.treeSnapshots.size >= 64) this.releaseTreeSnapshot(this.treeSnapshots.keys().next().value!);
+        const timer = setTimeout(() => this.releaseTreeSnapshot(id), TREE_SNAPSHOT_TTL_MS);
+        timer.unref();
+        this.treeSnapshots.set(id, { root, path: relativePath, target, authority, total, timer });
+      } catch (error) {
+        this.treeIndex.release(id);
+        throw error;
+      }
     }
-    return { path: relativePath, items, nextCursor: `${id}:${next}` };
+    try {
+      const page = await this.treeIndex.request({ operation: 'page', id, offset, limit: MAX_TREE_PAGE_ENTRIES }, options.signal);
+      const entries = await this.readTreeEntries(root, target, relativePath, !isInside(root, target), page.names || [], options);
+      options.signal?.throwIfAborted();
+      const budget = Math.min(options.maxPageBytes ?? MAX_INLINE_WORKSPACE_MESSAGE_BYTES - 32 * 1024, 256 * 1024);
+      const items: NonNullable<typeof entries[number]>[] = [];
+      let bytes = Buffer.byteLength(JSON.stringify({ path: relativePath, items: [], total, nextCursor: 'x'.repeat(64) }));
+      let consumed = 0;
+      for (const entry of entries) {
+        if (entry) {
+          const entryBytes = Buffer.byteLength(JSON.stringify(entry)) + 1;
+          if (bytes + entryBytes > budget) break;
+          bytes += entryBytes;
+          items.push(entry);
+        }
+        consumed++;
+      }
+      if (bytes > budget || (!consumed && total)) throw new WorkspaceFileError('Directory entry exceeds the transfer budget', 413);
+      const next = offset + consumed;
+      if (!options.cursor && next === total) this.releaseTreeSnapshot(id);
+      return { path: relativePath, items, total, nextCursor: next < total ? `${id}:${next}` : null };
+    } catch (error) {
+      if (!options.cursor || options.signal?.aborted) this.releaseTreeSnapshot(id);
+      throw error;
+    }
   }
 
   async listTreeDecorations(workspaceRoot: unknown, userPath: unknown = '', entryPaths: unknown[] = []) {
@@ -4767,7 +4780,9 @@ class WorkspaceFileService {
   }
 
   async dispose() {
+    this.disposed = true;
     for (const id of this.treeSnapshots.keys()) this.releaseTreeSnapshot(id);
+    await this.treeIndex.dispose();
     this.blameSnapshots.clear();
     const watchers = Array.from(this.watchers.values());
     const exactWatchers = Array.from(this.exactWatchers.values());

@@ -20,8 +20,15 @@ async function run() {
     }
     await fs.mkdir(path.join(large, 'z-directory'));
     const budget = 32 * 1024;
+    let metadataReads = 0;
+    fs.lstat = (async (...args: Parameters<typeof fs.lstat>) => {
+      if (String(args[0]).startsWith(`${large}${path.sep}`)) metadataReads++;
+      return originalLstat(...args);
+    }) as typeof fs.lstat;
     const first = await service.listTreePage(root, 'large', { maxPageBytes: budget });
     assert(first.nextCursor);
+    assert(metadataReads <= 256, `first page read ${metadataReads} metadata entries`);
+    fs.lstat = originalLstat;
     assert.equal(first.items[0].name, 'z-directory', 'directories precede files');
     assert(first.items.every(item => item.version), 'mutation identity guards survive pagination');
     await fs.writeFile(path.join(large, 'added-after-first-page'), '');
@@ -53,7 +60,7 @@ async function run() {
     mock.timers.enable({ apis: ['setTimeout'] });
     try {
       const expiring = await service.listTreePage(root, 'large', { maxPageBytes: budget });
-      mock.timers.tick(60_001);
+      mock.timers.tick(300_001);
       await assert.rejects(service.listTreePage(root, 'large', { cursor: expiring.nextCursor! }),
         (error: unknown) => error instanceof WorkspaceFileError && error.statusCode === 409);
     } finally { mock.timers.reset(); }
@@ -90,7 +97,7 @@ async function run() {
     assert(oldest.nextCursor);
     await assert.rejects(service.listTreePage(root, 'small', { cursor: oldest.nextCursor!, allowedExternalRoots: [root] }),
       (error: unknown) => error instanceof WorkspaceFileError && error.statusCode === 409);
-    for (let i = 0; i < 8; i++) await service.listTreePage(root, 'small', { maxPageBytes: 1024 });
+    for (let i = 0; i < 64; i++) await service.listTreePage(root, 'small', { maxPageBytes: 1024 });
     await assert.rejects(service.listTreePage(root, 'small', { cursor: oldest.nextCursor! }),
       (error: unknown) => error instanceof WorkspaceFileError && error.statusCode === 409,
       'snapshot retention is bounded');

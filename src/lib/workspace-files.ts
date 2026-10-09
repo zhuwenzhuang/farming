@@ -349,6 +349,22 @@ export function validateWorkspaceContext(rootId: string, entries: Array<{ path: 
   return runWorkspaceRequest<{ valid: true }>({ operation: 'context-paths', rootId, entries }, { signal })
 }
 
+export interface WorkspaceTreePage {
+  path: string
+  items: WorkspaceFileEntry[]
+  total?: number
+  nextCursor?: string | null
+}
+
+export function fetchWorkspaceTreePage(rootId: string, directoryPath = '', options: { cursor?: string; signal?: AbortSignal } = {}) {
+  return runWorkspaceRequest<WorkspaceTreePage>({ operation: 'tree', rootId, path: directoryPath,
+    ...(options.cursor ? { cursor: options.cursor } : {}) }, { signal: options.signal })
+}
+
+export function releaseWorkspaceTree(rootId: string, directoryPath: string, cursor: string) {
+  void runWorkspaceRequest({ operation: 'tree', rootId, path: directoryPath, cursor, release: true }).catch(() => {})
+}
+
 export async function fetchWorkspaceTree(rootId: string, directoryPath = '', options: { signal?: AbortSignal } = {}) {
   const items: WorkspaceFileEntry[] = []
   let cursor: string | undefined

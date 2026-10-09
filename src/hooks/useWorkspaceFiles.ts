@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { getBackendConnectionSnapshot } from '@/lib/backend-live-status'
 import {
-  fetchWorkspaceTree,
+  fetchWorkspaceTreePage,
+  releaseWorkspaceTree,
   fetchWorkspaceTreeDecorations,
   WorkspaceFileApiError,
   type WorkspaceFileEntry,
@@ -13,6 +14,8 @@ interface DirectoryState {
   items: WorkspaceFileEntry[]
   loading: boolean
   error: string | null
+  nextCursor?: string | null
+  revalidationItems?: WorkspaceFileEntry[]
 }
 
 interface WorkspaceDirectoryTree {
@@ -29,7 +32,7 @@ interface InFlightDecorationLoad {
   controller: AbortController
 }
 
-const WORKSPACE_FILE_REQUEST_TIMEOUT_MS = 15_000
+const WORKSPACE_FILE_REQUEST_TIMEOUT_MS = 30_000
 
 function normalizeDirectoryPath(directoryPath: string) {
   return directoryPath.replace(/^\/+|\/+$/g, '')
@@ -103,11 +106,15 @@ export function useWorkspaceFiles(agentId: string | null, workspaceKey = agentId
       })
   }, [agentId, decorations])
 
-  const loadDirectory = useCallback((directoryPath = ''): Promise<WorkspaceDirectoryTree | null> => {
+  const loadDirectory = useCallback((directoryPath = '', append = false): Promise<WorkspaceDirectoryTree | null> => {
     if (!agentId) return Promise.resolve(null)
     const normalizedPath = normalizeDirectoryPath(directoryPath)
     const inFlightLoad = inFlightDirectoryLoadsRef.current.get(normalizedPath)
     if (inFlightLoad) return inFlightLoad.promise
+    const before = directoriesRef.current[normalizedPath]
+    const cursor = append ? before?.nextCursor || undefined : undefined
+    if (append && !cursor) return Promise.resolve(null)
+    if (!append && before?.nextCursor) releaseWorkspaceTree(agentId, normalizedPath, before.nextCursor)
     const generation = generationRef.current
     const abortController = new AbortController()
     inFlightDecorationLoadsRef.current.get(normalizedPath)?.controller.abort()
@@ -116,8 +123,9 @@ export function useWorkspaceFiles(agentId: string | null, workspaceKey = agentId
       const next = {
         ...previous,
         [normalizedPath]: {
+          ...previous[normalizedPath],
           items: previous[normalizedPath]?.items ?? [],
-          loading: !previous[normalizedPath],
+          loading: true,
           error: null,
         },
       }
@@ -133,12 +141,14 @@ export function useWorkspaceFiles(agentId: string | null, workspaceKey = agentId
         abortController.abort()
       }, WORKSPACE_FILE_REQUEST_TIMEOUT_MS)
       try {
-        const tree = await fetchWorkspaceTree(agentId, normalizedPath, { signal: abortController.signal })
+        const tree = await fetchWorkspaceTreePage(agentId, normalizedPath, { cursor, signal: abortController.signal })
+        if (!tree.nextCursor && cursor) releaseWorkspaceTree(agentId, normalizedPath, cursor)
         if (generationRef.current !== generation || abortController.signal.aborted) return null
         const previousItems = directoriesRef.current[normalizedPath]?.items ?? []
-        const items = reconcileWorkspaceFileEntries(previousItems, tree.items)
+        const items = reconcileWorkspaceFileEntries(previousItems, append ? [...previousItems, ...tree.items] : tree.items)
+        const revalidationItems = (append ? before?.revalidationItems ?? before?.items : before?.items) ?? []
         const directoryPaths = new Set(items.filter(item => item.type === 'directory').map(item => item.path))
-        const removedPaths = previousItems.filter(item => item.type === 'directory' && !directoryPaths.has(item.path)).map(item => item.path)
+        const removedPaths = tree.nextCursor ? [] : revalidationItems.filter(item => item.type === 'directory' && !directoryPaths.has(item.path)).map(item => item.path)
         const removed = (candidate: string) => removedPaths.some(path => isDescendantPath(path, candidate))
         // A removed branch must not survive in the cache or be resurrected by
         // a read that started before its parent was refreshed.
@@ -156,11 +166,13 @@ export function useWorkspaceFiles(agentId: string | null, workspaceKey = agentId
         }
         setDirectories(previous => {
           const current = previous[normalizedPath]
-          const nextDirectory = { items, loading: false, error: null }
+          const nextDirectory = { items, loading: false, error: null, nextCursor: tree.nextCursor,
+            revalidationItems: tree.nextCursor ? revalidationItems : undefined }
           if (
             current?.items === items
             && current.loading === nextDirectory.loading
             && current.error === nextDirectory.error
+            && current.nextCursor === nextDirectory.nextCursor
           ) return previous
           const next = { ...previous, [normalizedPath]: nextDirectory }
           Object.keys(next).forEach(path => { if (removed(path)) delete next[path] })
@@ -190,6 +202,7 @@ export function useWorkspaceFiles(agentId: string | null, workspaceKey = agentId
           const next = {
             ...previous,
             [normalizedPath]: {
+              ...previous[normalizedPath],
               items: previous[normalizedPath]?.items ?? [],
               loading: recovering,
               error: recovering
@@ -227,6 +240,13 @@ export function useWorkspaceFiles(agentId: string | null, workspaceKey = agentId
       items: directory.items,
     })
   }, [loadDirectory])
+
+  useEffect(() => () => {
+    if (!agentId) return
+    for (const [path, directory] of Object.entries(directoriesRef.current)) {
+      if (directory.nextCursor) releaseWorkspaceTree(agentId, path, directory.nextCursor)
+    }
+  }, [agentId, workspaceKey])
 
   useEffect(() => {
     directoriesRef.current = directories
