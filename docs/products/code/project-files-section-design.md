@@ -593,6 +593,14 @@ invalid or occupied names retain the draft and expose an actionable error.
 The target directory is derived safely beside the repository's main Worktree,
 without timestamps, random identifiers, or nested Worktree-name prefixes.
 
+After the first authoritative preview, editing updates the displayed directory
+synchronously using the confirmed parent and the shared branch-to-directory rule.
+Source details remain visible while debounced availability checks run; the checking
+status keeps its layout space. This local projection is not an availability claim:
+Create stays disabled until the current name has a successful fresh preview.
+Superseded responses cannot replace current validation, and closing cancels reads.
+
+
 The backend owns naming admission, operation identity, and completion. One
 request ID binds the source, naming policy, and starting commit; repeated
 delivery joins that operation. Preview is a fresh read, not a reservation, so

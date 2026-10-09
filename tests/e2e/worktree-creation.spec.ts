@@ -198,3 +198,55 @@ test('an unobserved creation stays uncertain across reload and never replays', a
   expect(creates).toBe(1)
   expect(git(repository, 'worktree', 'list', '--porcelain').match(/^worktree /gm)).toHaveLength(1)
 })
+
+for (const appearance of ['light', 'dark', 'paper']) {
+  test(`updates the Worktree directory immediately while validation is pending in ${appearance}`, async ({ page, workspaceRoot }, testInfo) => {
+    const repository = await repositoryFixture(page, workspaceRoot)
+    await openFarming(page)
+    await page.locator('body').evaluate((body, value) => { body.dataset.appearance = value }, appearance)
+    const { dialog } = await openCreate(page, repository)
+    const name = dialog.getByRole('textbox', { name: 'Branch name' })
+    const create = dialog.getByRole('button', { name: 'Create', exact: true })
+    const directory = dialog.getByTestId('code-worktree-create-directory')
+    await expect(create).toBeEnabled()
+    const source = await dialog.locator('dd').first().textContent()
+    const pending: Array<{ release: () => void; done: Promise<void> }> = []
+    await page.route('**/api/projects/worktree-preview?**', async route => {
+      let release!: () => void
+      let finish!: () => void
+      const gate = new Promise<void>(resolve => { release = resolve })
+      const done = new Promise<void>(resolve => { finish = resolve })
+      pending.push({ release, done })
+      try {
+        const response = await route.fetch()
+        await gate
+        await route.fulfill({ response })
+      } catch { /* Superseded requests are deliberately aborted by the dialog. */ }
+      finally { finish() }
+    })
+    try {
+      await name.fill('feature/first')
+      await expect(directory).toHaveText(path.join(workspaceRoot, 'example-project-feature-first'))
+      await expect(create).toBeDisabled()
+      await expect.poll(() => pending.length).toBe(1)
+      await name.fill('feature/another-reference')
+      await expect(directory).toHaveText(path.join(workspaceRoot, 'example-project-feature-another-reference'))
+      await expect(dialog.locator('dd').first()).toHaveText(source!)
+      await expect(create).toBeDisabled()
+      await expect.poll(() => pending.length).toBe(2)
+      pending[0]!.release()
+      await pending[0]!.done
+      await expect(directory).toHaveText(path.join(workspaceRoot, 'example-project-feature-another-reference'))
+      await expect(create).toBeDisabled()
+      await dialog.screenshot({ path: testInfo.outputPath(`worktree-live-name-${appearance}.png`), animations: 'disabled' })
+      pending[1]!.release()
+      await expect(create).toBeEnabled()
+      await expect(directory).toHaveText(path.join(workspaceRoot, 'example-project-feature-another-reference'))
+      await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+    } finally {
+      for (const request of pending) request.release()
+      await Promise.all(pending.map(request => request.done))
+      await page.unroute('**/api/projects/worktree-preview?**')
+    }
+  })
+}

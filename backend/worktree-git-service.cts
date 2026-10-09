@@ -1,3 +1,4 @@
+import { worktreeDirectorySuffix } from '../shared/worktree-naming.js';
 import { invalidateGitWorktreeInfoCache } from './git-worktree-info.cjs';
 
 const { execFile } = require('child_process');
@@ -713,7 +714,7 @@ class WorktreeGitService implements WorktreeGitServicePort {
       if (Date.now() > allocationDeadline) throw new Error('Worktree name allocation timed out');
       const suffixText = suffix === 1 ? '' : `-${suffix}`;
       const branch = customBranch || `farming/worktree-${date}${suffixText}`;
-      const workspace = path.join(parentDir, `${baseName}-${branch.replace(/\//g, '-')}`);
+      const workspace = path.join(parentDir, `${baseName}-${worktreeDirectorySuffix(branch)}`);
       if (Buffer.byteLength(path.basename(workspace)) > 255) throw new Error('Worktree directory name is too long; use a shorter branch name');
       const identity = { sourceWorkspace, workspace, branch };
       const key = this.reservationKey(identity);

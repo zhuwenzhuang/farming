@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { worktreeDirectorySuffix } from '../../../shared/worktree-naming'
 import { appPath } from '@/lib/base-path'
 import { projectFilesWorkspaceId } from '@/lib/project-workspaces'
 import { useModalFocusScope } from '@/hooks/useModalFocusScope'
@@ -206,7 +207,6 @@ function WorktreeCreationForm({ project, controller, copy, onOpenProject }: {
     if (busy || creation?.state === 'succeeded') return
     const abort = new AbortController()
     setChecking(true)
-    setPreview(null)
     const timer = setTimeout(async () => {
       try {
         const query = new URLSearchParams({ rootId: projectFilesWorkspaceId(project.workspace), date,
@@ -236,11 +236,17 @@ function WorktreeCreationForm({ project, controller, copy, onOpenProject }: {
     const timer = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(timer)
   }, [busy, creation?.state])
+  // Preserve the backend-resolved parent (including when opened from another
+  // worktree). This projection is presentation only, never creation admission.
+  const directory = preview
+    ? preview.workspace.slice(0, -worktreeDirectorySuffix(preview.branch).length) + worktreeDirectorySuffix(name)
+    : ''
+  const canCreate = !busy && !checking && !error && preview?.branch === name
   const stage = creation?.state === 'unknown' ? text.unconfirmed : creation?.state === 'confirming' ? text.verifying
     : creation?.phase === 'register' ? text.register : creation?.phase === 'checkout' ? text.checkout : text.checking
   const submit = async (event: React.FormEvent) => {
     event.preventDefault()
-    if (busy || !preview || checking || error) return
+    if (!canCreate || !preview) return
     try { await controller.start(project, preview, date, custom, text.storageFailed) }
     catch (caught) { setError(caught instanceof Error ? caught.message : text.storageFailed) }
   }
@@ -260,14 +266,14 @@ function WorktreeCreationForm({ project, controller, copy, onOpenProject }: {
       </> : <>
         <label htmlFor="worktree-create-name">{text.branch}</label>
         <input id="worktree-create-name" ref={inputRef} value={name} maxLength={160} autoComplete="off" spellCheck={false}
-          aria-describedby="worktree-create-error" onChange={event => { setCustom(true); setName(event.target.value); setPreview(null); setChecking(true) }} />
+          aria-describedby="worktree-create-error" onChange={event => { setCustom(true); setName(event.target.value); setError(''); setChecking(true) }} />
         {preview && <dl className="code-worktree-create-preview">
           <dt>{text.source}</dt><dd>{preview.sourceBranch || 'HEAD'} · {preview.sourceHead.slice(0, 8)}</dd>
-          <dt>{text.directory}</dt><dd>{preview.workspace}</dd>
+          <dt>{text.directory}</dt><dd data-testid="code-worktree-create-directory">{directory}</dd>
         </dl>}
-        {checking && <p role="status">{text.checking}…</p>}
+        <p role="status" aria-live="polite">{checking ? `${text.checking}…` : '\u00a0'}</p>
         <p id="worktree-create-error" className="code-instance-name-error" role={error || creation?.error ? 'alert' : undefined}>{error || creation?.error}</p>
-        {custom && <button type="button" className="code-worktree-create-default" onClick={() => { setCustom(false); setError('') }}>{text.useDefault}</button>}
+        {custom && <button type="button" className="code-worktree-create-default" onClick={() => { setCustom(false); setName(`farming/worktree-${date}`); setError(''); setChecking(true) }}>{text.useDefault}</button>}
       </>}
       <div className="code-instance-name-actions">
         <button ref={dismissRef} type="button" onClick={controller.close}>{busy ? text.minimize : copy.cancel}</button>
@@ -277,7 +283,7 @@ function WorktreeCreationForm({ project, controller, copy, onOpenProject }: {
           try { await controller.checkNow(project.workspace) } finally { setCheckingStatus(false) }
         }}>{text.checkStatus}</button>
           : creation?.state === 'succeeded' && creation.resultWorkspace ? <button type="button" className="primary" onClick={() => { if (creation.resultWorkspace) onOpenProject(creation.resultWorkspace); controller.close() }}>{text.open}</button>
-            : <button type="submit" className="primary" disabled={busy || checking || !preview || Boolean(error)}>{busy ? text.creating : text.create}</button>}
+            : <button type="submit" className="primary" disabled={!canCreate}>{busy ? text.creating : text.create}</button>}
       </div>
     </form>
   </div>, document.body)
