@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import type { Page, Route } from '@playwright/test'
+import type { Locator, Page, Route } from '@playwright/test'
 import { expect, openFarming, test } from './fixtures'
 
 type MatrixState = {
@@ -15,6 +15,44 @@ function deferred() {
     resolve = settle
   })
   return { promise, resolve }
+}
+
+async function composerLabelInk(labels: Locator) {
+  return labels.evaluateAll(elements => elements.map(element => {
+    const label = element as HTMLElement
+    const style = getComputedStyle(label)
+    const context = document.createElement('canvas').getContext('2d')!
+    context.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`
+    context.letterSpacing = style.letterSpacing === 'normal' ? '0px' : style.letterSpacing
+    const ink = context.measureText(label.textContent || '')
+    // Range measures the actual text's font box, including anonymous text
+    // flex items in compact labels. Canvas exposes its alphabetic baseline
+    // offset and actual glyph ink separately from that font box.
+    const range = document.createRange()
+    range.selectNodeContents(label)
+    const fontBounds = range.getBoundingClientRect()
+    const bounds = label.getBoundingClientRect()
+    const baseline = fontBounds.bottom - ink.fontBoundingBoxDescent
+    return {
+      text: label.textContent,
+      font: context.font,
+      lineHeight: style.lineHeight,
+      overflow: style.overflow,
+      textOverflow: style.textOverflow,
+      whiteSpace: style.whiteSpace,
+      clipTop: bounds.top + Number.parseFloat(style.borderTopWidth),
+      clipBottom: bounds.bottom - Number.parseFloat(style.borderBottomWidth),
+      inkTop: baseline - ink.actualBoundingBoxAscent,
+      inkBottom: baseline + ink.actualBoundingBoxDescent,
+      inkAscent: ink.actualBoundingBoxAscent,
+      inkDescent: ink.actualBoundingBoxDescent,
+      fontTop: fontBounds.top,
+      fontBottom: fontBounds.bottom,
+      fontAscent: ink.fontBoundingBoxAscent,
+      fontDescent: ink.fontBoundingBoxDescent,
+      baseline,
+    }
+  }))
 }
 
 const MODEL_OPTIONS = [
@@ -1136,14 +1174,42 @@ for (const runtime of ['chat', 'terminal'] as const) {
         }, appearance)
         const labels = picker.locator('.code-composer-model-label:visible, .code-composer-model-picker-muted:visible')
         await expect(labels).toHaveCount(2)
-        // Removing the vertical clipping must not reveal any missing glyph pixels.
-        // Compact labels may truncate horizontally, so check full glyphs at desktop width.
+        const geometry = await composerLabelInk(labels)
+        await testInfo.attach(`composer-label-ink-${runtime}-${width}-${appearance}`, {
+          body: Buffer.from(JSON.stringify(geometry, null, 2)), contentType: 'application/json',
+        })
+        for (const label of geometry) {
+          expect(label.overflow).toBe('hidden')
+          expect(label.textOverflow).toBe('ellipsis')
+          expect(label.whiteSpace).toBe('nowrap')
+          expect(label.inkAscent).toBeGreaterThan(0)
+          expect(label.inkTop, `${label.text}: ascender exceeds line box`).toBeGreaterThanOrEqual(label.clipTop)
+          expect(label.inkBottom, `${label.text}: descender exceeds line box`).toBeLessThanOrEqual(label.clipBottom)
+        }
+        // Preserve paired visual evidence, but do not equate whole-control PNG
+        // bytes with text clipping: overflow changes may alter rasterization.
         if (width === 1440) {
-          const clipped = await picker.screenshot({ animations: 'disabled' })
+          const clipped = await picker.screenshot({ path: testInfo.outputPath(`composer-label-${runtime}-${appearance}-clipped.png`), animations: 'disabled' })
           await labels.evaluateAll(elements => elements.forEach(element => { (element as HTMLElement).style.overflow = 'visible' }))
-          const unclipped = await picker.screenshot({ animations: 'disabled' })
-          await labels.evaluateAll(elements => elements.forEach(element => { (element as HTMLElement).style.removeProperty('overflow') }))
-          expect(clipped.equals(unclipped), `${runtime} ${appearance}: text was clipped`).toBe(true)
+          try {
+            const unclipped = await picker.screenshot({ path: testInfo.outputPath(`composer-label-${runtime}-${appearance}-unclipped.png`), animations: 'disabled' })
+            await testInfo.attach(`composer-label-raster-${runtime}-${appearance}`, {
+              body: Buffer.from(JSON.stringify({ identicalControlPng: clipped.equals(unclipped) })), contentType: 'application/json',
+            })
+          } finally {
+            await labels.evaluateAll(elements => elements.forEach(element => { (element as HTMLElement).style.removeProperty('overflow') }))
+          }
+          // Prove the geometry oracle rejects a genuinely clipped line box.
+          await labels.evaluateAll(elements => elements.forEach(element => { (element as HTMLElement).style.lineHeight = '8px' }))
+          try {
+            const clippedGeometry = await composerLabelInk(labels)
+            await testInfo.attach(`composer-label-negative-control-${runtime}-${appearance}`, {
+              body: Buffer.from(JSON.stringify(clippedGeometry, null, 2)), contentType: 'application/json',
+            })
+            expect(clippedGeometry.some(label => label.inkTop < label.clipTop || label.inkBottom > label.clipBottom)).toBe(true)
+          } finally {
+            await labels.evaluateAll(elements => elements.forEach(element => { (element as HTMLElement).style.removeProperty('line-height') }))
+          }
         }
         await picker.click({ trial: true })
         await page.mouse.move(10, 10)

@@ -2657,8 +2657,10 @@ class WorkspaceFileService {
         maxBuffer: 64 * 1024,
       });
       return String(stdout || '').trim();
-    } catch {
-      return '';
+    } catch (caught) {
+      const error = processError(caught);
+      if (/not a git repository/i.test(String(error.stderr || ''))) return '';
+      throw this.gitReadError(error, 'Git branch');
     }
   }
 

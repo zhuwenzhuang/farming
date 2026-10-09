@@ -60,6 +60,9 @@ const exclusiveTestFiles = new Set([
   // the shared worker pool can starve the first bounded startup on CI and does
   // not add useful concurrency coverage to the isolation assertions.
   'test-multi-config-isolation.ts',
+  // The shared-group regression runs two complete foreground Servers and
+  // native PTY trees. Keep its bounded stop proof independent of pool pressure.
+  'test-config-foreground-hard-stop.ts',
   // This test intentionally replaces the native PTY host for its config root.
   // Keep it continuously covered, but do not overlap it with other
   // process-level native-host tests running under the same user.

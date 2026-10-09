@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import {
   expect,
+  loadFileTreePages,
   openFarming,
   PLAYWRIGHT_WORKSPACE_ROOT,
   test,
@@ -78,11 +79,14 @@ test('keeps large expanded file trees off the warm file-switch render path', asy
   await page.evaluate(() => window.__farmingPerformanceTest?.reset())
   if (await filesTitle.getAttribute('aria-expanded') !== 'true') await filesTitle.click()
   const treeViewport = files.locator('.code-file-tree-viewport')
-  await expect(treeViewport).toHaveAttribute('data-visible-row-count', '2000')
+  await expect(treeViewport).toHaveAttribute('data-visible-row-count', '257')
   await expect.poll(() => files.getByTestId('code-file-row').count()).toBeLessThan(100)
   const initialMountedRowCount = await files.getByTestId('code-file-row').count()
   const initialRenderCounts = await page.evaluate(() => window.__farmingPerformanceTest?.snapshot())
   expect(initialRenderCounts?.fileTreeRow).toBeLessThan(120)
+
+  // Page-loading renders are fixture setup, outside the measured warm path.
+  await loadFileTreePages(files, 2_000)
 
   const tree = files.locator('[role="tree"]')
   await tree.focus()

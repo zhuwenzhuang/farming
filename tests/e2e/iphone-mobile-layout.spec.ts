@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { Page, TestInfo } from '@playwright/test'
-import { openFileSearch, expect, interceptWorkspaceRequests, openFarming, terminalCheckpointOutput, test } from './fixtures'
+import { openFileSearch, expect, interceptWorkspaceRequests, loadFileTreePages, openFarming, terminalCheckpointOutput, test } from './fixtures'
 import { createAcceptanceEvidence } from './acceptance-evidence'
 
 const IPHONE_AUDIT_DIR = path.resolve(
@@ -1197,7 +1197,7 @@ test.describe('iPhone mobile layout', () => {
     const files = project.getByTestId('code-files-section')
     const filesToggle = files.getByRole('button', { name: /^Files$/ })
     if (await filesToggle.getAttribute('aria-expanded') === 'false') await filesToggle.tap()
-    await expect(files.locator('.code-file-tree-viewport')).toHaveAttribute('data-visible-row-count', '1400')
+    await loadFileTreePages(files, 1_400)
     await expect.poll(() => files.locator('[data-testid="code-file-row"]').count()).toBeLessThan(100)
 
     const expectVisibleFileRows = async (expectedHeight: number) => {

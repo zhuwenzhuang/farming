@@ -32,6 +32,7 @@ const processEntrypoints = new Set([
   'backend/command-runner-child.cts',
   'backend/document-extraction-worker.cts',
   'backend/server.cts',
+  'backend/workspace-tree-index-worker.cts',
 ]);
 
 for (const sourcePath of runtimeSources) {

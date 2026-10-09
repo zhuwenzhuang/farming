@@ -472,7 +472,7 @@ class NativePtyHostClient extends EventEmitter {
     this.closeHostLogStream();
     this.hostLogStream = this.openHostLogStream(spawnCommand);
     const child = spawn(spawnCommand.command, spawnCommand.args, {
-      detached: false,
+      detached: process.platform !== 'win32',
       stdio: ['ignore', 'pipe', 'pipe'],
       env: spawnCommand.env || env,
       windowsHide: true,

@@ -669,3 +669,15 @@ export async function openFileSearch(files: Locator) {
   await expect(input).toBeVisible()
   return input
 }
+
+/** Mount Files continuation rows through the Project's real scroll surface. */
+export async function loadFileTreePages(files: Locator, expectedRowCount: number) {
+  await expect.poll(async () => {
+    await files.evaluate(section => {
+      const scroller = section.closest<HTMLElement>('.code-project-list')
+      if (!scroller) throw new Error('Files section must have a Project scroller')
+      scroller.scrollTop = scroller.scrollHeight
+    })
+    return files.locator('.code-file-tree-viewport').getAttribute('data-visible-row-count')
+  }, { timeout: 30_000, intervals: [100] }).toBe(String(expectedRowCount))
+}

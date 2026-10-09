@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { Locator, Page } from '@playwright/test'
-import { expect, openFarming, test } from './fixtures'
+import { expect, loadFileTreePages, openFarming, test } from './fixtures'
 
 function observeFileReads(page: Page, reads: string[]) {
   page.on('websocket', socket => socket.on('framesent', ({ payload }) => {
@@ -124,7 +124,8 @@ test('editor reveal expands and relocates the current file without rereading or 
     const sources = files.locator('[data-file-path="sources"][data-testid="code-file-row"]')
     if (await sources.getAttribute('aria-expanded') !== 'true') await sources.click()
     const scroller = page.getByTestId('code-project-list')
-    await expect(files.locator('.code-file-tree-viewport')).toHaveAttribute('data-visible-row-count', '705')
+    await files.getByRole('tree').press('End')
+    await loadFileTreePages(files, 705)
     await files.getByRole('tree').press('End')
     await expect.poll(() => scroller.evaluate(element => element.scrollTop)).toBeGreaterThan(10_000)
     await expect.poll(async () => {

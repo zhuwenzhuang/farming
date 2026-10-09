@@ -538,6 +538,8 @@ restart or unavailable Git objects end continuation explicitly, preserving
 already displayed entries and offering refresh instead of mixing histories.
 Reference capture and Git walks have output and time bounds; an observed HEAD
 or branch change during capture fails before publishing a mixed snapshot.
+Failed branch reads remain explicit Git read errors; a timeout or unavailable
+command cannot stand in for a detached branch or a changed snapshot.
 
 
 The backend owns repository inventory, exact per-category counts and errors.

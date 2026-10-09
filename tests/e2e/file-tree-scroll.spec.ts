@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { expect, openFarming, test } from './fixtures'
+import { expect, loadFileTreePages, openFarming, test } from './fixtures'
 
 // Keep each appearance's 90 real animation frames in its own bounded test.
 // Software-rendered Linux WebKit can take about 36 seconds for that sample.
@@ -24,7 +24,7 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
     const directory = files.locator('[data-file-path="sources"]')
     if (isMobile) await directory.tap()
     else await directory.click()
-    await expect(files.locator('.code-file-tree-viewport')).toHaveAttribute('data-visible-row-count', '2001')
+    await loadFileTreePages(files, 2_001)
     await expect.poll(() => files.locator('[data-file-path]').count()).toBeLessThan(100)
 
     await page.evaluate(value => {

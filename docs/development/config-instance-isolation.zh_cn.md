@@ -42,7 +42,10 @@ Server 必须在初始化 Config 自有 Runtime 前原子发布所有权。已�
 仍能精确证明的进程与 Owner Claim。
 
 即使 Server 已经消失，一次有意的 Config Stop 仍是一项精确 Hard-stop 操作。Config 自有的
-进程组 Root 必须在接收工作前持久化精确身份。Stop 会合并这些记录、精确 Host Endpoint 以及
+进程组 Root 必须在接收工作前持久化精确身份。每个自有进程组的 Runtime 必须在独立进程组中
+启动，并记录 Leader 身份（`PID == PGID`）。前台 Server 可以共享调用者进程组，但它的精确
+PID 不代表拥有整个组。仍存活的旧版非 Leader 记录必须显式拒绝，不能向继承的组发送信号。
+Stop 会合并这些记录、精确 Host Endpoint 以及
 持久化 Runtime/Resource 身份，重新校验当前操作系统进程身份，然后直接发送 `SIGKILL`。
 Computer Container 必须通过持久化 Container ID 与精确 Config Ownership Label 选中，并接收
 Docker `KILL` 信号。证明缺失或不匹配时显式失败；Stop 绝不能扫描或终止当前用户的所有进程。

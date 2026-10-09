@@ -157,6 +157,43 @@ async function run() {
   }
 
   {
+    const inheritedConfig = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-config-inherited-group.'));
+    const inherited = { pid: 30011, processGroupId: 30010, startedAt: 'shared-foreground-group' };
+    const signals = [];
+    try {
+      assert.throws(() => registerConfigProcessGroup(inheritedConfig, 'native-pty-host', inherited),
+        /process-group leader identity/);
+      // Simulate a durable record written by a previous runtime version.
+      const recordDir = path.join(inheritedConfig, '.farming-processes');
+      fs.mkdirSync(recordDir);
+      const file = path.join(recordDir, 'legacy-inherited.json');
+      fs.writeFileSync(file, JSON.stringify({ ...inherited, role: 'native-pty-host',
+        configInstanceFingerprint: configInstanceFingerprint(inheritedConfig) }));
+      for (const identityAvailable of [true, false]) {
+        assert.deepStrictEqual(await hardStopConfigProcesses(inheritedConfig, {
+          readProcessIdentity: () => identityAvailable ? inherited : null,
+          processExists: () => true,
+          inspectProcessGroup: () => 'live',
+          signalProcessGroup: (processGroupId, signal) => signals.push({ processGroupId, signal }),
+          waitForProcessGroupExit: async () => true,
+        }), { stopped: 0, refused: 1 });
+        assert(fs.existsSync(file), 'live inherited ownership must remain a visible refusal');
+      }
+      assert.deepStrictEqual(signals, [], 'a native Host must never signal its shared caller group');
+      assert.deepStrictEqual(await hardStopConfigProcesses(inheritedConfig, {
+        readProcessIdentity: () => null,
+        processExists: () => false,
+        inspectProcessGroup: () => 'live',
+        signalProcessGroup: (processGroupId, signal) => signals.push({ processGroupId, signal }),
+      }), { stopped: 0, refused: 0 });
+      assert(!fs.existsSync(file), 'an exited legacy nonleader must not retain authority over live peers');
+      assert.deepStrictEqual(signals, []);
+    } finally {
+      fs.rmSync(inheritedConfig, { recursive: true, force: true });
+    }
+  }
+
+  {
     const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-legacy-proc-config.'));
     const otherConfigDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-legacy-proc-other.'));
     const procRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-legacy-proc-root.'));

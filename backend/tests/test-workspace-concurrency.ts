@@ -130,6 +130,26 @@ async function run() {
     // A commit between reference capture and log cannot change the result's
     // head, graph or decorations. A fresh read alone adopts the new commit.
     const originalExec = service.execFile.bind(service);
+    for (const failingRead of [1, 2]) {
+      let branchReads = 0;
+      const snapshotsBefore = service.historySnapshots.size;
+      service.execFile = async (command, args, options) => {
+        if (args.includes('branch') && ++branchReads === failingRead) {
+          throw Object.assign(new Error('fixture branch deadline'), { code: 'ETIMEDOUT' });
+        }
+        return originalExec(command, args, options);
+      };
+      try {
+        await assert.rejects(service.gitHistory(root), error => {
+          const failure = error as { statusCode?: number; message?: string; details?: { reason?: string } };
+          assert.equal(failure.statusCode, 504);
+          assert.match(failure.message || '', /Git branch timed out/);
+          assert.notEqual(failure.details?.reason, 'snapshot-stale');
+          return true;
+        });
+        assert.equal(service.historySnapshots.size, snapshotsBefore);
+      } finally { service.execFile = originalExec; }
+    }
     const capturedHead = await git('rev-parse', 'HEAD');
     let changed = false;
     service.execFile = async (command, args, options) => {

@@ -75,6 +75,9 @@ function ownershipFilename(role: string, identity: ProcessIdentity): string {
 function registerConfigProcessGroup(configDir: string, role: string, rawIdentity: unknown): string {
   const identity = normalizeIdentity(rawIdentity);
   if (!identity) throw new Error('Config process ownership requires an exact process identity');
+  if (identity.pid !== identity.processGroupId) {
+    throw new Error('Config process ownership requires the recorded process-group leader identity');
+  }
   const directory = ownershipDir(configDir);
   fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
   const target = path.join(directory, ownershipFilename(role, identity));
@@ -556,6 +559,14 @@ async function hardStopConfigProcesses(configDir: string, options: HardStopOptio
     let observedLiveIdentity = false;
     for (const item of items) {
       const actual = await readIdentity(item.record.pid);
+      // A Config-owned process in an inherited group does not own that group.
+      // Legacy records must never grant authority over another Config or shell.
+      if (item.record.pid !== item.record.processGroupId) {
+        if (actual ? !isZombie(item.record.pid) : leaderExists(item.record.pid)) {
+          observedLiveIdentity = true;
+        }
+        continue;
+      }
       if (!actual) {
         if (leaderExists(item.record.pid)) {
           observedLiveIdentity = true;
@@ -583,7 +594,11 @@ async function hardStopConfigProcesses(configDir: string, options: HardStopOptio
         let stillLive = false;
         for (const item of items) {
           const reconciled = await readIdentity(item.record.pid);
-          if (!reconciled || isZombie(item.record.pid)) continue;
+          if (!reconciled) {
+            if (leaderExists(item.record.pid)) stillLive = true;
+            continue;
+          }
+          if (isZombie(item.record.pid)) continue;
           stillLive = true;
           break;
         }

@@ -5,6 +5,7 @@ import type { Locator, Page, TestInfo } from '@playwright/test'
 import {
   openFileSearch,
   expect,
+  loadFileTreePages,
   openFarming,
   openNewAgentDialog,
   startAgentFromOpenDialog,
@@ -276,7 +277,7 @@ test('keeps a restored production-sized file projection responsive offscreen', a
   await expect(bulk).toHaveAttribute('aria-expanded', 'true')
 
   const fileRows = files.locator('[data-testid="code-file-row"][data-file-type="file"]')
-  await expect(files.locator('.code-file-tree-viewport')).toHaveAttribute('data-visible-row-count', String(fileCount + 1))
+  await loadFileTreePages(files, fileCount + 1)
   await expect.poll(() => fileRows.count()).toBeLessThan(100)
   const treeWindow = files.locator('.code-file-tree-window')
   await expect(treeWindow).toHaveCSS('position', 'absolute')

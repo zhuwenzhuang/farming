@@ -51,7 +51,12 @@ prove.
 
 An intentional Config stop is one exact hard-stop operation even when the
 Server is already absent. Config-owned process-group roots publish durable
-identity records before accepting work. Stop combines those records with
+identity records before accepting work.
+Each group-owned runtime must launch in an isolated process group and record
+its leader (`PID == PGID`). A foreground Server may share its caller's group;
+its exact PID does not grant authority over that group. Live legacy nonleader
+records are refused without signalling their inherited group.
+Stop combines those records with
 exact Host endpoints and persisted Runtime and Resource identities, verifies
 the current operating-system identity, and sends `SIGKILL` directly. Computer
 containers are selected by persisted container id and exact Config ownership
