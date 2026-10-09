@@ -1089,6 +1089,13 @@
   white-space: nowrap;
 }
 
+/* Truncated toolbar labels need room for ascenders and descenders. */
+.code-composer-approval-label,
+.code-composer-model-label,
+.code-composer-model-picker-muted {
+  line-height: 16px;
+}
+
 .code-composer-model-picker-muted {
   color: var(--code-text-subtle);
   font-size: 12.5px;

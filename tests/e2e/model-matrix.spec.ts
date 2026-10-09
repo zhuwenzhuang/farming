@@ -1097,3 +1097,59 @@ test('Terminal matrix explains unavailable Fast and Ultra without changing layou
   await expect(page.getByTestId('code-model-matrix-picker')).toHaveAttribute('data-ultra', 'off')
   await expect(page.getByTestId('code-model-matrix-picker')).toHaveAttribute('data-fast', 'off')
 })
+
+for (const runtime of ['chat', 'terminal'] as const) {
+  test(`Composer ${runtime} labels preserve descenders when truncation is enabled`, async ({ page, workspaceRoot }, testInfo) => {
+    const profile = { model: 'gpt-6-astra', reasoningEffort: 'high', serviceTier: 'priority', modelPreset: 'gpt-6-astra:high' }
+    await page.request.post('/farming/api/settings', { data: { agentLaunchProfiles: { codex: profile } } })
+    await page.route('**/farming/api/codex/models**', route => route.fulfill({
+      json: { catalog: TERMINAL_MODEL_CATALOG, source: 'fixture' },
+    }))
+    await page.route(/\/farming\/api\/agents\/[^/]+\/codex-terminal-profile$/, route => route.fulfill({ json: { profile: route.request().postDataJSON() } }))
+    const snapshot = sessionSnapshot({ model: 'gpt-6-astra', reasoning: 'high', fast: true })
+    snapshot.configOptions[0] = { ...snapshot.configOptions[0]!, options: [{ value: 'gpt-6-astra', name: 'GPT 6.0 Astra' }] }
+    snapshot.configOptions[1] = { ...snapshot.configOptions[1]!, options: [{ value: 'high', name: 'High' }] }
+    await page.route(/\/farming\/api\/agents\/[^/]+\/acp-session(?:\?includeEntries=0)?$/, route => route.fulfill({ json: { session: snapshot } }))
+    const response = await page.request.post('/farming/api/control/agents', {
+      data: { command: runtime === 'chat' ? 'claude' : 'codex --farming-fixture-idle-profile', workspace: workspaceRoot, agentRuntimeMode: runtime },
+    })
+    expect(response.ok()).toBeTruthy()
+    const { agentId } = await response.json() as { agentId: string }
+    await openFarming(page)
+    await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+    const picker = page.getByTestId(runtime === 'chat' ? 'code-acp-model-picker' : 'code-composer-model-picker')
+    if (runtime === 'terminal') {
+      await picker.click()
+      await page.getByRole('radio', { name: 'GPT 6.0 Astra, high', exact: true }).click()
+      await picker.click()
+    }
+    await expect(picker).toHaveAttribute('data-agent-model-preset', 'gpt-6-astra:high')
+    await page.evaluate(() => document.fonts.ready)
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: 900 })
+      await page.mouse.move(10, 10)
+      if (width === 390) await expect(page.locator('body')).toHaveClass(/code-compact-layout/)
+      for (const appearance of ['light', 'dark', 'paper']) {
+        await page.evaluate(value => {
+          document.documentElement.dataset.appearance = value
+          document.body.dataset.appearance = value
+        }, appearance)
+        const labels = picker.locator('.code-composer-model-label:visible, .code-composer-model-picker-muted:visible')
+        await expect(labels).toHaveCount(2)
+        // Removing the vertical clipping must not reveal any missing glyph pixels.
+        // Compact labels may truncate horizontally, so check full glyphs at desktop width.
+        if (width === 1440) {
+          const clipped = await picker.screenshot({ animations: 'disabled' })
+          await labels.evaluateAll(elements => elements.forEach(element => { (element as HTMLElement).style.overflow = 'visible' }))
+          const unclipped = await picker.screenshot({ animations: 'disabled' })
+          await labels.evaluateAll(elements => elements.forEach(element => { (element as HTMLElement).style.removeProperty('overflow') }))
+          expect(clipped.equals(unclipped), `${runtime} ${appearance}: text was clipped`).toBe(true)
+        }
+        await picker.click({ trial: true })
+        await page.mouse.move(10, 10)
+        const image = await picker.screenshot({ path: testInfo.outputPath(`composer-label-${runtime}-${width}-${appearance}.png`), animations: 'disabled' })
+        expect(image.length).toBeGreaterThan(100)
+      }
+    }
+  })
+}

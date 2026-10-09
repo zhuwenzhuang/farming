@@ -6,6 +6,8 @@ Chat and Terminal input share one editing contract. Drafts, attachments and
 submission state belong to the existing Agent composer owner. Expanding the
 editor is local presentation state, never another draft or submission path.
 
+Chat and Terminal toolbar labels share a line box that preserves complete glyphs, including descenders. Horizontal truncation must not clip text vertically or change the surrounding button height; this applies to model, reasoning and approval labels in regular and compact layouts.
+
 The [Context and Commands design](composer-context-and-commands-design.md)
 defines the implemented `@`, `/` and `$` first increment and its follow-up targets.
 
