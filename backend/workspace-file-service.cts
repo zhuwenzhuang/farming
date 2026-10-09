@@ -11,7 +11,7 @@ const yauzl = require('yauzl') as {
     options: { autoClose: boolean; strictFileNames: boolean; validateEntrySizes: boolean },
   ): Promise<{ eachEntry(): AsyncIterable<{ fileName: string; uncompressedSize: number }> }>;
 };
-import { WorkspaceTreeIndex } from './workspace-tree-index.cjs';
+import { WorkspaceTreeIndex, WorkspaceTreeIndexError } from './workspace-tree-index.cjs';
 import { packWorkspaceBlameLines } from '../shared/workspace-blame.js';
 import { MAX_INLINE_WORKSPACE_MESSAGE_BYTES } from '../shared/browser-protocol.js';
 import { isSameOrDescendantPath as isInside } from './path-containment.cjs';
@@ -2353,6 +2353,7 @@ class WorkspaceFileService {
         this.treeSnapshots.set(id, { root, path: relativePath, target, authority, total, timer });
       } catch (error) {
         this.treeIndex.release(id);
+        if (error instanceof WorkspaceTreeIndexError) throw new WorkspaceFileError(error.message, error.status);
         throw error;
       }
     }
@@ -2378,7 +2379,8 @@ class WorkspaceFileService {
       if (!options.cursor && next === total) this.releaseTreeSnapshot(id);
       return { path: relativePath, items, total, nextCursor: next < total ? `${id}:${next}` : null };
     } catch (error) {
-      if (!options.cursor || options.signal?.aborted) this.releaseTreeSnapshot(id);
+      if (!options.cursor || options.signal?.aborted || error instanceof WorkspaceTreeIndexError) this.releaseTreeSnapshot(id);
+      if (error instanceof WorkspaceTreeIndexError) throw new WorkspaceFileError(error.message, error.status);
       throw error;
     }
   }

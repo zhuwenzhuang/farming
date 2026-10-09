@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { mock } from 'node:test';
 
+import { WorkspaceTreeIndex, WorkspaceTreeIndexError } from '../workspace-tree-index.cjs';
 import { WorkspaceFileService, WorkspaceFileError } from '../workspace-file-service.cjs';
 
 async function run() {
@@ -19,6 +20,23 @@ async function run() {
         fs.writeFile(path.join(large, `entry-${String(start + i).padStart(5, '0')}`), '')));
     }
     await fs.mkdir(path.join(large, 'z-directory'));
+    // Pressure evicts abandoned indexes, preserves most recently used pages,
+    // and leaves the worker usable after a single listing exceeds its budget.
+    const pressureDirectory = path.join(root, 'pressure');
+    await fs.mkdir(pressureDirectory);
+    for (let i = 0; i < 10; i++) await fs.writeFile(path.join(pressureDirectory, `entry-${i}`), '');
+    const index = new WorkspaceTreeIndex(1100);
+    const capture = (id: string, target = pressureDirectory) => index.request({ operation: 'capture', id, target, root });
+    const page = (id: string) => index.request({ operation: 'page', id });
+    try {
+      await capture('a'); await capture('b'); await page('a'); await capture('c');
+      await assert.rejects(page('b'), (error: unknown) => error instanceof WorkspaceTreeIndexError && error.status === 409);
+      assert.equal((await page('a')).names?.length, 10);
+      assert.equal((await page('c')).names?.length, 10);
+      await assert.rejects(capture('oversized', large), (error: unknown) => error instanceof WorkspaceTreeIndexError && error.status === 413);
+      await capture('recovered');
+      assert.equal((await page('recovered')).names?.length, 10);
+    } finally { await index.dispose(); }
     const budget = 32 * 1024;
     let metadataReads = 0;
     fs.lstat = (async (...args: Parameters<typeof fs.lstat>) => {

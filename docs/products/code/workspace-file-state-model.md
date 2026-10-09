@@ -137,6 +137,9 @@ one bounded worker. Enumeration and sorting do not block the Server thread;
 metadata and mutation versions are read only for the requested page, with bounded
 concurrency. Membership and order remain fixed across pages, while per-entry
 metadata reflects its page read. Capture is not an atomic filesystem transaction.
+Completed name indexes use LRU eviction under memory pressure, so abandoned
+browser listings cannot prevent fresh reads. An evicted continuation returns an
+explicit expiry error and can be refreshed; it never becomes a generic failure.
 The backend owns index identity, authorization, memory budgets and idle expiry;
 every continuation revalidates its root, path and resolved target.
 

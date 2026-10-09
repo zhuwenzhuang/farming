@@ -1,9 +1,10 @@
-import { parentPort } from 'node:worker_threads';
+import { parentPort, workerData } from 'node:worker_threads';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { isSameOrDescendantPath } from './path-containment.cjs';
 
-const MAX_NAME_BYTES = 128 * 1024 * 1024;
+const MAX_NAME_BYTES = Math.min(Number(workerData?.maxNameBytes) || 128 * 1024 * 1024, 128 * 1024 * 1024);
+class IndexError extends Error { readonly status: number; constructor(message: string, status: number) { super(message); this.status = status; } }
 interface Snapshot { directories: string[]; files: string[]; bytes: number }
 interface Request {
   requestId: number; operation: 'capture' | 'page' | 'release' | 'cancel'; id: string;
@@ -33,7 +34,12 @@ async function execute(request: Request) {
         controller.signal.throwIfAborted();
         if (hidden.has(entry.name)) continue;
         const bytes = entry.name.length * 2 + 40;
-        if (allocatedBytes + bytes > MAX_NAME_BYTES) throw new Error('Directory names exceed the listing memory budget. Close other directories and refresh.');
+        // Completed indexes are an LRU cache, not reservations. A disconnected
+        // browser must not prevent a fresh authoritative directory read.
+        while (allocatedBytes + bytes > MAX_NAME_BYTES && snapshots.size) {
+          release(snapshots.keys().next().value!);
+        }
+        if (allocatedBytes + bytes > MAX_NAME_BYTES) throw new IndexError('Directory names exceed the listing memory budget. Try a smaller directory or refresh when other listings finish.', 413);
         allocatedBytes += bytes;
         snapshot.bytes += bytes;
         let isDirectory = entry.isDirectory();
@@ -59,7 +65,9 @@ async function execute(request: Request) {
     } finally { captures.delete(request.id); }
   }
   const snapshot = snapshots.get(request.id);
-  if (!snapshot) throw new Error('Directory listing expired. Refresh the directory.');
+  if (!snapshot) throw new IndexError('Directory listing expired. Refresh the directory.', 409);
+  snapshots.delete(request.id);
+  snapshots.set(request.id, snapshot);
   const total = snapshot.directories.length + snapshot.files.length;
   const start = request.offset || 0;
   const end = Math.min(total, start + (request.limit || 256));
@@ -70,6 +78,6 @@ async function execute(request: Request) {
 }
 parentPort!.on('message', (request: Request) => {
   void execute(request).then(result => parentPort!.postMessage({ requestId: request.requestId, result }), error => {
-    parentPort!.postMessage({ requestId: request.requestId, error: error instanceof Error ? error.message : String(error) });
+    parentPort!.postMessage({ requestId: request.requestId, error: error instanceof Error ? error.message : String(error), status: error instanceof IndexError ? error.status : 503 });
   });
 });
