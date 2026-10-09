@@ -63,6 +63,10 @@ npm Image 将精确版本的 Codex 与 Claude Native Carrier 声明为受平台�
 初始化前，把内置且固定版本的 ripgrep 原子写入所属 Config 的私有 Versioned Runtime Directory。
 这是本地 Image Extraction，不是下载或 Executable Fallback；写入后仍执行相同的版本与可执行校验。
 
+Standalone Worker 入口必须打包并显式作为可执行 Snapshot Script 包含。Files 目录分页使用
+打包的 workspace-tree Worker；入口缺失时显式失败。Release Packaging 必须在独立可执行文件中
+验证真实目录捕获、有界连续分页、稳定成员与 Worker 清理，Linux 各架构 Smoke 也必须执行该验证。
+
 ### 源码工作区准备
 
 源码启动在前端构建后准备固定版本的原生 Browser Runtime，因为前端构建会替换 `dist`。

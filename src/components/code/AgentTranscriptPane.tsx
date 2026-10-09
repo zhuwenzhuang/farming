@@ -165,6 +165,7 @@ import {
 import {
   acpActionGroupLabel,
   acpProgressFlowEntries,
+  isAcpAnswerSegment,
   isAcpProgressUpdate,
 } from './acp/acp-progress-timeline'
 import { terminalTargetFilePath } from './workspace-file-view'
@@ -1007,7 +1008,14 @@ function AgentTranscriptTerminals({
 
 function AgentTranscriptSubagentAction({ item }: { item: AgentTranscriptProcessItem }) {
   const detail = String(item.detail || '').trim()
-  if (item.type === 'progress' && detail) return <div className="code-agent-transcript-subagent-action">{plainTextBlock(detail)}</div>
+  if (isAcpProgressUpdate(item) || isAcpAnswerSegment(item)) return (
+    <div className="code-agent-transcript-subagent-action">
+      {detail ? plainTextBlock(detail) : null}
+      <AgentTranscriptResultImages images={item.images || []} />
+      <AgentTranscriptAudios audios={item.audios || []} />
+      <AgentTranscriptUserFiles files={item.files || []} />
+    </div>
+  )
   const changes = item.changes || []
   const expandable = Boolean(detail || changes.length > 0)
   const label = (
@@ -1052,7 +1060,9 @@ export function AgentTranscriptSubagentPreview({
   const { agentId: parentAgentId } = useContext(TranscriptFileOpenContext)
   const active = ['working', 'waiting-for-permission', 'waiting-for-input', 'interrupting'].includes(transcript.state || '')
   const status = relatedSessionStatusLabel(transcript.state || '', copy, transcript.stopReason, transcript.error)
-  const actionCount = transcript.turns.reduce((count, turn) => count + turn.processItems.filter(item => item.type !== 'progress').length, 0)
+  const actionCount = transcript.turns.reduce((count, turn) => count + turn.processItems.filter(item => (
+    !isAcpProgressUpdate(item) && !isAcpAnswerSegment(item)
+  )).length, 0)
   const [fullscreen, setFullscreen] = useState(false)
   const [stopping, setStopping] = useState(false)
   const [stopError, setStopError] = useState('')
@@ -1194,6 +1204,7 @@ function hasTextSelectionWithin(element: HTMLElement) {
 function shouldRenderDetailAsProse(item: AgentTranscriptProcessItem) {
   return [
     'message',
+    'answer',
     'agent-message',
     'progress',
     'reasoning',
@@ -1878,14 +1889,18 @@ function AgentTranscriptProgressUpdate({
   copy: CodeCopy
 }) {
   const progressText = String(item.detail || '').trim()
-  if (!progressText) return null
+  const answerSegment = isAcpAnswerSegment(item)
+  const images = item.images || []
+  const audios = item.audios || []
+  const files = item.files || []
+  if (!progressText && images.length === 0 && audios.length === 0 && files.length === 0) return null
   return (
     <div
       className="code-acp-progress-update code-markdown-preview"
       data-progress-id={item.id}
-      data-testid="code-acp-progress-update"
+      data-testid={answerSegment ? 'code-acp-answer-segment' : 'code-acp-progress-update'}
     >
-      <LocalErrorBoundary
+      {progressText ? <LocalErrorBoundary
         label="transcript progress Markdown"
         resetKey={progressText}
         fallback={(_error, retry) => (
@@ -1905,7 +1920,10 @@ function AgentTranscriptProgressUpdate({
             components={markdownComponents}
           >{progressText}</PerformanceObservedTranscriptMarkdown>
         </LocalRenderFault>
-      </LocalErrorBoundary>
+      </LocalErrorBoundary> : null}
+      <AgentTranscriptResultImages images={images} />
+      <AgentTranscriptAudios audios={audios} />
+      <AgentTranscriptUserFiles files={files} />
     </div>
   )
 }
@@ -2741,7 +2759,7 @@ function AgentTranscriptTurnView({
                   )
                 }
                 const item = entry.item
-                return item.question ? <AcpTranscriptQuestion key={item.id} question={item.question} copy={copy} /> : source === 'acp' && isAcpProgressUpdate(item) ? (
+                return item.question ? <AcpTranscriptQuestion key={item.id} question={item.question} copy={copy} /> : source === 'acp' && (isAcpProgressUpdate(item) || isAcpAnswerSegment(item)) ? (
                   <AgentTranscriptProgressUpdate
                     key={item.id}
                     item={item}
@@ -2804,7 +2822,7 @@ function AgentTranscriptTurnView({
                   )
                 }
                 if (entry.item.question) return <AcpTranscriptQuestion key={entry.item.id} question={entry.item.question} copy={copy} />
-                if (source === 'acp' && isAcpProgressUpdate(entry.item)) {
+                if (source === 'acp' && (isAcpProgressUpdate(entry.item) || isAcpAnswerSegment(entry.item))) {
                   return (
                     <AgentTranscriptProgressUpdate
                       key={entry.item.id}

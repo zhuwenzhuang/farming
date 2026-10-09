@@ -22,6 +22,8 @@ if [ ! -x "${BIN}" ]; then
   exit 2
 fi
 
+"${BIN}" --farming-workspace-tree-smoke
+
 TMP_ROOT="${TMPDIR:-/tmp}"
 WORK_DIR="$(mktemp -d "${TMP_ROOT%/}/farming-cli-smoke.XXXXXX")"
 HOME_DIR="${WORK_DIR}/home"

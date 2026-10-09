@@ -38,6 +38,7 @@ assert.deepStrictEqual(
     { id: 'thought-a', type: 'thought' },
     { id: 'tool-a', type: 'tool', kind: 'read' },
     { id: 'comment-a', type: 'progress' },
+    { id: 'answer-a', type: 'answer' },
     { id: 'thought-b', type: 'thought' },
     { id: 'tool-b', type: 'tool', kind: 'execute' },
     { id: 'error-a', type: 'error', status: 'failed' },
@@ -54,6 +55,7 @@ assert.deepStrictEqual(
   [
     { kind: 'group', id: 'group:thought-a', ids: ['thought-a', 'tool-a'] },
     { kind: 'item', id: 'comment-a' },
+    { kind: 'item', id: 'answer-a' },
     { kind: 'group', id: 'group:thought-b', ids: ['thought-b', 'tool-b'] },
     { kind: 'item', id: 'error-a' },
     { kind: 'group', id: 'group:tool-d', ids: ['tool-d'] },

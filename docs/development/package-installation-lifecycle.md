@@ -84,6 +84,12 @@ the owning Config's private versioned runtime directory before Server
 initialization. This is local image extraction, not a download or executable
 fallback; the same version and executable verification applies afterward.
 
+Standalone Worker entrypoints are bundled and explicitly included as executable
+snapshot scripts. Files directory pagination uses its packaged workspace-tree
+Worker; a missing entry fails visibly. Release packaging verifies real directory
+capture, bounded continuation pages, stable membership, and Worker cleanup in the
+standalone executable, including Linux architecture smokes.
+
 ### Source checkout preparation
 
 Source startup prepares the pinned native Browser runtime after the frontend

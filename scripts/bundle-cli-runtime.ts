@@ -132,6 +132,12 @@ async function main(): Promise<void> {
   await esbuild.build({
     ...commonOptions,
     target: 'node22',
+    entryPoints: [path.join(projectRoot, 'backend', 'workspace-tree-index-worker.cts')],
+    outfile: process.env.FARMING_CLI_BUNDLE_WORKSPACE_WORKER || path.join(projectRoot, 'backend', 'workspace-tree-index-worker.pkg.js'),
+  });
+  await esbuild.build({
+    ...commonOptions,
+    target: 'node22',
     entryPoints: [path.join(projectRoot, 'backend', 'document-extraction-worker.cts')],
     outfile: process.env.FARMING_CLI_BUNDLE_DOCUMENT_WORKER || path.join(projectRoot, 'backend', 'document-extraction-worker.pkg.js'),
   });

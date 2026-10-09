@@ -480,6 +480,9 @@ packaging identity, and workflow-contract gates run in parallel. On 2026-08-20
 the eight-gate screen completed locally in 3.06 seconds, well below the two-minute
 early-feedback target.
 
+The default screen also runs `npm audit --omit=dev` so production dependency
+advisories are detected before artifact assembly.
+
 ## Confirmed Sources Of Waste
 
 ### Agent investigation

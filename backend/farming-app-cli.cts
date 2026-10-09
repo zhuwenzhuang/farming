@@ -155,6 +155,7 @@ const SERVER_MODE_ENV = 'FARMING_RUN_SERVER';
 const NATIVE_PTY_HOST_ARG = '--native-pty-host';
 const ACP_RUNTIME_HOST_ARG = '--acp-runtime-host';
 const USAGE_HISTORY_SMOKE_ARG = '--farming-usage-history-smoke';
+const WORKSPACE_TREE_SMOKE_ARG = '--farming-workspace-tree-smoke';
 const DEFAULT_PORT = '6694';
 const DEFAULT_BASE_PATH = '/farming';
 const DEFAULT_SERVER_START_TIMEOUT_MS = 30_000;
@@ -1907,6 +1908,12 @@ async function run(argv: string[] = process.argv.slice(2)): Promise<number> {
     const { runUsageHistorySmoke } = require('./usage-history-smoke.cjs');
     const result = await runUsageHistorySmoke();
     console.log(JSON.stringify(result));
+    return 0;
+  }
+
+  if (argv[0] === WORKSPACE_TREE_SMOKE_ARG) {
+    const { runWorkspaceTreeSmoke } = require('./workspace-tree-smoke.cjs');
+    console.log(JSON.stringify(await runWorkspaceTreeSmoke()));
     return 0;
   }
 

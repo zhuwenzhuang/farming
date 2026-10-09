@@ -71,8 +71,9 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
 
     const equations = await preview.locator('.katex-display').evaluateAll(elements => elements.map(element => {
       const scroller = element as HTMLElement
-      const bases = Array.from(scroller.querySelectorAll<HTMLElement>('.katex-html > .base'))
-      const tag = scroller.querySelector<HTMLElement>('.katex-html > .tag')
+      const bases = Array.from(scroller.querySelectorAll<HTMLElement>('.katex-html > .katex-base'))
+      if (bases.length === 0) throw new Error('Rendered KaTeX equation must expose its layout bases')
+      const tag = scroller.querySelector<HTMLElement>('.katex-html > .katex-tag')
       const math = scroller.querySelector<HTMLElement>('.katex')
       scroller.scrollLeft = 0
       const viewport = scroller.getBoundingClientRect()
@@ -92,7 +93,7 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
         lastInset: viewport.right - bases.at(-1)!.getBoundingClientRect().right,
         tagInset: tag ? viewport.right - tag.getBoundingClientRect().right : null,
         fontSize: Number.parseFloat(getComputedStyle(math!).fontSize),
-        explicitLines: scroller.querySelectorAll('.katex-html > .newline').length,
+        explicitLines: scroller.querySelectorAll('.katex-html > .katex-newline').length,
         lineSeparation: bases.at(-1)!.getBoundingClientRect().top - bases[0].getBoundingClientRect().bottom,
         height: viewport.height,
       }

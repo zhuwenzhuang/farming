@@ -838,6 +838,11 @@ and Runtime failures remain visible at the higher level.
 While a Turn runs, its collapsed view shows one cumulative action group across
 ordinary progress updates. Expanding the process preserves the original order
 of progress messages and tool evidence.
+An explicit answer followed by further live commentary, tools, or Steer retains
+its own text, media, and chronological boundary above that continuation. Action
+groups cannot cross this answer boundary. Settlement keeps the newest answer in
+the direct result presentation; earlier answers remain available in the existing
+completed activity disclosure, including after checkpoint reload.
 When a non-active Turn has structured process evidence but neither a final
 assistant result nor a stronger explicit interrupted state, its process ends
 with one lightweight line stating that no final reply was produced. This state

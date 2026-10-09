@@ -188,11 +188,11 @@
     "@zumer/snapdom": "2.23.1",
     "ansi-to-html": "^0.7.2",
     "chokidar": "^5.0.0",
-    "compression": "^1.8.1",
+    "compression": "^1.8.2",
     "diff": "^9.0.0",
     "express": "^5.2.1",
     "highlight.js": "^11.11.1",
-    "katex": "^0.17.0",
+    "katex": "0.18.2",
     "lucide": "1.47.0",
     "material-icon-theme": "^5.36.1",
     "micromark-core-commonmark": "2.0.3",
@@ -303,7 +303,8 @@
     "minimist": "1.2.8",
     "@agentclientprotocol/claude-agent-acp": {
       "@agentclientprotocol/sdk": "$@agentclientprotocol/sdk"
-    }
+    },
+    "katex": "$katex"
   },
   "optionalDependencies": {
     "@anthropic-ai/claude-agent-sdk-darwin-arm64": "0.3.293",

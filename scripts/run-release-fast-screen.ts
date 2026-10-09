@@ -4,6 +4,7 @@ import path from 'node:path';
 
 interface FastScreenTask {
   name: string;
+  command?: string;
   args: string[];
   managedUpgrade?: boolean;
 }
@@ -11,6 +12,15 @@ interface FastScreenTask {
 const projectRoot = path.resolve(__dirname, '..');
 const packageVersion = require(path.join(projectRoot, 'package.json')).version;
 const tasks: FastScreenTask[] = [
+  {
+    name: 'production dependency security advisories',
+    command: 'npm',
+    args: ['audit', '--omit=dev'],
+  },
+  {
+    name: 'ACP streamed answer and Steer chronology',
+    args: ['--import', 'tsx', 'backend/tests/test-acp-answer-continuation.ts'],
+  },
   {
     name: 'ACP adapter launch, required input and runtime lifecycle ownership',
     managedUpgrade: true,
@@ -194,7 +204,7 @@ const tasks: FastScreenTask[] = [
 
 async function runTask(task: FastScreenTask): Promise<{ name: string; code: number }> {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, task.args, {
+    const child = spawn(task.command ?? process.execPath, task.args, {
       cwd: projectRoot,
       env: process.env,
       stdio: 'inherit',

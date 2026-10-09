@@ -57,17 +57,20 @@ function run() {
   const previousEntry = process.env.FARMING_PKG_ENTRY;
   const previousWorkerEntry = process.env.FARMING_PKG_WORKER_ENTRY;
   const previousUsageWorkerEntry = process.env.FARMING_PKG_USAGE_WORKER_ENTRY;
+  const previousWorkspaceWorkerEntry = process.env.FARMING_PKG_WORKSPACE_WORKER_ENTRY;
 
   try {
     process.env.FARMING_PKG_ENTRY = 'backend/farming-app-cli.pkg.js';
     process.env.FARMING_PKG_WORKER_ENTRY = 'backend/terminal-screen-worker-thread.pkg.js';
     process.env.FARMING_PKG_USAGE_WORKER_ENTRY = 'backend/usage-history-worker.pkg.js';
+    process.env.FARMING_PKG_WORKSPACE_WORKER_ENTRY = 'backend/workspace-tree-index-worker.pkg.js';
     delete require.cache[require.resolve(configPath)];
     const config = require(configPath);
 
     assert(config.pkg.scripts.includes('backend/farming-app-cli.pkg.js'));
     assert(config.pkg.scripts.includes('backend/terminal-screen-worker-thread.pkg.js'));
     assert(config.pkg.scripts.includes('backend/usage-history-worker.pkg.js'));
+    assert(config.pkg.scripts.includes('backend/workspace-tree-index-worker.pkg.js'));
     assert(config.pkg.assets.includes('backend/cua-tools.json'));
     assert(config.pkg.assets.includes('backend/farming-agent-bootstrap.md'));
     assert(config.pkg.assets.includes('dist/**/*'));
@@ -81,6 +84,8 @@ function run() {
     else process.env.FARMING_PKG_WORKER_ENTRY = previousWorkerEntry;
     if (previousUsageWorkerEntry === undefined) delete process.env.FARMING_PKG_USAGE_WORKER_ENTRY;
     else process.env.FARMING_PKG_USAGE_WORKER_ENTRY = previousUsageWorkerEntry;
+    if (previousWorkspaceWorkerEntry === undefined) delete process.env.FARMING_PKG_WORKSPACE_WORKER_ENTRY;
+    else process.env.FARMING_PKG_WORKSPACE_WORKER_ENTRY = previousWorkspaceWorkerEntry;
     delete require.cache[require.resolve(configPath)];
   }
 
@@ -130,10 +135,17 @@ function run() {
           FARMING_CLI_BUNDLE_WORKER: path.join(bundleOutputRoot, 'terminal-screen-worker-thread.pkg.js'),
           FARMING_CLI_BUNDLE_USAGE_WORKER: path.join(bundleOutputRoot, 'usage-history-worker.pkg.js'),
           FARMING_CLI_BUNDLE_DOCUMENT_WORKER: path.join(bundleOutputRoot, 'document-extraction-worker.pkg.js'),
+          FARMING_CLI_BUNDLE_WORKSPACE_WORKER: path.join(bundleOutputRoot, 'workspace-tree-index-worker.pkg.js'),
         },
         stdio: 'pipe',
       },
     );
+    const filesSmoke = JSON.parse(execFileSync(process.execPath,
+      [path.join(bundleOutputRoot, 'farming-app-cli.pkg.js'), '--farming-workspace-tree-smoke'],
+      { cwd: bundleOutputRoot, env: { ...process.env, FARMING_PACKAGED_RUNTIME: '1' }, encoding: 'utf8', timeout: 30_000 }));
+    assert.equal(filesSmoke.entries, 65);
+    assert(filesSmoke.pages > 1);
+    assert.equal(filesSmoke.snapshotStable, true);
   } finally {
     fs.rmSync(bundleOutputRoot, { recursive: true, force: true });
   }

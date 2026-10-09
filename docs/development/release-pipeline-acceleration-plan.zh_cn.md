@@ -376,6 +376,8 @@ Acceptance 做一次权威校验，然后继续保持“GitHub 公开验证完�
 Lifecycle、ACP Replacement、Packaging Identity 和 Workflow Contract 等独立门禁。2026-08-20 本地
 实测 8 个门禁用时 3.06 秒，明显低于 2 分钟早期反馈目标。
 
+默认快速筛查还执行 `npm audit --omit=dev`，在 Artifact 组装前发现生产依赖安全公告。
+
 ## 已确认的浪费来源
 
 ### Agent 调查

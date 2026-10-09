@@ -29,12 +29,12 @@ are preserved in `dist/frontend-licenses.txt` during the frontend build.
 | `@zumer/snapdom` | 2.23.1 | MIT | Pet rest-scene DOM capture |
 | `ansi-to-html` | 0.7.2 | MIT | ANSI text rendering support |
 | `chokidar` | 5.0.0 | MIT | Filesystem watching |
-| `compression` | 1.8.1 | MIT | HTTP response compression |
+| `compression` | 1.8.2 | MIT | HTTP response compression |
 | `diff` | 9.0.0 | BSD-3-Clause | Character-level diff ranges for code review |
 | `express` | 5.2.1 | MIT | HTTP API server |
 | `heic-to` | 1.5.2 | LGPL-3.0 | HEIC/HEIF image decoding in an isolated browser worker |
 | `highlight.js` | 11.11.1 | BSD-3-Clause | Syntax highlighting |
-| `katex` | 0.17.0 | MIT | Mathematical notation rendering |
+| `katex` | 0.18.2 | MIT | Mathematical notation rendering |
 | `lucide` | 1.47.0 | ISC | Bundled visualization fragment icons |
 | `material-icon-theme` | 5.36.1 | MIT | File and folder icons |
 | `mermaid` | 11.16.1 | MIT | Diagram rendering |

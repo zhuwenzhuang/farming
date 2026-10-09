@@ -20,7 +20,9 @@ export class WorkspaceTreeIndex {
   request(request: Request, signal?: AbortSignal): Promise<Result> {
     signal?.throwIfAborted();
     if (!this.worker) {
-      const worker = new Worker(path.join(__dirname, 'workspace-tree-index-worker.cjs'), { workerData: { maxNameBytes: this.maxNameBytes }, resourceLimits: { maxOldGenerationSizeMb: 256 } });
+      const workerFile = process.pkg || process.env.FARMING_PACKAGED_RUNTIME === '1'
+        ? 'workspace-tree-index-worker.pkg.js' : 'workspace-tree-index-worker.cjs';
+      const worker = new Worker(path.join(__dirname, workerFile), { workerData: { maxNameBytes: this.maxNameBytes }, resourceLimits: { maxOldGenerationSizeMb: 256 } });
       this.worker = worker;
       worker.on('message', (message: { requestId: number; result?: Result; error?: string; status?: number }) => {
         this.pending.get(message.requestId)?.finish(message.error ? new WorkspaceTreeIndexError(message.error, message.status || 503) : undefined, message.result);

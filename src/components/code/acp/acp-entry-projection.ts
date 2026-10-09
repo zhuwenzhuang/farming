@@ -721,12 +721,30 @@ function hasFinalAssistantResult(turn: AgentTranscriptTurn) {
     turn.finalMessage.trim()
     || turn.resultImages?.length
     || turn.resultAudios?.length
-    || turn.resultFiles?.length,
+    || turn.resultFiles?.length
+    || turn.processItems.some(item => item.type === 'answer'),
   )
 }
 
 function finishTurn(turn: MutableTurn | null, keepTailAsProgress: boolean): AgentTranscriptTurn | null {
   if (!turn) return null
+  let answerIndex = -1
+  for (let index = turn.processItems.length - 1; index >= 0; index -= 1) {
+    if (turn.processItems[index]!.type !== 'answer') continue
+    answerIndex = index
+    break
+  }
+  // Live continuation stays after the answer that preceded it. Once settled,
+  // the newest answer keeps the usual direct result presentation; all earlier
+  // segments remain in the ordered activity disclosure.
+  if (answerIndex >= 0 && (!keepTailAsProgress || answerIndex === turn.processItems.length - 1)) {
+    const answer = turn.processItems[answerIndex]!
+    turn.processItems.splice(answerIndex, 1)
+    turn.finalMessage = answer.detail || ''
+    turn.resultImages = uniqueByUrl([...turn.resultImages, ...(answer.images || [])])
+    turn.resultAudios = uniqueByUrl([...turn.resultAudios, ...(answer.audios || [])])
+    turn.resultFiles.push(...(answer.files || []))
+  }
   const lastAssistant = turn.assistantMessages[turn.assistantMessages.length - 1]
   const lastProcess = turn.processItems[turn.processItems.length - 1]
   const answerText = turn.finalMessage.trim().replace(/\r\n/g, '\n')
@@ -790,21 +808,6 @@ export function projectAcpTranscript(sessionValue: unknown, options: { maxTurns?
     if (entry.type === 'message' && entry.role === 'user') {
       if (isSteerEntry(entry) && current) {
         const entryId = stringValue(entry.id) || String(++sequence)
-        if (current.finalMessage) {
-          current.processItems.push({
-            id: `acp-earlier-answer-${entryId}`,
-            type: 'progress',
-            title: 'Earlier answer',
-            detail: current.finalMessage,
-            status: 'completed',
-          })
-          current.assistantMessages.push({
-            text: current.finalMessage,
-            processItemId: `acp-earlier-answer-${entryId}`,
-            phase: 'commentary',
-          })
-          current.finalMessage = ''
-        }
         current.processItems.push({
           id: `acp-steer-${entryId}`,
           type: 'user-steer',
@@ -841,18 +844,18 @@ export function projectAcpTranscript(sessionValue: unknown, options: { maxTurns?
     if (entry.type === 'message' && entry.role === 'assistant') {
       const text = visibleAssistantText(contentText(entry.content))
       const phase = codexMessagePhase(entry)
-      const prefix = stringValue(entry.id) || 'assistant'
+      const prefix = stringValue(entry.id) || String(++sequence)
       const images = contentImages(entry.content, prefix)
       const audios = contentAudios(entry.content, prefix)
       const files = contentFiles(entry.content, prefix)
       if (phase === 'final_answer' && (text || images.length > 0 || audios.length > 0 || files.length > 0)) {
-        if (text) current.finalMessage = text
-        current.resultImages = uniqueByUrl([...current.resultImages, ...images])
-        current.resultAudios = uniqueByUrl([...current.resultAudios, ...audios])
-        current.resultFiles.push(...files)
+        current.processItems.push({
+          id: `acp-answer-${prefix}`, type: 'answer', title: 'Earlier answer', detail: text, status: 'completed',
+          ...(images.length > 0 ? { images } : {}), ...(audios.length > 0 ? { audios } : {}), ...(files.length > 0 ? { files } : {}),
+        })
         continue
       }
-      const processItemId = text ? `acp-progress-${stringValue(entry.id) || String(++sequence)}` : ''
+      const processItemId = text ? `acp-progress-${prefix}` : ''
       current.assistantMessages.push({ text, processItemId, phase })
       if (!current.internal && (text || images.length > 0 || audios.length > 0 || files.length > 0)) {
         current.processItems.push({
