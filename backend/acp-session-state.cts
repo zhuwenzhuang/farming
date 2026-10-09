@@ -6,6 +6,7 @@ const MAX_CODEX_SUBAGENT_ID_CHARS = 160;
 const MAX_CODEX_SUBAGENT_NAME_CHARS = 120;
 import { createHash } from 'node:crypto';
 import { acpSessionProviderPolicy } from './acp-session-provider-policy.cjs';
+import type { NativeSubagentAssociation } from './acp-native-subagents.cjs';
 
 type DataRecord = Record<string, unknown>;
 
@@ -178,6 +179,7 @@ interface AcpCheckpoint extends DataRecord {
   updatedAt?: unknown;
   goal?: unknown;
   codexSubagents?: unknown;
+  nativeSubagent?: NativeSubagentAssociation | null;
   truncated?: unknown;
 }
 
@@ -319,6 +321,7 @@ class AcpSessionState {
   promptSuggestion: AcpPromptSuggestion | null;
   goal: AgentGoal | null = null;
   codexSubagents: CodexSubagents | null;
+  nativeSubagent: NativeSubagentAssociation | null = null;
   truncated: boolean;
   sequence: number;
   revision: number;
@@ -418,6 +421,7 @@ class AcpSessionState {
     state.goal = normalizeAgentGoal(source.goal);
     state.recordCompletedGoal(state.goal);
     state.codexSubagents = clone(source.codexSubagents ?? null) as CodexSubagents | null;
+    state.nativeSubagent = clone(source.nativeSubagent ?? null);
     state.truncated = source.truncated === true;
     state.restoreForkOrigin(source.forkOrigin);
     return state;
@@ -650,7 +654,9 @@ class AcpSessionState {
       : Number.isFinite(Number(options.receivedAt)) && Number(options.receivedAt) > 0
         ? Number(options.receivedAt)
         : Date.now();
-    if (kind === 'user_message_chunk' || kind === 'agent_message_chunk' || kind === 'agent_thought_chunk') {
+    if (kind === 'session_message' || kind === 'session_message_chunk') {
+      this.applySessionMessage(update, kind === 'session_message_chunk');
+    } else if (kind === 'user_message_chunk' || kind === 'agent_message_chunk' || kind === 'agent_thought_chunk') {
       this.applyMessageChunk(update, kind);
     } else if (kind === 'tool_call') {
       this.applyToolCall(update, false, receivedAt);
@@ -812,6 +818,32 @@ class AcpSessionState {
     appendContent(this.entries[this.entries.length - 1].content as AcpContent[], update.content);
   }
 
+  applySessionMessage(update: DataRecord, chunk: boolean): void {
+    const messageId = update.messageId;
+    if (typeof messageId !== 'string' || !messageId.trim() || messageId.length > 512) throw new Error('Invalid inter-session message identity');
+    const isBlock = (value: unknown): value is AcpContent => value !== null && typeof value === 'object'
+      && !Array.isArray(value) && typeof (value as AcpContent).type === 'string';
+    if (chunk ? !isBlock(update.content) : 'content' in update && update.content !== null
+      && (!Array.isArray(update.content) || !update.content.every(isBlock))) {
+      throw new Error('Invalid inter-session message content');
+    }
+    let entry = this.entries.find(candidate => candidate.type === 'message'
+      && candidate.sessionMessage === true && candidate.messageId === messageId);
+    if (!entry) entry = this.pushEntry({
+      id: this.uniqueMessageEntryId(`session-message:${messageId}`, 'message'),
+      type: 'message', role: 'assistant', messageId, sessionMessage: true, content: [],
+    });
+    for (const key of ['senderSessionId', 'recipientSessionId']) {
+      if (typeof update[key] === 'string') entry[key] = update[key];
+    }
+    if (!chunk && '_meta' in update) entry._meta = clone(update._meta) as AcpMeta;
+    if (chunk) appendContent(entry.content as AcpContent[], clone(update.content) as AcpContent);
+    else if ('content' in update) {
+      entry.content = clone(update.content ?? []) as AcpContent[];
+    }
+    this.touchEntry(entry);
+  }
+
   applyToolCall(update: AcpUpdate, isPatch: boolean, receivedAt: number | null): void {
     const id = String(update.toolCallId || '');
     if (!id) return;
@@ -961,6 +993,7 @@ class AcpSessionState {
       hasMoreBefore: startIndex > 0,
       goal: clone(this.goal),
       codexSubagents: clone(this.codexSubagents),
+      nativeSubagent: clone(this.nativeSubagent),
     };
   }
 
@@ -1016,6 +1049,7 @@ class AcpSessionState {
       promptSuggestion: clone(this.promptSuggestion),
       goal: clone(this.goal),
       codexSubagents: clone(this.codexSubagents),
+      nativeSubagent: clone(this.nativeSubagent),
     };
     if (options.includeUpdates === true) snapshot.updates = clone(this.updates);
     return snapshot;
@@ -1069,6 +1103,7 @@ class AcpSessionState {
       updatedAt: this.updatedAt,
       goal: clone(this.goal),
       codexSubagents: clone(this.codexSubagents),
+      nativeSubagent: clone(this.nativeSubagent),
       truncated: this.truncated,
     };
   }

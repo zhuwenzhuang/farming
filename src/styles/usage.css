@@ -942,6 +942,14 @@
   color: var(--code-text-subtle);
 }
 
+.code-usage-quota-reason {
+  display: block;
+  overflow-wrap: anywhere;
+  font-size: 11px;
+  line-height: 1.4;
+  padding-bottom: 4px;
+}
+
 .code-usage-subrow.muted strong {
   color: var(--code-text-quiet);
 }

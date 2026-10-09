@@ -2074,6 +2074,33 @@ class FakeAgent implements Agent {
       await client.sessionUpdate({ sessionId: params.sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Review group ready.' } } });
       return { stopReason: 'end_turn' };
     }
+    if (promptText.includes('typed native child')) {
+      const childSessionId = `${params.sessionId}-typed-child`;
+      const reuse = promptText.includes('reuse typed native child');
+      await client.sessionUpdate({ sessionId: params.sessionId, update: {
+        sessionUpdate: 'subagent_update', sessionId: childSessionId,
+        title: 'Native reviewer', description: 'Review the current patch', state: { state: 'running' },
+      } });
+      await client.sessionUpdate({ sessionId: childSessionId, update: {
+        sessionUpdate: 'user_message_chunk', content: { type: 'text', text: reuse ? 'Review the updated patch' : 'Review parser behavior' },
+      } });
+      await client.sessionUpdate({ sessionId: childSessionId, update: {
+        sessionUpdate: 'session_message', messageId: reuse ? 'review-2' : 'review-1',
+        senderSessionId: childSessionId, recipientSessionId: params.sessionId,
+        content: [{ type: 'text', text: reuse ? 'Updated patch ' : 'Parser review ' }],
+      } });
+      await client.sessionUpdate({ sessionId: childSessionId, update: {
+        sessionUpdate: 'session_message_chunk', messageId: reuse ? 'review-2' : 'review-1',
+        content: { type: 'text', text: 'complete.' },
+      } });
+      await client.sessionUpdate({ sessionId: params.sessionId, update: {
+        sessionUpdate: 'subagent_update', sessionId: childSessionId, state: { state: 'idle', stopReason: 'end_turn' },
+      } });
+      await client.sessionUpdate({ sessionId: params.sessionId, update: {
+        sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Typed child completed without interrupting the parent.' },
+      } });
+      return { stopReason: 'end_turn' };
+    }
     if (promptText.includes('Review parser edge cases (demo)')) {
       const childSessionId = `${params.sessionId}-native-child`;
       await client.sessionUpdate({ sessionId: params.sessionId, update: {

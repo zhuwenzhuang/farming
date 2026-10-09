@@ -25,11 +25,18 @@ Unsupported, unauthenticated, malformed and timed-out reads show unavailable.
 Codex uses account/rateLimits/read, which authenticates the saved account itself,
 preferring the codex bucket in rateLimitsByLimitId. Inference-provider account
 visibility cannot gate this read. It never starts a turn or consumes a reset.
+Code and CRT show distinct failure reasons: unsupported quota, missing account
+authentication, timeout, invalid response, process failure or transport rejection.
+A successful inference login does not prove subscription quota support. API-key
+Homes cannot report ChatGPT subscription allowance, and the server must be able
+to reach the account API. Repeated Home failures share a compact explanation;
+the source and sample time remain available per Home.
 
 Reads transition from pending to a bounded success or explicit failure. Concurrent
 summary reads share the instance cache. Home changes and invalidation fence older
 results. Temporary quota processes have an output limit and deadline and are killed
-on every terminal path. Failure does not restore an old quota or retry a mutation.
+on every terminal path. Codex quota reads disable daemon reuse to keep that
+temporary process isolated. Failure does not restore an old quota or retry a mutation.
 Today's open detail refreshes periodically; navigation cancels the prior request,
 and a late response cannot overwrite the new date. Errors and incomplete history
 remain visible, and an explicit read can recover after the source becomes healthy.

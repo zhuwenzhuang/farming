@@ -384,6 +384,7 @@ export interface ProviderQuota {
   available: boolean
   source: string
   reason?: string
+  reasonCode?: 'authentication' | 'unsupported' | 'timeout' | 'transport' | 'invalid-response' | 'process' | 'rejected'
   limitId?: string
   limitName?: string | null
   planType?: string

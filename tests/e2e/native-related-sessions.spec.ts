@@ -18,6 +18,58 @@ async function resizeSidebar(page: Page, width: number) {
 }
 
 for (const width of [1440, 390]) {
+  test(`typed native child messages and reuse render at ${width}px`, async ({ page, workspaceRoot }, testInfo) => {
+    await page.setViewportSize({ width, height: 900 })
+    const response = await page.request.post('/farming/api/control/agents', {
+      data: { command: 'codex', workspace: workspaceRoot, agentRuntimeMode: 'chat' },
+    })
+    expect(response.ok()).toBeTruthy()
+    const { agentId } = await response.json() as { agentId: string }
+    await page.request.post('/farming/api/settings', { data: { language: 'en' } })
+    await openFarming(page)
+    if (width < 600) await page.getByTestId('code-mobile-menu').click()
+    await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"] .code-agent-name`).click({ position: { x: 8, y: 8 } })
+    const input = page.getByTestId('code-acp-composer-input')
+    const send = async (text: string) => {
+      const answers = page.getByTestId('code-agent-chat-view').locator('.code-agent-transcript-answer')
+        .filter({ hasText: 'Typed child completed without interrupting the parent.' })
+      const answerCount = await answers.count()
+      await expect(input).toBeEditable()
+      await input.fill(text)
+      await page.getByTestId('code-acp-composer-send').click()
+      await expect(answers).toHaveCount(answerCount + 1)
+      await expect(page.getByTestId('code-acp-composer-send')).toHaveAttribute('aria-label', 'Send message')
+    }
+    const openChild = async () => {
+      if (width < 600) await page.getByTestId('code-mobile-menu').click()
+      const finished = page.getByTestId('code-native-related-finished')
+      await expect(finished).toBeVisible()
+      if (await finished.getAttribute('open') === null) await finished.locator('summary').click()
+      const row = page.getByTestId('code-native-related-row').filter({ hasText: 'Native reviewer' })
+      await expect(row).toHaveCount(1)
+      await row.click()
+    }
+    await send('typed native child')
+    await openChild()
+    const panel = page.getByTestId('code-related-session-panel')
+    await expect(panel).toContainText('Parser review complete.')
+    await expect(panel.getByRole('button', { name: /stop/i })).toHaveCount(0)
+    await panel.getByRole('button', { name: 'Collapse related session' }).click()
+    await send('reuse typed native child')
+    await openChild()
+    await expect(panel).toContainText('Updated patch complete.')
+    await expect(panel).toContainText('Review the updated patch')
+    await expect(panel.locator('.code-agent-transcript-answer').filter({ hasText: 'Updated patch complete.' })).toHaveCount(1)
+    for (const appearance of ['light', 'dark', 'paper']) {
+      await page.locator('body').evaluate((body, value) => { body.dataset.appearance = value }, appearance)
+      await page.evaluate(() => document.fonts.ready)
+      expect(await panel.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
+      await page.screenshot({ path: testInfo.outputPath(`typed-native-${width}-${appearance}.png`), animations: 'disabled' })
+    }
+  })
+}
+
+for (const width of [1440, 390]) {
   test(`native child detail preserves parent execution at ${width}px`, async ({ page, workspaceRoot }, testInfo) => {
     await page.setViewportSize({ width, height: 900 })
     const workspace = path.join(workspaceRoot, 'parser-review')

@@ -21,6 +21,7 @@ test('account reads use exact Home, issue no turns, and clean processes on succe
     await writeFile(executable, `#!/usr/bin/env node
 const fs=require('fs');const readline=require('readline');
 fs.writeFileSync(process.env.TEST_QUOTA_PID,String(process.pid));
+if(JSON.stringify(process.argv.slice(2))!==JSON.stringify(['--no-daemon','app-server']))process.exit(2);
 readline.createInterface({input:process.stdin}).on('line',line=>{
  const request=JSON.parse(line);fs.appendFileSync(process.env.TEST_QUOTA_LOG,JSON.stringify({method:request.method,home:process.env.CODEX_HOME})+'\\n');
  if(!request.id || process.env.TEST_QUOTA_MODE==='hang')return;
@@ -37,6 +38,9 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
       const result = await readCodexAccountQuota(path.join(dir, 'selected-home'), { executable, timeoutMs: mode === 'hang' ? 250 : 3000,
         env: { TEST_QUOTA_LOG: log, TEST_QUOTA_PID: pidFile, TEST_QUOTA_MODE: mode } })
       assert.equal(result.available, mode === 'success')
+      if (mode === 'api') assert.equal(result.reasonCode, 'authentication')
+      if (mode === 'hang') assert.equal(result.reasonCode, 'timeout')
+      if (mode === 'oversize') assert.equal(result.reasonCode, 'invalid-response')
       if (mode === 'success') assert.equal(result.primary?.usedPercent, 49)
       const pid = Number(await readFile(pidFile, 'utf8'))
       assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' })

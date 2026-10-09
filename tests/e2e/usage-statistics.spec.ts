@@ -27,14 +27,18 @@ function fixture() {
           thirtyDayTokens: days.slice(-30).reduce((sum, day) => sum + day.totalTokens, 0),
           periodTokens: days.reduce((sum, day) => sum + day.totalTokens, 0), peakDate: days[4]!.date, peakTokens: 6000 },
         points: days },
-      providers: [{ provider: 'codex', providerName: 'Codex', auth: { available: true, status: '2/2 Homes logged in', source: 'fixture' },
+      providers: [{ provider: 'codex', providerName: 'Codex', auth: { available: true, status: '7/9 Homes logged in', source: 'fixture' },
         quota: { available: true, source: 'Agent Home account quota', accounts: [
           { available: true, source: 'account/rateLimits/read', homeId: 'default', homeLabel: 'default', sampledAt,
             primary: { usedPercent: 49, windowMinutes: 10080, resetsAt: sampledAt + 86400000 } },
-          { available: false, source: 'account/rateLimits/read', homeId: 'alternate', homeLabel: 'alternate', reason: 'Account quota read timed out.', sampledAt },
+          { available: false, source: 'account/rateLimits/read', homeId: 'alternate', homeLabel: 'alternate', reasonCode: 'timeout', reason: 'Account quota read timed out. Check the server’s account API network access.', sampledAt },
+          { available: false, source: 'account/rateLimits/read', homeId: 'api-key', homeLabel: 'api-key', reasonCode: 'authentication', reason: 'An API key login does not provide ChatGPT subscription quota.', sampledAt },
+          ...Array.from({ length: 6 }, (_, index) => ({ available: false, source: 'account/rateLimits/read',
+            homeId: `account-${index + 1}`, homeLabel: `account-${index + 1}`, reasonCode: 'authentication',
+            reason: 'An API key login does not provide ChatGPT subscription quota.', sampledAt })),
         ] }, tokenUsage: { available: true, totalTokens: 100, tokensPerMinute: 20, windowMs: 300000, eventCount: 1, sampledAt, source: 'fixture' } },
       { provider: 'claude', providerName: 'Claude Code', auth: { available: true, status: 'Logged in', source: 'fixture' },
-        quota: { available: true, source: 'fixture', primary: { usedPercent: null, windowMinutes: 10080, resetsAt: null } },
+        quota: { available: false, source: 'fixture', reasonCode: 'unsupported', reason: 'The provider does not expose account quota.' },
         tokenUsage: { available: false, totalTokens: null, tokensPerMinute: null, reason: 'History scan failed', source: 'fixture' } }],
     },
     detail: (tokens: number) => ({ date: day, timeZone: 'Asia/Shanghai', available: true, sampledAt, total: breakdown(tokens),
@@ -65,6 +69,11 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
     await expect(panel).toContainText('51% left')
     await expect(panel).toContainText('alternate · Quota')
     await expect(panel).toContainText('Unavailable')
+    await expect(panel).toContainText('Timed out')
+    await expect(panel).toContainText('Check the server’s account API network access')
+    await expect(panel).toContainText('Login required')
+    await expect(panel).toContainText('Not provided')
+    await expect(panel.getByText('An API key login does not provide ChatGPT subscription quota.', { exact: true })).toHaveCount(1)
     await expect(panel).not.toContainText('100% left')
     await expect(panel).not.toContainText('8% left')
     await expect(panel.getByText('Total local tokens', { exact: true })).toHaveCount(0)
@@ -108,6 +117,9 @@ test('CRT reads the same account quotas and does not convert missing percentages
   await expect(quotas.getByRole('meter')).toHaveCount(1)
   await expect(quotas.getByRole('meter')).toHaveAttribute('aria-valuenow', '51')
   await expect(quotas).toContainText('alternate: QUOTA UNAVAILABLE')
+  await expect(quotas).toContainText('Check the server’s account API network access')
+  await expect(quotas).toContainText('An API key login does not provide ChatGPT subscription quota')
+  await expect(quotas).toContainText('The provider does not expose account quota')
   await quotas.screenshot({ path: testInfo.outputPath('crt-account-quota.png') })
 })
 

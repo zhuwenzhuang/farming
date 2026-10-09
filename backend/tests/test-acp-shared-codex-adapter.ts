@@ -145,6 +145,92 @@ async function run() {
     assert.strictEqual((await runtime.listSubagents('shared-codex-a')).children
       .find(child => child.sessionId === 'opaque-native-child').stopReason, 'cancelled');
 
+    const updateChild = (patch = {}, parentId = first.sessionId) => handlers.sessionUpdate({ sessionId: parentId, update: {
+      sessionUpdate: 'subagent_update', sessionId: 'reusable-child', ...patch,
+    } });
+    await updateChild({ title: 'Reusable reviewer', description: 'Review changes', state: { state: 'running' } });
+    assert.strictEqual(runtime.bindingForRuntimeSession(firstBinding.runtime, 'reusable-child'), firstBinding);
+    assert.strictEqual(runtime.getSubagentTranscriptSession('shared-codex-a', 'reusable-child').state, 'working');
+    await updateChild({ state: { state: 'idle', stopReason: 'end_turn' } });
+    assert.strictEqual(runtime.getSubagentTranscriptSession('shared-codex-a', 'reusable-child').state, 'idle');
+    assert(!runtime.activeSubagentSessionIds(firstBinding).includes('reusable-child'));
+    await updateChild({ state: { state: 'requires_action' }, capabilities: { cancel: {} } });
+    assert.strictEqual(runtime.getSubagentTranscriptSession('shared-codex-a', 'reusable-child').state, 'waiting-for-input');
+    assert.strictEqual(runtime.getSubagentTranscriptSession('shared-codex-a', 'reusable-child').title, 'Reusable reviewer');
+    await updateChild({ state: null, capabilities: null, title: null });
+    assert.strictEqual(runtime.getSubagentTranscriptSession('shared-codex-a', 'reusable-child').state, 'unknown');
+    assert.strictEqual(runtime.getSubagentTranscriptSession('shared-codex-a', 'reusable-child').canCancel, false);
+    assert(runtime.activeSubagentSessionIds(firstBinding).includes('reusable-child'), 'cleared state cannot prove idle');
+    assert.strictEqual(firstBinding.subagentStates.get('reusable-child').nativeSubagent.description, 'Review changes');
+    const { AcpSessionState } = require('../acp-session-state.cjs');
+    const restoredChild = AcpSessionState.fromCheckpoint(firstBinding.subagentStates.get('reusable-child').exportCheckpoint());
+    assert.deepStrictEqual(restoredChild.nativeSubagent, firstBinding.subagentStates.get('reusable-child').nativeSubagent);
+    assert.throws(() => updateChild({}, 'opaque-native-child'), /parent cannot change/);
+    assert.throws(() => updateChild({ sessionId: second.sessionId }), /conflicts/);
+    const secondHandlers = runtime.clientHandlers(secondBinding);
+    assert.throws(() => secondHandlers.sessionUpdate({ sessionId: second.sessionId, update: {
+      sessionUpdate: 'subagent_update', sessionId: 'reusable-child',
+    } }), /conflicts/);
+    assert.throws(() => handlers.sessionUpdate({ sessionId: first.sessionId, update: {
+      sessionUpdate: 'session_message', messageId: 'bad', senderSessionId: 'unannounced', content: [],
+    } }), /unannounced/);
+    const childMessage = (patch) => handlers.sessionUpdate({ sessionId: 'reusable-child', update: {
+      messageId: 'peer-message', senderSessionId: first.sessionId, recipientSessionId: 'reusable-child', ...patch,
+    } });
+    const beforeInvalidMessage = firstBinding.subagentStates.get('reusable-child').entries.length;
+    assert.throws(() => childMessage({ sessionUpdate: 'session_message', messageId: 'invalid', content: {} }), /content/);
+    assert.throws(() => childMessage({ sessionUpdate: 'session_message_chunk', messageId: 'invalid', content: null }), /content/);
+    assert.strictEqual(firstBinding.subagentStates.get('reusable-child').entries.length, beforeInvalidMessage,
+      'invalid content must not leave a partially created message');
+    await childMessage({ sessionUpdate: 'session_message', content: [{ type: 'text', text: 'Review ' }], _meta: { purpose: 'review' } });
+    await childMessage({ sessionUpdate: 'session_message_chunk', content: { type: 'text', text: 'the patch' } });
+    await childMessage({ sessionUpdate: 'session_message', senderSessionId: null, content: null, _meta: null });
+    let peer = runtime.getSubagentTranscriptSession('shared-codex-a', 'reusable-child').entries.find(entry => entry.messageId === 'peer-message');
+    assert.deepStrictEqual(peer.content, []);
+    assert.strictEqual(peer.senderSessionId, first.sessionId, 'null peer identity retains the known sender');
+    assert.strictEqual(peer._meta, null);
+    await childMessage({ sessionUpdate: 'session_message_chunk', content: { type: 'text', text: 'Revised review' } });
+    peer = runtime.getSubagentTranscriptSession('shared-codex-a', 'reusable-child').entries.filter(entry => entry.messageId === 'peer-message');
+    assert.strictEqual(peer.length, 1, 'stream chunks update one identity');
+    assert.strictEqual(peer[0].content[0].text, 'Revised review');
+    runtime.resetSubagentControls(firstBinding);
+    assert.strictEqual(runtime.getSubagentTranscriptSession('shared-codex-a', 'reusable-child').state, 'unknown');
+    assert.strictEqual(runtime.getSubagentTranscriptSession('shared-codex-a', 'reusable-child').canCancel, false,
+      'a restored conversation cannot carry mutation grants into a new connection');
+    await updateChild({ state: { state: 'running' }, capabilities: { cancel: {} } });
+    const originalCancel = firstBinding.connection.cancel;
+    firstBinding.connection.cancel = async ({ sessionId }) => {
+      assert.strictEqual(sessionId, 'reusable-child');
+      await updateChild({ state: { state: 'idle', stopReason: 'cancelled' } });
+    };
+    try {
+      await runtime.cancelSubagent('shared-codex-a', 'reusable-child');
+      assert.strictEqual(runtime.getSubagentTranscriptSession('shared-codex-a', 'reusable-child').stopReason, 'cancelled');
+      await updateChild({ state: { state: 'running' } });
+      firstBinding.connection.cancel = async () => {
+        await updateChild({ state: { state: 'idle', stopReason: 'cancelled' } });
+        await updateChild({ state: { state: 'running' } });
+      };
+      await runtime.cancelSubagent('shared-codex-a', 'reusable-child');
+      assert.strictEqual(firstBinding.subagentControls.get('reusable-child').phase, 'active',
+        'cancellation confirmation cannot overwrite newly started foreground work');
+      const timeout = runtime.cancelTimeoutMs;
+      const listeners = ['session', 'runtime'].map(event => runtime.listenerCount(event));
+      try {
+        runtime.cancelTimeoutMs = 25;
+        firstBinding.connection.cancel = async () => {};
+        await assert.rejects(runtime.cancelSubagent('shared-codex-a', 'reusable-child'), /timed out/i,
+          'transport acknowledgement alone does not confirm child cancellation');
+        assert.strictEqual(runtime.getSubagentTranscriptSession('shared-codex-a', 'reusable-child').state, 'error');
+        assert.deepStrictEqual(['session', 'runtime'].map(event => runtime.listenerCount(event)), listeners,
+          'deadline removes cancellation observers');
+      } finally { runtime.cancelTimeoutMs = timeout; }
+    } finally { firstBinding.connection.cancel = originalCancel; }
+    await updateChild({ state: { state: 'running' }, capabilities: null });
+    assert.strictEqual(runtime.getSubagentTranscriptSession('shared-codex-a', 'reusable-child').state, 'working', 'idle child can run again');
+    await assert.rejects(runtime.cancelSubagent('shared-codex-a', 'reusable-child'), /controlled by its parent/);
+    await updateChild({ state: { state: 'idle', stopReason: 'end_turn' } });
+
     const firstProviderUpdate = firstBinding.connection.request('providers/set', {
       providerId: 'openai',
       apiType: 'openai',

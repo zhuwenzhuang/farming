@@ -839,8 +839,8 @@ function renderCrtBillingQuota(summary = billingSummary) {
             return;
         (providerQuota.accounts || [providerQuota]).forEach(quota => {
             if (quota.available === false) {
-                if (providerQuota.accounts)
-                    appendCrtBillingMessage(container, `${provider.providerName || provider.provider} ${quota.homeLabel || ''}: QUOTA UNAVAILABLE`);
+                const label = [provider.providerName || provider.provider, quota.homeLabel].filter(Boolean).join(' ');
+                appendCrtBillingMessage(container, `${label}: QUOTA UNAVAILABLE${quota.reason ? ` — ${quota.reason}` : ''}`);
                 return;
             }
             [quota.primary, quota.secondary].filter((limit) => Boolean(limit)).forEach((limit) => {

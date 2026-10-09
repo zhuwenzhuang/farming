@@ -1404,8 +1404,9 @@ class UsageMonitor {
             const [auth, quota] = await Promise.all([
               collector.readAuth(scopedRunner),
               reader ? reader(home).catch(() => ({ available: false, source: 'Account quota', sampledAt: now,
-                reason: 'Account quota could not be read.' })) : Promise.resolve({ available: false,
+                reasonCode: 'transport' as const, reason: 'Account quota could not be read.' })) : Promise.resolve({ available: false,
                 source: adapter.usage.source, sampledAt: now,
+                reasonCode: 'unsupported' as const,
                 reason: adapter.usage.quotaUnavailableReason || 'This provider does not expose account quota.' }),
             ]);
             authResults.push(asRecord(auth) || {});

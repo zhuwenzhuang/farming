@@ -1245,6 +1245,7 @@ function ProviderUsage({
   provider: UsageProviderSummary
 }) {
   const accounts = provider.quota.accounts || [provider.quota]
+  const quotaReasons = [...new Set(accounts.filter(quota => !quota.available).map(quota => quota.reason).filter(Boolean))]
 
   return (
     <div className="code-usage-provider">
@@ -1256,15 +1257,25 @@ function ProviderUsage({
         const title = [quota.reason || quota.source,
           quota.sampledAt ? `Updated ${new Date(quota.sampledAt).toLocaleString()}` : ''].filter(Boolean).join(' · ')
         const label = accounts.length > 1 ? `${quota.homeLabel || quota.homeId} · ` : ''
-        if (!quota.available) return <div key={quota.homeId || index} className="code-usage-row code-usage-subrow" title={title}>
-          <span>{label}Quota</span><strong>Unavailable</strong>
-        </div>
+        if (!quota.available) {
+          const status = quota.reasonCode === 'authentication' ? 'Login required'
+            : quota.reasonCode === 'unsupported' ? 'Not provided'
+            : quota.reasonCode === 'timeout' ? 'Timed out'
+            : quota.reasonCode === 'invalid-response' ? 'No quota returned'
+            : quota.reasonCode === 'process' ? 'Reader failed'
+            : quota.reasonCode === 'transport' ? 'Connection failed'
+            : quota.reasonCode === 'rejected' ? 'Request rejected' : 'Unavailable'
+          return <div key={quota.homeId || index} className="code-usage-row code-usage-subrow" title={title}>
+            <span>{label}Quota</span><strong>{status}</strong>
+          </div>
+        }
         return [quota.primary, quota.secondary].filter((limit): limit is ProviderQuotaLimit => Boolean(limit)).map((limit, windowIndex) => (
           <div key={`${quota.homeId || index}:${windowIndex}`} className="code-usage-row code-usage-subrow" title={formatQuotaLimitTitle(title, limit)}>
             <span>{label}{formatUsageWindow(limit.windowMinutes)}</span><strong>{formatQuotaRemaining(limit)}</strong>
           </div>
         ))
       })}
+      {quotaReasons.map(reason => <small key={reason} className="code-usage-subrow code-usage-quota-reason">{reason}</small>)}
       <div className="code-usage-row code-usage-subrow" title={provider.tokenUsage.reason || provider.tokenUsage.source}>
         <span>Local tokens</span>
         <strong>{provider.tokenUsage.available === false ? 'Unavailable' : formatTokenRate(provider.tokenUsage.tokensPerMinute)}</strong>

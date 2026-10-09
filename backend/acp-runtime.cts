@@ -1,7 +1,7 @@
 import { COMPOSER_ADMISSION_TIMEOUT_MS } from '../shared/chat-capacity.js';
 import type { ComposerSubmissionPhase } from '../shared/composer-submission.js';
 import { EventEmitter } from 'events';
-import { normalizeNativeSubagentNotification } from './acp-native-subagents.cjs';
+import { mergeNativeSubagentAssociation, nativeSessionId, normalizeNativeSubagentNotification } from './acp-native-subagents.cjs';
 import { interruptChatTurn, type ChatTurnState } from '../shared/chat-turn-state.js';
 const fs = require('fs');
 const os = require('os');
@@ -2624,6 +2624,15 @@ class AcpRuntime extends EventEmitter {
     binding.subagentControls.clear();
     for (const sessionId of binding.subagentStates.keys()) {
       const control = this.ensureSubagentControl(binding, sessionId);
+      const association = binding.subagentStates.get(sessionId)?.nativeSubagent;
+      if (association) {
+        // Checkpoints preserve conversation evidence, not live activity or
+        // mutation grants from the previous provider connection.
+        association.state = null;
+        association.capabilities = null;
+        control.phase = 'unknown';
+        continue;
+      }
       const parentTool = [binding.sessionState, ...binding.subagentStates.values()].flatMap(state => state?.entries || []).find((entry: TranscriptEntry) => (
         entry?.type === 'tool'
         && String(entry?._meta?.subagent_session_info?.session_id || '') === sessionId
@@ -2639,12 +2648,15 @@ class AcpRuntime extends EventEmitter {
   }
 
   isNativeSubagent(binding: AcpBinding, sessionId: string): boolean {
-    return [binding.sessionState, ...binding.subagentStates.values()].some(state =>
+    return Boolean(binding.subagentStates.get(sessionId)?.nativeSubagent)
+      || [binding.sessionState, ...binding.subagentStates.values()].some(state =>
       state?.entries.some(entry => entry.id === `native-subagent:${sessionId}`));
   }
 
   activeSubagentSessionIds(binding: AcpBinding) {
     return [...binding.subagentStates.keys()].filter((sessionId: string) => {
+      const association = binding.subagentStates.get(sessionId)?.nativeSubagent;
+      if (association && association.state?.state !== 'idle') return true;
       const control = this.ensureSubagentControl(binding, sessionId);
       if (control?.cancelPromise || ['active', 'cancelling'].includes(control?.phase)) return true;
       const hasInteraction = [...binding.pendingPermissions.values(), ...binding.pendingElicitations.values()]
@@ -2681,6 +2693,36 @@ class AcpRuntime extends EventEmitter {
       control.phase = 'active';
       control.error = '';
     }
+  }
+
+  applyNativeSubagentAssociation(binding: AcpBinding, notification: UnknownRecord): void {
+    const update = notification.update as UnknownRecord;
+    const parentId = nativeSessionId(notification.sessionId);
+    const childId = nativeSessionId(update.sessionId);
+    if (parentId !== binding.sessionId && !binding.subagentStates.has(parentId)) {
+      throw new Error('Native subagent parent has not been announced');
+    }
+    if (childId === binding.sessionId || binding.runtime?.sessionOwners.has(childId)
+      || [...binding.runtime?.bindings.values() || []].some(owner => owner !== binding && owner.subagentStates.has(childId))) {
+      throw new Error('Native subagent identity conflicts with an owned session');
+    }
+    const existing = binding.subagentStates.get(childId);
+    if (existing && !existing.nativeSubagent) throw new Error('Native subagent identity is already in use');
+    if (!existing && binding.subagentStates.size >= 128) throw new Error('Native subagent inventory exceeds the session limit');
+    const association = mergeNativeSubagentAssociation(parentId, update, existing?.nativeSubagent);
+    const child = existing || new AcpSessionState({ provider: binding.provider, sessionId: childId, cwd: binding.cwd, maxUpdates: this.maxUpdates });
+    child.nativeSubagent = association;
+    child.title = association.title || '';
+    child.revision += 1;
+    binding.subagentStates.set(childId, child);
+    const control = this.ensureSubagentControl(binding, childId);
+    control.phase = control.cancelPromise ? 'cancelling' : association.state?.state === 'idle' ? 'idle'
+      : ['running', 'requires_action'].includes(association.state?.state || '') ? 'active' : 'unknown';
+    control.error = '';
+    binding.sessionState.touchCurrentTurn();
+    binding.updatedAt = new Date().toISOString();
+    if (!binding.historyReplayActive && !binding.activeTurn) this.scheduleCheckpoint(binding, { exact: true });
+    if (!binding.historyReplayActive) this.emitSession(binding);
   }
 
   beginSessionMutation(
@@ -2813,7 +2855,7 @@ class AcpRuntime extends EventEmitter {
     if (!sessionState) return null;
     const subagentStates = new Map();
     if (checkpoint.version === 2 && Array.isArray(checkpoint.subagentStates)) {
-      for (const item of checkpoint.subagentStates.slice(0, 32)) {
+      for (const item of checkpoint.subagentStates.slice(0, 128)) {
         const sessionId = String(item?.sessionId || '');
         if (!sessionId) continue;
         const state = AcpSessionState.fromCheckpoint(item?.state, {
@@ -3036,6 +3078,20 @@ class AcpRuntime extends EventEmitter {
       sessionUpdate: (notification: UnknownRecord) => {
         const applyNotification = (normalizedNotification: UnknownRecord) => {
           if (!this.isOpenBinding(binding) || binding.state === 'closed') return;
+          const raw = normalizedNotification.update as UnknownRecord | undefined;
+          if (raw?.sessionUpdate === 'subagent_update') {
+            this.applyNativeSubagentAssociation(binding, normalizedNotification);
+            return;
+          }
+          if (raw && ['session_message', 'session_message_chunk'].includes(String(raw.sessionUpdate))) {
+            const enclosingId = nativeSessionId(normalizedNotification.sessionId);
+            for (const id of [enclosingId, raw.senderSessionId, raw.recipientSessionId]) {
+              if (id == null) continue;
+              if (nativeSessionId(id) !== binding.sessionId && !binding.subagentStates.has(String(id))) {
+                throw new Error('Inter-session message names an unannounced session');
+              }
+            }
+          }
           notification = normalizeReservedPresentationMetadata(normalizeNativeSubagentNotification(normalizedNotification));
           const native = notification.update as UnknownRecord;
           const nativeId = String((native?._meta as { subagent_session_info?: { session_id?: string } })?.subagent_session_info?.session_id || '');
@@ -3674,7 +3730,7 @@ class AcpRuntime extends EventEmitter {
   cancelSubagentControl(binding: AcpBinding, targetSessionId: string) {
     const control = this.ensureSubagentControl(binding, targetSessionId);
     if (control.cancelPromise) return control.cancelPromise;
-    if (['cancelled', 'completed'].includes(control.phase)) {
+    if (['cancelled', 'completed', 'idle'].includes(control.phase)) {
       return Promise.resolve({ cancelled: true, sessionId: targetSessionId });
     }
     control.phase = 'cancelling';
@@ -3699,9 +3755,20 @@ class AcpRuntime extends EventEmitter {
     binding.state = interactiveRuntimeState(binding, binding.state);
     this.emitRuntime(binding);
     const cancellation = (async () => {
+      let releaseIdleWait = () => {};
       try {
+        const native = binding.subagentStates.get(targetSessionId)?.nativeSubagent;
+        const idle = native ? new Promise<void>((resolve, reject) => {
+          const check = () => {
+            if (!this.isOpenBinding(binding)) reject(new Error('ACP parent runtime closed during child cancellation'));
+            else if (binding.subagentStates.get(targetSessionId)?.nativeSubagent?.state?.state === 'idle') resolve();
+          };
+          this.on('session', check);
+          this.on('runtime', check);
+          releaseIdleWait = () => { this.off('session', check); this.off('runtime', check); };
+        }) : null;
         await withTimeout(
-          binding.connection.cancel({ sessionId: targetSessionId }),
+          Promise.all([binding.connection.cancel({ sessionId: targetSessionId }), ...(idle ? [idle] : [])]),
           this.cancelTimeoutMs,
           'ACP subagent session/cancel'
         );
@@ -3709,7 +3776,9 @@ class AcpRuntime extends EventEmitter {
         if (binding.subagentControls.get(targetSessionId) !== control) {
           throw new Error('ACP subagent control is no longer active');
         }
-        control.phase = 'cancelled';
+        const currentState = binding.subagentStates.get(targetSessionId)?.nativeSubagent?.state?.state;
+        control.phase = native ? currentState === 'idle' ? 'idle'
+          : ['running', 'requires_action'].includes(currentState || '') ? 'active' : 'unknown' : 'cancelled';
         control.error = '';
         binding.updatedAt = new Date().toISOString();
         this.emitSession(binding);
@@ -3724,6 +3793,8 @@ class AcpRuntime extends EventEmitter {
           this.emitRuntime(binding);
         }
         throw error;
+      } finally {
+        releaseIdleWait();
       }
     })();
     control.cancelPromise = cancellation;
@@ -3742,7 +3813,8 @@ class AcpRuntime extends EventEmitter {
     if (!targetSessionId || targetSessionId === binding.sessionId || !binding.subagentStates.has(targetSessionId)) {
       throw new Error('ACP subagent session not found');
     }
-    if (this.isNativeSubagent(binding, targetSessionId)) {
+    const association = binding.subagentStates.get(targetSessionId)?.nativeSubagent;
+    if (this.isNativeSubagent(binding, targetSessionId) && !association?.capabilities?.cancel) {
       throw new Error('This native subagent is controlled by its parent');
     }
     return this.cancelSubagentControl(binding, targetSessionId);
@@ -4871,7 +4943,8 @@ class AcpRuntime extends EventEmitter {
     const id = String(sessionId || '');
     if (subagentOnly) {
       if (id === binding.sessionId) return null;
-      const referenced = [binding.sessionState, ...binding.subagentStates.values()].some(candidateState => (
+      const referenced = Boolean(binding.subagentStates.get(id)?.nativeSubagent)
+        || [binding.sessionState, ...binding.subagentStates.values()].some(candidateState => (
         candidateState.entries.some((candidate: TranscriptEntry) => (
           String(candidate?._meta?.subagent_session_info?.session_id || '') === id
         ))
@@ -5062,9 +5135,17 @@ class AcpRuntime extends EventEmitter {
     const pendingElicitation = [...binding.pendingElicitations.values()]
       .some((request: UnknownRecord) => String(request?.sessionId || '') === id);
     const control = this.ensureSubagentControl(binding, id);
+    const association = state.nativeSubagent;
     const active = ['pending', 'in_progress', 'in-progress', 'running'].includes(status);
     const failed = ['failed', 'error'].includes(status);
-    const stateName = pendingPermission
+    const stateName = association ? pendingPermission ? 'waiting-for-permission'
+      : pendingElicitation ? 'waiting-for-input'
+      : control.phase === 'cancelling' ? 'interrupting'
+      : control.phase === 'error' ? 'error'
+      : association.state?.state === 'running' ? 'working'
+      : association.state?.state === 'requires_action' ? 'waiting-for-input'
+      : association.state?.state === 'idle' ? 'idle' : 'unknown'
+      : pendingPermission
       ? 'waiting-for-permission'
       : pendingElicitation && !active
         ? 'waiting-for-input'
@@ -5085,7 +5166,7 @@ class AcpRuntime extends EventEmitter {
       version: 2,
       protocol: 'acp',
       provider: binding.provider,
-      canCancel: !String(parentTool?.id || '').startsWith('native-subagent:'),
+      canCancel: association ? Boolean(association.capabilities?.cancel) : !String(parentTool?.id || '').startsWith('native-subagent:'),
       sessionId: id,
       cwd: binding.cwd,
       title: state.title || '',
@@ -5094,7 +5175,8 @@ class AcpRuntime extends EventEmitter {
       state: stateName,
       error: controlFailed ? control.error : failed ? String(parentTool?.title || 'Subagent failed') : '',
       errorKind: controlFailed || failed ? 'agent' : '',
-      stopReason: controlFailed || failed ? 'error' : cancelled ? 'cancelled' : stateName === 'idle' ? 'end_turn' : '',
+      stopReason: association ? association.state?.stopReason || ''
+        : controlFailed || failed ? 'error' : cancelled ? 'cancelled' : stateName === 'idle' ? 'end_turn' : '',
       ...state.transcriptSlice(options),
     };
   }
@@ -5107,7 +5189,9 @@ class AcpRuntime extends EventEmitter {
     const binding = this.requireBinding(agentId);
     this.requireOpenBinding(binding);
     const method = this.relatedReadMethod(binding);
-    if (!method) return this.getSubagentTranscriptSession(agentId, sessionId, options);
+    if (!method || binding.subagentStates.get(sessionId)?.nativeSubagent) {
+      return this.getSubagentTranscriptSession(agentId, sessionId, options);
+    }
     const parentSessionId = binding.sessionId;
     if (!binding.connection.extMethod) throw new Error('ACP connection does not support related history reads');
     const response = await withTimeout(binding.connection.extMethod(method, {

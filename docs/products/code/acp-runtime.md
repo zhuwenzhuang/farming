@@ -53,6 +53,17 @@ ACP boundary. Connection-local child IDs remain fenced by the parent runtime
 epoch; they are not independently resumable Session identities. Side Chat keeps
 its existing durable Fork identity and lifecycle.
 
+The negotiated child protocol accepts `subagent_update` associations and
+`session_message`/`session_message_chunk` traffic alongside legacy child events.
+An association is announced before child traffic; its immediate parent cannot
+change or cross runtime ownership. Omitted metadata persists, null clears it,
+and each supplied state replaces the whole snapshot. Idle children can work again;
+unset or unknown activity never proves completion. Inter-session messages upsert
+by their enclosing transcript's message identity, and chunks append in wire order.
+Child cancellation requires its explicit current capability and bounded confirmation
+of idle state. Restored evidence retains metadata and messages, but needs fresh
+activity and mutation grants from the current connection.
+
 Each parent Turn and native child owns its own completion. A parent Prompt
 settles after its provider Turn and the already-admitted notification prefix;
 background children do not extend that barrier. The session subscription stays
