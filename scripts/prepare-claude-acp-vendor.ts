@@ -7,7 +7,7 @@ import * as esbuild from 'esbuild';
 const projectRoot = path.join(__dirname, '..');
 const expectedVersion = '0.88.0';
 const expectedSdkVersion = '0.3.293';
-const expectedBundleSha256 = '2723b81ed5635af6a506685325e7664c4c3acdb60bcfe4d4d6b951b5ae3f6f84';
+const expectedBundleSha256 = 'd14602952b44c36ac6e4df9604607bfa994a4f4a3febf559ee095c847b94b5c1';
 const packageRoot = path.dirname(require.resolve('@agentclientprotocol/claude-agent-acp/package.json'));
 const packageJsonPath = path.join(packageRoot, 'package.json');
 const sdkEntry = require.resolve('@anthropic-ai/claude-agent-sdk', {
