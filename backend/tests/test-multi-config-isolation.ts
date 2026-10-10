@@ -286,9 +286,11 @@ async function run(): Promise<void> {
     const settingsB = new ConfigManager({ configDir: configB });
     settingsA.init();
     settingsB.init();
-    settingsA.updateSettings({ language: 'zh' });
-    assert.strictEqual(settingsA.getSettings().language, 'zh');
-    assert.strictEqual(settingsB.getSettings().language, 'en');
+    const initialLanguage = settingsB.getSettings().language;
+    const changedLanguage = initialLanguage === 'zh' ? 'en' : 'zh';
+    settingsA.updateSettings({ language: changedLanguage });
+    assert.strictEqual(settingsA.getSettings().language, changedLanguage);
+    assert.strictEqual(settingsB.getSettings().language, initialLanguage);
     assert.notStrictEqual(settingsA.settingsFile, settingsB.settingsFile);
 
     const authA = new TokenAuth({ basePath: '/farming', farmingDir: configALink, token: 'token-a' });
