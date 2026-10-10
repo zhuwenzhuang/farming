@@ -1,5 +1,4 @@
 import { cancelComposerIntake } from './composer-intake'
-import { readComposerInputPreferences } from './composer-input-preferences'
 import { attachSubagent } from '@/lib/subagent-supervision'
 import { useCallback, useRef, useState } from 'react'
 import type { Agent } from '@/types/agent'
@@ -85,7 +84,7 @@ export function SubagentComposer({ agent: structuralAgent, active, controller, c
     if (textarea.dataset.plainPaste === 'true') return false
     let prepared
     try {
-      prepared = prepareComposerPaste(text, html, readComposerInputPreferences().foldLongPaste)
+      prepared = prepareComposerPaste(text, html, true)
       if (prepared?.markdown) { insertFormattedComposerText(textarea, prepared.markdown); return true }
     }
     catch (error) {

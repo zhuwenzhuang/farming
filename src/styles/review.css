@@ -633,9 +633,18 @@
 .review-diff-row.context > :nth-child(1),
 .review-diff-row.context > :nth-child(3) { background: var(--code-bg-inset); }
 
-.review-diff-row.unified { grid-template-columns: 42px minmax(0, 1fr); }
+.review-diff-row.unified { grid-template-columns: 42px 42px 18px minmax(0, 1fr); }
+.review-diff-row.unified.context > :nth-child(2) { background: var(--code-bg-inset); }
+.review-diff-row .review-diff-sign {
+  padding: 2px 0;
+  border: 0;
+  text-align: center;
+  color: var(--code-text-muted);
+}
 .review-diff-row.unified.added > * { background: var(--code-success-soft); }
 .review-diff-row.unified.deleted > * { background: var(--code-diff-removed-soft); }
+.review-diff-row.unified.added .review-diff-sign { color: var(--code-success); }
+.review-diff-row.unified.deleted .review-diff-sign { color: var(--code-diff-removed); }
 
 .review-line-attachment {
   overflow: hidden;
@@ -927,7 +936,7 @@
   .review-path-with-directory::before { content: '…'; flex: none; }
   .review-review-status button { opacity: 1; }
   .review-diff-row { grid-template-columns: 34px minmax(220px, 1fr) 34px minmax(220px, 1fr); }
-  .review-diff-row.unified { grid-template-columns: 34px minmax(220px, 1fr); }
+  .review-diff-row.unified { grid-template-columns: 34px 34px 16px minmax(0, 1fr); }
   .review-preferences { max-height: calc(100vh - 48px); overflow: auto; }
   .review-preferences > header,
   .review-preferences > footer { padding-inline: 20px; }

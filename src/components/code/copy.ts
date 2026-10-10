@@ -29,8 +29,6 @@ export interface CodeCopy {
   hideRelatedAgents: string
   extractedText: string
   downloadOriginal: string
-  foldLongPaste: string
-  optimizeImages: string
   showPastedTextInField: string
   quoteContextLabel: string
   quoteSelection: string
@@ -758,8 +756,6 @@ const EN_COPY: CodeCopy = {
   hideRelatedAgents: 'Hide subagents',
   extractedText: 'Extracted text',
   downloadOriginal: 'Download original',
-  foldLongPaste: 'Fold long pasted text',
-  optimizeImages: 'Optimize attached images',
   showPastedTextInField: 'Show in text field',
   quoteContextLabel: 'Quoted text',
   quoteSelection: 'Quote in chat',
@@ -1522,8 +1518,6 @@ const ZH_COPY: CodeCopy = {
   hideRelatedAgents: '隐藏子 Agent',
   extractedText: '提取的正文',
   downloadOriginal: '下载原文件',
-  foldLongPaste: '折叠长粘贴文本',
-  optimizeImages: '优化附件图片',
   showPastedTextInField: '在输入框中显示',
   quoteContextLabel: '引用内容',
   quoteSelection: '引用提问',

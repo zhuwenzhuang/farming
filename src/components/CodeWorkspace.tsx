@@ -1,7 +1,6 @@
 import type { ComposerDeliveryOptions } from './code/composer-state'
 import { ResumeStoppedAgentDialog, isStoppedAgentResumeCandidate } from './code/ResumeStoppedAgentDialog'
 import { intakeComposerFile, cancelComposerIntake } from './code/composer-intake'
-import { readComposerInputPreferences } from './code/composer-input-preferences'
 import { prepareComposerSubmission } from './code/composer-submission-state'
 import { validateComposerReferences } from './code/composer-context-admission'
 import { useQuestionPresentationLifetime } from './code/acp/acp-elicitation-presentation'
@@ -2110,7 +2109,7 @@ export function CodeWorkspace({
     if (!activeComposerKey || textarea.dataset.plainPaste === 'true') return false
     let prepared
     try {
-      prepared = prepareComposerPaste(text, html, readComposerInputPreferences().foldLongPaste)
+      prepared = prepareComposerPaste(text, html, true)
       if (prepared?.markdown) { insertFormattedComposerText(textarea, prepared.markdown); return true }
     }
     catch (error) {

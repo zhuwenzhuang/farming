@@ -132,6 +132,12 @@ Comment ID 与 Operation Type。Stale Response 不能修改更新 Review，也�
 
 ## UI Contract
 
+Review 遵循 Code 共享的小屏策略，自动显示换行的单列 Diff。进入小屏不改变桌面 Diff
+偏好、Review Identity、已加载内容、Reviewed State 或评论草稿；回到宽屏恢复桌面布局。
+布局变化关闭选区评论入口，显式创建的草稿保留原锚点。小屏隐藏无效的左右对比控件，
+并复用共享导航选择器。单列同时显示旧、新行号和增删符号；公共行按各自坐标保留两侧
+的评论与草稿。
+
 捕获比较后，刷新、切换 Revision 视图和重新打开必须保留比较来源标签。工作区快照
 不能被称为 Agent 的上一轮；Agent 证据显示 Agent changes，缺少来源信息的旧快照
 显示 Changes。比较菜单区分已捕获版本与重新读取的工作区比较。
@@ -156,6 +162,7 @@ Review 跟随 Farming Code 的权威外观偏好。画布、控件、语法、�
 Reviewed Action 只在 Row Hover、Keyboard Focus 或 Expanded 时视觉浮现。Loaded、Loading、Failed、
 Binary、Truncated 与 Unavailable Diff State 都明确展示。Common-line Gap 按有界 Range 展开，
 不能移动另一侧边界，也不能因失败丢失 Control。
+差异块内已有的上下文计入可见范围，不得丢失或再次计入隐藏行数。
 
 Final Change 与 Previous Revision 之后的 Fixes 服务不同注意力需求。完整 Base-to-current 结果
 始终权威；Incremental View 是理解上次 Review 后真实变化的默认入口。

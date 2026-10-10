@@ -189,6 +189,15 @@ Review uses one file-list-first workspace. File rows show change type, summary,
 reviewed state, comments, and expandable inline diff without duplicating the
 same catalog in another panel.
 
+The shared Code compact viewport policy selects a unified, wrapping diff
+automatically. Entering compact layout does not change the saved desktop diff
+mode, Review identity, loaded content, reviewed state, or comment drafts; leaving
+it restores the desktop presentation. Layout changes dismiss the selection
+action, while an explicit draft keeps its anchor. Compact layout hides the
+ineffective split control and uses the shared navigation selector. Unified rows
+show original and candidate line numbers with explicit addition/deletion signs;
+common rows retain comments and drafts from both sides at their own coordinates.
+
 File paths prioritize the basename when space is limited; compact rows show an
 abbreviated directory. Current and previous paths retain their full tooltip and
 selectable text. Dragging a path selects text without expanding its diff.
@@ -235,6 +244,8 @@ Reviewed actions remain visually quiet until row hover, keyboard focus, or
 expansion. Loaded, loading, failed, binary, truncated, and unavailable diff
 states are explicit. Common-line gaps expand in bounded ranges without moving
 the opposite boundary or discarding the control after failure.
+Context supplied inside a diff hunk counts toward that visible range; it must
+neither disappear nor be counted again as hidden context.
 
 Final change and fixes since the previous revision serve different attention
 needs. The complete base-to-current result remains authoritative, while the

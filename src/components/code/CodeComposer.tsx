@@ -1,5 +1,4 @@
 import { ComposerDraftHighlight } from './ComposerDraftHighlight'
-import { ComposerInputPreferences } from './composer-input-preferences'
 import { useComposerTransfer } from './useComposerTransfer'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type {
@@ -924,7 +923,6 @@ export function CodeComposer({
                 onBlur={onComposerMenuBlur}
                 onMouseDown={event => event.preventDefault()}
               >
-                <ComposerInputPreferences copy={copy} />
                 {capabilities.plusMenu ? (
                   <button type="button" role="menuitem" data-testid="code-composer-attach-file" onClick={onChooseAttachmentFile}>
                     <span>{copy.attachFile}</span>

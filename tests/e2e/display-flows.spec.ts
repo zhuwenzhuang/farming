@@ -3587,7 +3587,7 @@ test.describe('display-backed agent flows', () => {
       if (process.platform === 'darwin') {
         await expect(page.getByTestId('code-composer-plus-menu')).toHaveScreenshot('desktop-composer-plus-menu.png')
       }
-      await expect(page.getByTestId('composer-foldLongPaste')).toBeFocused()
+      await expect(page.getByTestId('code-composer-attach-file')).toBeFocused()
       const fileChooserPromise = page.waitForEvent('filechooser')
       await page.getByTestId('code-composer-attach-file').click()
       const fileChooser = await fileChooserPromise
@@ -3603,7 +3603,7 @@ test.describe('display-backed agent flows', () => {
       await expect(page.getByTestId('code-composer').locator('textarea')).toBeFocused()
       await page.getByTestId('code-composer').locator('textarea').fill('')
       await page.getByTestId('code-composer-add').click()
-      await expect(page.getByTestId('composer-foldLongPaste')).toBeFocused()
+      await expect(page.getByTestId('code-composer-attach-file')).toBeFocused()
       await page.keyboard.press('Escape')
       await expect(page.getByTestId('code-composer-plus-menu')).toBeHidden()
       await expect(page.getByTestId('code-composer').locator('textarea')).toBeFocused()
@@ -3612,7 +3612,7 @@ test.describe('display-backed agent flows', () => {
       await page.getByTestId('code-composer').locator('textarea').fill('')
       await page.getByTestId('code-composer-add').click()
       await expect(page.getByTestId('code-composer-plus-menu')).toBeVisible()
-      await expect(page.getByTestId('composer-foldLongPaste')).toBeFocused()
+      await expect(page.getByTestId('code-composer-attach-file')).toBeFocused()
       await page.keyboard.press('n')
       await expect(page.getByTestId('input-dialog')).toBeHidden()
       await expect(page.getByTestId('code-composer-plus-menu')).toBeVisible()
@@ -3639,10 +3639,6 @@ test.describe('display-backed agent flows', () => {
       await expect(page.getByTestId('code-composer').locator('textarea')).toHaveValue('line one\nline two')
       await page.getByTestId('code-composer').locator('textarea').fill('')
       await page.getByTestId('code-composer-add').click()
-      await expect(page.getByTestId('composer-foldLongPaste')).toBeFocused()
-      await page.keyboard.press('ArrowDown')
-      await expect(page.getByTestId('composer-optimizeImages')).toBeFocused()
-      await page.keyboard.press('ArrowDown')
       await expect(page.getByTestId('code-composer-attach-file')).toBeFocused()
       await page.keyboard.press('ArrowDown')
       await expect(page.getByTestId('code-composer-goal-mode')).toBeFocused()

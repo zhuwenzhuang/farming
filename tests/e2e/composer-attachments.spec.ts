@@ -5,6 +5,7 @@ import { expect, openFarming, test } from './fixtures'
 for (const mode of ['chat', 'terminal'] as const) {
   test(`${mode} attachment intake preserves mixed paste, previews, history and explicit errors`, async ({ page, workspaceRoot }, testInfo) => {
     const workspace = path.join(workspaceRoot, `attachment-intake-${mode}`)
+    await page.addInitScript(() => localStorage.setItem('farming.composer-input-preferences', JSON.stringify({ foldLongPaste: false, optimizeImages: false })))
     fs.mkdirSync(workspace, { recursive: true })
     fs.writeFileSync(path.join(workspace, 'source.txt'), 'workspace context')
     await page.request.post('/farming/api/settings', { data: { language: 'en' } })
@@ -20,7 +21,7 @@ for (const mode of ['chat', 'terminal'] as const) {
     await input.evaluate(element => {
       const transfer = new DataTransfer()
       transfer.items.add(new File(['# Document\n' + 'Complete source\n'.repeat(5000) + 'DOCUMENT_END'], 'review.md', { type: '' }))
-      transfer.items.add(new File([Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII='), c => c.charCodeAt(0))], 'sample.png', { type: '' }))
+      transfer.items.add(new File([Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII='), c => c.charCodeAt(0))], 'sample.png', { type: '' }))
       transfer.setData('text/plain', 'both files')
       element.dispatchEvent(new ClipboardEvent('paste', { clipboardData: transfer, bubbles: true, cancelable: true }))
     })
@@ -78,16 +79,22 @@ for (const mode of ['chat', 'terminal'] as const) {
     await expect(card).toHaveCount(0)
     const plus = page.getByTestId(mode === 'chat' ? 'code-acp-composer-add' : 'code-composer-add')
     await plus.click()
-    const fold = page.getByTestId('composer-foldLongPaste')
-    await expect(fold).toHaveAttribute('aria-checked', 'true')
-    await fold.click()
-    await expect(fold).toHaveAttribute('aria-checked', 'false')
+    const menu = page.getByTestId(mode === 'chat' ? 'code-acp-plus-menu' : 'code-composer-plus-menu')
+    await expect(menu.getByRole('menuitemcheckbox')).toHaveCount(0)
+    await expect(menu.getByRole('menuitem').first()).toContainText('Attach file')
+    await expect(menu.getByRole('menuitem')).toHaveCount(3)
+    for (const appearance of ['light', 'dark', 'paper']) {
+      await page.evaluate(value => { document.body.dataset.appearance = value; document.documentElement.dataset.appearance = value }, appearance)
+      await menu.screenshot({ path: testInfo.outputPath(`${mode}-commands-menu-${appearance}.png`), animations: 'disabled' })
+    }
     await page.keyboard.press('Escape')
     const prevented = await input.evaluate(element => {
       const transfer = new DataTransfer(); transfer.setData('text/plain', 'long text\n'.repeat(150))
       return !element.dispatchEvent(new ClipboardEvent('paste', { clipboardData: transfer, bubbles: true, cancelable: true }))
     })
-    expect(prevented).toBe(false)
+    expect(prevented).toBe(true)
+    await expect(page.getByTestId('code-composer-pasted-text')).toHaveCount(1)
+    await page.getByTestId('code-composer-pasted-text').getByRole('button', { name: 'Remove long text', exact: true }).click()
     await expect(page.getByTestId('code-composer-pasted-text')).toHaveCount(0)
     await page.locator('input[type="file"]').setInputFiles(path.resolve('tests/e2e/fixtures/composer-sample.heic'))
     await expect(page.locator('.code-composer-attachment.uploading')).toHaveCount(0)
@@ -96,7 +103,7 @@ for (const mode of ['chat', 'terminal'] as const) {
     await image.click()
     await expect(page.getByTestId('composer-image-viewer').locator('img')).toHaveJSProperty('naturalWidth', 256)
     await page.keyboard.press('Escape')
-    await page.getByRole('button', { name: 'Remove composer-sample.png', exact: true }).click()
+    await page.getByRole('button', { name: /^Remove composer-sample\.(png|webp)$/ }).click()
     // An explicit global file paste returns to the last focused composer.
     await input.focus()
     await page.evaluate(() => {
@@ -106,9 +113,6 @@ for (const mode of ['chat', 'terminal'] as const) {
     await expect(card).toContainText('global.txt')
     await expect(card.getByRole('status')).toHaveCount(0)
     await page.getByRole('button', { name: 'Remove global.txt', exact: true }).click()
-    await plus.click()
-    await page.getByTestId('composer-optimizeImages').click()
-    await page.keyboard.press('Escape')
     await input.evaluate(async element => {
       const canvas = document.createElement('canvas'); canvas.width = 3000; canvas.height = 1000
       const context = canvas.getContext('2d')!; context.fillStyle = '#2468ac'; context.fillRect(100, 100, 2800, 800)
@@ -120,8 +124,33 @@ for (const mode of ['chat', 'terminal'] as const) {
     await expect(page.locator('.code-composer-attachment.uploading')).toHaveCount(0)
     await image.click()
     await expect(page.getByTestId('composer-image-viewer').locator('img')).toHaveJSProperty('naturalWidth', 2048)
+    const alpha = await page.getByTestId('composer-image-viewer').locator('img').evaluate(element => {
+      const image = element as HTMLImageElement
+      const canvas = document.createElement('canvas'); canvas.width = image.naturalWidth; canvas.height = image.naturalHeight
+      const context = canvas.getContext('2d')!; context.drawImage(image, 0, 0)
+      return [context.getImageData(0, 0, 1, 1).data[3], context.getImageData(1000, 300, 1, 1).data[3]]
+    })
+    expect(alpha).toEqual([0, 255])
     await page.keyboard.press('Escape')
     await page.getByRole('button', { name: 'Remove large.webp', exact: true }).click()
+    const originalBytes = await input.evaluate(async element => {
+      const canvas = document.createElement('canvas'); canvas.width = 512; canvas.height = 512
+      const context = canvas.getContext('2d')!; context.fillStyle = '#2468ac'; context.fillRect(0, 0, 512, 512)
+      const blob = await new Promise<Blob>(resolve => canvas.toBlob(value => resolve(value!)))
+      const transfer = new DataTransfer(); transfer.items.add(new File([blob], 'ordinary.png', { type: 'image/png' }))
+      element.dispatchEvent(new ClipboardEvent('paste', { clipboardData: transfer, bubbles: true, cancelable: true }))
+      return blob.size
+    })
+    await expect(image).toHaveCount(1)
+    await expect(page.locator('.code-composer-attachment.uploading')).toHaveCount(0)
+    await image.click()
+    const optimizedImage = page.getByTestId('composer-image-viewer').locator('img')
+    await expect(optimizedImage).toHaveJSProperty('naturalWidth', 512)
+    const optimizedDownload = await page.request.get((await optimizedImage.getAttribute('src'))!)
+    expect(optimizedDownload.ok()).toBeTruthy()
+    expect((await optimizedDownload.body()).length).toBeLessThan(originalBytes)
+    await page.keyboard.press('Escape')
+    await page.getByRole('button', { name: 'Remove ordinary.webp', exact: true }).click()
     // Drag the actual file-tree row, retaining its authorized workspace identity.
     await page.locator('.code-files-title').click()
     const row = page.locator('[data-testid="code-file-row"][data-file-path="source.txt"]')
