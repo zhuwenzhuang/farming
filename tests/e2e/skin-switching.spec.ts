@@ -550,8 +550,13 @@ test('keeps Code Usage to real token sources and renders a compact activity heat
   await page.setViewportSize({ width: 1100, height: 680 })
   await expect.poll(() => detail.evaluate(element => {
     const histogram = element.querySelector<HTMLElement>('[data-testid="code-usage-day-histogram"]')
+    const bounds = element.getBoundingClientRect()
     return {
-      dialogFits: element.scrollWidth <= element.clientWidth && element.scrollHeight <= element.clientHeight,
+      // Account diagnostics can add rows. The dialog bounds the viewport and
+      // scrolls vertically rather than clipping or suppressing those rows.
+      dialogFits: element.scrollWidth <= element.clientWidth
+        && bounds.left >= 0 && bounds.right <= window.innerWidth
+        && bounds.top >= 0 && bounds.bottom <= window.innerHeight,
       histogramFits: Boolean(
         histogram
         && histogram.scrollWidth <= histogram.clientWidth
@@ -559,6 +564,13 @@ test('keeps Code Usage to real token sources and renders a compact activity heat
       ),
     }
   })).toEqual({ dialogFits: true, histogramFits: true })
+  await detail.evaluate(element => { element.scrollTop = element.scrollHeight })
+  await expect.poll(() => detail.evaluate(element => {
+    const analysis = element.querySelector('[data-testid="code-usage-detail-analysis"]')?.getBoundingClientRect()
+    const bounds = element.getBoundingClientRect()
+    return Boolean(analysis && analysis.top >= bounds.top && analysis.bottom <= bounds.bottom)
+  })).toBe(true)
+  await detail.evaluate(element => { element.scrollTop = 0 })
   await page.setViewportSize({ width: 1440, height: 900 })
   await expect.poll(() => detailDailyHeatmap.locator('.code-usage-daily-heatmap-cell').first().evaluate(element => (
     getComputedStyle(element).height
