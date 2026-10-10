@@ -1,4 +1,5 @@
 import { isAcpComposerStateKey } from './acp/acp-composer-state'
+import { validatePastedTextFormats } from './composer-paste-format'
 import type { ComposerHistorySnapshot } from './composer-history'
 import {
   createDefaultAgentComposerState,
@@ -188,11 +189,15 @@ function persistedContextReferences(value: unknown): ComposerContextReference[] 
     if (typeof item.id !== 'string' || !item.id || item.id.length > 32_000
       || typeof item.label !== 'string' || item.label.length > 4096) return null
     const reference: ComposerContextReference = { id: item.id, kind: item.kind as ComposerContextReference['kind'], label: item.label }
-    for (const field of ['rootId', 'workspace', 'path', 'text', 'sourceRevision', 'command', 'source', 'type', 'error'] as const) {
+    for (const field of ['rootId', 'workspace', 'path', 'text', 'sourceRevision', 'command', 'source', 'type', 'error', 'editableMarkdown'] as const) {
       if (item[field] === undefined) continue
-      const text = boundedString(item[field], field === 'text' ? ((item.kind === 'pasted-text' || item.kind === 'document') ? MAX_PASTED_TEXT_CHARS : 6000) : 4096)
+      const text = boundedString(item[field], (field === 'text' || field === 'editableMarkdown') ? ((item.kind === 'pasted-text' || item.kind === 'document') ? MAX_PASTED_TEXT_CHARS : 6000) : 4096)
       if (text === null) return null
       reference[field] = text
+    }
+    if (reference.kind === 'pasted-text' && reference.text) {
+      const formats = validatePastedTextFormats(item.textFormats, reference.text)
+      if (formats) reference.textFormats = formats
     }
     for (const field of ['startLine', 'endLine'] as const) {
       if (item[field] === undefined) continue

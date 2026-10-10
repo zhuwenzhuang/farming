@@ -11,7 +11,7 @@ import type { ComposerFollowUpBehavior } from '@/lib/ui-preferences'
 import { projectFilesWorkspaceId } from '@/lib/project-workspaces'
 import { capabilitiesForAgent } from './capabilities'
 import { useComposerProviderCatalog } from './useComposerProviderCatalog'
-import { attachPastedText, createPastedTextReference, restorePastedText } from './composer-paste'
+import { attachPastedText, insertFormattedComposerText, prepareComposerPaste, restorePastedText } from './composer-paste'
 import { composerContextReferenceId } from './composer-message'
 import { AcpComposer } from './acp/AcpComposer'
 import { acpComposerStateKeyForAgent } from './acp/acp-composer-state'
@@ -81,15 +81,19 @@ export function SubagentComposer({ agent: structuralAgent, active, controller, c
       setError('')
     } catch (caught) { setError(caught instanceof Error ? caught.message : String(caught)) }
   }
-  const pasteTextAsReference = (text: string, textarea: HTMLTextAreaElement) => {
-    if (!readComposerInputPreferences().foldLongPaste || textarea.dataset.plainPaste === 'true') return false
-    let reference
-    try { reference = createPastedTextReference(text) }
+  const pasteTextAsReference = (text: string, textarea: HTMLTextAreaElement, html?: string) => {
+    if (textarea.dataset.plainPaste === 'true') return false
+    let prepared
+    try {
+      prepared = prepareComposerPaste(text, html, readComposerInputPreferences().foldLongPaste)
+      if (prepared?.markdown) { insertFormattedComposerText(textarea, prepared.markdown); return true }
+    }
     catch (error) {
       setError(error instanceof Error ? error.message : String(error))
       return true
     }
-    if (!reference) return false
+    if (!prepared?.reference) return false
+    const reference = prepared.reference
     const start = textarea.selectionStart
     const end = textarea.selectionEnd
     update(current => attachPastedText(current, reference, start, end))
@@ -169,13 +173,13 @@ export function SubagentComposer({ agent: structuralAgent, active, controller, c
         const text = event.clipboardData.getData('text/plain') || event.clipboardData.getData('text/uri-list').split('\n').filter(line => !line.startsWith('#')).join('\n')
         if (files.length) {
           event.preventDefault(); void appendFiles(files)
-          if (text && event.currentTarget instanceof HTMLTextAreaElement && !pasteTextAsReference(text, event.currentTarget)) {
+          if (text && event.currentTarget instanceof HTMLTextAreaElement && !pasteTextAsReference(text, event.currentTarget, event.clipboardData.getData('text/html'))) {
             const start = event.currentTarget.selectionStart; const end = event.currentTarget.selectionEnd
             update(current => ({ ...current, draft: current.draft.slice(0, start) + text + current.draft.slice(end) }))
           }
           return
         }
-        if (text && event.currentTarget instanceof HTMLTextAreaElement && pasteTextAsReference(text, event.currentTarget)) { event.preventDefault(); return }
+        if (text && event.currentTarget instanceof HTMLTextAreaElement && pasteTextAsReference(text, event.currentTarget, event.clipboardData.getData('text/html'))) { event.preventDefault(); return }
         if (!text && event.currentTarget instanceof HTMLTextAreaElement && readRecentClipboardWrite()) { event.preventDefault(); pasteRecent(event.currentTarget) }
       }}
       onPasteShortcutFallback={textarea => { const sequence = pasteSequence.current; setTimeout(() => { if (pasteSequence.current === sequence && textarea.isConnected) pasteRecent(textarea) }, 0) }}

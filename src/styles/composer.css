@@ -3775,7 +3775,13 @@ body.code-mode.code-compact-layout .code-composer-approval.orange {
   white-space: pre-wrap;
   color: var(--code-text);
 }
-.code-composer-quote details[open] .code-composer-quote-excerpt { display: none; }
+.code-composer-quote details[open] + .code-composer-quote-excerpt { display: none; }
+.code-composer-quote-excerpt,
+.code-composer-quote pre {
+  cursor: text;
+  -webkit-user-select: text;
+  user-select: text;
+}
 .code-composer-quote pre {
   max-height: 120px;
   overflow: auto;
@@ -3833,3 +3839,39 @@ button.code-composer-attachment-preview {
   line-height: 1.4;
 }
 .code-composer-attachment.error.chip .code-composer-attachment-remove { position: absolute; right: 4px; top: 4px; }
+
+/* Native textarea geometry owns the syntax paint layer in every Composer. */
+.code-composer-draft-highlight {
+  position: absolute;
+  box-sizing: border-box;
+  margin: 0;
+  border: 0;
+  overflow: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  pointer-events: none;
+  user-select: none;
+  color: var(--code-text);
+}
+body.code-mode .code-composer textarea.code-composer-highlighted {
+  position: relative;
+  color: transparent;
+  caret-color: var(--code-text);
+  font-family: var(--code-mono-font, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+body.code-mode .code-composer textarea.code-composer-highlighted::selection {
+  color: var(--code-text);
+}
+.code-composer-draft-highlight .hljs-keyword,
+.code-composer-draft-highlight .hljs-strong,
+.code-composer-draft-highlight .hljs-section { color: var(--code-syntax-keyword); }
+.code-composer-draft-highlight .hljs-string,
+.code-composer-draft-highlight .hljs-link { color: var(--code-syntax-string); }
+.code-composer-draft-highlight .hljs-comment,
+.code-composer-draft-highlight .hljs-meta,
+.code-composer-draft-highlight .hljs-bullet { color: var(--code-syntax-comment); }
+.code-composer-draft-highlight .hljs-title,
+.code-composer-draft-highlight .hljs-emphasis { color: var(--code-syntax-function); }
+.code-composer-draft-highlight .hljs-number,
+.code-composer-draft-highlight .hljs-literal { color: var(--code-syntax-number); }

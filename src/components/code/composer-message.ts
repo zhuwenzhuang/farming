@@ -1,3 +1,4 @@
+import type { PastedTextFormat } from './composer-paste-format'
 import type { ComposerMode } from './types'
 import type { Agent } from '@/types/agent'
 import { appPath } from '@/lib/base-path'
@@ -45,6 +46,8 @@ export interface ComposerContextReference {
   workspace?: string
   path?: string
   text?: string
+  textFormats?: PastedTextFormat[]
+  editableMarkdown?: string
   startLine?: number
   endLine?: number
   status?: 'uploading' | 'ready' | 'error'
@@ -71,7 +74,7 @@ export function composerMessageWithContext(draft: string, references: ComposerCo
   const quotes = references.filter(reference => reference.kind === 'quote')
     .map(reference => `- ${reference.label}:\n${reference.text || ''}`)
   const pastes = references.filter(reference => reference.kind === 'pasted-text' || reference.kind === 'document')
-    .map(reference => `- ${reference.label}${reference.kind === 'document' && reference.path ? ` (original: ${reference.path})` : ''}:\n${reference.text || ''}`)
+    .map(reference => `- ${reference.label}${reference.kind === 'document' && reference.path ? ` (original: ${reference.path})` : ''}:\n${(reference.kind === 'pasted-text' && reference.editableMarkdown) || reference.text || ''}`)
   return [
     ...skills,
     draft,

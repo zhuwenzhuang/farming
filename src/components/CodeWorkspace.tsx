@@ -165,7 +165,7 @@ import {
   type ComposerContextReference,
   type ComposerPromptAttachment,
 } from './code/composer-message'
-import { attachPastedText, createPastedTextReference, restorePastedText } from './code/composer-paste'
+import { attachPastedText, insertFormattedComposerText, prepareComposerPaste, restorePastedText } from './code/composer-paste'
 import { terminalInputPartsForComposerMessage } from './code/composer-submit'
 import { ComposerFollowUpAdmissions, useComposerFollowUpController } from './code/useComposerFollowUpController'
 import type { RelatedSessionTarget } from './code/related-session-navigation'
@@ -2106,15 +2106,19 @@ export function CodeWorkspace({
     focusComposerTextarea()
   }, [focusComposerTextarea, updateActiveComposerState])
 
-  const pasteTextAsReference = useCallback((text: string, textarea: HTMLTextAreaElement) => {
-    if (!activeComposerKey || !readComposerInputPreferences().foldLongPaste || textarea.dataset.plainPaste === 'true') return false
-    let reference
-    try { reference = createPastedTextReference(text) }
+  const pasteTextAsReference = useCallback((text: string, textarea: HTMLTextAreaElement, html?: string) => {
+    if (!activeComposerKey || textarea.dataset.plainPaste === 'true') return false
+    let prepared
+    try {
+      prepared = prepareComposerPaste(text, html, readComposerInputPreferences().foldLongPaste)
+      if (prepared?.markdown) { insertFormattedComposerText(textarea, prepared.markdown); return true }
+    }
     catch (error) {
       setCopyNotice({ id: Date.now(), kind: 'error', message: error instanceof Error ? error.message : String(error) })
       return true
     }
-    if (!reference) return false
+    if (!prepared?.reference) return false
+    const reference = prepared.reference
     const start = textarea.selectionStart
     const end = textarea.selectionEnd
     updateComposerStateForKey(activeComposerKey, state => attachPastedText(state, reference, start, end))
@@ -2157,7 +2161,7 @@ export function CodeWorkspace({
       void appendAttachmentFiles(files)
       if (text && event.currentTarget instanceof HTMLTextAreaElement) {
         const textarea = event.currentTarget
-        if (!pasteTextAsReference(text, textarea)) {
+        if (!pasteTextAsReference(text, textarea, event.clipboardData.getData('text/html'))) {
           const start = textarea.selectionStart; const end = textarea.selectionEnd
           updateActiveComposerState(state => ({ ...state, draft: state.draft.slice(0, start) + text + state.draft.slice(end) }))
         }
@@ -2165,7 +2169,7 @@ export function CodeWorkspace({
       return
     }
     if (text) {
-      if (event.currentTarget instanceof HTMLTextAreaElement && pasteTextAsReference(text, event.currentTarget)) event.preventDefault()
+      if (event.currentTarget instanceof HTMLTextAreaElement && pasteTextAsReference(text, event.currentTarget, event.clipboardData.getData('text/html'))) event.preventDefault()
       return
     }
     const textarea = event.currentTarget

@@ -4,6 +4,7 @@ import { useRef, useState } from 'react'
 import { useInteractionLayer } from '@/hooks/useInteractionLayer'
 import { CloseGlyph, FileGlyph, FolderGlyph, SkillGlyph, SquareGlyph } from '@/components/IconGlyphs'
 import type { ComposerContextReference } from './composer-message'
+import { PastedTextContent } from './PastedTextContent'
 
 export interface ComposerAttachmentView {
   id: string
@@ -93,11 +94,12 @@ export function ComposerAttachments({ attachments, onRemove, references = [], on
         <div key={reference.id} className="code-composer-quote" data-testid={reference.kind === 'document' ? 'code-composer-document' : reference.kind === 'pasted-text' ? 'code-composer-pasted-text' : 'code-composer-quote'}>
           {reference.kind === 'document' && reference.status !== 'ready' ? <span className="code-composer-document-status" role={reference.status === 'error' ? 'alert' : 'status'}>{reference.status === 'error' ? reference.error : 'Processing document…'}</span> : null}
           <details>
-            <summary>{reference.label}<span className="code-composer-quote-excerpt">{reference.text}</span></summary>
+            <summary>{reference.label}</summary>
             {reference.kind === 'document' && reference.text ? <small>{extractedTextLabel}</small> : null}
-            <pre>{reference.text}</pre>
+            <pre><PastedTextContent reference={reference} /></pre>
             {reference.kind === 'document' && reference.path ? <a href={attachmentPreviewUrl(reference.path)} download={reference.label}>{downloadOriginalLabel}</a> : null}
           </details>
+          <div className="code-composer-quote-excerpt"><PastedTextContent reference={reference} /></div>
           {reference.kind === 'pasted-text' && onRestorePastedText ? (
             <button type="button" className="code-composer-context-overflow" onClick={() => onRestorePastedText(reference.id)}>
               {restorePastedTextLabel}

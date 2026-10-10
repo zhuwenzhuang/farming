@@ -80,6 +80,35 @@ the user's request. Queue editing and failed/uncertain sends retain the snapshot
 acceptance cannot clear a newer draft or reference. Agent switching preserves
 ownership. No provider-specific file path or upload is required.
 
+Pasted previews and quote excerpts support native mouse selection and copying;
+only the disclosure label toggles expansion. Clipboard HTML supplies bounded,
+validated presentation ranges for card previews. Source colors adapt to the
+appearance. Source HTML and executable content are never mounted.
+
+Formatted paste converts supported structure into editable Markdown: fenced code
+with a supplied language, indentation, lists, headings, emphasis and safe links.
+Source fonts, sizes and backgrounds do not become editor styling. Short formatted
+pastes insert into the selected range using native undo; long ones retain their
+snapshot card and an editable Markdown representation. “Show in text field” moves
+that representation into the same draft atomically and removes the card exactly
+once. Sending a formatted card includes its Markdown representation so code
+languages and link destinations reach the Agent. Existing plain-text snapshots still restore their original text. Disabling
+long-paste folding keeps formatted insertion; Shift+Cmd/Ctrl+V explicitly bypasses
+both formatting conversion and folding. Unsupported or mismatched HTML leaves
+the authoritative clipboard text intact.
+
+The draft string is the sole editing and submission owner. Typing, selection,
+IME, undo, history, queue editing, reload and Agent switches use the same textarea
+and existing draft transitions. An inert, inaccessible syntax layer decorates
+Markdown and fenced code using shared theme colors; it tracks the textarea's
+geometry and scroll position and never handles input or sends content. No second
+editable document or offset state can become stale after an edit. Highlighting is
+bounded to drafts of 50,000 code units and a total of 12,000 code units across 64 code blocks; larger text stays
+editable and retains all Markdown structure. No source code is executed. Native
+plain text remains available if formatted insertion is unsupported. Card removal,
+recovery, submission acknowledgement and newer-draft fencing keep their existing
+ownership and failure semantics.
+
 ## Attachment Intake And Recovery
 
 Paste, file selection and drop share one intake owner and preserve the exact

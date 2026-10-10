@@ -1,3 +1,4 @@
+import { ComposerDraftHighlight } from '../ComposerDraftHighlight'
 import { MAX_COMPOSER_SUBMISSIONS, type AgentComposerSubmission } from '../composer-state'
 import { ComposerInputPreferences } from '../composer-input-preferences'
 import { useComposerTransfer } from '../useComposerTransfer'
@@ -474,7 +475,7 @@ export function AcpComposer({
   }
   const handleComposerClick = (event: MouseEvent<HTMLElement>) => {
     if (!active) return
-    if (event.target instanceof Element && event.target.closest('.code-composer-menu, button, input, select, textarea, [role="menuitem"]')) return
+    if (event.target instanceof Element && event.target.closest('.code-composer-attachments, .code-composer-menu, button, input, select, textarea, [role="menuitem"]')) return
     textareaRef.current?.focus({ preventScroll: true })
   }
   const acpUsage = acpContextUsage(session?.usage)
@@ -678,6 +679,7 @@ export function AcpComposer({
         </div>
       ) : null}
       {hasQuotes ? composerAttachments : null}
+      <ComposerDraftHighlight draft={draft} textareaRef={textareaRef} />
       <textarea
           data-testid="code-acp-composer-input"
           ref={textareaRef}

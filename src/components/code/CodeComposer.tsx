@@ -1,3 +1,4 @@
+import { ComposerDraftHighlight } from './ComposerDraftHighlight'
 import { ComposerInputPreferences } from './composer-input-preferences'
 import { useComposerTransfer } from './useComposerTransfer'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -401,7 +402,7 @@ export function CodeComposer({
 
   function focusTextareaForInputIntent(target: EventTarget | null) {
     if (!active) return
-    if (target instanceof Element && target.closest('.code-composer-menu, button, input, select, textarea, [role="menuitem"]')) return
+    if (target instanceof Element && target.closest('.code-composer-attachments, .code-composer-menu, button, input, select, textarea, [role="menuitem"]')) return
 
     const textarea = textareaRef.current
     if (!textarea || textarea.disabled) return
@@ -672,6 +673,7 @@ export function CodeComposer({
         </div>
       )}
       {hasQuotes ? composerAttachments : null}
+      <ComposerDraftHighlight draft={draft} textareaRef={textareaRef} />
       <textarea
           data-testid="code-composer-input"
           ref={textareaRef}

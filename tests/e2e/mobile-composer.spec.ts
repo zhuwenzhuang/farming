@@ -64,6 +64,12 @@ for (const runtime of ['chat', 'terminal'] as const) {
     if (browserName === 'chromium') {
       const cdp = await page.context().newCDPSession(page)
       try {
+        // Chromium can emulate a taller viewport than its native content window.
+        // Native gestures must start inside both, even when DOM hit testing works.
+        const window = await cdp.send('Browser.getWindowForTarget')
+        await cdp.send('Browser.setWindowBounds', { windowId: window.windowId, bounds: {
+          width: Math.max(window.bounds.width, 500), height: Math.max(window.bounds.height, 1000),
+        } })
         const x = box.x + box.width / 2
         await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y: box.y + box.height - 10 }] })
         for (let step = 1; step <= 6; step++) {
@@ -250,5 +256,59 @@ for (const runtime of ['chat', 'terminal'] as const) {
       await assertSeparate()
       await send.click()
     }
+  })
+}
+
+for (const runtime of ['chat', 'terminal'] as const) {
+  test(`mobile ${runtime} rich paste keeps native editing and synchronized highlighting`, async ({ page, workspaceRoot }, testInfo) => {
+    const workspace = path.join(workspaceRoot, `rich-editor-${runtime}`)
+    fs.mkdirSync(workspace, { recursive: true })
+    const response = await page.request.post('/farming/api/control/agents', { data: { command: runtime === 'chat' ? 'codex' : 'bash', workspace, agentRuntimeMode: runtime } })
+    const { agentId } = await response.json() as { agentId: string }
+    await openFarming(page)
+    await page.getByTestId('code-mobile-menu').click()
+    await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+    const input = page.getByTestId(runtime === 'chat' ? 'code-acp-composer-input' : 'code-composer-input')
+    await expect(input).toBeEditable()
+    const source = 'public class Example {\n  String greeting = "你好";\n}\n'
+    const markdown = '```java\n' + source + '```'
+    await input.focus()
+    await input.evaluate((element, text) => {
+      const data = new DataTransfer()
+      data.setData('text/plain', text)
+      data.setData('text/html', `<pre data-language="java">${text}</pre>`)
+      element.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }))
+    }, source)
+    await expect(input).toHaveValue(markdown)
+    const highlight = page.getByTestId('code-composer-draft-highlight')
+    await expect(highlight.locator('.hljs-keyword').first()).toHaveText('public')
+    const original = await input.elementHandle()
+    for (const appearance of ['light', 'dark', 'paper']) {
+      await page.evaluate(value => { document.body.dataset.appearance = value; document.documentElement.dataset.appearance = value }, appearance)
+      for (const expanded of [false, true]) {
+        if (expanded) await page.getByTestId('code-composer-editor-toggle').click()
+        await expect.poll(async () => {
+          const native = await input.boundingBox(); const ink = await highlight.boundingBox()
+          return native && ink ? Math.abs(native.x - ink.x) + Math.abs(native.y - ink.y) + Math.abs(native.height - ink.height) : Infinity
+        }).toBeLessThan(1)
+        const nativeFont = await input.evaluate(element => getComputedStyle(element).font)
+        expect(await highlight.evaluate(element => getComputedStyle(element).font)).toBe(nativeFont)
+        expect(await original?.evaluate(element => element === document.querySelector(`[data-testid="${element.dataset.testid}"]`))).toBe(true)
+        await page.screenshot({ path: testInfo.outputPath(`rich-editor-${runtime}-${appearance}-${expanded ? 'expanded' : 'compact'}.png`), animations: 'disabled' })
+        if (expanded) await page.getByTestId('code-composer-editor-toggle').click()
+      }
+    }
+    await original?.dispose()
+    await input.evaluate(element => { const start = element.value.indexOf('greeting'); element.setSelectionRange(start, start + 8) })
+    await page.keyboard.insertText('message')
+    await expect(input).toHaveValue(markdown.replace('greeting', 'message'))
+    await expect(highlight).toContainText('message')
+    await input.dispatchEvent('compositionstart')
+    await input.press('Enter')
+    await input.dispatchEvent('compositionend')
+    await expect(input).not.toHaveValue('')
+    await input.fill('plain question')
+    await expect(highlight).toHaveCount(0)
+    await expect(input).not.toHaveCSS('color', 'rgba(0, 0, 0, 0)')
   })
 }
