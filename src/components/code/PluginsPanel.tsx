@@ -176,6 +176,7 @@ async function fetchAgentSettings(url: string, init?: RequestInit) {
 function pluginCopy(language: UiLanguage) {
   const zh = language === 'zh'
   return {
+    agentInventoryChanged: zh ? 'Agent Home 配置在读取期间发生变化，请刷新重试。' : 'Agent Home configuration changed while loading. Refresh to try again.',
     title: zh ? '插件' : 'Plugins',
     description: zh ? '管理 Farming 和 Agent 可以使用的能力。' : 'Manage capabilities available to Farming and Agents.',
     goBack: zh ? '返回' : 'Back',
@@ -979,9 +980,11 @@ export function PluginsPanel({
       })
       const data = await response.json().catch(() => ({})) as {
         agents?: AgentExtensionGroup[]
+        code?: string
         error?: string
       }
-      if (!response.ok) throw new Error(data.error || copy.agentExtensionsFailed)
+      if (!response.ok) throw new Error(data.code === 'INVENTORY_CHANGED_DURING_READ'
+        ? copy.agentInventoryChanged : data.error || copy.agentExtensionsFailed)
       if (
         !lease.isCurrent()
         || agentSaveRequestRef.current
@@ -1005,7 +1008,7 @@ export function PluginsPanel({
         && !agentSaveRequestRef.current
       ) setAgentGroupsLoading(false)
     }
-  }, [copy.agentExtensionsDisconnected, copy.agentExtensionsFailed])
+  }, [copy.agentExtensionsDisconnected, copy.agentExtensionsFailed, copy.agentInventoryChanged])
 
   useEffect(() => {
     const loadOwnership = agentLoadOwnershipRef.current
@@ -2066,22 +2069,29 @@ export function PluginsPanel({
             <h3>{copy.agentHomes}</h3>
             <p>{copy.agentHomesDescription}</p>
           </div>
-          <button
-            type="button"
-            className="code-plugin-agent-add code-touch-target"
-            disabled={agentSaving || agentGroups.length === 0}
-            onClick={() => {
-              setAgentGroupsError('')
-              setAgentDraft(current => current ? null : {
-                provider: agentGroups.find(group => group.available)?.id || agentGroups[0]?.id || 'codex',
-                id: '',
-                path: '',
-              })
-            }}
-          >
-            <PlusGlyph />
-            <span>{copy.addAgent}</span>
-          </button>
+          <div className="code-plugin-extension-tools">
+            {agentGroupsError ? <button
+              type="button"
+              disabled={agentGroupsLoading || agentSaving}
+              onClick={() => void loadAgentGroups()}
+            >{copy.refresh}</button> : null}
+            <button
+              type="button"
+              className="code-plugin-agent-add code-touch-target"
+              disabled={agentSaving || agentGroups.length === 0}
+              onClick={() => {
+                setAgentGroupsError('')
+                setAgentDraft(current => current ? null : {
+                  provider: agentGroups.find(group => group.available)?.id || agentGroups[0]?.id || 'codex',
+                  id: '',
+                  path: '',
+                })
+              }}
+            >
+              <PlusGlyph />
+              <span>{copy.addAgent}</span>
+            </button>
+          </div>
         </header>
         {agentDraft ? (
           <div className="code-plugin-agent-form" data-testid="code-plugin-agent-form">

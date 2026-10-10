@@ -752,7 +752,20 @@ class ComputerResourceManager extends EventEmitter {
       await this.docker(['image', 'inspect', image, '--format', '{{.Id}}'], { timeoutMs: 8_000 });
       imageReady = true;
     } catch (caught) {
-      error = (caught as Error).message || String(caught);
+      const failure = caught as NodeJS.ErrnoException & { stderr?: string; killed?: boolean };
+      const detail = String(failure.stderr || failure.message || caught);
+      const missingImage = dockerAvailable && detail.split(/\r?\n/).some(line => (
+        line.trim().toLowerCase().endsWith(`no such image: ${image.toLowerCase()}`)
+      ));
+      // Absence is installable state. Keep failed probes distinct from absence;
+      // command lines, image digests and daemon diagnostics are not UI copy.
+      if (!missingImage) {
+        error = failure.code === 'ENOENT' ? 'Docker is not installed.'
+          : /permission denied|access denied/i.test(detail) ? 'Cannot access Docker. Check Docker permissions.'
+            : failure.killed ? 'Docker did not respond in time. Check the Docker service and try again.'
+              : dockerAvailable ? 'Could not check the Docker image. Check the Docker service and try again.'
+                : 'Docker is unavailable. Start the Docker service and try again.';
+      }
     }
     return { dockerAvailable, imageReady, image, error };
   }
@@ -787,7 +800,7 @@ class ComputerResourceManager extends EventEmitter {
       } catch (caught) {
         const message = (caught as Error).message || String(caught);
         const compatibilityRequired = /operation not permitted|pthread_create|clone3/i.test(
-          `${message}\n${(caught as Error).stderr || ''}`,
+          `${message}\n${caught && typeof caught === 'object' && 'stderr' in caught ? String(caught.stderr || '') : ''}`,
         );
         throw computerError(
           compatibilityRequired

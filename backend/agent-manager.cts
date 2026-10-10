@@ -1913,7 +1913,6 @@ class AgentManager extends EventEmitter {
     const heartbeatInterval = this.configManager
       ? this.configManager.getHeartbeatInterval()
       : 1000;
-    console.log('Starting heartbeat with interval:', heartbeatInterval, 'ms');
     this.heartbeatScheduler = new AgentHeartbeatScheduler({
       intervalMs: heartbeatInterval,
       onTick: tick => this.runHeartbeatTick(tick),

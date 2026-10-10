@@ -21,6 +21,11 @@ Canonical Config 目录是一套 Farming 实例的身份。软链接等价路径
 
 Farming Package Installation 不属于 Config 身份。Package 选择与更新协调由独立契约定义。
 
+Config 统一拥有各客户端共享的界面语言设置。新 Config 或没有有效语言设置的 Config，
+在中国地区服务端时区默认使用中文，其它时区使用英文；地区集合与 Token 语言检测一致。
+已保存的中文或英文始终优先，重启、时区改变和 Token 专用语言覆盖都不能改写它。
+正常启动不向终端倾倒设置对象或可选程序的查找失败信息，确保访问地址与鉴权提示清晰可见。
+
 ## Server 所有权
 
 Config Owner 只有三种业务状态：

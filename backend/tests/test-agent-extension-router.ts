@@ -284,6 +284,16 @@ async function run(): Promise<void> {
     });
     assert.strictEqual(loggedErrors.length, 2);
     assert.strictEqual(loggedErrors[1][0], 'Failed to discover slash commands:');
+    inventoryFailure = Object.assign(new Error('Inventory changed repeatedly while reconciling {"homePath":"/private/home"}'), {
+      code: 'INVENTORY_CHANGED_DURING_READ',
+    });
+    const changedInventory = await fetch(`${baseUrl}/agent-extensions`);
+    assert.strictEqual(changedInventory.status, 409);
+    assert.deepStrictEqual(await changedInventory.json(), {
+      code: 'INVENTORY_CHANGED_DURING_READ',
+      error: 'Agent Home configuration changed while loading. Refresh to try again.',
+    });
+
     slashFailure = null;
 
     const passThroughResponse = await fetch(`${baseUrl}/executables`);

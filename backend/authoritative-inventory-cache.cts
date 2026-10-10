@@ -472,7 +472,9 @@ class AuthoritativeInventoryCache<Value> {
       }
       return value;
     }
-    throw new Error(`Inventory changed repeatedly while reconciling ${entry.key}`);
+    throw Object.assign(new Error(`Inventory changed repeatedly while reconciling ${entry.key}`), {
+      code: 'INVENTORY_CHANGED_DURING_READ',
+    });
   }
 
   private resolveCurrent(entry: InventoryEntry<Value>): Promise<Value> {

@@ -17,6 +17,8 @@ const {
 const { listProviderDescriptors } = require('../provider-adapters.cjs');
 
 function run() {
+  const previousTimeZone = process.env.TZ;
+  process.env.TZ = 'UTC';
   const previousConfigDir = process.env.FARMING_CONFIG_DIR;
   // Workspace history deliberately excludes paths under the operating system's
   // temporary roots. Keep the fixture under the user's home so this contract is
@@ -726,6 +728,8 @@ function run() {
 
     console.log('test-config-manager-workspaces passed');
   } finally {
+    if (previousTimeZone === undefined) delete process.env.TZ;
+    else process.env.TZ = previousTimeZone;
     if (previousConfigDir === undefined) {
       delete process.env.FARMING_CONFIG_DIR;
     } else {

@@ -94,6 +94,8 @@ function which(command: string): string {
     const program = process.platform === 'win32' ? 'where.exe' : 'which';
     return execFileSync(program, [command], {
       encoding: 'utf8',
+      // A missing optional browser is a discovery result, not a startup error.
+      stdio: ['ignore', 'pipe', 'ignore'],
       timeout: 1_000,
       maxBuffer: 16_384,
     }).split(/\r?\n/).map(value => value.trim()).find(Boolean) || '';

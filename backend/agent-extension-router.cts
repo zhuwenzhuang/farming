@@ -157,6 +157,13 @@ function createAgentExtensionRouter(service: AgentExtensionRouterPort): ExpressR
       const error = caughtError(caught);
       console.error('Failed to read Agent extension inventory:', error);
       res.setHeader('Cache-Control', 'no-store');
+      if ('code' in error && error.code === 'INVENTORY_CHANGED_DURING_READ') {
+        res.status(409).json({
+          code: error.code,
+          error: 'Agent Home configuration changed while loading. Refresh to try again.',
+        });
+        return;
+      }
       res.status(500).json({ error: error.message || 'Failed to read Agent extensions' });
     }
   });

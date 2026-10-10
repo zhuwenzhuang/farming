@@ -77,6 +77,23 @@ async function run() {
     assert.deepStrictEqual(stableValue, { value: 4444 });
     assert.strictEqual(unstableLoads, 2, 'a source change during reconciliation should discard and retry the old result');
 
+
+    const changing = new AuthoritativeInventoryCache({ maxReconcileAttempts: 3 });
+    caches.push(changing);
+    let changes = 0;
+    await assert.rejects(changing.get('changing', {
+      watchPaths: [], fingerprintPaths: [source], backgroundRefresh: false,
+      load: () => {
+        fs.writeFileSync(source, String(++changes).repeat(changes));
+        return changes;
+      },
+    }), { code: 'INVENTORY_CHANGED_DURING_READ' });
+    assert.strictEqual(changes, 3, 'unstable reads must remain bounded');
+    assert.strictEqual(await changing.get('changing', {
+      watchPaths: [], fingerprintPaths: [source], backgroundRefresh: false,
+      load: () => 4,
+    }), 4, 'an explicit new read succeeds once the source is stable');
+
     const appendRoot = path.join(root, 'append-only');
     const appendSource = path.join(appendRoot, 'session.jsonl');
     fs.mkdirSync(appendRoot);

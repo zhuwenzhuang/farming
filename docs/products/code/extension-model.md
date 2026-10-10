@@ -129,6 +129,9 @@ The Plugins surface presents built-in capabilities, Agent Home configuration,
 and extension catalogs. Opening it is a current-state boundary: capability and
 catalog views perform a fresh authoritative read with visible loading and
 failure.
+If inventory sources keep changing during a bounded consistency check, the read
+fails explicitly and offers Refresh; it must not present stale contents as current.
+The UI localizes the retry guidance, while internal inventory keys remain in diagnostics.
 
 Shared configuration is one Config-instance-private built-in capability in the
 Farming tab. It appends owner-provided system instructions and, optionally, an
@@ -268,6 +271,11 @@ A Browser capability read always probes the effective selection. When a system
 Browser has not yet been selected, an Owner read may persist the discovered
 default; a read-only share uses it only for that response and never changes
 Config settings.
+
+Missing optional browsers and absent Docker images are ordinary unavailable or
+installable states, not discovery errors. Failed Docker permission, service, and
+timeout checks remain explicit with concise actionable messages. Raw command
+lines and image digests are not user-facing capability explanations.
 
 Browser stop and delete transitions are bounded. A cleanup failure ends in a
 terminal failed state that retains the exact Resource and process identity for

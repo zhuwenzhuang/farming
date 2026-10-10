@@ -108,6 +108,8 @@ Permission 与 Result Semantics 继续由 Extension Contract 定义。
 Plugins Surface 展示 Built-in Capability、Agent Home Configuration 与 Extension Catalog。
 打开页面是一条 Current-state Boundary：Capability 与 Catalog 都执行 Fresh Authoritative Read，
 并保留可见 Loading 与 Failure。
+如果库存来源在有界一致性检查期间持续变化，读取必须明确失败并提供刷新操作，不能把旧内容
+当作当前状态。界面使用本地化的重试提示，内部 Inventory Key 仅保留在诊断中。
 
 共享配置是 Farming Tab 中一项 Config-instance-private Built-in Capability。它把 Owner 提供的
 附加系统提示词与可选的 Environment Overlay 注入之后启动的 Agent Process。运行中 Process
@@ -208,6 +210,9 @@ MCP 实现。
 
 Browser Capability Read 始终探测实际生效的 Selection。尚未选择 System Browser 时，Owner
 Read 可以持久化探测到的默认值；Read-only Share 只把它用于本次响应，绝不修改 Config Setting。
+
+缺少可选浏览器或 Docker 镜像属于正常的不可用或可安装状态，不是探测错误。Docker 权限、
+服务与超时故障仍需以简洁且可操作的提示明确呈现，不把原始命令和镜像摘要当作能力说明。
 
 Browser 的 Stop 与 Delete Transition 必须有界。Cleanup 失败时必须进入 Terminal Failed
 State，并保留精确 Resource 与 Process Identity 供显式重试，不能无限停留在 Stopping。

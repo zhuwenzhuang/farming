@@ -25,6 +25,14 @@ Resources follow these ownership boundaries:
 The Farming package installation is not part of the Config identity. Package
 selection and update coordination are defined separately.
 
+The Config owns the interface language shared by its clients. A new Config, or
+one without a valid saved language, defaults to Chinese in a Chinese-region
+server time zone (the same region set used for token locale detection), and
+English elsewhere. A saved English or Chinese preference always takes precedence;
+restarts, time-zone changes, and token-locale overrides do not replace it.
+Routine startup does not dump settings or optional executable lookup failures
+into the terminal; access URLs and authentication instructions stay prominent.
+
 ## Server Ownership
 
 A Config owner is either:

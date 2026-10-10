@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 import { createHash } from 'node:crypto';
+import { CHINESE_TIME_ZONES } from './haiku-token.cjs';
 import { discoverAgentHomes } from './agent-home-discovery.cjs';
 import { atomicWriteJson } from './atomic-json-store.cjs';
 import { ensureMainAgentSkillFiles } from './main-agent-skills.cjs';
@@ -600,7 +601,7 @@ class ConfigManager {
       instanceName: '',
       theme: 'terminal',
       appearance: 'system',
-      language: 'en',
+      language: this.normalizeLanguage(undefined),
       restReminderIntervalSeconds: null,
       heartbeatInterval: 1000,
       dangerouslySkipAgentPermissionsByDefault: false,
@@ -744,7 +745,6 @@ class ConfigManager {
     ensureMainAgentSkillFiles(this.farmingDir);
     ensureFarmingAgentBootstrapFile(this.farmingDir);
     this.writeSettingsFile();
-    console.log('Loaded settings:', this.settings);
   }
 
   pruneUnknownSettings(settings: Settings = this.settings): void {
@@ -977,7 +977,10 @@ class ConfigManager {
   }
 
   normalizeLanguage(language: unknown): string {
-    return typeof language === 'string' && ['en', 'zh'].includes(language) ? language : 'en';
+    if (language === 'en' || language === 'zh') return language;
+    // Config owns the default shared by its clients.
+    // Token-specific locale overrides do not change the interface preference.
+    return CHINESE_TIME_ZONES.has(Intl.DateTimeFormat().resolvedOptions().timeZone) ? 'zh' : 'en';
   }
 
   normalizeBrowserSource(source: unknown): string {
