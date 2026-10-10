@@ -160,6 +160,8 @@ for (const width of [1440, 390]) {
     await expect(activitySummary).not.toContainText('`')
     await expect(page.getByTestId('code-collaboration-finished')).toHaveCount(0)
     await page.getByTestId('code-agent-transcript-collaboration-event').first().click()
+    await expect(page.getByTestId('code-collaboration-open-peer')).toHaveCount(0)
+    await expect(page.getByTestId('code-collaboration-open-details')).toBeVisible()
     await page.getByTestId('code-collaboration-open-details').first().click()
     await expect(panel).toContainText('Review complete')
     await panel.getByRole('button', { name: 'Collapse related session' }).click()

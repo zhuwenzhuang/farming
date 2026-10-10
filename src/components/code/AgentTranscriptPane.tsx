@@ -1482,6 +1482,8 @@ function AgentTranscriptCollaborationTimeline({
     </button> : null}
     {activities.filter((activity, index) => index >= hiddenCount || openActivityIds.has(`${disclosureScope}:${activity.id}`)).map(activity => {
       const peer = parentAgentId ? peerNavigation?.resolve(parentAgentId, activity.threadId) : null
+      const hasChildAssociation = subagentStates.some(state => state.threadId === activity.threadId)
+        || processItems.some(item => item.subagentSessionId === activity.threadId)
       const recipientName = subagentStates.find(state => state.threadId === activity.threadId)?.name || activity.name
       const disclosureId = `${disclosureScope}:${activity.id}`
       const open = openActivityIds.has(disclosureId)
@@ -1517,7 +1519,7 @@ function AgentTranscriptCollaborationTimeline({
             data-testid="code-collaboration-open-peer" onClick={() => peerNavigation.open?.(peer.id)}>
             {copy.agentTranscriptCollaborationOpenPeer}
           </button> : null}
-          {!peer && openRelatedSession && parentAgentId && subagentStates.some(state => state.threadId === activity.threadId) ? <button type="button" className="code-agent-transcript-collaboration-earlier"
+          {!peer && openRelatedSession && parentAgentId && hasChildAssociation ? <button type="button" className="code-agent-transcript-collaboration-earlier"
             data-testid="code-collaboration-open-details" aria-label={copy.relatedOpenDetails}
             onClick={() => openRelatedSession({ parentAgentId, sessionId: activity.threadId, title: activity.task || activity.name })}>
             {copy.relatedOpenDetails}
