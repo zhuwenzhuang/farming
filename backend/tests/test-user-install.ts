@@ -17,7 +17,7 @@ const hasTool = (name: string) => spawnSync('/bin/sh', ['-c', `command -v ${name
 type RuntimeDownloads = 'normal' | 'overlap' | 'fail-node' | 'fail-npm' | 'stall';
 type MirrorMode = 'none' | 'available' | 'missing' | 'slow' | 'corrupt' | 'unavailable' | 'metadata-failure';
 
-async function fixture(legacy = false, integrityTool: IntegrityTool = 'openssl', runtimeDownloads: RuntimeDownloads = 'normal', mirrorMode: MirrorMode = 'none', platformPackages = false) {
+async function fixture(legacy = false, integrityTool: IntegrityTool = 'openssl', runtimeDownloads: RuntimeDownloads = 'normal', mirrorMode: MirrorMode = 'none', platformPackages = false, realNpm = false) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-user-install-'));
   const archives = new Map<string, Buffer>();
   const fakePath = path.join(directory, 'tools');
@@ -50,7 +50,12 @@ async function fixture(legacy = false, integrityTool: IntegrityTool = 'openssl',
     archives.set(archiveKey, fs.readFileSync(output));
   }
   pack(carrier, '22.23.2', root => executable(path.join(root, 'bin/node'), `#!/bin/sh\nexec ${quote(process.execPath)} "$@"\n`));
-  pack('npm', '12.1.0', root => executable(path.join(root, 'bin/npm-cli.js'), `
+  const npmCli = realNpm ? fs.realpathSync(execFileSync('/bin/sh', ['-c', 'command -v npm'], { encoding: 'utf8' }).trim()) : '';
+  pack('npm', '12.1.0', root => executable(path.join(root, 'bin/npm-cli.js'), realNpm ? `
+const args = process.argv.slice(2).map(arg => arg.replace('https://registry.npmmirror.com', process.env.FARMING_TEST_REGISTRY + '/mirror'));
+const child = require('child_process').spawnSync(process.execPath, [${JSON.stringify(npmCli)}, ...args], { stdio: 'inherit', timeout: 10000 });
+process.exit(child.status ?? 1);
+` : `
 const fs = require('fs'); const path = require('path'); const assert = require('assert');
 const args = process.argv.slice(2);
 if (args[0] === 'cache') process.exit(0);
@@ -58,10 +63,6 @@ assert(args.includes('--ignore-scripts')); assert(args.includes('--include=optio
 const prefix = args[args.indexOf('--prefix') + 1];
 const stage = path.dirname(prefix); const target = path.join(prefix, 'lib/node_modules/farming-code');
 fs.cpSync(path.join(stage, 'farming/package'), target, { recursive: true });
-if (fs.existsSync(path.join(stage, 'runtime/package'))) {
-  const metadata = JSON.parse(fs.readFileSync(path.join(stage, 'runtime/package/package.json')));
-  fs.cpSync(path.join(stage, 'runtime/package'), path.join(target, 'node_modules', 'farming-code-runtime-' + metadata.farmingRuntimePlatform), { recursive: true });
-}
 `));
   const runtimePlatform = legacy ? 'linux-x64' : 'darwin-arm64';
   const runtimeVersion = `1.0.0-runtime-${runtimePlatform}`;
@@ -170,7 +171,7 @@ exec ${quote(curl)} "\${args[@]}"
   const bin = path.join(directory, 'user bin');
   const calls = path.join(directory, 'calls');
   const installEnv = { ...process.env, PATH: fakePath, HOME: directory, FARMING_INSTALL_ROOT: root,
-    FARMING_BIN_DIR: bin, FARMING_NPM_REGISTRY: registryUrl, FARMING_TEST_CALLS: calls };
+    FARMING_BIN_DIR: bin, FARMING_NPM_REGISTRY: registryUrl, FARMING_TEST_REGISTRY: registryUrl, FARMING_TEST_CALLS: calls };
   async function runTTY(env: NodeJS.ProcessEnv = {}, columns = 80, onOutput?: (output: string, terminal: pty.IPty) => void) {
     const terminalEnv: NodeJS.ProcessEnv = { ...installEnv, TERM: 'xterm-256color', COLUMNS: String(columns), ...env };
     if (!Object.hasOwn(env, 'NO_COLOR')) delete terminalEnv.NO_COLOR;
@@ -541,6 +542,18 @@ test('installer help and unsupported startup options do not install or launch', 
     assert.equal(f.requests(), 0);
     assert(!fs.existsSync(f.root));
     assert(!fs.existsSync(f.calls));
+  } finally { await f.close(); }
+});
+
+test('real npm with a stale China mirror retains the verified platform carrier', async () => {
+  const f = await fixture(false, 'openssl', 'normal', 'missing', true, true);
+  try {
+    const result = await f.run(['--mirror', 'cn']);
+    assert.equal(result.code, 0, result.output);
+    assert(f.requestPaths.includes('/mirror/farming-code'), 'exercise real npm alias resolution against stale metadata');
+    const installed = path.join(f.root, 'lib/node_modules/farming-code/node_modules/farming-code-runtime-darwin-arm64/package.json');
+    assert.equal(JSON.parse(fs.readFileSync(installed, 'utf8')).version, '1.0.0-runtime-darwin-arm64');
+    assert(f.requestPaths.includes('/upstream/farming-code-runtime/archive.tgz'));
   } finally { await f.close(); }
 });
 

@@ -153,19 +153,25 @@ jobs:
           const npmPublication = (job.steps || []).find(
             entry => entry.name === 'Verify and publish npm package with provenance',
           );
+          const runtimePublication = (job.steps || []).find(
+            entry => entry.name === 'Verify and publish npm runtime packages with provenance',
+          );
           const publicWait = (job.steps || []).find(entry => entry.name === 'Wait for npm package to become public');
           const recoverablePublicVerificationFailure = publicVerification?.conclusion === 'failure'
             && npmPublication?.conclusion === 'skipped';
           const recoverableNpmPublicationFailure = publicVerification?.conclusion === 'success'
             && (npmPublication?.conclusion === 'failure'
               || (npmPublication?.conclusion === 'success' && ['success', 'failure'].includes(publicWait?.conclusion)));
-          if (!recoverablePublicVerificationFailure && !recoverableNpmPublicationFailure) {
+          const recoverableRuntimePublicationFailure = publicVerification?.conclusion === 'success'
+            && runtimePublication?.conclusion === 'failure' && npmPublication?.conclusion === 'skipped';
+          if (!recoverablePublicVerificationFailure && !recoverableNpmPublicationFailure && !recoverableRuntimePublicationFailure) {
             throw new Error(
               `Publication did not stop at a recoverable boundary: public=${publicVerification?.conclusion || 'missing'}, npm=${npmPublication?.conclusion || 'missing'}`,
             );
           }
           require('node:fs').appendFileSync(process.env.GITHUB_ENV,
             `NPM_UPLOAD_MAY_HAVE_STARTED=${recoverableNpmPublicationFailure ? '1' : '0'}\n`
+            + `NPM_PUBLICATION_EVIDENCE_REQUIRED=${recoverableNpmPublicationFailure || recoverableRuntimePublicationFailure ? '1' : '0'}\n`
             + `NPM_CANDIDATE_PUBLICATION_RUN_ID=${run.id}\nNPM_CANDIDATE_PUBLICATION_RUN_ATTEMPT=${run.run_attempt}\n`);
           NODE
           fi
@@ -518,13 +524,31 @@ jobs:
           node scripts/verify-public-release-assets.mjs "${release_dir}" "${candidate_sha}" "${RELEASE_VERSION}"
 
       - name: Download prior npm publication evidence
-        if: inputs.failed_publication_run_id != '' && env.NPM_UPLOAD_MAY_HAVE_STARTED == '1'
+        if: inputs.failed_publication_run_id != '' && env.NPM_PUBLICATION_EVIDENCE_REQUIRED == '1'
         uses: actions/download-artifact@v4
         with:
           name: farming-npm-publication-${{ inputs.release_version }}
           path: prior-npm-evidence
           run-id: ${{ inputs.failed_publication_run_id }}
           github-token: ${{ github.token }}
+
+      - name: Verify and publish npm runtime packages with provenance
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "${NPM_TOKEN}" ]]; then
+            printf '//registry.npmjs.org/:_authToken=%s\n' "${NPM_TOKEN}" > "${HOME}/.npmrc"
+          fi
+          # Preserve every artifact's intent before any observation can fail;
+          # a later recovery must never forget an earlier uncertain upload.
+          mkdir -p npm-evidence
+          if [[ -d prior-npm-evidence ]]; then
+            cp prior-npm-evidence/*.json npm-evidence/
+          fi
+          node scripts/publish-npm-runtimes.mjs npm-package npm-evidence prior-npm-evidence "${CANDIDATE_SHA}"
 
       - name: Verify and publish npm package with provenance
         env:
@@ -552,10 +576,9 @@ jobs:
           if [[ -f prior-npm-evidence/upload-origin.json ]]; then
             cp prior-npm-evidence/upload-origin.json npm-evidence/
           fi
-          node scripts/publish-npm-runtimes.mjs npm-package npm-evidence prior-npm-evidence "${candidate_sha}"
           # Recovery is read-only even while the registry returns 404: an
           # ambiguous prior upload must never authorize a second upload.
-          if [[ "${NPM_UPLOAD_MAY_HAVE_STARTED:-0}" == '1' ]] || npm view "farming-code@${version}" version >/dev/null 2>&1; then
+          if [[ "${NPM_UPLOAD_MAY_HAVE_STARTED:-0}" == '1' || -f npm-evidence/upload-intent.json ]] || npm view "farming-code@${version}" version >/dev/null 2>&1; then
             exit 0
           fi
           dist_tag="latest"

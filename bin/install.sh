@@ -151,6 +151,13 @@ main() {
     # These pins are installer metadata, not optional application dependencies.
     # Reuse the verified bootstrap downloads instead of installing a second copy.
     mkdir -p "${package_root}/node_modules"
+    if [ -n "${runtime_version}" ]; then
+      # npm can silently omit an optional alias when a mirror's packument is
+      # stale, even when cache add already holds its tarball. Own this carrier
+      # from the official, SHA-512-verified bootstrap archive instead.
+      rm -rf -- "${package_root}/node_modules/farming-code-runtime-${runtime_platform}"
+      mv "${stage}/runtime/package" "${package_root}/node_modules/farming-code-runtime-${runtime_platform}"
+    fi
     mv "${stage}/node/package" "${package_root}/node_modules/${carrier}"
     mv "${stage}/npm/package" "${package_root}/node_modules/npm"
     chmod +x "${package_root}/bin/farming-node" "${package_root}/bin/farming-npm"

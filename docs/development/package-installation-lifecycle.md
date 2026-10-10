@@ -86,7 +86,9 @@ Packaging validates and packs all carriers before removing their payloads from
 main-image staging. Tests install the unpublished main and carrier archives
 through an isolated registry with lifecycle scripts disabled. Publication
 verifies each carrier's receipt and public integrity before uploading the main
-version. An uncertain carrier upload is reconciled without replay. Installer
+version. Each carrier and the main package have separate upload ownership: an
+uncertain carrier upload is reconciled without replay, while recovery can still
+publish a main package whose upload step never started. Installer
 staging, cancellation, preflight and atomic publication retain their existing
 ownership and failure semantics. Updates and rollback select each image's own
 immutable carrier.
@@ -219,7 +221,9 @@ official npm metadata remains authoritative for the requested Farming version,
 runtime pins, and archive SHA-512 digests. It overrides configured registries for
 this installation without changing npm configuration. Mirror archive transport
 failures fall back once to the same official artifact, with a visible message;
-integrity failures remain terminal. Mirror attempts have bounded connection,
+integrity failures remain terminal. The installer places the verified platform
+carrier into its exact alias directory even if npm omits it because mirror
+metadata is stale; provider optional dependencies remain enabled. Mirror attempts have bounded connection,
 transfer, and low-speed deadlines. An unavailable official metadata read fails
 explicitly rather than selecting an older mirror tag. The saved launcher keeps
 the official update metadata registry separate from npm's download registry,

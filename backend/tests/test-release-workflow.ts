@@ -97,6 +97,8 @@ function run() {
   );
   assert(npmStep.run.indexOf('npm-release-evidence.mjs verify') < npmStep.run.indexOf('npm publish'));
   assert(npmStep.run.indexOf('NPM_UPLOAD_MAY_HAVE_STARTED:-0') < npmStep.run.indexOf('npm publish'));
+  assert(npmStep.run.indexOf('-f npm-evidence/upload-intent.json') < npmStep.run.indexOf('npm publish'),
+    'a retained main upload intent must prevent replay even after a later carrier-only recovery failure');
   assert(npmStep.run.includes('|| upload_exit=$?'), 'uncertain upload failures must reconcile without replay');
   const npmObservation = publicationWorkflow.jobs['publish-release'].steps.find(
     step => step.name === 'Wait for npm package to become public',
@@ -391,6 +393,63 @@ function run() {
   const publicationSteps = publicationWorkflow.jobs['publish-release'].steps;
   const publicationStepIndex = (name: string) => publicationSteps.findIndex(step => step.name === name);
   const publicationStep = (name: string) => publicationSteps.find(step => step.name === name);
+  assert(publicationStepIndex('Verify and publish npm runtime packages with provenance')
+    < publicationStepIndex('Verify and publish npm package with provenance'),
+  'carrier publication must finish before the main upload step can start');
+  assert.strictEqual(publicationStep('Download prior npm publication evidence').if,
+    "inputs.failed_publication_run_id != '' && env.NPM_PUBLICATION_EVIDENCE_REQUIRED == '1'");
+  const runtimePublicationScript = publicationStep('Verify and publish npm runtime packages with provenance').run;
+  assert(runtimePublicationScript.indexOf('cp prior-npm-evidence/*.json npm-evidence/')
+    < runtimePublicationScript.indexOf('node scripts/publish-npm-runtimes.mjs'),
+  'preserve all prior intents before any carrier reconciliation can fail');
+  const recoveryScript = publicationStep('Verify exact preparation run').run.match(
+    /RUN_JSON="\$\{publication_run\}"[^\n]*node <<'NODE'\n([\s\S]*?)\nNODE/,
+  )?.[1];
+  assert(recoveryScript, 'recover the actual workflow classification script');
+  const recoveryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-publication-recovery-'));
+  try {
+    const fakeNpm = path.join(recoveryRoot, 'npm');
+    fs.writeFileSync(fakeNpm, '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+    fs.mkdirSync(path.join(recoveryRoot, 'npm-evidence'));
+    const guard = npmStep.run.slice(npmStep.run.indexOf('if [[ "${NPM_UPLOAD_MAY_HAVE_STARTED'),
+      npmStep.run.indexOf('dist_tag="latest"'));
+    for (const [priorMainStep, retainedIntent, mayUpload] of [['0', false, true], ['1', false, false], ['0', true, false]] as const) {
+      const intent = path.join(recoveryRoot, 'npm-evidence/upload-intent.json');
+      if (retainedIntent) fs.writeFileSync(intent, '{}');
+      else fs.rmSync(intent, { force: true });
+      const result = spawnSync('/bin/bash', ['-c', `${guard}\necho upload-authorized`], {
+        cwd: recoveryRoot, encoding: 'utf8',
+        env: { ...process.env, PATH: recoveryRoot, NPM_UPLOAD_MAY_HAVE_STARTED: priorMainStep },
+      });
+      assert.strictEqual(result.status, 0, result.stderr);
+      assert.strictEqual(result.stdout.includes('upload-authorized'), mayUpload,
+        'only a never-started main upload with no retained intent can mutate');
+    }
+    for (const [runtimeResult, mainResult, expectedMainIntent] of [
+      ['failure', 'skipped', '0'], ['success', 'failure', '1'], ['success', 'success', '1'],
+    ]) {
+      const output = path.join(recoveryRoot, `${runtimeResult}-${mainResult}.env`);
+      const steps = [
+        ...['Verify exact preparation run', 'Require successful candidate push workflows',
+          'Require successful automated and Computer Use acceptance', 'Publish the matching draft release',
+          'Verify public tag, assets, and manifest'].map(name => ({ name, conclusion: 'success' })),
+        { name: 'Verify and publish npm runtime packages with provenance', conclusion: runtimeResult },
+        { name: 'Verify and publish npm package with provenance', conclusion: mainResult },
+        { name: 'Wait for npm package to become public', conclusion: mainResult === 'success' ? 'failure' : 'skipped' },
+      ];
+      const result = spawnSync(process.execPath, ['-e', recoveryScript], { encoding: 'utf8', env: {
+        ...process.env, CANDIDATE_SHA: 'a'.repeat(40), GITHUB_ENV: output,
+        RUN_JSON: JSON.stringify({ event: 'workflow_dispatch', status: 'completed', conclusion: 'failure', head_sha: 'a'.repeat(40), id: 123, run_attempt: 1 }),
+        JOBS_JSON: JSON.stringify({ jobs: [{ name: 'Publish verified release', steps }] }),
+        WORKFLOW_JSON: JSON.stringify({ path: '.github/workflows/publish-release.yml' }),
+      } });
+      assert.strictEqual(result.status, 0, result.stderr);
+      const flags = fs.readFileSync(output, 'utf8');
+      assert(flags.includes(`NPM_UPLOAD_MAY_HAVE_STARTED=${expectedMainIntent}\n`),
+        'a carrier-only failure must not mark the main package as possibly uploaded');
+      assert(flags.includes('NPM_PUBLICATION_EVIDENCE_REQUIRED=1\n'), 'both artifact types retain their own upload evidence');
+    }
+  } finally { fs.rmSync(recoveryRoot, { recursive: true, force: true }); }
   for (const name of [
     'Verify release notes',
     'Download Linux release assets',
