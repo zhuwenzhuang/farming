@@ -34,7 +34,13 @@ function visit(directory) {
   }
 }
 
-for (const name of ['@visactor/vtable', 'mermaid', 'monaco-editor', 'heic-to']) {
+for (const name of [
+  '@xterm/addon-clipboard', '@xterm/addon-search', 'qrcode-generator',
+  '@visactor/vtable', 'mermaid', 'monaco-editor', 'heic-to',
+  '@zumer/snapdom', 'highlight.js', 'katex', 'lucide', 'micromark-core-commonmark', 'micromark-util-types',
+  'react', 'react-arborist', 'react-dom', 'react-markdown', 'react-zoom-pan-pinch',
+  'rehype-highlight', 'rehype-katex', 'remark-gfm', 'remark-math', 'remark-parse', 'unified',
+]) {
   const directory = packageRoot(name, root);
   if (!directory) throw new Error(`Missing frontend build dependency: ${name}`);
   visit(directory);

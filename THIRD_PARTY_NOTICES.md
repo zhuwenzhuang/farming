@@ -27,7 +27,6 @@ are preserved in `dist/frontend-licenses.txt` during the frontend build.
 | `@xterm/headless` | 6.0.0 | MIT | Backend terminal screen state |
 | `@xterm/xterm` | 6.0.0 | MIT | Browser terminal renderer |
 | `@zumer/snapdom` | 2.23.1 | MIT | Pet rest-scene DOM capture |
-| `ansi-to-html` | 0.7.2 | MIT | ANSI text rendering support |
 | `chokidar` | 5.0.0 | MIT | Filesystem watching |
 | `compression` | 1.8.2 | MIT | HTTP response compression |
 | `diff` | 9.0.0 | BSD-3-Clause | Character-level diff ranges for code review |
