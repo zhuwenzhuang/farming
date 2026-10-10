@@ -37,6 +37,7 @@ import remarkGfm from 'remark-gfm'
 import { remarkChineseStrong } from '../../lib/remark-chinese-strong'
 import remarkMath from 'remark-math'
 import { remarkLiteralShellDollars } from '@/lib/remark-literal-shell-dollars'
+import { remarkTranscriptCitations } from '@/lib/remark-transcript-citations'
 import {
   AgentGroupGlyph,
   ArrowDownGlyph,
@@ -205,8 +206,8 @@ interface TranscriptImagePreview {
 type OpenTranscriptImagePreview = (preview: TranscriptImagePreview, trigger: HTMLButtonElement) => void
 
 const TranscriptImagePreviewContext = createContext<OpenTranscriptImagePreview | null>(null)
-const INLINE_REMARK_PLUGINS = [remarkChineseStrong]
-const TRANSCRIPT_REMARK_PLUGINS = [remarkGfm, remarkChineseStrong, remarkMath, remarkLiteralShellDollars]
+const INLINE_REMARK_PLUGINS = [remarkChineseStrong, remarkTranscriptCitations]
+const TRANSCRIPT_REMARK_PLUGINS = [remarkGfm, remarkChineseStrong, remarkMath, remarkLiteralShellDollars, remarkTranscriptCitations]
 
 const EMPTY_SUBAGENT_STATES: AgentTranscriptSubagentState[] = []
 

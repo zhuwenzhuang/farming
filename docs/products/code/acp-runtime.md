@@ -980,6 +980,11 @@ relax the punctuation boundary; normal delimiter pairing, code, escapes, math,
 and source positions remain parser-owned. Each streaming snapshot is parsed
 independently; missing closing delimiters are never synthesized.
 
+Code and CRT omit unresolved provider-private citation markers from rendered prose,
+including partial markers during streaming. They do not invent source links;
+ordinary Markdown links and literal citation syntax inside code remain intact.
+The stored transcript is unchanged.
+
 Turn and message state own whether content is streaming, settled or interrupted.
 An unfinished Mermaid fence uses a stable neutral generating surface; a closed
 block renders immediately, without waiting for Turn completion. An interrupted
