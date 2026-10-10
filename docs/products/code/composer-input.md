@@ -95,7 +95,8 @@ once. Sending a formatted card includes its Markdown representation so code
 languages and link destinations reach the Agent. Existing plain-text snapshots still restore their original text. Disabling
 long-paste folding keeps formatted insertion; Shift+Cmd/Ctrl+V explicitly bypasses
 both formatting conversion and folding. Unsupported or mismatched HTML leaves
-the authoritative clipboard text intact.
+the authoritative clipboard text intact. HTML tables retain their plain-text row and
+column separators, including when individual cells have supported inline styles.
 
 The draft string is the sole editing and submission owner. Typing, selection,
 IME, undo, history, queue editing, reload and Agent switches use the same textarea
@@ -205,6 +206,12 @@ Agent/layout changes. Verify the same DOM textarea survives expansion and that
 Enter does not submit. Capture compact and expanded states in Light, Dark and
 Paper. Browser-emulated viewport changes verify layout; they do not certify a
 physical phone's keyboard, dictation or candidate UI.
+
+Formatted-paste acceptance covers standalone emphasis and quotes, headings, links,
+inline code, nested and numbered lists, fenced code, mixed Chinese/Latin/emoji text,
+wrapping and table text preservation. Assert exact editable content and syntax-layer
+alignment, then compare versioned screenshots in Light, Dark and Paper for Chat
+and Terminal on desktop Chromium and compact/expanded WebKit.
 
 `npm run release:fast-screen:mobile` checks draft shrinking, unfocused space
 reservation and image-preview hit targets before the complete mobile matrix.

@@ -3869,6 +3869,7 @@ body.code-mode .code-composer textarea.code-composer-highlighted::selection {
 .code-composer-draft-highlight .hljs-string,
 .code-composer-draft-highlight .hljs-link { color: var(--code-syntax-string); }
 .code-composer-draft-highlight .hljs-comment,
+.code-composer-draft-highlight .hljs-quote,
 .code-composer-draft-highlight .hljs-meta,
 .code-composer-draft-highlight .hljs-bullet { color: var(--code-syntax-comment); }
 .code-composer-draft-highlight .hljs-title,

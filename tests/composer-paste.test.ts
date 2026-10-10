@@ -102,3 +102,11 @@ test('syntax decoration preserves source text including empty and unfinished fen
   assert.equal(highlightComposerMarkdown('```java\n' + 'x'.repeat(50_001)), null)
   assert.equal(fencedComposerCode('literal ``` token', 'java'), '````java\nliteral ``` token\n````')
 })
+
+test('standalone emphasis and quotes receive the same decoration as mixed Markdown', async () => {
+  const { highlightComposerMarkdown } = await import('../src/components/code/composer-markdown')
+  for (const draft of ['*斜体 🐱*', '_italic_', '**bold**']) {
+    assert.match(highlightComposerMarkdown(draft) || '', /hljs-(emphasis|strong)/)
+  }
+  assert.match(highlightComposerMarkdown('> 引用\n> second line') || '', /hljs-quote/)
+})

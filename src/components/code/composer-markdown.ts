@@ -4,6 +4,16 @@ const escapeHtml = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '
 const escapeMarkdown = (text: string) => text.replace(/([\\`*_[\]<>])/g, '\\$1')
 const codeLanguages = ['java', 'javascript', 'typescript', 'python', 'sql', 'bash', 'json', 'cpp']
 
+// Adjacent blocks each supply a separator; merge their boundaries without
+// collapsing blank lines inside code or other captured text.
+const joinMarkdown = (parts: string[]) => parts.reduce((result, part) => {
+  const trailing = result.match(/\n+$/)?.[0].length || 0
+  const leading = part.match(/^\n+/)?.[0].length || 0
+  return trailing && leading
+    ? result + '\n'.repeat(Math.max(trailing, leading, 2) - trailing) + part.slice(leading)
+    : result + part
+}, '')
+
 export function fencedComposerCode(text: string, language = '') {
   const fence = '`'.repeat(Array.from(text.matchAll(/`+/g)).reduce((length, match) => Math.max(length, match[0].length + 1), 3))
   return `${fence}${language}\n${text}${text.endsWith('\n') ? '' : '\n'}${fence}`
@@ -15,6 +25,9 @@ export function readPastedMarkdown(text: string, html?: string): string | undefi
   const template = document.createElement('template')
   template.innerHTML = html
   template.content.querySelectorAll('script,style,iframe,object,template,img,svg,button').forEach(node => node.remove())
+  // Tables are not a supported Markdown conversion. Keep the authoritative
+  // clipboard text, including its row/column separators, even with styled cells.
+  if (template.content.querySelector('table')) return undefined
   const canonical = (value: string) => value.replace(/^\s*(?:[-*•]|\d+[.)])\s+/gm, '').replace(/\s/g, '')
   if (canonical(template.content.textContent || '') !== canonical(text)) return undefined
   const languageOf = (node: Element) => {
@@ -33,7 +46,7 @@ export function readPastedMarkdown(text: string, html?: string): string | undefi
     if (++visited > 30_000 || depth > 100) throw new Error('Formatting limit')
     if (node.nodeType === Node.TEXT_NODE) return escapeMarkdown(node.textContent || '')
     if (!(node instanceof HTMLElement)) return ''
-    const children = () => Array.from(node.childNodes, child => render(child, depth + 1)).join('')
+    const children = () => joinMarkdown(Array.from(node.childNodes, child => render(child, depth + 1)))
     const tag = node.tagName
     if (tag === 'PRE') { structured = true; return `\n\n${fencedComposerCode(node.textContent || '', languageOf(node.querySelector('code') || node))}\n\n` }
     if (tag === 'CODE') { structured = true; const value = node.textContent || ''; const delimiter = '`'.repeat(Math.max(1, ...Array.from(value.matchAll(/`+/g), match => match[0].length + 1))); return `${delimiter} ${value} ${delimiter}` }
@@ -59,14 +72,14 @@ export function readPastedMarkdown(text: string, html?: string): string | undefi
     return tag === 'P' ? `\n\n${body}\n\n` : tag === 'DIV' ? `${body}\n` : body
   }
   try {
-    const markdown = Array.from(template.content.childNodes, node => render(node, 0)).join('').trim()
+    const markdown = joinMarkdown(Array.from(template.content.childNodes, node => render(node, 0))).trim()
     return structured && markdown.length <= 250_000 ? markdown : undefined
   } catch { return undefined }
 }
 
 /** Bounded synchronous decoration; the native textarea remains the only editor. */
 export function highlightComposerMarkdown(text: string): string | null {
-  if (!text || text.length > 50_000 || !/(?:^|\n)\s*(?:`{3,}|~{3,}|[-*] |\d+\. |#{1,6} )|\*\*|\[[^\]]+\]\(|`[^`]+`/.test(text)) return null
+  if (!text || text.length > 50_000 || !/(?:^|\n)\s*(?:`{3,}|~{3,}|[-*] |\d+\. |#{1,6} |> )|\*[^*\n]+\*|_[^_\n]+_|\[[^\]]+\]\(|`[^`]+`/.test(text)) return null
   const lines = text.split('\n')
   const output: string[] = []
   let prose: string[] = []
