@@ -544,7 +544,7 @@ test.describe('iPhone mobile layout', () => {
 
     const composer = page.getByTestId('code-acp-composer')
     const attachment = page.getByTestId('code-composer-attachment')
-    const remove = attachment.getByRole('button', { name: 'Remove attachment.png' })
+    const remove = attachment.getByRole('button', { name: /^Remove attachment\.(png|webp)$/ })
     const toolbar = page.getByTestId('code-acp-composer-toolbar')
     await expect(composer).toHaveClass(/has-attachments/)
     await expect(attachment).toHaveClass(/image/)

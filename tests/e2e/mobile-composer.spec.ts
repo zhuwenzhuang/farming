@@ -141,7 +141,7 @@ for (const runtime of ['chat', 'terminal'] as const) {
       await expect(attachment).toBeInViewport()
       await expect(page.getByTestId(`${prefix}-send`)).toBeInViewport()
       expect(await input.evaluate(element => element.clientHeight)).toBeLessThanOrEqual(66)
-      await attachment.getByRole('button', { name: 'Remove app-icon-v2-180.png' }).click()
+      await attachment.getByRole('button', { name: /^Remove app-icon-v2-180\.(png|webp)$/ }).click()
       await expect(attachment).toHaveCount(0)
       await expect(input).toHaveValue(longDraft)
       await toggle.click()

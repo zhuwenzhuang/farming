@@ -118,9 +118,13 @@ test.describe('ACP human-like browser matrix', () => {
     const send = page.getByTestId('code-acp-composer-send')
     await input.fill('Slow admission message')
     await send.click()
-    await expect(send).toHaveAttribute('aria-busy', 'true')
+    const submission = page.getByTestId('code-acp-submission')
+    await expect(submission).toHaveCount(1)
+    await expect(submission).toHaveAttribute('data-status', 'submitting')
+    await expect(submission).toContainText('Slow admission message')
     await expect(send).toBeDisabled()
-    await expect(input).toHaveValue('Slow admission message')
+    await expect(input).toHaveValue('')
+    await expect(input).toBeEditable()
     await expect.poll(() => submitted).toBe(1)
     if (!isMobile) {
       await input.press('Enter')
@@ -133,7 +137,7 @@ test.describe('ACP human-like browser matrix', () => {
     expect(submitted).toBe(1)
     await input.fill('Newer draft must survive')
     release!()
-    await expect(send).toHaveAttribute('aria-busy', 'false')
+    await expect(submission).toHaveCount(0)
     await expect(input).toHaveValue('Newer draft must survive')
     await expect(page.locator('.code-agent-transcript-user').filter({ hasText: 'Slow admission message' })).toHaveCount(1)
   })
@@ -461,7 +465,7 @@ test.describe('ACP human-like browser matrix', () => {
     fs.mkdirSync(workspace, { recursive: true })
     const imagePath = path.join(workspace, 'screenshot.png')
     const externalImagePath = path.join(workspaceRoot, 'external-screenshot.png')
-    const image = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=', 'base64')
+    const image = fs.readFileSync(path.resolve('public/farming-2/app-icon-v2-180.png'))
     fs.writeFileSync(imagePath, image)
     fs.writeFileSync(externalImagePath, image)
 
@@ -1629,7 +1633,7 @@ test.describe('ACP human-like browser matrix', () => {
     if (section === 'image-preview') {
     await test.step('attach an image through the established composer control', async () => {
       const imagePath = path.join(workspace, 'attachment.png')
-      fs.writeFileSync(imagePath, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=', 'base64'))
+      fs.copyFileSync(path.resolve('public/farming-2/app-icon-v2-180.png'), imagePath)
       await page.getByTestId('code-acp-composer-file-input').setInputFiles(imagePath)
       const attachment = page.getByTestId('code-composer-attachment')
       await expect(attachment).not.toContainText('attachment.png')
