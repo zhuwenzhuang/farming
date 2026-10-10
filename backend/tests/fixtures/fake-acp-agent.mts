@@ -1067,6 +1067,28 @@ class FakeAgent implements Agent {
       });
       return { stopReason: 'end_turn' };
     }
+    if (promptText.includes('native peer communication')) {
+      const peerSessionId = promptText.match(/peer-session=([a-zA-Z0-9_-]+)/)?.[1] || 'session-storage-peer';
+      await client.sessionUpdate({ sessionId: params.sessionId, update: {
+        sessionUpdate: 'tool_call', toolCallId: 'peer-discovery', kind: 'execute',
+        title: '"$FARMING_CLI_BIN_DIR/farming" list --json', status: 'completed',
+        rawInput: { command: '"$FARMING_CLI_BIN_DIR/farming" list --json' },
+        content: [{ type: 'content', content: { type: 'text', text: '{"agents":[]}' } }],
+      } });
+      for (const [index, status] of (['completed', 'completed', 'failed'] as const).entries()) {
+        await client.sessionUpdate({ sessionId: params.sessionId, update: {
+          sessionUpdate: 'tool_call', toolCallId: `peer-send-${index}`, title: 'sendInput', kind: 'other', status,
+          rawInput: { senderThreadId: params.sessionId, receiverThreadIds: [peerSessionId],
+            prompt: index === 2 ? 'Failed coordination message.' : 'Keep **shared transport** unchanged. I will own `storage`.',
+            agentsStates: { [peerSessionId]: { status: 'running' } } },
+        } });
+      }
+      await client.sessionUpdate({ sessionId: params.sessionId, update: {
+        sessionUpdate: 'agent_message_chunk', messageId: 'peer-answer',
+        content: { type: 'text', text: 'Peer communication example complete.' },
+      } });
+      return { stopReason: 'end_turn' };
+    }
     if (promptText.includes('codex collaboration')) {
       await client.sessionUpdate({
         sessionId: params.sessionId,

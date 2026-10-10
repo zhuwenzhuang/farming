@@ -3,7 +3,7 @@ import type {
   AgentTranscriptSubagentState,
 } from './acp-entry-projection'
 
-export type AcpCollaborationAction = 'started' | 'updated' | 'finished' | 'interrupted' | 'failed' | 'recorded'
+export type AcpCollaborationAction = 'started' | 'sending' | 'updated' | 'finished' | 'interrupted' | 'failed' | 'recorded' | 'discovering' | 'discovered' | 'cancelled'
 export type AcpCollaborationStatus = 'pending' | 'running' | 'completed' | 'paused' | 'failed' | 'closed' | 'unknown'
 
 export interface AcpCollaborationEvent {
@@ -16,6 +16,8 @@ export interface AcpCollaborationEvent {
   tone: number
   title: string
   message: string
+  discovery?: boolean
+  senderThreadId?: string
 }
 
 export interface AcpCollaborationAgent {
@@ -61,8 +63,9 @@ function activityAction(activity: string): AcpCollaborationAction | null {
 
 function fallbackToolAction(tool: string, status: string): AcpCollaborationAction | null {
   if (status === 'failed') return 'failed'
+  if (status === 'cancelled') return 'cancelled'
   if (tool === 'spawnagent') return 'started'
-  if (['sendinput', 'resumeagent'].includes(tool)) return 'updated'
+  if (['sendinput', 'followuptask', 'resumeagent'].includes(tool)) return status === 'completed' ? 'updated' : ['pending', 'in_progress'].includes(status) ? 'sending' : 'recorded'
   if (tool === 'closeagent') return 'finished'
   return null
 }
@@ -109,7 +112,7 @@ export function acpCollaborationEvents(items: AgentTranscriptProcessItem[]): Acp
     action: AcpCollaborationAction,
     message = '',
   ) => {
-    const key = `${item.id}:${threadId}:${action}`
+    const key = `${item.id}:${threadId}`
     if (!threadId || seen.has(key)) return
     seen.add(key)
     events.push({
@@ -128,6 +131,13 @@ export function acpCollaborationEvents(items: AgentTranscriptProcessItem[]): Acp
   for (const item of items) {
     const collaboration = item.collaboration
     if (!collaboration) continue
+    if (collaboration.kind === 'discovery') {
+      events.push({ id: item.id, processItemId: item.id, threadId: '', name: '', tone: 0,
+        action: item.status === 'failed' ? 'failed' : item.status === 'cancelled' ? 'cancelled'
+          : item.status === 'completed' ? 'discovered' : ['pending', 'in_progress'].includes(item.status || '') ? 'discovering' : 'recorded',
+        title: item.title, message: '', discovery: true })
+      continue
+    }
     if (collaboration.kind === 'activity') {
       const action = activityAction(String(collaboration.activity || '').toLowerCase()) || 'recorded'
       append(item, collaboration.threadId || '', action)
@@ -146,8 +156,10 @@ export function acpCollaborationEvents(items: AgentTranscriptProcessItem[]): Acp
           : ['completed', 'shutdown'].includes(resultStatus || '') ? 'finished'
             : resultStatus === 'interrupted' ? 'interrupted' : 'recorded')
         : fallbackToolAction(tool, itemStatus) || 'recorded'
-      if (tool !== 'wait' && action !== 'recorded' && activityActions.has(`${threadId}:${action}`)) continue
-      append(item, threadId, action, collaboration.agentsStates?.[threadId]?.message)
+      if (tool !== 'wait' && action !== 'recorded' && !collaboration.message && activityActions.has(`${threadId}:${action}`)) continue
+      append(item, threadId, action, collaboration.message || collaboration.agentsStates?.[threadId]?.message)
+      const event = events[events.length - 1]
+      if (event?.processItemId === item.id) event.senderThreadId = collaboration.senderThreadId
     }
   }
   return events
@@ -189,6 +201,7 @@ export function acpCollaborationAgents(
   )
   const groups = new Map<string, AcpCollaborationAgent>()
   for (const event of acpCollaborationEvents(items)) {
+    if (event.discovery) continue
     const existing = groups.get(event.threadId)
     if (existing) {
       existing.events.push(event)
@@ -196,6 +209,7 @@ export function acpCollaborationAgents(
       const previousActivity = existing.activities[existing.activities.length - 1]
       if (
         event.action === 'updated'
+        && !event.message
         && previousActivity?.action === event.action
         && previousActivity.title === event.title
         && previousActivity.message === event.message
@@ -291,7 +305,7 @@ export function acpCollaborationActivityFeed(items: AgentTranscriptProcessItem[]
   const feed: Array<AcpCollaborationEvent & { processItemIds: string[]; count: number }> = []
   for (const event of acpCollaborationEvents(items)) {
     const previous = feed[feed.length - 1]
-    if (previous && event.action === 'updated' && previous.action === event.action
+    if (previous && !event.message && event.action === 'updated' && previous.action === event.action
       && previous.threadId === event.threadId && previous.title === event.title && previous.message === event.message) {
       previous.processItemIds.push(event.processItemId)
       previous.count += 1

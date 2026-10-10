@@ -25,6 +25,8 @@ interface AcpMeta extends DataRecord {
   };
   codex?: {
     phase?: unknown;
+    collaboration?: unknown;
+    subagent?: unknown;
     steer?: unknown;
     subagents?: unknown;
   };

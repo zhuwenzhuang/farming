@@ -86,13 +86,36 @@ function normalizeAirUpdate(update: AcpUpdate): AcpUpdate {
 }
 
 function normalizeCodexUpdate(update: AcpUpdate): AcpUpdate {
-  const normalized = normalizeAirUpdate(update);
+  const normalized = normalizeCodexToolMetadata(normalizeAirUpdate(update));
   const phase = readAirMetadata(update)?.phase;
   if (phase !== 'commentary' && phase !== 'final_answer') return normalized;
   return {
     ...normalized,
     _meta: { ...normalized._meta, codex: { ...normalized._meta?.codex, phase } },
   };
+}
+
+// Current Codex ACP exposes native collaboration as typed tool input rather
+// than the older codex metadata extension. Normalize both live and saved
+// entries here, before the compact transcript discards raw tool payloads.
+function normalizeCodexToolMetadata<T extends AcpEntry | AcpUpdate>(entry: T): T {
+  if (entry.type !== 'tool' && !['tool_call', 'tool_call_update'].includes(String(entry.sessionUpdate))) return entry;
+  const input = dataRecord(entry.rawInput);
+  if (!input) return entry;
+  const tool = String(entry.title || '').replace(/^Agent /, '');
+  const codex = { ...entry._meta?.codex };
+  if (!codex.collaboration
+    && ['spawnAgent', 'sendInput', 'followupTask', 'resumeAgent', 'closeAgent', 'wait'].includes(tool)
+    && Array.isArray(input.receiverThreadIds)
+    && typeof input.senderThreadId === 'string') {
+    codex.collaboration = { tool, senderThreadId: input.senderThreadId, receiverThreadIds: input.receiverThreadIds };
+  }
+  if (!codex.subagent && typeof input.agentThreadId === 'string'
+    && typeof input.agentPath === 'string'
+    && ['started', 'interacted', 'interrupted', 'completed'].includes(String(input.activityKind))) {
+    codex.subagent = { threadId: input.agentThreadId, path: input.agentPath, activity: input.activityKind };
+  }
+  return Object.keys(codex).length ? { ...entry, _meta: { ...entry._meta, codex } } : entry;
 }
 
 function codexMessagePhase(entryOrUpdate: AcpEntry | AcpUpdate | null | undefined): string {
@@ -154,7 +177,8 @@ function sanitizeCodexEntries(
     if (scope === 'turn') internalTurn = true;
     else if (scope === null) internalTurn = false;
   }
-  for (const entry of entries) {
+  for (let index = 0; index < entries.length; index += 1) {
+    const entry = entries[index] = normalizeCodexToolMetadata(entries[index]);
     delete entry.internalScope;
     if (entry.type === 'message' && entry.role === 'user') {
       const scope = codexInternalUserScope(entry);

@@ -27,7 +27,7 @@ import type { ComputerResourcesController } from '../../../extensions/computer/f
 import { AgentWorkPane } from './AgentWorkPane'
 import { SubagentBody } from './SubagentBody'
 import { CloseGlyph } from '../IconGlyphs'
-import { RelatedSessionNavigation, SubagentNavigation, type RelatedSessionTarget } from './related-session-navigation'
+import { CommunicationPeerNavigation, communicationPeer, RelatedSessionNavigation, SubagentNavigation, type RelatedSessionTarget } from './related-session-navigation'
 import { RelatedSessionPanel } from './RelatedSessionPanel'
 import { AgentPlanActivityPreview, AgentGoalActivityPreview } from './AgentActivityDock'
 import type { AgentTranscriptProcessItem } from './acp/acp-entry-projection'
@@ -1145,6 +1145,10 @@ export function CodeMainArea({
   return (
     <SubagentNavigation.Provider value={readOnly ? null : requestSubagent}>
     <RelatedSessionNavigation.Provider value={selectRelatedSession}>
+    <CommunicationPeerNavigation.Provider value={{ resolve: (parentAgentId, sessionId) => {
+      const peer = communicationPeer(relatedAgents, parentAgentId, sessionId)
+      return peer
+    }, open: readOnly ? undefined : onOpenSearchAgent }}>
     <main
       ref={mainAreaRef}
       className={`code-main ${resourceAgentPanelVisible ? 'resource-agent-side-open' : ''} ${relatedSessionVisible ? `related-session-open ${relatedSessionFits ? '' : `related-session-compact ${compactRelatedActive ? 'related-session-child-active' : ''}`}` : ''}`.trim()}
@@ -1557,6 +1561,7 @@ export function CodeMainArea({
         language={language}
       /> : null}
     </main>
+    </CommunicationPeerNavigation.Provider>
     </RelatedSessionNavigation.Provider>
     </SubagentNavigation.Provider>
   )

@@ -1,3 +1,6 @@
+import type { Agent } from '@/types/agent'
+import { useAgentWithLiveState } from '@/lib/agent-live-state'
+import { agentTitle } from '@/lib/format'
 import { AgentGoalCompletion } from './AgentActivityDock'
 import { useInteractionLayer } from '@/hooks/useInteractionLayer'
 import { useAcpRevisionInterest } from '@/lib/acp-revision-interest'
@@ -28,7 +31,7 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import { CollaborationAgentIcon } from './CollaborationAgentIcon'
-import { RelatedSessionNavigation } from './related-session-navigation'
+import { CommunicationPeerNavigation, RelatedSessionNavigation } from './related-session-navigation'
 import ReactMarkdown, { defaultUrlTransform, type Components } from 'react-markdown'
 import { shareNoticeAnchor, type ShareNoticeAnchor } from './share-notice'
 import rehypeHighlight from 'rehype-highlight'
@@ -122,7 +125,7 @@ import { codeCopyForLanguage, type CodeCopy } from './copy'
 import { planDetailItems } from './agent-plan'
 import { acpActivityKind, acpCompactPlanLabel, acpLiveToolActivity, acpPlanProgress, acpThoughtActivityLabel, type AcpActivityKind } from './acp/acp-activity-label'
 import {
-  acpCollaborationAgentsForTurn,
+  acpCollaborationEvents,
   acpCollaborationActivityFeed,
   type AcpCollaborationAction,
 } from './acp/acp-collaboration'
@@ -1429,24 +1432,41 @@ function collaborationActionLabel(
   action: AcpCollaborationAction,
   copy: CodeCopy,
 ) {
+  if (action === 'cancelled') return copy.agentTranscriptCollaborationCancelled
+  if (action === 'discovering') return copy.agentTranscriptCollaborationDiscovering
+  if (action === 'discovered') return copy.agentTranscriptCollaborationDiscovered
   if (action === 'started') return copy.agentTranscriptCollaborationStarted
   if (action === 'updated') return copy.agentTranscriptCollaborationUpdated
+  if (action === 'sending') return copy.agentTranscriptCollaborationSending
   if (action === 'finished') return copy.agentTranscriptCollaborationActionCompleted
   if (action === 'interrupted') return copy.agentTranscriptCollaborationPauseRequested
   if (action === 'failed') return copy.agentTranscriptCollaborationFailed
   return copy.agentTranscriptCollaborationRecorded
 }
 
+function AgentTranscriptCommunicationRecipient({ peer, fallback, directed, copy }: {
+  peer: Agent | null
+  fallback: string
+  directed: boolean
+  copy: CodeCopy
+}) {
+  const currentPeer = useAgentWithLiveState(peer)
+  const name = currentPeer ? agentTitle(currentPeer) : fallback
+  return directed ? copy.agentTranscriptCollaborationRecipient(name) : name
+}
+
 function AgentTranscriptCollaborationTimeline({
-  processItems, renderProcessItem, copy, disclosureScope, openActivityIds, setOpenActivityIds,
+  processItems, subagentStates, renderProcessItem, copy, disclosureScope, openActivityIds, setOpenActivityIds,
 }: {
   processItems: AgentTranscriptProcessItem[]
+  subagentStates: AgentTranscriptSubagentState[]
   renderProcessItem: (processItemId: string) => ReactNode
   copy: CodeCopy
   disclosureScope: string
   openActivityIds: Set<string>
   setOpenActivityIds: Dispatch<SetStateAction<Set<string>>>
 }) {
+  const peerNavigation = useContext(CommunicationPeerNavigation)
   const openRelatedSession = useContext(RelatedSessionNavigation)
   const { agentId: parentAgentId } = useContext(TranscriptFileOpenContext)
   const [visibleCount, setVisibleCount] = useState(8)
@@ -1461,6 +1481,8 @@ function AgentTranscriptCollaborationTimeline({
       {copy.agentTranscriptCollaborationEarlierActivities(Math.min(20, hiddenCount))}
     </button> : null}
     {activities.filter((activity, index) => index >= hiddenCount || openActivityIds.has(`${disclosureScope}:${activity.id}`)).map(activity => {
+      const peer = parentAgentId ? peerNavigation?.resolve(parentAgentId, activity.threadId) : null
+      const recipientName = subagentStates.find(state => state.threadId === activity.threadId)?.name || activity.name
       const disclosureId = `${disclosureScope}:${activity.id}`
       const open = openActivityIds.has(disclosureId)
       const evidenceCount = visibleEvidenceCounts[activity.id] || 8
@@ -1478,9 +1500,9 @@ function AgentTranscriptCollaborationTimeline({
               return next
             }))
           }}>
-          <CollaborationAgentIcon sessionId={activity.threadId} />
+          {activity.discovery ? <SearchGlyph /> : <CollaborationAgentIcon sessionId={activity.threadId} />}
           <span className="code-agent-transcript-collaboration-event-detail">
-            <span className="code-agent-transcript-collaboration-agent">{activity.name}</span>{' · '}
+            <span className="code-agent-transcript-collaboration-agent" title={activity.senderThreadId ? `${activity.senderThreadId} → ${activity.threadId}` : activity.threadId}>{activity.discovery ? copy.agentTranscriptCollaborationDiscovery : <AgentTranscriptCommunicationRecipient peer={peer || null} fallback={recipientName} directed={Boolean(activity.senderThreadId && activity.message)} copy={copy} />}</span>{' · '}
             <span className={`code-agent-transcript-collaboration-action ${activity.action}`}>{collaborationActionLabel(activity.action, copy)}</span>
             <span className="code-agent-transcript-collaboration-event-description"><ReactMarkdown
               remarkPlugins={INLINE_REMARK_PLUGINS}
@@ -1491,7 +1513,11 @@ function AgentTranscriptCollaborationTimeline({
           <ChevronRightGlyph className="code-agent-transcript-chevron" />
         </button>
         {open ? <div className="code-agent-transcript-collaboration-evidence" data-testid="code-agent-transcript-collaboration-evidence">
-          {openRelatedSession && parentAgentId ? <button type="button" className="code-agent-transcript-collaboration-earlier"
+          {peer && peerNavigation?.open ? <button type="button" className="code-agent-transcript-collaboration-earlier"
+            data-testid="code-collaboration-open-peer" onClick={() => peerNavigation.open?.(peer.id)}>
+            {copy.agentTranscriptCollaborationOpenPeer}
+          </button> : null}
+          {!peer && openRelatedSession && parentAgentId && subagentStates.some(state => state.threadId === activity.threadId) ? <button type="button" className="code-agent-transcript-collaboration-earlier"
             data-testid="code-collaboration-open-details" aria-label={copy.relatedOpenDetails}
             onClick={() => openRelatedSession({ parentAgentId, sessionId: activity.threadId, title: activity.task || activity.name })}>
             {copy.relatedOpenDetails}
@@ -1736,6 +1762,7 @@ function SafeAgentTranscriptProcessItemView(
 
 function AgentTranscriptCollaborationSpace({
   processItems,
+  subagentStates,
   copy,
   disclosureScope,
   openActivityIds,
@@ -1747,6 +1774,7 @@ function AgentTranscriptCollaborationSpace({
   onStopSubagent,
 }: {
   processItems: AgentTranscriptProcessItem[]
+  subagentStates: AgentTranscriptSubagentState[]
   copy: CodeCopy
   disclosureScope: string
   openActivityIds: Set<string>
@@ -1823,6 +1851,7 @@ function AgentTranscriptCollaborationSpace({
   return (
     <AgentTranscriptCollaborationTimeline
       processItems={resolvedItems}
+      subagentStates={subagentStates}
       disclosureScope={disclosureScope}
       openActivityIds={openActivityIds}
       setOpenActivityIds={setOpenActivityIds}
@@ -2324,13 +2353,13 @@ function AgentTranscriptTurnView({
   const progressClock = useSharedNow(clockActive && turn.status === 'inProgress' && Boolean(
     turn.startedAt || liveToolActivity?.lastActivityAt,
   ))
-  const collaborationAgents = useMemo(
-    () => acpCollaborationAgentsForTurn(resolvedProcessItems, subagentStates),
-    [resolvedProcessItems, subagentStates],
+  const collaborationEvents = useMemo(
+    () => acpCollaborationEvents(resolvedProcessItems),
+    [resolvedProcessItems],
   )
   const collaborationProcessItemIds = useMemo(() => new Set(
-    collaborationAgents.flatMap(agent => agent.events.map(event => event.processItemId)),
-  ), [collaborationAgents])
+    collaborationEvents.map(event => event.processItemId),
+  ), [collaborationEvents])
   const mainProcessItems = useMemo(
     () => resolvedProcessItems.filter(item => (
       !collaborationProcessItemIds.has(item.id)
@@ -2364,7 +2393,7 @@ function AgentTranscriptTurnView({
   const shouldShowWaiting = turn.status === 'inProgress'
     && !answerMessage
     && compactProcess.items.length === 0
-    && collaborationAgents.length === 0
+    && collaborationEvents.length === 0
     && (
     Boolean(turn.userMessage) || userImages.length > 0 || userAudios.length > 0 || userFiles.length > 0
       || userSteerItems.length > 0 || hasAnyProcess
@@ -2702,7 +2731,7 @@ function AgentTranscriptTurnView({
 
       {hasAnyProcess ? (
         <div className={`code-agent-transcript-process ${effectiveProcessOpen ? 'expanded' : ''}`}>
-          {hasProcess || collaborationAgents.length > 0 ? (
+          {hasProcess || collaborationEvents.length > 0 ? (
             <>
               <button
             type="button"
@@ -2853,9 +2882,10 @@ function AgentTranscriptTurnView({
               })}
             </div>
               ) : null}
-            {source === 'acp' && collaborationAgents.length > 0 ? (
+            {source === 'acp' && collaborationEvents.length > 0 ? (
               <AgentTranscriptCollaborationSpace
                 processItems={resolvedProcessItems}
+                subagentStates={subagentStates}
                 copy={copy}
                 disclosureScope={turn.id}
                 openActivityIds={openCollaborationActivityIds}

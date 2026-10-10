@@ -526,7 +526,6 @@ assert.deepStrictEqual(
   'distinct child activities remain available for the bounded UI activity window',
 );
 
-console.log('ACP collaboration projection tests passed');
 
 const activity = (id, threadId, action = 'interacted') => ({ id, type: 'collaboration', status: 'completed', title: 'Progress',
   collaboration: { kind: 'activity', threadId, agentPath: threadId, activity: action } });
@@ -537,3 +536,81 @@ assert.deepStrictEqual(orderedFeed.map(event => [event.threadId, event.count]), 
   'only adjacent updates coalesce; interleaved Agent activity keeps chronological order');
 assert.deepStrictEqual(orderedFeed[0].processItemIds, ['a1', 'a2']);
 assert.deepStrictEqual(acpCollaborationActivityFeed([]), [], 'inventory changes cannot create Chat events');
+
+// Codex ACP 2.2.x exposes collaboration as structured tool input without
+// the legacy _meta.codex extension. Exercise the real compact transport path.
+const nativeMessage = {
+  toolCallId: 'peer-send-1', sessionUpdate: 'tool_call', title: 'sendInput', kind: 'other', status: 'in_progress',
+  rawInput: { senderThreadId: 'session-sender', receiverThreadIds: ['session-peer'], prompt: 'Keep the shared transport unchanged.\nI will own storage.', agentsStates: { 'session-peer': { status: 'running' } } },
+};
+const nativeState = new AcpSessionState({ provider: 'codex', sessionId: 'session-sender' });
+nativeState.apply({ sessionId: 'session-sender', update: nativeMessage });
+nativeState.apply({ sessionId: 'session-sender', update: { sessionUpdate: 'tool_call_update', toolCallId: 'peer-send-1', status: 'completed' } });
+const nativeEntry = acpTranscriptToolEntry(nativeState.sanitizedEntries()[0]);
+assert.strictEqual(nativeEntry._meta.codex.collaboration.message, nativeMessage.rawInput.prompt);
+assert.strictEqual(nativeEntry._meta.codex.collaboration.senderThreadId, 'session-sender');
+const nativeItems = projectAcpTranscript({ sessionId: 'session-sender', state: 'idle', entries: [nativeEntry] }).turns[0].processItems;
+assert.strictEqual(acpCollaborationEvents(nativeItems)[0].message, nativeMessage.rawInput.prompt);
+assert.strictEqual(acpCollaborationEvents(nativeItems)[0].threadId, 'session-peer');
+const repeatedNativeItems = [...nativeItems, { ...nativeItems[0], id: 'peer-send-2' }];
+assert.strictEqual(acpCollaborationActivityFeed(repeatedNativeItems).length, 2, 'separate sends with identical text remain separately inspectable');
+const legacyCheckpoint = nativeState.exportCheckpoint();
+delete legacyCheckpoint.entries[0]._meta;
+const restoredNativeState = AcpSessionState.fromCheckpoint(legacyCheckpoint);
+assert.deepStrictEqual(acpTranscriptToolEntry(restoredNativeState.sanitizedEntries()[0])._meta, nativeEntry._meta,
+  'stored structured events acquire the same normalized metadata without rewriting stored history');
+assert.strictEqual(legacyCheckpoint.entries[0]._meta, undefined);
+const unrelatedState = new AcpSessionState({ provider: 'claude', sessionId: 'unrelated' });
+unrelatedState.apply({ sessionId: 'unrelated', update: nativeMessage });
+assert.strictEqual(acpTranscriptToolEntry(unrelatedState.sanitizedEntries()[0])._meta, undefined,
+  'provider-specific recognition stays inside the Codex boundary');
+
+for (const [status, expected] of [['pending', 'sending'], ['in_progress', 'sending'], ['failed', 'failed'], ['completed', 'updated'], ['cancelled', 'cancelled'], ['future-status', 'recorded']]) {
+  const items = projectAcpTranscript({ sessionId: 'session-sender', state: 'idle', entries: [{ ...nativeEntry, status }] }).turns[0].processItems;
+  assert.strictEqual(acpCollaborationEvents(items)[0].action, expected);
+  assert.strictEqual(acpCollaborationEvents(items)[0].id, acpCollaborationEvents(nativeItems)[0].id,
+    'a send keeps its disclosure identity through pending, success, failure and cancellation');
+}
+assert.strictEqual(acpCollaborationAgents(repeatedNativeItems)[0].activities.length, 2);
+const nativeSubagent = new AcpSessionState({ provider: 'codex', sessionId: 'session-sender' });
+nativeSubagent.apply({ sessionId: 'session-sender', update: { sessionUpdate: 'tool_call', toolCallId: 'native-activity', title: 'Interact with subagent checks', kind: 'other', status: 'completed', rawInput: { agentThreadId: 'session-checks', agentPath: '/root/checks', activityKind: 'interacted' } } });
+assert.strictEqual(acpTranscriptToolEntry(nativeSubagent.sanitizedEntries()[0])._meta.codex.subagent.threadId, 'session-checks');
+const discoveryCommands = [
+  'farming list --json',
+  '"$FARMING_CLI_BIN_DIR/farming" list --json',
+  '"${FARMING_CLI_BIN_DIR}/farming" list --json | python3 -c "print()"',
+];
+for (const provider of ['codex', 'claude', 'qwen', 'pi']) {
+  for (const command of discoveryCommands) {
+    const state = new AcpSessionState({ provider, sessionId: 'discovery-session' });
+    state.apply({ sessionId: 'discovery-session', update: { sessionUpdate: 'tool_call', toolCallId: 'lookup', title: command, kind: 'execute', status: 'in_progress', rawInput: { command } } });
+    const itemsFor = () => projectAcpTranscript({ sessionId: 'discovery-session', entries: state.sanitizedEntries().map(acpTranscriptToolEntry) }).turns[0].processItems;
+    assert.strictEqual(acpCollaborationEvents(itemsFor())[0].action, 'discovering');
+    state.apply({ sessionId: 'discovery-session', update: { sessionUpdate: 'tool_call_update', toolCallId: 'lookup', status: 'completed' } });
+    assert.strictEqual(acpCollaborationEvents(itemsFor())[0].action, 'discovered');
+    assert.strictEqual(acpCollaborationAgents(itemsFor()).length, 0, 'a discovery call cannot invent a child or peer');
+    const checkpoint = AcpSessionState.fromCheckpoint(state.exportCheckpoint());
+    assert.strictEqual(acpTranscriptToolEntry(checkpoint.sanitizedEntries()[0])._meta.farming.agentDiscovery, true);
+    state.apply({ sessionId: 'discovery-session', update: { sessionUpdate: 'tool_call_update', toolCallId: 'lookup', status: 'failed' } });
+    assert.strictEqual(acpCollaborationEvents(itemsFor())[0].action, 'failed');
+  }
+}
+for (const command of ['echo "farming list"', 'rg "farming list"', 'farming list-extra', 'other list', 'false && farming list']) {
+  assert.strictEqual(acpTranscriptToolEntry({ id: 'unrelated', type: 'tool', kind: 'execute', title: command, rawInput: { command } })._meta, undefined);
+}
+assert.strictEqual(acpTranscriptToolEntry({ id: 'prose', type: 'tool', title: 'farming list --json', kind: 'read' })._meta, undefined,
+  'a title or prose alone is not evidence of a lookup invocation');
+const { communicationPeer } = require('../../src/components/code/related-session-navigation.ts');
+const { encodeProviderSessionKey } = require('../../shared/provider-session-identity.ts');
+const peers = [
+  { id: 'sender', providerSessionKey: encodeProviderSessionKey('codex', 'sender-session', 'home-a') },
+  { id: 'peer', providerSessionKey: encodeProviderSessionKey('codex', 'peer-session', 'home-a') },
+  { id: 'other-home', providerSessionKey: encodeProviderSessionKey('codex', 'peer-session', 'home-b') },
+  { id: 'other-provider', providerSessionKey: encodeProviderSessionKey('claude', 'peer-session', 'home-a') },
+];
+assert.strictEqual(communicationPeer(peers, 'sender', 'peer-session').id, 'peer');
+assert.strictEqual(communicationPeer(peers, 'sender', 'sender-session'), null);
+assert.strictEqual(communicationPeer(peers, 'missing', 'peer-session'), null);
+assert.strictEqual(communicationPeer([...peers, { ...peers[1], id: 'duplicate' }], 'sender', 'peer-session'), null);
+assert.strictEqual(communicationPeer(peers.filter(peer => peer.id !== 'peer'), 'sender', 'peer-session'), null);
+console.log('ACP collaboration projection tests passed');

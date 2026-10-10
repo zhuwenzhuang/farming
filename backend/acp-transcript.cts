@@ -650,6 +650,9 @@ function transcriptCodexToolMeta(entry: DataRecord): DataRecord | null {
       ),
       receiverThreadIds,
       agentsStates,
+      ...(['sendinput', 'followuptask', 'resumeagent'].includes(String(collaboration.tool || '').toLowerCase())
+        ? { message: boundedCollaborationString(rawInput.prompt, 4000) }
+        : {}),
       ...(String(collaboration.tool || '').toLowerCase() === 'spawnagent'
         ? { task: boundedCollaborationTask(rawInput.prompt) }
         : {}),
@@ -664,6 +667,17 @@ function transcriptCodexToolMeta(entry: DataRecord): DataRecord | null {
     };
   }
   return Object.keys(compact).length > 0 ? compact : null;
+}
+
+// Classify the recorded invocation, not its terminal output or the current
+// inventory. This remains a historical lookup action even when a pipeline
+// filters the result, or the lookup fails. Never infer discovered peers here.
+function isFarmingAgentDiscovery(entry: DataRecord): boolean {
+  if (entry.kind !== 'execute') return false;
+  const input = dataRecord(entry.rawInput);
+  const command = typeof input.command === 'string' ? input.command : input.cmd;
+  if (typeof command !== 'string') return false;
+  return /^\s*(?:farming|"\$(?:FARMING_CLI_BIN_DIR|\{FARMING_CLI_BIN_DIR\})\/farming"|\$(?:FARMING_CLI_BIN_DIR|\{FARMING_CLI_BIN_DIR\})\/farming)\s+list(?:\s|$)/.test(command);
 }
 
 function acpTranscriptToolEntry(entry: DataRecord, options: TranscriptOptions = {}) {
@@ -713,6 +727,7 @@ function acpTranscriptToolEntry(entry: DataRecord, options: TranscriptOptions = 
   }
   const codexMeta = transcriptCodexToolMeta(entry);
   if (codexMeta) meta.codex = codexMeta;
+  if (isFarmingAgentDiscovery(entry)) meta.farming = { agentDiscovery: true };
   const locations = transcriptLocations(entry);
   return {
     id: String(entry.id || ''),

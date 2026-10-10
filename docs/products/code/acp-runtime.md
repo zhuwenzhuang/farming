@@ -108,6 +108,23 @@ is duplicated in Chat. Explicitly opened evidence stays open as new events arriv
 older events remain reachable through a bounded disclosure. Execution and cancellation
 remain owned by the backend/provider; feed visibility has no lifecycle side effects.
 
+Peer communication uses the same chronological activity feed. Provider adapters
+normalize structured collaboration input for both live updates and restored
+history before compact projection. Message entries retain the sender, recipient,
+bounded body preview and tool outcome; pending and failed sends cannot appear
+as successful sends. Distinct sends remain distinct even when their text is
+identical. Success is evidence of the send operation, not a read receipt or proof
+that the recipient finished the requested work. Missing inbound provider events
+are not synthesized from assistant prose.
+
+A recorded Farming CLI `list` invocation appears as an Agent lookup action for
+all providers. Its command/result remains inspectable; completion does not infer
+which peers were discovered or turn a historical result into current inventory.
+Titles and assistant text alone cannot create lookup events. Peer labels and
+navigation resolve exact provider, Agent Home and Session identities. Only an
+explicit child association can open child details; a message to an existing
+Agent never establishes parent/child ownership.
+
 The related pane reads fixed-size pages using provider cursors (retained-event IDs
 for event-only providers). Older/newer navigation and Return to latest keep every
 available turn reachable without growing each response. Live updates refresh only

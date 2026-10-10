@@ -120,6 +120,13 @@ export interface CodeCopy {
   agentTranscriptCollaborationRecorded: string
   agentTranscriptCollaborationStarted: string
   agentTranscriptCollaborationUpdated: string
+  agentTranscriptCollaborationRecipient: (name: string) => string
+  agentTranscriptCollaborationOpenPeer: string
+  agentTranscriptCollaborationDiscovery: string
+  agentTranscriptCollaborationDiscovering: string
+  agentTranscriptCollaborationDiscovered: string
+  agentTranscriptCollaborationCancelled: string
+  agentTranscriptCollaborationSending: string
   agentTranscriptCollaborationEarlierActivities: (count: number) => string
   agentTranscriptCollaborationEarlierEvidence: (count: number) => string
   agentTranscriptCopyDetails: string
@@ -847,6 +854,13 @@ const EN_COPY: CodeCopy = {
   agentTranscriptCollaborationRecorded: 'Activity',
   agentTranscriptCollaborationStarted: 'Created',
   agentTranscriptCollaborationUpdated: 'Message sent',
+  agentTranscriptCollaborationRecipient: name => `To ${name}`,
+  agentTranscriptCollaborationOpenPeer: 'Open Agent',
+  agentTranscriptCollaborationDiscovery: 'Agent lookup',
+  agentTranscriptCollaborationDiscovering: 'Looking up Agents',
+  agentTranscriptCollaborationDiscovered: 'Lookup command completed',
+  agentTranscriptCollaborationCancelled: 'Cancelled',
+  agentTranscriptCollaborationSending: 'Sending message',
   agentTranscriptCollaborationEarlierActivities: count => `Show ${count} earlier ${count === 1 ? 'activity' : 'activities'}`,
   agentTranscriptCollaborationEarlierEvidence: count => `Show ${count} earlier ${count === 1 ? 'record' : 'records'}`,
   agentTranscriptCopyDetails: 'Copy details',
@@ -1609,6 +1623,13 @@ const ZH_COPY: CodeCopy = {
   agentTranscriptCollaborationRecorded: '活动记录',
   agentTranscriptCollaborationStarted: '已创建',
   agentTranscriptCollaborationUpdated: '已发送消息',
+  agentTranscriptCollaborationRecipient: name => `发给 ${name}`,
+  agentTranscriptCollaborationOpenPeer: '打开 Agent',
+  agentTranscriptCollaborationDiscovery: '查找 Agent',
+  agentTranscriptCollaborationDiscovering: '正在查找',
+  agentTranscriptCollaborationDiscovered: '查找命令已完成',
+  agentTranscriptCollaborationCancelled: '已取消',
+  agentTranscriptCollaborationSending: '正在发送消息',
   agentTranscriptCollaborationEarlierActivities: count => `显示更早 ${count} 条活动`,
   agentTranscriptCollaborationEarlierEvidence: count => `显示更早 ${count} 条记录`,
   agentTranscriptCopyDetails: '复制详情',
