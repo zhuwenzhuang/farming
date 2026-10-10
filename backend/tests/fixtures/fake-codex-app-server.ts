@@ -100,6 +100,12 @@ async function resultFor(method, params) {
     return { userAgent: 'fake-codex-app-server/0.0.0' };
   }
   if (method === 'account/read') {
+    const gateFile = process.env.FARMING_TEST_ACCOUNT_READ_GATE_FILE;
+    const deadline = Date.now() + 10_000;
+    while (gateFile && fs.existsSync(gateFile)) {
+      if (Date.now() >= deadline) throw new Error('Timed out waiting for account read gate');
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
     return { account: null, requiresOpenaiAuth: false };
   }
   if (method === 'config/read') {

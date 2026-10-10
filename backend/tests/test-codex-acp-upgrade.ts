@@ -11,12 +11,14 @@ async function scenario(kind: 'writer' | 'air' | 'air-native' | 'standard' | 're
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-acp-upgrade-'));
   const resultFile = path.join(tmp, 'answer.json');
   const requestLog = path.join(tmp, 'requests.jsonl');
+  const accountReadGate = path.join(tmp, 'account-read-gate');
   const child = spawn(process.execPath, [path.join(root, 'dist/acp/codex-acp-2.2.2.mjs')], {
     cwd: root, detached: process.platform !== 'win32', stdio: ['pipe', 'pipe', 'pipe'],
     env: { ...process.env, CODEX_HOME: tmp, CODEX_PATH: path.join(__dirname, 'fixtures/fake-codex-app-server.ts'),
       FARMING_TEST_ACTIVE_WRITER: kind === 'writer' ? '1' : '0',
       FARMING_TEST_USER_INPUT_RESULT_FILE: kind === 'writer' ? '' : resultFile,
-      FARMING_TEST_REQUEST_LOG_FILE: requestLog, FARMING_TEST_SESSION_ENVIRONMENT: '1' },
+      FARMING_TEST_REQUEST_LOG_FILE: requestLog, FARMING_TEST_SESSION_ENVIRONMENT: '1',
+      FARMING_TEST_ACCOUNT_READ_GATE_FILE: accountReadGate },
   });
   let stderr = '';
   child.stderr.on('data', chunk => { stderr += chunk.toString(); });
@@ -66,15 +68,27 @@ async function scenario(kind: 'writer' | 'air' | 'air-native' | 'standard' | 're
     const session = await request('session/new', { cwd: tmp, mcpServers: [],
       _meta: { farming: { env: { FARMING_AGENT_ID: 'upgrade-owner' } } } }) as { sessionId: string };
     if (kind === 'recovery') {
-      const initial = JSON.parse(fs.readFileSync(requestLog, 'utf8').trim().split('\n')[0]);
-      process.kill(initial.pid, 'SIGKILL');
+      const readRequests = () => fs.readFileSync(requestLog, 'utf8').trim().split('\n').map(line => JSON.parse(line));
+      const initialRequests = readRequests();
+      const initial = initialRequests[0];
+      const accountReads = initialRequests.filter(item => item.method === 'account/read').length;
+      fs.writeFileSync(accountReadGate, 'hold the old generation');
+      const interruptedRead = assert.rejects(request('authentication/status', {}),
+        (error: Error & { code?: number; data?: { restartable?: boolean } }) => {
+          assert.equal(error.code, 1001, 'an in-flight read must report the killed app-server');
+          assert.equal(error.data?.restartable, true);
+          return true;
+        });
       const deadline = Date.now() + 3000;
-      for (;;) {
-        try { process.kill(initial.pid, 0); }
-        catch (error) { assert.equal((error as NodeJS.ErrnoException).code, 'ESRCH'); break; }
-        assert.ok(Date.now() < deadline, 'the exact owned app-server must terminate');
+      while (readRequests().filter(item => item.method === 'account/read').length === accountReads) {
+        assert.ok(Date.now() < deadline, 'the read must reach the exact old app-server before it is killed');
         await new Promise(resolve => setTimeout(resolve, 20));
       }
+      process.kill(initial.pid, 'SIGKILL');
+      // An inner fixture PID disappearing does not prove that the adapter has
+      // observed its launcher exiting. The failed read is the protocol boundary.
+      await interruptedRead;
+      fs.rmSync(accountReadGate);
       await request('authentication/status', {});
     }
     await request('session/prompt', { sessionId: session.sessionId, prompt: [{ type: 'text', text: 'Choose a target' }] });
