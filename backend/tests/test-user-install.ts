@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import { test } from 'node:test';
+import { describe, test } from 'node:test';
 import * as pty from 'node-pty';
 
 const projectRoot = path.resolve(__dirname, '../..');
@@ -217,6 +217,9 @@ exec ${quote(curl)} "\${args[@]}"
   };
 }
 
+// Every case owns its registry, install root, child processes and cleanup. Bound
+// parallel I/O so the complete suite fits the ordinary per-file test deadline.
+describe('user installer', { concurrency: 4 }, () => {
 for (const mode of ['available', 'missing', 'slow'] as const) {
   test(`China mirror ${mode} keeps official versions and separate update/download registries`, async () => {
     const f = await fixture(false, 'openssl', 'normal', mode);
@@ -573,3 +576,4 @@ for (const legacy of [false, true]) {
     } finally { await f.close(); }
   });
 }
+});
