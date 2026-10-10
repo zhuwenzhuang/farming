@@ -127,8 +127,9 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
       if (compact) {
         for (const control of [edit, drag, home.getByRole('combobox'), panel.getByRole('button', { name: 'Add Agent', exact: true }), form.getByRole('button', { name: 'Save', exact: true })]) {
           const box = await control.boundingBox()
-          expect(box!.width).toBeGreaterThanOrEqual(44)
-          expect(box!.height).toBeGreaterThanOrEqual(44)
+          const label = await control.getAttribute('aria-label') || await control.textContent()
+          expect(box!.width, `${label} compact target width`).toBeGreaterThanOrEqual(44)
+          expect(box!.height, `${label} compact target height`).toBeGreaterThanOrEqual(44)
         }
         await expect.poll(() => home.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
       }

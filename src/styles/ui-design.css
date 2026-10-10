@@ -479,7 +479,7 @@
 
 @media (max-width: 767px), (max-width: 980px) and (pointer: coarse) {
   .code-dialog-close,
-  .code-touch-target,
+  body.code-mode .code-touch-target,
   .code-touch-actions > :is(button, select) {
     min-width: var(--code-touch-target-size);
     min-height: var(--code-touch-target-size);
