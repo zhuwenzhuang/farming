@@ -59,6 +59,10 @@ terminate_smoke_process() {
 }
 
 cleanup() {
+  local result=$?
+  if [ "${result}" -ne 0 ] && [ -f "${INSTALL_LOG}" ]; then
+    cat "${INSTALL_LOG}" >&2
+  fi
   if [ -x "${PREFIX}/bin/farming" ]; then
     "${PREFIX}/bin/farming" stop --config-dir "${CONFIG_DIR}" >/dev/null 2>&1 || true
   fi
@@ -85,7 +89,7 @@ fi
 if ! NPM_CONFIG_CACHE="${NPM_CACHE}" NPM_CONFIG_REGISTRY="${NPM_REGISTRY}" \
   NPM_CONFIG_USERCONFIG=/dev/null \
   npm install --global --prefix "${PREFIX}" "${PACKAGE_TARBALL}" \
-    --ignore-scripts --no-audit --no-fund >"${INSTALL_LOG}" 2>&1; then
+    --ignore-scripts --include=optional --no-audit --no-fund >"${INSTALL_LOG}" 2>&1; then
   echo "npm package did not install from its bundled production dependencies" >&2
   cat "${INSTALL_LOG}" >&2
   exit 1
@@ -96,6 +100,26 @@ if grep -q '^npm warn allow-scripts' "${INSTALL_LOG}"; then
   exit 1
 fi
 PACKAGE_ROOT="${PREFIX}/lib/node_modules/farming-code"
+node "${PROJECT_ROOT}/scripts/check-npm-image.mjs" "${PACKAGE_ROOT}"
+node - "${PACKAGE_ROOT}" <<'NODE'
+const fs = require('node:fs');
+const path = require('node:path');
+const root = process.argv[2];
+const metadata = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+if (metadata.farmingRuntimePackages === 1) {
+  const expected = `farming-code-runtime-${process.platform}-${process.arch}`;
+  const installed = fs.readdirSync(path.join(root, 'node_modules')).filter(name => name.startsWith('farming-code-runtime-'));
+  if (installed.length !== 1 || installed[0] !== expected) throw new Error(`Unexpected platform packages: ${installed}`);
+  for (const name of ['agent-browser', 'ripgrep', 'glibc228']) {
+    if (fs.existsSync(path.join(root, 'dist/runtime', name))) throw new Error(`Runtime duplicated in main image: ${name}`);
+  }
+}
+const notices = fs.readFileSync(path.join(root, 'dist/frontend-licenses.txt'), 'utf8');
+for (const name of ['lucide', 'react', 'react-dom', 'katex', 'highlight.js']) {
+  if (fs.existsSync(path.join(root, 'node_modules', name))) throw new Error(`Duplicate frontend dependency: ${name}`);
+  if (!notices.includes(`${name}@`)) throw new Error(`Missing frontend license notice: ${name}`);
+}
+NODE
 case "$(uname -s)-$(uname -m)" in
   Darwin-arm64) RIPGREP_PLATFORM="darwin-arm64" ;;
   Darwin-x86_64) RIPGREP_PLATFORM="darwin-x64" ;;
@@ -104,10 +128,13 @@ case "$(uname -s)-$(uname -m)" in
   MINGW*|MSYS*) RIPGREP_PLATFORM="win32-x64" ;;
   *) echo "Unsupported npm smoke ripgrep platform: $(uname -s)-$(uname -m)" >&2; exit 1 ;;
 esac
-RIPGREP_BIN="${PACKAGE_ROOT}/dist/runtime/ripgrep/${RIPGREP_PLATFORM}/rg"
-if [ "${RIPGREP_PLATFORM#win32-}" != "${RIPGREP_PLATFORM}" ]; then
-  RIPGREP_BIN="${RIPGREP_BIN}.exe"
-fi
+RIPGREP_BIN="$(node - "${PACKAGE_ROOT}" "${RIPGREP_PLATFORM}" <<'NODE'
+const path = require('node:path');
+const [root, platform] = process.argv.slice(2);
+const { managedRipgrepPath } = require(path.join(root, 'backend/ripgrep-runtime.cjs'));
+process.stdout.write(managedRipgrepPath(platform, { FARMING_PACKAGED_RUNTIME_ROOT: root }));
+NODE
+)"
 if [ ! -x "${RIPGREP_BIN}" ] || ! "${RIPGREP_BIN}" --version | grep -q '^ripgrep 15\.2\.0'; then
   echo "npm package omitted or corrupted Farming managed ripgrep: ${RIPGREP_BIN}" >&2
   exit 1
@@ -336,7 +363,7 @@ done
 node -e '
   const path = require("path");
   const prefix = process.argv[1];
-  const pty = require(path.join(prefix, "lib/node_modules/farming-code/node_modules/node-pty"));
+  const pty = require(path.join(prefix, "lib/node_modules/farming-code/backend/packaged-node-pty.cjs")).nodePty;
   if (typeof pty.spawn !== "function") throw new Error("node-pty did not load from the npm package");
 ' "${PREFIX}"
 

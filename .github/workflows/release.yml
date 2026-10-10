@@ -833,11 +833,18 @@ jobs:
           package_dir="${RUNNER_TEMP}/farming-npm-package"
           npm run release:npm:pack -- "${package_dir}"
           package_tarball="${package_dir}/farming-code-${RELEASE_VERSION}.tgz"
-          npm run release:npm:smoke -- "${package_tarball}"
+          node scripts/with-npm-candidate-registry.mjs "${package_tarball}" npm run release:npm:smoke -- "${package_tarball}"
           node scripts/smoke-user-install.mjs "${package_tarball}"
           mkdir -p npm-upload
           node scripts/npm-release-evidence.mjs write "${package_tarball}" "farming-code@${RELEASE_VERSION}" "$(git rev-parse HEAD)" npm-upload/npm-smoke-receipt.json
-          cp "${package_tarball}" npm-upload/
+          cp "${package_tarball}" "${package_dir}/runtime-packages.json" npm-upload/
+          for runtime_tarball in "${package_dir}"/farming-code-*-runtime-*.tgz; do
+            runtime_version="$(basename "${runtime_tarball}" .tgz)"
+            runtime_version="${runtime_version#farming-code-}"
+            platform="${runtime_version##*-runtime-}"
+            node scripts/npm-release-evidence.mjs write "${runtime_tarball}" "farming-code@${runtime_version}" "$(git rev-parse HEAD)" "npm-upload/runtime-${platform}-receipt.json"
+            cp "${runtime_tarball}" npm-upload/
+          done
 
       - name: Upload npm smoke receipt
         uses: actions/upload-artifact@v4

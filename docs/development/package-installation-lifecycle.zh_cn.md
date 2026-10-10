@@ -55,9 +55,16 @@ Server 启动检查 Artifact 身份与可执行性，失败时给出修复错误
 
 npm Image 将精确版本的 Codex 与 Claude Native Carrier 声明为受平台约束的 Optional Dependency，
 由 npm 在不执行生命周期代码的前提下按 OS、Architecture 与 libc 选择；Release Pipeline 则把经过
-审查的 agent-browser 与 ripgrep 二进制直接嵌入 Farming Image，Target-specific Release Image 只保留
-目标平台 Artifact。Launcher 会把 npm Image 标记为禁止下载，Runtime Manager 只能在校验后绑定
-精确声明的 Carrier 或内置 Artifact。
+审查的 agent-browser、ripgrep、node-pty 和旧 Linux 兼容库发布为六个 OS/CPU 平台包，并通过 npm Alias
+精确引用 `farming-code` 的平台版本。仅 Linux x64 包携带 glibc；Linux 包保留 GNU 和静态 Browser
+变体。npm 主包不再携带这些原生文件；源码、App 和 Standalone Image 保持内置布局。
+Launcher 将 npm Image 标记为禁止下载。已声明的平台包必须匹配精确版本、平台及 Image 所有权；
+缺失或无效时明确失败，不退回内置文件或下载运行时。
+
+打包流程先校验并生成全部平台包，再从主包暂存区移除对应内容。测试通过隔离 registry 安装
+未发布的主包及平台包，并禁用生命周期脚本。发布时先核对每个平台包的回执及公开完整性，再上传
+主版本；平台包上传结果不确定时只对账，不重放上传。安装器暂存、取消、预检和原子发布继续使用
+既有所有权与失败语义。更新及回滚始终选择各 Image 自己的不可变平台包。
 
 由于 Executable 不能直接从 Standalone CLI 的 Virtual Filesystem 执行，该安装形态会在 Server
 初始化前，把内置且固定版本的 ripgrep 原子写入所属 Config 的私有 Versioned Runtime Directory。
@@ -123,12 +130,33 @@ Recovery 而不提交状态，也不准备 Immutable Installation Directory。�
 公开安装脚本从选定的 npm registry 下载 Farming 以及固定版本的 Node.js、npm。
 无需系统 Node.js、系统 npm 全局目录、root 权限或 npm 生命周期脚本。Linux x64
 Image 携带经过校验的私有 glibc 运行库，供 glibc 2.17–2.27 主机使用。
+安装器并行下载选定的平台包、Node.js 和 npm，解压前校验 SHA-512；旧 Linux 使用平台包内的
+加载器启动 Node.js。已验证的平台包归档加入 npm 缓存，再由 npm 禁用脚本安装精确 Alias。
 
 公开安装流程分别展示下载、安装、进入目录和启动四条命令。下载成功后才能执行脚本。
 `--dir` 指定绝对安装目录，优先于 `FARMING_INSTALL_ROOT`。下载需具备可信 CA 证书库；安装器不会关闭 TLS
 校验或修改系统信任。下载软件包前选择可用的 SHA-512 校验工具（`sha512sum`、`shasum` 或
 OpenSSL），前两者使用 `base64` 和 `od` 解码 npm 完整性摘要。工具缺失、校验命令失败或摘要
 不匹配均在解压前明确失败，不切换工具重试或跳过校验。
+
+安装器逐项提示软件包解析、下载、完整性校验和解压阶段，并显示依赖安装与运行环境准备阶段。
+压缩包下载显示已传输字节数和速度；服务端提供总大小时显示预计剩余时间。总大小未知时，
+不得虚构百分比，也不得将单个下载进度当作整个安装的进度。
+交互终端沿用启动进度的视觉语言：青色下载条、黄色准备与重试提示、绿色就绪提示；并行下载
+分别占用独立行。重定向输出使用有界的纯文本更新，不含光标控制。取消和失败均恢复终端光标。
+npm 与运行环境准备的正常诊断输出保持内部可见，不将暂存路径或机器 JSON 当作安装状态。
+准备失败时，在目标安装目录旁保留私有诊断日志并提示其位置；完成时只展示正式目录和启动入口。
+
+已校验的 Farming 包提供固定运行环境版本后，安装器并行下载 Node.js 和 npm 压缩包，
+分别报告各包进度，并沿用有界的连接、传输和重试限制。两项下载都成功后才校验和解压
+运行环境；任一路失败或用户取消时，先终止并回收本次安装拥有的其他下载，再清理暂存目录。
+再次执行仍作为新安装尝试，遵守相同的锁和发布规则。
+
+`--mirror cn` 显式选择 npmmirror 下载压缩包与依赖，但 Farming 目标版本、运行环境固定版本和
+压缩包 SHA-512 摘要仍以官方 npm 元数据为准。它只覆盖本次安装的源，不修改 npm 配置。
+镜像压缩包传输失败时，明确提示并回退一次到同一个官方 Artifact；完整性校验失败仍为终态。
+镜像连接、传输与低速等待均有期限。官方元数据不可用时明确失败，不选用镜像的旧标签。
+保存的启动入口将官方更新元数据源与 npm 下载源分开，后续更新沿用已有回退和完整性规则。
 
 安装器只拥有自己的暂存目录和安装锁。状态依次为下载、校验、准备、发布和已安装。
 所有压缩包先校验完整性，再解压；原生运行环境预检通过后，以目录原子重命名发布安装。
@@ -153,6 +181,16 @@ npm 缓存与默认 Package Image 存储也位于安装目录内，包括首次�
 
 仅用于前端构建的库属于开发依赖。发布包保留 `dist` 中的浏览器构建产物和依赖许可，
 不再重复携带源依赖目录；由后端直接提供的库仍属于运行依赖。
+
+内联可视化保留完整的已编译 Lucide 图标运行时，允许生成的文档动态选择图标。
+移除重复 npm 源目录不能限制可用图标名。原生 PTY 调试符号和 xterm JavaScript 源码映射
+仅从隔离的 npm 镜像中移除；终端 JavaScript/CSS 保留在主包中，选定平台的可执行文件、原生扩展、
+动态库和许可证由对应平台包交付。这些构建时瘦身必须在
+禁用安装脚本时仍然成立。
+
+运行时静态资源仅包含当前产品和 PWA 使用的图标。设计母版、历史图标和参考素材保留在
+源码仓库中，但不进入发布包。npm 镜像排除重复的 SheetJS 浏览器构建，以及 ACP SDK
+测试、类型声明和调试映射；保留运行时模块、字符编码表、协议 Schema 和许可证。
 
 - **Source Checkout** 遵循该仓库的源码与 Package Manager 工作流。
 - **npm Installation** 可以使用应用内更新和不可变 Package Image。

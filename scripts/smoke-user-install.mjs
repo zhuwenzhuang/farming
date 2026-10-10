@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { setTimeout as delay } from 'node:timers/promises';
+import { runtimeCandidates } from './npm-candidate-registry.mjs';
 
 const archive = path.resolve(process.argv[2] || '');
 if (!process.argv[2] || !fs.statSync(archive).isFile()) throw new Error('Usage: node scripts/smoke-user-install.mjs <npm.tgz> [installer.sh [upgrade.tgz [broken-activation.tgz]]]');
@@ -28,7 +29,8 @@ const candidates = process.argv.slice(4).map(file => {
   return { archive, metadata, integrity: `sha512-${createHash('sha512').update(fs.readFileSync(archive)).digest('base64')}` };
 });
 assert(candidates.length <= 2, 'At most one upgrade and one rollback candidate');
-const packages = [{ archive, metadata, integrity }, ...candidates];
+const applications = [{ archive, metadata, integrity }, ...candidates];
+const packages = [...applications, ...applications.flatMap(runtimeCandidates)];
 let latest = metadata.version;
 const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-installer-smoke-'));
 const installRoot = path.join(temporary, 'installation');
@@ -54,7 +56,7 @@ const proxy = http.createServer(async (request, response) => {
         ? { name: metadata.name, 'dist-tags': { latest }, versions }
         : value));
     } else {
-      const result = await fetch(`${upstream}${request.url}`, { signal: AbortSignal.timeout(600_000) });
+      const result = await fetch(`${upstream}${request.url}`, { headers: { accept: request.headers.accept || 'application/json' }, signal: AbortSignal.timeout(600_000) });
       response.writeHead(result.status, { 'content-type': result.headers.get('content-type') || 'application/octet-stream' });
       if (result.body) await pipeline(Readable.fromWeb(result.body), response);
       else response.end();
@@ -157,7 +159,7 @@ async function waitPhase(expected) {
 }
 async function nativePty(packageRoot) {
   await run(runtimeCommand(packageRoot), ['-e', `
-const pty = require(${JSON.stringify(path.join(packageRoot, 'node_modules/node-pty'))});
+const pty = require(${JSON.stringify(path.join(packageRoot, 'backend/packaged-node-pty.cjs'))}).nodePty;
 const terminal = pty.spawn('/bin/sh', ['-c', 'printf farming-native-ready'], { env: process.env });
 let output = ''; const timer = setTimeout(() => { terminal.kill(); process.exit(1); }, 10000);
 terminal.onData(data => { output += data; });

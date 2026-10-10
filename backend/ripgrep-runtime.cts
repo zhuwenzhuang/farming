@@ -1,3 +1,4 @@
+import { npmRuntimePackageRoot } from './npm-runtime-package.cjs';
 const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
@@ -97,7 +98,7 @@ function managedRipgrepPath(
   platformKey = currentManagedRipgrepPlatform(),
   env: NodeJS.ProcessEnv = process.env,
 ): string {
-  return path.join(managedRipgrepPackageRoot(env), managedRipgrepRelativePath(platformKey));
+  return path.join(npmRuntimePackageRoot(managedRipgrepPackageRoot(env), platformKey), managedRipgrepRelativePath(platformKey));
 }
 
 function assertManagedRipgrep(

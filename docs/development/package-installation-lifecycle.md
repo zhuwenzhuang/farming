@@ -73,10 +73,23 @@ when those checks fail; it never compensates by downloading or preparing them.
 The npm image declares the exact Codex and Claude native carrier packages as
 platform-constrained optional dependencies, so npm selects the matching OS,
 architecture, and libc artifact without executing lifecycle code. The release
-pipeline embeds the reviewed agent-browser and ripgrep binaries in the Farming
-image; target-specific release images retain only their target artifacts. The
-launcher marks npm images as download-forbidden and the runtime manager binds
-only an exact declared carrier or embedded artifact after verification.
+pipeline publishes reviewed agent-browser, ripgrep, node-pty and legacy Linux libraries in
+six OS/CPU carrier images, pinned as npm aliases to platform versions of
+`farming-code`. Only Linux x64 carries glibc; Linux carriers retain their GNU
+and static Browser variants. The main npm image contains none of these native
+payloads. Source, app and standalone images retain their embedded layout.
+The launcher marks npm images as download-forbidden. A declared carrier must
+match its exact version, platform and image ownership; an absent or invalid
+carrier never falls back to an embedded or downloaded runtime.
+
+Packaging validates and packs all carriers before removing their payloads from
+main-image staging. Tests install the unpublished main and carrier archives
+through an isolated registry with lifecycle scripts disabled. Publication
+verifies each carrier's receipt and public integrity before uploading the main
+version. An uncertain carrier upload is reconciled without replay. Installer
+staging, cancellation, preflight and atomic publication retain their existing
+ownership and failure semantics. Updates and rollback select each image's own
+immutable carrier.
 
 Because an executable cannot run directly from the standalone CLI's virtual
 filesystem, that form atomically materializes its embedded, pinned ripgrep into
@@ -179,6 +192,39 @@ npm integrity metadata. A missing verifier, failed verification command, or dige
 mismatch fails explicitly before extraction; verification failure never switches
 tools or skips integrity checks.
 
+The installer names each package resolution, download, integrity check, and
+extraction phase, and reports dependency installation and runtime preparation.
+Archive downloads expose transferred bytes, speed, and an estimated remaining
+time when the server provides the total size; an unknown size must not be
+presented as a fabricated percentage or overall installation progress.
+Interactive terminals use the startup progress vocabulary: compact cyan download
+bars, yellow preparation/retry messages, and green readiness. Parallel transfers
+retain separate rows; redirected output uses bounded plain-text updates, without
+cursor controls. Cancellation and failure restore the terminal cursor.
+Successful npm and runtime-preparation diagnostics stay private: staging paths
+and machine JSON are not installation status. A failed preparation step preserves
+a private diagnostic log next to the requested installation directory and prints
+its location. Completion names only the published directory and launcher.
+
+After the verified Farming package supplies its runtime pins, Node.js and npm
+archives download concurrently under the installer's ownership. Each transfer
+has the existing bounded connection, transfer, and retry limits. Both must
+succeed before runtime verification and extraction; a failed transfer or user
+cancellation stops and reaps the other owned download before staging cleanup.
+Progress remains attributable to each package. A later invocation starts a new
+installation attempt under the same lock and publication rules.
+
+`--mirror cn` explicitly selects npmmirror for archive and dependency downloads;
+official npm metadata remains authoritative for the requested Farming version,
+runtime pins, and archive SHA-512 digests. It overrides configured registries for
+this installation without changing npm configuration. Mirror archive transport
+failures fall back once to the same official artifact, with a visible message;
+integrity failures remain terminal. Mirror attempts have bounded connection,
+transfer, and low-speed deadlines. An unavailable official metadata read fails
+explicitly rather than selecting an older mirror tag. The saved launcher keeps
+the official update metadata registry separate from npm's download registry,
+so existing update fallback and integrity rules still apply.
+
 The installer owns only its private staging directory and installation lock.
 Its transitions are downloading, verifying, preparing, publishing, and installed.
 All archives are integrity-checked before extraction, and native runtime
@@ -204,7 +250,11 @@ an operating-system startup service.
 
 Each managed image owns its pinned Node.js, npm, and compatibility libraries.
 Node.js and npm pins are installer metadata, not application dependencies:
-ordinary npm installations do not download them. The directory installer moves
+ordinary npm installations do not download them. The directory installer downloads the selected platform carrier in parallel
+with Node.js and npm, verifies its SHA-512 digest before extraction, and uses
+its loader to bootstrap Node.js on old Linux. It seeds npm with the verified
+carrier archive, then installs the exact alias with lifecycle scripts disabled.
+The directory installer moves
 its verified bootstrap runtimes into the staged image after npm finishes.
 During managed updates, the existing update operation installs the target's
 exact runtime pins into private staging before preflight and publication.
@@ -221,6 +271,20 @@ Frontend-only libraries are development dependencies. Their compiled browser
 assets ship in `dist`; their source dependency trees are not bundled again in
 the npm image. Libraries served directly by the backend remain runtime
 dependencies.
+
+Inline visualizations retain the complete compiled Lucide icon runtime so
+generated documents can select icons dynamically. Removing the duplicate npm
+source tree must not restrict those icon names. Native PTY debugger symbols
+and xterm JavaScript source maps are omitted only from the isolated npm image;
+the terminal JavaScript/CSS remains in the main image, while each selected platform's
+executable, native addon, shared library and license ships in its carrier. These build-time
+size reductions must work with installation scripts disabled.
+
+Runtime assets include only the active product and PWA icons. Design masters,
+historical icons and reference artwork remain in the repository but do not ship.
+The npm image omits duplicate SheetJS browser builds and ACP SDK test suites,
+declarations and debug maps; runtime modules, code-page tables, schemas and
+license notices remain available.
 
 - **Source checkout** follows the repository and package-manager workflow of
   that checkout.

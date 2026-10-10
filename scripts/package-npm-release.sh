@@ -77,11 +77,53 @@ const resolveDependencyManifest = (parentManifestPath, dependencyName) => {
 // These dependencies are compiled into browser assets. Shipping their source
 // trees again would duplicate hundreds of megabytes. DOMPurify remains pinned
 // during the frontend build, but no longer has a production dependency edge.
-for (const name of ['@visactor/vtable', 'mermaid', 'monaco-editor', 'dompurify', 'npm', ...Object.keys(rootManifest.farmingUserRuntimeDependencies || {}).filter(name => name.startsWith('node-'))]) {
+for (const name of ['@visactor/vtable', 'mermaid', 'monaco-editor', 'dompurify', 'npm', 'lucide', 'react', 'react-dom', 'katex', 'highlight.js', ...Object.keys(rootManifest.farmingUserRuntimeDependencies || {}).filter(name => name.startsWith('node-'))]) {
   if (fs.existsSync(path.join(stageRoot, 'node_modules', name))) {
     throw new Error(`Unexpected build-only or private runtime dependency in npm image: ${name}`);
   }
 }
+
+// Windows PDBs are debugger symbols, not executable PTY dependencies. Prune
+// only these known companions in the isolated image, preserving every native
+// addon, DLL, executable and license (including the Windows ARM64 prebuild).
+for (const platform of ['win32-x64', 'win32-arm64']) {
+  for (const name of ['conpty.pdb', 'conpty_console_list.pdb']) {
+    fs.rmSync(path.join(stageRoot, 'node_modules/node-pty/prebuilds', platform, name), { force: true });
+  }
+}
+// xterm's browser bundles are served directly and its headless bundles execute
+// on the Server. Keep both, but not their duplicate TypeScript debugger maps.
+for (const name of Object.keys(rootManifest.dependencies).filter(name => name.startsWith('@xterm/'))) {
+  for (const directory of ['lib', 'lib-headless']) {
+    const bundleRoot = path.join(stageRoot, 'node_modules', name, directory);
+    if (!fs.existsSync(bundleRoot)) continue;
+    for (const filename of fs.readdirSync(bundleRoot)) {
+      if (/\.m?js\.map$/.test(filename)) fs.unlinkSync(path.join(bundleRoot, filename));
+    }
+  }
+}
+
+// SheetJS is already compiled into the frontend. The backend uses xlsx.js;
+// retain its code-page tables and both Node module entry points, not duplicate
+// browser bundles, ExtendScript builds or debugger maps.
+const sheetDist = path.join(stageRoot, 'node_modules/xlsx/dist');
+for (const filename of fs.readdirSync(sheetDist)) {
+  if (/^xlsx\.(?:core|full|mini)\.min\.(?:js|map)$/.test(filename)
+    || filename === 'xlsx.extendscript.js') fs.unlinkSync(path.join(sheetDist, filename));
+}
+// The ACP SDK publishes its test suite and declaration/debug output alongside
+// runtime modules. Keep every runtime entry point, schema and license.
+const sdkDist = path.join(stageRoot, 'node_modules/@agentclientprotocol/sdk/dist');
+const pruneSdk = directory => {
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    const target = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      if (['examples', 'test-support'].includes(entry.name)) fs.rmSync(target, { recursive: true });
+      else pruneSdk(target);
+    } else if (/(?:\.test\.js|\.d\.ts|\.map)$/.test(entry.name)) fs.unlinkSync(target);
+  }
+};
+pruneSdk(sdkDist);
 
 // Express 5.2 declares body-parser ^2.2.1 and qs ^6.14.0, and body-parser
 // 2.3.0 declares qs ^6.15.2, so the patched production chain resolves
@@ -108,6 +150,9 @@ fs.rmSync(lockPath, { force: true });
 fs.rmSync(hiddenLockPath, { force: true });
 NODE
 
+echo "==> Packing platform runtime dependencies" >&2
+node "${PROJECT_ROOT}/scripts/package-npm-runtimes.mjs" "${STAGE_DIR}" "${OUTPUT_DIR}"
+
 echo "==> Packing bundled npm release" >&2
 (
   cd "${STAGE_DIR}"
@@ -119,15 +164,22 @@ if [ ! -f "${PACKAGE_TARBALL}" ]; then
   exit 1
 fi
 
-# npm does not publish symlinks: the old-Linux runtime must retain its actual
-# loader and SONAME entries in the archive, not merely in the staging tree.
+# Verify the main image boundary after npm has applied its files/bundle rules.
 node - "${PACKAGE_TARBALL}" <<'NODE'
 const { execFileSync } = require('node:child_process');
 const entries = new Set(execFileSync('tar', ['-tzf', process.argv[2]], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 }).trim().split('\n'));
-for (const name of ['ld-2.28.so', 'libc.so.6', 'libm.so.6', 'libstdc++.so.6', 'libgcc_s.so.1']) {
-  if (!entries.has(`package/dist/runtime/glibc228/${name}`)) throw new Error(`npm package omitted private runtime ${name}`);
+for (const entry of entries) {
+  if (/^package\/dist\/runtime\/(agent-browser|ripgrep|glibc228)\//.test(entry)) {
+    throw new Error(`npm main image duplicated a platform runtime: ${entry}`);
+  }
 }
 if (!entries.has('package/dist/frontend-licenses.txt')) throw new Error('npm package omitted frontend dependency notices');
+for (const entry of entries) {
+  if (/^package\/node_modules\/@xterm\/[^/]+\/lib(?:-headless)?\/[^/]+\.m?js\.map$/.test(entry)) {
+    throw new Error(`npm package duplicated terminal debug maps: ${entry}`);
+  }
+}
+if ([...entries].some(entry => entry.startsWith('package/node_modules/node-pty/'))) throw new Error('npm main image duplicated native PTY');
 NODE
 
 printf '%s\n' "${PACKAGE_TARBALL}"

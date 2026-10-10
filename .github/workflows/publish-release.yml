@@ -552,6 +552,7 @@ jobs:
           if [[ -f prior-npm-evidence/upload-origin.json ]]; then
             cp prior-npm-evidence/upload-origin.json npm-evidence/
           fi
+          node scripts/publish-npm-runtimes.mjs npm-package npm-evidence prior-npm-evidence "${candidate_sha}"
           # Recovery is read-only even while the registry returns 404: an
           # ambiguous prior upload must never authorize a second upload.
           if [[ "${NPM_UPLOAD_MAY_HAVE_STARTED:-0}" == '1' ]] || npm view "farming-code@${version}" version >/dev/null 2>&1; then

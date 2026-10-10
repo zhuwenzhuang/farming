@@ -350,7 +350,7 @@ function run() {
       && npmSmokeScript.includes('/farming/crt/shared/agent-state-bridge.js')
       && npmSmokeScript.includes('/farming/crt/shared/runtime-paths.js')
       && npmSmokeScript.includes('/farming/crt/styles/monochrome-green.css')
-      && npmSmokeScript.includes('dist/runtime/ripgrep/${RIPGREP_PLATFORM}/rg')
+      && npmSmokeScript.includes('managedRipgrepPath(platform, { FARMING_PACKAGED_RUNTIME_ROOT: root })')
       && npmSmokeScript.includes("grep -q '^ripgrep 15\\.2\\.0'")
       && npmSmokeScript.includes('node --import tsx "${PROJECT_ROOT}/scripts/assert-no-bundled-agent-clis.ts"')
       && !npmSmokeScript.includes('node_modules/.bin/tsx')

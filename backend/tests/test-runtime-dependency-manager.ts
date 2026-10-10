@@ -256,6 +256,24 @@ async function run() {
   });
   assert.strictEqual(packagedFetches, 0);
   assert.strictEqual(packaged.dependencies[0].source, 'managed');
+  const carrierImage = path.join(root, 'carrier-image');
+  const carrierPlatform = seedPlatformKey.replace(/-musl$/, '');
+  const carrierAlias = `farming-code-runtime-${carrierPlatform}`;
+  const carrierRoot = path.join(carrierImage, 'node_modules', carrierAlias);
+  fs.cpSync(packagedRoot, carrierRoot, { recursive: true });
+  fs.writeFileSync(path.join(carrierImage, 'package.json'), JSON.stringify({
+    farmingRuntimePackages: 1,
+    optionalDependencies: { [carrierAlias]: `npm:farming-code@1.0.0-runtime-${carrierPlatform}` },
+  }));
+  fs.writeFileSync(path.join(carrierRoot, 'package.json'), JSON.stringify({
+    name: 'farming-code', version: `1.0.0-runtime-${carrierPlatform}`, farmingRuntimePlatform: carrierPlatform,
+  }));
+  const fromCarrier = await prepareRuntimeDependencies({
+    configDir: path.join(root, 'carrier-config'), dependencyIds: ['agentBrowser'],
+    env: { PATH: process.env.PATH, FARMING_PACKAGED_RUNTIME_ROOT: carrierImage, FARMING_RUNTIME_DOWNLOAD_POLICY: 'forbid' },
+    fetch: async () => { throw new Error('platform carrier must not fetch at startup'); },
+  });
+  assert.strictEqual(fromCarrier.dependencies[0].executablePath, fs.realpathSync(path.join(carrierRoot, browserArtifact.packagedEntry)));
   const { readPackagedRuntimeIdentity, verifyPackagedRuntimeIdentity } = require('../packaged-runtime-identity.cjs');
   const expectedIdentity = { version: browserDependency.version, platformKey: seedPlatformKey, sourceId: browserArtifact.packagedIdentity };
   fs.writeFileSync(identityFile, JSON.stringify({ ...packagedIdentity, sha256: '0'.repeat(64) }));

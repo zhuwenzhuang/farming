@@ -1,3 +1,4 @@
+import { npmRuntimePackageRoot } from './npm-runtime-package.cjs';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -966,7 +967,7 @@ async function resolvePackagedRuntime(
     );
   } else if (artifact.packagedEntry) {
     executablePath = path.join(
-      packageRoot,
+      npmRuntimePackageRoot(packageRoot, platformKey),
       safeRelative(artifact.packagedEntry, 'packaged runtime entry'),
     );
   } else {
@@ -1076,7 +1077,7 @@ async function installExactRuntime(
   let packagedSource = '';
   if (artifact.packagedIdentity) {
     const packageRoot = path.resolve(options.env?.[PACKAGED_RUNTIME_ROOT_ENV] || path.resolve(__dirname, '..'));
-    packagedSource = path.resolve(packageRoot, safeRelative(artifact.packagedEntry, 'packaged runtime entry'));
+    packagedSource = path.resolve(npmRuntimePackageRoot(packageRoot, platformKey), safeRelative(artifact.packagedEntry, 'packaged runtime entry'));
     try {
       if (!fs.realpathSync(packagedSource).startsWith(`${fs.realpathSync(packageRoot)}${path.sep}`)) {
         throw new Error('Patched runtime escaped its package root');

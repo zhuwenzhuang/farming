@@ -52,6 +52,20 @@ FARMING_NPM_REGISTRY=https://registry.npmjs.org bash farming_install.sh --dir ~/
 
 npm 下载缓存和保留的更新版本都在安装目录内。选择其它磁盘上的目录时，无需另外设置缓存路径。
 
+国内网络可显式启用下载镜像：
+
+```bash
+bash farming_install.sh --dir ~/farming --mirror cn
+```
+
+该选项通过 npmmirror 下载软件包和 npm 依赖，但 Farming 版本和压缩包校验摘要仍从官方 npm
+获取。它覆盖本次安装使用的源，不修改用户的 npm 配置。镜像缺包或压缩包传输失败时，明确
+提示并回退到同一个官方包；校验失败则终止安装。官方 npm 元数据仍需可访问。后续更新保留
+官方版本检查和优先下载镜像，避免因镜像标签过旧而选到旧版。
+
+安装器显示下载进度和各准备阶段。Farming 包校验完成后，其固定版本的 Node.js 和 npm
+压缩包并行下载。
+
 ## 启动后台服务
 
 ```bash

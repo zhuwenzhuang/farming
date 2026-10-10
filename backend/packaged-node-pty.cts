@@ -2,6 +2,7 @@ const fs = require('fs') as typeof import('fs');
 const os = require('os') as typeof import('os');
 const path = require('path') as typeof import('path');
 const { createRequire } = require('module') as typeof import('module');
+import { npmRuntimePackageRoot } from './npm-runtime-package.cjs';
 
 interface NodePtyUtils {
   loadNativeModule(name: string): {
@@ -84,6 +85,13 @@ function copyPackagedSpawnHelper(): string {
 }
 
 function loadNodePty(): typeof import('node-pty') {
+  if (!isPackagedRuntime()) {
+    const applicationRoot = path.resolve(__dirname, '..');
+    const runtimeRoot = npmRuntimePackageRoot(applicationRoot, `${process.platform}-${process.arch}`);
+    if (runtimeRoot !== applicationRoot) {
+      return loadNativeModule(path.join(runtimeRoot, 'dist/runtime/node-pty')) as typeof import('node-pty');
+    }
+  }
   if (isPackagedRuntime()) {
     const utils = require('node-pty/lib/utils') as NodePtyUtils;
     utils.loadNativeModule = function patchedLoadNativeModule(name: string) {

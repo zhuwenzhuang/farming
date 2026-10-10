@@ -50,6 +50,23 @@ FARMING_NPM_REGISTRY=https://registry.npmjs.org bash farming_install.sh --dir ~/
 
 Existing npm registry configuration is used when available. The selected registry is saved for later launches and updates. `FARMING_VERSION` selects an exact release; `FARMING_INSTALL_ROOT` and `FARMING_BIN_DIR` select absolute installation paths. For a custom bin directory, use the CLI startup command printed by the installer.
 
+For downloads on networks in mainland China, explicitly enable the mirror:
+
+```bash
+bash farming_install.sh --dir ~/farming --mirror cn
+```
+
+This uses npmmirror for package downloads and npm dependencies, while official npm
+still supplies the Farming version and archive integrity digests. It overrides
+the configured registry for this installation without changing your npm settings.
+Missing or failed mirror archive downloads fall back to the same official
+artifact with a visible message; checksum failures stop installation. Official
+npm metadata must remain reachable. Updates retain official version checks and
+the preferred download mirror, so a stale mirror tag cannot select an old release.
+
+The installer reports download progress and each preparation stage. Once the
+Farming package is verified, its pinned Node.js and npm archives download in parallel.
+
 The npm download cache and retained update versions stay inside the installation directory. A custom directory on another disk does not require separate cache settings.
 
 ## Start the background service
