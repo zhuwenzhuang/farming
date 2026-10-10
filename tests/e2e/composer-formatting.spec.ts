@@ -103,6 +103,9 @@ for (const mode of ['chat', 'terminal'] as const) {
       await card.getByRole('button', { name: 'Show in text field' }).click()
       await expect(input).toHaveValue(text)
       await expect(highlight).toHaveCount(0)
+      // Restoring text schedules a focus retry. Move focus to an existing
+      // outside control so that retry preserves this explicit focus choice.
+      await page.getByTestId(isMobile ? 'code-mobile-menu' : 'code-sidebar-toggle').focus()
       for (const appearance of ['light', 'dark', 'paper']) {
         await page.evaluate(value => { document.body.dataset.appearance = value; document.documentElement.dataset.appearance = value }, appearance)
         await input.evaluate(element => { element.scrollTop = 0; element.blur() })
