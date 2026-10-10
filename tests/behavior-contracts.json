@@ -23,7 +23,7 @@
         "playwright": [
           {
             "file": "tests/e2e/related-session-workflows.spec.ts",
-            "title": "keeps an unfinished Composer submission locked across file navigation"
+            "title": "retains an unfinished Composer outbox submission and a newer draft across file navigation"
           }
         ]
       }
