@@ -343,16 +343,22 @@ test('mobile resume probes before replacing a zombie and never replays uncertain
   await expect.poll(() => composerInputCount).toBe(1)
   await expect.poll(() => socketCount, { timeout: 6_000 }).toBe(4)
   await expect(page.getByTestId('connection-status')).toHaveCount(0, { timeout: 8_000 })
-  await expect(composer).toHaveValue('MOBILE_RECOVERY_SEND_ONCE')
+  const outbox = page.getByTestId('code-acp-submission')
+  await expect(outbox).toHaveCount(1)
+  await expect(outbox).toContainText('MOBILE_RECOVERY_SEND_ONCE')
+  await expect(outbox).toHaveAttribute('data-status', 'unknown')
+  await expect(composer).toHaveValue('')
+  await composer.fill('NEW_DRAFT_AFTER_RECONNECT')
   await expect.poll(() => composerStatusRequestCount, { timeout: 8_000 }).toBeGreaterThan(0)
   expect(composerInputCount).toBe(1)
 
   const statusRequestsBeforeRetry = composerStatusRequestCount
-  await expect(page.getByTestId('code-acp-composer-send')).toBeEnabled()
-  await page.getByTestId('code-acp-composer-send').click()
+  await outbox.getByTestId('code-acp-submission-retry').click()
   await expect.poll(() => composerStatusRequestCount).toBeGreaterThan(statusRequestsBeforeRetry)
   expect(composerInputCount).toBe(1)
-  await expect(composer).toHaveValue('MOBILE_RECOVERY_SEND_ONCE')
+  await expect(outbox).toHaveAttribute('data-status', 'unknown')
+  await expect(outbox).toContainText('MOBILE_RECOVERY_SEND_ONCE')
+  await expect(composer).toHaveValue('NEW_DRAFT_AFTER_RECONNECT')
 })
 
 test('a real mobile offline transition retains draft input and requires an explicit send after recovery', {

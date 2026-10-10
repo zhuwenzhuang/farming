@@ -18,17 +18,19 @@ async function resizeSidebar(page: Page, width: number) {
 }
 
 
-test('keeps an unfinished Composer submission locked across file navigation', { tag: ['@critical-behavior', '@behavior-CODE-COMPOSER-SUBMISSION-OWNERSHIP'] }, async ({ page, workspaceRoot }) => {
+test('retains an unfinished Composer outbox submission and a newer draft across file navigation', { tag: ['@critical-behavior', '@behavior-CODE-COMPOSER-SUBMISSION-OWNERSHIP'] }, async ({ page, workspaceRoot }) => {
   const workspace = path.join(workspaceRoot, 'submission-owner')
   fs.mkdirSync(workspace, { recursive: true })
   fs.writeFileSync(path.join(workspace, 'notes.md'), '# Notes\n')
   const response = await page.request.post('/farming/api/control/agents', { data: { command: 'codex', workspace, agentRuntimeMode: 'chat' } })
   const { agentId } = await response.json() as { agentId: string }
   let releaseSubmission: (() => void) | null = null
+  let submittedMessages = 0
   await page.routeWebSocket(/\/farming\/ws(?:\?|$)/, socket => {
     const server = socket.connectToServer()
     socket.onMessage(message => {
       const parsed = JSON.parse(String(message)) as { type?: string }
+      if (parsed.type === 'composer-input') submittedMessages++
       if (parsed.type === 'composer-input' && !releaseSubmission) {
         releaseSubmission = () => server.send(message)
         return
@@ -42,7 +44,12 @@ test('keeps an unfinished Composer submission locked across file navigation', { 
   const input = page.getByTestId('code-acp-composer-input')
   await input.fill('PERSIST_SUBMISSION_OWNER')
   await page.getByTestId('code-acp-composer-send').click()
-  await expect(page.getByTestId('code-acp-composer-send')).toBeDisabled()
+  const outbox = page.getByTestId('code-acp-submission')
+  await expect(outbox).toHaveCount(1)
+  await expect(outbox).toContainText('PERSIST_SUBMISSION_OWNER')
+  await expect(outbox).toHaveAttribute('data-status', 'submitting')
+  await expect(input).toHaveValue('')
+  await input.fill('NEWER_DRAFT_MUST_SURVIVE')
 
   const project = page.getByTestId('code-project-group').filter({ hasText: 'submission-owner' })
   const files = project.getByTestId('code-files-section')
@@ -51,13 +58,17 @@ test('keeps an unfinished Composer submission locked across file navigation', { 
   await expect(page.getByTestId('code-file-editor')).toBeVisible()
   await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
 
-  await expect(page.getByTestId('code-acp-composer-send')).toBeDisabled()
-  await expect(page.getByTestId('code-acp-composer-send')).toHaveAttribute('aria-busy', 'true')
-  await expect(input).toHaveValue('PERSIST_SUBMISSION_OWNER')
+  await expect(outbox).toHaveCount(1)
+  await expect(outbox).toContainText('PERSIST_SUBMISSION_OWNER')
+  await expect(outbox).toHaveAttribute('data-status', 'submitting')
+  await expect(input).toBeEditable()
+  await expect(input).toHaveValue('NEWER_DRAFT_MUST_SURVIVE')
+  expect(submittedMessages).toBe(1)
   expect(releaseSubmission).not.toBeNull()
   releaseSubmission?.()
-  await expect(page.getByTestId('code-acp-composer-send')).toBeEnabled()
-  await expect(input).toHaveValue('')
+  await expect(outbox).toHaveCount(0)
+  await expect(input).toHaveValue('NEWER_DRAFT_MUST_SURVIVE')
+  expect(submittedMessages).toBe(1)
 })
 
 

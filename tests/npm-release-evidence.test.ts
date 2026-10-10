@@ -383,6 +383,7 @@ test('recovery authenticates completed original runs and separates pre-upload fr
     { conclusion: 'failure', publicResult: 'success', uploadResult: 'success', waitResult: 'failure', expected: '1' },
     { conclusion: 'failure', publicResult: 'success', uploadResult: 'failure', expected: '1' },
     { conclusion: 'failure', publicResult: 'failure', uploadResult: 'skipped', expected: '0' },
+    { conclusion: 'failure', publicResult: 'success', runtimeResult: 'failure', uploadResult: 'skipped', expected: '0' },
     { conclusion: 'success', publicResult: 'success', uploadResult: 'success', expected: null },
     { conclusion: 'cancelled', publicResult: 'success', uploadResult: 'success', waitResult: 'success', expected: null },
     { conclusion: 'success', publicResult: 'success', uploadResult: 'success', waitResult: 'success', headSha: 'b'.repeat(40), expected: null },
@@ -395,6 +396,7 @@ test('recovery authenticates completed original runs and separates pre-upload fr
         .map(name => ({ name, conclusion: 'success' }));
       steps.push({ name: 'Verify public tag, assets, and manifest', conclusion: scenario.publicResult });
       steps.push({ name: 'Verify and publish npm package with provenance', conclusion: scenario.uploadResult });
+      if (scenario.runtimeResult) steps.push({ name: 'Verify and publish npm runtime packages with provenance', conclusion: scenario.runtimeResult });
       if (scenario.waitResult) steps.push({ name: 'Wait for npm package to become public', conclusion: scenario.waitResult });
       const result = spawnSync(process.execPath, ['-e', recovery], {
         encoding: 'utf8', timeout: 5_000,
@@ -409,7 +411,8 @@ test('recovery authenticates completed original runs and separates pre-upload fr
         assert(!fs.existsSync(environmentFile));
       } else {
         assert.equal(result.status, 0, result.stderr);
-        assert.equal(fs.readFileSync(environmentFile, 'utf8'), `NPM_UPLOAD_MAY_HAVE_STARTED=${scenario.expected}\nNPM_CANDIDATE_PUBLICATION_RUN_ID=101\nNPM_CANDIDATE_PUBLICATION_RUN_ATTEMPT=1\n`);
+        const evidenceRequired = scenario.expected === '1' || scenario.runtimeResult === 'failure' ? '1' : '0';
+        assert.equal(fs.readFileSync(environmentFile, 'utf8'), `NPM_UPLOAD_MAY_HAVE_STARTED=${scenario.expected}\nNPM_PUBLICATION_EVIDENCE_REQUIRED=${evidenceRequired}\nNPM_CANDIDATE_PUBLICATION_RUN_ID=101\nNPM_CANDIDATE_PUBLICATION_RUN_ATTEMPT=1\n`);
       }
     }
   } finally { fs.rmSync(directory, { recursive: true, force: true }); }

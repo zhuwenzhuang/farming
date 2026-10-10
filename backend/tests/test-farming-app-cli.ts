@@ -1281,6 +1281,13 @@ async function runTests() {
       'heic-to',
       'mermaid',
       'monaco-editor',
+      // Compiled frontend libraries still ship their code and license notices
+      // after their duplicate npm source trees move to build dependencies.
+      '@xterm/addon-clipboard', '@xterm/addon-search', '@zumer/snapdom',
+      'highlight.js', 'katex', 'lucide', 'micromark-core-commonmark', 'micromark-util-types',
+      'qrcode-generator', 'react', 'react-arborist', 'react-dom', 'react-markdown',
+      'react-zoom-pan-pinch', 'rehype-highlight', 'rehype-katex', 'remark-gfm',
+      'remark-math', 'remark-parse', 'unified',
     ];
     const rows = new Map(
       [...directSection[1].matchAll(/^\| `([^`]+)` \| ([^|]+) \|/gm)]

@@ -205,10 +205,8 @@ test('settles a fast image upload, enables Send, and delivers the first media Pr
   const workspace = path.join(workspaceRoot, 'acp-fast-image-upload')
   const agentId = await createCodexChat(page, workspace)
   const imagePath = path.join(workspace, 'fast-upload.png')
-  fs.writeFileSync(
-    imagePath,
-    Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=', 'base64'),
-  )
+  // Use a real decodable image so the default image optimization path runs.
+  fs.copyFileSync(path.resolve('public/farming-2/app-icon-v2-180.png'), imagePath)
 
   await openFarming(page)
   await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
