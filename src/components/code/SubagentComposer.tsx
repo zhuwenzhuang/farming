@@ -115,12 +115,9 @@ export function SubagentComposer({ agent: structuralAgent, active, controller, c
       turnActive: followUps.activeAgentTurnActive,
       followUpBehavior: resolveAcpFollowUpBehavior(controller.followUpBehavior,
         options?.oppositeFollowUpBehavior === true, runtime?.canSteer === true),
-      sendMessage: controller.send, updateComposerState: controller.update,
+      updateComposerState: controller.update,
     })
-    return Promise.resolve(result).then(accepted => {
-      if (accepted && !followUps.activeAgentTurnActive) followUps.markPromptStart(agent)
-      return accepted
-    })
+    return result
   }
   return <>
     {error ? <div role="alert" className="code-related-session-error">{error}</div> : null}

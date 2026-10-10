@@ -1,6 +1,8 @@
+import { isAcpComposerStateKey } from './acp/acp-composer-state'
 import type { ComposerHistorySnapshot } from './composer-history'
 import {
   createDefaultAgentComposerState,
+  MAX_COMPOSER_SUBMISSIONS,
   type AgentComposerPendingFollowUpMessage,
   type AgentComposerState,
   type AgentComposerSubmission,
@@ -21,7 +23,7 @@ const MAX_HISTORY_ENTRIES = 100
 const MAX_HISTORY_ENTRY_CHARS = 50_000
 const MAX_HISTORY_TOTAL_CHARS = 250_000
 const MAX_PENDING_MESSAGES = 32
-const MAX_SUBMISSIONS = 32
+const MAX_SUBMISSIONS = MAX_COMPOSER_SUBMISSIONS
 const MAX_MESSAGE_CHARS = 250_000
 const MAX_ATTACHMENTS = 64
 const MAX_ATTACHMENT_PATH_CHARS = 4096
@@ -55,7 +57,7 @@ interface PersistedPendingMessage {
 }
 
 interface PersistedSubmission extends PersistedPendingMessage {
-  status: 'submitting' | 'failed'
+  status: AgentComposerSubmission['status']
   historyRecorded?: boolean
   delivery?: 'prompt' | 'steer'
 }
@@ -341,7 +343,7 @@ function restoreState(value: unknown): AgentComposerState | null {
       ...message,
       // A page loss makes every former in-flight request ambiguous. Keep it
       // visible for explicit same-id reconciliation, but never replay it.
-      status: 'failed' as const,
+      status: 'unknown' as const,
       ...(rawSubmission.historyRecorded === true ? { historyRecorded: true } : {}),
       ...(rawSubmission.delivery === 'prompt' || rawSubmission.delivery === 'steer'
         ? { delivery: rawSubmission.delivery }
@@ -382,6 +384,17 @@ export function loadAgentComposerCheckpoint(
     if ((checkpoint.tombstones?.[key] || 0) >= persisted.updatedAt) continue
     const state = restoreState(persisted)
     if (!state) continue
+    // A checkpoint may still describe a follow-up as queued after dispatch.
+    // Chat recovery cannot infer zero effect from that stale presentation state.
+    if (isAcpComposerStateKey(key) && state.pendingFollowUp?.messages.length) {
+      state.submissions = [
+        ...(state.submissions || []),
+        ...state.pendingFollowUp.messages.map(message => ({
+          ...message, status: 'unknown' as const, delivery: 'prompt' as const, historyRecorded: true,
+        })),
+      ]
+      state.pendingFollowUp = undefined
+    }
     states[key] = state
     updatedAtByKey.set(key, persisted.updatedAt)
   }

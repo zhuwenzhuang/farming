@@ -3,8 +3,9 @@ import { useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import { useInteractionLayer } from '@/hooks/useInteractionLayer'
 
 /** Presentation only: the existing draft, textarea and submit owner stay intact. */
-export function useComposerExpandedEditor({ agentId, enabled, textareaRef, composerRef }: {
+export function useComposerExpandedEditor({ agentId, enabled, textareaRef, composerRef, stageLocally = false }: {
   agentId: string
+  stageLocally?: boolean
   enabled: boolean
   textareaRef: RefObject<HTMLTextAreaElement | null>
   composerRef: RefObject<HTMLElement | null>
@@ -50,7 +51,7 @@ export function useComposerExpandedEditor({ agentId, enabled, textareaRef, compo
   })
 
   function submit(action: () => boolean | Promise<boolean>) {
-    if (pendingAgents.current.has(agentId) || submission) return
+    if (pendingAgents.current.has(agentId) || (submission && !stageLocally)) return
     const revision = presentationRevision.current
     const submittedDraft = textareaRef.current?.value
     const accepted = (result: boolean) => {
@@ -77,6 +78,6 @@ export function useComposerExpandedEditor({ agentId, enabled, textareaRef, compo
     toggle,
     submit,
     submissionPhase: submission?.phase,
-    submitting: Boolean(submission) || submittingAgents.has(agentId),
+    submitting: (!stageLocally && Boolean(submission)) || submittingAgents.has(agentId),
   }
 }

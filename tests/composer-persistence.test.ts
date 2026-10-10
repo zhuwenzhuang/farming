@@ -98,11 +98,13 @@ test('round-trips bounded Composer state without transient browser-only fields',
     path: '/tmp/farming-attachments/ready.png',
   }, { id: 'uploading-image', kind: 'image', name: 'uploading.png', type: 'image/png', size: 12, status: 'error', path: '', error: 'Attachment interrupted. Remove it and attach it again.' }])
   assert.equal(restored.ui.plusMenuOpen, false)
-  assert.equal(restored.pendingFollowUp?.messages[0]?.editableText, 'queued prompt')
-  assert.equal(restored.pendingFollowUp?.messages[0]?.composerMode, 'goal')
-  assert.equal(restored.pendingFollowUp?.messages[0]?.attachments?.[0]?.path, '/tmp/farming-attachments/queued.png')
-  assert.equal(restored.submissions?.[0]?.status, 'failed')
+  assert.equal(restored.submissions?.[1]?.editableText, 'queued prompt')
+  assert.equal(restored.submissions?.[1]?.composerMode, 'goal')
+  assert.equal(restored.submissions?.[1]?.attachments?.[0]?.path, '/tmp/farming-attachments/queued.png')
+  assert.equal(restored.submissions?.[0]?.status, 'unknown')
   assert.equal(restored.submissions?.[0]?.delivery, 'steer')
+  assert.equal(restored.submissions?.[1]?.status, 'unknown')
+  assert.equal(restored.pendingFollowUp, undefined)
 })
 
 test('keeps terminal and ACP Composer namespaces isolated', () => {
@@ -303,7 +305,7 @@ test('reference-only drafts and queued selections survive reload and queue editi
   const restored = loadAgentComposerCheckpoint(storage, now).states
   assert.deepEqual(restored.draft.contextReferences, [reference])
   assert.deepEqual(restored.queue.submissions?.[0].contextReferences, [reference])
-  assert.equal(restored.queue.submissions?.[0].status, 'failed')
+  assert.equal(restored.queue.submissions?.[0].status, 'unknown')
   const edited = restorePendingFollowUpMessageForEdit(restored.queue, message.id)
   assert.equal(edited.draft, '')
   assert.deepEqual(edited.contextReferences, [reference])

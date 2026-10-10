@@ -1,3 +1,4 @@
+import type { ComposerDeliveryOptions } from './code/composer-state'
 import { ResumeStoppedAgentDialog, isStoppedAgentResumeCandidate } from './code/ResumeStoppedAgentDialog'
 import { intakeComposerFile, cancelComposerIntake } from './code/composer-intake'
 import { readComposerInputPreferences } from './code/composer-input-preferences'
@@ -425,7 +426,7 @@ interface CodeWorkspaceProps {
     message: string,
     agentId?: string,
     attachments?: ComposerPromptAttachment[],
-    options?: { awaitResult?: boolean; requestId?: string; delivery?: 'prompt' | 'steer' },
+    options?: ComposerDeliveryOptions & { awaitResult?: boolean; requestId?: string; delivery?: 'prompt' | 'steer' },
   ) => boolean | Promise<boolean>
   onSessionOutput: (agentId: string, handler: (data: string, replace?: boolean, outputSeq?: number | null, runtimeEpoch?: string, stateRevision?: number | null, cols?: number, rows?: number, kind?: 'output' | 'resize' | 'clear') => void) => () => void
   onWatchWorkspaceFiles: (
@@ -2459,10 +2460,12 @@ export function CodeWorkspace({
     requestId?: string,
     delivery?: 'prompt' | 'steer',
     contextReferences: ComposerContextReference[] = [],
+    options?: ComposerDeliveryOptions,
   ) => {
     const dispatch = () => {
       if (isStructuredRuntime(agent)) {
         const submitted = sendComposerInput(message, agent.id, attachments, {
+          ...options,
           awaitResult: true,
           requestId,
           delivery,
@@ -2491,8 +2494,11 @@ export function CodeWorkspace({
       }
       return sendTerminalSessionInput(agent.id, terminalInputPartsForComposerMessage(message))
     }
-    if (!contextReferences.length) return dispatch()
-    return prepareComposerSubmission(agent.id, () => validateComposerReferences(agent, contextReferences), dispatch).catch(error => {
+    if (!contextReferences.length || options?.reconcile) return dispatch()
+    return prepareComposerSubmission(agent.id, async () => {
+      try { await validateComposerReferences(agent, contextReferences) }
+      catch (error) { options?.onOutcome?.('rejected'); throw error }
+    }, dispatch).catch(error => {
       setCopyNotice({ id: Date.now(), kind: 'error', message: error instanceof Error ? error.message : 'Context validation failed' })
       return false
     })
@@ -2516,7 +2522,6 @@ export function CodeWorkspace({
     activeAgentCanInterrupt,
     activeAgentTurnActive,
     activePromptStartFenced,
-    markPromptStart,
     retryAcpSubmission,
     steerPendingFollowUp,
     discardAcpSubmission,
@@ -2641,25 +2646,14 @@ export function CodeWorkspace({
         options?.oppositeFollowUpBehavior === true,
         activeAcpRuntime?.canSteer === true,
       ),
-      sendMessage: sendComposerMessageToAgent,
       updateComposerState: updateComposerStateForKey,
     })
-    const commitAccepted = (accepted: boolean, restoreFocus: boolean) => {
-      if (!accepted) return
-      if (activeAgent && activeAcpRuntime && !activeAgentTurnActive && !promptStartFenced) {
-        markPromptStart(activeAgent)
-      }
-      if (restoreFocus) focusComposerTextarea()
+    if (submitted) {
+      if (activeAgent) setChatFollowLatestRequest(current => ({ agentId: activeAgent.id, nonce: (current?.nonce ?? 0) + 1 }))
+      focusComposerTextarea()
     }
-    if (typeof submitted === 'boolean') {
-      commitAccepted(submitted, true)
-      return submitted
-    }
-    return submitted.then(accepted => {
-      commitAccepted(accepted, false)
-      return accepted
-    })
-  }, [activeAcpRuntime, activeAgent, activeAgentTurnActive, activeComposerKey, activePromptStartFenced, composerAttachments, composerContextReferences, composerContextSendable, composerMode, draft, focusComposerTextarea, markPromptStart, sendComposerMessageToAgent, uiPreferences.composerFollowUpBehavior, updateComposerStateForKey])
+    return submitted
+  }, [activeAcpRuntime, activeAgent, activeAgentTurnActive, activeComposerKey, activePromptStartFenced, composerAttachments, composerContextReferences, composerContextSendable, composerMode, draft, focusComposerTextarea, uiPreferences.composerFollowUpBehavior, updateComposerStateForKey])
 
   const reconnectActiveAcpAgent = useCallback(() => {
     if (!activeAgent || !isAcpRuntime(activeAgent)) return

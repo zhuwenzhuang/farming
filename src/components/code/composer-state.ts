@@ -25,8 +25,16 @@ export interface AgentComposerPendingFollowUp {
   createdAt: number
 }
 
+export const MAX_COMPOSER_SUBMISSIONS = 32
+
+export type ComposerDeliveryOutcome = 'accepted' | 'rejected' | 'unknown'
+export interface ComposerDeliveryOptions {
+  onOutcome?: (outcome: ComposerDeliveryOutcome) => void
+  reconcile?: boolean
+}
+
 export interface AgentComposerSubmission extends AgentComposerPendingFollowUpMessage {
-  status: 'submitting' | 'failed'
+  status: 'queued' | 'submitting' | 'failed' | 'unknown'
   historyRecorded?: boolean
   delivery?: 'prompt' | 'steer'
 }
@@ -164,11 +172,13 @@ function isDefaultAgentComposerUiState(ui: AgentComposerUiState) {
 }
 
 export function mergeAgentComposerStates(primary: AgentComposerState, incoming: AgentComposerState): AgentComposerState {
+  // Stable sorting preserves insertion order when a burst shares a millisecond.
+  // Random request IDs identify effects; they must never determine FIFO order.
   const pendingMessagesById = new Map<string, AgentComposerPendingFollowUpMessage>()
   for (const message of incoming.pendingFollowUp?.messages || []) pendingMessagesById.set(message.id, message)
   for (const message of primary.pendingFollowUp?.messages || []) pendingMessagesById.set(message.id, message)
   const pendingMessages = Array.from(pendingMessagesById.values()).sort((left, right) => (
-    left.createdAt - right.createdAt || left.id.localeCompare(right.id)
+    left.createdAt - right.createdAt
   ))
   const pendingCreatedAt = Math.min(
     primary.pendingFollowUp?.createdAt ?? Number.POSITIVE_INFINITY,
@@ -179,7 +189,7 @@ export function mergeAgentComposerStates(primary: AgentComposerState, incoming: 
     submissionsById.set(submission.id, submission)
   }
   const submissions = Array.from(submissionsById.values()).sort((left, right) => (
-    left.createdAt - right.createdAt || left.id.localeCompare(right.id)
+    left.createdAt - right.createdAt
   ))
   return {
     ...primary,

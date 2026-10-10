@@ -2,10 +2,9 @@ const assert = require('assert');
 const {
   ComposerFollowUpAdmissions,
   isComposerPromptStartFenceActive,
-  failQueuedAcpFollowUp,
   settleComposerDelivery,
   settleComposerSubmissionState,
-  stageComposerFollowUpForSteer,
+  stageComposerFollowUp,
 } = require('../../src/components/code/useComposerFollowUpController.ts');
 const {
   createDefaultAgentComposerState,
@@ -147,17 +146,17 @@ async function run() {
     ...createDefaultAgentComposerState(),
     pendingFollowUp: { messages: [queued, message('queued-next')], createdAt: 1 },
   };
-  state = stageComposerFollowUpForSteer(state, queued.id);
+  state = stageComposerFollowUp(state, queued.id);
   assert.deepStrictEqual(state.pendingFollowUp.messages.map(candidate => candidate.id), ['queued-next']);
   assert.deepStrictEqual(state.submissions[0], {
     ...queued,
-    status: 'submitting',
+    status: 'queued',
     historyRecorded: true,
     delivery: 'steer',
   });
 
   state = settleComposerSubmissionState(state, queued.id, false);
-  assert.strictEqual(state.submissions[0].status, 'failed');
+  assert.strictEqual(state.submissions[0].status, 'unknown');
   state = settleComposerSubmissionState(state, queued.id, true);
   assert.strictEqual(state.submissions, undefined);
   assert.deepStrictEqual(
@@ -174,15 +173,16 @@ async function run() {
     ...createDefaultAgentComposerState(),
     pendingFollowUp: { messages: [failedPrompt], createdAt: 1 },
   };
-  state = failQueuedAcpFollowUp(state, failedPrompt);
+  state = stageComposerFollowUp(state, failedPrompt.id, 'prompt');
+  state = settleComposerSubmissionState(state, failedPrompt.id, false);
   assert.strictEqual(state.pendingFollowUp, undefined);
   assert.deepStrictEqual(state.submissions[0], {
     ...failedPrompt,
-    status: 'failed',
+    status: 'unknown',
     historyRecorded: true,
     delivery: 'prompt',
   });
-  const unchanged = failQueuedAcpFollowUp(state, failedPrompt);
+  const unchanged = stageComposerFollowUp(state, failedPrompt.id, 'prompt');
   assert.strictEqual(unchanged, state, 'a settled ACP failure must not be synthesized twice');
 
   const directFailure = {

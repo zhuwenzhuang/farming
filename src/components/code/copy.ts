@@ -321,6 +321,10 @@ export interface CodeCopy {
   editQueuedMessage: string
   messageAwaitingAcceptance: string
   messageNotAccepted: string
+  messageQueuedForDelivery: string
+  messageOutcomeUnknown: string
+  checkSubmission: string
+  submissionQueueFull: string
   addContext: string
   attachFile: string
   fileContext: string
@@ -1077,6 +1081,10 @@ const EN_COPY: CodeCopy = {
   editQueuedMessage: 'Remove from queue and edit',
   messageAwaitingAcceptance: 'Waiting for Agent',
   messageNotAccepted: 'Not accepted',
+  messageQueuedForDelivery: 'Queued for delivery',
+  messageOutcomeUnknown: 'Delivery outcome unknown',
+  checkSubmission: 'Check status',
+  submissionQueueFull: 'Message queue is full. Resolve pending messages before sending more.',
   addContext: 'Add context',
   attachFile: 'Attach file',
   fileContext: 'File context',
@@ -1872,6 +1880,10 @@ const ZH_COPY: CodeCopy = {
   editQueuedMessage: '移出队列并编辑',
   messageAwaitingAcceptance: '等待 Agent 接收',
   messageNotAccepted: '未被接收',
+  messageQueuedForDelivery: '排队等待发送',
+  messageOutcomeUnknown: '发送结果待确认',
+  checkSubmission: '核对状态',
+  submissionQueueFull: '消息队列已满，请先处理待确认消息。',
   addContext: '添加上下文',
   attachFile: '附加文件',
   fileContext: '文件上下文',

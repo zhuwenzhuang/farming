@@ -11,7 +11,36 @@ Chat and Terminal toolbar labels share a line box that preserves complete glyphs
 The [Context and Commands design](composer-context-and-commands-design.md)
 defines the implemented `@`, `/` and `$` first increment and its follow-up targets.
 
-When submission returns a pending result, the send control immediately shows its sending state and prevents duplicate submissions for that Agent. The draft remains editable; acceptance clears only the submitted draft, while failure or an uncertain result preserves it. Changing Agents does not transfer the pending indicator or let an earlier completion clear the new draft.
+Chat submission immediately moves the exact text, media and context snapshot into
+an Agent-owned outbox and releases the editor for the next draft. Local staging
+is not an acceptance acknowledgement. Main and side conversations use the same
+owner and pending-row feedback family, with a maximum of 32 outbox messages per
+composer; saturation keeps the draft intact. Terminal retains its existing
+acknowledgement and draft handling.
+
+The outbox transitions from queued to submitting, then to accepted, definite
+failure or unknown. Only the FIFO head may be dispatched; an unknown or failed
+head blocks later messages. Prompt delivery also waits for the current Turn to
+finish. Each attempt keeps its request ID, payload and delivery mode. Retrying a
+definite zero-effect failure creates a fresh ID so late frames cannot settle the
+new attempt; an unknown outcome must keep its original ID.
+Acceptance removes only that item and records its input history. A definite
+failure restores the snapshot only when no successors are waiting and the editor
+is empty with no newer media, references or mode; otherwise the failed row remains available for retry or
+explicit discard. Timeouts and disconnects preserve an unknown row, never a
+new editable copy that could accidentally be sent twice.
+
+Reloaded outbox items require explicit reconciliation, including items formerly
+shown as queued: a checkpoint may predate dispatch. Reconciliation only queries the
+original request ID. An accepted request returns its saved result; durable intent,
+unknown effects and missing records remain unresolved and are never replayed.
+Completed admission records have bounded retention, so absence is not proof of
+zero effect. Restored follow-up queues use the same conservative recovery rule. Late definitive acknowledgements reconcile the
+exact retained item without touching newer drafts. Runtime changes, shared
+panes and queue flushes cannot bypass the per-composer in-flight admission.
+
+The backend still persists intent before dispatch and the accepted result before
+acknowledgement. UI responsiveness does not weaken either durability fence.
 
 An explicit Chat send follows the latest transcript immediately, including while acknowledgement is pending. The jump-to-latest control appears only after the reader scrolls away from the latest content and sits at the bottom of the transcript viewport on compact layouts.
 
@@ -120,8 +149,8 @@ including empty drafts and short keyboard viewports.
 | Escape | Shared interaction arbitration closes the top menu first, then the expanded editor; IME cancellation retains priority |
 | Keyboard / viewport resize | Recompute bounded input geometry inside the visible viewport; keep send reachable |
 | Agent changes, desktop layout, permission/error request or dictation | Leave expanded presentation; preserve the existing draft ownership and expose the required surface |
-| Accepted submit or queue | Collapse the current expanded editor after the submission owner reports acceptance; retain newer drafts and later expansion sessions |
-| Rejected/uncertain submit or interrupt | Preserve expansion and existing draft handling; never retry a mutation from presentation state |
+| Chat staged locally, or Terminal accepted | Collapse the current expanded editor after its owner captures the submission; retain newer drafts and later expansion sessions |
+| Rejected/uncertain submit or interrupt | Preserve newer editing state; restore definite Chat failures only into an empty editor, retain unknown items in the outbox, and never retry from presentation state |
 
 Expansion is a full-page editing view, not a dismissible modal. Background
 content and compact navigation are hidden while editing; outside taps do not

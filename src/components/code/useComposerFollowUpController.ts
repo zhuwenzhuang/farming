@@ -9,11 +9,15 @@ import { isAgentTurnActive, isCodexAgentWorking } from './capabilities'
 import { acpComposerStateKeyForAgent } from './acp/acp-composer-state'
 import {
   composerStateKeyForAgent,
+  createPendingFollowUpMessage,
+  MAX_COMPOSER_SUBMISSIONS,
   removeComposerSubmission,
   removePendingFollowUpMessage,
   restorePendingFollowUpMessageForEdit,
   type AgentComposerPendingFollowUpMessage,
   type AgentComposerState,
+  type ComposerDeliveryOptions,
+  type ComposerDeliveryOutcome,
 } from './composer-state'
 import { addComposerHistoryEntry } from './composer-history'
 import type { ComposerContextReference, ComposerPromptAttachment } from './composer-message'
@@ -25,14 +29,12 @@ export type ComposerMessageSender = (
   requestId?: string,
   delivery?: 'prompt' | 'steer',
   contextReferences?: ComposerContextReference[],
+  options?: ComposerDeliveryOptions,
 ) => boolean | Promise<boolean>
 
-// Structured transport owns the durable requestId and normally settles at its
-// 15s admission deadline. This outer deadline is a liveness backstop: an
-// invalid port implementation cannot hold the local exact-mutation fence
-// forever. A timeout is treated as not accepted; ACP queues become explicit
-// failed UI submissions whose retry reconciles the same requestId. This does
-// not claim the backend effect failed, and this owner never blindly replays it.
+// Transport owns authoritative delivery results. This outer deadline bounds a
+// stalled sender without claiming its effect failed. Late definitive outcomes
+// still settle the retained exact request; timeout alone never permits replay.
 const COMPOSER_FOLLOW_UP_SETTLE_TIMEOUT_MS = 30_000
 
 type ComposerStateUpdater = (
@@ -156,12 +158,13 @@ export function settleComposerDelivery(
   void delivered.then(finish, () => finish(false))
 }
 
-export function stageComposerFollowUpForSteer(
+export function stageComposerFollowUp(
   state: AgentComposerState,
   messageId: string,
+  delivery: 'prompt' | 'steer' = 'steer',
 ) {
   const message = state.pendingFollowUp?.messages.find(candidate => candidate.id === messageId)
-  if (!message) return state
+  if (!message || (state.submissions?.length || 0) >= MAX_COMPOSER_SUBMISSIONS) return state
   return {
     ...state,
     pendingFollowUp: removePendingFollowUpMessage(state.pendingFollowUp, messageId),
@@ -169,9 +172,9 @@ export function stageComposerFollowUpForSteer(
       ...(state.submissions || []),
       {
         ...message,
-        status: 'submitting' as const,
+        status: 'queued' as const,
         historyRecorded: true,
-        delivery: 'steer' as const,
+        delivery,
       },
     ],
   }
@@ -182,8 +185,23 @@ export function settleComposerSubmissionState(
   messageId: string,
   accepted: boolean,
   historyText?: string,
+  outcome: ComposerDeliveryOutcome = accepted ? 'accepted' : 'unknown',
 ) {
   const submitted = state.submissions?.find(item => item.id === messageId)
+  if (!submitted) return state
+  // Only a definite zero-effect failure may return to the editor. Never replace
+  // text, media, references or a mode the user has started composing meanwhile.
+  if (outcome === 'rejected' && state.submissions?.length === 1 && !state.pendingFollowUp?.messages.length && !state.draft && !state.attachments.length
+    && !state.contextReferences?.length && state.mode === 'default') {
+    return {
+      ...state,
+      draft: submitted.editableText ?? submitted.text,
+      attachments: (submitted.attachments || []).map((item, index) => ({ ...item, id: `restored-${messageId}-${index}`, status: 'ready' as const })),
+      contextReferences: submitted.contextReferences || [],
+      mode: submitted.composerMode || 'default',
+      submissions: removeComposerSubmission(state.submissions, messageId),
+    }
+  }
   return {
     ...state,
     ...(accepted && historyText !== undefined
@@ -192,28 +210,8 @@ export function settleComposerSubmissionState(
     submissions: accepted
       ? removeComposerSubmission(state.submissions, messageId)
       : state.submissions?.map(candidate => (
-        candidate.id === messageId ? { ...candidate, status: 'failed' as const } : candidate
+        candidate.id === messageId ? { ...candidate, status: outcome === 'rejected' ? 'failed' as const : 'unknown' as const } : candidate
       )),
-  }
-}
-
-export function failQueuedAcpFollowUp(
-  state: AgentComposerState,
-  message: AgentComposerPendingFollowUpMessage,
-) {
-  if (!state.pendingFollowUp?.messages.some(candidate => candidate.id === message.id)) return state
-  return {
-    ...state,
-    pendingFollowUp: removePendingFollowUpMessage(state.pendingFollowUp, message.id),
-    submissions: [
-      ...(state.submissions || []),
-      {
-        ...message,
-        status: 'failed' as const,
-        historyRecorded: true,
-        delivery: 'prompt' as const,
-      },
-    ],
   }
 }
 
@@ -248,82 +246,86 @@ export function useComposerFollowUpController({
   const activeAgentTurnActive = activePromptStartFenced || isAgentTurnActive(activeAgent)
   const activeAgentCanInterrupt = activeAgentTurnActive || terminalCanInterrupt
 
-  const markPromptStart = useCallback((agent: Agent) => {
-    if (!isAcpRuntime(agent)) return
-    promptStartFencesRef.current[agent.id] = Number(agent.runtimeBinding.sessionRevision) || 0
-  }, [])
+  const deliverSubmission = useCallback((agent: Agent, composerKey: string, submission: NonNullable<AgentComposerState['submissions']>[number], reconcile = false) => {
+    if (!admissionsRef.current.beginPending(composerKey, submission.id)) return
+    updateComposerState(composerKey, state => ({
+      ...state,
+      submissions: state.submissions?.map(candidate => candidate.id === submission.id ? { ...candidate, status: 'submitting' as const } : candidate),
+    }))
+    const revisionBeforePrompt = Number(agent.runtimeBinding.kind === 'acp' ? agent.runtimeBinding.sessionRevision : 0) || 0
+    let outcome: ComposerDeliveryOutcome = 'unknown'
+    const settle = (accepted: boolean) => {
+      if (accepted && !reconcile && submission.delivery === 'prompt') promptStartFencesRef.current[agent.id] = revisionBeforePrompt
+      updateExistingComposerState(composerKey, state => settleComposerSubmissionState(
+        state, submission.id, accepted,
+        submission.historyRecorded ? undefined : (submission.editableText ?? submission.text),
+        accepted ? 'accepted' : outcome,
+      ))
+      admissionsRef.current.finishPending(composerKey, submission.id)
+    }
+    try {
+      settleComposerDelivery(sendMessage(agent, submission.text, submission.attachments, submission.id,
+        submission.delivery || 'prompt', submission.contextReferences, {
+          reconcile,
+          onOutcome: value => {
+            outcome = value
+            // Also reconcile a late definitive result after the outer deadline.
+            settle(value === 'accepted')
+          },
+        }), settle)
+    } catch {
+      settle(false)
+    }
+  }, [sendMessage, updateComposerState, updateExistingComposerState])
 
   const retryAcpSubmission = useCallback((messageId: string) => {
     if (!activeAgent || !activeComposerKey) return
-    const submission = composerByAgentKey[activeComposerKey]?.submissions?.find(candidate => (
-      candidate.id === messageId && candidate.status === 'failed'
-    ))
-    if (!submission || !admissionsRef.current.beginSubmission(activeComposerKey, messageId)) return
-    updateComposerState(activeComposerKey, state => ({
-      ...state,
-      submissions: state.submissions?.map(candidate => (
-        candidate.id === messageId ? { ...candidate, status: 'submitting' as const } : candidate
-      )),
-    }))
-    const settle = (accepted: boolean) => {
-      updateComposerState(activeComposerKey, state => settleComposerSubmissionState(
-        state,
-        messageId,
-        accepted,
-        submission.historyRecorded === true ? undefined : submission.text,
-      ))
-      admissionsRef.current.finishSubmission(activeComposerKey, messageId)
+    const submission = composerByAgentKey[activeComposerKey]?.submissions?.[0]
+    if (!submission || submission.id !== messageId || !['failed', 'unknown'].includes(submission.status)) return
+    if (submission.status === 'failed') {
+      // A definite zero-effect failure permits a fresh attempt. Give it a fresh
+      // identity so delayed frames from the failed attempt cannot settle it.
+      const id = createPendingFollowUpMessage(submission.text).id
+      updateComposerState(activeComposerKey, state => ({ ...state,
+        submissions: state.submissions?.map(item => item.id === messageId && item.status === 'failed'
+          ? { ...item, id, status: 'queued' as const } : item),
+      }))
+      return
     }
-    try {
-      settleComposerDelivery(sendMessage(
-        activeAgent,
-        submission.text,
-        submission.attachments,
-        submission.id,
-        submission.delivery || 'prompt',
-        submission.contextReferences,
-      ), settle)
-    } catch {
-      settle(false)
-    }
-  }, [activeAgent, activeComposerKey, composerByAgentKey, sendMessage, updateComposerState])
+    deliverSubmission(activeAgent, activeComposerKey, submission, true)
+  }, [activeAgent, activeComposerKey, composerByAgentKey, deliverSubmission, updateComposerState])
 
   const steerPendingFollowUp = useCallback((messageId: string) => {
-    if (
-      !activeAgent
-      || !activeComposerKey
-      || !activeAgentTurnActive
-      || !isAcpRuntime(activeAgent)
+    if (!activeAgent || !activeComposerKey || !activeAgentTurnActive || !isAcpRuntime(activeAgent)
       || activeAgent.runtimeBinding.canSteer !== true
-    ) return
-    const message = composerByAgentKey[activeComposerKey]?.pendingFollowUp?.messages.find(candidate => (
-      candidate.id === messageId
-    ))
-    if (!message || !admissionsRef.current.beginSubmission(activeComposerKey, messageId)) return
-    updateComposerState(activeComposerKey, state => stageComposerFollowUpForSteer(state, messageId))
-    const settle = (accepted: boolean) => {
-      updateComposerState(activeComposerKey, state => settleComposerSubmissionState(
-        state,
-        messageId,
-        accepted,
-      ))
-      admissionsRef.current.finishSubmission(activeComposerKey, messageId)
-    }
-    try {
-      settleComposerDelivery(sendMessage(activeAgent, message.text, message.attachments, message.id, 'steer', message.contextReferences), settle)
-    } catch {
-      settle(false)
-    }
-  }, [activeAgent, activeAgentTurnActive, activeComposerKey, composerByAgentKey, sendMessage, updateComposerState])
+      || !admissionsRef.current.canDiscardOrEdit(activeComposerKey, messageId)) return
+    updateComposerState(activeComposerKey, state => stageComposerFollowUp(state, messageId))
+  }, [activeAgent, activeComposerKey, activeAgentTurnActive, updateComposerState])
+
+  // One in-flight request per composer, shared by main and side panes. Unknown
+  // and failed heads stop this FIFO; neither reconnect nor a newer send skips it.
+  const flushSubmissions = useCallback((candidateAgents: Agent[]) => {
+    candidateAgents.forEach(structuralAgent => {
+      const agent = agentWithCurrentLiveState(structuralAgent)
+      if (!isAcpRuntime(agent) || agent.archived || agent.status !== 'running') return
+      const key = acpComposerStateKeyForAgent(agent)
+      const message = composerByAgentKeyRef.current[key]?.submissions?.[0]
+      if (!message || message.status !== 'queued') return
+      if (message.delivery !== 'steer' && (isAgentTurnActive(agent) || isPromptStartFenced(agent))) return
+      deliverSubmission(agent, key, message)
+    })
+  }, [deliverSubmission, isPromptStartFenced])
+  useEffect(() => { if (flushQueues) flushSubmissions(agents) }, [agents, composerByAgentKey, flushQueues, flushSubmissions])
 
   const discardAcpSubmission = useCallback((messageId: string) => {
-    if (!activeComposerKey || !admissionsRef.current.canDiscardOrEdit(activeComposerKey, messageId)) return
+    if (!activeComposerKey || !admissionsRef.current.canDiscardOrEdit(activeComposerKey, messageId)
+      || composerByAgentKey[activeComposerKey]?.submissions?.find(message => message.id === messageId)?.status !== 'failed') return
     updateComposerState(activeComposerKey, state => ({
       ...state,
       submissions: removeComposerSubmission(state.submissions, messageId),
     }))
     focusComposer()
-  }, [activeComposerKey, focusComposer, updateComposerState])
+  }, [activeComposerKey, composerByAgentKey, focusComposer, updateComposerState])
 
   const interruptActiveAgent = useCallback(() => {
     if (!activeAgent || !activeAgentCanInterrupt) return
@@ -332,9 +334,14 @@ export function useComposerFollowUpController({
   }, [activeAgent, activeAgentCanInterrupt, focusComposer, interruptAgent])
 
   const sendPendingFollowUp = useCallback((messageId: string) => {
-    if (!activeAgent || !activeComposerKey) return
+    if (!activeAgent || !activeComposerKey || composerByAgentKey[activeComposerKey]?.submissions?.length) return
     const message = composerByAgentKey[activeComposerKey]?.pendingFollowUp?.messages.find(item => item.id === messageId)
-    if (!message || !admissionsRef.current.beginPending(activeComposerKey, message.id)) return
+    if (!message) return
+    if (isAcpRuntime(activeAgent)) {
+      updateComposerState(activeComposerKey, state => stageComposerFollowUp(state, message.id, 'prompt'))
+      return
+    }
+    if (!admissionsRef.current.beginPending(activeComposerKey, message.id)) return
     const settle = (accepted: boolean) => {
       admissionsRef.current.finishPending(activeComposerKey, message.id)
       if (!accepted) return
@@ -403,6 +410,7 @@ export function useComposerFollowUpController({
         ? acpComposerStateKeyForAgent(agent)
         : composerStateKeyForAgent(agent)
       if (!composerKey) return
+      if (composerByAgentKeyRef.current[composerKey]?.submissions?.length) return
       const pending = composerByAgentKeyRef.current[composerKey]?.pendingFollowUp
       if (!pending || pending.messages.length === 0) return
       if (agent.archived || agent.status === 'dead' || agent.status === 'stopped') return
@@ -413,7 +421,13 @@ export function useComposerFollowUpController({
       }
       if (runtime ? isAgentTurnActive(agent) : isCodexAgentWorking(agent)) return
       const message = pending.messages[0]
-      if (!message || !admissionsRef.current.beginPending(composerKey, message.id)) return
+      if (!message) return
+      if (runtime) {
+        // All Chat deliveries share the outbox's outcome/recovery state machine.
+        updateExistingComposerState(composerKey, state => stageComposerFollowUp(state, message.id, 'prompt'))
+        return
+      }
+      if (!admissionsRef.current.beginPending(composerKey, message.id)) return
       pendingFlushes.push({ agent, composerKey, message })
     })
 
@@ -428,11 +442,6 @@ export function useComposerFollowUpController({
           return
         }
         // Terminal input has no admission ACK. Preserve it for an idle retry.
-        // ACP non-acceptance (including an uncertain transport timeout) becomes
-        // an explicit row; Retry uses the same id so the backend can reconcile
-        // rather than replaying an unknown provider effect.
-        if (!isAcpRuntime(agent)) return
-        updateExistingComposerState(composerKey, state => failQueuedAcpFollowUp(state, message))
       }
       try {
         settleComposerDelivery(sendMessage(agent, message.text, message.attachments, message.id, 'prompt', message.contextReferences), settle)
@@ -450,14 +459,13 @@ export function useComposerFollowUpController({
     const structuralAgent = agentsRef.current.find(agent => agent.id === agentId)
     if (!structuralAgent) return
     reconcilePromptStartFence(structuralAgent)
-    if (flushQueues) flushPendingFollowUps([structuralAgent])
-  }), [flushPendingFollowUps, flushQueues, reconcilePromptStartFence])
+    if (flushQueues) { flushSubmissions([structuralAgent]); flushPendingFollowUps([structuralAgent]) }
+  }), [flushPendingFollowUps, flushSubmissions, flushQueues, reconcilePromptStartFence])
 
   return useMemo(() => ({
     activeAgentCanInterrupt,
     activeAgentTurnActive,
     activePromptStartFenced,
-    markPromptStart,
     retryAcpSubmission,
     steerPendingFollowUp,
     discardAcpSubmission,
@@ -473,7 +481,6 @@ export function useComposerFollowUpController({
     discardPendingFollowUp,
     editPendingFollowUp,
     interruptActiveAgent,
-    markPromptStart,
     retryAcpSubmission,
     sendPendingFollowUp,
     steerPendingFollowUp,

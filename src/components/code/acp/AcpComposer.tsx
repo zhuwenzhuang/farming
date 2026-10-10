@@ -1,3 +1,4 @@
+import { MAX_COMPOSER_SUBMISSIONS, type AgentComposerSubmission } from '../composer-state'
 import { ComposerInputPreferences } from '../composer-input-preferences'
 import { useComposerTransfer } from '../useComposerTransfer'
 import { useInteractionLayer } from '@/hooks/useInteractionLayer'
@@ -92,7 +93,7 @@ export interface AcpComposerProps {
   composerMode: ComposerMode
   contextWindow: AgentContextWindowUsage | null
   pendingFollowUp: AgentComposerPendingFollowUp | null
-  submissions: Array<{ id: string; text: string; createdAt: number; status: 'submitting' | 'failed'; attachments?: Array<{ name: string }> }>
+  submissions: AgentComposerSubmission[]
   canSteerPendingFollowUp: boolean
   submitAction: 'send' | 'interrupt' | 'disabled'
   textareaRef: RefObject<HTMLTextAreaElement | null>
@@ -205,7 +206,8 @@ export function AcpComposer({
   latestDraftRef.current = draft
   const contextCompletion = useComposerContextCompletion({ agentId, workspace, draft, selectionStart, active, focused })
   const interrupting = submitAction === 'interrupt'
-  const disabled = submitAction === 'disabled'
+  const queueFull = submissions.length + (pendingFollowUp?.messages.length || 0) >= MAX_COMPOSER_SUBMISSIONS
+  const disabled = submitAction === 'disabled' || (!interrupting && queueFull)
 
   const commandTrigger = useMemo(
     () => findAcpCommandTrigger(draft, selectionStart),
@@ -459,6 +461,7 @@ export function AcpComposer({
     if (!shouldSubmitComposerEnter(event, compositionActiveRef.current, lastCompositionEndAtRef.current, Date.now(), !compactComposerViewport)) return
     event.preventDefault()
     event.stopPropagation()
+    if (queueFull) return
     editor.submit(() => onSubmit(
       composerDraftForSubmit(event.currentTarget.value, latestDraftRef.current),
       { oppositeFollowUpBehavior: event.metaKey || event.ctrlKey },
@@ -508,7 +511,7 @@ export function AcpComposer({
     || displayedSessionError
   )
   const editor = useComposerExpandedEditor({
-    agentId, textareaRef, composerRef,
+    agentId, textareaRef, composerRef, stageLocally: true,
     enabled: compactComposerViewport && active && !hasAcpRequest && !speechListening,
   })
   useComposerTextareaAutoSize(textareaRef, draft, editor.expanded)
@@ -536,9 +539,10 @@ export function AcpComposer({
       aria-busy={active && !sessionAuthoritative}
     >
       {transferError ? <div role="alert" className="code-related-session-error">{transferError}</div> : null}
+      {queueFull ? <div role="status">{copy.submissionQueueFull}</div> : null}
       {(submissions.length > 0 || pendingFollowUp) && active ? (
         <div className="code-pending-followup code-acp-pending-items" data-testid="code-acp-pending-followup">
-          {submissions.map(message => (
+          {submissions.map((message, index) => (
             <div
               className={`code-pending-followup-row code-acp-submission ${message.status}`}
               data-testid="code-acp-submission"
@@ -549,16 +553,16 @@ export function AcpComposer({
               <p>{message.text || message.attachments?.map(attachment => attachment.name).join(', ')}</p>
               <div className="code-pending-followup-actions">
                 <span className="code-acp-submission-status">
-                  {message.status === 'submitting' ? copy.messageAwaitingAcceptance : copy.messageNotAccepted}
+                  {message.status === 'queued' ? copy.messageQueuedForDelivery : message.status === 'unknown' ? copy.messageOutcomeUnknown : message.status === 'submitting' ? copy.messageAwaitingAcceptance : copy.messageNotAccepted}
                 </span>
-                {message.status === 'failed' ? (
+                {message.status === 'failed' || message.status === 'unknown' ? (
                   <>
-                    <button type="button" data-testid="code-acp-submission-retry" onClick={() => onRetrySubmission(message.id)}>
-                      {copy.retry}
+                    <button type="button" data-testid="code-acp-submission-retry" disabled={index !== 0} onClick={() => onRetrySubmission(message.id)}>
+                      {message.status === 'unknown' ? copy.checkSubmission : copy.retry}
                     </button>
-                    <button type="button" className="icon" data-testid="code-acp-submission-discard" aria-label={copy.discardQueuedMessage} onClick={() => onDiscardSubmission(message.id)}>
+                    {message.status === 'failed' ? <button type="button" className="icon" data-testid="code-acp-submission-discard" aria-label={copy.discardQueuedMessage} onClick={() => onDiscardSubmission(message.id)}>
                       <CloseGlyph />
-                    </button>
+                    </button> : null}
                   </>
                 ) : null}
               </div>

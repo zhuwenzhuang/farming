@@ -219,7 +219,7 @@ for (const runtime of ['chat', 'terminal'] as const) {
         await assertSeparate()
         await input.fill(runtime === 'chat' ? 'hold for steer without user echo' : "printf 'MOBILE_SENT\\n'")
         await assertSeparate()
-        await page.getByTestId(prefix).screenshot({ path: testInfo.outputPath(`${runtime}-${width}-${appearance}-controls.png`) })
+        await page.getByTestId(prefix).screenshot({ path: testInfo.outputPath(`${runtime}-${width}-${appearance}-controls.png`), animations: 'disabled' })
       }
     }
     await toggle.click()
@@ -229,7 +229,7 @@ for (const runtime of ['chat', 'terminal'] as const) {
       await send.click()
       await expect.poll(() => rejected).toBe(1)
       await expect(input).toHaveValue(draft)
-      await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+      await expect(toggle).toHaveAttribute('aria-expanded', 'false')
     }
     await send.click()
     await expect(toggle).toHaveAttribute('aria-expanded', 'false')
@@ -240,7 +240,7 @@ for (const runtime of ['chat', 'terminal'] as const) {
       for (const appearance of ['light', 'dark', 'paper']) {
         await page.locator('body').evaluate((body, value) => { body.dataset.appearance = value }, appearance)
         await assertSeparate()
-        await page.getByTestId(prefix).screenshot({ path: testInfo.outputPath(`${runtime}-${appearance}-stop-controls.png`) })
+        await page.getByTestId(prefix).screenshot({ path: testInfo.outputPath(`${runtime}-${appearance}-stop-controls.png`), animations: 'disabled' })
       }
       await toggle.click()
       await input.fill('Queued follow-up')

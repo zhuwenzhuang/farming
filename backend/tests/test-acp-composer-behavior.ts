@@ -1,400 +1,104 @@
 const assert = require('assert');
-const {
-  resolveAcpFollowUpBehavior,
-  submitAcpDraft,
-} = require('../../src/components/code/acp/acp-composer-behavior.ts');
-const { createDefaultAgentComposerState, restorePendingFollowUpMessageForEdit } = require('../../src/components/code/composer-state.ts');
+const { submitAcpDraft, resolveAcpFollowUpBehavior } = require('../../src/components/code/acp/acp-composer-behavior.ts');
+const { createDefaultAgentComposerState, MAX_COMPOSER_SUBMISSIONS, restorePendingFollowUpMessageForEdit } = require('../../src/components/code/composer-state.ts');
+const { settleComposerSubmissionState } = require('../../src/components/code/useComposerFollowUpController.ts');
 const { projectFilesWorkspaceId } = require('../../src/lib/project-workspaces.ts');
 
-function readyImage() {
-  return {
-    id: 'image-1',
-    kind: 'image',
-    name: 'screen.png',
-    type: 'image/png',
-    size: 12,
-    status: 'ready',
-    path: '/tmp/screen.png',
-    messageBlock: 'Attached image: screen.png\n\nImage path: /tmp/screen.png',
-  };
+const agent = { id: 'agent-1', cwd: '/workspace', status: 'running', runtimeBinding: { kind: 'acp' } };
+const image = { id: 'image', kind: 'image', name: 'screen.png', type: 'image/png', size: 12, status: 'ready', path: '/uploads/screen.png' };
+const reference = { id: 'reference', kind: 'file', workspace: agent.cwd, rootId: projectFilesWorkspaceId(agent.cwd), path: 'src/index.ts', label: 'index.ts' };
+let state;
+function reset(draft = 'message', patch = {}) { state = { ...createDefaultAgentComposerState(), draft, ...patch }; }
+function stage(patch = {}) {
+  return submitAcpDraft({ agent, composerKey: 'acp:session-1', draft: state.draft, attachments: state.attachments,
+    contextReferences: state.contextReferences, composerMode: state.mode, turnActive: false,
+    updateComposerState: (key, update) => { assert.strictEqual(key, 'acp:session-1'); state = update(state); }, ...patch });
 }
 
-async function run() {
-  const agent = { id: 'agent-1', status: 'running', runtimeBinding: { kind: 'acp' } };
-  const queuedAttachment = readyImage();
-  let state = {
-    ...createDefaultAgentComposerState(),
-    draft: 'inspect this',
-    attachments: [queuedAttachment],
-  };
-  const updateComposerState = (_key, updater) => {
-    state = updater(state);
-  };
-  const sent = [];
-  const sendMessage = (_agent, text, attachments, requestId, delivery) => {
-    sent.push({ text, attachments, requestId, delivery });
-    return true;
-  };
+reset('inspect', { attachments: [image], contextReferences: [reference], mode: 'plan' });
+assert.strictEqual(stage(), true);
+assert.strictEqual(state.draft, '', 'staging releases the editor without waiting for transport or persistence');
+assert.deepStrictEqual(state.attachments, []);
+assert.deepStrictEqual(state.contextReferences, []);
+assert.strictEqual(state.mode, 'default');
+const first = state.submissions[0];
+assert.match(first.id, /^[A-Za-z0-9._:-]{1,160}$/);
+assert.strictEqual(first.status, 'queued');
+assert.strictEqual(first.delivery, 'prompt');
+assert.strictEqual(first.editableText, 'inspect');
+assert.strictEqual(first.attachments[0].path, image.path);
+assert.strictEqual(first.contextReferences[0].id, reference.id);
+assert.deepStrictEqual(state.history.entries, [], 'local staging must not claim acceptance');
+state = { ...state, draft: 'new draft', mode: 'goal', attachments: [{ ...image, id: 'new' }] };
+state = settleComposerSubmissionState(state, first.id, true, first.editableText);
+assert.strictEqual(state.draft, 'new draft');
+assert.strictEqual(state.mode, 'goal');
+assert.strictEqual(state.attachments[0].id, 'new');
+assert.strictEqual(state.submissions, undefined);
+assert.deepStrictEqual(state.history.entries, ['inspect']);
+assert.strictEqual(settleComposerSubmissionState(state, first.id, false, undefined, 'unknown'), state,
+  'late duplicate failure must not resurrect a settled request');
 
-  const contextAgent = { ...agent, cwd: '/workspace' };
-  const contextReference = {
-    id: 'src/index.ts', kind: 'file', label: 'src/index.ts',
-    workspace: '/workspace', rootId: projectFilesWorkspaceId('/workspace'), path: 'src/index.ts',
-  };
-  state = { ...createDefaultAgentComposerState(), draft: 'inspect', contextReferences: [contextReference] };
-  assert.strictEqual(submitAcpDraft({
-    agent: contextAgent, composerKey: 'acp:session-1', draft: state.draft,
-    attachments: [], contextReferences: [contextReference], composerMode: 'default',
-    turnActive: true, sendMessage, updateComposerState,
-  }), true);
-  assert.strictEqual(state.contextReferences.length, 0);
-  assert.strictEqual(state.pendingFollowUp.messages[0].contextReferences[0].id, contextReference.id);
-  assert(state.pendingFollowUp.messages[0].text.includes('/workspace/src/index.ts'));
-  state = restorePendingFollowUpMessageForEdit(state, state.pendingFollowUp.messages[0].id);
-  assert.strictEqual(state.draft, 'inspect');
-  assert.strictEqual(state.contextReferences[0].id, contextReference.id);
-  assert.strictEqual(state.pendingFollowUp, undefined);
+reset('recover', { attachments: [image], contextReferences: [reference], mode: 'plan' });
+stage();
+const rejected = state.submissions[0];
+state = settleComposerSubmissionState(state, rejected.id, false, undefined, 'rejected');
+assert.strictEqual(state.draft, 'recover');
+assert.strictEqual(state.mode, 'plan');
+assert.strictEqual(state.attachments[0].path, image.path);
+assert.strictEqual(state.contextReferences[0].id, reference.id);
+assert.strictEqual(state.submissions, undefined, 'definite failure returns the whole snapshot to an empty editor');
 
-  const sentBeforeInvalidContext = sent.length;
-  assert.strictEqual(submitAcpDraft({
-    agent: contextAgent, composerKey: 'acp:session-1', draft: state.draft,
-    attachments: [], contextReferences: [{ ...contextReference, workspace: '/other' }], composerMode: 'default',
-    turnActive: false, sendMessage, updateComposerState,
-  }), false);
-  assert.strictEqual(sent.length, sentBeforeInvalidContext);
-  state = { ...createDefaultAgentComposerState(), draft: 'inspect this', attachments: [queuedAttachment] };
+reset('uncertain'); stage();
+const uncertain = state.submissions[0];
+state = settleComposerSubmissionState(state, uncertain.id, false);
+assert.strictEqual(state.draft, '');
+assert.strictEqual(state.submissions[0].status, 'unknown', 'a timeout is never a zero-effect failure');
+state = { ...state, draft: 'later text', contextReferences: [reference] };
+state = settleComposerSubmissionState(state, uncertain.id, false, undefined, 'rejected');
+assert.strictEqual(state.draft, 'later text');
+assert.strictEqual(state.contextReferences[0].id, reference.id);
+assert.strictEqual(state.submissions[0].status, 'failed', 'failure must not overwrite a newer draft');
+state = settleComposerSubmissionState(state, uncertain.id, true, 'uncertain');
+assert.strictEqual(state.draft, 'later text');
+assert.strictEqual(state.submissions, undefined);
 
-  assert.strictEqual(submitAcpDraft({
-    agent,
-    composerKey: 'acp:session-1',
-    draft: 'inspect this',
-    attachments: [queuedAttachment],
-    composerMode: 'plan',
-    turnActive: true,
-    sendMessage,
-    updateComposerState,
-  }), true);
-  assert.strictEqual(sent.length, 0, 'a running ACP turn should queue rather than prompt concurrently');
-  assert.strictEqual(state.pendingFollowUp.messages.length, 1);
-  assert(state.pendingFollowUp.messages[0].text.startsWith('Plan mode:'));
-  assert.strictEqual(state.pendingFollowUp.messages[0].attachments[0].path, '/tmp/screen.png');
-  assert.strictEqual(state.draft, '');
-  assert.strictEqual(state.mode, 'default');
+reset('same'); stage();
+state = { ...state, draft: 'same' }; stage();
+assert.notStrictEqual(state.submissions[0].id, state.submissions[1].id, 'identical intentional messages have independent identities');
+state = settleComposerSubmissionState(state, state.submissions[0].id, false, undefined, 'rejected');
+assert.strictEqual(state.submissions[0].status, 'failed', 'definite failure keeps the head when successors depend on it');
+assert.strictEqual(state.draft, '', 'bouncing the head must not silently release later messages');
+for (let i = 2; i < MAX_COMPOSER_SUBMISSIONS; i++) { state = { ...state, draft: `message ${i}` }; stage(); }
+assert.strictEqual(state.submissions.length, MAX_COMPOSER_SUBMISSIONS);
+state = { ...state, draft: 'overflow' }; stage();
+assert.strictEqual(state.draft, 'overflow', 'queue saturation preserves the unsent draft');
+assert.strictEqual(state.submissions.length, MAX_COMPOSER_SUBMISSIONS);
 
-  const directAttachment = readyImage();
-  state = {
-    ...createDefaultAgentComposerState(),
-    draft: 'send now',
-    attachments: [directAttachment],
-  };
-  assert.strictEqual(submitAcpDraft({
-    agent,
-    composerKey: 'acp:session-1',
-    draft: 'send now',
-    attachments: [directAttachment],
-    composerMode: 'default',
-    turnActive: false,
-    sendMessage,
-    updateComposerState,
-  }), true);
-  assert.strictEqual(sent.length, 1);
-  assert.strictEqual(sent[0].text, 'send now');
-  assert.strictEqual(sent[0].attachments[0].name, 'screen.png');
-  assert.strictEqual(sent[0].requestId, undefined, 'the transport should own the ordinary Prompt request id');
-  assert.strictEqual(sent[0].delivery, 'prompt');
-  assert.strictEqual(state.draft, '');
-  assert.strictEqual(state.submissions, undefined);
-
-  const firstTurnSent = [];
-  state = {
-    ...createDefaultAgentComposerState(),
-    draft: 'start the conversation',
-  };
-  assert.strictEqual(submitAcpDraft({
-    agent,
-    composerKey: 'acp:session-1',
-    draft: state.draft,
-    attachments: [],
-    composerMode: 'default',
-    turnActive: false,
-    followUpBehavior: 'steer',
-    sendMessage: (_agent, text, attachments, requestId, delivery) => {
-      firstTurnSent.push({ text, attachments, requestId, delivery });
-      return true;
-    },
-    updateComposerState,
-  }), true);
-  assert.strictEqual(firstTurnSent.length, 1);
-  assert.strictEqual(
-    firstTurnSent[0].delivery,
-    'prompt',
-    'Steer preference must not turn the first message into a Steer without an active Turn',
-  );
-
-  const imageOnlyAttachment = readyImage();
-  state = {
-    ...createDefaultAgentComposerState(),
-    attachments: [imageOnlyAttachment],
-  };
-  assert.strictEqual(submitAcpDraft({
-    agent,
-    composerKey: 'acp:session-1',
-    draft: '',
-    attachments: [imageOnlyAttachment],
-    composerMode: 'default',
-    turnActive: false,
-    sendMessage,
-    updateComposerState,
-  }), true);
-  assert.strictEqual(sent.length, 2, 'an ACP Composer must submit a ready image without text');
-  assert.strictEqual(sent[1].text, '');
-  assert.strictEqual(sent[1].attachments[0].name, 'screen.png');
-  assert.strictEqual(state.attachments.length, 0);
-
-  state = {
-    ...createDefaultAgentComposerState(),
-    draft: 'do not fake an image send',
-    attachments: [{ ...readyImage(), status: 'error', path: undefined, error: 'Upload failed' }],
-  };
-  const sentBeforeFailedAttachment = sent.length;
-  assert.strictEqual(submitAcpDraft({
-    agent,
-    composerKey: 'acp:session-1',
-    draft: state.draft,
-    attachments: state.attachments,
-    composerMode: 'default',
-    turnActive: false,
-    sendMessage,
-    updateComposerState,
-  }), false);
-  assert.strictEqual(sent.length, sentBeforeFailedAttachment, 'a failed upload must not degrade into a text-only prompt');
-  assert.strictEqual(state.draft, 'do not fake an image send');
-  assert.strictEqual(state.attachments.length, 1);
-
-  const steerAttachment = readyImage();
-  state = {
-    ...createDefaultAgentComposerState(),
-    draft: 'change direction now',
-    attachments: [steerAttachment],
-  };
-  assert.strictEqual(submitAcpDraft({
-    agent,
-    composerKey: 'acp:session-1',
-    draft: 'change direction now',
-    attachments: [steerAttachment],
-    composerMode: 'default',
-    turnActive: true,
-    followUpBehavior: 'steer',
-    sendMessage,
-    updateComposerState,
-  }), true);
-  assert.strictEqual(sent.length, 3, 'Steer mode should submit directly into the running ACP turn');
-  assert.strictEqual(sent[2].text, 'change direction now');
-  assert.strictEqual(sent[2].attachments[0].path, '/tmp/screen.png');
-  assert.strictEqual(sent[2].delivery, 'steer');
-  assert.strictEqual(state.pendingFollowUp, undefined);
-  assert.strictEqual(state.draft, '');
-
-  assert.strictEqual(resolveAcpFollowUpBehavior('queue', false, true), 'queue');
-  assert.strictEqual(resolveAcpFollowUpBehavior('queue', true, true), 'steer');
-  assert.strictEqual(resolveAcpFollowUpBehavior('steer', false, true), 'steer');
-  assert.strictEqual(resolveAcpFollowUpBehavior('steer', true, true), 'queue');
-  assert.strictEqual(
-    resolveAcpFollowUpBehavior('steer', false, false),
-    'queue',
-    'providers without Steer support must retain Queue behavior',
-  );
-
-  let acceptDelayedSubmission;
-  const delayedSubmission = new Promise(resolve => {
-    acceptDelayedSubmission = resolve;
-  });
-  const delayedAttachment = readyImage();
-  state = {
-    ...createDefaultAgentComposerState(),
-    draft: 'submitted draft',
-    attachments: [delayedAttachment],
-  };
-  const delayedResult = submitAcpDraft({
-    agent,
-    composerKey: 'acp:session-1',
-    draft: state.draft,
-    attachments: state.attachments,
-    composerMode: 'default',
-    turnActive: false,
-    sendMessage: () => delayedSubmission,
-    updateComposerState,
-  });
-  assert.strictEqual(state.draft, 'submitted draft', 'an ordinary Prompt must remain in the Composer until admission succeeds');
-  assert.strictEqual(state.attachments.length, 1);
-  assert.strictEqual(state.submissions, undefined, 'an ordinary Prompt must not enter the visible submission staging area');
-  state = {
-    ...state,
-    draft: 'newer draft',
-  };
-  acceptDelayedSubmission(true);
-  assert.strictEqual(await delayedResult, true);
-  assert.strictEqual(state.draft, 'newer draft', 'a late ACK must not clear a newer draft');
-  assert.strictEqual(state.attachments.length, 1);
-  assert.strictEqual(state.submissions, undefined);
-  assert.deepStrictEqual(state.history.entries, ['submitted draft']);
-
-  let acceptReferenceSubmission;
-  state = {
-    ...createDefaultAgentComposerState(),
-    draft: 'inspect reference',
-    contextReferences: [contextReference],
-  };
-  const referenceResult = submitAcpDraft({
-    agent: contextAgent,
-    composerKey: 'acp:session-1',
-    draft: state.draft,
-    attachments: [],
-    contextReferences: [contextReference],
-    composerMode: 'default',
-    turnActive: false,
-    sendMessage: () => new Promise(resolve => { acceptReferenceSubmission = resolve; }),
-    updateComposerState,
-  });
-  state = { ...state, contextReferences: [] };
-  acceptReferenceSubmission(true);
-  assert.strictEqual(await referenceResult, true);
-  assert.strictEqual(state.draft, 'inspect reference', 'a late ACK must preserve a draft whose references changed');
-  assert.deepStrictEqual(state.contextReferences, []);
-
-  let acceptModeSubmission;
-  state = {
-    ...createDefaultAgentComposerState(),
-    draft: 'preserve a newer mode',
-  };
-  const modeResult = submitAcpDraft({
-    agent,
-    composerKey: 'acp:session-1',
-    draft: state.draft,
-    attachments: [],
-    composerMode: 'default',
-    turnActive: false,
-    sendMessage: () => new Promise(resolve => { acceptModeSubmission = resolve; }),
-    updateComposerState,
-  });
-  state = { ...state, mode: 'plan' };
-  acceptModeSubmission(true);
-  assert.strictEqual(await modeResult, true);
-  assert.strictEqual(state.draft, '');
-  assert.strictEqual(state.mode, 'plan', 'a late Prompt admission must not clear a newer Composer mode');
-
-  let acceptOwnedSubmission;
-  state = {
-    ...createDefaultAgentComposerState(),
-    draft: 'clear only after acceptance',
-  };
-  const ownedResult = submitAcpDraft({
-    agent,
-    composerKey: 'acp:session-1',
-    draft: state.draft,
-    attachments: [],
-    composerMode: 'default',
-    turnActive: false,
-    sendMessage: () => new Promise(resolve => { acceptOwnedSubmission = resolve; }),
-    updateComposerState,
-  });
-  assert.strictEqual(state.draft, 'clear only after acceptance');
-  assert.strictEqual(state.submissions, undefined);
-  acceptOwnedSubmission(true);
-  assert.strictEqual(await ownedResult, true);
-  assert.strictEqual(state.draft, '');
-  assert.deepStrictEqual(state.history.entries, ['clear only after acceptance']);
-
-  state = {
-    ...createDefaultAgentComposerState(),
-    draft: '?',
-  };
-  assert.strictEqual(submitAcpDraft({
-    agent,
-    composerKey: 'acp:session-1',
-    draft: state.draft,
-    attachments: [],
-    composerMode: 'default',
-    turnActive: true,
-    sendMessage,
-    updateComposerState,
-  }), true);
-  assert.strictEqual(state.draft, '');
-  state = { ...state, draft: 'inspect the separate issue' };
-  assert.strictEqual(submitAcpDraft({
-    agent,
-    composerKey: 'acp:session-1',
-    draft: state.draft,
-    attachments: [],
-    composerMode: 'default',
-    turnActive: true,
-    sendMessage,
-    updateComposerState,
-  }), true);
-  assert.deepStrictEqual(
-    state.pendingFollowUp.messages.map(message => message.text),
-    ['?', 'inspect the separate issue'],
-    'consecutive sends during a running Turn must retain two independent queue entries',
-  );
-  assert.notStrictEqual(
-    state.pendingFollowUp.messages[0].id,
-    state.pendingFollowUp.messages[1].id,
-    'each queued send action must own a distinct request id',
-  );
-  assert.strictEqual(state.submissions, undefined);
-
-  let rejectSubmission;
-  state = {
-    ...createDefaultAgentComposerState(),
-    draft: 'keep failed submission separate',
-  };
-  const rejectedResult = submitAcpDraft({
-    agent,
-    composerKey: 'acp:session-1',
-    draft: state.draft,
-    attachments: [],
-    composerMode: 'default',
-    turnActive: false,
-    sendMessage: () => new Promise(resolve => { rejectSubmission = resolve; }),
-    updateComposerState,
-  });
-  rejectSubmission(false);
-  assert.strictEqual(await rejectedResult, false);
-  assert.strictEqual(state.draft, 'keep failed submission separate');
-  assert.strictEqual(state.submissions, undefined, 'a rejected ordinary Prompt must stay editable instead of becoming a staged retry row');
-
-  state = {
-    ...createDefaultAgentComposerState(),
-    draft: 'keep this blocked draft',
-  };
-  const sentBeforeBlockedRecovery = sent.length;
-  assert.strictEqual(submitAcpDraft({
-    agent: {
-      ...agent,
-      status: 'stopped',
-      requiresProcessExitAcknowledgement: true,
-      runtimeBinding: {
-        kind: 'acp',
-        state: 'error',
-        error: 'ACP recovery failed: Legacy ACP process exit cannot be proven after restart',
-      },
-    },
-    composerKey: 'acp:session-1',
-    draft: state.draft,
-    attachments: [],
-    composerMode: 'default',
-    turnActive: false,
-    sendMessage,
-    updateComposerState,
-  }), false);
-  assert.strictEqual(sent.length, sentBeforeBlockedRecovery, 'blocked ACP recovery must not send');
-  assert.strictEqual(state.draft, 'keep this blocked draft', 'blocked ACP recovery must preserve the draft');
-  assert.strictEqual(state.pendingFollowUp, undefined, 'blocked ACP recovery must not create a false active turn');
-
-  console.log('ACP composer behavior tests passed');
-}
-
-run().catch(error => {
-  console.error(error);
-  process.exitCode = 1;
-});
+reset('queued', { attachments: [image], contextReferences: [reference] });
+stage({ turnActive: true, followUpBehavior: 'queue' });
+assert.strictEqual(state.submissions, undefined);
+assert.strictEqual(state.pendingFollowUp.messages.length, 1);
+state = restorePendingFollowUpMessageForEdit(state, state.pendingFollowUp.messages[0].id);
+assert.strictEqual(state.draft, 'queued');
+assert.strictEqual(state.attachments[0].path, image.path);
+assert.strictEqual(state.contextReferences[0].id, reference.id);
+stage({ turnActive: true, followUpBehavior: 'steer' });
+assert.strictEqual(state.submissions[0].delivery, 'steer');
+reset('first'); stage({ followUpBehavior: 'steer' });
+assert.strictEqual(state.submissions[0].delivery, 'prompt', 'first input must not steer an absent turn');
+reset('', { attachments: [image] }); stage();
+assert.strictEqual(state.submissions[0].attachments[0].path, image.path);
+reset('invalid', { attachments: [{ ...image, status: 'error' }] });
+assert.strictEqual(stage(), false);
+assert.strictEqual(state.draft, 'invalid');
+reset('invalid', { contextReferences: [{ ...reference, workspace: '/other' }] });
+assert.strictEqual(stage(), false);
+assert.strictEqual(state.submissions, undefined);
+reset('stopped');
+assert.strictEqual(stage({ agent: { ...agent, status: 'stopped' } }), false);
+assert.strictEqual(resolveAcpFollowUpBehavior('queue', false, true), 'queue');
+assert.strictEqual(resolveAcpFollowUpBehavior('queue', true, true), 'steer');
+assert.strictEqual(resolveAcpFollowUpBehavior('steer', true, true), 'queue');
+assert.strictEqual(resolveAcpFollowUpBehavior('steer', false, false), 'queue');
+console.log('PASS ACP local staging, exact settlement, recovery, bounds, and newer-draft fencing');

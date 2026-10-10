@@ -1,3 +1,4 @@
+import type { ComposerDeliveryOptions } from '@/components/code/composer-state'
 import { updateComposerSubmission } from '@/components/code/composer-submission-state'
 import { useEffect, useRef, useCallback, useState } from 'react'
 import { beginInteraction } from '@/lib/interaction-performance'
@@ -167,6 +168,7 @@ export function useWebSocket() {
   }>())
   const composerRequestIdsRef = useRef(new Map<string, string>())
   const composerRequestKeysRef = useRef(new Map<string, string>())
+  const composerOutcomeObserversRef = useRef(new Map<string, ComposerDeliveryOptions['onOutcome']>())
   const composerAcceptedRequestsRef = useRef(new Set<string>())
   const [state, setState] = useState<WebSocketState>({
     accessMode: 'unknown',
@@ -279,6 +281,8 @@ export function useWebSocket() {
   ) => {
     const pending = composerRequestResolversRef.current.get(requestId)
     const requestKey = composerRequestKeysRef.current.get(requestId)
+    composerOutcomeObserversRef.current.get(requestId)?.(accepted ? 'accepted' : definitive ? 'rejected' : 'unknown')
+    if (definitive) composerOutcomeObserversRef.current.delete(requestId)
     if (!pending && accepted && requestKey) {
       composerAcceptedRequestsRef.current.add(requestId)
       return
@@ -353,7 +357,7 @@ export function useWebSocket() {
     message: string,
     agentId?: string,
     attachments: ComposerInputAttachment[] = [],
-    options?: { awaitResult?: boolean; requestId?: string; delivery?: 'prompt' | 'steer' },
+    options?: ComposerDeliveryOptions & { awaitResult?: boolean; requestId?: string; delivery?: 'prompt' | 'steer' },
   ) => {
     const explicitRequestId = String(options?.requestId || '').trim()
     const requestKey = explicitRequestId
@@ -373,11 +377,14 @@ export function useWebSocket() {
       || composerRequestIdsRef.current.get(requestKey)
       || globalThis.crypto?.randomUUID?.()
       || `composer-${Date.now().toString(36)}-${++composerRequestSequenceRef.current}`
+    if (options?.onOutcome) composerOutcomeObserversRef.current.set(requestId, options.onOutcome)
     composerRequestIdsRef.current.set(requestKey, requestId)
     composerRequestKeysRef.current.set(requestId, requestKey)
     if (composerAcceptedRequestsRef.current.delete(requestId)) {
       composerRequestIdsRef.current.delete(requestKey)
       composerRequestKeysRef.current.delete(requestId)
+      options?.onOutcome?.('accepted')
+      composerOutcomeObserversRef.current.delete(requestId)
       return Promise.resolve(true)
     }
     const pending = composerRequestResolversRef.current.get(requestId)
@@ -395,26 +402,26 @@ export function useWebSocket() {
       resolveRequest = resolve
     })
     const startedAt = performance.now()
-    const reconcile = () => {
+    const reconcileStatus = () => {
       const current = composerRequestResolversRef.current.get(requestId)
       if (!current) return
       if (performance.now() - startedAt >= 60_000) {
-        settleComposerRequest(requestId, false, 'Chat submission has an uncertain outcome. Your draft is preserved; retry checks the same request without sending it again.', false)
+        settleComposerRequest(requestId, false, 'Chat submission has an uncertain outcome. Your message is preserved; check its status before any further action.', false)
         return
       }
       const ws = wsRef.current
       if (ws?.readyState === WebSocket.OPEN && agentId) ws.send(JSON.stringify({ type: 'composer-input-status-request', agentId, requestId }))
-      current.timeout = window.setTimeout(reconcile, 2000)
+      current.timeout = window.setTimeout(reconcileStatus, 2000)
     }
-    const timeout = window.setTimeout(reconcile, 5000)
+    const timeout = window.setTimeout(reconcileStatus, 5000)
     composerRequestResolversRef.current.set(requestId, { resolve: resolveRequest, agentId: agentId || '', timeout, promise })
     updateComposerSubmission(agentId || '', requestId, { phase: 'received', updatedAt: Date.now() })
-    if (!sendMessage(reconciling && agentId ? { type: 'composer-input-status-request', requestId, agentId } : input)) {
+    if (!sendMessage((reconciling || options?.reconcile) && agentId ? { type: 'composer-input-status-request', requestId, agentId } : input)) {
       settleComposerRequest(
         requestId,
         false,
-        'Farming backend is not connected. Your draft is still available.',
-        true,
+        'Farming backend is not connected. Your message is preserved.',
+        !(reconciling || options?.reconcile),
         'recoverable',
       )
     }
@@ -1254,10 +1261,10 @@ export function useWebSocket() {
               break
             }
             case 'composer-input-status': {
-              if (!composerRequestResolversRef.current.has(msg.requestId)) break
+              if (!composerRequestResolversRef.current.has(msg.requestId) && !composerOutcomeObserversRef.current.has(msg.requestId)) break
               updateComposerSubmission(msg.agentId, msg.requestId, msg)
               if (msg.phase === 'submitted') latestHandlersRef.current.settleComposerRequest(msg.requestId, true)
-              else if (msg.phase === 'failed' || msg.phase === 'unknown') latestHandlersRef.current.settleComposerRequest(msg.requestId, false, msg.message || 'Chat submission could not be confirmed. Your draft is preserved.', msg.phase === 'failed')
+              else if (msg.phase === 'failed' || msg.phase === 'unknown') latestHandlersRef.current.settleComposerRequest(msg.requestId, false, msg.message || 'Chat submission could not be confirmed. Your message is preserved.', msg.phase === 'failed')
               break
             }
             case 'composer-input-result':

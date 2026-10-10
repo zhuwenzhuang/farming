@@ -176,3 +176,13 @@ test('deduplicates queued follow-ups by id while preserving deterministic FIFO o
   assert.deepEqual(merged.pendingFollowUp?.messages.map(message => message.id), ['first', 'same', 'later'])
   assert.equal(merged.pendingFollowUp?.messages[1]?.text, 'live copy')
 })
+
+
+test('same-millisecond bursts retain send order across composer identity migration', () => {
+  const incoming = createDefaultAgentComposerState()
+  incoming.submissions = ['z-first', 'a-second', 'm-third'].map(id => ({ id, text: id, createdAt: 10, status: 'queued' }))
+  incoming.pendingFollowUp = { createdAt: 10, messages: incoming.submissions }
+  const merged = mergeAgentComposerStates(createDefaultAgentComposerState(), incoming)
+  assert.deepEqual(merged.submissions?.map(item => item.id), ['z-first', 'a-second', 'm-third'])
+  assert.deepEqual(merged.pendingFollowUp?.messages.map(item => item.id), ['z-first', 'a-second', 'm-third'])
+})

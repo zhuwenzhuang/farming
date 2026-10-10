@@ -2,7 +2,7 @@ import type { Agent } from '@/types/agent'
 import { appPath } from '@/lib/base-path'
 import { projectFilesWorkspaceId } from '@/lib/project-workspaces'
 import { addComposerHistoryEntry } from '../composer-history'
-import { createPendingFollowUpMessage } from '../composer-state'
+import { createPendingFollowUpMessage, MAX_COMPOSER_SUBMISSIONS } from '../composer-state'
 import type { AgentComposerState } from '../composer-state'
 import {
   composerAttachmentsCanSubmit,
@@ -13,7 +13,6 @@ import {
   revokeComposerAttachmentPreview,
   type ComposerAttachment,
   type ComposerContextReference,
-  type ComposerPromptAttachment,
 } from '../composer-message'
 import type { ComposerMode } from '../types'
 import type { ComposerFollowUpBehavior } from '@/lib/ui-preferences'
@@ -28,14 +27,6 @@ interface SubmitAcpDraftInput {
   composerMode: ComposerMode
   turnActive: boolean
   followUpBehavior?: ComposerFollowUpBehavior
-  sendMessage: (
-    agent: Agent,
-    message: string,
-    attachments?: ComposerPromptAttachment[],
-    requestId?: string,
-    delivery?: 'prompt' | 'steer',
-    contextReferences?: ComposerContextReference[],
-  ) => boolean | Promise<boolean>
   updateComposerState: (
     key: string,
     updater: (state: AgentComposerState) => AgentComposerState,
@@ -77,7 +68,6 @@ export function submitAcpDraft({
   composerMode,
   turnActive,
   followUpBehavior = 'queue',
-  sendMessage,
   updateComposerState,
 }: SubmitAcpDraftInput) {
   if (!composerAttachmentsCanSubmit(attachments) || !contextValid) return false
@@ -106,6 +96,7 @@ export function submitAcpDraft({
   }
   const queueFollowUp = () => {
     updateComposerState(composerKey, state => {
+      if ((state.submissions?.length || 0) + (state.pendingFollowUp?.messages.length || 0) >= MAX_COMPOSER_SUBMISSIONS) return state
       const cleared = clearOwnedDraft(state)
       if (cleared === state) return state
       attachments.forEach(revokeComposerAttachmentPreview)
@@ -125,36 +116,24 @@ export function submitAcpDraft({
   }
   if (turnActive && followUpBehavior === 'queue') return queueFollowUp()
 
-  const settlePrompt = (accepted: boolean) => {
-    if (!accepted) return false
-    updateComposerState(composerKey, state => {
-      const cleared = clearOwnedDraft(state)
-      if (cleared !== state) {
-        attachments.forEach(revokeComposerAttachmentPreview)
-      }
-      return {
-        ...cleared,
-        history: addComposerHistoryEntry(cleared.history, draft, undefined, { attachments, contextReferences }),
-      }
-    })
-    return true
-  }
-
-  let submitted: boolean | Promise<boolean>
-  try {
-    submitted = sendMessage(
-      agent,
-      text,
-      promptAttachments,
-      undefined,
-      turnActive ? 'steer' : 'prompt',
-      contextReferences,
-    )
-  } catch {
-    return false
-  }
-  if (typeof submitted === 'boolean') return settlePrompt(submitted)
-  return submitted.then(settlePrompt, () => false)
+  // Local staging is not a delivery ACK. The shared controller sends this exact
+  // snapshot once its predecessors have a definite outcome.
+  const message = createPendingFollowUpMessage(text, promptAttachments, draft, composerMode, contextReferences)
+  updateComposerState(composerKey, state => {
+    if ((state.submissions?.length || 0) + (state.pendingFollowUp?.messages.length || 0) >= MAX_COMPOSER_SUBMISSIONS) return state
+    const cleared = clearOwnedDraft(state)
+    if (cleared === state) return state
+    attachments.forEach(revokeComposerAttachmentPreview)
+    return {
+      ...cleared,
+      submissions: [...(state.submissions || []), {
+        ...message,
+        status: 'queued',
+        delivery: turnActive ? 'steer' : 'prompt',
+      }],
+    }
+  })
+  return true
 }
 
 export function respondToAcpPermission(
