@@ -1,7 +1,7 @@
 diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_modules/@agentclientprotocol/codex-acp/dist/index.js
 --- a/node_modules/@agentclientprotocol/codex-acp/dist/index.js
 +++ b/node_modules/@agentclientprotocol/codex-acp/dist/index.js
-@@ -29105,6 +29105,10 @@
+@@ -29757,6 +29757,10 @@
  var GOAL_CONTROL_METHOD = "_session/goal";
  var LEGACY_GOAL_CONTROL_METHOD = "_codex/session/goal_control";
  var GOAL_CONTROL_ACTIONS = ["set", "pause", "resume", "clear"];
@@ -12,7 +12,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
  
  // src/ThreadGoalSnapshot.ts
  function toGoalStatus(status) {
-@@ -29137,7 +29141,7 @@
+@@ -29789,7 +29793,7 @@
  function sameThreadGoalSnapshot(left, right) {
    if (left === void 0) return false;
    if (left === null || right === null) return left === right;
@@ -21,7 +21,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
  }
  function goalSessionInfoUpdate(goal, airClient) {
    if (!airClient) return null;
-@@ -29324,9 +29328,7 @@
+@@ -29976,9 +29980,7 @@
        const childTurn = this.isKnownChild(notification.params.threadId);
        const state = terminalStateFromTurn(notification.params.turn.status);
        if (!state) return childTurn;
@@ -32,7 +32,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
          if (this.pendingSpawns.has(notification.params.threadId)) {
            this.finishPending(notification.params.threadId);
          } else {
-@@ -30199,6 +30201,12 @@
+@@ -31125,6 +31127,12 @@
     * remains installed until the ACP session closes, so terminal errors need a durable session-level path
     * instead of entering a turn buffer that will never be flushed.
     */
@@ -45,7 +45,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
    async handleSessionScopedNotification(notification) {
      if (notification.method !== "error") {
        await this.handleNotification(notification);
-@@ -30414,13 +30422,15 @@
+@@ -31343,13 +31351,15 @@
        case "turn/started":
          this.sessionState.currentTurnId = notification.params.turn.id;
          await this.flushPendingErrors();
@@ -64,7 +64,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
        case "thread/tokenUsage/updated":
          return this.createUsageUpdate(notification.params);
        case "thread/name/updated":
-@@ -32104,7 +32114,7 @@
+@@ -33057,7 +33067,7 @@
      const properties = {};
      const required2 = [];
      const questionIds = new Set(params.questions.map((question) => question.id));
@@ -73,7 +73,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
      for (const question of params.questions) {
        const options = question.options ?? [];
        const hasOptions = options.length > 0;
-@@ -32208,7 +32218,7 @@
+@@ -33161,7 +33171,7 @@
      const answers = {};
      const content = contentRecord(response.content);
      const questionIds = new Set(params.questions.map((question) => question.id));
@@ -82,7 +82,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
      for (const question of params.questions) {
        const answerValues = [];
        const hasOtherAnswer = question.isOther && question.options != null && question.options.length > 0;
-@@ -33583,6 +33593,9 @@
+@@ -34762,6 +34772,9 @@
    sessionNotificationQueues = /* @__PURE__ */ new Map();
    subagents;
    skillExtraRoots = [];
@@ -92,7 +92,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
    configPath = null;
    constructor(codexClient, codexConfig, modelProvider) {
      this.codexClient = codexClient;
-@@ -33617,12 +33630,17 @@
+@@ -34816,12 +34829,17 @@
    getHomePath() {
      return this.configPath;
    }
@@ -110,15 +110,15 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
      switch (authRequest.methodId) {
        case "api-key":
          return await this.authenticateWithApiKey(authRequest);
-@@ -33769,6 +33787,7 @@
-     const accountUpdatedPromise = this.awaitNextAccountUpdated();
+@@ -35009,6 +35027,7 @@
+     });
      await this.codexClient.accountLogout();
      await accountUpdatedPromise;
 +    this.invalidateAvailableModels();
    }
-   async authRequired() {
-     if (this.gatewayConfig != null) {
-@@ -33809,6 +33828,7 @@
+   /** Reads whether the agent needs a login, with the account read that gave the answer. */
+   async readAuthRequirement() {
+@@ -35050,6 +35069,7 @@
          wire_api: wireApi
        }
      };
@@ -126,7 +126,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
    }
    /**
     * `providers/list`: returns Codex's OpenAI slot. With no ACP override, the
-@@ -33881,6 +33901,7 @@
+@@ -35122,6 +35142,7 @@
      if (request.providerId === OPENAI_PROVIDER_ID) {
        this.gatewayConfig = null;
        this.gatewayConfigSource = null;
@@ -134,16 +134,16 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
      }
      const current = this.gatewayConfig ? {
        apiType: gatewayApiTypeFromConfig(this.gatewayConfig),
-@@ -33988,7 +34009,7 @@
+@@ -35227,7 +35248,7 @@
+   async resumeSession(request, onSubscribed) {
+     const additionalDirectories = readAdditionalDirectories(request.cwd, request.additionalDirectories, request._meta);
      await this.refreshSkills(request.cwd, additionalDirectories);
+-    const sessionConfig = await this.createSessionConfig(request.cwd, additionalDirectories, request.mcpServers ?? []);
++    const sessionConfig = await this.createSessionConfig(request.cwd, additionalDirectories, request.mcpServers ?? [], request._meta);
      const response = await this.resumeThread({
        excludeTurns: true,
--      config: await this.createSessionConfig(request.cwd, additionalDirectories, request.mcpServers ?? []),
-+      config: await this.createSessionConfig(request.cwd, additionalDirectories, request.mcpServers ?? [], request._meta),
-       cwd: request.cwd,
-       modelProvider: await this.getResumeModelProvider(),
-       threadId: request.sessionId
-@@ -34012,7 +34033,7 @@
+       config: sessionConfig.config,
+@@ -35255,7 +35276,7 @@
      return await forkSession(request, additionalDirectories, {
        codexClient: this.codexClient,
        refreshSkills: (cwd, directories) => this.refreshSkills(cwd, directories),
@@ -152,16 +152,16 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
        getResumeModelProvider: () => this.getResumeModelProvider(),
        fetchAvailableModels: () => this.fetchAvailableModels(),
        createCurrentModelId: (models, model, reasoningEffort) => this.createModelId(models, model, reasoningEffort).toString(),
-@@ -34024,7 +34045,7 @@
+@@ -35266,7 +35287,7 @@
+   async loadSession(request, onSubscribed) {
+     const additionalDirectories = readAdditionalDirectories(request.cwd, request.additionalDirectories, request._meta);
      await this.refreshSkills(request.cwd, additionalDirectories);
+-    const sessionConfig = await this.createSessionConfig(request.cwd, additionalDirectories, request.mcpServers ?? []);
++    const sessionConfig = await this.createSessionConfig(request.cwd, additionalDirectories, request.mcpServers ?? [], request._meta);
      const response = await this.resumeThread({
        excludeTurns: true,
--      config: await this.createSessionConfig(request.cwd, additionalDirectories, request.mcpServers ?? []),
-+      config: await this.createSessionConfig(request.cwd, additionalDirectories, request.mcpServers ?? [], request._meta),
-       cwd: request.cwd,
-       modelProvider: await this.getResumeModelProvider(),
-       threadId: request.sessionId
-@@ -34039,7 +34060,7 @@
+       config: sessionConfig.config,
+@@ -35284,7 +35305,7 @@
      } else if (response.materialized) {
        const legacy = (await this.codexClient.threadReadWithHistory(response.thread.id)).thread;
        thread = { ...legacy, turns: [] };
@@ -170,8 +170,8 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
      }
      const codexModels = await this.fetchAvailableModels();
      const currentModelId = this.createModelId(codexModels, response.model, response.reasoningEffort).toString();
-@@ -34056,7 +34077,21 @@
-       additionalDirectories
+@@ -35302,7 +35323,24 @@
+       skippedMcpServers: sessionConfig.skippedMcpServers
      };
    }
 -  /**
@@ -179,12 +179,15 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
 +    const additionalDirectories = readAdditionalDirectories(request.cwd, request.additionalDirectories, request._meta);
 +    await this.refreshSkills(request.cwd, additionalDirectories);
 +    const response = await this.codexClient.threadFork({
-+      config: await this.createSessionConfig(request.cwd, additionalDirectories, request.mcpServers ?? [], request._meta),
++      config: (await this.createSessionConfig(request.cwd, additionalDirectories, request.mcpServers ?? [], request._meta)).config,
 +      cwd: request.cwd,
 +      modelProvider: await this.getResumeModelProvider(),
 +      threadId: request.sessionId,
 +      ...(beforeTurnId ? { beforeTurnId } : {})
 +    });
++    // Release the fork's source-owned runtime before the child loads its own config.
++    // Resuming a subscribed thread ignores shell environment overrides.
++    await this.codexClient.threadUnsubscribe({ threadId: response.thread.id });
 +    return { sessionId: response.thread.id };
 +  }
 +  async readSessionThread(sessionId) {
@@ -193,16 +196,16 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
     * The items of the turn at `index` of a session, oldest first, in pages.
     * Returns null when the session has fewer turns.
     */
-@@ -34085,7 +34120,7 @@
+@@ -35331,7 +35369,7 @@
      const additionalDirectories = readAdditionalDirectories(request.cwd, request.additionalDirectories, request._meta);
+     const developerInstructions = airCustomInstructions(request._meta);
      await this.refreshSkills(request.cwd, additionalDirectories);
+-    const sessionConfig = await this.createSessionConfig(request.cwd, additionalDirectories, request.mcpServers);
++    const sessionConfig = await this.createSessionConfig(request.cwd, additionalDirectories, request.mcpServers, request._meta);
      const response = await this.codexClient.threadStart({
--      config: await this.createSessionConfig(request.cwd, additionalDirectories, request.mcpServers),
-+      config: await this.createSessionConfig(request.cwd, additionalDirectories, request.mcpServers, request._meta),
+       config: sessionConfig.config,
        modelProvider: this.getModelProvider(),
-       cwd: request.cwd
-     });
-@@ -34114,13 +34149,11 @@
+@@ -35364,13 +35402,11 @@
    }
    async deleteSession(sessionId) {
      try {
@@ -221,7 +224,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
      }
    }
    async renameSession(sessionId, name) {
-@@ -34140,6 +34173,59 @@
+@@ -35390,6 +35426,59 @@
    async getGoal(sessionId) {
      const response = await this.codexClient.threadGoalGet({ threadId: sessionId });
      return response?.goal ?? null;
@@ -281,9 +284,9 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
    }
    async setGoal(sessionId, objective, onTurnStarted, onGoalSet) {
      const params = {
-@@ -34184,8 +34270,20 @@
+@@ -35434,8 +35523,20 @@
    getMcpServerStartupVersion() {
-     return this.codexClient.getMcpServerStartupVersion();
+     return this.codexClient.mcpStartup.version();
    }
 -  async createSessionConfig(projectPath, additionalDirectories, mcpServers) {
 +  async createSessionConfig(projectPath, additionalDirectories, mcpServers, sessionMeta) {
@@ -303,7 +306,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
      const activeProvider = this.gatewayConfig ? {
        apiType: gatewayApiTypeFromConfig(this.gatewayConfig),
        baseUrl: this.gatewayConfig.config.base_url
-@@ -34199,6 +34297,12 @@
+@@ -35449,6 +35550,12 @@
      });
      const mergedConfig = {
        ...forceGitRootTurnDiffPaths(mergeGatewayConfig(this.config, this.gatewayConfig)),
@@ -316,7 +319,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
        projects: Object.fromEntries(sessionRoots.map((root) => [root, {
          trust_level: "trusted"
        }]))
-@@ -34252,6 +34356,23 @@
+@@ -35512,6 +35619,23 @@
        await this.codexClient.skillsExtraRootsSet({ extraRoots: skillExtraRoots });
        this.skillExtraRoots = skillExtraRoots;
      }
@@ -340,7 +343,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
    }
    /**
     * Create a codex config entry for MCP server
-@@ -34312,11 +34433,9 @@
+@@ -35572,11 +35696,9 @@
      });
    }
    async waitForSessionNotifications(sessionId) {
@@ -355,7 +358,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
    }
    enqueueSessionNotification(sessionId, operation) {
      const run = async () => {
-@@ -34353,6 +34472,14 @@
+@@ -35613,6 +35735,14 @@
        model: modelId.model,
        serviceTier
      }, onTurnStarted);
@@ -370,7 +373,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
    }
    async setCollaborationMode(sessionId, mode, currentModelId) {
      await this.codexClient.threadSettingsUpdate({
-@@ -34476,13 +34603,36 @@
+@@ -35741,13 +35871,36 @@
      });
    }
    async fetchAvailableModels() {
@@ -414,26 +417,16 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
      return models;
    }
  };
-@@ -35121,7 +35271,7 @@
+@@ -36630,7 +36783,7 @@
        sortDirection: "asc"
-     }));
+     }), (page) => page.some((entry) => entry.item.id === lastItemId));
      for await (const page of pages) {
 -      const items = page.map((entry) => entry.item);
 +      const items = page.map((entry) => ({ ...entry.item, farmingHistoryTurnId: entry.turnId }));
        const lastIndex = items.findIndex((item) => item.id === lastItemId);
        if (lastIndex >= 0) {
          yield items.slice(0, lastIndex + 1);
-@@ -35168,6 +35318,9 @@
-   }
-   async threadArchive(params) {
-     return await this.sendRequest({ method: "thread/archive", params });
-+  }
-+  async threadDelete(params) {
-+    return await this.sendRequest({ method: "thread/delete", params });
-   }
-   async threadUnsubscribe(params) {
-     return await this.sendRequest({ method: "thread/unsubscribe", params });
-@@ -36584,7 +36737,7 @@
+@@ -39758,7 +39911,7 @@
  var LEGACY_SET_SESSION_MODEL_METHOD = "session/set_model";
  var SESSION_STEERING_METHOD = "_session/steering";
  function isExtMethodRequest(request) {
@@ -442,9 +435,9 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
  }
  
  // src/tool-calls/ClientCapabilities.ts
-@@ -37343,6 +37496,53 @@
- function clientSupportsAgentFileChangeReports(capabilities) {
-   return clientSupportsAirCapability(capabilities, AIR_AGENT_FILE_CHANGE_REPORT_KEY);
+@@ -42306,6 +42459,53 @@
+ function isAuthRequiredError(error62) {
+   return error62 instanceof RequestError && error62.code === RequestError.authRequired().code;
  }
 +var MAX_HISTORY_IMAGE_BYTES = 5 * 1024 * 1024;
 +var HISTORY_IMAGE_MIME_BY_EXT = /* @__PURE__ */ new Map([
@@ -496,7 +489,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
  var CodexAcpServer = class {
    codexAcpClient;
    connection;
-@@ -37368,6 +37568,13 @@
+@@ -42342,6 +42542,13 @@
    sessionGenerations;
    sessionOpenGenerations;
    goalControlGenerations;
@@ -509,8 +502,8 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
 +  subagentRecoveryAttempts;
    permissionLifecycleContexts;
    codexProcessState;
-   codexProcessGeneration = 0;
-@@ -37383,6 +37590,15 @@
+   /** Brings the app-server back after a crash; `null` without a process state (tests). */
+@@ -42373,6 +42580,15 @@
      this.sessionGenerations = /* @__PURE__ */ new Map();
      this.sessionOpenGenerations = /* @__PURE__ */ new Map();
      this.goalControlGenerations = /* @__PURE__ */ new Map();
@@ -526,17 +519,17 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
      this.permissionLifecycleContexts = /* @__PURE__ */ new WeakMap();
      this.reportingConnection = new ToolCallReportingConnection(connection);
      this.connection = this.reportingConnection.asClientConnection();
-@@ -37399,6 +37615,7 @@
-     this.booleanConfigOptionsSupported = false;
+@@ -42403,6 +42619,7 @@
      this.currentAuthStatus = null;
      this.availableCommands = this.createAvailableCommands(codexAcpClient);
+     this.recovery = this.createRecovery();
 +    this.bindClientTransportEvents(codexAcpClient);
-     this.observeCodexProcess();
    }
    createAvailableCommands(client) {
-@@ -37408,6 +37625,11 @@
-       (operation) => this.runWithProcessCheck(operation),
-       () => this.refreshAuthState(null)
+     return new CodexCommands(
+@@ -42412,6 +42629,11 @@
+       () => this.refreshAuthState(null),
+       this.mcpServerSignIn
      );
 +  }
 +  bindClientTransportEvents(client) {
@@ -546,7 +539,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
    }
    async initialize(_params) {
      logger.log("Initialize request received");
-@@ -37427,9 +37649,9 @@
+@@ -42435,9 +42657,9 @@
      const sessionCapabilities = {
        resume: {},
        list: {},
@@ -557,7 +550,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
        additionalDirectories: {},
        subagents: {}
      };
-@@ -37457,6 +37679,12 @@
+@@ -42465,6 +42687,12 @@
            sse: false
          },
          _meta: {
@@ -570,11 +563,11 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
            // Presence means "this agent pushes `_auth/status_update`". It
            // never carries a payload, and the client never asks for one.
            [AUTH_STATUS_META_KEY]: authStatusCapability()
-@@ -37488,6 +37716,77 @@
-         } : {}
-       }
-     };
-+  }
+@@ -42511,6 +42739,77 @@
+     const appServer = this.ensureAppServer();
+     if (appServer) await appServer;
+     return { trusted: await this.runWithProcessCheck(() => trustCodexHooks(this.codexAcpClient.appServerClient, cwd, hooks)) };
++}
 +  async listRelatedSessions(params) {
 +    const root = this.sessions.get(params.parentSessionId);
 +    if (!root) throw RequestError.invalidParams(void 0, "Parent session is not active");
@@ -648,7 +641,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
    }
    async extMethod(method, params) {
      const methodRequest = { method, params };
-@@ -37577,6 +37876,31 @@
+@@ -42606,6 +42905,31 @@
          }
          return {};
        }
@@ -679,8 +672,8 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
 +      }
      }
    }
-   async checkAuthorization() {
-@@ -37747,6 +38071,7 @@
+   /**
+@@ -42857,6 +43181,7 @@
        cwd: request.cwd,
        additionalDirectories: sessionMetadata.additionalDirectories,
        mcpServers: requestedMcpServers,
@@ -688,7 +681,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
        fastModeEnabled: sessionMetadata.currentServiceTier === "fast",
        currentModelSupportsFast,
        sessionMcpServers,
-@@ -37878,6 +38203,7 @@
+@@ -43077,6 +43402,7 @@
      }
      await this.getSessionState(sessionId).asyncTasks.reconcile();
      await previousTitleGen?.waitForIdle(TITLE_GENERATION_SETTLE_TIMEOUT_MS);
@@ -696,7 +689,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
      logger.log("Session loaded", {
        sessionId,
        modelId: modelState.currentModelId,
-@@ -37889,6 +38215,27 @@
+@@ -43088,6 +43414,27 @@
        ...this.createSessionConfigOptionsResponse(this.getSessionState(sessionId))
      };
    }
@@ -722,9 +715,9 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
 +    return response;
 +  }
    async resumeSession(params) {
-     if (this.providerUpdate !== null) {
-       await this.providerUpdate;
-@@ -37900,6 +38247,7 @@
+     return this.recovery === null ? await this.resumeSessionOnce(params) : await this.recovery.trackOpen(params.sessionId, () => this.resumeSessionOnce(params));
+   }
+@@ -43104,6 +43451,7 @@
        modelId: modelState.currentModelId,
        availableModelCount: modelState.availableModels.length
      });
@@ -732,7 +725,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
      return {
        models: modelState,
        modes: modeState,
-@@ -37943,6 +38291,70 @@
+@@ -43154,6 +43502,70 @@
        })
      };
    }
@@ -803,15 +796,15 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
    async closeSession(params) {
      logger.log("Closing session...", { sessionId: params.sessionId });
      const closeGeneration = this.bumpSessionGeneration(params.sessionId);
-@@ -37961,6 +38373,7 @@
-         await activePrompt.completion;
+@@ -43176,6 +43588,7 @@
+       } else {
+         logger.log("Session closed without an app-server call: its app-server is gone", { sessionId: params.sessionId });
        }
-       await this.runWithProcessCheck(() => this.codexAcpClient.closeSession(params.sessionId));
 +      this.clearSubagentSnapshot(params.sessionId);
        logger.log("Session closed", { sessionId: params.sessionId });
      } finally {
        if (this.getSessionGeneration(params.sessionId) === closeGeneration) {
-@@ -37975,7 +38388,259 @@
+@@ -43191,7 +43604,257 @@
      }
      return {};
    }
@@ -1065,31 +1058,47 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
 +    }
 +  }
    async deleteSession(params) {
-+    if (this.providerUpdate !== null) {
-+      await this.providerUpdate;
-+    }
++    if (this.providerUpdate !== null) await this.waitForProviderUpdate();
+     const appServer = this.ensureAppServer();
+     if (appServer) await appServer;
      logger.log("Deleting session...", { sessionId: params.sessionId });
-     const sessionId = params.sessionId;
-     const shouldCloseLocalSession = this.hasLocalSession(sessionId);
-@@ -38092,6 +38757,7 @@
+@@ -43320,6 +43983,7 @@
        }
        await this.finishAllAsyncTasks("stopped", "before the provider restart");
        const replacement = await this.restartCodexClient();
 +      this.bindClientTransportEvents(replacement);
-       apply(replacement);
+       apply2(replacement);
        if (this.initializeRequest === null) {
          throw new Error("Cannot restart Codex app-server before ACP initialization");
-@@ -38107,7 +38773,8 @@
+@@ -43342,7 +44006,8 @@
              sessionId: session.sessionId,
              cwd: session.cwd,
              additionalDirectories: session.additionalDirectories,
 -            mcpServers: session.mcpServers ?? []
 +            mcpServers: session.mcpServers ?? [],
 +            _meta: session.sessionMeta
-           });
-           session.authProvider = replacement.getModelProvider();
-           session.asyncTasks.refresh();
-@@ -38838,6 +39505,7 @@
+           };
+           const resume = (onSubscribed) => onSubscribed === void 0 ? replacement.resumeSession(request) : replacement.resumeSession(request, onSubscribed);
+           await (this.recovery?.resumeForReplacement(session, replacementGeneration, replacement, resume) ?? resume());
+@@ -43455,7 +44120,8 @@
+           sessionId: session.sessionId,
+           cwd: session.cwd,
+           additionalDirectories: session.additionalDirectories,
+-          mcpServers: session.mcpServers ?? []
++          mcpServers: session.mcpServers ?? [],
++          _meta: session.sessionMeta
+         }, onSubscribed);
+         return { collaborationMode: metadata.collaborationMode };
+       },
+@@ -43470,6 +44136,7 @@
+   /** Makes `client`, of a restarted app-server, the client of the agent and of every session. */
+   installCodexClient(client) {
+     client.adoptRoutingFrom(this.codexAcpClient);
++    this.bindClientTransportEvents(client);
+     this.codexAcpClient = client;
+     this.sessionIndex.observe(client);
+     this.availableCommands = this.createAvailableCommands(client);
+@@ -44179,6 +44846,7 @@
        cwd: request.cwd,
        additionalDirectories: sessionMetadata.additionalDirectories,
        mcpServers: requestedMcpServers,
@@ -1097,7 +1106,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
        fastModeEnabled: sessionMetadata.currentServiceTier === "fast",
        currentModelSupportsFast,
        sessionMcpServers,
-@@ -39090,8 +39758,17 @@
+@@ -44431,8 +45099,17 @@
    async createHistoryUpdates(item, sessionState) {
      const renderer = new AcpToolCallRenderer(sessionState.clientCapabilities);
      switch (item.type) {
@@ -1117,7 +1126,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
        case "hookPrompt":
        case "functionCallOutput":
        case "sleep":
-@@ -39135,10 +39812,11 @@
+@@ -44476,10 +45153,11 @@
          return item.text.length > 0 ? [this.createPlanHistoryUpdate(item)] : [];
      }
    }
@@ -1131,7 +1140,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
      const attachmentUris = new Set(contentBlocks.flatMap((blocks, index) => item.content[index]?.type === "text" ? blocks.flatMap((block) => block.type === "resource_link" ? [block.uri] : []) : []));
      for (const [index, input2] of item.content.entries()) {
        const nativePath = input2.type === "localImage" || input2.type === "localAudio" || input2.type === "mention" ? input2.path : (input2.type === "image" || input2.type === "audio") && "url" in input2 ? input2.url : null;
-@@ -39181,16 +39859,26 @@
+@@ -44522,16 +45200,26 @@
        createMessagePhaseMeta("final_answer", this.capabilities.airClient)
      );
    }
@@ -1164,7 +1173,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
        case "localAudio":
        case "mention": {
          const uri = attachmentFileUri(input2.path);
-@@ -39602,6 +40290,9 @@
+@@ -44901,6 +45589,9 @@
          params.sessionId,
          async (event) => {
            await observeInteraction(event);
@@ -1174,7 +1183,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
            if (!promptNotificationsActive) {
              await promptEventHandler.handleSessionScopedNotification(event);
              return;
-@@ -39750,6 +40441,10 @@
+@@ -45052,6 +45743,10 @@
            logger.error(`Prompt for cancelled session ${params.sessionId} failed after prompt returned`, err);
          }
        });
@@ -1185,14 +1194,15 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
        let turnCompleted = await Promise.race([
          sendPromptPromise,
          activePrompt.closeSignal,
-@@ -39759,15 +40454,7 @@
+@@ -45061,16 +45756,7 @@
          return cancelledPromptResponse();
        }
-       await this.codexAcpClient.waitForSessionNotifications(params.sessionId);
+       await promptClient.waitForSessionNotifications(params.sessionId);
 -      if (turnCompleted.turn.status === "completed") {
--        await eventHandler.waitForNativeSubagents(activePrompt.signal);
+-        await eventHandler.waitForNativeSubagents(subagentWaitSignal);
 -        if (activePrompt.signal.aborted) return cancelledPromptResponse();
--        await this.codexAcpClient.waitForSessionNotifications(params.sessionId);
+-        this.throwIfSubagentWaitLost(appServerLost.signal, sessionState, promptGeneration);
+-        await promptClient.waitForSessionNotifications(params.sessionId);
 -      } else {
 -        await eventHandler.finishOutstandingNativeSubagents(
 -          turnCompleted.turn.status === "interrupted" ? "cancelled" : "failed"
@@ -1202,14 +1212,15 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
        await eventHandler.flushPendingErrors();
        await eventHandler.handleFailedTurn(turnCompleted.turn);
        promptNotificationsActive = false;
-@@ -39848,15 +40535,7 @@
+@@ -45154,16 +45840,7 @@
              return cancelledPromptResponse();
            }
-           await this.codexAcpClient.waitForSessionNotifications(params.sessionId);
+           await promptClient.waitForSessionNotifications(params.sessionId);
 -          if (turnCompleted.turn.status === "completed") {
--            await eventHandler.waitForNativeSubagents(activePrompt.signal);
+-            await eventHandler.waitForNativeSubagents(subagentWaitSignal);
 -            if (activePrompt.signal.aborted) return cancelledPromptResponse();
--            await this.codexAcpClient.waitForSessionNotifications(params.sessionId);
+-            this.throwIfSubagentWaitLost(appServerLost.signal, sessionState, promptGeneration);
+-            await promptClient.waitForSessionNotifications(params.sessionId);
 -          } else {
 -            await eventHandler.finishOutstandingNativeSubagents(
 -              turnCompleted.turn.status === "interrupted" ? "cancelled" : "failed"
@@ -1219,10 +1230,10 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
            await eventHandler.flushPendingErrors();
            await eventHandler.handleFailedTurn(turnCompleted.turn);
            promptNotificationsActive = false;
-@@ -39929,11 +40608,8 @@
+@@ -45249,11 +45926,8 @@
        promptNotificationsActive = false;
        try {
-         await this.codexAcpClient.waitForSessionNotifications(params.sessionId);
+         await promptClient.waitForSessionNotifications(params.sessionId);
 -        await eventHandler?.finishOutstandingNativeSubagents(
 -          promptWasCancelled || activePrompt.signal.aborted || this.sessionIsClosing(params.sessionId) ? "cancelled" : "failed"
 -        );
@@ -1232,10 +1243,10 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
        }
        if (agentFileChangeReportRequest !== null && agentFileChangeWorkspace !== null) {
          if (promptWasCancelled || activePrompt.signal.aborted || this.sessionIsClosing(params.sessionId)) {
-@@ -39955,7 +40631,9 @@
-       logger.log("Prompt completed", { sessionId: params.sessionId });
+@@ -45276,7 +45950,9 @@
        await eventHandler?.dispose();
        disposePromptRequestCancellation();
+       removeAppServerLossListener();
 -      sessionState.currentTurnId = null;
 +      if (sessionState.currentTurnId === activePrompt.currentTurn?.turnId) {
 +        sessionState.currentTurnId = null;
@@ -1243,10 +1254,10 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
        const registeredPendingTurnStart = this.pendingTurnStarts.get(params.sessionId);
        if (registeredPendingTurnStart !== void 0) {
          this.pendingTurnStarts.delete(params.sessionId);
-@@ -40278,6 +40956,11 @@
-   sessionId: external_exports.string().trim().min(1),
-   asyncTaskId: external_exports.string().trim().min(1)
- }).passthrough();
+@@ -45633,6 +46309,11 @@
+   cwd: external_exports.string().trim().min(1),
+   hooks: external_exports.array(external_exports.object({ key: external_exports.string().min(1), currentHash: external_exports.string().min(1) })).min(1)
+ });
 +var steerParamsParser = external_exports.object({
 +  sessionId: external_exports.string(),
 +  prompt: external_exports.array(external_exports.unknown()),
@@ -1255,11 +1266,11 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
  if (process.argv.includes("--version")) {
    console.log(`${package_default.name} ${package_default.version}`);
    process.exit(0);
-@@ -40358,5 +41041,5 @@
+@@ -45713,5 +46394,5 @@
          codexAcpServer = null;
        }
      });
--  }).onRequest(methods.agent.initialize, (ctx) => getAgent().initialize(ctx.params)).onRequest(methods.agent.session.new, (ctx) => getAgent().newSession(ctx.params)).onRequest(methods.agent.session.load, (ctx) => getAgent().loadSession(ctx.params)).onRequest(methods.agent.session.fork, (ctx) => getAgent().forkSession(ctx.params)).onRequest(methods.agent.session.list, (ctx) => getAgent().listSessions(ctx.params)).onRequest(methods.agent.session.delete, (ctx) => getAgent().deleteSession(ctx.params)).onRequest(methods.agent.session.resume, (ctx) => getAgent().resumeSession(ctx.params)).onRequest(methods.agent.session.close, (ctx) => getAgent().closeSession(ctx.params)).onRequest(methods.agent.session.setMode, (ctx) => getAgent().setSessionMode(ctx.params)).onRequest(methods.agent.session.setConfigOption, (ctx) => getAgent().setSessionConfigOption(ctx.params)).onRequest(methods.agent.authenticate, (ctx) => getAgent().authenticate(ctx.params, ctx.requestId)).onRequest(methods.agent.logout, (ctx) => getAgent().logout(ctx.params)).onRequest(methods.agent.providers.list, (ctx) => getAgent().listProviders(ctx.params)).onRequest(methods.agent.providers.set, (ctx) => getAgent().setProvider(ctx.params)).onRequest(methods.agent.providers.disable, (ctx) => getAgent().disableProvider(ctx.params)).onRequest(methods.agent.session.prompt, (ctx) => getAgent().prompt(ctx.params, ctx.signal)).onNotification(methods.agent.session.cancel, (ctx) => getAgent().cancel(ctx.params)).onRequest("authentication/status", emptyExtensionParamsParser, (ctx) => getAgent().extMethod("authentication/status", ctx.params)).onRequest("authentication/logout", emptyExtensionParamsParser, (ctx) => getAgent().extMethod("authentication/logout", ctx.params)).onRequest(LEGACY_SET_SESSION_MODEL_METHOD, legacySetSessionModelParamsParser, (ctx) => getAgent().extMethod(LEGACY_SET_SESSION_MODEL_METHOD, ctx.params)).onRequest(SESSION_STEERING_METHOD, sessionSteerParamsParser, (ctx) => getAgent().extMethod(SESSION_STEERING_METHOD, ctx.params)).onRequest(ASYNC_TASK_STOP_METHOD, asyncTaskStopParamsParser, (ctx) => getAgent().extMethod(ASYNC_TASK_STOP_METHOD, ctx.params)).onRequest(GOAL_CONTROL_METHOD, goalControlParamsParser, (ctx) => getAgent().extMethod(GOAL_CONTROL_METHOD, ctx.params)).connect(acpJsonStream);
+-  }).onRequest(methods.agent.initialize, (ctx) => getAgent().initialize(ctx.params)).onRequest(methods.agent.session.new, (ctx) => getAgent().newSession(ctx.params)).onRequest(methods.agent.session.load, (ctx) => getAgent().loadSession(ctx.params)).onRequest(methods.agent.session.fork, (ctx) => getAgent().forkSession(ctx.params)).onRequest(methods.agent.session.list, (ctx) => getAgent().listSessions(ctx.params)).onRequest(methods.agent.session.delete, (ctx) => getAgent().deleteSession(ctx.params)).onRequest(methods.agent.session.resume, (ctx) => getAgent().resumeSession(ctx.params)).onRequest(methods.agent.session.close, (ctx) => getAgent().closeSession(ctx.params)).onRequest(methods.agent.session.setMode, (ctx) => getAgent().setSessionMode(ctx.params)).onRequest(methods.agent.session.setConfigOption, (ctx) => getAgent().setSessionConfigOption(ctx.params)).onRequest(methods.agent.authenticate, (ctx) => getAgent().authenticate(ctx.params, ctx.requestId)).onRequest(methods.agent.logout, (ctx) => getAgent().logout(ctx.params)).onRequest(methods.agent.providers.list, (ctx) => getAgent().listProviders(ctx.params)).onRequest(methods.agent.providers.set, (ctx) => getAgent().setProvider(ctx.params)).onRequest(methods.agent.providers.disable, (ctx) => getAgent().disableProvider(ctx.params)).onRequest(methods.agent.session.prompt, (ctx) => getAgent().prompt(ctx.params, ctx.signal)).onNotification(methods.agent.session.cancel, (ctx) => getAgent().cancel(ctx.params)).onRequest("authentication/status", emptyExtensionParamsParser, (ctx) => getAgent().extMethod("authentication/status", ctx.params)).onRequest("authentication/logout", emptyExtensionParamsParser, (ctx) => getAgent().extMethod("authentication/logout", ctx.params)).onRequest(LEGACY_SET_SESSION_MODEL_METHOD, legacySetSessionModelParamsParser, (ctx) => getAgent().extMethod(LEGACY_SET_SESSION_MODEL_METHOD, ctx.params)).onRequest(SESSION_STEERING_METHOD, sessionSteerParamsParser, (ctx) => getAgent().extMethod(SESSION_STEERING_METHOD, ctx.params)).onRequest(ASYNC_TASK_STOP_METHOD, asyncTaskStopParamsParser, (ctx) => getAgent().extMethod(ASYNC_TASK_STOP_METHOD, ctx.params)).onRequest(CODEX_HOOKS_LIST_METHOD, hooksListParamsParser, (ctx) => getAgent().listHooks(ctx.params.cwd)).onRequest(CODEX_HOOKS_TRUST_METHOD, hooksTrustParamsParser, (ctx) => getAgent().trustHooks(ctx.params.cwd, ctx.params.hooks)).onRequest(GOAL_CONTROL_METHOD, goalControlParamsParser, (ctx) => getAgent().extMethod(GOAL_CONTROL_METHOD, ctx.params)).onRequest(SESSION_RENAME_METHOD, sessionRenameParamsParser, (ctx) => getAgent().sessionIndex.rename(ctx.params)).onRequest(SESSION_ARCHIVE_METHOD, sessionArchiveParamsParser, (ctx) => getAgent().sessionIndex.setArchived(ctx.params, true)).onRequest(SESSION_UNARCHIVE_METHOD, sessionArchiveParamsParser, (ctx) => getAgent().sessionIndex.setArchived(ctx.params, false)).onRequest(SESSION_LIST_SUBSCRIBE_METHOD, sessionListSubscriptionParamsParser, (ctx) => getAgent().sessionIndex.subscribeList(ctx.params)).onRequest(SESSION_LIST_UNSUBSCRIBE_METHOD, sessionListSubscriptionParamsParser, (ctx) => getAgent().sessionIndex.unsubscribeList(ctx.params)).connect(acpJsonStream);
 -}
-+  }).onRequest(methods.agent.initialize, (ctx) => getAgent().initialize(ctx.params)).onRequest(methods.agent.session.new, (ctx) => getAgent().newSession(ctx.params)).onRequest(methods.agent.session.load, (ctx) => getAgent().loadSession(ctx.params)).onRequest(methods.agent.session.fork, (ctx) => getAgent().unstable_forkSession(ctx.params)).onRequest(methods.agent.session.list, (ctx) => getAgent().listSessions(ctx.params)).onRequest(methods.agent.session.delete, (ctx) => getAgent().deleteSession(ctx.params)).onRequest(methods.agent.session.resume, (ctx) => getAgent().resumeSession(ctx.params)).onRequest(methods.agent.session.close, (ctx) => getAgent().closeSession(ctx.params)).onRequest(methods.agent.session.setMode, (ctx) => getAgent().setSessionMode(ctx.params)).onRequest(methods.agent.session.setConfigOption, (ctx) => getAgent().setSessionConfigOption(ctx.params)).onRequest(methods.agent.authenticate, (ctx) => getAgent().authenticate(ctx.params, ctx.requestId)).onRequest(methods.agent.logout, (ctx) => getAgent().logout(ctx.params)).onRequest(methods.agent.providers.list, (ctx) => getAgent().listProviders(ctx.params)).onRequest(methods.agent.providers.set, (ctx) => getAgent().setProvider(ctx.params)).onRequest(methods.agent.providers.disable, (ctx) => getAgent().disableProvider(ctx.params)).onRequest(methods.agent.session.prompt, (ctx) => getAgent().prompt(ctx.params, ctx.signal)).onNotification(methods.agent.session.cancel, (ctx) => getAgent().cancel(ctx.params)).onRequest("authentication/status", emptyExtensionParamsParser, (ctx) => getAgent().extMethod("authentication/status", ctx.params)).onRequest("authentication/logout", emptyExtensionParamsParser, (ctx) => getAgent().extMethod("authentication/logout", ctx.params)).onRequest(LEGACY_SET_SESSION_MODEL_METHOD, legacySetSessionModelParamsParser, (ctx) => getAgent().extMethod(LEGACY_SET_SESSION_MODEL_METHOD, ctx.params)).onRequest(SESSION_STEERING_METHOD, sessionSteerParamsParser, (ctx) => getAgent().extMethod(SESSION_STEERING_METHOD, ctx.params)).onRequest(ASYNC_TASK_STOP_METHOD, asyncTaskStopParamsParser, (ctx) => getAgent().extMethod(ASYNC_TASK_STOP_METHOD, ctx.params)).onRequest(GOAL_CONTROL_METHOD, goalControlParamsParser, (ctx) => getAgent().extMethod(GOAL_CONTROL_METHOD, ctx.params)).onRequest(LEGACY_GOAL_CONTROL_METHOD, goalControlParamsParser, (ctx) => getAgent().extMethod(LEGACY_GOAL_CONTROL_METHOD, ctx.params)).onRequest("_farming/related/list", external_exports.object({ parentSessionId: external_exports.string().trim().min(1) }), (ctx) => getAgent().listRelatedSessions(ctx.params)).onRequest("_farming/related/read", external_exports.object({ parentSessionId: external_exports.string().trim().min(1), sessionId: external_exports.string().trim().min(1), maxTurns: external_exports.number().int().min(1).max(200), cursor: external_exports.string().max(4096).nullable().optional() }), (ctx) => getAgent().readRelatedSession(ctx.params)).onRequest("_session/archive", external_exports.object({ sessionId: external_exports.string().trim().min(1) }), (ctx) => getAgent().archiveSession(ctx.params)).onRequest(STEER_METHOD, steerParamsParser, (ctx) => getAgent().extMethod(STEER_METHOD, ctx.params)).connect(acpJsonStream);
++  }).onRequest(methods.agent.initialize, (ctx) => getAgent().initialize(ctx.params)).onRequest(methods.agent.session.new, (ctx) => getAgent().newSession(ctx.params)).onRequest(methods.agent.session.load, (ctx) => getAgent().loadSession(ctx.params)).onRequest(methods.agent.session.fork, (ctx) => getAgent().unstable_forkSession(ctx.params)).onRequest(methods.agent.session.list, (ctx) => getAgent().listSessions(ctx.params)).onRequest(methods.agent.session.delete, (ctx) => getAgent().deleteSession(ctx.params)).onRequest(methods.agent.session.resume, (ctx) => getAgent().resumeSession(ctx.params)).onRequest(methods.agent.session.close, (ctx) => getAgent().closeSession(ctx.params)).onRequest(methods.agent.session.setMode, (ctx) => getAgent().setSessionMode(ctx.params)).onRequest(methods.agent.session.setConfigOption, (ctx) => getAgent().setSessionConfigOption(ctx.params)).onRequest(methods.agent.authenticate, (ctx) => getAgent().authenticate(ctx.params, ctx.requestId)).onRequest(methods.agent.logout, (ctx) => getAgent().logout(ctx.params)).onRequest(methods.agent.providers.list, (ctx) => getAgent().listProviders(ctx.params)).onRequest(methods.agent.providers.set, (ctx) => getAgent().setProvider(ctx.params)).onRequest(methods.agent.providers.disable, (ctx) => getAgent().disableProvider(ctx.params)).onRequest(methods.agent.session.prompt, (ctx) => getAgent().prompt(ctx.params, ctx.signal)).onNotification(methods.agent.session.cancel, (ctx) => getAgent().cancel(ctx.params)).onRequest("authentication/status", emptyExtensionParamsParser, (ctx) => getAgent().extMethod("authentication/status", ctx.params)).onRequest("authentication/logout", emptyExtensionParamsParser, (ctx) => getAgent().extMethod("authentication/logout", ctx.params)).onRequest(LEGACY_SET_SESSION_MODEL_METHOD, legacySetSessionModelParamsParser, (ctx) => getAgent().extMethod(LEGACY_SET_SESSION_MODEL_METHOD, ctx.params)).onRequest(SESSION_STEERING_METHOD, sessionSteerParamsParser, (ctx) => getAgent().extMethod(SESSION_STEERING_METHOD, ctx.params)).onRequest(ASYNC_TASK_STOP_METHOD, asyncTaskStopParamsParser, (ctx) => getAgent().extMethod(ASYNC_TASK_STOP_METHOD, ctx.params)).onRequest(CODEX_HOOKS_LIST_METHOD, hooksListParamsParser, (ctx) => getAgent().listHooks(ctx.params.cwd)).onRequest(CODEX_HOOKS_TRUST_METHOD, hooksTrustParamsParser, (ctx) => getAgent().trustHooks(ctx.params.cwd, ctx.params.hooks)).onRequest(GOAL_CONTROL_METHOD, goalControlParamsParser, (ctx) => getAgent().extMethod(GOAL_CONTROL_METHOD, ctx.params)).onRequest(SESSION_RENAME_METHOD, sessionRenameParamsParser, (ctx) => getAgent().sessionIndex.rename(ctx.params)).onRequest(SESSION_UNARCHIVE_METHOD, sessionArchiveParamsParser, (ctx) => getAgent().sessionIndex.setArchived(ctx.params, false)).onRequest(SESSION_LIST_SUBSCRIBE_METHOD, sessionListSubscriptionParamsParser, (ctx) => getAgent().sessionIndex.subscribeList(ctx.params)).onRequest(SESSION_LIST_UNSUBSCRIBE_METHOD, sessionListSubscriptionParamsParser, (ctx) => getAgent().sessionIndex.unsubscribeList(ctx.params)).onRequest(LEGACY_GOAL_CONTROL_METHOD, goalControlParamsParser, (ctx) => getAgent().extMethod(LEGACY_GOAL_CONTROL_METHOD, ctx.params)).onRequest("_farming/related/list", external_exports.object({ parentSessionId: external_exports.string().trim().min(1) }), (ctx) => getAgent().listRelatedSessions(ctx.params)).onRequest("_farming/related/read", external_exports.object({ parentSessionId: external_exports.string().trim().min(1), sessionId: external_exports.string().trim().min(1), maxTurns: external_exports.number().int().min(1).max(200), cursor: external_exports.string().max(4096).nullable().optional() }), (ctx) => getAgent().readRelatedSession(ctx.params)).onRequest(SESSION_ARCHIVE_METHOD, sessionArchiveParamsParser, (ctx) => getAgent().archiveSession(ctx.params)).onRequest(STEER_METHOD, steerParamsParser, (ctx) => getAgent().extMethod(STEER_METHOD, ctx.params)).connect(acpJsonStream);
 +}

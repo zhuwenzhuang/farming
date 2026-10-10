@@ -6,15 +6,17 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import readline from 'node:readline';
 
-async function scenario(kind: 'writer' | 'air' | 'air-native' | 'standard'): Promise<void> {
+async function scenario(kind: 'writer' | 'air' | 'air-native' | 'standard' | 'recovery'): Promise<void> {
   const root = path.join(__dirname, '..', '..');
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-acp-upgrade-'));
   const resultFile = path.join(tmp, 'answer.json');
-  const child = spawn(process.execPath, [path.join(root, 'dist/acp/codex-acp-2.1.1.mjs')], {
+  const requestLog = path.join(tmp, 'requests.jsonl');
+  const child = spawn(process.execPath, [path.join(root, 'dist/acp/codex-acp-2.2.2.mjs')], {
     cwd: root, detached: process.platform !== 'win32', stdio: ['pipe', 'pipe', 'pipe'],
     env: { ...process.env, CODEX_HOME: tmp, CODEX_PATH: path.join(__dirname, 'fixtures/fake-codex-app-server.ts'),
       FARMING_TEST_ACTIVE_WRITER: kind === 'writer' ? '1' : '0',
-      FARMING_TEST_USER_INPUT_RESULT_FILE: kind === 'writer' ? '' : resultFile },
+      FARMING_TEST_USER_INPUT_RESULT_FILE: kind === 'writer' ? '' : resultFile,
+      FARMING_TEST_REQUEST_LOG_FILE: requestLog, FARMING_TEST_SESSION_ENVIRONMENT: '1' },
   });
   let stderr = '';
   child.stderr.on('data', chunk => { stderr += chunk.toString(); });
@@ -61,9 +63,32 @@ async function scenario(kind: 'writer' | 'air' | 'air-native' | 'standard'): Pro
         });
       return;
     }
-    const session = await request('session/new', { cwd: tmp, mcpServers: [] }) as { sessionId: string };
+    const session = await request('session/new', { cwd: tmp, mcpServers: [],
+      _meta: { farming: { env: { FARMING_AGENT_ID: 'upgrade-owner' } } } }) as { sessionId: string };
+    if (kind === 'recovery') {
+      const initial = JSON.parse(fs.readFileSync(requestLog, 'utf8').trim().split('\n')[0]);
+      process.kill(initial.pid, 'SIGKILL');
+      const deadline = Date.now() + 3000;
+      for (;;) {
+        try { process.kill(initial.pid, 0); }
+        catch (error) { assert.equal((error as NodeJS.ErrnoException).code, 'ESRCH'); break; }
+        assert.ok(Date.now() < deadline, 'the exact owned app-server must terminate');
+        await new Promise(resolve => setTimeout(resolve, 20));
+      }
+      await request('authentication/status', {});
+    }
     await request('session/prompt', { sessionId: session.sessionId, prompt: [{ type: 'text', text: 'Choose a target' }] });
     assert.ok(schema, 'the pinned adapter must issue a real ACP elicitation');
+    if (kind === 'recovery') {
+      const requests = fs.readFileSync(requestLog, 'utf8').trim().split('\n').map(line => JSON.parse(line));
+      assert.equal(requests.filter(item => item.method === 'initialize').length, 2,
+        'one crashed app-server must be replaced exactly once');
+      const resumed = requests.find(item => item.method === 'thread/resume');
+      assert.equal(resumed?.params.threadId, session.sessionId, 'recovery must resume the original Session');
+      const environment = requests.filter(item => item.method === 'fixture/session-environment').at(-1);
+      assert.equal(environment?.params.environment.FARMING_AGENT_ID, 'upgrade-owner',
+        'recovery must retain the owning Agent environment');
+    }
     assert.deepEqual(schema.choice.oneOf?.map(option => option.const), kind === 'air' ? ['Local', 'Remote'] : ['Local', 'Remote', 'None of the above']);
     const response = JSON.parse(fs.readFileSync(resultFile, 'utf8'));
     assert.deepEqual(response.result.answers.choice.answers, ['None of the above', 'user_note: A third host']);
@@ -84,6 +109,6 @@ async function scenario(kind: 'writer' | 'air' | 'air-native' | 'standard'): Pro
   }
 }
 (async () => {
-  for (const kind of ['writer', 'air', 'air-native', 'standard'] as const) await scenario(kind);
-  console.log('Codex ACP upgrade: active writer rejection and AIR/standard choice round trips passed');
+  for (const kind of ['writer', 'air', 'air-native', 'standard', 'recovery'] as const) await scenario(kind);
+  console.log('Codex ACP upgrade: active writer rejection, AIR/standard choice round trips and crash recovery passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });

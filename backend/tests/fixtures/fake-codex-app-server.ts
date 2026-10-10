@@ -20,6 +20,17 @@ const goalCompletionGate = process.env.FARMING_TEST_GOAL_COMPLETION_GATE || '';
 let nextTurn = 1;
 let nextThread = 1;
 const archivedThreads = new Set<string>();
+const loadedEnvironments = new Map<string, Record<string, string>>();
+const subscribedThreads = new Set<string>();
+
+function loadEnvironment(id, params) {
+  // A subscribed app-server thread keeps its running config on resume. An
+  // unsubscribed idle thread can be cold-resumed with the new owner's config.
+  if (!subscribedThreads.has(id)) {
+    loadedEnvironments.set(id, { ...params.config?.shell_environment_policy?.set });
+  }
+  subscribedThreads.add(id);
+}
 
 function thread(id = sessionId) {
   return {
@@ -103,6 +114,7 @@ async function resultFor(method, params) {
   if (method === 'thread/resume') {
     await waitForProviderResumeGate();
     if (process.env.FARMING_TEST_ACTIVE_WRITER === '1') throw new Error(`thread ${params.threadId} already has an active writer`);
+    loadEnvironment(params.threadId, params);
     return {
       thread: { ...thread(params.threadId), turns: [] },
       itemsBackwardsCursor: 'history-start',
@@ -116,6 +128,7 @@ async function resultFor(method, params) {
     const id = multiSession || backgroundChild
       ? `019f0000-0000-7000-8000-${String(nextThread++).padStart(12, '0')}`
       : sessionId;
+    loadEnvironment(id, params);
     return {
       thread: { ...thread(id), turns: [] },
       model: 'gpt-5.6',
@@ -126,6 +139,7 @@ async function resultFor(method, params) {
   }
   if (method === 'thread/fork') {
     const id = `019f0000-0000-7000-8001-${String(nextThread++).padStart(12, '0')}`;
+    loadEnvironment(id, params);
     return { thread: { ...thread(id), forkedFromId: params.threadId, turns: [] } };
   }
   if (method === 'turn/start' && (stallPrompt || backgroundChild || userInputResultFile || goalCompletionGate)) {
@@ -201,7 +215,14 @@ async function resultFor(method, params) {
     archivedThreads.add(params.threadId);
     return {};
   }
-  if (method === 'thread/unsubscribe' || method === 'thread/delete') return {};
+  if (method === 'thread/unsubscribe' || method === 'thread/delete') {
+    if (method === 'thread/unsubscribe' && process.env.FARMING_TEST_UNSUBSCRIBE_FAILURE_FILE
+      && fs.existsSync(process.env.FARMING_TEST_UNSUBSCRIBE_FAILURE_FILE)) {
+      throw new Error('Simulated fork ownership release failure');
+    }
+    subscribedThreads.delete(params.threadId);
+    return {};
+  }
   if (method === 'thread/list') {
     // App-server's default source filter excludes native children even when
     // ancestorThreadId is set. Exercise the real filter, not a permissive fake.
@@ -311,6 +332,14 @@ async function run() {
         })}\n`);
       }
       const result = await resultFor(request.method, request.params);
+      if (requestLogFile && process.env.FARMING_TEST_SESSION_ENVIRONMENT === '1'
+        && ['thread/start', 'thread/resume', 'thread/fork'].includes(request.method)) {
+        fs.appendFileSync(requestLogFile, `${JSON.stringify({
+          pid: process.pid,
+          method: 'fixture/session-environment',
+          params: { threadId: result.thread.id, environment: loadedEnvironments.get(result.thread.id) },
+        })}\n`);
+      }
       await enqueueResponse({
         id: request.id,
         result,

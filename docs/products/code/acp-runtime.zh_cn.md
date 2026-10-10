@@ -91,6 +91,9 @@ Chat 只展示归属于本轮的子 Agent 动态，按事件顺序排列；完�
 
 ## Provider 边界
 
+用于回滚创建失败的显式会话删除，只能删除归属明确的会话，并向上返回失败。
+提供方的归档兼容行为不能把清理变成保留会话却报告成功。
+
 Provider 特有的 Executable Discovery、Environment、Adapter Patch、可选方法和 History
 行为都属于 Provider Adapter。通用 Lifecycle 与 Chat 只使用实时协商的 ACP Capability，
 不得根据 Provider 名称猜测支持情况。
@@ -541,6 +544,13 @@ Active Turn 默认仍是 Fork Barrier；只有 Provider Adapter Contract 显式�
 Fork 时才可放行。该 Fork 必须使用 Active Turn 之前由 Provider 拥有的稳定 Boundary，保持
 Source Turn 继续运行，并且不能复制不完整的 Assistant 或 Tool State。持续变化的 Transcript
 Revision 不会让这个稳定 Boundary 失效；未声明该能力的 Provider 继续使用 Idle-only 规则。
+
+Fork 接收输入前必须进入子 Agent 自己的环境。共享 Provider 若使用来源环境创建 Fork，
+Adapter 必须先释放该精确 Fork 的临时 Runtime Ownership，再让子 Agent 用自己的配置
+加载。不同的 Provider Session ID 本身不能证明环境隔离：已加载的 Provider Runtime
+可能忽略 Resume 配置覆盖。来源和其他 Session 保持不变。释放或加载失败时不能将子
+Agent 标为就绪；不确定结果保留供 Reconcile，不能静默重试。验收覆盖 Fork 以及再次
+Fork 后实际生效的 Agent 身份，包括更新自身标题。
 
 不同 Runtime Strategy 共用一条 Fork Child Launch 落定规则：Callback 与 Promise
 结果中先到者为准。Callback 明确失败或 Promise resolve null 属于确定失败，可执行精确

@@ -139,6 +139,10 @@ has no aggregate status row.
 
 ## Provider Boundary
 
+Explicit session deletion used to roll back failed creation must delete only the
+owned session and propagate failure. Provider archive compatibility must not
+turn that cleanup into successful retention.
+
 Provider-specific executable discovery, environment, adapter patches, optional
 methods, and history behavior belong in Provider Adapters. Generic lifecycle and
 Chat code use negotiated ACP capabilities and must not infer support from a
@@ -778,6 +782,16 @@ Provider-owned stable boundary before the active Turn, leave the source Turn
 running, and avoid copying partial assistant or tool state. A moving transcript
 revision does not invalidate that stable boundary; Providers without this
 declaration retain the ordinary idle-only rule.
+
+A fork must enter the child's Agent environment before it accepts input. When
+a shared provider creates the fork with the source environment, its adapter
+must release that exact fork's temporary runtime ownership before the child
+loads it with its own configuration. A distinct Provider Session id alone does
+not prove environment isolation: a loaded provider runtime may ignore resume
+overrides. The source and peer Sessions remain untouched. Release or load failure
+blocks child readiness; an uncertain outcome is retained for reconciliation,
+never silently retried. Acceptance covers effective Agent identity after a fork
+and a fork of that child, including self-title updates.
 
 Fork child launch has one settlement rule across runtime strategies: the first
 callback or Promise result is authoritative. A callback failure or resolved

@@ -6,15 +6,15 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
-const upstreamSha = '4b76310393d756a0f111687cd9df899720f36f7c59b1eb1d86429484034ff91b';
-const patchedSha = '8cd89428910d897d303135b20e6363205a170fda70b9cc09cf32dfd71e9001a9';
+const upstreamSha = '6b1bb4e7e9caaf4aeca1042ae4aec2dc2433b0b0e4b1614b38a4d41699902aaa';
+const patchedSha = '40f90db7ace97f45a2caddafa97b2cad5bc2c38c4049c6a16ce96c79a3783ba7';
 const hash = (file: string): string => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 
 test('a cold Codex ACP installation applies the reviewed patch through the product installer', () => {
   const root = path.resolve(__dirname, '..');
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-cold-acp-'));
   const entry = path.join(tmp, 'node_modules/@agentclientprotocol/codex-acp/dist/index.js');
-  const patchFile = '@agentclientprotocol+codex-acp+2.1.1.patch';
+  const patchFile = '@agentclientprotocol+codex-acp+2.2.2.patch';
   const invoke = (program: string, args: string[]): void => {
     const result = spawnSync(program, args, { cwd: tmp, encoding: 'utf8', timeout: 15000 });
     assert.equal(result.status, 0, `${result.error?.message || ''}\n${result.stdout}\n${result.stderr}`);

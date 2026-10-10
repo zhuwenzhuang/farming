@@ -672,6 +672,38 @@ test('keeps queued follow-ups separate and steers each selected message', async 
   await expect(nextTurn).toContainText('Phase-aware rich answer.')
 })
 
+test('send button uses Steer selected in settings during an active turn', async ({ page, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'steer-live-setting')
+  fs.mkdirSync(workspace, { recursive: true })
+  const response = await page.request.post('/farming/api/control/agents', {
+    data: { command: 'codex', workspace, agentRuntimeMode: 'chat' },
+  })
+  expect(response.ok()).toBeTruthy()
+  const { agentId } = await response.json() as { agentId: string }
+  try {
+    await openFarming(page)
+    await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+    const input = page.getByTestId('code-acp-composer-input')
+    await input.fill('hold for steer reused thought identity')
+    await page.getByTestId('code-acp-composer-send').click()
+    await expect(page.getByText('Waiting for steering.', { exact: true })).toBeVisible()
+
+    await page.getByTestId('code-sidebar-options').click()
+    const setting = page.getByTestId('code-settings-follow-up-behavior')
+    await expect(setting.getByRole('button', { name: 'Queue', exact: true })).toHaveAttribute('aria-pressed', 'true')
+    await setting.getByRole('button', { name: 'Steer', exact: true }).click()
+    await page.getByTestId('code-settings-panel').getByRole('button', { name: 'Close', exact: true }).click()
+
+    await input.fill('Continue with the simpler design')
+    await page.getByTestId('code-acp-composer-send').click()
+    await expect(page.getByTestId('code-acp-pending-followup-row')).toHaveCount(0)
+    await expect(page.getByText('Implementation continued successfully.', { exact: true })).toBeVisible()
+    await expect(page.getByTestId('code-agent-transcript-steer')).toContainText('Continue with the simpler design')
+  } finally {
+    await page.request.delete(`/farming/api/control/agents/${agentId}?recordHistory=0`)
+  }
+})
+
 for (const appearance of ['light', 'dark', 'paper'] as const) {
   test(`reloads history after a Steer splits one reasoning identity in ${appearance}`, async ({ page, workspaceRoot }, testInfo) => {
     const workspace = path.join(workspaceRoot, 'steer-identity')
@@ -690,8 +722,7 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
       await expect(page.getByText('Waiting for steering.', { exact: true })).toBeVisible()
       await input.fill('Continue with the simpler design')
       await page.getByTestId('code-acp-composer-send').click()
-      const pending = page.getByTestId('code-acp-pending-followup-steer')
-      if (await pending.count()) await pending.click()
+      await expect(page.getByTestId('code-acp-pending-followup-row')).toHaveCount(0)
       await expect(page.getByText('Implementation continued successfully.', { exact: true })).toBeVisible()
       await page.reload()
       await row.click()

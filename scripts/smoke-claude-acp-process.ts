@@ -2,6 +2,9 @@
 
 import { spawn, ChildProcess } from 'node:child_process';
 import path from 'node:path';
+import fs from 'node:fs';
+import os from 'node:os';
+import { randomUUID } from 'node:crypto';
 
 interface SmokeOptions {
   packageRoot?: string;
@@ -27,7 +30,7 @@ interface JsonRpcResponse {
     agentInfo?: { version?: string };
     _meta?: {
       steering?: { supported?: boolean };
-      jetbrains?: { air?: { version?: number; goal?: { version?: number; controlMethod?: string; actions?: string[] } } };
+      jetbrains?: { air?: { version?: number; capabilities?: string[]; goal?: { version?: number; controlMethod?: string; actions?: string[] } } };
     };
   };
 }
@@ -70,9 +73,24 @@ async function smokeClaudeAcp(options: SmokeOptions): Promise<void> {
   const timeoutMs = Number.isFinite(options.timeoutMs) && options.timeoutMs! > 0
     ? options.timeoutMs
     : 20_000;
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-claude-acp-smoke-'));
+  const claudeHome = path.join(fixtureRoot, 'claude-home');
+  const projectDirectory = path.join(claudeHome, 'projects', fixtureRoot.replace(/[^a-zA-Z0-9]/g, '-'));
+  fs.mkdirSync(projectDirectory, { recursive: true });
+  const cleanupSessionId = randomUUID();
+  const siblingSessionId = randomUUID();
+  const transcriptPath = (sessionId: string): string => path.join(projectDirectory, `${sessionId}.jsonl`);
+  for (const sessionId of [cleanupSessionId, siblingSessionId]) {
+    fs.writeFileSync(transcriptPath(sessionId), `${JSON.stringify({
+      type: 'user', uuid: randomUUID(), parentUuid: null, sessionId,
+      cwd: fixtureRoot, timestamp: '2026-01-01T00:00:00.000Z',
+      message: { role: 'user', content: 'Isolated release smoke fixture' },
+    })}\n`);
+  }
+  const siblingBefore = fs.readFileSync(transcriptPath(siblingSessionId), 'utf8');
   const child: ChildProcess = spawn(launch.command, launch.args, {
     cwd: options.packageRoot || process.cwd(),
-    env: { ...process.env, CLAUDE_CODE_EXECUTABLE: process.execPath },
+    env: { ...process.env, CLAUDE_CODE_EXECUTABLE: process.execPath, CLAUDE_CONFIG_DIR: claudeHome },
     stdio: ['pipe', 'pipe', 'pipe'],
   });
   let stderr = '';
@@ -81,23 +99,28 @@ async function smokeClaudeAcp(options: SmokeOptions): Promise<void> {
     stderr = `${stderr}${chunk.toString('utf8')}`.slice(-16_000);
   });
 
-  const response: JsonRpcResponse = await new Promise((resolve, reject) => {
+  let nextRequestId = 0;
+  const request = (method: string, params: Record<string, unknown>): Promise<JsonRpcResponse> => new Promise((resolve, reject) => {
+    const id = ++nextRequestId;
     const timer = setTimeout(() => {
-      reject(new Error(`Claude ACP initialize timed out after ${timeoutMs}ms${stderr ? `: ${stderr.trim()}` : ''}`));
+      finish(reject, new Error(`Claude ACP ${method} timed out after ${timeoutMs}ms${stderr ? `: ${stderr.trim()}` : ''}`));
     }, timeoutMs);
     timer.unref?.();
     const finish = <T>(callback: (value: T) => void, value: T): void => {
       clearTimeout(timer);
+      child.off('error', onError);
+      child.off('exit', onExit);
+      child.stdout!.off('data', onData);
       callback(value);
     };
-    child.once('error', error => finish(reject, error));
-    child.once('exit', (code, signal) => {
+    const onError = (error: Error): void => finish(reject, error);
+    const onExit = (code: number | null, signal: NodeJS.Signals | null): void => {
       finish(
         reject,
-        new Error(`Claude ACP exited before initialize: code=${code} signal=${signal || ''}${stderr ? `: ${stderr.trim()}` : ''}`),
+        new Error(`Claude ACP exited before ${method}: code=${code} signal=${signal || ''}${stderr ? `: ${stderr.trim()}` : ''}`),
       );
-    });
-    child.stdout!.on('data', (chunk: Buffer) => {
+    };
+    const onData = (chunk: Buffer): void => {
       stdoutBuffer += chunk.toString('utf8');
       for (;;) {
         const newline = stdoutBuffer.indexOf('\n');
@@ -112,47 +135,78 @@ async function smokeClaudeAcp(options: SmokeOptions): Promise<void> {
           finish(reject, new Error(`Claude ACP wrote non-JSON stdout: ${line}`));
           return;
         }
-        if (message.id === 1) {
+        if (message.id === id) {
           finish(resolve, message);
           return;
         }
       }
-    });
-    child.stdin!.write(`${JSON.stringify({
-      jsonrpc: '2.0',
-      id: 1,
-      method: 'initialize',
-      params: {
-        protocolVersion: 1,
-        clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: true,
-          _meta: { jetbrains: { air: { version: 1, capabilities: ['nativeSubagentSessions'] } } } },
-        clientInfo: { name: 'farming-release-smoke', version: '1' },
-      },
-    })}\n`);
+    };
+    child.once('error', onError);
+    child.once('exit', onExit);
+    child.stdout!.on('data', onData);
+    child.stdin!.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`);
   });
 
-  child.kill('SIGTERM');
-  if (response.error) {
-    throw new Error(`Claude ACP initialize failed: ${JSON.stringify(response.error)}`);
+  try {
+    const response = await request('initialize', {
+      protocolVersion: 1,
+      clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: true,
+        _meta: { jetbrains: { air: { version: 1, capabilities: ['nativeSubagentSessions'] } } } },
+      clientInfo: { name: 'farming-release-smoke', version: '1' },
+    });
+    if (response.error) {
+      throw new Error(`Claude ACP initialize failed: ${JSON.stringify(response.error)}`);
+    }
+    if (response.result?.protocolVersion !== 1) {
+      throw new Error(`Claude ACP selected unexpected protocol version: ${response.result?.protocolVersion}`);
+    }
+    if (response.result?.agentCapabilities?.sessionCapabilities?.fork == null) {
+      throw new Error('Claude ACP initialize omitted session/fork');
+    }
+    if (response.result?.agentInfo?.version !== '0.89.1') {
+      throw new Error(`Claude ACP selected unexpected version: ${response.result?.agentInfo?.version}`);
+    }
+    if (response.result?._meta?.steering?.supported !== true) {
+      throw new Error('Claude ACP initialize omitted provider-neutral steering support');
+    }
+    const goal = response.result?._meta?.jetbrains?.air?.goal;
+    if (goal?.version !== 1 || goal.controlMethod !== '_session/goal'
+      || !['set', 'clear'].every(action => goal.actions?.includes(action))) {
+      throw new Error(`Claude ACP initialize omitted goal support: ${JSON.stringify(goal)}`);
+    }
+    const capabilities = response.result?._meta?.jetbrains?.air?.capabilities ?? [];
+    if (capabilities.some(capability => ['sessionIndex', 'sessionArchive', 'sessionRename', 'sessionListSubscribe'].includes(capability))) {
+      throw new Error('Claude ACP enabled an unrequested session index capability');
+    }
+    const closed = await request('session/close', { sessionId: 'farming-release-smoke-unloaded' });
+    if (closed.error) {
+      throw new Error(`Claude ACP close of an unloaded session failed: ${JSON.stringify(closed.error)}`);
+    }
+    const archived = await request('_session/archive', { sessionId: 'farming-release-smoke-unloaded' });
+    if (archived.error?.code !== -32601) {
+      throw new Error('Claude ACP allowed archive without session index negotiation');
+    }
+    const deleted = await request('session/delete', { sessionId: cleanupSessionId });
+    if (deleted.error || fs.existsSync(transcriptPath(cleanupSessionId))) {
+      throw new Error(`Claude ACP explicit cleanup did not delete its transcript: ${JSON.stringify(deleted.error)}`);
+    }
+    if (fs.readFileSync(transcriptPath(siblingSessionId), 'utf8') !== siblingBefore) {
+      throw new Error('Claude ACP cleanup changed an unrelated transcript');
+    }
+    const missing = await request('session/delete', { sessionId: cleanupSessionId });
+    if (!missing.error) {
+      throw new Error('Claude ACP cleanup hid an SDK deletion failure');
+    }
+    console.log(`✓ Claude ACP initialized, enforced capability negotiation, and deleted only its cleanup fixture through ${launch.command} ${launch.args.join(' ')}`);
+  } finally {
+    if (child.pid && child.exitCode === null && child.signalCode === null) {
+      await new Promise<void>(resolve => {
+        child.once('exit', () => resolve());
+        child.kill('SIGKILL');
+      });
+    }
+    fs.rmSync(fixtureRoot, { recursive: true, force: true });
   }
-  if (response.result?.protocolVersion !== 1) {
-    throw new Error(`Claude ACP selected unexpected protocol version: ${response.result?.protocolVersion}`);
-  }
-  if (response.result?.agentCapabilities?.sessionCapabilities?.fork == null) {
-    throw new Error('Claude ACP initialize omitted session/fork');
-  }
-  if (response.result?.agentInfo?.version !== '0.88.0') {
-    throw new Error(`Claude ACP selected unexpected version: ${response.result?.agentInfo?.version}`);
-  }
-  if (response.result?._meta?.steering?.supported !== true) {
-    throw new Error('Claude ACP initialize omitted provider-neutral steering support');
-  }
-  const goal = response.result?._meta?.jetbrains?.air?.goal;
-  if (goal?.version !== 1 || goal.controlMethod !== '_session/goal'
-    || !['set', 'clear'].every(action => goal.actions?.includes(action))) {
-    throw new Error(`Claude ACP initialize omitted goal support: ${JSON.stringify(goal)}`);
-  }
-  console.log(`✓ Claude ACP process initialized through ${launch.command} ${launch.args.join(' ')}`);
 }
 
 smokeClaudeAcp(parseArgs(process.argv.slice(2))).catch(error => {

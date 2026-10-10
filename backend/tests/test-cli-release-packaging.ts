@@ -187,7 +187,7 @@ function run() {
   assert(
     packagedAcpBridge.includes("PACKAGED_CODEX_ACP_ARG = '--farming-codex-acp'")
       && packagedAcpBridge.includes('omitted its embedded Codex ACP runtime')
-      && bundleCliScript.includes("'codex-acp-2.1.1.mjs'")
+      && bundleCliScript.includes("'codex-acp-2.2.2.mjs'")
       && bundleCliScript.includes('/packaged-(?:codex|claude|pi)-acp\\.(?:cjs|cts)$/'),
     'standalone CLI must bundle a hidden entry for the pinned Codex ACP runtime',
   );
@@ -198,7 +198,7 @@ function run() {
   assert(
     packagedClaudeAcpBridge.includes("PACKAGED_CLAUDE_ACP_ARG = '--farming-claude-acp'")
       && packagedClaudeAcpBridge.includes('omitted its embedded Claude ACP runtime')
-      && bundleCliScript.includes("'claude-agent-acp-0.88.0.mjs'"),
+      && bundleCliScript.includes("'claude-agent-acp-0.89.1.mjs'"),
     'standalone CLI must bundle a hidden entry for the pinned Claude ACP runtime',
   );
   const bundleOutputRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-cli-bundle-test-'));

@@ -34,11 +34,12 @@ async function run() {
   const codexHome = path.join(root, 'codex-home');
   const requestLog = path.join(root, 'app-server-requests.jsonl');
   const providerResumeGatePrefix = path.join(root, 'provider-resume');
+  const unsubscribeFailureFile = path.join(root, 'unsubscribe-failure');
   const fakeCodex = path.join(__dirname, 'fixtures', 'fake-codex-app-server.ts');
   fs.mkdirSync(codexHome, { recursive: true });
   const runtime = new AcpRuntime();
   try {
-    const prepare = agentId => runtime.prepareAgent({
+    const prepare = (agentId, options = {}) => runtime.prepareAgent({
       agentId,
       provider: 'codex',
       providerHomeId: 'shared-test',
@@ -50,12 +51,15 @@ async function run() {
         CODEX_HOME: codexHome,
         CODEX_PATH: fakeCodex,
         FARMING_TEST_MULTI_SESSION: '1',
+        FARMING_TEST_SESSION_ENVIRONMENT: '1',
+        FARMING_TEST_UNSUBSCRIBE_FAILURE_FILE: unsubscribeFailureFile,
         FARMING_TEST_REQUEST_LOG_FILE: requestLog,
         FARMING_TEST_PROVIDER_RESUME_GATE_PREFIX: providerResumeGatePrefix,
         FARMING_TEST_EMIT_SUBAGENT_AFTER_RESUME: '1',
         FARMING_AGENT_ID: agentId,
         FARMING_PROJECT_WORKSPACE: root,
       },
+      ...options,
     });
     const [first, second] = await Promise.all([
       prepare('shared-codex-a'),
@@ -254,6 +258,48 @@ async function run() {
     await firstProviderUpdate;
     const forked = await forkPromise;
     assert.notStrictEqual(forked.sessionId, first.sessionId);
+
+    const child = await prepare('shared-codex-fork', { sessionId: forked.sessionId, historyMode: 'load' });
+    const grandchildFork = await runtime.forkSession('shared-codex-fork');
+    const grandchild = await prepare('shared-codex-grandchild', {
+      sessionId: grandchildFork.sessionId, historyMode: 'load',
+    });
+    const forkRequests = readRequests(requestLog);
+    for (const [session, owner] of [
+      [first, 'shared-codex-a'], [second, 'shared-codex-b'],
+      [child, 'shared-codex-fork'], [grandchild, 'shared-codex-grandchild'],
+    ]) {
+      const effective = forkRequests.filter(request => request.method === 'fixture/session-environment'
+        && request.params.threadId === session.sessionId).at(-1);
+      assert.strictEqual(effective?.params.environment.FARMING_AGENT_ID, owner,
+        'the loaded runtime must use its own Agent identity, not merely receive a new config request');
+    }
+    for (const session of [child, grandchild]) {
+      const released = forkRequests.findIndex(request => request.method === 'thread/unsubscribe'
+        && request.params.threadId === session.sessionId);
+      const loaded = forkRequests.findIndex(request => request.method === 'thread/resume'
+        && request.params.threadId === session.sessionId);
+      assert(released >= 0 && released < loaded, 'release the fork before loading its new owner');
+    }
+    assert(!forkRequests.some(request => request.method === 'thread/unsubscribe'
+      && [first.sessionId, second.sessionId].includes(request.params.threadId)),
+    'fork ownership transfer must leave the source and its peer subscribed');
+
+    fs.writeFileSync(unsubscribeFailureFile, 'fail');
+    try {
+      await assert.rejects(runtime.forkSession('shared-codex-fork'), error => {
+        assert.match(`${error.message} ${JSON.stringify(error.data)}`, /fork ownership release failure/);
+        return true;
+      },
+        'a fork that has not released its old environment must not be reported ready');
+    } finally {
+      fs.rmSync(unsubscribeFailureFile, { force: true });
+    }
+    const afterFailedRelease = readRequests(requestLog).slice(forkRequests.length);
+    assert.strictEqual(afterFailedRelease.filter(request => request.method === 'thread/fork').length, 1,
+      'an uncertain fork must not be replayed');
+    assert(!afterFailedRelease.some(request => request.method === 'thread/delete'),
+      'an uncertain fork must remain available for reconciliation');
 
     const firstResume = readRequests(requestLog).find(request => (
       request.method === 'thread/resume' && request.params.threadId === first.sessionId

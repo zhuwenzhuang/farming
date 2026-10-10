@@ -5,9 +5,9 @@ import path from 'node:path';
 import * as esbuild from 'esbuild';
 
 const projectRoot = path.join(__dirname, '..');
-const expectedVersion = '0.88.0';
+const expectedVersion = '0.89.1';
 const expectedSdkVersion = '0.3.293';
-const expectedBundleSha256 = 'd14602952b44c36ac6e4df9604607bfa994a4f4a3febf559ee095c847b94b5c1';
+const expectedBundleSha256 = '822fc63d50e199fde16b725697bbac89aa5bd51037ca19c10e0d5bf032c1054a';
 const packageRoot = path.dirname(require.resolve('@agentclientprotocol/claude-agent-acp/package.json'));
 const packageJsonPath = path.join(packageRoot, 'package.json');
 const sdkEntry = require.resolve('@anthropic-ai/claude-agent-sdk', {
@@ -23,6 +23,11 @@ const targetLicense = path.join(targetDirectory, 'LICENSE.claude-agent-acp');
 const targetSdkLicense = path.join(targetDirectory, 'LICENSE.claude-agent-sdk');
 const executableFunctionStart = 'export async function claudeCliPath() {';
 const executableFunctionEnd = 'function isMuslLibc() {';
+const upstreamDeleteMethod = [
+  '    async deleteSession(params) {',
+  '        return this.sessionIndex.deleteSession(params);',
+  '    }',
+].join('\n');
 
 function sha256(filePath: string): string {
   return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
@@ -47,8 +52,7 @@ function farmingClaudePlugin(): esbuild.Plugin {
           if (start < 0 || end <= start || source.indexOf(executableFunctionStart, start + 1) >= 0) {
             throw new Error('Expected one reviewed Claude executable resolver');
           }
-          return {
-            contents: source.slice(0, start)
+          const executableSource = source.slice(0, start)
               + [
                 'export async function claudeCliPath() {',
                 '    if (process.env.CLAUDE_CODE_EXECUTABLE) {',
@@ -58,7 +62,24 @@ function farmingClaudePlugin(): esbuild.Plugin {
                 '}',
                 '',
               ].join('\n')
-              + source.slice(end),
+              + source.slice(end);
+          // Farming uses explicit session/delete for owned failed-Fork cleanup.
+          // AIR's new archive-instead-of-delete compatibility behavior would
+          // retain the failed session while reporting successful deletion.
+          if (executableSource.split(upstreamDeleteMethod).length !== 2) {
+            throw new Error('Expected one reviewed Claude session/delete implementation');
+          }
+          return {
+            contents: 'import { deleteSession as farmingDeleteSession } from "@anthropic-ai/claude-agent-sdk";\n'
+              + executableSource.replace(upstreamDeleteMethod, [
+                '    async deleteSession(params) {',
+                '        if (this.sessions[params.sessionId]) {',
+                '            await this.teardownSession(params.sessionId);',
+                '        }',
+                '        await farmingDeleteSession(params.sessionId);',
+                '        return {};',
+                '    }',
+              ].join('\n')),
             loader: 'js',
           };
         }
