@@ -218,10 +218,7 @@ test('blocks ACP submission when an image upload fails', async ({ page, workspac
   const workspace = path.join(workspaceRoot, 'codex-acp-failed-upload')
   fs.mkdirSync(workspace, { recursive: true })
   const imagePath = path.join(workspace, 'failed.png')
-  fs.writeFileSync(
-    imagePath,
-    Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=', 'base64'),
-  )
+  fs.copyFileSync(path.resolve('public/farming-2/app-icon-v2-180.png'), imagePath)
 
   const response = await page.request.post('/farming/api/control/agents', {
     data: { command: 'codex', workspace, agentRuntimeMode: 'chat' },
@@ -277,10 +274,7 @@ test('queues a follow-up and explicitly sends negotiated Codex ACP steer', async
   const workspace = path.join(workspaceRoot, 'codex-acp-steer')
   fs.mkdirSync(workspace, { recursive: true })
   const imagePath = path.join(workspace, 'steer.png')
-  fs.writeFileSync(
-    imagePath,
-    Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=', 'base64'),
-  )
+  fs.copyFileSync(path.resolve('public/farming-2/app-icon-v2-180.png'), imagePath)
 
   const response = await page.request.post('/farming/api/control/agents', {
     data: { command: 'codex', workspace, agentRuntimeMode: 'chat' },
@@ -376,9 +370,8 @@ test('queues a follow-up and explicitly sends negotiated Codex ACP steer', async
   await expect(page.getByTestId('code-acp-pending-followup-row')).toHaveCount(1)
   await expect(page.getByTestId('code-acp-pending-followup-row')).toContainText('focus on the attached image')
   await expect(page.getByTestId('code-agent-transcript-steer')).toHaveCount(0)
-  await page.reload()
-  await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
-  await expect(page.getByTestId('code-acp-pending-followup-row')).toContainText('focus on the attached image')
+  // Editing and steering apply to this live queue. Reload recovery is a separate
+  // story because persisted follow-ups require explicit outcome reconciliation.
   await expect(page.getByTestId('code-composer-attachment')).toHaveCount(0)
   await page.getByTestId('code-acp-pending-followup-edit').click()
   await expect(page.getByTestId('code-acp-pending-followup-row')).toHaveCount(0)
@@ -525,6 +518,57 @@ test('queues a follow-up and explicitly sends negotiated Codex ACP steer', async
   expect(sessionRevisionMessages.some(message => (
     message.agentId === agentId && Number.isFinite(message.revision)
   ))).toBe(true)
+})
+
+test('reload retains queued media follow-ups as unknown without replaying them', async ({ page, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'codex-acp-reload-follow-up')
+  fs.mkdirSync(workspace, { recursive: true })
+  const imagePath = path.join(workspace, 'queued.png')
+  fs.copyFileSync(path.resolve('public/farming-2/app-icon-v2-180.png'), imagePath)
+  const response = await page.request.post('/farming/api/control/agents', {
+    data: { command: 'codex', workspace, agentRuntimeMode: 'chat' },
+  })
+  expect(response.ok()).toBeTruthy()
+  const { agentId } = await response.json() as { agentId: string }
+  const sent: Array<{ type: string; agentId?: string; requestId?: string }> = []
+  page.on('websocket', socket => socket.on('framesent', frame => {
+    if (typeof frame.payload !== 'string') return
+    const message = JSON.parse(frame.payload) as { type: string; agentId?: string; requestId?: string }
+    if (message.agentId === agentId) sent.push(message)
+  }))
+  await openFarming(page)
+  await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+  const input = page.getByTestId('code-acp-composer-input')
+  await input.fill('hold for steer')
+  await page.getByTestId('code-acp-composer-send').click()
+  await expect(page.getByText('Waiting for steering.', { exact: true })).toBeVisible()
+  await page.getByTestId('code-acp-composer-file-input').setInputFiles(imagePath)
+  await expect(page.getByTestId('code-composer-attachment')).toHaveClass(/ready/)
+  const messageText = 'retain this queued image after reload'
+  await input.fill(messageText)
+  await page.getByTestId('code-acp-composer-send').click()
+  await expect(page.getByTestId('code-acp-pending-followup-row')).toContainText(messageText)
+  const readCheckpoint = () => page.evaluate(text => {
+    type Message = { id: string; text: string; attachments?: unknown[]; status?: string }
+    const checkpoint = JSON.parse(localStorage.getItem('farming.code.agentComposerCheckpoint.v1') || '{}') as {
+      states?: Record<string, { pendingMessages?: Message[]; submissions?: Message[] }>
+    }
+    return Object.values(checkpoint.states || {}).flatMap(state => [...(state.pendingMessages || []), ...(state.submissions || [])])
+      .find(message => message.text === text)
+  }, messageText)
+  await expect.poll(async () => (await readCheckpoint())?.attachments?.length).toBe(1)
+  const queued = await readCheckpoint()
+  await page.reload()
+  const unknown = page.getByTestId('code-acp-submission')
+  await expect(unknown).toHaveAttribute('data-status', 'unknown')
+  await expect(unknown).toContainText(messageText)
+  await expect(page.getByTestId('code-acp-pending-followup-row')).toHaveCount(0)
+  await page.getByTestId('code-acp-submission-retry').click()
+  await expect.poll(() => sent.filter(message => message.type === 'composer-input-status-request').length).toBe(1)
+  await expect(unknown).toHaveAttribute('data-status', 'unknown')
+  expect(sent.filter(message => message.type === 'composer-input')).toHaveLength(1)
+  expect(sent.find(message => message.type === 'composer-input-status-request')?.requestId).toBe(queued?.id)
+  await expect.poll(async () => (await readCheckpoint())?.attachments?.length).toBe(1)
 })
 
 test('keeps queued follow-ups separate and steers each selected message', async ({ page, workspaceRoot }) => {

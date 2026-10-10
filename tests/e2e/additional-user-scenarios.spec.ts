@@ -195,10 +195,7 @@ test.describe('additional Farming Code user scenarios', () => {
     const longAttachmentPath = path.join(workspaceRoot, 'a-very-long-context-filename-that-should-stay-readable-in-the-composer.txt')
     fs.writeFileSync(longAttachmentPath, 'long attachment context\n')
     const imageAttachmentPath = path.join(workspaceRoot, 'tiny-context.png')
-    fs.writeFileSync(imageAttachmentPath, Buffer.from(
-      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lYt98QAAAABJRU5ErkJggg==',
-      'base64',
-    ))
+    fs.copyFileSync(path.resolve('public/farming-2/app-icon-v2-180.png'), imageAttachmentPath)
 
     await openFarming(page)
     let bashAgentId = ''

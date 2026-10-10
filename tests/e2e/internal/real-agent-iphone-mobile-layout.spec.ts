@@ -645,7 +645,7 @@ test.describe('real Agent iPhone visual audit', () => {
     const fileChooser = await fileChooserPromise
     await fileChooser.setFiles(path.join(AUDIT_WORKSPACE, 'attachment.png'))
     const attachment = page.getByTestId('code-composer-attachment')
-    const removeAttachment = attachment.getByRole('button', { name: 'Remove attachment.png' })
+    const removeAttachment = attachment.getByRole('button', { name: /^Remove attachment\.(png|webp)$/ })
     await expect(attachment).toHaveClass(/image/)
     await expect(attachment).toHaveClass(/ready/, { timeout: 15_000 })
     await assertMobileComposerTouchTarget(removeAttachment)
@@ -667,7 +667,7 @@ test.describe('real Agent iPhone visual audit', () => {
     await reloadAndActivateAgent(page, openCodeAgentId, 'chat', 'dark')
     const restoredAttachment = page.getByTestId('code-composer-attachment')
     await expect(restoredAttachment).toHaveCount(1)
-    await restoredAttachment.getByRole('button', { name: 'Remove attachment.png' }).tap()
+    await restoredAttachment.getByRole('button', { name: /^Remove attachment\.(png|webp)$/ }).tap()
     await expect(restoredAttachment).toHaveCount(0)
 
     const openCodeShort = 'IPHONE_OPENCODE_SHORT_OK'
