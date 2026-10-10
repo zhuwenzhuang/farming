@@ -1,4 +1,5 @@
 import { useInteractionLayer } from '@/hooks/useInteractionLayer'
+import { COMPACT_VIEWPORT_QUERY, isCompactViewport } from '@/lib/responsive-mode'
 import { Fragment, memo, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import hljs from 'highlight.js/lib/core'
@@ -492,6 +493,7 @@ function renderIntralineHtml(text: string, ranges: NonNullable<ReviewDiffCell['i
 }
 
 function UnifiedRow({
+  baseLine,
   kind,
   intraline,
   language,
@@ -501,6 +503,7 @@ function UnifiedRow({
   preferences,
   renderAttachment,
 }: {
+  baseLine?: number
   kind: 'added' | 'changed' | 'deleted' | 'context'
   intraline?: ReviewDiffCell['intraline']
   language: string
@@ -512,7 +515,13 @@ function UnifiedRow({
 }) {
   return (
     <>
-      <div className={`review-diff-row unified ${kind}`}><LineNumber line={line} side={side} /><CodeCell intraline={intraline} language={language} line={line} side={side} text={text} preferences={preferences} /></div>
+      <div className={`review-diff-row unified ${kind}`}>
+        <LineNumber line={side === 'left' ? line : baseLine} side="left" />
+        <LineNumber line={side === 'left' ? undefined : line} side="right" />
+        <span className="review-diff-sign" aria-hidden="true">{kind === 'added' ? '+' : kind === 'deleted' ? '−' : ''}</span>
+        <CodeCell intraline={intraline} language={language} line={line} side={side} text={text} preferences={preferences} />
+      </div>
+      {baseLine && side !== 'left' ? renderAttachment?.(baseLine, ['left']) : null}
       {line ? renderAttachment?.(line, [side]) : null}
     </>
   )
@@ -568,7 +577,16 @@ function splitOuterContext(rows: ReviewDiffRow[]) {
 function changedBoundaryLine(rows: ReviewDiffRow[], edge: 'first' | 'last', side: 'left' | 'right') {
   const changes = rows.filter(row => row.kind !== 'context' && row.kind !== 'skipped')
   const ordered = edge === 'first' ? changes : [...changes].reverse()
-  return ordered.find(row => row[side]?.line)?.[side]?.line
+  const changedLine = ordered.find(row => row[side]?.line)?.[side]?.line
+  if (changedLine !== undefined) return changedLine
+  // A pure insertion/deletion has no changed cell on its opposite side.
+  // Its boundary lies between the adjacent common lines on that side.
+  const outer = splitOuterContext(rows)
+  const before = outer.leading[outer.leading.length - 1]?.[side]?.line
+  const after = outer.trailing[0]?.[side]?.line
+  return edge === 'first'
+    ? before !== undefined ? before + 1 : after
+    : after !== undefined ? after - 1 : before
 }
 
 function embeddedCommonLinesBeforeHunk(hunks: ReviewDiffHunk[], index: number) {
@@ -595,13 +613,15 @@ function commonLinesBeforeHunk(hunks: ReviewDiffHunk[], index: number) {
   ))
 }
 
-function commonLinesAfterFile(file: ReviewFile) {
+function commonLinesAfterFile(file: ReviewFile, usesEmbeddedContext: boolean) {
   const lastHunk = file.diff.hunks[file.diff.hunks.length - 1]
   const leftLines = file.diff.leftMeta?.lines
   const rightLines = file.diff.rightMeta?.lines
   if (!lastHunk || !Number.isInteger(leftLines) || !Number.isInteger(rightLines)) return 0
-  const lastLeft = lastHunk.oldStart + lastHunk.oldLines - 1
-  const lastRight = lastHunk.newStart + lastHunk.newLines - 1
+  const lastLeft = (usesEmbeddedContext ? changedBoundaryLine(lastHunk.rows, 'last', 'left') : undefined)
+    ?? lastHunk.oldStart + lastHunk.oldLines - 1
+  const lastRight = (usesEmbeddedContext ? changedBoundaryLine(lastHunk.rows, 'last', 'right') : undefined)
+    ?? lastHunk.newStart + lastHunk.newLines - 1
   return Math.max(0, Math.min((leftLines ?? 0) - lastLeft, (rightLines ?? 0) - lastRight))
 }
 
@@ -639,7 +659,7 @@ function contextGapBeforeHunk(
   const outerContext = splitOuterContext(hunk?.rows ?? [])
   const previousOuterContext = previousHunk ? splitOuterContext(previousHunk.rows) : null
   const commonContext = [...(hunk?.commonContext ?? []), ...outerContext.leading]
-  const usesEmbeddedContext = Boolean(hunk?.commonContext?.length)
+  const usesEmbeddedContext = Boolean(commonContext.length || previousOuterContext?.trailing.length)
   const totalLines = usesEmbeddedContext
     ? embeddedCommonLinesBeforeHunk(file.diff.hunks, hunkIndex)
     : commonLinesBeforeHunk(file.diff.hunks, hunkIndex)
@@ -689,16 +709,19 @@ function contextGapAfterFile(
 ): ContextGapDescriptor | null {
   const lastHunk = file.diff.hunks[file.diff.hunks.length - 1]
   if (!lastHunk) return null
-  const totalLines = commonLinesAfterFile(file)
   const key = bottomContextGapKey(contextKeyPrefix, file)
   const expansion = contextGapExpansions[key] ?? emptyContextGapExpansion()
   const trailingRows = splitOuterContext(lastHunk.rows).trailing
+  const usesEmbeddedContext = trailingRows.length > 0
+  const totalLines = commonLinesAfterFile(file, usesEmbeddedContext)
   const baseAboveRows = trailingRows.slice(0, Math.min(totalLines, context))
-  const hiddenLines = Math.max(0, totalLines - expansion.aboveRows.length)
-  const previousLeft = lastHunk.oldStart + lastHunk.oldLines - 1
-  const previousRight = lastHunk.newStart + lastHunk.newLines - 1
-  const oldHiddenStart = previousLeft + expansion.aboveRows.length + 1
-  const newHiddenStart = previousRight + expansion.aboveRows.length + 1
+  const hiddenLines = Math.max(0, totalLines - baseAboveRows.length - expansion.aboveRows.length)
+  const previousLeft = (usesEmbeddedContext ? changedBoundaryLine(lastHunk.rows, 'last', 'left') : undefined)
+    ?? lastHunk.oldStart + lastHunk.oldLines - 1
+  const previousRight = (usesEmbeddedContext ? changedBoundaryLine(lastHunk.rows, 'last', 'right') : undefined)
+    ?? lastHunk.newStart + lastHunk.newLines - 1
+  const oldHiddenStart = previousLeft + baseAboveRows.length + expansion.aboveRows.length + 1
+  const newHiddenStart = previousRight + baseAboveRows.length + expansion.aboveRows.length + 1
   return {
     availableRows: trailingRows.filter(row => {
       const oldLine = row.left?.line
@@ -789,7 +812,7 @@ function DiffRows({
             if (row.kind === 'skipped') return renderSkippedRow(row, key, hunkIndex)
             if (row.kind === 'context') {
               const cell = row.right ?? row.left
-              return <UnifiedRow key={key} intraline={cell?.intraline} kind="context" language={language} line={cell?.line} side={reviewCommentSideForUnifiedCell('context', Boolean(row.right))} text={cell?.text ?? ''} preferences={preferences} renderAttachment={renderAttachment} />
+              return <UnifiedRow key={key} baseLine={row.left?.line} intraline={cell?.intraline} kind="context" language={language} line={cell?.line} side={reviewCommentSideForUnifiedCell('context', Boolean(row.right))} text={cell?.text ?? ''} preferences={preferences} renderAttachment={renderAttachment} />
             }
             if (row.kind === 'changed') {
               return <Fragment key={key}>
@@ -1058,6 +1081,14 @@ function reviewDraftKey(reviewId: string, patchset: string) {
 }
 
 export function ReviewPage() {
+  const [compact, setCompact] = useState(isCompactViewport)
+  useEffect(() => {
+    const query = window.matchMedia(COMPACT_VIEWPORT_QUERY)
+    const sync = () => setCompact(query.matches)
+    sync()
+    query.addEventListener('change', sync)
+    return () => query.removeEventListener('change', sync)
+  }, [])
   const fixtureMode = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('fixture') === '1'
   const [acpCaptureTarget] = useState(() => {
     const search = typeof window === 'undefined' ? '' : window.location.search
@@ -1199,7 +1230,6 @@ export function ReviewPage() {
   const patchsetState = reviewStateForPatchset(reviewState, patchset)
   const expandedPaths = new Set(patchsetState.expandedPaths)
   const diffMode = reviewState.diffMode
-  useEffect(() => setSelectedCommentTarget(null), [reviewId, patchset, diffMode])
   const reviewSessionActive = Boolean(
     reviewSessionRevision
     && reviewRequestBase?.source === 'git-range'
@@ -1207,8 +1237,10 @@ export function ReviewPage() {
     && reviewRequestBase.head === reviewSessionRevision.head
   )
   const reviewScope = reviewSessionActive ? reviewSessionRevision?.scope : (reviewRequestBase?.source === 'working-copy' ? reviewRequestBase.scope : undefined)
-  const effectiveDiffMode: DiffMode = reviewScope === 'untracked' ? 'unified' : diffMode
+  const effectiveDiffMode: DiffMode = compact || reviewScope === 'untracked' ? 'unified' : diffMode
+  useEffect(() => setSelectedCommentTarget(null), [reviewId, patchset, effectiveDiffMode, compact])
   const diffPreferences = reviewState.preferences
+  const fitDiffToScreen = compact || diffPreferences.fitToScreen
   const reviewDiffRequest: ReviewDiffSnapshotRequest | null = reviewRequestBase
     ? { ...reviewRequestBase, context: diffPreferences.context, ignoreWhitespace: diffPreferences.ignoreWhitespace }
     : null
@@ -2088,10 +2120,10 @@ export function ReviewPage() {
               type: 'set-all-files-expanded',
             })}>{allVisibleExpanded ? 'COLLAPSE ALL' : 'EXPAND ALL'}</button>
             <span className="review-toolbar-separator" />
-            {reviewScope !== 'untracked' ? <>
+            {reviewScope !== 'untracked' && !compact ? <>
               <span>Diff view:</span>
-              <button type="button" className={`review-icon-action ${diffMode === 'split' ? 'active' : ''}`} aria-label="Side-by-side diff" title="Side-by-side diff" onClick={() => applyReviewAction({ mode: 'split', type: 'set-diff-mode' })}><DiffSplitGlyph /></button>
-              <button type="button" className={`review-icon-action ${diffMode === 'unified' ? 'active' : ''}`} aria-label="Unified diff" title="Unified diff" onClick={() => applyReviewAction({ mode: 'unified', type: 'set-diff-mode' })}><DiffUnifiedGlyph /></button>
+              <button type="button" className={`review-icon-action ${diffMode === 'split' ? 'active' : ''}`} aria-pressed={diffMode === 'split'} aria-label="Side-by-side diff" title="Side-by-side diff" onClick={() => applyReviewAction({ mode: 'split', type: 'set-diff-mode' })}><DiffSplitGlyph /></button>
+              <button type="button" className={`review-icon-action ${diffMode === 'unified' ? 'active' : ''}`} aria-pressed={diffMode === 'unified'} aria-label="Unified diff" title="Unified diff" onClick={() => applyReviewAction({ mode: 'unified', type: 'set-diff-mode' })}><DiffUnifiedGlyph /></button>
             </> : null}
             <button ref={preferencesTriggerRef} type="button" className="review-icon-action" aria-label="Diff preferences" title="Diff preferences" onClick={openPreferences}><SettingsGlyph /></button>
           </div>
@@ -2239,7 +2271,7 @@ export function ReviewPage() {
                   <button type="button" className="review-file-expand" aria-label={rowModel.expanded ? 'Collapse file diff' : 'Expand file diff'} onClick={event => toggleExpanded(file.path, event.currentTarget)}>{rowModel.expanded ? <ChevronDownGlyph /> : <ChevronRightGlyph />}</button>
                 </header>
                 {rowModel.expanded ? (
-                  <section className={`review-inline-diff ${effectiveDiffMode} ${diffPreferences.fitToScreen ? 'fit-to-screen' : ''}`} aria-label={`Diff for ${file.path}`}>
+                  <section className={`review-inline-diff ${effectiveDiffMode} ${fitDiffToScreen ? 'fit-to-screen' : ''}`} aria-label={`Diff for ${file.path}`}>
                     {outdatedComments.length ? <div className="review-outdated-comments">
                       {reviewView === 'fixes' && outdatedComments.some(comment => comment.side === 'left') ? <p>Comments on the original base (see Final change)</p> : null}
                       {outdatedComments.map(comment => <CommentThread
@@ -2259,7 +2291,7 @@ export function ReviewPage() {
                         <div
                           className="review-diff-code"
                           tabIndex={0}
-                          style={{ fontSize: `${diffPreferences.fontSize}px`, tabSize: diffPreferences.tabSize, minWidth: diffPreferences.fitToScreen ? undefined : `${Math.round(diffPreferences.lineLength * diffPreferences.fontSize * 0.62)}px` }}
+                          style={{ fontSize: `${diffPreferences.fontSize}px`, tabSize: diffPreferences.tabSize, minWidth: fitDiffToScreen ? undefined : `${Math.round(diffPreferences.lineLength * diffPreferences.fontSize * 0.62)}px` }}
                           onMouseDown={event => {
                             const cell = codeCellForSelectionNode(event.target as Node, event.currentTarget)
                             if (cell) event.currentTarget.dataset.selectionSide = cell.dataset.reviewSide
@@ -2323,8 +2355,8 @@ export function ReviewPage() {
                 ]}
                 onChange={value => setDraftPreferences(current => ({ ...current, context: Number(value) }))}
               />
-              <label className="checkbox-row">Fit to screen<input aria-label="Fit to screen" type="checkbox" checked={draftPreferences.fitToScreen} onChange={event => setDraftPreferences(current => ({ ...current, fitToScreen: event.target.checked }))} /></label>
-              <label>Diff width<input className="code-field" aria-label="Diff width" type="number" autoComplete="off" data-form-type="other" min={40} max={240} value={draftPreferences.lineLength} onChange={event => setDraftPreferences(current => ({ ...current, lineLength: Number(event.target.value) || current.lineLength }))} /></label>
+              <label className="checkbox-row">Fit to screen<input aria-label="Fit to screen" type="checkbox" checked={compact || draftPreferences.fitToScreen} disabled={compact} onChange={event => setDraftPreferences(current => ({ ...current, fitToScreen: event.target.checked }))} /></label>
+              <label>Diff width<input className="code-field" aria-label="Diff width" type="number" autoComplete="off" data-form-type="other" disabled={compact} min={40} max={240} value={draftPreferences.lineLength} onChange={event => setDraftPreferences(current => ({ ...current, lineLength: Number(event.target.value) || current.lineLength }))} /></label>
               <label>Tab width<input className="code-field" aria-label="Tab width" type="number" autoComplete="off" data-form-type="other" min={2} max={16} value={draftPreferences.tabSize} onChange={event => setDraftPreferences(current => ({ ...current, tabSize: Number(event.target.value) || current.tabSize }))} /></label>
               <label>Font size<input className="code-field" aria-label="Font size" type="number" autoComplete="off" data-form-type="other" min={10} max={20} value={draftPreferences.fontSize} onChange={event => setDraftPreferences(current => ({ ...current, fontSize: Number(event.target.value) || current.fontSize }))} /></label>
               <label className="checkbox-row">Automatically mark opened files reviewed<input aria-label="Automatically mark opened files reviewed" type="checkbox" checked={draftPreferences.autoMarkReviewed} onChange={event => setDraftPreferences(current => ({ ...current, autoMarkReviewed: event.target.checked }))} /></label>

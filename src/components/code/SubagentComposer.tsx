@@ -1,5 +1,4 @@
 import { cancelComposerIntake } from './composer-intake'
-import { readComposerInputPreferences } from './composer-input-preferences'
 import { attachSubagent } from '@/lib/subagent-supervision'
 import { useCallback, useRef, useState } from 'react'
 import type { Agent } from '@/types/agent'
@@ -82,7 +81,7 @@ export function SubagentComposer({ agent: structuralAgent, active, controller, c
     } catch (caught) { setError(caught instanceof Error ? caught.message : String(caught)) }
   }
   const pasteTextAsReference = (text: string, textarea: HTMLTextAreaElement) => {
-    if (!readComposerInputPreferences().foldLongPaste || textarea.dataset.plainPaste === 'true') return false
+    if (textarea.dataset.plainPaste === 'true') return false
     let reference
     try { reference = createPastedTextReference(text) }
     catch (error) {

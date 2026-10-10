@@ -79,11 +79,14 @@ archives and extraction timeout fail explicitly. Original files remain available
 for download. Every provider receives the same labeled extracted snapshot and
 stored original location through existing context submission.
 
-Images infer missing MIME types from recognized file extensions. HEIC is converted to PNG; optional
-image optimization bounds dimensions while keeping transparency. Original-size
-delivery is the default. Preview uses the shared full-screen content viewer with
-keyboard dismissal and focus return. Long-paste folding and image optimization
-are browser preferences in the Composer menu; Shift+Cmd/Ctrl+V bypasses folding for that paste.
+Images infer missing MIME types from recognized file extensions. HEIC is converted
+to PNG. PNG, JPEG and WebP images exceeding 2048 pixels on their longest edge are
+automatically resized while preserving transparency. Other images use WebP only
+when it reduces their size; otherwise they retain their original bytes.
+Preview uses the shared full-screen content viewer with
+keyboard dismissal and focus return. Long-paste folding and image preparation
+are system defaults shared by every Composer, without menu preferences or legacy
+browser overrides. Shift+Cmd/Ctrl+V bypasses folding for that paste.
 
 History recalls text, captured references and ready media together. It preserves
 an existing unsent attachment draft while browsing and restores that draft when

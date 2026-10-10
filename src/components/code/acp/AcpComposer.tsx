@@ -1,4 +1,3 @@
-import { ComposerInputPreferences } from '../composer-input-preferences'
 import { useComposerTransfer } from '../useComposerTransfer'
 import { useInteractionLayer } from '@/hooks/useInteractionLayer'
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type CSSProperties, type KeyboardEvent, type MouseEvent, type RefObject } from 'react'
@@ -755,7 +754,6 @@ export function AcpComposer({
             </button>
             {openMenu === 'commands' ? (
               <div className="code-menu-surface code-menu-list code-plus-menu code-composer-menu" role="menu" data-testid="code-acp-plus-menu">
-                <ComposerInputPreferences copy={copy} />
                 <button
                   type="button"
                   role="menuitem"

@@ -1,7 +1,6 @@
 import { appPath } from '@/lib/base-path'
 import type { AgentComposerState } from './composer-state'
 import { createComposerAttachmentId, createImageAttachmentPreviewUrl, isAudioFile, isImageFile, uploadImageAttachment, type ComposerAttachment } from './composer-message'
-import { readComposerInputPreferences } from './composer-input-preferences'
 
 const queued: Array<() => void> = []
 let running = 0
@@ -49,7 +48,7 @@ async function prepareImage(file: File, signal: AbortSignal) {
     prepared = new File([blob], file.name.replace(/\.[^.]+$/, '') + '.png', { type: 'image/png' })
   }
   signal.throwIfAborted()
-  if (readComposerInputPreferences().optimizeImages && ['image/png', 'image/jpeg', 'image/webp'].includes(prepared.type)) {
+  if (['image/png', 'image/jpeg', 'image/webp'].includes(prepared.type)) {
     const bitmap = await createImageBitmap(prepared)
     try {
       const scale = Math.min(1, 2048 / Math.max(bitmap.width, bitmap.height))
@@ -59,10 +58,10 @@ async function prepareImage(file: File, signal: AbortSignal) {
       if (!context) throw new Error('Image conversion is unavailable in this browser.')
       context.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
       const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob(result => result ? resolve(result) : reject(new Error('Image conversion failed.')), 'image/webp', 0.85))
-      if (blob.size < prepared.size) prepared = new File([blob], file.name.replace(/\.[^.]+$/, '') + '.webp', { type: 'image/webp' })
+      if (scale < 1 || blob.size < prepared.size) prepared = new File([blob], file.name.replace(/\.[^.]+$/, '') + '.webp', { type: 'image/webp' })
     } finally { bitmap.close() }
   }
-  if (prepared.size > 12 * 1024 * 1024) throw new Error('Image exceeds 12 MB. Enable image optimization or resize it before attaching.')
+  if (prepared.size > 12 * 1024 * 1024) throw new Error('Image exceeds 12 MB. Resize it before attaching.')
   return prepared
 }
 
