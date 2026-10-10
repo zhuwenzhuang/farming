@@ -91,7 +91,7 @@ main() {
       *) echo 'FARMING_NPM_REGISTRY must be an HTTPS npm registry.' >&2; exit 1 ;;
     esac
     local missing='' command
-    for command in curl tar gzip sed tr mktemp chmod touch mv ln cat sleep tail; do
+    for command in curl tar gzip sed tr mktemp chmod touch mv ln cat sleep tail awk; do
       command -v "${command}" >/dev/null || missing="${missing} ${command}"
     done
     if [ -n "${missing}" ]; then
@@ -362,13 +362,23 @@ render_downloads() {
   fi
   for i in "${!names[@]}"; do
     [ -n "${download_pids[i]}" ] || continue
-    line="$(tail -c 2048 "${destinations[i]}.progress" | tr '\r' '\n' | tail -n 1)"
+    # Verbose response headers and telemetry share the unbuffered stderr stream.
+    # Unlike --dump-header, this also streams on older curl. Each HTTP response
+    # resets the meter, so redirect bodies cannot masquerade as the archive.
+    line="$(tr '\r' '\n' < "${destinations[i]}.progress" | awk '
+      /< HTTP\/[0-9.]+ / {
+        sub(/^.*HTTP\//, "HTTP/")
+        success = ($2 ~ /^2[0-9][0-9]$/); meter = ""; next
+      }
+      success && NF == 12 && $1 ~ /^[0-9]+$/ && $3 ~ /^[0-9]+$/ { meter = $0 }
+      END { print meter }
+    ')"
     read -r overall total percent received up uploaded average upload_average duration spent remaining speed <<< "${line}"
     detail='Connecting…'
     bucket=-1
     if [[ "${overall}" =~ ^[0-9]+$ && "${percent}" =~ ^[0-9]+$ ]] && [ -n "${speed}" ]; then
       if [ "${total}" = 0 ] || { [ "${overall}" = 100 ] && [ "${percent}" = 0 ]; }; then
-        detail="${received} downloaded · ${speed}/s · total unknown"
+        detail="${received} downloaded · total unknown · ${speed}/s"
         bucket=0
         [ "${received}" = 0 ] || bucket=1
       else
@@ -478,7 +488,7 @@ start_package_download() {
   download_options "${urls[i]}" "${destinations[i]}.tgz"
   # Direct children only: the owner can stop and reap every curl process.
   : > "${destinations[i]}.progress"
-  curl "${curl_options[@]}" "${urls[i]}" -o "${destinations[i]}.tgz" 2>"${destinations[i]}.progress" &
+  curl "${curl_options[@]}" --verbose "${urls[i]}" -o "${destinations[i]}.tgz" 2>"${destinations[i]}.progress" &
   download_pids[i]=$!
 }
 

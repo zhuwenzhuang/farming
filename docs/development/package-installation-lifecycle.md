@@ -199,6 +199,8 @@ extraction phase, and reports dependency installation and runtime preparation.
 Archive downloads expose transferred bytes, speed, and an estimated remaining
 time when the server provides the total size; an unknown size must not be
 presented as a fabricated percentage or overall installation progress.
+Only the current successful HTTP response supplies archive progress; redirects
+and error responses reset the meter and never count as downloaded archives.
 Interactive terminals use the startup progress vocabulary: compact cyan download
 bars, yellow preparation/retry messages, and green readiness. Parallel transfers
 retain separate rows; redirected output uses bounded plain-text updates, without

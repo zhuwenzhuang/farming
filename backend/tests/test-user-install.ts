@@ -14,7 +14,7 @@ const quote = (value: string) => `'${value.replace(/'/g, `'\\''`)}'`;
 type IntegrityTool = 'sha512sum' | 'shasum' | 'openssl';
 const hasTool = (name: string) => spawnSync('/bin/sh', ['-c', `command -v ${name}`]).status === 0;
 
-type RuntimeDownloads = 'normal' | 'overlap' | 'fail-node' | 'fail-npm' | 'stall';
+type RuntimeDownloads = 'normal' | 'overlap' | 'fail-node' | 'fail-npm' | 'stall' | 'redirect';
 type MirrorMode = 'none' | 'available' | 'missing' | 'slow' | 'corrupt' | 'unavailable' | 'metadata-failure';
 
 async function fixture(legacy = false, integrityTool: IntegrityTool = 'openssl', runtimeDownloads: RuntimeDownloads = 'normal', mirrorMode: MirrorMode = 'none', platformPackages = false, realNpm = false) {
@@ -25,7 +25,7 @@ async function fixture(legacy = false, integrityTool: IntegrityTool = 'openssl',
   const integrityTools = integrityTool === 'openssl' ? ['openssl'] : [integrityTool, 'base64', 'od'];
   // Deliberately no node or npm in PATH. Their fixtures call a known absolute
   // executable so these tests neither download nor depend on a system install.
-  for (const name of ['bash', 'dirname', 'mkdir', 'rmdir', 'rm', 'readlink', ...integrityTools, 'tar', 'gzip', 'curl', 'sed', 'tr', 'mktemp', 'chmod', 'touch', 'mv', 'ln', 'cat', 'sleep', 'tail']) {
+  for (const name of ['bash', 'dirname', 'mkdir', 'rmdir', 'rm', 'readlink', ...integrityTools, 'tar', 'gzip', 'curl', 'sed', 'tr', 'mktemp', 'chmod', 'touch', 'mv', 'ln', 'cat', 'sleep', 'tail', 'awk']) {
     const target = execFileSync('/bin/sh', ['-c', `command -v ${name}`], { encoding: 'utf8' }).trim();
     fs.symlinkSync(target, path.join(fakePath, name));
   }
@@ -104,6 +104,20 @@ fs.appendFileSync(process.env.FARMING_TEST_CALLS, JSON.stringify({command:proces
         response.end(JSON.stringify({ name, version: '0.0.1', dist: {} })); return;
       }
       if (request.url!.endsWith('.tgz')) {
+        if (runtimeDownloads === 'redirect' && !requestPath.endsWith('/final.tgz')) {
+          response.writeHead(302, { location: `/${name}/final.tgz` }).end('redirect body');
+          return;
+        }
+        if (runtimeDownloads === 'redirect') {
+          // Leave time to observe the redirect meter before final headers arrive.
+          timers.push(setTimeout(() => {
+            if (name !== 'npm') response.setHeader('content-length', body.length);
+            const midpoint = Math.floor(body.length / 2);
+            response.write(body.subarray(0, midpoint));
+            timers.push(setTimeout(() => response.end(body.subarray(midpoint)), 1500));
+          }, 1200));
+          return;
+        }
         if (mirrorMode === 'unavailable' || (isMirror && mirrorMode === 'missing')) { response.writeHead(404).end(); return; }
         if (isMirror && mirrorMode === 'corrupt') { response.end('tampered mirror'); return; }
         if (isMirror && mirrorMode === 'slow') {
@@ -147,7 +161,7 @@ fs.appendFileSync(process.env.FARMING_TEST_CALLS, JSON.stringify({command:proces
   const address = server.address();
   assert(address && typeof address !== 'string');
   const registryUrl = `http://127.0.0.1:${address.port}`;
-  if (mirrorMode !== 'none') {
+  if (mirrorMode !== 'none' || runtimeDownloads === 'redirect') {
     const curl = fs.readlinkSync(path.join(fakePath, 'curl'));
     fs.unlinkSync(path.join(fakePath, 'curl'));
     // Map production endpoints to two isolated registry namespaces. exec keeps
@@ -155,15 +169,25 @@ fs.appendFileSync(process.env.FARMING_TEST_CALLS, JSON.stringify({command:proces
     executable(path.join(fakePath, 'curl'), `#!/bin/bash
 args=()
 speed_time=0
+archive_request=0
+verbose=0
 for arg in "$@"; do
   if [ "$speed_time" = 1 ]; then arg=1; speed_time=0; fi
   if [ "$arg" = --speed-time ]; then speed_time=1; fi
+  if [ "$arg" = --verbose ]; then verbose=1; fi
+  case "$arg" in http*.tgz) archive_request=1 ;; esac
   case "$arg" in
     https://registry.npmjs.org/*) arg="${registryUrl}/upstream/\${arg#https://registry.npmjs.org/}" ;;
     https://registry.npmmirror.com/*) arg="${registryUrl}/mirror/\${arg#https://registry.npmmirror.com/}" ;;
   esac
   args+=("$arg")
 done
+${runtimeDownloads === 'redirect' ? `# Older curl versions report redirect-body completion while awaiting the CDN.
+if [ "$archive_request" = 1 ]; then
+  if [ "$verbose" = 1 ]; then printf '< HTTP/1.1 302 Found\\r\\n< Content-Length: 13\\r\\n< \\r\\n' >&2; fi
+  printf '\\r100 13 100 13 0 0 130 0 --:--:-- --:--:-- --:--:-- 130' >&2
+  sleep 0.6
+fi` : ''}
 exec ${quote(curl)} "\${args[@]}"
 `);
   }
@@ -287,6 +311,21 @@ test('runtime archives overlap and report progress before either finishes', asyn
     assert(!result.output.includes('executablePath'), result.output);
     assert(!result.output.includes('\u001b['), result.output);
     assert(!result.output.includes('% Total'), result.output);
+  } finally { await f.close(); }
+});
+
+test('redirect bodies never appear as completed archive progress', async () => {
+  const f = await fixture(false, 'openssl', 'redirect');
+  try {
+    const result = await f.runTTY();
+    assert.equal(result.code, 0, result.output);
+    assert(f.requestPaths.includes('/farming-code/final.tgz'));
+    assert.match(result.output, /Connecting…/);
+    assert.match(result.output, /━+─+/);
+    assert.match(result.output, /total unknown/);
+    assert(!/100%\s+13 \/ 13/.test(result.output), result.output);
+    assert(!result.output.includes('HTTP/1.1'), result.output);
+    assert(!result.output.includes('Location:'), result.output);
   } finally { await f.close(); }
 });
 
