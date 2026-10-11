@@ -126,6 +126,16 @@ recipient's own stream or history is authoritative. Neither an outgoing tool's
 success nor quoted envelope text establishes receipt. Source metadata does not
 establish child ownership or grant navigation authority.
 
+Visual grouping is derived from adjacent messages within one recipient transcript;
+it never merges stored records or changes turn IDs. Consecutive peer-only turns
+share one source header when their stable session/task identity (or recorded
+address within this recipient) and receive-time label agree. A reply, tool or
+status output, human input, different identity, renamed source snapshot, or fork
+boundary closes the group. Loading older history, replay and new output recompute
+grouping from the visible authoritative order. The group tail shows its last
+message's recorded time outside the bubble, including on touch screens; missing
+times remain absent. There is no grouping mutation, retry or lifecycle transition.
+
 The reducer upserts by message ID within the recipient session. Replayed delivery
 cannot duplicate a message or rename its original source; different IDs remain
 distinct even with identical bodies. Receipt does not start, complete, cancel or

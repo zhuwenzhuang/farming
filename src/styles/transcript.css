@@ -171,7 +171,7 @@
   .code-agent-transcript-turn {
     width: 100%;
     max-width: none;
-    margin-bottom: 18px;
+    margin-bottom: var(--code-transcript-turn-gap, 18px);
   }
 
   .code-agent-transcript-turn .code-agent-transcript-answer,
@@ -244,7 +244,7 @@
 .code-agent-transcript-turn {
   width: 100%;
   max-width: 980px;
-  margin: 0 auto 26px;
+  margin: 0 auto var(--code-transcript-turn-gap, 26px);
   user-select: text;
   -webkit-user-select: text;
 }
@@ -2481,11 +2481,11 @@ button.code-agent-transcript-result-summary:is(:hover, :focus-visible) .code-age
   body.code-mode.code-compact-layout .code-agent-transcript-turn {
       width: 100%;
       max-width: none;
-      margin-bottom: 18px;
+      margin-bottom: var(--code-transcript-turn-gap, 18px);
     }
 
   body.code-mode.code-compact-layout.code-mobile-keyboard-active .code-agent-transcript-turn {
-      margin-bottom: 12px;
+      margin-bottom: var(--code-transcript-turn-gap, 12px);
     }
 
   body.code-mode.code-compact-layout .code-agent-transcript-answer,
@@ -2715,3 +2715,34 @@ button.code-agent-transcript-result-summary:is(:hover, :focus-visible) .code-age
 
 .code-agent-transcript-collaboration-activity { flex: 0 0 100%; min-width: 0; }
 .code-agent-transcript-collaboration-event-description { display: block; overflow: hidden; text-overflow: ellipsis; }
+
+/* A visual peer group keeps individual turn anchors and message records intact. */
+.code-agent-transcript-turn.peer-group-open {
+  --code-transcript-turn-gap: 0px;
+}
+
+.code-agent-transcript-subagent-turn.peer-group-open {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.code-agent-transcript-peer-message.peer-group-open {
+  margin-bottom: 4px;
+}
+
+.code-agent-transcript-peer-avatar.peer-avatar-spacer {
+  background: transparent;
+  height: 0;
+}
+
+.code-agent-transcript-message-time-peer {
+  position: static;
+  margin-top: 4px;
+  opacity: 1;
+  pointer-events: auto;
+  transform: none;
+}
+
+.code-agent-transcript-subagent-turn.peer-group-continuation {
+  padding-top: 0;
+}

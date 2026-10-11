@@ -1,3 +1,4 @@
+import { continuesPeerMessageGroup, peerMessageTimestamp } from './acp/peer-message-layout'
 import type { Agent } from '@/types/agent'
 import { useAgentWithLiveState } from '@/lib/agent-live-state'
 import { agentTitle } from '@/lib/format'
@@ -310,7 +311,7 @@ function AgentTranscriptMessageTime({
   kind,
 }: {
   timestamp: number | null | undefined
-  kind: 'user' | 'steer' | 'answer'
+  kind: 'user' | 'steer' | 'answer' | 'peer'
 }) {
   const value = transcriptMessageTime(timestamp)
   if (!value) return null
@@ -1080,9 +1081,9 @@ export function AgentTranscriptSubagentPreview({
   })
   const entries = docked ? <AgentTranscriptReadOnly transcript={transcript} copy={copy} onQuoteInParent={onQuoteInParent} /> : (
     <div className="code-agent-transcript-subagent-entries">
-      {transcript.turns.map(turn => (
-        <div className="code-agent-transcript-subagent-turn" key={turn.id}>
-          {turn.userSource || turn.userMessage ? <AgentTranscriptIncomingMessage source={turn.userSource}><div className="user">{turn.userSource?.bodyUnavailable ? copy.agentTranscriptPeerBodyUnavailable : plainTextBlock(turn.userMessage)}</div></AgentTranscriptIncomingMessage> : null}
+      {transcript.turns.map((turn, index) => (
+        <div className={`code-agent-transcript-subagent-turn ${continuesPeerMessageGroup(turn, transcript.turns[index + 1]) ? 'peer-group-open' : ''} ${continuesPeerMessageGroup(transcript.turns[index - 1], turn) ? 'peer-group-continuation' : ''}`} key={turn.id}>
+          {turn.userSource || turn.userMessage ? <AgentTranscriptIncomingMessage turn={turn} continued={continuesPeerMessageGroup(transcript.turns[index - 1], turn)} hasNext={continuesPeerMessageGroup(turn, transcript.turns[index + 1])}><div className="user">{turn.userSource?.bodyUnavailable ? copy.agentTranscriptPeerBodyUnavailable : plainTextBlock(turn.userMessage)}</div></AgentTranscriptIncomingMessage> : null}
           {turn.processItems.length > 0 ? (
             <div className="actions">{turn.processItems.map(item => <AgentTranscriptSubagentAction item={item} key={item.id} />)}</div>
           ) : null}
@@ -1455,7 +1456,10 @@ function AgentTranscriptCommunicationRecipient({ peer, fallback, directed, copy 
   return directed ? copy.agentTranscriptCollaborationRecipient(name) : name
 }
 
-function AgentTranscriptIncomingMessage({ source, children }: { source?: AgentTranscriptTurn['userSource']; children: ReactNode }) {
+function AgentTranscriptIncomingMessage({ turn, continued = false, hasNext = false, children }: {
+  turn: AgentTranscriptTurn; continued?: boolean; hasNext?: boolean; children: ReactNode
+}) {
+  const source = turn.userSource
   const navigation = useContext(CommunicationPeerNavigation)
   const { agentId } = useContext(TranscriptFileOpenContext)
   if (!source) return <>{children}</>
@@ -1467,9 +1471,14 @@ function AgentTranscriptIncomingMessage({ source, children }: { source?: AgentTr
     ? <button type="button" className="code-agent-transcript-message-source" data-testid="code-agent-message-source"
         onClick={() => navigation.open?.(peer.id)}>{name}</button>
     : <div className="code-agent-transcript-message-source" data-testid="code-agent-message-source">{name}</div>
-  return <div className="code-agent-transcript-peer-message">
-    <div className="code-agent-transcript-peer-content">{label}{children}</div>
-    <div className="code-agent-transcript-peer-avatar"><CollaborationAgentIcon sessionId={identity} /></div>
+  return <div className={`code-agent-transcript-peer-message ${hasNext ? 'peer-group-open' : ''}`}>
+    <div className="code-agent-transcript-peer-content">
+      {!continued ? label : null}{children}
+      {!hasNext ? <AgentTranscriptMessageTime timestamp={peerMessageTimestamp(turn)} kind="peer" /> : null}
+    </div>
+    <div className={`code-agent-transcript-peer-avatar ${continued ? 'peer-avatar-spacer' : ''}`} aria-hidden="true">
+      {!continued ? <CollaborationAgentIcon sessionId={identity} /> : null}
+    </div>
   </div>
 }
 
@@ -2275,6 +2284,8 @@ function AgentTranscriptPatchResultCard({
 
 function AgentTranscriptTurnView({
   turn,
+  peerContinued = false,
+  peerHasNext = false,
   copy,
   onOpenFile,
   onOpenUrlInFarming,
@@ -2301,6 +2312,8 @@ function AgentTranscriptTurnView({
   showLiveActivity,
 }: {
   turn: AgentTranscriptTurn
+  peerContinued?: boolean
+  peerHasNext?: boolean
   copy: CodeCopy
   onOpenFile?: (filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void> | void
   onOpenUrlInFarming?: (url: string) => void
@@ -2738,16 +2751,16 @@ function AgentTranscriptTurnView({
   }), [agentId, copy, onOpenFile, turn.id, workspaceRoot])
 
   return (
-    <article ref={turnRef} className={`code-agent-transcript-turn ${turn.status === 'inProgress' ? 'running' : ''}`} data-turn-id={turn.id}>
+    <article ref={turnRef} className={`code-agent-transcript-turn ${turn.status === 'inProgress' ? 'running' : ''} ${peerHasNext ? 'peer-group-open' : ''}`} data-turn-id={turn.id}>
       {turn.userSource || turn.userMessage || userImages.length > 0 || userAudios.length > 0 || userFiles.length > 0 ? (
-        <AgentTranscriptIncomingMessage source={turn.userSource}>
+        <AgentTranscriptIncomingMessage turn={turn} continued={peerContinued} hasNext={peerHasNext}>
           <div className="code-agent-transcript-user">
             {turn.userSource?.bodyUnavailable ? <div className="code-agent-transcript-message-unavailable">{copy.agentTranscriptPeerBodyUnavailable}</div> : null}
             {turn.userMessage ? <div>{plainTextBlock(turn.userMessage)}</div> : null}
             <AgentTranscriptUserImages images={userImages} />
             <AgentTranscriptAudios audios={userAudios} />
             <AgentTranscriptUserFiles files={userFiles} />
-            <AgentTranscriptMessageTime timestamp={turn.startedAt} kind="user" />
+            {!turn.userSource ? <AgentTranscriptMessageTime timestamp={turn.startedAt} kind="user" /> : null}
           </div>
         </AgentTranscriptIncomingMessage>
       ) : null}
@@ -3047,7 +3060,8 @@ function AgentTranscriptReadOnly({ transcript, copy, onQuoteInParent }: { transc
   const [openActivities, setOpenActivities] = useState<Set<string>>(() => new Set())
   return <div className="code-agent-transcript-scroll" data-testid="code-related-transcript">
     {transcript.turns.length === 0 ? <div className="code-agent-transcript-blank" role="status">{copy.agentTranscriptEmpty}</div> : null}
-    {transcript.turns.map(turn => <div key={turn.id}><StableAgentTranscriptTurnView turn={turn} copy={copy} source="acp"
+    {transcript.turns.map((turn, index) => <div key={turn.id}><StableAgentTranscriptTurnView turn={turn} copy={copy} source="acp"
+      peerContinued={continuesPeerMessageGroup(transcript.turns[index - 1], turn)} peerHasNext={continuesPeerMessageGroup(turn, transcript.turns[index + 1])}
       clockActive={transcript.state === 'working'} processOpen={openTurns.has(turn.id)} groupProcessActions
       onToggleProcess={id => setOpenTurns(current => {
         const next = new Set(current)
@@ -4396,6 +4410,8 @@ export function AgentTranscriptPane({
                   <LocalRenderFault surface="transcript-turn" identity={turn.id}>
                     <StableAgentTranscriptTurnView
                       turn={turn}
+                      peerContinued={transcript?.forkOrigin?.afterTurnId !== turns[index - 1]?.id && continuesPeerMessageGroup(turns[index - 1], turn)}
+                      peerHasNext={transcript?.forkOrigin?.afterTurnId !== turn.id && continuesPeerMessageGroup(turn, turns[index + 1])}
                       copy={copy}
                       onOpenFile={onOpenWorkspaceFilePath ? handleOpenFile : undefined}
                       onOpenUrlInFarming={onOpenUrlInFarming}

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { continuesPeerMessageGroup, peerMessageTimestamp } from '../../src/components/code/acp/peer-message-layout';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -47,6 +48,28 @@ async function run() {
   const state = new AcpSessionState({ provider: 'codex', sessionId: 'recipient' });
   state.apply({ sessionId: 'recipient', update: encrypted });
   assert.equal(projectAcpTranscript({ sessionId: 'recipient', entries: state.sanitizedEntries() }).turns[0].userSource?.bodyUnavailable, 'encrypted');
+
+  const peerTurn = projectAcpTranscript({ sessionId: 'recipient', entries: state.sanitizedEntries() }).turns[0];
+  const first = { ...peerTurn, userSource: { ...peerTurn.userSource!, senderSessionId: 'session-a', senderName: 'Shared name' } };
+  const second = { ...first, id: 'another-message' };
+  assert(continuesPeerMessageGroup(first, second));
+  assert(!continuesPeerMessageGroup(undefined, second), 'loaded page starts with a full source');
+  assert(!continuesPeerMessageGroup(first, undefined));
+  assert(!continuesPeerMessageGroup({ ...first, userSource: undefined }, second), 'human input breaks grouping');
+  assert(!continuesPeerMessageGroup({ ...first, finalMessage: 'Reply' }, second), 'a reply breaks grouping');
+  assert(!continuesPeerMessageGroup({ ...first, status: 'inProgress' }, second), 'active work is not a peer-only turn');
+  assert(!continuesPeerMessageGroup({ ...first, stopReason: 'error' }, second), 'failure breaks grouping');
+  assert(!continuesPeerMessageGroup({ ...first, processItems: [{ id: 'tool', type: 'tool', title: 'Read' }] }, second), 'tool output breaks grouping');
+  assert(!continuesPeerMessageGroup(first, { ...second, userSource: { ...second.userSource, senderSessionId: 'session-b' } }), 'same name is not the same sender');
+  assert(!continuesPeerMessageGroup(first, { ...second, userSource: { ...second.userSource, senderName: 'Renamed' } }), 'preserve new name snapshots');
+  assert(!continuesPeerMessageGroup(first, { ...second, userSource: { ...second.userSource, senderSessionId: undefined } }), 'do not bridge known and unknown identity');
+  const addressTurn = { ...first, userSource: { ...first.userSource, senderSessionId: undefined } };
+  assert(continuesPeerMessageGroup(addressTurn, { ...addressTurn, id: 'next' }));
+  assert(!continuesPeerMessageGroup(addressTurn, { ...addressTurn, userSource: { ...addressTurn.userSource, senderAddress: 'other' } }));
+  assert(!continuesPeerMessageGroup({ ...addressTurn, userSource: { ...addressTurn.userSource, senderTaskId: 'task-a' } }, { ...addressTurn, userSource: { ...addressTurn.userSource, senderTaskId: 'task-b' } }));
+  assert.equal(peerMessageTimestamp({ ...first, startedAt: null, userSource: { ...first.userSource, timestamp: undefined } }), null);
+  assert.equal(peerMessageTimestamp({ ...first, startedAt: 123, userSource: { ...first.userSource, timestamp: 'invalid' } }), 123);
+  assert.equal(peerMessageTimestamp({ ...first, userSource: { ...first.userSource, timestamp: '2026-01-01T10:31:00Z' } }), Date.parse('2026-01-01T10:31:00Z'));
 
   const home = await fs.mkdtemp(path.join(os.tmpdir(), 'farming-peer-test-'));
   const oldHome = process.env.CODEX_HOME;

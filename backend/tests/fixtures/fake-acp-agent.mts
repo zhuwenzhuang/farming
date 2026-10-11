@@ -537,12 +537,14 @@ class FakeAgent implements Agent {
     const promptText = params.prompt?.map(block => block.type === 'text' ? block.text : '').join('') || '';
     const imageCount = params.prompt?.filter(block => block.type === 'image').length || 0;
     if (promptText === 'peer incoming appearance') {
-      const source = { version: 1, direction: 'incoming', senderAddress: 'peer-storage', senderName: 'Cleanroom HDFS TPCDS 单机验收与多机接线' };
+      const source = { version: 1, direction: 'incoming', senderAddress: 'peer-storage', senderName: 'Cleanroom HDFS TPCDS 单机验收与多机接线', timestamp: '2026-01-01T10:30:00Z' };
       for (const update of [
         { sessionUpdate: 'session_message', messageId: 'peer-receive-1', content: [{ type: 'text', text: '我负责 HDFS 生命周期和存储适配。共享传输配置保持不变。' }], _meta: { peerMessage: source } },
         { sessionUpdate: 'session_message', messageId: 'peer-receive-1', content: [{ type: 'text', text: '我负责 HDFS 生命周期和存储适配。共享传输配置保持不变。' }], _meta: { peerMessage: { ...source, senderName: '已改名的新任务' } } },
+        { sessionUpdate: 'session_message', messageId: 'peer-receive-1b', content: [{ type: 'text', text: '补充：两台机器共用同一份存储配置。' }], _meta: { peerMessage: { ...source, timestamp: '2026-01-01T10:31:00Z' } } },
         { sessionUpdate: 'agent_message_chunk', messageId: 'peer-reply', content: { type: 'text', text: '收到，我继续负责 Worker 和控制面。' } },
-        { sessionUpdate: 'session_message', messageId: 'peer-receive-2', content: [{ type: 'text', text: '' }], _meta: { peerMessage: { ...source, senderName: 'Cleanroom 多机 Worker 与构建窗口协调', senderAddress: 'peer-worker', bodyUnavailable: 'encrypted' } } },
+        { sessionUpdate: 'session_message', messageId: 'peer-receive-1c', content: [{ type: 'text', text: '验收结果会单独同步给你。' }], _meta: { peerMessage: { ...source, timestamp: '2026-01-01T10:33:00Z' } } },
+        { sessionUpdate: 'session_message', messageId: 'peer-receive-2', content: [{ type: 'text', text: '' }], _meta: { peerMessage: { ...source, senderName: 'Cleanroom 多机 Worker 与构建窗口协调', senderAddress: 'peer-worker', timestamp: '2026-01-01T10:34:00Z', bodyUnavailable: 'encrypted' } } },
       ] satisfies SessionUpdate[]) await client.sessionUpdate({ sessionId: params.sessionId, update });
       return { stopReason: 'end_turn' };
     }
