@@ -74,6 +74,33 @@ its existing operation owner determines the next state; dismissal never retries 
 filesystem mutation. Deferred focus recovery must preserve the user's current
 selection when an inline editor already owns focus.
 
+## Reversible Display Changes
+
+The backend owns saved metadata and configuration. The browser overlays admitted
+user intent immediately for row ordering, pinning, follow-up/read markers, names,
+and preference values. This projection never claims a runtime has started or a
+filesystem operation has succeeded.
+
+The minimal state model is idle, saving, reconciling, and settled. Admission
+updates the projection before transport; conflicting writes retain user order.
+Successful responses confirm only their own fields. Incoming state and older
+responses cannot erase later intent. A definite rejection removes only that
+operation and rebases later intent over current authoritative state. A failed
+superseded operation needs no notification. Read projections acknowledge the
+observed attention/output cut, so later output remains unread.
+
+Transport ambiguity triggers a bounded read, never an automatic mutation replay.
+If that read confirms the intended value, settle silently. Otherwise present
+current state with one short, neutral save-status notice; never report a known
+rollback when the write outcome is uncertain. A confirmed rejection that changes
+the visible result gives one lightweight restoration notice. Successful routine
+saves are silent. Completion cannot restore focus after a later user decision.
+
+Acceptance holds writes pending while users click and drag again, delivers old
+state between admission and confirmation, rejects earlier and latest writes,
+loses a response after a successful save, and introduces new unread activity.
+Verify composed rows/counts and all supported appearances.
+
 ## Opening An Agent
 
 Search, History, and Project session activation share one navigation owner,

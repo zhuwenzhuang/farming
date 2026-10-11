@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { appPath } from '@/lib/base-path'
-import { normalizeProjectNames, type ProjectMembership } from './useProjectMembershipController'
+import { normalizeProjectNames, type ProjectMembership, type ProjectDisplayIntent } from './useProjectMembershipController'
 
 const PROJECT_MUTATION_TIMEOUT_MS = 30_000
 
@@ -33,6 +33,8 @@ export interface ProjectMutationPorts {
   request?: ProjectRequest
   setTimer?: (callback: () => void, delay: number) => unknown
   showError: (message: string) => void
+  showSaveStatus?: (uncertain: boolean) => void
+  displayIntents?: (intents: ProjectDisplayIntent[]) => void
   timeoutMs?: number
 }
 
@@ -132,6 +134,7 @@ export class ProjectMutationController {
         let resolve!: (outcome: ProjectMutationOutcome) => void
         const promise = new Promise<ProjectMutationOutcome>(accept => { resolve = accept })
         this.membershipQueue.push({ input, promise, resolve, signature })
+        this.publishDisplay()
         return promise
       }
       if (existing.signature === signature) return existing.promise
@@ -173,6 +176,7 @@ export class ProjectMutationController {
       }, this.ports.timeoutMs ?? PROJECT_MUTATION_TIMEOUT_MS),
     })
     this.operations.set(key, operation)
+    this.publishDisplay()
     void this.run(key, operation, epoch)
     return promise
   }
@@ -192,6 +196,18 @@ export class ProjectMutationController {
     ;(this.ports.clearTimer || clearTimeout)(operation.timer as number)
     operation.resolve(outcome)
     if (key === 'membership') this.advanceMembership(advanceMembership)
+    this.publishDisplay()
+  }
+
+  private publishDisplay() {
+    const current = this.operations.get('membership')?.input
+    const inputs = [...(current ? [current] : []), ...this.membershipQueue.map(operation => operation.input)]
+    this.ports.displayIntents?.(inputs.filter((input): input is Extract<ProjectMutation, { kind: 'pin' | 'reorder' }> => input.kind === 'pin' || input.kind === 'reorder'))
+  }
+
+  private report(input: ProjectMutation, message: string, uncertain: boolean) {
+    if (input.kind !== 'remove' && this.ports.showSaveStatus) this.ports.showSaveStatus(uncertain)
+    else this.ports.showError(message)
   }
 
   private advanceMembership(allowed: boolean) {
@@ -216,10 +232,10 @@ export class ProjectMutationController {
     operation.settlingUncertain = true
     ;(this.ports.clearTimer || clearTimeout)(operation.timer as number)
     operation.abortController.abort()
-    this.ports.showError(`${reason}; the Project outcome is uncertain`)
     const reconciled = await this.reconcile(key, epoch, operation.input)
     if (!this.active(key, operation)) return
-    this.settle(key, operation, { status: 'failed', uncertain: true }, reconciled)
+    if (!reconciled.matched) this.report(operation.input, `${reason}; the Project outcome is uncertain`, true)
+    this.settle(key, operation, reconciled.matched ? { status: 'succeeded' } : { status: 'failed', uncertain: true }, reconciled.matched)
   }
 
   private async run(key: string, operation: ProjectOperation, epoch: number) {
@@ -236,9 +252,14 @@ export class ProjectMutationController {
       const raw = await response.json().catch(() => null)
       if (!this.active(key, operation)) return
       if (!response.ok) {
+        if (response.status >= 500) {
+          void this.finishUncertain(key, operation, epoch, 'Project save was not confirmed')
+          return
+        }
         this.rollbackRename(input)
         const message = record(raw)?.error
-        this.ports.showError(typeof message === 'string' && message ? message : input.errorMessage)
+        const superseded = this.membershipQueue.some(next => next.input.workspace === input.workspace && next.input.kind === input.kind)
+        if (!superseded) this.report(input, typeof message === 'string' && message ? message : input.errorMessage, false)
         this.settle(key, operation, { status: 'failed', uncertain: false })
         return
       }
@@ -276,7 +297,6 @@ export class ProjectMutationController {
     this.reconcileAborts.set(key, abortController)
     const setTimer = this.ports.setTimer || ((callback: () => void, delay: number) => setTimeout(callback, delay))
     let timer: unknown
-    let timedOut = false
     try {
       const request = this.ports.request || fetch
       const result = await Promise.race([
@@ -290,31 +310,34 @@ export class ProjectMutationController {
         })(),
         new Promise<never>((_resolve, reject) => {
           timer = setTimer(() => {
-            timedOut = true
             abortController.abort()
             reject(new Error('Project state reconciliation timed out'))
           }, this.ports.timeoutMs ?? PROJECT_MUTATION_TIMEOUT_MS)
         }),
       ])
       const { response, raw } = result
-      if (this.disposed || this.epochs.get(key) !== epoch || this.reconcileAborts.get(key) !== abortController) return false
+      if (this.disposed || this.epochs.get(key) !== epoch || this.reconcileAborts.get(key) !== abortController) return { matched: false }
       const settings = record(record(raw)?.settings)
       if (!response.ok || !settings) throw new Error('Project state reconciliation failed')
       if (input.kind === 'rename') {
         const names = normalizeProjectNames(settings.projectNames)
         this.ports.replaceProjectName(input.workspace, names[input.workspace] ?? null, input.name)
+        return { matched: names[input.workspace] === input.name }
       } else {
         const authoritativeMembership = membership(settings)
         if (!authoritativeMembership) throw new Error('Project state reconciliation failed')
         this.ports.applyProjectMembership(authoritativeMembership)
+        const projects = authoritativeMembership.projectWorkspaces as string[]
+        const pinned = authoritativeMembership.pinnedProjectWorkspaces as string[]
+        if (input.kind === 'pin') return { matched: pinned.includes(input.workspace) === input.pinned }
+        if (input.kind === 'remove') return { matched: !projects.includes(input.workspace) }
+        const group = pinned.includes(input.workspace) ? pinned : projects.filter(workspace => !pinned.includes(workspace))
+        const index = group.indexOf(input.workspace)
+        return { matched: index >= 0 && (!input.beforeWorkspace || group[index - 1] === input.beforeWorkspace)
+          && (!input.afterWorkspace || group[index + 1] === input.afterWorkspace) }
       }
-      return true
-    } catch (error) {
-      if (this.disposed || this.epochs.get(key) !== epoch || this.reconcileAborts.get(key) !== abortController) return false
-      if (!abortController.signal.aborted || timedOut) {
-        this.ports.showError(error instanceof Error ? error.message : 'Project state reconciliation failed')
-      }
-      return false
+    } catch {
+      return { matched: false }
     } finally {
       if (timer !== undefined) (this.ports.clearTimer || clearTimeout)(timer as number)
       if (this.reconcileAborts.get(key) === abortController) this.reconcileAborts.delete(key)
@@ -333,6 +356,7 @@ export class ProjectMutationController {
       operation.resolve({ status: 'stale' })
     }
     for (const queued of this.membershipQueue.splice(0)) queued.resolve({ status: 'stale' })
+    this.ports.displayIntents?.([])
   }
 }
 
@@ -346,6 +370,8 @@ export function useProjectMutationController(ports: ProjectMutationPorts) {
       replaceProjectName: (workspace, name, expected) => portsRef.current.replaceProjectName(workspace, name, expected),
       request: (url, init) => (portsRef.current.request || fetch)(url, init),
       showError: message => portsRef.current.showError(message),
+      showSaveStatus: uncertain => portsRef.current.showSaveStatus?.(uncertain),
+      displayIntents: intents => portsRef.current.displayIntents?.(intents),
     })
   }
   const controller = controllerRef.current

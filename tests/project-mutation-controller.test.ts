@@ -158,8 +158,9 @@ test('uncertain rename that applied retains the authoritative target', async () 
   const outcome = await subject.controller.mutate({
     kind: 'rename', workspace: '/one', name: 'Next', previousName: 'One', errorMessage: 'rename failed',
   })
-  assert.deepEqual(outcome, { status: 'failed', uncertain: true })
+  assert.deepEqual(outcome, { status: 'succeeded' })
   assert.equal(subject.names['/one'], 'Next')
+  assert(!subject.events.some(event => event.startsWith('error:')))
 })
 
 test('rename and membership uncertain reconciliations are isolated', async () => {
@@ -220,7 +221,7 @@ test('timeout aborts, reconciles, and never replays the mutation', async () => {
   assert.equal(mutations, 1)
 })
 
-test('queued membership mutation waits for uncertain predecessor reconciliation', async () => {
+test('unconfirmed predecessor cancels its queued membership mutation without replay', async () => {
   const reconcileGate = deferred<ReturnType<typeof response>>()
   let mutations = 0
   const subject = fixture({
@@ -237,8 +238,8 @@ test('queued membership mutation waits for uncertain predecessor reconciliation'
   assert.equal(mutations, 1)
   reconcileGate.resolve(settings())
   assert.deepEqual(await first, { status: 'failed', uncertain: true })
-  assert.deepEqual(await queued, { status: 'succeeded' })
-  assert.equal(mutations, 2)
+  assert.deepEqual(await queued, { status: 'failed', uncertain: true })
+  assert.equal(mutations, 1)
 })
 
 test('reconciliation timeout covers a never-settling response body and terminates its queue', async () => {
@@ -268,7 +269,7 @@ test('reconciliation timeout covers a never-settling response body and terminate
   assert.deepEqual(await first, { status: 'failed', uncertain: true })
   assert.deepEqual(await queued, { status: 'failed', uncertain: true })
   assert.equal(mutations, 1)
-  assert(subject.events.includes('error:Project state reconciliation timed out'))
+  assert.equal(subject.events.filter(event => event.startsWith('error:')).length, 1)
 })
 
 test('dispose aborts pending and queued mutations without late effects', async () => {

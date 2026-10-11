@@ -238,6 +238,8 @@ function panelCopy(language: UiPreferences['language']) {
     saved: zh ? '已保存' : 'Saved',
     loadFailed: zh ? '加载设置失败' : 'Failed to load settings',
     saveFailed: zh ? '保存失败' : 'Failed to save',
+    changesRestored: zh ? '未保存，已恢复原设置' : 'Not saved. Previous setting restored.',
+    changesUnconfirmed: zh ? '保存尚未确认，连接恢复后请再核对' : 'Save not confirmed. Check again when connected.',
   }
 }
 
@@ -272,6 +274,8 @@ export function AgentHomesSettingsPanel({
     dismissOnPointerOutside: true,
   })
   const searchTimeoutSaveTimerRef = useRef<number | null>(null)
+  const searchTimeoutSaveRevisionRef = useRef(0)
+  const searchTimeoutSaveTailRef = useRef<Promise<void>>(Promise.resolve())
   const restReminderSaveRequestRef = useRef(0)
   const upgradeTargetVersionRef = useRef('')
   const panelScopeRef = useRef({ open, generation: 0 })
@@ -283,6 +287,7 @@ export function AgentHomesSettingsPanel({
   const [shareHoursSaving, setShareHoursSaving] = useState(false)
   const shareHoursSaveRef = useRef(false)
   const [searchTimeoutSeconds, setSearchTimeoutSeconds] = useState(15)
+  const confirmedSearchTimeoutRef = useRef(15)
   const [searchTimeoutDraftSeconds, setSearchTimeoutDraftSeconds] = useState<number | null>(null)
   const [contentFontSizeDraft, setContentFontSizeDraft] = useState<number | null>(null)
   const [completionNotificationsEnabled, setCompletionNotificationsEnabled] = useState(false)
@@ -335,7 +340,8 @@ export function AgentHomesSettingsPanel({
         setComposerFollowUpBehavior(nextFollowUpBehavior)
         onSyncUiPreferences({ composerFollowUpBehavior: nextFollowUpBehavior })
         setShareHours(Number(data.settings?.readOnlyShareHours ?? 24))
-        setSearchTimeoutSeconds(nearestSearchTimeoutSeconds(Number(data.settings?.searchTimeoutMs ?? 15000)))
+        confirmedSearchTimeoutRef.current = nearestSearchTimeoutSeconds(Number(data.settings?.searchTimeoutMs ?? 15000))
+        setSearchTimeoutSeconds(confirmedSearchTimeoutRef.current)
       })
       .catch(() => {
         if (
@@ -483,32 +489,67 @@ export function AgentHomesSettingsPanel({
   }, [copy.loadFailed])
 
   const setSearchTimeout = useCallback((seconds: number) => {
+    const revision = ++searchTimeoutSaveRevisionRef.current
+    const generation = panelScopeRef.current.generation
+    const current = () => panelScopeRef.current.open && panelScopeRef.current.generation === generation
+      && searchTimeoutSaveRevisionRef.current === revision
     setSearchTimeoutSeconds(seconds)
     setError('')
+    setNotice('')
     if (searchTimeoutSaveTimerRef.current !== null) window.clearTimeout(searchTimeoutSaveTimerRef.current)
     searchTimeoutSaveTimerRef.current = window.setTimeout(() => {
-      fetch(appPath('/api/settings'), {
+      let rejected = false
+      const save = searchTimeoutSaveTailRef.current.catch(() => {}).then(() => fetch(appPath('/api/settings'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ searchTimeoutMs: seconds * 1000 }),
-      })
+        signal: AbortSignal.timeout(10_000),
+      }))
         .then(async response => {
+          rejected = !response.ok && response.status < 500
           const data = await response.json().catch(() => null) as { settings?: GlobalSettings; error?: string } | null
           if (!response.ok) throw new Error(data?.error || copy.saveFailed)
-          setSearchTimeoutSeconds(nearestSearchTimeoutSeconds(Number(data?.settings?.searchTimeoutMs ?? seconds * 1000)))
+          confirmedSearchTimeoutRef.current = nearestSearchTimeoutSeconds(Number(data?.settings?.searchTimeoutMs ?? seconds * 1000))
+          if (current()) setSearchTimeoutSeconds(confirmedSearchTimeoutRef.current)
         })
-        .catch(error => setError(error instanceof Error ? error.message : copy.saveFailed))
+        .catch(async () => {
+          if (!current()) return
+          if (rejected) {
+            setSearchTimeoutSeconds(confirmedSearchTimeoutRef.current)
+            setNotice(copy.changesRestored)
+            return
+          }
+          try {
+            const response = await fetch(appPath('/api/settings'), { signal: AbortSignal.timeout(5_000) })
+            const data = await response.json() as { settings?: GlobalSettings }
+            if (!response.ok || !data.settings) throw new Error('Settings unavailable')
+            if (!current()) return
+            const saved = nearestSearchTimeoutSeconds(Number(data.settings.searchTimeoutMs))
+            confirmedSearchTimeoutRef.current = saved
+            setSearchTimeoutSeconds(saved)
+            if (saved !== seconds) setNotice(copy.changesRestored)
+          } catch {
+            if (current()) setNotice(copy.changesUnconfirmed)
+          }
+        })
+      searchTimeoutSaveTailRef.current = save
     }, 120)
-  }, [copy.saveFailed])
+  }, [copy.changesRestored, copy.changesUnconfirmed, copy.saveFailed])
 
   const commitShareHours = async () => {
     if (shareHoursDraft === null || shareHoursSaveRef.current) return
     const hours = shareHoursDraft
+    const previousHours = shareHours
+    const generation = panelScopeRef.current.generation
+    const current = () => panelScopeRef.current.open && panelScopeRef.current.generation === generation
     setShareHoursDraft(null)
     if (hours === shareHours) return
+    setShareHours(hours)
     shareHoursSaveRef.current = true
     setShareHoursSaving(true)
     setError('')
+    setNotice('')
+    let rejected = false
     try {
       const response = await fetch(appPath('/api/settings'), {
         method: 'POST',
@@ -516,19 +557,29 @@ export function AgentHomesSettingsPanel({
         body: JSON.stringify({ readOnlyShareHours: hours }),
         signal: AbortSignal.timeout(10_000),
       })
+      rejected = !response.ok && response.status < 500
       const data = await response.json() as { settings?: GlobalSettings; error?: string }
       if (!response.ok) throw new Error(data.error || copy.saveFailed)
-      setShareHours(Number(data.settings?.readOnlyShareHours ?? hours))
-    } catch (error) {
-      setError(error instanceof Error ? error.message : copy.saveFailed)
+      if (current()) setShareHours(Number(data.settings?.readOnlyShareHours ?? hours))
+    } catch {
+      if (!current()) return
+      if (rejected) {
+        setShareHours(previousHours)
+        setNotice(copy.changesRestored)
+        return
+      }
       // A lost response does not prove the write failed. Reconcile once, without replaying it.
       try {
         const response = await fetch(appPath('/api/settings'), { signal: AbortSignal.timeout(10_000) })
         const data = await response.json() as { settings?: GlobalSettings }
+        if (!current()) return
         if (response.ok && data.settings?.readOnlyShareHours !== undefined) {
           setShareHours(data.settings.readOnlyShareHours)
+          if (data.settings.readOnlyShareHours !== hours) setNotice(copy.changesRestored)
+        } else {
+          setNotice(copy.changesUnconfirmed)
         }
-      } catch { /* The save error stays visible until the next authoritative load. */ }
+      } catch { if (current()) setNotice(copy.changesUnconfirmed) }
     } finally {
       shareHoursSaveRef.current = false
       setShareHoursSaving(false)

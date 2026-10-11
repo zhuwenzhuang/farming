@@ -229,6 +229,8 @@ function pluginCopy(language: UiLanguage) {
     homePathPlaceholder: '~/.codex-work',
     invalidHome: zh ? '请输入有效且不重复的 Home 名称和路径。' : 'Enter a valid, unique Home name and path.',
     saveAgentFailed: zh ? 'Agent 设置保存失败' : 'Failed to save Agent settings',
+    changesRestored: zh ? '未保存，已恢复原设置' : 'Not saved. Previous setting restored.',
+    changesUnconfirmed: zh ? '保存尚未确认，连接恢复后请再核对' : 'Save not confirmed. Check again when connected.',
     confirmRemoveAgent: (name: string) => zh ? `删除 ${name}？` : `Remove ${name}?`,
     confirmRemoveDefaultAgent: (name: string) => zh
       ? `删除 ${name}？新 Agent 的启动默认将自动切回 default Home。`
@@ -733,6 +735,7 @@ export function PluginsPanel({
   const [agentGroups, setAgentGroups] = useState<AgentExtensionGroup[]>([])
   const [agentGroupsLoading, setAgentGroupsLoading] = useState(true)
   const [agentGroupsError, setAgentGroupsError] = useState('')
+  const [agentGroupsNotice, setAgentGroupsNotice] = useState('')
   const [agentSaving, setAgentSaving] = useState(false)
   const [agentDraft, setAgentDraft] = useState<AgentHomeDraft | null>(null)
   const selectedExtensionTriggerRef = useRef<HTMLButtonElement | null>(null)
@@ -968,7 +971,7 @@ export function PluginsPanel({
     setComputerCompatibilityMode(computerCapability.compatibilityMode)
   }, [computerCapability])
 
-  const loadAgentGroups = useCallback(async (options: { preserveError?: boolean } = {}) => {
+  const loadAgentGroups = useCallback(async (options: { preserveError?: boolean; quiet?: boolean } = {}) => {
     if (!agentLoadOwnershipRef.current.available || agentSaveRequestRef.current) return
     const lease = agentLoadOwnershipRef.current.begin()
     retryOnReconnectRef.current = false
@@ -992,6 +995,7 @@ export function PluginsPanel({
       retryOnReconnectRef.current = false
       const nextGroups = normalizeAgentExtensionGroups(Array.isArray(data.agents) ? data.agents : [])
       setAgentGroups(nextGroups)
+      return nextGroups
     } catch (loadError) {
       if (
         !lease.isCurrent()
@@ -999,7 +1003,7 @@ export function PluginsPanel({
       ) return
       const disconnected = !getBackendConnectionSnapshot().connected
       retryOnReconnectRef.current = disconnected
-      setAgentGroupsError(disconnected
+      if (!options.quiet) setAgentGroupsError(disconnected
         ? copy.agentExtensionsDisconnected
         : loadError instanceof Error ? loadError.message : copy.agentExtensionsFailed)
     } finally {
@@ -1043,7 +1047,10 @@ export function PluginsPanel({
     setAgentSaving(true)
     setAgentGroupsLoading(false)
     setAgentGroupsError('')
-    let reconcileAfterSave = false
+    setAgentGroupsNotice('')
+    const previousGroups = agentGroups
+    setAgentGroups(nextGroups)
+    let rejected = false
     try {
       const response = await fetchAgentSettings(appPath('/api/settings'), {
         method: 'POST',
@@ -1054,7 +1061,10 @@ export function PluginsPanel({
         }),
       })
       const data = await response.json().catch(() => ({})) as { error?: string }
-      if (!response.ok) throw new Error(data.error || copy.saveAgentFailed)
+      if (!response.ok) {
+        rejected = response.status < 500
+        throw new Error(data.error || copy.saveAgentFailed)
+      }
       if (
         agentSaveRequestRef.current !== requestId
         || !lease.isCurrent()
@@ -1064,12 +1074,19 @@ export function PluginsPanel({
       agentSaveRequestRef.current = null
       await loadAgentGroups()
       return true
-    } catch (saveError) {
-      reconcileAfterSave = true
-      if (
-        agentSaveRequestRef.current === requestId
-        && lease.isCurrent()
-      ) setAgentGroupsError(saveError instanceof Error ? saveError.message : copy.saveAgentFailed)
+    } catch {
+      if (agentSaveRequestRef.current !== requestId || !lease.isCurrent()) return false
+      if (rejected) {
+        setAgentGroups(previousGroups)
+        setAgentGroupsNotice(copy.changesRestored)
+        return false
+      }
+      agentSaveRequestRef.current = null
+      const saved = await loadAgentGroups({ preserveError: true, quiet: true })
+      if (!lease.isCurrent()) return false
+      if (saved && JSON.stringify(settingsHomes(saved)) === JSON.stringify(settingsHomes(nextGroups))
+        && JSON.stringify(settingsLaunchProfiles(saved)) === JSON.stringify(settingsLaunchProfiles(nextGroups))) return true
+      setAgentGroupsNotice(saved ? copy.changesRestored : copy.changesUnconfirmed)
       return false
     } finally {
       if (agentSaveRequestRef.current === requestId) agentSaveRequestRef.current = null
@@ -1077,10 +1094,9 @@ export function PluginsPanel({
         lease.isCurrent()
       ) {
         setAgentSaving(false)
-        if (reconcileAfterSave) void loadAgentGroups({ preserveError: true })
       }
     }
-  }, [copy.saveAgentFailed, loadAgentGroups])
+  }, [agentGroups, copy.changesRestored, copy.changesUnconfirmed, copy.saveAgentFailed, loadAgentGroups])
 
   const submitAgentDraft = useCallback(() => {
     if (!agentDraft || agentSaving) return
@@ -2145,6 +2161,7 @@ export function PluginsPanel({
           </div>
         ) : null}
         {agentGroupsError ? <div className="code-plugin-error" role="alert">{agentGroupsError}</div> : null}
+        {agentGroupsNotice ? <p className="code-plugin-empty" role="status">{agentGroupsNotice}</p> : null}
         {agentGroupsLoading && agentGroups.length === 0 ? (
           <p className="code-plugin-empty">{copy.loadingAgentExtensions}</p>
         ) : agentConfigurations.map(configuration => {

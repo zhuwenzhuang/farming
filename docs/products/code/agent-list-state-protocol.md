@@ -393,6 +393,12 @@ drops remain within the source pin group. Backend state remains
 order authority; drag feedback is not evidence of persistence and does not retry
 a failed or uncertain mutation.
 
+A drop immediately projects the intended order under the shared
+[reversible display contract](../../development/ui-interaction-protocol.md#reversible-display-changes).
+Project order is descending and manual Pinned order is ascending. Queued drops
+resolve their neighbors against the current list before their first dispatch;
+confirmation must retire the projection even when WebSocket arrived before HTTP.
+
 Acceptance covers collapsed Git Projects next to expanded Agents, equal row
 spacing, repeated disclosure and viewport changes, before/after feedback on both
 row kinds, cancellation, persistent ordering, and sticky-stack release in Light,

@@ -2,6 +2,8 @@ import { acpRevisionWatchAgentIds, useVisibleAcpRevisionAgentIds } from '@/lib/a
 import { useSubagentSupervision } from '@/lib/subagent-supervision'
 import { useState, useCallback, useMemo, useEffect, useLayoutEffect, useRef } from 'react'
 import { useWebSocket } from '@/hooks/useWebSocket'
+import { useAgentMetadataMutations } from '@/lib/agent-metadata-mutations'
+import { useProjectedAgentMetadata, type AgentMetadataProjection } from '@/lib/agent-live-state'
 import { usePageVisibility } from '@/hooks/usePageVisibility'
 import { useAgentCompletionNotifications } from '@/hooks/useAgentCompletionNotifications'
 import { useAgents } from '@/hooks/useAgents'
@@ -198,6 +200,7 @@ function hasBlockingOverlay() {
 export function App() {
   recordPerformanceTestRender('app')
   const ws = useWebSocket()
+  const projectedAgents = useProjectedAgentMetadata(ws.agents)
   const focusAgent = ws.focusAgent
   const onAcpSessionRevision = ws.onAcpSessionRevision
   const subagentParentKeys = useSubagentSupervision()
@@ -268,6 +271,7 @@ export function App() {
   const inputDialogOpenRequestRef = useRef(0)
   const uiPreferencesSaveRevisionRef = useRef(0)
   const uiPreferencesSaveTailRef = useRef<Promise<void>>(Promise.resolve())
+  const confirmedUiPreferencesRef = useRef(uiPreferences)
   const usageRequestRef = useRef<AbortController | null>(null)
   useEffect(() => () => inputDialogFocusRestoreCleanupRef.current?.(), [])
   useLayoutEffect(() => {
@@ -290,17 +294,20 @@ export function App() {
 
   const effectiveDialog = dialog
   const copy = useMemo(() => codeCopyForLanguage(uiPreferences.language), [uiPreferences.language])
+  const metadataMutations = useAgentMetadataMutations(ws.agents, uncertain => {
+    setAppNotice({ id: Date.now(), kind: 'recovering', message: uncertain ? copy.changesUnconfirmed : copy.changesRestored })
+  })
   const displayedAgents = useMemo(() => {
     if (!permissionSwitch) {
-      return ws.agents
+      return projectedAgents
     }
-    const agents = ws.agents.filter(agent => (
+    const agents = projectedAgents.filter(agent => (
       agent.id === permissionSwitch.agent.id
       || !isRestartDescendantOf(agent, permissionSwitch.originalAgentId)
     ))
     if (agents.some(agent => agent.id === permissionSwitch.agent.id)) return agents
     return [...agents, permissionSwitch.agent]
-  }, [permissionSwitch, ws.agents])
+  }, [permissionSwitch, projectedAgents])
   const observedAgentReplacements = useMemo(() => {
     const replacements = new Map<string, string>()
     const candidateIds = new Set([...openTerminalIds, ...retainedAgentViewIds])
@@ -517,18 +524,24 @@ export function App() {
     uiPreferencesSaveRevisionRef.current = requestRevision
 
     setUiPreferences(nextPreferences)
+    let rejected = false
     const save = uiPreferencesSaveTailRef.current
       .catch(() => {})
       .then(() => fetch(appPath('/api/settings'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(normalizedPatch),
+        signal: AbortSignal.timeout(10_000),
       }))
-      .then(response => response.json())
+      .then(async response => {
+        rejected = !response.ok && response.status < 500
+        const data = await response.json() as { settings?: Partial<UiPreferences> }
+        if (!response.ok || !data.settings) throw new Error('Preferences save was not confirmed')
+        return data
+      })
       .then((data: { settings?: Partial<UiPreferences> }) => {
-        if (uiPreferencesSaveRevisionRef.current !== requestRevision) return
         const settings = data.settings ?? {}
-        setUiPreferences({
+        const confirmed = {
           appearance: normalizeUiAppearance(settings.appearance ?? nextPreferences.appearance),
           codeContentFontSize: normalizeContentFontSize(
             settings.codeContentFontSize ?? nextPreferences.codeContentFontSize,
@@ -537,31 +550,52 @@ export function App() {
             settings.composerFollowUpBehavior ?? nextPreferences.composerFollowUpBehavior,
           ),
           language: normalizeUiLanguage(settings.language ?? nextPreferences.language),
-        })
+        }
+        confirmedUiPreferencesRef.current = confirmed
+        if (uiPreferencesSaveRevisionRef.current === requestRevision) setUiPreferences(confirmed)
       })
-      .catch(() => {
+      .catch(async () => {
         if (uiPreferencesSaveRevisionRef.current !== requestRevision) return
-        setUiPreferences(uiPreferences)
+        if (rejected) {
+          setUiPreferences(confirmedUiPreferencesRef.current)
+          setAppNotice({ id: Date.now(), kind: 'recovering', message: copy.changesRestored })
+          return
+        }
+        let reconciled = false
+        let confirmed = confirmedUiPreferencesRef.current
+        try {
+          const response = await fetch(appPath('/api/settings'), { signal: AbortSignal.timeout(5_000) })
+          const data = await response.json() as { settings?: Partial<UiPreferences> }
+          if (!response.ok || !data.settings) throw new Error('Preferences unavailable')
+          confirmed = {
+            appearance: normalizeUiAppearance(data.settings.appearance),
+            codeContentFontSize: normalizeContentFontSize(data.settings.codeContentFontSize),
+            composerFollowUpBehavior: normalizeComposerFollowUpBehavior(data.settings.composerFollowUpBehavior),
+            language: normalizeUiLanguage(data.settings.language),
+          }
+          reconciled = true
+        } catch { /* One bounded read; never replay the save. */ }
+        if (uiPreferencesSaveRevisionRef.current !== requestRevision) return
+        if (reconciled) {
+          confirmedUiPreferencesRef.current = confirmed
+          setUiPreferences(confirmed)
+          if (Object.entries(normalizedPatch).every(([key, value]) => confirmed[key as keyof UiPreferences] === value)) return
+        }
         setAppNotice({
           id: Date.now(),
-          kind: 'error',
-          message: 'Failed to save preferences',
+          kind: 'recovering',
+          message: reconciled ? copy.changesRestored : copy.changesUnconfirmed,
         })
       })
     uiPreferencesSaveTailRef.current = save
-  }, [uiPreferences])
+  }, [copy.changesRestored, copy.changesUnconfirmed, uiPreferences])
 
   const syncUiPreferences = useCallback((patch: Partial<UiPreferences>) => {
-    setUiPreferences(current => ({
-      ...current,
-      ...(Object.prototype.hasOwnProperty.call(patch, 'composerFollowUpBehavior')
-        ? {
-          composerFollowUpBehavior: normalizeComposerFollowUpBehavior(
-            patch.composerFollowUpBehavior,
-          ),
-        }
-        : {}),
-    }))
+    const synced = Object.prototype.hasOwnProperty.call(patch, 'composerFollowUpBehavior')
+      ? { composerFollowUpBehavior: normalizeComposerFollowUpBehavior(patch.composerFollowUpBehavior) }
+      : {}
+    confirmedUiPreferencesRef.current = { ...confirmedUiPreferencesRef.current, ...synced }
+    setUiPreferences(current => ({ ...current, ...synced }))
   }, [])
 
   const refreshAgentContextWindows = useCallback((agentIds: string[]) => {
@@ -966,20 +1000,8 @@ export function App() {
   }, [closeTerminals, notifyError])
 
   const handleRenameAgent = useCallback(async (agentId: string, customTitle: string) => {
-    try {
-      const response = await fetch(appPath(`/api/agents/${agentId}`), {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ customTitle }),
-      })
-      const data = await response.json().catch(() => null) as { error?: string } | null
-      if (!response.ok) {
-        notifyError(data?.error || `Failed to rename agent (${response.status})`)
-      }
-    } catch (error) {
-      notifyError(error instanceof Error ? error.message : 'Failed to rename agent')
-    }
-  }, [notifyError])
+    await metadataMutations.mutate({ kind: 'patch', agentId, patch: { customTitle: customTitle.trim().slice(0, 80) } })
+  }, [metadataMutations])
 
   const handleUpdateAgentFlags = useCallback(async (agentId: string, flags: AgentFlagPatch) => {
     const isReadCursorUpdate = flags.unread === false
@@ -995,6 +1017,12 @@ export function App() {
     // stale 404 or racing the destructive switch with an irrelevant PATCH.
     if (isReadCursorUpdate && permissionSwitchRequestRef.current === agentId) {
       return true
+    }
+
+    if (flags.archived !== true && Object.keys(flags).every(key => [
+      'followUp', 'pinned', 'unread', 'archived', 'readAttentionSeq', 'readOutputEpoch', 'readOutputSeq',
+    ].includes(key))) {
+      return Boolean(await metadataMutations.mutate({ kind: 'patch', agentId, patch: flags as AgentMetadataProjection }))
     }
 
     const permissionMode = typeof flags.launchPermissionMode === 'string'
@@ -1132,7 +1160,7 @@ export function App() {
       notifyError(message)
       return false
     }
-  }, [closeTerminal, commitPermissionSwitch, copy.agentRestartTimedOut, notifyError, ws.agents])
+  }, [closeTerminal, commitPermissionSwitch, copy.agentRestartTimedOut, metadataMutations, notifyError, ws.agents])
 
   const handleOpenArchivedAgent = useCallback(async (agentId: string) => {
     const updated = await handleUpdateAgentFlags(agentId, { archived: false })
@@ -1417,14 +1445,16 @@ export function App() {
     fetch(appPath('/api/settings'))
       .then(response => response.json())
       .then((data: { settings?: Partial<UiPreferences> }) => {
-        if (cancelled) return
+        if (cancelled || uiPreferencesSaveRevisionRef.current !== 0) return
         const settings = data.settings ?? {}
-        setUiPreferences({
+        const confirmed = {
           appearance: normalizeUiAppearance(settings.appearance),
           codeContentFontSize: normalizeContentFontSize(settings.codeContentFontSize),
           composerFollowUpBehavior: normalizeComposerFollowUpBehavior(settings.composerFollowUpBehavior),
           language: normalizeUiLanguage(settings.language),
-        })
+        }
+        confirmedUiPreferencesRef.current = confirmed
+        setUiPreferences(confirmed)
       })
       .catch(() => {})
 
@@ -1481,6 +1511,7 @@ export function App() {
         onNewAgent={openNewAgentDialog}
         onStartAgent={handleStartAgent}
         onRenameAgent={handleRenameAgent}
+        onReorderAgent={(agentId, beforeAgentId, afterAgentId) => { void metadataMutations.mutate({ kind: 'reorder', agentId, beforeAgentId, afterAgentId }) }}
         onUpdateAgentFlags={handleUpdateAgentFlags}
         onOpenArchivedAgent={handleOpenArchivedAgent}
         onForkAgent={handleForkAgent}

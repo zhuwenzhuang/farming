@@ -226,6 +226,8 @@ export interface CodeCopy {
   createIsolatedDesktop: string
   archiveAgent: string
   reorderAgentFailed: string
+  changesRestored: string
+  changesUnconfirmed: string
   reorderProjectFailed: string
   markAsUnread: string
   copyWorkingDirectory: string
@@ -974,6 +976,8 @@ const EN_COPY: CodeCopy = {
   createIsolatedDesktop: 'Create Desktop in Docker (Experimental)',
   archiveAgent: 'Archive',
   reorderAgentFailed: 'Failed to reorder Agent',
+  changesRestored: 'Not saved. Previous state restored.',
+  changesUnconfirmed: 'Save not confirmed. Check again when connected.',
   reorderProjectFailed: 'Failed to reorder Project',
   markAsUnread: 'Mark as unread',
   copyWorkingDirectory: 'Copy working directory',
@@ -1747,6 +1751,8 @@ const ZH_COPY: CodeCopy = {
   createIsolatedDesktop: '创建 Docker 中的桌面（实验性）',
   archiveAgent: '归档',
   reorderAgentFailed: '调整 Agent 顺序失败',
+  changesRestored: '未保存，已恢复原状态',
+  changesUnconfirmed: '保存尚未确认，连接恢复后请再核对',
   reorderProjectFailed: '调整项目顺序失败',
   markAsUnread: '标为未读',
   copyWorkingDirectory: '复制工作目录',

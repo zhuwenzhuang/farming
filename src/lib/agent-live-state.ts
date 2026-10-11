@@ -40,6 +40,14 @@ type AgentLiveState = AgentLiveActivity
   & AgentUpdateMessage['update']['patch']
   & Omit<AgentReadMessage['read'], 'agentId'>
 type Listener = () => void
+export type AgentMetadataProjection = Partial<Pick<Agent,
+  'customTitle' | 'pinned' | 'pinnedOrder' | 'projectOrder' | 'followUp' | 'unread'
+  | 'archived' | 'archivedAt' | 'readAttentionSeq' | 'readOutputEpoch' | 'readOutputSeq'
+>>
+const metadataProjections = new Map<string, AgentMetadataProjection>()
+const metadataListeners = new Set<Listener>()
+const projectedSnapshots = new Map<string, { value: AgentLiveState; patch: AgentMetadataProjection; snapshot: AgentLiveState }>()
+let metadataProjectionSnapshot: ReadonlyMap<string, AgentMetadataProjection> = new Map()
 type AgentReadListener = (read: AgentReadMessage['read']) => void
 type AgentRuntimeBindingListener = (agentId: string) => void
 type LiveEntry = { value: AgentLiveState; signature: string | null }
@@ -388,6 +396,7 @@ function sameProjectContribution(
 }
 
 function updateProjectContribution(agentId: string, liveState: AgentLiveState | null | undefined) {
+  if (liveState) liveState = projectMetadata(liveState, metadataProjections.get(agentId))
   const previous = projectContributionByAgentId.get(agentId)
   const next = agentProjectContribution(agentId, liveState)
   if (sameProjectContribution(previous, next)) return
@@ -567,6 +576,8 @@ export function resetAgentLiveStates() {
   const projectWorkspaces = [...projectAggregates.keys()]
   if (agentIds.length > 0) notifyDynamicPinProjection()
   entries.clear()
+  setAgentMetadataProjections(new Map())
+  projectedSnapshots.clear()
   acpSessionRevisionCursors.clear()
   projectMembershipByAgentId.clear()
   projectContributionByAgentId.clear()
@@ -590,7 +601,60 @@ function subscribe(agentId: string, kind: SubscriptionKind, listener: Listener) 
 }
 
 function snapshot(agentId: string) {
-  return entries.get(agentId)?.value ?? null
+  const value = entries.get(agentId)?.value
+  if (!value) return null
+  const patch = metadataProjections.get(agentId)
+  if (!patch) return value
+  const cached = projectedSnapshots.get(agentId)
+  if (cached?.value === value && cached.patch === patch) return cached.snapshot
+  const projected = projectMetadata(value, patch)
+  projectedSnapshots.set(agentId, { value, patch, snapshot: projected })
+  return projected
+}
+
+function projectMetadata<T extends Partial<Agent>>(value: T, patch?: AgentMetadataProjection): T {
+  if (!patch) return value
+  const next = { ...value, ...patch }
+  // Reading acknowledges this click's cut, never activity arriving afterwards.
+  if (patch.unread === false && Number(value.attentionSeq ?? 0) > Number(patch.readAttentionSeq ?? 0)) {
+    next.unread = value.unread
+  }
+  return next
+}
+
+export function agentWithAuthoritativeLiveState(agent: Agent): Agent {
+  const live = entries.get(agent.id)?.value
+  return live ? { ...agent, ...live } : agent
+}
+
+export function setAgentMetadataProjections(patches: ReadonlyMap<string, AgentMetadataProjection>) {
+  const ids = new Set([...metadataProjections.keys(), ...patches.keys()])
+  let changed = false
+  ids.forEach(id => {
+    const previous = metadataProjections.get(id)
+    const next = patches.get(id)
+    if (JSON.stringify(previous) === JSON.stringify(next)) return
+    changed = true
+    if (next) metadataProjections.set(id, next)
+    else metadataProjections.delete(id)
+    projectedSnapshots.delete(id)
+    updateProjectContribution(id, entries.get(id)?.value)
+    notify(id, true)
+  })
+  if (!changed) return
+  metadataProjectionSnapshot = new Map(metadataProjections)
+  notifyDynamicPinProjection()
+  flushLiveNotifications()
+  metadataListeners.forEach(listener => listener())
+}
+
+export function useProjectedAgentMetadata(agents: Agent[]): Agent[] {
+  const projections = useSyncExternalStore(
+    listener => { metadataListeners.add(listener); return () => { metadataListeners.delete(listener) } },
+    () => metadataProjectionSnapshot,
+    () => metadataProjectionSnapshot,
+  )
+  return useMemo(() => agents.map(agent => projectMetadata(agent, projections.get(agent.id))), [agents, projections])
 }
 
 function subscribeProjectSummary(workspace: string, listener: Listener) {
@@ -635,7 +699,7 @@ export function useDynamicPinProjectionRevision() {
 
 export function agentWithCurrentLiveState(agent: Agent): Agent {
   const liveState = snapshot(agent.id)
-  return liveState ? { ...agent, ...liveState } : agent
+  return projectMetadata(liveState ? { ...agent, ...liveState } : agent, metadataProjections.get(agent.id))
 }
 
 function useAgentLiveSubscription(agent: Agent | null | undefined, kind: SubscriptionKind): Agent | null {

@@ -260,6 +260,7 @@ import {
 import {
   throwIfProjectMountAborted,
   useProjectMembershipController,
+  type ProjectDisplayIntent,
 } from './code/useProjectMembershipController'
 import { useProjectMutationController } from './code/useProjectMutationController'
 import { executeProjectRemoval, projectArchiveTargets, type ProjectRemovalPlan } from './code/project-removal'
@@ -406,6 +407,7 @@ interface CodeWorkspaceProps {
   onNewAgent: (workspace?: string, command?: string, returnFocusTarget?: HTMLElement | null, customTitle?: string) => void
   onStartAgent: (command: string, workspace: string, options?: { projectWorkspace?: string; codexApprovalMode?: string; agentRuntimeMode?: 'terminal' | 'chat' | 'acp'; dangerouslySkipPermissions?: boolean; providerHomeId?: string; additionalDirectories?: string[]; mcpServers?: Array<Record<string, unknown>> }) => void
   onRenameAgent: (agentId: string, title: string) => void
+  onReorderAgent: (agentId: string, beforeAgentId: string, afterAgentId: string) => void
   onUpdateAgentFlags: (
     agentId: string,
     flags: Partial<Pick<Agent, 'followUp' | 'pinned' | 'unread' | 'archived' | 'launchPermissionMode' | 'readAttentionSeq'>>
@@ -594,6 +596,7 @@ export function CodeWorkspace({
   onNewAgent: requestNewAgent,
   onStartAgent,
   onRenameAgent,
+  onReorderAgent,
   onUpdateAgentFlags,
   onOpenArchivedAgent,
   onForkAgent,
@@ -825,6 +828,7 @@ export function CodeWorkspace({
   const searchSourceAgentIdRef = useRef<string | null>(null)
   const globalFileOpenAbortRef = useRef<AbortController | null>(null)
   const globalFileOpenMatchRef = useRef<GlobalWorkspaceFileSearchMatch | null>(null)
+  const [projectDisplayIntents, setProjectDisplayIntents] = useState<ProjectDisplayIntent[]>([])
   const {
     projectWorkspaces,
     projectWorkspacesLoaded,
@@ -839,6 +843,7 @@ export function CodeWorkspace({
   } = useProjectMembershipController(
     remoteProjectWorkspaces,
     remotePinnedProjectWorkspaces,
+    projectDisplayIntents,
   )
   const projectWorkspacesRef = useRef(projectWorkspaces)
   projectWorkspacesRef.current = projectWorkspaces
@@ -931,6 +936,8 @@ export function CodeWorkspace({
     applyProjectMembership,
     replaceProjectName,
     showError: message => setCopyNotice({ id: Date.now(), kind: 'error', message }),
+    showSaveStatus: uncertain => setCopyNotice({ id: Date.now(), kind: 'success', message: uncertain ? copy.changesUnconfirmed : copy.changesRestored }),
+    displayIntents: setProjectDisplayIntents,
   })
   const [fileRevealRequest, setFileRevealRequest] = useState<{ agentId: string; path: string; kind: 'directory' | 'file'; requestId: number } | null>(null)
   const [agentRevealRequest, setAgentRevealRequest] = useState<{ agentId: string; requestId: number } | null>(null)
@@ -2232,9 +2239,8 @@ export function CodeWorkspace({
       || readCut.outputSeq > readOutputSeq
     ))
     if (!force && attentionSeq <= readAttentionSeq && !agent.unread && !readCutAdvanced) return
-    // `unread: false` means "read through the backend's current authoritative
-    // attention cursor", so an explicit jump is safe even if this projection
-    // is one websocket update behind.
+    // The metadata owner captures this observed attention cut at admission;
+    // activity arriving while the request is pending remains unread.
     onUpdateAgentFlagsRef.current(agentId, {
       unread: false,
       ...(readCut
@@ -4637,11 +4643,7 @@ export function CodeWorkspace({
     }
     if (flags.archived === true) archiveAgentOptimistically(agentId)
     else {
-      const result = onUpdateAgentFlags(agentId, flags)
-      void Promise.resolve(result).then(
-        () => focusAgentRow(agentId),
-        () => focusAgentRow(agentId),
-      )
+      void onUpdateAgentFlags(agentId, flags)
     }
     if (flags.archived !== true) focusAgentRow(agentId)
   }, [activeView, archiveAgentOptimistically, closeContextMenu, contextMenuAgent, focusAgentRow, mainPaneMode, onUpdateAgentFlags, removeMainPageAgentSession])
@@ -4659,11 +4661,7 @@ export function CodeWorkspace({
     }
     if (flags.archived === true) archiveAgentOptimistically(agentId)
     else {
-      const result = onUpdateAgentFlags(agentId, flags)
-      void Promise.resolve(result).then(
-        () => focusAgentRow(agentId),
-        () => focusAgentRow(agentId),
-      )
+      void onUpdateAgentFlags(agentId, flags)
     }
     if (flags.archived !== true) focusAgentRow(agentId)
   }, [archiveAgentOptimistically, closeContextMenu, focusAgentRow, onUpdateAgentFlags, removeMainPageAgentSession])
@@ -4673,24 +4671,8 @@ export function CodeWorkspace({
     beforeAgentId: string,
     afterAgentId: string,
   ) => {
-    try {
-      const response = await fetch(appPath(`/api/agents/${encodeURIComponent(agentId)}/reorder`), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ beforeAgentId, afterAgentId }),
-      })
-      if (!response.ok) {
-        const body = await response.json().catch(() => null) as { error?: string } | null
-        throw new Error(body?.error || copy.reorderAgentFailed)
-      }
-    } catch (error) {
-      setCopyNotice({
-        id: Date.now(),
-        kind: 'error',
-        message: error instanceof Error ? error.message : copy.reorderAgentFailed,
-      })
-    }
-  }, [copy.reorderAgentFailed])
+    onReorderAgent(agentId, beforeAgentId, afterAgentId)
+  }, [onReorderAgent])
 
   const reorderSidebarProject = useCallback(async (
     workspace: string,
@@ -5206,13 +5188,13 @@ export function CodeWorkspace({
     const projectId = contextMenuProject.id
     const workspace = contextMenuProject.workspace
     closeContextMenu()
-    await mutateProject({
+    void mutateProject({
       kind: 'pin',
       workspace,
       pinned: !contextMenuProject.pinned,
       errorMessage: copy.copyFailed,
     })
-    window.requestAnimationFrame(() => focusProjectTitle(projectId))
+    focusProjectTitle(projectId)
   }, [closeContextMenu, contextMenuProject, copy.copyFailed, focusProjectTitle, mutateProject])
 
   const revealContextProject = useCallback(async () => {

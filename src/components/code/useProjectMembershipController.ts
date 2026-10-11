@@ -13,6 +13,36 @@ export type ProjectMembershipState = {
   pinnedProjectWorkspaces: string[]
 }
 
+export type ProjectDisplayIntent =
+  | { kind: 'pin'; workspace: string; pinned: boolean }
+  | { kind: 'reorder'; workspace: string; beforeWorkspace: string; afterWorkspace: string }
+
+export function projectMembershipDisplay(state: ProjectMembershipState, intents: readonly ProjectDisplayIntent[]): ProjectMembershipState {
+  if (!intents.length) return state
+  let projects = [...state.projectWorkspaces]
+  let pinned = [...state.pinnedProjectWorkspaces]
+  intents.forEach(intent => {
+    if (!projects.includes(intent.workspace)) return
+    if (intent.kind === 'pin') {
+      pinned = pinned.filter(workspace => workspace !== intent.workspace)
+      if (intent.pinned) pinned.push(intent.workspace)
+      return
+    }
+    const isPinned = pinned.includes(intent.workspace)
+    const group = (isPinned ? pinned : projects.filter(workspace => !pinned.includes(workspace)))
+      .filter(workspace => workspace !== intent.workspace)
+    const before = group.indexOf(intent.beforeWorkspace)
+    const after = group.indexOf(intent.afterWorkspace)
+    group.splice(before >= 0 ? before + 1 : after >= 0 ? after : group.length, 0, intent.workspace)
+    if (isPinned) pinned = group
+    else {
+      let index = 0
+      projects = projects.map(workspace => pinned.includes(workspace) ? workspace : group[index++]!)
+    }
+  })
+  return { ...state, projectWorkspaces: projects, pinnedProjectWorkspaces: pinned }
+}
+
 export type ProjectMountResponse = ProjectMembership & {
   error?: string
   workspace?: string
@@ -254,6 +284,7 @@ export class ProjectNamesController {
 export function useProjectMembershipController(
   remoteProjectWorkspaces: string[] | null,
   remotePinnedProjectWorkspaces: string[] | null,
+  displayIntents: readonly ProjectDisplayIntent[] = [],
 ) {
   const [state, applyMembership] = useReducer(
     projectMembershipReducer,
@@ -304,7 +335,7 @@ export function useProjectMembershipController(
   }, [])
 
   return {
-    ...state,
+    ...projectMembershipDisplay(state, displayIntents),
     projectNames: namesState.names,
     applyMembership,
     mountProject,
