@@ -3,7 +3,7 @@ import type {
   AgentTranscriptSubagentState,
 } from './acp-entry-projection'
 
-export type AcpCollaborationAction = 'started' | 'sending' | 'updated' | 'finished' | 'interrupted' | 'failed' | 'recorded' | 'discovering' | 'discovered' | 'cancelled'
+export type AcpCollaborationAction = 'started' | 'sending' | 'updated' | 'finished' | 'interrupted' | 'failed' | 'recorded' | 'cancelled'
 export type AcpCollaborationStatus = 'pending' | 'running' | 'completed' | 'paused' | 'failed' | 'closed' | 'unknown'
 
 export interface AcpCollaborationEvent {
@@ -16,7 +16,6 @@ export interface AcpCollaborationEvent {
   tone: number
   title: string
   message: string
-  discovery?: boolean
   senderThreadId?: string
   outgoingMessage?: boolean
   messageTruncated?: boolean
@@ -134,13 +133,6 @@ export function acpCollaborationEvents(items: AgentTranscriptProcessItem[]): Acp
   for (const item of items) {
     const collaboration = item.collaboration
     if (!collaboration) continue
-    if (collaboration.kind === 'discovery') {
-      events.push({ id: item.id, processItemId: item.id, threadId: '', name: '', tone: 0,
-        action: item.status === 'failed' ? 'failed' : item.status === 'cancelled' ? 'cancelled'
-          : item.status === 'completed' ? 'discovered' : ['pending', 'in_progress'].includes(item.status || '') ? 'discovering' : 'recorded',
-        title: item.title, message: '', discovery: true })
-      continue
-    }
     if (collaboration.kind === 'activity') {
       const action = activityAction(String(collaboration.activity || '').toLowerCase()) || 'recorded'
       append(item, collaboration.threadId || '', action)
@@ -209,7 +201,6 @@ export function acpCollaborationAgents(
   )
   const groups = new Map<string, AcpCollaborationAgent>()
   for (const event of acpCollaborationEvents(items)) {
-    if (event.discovery) continue
     const existing = groups.get(event.threadId)
     if (existing) {
       existing.events.push(event)

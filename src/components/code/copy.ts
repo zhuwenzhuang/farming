@@ -124,9 +124,6 @@ export interface CodeCopy {
   agentTranscriptCollaborationUpdated: string
   agentTranscriptCollaborationRecipient: (name: string) => string
   agentTranscriptCollaborationOpenPeer: string
-  agentTranscriptCollaborationDiscovery: string
-  agentTranscriptCollaborationDiscovering: string
-  agentTranscriptCollaborationDiscovered: string
   agentTranscriptCollaborationCancelled: string
   agentTranscriptCollaborationSending: string
   agentTranscriptMessageExpand: string
@@ -865,9 +862,6 @@ const EN_COPY: CodeCopy = {
   agentTranscriptCollaborationUpdated: 'Message sent',
   agentTranscriptCollaborationRecipient: name => `To ${name}`,
   agentTranscriptCollaborationOpenPeer: 'Open Agent',
-  agentTranscriptCollaborationDiscovery: 'Agent lookup',
-  agentTranscriptCollaborationDiscovering: 'Looking up Agents',
-  agentTranscriptCollaborationDiscovered: 'Lookup command completed',
   agentTranscriptCollaborationCancelled: 'Cancelled',
   agentTranscriptCollaborationSending: 'Sending message',
   agentTranscriptMessageExpand: 'Show full message',
@@ -1641,9 +1635,6 @@ const ZH_COPY: CodeCopy = {
   agentTranscriptCollaborationUpdated: '已发送消息',
   agentTranscriptCollaborationRecipient: name => `发给 ${name}`,
   agentTranscriptCollaborationOpenPeer: '打开 Agent',
-  agentTranscriptCollaborationDiscovery: '查找 Agent',
-  agentTranscriptCollaborationDiscovering: '正在查找',
-  agentTranscriptCollaborationDiscovered: '查找命令已完成',
   agentTranscriptCollaborationCancelled: '已取消',
   agentTranscriptCollaborationSending: '正在发送消息',
   agentTranscriptMessageExpand: '展开全文',

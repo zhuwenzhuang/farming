@@ -596,31 +596,43 @@ assert.strictEqual(acpCollaborationAgents(repeatedNativeItems)[0].activities.len
 const nativeSubagent = new AcpSessionState({ provider: 'codex', sessionId: 'session-sender' });
 nativeSubagent.apply({ sessionId: 'session-sender', update: { sessionUpdate: 'tool_call', toolCallId: 'native-activity', title: 'Interact with subagent checks', kind: 'other', status: 'completed', rawInput: { agentThreadId: 'session-checks', agentPath: '/root/checks', activityKind: 'interacted' } } });
 assert.strictEqual(acpTranscriptToolEntry(nativeSubagent.sanitizedEntries()[0])._meta.codex.subagent.threadId, 'session-checks');
-const discoveryCommands = [
+const queryCommands = [
   'farming list --json',
   '"$FARMING_CLI_BIN_DIR/farming" list --json',
   '"${FARMING_CLI_BIN_DIR}/farming" list --json | python3 -c "print()"',
 ];
 for (const provider of ['codex', 'claude', 'qwen', 'pi']) {
-  for (const command of discoveryCommands) {
-    const state = new AcpSessionState({ provider, sessionId: 'discovery-session' });
-    state.apply({ sessionId: 'discovery-session', update: { sessionUpdate: 'tool_call', toolCallId: 'lookup', title: command, kind: 'execute', status: 'in_progress', rawInput: { command } } });
-    const itemsFor = () => projectAcpTranscript({ sessionId: 'discovery-session', entries: state.sanitizedEntries().map(acpTranscriptToolEntry) }).turns[0].processItems;
-    assert.strictEqual(acpCollaborationEvents(itemsFor())[0].action, 'discovering');
-    state.apply({ sessionId: 'discovery-session', update: { sessionUpdate: 'tool_call_update', toolCallId: 'lookup', status: 'completed' } });
-    assert.strictEqual(acpCollaborationEvents(itemsFor())[0].action, 'discovered');
-    assert.strictEqual(acpCollaborationAgents(itemsFor()).length, 0, 'a discovery call cannot invent a child or peer');
-    const checkpoint = AcpSessionState.fromCheckpoint(state.exportCheckpoint());
-    assert.strictEqual(acpTranscriptToolEntry(checkpoint.sanitizedEntries()[0])._meta.farming.agentDiscovery, true);
-    state.apply({ sessionId: 'discovery-session', update: { sessionUpdate: 'tool_call_update', toolCallId: 'lookup', status: 'failed' } });
-    assert.strictEqual(acpCollaborationEvents(itemsFor())[0].action, 'failed');
+  for (const command of queryCommands) {
+    for (const status of ['completed', 'failed', 'cancelled']) {
+      const state = new AcpSessionState({ provider, sessionId: 'query-session' });
+      const assertOrdinaryQuery = (entries, expectedStatus) => {
+        const items = projectAcpTranscript({ sessionId: 'query-session', entries }).turns[0].processItems;
+        assert.strictEqual(items.length, 1);
+        assert.strictEqual(items[0].type, 'tool');
+        assert.strictEqual(items[0].kind, 'execute');
+        assert.strictEqual(items[0].status, expectedStatus);
+        assert.strictEqual(items[0].title, command);
+        assert.strictEqual(items[0].collaboration, undefined);
+        assert.deepStrictEqual(acpCollaborationEvents(items), []);
+        assert.deepStrictEqual(acpCollaborationAgents(items), []);
+        if (expectedStatus !== 'in_progress') assert(items[0].detail.includes('query output'));
+      };
+      state.apply({ sessionId: 'query-session', update: { sessionUpdate: 'tool_call', toolCallId: 'lookup', title: command, kind: 'execute', status: 'in_progress', rawInput: { command } } });
+      assertOrdinaryQuery(state.sanitizedEntries().map(acpTranscriptToolEntry), 'in_progress');
+      state.apply({ sessionId: 'query-session', update: { sessionUpdate: 'tool_call_update', toolCallId: 'lookup', status,
+        content: [{ type: 'content', content: { type: 'text', text: 'query output' } }] } });
+      assertOrdinaryQuery(state.sanitizedEntries().map(acpTranscriptToolEntry), status);
+      const checkpoint = AcpSessionState.fromCheckpoint(state.exportCheckpoint());
+      const restoredEntries = checkpoint.sanitizedEntries().map(acpTranscriptToolEntry);
+      assertOrdinaryQuery(restoredEntries, status);
+      // Older compact history may retain the retired discovery marker.
+      const legacyEntries = restoredEntries.map(entry => ({ ...entry, _meta: { farming: { agentDiscovery: true } } }));
+      assertOrdinaryQuery(legacyEntries, status);
+      const legacyCheckpointEntries = checkpoint.sanitizedEntries().map(entry => ({ ...entry, _meta: { farming: { agentDiscovery: true } } }));
+      assertOrdinaryQuery(legacyCheckpointEntries.map(acpTranscriptToolEntry), status);
+    }
   }
 }
-for (const command of ['echo "farming list"', 'rg "farming list"', 'farming list-extra', 'other list', 'false && farming list']) {
-  assert.strictEqual(acpTranscriptToolEntry({ id: 'unrelated', type: 'tool', kind: 'execute', title: command, rawInput: { command } })._meta, undefined);
-}
-assert.strictEqual(acpTranscriptToolEntry({ id: 'prose', type: 'tool', title: 'farming list --json', kind: 'read' })._meta, undefined,
-  'a title or prose alone is not evidence of a lookup invocation');
 const { communicationPeer } = require('../../src/components/code/related-session-navigation.ts');
 const { encodeProviderSessionKey } = require('../../shared/provider-session-identity.ts');
 const peers = [

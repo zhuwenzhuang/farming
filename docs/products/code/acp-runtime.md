@@ -169,11 +169,12 @@ bubble layout in Light, Dark and Paper. Real-provider checks are isolated and
 low-volume; native parent/child messaging is not evidence that independently
 created sessions are mutually discoverable.
 
-A recorded Farming CLI `list` invocation appears as an Agent lookup action for
-all providers. Its command/result remains inspectable; completion does not infer
-which peers were discovered or turn a historical result into current inventory.
-Titles and assistant text alone cannot create lookup events. Peer labels and
-navigation resolve exact provider, Agent Home and Session identities. Only an
+Farming CLI queries such as `list` remain ordinary tool calls for all providers,
+including live updates and restored history. Their command, result and execution
+status remain inspectable through the shared tool disclosure. Only structured
+Agent collaboration operations and Agent activity events enter the activity feed;
+query commands, titles and assistant text do not establish collaboration. Peer
+labels and navigation resolve exact provider, Agent Home and Session identities. Only an
 explicit child association can open child details; a message to an existing
 Agent never establishes parent/child ownership.
 

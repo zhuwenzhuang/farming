@@ -1094,6 +1094,13 @@ class FakeAgent implements Agent {
         rawInput: { command: '"$FARMING_CLI_BIN_DIR/farming" list --json' },
         content: [{ type: 'content', content: { type: 'text', text: '{"agents":[]}' } }],
       } });
+      if (promptText.includes('lookup only')) {
+        await client.sessionUpdate({ sessionId: params.sessionId, update: {
+          sessionUpdate: 'agent_message_chunk', messageId: 'lookup-answer',
+          content: { type: 'text', text: 'Agent list query complete.' },
+        } });
+        return { stopReason: 'end_turn' };
+      }
       const statuses = extended
         ? ['completed', 'completed', 'failed', 'completed', 'in_progress'] as const
         : ['completed', 'completed', 'failed'] as const;

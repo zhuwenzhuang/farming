@@ -90,7 +90,7 @@ export interface AgentTranscriptCollaborationState {
 }
 
 export interface AgentTranscriptCollaboration {
-  kind: 'tool' | 'activity' | 'discovery'
+  kind: 'tool' | 'activity'
   tool?: string
   task?: string
   message?: string
@@ -545,7 +545,6 @@ function errorTitle(kind: string) {
 }
 
 function codexCollaboration(entry: AcpRecord): AgentTranscriptCollaboration | undefined {
-  if (record(record(entry._meta).farming).agentDiscovery === true) return { kind: 'discovery' }
   const codex = record(record(entry._meta).codex)
   const collaboration = record(codex.collaboration)
   if (Object.keys(collaboration).length > 0) {

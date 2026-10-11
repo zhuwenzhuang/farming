@@ -1435,8 +1435,6 @@ function collaborationActionLabel(
   copy: CodeCopy,
 ) {
   if (action === 'cancelled') return copy.agentTranscriptCollaborationCancelled
-  if (action === 'discovering') return copy.agentTranscriptCollaborationDiscovering
-  if (action === 'discovered') return copy.agentTranscriptCollaborationDiscovered
   if (action === 'started') return copy.agentTranscriptCollaborationStarted
   if (action === 'updated') return copy.agentTranscriptCollaborationUpdated
   if (action === 'sending') return copy.agentTranscriptCollaborationSending
@@ -1590,9 +1588,9 @@ function AgentTranscriptCollaborationTimeline({
         <button type="button" className="code-agent-transcript-collaboration-event" data-testid="code-agent-transcript-collaboration-event"
           data-process-item-id={activity.processItemId} aria-expanded={open}
           onClick={toggleDetails}>
-          {activity.discovery ? <SearchGlyph /> : <CollaborationAgentIcon sessionId={activity.threadId} />}
+          <CollaborationAgentIcon sessionId={activity.threadId} />
           <span className="code-agent-transcript-collaboration-event-detail">
-            <span className="code-agent-transcript-collaboration-agent" title={activity.senderThreadId ? `${activity.senderThreadId} → ${activity.threadId}` : activity.threadId}>{activity.discovery ? copy.agentTranscriptCollaborationDiscovery : <AgentTranscriptCommunicationRecipient peer={peer || null} fallback={recipientName} directed={Boolean(activity.senderThreadId && activity.message)} copy={copy} />}</span>{' · '}
+            <span className="code-agent-transcript-collaboration-agent" title={activity.senderThreadId ? `${activity.senderThreadId} → ${activity.threadId}` : activity.threadId}><AgentTranscriptCommunicationRecipient peer={peer || null} fallback={recipientName} directed={Boolean(activity.senderThreadId && activity.message)} copy={copy} /></span>{' · '}
             <span className={`code-agent-transcript-collaboration-action ${activity.action}`}>{collaborationActionLabel(activity.action, copy)}</span>
             <span className="code-agent-transcript-collaboration-event-description"><ReactMarkdown
               remarkPlugins={INLINE_REMARK_PLUGINS}
