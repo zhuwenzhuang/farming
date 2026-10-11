@@ -186,7 +186,9 @@ carry the reviewed private glibc runtime for hosts with glibc 2.17–2.27.
 
 The public setup presents separate download, install, change-directory, and start
 commands. The download must succeed before the user executes the script. `--dir`
-selects an absolute installation directory and overrides `FARMING_INSTALL_ROOT`.
+selects an installation directory and overrides `FARMING_INSTALL_ROOT`. Relative
+paths are resolved against the invocation directory before staging; saved launchers
+use absolute paths and remain usable from other working directories.
 Downloading requires a trusted host CA store; the installer never disables TLS verification or changes system
 trust. Before downloading packages, it selects an available SHA-512 verifier
 (`sha512sum`, `shasum`, or OpenSSL). The first two use `base64` and `od` to decode

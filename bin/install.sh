@@ -9,7 +9,7 @@ main() {
     case "$1" in
       --help)
         [ "$#" = 1 ] && [ "${directory_set}" = 0 ] && [ -z "${mirror}" ] || { echo 'Use --help on its own.' >&2; return 1; }
-        printf '%s\n' 'Usage: bash farming_install.sh [--dir DIRECTORY] [--mirror cn]' '       bash farming_install.sh --help' 'Installs Farming only. Start it separately with the Farming CLI.' '--dir selects an absolute installation directory and overrides FARMING_INSTALL_ROOT.' '--mirror cn uses npmmirror downloads with official npm versions and integrity checks.' 'Optional: FARMING_VERSION, FARMING_NPM_REGISTRY, FARMING_INSTALL_ROOT'
+        printf '%s\n' 'Usage: bash farming_install.sh [--dir DIRECTORY] [--mirror cn]' '       bash farming_install.sh --help' 'Installs Farming only. Start it separately with the Farming CLI.' '--dir selects an installation directory (absolute or relative to the current directory) and overrides FARMING_INSTALL_ROOT.' '--mirror cn uses npmmirror downloads with official npm versions and integrity checks.' 'Optional: FARMING_VERSION, FARMING_NPM_REGISTRY, FARMING_INSTALL_ROOT'
         return ;;
       --dir)
         [ "$#" -ge 2 ] && [ -n "$2" ] && [ "${directory_set}" = 0 ] || { echo 'Usage: --dir DIRECTORY (once)' >&2; return 1; }
@@ -20,7 +20,9 @@ main() {
       *) echo "Unknown installer argument: $1" >&2; return 1 ;;
     esac
   done
-  case "${root}" in /*) ;; *) echo 'Installation directory must be absolute.' >&2; return 1 ;; esac
+  # Resolve once before staging so private launchers never depend on a later cwd.
+  case "${root}" in /*) ;; *) root="$(pwd)/${root}" ;; esac
+  while [ "${root}" != / ] && [ "${root%/}" != "${root}" ]; do root="${root%/}"; done
   local carrier
   case "$(uname -s)-$(uname -m)" in
     Darwin-arm64) carrier=node-bin-darwin-arm64 ;;

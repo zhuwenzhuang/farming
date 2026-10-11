@@ -222,9 +222,10 @@ exec ${quote(curl)} "\${args[@]}"
       return { code, output };
     } finally { clearTimeout(timer); }
   }
-  async function shell(args: string[], env: NodeJS.ProcessEnv = {}, onOutput?: (output: string, child: ChildProcess) => void) {
+  async function shell(args: string[], env: NodeJS.ProcessEnv = {}, onOutput?: (output: string, child: ChildProcess) => void, cwd?: string) {
     const child = spawn('/bin/bash', args, {
       detached: true,
+      cwd,
       env: { ...installEnv, ...env },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -238,7 +239,7 @@ exec ${quote(curl)} "\${args[@]}"
     clearTimeout(timer);
     return { code, output };
   }
-  const run = (args: string[] = [], env: NodeJS.ProcessEnv = {}, onOutput?: (output: string, child: ChildProcess) => void) => shell([path.join(projectRoot, 'bin/install.sh'), ...args], env, onOutput);
+  const run = (args: string[] = [], env: NodeJS.ProcessEnv = {}, onOutput?: (output: string, child: ChildProcess) => void, cwd?: string) => shell([path.join(projectRoot, 'bin/install.sh'), ...args], env, onOutput, cwd);
   const start = (command: string) => shell(['-c', command], { FARMING_NPM_REGISTRY: '', npm_config_registry: '' });
   return { directory, root, bin, calls, run, runTTY, start, fakePath, extractions, runtimeResponses, abortedDownloads, requestPaths,
     publishVersion, requests: () => requests,
@@ -610,6 +611,27 @@ test('installer --dir takes precedence over the environment and preserves spaces
   } finally { await f.close(); }
 });
 
+for (const relative of ['./install with spaces', 'install with spaces/', '../install with spaces']) {
+  test(`installer accepts relative directory ${relative} and recognizes an absolute repeat`, async () => {
+    const f = await fixture();
+    try {
+      const cwd = relative.startsWith('../') ? path.join(f.directory, 'work') : f.directory;
+      fs.mkdirSync(cwd, { recursive: true });
+      const first = await f.run(['--dir', relative], {}, undefined, cwd);
+      assert.equal(first.code, 0, first.output);
+      assert(fs.existsSync(path.join(f.root, '.farming-user-install-v1')));
+      const downloads = f.requestPaths.filter(value => value.endsWith('.tgz'));
+      const repeated = await f.run(['--dir', f.root]);
+      assert.equal(repeated.code, 0, repeated.output);
+      assert.match(repeated.output, /already installed; no update needed/);
+      assert.deepEqual(f.requestPaths.filter(value => value.endsWith('.tgz')), downloads, 'repeat must not download archives');
+      const launch = await f.start(`${quote(path.join(f.root, 'farming'))} --version`);
+      assert.equal(launch.code, 0, launch.output);
+      assert(!fs.readdirSync(f.directory).some(name => /\.(staging\.|install-lock$)/.test(name)));
+    } finally { await f.close(); }
+  });
+}
+
 for (const tool of ['sha512sum', 'shasum', 'openssl'] as const) {
   test(`installer rejects tampered archives before extraction with ${tool}`, { skip: !hasTool(tool) }, async () => {
     const f = await fixture(false, tool);
@@ -689,7 +711,7 @@ test('installer help and unsupported startup options do not install or launch', 
     const help = await f.run(['--help']);
     assert.equal(help.code, 0, help.output);
     assert.match(help.output, /Start it separately with the Farming CLI/);
-    for (const args of [['--start'], ['--no-start'], ['--help', '--start'], ['--dir'], ['--dir', ''], ['--dir', 'relative'], ['--dir', '/unused', 'extra'], ['--mirror'], ['--mirror', 'unknown'], ['--mirror', 'cn', '--mirror', 'cn'], ['--dir', '/unused', '--dir', '/unused'], ['--mirror', 'cn', '--help']]) {
+    for (const args of [['--start'], ['--no-start'], ['--help', '--start'], ['--dir'], ['--dir', ''], ['--dir', '/unused', 'extra'], ['--mirror'], ['--mirror', 'unknown'], ['--mirror', 'cn', '--mirror', 'cn'], ['--dir', '/unused', '--dir', '/unused'], ['--mirror', 'cn', '--help']]) {
       const result = await f.run(args);
       assert.notEqual(result.code, 0, result.output);
     }
