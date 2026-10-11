@@ -278,9 +278,12 @@ exact runtime pins into private staging before preflight and publication.
 Runtime preparation failure leaves the active image untouched; retry, ownership,
 cancellation and cleanup follow the same update operation. No runtime is shared
 mutably across images, and rollback still selects the prior image's runtime.
-Preparation, target startup, rollback, and Workspace command helpers use the selected
+Preparation, target startup, rollback, Workspace command helpers, and user Shell
+environment collection use the selected
 image's runtime invocation, including its private loader and library path on legacy Linux.
 A helper must not execute the bare Node binary and rely on incompatible host libraries.
+The selected Node path is authoritative: when launched through an explicit loader,
+`process.execPath` can identify that loader instead of Node.
 The launch environment must not replace the user's shell PATH or global loader
 configuration. Runtime absence is an explicit repair failure, never a fallback
 to system Node.js. Ordinary npm and source installations retain their existing

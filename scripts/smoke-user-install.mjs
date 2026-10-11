@@ -183,6 +183,18 @@ const { WorkspaceFileService } = require(${JSON.stringify(path.join(packageRoot,
 })().catch(error => { console.error(error); process.exitCode = 1; });
 `], 15_000);
 }
+async function shellEnvironment(packageRoot) {
+  await run(runtimeCommand(packageRoot), ['-e', `
+const assert = require('node:assert/strict');
+const { resolveUserShellEnvSync } = require(${JSON.stringify(path.join(packageRoot, 'backend/agent-env.cjs'))});
+const marker = 'farming-shell-runtime-ready';
+const collected = resolveUserShellEnvSync({
+  processEnv: { ...process.env, FARMING_AGENT_SHELL_ENV: '1', FARMING_SHELL_RUNTIME_PROBE: marker },
+  shell: '/bin/sh', cwd: process.env.HOME, timeoutMs: 5000,
+});
+assert.equal(collected?.FARMING_SHELL_RUNTIME_PROBE, marker, 'Shell environment collection must execute the selected runtime');
+`], 10_000);
+}
 try {
   console.log(`Isolated ${mode} test root: ${temporary}`);
   await run('/bin/bash', [installer]);
@@ -217,6 +229,8 @@ try {
   console.log('Native PTY created a real shell and received its output.');
   await workspaceCommandHelper(packageRoot);
   console.log('Workspace helper executed a real command through the selected runtime.');
+  await shellEnvironment(packageRoot);
+  console.log('Shell environment collection executed the selected runtime.');
   startAttempted = true;
   await run(cli, ['daemon', '--config-dir', configDir, '--port', String(port), '--no-auth'], 180_000);
   const response = await fetch(`http://127.0.0.1:${port}/farming/api/auth/status`, { signal: AbortSignal.timeout(10_000) });

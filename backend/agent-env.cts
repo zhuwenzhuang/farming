@@ -1,3 +1,4 @@
+import { runtimeExecutableInvocation } from './runtime-executable-invocation.cjs';
 const os = require('os');
 const fs = require('fs');
 const path = require('path');
@@ -106,11 +107,15 @@ function shellEnvArgs(shell: string, command: string): string[] {
   return ['-lc', command];
 }
 
-function buildShellEnvCommand(nodePath = process.execPath): string {
+function buildShellEnvCommand(
+  nodePath = process.env.FARMING_NODE_BIN || process.execPath,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
   const script = 'process.stdout.write(JSON.stringify(process.env))';
+  const invocation = runtimeExecutableInvocation(nodePath, ['-e', script], env);
   return [
     `printf '\\n${SHELL_ENV_BEGIN}\\n'`,
-    `${shellQuote(nodePath)} -e ${shellQuote(script)}`,
+    [invocation.command, ...invocation.args].map(shellQuote).join(' '),
     `printf '\\n${SHELL_ENV_END}\\n'`,
   ].join('; ');
 }
@@ -149,7 +154,7 @@ function resolveUserShellEnvSync(
   const shell = options.shell || defaultShell(processEnv);
   if (!shell) return null;
 
-  const command = options.command || buildShellEnvCommand(options.nodePath || process.execPath);
+  const command = options.command || buildShellEnvCommand(options.nodePath || processEnv.FARMING_NODE_BIN || process.execPath, processEnv);
   const args = options.args || shellEnvArgs(shell, command);
   const timeout = normalizeTimeoutMs(options.timeoutMs ?? processEnv.FARMING_AGENT_SHELL_ENV_TIMEOUT_MS);
   const env = {
