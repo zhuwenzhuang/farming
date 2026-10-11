@@ -16,7 +16,7 @@ for (const platform of ['linux', 'darwin']) {
       const shell = path.join(root, 'probe-shell');
       fs.writeFileSync(loader, '#!/bin/sh\nprintf "%s\\n" "$@" > "$FARMING_TEST_LOADER_TRACE"\nshift 2\nexec "$@"\n', { mode: 0o755 });
       fs.writeFileSync(shell, '#!/bin/sh\nshift\nexec /bin/bash --noprofile --norc -c "$1"\n', { mode: 0o755 });
-      const env = { ...process.env, FARMING_NODE_BIN: process.execPath, FARMING_NODE_LD: loader,
+      const env: NodeJS.ProcessEnv = { ...process.env, FARMING_NODE_BIN: process.execPath, FARMING_NODE_LD: loader,
         FARMING_NODE_LIBRARY_PATH: path.join(root, 'private libraries'), FARMING_TEST_LOADER_TRACE: trace,
         FARMING_AGENT_SHELL_ENV: '1', FARMING_SHELL_PROBE: 'collected', HOME: root };
       Object.defineProperty(process, 'platform', { ...originalPlatform, value: platform });
