@@ -181,8 +181,22 @@ The related pane reads fixed-size pages using provider cursors (retained-event I
 for event-only providers). Older/newer navigation and Return to latest keep every
 available turn reachable without growing each response. Live updates refresh only
 the latest page. Missing cursors, unavailable history and stale epochs are explicit.
+Codex pages also bound item count and encoded byte size within a single long turn.
+The latest page starts at the newest items; continuation cursors retain the provider's
+older-item boundary and are scoped to the parent, child and runtime generation.
+The backend and UI preserve that complete bounded page: peer messages may create
+more display turns than provider turns, so display limits must not trim it again.
+A single oversized item fails with an actionable size explanation, not a generic
+internal error. Reading retained event-only child generations uses their exact
+local transcript identity, never a synthetic ID passed to provider history.
+Transcript read failures are labelled separately from Agent execution failures.
 Quoting a child's result appends its source and selected text to the parent's draft,
 reveals that draft, and never sends it or overwrites existing text.
+
+While a turn is active without a current tool, plan or thought label, Chat shows
+the latest settled ordinary tool activity explicitly as **Last activity**.
+This is observed history, not a claim that the completed tool is still running;
+collaboration activity does not displace the parent's own activity evidence.
 
 The related pane serializes refreshes and rejects stale parent identities.
 Selecting the parent row collapses its related pane and selects the parent alone;

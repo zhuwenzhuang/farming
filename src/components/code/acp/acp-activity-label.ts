@@ -104,6 +104,17 @@ export function acpThoughtActivityLabel(items: AcpActivityItem[], maxCharacters 
   return `${characters.slice(0, limit - 1).join('')}…`
 }
 
+export function acpRecentToolActivity(items: AcpActivityItem[]) {
+  let item: AcpActivityItem | undefined
+  for (const candidate of items) {
+    if (!['tool', 'patch'].includes(candidate.type || '')
+      || !['completed', 'failed', 'cancelled'].includes(candidate.status || '')
+      || !candidate.title?.trim()) continue
+    if (!item || (candidate.lastActivityAt || 0) >= (item.lastActivityAt || 0)) item = candidate
+  }
+  return item ? { title: item.title!.trim().replace(/\s+/g, ' '), lastActivityAt: item.lastActivityAt } : null
+}
+
 export function acpPlanProgress(items: AcpActivityItem[]) {
   for (let index = items.length - 1; index >= 0; index -= 1) {
     const item = items[index]

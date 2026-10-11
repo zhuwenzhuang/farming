@@ -12,9 +12,6 @@ export function integrateCodexPeerMessages(source: string): string {
   replace('      thread,\n      history,\n', '      thread,\n      history: farmingMergePeerHistory(history, await farmingCodexPeerHistory(thread)),\n');
   replace('return turn ? oneItemPage(turn.items) : null;', 'return turn ? farmingMergePeerHistory(oneItemPage(turn.items), await farmingCodexPeerHistory(legacy.thread, new Set([turn.id]))) : null;');
   replace('if (turn) return this.codexClient.threadItemPages(sessionId, { turnId: turn.id });', 'if (turn) return farmingMergePeerHistory(this.codexClient.threadItemPages(sessionId, { turnId: turn.id }), await farmingCodexPeerHistory(metadata.thread, new Set([turn.id])));');
-  replace('if (turn.itemsView?.type && turn.itemsView.type !== "full") {', 'if (turn.itemsView ? turn.itemsView !== "full" && turn.itemsView?.type !== "full" : turn.items.length === 0) {');
-  replace('    const projection = { clientCapabilities: root.clientCapabilities, farmingHistoryUserTurns: new Set() };', '    const projection = { clientCapabilities: root.clientCapabilities, farmingHistoryUserTurns: new Set() };\n    const peers = await farmingCodexPeerHistory(thread, new Set(page.data.map(turn => turn.id)));');
-  replace('      for (const item of items) {\n        updates.push(...(await this.createHistoryUpdates(item, projection) || []));\n      }', '      for await (const merged of farmingMergePeerHistory(oneItemPage(items), peers.filter(peer => peer.turnId === turn.id))) {\n        for (const item of merged) updates.push(...(await this.createHistoryUpdates(item, projection) || []));\n      }');
   replace('  async createHistoryUpdates(item, sessionState) {\n', '  async createHistoryUpdates(item, sessionState) {\n    if (item.type === "farmingPeerMessage") return [item.update];\n');
   return source;
 }

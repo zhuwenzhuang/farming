@@ -166,6 +166,31 @@ async function resultFor(method, params) {
     } };
   }
   if (method === 'thread/items/list') {
+    if (process.env.FARMING_TEST_LONG_CHILD_HISTORY_FILE && fs.existsSync(process.env.FARMING_TEST_LONG_CHILD_HISTORY_FILE)
+      && String(params.threadId).endsWith('-child')) {
+      const huge = fs.readFileSync(process.env.FARMING_TEST_LONG_CHILD_HISTORY_FILE, 'utf8') === 'oversized';
+      const entries = [
+        { turnId: 'long-turn', item: { id: 'long-user', type: 'userMessage', content: [{ type: 'text', text: 'Review long command outputs', text_elements: [] }] } },
+        ...Array.from({ length: huge ? 1 : 153 }, (_, i) => ({
+          turnId: 'long-turn', item: { id: `long-tool-${i}`, type: 'commandExecution', command: `inspect fixture ${i}`,
+            cwd: '/example', status: 'completed', exitCode: 0, durationMs: 10,
+            aggregatedOutput: '中文🌱'.repeat(huge ? 250_000 : 4000), commandActions: [] },
+        })),
+        { turnId: 'long-turn', item: { id: 'long-answer', type: 'agentMessage', text: 'Long review completed.', phase: 'final_answer' } },
+      ].reverse();
+      const start = params.cursor ? Number(params.cursor) : 0;
+      const end = Math.min(entries.length, start + Number(params.limit));
+      return { data: entries.slice(start, end), nextCursor: end < entries.length ? String(end) : null };
+    }
+    if (process.env.FARMING_TEST_PAGED_CHILD_HISTORY === '1' && String(params.threadId).endsWith('-child') && !params.turnId) {
+      const entries = Array.from({ length: 260 }, (_, i) => [
+        { turnId: `turn-${i}`, item: { id: `user-${i}`, type: 'userMessage', content: [{ type: 'text', text: `Question ${i}`, text_elements: [] }] } },
+        { turnId: `turn-${i}`, item: { id: `answer-${i}`, type: 'agentMessage', text: `Answer ${i}`, phase: 'final_answer' } },
+      ]).flat().reverse();
+      const start = params.cursor ? Number(params.cursor) : 0;
+      const end = Math.min(entries.length, start + Number(params.limit));
+      return { data: entries.slice(start, end), nextCursor: end < entries.length ? String(end) : null };
+    }
     if (process.env.FARMING_TEST_PAGED_CHILD_HISTORY === '1' && /^turn-\d+$/.test(String(params.turnId))) {
       const i = Number(String(params.turnId).slice(5));
       return { data: [
@@ -182,7 +207,7 @@ async function resultFor(method, params) {
     const newest = { turnId: 'turn-history-newest', item: { id: 'user-history-newest', type: 'userMessage', content: [{ type: 'text', text: 'Newest paginated turn', text_elements: [] }] } };
     let data;
     let nextCursor: string | null = null;
-    if (params.sortDirection === 'desc') data = [paginated ? newest : entries.at(-1)].filter(Boolean);
+    if (params.sortDirection === 'desc') data = paginated ? [newest] : [...entries].reverse();
     else if (paginated && params.cursor === 'items-newer') data = [newest];
     else { data = entries; nextCursor = paginated ? 'items-newer' : null; }
     // Keep a 64 MiB transport response outside the emitted ACP transcript.

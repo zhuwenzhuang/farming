@@ -5189,7 +5189,7 @@ class AcpRuntime extends EventEmitter {
     const binding = this.requireBinding(agentId);
     this.requireOpenBinding(binding);
     const method = this.relatedReadMethod(binding);
-    if (!method || binding.subagentStates.get(sessionId)?.nativeSubagent) {
+    if (!method || this.isNativeSubagent(binding, sessionId)) {
       return this.getSubagentTranscriptSession(agentId, sessionId, options);
     }
     const parentSessionId = binding.sessionId;
@@ -5215,7 +5215,9 @@ class AcpRuntime extends EventEmitter {
       error: failed ? acpErrorMessage(response.error || 'Subagent failed') : '',
       stopReason: typeof response.stopReason === 'string' && response.stopReason
         ? response.stopReason : failed ? 'error' : cancelled ? 'cancelled' : '',
-      ...snapshot.transcriptSlice({ ...options, cursor: undefined }),
+      // The adapter owns this bounded page and its continuation. Peer messages
+      // can create extra display turns; trimming again would skip them forever.
+      ...snapshot.transcriptSlice({ ...options, cursor: undefined, maxTurns: response.updates.length || 1 }),
       includesLatest: !options.cursor,
       nextCursor: typeof response.nextCursor === 'string' ? response.nextCursor : null,
       truncated: response.truncated === true, hasMoreBefore: response.truncated === true,

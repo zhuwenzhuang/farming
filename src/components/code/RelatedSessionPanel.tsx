@@ -56,7 +56,11 @@ export function RelatedSessionPanel({ target, active, refreshSignal, onClose, la
           const payload = await response.json()
           if (!response.ok) throw new Error(payload.error || 'Subagent transcript unavailable')
           if (!epochRef.current && typeof payload.parentRuntimeEpoch === 'string') epochRef.current = payload.parentRuntimeEpoch
-          const next = projectAcpTranscript(payload, { maxTurns: limit })
+          // Render the complete server-bounded page. Display turns (including
+          // peer messages) need not match the provider's turn boundaries.
+          const next = projectAcpTranscript(payload, {
+            maxTurns: Array.isArray(payload.entries) ? Math.max(limit, payload.entries.length) : limit,
+          })
           if (next.sessionId !== target.sessionId) throw new Error('Subagent identity changed during read')
           if (current) { setTranscript(next); setError('') }
         } catch (caught) {
@@ -95,7 +99,7 @@ export function RelatedSessionPanel({ target, active, refreshSignal, onClose, la
       </header>
       <div className="code-related-session-content" aria-busy={loading}>
         <div className="code-related-session-source">{codeCopyForLanguage(chinese ? 'zh' : 'en').nativeChildDescription}</div>
-        {error ? <div role="alert">{error} <button type="button" onClick={() => setReadVersion(value => value + 1)}>{chinese ? '重试' : 'Retry'}</button></div> : null}
+        {error ? <div role="alert">{chinese ? '会话记录读取失败：' : 'Transcript read failed: '}{error} <button type="button" onClick={() => setReadVersion(value => value + 1)}>{chinese ? '重试' : 'Retry'}</button></div> : null}
         {!transcript && loading ? <div role="status">{chinese ? '加载中…' : 'Loading…'}</div> : null}
         {cursors.length > 1 ? <>
           <button type="button" disabled={loading} onClick={() => setCursors(value => value.slice(0, -1))}>{chinese ? '较新消息' : 'Newer messages'}</button>

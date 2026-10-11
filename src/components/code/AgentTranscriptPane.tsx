@@ -124,7 +124,7 @@ import {
 import type { WorkspaceFileOpenTarget } from '@/lib/workspace-open-files'
 import { codeCopyForLanguage, type CodeCopy } from './copy'
 import { planDetailItems } from './agent-plan'
-import { acpActivityKind, acpCompactPlanLabel, acpLiveToolActivity, acpPlanProgress, acpThoughtActivityLabel, type AcpActivityKind } from './acp/acp-activity-label'
+import { acpActivityKind, acpCompactPlanLabel, acpLiveToolActivity, acpRecentToolActivity, acpPlanProgress, acpThoughtActivityLabel, type AcpActivityKind } from './acp/acp-activity-label'
 import {
   acpCollaborationEvents,
   acpCollaborationActivityFeed,
@@ -2507,9 +2507,12 @@ function AgentTranscriptTurnView({
     : turn.status === 'inProgress' && progressDuration
       ? copy.agentTranscriptWorkingFor(progressDuration)
       : turnProcessLabel(mainProcessTurn, copy, processSummaryWorkingLabel, planLabel)
-  const liveActivityLabel = liveToolActivity?.label || planLabel || thoughtLabel || workingLabel
+  const recentActivity = source === 'acp' && !liveToolActivity?.label && !planLabel && !thoughtLabel
+    ? acpRecentToolActivity(mainProcessItems) : null
+  const liveActivityLabel = liveToolActivity?.label || planLabel || thoughtLabel
+    || (recentActivity ? copy.agentTranscriptLastActivity(recentActivity.title) : workingLabel)
   const liveActivityRecency = turn.status === 'inProgress'
-    ? activityRecencyLabel(liveToolActivity?.lastActivityAt, copy, progressClock)
+    ? activityRecencyLabel(liveToolActivity?.lastActivityAt || recentActivity?.lastActivityAt, copy, progressClock)
     : ''
   const liveActivityText = liveActivityRecency
     ? `${liveActivityLabel} · ${liveActivityRecency}`

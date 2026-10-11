@@ -89,6 +89,7 @@ export interface CodeCopy {
   agentTranscriptInterrupted: string
   agentTranscriptProcess: string
   agentTranscriptWorking: string
+  agentTranscriptLastActivity: (title: string) => string
   agentTranscriptThinking: string
   agentTranscriptRunning: string
   agentTranscriptReading: string
@@ -827,6 +828,7 @@ const EN_COPY: CodeCopy = {
   agentTranscriptInterrupted: 'Interrupted',
   agentTranscriptProcess: 'Process',
   agentTranscriptWorking: 'Processing',
+  agentTranscriptLastActivity: title => `Last activity: ${title}`,
   agentTranscriptThinking: 'Thinking',
   agentTranscriptRunning: 'Running',
   agentTranscriptReading: 'Reading',
@@ -1600,6 +1602,7 @@ const ZH_COPY: CodeCopy = {
   agentTranscriptInterrupted: '已中止',
   agentTranscriptProcess: '执行过程',
   agentTranscriptWorking: '处理中',
+  agentTranscriptLastActivity: title => `最近活动：${title}`,
   agentTranscriptThinking: '思考中',
   agentTranscriptRunning: '运行命令中',
   agentTranscriptReading: '读取文件中',

@@ -95,6 +95,21 @@ async function run() {
     assert(readCalls.some(call => call.method === 'thread/items/list'));
     assert(JSON.stringify(snapshots).includes('Live child history read without resume.'));
     assert.strictEqual(firstBinding.subagentStates.size, 0, 'read projection must not acquire a child runtime or overwrite live state');
+    const syntheticId = `${first.sessionId}-child:generation:2`;
+    const handlers = runtime.clientHandlers(firstBinding);
+    await handlers.sessionUpdate({ sessionId: first.sessionId, update: {
+      sessionUpdate: 'subagent_spawned', subagentSessionId: syntheticId, name: 'Retained generation', task: 'Review',
+    } });
+    await handlers.sessionUpdate({ sessionId: syntheticId, update: {
+      sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Retained child generation' },
+    } });
+    const beforeSynthetic = readRequests(requestLog).length;
+    const synthetic = await runtime.getSubagentTranscriptSessionForRead('shared-codex-a', syntheticId);
+    assert(JSON.stringify(synthetic).includes('Retained child generation'));
+    assert(!readRequests(requestLog).slice(beforeSynthetic).some(call =>
+      ['thread/read', 'thread/items/list', 'thread/turns/list'].includes(call.method)
+      && call.params.threadId === syntheticId), 'retained synthetic ids must never be sent to provider history');
+    firstBinding.subagentStates.delete(syntheticId);
     // Shared app-server startup discovery can finish while the child transcript is read.
     // Every request in that interval must still be read-only.
     const readOnlyMethods = new Set([
@@ -107,6 +122,20 @@ async function run() {
 
     const readExtension = firstBinding.connection.extMethod;
     try {
+      firstBinding.connection.extMethod = async () => ({
+        sessionId: `${first.sessionId}-child`, status: 'idle', nextCursor: 'older-provider-items', truncated: true,
+        updates: Array.from({ length: 30 }, (_, index) => ({
+          sessionUpdate: 'session_message', messageId: `peer-${index}`,
+          content: [{ type: 'text', text: `Peer message ${index}` }],
+          _meta: { peerMessage: { version: 1, direction: 'incoming', senderAddress: '/root/reviewer' } },
+        })),
+      });
+      const peerPage = await runtime.getSubagentTranscriptSessionForRead(
+        'shared-codex-a', `${first.sessionId}-child`, { maxTurns: 24 },
+      );
+      assert.strictEqual(peerPage.entries.length, 30, 'display turns must not trim an accepted provider page');
+      assert.strictEqual(peerPage.entries[0].id, 'session-message:peer-0');
+      assert.strictEqual(peerPage.nextCursor, 'older-provider-items');
       for (const [status, expectedState, expectedStop] of [
         ['unknown', 'unknown', ''], ['active', 'working', ''],
         ['failed', 'error', 'error'], ['systemError', 'error', 'error'],
@@ -124,7 +153,6 @@ async function run() {
       firstBinding.connection.extMethod = readExtension;
     }
 
-    const handlers = runtime.clientHandlers(firstBinding);
     await handlers.sessionUpdate({ sessionId: first.sessionId, update: {
       sessionUpdate: 'subagent_spawned', subagentSessionId: 'opaque-native-child', name: 'Native reviewer', task: 'Review', capabilities: {},
     } });

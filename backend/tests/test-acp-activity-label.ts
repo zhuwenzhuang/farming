@@ -1,8 +1,18 @@
 const assert = require('assert');
-const { acpActivityKind, acpCompactPlanLabel, acpLiveToolActivity, acpPlanProgress, acpThoughtActivityLabel } = require('../../src/components/code/acp/acp-activity-label.ts');
+const { acpActivityKind, acpCompactPlanLabel, acpLiveToolActivity, acpRecentToolActivity, acpPlanProgress, acpThoughtActivityLabel } = require('../../src/components/code/acp/acp-activity-label.ts');
 const { codeCopyForLanguage } = require('../../src/components/code/copy.ts');
 
 assert.strictEqual(acpActivityKind([]), 'processing');
+assert.equal(acpRecentToolActivity([]), null);
+assert.equal(acpRecentToolActivity([{ type: 'tool', status: 'in_progress', title: 'not finished' }]), null);
+assert.deepEqual(acpRecentToolActivity([
+  { type: 'tool', status: 'completed', title: 'old' },
+  { type: 'tool', status: 'failed', title: 'npm  test\n--unit', lastActivityAt: 1725000000000 },
+]), { title: 'npm test --unit', lastActivityAt: 1725000000000 });
+assert.deepEqual(acpRecentToolActivity([
+  { type: 'tool', status: 'completed', title: 'slow tool finished last', lastActivityAt: 200 },
+  { type: 'tool', status: 'completed', title: 'newer tool finished first', lastActivityAt: 100 },
+]), { title: 'slow tool finished last', lastActivityAt: 200 });
 assert.strictEqual(acpActivityKind([{ type: 'thought', status: 'completed' }]), 'thinking');
 assert.strictEqual(acpActivityKind([{ type: 'tool', kind: 'execute', status: 'in_progress' }]), 'running');
 assert.strictEqual(acpActivityKind([{ type: 'tool', kind: 'read', status: 'pending' }]), 'reading');

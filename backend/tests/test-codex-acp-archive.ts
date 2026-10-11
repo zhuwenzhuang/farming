@@ -20,6 +20,7 @@ async function run() {
       FARMING_TEST_MULTI_SESSION: '1',
       FARMING_TEST_ARCHIVE_CHILDREN: '1',
       FARMING_TEST_PAGED_CHILD_HISTORY: '1',
+      FARMING_TEST_LONG_CHILD_HISTORY_FILE: path.join(tmp, 'long-history'),
       FARMING_TEST_ARCHIVE_FAILURE_FILE: path.join(tmp, 'fail-archive'),
       FARMING_TEST_REQUEST_LOG_FILE: log,
     },
@@ -72,6 +73,32 @@ async function run() {
     }
     assert.equal(cursor, null);
     assert.equal(answers.size, 260, 'provider pagination must preserve all child answers');
+    fs.writeFileSync(path.join(tmp, 'long-history'), 'long');
+    const toolIds = new Set<string>();
+    cursor = null;
+    let pages = 0;
+    do {
+      const page = await request('_farming/related/read', { parentSessionId: first.sessionId,
+        sessionId: `${first.sessionId}-child`, maxTurns: 24, cursor });
+      assert(Buffer.byteLength(JSON.stringify(page)) < 2 * 1024 * 1024);
+      const updates = page.updates as Array<{ toolCallId?: string }>;
+      for (const id of new Set(updates.map(update => update.toolCallId).filter(Boolean))) {
+        assert(!toolIds.has(id), 'items must not overlap across long-turn pages');
+        toolIds.add(id);
+      }
+      if (pages === 0) assert(JSON.stringify(page).includes('Long review completed.'), 'latest result comes first');
+      cursor = page.nextCursor as string | null;
+      assert(++pages < 30, 'long-turn pagination must terminate');
+    } while (cursor);
+    assert(pages > 1);
+    assert.equal(toolIds.size, 153, 'every large command output remains reachable');
+    fs.writeFileSync(path.join(tmp, 'long-history'), 'oversized');
+    const answerPage = await request('_farming/related/read', { parentSessionId: first.sessionId,
+      sessionId: `${first.sessionId}-child`, maxTurns: 24, cursor: null });
+    assert(JSON.stringify(answerPage).includes('Long review completed.'), 'an oversized older item cannot hide the latest result');
+    await assert.rejects(request('_farming/related/read', { parentSessionId: first.sessionId,
+      sessionId: `${first.sessionId}-child`, maxTurns: 24, cursor: answerPage.nextCursor }), /single subagent history item.*1.5 MiB/);
+    fs.unlinkSync(path.join(tmp, 'long-history'));
     const readCalls = fs.readFileSync(log, 'utf8').trim().split('\n').map(line => JSON.parse(line));
     assert(!readCalls.some(call => call.method === 'thread/resume' && call.params.threadId === `${first.sessionId}-child`),
       'reading historical children must not resume them');
