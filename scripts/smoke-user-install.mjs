@@ -164,6 +164,25 @@ terminal.onData(data => { output += data; });
 terminal.onExit(() => { clearTimeout(timer); process.exit(output.includes('farming-native-ready') ? 0 : 1); });
 `], 15_000);
 }
+async function workspaceCommandHelper(packageRoot) {
+  await run(runtimeCommand(packageRoot), ['-e', `
+const assert = require('node:assert/strict');
+const { once } = require('node:events');
+const { WorkspaceFileService } = require(${JSON.stringify(path.join(packageRoot, 'backend/workspace-file-service.cjs'))});
+(async () => {
+  const service = new WorkspaceFileService();
+  const helper = service.commandRunner.child;
+  try {
+    assert(helper?.pid, 'Workspace helper must start');
+    const result = await service.commandRunner.run('/bin/sh', ['-c', 'printf "%s" "$PPID"'], { timeout: 5000 });
+    assert.equal(result.stdout, String(helper.pid), 'Workspace commands must execute through the helper, not its fallback');
+  } finally {
+    const exited = helper && helper.exitCode === null && helper.signalCode === null ? once(helper, 'exit') : Promise.resolve();
+    await service.dispose(); await exited;
+  }
+})().catch(error => { console.error(error); process.exitCode = 1; });
+`], 15_000);
+}
 try {
   console.log(`Isolated ${mode} test root: ${temporary}`);
   await run('/bin/bash', [installer]);
@@ -196,6 +215,8 @@ try {
   }
   await nativePty(packageRoot);
   console.log('Native PTY created a real shell and received its output.');
+  await workspaceCommandHelper(packageRoot);
+  console.log('Workspace helper executed a real command through the selected runtime.');
   startAttempted = true;
   await run(cli, ['daemon', '--config-dir', configDir, '--port', String(port), '--no-auth'], 180_000);
   const response = await fetch(`http://127.0.0.1:${port}/farming/api/auth/status`, { signal: AbortSignal.timeout(10_000) });

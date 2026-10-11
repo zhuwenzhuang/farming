@@ -17,6 +17,7 @@ import { MAX_INLINE_WORKSPACE_MESSAGE_BYTES } from '../shared/browser-protocol.j
 import { isSameOrDescendantPath as isInside } from './path-containment.cjs';
 import { discoverWorkspaceRepositories, exactChildRepository, repositoryForFile, resolveRepositoryRoot } from './workspace-repositories.cjs';
 import { assertManagedRipgrep } from './ripgrep-runtime.cjs';
+import { runtimeExecutableInvocation } from './runtime-executable-invocation.cjs';
 
 const DEFAULT_MAX_FILE_SIZE = 10 * 1024 * 1024;
 const DEFAULT_MAX_WRITE_SIZE = 2 * 1024 * 1024;
@@ -524,7 +525,8 @@ class CommandRunner implements WorkspaceCommandRunner {
 
   start() {
     try {
-      this.child = spawn(this.nodePath, [this.helperPath], {
+      const invocation = runtimeExecutableInvocation(this.nodePath, [this.helperPath]);
+      this.child = spawn(invocation.command, invocation.args, {
         cwd: __dirname,
         env: process.env,
         stdio: ['pipe', 'pipe', 'pipe'],
