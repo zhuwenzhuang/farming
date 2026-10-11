@@ -30,6 +30,18 @@ test('incoming Agent messages use ordinary bubbles and stable attribution in eve
     await page.mouse.move(1400, 870)
     await expect(peerBubble).toBeVisible()
     expect(await peerBubble.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
+    const sourceStyle = await sources.first().evaluate(element => {
+      const style = getComputedStyle(element)
+      return { size: style.fontSize, color: style.color, secondary: style.getPropertyValue('--code-text-subtle').trim() }
+    })
+    const bodyStyle = await peerBubble.evaluate(element => {
+      const style = getComputedStyle(element)
+      return { size: style.fontSize, color: style.color }
+    })
+    expect(sourceStyle.size).toBe('12px')
+    expect(Number.parseFloat(sourceStyle.size)).toBeLessThan(Number.parseFloat(bodyStyle.size))
+    expect(sourceStyle.secondary).not.toBe('')
+    expect(sourceStyle.color).not.toBe(bodyStyle.color)
     const bubbleBounds = await peerBubble.boundingBox()
     const nameBounds = await sources.first().boundingBox()
     const avatarBounds = await peerMessage.locator('.code-agent-transcript-peer-avatar').boundingBox()

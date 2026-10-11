@@ -305,10 +305,10 @@
   margin: 0 0 6px;
   border: 0;
   background: transparent;
-  color: var(--code-text-secondary);
+  color: var(--code-text-subtle);
   font-family: inherit;
-  font-size: var(--code-content-font-size);
-  line-height: var(--code-content-line-height);
+  font-size: 12px;
+  line-height: 16px;
   font-weight: 500;
   text-align: end;
   white-space: normal;
@@ -325,7 +325,7 @@ button.code-agent-transcript-message-source:hover {
 }
 
 .code-agent-transcript-message-unavailable {
-  color: var(--code-text-secondary);
+  color: var(--code-text-subtle);
 }
 
 .code-agent-transcript-message-time {
