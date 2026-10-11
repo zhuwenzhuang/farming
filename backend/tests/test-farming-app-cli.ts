@@ -864,7 +864,7 @@ async function runTests() {
       assert.strictEqual(await canBindPort(port), true);
     } finally {
       if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
-      fs.rmSync(configAlias, { force: true });
+      fs.unlinkSync(configAlias);
       fs.rmSync(configDir, { recursive: true, force: true });
     }
   }

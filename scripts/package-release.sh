@@ -311,12 +311,12 @@ case "${1:-}" in
   *)
     node_bin="$(type -P node || true)"
     if [ -z "${node_bin}" ]; then
-      echo "Node.js 22.13 LTS or Node.js 24+ is required." >&2
+      echo "Node.js 22.13 or newer is required." >&2
       exit 1
     fi
     if ! "${node_bin}" -e \
-      'const [major, minor] = process.versions.node.split(".").map(Number); process.exit((major === 22 && minor >= 13) || major >= 24 ? 0 : 1)'; then
-      echo "Node.js 22.13 LTS or Node.js 24+ is required." >&2
+      'const [major, minor] = process.versions.node.split(".").map(Number); process.exit((major === 22 && minor >= 13) || major >= 23 ? 0 : 1)'; then
+      echo "Node.js 22.13 or newer is required." >&2
       exit 1
     fi
     if [ "${FARMING_USE_GLIBC_RUNTIME:-auto}" != "0" ] && [ "$(uname -s)" = Linux ]; then

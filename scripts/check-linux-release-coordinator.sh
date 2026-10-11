@@ -26,8 +26,8 @@ done
 
 node -e '
   const [major, minor] = process.versions.node.split(".").map(Number);
-  process.exit((major === 22 && minor >= 13) || major >= 24 ? 0 : 1);
-' || fail "Node must satisfy ^22.13.0 or >=24.0.0; found $(node --version)"
+  process.exit((major === 22 && minor >= 13) || major >= 23 ? 0 : 1);
+' || fail "Node must satisfy >=22.13.0; found $(node --version)"
 
 BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 [[ "${BRANCH}" == "main" ]] || fail "release checkout must be on main; found ${BRANCH}"

@@ -22,7 +22,7 @@ Farming 不代替 Provider 登录。请先在运行 Farming 的 Mac 或 Linux �
 
 ## 安装并打开 Farming
 
-已有 Node.js 22.13+（22.x）或 24+，且 npm 的 bin 目录已在 PATH 中时，选择 **npm 安装**。
+已有 Node.js 22.13+（含 23.x），且 npm 的 bin 目录已在 PATH 中时，选择 **npm 安装**。
 否则选择 **指定目录安装**，把 Farming 和自带的 Node.js 装到你选择的目录，并为受支持的旧 Linux 主机提供兼容运行环境。详见[安装要求](./installation)。
 
 ::: code-group

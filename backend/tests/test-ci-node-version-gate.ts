@@ -4,8 +4,8 @@ const path = require('path');
 const YAML = require('yaml');
 
 const AUTHORITATIVE_NODE_MAJOR = '22';
-const NODE_22_FLOOR = '^22.13.0';
-const NODE_24_COMPATIBILITY_FLOOR = '>=24.0.0';
+const NODE_COMPATIBILITY_FLOOR = '>=22.13.0';
+const semver = require('semver');
 
 interface WorkflowStep {
   env?: Record<string, unknown>;
@@ -178,17 +178,25 @@ function run() {
     'Chromium failures must retain Playwright evidence',
   );
 
-  // `engines` is a range, not an enumeration: `>=24.0.0` also admits Node majors that do not
-  // exist yet, so this gate asserts the two declared floors instead of a finite major list.
+  // Runtime compatibility includes odd majors; CI can still use maintained LTS versions.
   const engines = String(packageJson.engines.node);
-  assert(
-    engines.includes(NODE_22_FLOOR),
-    `package.json engines must keep the Node ${AUTHORITATIVE_NODE_MAJOR} floor ${NODE_22_FLOOR}`,
-  );
-  assert(
-    engines.includes(NODE_24_COMPATIBILITY_FLOOR),
-    `package.json engines must keep the ${NODE_24_COMPATIBILITY_FLOOR} compatibility floor`,
-  );
+  assert.strictEqual(engines, NODE_COMPATIBILITY_FLOOR);
+  for (const version of ['22.13.0', '23.0.0', '23.7.0', '24.0.0', '25.0.0']) {
+    assert(semver.satisfies(version, engines), `Node ${version} must be accepted`);
+  }
+  for (const version of ['20.19.0', '22.12.0']) {
+    assert(!semver.satisfies(version, engines), `Node ${version} is below the runtime floor`);
+  }
+  for (const script of ['install-release.sh', 'deploy.sh', 'package-release.sh', 'check-linux-release-coordinator.sh']) {
+    const text = fs.readFileSync(path.join(root, 'scripts', script), 'utf8');
+    const predicate = text.match(/\(major === 22 && minor >= 13\) \|\| major >= (\d+)/)?.[0];
+    assert(predicate, `${script} must declare its Node compatibility check`);
+    for (const version of ['22.12.0', '22.13.0', '23.0.0', '23.7.0', '24.0.0']) {
+      const [major, minor] = version.split('.').map(Number);
+      const accepted = new Function('major', 'minor', `return ${predicate}`)(major, minor);
+      assert.strictEqual(accepted, semver.satisfies(version, engines), `${script}: Node ${version}`);
+    }
+  }
 
   const authoritativeScripts = runScriptsOf(workflow.jobs.check);
   assert.deepStrictEqual(nodeMajorsOf(workflow.jobs.check), [AUTHORITATIVE_NODE_MAJOR]);

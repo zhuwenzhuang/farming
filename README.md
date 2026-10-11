@@ -23,7 +23,7 @@
 
 ## Quick Start
 
-**npm installation** — Node.js 22.13+ (22.x) or 24+, with npm's bin directory in PATH.
+**npm installation** — Node.js 22.13+ (including 23.x), with npm's bin directory in PATH.
 
 ```bash
 npm install --global farming-code@latest

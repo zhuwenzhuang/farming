@@ -155,8 +155,8 @@ for command_name in node tar sha256sum flock curl find stat; do
     exit 1
   }
 done
-node -e 'const [major, minor] = process.versions.node.split(".").map(Number); process.exit((major === 22 && minor >= 13) || major >= 24 ? 0 : 1)' || {
-  echo "Remote deployment requires Node.js 22.13 LTS or Node.js 24+." >&2
+node -e 'const [major, minor] = process.versions.node.split(".").map(Number); process.exit((major === 22 && minor >= 13) || major >= 23 ? 0 : 1)' || {
+  echo "Remote deployment requires Node.js 22.13 or newer." >&2
   exit 1
 }
 if [ -L "${remote_dir}" ]; then

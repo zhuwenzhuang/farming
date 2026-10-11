@@ -7,7 +7,7 @@
 - [安装与更新](https://zhuwenzhuang.github.io/farming/cn/get-started/installation)
 - [快速开始](https://zhuwenzhuang.github.io/farming/cn/get-started/quickstart)
 
-已有 Node.js 22.13+（22.x）或 24+，且 npm 的 bin 目录已在 PATH 中：
+已有 Node.js 22.13+（含 23.x），且 npm 的 bin 目录已在 PATH 中：
 
 ```bash
 npm install --global farming-code@latest

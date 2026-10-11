@@ -174,7 +174,7 @@
     "access": "public"
   },
   "engines": {
-    "node": "^22.13.0 || >=24.0.0"
+    "node": ">=22.13.0"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "1.8.0",

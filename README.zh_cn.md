@@ -23,7 +23,7 @@
 
 ## 快速开始
 
-**npm 安装** — 已有 Node.js 22.13+（22.x）或 24+，且 npm 的 bin 目录已在 PATH 中。
+**npm 安装** — 已有 Node.js 22.13+（含 23.x），且 npm 的 bin 目录已在 PATH 中。
 
 ```bash
 npm install --global farming-code@latest

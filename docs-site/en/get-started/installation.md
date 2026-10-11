@@ -9,7 +9,7 @@ Choose one installation method. Both download from npm and start separately thro
 
 ## npm installation
 
-Requires Node.js 22.13+ (22.x) or 24+, a writable npm global prefix, and npm's bin directory in PATH. On Linux, use a modern glibc host (2.28+); for older hosts, use the user-directory installer.
+Requires Node.js 22.13+ (including 23.x), a writable npm global prefix, and npm's bin directory in PATH. On Linux, use a modern glibc host (2.28+); for older hosts, use the user-directory installer.
 
 ```bash
 npm install --global farming-code@latest

@@ -22,7 +22,7 @@ On the same Mac or Linux host running Farming, the target coding Agent CLI start
 
 ## Install and open Farming
 
-Choose **npm install** if Node.js 22.13+ (22.x) or 24+ is already available and npm's bin directory is in PATH. Otherwise, use **Directory install** to put Farming and its private Node.js runtime in a directory you choose, including compatibility for supported older Linux hosts. See [installation requirements](./installation).
+Choose **npm install** if Node.js 22.13+ (including 23.x) is already available and npm's bin directory is in PATH. Otherwise, use **Directory install** to put Farming and its private Node.js runtime in a directory you choose, including compatibility for supported older Linux hosts. See [installation requirements](./installation).
 
 ::: code-group
 

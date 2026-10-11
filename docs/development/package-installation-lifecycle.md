@@ -171,7 +171,7 @@ or startup recovery remains responsible for durable reconciliation.
 ## Installation Boundaries
 
 The two public setup paths are a standard npm global installation using the
-host's supported Node.js and npm, and a user-directory installation with private
+host's Node.js 22.13 or newer (including odd-numbered majors) and npm, and a user-directory installation with private
 runtime carriers. Both consume the same npm release and require an explicit CLI
 start. The latter is not a project-local `npm install`; it owns a separate
 application directory. Compatibility preparation belongs to that installer and

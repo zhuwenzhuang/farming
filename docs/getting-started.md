@@ -7,7 +7,7 @@ The maintained guide is on the public documentation site:
 - [Installation and updates](https://zhuwenzhuang.github.io/farming/en/get-started/installation)
 - [Quick start](https://zhuwenzhuang.github.io/farming/en/get-started/quickstart)
 
-With Node.js 22.13+ (22.x) or 24+ and npm's bin directory in PATH:
+With Node.js 22.13+ (including 23.x) and npm's bin directory in PATH:
 
 ```bash
 npm install --global farming-code@latest

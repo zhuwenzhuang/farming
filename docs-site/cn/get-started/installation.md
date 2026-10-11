@@ -9,7 +9,7 @@
 
 ## npm 安装
 
-要求 Node.js 22.13+（22.x）或 24+、可写的 npm 全局目录，且 npm 的 bin 目录已在 PATH 中。
+要求 Node.js 22.13+（含 23.x）、可写的 npm 全局目录，且 npm 的 bin 目录已在 PATH 中。
 Linux 使用现代 glibc 环境（2.28+）；较旧主机请选择指定目录安装。
 
 ```bash
