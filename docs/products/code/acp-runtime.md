@@ -117,8 +117,9 @@ identical. Success is evidence of the send operation, not a read receipt or proo
 that the recipient finished the requested work. Missing inbound provider events
 are not synthesized from assistant prose.
 
-Incoming peer messages use ordinary input-message bubbles with a stable source
-icon and the receive-time sender name. Provider adapters emit `session_message`
+Incoming peer messages use ordinary input-message bubbles. The stable source
+avatar sits beside the bubble and the receive-time sender name appears above it,
+outside the message surface. Long names wrap without hiding the source. Provider adapters emit `session_message`
 with the native message ID and versioned `_meta.peerMessage` provenance; the
 recipient's own stream or history is authoritative. Neither an outgoing tool's
 success nor quoted envelope text establishes receipt. Source metadata does not

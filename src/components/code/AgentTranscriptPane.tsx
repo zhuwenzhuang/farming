@@ -1082,7 +1082,7 @@ export function AgentTranscriptSubagentPreview({
     <div className="code-agent-transcript-subagent-entries">
       {transcript.turns.map(turn => (
         <div className="code-agent-transcript-subagent-turn" key={turn.id}>
-          {turn.userSource || turn.userMessage ? <div className="user">{turn.userSource ? <AgentTranscriptMessageSource source={turn.userSource} /> : null}{turn.userSource?.bodyUnavailable ? copy.agentTranscriptPeerBodyUnavailable : plainTextBlock(turn.userMessage)}</div> : null}
+          {turn.userSource || turn.userMessage ? <AgentTranscriptIncomingMessage source={turn.userSource}><div className="user">{turn.userSource?.bodyUnavailable ? copy.agentTranscriptPeerBodyUnavailable : plainTextBlock(turn.userMessage)}</div></AgentTranscriptIncomingMessage> : null}
           {turn.processItems.length > 0 ? (
             <div className="actions">{turn.processItems.map(item => <AgentTranscriptSubagentAction item={item} key={item.id} />)}</div>
           ) : null}
@@ -1455,18 +1455,22 @@ function AgentTranscriptCommunicationRecipient({ peer, fallback, directed, copy 
   return directed ? copy.agentTranscriptCollaborationRecipient(name) : name
 }
 
-function AgentTranscriptMessageSource({ source }: { source: NonNullable<AgentTranscriptTurn['userSource']> }) {
+function AgentTranscriptIncomingMessage({ source, children }: { source?: AgentTranscriptTurn['userSource']; children: ReactNode }) {
   const navigation = useContext(CommunicationPeerNavigation)
   const { agentId } = useContext(TranscriptFileOpenContext)
+  if (!source) return <>{children}</>
   const peer = agentId && source.senderSessionId ? navigation?.resolve(agentId, source.senderSessionId) : null
   // Names are the receive-time snapshot. Current inventory is used only for navigation.
   const name = source.senderName || source.senderAddress
   const identity = source.senderSessionId || `${agentId}:${source.senderAddress}`
-  const content = <><CollaborationAgentIcon sessionId={identity} /><span>{name}</span></>
-  return peer && navigation?.open
+  const label = peer && navigation?.open
     ? <button type="button" className="code-agent-transcript-message-source" data-testid="code-agent-message-source"
-        onClick={() => navigation.open?.(peer.id)}>{content}</button>
-    : <div className="code-agent-transcript-message-source" data-testid="code-agent-message-source">{content}</div>
+        onClick={() => navigation.open?.(peer.id)}>{name}</button>
+    : <div className="code-agent-transcript-message-source" data-testid="code-agent-message-source">{name}</div>
+  return <div className="code-agent-transcript-peer-message">
+    <div className="code-agent-transcript-peer-content">{label}{children}</div>
+    <div className="code-agent-transcript-peer-avatar"><CollaborationAgentIcon sessionId={identity} /></div>
+  </div>
 }
 
 function AgentTranscriptCollaborationTimeline({
@@ -2736,15 +2740,16 @@ function AgentTranscriptTurnView({
   return (
     <article ref={turnRef} className={`code-agent-transcript-turn ${turn.status === 'inProgress' ? 'running' : ''}`} data-turn-id={turn.id}>
       {turn.userSource || turn.userMessage || userImages.length > 0 || userAudios.length > 0 || userFiles.length > 0 ? (
-        <div className="code-agent-transcript-user">
-          {turn.userSource ? <AgentTranscriptMessageSource source={turn.userSource} /> : null}
-          {turn.userSource?.bodyUnavailable ? <div className="code-agent-transcript-message-unavailable">{copy.agentTranscriptPeerBodyUnavailable}</div> : null}
-          {turn.userMessage ? <div>{plainTextBlock(turn.userMessage)}</div> : null}
-          <AgentTranscriptUserImages images={userImages} />
-          <AgentTranscriptAudios audios={userAudios} />
-          <AgentTranscriptUserFiles files={userFiles} />
-          <AgentTranscriptMessageTime timestamp={turn.startedAt} kind="user" />
-        </div>
+        <AgentTranscriptIncomingMessage source={turn.userSource}>
+          <div className="code-agent-transcript-user">
+            {turn.userSource?.bodyUnavailable ? <div className="code-agent-transcript-message-unavailable">{copy.agentTranscriptPeerBodyUnavailable}</div> : null}
+            {turn.userMessage ? <div>{plainTextBlock(turn.userMessage)}</div> : null}
+            <AgentTranscriptUserImages images={userImages} />
+            <AgentTranscriptAudios audios={userAudios} />
+            <AgentTranscriptUserFiles files={userFiles} />
+            <AgentTranscriptMessageTime timestamp={turn.startedAt} kind="user" />
+          </div>
+        </AgentTranscriptIncomingMessage>
       ) : null}
 
       {hasAnyProcess ? (
