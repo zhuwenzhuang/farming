@@ -386,7 +386,7 @@ test('queues a follow-up and explicitly sends negotiated Codex ACP steer', async
 
   const steer = page.getByTestId('code-agent-transcript-steer')
   await expect(steer).toContainText('focus on the attached image after editing')
-  await expect(steer.getByTestId('code-agent-transcript-steer-label')).toHaveText('Steer')
+  await expect(steer.getByTestId('code-agent-transcript-steer-label')).toHaveText('During this turn')
   await expect(page.locator('.code-agent-transcript-turn > .code-agent-transcript-user').getByTestId('code-agent-transcript-steer-label')).toHaveCount(0)
   await expect(steer.getByTestId('code-agent-transcript-user-images').locator('img')).toHaveCount(1)
   const steerTime = steer.getByTestId('code-agent-transcript-steer-time')
@@ -699,7 +699,7 @@ test('keeps queued follow-ups separate and steers each selected message', async 
     '你自己先看看自己迭代到合理的展示吧。',
     '自己再看看',
   ])
-  await expect(page.getByTestId('code-agent-transcript-steer-label')).toHaveText(['Steer', 'Steer'])
+  await expect(page.getByTestId('code-agent-transcript-steer-label')).toHaveText(['During this turn', 'During this turn'])
 
   await input.fill('live progress')
   await expect(page.getByTestId('code-acp-composer-send')).toHaveAttribute('data-action', 'send')

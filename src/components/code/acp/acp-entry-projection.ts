@@ -95,6 +95,7 @@ export interface AgentTranscriptCollaboration {
   task?: string
   message?: string
   senderThreadId?: string
+  messageTruncated?: boolean
   receiverThreadIds?: string[]
   agentsStates?: Record<string, AgentTranscriptCollaborationState>
   threadId?: string
@@ -564,6 +565,7 @@ function codexCollaboration(entry: AcpRecord): AgentTranscriptCollaboration | un
       tool: stringValue(collaboration.tool),
       task: stringValue(collaboration.task),
       message: stringValue(collaboration.message),
+      messageTruncated: collaboration.messageTruncated === true,
       senderThreadId: stringValue(collaboration.senderThreadId),
       receiverThreadIds: list(collaboration.receiverThreadIds).map(stringValue).filter(Boolean),
       agentsStates: states,

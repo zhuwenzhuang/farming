@@ -200,7 +200,7 @@ import {
   AcpTurnFinalizationCoordinator,
 } from './acp-turn-finalization-coordinator.cjs';
 import { chatRuntimeForProvider, isChatMode } from './chat-runtime.cjs';
-import { acpTranscriptMedia, acpToolChanges, acpToolDetail, acpToolReviewChanges } from './acp-transcript.cjs';
+import { acpTranscriptMedia, acpToolChanges, acpToolDetail, acpToolReviewChanges, acpCollaborationMessage } from './acp-transcript.cjs';
 import {
   activeProviderTerminalProfile,
   providerTerminalIdentityControl,
@@ -7166,6 +7166,8 @@ class AgentManager extends EventEmitter {
       return {
         toolCallId: String(toolCallId || ''),
         detail: String(detailPayload.detail || ''),
+        ...(typeof detailPayload.collaborationMessage === 'string'
+          ? { collaborationMessage: detailPayload.collaborationMessage } : {}),
         changes: Array.isArray(detailPayload.changes) ? detailPayload.changes : [],
         ...(subagentSessionForClient ? { subagentSession: subagentSessionForClient } : {}),
         terminals: Array.isArray(detailPayload.terminals) ? detailPayload.terminals : [],
@@ -7186,6 +7188,7 @@ class AgentManager extends EventEmitter {
     return {
       toolCallId: String(toolCallId || ''),
       detail: acpToolDetail(entry),
+      collaborationMessage: acpCollaborationMessage(entry),
       changes: acpToolChanges(entry),
       ...(subagentSessionForClient ? { subagentSession: subagentSessionForClient } : {}),
       terminals: (Array.isArray(entry.content) ? entry.content : [])

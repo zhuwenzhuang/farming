@@ -812,6 +812,89 @@ button.code-agent-transcript-message-source:hover {
   font-weight: 400;
 }
 
+.code-agent-transcript-outgoing {
+  min-width: 0;
+  width: fit-content;
+  max-width: 100%;
+  margin: 10px 0 12px;
+}
+
+.code-agent-transcript-outgoing > .code-agent-transcript-message-source {
+  text-align: start;
+}
+
+.code-agent-transcript-outgoing-bubble {
+  padding: 9px 14px;
+  border-radius: 17px;
+  background: var(--code-bg-inset);
+  color: var(--code-text);
+}
+
+.code-agent-transcript-message-body.code-markdown-preview {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+  line-height: var(--code-content-line-height);
+}
+
+.code-agent-transcript-message-body.collapsed {
+  max-height: 14lh;
+  overflow: hidden;
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 2lh), transparent);
+}
+
+.code-agent-transcript-message-expand {
+  padding: 3px 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--code-text-subtle);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.code-agent-transcript-message-expand:hover {
+  color: var(--code-text);
+  text-decoration: underline;
+}
+
+.code-agent-transcript-message-expand:focus-visible {
+  outline: 2px solid var(--code-focus-ring);
+  outline-offset: 2px;
+}
+
+.code-agent-transcript-message-expand:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.code-agent-transcript-outgoing-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin: 4px 0 0;
+  color: var(--code-text-subtle);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.code-agent-transcript-outgoing-meta .code-agent-transcript-message-time {
+  opacity: 1;
+  transform: none;
+}
+
+.code-agent-transcript-outgoing-meta .sending {
+  color: var(--code-accent);
+}
+
+.code-agent-transcript-message-load-error {
+  color: var(--code-warning);
+  font-size: 12px;
+}
+
 .code-agent-transcript-collaboration-heading svg {
   width: 14px;
   height: 14px;

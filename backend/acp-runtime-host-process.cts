@@ -13,6 +13,7 @@ import {
   acpTranscriptMedia,
   acpToolChanges,
   acpToolDetail,
+  acpCollaborationMessage,
   acpToolReviewChanges,
   decodeAcpTranscriptMedia,
 } from './acp-transcript.cjs';
@@ -688,6 +689,7 @@ class AcpRuntimeHostProcess {
             const subagentSessionId = String(entry?._meta?.subagent_session_info?.session_id || '');
             const data = JSON.stringify(review ? acpToolReviewChanges(entry) : {
               detail: acpToolDetail(entry),
+              collaborationMessage: acpCollaborationMessage(entry),
               changes: acpToolChanges(entry),
               terminals: (Array.isArray(entry.content) ? entry.content : [])
                 .filter((block: UnknownRecord) => block.type === 'terminal')

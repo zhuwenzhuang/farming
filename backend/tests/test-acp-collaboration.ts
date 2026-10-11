@@ -1,6 +1,6 @@
 const assert = require('assert');
 const { AcpSessionState } = require('../acp-session-state.cjs');
-const { acpTranscriptToolEntry } = require('../acp-transcript.cjs');
+const { acpTranscriptToolEntry, acpCollaborationMessage } = require('../acp-transcript.cjs');
 const { projectAcpTranscript } = require('../../src/components/code/acp/acp-entry-projection.ts');
 const {
   acpCollaborationAgents,
@@ -552,6 +552,27 @@ assert.strictEqual(nativeEntry._meta.codex.collaboration.senderThreadId, 'sessio
 const nativeItems = projectAcpTranscript({ sessionId: 'session-sender', state: 'idle', entries: [nativeEntry] }).turns[0].processItems;
 assert.strictEqual(acpCollaborationEvents(nativeItems)[0].message, nativeMessage.rawInput.prompt);
 assert.strictEqual(acpCollaborationEvents(nativeItems)[0].threadId, 'session-peer');
+assert.strictEqual(acpCollaborationEvents(nativeItems)[0].outgoingMessage, true);
+assert.strictEqual(acpCollaborationEvents(nativeItems)[0].timestamp, nativeState.sanitizedEntries()[0].lastActivityAt);
+assert.strictEqual(acpCollaborationEvents([{ ...nativeItems[0], lastActivityAt: undefined }])[0].timestamp, undefined,
+  'restored records without an observed time must not invent a timestamp');
+assert.strictEqual(acpCollaborationMessage(nativeState.sanitizedEntries()[0]), nativeMessage.rawInput.prompt);
+const longPrompt = 'A full coordination message.\n'.repeat(300) + 'FINAL_BODY_MARKER';
+const longEntry = { ...nativeState.sanitizedEntries()[0],
+  rawInput: { ...nativeMessage.rawInput, prompt: longPrompt } };
+const compactLongEntry = acpTranscriptToolEntry(longEntry);
+assert.strictEqual(compactLongEntry._meta.codex.collaboration.message.length, 4000);
+assert.strictEqual(compactLongEntry._meta.codex.collaboration.messageTruncated, true);
+assert.strictEqual(acpCollaborationMessage(longEntry), longPrompt, 'detail reads retain the exact body beyond the preview budget');
+const longItems = projectAcpTranscript({ sessionId: 'session-sender', state: 'idle', entries: [compactLongEntry] }).turns[0].processItems;
+assert.strictEqual(acpCollaborationEvents(longItems)[0].messageTruncated, true);
+for (const [status, action] of [['pending', 'sending'], ['in_progress', 'sending'], ['failed', 'failed'], ['cancelled', 'cancelled'], ['completed', 'updated']]) {
+  const event = acpCollaborationEvents([{ ...nativeItems[0], status }])[0];
+  assert.strictEqual(event.action, action, `${status} must never imply a different delivery result`);
+}
+assert.strictEqual(acpCollaborationEvents([{ ...nativeItems[0],
+  collaboration: { ...nativeItems[0].collaboration, tool: 'wait' } }])[0].outgoingMessage, false,
+  'a child result body is not an outgoing message');
 const repeatedNativeItems = [...nativeItems, { ...nativeItems[0], id: 'peer-send-2' }];
 assert.strictEqual(acpCollaborationActivityFeed(repeatedNativeItems).length, 2, 'separate sends with identical text remain separately inspectable');
 const legacyCheckpoint = nativeState.exportCheckpoint();

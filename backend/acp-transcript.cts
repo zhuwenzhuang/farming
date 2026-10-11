@@ -623,6 +623,13 @@ function boundedCollaborationIds(value: unknown): string[] {
   });
 }
 
+function acpCollaborationMessage(entry: DataRecord): string | undefined {
+  const collaboration = dataRecord(dataRecord(dataRecord(entry._meta).codex).collaboration);
+  if (!['sendinput', 'followuptask', 'resumeagent'].includes(String(collaboration.tool || '').toLowerCase())) return undefined;
+  const prompt = dataRecord(entry.rawInput).prompt;
+  return typeof prompt === 'string' ? prompt : undefined;
+}
+
 function transcriptCodexToolMeta(entry: DataRecord): DataRecord | null {
   const codex = dataRecord(dataRecord(entry._meta).codex);
   const compact: DataRecord = {};
@@ -651,7 +658,8 @@ function transcriptCodexToolMeta(entry: DataRecord): DataRecord | null {
       receiverThreadIds,
       agentsStates,
       ...(['sendinput', 'followuptask', 'resumeagent'].includes(String(collaboration.tool || '').toLowerCase())
-        ? { message: boundedCollaborationString(rawInput.prompt, 4000) }
+        ? { message: boundedCollaborationString(rawInput.prompt, 4000),
+            messageTruncated: String(rawInput.prompt || '').trim().length > 4000 }
         : {}),
       ...(String(collaboration.tool || '').toLowerCase() === 'spawnagent'
         ? { task: boundedCollaborationTask(rawInput.prompt) }
@@ -814,6 +822,7 @@ export {
   acpTranscriptMedia,
   acpToolChanges,
   detailForTool as acpToolDetail,
+  acpCollaborationMessage,
   acpToolReviewChanges,
   acpTranscriptToolEntry,
   decodeAcpTranscriptMedia,

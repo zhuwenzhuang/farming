@@ -1082,17 +1082,30 @@ class FakeAgent implements Agent {
     }
     if (promptText.includes('native peer communication')) {
       const peerSessionId = promptText.match(/peer-session=([a-zA-Z0-9_-]+)/)?.[1] || 'session-storage-peer';
+      const extended = promptText.includes('extended');
+      if (extended) await client.sessionUpdate({ sessionId: params.sessionId, update: {
+        sessionUpdate: 'user_message_chunk', messageId: 'peer-unattributed',
+        content: { type: 'text', text: '我负责存储适配，你继续处理控制面。来源未由 Provider 提供。' },
+        _meta: { codex: { steer: true } },
+      } });
       await client.sessionUpdate({ sessionId: params.sessionId, update: {
         sessionUpdate: 'tool_call', toolCallId: 'peer-discovery', kind: 'execute',
         title: '"$FARMING_CLI_BIN_DIR/farming" list --json', status: 'completed',
         rawInput: { command: '"$FARMING_CLI_BIN_DIR/farming" list --json' },
         content: [{ type: 'content', content: { type: 'text', text: '{"agents":[]}' } }],
       } });
-      for (const [index, status] of (['completed', 'completed', 'failed'] as const).entries()) {
+      const statuses = extended
+        ? ['completed', 'completed', 'failed', 'completed', 'in_progress'] as const
+        : ['completed', 'completed', 'failed'] as const;
+      for (const [index, status] of statuses.entries()) {
         await client.sessionUpdate({ sessionId: params.sessionId, update: {
           sessionUpdate: 'tool_call', toolCallId: `peer-send-${index}`, title: 'sendInput', kind: 'other', status,
           rawInput: { senderThreadId: params.sessionId, receiverThreadIds: [peerSessionId],
-            prompt: index === 2 ? 'Failed coordination message.' : 'Keep **shared transport** unchanged. I will own `storage`.',
+            prompt: index === 2 ? 'Failed coordination message.'
+              : index === 3 ? `完整验收记录\n\n${'保持共享传输配置不变，核对存储与控制面边界。\n'.repeat(260)}\n\nFULL_MESSAGE_END`
+              : index === 4 ? 'Waiting for the send result.'
+              : extended ? '保持 **共享传输配置** 不变。\n\n我负责 `storage`，你继续处理控制面。\n\n```sh\nfarming list --json\n```\n\n验收后同步结果。'
+              : 'Keep **shared transport** unchanged. I will own `storage`.',
             agentsStates: { [peerSessionId]: { status: 'running' } } },
         } });
       }

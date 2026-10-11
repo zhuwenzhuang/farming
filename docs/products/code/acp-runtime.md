@@ -110,12 +110,21 @@ remain owned by the backend/provider; feed visibility has no lifecycle side effe
 
 Outgoing peer operations use the same chronological activity feed. Provider adapters
 normalize structured collaboration input for both live updates and restored
-history before compact projection. Message entries retain the sender, recipient,
-bounded body preview and tool outcome; pending and failed sends cannot appear
+history before compact projection. Outgoing messages show readable Markdown bodies
+in ordinary message surfaces, with the recipient above and recorded time and
+send outcome below. Current inventory may resolve the recipient's title by exact
+session identity; this is not a historical title snapshot. Long bodies collapse
+in place; explicitly expanding a truncated preview loads the original body through
+the existing bounded tool-detail read, with loading, failure and user-initiated
+retry. Technical parameters remain behind a separate disclosure. No additional
+message or identity store is created. Pending and failed sends cannot appear
 as successful sends. Distinct sends remain distinct even when their text is
 identical. Success is evidence of the send operation, not a read receipt or proof
 that the recipient finished the requested work. Missing inbound provider events
 are not synthesized from assistant prose.
+Inputs without trusted source metadata keep ordinary input bubbles without
+invented names or avatars. An input during an active turn uses a secondary
+"During this turn" label, which describes timing rather than the sender.
 
 Incoming peer messages use ordinary input-message bubbles. The stable source
 avatar sits beside the bubble and the receive-time sender name appears above it,

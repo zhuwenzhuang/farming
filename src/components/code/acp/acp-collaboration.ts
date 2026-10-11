@@ -18,6 +18,9 @@ export interface AcpCollaborationEvent {
   message: string
   discovery?: boolean
   senderThreadId?: string
+  outgoingMessage?: boolean
+  messageTruncated?: boolean
+  timestamp?: number
 }
 
 export interface AcpCollaborationAgent {
@@ -159,7 +162,12 @@ export function acpCollaborationEvents(items: AgentTranscriptProcessItem[]): Acp
       if (tool !== 'wait' && action !== 'recorded' && !collaboration.message && activityActions.has(`${threadId}:${action}`)) continue
       append(item, threadId, action, collaboration.message || collaboration.agentsStates?.[threadId]?.message)
       const event = events[events.length - 1]
-      if (event?.processItemId === item.id) event.senderThreadId = collaboration.senderThreadId
+      if (event?.processItemId === item.id) {
+        event.senderThreadId = collaboration.senderThreadId
+        event.outgoingMessage = ['sendinput', 'followuptask', 'resumeagent'].includes(tool) && Boolean(collaboration.message)
+        event.messageTruncated = collaboration.messageTruncated
+        event.timestamp = item.lastActivityAt
+      }
     }
   }
   return events

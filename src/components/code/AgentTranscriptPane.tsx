@@ -1,7 +1,7 @@
 import { continuesPeerMessageGroup, peerMessageTimestamp } from './acp/peer-message-layout'
 import type { Agent } from '@/types/agent'
 import { useAgentWithLiveState } from '@/lib/agent-live-state'
-import { agentTitle } from '@/lib/format'
+import { agentRowTitle } from '@/lib/format'
 import { AgentGoalCompletion } from './AgentActivityDock'
 import { useInteractionLayer } from '@/hooks/useInteractionLayer'
 import { useAcpRevisionInterest } from '@/lib/acp-revision-interest'
@@ -190,6 +190,7 @@ const TranscriptMermaidBlock = lazy(() => import('@/components/files/FileEditorM
 
 interface AgentTranscriptProcessPresentation {
   detail: string
+  collaborationMessage?: string
   terminals?: AgentTranscriptTerminal[]
   subagentTranscript?: AgentTranscript
 }
@@ -311,7 +312,7 @@ function AgentTranscriptMessageTime({
   kind,
 }: {
   timestamp: number | null | undefined
-  kind: 'user' | 'steer' | 'answer' | 'peer'
+  kind: 'user' | 'steer' | 'answer' | 'peer' | 'outgoing'
 }) {
   const value = transcriptMessageTime(timestamp)
   if (!value) return null
@@ -1420,7 +1421,7 @@ function AgentTranscriptSteerItem({ item, copy }: { item: AgentTranscriptProcess
         <AgentTranscriptTerminals terminals={terminals} />
         <div className="code-agent-transcript-steer-meta" data-testid="code-agent-transcript-steer-meta">
           <span className="code-agent-transcript-steer-label" data-testid="code-agent-transcript-steer-label">
-            {copy.steerQueuedMessage}
+            {copy.agentTranscriptInputDuringTurn}
           </span>
           <AgentTranscriptMessageTime timestamp={item.createdAt} kind="steer" />
         </div>
@@ -1452,7 +1453,7 @@ function AgentTranscriptCommunicationRecipient({ peer, fallback, directed, copy 
   copy: CodeCopy
 }) {
   const currentPeer = useAgentWithLiveState(peer)
-  const name = currentPeer ? agentTitle(currentPeer) : fallback
+  const name = currentPeer ? agentRowTitle(currentPeer) : fallback
   return directed ? copy.agentTranscriptCollaborationRecipient(name) : name
 }
 
@@ -1482,12 +1483,68 @@ function AgentTranscriptIncomingMessage({ turn, continued = false, hasNext = fal
   </div>
 }
 
+function AgentTranscriptOutgoingMessage({ activity, recipient, open, onToggleDetails, onLoadMessage, copy }: {
+  activity: ReturnType<typeof acpCollaborationActivityFeed>[number]
+  recipient: ReactNode
+  open: boolean
+  onToggleDetails: (event: ReactMouseEvent<HTMLButtonElement>) => void
+  onLoadMessage?: (itemId: string) => Promise<AgentTranscriptProcessPresentation>
+  copy: CodeCopy
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const [fullMessage, setFullMessage] = useState<string>()
+  const [loading, setLoading] = useState(false)
+  const [failed, setFailed] = useState(false)
+  const text = fullMessage ?? activity.message
+  const long = activity.messageTruncated || text.length > 1200 || text.split('\n').length > 16
+  const toggleMessage = async (anchor: HTMLButtonElement) => {
+    if (!expanded && activity.messageTruncated && fullMessage === undefined) {
+      setLoading(true)
+      setFailed(false)
+      try {
+        const presentation = await onLoadMessage?.(activity.processItemId)
+        if (typeof presentation?.collaborationMessage !== 'string') throw new Error('Missing message')
+        setFullMessage(presentation.collaborationMessage)
+      } catch {
+        setFailed(true)
+        return
+      } finally {
+        setLoading(false)
+      }
+    }
+    toggleTranscriptDisclosureWithStableAnchor(anchor, () => setExpanded(value => !value))
+  }
+  return <div className="code-agent-transcript-outgoing" data-testid="code-agent-outgoing-message">
+    <div className="code-agent-transcript-message-source" data-testid="code-agent-message-recipient">{recipient}</div>
+    <div className="code-agent-transcript-outgoing-bubble">
+      <div className={`code-markdown-preview code-agent-transcript-message-body ${long && !expanded ? 'collapsed' : ''}`}
+        data-testid="code-agent-outgoing-body">
+        <AgentTranscriptReasoningMarkdown text={text} />
+      </div>
+      {long ? <button type="button" className="code-agent-transcript-message-expand" disabled={loading}
+        aria-expanded={expanded} onClick={event => { void toggleMessage(event.currentTarget) }}>
+        {loading ? copy.loading : expanded ? copy.showLess : copy.agentTranscriptMessageExpand}
+      </button> : null}
+      {failed ? <div role="alert" className="code-agent-transcript-message-load-error">{copy.agentTranscriptMessageLoadFailed}</div> : null}
+    </div>
+    <div className="code-agent-transcript-outgoing-meta">
+      <AgentTranscriptMessageTime timestamp={activity.timestamp} kind="outgoing" />
+      <span className={`code-agent-transcript-collaboration-action ${activity.action}`} role="status">
+        {collaborationActionLabel(activity.action, copy)}
+      </span>
+      <button type="button" className="code-agent-transcript-message-expand" aria-expanded={open}
+        data-testid="code-agent-outgoing-details" onClick={onToggleDetails}>{copy.agentTranscriptTechnicalDetails}</button>
+    </div>
+  </div>
+}
+
 function AgentTranscriptCollaborationTimeline({
-  processItems, subagentStates, renderProcessItem, copy, disclosureScope, openActivityIds, setOpenActivityIds,
+  processItems, subagentStates, renderProcessItem, onLoadMessage, copy, disclosureScope, openActivityIds, setOpenActivityIds,
 }: {
   processItems: AgentTranscriptProcessItem[]
   subagentStates: AgentTranscriptSubagentState[]
   renderProcessItem: (processItemId: string) => ReactNode
+  onLoadMessage?: (itemId: string) => Promise<AgentTranscriptProcessPresentation>
   copy: CodeCopy
   disclosureScope: string
   openActivityIds: Set<string>
@@ -1502,7 +1559,7 @@ function AgentTranscriptCollaborationTimeline({
   if (!activities.length) return null
   const hiddenCount = Math.max(0, activities.length - visibleCount)
   return <div className="code-agent-transcript-collaboration" data-testid="code-agent-transcript-collaboration">
-    <div className="code-agent-transcript-collaboration-heading"><AgentGroupGlyph /><span>{copy.agentTranscriptCollaborationHeading}</span></div>
+    {!activities.some(activity => activity.outgoingMessage) ? <div className="code-agent-transcript-collaboration-heading"><AgentGroupGlyph /><span>{copy.agentTranscriptCollaborationHeading}</span></div> : null}
     {hiddenCount > 0 ? <button type="button" className="code-agent-transcript-collaboration-activities-earlier"
       data-testid="code-agent-transcript-collaboration-activities-earlier" onClick={() => setVisibleCount(value => value + 20)}>
       {copy.agentTranscriptCollaborationEarlierActivities(Math.min(20, hiddenCount))}
@@ -1516,19 +1573,23 @@ function AgentTranscriptCollaborationTimeline({
       const open = openActivityIds.has(disclosureId)
       const evidenceCount = visibleEvidenceCounts[activity.id] || 8
       const hiddenEvidence = Math.max(0, activity.processItemIds.length - evidenceCount)
+      const toggleDetails = (event: ReactMouseEvent<HTMLButtonElement>) => {
+        event.stopPropagation()
+        toggleTranscriptDisclosureWithStableAnchor(event.currentTarget, () => setOpenActivityIds(current => {
+          const next = new Set(current)
+          if (next.has(disclosureId)) next.delete(disclosureId)
+          else next.add(disclosureId)
+          return next
+        }))
+      }
       return <div key={activity.id} className={`code-agent-transcript-collaboration-activity ${open ? 'expanded' : ''}`}
         data-testid="code-agent-transcript-collaboration-activity" data-agent-thread-id={activity.threadId}>
+        {activity.outgoingMessage ? <AgentTranscriptOutgoingMessage activity={activity} copy={copy}
+          recipient={<AgentTranscriptCommunicationRecipient peer={peer || null} fallback={recipientName} directed copy={copy} />}
+          open={open} onToggleDetails={toggleDetails} onLoadMessage={onLoadMessage} /> :
         <button type="button" className="code-agent-transcript-collaboration-event" data-testid="code-agent-transcript-collaboration-event"
           data-process-item-id={activity.processItemId} aria-expanded={open}
-          onClick={event => {
-            event.stopPropagation()
-            toggleTranscriptDisclosureWithStableAnchor(event.currentTarget, () => setOpenActivityIds(current => {
-              const next = new Set(current)
-              if (next.has(disclosureId)) next.delete(disclosureId)
-              else next.add(disclosureId)
-              return next
-            }))
-          }}>
+          onClick={toggleDetails}>
           {activity.discovery ? <SearchGlyph /> : <CollaborationAgentIcon sessionId={activity.threadId} />}
           <span className="code-agent-transcript-collaboration-event-detail">
             <span className="code-agent-transcript-collaboration-agent" title={activity.senderThreadId ? `${activity.senderThreadId} → ${activity.threadId}` : activity.threadId}>{activity.discovery ? copy.agentTranscriptCollaborationDiscovery : <AgentTranscriptCommunicationRecipient peer={peer || null} fallback={recipientName} directed={Boolean(activity.senderThreadId && activity.message)} copy={copy} />}</span>{' · '}
@@ -1540,7 +1601,7 @@ function AgentTranscriptCollaborationTimeline({
           </span>
           {activity.count > 1 ? <span className="code-agent-transcript-collaboration-event-count">{copy.agentTranscriptProcessCount(activity.count)}</span> : <span />}
           <ChevronRightGlyph className="code-agent-transcript-chevron" />
-        </button>
+        </button>}
         {open ? <div className="code-agent-transcript-collaboration-evidence" data-testid="code-agent-transcript-collaboration-evidence">
           {peer && peerNavigation?.open ? <button type="button" className="code-agent-transcript-collaboration-earlier"
             data-testid="code-collaboration-open-peer" onClick={() => peerNavigation.open?.(peer.id)}>
@@ -1884,6 +1945,7 @@ function AgentTranscriptCollaborationSpace({
       disclosureScope={disclosureScope}
       openActivityIds={openActivityIds}
       setOpenActivityIds={setOpenActivityIds}
+      onLoadMessage={onLoadProcessItemDetail}
       renderProcessItem={processItemId => {
         const item = itemById.get(processItemId)
         if (!item) return null
@@ -4081,11 +4143,12 @@ export function AgentTranscriptPane({
   const handleLoadProcessItemDetail = useCallback(async (itemId: string) => {
     const response = await fetch(appPath(
       `/api/agents/${encodeURIComponent(agentId)}/acp-tool-details/${encodeURIComponent(itemId)}`,
-    ))
+    ), { signal: AbortSignal.timeout(15_000) })
     const payload = await response.json().catch(() => ({}))
     if (!response.ok) throw new Error(payload.error || copy.agentTranscriptUnavailable)
     return {
       detail: String(payload.detail || ''),
+      collaborationMessage: typeof payload.collaborationMessage === 'string' ? payload.collaborationMessage : undefined,
       terminals: Array.isArray(payload.terminals) ? payload.terminals as AgentTranscriptTerminal[] : undefined,
       subagentTranscript: payload.subagentSession && typeof payload.subagentSession === 'object'
         ? projectAcpTranscript(payload.subagentSession, { maxTurns: 12 })
