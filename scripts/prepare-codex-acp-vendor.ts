@@ -3,10 +3,13 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import * as esbuild from 'esbuild';
+import { integrateCodexPeerMessages } from './vendor/codex-peer-integration';
 
 const projectRoot = path.join(__dirname, '..');
 const expectedVersion = '2.2.2';
 const expectedUpstreamSha256 = '6b1bb4e7e9caaf4aeca1042ae4aec2dc2433b0b0e4b1614b38a4d41699902aaa';
+const expectedBundleSha256 = 'f55b5d785321bfb19c33d7f25945361ac8b9ea2439b541af7aefb872ea795894';
 const expectedPatchedSha256 = '40f90db7ace97f45a2caddafa97b2cad5bc2c38c4049c6a16ce96c79a3783ba7';
 const packageRoot = path.dirname(require.resolve('@agentclientprotocol/codex-acp/package.json'));
 const packageJsonPath = path.join(packageRoot, 'package.json');
@@ -33,7 +36,7 @@ function applyReviewedPatch(): void {
   }
 }
 
-function prepareCodexAcpVendor({ copy = false } = {}): void {
+async function prepareCodexAcpVendor({ copy = false } = {}): Promise<void> {
   const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
   if (packageJson.version !== expectedVersion) {
     throw new Error(
@@ -56,9 +59,17 @@ function prepareCodexAcpVendor({ copy = false } = {}): void {
     fs.mkdirSync(targetDirectory, { recursive: true });
     const temporaryEntry = `${targetEntry}.${process.pid}.${Date.now()}.tmp`;
     try {
-      fs.copyFileSync(sourceEntry, temporaryEntry);
-      if (sha256(temporaryEntry) !== expectedPatchedSha256) {
-        throw new Error('Copied Codex ACP runtime failed its SHA-256 verification');
+      await esbuild.build({
+        absWorkingDir: projectRoot, bundle: true, platform: 'node', format: 'esm',
+        target: 'node22', legalComments: 'none', outfile: temporaryEntry,
+        stdin: {
+          contents: `import { farmingCodexPeerUpdate, farmingCodexPeerHistory, farmingMergePeerHistory } from './scripts/vendor/codex-peer-messages.mjs';\n`
+            + integrateCodexPeerMessages(fs.readFileSync(sourceEntry, 'utf8')),
+          resolveDir: projectRoot, sourcefile: 'farming-codex-acp.js', loader: 'js',
+        },
+      });
+      if (sha256(temporaryEntry) !== expectedBundleSha256) {
+        throw new Error(`Prepared Codex ACP bundle failed its reviewed SHA-256 verification: ${sha256(temporaryEntry)}`);
       }
       // The target can be the entry file of a live ACP adapter. Replace its
       // directory entry atomically instead of truncating the running file.
@@ -71,4 +82,7 @@ function prepareCodexAcpVendor({ copy = false } = {}): void {
   }
 }
 
-prepareCodexAcpVendor({ copy: process.argv.includes('--copy') });
+prepareCodexAcpVendor({ copy: process.argv.includes('--copy') }).catch(error => {
+  console.error(error);
+  process.exitCode = 1;
+});

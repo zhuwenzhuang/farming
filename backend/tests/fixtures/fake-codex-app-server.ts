@@ -166,6 +166,14 @@ async function resultFor(method, params) {
     } };
   }
   if (method === 'thread/items/list') {
+    if (process.env.FARMING_TEST_PAGED_CHILD_HISTORY === '1' && /^turn-\d+$/.test(String(params.turnId))) {
+      const i = Number(String(params.turnId).slice(5));
+      return { data: [
+        { turnId: params.turnId, item: { id: `user-${i}`, type: 'userMessage', content: [{ type: 'text', text: `Question ${i}`, text_elements: [] }] } },
+        { turnId: params.turnId, item: { id: `answer-${i}`, type: 'agentMessage', text: `Answer ${i}`, phase: 'final_answer' } },
+      ], nextCursor: null };
+    }
+
     const entries = String(params.threadId).endsWith('-child')
       ? [{ turnId: 'child-turn', item: { id: 'child-question', type: 'userMessage', content: [{ type: 'text', text: 'Inspect the parser', text_elements: [] }] } },
         { turnId: 'child-turn', item: { id: 'child-answer', type: 'agentMessage', text: 'Live child history read without resume.', phase: 'final_answer' } }]
@@ -189,6 +197,7 @@ async function resultFor(method, params) {
       const start = Math.max(0, end - Number(params.limit));
       return { data: Array.from({ length: end - start }, (_, offset) => {
         const i = end - offset - 1;
+        if (i % 2) return { id: `turn-${i}`, status: 'completed', items: [], itemsView: 'notLoaded' };
         return { id: `turn-${i}`, status: 'completed', items: [
           { id: `user-${i}`, type: 'userMessage', content: [{ type: 'text', text: `Question ${i}`, text_elements: [] }] },
           { id: `answer-${i}`, type: 'agentMessage', text: `Answer ${i}`, phase: 'final_answer' },

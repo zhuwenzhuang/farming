@@ -244,13 +244,13 @@ function run() {
     'standalone CLI must bundle the isolated, pinned Pi ACP runtime',
   );
   assert(
-    prepareCodexAcpVendorScript.includes('fs.copyFileSync(sourceEntry, temporaryEntry)')
+    prepareCodexAcpVendorScript.includes('outfile: temporaryEntry')
       && prepareCodexAcpVendorScript.includes('fs.renameSync(temporaryEntry, targetEntry)')
       && !prepareCodexAcpVendorScript.includes('fs.copyFileSync(sourceEntry, targetEntry)'),
     'Codex ACP vendor preparation must atomically replace a potentially live adapter entry',
   );
   const preparedCodexAcpSha256 = prepareCodexAcpVendorScript.match(
-    /const expectedPatchedSha256 = '([a-f0-9]{64})';/,
+    /const expectedBundleSha256 = '([a-f0-9]{64})';/,
   )?.[1];
   assert(preparedCodexAcpSha256, 'Codex vendor preparation must retain its reviewed digest');
   assert(

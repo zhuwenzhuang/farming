@@ -12,6 +12,7 @@ import {
   type PromptRequest,
   type PromptResponse,
   type SessionConfigOption,
+  type SessionUpdate,
   type SetSessionConfigOptionRequest,
   type SetSessionConfigOptionResponse,
   type ToolCallContent,
@@ -535,6 +536,16 @@ class FakeAgent implements Agent {
   async prompt(params: PromptRequest): Promise<PromptResponse> {
     const promptText = params.prompt?.map(block => block.type === 'text' ? block.text : '').join('') || '';
     const imageCount = params.prompt?.filter(block => block.type === 'image').length || 0;
+    if (promptText === 'peer incoming appearance') {
+      const source = { version: 1, direction: 'incoming', senderAddress: 'peer-storage', senderName: 'Cleanroom HDFS TPCDS 单机验收与多机接线' };
+      for (const update of [
+        { sessionUpdate: 'session_message', messageId: 'peer-receive-1', content: [{ type: 'text', text: '我负责 HDFS 生命周期和存储适配。共享传输配置保持不变。' }], _meta: { peerMessage: source } },
+        { sessionUpdate: 'session_message', messageId: 'peer-receive-1', content: [{ type: 'text', text: '我负责 HDFS 生命周期和存储适配。共享传输配置保持不变。' }], _meta: { peerMessage: { ...source, senderName: '已改名的新任务' } } },
+        { sessionUpdate: 'agent_message_chunk', messageId: 'peer-reply', content: { type: 'text', text: '收到，我继续负责 Worker 和控制面。' } },
+        { sessionUpdate: 'session_message', messageId: 'peer-receive-2', content: [{ type: 'text', text: '' }], _meta: { peerMessage: { ...source, senderName: 'Cleanroom 多机 Worker 与构建窗口协调', senderAddress: 'peer-worker', bodyUnavailable: 'encrypted' } } },
+      ] satisfies SessionUpdate[]) await client.sessionUpdate({ sessionId: params.sessionId, update });
+      return { stopReason: 'end_turn' };
+    }
     if (promptText === 'config recovery probe') {
       await client.sessionUpdate({
         sessionId: params.sessionId,

@@ -266,6 +266,36 @@
   -webkit-user-select: text;
 }
 
+.code-agent-transcript-message-source {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 100%;
+  padding: 0;
+  margin: 0 0 5px;
+  border: 0;
+  background: transparent;
+  color: var(--code-text-secondary);
+  font: inherit;
+  font-weight: 600;
+  text-align: start;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+button.code-agent-transcript-message-source {
+  cursor: pointer;
+}
+
+button.code-agent-transcript-message-source:hover {
+  color: var(--code-text);
+  text-decoration: underline;
+}
+
+.code-agent-transcript-message-unavailable {
+  color: var(--code-text-secondary);
+}
+
 .code-agent-transcript-message-time {
   color: var(--code-text-quiet);
   font-size: 12px;

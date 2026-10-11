@@ -1,0 +1,81 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { AcpSessionState } from '../acp-session-state.cjs';
+import { projectAcpTranscript } from '../../src/components/code/acp/acp-entry-projection';
+import { farmingClaudePeerUpdate } from '../../scripts/vendor/claude-peer-messages.mjs';
+import { farmingCodexPeerUpdate, farmingCodexPeerHistory, farmingMergePeerHistory } from '../../scripts/vendor/codex-peer-messages.mjs';
+
+async function run() {
+  const source = { kind: 'peer', from: 'peer-task', fromSession: 'peer-session', name: 'Storage acceptance', body: 'Keep the transport unchanged.' };
+  const claude = farmingClaudePeerUpdate({ type: 'user', uuid: 'incoming-one', origin: source, message: { content: 'native envelope' } });
+  assert.equal(claude.content[0].text, source.body);
+  assert.equal(farmingClaudePeerUpdate({ type: 'user', uuid: 'human', message: { content: '<agent-message from="peer">hi</agent-message>' } }), null);
+  const coordinator = farmingClaudePeerUpdate({ type: 'user', uuid: 'incoming-two', origin: { kind: 'coordinator' }, parent_tool_use_id: 'child-tool', message: { content: 'Parent message' } });
+  assert.equal(coordinator._meta.peerMessage.senderAddress, 'main');
+  assert.equal(coordinator._meta.claudeCode.parentToolUseId, 'child-tool');
+  const native = { type: 'agent_message', id: 'native-one', author: '/root/peer', recipient: '/root', content: [{ type: 'input_text', text: 'Message Type: MESSAGE\nTask name: /root\nSender: /root/peer\nPayload:\nHello' }] };
+  const codex = farmingCodexPeerUpdate(native);
+  assert.equal(codex.content[0].text, 'Hello');
+  const encrypted = farmingCodexPeerUpdate({ ...native, content: [...native.content, { type: 'encrypted_content', data: 'private-ciphertext' }] });
+  assert.equal(encrypted.content[0].text, '');
+  assert.equal(encrypted._meta.peerMessage.bodyUnavailable, 'encrypted');
+  assert(!JSON.stringify(encrypted).includes('private-ciphertext'));
+  assert.equal(farmingCodexPeerUpdate({ ...native, type: 'message' }), null);
+  for (const [provider, update] of [['claude', claude], ['codex', codex]] as const) {
+    const state = new AcpSessionState({ provider, sessionId: 'recipient' });
+    state.apply({ sessionId: 'recipient', update });
+    state.apply({ sessionId: 'recipient', update });
+    const renamed = { ...update, _meta: { peerMessage: { ...update._meta.peerMessage, senderName: 'New task title' } } };
+    state.apply({ sessionId: 'recipient', update: renamed });
+    assert.equal(state.entries.length, 1);
+    assert.equal(state.entries[0].role, 'user');
+    assert.deepEqual(state.entries[0]._meta.peerMessage, update._meta.peerMessage);
+    state.apply({ sessionId: 'recipient', update: { ...renamed, messageId: 'new-message' } });
+    assert.equal(state.entries.length, 2, 'identical text with a new ID is a new receive');
+    const restored = AcpSessionState.fromCheckpoint(state.exportCheckpoint());
+    assert(restored);
+    restored.apply({ sessionId: 'recipient', update });
+    assert.equal(restored.entries.length, 2);
+    const turns = projectAcpTranscript({ sessionId: 'recipient', state: 'idle', entries: restored.sanitizedEntries() }).turns;
+    assert.equal(turns.length, 2);
+    assert.equal(turns[0].userMessage, update.content[0].text);
+    assert.equal(turns[1].userSource?.senderName, 'New task title');
+    assert.equal(turns[0].status, 'completed', 'receiving does not invent a running turn');
+  }
+  const state = new AcpSessionState({ provider: 'codex', sessionId: 'recipient' });
+  state.apply({ sessionId: 'recipient', update: encrypted });
+  assert.equal(projectAcpTranscript({ sessionId: 'recipient', entries: state.sanitizedEntries() }).turns[0].userSource?.bodyUnavailable, 'encrypted');
+
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'farming-peer-test-'));
+  const oldHome = process.env.CODEX_HOME;
+  process.env.CODEX_HOME = home;
+  try {
+    await fs.mkdir(path.join(home, 'sessions'));
+    const file = path.join(home, 'sessions', 'receiver.jsonl');
+    const peer = { ...native, internal_chat_message_metadata_passthrough: { turn_id: 'turn-one' } };
+    await fs.writeFile(file, [
+      { type: 'session_meta', payload: { id: 'receiver' } },
+      { type: 'response_item', payload: peer },
+      { type: 'event_msg', payload: { type: 'item_completed', item: { id: 'answer' } } },
+    ].map(row => JSON.stringify(row)).join('\n') + '\n');
+    const peers = await farmingCodexPeerHistory({ id: 'receiver', path: file });
+    async function* pages() { yield [{ id: 'human' }]; yield [{ id: 'answer' }]; }
+    const merged = [];
+    for await (const page of farmingMergePeerHistory(pages(), peers)) merged.push(...page);
+    assert.deepEqual(merged.map(item => item.id), ['human', 'native-one', 'answer']);
+    assert.deepEqual(await farmingCodexPeerHistory({ id: 'receiver', path: file }, new Set(['other-turn'])), []);
+    await assert.rejects(farmingCodexPeerHistory({ id: 'someone-else', path: file }), /identity mismatch/);
+    const outside = path.join(home, 'outside.jsonl');
+    await fs.copyFile(file, outside);
+    await assert.rejects(farmingCodexPeerHistory({ id: 'receiver', path: outside }), /outside/);
+    await fs.symlink(outside, path.join(home, 'sessions', 'escape.jsonl'));
+    await assert.rejects(farmingCodexPeerHistory({ id: 'receiver', path: path.join(home, 'sessions', 'escape.jsonl') }), /outside/);
+  } finally {
+    if (oldHome === undefined) delete process.env.CODEX_HOME; else process.env.CODEX_HOME = oldHome;
+    await fs.rm(home, { recursive: true, force: true });
+  }
+  console.log('Receive-side peer messages, attribution, checkpoint recovery and bounded history passed');
+}
+void run().catch(error => { console.error(error); process.exitCode = 1; });

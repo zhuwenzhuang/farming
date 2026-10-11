@@ -108,7 +108,7 @@ is duplicated in Chat. Explicitly opened evidence stays open as new events arriv
 older events remain reachable through a bounded disclosure. Execution and cancellation
 remain owned by the backend/provider; feed visibility has no lifecycle side effects.
 
-Peer communication uses the same chronological activity feed. Provider adapters
+Outgoing peer operations use the same chronological activity feed. Provider adapters
 normalize structured collaboration input for both live updates and restored
 history before compact projection. Message entries retain the sender, recipient,
 bounded body preview and tool outcome; pending and failed sends cannot appear
@@ -116,6 +116,37 @@ as successful sends. Distinct sends remain distinct even when their text is
 identical. Success is evidence of the send operation, not a read receipt or proof
 that the recipient finished the requested work. Missing inbound provider events
 are not synthesized from assistant prose.
+
+Incoming peer messages use ordinary input-message bubbles with a stable source
+icon and the receive-time sender name. Provider adapters emit `session_message`
+with the native message ID and versioned `_meta.peerMessage` provenance; the
+recipient's own stream or history is authoritative. Neither an outgoing tool's
+success nor quoted envelope text establishes receipt. Source metadata does not
+establish child ownership or grant navigation authority.
+
+The reducer upserts by message ID within the recipient session. Replayed delivery
+cannot duplicate a message or rename its original source; different IDs remain
+distinct even with identical bodies. Receipt does not start, complete, cancel or
+restart work. Checkpoints retain attribution. A title absent from historical
+provider evidence remains the recorded address, not today's inferred title.
+Only exact provider/Home/session matches enable peer navigation.
+
+Claude projects structured SDK peer/coordinator user records before ordinary
+replay-echo and hidden-meta filtering. Codex opts into raw receive events; its
+typed history omits these records, so recovery merges bounded records from the
+recipient's own verified rollout into the typed history at native item anchors.
+History reads have byte, message and time limits and fail explicitly on an
+identity or path mismatch. They never inspect the sender's history. Where Codex
+exposes an encrypted body, Chat shows receipt and an unavailable-text explanation,
+never ciphertext, fabricated text or a sender-side reconstruction. Legacy Codex
+`send_input` records without receive-side provenance remain ordinary input; they
+cannot safely acquire a guessed sender label.
+
+Acceptance covers live delivery, duplicate and distinct IDs, rename stability,
+checkpoint recovery, provider history reload, quoted-text rejection, and ordinary
+bubble layout in Light, Dark and Paper. Real-provider checks are isolated and
+low-volume; native parent/child messaging is not evidence that independently
+created sessions are mutually discoverable.
 
 A recorded Farming CLI `list` invocation appears as an Agent lookup action for
 all providers. Its command/result remains inspectable; completion does not infer

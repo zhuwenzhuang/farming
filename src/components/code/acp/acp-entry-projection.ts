@@ -1,3 +1,4 @@
+import { normalizeAcpPeerMessage, type AcpPeerMessage } from '../../../../shared/acp-peer-message'
 import { normalizeAgentGoal, type AgentGoal } from '../../../../shared/agent-goal'
 import { createTwoFilesPatch, diffLines } from 'diff'
 import type { AcpTerminalDisplay } from './types'
@@ -111,6 +112,7 @@ export interface AgentTranscriptSubagentState {
 export interface AgentTranscriptTurn {
   id: string
   userMessage: string
+  userSource?: AcpPeerMessage
   userImages?: AgentTranscriptUserImage[]
   userFiles?: AgentTranscriptUserFile[]
   userAudios?: AgentTranscriptAudio[]
@@ -774,7 +776,7 @@ function finishTurn(turn: MutableTurn | null, keepTailAsProgress: boolean): Agen
   if (['cancelled', 'canceled', 'stopped', 'error', 'failed', 'cancel_error'].includes(turn.stopReason || '')) turn.status = 'interrupted'
   const { internal, assistantMessages: _assistantMessages, ...finished } = turn
   if (internal) finished.processItems = []
-  return finished.userMessage || finished.finalMessage || finished.userImages.length > 0
+  return finished.userSource || finished.userMessage || finished.finalMessage || finished.userImages.length > 0
     || finished.userAudios.length > 0 || finished.userFiles.length > 0
     || finished.resultImages.length > 0 || finished.resultAudios.length > 0 || finished.resultFiles.length > 0
     || finished.processItems.length > 0 || Boolean(finished.completedGoals?.length)
@@ -832,6 +834,7 @@ export function projectAcpTranscript(sessionValue: unknown, options: { maxTurns?
       current.completedAt = entry.turnCompletedAt == null ? null : Number(entry.turnCompletedAt)
       current.durationMs = Number.isFinite(Number(entry.turnDurationMs)) ? Number(entry.turnDurationMs) : null
       if (!entry.internal) {
+        current.userSource = normalizeAcpPeerMessage(record(entry._meta).peerMessage) || undefined
         current.userMessage = contentText(entry.content)
         current.userImages = contentImages(entry.content, entryId)
         current.userAudios = contentAudios(entry.content, entryId)

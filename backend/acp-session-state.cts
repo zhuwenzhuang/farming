@@ -1,4 +1,5 @@
 import { normalizeAgentGoal, sameAgentGoal, type AgentGoal } from '../shared/agent-goal.js';
+import { normalizeAcpPeerMessage } from '../shared/acp-peer-message.js';
 const MAX_ACP_UPDATES = 2_000;
 const MAX_ACP_UPDATE_LOG_VALUE_CHARS = 32 * 1024;
 const MAX_CODEX_SUBAGENTS = 128;
@@ -829,16 +830,23 @@ class AcpSessionState {
       && (!Array.isArray(update.content) || !update.content.every(isBlock))) {
       throw new Error('Invalid inter-session message content');
     }
+    const peer = normalizeAcpPeerMessage((update._meta as DataRecord | undefined)?.peerMessage);
     let entry = this.entries.find(candidate => candidate.type === 'message'
       && candidate.sessionMessage === true && candidate.messageId === messageId);
     if (!entry) entry = this.pushEntry({
       id: this.uniqueMessageEntryId(`session-message:${messageId}`, 'message'),
-      type: 'message', role: 'assistant', messageId, sessionMessage: true, content: [],
+      type: 'message', role: peer ? 'user' : 'assistant', messageId, sessionMessage: true, content: [],
     });
     for (const key of ['senderSessionId', 'recipientSessionId']) {
       if (typeof update[key] === 'string') entry[key] = update[key];
     }
-    if (!chunk && '_meta' in update) entry._meta = clone(update._meta) as AcpMeta;
+    if (peer) entry.role = 'user';
+    if ('_meta' in update) {
+      // A title change or repeated delivery cannot rewrite an existing message's source.
+      const source = normalizeAcpPeerMessage(entry._meta?.peerMessage) || peer;
+      entry._meta = clone(update._meta) as AcpMeta;
+      if (source) entry._meta = { ...entry._meta, peerMessage: source };
+    }
     if (chunk) appendContent(entry.content as AcpContent[], clone(update.content) as AcpContent);
     else if ('content' in update) {
       entry.content = clone(update.content ?? []) as AcpContent[];

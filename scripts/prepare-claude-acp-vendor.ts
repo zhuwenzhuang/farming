@@ -7,7 +7,7 @@ import * as esbuild from 'esbuild';
 const projectRoot = path.join(__dirname, '..');
 const expectedVersion = '0.89.1';
 const expectedSdkVersion = '0.3.293';
-const expectedBundleSha256 = '822fc63d50e199fde16b725697bbac89aa5bd51037ca19c10e0d5bf032c1054a';
+const expectedBundleSha256 = '391074b6d589cd57082bd7d5863a03f79017beed4c0ee0df190364f8ff9ff523';
 const packageRoot = path.dirname(require.resolve('@agentclientprotocol/claude-agent-acp/package.json'));
 const packageJsonPath = path.join(packageRoot, 'package.json');
 const sdkEntry = require.resolve('@anthropic-ai/claude-agent-sdk', {
@@ -52,7 +52,7 @@ function farmingClaudePlugin(): esbuild.Plugin {
           if (start < 0 || end <= start || source.indexOf(executableFunctionStart, start + 1) >= 0) {
             throw new Error('Expected one reviewed Claude executable resolver');
           }
-          const executableSource = source.slice(0, start)
+          let executableSource = source.slice(0, start)
               + [
                 'export async function claudeCliPath() {',
                 '    if (process.env.CLAUDE_CODE_EXECUTABLE) {',
@@ -63,6 +63,29 @@ function farmingClaudePlugin(): esbuild.Plugin {
                 '',
               ].join('\n')
               + source.slice(end);
+          const liveAnchor = '                    case "assistant": {\n';
+          const replayAnchor = '            if (pending?.stopped || isReplayHiddenMetaMessage(message)) {\n';
+          if (executableSource.split(liveAnchor).length !== 2 || executableSource.split(replayAnchor).length !== 2) {
+            throw new Error('Expected reviewed Claude live and replay message boundaries');
+          }
+          executableSource = executableSource.replace(liveAnchor, liveAnchor + [
+            '                        const peerUpdate = farmingClaudePeerUpdate(message);',
+            '                        if (peerUpdate) {',
+            '                            await sendUpdate({ sessionId: params.sessionId, update: peerUpdate });',
+            '                            break;',
+            '                        }',
+            '',
+          ].join('\n')).replace(replayAnchor, [
+            '            if (pending?.stopped) return;',
+            '            const peerUpdate = farmingClaudePeerUpdate(message);',
+            '            if (peerUpdate) {',
+            '                const parent = parentToolUseIdOf(message);',
+            '                const target = nativeReplayEnabled && parent ? await announceReplayChild(parent) : sessionId;',
+            '                await this.client.sessionUpdate({ sessionId: target, update: peerUpdate });',
+            '                return;',
+            '            }',
+            replayAnchor,
+          ].join('\n'));
           // Farming uses explicit session/delete for owned failed-Fork cleanup.
           // AIR's new archive-instead-of-delete compatibility behavior would
           // retain the failed session while reporting successful deletion.
@@ -71,6 +94,7 @@ function farmingClaudePlugin(): esbuild.Plugin {
           }
           return {
             contents: 'import { deleteSession as farmingDeleteSession } from "@anthropic-ai/claude-agent-sdk";\n'
+              + `import { farmingClaudePeerUpdate } from ${JSON.stringify(path.join(projectRoot, 'scripts/vendor/claude-peer-messages.mjs'))};\n`
               + executableSource.replace(upstreamDeleteMethod, [
                 '    async deleteSession(params) {',
                 '        if (this.sessions[params.sessionId]) {',
