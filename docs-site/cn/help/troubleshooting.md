@@ -19,8 +19,8 @@ farming daemon
 
 ## 安装后找不到 farming 命令
 
-使用安装脚本时，可直接运行 `~/.local/bin/farming daemon`。如需简写为 `farming`，
-先运行 `export PATH="$HOME/.local/bin:$PATH"`；要让新终端也生效，将该行加入 Shell 启动文件。
+使用 `--dir ~/farming` 安装时，可直接运行 `~/farming/farming daemon`，
+或进入 `~/farming` 后运行 `./farming daemon`。自定义目录时替换为实际路径；安装器不创建全局命令。
 
 使用 npm 全局安装时，检查 npm 全局目录：
 
@@ -81,7 +81,7 @@ farming browser capability
 
 先记录 Settings 中显示的当前版本、目标版本和安装来源，再查看 `farming logs`。网络失败可能发生在下载、准备或激活阶段，不要在结果不明确时连续点击更新。
 
-通过安装脚本安装的版本，请查看 `~/.local/bin/farming logs`，并使用 **Settings → Updates**。详见[安装与更新](../get-started/installation)。
+通过安装脚本安装的版本，请查看 `~/farming/farming logs`，并使用 **Settings → Updates**。详见[安装与更新](../get-started/installation)。
 
 如果原本是通过全局 npm 安装，可以在普通 Shell 中运行：
 

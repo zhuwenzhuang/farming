@@ -38,9 +38,12 @@ Server 必须在初始化 Config 自有 Runtime 前原子发布所有权。已�
 第二次启动；已证明死亡的 Owner 可以回收；格式损坏、不可读、权限结果不明确或其它无法
 证明的情况一律 fail closed，并要求运维者处理。
 
-所有启动入口都必须把该拒绝呈现为可见的启动失败。尤其是 `farming daemon` 不能返回成功、
-复用旧 Server，或打印旧 URL 让人误以为请求的 Image 已经启动。运维者必须先停止同 Config
-下仍存活的 Server，才能再次启动。
+CLI 的 `start` 和 `daemon` 遇到同 Config 的存活 Server 时，先执行普通的精确所有权
+Hard-stop（包括其 Agent），然后按要求以前台或后台方式启动新的 Server。停止失败或结果
+不明确时必须终止，不能继续启动。进程 Claim 仍拒绝并发重复 Server，绝不停止其它 Config。
+重复启动不能仅返回旧 Server 或旧 URL 就宣称成功。
+
+生命周期命令必须在执行前说明决策：首次启动还是重启、Config 身份，以及重启会停止当前实例和它的 Agents。停止和后台就绪检查显示有界进度，并明确结束于成功或失败。交互终端使用紧凑动画和耗时，重定向日志使用稳定文本行，`NO_COLOR` 禁用颜色。进度写入 stderr，命令结果保留在 stdout。实际就绪前不得宣称成功，身份校验失败不得显示为停止成功。
 
 时间久不能证明进程已死亡。Server 生命周期遵循 Crash-only：持久化、Ownership 与恢复在
 非优雅退出后仍必须正确，不能依赖 Graceful Shutdown Hook。停止、崩溃恢复和清理只能作用于

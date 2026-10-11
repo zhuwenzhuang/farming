@@ -237,17 +237,26 @@ All archives are integrity-checked before extraction, and native runtime
 preflight must succeed before an atomic directory rename publishes an install.
 Failure before publication removes only staging; failure after publication
 leaves the installation available for diagnosis and repair. Concurrent
-installers fail explicitly. Repeating the installer preserves the existing managed
-installation and prints the CLI startup command; updates use the existing npm
-update state machine rather than overwriting a live bootstrap directory.
+installers fail explicitly. Repeating the installer checks the selected registry for the target version.
+If already selected, it downloads no archives. Otherwise it prepares and verifies
+a complete image, then uses the existing package-image owner to publish and
+atomically select that image for future launches. The selection compares against
+the version observed before downloading, so concurrent updates cannot be
+overwritten. Bootstrap files, running processes, Config state and history stay
+intact; failure leaves the previous selection available. The installer never
+starts or restarts the Server.
 
 The installation retains its selected npm registry for later launches and updates, without rewriting the user's npm configuration.
 Its npm cache and default Package Image store live inside the installation
 directory, including bootstrap downloads. Selecting a directory on another disk
 must not require a separate cache or package-storage environment override.
 
-The stable entry lives in the user's bin directory and invokes an absolute
-private runtime path. Installation never starts, stops, or restarts a Server;
+The stable entry lives directly in the selected installation directory and invokes
+an absolute private runtime path. Installation creates no external command link
+and does not change PATH. Completion prints full-path foreground start, background
+start, and stop commands with their purpose. Output identifies a fresh install,
+an unchanged target, or the current-to-target version transition before downloading.
+Installation never starts, stops, or restarts a Server;
 users start Farming explicitly through the CLI. The user-directory example invokes that
 entry by its full path so first use does not depend on PATH configuration.
 Configuration, credentials, and session data remain separate from the

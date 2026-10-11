@@ -38,9 +38,9 @@ bash farming_install.sh --dir ~/farming
 This avoids connecting to the documentation site from the development machine;
 HTTPS certificate verification for the npm registry is still required.
 
-No sudo or system Node.js is required. The installer only installs; repeating it preserves the existing installation without starting or restarting Farming. Update it through Settings.
+No sudo or system Node.js is required. The installer installs or updates as needed; repeating it checks the target version and preserves configuration and history without starting or restarting Farming.
 
-The example's program and launcher are at `$HOME/farming` and `$HOME/farming/farming`. Without `--dir` or `FARMING_INSTALL_ROOT`, the default program directory is `~/.local/share/farming/app` (`XDG_DATA_HOME` is respected). The installer also creates a command link at `~/.local/bin/farming` by default; it points to the chosen program directory and is optional for the commands shown here.
+The example's program and launcher are at `$HOME/farming` and `$HOME/farming/farming`. Without `--dir` or `FARMING_INSTALL_ROOT`, the default program directory is `~/.local/share/farming/app` (`XDG_DATA_HOME` is respected). The installer creates no command link outside that directory and does not change PATH.
 
 Use your preferred npm registry:
 
@@ -48,7 +48,7 @@ Use your preferred npm registry:
 FARMING_NPM_REGISTRY=https://registry.npmjs.org bash farming_install.sh --dir ~/farming
 ```
 
-Existing npm registry configuration is used when available. The selected registry is saved for later launches and updates. `FARMING_VERSION` selects an exact release; `FARMING_INSTALL_ROOT` and `FARMING_BIN_DIR` select absolute installation paths. For a custom bin directory, use the CLI startup command printed by the installer.
+Existing npm registry configuration is used when available. The selected registry is saved for later launches and updates. `FARMING_VERSION` selects an exact release; `FARMING_INSTALL_ROOT` selects an absolute installation directory when `--dir` is omitted.
 
 For downloads on networks in mainland China, explicitly enable the mirror:
 
@@ -76,11 +76,13 @@ cd ~/farming
 ./farming daemon
 ```
 
+To run in the foreground instead, use `~/farming/farming start` and keep that terminal open. To stop Farming and its Agents, use `~/farming/farming stop`. The installer prints all three commands with the actual installation path. Repeating either start command stops the current Config and its Agents, then starts a fresh service in the chosen mode.
+
 Open an authenticated URL printed by the CLI. Farming normally uses its own configuration directory and port. Pass `--config-dir`, `--port`, or `--base-path` only when isolating instances or resolving a port conflict.
 
 ## Update
 
-Both methods support **Settings → Updates**. After preparation completes, restart the service when prompted. Re-running the user-directory installer does not upgrade the installation.
+Both methods support **Settings → Updates**. After preparation completes, restart the service when prompted. Re-running the same user-directory install command also checks and installs updates; an already selected version needs no download. Start Farming afterward to switch the running service to the selected version.
 
 The updater uses npm in a private staging directory and retains the prior application and runtime for startup failure recovery. It does not replace the machine's Node.js or npm installation.
 
@@ -101,7 +103,7 @@ For a user-directory installation, stop the service first:
 "$HOME/farming/farming" stop
 ```
 
-After stopping every Config using this installation, remove the chosen program directory and its `~/.local/bin/farming` link. This also removes its private npm cache and retained update versions. Configuration and history under `~/.farming` remain separate.
+After stopping every Config using this installation, remove the chosen program directory. This also removes its private npm cache and retained update versions. Configuration and history under `~/.farming` remain separate.
 
 ## Platforms
 

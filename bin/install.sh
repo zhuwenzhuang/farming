@@ -9,7 +9,7 @@ main() {
     case "$1" in
       --help)
         [ "$#" = 1 ] && [ "${directory_set}" = 0 ] && [ -z "${mirror}" ] || { echo 'Use --help on its own.' >&2; return 1; }
-        printf '%s\n' 'Usage: bash farming_install.sh [--dir DIRECTORY] [--mirror cn]' '       bash farming_install.sh --help' 'Installs Farming only. Start it separately with the Farming CLI.' '--dir selects an absolute installation directory and overrides FARMING_INSTALL_ROOT.' '--mirror cn uses npmmirror downloads with official npm versions and integrity checks.' 'Optional: FARMING_VERSION, FARMING_NPM_REGISTRY, FARMING_INSTALL_ROOT, FARMING_BIN_DIR'
+        printf '%s\n' 'Usage: bash farming_install.sh [--dir DIRECTORY] [--mirror cn]' '       bash farming_install.sh --help' 'Installs Farming only. Start it separately with the Farming CLI.' '--dir selects an absolute installation directory and overrides FARMING_INSTALL_ROOT.' '--mirror cn uses npmmirror downloads with official npm versions and integrity checks.' 'Optional: FARMING_VERSION, FARMING_NPM_REGISTRY, FARMING_INSTALL_ROOT'
         return ;;
       --dir)
         [ "$#" -ge 2 ] && [ -n "$2" ] && [ "${directory_set}" = 0 ] || { echo 'Usage: --dir DIRECTORY (once)' >&2; return 1; }
@@ -20,8 +20,7 @@ main() {
       *) echo "Unknown installer argument: $1" >&2; return 1 ;;
     esac
   done
-  local bin_dir="${FARMING_BIN_DIR:-${HOME}/.local/bin}"
-  case "${root}:${bin_dir}" in /*:/*) ;; *) echo 'Installation and bin directories must be absolute.' >&2; return 1 ;; esac
+  case "${root}" in /*) ;; *) echo 'Installation directory must be absolute.' >&2; return 1 ;; esac
   local carrier
   case "$(uname -s)-$(uname -m)" in
     Darwin-arm64) carrier=node-bin-darwin-arm64 ;;
@@ -44,7 +43,7 @@ main() {
       legacy=1
     fi
   fi
-  mkdir -p "$(dirname "${root}")" "${bin_dir}"
+  mkdir -p "$(dirname "${root}")"
   # EXIT may run after errexit has unwound main; these cleanup identities must
   # outlive its local scope.
   lock="${root}.install-lock"
@@ -61,49 +60,65 @@ main() {
   trap cleanup_install EXIT
   trap 'exit 130' INT
   trap 'exit 143' TERM
-  local entry="${bin_dir}/farming"
-  if [ -e "${entry}" ] || [ -L "${entry}" ]; then
-    if [ ! -L "${entry}" ] || [ "$(readlink "${entry}")" != "${root}/farming" ]; then
-      echo "${entry} already belongs to another installation. Choose FARMING_BIN_DIR or remove that entry yourself." >&2
-      exit 1
-    fi
-  fi
+  local entry="${root}/farming"
+  local installed=0
   if [ -e "${root}" ]; then
     if [ ! -f "${root}/.farming-user-install-v1" ] || [ ! -x "${root}/farming" ]; then
       echo "Refusing to replace an unmanaged directory: ${root}" >&2; exit 1
     fi
-    echo 'Farming is already installed. Use Settings → Updates to update it.'
+    installed=1
+  fi
+  local registry="${FARMING_NPM_REGISTRY:-${npm_config_registry:-}}"
+  if [ -z "${registry}" ] && [ "${installed}" = 1 ]; then
+    registry="$(< "${root}/.farming-npm-registry")"
+  fi
+  if [ -z "${registry}" ] && command -v npm >/dev/null 2>&1; then
+    registry="$(npm config get registry 2>/dev/null || true)"
+  fi
+  registry="${registry:-https://registry.npmjs.org}"
+  registry="${registry%/}"
+  local metadata_registry="${registry}"
+  if [ "${mirror}" = cn ]; then
+    registry=https://registry.npmmirror.com
+    metadata_registry=https://registry.npmjs.org
+    progress_message 36 'China mirror · npmmirror downloads · official npm versions and SHA-512'
+  fi
+  case "${registry}" in
+    https://*|http://127.0.0.1:*|http://localhost:*) ;;
+    *) echo 'FARMING_NPM_REGISTRY must be an HTTPS npm registry.' >&2; exit 1 ;;
+  esac
+  local missing='' command
+  for command in curl tar gzip sed tr mktemp chmod touch mv ln cat sleep tail awk; do
+    command -v "${command}" >/dev/null || missing="${missing} ${command}"
+  done
+  if [ -n "${missing}" ]; then
+    echo "Missing basic tools:${missing}. Install these tools and run the installer again. Node.js and npm are downloaded automatically." >&2
+    exit 1
+  fi
+  local integrity_tool
+  integrity_tool="$(select_integrity_tool)"
+  stage="$(mktemp -d "${root}.staging.XXXXXX")"
+  local requested="${FARMING_VERSION:-latest}"
+  case "${requested}" in *[!A-Za-z0-9.+-]*|'') echo 'Invalid FARMING_VERSION.' >&2; exit 1 ;; esac
+  progress_message 36 'Farming · Install'
+  progress_message 36 "  Directory: ${root}"
+  progress_message 33 '◇ Checking the target version…'
+  local url expected fallback_url target_version installed_version=''
+  resolve_package farming-code "${requested}" "${stage}/farming"
+  target_version="$(json_string version "${stage}/farming/metadata.json")"
+  if [ "${installed}" = 1 ]; then
+    package_image inspect > "${stage}/installed.json"
+    installed_version="$(json_string version "${stage}/installed.json")"
+  fi
+  if [ "${installed}" = 1 ] && [ "${installed_version}" = "${target_version}" ]; then
+    progress_message 32 "✓ Farming ${target_version} is already installed; no update needed."
   else
-    local registry="${FARMING_NPM_REGISTRY:-${npm_config_registry:-}}"
-    if [ -z "${registry}" ] && command -v npm >/dev/null 2>&1; then
-      registry="$(npm config get registry 2>/dev/null || true)"
+    if [ "${installed}" = 1 ]; then
+      progress_message 33 "↻ Update available: ${installed_version} → ${target_version}"
+      progress_message 36 '  Configuration and history are preserved. Running instances stay up until you restart.'
+    else
+      progress_message 36 "◇ Fresh installation · Farming ${target_version}"
     fi
-    registry="${registry:-https://registry.npmjs.org}"
-    registry="${registry%/}"
-    local metadata_registry="${registry}"
-    if [ "${mirror}" = cn ]; then
-      registry=https://registry.npmmirror.com
-      metadata_registry=https://registry.npmjs.org
-      progress_message 36 'China mirror · npmmirror downloads · official npm versions and SHA-512'
-    fi
-    case "${registry}" in
-      https://*|http://127.0.0.1:*|http://localhost:*) ;;
-      *) echo 'FARMING_NPM_REGISTRY must be an HTTPS npm registry.' >&2; exit 1 ;;
-    esac
-    local missing='' command
-    for command in curl tar gzip sed tr mktemp chmod touch mv ln cat sleep tail awk; do
-      command -v "${command}" >/dev/null || missing="${missing} ${command}"
-    done
-    if [ -n "${missing}" ]; then
-      echo "Missing basic tools:${missing}. Install these tools and run the installer again. Node.js and npm are downloaded automatically." >&2
-      exit 1
-    fi
-    local integrity_tool
-    integrity_tool="$(select_integrity_tool)"
-    stage="$(mktemp -d "${root}.staging.XXXXXX")"
-    local requested="${FARMING_VERSION:-latest}"
-    case "${requested}" in *[!A-Za-z0-9.+-]*|'') echo 'Invalid FARMING_VERSION.' >&2; exit 1 ;; esac
-    progress_message 36 'Preparing Farming installation'
     fetch_package farming-code "${requested}" "${stage}/farming"
     local node_version npm_version runtime_version runtime_alias runtime_platform
     node_version="$(json_string "${carrier}" "${stage}/farming/package/package.json")"
@@ -195,21 +210,63 @@ LAUNCHER
     fi
     touch "${prefix}/.farming-user-install-v1"
     progress_message 33 '◇ Finishing installation…'
-    mv "${prefix}" "${root}"
+    if [ "${installed}" = 1 ]; then
+      run_install_step 'Updating Farming' package_image publish "${package_root}"
+      progress_message 32 "✓ Updated Farming ${installed_version} → ${target_version}"
+    else
+      mv "${prefix}" "${root}"
+    fi
   fi
-  [ -L "${entry}" ] || ln -s "${root}/farming" "${entry}"
-  progress_message 32 "✓ Farming installed: ${root}"
-  printf 'Command: %s\n' "${entry}"
-  case ":${PATH}:" in
-    *":${bin_dir}:"*) ;;
-    *) printf 'For future terminals, add this directory to PATH: %s\n' "${bin_dir}" ;;
-  esac
-  printf '\nStart Farming:\n  %q daemon\n' "${entry}"
+  progress_message 32 "✓ Farming ready: ${root}"
+  printf '\nForeground start (keep this terminal open):\n  %q start\n' "${entry}"
+  printf '\nBackground start (continue after closing this terminal):\n  %q daemon\n' "${entry}"
+  printf '\nStop Farming and its Agents:\n  %q stop\n' "${entry}"
+  printf '\nStarting again stops the current instance and its Agents, then starts Farming anew.\n'
   # Execute cleanup while main's local variables are still in scope.
   test -z "${stage}" || rm -rf -- "${stage}"
   stage=''
   rmdir -- "${lock}"
   trap - EXIT INT TERM
+}
+
+# Reuse the installed package-image owner: updates publish immutable images and
+# atomically select one for future launches without replacing live Server files.
+package_image() {
+  FARMING_PACKAGE_INSTALLATIONS_DIR="${root}/packages" \
+    "${root}/lib/node_modules/farming-code/bin/farming-node" - "${root}" "${stage}" "$@" <<'NODE'
+const fs = require('fs');
+const path = require('path');
+const [root, stage, action, preparedRoot] = process.argv.slice(2);
+const bootstrap = path.join(root, 'lib/node_modules/farming-code');
+const images = require(path.join(bootstrap, 'backend/package-installation.cjs'));
+const selected = images.resolvePackageLaunch(bootstrap, process.env);
+const context = selected.context;
+if (!context) throw new Error('Existing installation has no package-image owner.');
+if (action === 'inspect') {
+  console.log(JSON.stringify({
+    version: require(path.join(selected.packageRoot, 'package.json')).version,
+    imageId: images.readCurrentPackagePointer(context)?.imageId || '',
+    bootstrapIntegrity: images.localPackageIntegrity(bootstrap),
+  }));
+} else {
+  const observed = JSON.parse(fs.readFileSync(path.join(stage, 'installed.json'), 'utf8'));
+  let expectedImageId = observed.imageId;
+  if (!expectedImageId) {
+    if (images.localPackageIntegrity(bootstrap) !== observed.bootstrapIntegrity) {
+      throw new Error('Installation changed during download; run the installer again.');
+    }
+    const previous = images.publishRunningPackageImage(context, bootstrap);
+    const current = images.initializeCurrentPackageImage(context, previous);
+    if (current.imageId !== previous.imageId) {
+      throw new Error('Selected version changed during download; run the installer again.');
+    }
+    expectedImageId = current.imageId;
+  }
+  const metadata = JSON.parse(fs.readFileSync(path.join(stage, 'farming/metadata.json'), 'utf8'));
+  const image = images.publishPreparedPackageImage(context, preparedRoot, metadata.version, metadata.dist.integrity);
+  images.activatePackageImage(context, image, expectedImageId);
+}
+NODE
 }
 
 json_string() {
@@ -292,7 +349,9 @@ resolve_package() {
   local name="$1" version="$2" destination="$3"
   mkdir -p "${destination}"
   progress_message 33 "◇ Resolving ${name}@${version}…"
-  download "${metadata_registry}/${name}/${version}" "${destination}/metadata.json"
+  if [ ! -f "${destination}/metadata.json" ]; then
+    download "${metadata_registry}/${name}/${version}" "${destination}/metadata.json"
+  fi
   url="$(json_string tarball "${destination}/metadata.json")"
   expected="$(json_string integrity "${destination}/metadata.json")"
   fallback_url=''

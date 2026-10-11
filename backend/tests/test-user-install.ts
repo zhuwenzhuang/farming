@@ -66,20 +66,31 @@ fs.cpSync(path.join(stage, 'farming/package'), target, { recursive: true });
 `));
   const runtimePlatform = legacy ? 'linux-x64' : 'darwin-arm64';
   const runtimeVersion = `1.0.0-runtime-${runtimePlatform}`;
-  pack('farming-code', '1.0.0', root => {
-    fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'farming-code', version: '1.0.0', ...(platformPackages ? { farmingRuntimePackages: 1, optionalDependencies: { [`farming-code-runtime-${runtimePlatform}`]: `npm:farming-code@${runtimeVersion}` } } : {}), farmingUserRuntimeDependencies: { [carrier]: '22.23.2', npm: '12.1.0' } }));
+  let farmingVersion = '1.0.0';
+  function publishVersion(version: string) {
+  farmingVersion = version;
+  pack('farming-code', version, root => {
+    fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'farming-code', version, ...(platformPackages ? { farmingRuntimePackages: 1, optionalDependencies: { [`farming-code-runtime-${runtimePlatform}`]: `npm:farming-code@${runtimeVersion}` } } : {}), farmingUserRuntimeDependencies: { [carrier]: '22.23.2', npm: '12.1.0' } }));
     for (const name of ['farming-node', 'farming-npm']) {
       executable(path.join(root, 'bin', name), fs.readFileSync(path.join(projectRoot, 'bin', name), 'utf8'));
     }
     executable(path.join(root, 'bin/farming'), `
 const fs = require('fs');
+const path = require('path');
+const active = require('../backend/package-installation.cjs').resolvePackageLaunch(path.resolve(__dirname, '..'), process.env).packageRoot;
+const version = JSON.parse(fs.readFileSync(path.join(active, 'package.json'), 'utf8')).version;
 if (process.argv[2] === 'runtime') console.log(JSON.stringify({ executablePath: __filename }));
 if (process.argv[2] === 'runtime' && process.env.FARMING_TEST_FAIL_PREFLIGHT) process.exit(19);
-fs.appendFileSync(process.env.FARMING_TEST_CALLS, JSON.stringify({command:process.argv[2],runtime:process.env.FARMING_MANAGED_NODE_ROOT,registry:process.env.npm_config_registry,metadataRegistry:process.env.FARMING_NPM_REGISTRY,cache:process.env.npm_config_cache,images:process.env.FARMING_PACKAGE_INSTALLATIONS_DIR})+'\\n');
+fs.appendFileSync(process.env.FARMING_TEST_CALLS, JSON.stringify({command:process.argv[2],version,runtime:process.env.FARMING_MANAGED_NODE_ROOT,registry:process.env.npm_config_registry,metadataRegistry:process.env.FARMING_NPM_REGISTRY,cache:process.env.npm_config_cache,images:process.env.FARMING_PACKAGE_INSTALLATIONS_DIR})+'\\n');
 `);
     executable(path.join(root, 'backend/packaged-node-pty.cjs'), 'exports.nodePty = {};');
+    for (const module of ['package-installation', 'config-instance', 'server-process-identity']) {
+      fs.copyFileSync(path.join(projectRoot, 'backend', `${module}.cjs`), path.join(root, 'backend', `${module}.cjs`));
+    }
     if (!platformPackages) executable(path.join(root, 'dist/runtime/glibc228/ld-2.28.so'), '#!/bin/sh\n[ "$1" = --library-path ] || exit 9\nshift 2\nexec "$@"\n');
   });
+  }
+  publishVersion('1.0.0');
   if (platformPackages) pack('farming-code', runtimeVersion, root => {
     fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'farming-code', version: runtimeVersion, farmingRuntimePlatform: runtimePlatform }));
     if (legacy) executable(path.join(root, 'dist/runtime/glibc228/ld-2.28.so'), '#!/bin/sh\n[ "$1" = --library-path ] || exit 9\nshift 2\nexec "$@"\n');
@@ -149,7 +160,7 @@ fs.appendFileSync(process.env.FARMING_TEST_CALLS, JSON.stringify({command:proces
       const address = server.address();
       assert(address && typeof address !== 'string');
       response.setHeader('content-type', 'application/json');
-      response.end(JSON.stringify({ name, version: name === 'farming-code-runtime' ? runtimeVersion : name === 'farming-code' ? '1.0.0' : name === 'npm' ? '12.1.0' : '22.23.2', dist: {
+      response.end(JSON.stringify({ name, version: name === 'farming-code-runtime' ? runtimeVersion : name === 'farming-code' ? farmingVersion : name === 'npm' ? '12.1.0' : '22.23.2', dist: {
         tarball: mirrorMode === 'none' ? `http://127.0.0.1:${address.port}/${name}/archive.tgz`
           : `https://registry.npmjs.org/${name}/archive.tgz`,
         integrity: `sha512-${createHash('sha512').update(corrupt ? Buffer.from('tampered') : body).digest('base64')}`,
@@ -195,7 +206,7 @@ exec ${quote(curl)} "\${args[@]}"
   const bin = path.join(directory, 'user bin');
   const calls = path.join(directory, 'calls');
   const installEnv = { ...process.env, PATH: fakePath, HOME: directory, FARMING_INSTALL_ROOT: root,
-    FARMING_BIN_DIR: bin, FARMING_NPM_REGISTRY: registryUrl, FARMING_TEST_REGISTRY: registryUrl, FARMING_TEST_CALLS: calls };
+    FARMING_NPM_REGISTRY: registryUrl, FARMING_TEST_REGISTRY: registryUrl, FARMING_TEST_CALLS: calls };
   async function runTTY(env: NodeJS.ProcessEnv = {}, columns = 80, onOutput?: (output: string, terminal: pty.IPty) => void) {
     const terminalEnv: NodeJS.ProcessEnv = { ...installEnv, TERM: 'xterm-256color', COLUMNS: String(columns), ...env };
     if (!Object.hasOwn(env, 'NO_COLOR')) delete terminalEnv.NO_COLOR;
@@ -230,7 +241,7 @@ exec ${quote(curl)} "\${args[@]}"
   const run = (args: string[] = [], env: NodeJS.ProcessEnv = {}, onOutput?: (output: string, child: ChildProcess) => void) => shell([path.join(projectRoot, 'bin/install.sh'), ...args], env, onOutput);
   const start = (command: string) => shell(['-c', command], { FARMING_NPM_REGISTRY: '', npm_config_registry: '' });
   return { directory, root, bin, calls, run, runTTY, start, fakePath, extractions, runtimeResponses, abortedDownloads, requestPaths,
-    requests: () => requests,
+    publishVersion, requests: () => requests,
     corrupt: () => { corrupt = true; },
     async close() {
       timers.forEach(clearTimeout);
@@ -260,7 +271,7 @@ for (const mode of ['available', 'missing', 'slow'] as const) {
       if (mode === 'slow') assert.deepEqual(f.abortedDownloads.sort(), ['farming-code', 'node-bin-darwin-arm64', 'npm']);
       assert.equal(fs.readFileSync(path.join(f.root, '.farming-npm-registry'), 'utf8').trim(), 'https://registry.npmjs.org');
       assert.equal(fs.readFileSync(path.join(f.root, '.farming-download-registry'), 'utf8').trim(), 'https://registry.npmmirror.com');
-      const startCommand = result.output.match(/Start Farming:\n {2}(.+)\n/)?.[1];
+      const startCommand = result.output.match(/Background start \(continue after closing this terminal\):\n {2}(.+)\n/)?.[1];
       assert(startCommand);
       const started = await f.start(startCommand);
       assert.equal(started.code, 0, started.output);
@@ -426,12 +437,14 @@ for (const integrityTool of ['sha512sum', 'shasum', 'openssl'] as const) {
       try {
         const first = await f.run();
         assert.equal(first.code, 0, first.output);
+        assert.match(first.output, /Fresh installation · Farming 1\.0\.0/);
+        assert.match(first.output, /Starting again stops the current instance and its Agents/);
         assert(fs.existsSync(path.join(f.root, '.farming-user-install-v1')));
-        assert.equal(fs.readlinkSync(path.join(f.bin, 'farming')), path.join(f.root, 'farming'));
+        assert(!fs.existsSync(f.bin), 'installation must not create an external command directory');
         const installedCalls = fs.readFileSync(f.calls, 'utf8');
         assert.deepEqual(installedCalls.trim().split('\n').map(line => JSON.parse(line).command), ['runtime'],
           'installation must verify the runtime without starting a daemon');
-        const startCommand = first.output.match(/Start Farming:\n {2}(.+)\n/)?.[1];
+        const startCommand = first.output.match(/Background start \(continue after closing this terminal\):\n {2}(.+)\n/)?.[1];
         assert(startCommand, 'installer must print a shell-safe CLI command');
         const started = await f.start(startCommand);
         assert.equal(started.code, 0, started.output);
@@ -439,7 +452,8 @@ for (const integrityTool of ['sha512sum', 'shasum', 'openssl'] as const) {
         const before = f.requests();
         const second = await f.run([], { FARMING_NPM_REGISTRY: '', npm_config_registry: '' });
         assert.equal(second.code, 0, second.output);
-        assert.equal(f.requests(), before, 'repeat install must not overwrite or download');
+        assert.equal(f.requests(), before + 1, 'repeat install checks metadata without downloading archives');
+        assert.match(second.output, /already installed; no update needed/);
         assert.equal(fs.readFileSync(f.calls, 'utf8'), startedCalls, 'repeat install must not invoke the existing application');
         const restarted = await f.start(startCommand);
         assert.equal(restarted.code, 0, restarted.output);
@@ -454,6 +468,106 @@ for (const integrityTool of ['sha512sum', 'shasum', 'openssl'] as const) {
       } finally { await f.close(); }
     });
   }
+}
+
+for (const existingCommand of [false, true]) {
+  test(`directory installation stays local with existing PATH command=${existingCommand}`, async () => {
+    const f = await fixture();
+    try {
+      const externalBin = path.join(f.directory, '.local/bin');
+      const externalCommand = path.join(externalBin, 'farming');
+      if (existingCommand) {
+        fs.mkdirSync(externalBin, { recursive: true });
+        fs.writeFileSync(externalCommand, 'another installation');
+      }
+      const first = await f.run(['--dir', f.root]);
+      assert.equal(first.code, 0, first.output);
+      assert(!fs.existsSync(f.bin));
+      assert(!fs.lstatSync(path.join(f.root, 'farming')).isSymbolicLink());
+      assert(!first.output.includes('Optional command link:'));
+      assert(!first.output.includes('add this directory to PATH'));
+      const startCommand = first.output.match(/Background start \(continue after closing this terminal\):\n {2}(.+)\n/)?.[1];
+      assert(startCommand);
+      for (const [label, command] of [['Foreground start (keep this terminal open)', 'start'], ['Stop Farming and its Agents', 'stop']]) {
+        const line = first.output.split(`${label}:\n  `)[1]?.split('\n')[0];
+        assert(line?.endsWith(` ${command}`), first.output);
+        const invoked = await f.start(line);
+        assert.equal(invoked.code, 0, invoked.output);
+        const calls = fs.readFileSync(f.calls, 'utf8').trim().split('\n').map(row => JSON.parse(row));
+        assert.equal(calls.at(-1).command, command);
+      }
+      const started = await f.start(startCommand);
+      assert.equal(started.code, 0, started.output);
+      const before = f.requests();
+      const repeated = await f.run(['--dir', f.root]);
+      assert.equal(repeated.code, 0, repeated.output);
+      assert.equal(f.requests(), before + 1);
+      const secondRoot = path.join(f.directory, 'second installation');
+      const second = await f.run(['--dir', secondRoot]);
+      assert.equal(second.code, 0, second.output);
+      assert(fs.existsSync(path.join(secondRoot, 'farming')));
+      if (existingCommand) assert.equal(fs.readFileSync(externalCommand, 'utf8'), 'another installation');
+      else assert(!fs.existsSync(path.join(f.directory, '.local')));
+      assert(!fs.existsSync(f.bin));
+      assert(!fs.readdirSync(f.directory).some(name => /\.(staging\.|install-lock$)/.test(name)));
+    } finally { await f.close(); }
+  });
+}
+
+for (const outcome of ['success', 'preflight-failure', 'integrity-failure', 'concurrent-update'] as const) {
+  test(`repeat installation updates the selected image: ${outcome}`, async () => {
+    const f = await fixture(true, 'openssl', 'normal', 'none', true);
+    try {
+      const first = await f.run();
+      assert.equal(first.code, 0, first.output);
+      const bootstrap = path.join(f.root, 'lib/node_modules/farming-code');
+      const images = require(path.join(bootstrap, 'backend/package-installation.cjs'));
+      const env = { FARMING_PACKAGE_INSTALLATIONS_DIR: path.join(f.root, 'packages') };
+      const context = images.resolvePackageInstallationContext(bootstrap, env);
+      const before = fs.readFileSync(path.join(bootstrap, 'package.json'), 'utf8');
+      fs.writeFileSync(path.join(f.directory, 'user-history'), 'keep user history');
+      f.publishVersion('1.1.0');
+      if (outcome === 'integrity-failure') f.corrupt();
+      let concurrent = false;
+      const updated = await f.run([], outcome === 'preflight-failure' ? { FARMING_TEST_FAIL_PREFLIGHT: '1' } : {}, output => {
+        if (outcome !== 'concurrent-update' || concurrent || !output.includes('Installing Farming dependencies')) return;
+        concurrent = true;
+        const oldImage = images.publishRunningPackageImage(context, bootstrap);
+        images.initializeCurrentPackageImage(context, oldImage);
+        const newerRoot = path.join(f.directory, 'newer-image');
+        fs.cpSync(bootstrap, newerRoot, { recursive: true });
+        const metadata = JSON.parse(before); metadata.version = '1.2.0';
+        fs.writeFileSync(path.join(newerRoot, 'package.json'), JSON.stringify(metadata));
+        const newerImage = images.publishPreparedPackageImage(context, newerRoot, '1.2.0', 'test-newer-integrity');
+        images.activatePackageImage(context, newerImage, oldImage.imageId);
+      });
+      assert.match(updated.output, /Update available: 1\.0\.0 → 1\.1\.0/);
+      assert.match(updated.output, /Configuration and history are preserved/);
+      assert(updated.output.indexOf('Update available:') < updated.output.indexOf('Installing Farming dependencies') || outcome === 'integrity-failure');
+      assert.equal(updated.code === 0, outcome === 'success', updated.output);
+      assert.equal(fs.readFileSync(path.join(bootstrap, 'package.json'), 'utf8'), before, 'live bootstrap files must remain unchanged');
+      assert.equal(fs.readFileSync(path.join(f.directory, 'user-history'), 'utf8'), 'keep user history');
+      const selected = images.resolvePackageLaunch(bootstrap, env);
+      const selectedVersion = JSON.parse(fs.readFileSync(path.join(selected.packageRoot, 'package.json'), 'utf8')).version;
+      assert.equal(selectedVersion, outcome === 'success' ? '1.1.0' : outcome === 'concurrent-update' ? '1.2.0' : '1.0.0');
+      if (outcome === 'concurrent-update') assert(concurrent);
+      if (outcome === 'success') {
+        assert.match(updated.output, /Updated Farming 1.0.0 → 1.1.0/);
+        const started = await f.start(`${quote(path.join(f.root, 'farming'))} daemon`);
+        assert.equal(started.code, 0, started.output);
+        const call = JSON.parse(fs.readFileSync(f.calls, 'utf8').trim().split('\n').at(-1)!);
+        assert.equal(call.version, '1.1.0');
+        const requests = f.requests();
+        const repeated = await f.run();
+        assert.equal(repeated.code, 0, repeated.output);
+        assert.match(repeated.output, /already installed; no update needed/);
+        assert.equal(f.requests(), requests + 1);
+      }
+      assert(!fs.existsSync(`${f.root}.install-lock`));
+      assert(!fs.readdirSync(f.directory).some(name => name.includes('.staging.')));
+      assert(!fs.existsSync(f.bin));
+    } finally { await f.close(); }
+  });
 }
 
 test('installer reports missing base tools together before downloading', async () => {
@@ -492,7 +606,7 @@ test('installer --dir takes precedence over the environment and preserves spaces
     assert.equal(result.code, 0, result.output);
     assert(fs.existsSync(path.join(f.root, '.farming-user-install-v1')));
     assert(!fs.existsSync(unusedRoot));
-    assert.equal(fs.readlinkSync(path.join(f.bin, 'farming')), path.join(f.root, 'farming'));
+    assert(!fs.existsSync(f.bin), 'installation must not create an external command directory');
   } finally { await f.close(); }
 });
 
@@ -531,12 +645,11 @@ for (const tool of ['sha512sum', 'base64'] as const) {
   });
 }
 
-for (const failure of ['integrity', 'preflight', 'existing-entry', 'unmanaged-root']) {
+for (const failure of ['integrity', 'preflight', 'unmanaged-root']) {
   test(`installer preserves user files on ${failure} failure`, async () => {
     const f = await fixture();
     try {
       if (failure === 'integrity') f.corrupt();
-      if (failure === 'existing-entry') { fs.mkdirSync(f.bin); fs.writeFileSync(path.join(f.bin, 'farming'), 'owned by user'); }
       if (failure === 'unmanaged-root') { fs.mkdirSync(f.root); fs.writeFileSync(path.join(f.root, 'keep'), 'owned by user'); }
       const result = await f.run([], failure === 'preflight' ? { FARMING_TEST_FAIL_PREFLIGHT: '1' } : {});
       assert.notEqual(result.code, 0, result.output);
@@ -551,7 +664,6 @@ for (const failure of ['integrity', 'preflight', 'existing-entry', 'unmanaged-ro
         assert.equal(fs.statSync(diagnostic).mode & 0o077, 0, 'diagnostic logs must stay private');
         assert.equal(result.code, 19);
       }
-      if (failure === 'existing-entry') assert.equal(fs.readFileSync(path.join(f.bin, 'farming'), 'utf8'), 'owned by user');
       if (failure === 'unmanaged-root') assert.equal(fs.readFileSync(path.join(f.root, 'keep'), 'utf8'), 'owned by user');
     } finally { await f.close(); }
   });
@@ -610,7 +722,7 @@ for (const legacy of [false, true]) {
       const image = path.join(f.root, 'lib/node_modules/farming-code');
       assert(!fs.existsSync(path.join(image, 'dist/runtime/glibc228')));
       assert(fs.existsSync(path.join(image, 'node_modules', `farming-code-runtime-${platform}`, 'package.json')));
-      const started = await f.start(`${quote(path.join(f.bin, 'farming'))} help`);
+      const started = await f.start(`${quote(path.join(f.root, 'farming'))} help`);
       assert.equal(started.code, 0, started.output);
     } finally { await f.close(); }
   });

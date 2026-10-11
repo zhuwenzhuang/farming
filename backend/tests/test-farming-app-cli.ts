@@ -256,35 +256,59 @@ async function runTests() {
   }
 
   {
-    const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-daemon-live-server.'));
-    const previousConsoleError = console.error;
-    const errors: string[] = [];
+    const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-daemon-restart.'));
+    const otherConfigDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-restart-other-config.'));
+    const other = spawnConfigOwner(otherConfigDir);
+    const port = await freePort();
+    const parsed = parseServerArgs(['daemon', '--config-dir', configDir, '--port', String(port), '--no-auth']);
+    parsed.env.NODE_ENV = 'test';
+    parsed.env.FARMING_START_STABILITY_MS = '0';
+    const launchDaemon = () => new Promise<string>((resolve, reject) => {
+      const child = spawn(process.execPath, ['backend/farming-app-cli.cjs', 'daemon', '--config-dir', configDir, '--port', String(port), '--no-auth'], {
+        cwd: process.cwd(), env: { ...process.env, NODE_ENV: 'test', FARMING_START_STABILITY_MS: '0' }, stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      let output = '';
+      child.stdout.on('data', chunk => { output += String(chunk); });
+      child.stderr.on('data', chunk => { output += String(chunk); });
+      child.once('error', reject);
+      child.once('close', code => code === 0 ? resolve(output) : reject(new Error(output)));
+    });
+    let foreground;
     try {
-      const identity = await readServerProcessIdentity(process.pid);
-      assert(identity);
-      fs.writeFileSync(storageLayout.serverPidFile(configDir), String(process.pid));
-      fs.writeFileSync(serverStateFile(configDir), JSON.stringify({
-        pid: process.pid,
-        port: await freePort(),
-        basePath: '/farming',
-        configDir,
-        processIdentity: identity,
-        phase: 'starting',
-      }));
-      console.error = (...args: unknown[]) => { errors.push(args.map(String).join(' ')); };
-      const result = await startDaemon(parseServerArgs([
-        'daemon',
-        '--config-dir',
-        configDir,
-        '--port',
-        String(await freePort()),
-        '--no-auth',
-      ]));
-      assert.strictEqual(result, 1, 'a repeated daemon start must fail instead of reusing the old Server');
-      assert.match(errors.join('\n'), /already has a live Server/);
+      await waitForOutput(other, /owner-ready/);
+      fs.writeFileSync(path.join(configDir, 'user-data'), 'preserve across restarts');
+      const freshOutput = await launchDaemon();
+      assert.match(freshOutput, /No running instance/);
+      assert.match(freshOutput, /Farming is ready/);
+      const first = JSON.parse(fs.readFileSync(serverStateFile(configDir), 'utf8'));
+      const restartOutput = await launchDaemon();
+      assert.match(restartOutput, /already running.*restarting/);
+      assert.match(restartOutput, /current instance and its Agents will stop/);
+      assert(restartOutput.indexOf('will stop') < restartOutput.indexOf('✓ Stopped Farming'));
+      assert(restartOutput.indexOf('✓ Stopped Farming') < restartOutput.indexOf('✓ Farming is ready'));
+      const second = JSON.parse(fs.readFileSync(serverStateFile(configDir), 'utf8'));
+      assert.notStrictEqual(second.pid, first.pid);
+      assert.strictEqual(readServerProcessIdentity(first.pid), null);
+      assert.strictEqual(second.port, port);
+      assert.strictEqual(fs.readFileSync(path.join(configDir, 'user-data'), 'utf8'), 'preserve across restarts');
+      assert.doesNotThrow(() => process.kill(other.pid, 0));
+      foreground = spawn(process.execPath, ['backend/farming-app-cli.cjs', 'start', '--config-dir', configDir, '--port', String(port), '--no-auth'], {
+        cwd: process.cwd(), env: { ...process.env, NODE_ENV: 'test' }, stdio: 'ignore',
+      });
+      await waitForCondition(() => {
+        try {
+          const state = JSON.parse(fs.readFileSync(serverStateFile(configDir), 'utf8'));
+          return state.phase === 'running' && state.pid !== second.pid;
+        } catch { return false; }
+      }, 'foreground start to replace the running daemon');
+      assert.strictEqual(readServerProcessIdentity(second.pid), null);
+      assert.doesNotThrow(() => process.kill(other.pid, 0));
     } finally {
-      console.error = previousConsoleError;
+      await stopDaemon(parsed);
+      if (foreground) await stopTestProcess(foreground);
+      await stopTestProcess(other);
       fs.rmSync(configDir, { recursive: true, force: true });
+      fs.rmSync(otherConfigDir, { recursive: true, force: true });
     }
   }
 
@@ -721,6 +745,10 @@ async function runTests() {
       }));
       await assert.rejects(
         stopDaemon(parseServerArgs(['stop', '--config-dir', configDir])),
+        /legacy process does not own listening port/,
+      );
+      await assert.rejects(
+        startDaemon(parseServerArgs(['daemon', '--config-dir', configDir])),
         /legacy process does not own listening port/,
       );
       assert.doesNotThrow(() => process.kill(unrelated.pid, 0), 'legacy metadata without identity must fail closed');

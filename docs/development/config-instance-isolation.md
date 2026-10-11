@@ -46,10 +46,20 @@ runtimes. A proven live owner rejects a second startup. A proven dead owner may
 be reclaimed. Malformed, unreadable, permission-ambiguous, or otherwise
 unprovable ownership fails closed and requires operator action.
 
-Every start surface uses that rejection as a visible failed start. In
-particular, `farming daemon` must not return success, reuse the old Server, or
-print the old URL as though the requested image had started. The operator must
-stop the live same-Config Server before starting another one.
+The CLI `start` and `daemon` commands replace a live same-Config Server by
+performing the ordinary exact-ownership hard stop, including its Agents, before
+starting a fresh Server in the requested foreground or background mode. A failed
+or uncertain stop is terminal and must not launch a replacement. Process claims
+still reject concurrent duplicate Servers; another Config is never stopped. A
+repeat start does not report success by merely returning the old Server or URL.
+
+Lifecycle commands expose their decision before acting: fresh start or restart,
+Config identity, and the fact that a restart stops this instance and its Agents.
+Stopping and background readiness have bounded progress and an explicit terminal
+success or failure. TTY output uses compact animated status and elapsed time;
+redirected output uses stable lines, and `NO_COLOR` disables color. Progress goes
+to stderr, leaving command results on stdout. Success must never precede actual
+readiness, and failed ownership verification must never look like a completed stop.
 
 Age is not proof of death. The Server lifecycle is crash-only: persistence,
 ownership, and recovery must remain correct after abrupt termination and must

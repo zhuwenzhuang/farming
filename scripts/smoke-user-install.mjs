@@ -34,7 +34,6 @@ const packages = [...applications, ...applications.flatMap(runtimeCandidates)];
 let latest = metadata.version;
 const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-installer-smoke-'));
 const installRoot = path.join(temporary, 'installation');
-const binDir = path.join(temporary, 'bin');
 const configDir = path.join(temporary, 'config');
 const upstream = (process.env.FARMING_NPM_SMOKE_REGISTRY || 'https://registry.npmjs.org').replace(/\/$/, '');
 const proxy = http.createServer(async (request, response) => {
@@ -80,7 +79,6 @@ const env = {
   TMPDIR: temporary,
   FARMING_SERVER_HOME: temporary,
   FARMING_INSTALL_ROOT: installRoot,
-  FARMING_BIN_DIR: binDir,
   FARMING_PACKAGE_INSTALLATIONS_DIR: path.join(temporary, 'images'),
   FARMING_NPM_REGISTRY: `http://127.0.0.1:${proxy.address().port}`,
   npm_config_registry: `http://127.0.0.1:${proxy.address().port}`,
@@ -89,7 +87,7 @@ const env = {
   FARMING_RUNTIME_NPM_MIRROR: 'off',
 };
 if (process.env.FARMING_INSTALL_SMOKE_PATH) env.PATH = process.env.FARMING_INSTALL_SMOKE_PATH;
-let cli = path.join(binDir, 'farming');
+let cli = path.join(installRoot, 'farming');
 const mode = process.env.FARMING_INSTALL_SMOKE_MODE || 'directory';
 assert(['directory', 'npm'].includes(mode), 'Unknown smoke installation mode');
 if (mode === 'directory') {

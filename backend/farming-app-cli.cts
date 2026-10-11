@@ -6,6 +6,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { URLSearchParams } from 'url';
 import { execFileSync, spawn } from 'child_process';
+import { createCliOperationProgress } from './cli-operation-progress.cjs';
 import { createRuntimeDependencyProgressRenderer } from './runtime-dependency-progress.cjs';
 import type { RuntimeDependencyProgress } from './runtime-dependency-manager.cjs';
 import { canonicalConfigDir } from './config-instance.cjs';
@@ -1632,11 +1633,29 @@ async function prepareStartupDependencies(
   }
 }
 
+async function stopExistingServerBeforeStart(env: ServerEnv, mode: 'foreground' | 'background'): Promise<void> {
+  const progress = createCliOperationProgress({ env });
+  progress.message(`Farming · ${mode === 'foreground' ? 'Foreground' : 'Background'} start`);
+  progress.message(`  Config: ${env.FARMING_CONFIG_DIR}`);
+  const pid = readPid(env.FARMING_CONFIG_DIR);
+  if (!isRunning(pid)) {
+    progress.message('◇ No running instance · starting Farming');
+    return;
+  }
+  progress.message(`↻ Farming is already running (PID ${pid}) · restarting`, 33);
+  progress.message('  The current instance and its Agents will stop before the new instance starts.', 33);
+  // The ordinary exact-ownership hard stop also stops this Config's Agents.
+  // Failure is terminal: never launch a replacement after an uncertain stop.
+  await stopDaemon({ env });
+}
+
 async function startForeground(parsed: ParsedServerOperation): Promise<void> {
   const env = canonicalizeServerConfigDir(buildServerEnv(parsed.env));
+  await stopExistingServerBeforeStart(env, 'foreground');
   assertServerProcessClaimAvailable(env.FARMING_CONFIG_DIR);
   await prepareStartupDependencies(env);
   await adaptServerPort(env, parsed);
+  createCliOperationProgress({ env }).message('◇ Starting in the foreground · keep this terminal open');
   env[SERVER_MODE_ENV] = '1';
   ensureConfigDir(env.FARMING_CONFIG_DIR);
   const invocation = childInvocation(env);
@@ -1658,34 +1677,12 @@ async function startForeground(parsed: ParsedServerOperation): Promise<void> {
 }
 
 async function startDaemon(parsed: ParsedServerOperation): Promise<number> {
-  const env = await adaptServerPort(canonicalizeServerConfigDir(buildServerEnv(parsed.env)), parsed);
+  const env = canonicalizeServerConfigDir(buildServerEnv(parsed.env));
+  await stopExistingServerBeforeStart(env, 'background');
+  await adaptServerPort(env, parsed);
   env[SERVER_MODE_ENV] = '1';
   const configDir = env.FARMING_CONFIG_DIR;
   ensureConfigDir(configDir);
-
-  const existingPid = readPid(configDir);
-  if (isRunning(existingPid)) {
-    const state = readServerState(configDir);
-    try {
-      if (state.processIdentity?.format === SERVER_PROCESS_IDENTITY_FORMAT) {
-        await assertServerProcessIdentity(configDir, existingPid, state);
-      } else {
-        await migrateLegacyServerIdentity(configDir, existingPid, state);
-      }
-    } catch (error: unknown) {
-      console.error(
-        `Farming PID ${existingPid} is live, but this config directory does not prove that it owns the Server: `
-        + `${errorString(error) || error}`,
-      );
-      return 1;
-    }
-    const phase = state.phase === 'starting' ? 'starting' : 'running';
-    console.error(
-      `Refusing to start Farming: this config directory already has a live Server `
-      + `(PID ${existingPid}, ${phase}). Run farming stop before starting it again.`,
-    );
-    return 1;
-  }
 
   await prepareStartupDependencies(env);
   const serverLogFile = logFile(configDir);
@@ -1716,20 +1713,22 @@ async function startDaemon(parsed: ParsedServerOperation): Promise<number> {
   child.unref();
   let processIdentity = null;
   try {
-    processIdentity = await readServerProcessIdentity(childPid);
-    if (!processIdentity) throw new Error('server process identity could not be verified after launch');
-    await waitForServer(env, serverStartTimeoutMs(env), childPid);
-    await waitForProcessStability(childPid, serverStartStabilityMs(env));
-    await waitForServer(env, Math.min(serverStartTimeoutMs(env), 5_000), childPid);
-    const stableIdentity = await readServerProcessIdentity(childPid);
-    if (
-      !stableIdentity
-      || stableIdentity.processGroupId !== processIdentity.processGroupId
-      || stableIdentity.startedAt !== processIdentity.startedAt
-    ) {
-      throw new Error('server process identity changed during startup');
-    }
-    writeServerState(configDir, env, childPid, stableIdentity, 'running');
+    await createCliOperationProgress({ env }).step('Starting Farming in the background', async () => {
+      processIdentity = await readServerProcessIdentity(childPid);
+      if (!processIdentity) throw new Error('server process identity could not be verified after launch');
+      await waitForServer(env, serverStartTimeoutMs(env), childPid);
+      await waitForProcessStability(childPid, serverStartStabilityMs(env));
+      await waitForServer(env, Math.min(serverStartTimeoutMs(env), 5_000), childPid);
+      const stableIdentity = await readServerProcessIdentity(childPid);
+      if (
+        !stableIdentity
+        || stableIdentity.processGroupId !== processIdentity.processGroupId
+        || stableIdentity.startedAt !== processIdentity.startedAt
+      ) {
+        throw new Error('server process identity changed during startup');
+      }
+      writeServerState(configDir, env, childPid, stableIdentity, 'running');
+    }, `Farming is ready (PID ${childPid})`);
   } catch (error: unknown) {
     try {
       await cleanupFailedDaemonStart(configDir, childPid, processIdentity);
@@ -1740,12 +1739,11 @@ async function startDaemon(parsed: ParsedServerOperation): Promise<number> {
       return 1;
     }
     console.error(errorString(error));
-    const logs = tailFile(logFile(configDir), 80);
-    if (logs) console.error(logs);
+    console.error(`Startup log: ${logFile(configDir)}`);
     return 1;
   }
 
-  console.log(`Farming started (PID ${childPid})`);
+  console.log('\n  Open Farming');
   const logs = tailFile(logFile(configDir), 40);
   const urlLines = logs.split(/\r?\n/).filter(line => /Local:|Network:|Token:|Token style:|Token auth:/.test(line));
   if (urlLines.length > 0) {
@@ -1774,34 +1772,35 @@ async function stopDaemon(parsed: ParsedServerOperation): Promise<number> {
     clearProvenStaleServerConfigOwner(configDir);
     fs.rmSync(pidFile(configDir), { force: true });
     fs.rmSync(serverStateFile(configDir), { force: true });
-    console.log('Farming is not running.');
+    createCliOperationProgress({ env }).message('✓ Farming is stopped · no running instance; Agent cleanup complete', 32);
     return 0;
   }
-  const state = readServerState(configDir);
-  const port = Number(state.port || env.PORT || DEFAULT_PORT);
-  let processIdentity: ServerProcessIdentity;
-  if (state.processIdentity?.format === SERVER_PROCESS_IDENTITY_FORMAT) {
-    processIdentity = await assertServerProcessIdentity(configDir, pid, state);
-  } else {
-    processIdentity = await migrateLegacyServerIdentity(configDir, pid, state);
-  }
-  forceKillServer(pid);
-  await hardStopConfigRuntimes(configDir);
-  await waitForDaemonStop(pid, port, {
-    timeoutMs: serverStopTimeoutMs(env),
-    isRunning: targetPid => matchingProcessIdentity(processIdentity, readServerProcessIdentity(targetPid)),
-  });
-  if (readPid(configDir) === pid) fs.rmSync(pidFile(configDir), { force: true });
-  if (Number(readServerState(configDir).pid) === pid) fs.rmSync(serverStateFile(configDir), { force: true });
-  const activePackageRoot = String(env.FARMING_ACTIVE_PACKAGE_ROOT || '').trim();
-  if (activePackageRoot) {
-    const installation = resolvePackageInstallationContext(activePackageRoot, env);
-    if (installation) {
-      releasePackageImageUsage(installation, configDir, processIdentity);
+  await createCliOperationProgress({ env }).step('Stopping the current instance and its Agents', async () => {
+    const state = readServerState(configDir);
+    const port = Number(state.port || env.PORT || DEFAULT_PORT);
+    let processIdentity: ServerProcessIdentity;
+    if (state.processIdentity?.format === SERVER_PROCESS_IDENTITY_FORMAT) {
+      processIdentity = await assertServerProcessIdentity(configDir, pid, state);
+    } else {
+      processIdentity = await migrateLegacyServerIdentity(configDir, pid, state);
     }
-  }
-  releaseServerConfigOwner(configDir, pid, processIdentity);
-  console.log(`Stopped Farming (PID ${pid})`);
+    forceKillServer(pid);
+    await hardStopConfigRuntimes(configDir);
+    await waitForDaemonStop(pid, port, {
+      timeoutMs: serverStopTimeoutMs(env),
+      isRunning: targetPid => matchingProcessIdentity(processIdentity, readServerProcessIdentity(targetPid)),
+    });
+    if (readPid(configDir) === pid) fs.rmSync(pidFile(configDir), { force: true });
+    if (Number(readServerState(configDir).pid) === pid) fs.rmSync(serverStateFile(configDir), { force: true });
+    const activePackageRoot = String(env.FARMING_ACTIVE_PACKAGE_ROOT || '').trim();
+    if (activePackageRoot) {
+      const installation = resolvePackageInstallationContext(activePackageRoot, env);
+      if (installation) {
+        releasePackageImageUsage(installation, configDir, processIdentity);
+      }
+    }
+    releaseServerConfigOwner(configDir, pid, processIdentity);
+  }, `Stopped Farming and its Agents (PID ${pid})`);
   return 0;
 }
 
@@ -1832,8 +1831,7 @@ async function statusDaemon(parsed: ParsedServerOperation): Promise<number> {
     return 1;
   }
   console.log(`Farming is running (PID ${pid})`);
-  const logs = tailFile(logFile(configDir), 30);
-  if (logs) console.log(logs);
+  showUrl(parsed);
   return 0;
 }
 
@@ -1865,6 +1863,11 @@ function usage(): string {
   farming url
   farming runtime prepare [--config-dir ~/.farming] [--no-activate]
   farming review <git-dir> <old-revision> <new-revision|now> [--branch <branch>] [--no-open]
+
+Start behavior:
+  start keeps Farming in the foreground; daemon runs it in the background.
+  If already running, both stop this instance and its Agents before starting anew.
+  stop stops this instance and its Agents. Configuration and history are preserved.
 
 Agent control commands are also available:
   farming skills

@@ -38,9 +38,9 @@ bash farming_install.sh --dir ~/farming
 
 此方式不要求开发机连接官网，但后续仍需正常验证 npm registry 的 HTTPS 证书。
 
-无需 sudo 或系统 Node.js。脚本只负责安装，重复执行会保留已有安装，不启动或重启 Farming；更新通过设置完成。
+无需 sudo 或系统 Node.js。脚本只负责安装和更新；重复执行会检查目标版本，按需更新，保留配置和历史，不启动或重启 Farming。
 
-示例中的程序目录是 `$HOME/farming`，启动入口是 `$HOME/farming/farming`。不设置 `--dir` 或 `FARMING_INSTALL_ROOT` 时，程序默认位于 `~/.local/share/farming/app`（支持 `XDG_DATA_HOME`）。安装脚本默认还会在 `~/.local/bin/farming` 创建指向程序目录的命令链接；下方命令不依赖该链接或 PATH。
+示例中的程序目录是 `$HOME/farming`，启动入口是 `$HOME/farming/farming`。不设置 `--dir` 或 `FARMING_INSTALL_ROOT` 时，程序默认位于 `~/.local/share/farming/app`（支持 `XDG_DATA_HOME`）。安装脚本不在该目录外创建命令链接，也不修改 PATH。
 
 指定 npm registry：
 
@@ -48,7 +48,7 @@ bash farming_install.sh --dir ~/farming
 FARMING_NPM_REGISTRY=https://registry.npmjs.org bash farming_install.sh --dir ~/farming
 ```
 
-已有 npm registry 配置可用时会自动沿用，所选 registry 会保留给后续启动和更新。`FARMING_VERSION` 可指定版本，`FARMING_INSTALL_ROOT` 和 `FARMING_BIN_DIR` 可指定绝对安装路径。自定义 bin 目录时，请使用安装脚本输出的 CLI 启动命令。
+已有 npm registry 配置可用时会自动沿用，所选 registry 会保留给后续启动和更新。`FARMING_VERSION` 可指定版本，未传入 `--dir` 时，`FARMING_INSTALL_ROOT` 可指定绝对安装路径。
 
 npm 下载缓存和保留的更新版本都在安装目录内。选择其它磁盘上的目录时，无需另外设置缓存路径。
 
@@ -73,12 +73,14 @@ cd ~/farming
 ./farming daemon
 ```
 
+如需前台运行，使用 `~/farming/farming start` 并保持终端开启；停止 Farming 及其 Agent 使用 `~/farming/farming stop`。安装完成时会按实际安装目录输出这三条完整命令和说明。重复执行前台或后台启动命令，会先停止当前 Config 及其 Agent，再按所选模式重新启动。
+
 打开 CLI 输出的带鉴权 URL 即可使用。默认情况下，Farming 使用自己的配置目录和端口。只有需要隔离不同实例或端口冲突时，才传入 `--config-dir`、`--port` 或 `--base-path`。
 
 ## 更新
 
 两种方式都支持通过 **Settings → Updates** 更新。准备完成后，按页面提示重新启动服务。
-重复执行指定目录安装脚本不会升级已有安装。
+重复执行同一条指定目录安装命令也会检查并安装更新，已是目标版本时无需下载。之后执行启动命令，使运行中的服务切换到选中的版本。
 
 更新器通过 npm 下载到私有暂存目录，保留旧程序和对应运行环境，用于启动失败时回退。不会替换机器原有的 Node.js 或 npm。
 
@@ -99,7 +101,7 @@ npm uninstall --global farming-code
 "$HOME/farming/farming" stop
 ```
 
-停止使用此安装的所有 Config 后，删除选定的程序目录及其 `~/.local/bin/farming` 软链接，也会一并删除私有 npm 缓存和保留的更新版本。`~/.farming` 下的配置和历史数据独立保留。
+停止使用此安装的所有 Config 后，删除选定的程序目录，也会一并删除私有 npm 缓存和保留的更新版本。`~/.farming` 下的配置和历史数据独立保留。
 
 ## 平台说明
 
