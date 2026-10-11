@@ -3326,17 +3326,23 @@ class AgentManager extends EventEmitter {
       }
       const canResumeProvider = Boolean(getProviderAdapter(provider))
         && isSafeProviderSessionId(sessionId);
-      const command = canResumeProvider
-        ? buildAgentSessionResumeCommand(provider, sessionId, {
-            cwd: record.cwd || record.projectWorkspace || '',
-            providerHomePath: record.providerHomePath || '',
-          })
-        : (
-            record.forkCommand ||
-            record.command ||
-            record.serializedState?.processLaunchConfig?.command ||
-            ''
-          );
+      let command: string;
+      try {
+        command = canResumeProvider
+          ? buildAgentSessionResumeCommand(provider, sessionId, {
+              cwd: record.cwd || record.projectWorkspace || '',
+              providerHomePath: record.providerHomePath || '',
+            })
+          : (
+              record.forkCommand ||
+              record.command ||
+              record.serializedState?.processLaunchConfig?.command ||
+              ''
+            );
+      } catch (error: unknown) {
+        markPlaceholderRecoveryFailed(`Terminal recovery failed: ${error instanceof Error ? error.message : String(error)}`);
+        continue;
+      }
       if (!command) {
         markPlaceholderRecoveryFailed('Terminal recovery has no persisted launch command');
         continue;
@@ -10066,13 +10072,22 @@ class AgentManager extends EventEmitter {
       }
     }
 
-    const forkCommand = resumedSession
-      ? buildAgentSessionResumeCommand(resumedSession.provider, resumedSession.sessionId, {
-        fork: true,
-        cwd: targetWorkspace,
-        providerHomePath: agent.providerHomePath || '',
-      })
-      : String(agent.forkCommand || agent.command || '');
+    let forkCommand: string;
+    try {
+      forkCommand = resumedSession
+        ? buildAgentSessionResumeCommand(resumedSession.provider, resumedSession.sessionId, {
+          fork: true,
+          cwd: targetWorkspace,
+          providerHomePath: agent.providerHomePath || '',
+        })
+        : String(agent.forkCommand || agent.command || '');
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      return forkWorktreeIdentity
+        ? { error: `${message}; temporary worktree retained at ${targetWorkspace}`,
+            workspace: targetWorkspace, retainedWorkspace: targetWorkspace, uncertain: true }
+        : { error: message };
+    }
 
     const forkTitle = this.reserveForkAgentTitle(forkTitleBase);
     const start = await settleForkChildStart(
@@ -10195,10 +10210,19 @@ class AgentManager extends EventEmitter {
       return { error: 'ACP Conversation Fork did not return a distinct resumable session', uncertain: true };
     }
 
-    const command = buildAgentSessionResumeCommand(provider, forkedSessionId, {
-      cwd: workspace,
-      providerHomePath: agent.providerHomePath || '',
-    });
+    let command: string;
+    try {
+      command = buildAgentSessionResumeCommand(provider, forkedSessionId, {
+        cwd: workspace,
+        providerHomePath: agent.providerHomePath || '',
+      });
+    } catch (error: unknown) {
+      return {
+        error: error instanceof Error ? error.message : String(error),
+        retainedProviderSessionId: forkedSessionId,
+        uncertain: true,
+      };
+    }
     if (!command) {
       return {
         error: 'Failed to build provider resume command for the forked ACP session',

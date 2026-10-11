@@ -715,6 +715,50 @@ async function run() {
     `codex resume -c 'model_provider="profile-provider"' -C '/repo/codex with space' ${codexId}`
   );
 
+  // Home configuration owns the provider on Chat/Terminal replacement. TOML
+  // quoted keys and quoted profile table segments have the same identity as bare keys.
+  for (const key of ['model_provider', '"model_provider"', "'model_provider'", '"model\\u005fprovider"', '"model\\U0000005fprovider"']) {
+    fs.writeFileSync(path.join(configuredCodexHome, 'config.toml'), `"unrelated\\U0001F600" = "kept"\n${key} = "custom\\U0000002dprovider" # configured Home\n`);
+    assert.strictEqual(resolveCodexResumeModelProvider(configuredCodexHome), 'custom-provider');
+    for (const fork of [false, true]) {
+      assert.strictEqual(buildAgentSessionResumeCommand('codex', codexId, {
+        providerHomePath: configuredCodexHome, fork,
+      }), `codex ${fork ? 'fork' : 'resume'} -c 'model_provider="custom-provider"' ${codexId}`,
+      'quoted configuration must preserve the provider and exact Provider Session');
+    }
+  }
+  for (const section of ['profiles.work', '"profiles"."work"', "'profiles' . 'work'", '"profiles" . "work"']) {
+    fs.writeFileSync(path.join(configuredCodexHome, 'config.toml'), [
+      '"profile" = "work"',
+      "'model_provider' = 'top-level'",
+      `[${section}]`,
+      '"model_provider" = "profile-provider" # active profile wins',
+      '[profiles.other]',
+      'model_provider = "other-provider"',
+    ].join('\n'));
+    assert.strictEqual(resolveCodexResumeModelProvider(configuredCodexHome), 'profile-provider');
+    assert.strictEqual(buildAgentSessionResumeCommand('codex', codexId, {
+      providerHomePath: configuredCodexHome,
+    }), `codex resume -c 'model_provider="profile-provider"' ${codexId}`);
+  }
+  fs.writeFileSync(path.join(configuredCodexHome, 'config.toml'), [
+    'profile = "work]\\U0001F600"',
+    '["profiles" . "work]\\U0001F600"] # quoted profile',
+    'model_provider = "profile-provider"',
+  ].join('\n'));
+  assert.strictEqual(resolveCodexResumeModelProvider(configuredCodexHome), 'profile-provider');
+  for (const invalid of ['"model_provider" = "unterminated', 'model_provider = false', 'model_provider = ""']) {
+    fs.writeFileSync(path.join(configuredCodexHome, 'config.toml'), invalid);
+    assert.throws(() => buildAgentSessionResumeCommand('codex', codexId, {
+      providerHomePath: configuredCodexHome,
+    }), /Cannot read Codex model_provider/,
+    'invalid selected provider configuration must fail before launching a different provider');
+  }
+  fs.unlinkSync(path.join(configuredCodexHome, 'config.toml'));
+  fs.mkdirSync(path.join(configuredCodexHome, 'config.toml'));
+  assert.throws(() => resolveCodexResumeModelProvider(configuredCodexHome), /Cannot read Codex Home configuration/);
+  fs.rmdirSync(path.join(configuredCodexHome, 'config.toml'));
+
   const pagedSessions = [
     { provider: 'codex', providerHomeId: 'default', id: 'page-3', updatedAt: '2026-06-28T12:03:00.000Z' },
     { provider: 'qoder', providerHomeId: 'default', id: 'page-2', updatedAt: '2026-06-28T12:02:00.000Z' },

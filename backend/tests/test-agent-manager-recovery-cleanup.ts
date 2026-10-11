@@ -678,7 +678,28 @@ async function run() {
     archived: false,
     updatedAt: 31,
   };
+  const invalidProviderHome = path.join(testConfigDir, 'invalid-provider-home');
+  fs.mkdirSync(invalidProviderHome);
+  fs.writeFileSync(path.join(invalidProviderHome, 'config.toml'), '"model_provider" = false\n');
+  const invalidProviderSessionId = '66666666-6666-4666-8666-666666666666';
+  const invalidProviderRecord = {
+    ...rotationRecord,
+    id: 'fsess_invalid_provider_rotation',
+    runtimeAgentId: 'agent-invalid-provider-before-upgrade',
+    providerSessionId: invalidProviderSessionId,
+    providerSessionKey: `agent-session:codex:${invalidProviderSessionId}`,
+    providerHomePath: invalidProviderHome,
+    updatedAt: 40,
+  };
   const serializedRotationState = serializeTerminalState([
+    {
+      id: invalidProviderRecord.runtimeAgentId,
+      metadata: invalidProviderRecord,
+      processDetails: { cwd: invalidProviderRecord.cwd, title: 'Codex' },
+      processLaunchConfig: { command: 'codex', args: [], category: 'coding' },
+      replayEvent: { events: [{ data: 'invalid provider output before rotation', cols: 100, rows: 32 }] },
+      timestamp: 99,
+    },
     {
       id: rotationRecord.runtimeAgentId,
       metadata: rotationRecord,
@@ -708,10 +729,11 @@ async function run() {
     ...configManager(),
     farmingDir: testConfigDir,
     getMainPageSessionKeys() {
-      return [providerSessionKey];
+      return [providerSessionKey, invalidProviderRecord.providerSessionKey];
     },
     listAgentSessionRecords() {
       return [
+        invalidProviderRecord,
         rotationRecord,
         shellRotationRecord,
         temporaryCodexRotationRecord,
@@ -761,6 +783,14 @@ async function run() {
     const shellRestart = serializedRestarts.find(entry => entry.options.runtimeAgentId === shellRotationRecord.runtimeAgentId);
     assert(providerRestart);
     assert(shellRestart);
+    const invalidProviderPlaceholder = serializedRotationManager.agents.get(invalidProviderRecord.runtimeAgentId);
+    assert(invalidProviderPlaceholder, 'invalid provider Home keeps its existing inventory placeholder');
+    assert.strictEqual(invalidProviderPlaceholder.engineStarted, false);
+    assert.strictEqual(invalidProviderPlaceholder.status, 'error');
+    assert.strictEqual(invalidProviderPlaceholder.engineStatus, 'recovery-failed');
+    assert.match(invalidProviderPlaceholder.output, /Cannot read Codex model_provider/);
+    assert(!serializedRestarts.some(entry => entry.options.runtimeAgentId === invalidProviderRecord.runtimeAgentId),
+      'invalid provider is never launched; later valid provider and shell records still recover');
     assert(providerRestart.command.includes(providerSessionId));
     assert.strictEqual(providerRestart.options.reviveTerminalState.replayEvent.events[0].data, 'codex output before rotation');
     assert.strictEqual(shellRestart.command, 'bash');
@@ -780,6 +810,7 @@ async function run() {
     );
   } finally {
     await serializedRotationManager.dispose({ preserveTerminalHost: true });
+    fs.rmSync(invalidProviderHome, { recursive: true, force: true });
   }
 
   const persistedRuntimeAgentIds: string[] = [];

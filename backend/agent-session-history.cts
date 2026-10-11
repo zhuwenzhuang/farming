@@ -258,23 +258,44 @@ function quoteCommandArg(value: unknown): string {
   return `'${String(value).replace(/'/g, `'\\''`)}'`;
 }
 
-function tomlStringAssignment(line: unknown, key: string): string {
-  const match = String(line || '').match(new RegExp(`^\\s*${key}\\s*=\\s*("(?:[^"\\\\]|\\\\.)*"|'[^']*')\\s*(?:#.*)?$`));
-  if (!match) return '';
-  const literal = match[1];
-  if (literal.startsWith('"')) {
-    try {
-      return JSON.parse(literal).trim();
-    } catch {
-      return '';
+const TOML_SIMPLE_KEY = `(?:"(?:[^"\\\\]|\\\\.)*"|'[^']*'|[A-Za-z0-9_-]+)`;
+
+function tomlBasicString(literal: string): string {
+  // TOML basic strings additionally allow eight-digit Unicode escapes. Match
+  // escaped pairs as a unit so a literal backslash followed by U stays literal.
+  return JSON.parse(literal.replace(/\\(?:U([0-9a-fA-F]{8})|.)/g, (escape, digits: string | undefined) => {
+    if (!digits) return escape;
+    const codePoint = Number.parseInt(digits, 16);
+    if (codePoint > 0x10ffff || (codePoint >= 0xd800 && codePoint <= 0xdfff)) {
+      throw new Error('Invalid TOML Unicode scalar.');
     }
+    return JSON.stringify(String.fromCodePoint(codePoint)).slice(1, -1);
+  }));
+}
+
+function tomlKeyText(literal: string): string {
+  if (literal.startsWith('"')) return tomlBasicString(literal);
+  return literal.startsWith("'") ? literal.slice(1, -1) : literal;
+}
+
+function tomlStringAssignment(line: unknown, key: string): string {
+  const assignment = String(line || '').match(new RegExp(`^\\s*(${TOML_SIMPLE_KEY})\\s*=\\s*(.*)$`));
+  if (!assignment || tomlKeyText(assignment[1]) !== key) return '';
+  const match = assignment[2].match(/^("(?:[^"\\]|\\.)*"|'[^']*')\s*(?:#.*)?$/);
+  if (!match) throw new Error(`Cannot read Codex ${key}: expected a TOML string.`);
+  const literal = match[1];
+  try {
+    const value = literal.startsWith('"') ? tomlBasicString(literal) : literal.slice(1, -1);
+    if (!value.trim()) throw new Error('empty value');
+    return value.trim();
+  } catch {
+    throw new Error(`Cannot read Codex ${key}: invalid TOML string.`);
   }
-  return literal.slice(1, -1).trim();
 }
 
 function codexProfileNameForSection(section: unknown): string {
-  const match = String(section || '').trim().match(/^profiles\.(?:"([^"]+)"|'([^']+)'|([A-Za-z0-9_-]+))$/);
-  return match ? (match[1] || match[2] || match[3] || '') : '';
+  const match = String(section || '').trim().match(new RegExp(`^(${TOML_SIMPLE_KEY})\\s*\\.\\s*(${TOML_SIMPLE_KEY})$`));
+  return match && tomlKeyText(match[1]) === 'profiles' ? tomlKeyText(match[2]) : '';
 }
 
 function resolveCodexResumeModelProvider(codexHome: unknown): string {
@@ -284,8 +305,9 @@ function resolveCodexResumeModelProvider(codexHome: unknown): string {
   let config = '';
   try {
     config = fs.readFileSync(path.join(home, 'config.toml'), 'utf8');
-  } catch {
-    return 'openai';
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 'openai';
+    throw new Error('Cannot read Codex Home configuration before resuming the Session.', { cause: error });
   }
 
   let section = '';
@@ -293,7 +315,7 @@ function resolveCodexResumeModelProvider(codexHome: unknown): string {
   let topLevelProvider = '';
   const profileProviders = new Map<string, string>();
   for (const line of config.split(/\r?\n/)) {
-    const sectionMatch = line.match(/^\s*\[([^\]]+)]\s*(?:#.*)?$/);
+    const sectionMatch = line.match(new RegExp(`^\\s*\\[\\s*(${TOML_SIMPLE_KEY}(?:\\s*\\.\\s*${TOML_SIMPLE_KEY})*)\\s*]\\s*(?:#.*)?$`));
     if (sectionMatch) {
       section = sectionMatch[1].trim();
       continue;

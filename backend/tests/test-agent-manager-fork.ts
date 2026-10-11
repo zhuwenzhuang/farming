@@ -398,6 +398,46 @@ async function run() {
       'an uncertain child start must retain the exact provider session for reconciliation',
     );
 
+    const invalidForkHome = path.join(tmpRoot, 'invalid-fork-home');
+    fs.mkdirSync(invalidForkHome);
+    fs.writeFileSync(path.join(invalidForkHome, 'config.toml'), '"model_provider" = false\n');
+    const originalSourceHome = sourceAcpAgent.providerHomePath;
+    sourceAcpAgent.providerHomePath = invalidForkHome;
+    let nativeForkCreated = false;
+    manager.acpRuntime.forkSession = async () => {
+      nativeForkCreated = true;
+      return { sessionId: uncertainAcpForkSessionId };
+    };
+    try {
+      const invalidProviderFork = await manager.forkAgent(resumedCodexId, 'same-worktree', { expectedRevision: 17 });
+      assert(nativeForkCreated, 'exercise resolution failure after the provider creates its fork');
+      assert.match(invalidProviderFork.error, /Cannot read Codex model_provider/);
+      assert.strictEqual(invalidProviderFork.uncertain, true);
+      assert.strictEqual(invalidProviderFork.retainedProviderSessionId, uncertainAcpForkSessionId);
+      const originalCreateWorktree = manager.createForkWorktreeIdentity;
+      const retainedWorkspace = path.join(tmpRoot, 'retained-worktree-fixture');
+      let worktreeCreated = false;
+      manager.createForkWorktreeIdentity = async () => {
+        worktreeCreated = true;
+        return { workspace: retainedWorkspace };
+      };
+      const originalBinding = sourceAcpAgent.runtimeBinding;
+      sourceAcpAgent.runtimeBinding = { kind: 'terminal' };
+      try {
+        const invalidWorktreeFork = await manager.forkAgent(resumedCodexId, 'new-worktree');
+        assert(worktreeCreated, 'exercise resolution failure after worktree creation');
+        assert.match(invalidWorktreeFork.error, /Cannot read Codex model_provider/);
+        assert.strictEqual(invalidWorktreeFork.retainedWorkspace, retainedWorkspace);
+        assert.strictEqual(invalidWorktreeFork.uncertain, true);
+      } finally {
+        sourceAcpAgent.runtimeBinding = originalBinding;
+        manager.createForkWorktreeIdentity = originalCreateWorktree;
+      }
+    } finally {
+      sourceAcpAgent.providerHomePath = originalSourceHome;
+      fs.rmSync(invalidForkHome, { recursive: true, force: true });
+    }
+
     sourceAcpAgent.runtimeBinding = { kind: 'terminal' };
     manager.acpRuntime.getSessionRequestOptions = originalGetSessionRequestOptions;
     manager.acpRuntime.forkSession = originalForkSession;
