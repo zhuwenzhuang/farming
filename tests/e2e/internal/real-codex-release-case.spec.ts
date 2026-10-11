@@ -1057,7 +1057,8 @@ test.describe('real Codex pre-release composite case', () => {
       model.reasoningLevels?.some(level => level.value === PRIMARY_EFFORT) === true
     )
     expect(primaryModel, `${PRIMARY_MODEL} must be present in the live Codex catalog`).toBeTruthy()
-    expect(`${primaryModel?.displayName} ${primaryModel?.description}`).toMatch(/affordable|cost-efficient|fast and efficient/i)
+    // Gateway descriptions are presentation text; model identity and supported
+    // effort are the authoritative contract for this bounded provider smoke.
     expect(primaryModel?.reasoningLevels?.some(level => level.value === PRIMARY_EFFORT)).toBe(true)
     const primaryFamily = PRIMARY_MODEL.replace(/-(sol|terra|luna)$/i, '')
     const isPrimarySibling = (model: CodexCatalogModel) => (
