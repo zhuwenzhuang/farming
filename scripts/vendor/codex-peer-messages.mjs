@@ -5,7 +5,7 @@ import os from 'node:os';
 const bounded = value => typeof value === 'string' && value.length > 0 && value.length <= 512;
 
 // Only native receive-side response items qualify. Never parse human/tool text as provenance.
-export function farmingCodexPeerUpdate(item) {
+export function farmingCodexPeerUpdate(item, timestamp) {
   if (item?.type !== 'agent_message' || !bounded(item.id) || !bounded(item.author)
       || !bounded(item.recipient) || !Array.isArray(item.content)) return null;
   const encrypted = item.content.some(block => block?.type === 'encrypted_content');
@@ -23,6 +23,8 @@ export function farmingCodexPeerUpdate(item) {
     content: [{ type: 'text', text }],
     _meta: { peerMessage: {
       version: 1, direction: 'incoming', senderAddress: item.author,
+      ...(typeof timestamp === 'string' && timestamp.length > 0 && timestamp.length <= 80
+        && Number.isFinite(Date.parse(timestamp)) ? { timestamp } : {}),
       ...(encrypted ? { bodyUnavailable: 'encrypted' } : {}),
     } },
   };
@@ -60,7 +62,7 @@ export async function farmingCodexPeerHistory(thread, turnIds) {
         if (item.recipient !== ownAddress) return;
         const turnId = item.internal_chat_message_metadata_passthrough?.turn_id;
         if (turnIds && !turnIds.has(turnId)) return;
-        const update = farmingCodexPeerUpdate(item);
+        const update = farmingCodexPeerUpdate(item, row.timestamp);
         if (!update) return;
         bytes += Buffer.byteLength(JSON.stringify(update));
         if (peers.length >= 10_000 || bytes > 8 * 1024 * 1024) throw new Error('Codex incoming message history exceeds its message limit');

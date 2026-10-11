@@ -843,7 +843,17 @@ class AcpSessionState {
     if (peer) entry.role = 'user';
     if ('_meta' in update) {
       // A title change or repeated delivery cannot rewrite an existing message's source.
-      const source = normalizeAcpPeerMessage(entry._meta?.peerMessage) || peer;
+      const existingSource = normalizeAcpPeerMessage(entry._meta?.peerMessage);
+      let source = existingSource || peer;
+      // Native history can supply a receipt time absent from the live event.
+      // Enrich only an exact replay from the same source; keep identity and name frozen.
+      if (!chunk && existingSource && !existingSource.timestamp && peer?.timestamp
+        && Number.isFinite(Date.parse(peer.timestamp))
+        && existingSource.senderAddress === peer.senderAddress
+        && existingSource.senderSessionId === peer.senderSessionId
+        && existingSource.senderTaskId === peer.senderTaskId) {
+        source = { ...existingSource, timestamp: peer.timestamp };
+      }
       entry._meta = clone(update._meta) as AcpMeta;
       if (source) entry._meta = { ...entry._meta, peerMessage: source };
     }

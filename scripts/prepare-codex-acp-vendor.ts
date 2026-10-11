@@ -9,7 +9,7 @@ import { integrateCodexPeerMessages } from './vendor/codex-peer-integration';
 const projectRoot = path.join(__dirname, '..');
 const expectedVersion = '2.2.2';
 const expectedUpstreamSha256 = '6b1bb4e7e9caaf4aeca1042ae4aec2dc2433b0b0e4b1614b38a4d41699902aaa';
-const expectedBundleSha256 = 'f55b5d785321bfb19c33d7f25945361ac8b9ea2439b541af7aefb872ea795894';
+const expectedBundleSha256 = '1c146559e1db013a5e6e3d352698c9ea2a6b019e53d330a7fc19ad11db9bdf7a';
 const expectedPatchedSha256 = '40f90db7ace97f45a2caddafa97b2cad5bc2c38c4049c6a16ce96c79a3783ba7';
 const packageRoot = path.dirname(require.resolve('@agentclientprotocol/codex-acp/package.json'));
 const packageJsonPath = path.join(packageRoot, 'package.json');

@@ -19,6 +19,10 @@ async function run() {
   const native = { type: 'agent_message', id: 'native-one', author: '/root/peer', recipient: '/root', content: [{ type: 'input_text', text: 'Message Type: MESSAGE\nTask name: /root\nSender: /root/peer\nPayload:\nHello' }] };
   const codex = farmingCodexPeerUpdate(native);
   assert.equal(codex.content[0].text, 'Hello');
+  assert.equal(codex._meta.peerMessage.timestamp, undefined, 'live events without time remain untimed');
+  for (const invalidTime of ['', 'invalid', ' '.repeat(81), 123]) {
+    assert.equal(farmingCodexPeerUpdate(native, invalidTime)._meta.peerMessage.timestamp, undefined);
+  }
   const encrypted = farmingCodexPeerUpdate({ ...native, content: [...native.content, { type: 'encrypted_content', data: 'private-ciphertext' }] });
   assert.equal(encrypted.content[0].text, '');
   assert.equal(encrypted._meta.peerMessage.bodyUnavailable, 'encrypted');
@@ -78,12 +82,41 @@ async function run() {
     await fs.mkdir(path.join(home, 'sessions'));
     const file = path.join(home, 'sessions', 'receiver.jsonl');
     const peer = { ...native, internal_chat_message_metadata_passthrough: { turn_id: 'turn-one' } };
+    const receivedAt = '2026-10-11T01:38:42.883Z';
     await fs.writeFile(file, [
       { type: 'session_meta', payload: { id: 'receiver' } },
-      { type: 'response_item', payload: peer },
+      { timestamp: receivedAt, type: 'response_item', payload: peer },
       { type: 'event_msg', payload: { type: 'item_completed', item: { id: 'answer' } } },
     ].map(row => JSON.stringify(row)).join('\n') + '\n');
     const peers = await farmingCodexPeerHistory({ id: 'receiver', path: file });
+    assert.equal(peers[0].update._meta.peerMessage.timestamp, receivedAt, 'use the native rollout row time');
+    const liveState = new AcpSessionState({ provider: 'codex', sessionId: 'receiver' });
+    const liveSource = { ...codex._meta.peerMessage, senderName: 'Original name' };
+    liveState.apply({ sessionId: 'receiver', update: { ...codex, _meta: { peerMessage: liveSource } } });
+    const applyReplay = (changes = {}) => liveState.apply({ sessionId: 'receiver', update: {
+      ...peers[0].update, _meta: { peerMessage: { ...peers[0].update._meta.peerMessage, senderName: 'Changed name', ...changes } },
+    } });
+    applyReplay({ timestamp: 'invalid' });
+    applyReplay({ timestamp: ' '.repeat(81) });
+    applyReplay({ senderAddress: '/root/different' });
+    applyReplay({ senderSessionId: 'different-session' });
+    applyReplay({ senderTaskId: 'different-task' });
+    assert.deepEqual(liveState.entries[0]._meta.peerMessage, liveSource, 'invalid or different-source replay cannot enrich provenance');
+    liveState.apply({ sessionId: 'receiver', update: {
+      ...peers[0].update, sessionUpdate: 'session_message_chunk', content: { type: 'text', text: '' },
+    } });
+    assert.equal(liveState.entries[0]._meta.peerMessage.timestamp, undefined, 'chunks do not enrich receipt time');
+    applyReplay();
+    assert.equal(liveState.entries.length, 1);
+    assert.deepEqual(liveState.entries[0]._meta.peerMessage, { ...liveSource, timestamp: receivedAt });
+    applyReplay({ timestamp: '2026-10-12T01:38:42.883Z' });
+    assert.equal(liveState.entries[0]._meta.peerMessage.timestamp, receivedAt, 'recorded receipt time is immutable');
+    const restoredTime = AcpSessionState.fromCheckpoint(liveState.exportCheckpoint());
+    assert(restoredTime);
+    restoredTime.apply({ sessionId: 'receiver', update: codex });
+    const restoredTurn = projectAcpTranscript({ sessionId: 'receiver', entries: restoredTime.sanitizedEntries() }).turns[0];
+    assert.equal(restoredTurn.userSource?.senderName, 'Original name');
+    assert.equal(peerMessageTimestamp(restoredTurn), Date.parse(receivedAt), 'checkpoint and untimed replay retain the group-tail time');
     async function* pages() { yield [{ id: 'human' }]; yield [{ id: 'answer' }]; }
     const merged = [];
     for await (const page of farmingMergePeerHistory(pages(), peers)) merged.push(...page);
