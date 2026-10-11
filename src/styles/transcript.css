@@ -207,6 +207,10 @@
   text-align: center;
 }
 
+.code-agent-transcript-load-error.inline {
+  height: auto;
+}
+
 .code-agent-transcript-load-error button {
   justify-self: center;
   min-height: 32px;
@@ -219,10 +223,15 @@
   font: inherit;
 }
 
-.code-agent-transcript-load-error button:hover,
-.code-agent-transcript-load-error button:focus-visible {
+.code-agent-transcript-load-error button:not(:disabled):hover,
+.code-agent-transcript-load-error button:not(:disabled):focus-visible {
   background: var(--code-warning-soft);
   outline: none;
+}
+
+.code-agent-transcript-load-error button:disabled {
+  cursor: wait;
+  opacity: 0.55;
 }
 
 .code-compact-layout .code-agent-transcript-load-error button {
@@ -1677,8 +1686,8 @@ button.code-agent-transcript-message-source:hover {
   cursor: pointer;
 }
 
-.code-agent-transcript-subagent-control:hover,
-.code-agent-transcript-subagent-control:focus-visible {
+.code-agent-transcript-subagent-control:not(:disabled):hover,
+.code-agent-transcript-subagent-control:not(:disabled):focus-visible {
   background: var(--code-bg-hover);
 }
 
@@ -1689,6 +1698,10 @@ button.code-agent-transcript-message-source:hover {
   padding: 2px 6px;
   white-space: nowrap;
   font: inherit;
+}
+
+.code-compact-layout .code-agent-transcript-subagent-control.text {
+  min-height: 44px;
 }
 
 .code-agent-transcript-subagent-control.stop {

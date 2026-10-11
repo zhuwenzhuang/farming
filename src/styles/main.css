@@ -4093,6 +4093,7 @@ body.code-resizing-resource-agent .code-resource-agent-resizer {
 
 
 .code-related-session-source { padding: 0 12px 8px; font-size: 12px; color: var(--code-text-subtle); }
+.code-related-session-history { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 0 6px 8px; font-size: 12px; color: var(--code-text-subtle); }
 
 .code-collaboration-agent-icon {
   display: inline-flex;

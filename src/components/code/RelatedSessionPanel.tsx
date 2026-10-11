@@ -99,13 +99,18 @@ export function RelatedSessionPanel({ target, active, refreshSignal, onClose, la
       </header>
       <div className="code-related-session-content" aria-busy={loading}>
         <div className="code-related-session-source">{codeCopyForLanguage(chinese ? 'zh' : 'en').nativeChildDescription}</div>
-        {error ? <div role="alert">{chinese ? '会话记录读取失败：' : 'Transcript read failed: '}{error} <button type="button" onClick={() => setReadVersion(value => value + 1)}>{chinese ? '重试' : 'Retry'}</button></div> : null}
+        {error ? <div className="code-agent-transcript-state code-agent-transcript-load-error inline" role="alert">
+          <span>{chinese ? '会话记录读取失败：' : 'Transcript read failed: '}{error}</span>
+          <button type="button" disabled={loading} onClick={() => setReadVersion(value => value + 1)}>{chinese ? '重试' : 'Retry'}</button>
+        </div> : null}
         {!transcript && loading ? <div role="status">{chinese ? '加载中…' : 'Loading…'}</div> : null}
-        {cursors.length > 1 ? <>
-          <button type="button" disabled={loading} onClick={() => setCursors(value => value.slice(0, -1))}>{chinese ? '较新消息' : 'Newer messages'}</button>
-          <button type="button" disabled={loading} onClick={() => setCursors([''])}>{chinese ? '返回最新消息' : 'Return to latest'}</button>
-        </> : null}
-        {transcript?.nextCursor && !cursors.includes(transcript.nextCursor) ? <button type="button" disabled={loading} onClick={() => setCursors(value => [...value, transcript.nextCursor!])}>{chinese ? '加载更早消息' : 'Load earlier messages'}</button> : null}
+        {cursors.length > 1 || transcript?.nextCursor ? <nav className="code-related-session-history" aria-label={chinese ? '会话记录翻页' : 'Transcript history'}>
+          {cursors.length > 1 ? <>
+            <button className="code-agent-transcript-subagent-control text" type="button" disabled={loading} onClick={() => setCursors(value => value.slice(0, -1))}>{chinese ? '较新消息' : 'Newer messages'}</button>
+            <button className="code-agent-transcript-subagent-control text" type="button" disabled={loading} onClick={() => setCursors([''])}>{chinese ? '返回最新消息' : 'Return to latest'}</button>
+          </> : null}
+          {transcript?.nextCursor && !cursors.includes(transcript.nextCursor) ? <button className="code-agent-transcript-subagent-control text" type="button" disabled={loading} onClick={() => setCursors(value => [...value, transcript.nextCursor!])}>{chinese ? '加载更早消息' : 'Load earlier messages'}</button> : null}
+        </nav> : null}
         {transcript?.hasMoreBefore && (!transcript.nextCursor || cursors.includes(transcript.nextCursor)) ? <div role="status">{chinese ? '更早的历史未由 Provider 提供。' : 'Earlier history is not available from the provider.'}</div> : null}
         {transcript ? <AgentTranscriptSubagentPreview transcript={transcript} copy={codeCopyForLanguage(chinese ? 'zh' : 'en')} onQuoteInParent={onQuoteInParent} docked onStop={async () => {
           const response = await fetch(appPath(`/api/agents/${encodeURIComponent(target.parentAgentId)}/acp-subagents/${encodeURIComponent(target.sessionId)}/cancel?runtimeEpoch=${encodeURIComponent(epochRef.current)}`), { method: 'POST', signal: AbortSignal.timeout(15000) })

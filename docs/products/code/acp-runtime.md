@@ -190,6 +190,8 @@ A single oversized item fails with an actionable size explanation, not a generic
 internal error. Reading retained event-only child generations uses their exact
 local transcript identity, never a synthetic ID passed to provider history.
 Transcript read failures are labelled separately from Agent execution failures.
+Their retry feedback reuses the ordinary Chat read-error treatment; history
+navigation uses separated, wrapping controls with touch-sized targets in compact views.
 Quoting a child's result appends its source and selected text to the parent's draft,
 reveals that draft, and never sends it or overwrites existing text.
 

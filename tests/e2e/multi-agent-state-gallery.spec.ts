@@ -28,7 +28,9 @@ test('captures multiple native Agents with independent states', async ({ page, w
     { name: '解析器审查', status: '已完成', appearance: 'dark', file: '04-completed-dark.png' },
     { name: '集成测试', status: '失败', appearance: 'paper', file: '05-failed-paper.png' },
     { name: '迁移检查', status: '已暂停', appearance: 'paper', file: '06-interrupted-paper.png' },
-  ]
+  ].flatMap(scenario => ['light', 'dark', 'paper'].map(appearance => ({
+    ...scenario, appearance, file: scenario.file.replace(/(light|dark|paper)\.png$/, `${appearance}.png`),
+  })))
   const finished = page.getByTestId('code-native-related-finished')
   await expect(page.getByTestId('code-acp-elicitation').filter({ hasText: '是否保留旧版接口兼容？' })).toBeVisible()
   await expect(finished).toBeVisible()
