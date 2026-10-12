@@ -67,7 +67,7 @@ const tasks: FastScreenTask[] = [
   },
   {
     name: 'bounded npm publication evidence and recovery',
-    args: ['--import', 'tsx', '--test', 'tests/npm-release-evidence.test.ts'],
+    args: ['--import', 'tsx', '--test', 'tests/npm-release-evidence.test.ts', 'tests/npm-runtime-preflight.test.ts'],
   },
   {
     name: 'authoritative release lineage',
