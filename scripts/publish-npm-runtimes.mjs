@@ -27,7 +27,8 @@ for (const item of packages) {
     const prior = path.join(priorDirectory, name);
     if (fs.existsSync(prior)) fs.copyFileSync(prior, path.join(evidenceDirectory, name));
   }
-  const response = await fetch(`https://registry.npmjs.org/farming-code/${encodeURIComponent(item.version)}`, { signal: AbortSignal.timeout(10_000) });
+  const response = await fetch(`https://registry.npmjs.org/farming-code/${encodeURIComponent(item.version)}`, { headers: { connection: 'close' }, signal: AbortSignal.timeout(10_000) });
+  await response.body?.cancel();
   if (response.status !== 200 && response.status !== 404) throw new Error(`Cannot reconcile ${item.version}: HTTP ${response.status}`);
   if (response.status === 404 && !fs.existsSync(intentFile)) {
     fs.writeFileSync(intentFile, `${JSON.stringify({ version: item.version, gitHead: candidateSha, integrity: receipt.integrity, observedAt: new Date().toISOString() })}\n`, { flag: 'wx' });

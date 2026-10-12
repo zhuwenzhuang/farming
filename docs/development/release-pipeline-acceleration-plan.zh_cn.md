@@ -539,6 +539,8 @@ Changed Files + Failure Signatures
   上传后自动核对公开 Name、Version、Source SHA、Integrity 和 Shasum，最长十分钟，单次请求
   最长十秒。成功或失败都保留带时间戳的状态与上传结果。尝试上传后的恢复只读，包括公开
   Registry 返回 404 时；上传步骤尚未执行的恢复可以进行第一次上传。
+- Registry Preflight 读取必须关闭连接并释放响应体，再进入阻塞 Publisher 的同步上传
+  或观察子进程；不得在平台发布步骤之间保留空闲 HTTP 连接。
 - 已接受上传与公开验证是不同状态。上传成功后，若公开版本尚不存在或元数据不完整，
   状态为 `awaiting-public`：Workflow Summary 显示“已上传成功，等待公开可用”，并保留
   `farming/npm-publication/<version>` Commit Status 为 Pending。有界观察 Job 可以完成，

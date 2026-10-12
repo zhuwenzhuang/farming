@@ -688,6 +688,9 @@ SHA-256 sidecar or hash the same unchanged tarball again in that stage.
   observation checkpoints and upload outcome are retained on success or failure.
   Recovery after an attempted upload is read-only, including during public 404
   responses; recovery before the upload step may perform the first upload.
+- Registry preflight reads close their connection and release their response
+  body before synchronous upload or observation subprocesses block the publisher.
+  Idle HTTP connections must not survive between platform publication steps.
 - An accepted upload and public verification are separate states. A successful
   upload followed by public absence or incomplete metadata is `awaiting-public`:
   show "Uploaded successfully; waiting for public availability" in the workflow
