@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { attachPastedText, createPastedTextReference, restorePastedText } from '../src/components/code/composer-paste'
+import { attachPastedText, createPastedTextReference, prepareComposerPaste, restorePastedText, selectionInsideComposerCode } from '../src/components/code/composer-paste'
 import { composerMessageWithContext } from '../src/components/code/composer-message'
 import { createDefaultAgentComposerState, createPendingFollowUpMessage, restorePendingFollowUpMessageForEdit } from '../src/components/code/composer-state'
 import { loadAgentComposerCheckpoint, saveAgentComposerCheckpoint } from '../src/components/code/composer-persistence'
@@ -109,4 +109,39 @@ test('standalone emphasis and quotes receive the same decoration as mixed Markdo
     assert.match(highlightComposerMarkdown(draft) || '', /hljs-(emphasis|strong)/)
   }
   assert.match(highlightComposerMarkdown('> 引用\n> second line') || '', /hljs-quote/)
+})
+
+test('pasting within code uses original text and keeps long-paste limits and folding', () => {
+  const source = 'const value = 1;'
+  const html = '<pre><code>' + source + '</code></pre>'
+  for (const fence of ['```javascript', '~~~~js', '  ````']) {
+    const prefix = fence + '\n'
+    const value = prefix + 'REPLACE\n' + fence.trim().match(/^[`~]+/)![0] + '\nProse'
+    const selection = { value, selectionStart: prefix.length, selectionEnd: prefix.length + 7 }
+    assert.equal(selectionInsideComposerCode(selection), true)
+    assert.equal(selectionInsideComposerCode({ ...selection, selectionEnd: value.length }), false)
+    assert.equal(selectionInsideComposerCode({ ...selection, selectionStart: value.length, selectionEnd: value.length }), false)
+    assert.equal(prepareComposerPaste(source, html, true, selection), null)
+    const long = source.repeat(100)
+    const prepared = prepareComposerPaste(long, '<pre>' + long + '</pre>', true, selection)
+    assert.equal(prepared?.reference?.text, long)
+    assert.equal(prepared?.reference?.editableMarkdown, undefined)
+    assert.throws(() => prepareComposerPaste('x'.repeat(250_001), html, true, selection), /Split it/)
+  }
+})
+
+test('code selection requires the matching fence and rejects prose and opening-line selections', () => {
+  for (const [value, token, expected] of [
+    ['```js\nvalue', 'value', true],
+    ['````js\n```\nvalue\n````', 'value', true],
+    ['```js\n~~~\nvalue\n```', 'value', true],
+    ['```js\n```not a closer\nvalue\n```', 'value', true],
+    ['```js\nvalue\n```\nprose', 'prose', false],
+    ['```js', 'js', false],
+    ['prose ```js\nvalue', 'value', false],
+    ['```invalid`info\nvalue', 'value', false],
+  ] as const) {
+    const start = value.indexOf(token)
+    assert.equal(selectionInsideComposerCode({ value, selectionStart: start, selectionEnd: start + token.length }), expected, value)
+  }
 })

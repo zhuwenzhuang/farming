@@ -2118,7 +2118,7 @@ export function CodeWorkspace({
     if (!activeComposerKey || textarea.dataset.plainPaste === 'true') return false
     let prepared
     try {
-      prepared = prepareComposerPaste(text, html, true)
+      prepared = prepareComposerPaste(text, html, true, textarea)
       if (prepared?.markdown) { insertFormattedComposerText(textarea, prepared.markdown); return true }
     }
     catch (error) {

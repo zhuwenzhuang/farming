@@ -11,6 +11,15 @@ function inlineComposerCode(text: string) {
   return `${delimiter}${padding}${text}${padding}${delimiter}`
 }
 
+function wrapEmphasis(body: string, delimiter: string) {
+  // CommonMark delimiters cannot enclose leading/trailing whitespace. Keep
+  // that whitespace outside the mark instead of losing word boundaries.
+  const content = body.trim()
+  if (!content) return body
+  return body.slice(0, body.length - body.trimStart().length) + delimiter + content + delimiter
+    + body.slice(body.trimEnd().length)
+}
+
 function finishPastedMarkdown(markdown: string) {
   // A closing fence must stay on its own line when the user continues typing.
   const editable = /\n`{3,}$/.test(markdown) ? markdown + '\n' : markdown
@@ -41,8 +50,20 @@ export function readPastedMarkdown(text: string, html?: string): string | undefi
   // Tables are not a supported Markdown conversion. Keep the authoritative
   // clipboard text, including its row/column separators, even with styled cells.
   if (template.content.querySelector('table')) return undefined
-  const canonical = (value: string) => value.replace(/^\s*(?:[-*•]|\d+[.)])\s+/gm, '').replace(/\s/g, '')
-  if (canonical(template.content.textContent || '') !== canonical(text)) return undefined
+  // textContent drops BR entirely, including inside mixed-message code blocks.
+  template.content.querySelectorAll('br').forEach(node => node.replaceWith('\n'))
+  const canonical = (value: string) => value.replace(/^\s*(?:[-*•]|\d+[.)])\s+/gm, '').replace(/\s+/g, ' ').trim()
+  let inspected = 0
+  const readableText = (node: Node, depth: number): string => {
+    if (++inspected > 30_000 || depth > 100) throw new Error('Formatting limit')
+    if (node.nodeType === Node.TEXT_NODE) return node.textContent || ''
+    const body = Array.from(node.childNodes, child => readableText(child, depth + 1)).join('')
+    return node instanceof HTMLElement && /^(P|DIV|PRE|LI|UL|OL|H[1-6]|BLOCKQUOTE)$/.test(node.tagName) ? '\n' + body + '\n' : body
+  }
+  // Normalize presentation whitespace, but never equate "one two" with
+  // "onetwo". Mismatched HTML must leave the authoritative plain text intact.
+  try { if (canonical(readableText(template.content, 0)) !== canonical(text)) return undefined }
+  catch { return undefined }
   const languageOf = (node: Element) => {
     const value = node.getAttribute('data-language') || node.className.match(/(?:language|lang)-([\w+-]+)/)?.[1] || ''
     return /^[\w+-]{1,40}$/.test(value) ? value.toLowerCase() : ''
@@ -65,15 +86,26 @@ export function readPastedMarkdown(text: string, html?: string): string | undefi
   }
   let visited = 0
   let structured = false
+  const source = text.replace(/\r\n?/g, '\n')
+  const comparableSource = source.replace(/\u00a0/g, ' ')
+  let codeOffset = 0
+  const capturedCode = (node: HTMLElement) => {
+    const code = (node.textContent || '').replace(/\u00a0/g, ' ')
+    const start = comparableSource.indexOf(code, codeOffset)
+    // Collapsing whitespace for whole-message comparison must not authorize
+    // changing whitespace inside code (for example, a string literal).
+    if (start < 0) throw new Error('Code text does not match clipboard')
+    codeOffset = start + code.length
+    return source.slice(start, codeOffset)
+  }
   const render = (node: Node, depth: number): string => {
     if (++visited > 30_000 || depth > 100) throw new Error('Formatting limit')
     if (node.nodeType === Node.TEXT_NODE) return escapeMarkdown((node.textContent || '').replace(/\u00a0/g, ' '))
     if (!(node instanceof HTMLElement)) return ''
     const children = () => joinMarkdown(Array.from(node.childNodes, child => render(child, depth + 1)))
     const tag = node.tagName
-    if (tag === 'PRE') { structured = true; return `\n\n${fencedComposerCode(node.textContent || '', languageOf(node.querySelector('code') || node))}\n\n` }
-    if (tag === 'CODE' || (tag === 'SPAN' && isMonospace(node))) { structured = true; return inlineComposerCode(node.textContent || '') }
-    if (tag === 'BR') return '\n'
+    if (tag === 'PRE') { structured = true; return `\n\n${fencedComposerCode(capturedCode(node), languageOf(node.querySelector('code') || node))}\n\n` }
+    if (tag === 'CODE' || (tag === 'SPAN' && isMonospace(node))) { structured = true; return inlineComposerCode(capturedCode(node)) }
     if (tag === 'UL' || tag === 'OL') {
       structured = true
       const start = Number(node.getAttribute('start')) || 1
@@ -90,8 +122,8 @@ export function readPastedMarkdown(text: string, html?: string): string | undefi
     }
     if (/^H[1-6]$/.test(tag)) { structured = true; return `\n\n${'#'.repeat(Number(tag[1]))} ${body}\n\n` }
     if (tag === 'BLOCKQUOTE') { structured = true; return '\n\n' + body.trim().replace(/^/gm, '> ') + '\n\n' }
-    if (tag === 'B' || tag === 'STRONG' || /^(bold|[6-9]00)$/.test(node.style.fontWeight)) { structured = true; return `**${body}**` }
-    if (tag === 'I' || tag === 'EM' || node.style.fontStyle === 'italic') { structured = true; return `*${body}*` }
+    if (tag === 'B' || tag === 'STRONG' || /^(bold|[6-9]00)$/.test(node.style.fontWeight)) { structured = true; return wrapEmphasis(body, '**') }
+    if (tag === 'I' || tag === 'EM' || node.style.fontStyle === 'italic') { structured = true; return wrapEmphasis(body, '*') }
     return tag === 'P' ? `\n\n${body}\n\n` : tag === 'DIV' && !body.endsWith('\n') ? `${body}\n` : body
   }
   try {

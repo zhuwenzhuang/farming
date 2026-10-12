@@ -25,7 +25,7 @@ async function paste(input: Locator, text: string, html: string) {
 }
 
 for (const mode of ['chat', 'terminal'] as const) {
-  test(`${mode} formatted clipboard visual matrix preserves readable structure`, async ({ page, workspaceRoot, isMobile }) => {
+  test(`${mode} formatted clipboard visual matrix preserves readable structure`, async ({ page, workspaceRoot, isMobile }, testInfo) => {
     test.setTimeout(120_000)
     await page.request.post('/farming/api/settings', { data: { language: 'en' } })
     const response = await page.request.post('/farming/api/control/agents', {
@@ -42,6 +42,48 @@ for (const mode of ['chat', 'terminal'] as const) {
     await expect(input).toBeEditable()
     if (isMobile) await page.getByTestId('code-composer-editor-toggle').click()
     await page.evaluate(() => document.fonts.ready)
+
+    await test.step('clipboard boundaries preserve emphasis, code line breaks and word spacing', async () => {
+      const text = 'Review important details and examples.\nconst label = "a  b";\n\tconsole.log(label);\nContinue here.'
+      const html = '<p>Review<strong> important </strong>details and<em> examples</em>.</p><pre><code class="language-javascript">const label = &quot;a  b&quot;;<br>\tconsole.log(label);</code></pre><p>Continue here.</p>'
+      const markdown = 'Review **important** details and *examples*.\n\n```javascript\nconst label = "a  b";\n\tconsole.log(label);\n```\n\nContinue here.'
+      await input.fill('')
+      expect(await paste(input, text, html)).toBe(true)
+      await expect(input).toHaveValue(markdown)
+      await expect(highlight.locator('.hljs-strong')).toHaveText('**important**')
+      await expect(highlight.locator('.hljs-emphasis')).toHaveText('*examples*')
+      await page.keyboard.insertText(' 继续输入')
+      await expect(input).toHaveValue(markdown + ' 继续输入')
+      expect((await highlight.locator('span').allTextContents()).some(value => value.includes('继续输入'))).toBe(false)
+
+      for (const appearance of ['light', 'dark', 'paper']) {
+        await page.evaluate(value => { document.body.dataset.appearance = value; document.documentElement.dataset.appearance = value }, appearance)
+        await input.evaluate(element => { element.scrollTop = 0; element.blur() })
+        await expect.poll(() => highlight.evaluate(element => element.scrollTop)).toBe(0)
+        await input.screenshot({ path: testInfo.outputPath(`boundary-${mode}-${appearance}-top.png`), animations: 'disabled' })
+        if (await input.evaluate(element => element.scrollHeight > element.clientHeight + 1)) {
+          await input.evaluate(element => { element.scrollTop = element.scrollHeight })
+          await expect.poll(() => highlight.evaluate(element => element.scrollTop)).toBe(await input.evaluate(element => element.scrollTop))
+          await input.screenshot({ path: testInfo.outputPath(`boundary-${mode}-${appearance}-bottom.png`), animations: 'disabled' })
+        }
+      }
+      for (const draft of ['```javascript\nREPLACE\n```', '~~~~javascript\nREPLACE\n~~~~', '```javascript\nREPLACE']) {
+        await input.fill(draft)
+        await input.evaluate(element => {
+          const start = element.value.indexOf('REPLACE')
+          element.setSelectionRange(start, start + 7)
+        })
+        expect(await paste(input, 'const value = 1;', '<pre><code class="language-javascript">const value = 1;</code></pre>')).toBe(false)
+        await expect(input).toHaveValue(draft)
+      }
+
+      await input.fill('Keep draft')
+      // Whitespace is not disposable: accepting this HTML would join two words.
+      expect(await paste(input, 'one two', '<strong>onetwo</strong>')).toBe(false)
+      await expect(input).toHaveValue('Keep draft')
+      expect(await paste(input, 'Example\nconst label = "a  b";', '<p>Example</p><pre>const label = "a b";</pre>')).toBe(false)
+      await expect(input).toHaveValue('Keep draft')
+    })
 
     for (const sample of formats) {
       await test.step(sample.name, async () => {
@@ -159,9 +201,9 @@ test('native Chat copy and paste preserves inline, block and mixed selections', 
   const answer = page.locator('.code-agent-transcript-assistant').last()
   await expect(answer.locator('pre code')).toContainText('console.log(value);')
   const highlight = page.getByTestId('code-composer-draft-highlight')
-  for (const selection of ['inline', 'block', 'mixed'] as const) {
-    await input.fill('')
-    const source = selection === 'inline' ? answer.locator('p code') : selection === 'block' ? answer.locator('pre code') : answer
+  for (const selection of ['inline', 'block', 'mixed', 'inside-code'] as const) {
+    await input.fill(selection === 'inside-code' ? '```javascript\n\n```' : '')
+    const source = selection === 'inline' ? answer.locator('p code') : selection === 'block' || selection === 'inside-code' ? answer.locator('pre code') : answer
     await input.blur()
     await source.evaluate(element => {
       const range = document.createRange()
@@ -171,7 +213,14 @@ test('native Chat copy and paste preserves inline, block and mixed selections', 
     })
     await page.keyboard.press('ControlOrMeta+c')
     await input.focus()
+    if (selection === 'inside-code') await input.evaluate(element => element.setSelectionRange(14, 14))
     await page.keyboard.press('ControlOrMeta+v')
+    if (selection === 'inside-code') {
+      await expect(input).toHaveValue('```javascript\nconst value = 1;\nconsole.log(value);\n```')
+      await page.keyboard.insertText(' // continued')
+      await expect(input).toHaveValue('```javascript\nconst value = 1;\nconsole.log(value); // continued\n```')
+      continue
+    }
     if (selection === 'inline') await expect(input).toHaveValue('`.Index/.Entries`')
     else {
       await expect(input).toHaveValue(/```[^\n]*\nconst value = 1;\nconsole.log\(value\);\n```/)

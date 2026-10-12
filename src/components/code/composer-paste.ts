@@ -42,8 +42,30 @@ export function restorePastedText(state: AgentComposerState, id: string): AgentC
   }
 }
 
+type PasteSelection = Pick<HTMLTextAreaElement, 'value' | 'selectionStart' | 'selectionEnd'>
+
+export function selectionInsideComposerCode({ value, selectionStart, selectionEnd }: PasteSelection) {
+  let open: { marker: string; length: number; contentStart: number } | undefined
+  for (const match of value.matchAll(/^ {0,3}(`{3,}|~{3,})([^\n]*)$/gm)) {
+    const marker = match[1]!
+    const tail = match[2]!
+    if (open) {
+      if (marker[0] === open.marker && marker.length >= open.length && !tail.trim()) {
+        if (selectionStart >= open.contentStart && selectionEnd <= match.index) return true
+        open = undefined
+      }
+    } else if (marker[0] !== '`' || !tail.includes('`')) {
+      open = { marker: marker[0]!, length: marker.length, contentStart: match.index + match[0].length + 1 }
+    }
+  }
+  return Boolean(open && selectionStart >= open.contentStart)
+}
+
 /** Intake is atomic: native plain paste, formatted insertion, or a folded snapshot. */
-export function prepareComposerPaste(text: string, html: string | undefined, fold: boolean) {
+export function prepareComposerPaste(text: string, html: string | undefined, fold: boolean, selection?: PasteSelection) {
+  // Formatting belongs to prose. Inside an existing code block, paste the
+  // original source without adding nested fences or Markdown escaping.
+  if (selection && selectionInsideComposerCode(selection)) html = undefined
   const reference = createPastedTextReference(text, html)
   if (fold && Array.from(text).length > 1000 && reference) return { reference }
   const markdown = reference?.editableMarkdown || readPastedMarkdown(text, html)

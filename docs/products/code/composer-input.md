@@ -91,7 +91,10 @@ Inline code remains inline even when the clipboard includes a monospace font.
 Multiline selections carrying syntax metadata retain code semantics without
 requiring the enclosing block in clipboard HTML. Code toolbar labels are excluded from the
 captured content. Pasted block fences stay on separate lines from surrounding
-draft text and subsequent typing. Source fonts, sizes and backgrounds do not
+draft text and subsequent typing. Pasting within an existing fenced code block
+uses the original text, without nested fences or Markdown escaping. Conversion
+keeps code line breaks and word boundaries; whitespace at emphasis edges stays
+outside its delimiters. Source fonts, sizes and backgrounds do not
 become editor styling. Short formatted
 pastes insert into the selected range using native undo; long ones retain their
 snapshot card and an editable Markdown representation. “Show in text field” moves
