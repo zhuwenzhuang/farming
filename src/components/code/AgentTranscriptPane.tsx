@@ -1421,7 +1421,7 @@ function AgentTranscriptSteerItem({ item, copy }: { item: AgentTranscriptProcess
         <AgentTranscriptTerminals terminals={terminals} />
         <div className="code-agent-transcript-steer-meta" data-testid="code-agent-transcript-steer-meta">
           <span className="code-agent-transcript-steer-label" data-testid="code-agent-transcript-steer-label">
-            {copy.agentTranscriptInputDuringTurn}
+            {copy.steerQueuedMessage}
           </span>
           <AgentTranscriptMessageTime timestamp={item.createdAt} kind="steer" />
         </div>

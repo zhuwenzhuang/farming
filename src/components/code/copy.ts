@@ -128,7 +128,6 @@ export interface CodeCopy {
   agentTranscriptCollaborationSending: string
   agentTranscriptMessageExpand: string
   agentTranscriptMessageLoadFailed: string
-  agentTranscriptInputDuringTurn: string
   agentTranscriptCollaborationEarlierActivities: (count: number) => string
   agentTranscriptCollaborationEarlierEvidence: (count: number) => string
   agentTranscriptCopyDetails: string
@@ -868,7 +867,6 @@ const EN_COPY: CodeCopy = {
   agentTranscriptCollaborationSending: 'Sending message',
   agentTranscriptMessageExpand: 'Show full message',
   agentTranscriptMessageLoadFailed: 'Could not load the full message.',
-  agentTranscriptInputDuringTurn: 'During this turn',
   agentTranscriptCollaborationEarlierActivities: count => `Show ${count} earlier ${count === 1 ? 'activity' : 'activities'}`,
   agentTranscriptCollaborationEarlierEvidence: count => `Show ${count} earlier ${count === 1 ? 'record' : 'records'}`,
   agentTranscriptCopyDetails: 'Copy details',
@@ -1643,7 +1641,6 @@ const ZH_COPY: CodeCopy = {
   agentTranscriptCollaborationSending: '正在发送消息',
   agentTranscriptMessageExpand: '展开全文',
   agentTranscriptMessageLoadFailed: '未能读取完整消息。',
-  agentTranscriptInputDuringTurn: '本轮补充',
   agentTranscriptCollaborationEarlierActivities: count => `显示更早 ${count} 条活动`,
   agentTranscriptCollaborationEarlierEvidence: count => `显示更早 ${count} 条记录`,
   agentTranscriptCopyDetails: '复制详情',

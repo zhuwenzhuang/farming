@@ -123,8 +123,9 @@ identical. Success is evidence of the send operation, not a read receipt or proo
 that the recipient finished the requested work. Missing inbound provider events
 are not synthesized from assistant prose.
 Inputs without trusted source metadata keep ordinary input bubbles without
-invented names or avatars. An input during an active turn uses a secondary
-"During this turn" label, which describes timing rather than the sender.
+invented names or avatars. Inputs explicitly marked as steer use the secondary
+"Steer" label in both English and Chinese, matching the Composer action. This
+label describes delivery into the active turn, not the sender.
 
 Incoming peer messages use ordinary input-message bubbles. The stable source
 avatar sits beside the bubble and the receive-time sender name appears above it,

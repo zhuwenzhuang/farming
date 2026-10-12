@@ -43,7 +43,7 @@ test('peer messages stay readable with bounded expansion, unknown inputs, send o
   await expect(page.getByTestId('code-agent-message-source')).toHaveCount(0)
   const steer = page.getByTestId('code-agent-transcript-steer')
   await expect(steer).toContainText('来源未由 Provider 提供。')
-  await expect(steer.getByTestId('code-agent-transcript-steer-label')).toHaveText('本轮补充')
+  await expect(steer.getByTestId('code-agent-transcript-steer-label')).toHaveText('Steer')
   await expect(first.getByTestId('code-agent-transcript-outgoing-time')).toBeVisible()
   await expect(page.getByTestId('code-agent-transcript-collaboration-evidence')).toHaveCount(0)
 
