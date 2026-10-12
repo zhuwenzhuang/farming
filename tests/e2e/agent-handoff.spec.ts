@@ -2,6 +2,25 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { expect, openFarming, test } from './fixtures'
 
+// Each case owns these temporary Homes; remove their registrations even when an
+// assertion fails so a retry cannot inherit duplicate IDs from a previous worker.
+test.afterEach(async ({ page, workspaceRoot }) => {
+  const ownedPaths = new Set([
+    ...['light', 'dark', 'paper'].map(appearance => path.join(workspaceRoot, `handoff-home-${appearance}`)),
+    path.join(workspaceRoot, 'demo-source-home'),
+    path.join(workspaceRoot, 'demo-agent-home'),
+  ])
+  const current = await page.request.get('/farming/api/settings')
+  expect(current.ok(), await current.text()).toBeTruthy()
+  const { settings } = await current.json() as { settings: { agentHomes: Record<string, Array<{ path: string }>> } }
+  const restored = await page.request.post('/farming/api/settings', { data: {
+    agentHomes: Object.fromEntries(Object.entries(settings.agentHomes).map(([provider, homes]) => [
+      provider, homes.filter(home => !ownedPaths.has(home.path)),
+    ])),
+  } })
+  expect(restored.ok(), await restored.text()).toBeTruthy()
+})
+
 for (const appearance of ['light', 'dark', 'paper']) {
   test(`hands off to another provider and Home with a read-first prompt in ${appearance}`, async ({ page, workspaceRoot }) => {
     if (appearance === 'light') {
@@ -52,9 +71,21 @@ for (const appearance of ['light', 'dark', 'paper']) {
     await dialog.getByRole('button', { name: 'Chat', exact: true }).click()
     await expect(dialog.locator('input[name="workspace-path"]')).toHaveAttribute('readonly', '')
     await expect(dialog.getByTestId('workspace-directory-picker')).toHaveCount(0)
-    await expect(dialog).toHaveScreenshot(`handoff-picker-${appearance}.png`, {
-      mask: [dialog.locator('input[name="workspace-path"]'), dialog.locator('.workspace-home-trigger-copy > span')],
-    })
+    const homePathLabel = dialog.locator('.workspace-home-trigger-copy > span')
+    const originalHomePath = await homePathLabel.textContent()
+    // Host paths and the Linux default monospace font differ between CI and
+    // the Playwright image. Normalize only the screenshot's display content.
+    await homePathLabel.evaluate(element => { element.textContent = '/workspace/agent-home' })
+    try {
+      await expect(dialog).toHaveScreenshot(`handoff-picker-${appearance}.png`, {
+        mask: [dialog.locator('input[name="workspace-path"]')],
+        ...(process.platform === 'linux' ? {
+          style: '.workspace-home-trigger-copy > span { font-family: "WenQuanYi Zen Hei Mono", monospace; }',
+        } : {}),
+      })
+    } finally {
+      await homePathLabel.evaluate((element, value) => { element.textContent = value }, originalHomePath)
+    }
     let uncertainAgentId: string | undefined
     if (appearance === 'light') {
       await page.route('**/api/control/agents', async route => {

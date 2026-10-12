@@ -30,7 +30,9 @@ async function run() {
       FARMING_TEST_HISTORY_IMAGE_DATA_URL: `data:image/png;base64,${imageData}`,
     },
     stdio: ['pipe', 'pipe', 'pipe'],
+    detached: process.platform !== 'win32',
   });
+  const closed = new Promise<void>(resolve => child.once('close', () => resolve()));
   const updates = [];
   let stderr = '';
   child.stderr.on('data', chunk => {
@@ -120,7 +122,17 @@ async function run() {
     assert(!contents.some(content => content?.type === 'text' && content.text.includes('[@image]')));
     console.log('✓ Codex ACP session/load emits native history image blocks');
   } finally {
-    child.kill('SIGTERM');
+    // The adapter owns an app-server child that can still append request logs
+    // after session/load returns. Stop the whole owned group before removing it.
+    if (child.pid) {
+      try {
+        if (process.platform === 'win32') child.kill('SIGKILL');
+        else process.kill(-child.pid, 'SIGKILL');
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
+      }
+    }
+    await closed;
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 }

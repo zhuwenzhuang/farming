@@ -853,7 +853,7 @@ button.code-agent-transcript-message-source:hover {
 .code-agent-transcript-message-body.collapsed {
   max-height: 14lh;
   overflow: hidden;
-  mask-image: linear-gradient(to bottom, #000 calc(100% - 2lh), transparent);
+  mask-image: linear-gradient(to bottom, var(--code-text) calc(100% - 2lh), transparent);
 }
 
 .code-agent-transcript-message-expand {

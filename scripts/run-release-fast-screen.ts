@@ -82,6 +82,14 @@ const tasks: FastScreenTask[] = [
     args: ['--import', 'tsx', 'backend/tests/test-ui-design-ownership.ts'],
   },
   {
+    name: 'appearance semantic palette and transcript style ownership',
+    args: ['--import', 'tsx', 'backend/tests/test-code-appearance-css-contract.ts'],
+  },
+  {
+    name: 'transcript stylesheet semantic palette ownership',
+    args: ['--import', 'tsx', 'backend/tests/test-transcript-style-ownership.ts'],
+  },
+  {
     name: 'sidebar styles and shared workbench splitter ownership',
     args: ['--import', 'tsx', 'backend/tests/test-sidebar-style-ownership.ts'],
   },

@@ -271,6 +271,9 @@ test('optimistic: share duration keeps the selected value while saving', async (
 test('optimistic: search timeout restores a rejected value without waiting for another read', async ({ page }, testInfo) => {
   await openFarming(page)
   await page.getByTestId('code-sidebar-options').click()
+  // This control reflects the panel's initial settings read; the search slider
+  // itself stays enabled while that read is pending.
+  await expect(page.getByTestId('code-settings-read-only-share-duration')).toBeEnabled()
   const slider = page.getByRole('slider', { name: 'Search timeout', exact: true })
   await expect(slider).toBeEnabled()
   const previous = await slider.inputValue()

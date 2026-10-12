@@ -1,6 +1,20 @@
 import type { Locator } from '@playwright/test'
 import { expect, openFarming, test } from './fixtures'
 
+test.beforeEach(async ({ page }) => {
+  // Linux runners and Playwright images choose different generic monospace
+  // fonts. Pin the existing visual oracle to a font installed by Playwright.
+  if (process.platform !== 'linux') return
+  await page.addInitScript(() => {
+    document.addEventListener('DOMContentLoaded', () => {
+      document.documentElement.style.setProperty('--code-mono-font', '"WenQuanYi Zen Hei Mono", monospace')
+      const style = document.createElement('style')
+      style.textContent = 'body.code-mode .code-composer textarea { font-family: "WenQuanYi Zen Hei Mono", monospace; }'
+      document.head.append(style)
+    }, { once: true })
+  })
+})
+
 // Independent clipboard/Markdown expectations: never derive the oracle from the converter.
 const formats = [
   { name: 'emphasis', text: '斜体说明 italic 🐱', html: '<em>斜体说明 italic 🐱</em>', markdown: '*斜体说明 italic 🐱*', tokens: ['emphasis'] },

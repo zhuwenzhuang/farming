@@ -184,8 +184,13 @@ test('Plugins treats each Agent Home as an independent ordered Agent configurati
     && response.request().method() === 'POST'
   ))
   await form.getByRole('button', { name: 'Save', exact: true }).click()
-  expect((await duplicateResponse).status()).toBe(409)
-  await expect(panel.locator('.code-plugin-agent-form + .code-plugin-error')).toContainText('same Home path')
+  const rejectedDuplicate = await duplicateResponse
+  expect(rejectedDuplicate.status()).toBe(409)
+  expect(await rejectedDuplicate.json()).toMatchObject({ error: expect.stringContaining('same Home path') })
+  await expect(panel.getByRole('status')).toHaveText('Not saved. Previous setting restored.')
+  await expect(panel.getByTestId('code-plugin-section-agent-codex-duplicate-work')).toHaveCount(0)
+  await expect(work).toBeVisible()
+  await expect(form.getByLabel('Home name')).toHaveValue('duplicate-work')
   const codexReviewHome = path.join(workspaceRoot, 'codex-review')
   await form.getByLabel('Home path').fill(codexReviewHome)
   await form.getByLabel('Home name').fill('review')
