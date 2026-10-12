@@ -4,6 +4,13 @@ import { expect, openFarming, test } from './fixtures'
 
 for (const appearance of ['light', 'dark', 'paper']) {
   test(`hands off to another provider and Home with a read-first prompt in ${appearance}`, async ({ page, workspaceRoot }) => {
+    if (appearance === 'light') {
+      // LAN HTTP does not expose the secure-context randomUUID API. The same
+      // request identity must still survive the uncertain-response retry below.
+      await page.addInitScript(() => {
+        Object.defineProperty(Crypto.prototype, 'randomUUID', { value: undefined, configurable: true })
+      })
+    }
     const workspace = path.join(workspaceRoot, 'handoff-demo')
     const targetHome = path.join(workspaceRoot, `handoff-home-${appearance}`)
     const homeId = `handoff-${appearance}`

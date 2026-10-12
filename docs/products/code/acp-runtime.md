@@ -528,9 +528,11 @@ updates do not reset the current disclosure. Terminal retains its native display
 The backend owns admission: validate the confirmed source and supported target,
 then use the existing identified Create operation and initial-input delivery.
 Concurrent identical requests join and completed requests return their recorded
-outcome. A changed request cannot reuse its identity. Creation or prompt-delivery
-failure is visible, including the created Agent when available. Uncertain input
-is never replayed, including after restart. Closing the picker before submission
+outcome. A changed request cannot reuse its identity. Request identity generation
+must also work on LAN HTTP origins without the secure-context UUID API.
+The same generated request identity is retained across uncertain retries.
+Creation or prompt-delivery failure is visible, including the created Agent when
+available. Uncertain input is never replayed, including after restart. Closing the picker before submission
 has no effect; closing it after submission does not cancel admitted creation.
 Chat creation returns once the reading prompt is admitted, so the destination
 can display permission requests without keeping the picker open for the whole

@@ -905,7 +905,9 @@ export function App() {
       handoffSourceSessionKey: handoffSource.providerSessionKey,
     }
     const key = JSON.stringify(body)
-    const requestId = handoffRequestsRef.current.get(key) || crypto.randomUUID()
+    const requestId = handoffRequestsRef.current.get(key)
+      || globalThis.crypto?.randomUUID?.()
+      || `${Date.now()}-${Math.random()}`
     handoffRequestsRef.current.set(key, requestId)
     handoffBusyRef.current = true
     setHandoffBusy(true)
