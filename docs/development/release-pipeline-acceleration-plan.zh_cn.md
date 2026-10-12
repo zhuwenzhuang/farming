@@ -549,7 +549,11 @@ Changed Files + Failure Signatures
   Candidate 发布、SHA 与规范 Smoke Receipt。若恢复任务首次上传，其上传身份与
   Exact-SHA Candidate 发布及成功 Preparation 证明分开保存。续查和发布共享按版本
   的并发所有权，无需 npm 凭据。
-  恢复验证器可以使用较新的集成代码，但必须保留原始上传身份。正常等待公开时若观察
+  恢复验证器可以使用较新的集成代码，但必须保留原始上传身份。显式恢复使用前一次恢复的
+  Journal 时，该 Run 仍须对应精确 Candidate SHA，并证明恢复 Checkout、Preparation、
+  Acceptance 与公开资产验证成功；仅有被跳过的原始发布步骤不足以构成证据。
+  每次新恢复重新检查 Candidate 的 Push Workflow 并保留最新 Journal；只读 Observer
+  在继续观察后续主包上传前，也须认证同一身份链。正常等待公开时若观察
   结束，记录 `observationStatus=ended`，保留 Pending 发布状态并提供只读恢复指引。
   缺少已认证 Upload-origin Checkpoint 的历史证据使用显式恢复，不自动续查。
   只有公开源码和摘要匹配才标记发布成功；

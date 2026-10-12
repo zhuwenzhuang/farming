@@ -703,8 +703,14 @@ SHA-256 sidecar or hash the same unchanged tarball again in that stage.
   the first upload, its uploader identity remains separate from the exact-SHA
   candidate publication and successful preparation proof. It shares per-version concurrency
   with publication and needs no npm credential. A recovery verifier may use
-  newer integration code while preserving the original upload identity. When
-  observation ends during normal public absence, record `observationStatus=ended`
+  newer integration code while preserving the original upload identity. An earlier
+  recovery may supply the latest journals only when that journal run
+  identifies the exact candidate SHA and proves successful recovery
+  checkout, preparation, acceptance, and public-asset verification. Skipped
+  original-publication steps alone are not evidence. Every new recovery rechecks
+  the candidate's push workflows and preserves the latest journals; the read-only
+  observer authenticates this same lineage before continuing a later main upload.
+  When observation ends during normal public absence, record `observationStatus=ended`
   and retain pending publication status with read-only recovery instructions.
   Historical evidence without an authenticated upload-origin checkpoint uses
   explicit recovery instead of automatic continuation. Only matching public source

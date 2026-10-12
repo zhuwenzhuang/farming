@@ -26,18 +26,24 @@ export function authenticateRun(run, workflow, jobs, repository, id, attempt, mo
   if (matches.length !== 1 || jobs.total_count !== jobs.jobs.length) throw new Error('Publication jobs are ambiguous or truncated.');
   const steps = matches[0].steps || [];
   const original = requiredSteps.every(name => steps.filter(step => step.name === name && step.conclusion === 'success').length === 1);
-  const skippedOnRecovery = ['Require successful candidate push workflows', 'Publish the matching draft release'];
-  const recovery = ['trigger', 'uploader'].includes(mode)
-    && requiredSteps.every(name => steps.filter(step => step.name === name
-      && step.conclusion === (skippedOnRecovery.includes(name) ? 'skipped' : 'success')).length === 1)
+  const recoveryGates = requiredSteps.slice(0, -1).every(name => steps.filter(step => step.name === name
+      && (name === 'Require successful candidate push workflows' ? ['success', 'skipped'].includes(step.conclusion)
+        : step.conclusion === (name === 'Publish the matching draft release' ? 'skipped' : 'success'))).length === 1)
     && steps.filter(step => step.name === 'Checkout recovery verifier' && step.conclusion === 'success').length === 1
     && steps.filter(step => step.name === 'Download prior npm publication evidence'
       && ['success', 'skipped'].includes(step.conclusion)).length === 1;
+  const recovery = ['trigger', 'uploader'].includes(mode) && recoveryGates
+    && steps.filter(step => step.name === 'Verify and publish npm package with provenance' && step.conclusion === 'success').length === 1;
   if (mode === 'candidate') {
     const beforeUpload = requiredSteps.slice(0, 4).every(name => steps.filter(step => step.name === name && step.conclusion === 'success').length === 1)
       && steps.some(step => step.name === 'Verify public tag, assets, and manifest' && step.conclusion === 'failure')
       && steps.some(step => step.name === 'Verify and publish npm package with provenance' && step.conclusion === 'skipped');
-    return original || beforeUpload;
+    const main = steps.find(step => step.name === 'Verify and publish npm package with provenance');
+    const runtime = steps.find(step => step.name === 'Verify and publish npm runtime packages with provenance');
+    const reachedNpm = ['success', 'failure'].includes(main?.conclusion)
+      || (main?.conclusion === 'skipped' && runtime?.conclusion === 'failure');
+    const originalGates = requiredSteps.slice(0, -1).every(name => steps.filter(step => step.name === name && step.conclusion === 'success').length === 1);
+    return beforeUpload || ((originalGates || recoveryGates) && reachedNpm);
   }
   return (original || recovery) && steps.some(step => step.name === 'Wait for npm package to become public'
     && ['success', 'failure'].includes(step.conclusion));
@@ -143,8 +149,8 @@ async function authenticateOrigin(origin, repository) {
   }
   if (String(uploader.run.id) !== String(candidate.run.id)) {
     const steps = uploader.jobs.jobs[0].steps;
-    if (!['Require successful candidate push workflows', 'Publish the matching draft release']
-      .every(name => steps.some(step => step.name === name && step.conclusion === 'skipped'))) {
+    if (!steps.some(step => step.name === 'Publish the matching draft release' && step.conclusion === 'skipped')
+      || !steps.some(step => step.name === 'Require successful candidate push workflows' && ['success', 'skipped'].includes(step.conclusion))) {
       throw new Error('A separate candidate publication origin requires an authenticated recovery uploader.');
     }
   }

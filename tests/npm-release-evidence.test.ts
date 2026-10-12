@@ -524,7 +524,9 @@ test('canonical artifact selection rejects duplicate, expired and oversized evid
   }
 });
 
-for (const firstUploadInRecovery of [false, true]) test(firstUploadInRecovery
+for (const [firstUploadInRecovery, priorRecovery] of [[false, false], [true, false], [true, true]]) test(priorRecovery
+  ? 'continued runtime recovery preserves the candidate journals and authenticates a newer main uploader'
+  : firstUploadInRecovery
   ? 'first upload in a newer pre-upload recovery preserves exact candidate gate lineage and preparation'
   : 'a newer recovery verifier observes the original candidate only after authenticated canonical identity checks', () => {
   const files = continuationFixture();
@@ -532,15 +534,20 @@ for (const firstUploadInRecovery of [false, true]) test(firstUploadInRecovery
   const prefix = `repos/${files.repository}`;
   const triggerRun = { ...files.run, id: 202, head_sha: 'b'.repeat(40) };
   const recoveryJobs = { total_count: 1, jobs: [{ name: 'Publish verified release', steps: [
-    ...files.jobs.jobs[0].steps.map(step => ['Require successful candidate push workflows', 'Publish the matching draft release'].includes(step.name)
+    ...files.jobs.jobs[0].steps.map(step => (priorRecovery ? ['Publish the matching draft release'] : ['Require successful candidate push workflows', 'Publish the matching draft release']).includes(step.name)
       ? { ...step, conclusion: 'skipped' } : step),
     { name: 'Checkout recovery verifier', conclusion: 'success' },
-    { name: 'Download prior npm publication evidence', conclusion: firstUploadInRecovery ? 'skipped' : 'success' },
+    { name: 'Download prior npm publication evidence', conclusion: firstUploadInRecovery && !priorRecovery ? 'skipped' : 'success' },
   ] }] };
   const artifact = { id: 3, name: 'farming-npm-publication-1.2.3', expired: false, size_in_bytes: 4096 };
   const candidateRun = firstUploadInRecovery ? { ...files.run, conclusion: 'failure' } : files.run;
   const preparationRun = { ...files.run, id: 99, workflow_id: 8 };
-  const candidateJobs = firstUploadInRecovery ? { ...files.jobs, jobs: [{ ...files.jobs.jobs[0],
+  const candidateJobs = priorRecovery ? { ...recoveryJobs, jobs: [{ ...recoveryJobs.jobs[0], steps: [
+    ...recoveryJobs.jobs[0].steps.map(step => ['Require successful candidate push workflows',
+      'Verify and publish npm package with provenance', 'Wait for npm package to become public'].includes(step.name)
+      ? { ...step, conclusion: 'skipped' } : step),
+    { name: 'Verify and publish npm runtime packages with provenance', conclusion: 'failure' },
+  ] }] } : firstUploadInRecovery ? { ...files.jobs, jobs: [{ ...files.jobs.jobs[0],
     steps: files.jobs.jobs[0].steps.map(step => step.name === 'Verify public tag, assets, and manifest'
       ? { ...step, conclusion: 'failure' } : ['Verify and publish npm package with provenance', 'Wait for npm package to become public'].includes(step.name)
         ? { ...step, conclusion: 'skipped' } : step),
@@ -561,6 +568,15 @@ for (const firstUploadInRecovery of [false, true]) test(firstUploadInRecovery
   try {
     assert.equal(callContinuationValidation('authenticateRun', [triggerRun, files.workflow, recoveryJobs, files.repository, '202', '1', 'trigger']).stdout.trim(), 'true');
     assert.equal(callContinuationValidation('authenticateRun', [triggerRun, files.workflow, recoveryJobs, files.repository, '202', '1']).stdout.trim(), 'false');
+    if (priorRecovery) {
+      for (const invalid of ['Checkout recovery verifier', 'Verify exact preparation run',
+        'Require successful automated and Computer Use acceptance', 'Verify public tag, assets, and manifest']) {
+        const rejectedJobs = { ...candidateJobs, jobs: [{ ...candidateJobs.jobs[0], steps: candidateJobs.jobs[0].steps
+          .map(step => step.name === invalid ? { ...step, conclusion: 'skipped' } : step) }] };
+        assert.equal(callContinuationValidation('authenticateRun', [candidateRun, files.workflow, rejectedJobs,
+          files.repository, '101', '1', 'candidate']).stdout.trim(), 'false', invalid);
+      }
+    }
     const bin = path.join(files.directory, 'bin');
     fs.mkdirSync(bin);
     fs.writeFileSync(path.join(bin, 'gh'), `#!${process.execPath}\nconst fs=require('node:fs'); const responses=JSON.parse(fs.readFileSync(process.env.TEST_API_FILE)); const response=responses[process.argv[3]]; if (!response) process.exit(91); console.log(JSON.stringify(response));\n`, { mode: 0o755 });

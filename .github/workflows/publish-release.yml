@@ -137,15 +137,21 @@ jobs:
           if (run.head_sha !== process.env.CANDIDATE_SHA) throw new Error(`Publication run SHA mismatch: ${run.head_sha}`);
           const job = jobs.find(entry => entry.name === 'Publish verified release');
           if (!job) throw new Error('Failed publication job is missing');
+          const priorRecovery = (job.steps || []).some(step => step.name === 'Checkout recovery verifier' && step.conclusion === 'success')
+            && (job.steps || []).some(step => step.name === 'Verify public tag, assets, and manifest' && step.conclusion === 'success');
           const requiredSteps = new Map([
             ['Verify exact preparation run', 'success'],
-            ['Require successful candidate push workflows', 'success'],
             ['Require successful automated and Computer Use acceptance', 'success'],
-            ['Publish the matching draft release', 'success'],
           ]);
           for (const [name, conclusion] of requiredSteps) {
             const step = (job.steps || []).find(entry => entry.name === name);
             if (step?.conclusion !== conclusion) throw new Error(`Publication step ${name} is ${step?.conclusion || 'missing'}, expected ${conclusion}`);
+          }
+          for (const name of ['Require successful candidate push workflows', 'Publish the matching draft release']) {
+            const step = (job.steps || []).find(entry => entry.name === name);
+            if (step?.conclusion !== 'success' && !(priorRecovery && step?.conclusion === 'skipped')) {
+              throw new Error(`Publication step ${name} lacks successful original or authenticated recovery evidence`);
+            }
           }
           const publicVerification = (job.steps || []).find(
             entry => entry.name === 'Verify public tag, assets, and manifest',
@@ -330,11 +336,11 @@ jobs:
           rm release-metadata-*.json
 
       - name: Require successful candidate push workflows
-        if: inputs.failed_publication_run_id == ''
         env:
           GH_TOKEN: ${{ github.token }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
         shell: bash
-        run: scripts/watch-candidate-workflows.sh "${GITHUB_SHA}" "${GITHUB_REPOSITORY}" 0 once
+        run: scripts/watch-candidate-workflows.sh "${CANDIDATE_SHA}" "${GITHUB_REPOSITORY}" 0 once
 
       - name: Upload candidate workflow failure evidence
         if: failure() && inputs.failed_publication_run_id == ''

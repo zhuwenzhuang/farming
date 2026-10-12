@@ -66,7 +66,7 @@ function run() {
   assert(publicationJob.includes('github-token: ${{ github.token }}'));
   assert(publicationJob.includes("workflow.path !== '.github/workflows/release.yml'"));
   assert(publicationJob.includes('run.head_sha !== process.env.CANDIDATE_SHA'));
-  assert(publicationJob.includes('scripts/watch-candidate-workflows.sh "${GITHUB_SHA}" "${GITHUB_REPOSITORY}" 0 once'));
+  assert(publicationJob.includes('scripts/watch-candidate-workflows.sh "${CANDIDATE_SHA}" "${GITHUB_REPOSITORY}" 0 once'));
   assert(!publicationJob.includes('for attempt in {1..120}'));
   assert(!publicationJob.includes('sleep 5'));
 
@@ -242,6 +242,8 @@ function run() {
   );
   assert(candidateWorkflowGate, 'release publication must require every workflow from the exact candidate push');
   assert.strictEqual(candidateWorkflowGate.env.GH_TOKEN, '${{ github.token }}');
+  assert.strictEqual(candidateWorkflowGate.if, undefined, 'recovery must recheck candidate workflows');
+  assert.strictEqual(candidateWorkflowGate.env.CANDIDATE_SHA, '${{ inputs.candidate_sha }}');
   for (const jobName of ['build-linux', 'build-macos-cli', 'prepare-npm']) {
     const job = preparationWorkflow.jobs[jobName];
     assert.deepStrictEqual(job.needs, ['preflight', 'build-agent-browser', 'build-macos-browser']);
@@ -425,14 +427,16 @@ function run() {
       assert.strictEqual(result.stdout.includes('upload-authorized'), mayUpload,
         'only a never-started main upload with no retained intent can mutate');
     }
-    for (const [runtimeResult, mainResult, expectedMainIntent] of [
+    for (const priorRecovery of [false, true]) for (const [runtimeResult, mainResult, expectedMainIntent] of [
       ['failure', 'skipped', '0'], ['success', 'failure', '1'], ['success', 'success', '1'],
     ]) {
-      const output = path.join(recoveryRoot, `${runtimeResult}-${mainResult}.env`);
+      const output = path.join(recoveryRoot, `${priorRecovery}-${runtimeResult}-${mainResult}.env`);
       const steps = [
         ...['Verify exact preparation run', 'Require successful candidate push workflows',
           'Require successful automated and Computer Use acceptance', 'Publish the matching draft release',
-          'Verify public tag, assets, and manifest'].map(name => ({ name, conclusion: 'success' })),
+          'Verify public tag, assets, and manifest'].map(name => ({ name, conclusion: priorRecovery
+            && ['Require successful candidate push workflows', 'Publish the matching draft release'].includes(name) ? 'skipped' : 'success' })),
+        { name: 'Checkout recovery verifier', conclusion: priorRecovery ? 'success' : 'skipped' },
         { name: 'Verify and publish npm runtime packages with provenance', conclusion: runtimeResult },
         { name: 'Verify and publish npm package with provenance', conclusion: mainResult },
         { name: 'Wait for npm package to become public', conclusion: mainResult === 'success' ? 'failure' : 'skipped' },
@@ -448,6 +452,20 @@ function run() {
       assert(flags.includes(`NPM_UPLOAD_MAY_HAVE_STARTED=${expectedMainIntent}\n`),
         'a carrier-only failure must not mark the main package as possibly uploaded');
       assert(flags.includes('NPM_PUBLICATION_EVIDENCE_REQUIRED=1\n'), 'both artifact types retain their own upload evidence');
+      if (priorRecovery && runtimeResult === 'failure') {
+        for (const invalid of ['sha', 'Checkout recovery verifier', 'Verify exact preparation run',
+          'Require successful automated and Computer Use acceptance', 'Verify public tag, assets, and manifest']) {
+          const rejected = spawnSync(process.execPath, ['-e', recoveryScript], { encoding: 'utf8', env: {
+            ...process.env, CANDIDATE_SHA: 'a'.repeat(40), GITHUB_ENV: output,
+            RUN_JSON: JSON.stringify({ event: 'workflow_dispatch', status: 'completed', conclusion: 'failure',
+              head_sha: (invalid === 'sha' ? 'b' : 'a').repeat(40), id: 123, run_attempt: 1 }),
+            JOBS_JSON: JSON.stringify({ jobs: [{ name: 'Publish verified release', steps: steps.map(step =>
+              step.name === invalid ? { ...step, conclusion: 'skipped' } : step) }] }),
+            WORKFLOW_JSON: JSON.stringify({ path: '.github/workflows/publish-release.yml' }),
+          } });
+          assert.notStrictEqual(rejected.status, 0, `unauthenticated recovery must reject ${invalid}`);
+        }
+      }
     }
   } finally { fs.rmSync(recoveryRoot, { recursive: true, force: true }); }
   for (const name of [
@@ -455,7 +473,6 @@ function run() {
     'Download Linux release assets',
     'Download macOS release assets',
     'Generate checksums and manifest',
-    'Require successful candidate push workflows',
     'Create or refresh draft release',
     'Publish the matching draft release',
   ]) {
