@@ -30,6 +30,7 @@ import {
   updateTerminalSessionContentFontSize,
 } from '@/lib/terminal-session-pool'
 import { appPath } from '@/lib/base-path'
+import { agentRowTitle } from '@/lib/format'
 import { getStartupSearch } from '@/lib/auth-url'
 import { runtimeBindingForMode } from '@/lib/agent-runtime'
 import { resolveMobileViewportGeometry } from '@/lib/mobile-viewport'
@@ -237,6 +238,10 @@ export function App() {
     message: string
   } | null>(null)
   const [inputStartError, setInputStartError] = useState('')
+  const [handoffSource, setHandoffSource] = useState<Agent | null>(null)
+  const handoffRequestsRef = useRef(new Map<string, string>())
+  const handoffBusyRef = useRef(false)
+  const [handoffBusy, setHandoffBusy] = useState(false)
   const [permissionSwitch, setPermissionSwitch] = useState<PermissionSwitchState | null>(null)
   const [externalAgentReplacement, setExternalAgentReplacement] = useState<AgentReplacementTransition | null>(null)
   const [usageSummary, setUsageSummary] = useState<UsageSummary | null>(null)
@@ -823,6 +828,7 @@ export function App() {
   }, [activeTerminalId, openTerminal, openTerminalIds])
 
   const openNewAgentDialog = useCallback((workspace?: string, command?: string, returnFocusTarget?: HTMLElement | null, customTitle?: string) => {
+    setHandoffSource(null)
     inputDialogFocusRestoreCleanupRef.current?.()
     const requestId = inputDialogOpenRequestRef.current + 1
     inputDialogOpenRequestRef.current = requestId
@@ -883,6 +889,57 @@ export function App() {
   const notifyError = useCallback((message: string) => {
     setAppNotice({ id: Date.now(), kind: 'error', message })
   }, [])
+
+  const openHandoffDialog = useCallback((agent: Agent) => {
+    openNewAgentDialog(agent.cwd)
+    setHandoffSource(agent)
+  }, [openNewAgentDialog])
+
+  const handleHandoffAgent = useCallback(async (command: string, _workspace: string, extras?: StartAgentExtras) => {
+    if (!handoffSource?.providerSessionKey || handoffBusyRef.current) return
+    const generation = inputDialogOpenRequestRef.current
+    const body = {
+      command,
+      providerHomeId: extras?.providerHomeId || 'default',
+      agentRuntimeMode: extras?.agentRuntimeMode || 'chat',
+      handoffSourceSessionKey: handoffSource.providerSessionKey,
+    }
+    const key = JSON.stringify(body)
+    const requestId = handoffRequestsRef.current.get(key) || crypto.randomUUID()
+    handoffRequestsRef.current.set(key, requestId)
+    handoffBusyRef.current = true
+    setHandoffBusy(true)
+    setInputStartError('')
+    try {
+      const response = await fetch(appPath('/api/control/agents'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...body, requestId }),
+        signal: AbortSignal.timeout(60_000),
+      })
+      const result = await response.json() as { agentId?: string; error?: string }
+      if (result.agentId) handoffRequestsRef.current.delete(key)
+      if (generation !== inputDialogOpenRequestRef.current) {
+        if (result.error) notifyError(result.error)
+        return
+      }
+      if (result.agentId) {
+        setDialog('none')
+        setHandoffSource(null)
+        requestTerminalOpen(result.agentId)
+        if (result.error) notifyError(result.error)
+      } else {
+        setInputStartError(result.error || copy.handoffFailed)
+      }
+    } catch (error) {
+      if (generation === inputDialogOpenRequestRef.current) {
+        setInputStartError(`${copy.handoffFailed}${error instanceof Error ? ` ${error.message}` : ''}`)
+      }
+    } finally {
+      handoffBusyRef.current = false
+      setHandoffBusy(false)
+    }
+  }, [copy.handoffFailed, handoffSource, notifyError, requestTerminalOpen])
 
   const handleInterruptAgent = useCallback((agentId: string) => {
     ws.interruptAgent(agentId)
@@ -1509,6 +1566,7 @@ export function App() {
         onActivateTerminal={activateTerminal}
         onCancelPendingTerminalOpen={cancelPendingTerminalOpen}
         onNewAgent={openNewAgentDialog}
+        onHandoffAgent={openHandoffDialog}
         onStartAgent={handleStartAgent}
         onRenameAgent={handleRenameAgent}
         onReorderAgent={(agentId, beforeAgentId, afterAgentId) => { void metadataMutations.mutate({ kind: 'reorder', agentId, beforeAgentId, afterAgentId }) }}
@@ -1537,9 +1595,12 @@ export function App() {
         initialCommand={inputInitialCommand}
         initialCustomTitle={inputInitialCustomTitle}
         showWorkflowTaskFields={false}
+        handoff={Boolean(handoffSource)}
+        handoffSourceName={handoffSource ? agentRowTitle(handoffSource) : undefined}
+        submitting={Boolean(handoffSource) && handoffBusy}
         startError={inputStartError}
         copy={copy}
-        onStart={handleStartAgent}
+        onStart={handoffSource ? handleHandoffAgent : handleStartAgent}
         onClose={closeInputDialog}
       />
 

@@ -1,4 +1,5 @@
 import { normalizeAcpPeerMessage, type AcpPeerMessage } from '../../../../shared/acp-peer-message'
+import { normalizeAgentHandoffContext, type AgentHandoffContext } from '../../../../shared/agent-handoff-context'
 import { normalizeAgentGoal, type AgentGoal } from '../../../../shared/agent-goal'
 import { createTwoFilesPatch, diffLines } from 'diff'
 import type { AcpTerminalDisplay } from './types'
@@ -114,6 +115,7 @@ export interface AgentTranscriptTurn {
   id: string
   userMessage: string
   userSource?: AcpPeerMessage
+  handoffContext?: AgentHandoffContext
   userImages?: AgentTranscriptUserImage[]
   userFiles?: AgentTranscriptUserFile[]
   userAudios?: AgentTranscriptAudio[]
@@ -843,6 +845,7 @@ export function projectAcpTranscript(sessionValue: unknown, options: { maxTurns?
       current.durationMs = Number.isFinite(Number(entry.turnDurationMs)) ? Number(entry.turnDurationMs) : null
       if (!entry.internal) {
         current.userSource = normalizeAcpPeerMessage(record(entry._meta).peerMessage) || undefined
+        current.handoffContext = normalizeAgentHandoffContext(record(entry._meta).farmingHandoff) || undefined
         current.userMessage = contentText(entry.content)
         current.userImages = contentImages(entry.content, entryId)
         current.userAudios = contentAudios(entry.content, entryId)

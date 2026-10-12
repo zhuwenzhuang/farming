@@ -111,6 +111,7 @@ interface CodeOverlaysProps {
   onRenameProject: () => void
   onCopyAgentWorkingDirectory: () => void
   onForkAgent: (mode: 'same-worktree' | 'new-worktree') => void
+  onHandoffAgent: () => void
   onOpenSession: (provider: string, sessionId: string) => void
   onToggleSessionPinned: () => void
   onArchiveSession: () => void
@@ -173,6 +174,7 @@ export function CodeOverlays({
   onRenameProject,
   onCopyAgentWorkingDirectory,
   onForkAgent,
+  onHandoffAgent,
   onOpenSession,
   onToggleSessionPinned,
   onArchiveSession,
@@ -339,6 +341,17 @@ export function CodeOverlays({
       icon: 'fork-plus',
       hidden: !agentMenuAvailabilityState.forkNewWorktree,
       onSelect: () => onForkAgent('new-worktree'),
+    },
+    {
+      type: 'item',
+      id: 'handoff-agent',
+      label: copy.handoffAgent,
+      icon: 'fork',
+      hidden: !agentMenuAvailabilityState.handoff,
+      disabled: !contextMenuAgent?.providerSessionKey || contextMenuAgent.providerSessionTemporary === true || !contextMenuAgent.providerHomePath,
+      title: !contextMenuAgent?.providerSessionKey || contextMenuAgent.providerSessionTemporary === true || !contextMenuAgent.providerHomePath
+        ? copy.handoffSourceUnavailable : copy.handoffDescription,
+      onSelect: onHandoffAgent,
     },
     { type: 'separator', id: 'agent-runtime-separator' },
     {

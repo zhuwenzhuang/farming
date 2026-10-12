@@ -1084,7 +1084,9 @@ export function AgentTranscriptSubagentPreview({
     <div className="code-agent-transcript-subagent-entries">
       {transcript.turns.map((turn, index) => (
         <div className={`code-agent-transcript-subagent-turn ${continuesPeerMessageGroup(turn, transcript.turns[index + 1]) ? 'peer-group-open' : ''} ${continuesPeerMessageGroup(transcript.turns[index - 1], turn) ? 'peer-group-continuation' : ''}`} key={turn.id}>
-          {turn.userSource || turn.userMessage ? <AgentTranscriptIncomingMessage turn={turn} continued={continuesPeerMessageGroup(transcript.turns[index - 1], turn)} hasNext={continuesPeerMessageGroup(turn, transcript.turns[index + 1])}><div className="user">{turn.userSource?.bodyUnavailable ? copy.agentTranscriptPeerBodyUnavailable : plainTextBlock(turn.userMessage)}</div></AgentTranscriptIncomingMessage> : null}
+          {turn.handoffContext ? <div className="code-agent-transcript-context-origin" role="note">
+            <AgentTranscriptUserMessage turn={turn} copy={copy} />
+          </div> : turn.userSource || turn.userMessage ? <AgentTranscriptIncomingMessage turn={turn} continued={continuesPeerMessageGroup(transcript.turns[index - 1], turn)} hasNext={continuesPeerMessageGroup(turn, transcript.turns[index + 1])}><div className="user">{turn.userSource?.bodyUnavailable ? copy.agentTranscriptPeerBodyUnavailable : <AgentTranscriptUserMessage turn={turn} copy={copy} />}</div></AgentTranscriptIncomingMessage> : null}
           {turn.processItems.length > 0 ? (
             <div className="actions">{turn.processItems.map(item => <AgentTranscriptSubagentAction item={item} key={item.id} />)}</div>
           ) : null}
@@ -1453,6 +1455,14 @@ function AgentTranscriptCommunicationRecipient({ peer, fallback, directed, copy 
   const currentPeer = useAgentWithLiveState(peer)
   const name = currentPeer ? agentRowTitle(currentPeer) : fallback
   return directed ? copy.agentTranscriptCollaborationRecipient(name) : name
+}
+
+function AgentTranscriptUserMessage({ turn, copy }: { turn: AgentTranscriptTurn; copy: CodeCopy }) {
+  if (!turn.handoffContext) return <>{plainTextBlock(turn.userMessage)}</>
+  return <details className="code-agent-transcript-context" data-testid="code-agent-handoff-context">
+    <summary><span>{copy.handoffContext}</span><ChevronRightGlyph /></summary>
+    <div className="detail">{plainTextBlock(turn.userMessage)}</div>
+  </details>
 }
 
 function AgentTranscriptIncomingMessage({ turn, continued = false, hasNext = false, children }: {
@@ -2815,11 +2825,13 @@ function AgentTranscriptTurnView({
 
   return (
     <article ref={turnRef} className={`code-agent-transcript-turn ${turn.status === 'inProgress' ? 'running' : ''} ${peerHasNext ? 'peer-group-open' : ''}`} data-turn-id={turn.id}>
-      {turn.userSource || turn.userMessage || userImages.length > 0 || userAudios.length > 0 || userFiles.length > 0 ? (
+      {turn.handoffContext ? <div className="code-agent-transcript-context-origin" role="note">
+        <AgentTranscriptUserMessage turn={turn} copy={copy} />
+      </div> : turn.userSource || turn.userMessage || userImages.length > 0 || userAudios.length > 0 || userFiles.length > 0 ? (
         <AgentTranscriptIncomingMessage turn={turn} continued={peerContinued} hasNext={peerHasNext}>
           <div className="code-agent-transcript-user">
             {turn.userSource?.bodyUnavailable ? <div className="code-agent-transcript-message-unavailable">{copy.agentTranscriptPeerBodyUnavailable}</div> : null}
-            {turn.userMessage ? <div>{plainTextBlock(turn.userMessage)}</div> : null}
+            {turn.userMessage ? <div><AgentTranscriptUserMessage turn={turn} copy={copy} /></div> : null}
             <AgentTranscriptUserImages images={userImages} />
             <AgentTranscriptAudios audios={userAudios} />
             <AgentTranscriptUserFiles files={userFiles} />
@@ -3146,6 +3158,7 @@ function transcriptTurnResetKey(turn: AgentTranscriptTurn) {
     turn.status,
     String(turn.userMessage.length),
     JSON.stringify(turn.userSource),
+    JSON.stringify(turn.handoffContext),
     String(turn.finalMessage.length),
     JSON.stringify(turn.completedGoals),
     String(turn.completedAt || ''),

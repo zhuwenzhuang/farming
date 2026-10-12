@@ -1,4 +1,5 @@
 import { COMPOSER_ADMISSION_TIMEOUT_MS } from '../shared/chat-capacity.js';
+import { normalizeAgentHandoffContext } from '../shared/agent-handoff-context.js';
 import type { ComposerSubmissionPhase } from '../shared/composer-submission.js';
 import { EventEmitter } from 'events';
 import { mergeNativeSubagentAssociation, nativeSessionId, normalizeNativeSubagentNotification } from './acp-native-subagents.cjs';
@@ -3472,7 +3473,16 @@ class AcpRuntime extends EventEmitter {
       }
       throw error;
     }
-    this.requireSessionState(binding).beginPrompt(content);
+    const handoffContext = content.length === 1
+      ? normalizeAgentHandoffContext(recordValue(content[0]._meta).farmingHandoff)
+      : null;
+    if (handoffContext) {
+      const metadata = { ...recordValue(content[0]._meta) };
+      delete metadata.farmingHandoff;
+      if (Object.keys(metadata).length) content[0]._meta = metadata;
+      else delete content[0]._meta;
+    }
+    this.requireSessionState(binding).beginPrompt(content, handoffContext);
     turn.phase = 'running';
     binding.chatTurn = {
       turnId: `${binding.capabilityRuntimeEpoch}:${turn.id}`,

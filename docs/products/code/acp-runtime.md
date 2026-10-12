@@ -485,6 +485,68 @@ not define the user's preferred response language, and punctuation-only or
 otherwise language-neutral input must not derive a language from bootstrap,
 UI locale, Agent identity, workspace metadata, or hidden operational context.
 
+## Handoff To A New Agent
+
+Code's Agent row menu offers **Hand off to new Agent** for a confirmed coding
+conversation. The user chooses a coding provider and Agent Home through the
+shared New Agent dialog; Shell is not a source or destination. The backend
+resolves the source's exact Provider/Home/Session identity and working directory.
+The destination is an independent conversation in that directory, using its own
+Home's configuration. The source remains available and is not stopped, archived,
+or relabelled. This action does not migrate native provider state.
+
+The first prompt asks the destination to locate and read the source's native
+conversation records, use read-only workspace inspection when needed, briefly
+state its understanding, and wait for the user. It preserves the user's stated
+language preference or primary conversation language, independently of UI locale.
+It must read before sending a reply or progress message so an English handoff
+prompt does not introduce an English preamble into another-language conversation.
+It assumes no reason for the handoff. Source records are background, not an
+instruction to continue execution. Unreadable records must be reported rather
+than replaced with guessed context. These are prompt instructions, not a new
+filesystem permission mode. The reference identifies native history, not an
+immutable snapshot; it can reflect subsequent source work and does not promise
+complete model context, attachments, or provider-internal state.
+
+The shared picker names the source using the same title rules as Agent rows.
+It keeps the ordinary Create header and fields, with source and read-first guidance
+as secondary body text. The inherited workspace is read-only and selectable,
+without a directory-picker action. Chat places handoff provenance outside the
+user-message bubble as a compact transcript disclosure. Its expansion affordance
+stays visible because the collapsed provenance line has no other content to
+distinguish it from a static status label.
+Its category and runtime labels follow the UI language in both ordinary Create
+and Handoff. Chat displays the initial prompt as a collapsed **Handoff context**
+disclosure. A backend-owned, versioned presentation marker is saved in the
+transcript checkpoint; it is removed from provider prompt content. The marker
+does not change access, session ownership, or the prompt text. Click or keyboard
+activation expands the complete prompt and source reference, and toggles it
+closed again without sending input. Ordinary messages and history without a valid
+marker remain fully visible. A newly mounted view defaults to collapsed; runtime
+updates do not reset the current disclosure. Terminal retains its native display.
+
+The backend owns admission: validate the confirmed source and supported target,
+then use the existing identified Create operation and initial-input delivery.
+Concurrent identical requests join and completed requests return their recorded
+outcome. A changed request cannot reuse its identity. Creation or prompt-delivery
+failure is visible, including the created Agent when available. Uncertain input
+is never replayed, including after restart. Closing the picker before submission
+has no effect; closing it after submission does not cancel admitted creation.
+Chat creation returns once the reading prompt is admitted, so the destination
+can display permission requests without keeping the picker open for the whole
+turn. The destination's first turn is ordinary provider work, with existing bounded
+startup, delivery, cancellation, and recovery semantics.
+
+Acceptance covers cross-provider and cross-Home creation, Shell rejection,
+unconfirmed/missing sources, preserved workspace and language-neutral prompting,
+duplicate delivery and restart outcomes, and the shared picker and menu in Light,
+Dark, and Paper.
+An explicitly opted-in real-provider smoke must also prove native-history access
+using a conversation-only marker, preserve the user's language despite a different
+UI language, and end with an understanding statement that waits for instructions.
+Use isolated Homes and a sentinel workspace to verify that pending work is not
+executed; remove test Agents and temporary authentication copies after the run.
+
 ## Session Identity And Configuration
 
 The stable identity of an ACP conversation combines Provider, canonical Agent

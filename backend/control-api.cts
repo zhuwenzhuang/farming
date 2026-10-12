@@ -1,4 +1,5 @@
 import { terminalInputReady } from './terminal-status.cjs';
+import { prepareAgentHandoff } from './agent-handoff.cjs';
 import type { LifecycleOperationResult } from './agent-manager-lifecycle-types.js';
 
 const express = require('express');
@@ -172,7 +173,7 @@ interface AgentManager {
   ): Promise<KillRequest>;
   sendComposerMessage(
     agentId: string,
-    input: string,
+    input: string | Array<{ type: string; text: string; _meta?: Record<string, unknown> }>,
     options?: ComposerMessageOptions,
   ): Promise<unknown> | unknown;
   sendInput(
@@ -391,9 +392,9 @@ function createControlRouter(
   router.post('/agents', (req, res) => {
     const body = req.body || {};
     const command = typeof body.command === 'string' ? body.command.trim() : '';
-    const workspace = typeof body.workspace === 'string' ? body.workspace : null;
+    let workspace = typeof body.workspace === 'string' ? body.workspace : null;
     const task = typeof body.task === 'string' ? body.task.trim() : '';
-    const initialInput = typeof body.initialInput === 'string' ? body.initialInput : task;
+    let initialInput = typeof body.initialInput === 'string' ? body.initialInput : task;
     const createRequestId = typeof body.requestId === 'string' && body.requestId.trim()
       ? body.requestId
       : req.get('Idempotency-Key') || '';
@@ -418,6 +419,26 @@ function createControlRouter(
         res.status(outcome.status).json(outcome.body);
       });
       return;
+    }
+
+    let handoff: ReturnType<typeof prepareAgentHandoff> | undefined;
+    if (body.handoffSourceSessionKey !== undefined) {
+      if (!/^[A-Za-z0-9._:-]{1,160}$/.test(createRequestId) || typeof body.handoffSourceSessionKey !== 'string'
+        || body.initialInput !== undefined || task) {
+        res.status(400).json({ error: 'Handoff requires a requestId and source session key, without an initial task' });
+        return;
+      }
+      try {
+        const source = agentManager.getState().agents.find(agent => (
+          agent.providerSessionKey === body.handoffSourceSessionKey
+        ));
+        handoff = prepareAgentHandoff(source, command);
+        workspace = handoff.workspace;
+        initialInput = handoff.initialInput;
+      } catch (error) {
+        res.status(400).json({ error: errorMessage(error, 'Handoff source is unavailable') });
+        return;
+      }
     }
 
     agentManager.startAgent(command, workspace, (agentId, error, metadata = {}) => {
@@ -500,7 +521,11 @@ function createControlRouter(
         });
         const structuredRuntime = runtimeKind(started) !== 'terminal';
         if (structuredRuntime) {
-          await agentManager.sendComposerMessage(agentId, initialInput);
+          const message = handoff ? [{ type: 'text', text: initialInput, _meta: { farmingHandoff: handoff.context } }] : initialInput;
+          await agentManager.sendComposerMessage(agentId, message, handoff ? {
+            requestId: createRequestId,
+            delivery: 'prompt',
+          } : undefined);
           notifyUpdate();
           return {
             status: 201,
@@ -598,7 +623,9 @@ function createControlRouter(
       });
     }, {
       wantsMain: false,
-      parentAgentId: typeof body.parentAgentId === 'string' ? body.parentAgentId : '',
+      parentAgentId: handoff?.parentAgentId || (typeof body.parentAgentId === 'string' ? body.parentAgentId : ''),
+      ...(handoff ? { projectWorkspace: handoff.projectWorkspace } : {}),
+      ...(typeof body.providerHomeId === 'string' ? { providerHomeId: body.providerHomeId } : {}),
       task,
       source: body.source === 'deployment-smoke' ? 'deployment-smoke' : 'control-cli',
       createRequestId,

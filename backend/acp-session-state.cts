@@ -1,5 +1,6 @@
 import { normalizeAgentGoal, sameAgentGoal, type AgentGoal } from '../shared/agent-goal.js';
 import { normalizeAcpPeerMessage } from '../shared/acp-peer-message.js';
+import type { AgentHandoffContext } from '../shared/agent-handoff-context.js';
 const MAX_ACP_UPDATES = 2_000;
 const MAX_ACP_UPDATE_LOG_VALUE_CHARS = 32 * 1024;
 const MAX_CODEX_SUBAGENTS = 128;
@@ -581,7 +582,7 @@ class AcpSessionState {
     return true;
   }
 
-  beginPrompt(prompt: unknown): AcpEntry {
+  beginPrompt(prompt: unknown, handoffContext: AgentHandoffContext | null = null): AcpEntry {
     const content = Array.isArray(prompt)
       ? clone(prompt)
       : [{ type: 'text', text: String(prompt || '') }];
@@ -596,6 +597,7 @@ class AcpSessionState {
       messageId: '',
       optimistic: true,
       content,
+      ...(handoffContext ? { _meta: { farmingHandoff: handoffContext } } : {}),
       turnStartedAt: startedAt,
       turnCompletedAt: null,
       turnDurationMs: null,

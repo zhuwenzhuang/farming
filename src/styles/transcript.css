@@ -1588,13 +1588,13 @@ button.code-agent-transcript-message-source:hover {
   white-space: nowrap;
 }
 
-.code-agent-transcript-subagent-action {
+:is(.code-agent-transcript-subagent-action, .code-agent-transcript-context) {
   min-width: 0;
   border-radius: 5px;
 }
 
-.code-agent-transcript-subagent-action > summary,
-.code-agent-transcript-subagent-action.static {
+:is(.code-agent-transcript-subagent-action, .code-agent-transcript-context) > summary,
+:is(.code-agent-transcript-subagent-action, .code-agent-transcript-context).static {
   display: flex;
   min-width: 0;
   align-items: center;
@@ -1603,21 +1603,39 @@ button.code-agent-transcript-message-source:hover {
   list-style: none;
 }
 
-.code-agent-transcript-subagent-action > summary {
+:is(.code-agent-transcript-subagent-action, .code-agent-transcript-context) > summary {
   cursor: pointer;
+  border-radius: inherit;
 }
 
-.code-agent-transcript-subagent-action > summary::-webkit-details-marker {
+.code-agent-transcript-context-origin {
+  margin-bottom: 20px;
+  color: var(--code-text-subtle);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.code-agent-transcript-context > summary {
+  width: fit-content;
+  max-width: 100%;
+}
+
+.code-agent-transcript-context > .detail {
+  max-width: 720px;
+  white-space: pre-wrap;
+}
+
+:is(.code-agent-transcript-subagent-action, .code-agent-transcript-context) > summary::-webkit-details-marker {
   display: none;
 }
 
-.code-agent-transcript-subagent-action > summary:hover,
-.code-agent-transcript-subagent-action > summary:focus-visible {
+:is(.code-agent-transcript-subagent-action, .code-agent-transcript-context) > summary:hover,
+:is(.code-agent-transcript-subagent-action, .code-agent-transcript-context) > summary:focus-visible {
   background: var(--code-bg-hover);
 }
 
-.code-agent-transcript-subagent-action > summary > span,
-.code-agent-transcript-subagent-action.static > span {
+:is(.code-agent-transcript-subagent-action, .code-agent-transcript-context) > summary > span,
+:is(.code-agent-transcript-subagent-action, .code-agent-transcript-context).static > span {
   min-width: 0;
   flex: 1;
   overflow: hidden;
@@ -1625,35 +1643,35 @@ button.code-agent-transcript-message-source:hover {
   white-space: nowrap;
 }
 
-.code-agent-transcript-subagent-action > summary svg {
+:is(.code-agent-transcript-subagent-action, .code-agent-transcript-context) > summary svg {
   width: 12px;
   height: 12px;
   transition: transform 140ms ease;
 }
 
-.code-agent-transcript-subagent-action[open] > summary svg {
+:is(.code-agent-transcript-subagent-action, .code-agent-transcript-context)[open] > summary svg {
   transform: rotate(90deg);
 }
 
-.code-agent-transcript-subagent-action .detail,
-.code-agent-transcript-subagent-action .changes {
+:is(.code-agent-transcript-subagent-action, .code-agent-transcript-context) .detail,
+:is(.code-agent-transcript-subagent-action, .code-agent-transcript-context) .changes {
   padding: 4px 7px 6px 15px;
   color: var(--code-text-muted);
   overflow-wrap: anywhere;
 }
 
-.code-agent-transcript-subagent-action .changes {
+:is(.code-agent-transcript-subagent-action, .code-agent-transcript-context) .changes {
   display: grid;
   gap: 2px;
 }
 
-.code-agent-transcript-subagent-action .changes > div {
+:is(.code-agent-transcript-subagent-action, .code-agent-transcript-context) .changes > div {
   display: flex;
   min-width: 0;
   gap: 8px;
 }
 
-.code-agent-transcript-subagent-action .changes span {
+:is(.code-agent-transcript-subagent-action, .code-agent-transcript-context) .changes span {
   min-width: 0;
   flex: 1;
   overflow: hidden;
@@ -2346,7 +2364,7 @@ button.code-agent-transcript-result-summary:focus-visible {
 .code-agent-transcript-plan-driver-summary:is(:hover, :focus-visible) .code-agent-transcript-plan-driver-chevron,
 button.code-agent-transcript-result-summary:is(:hover, :focus-visible) .code-agent-transcript-result-chevron,
 .code-agent-transcript-result-file > summary:is(:hover, :focus-visible) .code-agent-transcript-result-file-chevron,
-.code-agent-transcript-subagent-action > summary:is(:hover, :focus-visible) svg {
+:is(.code-agent-transcript-subagent-action, .code-agent-transcript-context) > summary:is(:hover, :focus-visible) svg {
   opacity: 0.9;
 }
 

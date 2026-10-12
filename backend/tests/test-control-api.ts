@@ -98,6 +98,7 @@ async function run() {
         terminalInputReceived: false,
         terminalStatus: { kind: 'codex', activity: 'unknown', source: 'terminal-text' },
         agentRuntimeMode: options.agentRuntimeMode,
+        runtimeBinding: { kind: options.agentRuntimeMode === 'chat' || options.agentRuntimeMode === 'acp' ? 'acp' : 'terminal' },
       });
       callback(id);
     },
@@ -109,6 +110,10 @@ async function run() {
       const agent = agents.get(agentId);
       if (agent && /[\r\n]/.test(String(input))) agent.terminalInputReceived = true;
       return { sent: true };
+    },
+    async sendComposerMessage(agentId, input, options) {
+      calls.push({ type: 'sendComposerMessage', agentId, input, options });
+      return { accepted: true };
     },
     async clearAgentSessionBuffer(agentId, options) {
       calls.push({ type: 'clearAgentSessionBuffer', agentId, options });
@@ -419,6 +424,79 @@ async function run() {
 
     assert.strictEqual(mountedProjects.has('/retained-project/subdirectory'), false, 'mount the authoritative Project boundary');
     startedProjectWorkspace = '';
+    const sourceSessionKey = 'agent-session:codex:~2~work~source-session';
+    agents.set('handoff-source', {
+      id: 'handoff-source', command: 'codex', cwd: '/source/repo/subdir',
+      projectWorkspace: '/source/repo', providerSessionKey: sourceSessionKey,
+      providerHomePath: '/homes/work', providerSessionTemporary: false,
+    });
+    const handoffRequest = {
+      method: 'POST', body: JSON.stringify({
+        command: 'claude', workspace: '/ignored', providerHomeId: 'personal',
+        agentRuntimeMode: 'chat', handoffSourceSessionKey: sourceSessionKey,
+        requestId: 'handoff-test',
+      }),
+    };
+    const handoffResponses = await Promise.all([
+      fetchJson(baseUrl, '/api/control/agents', handoffRequest),
+      fetchJson(baseUrl, '/api/control/agents', handoffRequest),
+    ]);
+    assert(handoffResponses.every(result => result.response.status === 201), JSON.stringify(handoffResponses.map(result => result.body)));
+    assert.strictEqual(handoffResponses[0].body.agentId, handoffResponses[1].body.agentId);
+    const handoffStart = calls.findLast(call => call.type === 'startAgent');
+    assert.strictEqual(handoffStart.command, 'claude');
+    assert.strictEqual(handoffStart.workspace, '/source/repo/subdir');
+    assert.strictEqual(handoffStart.options.providerHomeId, 'personal');
+    assert.strictEqual(handoffStart.options.projectWorkspace, '/source/repo');
+    assert.strictEqual(handoffStart.options.parentAgentId, 'handoff-source');
+    const handoffInputs = calls.filter(call => call.type === 'sendComposerMessage');
+    assert.strictEqual(handoffInputs.length, 1, 'concurrent handoff must send the reading prompt once');
+    assert.deepStrictEqual(handoffInputs[0].options, { requestId: 'handoff-test', delivery: 'prompt' });
+    const handoffContent = handoffInputs[0].input[0];
+    assert.deepStrictEqual(handoffContent._meta.farmingHandoff, { version: 1, sourceSessionKey });
+    assert.match(handoffContent.text, /primary language/);
+    assert.match(handoffContent.text, /wait for the user/);
+    assert.match(handoffContent.text, /read-only/);
+    assert.match(handoffContent.text, /source-session/);
+    assert.doesNotMatch(handoffContent.text, /quota|token|exhaust/i);
+    await fetchJson(baseUrl, '/api/control/agents', handoffRequest);
+    assert.strictEqual(calls.filter(call => call.type === 'sendComposerMessage').length, 1);
+    const terminalHandoffId = `agent-${nextAgent + 1}`;
+    const terminalHandoffRequest = {
+      method: 'POST', body: JSON.stringify({
+        ...JSON.parse(handoffRequest.body), command: 'codex', agentRuntimeMode: 'terminal', requestId: 'terminal-handoff',
+      }),
+    };
+    const terminalHandoffPromise = fetchJson(baseUrl, '/api/control/agents', terminalHandoffRequest);
+    const terminalHandoffAgent = await waitForValue(() => agents.get(terminalHandoffId));
+    assert(!calls.some(call => call.type === 'sendInput' && call.agentId === terminalHandoffId));
+    terminalHandoffAgent.previewText = '› Ask Codex\n\ngpt-5.6-sol xhigh · /source/repo/subdir';
+    terminalHandoffAgent.terminalStatus = { kind: 'codex', activity: 'idle', source: 'terminal-text' };
+    terminalHandoffAgent.stateRevision = 1;
+    events.emit('update');
+    const terminalHandoff = await terminalHandoffPromise;
+    assert.strictEqual(terminalHandoff.response.status, 201);
+    assert.strictEqual(terminalHandoff.body.inputMode, 'terminal');
+    await fetchJson(baseUrl, '/api/control/agents', terminalHandoffRequest);
+    const terminalHandoffInputs = calls.filter(call => call.type === 'sendInput' && call.agentId === terminalHandoffId);
+    assert.strictEqual(terminalHandoffInputs.length, 1);
+    assert.match(terminalHandoffInputs[0].input, /wait for the user/);
+    const startsBeforeRejectedHandoff = calls.filter(call => call.type === 'startAgent').length;
+    for (const patch of [
+      { command: 'bash' }, { handoffSourceSessionKey: 'missing' }, { initialInput: 'execute now' },
+    ]) {
+      const rejected = await fetchJson(baseUrl, '/api/control/agents', {
+        method: 'POST', body: JSON.stringify({ ...JSON.parse(handoffRequest.body), requestId: 'invalid-handoff', ...patch }),
+      });
+      assert.strictEqual(rejected.response.status, 400);
+    }
+    assert.strictEqual(calls.filter(call => call.type === 'startAgent').length, startsBeforeRejectedHandoff);
+    agents.get('handoff-source').providerSessionTemporary = true;
+    const unconfirmed = await fetchJson(baseUrl, '/api/control/agents', {
+      method: 'POST', body: JSON.stringify({ ...JSON.parse(handoffRequest.body), requestId: 'unconfirmed-handoff' }),
+    });
+    assert.strictEqual(unconfirmed.response.status, 400);
+    agents.delete('handoff-source');
     projectMountFailure = 'Project membership disk failure';
     const mountsBeforeSmoke = mountAttempts.length;
     const smoke = await fetchJson(baseUrl, '/api/control/agents', {

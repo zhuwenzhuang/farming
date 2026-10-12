@@ -405,6 +405,7 @@ interface CodeWorkspaceProps {
   onCancelPendingTerminalOpen: () => void
   onActivateTerminal: (agentId: string, options?: { focusTerminal?: boolean }) => void
   onNewAgent: (workspace?: string, command?: string, returnFocusTarget?: HTMLElement | null, customTitle?: string) => void
+  onHandoffAgent: (agent: Agent) => void
   onStartAgent: (command: string, workspace: string, options?: { projectWorkspace?: string; codexApprovalMode?: string; agentRuntimeMode?: 'terminal' | 'chat' | 'acp'; dangerouslySkipPermissions?: boolean; providerHomeId?: string; additionalDirectories?: string[]; mcpServers?: Array<Record<string, unknown>> }) => void
   onRenameAgent: (agentId: string, title: string) => void
   onReorderAgent: (agentId: string, beforeAgentId: string, afterAgentId: string) => void
@@ -594,6 +595,7 @@ export function CodeWorkspace({
   onActivateTerminal,
   onCancelPendingTerminalOpen,
   onNewAgent: requestNewAgent,
+  onHandoffAgent,
   onStartAgent,
   onRenameAgent,
   onReorderAgent,
@@ -6563,6 +6565,12 @@ export function CodeWorkspace({
           copyContextMenuValue(projectWorkspaceForAgent(contextMenuAgent), { kind: 'agent', id: contextMenuAgent.id })
         }}
         onForkAgent={forkContextMenuAgent}
+        onHandoffAgent={() => {
+          if (!contextMenuAgent) return
+          const source = contextMenuAgent
+          closeContextMenu()
+          onHandoffAgent(source)
+        }}
         onOpenSession={(provider, sessionId) => {
           closeContextMenu()
           resumeAgentSession(provider, sessionId, contextMenuAgentSession?.providerHomeId)

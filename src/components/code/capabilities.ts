@@ -51,6 +51,7 @@ export interface AgentMenuEnvironment {
 }
 
 export interface AgentMenuAvailability {
+  handoff: boolean
   archive: boolean
   copyWorkingDirectory: boolean
   createBrowser: boolean
@@ -391,6 +392,7 @@ export function agentMenuAvailability(
   const capabilities = capabilitiesForAgent(agent)
   return {
     ...capabilities.actions,
+    handoff: Boolean(agent?.providerSessionProvider),
     createBrowser: environment.canCreateBrowser === true,
     createDesktop: environment.canCreateDesktop === true,
     switchRuntime: supportsAgentRuntimeSwitch(agent),
@@ -406,7 +408,7 @@ export function agentMenuShape(
     [availability.createDesktop],
     [availability.pin, availability.rename, availability.archive, availability.markUnread, Boolean(agent)],
     [availability.copyWorkingDirectory],
-    [availability.forkSameWorktree, availability.forkNewWorktree],
+    [availability.forkSameWorktree, availability.forkNewWorktree, availability.handoff],
     [availability.switchRuntime, availability.createBrowser],
   ]
   const visibleGroupCounts = groups

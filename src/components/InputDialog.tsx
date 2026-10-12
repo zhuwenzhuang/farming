@@ -92,6 +92,9 @@ interface InputDialogProps {
   initialCommand?: string
   initialCustomTitle?: string
   showWorkflowTaskFields?: boolean
+  handoff?: boolean
+  handoffSourceName?: string
+  submitting?: boolean
   startError?: string
   copy: CodeCopy
   onStart: (command: string, workspace: string, options?: StartAgentOptions) => void
@@ -141,6 +144,9 @@ export function InputDialog({
   initialCommand,
   initialCustomTitle,
   showWorkflowTaskFields = true,
+  handoff = false,
+  handoffSourceName,
+  submitting = false,
   startError = '',
   copy,
   onStart,
@@ -186,8 +192,8 @@ export function InputDialog({
   const startClickLockedRef = useRef(false)
   const startClickUnlockTimerRef = useRef<number | null>(null)
   const workspaceOptions = useMemo(
-    () => mustStartMain ? [] : buildWorkspaceOptions(workspaceHistory, discoveredWorkspaces),
-    [workspaceHistory, discoveredWorkspaces, mustStartMain]
+    () => mustStartMain || handoff ? [] : buildWorkspaceOptions(workspaceHistory, discoveredWorkspaces),
+    [workspaceHistory, discoveredWorkspaces, mustStartMain, handoff]
   )
   const resumableMainAgentSession = useMemo(() => {
     if (!mainAgentResumeSession) return null
@@ -240,7 +246,7 @@ export function InputDialog({
       .then((data: { agents: CliAgent[] } | CliAgent[]) => {
         if (cancelled) return
         const nextAgents = Array.isArray(data) ? data : data.agents ?? []
-        const normalizedAgents = normalizeAgentLaunchOptions(nextAgents).map(agent => ({
+        const normalizedAgents = normalizeAgentLaunchOptions(nextAgents).filter(agent => !handoff || agent.category === 'coding').map(agent => ({
           ...agent,
           description: agent.description ?? '',
           category: agent.category ?? 'coding',
@@ -306,7 +312,7 @@ export function InputDialog({
     return () => {
       cancelled = true
     }
-  }, [open, mustStartMain, initialWorkspace, initialCommand])
+  }, [open, mustStartMain, initialWorkspace, initialCommand, handoff])
 
   useEffect(() => {
     if (!open || !mustStartMain) return
@@ -625,14 +631,14 @@ export function InputDialog({
   ])
 
   const confirm = useCallback(async () => {
-    if (!selectedAgent) return
+    if (!selectedAgent || submitting) return
 
     const currentWorkspace = normalizeWorkspaceValue(inputRef.current?.value ?? workspace)
     const resolvedWorkspace = resolveWorkspaceToStart(currentWorkspace, mustStartMain, mainWorkspaceDefault)
     if (!resolvedWorkspace) return
     if (!lockStartClick()) return
 
-    if (mustStartMain) {
+    if (mustStartMain || handoff) {
       await startPreparedAgent(resolvedWorkspace)
       return
     }
@@ -658,6 +664,8 @@ export function InputDialog({
     mainWorkspaceDefault,
     lockStartClick,
     startPreparedAgent,
+    handoff,
+    submitting,
   ])
 
   const createWorkspaceAndStart = useCallback(async () => {
@@ -898,7 +906,7 @@ export function InputDialog({
         <div className="dialog-header fx-crt-panel-compact">
           <div className="dialog-header-copy">
             <h3 id="input-dialog-title" className="dialog-header-title">
-              {mustStartMain ? copy.startMainAgent : copy.startNewAgent}
+              {handoff ? copy.handoffAgent : mustStartMain ? copy.startMainAgent : copy.startNewAgent}
             </h3>
           </div>
           {!mustStartMain && (
@@ -913,6 +921,13 @@ export function InputDialog({
             </button>
           )}
         </div>
+
+        {handoff && (
+          <div className="dialog-context" role="note">
+            {handoffSourceName && <p data-testid="handoff-source-name">{copy.handoffFrom(handoffSourceName)}</p>}
+            <p>{copy.handoffReadFirst}</p>
+          </div>
+        )}
 
         {workspaceDirectoryBrowserOpen && (
           <WorkspaceDirectoryBrowser
@@ -1031,6 +1046,7 @@ export function InputDialog({
                   aria-label={`${agentDisplayName(selectedAgent.name)} home`}
                   aria-expanded={homeMenuOpen}
                   aria-controls="agent-home-options"
+                  disabled={submitting}
                   onClick={() => setHomeMenuOpen(open => !open)}
                   onKeyDown={event => {
                     if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
@@ -1085,14 +1101,14 @@ export function InputDialog({
             )}
             {selectedAgent.capabilities?.supportsChat === true && (
               <div className="workspace-runtime-field" data-testid="agent-runtime-mode">
-                <p className="workspace-field-copy">{agentDisplayName(selectedAgent.name)} runtime</p>
-                <div className="workspace-runtime-options" role="group" aria-label={`${agentDisplayName(selectedAgent.name)} runtime`}>
-                  <button type="button" className={agentRuntimeMode === 'terminal' ? 'active' : ''} aria-pressed={agentRuntimeMode === 'terminal'} onClick={() => setAgentRuntimeMode('terminal')}>Terminal</button>
-                  <button type="button" className={agentRuntimeMode === 'chat' ? 'active' : ''} aria-pressed={agentRuntimeMode === 'chat'} onClick={() => setAgentRuntimeMode('chat')}>Chat</button>
+                <p className="workspace-field-copy">{copy.agentRuntimeLabel(agentDisplayName(selectedAgent.name))}</p>
+                <div className="workspace-runtime-options" role="group" aria-label={copy.agentRuntimeLabel(agentDisplayName(selectedAgent.name))}>
+                  <button type="button" disabled={submitting} className={agentRuntimeMode === 'terminal' ? 'active' : ''} aria-pressed={agentRuntimeMode === 'terminal'} onClick={() => setAgentRuntimeMode('terminal')}>Terminal</button>
+                  <button type="button" disabled={submitting} className={agentRuntimeMode === 'chat' ? 'active' : ''} aria-pressed={agentRuntimeMode === 'chat'} onClick={() => setAgentRuntimeMode('chat')}>Chat</button>
                 </div>
               </div>
             )}
-            <p className="workspace-field-copy">{copy.workspace}</p>
+            <p className="workspace-field-copy">{handoff ? copy.handoffWorkspace : copy.workspace}</p>
             <div className="workspace-path-field">
               <input
                 ref={inputRef}
@@ -1108,6 +1124,7 @@ export function InputDialog({
                   syncSelectionWithValue(nextValue)
                 }}
                 onKeyDown={e => {
+                  if (handoff) return
                   if (e.key === 'ArrowDown') {
                     if (workspacePathSuggestions.length > 0 && moveWorkspacePathSelection(1)) {
                       e.preventDefault()
@@ -1154,9 +1171,10 @@ export function InputDialog({
                 data-1p-ignore="true"
                 data-bwignore="true"
                 data-form-type="other"
+                readOnly={handoff}
                 disabled={workspacePreparation !== null}
               />
-              <button
+              {!handoff && <button
                 type="button"
                 className="workspace-directory-picker"
                 data-testid="workspace-directory-picker"
@@ -1171,7 +1189,7 @@ export function InputDialog({
                 }}
               >
                 <FolderGlyph />
-              </button>
+              </button>}
             </div>
             {workspacePreparation ? (
               <div
@@ -1237,7 +1255,7 @@ export function InputDialog({
                   )}
                 </div>
               </div>
-            ) : workspacePathSuggestions.length > 0 && (
+            ) : !handoff && workspacePathSuggestions.length > 0 && (
               <div
                 ref={workspacePathSuggestionsRef}
                 className="workspace-path-suggestions fx-crt-panel"
@@ -1342,15 +1360,16 @@ export function InputDialog({
               <button
                 type="button"
                 data-testid="workspace-start"
-                aria-label={copy.start}
-                disabled={startClickLocked}
+                aria-label={handoff ? copy.handoffAgent : copy.start}
+                disabled={startClickLocked || submitting}
                 onClick={() => void confirm()}
               >
-                {copy.start}
+                {handoff ? submitting ? copy.handingOff : copy.handoffAgent : copy.start}
               </button>
               <button
                 type="button"
                 data-testid="workspace-back"
+                disabled={submitting}
                 aria-label={copy.back}
                 onClick={() => setStep('agent-list')}
               >

@@ -69,6 +69,10 @@ function run() {
   }
   assert.strictEqual(supportsAgentRuntimeSwitch(agent('shell', null)), false);
   assert.strictEqual(canSwitchAgentRuntime(agent('shell', null)), false);
+  assert.strictEqual(agentMenuAvailability(agent('shell', null)).handoff, false);
+  for (const provider of ['codex', 'claude', 'opencode', 'qoder', 'qwen', 'pi']) {
+    assert.strictEqual(agentMenuAvailability(agent(provider, null)).handoff, true);
+  }
 
   const codexTerminalCapabilities = capabilitiesForAgent(agent('codex', null)).composer;
   assert.strictEqual(codexTerminalCapabilities.modelPicker, true);

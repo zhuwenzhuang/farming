@@ -536,6 +536,13 @@ class FakeAgent implements Agent {
   async prompt(params: PromptRequest): Promise<PromptResponse> {
     const promptText = params.prompt?.map(block => block.type === 'text' ? block.text : '').join('') || '';
     const imageCount = params.prompt?.filter(block => block.type === 'image').length || 0;
+    if (promptText.startsWith('Read the source conversation identified below')) {
+      await client.sessionUpdate({ sessionId: params.sessionId, update: {
+        sessionUpdate: 'agent_message_chunk',
+        content: { type: 'text', text: '这是界面演示响应：交接提示已送达。新 Agent 应先阅读原会话，说明理解，再等待你的指示。' },
+      } });
+      return { stopReason: 'end_turn' };
+    }
     if (promptText === 'peer incoming appearance') {
       const source = { version: 1, direction: 'incoming', senderAddress: 'peer-storage', senderName: 'Cleanroom HDFS TPCDS 单机验收与多机接线', timestamp: '2026-01-01T10:30:00Z' };
       for (const update of [

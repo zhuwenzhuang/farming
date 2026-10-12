@@ -271,6 +271,16 @@ export interface CodeCopy {
   mobileInstallOpenStep: string
   mobileShareInstalled: string
   forkSameWorktree: string
+  handoffAgent: string
+  handoffFrom: (name: string) => string
+  handoffContext: string
+  handoffReadFirst: string
+  handoffWorkspace: string
+  agentRuntimeLabel: (name: string) => string
+  handoffDescription: string
+  handoffSourceUnavailable: string
+  handoffFailed: string
+  handingOff: string
   forkNewWorktree: string
   newWorktreeFork: string
   scheduledTask: string
@@ -1019,6 +1029,16 @@ const EN_COPY: CodeCopy = {
   mobileInstallOpenStep: 'Open Farming from its Home Screen icon next time.',
   mobileShareInstalled: 'Farming is already open as a Home Screen app.',
   forkSameWorktree: 'Continue in new Agent',
+  handoffAgent: 'Hand off to new Agent',
+  handoffFrom: name => `From: ${name}`,
+  handoffContext: 'Handoff context',
+  handoffReadFirst: 'The new Agent reads the source conversation, then waits for your instructions.',
+  handoffWorkspace: 'Workspace (same as source):',
+  agentRuntimeLabel: name => `${name} runtime`,
+  handoffDescription: 'Choose an Agent and Home. It will read the source conversation, explain its understanding, and wait for your instructions.',
+  handoffSourceUnavailable: 'Handoff requires a confirmed source conversation and Home.',
+  handoffFailed: 'Could not confirm the handoff. Retry with the same selection to check its outcome.',
+  handingOff: 'Handing off…',
   forkNewWorktree: 'Continue in new worktree',
   newWorktreeFork: 'Continued in a separate worktree',
   scheduledTask: 'Scheduled task',
@@ -1792,6 +1812,16 @@ const ZH_COPY: CodeCopy = {
   mobileInstallOpenStep: '以后从主屏幕的 Farming 图标进入。',
   mobileShareInstalled: 'Farming 已经作为主屏幕 App 打开。',
   forkSameWorktree: '在新 Agent 中继续',
+  handoffAgent: '交接给新 Agent',
+  handoffFrom: name => `来源：${name}`,
+  handoffContext: '交接上下文',
+  handoffReadFirst: '先阅读原会话，再等待你的指示。',
+  handoffWorkspace: '工作区（沿用来源）：',
+  agentRuntimeLabel: name => `${name} 运行方式`,
+  handoffDescription: '选择 Agent 类型和 Home。新 Agent 会先阅读原会话，说明理解，然后等待你的指示。',
+  handoffSourceUnavailable: '交接需要已确认身份和 Home 的来源会话。',
+  handoffFailed: '未能确认交接结果。保持当前选择重试，可核对结果。',
+  handingOff: '正在交接…',
   forkNewWorktree: '在新 worktree 中继续',
   newWorktreeFork: '使用独立 worktree 继续',
   scheduledTask: '周期任务',
@@ -2287,7 +2317,7 @@ const ZH_COPY: CodeCopy = {
   agentListUnavailable: 'Agent 列表不可用。',
   noSupportedAgentsFound: '没有找到支持的 Agent。',
   resumePreviousMainAgent: '恢复上一个 Main Agent',
-  codingAgents: 'Coding Agent',
+  codingAgents: '编程 Agent',
   otherAgents: 'Shell',
   workspace: '工作区：',
   workspacePathPlaceholder: '/工作区/路径',
