@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn, spawnSync, type SpawnSyncReturns } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -398,7 +398,7 @@ test('recovery authenticates completed original runs and separates pre-upload fr
       steps.push({ name: 'Verify and publish npm package with provenance', conclusion: scenario.uploadResult });
       if (scenario.runtimeResult) steps.push({ name: 'Verify and publish npm runtime packages with provenance', conclusion: scenario.runtimeResult });
       if (scenario.waitResult) steps.push({ name: 'Wait for npm package to become public', conclusion: scenario.waitResult });
-      const result = spawnSync(process.execPath, ['-e', recovery], {
+      const result: SpawnSyncReturns<string> = spawnSync(process.execPath, ['-e', recovery], {
         encoding: 'utf8', timeout: 5_000,
         env: { ...process.env, CANDIDATE_SHA: candidate, GITHUB_ENV: environmentFile,
           RUN_JSON: JSON.stringify({ id: 101, run_attempt: 1, event: 'workflow_dispatch', status: 'completed', conclusion: scenario.conclusion,
@@ -723,7 +723,7 @@ test('newer verifier journals require a separately authenticated exact-candidate
     for (const invalid of ['', 'missing-anchor', 'anchor-sha', 'anchor-workflow', ...gates, 'journal-public']) {
       const output = path.join(directory, 'environment');
       fs.rmSync(output, { force: true });
-      const result = spawnSync(process.execPath, ['-e', recovery], { encoding: 'utf8', env: {
+      const result: SpawnSyncReturns<string> = spawnSync(process.execPath, ['-e', recovery], { encoding: 'utf8', env: {
         ...process.env, CANDIDATE_SHA: candidate, CANDIDATE_PUBLICATION_RUN_ID: invalid === 'missing-anchor' ? '' : '101',
         FAILED_PUBLICATION_RUN_ID: '202', GITHUB_ENV: output,
         RUN_JSON: JSON.stringify({ ...anchor, id: 202, head_sha: 'b'.repeat(40) }),
