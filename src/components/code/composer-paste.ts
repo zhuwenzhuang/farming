@@ -52,8 +52,11 @@ export function prepareComposerPaste(text: string, html: string | undefined, fol
 
 /** Use native insertion so a formatted paste participates in browser undo/redo. */
 export function insertFormattedComposerText(textarea: HTMLTextAreaElement, markdown: string) {
+  // A block inserted mid-line must not turn its opening fence into prose.
+  const before = textarea.value.slice(0, textarea.selectionStart)
+  const insertion = /^`{3,}[^\n]*\n/.test(markdown) && before && !before.endsWith('\n') ? '\n' + markdown : markdown
   textarea.focus({ preventScroll: true })
-  if (!textarea.ownerDocument.execCommand('insertText', false, markdown)) {
+  if (!textarea.ownerDocument.execCommand('insertText', false, insertion)) {
     throw new Error('Formatted paste is unavailable. Use Shift+Cmd/Ctrl+V to paste plain text.')
   }
 }

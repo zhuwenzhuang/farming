@@ -34,6 +34,7 @@ export function readPastedTextFormats(text: string, html?: string): PastedTextFo
   // never activated. Only text and an explicit inline-style allowlist are read.
   const template = document.createElement('template')
   template.innerHTML = html
+  template.content.querySelectorAll('.code-markdown-code-toolbar').forEach(node => node.remove())
   const runs: PastedTextFormat[] = []
   let content = ''
   let nodes = 0

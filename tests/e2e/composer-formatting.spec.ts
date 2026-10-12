@@ -5,10 +5,14 @@ import { expect, openFarming, test } from './fixtures'
 const formats = [
   { name: 'emphasis', text: '斜体说明 italic 🐱', html: '<em>斜体说明 italic 🐱</em>', markdown: '*斜体说明 italic 🐱*', tokens: ['emphasis'] },
   { name: 'quote', text: '保留引用第一行\nSecond quoted line', html: '<blockquote>保留引用第一行<br>Second quoted line</blockquote>', markdown: '> 保留引用第一行\n> Second quoted line', tokens: ['quote'] },
-  { name: 'headings-inline', text: 'Migration 迁移\nImportant and careful with query docs', html: '<h2>Migration 迁移</h2><p><strong>Important</strong> and <em>careful</em> with <code>query</code> <a href="https://example.com/docs">docs</a></p>', markdown: '## Migration 迁移\n\n**Important** and *careful* with ` query ` [docs](<https://example.com/docs>)', tokens: ['section', 'strong', 'emphasis', 'code', 'link'] },
+  { name: 'headings-inline', text: 'Migration 迁移\nImportant and careful with query docs', html: '<h2>Migration 迁移</h2><p><strong>Important</strong>&nbsp;and&nbsp;<em>careful</em> with <code>query</code> <a href="https://example.com/docs">docs</a></p>', markdown: '## Migration 迁移\n\n**Important** and *careful* with `query` [docs](<https://example.com/docs>)', tokens: ['section', 'strong', 'emphasis', 'code', 'link'] },
   { name: 'nested-lists', text: 'Parent\nChild 中文\nNext\nOrdered\nLast', html: '<ul><li>Parent<ul><li>Child 中文</li></ul></li><li>Next</li></ul><ol start="3"><li>Ordered</li><li>Last</li></ol>', markdown: '- Parent\n  - Child 中文\n- Next\n\n3. Ordered\n4. Last', tokens: ['bullet'] },
-  { name: 'code', text: 'const title = "你好 🐱";\n\n\n\tconsole.log(title);', html: '<pre><code class="language-typescript">const title = &quot;你好 🐱&quot;;\n\n\n\tconsole.log(title);</code></pre>', markdown: '```typescript\nconst title = "你好 🐱";\n\n\n\tconsole.log(title);\n```', tokens: ['keyword', 'string'] },
+  { name: 'code', text: 'const title = "你好 🐱";\n\n\n\tconsole.log(title);', html: '<pre><code class="language-typescript">const title = &quot;你好 🐱&quot;;\n\n\n\tconsole.log(title);</code></pre>', markdown: '```typescript\nconst title = "你好 🐱";\n\n\n\tconsole.log(title);\n```\n', tokens: ['keyword', 'string'] },
   { name: 'mixed-wrap', text: 'Review\nRead carefully\nSELECT name FROM demo;\n检查中文与 emoji 🐱 的换行。This long sentence must wrap without shifting the caret or clipping the final characters.', html: '<h3>Review</h3><blockquote>Read <strong>carefully</strong></blockquote><pre data-language="sql">SELECT name FROM demo;</pre><p>检查中文与 emoji 🐱 的换行。This long sentence must wrap without shifting the caret or clipping the final characters.</p>', markdown: '### Review\n\n> Read **carefully**\n\n```sql\nSELECT name FROM demo;\n```\n\n检查中文与 emoji 🐱 的换行。This long sentence must wrap without shifting the caret or clipping the final characters.', tokens: ['section', 'quote', 'strong', 'keyword'] },
+  { name: 'inline-code-styled', text: '.Index/.Entries', html: '<code style="font-family: monospace">.Index/.Entries</code>', markdown: '`.Index/.Entries`', tokens: ['code'] },
+  { name: 'inline-code-fragment', text: 'lookup()', html: '<span style="font-family: Menlo">lookup()</span>', markdown: '`lookup()`', tokens: ['code'] },
+  { name: 'selected-code-fragment', text: 'const value = 1;\nconsole.log(value);', html: '<span class="hljs-keyword">const</span> value = <span class="hljs-number">1</span>;\nconsole.log(value);', markdown: '```\nconst value = 1;\nconsole.log(value);\n```\n', tokens: ['keyword'] },
+  { name: 'copied-code-toolbar', text: 'Example\nconst value = 1;\nKeep this text.', html: '<h2>Example</h2><div class="code-markdown-code-block"><div class="code-markdown-code-toolbar"><span>javascript</span><button>Copy code</button></div><pre><code class="language-javascript">const value = 1;</code></pre></div><p>Keep this <strong>text</strong>.</p>', markdown: '## Example\n\n```javascript\nconst value = 1;\n```\n\nKeep this **text**.', tokens: ['section', 'keyword', 'strong'] },
 ] as const
 
 async function paste(input: Locator, text: string, html: string) {
@@ -86,8 +90,30 @@ for (const mode of ['chat', 'terminal'] as const) {
         await page.keyboard.insertText(' END')
         await expect(input).toHaveValue(sample.markdown + ' END')
         expect(await highlight.textContent()).toBe(sample.markdown + ' END\n')
+        if (sample.name.includes('code')) expect((await highlight.locator('span').allTextContents()).some(text => text.includes(' END'))).toBe(false)
       })
     }
+
+    await test.step('block paste into a sentence isolates both fences and preserves native undo', async () => {
+      await input.fill('Before REPLACE after')
+      // Begin from a persisted draft, independent of each engine's grouping
+      // of programmatic fill with the preceding matrix edits.
+      await expect.poll(() => page.evaluate(() => localStorage.getItem('farming.code.agentComposerCheckpoint.v1'))).toContain('Before REPLACE after')
+      await page.reload()
+      await expect(input).toHaveValue('Before REPLACE after')
+      if (isMobile) await page.getByTestId('code-composer-editor-toggle').click()
+      await input.focus()
+      await input.evaluate(element => element.setSelectionRange(7, 14))
+      expect(await paste(input, 'const value = 1;', '<pre><code class="language-javascript">const value = 1;</code></pre>')).toBe(true)
+      await expect(input).toHaveValue('Before \n```javascript\nconst value = 1;\n```\n after')
+      await page.keyboard.press('ControlOrMeta+z')
+      await expect(input).toHaveValue('Before REPLACE after')
+      await page.keyboard.press('ControlOrMeta+Shift+z')
+      await expect(input).toHaveValue('Before \n```javascript\nconst value = 1;\n```\n after')
+      await page.keyboard.insertText('继续说明')
+      await expect(input).toHaveValue('Before \n```javascript\nconst value = 1;\n```\n继续说明 after')
+      expect((await highlight.locator('span').allTextContents()).some(text => text.includes('继续说明'))).toBe(false)
+    })
 
     await test.step('unsupported table retains original row and column separators', async () => {
       await input.fill('Keep draft')
@@ -114,3 +140,55 @@ for (const mode of ['chat', 'terminal'] as const) {
     })
   })
 }
+
+// Use the browser's real clipboard export from rendered Chat, including computed
+// styles and selection fragments that a hand-authored HTML fixture can miss.
+test('native Chat copy and paste preserves inline, block and mixed selections', async ({ page, workspaceRoot, isMobile }, testInfo) => {
+  test.skip(isMobile, 'Native clipboard keyboard roundtrip uses desktop Chromium')
+  const response = await page.request.post('/farming/api/control/agents', {
+    data: { command: 'codex', workspace: workspaceRoot, agentRuntimeMode: 'chat' },
+  })
+  expect(response.ok()).toBeTruthy()
+  const { agentId } = await response.json() as { agentId: string }
+  await openFarming(page)
+  await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+  const input = page.getByTestId('code-acp-composer-input')
+  const markdown = '## Example\n\nInspect `.Index/.Entries` carefully.\n\n```javascript\nconst value = 1;\nconsole.log(value);\n```\n\nKeep this **text**.'
+  await input.fill('markdown image response\n' + markdown)
+  await page.getByTestId('code-acp-composer-send').click()
+  const answer = page.locator('.code-agent-transcript-assistant').last()
+  await expect(answer.locator('pre code')).toContainText('console.log(value);')
+  const highlight = page.getByTestId('code-composer-draft-highlight')
+  for (const selection of ['inline', 'block', 'mixed'] as const) {
+    await input.fill('')
+    const source = selection === 'inline' ? answer.locator('p code') : selection === 'block' ? answer.locator('pre code') : answer
+    await input.blur()
+    await source.evaluate(element => {
+      const range = document.createRange()
+      range.selectNodeContents(element)
+      window.getSelection()!.removeAllRanges()
+      window.getSelection()!.addRange(range)
+    })
+    await page.keyboard.press('ControlOrMeta+c')
+    await input.focus()
+    await page.keyboard.press('ControlOrMeta+v')
+    if (selection === 'inline') await expect(input).toHaveValue('`.Index/.Entries`')
+    else {
+      await expect(input).toHaveValue(/```[^\n]*\nconst value = 1;\nconsole.log\(value\);\n```/)
+      await expect(highlight.locator('.hljs-keyword').first()).toBeAttached()
+    }
+    if (selection === 'mixed') {
+      await expect(input).toHaveValue(/## Example/)
+      await expect(input).toHaveValue(/Keep this \*\*text\*\*\./)
+      await expect(input).not.toHaveValue(/Copy code/)
+    }
+    const pasted = await input.inputValue()
+    await page.keyboard.insertText(' 继续说明')
+    await expect(input).toHaveValue(pasted + ' 继续说明')
+    expect((await highlight.locator('span').allTextContents()).some(text => text.includes('继续说明'))).toBe(false)
+    for (const appearance of ['light', 'dark', 'paper']) {
+      await page.evaluate(value => { document.body.dataset.appearance = value; document.documentElement.dataset.appearance = value }, appearance)
+      await page.screenshot({ path: testInfo.outputPath(`native-${selection}-${appearance}.png`), animations: 'disabled' })
+    }
+  }
+})

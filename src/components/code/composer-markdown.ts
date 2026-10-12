@@ -3,6 +3,19 @@ import hljs from 'highlight.js/lib/common'
 const escapeHtml = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 const escapeMarkdown = (text: string) => text.replace(/([\\`*_[\]<>])/g, '\\$1')
 const codeLanguages = ['java', 'javascript', 'typescript', 'python', 'sql', 'bash', 'json', 'cpp']
+const isMonospace = (node: HTMLElement) => /mono|consolas|menlo|courier/i.test(node.style.fontFamily)
+
+function inlineComposerCode(text: string) {
+  const delimiter = '`'.repeat(Array.from(text.matchAll(/`+/g)).reduce((length, match) => Math.max(length, match[0].length + 1), 1))
+  const padding = /^`|`$/.test(text) || (/^ .* $/.test(text) && text.trim()) ? ' ' : ''
+  return `${delimiter}${padding}${text}${padding}${delimiter}`
+}
+
+function finishPastedMarkdown(markdown: string) {
+  // A closing fence must stay on its own line when the user continues typing.
+  const editable = /\n`{3,}$/.test(markdown) ? markdown + '\n' : markdown
+  return editable.length <= 250_000 ? editable : undefined
+}
 
 // Adjacent blocks each supply a separator; merge their boundaries without
 // collapsing blank lines inside code or other captured text.
@@ -24,7 +37,7 @@ export function readPastedMarkdown(text: string, html?: string): string | undefi
   if (!html || html.length > 2_000_000 || typeof document === 'undefined') return undefined
   const template = document.createElement('template')
   template.innerHTML = html
-  template.content.querySelectorAll('script,style,iframe,object,template,img,svg,button').forEach(node => node.remove())
+  template.content.querySelectorAll('script,style,iframe,object,template,img,svg,button,.code-markdown-code-toolbar').forEach(node => node.remove())
   // Tables are not a supported Markdown conversion. Keep the authoritative
   // clipboard text, including its row/column separators, even with styled cells.
   if (template.content.querySelector('table')) return undefined
@@ -35,21 +48,31 @@ export function readPastedMarkdown(text: string, html?: string): string | undefi
     return /^[\w+-]{1,40}$/.test(value) ? value.toLowerCase() : ''
   }
   const codeNode = template.content.querySelector('pre,code,[style*="font-family"]')
-  if (codeNode && (codeNode.matches('pre') || (codeNode.matches('code') && text.includes('\n')) || /mono|consolas|menlo|courier/i.test(codeNode.getAttribute('style') || ''))
+  if (codeNode instanceof HTMLElement && (codeNode.matches('pre,code') || isMonospace(codeNode))
     && canonical(codeNode.textContent || '') === canonical(text)) {
-    const markdown = fencedComposerCode(text, languageOf(codeNode.querySelector('code') || codeNode))
-    return markdown.length <= 250_000 ? markdown : undefined
+    // Font family alone does not make an inline token a block. Browser copies
+    // routinely inline the computed monospace style of a selected <code> span.
+    return finishPastedMarkdown(codeNode.matches('pre') || /[\r\n]/.test(text)
+      ? fencedComposerCode(text, languageOf(codeNode.querySelector('code') || codeNode))
+      : inlineComposerCode(text))
+  }
+  // A selection inside a highlighted block can omit its enclosing pre/code.
+  // Only accept a span-only code fragment, never infer a block from prose.
+  if (/[\r\n]/.test(text)
+    && template.content.querySelector('.hljs-keyword,.hljs-string,.hljs-comment,.hljs-number,.hljs-built_in')
+    && Array.from(template.content.querySelectorAll('*')).every(node => node.matches('span,br'))) {
+    return finishPastedMarkdown(fencedComposerCode(text))
   }
   let visited = 0
   let structured = false
   const render = (node: Node, depth: number): string => {
     if (++visited > 30_000 || depth > 100) throw new Error('Formatting limit')
-    if (node.nodeType === Node.TEXT_NODE) return escapeMarkdown(node.textContent || '')
+    if (node.nodeType === Node.TEXT_NODE) return escapeMarkdown((node.textContent || '').replace(/\u00a0/g, ' '))
     if (!(node instanceof HTMLElement)) return ''
     const children = () => joinMarkdown(Array.from(node.childNodes, child => render(child, depth + 1)))
     const tag = node.tagName
     if (tag === 'PRE') { structured = true; return `\n\n${fencedComposerCode(node.textContent || '', languageOf(node.querySelector('code') || node))}\n\n` }
-    if (tag === 'CODE') { structured = true; const value = node.textContent || ''; const delimiter = '`'.repeat(Math.max(1, ...Array.from(value.matchAll(/`+/g), match => match[0].length + 1))); return `${delimiter} ${value} ${delimiter}` }
+    if (tag === 'CODE' || (tag === 'SPAN' && isMonospace(node))) { structured = true; return inlineComposerCode(node.textContent || '') }
     if (tag === 'BR') return '\n'
     if (tag === 'UL' || tag === 'OL') {
       structured = true
@@ -69,11 +92,11 @@ export function readPastedMarkdown(text: string, html?: string): string | undefi
     if (tag === 'BLOCKQUOTE') { structured = true; return '\n\n' + body.trim().replace(/^/gm, '> ') + '\n\n' }
     if (tag === 'B' || tag === 'STRONG' || /^(bold|[6-9]00)$/.test(node.style.fontWeight)) { structured = true; return `**${body}**` }
     if (tag === 'I' || tag === 'EM' || node.style.fontStyle === 'italic') { structured = true; return `*${body}*` }
-    return tag === 'P' ? `\n\n${body}\n\n` : tag === 'DIV' ? `${body}\n` : body
+    return tag === 'P' ? `\n\n${body}\n\n` : tag === 'DIV' && !body.endsWith('\n') ? `${body}\n` : body
   }
   try {
     const markdown = joinMarkdown(Array.from(template.content.childNodes, node => render(node, 0))).trim()
-    return structured && markdown.length <= 250_000 ? markdown : undefined
+    return structured ? finishPastedMarkdown(markdown) : undefined
   } catch { return undefined }
 }
 

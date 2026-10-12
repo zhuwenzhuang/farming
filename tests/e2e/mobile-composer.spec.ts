@@ -271,7 +271,7 @@ for (const runtime of ['chat', 'terminal'] as const) {
     const input = page.getByTestId(runtime === 'chat' ? 'code-acp-composer-input' : 'code-composer-input')
     await expect(input).toBeEditable()
     const source = 'public class Example {\n  String greeting = "你好";\n}\n'
-    const markdown = '```java\n' + source + '```'
+    const markdown = '```java\n' + source + '```\n'
     await input.focus()
     await input.evaluate((element, text) => {
       const data = new DataTransfer()

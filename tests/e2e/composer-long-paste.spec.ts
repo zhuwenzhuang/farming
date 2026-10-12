@@ -131,7 +131,7 @@ test('side chat owns its pasted document separately from the parent draft', asyn
   await expect(card).toHaveCount(1)
   await expect(page.locator('.code-composer-shell').getByTestId('code-composer-pasted-text')).toHaveCount(0)
   await card.getByRole('button', { name: 'Show in text field' }).click()
-  await expect(child).toHaveValue('Review child document\n\n```\n' + documentText + '\n```')
+  await expect(child).toHaveValue('Review child document\n\n```\n' + documentText + '\n```\n')
   await expect(pane.getByTestId('code-composer-draft-highlight')).toBeVisible()
   await expect(parent).toHaveValue('Keep parent draft')
   await child.fill('Review child document')
@@ -156,7 +156,7 @@ for (const mode of ['chat', 'terminal'] as const) {
     await input.fill('Review this code')
     const comments = '  // Preserve source indentation and formatting.\r\n'.repeat(30)
     const code = 'public static String message() {\r\n  return "Hello 🐱";\r\n' + comments + '}'
-    const html = '<pre data-language="java" style="font-family: monospace; color: #eeeeee"><b style="color: #ab47bc">public static</b> String message() {\n  <span style="color: #ab47bc">return</span> <i style="color: #008800">&quot;Hello 🐱&quot;</i>;\n' + comments + '}</pre>'
+    const html = '<div class="code-markdown-code-toolbar"><span>java</span><button>Copy code</button></div><pre data-language="java" style="font-family: monospace; color: #eeeeee"><b style="color: #ab47bc">public static</b> String message() {\n  <span style="color: #ab47bc">return</span> <i style="color: #008800">&quot;Hello 🐱&quot;</i>;\n' + comments + '}</pre>'
     await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
     // External elements must never be mounted or loaded.
     const requests: string[] = []
@@ -205,7 +205,7 @@ for (const mode of ['chat', 'terminal'] as const) {
     await card.getByRole('button', { name: 'Show in text field' }).click()
     await expect(card).toHaveCount(0)
     // Native textarea value canonicalizes CRLF to LF.
-    const markdown = 'Review this code\n\n```java\n' + code.replace(/\r\n/g, '\n') + '\n```'
+    const markdown = 'Review this code\n\n```java\n' + code.replace(/\r\n/g, '\n') + '\n```\n'
     await expect(input).toHaveValue(markdown)
     const highlight = page.getByTestId('code-composer-draft-highlight')
     await expect(highlight).toBeVisible()

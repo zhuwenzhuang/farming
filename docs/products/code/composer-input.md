@@ -87,7 +87,12 @@ appearance. Source HTML and executable content are never mounted.
 
 Formatted paste converts supported structure into editable Markdown: fenced code
 with a supplied language, indentation, lists, headings, emphasis and safe links.
-Source fonts, sizes and backgrounds do not become editor styling. Short formatted
+Inline code remains inline even when the clipboard includes a monospace font.
+Multiline selections carrying syntax metadata retain code semantics without
+requiring the enclosing block in clipboard HTML. Code toolbar labels are excluded from the
+captured content. Pasted block fences stay on separate lines from surrounding
+draft text and subsequent typing. Source fonts, sizes and backgrounds do not
+become editor styling. Short formatted
 pastes insert into the selected range using native undo; long ones retain their
 snapshot card and an editable Markdown representation. “Show in text field” moves
 that representation into the same draft atomically and removes the card exactly
