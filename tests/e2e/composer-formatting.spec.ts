@@ -1,18 +1,22 @@
 import type { Locator } from '@playwright/test'
 import { expect, openFarming, test } from './fixtures'
 
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ page, browserName }) => {
   // Linux runners and Playwright images choose different generic monospace
   // fonts. Pin the existing visual oracle to a font installed by Playwright.
   if (process.platform !== 'linux') return
-  await page.addInitScript(() => {
+  await page.addInitScript(pinNativeSans => {
     document.addEventListener('DOMContentLoaded', () => {
       document.documentElement.style.setProperty('--code-mono-font', '"WenQuanYi Zen Hei Mono", monospace')
-      const style = document.createElement('style')
-      style.textContent = 'body.code-mode .code-composer textarea { font-family: "WenQuanYi Zen Hei Mono", monospace; }'
-      document.head.append(style)
+      // WebKit resolves the native textarea's system sans through fontconfig;
+      // Chromium's native sans already matches its separate visual baseline.
+      if (pinNativeSans) {
+        const style = document.createElement('style')
+        style.textContent = 'body.code-mode .code-composer textarea { font-family: "WenQuanYi Zen Hei", sans-serif; }'
+        document.head.append(style)
+      }
     }, { once: true })
-  })
+  }, browserName === 'webkit')
 })
 
 // Independent clipboard/Markdown expectations: never derive the oracle from the converter.

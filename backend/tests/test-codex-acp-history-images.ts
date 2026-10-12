@@ -14,6 +14,16 @@ function send(child, message) {
   child.stdin.write(`${JSON.stringify(message)}\n`);
 }
 
+function killTestProcessGroup(child: import('node:child_process').ChildProcess) {
+  if (!child.pid) return;
+  try {
+    if (process.platform === 'win32') child.kill('SIGKILL');
+    else process.kill(-child.pid, 'SIGKILL');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
+  }
+}
+
 async function run() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-acp-history-image-'));
   const imagePath = path.join(tmpDir, 'screen.png');
@@ -124,14 +134,7 @@ async function run() {
   } finally {
     // The adapter owns an app-server child that can still append request logs
     // after session/load returns. Stop the whole owned group before removing it.
-    if (child.pid) {
-      try {
-        if (process.platform === 'win32') child.kill('SIGKILL');
-        else process.kill(-child.pid, 'SIGKILL');
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
-      }
-    }
+    killTestProcessGroup(child);
     await closed;
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
