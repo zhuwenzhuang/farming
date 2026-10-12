@@ -1970,6 +1970,7 @@ class AcpRuntime extends EventEmitter {
         let restoredCheckpoint = null;
         let saved = null;
         let savedForkOrigin: unknown = null;
+        let savedModelChanges: unknown = null;
         if (this.checkpointStore) {
           saved = await this.checkpointStore.load(
             this.checkpointIdentity(binding, requestedSessionId),
@@ -1978,6 +1979,7 @@ class AcpRuntime extends EventEmitter {
           this.requireOpenBinding(binding);
           const checkpoint = recordValue(saved?.state);
           savedForkOrigin = recordValue(checkpoint.version === 2 ? checkpoint.sessionState : checkpoint).forkOrigin;
+          savedModelChanges = recordValue(checkpoint.version === 2 ? checkpoint.sessionState : checkpoint).modelChanges;
           if (options.historyMode === 'checkpoint') {
             restoredCheckpoint = this.restoreBindingCheckpoint(
               binding,
@@ -2051,6 +2053,7 @@ class AcpRuntime extends EventEmitter {
             restoreMissingHistoryMedia(binding.sessionState, restoredCheckpointState);
           }
           binding.sessionState.restoreForkOrigin(savedForkOrigin);
+          binding.sessionState.restoreModelChanges(savedModelChanges);
           this.restorePatchDecisions(binding, restoredCheckpoint?.patchDecisions);
           historyMode = 'load';
           opened = true;
@@ -2070,6 +2073,7 @@ class AcpRuntime extends EventEmitter {
           );
           this.requireOpenBinding(binding);
           binding.sessionState.restoreForkOrigin(savedForkOrigin);
+          binding.sessionState.restoreModelChanges(savedModelChanges);
           historyMode = 'resume';
           opened = true;
         } else {
@@ -4410,7 +4414,9 @@ class AcpRuntime extends EventEmitter {
     }
     this.requireConfigMutationReady(binding);
     const result = await this.enqueueSessionConfigMutation(binding, async () => {
+      const previousModel = this.sessionModelIdentity(binding);
       const response = await this.setSessionConfigOptionNow(binding, configId, value);
+      this.recordSessionModelChange(binding, previousModel);
       this.rememberSessionConfigOverrides(binding, [{ configId: String(configId || ''), value }]);
       return response;
     });
@@ -4649,6 +4655,25 @@ class AcpRuntime extends EventEmitter {
     };
   }
 
+  private sessionModelIdentity(binding: AcpBinding) {
+    const option = binding.configOptions?.find(candidate => candidate.type === 'select'
+      && this.isSessionModelOverride(binding, { configId: candidate.id, value: candidate.currentValue ?? null }));
+    const id = typeof option?.currentValue === 'string' ? option.currentValue : '';
+    const choices = (option?.options || []).flatMap(choice => {
+      const item = recordValue(choice);
+      return Array.isArray(item.options) ? item.options.map(recordValue) : [item];
+    });
+    const choice = choices.find(candidate => candidate.value === id);
+    return { id, name: typeof choice?.name === 'string' && choice.name ? choice.name : id };
+  }
+
+  private recordSessionModelChange(binding: AcpBinding, previousModel: { id: string; name: string }) {
+    if (this.requireSessionState(binding).recordModelChange(previousModel, this.sessionModelIdentity(binding))) {
+      this.scheduleCheckpoint(binding, { exact: true });
+      this.emitSession(binding);
+    }
+  }
+
   async setSessionConfigOptionsNow(binding: AcpBinding, changes: SessionConfigChange[]) {
     this.requireOpenBinding(binding);
     const normalized = Array.isArray(changes)
@@ -4656,6 +4681,7 @@ class AcpRuntime extends EventEmitter {
       : [];
     if (normalized.length === 0) throw new Error('ACP config options are required');
 
+    const previousModel = this.sessionModelIdentity(binding);
     const originalValues = new Map();
     for (const change of normalized) {
       if (originalValues.has(change.configId)) continue;
@@ -4665,7 +4691,9 @@ class AcpRuntime extends EventEmitter {
       }
     }
     try {
-      return await this.applySessionConfigOptionsNow(binding, normalized);
+      const result = await this.applySessionConfigOptionsNow(binding, normalized);
+      this.recordSessionModelChange(binding, previousModel);
+      return result;
     } catch (error) {
       const rollbackErrors = [];
       for (const [configId, value] of [...originalValues.entries()].reverse()) {

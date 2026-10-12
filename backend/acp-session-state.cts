@@ -303,6 +303,14 @@ interface ForkOrigin {
   userPrefixHash: string;
 }
 
+interface ModelChange extends Omit<ForkOrigin, 'sourceSessionId'> {
+  id: string;
+  from: { id: string; name: string };
+  to: { id: string; name: string };
+}
+
+type HistoryAnchor = { status: 'ready' | 'unavailable'; afterEntryId: string };
+
 class AcpSessionState {
   private entryIds = new Set<string>();
   provider: string;
@@ -329,8 +337,10 @@ class AcpSessionState {
   sequence: number;
   revision: number;
   resetBeforeRevision: number;
+  modelChanges: ModelChange[] = [];
+  private modelChangeAnchors = new Map<string, HistoryAnchor>();
   forkOrigin: ForkOrigin | null = null;
-  forkOriginAnchor: { status: 'ready' | 'unavailable'; afterEntryId: string } | null = null;
+  forkOriginAnchor: HistoryAnchor | null = null;
 
   constructor(options: AcpSessionStateOptions = {}) {
     this.provider = String(options.provider || '');
@@ -427,28 +437,29 @@ class AcpSessionState {
     state.nativeSubagent = clone(source.nativeSubagent ?? null);
     state.truncated = source.truncated === true;
     state.restoreForkOrigin(source.forkOrigin);
+    state.restoreModelChanges(source.modelChanges);
     return state;
   }
 
-  private forkUserTurns(): AcpEntry[] {
+  private boundaryUserTurns(): AcpEntry[] {
     const policy = acpSessionProviderPolicy(this.provider);
     const users = clone(this.entries.filter(entry => entry.type === 'message' && entry.role === 'user'));
     return policy.sanitizeEntries(users, this.entries, 0)
       .filter(entry => policy.transcriptTurnStart(entry) && !entry.internal);
   }
 
-  private forkPrefixHash(turns: AcpEntry[]): string {
+  private boundaryPrefixHash(turns: AcpEntry[]): string {
     // Provider replays may regenerate entry/tool IDs. Verify the ordered user
     // prefix before rebinding the immutable boundary to this replay's IDs.
     return createHash('sha256').update(JSON.stringify(turns.map(entry => entry.content || []))).digest('hex');
   }
 
   captureForkOrigin(sourceSessionId: string): void {
-    const turns = this.forkUserTurns();
+    const turns = this.boundaryUserTurns();
     this.restoreForkOrigin({
       sourceSessionId,
       userTurnCount: turns.length,
-      userPrefixHash: this.forkPrefixHash(turns),
+      userPrefixHash: this.boundaryPrefixHash(turns),
     });
   }
 
@@ -463,14 +474,57 @@ class AcpSessionState {
       userTurnCount: Number(origin.userTurnCount),
       userPrefixHash: origin.userPrefixHash,
     };
-    const turns = this.forkUserTurns();
-    const count = this.forkOrigin.userTurnCount;
+    this.forkOriginAnchor = this.resolveHistoryAnchor(this.forkOrigin);
+  }
+
+  private resolveHistoryAnchor(boundary: Pick<ForkOrigin, 'userTurnCount' | 'userPrefixHash'>): HistoryAnchor {
+    const turns = this.boundaryUserTurns();
+    const count = boundary.userTurnCount;
     const verified = turns.length >= count
-      && this.forkPrefixHash(turns.slice(0, count)) === this.forkOrigin.userPrefixHash;
-    this.forkOriginAnchor = {
+      && this.boundaryPrefixHash(turns.slice(0, count)) === boundary.userPrefixHash;
+    return {
       status: verified ? 'ready' : 'unavailable',
       afterEntryId: verified && count > 0 ? String(turns[count - 1].id || '') : '',
     };
+  }
+
+  recordModelChange(from: ModelChange['from'], to: ModelChange['to']): boolean {
+    if (!from.id || !to.id || from.id === to.id) return false;
+    const turns = this.boundaryUserTurns();
+    const change: ModelChange = {
+      id: this.nextEntryId('model-change'), from: clone(from), to: clone(to),
+      userTurnCount: turns.length, userPrefixHash: this.boundaryPrefixHash(turns),
+    };
+    this.modelChanges.push(change);
+    this.modelChangeAnchors.set(change.id, this.resolveHistoryAnchor(change));
+    this.revision += 1;
+    return true;
+  }
+
+  restoreModelChanges(value: unknown): void {
+    if (!Array.isArray(value)) return;
+    this.modelChanges = [];
+    this.modelChangeAnchors.clear();
+    for (const item of value) {
+      if (!item || typeof item !== 'object') continue;
+      const change = item as Partial<ModelChange>;
+      if (typeof change.id !== 'string' || !change.id || this.modelChangeAnchors.has(change.id)
+        || typeof change.from?.id !== 'string' || typeof change.from.name !== 'string'
+        || typeof change.to?.id !== 'string' || typeof change.to.name !== 'string'
+        || !Number.isSafeInteger(change.userTurnCount) || Number(change.userTurnCount) < 0
+        || typeof change.userPrefixHash !== 'string') continue;
+      const restored = clone(change) as ModelChange;
+      this.modelChanges.push(restored);
+      this.modelChangeAnchors.set(restored.id, this.resolveHistoryAnchor(restored));
+      this.entryIds.add(restored.id);
+    }
+  }
+
+  private modelChangesSnapshot() {
+    return this.modelChanges.map(change => ({
+      id: change.id, from: clone(change.from), to: clone(change.to),
+      ...this.modelChangeAnchors.get(change.id),
+    }));
   }
 
   private forkOriginSnapshot() {
@@ -975,6 +1029,7 @@ class AcpSessionState {
           startId: this.entries[startIndex] ? String(this.entries[startIndex].id) : null,
           pageCursor: options.cursor || null },
         nextCursor: startIndex > 0 ? String(this.entries[startIndex].id) : null,
+        modelChanges: this.modelChangesSnapshot(),
         forkOrigin: this.forkOriginSnapshot(), revision: this.revision, delta: boundedDelta,
         hasMoreBefore: startIndex > 0, goal: clone(this.goal), codexSubagents: clone(this.codexSubagents),
       };
@@ -1007,6 +1062,7 @@ class AcpSessionState {
       entries: this.sanitizedEntries(startIndex, { forTranscript: true, endIndex }),
       includesLatest: !options.cursor,
       nextCursor: startIndex > 0 ? String(this.entries[startIndex]?.id || '') : null,
+      modelChanges: this.modelChangesSnapshot(),
       forkOrigin: this.forkOriginSnapshot(),
       revision: this.revision,
       delta,
@@ -1061,6 +1117,7 @@ class AcpSessionState {
       truncated: this.truncated,
       revision: this.revision,
       entries,
+      modelChanges: this.modelChangesSnapshot(),
       forkOrigin: this.forkOriginSnapshot(),
       usage: clone(this.usage),
       availableCommands: clone(this.availableCommands),
@@ -1113,6 +1170,7 @@ class AcpSessionState {
       resetBeforeRevision: this.resetBeforeRevision,
       ...(includeEntries ? { entries: clone(this.entries) } : {}),
       forkOrigin: clone(this.forkOrigin),
+      modelChanges: clone(this.modelChanges),
       activePlanEntryId: this.activePlanEntry?.id || '',
       plan: clone(this.plan),
       usage: clone(this.usage),

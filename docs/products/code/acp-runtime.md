@@ -518,6 +518,17 @@ writes merge against the latest Home state; the last accepted write for each
 field wins. A save failure reports that the Session accepted the choice but its
 defaults were not saved, without replaying the Session mutation.
 
+Confirmed user model changes are durable transcript boundaries, displayed as
+“previous model → new model” using the same separator family as fork origins.
+The runtime records one boundary after the whole configuration mutation succeeds;
+initial defaults, restoration, no-op selections, failed or uncertain mutations do
+not create one. Queued changes create it only when applied after the active turn.
+The existing configuration queue orders these boundaries before subsequent input;
+the existing mutation timeout, failure, and cancellation rules remain authoritative.
+Checkpoints retain the model identities and display names with a verified user-turn
+prefix. Reload and replay rebind that prefix to the current entries; an unverifiable
+prefix reports an unavailable history boundary rather than guessing its location.
+
 Fresh Agents inherit these defaults through the Provider's advertised controls
 and checkpoint the effective choices as their own Session configuration.
 Existing Sessions, reconnect, resume, and fork retain their own configuration;

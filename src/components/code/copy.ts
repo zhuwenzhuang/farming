@@ -137,6 +137,8 @@ export interface CodeCopy {
   agentTranscriptCopiedAnswer: string
   agentTranscriptFork: string
   agentTranscriptForkedFromAgent: string
+  agentTranscriptModelChanged: string
+  agentTranscriptModelBoundaryUnavailable: string
   agentTranscriptForkBoundaryUnavailable: string
   agentTranscriptReviewChanges: string
   agentTranscriptReviewAndCommit: string
@@ -874,6 +876,8 @@ const EN_COPY: CodeCopy = {
   agentTranscriptCopyAnswer: 'Copy answer',
   agentTranscriptCopiedAnswer: 'Copied answer',
   agentTranscriptFork: 'Continue in new Agent',
+  agentTranscriptModelChanged: 'Model',
+  agentTranscriptModelBoundaryUnavailable: 'history boundary unavailable',
   agentTranscriptForkedFromAgent: 'Continued from original Agent',
   agentTranscriptForkBoundaryUnavailable: 'Forked from original Agent · history boundary unavailable',
   agentTranscriptReviewChanges: 'Review',
@@ -1647,6 +1651,8 @@ const ZH_COPY: CodeCopy = {
   agentTranscriptCopyAnswer: '复制答复',
   agentTranscriptCopiedAnswer: '已复制答复',
   agentTranscriptFork: '在新 Agent 中继续',
+  agentTranscriptModelChanged: '模型',
+  agentTranscriptModelBoundaryUnavailable: '历史边界不可用',
   agentTranscriptForkedFromAgent: '从原 Agent 继续',
   agentTranscriptForkBoundaryUnavailable: '分叉自原 Agent · 历史边界不可用',
   agentTranscriptReviewChanges: 'Review',

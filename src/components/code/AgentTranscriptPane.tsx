@@ -4393,21 +4393,28 @@ export function AgentTranscriptPane({
     transcriptRefreshRef.current?.()
   }, [agentId, source])
 
+  const modelChanges = transcript?.modelChanges || []
+  const modelChangeNotes = (afterTurnId: string) => modelChanges.filter(change => (
+    change.status === 'ready'
+      ? change.afterTurnId === afterTurnId && (afterTurnId || !transcript?.hasMoreBefore)
+      : !afterTurnId
+  )).map(change => (
+    <TranscriptBoundary key={change.id} testId="code-agent-transcript-model-change">
+      <span>{copy.agentTranscriptModelChanged}: {change.from.name || change.from.id} → {change.to.name || change.to.id}
+        {change.status === 'unavailable' ? ` · ${copy.agentTranscriptModelBoundaryUnavailable}` : ''}</span>
+    </TranscriptBoundary>
+  ))
+  const hasModelChanges = modelChanges.length > 0
+  const hasModelBoundaryAfter = (turnId: string) => modelChanges.some(change => (
+    change.status === 'ready' && change.afterTurnId === turnId
+  ))
   const forkOriginNote = forkedFromAgent || transcript?.forkOrigin ? (
-    <div
-      className="code-agent-transcript-fork-origin"
-      data-testid="code-agent-transcript-fork-origin"
-      role="note"
-    >
-      <span aria-hidden="true" />
-      <span className="code-agent-transcript-fork-origin-label">
-        <ForkGlyph />
-        {transcript?.forkOrigin?.status === 'ready'
-          ? copy.agentTranscriptForkedFromAgent
-          : copy.agentTranscriptForkBoundaryUnavailable}
-      </span>
-      <span aria-hidden="true" />
-    </div>
+    <TranscriptBoundary testId="code-agent-transcript-fork-origin">
+      <ForkGlyph />
+      <span>{transcript?.forkOrigin?.status === 'ready'
+        ? copy.agentTranscriptForkedFromAgent
+        : copy.agentTranscriptForkBoundaryUnavailable}</span>
+    </TranscriptBoundary>
   ) : null
 
   return (
@@ -4427,7 +4434,7 @@ export function AgentTranscriptPane({
           <span>{error}</span>
           <button type="button" onClick={handleTranscriptRetry}>{copy.retry}</button>
         </div>
-      ) : showFreshAcpEmpty && !transcript?.forkOrigin ? (
+      ) : showFreshAcpEmpty && !transcript?.forkOrigin && !hasModelChanges ? (
         <div className="code-agent-transcript-blank" role="status">{copy.agentTranscriptEmpty}</div>
       ) : loading || awaitingAcpHistory || awaitingInitialReveal ? (
         <div className="code-agent-transcript-state subtle">
@@ -4435,9 +4442,9 @@ export function AgentTranscriptPane({
             ? copy.agentChatStarting
             : copy.agentTranscriptSyncing}
         </div>
-      ) : !transcript?.available && !transcript?.forkOrigin ? (
+      ) : !transcript?.available && !transcript?.forkOrigin && !hasModelChanges ? (
         <div className="code-agent-transcript-blank" role="status">{copy.agentTranscriptEmpty}</div>
-      ) : turns.length === 0 && !transcript?.forkOrigin ? (
+      ) : turns.length === 0 && !transcript?.forkOrigin && !hasModelChanges ? (
         <div className="code-agent-transcript-blank" role="status">{copy.agentTranscriptEmpty}</div>
       ) : (
         <div
@@ -4454,6 +4461,7 @@ export function AgentTranscriptPane({
         >
           {forkOriginNote && (!transcript?.forkOrigin || transcript.forkOrigin.status !== 'ready'
             || !transcript.forkOrigin.afterTurnId) ? forkOriginNote : null}
+          {modelChangeNotes('')}
           {turns.map((turn, index) => {
             const processOpen = openProcessTurnIds.has(turn.id)
             return (
@@ -4474,8 +4482,8 @@ export function AgentTranscriptPane({
                   <LocalRenderFault surface="transcript-turn" identity={turn.id}>
                     <StableAgentTranscriptTurnView
                       turn={turn}
-                      peerContinued={transcript?.forkOrigin?.afterTurnId !== turns[index - 1]?.id && continuesPeerMessageGroup(turns[index - 1], turn)}
-                      peerHasNext={transcript?.forkOrigin?.afterTurnId !== turn.id && continuesPeerMessageGroup(turn, turns[index + 1])}
+                      peerContinued={!hasModelBoundaryAfter(turns[index - 1]?.id || '') && transcript?.forkOrigin?.afterTurnId !== turns[index - 1]?.id && continuesPeerMessageGroup(turns[index - 1], turn)}
+                      peerHasNext={!hasModelBoundaryAfter(turn.id) && transcript?.forkOrigin?.afterTurnId !== turn.id && continuesPeerMessageGroup(turn, turns[index + 1])}
                       copy={copy}
                       onOpenFile={onOpenWorkspaceFilePath ? handleOpenFile : undefined}
                       onOpenUrlInFarming={onOpenUrlInFarming}
@@ -4510,6 +4518,7 @@ export function AgentTranscriptPane({
                 </LocalErrorBoundary>
                 {transcript?.forkOrigin?.status === 'ready'
                   && transcript.forkOrigin.afterTurnId === turn.id ? forkOriginNote : null}
+                {modelChangeNotes(turn.id)}
               </Fragment>
             )
           })}
@@ -4557,5 +4566,15 @@ export function AgentTranscriptPane({
       </AcpQuestionContext.Provider>
       </TranscriptFileOpenContext.Provider>
     </TranscriptImagePreviewContext.Provider>
+  )
+}
+
+function TranscriptBoundary({ children, testId }: { children: ReactNode; testId: string }) {
+  return (
+    <div className="code-agent-transcript-boundary" data-testid={testId} role="note">
+      <span aria-hidden="true" />
+      <span className="code-agent-transcript-boundary-label">{children}</span>
+      <span aria-hidden="true" />
+    </div>
   )
 }

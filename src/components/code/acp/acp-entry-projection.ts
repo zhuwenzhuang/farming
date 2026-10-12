@@ -135,6 +135,13 @@ export interface AgentTranscript {
   historyPage?: boolean
   includesLatest?: boolean
   canCancel?: boolean
+  modelChanges?: Array<{
+    id: string
+    from: { id: string; name: string }
+    to: { id: string; name: string }
+    status: 'ready' | 'unavailable'
+    afterTurnId: string
+  }>
   forkOrigin?: {
     sourceSessionId: string
     status: 'ready' | 'unavailable'
@@ -929,6 +936,13 @@ export function projectAcpTranscript(sessionValue: unknown, options: { maxTurns?
   return {
     version: 2,
     includesLatest,
+    modelChanges: list(session.modelChanges).map(record).map(change => ({
+      id: stringValue(change.id),
+      from: { id: stringValue(record(change.from).id), name: stringValue(record(change.from).name) },
+      to: { id: stringValue(record(change.to).id), name: stringValue(record(change.to).name) },
+      status: change.status === 'ready' ? 'ready' as const : 'unavailable' as const,
+      afterTurnId: change.afterEntryId ? `acp-turn-${stringValue(change.afterEntryId)}` : '',
+    })),
     forkOrigin: typeof forkOrigin.sourceSessionId === 'string' && forkOrigin.sourceSessionId
       ? {
           sourceSessionId: forkOrigin.sourceSessionId,
