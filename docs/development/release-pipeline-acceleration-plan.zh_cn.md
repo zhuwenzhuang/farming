@@ -539,8 +539,9 @@ Changed Files + Failure Signatures
   上传后自动核对公开 Name、Version、Source SHA、Integrity 和 Shasum，最长十分钟，单次请求
   最长十秒。成功或失败都保留带时间戳的状态与上传结果。尝试上传后的恢复只读，包括公开
   Registry 返回 404 时；上传步骤尚未执行的恢复可以进行第一次上传。
-- Registry Preflight 读取必须关闭连接并释放响应体，再进入阻塞 Publisher 的同步上传
-  或观察子进程；不得在平台发布步骤之间保留空闲 HTTP 连接。
+- Registry Preflight 读取必须使用独立、不入池的 HTTPS Socket，读完响应体后再进入阻塞
+  Publisher 的同步上传或观察子进程。池化客户端仅设置 `Connection: close` 不足以满足此约束；
+  平台发布步骤之间不得复用连接。
 - 已接受上传与公开验证是不同状态。上传成功后，若公开版本尚不存在或元数据不完整，
   状态为 `awaiting-public`：Workflow Summary 显示“已上传成功，等待公开可用”，并保留
   `farming/npm-publication/<version>` Commit Status 为 Pending。有界观察 Job 可以完成，
@@ -550,8 +551,13 @@ Changed Files + Failure Signatures
   Exact-SHA Candidate 发布及成功 Preparation 证明分开保存。续查和发布共享按版本
   的并发所有权，无需 npm 凭据。
   恢复验证器可以使用较新的集成代码，但必须保留原始上传身份。显式恢复使用前一次恢复的
-  Journal 时，该 Run 仍须对应精确 Candidate SHA，并证明恢复 Checkout、Preparation、
-  Acceptance 与公开资产验证成功；仅有被跳过的原始发布步骤不足以构成证据。
+  Journal 时，该 Run 须对应精确 Candidate SHA 并证明恢复门禁成功。若验证器 SHA 较新，
+  必须额外通过 `candidate_publication_run_id` 指定精确 Candidate 的授权发布 Run，证明
+  Preparation、Acceptance、Push Workflow、草稿发布与公开资产门禁成功；
+  `failed_publication_run_id` 仍指向最新 Journal Run，后者须证明恢复 Checkout、Preparation、
+  Acceptance 与公开资产验证成功。任何上传前，所有 Runtime Intent 均须匹配精确 Preparation
+  Receipt，主包 Upload-origin 保留 Candidate 授权锚。未提供新参数时保留原有精确 SHA 限制；
+  仅有被跳过的原始发布步骤不足以构成证据。
   每次新恢复重新检查 Candidate 的 Push Workflow 并保留最新 Journal；只读 Observer
   在继续观察后续主包上传前，也须认证同一身份链。正常等待公开时若观察
   结束，记录 `observationStatus=ended`，保留 Pending 发布状态并提供只读恢复指引。

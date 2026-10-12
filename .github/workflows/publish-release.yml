@@ -19,6 +19,11 @@ on:
         description: 'Exact successful commit-status context created by the release acceptance coordinator'
         required: true
         type: string
+      candidate_publication_run_id:
+        description: 'Optional exact-candidate publication authorization anchor when latest journals used a newer verifier'
+        required: false
+        default: ''
+        type: string
       failed_publication_run_id:
         description: 'Optional earlier Publish Release run to resume (failed or awaiting npm public availability)'
         required: false
@@ -82,6 +87,7 @@ jobs:
           CANDIDATE_SHA: ${{ inputs.candidate_sha }}
           PREPARATION_RUN_ID: ${{ inputs.preparation_run_id }}
           FAILED_PUBLICATION_RUN_ID: ${{ inputs.failed_publication_run_id }}
+          CANDIDATE_PUBLICATION_RUN_ID: ${{ inputs.candidate_publication_run_id }}
         shell: bash
         run: |
           set -euo pipefail
@@ -117,6 +123,10 @@ jobs:
           }
           NODE
 
+          if [[ -n "${CANDIDATE_PUBLICATION_RUN_ID}" && ( -z "${FAILED_PUBLICATION_RUN_ID}" || ! "${CANDIDATE_PUBLICATION_RUN_ID}" =~ ^[1-9][0-9]*$ ) ]]; then
+            echo "candidate_publication_run_id requires a recovery run and a positive run ID." >&2
+            exit 1
+          fi
           if [[ -n "${FAILED_PUBLICATION_RUN_ID}" ]]; then
             if [[ ! "${FAILED_PUBLICATION_RUN_ID}" =~ ^[1-9][0-9]*$ ]]; then
               echo "failed_publication_run_id must be a positive GitHub Actions run ID." >&2
@@ -126,6 +136,13 @@ jobs:
             publication_jobs="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${FAILED_PUBLICATION_RUN_ID}/jobs?per_page=100")"
             failed_workflow_id="$(RUN_JSON="${publication_run}" node -p 'JSON.parse(process.env.RUN_JSON).workflow_id')"
             failed_workflow_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/${failed_workflow_id}")"
+            export ANCHOR_RUN_JSON='' ANCHOR_JOBS_JSON='' ANCHOR_WORKFLOW_JSON=''
+            if [[ -n "${CANDIDATE_PUBLICATION_RUN_ID}" ]]; then
+              ANCHOR_RUN_JSON="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${CANDIDATE_PUBLICATION_RUN_ID}")"
+              ANCHOR_JOBS_JSON="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${CANDIDATE_PUBLICATION_RUN_ID}/jobs?per_page=100")"
+              anchor_workflow_id="$(RUN_JSON="${ANCHOR_RUN_JSON}" node -p 'JSON.parse(process.env.RUN_JSON).workflow_id')"
+              ANCHOR_WORKFLOW_JSON="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/${anchor_workflow_id}")"
+            fi
             RUN_JSON="${publication_run}" JOBS_JSON="${publication_jobs}" WORKFLOW_JSON="${failed_workflow_json}" node <<'NODE'
           const run = JSON.parse(process.env.RUN_JSON);
           const jobs = JSON.parse(process.env.JOBS_JSON).jobs || [];
@@ -134,11 +151,31 @@ jobs:
           if (run.event !== 'workflow_dispatch' || run.status !== 'completed' || !['failure', 'success'].includes(run.conclusion)) {
             throw new Error(`Publication run is not a completed recoverable dispatch: ${run.event}/${run.status}/${run.conclusion}`);
           }
-          if (run.head_sha !== process.env.CANDIDATE_SHA) throw new Error(`Publication run SHA mismatch: ${run.head_sha}`);
+          let anchor = run;
+          if (process.env.CANDIDATE_PUBLICATION_RUN_ID) {
+            if (String(run.id) !== process.env.FAILED_PUBLICATION_RUN_ID || workflow.id !== run.workflow_id) throw new Error('Journal run identity mismatch');
+            anchor = JSON.parse(process.env.ANCHOR_RUN_JSON);
+            const anchorWorkflow = JSON.parse(process.env.ANCHOR_WORKFLOW_JSON);
+            const anchorJob = (JSON.parse(process.env.ANCHOR_JOBS_JSON).jobs || []).find(entry => entry.name === 'Publish verified release');
+            if (String(anchor.id) !== process.env.CANDIDATE_PUBLICATION_RUN_ID
+              || anchor.head_sha !== process.env.CANDIDATE_SHA
+              || anchor.event !== 'workflow_dispatch' || anchor.status !== 'completed'
+              || !['failure', 'success'].includes(anchor.conclusion)
+              || anchorWorkflow.path !== '.github/workflows/publish-release.yml'
+              || anchorWorkflow.id !== anchor.workflow_id) throw new Error('Invalid candidate publication authorization anchor');
+            for (const name of ['Verify exact preparation run', 'Require successful candidate push workflows',
+              'Require successful automated and Computer Use acceptance', 'Publish the matching draft release',
+              'Verify public tag, assets, and manifest']) {
+              if (!(anchorJob?.steps || []).some(step => step.name === name && step.conclusion === 'success')) {
+                throw new Error(`Candidate publication anchor lacks successful ${name}`);
+              }
+            }
+          } else if (run.head_sha !== process.env.CANDIDATE_SHA) throw new Error(`Publication run SHA mismatch: ${run.head_sha}`);
           const job = jobs.find(entry => entry.name === 'Publish verified release');
           if (!job) throw new Error('Failed publication job is missing');
           const priorRecovery = (job.steps || []).some(step => step.name === 'Checkout recovery verifier' && step.conclusion === 'success')
             && (job.steps || []).some(step => step.name === 'Verify public tag, assets, and manifest' && step.conclusion === 'success');
+          if (run.head_sha !== process.env.CANDIDATE_SHA && !priorRecovery) throw new Error('Newer journal run lacks authenticated recovery gates');
           const requiredSteps = new Map([
             ['Verify exact preparation run', 'success'],
             ['Require successful automated and Computer Use acceptance', 'success'],
@@ -178,7 +215,7 @@ jobs:
           require('node:fs').appendFileSync(process.env.GITHUB_ENV,
             `NPM_UPLOAD_MAY_HAVE_STARTED=${recoverableNpmPublicationFailure ? '1' : '0'}\n`
             + `NPM_PUBLICATION_EVIDENCE_REQUIRED=${recoverableNpmPublicationFailure || recoverableRuntimePublicationFailure ? '1' : '0'}\n`
-            + `NPM_CANDIDATE_PUBLICATION_RUN_ID=${run.id}\nNPM_CANDIDATE_PUBLICATION_RUN_ATTEMPT=${run.run_attempt}\n`);
+            + `NPM_CANDIDATE_PUBLICATION_RUN_ID=${anchor.id}\nNPM_CANDIDATE_PUBLICATION_RUN_ATTEMPT=${anchor.run_attempt}\n`);
           NODE
           fi
 
@@ -537,6 +574,14 @@ jobs:
           path: prior-npm-evidence
           run-id: ${{ inputs.failed_publication_run_id }}
           github-token: ${{ github.token }}
+
+      - name: Verify prior publication journals match preparation receipts
+        if: inputs.failed_publication_run_id != '' && env.NPM_PUBLICATION_EVIDENCE_REQUIRED == '1'
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          PREPARATION_RUN_ID: ${{ inputs.preparation_run_id }}
+          CANDIDATE_PUBLICATION_RUN_ID: ${{ inputs.candidate_publication_run_id }}
+        run: node scripts/verify-npm-recovery-journals.mjs npm-package prior-npm-evidence "${CANDIDATE_SHA}" "${FARMING_RELEASE_VERSION}"
 
       - name: Verify and publish npm runtime packages with provenance
         env:

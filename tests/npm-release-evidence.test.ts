@@ -704,3 +704,65 @@ test('ordinary transport failure before the global deadline does not preserve pr
   assert.equal(result.state.status, 'uncertain');
   assert.equal(result.state.uploadStatus, 'accepted');
 });
+
+test('newer verifier journals require a separately authenticated exact-candidate publication anchor', () => {
+  const verification = stepScript('Verify exact preparation run');
+  const recovery = verification.match(/RUN_JSON="\$\{publication_run\}"[^\n]*node <<'NODE'\n([\s\S]*?)\nNODE/)?.[1];
+  assert(recovery);
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-anchor-'));
+  const gates = ['Verify exact preparation run', 'Require successful candidate push workflows',
+    'Require successful automated and Computer Use acceptance', 'Publish the matching draft release', 'Verify public tag, assets, and manifest'];
+  const anchor = { id: 101, run_attempt: 1, workflow_id: 7, event: 'workflow_dispatch', status: 'completed', conclusion: 'failure', head_sha: candidate };
+  const workflow = { id: 7, path: '.github/workflows/publish-release.yml' };
+  const anchorSteps = gates.map(name => ({ name, conclusion: 'success' }));
+  const journalSteps = [...anchorSteps.map(step => step.name === 'Publish the matching draft release' ? { ...step, conclusion: 'skipped' } : step),
+    { name: 'Checkout recovery verifier', conclusion: 'success' },
+    { name: 'Verify and publish npm runtime packages with provenance', conclusion: 'failure' },
+    { name: 'Verify and publish npm package with provenance', conclusion: 'skipped' }];
+  try {
+    for (const invalid of ['', 'missing-anchor', 'anchor-sha', 'anchor-workflow', ...gates, 'journal-public']) {
+      const output = path.join(directory, 'environment');
+      fs.rmSync(output, { force: true });
+      const result = spawnSync(process.execPath, ['-e', recovery], { encoding: 'utf8', env: {
+        ...process.env, CANDIDATE_SHA: candidate, CANDIDATE_PUBLICATION_RUN_ID: invalid === 'missing-anchor' ? '' : '101',
+        FAILED_PUBLICATION_RUN_ID: '202', GITHUB_ENV: output,
+        RUN_JSON: JSON.stringify({ ...anchor, id: 202, head_sha: 'b'.repeat(40) }),
+        JOBS_JSON: JSON.stringify({ jobs: [{ name: 'Publish verified release', steps: journalSteps.map(step =>
+          invalid === 'journal-public' && step.name === 'Verify public tag, assets, and manifest' ? { ...step, conclusion: 'skipped' } : step) }] }),
+        WORKFLOW_JSON: JSON.stringify(workflow),
+        ANCHOR_RUN_JSON: JSON.stringify({ ...anchor, head_sha: invalid === 'anchor-sha' ? 'c'.repeat(40) : candidate }),
+        ANCHOR_WORKFLOW_JSON: JSON.stringify({ ...workflow, id: invalid === 'anchor-workflow' ? 8 : 7 }),
+        ANCHOR_JOBS_JSON: JSON.stringify({ jobs: [{ name: 'Publish verified release', steps: anchorSteps.map(step => step.name === invalid ? { ...step, conclusion: 'skipped' } : step) }] }),
+      } });
+      if (invalid) assert.notEqual(result.status, 0, invalid);
+      else {
+        assert.equal(result.status, 0, result.stderr);
+        assert.match(fs.readFileSync(output, 'utf8'), /NPM_CANDIDATE_PUBLICATION_RUN_ID=101\n/);
+      }
+    }
+  } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('all retained runtime intents are matched to preparation before any publication step', () => {
+  const files = fixture();
+  const prior = path.join(files.directory, 'prior');
+  fs.mkdirSync(prior);
+  const tool = path.resolve(__dirname, '../scripts/verify-npm-recovery-journals.mjs');
+  const runtime = { ...files.evidence, version: '1.2.3-runtime-linux-x64', filename: 'farming-code-1.2.3-runtime-linux-x64.tgz' };
+  const write = (file: string, value: unknown) => fs.writeFileSync(path.join(files.directory, file), JSON.stringify(value));
+  try {
+    write('npm-smoke-receipt.json', files.evidence);
+    write('runtime-packages.json', [{ platform: 'linux-x64', version: runtime.version, integrity: runtime.integrity }]);
+    write('runtime-linux-x64-receipt.json', runtime);
+    for (const field of ['', 'version', 'gitHead', 'integrity']) {
+      write('prior/runtime-linux-x64-upload-intent.json', { version: runtime.version, gitHead: candidate, integrity: runtime.integrity, ...(field ? { [field]: 'mismatch' } : {}) });
+      const result = spawnSync(process.execPath, [tool, files.directory, prior, candidate, '1.2.3'], { encoding: 'utf8' });
+      if (field) assert.notEqual(result.status, 0, field);
+      else assert.equal(result.status, 0, result.stderr);
+    }
+    const names = publicationSteps.map((step: { name: string }) => step.name);
+    const journalCheck = names.indexOf('Verify prior publication journals match preparation receipts');
+    assert(journalCheck > names.indexOf('Download prior npm publication evidence'));
+    assert(journalCheck < names.indexOf('Verify and publish npm runtime packages with provenance'));
+  } finally { fs.rmSync(files.directory, { recursive: true, force: true }); }
+});

@@ -3,10 +3,24 @@
 // must be publicly readable before publishing the main version that pins them.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import https from 'node:https';
 import path from 'node:path';
 import { spawnSync, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { validateReceipt } from './npm-release-evidence.mjs';
+
+function readRegistryStatus(url) {
+  return new Promise((resolve, reject) => {
+    // A synchronous publisher can block the event loop beyond a pooled socket's
+    // lifetime. Own one socket per preflight and drain it before blocking again.
+    const request = https.get(url, { agent: false, signal: AbortSignal.timeout(10_000) }, response => {
+      response.on('error', reject);
+      response.on('end', () => resolve(response.statusCode));
+      response.resume();
+    });
+    request.on('error', reject);
+  });
+}
 
 const [packageDirectory, evidenceDirectory, priorDirectory, candidateSha] = process.argv.slice(2);
 assert(packageDirectory && evidenceDirectory && priorDirectory && candidateSha, 'Missing runtime publication arguments');
@@ -27,10 +41,9 @@ for (const item of packages) {
     const prior = path.join(priorDirectory, name);
     if (fs.existsSync(prior)) fs.copyFileSync(prior, path.join(evidenceDirectory, name));
   }
-  const response = await fetch(`https://registry.npmjs.org/farming-code/${encodeURIComponent(item.version)}`, { headers: { connection: 'close' }, signal: AbortSignal.timeout(10_000) });
-  await response.body?.cancel();
-  if (response.status !== 200 && response.status !== 404) throw new Error(`Cannot reconcile ${item.version}: HTTP ${response.status}`);
-  if (response.status === 404 && !fs.existsSync(intentFile)) {
+  const status = await readRegistryStatus(`https://registry.npmjs.org/farming-code/${encodeURIComponent(item.version)}`);
+  if (status !== 200 && status !== 404) throw new Error(`Cannot reconcile ${item.version}: HTTP ${status}`);
+  if (status === 404 && !fs.existsSync(intentFile)) {
     fs.writeFileSync(intentFile, `${JSON.stringify({ version: item.version, gitHead: candidateSha, integrity: receipt.integrity, observedAt: new Date().toISOString() })}\n`, { flag: 'wx' });
     const upload = spawnSync('npm', ['publish', path.resolve(packageDirectory, receipt.filename), '--access', 'public', '--provenance', '--tag', label, '--loglevel=error'], { stdio: 'inherit', timeout: 180_000 });
     fs.writeFileSync(resultFile, `${JSON.stringify({ packageName: 'farming-code', version: item.version, gitHead: candidateSha, uploadExitCode: upload.status ?? 1, observedAt: new Date().toISOString() })}\n`);

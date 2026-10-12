@@ -688,9 +688,10 @@ SHA-256 sidecar or hash the same unchanged tarball again in that stage.
   observation checkpoints and upload outcome are retained on success or failure.
   Recovery after an attempted upload is read-only, including during public 404
   responses; recovery before the upload step may perform the first upload.
-- Registry preflight reads close their connection and release their response
-  body before synchronous upload or observation subprocesses block the publisher.
-  Idle HTTP connections must not survive between platform publication steps.
+- Registry preflight reads use an independent, unpooled HTTPS socket and drain
+  their response body before synchronous upload or observation subprocesses block
+  the publisher. A `Connection: close` header on a pooled client is not sufficient;
+  no connection may be reused between platform publication steps.
 - An accepted upload and public verification are separate states. A successful
   upload followed by public absence or incomplete metadata is `awaiting-public`:
   show "Uploaded successfully; waiting for public availability" in the workflow
@@ -704,9 +705,15 @@ SHA-256 sidecar or hash the same unchanged tarball again in that stage.
   candidate publication and successful preparation proof. It shares per-version concurrency
   with publication and needs no npm credential. A recovery verifier may use
   newer integration code while preserving the original upload identity. An earlier
-  recovery may supply the latest journals only when that journal run
-  identifies the exact candidate SHA and proves successful recovery
-  checkout, preparation, acceptance, and public-asset verification. Skipped
+  recovery may supply the latest journals when that run identifies the exact
+  candidate SHA and proves successful recovery gates. If its verifier SHA is
+  newer, `candidate_publication_run_id` must separately identify an exact-candidate
+  publication with successful preparation, acceptance, push-workflow, draft-publication,
+  and public-asset gates; `failed_publication_run_id` still selects the latest journals.
+  Those journals must prove recovery checkout, preparation, acceptance, and public
+  verification, and every retained runtime intent must match the exact preparation
+  receipt before any upload. The main upload origin retains the candidate anchor.
+  Without the anchor input, the existing exact-SHA rule remains. Skipped
   original-publication steps alone are not evidence. Every new recovery rechecks
   the candidate's push workflows and preserves the latest journals; the read-only
   observer authenticates this same lineage before continuing a later main upload.
