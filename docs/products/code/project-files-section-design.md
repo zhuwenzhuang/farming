@@ -707,6 +707,14 @@ non-HTTP(S), or invalid rules remain plain text.
   selection does not add a full-width chrome band, border, shadow, or seam.
 - Narrow layouts prioritize viewing and short edits; long-form mobile coding is
   not a goal.
+- Compact touch source views use native text selection and a visible Select All /
+  Copy toolbar. Copy takes the selection, or the displayed draft when no
+  text is selected, and reports success or failure. Native edits and selections
+  update the existing editor model; working-copy permissions and save/conflict
+  handling remain shared. Clipboard completion cannot update a replaced file;
+  an unresolved write reports an unconfirmed outcome after five seconds.
+  Text inputs stay at least 16px; file gestures allow pan and pinch without
+  double-tap zoom. Native context menus remain available for selection and copy.
 
 ## Performance Boundary
 

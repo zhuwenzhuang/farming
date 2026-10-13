@@ -44,11 +44,17 @@ export function fallbackCopyText(text: string) {
   textarea.setAttribute('data-bwignore', 'true')
   textarea.setAttribute('data-form-type', 'other')
   textarea.style.position = 'fixed'
-  textarea.style.left = '-9999px'
+  textarea.style.left = '0'
   textarea.style.top = '0'
+  textarea.style.width = '1px'
+  textarea.style.height = '1px'
+  textarea.style.opacity = '0'
+  textarea.style.fontSize = '16px'
+  textarea.style.pointerEvents = 'none'
   document.body.appendChild(textarea)
-  textarea.focus()
+  textarea.focus({ preventScroll: true })
   textarea.select()
+  textarea.setSelectionRange(0, text.length)
   try {
     return document.execCommand('copy')
   } catch {
@@ -59,7 +65,7 @@ export function fallbackCopyText(text: string) {
       selection.removeAllRanges()
       ranges.forEach(range => selection.addRange(range))
     }
-    previousActiveElement?.focus()
+    previousActiveElement?.focus({ preventScroll: true })
   }
 }
 

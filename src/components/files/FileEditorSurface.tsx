@@ -1,7 +1,9 @@
 import type { MouseEvent, RefObject } from 'react'
+import type * as monaco from 'monaco-editor'
 import { LocalErrorBoundary, LocalRenderFault } from '@/components/LocalErrorBoundary'
 import { RefreshGlyph } from '@/components/IconGlyphs'
 import {
+  workspaceEditorModelKey,
   workspaceEditorSurfaceState,
   type WorkspaceEditorFileMode,
 } from '@/lib/workspace-editor-model'
@@ -21,6 +23,7 @@ import type { FileEditorBlameOverlayState } from './useFileEditorBlameOverlayCon
 import type { FileEditorDiffState } from './useFileEditorDiffController'
 import type { FileEditorLineChangesState } from './useFileEditorLineChangesController'
 import type { FileEditorModelStatus } from './useFileEditorMonacoController'
+import { FileEditorTouchSource, useTouchFileSource } from './FileEditorTouchSource'
 
 type FileEditorCursorPosition = {
   lineNumber: number
@@ -42,6 +45,8 @@ interface FileEditorSurfaceProps {
   diffState: FileEditorDiffState
   editorMode: WorkspaceEditorFileMode
   editorHostRef: RefObject<HTMLDivElement | null>
+  editorRef: RefObject<monaco.editor.IStandaloneCodeEditor | null>
+  readOnly: boolean
   lineChanges: FileEditorLineChangesState | null
   modelStatus: FileEditorModelStatus
   markdownSplitOpen: boolean
@@ -119,6 +124,8 @@ export function FileEditorSurface({
   diffState,
   editorMode,
   editorHostRef,
+  editorRef,
+  readOnly,
   lineChanges,
   modelStatus,
   markdownSplitOpen,
@@ -137,6 +144,7 @@ export function FileEditorSurface({
   onShowBlameDetail,
   onBlameContextMenu,
 }: FileEditorSurfaceProps) {
+  const touchSource = useTouchFileSource()
   const surface = workspaceEditorSurfaceState({
     diffOnly: editorMode.diffOnly,
     diffOpen: diffState.open,
@@ -167,14 +175,23 @@ export function FileEditorSurface({
         data-testid={surface.showMarkdownSplit ? 'code-file-markdown-split' : undefined}
       >
         <div
-          id="code-file-editor-panel"
+          id={touchSource ? undefined : 'code-file-editor-panel'}
           ref={editorHostRef}
-          className="code-file-monaco"
+          className={`code-file-monaco ${touchSource ? 'hidden' : ''}`}
           data-testid="code-file-monaco"
           role="tabpanel"
           aria-labelledby={activeTabDomId}
           tabIndex={-1}
         />
+        {touchSource && <FileEditorTouchSource
+          key={workspaceEditorModelKey(openFile)}
+          value={openFile.draft}
+          readOnly={readOnly}
+          editorRef={editorRef}
+          label={copy.editorFor(openFile.file.path)}
+          activeTabDomId={activeTabDomId}
+          copy={copy}
+        />}
         {surface.showMarkdownSplit && (
           <LocalErrorBoundary
             label="file Markdown split preview"
@@ -233,7 +250,7 @@ export function FileEditorSurface({
           </LocalRenderFault>
         </LocalErrorBoundary>
       )}
-      {surface.showEditorOverlays && blameOpen && blame?.isGitRepo && (
+      {surface.showEditorOverlays && !touchSource && blameOpen && blame?.isGitRepo && (
         <FileEditorInlineBlameLayer
           viewport={blameOverlay.viewport}
           left={blameOverlay.left}

@@ -724,6 +724,8 @@ export function FileEditorPane({
               diffState={diffState}
               editorMode={editorMode}
               editorHostRef={editorHostRef}
+              editorRef={editorRef}
+              readOnly={readOnly}
               lineChanges={lineChanges}
               modelStatus={modelStatus}
               markdownSplitOpen={markdownSplitOpen}

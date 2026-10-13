@@ -110,7 +110,7 @@ export default defineConfig({
     },
     {
       name: 'iphone-webkit',
-      testMatch: /(iphone-mobile-layout|mobile-composer|composer-formatting|global-file-search|sidebar-surface-appearance|sidebar-spacing|ui-design-protocol|file-tree-scroll|file-header-context|file-editor-reveal|markdown-math-layout|markdown-code-copy|rich-content-viewer|review-responsive|acp-peer-messages|acp-citations)\.spec\.ts/,
+      testMatch: /(file-touch-selection|iphone-mobile-layout|mobile-composer|composer-formatting|global-file-search|sidebar-surface-appearance|sidebar-spacing|ui-design-protocol|file-tree-scroll|file-header-context|file-editor-reveal|markdown-math-layout|markdown-code-copy|rich-content-viewer|review-responsive|acp-peer-messages|acp-citations)\.spec\.ts/,
       use: {
         ...devices['iPhone 14 Pro'],
         browserName: 'webkit',
@@ -127,7 +127,7 @@ export default defineConfig({
     },
     {
       name: 'android-human-chromium',
-      testMatch: /(related-session-workflows|acp-human-cases|backend-connection-status|background-chat-continuity|human-story|markdown-code-copy|file-tree-scroll)\.spec\.ts/,
+      testMatch: /(file-touch-selection|related-session-workflows|acp-human-cases|backend-connection-status|background-chat-continuity|human-story|markdown-code-copy|file-tree-scroll)\.spec\.ts/,
       grep: /@iphone-human|@native-file-scroll/,
       use: {
         ...devices['Pixel 7'],
