@@ -1,9 +1,49 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+  MAX_LOADED_ACP_ENTRIES,
   mergeAcpTranscript,
   projectAcpTranscriptResponse,
 } from '../src/components/code/acp/acp-transcript-envelope'
+
+test('paging within a running Turn cannot complete it or promote a historical answer', () => {
+  const prompt = { id: 'prompt', type: 'message', role: 'user', content: [{ type: 'text', text: 'Long task' }] }
+  const entries = Array.from({ length: 2304 }, (_, index) => ({
+    id: `entry-${index}`, type: 'message', role: 'assistant',
+    _meta: { codex: { phase: index % 256 === 100 ? 'final_answer' : 'commentary' } },
+    content: [{ type: 'text', text: `Stage ${index}` }],
+  }))
+  const page = (start: number, cursor: string | null) => projectAcpTranscriptResponse({
+    ...response({ toRevision: 1, replace: true, state: 'working', label: 'long' }),
+    hasMoreBefore: start > 0,
+    transcript: {
+      sessionId: 'session-a', revision: 1, state: 'working',
+      hasMoreBefore: start > 0,
+      entries: [prompt, ...entries.slice(start, start + 256)],
+      nextCursor: start > 0 ? `cursor-${start}` : null,
+      entryPatch: { version: 1, pageCursor: cursor, order: [prompt.id, ...entries.slice(start, start + 256).map(entry => entry.id)] },
+    },
+  }, 'agent-a')
+  const latest = page(2048, null)
+  let current = latest
+  for (let start = 1792; start >= 0; start -= 256) {
+    const merged = mergeAcpTranscript(current, page(start, current.nextCursor || null))
+    assert.equal(merged.accepted, true)
+    assert.ok(merged.transcript)
+    current = merged.transcript
+    assert.equal(current.turns.length, 1)
+    assert.equal(current.state, 'working')
+    assert.equal(current.turns[0]!.status, current.includesLatest ? 'inProgress' : 'partial')
+    assert.equal(current.turns[0]!.finalMessage, '')
+    assert.ok(current.turns[0]!.processItems.some(item => item.type === 'answer'))
+    assert.ok(current.entrySnapshot!.order.length <= MAX_LOADED_ACP_ENTRIES)
+  }
+  assert.equal(current.includesLatest, false)
+  assert.equal(mergeAcpTranscript(current, latest).accepted, false, 'live notifications preserve history')
+  const caughtUp = mergeAcpTranscript(current, latest, { replaceHistory: true })
+  assert.equal(caughtUp.transcript?.turns[0]?.status, 'inProgress')
+  assert.equal(caughtUp.transcript?.turns[0]?.finalMessage, '')
+})
 
 function response(options: {
   agentId?: string

@@ -25,7 +25,7 @@ export function isTranscriptAtBottom(element: HTMLElement) {
   return transcriptBottomDistance(element) <= TRANSCRIPT_BOTTOM_EPSILON
 }
 
-export function captureTranscriptReadingAnchor(agentId: string, element: HTMLDivElement): ReadingAnchor | null | undefined {
+export function captureTranscriptReadingAnchor(agentId: string, element: HTMLDivElement, skipPrompt = false): ReadingAnchor | null | undefined {
   if (isTranscriptAtBottom(element)) {
     return null
   }
@@ -35,16 +35,14 @@ export function captureTranscriptReadingAnchor(agentId: string, element: HTMLDiv
   if (!turn) return undefined
   const processItem = Array.from(turn.querySelectorAll<HTMLElement>('[data-process-item-id]'))
     .find(candidate => {
+      // A bounded page repeats its owning prompt before the actual history.
+      // When prepending, anchor the content after that fixed context instead.
+      if (skipPrompt && candidate.dataset.processItemId === `${turn.dataset.turnId}-user`) return false
       const rect = candidate.getBoundingClientRect()
-      // An item below the reading position would skip the user message or
-      // commentary above it when this anchor is restored.
-      return rect.top <= scrollerRect.top && rect.bottom > scrollerRect.top
+      return rect.bottom > scrollerRect.top
     })
   const target = processItem || turn
   const targetRect = target.getBoundingClientRect()
-  const fraction = targetRect.height > 0
-    ? Math.max(0, Math.min(1, (scrollerRect.top - targetRect.top) / targetRect.height))
-    : 0
   const turnId = turn.dataset.turnId
   if (!turnId) return undefined
   return {
@@ -56,7 +54,7 @@ export function captureTranscriptReadingAnchor(agentId: string, element: HTMLDiv
       id: turnId,
       ...(processItem?.dataset.processItemId ? { childId: processItem.dataset.processItemId } : {}),
     },
-    position: { unit: 'fraction', value: fraction },
+    position: { unit: 'pixel', value: scrollerRect.top - targetRect.top },
   }
 }
 
@@ -65,9 +63,12 @@ export function persistTranscriptReadingAnchor(agentId: string, anchor: ReadingA
   else clearReadingAnchor(readingAnchorAgentKey(agentId, 'chat'))
 }
 
-export function restoreTranscriptReadingAnchor(agentId: string, element: HTMLDivElement): TranscriptAnchorRestoreResult {
+export function restoreTranscriptReadingAnchor(
+  agentId: string,
+  element: HTMLDivElement,
+  anchor = readReadingAnchor(readingAnchorAgentKey(agentId, 'chat')),
+): TranscriptAnchorRestoreResult {
   const key = readingAnchorAgentKey(agentId, 'chat')
-  const anchor = readReadingAnchor(key)
   if (!anchor) return 'none'
   if (anchor.surface !== 'chat' || anchor.resource.kind !== 'agent') {
     clearReadingAnchor(key)
@@ -78,10 +79,14 @@ export function restoreTranscriptReadingAnchor(agentId: string, element: HTMLDiv
   const processItem = anchor.locator.childId
     ? turn.querySelector<HTMLElement>(`[data-process-item-id="${CSS.escape(anchor.locator.childId)}"]`)
     : null
+  // The owning prompt can be present while the anchored history page is not.
+  if (anchor.locator.childId && !processItem) return 'missing'
   const target = processItem || turn
   const targetRect = target.getBoundingClientRect()
   const scrollerRect = element.getBoundingClientRect()
-  const targetOffset = targetRect.height * anchor.position.value
+  const targetOffset = anchor.position.unit === 'pixel'
+    ? anchor.position.value
+    : targetRect.height * anchor.position.value
   element.scrollTop += targetRect.top + targetOffset - scrollerRect.top
   return 'restored'
 }

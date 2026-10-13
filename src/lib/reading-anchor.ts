@@ -4,7 +4,7 @@ export type ReadingAnchor =
     surface: 'chat'
     resource: { kind: 'agent'; id: string }
     locator: { kind: 'message'; id: string; childId?: string }
-    position: { unit: 'fraction'; value: number }
+    position: { unit: 'fraction' | 'pixel'; value: number }
   }
   | {
     version: 1

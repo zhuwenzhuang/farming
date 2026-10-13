@@ -172,7 +172,7 @@ test('capture preserves a reading position within the near-bottom range', () => 
     surface: 'chat',
     resource: { kind: 'agent', id: 'agent-a' },
     locator: { kind: 'message', id: 'turn-a' },
-    position: { unit: 'fraction', value: 0.1 },
+    position: { unit: 'pixel', value: 20 },
   })
 })
 
@@ -187,7 +187,7 @@ test('capture reports undefined when no turn intersects the visible top', () => 
   assert.equal(captureTranscriptReadingAnchor('agent-a', scroller), undefined)
 })
 
-test('capture anchors the first visible turn with its viewport fraction', () => {
+test('capture anchors the first visible turn with its pixel offset', () => {
   const scroller = asScroller(makeScroller({
     scrollTop: 100,
     scrollHeight: 2000,
@@ -203,7 +203,7 @@ test('capture anchors the first visible turn with its viewport fraction', () => 
     surface: 'chat',
     resource: { kind: 'agent', id: 'agent-a' },
     locator: { kind: 'message', id: 'turn-visible' },
-    position: { unit: 'fraction', value: 0.1 },
+    position: { unit: 'pixel', value: 20 },
   })
 })
 
@@ -228,11 +228,11 @@ test('capture anchors the visible process item inside a turn when present', () =
     surface: 'chat',
     resource: { kind: 'agent', id: 'agent-a' },
     locator: { kind: 'message', id: 'turn-a', childId: 'item-visible' },
-    position: { unit: 'fraction', value: 0.25 },
+    position: { unit: 'pixel', value: 50 },
   })
 })
 
-test('capture clamps fractions to the visible viewport and handles zero-height targets', () => {
+test('capture preserves gaps above visible blocks and handles zero-height targets', () => {
   const belowScroller = asScroller(makeScroller({
     scrollTop: 100,
     scrollHeight: 2000,
@@ -241,7 +241,7 @@ test('capture clamps fractions to the visible viewport and handles zero-height t
     turns: [makeTurn({ turnId: 'turn-a', top: 200, height: 300 })],
   }))
   const below = captureTranscriptReadingAnchor('agent-a', belowScroller)
-  assert.equal(below && below.position.value, 0)
+  assert.equal(below && below.position.value, -100)
 
   const nearEdge = asScroller(makeScroller({
     scrollTop: 100,
@@ -251,9 +251,7 @@ test('capture clamps fractions to the visible viewport and handles zero-height t
     turns: [makeTurn({ turnId: 'turn-a', top: -900, height: 1001 })],
   }))
   const almostFull = captureTranscriptReadingAnchor('agent-a', nearEdge)
-  // A visible turn's bottom edge always stays below the viewport top, so the
-  // fraction can approach but never exceed 1.
-  assert.equal(almostFull && almostFull.position.value, 1000 / 1001)
+  assert.equal(almostFull && almostFull.position.value, 1000)
 
   const zeroHeight = asScroller(makeScroller({
     scrollTop: 100,
@@ -263,10 +261,10 @@ test('capture clamps fractions to the visible viewport and handles zero-height t
     turns: [makeTurn({ turnId: 'turn-a', top: 150, height: 0 })],
   }))
   const flat = captureTranscriptReadingAnchor('agent-a', zeroHeight)
-  assert.equal(flat && flat.position.value, 0)
+  assert.equal(flat && flat.position.value, -50)
 })
 
-test('capture keeps the user message anchor when process items start below the reading position', () => {
+test('capture preserves the gap before the first visible block', () => {
   const scroller = asScroller(makeScroller({
     scrollTop: 100,
     scrollHeight: 2000,
@@ -281,8 +279,8 @@ test('capture keeps the user message anchor when process items start below the r
   }))
   const anchor = captureTranscriptReadingAnchor('agent-a', scroller)
   assert.ok(anchor)
-  assert.deepEqual(anchor.locator, { kind: 'message', id: 'turn-a' })
-  assert.equal(anchor.position.value, 20 / 500)
+  assert.deepEqual(anchor.locator, { kind: 'message', id: 'turn-a', childId: 'item-below' })
+  assert.equal(anchor.position.value, -100)
 })
 
 test('capture does not skip commentary between process items', () => {
@@ -303,8 +301,8 @@ test('capture does not skip commentary between process items', () => {
   }))
   const anchor = captureTranscriptReadingAnchor('agent-a', scroller)
   assert.ok(anchor)
-  assert.deepEqual(anchor.locator, { kind: 'message', id: 'turn-a' })
-  assert.equal(anchor.position.value, 200 / 800)
+  assert.deepEqual(anchor.locator, { kind: 'message', id: 'turn-a', childId: 'item-below' })
+  assert.equal(anchor.position.value, -200)
 })
 
 test('persist saves chat anchors and clears them on null', () => {
@@ -395,6 +393,62 @@ test('restore reports missing when the anchored turn is not rendered', () => {
   }
 })
 
+test('the owning prompt does not substitute for an unloaded progress block', () => {
+  const scroller = asScroller(makeScroller({
+    scrollTop: 42, scrollHeight: 2000, clientHeight: 400,
+    turns: [makeTurn({ turnId: 'turn-a', top: 0, height: 1500 })],
+  }))
+  assert.equal(restoreTranscriptReadingAnchor('agent-a', scroller, {
+    version: 1, surface: 'chat', resource: { kind: 'agent', id: 'agent-a' },
+    locator: { kind: 'message', id: 'turn-a', childId: 'acp-progress-older' },
+    position: { unit: 'pixel', value: 50 },
+  }), 'missing')
+  assert.equal(scroller.scrollTop, 42)
+})
+
+test('prepending and trimming one Turn preserves the same progress block', () => {
+  const before = asScroller(makeScroller({
+    scrollTop: 70, scrollHeight: 4000, clientHeight: 400, top: 100,
+    turns: [makeTurn({ turnId: 'turn-a', top: 30, height: 3900,
+      processItems: [{ processItemId: 'progress', top: 50, height: 200 }],
+    })],
+  }))
+  const anchor = captureTranscriptReadingAnchor('agent-a', before)
+  assert.ok(anchor)
+  // Prepend 1000px but evict 800px from the tail. Total height alone cannot
+  // recover the reading position even though the Turn ID/count are unchanged.
+  const after = asScroller(makeScroller({
+    scrollTop: 70, scrollHeight: 4200, clientHeight: 400, top: 100,
+    turns: [makeTurn({ turnId: 'turn-a', top: 30, height: 4100,
+      processItems: [{ processItemId: 'progress', top: 1050, height: 200 }],
+    })],
+  }))
+  assert.equal(restoreTranscriptReadingAnchor('agent-a', after, anchor), 'restored')
+  assert.equal(after.scrollTop, 1070)
+})
+
+test('prepend anchors history after the repeated prompt and preserves a growing block offset', () => {
+  const before = asScroller(makeScroller({
+    scrollTop: 70, scrollHeight: 4000, clientHeight: 400, top: 100,
+    turns: [makeTurn({ turnId: 'turn-a', top: 30, height: 3900, processItems: [
+      { processItemId: 'turn-a-user', top: 75, height: 30 },
+      { processItemId: 'progress', top: 150, height: 200 },
+    ] })],
+  }))
+  const anchor = captureTranscriptReadingAnchor('agent-a', before, true)
+  assert.ok(anchor)
+  assert.deepEqual(anchor.locator, { kind: 'message', id: 'turn-a', childId: 'progress' })
+  const after = asScroller(makeScroller({
+    scrollTop: 70, scrollHeight: 5500, clientHeight: 400, top: 100,
+    turns: [makeTurn({ turnId: 'turn-a', top: 30, height: 5400, processItems: [
+      { processItemId: 'turn-a-user', top: 75, height: 30 },
+      { processItemId: 'progress', top: 1150, height: 700 },
+    ] })],
+  }))
+  assert.equal(restoreTranscriptReadingAnchor('agent-a', after, anchor), 'restored')
+  assert.equal(after.scrollTop, 1070)
+})
+
 test('restore scrolls the anchored turn fraction back into view', () => {
   const agentId = 'agent-restore'
   const key = readingAnchorAgentKey(agentId, 'chat')
@@ -441,7 +495,7 @@ test('capture and restore round-trip returns the scrolled-away viewport', () => 
     assert.notEqual(anchor, undefined)
     assert.notEqual(anchor, null)
     if (!anchor) return
-    assert.equal(anchor.position.value, 0.21875)
+    assert.equal(anchor.position.value, 70)
     persistTranscriptReadingAnchor(agentId, anchor)
 
     // The user scrolls 150px down before the next render: every turn moves up

@@ -123,6 +123,7 @@ export interface AgentTranscriptTurn {
   resultFiles?: AgentTranscriptUserFile[]
   resultAudios?: AgentTranscriptAudio[]
   finalMessage: string
+  finalMessageId?: string
   completedGoals?: Array<{ id: string; goal: AgentGoal }>
   startedAt: number | null
   completedAt: number | null
@@ -741,7 +742,7 @@ function hasFinalAssistantResult(turn: AgentTranscriptTurn) {
   )
 }
 
-function finishTurn(turn: MutableTurn | null, keepTailAsProgress: boolean): AgentTranscriptTurn | null {
+function finishTurn(turn: MutableTurn | null, keepTailAsProgress: boolean, partial = false): AgentTranscriptTurn | null {
   if (!turn) return null
   let answerIndex = -1
   for (let index = turn.processItems.length - 1; index >= 0; index -= 1) {
@@ -752,10 +753,11 @@ function finishTurn(turn: MutableTurn | null, keepTailAsProgress: boolean): Agen
   // Live continuation stays after the answer that preceded it. Once settled,
   // the newest answer keeps the usual direct result presentation; all earlier
   // segments remain in the ordered activity disclosure.
-  if (answerIndex >= 0 && (!keepTailAsProgress || answerIndex === turn.processItems.length - 1)) {
+  if (!partial && answerIndex >= 0 && (!keepTailAsProgress || answerIndex === turn.processItems.length - 1)) {
     const answer = turn.processItems[answerIndex]!
     turn.processItems.splice(answerIndex, 1)
     turn.finalMessage = answer.detail || ''
+    turn.finalMessageId = answer.id
     turn.resultImages = uniqueByUrl([...turn.resultImages, ...(answer.images || [])])
     turn.resultAudios = uniqueByUrl([...turn.resultAudios, ...(answer.audios || [])])
     turn.resultFiles.push(...(answer.files || []))
@@ -776,6 +778,7 @@ function finishTurn(turn: MutableTurn | null, keepTailAsProgress: boolean): Agen
     && lastProcess?.id === lastAssistant.processItemId
     && (lastProcess.images || []).length === 0 && (lastProcess.audios || []).length === 0 && (lastProcess.files || []).length === 0) {
     turn.finalMessage = lastAssistant.text
+    turn.finalMessageId = lastAssistant.processItemId
     turn.processItems.pop()
   }
   if (hasFinalAssistantResult(turn)) {
@@ -812,8 +815,8 @@ export function projectAcpTranscript(sessionValue: unknown, options: { maxTurns?
   let sequence = 0
   const includesLatest = session.includesLatest !== false && !record(session.entryPatch).pageCursor
   const activeSession = includesLatest && ['working', 'waiting-for-permission', 'waiting-for-input', 'interrupting'].includes(stringValue(session.state))
-  const flush = (keepTailAsProgress = false) => {
-    const finished = finishTurn(current, keepTailAsProgress)
+  const flush = (keepTailAsProgress = false, partial = false) => {
+    const finished = finishTurn(current, keepTailAsProgress, partial)
     if (finished) turns.push(finished)
     current = null
   }
@@ -901,10 +904,12 @@ export function projectAcpTranscript(sessionValue: unknown, options: { maxTurns?
       current.processItems.push(process)
     }
   }
-  flush(activeSession)
+  // A page boundary is not a Turn boundary. Keep all stage answers in place
+  // until the covered range actually includes this Turn's end.
+  flush(activeSession || !includesLatest, !includesLatest)
 
   const lastTurn: AgentTranscriptTurn | undefined = turns[turns.length - 1]
-  if (lastTurn && !includesLatest && lastTurn.status === 'missingFinalReply') {
+  if (lastTurn && !includesLatest) {
     lastTurn.status = 'partial'
   }
   if (lastTurn && activeSession) {

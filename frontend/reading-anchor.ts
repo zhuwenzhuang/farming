@@ -13,7 +13,7 @@
       surface: 'chat'
       resource: { kind: 'agent'; id: string }
       locator: { kind: 'message'; id: string; childId?: string }
-      position: { unit: 'fraction'; value: number }
+      position: { unit: 'fraction' | 'pixel'; value: number }
     }
     | {
       version: 1
@@ -102,19 +102,19 @@
     const locatorId = boundedString(locator.id, LIMITS.id)
     if (resource.kind !== 'agent' || !agentId || !locatorId) return null
     if (surface === 'chat') {
-      const fraction = finiteNumber(position.value)
+      const offset = finiteNumber(position.value)
       const childId = boundedString(locator.childId, LIMITS.id)
       if (locator.kind !== 'message'
-        || position.unit !== 'fraction'
-        || fraction === null
-        || fraction < 0
-        || fraction > 1) return null
+        || (position.unit !== 'fraction' && position.unit !== 'pixel')
+        || offset === null
+        || (position.unit === 'fraction' ? offset < 0 || offset > 1
+          : Math.abs(offset) > 1_000_000)) return null
       return {
         version: VERSION,
         surface,
         resource: { kind: 'agent', id: agentId },
         locator: { kind: 'message', id: locatorId, ...(childId ? { childId } : {}) },
-        position: { unit: 'fraction', value: fraction },
+        position: { unit: position.unit, value: offset },
       }
     }
 

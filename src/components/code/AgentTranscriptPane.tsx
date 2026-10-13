@@ -366,6 +366,7 @@ function turnProcessLabel(
   workingLabel = copy.agentTranscriptWorking,
   planLabel = '',
 ) {
+  if (turn.status === 'partial') return copy.agentTranscriptProcess
   const duration = durationLabel(turn.durationMs)
   const errorItem = turn.processItems.find(item => item.type === 'error')
   if (errorItem?.title) return errorItem.title
@@ -1282,7 +1283,7 @@ function compactProcessEntries(
   turnStatus: AgentTranscriptTurn['status'],
   source: string,
 ) {
-  if (source === 'acp' && turnStatus === 'inProgress') {
+  if (source === 'acp' && (turnStatus === 'inProgress' || turnStatus === 'partial')) {
     const compactEntries: ProcessEntry[] = []
     let groupIndex = -1
     for (const entry of entries) {
@@ -2027,6 +2028,7 @@ function AgentTranscriptProgressUpdate({
     <div
       className="code-acp-progress-update code-markdown-preview"
       data-progress-id={item.id}
+      data-process-item-id={item.id}
       data-testid={answerSegment ? 'code-acp-answer-segment' : 'code-acp-progress-update'}
     >
       {progressText ? <LocalErrorBoundary
@@ -2829,7 +2831,7 @@ function AgentTranscriptTurnView({
         <AgentTranscriptUserMessage turn={turn} copy={copy} />
       </div> : turn.userSource || turn.userMessage || userImages.length > 0 || userAudios.length > 0 || userFiles.length > 0 ? (
         <AgentTranscriptIncomingMessage turn={turn} continued={peerContinued} hasNext={peerHasNext}>
-          <div className="code-agent-transcript-user">
+          <div className="code-agent-transcript-user" data-process-item-id={`${turn.id}-user`}>
             {turn.userSource?.bodyUnavailable ? <div className="code-agent-transcript-message-unavailable">{copy.agentTranscriptPeerBodyUnavailable}</div> : null}
             {turn.userMessage ? <div><AgentTranscriptUserMessage turn={turn} copy={copy} /></div> : null}
             <AgentTranscriptUserImages images={userImages} />
@@ -3022,7 +3024,7 @@ function AgentTranscriptTurnView({
       ) : null}
 
       {answerMessage || resultImages.length > 0 || resultAudios.length > 0 || resultFiles.length > 0 ? (
-        <div className="code-agent-transcript-answer">
+        <div className="code-agent-transcript-answer" data-process-item-id={turn.finalMessageId || `${turn.id}-answer`}>
           {answerMessage ? (
             <div className="code-agent-transcript-assistant code-markdown-preview">
               <LocalErrorBoundary
@@ -3344,16 +3346,16 @@ export function AgentTranscriptPane({
   const pendingPrependAnchorRef = useRef<{
     scrollTop: number
     scrollHeight: number
-    turnCount: number
+    anchor: ReadingAnchor | null
+    transcript: AgentTranscript | null
   } | null>(null)
   const followBottomRef = useRef(true)
   const handledFollowLatestSignalRef = useRef(followLatestSignal)
   const stationaryScrollTopRef = useRef<number | null>(null)
   const previousViewportLayoutKeyRef = useRef(viewportLayoutKey)
-  // A saved semantic anchor is for returning to an Agent, not for tracking
-  // every live transcript mutation. Reapplying its fractional position while
-  // a message grows would move a user who is reading away from the bottom.
-  const pendingReadingAnchorRestoreRef = useRef(false)
+  // Restore saved anchors on navigation; live updates retain the stationary
+  // viewport while the user is reading away from the bottom.
+  const [readingAnchorRestorePending, setReadingAnchorRestorePending] = useState(false)
   const pendingReadingAnchorWriteRef = useRef<{ agentId: string; anchor: ReadingAnchor | null } | null>(null)
   const readingAnchorWriteTimerRef = useRef<number | null>(null)
   const initialRevealReadyRef = useRef(false)
@@ -3378,7 +3380,6 @@ export function AgentTranscriptPane({
   const textSelectionGestureRef = useRef(false)
   const textSelectionHadRangeRef = useRef(false)
   const transcriptRefreshRef = useRef<(() => void) | null>(null)
-  const previousTurnStatusesRef = useRef(new Map<string, AgentTranscriptTurn['status']>())
   const handledRefreshSignalRef = useRef(refreshSignal)
   const latestRefreshSignalRef = useRef(refreshSignal)
   latestRefreshSignalRef.current = refreshSignal
@@ -3491,13 +3492,12 @@ export function AgentTranscriptPane({
     setLoadingOlder(false)
     setTurnLimit(initialTranscriptTurnLimit(source))
     setOpenProcessTurnIds(new Set())
-    previousTurnStatusesRef.current = new Map()
     setOpenCollaborationActivityIds(new Set())
     setShowJumpToBottom(false)
     const hasReadingAnchor = Boolean(readReadingAnchor(readingAnchorAgentKey(readingAnchorAgentId, 'chat')))
     followBottomRef.current = !hasReadingAnchor
     stationaryScrollTopRef.current = null
-    pendingReadingAnchorRestoreRef.current = hasReadingAnchor
+    setReadingAnchorRestorePending(hasReadingAnchor)
     textSelectionGestureRef.current = false
     textSelectionHadRangeRef.current = false
     pendingPrependAnchorRef.current = null
@@ -3520,16 +3520,16 @@ export function AgentTranscriptPane({
     const element = scrollRef.current
     if (!active || !element) return undefined
     return () => {
-      if (pendingReadingAnchorRestoreRef.current || pendingPrependAnchorRef.current) return
+      if (readingAnchorRestorePending || pendingPrependAnchorRef.current) return
       scheduleReadingAnchorSave(readingAnchorAgentId, element)
     }
-  }, [active, initialRevealReady, readingAnchorAgentId, scheduleReadingAnchorSave])
+  }, [active, initialRevealReady, readingAnchorAgentId, readingAnchorRestorePending, scheduleReadingAnchorSave])
 
   useEffect(() => {
     const handlePageHide = () => {
       if (!active) return
       const element = scrollRef.current
-      if (element && !pendingReadingAnchorRestoreRef.current && !pendingPrependAnchorRef.current) {
+      if (element && !readingAnchorRestorePending && !pendingPrependAnchorRef.current) {
         const anchor = captureTranscriptReadingAnchor(readingAnchorAgentId, element)
         if (anchor !== undefined) persistTranscriptReadingAnchor(readingAnchorAgentId, anchor)
       }
@@ -3537,7 +3537,7 @@ export function AgentTranscriptPane({
     }
     window.addEventListener('pagehide', handlePageHide)
     return () => window.removeEventListener('pagehide', handlePageHide)
-  }, [active, flushPendingReadingAnchor, readingAnchorAgentId])
+  }, [active, flushPendingReadingAnchor, readingAnchorAgentId, readingAnchorRestorePending])
 
   // The pane's mounted lifetime owns transcript synchronization. Visibility
   // only owns attention effects (read receipts, focus, and scroll following).
@@ -3851,7 +3851,7 @@ export function AgentTranscriptPane({
   const latestSettledTurnIndex = useMemo(() => {
     for (let index = turns.length - 1; index >= 0; index -= 1) {
       const turn = turns[index]
-      if (turn && turn.status !== 'inProgress') return index
+      if (turn && turn.status !== 'inProgress' && turn.status !== 'partial') return index
     }
     return -1
   }, [turns])
@@ -3983,22 +3983,21 @@ export function AgentTranscriptPane({
     }
     const pendingAnchor = pendingPrependAnchorRef.current
     if (pendingAnchor) {
-      const prependedTurns = turns.length > pendingAnchor.turnCount
-      if (prependedTurns) {
-        pendingPrependAnchorRef.current = null
-        const nextTop = element.scrollHeight - pendingAnchor.scrollHeight + pendingAnchor.scrollTop
-        element.scrollTop = Math.max(0, nextTop)
+      if (loadingOlder) return
+      pendingPrependAnchorRef.current = null
+      if (transcript !== pendingAnchor.transcript) {
+        if (restoreTranscriptReadingAnchor(readingAnchorAgentId, element, pendingAnchor.anchor) !== 'restored') {
+          element.scrollTop = Math.max(0, element.scrollHeight - pendingAnchor.scrollHeight + pendingAnchor.scrollTop)
+        }
         if (!followBottomRef.current) stationaryScrollTopRef.current = element.scrollTop
         scheduleReadingAnchorSave(readingAnchorAgentId, element)
         return
       }
-      if (loadingOlder) return
-      pendingPrependAnchorRef.current = null
     }
     if (userScrollGestureRef.current) return
     if (followBottomRef.current) {
       stationaryScrollTopRef.current = null
-      pendingReadingAnchorRestoreRef.current = false
+      setReadingAnchorRestorePending(false)
       element.scrollTop = element.scrollHeight
       clearReadingAnchor(readingAnchorAgentKey(readingAnchorAgentId, 'chat'))
       setShowJumpToBottom(false)
@@ -4016,15 +4015,25 @@ export function AgentTranscriptPane({
       })
       return
     }
-    if (!pendingReadingAnchorRestoreRef.current) {
+    if (!readingAnchorRestorePending) {
       if (stationaryScrollTopRef.current !== null) {
         element.scrollTop = stationaryScrollTopRef.current
       }
       return
     }
-    const restored = restoreTranscriptReadingAnchor(readingAnchorAgentId, element)
+    const savedAnchor = readReadingAnchor(readingAnchorAgentKey(readingAnchorAgentId, 'chat'))
+    if (savedAnchor?.surface === 'chat' && savedAnchor.locator.childId) {
+      const anchoredTurn = turns.find(turn => turn.id === savedAnchor.locator.id)
+      if (anchoredTurn?.processItems.some(item => item.id === savedAnchor.locator.childId)
+        && !openProcessTurnIds.has(anchoredTurn.id)
+        && !element.querySelector(`[data-process-item-id="${CSS.escape(savedAnchor.locator.childId)}"]`)) {
+        setOpenProcessTurnIds(current => new Set(current).add(anchoredTurn.id))
+        return
+      }
+    }
+    const restored = restoreTranscriptReadingAnchor(readingAnchorAgentId, element, savedAnchor)
     if (restored === 'restored') {
-      pendingReadingAnchorRestoreRef.current = false
+      setReadingAnchorRestorePending(false)
       stationaryScrollTopRef.current = element.scrollTop
       setShowJumpToBottom(true)
       return
@@ -4043,13 +4052,13 @@ export function AgentTranscriptPane({
       }
       return
     }
-    pendingReadingAnchorRestoreRef.current = false
+    setReadingAnchorRestorePending(false)
     clearReadingAnchor(readingAnchorAgentKey(readingAnchorAgentId, 'chat'))
     followBottomRef.current = true
     element.scrollTop = element.scrollHeight
     setShowJumpToBottom(false)
     if (active && isPageActive()) onReadLatest?.()
-  }, [active, initialRevealReady, loading, loadingOlder, onReadLatest, readingAnchorAgentId, scheduleReadingAnchorSave, source, transcript?.available, transcript?.hasMoreBefore, transcript?.revision, transcript?.updatedAt, turnLimit, turns.length])
+  }, [active, initialRevealReady, loading, loadingOlder, onReadLatest, openProcessTurnIds, readingAnchorAgentId, readingAnchorRestorePending, scheduleReadingAnchorSave, source, transcript, turnLimit, turns])
 
   useLayoutEffect(() => {
     if (!active || !transcript?.available || turns.length === 0 || typeof ResizeObserver === 'undefined') {
@@ -4076,11 +4085,11 @@ export function AgentTranscriptPane({
     const element = scrollRef.current
     if (!active || !element) return undefined
     return () => {
-      if (pendingReadingAnchorRestoreRef.current || pendingPrependAnchorRef.current) return
+      if (readingAnchorRestorePending || pendingPrependAnchorRef.current) return
       const anchor = captureTranscriptReadingAnchor(readingAnchorAgentId, element)
       if (anchor !== undefined) persistTranscriptReadingAnchor(readingAnchorAgentId, anchor)
     }
-  }, [active, readingAnchorAgentId])
+  }, [active, readingAnchorAgentId, readingAnchorRestorePending])
 
   useEffect(() => {
     onAvailabilityChange?.({
@@ -4219,7 +4228,8 @@ export function AgentTranscriptPane({
     pendingPrependAnchorRef.current = {
       scrollTop: element.scrollTop,
       scrollHeight: element.scrollHeight,
-      turnCount: turns.length,
+      anchor: captureTranscriptReadingAnchor(readingAnchorAgentId, element, source === 'acp') || null,
+      transcript,
     }
     setLoadingOlder(true)
     setTurnLimit(current => {
@@ -4232,7 +4242,7 @@ export function AgentTranscriptPane({
       }
       return next
     })
-  }, [loadingOlder, source, transcript?.hasMoreBefore, turnLimit, turns.length])
+  }, [loadingOlder, readingAnchorAgentId, source, transcript, turnLimit])
   useEffect(() => {
     if (!active || source !== 'acp') return
     if (questionPresentation.reveal !== questionNavigation.current.reveal) {
@@ -4246,7 +4256,7 @@ export function AgentTranscriptPane({
         .find(candidate => candidate.dataset.requestId === navigation.requestId)
       if (!element || !target) return
       followBottomRef.current = false
-      pendingReadingAnchorRestoreRef.current = false
+      setReadingAnchorRestorePending(false)
       pendingPrependAnchorRef.current = null
       target.scrollIntoView({ block: 'center' })
       stationaryScrollTopRef.current = element.scrollTop
@@ -4280,10 +4290,10 @@ export function AgentTranscriptPane({
     if (pendingPrependAnchorRef.current && !userScrollGestureRef.current && !hasTextSelection) {
       return
     }
-    if (pendingReadingAnchorRestoreRef.current && !userScrollGestureRef.current && !hasTextSelection) {
+    if (readingAnchorRestorePending && !userScrollGestureRef.current && !hasTextSelection) {
       return
     }
-    pendingReadingAnchorRestoreRef.current = false
+    setReadingAnchorRestorePending(false)
     if (hasTextSelection) {
       followBottomRef.current = false
       textSelectionHadRangeRef.current = true
@@ -4305,7 +4315,7 @@ export function AgentTranscriptPane({
     // Returning to latest or resizing can put a short page near its top.
     // Only a user scroll may navigate back into history from that position.
     if (userScrollGestureRef.current && element.scrollTop <= TRANSCRIPT_LOAD_MORE_THRESHOLD) requestOlderTurns(element)
-  }, [active, onReadLatest, readingAnchorAgentId, requestOlderTurns, scheduleReadingAnchorSave])
+  }, [active, onReadLatest, readingAnchorAgentId, readingAnchorRestorePending, requestOlderTurns, scheduleReadingAnchorSave])
   const handleWheel = useCallback((event: ReactWheelEvent<HTMLDivElement>) => {
     markUserScrollGesture()
     finishUserScrollGesture()
@@ -4346,23 +4356,6 @@ export function AgentTranscriptPane({
   useEffect(() => {
     setImagePreview(null)
   }, [agentId])
-  useLayoutEffect(() => {
-    const previousStatuses = previousTurnStatusesRef.current
-    const completedTurnIds = turns
-      .filter(turn => (
-        turn.status !== 'inProgress'
-        && previousStatuses.get(turn.id) === 'inProgress'
-      ))
-      .map(turn => turn.id)
-    previousTurnStatusesRef.current = new Map(turns.map(turn => [turn.id, turn.status]))
-    if (completedTurnIds.length === 0) return
-    setOpenProcessTurnIds(current => {
-      if (!completedTurnIds.some(turnId => current.has(turnId))) return current
-      const next = new Set(current)
-      completedTurnIds.forEach(turnId => next.delete(turnId))
-      return next
-    })
-  }, [turns])
   const handleToggleProcess = useCallback((turnId: string) => {
     setOpenProcessTurnIds(current => {
       const next = new Set(current)
@@ -4376,7 +4369,7 @@ export function AgentTranscriptPane({
     const element = scrollRef.current
     followBottomRef.current = true
     stationaryScrollTopRef.current = null
-    pendingReadingAnchorRestoreRef.current = false
+    setReadingAnchorRestorePending(false)
     pendingPrependAnchorRef.current = null
     pendingReadingAnchorWriteRef.current = null
     userScrollGestureRef.current = false
@@ -4464,6 +4457,7 @@ export function AgentTranscriptPane({
           className="code-agent-transcript-scroll"
           data-testid="code-agent-transcript-scroll"
           ref={scrollRef}
+          style={readingAnchorRestorePending ? { visibility: 'hidden' } : undefined}
           onPointerDown={handleTranscriptPointerDown}
           onScroll={handleScroll}
           onWheel={handleWheel}
@@ -4537,6 +4531,11 @@ export function AgentTranscriptPane({
           })}
         </div>
       )}
+      {readingAnchorRestorePending && !loading && !awaitingInitialReveal && turns.length > 0 && !error ? (
+        <div className="code-agent-transcript-state code-agent-transcript-restoring subtle" role="status">
+          {copy.agentTranscriptSyncing}
+        </div>
+      ) : null}
       {showJumpToBottom || transcript?.includesLatest === false ? (
         <button
           type="button"

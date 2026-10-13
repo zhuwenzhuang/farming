@@ -2,6 +2,12 @@
    collaboration timeline, plans, and ACP progress. Extracted from main.css;
    import order and rule order preserve the original cascade. */
 
+.code-agent-transcript-restoring {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
 .code-agent-work-view > .code-agent-transcript {
   width: 100%;
   height: 100%;

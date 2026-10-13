@@ -705,6 +705,10 @@ evict from the oldest end; older-page reads evict from the newest end and retain
 an explicit historical window with Return to latest. Live notifications and
 reconnect do not move that historical reading position. A partial historical
 Turn does not imply a missing final reply. A gap cannot be silently joined. Runtime control state continues to update while history is being read.
+The trailing Turn in a historical window remains partial, including when it
+contains stage answers. Paging cannot promote a stage answer to the final result
+or change user-owned disclosure state. Returning to latest restores the live
+projection without opening previously closed tool details.
 A historical window is a frozen reading cache of pages from their respective
 read times, not one atomic snapshot. Its retained revision is only the last
 confirmed live revision and cannot serve as a delta baseline after the tail is
@@ -854,6 +858,15 @@ gap, reset, or pagination-range change still requires an authoritative
 checkpoint before replacement content becomes visible. Reading position is
 anchored to a stable Turn or process item rather than raw pixels, and transcript
 records share the same 20-view working-set boundary as pooled Terminals.
+Progress, stage answers, and final answers retain stable block identities and
+block-relative pixel offsets for reading anchors (older fractional anchors
+remain readable). Prepending within one Turn preserves the visible block's
+position even when the window also evicts its tail. On restoration, a missing
+block requests older pages through the existing bounded read path; the owning
+prompt alone is not a successful match. While locating the block, the view shows
+the existing synchronization state instead of intermediate pages.
+User navigation cancels restoration,
+and transport failures retain the existing explicit retry behavior.
 An older-history cursor belongs to one page read; after that read settles, live
 revision notifications must again fetch the newest Turn without a page cursor.
 An older page never advances the latest-Turn revision, even when the page

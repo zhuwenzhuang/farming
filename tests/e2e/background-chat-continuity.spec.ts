@@ -835,7 +835,7 @@ test('preserves the visible Chat position when loading older turns after reload'
       _meta: { codex: { phase: 'final_answer' } },
       content: [{
         type: 'text',
-        text: `Persisted answer ${index}. ${'Keep this turn tall enough to recover a fractional message anchor. '.repeat(4)}`,
+        text: `Persisted answer ${index}. ${'Keep this turn tall enough to recover a stable message anchor. '.repeat(4)}`,
       }],
     },
   ])).flat()
@@ -938,18 +938,25 @@ test('preserves the visible Chat position when loading older turns after reload'
     if (!id) throw new Error('Reloaded page did not capture a persisted Chat anchor')
     return {
       id,
-      fraction: Number(anchor?.position?.value || 0),
+      childId: String(anchor?.locator?.childId || ''),
+      offset: Number(anchor?.position?.value || 0),
+      unit: String(anchor?.position?.unit || ''),
     }
   }, snapshotKey)
   await selectAgentOnCompactLayout(page, agentId)
+  expect(saved.unit).toBe('pixel')
   const restoredTranscript = page.getByTestId('code-agent-transcript-scroll')
   await expect(restoredTranscript.locator(`[data-turn-id="${saved.id}"]`)).toBeAttached()
   await expect.poll(async () => restoredTranscript.evaluate((element, expected) => {
     const turn = element.querySelector<HTMLElement>(`[data-turn-id="${CSS.escape(expected.id)}"]`)
     if (!turn) return Number.POSITIVE_INFINITY
-    const turnRect = turn.getBoundingClientRect()
+    const target = expected.childId
+      ? turn.querySelector<HTMLElement>(`[data-process-item-id="${CSS.escape(expected.childId)}"]`)
+      : turn
+    if (!target) return Number.POSITIVE_INFINITY
+    const targetRect = target.getBoundingClientRect()
     const scrollerRect = element.getBoundingClientRect()
-    return Math.abs((turnRect.top - scrollerRect.top) + turnRect.height * expected.fraction)
+    return Math.abs(targetRect.top - scrollerRect.top + expected.offset)
   }, saved)).toBeLessThanOrEqual(3)
   const requestsAfterReloadStarted = requestedTurnLimits.slice(requestsBeforeReload)
   const reloadStartIndex = requestsAfterReloadStarted.indexOf(5)
