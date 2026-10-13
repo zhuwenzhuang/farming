@@ -1,6 +1,20 @@
 import type { Locator } from '@playwright/test'
 import { expect, openFarming, terminalCheckpointOutput, test } from './fixtures'
 
+// Native Ubuntu and the Playwright image have different fontconfig defaults.
+// Both install these fonts; pin only the Linux WebKit visual fixture so wrapping
+// and emoji coverage do not depend on the host's generic sans-serif preference.
+test.beforeEach(async ({ page, browserName }) => {
+  if (process.platform !== 'linux' || browserName !== 'webkit') return
+  await page.addInitScript(() => {
+    document.addEventListener('DOMContentLoaded', () => {
+      const style = document.createElement('style')
+      style.textContent = 'body.code-mode .code-composer textarea { font-family: "WenQuanYi Zen Hei", "Noto Color Emoji", sans-serif; }'
+      document.head.append(style)
+    }, { once: true })
+  })
+})
+
 async function typography(input: Locator) {
   return input.evaluate(element => {
     const style = getComputedStyle(element)
@@ -162,7 +176,10 @@ for (const mode of ['chat', 'terminal'] as const) {
       await input.fill(draft)
       expect(await typography(input)).toEqual(before)
       await expect(page.getByTestId('code-composer-draft-highlight')).toHaveCount(0)
+      await input.focus()
       await input.evaluate(element => { element.setSelectionRange(3, 14); element.scrollTop = 0 })
+      await expect(input).toBeFocused()
+      await expect.poll(() => input.evaluate(element => [element.selectionStart, element.selectionEnd, element.scrollTop])).toEqual([3, 14, 0])
       await expect(input).toHaveScreenshot(`${mode}-${appearance}-compact-plain.png`)
       const toggle = page.getByTestId('code-composer-editor-toggle')
       await toggle.click()

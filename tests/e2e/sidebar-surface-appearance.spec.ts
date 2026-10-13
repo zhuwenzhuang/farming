@@ -4,6 +4,18 @@ import path from 'node:path'
 import type { Locator } from '@playwright/test'
 import { expect, interceptWorkspaceRequests, openFarming, test } from './fixtures'
 
+// Native Ubuntu includes DejaVu while the Playwright image chooses WenQuanYi.
+// Pin their common WenQuanYi plus Noto Color Emoji fonts in this visual fixture
+// so glyphs, wrapping and panel crops do not depend on host fontconfig defaults.
+test.beforeEach(async ({ page, browserName }) => {
+  if (process.platform !== 'linux' || browserName !== 'webkit') return
+  await page.addInitScript(() => {
+    document.addEventListener('DOMContentLoaded', () => {
+      document.documentElement.style.setProperty('--code-ui-font-family', '"WenQuanYi Zen Hei", "Noto Color Emoji", sans-serif')
+    }, { once: true })
+  })
+})
+
 async function expectBaseSurface(locator: Locator, expected: string) {
   await expect.poll(() => locator.evaluate(element => {
     // Empty states are transparent. Verify the actual backing surface, not
@@ -135,7 +147,9 @@ test.describe('shared sidebar surfaces', () => {
         await historyTitle.click()
         const file = files.locator('[data-testid="code-file-row"][data-file-path="note-00.txt"]')
         await file.click()
-        await expect(page.locator('.monaco-editor textarea.inputarea')).toBeFocused()
+        await expect(isMobile
+          ? page.getByTestId('code-file-touch-source').getByRole('textbox')
+          : page.locator('.monaco-editor textarea.inputarea')).toBeFocused()
         await openDrawer()
         await file.focus()
         await expect(file.locator('..')).toHaveCSS('background-color', colors.active)
