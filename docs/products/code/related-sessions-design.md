@@ -200,8 +200,6 @@ replace a newer navigation choice.
 
 ## Research Basis
 
-For evidence on when multi-agent orchestration helps, see
-[Multi-Agent Workflows: Industry Evidence](multi-agent-workflows-research.md).
 Session ownership and workflow dependencies are distinct; Side Chat alone does
 not imply a workflow scheduler or dependency graph.
 
