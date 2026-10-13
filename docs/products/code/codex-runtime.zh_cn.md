@@ -93,6 +93,10 @@ Native Profile Transaction 同时支持直接选择 Model/Effort 的菜单，以
 可能只是滚动窗口；多位编号或窗口外目标必须逐次等待 Highlight 确认后继续导航。只有完整
 Cursor Cycle 才证明目标不存在；Highlight 缺失或停止推进时沿用同一 Deadline 明确失败。
 
+Profile 确认读取权威 Native Screen Checkpoint 的新鲜文本。原始 PTY 光标指令携带位置，
+不能通过去除 ANSI 还原单词和行边界。Fast 变更保留命令前的确认快照、单一 Deadline
+及既有 Input/Runtime Fence；观察确认不会重放 Toggle。
+
 ## Session 连续性
 
 Provider Session ID 是 Codex Conversation 的权威身份。Chat/Terminal 切换是真实 Runtime

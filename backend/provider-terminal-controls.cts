@@ -30,6 +30,7 @@ interface ProviderTerminalIdentityControl {
 interface ApplyProviderTerminalProfileOptions {
   onInputSafe?: () => void;
   profile: Record<string, unknown>;
+  /** Authoritative rendered checkpoint text, never raw PTY cursor history. */
   readOutput: () => unknown | PromiseLike<unknown>;
   readPreview: () => unknown | PromiseLike<unknown>;
   sendInput: (input: ProviderTerminalControlInput) => unknown | PromiseLike<unknown>;

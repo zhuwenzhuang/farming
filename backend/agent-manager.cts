@@ -6762,7 +6762,13 @@ class AgentManager extends EventEmitter {
         if (!view) throw new Error('Agent not found');
         return view.previewText;
       },
-      readOutput: async () => String(await this.getAgentSessionText(agentId) || ''),
+      // Raw PTY cursor addressing does not contain the rendered word/line
+      // boundaries. Confirmation text must come from the native screen reducer.
+      readOutput: async () => {
+        const view = await this.getAgentSessionView(agentId);
+        if (!view) throw new Error('Agent not found');
+        return view.previewText;
+      },
       // `/model` and `/fast on|off` are Farming-owned control traffic. They must not
       // make a fresh Terminal look user-authored, because that would remove
       // the safe fresh-session path into ACP Chat before the provider has

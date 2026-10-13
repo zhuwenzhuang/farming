@@ -65,7 +65,10 @@ async function run() {
         return {
           status: 'running',
           previewText: profilePreview,
-          output: profilePreview,
+          // Captured shape from a real cursor-addressed Codex notification:
+          // these cursor jumps create spaces and a line in the screen reducer,
+          // but removing ANSI produces `Servicetiersettodefault`.
+          output: '\x1b[15;1H\x1b[2m• \x1b[22mService\x1b[15;11Htier\x1b[15;16Hset\x1b[15;20Hto\x1b[15;23Hdefault',
           renderOutput: profilePreview,
         };
       },
@@ -87,6 +90,9 @@ async function run() {
         } else if (input === '4') {
           profilePreview = '• Service tier set to default\n\n• Model changed to gpt-5.6-sol xhigh\n\ngpt-5.6-sol xhigh · /tmp';
         } else if (Array.isArray(input) && input[0]?.text === '/fast') {
+          if (profilePreview.includes('• Fast mode is on.')) {
+            profilePreview += '\n• Service tier set to default';
+          }
           // Leave the confirmation pending. The next user input must be
           // accepted after the complete direct command, without waiting for
           // this output to arrive.
@@ -115,7 +121,7 @@ async function run() {
         model: 'gpt-5.6-sol',
         effort: 'xhigh',
         serviceTier: 'priority',
-      }),
+      }, { timeoutMs: 1000 }),
       manager.sendInput('agent-profile', [{ type: 'paste', text: 'after profile' }, '\r']),
     ]);
     assert.deepStrictEqual(profileCalls.map(call => call.input), [
@@ -148,6 +154,16 @@ async function run() {
       },
       'a confirmed Terminal profile should be published immediately instead of waiting for another PTY preview'
     );
+
+    const tierOffCalls = profileCalls.length;
+    await manager.setCodexTerminalProfile('agent-profile', {
+      model: 'gpt-5.6-sol',
+      effort: 'xhigh',
+      serviceTier: 'default',
+    }, { timeoutMs: 1000 });
+    assert.deepStrictEqual(profileCalls.slice(tierOffCalls).map(call => call.input), [
+      [{ type: 'paste', text: '/fast' }, '\r'],
+    ], 'rendered cursor-addressed tier confirmation must settle one toggle without replay');
 
     const identitySessionId = '019fc332-185d-73f2-b1be-0054f2778cab';
     const identityCalls = [];

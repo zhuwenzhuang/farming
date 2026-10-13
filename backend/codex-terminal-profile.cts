@@ -125,6 +125,7 @@ interface ApplyCodexTerminalProfileOptions {
   onInputSafe?: () => void;
   pollIntervalMs?: number;
   profile: CodexTerminalProfileTarget | null | undefined;
+  /** Authoritative rendered checkpoint text, never raw PTY cursor history. */
   readOutput?: AsyncReader;
   readPreview: AsyncReader;
   sendInput: SendInput;

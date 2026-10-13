@@ -130,6 +130,12 @@ scrolling window, multi-digit and off-window targets advance one confirmed
 highlight at a time. A complete cursor cycle proves absence; missing or stalled
 cursor feedback fails within the same deadline.
 
+Profile confirmations read fresh text from the authoritative native screen
+checkpoint. Raw PTY cursor commands carry positions rather than plain-text word
+and line boundaries; removing ANSI is not a rendered-text projection. A Fast
+change retains the pre-command confirmation snapshot, one deadline and the
+existing input/runtime fence; observation never replays the toggle.
+
 ## Session Continuity
 
 The provider Session id is the authoritative Codex conversation identity.
