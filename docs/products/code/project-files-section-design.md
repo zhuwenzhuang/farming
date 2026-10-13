@@ -711,7 +711,10 @@ non-HTTP(S), or invalid rules remain plain text.
   Copy toolbar. Copy takes the selection, or the displayed draft when no
   text is selected, and reports success or failure. Native edits and selections
   update the existing editor model; working-copy permissions and save/conflict
-  handling remain shared. Clipboard completion cannot update a replaced file;
+  handling remain shared. File-link, search and history navigation project the
+  shared selection into the visible source and reveal its target; explicit editor
+  focus goes to that source. Primary coarse input selects this surface under the
+  shared compact viewport limit. Clipboard completion cannot update a replaced file;
   an unresolved write reports an unconfirmed outcome after five seconds.
   Text inputs stay at least 16px; file gestures allow pan and pinch without
   double-tap zoom. Native context menus remain available for selection and copy.

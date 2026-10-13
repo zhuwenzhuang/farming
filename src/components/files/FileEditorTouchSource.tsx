@@ -3,7 +3,7 @@ import * as monaco from 'monaco-editor'
 import { writeClipboardText } from '@/lib/clipboard'
 import type { CodeCopy } from '../code/copy'
 
-const TOUCH_SOURCE_QUERY = '(max-width: 980px) and (any-pointer: coarse)'
+const TOUCH_SOURCE_QUERY = '(max-width: 980px) and (pointer: coarse)'
 
 // Native textareas normalize CRLF to LF. Convert their offsets without changing
 // the file's line endings or selecting the wrong text after the first line.
@@ -24,15 +24,44 @@ export function useTouchFileSource() {
   return enabled
 }
 
-export function FileEditorTouchSource({ value, readOnly, editorRef, label, activeTabDomId, copy }: {
+/** Project the shared selection into native LF offsets and reveal its start. */
+export function projectTouchFileSelection(textarea: HTMLTextAreaElement, selection: monaco.IRange) {
+  const lines = textarea.value.split('\n')
+  const offset = (line: number, column: number) => {
+    const index = Math.min(Math.max(line - 1, 0), lines.length - 1)
+    return lines.slice(0, index).reduce((total, text) => total + text.length + 1, 0)
+      + Math.min(Math.max(column - 1, 0), lines[index]!.length)
+  }
+  const start = offset(selection.startLineNumber, selection.startColumn)
+  const end = offset(selection.endLineNumber, selection.endColumn)
+  textarea.setSelectionRange(start, end)
+  // A textarea has no reveal-line API. Measure its wrapped prefix using its
+  // resolved native text geometry, rather than assuming one visual row per line.
+  const measure = document.createElement('div')
+  const style = getComputedStyle(textarea)
+  for (const property of ['font', 'line-height', 'letter-spacing', 'padding', 'box-sizing', 'tab-size', 'white-space', 'overflow-wrap']) {
+    measure.style.setProperty(property, style.getPropertyValue(property))
+  }
+  Object.assign(measure.style, { position: 'absolute', visibility: 'hidden', width: `${textarea.clientWidth}px` })
+  measure.textContent = textarea.value.slice(0, start)
+  const marker = document.createElement('span')
+  marker.textContent = '\u200b'
+  measure.append(marker)
+  document.body.append(measure)
+  const top = marker.getBoundingClientRect().top - measure.getBoundingClientRect().top
+  measure.remove()
+  textarea.scrollTop = Math.max(0, top - textarea.clientHeight / 2)
+}
+
+export function FileEditorTouchSource({ value, readOnly, editorRef, textareaRef, label, activeTabDomId, copy }: {
   value: string
   readOnly: boolean
   editorRef: RefObject<monaco.editor.IStandaloneCodeEditor | null>
+  textareaRef: RefObject<HTMLTextAreaElement | null>
   label: string
   activeTabDomId: string
   copy: CodeCopy
 }) {
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
   const copyRequestRef = useRef(0)
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const [feedback, setFeedback] = useState<'copying' | 'copied' | 'failed' | 'uncertain' | null>(null)
@@ -45,20 +74,26 @@ export function FileEditorTouchSource({ value, readOnly, editorRef, label, activ
     const textarea = textareaRef.current
     const editor = editorRef.current
     const model = editor?.getModel()
-    if (!textarea || !editor || !model) return
+    if (!textarea || !editor || !model
+      || textarea.value !== model.getValue(monaco.editor.EndOfLinePreference.LF)) return
     const start = positionAt(textarea.value, textarea.selectionStart)
     const end = positionAt(textarea.value, textarea.selectionEnd)
     editor.setSelection({ startLineNumber: start.lineNumber, startColumn: start.column,
-      endLineNumber: end.lineNumber, endColumn: end.column })
-  }, [editorRef])
+      endLineNumber: end.lineNumber, endColumn: end.column }, 'native-file-selection')
+  }, [editorRef, textareaRef])
 
   useEffect(() => {
     const textarea = textareaRef.current
     // React's synthetic onSelect depends on keyboard/mouse events. Native
     // selection handles and setSelectionRange also emit the DOM select event.
     textarea?.addEventListener('select', syncSelection)
+    const model = editorRef.current?.getModel()
+    const selection = editorRef.current?.getSelection()
+    if (textarea && selection && textarea.value === model?.getValue(monaco.editor.EndOfLinePreference.LF)) {
+      projectTouchFileSelection(textarea, selection)
+    }
     return () => textarea?.removeEventListener('select', syncSelection)
-  }, [syncSelection])
+  }, [editorRef, syncSelection, textareaRef])
 
   const changeText = (next: string) => {
     const editor = editorRef.current

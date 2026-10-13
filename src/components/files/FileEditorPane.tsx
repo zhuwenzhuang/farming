@@ -290,6 +290,7 @@ export function FileEditorPane({
   const {
     editorHostRef,
     editorRef,
+    touchTextareaRef,
     cursorPosition,
     modelStatus,
     revealLine: revealBlameLine,
@@ -725,6 +726,7 @@ export function FileEditorPane({
               editorMode={editorMode}
               editorHostRef={editorHostRef}
               editorRef={editorRef}
+              touchTextareaRef={touchTextareaRef}
               readOnly={readOnly}
               lineChanges={lineChanges}
               modelStatus={modelStatus}

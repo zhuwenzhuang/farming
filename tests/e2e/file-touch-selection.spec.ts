@@ -103,3 +103,52 @@ test('native file selection, copy and edits on touch screens @iphone-human', asy
   await expect(save).toHaveCount(0)
   await expect(page.getByTestId('code-file-large-text-alert')).toBeVisible()
 })
+
+test('file-line navigation reveals native touch selection across viewport transitions @iphone-human', async ({ page, workspaceRoot, isMobile }) => {
+  test.skip(!isMobile, 'Touch navigation surface')
+  const workspace = path.join(workspaceRoot, 'touch-file-navigation')
+  fs.mkdirSync(workspace, { recursive: true })
+  const lines = Array.from({ length: 120 }, (_, index) => `Line ${index + 1}: native file navigation`)
+  const text = lines.join('\n') + '\n'
+  fs.writeFileSync(path.join(workspace, 'target.txt'), text.replaceAll('\n', '\r\n'))
+  const response = await page.request.post('/farming/api/control/agents', {
+    data: { command: 'codex', workspace, agentRuntimeMode: 'chat' },
+  })
+  expect(response.ok()).toBeTruthy()
+  const { agentId } = await response.json() as { agentId: string }
+  const identityResponse = await page.request.get(`/farming/api/agents/${agentId}/acp-transcript?maxTurns=5&media=external-v1`)
+  expect(identityResponse.ok()).toBeTruthy()
+  const identity = await identityResponse.json() as { sessionId: string; runtimeEpoch: string; toRevision: number }
+  const revision = Number(identity.toRevision) + 1_000_000
+  await page.route(new RegExp(`/farming/api/agents/${agentId}/acp-transcript(?:\\?.*)?$`), route => route.fulfill({
+    json: {
+      version: 1, agentId, sessionId: identity.sessionId, runtimeEpoch: identity.runtimeEpoch,
+      fromRevision: null, toRevision: revision, replace: true, settled: true, hasMoreBefore: false,
+      transcript: { sessionId: identity.sessionId, provider: 'codex', revision, state: 'idle', entries: [
+        { id: 'question', type: 'message', role: 'user', content: [{ type: 'text', text: 'Locate the file line.' }] },
+        { id: 'answer', type: 'message', role: 'assistant', _meta: { codex: { phase: 'final_answer' } }, content: [{ type: 'text', text: 'Inspect `target.txt:80`.' }] },
+      ] },
+    },
+  }))
+  await openFarming(page)
+  await page.getByTestId('code-mobile-menu').tap()
+  await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).tap()
+  await page.getByRole('link', { name: 'target.txt:80', exact: true }).tap()
+  const input = page.getByTestId('code-file-touch-source').getByRole('textbox')
+  await expect(input).toHaveValue(text)
+  const offset = lines.slice(0, 79).reduce((sum, line) => sum + line.length + 1, 0)
+  await expect.poll(() => input.evaluate(element => [element.selectionStart, element.selectionEnd])).toEqual([offset, offset])
+  await expect(input).toBeFocused()
+  expect(await input.evaluate(element => element.scrollTop)).toBeGreaterThan(0)
+  // Native selection remains owned by the shared model when switching surfaces.
+  await input.evaluate((element, start) => element.setSelectionRange(start + 2, start + 9), offset)
+  await expect.poll(() => page.evaluate(() => window.__farmingFileEditorTest?.getPosition())).toEqual({ lineNumber: 80, column: 10 })
+  const compact = page.viewportSize()!
+  await page.setViewportSize({ width: 1200, height: 900 })
+  await expect(input).toHaveCount(0)
+  await expect(page.getByTestId('code-file-monaco')).toBeVisible()
+  await page.setViewportSize(compact)
+  await expect(input).toHaveValue(text)
+  await expect.poll(() => input.evaluate(element => [element.selectionStart, element.selectionEnd])).toEqual([offset + 2, offset + 9])
+  expect(await input.evaluate(element => element.scrollTop)).toBeGreaterThan(0)
+})

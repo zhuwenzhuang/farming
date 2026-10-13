@@ -35,6 +35,7 @@ import {
   markLanguageServerModelDirty,
 } from '../../../extensions/language-server/frontend/monaco-providers'
 import { useFileEditorTestBridge } from './useFileEditorTestBridge'
+import { projectTouchFileSelection } from './FileEditorTouchSource'
 
 interface UseFileEditorMonacoControllerOptions {
   openFile: OpenWorkspaceFile
@@ -83,6 +84,7 @@ export function useFileEditorMonacoController({
   onOpenContextMenuRef,
 }: UseFileEditorMonacoControllerOptions) {
   const editorHostRef = useRef<HTMLDivElement>(null)
+  const touchTextareaRef = useRef<HTMLTextAreaElement>(null)
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null)
   const editorViewStatesRef = useRef(new Map<string, monaco.editor.ICodeEditorViewState | null>())
   const activeEditorModelKeyRef = useRef<string | null>(null)
@@ -138,19 +140,33 @@ export function useFileEditorMonacoController({
     ))
   }, [])
 
+  const projectNativeSelection = useCallback(() => {
+    const textarea = touchTextareaRef.current
+    const editor = editorRef.current
+    const selection = editor?.getSelection()
+    const model = editor?.getModel()
+    if (!textarea || !selection || !model || !textarea.getClientRects().length
+      || textarea.value !== model.getValue(monaco.editor.EndOfLinePreference.LF)) return
+    projectTouchFileSelection(textarea, selection)
+  }, [])
+
   const focusEditor = useCallback(() => {
     // A later focus transfer belongs to its destination. Replaying this focus
     // on the next frame can steal it back from the tree or another page.
-    editorRef.current?.focus()
-  }, [])
+    const textarea = touchTextareaRef.current
+    if (textarea?.getClientRects().length) {
+      projectNativeSelection()
+      textarea.focus({ preventScroll: true })
+    } else editorRef.current?.focus()
+  }, [projectNativeSelection])
 
   const revealLine = useCallback((lineNumber: number, options: { focusEditor?: boolean } = {}) => {
     const editor = editorRef.current
     if (!editor) return
     editor.setPosition({ lineNumber, column: 1 })
     editor.revealLineInCenter(lineNumber)
-    if (options.focusEditor !== false) editor.focus()
-  }, [])
+    if (options.focusEditor !== false) focusEditor()
+  }, [focusEditor])
 
   const saveEditorReadingAnchor = useCallback((editor: monaco.editor.IStandaloneCodeEditor | null) => {
     if (!editor) return
@@ -240,6 +256,9 @@ export function useFileEditorMonacoController({
       trace?.mark('draft')
       if (trace) afterInteractionFrame(trace, editorHostRef.current)
     })
+    const nativeSelectionSubscription = editor.onDidChangeCursorSelection(event => {
+      if (event.source !== 'native-file-selection' && event.source !== 'native-file-input') projectNativeSelection()
+    })
     cursorSubscriptionRef.current = editor.onDidChangeCursorPosition(event => {
       updateCursorPosition(editor)
       saveEditorReadingAnchor(editor)
@@ -306,6 +325,7 @@ export function useFileEditorMonacoController({
       } else {
         viewportMedia.removeListener(handleViewportMediaChange)
       }
+      nativeSelectionSubscription.dispose()
       cursorSubscriptionRef.current?.dispose()
       cursorSubscriptionRef.current = null
       scrollSubscriptionRef.current?.dispose()
@@ -323,7 +343,7 @@ export function useFileEditorMonacoController({
       editorRef.current = null
       activeEditorModelKeyRef.current = null
     }
-  }, [onOpenContextMenuRef, saveEditorReadingAnchor, updateCursorPosition])
+  }, [onOpenContextMenuRef, projectNativeSelection, saveEditorReadingAnchor, updateCursorPosition])
 
   useEffect(() => {
     const editor = editorRef.current
@@ -344,7 +364,8 @@ export function useFileEditorMonacoController({
     const shouldApplyExternalContent = previousModelId !== nextModelKey
       || previousSyncedVersion !== nextModelVersion
       || (!openFile.dirty && model.getValue() !== openFile.draft)
-    if (shouldApplyExternalContent && model.getValue() !== openFile.draft) {
+    const applyExternalContent = shouldApplyExternalContent && model.getValue() !== openFile.draft
+    if (applyExternalContent) {
       suppressEditorChangeRef.current += 1
       try {
         model.setValue(openFile.draft)
@@ -374,9 +395,11 @@ export function useFileEditorMonacoController({
       activeEditorModelKeyRef.current = nextModelKey
     }
     updateCursorPosition(editor)
+    if (previousModelId !== nextModelKey || applyExternalContent) projectNativeSelection()
     navigationPerformanceReady('file.open', filePerformanceKey(openFile.agentId, openFile.file.path), editorHostRef.current)
   }, [
     openFile,
+    projectNativeSelection,
     updateCursorPosition,
   ])
 
@@ -400,7 +423,7 @@ export function useFileEditorMonacoController({
     try {
       editor.setSelection(selection)
       editor.revealLineInCenter(selection.startLineNumber)
-      editor.focus()
+      focusEditor()
     } finally {
       window.setTimeout(() => {
         suppressNavigationCursorRef.current = Math.max(0, suppressNavigationCursorRef.current - 1)
@@ -411,7 +434,7 @@ export function useFileEditorMonacoController({
       lineNumber: selection.startLineNumber,
       column: selection.startColumn,
     })
-  }, [openFile.cursor, openFile.file.path])
+  }, [focusEditor, openFile.cursor, openFile.file.path])
 
   useEffect(() => {
     const requestId = openFile.focusEditorRequestId
@@ -442,6 +465,7 @@ export function useFileEditorMonacoController({
   return {
     editorHostRef,
     editorRef,
+    touchTextareaRef,
     cursorPosition,
     modelStatus,
     focusEditor,

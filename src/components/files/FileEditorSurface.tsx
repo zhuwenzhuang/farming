@@ -46,6 +46,7 @@ interface FileEditorSurfaceProps {
   editorMode: WorkspaceEditorFileMode
   editorHostRef: RefObject<HTMLDivElement | null>
   editorRef: RefObject<monaco.editor.IStandaloneCodeEditor | null>
+  touchTextareaRef: RefObject<HTMLTextAreaElement | null>
   readOnly: boolean
   lineChanges: FileEditorLineChangesState | null
   modelStatus: FileEditorModelStatus
@@ -125,6 +126,7 @@ export function FileEditorSurface({
   editorMode,
   editorHostRef,
   editorRef,
+  touchTextareaRef,
   readOnly,
   lineChanges,
   modelStatus,
@@ -188,6 +190,7 @@ export function FileEditorSurface({
           value={openFile.draft}
           readOnly={readOnly}
           editorRef={editorRef}
+          textareaRef={touchTextareaRef}
           label={copy.editorFor(openFile.file.path)}
           activeTabDomId={activeTabDomId}
           copy={copy}

@@ -55,7 +55,7 @@ export function useFileEditorTestBridge({
         const targetColumn = Math.min(Math.max(1, column), model.getLineMaxColumn(targetLine))
         editor.setPosition({ lineNumber: targetLine, column: targetColumn })
         editor.revealLineInCenter(targetLine)
-        editor.focus()
+        onFocusEditor()
         return true
       },
       insertText(text: string) {
@@ -70,13 +70,13 @@ export function useFileEditorTestBridge({
           forceMoveMarkers: true,
         }])
         editor.pushUndoStop()
-        editor.focus()
+        onFocusEditor()
         return true
       },
       undo() {
         const editor = editorRef.current
         if (!editor) return false
-        editor.focus()
+        onFocusEditor()
         editor.trigger('farming-e2e', 'undo', null)
         return true
       },
