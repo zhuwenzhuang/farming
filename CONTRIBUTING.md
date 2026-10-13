@@ -54,6 +54,15 @@ For product screenshot or documentation changes:
 npm run docs:product:screenshots
 ```
 
+## Refactoring
+
+Refactoring preserves behavior, exact ownership, and bounded failure/recovery
+unless a separately scoped product change requires otherwise. Each slice keeps
+one production path and removes its superseded implementation. Review the total
+complexity and state ownership, not just the size of the extracted file; do not
+weaken behavioral tests to accommodate a move. Physical splits should follow an
+existing component or pure-function boundary without adding mutable state.
+
 ## Documentation
 
 Update the canonical document for the affected reader:

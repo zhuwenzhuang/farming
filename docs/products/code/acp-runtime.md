@@ -42,9 +42,6 @@ prompt. Stopping the parent releases its exact Side Chat and owned Browser and
 Computer resources; an unavailable parent rejects child messages. Uncertain
 creation or cleanup stays blocked for authoritative reconciliation.
 
-The [Related Sessions design](related-sessions-design.md) describes the broader
-composition and interaction model.
-
 ### Reading native related conversations
 
 Native children are observed through their existing parent runtime. The client

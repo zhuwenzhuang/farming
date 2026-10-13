@@ -214,6 +214,10 @@ Generated and local-only paths such as `dist/`, `dist-release/`, `.tmp/`,
 
 Update documentation in the same change when behavior or structure changes:
 
+- Keep exploratory research, proposed designs, implementation plans, and execution
+  retrospectives local and untracked. Commit current product contracts, architecture,
+  operating procedures, and verification requirements in their canonical documents.
+
 - Keep documentation edits minimal and local to the requested behavior. Unless
   the user explicitly asks for a redesign or rewrite, do not opportunistically
   reorganize information architecture, replace page structure or visual design,
@@ -295,4 +299,4 @@ development and product documents for subsystem-specific gates.
 - Do not infer a manual approval requirement from a staging state alone: npm
   staging can also mean automated validation. Verify authoritative status before
   asking the user to intervene or retrying publication; follow the
-  [release publication contract](docs/development/release-pipeline-acceleration-plan.md#a5-publish-npm-last).
+  [release publication contract](docs/development/release-verification-and-publication.md#publish-npm-last).

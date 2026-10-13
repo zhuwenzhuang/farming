@@ -27,14 +27,12 @@ the [documentation home](../README.md).
 - [UI design protocol](ui-design-protocol.md)
 - [UI interaction protocol](ui-interaction-protocol.md)
 - [Composer input](../products/code/composer-input.md)
-- [Related Sessions and Side Chat proposal](../products/code/related-sessions-design.md)
 - [Public documentation site](documentation-site.md)
 - [Farming Desktop MVP](../products/code/desktop-app.md)
 - [Desktop Native Browser View](../products/code/desktop-native-browser.md)
 - [Extension and Resource model](../products/code/extension-model.md)
 - [Chrome extension Browser](../products/code/chrome-extension-browser.md)
 - [Language Server](../products/code/language-server.md)
-- [Language tooling, execution, and debugging proposal](../products/code/language-tooling-design.md)
 - [Project Files design](../products/code/project-files-section-design.md)
 - [Rest reminder state model](../products/code/rest-reminder.md)
 - [Workspace file state model](../products/code/workspace-file-state-model.md)
@@ -44,13 +42,10 @@ the [documentation home](../README.md).
 
 ## Verification
 
+- [Release verification and publication](release-verification-and-publication.md)
 - [Interaction performance diagnostics](interaction-performance.md)
 - [Acceptance and dogfood plan](../products/code/test/acceptance-dogfood-plan.md)
 - [Real Codex cross-interface case](../products/code/real-codex-release-case.md)
-
-## Refactoring
-
-- [Structural refactor plan](structural-refactor-plan.md)
 
 Development documents may contain protocols, state machines, invariants, and
 test evidence. Those details should not be copied into repository or product

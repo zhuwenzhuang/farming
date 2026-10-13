@@ -12,7 +12,7 @@ Release policy exception: when the release coordinator itself runs on Linux,
 this iOS acceptance is recorded as `skipped-linux-coordinator-rule` and is not
 a blocking release gate. Mobile browser automation and responsive-appearance
 acceptance remain required; see the
-[release pipeline plan](../../../development/release-pipeline-acceleration-plan.md)
+[release verification contract](../../../development/release-verification-and-publication.md)
 for the complete boundary.
 
 ## Run

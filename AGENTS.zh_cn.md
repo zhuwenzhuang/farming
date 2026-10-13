@@ -180,6 +180,9 @@ Farming Backend
 
 行为或结构变化时，在同一个改动中更新文档：
 
+- 探索性调研、拟议设计、实施计划和执行复盘仅保留在本地，不纳入版本控制。
+  提交的权威文档应描述现行产品契约、架构、操作流程和验证要求。
+
 - 文档改动必须保持最小化，并局限于需求涉及的行为。除非用户明确要求重新设计或
   重写，否则在增加功能说明或发布说明时，不得顺手重组信息架构、替换页面结构或
   视觉设计，也不得大幅改写既有内容。
@@ -243,4 +246,4 @@ npm run test:e2e:playwright
 - 通过仓库脚本与 Workflow 构建和发布；不得提交生成的 Release Artifact。
 - 不得仅凭暂存状态推断需要人工批准：npm 暂存也可能表示自动校验中。要求用户
   介入或重试发布前，必须核对权威状态，并遵循
-  [发布契约](docs/development/release-pipeline-acceleration-plan.zh_cn.md#a5-npm-最后发布)。
+  [发布契约](docs/development/release-verification-and-publication.zh_cn.md#npm-最后发布)。

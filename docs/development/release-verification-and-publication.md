@@ -1,17 +1,10 @@
-# Release, Test Feedback, And Diagnosis Efficiency Plan
+# Release Verification And Publication
 
-> Chinese version: [release-pipeline-acceleration-plan.zh_cn.md](./release-pipeline-acceleration-plan.zh_cn.md)
+> Chinese version: [release-verification-and-publication.zh_cn.md](./release-verification-and-publication.zh_cn.md)
 
-Status: Implementing and measuring
-
-This plan improves one end-to-end path: a maintainer asks to release a version,
-the exact candidate is checked, any blocker is diagnosed and fixed, publishable
-artifacts are verified, GitHub Release becomes publicly usable, and only then is
-the npm package published.
-
-The plan does not remove investigation or bug-fixing time from the measurement.
-The clock starts when the release request is accepted and does not reset after a
-failure or a fix.
+This document owns release preparation, exact-candidate verification, publication,
+and failure recovery. The release clock starts when the request is accepted and
+includes investigation, fixes, queueing and publication.
 
 ## Objectives
 
@@ -166,13 +159,6 @@ failure and counts in total release time. It does not authorize repeated full
 documentation builds or a longer hidden wait; independent preparation lanes
 continue while the documentation domain remains blocked.
 
-This rule was added after Documentation run `#18` on 2026-08-06 built and
-uploaded its artifact in 28 seconds but remained `deployment_queued` for the
-full ten-minute action timeout. A deploy-only retry and a fresh 23-second build
-both reproduced the queue stall. The candidate-wide monitor now discovers this
-domain automatically, while the workflow makes the external failure terminal
-within three minutes.
-
 ### Automated interaction and Computer Use are separate
 
 Playwright human-story tests and real-provider browser composites are automated
@@ -254,276 +240,7 @@ journey, inputs, or shared contracts changed become stale. An unaffected lane
 may be carried forward only with explicit diff-based invalidation proof and its
 original SHA; it is never represented as exact-SHA artifact evidence.
 
-### Component timing validation on 2026-08-06
-
-The layered gates were exercised independently before the next exact release:
-
-| Component | Measured wall time |
-| --- | ---: |
-| Final local `npm run check`, 303/303 tests green | 1 min 51.03 sec |
-| Focused sharing Playwright, including local build/start | 15.20 sec |
-| Real-Codex live baseline, including local build/start | 15.43 sec |
-| Full real-provider Code/CRT/Terminal composite | 2 min 11.42 sec |
-| Four isolated Linux Desktops started in parallel to healthy | 12.809 sec |
-
-The remote Desktop measurement ran while five existing Computer containers
-remained healthy, and every timing container was removed afterward by exact
-identity. It proves pool startup and parallel capacity, not the duration of a
-multi-Agent Computer Use journey. That end-to-end lane time must be measured on
-the next exact candidate deployment and included in the release campaign.
-
-### Current end-to-end status on 2026-08-06
-
-The current normal-release estimate is:
-
-```text
-about 20 sec candidate selection and dispatch
-+ max(exact-SHA CI, artifacts, automated interaction, Computer Use)
-+ about 2 min serial GitHub verification and npm publication
-```
-
-The latest complete end-to-end release, v2.2.45, took 10 minutes 4 seconds with
-exact-SHA CI at 7 minutes 47 seconds and all artifacts ready at 4 minutes 26
-seconds. The new automated interaction gates are below that critical path: the
-heaviest measured composite is 2 minutes 11.42 seconds.
-
-If the slowest parallel Computer Use lane finishes within seven minutes, the
-expected normal release remains approximately 9 minutes 30 seconds to 10
-minutes. This is the current operating estimate, not yet a proven new
-end-to-end result. The next exact candidate must measure the complete multi-Agent
-Computer Use fan-out and publication path before the ten-minute objective is
-considered demonstrated.
-
-## v2.2.41 Baseline
-
-The afternoon release session ran from 13:22 to 17:20. Six CI runs consumed 90
-minutes, two Release runs consumed 23 minutes, and local review, diagnosis, and
-fixing consumed about 127 minutes.
-
-| Time | Event | Duration |
-| --- | --- | ---: |
-| 13:22–13:56 | Review 32 changed files and create the first candidate | 34 min |
-| 13:56–14:00 | CI finds five backend test failures | 4 min |
-| 14:00–14:08 | Fix package-image validation | 8 min |
-| 14:09–14:25 | CI finds a browser-test failure | 17 min |
-| 14:25–14:31 | Fix transcript-focus test setup | 5 min |
-| 14:31–14:48 | CI finds persisted-anchor failure | 17 min |
-| 14:48–15:17 | Change anchor restoration and tests | 29 min |
-| 15:18–15:35 | CI succeeds | 17 min |
-| 15:35–15:40 | Release finds missing Computer schema in native CLI | 5 min |
-| 15:40–15:46 | Fix native CLI packaging | 6 min |
-| 15:47–16:04 | CI exposes the persisted-anchor failure again | 18 min |
-| 16:05–16:44 | Correct the test lifecycle and oracle | 39 min |
-| 16:44–17:01 | Final CI succeeds | 17 min |
-| 17:02–17:20 | Final Release succeeds | 19 min |
-
-The final successful Release workflow took 18 minutes 39 seconds:
-
-| Stage | Observed duration |
-| --- | ---: |
-| Candidate preflight | 8 sec |
-| macOS arm64 artifacts | 2 min 40 sec |
-| macOS x64 artifacts | 5 min 5 sec |
-| Linux artifacts | 9 min 22 sec |
-| npm job | 6 min 59 sec |
-| Stage GitHub Release | 1 min 42 sec |
-| Publish GitHub Release | 5 sec |
-
-## v2.2.42 Timed Result And Second-Pass Findings
-
-The first accelerated candidate used SHA
-`e4afb2fd261746cdf5baed3207911a4aab467ca6`. Exact-SHA CI completed in
-9 minutes 17 seconds. The GitHub Release became public after 16 minutes 8
-seconds; npm remained unpublished because its final job failed closed.
-
-| Critical path | Observed duration | Direct cause |
-| --- | ---: | --- |
-| CI | 9 min 17 sec | Chromium shard 9 ran tests for 6 min 3 sec; iPhone WebKit spent 3 min 54 sec in `npm ci` |
-| Linux artifacts | 10 min 21 sec | CLI, standard app, and legacy app build and smoke were serialized |
-| macOS x64 artifacts | 7 min 12 sec | CLI and app work were serialized |
-| macOS arm64 artifacts | 13 min 55 sec | `npm ci` took 5 min 23 sec and app extraction plus smoke took 4 min 6 sec |
-| Stage GitHub Release | 1 min 37 sec | dependency installation took 30 sec and manifest generation hashed large assets twice |
-| npm publication | failed in 13 sec | npm 12 interpreted a tarball path without `./` as a GitHub package specifier (`EALLOWGIT`) |
-
-The macOS arm64 install log identified the main installation waste rather than
-runner queueing: repository `npm ci` invoked Farming's installed-package
-postinstall, downloaded Claude Code and agent-browser into an approximately
-846 MB throwaway runtime seed, and retried a slow mirror before the public npm
-registry. Source CI and release build checkouts do not consume that seed.
-
-The second pass therefore applies these concrete changes together:
-
-- source CI and release preparation skip installed-package runtime seeding;
-- Linux CLI, standard app, and legacy app are independent parallel jobs;
-- macOS CLI and app packaging are independent jobs for each architecture;
-- app smoke runs against the exact retained assembly directory, avoiding a
-  compress-then-extract cycle before testing;
-- already compressed release assets use artifact compression level zero;
-- manifest generation reuses the generated checksums instead of hashing every
-  large asset twice;
-- Chromium uses twelve file-level shards and uploads traces, screenshots, and
-  reports only on failure;
-- npm publication uses an explicit relative tarball path.
-
-## v2.2.43 Timed Result And Third-Pass Changes
-
-The v2.2.43 campaign completed successfully from exact candidate acceptance to
-npm verification in 12 minutes 41 seconds. Release artifact preparation was no
-longer the critical path: every platform and npm artifact was verified within
-4 minutes 52 seconds. Exact-SHA CI and the publication tail remained.
-
-| Remaining work | Observed duration or delay |
-| --- | ---: |
-| All reversible release artifact preparation | 4 min 52 sec |
-| Exact-SHA CI | 8 min 38 sec |
-| Chromium shard 3 queue delay at the measured 20-job account ceiling | 2 min 5 sec |
-| Slowest Chromium test execution | 6 min 15 sec |
-| Stage GitHub Release | 1 min 23 sec |
-| npm publication and `gitHead` visibility | 1 min 15 sec |
-
-The next pass fits the workflow to the measured remote capacity instead of
-creating more queued jobs:
-
-- nine Chromium jobs use balanced single-worker assignment, distributing 344
-  tests as 39/39/38/38/38/38/38/38/38;
-- the dedicated CI-wait job is removed, freeing one hosted runner slot;
-- release staging downloads and hashes already verified assets while CI
-  finishes, then checks exact-SHA CI immediately before tag/draft creation;
-- verified app `RELEASE.json` sidecars replace re-reading four large compressed
-  archives during manifest generation;
-- npm publication suppresses the 20,000-file notice listing and avoids an
-  unnecessary global npm upgrade in the publication job.
-
-## v2.2.44 Timed Result And Fourth-Pass Changes
-
-The v2.2.44 campaign made the GitHub Release publicly usable and verified in
-9 minutes 48 seconds, but npm publication failed closed at 11 minutes 6
-seconds. CI still took 8 minutes 30 seconds.
-
-Two exact causes remained:
-
-- Playwright's built-in fully-parallel sharding balances test count by
-  contiguous list ranges. Shard 6 received 20 adjacent Pet tests and became the
-  6 minute 50 second job, while other shards finished much earlier.
-- Removing the npm CLI upgrade exposed runner npm 10, which cannot complete the
-  repository's current OIDC Trusted Publishing path and returned a registry PUT
-  404 after 50 seconds. npm 12 is therefore a required publication dependency,
-  not removable setup waste.
-
-The fourth pass restores npm 12 and replaces contiguous Playwright sharding
-with a repository script that discovers exact test locations and stripes
-adjacent location groups across nine shards. Each shard remains one worker;
-generated tests sharing one source location remain atomic.
-
-## v2.2.45 Timed Result And Fifth-Pass Changes
-
-The corrected v2.2.45 candidate completed exact-SHA CI in 7 minutes 47
-seconds and the complete GitHub-plus-npm release in 10 minutes 4 seconds. All
-release artifacts were ready in 4 minutes 26 seconds, so platform packaging was
-not the critical path. The quick-fix campaign, including the first failed
-candidate, took 15 minutes 24 seconds.
-
-The remaining four-second miss came from two concrete tails:
-
-- Chromium shard 4 ran for 6 minutes 10 seconds even though every shard had 38
-  or 39 tests. A measured run showed one test at about 75 seconds and several
-  at 12 to 21 seconds, proving that test-count balance was not duration balance.
-- CI completion was followed by three separately scheduled Jobs for GitHub
-  publication, public verification, and npm publication. Their repeated runner
-  setup and scheduling added avoidable latency after all reversible work was
-  already complete.
-
-The fifth pass uses measured location-duration weights and longest-processing-
-time assignment across the existing nine single-worker Chromium Jobs. The
-predicted shard loads are now 266 to 273 seconds without adding CI work or
-remote concurrency. It also keeps staging, GitHub publication, public asset
-verification, and npm publication in one Job. npm setup and tarball download
-occur while exact-SHA CI is still running; npm publication remains the final
-step after public GitHub verification.
-
-The repository now provides `scripts/release-snapshot.sh` for one initial
-candidate snapshot and `scripts/watch-run.sh` for script-owned monitoring and a
-bounded failure bundle. This removes the need for repeated Agent polling.
-Each GitHub observation has a 30-second request deadline. A transport failure
-preserves the last successful checkpoint and triggers another read of the same
-workflow identity; it does not authorize a new dispatch or publication. A
-one-pass publication check fails closed if that fresh read is unavailable.
-
-## v2.2.55 Retrospective And Artifact-Reuse Change
-
-The v2.2.55 campaign took 6 hours 46 minutes 12 seconds from request to npm
-verification, while the final accepted candidate needed only 7 minutes 40
-seconds to publish. Candidate preparation and defect convergence dominated the
-campaign, but the workflow also rebuilt all platform and npm artifacts whenever
-candidate-workflow or Computer Use acceptance arrived after the publication
-job's bounded wait.
-
-The two observed publication attempts exposed the avoidable retry cost:
-
-- one attempt waited 8 minutes for candidate workflows and then failed;
-- one attempt waited 10 minutes for Computer Use acceptance and then failed;
-- each retry rescheduled and rebuilt roughly 5 minutes of already verified
-  Linux, macOS, and npm artifacts before publication could resume.
-
-Release preparation and publication are now separate workflows. `release.yml`
-builds, verifies, smokes, and stores the exact artifacts once.
-`publish-release.yml` accepts only a successful preparation run whose workflow
-path and `head_sha` match the full candidate SHA, downloads artifacts from that
-exact run, checks candidate push workflows and release acceptance once, then
-preserves the GitHub-public-verification-before-npm order. A late acceptance or
-publication retry therefore reuses verified artifacts instead of repeating the
-platform fan-out.
-
-The repository also provides `npm run release:fast-screen`. Its independent
-release metadata, dependency policy, Browser lifecycle, ACP replacement,
-packaging identity, and workflow-contract gates run in parallel. On 2026-08-20
-the eight-gate screen completed locally in 3.06 seconds, well below the two-minute
-early-feedback target.
-
-The default screen also runs `npm audit --omit=dev` so production dependency
-advisories are detected before artifact assembly.
-
-## Confirmed Sources Of Waste
-
-### Agent investigation
-
-- Before the first push, the Agent ran typecheck, lint, build, and npm smoke,
-  but did not run the exact ordinary CI gate, `npm run check`. CI then found five
-  backend failures that were locally discoverable.
-- The persisted-anchor scenario was executed locally with repeat counts of 3,
-  10, 10, and 15. Repetition replaced a single state-transition trace.
-- The afternoon session issued 31 `gh run view`, 14 `gh run list`, 8
-  `gh run watch`, 51 `git diff`, 24 `git status`, 7 typechecks, and 7 lint runs.
-- Remote CI was repeatedly used to obtain the next diagnostic fact instead of
-  certifying a locally understood fix.
-
-### CI feedback
-
-- Browser shards cannot start until the `Check` job completes, although the
-  frontend build itself took only 11 seconds. They wait behind about 4 minutes
-  of repository checks.
-- Chromium shard 2 spent about 10 minutes in browser tests. Large spec files are
-  indivisible because Playwright uses `fullyParallel: false`, so six shards are
-  not balanced effectively.
-- Failed tests retry twice in CI. This is useful for evidence, but the first
-  failure is not packaged immediately into a concise diagnostic result.
-
-### Release workflow
-
-- Exact-SHA CI already ran `npm run check`, but Linux artifact construction ran
-  it again for 3 minutes 58 seconds and the npm job ran it a third time for 3
-  minutes 23 seconds.
-- CLI, normal app-bundle, and legacy app-bundle scripts rebuild frontend/runtime
-  output separately.
-- npm smoke builds one tarball, deletes it, and publication builds another.
-- Artifact preparation waits for full CI instead of running reversibly in
-  parallel with CI.
-- npm is currently published before the GitHub Release is created and made
-  public.
-- Agent monitoring repeatedly polls GitHub instead of returning one terminal
-  failure bundle.
-
-## Target End-To-End Flow
+## Release Flow
 
 ```text
 Release request for exact SHA and version
@@ -580,9 +297,9 @@ The coordinator allows independent domains to converge while one domain is
 blocked. Any cross-cutting change invalidates every domain whose inputs or
 acceptance contract may have changed.
 
-## Workstream A: Release Pipeline
+## Artifact And Publication Contract
 
-### A1. Split metadata validation from the CI gate
+### Metadata And CI Gates
 
 - A fast metadata job validates version, lockfile, release notes, branch, tag,
   and npm-version conflicts.
@@ -591,17 +308,14 @@ acceptance contract may have changed.
   they run in parallel with the CI gate.
 - Public GitHub and npm jobs depend on both the CI gate and all preparations.
 
-### A2. Remove repeated repository checks
+### Repository Verification
 
-- Remove `npm run check` from Linux artifact construction and npm publication.
+- Linux artifact construction and npm publication do not repeat `npm run check`.
 - Keep exact-SHA CI as the authoritative repository gate.
 - Keep every platform-, package-, architecture-, and runtime-specific verify
   and smoke step.
 
-This removes 7 minutes 21 seconds from the current Release critical path
-without reducing coverage.
-
-### A3. Parallelize independent packages and retain exact assembly output
+### Parallel Packages And Provenance
 
 - Run Linux CLI, standard app-bundle, and legacy app-bundle as three parallel
   jobs after one metadata gate.
@@ -650,7 +364,7 @@ without reducing coverage.
 - Keep all jobs reversible until exact-SHA CI and every package-specific gate
   are green.
 
-### A6. Separate source installation from product installation
+### Source And Product Installation
 
 - Source CI and release build checkouts set
   `FARMING_SKIP_INSTALL_RUNTIME_PREPARE=1`; they build and test source directly
@@ -661,9 +375,9 @@ without reducing coverage.
 - Browser downloads remain explicit workflow steps, so dependency installation
   does not silently download a second browser copy.
 
-### A4. Smoke and publish one npm tarball
+### One Verified npm Tarball
 
-- Extend npm package smoke to accept or export an explicit tarball path.
+- npm package smoke accepts or exports an explicit tarball path.
 - Compute the tarball SHA-256 before smoke and after workflow-artifact transfer.
 - After smoke, retain a small exact-SHA receipt with byte length, SHA-256,
   SHA-512 integrity, and SHA-1 shasum, both beside the tarball and as a separate
@@ -675,7 +389,7 @@ At each artifact boundary, compute all receipt digests in one file pass. The
 smoke receipt is the npm transfer-integrity authority; do not add a second
 SHA-256 sidecar or hash the same unchanged tarball again in that stage.
 
-### A5. Publish npm last
+### Publish npm Last
 
 - Assemble a draft GitHub Release from verified assets.
 - Publish the GitHub Release.
@@ -737,17 +451,16 @@ SHA-256 sidecar or hash the same unchanged tarball again in that stage.
   the outcome as uncertain rather than declaring manual approval mandatory.
   See the [npm staging API](https://api-docs.npmjs.com/#tag/Stage).
 
-## Workstream B: Test And Failure Feedback
+## Test And Failure Feedback
 
-### B1. Start browser tests earlier
+### Browser Build Dependency
 
-- Split frontend artifact production from the repository `Check` job.
+- Frontend artifact production is separate from the repository `Check` job.
 - Run frontend production, `Check`, and Node compatibility in parallel.
 - Browser and mobile jobs depend only on the frontend artifact job.
-- Remove the old frontend build from `Check` so normal CI does not perform the
-  build twice.
+- `Check` does not repeat frontend artifact production.
 
-### B2. Balance browser shards without adding in-job concurrency
+### Balanced Browser Shards
 
 - Use nine Chromium shards to match the measured 20-job remote concurrency
   ceiling when release preparation is also active.
@@ -764,7 +477,7 @@ SHA-256 sidecar or hash the same unchanged tarball again in that stage.
   the iPhone human lane. Account for queueing against the shared concurrency
   ceiling when measuring the complete release; do not assume linear speedup.
 
-### B3. Produce a failure bundle immediately
+### Failure Bundles
 
 The run watcher atomically checkpoints each successful observation with a
 timestamp and active job/step, emitting progress only when it changes. A failed
@@ -790,7 +503,7 @@ at thirty seconds and cancellation cleans up its exact owned process group.
 Deterministic timeout tests synchronize fixture readiness independently of the
 production deadline. Repeated Agent polling is unnecessary.
 
-### B4. Run balanced shards in isolated local lanes
+### Isolated Local Lanes
 
 `npm run test:e2e:playwright:isolated -- --project <name> --lanes <count>`
 starts the existing balanced location assignments as isolated lanes. The
@@ -846,22 +559,7 @@ and prints the exact root after success. `--dry-run` creates no server,
 directory, or temporary root, while `--list` uses the balanced runner's
 supported `--list-selected` discovery mode.
 
-On a Linux validation host, the complete 703-test matrix is the following
-collision-free set of 12 logical lanes. Chromium uses six balanced lanes; the
-smaller projects use proportional lane counts. Eight lanes use Chromium and
-four use WebKit. Authentication is enabled only for the two auth projects.
-
-| Project | Tests | Exact isolated invocation |
-| --- | ---: | --- |
-| `chromium` | 603 | `FARMING_PLAYWRIGHT_PORT_BASE=43100 FARMING_PLAYWRIGHT_XVFB_DISPLAY_BASE=90 FARMING_PLAYWRIGHT_AUTH=0 node scripts/run-playwright-isolated-lanes.mjs --project chromium --lanes 6 --headed-xvfb --skip-build --retain-evidence` |
-| `iphone-webkit` | 45 | `FARMING_PLAYWRIGHT_PORT_BASE=43200 FARMING_PLAYWRIGHT_XVFB_DISPLAY_BASE=110 FARMING_PLAYWRIGHT_AUTH=0 node scripts/run-playwright-isolated-lanes.mjs --project iphone-webkit --lanes 2 --headed-xvfb --skip-build --retain-evidence` |
-| `iphone-human-webkit` | 25 | `FARMING_PLAYWRIGHT_PORT_BASE=43300 FARMING_PLAYWRIGHT_XVFB_DISPLAY_BASE=120 FARMING_PLAYWRIGHT_AUTH=0 node scripts/run-playwright-isolated-lanes.mjs --project iphone-human-webkit --lanes 1 --headed-xvfb --skip-build --retain-evidence` |
-| `android-human-chromium` | 28 | `FARMING_PLAYWRIGHT_PORT_BASE=43400 FARMING_PLAYWRIGHT_XVFB_DISPLAY_BASE=130 FARMING_PLAYWRIGHT_AUTH=0 node scripts/run-playwright-isolated-lanes.mjs --project android-human-chromium --lanes 1 --headed-xvfb --skip-build --retain-evidence` |
-| `mobile-auth-chromium` | 1 | `FARMING_PLAYWRIGHT_PORT_BASE=43500 FARMING_PLAYWRIGHT_XVFB_DISPLAY_BASE=140 FARMING_PLAYWRIGHT_AUTH=1 node scripts/run-playwright-isolated-lanes.mjs --project mobile-auth-chromium --lanes 1 --headed-xvfb --skip-build --retain-evidence` |
-| `mobile-auth-webkit` | 1 | `FARMING_PLAYWRIGHT_PORT_BASE=43600 FARMING_PLAYWRIGHT_XVFB_DISPLAY_BASE=150 FARMING_PLAYWRIGHT_AUTH=1 node scripts/run-playwright-isolated-lanes.mjs --project mobile-auth-webkit --lanes 1 --headed-xvfb --skip-build --retain-evidence` |
-
-Run `npm run test:e2e:playwright:isolated:matrix` from that checkout instead of
-manually backgrounding the table commands. By default, the checked-in
+Run `npm run test:e2e:playwright:isolated:matrix` to execute the configured project matrix. By default, the checked-in
 coordinator builds once, expands the six project definitions into 12
 independently isolated lane invocations, and admits at most six Chromium lanes
 at once across all Chromium projects. This is one global limit rather than
@@ -869,8 +567,8 @@ three independent project limits; all WebKit lanes remain eligible to run in
 parallel. `--max-chromium-lanes <1-8>` is an explicit operator override for a
 measured host, while the default remains the validated safe capacity. The
 coordinator aggregates every terminal status without automatic retry and
-signals only process groups it owns during interruption. The standalone
-per-project commands above preserve their requested lane count and are not a
+signals only process groups it owns during interruption. Standalone
+per-project commands preserve their requested lane count and are not a
 substitute for the matrix's global scheduler. A caller may run
 `npm run test:e2e:playwright:isolated:matrix -- --skip-build` only when all
 build outputs required by the matrix have already been completed and verified
@@ -880,7 +578,7 @@ closed when an expected generated runtime artifact is absent. Its `--dry-run`
 mode prints the exact lane commands and, unless `--skip-build` is present, the
 build command without side effects.
 
-## Workstream C: Agent Diagnosis Protocol
+## Diagnosis Protocol
 
 ### Three-minute first response
 
@@ -945,27 +643,6 @@ anchor saved
 When a failure occurs, the clock continues. The three-minute diagnosis protocol
 reduces avoidable investigation time; it does not reset the release timer.
 
-## Implementation Sequence
-
-1. Add workflow timing, exact-SHA identity, artifact digests, and the single
-   failure-bundle watcher.
-2. Remove the two duplicate `npm run check` executions.
-3. Export, transfer, smoke, and publish one npm tarball.
-4. Reverse public mutation order so GitHub Release is verified before npm.
-5. Split metadata validation from the CI gate and run reversible preparation in
-   parallel with CI.
-6. Build staged runtime output once per runner and parallelize independent
-   packages where needed.
-7. Split frontend artifact production from `Check` and rebalance oversized
-   Playwright specs.
-8. Implement the three-minute diagnosis command and then encode the approved
-   process in a repository Release Skill.
-9. Add the domain ledger, affected-domain invalidation, and the three operating
-   modes to the repository Release Skill.
-10. Add the mandatory preparation ledger and parallel isolated-Desktop Computer
-    Use coordination to the repository Release Skill.
-11. Use the next patch version as a production-shaped timed release test.
-
 ## Acceptance Criteria
 
 - Measurement starts at the accepted release request and includes every retry,
@@ -992,7 +669,6 @@ reduces avoidable investigation time; it does not reset the release timer.
   smoke.
 - No Agent loop performs repeated status polling or more than three focused
   repetitions without an explicit nondeterminism hypothesis.
-- The first five releases record full elapsed time and critical-path attribution.
 
 ## Failure And Recovery
 

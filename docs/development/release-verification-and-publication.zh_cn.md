@@ -1,13 +1,9 @@
-# 发布、测试反馈与问题调查效率改造方案
+# 发布验证与正式发布
 
-> English version: [release-pipeline-acceleration-plan.md](./release-pipeline-acceleration-plan.md)
+> English version: [release-verification-and-publication.md](./release-verification-and-publication.md)
 
-状态：实施与计时验证中
-
-本方案改造的是一条完整链路：维护者下令发布一个版本，系统检查精确候选，发现阻塞后定位并修复，
-验证所有正式制品，确认 GitHub Release 已经公开可用，最后才发布 npm Package。
-
-调查和修 Bug 的时间不从统计中排除。计时从接受发布请求开始，遇到失败或提交修复后不重置。
+本文规定发布准备、精确候选验证、正式发布及失败恢复规则。计时从接受发布请求开始，
+包含调查、修复、排队和正式发布耗时。
 
 ## 目标
 
@@ -121,11 +117,6 @@ GitHub Pages 正常会在数秒内离开 `deployment_queued`。Documentation Wor
 完整计入发布耗时；不能通过重复执行完整文档构建或延长隐藏等待来掩盖。其他独立准备 Lane 继续
 运行，Documentation Domain 保持 Blocked。
 
-该规则来自 2026-08-06 的 Documentation `#18`：文档 Build 与 Artifact Upload 在 28 秒内完成，
-但 Pages 在 `deployment_queued` 停满 Action 默认的 10 分钟。只重试 Deploy，以及重新执行一次
-23 秒的新 Build，都复现了相同队列卡住。现在由 Candidate Workflow 总监控自动发现该领域，并由
-Workflow 在 3 分钟内把外部故障变成明确的终态。
-
 ### 自动化交互与 Computer Use 分开
 
 Playwright Human Story 和真实 Provider Browser Composite 属于自动化交互门禁。Computer Use 表示
@@ -191,223 +182,7 @@ Signature。成功资源按精确 Identity 删除；失败 Desktop 只在有边�
 `stale`。未受影响 Lane 只能在记录原 SHA 和明确的 Diff-based Invalidation Proof 后沿用，绝不能
 表示为 Exact-SHA Artifact Evidence。
 
-### 2026-08-06 分层门禁组件计时验证
-
-下一个精确版本发布前，分别实测了各层门禁：
-
-| 组件 | 实测墙钟时间 |
-| --- | ---: |
-| 最终本地 `npm run check`，303/303 Tests Green | 1 分 51.03 秒 |
-| Focused Sharing Playwright，包含本地 Build/Start | 15.20 秒 |
-| 真实 Codex Baseline，包含本地 Build/Start | 15.43 秒 |
-| 完整真实 Provider Code/CRT/Terminal Composite | 2 分 11.42 秒 |
-| 4 个 Isolated Linux Desktop 并行启动到 Healthy | 12.809 秒 |
-
-远端 Desktop 测量期间，已有 5 个 Computer Container 保持 Healthy；4 个计时 Container 随后均按
-精确 Identity 删除。这个结果证明 Desktop Pool 的启动速度和并发容量，不代表多个 Agent 完成
-Computer Use Journey 的时间。完整 Lane 时间必须在下一个 Exact Candidate Deployment 上实测，
-并计入 Release Campaign。
-
-### 2026-08-06 当前端到端现状
-
-当前正常发布估算公式是：
-
-```text
-约 20 秒 Candidate 选择与调度
-+ max(Exact-SHA CI、Artifact、自动化交互、Computer Use)
-+ 约 2 分钟串行 GitHub 验证与 npm 发布
-```
-
-最近一次完整端到端发布 v2.2.45 用时 10 分 4 秒，其中 Exact-SHA CI 为 7 分 47 秒，全部 Artifact
-在 4 分 26 秒内就绪。新自动化交互门禁低于这条关键路径：当前最重 Composite 实测为 2 分
-11.42 秒。
-
-如果最慢的并行 Computer Use Lane 能在 7 分钟内完成，正常发布预计仍为约 9 分 30 秒到 10 分钟。
-这是当前运行估算，还不是新的完整端到端证明。必须在下一个 Exact Candidate 上实测完整的多 Agent
-Computer Use Fan-out 与 Publication Path，才能认为 10 分钟目标已经得到验证。
-
-## v2.2.41 基线
-
-下午发布 Session 从 13:22 持续到 17:20。六次 CI 合计 90 分钟，两次 Release 合计 23 分钟，
-本地审查、定位和修复约 127 分钟。
-
-| 时间 | 事件 | 耗时 |
-| --- | --- | ---: |
-| 13:22–13:56 | 审查 32 个修改文件并形成首个候选 | 34 分钟 |
-| 13:56–14:00 | CI 发现 5 个后端测试失败 | 4 分钟 |
-| 14:00–14:08 | 修复 Package Image 校验 | 8 分钟 |
-| 14:09–14:25 | CI 发现浏览器测试失败 | 17 分钟 |
-| 14:25–14:31 | 修复 Transcript Focus 测试准备 | 5 分钟 |
-| 14:31–14:48 | CI 发现 Persisted Anchor 失败 | 17 分钟 |
-| 14:48–15:17 | 修改 Anchor 恢复和测试 | 29 分钟 |
-| 15:18–15:35 | CI 成功 | 17 分钟 |
-| 15:35–15:40 | Release 发现 Native CLI 漏打 Computer Schema | 5 分钟 |
-| 15:40–15:46 | 修复 Native CLI Packaging | 6 分钟 |
-| 15:47–16:04 | CI 再次暴露 Persisted Anchor 失败 | 18 分钟 |
-| 16:05–16:44 | 修正测试生命周期和 Test Oracle | 39 分钟 |
-| 16:44–17:01 | 最终 CI 成功 | 17 分钟 |
-| 17:02–17:20 | 最终 Release 成功 | 19 分钟 |
-
-最终成功的 Release Workflow 用时 18 分 39 秒：
-
-| 阶段 | 实际耗时 |
-| --- | ---: |
-| 候选预检 | 8 秒 |
-| macOS arm64 产物 | 2 分 40 秒 |
-| macOS x64 产物 | 5 分 5 秒 |
-| Linux 产物 | 9 分 22 秒 |
-| npm Job | 6 分 59 秒 |
-| 准备 GitHub Release | 1 分 42 秒 |
-| 公开 GitHub Release | 5 秒 |
-
-## v2.2.42 计时结果与第二轮发现
-
-第一轮加速候选 SHA 为 `e4afb2fd261746cdf5baed3207911a4aab467ca6`。Exact-SHA CI 用时
-9 分 17 秒；GitHub Release 在 16 分 8 秒时公开。最后 npm Job 失败并保持未发布，安全顺序生效。
-
-| 关键路径 | 实测耗时 | 直接原因 |
-| --- | ---: | --- |
-| CI | 9 分 17 秒 | Chromium Shard 9 的测试执行 6 分 3 秒；iPhone WebKit 的 `npm ci` 用了 3 分 54 秒 |
-| Linux 制品 | 10 分 21 秒 | CLI、标准 App 和 Legacy App 的 Build/Smoke 串行 |
-| macOS x64 制品 | 7 分 12 秒 | CLI 与 App 串行 |
-| macOS arm64 制品 | 13 分 55 秒 | `npm ci` 5 分 23 秒，App 解压与 Smoke 4 分 6 秒 |
-| Stage GitHub Release | 1 分 37 秒 | 安装依赖 30 秒，Manifest 对大型资产重复 Hash |
-| npm 发布 | 13 秒后失败 | npm 12 把缺少 `./` 的 Tarball 路径误判为 GitHub Package Specifier（`EALLOWGIT`） |
-
-macOS arm64 日志证明主要问题不是 Runner 排队，而是安装阶段的无效工作：仓库 `npm ci` 执行了
-Farming 面向正式安装的 Postinstall，向一次性工作区下载 Claude Code 和 agent-browser，生成约
-846MB Runtime Seed；慢 Mirror 失败后又回退到公共 npm Registry。源码 CI 和 Release Build Checkout
-不会消费这份 Seed。
-
-因此第二轮将下列改造一次完成：
-
-- 源码 CI 与 Release Preparation 跳过正式安装形态的 Runtime Seed 准备；
-- Linux CLI、标准 App、Legacy App 拆成三个并行 Job；
-- 每个 macOS 架构的 CLI 与 App 拆成两个并行 Job；
-- App Smoke 直接测试精确保留的 Assembly Directory，不再刚压缩完又完整解压后测试；
-- 已压缩制品使用 Artifact Compression Level 0；
-- Manifest 复用已生成 Checksum，不再把全部大型资产 Hash 两遍；
-- Chromium 使用 12 个文件级 Shard，只在失败时上传 Trace、Screenshot 和 Report；
-- npm Publish 使用明确的相对 Tarball 路径。
-
-## v2.2.43 计时结果与第三轮改造
-
-v2.2.43 从接受精确候选到 npm 验证成功共 12 分 41 秒。Release Artifact Preparation 已不再是
-关键路径：全部平台与 npm 制品在 4 分 52 秒内完成验证；剩余时间主要在 Exact-SHA CI 和发布尾段。
-
-| 剩余工作 | 实测耗时或延迟 |
-| --- | ---: |
-| 全部可逆 Release Artifact Preparation | 4 分 52 秒 |
-| Exact-SHA CI | 8 分 38 秒 |
-| 实测账号 20 Job 上限导致 Chromium Shard 3 排队 | 2 分 5 秒 |
-| 最慢 Chromium 测试执行 | 6 分 15 秒 |
-| Stage GitHub Release | 1 分 23 秒 |
-| npm Publish 与 `gitHead` 可见 | 1 分 15 秒 |
-
-下一轮不再继续制造排队 Job，而是按实测远端容量配平：
-
-- 9 个 Chromium Job 使用均衡单 Worker 分配；344 个测试分配为
-  39/39/38/38/38/38/38/38/38；
-- 删除专门占用 Hosted Runner 等待 CI 的 Job；
-- Release Stage 在 CI 尾段同时下载并 Hash 已验证资产，只在创建 Tag/Draft 前检查 Exact-SHA CI；
-- App Job 携带已验证的 `RELEASE.json` Sidecar，Manifest 不再重新读取四个大型压缩包；
-- npm Publish 关闭 2 万文件 Notice 清单，并删除 Publication Job 中无必要的 npm 全局升级。
-
-## v2.2.44 计时结果与第四轮改造
-
-v2.2.44 在 9 分 48 秒时完成 GitHub Release 公开与验证，但 npm 在第 11 分 6 秒失败并保持未发布；
-CI 仍用时 8 分 30 秒。
-
-剩余原因已经精确定位：
-
-- Playwright 内置 Fully-parallel Sharding 按测试列表的连续区间均衡数量。Shard 6 连续拿到 20 个
-  Pet 慢测试，成为 6 分 50 秒 Job，而其他 Shard 提前完成。
-- 删除 npm CLI 升级后使用了 Runner 自带 npm 10；它无法完成仓库当前 OIDC Trusted Publishing
-  路径，50 秒后 Registry PUT 返回 404。因此 npm 12 是发布依赖，不是可以删除的准备浪费。
-
-第四轮恢复 npm 12，并使用仓库脚本发现精确测试位置，把相邻 Location Group 条纹分散到 9 个
-Shard。每个 Shard 仍然是单 Worker；共享同一源码位置的 Generated Test 保持原子分组。
-
-## v2.2.45 计时结果与第五轮改造
-
-修正后的 v2.2.45 Candidate 在 7 分 47 秒完成 Exact-SHA CI，GitHub 与 npm 全部发布完成用时
-10 分 4 秒。所有发布制品在 4 分 26 秒内就绪，因此平台 Packaging 已经不是关键路径。包含第一
-个失败 Candidate 的 Quick-fix Campaign 总耗时 15 分 24 秒。
-
-最后超出的 4 秒来自两个明确尾部：
-
-- Chromium Shard 4 虽然同样只有 38 个测试，仍执行了 6 分 10 秒。逐测试实测显示其中一个测试
-  约 75 秒，另有多个测试耗时 12 到 21 秒，说明“数量均衡”不等于“时长均衡”。
-- CI 结束后，GitHub 发布、公开验证和 npm 发布分别调度三个 Job。所有可逆工作已经结束后，仍
-  重复承担 Runner 排队、Checkout 和 Setup 延迟。
-
-第五轮按实测 Location Duration 使用 Longest-processing-time 分配，仍然只用现有 9 个单 Worker
-Chromium Job，不增加 CI 工作量和远端并行度；预测每个 Shard 为 266 到 273 秒。同时把 Staging、
-GitHub 发布、公开资产验证和 npm 发布合并到一个 Job。npm Setup 和已验证 Tarball 下载在等待
-Exact-SHA CI 时完成；npm 仍严格位于 GitHub 公开验证之后，作为最后一步。
-
-仓库新增 `scripts/release-snapshot.sh`，一次采集初始 Candidate 状态；新增
-`scripts/watch-run.sh`，由脚本持续监控并在失败时生成有边界的 Failure Bundle，Agent 不再反复
-手工轮询。
-每次 GitHub 状态读取有 30 秒请求时限。传输失败时保留最后一次成功的 Checkpoint，并重新
-读取同一 Workflow Identity；不能因此重新 Dispatch 或发布。发布前的一次性检查在无法
-取得新鲜读取结果时明确拒绝继续。
-
-## v2.2.55 复盘与 Artifact 复用改造
-
-v2.2.55 从收到请求到 npm 验证总计 6 小时 46 分 12 秒，而最终通过验收的 Candidate 从开始发布到
-npm 完成只用了 7 分 40 秒。Candidate 准备和缺陷收敛占据了主要时间，但 Workflow 还存在一项明确
-浪费：Candidate Workflow 或 Computer Use Acceptance 晚于 Publication Job 的有界等待时，后续重试
-会重新构建全部平台和 npm Artifact。
-
-两次发布尝试量化了这项浪费：
-
-- 一次等待 Candidate Workflow 8 分钟后失败；
-- 一次等待 Computer Use Acceptance 10 分钟后失败；
-- 每次重试都重新调度并构建约 5 分钟已经验证过的 Linux、macOS 和 npm Artifact。
-
-现在 Release Preparation 与 Publication 已拆成两个 Workflow。`release.yml` 只构建、验证、Smoke 并
-保存一次精确 Artifact。`publish-release.yml` 只接受 Workflow Path 和 `head_sha` 都与完整 Candidate
-SHA 匹配的成功 Preparation Run，从该 Run 下载 Artifact，对 Candidate Push Workflow 和 Release
-Acceptance 做一次权威校验，然后继续保持“GitHub 公开验证完成后才发布 npm”的顺序。Acceptance
-晚到或 Publication 重试时，因此直接复用已验证 Artifact，不再重复 Platform Fan-out。
-
-仓库同时新增 `npm run release:fast-screen`，并行执行 Release Metadata、Dependency Policy、Browser
-Lifecycle、ACP Replacement、Packaging Identity 和 Workflow Contract 等独立门禁。2026-08-20 本地
-实测 8 个门禁用时 3.06 秒，明显低于 2 分钟早期反馈目标。
-
-默认快速筛查还执行 `npm audit --omit=dev`，在 Artifact 组装前发现生产依赖安全公告。
-
-## 已确认的浪费来源
-
-### Agent 调查
-
-- 首次 Push 前，Agent 跑了 Typecheck、Lint、Build 和 npm Smoke，却没有跑普通 CI 实际使用的
-  `npm run check`，因此 5 个本地可发现的后端错误被推迟到 CI 才发现。
-- Persisted Anchor 场景本地先后执行了 3、10、10、15 次重复。重复执行替代了单次状态转换取证。
-- 下午 Session 执行了 31 次 `gh run view`、14 次 `gh run list`、8 次 `gh run watch`、
-  51 次 `git diff`、24 次 `git status`、7 次 Typecheck 和 7 次 Lint。
-- 远端 CI 多次承担“提供下一条调查信息”的职责，而不是只认证一个本地已经理解的修复。
-
-### CI 反馈
-
-- Browser Shard 必须等待 `Check` Job 全部完成，但 Frontend Build 本身只用了 11 秒。浏览器测试
-  被迫等待前面约 4 分钟的仓库检查。
-- Chromium 2/6 的浏览器执行约 10 分钟。由于 Playwright 使用 `fullyParallel: false`，大型 Spec
-  文件不能继续拆分，六个 Shard 实际负载不均。
-- CI 对失败测试重试两次可以保留证据，但第一次失败没有立即整理成简洁、可直接行动的诊断结果。
-
-### Release Workflow
-
-- Exact-SHA CI 已经执行 `npm run check`，Linux Artifact 又执行 3 分 58 秒，npm Job 第三次执行
-  3 分 23 秒。
-- CLI、普通 App Bundle 和 Legacy App Bundle 分别重新构建 Frontend/Runtime 输出。
-- npm Smoke 打一份 Tarball，删除后正式发布又重新打另一份。
-- 制品准备等待完整 CI，而不是在不公开的前提下与 CI 并行。
-- 当前 npm 先于 GitHub Release 公开。
-- Agent 反复查询 GitHub 状态，没有一个统一的失败诊断结果。
-
-## 目标端到端流程
+## 发布流程
 
 ```text
 收到精确 SHA 和 Version 的发布请求
@@ -462,24 +237,22 @@ Changed Files + Failure Signatures
 一个领域阻塞时，Coordinator 允许其他独立领域继续收敛。任何 Cross-cutting Change 都会让输入或
 验收契约可能变化的领域失效。
 
-## 改造 A：发布流水线
+## 制品与发布契约
 
-### A1. 拆分元数据预检和 CI Gate
+### 元数据与 CI 门禁
 
 - 快速 Metadata Job 验证 Version、Lockfile、Release Notes、Branch、Tag 和 npm Version 冲突。
 - Exact-SHA CI Gate 继续等待必需的 CI Run。
 - Platform Build 和 npm Preparation 只依赖 Metadata，因此与 CI Gate 同时运行。
 - GitHub 和 npm 公开 Job 同时依赖 CI Gate 与全部 Preparation 成功。
 
-### A2. 删除重复仓库检查
+### 仓库验证
 
-- 删除 Linux Artifact 和 npm Publication 中的 `npm run check`。
+- Linux Artifact 和 npm Publication 不重复执行 `npm run check`。
 - Exact-SHA CI 继续作为普通仓库检查的权威门禁。
 - 保留全部 Platform、Package、Architecture 和 Runtime Verify/Smoke。
 
-按 2.2.41 实测，这一项直接从 Release 关键路径删除 7 分 21 秒，测试要求不降低。
-
-### A3. 并行独立 Package，并保留精确 Assembly Output
+### 并行制品与来源
 
 - Linux CLI、标准 App Bundle、Legacy App Bundle 在同一 Metadata Gate 后作为三个并行 Job。
 - 每个 macOS Architecture 的 Native CLI 与 App Bundle 作为两个并行 Job。
@@ -512,7 +285,7 @@ Changed Files + Failure Signatures
   刚生成的大型 Archive。
 - Exact-SHA CI 和全部 Package-specific Gate 变绿前，所有 Job 都保持可逆，不执行公开 Mutation。
 
-### A6. 分开源码安装与正式产品安装
+### 源码与产品安装
 
 - Source CI 和 Release Build Checkout 设置 `FARMING_SKIP_INSTALL_RUNTIME_PREPARE=1`；它们直接
   Build/Test 源码，不得生成 Package Installation Runtime Seed。
@@ -520,9 +293,9 @@ Changed Files + Failure Signatures
   不降低正式制品的安装契约。
 - Browser 下载继续由 Workflow 明确执行，依赖安装阶段不再静默下载第二份 Browser。
 
-### A4. Smoke 和发布同一个 npm Tarball
+### 同一份已验证 npm Tarball
 
-- 扩展 npm Package Smoke，使其接受或导出明确 Tarball Path。
+- npm Package Smoke 接受或导出明确 Tarball Path。
 - Smoke 前和 Workflow Artifact 传输后都计算 SHA-256。
 - Smoke 后保存包含字节数、SHA-256、SHA-512 Integrity 和 SHA-1 Shasum 的小型 Exact-SHA
   Receipt，同时放在 Tarball 旁边并独立上传；协调器读取 Receipt，无需再次下载完整 Tarball。
@@ -531,7 +304,7 @@ Changed Files + Failure Signatures
 每个制品边界只读取一次文件，同时计算 Receipt 所需摘要。Smoke Receipt 是 npm 传输
 完整性的权威凭据；同一阶段不再增加 SHA-256 Sidecar，也不重新哈希同一份未变化 Tarball。
 
-### A5. npm 最后发布
+### npm 最后发布
 
 - 使用全部已验证资产组装 GitHub Draft Release。
 - 正式公开 GitHub Release。
@@ -577,16 +350,16 @@ Changed Files + Failure Signatures
   详情，应报告结果尚不确定，不得断言必须人工批准。参见
   [npm 暂存 API](https://api-docs.npmjs.com/#tag/Stage)。
 
-## 改造 B：测试与失败反馈
+## 测试与失败反馈
 
-### B1. 更早启动 Browser Test
+### 浏览器构建依赖
 
-- 将 Frontend Artifact Production 从仓库 `Check` Job 中拆出。
+- Frontend Artifact Production 独立于仓库 `Check` Job。
 - Frontend Production、`Check` 和 Node Compatibility 同时启动。
 - Browser 和 Mobile Job 只依赖 Frontend Artifact Job。
-- 从原 `Check` 删除 Frontend Build，保证日常 CI 不会重复 Build。
+- `Check` 不重复执行 Frontend Artifact Production。
 
-### B2. 在不增加 Job 内并发的前提下均衡 Browser Shard
+### 浏览器分片均衡
 
 - Chromium 使用 9 个 Shard，与 Release Preparation 同时运行时刚好适配实测 20 Job 远端并发上限。
 - 每个 Job 先发现精确 Test Location，再按实测 Duration 分配原子 Location Group；没有 Timing
@@ -598,7 +371,7 @@ Changed Files + Failure Signatures
   Suite。原有 Project 和测试位置全部保留，完整 Mobile Fast Screen 仅在 iPhone Human Lane
   执行一次。衡量完整发布时须计入共享并发上限导致的排队，不能假定耗时线性下降。
 
-### B3. 第一次失败立即生成诊断包
+### 失败诊断包
 
 Run Watcher 为每次成功观察原子保存带时间戳的状态、活动 Job 和 Step，只在进展变化时输出。
 Transport 观察失败时重新读取同一个 Run，不能据此启动新的 Run。
@@ -618,7 +391,7 @@ Release Watcher 默认使用 `fail-fast`：返回第一个必需 Job 的失败�
 三十秒，取消时清理精确归属的进程组。确定性超时测试独立同步 Fixture 就绪，不改变
 生产期限。无需 Agent 反复轮询。
 
-### B4. 使用隔离本地 Lane 运行均衡 Shard
+### 隔离本地 Lane
 
 `npm run test:e2e:playwright:isolated -- --project <name> --lanes <count>`
 把现有的均衡 Test Location 分配启动为相互隔离的 Lane。Coordinator 默认只 Build 一次；只有明确
@@ -660,33 +433,20 @@ Report、Screenshot 和 Audit Evidence，并打印精确保留路径。`--retain
 保留 Evidence 并打印精确 Root。`--dry-run` 不创建 Server、目录或临时 Root；`--list` 只使用
 Balanced Runner 支持的 `--list-selected` 发现模式。
 
-在 Linux Validation Host 的 Checkout 中，完整 703 Test Matrix 使用以下 12 条无冲突 Logical
-Lane。Chromium 使用六条 Balanced Lane，较小 Project 使用按规模缩减的 Lane 数；其中 8 条
-使用 Chromium、4 条使用 WebKit，只有两个 Auth Project 启用认证。
-
-| Project | Tests | 精确隔离调用 |
-| --- | ---: | --- |
-| `chromium` | 603 | `FARMING_PLAYWRIGHT_PORT_BASE=43100 FARMING_PLAYWRIGHT_XVFB_DISPLAY_BASE=90 FARMING_PLAYWRIGHT_AUTH=0 node scripts/run-playwright-isolated-lanes.mjs --project chromium --lanes 6 --headed-xvfb --skip-build --retain-evidence` |
-| `iphone-webkit` | 45 | `FARMING_PLAYWRIGHT_PORT_BASE=43200 FARMING_PLAYWRIGHT_XVFB_DISPLAY_BASE=110 FARMING_PLAYWRIGHT_AUTH=0 node scripts/run-playwright-isolated-lanes.mjs --project iphone-webkit --lanes 2 --headed-xvfb --skip-build --retain-evidence` |
-| `iphone-human-webkit` | 25 | `FARMING_PLAYWRIGHT_PORT_BASE=43300 FARMING_PLAYWRIGHT_XVFB_DISPLAY_BASE=120 FARMING_PLAYWRIGHT_AUTH=0 node scripts/run-playwright-isolated-lanes.mjs --project iphone-human-webkit --lanes 1 --headed-xvfb --skip-build --retain-evidence` |
-| `android-human-chromium` | 28 | `FARMING_PLAYWRIGHT_PORT_BASE=43400 FARMING_PLAYWRIGHT_XVFB_DISPLAY_BASE=130 FARMING_PLAYWRIGHT_AUTH=0 node scripts/run-playwright-isolated-lanes.mjs --project android-human-chromium --lanes 1 --headed-xvfb --skip-build --retain-evidence` |
-| `mobile-auth-chromium` | 1 | `FARMING_PLAYWRIGHT_PORT_BASE=43500 FARMING_PLAYWRIGHT_XVFB_DISPLAY_BASE=140 FARMING_PLAYWRIGHT_AUTH=1 node scripts/run-playwright-isolated-lanes.mjs --project mobile-auth-chromium --lanes 1 --headed-xvfb --skip-build --retain-evidence` |
-| `mobile-auth-webkit` | 1 | `FARMING_PLAYWRIGHT_PORT_BASE=43600 FARMING_PLAYWRIGHT_XVFB_DISPLAY_BASE=150 FARMING_PLAYWRIGHT_AUTH=1 node scripts/run-playwright-isolated-lanes.mjs --project mobile-auth-webkit --lanes 1 --headed-xvfb --skip-build --retain-evidence` |
-
-不要手工把表中命令放入后台；应在该 Checkout 运行
+运行
 `npm run test:e2e:playwright:isolated:matrix`。Checked-in Coordinator 默认只 Build 一次，把六个
 Project 定义展开为 12 个彼此隔离的 Lane 调用，并在所有 Chromium Project 之间全局最多同时放行
 六条 Chromium Lane；这不是三个互不知情的 Project 局部上限。所有 WebKit Lane 仍可并行。
 `--max-chromium-lanes <1-8>` 允许 Operator 根据已测量 Host 显式覆盖，默认值保持为已经验证的
 安全容量。Coordinator 不做自动 Retry，会汇总全部终态；中断时只向自己拥有的 Process Group
-发信号。上表的单 Project 命令会保留其请求的 Lane 数，不能替代 Matrix 的全局调度器。只有当
+发信号。单 Project 命令会保留其请求的 Lane 数，不能替代 Matrix 的全局调度器。只有当
 Matrix 所需的全部 Build Output 已针对同一精确 Checkout 完成并验证时，调用方才可运行
 `npm run test:e2e:playwright:isolated:matrix -- --skip-build`；验证责任由调用方承担，Coordinator
 不会证明已有 Output 仍然 Fresh。Lane Preparation 仍会在预期 Generated Runtime Artifact
 缺失时 Fail Closed。`--dry-run` 会打印精确 Lane Command；未传入 `--skip-build` 时还会打印
 Build Command，且不产生副作用。
 
-## 改造 C：Agent 三分钟调查协议
+## 调查协议
 
 ### 三分钟首次处置
 
@@ -743,20 +503,6 @@ Chat Position：
 
 遇到失败后计时继续。三分钟调查协议用于减少可避免的调查时间，不会重置发布时间。
 
-## 实施顺序
-
-1. 增加 Workflow Timing、Exact-SHA Identity、Artifact Digest 和单一 Failure Bundle Watcher。
-2. 删除两处重复 `npm run check`。
-3. 导出、传输、Smoke 并发布唯一一份 npm Tarball。
-4. 反转公开顺序：GitHub Release 验证成功后才发布 npm。
-5. 拆分 Metadata Validation 与 CI Gate，让可逆 Preparation 与 CI 并行。
-6. 每个 Runner 只 Build 一次；必要时并行独立 Package。
-7. 从 `Check` 中拆出 Frontend Artifact，并均衡大型 Playwright Spec。
-8. 实现三分钟诊断命令；流程确认后再固化为仓库 Release Skill。
-9. 将 Domain Ledger、Affected-domain Invalidation 和三种运行模式加入仓库 Release Skill。
-10. 将强制 Preparation Ledger 和并行 Isolated Desktop Computer Use 调度加入仓库 Release Skill。
-11. 使用下一个 Patch Version 做真实计时发布测试。
-
 ## 验收标准
 
 - 从接受发布请求开始计时，所有重试、调查、修复、排队、CI、Build 和发布步骤都包含在内。
@@ -775,7 +521,6 @@ Chat Position：
 - GitHub Release 和必需资产公开并验证之前，npm Version 不存在。
 - npm 正式 Tarball Digest 与 Smoke 接受的 Digest 完全相同。
 - Agent 不再反复查询状态；没有明确不确定性假设时，Focused Test 不得重复超过三次。
-- 前五次发布记录完整耗时和关键路径归因。
 
 ## 失败与恢复
 

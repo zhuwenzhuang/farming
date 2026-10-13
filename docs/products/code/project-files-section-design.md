@@ -772,3 +772,10 @@ recalculating formulas; delimited text preserves its original field text.
 Hidden sheets, rows and columns remain discoverable with explicit markers.
 The same preview supports Light, Dark and Paper; original-file download and the
 existing file refresh mechanism remain available.
+
+Copy and Chat quotes use the same displayed selection snapshot and preserve the
+file version, sheet and original cell coordinates. These controls become usable
+only after the renderer is ready. Missing formula caches are explicit, never
+invented zeroes or newly calculated results; macros and external-link refresh do
+not run. Switching sheets does not reread the file, and retained workbook state
+stays within the shared file-model cache budget.

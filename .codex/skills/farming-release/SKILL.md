@@ -11,7 +11,7 @@ publication in elapsed time. Never reset the campaign clock after a failure.
 
 Before acting, read:
 
-- `../../../docs/development/release-pipeline-acceleration-plan.md`
+- `../../../docs/development/release-verification-and-publication.md`
 - `../../../.github/workflows/ci.yml`
 - `../../../.github/workflows/release.yml`
 - `../../../.github/workflows/publish-release.yml`

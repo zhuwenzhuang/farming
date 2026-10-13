@@ -11,7 +11,7 @@ Computer Use。
 发布规则例外：当 Release Coordinator 本身运行在 Linux 上时，该 iOS 验收记录为
 `skipped-linux-coordinator-rule`，不作为阻塞发布的门禁。Mobile Browser 自动化和
 Responsive Appearance 验收仍然必须完成；完整边界见
-[发布流水线方案](../../../development/release-pipeline-acceleration-plan.zh_cn.md)。
+[发布验证契约](../../../development/release-verification-and-publication.zh_cn.md)。
 
 ## 运行
 
