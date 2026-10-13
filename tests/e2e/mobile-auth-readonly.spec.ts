@@ -73,6 +73,10 @@ test('enforces Owner and read-only authority across real mobile authentication',
   fs.writeFileSync(path.join(workspace, 'site', 'index.html'), '<h1>Read-only scoped preview</h1>\n')
   fs.writeFileSync(externalFile, 'read-only external file\n')
   await openAuthenticatedOwner(page)
+  // English action labels are this scenario's explicit authenticated fixture.
+  // The common fixture resets settings before the owner URL redeems its token.
+  const language = await page.request.post('/farming/api/settings', { data: { language: 'en' } })
+  expect(language.ok()).toBeTruthy()
   const agentId = await createTerminalAgent(page, workspace)
   await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${agentId}"]`)).toBeVisible({ timeout: 30_000 })
 
@@ -179,7 +183,14 @@ test('enforces Owner and read-only authority across real mobile authentication',
     await expect(fileMenu).toHaveCount(0)
     await readmeRow.click()
     await guestPage.getByRole('button', { name: 'Show Markdown source' }).click()
-    await expect(guestPage.getByTestId('code-file-monaco')).toBeVisible()
+    const readOnlySource = guestPage.getByTestId('code-file-touch-source').getByRole('textbox')
+    await expect(readOnlySource).toBeVisible()
+    await expect(readOnlySource).toHaveValue('# Mobile auth authority\n')
+    await expect(readOnlySource).toHaveAttribute('readonly', '')
+    await expect(readOnlySource).not.toBeEditable()
+    await readOnlySource.focus()
+    await guestPage.keyboard.type('READ_ONLY_FILE_MUTATION_MUST_NOT_RUN')
+    await expect(readOnlySource).toHaveValue('# Mobile auth authority\n')
     await expect(guestPage.getByRole('button', { name: 'Save file' })).toHaveCount(0)
 
     await reopenMobileNavigationFromFile(guestPage)
@@ -187,7 +198,11 @@ test('enforces Owner and read-only authority across real mobile authentication',
     await expect(sourceRow).toBeVisible()
     await sourceRow.click()
     await expect(guestPage.locator('.code-file-editor-tab[title="main.ts"]')).toHaveAttribute('aria-selected', 'true')
-    await expect(guestPage.getByTestId('code-file-monaco')).toBeVisible()
+    await expect(readOnlySource).toBeVisible()
+    await expect(readOnlySource).toHaveValue('export const mobileAuthority = true\n')
+    await expect(readOnlySource).toHaveAttribute('readonly', '')
+    await expect(readOnlySource).not.toBeEditable()
+    await expect(guestPage.getByRole('button', { name: 'Save file' })).toHaveCount(0)
     await guestPage.waitForTimeout(500)
     expect(languageServerRequests).toHaveLength(0)
 

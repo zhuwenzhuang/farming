@@ -731,6 +731,7 @@ Turn 运行期间，收起视图跨普通 Progress Update 汇总为一个 Action
 显式 Answer 后继续出现实时 Commentary、Tool 或 Steer 时，该 Answer 的文字、媒体与时间顺序
 边界保留在后续内容上方，Action Group 不能跨过这一边界。Turn 结束后，最新 Answer 沿用直接
 结果展示，较早 Answer 保留在现有已完成活动 Disclosure 内，Checkpoint 重载后也不丢失。
+Turn 完成保留用户当前的过程与工具展开选择，不能关闭正在阅读的证据；新视图继续使用现有紧凑默认状态。
 当非 Active Turn 已有结构化执行过程证据，但既没有最终 Assistant Result、也没有更强的显式
 Interrupted 状态时，其执行过程末尾显示一行“本轮执行未产生最终回复”的轻量提示。该状态完全由
 Transcript 投影并可在刷新后重建，不增加恢复操作或独立通知界面。

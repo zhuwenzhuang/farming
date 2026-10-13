@@ -651,7 +651,10 @@ test.describe('mobile global file path search', () => {
     await expect(page.getByTestId('code-workspace')).toHaveClass(/sidebar-collapsed/)
     await expect(page.getByTestId('code-file-editor')).toBeVisible()
     await expect(page.getByTestId('code-file-editor').getByRole('tab', { selected: true })).toContainText('TouchTarget.ts')
-    await expect(page.locator('.monaco-editor .view-lines')).toContainText('MOBILE_GLOBAL_SEARCH_TARGET_SECOND')
+    const source = page.getByTestId('code-file-touch-source').getByRole('textbox')
+    await expect(source).toBeVisible()
+    await expect(source).toHaveValue('MOBILE_GLOBAL_SEARCH_TARGET_SECOND\n')
+    await expect.poll(() => source.evaluate(element => [element.selectionStart, element.selectionEnd])).toEqual([4, 4])
     await expect.poll(() => fileEditorPosition(page)).toEqual({ lineNumber: 1, column: 5 })
     await expect.poll(async () => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 2)).toBe(true)
 

@@ -180,7 +180,9 @@ test.describe('iPhone mobile layout', () => {
     expect(showSourceTarget.height).toBeGreaterThanOrEqual(44)
     expect(showSourceTarget.centerHits).toBe(true)
     await showSource.tap()
-    await expect(page.getByTestId('code-file-monaco')).toBeVisible()
+    const sourceInput = page.getByTestId('code-file-touch-source').getByRole('textbox')
+    await expect(sourceInput).toBeVisible()
+    await expect(sourceInput).toHaveValue(fs.readFileSync(path.join(projectDir, 'site', 'index.html'), 'utf8'))
     const sourceActions = [
       page.getByTestId('code-file-editor-back'),
       page.getByRole('button', { name: 'Open preview' }),
@@ -224,7 +226,9 @@ test.describe('iPhone mobile layout', () => {
     if (await filesToggle.getAttribute('aria-expanded') === 'false') await filesToggle.tap()
     await files.locator('[data-testid="code-file-row"][data-file-path="editable.md"]').tap()
     await page.getByRole('button', { name: 'Show Markdown source' }).tap()
-    await expect(page.getByTestId('code-file-monaco')).toBeVisible()
+    const sourceInput = page.getByTestId('code-file-touch-source').getByRole('textbox')
+    await expect(sourceInput).toBeVisible()
+    await expect(sourceInput).toHaveValue('seed mobile text\n')
 
     await page.evaluate(() => window.__farmingFileEditorTest?.insertText('SAVED_FROM_MOBILE\n'))
     const save = page.getByRole('button', { name: 'Save file' })
@@ -303,7 +307,8 @@ test.describe('iPhone mobile layout', () => {
       .toContain('LOCAL_DRAFT_SURVIVES_RELOAD')
     await page.reload({ waitUntil: 'domcontentloaded' })
     await page.getByRole('button', { name: 'Show Markdown source' }).tap()
-    await expect(page.getByTestId('code-file-monaco')).toBeVisible()
+    await expect(sourceInput).toBeVisible()
+    await expect(sourceInput).toHaveValue(/LOCAL_DRAFT_SURVIVES_RELOAD/)
     await expect.poll(() => page.evaluate(() => window.__farmingFileEditorTest?.getValue() ?? ''))
       .toContain('LOCAL_DRAFT_SURVIVES_RELOAD')
 

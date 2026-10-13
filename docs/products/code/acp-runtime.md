@@ -1056,6 +1056,9 @@ its own text, media, and chronological boundary above that continuation. Action
 groups cannot cross this answer boundary. Settlement keeps the newest answer in
 the direct result presentation; earlier answers remain available in the existing
 completed activity disclosure, including after checkpoint reload.
+Turn settlement preserves the user's current process and tool disclosure
+choices, so completion cannot close evidence the user is reading. A new view
+retains the existing compact defaults.
 When a non-active Turn has structured process evidence but neither a final
 assistant result nor a stronger explicit interrupted state, its process ends
 with one lightweight line stating that no final reply was produced. This state
