@@ -10,8 +10,18 @@ without creating a GitHub Release or publishing npm.
 
 The operator supplies ordinary OpenSSH connection parameters and an absolute
 remote install path. One repository command builds or accepts one verified
-Linux artifact and owns the complete deployment. The target host never receives
-source for dependency installation, frontend compilation, or pruning.
+Linux artifact and owns the complete deployment. The live installation never
+receives source for dependency installation, frontend compilation, or pruning.
+
+An existing verified private bundle for the requested exact SHA should be reused
+before building again. Artifact preparation may run on an isolated native Linux
+x64 builder, using the repository packaging scripts, and feed `--artifact` to
+the deployment command. Source and dependencies stay in the builder's dedicated
+root, outside the live installation and Config, even when they share a physical
+host. This does not permit remote Docker endpoints for the local bind-mount
+builder. Verify metadata and checksums after transfer; never relabel an older
+artifact or runtime as a new SHA. Preserve verified build outputs across later
+upload or activation failures instead of compiling again.
 
 The artifact identifies one full git SHA, platform, architecture, compatibility
 runtime, package contents, and checksum. Authentication continues through the
@@ -20,7 +30,7 @@ of the artifact or repository configuration.
 
 ## Ownership And Layout
 
-- The local builder owns artifact construction and verification.
+- The selected builder owns artifact construction and verification.
   Its Node/npm pair must be compatible with the pinned release npm version.
   Dependency installation has a five-minute deadline. The host also uses the
   pinned Rust and Zig toolchain to build the patched Linux musl Browser runtime

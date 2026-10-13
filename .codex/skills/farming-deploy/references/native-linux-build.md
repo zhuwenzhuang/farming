@@ -1,0 +1,71 @@
+# Native Linux Artifact Preparation
+
+Use this path when an authorized Linux x64 build environment is available and
+avoids a cold or emulated local Docker build. Build location and live activation
+are independent: `deploy.sh --artifact` still owns all live transitions.
+
+## Preflight And Ownership
+
+- Confirm the builder's architecture, available disk, Node/npm compatibility,
+  and pinned Rust, Zig, cargo-zigbuild and pnpm versions. Read the current pins
+  in `backend/data/agent-browser-source.json` and npm version in
+  `scripts/build-private-linux-release.sh`; do not copy historical versions.
+- Use a clean, exact-SHA checkout in a dedicated build root. Transfer committed
+  Git objects if the builder cannot fetch the repository. Keep credentials,
+  untracked work, live installation, and Config directories out of the source
+  transfer. Do not switch the primary development checkout to perform a build.
+- The builder may share a physical host with the target only when its build root,
+  processes, and resource use are isolated from the running instance. Prefer an
+  existing prepared builder; a cold machine is not automatically faster.
+- Keep the source, Browser output, package output, and logs in separately owned
+  paths. Reuse npm and checksum-verified runtime download caches. Remove only
+  temporary files and processes created by this build; retain verified outputs
+  until deployment finishes.
+
+## Build With The Repository Scripts
+
+Run from the clean checkout, with the selected compatible Node/npm on PATH.
+Set `FARMING_SKIP_INSTALL_RUNTIME_PREPARE=1`,
+`PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`, and `PUPPETEER_SKIP_DOWNLOAD=1` for dependency
+installation. Run `timeout 300 npm ci --prefer-offline --no-audit --no-fund`.
+Do not copy Mac `node_modules` into a Linux package.
+
+Build the patched Browser runtime with:
+
+```bash
+node scripts/build-agent-browser-runtime.mjs \
+  --platform linux-x64-musl --output "$BUILD_BROWSER_OUTPUT"
+```
+
+`BUILD_BROWSER_OUTPUT` must be an absolute, build-owned artifact root. Before
+rebuilding, check whether this exact SHA already has a verified runtime output.
+Reuse only when the binary checksum, source pin identity, target platform,
+version, and `farmingSha` all match. Use `verifyPackagedRuntimeIdentity` from the
+repository and the same expectations as `prepare-packaged-runtimes.ts`; do not
+rewrite identity metadata to make another SHA's binary pass. Current scripts
+do not provide automatic cross-SHA Browser build caching.
+
+Package with `npm run release:app:legacy-linux`, setting:
+
+- `FARMING_RELEASE_GIT_SHA` to the verified checkout HEAD;
+- `FARMING_RELEASE_UPDATE_METHOD=app-bundle` (the legacy packager otherwise
+  defaults to a different update method);
+- `FARMING_RELEASE_DIR` and `FARMING_RELEASE_NAME` to exact build-owned output
+  paths and a name containing the version and short SHA;
+- `FARMING_AGENT_BROWSER_ARTIFACTS` to `BUILD_BROWSER_OUTPUT`;
+- `FARMING_GLIBC_RUNTIME_CACHE` and `FARMING_RIPGREP_ARCHIVE_CACHE` to verified
+  caches when available.
+
+Run `node --import tsx scripts/verify-release-bundle.ts "$BUILD_ARCHIVE"` and
+verify its checksum sidecar. Inspect the release metadata for the full SHA,
+Linux x64, `app-bundle`, `linux-x64-legacy-glibc228`, and bundled glibc. Prefer
+invoking the ordinary deployment command with `--artifact` directly from the
+builder when it already has authorized SSH access to the target. Otherwise
+transfer the archive and checksum using rsync over SSH and revalidate on the
+deployment client. Do not copy SSH credentials or invent an authentication path
+to avoid a transfer. Neither route changes the target activation protocol.
+
+A build failure leaves live state untouched. Preserve the first failure, fix
+its cause, and resume at the failed build stage using still-valid outputs. Once
+activation starts, reconcile uncertain outcomes from the target before another
+activation; a successful build alone is not deployment success.

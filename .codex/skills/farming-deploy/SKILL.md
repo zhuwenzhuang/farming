@@ -5,9 +5,9 @@ description: Build and deploy one committed Farming SHA as a private Linux Relea
 
 # Farming Deploy
 
-Use the repository deployment command as the only state-changing path. Do not
-sync source, run npm installation in the live directory, reproduce activation
-steps by hand, or compensate for a failure with retries.
+Use the repository deployment command as the only path that changes the live
+installation. Build separately with repository packaging scripts; never install
+source dependencies in the live directory or reproduce activation by hand.
 
 ## Prepare
 
@@ -21,10 +21,40 @@ steps by hand, or compensate for a failure with retries.
 3. Confirm which Config directory, app port, base path, Server HOME, and ACP
    smoke provider the target owns. Defaults are allowed only when they match the
    requested environment.
+4. Pin the requested full git SHA before building. Preserve the target's existing
+   Server HOME and Agent Homes unless the user requests a change; a configuration
+   change inside a Home is not a request to replace that Home.
+
+## Choose The Build Path
+
+Prefer the least expensive verified path, in this order:
+
+1. Reuse an existing private app bundle for the exact requested SHA. Check known
+   artifact outputs first, run `scripts/verify-release-bundle.ts`, and confirm
+   `gitSha`, `linux`/`x64`, `app-bundle`, and the bundled legacy glibc profile.
+   Match its checksum sidecar before use. A matching version or filename alone
+   is insufficient. Pass the verified bundle with `--artifact`.
+2. When a suitable, authorized Linux x64 builder is available, build there using
+   [native Linux preparation](references/native-linux-build.md). Execute on that
+   host with its own filesystem and toolchain; do not pass a remote Docker context
+   to the Mac's bind-mount-based build script. Deploy with `--artifact` from the
+   builder when it already has authorized SSH access to the target; otherwise
+   transfer the bundle and checksum to the deployment client with rsync over SSH.
+   Avoid sending a remote-built package through the Mac merely to send it back.
+3. Otherwise let the deployment command build using a local Linux Docker engine.
+   Confirm the engine and pinned toolchain are ready before expensive compilation.
+   Do not change another engine's lifecycle or silently select another host.
+
+Keep successful build outputs available through activation and readiness. A
+failure in upload, activation, or smoke does not by itself invalidate the verified
+package or justify recompilation. Reuse it after diagnosing and reconciling the
+failure unless the evidence identifies an artifact defect.
+Report elapsed build, transfer, and activation/readiness time separately when
+investigating slow deployment; do not promise a fixed duration without evidence.
 
 ## Deploy
 
-Run exactly one command:
+Run one activation command for the chosen artifact or build path:
 
 ```bash
 npm run deploy:remote -- \
@@ -37,8 +67,8 @@ npm run deploy:remote -- \
 Add only required options such as `--config-dir`, `--server-home`,
 `--app-port`, `--base-path`, `--ssh-option`, `--docker-context`,
 `--npm-registry`, or `--smoke-agent`. Use
-`--artifact` only for an already verified private app bundle; otherwise let the
-command build the committed SHA in its Linux builder.
+`--artifact` for the already verified private app bundle selected above. Omit it
+only when deliberately selecting the local Docker build path.
 
 The command owns preflight, checksum verification, upload, deployment locking,
 runtime preparation, exact Server stop, symlink activation, HTTP/WebSocket/PTY/
@@ -56,6 +86,10 @@ transitions separately while it is running.
   invariant violation is understood.
 - Treat a transport timeout as an uncertain deployment outcome. Reconnect and
   read the current image and Config-owned Server state; never blindly replay.
+- A confirmed build-only failure leaves the target unchanged. Correct the
+  observed prerequisite failure before starting another build; retain verified
+  intermediate artifacts when using the separate build path. Do not turn engine
+  failures into an automatic retry loop.
 - Use `farming-release` instead when the request includes public GitHub Release,
   npm publication, multi-platform artifacts, or an exact release campaign.
 

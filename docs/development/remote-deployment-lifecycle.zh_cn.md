@@ -14,19 +14,26 @@ Release 准备所使用的 App Bundle 格式，但不会创建 GitHub Release，
 ## 产品契约
 
 操作者提供普通 OpenSSH 连接参数和绝对远端安装路径。仓库中的一条命令负责构建或
-接收一个已验证的 Linux artifact，并拥有完整部署过程。目标机器不再接收源码用于
+接收一个已验证的 Linux artifact，并拥有完整部署过程。线上安装目录不接收源码用于
 安装依赖、编译前端或 prune。
+
+构建前优先复用请求的确切 SHA 对应的已验证私有包。Artifact 可以在隔离的原生 Linux
+x64 builder 上通过仓库打包脚本准备，再以 `--artifact` 交给部署命令。源码和依赖留在
+builder 专属目录，与线上安装和 Config 隔离，即使共用同一物理主机也如此。这不意味着
+本地 bind-mount builder 可以使用远端 Docker endpoint。传输后重新验证元数据与 checksum；
+不得把旧 artifact 或 runtime 的身份改写成新 SHA。上传或激活失败后保留已验证构建产物，
+避免重新编译。
 
 Artifact 明确记录完整 Git SHA、平台、架构、兼容运行时、包内容和 checksum。认证
 继续由目标 Config 目录持有；SSH 凭证和私有主机信息不会进入 artifact 或仓库配置。
 
 ## 所有权与目录布局
 
-本地 builder 的 Node/npm 组合必须兼容发布流程固定的 npm 版本，依赖安装限时五分钟。
+所选 builder 的 Node/npm 组合必须兼容发布流程固定的 npm 版本，依赖安装限时五分钟。
 宿主机还需安装固定版本的 Rust 和 Zig 工具链，在打包前为同一提交 SHA 编译带补丁的
 Linux musl Browser runtime。
 
-- 本地 builder 拥有 artifact 构建与验证。操作者可以显式选择本地 Unix socket
+- 所选 builder 拥有 artifact 构建与验证。操作者可以显式选择本地 Unix socket
   Docker context 和 npm registry；部署不会推断或改变其他容器引擎的生命周期。
   由于 builder 需要 bind-mount 本机仓库路径，远端、TCP、转发 socket 和 Windows
   pipe Docker endpoint 会在远端预检或源码 worktree 创建前被拒绝。
