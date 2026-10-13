@@ -522,8 +522,18 @@ closed again without sending input. Ordinary messages and history without a vali
 marker remain fully visible. A newly mounted view defaults to collapsed; runtime
 updates do not reset the current disclosure. Terminal retains its native display.
 
+Ordinary Create and Handoff share the browser's last explicit Chat/Terminal
+selection, scoped to this instance URL and retained across dialog dismissal and
+reload. It overrides the provider's launch default when both modes are supported;
+a Terminal-only target does not overwrite the remembered choice. Without a saved
+choice, the provider's launch default applies.
+
 The backend owns admission: validate the confirmed source and supported target,
 then use the existing identified Create operation and initial-input delivery.
+Terminal initial tasks use the shared Composer paste-and-submit protocol: preserve
+the complete multiline prompt as paste content, then send Enter outside the paste.
+A raw text burst may leave Enter inside the CLI draft, preventing the first turn
+and the native history required for a later Chat switch from materializing.
 Concurrent identical requests join and completed requests return their recorded
 outcome. A changed request cannot reuse its identity. Request identity generation
 must also work on LAN HTTP origins without the secure-context UUID API.
@@ -539,7 +549,8 @@ startup, delivery, cancellation, and recovery semantics.
 Acceptance covers cross-provider and cross-Home creation, Shell rejection,
 unconfirmed/missing sources, preserved workspace and language-neutral prompting,
 duplicate delivery and restart outcomes, and the shared picker and menu in Light,
-Dark, and Paper.
+Dark, and Paper. Terminal acceptance also verifies one complete initial prompt and
+a subsequent Chat/Terminal round trip preserving the destination Session identity.
 An explicitly opted-in real-provider smoke must also prove native-history access
 using a conversation-only marker, preserve the user's language despite a different
 UI language, and end with an understanding statement that waits for instructions.

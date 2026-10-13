@@ -29,6 +29,24 @@ function normalizeDefaultLaunchAgent(agentName: string | undefined) {
   return typeof agentName === 'string' && agentName.trim() ? agentName.trim() : 'codex'
 }
 
+const RUNTIME_CHOICE_STORAGE_KEY = `farming.code.newAgentRuntime.v1:${appPath('/')}`
+type RuntimeChoice = 'terminal' | 'chat'
+
+function readRuntimeChoice(): RuntimeChoice | null {
+  try {
+    const value = window.localStorage.getItem(RUNTIME_CHOICE_STORAGE_KEY)
+    return value === 'terminal' || value === 'chat' ? value : null
+  } catch {
+    return null
+  }
+}
+
+function runtimeChoiceForAgent(agent: CliAgent, preferred: RuntimeChoice | null): RuntimeChoice {
+  return agent.capabilities?.supportsChat === true
+    ? preferred || agent.launchDefaults?.runtimeMode || 'terminal'
+    : 'terminal'
+}
+
 interface CliAgent {
   name: string
   command?: string
@@ -164,6 +182,14 @@ export function InputDialog({
   const [agentHomes, setAgentHomes] = useState<Record<string, AgentHomeOption[]>>({})
   const [selectedHomeId, setSelectedHomeId] = useState('default')
   const [agentRuntimeMode, setAgentRuntimeMode] = useState<'terminal' | 'chat'>('terminal')
+  const preferredRuntimeRef = useRef<RuntimeChoice | null>(null)
+  const chooseRuntimeMode = (mode: RuntimeChoice) => {
+    preferredRuntimeRef.current = mode
+    setAgentRuntimeMode(mode)
+    try {
+      window.localStorage.setItem(RUNTIME_CHOICE_STORAGE_KEY, mode)
+    } catch { /* Keep the explicit choice in memory when browser storage is unavailable. */ }
+  }
   const [homeMenuOpen, setHomeMenuOpen] = useState(false)
   const [discoveredWorkspaces, setDiscoveredWorkspaces] = useState<string[]>([])
   const [workspacePathSuggestions, setWorkspacePathSuggestions] = useState<WorkspacePathSuggestion[]>([])
@@ -231,7 +257,8 @@ export function InputDialog({
     setDefaultLaunchAgent('codex')
     setAgentHomes({})
     setSelectedHomeId('default')
-    setAgentRuntimeMode('terminal')
+    preferredRuntimeRef.current = readRuntimeChoice() || preferredRuntimeRef.current
+    setAgentRuntimeMode(preferredRuntimeRef.current || 'terminal')
     setHomeMenuOpen(false)
     setHistorySelection(-1)
     setAgentsLoaded(false)
@@ -260,12 +287,7 @@ export function InputDialog({
         if (nextSelectedAgent) {
           setSelectedAgent(nextSelectedAgent)
           setSelectedHomeId(nextSelectedAgent.launchDefaults?.homeId || 'default')
-          setAgentRuntimeMode(
-            nextSelectedAgent.capabilities?.supportsChat === true
-              && nextSelectedAgent.launchDefaults?.runtimeMode === 'chat'
-              ? 'chat'
-              : 'terminal',
-          )
+          setAgentRuntimeMode(runtimeChoiceForAgent(nextSelectedAgent, preferredRuntimeRef.current))
           setStep('workspace')
         }
       })
@@ -503,7 +525,7 @@ export function InputDialog({
         ...(resumeOptions || {}),
         providerHomeId: resumeOptions?.providerHomeId || agent.launchDefaults?.homeId || 'default',
         ...(agent.capabilities?.supportsChat === true ? {
-          agentRuntimeMode: agent.launchDefaults?.runtimeMode === 'chat' ? 'chat' : 'terminal',
+          agentRuntimeMode: runtimeChoiceForAgent(agent, preferredRuntimeRef.current),
         } : {}),
       })
       return
@@ -518,11 +540,7 @@ export function InputDialog({
     setSelectedHomeId(nextHomes.some(home => home.id === defaultHomeId)
       ? defaultHomeId
       : (nextHomes[0]?.id || 'default'))
-    setAgentRuntimeMode(
-      agent.capabilities?.supportsChat === true && agent.launchDefaults?.runtimeMode === 'chat'
-        ? 'chat'
-        : 'terminal',
-    )
+    setAgentRuntimeMode(runtimeChoiceForAgent(agent, preferredRuntimeRef.current))
     setHomeMenuOpen(false)
     workspaceTouchedRef.current = false
     setWorkspace(normalizeWorkspaceValue(initialWorkspace || ''))
@@ -1103,8 +1121,8 @@ export function InputDialog({
               <div className="workspace-runtime-field" data-testid="agent-runtime-mode">
                 <p className="workspace-field-copy">{copy.agentRuntimeLabel(agentDisplayName(selectedAgent.name))}</p>
                 <div className="workspace-runtime-options" role="group" aria-label={copy.agentRuntimeLabel(agentDisplayName(selectedAgent.name))}>
-                  <button type="button" disabled={submitting} className={agentRuntimeMode === 'terminal' ? 'active' : ''} aria-pressed={agentRuntimeMode === 'terminal'} onClick={() => setAgentRuntimeMode('terminal')}>Terminal</button>
-                  <button type="button" disabled={submitting} className={agentRuntimeMode === 'chat' ? 'active' : ''} aria-pressed={agentRuntimeMode === 'chat'} onClick={() => setAgentRuntimeMode('chat')}>Chat</button>
+                  <button type="button" disabled={submitting} className={agentRuntimeMode === 'terminal' ? 'active' : ''} aria-pressed={agentRuntimeMode === 'terminal'} onClick={() => chooseRuntimeMode('terminal')}>Terminal</button>
+                  <button type="button" disabled={submitting} className={agentRuntimeMode === 'chat' ? 'active' : ''} aria-pressed={agentRuntimeMode === 'chat'} onClick={() => chooseRuntimeMode('chat')}>Chat</button>
                 </div>
               </div>
             )}

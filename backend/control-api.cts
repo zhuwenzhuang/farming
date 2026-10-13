@@ -1,6 +1,7 @@
 import { terminalInputReady } from './terminal-status.cjs';
 import { prepareAgentHandoff } from './agent-handoff.cjs';
 import type { LifecycleOperationResult } from './agent-manager-lifecycle-types.js';
+import type { TerminalInput } from './agent-manager-engine-types.js';
 
 const express = require('express');
 const crypto = require('crypto');
@@ -178,7 +179,7 @@ interface AgentManager {
   ): Promise<unknown> | unknown;
   sendInput(
     agentId: string,
-    input: string,
+    input: TerminalInput,
     options: { expectedRuntimeEpoch: string },
   ): Promise<MutationResult | undefined> | MutationResult | undefined;
   setAgentAdaptiveTitle(
@@ -553,7 +554,9 @@ function createControlRouter(
             ) {
               return { status: 'rejected', reason: 'startup-state-changed' };
             }
-            return agentManager.sendInput(agentId, ensureTrailingNewline(initialInput), {
+            // Match Composer delivery: the CLI must finish pasting the complete
+            // task before interpreting Enter as submit (including multiline handoff).
+            return agentManager.sendInput(agentId, [{ type: 'paste', text: initialInput }, '\r'], {
               expectedRuntimeEpoch,
             });
           },

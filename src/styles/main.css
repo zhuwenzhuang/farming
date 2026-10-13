@@ -1272,7 +1272,7 @@ body.code-mode .input-dialog {
 
 body.code-mode .input-dialog {
   width: min(92vw, 560px);
-  min-height: min(368px, 86dvh);
+  min-height: 0;
   max-height: min(86dvh, 760px);
   padding: 14px 16px 16px;
 }

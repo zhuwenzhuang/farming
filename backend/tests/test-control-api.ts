@@ -2,6 +2,7 @@ const assert = require('assert');
 const EventEmitter = require('events');
 const express = require('express');
 const { createControlRouter } = require('../control-api.cjs');
+const { terminalInputToPtyString } = require('../input-parts.cjs');
 
 type HttpServer = import('http').Server;
 
@@ -210,7 +211,7 @@ async function run() {
     assert.deepStrictEqual(calls[1], {
       type: 'sendInput',
       agentId: created.body.agentId,
-      input: 'Inspect optimizer bugs\r',
+      input: [{ type: 'paste', text: 'Inspect optimizer bugs' }, '\r'],
       options: {
         expectedRuntimeEpoch: 'epoch-1',
       },
@@ -480,7 +481,14 @@ async function run() {
     await fetchJson(baseUrl, '/api/control/agents', terminalHandoffRequest);
     const terminalHandoffInputs = calls.filter(call => call.type === 'sendInput' && call.agentId === terminalHandoffId);
     assert.strictEqual(terminalHandoffInputs.length, 1);
-    assert.match(terminalHandoffInputs[0].input, /wait for the user/);
+    assert.deepStrictEqual(terminalHandoffInputs[0].input, [
+      { type: 'paste', text: handoffContent.text }, '\r',
+    ], 'multiline handoff must use the Composer paste-and-submit protocol');
+    assert.strictEqual(
+      terminalInputToPtyString(terminalHandoffInputs[0].input),
+      `\x1b[200~${handoffContent.text}\x1b[201~\r`,
+      'the submit key must be outside the paste so the CLI cannot absorb it into its draft',
+    );
     const startsBeforeRejectedHandoff = calls.filter(call => call.type === 'startAgent').length;
     for (const patch of [
       { command: 'bash' }, { handoffSourceSessionKey: 'missing' }, { initialInput: 'execute now' },

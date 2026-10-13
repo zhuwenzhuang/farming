@@ -190,6 +190,12 @@ modal boundaries; visual reuse does not merge different keyboard semantics.
 
 ## Responsive And Input Contract
 
+The shared New Agent / Handoff dialog sizes to its current content on desktop,
+bounded by the viewport maximum height. A short step (for example, a single Home
+and inherited workspace) must not reserve a minimum-height blank area below its
+actions. Long content scrolls inside the body; compact layouts retain their
+full-screen dialog and accessible actions.
+
 The sidebar New Agent action keeps its label on one line. When the button's
 available width cannot accommodate the complete label and shortcut, it shows
 only its existing icon, retaining its accessible name, tooltip and keyboard

@@ -5,6 +5,10 @@ if [[ "$#" -eq 2 && "$1" == "login" && "$2" == "status" ]]; then
   exit 0
 fi
 
+if [[ -f .farming-handoff-fixture.json ]]; then
+  exec node "$(dirname "$0")/fake-codex-handoff.cjs" "$@"
+fi
+
 printf '\033[?25l\033[?25h'
 printf 'Fake Codex 0.142.3 ready\n'
 idle_footer='gpt-5.6-terra medium · ~/workspace'

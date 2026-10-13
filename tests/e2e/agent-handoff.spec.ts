@@ -1,6 +1,18 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { expect, openFarming, test } from './fixtures'
+import { randomUUID } from 'node:crypto'
+import { expect, openFarming, test as baseTest } from './fixtures'
+
+// Native Codex history intentionally excludes OS temporary workspaces. Use an
+// owned repository-local fixture so runtime switching exercises real discovery.
+const test = baseTest.extend<{ workspaceRoot: string }>({
+  workspaceRoot: async ({}, use) => {
+    fs.mkdirSync(path.resolve('.tmp'), { recursive: true })
+    const root = fs.mkdtempSync(path.resolve('.tmp/handoff-e2e-'))
+    try { await use(root) }
+    finally { fs.rmSync(root, { recursive: true, force: true }) }
+  },
+})
 
 // Each case owns these temporary Homes; remove their registrations even when an
 // assertion fails so a retry cannot inherit duplicate IDs from a previous worker.
@@ -22,7 +34,87 @@ test.afterEach(async ({ page, workspaceRoot }) => {
 })
 
 for (const appearance of ['light', 'dark', 'paper']) {
-  test(`hands off to another provider and Home with a read-first prompt in ${appearance}`, async ({ page, workspaceRoot }) => {
+  test(`submits a Terminal handoff and remembers runtime choices in ${appearance}`, async ({ page, workspaceRoot }, testInfo) => {
+    const workspace = path.join(workspaceRoot, 'terminal-handoff-demo')
+    const home = path.join(workspaceRoot, `handoff-home-${appearance}`)
+    const homeId = `handoff-terminal-${appearance}`
+    const sessionId = randomUUID()
+    fs.mkdirSync(workspace, { recursive: true })
+    fs.mkdirSync(home, { recursive: true })
+    fs.writeFileSync(path.join(workspace, '.farming-handoff-fixture.json'), JSON.stringify({ sessionId }))
+    const settings = (await (await page.request.get('/farming/api/settings')).json()).settings
+    const configured = await page.request.post('/farming/api/settings', { data: {
+      appearance,
+      agentHomes: { ...settings.agentHomes, codex: [...settings.agentHomes.codex, { id: homeId, path: home }] },
+    } })
+    expect(configured.ok(), await configured.text()).toBeTruthy()
+    const created = await page.request.post('/farming/api/control/agents', { data: {
+      command: 'codex', workspace, agentRuntimeMode: 'chat', providerHomeId: homeId,
+    } })
+    expect(created.ok(), await created.text()).toBeTruthy()
+    const sourceId = (await created.json()).agentId as string
+    const submitted = await page.request.post(`/farming/api/control/agents/${sourceId}/messages`, { data: {
+      message: 'Read the project and wait.', requestId: `terminal-source-${appearance}`,
+    } })
+    expect(submitted.ok(), await submitted.text()).toBeTruthy()
+    await openFarming(page)
+    const dialog = page.getByTestId('input-dialog')
+    const openHandoff = async () => {
+      await page.locator(`[data-testid="code-agent-row"][data-agent-id="${sourceId}"]`).click({ button: 'right' })
+      await page.getByTestId('code-agent-context-menu').getByRole('menuitem', { name: 'Hand off to new Agent', exact: true }).click()
+      await dialog.getByTestId('agent-option-codex').click()
+    }
+    // An explicit choice survives dismissal, provider changes, and reload; a
+    // Terminal-only Shell must not erase the preferred Chat selection.
+    await page.getByTestId('code-new-agent').click()
+    await dialog.getByTestId('agent-option-codex').click()
+    await dialog.getByRole('button', { name: 'Chat', exact: true }).click()
+    await dialog.getByTestId('workspace-back').click()
+    await dialog.getByTestId('agent-option-bash').click()
+    await expect(dialog.getByTestId('agent-runtime-mode')).toHaveCount(0)
+    await dialog.getByTestId('workspace-back').click()
+    await dialog.getByTestId('agent-option-claude').click()
+    await expect(dialog.getByRole('button', { name: 'Chat', exact: true })).toHaveAttribute('aria-pressed', 'true')
+    await page.keyboard.press('Escape')
+    await page.reload()
+    await openHandoff()
+    await expect(dialog.getByRole('button', { name: 'Chat', exact: true })).toHaveAttribute('aria-pressed', 'true')
+    await dialog.getByRole('button', { name: 'Terminal', exact: true }).click()
+    await dialog.getByTestId('agent-home-select').click()
+    await dialog.getByRole('option').filter({ hasText: homeId }).click()
+    const responsePromise = page.waitForResponse(response => response.url().endsWith('/api/control/agents') && response.request().method() === 'POST')
+    await dialog.getByTestId('workspace-start').click()
+    const response = await responsePromise
+    expect(response.ok(), await response.text()).toBeTruthy()
+    let targetId = (await response.json()).agentId as string
+    const promptFile = path.join(workspace, 'handoff-prompts.jsonl')
+    await expect.poll(() => fs.existsSync(promptFile) ? fs.readFileSync(promptFile, 'utf8').trim().split('\n') : []).toHaveLength(1)
+    const prompt = JSON.parse(fs.readFileSync(promptFile, 'utf8').trim()) as string
+    expect(prompt).toContain('Read the source conversation')
+    expect(prompt).toContain('\n\n{\n')
+    expect(prompt).toContain('wait for the user')
+    const toggle = () => page.locator(`[data-testid="code-agent-work-pane"][data-agent-id="${targetId}"]`).getByTestId('code-terminal-mode-toggle')
+    await expect(toggle().getByRole('button', { name: 'Chat', exact: true })).toBeEnabled()
+    await testInfo.attach(`terminal-handoff-${appearance}`, { body: await page.screenshot(), contentType: 'image/png' })
+    for (const mode of ['Chat', 'Terminal']) {
+      const switched = page.waitForResponse(r => r.request().method() === 'PATCH' && r.url().endsWith(`/api/agents/${targetId}`))
+      await toggle().getByRole('button', { name: mode, exact: true }).click()
+      const result = await switched
+      expect(result.ok(), await result.text()).toBeTruthy()
+      targetId = (await result.json()).restartedAgentId || targetId
+      await expect(toggle().getByRole('button', { name: mode, exact: true })).toHaveAttribute('aria-pressed', 'true')
+    }
+    const inventory = (await (await page.request.get('/farming/api/control/agents')).json()).agents
+    expect(inventory.find((a: { id: string }) => a.id === targetId)).toMatchObject({ providerSessionId: sessionId, providerHomeId: homeId })
+    expect(inventory.some((a: { id: string }) => a.id === sourceId)).toBe(true)
+    expect(fs.readFileSync(promptFile, 'utf8').trim().split('\n')).toHaveLength(1)
+    await page.getByTestId('code-new-agent').click()
+    await dialog.getByTestId('agent-option-codex').click()
+    await expect(dialog.getByRole('button', { name: 'Terminal', exact: true })).toHaveAttribute('aria-pressed', 'true')
+    await page.keyboard.press('Escape')
+  })
+
+  test(`hands off to another provider and Home with a read-first prompt in ${appearance}`, async ({ page, workspaceRoot }, testInfo) => {
     if (appearance === 'light') {
       // LAN HTTP does not expose the secure-context randomUUID API. The same
       // request identity must still survive the uncertain-response retry below.
@@ -65,6 +157,24 @@ for (const appearance of ['light', 'dark', 'paper']) {
     const dialog = page.getByTestId('input-dialog')
     await expect(dialog.getByTestId('handoff-source-name')).toContainText('From:')
     await expect(dialog.getByTestId('agent-option-bash')).toHaveCount(0)
+    await dialog.getByTestId('agent-option-qwen').click()
+    await expect(dialog.getByTestId('agent-home-select')).toHaveCount(0)
+    const bottomGap = await dialog.evaluate(element => {
+      const actions = element.querySelector('.workspace-actions')!
+      return element.getBoundingClientRect().bottom - actions.getBoundingClientRect().bottom
+    })
+    expect(bottomGap, 'short steps should end at the shared dialog padding, without a blank minimum-height area').toBeLessThanOrEqual(17)
+    await testInfo.attach(`handoff-single-home-${appearance}`, {
+      body: await dialog.screenshot({ mask: [dialog.locator('input[name="workspace-path"]')] }),
+      contentType: 'image/png',
+    })
+    await page.setViewportSize({ width: 390, height: 844 })
+    await expect(dialog.getByTestId('workspace-start')).toBeInViewport()
+    await expect(dialog.getByTestId('workspace-back')).toBeInViewport()
+    expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
+    await dialog.getByTestId('workspace-back').click()
+    await expect(dialog.getByTestId('agent-option-codex')).toBeInViewport()
+    await page.setViewportSize({ width: 1440, height: 900 })
     await dialog.getByTestId('agent-option-claude').click()
     await dialog.getByTestId('agent-home-select').click()
     await dialog.getByRole('option').filter({ hasText: homeId }).click()
