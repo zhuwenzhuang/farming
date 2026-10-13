@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
+import { useCallback, useEffect, useRef, useState, type MouseEvent, type RefObject } from 'react'
 import * as monaco from 'monaco-editor'
 import { writeClipboardText } from '@/lib/clipboard'
+import { workspaceBlameInlineLabel } from '@/lib/workspace-editor-model'
+import type { WorkspaceFileBlame } from '@/lib/workspace-files'
 import type { CodeCopy } from '../code/copy'
 
 const TOUCH_SOURCE_QUERY = '(max-width: 980px) and (pointer: coarse)'
@@ -25,7 +27,7 @@ export function useTouchFileSource() {
 }
 
 /** Project the shared selection into native LF offsets and reveal its start. */
-export function projectTouchFileSelection(textarea: HTMLTextAreaElement, selection: monaco.IRange) {
+export function projectTouchFileSelection(textarea: HTMLTextAreaElement, selection: monaco.IRange, onlyIfSelectionChanged = false) {
   const lines = textarea.value.split('\n')
   const offset = (line: number, column: number) => {
     const index = Math.min(Math.max(line - 1, 0), lines.length - 1)
@@ -34,6 +36,7 @@ export function projectTouchFileSelection(textarea: HTMLTextAreaElement, selecti
   }
   const start = offset(selection.startLineNumber, selection.startColumn)
   const end = offset(selection.endLineNumber, selection.endColumn)
+  if (onlyIfSelectionChanged && textarea.selectionStart === start && textarea.selectionEnd === end) return
   textarea.setSelectionRange(start, end)
   // A textarea has no reveal-line API. Measure its wrapped prefix using its
   // resolved native text geometry, rather than assuming one visual row per line.
@@ -53,7 +56,8 @@ export function projectTouchFileSelection(textarea: HTMLTextAreaElement, selecti
   textarea.scrollTop = Math.max(0, top - textarea.clientHeight / 2)
 }
 
-export function FileEditorTouchSource({ value, readOnly, editorRef, textareaRef, label, activeTabDomId, copy }: {
+export function FileEditorTouchSource({ value, readOnly, editorRef, textareaRef, label, activeTabDomId, copy,
+  lineNumber, blameLine, onLineContextMenu, onShowBlameDetail }: {
   value: string
   readOnly: boolean
   editorRef: RefObject<monaco.editor.IStandaloneCodeEditor | null>
@@ -61,6 +65,10 @@ export function FileEditorTouchSource({ value, readOnly, editorRef, textareaRef,
   label: string
   activeTabDomId: string
   copy: CodeCopy
+  lineNumber: number
+  blameLine?: WorkspaceFileBlame['lines'][number]
+  onLineContextMenu: (event: MouseEvent, lineNumber: number) => void
+  onShowBlameDetail: (line: WorkspaceFileBlame['lines'][number]) => void
 }) {
   const copyRequestRef = useRef(0)
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
@@ -153,6 +161,17 @@ export function FileEditorTouchSource({ value, readOnly, editorRef, textareaRef,
     <div className="code-file-touch-toolbar code-content-toolbar">
       <button type="button" className="code-content-toolbar-text" onClick={selectAll}>{copy.selectAll}</button>
       <button type="button" className="code-content-toolbar-text" onClick={() => { void copyText() }} disabled={!value || feedback === 'copying'}>{copy.copy}</button>
+      <button type="button" className="code-content-toolbar-text" data-testid="code-file-touch-line-actions"
+        aria-haspopup="menu" onClick={event => {
+          syncSelection()
+          onLineContextMenu(event, editorRef.current?.getPosition()?.lineNumber ?? lineNumber)
+        }}>{copy.line} {lineNumber}</button>
+      {blameLine && <button type="button" className="code-content-toolbar-text code-file-touch-blame"
+        data-testid="code-file-touch-blame" data-line-number={blameLine.lineNumber}
+        aria-label={`${copy.gitBlameDetails}: ${copy.line} ${blameLine.lineNumber}`}
+        title={`${blameLine.shortCommit} ${blameLine.author || copy.unknown} ${blameLine.summary}`}
+        onContextMenu={event => onLineContextMenu(event, blameLine.lineNumber)}
+        onClick={() => onShowBlameDetail(blameLine)}>{workspaceBlameInlineLabel(blameLine)}</button>}
       {feedback && <span role={feedback === 'failed' || feedback === 'uncertain' ? 'alert' : 'status'}>{feedbackText}</span>}
     </div>
     <textarea ref={textareaRef} aria-label={label} value={value} readOnly={readOnly}

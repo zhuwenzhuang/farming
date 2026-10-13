@@ -140,14 +140,14 @@ export function useFileEditorMonacoController({
     ))
   }, [])
 
-  const projectNativeSelection = useCallback(() => {
+  const projectNativeSelection = useCallback((onlyIfSelectionChanged = false) => {
     const textarea = touchTextareaRef.current
     const editor = editorRef.current
     const selection = editor?.getSelection()
     const model = editor?.getModel()
     if (!textarea || !selection || !model || !textarea.getClientRects().length
       || textarea.value !== model.getValue(monaco.editor.EndOfLinePreference.LF)) return
-    projectTouchFileSelection(textarea, selection)
+    projectTouchFileSelection(textarea, selection, onlyIfSelectionChanged)
   }, [])
 
   const focusEditor = useCallback(() => {
@@ -166,7 +166,8 @@ export function useFileEditorMonacoController({
     editor.setPosition({ lineNumber, column: 1 })
     editor.revealLineInCenter(lineNumber)
     if (options.focusEditor !== false) focusEditor()
-  }, [focusEditor])
+    else projectNativeSelection()
+  }, [focusEditor, projectNativeSelection])
 
   const saveEditorReadingAnchor = useCallback((editor: monaco.editor.IStandaloneCodeEditor | null) => {
     if (!editor) return
@@ -257,7 +258,7 @@ export function useFileEditorMonacoController({
       if (trace) afterInteractionFrame(trace, editorHostRef.current)
     })
     const nativeSelectionSubscription = editor.onDidChangeCursorSelection(event => {
-      if (event.source !== 'native-file-selection' && event.source !== 'native-file-input') projectNativeSelection()
+      if (event.source !== 'native-file-selection' && event.source !== 'native-file-input') projectNativeSelection(true)
     })
     cursorSubscriptionRef.current = editor.onDidChangeCursorPosition(event => {
       updateCursorPosition(editor)
@@ -350,7 +351,7 @@ export function useFileEditorMonacoController({
     if (!editor) return
 
     const nextModelKey = openFileKey(openFile)
-    const nextModelVersion = modelContentVersion(openFile)
+    const nextModelVersion = `${modelContentVersion(openFile)}:${openFile.revision}`
     const previousModelId = activeEditorModelKeyRef.current
     if (previousModelId && previousModelId !== nextModelKey) {
       editorViewStatesRef.current.set(previousModelId, editor.saveViewState())
@@ -396,6 +397,12 @@ export function useFileEditorMonacoController({
     }
     updateCursorPosition(editor)
     if (previousModelId !== nextModelKey || applyExternalContent) projectNativeSelection()
+    else if (previousSyncedVersion !== nextModelVersion) {
+      // React has committed the matching native draft now. Shared clipboard
+      // edits need their final caret projected; native input already synced its
+      // selection, so the operation guard preserves its viewport and IME state.
+      projectNativeSelection(true)
+    }
     navigationPerformanceReady('file.open', filePerformanceKey(openFile.agentId, openFile.file.path), editorHostRef.current)
   }, [
     openFile,
@@ -469,6 +476,7 @@ export function useFileEditorMonacoController({
     cursorPosition,
     modelStatus,
     focusEditor,
+    projectNativeSelection,
     revealLine,
   }
 }

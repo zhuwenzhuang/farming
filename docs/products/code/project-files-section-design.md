@@ -714,7 +714,10 @@ non-HTTP(S), or invalid rules remain plain text.
   handling remain shared. File-link, search and history navigation project the
   shared selection into the visible source and reveal its target; explicit editor
   focus goes to that source. Primary coarse input selects this surface under the
-  shared compact viewport limit. Clipboard completion cannot update a replaced file;
+  shared compact viewport limit. The current-line toolbar opens the shared gutter
+  menu, including Blame and both line-change modes. When Blame is shown, the
+  selected line's author/date annotation opens the shared commit detail; dirty,
+  loading, failure and dismissal states keep their existing owners. Clipboard completion cannot update a replaced file;
   an unresolved write reports an unconfirmed outcome after five seconds.
   Text inputs stay at least 16px; file gestures allow pan and pinch without
   double-tap zoom. Native context menus remain available for selection and copy.

@@ -537,6 +537,14 @@
   touch-action: manipulation;
 }
 
+.code-file-touch-toolbar .code-file-touch-blame {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .code-file-editor-source-region {
   flex: 1;
   min-height: 0;

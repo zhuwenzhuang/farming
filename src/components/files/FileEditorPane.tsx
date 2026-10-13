@@ -293,6 +293,8 @@ export function FileEditorPane({
     touchTextareaRef,
     cursorPosition,
     modelStatus,
+    focusEditor,
+    projectNativeSelection,
     revealLine: revealBlameLine,
   } = useFileEditorMonacoController({
     openFile,
@@ -562,6 +564,7 @@ export function FileEditorPane({
     canShowLineChanges,
     editorRef,
     readOnly,
+    onFocusEditor: focusEditor,
     onCheckBlameCapability: checkBlameCapability,
     onClearBlameDetail: clearBlameDetail,
     onCloseTabContextMenu: closeTabContextMenu,
@@ -635,9 +638,12 @@ export function FileEditorPane({
   useEffect(() => {
     const editor = editorRef.current
     if (!editor) return undefined
-    const frame = window.requestAnimationFrame(() => editor.layout())
+    const frame = window.requestAnimationFrame(() => {
+      editor.layout()
+      projectNativeSelection()
+    })
     return () => window.cancelAnimationFrame(frame)
-  }, [editorRef, markdownSplitOpen, markdownPreviewOpen, sourcePreviewOpen])
+  }, [editorRef, projectNativeSelection, markdownSplitOpen, markdownPreviewOpen, sourcePreviewOpen])
 
   return (
     <section

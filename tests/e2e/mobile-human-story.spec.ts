@@ -573,7 +573,7 @@ test.describe('mobile Farming Code user story', () => {
     }
   })
 
-  test('returns to a remote shell, opens files, and uses touch-accessible blame', { tag: '@iphone-human' }, async ({ page, workspaceRoot }) => {
+  test('returns to a remote shell, opens files, and uses touch-accessible blame', { tag: '@iphone-human' }, async ({ page, workspaceRoot, isMobile }) => {
     const projectDir = path.join(workspaceRoot, 'mobile-project')
     fs.mkdirSync(projectDir, { recursive: true })
     fs.writeFileSync(path.join(projectDir, 'README.md'), [
@@ -587,6 +587,8 @@ test.describe('mobile Farming Code user story', () => {
     git(projectDir, ['config', 'user.name', 'Mobile Story'])
     git(projectDir, ['add', 'README.md'])
     git(projectDir, ['commit', '-m', 'Seed mobile README'])
+    fs.writeFileSync(path.join(projectDir, 'README.md'), '# Mobile project\nmobile-target-line\nchanged-blame-target-line\n')
+    git(projectDir, ['-c', 'user.name=Second Mobile Story', 'commit', '-am', 'Change mobile blame target'])
 
     await page.addInitScript(() => {
       Object.defineProperty(navigator, 'maxTouchPoints', { value: 1, configurable: true })
@@ -700,17 +702,43 @@ test.describe('mobile Farming Code user story', () => {
     if (await sourcePreviewToggle.isVisible()) {
       await sourcePreviewToggle.click()
     }
-    await expect(page.getByTestId('code-file-monaco')).toBeVisible()
-    await page.getByTestId('code-file-monaco').click({ button: 'right', position: { x: 42, y: 38 } })
+    const nativeSource = page.getByTestId('code-file-touch-source')
+    if (isMobile) {
+      await expect(nativeSource.getByRole('textbox')).toBeVisible()
+      await expect(page.getByTestId('code-file-monaco')).toBeHidden()
+      await expect(nativeSource.getByTestId('code-file-touch-line-actions')).toHaveText('Line 2')
+      await nativeSource.getByTestId('code-file-touch-line-actions').tap()
+    } else {
+      await expect(page.getByTestId('code-file-monaco')).toBeVisible()
+      await page.getByTestId('code-file-monaco').click({ button: 'right', position: { x: 42, y: 38 } })
+    }
     const editorContextMenu = page.getByTestId('code-editor-context-menu')
     await expect(editorContextMenu).toBeVisible()
     await expect(editorContextMenu.getByRole('menuitem').first()).not.toBeFocused()
     await editorContextMenu.getByRole('menuitem', { name: 'Annotate with Blame' }).click()
-    const inlineBlame = page.locator('.code-file-inline-blame')
-    await expect(inlineBlame).toHaveCount(3)
-    await expect.poll(async () => inlineBlame.first().evaluate(element => element.getBoundingClientRect().width)).toBeLessThanOrEqual(110)
-    await inlineBlame.first().click()
-    await expect(page.getByTestId('code-file-blame-detail')).toContainText('Seed mobile README')
+    const annotation = isMobile ? nativeSource.getByTestId('code-file-touch-blame')
+      : page.locator('.code-file-inline-blame[data-line-number="2"]')
+    if (!isMobile) await expect(page.locator('.code-file-inline-blame')).toHaveCount(3)
+    await expect(annotation).toHaveAttribute('data-line-number', '2')
+    await expect(annotation).toContainText('Mobile Story')
+    await annotation.click()
+    const detail = page.getByTestId('code-file-blame-detail')
+    await expect(detail).toContainText('Seed mobile README')
+    await page.keyboard.press('Escape')
+    await expect(detail).toHaveCount(0)
+    if (isMobile) {
+      await nativeSource.getByRole('textbox').evaluate((element: HTMLTextAreaElement) => {
+        const start = element.value.indexOf('changed-blame-target-line')
+        element.setSelectionRange(start, start)
+      })
+      await expect(nativeSource.getByTestId('code-file-touch-line-actions')).toHaveText('Line 3')
+      await expect(annotation).toHaveAttribute('data-line-number', '3')
+      await expect(annotation).toContainText('Second Mobile Story')
+      await annotation.tap()
+      await expect(detail).toContainText('Change mobile blame target')
+      await expect(detail).toContainText('Second Mobile Story')
+      await page.keyboard.press('Escape')
+    }
     await expectNoPageOverflow(page)
 
     await page.getByTestId('code-mobile-back').click()

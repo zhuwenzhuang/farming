@@ -1,8 +1,149 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { execFileSync } from 'node:child_process'
 import { expect, openFarming, test } from './fixtures'
 
 const source = 'Account: sample-user\nToken: example_only_123\n中文说明：仅用于测试。\n'
+
+test('shared context Paste projects native value and caret after replacement @iphone-human', async ({ page, workspaceRoot, isMobile }) => {
+  test.skip(!isMobile, 'Native touch clipboard projection')
+  const workspace = path.join(workspaceRoot, 'touch-paste')
+  fs.mkdirSync(workspace)
+  const filePath = path.join(workspace, 'sample.txt')
+  fs.writeFileSync(filePath, 'first value\nsecond value\n')
+  await page.addInitScript(() => Object.defineProperty(navigator, 'clipboard', {
+    configurable: true, value: { readText: async () => 'PASTE\nMULTI' },
+  }))
+  await page.request.post('/farming/api/control/agents', { data: { command: 'bash', workspace } })
+  await openFarming(page)
+  await page.getByTestId('code-mobile-menu').click()
+  const files = page.getByTestId('code-project-group').filter({ hasText: 'touch-paste' }).getByTestId('code-files-section')
+  const toggle = files.locator('.code-files-title')
+  if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click()
+  await files.locator('[data-testid="code-file-row"][data-file-path="sample.txt"]').click()
+  const native = page.getByTestId('code-file-touch-source')
+  const textarea = native.getByRole('textbox')
+  await expect(textarea).toHaveValue('first value\nsecond value\n')
+  await expect(textarea).toBeEditable()
+  await textarea.evaluate((element: HTMLTextAreaElement) => { element.setSelectionRange(6, 11) })
+  await expect.poll(() => page.evaluate(() => window.__farmingFileEditorTest?.getPosition())).toEqual({ lineNumber: 1, column: 12 })
+  await native.getByTestId('code-file-touch-line-actions').tap()
+  const paste = page.getByTestId('code-editor-context-menu').getByRole('menuitem', { name: 'Paste', exact: true })
+  await expect(paste).toBeEnabled()
+  await paste.tap()
+  await expect(textarea).toHaveValue('first PASTE\nMULTI\nsecond value\n')
+  await expect.poll(() => page.evaluate(() => window.__farmingFileEditorTest?.getPosition())).toEqual({ lineNumber: 2, column: 6 })
+  await expect(textarea).toBeFocused()
+  await expect.poll(() => textarea.evaluate((element: HTMLTextAreaElement) => [element.selectionStart, element.selectionEnd])).toEqual([17, 17])
+  const longDraft = 'native editing line\n'.repeat(160)
+  await textarea.fill(longDraft)
+  await textarea.evaluate((element: HTMLTextAreaElement) => {
+    const offset = 'native editing line\n'.length * 89
+    element.focus()
+    element.setSelectionRange(offset, offset)
+    element.scrollTop = 89 * 24 - element.clientHeight / 2
+  })
+  await expect.poll(() => page.evaluate(() => window.__farmingFileEditorTest?.getPosition())).toEqual({ lineNumber: 90, column: 1 })
+  const scrollTop = await textarea.evaluate((element: HTMLTextAreaElement) => element.scrollTop)
+  expect(scrollTop).toBeGreaterThan(0)
+  await textarea.evaluate((element: HTMLTextAreaElement) => {
+    const native = element.setSelectionRange.bind(element)
+    const calls: unknown[] = []
+    element.setSelectionRange = (...args: Parameters<HTMLTextAreaElement['setSelectionRange']>) => {
+      calls.push({ args, scrollTop: element.scrollTop })
+      document.documentElement.dataset.nativeSelectionTrace = JSON.stringify(calls)
+      native(...args)
+    }
+  })
+  await page.keyboard.insertText('x')
+  await expect.poll(() => page.evaluate(() => window.__farmingFileEditorTest?.getPosition())).toEqual({ lineNumber: 90, column: 2 })
+  expect(await page.evaluate(() => document.documentElement.dataset.nativeSelectionTrace ?? '[]')).toBe('[]')
+  expect(await textarea.evaluate((element: HTMLTextAreaElement) => element.scrollTop)).toBe(scrollTop)
+})
+
+test('native line actions preserve Git inspection and selected text on touch screens @iphone-human', async ({ page, workspaceRoot, isMobile }) => {
+  test.skip(!isMobile, 'Native touch Git surface')
+  const workspace = path.join(workspaceRoot, 'touch-git')
+  fs.mkdirSync(workspace)
+  const filePath = path.join(workspace, 'sample.txt')
+  const git = (...args: string[]) => execFileSync('git', args, { cwd: workspace, stdio: 'ignore',
+    env: { ...process.env, GIT_AUTHOR_DATE: '2026-01-15T12:00:00Z', GIT_COMMITTER_DATE: '2026-01-15T12:00:00Z' } })
+  git('init', '-q')
+  git('config', 'core.hooksPath', '/dev/null')
+  git('config', 'user.email', 'example@example.test')
+  git('config', 'user.name', 'First Author')
+  fs.writeFileSync(filePath, 'first line\nsecond line\nthird line\n')
+  git('add', '.')
+  git('commit', '-qm', 'Seed touch Git fixture')
+  fs.writeFileSync(filePath, 'first line\nchanged second line\nthird line\n')
+  git('-c', 'user.name=Second Author', 'commit', '-qam', 'Change second line')
+  fs.writeFileSync(filePath, 'working first\nchanged second line\nthird line\n')
+  await page.request.post('/farming/api/control/agents', { data: { command: 'bash', workspace } })
+  await page.goto(`/farming/?${new URLSearchParams({ ftarget: 'file', path: filePath, line: '2' })}`)
+  const editor = page.getByTestId('code-file-editor')
+  const native = editor.getByTestId('code-file-touch-source')
+  const textarea = native.getByRole('textbox')
+  await expect(textarea).toHaveValue('working first\nchanged second line\nthird line\n')
+  await expect(editor.getByTestId('code-file-monaco')).toBeHidden()
+  const lineActions = native.getByTestId('code-file-touch-line-actions')
+  await expect(lineActions).toHaveText('Line 2')
+  const menu = page.getByTestId('code-editor-context-menu')
+  const openLineMenu = async () => {
+    await lineActions.tap()
+    await expect(menu).toBeVisible()
+  }
+  await openLineMenu()
+  await menu.getByRole('menuitem', { name: 'Annotate with Blame', exact: true }).tap()
+  const annotation = native.getByTestId('code-file-touch-blame')
+  await expect(annotation).toContainText('Second Author')
+  await expect(annotation).toHaveAttribute('data-line-number', '2')
+  const detail = editor.getByTestId('code-file-blame-detail')
+  for (const appearance of ['light', 'dark', 'paper']) {
+    await page.evaluate(value => {
+      document.body.dataset.appearance = value
+      document.documentElement.dataset.appearance = value
+    }, appearance)
+    await annotation.tap()
+    await expect(detail).toContainText('Change second line')
+    await expect(detail).toContainText('Second Author')
+    await expect(editor).toHaveScreenshot(`touch-git-${appearance}.png`)
+    await page.keyboard.press('Escape')
+    await expect(detail).toHaveCount(0)
+  }
+  await openLineMenu()
+  await menu.getByRole('menuitem', { name: 'Open Line Changes with Previous Revision', exact: true }).tap()
+  const changes = editor.getByTestId('code-file-line-changes-panel')
+  await expect(changes).toContainText('Line 2')
+  await expect(changes).toContainText('Change second line')
+  await expect(changes.locator('pre')).toContainText('+changed second line')
+  await changes.getByRole('button', { name: 'Close line changes', exact: true }).tap()
+  await textarea.evaluate((element: HTMLTextAreaElement) => { element.setSelectionRange(0, 7) })
+  await expect(lineActions).toHaveText('Line 1')
+  await openLineMenu()
+  await menu.getByRole('menuitem', { name: 'Open Line Changes with Working File', exact: true }).tap()
+  await expect(changes).toContainText('Line 1')
+  await expect(changes.locator('pre')).toContainText('-first line')
+  await expect(changes.locator('pre')).toContainText('+working first')
+  await changes.getByRole('button', { name: 'Close line changes', exact: true }).tap()
+  // Shared menu selection restores focus to the actual editable source.
+  await openLineMenu()
+  await menu.getByRole('menuitem', { name: 'Select All', exact: true }).tap()
+  await expect(textarea).toBeFocused()
+  expect(await textarea.evaluate((element: HTMLTextAreaElement) => [element.selectionStart, element.selectionEnd])).toEqual([0, (await textarea.inputValue()).length])
+  const draft = await textarea.inputValue()
+  await textarea.fill(draft + 'unsaved line\n')
+  await expect(annotation).toHaveCount(0)
+  await expect(editor.getByTestId('code-file-blame-state')).toHaveText('Save or undo changes to refresh blame.')
+  await textarea.fill(draft)
+  await textarea.evaluate((element: HTMLTextAreaElement) => {
+    const start = element.value.indexOf('changed second line')
+    element.setSelectionRange(start, start)
+  })
+  await expect(annotation).toBeVisible()
+  await openLineMenu()
+  await menu.getByRole('menuitem', { name: 'Hide Blame', exact: true }).tap()
+  await expect(annotation).toHaveCount(0)
+})
 
 test('native file selection, copy and edits on touch screens @iphone-human', async ({ page, workspaceRoot, isMobile }, testInfo) => {
   test.skip(!isMobile, 'Touch source surface')

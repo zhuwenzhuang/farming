@@ -194,6 +194,10 @@ export function FileEditorSurface({
           label={copy.editorFor(openFile.file.path)}
           activeTabDomId={activeTabDomId}
           copy={copy}
+          lineNumber={cursorPosition.lineNumber}
+          blameLine={blameOpen ? blame?.lines.find(line => line.lineNumber === cursorPosition.lineNumber) : undefined}
+          onLineContextMenu={onBlameContextMenu}
+          onShowBlameDetail={onShowBlameDetail}
         />}
         {surface.showMarkdownSplit && (
           <LocalErrorBoundary

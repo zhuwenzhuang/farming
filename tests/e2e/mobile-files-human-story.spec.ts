@@ -107,18 +107,17 @@ async function expectSurfaceInsideMain(surface: Locator) {
 }
 
 async function openEditorContextMenu(page: Page, lineNumber: number) {
-  await expect.poll(() => page.evaluate((line) => (
-    window.__farmingFileEditorTest?.revealLine(line, 1) === true
-  ), lineNumber)).toBe(true)
+  const source = page.getByTestId('code-file-touch-source')
+  const textarea = source.getByRole('textbox')
+  await expect(textarea).toBeVisible()
+  await textarea.evaluate((element: HTMLTextAreaElement, line) => {
+    const offset = element.value.split('\n').slice(0, line - 1).reduce((sum, text) => sum + text.length + 1, 0)
+    element.setSelectionRange(offset, offset)
+  }, lineNumber)
   await expect.poll(() => fileEditorPosition(page)).toEqual({ lineNumber, column: 1 })
-  const monaco = page.getByTestId('code-file-monaco')
-  const box = await monaco.boundingBox()
-  if (!box) throw new Error('Mobile Monaco surface has no measurable bounds')
-  const position = { x: 42, y: 20 + ((lineNumber - 1) * 18) }
-  await page.touchscreen.tap(box.x + position.x, box.y + position.y)
-  // Playwright has no portable touch long-press API. Right-click the same
-  // gutter point to exercise the native contextmenu bridge after real touch.
-  await monaco.click({ button: 'right', position })
+  const lineActions = source.getByTestId('code-file-touch-line-actions')
+  await expect(lineActions).toHaveText(`Line ${lineNumber}`)
+  await lineActions.tap()
   const menu = page.getByTestId('code-editor-context-menu')
   await expect(menu).toBeVisible()
   await expectSurfaceInsideMain(menu)
@@ -184,14 +183,23 @@ test.describe('mobile Files production journeys', () => {
     await expect(editor.getByTestId('code-file-large-text-alert')).toHaveText(
       'This large file is shown completely in read-only mode.',
     )
-    await expect(editor.getByTestId('code-file-monaco')).toBeVisible()
+    const source = editor.getByTestId('code-file-touch-source')
+    const textarea = source.getByRole('textbox')
+    await expect(textarea).toBeVisible()
+    await expect(textarea).toHaveAttribute('readonly', '')
+    await expect(editor.getByTestId('code-file-monaco')).toBeHidden()
     await expect.poll(() => page.evaluate(() => {
       if (!window.__farmingFileEditorTest?.revealLine(150_000)) return 0
       return window.__farmingFileEditorTest.getPosition()?.lineNumber ?? 0
     }), { timeout: 5_000 }).toBe(150_000)
-    const renderedLines = await editor.locator('.code-file-monaco').locator('.view-line').count()
-    expect(renderedLines).toBeGreaterThan(0)
-    expect(renderedLines).toBeLessThan(100)
+    await expect.poll(() => textarea.evaluate((element: HTMLTextAreaElement) => ({
+      length: element.value.length,
+      selection: element.selectionStart,
+      scrolled: element.scrollTop > 0,
+    }))).toEqual({ length: 160_000 * 'large text line\n'.length, selection: 149_999 * 'large text line\n'.length, scrolled: true })
+    await textarea.focus()
+    await page.keyboard.type('must remain read only')
+    expect(await textarea.evaluate((element: HTMLTextAreaElement) => element.value.length)).toBe(160_000 * 'large text line\n'.length)
     await expectSurfaceInsideMain(editor)
     await expectNoDocumentOverflow(page)
   })
@@ -247,7 +255,7 @@ test.describe('mobile Files production journeys', () => {
     const results = page.getByTestId('code-file-search-results')
     await expect(results).toBeVisible()
     await results.getByRole('option').first().tap()
-    await expect(page.getByTestId('code-file-monaco')).toBeVisible()
+    await expect(page.getByTestId('code-file-touch-source').getByRole('textbox')).toBeVisible()
     await expect.poll(() => fileEditorPosition(page)).toEqual({ lineNumber: 2, column: 1 })
 
     let menu = await openEditorContextMenu(page, 2)

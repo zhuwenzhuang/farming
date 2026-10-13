@@ -27,6 +27,7 @@ interface UseFileEditorContextMenuControllerOptions {
   canShowLineChanges: boolean
   editorRef: MutableRefObject<monaco.editor.IStandaloneCodeEditor | null>
   readOnly: boolean
+  onFocusEditor?: () => void
   onCheckBlameCapability: () => Promise<BlameCapability | null>
   onClearBlameDetail: () => void
   onCloseTabContextMenu: () => void
@@ -46,6 +47,7 @@ export function useFileEditorContextMenuController({
   canShowLineChanges,
   editorRef,
   readOnly,
+  onFocusEditor,
   onCheckBlameCapability,
   onClearBlameDetail,
   onCloseTabContextMenu,
@@ -61,6 +63,10 @@ export function useFileEditorContextMenuController({
   actionFenceRef.current.setScope(scope)
   actionFenceRef.current.setActive(active)
   const editorContextMenu = active && menuState?.scope === scope ? menuState : null
+  const focusEditor = useCallback(() => {
+    if (onFocusEditor) onFocusEditor()
+    else editorRef.current?.focus()
+  }, [editorRef, onFocusEditor])
 
   const closeEditorContextMenu = useCallback(() => {
     actionFenceRef.current.invalidate()
@@ -156,7 +162,7 @@ export function useFileEditorContextMenuController({
     }
     if (action === 'select-all' && model) {
       editor.setSelection(model.getFullModelRange())
-      editor.focus()
+      focusEditor()
       return
     }
     if (!model || !selection) return
@@ -167,13 +173,13 @@ export function useFileEditorContextMenuController({
       if (!actionLease.isCurrent() || editor.getModel() !== model) return
       if (!copied) {
         setClipboardWriteFailed(true)
-        editor.focus()
+        focusEditor()
         return
       }
       if (action === 'cut' && text && !readOnly) {
         editor.executeEdits('farming-context-menu', [{ range: selection, text: '', forceMoveMarkers: true }])
       }
-      editor.focus()
+      focusEditor()
       return
     }
 
@@ -183,9 +189,9 @@ export function useFileEditorContextMenuController({
       if (text) {
         editor.executeEdits('farming-context-menu', [{ range: selection, text, forceMoveMarkers: true }])
       }
-      editor.focus()
+      focusEditor()
     }
-  }, [canShowBlame, canShowLineChanges, closeEditorContextMenu, editorContextMenu, editorRef, onCheckBlameCapability, onOpenLineChanges, onRunLanguageServerAction, onToggleBlame, readOnly])
+  }, [canShowBlame, canShowLineChanges, closeEditorContextMenu, editorContextMenu, editorRef, focusEditor, onCheckBlameCapability, onOpenLineChanges, onRunLanguageServerAction, onToggleBlame, readOnly])
 
   const showBlameContextAction = Boolean(editorContextMenu && (editorContextMenu.kind === 'gutter' || blameInEditorContext) && canShowBlame && (blameOpen || blameCapability !== 'unavailable'))
   const showLineChangesContextActions = Boolean(editorContextMenu && editorContextMenu.kind === 'gutter' && canShowLineChanges)
