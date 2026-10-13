@@ -22,6 +22,10 @@ const tasks: FastScreenTask[] = [
     args: ['--import', 'tsx', 'backend/tests/test-acp-answer-continuation.ts'],
   },
   {
+    name: 'related-session trailing history turn',
+    args: ['--import', 'tsx', 'backend/tests/test-related-session-pagination.ts'],
+  },
+  {
     name: 'ACP adapter launch, required input and runtime lifecycle ownership',
     managedUpgrade: true,
     args: ['--import', 'tsx', 'backend/tests/test-acp-runtime.ts'],

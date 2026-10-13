@@ -391,7 +391,7 @@ async function main(): Promise<void> {
     await requestJSON(`${baseURL}/api/settings`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ composerFollowUpBehavior: 'queue' }),
+      body: JSON.stringify({ language: 'en', composerFollowUpBehavior: 'queue' }),
     })
     const created = await requestJSON<{ agentId?: string }>(`${baseURL}/api/control/agents`, {
       method: 'POST',

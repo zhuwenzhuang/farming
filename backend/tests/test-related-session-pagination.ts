@@ -34,7 +34,6 @@ for (const language of ['en', 'zh'] as const) {
   assert.notEqual(relatedSessionStatusLabel('unknown', copy), '');
   assert.notEqual(relatedSessionStatusLabel('idle', copy, 'cancelled'), relatedSessionStatusLabel('idle', copy));
 }
-console.log('related session paging and status tests passed');
 
 const copy = codeCopyForLanguage('en');
 assert.equal(relatedSessionIndicator('child', 'running', copy).turnActive, true);
@@ -44,9 +43,18 @@ assert.equal(relatedSessionIndicator('child', 'waiting-for-input', copy).lifecyc
 assert.equal(relatedSessionIndicator('child', 'failed', copy).failureMessage, 'Failed');
 assert.equal(relatedSessionIndicator('child', 'unknown', copy).statusIndicatorVisible, true);
 
-// Current Session activity never activates the last Turn of a historical page.
-
+// A historical window's trailing Turn remains partial: its page boundary is
+// neither completion evidence nor the Session's current activity/stop boundary.
 const latest = state.transcriptSlice({ maxTurns: 1 });
-const historical = state.transcriptSlice({ maxTurns: 1, cursor: latest.nextCursor });
-assert.equal(projectAcpTranscript({ ...historical, state: 'working' }).turns.at(-1)?.status, 'completed');
+const historical = state.transcriptSlice({ maxTurns: 2, cursor: latest.nextCursor });
+assert.equal(historical.includesLatest, false);
+for (const sessionState of ['working', 'idle', 'error']) {
+  const projected = projectAcpTranscript({ ...historical, state: sessionState });
+  assert.equal(projected.turns[0]?.status, 'completed', 'the next prompt proves the preceding Turn boundary');
+  const trailing = projected.turns.at(-1);
+  assert.equal(trailing?.status, 'partial');
+  assert.equal(trailing?.finalMessage, '', 'a historical answer must not become the final result at a page boundary');
+  assert(trailing?.processItems.some(item => item.detail === 'Answer 259'));
+}
 assert.equal(projectAcpTranscript({ ...latest, state: 'working' }).turns.at(-1)?.status, 'inProgress');
+console.log('related session paging and status tests passed');
