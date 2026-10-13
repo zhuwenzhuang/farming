@@ -115,7 +115,15 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
       await expect.poll(() => page.evaluate(() => localStorage.getItem('farming.code.agentComposerCheckpoint.v1'))).toContain('END_OF_DRAFT')
       await select(mode === 'terminal' ? sourceId : otherId)
       await select(mode === 'terminal' ? otherId : sourceId)
-      if (mode === 'side') await page.locator('[data-testid="code-agent-row"].related-child').click()
+      if (mode === 'side') {
+        const parentRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${sourceId}"]`)
+        await parentRow.hover()
+        const disclosure = parentRow.getByTestId('code-agent-row-related-visibility')
+        await expect(disclosure).toBeVisible()
+        if (await disclosure.getAttribute('aria-expanded') === 'false') await disclosure.click()
+        await expect(disclosure).toHaveAttribute('aria-expanded', 'true')
+        await page.locator('[data-testid="code-agent-row"].related-child').click()
+      }
       await expect(input).toHaveValue(draft)
       if (mode !== 'side') {
         await page.reload()
