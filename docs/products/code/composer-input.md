@@ -82,37 +82,28 @@ only the disclosure label toggles expansion. Clipboard HTML supplies bounded,
 validated presentation ranges for card previews. Source colors adapt to the
 appearance. Source HTML and executable content are never mounted.
 
-Formatted paste converts supported structure into editable Markdown: fenced code
-with a supplied language, indentation, lists, headings, emphasis and safe links.
-Inline code remains inline even when the clipboard includes a monospace font.
-Multiline selections carrying syntax metadata retain code semantics without
-requiring the enclosing block in clipboard HTML. Code toolbar labels are excluded from the
-captured content. Pasted block fences stay on separate lines from surrounding
-draft text and subsequent typing. Pasting within an existing fenced code block
-uses the original text, without nested fences or Markdown escaping. Conversion
-keeps code line breaks and word boundaries; whitespace at emphasis edges stays
-outside its delimiters. Source fonts, sizes and backgrounds do not
-become editor styling. Short formatted
-pastes insert into the selected range using native undo; long ones retain their
-snapshot card and an editable Markdown representation. “Show in text field” moves
-that representation into the same draft atomically and removes the card exactly
-once. Sending a formatted card includes its Markdown representation so code
-languages and link destinations reach the Agent. Existing plain-text snapshots still restore their original text. Shift+Cmd/Ctrl+V
-explicitly bypasses both formatting conversion and folding. Unsupported or mismatched HTML leaves
-the authoritative clipboard text intact. HTML tables retain their plain-text row and
-column separators, including when individual cells have supported inline styles.
+Every Composer uses native plain-text editing. Short pastes insert the clipboard's
+plain text at the current selection, retaining indentation and line breaks through
+native undo/redo. Clipboard HTML never adds Markdown delimiters, code fences or
+link destinations to the draft. Explicitly typed or copied Markdown source remains
+literal text. Long pasted cards retain that same source text; “Show in text field”
+restores it atomically and removes the card exactly once. Existing persisted cards
+with an editable Markdown representation retain that representation for recovery
+and submission compatibility. Shift+Cmd/Ctrl+V bypasses folding for that paste.
 
-The draft string is the sole editing and submission owner. Typing, selection,
-IME, undo, history, queue editing, reload and Agent switches use the same textarea
-and existing draft transitions. An inert, inaccessible syntax layer decorates
-Markdown and fenced code using shared theme colors; it tracks the textarea's
-geometry and scroll position and never handles input or sends content. No second
-editable document or offset state can become stale after an edit. Highlighting is
-bounded to drafts of 50,000 code units and a total of 12,000 code units across 64 code blocks; larger text stays
-editable and retains all Markdown structure. No source code is executed. Native
-plain text remains available if formatted insertion is unsupported. Card removal,
-recovery, submission acknowledgement and newer-draft fencing keep their existing
-ownership and failure semantics.
+The Agent draft string is the sole editing and submission owner. The same native
+textarea owns visible text, caret, selection, IME, scrolling and undo; no transparent
+text or syntax overlay may replace its rendering. Markdown-like content must not
+change its font, line height or color. Main Chat, side Chat, Terminal and expanded
+editing share this rule in every appearance. HTML-derived presentation is limited
+to non-editable context-card previews, never the input.
+
+Typing, selection, undo, history, queue editing, reload and Agent switches keep the
+existing draft transitions. IME owns Enter/Escape while composing; editing and
+presentation changes never send. Agent switches preserve separate drafts; explicit
+submission snapshots the current draft through the existing admission owner.
+Card removal, recovery, submission acknowledgements and newer-draft fencing retain
+their existing ownership and failure semantics.
 
 ## Attachment Intake And Recovery
 
@@ -214,11 +205,13 @@ Enter does not submit. Capture compact and expanded states in Light, Dark and
 Paper. Browser-emulated viewport changes verify layout; they do not certify a
 physical phone's keyboard, dictation or candidate UI.
 
-Formatted-paste acceptance covers standalone emphasis and quotes, headings, links,
-inline code, nested and numbered lists, fenced code, mixed Chinese/Latin/emoji text,
-wrapping and table text preservation. Assert exact editable content and syntax-layer
-alignment, then compare versioned screenshots in Light, Dark and Paper for Chat
-and Terminal on desktop Chromium and compact/expanded WebKit.
+Plain-text acceptance covers native copy from a rendered Chat answer, paste into
+main Chat, Terminal and side Chat, middle-of-text replacement, Chinese composition
+Enter handling, undo/redo, wrapping and scrolling, Agent switching, reload and exact
+submitted content. Verify literal Markdown, code indentation and table separators,
+plus long-card restoration. Compare focused screenshots in Light, Dark and Paper
+on desktop Chromium and compact/expanded WebKit. Browser composition events test
+application arbitration; they do not certify a physical OS candidate window.
 
 `npm run release:fast-screen:mobile` checks draft shrinking, unfocused space
 reservation and image-preview hit targets before the complete mobile matrix.

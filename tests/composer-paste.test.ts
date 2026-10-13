@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { attachPastedText, createPastedTextReference, prepareComposerPaste, restorePastedText, selectionInsideComposerCode } from '../src/components/code/composer-paste'
+import { attachPastedText, createPastedTextReference, prepareComposerPaste, restorePastedText } from '../src/components/code/composer-paste'
 import { composerMessageWithContext } from '../src/components/code/composer-message'
 import { createDefaultAgentComposerState, createPendingFollowUpMessage, restorePendingFollowUpMessageForEdit } from '../src/components/code/composer-state'
 import { loadAgentComposerCheckpoint, saveAgentComposerCheckpoint } from '../src/components/code/composer-persistence'
@@ -91,57 +91,19 @@ test('restoring formatted code keeps editable Markdown through checkpoints', () 
   assert.equal(restorePastedText(restored, reference.id), restored)
 })
 
-test('syntax decoration preserves source text including empty and unfinished fences', async () => {
-  const { highlightComposerMarkdown, fencedComposerCode } = await import('../src/components/code/composer-markdown')
-  const decode = (html: string) => html.replace(/<[^>]*>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#x27;/g, "'").replace(/&amp;/g, '&')
-  for (const draft of ['```java\n```', '```', '```java\npublic class Example {}\n```\n', '**bold**\n- item\n[link](https://example.com)', '~~~sql\nselect * from example\n~~~', '```java\nString value = "<img src=x>";']) {
-    assert.equal(decode(highlightComposerMarkdown(draft)!), draft)
-  }
-  assert.match(highlightComposerMarkdown('```java\npublic class Example {}\n```')!, /hljs-keyword/)
-  assert.equal(highlightComposerMarkdown('ordinary question'), null)
-  assert.equal(highlightComposerMarkdown('```java\n' + 'x'.repeat(50_001)), null)
-  assert.equal(fencedComposerCode('literal ``` token', 'java'), '````java\nliteral ``` token\n````')
-})
-
-test('standalone emphasis and quotes receive the same decoration as mixed Markdown', async () => {
-  const { highlightComposerMarkdown } = await import('../src/components/code/composer-markdown')
-  for (const draft of ['*斜体 🐱*', '_italic_', '**bold**']) {
-    assert.match(highlightComposerMarkdown(draft) || '', /hljs-(emphasis|strong)/)
-  }
-  assert.match(highlightComposerMarkdown('> 引用\n> second line') || '', /hljs-quote/)
-})
-
-test('pasting within code uses original text and keeps long-paste limits and folding', () => {
-  const source = 'const value = 1;'
-  const html = '<pre><code>' + source + '</code></pre>'
-  for (const fence of ['```javascript', '~~~~js', '  ````']) {
-    const prefix = fence + '\n'
-    const value = prefix + 'REPLACE\n' + fence.trim().match(/^[`~]+/)![0] + '\nProse'
-    const selection = { value, selectionStart: prefix.length, selectionEnd: prefix.length + 7 }
-    assert.equal(selectionInsideComposerCode(selection), true)
-    assert.equal(selectionInsideComposerCode({ ...selection, selectionEnd: value.length }), false)
-    assert.equal(selectionInsideComposerCode({ ...selection, selectionStart: value.length, selectionEnd: value.length }), false)
-    assert.equal(prepareComposerPaste(source, html, true, selection), null)
-    const long = source.repeat(100)
-    const prepared = prepareComposerPaste(long, '<pre>' + long + '</pre>', true, selection)
-    assert.equal(prepared?.reference?.text, long)
-    assert.equal(prepared?.reference?.editableMarkdown, undefined)
-    assert.throws(() => prepareComposerPaste('x'.repeat(250_001), html, true, selection), /Split it/)
+test('all short text uses native paste without interpreting Markdown or clipboard HTML', () => {
+  for (const source of ['docker_test', '**`docker_test`**和非docker_test 的区别', 'const value = 1;\n\tconsole.log(value);', '# Heading\n- item', '🐱'.repeat(1000)]) {
+    assert.equal(prepareComposerPaste(source, '<pre><strong>' + source + '</strong></pre>', true), null)
   }
 })
 
-test('code selection requires the matching fence and rejects prose and opening-line selections', () => {
-  for (const [value, token, expected] of [
-    ['```js\nvalue', 'value', true],
-    ['````js\n```\nvalue\n````', 'value', true],
-    ['```js\n~~~\nvalue\n```', 'value', true],
-    ['```js\n```not a closer\nvalue\n```', 'value', true],
-    ['```js\nvalue\n```\nprose', 'prose', false],
-    ['```js', 'js', false],
-    ['prose ```js\nvalue', 'value', false],
-    ['```invalid`info\nvalue', 'value', false],
-  ] as const) {
-    const start = value.indexOf(token)
-    assert.equal(selectionInsideComposerCode({ value, selectionStart: start, selectionEnd: start + token.length }), expected, value)
-  }
+test('long paste keeps exact source and bounds without creating Markdown', () => {
+  const source = 'const value = 1;\n'.repeat(100)
+  const prepared = prepareComposerPaste(source, '<pre>' + source + '</pre>', true)
+  assert.equal(prepared?.reference.text, source)
+  assert.equal(prepared?.reference.editableMarkdown, undefined)
+  const state = attachPastedText(createDefaultAgentComposerState(), prepared!.reference, 0, 0)
+  assert.equal(restorePastedText(state, prepared!.reference.id).draft, source)
+  assert.equal(prepareComposerPaste(source, undefined, false), null)
+  assert.throws(() => prepareComposerPaste('x'.repeat(250_001), undefined, true), /Split it/)
 })

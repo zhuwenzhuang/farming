@@ -10,7 +10,7 @@ import type { ComposerFollowUpBehavior } from '@/lib/ui-preferences'
 import { projectFilesWorkspaceId } from '@/lib/project-workspaces'
 import { capabilitiesForAgent } from './capabilities'
 import { useComposerProviderCatalog } from './useComposerProviderCatalog'
-import { attachPastedText, insertFormattedComposerText, prepareComposerPaste, restorePastedText } from './composer-paste'
+import { attachPastedText, prepareComposerPaste, restorePastedText } from './composer-paste'
 import { composerContextReferenceId } from './composer-message'
 import { AcpComposer } from './acp/AcpComposer'
 import { acpComposerStateKeyForAgent } from './acp/acp-composer-state'
@@ -84,8 +84,7 @@ export function SubagentComposer({ agent: structuralAgent, active, controller, c
     if (textarea.dataset.plainPaste === 'true') return false
     let prepared
     try {
-      prepared = prepareComposerPaste(text, html, true, textarea)
-      if (prepared?.markdown) { insertFormattedComposerText(textarea, prepared.markdown); return true }
+      prepared = prepareComposerPaste(text, html, true)
     }
     catch (error) {
       setError(error instanceof Error ? error.message : String(error))

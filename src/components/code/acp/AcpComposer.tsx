@@ -1,4 +1,3 @@
-import { ComposerDraftHighlight } from '../ComposerDraftHighlight'
 import { MAX_COMPOSER_SUBMISSIONS, type AgentComposerSubmission } from '../composer-state'
 import { useComposerTransfer } from '../useComposerTransfer'
 import { useInteractionLayer } from '@/hooks/useInteractionLayer'
@@ -678,7 +677,6 @@ export function AcpComposer({
         </div>
       ) : null}
       {hasQuotes ? composerAttachments : null}
-      <ComposerDraftHighlight draft={draft} textareaRef={textareaRef} />
       <textarea
           data-testid="code-acp-composer-input"
           ref={textareaRef}

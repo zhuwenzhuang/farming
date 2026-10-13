@@ -164,7 +164,7 @@ import {
   type ComposerContextReference,
   type ComposerPromptAttachment,
 } from './code/composer-message'
-import { attachPastedText, insertFormattedComposerText, prepareComposerPaste, restorePastedText } from './code/composer-paste'
+import { attachPastedText, prepareComposerPaste, restorePastedText } from './code/composer-paste'
 import { terminalInputPartsForComposerMessage } from './code/composer-submit'
 import { ComposerFollowUpAdmissions, useComposerFollowUpController } from './code/useComposerFollowUpController'
 import type { RelatedSessionTarget } from './code/related-session-navigation'
@@ -2118,8 +2118,7 @@ export function CodeWorkspace({
     if (!activeComposerKey || textarea.dataset.plainPaste === 'true') return false
     let prepared
     try {
-      prepared = prepareComposerPaste(text, html, true, textarea)
-      if (prepared?.markdown) { insertFormattedComposerText(textarea, prepared.markdown); return true }
+      prepared = prepareComposerPaste(text, html, true)
     }
     catch (error) {
       setCopyNotice({ id: Date.now(), kind: 'error', message: error instanceof Error ? error.message : String(error) })

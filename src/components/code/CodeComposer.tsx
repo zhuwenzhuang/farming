@@ -1,4 +1,3 @@
-import { ComposerDraftHighlight } from './ComposerDraftHighlight'
 import { useComposerTransfer } from './useComposerTransfer'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type {
@@ -672,7 +671,6 @@ export function CodeComposer({
         </div>
       )}
       {hasQuotes ? composerAttachments : null}
-      <ComposerDraftHighlight draft={draft} textareaRef={textareaRef} />
       <textarea
           data-testid="code-composer-input"
           ref={textareaRef}

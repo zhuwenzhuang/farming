@@ -63,6 +63,8 @@ for (const mode of ['chat', 'terminal'] as const) {
     await expect(input).toHaveValue('')
     await expect(card).toHaveCount(0)
     if (mode === 'terminal' && await page.getByTestId('code-pending-followup-send-next').count()) await page.getByTestId('code-pending-followup-send-next').click()
+    // Chat staging clears the editor before admission records input history.
+    if (mode === 'chat') await expect(page.getByTestId('code-acp-submission')).toHaveCount(0)
     await input.press('ArrowUp')
     await expect(input).toHaveValue('Review: both files')
     await expect(card).toHaveCount(1)
