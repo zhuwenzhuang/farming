@@ -1013,6 +1013,11 @@ history and unavailable boundaries across provider adapters.
 
 ## Presentation Contract
 
+Chat infers file links from inline code only when it identifies a single file.
+Extension-pair shorthand such as `src/header.h/.cpp` stays intact as inline code;
+it must not become a link labeled `.cpp`. Explicit Markdown file links retain
+their literal destination.
+
 Compact Chat keeps the current Plan collapsed to one summary row above the
 Composer in normal layout flow. Expanded details scroll within a bounded height;
 neither state overlays the title, transcript, or input. Agent changes close the

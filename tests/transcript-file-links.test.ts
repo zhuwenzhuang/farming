@@ -140,6 +140,33 @@ test('transcript file targets accept bare names and special filenames', () => {
   })
 })
 
+test('inline file inference preserves extension-pair shorthand instead of linking its last extension', () => {
+  for (const reference of [
+    'metastore/meta_store_base.h/.cpp',
+    'src/time_oracle_client.h/.cpp',
+    'src/async_http_server.h/.cpp',
+    'meta_store_base.h/.cpp',
+    '/repo/src/header.hpp/.cc/.cpp:12',
+    'src\\header.h\\.cpp',
+    'src/header.h%2F.cpp',
+  ]) {
+    assert.equal(transcriptFileTargetFromText(reference, WORKSPACE_ROOT), null, reference)
+    assert.equal(hasQualifiedTranscriptFileReference(reference), false, reference)
+  }
+
+  for (const reference of ['src/header.h', 'src/header.cpp', 'src.v2/header.cpp', '.config/.cpp']) {
+    assert.deepEqual(transcriptFileTargetFromText(reference, WORKSPACE_ROOT), {
+      filePath: reference,
+      target: {},
+    })
+  }
+  // Explicit Markdown links establish identity, even for unusual literal paths.
+  assert.deepEqual(transcriptFileTargetFromHref('src/header.h/.cpp', WORKSPACE_ROOT), {
+    filePath: 'src/header.h/.cpp',
+    target: {},
+  })
+})
+
 test('transcript file targets reject external, unknown, and unqualified references', () => {
   assert.equal(transcriptFileTargetFromText('https://example.com/x.ts', WORKSPACE_ROOT), null)
   assert.equal(transcriptFileTargetFromText('example.com/x.ts', WORKSPACE_ROOT), null)

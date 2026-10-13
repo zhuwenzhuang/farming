@@ -96,6 +96,9 @@ export function stripCandidateLocationSuffix(text: string) {
 }
 
 function transcriptFileBasenameLooksValid(pathText: string) {
+  // Inline shorthand such as header.h/.cpp names multiple files, not a path
+  // whose basename is .cpp. Leave it as code instead of inventing a file link.
+  if (/(?:^|[\\/])[^\\/]+\.[A-Za-z0-9+_-]+(?:[\\/]\.[A-Za-z0-9+_-]+)+$/.test(pathText)) return false
   const basename = pathText.split(/[\\/]/).filter(Boolean).pop() || pathText
   if (TRANSCRIPT_SPECIAL_FILENAMES.has(basename)) return true
   const extensionMatch = basename.match(/\.([A-Za-z0-9+_-]+)$/)
