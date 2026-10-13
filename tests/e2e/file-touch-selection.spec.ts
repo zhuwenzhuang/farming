@@ -5,6 +5,20 @@ import { expect, openFarming, test } from './fixtures'
 
 const source = 'Account: sample-user\nToken: example_only_123\n中文说明：仅用于测试。\n'
 
+// Native Ubuntu and the Playwright image choose different generic sans/mono
+// fonts. Pin the common installed families only for Linux WebKit visual tests.
+test.beforeEach(async ({ page, browserName }) => {
+  if (process.platform !== 'linux' || browserName !== 'webkit') return
+  await page.addInitScript(() => {
+    document.addEventListener('DOMContentLoaded', () => {
+      const style = document.documentElement.style
+      style.setProperty('--code-ui-font-family', '"WenQuanYi Zen Hei", "Noto Color Emoji", sans-serif')
+      style.setProperty('--code-mono-font', '"WenQuanYi Zen Hei Mono", monospace')
+      style.setProperty('--font-mono', '"WenQuanYi Zen Hei Mono", monospace')
+    }, { once: true })
+  })
+})
+
 test('shared context Paste projects native value and caret after replacement @iphone-human', async ({ page, workspaceRoot, isMobile }) => {
   test.skip(!isMobile, 'Native touch clipboard projection')
   const workspace = path.join(workspaceRoot, 'touch-paste')
