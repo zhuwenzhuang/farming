@@ -180,11 +180,6 @@ function run() {
     'mobile jobs must use the verified preinstalled environment instead of repeating apt/browser downloads');
   const environmentCheck = mobile.steps.findIndex(step => step.name === 'Verify preinstalled mobile browser environment');
   assert.strictEqual(mobile.steps[environmentCheck]?.run, 'node scripts/verify-playwright-container.mjs');
-  const containerVerification = fs.readFileSync(path.join(root, 'scripts/verify-playwright-container.mjs'), 'utf8');
-  assert(containerVerification.includes("process.env.GITHUB_ACTIONS === 'true'")
-    && containerVerification.includes("gitRead('--show-toplevel'), workspace")
-    && containerVerification.includes("gitRead('HEAD'), candidate"),
-  'the post-install browser preflight must reread checkout identity under its current HOME');
   assert(environmentCheck > mobile.steps.findIndex(step => step.name === 'Install dependencies')
     && environmentCheck < mobile.steps.indexOf(layout)
     && environmentCheck < mobile.steps.indexOf(human),

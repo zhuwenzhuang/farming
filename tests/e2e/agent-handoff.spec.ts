@@ -7,8 +7,9 @@ import { expect, openFarming, test as baseTest } from './fixtures'
 // owned repository-local fixture so runtime switching exercises real discovery.
 const test = baseTest.extend<{ workspaceRoot: string }>({
   workspaceRoot: async ({}, use) => {
-    fs.mkdirSync(path.resolve('.tmp'), { recursive: true })
-    const root = fs.mkdtempSync(path.resolve('.tmp/handoff-e2e-'))
+    const fixtureRoot = path.resolve(process.env.FARMING_PLAYWRIGHT_SOURCE_ROOT || '.', '.tmp')
+    fs.mkdirSync(fixtureRoot, { recursive: true })
+    const root = fs.mkdtempSync(path.join(fixtureRoot, 'handoff-e2e-'))
     try { await use(root) }
     finally { fs.rmSync(root, { recursive: true, force: true }) }
   },

@@ -387,6 +387,8 @@ Changed Files + Failure Signatures
   Sample 的位置使用有界默认值。通过重分配现有 Job 均衡慢测试，不增加 Worker 或远端 Job。
 - 每个 Job 仍然严格单 Worker；共享同一源码位置的 Generated Test 保持原子分组，同一 Backend
   不并发执行测试。
+- 本地隔离 Lane 使用较短且明确归属的临时根目录承载 Native IPC。原生历史 Fixture 使用
+  Checkout 内唯一的 Workspace，因为 Provider History 排除 OS 临时 Workspace；每个用例清理自己的精确 Fixture。
 - Mobile CI 使用五个隔离的单 Worker Job：两个均衡的 iPhone Layout Shard、各自完整的
   iPhone 和 Android Human Journey Suite，以及使用独立鉴权 Server 的 Authenticated Share
   Suite。原有 Project 和测试位置全部保留，Changed-area Screen 在冻结候选前运行，不在完整

@@ -1232,12 +1232,12 @@ test('default lane temporary directories allow native Unix IPC', { skip: process
     const code = await run(['--project', 'chromium', '--lanes', '1', '--skip-build'], baseDependencies({
       mkdtemp: async prefix => { root = mkdtempSync(prefix); return root; },
       executeLane: async ({ lane }) => {
-        const socketDirectory = path.join(lane.env.TMPDIR, `tsx-${process.getuid()}`);
+        const socketDirectory = path.join(lane.env.TMPDIR, `farming-acp-${process.getuid()}-123456789abc`);
         mkdirSync(socketDirectory, { recursive: true });
         server = net.createServer();
         await new Promise((resolve, reject) => {
           server.once('error', reject);
-          server.listen(path.join(socketDirectory, `${process.pid}.pipe`), resolve);
+          server.listen(path.join(socketDirectory, 'host.sock'), resolve);
         });
         return 0;
       },

@@ -502,6 +502,9 @@ SHA-256 sidecar or hash the same unchanged tarball again in that stage.
   workers or more remote Jobs.
 - Keep exactly one worker per job. Generated tests sharing one source location
   remain atomic, and no backend receives concurrent tests.
+- Isolated local lanes use a short owned temporary root for native IPC. Native
+  history fixtures use unique checkout-local workspaces because OS temporary
+  workspaces are excluded from provider history; each case removes its exact fixture.
 - Mobile CI uses five isolated single-worker jobs: two balanced iPhone layout
   shards, separate complete iPhone and Android human-journey suites, and an
   authenticated-share suite with its own auth-enabled server. Preserve every

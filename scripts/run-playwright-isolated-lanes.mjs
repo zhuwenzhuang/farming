@@ -20,6 +20,9 @@ import { fileURLToPath } from 'node:url';
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, '..');
+// Darwin's per-user temporary root is too long for nested native IPC sockets.
+// Keep all lane state under one short, uniquely owned OS temporary directory.
+const LANE_TEMP_BASE = process.platform === 'darwin' ? '/tmp' : tmpdir();
 const BALANCED_RUNNER = path.join(SCRIPT_DIR, 'run-playwright-balanced-shard.mjs');
 const DEFAULT_STOP_GRACE_MS = 2_000;
 const XVFB_READY_TIMEOUT_MS = 5_000;
@@ -146,6 +149,7 @@ export function createLaneResources({ root, laneIndex, basePort, display }) {
   const env = {
     FARMING_PLAYWRIGHT_PORT: String(basePort + laneIndex - 1),
     FARMING_PLAYWRIGHT_LANE: String(laneIndex),
+    FARMING_PLAYWRIGHT_SOURCE_ROOT: REPO_ROOT,
     FARMING_PLAYWRIGHT_SKIP_BUILD: '1',
     FARMING_PLAYWRIGHT_RETRIES: '0',
   };
@@ -734,7 +738,7 @@ export async function run(argv = process.argv.slice(2), dependencies = {}) {
     headedXvfb: options.headedXvfb,
   });
 
-  const dryRoot = path.join(tmpdir(), 'fpw-DRY-RUN');
+  const dryRoot = path.join(LANE_TEMP_BASE, 'fpw-DRY-RUN');
   if (options.dryRun) {
     const lanes = planLanes(options, dryRoot, basePort, baseDisplay, dependencies.createLaneCommand);
     writeStdout(`${JSON.stringify({ tempRoot: null, lanes }, null, 2)}\n`);
@@ -788,7 +792,7 @@ export async function run(argv = process.argv.slice(2), dependencies = {}) {
       if (interrupted) return 1;
     }
 
-    tempRoot = await makeTempRoot(path.join(tmpdir(), 'fpw-'));
+    tempRoot = await makeTempRoot(path.join(LANE_TEMP_BASE, 'fpw-'));
     const lanes = planLanes(options, tempRoot, basePort, baseDisplay, dependencies.createLaneCommand);
     const dirResults = await Promise.allSettled(
       lanes.flatMap(lane =>
