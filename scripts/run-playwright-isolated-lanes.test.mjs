@@ -14,6 +14,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
+import net from 'node:net';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -1219,5 +1220,31 @@ test('real dry-run leaves no matching temporary root behind', () => {
     );
   } finally {
     rmSync(sandbox, { recursive: true, force: true });
+  }
+});
+
+
+// Exercise the real OS socket boundary used by tsx under each lane's TMPDIR.
+test('default lane temporary directories allow native Unix IPC', { skip: process.platform === 'win32', timeout: 5000 }, async () => {
+  let root;
+  let server;
+  try {
+    const code = await run(['--project', 'chromium', '--lanes', '1', '--skip-build'], baseDependencies({
+      mkdtemp: async prefix => { root = mkdtempSync(prefix); return root; },
+      executeLane: async ({ lane }) => {
+        const socketDirectory = path.join(lane.env.TMPDIR, `tsx-${process.getuid()}`);
+        mkdirSync(socketDirectory, { recursive: true });
+        server = net.createServer();
+        await new Promise((resolve, reject) => {
+          server.once('error', reject);
+          server.listen(path.join(socketDirectory, `${process.pid}.pipe`), resolve);
+        });
+        return 0;
+      },
+    }));
+    assert.equal(code, 0, 'isolated lane must support a native Unix socket under the default OS temporary directory');
+  } finally {
+    if (server?.listening) await new Promise(resolve => server.close(resolve));
+    if (root) rmSync(root, { recursive: true, force: true });
   }
 });

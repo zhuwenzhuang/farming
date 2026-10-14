@@ -734,7 +734,7 @@ export async function run(argv = process.argv.slice(2), dependencies = {}) {
     headedXvfb: options.headedXvfb,
   });
 
-  const dryRoot = path.join(tmpdir(), 'farming-playwright-lanes-DRY-RUN');
+  const dryRoot = path.join(tmpdir(), 'fpw-DRY-RUN');
   if (options.dryRun) {
     const lanes = planLanes(options, dryRoot, basePort, baseDisplay, dependencies.createLaneCommand);
     writeStdout(`${JSON.stringify({ tempRoot: null, lanes }, null, 2)}\n`);
@@ -788,7 +788,7 @@ export async function run(argv = process.argv.slice(2), dependencies = {}) {
       if (interrupted) return 1;
     }
 
-    tempRoot = await makeTempRoot(path.join(tmpdir(), 'farming-playwright-lanes-'));
+    tempRoot = await makeTempRoot(path.join(tmpdir(), 'fpw-'));
     const lanes = planLanes(options, tempRoot, basePort, baseDisplay, dependencies.createLaneCommand);
     const dirResults = await Promise.allSettled(
       lanes.flatMap(lane =>

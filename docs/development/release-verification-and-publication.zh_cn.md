@@ -393,6 +393,8 @@ Changed Files + Failure Signatures
   iPhone Suite 前重复执行。Mobile Job 使用与 Lockfile 匹配、Digest 固定的官方 Playwright
   Noble 镜像，另外选择 Node 22。测试前校验 Image/Driver/Lock 版本并真实启动 Chromium 和
   WebKit；不匹配时失败，不安装另一套浏览器。本地 Linux 视觉检查使用相同镜像与字体 Recipe。
+  Container Step 必须在自己的 HOME 下仅信任挂载的 Checkout，并在依赖工作前校验仓库根目录
+  与 Candidate SHA。Browser Preflight 再次读取该身份，确保同一环境能为验收证据读取 Git。
   衡量完整发布时须计入共享并发上限导致的排队，不能假定耗时线性下降。
 
 ### 失败诊断包

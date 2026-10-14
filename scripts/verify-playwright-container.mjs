@@ -8,6 +8,14 @@ import { chromium, webkit } from '@playwright/test'
 
 const require = createRequire(import.meta.url)
 const lock = require('../package-lock.json')
+if (process.env.GITHUB_ACTIONS === 'true') {
+  const workspace = process.env.GITHUB_WORKSPACE
+  const candidate = process.env.GITHUB_SHA
+  assert(workspace && candidate, 'CI browser evidence requires an exact mounted checkout')
+  const gitRead = (...args) => execFileSync('git', ['-C', workspace, 'rev-parse', ...args], { encoding: 'utf8', timeout: 5_000 }).trim()
+  assert.equal(gitRead('--show-toplevel'), workspace, 'Mounted checkout identity changed')
+  assert.equal(gitRead('HEAD'), candidate, 'Mounted checkout differs from CI candidate')
+}
 const expected = process.env.FARMING_PLAYWRIGHT_IMAGE_VERSION
 assert(expected, 'FARMING_PLAYWRIGHT_IMAGE_VERSION must identify the pinned CI image')
 assert.equal(process.platform, 'linux', 'The mobile CI image must run Linux')

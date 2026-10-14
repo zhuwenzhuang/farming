@@ -511,6 +511,9 @@ SHA-256 sidecar or hash the same unchanged tarball again in that stage.
   22 selected separately. Verify image/driver/lock versions and actually launch
   Chromium and WebKit before testing; a mismatch fails without installing a
   different browser. Local Linux visual checks use the same image and font recipe.
+  Container steps must trust only the mounted checkout under their own HOME and
+  verify its root and candidate SHA before dependency work. Recheck that identity
+  in browser preflight so evidence capture can read Git under the same environment.
   Account for queueing against the shared concurrency
   ceiling when measuring the complete release; do not assume linear speedup.
 

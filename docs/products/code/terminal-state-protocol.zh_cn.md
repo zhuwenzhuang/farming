@@ -45,6 +45,11 @@ Working、Retry、Compaction 或 Branch-summary Status 时才是 `busy`；该 Cu
 移除后回到 `idle`。Farming 不猜测 Extension 自定义的 Status Text；有歧义的 Custom Output
 保持 `unknown`。
 
+Terminal 初始任务交付同时观察 Lifecycle 变化和目标 Agent 的权威 Screen Projection。
+即使 Title 和 Inventory Revision 未变化，Ready Screen 也必须唤醒准入检查。准入仍重新
+验证 Runtime Identity、存活状态和已有输入，保留有界 Deadline，并在成功或失败时解除
+全部订阅；不能根据固定延时猜测 Readiness。
+
 ## Checkpoint 与 Delta
 
 Terminal Checkpoint 包含 Runtime Epoch、State Revision、Output Sequence、Serialized Screen、

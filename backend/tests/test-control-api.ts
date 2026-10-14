@@ -1,7 +1,7 @@
 const assert = require('assert');
 const EventEmitter = require('events');
 const express = require('express');
-const { createControlRouter } = require('../control-api.cjs');
+const { createControlRouter, waitForTerminalInputReadiness } = require('../control-api.cjs');
 const { terminalInputToPtyString } = require('../input-parts.cjs');
 
 type HttpServer = import('http').Server;
@@ -176,6 +176,51 @@ async function run() {
   const baseUrl = `http://127.0.0.1:${serverPort(server)}`;
 
   try {
+    // Native screen projections can become ready without a full inventory
+    // update or title change. Startup must consume that authoritative event.
+    const readinessEvents = new EventEmitter();
+    const startupAgent = {
+      id: 'preview-only-startup', command: 'codex', status: 'running',
+      startedAt: 71, runtimeEpoch: 'startup-epoch', previewText: 'starting runtime',
+      terminalBusy: null, terminalInputReceived: false,
+    };
+    const startupManager = {
+      on: readinessEvents.on.bind(readinessEvents), off: readinessEvents.off.bind(readinessEvents),
+      getState: () => ({ agents: [startupAgent] }),
+    };
+    const startup = (timeoutMs = 100) => waitForTerminalInputReadiness(startupManager, startupAgent.id, {
+      expectedStartedAt: 71, expectedRuntimeEpoch: 'startup-epoch', timeoutMs,
+    });
+    const listenersGone = () => {
+      assert.strictEqual(readinessEvents.listenerCount('update'), 0);
+      assert.strictEqual(readinessEvents.listenerCount('session-preview-update'), 0);
+    };
+    let previewSettled = false;
+    const previewOnly = startup().then(result => { previewSettled = true; return result; });
+    readinessEvents.emit('update');
+    await Promise.resolve();
+    startupAgent.previewText = 'Fake Codex handoff ready\n› \n\ngpt-5.6-terra medium · ~/workspace';
+    readinessEvents.emit('session-preview-update', { agentId: 'another-agent' });
+    await Promise.resolve();
+    assert.strictEqual(previewSettled, false, 'unrelated preview must not admit target startup input');
+    readinessEvents.emit('session-preview-update', { agentId: startupAgent.id });
+    assert.deepStrictEqual(await previewOnly, { expectedStartedAt: 71, expectedRuntimeEpoch: 'startup-epoch' });
+    listenersGone();
+
+    startupAgent.previewText = 'starting runtime';
+    const startupReplaced = startup();
+    const replacedCheck = assert.rejects(startupReplaced, { code: 'runtime-replaced' });
+    startupAgent.previewText = 'gpt-5.6-terra medium · ~/workspace';
+    startupAgent.runtimeEpoch = 'replacement-epoch';
+    readinessEvents.emit('session-preview-update', { agentId: startupAgent.id });
+    await replacedCheck;
+    listenersGone();
+
+    startupAgent.runtimeEpoch = 'startup-epoch';
+    startupAgent.previewText = 'starting runtime';
+    await assert.rejects(startup(10), { code: 'initial-input-timeout' });
+    listenersGone();
+
     const createdPromise = fetchJson(baseUrl, '/api/control/agents', {
       method: 'POST',
       body: JSON.stringify({

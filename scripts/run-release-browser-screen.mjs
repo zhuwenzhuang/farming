@@ -23,7 +23,7 @@ export function selectBrowserScreen(files) {
       select(['touch-files', 'mobile-files', 'mobile-auth']);
     }
     if (/^src\/components\/code\/.*[Cc]omposer|^src\/lib\/composer-|^src\/styles\/composer|^tests\/e2e\/(composer-|mobile-composer)/.test(filename)) select(['composer']);
-    if (/^src\/components\/code\/(acp\/|.*[Cc]hat|.*[Tt]ranscript)|^(backend|shared)\/acp|^src\/components\/CodeWorkspace\.|^src\/styles\/(chat|transcript)|^tests\/e2e\/(acp-|chat-|related-session|ui-interaction-layer)/.test(filename)) select(['interaction']);
+    if (/^src\/components\/code\/(acp\/|.*[Cc]hat|.*[Tt]ranscript)|^(backend|shared)\/acp|^backend\/control-api\.cts|^src\/components\/CodeWorkspace\.|^src\/styles\/(chat|transcript)|^tests\/e2e\/(acp-|chat-|agent-handoff|related-(session|history)|ui-interaction-layer)/.test(filename)) select(['interaction']);
     if (/^src\/.*(auth|sharing|access)|^backend\/.*(auth|sharing|access-control)|^tests\/e2e\/mobile-auth-readonly/.test(filename)) select(['mobile-auth']);
     if (/^src\/.*[Ss]idebar|^src\/styles\/sidebar|^tests\/e2e\/sidebar-/.test(filename)) select(['sidebar']);
     if (!mapped && /^(src|frontend|extensions|shared)\/|^tests\/e2e\//.test(filename)) unmapped.push(filename);

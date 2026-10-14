@@ -59,6 +59,12 @@ compaction, or branch-summary status. Removing that current-screen marker
 returns the observer to `idle`. Extension-defined status text is not guessed;
 ambiguous custom output remains `unknown`.
 
+Initial Terminal task delivery observes both lifecycle changes and the exact
+Agent's authoritative screen projection. A ready screen must wake admission even
+when its title and inventory revision do not change. Admission rechecks runtime
+identity, liveness and prior input, retains its bounded deadline, and removes all
+subscriptions on success or failure; it never guesses readiness from a delay.
+
 ## Checkpoint And Delta
 
 A terminal checkpoint contains the runtime epoch, state revision, output

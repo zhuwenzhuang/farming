@@ -443,6 +443,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Checkout sets trust in its temporary HOME. Ordinary container steps use
+      # a different HOME and must trust only this mounted checkout themselves.
+      - name: Verify mounted checkout identity
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          test "$(git -C "$GITHUB_WORKSPACE" rev-parse --show-toplevel)" = "$GITHUB_WORKSPACE"
+          test "$(git -C "$GITHUB_WORKSPACE" rev-parse HEAD)" = "$GITHUB_SHA"
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:

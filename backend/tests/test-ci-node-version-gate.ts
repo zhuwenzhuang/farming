@@ -168,10 +168,23 @@ function run() {
   assert.strictEqual(mobile.container.options, '--init --ipc=host');
   assert.strictEqual(mobile.defaults.run.shell, 'bash');
   assert.deepStrictEqual(nodeMajorsOf(mobile), [AUTHORITATIVE_NODE_MAJOR]);
+  const checkoutIdentity = mobile.steps.findIndex(step => step.name === 'Verify mounted checkout identity');
+  assert(checkoutIdentity > mobile.steps.findIndex(step => step.name === 'Checkout')
+    && checkoutIdentity < mobile.steps.findIndex(step => step.name === 'Setup Node.js'),
+    'ordinary container-step Git trust and exact checkout identity must be checked before dependency/browser work');
+  assert.strictEqual(mobile.steps[checkoutIdentity]?.run,
+    'git config --global --add safe.directory "$GITHUB_WORKSPACE"\n'
+    + 'test "$(git -C "$GITHUB_WORKSPACE" rev-parse --show-toplevel)" = "$GITHUB_WORKSPACE"\n'
+    + 'test "$(git -C "$GITHUB_WORKSPACE" rev-parse HEAD)" = "$GITHUB_SHA"\n');
   assert(!runScriptsOf(mobile).includes('playwright install'),
     'mobile jobs must use the verified preinstalled environment instead of repeating apt/browser downloads');
   const environmentCheck = mobile.steps.findIndex(step => step.name === 'Verify preinstalled mobile browser environment');
   assert.strictEqual(mobile.steps[environmentCheck]?.run, 'node scripts/verify-playwright-container.mjs');
+  const containerVerification = fs.readFileSync(path.join(root, 'scripts/verify-playwright-container.mjs'), 'utf8');
+  assert(containerVerification.includes("process.env.GITHUB_ACTIONS === 'true'")
+    && containerVerification.includes("gitRead('--show-toplevel'), workspace")
+    && containerVerification.includes("gitRead('HEAD'), candidate"),
+  'the post-install browser preflight must reread checkout identity under its current HOME');
   assert(environmentCheck > mobile.steps.findIndex(step => step.name === 'Install dependencies')
     && environmentCheck < mobile.steps.indexOf(layout)
     && environmentCheck < mobile.steps.indexOf(human),

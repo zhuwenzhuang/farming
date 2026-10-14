@@ -37,7 +37,9 @@ for (const appearance of ['light', 'dark', 'paper']) {
   test(`submits a Terminal handoff and remembers runtime choices in ${appearance}`, async ({ page, workspaceRoot }, testInfo) => {
     const workspace = path.join(workspaceRoot, 'terminal-handoff-demo')
     const home = path.join(workspaceRoot, `handoff-home-${appearance}`)
-    const homeId = `handoff-terminal-${appearance}`
+    // Persisted sessions retain the Home binding after Agent cleanup. A retry
+    // owns a new workspace/path and therefore must use a new Home identity.
+    const homeId = `handoff-terminal-${appearance}-${path.basename(workspaceRoot)}`
     const sessionId = randomUUID()
     fs.mkdirSync(workspace, { recursive: true })
     fs.mkdirSync(home, { recursive: true })

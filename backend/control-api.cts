@@ -158,8 +158,8 @@ interface AgentManager {
   ): Promise<MutationResult> | MutationResult;
   getAgentSessionText(agentId: string): Promise<unknown> | unknown;
   getState(): AgentState;
-  off?(event: 'update', listener: () => void): void;
-  on?(event: 'update', listener: () => void): void;
+  off?(event: 'update' | 'session-preview-update', listener: (event?: unknown) => void): void;
+  on?(event: 'update' | 'session-preview-update', listener: (event?: unknown) => void): void;
   lifecycleJournalService: {
     recordCreateRequestResult(
       agentId: string,
@@ -167,7 +167,7 @@ interface AgentManager {
       result: RecordedCreateResult,
     ): PersistCreateResult;
   };
-  removeListener?(event: 'update', listener: () => void): void;
+  removeListener?(event: 'update' | 'session-preview-update', listener: (event?: unknown) => void): void;
   requestKillAgent(
     agentId: string,
     options: { recordHistory: boolean },
@@ -292,15 +292,16 @@ function waitForTerminalInputReadiness(
   return new Promise<TerminalReadiness>((resolve, reject) => {
     let settled = false;
     let expectedRuntimeEpoch = initialRuntimeEpoch;
-    const removeUpdateListener = () => {
-      if (typeof agentManager.off === 'function') agentManager.off('update', inspect);
-      else if (typeof agentManager.removeListener === 'function') agentManager.removeListener('update', inspect);
+    const removeReadinessListeners = () => {
+      const remove = agentManager.off || agentManager.removeListener;
+      remove?.call(agentManager, 'update', inspect);
+      remove?.call(agentManager, 'session-preview-update', inspectPreview);
     };
     const finish = (error: ControlError | null, value?: TerminalReadiness) => {
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
-      removeUpdateListener();
+      removeReadinessListeners();
       if (error) reject(error);
       else if (value) resolve(value);
     };
@@ -338,11 +339,20 @@ function waitForTerminalInputReadiness(
         expectedRuntimeEpoch,
       });
     };
+    const inspectPreview = (event?: unknown) => {
+      // A native screen can become input-ready without an inventory/title
+      // change. Its exact Agent projection is a startup trigger; the existing
+      // authoritative runtime and input guards still decide admission.
+      if (event && typeof event === 'object' && 'agentId' in event && event.agentId === agentId) inspect();
+    };
     const timeout = setTimeout(() => {
       fail('initial-input-timeout', 'Terminal did not become ready for its initial task before the timeout');
     }, timeoutMs);
     timeout.unref?.();
-    if (typeof agentManager.on === 'function') agentManager.on('update', inspect);
+    if (typeof agentManager.on === 'function') {
+      agentManager.on('update', inspect);
+      agentManager.on('session-preview-update', inspectPreview);
+    }
     Promise.resolve().then(inspect);
   });
 }

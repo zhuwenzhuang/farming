@@ -20,6 +20,8 @@ test('2.2.86 native Files/Composer/disclosure changes select owning bounded lane
   assert.deepEqual(selectBrowserScreen(['src/lib/workspace-file-links.ts', 'src/lib/composer-paste.ts',
     'backend/acp-runtime.cts', 'shared/acp-messages.ts']).lanes.map(lane => lane.name),
   ['touch-files', 'mobile-files', 'mobile-auth', 'composer', 'interaction']);
+  assert.deepEqual(selectBrowserScreen(['backend/control-api.cts', 'tests/e2e/agent-handoff.spec.ts', 'tests/e2e/related-history-recovery.spec.ts'])
+    .lanes.map(lane => lane.name), ['interaction']);
   assert.equal(selectBrowserScreen(['package.json', 'backend/provider.cts', 'release-notes/v2.2.86.md']).lanes.length, 0);
   assert.deepEqual(selectBrowserScreen(['src/new-widget.tsx']).unmapped, ['src/new-widget.tsx']);
 });
