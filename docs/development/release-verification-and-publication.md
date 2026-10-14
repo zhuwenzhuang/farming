@@ -8,7 +8,8 @@ includes investigation, fixes, queueing and publication.
 
 ## Objectives
 
-- Normal end-to-end release elapsed time: less than 10 minutes.
+- Normal end-to-end release target: 15 minutes, with 10 minutes as the stretch
+  target. External queueing and npm public-availability waits still count.
 - A simple failure: classified, reproduced, and minimally fixed within 3 minutes
   after actionable failure evidence is available.
 - A complex failure: classified and escalated to an explicit root-cause
@@ -22,7 +23,7 @@ includes investigation, fixes, queueing and publication.
 - The npm tarball published must be byte-for-byte identical to the tarball that
   passed package smoke tests.
 
-If any release exceeds 10 minutes, the complete elapsed time still counts. The
+If any release exceeds its target, the complete elapsed time still counts. The
 result is a missed objective with an exact attribution to investigation, CI,
 artifact preparation, publication, queueing, or an external provider. It is not
 reclassified as development time.
@@ -33,7 +34,7 @@ reclassified as development time.
 
 The exact candidate has no newly discovered defect. Full CI, release artifact
 preparation, and npm package smoke run in parallel. GitHub Release is published
-and verified before npm. The complete path must finish within 10 minutes.
+and verified before npm. Aim to finish the complete path within 15 minutes.
 
 ### Scenario 2: A simple blocker
 
@@ -68,7 +69,7 @@ When the blocked domain is resolved, all affected domains become stale and the
 final exact SHA runs the complete parallel pipeline. Earlier domain results are
 used to remove unknowns and warm deterministic caches, but never replace final
 exact-SHA evidence. From design resolution to npm verification, the remaining
-release must finish within 10 minutes.
+release targets 15 minutes, while the full design-resolution time still counts.
 
 ## Mandatory Release Preparation Gate
 
@@ -92,9 +93,20 @@ automated UX       live-provider gates      Computer Use lanes
                   npm publication
 ```
 
-The middle fan-out has a seven-minute wall-time budget. GitHub publication,
-public verification, and npm publication remain serial and consume the remaining
-budget.
+Before freezing the first candidate, retain the integrated base SHA from the
+initial snapshot and run `npm run release:fast-screen` plus
+`npm run release:browser:screen -- --base BASE_SHA`. The browser screen selects
+owning changed-area checks, builds shared outputs once, and runs bounded isolated
+lanes. Inspect `--plan` before execution; unmapped product changes require an
+owning check rather than silently receiving no coverage. Repair failures locally
+and repeat only affected checks before freezing the candidate. These early checks
+do not replace final exact-SHA CI or artifact acceptance.
+
+The middle fan-out has a seven-minute wall-time target. GitHub publication and
+public verification precede npm; runtime versions can publish in parallel, but
+the main package waits for every runtime's public source and digest verification.
+External public-availability waits may exceed the remaining budget. Record this
+as a missed objective instead of shortening observation or declaring success.
 
 Before the fan-out starts, release preflight queries the public npm registry for
 the `latest` versions of the pinned Codex and Claude ACP adapters, ACP SDK, and
@@ -177,6 +189,18 @@ coordinator creates one Agent and one owned Computer Resource per independent
 scenario. Each lane has an isolated Desktop, profile, workspace/fixture, and
 evidence directory. Actions within one lane are sequential; independent lanes
 run concurrently.
+
+Build a complete source environment with `npm run build`, or use a verified
+app bundle. Before launching an operator, run
+`node scripts/check-release-computer-environment.mjs ROOT FULL_SHA PINNED_IMAGE`
+in the Linux lane environment. Its read-only receipt binds the candidate,
+generated runtime inputs, managed ripgrep, child Node/native PTY loading, and
+already-present Docker image. A working parent Node does not prove child launch
+under a private loader. This receipt does not prove Resource/profile readiness:
+verify the owned Resource, foreground browser and initial screenshot through the
+real Computer path before starting the bounded story. Retain progress receipts
+at each completed transition and reserve time for the final report; a watchdog
+result remains incomplete even if independent evidence later accepts the story.
 
 At campaign start the coordinator creates a unique commit-status context for the
 candidate and marks automated/Computer Use acceptance pending. `release.yml`
@@ -403,9 +427,17 @@ SHA-256 sidecar or hash the same unchanged tarball again in that stage.
   Recovery after an attempted upload is read-only, including during public 404
   responses; recovery before the upload step may perform the first upload.
 - Registry preflight reads use an independent, unpooled HTTPS socket and drain
-  their response body before synchronous upload or observation subprocesses block
-  the publisher. A `Connection: close` header on a pooled client is not sufficient;
+  their response body before starting upload or observation children.
+  A `Connection: close` header on a pooled client is not sufficient;
   no connection may be reused between platform publication steps.
+- Validate the complete runtime inventory, transferred tarballs and recovery
+  journals before any npm mutation. Up to six independent platform versions
+  upload and reconcile concurrently. Each lane exclusively owns its intent,
+  result and observation files; persist intent before uploading and never replay
+  an uncertain upload. Wait for every lane to settle, retaining all evidence even
+  when another lane fails. Only six successful public source/digest checks admit
+  the main package upload. Existing public versions may be observed without an
+  upload intent; their observation does not authorize a later upload on recovery.
 - An accepted upload and public verification are separate states. A successful
   upload followed by public absence or incomplete metadata is `awaiting-public`:
   show "Uploaded successfully; waiting for public availability" in the workflow
@@ -473,8 +505,13 @@ SHA-256 sidecar or hash the same unchanged tarball again in that stage.
 - Mobile CI uses five isolated single-worker jobs: two balanced iPhone layout
   shards, separate complete iPhone and Android human-journey suites, and an
   authenticated-share suite with its own auth-enabled server. Preserve every
-  original project and location; the complete mobile fast screen runs once in
-  the iPhone human lane. Account for queueing against the shared concurrency
+  original project and location. The changed-area screen runs before candidate
+  freeze, not again ahead of the complete iPhone suite. Mobile jobs use the
+  digest-pinned official Playwright Noble image matching the lockfile, with Node
+  22 selected separately. Verify image/driver/lock versions and actually launch
+  Chromium and WebKit before testing; a mismatch fails without installing a
+  different browser. Local Linux visual checks use the same image and font recipe.
+  Account for queueing against the shared concurrency
   ceiling when measuring the complete release; do not assume linear speedup.
 
 ### Failure Bundles
@@ -632,13 +669,19 @@ anchor saved
 
 | Critical-path work | Budget |
 | --- | ---: |
-| Metadata validation and scheduling | 20 sec |
+| Candidate discovery, changed-area screen and scheduling | 1 min |
 | Full CI and all reversible artifact preparation, in parallel | 7 min |
-| Assemble and publish GitHub Release | 40 sec |
-| Verify public tag and assets | 30 sec |
-| Publish the pre-smoked npm tarball and verify `gitHead` | 1 min |
-| Variance reserve | 30 sec |
-| Total | 10 min |
+| Publish GitHub Release and verify public assets | 1 min |
+| Parallel runtime publication, main upload and public verification | 5 min |
+| Variance reserve | 1 min |
+| Total target | 15 min |
+
+These are working budgets for a ready candidate and warm infrastructure, not
+measured guarantees. Keep 10 minutes as a stretch target. A product design defect,
+cold image, runner queue or npm metadata delay can exceed the budget; count it
+and report it. Compare actual per-lane critical paths, not sums of overlapping
+domains. Parallel-publication estimates use the slowest lane, not the average.
+Only a complete measured release can establish that the end-to-end target was met.
 
 When a failure occurs, the clock continues. The three-minute diagnosis protocol
 reduces avoidable investigation time; it does not reset the release timer.
@@ -647,10 +690,10 @@ reduces avoidable investigation time; it does not reset the release timer.
 
 - Measurement starts at the accepted release request and includes every retry,
   investigation, fix, queue, CI run, build, and publication step.
-- Normal end-to-end release completes in less than 10 minutes.
+- Normal end-to-end release targets 15 minutes, with 10 minutes as a stretch target.
 - A release with one simple blocker completes in less than 15 minutes.
 - For a substantial design blocker, independent domains continue converging and
-  the release completes within 10 minutes after the blocked domain is resolved.
+  the release targets 15 minutes after the blocked domain is resolved.
 - A simple injected packaging, test-oracle, or metadata failure produces a
   correct classification and focused reproduction within 3 minutes.
 - Ordinary CI wall time does not regress; browser feedback becomes earlier.

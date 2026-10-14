@@ -87,6 +87,17 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+      # Ubuntu's generic sans/mono fonts are part of the existing visual
+      # baseline environment. Share them with mobile containers without apt
+      # installation or changing product/fixture typography.
+      - name: Upload Linux visual fixture fonts
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-linux-visual-fonts
+          path: /usr/share/fonts/truetype/dejavu
+          if-no-files-found: error
+          retention-days: 1
+
   # Browser-facing E2E jobs must exercise the reviewed Farming runtime. The
   # upstream npm binary reports 0.32.3 and is intentionally rejected now that
   # the release carries the exact-SHA stderr-drain backport.
@@ -406,7 +417,6 @@ jobs:
             shard: 0
             human: true
             project: iphone-human-webkit
-            screen: true
           - name: Android human journeys
             shard: 0
             human: true
@@ -416,8 +426,18 @@ jobs:
             human: false
             auth: true
     needs: [frontend, e2e-agent-browser]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    # Exact official image: browsers and apt dependencies are already installed.
+    # Keep this pin aligned with package-lock.json; the next step fails closed
+    # on drift before any real browser/PTY evidence is accepted.
+    container:
+      image: mcr.microsoft.com/playwright:v1.59.1-noble@sha256:eac9b0a5312cdab40ee8c2429df5bf19bffdccf8f3bf3c42268e173f97541645
+      options: --init --ipc=host
+    defaults:
+      run:
+        shell: bash
     env:
+      FARMING_PLAYWRIGHT_IMAGE_VERSION: '1.59.1'
       FARMING_AGENT_BROWSER_BIN: ${{ github.workspace }}/.ci-agent-browser/linux-x64/agent-browser
     steps:
       - name: Checkout
@@ -434,6 +454,21 @@ jobs:
         run: |
           npm install --global npm@12.0.2
           npm ci --registry=https://registry.npmjs.org/ --no-audit --no-fund
+
+      - name: Download Linux visual fixture fonts
+        uses: actions/download-artifact@v4
+        with:
+          name: e2e-linux-visual-fonts
+          path: ${{ runner.temp }}/e2e-linux-visual-fonts
+
+      - name: Restore shared Linux visual fixture fonts
+        run: |
+          mkdir -p "$HOME/.local/share/fonts/farming-ci"
+          cp "$RUNNER_TEMP/e2e-linux-visual-fonts/"*.ttf "$HOME/.local/share/fonts/farming-ci/"
+          fc-cache -f "$HOME/.local/share/fonts/farming-ci"
+
+      - name: Verify preinstalled mobile browser environment
+        run: node scripts/verify-playwright-container.mjs
 
       - name: Download frontend build
         uses: actions/download-artifact@v4
@@ -465,29 +500,9 @@ jobs:
       - name: Prepare runtime dependency manifest
         run: npm run prepare:runtime-manifest
 
-      - name: Resolve Playwright version
-        id: playwright
-        run: |
-          echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
-
-      - name: Cache Playwright browsers
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-mobile-${{ steps.playwright.outputs.version }}
-
-      - name: Install mobile browser system dependencies
-        run: npx playwright install-deps webkit chromium
-
-      - name: Install browsers for mobile checks
-        run: npx playwright install webkit chromium
-
-      - name: Screen mobile Composer geometry and image hit targets
-        if: matrix.screen
-        run: npm run release:fast-screen:mobile
-        env:
-          FARMING_PLAYWRIGHT_SKIP_BUILD: '1'
-
+      # The full Chromium, iPhone layout and human suites own every fast-screen
+      # case. Release preparation runs the focused screen before full CI; doing
+      # it again here delayed the critical iPhone lane without adding coverage.
       - name: Run balanced iPhone layout checks
         if: matrix.shard > 0
         run: node scripts/run-playwright-balanced-shard.mjs --project iphone-webkit --shard ${{ matrix.shard }}/2

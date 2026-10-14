@@ -36,6 +36,13 @@ function digestFile(tarball) {
   return { bytes, sha256: hashes[0].digest('hex'), integrity: `sha512-${hashes[1].digest('base64')}`, shasum: hashes[2].digest('hex') };
 }
 
+export function verifyTarballReceipt(receipt, tarball) {
+  const actual = digestFile(tarball);
+  for (const key of ['bytes', 'sha256', 'integrity', 'shasum']) {
+    if (receipt[key] !== actual[key]) throw new Error(`Transferred npm tarball ${key} differs from its smoke receipt.`);
+  }
+}
+
 function checkpoint(file, state) {
   const temporary = `${file}.${process.pid}.tmp`;
   try {
@@ -151,10 +158,7 @@ async function main() {
   const receipt = validateReceipt(JSON.parse(fs.readFileSync(first, 'utf8')), second);
   if (command === 'verify') {
     if (fourth || flags.length) throw new Error('Verify accepts no extra options.');
-    const actual = digestFile(third);
-    for (const key of ['bytes', 'sha256', 'integrity', 'shasum']) {
-      if (receipt[key] !== actual[key]) throw new Error(`Transferred npm tarball ${key} differs from its smoke receipt.`);
-    }
+    verifyTarballReceipt(receipt, third);
     console.log('Transferred npm tarball matches the exact-SHA smoke receipt.');
     return;
   }

@@ -30,9 +30,16 @@ export function verifyRecoveryJournals(packageDirectory, priorDirectory, candida
     for (const suffix of ['upload-result', 'publication-state']) {
       const file = `${label}-${suffix}.json`;
       if (!exists(file)) continue;
-      assert(exists(intentName), `${file} is missing its upload intent`);
       const evidence = read(priorDirectory, file);
+      // An already-public version can have a read-only observation without an
+      // upload intent. An upload result must always retain its preceding intent.
+      assert(exists(intentName) || (suffix === 'publication-state' && evidence.uploadStatus === 'uncertain'), `${file} is missing its upload intent`);
       for (const key of ['version', 'gitHead']) assert.equal(evidence[key], receipt[key], `Runtime journal ${file} ${key} mismatch`);
+      assert.equal(evidence.packageName, 'farming-code', `Runtime journal ${file} package mismatch`);
+      if (suffix === 'upload-result') {
+        assert(Number.isInteger(evidence.uploadExitCode) && evidence.uploadExitCode >= 0 && evidence.uploadExitCode <= 255, `Invalid runtime upload result ${file}`);
+        assert(Number.isFinite(Date.parse(evidence.observedAt)), `Invalid runtime upload timestamp ${file}`);
+      }
     }
   }
   for (const file of fs.readdirSync(priorDirectory)) {

@@ -149,8 +149,8 @@ function run() {
     ['iphone-human-webkit', 'android-human-chromium']);
   assert.strictEqual(lanes.filter(lane => lane.auth).length, 1);
   assert(lanes.filter(lane => lane.auth).every(lane => !lane.human && lane.shard === 0));
-  assert.strictEqual(lanes.filter(lane => lane.screen).length, 1);
-  assert(lanes.filter(lane => lane.screen).every(lane => lane.human));
+  assert(lanes.every(lane => !lane.screen),
+    'full CI must not serially replay the release fast-screen on the critical mobile lane');
   assert(lanes.every(lane => [lane.shard > 0, !!lane.human, !!lane.auth].filter(Boolean).length === 1),
     'every mobile lane must execute exactly one complete suite');
   const layout = mobile.steps.find(step => step.name === 'Run balanced iPhone layout checks');
@@ -160,7 +160,34 @@ function run() {
   assert.strictEqual(human.if, 'matrix.human');
   assert.strictEqual(human.run, 'npx playwright test --project="${{ matrix.project }}"');
   assert.strictEqual(mobile.steps.find(step => step.name === 'Run authenticated mobile share contract')?.if, 'matrix.auth');
-  assert.strictEqual(mobile.steps.find(step => step.name === 'Screen mobile Composer geometry and image hit targets')?.if, 'matrix.screen');
+  const lockedPlaywright = require(path.join(root, 'package-lock.json'))
+    .packages['node_modules/@playwright/test'].version;
+  assert.strictEqual(mobile.env.FARMING_PLAYWRIGHT_IMAGE_VERSION, lockedPlaywright);
+  assert.strictEqual(mobile.container.image,
+    `mcr.microsoft.com/playwright:v${lockedPlaywright}-noble@sha256:eac9b0a5312cdab40ee8c2429df5bf19bffdccf8f3bf3c42268e173f97541645`);
+  assert.strictEqual(mobile.container.options, '--init --ipc=host');
+  assert.strictEqual(mobile.defaults.run.shell, 'bash');
+  assert.deepStrictEqual(nodeMajorsOf(mobile), [AUTHORITATIVE_NODE_MAJOR]);
+  assert(!runScriptsOf(mobile).includes('playwright install'),
+    'mobile jobs must use the verified preinstalled environment instead of repeating apt/browser downloads');
+  const environmentCheck = mobile.steps.findIndex(step => step.name === 'Verify preinstalled mobile browser environment');
+  assert.strictEqual(mobile.steps[environmentCheck]?.run, 'node scripts/verify-playwright-container.mjs');
+  assert(environmentCheck > mobile.steps.findIndex(step => step.name === 'Install dependencies')
+    && environmentCheck < mobile.steps.indexOf(layout)
+    && environmentCheck < mobile.steps.indexOf(human),
+  'locked package, image metadata and real browser launch must be verified before mobile evidence');
+  const fontUpload = workflow.jobs.frontend.steps.find(step => step.name === 'Upload Linux visual fixture fonts');
+  const fontDownload = mobile.steps.find(step => step.name === 'Download Linux visual fixture fonts');
+  assert.strictEqual(fontUpload?.with.name, 'e2e-linux-visual-fonts');
+  assert.strictEqual(fontUpload?.with.path, '/usr/share/fonts/truetype/dejavu');
+  assert.strictEqual(fontUpload?.with['if-no-files-found'], 'error');
+  assert.strictEqual(fontDownload?.with.name, fontUpload.with.name);
+  const fontRestore = mobile.steps.findIndex(step => step.name === 'Restore shared Linux visual fixture fonts');
+  assert(fontRestore >= 0 && fontRestore < environmentCheck,
+    'the mobile image must preserve the native Ubuntu visual font environment before verification');
+  assert(mobile.steps[fontRestore].run.includes('fc-cache -f'));
+  assert(workflow.jobs.browser.steps.some(step => step.run === 'npx playwright install-deps chromium'),
+    'the native Chromium visual environment must stay unchanged');
   const cargoCache = e2eAgentBrowser.steps.find(step => step.name === 'Cache patched browser Cargo intermediates');
   assert(cargoCache.with.key.includes('linux-x64'));
   assert.strictEqual(cargoCache.with['restore-keys'], 'agent-browser-cargo-v2-${{ runner.os }}-${{ runner.arch }}-rust-1.96.1-linux-x64-source-');

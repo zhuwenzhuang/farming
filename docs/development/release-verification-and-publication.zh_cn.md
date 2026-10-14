@@ -7,7 +7,7 @@
 
 ## 目标
 
-- 正常端到端发布：不超过 10 分钟。
+- 正常端到端发布以 15 分钟为目标，10 分钟为进阶目标。外部排队及 npm 公开可用性等待仍计入总耗时。
 - 简单问题：拿到可操作失败证据后，3 分钟内完成归类、最小复现和最小修复。
 - 复杂问题：3 分钟内完成归类并明确升级为根因调查，禁止无限猜测。
 - 日常 CI 墙钟时间不能变慢。
@@ -16,7 +16,7 @@
 - npm 是最后一个公开状态变更。在对应 GitHub Release 和必需资产确认公开可用之前，不得发布 npm。
 - 最终发布的 npm Tarball 必须与 Package Smoke 实际通过的 Tarball 字节完全一致。
 
-任何一次发布超过 10 分钟，完整耗时仍然计入。结果应记录为目标失败，并精确归因到调查、CI、
+任何一次发布超过目标，完整耗时仍然计入。结果应记录为目标失败，并精确归因到调查、CI、
 制品准备、正式发布、排队或外部服务，不能重新解释成开发时间。
 
 ## 三种运行场景
@@ -24,7 +24,7 @@
 ### 场景一：没有阻塞问题
 
 精确候选没有发现新缺陷。完整 CI、Release Artifact Preparation 和 npm Package Smoke 并行运行；
-GitHub Release 先公开并验证，最后发布 npm。整条链路必须在 10 分钟内完成。
+GitHub Release 先公开并验证，最后发布 npm。争取在 15 分钟内完成整条链路。
 
 ### 场景二：遇到一个简单阻塞问题
 
@@ -51,7 +51,7 @@ Campaign 继续记录完整的设计问题解决时间；同时维护一份 Doma
 
 阻塞领域解决后，所有受影响领域变成 `stale`，最终精确 SHA 重新运行完整并行流水线。旧领域结果
 用于提前消除未知问题和预热确定性缓存，绝不能替代最终 Exact-SHA Evidence。从设计问题解决到
-npm 验证完成，剩余发布必须在 10 分钟内完成。
+npm 验证完成，剩余发布以 15 分钟为目标，设计问题解决时间仍计入完整耗时。
 
 ## 强制发布准备门禁
 
@@ -73,7 +73,15 @@ Exact-SHA CI       平台制品            唯一 npm Tarball
                      发布 npm
 ```
 
-中间 Fan-out 的墙钟预算为 7 分钟。GitHub 公开、公开验证和 npm 发布保持串行，使用剩余预算。
+冻结首个候选前，保留初始 Snapshot 中的已集成 Base SHA，并运行 `npm run release:fast-screen`
+与 `npm run release:browser:screen -- --base BASE_SHA`。浏览器筛查选择受影响领域的 Owning
+检查，共享输出只构建一次，使用有界隔离 Lane。运行前检查 `--plan`；未映射的产品变化需要补充
+Owning 检查，不能静默获得零覆盖。先在本地修复失败，只复验受影响检查，再冻结候选。早期筛查
+不替代最终 Exact-SHA CI 和制品验收。
+
+中间 Fan-out 的墙钟目标为 7 分钟。GitHub 公开及公开校验先于 npm；平台 Runtime 版本可并行
+发布，但主包必须等待每个平台公开 Source 和 Digest 校验成功。外部公开可用性等待可能超过剩余
+预算，此时记录为目标未达成，不能缩短观察或提前宣告成功。
 
 Fan-out 开始前，Release Preflight 必须从公共 npm Registry 查询固定的 Codex/Claude ACP Adapter、
 ACP SDK 和受管 Codex Runtime 的 `latest` 版本。Claude ACP 更新与 Codex 维护绑定：当两个受管
@@ -132,6 +140,14 @@ Agent 通过 Computer Tool 操作真实 Desktop。二者的证据和调度不能
 Computer Use 使用远端 Linux 的 Isolated Docker Desktop 池。Release Coordinator 为每个独立场景
 创建一个 Agent 和一个归其所有的 Computer Resource。每条 Lane 拥有隔离的 Desktop、Profile、
 Workspace/Fixture 和 Evidence Directory。同一 Lane 内的操作串行，不同 Lane 并发。
+
+使用 `npm run build` 准备完整源码环境，或使用已验证 App Bundle。启动 Operator 前，在 Linux
+Lane 环境运行 `node scripts/check-release-computer-environment.mjs ROOT FULL_SHA PINNED_IMAGE`。
+只读 Receipt 绑定 Candidate、Generated Runtime 输入、Managed Ripgrep、Child Node/Native PTY
+加载及已缓存 Docker 镜像。Private Loader 下父 Node 可运行，不等于子进程可启动。该 Receipt
+不证明 Resource/Profile 就绪；有界场景开始前，必须通过真实 Computer 路径核对所属 Resource、
+前台浏览器和初始 Screenshot。每个已完成转换都保留进度 Receipt，预留最终报告时间；即使独立
+证据后来接受场景，也不能把 Watchdog 原始结果从 Incomplete 重标为成功。
 
 Campaign 开始时，Coordinator 为 Candidate 创建唯一的 Commit Status Context，并将自动化/Computer
 Use Acceptance 标记为 `pending`。`release.yml` 只准备并保留精确 Candidate 的 Artifact，不执行任何
@@ -312,9 +328,14 @@ Changed Files + Failure Signatures
   上传后自动核对公开 Name、Version、Source SHA、Integrity 和 Shasum，最长十分钟，单次请求
   最长十秒。成功或失败都保留带时间戳的状态与上传结果。尝试上传后的恢复只读，包括公开
   Registry 返回 404 时；上传步骤尚未执行的恢复可以进行第一次上传。
-- Registry Preflight 读取必须使用独立、不入池的 HTTPS Socket，读完响应体后再进入阻塞
-  Publisher 的同步上传或观察子进程。池化客户端仅设置 `Connection: close` 不足以满足此约束；
+- Registry Preflight 读取必须使用独立、不入池的 HTTPS Socket，读完响应体后才启动上传或观察
+  子进程。池化客户端仅设置 `Connection: close` 不足以满足此约束；
   平台发布步骤之间不得复用连接。
+- 首次 npm Mutation 前，完整校验 Runtime Inventory、传输后的 Tarball 和恢复 Journal。
+  最多六个独立平台版本并行上传和核对；每条 Lane 独占 Intent、Result 和 Observation 文件，
+  上传前持久化 Intent，结果不确定时不得重播。等待所有 Lane 收敛，即使某条失败也保留其余
+  证据。只有六个平台的公开 Source/Digest 校验全部成功，才允许上传主包。既有公开版本可以
+  在没有上传 Intent 时只读观察，该观察不授予后续恢复重新上传的权限。
 - 已接受上传与公开验证是不同状态。上传成功后，若公开版本尚不存在或元数据不完整，
   状态为 `awaiting-public`：Workflow Summary 显示“已上传成功，等待公开可用”，并保留
   `farming/npm-publication/<version>` Commit Status 为 Pending。有界观察 Job 可以完成，
@@ -368,8 +389,11 @@ Changed Files + Failure Signatures
   不并发执行测试。
 - Mobile CI 使用五个隔离的单 Worker Job：两个均衡的 iPhone Layout Shard、各自完整的
   iPhone 和 Android Human Journey Suite，以及使用独立鉴权 Server 的 Authenticated Share
-  Suite。原有 Project 和测试位置全部保留，完整 Mobile Fast Screen 仅在 iPhone Human Lane
-  执行一次。衡量完整发布时须计入共享并发上限导致的排队，不能假定耗时线性下降。
+  Suite。原有 Project 和测试位置全部保留，Changed-area Screen 在冻结候选前运行，不在完整
+  iPhone Suite 前重复执行。Mobile Job 使用与 Lockfile 匹配、Digest 固定的官方 Playwright
+  Noble 镜像，另外选择 Node 22。测试前校验 Image/Driver/Lock 版本并真实启动 Chromium 和
+  WebKit；不匹配时失败，不安装另一套浏览器。本地 Linux 视觉检查使用相同镜像与字体 Recipe。
+  衡量完整发布时须计入共享并发上限导致的排队，不能假定耗时线性下降。
 
 ### 失败诊断包
 
@@ -493,22 +517,26 @@ Chat Position：
 
 | 关键路径 | 预算 |
 | --- | ---: |
-| Metadata 验证与调度 | 20 秒 |
+| 候选发现、Changed-area Screen 与调度 | 1 分钟 |
 | 完整 CI 与全部可逆 Artifact Preparation 并行执行 | 7 分钟 |
-| 组装并公开 GitHub Release | 40 秒 |
-| 验证公开 Tag 和资产 | 30 秒 |
-| 发布预先 Smoke 的 npm Tarball 并验证 `gitHead` | 1 分钟 |
-| 波动余量 | 30 秒 |
-| 总计 | 10 分钟 |
+| 公开 GitHub Release 并校验公开资产 | 1 分钟 |
+| 并行 Runtime 发布、主包上传与公开验证 | 5 分钟 |
+| 波动余量 | 1 分钟 |
+| 总目标 | 15 分钟 |
+
+这是候选已就绪、基础设施已预热时的工作预算，不是实测保证；10 分钟仍作为进阶目标。
+产品设计缺陷、冷镜像、Runner 排队或 npm 元数据等待都可能超过预算，必须计入并报告。
+比较实际 Lane 关键路径，不能把并行领域耗时相加；并行发布估算使用最慢 Lane，不取平均值。
+只有一次完整实测发布，才能确认端到端目标达成。
 
 遇到失败后计时继续。三分钟调查协议用于减少可避免的调查时间，不会重置发布时间。
 
 ## 验收标准
 
 - 从接受发布请求开始计时，所有重试、调查、修复、排队、CI、Build 和发布步骤都包含在内。
-- 正常端到端发布少于 10 分钟。
+- 正常端到端发布以 15 分钟为目标，10 分钟为进阶目标。
 - 遇到一个简单阻塞问题时，完整发布少于 15 分钟。
-- 遇到较大设计问题时，其他独立领域继续收敛；阻塞领域解决后 10 分钟内完成发布。
+- 遇到较大设计问题时，其他独立领域继续收敛；阻塞领域解决后以 15 分钟为目标完成发布。
 - 注入简单 Packaging、Test Oracle 或 Metadata 失败后，3 分钟内得到正确分类和 Focused Reproduction。
 - 日常 CI 墙钟时间不回退，并更早提供 Browser Failure。
 - 每个产品行为发布在任何公开 Mutation 前完成选中的自动化与 Computer Use Preparation Gate。

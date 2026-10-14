@@ -624,7 +624,7 @@ async function executeBuild({ spawnChild, ownedChildren }) {
   if (result.code !== 0) throw new Error(`Playwright prerequisite build failed with exit code ${result.code}`);
 }
 
-async function executeLane({
+export async function executeLane({
   lane,
   options,
   spawnChild,
@@ -680,7 +680,7 @@ async function executeLane({
   }
 }
 
-function planLanes(options, root, basePort, baseDisplay) {
+function planLanes(options, root, basePort, baseDisplay, commandFactory = createLaneCommand) {
   const laneIndexes = options.laneIndex === undefined
     ? Array.from({ length: options.lanes }, (_, offset) => offset + 1)
     : [options.laneIndex];
@@ -693,8 +693,8 @@ function planLanes(options, root, basePort, baseDisplay) {
       display: options.headedXvfb ? baseDisplay + offset : undefined,
     });
     const cloneRoot = path.join(resources.laneRoot, 'repo');
-    const command = createLaneCommand({ ...options, laneIndex, cloneRoot });
-    return { laneIndex, ...resources, ...command, cloneRoot: path.join(resources.laneRoot, 'repo') };
+    const command = commandFactory({ ...options, laneIndex, cloneRoot });
+    return { laneIndex, ...resources, ...command, env: { ...resources.env, ...command.env }, cloneRoot };
   });
 }
 
@@ -736,7 +736,7 @@ export async function run(argv = process.argv.slice(2), dependencies = {}) {
 
   const dryRoot = path.join(tmpdir(), 'farming-playwright-lanes-DRY-RUN');
   if (options.dryRun) {
-    const lanes = planLanes(options, dryRoot, basePort, baseDisplay);
+    const lanes = planLanes(options, dryRoot, basePort, baseDisplay, dependencies.createLaneCommand);
     writeStdout(`${JSON.stringify({ tempRoot: null, lanes }, null, 2)}\n`);
     return 0;
   }
@@ -789,7 +789,7 @@ export async function run(argv = process.argv.slice(2), dependencies = {}) {
     }
 
     tempRoot = await makeTempRoot(path.join(tmpdir(), 'farming-playwright-lanes-'));
-    const lanes = planLanes(options, tempRoot, basePort, baseDisplay);
+    const lanes = planLanes(options, tempRoot, basePort, baseDisplay, dependencies.createLaneCommand);
     const dirResults = await Promise.allSettled(
       lanes.flatMap(lane =>
         [...new Set(Object.values(LANE_DIRECTORY_ENV))]
@@ -807,17 +807,26 @@ export async function run(argv = process.argv.slice(2), dependencies = {}) {
     const prepFailure = prepResults.find(r => r.status === 'rejected');
     if (prepFailure) throw prepFailure.reason;
 
-    const results = await Promise.all(
-      lanes.map(lane => runLane({
-        lane,
-        options,
-        spawnChild,
-        ownedChildren,
-        xvfbSocketExists,
-        wait,
-        killGroup,
-      })),
-    );
+    const concurrency = dependencies.laneConcurrency ?? lanes.length;
+    if (!Number.isInteger(concurrency) || concurrency < 1) throw new Error('Lane concurrency must be a positive integer');
+    let nextLane = 0;
+    const results = Array(lanes.length).fill(1);
+    await Promise.allSettled(Array.from({ length: Math.min(concurrency, lanes.length) }, async () => {
+      while (!interrupted && nextLane < lanes.length) {
+        const index = nextLane++;
+        const [settled] = await Promise.allSettled([runLane({
+          lane: lanes[index],
+          options,
+          spawnChild,
+          ownedChildren,
+          xvfbSocketExists,
+          wait,
+          killGroup,
+        })]);
+        results[index] = settled.status === 'fulfilled' ? settled.value : 1;
+        if (settled.status === 'rejected') writeStderr(`Lane ${index + 1} failed: ${settled.reason}\n`);
+      }
+    }));
     succeeded = !interrupted && results.every(code => code === 0);
     if (!succeeded || options.retainEvidence) {
       writeStderr(`Playwright lane evidence retained at ${tempRoot}\n`);

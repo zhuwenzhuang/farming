@@ -8,6 +8,8 @@ description: Prepare, test, diagnose, and complete Farming releases with exact-S
 Use one measured release campaign from the user's release request through npm
 verification. Include investigation, fixes, retries, queueing, CI, builds, and
 publication in elapsed time. Never reset the campaign clock after a failure.
+Aim for 15 minutes end to end, retaining 10 minutes as a stretch target. External
+runner and npm public-availability waits count; budgets are not service guarantees.
 
 Before acting, read:
 
@@ -37,6 +39,14 @@ that npm context.
    release inputs before any public mutation.
 4. Inspect changed behavior, owning state contracts, tests, and recent failure
    signatures. Create one release-preparation plan before running broad gates.
+   Retain the initial integrated base SHA. Before the first candidate freeze,
+   run `npm run release:fast-screen` and inspect
+   `npm run release:browser:screen -- --base BASE_SHA --plan`, then execute that
+   changed-area browser screen. It builds once and reuses the isolated lane
+   owner with at most four concurrent lanes. Unmapped product inputs require
+   an owning check; they cannot silently receive no coverage. Repair locally
+   and repeat affected checks before pushing a replacement candidate. This
+   screen does not replace final exact-SHA CI or artifact gates.
 5. Verify the selected remote branch identifies the same exact candidate SHA;
    push the intentional candidate commit before starting remote preparation.
    When the coordinator itself runs on Linux, run
@@ -87,8 +97,14 @@ Start all reversible preparation together:
 - reversible manifest, checksum, and release-note assembly.
 - monitoring of every workflow triggered by the candidate push, not only CI and Release.
 
-Budget the complete parallel preparation fan-out at seven minutes so the serial
-GitHub and npm publication tail can finish inside the ten-minute campaign.
+Target seven minutes for the parallel preparation fan-out. GitHub publication
+and public verification precede npm. Upload and observe at most six independent
+runtime versions concurrently, after complete receipt/journal preflight; admit
+the main package only after all runtime sources and digests are publicly verified.
+Use each actual lane's slowest duration when estimating this tail, not the
+average or sum. Retain every lane's journal and settle peers before returning
+a failure. npm public-availability delays can exceed the 15-minute budget;
+report the missed objective without weakening readiness or replay safety.
 
 ### Monitor Every Candidate Workflow
 
@@ -143,6 +159,29 @@ Docker is healthy, and the exact pinned Computer image is already present. A
 cold image pull is an infrastructure miss, not acceptable release critical-path
 work.
 
+Prepare the source environment through the existing build owners. A clean
+exact-SHA Linux source checkout runs `npm run build`, which includes generated
+backend helpers, ACP artifacts, runtime manifests, and managed ripgrep. Do not
+substitute `build:package` alone or copy a binary from another installation
+without its existing owner/pin/digest proof. Alternatively reuse an already
+verified exact-SHA app bundle; the legacy Linux bundle's existing installer
+owns its private glibc runtime. Do not improvise an unverified Node launcher.
+Before creating lanes, run on the Linux execution host:
+
+```bash
+node scripts/check-release-computer-environment.mjs ROOT FULL_SHA PINNED_IMAGE
+```
+
+Retain the receipt. It checks clean source or bundle identity, generated source
+freshness, managed ripgrep, the actual child Node/native PTY load boundary,
+Docker, and the already present pinned image. A source archive with a handwritten
+`RELEASE.json` is not an exact-SHA app bundle. This receipt proves environment
+readiness only; ordinary bundle verification remains mandatory. After lane
+bootstrap, prove the owned Resource/container, intended named browser profile,
+foreground Farming window and scenario prerequisites through fresh authoritative
+inventory and Computer screenshot evidence before dispatching the operator.
+If that checkpoint fails, fix the fixture before spending an operator budget.
+
 Create one Farming Agent and one owned Computer Resource per selected lane.
 Every lane must have its own Desktop container, browser profile, workspace or
 fixture identity, and evidence directory. Load the same exact candidate SHA in
@@ -158,6 +197,21 @@ actions from confirmed state, and return structured evidence. Record the model
 and configuration in the lane evidence. Reserve the release coordinator's
 stronger or more expensive model for orchestration, case-design review, and
 centralized failure diagnosis.
+
+Choose the routine lane model from a previously qualified configuration that
+completed a comparable bounded Desktop story and produced a structured receipt.
+An eight-minute watchdog without a report is a reliability miss, even when
+retained screenshots later prove completed actions. Keep routine focused stories
+inside a four-minute budget and continuity composites inside seven minutes;
+record a longer required story as an explicit critical-path exception. Require
+step checkpoints at substantive transitions with completed/remaining step IDs
+and tool receipt/screenshot references bound to the same Agent, Resource and SHA.
+Reserve the final 30 seconds for the structured result and closed-view evidence.
+At a bound, preserve the attempt as incomplete. One bounded coordinator review
+may reconcile retained actions with fresh read-only authoritative evidence;
+it must be a separate completion receipt, not a relabeled attempt or another
+full operator run. Escalate unsupported-model or repeated no-report outcomes
+after the first stable signature instead of spending another full lane budget.
 
 A lane Agent must execute a bounded scenario, capture evidence, and stop; it
 must not perform open-ended investigation, redesign the product, or repeat broad
@@ -269,7 +323,7 @@ One failure does not authorize rerunning every automated or Computer Use gate.
 Use when there is no known blocker. Run the complete release-preparation gate,
 including selected automated and Computer Use lanes, in parallel. Finish GitHub
 publication, public asset verification, npm publication, and npm verification
-within 10 minutes total.
+within 15 minutes total, with 10 minutes as the stretch target.
 
 ### Quick fix
 
@@ -298,7 +352,8 @@ architecture change. Decide this escalation within 3 minutes.
 - Record the full design-resolution time.
 - After the blocked domain is resolved, run the complete final exact-SHA machine
   pipeline plus every stale Computer Use lane.
-- Finish the remaining release within 10 minutes after resolution.
+- Target 15 minutes for the remaining release after resolution; retain the full
+  campaign clock and report the actual duration.
 
 Earlier domain results remove unknowns and warm deterministic caches. They never
 replace final exact-SHA gates or justify publishing old-SHA artifacts.
