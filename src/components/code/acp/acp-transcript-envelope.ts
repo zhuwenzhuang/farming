@@ -1,3 +1,4 @@
+import { isUnavailableAcpPeerReceipt } from '../../../../shared/acp-peer-message'
 import {
   projectAcpTranscript,
   type AgentTranscript,
@@ -16,6 +17,7 @@ function record(value: unknown): DataRecord {
 
 function transcriptTurnStart(entry: DataRecord): boolean {
   if (entry.type !== 'message' || entry.role !== 'user' || entry.internalScope === 'entry') return false
+  if (isUnavailableAcpPeerReceipt(entry)) return false
   const meta = record(entry._meta)
   return record(meta.farming).steer !== true && record(meta.codex).steer !== true
 }

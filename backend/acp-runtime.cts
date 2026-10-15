@@ -2681,6 +2681,12 @@ class AcpRuntime extends EventEmitter {
     if (!sessionId || !binding.subagentStates.has(sessionId)) return;
     const control = this.ensureSubagentControl(binding, sessionId);
     const status = String(update?.status || '').toLowerCase();
+    if (update._meta?.farming?.nativeSubagent === true && update._meta.farming.state === 'running'
+      && control.phase !== 'cancelling') {
+      control.phase = 'active';
+      control.error = '';
+      return;
+    }
     if (['cancelled', 'canceled'].includes(status)
       || (update._meta?.farming?.nativeSubagent === true && update._meta.farming.state === 'cancelled')) {
       control.phase = 'cancelled';
@@ -5119,30 +5125,33 @@ class AcpRuntime extends EventEmitter {
     return capability?.version === 1 && typeof capability.method === 'string' ? capability.method : '';
   }
 
-  async listSubagents(agentId: string) {
-    const binding = this.requireBinding(agentId);
-    this.requireOpenBinding(binding);
+  private async readProviderRelatedInventory(agentId: string, binding: AcpBinding) {
     const parentSessionId = binding.sessionId;
     const capability = binding.initializeResponse?.agentCapabilities?._meta?.relatedSessionRead as UnknownRecord | undefined;
     const listMethod = capability?.version === 1 && typeof capability.listMethod === 'string' ? capability.listMethod : '';
-    let inventory = (binding.sessionState.codexSubagents?.agents || [])
-      .filter(child => child.parentThreadId === parentSessionId)
-      .map(child => ({ sessionId: child.threadId, title: child.name, state: child.status }));
-    if (listMethod) {
-      if (!binding.connection.extMethod) throw new Error('ACP connection does not support related inventory reads');
-      const response = await withTimeout(binding.connection.extMethod(listMethod, {
-        parentSessionId,
-      }), this.requestTimeoutMs, 'ACP related session inventory');
-      this.requireOpenBinding(binding);
-      if (this.bindings.get(agentId) !== binding || binding.sessionId !== parentSessionId || response.sessionId !== parentSessionId
-        || !Array.isArray(response.children) || response.children.length > 1000
-        || !response.children.every((child: UnknownRecord) => child && typeof child.sessionId === 'string'
-          && child.sessionId.length > 0 && child.sessionId !== parentSessionId
-          && typeof child.title === 'string' && typeof child.state === 'string')) {
-        throw new Error('Invalid or stale related session inventory');
-      }
-      inventory = response.children;
+    if (!listMethod) return null;
+    if (!binding.connection.extMethod) throw new Error('ACP connection does not support related inventory reads');
+    const response = await withTimeout(binding.connection.extMethod(listMethod, {
+      parentSessionId,
+    }), this.requestTimeoutMs, 'ACP related session inventory');
+    this.requireOpenBinding(binding);
+    if (this.bindings.get(agentId) !== binding || binding.sessionId !== parentSessionId || response.sessionId !== parentSessionId
+      || !Array.isArray(response.children) || response.children.length > 1000
+      || !response.children.every((child: UnknownRecord) => child && typeof child.sessionId === 'string'
+        && child.sessionId.length > 0 && child.sessionId !== parentSessionId
+        && typeof child.title === 'string' && typeof child.state === 'string')) {
+      throw new Error('Invalid or stale related session inventory');
     }
+    return response.children as Array<{ sessionId: string; title: string; state: string }>;
+  }
+
+  async listSubagents(agentId: string) {
+    const binding = this.requireBinding(agentId);
+    this.requireOpenBinding(binding);
+    const inventory = await this.readProviderRelatedInventory(agentId, binding)
+      ?? (binding.sessionState.codexSubagents?.agents || [])
+        .filter(child => child.parentThreadId === binding.sessionId)
+        .map(child => ({ sessionId: child.threadId, title: child.name, state: child.status }));
     const children = new Map<string, { sessionId: string; title: string; state: string; stopReason?: string; readable: boolean }>();
     for (const [sessionId, state] of binding.subagentStates) {
       const transcript = this.getSubagentTranscriptSession(agentId, sessionId, { maxTurns: 1 });
@@ -5227,7 +5236,17 @@ class AcpRuntime extends EventEmitter {
     const binding = this.requireBinding(agentId);
     this.requireOpenBinding(binding);
     const method = this.relatedReadMethod(binding);
-    if (!method || this.isNativeSubagent(binding, sessionId)) {
+    let providerHistory = Boolean(binding.subagentStates.get(sessionId)?.nativeSubagent?.capabilities?.history)
+      || [binding.sessionState, ...binding.subagentStates.values()].some(state => state?.entries.some(entry =>
+        entry._meta?.subagent_session_info?.session_id === sessionId
+        && entry._meta.subagent_session_info.historyRead === true));
+    if (method && this.isNativeSubagent(binding, sessionId) && !providerHistory) {
+      // Older checkpoints predate per-child history grants. Only a fresh provider
+      // inventory can prove that this exact opaque ID names a readable conversation.
+      providerHistory = (await this.readProviderRelatedInventory(agentId, binding))
+        ?.some(child => child.sessionId === sessionId) === true;
+    }
+    if (!method || (this.isNativeSubagent(binding, sessionId) && !providerHistory)) {
       return this.getSubagentTranscriptSession(agentId, sessionId, options);
     }
     const parentSessionId = binding.sessionId;

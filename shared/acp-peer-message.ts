@@ -26,3 +26,13 @@ export function normalizeAcpPeerMessage(value: unknown): AcpPeerMessage | null {
     ...(source.bodyUnavailable === 'encrypted' ? { bodyUnavailable: 'encrypted' } : {}),
   }
 }
+
+/** An unavailable receipt carries no displayable body or attachments. */
+export function isUnavailableAcpPeerReceipt(entry: { type?: unknown; role?: unknown; content?: unknown; _meta?: unknown }): boolean {
+  if (entry.type !== 'message' || entry.role !== 'user') return false
+  const meta = entry._meta && typeof entry._meta === 'object' ? entry._meta as Record<string, unknown> : {}
+  if (!normalizeAcpPeerMessage(meta.peerMessage)?.bodyUnavailable) return false
+  return entry.content == null || (Array.isArray(entry.content) && entry.content.every(block => (
+    block?.type === 'text' && typeof block.text === 'string' && !block.text.trim()
+  )))
+}

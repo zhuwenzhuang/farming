@@ -2869,3 +2869,20 @@ button.code-agent-transcript-result-summary:is(:hover, :focus-visible) .code-age
 .code-agent-transcript-subagent-turn.peer-group-continuation {
   padding-top: 0;
 }
+
+.code-agent-transcript-peer-receipts {
+  color: var(--code-text-subtle);
+  font-size: 12px;
+}
+
+.code-agent-transcript-peer-receipts > summary {
+  list-style: none;
+}
+
+.code-agent-transcript-peer-receipts > summary::-webkit-details-marker {
+  display: none;
+}
+
+.code-agent-transcript-peer-receipts[open] > summary .code-agent-transcript-chevron {
+  transform: rotate(90deg);
+}

@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { AcpSessionState } from '../acp-session-state.cjs';
+import { isUnavailableAcpPeerReceipt } from '../../shared/acp-peer-message';
 import { projectAcpTranscript } from '../../src/components/code/acp/acp-entry-projection';
 import { farmingClaudePeerUpdate } from '../../scripts/vendor/claude-peer-messages.mjs';
 import { farmingCodexPeerUpdate, farmingCodexPeerHistory, farmingMergePeerHistory } from '../../scripts/vendor/codex-peer-messages.mjs';
@@ -51,9 +52,9 @@ async function run() {
   }
   const state = new AcpSessionState({ provider: 'codex', sessionId: 'recipient' });
   state.apply({ sessionId: 'recipient', update: encrypted });
-  assert.equal(projectAcpTranscript({ sessionId: 'recipient', entries: state.sanitizedEntries() }).turns[0].userSource?.bodyUnavailable, 'encrypted');
+  assert.equal(projectAcpTranscript({ sessionId: 'recipient', entries: state.sanitizedEntries() }).turns[0].processItems[0].peerReceipt?.bodyUnavailable, 'encrypted');
 
-  const peerTurn = projectAcpTranscript({ sessionId: 'recipient', entries: state.sanitizedEntries() }).turns[0];
+  const peerTurn = projectAcpTranscript({ sessionId: 'recipient', entries: [{ id: 'peer', type: 'message', role: 'user', content: codex.content, _meta: codex._meta }] }).turns[0];
   const first = { ...peerTurn, userSource: { ...peerTurn.userSource!, senderSessionId: 'session-a', senderName: 'Shared name' } };
   const second = { ...first, id: 'another-message' };
   assert(continuesPeerMessageGroup(first, second));
@@ -74,6 +75,47 @@ async function run() {
   assert.equal(peerMessageTimestamp({ ...first, startedAt: null, userSource: { ...first.userSource, timestamp: undefined } }), null);
   assert.equal(peerMessageTimestamp({ ...first, startedAt: 123, userSource: { ...first.userSource, timestamp: 'invalid' } }), 123);
   assert.equal(peerMessageTimestamp({ ...first, userSource: { ...first.userSource, timestamp: '2026-01-01T10:31:00Z' } }), Date.parse('2026-01-01T10:31:00Z'));
+
+  // Production-shaped: incoming encrypted messages interleave with real progress.
+  for (const provider of ['codex', 'claude']) {
+    const active = new AcpSessionState({ provider, sessionId: 'progress' });
+    const apply = (update: Parameters<typeof active.apply>[0]['update']) => active.apply({ sessionId: 'progress', update });
+    apply({ sessionUpdate: 'user_message_chunk', content: { type: 'text', text: 'Run the checks' } });
+    apply({ sessionUpdate: 'agent_message_chunk', messageId: 'progress-1', content: { type: 'text', text: 'Build passed; testing now.' },
+      ...(provider === 'codex' ? { _meta: { codex: { phase: 'commentary' } } } : {}) });
+    apply({ sessionUpdate: 'tool_call', toolCallId: 'checks', title: 'Run checks', status: 'completed' });
+    for (let i = 0; i < 8; i++) apply({ ...encrypted, messageId: `receipt-${i}` });
+    const checkpoint = AcpSessionState.fromCheckpoint(active.exportCheckpoint())!;
+    const page = checkpoint.transcriptSlice({ maxTurns: 1 });
+    assert.equal(page.entries[0].role, 'user');
+    assert(page.entries.some(entry => entry.messageId === 'progress-1'), 'receipts do not evict progress from the bounded page');
+    const live = projectAcpTranscript({ state: 'working', entries: page.entries });
+    assert.equal(live.turns.length, 1);
+    assert.equal(live.turns[0].status, 'inProgress');
+    assert.equal(live.turns[0].processItems.filter(item => item.type === 'peer-receipt').length, 8);
+    assert.equal(live.turns[0].processItems[0].detail, 'Build passed; testing now.');
+    const receivedOnly = projectAcpTranscript({ state: 'idle', entries: state.sanitizedEntries() });
+    assert.equal(receivedOnly.turns[0].status, 'completed', 'receipt alone cannot imply a missing final reply');
+    const continued = projectAcpTranscript({ state: 'working', entries: [...page.entries, { id: 'readable-peer', type: 'message', role: 'user', content: codex.content, _meta: codex._meta }] });
+    assert.equal(continued.turns[0].status, 'partial', 'readable peer segmentation does not settle ongoing execution');
+    const settled = projectAcpTranscript({ state: 'idle', entries: [
+      { ...page.entries[0], turnCompletedAt: 123, turnStopReason: 'end_turn' }, ...page.entries.slice(1),
+      { id: 'readable-peer', type: 'message', role: 'user', content: codex.content, _meta: codex._meta },
+    ] });
+    assert.equal(settled.turns[0].status, 'missingFinalReply', 'a known terminal boundary is not undone by later receipt');
+    const failed = projectAcpTranscript({ state: 'idle', stopReason: 'error', entries: page.entries });
+    assert.equal(failed.turns[0].status, 'interrupted', 'real failures remain visible');
+  }
+
+  const receipt = { id: 'receipt', type: 'message', role: 'user', content: encrypted.content, _meta: encrypted._meta };
+  assert(!isUnavailableAcpPeerReceipt({ ...receipt, content: [{ type: 'text', text: 'Readable part' }] }));
+  assert(!isUnavailableAcpPeerReceipt({ ...receipt, content: [{ type: 'image', data: 'image', mimeType: 'image/png' }] }));
+  const finalThenReceipt = projectAcpTranscript({ state: 'idle', entries: [
+    { id: 'human', type: 'message', role: 'user', content: [{ type: 'text', text: 'Check' }] },
+    { id: 'answer', type: 'message', role: 'assistant', content: [{ type: 'text', text: 'All passed' }] }, receipt,
+  ] });
+  assert.equal(finalThenReceipt.turns[0].finalMessage, 'All passed', 'a receipt after a legacy answer does not erase the answer');
+  assert.equal(finalThenReceipt.turns[0].processItems[0].type, 'peer-receipt');
 
   const home = await fs.mkdtemp(path.join(os.tmpdir(), 'farming-peer-test-'));
   const oldHome = process.env.CODEX_HOME;

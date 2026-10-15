@@ -1,3 +1,4 @@
+import { isUnavailableAcpPeerReceipt } from '../shared/acp-peer-message';
 import { visibleUserMessageText } from './codex-transcript.cjs';
 import {
   isCodexContextCompactionMessage,
@@ -49,7 +50,8 @@ function isSteerMessage(entry: AcpEntry | null | undefined): boolean {
 function genericTranscriptTurnStart(entry: AcpEntry | null | undefined): boolean {
   return entry?.type === 'message'
     && entry.role === 'user'
-    && !isSteerMessage(entry);
+    && !isSteerMessage(entry)
+    && !isUnavailableAcpPeerReceipt(entry);
 }
 
 function codexInternalUserScope(entry: AcpEntry | null | undefined): InternalUserScope {

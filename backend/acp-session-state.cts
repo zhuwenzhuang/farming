@@ -40,6 +40,7 @@ interface AcpMeta extends DataRecord {
   contextCompaction?: unknown;
   subagent_session_info?: {
     session_id?: unknown;
+    historyRead?: boolean;
   };
   farming_patch_decisions?: Record<string, unknown>;
 }

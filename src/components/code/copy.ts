@@ -81,6 +81,7 @@ export interface CodeCopy {
   agentOpeningCheck: string
   agentChatStarting: string
   agentTranscriptSyncing: string
+  agentTranscriptPeerReceipts: (count: number) => string
   agentTranscriptPeerBodyUnavailable: string
   agentTranscriptUnavailable: string
   agentTranscriptEmpty: string
@@ -830,7 +831,8 @@ const EN_COPY: CodeCopy = {
   agentOpeningCheck: 'Check status',
   agentChatStarting: 'Starting Chat — you can type while it connects.',
   agentTranscriptSyncing: 'Syncing chat history...',
-  agentTranscriptPeerBodyUnavailable: 'Message received. Codex did not provide readable message text.',
+  agentTranscriptPeerReceipts: (count: number) => `${count} encrypted message${count === 1 ? '' : 's'} from Codex`,
+  agentTranscriptPeerBodyUnavailable: 'Codex sent an encrypted message.',
   agentTranscriptUnavailable: 'This session’s Chat history could not be loaded.',
   agentTranscriptEmpty: 'No conversation yet.',
   agentTranscriptWaiting: 'Agent is still working...',
@@ -1614,7 +1616,8 @@ const ZH_COPY: CodeCopy = {
   agentOpeningCheck: '查询状态',
   agentChatStarting: '正在启动 Chat，可以先输入。',
   agentTranscriptSyncing: '正在同步聊天历史...',
-  agentTranscriptPeerBodyUnavailable: '已收到消息，Codex 未提供可读取的正文。',
+  agentTranscriptPeerReceipts: (count: number) => `${count} 条 Codex 加密消息`,
+  agentTranscriptPeerBodyUnavailable: 'Codex 发来一条加密消息。',
   agentTranscriptUnavailable: '无法加载此会话的 Chat 历史。',
   agentTranscriptEmpty: '还没有对话。',
   agentTranscriptWaiting: 'Agent 仍在工作...',

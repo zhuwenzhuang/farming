@@ -84,6 +84,23 @@ continues to own execution. Providers without history-read capability expose
 only the child events actually received, with unavailable content reported
 explicitly.
 
+A child that declares the `history` capability uses the negotiated related-history
+reader even when live child events are retained. A first-turn cache must not hide
+later provider turns; connection-local children without this grant remain on their
+retained stream. Reads preserve bounded pagination and never mutate live state.
+For older checkpoints, fresh provider inventory may establish that the exact child
+ID is a provider history identity; spelling or UUID shape is never sufficient.
+Native child conversations keep one identity across completed and resumed turns.
+Adapters reopen forwarding on an authoritative new child turn, ignore duplicate
+starts and stale output/completion from the preceding turn, and publish running
+state before forwarding new progress. Public commentary and final replies remain
+readable independently of encrypted inter-agent traffic.
+Codex resume does not expose the raw-receipt opt-in used by new threads. Its
+adapter therefore also reads new records from the exact receiver-owned rollout
+at native item and turn boundaries, within fixed byte, record and time limits.
+Native message IDs deduplicate this stream with raw events and history replay.
+Partial records wait for completion; replacement or truncation fails explicitly.
+
 Parent Archive first archives all Farming-owned Side Chats, including retained
 records after restart, through their existing lifecycle journals. A child failure
 blocks parent completion. The Codex adapter fences the parent, freshly enumerates
@@ -124,7 +141,7 @@ invented names or avatars. Inputs explicitly marked as steer use the secondary
 "Steer" label in both English and Chinese, matching the Composer action. This
 label describes delivery into the active turn, not the sender.
 
-Incoming peer messages use ordinary input-message bubbles. The stable source
+Readable incoming peer messages use ordinary input-message bubbles. The stable source
 avatar sits beside the bubble and the receive-time sender name appears above it,
 outside the message surface. Sender labels use the smaller, secondary metadata
 text role so message content remains primary. Long names wrap without hiding the source. Provider adapters emit `session_message`
@@ -156,7 +173,12 @@ typed history omits these records, so recovery merges bounded records from the
 recipient's own verified rollout into the typed history at native item anchors.
 History reads have byte, message and time limits and fail explicitly on an
 identity or path mismatch. They never inspect the sender's history. Where Codex
-exposes an encrypted body, Chat shows receipt and an unavailable-text explanation,
+exposes an encrypted body without readable content or attachments, Chat aggregates
+receipts in one collapsed disclosure per presentation segment. Expanding it shows
+an explicit notice that Codex sent an encrypted message, recorded senders and receipt times. These receipts
+do not split an execution into display Turns or consume the transcript Turn window; readable peer
+messages may create presentation segments but cannot settle the preceding execution.
+Chat shows receipt evidence,
 never ciphertext, fabricated text or a sender-side reconstruction. Legacy Codex
 `send_input` records without receive-side provenance remain ordinary input; they
 cannot safely acquire a guessed sender label.
@@ -1041,6 +1063,8 @@ recognized image path. Failed image loads remain visible as unavailable evidence
 Ordinary Resource labels truncate within their row without widening Chat or
 displacing subsequent image attachments and Steer messages.
 
+Main and child Chat keep readable progress messages directly visible during execution
+and after settlement or reload. Detailed reasoning and tool output remain collapsible.
 Chat shows the ordered conversation, one compact live activity signal for the
 current Turn, and reversible structured evidence. Completed reasoning and tool
 details do not remain as overlapping default summaries. Disclosure controls

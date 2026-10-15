@@ -1,4 +1,4 @@
-import { normalizeAcpPeerMessage, type AcpPeerMessage } from '../../../../shared/acp-peer-message'
+import { isUnavailableAcpPeerReceipt, normalizeAcpPeerMessage, type AcpPeerMessage } from '../../../../shared/acp-peer-message'
 import { normalizeAgentHandoffContext, type AgentHandoffContext } from '../../../../shared/agent-handoff-context'
 import { normalizeAgentGoal, type AgentGoal } from '../../../../shared/agent-goal'
 import { createTwoFilesPatch, diffLines } from 'diff'
@@ -83,6 +83,7 @@ export interface AgentTranscriptProcessItem {
   subagentTranscript?: AgentTranscript
   question?: { requestId: string; message: string; status: string; answer: string }
   collaboration?: AgentTranscriptCollaboration
+  peerReceipt?: AcpPeerMessage
 }
 
 export interface AgentTranscriptCollaborationState {
@@ -763,7 +764,7 @@ function finishTurn(turn: MutableTurn | null, keepTailAsProgress: boolean, parti
     turn.resultFiles.push(...(answer.files || []))
   }
   const lastAssistant = turn.assistantMessages[turn.assistantMessages.length - 1]
-  const lastProcess = turn.processItems[turn.processItems.length - 1]
+  const lastProcess = [...turn.processItems].reverse().find(item => item.type !== 'peer-receipt')
   const answerText = turn.finalMessage.trim().replace(/\r\n/g, '\n')
   const duplicateError = answerText && turn.processItems.some(item => {
     if (item.type !== 'error') return false
@@ -779,11 +780,13 @@ function finishTurn(turn: MutableTurn | null, keepTailAsProgress: boolean, parti
     && (lastProcess.images || []).length === 0 && (lastProcess.audios || []).length === 0 && (lastProcess.files || []).length === 0) {
     turn.finalMessage = lastAssistant.text
     turn.finalMessageId = lastAssistant.processItemId
-    turn.processItems.pop()
+    turn.processItems.splice(turn.processItems.indexOf(lastProcess), 1)
   }
-  if (hasFinalAssistantResult(turn)) {
+  if (partial && turn.processItems.some(item => item.type !== 'peer-receipt')) {
+    turn.status = 'partial'
+  } else if (hasFinalAssistantResult(turn)) {
     turn.status = 'completed'
-  } else if (turn.processItems.length > 0) {
+  } else if (turn.processItems.some(item => item.type !== 'peer-receipt')) {
     turn.status = 'missingFinalReply'
   }
   if (['cancelled', 'canceled', 'stopped', 'error', 'failed', 'cancel_error'].includes(turn.stopReason || '')) turn.status = 'interrupted'
@@ -823,6 +826,16 @@ export function projectAcpTranscript(sessionValue: unknown, options: { maxTurns?
   for (const value of sessionEntries) {
     const entry = record(value)
     if (entry.internalScope === 'entry') continue
+    if (isUnavailableAcpPeerReceipt(entry)) {
+      if (current?.internal) flush()
+      const entryId = stringValue(entry.id) || String(++sequence)
+      if (!current) current = emptyTurn(`acp-turn-${entryId}`, false)
+      current.processItems.push({
+        id: `acp-receipt-${entryId}`, type: 'peer-receipt', title: 'Agent message received',
+        peerReceipt: normalizeAcpPeerMessage(record(entry._meta).peerMessage) || undefined,
+      })
+      continue
+    }
     if (entry.type === 'message' && entry.role === 'user') {
       if (isSteerEntry(entry) && current) {
         const entryId = stringValue(entry.id) || String(++sequence)
@@ -839,7 +852,10 @@ export function projectAcpTranscript(sessionValue: unknown, options: { maxTurns?
         })
         continue
       }
-      flush()
+      // Receipt starts a presentation segment, not a completed execution.
+      const peer = normalizeAcpPeerMessage(record(entry._meta).peerMessage)
+      const continuesExecution = Boolean(peer) && current?.completedAt == null && !current?.stopReason
+      flush(continuesExecution, continuesExecution)
       const entryId = stringValue(entry.id) || String(++sequence)
       current = emptyTurn(`acp-turn-${entryId}`, entry.internal === true)
       current.startedAt = entry.turnStartedAt == null ? null : Number(entry.turnStartedAt)

@@ -4,7 +4,7 @@ export interface NativeSubagentAssociation {
   parentSessionId: string;
   title?: string | null;
   description?: string | null;
-  capabilities?: { cancel?: RecordValue | null } | null;
+  capabilities?: { cancel?: RecordValue | null; history?: RecordValue | null } | null;
   state?: { state: string; stopReason?: string | null; [key: string]: unknown } | null;
   _meta?: RecordValue | null;
 }
@@ -34,9 +34,12 @@ export function mergeNativeSubagentAssociation(
       throw new Error(`Invalid native subagent ${key}`);
     }
   }
-  if ('capabilities' in update && update.capabilities !== null && (!object(update.capabilities)
-    || ('cancel' in update.capabilities && update.capabilities.cancel !== null && !object(update.capabilities.cancel)))) {
-    throw new Error('Invalid native subagent capabilities');
+  if ('capabilities' in update && update.capabilities !== null) {
+    const capabilities = update.capabilities;
+    if (!object(capabilities) || ['cancel', 'history'].some(key => key in capabilities
+      && capabilities[key] !== null && !object(capabilities[key]))) {
+      throw new Error('Invalid native subagent capabilities');
+    }
   }
   if ('state' in update && update.state !== null && (!object(update.state)
     || typeof update.state.state !== 'string' || !update.state.state)) {
@@ -70,7 +73,8 @@ export function normalizeNativeSubagentNotification(params: RecordValue): Record
       rawInput: { task: String(update.task || '') } } : {}),
     status,
     _meta: {
-      subagent_session_info: { session_id: id },
+      subagent_session_info: { session_id: id,
+        ...(object(update.capabilities) && object(update.capabilities.history) ? { historyRead: true } : {}) },
       farming: { nativeSubagent: true, state: spawned ? 'running' : state },
     },
   } };

@@ -51,6 +51,7 @@ async function run() {
         CODEX_HOME: codexHome,
         CODEX_PATH: fakeCodex,
         FARMING_TEST_MULTI_SESSION: '1',
+        FARMING_TEST_CHILD_INVENTORY: '1',
         FARMING_TEST_SESSION_ENVIRONMENT: '1',
         FARMING_TEST_UNSUBSCRIBE_FAILURE_FILE: unsubscribeFailureFile,
         FARMING_TEST_REQUEST_LOG_FILE: requestLog,
@@ -169,6 +170,34 @@ async function run() {
       sessionUpdate: 'subagent_state_update', subagentSessionId: 'opaque-native-child', state: 'completed',
     } });
     assert.strictEqual(runtime.getSubagentTranscriptSession('shared-codex-a', 'opaque-native-child').state, 'idle');
+    await handlers.sessionUpdate({ sessionId: first.sessionId, update: {
+      sessionUpdate: 'subagent_state_update', subagentSessionId: 'opaque-native-child', state: 'running',
+    } });
+    assert.strictEqual(runtime.getSubagentTranscriptSession('shared-codex-a', 'opaque-native-child').state, 'working',
+      'an authoritative native running event must reopen the same child after completion');
+    const readableChildId = `${first.sessionId}-child`;
+    await handlers.sessionUpdate({ sessionId: first.sessionId, update: {
+      sessionUpdate: 'subagent_spawned', subagentSessionId: readableChildId,
+      name: 'Older checkpoint child', task: 'Read all turns', capabilities: {},
+    } });
+    assert(JSON.stringify(await runtime.getSubagentTranscriptSessionForRead('shared-codex-a', readableChildId))
+      .includes('Live child history read without resume.'),
+    'fresh provider inventory can prove history identity for an older retained checkpoint');
+    await handlers.sessionUpdate({ sessionId: first.sessionId, update: {
+      sessionUpdate: 'subagent_spawned', subagentSessionId: readableChildId,
+      name: 'Readable child', task: 'Read all turns', capabilities: { history: {} },
+    } });
+    await handlers.sessionUpdate({ sessionId: first.sessionId, update: {
+      sessionUpdate: 'subagent_state_update', subagentSessionId: readableChildId,
+      state: 'completed', capabilities: { history: {} },
+    } });
+    const nativeReadStart = readRequests(requestLog).length;
+    const nativeHistory = await runtime.getSubagentTranscriptSessionForRead('shared-codex-a', readableChildId);
+    assert(JSON.stringify(nativeHistory).includes('Live child history read without resume.'),
+      'history-capable native children must not be pinned to a retained first-turn snapshot');
+    assert(readRequests(requestLog).slice(nativeReadStart).some(call => call.method === 'thread/items/list'));
+    assert.strictEqual(firstBinding.subagentStates.get(readableChildId).entries.length, 0,
+      'provider history read remains a private projection');
     await handlers.sessionUpdate({ sessionId: first.sessionId, update: {
       sessionUpdate: 'subagent_state_update', subagentSessionId: 'opaque-native-child', state: 'cancelled',
     } });

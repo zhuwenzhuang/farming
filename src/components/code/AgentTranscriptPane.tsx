@@ -1068,7 +1068,7 @@ export function AgentTranscriptSubagentPreview({
   const active = ['working', 'waiting-for-permission', 'waiting-for-input', 'interrupting'].includes(transcript.state || '')
   const status = relatedSessionStatusLabel(transcript.state || '', copy, transcript.stopReason, transcript.error)
   const actionCount = transcript.turns.reduce((count, turn) => count + turn.processItems.filter(item => (
-    !isAcpProgressUpdate(item) && !isAcpAnswerSegment(item)
+    !isAcpProgressUpdate(item) && !isAcpAnswerSegment(item) && item.type !== 'peer-receipt'
   )).length, 0)
   const [fullscreen, setFullscreen] = useState(false)
   const [stopping, setStopping] = useState(false)
@@ -1089,7 +1089,7 @@ export function AgentTranscriptSubagentPreview({
             <AgentTranscriptUserMessage turn={turn} copy={copy} />
           </div> : turn.userSource || turn.userMessage ? <AgentTranscriptIncomingMessage turn={turn} continued={continuesPeerMessageGroup(transcript.turns[index - 1], turn)} hasNext={continuesPeerMessageGroup(turn, transcript.turns[index + 1])}><div className="user">{turn.userSource?.bodyUnavailable ? copy.agentTranscriptPeerBodyUnavailable : <AgentTranscriptUserMessage turn={turn} copy={copy} />}</div></AgentTranscriptIncomingMessage> : null}
           {turn.processItems.length > 0 ? (
-            <div className="actions">{turn.processItems.map(item => <AgentTranscriptSubagentAction item={item} key={item.id} />)}</div>
+            <><AgentTranscriptPeerReceipts items={turn.processItems.filter(item => item.type === 'peer-receipt')} copy={copy} /><div className="actions">{turn.processItems.filter(item => item.type !== 'peer-receipt').map(item => <AgentTranscriptSubagentAction item={item} key={item.id} />)}</div></>
           ) : null}
           <AgentTranscriptResultImages images={turn.resultImages || []} />
           {turn.finalMessage ? <div className="assistant">{plainTextBlock(turn.finalMessage)}</div> : null}
@@ -1311,10 +1311,10 @@ function compactProcessEntries(
       items: entries.flatMap(entry => entry.kind === 'group' ? entry.items : [entry.item]),
     }
   }
-  const showLiveAcpProgress = source === 'acp' && turnStatus === 'inProgress'
+  const showAcpProgress = source === 'acp'
   const eligible = entries.flatMap(entry => {
     if (entry.kind === 'item') {
-      return isUserSteerProcessItem(entry.item) || (showLiveAcpProgress && isAcpProgressUpdate(entry.item))
+      return isUserSteerProcessItem(entry.item) || (showAcpProgress && isAcpProgressUpdate(entry.item))
         ? [entry.item]
         : []
     }
@@ -1324,7 +1324,7 @@ function compactProcessEntries(
   })
   const selectedIndexes = new Set<number>()
   eligible.forEach((item, index) => {
-    if (isUserSteerProcessItem(item) || (showLiveAcpProgress && isAcpProgressUpdate(item))) {
+    if (isUserSteerProcessItem(item) || (showAcpProgress && isAcpProgressUpdate(item))) {
       selectedIndexes.add(index)
     }
   })
@@ -1463,6 +1463,20 @@ function AgentTranscriptUserMessage({ turn, copy }: { turn: AgentTranscriptTurn;
   return <details className="code-agent-transcript-context" data-testid="code-agent-handoff-context">
     <summary><span>{copy.handoffContext}</span><ChevronRightGlyph /></summary>
     <div className="detail">{plainTextBlock(turn.userMessage)}</div>
+  </details>
+}
+
+function AgentTranscriptPeerReceipts({ items, copy }: { items: AgentTranscriptProcessItem[]; copy: CodeCopy }) {
+  if (!items.length) return null
+  return <details className="code-agent-transcript-peer-receipts" data-testid="code-agent-peer-receipts">
+    <summary className="code-agent-transcript-process-summary">
+      <span>{copy.agentTranscriptPeerReceipts(items.length)}</span><ChevronRightGlyph className="code-agent-transcript-chevron" />
+    </summary>
+    <div className="code-agent-transcript-message-unavailable">{copy.agentTranscriptPeerBodyUnavailable}</div>
+    {items.map(item => <div key={item.id} data-process-item-id={item.id}>
+      <span>{item.peerReceipt?.senderName || item.peerReceipt?.senderAddress}</span>
+      {item.peerReceipt?.timestamp ? <AgentTranscriptMessageTime timestamp={Date.parse(item.peerReceipt.timestamp)} kind="peer" /> : null}
+    </div>)}
   </details>
 }
 
@@ -2467,7 +2481,7 @@ function AgentTranscriptTurnView({
   ), [collaborationEvents])
   const mainProcessItems = useMemo(
     () => resolvedProcessItems.filter(item => (
-      !collaborationProcessItemIds.has(item.id)
+      !collaborationProcessItemIds.has(item.id) && item.type !== 'peer-receipt'
     )),
     [collaborationProcessItemIds, resolvedProcessItems],
   )
@@ -2475,6 +2489,7 @@ function AgentTranscriptTurnView({
     () => ({ ...turn, processItems: mainProcessItems }),
     [mainProcessItems, turn],
   )
+  const receipts = resolvedProcessItems.filter(item => item.type === 'peer-receipt')
   const hasProcess = mainProcessItems.length > 0
   const processEntries = useMemo(() => (
     groupProcessActions
@@ -2842,7 +2857,8 @@ function AgentTranscriptTurnView({
         </AgentTranscriptIncomingMessage>
       ) : null}
 
-      {hasAnyProcess ? (
+      <AgentTranscriptPeerReceipts items={receipts} copy={copy} />
+      {hasProcess || collaborationEvents.length > 0 ? (
         <div className={`code-agent-transcript-process ${effectiveProcessOpen ? 'expanded' : ''}`}>
           {hasProcess || collaborationEvents.length > 0 ? (
             <>

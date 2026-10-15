@@ -267,7 +267,7 @@ async function resultFor(method, params) {
     // App-server's default source filter excludes native children even when
     // ancestorThreadId is set. Exercise the real filter, not a permissive fake.
     if (params.ancestorThreadId && !params.sourceKinds?.includes('subAgent')) return { data: [], nextCursor: null };
-    if (backgroundChild && params.ancestorThreadId) {
+    if ((backgroundChild || process.env.FARMING_TEST_CHILD_INVENTORY === '1') && params.ancestorThreadId) {
       const child = (await resultFor('thread/read', { threadId: `${params.ancestorThreadId}-child` })).thread;
       return { data: [child], nextCursor: null };
     }
