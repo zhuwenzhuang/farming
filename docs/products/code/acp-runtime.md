@@ -695,6 +695,13 @@ within the near-bottom range. Following resumes when the user reaches the
 bottom or explicitly returns to latest. Hidden Agents do
 not replay a send's scroll request when reopened. This contract is shared by all
 ACP providers and does not retry or otherwise change message delivery.
+Activating a transcript disclosure by pointer or keyboard also enters reading
+history before its content changes. Expansion grows below the trigger without
+moving it in the viewport; collapse preserves that position within the available
+scroll range. This applies to process groups, tool details, and native context
+disclosures, including content loaded asynchronously. Layout changes and incoming
+updates must not resume following; the existing explicit return-to-latest actions
+still do. Disclosure activation alone never requests older history.
 Loading older messages does not by itself keep the return-to-latest control
 visible. If the loaded window still contains the latest Turn, reaching its
 bottom hides the control and resumes following without reloading history. If

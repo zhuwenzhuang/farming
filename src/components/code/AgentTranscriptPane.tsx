@@ -4322,7 +4322,10 @@ export function AgentTranscriptPane({
       stationaryScrollTopRef.current = followBottomRef.current ? null : element.scrollTop
     }
     if (followBottomRef.current) clearReadingAnchor(readingAnchorAgentKey(readingAnchorAgentId, 'chat'))
-    else scheduleReadingAnchorSave(readingAnchorAgentId, element)
+    else {
+      stationaryScrollTopRef.current = element.scrollTop
+      scheduleReadingAnchorSave(readingAnchorAgentId, element)
+    }
     setShowJumpToBottom(
       !followBottomRef.current
       && element.scrollHeight > element.clientHeight + TRANSCRIPT_BOTTOM_FOLLOW_THRESHOLD,
@@ -4340,6 +4343,25 @@ export function AgentTranscriptPane({
     if (!element || element.scrollTop > TRANSCRIPT_LOAD_MORE_THRESHOLD) return
     requestOlderTurns(element)
   }, [finishUserScrollGesture, markUserScrollGesture, requestOlderTurns])
+  const handleDisclosureActivation = useCallback((target: EventTarget | null) => {
+    const element = scrollRef.current
+    if (!(target instanceof Element) || !element) return
+    const disclosure = target.closest('summary, button[aria-expanded], [role="button"][aria-expanded]')
+    if (!disclosure || !element.contains(disclosure) || disclosure.matches(':disabled')) return
+    // A disclosure is reading intent. Pause following before the child changes
+    // layout, so neither the layout effect nor ResizeObserver can pull it down.
+    userScrollGestureRef.current = false
+    followBottomRef.current = false
+    stationaryScrollTopRef.current = element.scrollTop
+    setReadingAnchorRestorePending(false)
+    pendingPrependAnchorRef.current = null
+    window.requestAnimationFrame(() => {
+      if (scrollRef.current !== element || !element.isConnected || followBottomRef.current) return
+      stationaryScrollTopRef.current = element.scrollTop
+      scheduleReadingAnchorSave(readingAnchorAgentId, element)
+      setShowJumpToBottom(!isTranscriptAtBottom(element))
+    })
+  }, [readingAnchorAgentId, scheduleReadingAnchorSave])
   const handleTranscriptPointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0 || event.pointerType === 'touch') return
     const target = event.target
@@ -4474,6 +4496,10 @@ export function AgentTranscriptPane({
           data-testid="code-agent-transcript-scroll"
           ref={scrollRef}
           style={readingAnchorRestorePending ? { visibility: 'hidden' } : undefined}
+          onClickCapture={event => handleDisclosureActivation(event.target)}
+          onKeyDownCapture={event => {
+            if (event.key === 'Enter' || event.key === ' ') handleDisclosureActivation(event.target)
+          }}
           onPointerDown={handleTranscriptPointerDown}
           onScroll={handleScroll}
           onWheel={handleWheel}
