@@ -201,13 +201,16 @@ Latest File-open Intent 限制。
 ## 请求准入与 Server 调度
 
 浏览器请求代理在发送到 socket 前限制并发，与服务端共享操作分类。Workspace
-和 Language Server 请求合计最多同时发送四个交互请求与两个后台请求。恢复大量
+最多同时发送四个交互请求与两个后台请求，Language Server 独立并发两个请求，
+不占用文件操作名额。恢复大量
 展开目录时在本地排队，不能冲满服务端队列，也不能让 Git 装饰阻塞目录导航。
 结果、取消和超时都会为下一个仍被使用的请求释放准入名额。服务端排队请求被
 取消时立即释放队列容量。
 
 浏览器最多保留 512 个待完成请求，其中为交互工作预留 64 个；服务端的 64 项队列
-同样为交互工作预留 16 项。超出时在发送或执行前明确拒绝。默认 60 秒期限包含
+同样为交互工作预留 16 项。LSP 在浏览器最多保留 64 个待处理请求，服务端每连接
+最多排队 16 个。即使底层语言服务在启动期间不响应取消，也不能占满文件通道或共享
+队列；不能为释放名额而让仍在运行的 LSP 工作无限堆积。超出时在发送或执行前明确拒绝。默认 60 秒期限包含
 本地排队与传输时间；具体操作可使用自己的有界期限。发送前取消或超时的变更
 不会产生不确定结果。重连时安全读取的重发也遵循相同并发限制；已发送变更不
 重放，`BUSY` 结果不自动重试。
@@ -217,13 +220,13 @@ WebSocket Message Handler 只执行 Validate 与 Schedule；不能等待一个�
 Deadline、Operation Classification 与有界 Result Budget。Connection Close 会取消所有
 Cancel-safe 工作并释放其 Watch Registration。
 
-Workspace Work 至少分为两个 Scheduling Lane：
+Workspace 与语义请求分为三个 Scheduling Lane：
 
-- **Interactive**：Directory `tree`、File Resolve、Explicit Reload、Save 与直接 Semantic Navigation；
-- **Background**：`tree-decorations`、Search、Git Status、History、Blame、Preview、自动 Semantic Tokens、Inlay
-  Hints、Symbols 与 Watch-triggered Revalidation。
+- **Interactive**：Directory `tree`、File Resolve、Explicit Reload、Save 与目录项变更；
+- **Background**：`tree-decorations`、Search、Git Status、History、Blame、Preview 与 Watch-triggered Revalidation；
+- **Language Server**：能力发现、语义导航、Semantic Tokens、Inlay Hints、Symbols、Hover 和诊断。
 
-Background Work 使用独立并发上限，不能占满所有 Workspace Execution Slot；至少保留一个
+Background 与 Language Server Work 使用独立并发上限，不能占满所有 Workspace Execution Slot；至少保留一个
 Interactive Slot。Limit 同时按 Connection 与 Global 生效，避免一个 Browser 制造无界 Server
 工作。同 Resource Read 由 Workspace File Model 合并；Transport Scheduler 不建立第二份 Cache。
 

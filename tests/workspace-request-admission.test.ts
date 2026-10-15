@@ -118,3 +118,38 @@ test('a full background backlog leaves admission capacity for interactive naviga
     setWorkspaceRequestTransport(null)
   }
 })
+
+test('stalled foreground and background LSP requests cannot consume file admission', async () => {
+  const sent: WorkspaceRequestMessage[] = []
+  const controller = new AbortController()
+  const pending: Promise<unknown>[] = []
+  setWorkspaceRequestTransport(message => {
+    if (message.type === 'workspace-request') sent.push(message)
+    return true
+  })
+  setWorkspaceRequestTransportReady(true)
+  try {
+    for (let i = 0; i < 520; i++) {
+      pending.push(requestLanguageServerTransport({
+        operation: 'request', rootId: 'root', filePath: 'Demo.java',
+        method: i % 2 ? 'hover' : 'semanticTokens',
+        ...(i % 2 ? {} : { priority: 'background' as const }),
+      }, { signal: controller.signal }).catch(error => error))
+    }
+    for (const request of [
+      { operation: 'read-file' as const, rootId: 'root', path: 'Demo.java' },
+      { operation: 'tree-decorations' as const, rootId: 'root', path: '', entryPaths: [] },
+    ]) {
+      const read = requestWorkspace(request, { signal: controller.signal }).catch(error => error)
+      pending.push(read)
+      const message = sent.at(-1)
+      assert.equal(message?.request.operation, request.operation, 'LSP saturation must leave both file lanes usable')
+      settleWorkspaceRequest({ type: 'workspace-result', requestId: message!.requestId, ok: true, result: 'available' })
+      assert.equal(await read, 'available')
+    }
+  } finally {
+    controller.abort()
+    await Promise.all(pending)
+    setWorkspaceRequestTransport(null)
+  }
+})

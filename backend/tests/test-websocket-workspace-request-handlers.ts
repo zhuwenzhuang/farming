@@ -335,6 +335,44 @@ async function run(): Promise<void> {
     });
   }
 
+  {
+    const gate = deferred<unknown>();
+    const socket = client();
+    let lspStarts = 0;
+    const isolated = createWebSocketWorkspaceRequestHandlers<TestClient>({
+      openState: OPEN, maxMessageBytes: 1024,
+      async executeWorkspace(request) { return request.operation; },
+      async executeLanguageServer() {
+        lspStarts += 1;
+        await gate.promise; // Simulate a server that ignores cancellation while starting.
+        return { result: [] };
+      },
+      error() { return { code: 'TEST', message: 'failed' }; },
+    });
+    try {
+      for (let i = 0; i < 100; i++) isolated.languageServerRequest(socket, {
+        type: 'language-server-request', requestId: `stalled-lsp-${i}`,
+        request: { operation: 'request', rootId: 'root', filePath: 'Demo.java',
+          method: i % 2 ? 'hover' : 'semanticTokens', ...(i % 2 ? {} : { priority: 'background' as const }) },
+      });
+      isolated.cancel(socket, { type: 'workspace-cancel', requestId: 'stalled-lsp-0' });
+      isolated.workspaceRequest(socket, { type: 'workspace-request', requestId: 'isolated-file',
+        request: { operation: 'read-file', rootId: 'root', path: 'Demo.java' } });
+      isolated.workspaceRequest(socket, { type: 'workspace-request', requestId: 'isolated-decoration',
+        request: { operation: 'tree-decorations', rootId: 'root', path: '', entryPaths: [] } });
+      await flush();
+      for (const requestId of ['isolated-file', 'isolated-decoration']) {
+        assert(socket.messages.some(message => message.requestId === requestId && message.ok === true),
+          'a stalled/cancelled LSP and its full queue must not block Files');
+      }
+      assert(lspStarts <= 2, 'LSP execution remains bounded even after cancellation');
+    } finally {
+      isolated.close(socket);
+      gate.resolve(null);
+      await flush();
+    }
+  }
+
   const observations = performanceRecorder.snapshot().records;
   assert(observations.some(record => record.outcome === 'cancelled'));
   assert(observations.some(record => record.outcome === 'failed'));

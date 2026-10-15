@@ -91,7 +91,7 @@ function sendPending(request: PendingRequest): boolean {
 
 function drainPending(): void {
   if (!transportReady || !transport) return
-  const running = { interactive: 0, background: 0 }
+  const running = { interactive: 0, background: 0, languageServer: 0 }
   for (const request of pendingRequests.values()) {
     if (request.sent) running[request.lane] += 1
   }
@@ -121,9 +121,11 @@ function createRequest<T>(
   if (options.signal?.aborted) return Promise.reject(abortError(options.signal))
   const lane = message.type === 'language-server-request' ? languageServerRequestLane(message.request)
     : message.type === 'workspace-request' ? workspaceRequestLane(message.request) : 'interactive'
-  const backgroundFull = lane === 'background'
-    && [...pendingRequests.values()].filter(request => request.lane === 'background').length >= MAX_BACKGROUND_PENDING_REQUESTS
-  if (pendingRequests.size >= MAX_PENDING_REQUESTS || backgroundFull) {
+  const backgroundFull = lane !== 'interactive'
+    && [...pendingRequests.values()].filter(request => request.lane !== 'interactive').length >= MAX_BACKGROUND_PENDING_REQUESTS
+  const languageServerFull = lane === 'languageServer'
+    && [...pendingRequests.values()].filter(request => request.lane === 'languageServer').length >= 64
+  if (pendingRequests.size >= MAX_PENDING_REQUESTS || backgroundFull || languageServerFull) {
     return Promise.reject(new WorkspaceTransportError({
       code: 'BUSY', status: 503, message: 'Workspace request queue is full; wait for current work to finish',
     }))

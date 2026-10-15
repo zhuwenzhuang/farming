@@ -139,6 +139,12 @@ markers that the newer editor state cleared.
 
 ## Lifecycle And Failure
 
+Language Server transport has independent bounded admission from file reads and
+file background work. A slow startup, cancelled request still executing, or full
+semantic queue cannot prevent browsing files or returning to Chat. Errors remain
+scoped to the requesting semantic operation; late results cannot restore a closed
+editor's presentation.
+
 A persisted `languageServerEnabled` setting is the authoritative admission
 gate and defaults to enabled, including legacy settings that omit it. Disabling
 commits that gate before closing active connections and cancelling starts in

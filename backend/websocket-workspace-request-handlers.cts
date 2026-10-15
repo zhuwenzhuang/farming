@@ -5,7 +5,7 @@ import type {
   WorkspaceRequestMessage,
 } from '../shared/browser-protocol.js';
 import type { PerformanceTrace, PerformanceOperation } from '../shared/interaction-performance.js';
-import { WORKSPACE_REQUEST_CONCURRENCY, workspaceRequestLane, languageServerRequestLane } from '../shared/workspace-request-scheduling.js';
+import { WORKSPACE_REQUEST_CONCURRENCY, workspaceRequestLane, languageServerRequestLane, type WorkspaceRequestLane } from '../shared/workspace-request-scheduling.js';
 
 interface WorkspaceRequestClient {
   accessMode?: 'owner' | 'read-only' | 'none';
@@ -38,7 +38,7 @@ interface WorkspaceRequestPorts {
   };
 }
 
-type RequestLane = 'interactive' | 'background';
+type RequestLane = WorkspaceRequestLane;
 
 interface ScheduledRequest {
   trace?: PerformanceTrace;
@@ -53,16 +53,15 @@ interface ScheduledRequest {
 
 interface ClientSchedule {
   background: ScheduledRequest[];
-  backgroundRunning: number;
+  running: Record<RequestLane, number>;
+  languageServer: ScheduledRequest[];
   interactive: ScheduledRequest[];
-  interactiveRunning: number;
+
   requests: Map<string, ScheduledRequest>;
 }
 
-const INTERACTIVE_LIMIT = WORKSPACE_REQUEST_CONCURRENCY.interactive;
-const BACKGROUND_LIMIT = WORKSPACE_REQUEST_CONCURRENCY.background;
-const GLOBAL_INTERACTIVE_LIMIT = 24;
-const GLOBAL_BACKGROUND_LIMIT = 12;
+const LANES: RequestLane[] = ['interactive', 'background', 'languageServer'];
+const GLOBAL_LIMITS = { interactive: 24, background: 12, languageServer: 12 };
 const MAX_QUEUED_REQUESTS = 64;
 const MAX_BACKGROUND_QUEUED_REQUESTS = MAX_QUEUED_REQUESTS - 16;
 const BACKPRESSURE_BYTES = 512 * 1024;
@@ -72,17 +71,16 @@ function createWebSocketWorkspaceRequestHandlers<Client extends WorkspaceRequest
 ) {
   const schedules = new WeakMap<Client, ClientSchedule>();
   const activeClients = new Set<Client>();
-  let globalInteractiveRunning = 0;
-  let globalBackgroundRunning = 0;
+  const globalRunning = { interactive: 0, background: 0, languageServer: 0 };
 
   function scheduleFor(client: Client): ClientSchedule {
     let schedule = schedules.get(client);
     if (!schedule) {
       schedule = {
         background: [],
-        backgroundRunning: 0,
+        running: { interactive: 0, background: 0, languageServer: 0 },
+        languageServer: [],
         interactive: [],
-        interactiveRunning: 0,
         requests: new Map(),
       };
       schedules.set(client, schedule);
@@ -114,14 +112,12 @@ function createWebSocketWorkspaceRequestHandlers<Client extends WorkspaceRequest
   function finish(client: Client, request: ScheduledRequest): void {
     if (request.started) {
       request.started = false;
-      if (request.lane === 'interactive') globalInteractiveRunning -= 1;
-      else globalBackgroundRunning -= 1;
+      globalRunning[request.lane] -= 1;
     }
     const schedule = schedules.get(client);
     if (schedule) {
       if (schedule.requests.get(request.requestId) === request) schedule.requests.delete(request.requestId);
-      if (request.lane === 'interactive') schedule.interactiveRunning -= 1;
-      else schedule.backgroundRunning -= 1;
+      schedule.running[request.lane] -= 1;
     }
     drainAll();
   }
@@ -131,36 +127,24 @@ function createWebSocketWorkspaceRequestHandlers<Client extends WorkspaceRequest
     request.started = true;
     request.trace?.mark('dispatch');
     request.trace?.metric({ socketBytes: client.bufferedAmount || 0, pendingRequests: schedule.requests.size,
-      interactiveRunning: globalInteractiveRunning, backgroundRunning: globalBackgroundRunning });
-    if (request.lane === 'interactive') {
-      schedule.interactiveRunning += 1;
-      globalInteractiveRunning += 1;
-    } else {
-      schedule.backgroundRunning += 1;
-      globalBackgroundRunning += 1;
-    }
+      interactiveRunning: globalRunning.interactive, backgroundRunning: globalRunning.background });
+    schedule.running[request.lane] += 1;
+    globalRunning[request.lane] += 1;
     void request.run().finally(() => finish(client, request));
   }
 
   function drain(client: Client, schedule = schedules.get(client)): void {
     if (!schedule) return;
-    while (
-      schedule.interactiveRunning < INTERACTIVE_LIMIT
-      && globalInteractiveRunning < GLOBAL_INTERACTIVE_LIMIT
-      && schedule.interactive.length > 0
-    ) {
-      const request = schedule.interactive.shift()!;
-      if (request.cancelled) continue;
-      start(client, schedule, request);
-    }
-    while (
-      schedule.backgroundRunning < BACKGROUND_LIMIT
-      && globalBackgroundRunning < GLOBAL_BACKGROUND_LIMIT
-      && schedule.background.length > 0
-    ) {
-      const request = schedule.background.shift()!;
-      if (request.cancelled) continue;
-      start(client, schedule, request);
+    for (const lane of LANES) {
+      while (
+        schedule.running[lane] < WORKSPACE_REQUEST_CONCURRENCY[lane]
+        && globalRunning[lane] < GLOBAL_LIMITS[lane]
+        && schedule[lane].length > 0
+      ) {
+        const request = schedule[lane].shift()!;
+        if (request.cancelled) continue;
+        start(client, schedule, request);
+      }
     }
   }
 
@@ -181,10 +165,11 @@ function createWebSocketWorkspaceRequestHandlers<Client extends WorkspaceRequest
       });
       return;
     }
-    const queued = schedule.interactive.length + schedule.background.length;
-    const backpressured = request.lane === 'background'
+    const queued = schedule.interactive.length + schedule.background.length + schedule.languageServer.length;
+    const backpressured = request.lane !== 'interactive'
       && (Number(client.bufferedAmount || 0) >= BACKPRESSURE_BYTES
-        || schedule.background.length >= MAX_BACKGROUND_QUEUED_REQUESTS);
+        || schedule.background.length + schedule.languageServer.length >= MAX_BACKGROUND_QUEUED_REQUESTS
+        || (request.lane === 'languageServer' && schedule.languageServer.length >= 16));
     if (queued >= MAX_QUEUED_REQUESTS || backpressured) {
       request.trace?.end('failed');
       send(client, {
@@ -291,6 +276,7 @@ function createWebSocketWorkspaceRequestHandlers<Client extends WorkspaceRequest
     schedule.requests.clear();
     schedule.interactive.length = 0;
     schedule.background.length = 0;
+    schedule.languageServer.length = 0;
     schedules.delete(client);
     activeClients.delete(client);
   }

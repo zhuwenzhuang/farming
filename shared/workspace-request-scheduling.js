@@ -4,7 +4,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.WORKSPACE_REQUEST_CONCURRENCY = void 0;
 exports.workspaceRequestLane = workspaceRequestLane;
 exports.languageServerRequestLane = languageServerRequestLane;
-exports.WORKSPACE_REQUEST_CONCURRENCY = { interactive: 4, background: 2 };
+exports.WORKSPACE_REQUEST_CONCURRENCY = { interactive: 4, background: 2, languageServer: 2 };
 function workspaceRequestLane(request) {
     switch (request.operation) {
         case 'search':
@@ -22,6 +22,8 @@ function workspaceRequestLane(request) {
             return 'background';
     }
 }
-function languageServerRequestLane(request) {
-    return request.operation === 'capability' || request.priority === 'background' ? 'background' : 'interactive';
+function languageServerRequestLane(_request) {
+    // Optional semantic work must never hold a Files execution slot, even when
+    // the server ignores cancellation during initialization.
+    return 'languageServer';
 }

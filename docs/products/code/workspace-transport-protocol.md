@@ -234,14 +234,18 @@ latest file-open intent.
 
 The browser broker bounds delivery before requests reach the socket. It shares
 the server's operation classification and admits at most four interactive and
-two background requests at a time across Workspace and Language Server work.
+two background Workspace requests, plus two independently admitted Language Server
+requests at a time. Language Server work never occupies a Workspace slot.
 Restoring many expanded directories queues their reads locally; it must not
 flood the server queue or let Git decoration block directory navigation.
 Every result, cancellation, and timeout releases admission for the next owned
 request. Cancelled server-queued work immediately releases queue capacity.
 
 The browser retains at most 512 pending requests, with 64 reserved for interactive
-work; the server's 64-entry queue likewise reserves 16 for interactive work.
+work; Language Server requests have a separate 64-request pending cap. The server's
+64-entry queue likewise reserves 16 for interactive work and limits queued
+Language Server work to 16. Semantic requests cannot exhaust either file lane
+or the shared queue, even if an underlying server ignores cancellation.
 Overflow is explicitly rejected before delivery or execution. A request's default 60-second deadline includes local queue
 time and delivery; operation-specific bounded deadlines may override it.
 Cancellation or timeout before delivery cannot have an uncertain mutation
@@ -254,14 +258,16 @@ message. Each in-flight request owns an `AbortController`, deadline, operation
 classification, and bounded result budget. Connection close aborts all
 cancel-safe work and disposes its watch registrations.
 
-Workspace work uses at least two scheduling lanes:
+Workspace and semantic work use three scheduling lanes:
 
 - **interactive**: directory `tree`, file resolve, explicit reload, save and
-  direct semantic navigation;
-- **background**: `tree-decorations`, search, Git status, History, blame, previews, automatic
-  semantic tokens, inlay hints, symbols, and watch-triggered revalidation.
+  entry mutations;
+- **background**: `tree-decorations`, search, Git status, History, blame, previews, and
+  watch-triggered revalidation;
+- **Language Server**: capability discovery, semantic navigation, and automatic
+  semantic tokens, inlay hints, symbols, Hover, and diagnostics.
 
-Background work has independent concurrency limits and cannot occupy every
+Background and Language Server work have independent concurrency limits and cannot occupy every
 Workspace execution slot. At least one interactive slot remains available.
 Limits apply per connection and globally so one browser cannot create
 unbounded server work. Same-resource reads are coalesced by the Workspace File
