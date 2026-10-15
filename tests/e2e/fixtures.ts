@@ -416,7 +416,15 @@ export const test = base.extend<{ workspaceRoot: string }>({
 
 export { expect }
 
-export async function openFarming(page: Page) {
+export async function openFarming(page: Page, options: { terminalComposerExpanded?: boolean } = {}) {
+  // Most interaction scenarios exercise Composer controls. Seed an explicit
+  // expanded preference; default-state scenarios opt out to test the product default.
+  if (options.terminalComposerExpanded !== false) {
+    await page.addInitScript(() => {
+      const key = 'farming.code.terminalComposerCollapsed.v1'
+      if (localStorage.getItem(key) === null) localStorage.setItem(key, 'false')
+    })
+  }
   await page.goto('/farming/', { waitUntil: 'domcontentloaded' })
   await expect(page.getByTestId('app-shell')).toBeVisible()
 }

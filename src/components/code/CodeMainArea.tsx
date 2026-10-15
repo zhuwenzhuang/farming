@@ -74,9 +74,9 @@ const MIN_RESOURCE_WORKSPACE_WIDTH = 320
 function readTerminalComposerCollapsed() {
   try {
     const stored = window.localStorage.getItem(TERMINAL_COMPOSER_COLLAPSED_STORAGE_KEY)
-    return stored === 'true'
+    return stored !== 'false'
   } catch {
-    return false
+    return true
   }
 }
 

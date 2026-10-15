@@ -57,10 +57,7 @@ async function expectTerminalAgentSelected(page: import('@playwright/test').Page
 }
 
 test.describe('human Farming Agent story', () => {
-  test('defaults the desktop Terminal Composer open and remembers a manual collapse without hiding it on mobile', async ({ page, workspaceRoot }) => {
-    await page.addInitScript(() => {
-      Object.defineProperty(navigator, 'maxTouchPoints', { value: 1, configurable: true })
-    })
+  test('defaults the desktop Terminal Composer closed and remembers explicit expansion without hiding it on mobile', async ({ page, workspaceRoot }, testInfo) => {
     await page.setViewportSize({ width: 1280, height: 800 })
     const response = await page.request.post('/farming/api/control/agents', {
       data: { command: 'bash', workspace: workspaceRoot },
@@ -69,7 +66,7 @@ test.describe('human Farming Agent story', () => {
     const payload = await response.json() as { agentId?: string }
     expect(payload.agentId).toBeTruthy()
 
-    await openFarming(page)
+    await openFarming(page, { terminalComposerExpanded: false })
     const row = page.locator(`[data-testid="code-agent-row"][data-agent-id="${payload.agentId}"]`)
     await expect(row).toBeVisible()
     await row.click()
@@ -94,6 +91,16 @@ test.describe('human Farming Agent story', () => {
       boxShadow: 'none',
     })
 
+    await expect(page.getByTestId('code-composer-input')).toHaveCount(0)
+    await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${payload.agentId}"] .xterm-helper-textarea`)).toBeFocused()
+    for (const appearance of ['light', 'dark', 'paper']) {
+      await page.locator('body').evaluate((body, value) => { body.dataset.appearance = value }, appearance)
+      const screenshot = await page.screenshot({ path: testInfo.outputPath(`terminal-collapsed-${appearance}.png`), animations: 'disabled' })
+      expect(screenshot.readUInt32BE(16)).toBe(1280)
+      expect(screenshot.readUInt32BE(20)).toBe(800)
+      await testInfo.attach(`terminal-collapsed-${appearance}`, { body: screenshot, contentType: 'image/png' })
+    }
+    await page.getByTestId('code-composer-restore').click()
     await expect(page.getByTestId('code-composer-input')).toBeVisible()
     await expect(page.getByTestId('code-composer-restore')).toHaveCount(0)
 
@@ -105,10 +112,14 @@ test.describe('human Farming Agent story', () => {
     await page.reload({ waitUntil: 'domcontentloaded' })
     await expect(page.getByTestId('code-composer')).toHaveCount(0)
 
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, 'maxTouchPoints', { value: 1, configurable: true })
+    })
     await page.setViewportSize({ width: 390, height: 844 })
     await page.reload({ waitUntil: 'domcontentloaded' })
     await expect(page.getByTestId('code-composer-input')).toBeVisible()
     await expect(page.getByTestId('code-composer-restore')).toHaveCount(0)
+    await expect(page.getByTestId('code-composer-input')).not.toBeFocused()
   })
 
   test('restores the selected Agent after reloading with multiple live Agents', { tag: '@iphone-human' }, async ({ page, workspaceRoot }) => {

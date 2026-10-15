@@ -6,6 +6,12 @@ Chat and Terminal input share one editing contract. Drafts, attachments and
 submission state belong to the existing Agent composer owner. Expanding the
 editor is local presentation state, never another draft or submission path.
 
+On desktop, a new Terminal defaults to a collapsed Composer and opening the
+Agent directs focus to the terminal. Explicit expand/collapse choices persist in
+the browser; missing or unavailable storage defaults to collapsed. Chat-to-Terminal
+runtime switching retains its existing visible-Composer continuity. Compact/touch
+layouts keep the input available without automatically opening the software keyboard.
+
 Chat and Terminal toolbar labels share a line box that preserves complete glyphs, including descenders. Horizontal truncation must not clip text vertically or change the surrounding button height; this applies to model, reasoning and approval labels in regular and compact layouts.
 
 Chat submission immediately moves the exact text, media and context snapshot into
