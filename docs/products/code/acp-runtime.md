@@ -541,8 +541,11 @@ transcript checkpoint; it is removed from provider prompt content. The marker
 does not change access, session ownership, or the prompt text. Click or keyboard
 activation expands the complete prompt and source reference, and toggles it
 closed again without sending input. Ordinary messages and history without a valid
-marker remain fully visible. A newly mounted view defaults to collapsed; runtime
-updates do not reset the current disclosure. Terminal retains its native display.
+marker remain fully visible. Native history replay and conversation forks preserve
+the marker from the instance's saved transcript only along a verified ordered
+user-message prefix; prompt text alone is not provenance. A newly mounted view
+defaults to collapsed; runtime updates do not reset the current disclosure.
+Terminal retains its native display.
 
 Ordinary Create and Handoff share the browser's last explicit Chat/Terminal
 selection, scoped to this instance URL and retained across dialog dismissal and

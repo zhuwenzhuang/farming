@@ -243,6 +243,17 @@ for (const appearance of ['light', 'dark', 'paper']) {
     await page.reload()
     await expect(page.getByTestId('code-agent-handoff-context')).toBeVisible()
     await expect(page.getByTestId('code-agent-handoff-context')).not.toHaveAttribute('open')
+    await page.getByTestId('code-agent-transcript-fork').last().click()
+    await expect(page.getByTestId('code-agent-transcript-fork-origin')).toBeVisible()
+    const inheritedContext = page.getByTestId('code-agent-handoff-context')
+    await expect(inheritedContext).toBeVisible()
+    await expect(inheritedContext).not.toHaveAttribute('open')
+    await expect(inheritedContext.locator('.detail')).toBeHidden()
+    await testInfo.attach(`forked-handoff-${appearance}`, { body: await page.screenshot(), contentType: 'image/png' })
+    await inheritedContext.locator('summary').click()
+    await expect(inheritedContext.locator('.detail')).toContainText('wait for the user')
+    await page.reload()
+    await expect(page.getByTestId('code-agent-handoff-context')).not.toHaveAttribute('open')
   })
 }
 

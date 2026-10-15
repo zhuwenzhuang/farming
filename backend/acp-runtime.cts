@@ -1972,6 +1972,7 @@ class AcpRuntime extends EventEmitter {
         let saved = null;
         let savedForkOrigin: unknown = null;
         let savedModelChanges: unknown = null;
+        let savedHandoffCheckpoint: unknown = null;
         if (this.checkpointStore) {
           saved = await this.checkpointStore.load(
             this.checkpointIdentity(binding, requestedSessionId),
@@ -1981,6 +1982,15 @@ class AcpRuntime extends EventEmitter {
           const checkpoint = recordValue(saved?.state);
           savedForkOrigin = recordValue(checkpoint.version === 2 ? checkpoint.sessionState : checkpoint).forkOrigin;
           savedModelChanges = recordValue(checkpoint.version === 2 ? checkpoint.sessionState : checkpoint).modelChanges;
+          savedHandoffCheckpoint = checkpoint.version === 2 ? checkpoint.sessionState : checkpoint;
+          if (!saved && options.forkOriginSessionId) {
+            const source = await this.checkpointStore.load(
+              this.checkpointIdentity(binding, options.forkOriginSessionId), { allowDirty: true },
+            );
+            this.requireOpenBinding(binding);
+            const sourceCheckpoint = recordValue(source?.state);
+            savedHandoffCheckpoint = sourceCheckpoint.version === 2 ? sourceCheckpoint.sessionState : sourceCheckpoint;
+          }
           if (options.historyMode === 'checkpoint') {
             restoredCheckpoint = this.restoreBindingCheckpoint(
               binding,
@@ -2049,6 +2059,7 @@ class AcpRuntime extends EventEmitter {
             binding.historyReplayActive = false;
           }
           binding.sessionState.finishHistoryReplay();
+          binding.sessionState.restoreHandoffContexts(savedHandoffCheckpoint);
           binding.codexInlineVisualizationStreams.clear();
           if (providerAcpHistoryReplayPolicy(provider)?.restoreMissingCheckpointMedia && restoredCheckpointState) {
             restoreMissingHistoryMedia(binding.sessionState, restoredCheckpointState);
@@ -4247,6 +4258,7 @@ class AcpRuntime extends EventEmitter {
         additionalDirectories: options.additionalDirectories ?? binding.sessionRequestOptions.additionalDirectories,
         mcpServers: options.mcpServers ?? binding.sessionRequestOptions.mcpServers,
       }, options.cwd || binding.cwd);
+      await this.writeCheckpoint(binding);
       const response = await withTimeout(binding.connection.unstable_forkSession({
         sessionId: sourceSessionId,
         ...sessionOptions,

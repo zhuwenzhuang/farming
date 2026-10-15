@@ -41,6 +41,17 @@ for (const provider of listProviderAdapters()) {
   const restoredTurn = projectAcpTranscript({ sessionId: 'destination', entries: restored.sanitizedEntries() }).turns[0];
   assert.deepEqual(restoredTurn.handoffContext, handoff.context);
   assert.equal(restoredTurn.userMessage, handoff.initialInput);
+  const replay = new AcpSessionState({ provider: provider.id, sessionId: 'forked-destination' });
+  replay.pushEntry({ id: 'native-replay-user', type: 'message', role: 'user', content: [{ text: handoff.initialInput, type: 'text' }] });
+  replay.restoreHandoffContexts(state.exportCheckpoint());
+  assert.deepEqual(projectAcpTranscript(replay.snapshot()).turns[0].handoffContext, handoff.context,
+    'native replay and fork preserve verified handoff provenance despite regenerated IDs');
+  const changed = new AcpSessionState({ provider: provider.id, sessionId: 'changed' });
+  changed.beginPrompt('a different earlier question');
+  changed.beginPrompt([content]);
+  changed.restoreHandoffContexts(state.exportCheckpoint());
+  assert(changed.entries.every(entry => !entry._meta?.farmingHandoff),
+    'matching text outside the verified prefix must remain ordinary history');
   const ordinary = new AcpSessionState({ provider: provider.id, sessionId: 'ordinary' });
   ordinary.beginPrompt([content]);
   assert.equal(projectAcpTranscript({ sessionId: 'ordinary', entries: ordinary.sanitizedEntries() }).turns[0].handoffContext, undefined,

@@ -5,6 +5,7 @@ import path from 'node:path';
 import { AcpSessionState } from '../acp-session-state.cjs';
 import { AcpRuntime } from '../acp-runtime.cjs';
 import { projectAcpTranscript } from '../../src/components/code/acp/acp-entry-projection';
+import { encodeProviderSessionKey } from '../../shared/provider-session-identity.js';
 
 function message(state: AcpSessionState, id: string, role: string, text: string) {
   state.pushEntry({ id, type: 'message', role, content: [{ type: 'text', text }] });
@@ -75,6 +76,13 @@ async function testRecovery() {
     assert.equal(origin?.status, 'ready');
     assert.ok(origin?.afterEntryId);
     const binding = first.requireBinding('child');
+    const handoffContext = { version: 1, sourceSessionKey: encodeProviderSessionKey('codex', 'original', 'default') };
+    binding.sessionState.entries[0]._meta = { farmingHandoff: handoffContext };
+    binding.sessionState.touchEntry(binding.sessionState.entries[0]);
+    const fork = await first.forkSession('child');
+    await first.prepareAgent({ ...options, agentId: 'fork', sessionId: fork.sessionId, forkOriginSessionId: options.sessionId });
+    assert.deepEqual(projectAcpTranscript(first.getTranscriptSession('fork')).turns[0].handoffContext, handoffContext,
+      'native fork recovers handoff provenance from the exact Home source checkpoint');
     assert.equal(binding.restartOptions.forkOriginSessionId, undefined, 'restart must not recapture the boundary');
     const saved = await first.checkpointStore!.load(first.checkpointIdentity(binding)!, { allowDirty: true });
     assert.ok(saved, 'fork lineage is durable before prepare returns');
@@ -82,6 +90,8 @@ async function testRecovery() {
     runtimes.splice(runtimes.indexOf(first), 1);
     const restarted = create();
     await restarted.prepareAgent(options);
+    assert.deepEqual(projectAcpTranscript(restarted.getTranscriptSession('child')).turns[0].handoffContext, handoffContext,
+      'native reload preserves collapsed handoff presentation');
     assert.deepEqual(restarted.getTranscriptSession('child').forkOrigin, origin,
       'authoritative history load restores the original boundary from the checkpoint');
   } finally {

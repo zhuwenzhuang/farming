@@ -1,12 +1,13 @@
 import { normalizeAgentGoal, sameAgentGoal, type AgentGoal } from '../shared/agent-goal.js';
 import { normalizeAcpPeerMessage } from '../shared/acp-peer-message.js';
-import type { AgentHandoffContext } from '../shared/agent-handoff-context.js';
+import { normalizeAgentHandoffContext, type AgentHandoffContext } from '../shared/agent-handoff-context.js';
 const MAX_ACP_UPDATES = 2_000;
 const MAX_ACP_UPDATE_LOG_VALUE_CHARS = 32 * 1024;
 const MAX_CODEX_SUBAGENTS = 128;
 const MAX_CODEX_SUBAGENT_ID_CHARS = 160;
 const MAX_CODEX_SUBAGENT_NAME_CHARS = 120;
 import { createHash } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { acpSessionProviderPolicy } from './acp-session-provider-policy.cjs';
 import type { NativeSubagentAssociation } from './acp-native-subagents.cjs';
 
@@ -454,6 +455,25 @@ class AcpSessionState {
     // Provider replays may regenerate entry/tool IDs. Verify the ordered user
     // prefix before rebinding the immutable boundary to this replay's IDs.
     return createHash('sha256').update(JSON.stringify(turns.map(entry => entry.content || []))).digest('hex');
+  }
+
+  restoreHandoffContexts(checkpoint: unknown): void {
+    const source = AcpSessionState.fromCheckpoint(checkpoint);
+    if (!source || source.provider !== this.provider) return;
+    const saved = source.boundaryUserTurns();
+    const replayed = this.boundaryUserTurns();
+    const entries = new Map(this.entries.map(entry => [entry.id, entry]));
+    // Native history omits Farming metadata and can regenerate message IDs.
+    // Rebind only along the verified ordered user prefix, never by prompt text alone.
+    for (let index = 0; index < Math.min(saved.length, replayed.length); index += 1) {
+      if (!isDeepStrictEqual(saved[index].content, replayed[index].content)) break;
+      const context = normalizeAgentHandoffContext(saved[index]._meta?.farmingHandoff);
+      const entry = entries.get(replayed[index].id);
+      if (context && entry) {
+        entry._meta = { ...entry._meta, farmingHandoff: context };
+        this.touchEntry(entry);
+      }
+    }
   }
 
   captureForkOrigin(sourceSessionId: string): void {
