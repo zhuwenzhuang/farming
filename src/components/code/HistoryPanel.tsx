@@ -494,7 +494,7 @@ export function HistoryPanel({
             value={query}
             onChange={event => setQuery(event.currentTarget.value)}
             onKeyDown={event => {
-              if (event.key !== 'Escape') return
+              if (event.key !== 'Escape' || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return
               event.preventDefault()
               event.stopPropagation()
               onBack()

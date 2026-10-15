@@ -2001,11 +2001,17 @@ export function CodeWorkspace({
     consumedComposerFocusNonceRef.current = terminalFocusRequest.nonce
     focusComposerTextarea()
   }, [activeAcpRuntime, activeTerminalId, focusComposerTextarea, terminalFocusRequest])
+  const launchSettingsWriteRevisionRef = useRef(0)
+  const instanceNameWriteRevisionRef = useRef(0)
+  const launchSettingsPendingWritesRef = useRef(0)
+  const instanceNamePendingWritesRef = useRef(0)
   const applyLaunchSettings = useCallback((settings: GlobalSettings) => {
     setComposerProviderProfiles(normalizeLaunchProfiles(settings))
   }, [])
   const loadGlobalSettings = useCallback(() => {
     let cancelled = false
+    const launchRevision = launchSettingsWriteRevisionRef.current
+    const instanceRevision = instanceNameWriteRevisionRef.current
     const membershipGuard = captureMainPageSessionKeysInitialGuard()
     const projectNamesGuard = captureProjectNamesInitialGuard()
     fetch(appPath('/api/settings'))
@@ -2015,10 +2021,10 @@ export function CodeWorkspace({
         const settings = data.settings ?? {}
         receiveInitialMainPageSessionKeys(settings.mainPageSessionKeys ?? [], membershipGuard)
         receiveInitialProjectNames(settings.projectNames, projectNamesGuard)
-        if (typeof settings.instanceName === 'string' && settings.instanceName.trim()) {
+        if (instanceNameWriteRevisionRef.current === instanceRevision && instanceNamePendingWritesRef.current === 0 && typeof settings.instanceName === 'string' && settings.instanceName.trim()) {
           setInstanceName(settings.instanceName)
         }
-        applyLaunchSettings(settings)
+        if (launchSettingsWriteRevisionRef.current === launchRevision && launchSettingsPendingWritesRef.current === 0) applyLaunchSettings(settings)
       })
       .catch(() => undefined)
 
@@ -2027,6 +2033,8 @@ export function CodeWorkspace({
     }
   }, [applyLaunchSettings, captureMainPageSessionKeysInitialGuard, captureProjectNamesInitialGuard, receiveInitialMainPageSessionKeys, receiveInitialProjectNames])
   const renameInstance = useCallback(async (name: string) => {
+    instanceNameWriteRevisionRef.current += 1
+    instanceNamePendingWritesRef.current += 1
     try {
       const response = await fetch(appPath('/api/settings'), {
         method: 'POST',
@@ -2041,6 +2049,9 @@ export function CodeWorkspace({
       return true
     } catch {
       return false
+    } finally {
+      instanceNamePendingWritesRef.current -= 1
+      instanceNameWriteRevisionRef.current += 1
     }
   }, [])
   const searchHistoryAgentSessions = useCallback(async (query: string, signal: AbortSignal) => {
@@ -2963,6 +2974,7 @@ export function CodeWorkspace({
 
   useInteractionLayer({
     enabled: searchOpen && activeView === 'search',
+    dismissOnPointerOutside: false,
     elements: () => [
       searchInputRef.current?.closest('.code-search-view'),
       ...document.querySelectorAll('.code-options-menu, [data-testid="code-nav-search"], [data-testid="code-mobile-menu"], [data-testid="code-mobile-more"], [data-testid="code-mobile-share-sheet"]'),
@@ -3142,8 +3154,14 @@ export function CodeWorkspace({
     setSidebarWidth(nextWidth)
   }, [collapseSidebar, expandSidebar])
 
+  const pinRequestsRef = useRef(new Map<string, Promise<void>>())
   const toggleAgentSessionPinned = useCallback(async (session: AgentSessionHistoryItem) => {
     const sessionId = agentSessionId(session)
+    const prior = pinRequestsRef.current.get(sessionId)
+    let release!: () => void
+    const pending = new Promise<void>(resolve => { release = resolve })
+    pinRequestsRef.current.set(sessionId, pending)
+    const ownsFeedback = () => pinRequestsRef.current.get(sessionId) === pending
     const nextPinned = session.pinned !== true
     setAgentSessionPinnedOverrides(previous => ({
       ...previous,
@@ -3155,9 +3173,11 @@ export function CodeWorkspace({
     } else {
       window.requestAnimationFrame(() => projectListRef.current?.focus({ preventScroll: true }))
     }
+    await prior
     try {
       const response = await fetch(appPath(`/api/agent-sessions/${encodeURIComponent(session.provider)}/${encodeURIComponent(session.id)}`), {
         method: 'PATCH',
+        signal: AbortSignal.timeout(30_000),
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           pinned: nextPinned,
@@ -3165,22 +3185,31 @@ export function CodeWorkspace({
         }),
       })
       if (!response.ok) throw new Error(copy.updateFailed)
+      if (!ownsFeedback()) return
       await refreshVisibleAgentSessionPage()
+      if (!ownsFeedback()) return
       setAgentSessionPinnedOverrides(previous => {
         const next = { ...previous }
         delete next[sessionId]
         return next
       })
     } catch (error) {
-      setAgentSessionPinnedOverrides(previous => ({
-        ...previous,
-        [sessionId]: !nextPinned,
-      }))
+      if (!ownsFeedback()) return
+      await refreshVisibleAgentSessionPage().catch(() => undefined)
+      if (!ownsFeedback()) return
+      setAgentSessionPinnedOverrides(previous => {
+        const next = { ...previous }
+        delete next[sessionId]
+        return next
+      })
       setCopyNotice({
         id: Date.now(),
         kind: 'error',
         message: error instanceof Error ? error.message : copy.updateFailed,
       })
+    } finally {
+      release()
+      if (ownsFeedback()) pinRequestsRef.current.delete(sessionId)
     }
   }, [closeContextMenu, copy.updateFailed, focusAgentSessionRow, mainPageSessionKeys, refreshVisibleAgentSessionPage])
 
@@ -4976,6 +5005,7 @@ export function CodeWorkspace({
   ])
 
   const persistAgentLaunchProfile = useCallback((provider: ComposerProfileProvider, updates: Record<string, string>) => {
+    launchSettingsPendingWritesRef.current += 1
     fetch(appPath('/api/settings'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -4984,7 +5014,10 @@ export function CodeWorkspace({
           [provider]: updates,
         },
       }),
-    }).catch(() => {})
+    }).catch(() => {}).finally(() => {
+      launchSettingsPendingWritesRef.current -= 1
+      launchSettingsWriteRevisionRef.current += 1
+    })
   }, [])
 
   const commitComposerProviderProfile = useCallback((
@@ -4992,6 +5025,7 @@ export function CodeWorkspace({
     profile: ComposerProviderProfile,
     scope: ComposerProfileSettingsScope,
   ) => {
+    launchSettingsWriteRevisionRef.current += 1
     setComposerProviderProfiles(current => ({
       ...current,
       [provider]: profile,

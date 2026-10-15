@@ -28,6 +28,8 @@
 - [Composer 输入](../products/code/composer-input.zh_cn.md)
 - [公开文档站](documentation-site.zh_cn.md)
 - [Farming Desktop MVP](../products/code/desktop-app.zh_cn.md)
+- [Chrome 扩展 Browser](../products/code/chrome-extension-browser.zh_cn.md)
+- [Language Server](../products/code/language-server.zh_cn.md)
 - [Desktop 原生 Browser 视图](../products/code/desktop-native-browser.zh_cn.md)
 - [Extension 与 Resource Model](../products/code/extension-model.zh_cn.md)
 - [Project Files Design](../products/code/project-files-section-design.zh_cn.md)

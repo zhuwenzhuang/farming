@@ -416,6 +416,10 @@ function agentTranscriptUrlTransform(value: string, key: string) {
   return defaultUrlTransform(value)
 }
 
+const compactTranscriptMarkdownComponents: Components = {
+  a: ({ href, children, ...props }) => <a {...props} href={href} target="_blank" rel="noreferrer">{children}</a>,
+}
+
 function AgentTranscriptReasoningMarkdown({ text }: { text: string }) {
   return (
     <ReactMarkdown
@@ -423,6 +427,7 @@ function AgentTranscriptReasoningMarkdown({ text }: { text: string }) {
       disallowedElements={['img']}
       skipHtml
       unwrapDisallowed
+      components={compactTranscriptMarkdownComponents}
       urlTransform={agentTranscriptUrlTransform}
     >
       {text}
@@ -1464,6 +1469,7 @@ function AgentTranscriptUserMarkdown({ text }: { text: string }) {
       remarkPlugins={TRANSCRIPT_REMARK_PLUGINS}
       rehypePlugins={[rehypeKatex, rehypeHighlight]}
       skipHtml
+      components={compactTranscriptMarkdownComponents}
       urlTransform={agentTranscriptUrlTransform}
     >{text}</ReactMarkdown>
   </div>
@@ -2201,6 +2207,7 @@ function AgentTranscriptPatchResultCard({
     initialFocusRef: reviewCloseRef,
     returnFocusRef: reviewTriggerRef,
     onEscape: () => setReviewOpen(false),
+    dismissOnPointerOutside: true,
   })
   const embeddedDecisions = useMemo(() => Object.fromEntries(items.flatMap(item => (
     (item.changes || []).flatMap(change => {
@@ -2319,8 +2326,8 @@ function AgentTranscriptPatchResultCard({
         ) : null}
       </div>
       {source === 'acp' && reviewOpen ? createPortal(
-        <div ref={reviewDialogRef} className="code-agent-transcript-change-review-overlay" role="dialog" aria-modal="true" aria-label={copy.agentTranscriptReviewChanges} onMouseDown={() => setReviewOpen(false)}>
-          <div className="code-agent-transcript-change-review-dialog" onMouseDown={event => event.stopPropagation()}>
+        <div className="code-agent-transcript-change-review-overlay">
+          <div ref={reviewDialogRef} className="code-agent-transcript-change-review-dialog" role="dialog" aria-modal="true" aria-label={copy.agentTranscriptReviewChanges}>
             <header>
               <span>{summary}</span>
               {totalAdded ? <span className="added">+{totalAdded}</span> : null}

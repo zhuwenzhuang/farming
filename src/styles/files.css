@@ -473,8 +473,10 @@ body.code-mode .code-file-change-group-toggle {
   );
 }
 
-.code-file-change-row.active {
-  background: var(--code-bg-hover);
+.code-file-change-row.active,
+.code-file-change-row:hover,
+.code-file-change-row:focus-within {
+  background: var(--code-active-item-surface);
 }
 
 .code-file-change-main {
@@ -506,7 +508,7 @@ body.code-mode .code-file-change-group-toggle {
 
 .code-file-change-main:hover,
 .code-file-change-main:focus-visible {
-  background: var(--code-bg-hover);
+  background: transparent;
   outline: 0;
 }
 

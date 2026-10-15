@@ -13,6 +13,7 @@ type AgentHeartbeatSchedulerOptions = {
 class AgentHeartbeatScheduler {
   private interval: ReturnType<typeof setInterval> | null = null;
   private lastZombieSweepAt = 0;
+  private inFlight: Promise<void> | null = null;
   private readonly options: AgentHeartbeatSchedulerOptions;
 
   constructor(options: AgentHeartbeatSchedulerOptions) {
@@ -26,7 +27,7 @@ class AgentHeartbeatScheduler {
   start(): void {
     if (this.interval) return;
     this.interval = setInterval(() => {
-      void this.runOnce(Date.now());
+      void this.runOnce(Date.now()).catch(error => console.error('Agent heartbeat failed:', error));
     }, this.options.intervalMs);
   }
 
@@ -37,9 +38,16 @@ class AgentHeartbeatScheduler {
   }
 
   async runOnce(now = Date.now()): Promise<void> {
+    if (this.inFlight) return this.inFlight;
     const sweepZombies = now - this.lastZombieSweepAt >= this.options.zombieSweepIntervalMs;
     if (sweepZombies) this.lastZombieSweepAt = now;
-    await this.options.onTick({ sweepZombies });
+    const work = Promise.resolve().then(() => this.options.onTick({ sweepZombies }));
+    this.inFlight = work;
+    try {
+      await work;
+    } finally {
+      if (this.inFlight === work) this.inFlight = null;
+    }
   }
 }
 

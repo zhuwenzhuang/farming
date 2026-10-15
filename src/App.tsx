@@ -255,7 +255,8 @@ export function App() {
         : document.documentElement.dataset.appearancePreference
     ),
   }))
-  const pendingStartRef = useRef<{ beforeIds: Set<string> } | null>(null)
+  const pendingStartRef = useRef<string | null>(null)
+  const [startBusy, setStartBusy] = useState(false)
   const pendingMainRestartRef = useRef<{ beforeIds: Set<string> } | null>(null)
   const pendingForkAgentIdsRef = useRef(new Set<string>())
   const forkRequestIdsRef = useRef(new Map<string, string>())
@@ -275,6 +276,7 @@ export function App() {
   const inputDialogFocusRestoreCleanupRef = useRef<(() => void) | null>(null)
   const inputDialogOpenRequestRef = useRef(0)
   const uiPreferencesSaveRevisionRef = useRef(0)
+  const uiPreferencesPendingWritesRef = useRef(0)
   const uiPreferencesSaveTailRef = useRef<Promise<void>>(Promise.resolve())
   const confirmedUiPreferencesRef = useRef(uiPreferences)
   const usageRequestRef = useRef<AbortController | null>(null)
@@ -527,6 +529,7 @@ export function App() {
     }
     const requestRevision = uiPreferencesSaveRevisionRef.current + 1
     uiPreferencesSaveRevisionRef.current = requestRevision
+    uiPreferencesPendingWritesRef.current += 1
 
     setUiPreferences(nextPreferences)
     let rejected = false
@@ -592,10 +595,12 @@ export function App() {
           message: reconciled ? copy.changesRestored : copy.changesUnconfirmed,
         })
       })
-    uiPreferencesSaveTailRef.current = save
+    uiPreferencesSaveTailRef.current = save.finally(() => { uiPreferencesPendingWritesRef.current -= 1 })
   }, [copy.changesRestored, copy.changesUnconfirmed, uiPreferences])
 
   const syncUiPreferences = useCallback((patch: Partial<UiPreferences>) => {
+    // Do not hydrate an older server value while a preference write is pending.
+    if (uiPreferencesPendingWritesRef.current !== 0) return
     const synced = Object.prototype.hasOwnProperty.call(patch, 'composerFollowUpBehavior')
       ? { composerFollowUpBehavior: normalizeComposerFollowUpBehavior(patch.composerFollowUpBehavior) }
       : {}
@@ -957,31 +962,38 @@ export function App() {
     }
   }, [ws])
 
-  const handleStartAgent = useCallback((command: string, workspace: string, extras?: StartAgentExtras) => {
+  const handleStartAgent = useCallback(async (command: string, workspace: string, extras?: StartAgentExtras) => {
     if (pendingStartRef.current) return
+    const requestId = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`
+    const generation = ++inputDialogOpenRequestRef.current
+    pendingStartRef.current = requestId
+    setStartBusy(true)
     setInputStartError('')
-    inputDialogOpenRequestRef.current += 1
-    pendingStartRef.current = { beforeIds: new Set(ws.agents.map(agent => agent.id)) }
-    if (!ws.startAgent(command, workspace, false, extras)) {
-      pendingStartRef.current = null
+    try {
+      // The existing control endpoint binds this result to this exact creation.
+      // Unrelated WebSocket errors or other clients' starts cannot settle it.
+      const response = await fetch(appPath('/api/control/agents'), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...extras, command, workspace, requestId }),
+        signal: AbortSignal.timeout(60_000),
+      })
+      const result = await response.json() as { agentId?: string; error?: string }
+      if (generation !== inputDialogOpenRequestRef.current) return
+      if (!response.ok || !result.agentId) throw new Error(result.error || copy.updateFailed)
+      setDialog('none')
+      requestTerminalOpen(result.agentId)
+    } catch (error) {
+      if (generation === inputDialogOpenRequestRef.current) {
+        setInputStartError(error instanceof Error && error.name !== 'TimeoutError' && error.name !== 'TypeError'
+          ? error.message : copy.changesUnconfirmed)
+      }
+    } finally {
+      if (pendingStartRef.current === requestId) {
+        pendingStartRef.current = null
+        setStartBusy(false)
+      }
     }
-  }, [ws])
-
-  useEffect(() => {
-    const agentId = ws.lastStartedAgentId
-    const pending = pendingStartRef.current
-    if (!agentId || !pending || pending.beforeIds.has(agentId)) return
-    const startedAgent = ws.agents.find(agent => agent.id === agentId)
-    // The hidden Main Agent can finish while the New Agent dialog is waiting
-    // for a user-requested launch. Its shared agent-started event must not
-    // consume that pending launch or steal focus from the requested Agent.
-    if (!startedAgent || startedAgent.isMain || agentId === ws.mainAgentId) return
-
-    pendingStartRef.current = null
-    setInputStartError('')
-    setDialog('none')
-    requestTerminalOpen(agentId)
-  }, [requestTerminalOpen, ws.agents, ws.lastStartedAgentId, ws.mainAgentId])
+  }, [copy.changesUnconfirmed, copy.updateFailed, requestTerminalOpen])
 
   const handleForkAgent = useCallback(async (
     agentId: string,
@@ -1285,8 +1297,6 @@ export function App() {
 
   useEffect(() => {
     if (!ws.error) return
-    const inputStartFailed = pendingStartRef.current !== null && effectiveDialog === 'input'
-    pendingStartRef.current = null
     pendingMainRestartRef.current = null
     hiddenMainStartRequestedRef.current = false
     if (ws.errorKind === 'recoverable') {
@@ -1298,10 +1308,6 @@ export function App() {
       return
     }
     setPendingTerminalOpen(null)
-    if (inputStartFailed) {
-      setInputStartError(ws.error)
-      return
-    }
     notifyError(ws.error)
   }, [copy.backendActionPending, effectiveDialog, notifyError, ws.error, ws.errorId, ws.errorKind])
 
@@ -1599,7 +1605,7 @@ export function App() {
         showWorkflowTaskFields={false}
         handoff={Boolean(handoffSource)}
         handoffSourceName={handoffSource ? agentRowTitle(handoffSource) : undefined}
-        submitting={Boolean(handoffSource) && handoffBusy}
+        submitting={startBusy || (Boolean(handoffSource) && handoffBusy)}
         startError={inputStartError}
         copy={copy}
         onStart={handoffSource ? handleHandoffAgent : handleStartAgent}

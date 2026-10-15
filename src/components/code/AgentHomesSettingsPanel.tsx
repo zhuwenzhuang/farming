@@ -378,8 +378,14 @@ export function AgentHomesSettingsPanel({
     setCompletionNotificationsEnabled(
       permission === 'granted' && readAgentCompletionNotificationsEnabled(),
     )
-    loadRestReminderIntervalSeconds(defaultPetAppearance)
-      .then(setRestReminderIntervalSecondsState)
+    const reminderRevision = restReminderSaveRequestRef.current
+    const generation = panelScopeRef.current.generation
+    loadRestReminderIntervalSeconds(defaultPetAppearance).then(value => {
+      if (restReminderSaveRequestRef.current === reminderRevision
+        && panelScopeRef.current.generation === generation && panelScopeRef.current.open) {
+        setRestReminderIntervalSecondsState(value)
+      }
+    })
     loadSettings()
   }, [defaultPetAppearance, loadSettings, open])
 
@@ -697,6 +703,8 @@ export function AgentHomesSettingsPanel({
   }, [open, refreshUpdateStatus])
 
   const saveDangerouslySkipPermissions = useCallback((enabled: boolean) => {
+    settingsLoadRequestRef.current += 1
+    setLoading(false)
     setDangerouslySkipPermissions(enabled)
     setSaving(true)
     setError('')
@@ -720,6 +728,8 @@ export function AgentHomesSettingsPanel({
   }, [copy.saveFailed, copy.saved])
 
   const saveComposerFollowUpBehavior = useCallback((behavior: ComposerFollowUpBehavior) => {
+    settingsLoadRequestRef.current += 1
+    setLoading(false)
     setComposerFollowUpBehavior(behavior)
     onUpdateUiPreferences({ composerFollowUpBehavior: behavior })
   }, [onUpdateUiPreferences])

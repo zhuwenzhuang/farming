@@ -2004,3 +2004,28 @@ test('shellQuote neutralizes shell metacharacters in remote bootstrap arguments'
   const script = buildRemoteBootstrapScript()
   assert.match(script, /\$FARMING_VERSION/)
 })
+
+
+test('desktop native Browser snapshot retires refs on nodes that stop being interactive', () => {
+  class SnapshotElement {
+    attrs = new Map<string, string>();
+    tagName = 'BUTTON';
+    textContent = 'action';
+    setAttribute(key: string, value: string) { this.attrs.set(key, value); }
+    removeAttribute(key: string) { this.attrs.delete(key); }
+    getAttribute(key: string) { return this.attrs.get(key) ?? null; }
+  }
+  const old = new SnapshotElement();
+  const current = new SnapshotElement();
+  old.setAttribute('data-farming-native-browser-ref', 'e1');
+  const context = {
+    document: {
+      querySelectorAll: (selector: string) => selector === '[data-farming-native-browser-ref]' ? [old] : [current],
+      body: { innerText: 'action' }, title: 'fixture',
+    },
+    location: { origin: 'https://example.test', href: 'https://example.test/' },
+  };
+  vm.runInNewContext(nativeBrowserDomScript('snapshot', {}), context);
+  assert.equal(old.getAttribute('data-farming-native-browser-ref'), null);
+  assert.equal(current.getAttribute('data-farming-native-browser-ref'), 'e1');
+});

@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { pathToFileURL } from 'url';
 
 interface SqliteStatementSync {
   run(...params: unknown[]): unknown;
@@ -61,7 +62,7 @@ export function buildAgyTrajectoryMetadataBlob(
   const trimmedCwd = typeof cwd === 'string' ? cwd.trim() : '';
   if (trimmedCwd && path.isAbsolute(trimmedCwd)) {
     const normalizedPath = path.resolve(trimmedCwd);
-    const fileUri = `file://${normalizedPath.startsWith('/') ? '' : '/'}${encodeURI(normalizedPath)}`;
+    const fileUri = pathToFileURL(normalizedPath).href;
     const uriBuf = Buffer.from(fileUri, 'utf8');
     const workspaceEntry = Buffer.concat([
       encodeLengthDelimitedField(0x0a, uriBuf),
@@ -75,11 +76,26 @@ export function buildAgyTrajectoryMetadataBlob(
     ]);
   }
   return Buffer.concat([
-    Buffer.from([0x1a, cidBuf.length]),
-    cidBuf,
-    Buffer.from([0x32, tidBuf.length]),
-    tidBuf
+    encodeLengthDelimitedField(0x1a, tidBuf),
+    encodeLengthDelimitedField(0x32, cidBuf)
   ]);
+}
+
+/** Validate provider identity without repairing or creating historical data. */
+export function hasAgyConversationDatabase(agyHomePath: string, conversationId: string): boolean {
+  if (!isSafeAgyConversationId(conversationId)) return false;
+  const sqlite = loadNodeSqlite();
+  if (!sqlite) return false;
+  let db: SqliteDatabaseSync | null = null;
+  try {
+    db = new sqlite.DatabaseSync(path.join(agyHomePath, 'conversations', `${conversationId.trim()}.db`), { readOnly: true, timeout: 1000 });
+    const row = db.prepare('SELECT cascade_id FROM trajectory_meta WHERE cascade_id = ? LIMIT 1').get(conversationId.trim());
+    return row?.cascade_id === conversationId.trim();
+  } catch {
+    return false;
+  } finally {
+    db?.close();
+  }
 }
 
 /**
@@ -101,14 +117,7 @@ export function ensureAgyConversationDatabase(
 
   const conversationsDir = path.join(normalizedHome, 'conversations');
   const dbPath = path.join(conversationsDir, `${normalizedId}.db`);
-  if (fs.existsSync(dbPath)) {
-    try {
-      const stat = fs.statSync(dbPath);
-      if (stat.isFile() && stat.size > 0) return true;
-    } catch {
-      // Fall through and recreate/initialize.
-    }
-  }
+  if (fs.existsSync(dbPath)) return hasAgyConversationDatabase(normalizedHome, normalizedId);
 
   let db: SqliteDatabaseSync | null = null;
   try {

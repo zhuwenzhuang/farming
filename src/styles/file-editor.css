@@ -882,8 +882,8 @@ body.code-mode .code-file-editor-fallback-textarea {
   flex: 0 0 auto;
   padding: 5px 10px;
   border-bottom: 1px solid var(--code-border-subtle);
-  background: var(--code-warning-bg, var(--code-bg-muted));
-  color: var(--code-warning-text, var(--code-text));
+  background: var(--code-warning-soft);
+  color: var(--code-warning);
   font-size: 12px;
 }
 

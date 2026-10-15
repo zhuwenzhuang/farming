@@ -737,6 +737,7 @@ export interface CodeCopy {
   workspaceCreateFailedDescription: string
   returnToWorkspace: string
   recentWorkspacesLower: string
+  starting: string
   start: string
   back: string
   backToAgent: string
@@ -1523,6 +1524,7 @@ const EN_COPY: CodeCopy = {
   workspaceCreateFailedDescription: 'Farming couldn’t create this directory. Check the path and try again.',
   returnToWorkspace: 'Change Path',
   recentWorkspacesLower: 'recent workspaces',
+  starting: 'Starting…',
   start: 'Start',
   back: 'Back',
   backToAgent: 'Back to Agent',
@@ -2344,6 +2346,7 @@ const ZH_COPY: CodeCopy = {
   workspaceCreateFailedDescription: 'Farming 无法创建这个目录。请检查路径后重试。',
   returnToWorkspace: '修改路径',
   recentWorkspacesLower: '最近工作区',
+  starting: '正在启动…',
   start: '启动',
   back: '返回',
   backToAgent: '返回 Agent',

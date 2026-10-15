@@ -111,8 +111,8 @@
 .code-settings-update-card {
   border: 0;
   border-radius: 12px;
-  background: var(--code-danger-soft);
-  color: var(--code-diff-removed);
+  background: var(--code-bg-surface);
+  color: var(--code-text);
 }
 
 .code-settings-choice-row {
@@ -379,20 +379,6 @@
   color: var(--code-text-on-emphasis);
 }
 
-@media (max-width: 720px) {
-  .code-settings-panel {
-    width: 100vw;
-  }
-
-  .code-agent-home-row {
-    grid-template-columns: minmax(0, 1fr);
-    align-items: start;
-  }
-
-  .code-agent-home-actions {
-    justify-content: flex-start;
-  }
-}
 
 .code-agent-home-actions button:disabled,
 .code-agent-home-form-actions button:disabled {
@@ -1716,4 +1702,19 @@ body.code-mode.code-compact-layout .code-settings-pet-rest-value {
 
 .code-settings-row + .code-settings-row {
   border-color: var(--code-border);
+}
+
+@media (max-width: 720px) {
+  .code-settings-panel {
+    width: 100vw;
+  }
+
+  .code-agent-home-row {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .code-agent-home-actions {
+    justify-content: flex-start;
+  }
 }

@@ -86,7 +86,7 @@
 
 .code-plugin-tabs > button:hover,
 .code-plugin-tabs > button:focus-visible {
-  background: var(--code-bg-hover);
+  background: var(--code-bg-selected);
   color: var(--code-text);
   outline: 0;
 }

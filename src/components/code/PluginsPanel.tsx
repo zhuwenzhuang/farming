@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Dispatch, KeyboardEvent as ReactKeyboardEvent, SetStateAction } from 'react'
+import { createPortal } from 'react-dom'
+import { useModalFocusScope } from '@/hooks/useModalFocusScope'
 import { useAgentReorder } from './useAgentReorder'
 import { CodeSelect } from '@/components/CodeSelect'
 import { appPath } from '@/lib/base-path'
@@ -1561,11 +1563,14 @@ export function PluginsPanel({
 
   const closeSelectedExtension = useCallback(() => {
     updateNavigationState({ selectedExtension: null })
-    window.requestAnimationFrame(() => {
-      const trigger = selectedExtensionTriggerRef.current
-      if (trigger?.isConnected) trigger.focus({ preventScroll: true })
-    })
+
   }, [updateNavigationState])
+
+  const selectedExtensionCloseRef = useRef<HTMLButtonElement | null>(null)
+  const selectedExtensionDialogRef = useModalFocusScope<HTMLElement>({
+    open: Boolean(selectedExtension), initialFocusRef: selectedExtensionCloseRef,
+    returnFocusRef: selectedExtensionTriggerRef, onEscape: closeSelectedExtension, dismissOnPointerOutside: true,
+  })
 
   const handleTabKeyDown = useCallback((event: ReactKeyboardEvent<HTMLButtonElement>) => {
     const currentIndex = PLUGINS_TABS.indexOf(activeTab)
@@ -2410,24 +2415,18 @@ export function PluginsPanel({
         </>}
       </section> : null}
 
-      {selectedExtension ? (
+      {selectedExtension ? createPortal(
         <div
           className="code-plugin-detail-backdrop"
           role="presentation"
-          onPointerDown={closeSelectedExtension}
         >
           <section
+            ref={selectedExtensionDialogRef}
             className="code-plugin-detail-dialog"
             data-testid="code-plugin-detail-dialog"
             role="dialog"
             aria-modal="true"
             aria-labelledby="code-plugin-detail-title"
-            onPointerDown={event => event.stopPropagation()}
-            onKeyDown={event => {
-              if (event.key !== 'Escape') return
-              event.stopPropagation()
-              closeSelectedExtension()
-            }}
           >
             <header>
               <div className="code-plugin-detail-heading">
@@ -2439,7 +2438,7 @@ export function PluginsPanel({
               </div>
               <button
                 type="button"
-                autoFocus
+                ref={selectedExtensionCloseRef}
                 aria-label={copy.closeDetails}
                 title={copy.closeDetails}
                 onClick={closeSelectedExtension}
@@ -2473,7 +2472,7 @@ export function PluginsPanel({
               <span>{copy.openSource}</span>
             </button>
           </section>
-        </div>
+        </div>, document.body
       ) : null}
     </div>
   )

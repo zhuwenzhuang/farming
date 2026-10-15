@@ -357,7 +357,8 @@ function run() {
       `${provider} must not inherit Codex Terminal startup constraints`,
     );
   }
-  for (const provider of ['codex', 'claude', 'opencode', 'qoder', 'qwen', 'agy']) {
+  assert.strictEqual(providerSupportsSharedAcpRuntime('agy'), false, 'AGY CLI turns must retain their own Session owner');
+  for (const provider of ['codex', 'claude', 'opencode', 'qoder', 'qwen']) {
     assert.strictEqual(providerSupportsSharedAcpRuntime(provider), true);
   }
   assert.strictEqual(
@@ -983,7 +984,8 @@ function run() {
   const agyAdapter = getProviderAdapter('agy');
   assert.strictEqual(providerForProgram('/Users/test/.local/bin/agy'), 'agy');
   assert.strictEqual(providerArgsContinueSession('agy', ['--conversation', '11111111-1111-4111-8111-111111111111']), true);
-  assert.strictEqual(providerArgsContinueSession('agy', ['-r', '11111111-1111-4111-8111-111111111111']), true);
+  assert.strictEqual(providerArgsContinueSession('agy', ['-r', '11111111-1111-4111-8111-111111111111']), false);
+  assert.strictEqual(agyAdapter.planSession(['-r', '11111111-1111-4111-8111-111111111111'], []), null);
   assert.strictEqual(providerArgsContinueSession('agy', ['--continue']), true);
   assert.strictEqual(providerArgsContinueSession('agy', ['--dangerously-skip-permissions']), false);
   const agyFresh = agyAdapter.planSession([], ['--dangerously-skip-permissions']);

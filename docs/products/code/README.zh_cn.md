@@ -20,6 +20,7 @@ Farming Code 是默认的浏览器工作区。用户使用说明统一在公开�
 - [Agent List 状态协议](agent-list-state-protocol.zh_cn.md)
 - [Provider Session 持久身份](provider-session-identity.zh_cn.md)
 - [Terminal 状态协议](terminal-state-protocol.zh_cn.md)
+- [通过 Farming Browser 使用你的 Chrome](chrome-extension-browser.zh_cn.md)
 - [Extension 与 Resource 模型](extension-model.zh_cn.md)
 - [Project Files 设计](project-files-section-design.zh_cn.md)
 - [休息提醒状态模型](rest-reminder.zh_cn.md)

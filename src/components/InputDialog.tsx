@@ -1381,7 +1381,7 @@ export function InputDialog({
                 disabled={startClickLocked || submitting}
                 onClick={() => void confirm()}
               >
-                {handoff ? submitting ? copy.handingOff : copy.handoffAgent : copy.start}
+                {handoff ? submitting ? copy.handingOff : copy.handoffAgent : submitting ? copy.starting : copy.start}
               </button>
               <button
                 type="button"

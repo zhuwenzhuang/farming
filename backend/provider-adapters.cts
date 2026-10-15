@@ -558,7 +558,7 @@ function piSessionPlan(rawArgs: string[], launchArgs: string[]): ProviderSession
 }
 
 function agySessionPlan(rawArgs: string[], launchArgs: string[]): ProviderSessionPlan | null {
-  const resumeSessionId = argValue(rawArgs, ['--conversation', '-r']);
+  const resumeSessionId = argValue(rawArgs, ['--conversation']);
   if (resumeSessionId && isSafeProviderSessionId(resumeSessionId)) {
     return { id: resumeSessionId, temporary: false, source: 'resume' };
   }
@@ -1114,7 +1114,6 @@ const PROVIDER_ADAPTERS = Object.freeze<ProviderAdapter[]>([
     continuesSession: args => args.some(arg => (
       arg === '--conversation'
       || arg.startsWith('--conversation=')
-      || arg === '-r'
       || arg === '--continue'
       || arg === '-c'
     )),
@@ -1132,7 +1131,8 @@ const PROVIDER_ADAPTERS = Object.freeze<ProviderAdapter[]>([
     acp: {
       executablePolicy: 'system',
       version: 'native',
-      sharedRuntime: true,
+      acceptsMcpServers: false,
+      sharedRuntime: false,
       launch: options => resolveAgyAcpLaunch(options),
     },
     usage: {

@@ -243,12 +243,18 @@ Usage Update，因此 Chat 的 Context Usage 与 Cost 使用 Live Pi Session 的
 Launch Working Directory 解释 `settings.json` 中的相对 `sessionDir`，因此 Farming 不猜测该目录；
 需要 Farming Inventory 时，应在所选 Pi Agent Home 的 `settings.json` 中配置绝对 `sessionDir`。
 
-`agy`（Antigravity CLI）通过 Farming 内置 ACP Bridge 驱动发现到的 System `agy` Executable，
-并按 Session 持久化该 Absolute Executable Identity。Bridge 通过显式 `--gemini_dir` 与
-`--app_data_dir` 参数绑定所选 Agent Home，在新建或恢复会话前预初始化 `<home>/conversations/<id>.db`，
-把无头 `--output-format stream-json` 轮次与直接 CLI 斜杠命令（`/usage`、`/quota`、`/model`、
-`/skills`、`/plugin`、`/hooks`、`/permissions`）映射为 ACP Update，并从 `<home>/conversations/`
-与 `<home>/brain/<id>/.system_generated/logs/transcript.jsonl` 索引会话历史。
+`agy`（Antigravity CLI）通过 Farming 内置 ACP Bridge 驱动发现到的系统 `agy` 可执行文件，
+并按 Session 持久化其绝对路径身份。Bridge 通过显式 `--gemini_dir` 与 `--app_data_dir`
+绑定所选 Agent Home。只有新建 Session 才初始化会话数据库；load/resume 要求已有数据库
+中的会话身份准确匹配，不能通过新建数据库伪造历史恢复。Bridge 使用原生无头 JSON 输出，
+转发额外工作目录，并在轮次之间保留 Session 工作目录。历史回放优先读取完整 transcript，
+旧格式的截断日志仅用于兼容。
+
+每个 Session 同时只允许一个轮次。部分输出不代表成功：CLI 必须正常退出并报告同一会话
+的成功终态。取消、连接断开或轮次超时会强制终止所属 CLI 进程组及工具子进程；运行中的
+轮次不接受配置变更。Bridge 暴露原生 Auto、Accept Edits 和 Plan 模式，Plan 不代表交互式
+逐次授权。暂不支持通过 ACP 注入 MCP，集成须在所选原生 Agent Home 中配置。用量和模型
+能力以 CLI 实际提供的信息为限。
 
 声明一种 AIR Extension 不等于支持全部 AIR 交互。只有客户端协商了自定义答案输入，
 Codex 才使用该交互；否则保留显式的其他答案选项，Schema 校验与 UI 继续采用共享契约。
@@ -377,6 +383,9 @@ Provider 默认 Chat；仅支持 Terminal 的目标仍使用 Terminal。本次�
 配置。缓存选项在最新启动清单读取完成前保持禁用；读取失败不允许使用过期默认值。
 已有保存的 Terminal 默认值继续有效，包括旧版本写入的默认值。Plugins 修改的是
 新建 Agent 的默认模式，不改变已有会话。
+
+New Agent 对话框保持等待，直到自己的创建请求结束；无关的运行时事件不能使其成功或
+失败。关闭对话框不会取消后端已经受理的创建。传输结果不确定时明确提示，不自动重发。
 
 模式选择器按 Chat、Terminal 排列。Project 快捷创建在主入口标明默认模式，并把另一
 模式作为次入口。已有运行会话和重启恢复保留原模式。历史继续和 Fork 在没有明确覆盖时

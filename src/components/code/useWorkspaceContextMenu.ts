@@ -207,7 +207,7 @@ export function useWorkspaceContextMenu({
 
   useInteractionLayer({
     enabled: Boolean(contextMenu),
-    elements: () => [contextMenuRef.current],
+    elements: () => [contextMenuRef.current, contextMenu && 'returnFocusTarget' in contextMenu ? contextMenu.returnFocusTarget : null],
     onDismiss: reason => {
       if (reason === 'escape') closeContextMenuAndRestoreFocus()
       else closeContextMenu()

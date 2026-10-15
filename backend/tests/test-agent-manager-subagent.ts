@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+const { AgentShutdownState } = require('../agent-shutdown-state.cjs');
 const { AgentManager } = require('../agent-manager.cjs');
 const { encodeProviderSessionKey } = require('../../shared/provider-session-identity.js');
 const { forkRequestSignature } = require('../fork-operation-coordinator.cjs');
@@ -8,6 +9,7 @@ async function run() {
   const parent = { id: 'parent', persistentSessionId: 'parent-record', providerSessionKey: parentKey,
     runtimeBinding: { kind: 'acp', state: 'working', sessionRevision: 7 } };
   const manager = Object.create(AgentManager.prototype);
+  manager.shutdownState = new AgentShutdownState();
   manager.recoveryGate = { wait: async () => {} };
   manager.agents = new Map([['parent', parent]]);
   manager.subagentRequests = new Map();
@@ -35,6 +37,10 @@ async function run() {
       requestKey: `fork-request:${options.requestId}`, request: options }] } });
     return { agentId: childId };
   };
+  manager.shutdownState.freeze();
+  await assert.rejects(openSubagent('parent'), /shutting down/);
+  assert.equal(calls, 0, 'shutdown must reject before starting a child');
+  manager.shutdownState = new AgentShutdownState();
   const first = openSubagent('parent');
   const second = openSubagent('parent');
   await new Promise(resolve => setImmediate(resolve));

@@ -241,6 +241,7 @@ export function nativeBrowserDomScript(operation: string, input: Record<string, 
       throw new Error('Unsupported Browser element action: ' + kind);
     };
     if (operation === 'snapshot') {
+      document.querySelectorAll('[data-farming-native-browser-ref]').forEach(element => element.removeAttribute('data-farming-native-browser-ref'));
       const elements = [];
       const nodes = Array.from(document.querySelectorAll('a,button,input,textarea,select,[contenteditable="true"],[role="button"],[role="link"]')).slice(0, 500);
       nodes.forEach((element, index) => {

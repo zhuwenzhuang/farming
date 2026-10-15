@@ -4,6 +4,8 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import readline from 'readline';
+import { killOwnedProcessGroup, registerConfigProcessGroup, unregisterConfigProcessGroup } from '../config-process-ownership.cjs';
+import { readServerProcessIdentity } from '../server-process-identity.cjs';
 import { Readable, Writable } from 'stream';
 import {
   AgentSideConnection,
@@ -37,12 +39,13 @@ import {
   agyExplicitHomeCliArgs,
   cleanAgyUserInputText,
   ensureAgyConversationDatabase,
+  hasAgyConversationDatabase,
   isSafeAgyConversationId,
   normalizeAgyToolArgs
 } from '../agy-conversation-store.cjs';
 
-type AgyModeId = 'auto' | 'agent_decides' | 'ask_every_time';
-type AgyEffortLevel = 'high' | 'medium' | 'low';
+type AgyModeId = 'auto' | 'agent_decides' | 'plan';
+type AgyEffortLevel = 'high' | 'medium' | 'low' | 'xhigh' | 'max';
 
 interface AgyBridgeOptions {
   agyExecutable: string;
@@ -58,12 +61,14 @@ interface AgyBridgeSessionState {
   systemPromptInjected: boolean;
   activeChild: ChildProcess | null;
   cancelled: boolean;
+  stopChild: (() => Promise<void>) | null;
+  additionalDirectories: string[];
 }
 
 const DEFAULT_AVAILABLE_COMMANDS: AvailableCommand[] = [
   { name: 'help', description: 'Show available Antigravity slash commands' },
   { name: 'model', description: 'Show or switch the active model' },
-  { name: 'effort', description: 'Show or change reasoning effort (high, medium, low)' },
+  { name: 'effort', description: 'Show or change reasoning effort (low, medium, high, xhigh, max)' },
   { name: 'quota', description: 'Inspect current model quota and reset windows' },
   { name: 'credits', description: 'Inspect AI credits balance' },
   { name: 'skills', description: 'List available Antigravity skills' },
@@ -138,13 +143,13 @@ function buildModeState(session: AgyBridgeSessionState): SessionModeState {
       },
       {
         id: 'agent_decides',
-        name: 'Agent Decides',
-        description: 'Let Antigravity decide when confirmation is required'
+        name: 'Accept Edits',
+        description: 'Native accept-edits mode; unavailable interactive approvals fail in Chat'
       },
       {
-        id: 'ask_every_time',
-        name: 'Ask Every Time',
-        description: 'Require explicit approval for privileged actions'
+        id: 'plan',
+        name: 'Plan',
+        description: 'Native planning mode; interactive permission prompts require Terminal'
       }
     ]
   };
@@ -162,7 +167,9 @@ function buildConfigOptions(session: AgyBridgeSessionState): SessionConfigOption
       options: [
         { value: 'high', name: 'High', description: 'Deep reasoning for complex tasks' },
         { value: 'medium', name: 'Medium', description: 'Balanced speed and reasoning depth' },
-        { value: 'low', name: 'Low', description: 'Fast responses for straightforward tasks' }
+        { value: 'low', name: 'Low', description: 'Fast responses for straightforward tasks' },
+        { value: 'xhigh', name: 'Extra High' },
+        { value: 'max', name: 'Max' }
       ]
     }
   ];
@@ -325,6 +332,9 @@ class AgyAcpAgent implements Agent {
   constructor(client: AgentSideConnection, options: AgyBridgeOptions) {
     this.client = client;
     this.options = options;
+    queueMicrotask(() => {
+      void client.closed.then(() => Promise.allSettled([...this.sessions.keys()].map(sessionId => this.closeSession({ sessionId }))));
+    });
   }
 
   async initialize(_params: InitializeRequest): Promise<InitializeResponse> {
@@ -333,7 +343,7 @@ class AgyAcpAgent implements Agent {
       agentInfo: {
         name: 'agy',
         title: 'Antigravity',
-        version: '1.3.5'
+        version: '1'
       },
       agentCapabilities: {
         loadSession: true,
@@ -343,8 +353,8 @@ class AgyAcpAgent implements Agent {
           embeddedContext: true
         },
         mcpCapabilities: {
-          http: true,
-          sse: true
+          http: false,
+          sse: false
         },
         sessionCapabilities: {
           resume: {},
@@ -359,14 +369,18 @@ class AgyAcpAgent implements Agent {
     return {};
   }
 
-  private ensureSession(sessionId: string, cwd: string): AgyBridgeSessionState {
-    const normalizedId = isSafeAgyConversationId(sessionId) ? sessionId.trim() : crypto.randomUUID();
-    ensureAgyConversationDatabase(this.options.agyHomePath, normalizedId, cwd);
+  private ensureSession(sessionId: string, cwd: string, create = false): AgyBridgeSessionState {
+    if (!isSafeAgyConversationId(sessionId)) throw new Error('Invalid Antigravity Session id');
+    if (!path.isAbsolute(cwd)) throw new Error('Antigravity workspace must be absolute');
+    const normalizedId = sessionId.trim();
+    if (create) {
+      if (!ensureAgyConversationDatabase(this.options.agyHomePath, normalizedId, cwd)) throw new Error('Cannot initialize Antigravity conversation database');
+    } else if (!hasAgyConversationDatabase(this.options.agyHomePath, normalizedId)) {
+      throw new Error(`Antigravity conversation not found: ${normalizedId}`);
+    }
     const existing = this.sessions.get(normalizedId);
     if (existing) {
-      if (cwd && path.isAbsolute(cwd)) {
-        existing.cwd = cwd;
-      }
+      if (existing.cwd !== cwd) throw new Error('Antigravity Session workspace cannot change');
       return existing;
     }
     const created: AgyBridgeSessionState = {
@@ -376,6 +390,8 @@ class AgyAcpAgent implements Agent {
       currentEffort: 'high',
       systemPromptInjected: false,
       activeChild: null,
+      stopChild: null,
+      additionalDirectories: [],
       cancelled: false
     };
     this.sessions.set(normalizedId, created);
@@ -398,8 +414,19 @@ class AgyAcpAgent implements Agent {
     });
   }
 
+  private setAdditionalDirectories(session: AgyBridgeSessionState, params: NewSessionRequest | LoadSessionRequest | ResumeSessionRequest): void {
+    const directories = (params as typeof params & { additionalDirectories?: unknown }).additionalDirectories;
+    if (directories === undefined) return;
+    if (!Array.isArray(directories) || directories.some(directory => typeof directory !== 'string' || !path.isAbsolute(directory))) {
+      throw new Error('Antigravity additional directories must be absolute paths');
+    }
+    session.additionalDirectories = [...new Set(directories as string[])];
+  }
+
   async newSession(params: NewSessionRequest): Promise<NewSessionResponse> {
-    const session = this.ensureSession(crypto.randomUUID(), params.cwd);
+    if (params.mcpServers?.length) throw new Error('Antigravity Chat does not support ACP MCP injection; configure integrations in its Agent Home');
+    const session = this.ensureSession(crypto.randomUUID(), params.cwd, true);
+    this.setAdditionalDirectories(session, params);
     this.scheduleAvailableCommandsUpdate(session.sessionId);
     return {
       sessionId: session.sessionId,
@@ -409,11 +436,13 @@ class AgyAcpAgent implements Agent {
   }
 
   async resumeSession(params: ResumeSessionRequest): Promise<ResumeSessionResponse> {
+    if (params.mcpServers?.length) throw new Error('Antigravity Chat does not support ACP MCP injection; configure integrations in its Agent Home');
     const session = this.ensureSession(params.sessionId, params.cwd);
     const transcriptPath = this.resolveTranscriptPath(session.sessionId);
     if (fs.existsSync(transcriptPath)) {
       session.systemPromptInjected = true;
     }
+    this.setAdditionalDirectories(session, params);
     this.scheduleAvailableCommandsUpdate(session.sessionId);
     return {
       modes: buildModeState(session),
@@ -422,8 +451,10 @@ class AgyAcpAgent implements Agent {
   }
 
   async loadSession(params: LoadSessionRequest): Promise<LoadSessionResponse> {
+    if (params.mcpServers?.length) throw new Error('Antigravity Chat does not support ACP MCP injection; configure integrations in its Agent Home');
     const session = this.ensureSession(params.sessionId, params.cwd);
     await this.replayTranscriptHistory(session);
+    this.setAdditionalDirectories(session, params);
     this.scheduleAvailableCommandsUpdate(session.sessionId);
     return {
       modes: buildModeState(session),
@@ -439,10 +470,11 @@ class AgyAcpAgent implements Agent {
     if (
       params.modeId !== 'auto' &&
       params.modeId !== 'agent_decides' &&
-      params.modeId !== 'ask_every_time'
+      params.modeId !== 'plan'
     ) {
       throw new Error(`Unsupported Antigravity mode: ${params.modeId}`);
     }
+    if (session.activeChild) throw new Error('Cannot change mode during an active turn');
     session.currentModeId = params.modeId;
     await this.client.sessionUpdate({
       sessionId: session.sessionId,
@@ -461,9 +493,11 @@ class AgyAcpAgent implements Agent {
     if (!session) {
       throw new Error(`Session not found: ${params.sessionId}`);
     }
+    if (session.activeChild) throw new Error('Cannot change configuration during an active turn');
+    if (params.configId !== 'effort' || !['low', 'medium', 'high', 'xhigh', 'max'].includes(String(params.value))) throw new Error('Unsupported Antigravity configuration');
     if (params.configId === 'effort' && typeof params.value === 'string') {
       const normalized = params.value.trim().toLowerCase();
-      if (normalized === 'high' || normalized === 'medium' || normalized === 'low') {
+      if (normalized === 'high' || normalized === 'medium' || normalized === 'low' || normalized === 'xhigh' || normalized === 'max') {
         session.currentEffort = normalized;
       }
     }
@@ -476,29 +510,22 @@ class AgyAcpAgent implements Agent {
     const session = this.sessions.get(params.sessionId);
     if (!session) return;
     session.cancelled = true;
-    if (session.activeChild && !session.activeChild.killed) {
-      try {
-        session.activeChild.kill('SIGTERM');
-      } catch {
-        // Ignore kill error.
-      }
-    }
+    await session.stopChild?.();
   }
 
   async closeSession(params: CloseSessionRequest): Promise<CloseSessionResponse> {
     const session = this.sessions.get(params.sessionId);
-    if (session?.activeChild && !session.activeChild.killed) {
-      try {
-        session.activeChild.kill('SIGTERM');
-      } catch {
-        // Ignore kill error.
-      }
-    }
     this.sessions.delete(params.sessionId);
+    if (session) {
+      session.cancelled = true;
+      await session.stopChild?.();
+    }
     return {};
   }
 
   private resolveTranscriptPath(sessionId: string): string {
+    const full = path.join(this.options.agyHomePath, 'brain', sessionId, '.system_generated', 'logs', 'transcript_full.jsonl');
+    if (fs.existsSync(full)) return full;
     return path.join(
       this.options.agyHomePath,
       'brain',
@@ -602,7 +629,9 @@ class AgyAcpAgent implements Agent {
   }
 
   async prompt(params: PromptRequest): Promise<PromptResponse> {
-    const session = this.ensureSession(params.sessionId, process.cwd());
+    const session = this.sessions.get(params.sessionId);
+    if (!session) throw new Error(`Session not found: ${params.sessionId}`);
+    if (session.activeChild) throw new Error('Antigravity Session already has an active turn');
     session.cancelled = false;
 
     const userText = flattenPromptBlocks(params.prompt);
@@ -617,7 +646,7 @@ class AgyAcpAgent implements Agent {
       if (
         requestedEffort === 'high' ||
         requestedEffort === 'medium' ||
-        requestedEffort === 'low'
+        requestedEffort === 'low' || requestedEffort === 'xhigh' || requestedEffort === 'max'
       ) {
         session.currentEffort = requestedEffort;
       }
@@ -658,37 +687,71 @@ class AgyAcpAgent implements Agent {
         cliArgs.push('--dangerously-skip-permissions');
       } else if (session.currentModeId === 'agent_decides') {
         cliArgs.push('--mode', 'accept-edits');
-      } else if (session.currentModeId === 'ask_every_time') {
+      } else if (session.currentModeId === 'plan') {
         cliArgs.push('--mode', 'plan');
       }
     }
 
+    for (const directory of session.additionalDirectories) cliArgs.push('--add-dir', directory);
+    cliArgs.push('--print-timeout', '10m');
     const child = spawn(this.options.agyExecutable, cliArgs, {
       cwd: session.cwd,
       env: {
         ...process.env,
         AGY_HOME: this.options.agyHomePath
       },
+      detached: process.platform !== 'win32',
       stdio: ['pipe', 'pipe', 'pipe']
     });
     session.activeChild = child;
+    const exit = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve, reject) => {
+      child.once('error', reject);
+      child.once('close', (code, signal) => resolve({ code, signal }));
+    });
+    // Attach rejection handling immediately, including spawn failure before stream consumption.
+    void exit.catch(() => {});
+    const identity = child.pid ? readServerProcessIdentity(child.pid) : null;
+    const configDir = process.env.FARMING_CONFIG_DIR;
+    const killTurn = async () => {
+      if (identity) {
+        const result = await killOwnedProcessGroup(identity);
+        if (result.identityMismatch || result.identityUnavailable || result.unsupported) throw new Error('Cannot prove Antigravity turn process ownership');
+      } else if (child.exitCode === null && child.signalCode === null) {
+        child.kill('SIGKILL');
+      }
+    };
+    // A provider can exit while its tools still hold stdout open. Kill its owned
+    // group on parent exit as well as cancellation, before waiting for close.
+    child.once('exit', () => { void killTurn().catch(() => {}); });
+    session.stopChild = async () => {
+      await killTurn();
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([
+          exit.catch(() => {}),
+          new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('Antigravity process did not close after hard stop')), 5000); })
+        ]);
+      } finally {
+        clearTimeout(timer);
+      }
+    };
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    const turnDeadline = new Promise<never>((_, reject) => {
+      deadline = setTimeout(() => reject(new Error('Antigravity turn exceeded its deadline')), 610_000);
+      deadline.unref();
+    });
 
     const seenToolCalls = new Set<string>();
     let emittedAssistantText = false;
     let stderrText = '';
+    let resultFailure = '';
+    let resultReceived = false;
 
     child.stderr?.on('data', chunk => {
-      stderrText += String(chunk);
+      stderrText = (stderrText + String(chunk)).slice(-65_536);
     });
 
-    const inputPayload = JSON.stringify({
-      type: 'user',
-      message: {
-        role: 'user',
-        content: [{ type: 'text', text: outgoingText }]
-      }
-    });
-    child.stdin?.write(`${inputPayload}\n`);
+    child.stdin?.on('error', () => {});
     child.stdin?.end();
 
     const rl = readline.createInterface({
@@ -714,11 +777,14 @@ class AgyAcpAgent implements Agent {
               ? event.type
               : '';
 
+        if (typeof event.conversation_id === 'string' && (event.conversation_id || !isCliDirect) && event.conversation_id !== session.sessionId) throw new Error('Antigravity returned a different conversation identity');
+
         if (eventKind === 'step_update') {
           const stepUpdate =
             event.step_update && typeof event.step_update === 'object'
               ? (event.step_update as Record<string, unknown>)
               : event;
+          if (typeof stepUpdate.conversation_id === 'string' && stepUpdate.conversation_id !== session.sessionId) throw new Error('Antigravity returned a different conversation identity');
           const stepType = typeof stepUpdate.step_type === 'string' ? stepUpdate.step_type : '';
           if (stepType === 'agent_response') {
             const rawThinking =
@@ -835,6 +901,9 @@ class AgyAcpAgent implements Agent {
             event.result && typeof event.result === 'object'
               ? (event.result as Record<string, unknown>)
               : event;
+          resultReceived = true;
+          const resultStatus = String(resultObj.status || '').toUpperCase();
+          if (!['SUCCESS', 'OK', 'COMPLETED'].includes(resultStatus)) resultFailure = `Antigravity turn failed: ${resultStatus}`;
           const commandObj =
             resultObj.command && typeof resultObj.command === 'object'
               ? (resultObj.command as Record<string, unknown>)
@@ -861,7 +930,7 @@ class AgyAcpAgent implements Agent {
             if (
               normalizedEffort === 'high' ||
               normalizedEffort === 'medium' ||
-              normalizedEffort === 'low'
+              normalizedEffort === 'low' || normalizedEffort === 'xhigh' || normalizedEffort === 'max'
             ) {
               session.currentEffort = normalizedEffort;
             }
@@ -889,24 +958,26 @@ class AgyAcpAgent implements Agent {
       }
     })();
 
-    const exitCode = await new Promise<number | null>((resolve, reject) => {
-      child.once('error', reject);
-      child.once('close', code => resolve(code));
-    });
-
-    await processStreamPromise;
-    session.activeChild = null;
-
-    if (session.cancelled) {
-      return { stopReason: 'cancelled' };
+    void processStreamPromise.catch(() => { void session.stopChild?.().catch(() => {}); });
+    try {
+      if (identity && configDir) registerConfigProcessGroup(configDir, 'agy-turn', identity);
+      const [{ code, signal }] = await Promise.race([Promise.all([exit, processStreamPromise]), turnDeadline]);
+      if (session.cancelled) return { stopReason: 'cancelled' };
+      if (code !== 0 || signal || resultFailure || !resultReceived) {
+        throw new Error(resultFailure || stderrText.trim() || `Antigravity CLI did not complete successfully (${signal || code}); ${resultReceived ? 'result received' : 'missing final result'}`);
+      }
+      return { stopReason: 'end_turn' };
+    } finally {
+      clearTimeout(deadline);
+      try {
+        await session.stopChild?.();
+        if (identity && configDir) unregisterConfigProcessGroup(configDir, 'agy-turn', identity);
+      } finally {
+        session.activeChild = null;
+        session.stopChild = null;
+        rl.close();
+      }
     }
-
-    if (exitCode && exitCode !== 0 && !emittedAssistantText) {
-      const detail = stderrText.trim() || `Antigravity CLI exited with code ${exitCode}`;
-      throw new Error(detail);
-    }
-
-    return { stopReason: 'end_turn' };
   }
 }
 

@@ -2263,7 +2263,13 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
     }
   }, [nextProjectSourceAgentId, projectSourceAgentId])
 
+  const worktreeReadRevisionRef = useRef(0)
+  const receiveRepositoryWorktrees = useCallback((value: WorkspaceGitWorktrees) => {
+    worktreeReadRevisionRef.current += 1
+    setRepositoryWorktrees(value)
+  }, [])
   useEffect(() => {
+    worktreeReadRevisionRef.current += 1
     const agentWorktrees = agentWorktreeList(project.gitWorktree)
     if (agentWorktrees) setRepositoryWorktrees(agentWorktrees)
   }, [project.gitWorktree])
@@ -2271,8 +2277,11 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
   useEffect(() => {
     if (!filesWorkspaceId || globalRootProject) return
     const controller = new AbortController()
+    const revision = worktreeReadRevisionRef.current
     void fetchWorkspaceGitWorktrees(filesWorkspaceId, { signal: controller.signal })
-      .then(setRepositoryWorktrees)
+      .then(value => {
+        if (!controller.signal.aborted && worktreeReadRevisionRef.current === revision) setRepositoryWorktrees(value)
+      })
       .catch(() => {})
     return () => controller.abort()
   }, [filesWorkspaceId, globalRootProject])
@@ -2645,7 +2654,7 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
             point={worktreeMenu}
             onClose={() => setWorktreeMenu(null)}
             onMountProject={onMountProject}
-            onRepositoryWorktreesChange={setRepositoryWorktrees}
+            onRepositoryWorktreesChange={receiveRepositoryWorktrees}
             onBranchSwitched={() => setBranchSwitchRevision(revision => revision + 1)}
           />,
           document.body

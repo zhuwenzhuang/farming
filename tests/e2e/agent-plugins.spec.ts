@@ -791,7 +791,7 @@ test('Plugins shows a read-only extension catalog from one exact Agent Home', {
   await panel.getByTestId('code-plugin-extension-kind-plugin').click()
   await expect(panel.locator('.code-plugin-extension-group')).toHaveAttribute('data-kind', 'plugin')
   await examplePlugin.click()
-  const detail = panel.getByTestId('code-plugin-detail-dialog')
+  const detail = page.getByTestId('code-plugin-detail-dialog')
   await expect(detail).toContainText('plugins/example/.codex-plugin/plugin.json')
   await expect(detail.locator('.code-plugin-manifest-icon')).toBeVisible()
   await expect.poll(() => detail.locator('.code-plugin-manifest-icon').evaluate(
@@ -810,7 +810,7 @@ test('Plugins shows a read-only extension catalog from one exact Agent Home', {
   blockNextSourceRead = true
   const openSource = detail.getByRole('button', { name: 'Open source file' }).click()
   await sourceReadStarted
-  await expect(panel.getByTestId('code-plugin-detail-dialog')).toContainText('Example Plugin')
+  await expect(page.getByTestId('code-plugin-detail-dialog')).toContainText('Example Plugin')
   await expect(page.getByTestId('code-file-editor')).toHaveCount(0)
   releaseSourceRead()
   await openSource
@@ -821,12 +821,12 @@ test('Plugins shows a read-only extension catalog from one exact Agent Home', {
   await expect(panel.getByTestId('code-plugin-tab-extensions')).toHaveAttribute('aria-selected', 'true')
   await expect(panel.getByTestId('code-plugin-extension-home-codex-catalog')).toHaveAttribute('aria-selected', 'true')
   await expect(panel.getByTestId('code-plugin-extension-kind-plugin')).toHaveAttribute('aria-selected', 'true')
-  await expect(panel.getByTestId('code-plugin-detail-dialog')).toContainText('Example Plugin')
+  await expect(page.getByTestId('code-plugin-detail-dialog')).toContainText('Example Plugin')
   await expect.poll(() => page.locator('.code-plugins-view').evaluate(element => element.scrollTop)).toBe(pluginScrollTop)
 
   await expect(detail.getByTestId('code-plugin-detail-history-forward')).toHaveCount(0)
 
-  await panel.getByTestId('code-plugin-detail-dialog').getByRole('button', { name: 'Close details' }).click()
+  await page.getByTestId('code-plugin-detail-dialog').getByRole('button', { name: 'Close details' }).click()
 
   fs.writeFileSync(path.join(codexHome, 'hooks.json'), JSON.stringify({
     hooks: { SessionStart: [{ hooks: [{ type: 'command', command: './start.sh' }] }] },

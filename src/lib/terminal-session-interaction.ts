@@ -1,3 +1,4 @@
+import { registerInteractionLayer } from './interaction-layer'
 import type { FarmingTerminal } from '@/lib/terminal-engine'
 import {
   normalizeTerminalSelectionForCopy,
@@ -255,25 +256,18 @@ export class TerminalSessionInteractionController {
     document.body.appendChild(menu)
     this.#contextMenuEl = menu
 
-    const closeOutside = (pointerEvent: MouseEvent | PointerEvent) => {
-      if (!(pointerEvent.target instanceof Node) || !menu.contains(pointerEvent.target)) this.hideContextMenu()
-    }
-    const closeKey = (keyboardEvent: KeyboardEvent) => {
-      if (keyboardEvent.key !== 'Escape') return
-      keyboardEvent.preventDefault()
-      this.hideContextMenu()
-      if (!isTouchInputViewport()) this.#ports.focusInput()
-    }
+    const unregisterLayer = registerInteractionLayer(document, () => ({
+      elements: () => [menu],
+      onDismiss: reason => {
+        this.hideContextMenu()
+        if (reason === 'escape' && !isTouchInputViewport()) this.#ports.focusInput()
+      },
+    }))
     const close = () => this.hideContextMenu()
-    document.addEventListener('mousedown', closeOutside, true)
-    document.addEventListener('pointerdown', closeOutside, true)
-    document.addEventListener('keydown', closeKey, true)
     window.addEventListener('resize', close)
     window.addEventListener('scroll', close, true)
     this.#contextMenuCleanup = () => {
-      document.removeEventListener('mousedown', closeOutside, true)
-      document.removeEventListener('pointerdown', closeOutside, true)
-      document.removeEventListener('keydown', closeKey, true)
+      unregisterLayer()
       window.removeEventListener('resize', close)
       window.removeEventListener('scroll', close, true)
     }

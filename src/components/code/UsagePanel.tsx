@@ -18,7 +18,7 @@ import type {
 import { appPath } from '@/lib/base-path'
 import { useBackendSystemStats, useHasBackendSystemStats } from '@/lib/backend-live-status'
 import { agentDisplayName, agentTitle } from '@/lib/format'
-import { useEscapeKey } from '@/hooks/useKeyboard'
+import { useModalFocusScope } from '@/hooks/useModalFocusScope'
 import type { AgentLaunchOption } from './agent-launch-options'
 
 function formatUsageWindow(minutes: number | null | undefined) {
@@ -936,7 +936,9 @@ function UsageActivityDialog({
     histogramDay,
     Boolean(histogramDay && dailyPoints && histogramDay === dailyPoints[dailyPoints.length - 1]?.date),
   )
-  useEscapeKey(onClose)
+  const closeRef = useRef<HTMLButtonElement | null>(null)
+  const returnFocusRef = useRef<HTMLElement | null>(typeof document === 'undefined' ? null : document.activeElement as HTMLElement)
+  const dialogRef = useModalFocusScope<HTMLElement>({ open: true, initialFocusRef: closeRef, returnFocusRef, onEscape: onClose, dismissOnPointerOutside: true })
 
   if (typeof document === 'undefined') return null
 
@@ -960,11 +962,10 @@ function UsageActivityDialog({
     <div
       className="code-usage-detail-backdrop"
       data-testid="code-usage-detail-backdrop"
-      onMouseDown={event => {
-        if (event.target === event.currentTarget) onClose()
-      }}
+
     >
       <section
+        ref={dialogRef}
         className="code-usage-detail-dialog"
         data-testid="code-usage-detail-dialog"
         role="dialog"
@@ -978,7 +979,7 @@ function UsageActivityDialog({
               : 'Provider limits and local tokens'}</span>
             <h2 id="code-usage-detail-title">Usage</h2>
           </div>
-          <button type="button" className="code-usage-detail-close" aria-label="Close usage activity" onClick={onClose}>
+          <button ref={closeRef} type="button" className="code-usage-detail-close" aria-label="Close usage activity" onClick={onClose}>
             <CloseGlyph />
           </button>
         </header>

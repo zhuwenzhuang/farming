@@ -62,7 +62,11 @@ async function testConversationStore(tmpRoot: string) {
   assert.strictEqual(blob.length, 76);
   assert.strictEqual(blob[0], 0x1a);
   assert.strictEqual(blob[1], 0x24);
-  assert.strictEqual(blob.subarray(2, 38).toString('utf8'), sessionId);
+  assert.strictEqual(blob.subarray(2, 38).toString('utf8'), 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee');
+
+  fs.writeFileSync(path.join(agyHome, 'conversations', 'corrupt.db'), 'not sqlite');
+  assert.strictEqual(ensureAgyConversationDatabase(agyHome, 'corrupt'), false);
+  assert(buildAgyTrajectoryMetadataBlob(sessionId, 'trajectory', '/tmp/project#1?x').includes(Buffer.from('file:///tmp/project%231%3Fx')));
 
   const cleaned = cleanAgyUserInputText(
     '<farming-agent-context>\nbootstrap\n</farming-agent-context>\n<USER_REQUEST>\nFix bug #42\n</USER_REQUEST>'
@@ -322,6 +326,7 @@ async function testAcpBridgeEndToEnd(tmpRoot: string) {
     `#!/usr/bin/env node
 import fs from 'node:fs';
 import path from 'node:path';
+import { spawn } from 'node:child_process';
 
 const args = process.argv.slice(2);
 if (args.includes('--version')) {
@@ -341,13 +346,28 @@ if (!fs.existsSync(dbPath)) {
   console.error('Conversation "' + conversationId + '" not found, starting new conversation.');
 }
 
-let stdinData = '';
-process.stdin.setEncoding('utf8');
-for await (const chunk of process.stdin) {
-  stdinData += chunk;
+const text = args[args.indexOf('-p') + 1] || '';
+
+if (text.includes('CHECK_CONTEXT')) {
+  console.log(JSON.stringify({ event: 'result', conversation_id: conversationId, result: { status: 'SUCCESS', response: JSON.stringify({ cwd: process.cwd(), args }) } }));
+  process.exit(0);
 }
-const payload = JSON.parse(stdinData.trim());
-const text = payload?.message?.content?.[0]?.text || '';
+if (text.includes('FAIL_EXIT') || text.includes('FAIL_STATUS') || text.includes('MISSING_RESULT')) {
+  console.log(JSON.stringify({ event: 'step_update', step_update: { step_type: 'agent_response', text_delta: 'partial-before-failure' } }));
+  if (text.includes('FAIL_STATUS')) console.log(JSON.stringify({ event: 'result', result: { status: 'ERROR', response: 'provider failure' } }));
+  console.error('intentional provider failure');
+  process.exit(text.includes('FAIL_EXIT') ? 7 : 0);
+}
+if (text.includes('WRONG_ID')) {
+  console.log(JSON.stringify({ event: 'result', conversation_id: 'different-session', result: { status: 'SUCCESS' } }));
+  process.exit(0);
+}
+if (text.includes('HANG_TOOLS')) {
+  const tool = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'inherit' });
+  fs.writeFileSync(path.join(agyHome, 'turn-pids.json'), JSON.stringify([process.pid, tool.pid]));
+  setInterval(() => {}, 1000);
+  await new Promise(() => {});
+}
 
 console.log(JSON.stringify({
   event: 'init',
@@ -500,8 +520,8 @@ console.log(JSON.stringify({
       'first turn should include bootstrap and auto mode skip permissions',
     );
 
-    // Switch mode to ask_every_time and config option effort to medium.
-    await runtime.setSessionMode('agent-agy-test-1', 'ask_every_time');
+    // Switch to native planning mode and medium effort.
+    await runtime.setSessionMode('agent-agy-test-1', 'plan');
     await runtime.setSessionConfigOption('agent-agy-test-1', 'effort', 'medium');
 
     // Second turn: bootstrap should NOT be re-injected, and skipPerms should be false.
@@ -513,7 +533,7 @@ console.log(JSON.stringify({
       snapshotAfterSecond.entries.map(entrySummary).some((line: string) => (
         line.includes('Antigravity reply (bootstrap=false, skipPerms=false)')
       )),
-      'second turn should not re-inject system prompt and should reflect ask_every_time mode',
+      'second turn should not re-inject system prompt and should reflect planning mode',
     );
 
     // Slash command turn (/quota).
@@ -528,8 +548,36 @@ console.log(JSON.stringify({
       '/quota slash command should render structured model quota output',
     );
 
+    for (const marker of ['FAIL_EXIT', 'FAIL_STATUS', 'MISSING_RESULT', 'WRONG_ID']) {
+      await assert.rejects(runtime.prompt('agent-agy-test-1', [{ type: 'text', text: marker }]), /failure|ERROR|missing final result|different conversation identity/);
+    }
+    await runtime.setSessionConfigOption('agent-agy-test-1', 'effort', 'max');
+    await runtime.prompt('agent-agy-test-1', [{ type: 'text', text: 'CHECK_CONTEXT' }]);
+    assert(runtime.getSession('agent-agy-test-1').entries.map(entrySummary).some((line: string) => line.includes(workspaceDir) && line.includes('max')), 'later prompts retain the workspace and supported effort');
+
+    const pendingTurn = runtime.prompt('agent-agy-test-1', [{ type: 'text', text: 'HANG_TOOLS' }]);
+    const pidsFile = path.join(agyHome, 'turn-pids.json');
+    for (let attempt = 0; !fs.existsSync(pidsFile) && attempt < 100; attempt += 1) await new Promise(resolve => setTimeout(resolve, 20));
+    assert(fs.existsSync(pidsFile), 'fake provider must start its tool');
+    await assert.rejects(runtime.prompt('agent-agy-test-1', [{ type: 'text', text: 'overlap' }]));
+    await runtime.cancel('agent-agy-test-1');
+    assert.strictEqual((await pendingTurn).stopReason, 'cancelled');
+    for (const pid of JSON.parse(fs.readFileSync(pidsFile, 'utf8')) as number[]) {
+      assert.throws(() => process.kill(pid, 0), /ESRCH/, 'cancel must kill provider and tool descendants');
+    }
+
+    const missingSession = crypto.randomUUID();
+    await assert.rejects(runtime.prepareAgent({
+      agentId: 'agent-agy-missing', provider: 'agy', executable: fakeAgyScript,
+      configDir, cwd: workspaceDir, projectWorkspace: workspaceDir,
+      providerHomeId: 'default', providerHomePath: agyHome,
+      sessionId: missingSession, historyMode: 'load',
+    }), /not found/);
+    assert(!fs.existsSync(path.join(agyHome, 'conversations', `${missingSession}.db`)), 'load must never manufacture missing history');
+
     // Test loadSession replay from transcript.jsonl.
     const replaySessionId = crypto.randomUUID();
+    assert(ensureAgyConversationDatabase(agyHome, replaySessionId, workspaceDir));
     const replayTranscriptDir = path.join(
       agyHome,
       'brain',

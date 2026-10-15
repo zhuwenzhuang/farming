@@ -111,7 +111,7 @@ const { promisify } = require('util');
 import { SystemMonitor } from './system-monitor.cjs';
 import { SessionEngineBridge } from './session-engine-bridge.cjs';
 import { isSupportedHistoryAgent, parseCommand, resolveLaunchCommand } from './cli-agents.cjs';
-import { agyExplicitHomeCliArgs, ensureAgyConversationDatabase } from './agy-conversation-store.cjs';
+import { agyExplicitHomeCliArgs, ensureAgyConversationDatabase, hasAgyConversationDatabase } from './agy-conversation-store.cjs';
 import {
   buildAgentSessionResumeCommand,
   findAgentSession,
@@ -4717,9 +4717,11 @@ class AgentManager extends EventEmitter {
   }
 
   async runHeartbeatTick({ sweepZombies }: AgentHeartbeatTick) {
-    if (this.shutdownState.isDisposed()) return;
+    if (this.shutdownState.isShuttingDown() || !this.recoveryGate.isComplete()) return;
     if (sweepZombies) await this.cleanupZombieAgents();
+    if (this.shutdownState.isShuttingDown()) return;
     await this.reconcileSubagentSupervision();
+    if (this.shutdownState.isShuttingDown()) return;
 
     const mainAgentId = this.mainAgentIdentity.currentId();
     if (mainAgentId) {
@@ -4746,6 +4748,7 @@ class AgentManager extends EventEmitter {
   }
 
   async performDispose(options: AgentDisposeOptions = {}) {
+    this.heartbeatScheduler.stop();
     await this.recoveryGate.settled();
     await this.drainAcceptedAgentOperations();
 
@@ -4941,7 +4944,10 @@ class AgentManager extends EventEmitter {
         ? agent.providerSessionId
         : '';
       if (isSafeProviderSessionId(providerSessionId)) {
-        ensureAgyConversationDatabase(agent.providerHomePath, providerSessionId, launch.cwd);
+        const valid = agent.providerSessionSource === 'agy-session-id'
+          ? ensureAgyConversationDatabase(agent.providerHomePath, providerSessionId, launch.cwd)
+          : hasAgyConversationDatabase(agent.providerHomePath, providerSessionId);
+        if (!valid) throw new Error('Antigravity conversation is missing, unreadable, or has a different identity');
       }
       if (process.env.FARMING_E2E_FAKE_EXECUTABLES !== '1') {
         const homeArgs = agyExplicitHomeCliArgs(agent.providerHomePath);
@@ -9905,7 +9911,9 @@ class AgentManager extends EventEmitter {
   }
 
   async openSubagent(agentId: AgentId): Promise<AgentForkResult> {
+    this.assertAgentOperationAdmission();
     await this.recoveryGate.wait();
+    this.assertAgentOperationAdmission();
     const parent = this.agents.get(agentId);
     if (!parent) return { error: 'Agent not found' };
     const parentKey = canonicalProviderSessionKey(parent.providerSessionKey);

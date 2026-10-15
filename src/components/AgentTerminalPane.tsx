@@ -1,3 +1,4 @@
+import { interactionLayerOwnsEscape } from '@/lib/interaction-layer'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react'
 import type { Agent } from '@/types/agent'
@@ -355,6 +356,7 @@ export function AgentTerminalPane({
     if (!active) return
 
     const handleWindowKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.isComposing || event.keyCode === 229 || interactionLayerOwnsEscape(event)) return
       handleTerminalFindKeyDown(event)
     }
     window.addEventListener('keydown', handleWindowKeyDown, true)

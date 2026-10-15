@@ -513,7 +513,7 @@
 
 .code-pet-close:hover,
 .code-pet-close:focus-visible {
-  background: var(--code-border);
+  background: var(--code-bg-hover);
   color: var(--code-text-strong);
   outline: 0;
 }

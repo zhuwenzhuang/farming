@@ -367,11 +367,22 @@ directory, so Farming does not guess that directory. Configure an absolute
 `agy` (Antigravity CLI) uses Farming's built-in ACP bridge over the discovered
 system `agy` executable, persisting that absolute executable identity per
 Session. The bridge binds the selected Agent Home via explicit `--gemini_dir`
-and `--app_data_dir` flags, pre-initializes `<home>/conversations/<id>.db`
-before new or resumed invocations, maps headless `--output-format stream-json`
-turns and direct CLI slash commands (`/usage`, `/quota`, `/model`, `/skills`,
-`/plugin`, `/hooks`, `/permissions`) into ACP updates, and inventories session
-history from `<home>/conversations/` and `<home>/brain/<id>/.system_generated/logs/transcript.jsonl`.
+and `--app_data_dir` flags. Only a fresh Session initializes its provider
+conversation database; load/resume requires an existing database with the exact
+conversation identity and never manufactures missing history. The bridge uses
+native headless JSON output, forwards additional workspace directories, and
+preserves the Session working directory across turns. Full transcript logs take
+precedence over truncated display logs when replaying history.
+
+Each Session admits one turn at a time. A partial response is not success: the
+CLI must exit successfully and report a successful final result for the same
+conversation. Cancellation, disconnection, and turn deadlines hard-stop the
+owned CLI process group, including tools. Live turns reject configuration changes.
+The bridge exposes native Auto, Accept Edits, and Plan modes; Plan is not an
+interactive approval mode. ACP MCP injection is unsupported; integrations must
+be configured in the selected native Agent Home. Usage and model capabilities
+remain limited to what the CLI actually reports.
+
 
 Farming may support standard ACP session, prompt, cancellation, configuration,
 authentication, elicitation, terminal, media, plan, and fork capabilities when
@@ -564,6 +575,11 @@ preferences do not override configuration. Cached choices stay disabled until th
 fresh launch inventory is available; a failed read cannot authorize stale defaults.
 Existing saved Terminal defaults remain valid, including defaults written by earlier
 releases. Plugins changes the default for new Agents, not existing Sessions.
+
+The New Agent dialog remains pending until its own creation request settles;
+unrelated runtime events cannot complete or fail it. Closing the dialog does not
+cancel a creation already admitted by the backend. An uncertain transport outcome
+is reported explicitly and must not trigger automatic resubmission.
 
 Mode selectors list Chat before Terminal. Project quick launch identifies its
 primary action's default mode and offers the other mode as a secondary action.

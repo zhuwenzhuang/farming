@@ -2222,6 +2222,8 @@ wss.on('connection', (ws, req) => {
   });
 
   ws.on('close', (code: number, reason: Buffer) => {
+    if (ws.agentActivityRecoveryTimer) clearTimeout(ws.agentActivityRecoveryTimer);
+    ws.agentActivityRecoveryTimer = null;
     desktopBrowserAdapterRegistrations.get(ws)?.();
     desktopBrowserAdapterRegistrations.delete(ws);
     desktopBrowserAdapterIds.delete(ws);
@@ -2854,7 +2856,11 @@ const agentStateSnapshotController = createWebSocketAgentStateSnapshotController
   snapshotSequence: () => stateBroadcastTracker.sequence,
   setTimer: (callback, delayMs) => setTimeout(callback, delayMs),
 });
-const pendingAcpSessionRevisions = new Map();
+const pendingAcpSessionRevisions = new Map<string, { timer: ReturnType<typeof setTimeout> }>();
+server.on('close', () => {
+  for (const entry of pendingAcpSessionRevisions.values()) clearTimeout(entry.timer);
+  pendingAcpSessionRevisions.clear();
+});
 const websocketResourceBroadcasts = createWebSocketResourceBroadcastController<WebSocketClient>({
   clients: () => wss.clients,
   intervalMs: RESOURCE_BROADCAST_INTERVAL_MS,
