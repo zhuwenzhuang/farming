@@ -230,7 +230,12 @@ async function run(): Promise<void> {
         },
       });
     }
-    assert.deepStrictEqual(backgroundStarted, ['background-a.ts', 'background-b.ts']);
+    assert.deepStrictEqual(backgroundStarted, ['background-a.ts']);
+    priorityHandlers.languageServerRequest(socket, {
+      type: 'language-server-request', requestId: 'interactive-hover',
+      request: { operation: 'request', rootId: 'root-a', filePath: 'hover.ts', method: 'hover' },
+    });
+    assert.deepStrictEqual(backgroundStarted, ['background-a.ts', 'hover.ts'], 'background work cannot hold the interactive LSP slot');
     priorityHandlers.workspaceRequest(socket, {
       type: 'workspace-request',
       requestId: 'foreground-read',

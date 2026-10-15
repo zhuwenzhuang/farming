@@ -14,7 +14,7 @@ interface WorkspaceRootRegistry {
 
 interface LanguageServerClient {
   capability(options?: { force?: boolean }): Promise<unknown>;
-  request(body: unknown): Promise<unknown>;
+  request(body: unknown, signal?: AbortSignal): Promise<unknown>;
 }
 
 const REJECTED_LANGUAGE_SERVER_LOCATION = Symbol('rejected-language-server-location');
@@ -138,7 +138,9 @@ async function executeLanguageServerRequest(
   client: LanguageServerClient,
   roots: WorkspaceRootRegistry,
   bodyValue: unknown,
+  signal?: AbortSignal,
 ): Promise<{ result: unknown; supported: boolean }> {
+  signal?.throwIfAborted();
   const body = recordValue(bodyValue);
   const method = String(body.method || '');
   if (!SUPPORTED_METHODS.has(method)) {
@@ -156,7 +158,7 @@ async function executeLanguageServerRequest(
   for (const key of ['position', 'range', 'query', 'itemId']) {
     if (body[key] !== undefined) payload[key] = body[key];
   }
-  const response = recordValue(await client.request(payload));
+  const response = recordValue(await client.request(payload, signal));
   return {
     result: sanitizeLanguageServerResult(root.canonicalPath, response.result),
     supported: response.supported !== false,

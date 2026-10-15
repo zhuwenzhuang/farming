@@ -11,8 +11,8 @@ class LanguageServerService {
     return this.managed.capability();
   }
 
-  async request(body: unknown): Promise<unknown> {
-    return this.managed.request(body);
+  async request(body: unknown, signal?: AbortSignal): Promise<unknown> {
+    return this.managed.request(body, signal);
   }
 
   async dispose(): Promise<void> {

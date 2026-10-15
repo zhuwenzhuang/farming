@@ -70,7 +70,7 @@ function nearestRoot(
 function mavenModule(pomContent: string, modulePath: string): boolean {
   const normalized = modulePath.replace(/\\/g, '/').replace(/\/$/, '');
   if (!normalized) return false;
-  const blocks = pomContent.match(/<modules>([\s\S]*?)<\/modules>/g) || [];
+  const blocks: string[] = pomContent.match(/<modules>([\s\S]*?)<\/modules>/g) || [];
   return blocks.some(block => {
     const stripped = block.replace(/<!--[\s\S]*?-->/g, '');
     return [...stripped.matchAll(/<module>\s*([^<]+?)\s*<\/module>/g)].some(match => (

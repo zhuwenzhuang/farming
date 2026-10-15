@@ -116,3 +116,10 @@ test('build failure starts zero browser lanes, plan is mutation-free and unknown
   assert.equal(await runBrowserScreen(['--base', 'HEAD'], unknown.dependencies), 1);
   assert.deepEqual(unknown.counts(), { builds: 0, maximum: 0, completed: 0 });
 });
+
+test('semantic transport changes select the actual LSP browser scenarios', () => {
+  const plan = selectBrowserScreen(['shared/workspace-request-scheduling.ts', 'shared/workspace-request-scheduling.js',
+    'extensions/language-server/backend/managed-language-server-client.cts', 'tests/e2e/lsp-file-isolation.spec.ts']);
+  assert.deepEqual(plan.unmapped, []);
+  assert.deepEqual(plan.lanes.map(lane => lane.script), ['release:fast-screen:language-server']);
+});

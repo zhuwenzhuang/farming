@@ -234,17 +234,17 @@ latest file-open intent.
 
 The browser broker bounds delivery before requests reach the socket. It shares
 the server's operation classification and admits at most four interactive and
-two background Workspace requests, plus two independently admitted Language Server
-requests at a time. Language Server work never occupies a Workspace slot.
+two background Workspace requests, plus one interactive and one background
+Language Server request at a time. Language Server work never occupies a Workspace slot.
 Restoring many expanded directories queues their reads locally; it must not
 flood the server queue or let Git decoration block directory navigation.
 Every result, cancellation, and timeout releases admission for the next owned
 request. Cancelled server-queued work immediately releases queue capacity.
 
-The browser retains at most 512 pending requests, with 64 reserved for interactive
-work; Language Server requests have a separate 64-request pending cap. The server's
-64-entry queue likewise reserves 16 for interactive work and limits queued
-Language Server work to 16. Semantic requests cannot exhaust either file lane
+The browser retains at most 512 pending Workspace requests, with 64 reserved for interactive
+Workspace work. Each Language Server lane separately allows 32 pending requests.
+The server's 64-entry Workspace queue reserves 16 for interactive work; each
+Language Server lane has its own eight-entry queue, outside that Workspace quota. Semantic requests cannot exhaust either file lane
 or the shared queue, even if an underlying server ignores cancellation.
 Overflow is explicitly rejected before delivery or execution. A request's default 60-second deadline includes local queue
 time and delivery; operation-specific bounded deadlines may override it.
@@ -258,14 +258,15 @@ message. Each in-flight request owns an `AbortController`, deadline, operation
 classification, and bounded result budget. Connection close aborts all
 cancel-safe work and disposes its watch registrations.
 
-Workspace and semantic work use three scheduling lanes:
+Workspace and semantic work use four scheduling lanes:
 
 - **interactive**: directory `tree`, file resolve, explicit reload, save and
   entry mutations;
 - **background**: `tree-decorations`, search, Git status, History, blame, previews, and
   watch-triggered revalidation;
-- **Language Server**: capability discovery, semantic navigation, and automatic
-  semantic tokens, inlay hints, symbols, Hover, and diagnostics.
+- **interactive Language Server**: explicit semantic navigation and Hover;
+- **background Language Server**: capability discovery, automatic semantic tokens,
+  inlay hints, symbols, highlights, and diagnostics.
 
 Background and Language Server work have independent concurrency limits and cannot occupy every
 Workspace execution slot. At least one interactive slot remains available.
@@ -385,6 +386,15 @@ hold a browser HTTP connection or a Workspace background slot until the
 Language Server deadline. Cancellation remains best effort, and editor model,
 saved revision, binding, and provider-refresh revision still fence every late
 semantic result.
+
+The backend propagates cancellation through the router, service, and manager to
+the managed client. Cancelling a shared startup wait releases only that caller;
+the manager still owns initialization for other callers. Unsent semantic work
+does not issue an RPC after cancellation. A sent RPC receives `$/cancelRequest`,
+but retains its execution slot until a response, connection failure, or request
+deadline settles it. Diagnostic and capability-legend waiters remove their
+listeners and timers on cancellation. No cancelled result is admitted and no
+failed request is automatically replayed.
 
 Language Server refresh remains an ordered Project-scoped server event on the
 same WebSocket. It is not converted into polling.

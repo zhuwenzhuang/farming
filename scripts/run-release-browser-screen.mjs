@@ -11,6 +11,7 @@ const definitions = [
   ['mobile-auth', 'release:fast-screen:mobile-auth'],
   ['composer', 'release:fast-screen:composer'],
   ['interaction', 'release:fast-screen:interaction'],
+  ['language-server', 'release:fast-screen:language-server'],
   ['sidebar', 'release:fast-screen:sidebar-mobile'],
 ];
 export function selectBrowserScreen(files) {
@@ -22,6 +23,7 @@ export function selectBrowserScreen(files) {
     if (/^src\/components\/files\/|^src\/lib\/workspace-|^src\/styles\/file-|^tests\/e2e\/(file-|global-file-search|iphone-mobile-layout|mobile-files|mobile-human-story)/.test(filename)) {
       select(['touch-files', 'mobile-files', 'mobile-auth']);
     }
+    if (/^extensions\/language-server\/|^shared\/workspace-request-scheduling\.|^tests\/e2e\/(lsp-|file-editor-diagnostics)/.test(filename)) select(['language-server']);
     if (/^src\/components\/code\/.*[Cc]omposer|^src\/lib\/composer-|^src\/styles\/composer|^tests\/e2e\/(composer-|mobile-composer)/.test(filename)) select(['composer']);
     if (/^src\/components\/code\/(acp\/|.*[Cc]hat|.*[Tt]ranscript)|^(backend|shared)\/acp|^backend\/control-api\.cts|^src\/components\/CodeWorkspace\.|^src\/styles\/(chat|transcript)|^tests\/e2e\/(acp-|chat-|agent-handoff|related-(session|history)|ui-interaction-layer)/.test(filename)) select(['interaction']);
     if (/^src\/.*(auth|sharing|access)|^backend\/.*(auth|sharing|access-control)|^tests\/e2e\/mobile-auth-readonly/.test(filename)) select(['mobile-auth']);

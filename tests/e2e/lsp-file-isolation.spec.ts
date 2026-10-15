@@ -11,6 +11,11 @@ for (const appearance of ['light', 'dark', 'paper']) {
     })
     expect(created.ok()).toBeTruthy()
     const { agentId } = await created.json() as { agentId: string }
+    await expect.poll(async () => {
+      const response = await page.request.get(`/farming/api/agents/${agentId}/acp-session?includeEntries=0`)
+      const body = await response.json() as { session?: { state?: string } }
+      return body.session?.state
+    }).toBe('idle')
     const identity = await (await page.request.get(`/farming/api/agents/${agentId}/acp-transcript`)).json() as { sessionId: string; runtimeEpoch: string }
     await page.route(new RegExp(`/api/agents/${agentId}/acp-transcript(?:\\?.*)?$`), route => route.fulfill({ json: {
       version: 1, agentId, sessionId: identity.sessionId, runtimeEpoch: identity.runtimeEpoch,
@@ -45,7 +50,7 @@ for (const appearance of ['light', 'dark', 'paper']) {
       const link = chat.getByRole('link', { name: 'Demo.java', exact: true })
       await link.click()
       await expect(page.getByTestId('code-file-monaco')).toBeVisible()
-      await expect.poll(() => semanticStarts).toBeGreaterThanOrEqual(2)
+      await expect.poll(() => semanticStarts).toBeGreaterThanOrEqual(1)
       const files = page.getByTestId('code-files-section').first()
       const title = files.locator('.code-files-title').first()
       if (await title.getAttribute('aria-expanded') !== 'true') await title.click()
@@ -59,6 +64,7 @@ for (const appearance of ['light', 'dark', 'paper']) {
       await row.click()
       await expect(link).toBeVisible()
       await expect(page.getByTestId('code-acp-composer-input')).toBeEditable()
+      await expect(page.getByTestId('code-acp-error')).toHaveCount(0)
       expect(errors).toEqual([])
       const screenshot = await page.screenshot({ path: testInfo.outputPath(`lsp-isolation-${appearance}.png`), animations: 'disabled' })
       expect(screenshot.readUInt32BE(16)).toBe(1280)

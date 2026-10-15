@@ -1,8 +1,8 @@
 import type { LanguageServerRequestPayload, WorkspaceRequest } from './browser-protocol.js'
 
-export type WorkspaceRequestLane = 'interactive' | 'background' | 'languageServer'
+export type WorkspaceRequestLane = 'interactive' | 'background' | 'languageServer' | 'languageServerBackground'
 
-export const WORKSPACE_REQUEST_CONCURRENCY = { interactive: 4, background: 2, languageServer: 2 } as const
+export const WORKSPACE_REQUEST_CONCURRENCY = { interactive: 4, background: 2, languageServer: 1, languageServerBackground: 1 } as const
 
 export function workspaceRequestLane(request: WorkspaceRequest): WorkspaceRequestLane {
   switch (request.operation) {
@@ -22,8 +22,9 @@ export function workspaceRequestLane(request: WorkspaceRequest): WorkspaceReques
   }
 }
 
-export function languageServerRequestLane(_request: LanguageServerRequestPayload): WorkspaceRequestLane {
+export function languageServerRequestLane(request: LanguageServerRequestPayload): WorkspaceRequestLane {
   // Optional semantic work must never hold a Files execution slot, even when
   // the server ignores cancellation during initialization.
-  return 'languageServer'
+  return request.operation === 'capability' || request.priority === 'background'
+    ? 'languageServerBackground' : 'languageServer'
 }

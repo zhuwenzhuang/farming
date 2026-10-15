@@ -53,6 +53,7 @@ let transportReady = false
 let requestSequence = 0
 let inlineMessageLimit = MAX_INLINE_WORKSPACE_MESSAGE_BYTES
 const pendingRequests = new Map<string, PendingRequest>()
+const MAX_LANGUAGE_SERVER_PENDING_REQUESTS = 32
 const MAX_PENDING_REQUESTS = 512
 const MAX_BACKGROUND_PENDING_REQUESTS = MAX_PENDING_REQUESTS - 64
 const DEFAULT_REQUEST_TIMEOUT_MS = 60_000
@@ -91,7 +92,7 @@ function sendPending(request: PendingRequest): boolean {
 
 function drainPending(): void {
   if (!transportReady || !transport) return
-  const running = { interactive: 0, background: 0, languageServer: 0 }
+  const running = { interactive: 0, background: 0, languageServer: 0, languageServerBackground: 0 }
   for (const request of pendingRequests.values()) {
     if (request.sent) running[request.lane] += 1
   }
@@ -121,11 +122,14 @@ function createRequest<T>(
   if (options.signal?.aborted) return Promise.reject(abortError(options.signal))
   const lane = message.type === 'language-server-request' ? languageServerRequestLane(message.request)
     : message.type === 'workspace-request' ? workspaceRequestLane(message.request) : 'interactive'
-  const backgroundFull = lane !== 'interactive'
-    && [...pendingRequests.values()].filter(request => request.lane !== 'interactive').length >= MAX_BACKGROUND_PENDING_REQUESTS
-  const languageServerFull = lane === 'languageServer'
-    && [...pendingRequests.values()].filter(request => request.lane === 'languageServer').length >= 64
-  if (pendingRequests.size >= MAX_PENDING_REQUESTS || backgroundFull || languageServerFull) {
+  const requests = [...pendingRequests.values()]
+  const fileRequests = requests.filter(request => request.lane === 'interactive' || request.lane === 'background')
+  const languageServerLane = lane === 'languageServer' || lane === 'languageServerBackground'
+  const full = languageServerLane
+    ? requests.filter(request => request.lane === lane).length >= MAX_LANGUAGE_SERVER_PENDING_REQUESTS
+    : fileRequests.length >= MAX_PENDING_REQUESTS
+      || (lane === 'background' && fileRequests.filter(request => request.lane === 'background').length >= MAX_BACKGROUND_PENDING_REQUESTS)
+  if (full) {
     return Promise.reject(new WorkspaceTransportError({
       code: 'BUSY', status: 503, message: 'Workspace request queue is full; wait for current work to finish',
     }))

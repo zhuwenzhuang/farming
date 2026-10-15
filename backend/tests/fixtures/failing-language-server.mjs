@@ -2,6 +2,7 @@
 // The parent client must clean up this exact child in either case.
 import fs from 'node:fs'
 
+let pendingRequest
 let buffer = Buffer.alloc(0)
 const keepAlive = setInterval(() => {}, 1000)
 function reply(id, result) {
@@ -26,7 +27,27 @@ process.stdin.on('data', chunk => {
       } else {
         reply(message.id, { capabilities: {} })
       }
+    } else if (message.method === '$/cancelRequest') {
+      if (pendingRequest === message.params.id) {
+        fs.writeFileSync(process.argv.at(-1), 'cancelled')
+        const cancelledId = pendingRequest
+        if (process.argv.includes('--defer-cancel-response')) {
+          const release = setInterval(() => {
+            if (fs.readFileSync(process.argv.at(-1), 'utf8') !== 'release') return
+            clearInterval(release)
+            reply(cancelledId, null)
+          }, 10)
+        } else {
+          reply(cancelledId, null)
+        }
+        pendingRequest = undefined
+      }
     } else if (message.method === 'textDocument/hover') {
+      if (process.argv.includes('--cancel-request')) {
+        pendingRequest = message.id
+        fs.writeFileSync(process.argv.at(-1), 'waiting')
+        continue
+      }
       clearInterval(keepAlive)
       process.exit(7)
     }

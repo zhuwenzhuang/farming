@@ -600,14 +600,14 @@ const websocketWorkspaceRequestHandlers = createWebSocketWorkspaceRequestHandler
       signal,
     },
   ),
-  executeLanguageServer: async request => {
+  executeLanguageServer: async (request, signal) => {
     if (request.operation === 'capability') {
       return {
         result: await executeLanguageServerCapability(languageServerService, request.force === true),
         supported: true,
       };
     }
-    return executeLanguageServerRequest(languageServerService, workspaceRootRegistry, request);
+    return executeLanguageServerRequest(languageServerService, workspaceRootRegistry, request, signal);
   },
   error: error => {
     const caught = caughtError(error);

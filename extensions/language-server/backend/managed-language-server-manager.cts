@@ -17,6 +17,7 @@ import { extractZipArchive } from '../../../backend/zip-archive.cjs';
 import {
   ManagedLanguageServerClient,
   languageServerError,
+  waitForLanguageServer,
   type LanguageServerRefreshKind,
 } from './managed-language-server-client.cjs';
 import {
@@ -45,7 +46,7 @@ interface ManagedClient {
   readonly id: string;
   readonly root: string;
   readonly workspaceRoot: string;
-  execute(payload: JsonRecord): Promise<{ result: unknown; supported: boolean }>;
+  execute(payload: JsonRecord, signal?: AbortSignal): Promise<{ result: unknown; supported: boolean }>;
   ownsHierarchyHandle(itemId: string): boolean;
   dispose(): Promise<void>;
 }
@@ -615,7 +616,8 @@ class ManagedLanguageServerManager {
     return task;
   }
 
-  async request(body: unknown): Promise<{ result: unknown; supported: boolean }> {
+  async request(body: unknown, signal?: AbortSignal): Promise<{ result: unknown; supported: boolean }> {
+    signal?.throwIfAborted();
     this.assertEnabled();
     const payload = recordValue(body);
     const workspaceUri = String(payload.workspace || '');
@@ -630,7 +632,7 @@ class ManagedLanguageServerManager {
     if (itemId) {
       const client = [...this.clients.values()].find(value => value.ownsHierarchyHandle(itemId));
       if (!client) throw languageServerError('Language Server hierarchy item expired', 'LANGUAGE_SERVER_HIERARCHY_ITEM_EXPIRED', 410);
-      return client.execute(payload);
+      return client.execute(payload, signal);
     }
     if (method === 'workspaceSymbols') {
       const uri = String(payload.uri || '');
@@ -642,7 +644,8 @@ class ManagedLanguageServerManager {
           throw languageServerError('Managed Language Server requires a file', 'LANGUAGE_SERVER_FILE_REQUIRED', 400);
         }
         const resolved = await resolveLanguageServer(filePath, workspaceRoot, this.definitions);
-        if (resolved) await this.ensureClient(resolved.definition, resolved.root, workspaceRoot);
+        signal?.throwIfAborted();
+        if (resolved) await waitForLanguageServer(this.ensureClient(resolved.definition, resolved.root, workspaceRoot), signal);
       }
       const clients = [...this.clients.values()].filter(value => value.workspaceRoot === workspaceRoot);
       if (clients.length === 0) {
@@ -652,7 +655,7 @@ class ManagedLanguageServerManager {
           503,
         );
       }
-      const results = await Promise.all(clients.map(client => client.execute(payload)));
+      const results = await Promise.all(clients.map(client => client.execute(payload, signal)));
       return { result: results.flatMap(value => Array.isArray(value.result) ? value.result : []), supported: true };
     }
 
@@ -667,8 +670,9 @@ class ManagedLanguageServerManager {
     if (!resolved) {
       throw languageServerError('No managed Language Server supports this file', 'LANGUAGE_SERVER_NOT_CONFIGURED', 503);
     }
-    const client = await this.ensureClient(resolved.definition, resolved.root, workspaceRoot);
-    return client.execute({ ...payload, filePath });
+    signal?.throwIfAborted();
+    const client = await waitForLanguageServer(this.ensureClient(resolved.definition, resolved.root, workspaceRoot), signal);
+    return client.execute({ ...payload, filePath }, signal);
   }
 
   async dispose(): Promise<void> {

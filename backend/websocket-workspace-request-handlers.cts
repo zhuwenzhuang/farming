@@ -55,13 +55,15 @@ interface ClientSchedule {
   background: ScheduledRequest[];
   running: Record<RequestLane, number>;
   languageServer: ScheduledRequest[];
+  languageServerBackground: ScheduledRequest[];
   interactive: ScheduledRequest[];
 
   requests: Map<string, ScheduledRequest>;
 }
 
-const LANES: RequestLane[] = ['interactive', 'background', 'languageServer'];
-const GLOBAL_LIMITS = { interactive: 24, background: 12, languageServer: 12 };
+const LANES: RequestLane[] = ['interactive', 'background', 'languageServer', 'languageServerBackground'];
+const GLOBAL_LIMITS = { interactive: 24, background: 12, languageServer: 6, languageServerBackground: 6 };
+const MAX_LANGUAGE_SERVER_QUEUED_REQUESTS = 8;
 const MAX_QUEUED_REQUESTS = 64;
 const MAX_BACKGROUND_QUEUED_REQUESTS = MAX_QUEUED_REQUESTS - 16;
 const BACKPRESSURE_BYTES = 512 * 1024;
@@ -71,15 +73,16 @@ function createWebSocketWorkspaceRequestHandlers<Client extends WorkspaceRequest
 ) {
   const schedules = new WeakMap<Client, ClientSchedule>();
   const activeClients = new Set<Client>();
-  const globalRunning = { interactive: 0, background: 0, languageServer: 0 };
+  const globalRunning = { interactive: 0, background: 0, languageServer: 0, languageServerBackground: 0 };
 
   function scheduleFor(client: Client): ClientSchedule {
     let schedule = schedules.get(client);
     if (!schedule) {
       schedule = {
         background: [],
-        running: { interactive: 0, background: 0, languageServer: 0 },
+        running: { interactive: 0, background: 0, languageServer: 0, languageServerBackground: 0 },
         languageServer: [],
+        languageServerBackground: [],
         interactive: [],
         requests: new Map(),
       };
@@ -165,12 +168,13 @@ function createWebSocketWorkspaceRequestHandlers<Client extends WorkspaceRequest
       });
       return;
     }
-    const queued = schedule.interactive.length + schedule.background.length + schedule.languageServer.length;
-    const backpressured = request.lane !== 'interactive'
-      && (Number(client.bufferedAmount || 0) >= BACKPRESSURE_BYTES
-        || schedule.background.length + schedule.languageServer.length >= MAX_BACKGROUND_QUEUED_REQUESTS
-        || (request.lane === 'languageServer' && schedule.languageServer.length >= 16));
-    if (queued >= MAX_QUEUED_REQUESTS || backpressured) {
+    const languageServerLane = request.lane === 'languageServer' || request.lane === 'languageServerBackground';
+    const queueFull = languageServerLane
+      ? schedule[request.lane].length >= MAX_LANGUAGE_SERVER_QUEUED_REQUESTS
+      : schedule.interactive.length + schedule.background.length >= MAX_QUEUED_REQUESTS
+        || (request.lane === 'background' && schedule.background.length >= MAX_BACKGROUND_QUEUED_REQUESTS);
+    const backpressured = request.lane !== 'interactive' && Number(client.bufferedAmount || 0) >= BACKPRESSURE_BYTES;
+    if (queueFull || backpressured) {
       request.trace?.end('failed');
       send(client, {
         type: request.responseType,
@@ -277,6 +281,7 @@ function createWebSocketWorkspaceRequestHandlers<Client extends WorkspaceRequest
     schedule.interactive.length = 0;
     schedule.background.length = 0;
     schedule.languageServer.length = 0;
+    schedule.languageServerBackground.length = 0;
     schedules.delete(client);
     activeClients.delete(client);
   }

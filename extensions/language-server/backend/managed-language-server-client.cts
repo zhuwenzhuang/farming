@@ -14,6 +14,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import {
   createMessageConnection,
+  CancellationTokenSource,
   StreamMessageReader,
   StreamMessageWriter,
   type MessageConnection,
@@ -88,6 +89,35 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string)
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => reject(languageServerError(message, 'LANGUAGE_SERVER_REQUEST_TIMEOUT', 504)), timeoutMs);
     promise.then(resolve, reject).finally(() => clearTimeout(timer));
+  });
+}
+
+// Shared startup belongs to the manager; cancellation stops this caller's wait,
+// not another caller's initialization. Always observe the owned promise.
+function waitForLanguageServer<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return promise;
+  return new Promise<T>((resolve, reject) => {
+    const abort = () => reject(signal.reason || new Error('Language Server request cancelled'));
+    const cleanup = () => signal.removeEventListener('abort', abort);
+    promise.then(value => { cleanup(); resolve(value); }, error => { cleanup(); reject(error); });
+    if (signal.aborted) abort();
+    else signal.addEventListener('abort', abort, { once: true });
+  });
+}
+
+function waitForLanguageServerEvent(waiters: Set<() => void>, timeoutMs: number, signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted();
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      clearTimeout(timer);
+      waiters.delete(finish);
+      signal?.removeEventListener('abort', abort);
+    };
+    const finish = () => { cleanup(); resolve(); };
+    const abort = () => { cleanup(); reject(signal?.reason || new Error('Language Server request cancelled')); };
+    const timer = setTimeout(finish, timeoutMs);
+    waiters.add(finish);
+    signal?.addEventListener('abort', abort, { once: true });
   });
 }
 
@@ -400,18 +430,10 @@ class ManagedLanguageServerClient {
     return tokenTypes.length > 0 ? { tokenTypes, tokenModifiers } : null;
   }
 
-  private async waitForSemanticTokensLegend(): Promise<{ tokenTypes: string[]; tokenModifiers: string[] } | null> {
+  private async waitForSemanticTokensLegend(signal?: AbortSignal): Promise<{ tokenTypes: string[]; tokenModifiers: string[] } | null> {
     const current = this.semanticTokensLegend();
     if (current) return current;
-    await new Promise<void>(resolve => {
-      const finish = () => {
-        clearTimeout(timer);
-        this.semanticLegendWaiters.delete(finish);
-        resolve();
-      };
-      const timer = setTimeout(finish, SEMANTIC_TOKENS_LEGEND_WAIT_MS);
-      this.semanticLegendWaiters.add(finish);
-    });
+    await waitForLanguageServerEvent(this.semanticLegendWaiters, SEMANTIC_TOKENS_LEGEND_WAIT_MS, signal);
     this.ensureActive();
     return this.semanticTokensLegend();
   }
@@ -430,10 +452,13 @@ class ManagedLanguageServerClient {
     }
   }
 
-  private ensureDocument(filePath: string): Promise<string> {
+  private ensureDocument(filePath: string, signal?: AbortSignal): Promise<string> {
     // A successful write owns the version transition; concurrent requests must
     // not send duplicate opens or commit changes out of order.
-    const sync = this.documentSync.then(() => this.syncDocument(filePath));
+    const sync = this.documentSync.then(() => {
+      signal?.throwIfAborted();
+      return this.syncDocument(filePath);
+    });
     this.documentSync = sync.then(() => undefined, () => undefined);
     return sync;
   }
@@ -464,14 +489,22 @@ class ManagedLanguageServerClient {
     return uri;
   }
 
-  private async request(method: string, params: unknown): Promise<unknown> {
+  private async request(method: string, params: unknown, signal?: AbortSignal): Promise<unknown> {
     this.ensureActive();
+    signal?.throwIfAborted();
+    const cancellation = new CancellationTokenSource();
+    const abort = () => cancellation.cancel();
+    signal?.addEventListener('abort', abort, { once: true });
     try {
-      return await withTimeout(
-        this.connection.sendRequest(method, params),
+      // Cancellation is advisory: retain execution admission until the server
+      // acknowledges completion or the existing request deadline expires.
+      const result = await withTimeout(
+        this.connection.sendRequest(method, params, cancellation.token),
         REQUEST_TIMEOUT_MS,
         `${this.id} request timed out`,
       );
+      signal?.throwIfAborted();
+      return result;
     } catch (error) {
       this.ensureActive();
       const value = recordValue(error);
@@ -479,6 +512,9 @@ class ManagedLanguageServerClient {
         throw languageServerError(`${this.id} does not support ${method}`, 'LANGUAGE_SERVER_METHOD_UNSUPPORTED', 400);
       }
       throw error;
+    } finally {
+      signal?.removeEventListener('abort', abort);
+      cancellation.dispose();
     }
   }
 
@@ -502,45 +538,42 @@ class ManagedLanguageServerClient {
     return this.hierarchyHandles.has(itemId);
   }
 
-  private async waitForDiagnostics(uri: string, afterRevision: number): Promise<unknown[]> {
+  private async waitForDiagnostics(uri: string, afterRevision: number, signal?: AbortSignal): Promise<unknown[]> {
     this.ensureActive();
     const current = this.diagnostics.get(uri);
     if (current && current.revision > afterRevision) return current.items;
-    await new Promise<void>(resolve => {
-      const waiters = this.diagnosticWaiters.get(uri) || new Set<() => void>();
-      const finish = () => {
-        clearTimeout(timer);
-        waiters.delete(finish);
-        if (waiters.size === 0) this.diagnosticWaiters.delete(uri);
-        resolve();
-      };
-      const timer = setTimeout(finish, DIAGNOSTICS_WAIT_MS);
-      waiters.add(finish);
-      this.diagnosticWaiters.set(uri, waiters);
-    });
+    const waiters = this.diagnosticWaiters.get(uri) || new Set<() => void>();
+    this.diagnosticWaiters.set(uri, waiters);
+    try {
+      await waitForLanguageServerEvent(waiters, DIAGNOSTICS_WAIT_MS, signal);
+    } finally {
+      if (waiters.size === 0) this.diagnosticWaiters.delete(uri);
+    }
     this.ensureActive();
     return this.diagnostics.get(uri)?.items || [];
   }
 
-  async execute(payload: JsonRecord): Promise<{ result: unknown; supported: boolean }> {
+  async execute(payload: JsonRecord, signal?: AbortSignal): Promise<{ result: unknown; supported: boolean }> {
+    signal?.throwIfAborted();
+    const request = (method: string, params: unknown) => this.request(method, params, signal);
     const method = String(payload.method || '');
     const uri = typeof payload.uri === 'string' ? payload.uri : '';
     const filePath = typeof payload.filePath === 'string' ? payload.filePath : '';
     const position = payload.position;
-    const documentUri = filePath ? await this.ensureDocument(filePath) : uri;
+    const documentUri = filePath ? await this.ensureDocument(filePath, signal) : uri;
 
     if (method === 'hover') {
-      const value = recordValue(await this.request('textDocument/hover', { textDocument: { uri: documentUri }, position }));
+      const value = recordValue(await request('textDocument/hover', { textDocument: { uri: documentUri }, position }));
       if (!Object.keys(value).length) return { result: [], supported: true };
       return { result: [{ contents: hoverContents(value.contents), ...(value.range ? { range: value.range } : {}) }], supported: true };
     }
     if (method === 'definition' || method === 'implementation') {
       const rpcMethod = method === 'definition' ? 'textDocument/definition' : 'textDocument/implementation';
-      return { result: normalizeLocations(await this.request(rpcMethod, { textDocument: { uri: documentUri }, position })), supported: true };
+      return { result: normalizeLocations(await request(rpcMethod, { textDocument: { uri: documentUri }, position })), supported: true };
     }
     if (method === 'references') {
       return {
-        result: normalizeLocations(await this.request('textDocument/references', {
+        result: normalizeLocations(await request('textDocument/references', {
           textDocument: { uri: documentUri }, position, context: { includeDeclaration: true },
         })),
         supported: true,
@@ -548,17 +581,17 @@ class ManagedLanguageServerClient {
     }
     if (method === 'documentHighlights') {
       return {
-        result: boundedArray(await this.request('textDocument/documentHighlight', {
+        result: boundedArray(await request('textDocument/documentHighlight', {
           textDocument: { uri: documentUri }, position,
         }), MAX_DOCUMENT_HIGHLIGHTS, 'Document Highlight'),
         supported: true,
       };
     }
     if (method === 'semanticTokens') {
-      const value = recordValue(await this.request('textDocument/semanticTokens/full', {
+      const value = recordValue(await request('textDocument/semanticTokens/full', {
         textDocument: { uri: documentUri },
       }));
-      const legend = await this.waitForSemanticTokensLegend();
+      const legend = await this.waitForSemanticTokensLegend(signal);
       if (!legend) {
         throw languageServerError('Language Server did not provide a Semantic Tokens legend', 'LANGUAGE_SERVER_RESULT_INVALID');
       }
@@ -573,25 +606,25 @@ class ManagedLanguageServerClient {
     }
     if (method === 'inlayHints') {
       return {
-        result: boundedArray(await this.request('textDocument/inlayHint', {
+        result: boundedArray(await request('textDocument/inlayHint', {
           textDocument: { uri: documentUri }, range: payload.range,
         }), MAX_INLAY_HINTS, 'Inlay Hints'),
         supported: true,
       };
     }
     if (method === 'documentSymbols') {
-      return { result: await this.request('textDocument/documentSymbol', { textDocument: { uri: documentUri } }) || [], supported: true };
+      return { result: await request('textDocument/documentSymbol', { textDocument: { uri: documentUri } }) || [], supported: true };
     }
     if (method === 'workspaceSymbols') {
       return {
-        result: normalizeWorkspaceSymbols(await this.request('workspace/symbol', { query: String(payload.query || '') })),
+        result: normalizeWorkspaceSymbols(await request('workspace/symbol', { query: String(payload.query || '') })),
         supported: true,
       };
     }
     if (method === 'diagnostics') {
       const before = this.diagnostics.get(documentUri)?.revision || 0;
       return {
-        result: (await this.waitForDiagnostics(documentUri, before)).map(item => {
+        result: (await this.waitForDiagnostics(documentUri, before, signal)).map(item => {
           const diagnostic = recordValue(item);
           return {
             ...diagnostic,
@@ -604,7 +637,7 @@ class ManagedLanguageServerClient {
     if (method === 'prepareCallHierarchy' || method === 'prepareTypeHierarchy') {
       const kind = method === 'prepareCallHierarchy' ? 'call' : 'type';
       const rpcMethod = kind === 'call' ? 'textDocument/prepareCallHierarchy' : 'textDocument/prepareTypeHierarchy';
-      const result = await this.request(rpcMethod, { textDocument: { uri: documentUri }, position });
+      const result = await request(rpcMethod, { textDocument: { uri: documentUri }, position });
       const items = Array.isArray(result) ? result : result ? [result] : [];
       return { result: items.map(item => this.hierarchyItem(item, kind)), supported: true };
     }
@@ -619,7 +652,7 @@ class ManagedLanguageServerClient {
         supertypes: 'typeHierarchy/supertypes',
         subtypes: 'typeHierarchy/subtypes',
       };
-      const result = await this.request(rpcMethods[method], { item: handle.item });
+      const result = await request(rpcMethods[method], { item: handle.item });
       const items = Array.isArray(result) ? result : [];
       if (method === 'incomingCalls' || method === 'outgoingCalls') {
         const itemKey = method === 'incomingCalls' ? 'from' : 'to';
@@ -659,6 +692,7 @@ class ManagedLanguageServerClient {
 export {
   ManagedLanguageServerClient,
   languageServerError,
+  waitForLanguageServer,
   type LanguageServerRefreshKind,
   type ManagedLanguageServerClientOptions,
 };

@@ -77,13 +77,15 @@ test('queued cancellation and deadline never send mutations or claim an uncertai
   }
 })
 
-test('one bounded queue covers both domains while disconnected', { timeout: 5_000 }, async t => {
+test('disconnected Files and LSP queues retain independent bounded capacity', { timeout: 5_000 }, async t => {
   setWorkspaceRequestTransport(null)
   const controller = new AbortController()
   t.after(() => controller.abort())
   const pending: Promise<unknown>[] = []
   try {
     for (let i = 0; i < 512; i++) pending.push(requestWorkspace({ operation: 'tree', rootId: 'root', path: `${i}` },
+      { signal: controller.signal }).catch(error => error))
+    for (let i = 0; i < 32; i++) pending.push(requestLanguageServerTransport({ operation: 'capability', rootId: 'root' },
       { signal: controller.signal }).catch(error => error))
     await assert.rejects(requestLanguageServerTransport({ operation: 'capability', rootId: 'root' }, { signal: controller.signal }),
       error => error instanceof WorkspaceTransportError && error.code === 'BUSY' && !error.uncertain)
@@ -119,9 +121,10 @@ test('a full background backlog leaves admission capacity for interactive naviga
   }
 })
 
-test('stalled foreground and background LSP requests cannot consume file admission', async () => {
+test('stalled foreground and background LSP requests cannot consume file admission', { timeout: 5_000 }, async t => {
   const sent: WorkspaceRequestMessage[] = []
   const controller = new AbortController()
+  t.after(() => controller.abort())
   const pending: Promise<unknown>[] = []
   setWorkspaceRequestTransport(message => {
     if (message.type === 'workspace-request') sent.push(message)
@@ -147,6 +150,29 @@ test('stalled foreground and background LSP requests cannot consume file admissi
       settleWorkspaceRequest({ type: 'workspace-result', requestId: message!.requestId, ok: true, result: 'available' })
       assert.equal(await read, 'available')
     }
+  } finally {
+    controller.abort()
+    await Promise.all(pending)
+    setWorkspaceRequestTransport(null)
+  }
+})
+
+test('background LSP saturation leaves an immediate interactive semantic slot', { timeout: 5_000 }, async () => {
+  const controller = new AbortController()
+  const methods: string[] = []
+  const pending: Promise<unknown>[] = []
+  setWorkspaceRequestTransport(message => {
+    if (message.type === 'language-server-request') methods.push(message.request.operation === 'request' ? String(message.request.method) : 'capability')
+    return true
+  })
+  setWorkspaceRequestTransportReady(true)
+  try {
+    for (let i = 0; i < 64; i++) pending.push(requestLanguageServerTransport({
+      operation: 'request', rootId: 'root', filePath: 'Demo.java', method: 'diagnostics', priority: 'background',
+    }, { signal: controller.signal }).catch(error => error))
+    pending.push(requestLanguageServerTransport({ operation: 'request', rootId: 'root', filePath: 'Demo.java', method: 'hover' },
+      { signal: controller.signal }).catch(error => error))
+    assert.deepEqual(methods, ['diagnostics', 'hover'])
   } finally {
     controller.abort()
     await Promise.all(pending)

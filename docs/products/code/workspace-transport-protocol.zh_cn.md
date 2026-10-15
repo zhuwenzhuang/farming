@@ -201,15 +201,15 @@ Latest File-open Intent 限制。
 ## 请求准入与 Server 调度
 
 浏览器请求代理在发送到 socket 前限制并发，与服务端共享操作分类。Workspace
-最多同时发送四个交互请求与两个后台请求，Language Server 独立并发两个请求，
+最多同时发送四个交互请求与两个后台请求，Language Server 的交互与后台通道各并发一个请求，
 不占用文件操作名额。恢复大量
 展开目录时在本地排队，不能冲满服务端队列，也不能让 Git 装饰阻塞目录导航。
 结果、取消和超时都会为下一个仍被使用的请求释放准入名额。服务端排队请求被
 取消时立即释放队列容量。
 
-浏览器最多保留 512 个待完成请求，其中为交互工作预留 64 个；服务端的 64 项队列
-同样为交互工作预留 16 项。LSP 在浏览器最多保留 64 个待处理请求，服务端每连接
-最多排队 16 个。即使底层语言服务在启动期间不响应取消，也不能占满文件通道或共享
+浏览器最多保留 512 个待完成 Workspace 请求，其中为交互工作预留 64 个；服务端的 64 项 Workspace 队列
+同样为交互工作预留 16 项。LSP 的交互与后台通道在浏览器各保留至多 32 个待处理请求，服务端每连接
+每个通道各允许排队 8 个，不占用 Workspace 队列配额。即使底层语言服务不响应取消，也不能占满文件通道或共享
 队列；不能为释放名额而让仍在运行的 LSP 工作无限堆积。超出时在发送或执行前明确拒绝。默认 60 秒期限包含
 本地排队与传输时间；具体操作可使用自己的有界期限。发送前取消或超时的变更
 不会产生不确定结果。重连时安全读取的重发也遵循相同并发限制；已发送变更不
@@ -220,11 +220,12 @@ WebSocket Message Handler 只执行 Validate 与 Schedule；不能等待一个�
 Deadline、Operation Classification 与有界 Result Budget。Connection Close 会取消所有
 Cancel-safe 工作并释放其 Watch Registration。
 
-Workspace 与语义请求分为三个 Scheduling Lane：
+Workspace 与语义请求分为四个 Scheduling Lane：
 
 - **Interactive**：Directory `tree`、File Resolve、Explicit Reload、Save 与目录项变更；
 - **Background**：`tree-decorations`、Search、Git Status、History、Blame、Preview 与 Watch-triggered Revalidation；
-- **Language Server**：能力发现、语义导航、Semantic Tokens、Inlay Hints、Symbols、Hover 和诊断。
+- **交互 Language Server**：主动语义导航与 Hover；
+- **后台 Language Server**：能力发现、自动 Semantic Tokens、Inlay Hints、Symbols、Highlights 和诊断。
 
 Background 与 Language Server Work 使用独立并发上限，不能占满所有 Workspace Execution Slot；至少保留一个
 Interactive Slot。Limit 同时按 Connection 与 Global 生效，避免一个 Browser 制造无界 Server
@@ -317,6 +318,12 @@ Background Slot 直到 Language Server Deadline。Cancellation 仍是 Best Effor
 Saved Revision、Binding 与 Provider-refresh Revision 继续阻止所有迟到 Semantic Result。
 
 Language Server Refresh 继续作为同一 WS 上有序、Project-scoped 的 Server Event，不改为 Polling。
+
+Backend 将取消信号经 Router、Service 和 Manager 传到 Managed Client。取消共享启动的
+等待只释放当前调用者，Manager 仍为其他调用者持有初始化过程。尚未发送的语义工作在取消后
+不得继续发出 RPC。已发送的 RPC 收到 `$/cancelRequest`，但在响应、连接失败或请求期限
+到达前仍占用执行名额。诊断和 Capability Legend 的等待者在取消时移除监听与定时器。
+取消后的结果不再接纳，失败请求不自动重放。
 
 ## Access 与安全
 
