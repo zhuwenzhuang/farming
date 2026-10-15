@@ -1417,7 +1417,7 @@ function AgentTranscriptSteerItem({ item, copy }: { item: AgentTranscriptProcess
   return (
     <div className="code-agent-transcript-steer" data-testid="code-agent-transcript-steer">
       <div className="code-agent-transcript-user code-agent-transcript-steer-bubble">
-        {text ? <div className="code-agent-transcript-steer-content">{plainTextBlock(text)}</div> : null}
+        {text ? <div className="code-agent-transcript-steer-content"><AgentTranscriptUserMarkdown text={text} /></div> : null}
         <AgentTranscriptUserImages images={images} />
         <AgentTranscriptAudios audios={audios} />
         <AgentTranscriptUserFiles files={files} />
@@ -1458,11 +1458,22 @@ function AgentTranscriptCommunicationRecipient({ peer, fallback, directed, copy 
   return directed ? copy.agentTranscriptCollaborationRecipient(name) : name
 }
 
+function AgentTranscriptUserMarkdown({ text }: { text: string }) {
+  return <div className="code-markdown-preview code-agent-transcript-user-markdown">
+    <ReactMarkdown
+      remarkPlugins={TRANSCRIPT_REMARK_PLUGINS}
+      rehypePlugins={[rehypeKatex, rehypeHighlight]}
+      skipHtml
+      urlTransform={agentTranscriptUrlTransform}
+    >{text}</ReactMarkdown>
+  </div>
+}
+
 function AgentTranscriptUserMessage({ turn, copy }: { turn: AgentTranscriptTurn; copy: CodeCopy }) {
-  if (!turn.handoffContext) return <>{plainTextBlock(turn.userMessage)}</>
+  if (!turn.handoffContext) return <AgentTranscriptUserMarkdown text={turn.userMessage} />
   return <details className="code-agent-transcript-context" data-testid="code-agent-handoff-context">
     <summary><span>{copy.handoffContext}</span><ChevronRightGlyph /></summary>
-    <div className="detail">{plainTextBlock(turn.userMessage)}</div>
+    <div className="detail"><AgentTranscriptUserMarkdown text={turn.userMessage} /></div>
   </details>
 }
 

@@ -2886,3 +2886,11 @@ button.code-agent-transcript-result-summary:is(:hover, :focus-visible) .code-age
 .code-agent-transcript-peer-receipts[open] > summary .code-agent-transcript-chevron {
   transform: rotate(90deg);
 }
+
+/* Message bubbles own their geometry; their content shares Markdown typography. */
+.code-markdown-preview.code-agent-transcript-user-markdown {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  white-space: normal;
+}

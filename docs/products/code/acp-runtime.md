@@ -1208,6 +1208,12 @@ navigation latency without imposing a fixed concurrency ceiling.
 
 ### Streaming rich content and inspection
 
+Submitted user messages, Steer messages, and expanded Handoff context render as
+safe Markdown using the shared content typography, including emphasis, lists,
+links, tables, and code. Rendering does not modify the submitted or persisted
+source; live messages and restored history use the same presentation. Raw HTML
+is not executed.
+
 Shared Markdown rendering in Code, CRT, and file previews accepts paired double
 asterisks next to Chinese punctuation without requiring spaces: for example,
 `**重点。**后文` and `前文**“重点”**后文`. Only exact double-asterisk runs
