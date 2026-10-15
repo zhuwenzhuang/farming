@@ -12,6 +12,12 @@ import {
   listCodexSessions,
 } from './codex-session-history.cjs';
 import { isSafeProviderSessionId } from './provider-session-id.cjs';
+import {
+  cleanAgyUserInputText,
+  readAgyConversationSummaries,
+  readAgyConversationWorkspace,
+  unquoteAgyScalar,
+} from './agy-conversation-store.cjs';
 
 const DEFAULT_LIMIT = 60;
 const DEFAULT_SCAN_LIMIT = 500;
@@ -20,11 +26,12 @@ const MAX_AGENT_SESSION_SCAN_LIMIT = 5000;
 const CLAUDE_HISTORY_TAIL_BYTES = 2 * 1024 * 1024;
 const QODER_HISTORY_TAIL_BYTES = 2 * 1024 * 1024;
 const QWEN_HISTORY_TAIL_BYTES = 2 * 1024 * 1024;
+const AGY_HISTORY_TAIL_BYTES = 2 * 1024 * 1024;
 const PI_HISTORY_HEAD_BYTES = 64 * 1024;
 const PI_HISTORY_TAIL_BYTES = 256 * 1024;
 const PI_SETTINGS_MAX_BYTES = 1024 * 1024;
 const MAX_RECENT_FILE_SCAN_DIRECTORIES = 2000;
-type AgentProvider = 'codex' | 'claude' | 'opencode' | 'pi' | 'qoder' | 'qwen';
+type AgentProvider = 'codex' | 'claude' | 'opencode' | 'pi' | 'qoder' | 'qwen' | 'agy';
 
 interface HistoryRecord extends Record<string, unknown> {
   automation?: HistoryRecord;
@@ -180,6 +187,7 @@ type OpenCodeListRunner = (options: OpenCodeListOptions) => unknown | PromiseLik
 
 interface ProviderListOptions {
   sessionId?: string;
+  agyHome?: string;
   claudeHome?: string;
   codexHome?: string;
   limit?: number;
@@ -223,7 +231,7 @@ interface ResumeCommandOptions {
 
 type ProviderListFunction = (options?: ProviderListOptions) => Promise<AgentSession[]>;
 type SessionNormalizer = (session: AgentSession) => AgentSession;
-type ProviderHomeOptionKey = 'claudeHome' | 'codexHome' | 'piHome' | 'qoderHome' | 'qwenHome';
+type ProviderHomeOptionKey = 'agyHome' | 'claudeHome' | 'codexHome' | 'piHome' | 'qoderHome' | 'qwenHome';
 
 interface ProviderHistoryListContext {
   limit: number;
@@ -1494,6 +1502,229 @@ async function listOpenCodeSessions(
     .slice(0, limit);
 }
 
+interface AgySessionMetadata {
+  createdAt: string;
+  cwd: string;
+  filePath: string;
+  firstPrompt: string;
+  id: string;
+  stepCount: number;
+  title: string;
+  updatedAt: string;
+  workspace: string;
+}
+
+function applyAgySessionEvent(
+  metadata: AgySessionMetadata,
+  event: HistoryRecord | null | undefined,
+): void {
+  if (!event || typeof event !== 'object') return;
+  metadata.stepCount += 1;
+  const timestamp = isoTimestamp(event.created_at || event.timestamp);
+  if (timestamp) {
+    metadata.updatedAt = timestamp;
+    metadata.createdAt = metadata.createdAt || timestamp;
+  }
+  if (!metadata.cwd && typeof event.cwd === 'string' && event.cwd.trim()) {
+    metadata.cwd = normalizePathValue(event.cwd);
+  }
+  const stepType = typeof event.type === 'string' ? event.type : '';
+  if (!metadata.firstPrompt && stepType === 'USER_INPUT') {
+    const cleaned = cleanAgyUserInputText(event.content);
+    if (cleaned) {
+      metadata.firstPrompt = cleaned.split(/\r?\n/)[0]?.trim() || cleaned;
+    }
+  }
+  if (!metadata.cwd && Array.isArray(event.tool_calls)) {
+    for (const tc of event.tool_calls) {
+      if (!tc || typeof tc !== 'object') continue;
+      const args = (tc as { args?: Record<string, unknown> }).args;
+      const cwdCandidate = args ? unquoteAgyScalar(args.Cwd) : '';
+      if (cwdCandidate) {
+        metadata.cwd = normalizePathValue(cwdCandidate);
+        break;
+      }
+    }
+  }
+}
+
+async function readAgySessionMetadata(
+  sessionId: string,
+  filePath: string,
+  summaryTitle?: string | null,
+  summaryCwd?: string | null,
+  maxLines = 160,
+): Promise<AgySessionMetadata | null> {
+  if (!sessionId || !isSafeProviderSessionId(sessionId)) return null;
+  const metadata: AgySessionMetadata = {
+    createdAt: '',
+    cwd: summaryCwd ? normalizePathValue(summaryCwd) : '',
+    filePath,
+    firstPrompt: '',
+    id: sessionId,
+    stepCount: 0,
+    title: summaryTitle ? String(summaryTitle).trim() : '',
+    updatedAt: '',
+    workspace: '',
+  };
+
+  if (fs.existsSync(filePath)) {
+    const stream = fs.createReadStream(filePath, { encoding: 'utf8' });
+    const reader = readline.createInterface({ input: stream, crlfDelay: Infinity });
+    let lineCount = 0;
+
+    try {
+      for await (const line of reader) {
+        if (!line) continue;
+        lineCount += 1;
+        try {
+          applyAgySessionEvent(metadata, JSON.parse(line));
+        } catch {
+          // Ignore corrupt lines.
+        }
+        if (lineCount >= maxLines || (metadata.firstPrompt && metadata.cwd && metadata.createdAt)) {
+          break;
+        }
+      }
+    } finally {
+      reader.close();
+      stream.destroy();
+      await finished(stream).catch(() => {});
+    }
+
+    const tail = await readTextTail(filePath, AGY_HISTORY_TAIL_BYTES);
+    for (const line of tail.split('\n').filter(Boolean)) {
+      try {
+        applyAgySessionEvent(metadata, JSON.parse(line));
+      } catch {
+        // Ignore corrupt lines.
+      }
+    }
+  }
+
+  if (metadata.stepCount === 0 && !metadata.title) {
+    return null;
+  }
+  metadata.title = firstTrimmedString(metadata.title, metadata.firstPrompt, 'Antigravity session');
+  metadata.workspace = normalizePathValue(metadata.cwd || '');
+  return metadata;
+}
+
+async function listAgySessions(
+  options: ProviderListOptions = {},
+): Promise<AgentSession[]> {
+  const agyHome = options.agyHome || path.join(os.homedir(), '.gemini', 'antigravity');
+  const limit = typeof options.limit === 'number' && Number.isFinite(options.limit)
+    ? Math.max(0, Math.min(MAX_AGENT_SESSION_HISTORY_LIMIT, Math.floor(options.limit)))
+    : DEFAULT_LIMIT;
+  const scanLimit = typeof options.scanLimit === 'number' && Number.isFinite(options.scanLimit)
+    ? Math.max(limit, Math.min(MAX_AGENT_SESSION_SCAN_LIMIT, Math.floor(options.scanLimit)))
+    : DEFAULT_SCAN_LIMIT;
+
+  const summaries = readAgyConversationSummaries(agyHome);
+  const brainRoot = path.join(agyHome, 'brain');
+  const candidateFiles = new Map<string, RecentFile>();
+
+  if (fs.existsSync(brainRoot)) {
+    let entries: fs.Dirent[] = [];
+    try {
+      entries = await fsp.readdir(brainRoot, { withFileTypes: true });
+    } catch {
+      entries = [];
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory() || !isSafeProviderSessionId(entry.name)) continue;
+      if (options.sessionId && entry.name !== options.sessionId) continue;
+      const transcriptPath = path.join(
+        brainRoot,
+        entry.name,
+        '.system_generated',
+        'logs',
+        'transcript.jsonl',
+      );
+      try {
+        const stat = await fsp.stat(transcriptPath);
+        if (stat.isFile() && stat.size > 0) {
+          candidateFiles.set(entry.name, { filePath: transcriptPath, mtimeMs: stat.mtimeMs });
+        }
+      } catch {
+        // Ignore brain directories without transcript.jsonl.
+      }
+    }
+  }
+
+  for (const [conversationId, summary] of summaries.entries()) {
+    if (options.sessionId && conversationId !== options.sessionId) continue;
+    if (candidateFiles.has(conversationId)) continue;
+    if (summary.stepCount <= 0 && !summary.title) continue;
+    const dbPath = path.join(agyHome, 'conversations', `${conversationId}.db`);
+    let mtimeMs = summary.updatedAtMs || 0;
+    try {
+      const stat = await fsp.stat(dbPath);
+      if (stat.isFile() && stat.mtimeMs > mtimeMs) mtimeMs = stat.mtimeMs;
+    } catch {
+      // Ignore missing conversation db.
+    }
+    candidateFiles.set(conversationId, { filePath: '', mtimeMs });
+  }
+
+  const sortedCandidates = [...candidateFiles.entries()]
+    .sort((left, right) => right[1].mtimeMs - left[1].mtimeMs)
+    .slice(0, scanLimit);
+
+  const sessions: AgentSession[] = [];
+  for (const [conversationId, { filePath, mtimeMs }] of sortedCandidates) {
+    const summary = summaries.get(conversationId);
+    const fallbackWorkspace = summary?.cwd || readAgyConversationWorkspace(agyHome, conversationId) || '';
+    const summaryCwd = fallbackWorkspace ? normalizePathValue(fallbackWorkspace) : '';
+    const effectiveMtimeMs = Math.max(mtimeMs, summary?.updatedAtMs || 0);
+    const metadata = filePath
+      ? await readAgySessionMetadata(conversationId, filePath, summary?.title, summaryCwd)
+      : (summary && (summary.stepCount > 0 || summary.title)
+        ? {
+            createdAt: effectiveMtimeMs > 0 ? new Date(effectiveMtimeMs).toISOString() : '',
+            cwd: summaryCwd,
+            filePath: '',
+            firstPrompt: '',
+            id: conversationId,
+            stepCount: summary.stepCount,
+            title: firstTrimmedString(summary.title, 'Antigravity session'),
+            updatedAt: effectiveMtimeMs > 0 ? new Date(effectiveMtimeMs).toISOString() : '',
+            workspace: summaryCwd,
+          }
+        : null);
+    if (!metadata) continue;
+    const mtimeIso = effectiveMtimeMs > 0 ? new Date(effectiveMtimeMs).toISOString() : '';
+    const updatedAt = timestampMs(mtimeIso) > timestampMs(metadata.updatedAt)
+      ? mtimeIso
+      : (metadata.updatedAt || mtimeIso);
+    const createdAt = metadata.createdAt || updatedAt;
+    const session: AgentSession = {
+      provider: 'agy',
+      providerName: 'Antigravity',
+      id: metadata.id,
+      title: metadata.title,
+      cwd: metadata.cwd,
+      workspace: metadata.workspace,
+      updatedAt,
+      createdAt,
+      archived: false,
+      pinned: false,
+      unread: false,
+      projectless: !metadata.workspace,
+      source: 'agy',
+      capabilities: ['resume'],
+    };
+    if (isVisibleAgentSession(session)) {
+      sessions.push(session);
+    }
+  }
+
+  return dedupeAgentSessions(sessions)
+    .sort((a, b) => timestampMs(b.updatedAt) - timestampMs(a.updatedAt))
+    .slice(0, limit);
+}
+
 function normalizeCodexSession(session: AgentSession): AgentSession {
   return {
     provider: 'codex',
@@ -1679,6 +1910,16 @@ const PROVIDER_HISTORY_DEFINITIONS: readonly ProviderHistoryDefinition[] = [
       list: listQwenSessions,
     }),
   },
+  {
+    id: 'agy',
+    buildResumeCommand: (sessionId, options) => options.fork === true ? '' : `agy --conversation ${sessionId}`,
+    listSessions: context => listHomeBackedProviderSessions(context, {
+      id: 'agy',
+      fallbackHomeKey: 'agyHome',
+      homeOptionKey: 'agyHome',
+      list: listAgySessions,
+    }),
+  },
 ];
 
 const PROVIDER_HISTORY_BY_ID = new Map(
@@ -1786,6 +2027,7 @@ export {
   isTemporaryWorkspace,
   isVisibleAgentSession,
   listAgentSessions,
+  listAgySessions,
   listClaudeSessions,
   listOpenCodeSessions,
   listPiSessions,

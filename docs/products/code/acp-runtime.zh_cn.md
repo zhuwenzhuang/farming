@@ -243,6 +243,13 @@ Usage Update，因此 Chat 的 Context Usage 与 Cost 使用 Live Pi Session 的
 Launch Working Directory 解释 `settings.json` 中的相对 `sessionDir`，因此 Farming 不猜测该目录；
 需要 Farming Inventory 时，应在所选 Pi Agent Home 的 `settings.json` 中配置绝对 `sessionDir`。
 
+`agy`（Antigravity CLI）通过 Farming 内置 ACP Bridge 驱动发现到的 System `agy` Executable，
+并按 Session 持久化该 Absolute Executable Identity。Bridge 通过显式 `--gemini_dir` 与
+`--app_data_dir` 参数绑定所选 Agent Home，在新建或恢复会话前预初始化 `<home>/conversations/<id>.db`，
+把无头 `--output-format stream-json` 轮次与直接 CLI 斜杠命令（`/usage`、`/quota`、`/model`、
+`/skills`、`/plugin`、`/hooks`、`/permissions`）映射为 ACP Update，并从 `<home>/conversations/`
+与 `<home>/brain/<id>/.system_generated/logs/transcript.jsonl` 索引会话历史。
+
 声明一种 AIR Extension 不等于支持全部 AIR 交互。只有客户端协商了自定义答案输入，
 Codex 才使用该交互；否则保留显式的其他答案选项，Schema 校验与 UI 继续采用共享契约。
 
@@ -322,7 +329,7 @@ Session，且绝不重放结果不明确的 Prompt。
 Session 进入 `connecting` 后、Farming 获取 Provider Process 前，会在所选 Agent Home 不存在
 时创建它，并解析其 Canonical Identity。Home 准备失败会成为显式 Session Failure，绝不
 Fallback 到其它 Home 或 Executable。
-Codex、Claude、OpenCode、Qoder、Qwen 与 Pi 都使用该 Connection 边界。与 Zed 一致，只有
+Codex、Claude、OpenCode、Qoder、Qwen、Pi 与 agy 都使用该 Connection 边界。与 Zed 一致，只有
 Provider 明确声明 `session/close` Capability 时才发送关闭请求；否则 Farming 只释放本地
 Session 引用，并在 Project Connection 的最后一个 Session 结束时回收 Provider Process。
 

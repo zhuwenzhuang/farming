@@ -54,7 +54,7 @@ Farming Code is the default desktop and mobile interface. It groups work by proj
 
 ### Agents, Chat, and Terminal
 
-Start or resume Codex, Claude Code, Pi, OpenCode, Qoder, Qwen Code, and other detected
+Start or resume Codex, Claude Code, Pi, OpenCode, Qoder, Qwen Code, Antigravity, and other detected
 coding Agents. Use structured Chat to read results and inspect the process, or
 Terminal to work directly with the CLI.
 
@@ -79,6 +79,7 @@ Farming lets people and Agents use the same project browser. See [Farming Browse
 | OpenCode | Yes | Yes | Yes |
 | Qoder | Yes | Yes | Yes |
 | Qwen Code | Yes | Yes | Yes |
+| Antigravity | Yes | Yes | Yes |
 | bash / zsh | — | Yes | No |
 
 Provider-backed Agents still require a valid provider login. Other detected CLIs

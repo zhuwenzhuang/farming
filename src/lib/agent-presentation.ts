@@ -1,4 +1,4 @@
-export type AgentIconName = 'codex' | 'claude' | 'pi' | 'opencode' | 'qoder' | 'qwen' | 'bash' | 'zsh'
+export type AgentIconName = 'codex' | 'claude' | 'pi' | 'opencode' | 'qoder' | 'qwen' | 'agy' | 'bash' | 'zsh'
 
 const AGENT_ICON_NAMES = new Set<AgentIconName>([
   'codex',
@@ -7,11 +7,13 @@ const AGENT_ICON_NAMES = new Set<AgentIconName>([
   'opencode',
   'qoder',
   'qwen',
+  'agy',
   'bash',
   'zsh',
 ])
 
 const AGENT_ICON_ALIASES: Record<string, AgentIconName> = {
+  antigravity: 'agy',
   'claude-code': 'claude',
   qodercli: 'qoder',
 }

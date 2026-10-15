@@ -331,6 +331,8 @@ function isCrtAgentStateMessageCandidate(value: unknown): value is CrtProtocolRe
     && (value.type === 'state' || value.type === 'state-delta');
 }
 const CRT_AGENT_DISPLAY_NAMES: Record<string, string> = {
+  agy: 'Antigravity',
+  antigravity: 'Antigravity',
   qwen: 'Qwen Code',
   pi: 'Pi',
   codex: 'Codex',

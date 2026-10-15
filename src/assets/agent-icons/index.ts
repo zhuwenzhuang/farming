@@ -11,6 +11,8 @@ import claudeCodeMonochrome from './monochrome/claude-code.svg'
 import claudeMonochrome from './monochrome/claude.svg'
 import opencodeMonochrome from './monochrome/opencode.svg'
 import piMonochromeMarkup from './monochrome/pi.svg?raw'
+import agyColorMarkup from './color/agy.svg?raw'
+import agyMonochromeMarkup from './monochrome/agy.svg?raw'
 import qwenColorMarkup from './color/qwen.svg?raw'
 import qwenMonochromeMarkup from './monochrome/qwen.svg?raw'
 import qoderMonochromeMarkup from './monochrome/qoder.svg?raw'
@@ -32,6 +34,10 @@ export const agentIconAssets = {
 } as const
 
 export const inlineAgentIconMarkup = {
+  agy: {
+    color: svgContents(agyColorMarkup),
+    monochrome: svgContents(agyMonochromeMarkup),
+  },
   pi: {
     color: svgContents(piMonochromeMarkup),
     monochrome: svgContents(piMonochromeMarkup),

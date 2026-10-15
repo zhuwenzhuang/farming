@@ -12,7 +12,7 @@ function message(state: AcpSessionState, id: string, text: string) {
   state.pushEntry({ id, type: 'message', role: 'user', content: [{ type: 'text', text }] });
 }
 
-for (const provider of ['codex', 'claude', 'gemini', 'qoder', 'pi']) {
+for (const provider of ['codex', 'claude', 'gemini', 'qoder', 'pi', 'agy']) {
   const state = new AcpSessionState({ provider, sessionId: 'session' });
   message(state, 'u1', 'first question');
   const revision = state.revision;
@@ -60,7 +60,7 @@ async function testRuntime() {
     return runtime;
   };
   try {
-    for (const provider of ['codex', 'claude', 'gemini', 'qoder', 'pi']) {
+    for (const provider of ['codex', 'claude', 'gemini', 'qoder', 'pi', 'agy']) {
       const runtime = create();
       const options = {
         agentId: provider, provider, cwd: root,

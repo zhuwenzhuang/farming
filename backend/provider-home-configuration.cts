@@ -230,6 +230,13 @@ const PROVIDER_CONFIGURATION_DEFINITIONS: Record<string, ProviderConfigurationDe
     files: ['settings.json'],
     summarize: summarizeJsonConfiguration,
   },
+  agy: {
+    files: ['settings.json'],
+    summarize: contents => summarizeJsonConfiguration(contents, [
+      { key: 'reasoning', setting: 'effort' },
+      { key: 'permission', setting: 'mode' },
+    ]),
+  },
 };
 
 const PROVIDER_CONFIGURATION_FILES: Record<string, string[]> = Object.fromEntries(

@@ -1,4 +1,6 @@
 const AGENT_DISPLAY_NAMES: Record<string, string> = {
+  agy: 'Antigravity',
+  antigravity: 'Antigravity',
   qwen: 'Qwen Code',
   pi: 'Pi',
   codex: 'Codex',

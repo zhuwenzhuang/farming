@@ -185,6 +185,18 @@ const INVENTORY_PROVIDER_POLICIES = {
     fingerprintDepth: 3,
     watchPaths: homePath => [path.join(homePath, 'projects')],
   },
+  agy: {
+    activityDirectoryDepth: 3,
+    appendOnlyRoots: homePath => [path.join(homePath, 'brain')],
+    appendTolerantPaths: () => [],
+    enrichWithAppendOnlyActivity: true,
+    fingerprintDepth: 4,
+    watchPaths: homePath => [
+      path.join(homePath, 'conversation_summaries.db'),
+      path.join(homePath, 'conversations'),
+      path.join(homePath, 'brain'),
+    ],
+  },
 } satisfies Record<AgentProvider, InventoryProviderPolicy>;
 
 function inventoryProviderPolicy(provider: AgentProvider): InventoryProviderPolicy {
@@ -289,12 +301,20 @@ function applyCodexSessionPresentation(
 }
 
 const SESSION_FILE_ID = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i;
+const AGY_BRAIN_TRANSCRIPT_ID = /[/\\]brain[/\\]([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})[/\\]\.system_generated[/\\]logs[/\\]transcript\.jsonl$/i;
 
-function sessionIdFromHistoryFile(provider: AgentProvider, fileName: string): string {
+function sessionIdFromHistoryFile(
+  provider: AgentProvider,
+  fileName: string,
+  candidatePath = '',
+): string {
   if (provider === 'pi') {
     const match = fileName.match(/^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z_(.+)\.jsonl$/);
     const id = String(match?.[1] || '').trim();
     return isSafePiSessionId(id) ? id : '';
+  }
+  if (provider === 'agy') {
+    return candidatePath.match(AGY_BRAIN_TRANSCRIPT_ID)?.[1] || '';
   }
   return fileName.match(SESSION_FILE_ID)?.[1] || '';
 }
@@ -329,7 +349,7 @@ async function appendOnlySessionActivity(
         continue;
       }
       if (!entry.isFile()) continue;
-      const id = sessionIdFromHistoryFile(provider, entry.name);
+      const id = sessionIdFromHistoryFile(provider, entry.name, candidate);
       if (!id) continue;
       try {
         const stat = await fsp.stat(candidate);

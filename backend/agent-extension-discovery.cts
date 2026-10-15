@@ -614,6 +614,19 @@ const PROVIDER_EXTENSION_DISCOVERY: Record<string, ProviderExtensionDiscoveryDef
     discoverConfiguration: () => {},
     pluginSources: claudePluginSources,
   },
+  agy: {
+    discoverConfiguration: (items, homePath) => {
+      const builtinSkillsDir = path.join(homePath, 'builtin', 'skills');
+      if (fs.existsSync(builtinSkillsDir)) {
+        discoverSkillDirectory(items, homePath, builtinSkillsDir, 'Built-in');
+      }
+      const mcpConfigFile = path.join(homePath, 'mcp_config.json');
+      if (fs.existsSync(mcpConfigFile)) {
+        discoverMcpFile(items, homePath, mcpConfigFile, 'Home');
+      }
+    },
+    pluginSources: providerPluginSources,
+  },
 };
 
 function discoverAgentExtensions({ provider, providerHomePath }: DiscoveryOptions = {}): AgentExtensionItem[] {

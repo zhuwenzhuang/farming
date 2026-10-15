@@ -12,6 +12,7 @@ const {
   isTemporaryWorkspace,
   isVisibleAgentSession,
   listAgentSessions,
+  listAgySessions,
   listClaudeSessions,
   listOpenCodeSessions,
   listPiSessions,
@@ -34,6 +35,7 @@ async function run() {
   const piSessionsDir = path.join(root, 'pi-custom-sessions');
   const qoderHome = path.join(root, 'qoder');
   const qwenHome = path.join(root, 'qwen');
+  const agyHome = path.join(root, 'agy');
   const codexSessionsDir = path.join(codexHome, 'sessions', '2026', '06', '28');
   const codexAltSessionsDir = path.join(codexAltHome, 'sessions', '2026', '06', '28');
   const claudeProjectDir = path.join(claudeHome, 'projects', '-repo-claude');
@@ -57,6 +59,7 @@ async function run() {
   fs.mkdirSync(qoderDuplicateProjectDir, { recursive: true });
   fs.mkdirSync(qoderTempProjectDir, { recursive: true });
   fs.mkdirSync(qwenArchiveDir, { recursive: true });
+  fs.mkdirSync(agyHome, { recursive: true });
 
   const codexId = '019f0000-0000-7000-8000-000000000101';
   const tempCodexId = '019f0000-0000-7000-8000-000000000102';
@@ -73,6 +76,7 @@ async function run() {
   const qwenId = '33333333-4444-4555-8666-777777777777';
   const promptOnlyQwenId = '33333333-4444-4555-8666-999999999999';
   const archivedQwenId = '33333333-4444-4555-8666-888888888888';
+  const agyId = '44444444-5555-4666-8777-888888888888';
   const openCodeId = 'ses_0b5c8bfdbffepm0O5sc1lPLtzK';
   const tempOpenCodeId = 'ses_0b86a0bb9ffe993SjI5ZfY2c0j';
   let openCodeListCalls = 0;
@@ -570,6 +574,34 @@ async function run() {
   );
   fs.writeFileSync(path.join(piHome, 'settings.json'), JSON.stringify({ sessionDir: piSessionsDir }));
 
+  const agyTranscriptDir = path.join(agyHome, 'brain', agyId, '.system_generated', 'logs');
+  fs.mkdirSync(agyTranscriptDir, { recursive: true });
+  fs.writeFileSync(path.join(agyTranscriptDir, 'transcript.jsonl'), [
+    JSON.stringify({
+      step_index: 1,
+      type: 'USER_INPUT',
+      status: 'DONE',
+      created_at: '2026-06-28T10:55:00.000Z',
+      content: '<USER_REQUEST>\nInspect Antigravity history\n</USER_REQUEST>',
+    }),
+    JSON.stringify({
+      step_index: 2,
+      type: 'PLANNER_RESPONSE',
+      status: 'DONE',
+      created_at: '2026-06-28T10:55:04.000Z',
+      content: 'Inspected Antigravity history.',
+      tool_calls: [{ id: 'tc-1', name: 'run_command', args: { Cwd: '/repo/agy', CommandLine: 'pwd' } }],
+    }),
+  ].join('\n') + '\n');
+  const agySessions = await listAgySessions({ agyHome, limit: 5 });
+  assert.strictEqual(agySessions.length, 1);
+  assert.strictEqual(agySessions[0].provider, 'agy');
+  assert.strictEqual(agySessions[0].providerName, 'Antigravity');
+  assert.strictEqual(agySessions[0].id, agyId);
+  assert.strictEqual(agySessions[0].title, 'Inspect Antigravity history');
+  assert.strictEqual(agySessions[0].cwd, '/repo/agy');
+  assert.deepStrictEqual(agySessions[0].capabilities, ['resume']);
+
   const openCodeSessions = await listOpenCodeSessions({ limit: 5, runOpenCodeSessionList });
   assert.strictEqual(openCodeSessions.length, 1);
   assert.strictEqual(openCodeSessions[0].provider, 'opencode');
@@ -585,6 +617,7 @@ async function run() {
     piHome,
     qoderHome,
     qwenHome,
+    agyHome,
     limit: 10,
     providerLimit: 10,
     runOpenCodeSessionList,
@@ -603,6 +636,7 @@ async function run() {
       pi: [{ id: 'default', path: piHome }],
       qoder: [{ id: 'default', path: qoderHome }],
       qwen: [{ id: 'default', path: qwenHome }],
+      agy: [{ id: 'default', path: agyHome }],
       opencode: [
         { id: 'default', path: path.join(root, 'opencode') },
         { id: 'work', path: path.join(root, 'opencode-work') },
@@ -619,7 +653,7 @@ async function run() {
   assert.strictEqual(sessions.some(session => session.id === tempQoderId), false);
   assert.strictEqual(sessions.some(session => session.id === tempOpenCodeId), false);
   assert.strictEqual(openCodeListCalls, openCodeCallsBeforeUnifiedList + 1, 'OpenCode session history is global and should not be duplicated across config homes');
-  assert.deepStrictEqual(new Set(sessions.map(session => session.provider)), new Set(['codex', 'claude', 'opencode', 'pi', 'qoder', 'qwen']));
+  assert.deepStrictEqual(new Set(sessions.map(session => session.provider)), new Set(['codex', 'claude', 'opencode', 'pi', 'qoder', 'qwen', 'agy']));
   assert.strictEqual(sessions.find(session => session.id === codexId).providerHomeId, 'default');
   assert.strictEqual(sessions.find(session => session.id === altCodexId).providerHomeId, 'zwz');
   assert.strictEqual(sessions.find(session => session.id === codexId).title, 'Codex title');
@@ -627,6 +661,7 @@ async function run() {
   assert.deepStrictEqual(sessions.find(session => session.id === codexId).capabilities, ['resume', 'fork']);
   assert.deepStrictEqual(sessions.find(session => session.provider === 'qoder').capabilities, ['resume', 'fork']);
   assert.deepStrictEqual(sessions.find(session => session.provider === 'qwen').capabilities, ['resume']);
+  assert.deepStrictEqual(sessions.find(session => session.provider === 'agy').capabilities, ['resume']);
   assert.deepStrictEqual(sessions.find(session => session.provider === 'pi').capabilities, ['resume', 'fork']);
   assert.deepStrictEqual(sessions.find(session => session.provider === 'opencode').capabilities, ['resume', 'fork']);
   assert.strictEqual(sessions.find(session => session.provider === 'opencode').providerHomeId, 'work');
@@ -637,6 +672,7 @@ async function run() {
 
   const foundClaude = await findAgentSession('claude', claudeId, { claudeHome, limit: 10, providerHomes: { claude: [{ id: 'default', path: claudeHome }] } });
   const foundPi = await findAgentSession('pi', piId, { piHome, limit: 10, providerHomes: { pi: [{ id: 'default', path: piHome }] } });
+  const foundAgy = await findAgentSession('agy', agyId, { agyHome, limit: 10, providerHomes: { agy: [{ id: 'default', path: agyHome }] } });
   const foundAltCodex = await findAgentSession('codex', altCodexId, { limit: 10, providerHomeId: 'zwz', providerHomes: { codex: [{ id: 'default', path: codexHome }, { id: 'zwz', path: codexAltHome }] } });
   const foundOpenCode = await findAgentSession('opencode', openCodeId, {
     limit: 10,
@@ -661,6 +697,7 @@ async function run() {
     'an unknown Home must not fall back to default');
   assert.strictEqual(foundClaude.id, claudeId);
   assert.strictEqual(foundPi.id, piId);
+  assert.strictEqual(foundAgy.id, agyId);
   assert.strictEqual(foundOpenCode.id, openCodeId);
   assert.strictEqual(foundOpenCode.providerHomeId, 'work');
   assert.strictEqual(buildAgentSessionResumeCommand('codex', codexId), `codex resume ${codexId}`);
@@ -683,6 +720,8 @@ async function run() {
   assert.strictEqual(buildAgentSessionResumeCommand('qoder', qoderId, { fork: true }), `qodercli --resume ${qoderId} --fork-session`);
   assert.strictEqual(buildAgentSessionResumeCommand('qwen', qwenId), `qwen --resume ${qwenId}`);
   assert.strictEqual(buildAgentSessionResumeCommand('qwen', qwenId, { fork: true }), '');
+  assert.strictEqual(buildAgentSessionResumeCommand('agy', agyId), `agy --conversation ${agyId}`);
+  assert.strictEqual(buildAgentSessionResumeCommand('agy', agyId, { fork: true }), '');
   assert.strictEqual(buildAgentSessionResumeCommand('opencode', openCodeId), `opencode --session ${openCodeId}`);
   assert.strictEqual(buildAgentSessionResumeCommand('opencode', openCodeId, { fork: true }), `opencode --session ${openCodeId} --fork`);
   assert.strictEqual(buildAgentSessionResumeCommand('pi', piId), `pi --session ${piId}`);

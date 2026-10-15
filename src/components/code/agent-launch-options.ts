@@ -15,6 +15,18 @@ export interface AgentLaunchOption {
   }
 }
 
+const DEFAULT_AGENT_LAUNCH_ORDER: Record<string, number> = {
+  codex: 0,
+  claude: 1,
+  pi: 2,
+  opencode: 3,
+  qoder: 4,
+  qwen: 5,
+  agy: 6,
+  bash: 7,
+  zsh: 8,
+}
+
 export function normalizeAgentLaunchOptions(rawOptions: AgentLaunchOption[]) {
   const seen = new Set<string>()
   return rawOptions
@@ -32,8 +44,8 @@ export function normalizeAgentLaunchOptions(rawOptions: AgentLaunchOption[]) {
       return true
     })
     .sort((left, right) => {
-      const leftRank = left.option.launchOrder ?? Number.MAX_SAFE_INTEGER
-      const rightRank = right.option.launchOrder ?? Number.MAX_SAFE_INTEGER
+      const leftRank = left.option.launchOrder ?? DEFAULT_AGENT_LAUNCH_ORDER[left.option.name] ?? Number.MAX_SAFE_INTEGER
+      const rightRank = right.option.launchOrder ?? DEFAULT_AGENT_LAUNCH_ORDER[right.option.name] ?? Number.MAX_SAFE_INTEGER
       if (leftRank !== rightRank) return leftRank - rightRank
       return left.sourceOrder - right.sourceOrder
     })

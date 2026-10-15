@@ -23,6 +23,11 @@ async function run() {
     'pi 0.84.1\n',
     'pi - AI coding assistant with read, bash, edit, write tools\n',
   );
+  writeFakeExecutable(
+    path.join(binDir, 'agy'),
+    'agy version 1.3.5\n',
+    'Antigravity CLI - AI coding agent\n',
+  );
 
   const previousPath = process.env.PATH;
   const previousCodexBin = process.env.FARMING_CODEX_BIN;
@@ -38,6 +43,7 @@ async function run() {
     qoder: [{ id: 'default', path: path.join(tmpRoot, '.qoder') }],
     qwen: [{ id: 'default', path: path.join(tmpRoot, '.qwen') }],
     pi: [{ id: 'default', path: path.join(tmpRoot, '.pi', 'agent') }],
+    agy: [{ id: 'default', path: path.join(tmpRoot, '.gemini', 'antigravity') }],
   };
   const settings = { mainPageSessionKeys: [], agentHomes: providerHomes };
   const captured = [];
@@ -514,6 +520,24 @@ async function run() {
     assert.strictEqual(piAgent.providerCapabilities.sessionFork, false);
     assert.strictEqual(captured.at(-1).env.PI_CODING_AGENT_DIR, providerHomes.pi[0].path);
     assert(settings.mainPageSessionKeys.includes(encodeProviderSessionKey('pi', piAgent.providerSessionId, 'default')));
+
+    const agyId = await startAgent(manager, 'agy', workspace, { wantsMain: false, providerHomeId: 'default' });
+    const agyAgent = manager.getState().agents.find(agent => agent.id === agyId);
+    const agySessionArgIndex = captured.at(-1).args.indexOf('--conversation');
+    assert(agySessionArgIndex >= 0, 'new agy sessions should receive an explicit --conversation');
+    assert.strictEqual(captured.at(-1).args[agySessionArgIndex + 1], agyAgent.providerSessionId);
+    assert.strictEqual(captured.at(-1).command, path.join(binDir, 'agy'));
+    assert.strictEqual(agyAgent.command, 'agy');
+    assert.strictEqual(agyAgent.providerSessionProvider, 'agy');
+    assert.strictEqual(agyAgent.providerSessionTemporary, false);
+    assert.strictEqual(agyAgent.providerCapabilities.supportsChat, true);
+    assert.strictEqual(agyAgent.providerCapabilities.terminalSessionFork, false);
+    assert.strictEqual(agyAgent.providerCapabilities.sessionFork, false);
+    assert.strictEqual(captured.at(-1).env.AGY_HOME, providerHomes.agy[0].path);
+    assert(captured.at(-1).args.includes('--gemini_dir'));
+    assert(captured.at(-1).args.includes('--app_data_dir'));
+    assert(fs.existsSync(path.join(providerHomes.agy[0].path, 'conversations', `${agyAgent.providerSessionId}.db`)));
+    assert(settings.mainPageSessionKeys.includes(encodeProviderSessionKey('agy', agyAgent.providerSessionId, 'default')));
 
     const liveQoderAgent = manager.agents.get(qoderId);
     liveQoderAgent.status = 'dead';

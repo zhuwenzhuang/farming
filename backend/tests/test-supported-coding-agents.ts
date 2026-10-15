@@ -11,7 +11,7 @@ function run() {
   const supported = getSupportedAgents();
   const supportedNames = supported.map((agent) => agent.name);
 
-  assert.deepStrictEqual(CLI_AGENTS.slice(0, 6), [
+  assert.deepStrictEqual(CLI_AGENTS.slice(0, 7), [
     {
       name: 'codex',
       description: 'Codex CLI - OpenAI coding assistant',
@@ -86,12 +86,25 @@ function run() {
       },
       systemPromptArg: '--append-system-prompt',
     },
+    {
+      name: 'agy',
+      displayName: 'Antigravity',
+      description: 'Antigravity CLI - Google coding assistant',
+      category: 'coding',
+      interactive: true,
+      supported: true,
+      preferredEngine: 'native',
+      permissions: {
+        supportsDangerousSkip: true,
+        dangerousSkipArgs: ['--dangerously-skip-permissions'],
+      },
+    },
   ], 'Provider CLI specs must preserve their complete public shape and order');
 
   assert(supported.length > 0, 'there should be supported coding agents');
   assert.deepStrictEqual(
-    supportedNames.slice(0, 8),
-    ['codex', 'claude', 'pi', 'opencode', 'qoder', 'qwen', 'bash', 'zsh'],
+    supportedNames.slice(0, 9),
+    ['codex', 'claude', 'pi', 'opencode', 'qoder', 'qwen', 'agy', 'bash', 'zsh'],
     'primary launch agents should keep the expected product order'
   );
   assert(!supportedNames.includes('cursor'), 'cursor should not be exposed as a supported agent');
@@ -101,6 +114,7 @@ function run() {
   assert(supportedNames.includes('qoder'), 'qoder should remain supported');
   assert(supportedNames.includes('qwen'), 'qwen should be available as a supported coding agent');
   assert(supportedNames.includes('pi'), 'Pi should be available as a supported coding agent');
+  assert(supportedNames.includes('agy'), 'Antigravity should be available as a supported coding agent');
   assert(supportedNames.includes('bash'), 'bash should be available as a supported shell agent');
   assert(supportedNames.includes('zsh'), 'zsh should be available as a supported shell agent');
 
@@ -135,9 +149,14 @@ function run() {
   assert(piSpec, 'lookup should resolve Pi by its executable name');
   assert.strictEqual(piSpec.name, 'pi');
   assert.strictEqual(piSpec.systemPromptArg, '--append-system-prompt');
+  const agySpec = getAgentSpec('agy --help');
+  assert(agySpec, 'lookup should resolve Antigravity by its executable name');
+  assert.strictEqual(agySpec.name, 'agy');
+  assert.strictEqual(agySpec.displayName, 'Antigravity');
   assert.strictEqual(isSupportedHistoryAgent('codex resume session-1'), true);
   assert.strictEqual(isSupportedHistoryAgent('env TERM=xterm-256color /usr/local/bin/qodercli'), true);
   assert.strictEqual(isSupportedHistoryAgent('env PI_CODING_AGENT_DIR=/tmp/pi /usr/local/bin/pi'), true);
+  assert.strictEqual(isSupportedHistoryAgent('/Users/test/.local/bin/agy --conversation 11111111-1111-4111-8111-111111111111'), true);
   assert.strictEqual(isSupportedHistoryAgent('/bin/bash'), false);
   assert.strictEqual(isSupportedHistoryAgent('unknown-agent'), false);
 

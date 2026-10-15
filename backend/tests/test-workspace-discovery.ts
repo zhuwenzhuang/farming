@@ -72,6 +72,15 @@ async function run() {
       { type: 'session_meta', payload: { cwd: '/tmp' } },
     ]);
 
+    const agyConversationDir = path.join(homeDir, '.gemini', 'antigravity', 'conversations');
+    mkdirp(agyConversationDir);
+    const { ensureAgyConversationDatabase } = require('../agy-conversation-store.cjs');
+    ensureAgyConversationDatabase(
+      path.join(homeDir, '.gemini', 'antigravity'),
+      '11111111-2222-4333-8444-555555555555',
+      projectB,
+    );
+
     const encodedName = encodeProjectPath(realProjectC);
     const encodedFallback = path.join(homeDir, '.claude', 'projects', encodedName);
     mkdirp(encodedFallback);
@@ -93,10 +102,11 @@ async function run() {
     );
 
     assert.ok(byPath.has(realProjectA), 'Claude/Qwen metadata cwd should be discovered');
-    assert.ok(byPath.has(realProjectB), 'Codex session cwd should be discovered');
+    assert.ok(byPath.has(realProjectB), 'Codex/agy session cwd should be discovered');
     assert.ok(byPath.has(realProjectC), 'Encoded project directory fallback should be discovered');
     assert.ok(!byPath.has(fs.realpathSync('/tmp')), 'Temporary root workspace should not be discovered');
     assert.deepStrictEqual([...byPath.get(realProjectA).agents].sort(), ['claude', 'qwen']);
+    assert.deepStrictEqual([...byPath.get(realProjectB).agents].sort(), ['agy', 'codex']);
     assert.strictEqual(byPath.get(realProjectA).confidence, 'high');
 
     const qwenWorkspaces = await discoverAgentWorkspaces({ homeDir, agent: 'qwen', limit: 10 });
@@ -104,6 +114,9 @@ async function run() {
 
     const codexWorkspaces = await discoverAgentWorkspaces({ homeDir, agent: 'codex', limit: 10 });
     assert.deepStrictEqual(codexWorkspaces.map(item => item.path), [realProjectB]);
+
+    const agyWorkspaces = await discoverAgentWorkspaces({ homeDir, agent: 'agy', limit: 10 });
+    assert.deepStrictEqual(agyWorkspaces.map(item => item.path), [realProjectB]);
 
     const bashWorkspaces = await discoverAgentWorkspaces({ homeDir, agent: 'bash', limit: 10 });
     assert.strictEqual(bashWorkspaces.length, workspaces.length, 'Unknown agent should fall back to global workspace discovery');
@@ -129,7 +142,7 @@ async function run() {
       return readAsync.call(fs.promises, directory, ...args);
     });
     try {
-      for (const root of ['.claude/projects', '.qwen/projects', '.codex/sessions']) {
+      for (const root of ['.claude/projects', '.qwen/projects', '.codex/sessions', '.gemini/antigravity/conversations']) {
         slowDirectory = path.join(homeDir, root);
         const cache = new AsyncCache(() => discoverAgentWorkspaces({ homeDir }));
         const results = await Promise.allSettled([

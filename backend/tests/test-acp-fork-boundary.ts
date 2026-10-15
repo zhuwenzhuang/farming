@@ -11,7 +11,7 @@ function message(state: AcpSessionState, id: string, role: string, text: string)
   state.pushEntry({ id, type: 'message', role, content: [{ type: 'text', text }] });
 }
 
-for (const provider of ['codex', 'claude', 'gemini', 'qoder', 'pi']) {
+for (const provider of ['codex', 'claude', 'gemini', 'qoder', 'pi', 'agy']) {
   const state = new AcpSessionState({ provider, sessionId: 'child' });
   message(state, 'u1', 'user', 'first question');
   message(state, 'a1', 'assistant', 'first answer');

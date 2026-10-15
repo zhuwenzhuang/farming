@@ -159,6 +159,13 @@ function run() {
         acpRuntime: { mode: 'managed', executable: '' },
         newAgentDefaults: { model: 'inherit', reasoning: 'inherit', fast: 'inherit' },
       }],
+      agy: [{
+        id: 'default',
+        path: '~/.gemini/antigravity',
+        order: 6,
+        acpRuntime: { mode: 'managed', executable: '' },
+        newAgentDefaults: { model: 'inherit', reasoning: 'inherit', fast: 'inherit' },
+      }],
     });
     const providerDescriptors = listProviderDescriptors();
     assert.deepStrictEqual(Object.keys(settings.agentHomes), providerDescriptors.map(provider => provider.id));

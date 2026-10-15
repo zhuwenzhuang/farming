@@ -158,6 +158,14 @@ const EXECUTABLE_DISCOVERY_DEFINITIONS: Record<string, ExecutableDiscoveryDefini
       outputIncludes: 'AI coding assistant with read, bash, edit, write tools',
     },
   },
+  agy: {
+    configuredEnvironmentKey: 'FARMING_AGY_BIN',
+    preferredEnvironmentKeys: ['FARMING_AGY_BIN'],
+    identityProbe: {
+      args: ['--help'],
+      outputIncludes: 'Antigravity CLI',
+    },
+  },
 };
 
 function getPathDirectories(pathEnv = process.env.PATH || ''): string[] {

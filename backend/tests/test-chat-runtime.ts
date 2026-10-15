@@ -21,5 +21,10 @@ assert.deepStrictEqual(chatCapabilitiesForProvider('opencode'), {
   supportsChat: true,
   supportsSteer: false,
 });
+assert.deepStrictEqual(chatCapabilitiesForProvider('agy'), {
+  chatRuntime: 'acp',
+  supportsChat: true,
+  supportsSteer: false,
+});
 
 console.log('chat runtime routing tests passed');

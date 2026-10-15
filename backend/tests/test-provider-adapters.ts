@@ -32,7 +32,7 @@ const {
 
 function run() {
   const adapters = listProviderAdapters();
-  assert.deepStrictEqual(adapters.map(adapter => adapter.id), ['codex', 'claude', 'pi', 'opencode', 'qoder', 'qwen']);
+  assert.deepStrictEqual(adapters.map(adapter => adapter.id), ['codex', 'claude', 'pi', 'opencode', 'qoder', 'qwen', 'agy']);
   const descriptors = listProviderDescriptors();
   assert.deepStrictEqual(descriptors, [
     {
@@ -81,6 +81,14 @@ function run() {
       displayName: 'Qwen Code',
       executable: 'qwen',
       id: 'qwen',
+      supportedRuntimes: ['terminal', 'acp'],
+    },
+    {
+      commands: ['agy'],
+      defaultHomeDirectory: '.gemini/antigravity',
+      displayName: 'Antigravity',
+      executable: 'agy',
+      id: 'agy',
       supportedRuntimes: ['terminal', 'acp'],
     },
   ]);
@@ -169,7 +177,7 @@ function run() {
   );
   assert.strictEqual(providerSessionIdentityRollbackArgs('claude', 'session-1'), null);
   assert.strictEqual(providerSessionIdentityScope('opencode'), 'provider');
-  for (const provider of ['codex', 'claude', 'qoder', 'qwen', 'pi', 'unknown']) {
+  for (const provider of ['codex', 'claude', 'qoder', 'qwen', 'pi', 'agy', 'unknown']) {
     assert.strictEqual(providerSessionIdentityScope(provider), 'provider-home');
   }
   assert.deepStrictEqual(
@@ -209,7 +217,7 @@ function run() {
     providerSessionLaunchProfile('claude', { model: 'opus', effort: 'high' }, false),
     { model: 'opus', effort: 'high' },
   );
-  for (const provider of ['opencode', 'qoder', 'qwen', 'pi']) {
+  for (const provider of ['opencode', 'qoder', 'qwen', 'pi', 'agy']) {
     assert.strictEqual(providerSessionResumeOptions(provider, { preserveProfile: true }).preserveProviderSessionProfile, true);
     assert.deepStrictEqual(
       providerSessionLaunchProfile(provider, { model: 'saved', reasoningEffort: 'high', serviceTier: 'priority' }, true),
@@ -319,6 +327,7 @@ function run() {
       qoder: { kind: 'unavailable' },
       qwen: { kind: 'unavailable' },
       pi: { kind: 'unavailable' },
+      agy: { kind: 'unavailable' },
     },
   );
   assert.deepStrictEqual(
@@ -330,6 +339,7 @@ function run() {
       qoder: null,
       qwen: null,
       pi: null,
+      agy: null,
     },
   );
   assert.strictEqual(getProviderAdapter('claude').usage.coverageName, 'Claude');
@@ -340,14 +350,14 @@ function run() {
     serialization: 'provider-home',
     readiness: { kind: 'output-includes', value: '\u001b' },
   });
-  for (const provider of ['claude', 'opencode', 'qoder', 'qwen', 'pi', 'unknown']) {
+  for (const provider of ['claude', 'opencode', 'qoder', 'qwen', 'pi', 'agy', 'unknown']) {
     assert.strictEqual(
       providerTerminalStartupPolicy(provider),
       null,
       `${provider} must not inherit Codex Terminal startup constraints`,
     );
   }
-  for (const provider of ['codex', 'claude', 'opencode', 'qoder', 'qwen']) {
+  for (const provider of ['codex', 'claude', 'opencode', 'qoder', 'qwen', 'agy']) {
     assert.strictEqual(providerSupportsSharedAcpRuntime(provider), true);
   }
   assert.strictEqual(
@@ -964,6 +974,84 @@ function run() {
       },
     },
     terminalSessionFork: true,
+    sessionFork: false,
+    chatRuntime: 'acp',
+    supportsChat: true,
+    supportsSteer: false,
+  });
+
+  const agyAdapter = getProviderAdapter('agy');
+  assert.strictEqual(providerForProgram('/Users/test/.local/bin/agy'), 'agy');
+  assert.strictEqual(providerArgsContinueSession('agy', ['--conversation', '11111111-1111-4111-8111-111111111111']), true);
+  assert.strictEqual(providerArgsContinueSession('agy', ['-r', '11111111-1111-4111-8111-111111111111']), true);
+  assert.strictEqual(providerArgsContinueSession('agy', ['--continue']), true);
+  assert.strictEqual(providerArgsContinueSession('agy', ['--dangerously-skip-permissions']), false);
+  const agyFresh = agyAdapter.planSession([], ['--dangerously-skip-permissions']);
+  assert.strictEqual(agyFresh.temporary, false);
+  assert.strictEqual(agyFresh.source, 'agy-session-id');
+  assert.deepStrictEqual(agyFresh.args, ['--conversation', agyFresh.id, '--dangerously-skip-permissions']);
+  assert.strictEqual(isFreshAcpSessionSource('agy', 'agy-session-id'), true);
+  assert.deepStrictEqual(
+    agyAdapter.planSession(
+      ['--conversation', '11111111-1111-4111-8111-111111111111'],
+      ['--conversation', '11111111-1111-4111-8111-111111111111'],
+    ),
+    { id: '11111111-1111-4111-8111-111111111111', temporary: false, source: 'resume' },
+  );
+  assert.strictEqual(agyAdapter.planSession(['--continue'], []), null);
+  assert.strictEqual(agyAdapter.planSession(['--help'], []), null);
+  assert.deepStrictEqual(
+    agyAdapter.terminalResumeArgs(
+      ['--dangerously-skip-permissions', '--', 'initial prompt'],
+      '11111111-1111-4111-8111-111111111111',
+    ),
+    [
+      '--dangerously-skip-permissions',
+      '--conversation', '11111111-1111-4111-8111-111111111111',
+      '--', 'initial prompt',
+    ],
+  );
+  const agyLaunch = agyAdapter.acp.launch({
+    executable: '/opt/bin/agy',
+    providerHomePath: '/tmp/agy-home',
+    farmingSystemPrompt: 'Farming bootstrap',
+  });
+  assert(agyLaunch.args[0].endsWith('agy-acp-bridge.cjs'));
+  assert.deepStrictEqual(agyLaunch.args.slice(1), [
+    '--farming-agy-command',
+    '/opt/bin/agy',
+    '--farming-agy-home',
+    '/tmp/agy-home',
+    '--farming-append-system-prompt',
+    'Farming bootstrap',
+  ]);
+  assert.deepStrictEqual(providerCapabilities('agy'), {
+    supportedRuntimes: ['terminal', 'acp'],
+    runtimeSwitch: true,
+    contextWindow: false,
+    terminalProfile: false,
+    terminalReadingAnchor: false,
+    terminalComposerInput: 'bracketed-paste',
+    slashCommandDiscovery: true,
+    goals: false,
+    goalSubmission: { terminal: { kind: 'command', prefix: '/goal' }, acp: { kind: 'prompt' } },
+    conversationFork: {
+      terminal: {
+        supported: false,
+        strategy: null,
+        worktreeModes: [],
+        requiresRuntimeCapability: false,
+        supportsActiveTurn: false,
+      },
+      acp: {
+        supported: false,
+        strategy: null,
+        worktreeModes: [],
+        requiresRuntimeCapability: false,
+        supportsActiveTurn: false,
+      },
+    },
+    terminalSessionFork: false,
     sessionFork: false,
     chatRuntime: 'acp',
     supportsChat: true,

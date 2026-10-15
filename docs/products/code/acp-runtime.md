@@ -364,6 +364,15 @@ can index the default directory or an absolute configured directory. A relative
 directory, so Farming does not guess that directory. Configure an absolute
 `sessionDir` in the selected Pi Agent Home when Farming must inventory it.
 
+`agy` (Antigravity CLI) uses Farming's built-in ACP bridge over the discovered
+system `agy` executable, persisting that absolute executable identity per
+Session. The bridge binds the selected Agent Home via explicit `--gemini_dir`
+and `--app_data_dir` flags, pre-initializes `<home>/conversations/<id>.db`
+before new or resumed invocations, maps headless `--output-format stream-json`
+turns and direct CLI slash commands (`/usage`, `/quota`, `/model`, `/skills`,
+`/plugin`, `/hooks`, `/permissions`) into ACP updates, and inventories session
+history from `<home>/conversations/` and `<home>/brain/<id>/.system_generated/logs/transcript.jsonl`.
+
 Farming may support standard ACP session, prompt, cancellation, configuration,
 authentication, elicitation, terminal, media, plan, and fork capabilities when
 the live Agent advertises them. Provider extensions must be versioned,
@@ -484,7 +493,7 @@ After the Session enters `connecting` and before Farming acquires a Provider
 process, it creates the selected Agent Home when missing and resolves its
 canonical identity. A Home preparation failure becomes an explicit Session
 failure and never falls back to another Home or executable.
-Codex, Claude, OpenCode, Qoder, Qwen, and Pi use this connection boundary. As in
+Codex, Claude, OpenCode, Qoder, Qwen, Pi, and agy use this connection boundary. As in
 Zed, Session release sends `session/close` only when the Provider advertises
 that capability; otherwise Farming releases its local Session reference and the
 Project connection reclaims the Provider process when its final Session ends.

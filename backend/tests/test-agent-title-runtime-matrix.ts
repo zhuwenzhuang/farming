@@ -41,9 +41,11 @@ async function run() {
   const cases = [
     ['codex', 'codex'],
     ['claude', 'claude'],
+    ['pi', 'pi'],
     ['opencode', 'opencode'],
     ['qoder', 'qoder'],
     ['qwen', 'qwen'],
+    ['agy', 'agy'],
   ].flatMap(([provider, command]) => [
     { provider, command, runtime: 'terminal' },
     { provider, command, runtime: 'acp' },

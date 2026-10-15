@@ -216,6 +216,23 @@ function inferQwenActivity({ previewText }: ProviderTerminalObserverInput): Prov
   return lines.length > 0 ? 'idle' : 'unknown';
 }
 
+function inferAgyActivity({ previewText, title }: ProviderTerminalObserverInput): ProviderTerminalActivity {
+  const normalizedTitle = stripTerminalControlSequences(title).trim();
+  if (/^[\u2800-\u28ff]/u.test(normalizedTitle)) return 'busy';
+  const lines = terminalLines(previewText);
+  const tail = lines.slice(-10);
+  if (tail.some((line, index) => {
+    const windowText = tail.slice(index, index + 3).join(' ');
+    return (
+      /\b(?:esc|escape|ctrl\+c|ctrl-c)\s+to\s+(?:interrupt|cancel)\b/i.test(windowText)
+      || (/^[\u2800-\u28ff]/u.test(line) && /\b(?:thinking|working|running|executing|generating)\b/i.test(windowText))
+    );
+  })) {
+    return 'busy';
+  }
+  return lines.length > 0 || normalizedTitle ? 'idle' : 'unknown';
+}
+
 const PROVIDER_TERMINAL_OBSERVERS: readonly ProviderTerminalObserver[] = [
   {
     activityPriority: 'provider-first',
@@ -270,6 +287,13 @@ const PROVIDER_TERMINAL_OBSERVERS: readonly ProviderTerminalObserver[] = [
     kind: 'process',
     nestedTitlePattern: /^qwen\b/i,
     inferActivity: inferQwenActivity,
+  },
+  {
+    activityPriority: 'provider-first',
+    commands: ['agy'],
+    kind: 'process',
+    nestedTitlePattern: /^antigravity\b/i,
+    inferActivity: inferAgyActivity,
   },
 ];
 

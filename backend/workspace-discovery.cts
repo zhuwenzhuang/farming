@@ -1,6 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import { fileURLToPath } from 'node:url';
 
 const DEFAULT_LIMIT = 12;
 const MAX_PROJECT_DIRS_PER_AGENT = 80;
@@ -346,6 +347,72 @@ async function scanCodexSessions({ agent, homeDir, resultByPath }: CodexSessionS
   }
 }
 
+async function extractAgyWorkspacesFromFile(filePath: string): Promise<string[]> {
+  try {
+    const stat = await fs.stat(filePath);
+    if (!stat.isFile() || stat.size === 0) return [];
+    const fd = await fs.open(filePath, 'r');
+    try {
+      const buffer = Buffer.alloc(Math.min(stat.size, MAX_JSON_BYTES));
+      const { bytesRead } = await fd.read(buffer, 0, buffer.length, 0);
+      const content = buffer.subarray(0, bytesRead).toString('utf8');
+      const results = new Set<string>();
+      for (const match of content.matchAll(/file:\/\/\/[^\x00-\x1f"'\s<>\\\]]+/g)) {
+        try {
+          const decoded = fileURLToPath(match[0]);
+          if (decoded) results.add(decoded);
+        } catch {
+          // Ignore malformed file URIs.
+        }
+      }
+      if (filePath.endsWith('.json') || filePath.endsWith('.jsonl')) {
+        const cwd = await readCwdFromJsonFile(filePath);
+        if (cwd) results.add(cwd);
+      }
+      return [...results];
+    } finally {
+      await fd.close();
+    }
+  } catch {
+    return [];
+  }
+}
+
+async function scanAgySessions({ agent, homeDir, resultByPath }: CodexSessionScanOptions): Promise<void> {
+  const root = path.join(homeDir, '.gemini', 'antigravity', 'conversations');
+
+  const files: DirectoryEntry[] = [];
+  const queue: string[] = [root];
+  let directories = 0;
+
+  while (queue.length && files.length < 120) {
+    const current = queue.shift();
+    if (!current) break;
+
+    if (++directories > MAX_HISTORY_DIRECTORIES) throw new Error('Workspace discovery exceeded its history directory limit.');
+    for (const item of await sortedDirectoryEntries(current)) {
+      if (item.entry.isDirectory()) {
+        queue.push(item.path);
+      } else if (item.entry.isFile() && /\.(db|json|jsonl)$/i.test(item.entry.name) && !/-wal$|-shm$/i.test(item.entry.name)) {
+        files.push(item);
+      }
+    }
+    files.sort((a, b) => b.mtimeMs - a.mtimeMs);
+  }
+
+  for (const file of files.slice(0, 80)) {
+    const cwds = await extractAgyWorkspacesFromFile(file.path);
+    for (const cwd of cwds) {
+      await addWorkspace(resultByPath, cwd, {
+        agent,
+        source: `${agent}-session-meta`,
+        confidence: 'high',
+        lastSeen: file.mtimeMs,
+      });
+    }
+  }
+}
+
 interface WorkspaceDiscoveryDefinition {
   configDirectory: string;
   id: string;
@@ -377,6 +444,11 @@ const WORKSPACE_DISCOVERY_DEFINITIONS: readonly WorkspaceDiscoveryDefinition[] =
     id: 'codex',
     configDirectory: '.codex',
     scan: (homeDir, resultByPath) => scanCodexSessions({ agent: 'codex', homeDir, resultByPath }),
+  },
+  {
+    id: 'agy',
+    configDirectory: 'antigravity',
+    scan: (homeDir, resultByPath) => scanAgySessions({ agent: 'agy', homeDir, resultByPath }),
   },
 ];
 

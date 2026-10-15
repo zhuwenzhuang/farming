@@ -148,6 +148,7 @@ import { run as runControlCli } from './farming-cli.cjs';
 import { PACKAGED_CODEX_ACP_ARG, runPackagedCodexAcp } from './acp/packaged-codex-acp.cjs';
 import { PACKAGED_CLAUDE_ACP_ARG, runPackagedClaudeAcp } from './acp/packaged-claude-acp.cjs';
 import { PACKAGED_PI_ACP_ARG, runPackagedPiAcp } from './acp/packaged-pi-acp.cjs';
+import { PACKAGED_AGY_ACP_ARG, runPackagedAgyAcp } from './acp/packaged-agy-acp.cjs';
 import { SERVER_PROCESS_IDENTITY_FORMAT, matchingProcessIdentity, readLiveServerProcessIdentity as readServerProcessIdentity } from './server-process-identity.cjs';
 import * as storageLayout from './storage-layout.cjs';
 
@@ -1938,6 +1939,11 @@ async function run(argv: string[] = process.argv.slice(2)): Promise<number> {
 
   if (argv[0] === PACKAGED_PI_ACP_ARG) {
     await runPackagedPiAcp();
+    return 0;
+  }
+
+  if (argv[0] === PACKAGED_AGY_ACP_ARG) {
+    await runPackagedAgyAcp(argv.slice(1));
     return 0;
   }
 

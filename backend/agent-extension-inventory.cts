@@ -30,6 +30,9 @@ function extensionWatchPaths(provider: string, homePath: string): string[] {
     path.join(homePath, 'plugins'),
     path.join(homePath, 'hooks.json'),
     path.join(homePath, 'mcp.json'),
+    ...(provider === 'agy'
+      ? [path.join(homePath, 'mcp_config.json'), path.join(homePath, 'builtin', 'skills')]
+      : []),
     ...configurationFiles.map(fileName => path.join(homePath, fileName)),
   ];
 }

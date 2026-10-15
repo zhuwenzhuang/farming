@@ -77,6 +77,23 @@ try {
     summary: [{ key: 'model', value: 'qwen3-coder-plus' }],
   });
 
+  const agyHome = path.join(root, 'antigravity');
+  fs.mkdirSync(agyHome, { recursive: true });
+  fs.writeFileSync(path.join(agyHome, 'settings.json'), JSON.stringify({
+    model: 'gemini-3-1-pro-high',
+    effort: 'high',
+    mode: 'accept-edits',
+  }));
+  assert.deepStrictEqual(readProviderHomeConfiguration('agy', agyHome), {
+    exists: true,
+    filePath: 'settings.json',
+    summary: [
+      { key: 'model', value: 'gemini-3-1-pro-high' },
+      { key: 'reasoning', value: 'high' },
+      { key: 'permission', value: 'accept-edits' },
+    ],
+  });
+
   assert.deepStrictEqual(readProviderHomeConfiguration('codex', path.join(root, 'missing')), {
     exists: false,
     filePath: 'config.toml',

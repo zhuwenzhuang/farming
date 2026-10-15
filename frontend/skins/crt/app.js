@@ -141,6 +141,8 @@ function isCrtAgentStateMessageCandidate(value) {
         && (value.type === 'state' || value.type === 'state-delta');
 }
 const CRT_AGENT_DISPLAY_NAMES = {
+    agy: 'Antigravity',
+    antigravity: 'Antigravity',
     qwen: 'Qwen Code',
     pi: 'Pi',
     codex: 'Codex',

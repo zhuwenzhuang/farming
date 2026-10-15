@@ -113,7 +113,7 @@ next startup; legacy rows are never exposed as current Browser inventory.
 
 Extensions publish Agent tools through one Farming-owned capability contract.
 An Extension must not implement separate generic integrations for Codex,
-Claude Code, OpenCode, Qoder, or Qwen.
+Claude Code, OpenCode, Qoder, Qwen, Pi, or agy.
 
 Supported command-capable Agents discover the same capability through the
 instance-exact Farming CLI. Live availability is discovered from current
@@ -161,7 +161,7 @@ removing or reordering a configuration must not relabel existing Sessions.
 
 Settings and Agent Home inventory reads discover existing Homes from provider
 Home environment variables, default directories, and sibling directories with
-`.` / `-` / `_` suffixes (including nested layouts such as `.pi/agent`).
+`.` / `-` / `_` suffixes (including nested layouts such as `.gemini/antigravity` and `.pi/agent`).
 OpenCode also checks its XDG configuration directory. Provider adapters own the recognition markers; a
 candidate must be a directory containing provider configuration, credentials,
 or session storage. Discovery checks metadata only and does not read credentials

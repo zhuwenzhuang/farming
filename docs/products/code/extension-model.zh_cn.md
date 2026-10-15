@@ -94,7 +94,7 @@ Row 会保留到下次启动重试；Legacy Row 不会作为当前 Browser Inven
 ## Agent Capability 投影
 
 Extension 通过一份 Farming-owned Capability Contract 发布 Agent Tool，不应分别实现 Codex、
-Claude Code、OpenCode、Qoder 与 Qwen 的通用接入。
+Claude Code、OpenCode、Qoder、Qwen、Pi 与 agy 的通用接入。
 
 所有受支持且能执行命令的 Agent 都通过实例精确的 Farming CLI 发现同一 Capability。实时
 可用性来自当前 Backend State，不能写死在 Prompt 中。Tool Identity、Schema、Ownership、
@@ -131,7 +131,7 @@ Provider 加 Agent Home ID 是一份 Configuration Identity。Global Settings �
 不可变绑定，移除或重排配置不能给已有 Session 改身份。
 
 读取 Settings 和 Agent Home Inventory 时，从 Provider Home 环境变量、默认目录及带
-`.` / `-` / `_` 后缀的同级目录发现已有 Home（包括 `.pi/agent` 这类嵌套布局）。
+`.` / `-` / `_` 后缀的同级目录发现已有 Home（包括 `.gemini/antigravity` 与 `.pi/agent` 这类嵌套布局）。
 OpenCode 也检查其 XDG 配置目录。Provider Adapter 定义识别标记；候选必须是
 包含 Provider 配置、凭证文件或会话存储的目录。发现只检查文件元数据，不读取凭证内容，
 也不执行 Shell Profile；按真实路径在 Provider 内去重。扫描不递归，每个父目录最多

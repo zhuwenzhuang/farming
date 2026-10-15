@@ -260,6 +260,18 @@ const PROVIDER_CLI_AGENT_DETAILS: Readonly<Record<ProviderId, ProviderCliAgentDe
     preferredEngine: 'native',
     systemPromptArg: '--append-system-prompt'
   },
+  agy: {
+    exposeDisplayName: true,
+    description: 'Antigravity CLI - Google coding assistant',
+    category: 'coding',
+    interactive: true,
+    supported: true,
+    preferredEngine: 'native',
+    permissions: {
+      supportsDangerousSkip: true,
+      dangerousSkipArgs: ['--dangerously-skip-permissions']
+    }
+  },
 };
 
 const PROVIDER_CLI_AGENTS: CliAgentSpec[] = listProviderDescriptors().map((descriptor) => {

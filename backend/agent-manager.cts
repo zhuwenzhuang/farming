@@ -111,6 +111,7 @@ const { promisify } = require('util');
 import { SystemMonitor } from './system-monitor.cjs';
 import { SessionEngineBridge } from './session-engine-bridge.cjs';
 import { isSupportedHistoryAgent, parseCommand, resolveLaunchCommand } from './cli-agents.cjs';
+import { agyExplicitHomeCliArgs, ensureAgyConversationDatabase } from './agy-conversation-store.cjs';
 import {
   buildAgentSessionResumeCommand,
   findAgentSession,
@@ -4934,10 +4935,30 @@ class AgentManager extends EventEmitter {
     launch: Omit<TerminalEngineLaunch, 'reviveState'> & { reviveState?: unknown },
     sharedLaunchConfig: SharedLaunchConfig | null = null,
   ) {
+    let launchArgs = Array.isArray(launch.args) ? launch.args : undefined;
+    if (agent.providerSessionProvider === 'agy' && agent.providerHomePath) {
+      const providerSessionId = typeof agent.providerSessionId === 'string'
+        ? agent.providerSessionId
+        : '';
+      if (isSafeProviderSessionId(providerSessionId)) {
+        ensureAgyConversationDatabase(agent.providerHomePath, providerSessionId, launch.cwd);
+      }
+      if (process.env.FARMING_E2E_FAKE_EXECUTABLES !== '1') {
+        const homeArgs = agyExplicitHomeCliArgs(agent.providerHomePath);
+        const existingArgs = launchArgs || [];
+        if (
+          homeArgs.length > 0
+          && !existingArgs.includes('--gemini_dir')
+          && !existingArgs.includes('--app_data_dir')
+        ) {
+          launchArgs = [...homeArgs, ...existingArgs];
+        }
+      }
+    }
     await engine.createSession({
       agentId: agent.id,
       command: launch.command,
-      args: launch.args,
+      args: launchArgs,
       cwd: launch.cwd,
       env: this.buildAgentEnv(agent.id, agent, sharedLaunchConfig),
       category: launch.category,

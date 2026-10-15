@@ -3,9 +3,10 @@ const crypto = require('crypto');
 import { chatCapabilitiesForProvider } from './chat-runtime.cjs';
 import { appendOpenCodeBootstrap } from './farming-agent-bootstrap.cjs';
 import { createProviderSessionId, createTemporaryProviderSessionId, isSafeProviderSessionId } from './provider-session-id.cjs';
+import { resolveAgyAcpLaunch } from './acp/packaged-agy-acp.cjs';
 import type { ProviderCapabilitiesWire } from '../shared/agent-state-wire.js';
 
-type ProviderId = 'codex' | 'claude' | 'pi' | 'opencode' | 'qoder' | 'qwen';
+type ProviderId = 'codex' | 'claude' | 'pi' | 'opencode' | 'qoder' | 'qwen' | 'agy';
 type ProviderRuntime = 'terminal' | 'acp';
 type ProviderForkWorktreeMode = 'same-worktree' | 'new-worktree';
 type ProviderConversationForkStrategy = 'source-session' | 'target-process';
@@ -556,6 +557,27 @@ function piSessionPlan(rawArgs: string[], launchArgs: string[]): ProviderSession
   };
 }
 
+function agySessionPlan(rawArgs: string[], launchArgs: string[]): ProviderSessionPlan | null {
+  const resumeSessionId = argValue(rawArgs, ['--conversation', '-r']);
+  if (resumeSessionId && isSafeProviderSessionId(resumeSessionId)) {
+    return { id: resumeSessionId, temporary: false, source: 'resume' };
+  }
+  if (
+    hasArg(rawArgs, [
+      '--conversation', '-r', '--continue', '-c',
+      '--print', '-p', '--help', '-h', '--version', '-v',
+      '--input-format', '--output-format',
+    ])
+  ) return null;
+  const id = createProviderSessionId();
+  return {
+    id,
+    temporary: false,
+    source: 'agy-session-id',
+    args: ['--conversation', id, ...launchArgs],
+  };
+}
+
 function codexAcpEnvironment(
   options: ProviderEnvironmentOptions = {},
 ): NodeJS.ProcessEnv {
@@ -1076,6 +1098,62 @@ const PROVIDER_ADAPTERS = Object.freeze<ProviderAdapter[]>([
           requiresRuntimeCapability: true,
         },
       },
+    },
+  },
+  {
+    id: 'agy',
+    displayName: 'Antigravity',
+    executable: 'agy',
+    homeEnvKey: 'AGY_HOME',
+    homeDiscoveryMarkers: ['settings.json', 'oauth_creds.json', 'conversation_summaries.db', 'conversations', 'brain'],
+    interruptInput: '\x1b',
+    runtimeObservationKind: 'process',
+    freshAcpSessionSources: ['agy-session-id'],
+    commands: ['agy'],
+    supportedRuntimes: ['terminal', 'acp'],
+    continuesSession: args => args.some(arg => (
+      arg === '--conversation'
+      || arg.startsWith('--conversation=')
+      || arg === '-r'
+      || arg === '--continue'
+      || arg === '-c'
+    )),
+    planSession: agySessionPlan,
+    terminalResumeArgs: (args, sessionId) => {
+      const delimiterIndex = args.indexOf('--');
+      const insertIndex = delimiterIndex >= 0 ? delimiterIndex : args.length;
+      return [
+        ...args.slice(0, insertIndex),
+        '--conversation',
+        sessionId,
+        ...args.slice(insertIndex),
+      ];
+    },
+    acp: {
+      executablePolicy: 'system',
+      version: 'native',
+      sharedRuntime: true,
+      launch: options => resolveAgyAcpLaunch(options),
+    },
+    usage: {
+      collection: { kind: 'unavailable' },
+      defaultHomeDirectory: '.gemini/antigravity',
+      source: 'local Antigravity conversations',
+      coverageSource: 'local Antigravity sessions',
+      authStatus: 'Local sessions',
+      quotaUnavailableReason: 'Antigravity quota telemetry is inspected per session via /quota.',
+      tokenUnavailableReason: 'Antigravity transcript files do not expose aggregated token counts.',
+    },
+    capabilities: {
+      runtimeSwitch: true,
+      contextWindow: false,
+      terminalProfile: false,
+      terminalReadingAnchor: false,
+      terminalComposerInput: 'bracketed-paste',
+      slashCommandDiscovery: true,
+      goals: false,
+      goalSubmission: { terminal: { kind: 'command', prefix: '/goal' }, acp: { kind: 'prompt' } },
+      conversationFork: {},
     },
   },
 ]);
