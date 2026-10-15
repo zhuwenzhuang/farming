@@ -137,6 +137,12 @@ OpenCode 也检查其 XDG 配置目录。Provider Adapter 定义识别标记；�
 也不执行 Shell Profile；按真实路径在 Provider 内去重。扫描不递归，每个父目录最多
 4096 个条目、每个 Provider 最多 256 个候选，限时三秒；失败明确报错，不提交部分结果。
 
+并发的工作区推荐扫描必须对所有受支持的 Provider 使用异步文件 I/O，避免历史目录
+遍历阻塞服务端事件循环、耗尽 Home 扫描的期限。编码项目目录的反查先匹配目录名，
+再读取必要的元数据；无关的同级文件不参与。每次历史遍历超过 4096 个目录时明确
+失败，即使始终未找到可用的历史文件。只有完成的推荐扫描才进入现有请求缓存，
+相同缓存键的并发读取共享同一次扫描。
+
 Config Settings 拥有发现状态：并发读取共享一次扫描，完成后把新增 Home 合并到最新配置，
 先持久化再发布。已有 Home ID、启动默认值和 Session 绑定保持不变。移除的路径在当前
 Config 实例中不再自动加入，重启后同样有效；手动加回会清除排除记录。扫描或保存失败保留
@@ -154,8 +160,8 @@ Home 卡片复用 Project 和 Agent 的插入线样式：上半区／下半区�
 回落到该 Provider 的 `default` Home，同时保留 Runtime 默认值。Resume、Fork、Restart 与恢复
 继续使用 Existing Session 的精确 Home 和 Runtime，不读取新 Agent 默认值。
 支持 Chat 的 Provider 默认使用 Chat，已保存的 Terminal 偏好仍然有效。
-Project 快速启动菜单在 Provider 主入口标明默认模式，右侧快捷按钮提供另一模式。
-两个入口都明确提交所显示的模式，不修改已保存的默认值。
+Project 快速启动菜单中，支持 Chat 的 Provider 整行固定启动 Chat，右侧快捷按钮启动
+Terminal，仅支持 Terminal 的入口整行直接启动 Terminal；两个入口都不修改已保存的默认值。
 
 同一 Identity 把新建 Chat Session 绑定到 Adapter 的 Farming-managed ACP Runtime；Plugins
 不提供 Custom Executable 选择。已有 Session 保留持久化 Launch Identity，包括精确恢复所需

@@ -1,12 +1,13 @@
-const fs = require('fs');
-const path = require('path');
-const os = require('os');
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+import * as os from 'node:os';
 
 const DEFAULT_LIMIT = 12;
 const MAX_PROJECT_DIRS_PER_AGENT = 80;
 const MAX_FILES_PER_PROJECT = 8;
 const MAX_JSONL_LINES = 40;
 const MAX_JSON_BYTES = 128 * 1024;
+const MAX_HISTORY_DIRECTORIES = 4096;
 
 type WorkspaceConfidence = 'high' | 'medium';
 
@@ -55,7 +56,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object';
 }
 
-function normalizeWorkspacePath(workspace: unknown): string {
+async function normalizeWorkspacePath(workspace: unknown): Promise<string> {
   if (typeof workspace !== 'string') return '';
   const value = workspace.trim();
   if (!value || value.startsWith('/var')) return '';
@@ -67,15 +68,15 @@ function normalizeWorkspacePath(workspace: unknown): string {
       : value;
 
   try {
-    const resolved = fs.realpathSync(expanded);
-    const stat = fs.statSync(resolved);
+    const resolved = await fs.realpath(expanded);
+    const stat = await fs.stat(resolved);
     if (!stat.isDirectory()) return '';
     if (isTemporaryWorkspace(resolved)) return '';
 
     const basename = path.basename(resolved);
     if (AGENT_CONFIG_DIRS.has(basename)) {
       const parent = path.dirname(resolved);
-      return fs.statSync(parent).isDirectory() ? parent : '';
+      return (await fs.stat(parent)).isDirectory() ? parent : '';
     }
 
     return resolved;
@@ -99,38 +100,42 @@ function isTemporaryWorkspace(workspace: string): boolean {
     || workspace.startsWith('/private/var/folders/');
 }
 
-function getMtimeMs(filePath: string): number {
+async function getMtimeMs(filePath: string): Promise<number> {
   try {
-    return fs.statSync(filePath).mtimeMs;
+    return (await fs.stat(filePath)).mtimeMs;
   } catch {
     return 0;
   }
 }
 
-function sortedDirectoryEntries(dirPath: string): DirectoryEntry[] {
+async function sortedDirectoryEntries(dirPath: string): Promise<DirectoryEntry[]> {
   try {
-    return fs.readdirSync(dirPath, { withFileTypes: true })
-      .map((entry: import('fs').Dirent): DirectoryEntry => ({
+    const entries: DirectoryEntry[] = [];
+    for (const entry of await fs.readdir(dirPath, { withFileTypes: true })) {
+      entries.push({
         entry,
         path: path.join(dirPath, entry.name),
-        mtimeMs: getMtimeMs(path.join(dirPath, entry.name)),
-      }))
-      .sort((a: DirectoryEntry, b: DirectoryEntry) => b.mtimeMs - a.mtimeMs);
+        mtimeMs: await getMtimeMs(path.join(dirPath, entry.name)),
+      });
+    }
+    return entries.sort((a, b) => b.mtimeMs - a.mtimeMs);
   } catch {
     return [];
   }
 }
 
-function collectJsonLikeFiles(rootDir: string, limit = MAX_FILES_PER_PROJECT): string[] {
+async function collectJsonLikeFiles(rootDir: string, limit = MAX_FILES_PER_PROJECT): Promise<string[]> {
   const result: string[] = [];
-  const queue = sortedDirectoryEntries(rootDir).filter(item => item.entry.isDirectory() || item.entry.isFile());
+  const queue = (await sortedDirectoryEntries(rootDir)).filter(item => item.entry.isDirectory() || item.entry.isFile());
+  let directories = 1;
 
   while (queue.length && result.length < limit) {
     const item = queue.shift();
     if (!item) break;
 
     if (item.entry.isDirectory()) {
-      queue.push(...sortedDirectoryEntries(item.path));
+      if (++directories > MAX_HISTORY_DIRECTORIES) throw new Error('Workspace discovery exceeded its history directory limit.');
+      queue.push(...await sortedDirectoryEntries(item.path));
       queue.sort((a, b) => b.mtimeMs - a.mtimeMs);
       continue;
     }
@@ -156,20 +161,20 @@ function extractCwdFromObject(value: unknown): string {
   return '';
 }
 
-function readCwdFromJsonFile(filePath: string): string {
+async function readCwdFromJsonFile(filePath: string): Promise<string> {
   try {
-    const stat = fs.statSync(filePath);
+    const stat = await fs.stat(filePath);
     if (!stat.isFile()) return '';
 
     if (filePath.endsWith('.json')) {
       if (stat.size > MAX_JSON_BYTES) return '';
-      return extractCwdFromObject(JSON.parse(fs.readFileSync(filePath, 'utf8')));
+      return extractCwdFromObject(JSON.parse(await fs.readFile(filePath, 'utf8')));
     }
 
-    const fd = fs.openSync(filePath, 'r');
+    const fd = await fs.open(filePath, 'r');
     try {
       const buffer = Buffer.alloc(Math.min(stat.size, MAX_JSON_BYTES));
-      const bytesRead = fs.readSync(fd, buffer, 0, buffer.length, 0);
+      const { bytesRead } = await fd.read(buffer, 0, buffer.length, 0);
       const content = buffer.subarray(0, bytesRead).toString('utf8');
       const lines = content.split('\n').slice(0, MAX_JSONL_LINES);
       for (const line of lines) {
@@ -182,7 +187,7 @@ function readCwdFromJsonFile(filePath: string): string {
         }
       }
     } finally {
-      fs.closeSync(fd);
+      await fd.close();
     }
   } catch {
     return '';
@@ -198,7 +203,7 @@ function normalizeEncodedSegment(segment: string): string {
     .toLowerCase();
 }
 
-function resolveEncodedProjectDirectory(projectName: string): string {
+async function resolveEncodedProjectDirectory(projectName: string): Promise<string> {
   const encoded = normalizeEncodedSegment(projectName);
   if (!encoded) return '';
 
@@ -206,15 +211,30 @@ function resolveEncodedProjectDirectory(projectName: string): string {
   let remaining = encoded;
 
   while (remaining) {
-    const children = sortedDirectoryEntries(currentDir).filter(item => item.entry.isDirectory());
-    const match = children
-      .map(child => ({ child, childSlug: normalizeEncodedSegment(child.entry.name) }))
+    let children: import('node:fs').Dirent[];
+    try {
+      children = (await fs.readdir(currentDir, { withFileTypes: true })).filter(entry => entry.isDirectory());
+    } catch {
+      return '';
+    }
+    const matches = children
+      .map(child => ({ child, childSlug: normalizeEncodedSegment(child.name) }))
       .filter(({ childSlug }) => childSlug && (remaining === childSlug || remaining.startsWith(`${childSlug}-`)))
-      .sort((a, b) => b.childSlug.length - a.childSlug.length)[0];
+      .sort((a, b) => b.childSlug.length - a.childSlug.length);
 
+    let match = matches[0];
     if (!match) return '';
+    // Preserve the newest-directory tie break without stat-ing unrelated siblings.
+    if (matches[1]?.childSlug.length === match.childSlug.length) {
+      let newest = await getMtimeMs(path.join(currentDir, match.child.name));
+      for (const candidate of matches.slice(1)) {
+        if (candidate.childSlug.length !== match.childSlug.length) break;
+        const mtime = await getMtimeMs(path.join(currentDir, candidate.child.name));
+        if (mtime > newest) { match = candidate; newest = mtime; }
+      }
+    }
 
-    currentDir = match.child.path;
+    currentDir = path.join(currentDir, match.child.name);
     const childSlug = match.childSlug;
     remaining = remaining === childSlug ? '' : remaining.slice(childSlug.length + 1);
   }
@@ -222,12 +242,12 @@ function resolveEncodedProjectDirectory(projectName: string): string {
   return normalizeWorkspacePath(currentDir);
 }
 
-function addWorkspace(
+async function addWorkspace(
   resultByPath: Map<string, DiscoveredWorkspace>,
   workspace: unknown,
   details: WorkspaceDetails
-): void {
-  const normalized = normalizeWorkspacePath(workspace);
+): Promise<void> {
+  const normalized = await normalizeWorkspacePath(workspace);
   if (!normalized) return;
 
   const existing = resultByPath.get(normalized) || {
@@ -246,25 +266,24 @@ function addWorkspace(
   resultByPath.set(normalized, existing);
 }
 
-function scanProjectHistory({
+async function scanProjectHistory({
   homeDir,
   agent,
   projectRoot,
   resultByPath,
-}: ProjectHistoryScanOptions): void {
+}: ProjectHistoryScanOptions): Promise<void> {
   const root = path.join(homeDir, projectRoot);
-  if (!fs.existsSync(root)) return;
 
-  const projects = sortedDirectoryEntries(root)
+  const projects = (await sortedDirectoryEntries(root))
     .filter(item => item.entry.isDirectory())
     .slice(0, MAX_PROJECT_DIRS_PER_AGENT);
 
-  projects.forEach((project) => {
-    const files = collectJsonLikeFiles(project.path, MAX_FILES_PER_PROJECT);
+  for (const project of projects) {
+    const files = await collectJsonLikeFiles(project.path, MAX_FILES_PER_PROJECT);
     let fileWithCwd = '';
     let cwd = '';
     for (const file of files) {
-      cwd = readCwdFromJsonFile(file);
+      cwd = await readCwdFromJsonFile(file);
       if (cwd) {
         fileWithCwd = file;
         break;
@@ -272,64 +291,65 @@ function scanProjectHistory({
     }
 
     if (cwd) {
-      addWorkspace(resultByPath, cwd, {
+      await addWorkspace(resultByPath, cwd, {
         agent,
         source: `${agent}-metadata`,
         confidence: 'high',
-        lastSeen: getMtimeMs(fileWithCwd),
+        lastSeen: await getMtimeMs(fileWithCwd),
       });
-      return;
+      continue;
     }
 
-    const decoded = resolveEncodedProjectDirectory(project.entry.name);
+    const decoded = await resolveEncodedProjectDirectory(project.entry.name);
     if (decoded) {
-      addWorkspace(resultByPath, decoded, {
+      await addWorkspace(resultByPath, decoded, {
         agent,
         source: `${agent}-project-dir`,
         confidence: 'medium',
         lastSeen: project.mtimeMs,
       });
     }
-  });
+  }
 }
 
-function scanCodexSessions({ agent, homeDir, resultByPath }: CodexSessionScanOptions): void {
+async function scanCodexSessions({ agent, homeDir, resultByPath }: CodexSessionScanOptions): Promise<void> {
   const root = path.join(homeDir, '.codex', 'sessions');
-  if (!fs.existsSync(root)) return;
 
-  const files: string[] = [];
+  const files: DirectoryEntry[] = [];
   const queue: string[] = [root];
+  let directories = 0;
 
   while (queue.length && files.length < 120) {
     const current = queue.shift();
     if (!current) break;
 
-    sortedDirectoryEntries(current).forEach((item) => {
+    if (++directories > MAX_HISTORY_DIRECTORIES) throw new Error('Workspace discovery exceeded its history directory limit.');
+    for (const item of await sortedDirectoryEntries(current)) {
       if (item.entry.isDirectory()) {
         queue.push(item.path);
       } else if (item.entry.isFile() && item.entry.name.endsWith('.jsonl')) {
-        files.push(item.path);
+        files.push(item);
       }
-    });
-    files.sort((a, b) => getMtimeMs(b) - getMtimeMs(a));
+    }
+    files.sort((a, b) => b.mtimeMs - a.mtimeMs);
   }
 
-  files.slice(0, 80).forEach((file) => {
-    const cwd = readCwdFromJsonFile(file);
-    if (!cwd) return;
-    addWorkspace(resultByPath, cwd, {
+  for (const file of files.slice(0, 80)) {
+    const cwd = await readCwdFromJsonFile(file.path);
+    if (!cwd) continue;
+    await addWorkspace(resultByPath, cwd, {
       agent,
       source: `${agent}-session-meta`,
       confidence: 'high',
-      lastSeen: getMtimeMs(file),
+      lastSeen: file.mtimeMs,
     });
-  });
+  }
 }
 
 interface WorkspaceDiscoveryDefinition {
   configDirectory: string;
   id: string;
-  scan(homeDir: string, resultByPath: Map<string, DiscoveredWorkspace>): void;
+  scan(homeDir: string, resultByPath: Map<string, DiscoveredWorkspace>): Promise<void>;
 }
 
 const WORKSPACE_DISCOVERY_DEFINITIONS: readonly WorkspaceDiscoveryDefinition[] = [
@@ -367,9 +387,9 @@ const DISCOVERABLE_AGENT_NAMES = new Set(
   WORKSPACE_DISCOVERY_DEFINITIONS.map(definition => definition.id),
 );
 
-function discoverAgentWorkspaces(
+async function discoverAgentWorkspaces(
   options: DiscoverAgentWorkspacesOptions = {}
-): DiscoveredWorkspace[] {
+): Promise<DiscoveredWorkspace[]> {
   const homeDir = options.homeDir || os.homedir();
   const limit = typeof options.limit === 'number' && Number.isFinite(options.limit)
     ? options.limit
@@ -378,7 +398,7 @@ function discoverAgentWorkspaces(
   const agentFilter = DISCOVERABLE_AGENT_NAMES.has(requestedAgent) ? requestedAgent : '';
   const resultByPath = new Map<string, DiscoveredWorkspace>();
 
-  WORKSPACE_DISCOVERY_DEFINITIONS.forEach(definition => definition.scan(homeDir, resultByPath));
+  for (const definition of WORKSPACE_DISCOVERY_DEFINITIONS) await definition.scan(homeDir, resultByPath);
 
   return [...resultByPath.values()]
     .filter(item => !agentFilter || item.agents.includes(agentFilter))

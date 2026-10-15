@@ -69,7 +69,7 @@ process.exit(1);
     `const args = process.argv.slice(2)
 const tokenIndex = args.indexOf('--token-file')
 if (tokenIndex >= 0 && !args[tokenIndex + 1]) process.exit(98)
-process.exit(${options.smokeExitCode || 0})\n`,
+process.exit(process.env.FIXTURE_FAIL_SMOKE === '1' ? 7 : ${options.smokeExitCode || 0})\n`,
   );
   const archive = path.join(root, `artifact-${options.gitSha.slice(0, 8)}.tar.gz`);
   const packed = spawnSync('tar', ['-czf', archive, '-C', root, path.basename(bundleRoot)], {
@@ -186,6 +186,9 @@ async function run() {
       gitSha: firstSha,
       daemonStdout: `${daemonSecretSentinel}\n`,
     });
+    const firstRedeployArchive = path.join(root, 'artifact-first-redeploy.tar.gz');
+    fs.copyFileSync(first.archive, firstRedeployArchive);
+    const firstRedeploy = { archive: firstRedeployArchive, checksum: first.checksum };
     const firstResult = activate(first, firstSha, remoteDir, configDir);
     assert.strictEqual(firstResult.status, 0, firstResult.stderr);
     assert.doesNotMatch(`${firstResult.stdout}\n${firstResult.stderr}`, new RegExp(daemonSecretSentinel));
@@ -274,18 +277,60 @@ async function run() {
 
     // A manual npm-managed launch can serve this Config from a newer package
     // than the install selection. Rollback must restart that exact package
-    // rather than downgrading to the selected image.
+    // rather than downgrading to the selected image, using exact Config and
+    // process-identity ownership.
+    const readProcessIdentity = pid => {
+      const out = spawnSync('ps', ['-p', String(pid), '-o', 'pid=', '-o', 'pgid=', '-o', 'lstart='], {
+        encoding: 'utf8',
+        env: { ...process.env, LANG: 'C', LC_ALL: 'C', TZ: 'UTC' },
+      });
+      assert.strictEqual(out.status, 0, out.stderr);
+      const match = out.stdout.trim().match(/^(\d+)\s+(\d+)\s+(.+)$/);
+      assert(match, `unexpected ps output: ${out.stdout}`);
+      return {
+        format: 'ps-lstart-c-utc-v1',
+        pid: Number(match[1]),
+        processGroupId: Number(match[2]),
+        startedAt: match[3].trim(),
+      };
+    };
+    const canonicalConfig = fs.realpathSync(configDir);
+    const otherConfigDir = path.join(root, 'other-config');
+    fs.mkdirSync(otherConfigDir, { recursive: true });
     const npmRoot = path.join(root, 'npm-live', 'lib', 'node_modules', 'farming-code');
-    fs.mkdirSync(path.join(npmRoot, 'bin'), { recursive: true });
-    fs.mkdirSync(path.join(npmRoot, 'backend'), { recursive: true });
-    fs.copyFileSync(path.join(firstImage, 'bin', 'farming'), path.join(npmRoot, 'bin', 'farming'));
-    fs.writeFileSync(path.join(npmRoot, 'backend', 'farming-app-cli.cjs'), 'setInterval(() => {}, 1000);\n');
-    const liveNpmServer = spawn(process.execPath, [path.join(npmRoot, 'backend', 'farming-app-cli.cjs')], { stdio: 'ignore' });
-    const unidentifiedServer = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+    const otherNpmRoot = path.join(root, 'npm-other', 'lib', 'node_modules', 'farming-code');
+    for (const pkgRoot of [npmRoot, otherNpmRoot]) {
+      fs.mkdirSync(path.join(pkgRoot, 'bin'), { recursive: true });
+      fs.mkdirSync(path.join(pkgRoot, 'backend'), { recursive: true });
+      fs.copyFileSync(path.join(firstImage, 'bin', 'farming'), path.join(pkgRoot, 'bin', 'farming'));
+      fs.writeFileSync(path.join(pkgRoot, 'backend', 'farming-app-cli.cjs'), 'setInterval(() => {}, 1000);\n');
+    }
+    const liveNpmServer = spawn(process.execPath, [path.join(npmRoot, 'backend', 'farming-app-cli.cjs')], {
+      stdio: 'ignore',
+      env: { ...process.env, FARMING_CONFIG_DIR: canonicalConfig },
+    });
+    const otherConfigServer = spawn(process.execPath, [path.join(otherNpmRoot, 'backend', 'farming-app-cli.cjs')], {
+      stdio: 'ignore',
+      env: { ...process.env, FARMING_CONFIG_DIR: fs.realpathSync(otherConfigDir) },
+    });
+    const legacyNpmServer = spawn(process.execPath, [path.join(npmRoot, 'backend', 'farming-app-cli.cjs')], {
+      stdio: 'ignore',
+    });
+    const unidentifiedServer = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+      stdio: 'ignore',
+      env: { ...process.env, FARMING_CONFIG_DIR: canonicalConfig },
+    });
     const serverRecord = path.join(configDir, 'farming-server.json');
     try {
       await waitForFile(`/proc/${liveNpmServer.pid}/cmdline`);
-      fs.writeFileSync(serverRecord, JSON.stringify({ pid: liveNpmServer.pid, port: 16694, basePath: '/farming' }));
+      const liveNpmIdentity = readProcessIdentity(liveNpmServer.pid);
+      fs.writeFileSync(serverRecord, JSON.stringify({
+        pid: liveNpmServer.pid,
+        configDir: canonicalConfig,
+        processIdentity: liveNpmIdentity,
+        port: 16694,
+        basePath: '/farming',
+      }));
       const eventsBeforeLiveRollback = fs.readFileSync(path.join(configDir, 'fixture-events.log'), 'utf8');
       const liveSha = '6'.repeat(40);
       const liveFailing = writeFixtureBundle(root, { gitSha: liveSha, smokeExitCode: 7 });
@@ -300,8 +345,101 @@ async function run() {
       assert(!liveRollbackEvents.some(line => line.startsWith(`daemon:${firstImage}`)),
         'rollback must not downgrade the live Server to the selected image');
 
+      // Redeploying the already-selected SHA (PREVIOUS_ROOT == IMAGE_ROOT) while
+      // the live Server runs a different package must NOT take the in-place fast
+      // path: a smoke failure must restore Config and restart the live npm package,
+      // and a success must stop/checkpoint and switch the running Server to IMAGE_ROOT.
+      fs.writeFileSync(path.join(configDir, 'durable-state.txt'), 'state-owned-by-live-npm');
+      fs.writeFileSync(serverRecord, JSON.stringify({
+        pid: liveNpmServer.pid,
+        configDir: canonicalConfig,
+        processIdentity: liveNpmIdentity,
+        port: 16694,
+        basePath: '/farming',
+      }));
+      const eventsBeforeSameShaFail = fs.readFileSync(path.join(configDir, 'fixture-events.log'), 'utf8');
+      const sameShaFailResult = activate(firstRedeploy, firstSha, remoteDir, configDir, { FIXTURE_FAIL_SMOKE: '1' });
+      assert.notStrictEqual(sameShaFailResult.status, 0);
+      assert.match(sameShaFailResult.stderr, /outside the install selection; rollback will restart that package/);
+      assert.match(sameShaFailResult.stderr, /previously running Farming package was restored/);
+      assert.strictEqual(fs.readFileSync(path.join(configDir, 'durable-state.txt'), 'utf8'), 'state-owned-by-live-npm');
+      const sameShaFailEvents = fs.readFileSync(path.join(configDir, 'fixture-events.log'), 'utf8')
+        .slice(eventsBeforeSameShaFail.length).split('\n');
+      assert(sameShaFailEvents.some(line => line.startsWith('stop:')), 'same-SHA redeploy over live npm package must stop before starting');
+      assert(sameShaFailEvents.includes(`daemon:${fs.realpathSync(npmRoot)}`), 'same-SHA redeploy rollback must restart the live npm package');
+
+      fs.writeFileSync(serverRecord, JSON.stringify({
+        pid: liveNpmServer.pid,
+        configDir: canonicalConfig,
+        processIdentity: liveNpmIdentity,
+        port: 16694,
+        basePath: '/farming',
+      }));
+      const eventsBeforeSameShaOk = fs.readFileSync(path.join(configDir, 'fixture-events.log'), 'utf8');
+      const sameShaOkResult = activate(firstRedeploy, firstSha, remoteDir, configDir);
+      assert.strictEqual(sameShaOkResult.status, 0, sameShaOkResult.stderr);
+      const sameShaOkEvents = fs.readFileSync(path.join(configDir, 'fixture-events.log'), 'utf8')
+        .slice(eventsBeforeSameShaOk.length).split('\n');
+      assert(sameShaOkEvents.some(line => line.startsWith('stop:')), 'same-SHA redeploy over live npm package must not skip stop');
+      assert(sameShaOkEvents.includes(`daemon:${firstImage}`), 'same-SHA redeploy must start the selected image');
+
+      // A stale PID reused by another same-user Farming instance (different
+      // FARMING_CONFIG_DIR or mismatched startedAt/configDir) must never be
+      // adopted as this Config's rollback package.
+      await waitForFile(`/proc/${otherConfigServer.pid}/cmdline`);
+      const otherIdentity = readProcessIdentity(otherConfigServer.pid);
+      for (const staleRecord of [
+        {
+          pid: otherConfigServer.pid,
+          configDir: canonicalConfig,
+          processIdentity: { ...otherIdentity, startedAt: 'Thu Jan  1 00:00:00 1970' },
+        },
+        {
+          pid: otherConfigServer.pid,
+          configDir: fs.realpathSync(otherConfigDir),
+          processIdentity: otherIdentity,
+        },
+        {
+          pid: otherConfigServer.pid,
+          configDir: canonicalConfig,
+          processIdentity: otherIdentity,
+        },
+      ]) {
+        fs.writeFileSync(serverRecord, JSON.stringify(staleRecord));
+        const eventsBeforeStale = fs.readFileSync(path.join(configDir, 'fixture-events.log'), 'utf8');
+        const staleSha = '8'.repeat(40);
+        const staleFailing = writeFixtureBundle(root, { gitSha: staleSha, smokeExitCode: 7 });
+        const staleResult = activate(staleFailing, staleSha, remoteDir, configDir);
+        assert.notStrictEqual(staleResult.status, 0);
+        assert.doesNotMatch(staleResult.stderr, /outside the install selection/);
+        assert.match(staleResult.stderr, /previous image was restored/i);
+        const staleEvents = fs.readFileSync(path.join(configDir, 'fixture-events.log'), 'utf8')
+          .slice(eventsBeforeStale.length).split('\n');
+        assert(!staleEvents.includes(`daemon:${fs.realpathSync(otherNpmRoot)}`),
+          'stale or other-Config PID must never hijack rollback to another Config package');
+        assert(staleEvents.includes(`daemon:${firstImage}`), 'rollback falls back to the selected image');
+      }
+
+      // A legacy record without processIdentity pointing to a live Server
+      // outside the selection cannot prove Config ownership and must refuse before stop.
+      await waitForFile(`/proc/${legacyNpmServer.pid}/cmdline`);
+      fs.writeFileSync(serverRecord, JSON.stringify({ pid: legacyNpmServer.pid, configDir: canonicalConfig }));
+      const eventsBeforeUnproven = fs.readFileSync(path.join(configDir, 'fixture-events.log'), 'utf8');
+      const unprovenSha = '9'.repeat(40);
+      const unproven = writeFixtureBundle(root, { gitSha: unprovenSha });
+      const unprovenResult = activate(unproven, unprovenSha, remoteDir, configDir);
+      assert.notStrictEqual(unprovenResult.status, 0);
+      assert.match(unprovenResult.stderr, /cannot prove it belongs to this Config; refusing to stop it/);
+      assert(!fs.readFileSync(path.join(configDir, 'fixture-events.log'), 'utf8')
+        .slice(eventsBeforeUnproven.length).includes('stop:'), 'unproven live package outside selection must refuse before stop');
+      assert(!fs.readdirSync(`${remoteDir}.deploy/images`).some(name => name.startsWith(unprovenSha.slice(0, 12))));
+
       await waitForFile(`/proc/${unidentifiedServer.pid}/cmdline`);
-      fs.writeFileSync(serverRecord, JSON.stringify({ pid: unidentifiedServer.pid }));
+      fs.writeFileSync(serverRecord, JSON.stringify({
+        pid: unidentifiedServer.pid,
+        configDir: canonicalConfig,
+        processIdentity: readProcessIdentity(unidentifiedServer.pid),
+      }));
       const eventsBeforeUnidentified = fs.readFileSync(path.join(configDir, 'fixture-events.log'), 'utf8');
       const unidentifiedSha = '7'.repeat(40);
       const unidentified = writeFixtureBundle(root, { gitSha: unidentifiedSha });
@@ -315,6 +453,8 @@ async function run() {
     } finally {
       fs.rmSync(serverRecord, { force: true });
       liveNpmServer.kill('SIGKILL');
+      otherConfigServer.kill('SIGKILL');
+      legacyNpmServer.kill('SIGKILL');
       unidentifiedServer.kill('SIGKILL');
     }
 

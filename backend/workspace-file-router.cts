@@ -2,7 +2,7 @@ const express = require('express');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-import { inspectGitWorktree } from './git-worktree-info.cjs';
+import type { inspectGitWorktree } from './git-worktree-info.cjs';
 import { isSameOrDescendantPath } from './path-containment.cjs';
 import type {
   LocalBranchInventory,
@@ -80,6 +80,7 @@ interface WorkspaceFileServiceLike {
   deleteEntry(root: string, userPath: unknown, options?: MutationVersionOptions): Promise<unknown>;
   diff(root: string, userPath: unknown): Promise<unknown>;
   gitBranch(root: string): Promise<unknown>;
+  gitWorktree(root: string): ReturnType<typeof inspectGitWorktree>;
   gitHistory(root: string, options?: InputRecord): Promise<unknown>;
   gitHistoryChanges(root: string, commit: unknown, parent: unknown, options?: InputRecord): Promise<unknown>;
   invalidateGitStatus?(root: string): void;
@@ -750,7 +751,7 @@ async function executeWorkspaceFileRequest(
         throw new WorkspaceFileError('global files do not support git worktrees', 403);
       }
       const root = resolveRequestRoot(request).root;
-      const info = await inspectGitWorktree(root, { cacheMs: 0 });
+      const info = await fileService.gitWorktree(root);
       return info
         ? { isGitRepo: true, commonDir: info.commonDir, currentWorkspace: info.workspace, mainWorkspace: info.mainWorkspace, items: info.worktrees }
         : { isGitRepo: false, commonDir: '', currentWorkspace: root, mainWorkspace: '', items: [] };

@@ -18,6 +18,7 @@ import { isSameOrDescendantPath as isInside } from './path-containment.cjs';
 import { discoverWorkspaceRepositories, exactChildRepository, repositoryForFile, resolveRepositoryRoot } from './workspace-repositories.cjs';
 import { assertManagedRipgrep } from './ripgrep-runtime.cjs';
 import { runtimeExecutableInvocation } from './runtime-executable-invocation.cjs';
+import { inspectGitWorktree } from './git-worktree-info.cjs';
 
 const DEFAULT_MAX_FILE_SIZE = 10 * 1024 * 1024;
 const DEFAULT_MAX_WRITE_SIZE = 2 * 1024 * 1024;
@@ -1741,6 +1742,13 @@ class WorkspaceFileService {
     return options.signal
       ? execFileAsync(command, commandArgs, commandOptions)
       : this.commandRunner.run(command, commandArgs, commandOptions);
+  }
+
+  gitWorktree(root: string) {
+    return inspectGitWorktree(root, {
+      cacheMs: 0,
+      execFileAsync: (_command, args, options) => this.execFile(this.gitPath, args, options),
+    });
   }
 
   async runWorkspaceMutation<T>(workspaceRoot: unknown, operation: (root: string) => Promise<T>): Promise<T> {

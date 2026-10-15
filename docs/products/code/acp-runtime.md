@@ -1325,3 +1325,14 @@ reopen cancelled entries. A follow-up waits for the previous cancellation to
 settle; stale completions cannot settle a newer Turn. Timeout remains an explicit
 runtime failure. Historical interruption survives subsequent Turns and checkpoint
 recovery instead of depending on the session's latest stop reason.
+
+## Authentication Before The First Session
+
+An ACP `session/new` authentication rejection with advertised sign-in methods
+keeps the initialized connection and visible Agent. Until sign-in completes, the
+Agent has a temporary identity and cannot submit prompts. Agent-managed sign-in
+resumes bounded session creation on that same connection; terminal sign-in uses
+the existing reconnect path. Only a confirmed Session response publishes the
+Provider Session identity. Closing the Agent revokes pending authentication and
+late completions cannot recreate it. Other startup failures retain the ordinary
+cleanup contract; identity-only operations still fail and clean up.

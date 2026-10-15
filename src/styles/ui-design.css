@@ -497,3 +497,15 @@
 
 .code-content-toolbar-labeled > svg { grid-area: 1 / 1; }
 .code-content-toolbar-labeled > span { grid-area: 1 / 2; }
+
+/* Inline recoverable errors share one surface across settings and plugins. */
+.code-settings-error,
+.code-plugin-error {
+  border: 1px solid var(--code-border-danger);
+  border-radius: 10px;
+  padding: 7px 9px;
+  background: var(--code-danger-soft);
+  color: var(--code-diff-removed);
+  font-size: 12px;
+  line-height: 18px;
+}

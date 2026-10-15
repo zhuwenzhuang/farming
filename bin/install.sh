@@ -51,6 +51,7 @@ main() {
   lock="${root}.install-lock"
   stage=''
   download_pids=()
+  step_progress_pid=''
   progress_rows=0
   progress_tty=0
   if [ -t 2 ] && [ "${TERM:-}" != dumb ]; then progress_tty=1; fi
@@ -95,6 +96,10 @@ main() {
   done
   if [ -n "${missing}" ]; then
     echo "Missing basic tools:${missing}. Install these tools and run the installer again. Node.js and npm are downloaded automatically." >&2
+    exit 1
+  fi
+  if [ ! -x /bin/ps ]; then
+    echo 'Farming requires /bin/ps. Install procps (Debian/Ubuntu) or procps-ng (RHEL/Rocky/CentOS), then retry.' >&2
     exit 1
   fi
   local integrity_tool
@@ -301,6 +306,7 @@ download_is_running() {
 cleanup_install() {
   local status=$? pid
   progress_end
+  stop_install_step_progress
   for pid in ${download_pids[@]+"${download_pids[@]}"}; do
     [ -n "${pid}" ] || continue
     if download_is_running "${pid}"; then kill -KILL "${pid}" 2>/dev/null || true; fi
@@ -553,16 +559,40 @@ start_package_download() {
   download_pids[i]=$!
 }
 
+stop_install_step_progress() {
+  if [ -n "${step_progress_pid:-}" ]; then
+    kill -TERM "${step_progress_pid}" 2>/dev/null || true
+    wait "${step_progress_pid}" 2>/dev/null || true
+    step_progress_pid=''
+  fi
+}
+
 run_install_step() {
   local label="$1" result diagnostic
   shift
   progress_message 33 "◇ ${label}…"
+  (
+    elapsed=0
+    sleep_pid=''
+    trap 'if [ -n "${sleep_pid}" ]; then kill "${sleep_pid}" 2>/dev/null || true; wait "${sleep_pid}" 2>/dev/null || true; fi; exit 0' TERM INT
+    while true; do
+      sleep 15 &
+      sleep_pid=$!
+      wait "${sleep_pid}"
+      sleep_pid=''
+      elapsed=$((elapsed + 15))
+      progress_message 33 "◇ ${label}… ${elapsed}s elapsed"
+    done
+  ) &
+  step_progress_pid=$!
   # CLI commands may print machine JSON and private staging paths. Those are
   # diagnostic data, not the installer's user-facing status or final locations.
   if "$@" > "${stage}/step.log" 2>&1; then
+    stop_install_step_progress
     progress_message 32 "✓ ${label}"
   else
     result=$?
+    stop_install_step_progress
     diagnostic="$(mktemp "${root}.install-error.XXXXXX")"
     cat "${stage}/step.log" > "${diagnostic}"
     progress_message 31 "✗ ${label} failed. Installation was not published."

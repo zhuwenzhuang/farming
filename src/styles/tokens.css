@@ -366,13 +366,13 @@ body.code-mode[data-appearance='paper'] {
   --code-mobile-options-surface: var(--code-bg-raised);
   --code-mobile-options-text: var(--code-text-muted);
   --code-mobile-sidebar-shadow: 0 20px 60px rgba(72, 63, 45, 0.2);
-  --code-model-matrix-bg: radial-gradient(circle at 2px 2px, rgba(31, 35, 40, .055) 0 .7px, transparent .9px) 0 0 / 7px 7px, linear-gradient(145deg, rgba(255, 255, 255, .24), transparent 42%), #dededb;
+  --code-model-matrix-bg: var(--code-bg-inset);
   --code-model-matrix-border: var(--code-border);
-  --code-model-matrix-rocker-bg: radial-gradient(circle at 2px 2px, rgba(31, 35, 40, .09) 0 1px, transparent 1.2px) 0 0 / 6px 6px, #dededb;
+  --code-model-matrix-rocker-bg: var(--code-bg-surface);
   --code-model-matrix-rocker-border: var(--code-border);
   --code-model-matrix-rocker-focus: 0 0 0 1px var(--code-focus-ring);
-  --code-model-matrix-rocker-shadow: inset 0 0 0 1px rgba(255, 255, 255, .45);
-  --code-model-matrix-shadow: inset 0 1px 1px rgba(31, 35, 40, .09), inset 0 -1px 0 rgba(255, 255, 255, .52), 0 1px 0 rgba(255, 255, 255, .46);
+  --code-model-matrix-rocker-shadow: none;
+  --code-model-matrix-shadow: none;
   --code-panel-border: transparent;
   --code-panel-divider: transparent;
   --code-panel-surface: var(--code-bg-inset);

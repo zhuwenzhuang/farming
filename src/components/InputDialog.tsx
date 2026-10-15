@@ -165,6 +165,7 @@ export function InputDialog({
   const [agentsLoaded, setAgentsLoaded] = useState(false)
   const [agentLoadFailed, setAgentLoadFailed] = useState(false)
   const [selectedAgent, setSelectedAgent] = useState<CliAgent | null>(null)
+  const [workspaceRequired, setWorkspaceRequired] = useState(false)
   const [workspace, setWorkspace] = useState('')
   const [taskText, setTaskText] = useState('')
   const [workflowId, setWorkflowId] = useState('')
@@ -221,6 +222,7 @@ export function InputDialog({
   useLayoutEffect(() => {
     if (!open) return
     let cancelled = false
+    setWorkspaceRequired(false)
     setStep('agent-list')
     setSelectedAgent(null)
     setWorkspace(mustStartMain ? '' : normalizeWorkspaceValue(initialWorkspace || ''))
@@ -641,7 +643,12 @@ export function InputDialog({
 
     const currentWorkspace = normalizeWorkspaceValue(inputRef.current?.value ?? workspace)
     const resolvedWorkspace = resolveWorkspaceToStart(currentWorkspace, mustStartMain, mainWorkspaceDefault)
-    if (!resolvedWorkspace) return
+    if (!resolvedWorkspace) {
+      setWorkspaceRequired(true)
+      inputRef.current?.focus()
+      return
+    }
+    setWorkspaceRequired(false)
     if (!lockStartClick()) return
 
     if (mustStartMain || handoff) {
@@ -1120,9 +1127,12 @@ export function InputDialog({
                 ref={inputRef}
                 data-testid="workspace-input"
                 type="text"
+                aria-invalid={workspaceRequired || undefined}
+                aria-describedby={workspaceRequired ? "workspace-required-error" : undefined}
                 value={workspace}
                 onFocus={() => syncSelectionWithValue(workspace)}
                 onChange={e => {
+                  setWorkspaceRequired(false)
                   const nextValue = e.target.value
                   workspaceTouchedRef.current = true
                   setWorkspacePreparation(null)
@@ -1356,6 +1366,7 @@ export function InputDialog({
                 </div>
               </div>
             )}
+            {workspaceRequired && <div id="workspace-required-error" className="input-dialog-start-error" role="alert">{copy.workspaceRequired}</div>}
             {!workspacePreparation && startError ? (
               <div className="input-dialog-start-error" data-testid="input-dialog-start-error" role="alert">
                 <ErrorGlyph aria-hidden="true" />

@@ -74,6 +74,10 @@ Editor 和 Project Membership Controller 持有；任一阶段失败都停止后
 Git 发现支持 NUL 分隔的 Worktree 清单；只有 Git 明确拒绝 `-z` 时才使用旧版行格式。
 旧格式中的引用值会解码，格式异常仍按查找失败处理。含换行的路径要求 NUL 格式。
 超时与仓库错误不会触发格式回退。公共 Git 目录路径由后端解析，不依赖 `--path-format`。
+Project Worktree 清单与其他 Git 读取一样，使用 Files 服务的命令执行边界及其隔离的
+命令辅助进程。同时打开多个 Project 不得直接在 Server 事件循环上集中启动 Git
+进程、阻塞无关的发现请求。每次显式清单读取仍是新鲜的，执行位置的调整不引入
+陈旧结果缓存。
 
 Git 拥有 Repository 与 Worktree Identity。Farming 把每个 Worktree 展示为普通 Project，
 只拥有它在 Workspace 中的 Membership 与 Order。

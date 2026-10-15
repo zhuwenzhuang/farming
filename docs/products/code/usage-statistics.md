@@ -36,7 +36,10 @@ Reads transition from pending to a bounded success or explicit failure. Concurre
 summary reads share the instance cache. Home changes and invalidation fence older
 results. Temporary quota processes have an output limit and deadline and are killed
 on every terminal path. Codex quota reads disable daemon reuse to keep that
-temporary process isolated. Failure does not restore an old quota or retry a mutation.
+temporary process isolated. Executable identity and version probes run asynchronously
+with bounded child execution; concurrent reads share probes for the same executable
+metadata. Quota refresh must not block unrelated Home discovery or foreground requests.
+Failure does not restore an old quota or retry a mutation.
 Today's open detail refreshes periodically; navigation cancels the prior request,
 and a late response cannot overwrite the new date. Errors and incomplete history
 remain visible, and an explicit read can recover after the source becomes healthy.

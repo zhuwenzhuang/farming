@@ -31,7 +31,7 @@ function encodeProjectPath(workspace) {
     .join('-')}`;
 }
 
-function run() {
+async function run() {
   // The encoded-directory fallback resolves a real absolute workspace from the
   // filesystem root. A home-scoped fixture remains valid when this repository
   // is tested from an isolated worktree under /tmp.
@@ -80,14 +80,14 @@ function run() {
     process.chdir('/');
     try {
       assert.strictEqual(
-        resolveEncodedProjectDirectory(encodedName),
+        await resolveEncodedProjectDirectory(encodedName),
         realProjectC
       );
     } finally {
       process.chdir(previousCwd);
     }
 
-    const workspaces = discoverAgentWorkspaces({ homeDir, limit: 10 });
+    const workspaces = await discoverAgentWorkspaces({ homeDir, limit: 10 });
     const byPath = new Map<string, DiscoveredWorkspaceFixture>(
       workspaces.map(item => [item.path, item]),
     );
@@ -99,17 +99,66 @@ function run() {
     assert.deepStrictEqual([...byPath.get(realProjectA).agents].sort(), ['claude', 'qwen']);
     assert.strictEqual(byPath.get(realProjectA).confidence, 'high');
 
-    const qwenWorkspaces = discoverAgentWorkspaces({ homeDir, agent: 'qwen', limit: 10 });
+    const qwenWorkspaces = await discoverAgentWorkspaces({ homeDir, agent: 'qwen', limit: 10 });
     assert.deepStrictEqual(qwenWorkspaces.map(item => item.path), [realProjectA]);
 
-    const codexWorkspaces = discoverAgentWorkspaces({ homeDir, agent: 'codex', limit: 10 });
+    const codexWorkspaces = await discoverAgentWorkspaces({ homeDir, agent: 'codex', limit: 10 });
     assert.deepStrictEqual(codexWorkspaces.map(item => item.path), [realProjectB]);
 
-    const bashWorkspaces = discoverAgentWorkspaces({ homeDir, agent: 'bash', limit: 10 });
+    const bashWorkspaces = await discoverAgentWorkspaces({ homeDir, agent: 'bash', limit: 10 });
     assert.strictEqual(bashWorkspaces.length, workspaces.length, 'Unknown agent should fall back to global workspace discovery');
 
-    const limited = discoverAgentWorkspaces({ homeDir, limit: 2 });
+    const limited = await discoverAgentWorkspaces({ homeDir, limit: 2 });
     assert.strictEqual(limited.length, 2);
+
+    // A cold suggestions read must not consume an unrelated Home scan's deadline.
+    // Simulate the same slow filesystem for both old synchronous and async callers.
+    const { mock } = require('node:test');
+    const { AsyncCache } = require('../async-cache.cjs');
+    const { discoverAgentHomes } = require('../agent-home-discovery.cjs');
+    let slowDirectory = '';
+    const readSync = fs.readdirSync;
+    const readAsync = fs.promises.readdir;
+    const sleeper = new Int32Array(new SharedArrayBuffer(4));
+    const syncRead = mock.method(fs, 'readdirSync', function (directory, ...args) {
+      if (directory === slowDirectory) Atomics.wait(sleeper, 0, 0, 500);
+      return readSync.call(fs, directory, ...args);
+    });
+    const asyncRead = mock.method(fs.promises, 'readdir', async function (directory, ...args) {
+      if (directory === slowDirectory) await new Promise(resolve => setTimeout(resolve, 500));
+      return readAsync.call(fs.promises, directory, ...args);
+    });
+    try {
+      for (const root of ['.claude/projects', '.qwen/projects', '.codex/sessions']) {
+        slowDirectory = path.join(homeDir, root);
+        const cache = new AsyncCache(() => discoverAgentWorkspaces({ homeDir }));
+        const results = await Promise.allSettled([
+          discoverAgentHomes({ userHome: homeDir, env: {}, timeoutMs: 300 }),
+          cache.get('cold'),
+        ]);
+        assert.strictEqual(results[0].status, 'fulfilled', `${root} discovery must not starve Home discovery`);
+        assert.strictEqual(results[1].status, 'fulfilled');
+      }
+    } finally {
+      syncRead.mock.restore();
+      asyncRead.mock.restore();
+    }
+
+    const older = path.join(homeDir, 'ambiguous-name');
+    const newer = path.join(homeDir, 'ambiguous_name');
+    mkdirp(older);
+    mkdirp(newer);
+    fs.utimesSync(older, 1000, 1000);
+    fs.utimesSync(newer, 2000, 2000);
+    assert.strictEqual(await resolveEncodedProjectDirectory(encodeProjectPath(newer)), fs.realpathSync(newer),
+      'equally specific encoded names retain the newest-directory tie break');
+
+    const emptyHome = path.join(tmpRoot, 'empty-history');
+    const emptyHistory = path.join(emptyHome, '.codex', 'sessions');
+    mkdirp(emptyHistory);
+    for (let index = 0; index < 4096; index++) mkdirp(path.join(emptyHistory, String(index)));
+    await assert.rejects(discoverAgentWorkspaces({ homeDir: emptyHome }), /history directory limit/,
+      'a history tree without matching files must still have a traversal bound');
 
     console.log('test-workspace-discovery passed');
   } finally {
@@ -117,4 +166,4 @@ function run() {
   }
 }
 
-run();
+run().catch(error => { console.error(error); process.exitCode = 1; });

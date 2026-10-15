@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
-import { matchingProcessIdentity, readServerProcessIdentity } from './server-process-identity.cjs';
+import { matchingProcessIdentity, readLiveServerProcessIdentity as readServerProcessIdentity } from './server-process-identity.cjs';
 import {
   activatePackageImage,
   initializeCurrentPackageImage,

@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   AgentSideConnection,
+  RequestError,
   PROTOCOL_VERSION,
   ndJsonStream,
   type Agent,
@@ -229,6 +230,7 @@ function validateRequestedSessionScope(params) {
 }
 
 class FakeAgent implements Agent {
+  authenticated = false;
   async initialize(params) {
     if (
       params.clientCapabilities?.fs?.readTextFile !== true
@@ -273,6 +275,9 @@ class FakeAgent implements Agent {
   }
 
   async newSession(params) {
+    if (path.basename(params.cwd).startsWith("acp-login-required") && !this.authenticated) {
+      throw RequestError.authRequired();
+    }
     validateRequestedSessionScope(params);
     if (path.basename(params.cwd) === 'acp-archive-create-identity-race') {
       await new Promise(resolve => setTimeout(resolve, 500));
@@ -526,6 +531,7 @@ class FakeAgent implements Agent {
   }
 
   async authenticate() {
+    this.authenticated = true;
     return {};
   }
 

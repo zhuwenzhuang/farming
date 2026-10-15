@@ -403,6 +403,7 @@ export function FileEditorSpreadsheetPreview({
             </label>
             <form className="code-spreadsheet-find" onSubmit={event => { event.preventDefault(); findNext() }}>
               <input
+                className="code-field"
                 disabled={!tableReady}
                 aria-label={copy.spreadsheetFind}
                 placeholder={copy.spreadsheetFindPlaceholder}
@@ -414,6 +415,7 @@ export function FileEditorSpreadsheetPreview({
             </form>
             <form className="code-spreadsheet-address" onSubmit={event => { event.preventDefault(); goToAddress() }}>
               <input
+                className="code-field"
                 disabled={!tableReady}
                 aria-label={copy.spreadsheetAddress}
                 value={address}
@@ -431,7 +433,7 @@ export function FileEditorSpreadsheetPreview({
             </span>
           </div>
           {actionError ? <div className="code-spreadsheet-warning" role="alert">{actionError}</div> : null}
-          {manualCopy ? <textarea aria-label={copy.spreadsheetCopy} readOnly value={manualCopy} onFocus={event => event.currentTarget.select()} /> : null}
+          {manualCopy ? <textarea className="code-field" aria-label={copy.spreadsheetCopy} readOnly value={manualCopy} onFocus={event => event.currentTarget.select()} /> : null}
           {workbook.warnings.length > 0 && (
             <div className="code-spreadsheet-warning" role="status">
               {workbook.warnings.map(warning => warning.kind === 'missing-formula-cache'

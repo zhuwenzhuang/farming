@@ -75,17 +75,18 @@ test.describe('agent launch icons', () => {
       await expect(page.getByTestId(`code-project-agent-launch-${agentName}`).locator(`.agent-launch-icon-${agentName}`)).toBeVisible()
     }
     for (const agentName of ['codex', 'claude', 'pi', 'qoder', 'qwen']) {
-      await expect(page.getByTestId(`code-project-agent-launch-chat-${agentName}`)).toBeVisible()
+      await expect(page.getByTestId(`code-project-agent-launch-terminal-${agentName}`)).toBeVisible()
+      await expect(page.getByTestId(`code-project-agent-launch-chat-${agentName}`)).toHaveCount(0)
     }
     for (const agentName of ['bash', 'zsh']) {
-      await expect(page.getByTestId(`code-project-agent-launch-chat-${agentName}`)).toHaveCount(0)
+      await expect(page.getByTestId(`code-project-agent-launch-terminal-${agentName}`)).toHaveCount(0)
     }
 
     const beforeResponse = await page.request.get('/farming/api/control/agents')
     expect(beforeResponse.ok()).toBeTruthy()
     const beforePayload = await beforeResponse.json() as { agents?: Array<{ id: string }> }
     const beforeIds = new Set((beforePayload.agents ?? []).map(agent => agent.id))
-    await page.getByTestId('code-project-agent-launch-chat-codex').click()
+    await page.getByTestId('code-project-agent-launch-codex').click()
     await expect.poll(async () => {
       const response = await page.request.get('/farming/api/control/agents')
       if (!response.ok()) return false

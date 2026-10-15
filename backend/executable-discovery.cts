@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
+import { runDiscoveryCommand } from './discovery-command.cjs';
 import { getUserLaunchAgents } from './cli-agents.cjs';
 import * as storageLayout from './storage-layout.cjs';
 
@@ -61,6 +62,49 @@ const DEFAULT_CODEX_APP_BIN = '/Applications/Codex.app/Contents/Resources/codex'
 const DEFAULT_CHATGPT_APP_CODEX_BIN = '/Applications/ChatGPT.app/Contents/Resources/codex';
 const executableVersionCache = new Map<string, string>();
 const executableIdentityCache = new Map<string, boolean>();
+const pendingExecutableProbes = new Map<string, Promise<string>>();
+
+async function probeExecutable(filePath: string, args: string[], key: string): Promise<string> {
+  let pending = pendingExecutableProbes.get(key);
+  if (!pending) {
+    pending = runDiscoveryCommand(filePath, args, { timeoutMs: 2000 }).then(result => result || '', () => '').finally(() => { pendingExecutableProbes.delete(key); });
+    pendingExecutableProbes.set(key, pending);
+  }
+  return pending;
+}
+
+async function readExecutableCliVersionAsync(filePath: string, cacheVersions = true): Promise<string> {
+  const key = getExecutableVersionCacheKey(filePath);
+  const cached = executableVersionCache.get(key);
+  if (cacheVersions && cached !== undefined) return cached;
+  const version = parseCliVersion(await probeExecutable(filePath, ['--version'], `${key}:version`));
+  // A replaced executable must be probed again rather than inherit the old result.
+  if (cacheVersions && getExecutableVersionCacheKey(filePath) === key) {
+    const prefix = `${filePath}:`;
+    for (const token of executableVersionCache.keys()) {
+      if (token.startsWith(prefix) && token !== key) executableVersionCache.delete(token);
+    }
+    executableVersionCache.set(key, version);
+  }
+  return version;
+}
+
+async function matchesExecutableIdentityAsync(agentName: string, filePath: string): Promise<boolean> {
+  const probe = EXECUTABLE_DISCOVERY_DEFINITIONS[agentName]?.identityProbe;
+  if (!probe) return true;
+  const key = `${getExecutableVersionCacheKey(filePath)}:${agentName}:identity`;
+  const cached = executableIdentityCache.get(key);
+  if (cached !== undefined) return cached;
+  const matches = (await probeExecutable(filePath, probe.args, key)).includes(probe.outputIncludes);
+  if (`${getExecutableVersionCacheKey(filePath)}:${agentName}:identity` === key) {
+    const prefix = `${filePath}:`;
+    for (const token of executableIdentityCache.keys()) {
+      if (token.startsWith(prefix) && token !== key) executableIdentityCache.delete(token);
+    }
+    executableIdentityCache.set(key, matches);
+  }
+  return matches;
+}
 
 interface ExecutableIdentityProbe {
   args: string[];
@@ -421,6 +465,13 @@ function resolveTerminalExecutable(
     readVersion,
     options,
   );
+  return selectTerminalExecutable(system, farming);
+}
+
+function selectTerminalExecutable(
+  system: Array<{ path: string; version: string }>,
+  farming: Array<{ path: string; version: string }>,
+): TerminalExecutableResolution {
   if (system.length > 0) {
     const newestSystem = newestKnownExecutable(system);
     const newestFarming = newestKnownExecutable(farming);
@@ -437,6 +488,44 @@ function resolveTerminalExecutable(
     return { ...(newestKnownExecutable(farming) || farming[0]), source: 'farming' };
   }
   return { path: '', source: '', version: '' };
+}
+
+/** Request/background reads must not run CLI probes on the server event loop. */
+async function resolveTerminalExecutableAsync(
+  agentName: string,
+  pathEnv = process.env.PATH || '',
+  options: ExecutableResolutionOptions = {},
+): Promise<TerminalExecutableResolution> {
+  async function inspect(candidates: string[]) {
+    const inspected: Array<{ path: string; version: string }> = [];
+    for (const candidate of dedupeExecutableCandidates(candidates)) {
+      if (!isExecutable(candidate) || !await matchesExecutableIdentityAsync(agentName, candidate)) continue;
+      const version = options.readVersion
+        ? readCachedExecutableCliVersion(candidate, options.readVersion, options)
+        : await readExecutableCliVersionAsync(candidate, options.cacheVersions !== false);
+      inspected.push({ path: candidate, version });
+    }
+    return inspected;
+  }
+  const [system, farming] = await Promise.all([
+    inspect(options.systemCandidates || getSystemExecutableCandidates(agentName, pathEnv)),
+    inspect(options.farmingCandidates || getFarmingOwnedExecutableCandidates(agentName)),
+  ]);
+  return selectTerminalExecutable(system, farming);
+}
+
+async function listAvailableAgentsAsync(pathEnv = process.env.PATH || ''): Promise<AvailableLaunchAgent[]> {
+  const agents = await Promise.all(getUserLaunchAgents().map(async agent => {
+    let resolvedPath = '';
+    for (const candidate of dedupeExecutableCandidates(getPreferredExecutableCandidates(agent.command || agent.name, pathEnv))) {
+      if (isExecutable(candidate) && await matchesExecutableIdentityAsync(agent.command || agent.name, candidate)) {
+        resolvedPath = candidate;
+        break;
+      }
+    }
+    return { ...agent, resolvedPath, available: true as const };
+  }));
+  return agents.filter(agent => Boolean(agent.resolvedPath));
 }
 
 function getPreferredExecutableCandidates(
@@ -773,6 +862,7 @@ export {
   isExecutable,
   matchesExecutableIdentity,
   listAvailableAgents,
+  listAvailableAgentsAsync,
   parseCliVersion,
   readExecutableCliVersion,
   resolveAgentExecutable,
@@ -782,5 +872,6 @@ export {
   resolveTerminalCodexExecutable,
   resolveProviderTerminalExecutable,
   resolveTerminalExecutable,
+  resolveTerminalExecutableAsync,
   validatePersistedAcpExecutable,
 };

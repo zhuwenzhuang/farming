@@ -718,6 +718,7 @@ export interface CodeCopy {
   codingAgents: string
   otherAgents: string
   workspace: string
+  workspaceRequired: string
   workspacePathPlaceholder: string
   chooseWorkspaceDirectory: string
   workspaceDirectoryBrowserFailed: string
@@ -1503,6 +1504,7 @@ const EN_COPY: CodeCopy = {
   codingAgents: 'coding agents',
   otherAgents: 'Shell',
   workspace: 'Workspace:',
+  workspaceRequired: 'Enter a workspace path or choose a folder.',
   workspacePathPlaceholder: '/path/to/workspace',
   chooseWorkspaceDirectory: 'Choose workspace folder',
   workspaceDirectoryBrowserFailed: 'Couldn’t read this directory.',
@@ -2323,6 +2325,7 @@ const ZH_COPY: CodeCopy = {
   codingAgents: '编程 Agent',
   otherAgents: 'Shell',
   workspace: '工作区：',
+  workspaceRequired: '请输入工作区路径，或选择一个文件夹。',
   workspacePathPlaceholder: '/工作区/路径',
   chooseWorkspaceDirectory: '选择工作区目录',
   workspaceDirectoryBrowserFailed: '无法读取这个目录。',

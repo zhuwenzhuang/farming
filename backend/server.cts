@@ -238,7 +238,7 @@ import { createWebSocketWorkspaceRequestHandlers } from './websocket-workspace-r
 import { TokenAuth, authenticatedAccessScopeId } from './auth.cjs';
 import { readOnlyClientMessageAllowed } from './read-only-access.cjs';
 import { getLocalIPs, getPrimaryLocalIP } from './network.cjs';
-import { listAvailableAgents, resolveTerminalCodexExecutable } from './executable-discovery.cjs';
+import { listAvailableAgentsAsync, resolveTerminalExecutableAsync } from './executable-discovery.cjs';
 import { getAgentLaunchMetadata } from './cli-agents.cjs';
 import { readClaudeSettingsSummary } from './claude-settings.cjs';
 import { listCodexModelOptions } from './codex-models.cjs';
@@ -836,7 +836,7 @@ const xtermWebglEntryPath = path.join(__dirname, '..', 'node_modules', '@xterm',
 const xtermCssPath = path.join(__dirname, '..', 'node_modules', '@xterm', 'xterm', 'css', 'xterm.css');
 const materialIconDir = path.join(__dirname, '..', 'node_modules', 'material-icon-theme', 'icons');
 
-function getAvailableAgentsForRequest() {
+async function getAvailableAgentsForRequest() {
   if (process.env.FARMING_E2E_FAKE_EXECUTABLES === '1') {
     return withLaunchCapabilities([
       ...listProviderDescriptors().map(descriptor => ({
@@ -866,11 +866,11 @@ function getAvailableAgentsForRequest() {
     ]);
   }
 
-  const shellEnv = agentManager.resolveAgentShellEnv('', { maxAgeMs: INTERACTIVE_REFRESH_CACHE_MAX_AGE_MS });
+  const shellEnv = await agentManager.resolveAgentShellEnvAsync('', { maxAgeMs: INTERACTIVE_REFRESH_CACHE_MAX_AGE_MS });
   const pathEnv = typeof shellEnv?.PATH === 'string' && shellEnv.PATH.trim()
     ? shellEnv.PATH
     : (process.env.PATH || '');
-  return withLaunchCapabilities(listAvailableAgents(pathEnv));
+  return withLaunchCapabilities(await listAvailableAgentsAsync(pathEnv));
 }
 
 function withLaunchCapabilities<T extends { name: string }>(agents: T[]) {
@@ -1116,13 +1116,14 @@ app.get([
   });
 });
 
-app.get(routePath(BASE_PATH, '/api/executables'), (req, res) => {
-  const availableAgents = getAvailableAgentsForRequest();
+app.get(routePath(BASE_PATH, '/api/executables'), async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
-  res.json({
-    agents: availableAgents,
-    total: availableAgents.length
-  });
+  try {
+    const availableAgents = await getAvailableAgentsForRequest();
+    res.json({ agents: availableAgents, total: availableAgents.length });
+  } catch (caught) {
+    res.status(500).json({ error: caughtError(caught).message || 'Failed to discover Agent executables' });
+  }
 });
 
 app.use(routePath(BASE_PATH, '/api/workspaces'), createWorkspacePickerRouter({
@@ -1231,10 +1232,10 @@ app.post(routePath(BASE_PATH, '/api/codex/context-windows'), express.json(), rea
 
 app.use(routePath(BASE_PATH, '/api/update'), createUpdateRouter(updateService));
 
-function warmCodexExecutableVersionCache() {
+async function warmCodexExecutableVersionCache() {
   const startedAt = Date.now();
   try {
-    const result = resolveTerminalCodexExecutable('');
+    const result = await resolveTerminalExecutableAsync('codex');
     if (result.path) {
       console.log(`Codex executable ready: ${result.version || 'unknown version'} (${Date.now() - startedAt}ms)`);
     }
@@ -3189,7 +3190,7 @@ function startServer() {
         console.log(`  Token: ${token}`);
         const tokenInfo = tokenAuth.getTokenInfo();
         if (tokenInfo) {
-          console.log(`  Token style: ${tokenInfo.style} (${tokenInfo.source}, ~${tokenInfo.entropyBits} bits)`);
+          console.log(`  Token style: ${tokenInfo.style} (${tokenInfo.source}${tokenInfo.entropyBits > 0 ? `, ~${tokenInfo.entropyBits} bits` : ""})`);
         }
       } else {
         console.log('  Token auth: disabled');

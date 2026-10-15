@@ -148,7 +148,7 @@ import { run as runControlCli } from './farming-cli.cjs';
 import { PACKAGED_CODEX_ACP_ARG, runPackagedCodexAcp } from './acp/packaged-codex-acp.cjs';
 import { PACKAGED_CLAUDE_ACP_ARG, runPackagedClaudeAcp } from './acp/packaged-claude-acp.cjs';
 import { PACKAGED_PI_ACP_ARG, runPackagedPiAcp } from './acp/packaged-pi-acp.cjs';
-import { SERVER_PROCESS_IDENTITY_FORMAT, matchingProcessIdentity, readServerProcessIdentity } from './server-process-identity.cjs';
+import { SERVER_PROCESS_IDENTITY_FORMAT, matchingProcessIdentity, readLiveServerProcessIdentity as readServerProcessIdentity } from './server-process-identity.cjs';
 import * as storageLayout from './storage-layout.cjs';
 
 const SERVER_MODE_ARG = '--farming-server';
@@ -481,9 +481,18 @@ async function adaptServerPort(
   env: ServerEnv,
   parsed: ParsedServerOperation,
 ): Promise<ServerEnv> {
-  if (parsed.portExplicit || isPortOverrideExplicit(parsed.env, process.env)) return env;
+  const requestedPort = Number(env.PORT || DEFAULT_PORT);
+  if (parsed.portExplicit || isPortOverrideExplicit(parsed.env, process.env)) {
+    if (!await canListenOnPort(requestedPort)) {
+      throw new Error(`Port ${requestedPort} is unavailable. Stop its owning service or choose another --port.`);
+    }
+    return env;
+  }
   const port = await findAvailablePort(Number(env.PORT || DEFAULT_PORT));
-  if (String(port) !== String(env.PORT)) env.PORT = String(port);
+  if (port !== requestedPort) {
+    createCliOperationProgress({ env }).message(`Port ${requestedPort} is unavailable · using ${port}`);
+    env.PORT = String(port);
+  }
   return env;
 }
 
@@ -1066,13 +1075,13 @@ function isRunning(pid: number): boolean {
   if (!pid) return false;
   try {
     process.kill(pid, 0);
-    return true;
   } catch (error: unknown) {
     if (errorString(error, 'code') === 'EPERM' || errorString(error, 'code') === 'EACCES') {
       return true;
     }
     return false;
   }
+  return process.platform === 'win32' || readServerProcessIdentity(pid) !== null;
 }
 
 function assertServerProcessClaimAvailable(
@@ -1651,6 +1660,7 @@ async function stopExistingServerBeforeStart(env: ServerEnv, mode: 'foreground' 
 
 async function startForeground(parsed: ParsedServerOperation): Promise<void> {
   const env = canonicalizeServerConfigDir(buildServerEnv(parsed.env));
+  readServerProcessIdentity(process.pid);
   await stopExistingServerBeforeStart(env, 'foreground');
   assertServerProcessClaimAvailable(env.FARMING_CONFIG_DIR);
   await prepareStartupDependencies(env);
@@ -1678,6 +1688,7 @@ async function startForeground(parsed: ParsedServerOperation): Promise<void> {
 
 async function startDaemon(parsed: ParsedServerOperation): Promise<number> {
   const env = canonicalizeServerConfigDir(buildServerEnv(parsed.env));
+  readServerProcessIdentity(process.pid);
   await stopExistingServerBeforeStart(env, 'background');
   await adaptServerPort(env, parsed);
   env[SERVER_MODE_ENV] = '1';
@@ -1692,6 +1703,7 @@ async function startDaemon(parsed: ParsedServerOperation): Promise<number> {
     Number(env.FARMING_SERVER_LOG_MAX_FILES || DEFAULT_SERVER_LOG_MAX_FILES),
   );
   const out = fs.openSync(serverLogFile, 'a');
+  const startupLogOffset = fs.fstatSync(out).size;
   const invocation = childInvocation(env);
   if (env.FARMING_DEBUG_CLI === '1') {
     fs.appendFileSync(logFile(configDir), [
@@ -1708,6 +1720,7 @@ async function startDaemon(parsed: ParsedServerOperation): Promise<number> {
     env,
     stdio: ['ignore', out, out],
   });
+  fs.closeSync(out);
   const childPid = child.pid;
   if (!childPid) throw new Error('server process did not report its PID after launch');
   child.unref();
@@ -1744,7 +1757,16 @@ async function startDaemon(parsed: ParsedServerOperation): Promise<number> {
   }
 
   console.log('\n  Open Farming');
-  const logs = tailFile(logFile(configDir), 40);
+  const logFd = fs.openSync(serverLogFile, 'r');
+  let logs: string;
+  try {
+    const size = fs.fstatSync(logFd).size;
+    const start = Math.max(startupLogOffset, size - 64 * 1024);
+    const buffer = Buffer.alloc(Math.max(0, size - start));
+    logs = buffer.subarray(0, fs.readSync(logFd, buffer, 0, buffer.length, start)).toString('utf8');
+  } finally {
+    fs.closeSync(logFd);
+  }
   const urlLines = logs.split(/\r?\n/).filter(line => /Local:|Network:|Token:|Token style:|Token auth:/.test(line));
   if (urlLines.length > 0) {
     console.log(urlLines.join('\n'));
@@ -1849,7 +1871,10 @@ function showUrl(parsed: ParsedServerOperation): number {
     if (state.port) env.PORT = String(state.port);
     if (state.basePath) env.FARMING_BASE_PATH = state.basePath;
   }
-  console.log(entryUrl(env));
+  const token = readTokenForEnv(env);
+  const url = new URL(entryUrl(env));
+  if (token && !['1', 'true', 'yes', 'on'].includes(String(env.FARMING_DISABLE_AUTH || '').toLowerCase())) url.searchParams.set('token', token);
+  console.log(url.toString());
   return 0;
 }
 
@@ -1861,6 +1886,7 @@ function usage(): string {
   farming stop
   farming logs
   farming url
+  farming --version
   farming runtime prepare [--config-dir ~/.farming] [--no-activate]
   farming review <git-dir> <old-revision> <new-revision|now> [--branch <branch>] [--no-open]
 
@@ -1883,6 +1909,14 @@ Agent control commands are also available:
 }
 
 async function run(argv: string[] = process.argv.slice(2)): Promise<number> {
+  if (['--version', '-v', 'version'].includes(argv[0]) && argv.length === 1) {
+    console.log(require('../package.json').version);
+    return 0;
+  }
+  const [nodeMajor, nodeMinor] = process.versions.node.split('.').map(Number);
+  if (nodeMajor < 22 || (nodeMajor === 22 && nodeMinor < 13)) {
+    throw new Error(`Farming requires Node.js 22.13 or newer; found ${process.versions.node}. Upgrade Node.js or use the directory installer with its private runtime.`);
+  }
   if (process.env.FARMING_DEBUG_CLI === '1' && argv[0] === 'debug-argv') {
     console.log(JSON.stringify({
       argv: process.argv,

@@ -135,6 +135,10 @@ test('opens image, PDF, spreadsheet, and binary files through their bounded view
       document.body.dataset.appearance = value
     }, appearance)
     await expect(page.getByTestId('code-spreadsheet-grid').locator('canvas')).toBeVisible()
+    await find.focus()
+    await expect(find).toHaveCSS('outline-style', 'none')
+    await expect(find).toHaveCSS('box-shadow', 'none')
+    await expect(address).toHaveClass('code-field')
     await spreadsheet.screenshot({ path: testInfo.outputPath(`spreadsheet-${appearance}.png`) })
   }
 

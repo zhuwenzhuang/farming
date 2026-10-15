@@ -2593,10 +2593,11 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
               const command = option.command || option.name
               const displayName = agentDisplayName(option.name)
               const supportsChat = option.capabilities?.supportsChat === true
-              const defaultMode = supportsChat ? option.launchDefaults?.runtimeMode || 'chat' : 'terminal'
-              const alternateMode = defaultMode === 'chat' ? 'terminal' : 'chat'
+              // This menu is a Chat entry point: the row always starts Chat for
+              // Chat-capable Providers and Terminal stays a separate shortcut.
+              // Saved runtime defaults belong to the New Agent dialog.
+              const defaultMode = supportsChat ? 'chat' : 'terminal'
               const modeLabel = defaultMode === 'chat' ? copy.transcriptView : copy.terminalView
-              const alternateLabel = alternateMode === 'chat' ? copy.transcriptView : copy.terminalView
               return (
                 <div
                   key={option.name}
@@ -2614,19 +2615,18 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
                   >
                     <AgentLaunchIcon name={option.name} />
                     <span>{displayName}</span>
-                    {supportsChat && (defaultMode === 'chat' ? <ChatBubblesGlyph /> : <TerminalSquareGlyph />)}
                   </button>
                   {supportsChat && (
                     <button
                       type="button"
                       role="menuitem"
                       className="code-project-agent-launch-alternate"
-                      data-testid={`code-project-agent-launch-${alternateMode}-${option.name}`}
-                      aria-label={`${displayName} · ${alternateLabel}`}
-                      title={alternateLabel}
-                      onClick={() => startProjectAgent(command, alternateMode)}
+                      data-testid={`code-project-agent-launch-terminal-${option.name}`}
+                      aria-label={`${displayName} · ${copy.terminalView}`}
+                      title={copy.terminalView}
+                      onClick={() => startProjectAgent(command, 'terminal')}
                     >
-                      {alternateMode === 'chat' ? <ChatBubblesGlyph /> : <TerminalSquareGlyph />}
+                      <TerminalSquareGlyph />
                     </button>
                   )}
                 </div>

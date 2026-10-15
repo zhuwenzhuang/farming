@@ -215,6 +215,7 @@ import {
   buildInteractiveAgentBaseEnv,
   normalizeInteractiveTerminalEnv,
   resolveUserShellEnvSync,
+  resolveUserShellEnv,
 } from './agent-env.cjs';
 import { inspectGitWorktree } from './git-worktree-info.cjs';
 import { isSameOrDescendantPath } from './path-containment.cjs';
@@ -1570,6 +1571,9 @@ class AgentManager extends EventEmitter {
       provider: typeof options.agentShellEnvProvider === 'function'
         ? options.agentShellEnvProvider
         : (shell: string) => resolveUserShellEnvSync({ processEnv: process.env, shell }),
+      asyncProvider: typeof options.agentShellEnvProvider === 'function'
+        ? async (shell: string) => options.agentShellEnvProvider!(shell)
+        : (shell: string) => resolveUserShellEnv({ processEnv: process.env, shell }),
     });
     this.agents = new RuntimeAgentMap();
     this.acpTranscriptCursorIdentities = new Map();
@@ -4475,6 +4479,10 @@ class AgentManager extends EventEmitter {
     return this.agentShellEnvResolver.resolve(shell, options);
   }
 
+  resolveAgentShellEnvAsync(shell: string = '', options: AgentShellEnvOptions = {}) {
+    return this.agentShellEnvResolver.resolveAsync(shell, options);
+  }
+
   buildAgentBaseEnv(agent: TypedAgentRecord) {
     const command = agent?.forkCommand || agent?.command || '';
     const shell = agent?.category === 'other' && isShellProgram(command)
@@ -6114,15 +6122,17 @@ class AgentManager extends EventEmitter {
           await options.onAcpSessionPrepared(prepared);
         }
         structuredRuntimeRegistered = true;
-        agentRecord.providerSessionId = prepared.sessionId;
-        agentRecord.providerSessionKey = mainPageAgentSessionKey(
-          structuredRuntimeProvider,
-          prepared.sessionId,
-          agentRecord.providerHomeId || 'default'
-        );
-        agentRecord.providerSessionTemporary = false;
-        agentRecord.providerSessionSource = `acp-${prepared.historyMode}`;
-        agentRecord.providerSessionResolvedAt = Date.now();
+        if (prepared.sessionId) {
+          agentRecord.providerSessionId = prepared.sessionId;
+          agentRecord.providerSessionKey = mainPageAgentSessionKey(
+            structuredRuntimeProvider,
+            prepared.sessionId,
+            agentRecord.providerHomeId || 'default'
+          );
+          agentRecord.providerSessionTemporary = false;
+          agentRecord.providerSessionSource = `acp-${prepared.historyMode}`;
+          agentRecord.providerSessionResolvedAt = Date.now();
+        }
         const restoredConfigOverrides = Array.isArray(prepared.configOverrides)
           ? cloneAcpConfigOverrides(prepared.configOverrides)
           : configOverrides;
@@ -6142,13 +6152,17 @@ class AgentManager extends EventEmitter {
           // prepareAgent already validated the request; retain the caller copy
           // only for custom runtimes that do not expose the normalized scope.
         }
-        this.acpSessionOptionsStore.set(String(agentRecord.providerSessionKey || ''), {
-          additionalDirectories: [...normalizedSessionOptions.additionalDirectories],
-          configOverrides: cloneAcpConfigOverrides(normalizedSessionOptions.configOverrides),
-          mcpServers: JSON.parse(JSON.stringify(normalizedSessionOptions.mcpServers)),
-        });
-        acpRuntime.state = 'idle';
-        acpRuntime.error = '';
+        if (agentRecord.providerSessionKey) {
+          this.acpSessionOptionsStore.set(String(agentRecord.providerSessionKey || ''), {
+            additionalDirectories: [...normalizedSessionOptions.additionalDirectories],
+            configOverrides: cloneAcpConfigOverrides(normalizedSessionOptions.configOverrides),
+            mcpServers: JSON.parse(JSON.stringify(normalizedSessionOptions.mcpServers)),
+          });
+        }
+        if (prepared.historyMode !== 'authentication') {
+          acpRuntime.state = 'idle';
+          acpRuntime.error = '';
+        }
       }
 
       if (!useAcp) {

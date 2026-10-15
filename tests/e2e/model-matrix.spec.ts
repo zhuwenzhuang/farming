@@ -131,7 +131,7 @@ function requestedState(route: Route, current: MatrixState) {
   }, { ...current })
 }
 
-test('model matrix follows the advertised catalog across generations and appearances', async ({ page, workspaceRoot }) => {
+test('model matrix follows the advertised catalog across generations and appearances', async ({ page, workspaceRoot }, testInfo) => {
   const workspace = path.join(workspaceRoot, 'model-matrix-dynamic-catalog')
   fs.mkdirSync(workspace, { recursive: true })
   const agentId = await createAcpAgent(page, workspace)
@@ -206,7 +206,12 @@ test('model matrix follows the advertised catalog across generations and appeara
         return track.x === ultra.x && track.y === ultra.y
           && track.width === ultra.width && track.height === ultra.height
       })).toBe(true)
+      if (appearance === 'paper') {
+        await expect(matrix.locator('.code-model-matrix-surface')).toHaveCSS('background-image', 'none')
+        await expect(matrix.locator('.code-model-matrix-surface')).toHaveCSS('box-shadow', 'none')
+      }
       await expect(matrix).toHaveScreenshot(`model-matrix-catalog-${width}-${appearance}.png`)
+      await testInfo.attach(`matrix-${width}-${appearance}`, { body: await matrix.screenshot(), contentType: 'image/png' })
       await ultra.click()
       await expect(ultra).toHaveAttribute('aria-pressed', 'true')
       await expect.poll(async () => {

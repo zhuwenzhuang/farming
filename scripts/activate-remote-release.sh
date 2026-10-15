@@ -328,32 +328,56 @@ stop_server() {
 }
 
 # Rollback restores the Server this Config was actually running, which a manual
-# or npm-managed launch can place outside the install selection. Prints nothing
-# when the Config records no live same-user Server; fails when a live Server's
-# package cannot be identified, so the caller refuses before stopping it.
+# or npm-managed launch can place outside the install selection. Ownership uses
+# the CLI's exact Server record: the canonical Config plus the recorded process
+# identity (pid, process group, start time). A reused pid or another Config's
+# Server is not this Config's Server. Prints "exact<TAB>ROOT" for a proven owner,
+# "unproven<TAB>ROOT" for a legacy record without identity, or nothing; fails
+# when a proven live Server's package cannot be identified.
 live_server_code_root() {
-  local pid argument
-  pid="$(node - "${CONFIG_DIR}" <<'NODE'
+  node - "${CONFIG_DIR}" "$(id -u)" <<'NODE'
 const fs = require('fs');
 const path = require('path');
-const configDir = process.argv[2];
-let pid = '';
-try { pid = String(JSON.parse(fs.readFileSync(path.join(configDir, 'farming-server.json'), 'utf8')).pid || ''); } catch {}
-if (!pid) { try { pid = fs.readFileSync(path.join(configDir, 'farming-server.pid'), 'utf8').trim(); } catch {} }
-process.stdout.write(/^[1-9][0-9]*$/.test(pid) ? pid : '');
+const { execFileSync } = require('child_process');
+const [configDir, uid] = process.argv.slice(2);
+let state = null;
+try { state = JSON.parse(fs.readFileSync(path.join(configDir, 'farming-server.json'), 'utf8')); } catch { process.exit(0); }
+const pid = Number(state && state.pid);
+if (!Number.isSafeInteger(pid) || pid <= 0) process.exit(0);
+try { if (String(fs.statSync(`/proc/${pid}`).uid) !== uid) process.exit(0); } catch { process.exit(0); }
+let canonical = configDir;
+try { canonical = fs.realpathSync(configDir); } catch {}
+let envConfig = '';
+try {
+  const raw = fs.readFileSync(`/proc/${pid}/environ`, 'utf8').split('\0')
+    .find(item => item.startsWith('FARMING_CONFIG_DIR='));
+  if (raw) envConfig = fs.realpathSync(raw.slice('FARMING_CONFIG_DIR='.length));
+} catch {}
+if (envConfig && envConfig !== canonical) process.exit(0);
+const identity = state.processIdentity && typeof state.processIdentity === 'object' ? state.processIdentity : null;
+const exact = Boolean(identity && identity.format === 'ps-lstart-c-utc-v1' && Number(identity.pid) === pid);
+if (exact) {
+  let current = '';
+  try {
+    current = execFileSync('ps', ['-p', String(pid), '-o', 'pid=', '-o', 'pgid=', '-o', 'lstart='], {
+      encoding: 'utf8', timeout: 5000, env: { ...process.env, LANG: 'C', LC_ALL: 'C', TZ: 'UTC' },
+    }).trim();
+  } catch { process.exit(0); }
+  const match = current.match(/^(\d+)\s+(\d+)\s+(.+)$/);
+  if (!match || Number(match[1]) !== pid || Number(match[2]) !== Number(identity.processGroupId)
+    || match[3].trim() !== String(identity.startedAt || '')) process.exit(0);
+  if (state.configDir !== canonical) process.exit(0);
+}
+let entry = '';
+try {
+  entry = fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8').split('\0')
+    .find(argument => /^\/.+\/(backend\/farming-app-cli\.cjs|backend\/server\.cjs|bin\/farming)$/.test(argument)) || '';
+} catch {}
+if (!entry) process.exit(exact ? 2 : 0);
+let root = path.dirname(path.dirname(entry));
+try { root = fs.realpathSync(root); } catch { process.exit(2); }
+process.stdout.write(`${exact ? 'exact' : 'unproven'}\t${root}`);
 NODE
-)"
-  [ -n "${pid}" ] && [ -r "/proc/${pid}/cmdline" ] || return 0
-  [ "$(stat -c %u "/proc/${pid}" 2>/dev/null)" = "$(id -u)" ] || return 0
-  while IFS= read -r -d '' argument; do
-    case "${argument}" in
-      /*/backend/farming-app-cli.cjs|/*/backend/server.cjs|/*/bin/farming)
-        readlink -f "$(dirname "$(dirname "${argument}")")"
-        return 0
-        ;;
-    esac
-  done < "/proc/${pid}/cmdline"
-  return 1
 }
 
 rollback_runtime() {
@@ -675,11 +699,17 @@ fi
 # The selection decides future launches; the live Server decides what rollback
 # must restore. Set only when they differ, so the ordinary path is unchanged.
 ROLLBACK_LIVE_ROOT=""
-if ! LIVE_ROOT="$(live_server_code_root)"; then
+if ! LIVE_RECORD="$(live_server_code_root)"; then
   echo "The live Farming Server for this Config runs an unidentified package; refusing to stop it without an exact rollback target." >&2
   exit 1
 fi
-if [ -n "${LIVE_ROOT}" ] && [ "${LIVE_ROOT}" != "$(readlink -f "${REMOTE_DIR}" 2>/dev/null || true)" ]; then
+LIVE_KIND="${LIVE_RECORD%%$'\t'*}"
+LIVE_ROOT="${LIVE_RECORD#*$'\t'}"
+if [ -n "${LIVE_RECORD}" ] && [ "${LIVE_ROOT}" != "$(readlink -f "${REMOTE_DIR}" 2>/dev/null || true)" ]; then
+  if [ "${LIVE_KIND}" != "exact" ]; then
+    echo "The live Farming Server runs ${LIVE_ROOT}, outside the install selection, but its record cannot prove it belongs to this Config; refusing to stop it." >&2
+    exit 1
+  fi
   if [ "${LIVE_ROOT}" = "${IMAGE_ROOT}" ] || [ ! -f "${LIVE_ROOT}/bin/farming" ]; then
     echo "The live Farming Server package ${LIVE_ROOT} cannot be restarted on rollback; refusing to stop it." >&2
     exit 1
@@ -692,7 +722,10 @@ if [ -n "${ROLLBACK_LIVE_ROOT}" ]; then
   ROLLBACK_RESTORED_MESSAGE="The previously running Farming package was restored."
 fi
 
-if [ "${PREVIOUS_ROOT}" = "${IMAGE_ROOT}" ]; then
+# Restarting the selected image in place is safe only when it is also what is
+# live. A different live package needs the checkpointed stop/switch path so a
+# failed start can restore its exact Config and package.
+if [ "${PREVIOUS_ROOT}" = "${IMAGE_ROOT}" ] && [ -z "${ROLLBACK_LIVE_ROOT}" ]; then
   start_server "${IMAGE_ROOT}" "${IMAGE_ROOT}"
 else
   require_space "$(existing_parent "$CONFIG_PARENT")" "$(($(config_snapshot_bytes) + 1073741824))" "Config checkpoint"

@@ -40,8 +40,13 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
     const menu = page.getByTestId('code-project-new-agent-menu')
     await expect(menu.getByTestId('code-project-agent-launch-codex')).toHaveAttribute('aria-label', 'Codex · Chat')
     await expect(menu.getByTestId('code-project-agent-launch-terminal-codex')).toHaveAttribute('aria-label', 'Codex · Terminal')
-    await expect(menu.getByTestId('code-project-agent-launch-claude')).toHaveAttribute('aria-label', 'Claude Code · Terminal')
-    await expect(menu.getByTestId('code-project-agent-launch-chat-claude')).toBeVisible()
+    // The project menu is a Chat entry point: a saved Terminal default affects
+    // the New Agent dialog only, never the direction of this row.
+    await expect(menu.getByTestId('code-project-agent-launch-claude')).toHaveAttribute('aria-label', 'Claude Code · Chat')
+    await expect(menu.getByTestId('code-project-agent-launch-terminal-claude')).toHaveAttribute('aria-label', 'Claude Code · Terminal')
+    await expect(menu.getByTestId('code-project-agent-launch-terminal-claude')).toHaveAttribute('title', 'Terminal')
+    await expect(menu.locator('[data-testid^="code-project-agent-launch-chat-"]')).toHaveCount(0)
+    await expect(menu.locator('.code-project-agent-launch svg:not(.agent-launch-icon)')).toHaveCount(0)
     await testInfo.attach(`chat-first-project-menu-${appearance}`, { body: await menu.screenshot(), contentType: 'image/png' })
     await menu.getByTestId('code-project-agent-launch-terminal-codex').click()
     await expect.poll(async () => {

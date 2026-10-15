@@ -59,6 +59,7 @@ process.exit(child.status ?? 1);
 const fs = require('fs'); const path = require('path'); const assert = require('assert');
 const args = process.argv.slice(2);
 if (args[0] === 'cache') process.exit(0);
+if (process.env.FARMING_TEST_DEPENDENCY_DELAY_MS) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, Number(process.env.FARMING_TEST_DEPENDENCY_DELAY_MS));
 assert(args.includes('--ignore-scripts')); assert(args.includes('--include=optional'));
 const prefix = args[args.indexOf('--prefix') + 1];
 const stage = path.dirname(prefix); const target = path.join(prefix, 'lib/node_modules/farming-code');
@@ -234,7 +235,7 @@ exec ${quote(curl)} "\${args[@]}"
     child.stderr.on('data', value => { output += value; onOutput?.(output, child); });
     const timer = setTimeout(() => {
       if (child.pid) { try { process.kill(-child.pid, 'SIGKILL'); } catch { /* Already exited. */ } }
-    }, 20_000);
+    }, Math.max(20_000, Number(env.FARMING_TEST_DEPENDENCY_DELAY_MS || 0) + 15_000));
     const code = await new Promise<number | null>((resolve, reject) => { child.on('error', reject); child.on('close', resolve); });
     clearTimeout(timer);
     return { code, output };
@@ -749,4 +750,17 @@ for (const legacy of [false, true]) {
     } finally { await f.close(); }
   });
 }
+});
+
+
+test('dependency installation reports elapsed progress and reaps its progress process', async () => {
+  const f = await fixture();
+  try {
+    const result = await f.run([], { FARMING_TEST_DEPENDENCY_DELAY_MS: '16000' });
+    assert.equal(result.code, 0, result.output);
+    assert.match(result.output, /Installing Farming dependencies… 15s elapsed/);
+    assert.match(result.output, /✓ Installing Farming dependencies/);
+    assert(!fs.existsSync(`${f.root}.install-lock`));
+    assert(!fs.readdirSync(f.directory).some(name => name.includes('.staging.')));
+  } finally { await f.close(); }
 });

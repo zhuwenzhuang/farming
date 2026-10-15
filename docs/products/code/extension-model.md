@@ -170,6 +170,14 @@ The scan is shallow, limited to 4096 entries per parent and 256 candidates per
 provider, with a three-second deadline; failure returns an explicit error and
 commits no partial results.
 
+Concurrent workspace-suggestion scans must use asynchronous filesystem I/O for
+every supported provider so history traversal cannot consume the Home scan's
+deadline by blocking the server event loop. Encoded project-directory lookup
+matches directory names before reading metadata; unrelated sibling files do not
+participate. Each history traversal rejects after 4096 directories, including
+when no usable history file is found. Only completed suggestion scans enter the
+existing request cache; concurrent reads for the same key share that scan.
+
 Config settings own discovery state: concurrent reads share one scan, then merge
 new Homes into the latest settings and persist before publishing. Existing Home
 ids, launch defaults, and Session bindings remain unchanged. A removed path is
@@ -196,9 +204,9 @@ falls back to that Provider's `default` Home while preserving its runtime
 default. Resume, Fork, Restart, and recovery continue from the existing
 Session's exact Home and runtime rather than consulting new-Agent defaults.
 Chat-capable Providers default to Chat unless a Terminal preference is saved.
-The Project quick-launch menu labels the main Provider action with its default
-mode and offers the other mode in its right-side shortcut. Both actions submit
-the displayed mode explicitly; neither changes the saved default.
+In the Project quick-launch menu, Chat-capable Providers always launch Chat from
+the main row and offer Terminal in the right-side shortcut, while Terminal-only
+entries launch Terminal directly; neither action changes the saved default.
 
 The same identity binds new Chat Sessions to the adapter's Farming-managed ACP
 runtime. Plugins does not expose a custom executable selection. Existing

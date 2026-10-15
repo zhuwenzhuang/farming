@@ -160,6 +160,7 @@ interface SubagentControl {
   cancelPromise?: Promise<unknown> | null; [key: string]: unknown;
 }
 interface AcpBinding {
+  pendingSessionSetup?: () => Promise<void>;
   chatTurn: ChatTurnState | null;
   retained?: boolean;
   nativeTurnSequence?: number;
@@ -1870,185 +1871,34 @@ class AcpRuntime extends EventEmitter {
       binding.initializeResponse = runtime.initializeResponse;
       const connection = binding.connection;
 
-      const sessionRequest = { sessionId: requestedSessionId, ...binding.sessionRequestOptions };
-      let sessionResponse!: SessionResponse;
-      let historyMode = 'new';
-      if (forkSourceSessionId) {
-        const capabilities = binding.initializeResponse.agentCapabilities || {};
-        if (!capabilities.loadSession || !capabilities.sessionCapabilities?.fork) {
-          throw new Error(`${provider} ACP Agent cannot create an owned fork`);
-        }
-        if (!capabilities.sessionCapabilities?.close) {
-          throw new Error(`${provider} ACP Agent cannot release the loaded fork source`);
-        }
-        binding.sessionId = forkSourceSessionId;
-        this.claimRuntimeSession(binding, forkSourceSessionId, { isolatedRuntimeSource: true });
-        binding.sessionState = new AcpSessionState({
-          provider,
-          sessionId: forkSourceSessionId,
-          cwd: binding.cwd,
-          maxUpdates: this.maxUpdates,
-          revisionBase,
-        });
-        binding.historyReplayActive = true;
-        let loadedSource: SessionResponse;
-        try {
-          loadedSource = await withTimeout(
-            connection.loadSession({ sessionId: forkSourceSessionId, ...binding.sessionRequestOptions }),
-            this.sessionSetupTimeoutMs,
-            'ACP fork source session/load',
-          );
-          this.requireOpenBinding(binding);
-          if (providerAcpHistoryReplayPolicy(provider)?.waitForNotifications) {
-            await this.waitForHistoryReplay(binding);
+      const completeSessionSetup = async () => {
+        const sessionRequest = { sessionId: requestedSessionId, ...binding.sessionRequestOptions };
+        let sessionResponse!: SessionResponse;
+        let historyMode = 'new';
+        if (forkSourceSessionId) {
+          const capabilities = binding.initializeResponse.agentCapabilities || {};
+          if (!capabilities.loadSession || !capabilities.sessionCapabilities?.fork) {
+            throw new Error(`${provider} ACP Agent cannot create an owned fork`);
           }
-          this.requireOpenBinding(binding);
-        } finally {
-          binding.historyReplayActive = false;
-        }
-        binding.sessionState.finishHistoryReplay();
-        binding.codexInlineVisualizationStreams.clear();
-        const forked: SessionResponse = await withTimeout(
-          connection.unstable_forkSession({
-            sessionId: forkSourceSessionId,
-            ...binding.sessionRequestOptions,
-          }),
-          this.sessionSetupTimeoutMs,
-          'ACP owned session/fork',
-        );
-        const forkedSessionId = String(forked?.sessionId || '').trim();
-        if (
-          !isSafeProviderSessionId(forkedSessionId)
-          || forkedSessionId === forkSourceSessionId
-        ) {
-          throw new Error('ACP owned session/fork returned an invalid new session id');
-        }
-        if (typeof options.onForkSessionCreated === 'function') {
-          await options.onForkSessionCreated(forkedSessionId);
-        }
-        this.requireOpenBinding(binding);
-        await withTimeout(
-          connection.closeSession({ sessionId: forkSourceSessionId }),
-          this.requestTimeoutMs,
-          'ACP fork source session/close',
-        );
-        this.requireOpenBinding(binding);
-        const forkUpdates = binding.subagentStates.get(forkedSessionId);
-        const restoredForkSource = this.restoreBindingCheckpoint(binding, forkSourceCheckpoint, {
-          sessionId: forkedSessionId,
-        });
-        if (!restoredForkSource) {
-          throw new Error('ACP fork source checkpoint could not be restored');
-        }
-        binding.sessionId = forkedSessionId;
-        this.releaseRuntimeSessions(binding);
-        this.claimRuntimeSession(binding, forkedSessionId);
-        binding.sessionState = restoredForkSource.sessionState;
-        binding.subagentStates = restoredForkSource.subagentStates;
-        this.resetSubagentControls(binding);
-        binding.patchDecisions = restoredForkSource.patchDecisions;
-        delete binding.restartOptions.forkSourceSessionId;
-        delete binding.restartOptions.forkSourceCheckpoint;
-        delete binding.restartOptions.onForkSessionCreated;
-        if (forkUpdates?.updates?.some(
-          item => recordValue(item?.update).sessionUpdate === 'available_commands_update',
-        )) {
-          binding.sessionState.availableCommands = clone(forkUpdates.availableCommands);
-        }
-        sessionResponse = {
-          ...loadedSource,
-          ...forked,
-          sessionId: forkedSessionId,
-          modes: forked?.modes || loadedSource?.modes,
-          configOptions: forked?.configOptions || loadedSource?.configOptions,
-        };
-        historyMode = 'fork';
-      } else if (requestedSessionId) {
-        const capabilities = binding.initializeResponse.agentCapabilities || {};
-        this.claimRuntimeSession(binding, requestedSessionId);
-        let opened = false;
-        let restoredCheckpointState = null;
-        let restoredCheckpoint = null;
-        let saved = null;
-        let savedForkOrigin: unknown = null;
-        let savedModelChanges: unknown = null;
-        let savedHandoffCheckpoint: unknown = null;
-        if (this.checkpointStore) {
-          saved = await this.checkpointStore.load(
-            this.checkpointIdentity(binding, requestedSessionId),
-            { allowDirty: true },
-          );
-          this.requireOpenBinding(binding);
-          const checkpoint = recordValue(saved?.state);
-          savedForkOrigin = recordValue(checkpoint.version === 2 ? checkpoint.sessionState : checkpoint).forkOrigin;
-          savedModelChanges = recordValue(checkpoint.version === 2 ? checkpoint.sessionState : checkpoint).modelChanges;
-          savedHandoffCheckpoint = checkpoint.version === 2 ? checkpoint.sessionState : checkpoint;
-          if (!saved && options.forkOriginSessionId) {
-            const source = await this.checkpointStore.load(
-              this.checkpointIdentity(binding, options.forkOriginSessionId), { allowDirty: true },
-            );
-            this.requireOpenBinding(binding);
-            const sourceCheckpoint = recordValue(source?.state);
-            savedHandoffCheckpoint = sourceCheckpoint.version === 2 ? sourceCheckpoint.sessionState : sourceCheckpoint;
+          if (!capabilities.sessionCapabilities?.close) {
+            throw new Error(`${provider} ACP Agent cannot release the loaded fork source`);
           }
-          if (options.historyMode === 'checkpoint') {
-            restoredCheckpoint = this.restoreBindingCheckpoint(
-              binding,
-              recordValue(saved?.state) as AcpCheckpoint,
-              { sessionId: requestedSessionId },
-            );
-            restoredCheckpointState = restoredCheckpoint?.sessionState || null;
-            if (restoredCheckpoint?.deferredConfigChanges instanceof Map) {
-              binding.deferredConfigChanges = restoredCheckpoint.deferredConfigChanges;
-            }
-            binding.deferredModeId = String(restoredCheckpoint?.deferredModeId || '');
-          }
-        }
-        if (capabilities.sessionCapabilities?.resume && restoredCheckpoint) {
-          const providerStateMatches = restoredCheckpoint?.complete === true && saved?.exact === true
-            ? await this.checkpointMatchesProviderSession(connection, capabilities, sessionRequest, saved)
-            : false;
-          this.requireOpenBinding(binding);
-          if (providerStateMatches && restoredCheckpointState) {
-            binding.sessionId = requestedSessionId;
-            binding.sessionState = restoredCheckpointState;
-            binding.subagentStates = restoredCheckpoint.subagentStates;
-            this.resetSubagentControls(binding);
-            binding.patchDecisions = restoredCheckpoint.patchDecisions;
-            binding.checkpointProof = restoredCheckpoint.providerProof;
-            try {
-              sessionResponse = await withTimeout(
-                connection.resumeSession(sessionRequest),
-                this.sessionSetupTimeoutMs,
-                'ACP session/resume'
-              );
-              this.requireOpenBinding(binding);
-              historyMode = 'checkpoint';
-              opened = true;
-            } catch (error) {
-              this.requireOpenBinding(binding);
-              if (!capabilities.loadSession) throw error;
-              console.warn(`ACP checkpoint resume failed for ${provider}; replaying history:`, asErrorLike(error).message || error);
-            }
-          }
-        }
-        if (!opened && options.historyMode !== 'resume' && capabilities.loadSession) {
-          const replayRevisionBase = Math.max(revisionBase, Number(restoredCheckpointState?.revision || 0));
-          binding.sessionId = requestedSessionId;
+          binding.sessionId = forkSourceSessionId;
+          this.claimRuntimeSession(binding, forkSourceSessionId, { isolatedRuntimeSource: true });
           binding.sessionState = new AcpSessionState({
             provider,
-            sessionId: requestedSessionId,
+            sessionId: forkSourceSessionId,
             cwd: binding.cwd,
             maxUpdates: this.maxUpdates,
-            revisionBase: replayRevisionBase,
-            resetBeforeRevision: replayRevisionBase,
+            revisionBase,
           });
           binding.historyReplayActive = true;
+          let loadedSource: SessionResponse;
           try {
-            sessionResponse = await withTimeout(
-              connection.loadSession(sessionRequest),
+            loadedSource = await withTimeout(
+              connection.loadSession({ sessionId: forkSourceSessionId, ...binding.sessionRequestOptions }),
               this.sessionSetupTimeoutMs,
-              'ACP session/load'
+              'ACP fork source session/load',
             );
             this.requireOpenBinding(binding);
             if (providerAcpHistoryReplayPolicy(provider)?.waitForNotifications) {
@@ -2059,162 +1909,341 @@ class AcpRuntime extends EventEmitter {
             binding.historyReplayActive = false;
           }
           binding.sessionState.finishHistoryReplay();
-          binding.sessionState.restoreHandoffContexts(savedHandoffCheckpoint);
           binding.codexInlineVisualizationStreams.clear();
-          if (providerAcpHistoryReplayPolicy(provider)?.restoreMissingCheckpointMedia && restoredCheckpointState) {
-            restoreMissingHistoryMedia(binding.sessionState, restoredCheckpointState);
-          }
-          binding.sessionState.restoreForkOrigin(savedForkOrigin);
-          binding.sessionState.restoreModelChanges(savedModelChanges);
-          this.restorePatchDecisions(binding, restoredCheckpoint?.patchDecisions);
-          historyMode = 'load';
-          opened = true;
-        } else if (!opened && capabilities.sessionCapabilities?.resume) {
-          binding.sessionId = requestedSessionId;
-          binding.sessionState = new AcpSessionState({
-            provider,
-            sessionId: requestedSessionId,
-            cwd: binding.cwd,
-            maxUpdates: this.maxUpdates,
-            revisionBase,
-          });
-          sessionResponse = await withTimeout(
-            connection.resumeSession(sessionRequest),
+          const forked: SessionResponse = await withTimeout(
+            connection.unstable_forkSession({
+              sessionId: forkSourceSessionId,
+              ...binding.sessionRequestOptions,
+            }),
             this.sessionSetupTimeoutMs,
-            'ACP session/resume'
+            'ACP owned session/fork',
+          );
+          const forkedSessionId = String(forked?.sessionId || '').trim();
+          if (
+            !isSafeProviderSessionId(forkedSessionId)
+            || forkedSessionId === forkSourceSessionId
+          ) {
+            throw new Error('ACP owned session/fork returned an invalid new session id');
+          }
+          if (typeof options.onForkSessionCreated === 'function') {
+            await options.onForkSessionCreated(forkedSessionId);
+          }
+          this.requireOpenBinding(binding);
+          await withTimeout(
+            connection.closeSession({ sessionId: forkSourceSessionId }),
+            this.requestTimeoutMs,
+            'ACP fork source session/close',
           );
           this.requireOpenBinding(binding);
-          binding.sessionState.restoreForkOrigin(savedForkOrigin);
-          binding.sessionState.restoreModelChanges(savedModelChanges);
-          historyMode = 'resume';
-          opened = true;
+          const forkUpdates = binding.subagentStates.get(forkedSessionId);
+          const restoredForkSource = this.restoreBindingCheckpoint(binding, forkSourceCheckpoint, {
+            sessionId: forkedSessionId,
+          });
+          if (!restoredForkSource) {
+            throw new Error('ACP fork source checkpoint could not be restored');
+          }
+          binding.sessionId = forkedSessionId;
+          this.releaseRuntimeSessions(binding);
+          this.claimRuntimeSession(binding, forkedSessionId);
+          binding.sessionState = restoredForkSource.sessionState;
+          binding.subagentStates = restoredForkSource.subagentStates;
+          this.resetSubagentControls(binding);
+          binding.patchDecisions = restoredForkSource.patchDecisions;
+          delete binding.restartOptions.forkSourceSessionId;
+          delete binding.restartOptions.forkSourceCheckpoint;
+          delete binding.restartOptions.onForkSessionCreated;
+          if (forkUpdates?.updates?.some(
+            item => recordValue(item?.update).sessionUpdate === 'available_commands_update',
+          )) {
+            binding.sessionState.availableCommands = clone(forkUpdates.availableCommands);
+          }
+          sessionResponse = {
+            ...loadedSource,
+            ...forked,
+            sessionId: forkedSessionId,
+            modes: forked?.modes || loadedSource?.modes,
+            configOptions: forked?.configOptions || loadedSource?.configOptions,
+          };
+          historyMode = 'fork';
+        } else if (requestedSessionId) {
+          const capabilities = binding.initializeResponse.agentCapabilities || {};
+          this.claimRuntimeSession(binding, requestedSessionId);
+          let opened = false;
+          let restoredCheckpointState = null;
+          let restoredCheckpoint = null;
+          let saved = null;
+          let savedForkOrigin: unknown = null;
+          let savedModelChanges: unknown = null;
+          let savedHandoffCheckpoint: unknown = null;
+          if (this.checkpointStore) {
+            saved = await this.checkpointStore.load(
+              this.checkpointIdentity(binding, requestedSessionId),
+              { allowDirty: true },
+            );
+            this.requireOpenBinding(binding);
+            const checkpoint = recordValue(saved?.state);
+            savedForkOrigin = recordValue(checkpoint.version === 2 ? checkpoint.sessionState : checkpoint).forkOrigin;
+            savedModelChanges = recordValue(checkpoint.version === 2 ? checkpoint.sessionState : checkpoint).modelChanges;
+            savedHandoffCheckpoint = checkpoint.version === 2 ? checkpoint.sessionState : checkpoint;
+            if (!saved && options.forkOriginSessionId) {
+              const source = await this.checkpointStore.load(
+                this.checkpointIdentity(binding, options.forkOriginSessionId), { allowDirty: true },
+              );
+              this.requireOpenBinding(binding);
+              const sourceCheckpoint = recordValue(source?.state);
+              savedHandoffCheckpoint = sourceCheckpoint.version === 2 ? sourceCheckpoint.sessionState : sourceCheckpoint;
+            }
+            if (options.historyMode === 'checkpoint') {
+              restoredCheckpoint = this.restoreBindingCheckpoint(
+                binding,
+                recordValue(saved?.state) as AcpCheckpoint,
+                { sessionId: requestedSessionId },
+              );
+              restoredCheckpointState = restoredCheckpoint?.sessionState || null;
+              if (restoredCheckpoint?.deferredConfigChanges instanceof Map) {
+                binding.deferredConfigChanges = restoredCheckpoint.deferredConfigChanges;
+              }
+              binding.deferredModeId = String(restoredCheckpoint?.deferredModeId || '');
+            }
+          }
+          if (capabilities.sessionCapabilities?.resume && restoredCheckpoint) {
+            const providerStateMatches = restoredCheckpoint?.complete === true && saved?.exact === true
+              ? await this.checkpointMatchesProviderSession(connection, capabilities, sessionRequest, saved)
+              : false;
+            this.requireOpenBinding(binding);
+            if (providerStateMatches && restoredCheckpointState) {
+              binding.sessionId = requestedSessionId;
+              binding.sessionState = restoredCheckpointState;
+              binding.subagentStates = restoredCheckpoint.subagentStates;
+              this.resetSubagentControls(binding);
+              binding.patchDecisions = restoredCheckpoint.patchDecisions;
+              binding.checkpointProof = restoredCheckpoint.providerProof;
+              try {
+                sessionResponse = await withTimeout(
+                  connection.resumeSession(sessionRequest),
+                  this.sessionSetupTimeoutMs,
+                  'ACP session/resume'
+                );
+                this.requireOpenBinding(binding);
+                historyMode = 'checkpoint';
+                opened = true;
+              } catch (error) {
+                this.requireOpenBinding(binding);
+                if (!capabilities.loadSession) throw error;
+                console.warn(`ACP checkpoint resume failed for ${provider}; replaying history:`, asErrorLike(error).message || error);
+              }
+            }
+          }
+          if (!opened && options.historyMode !== 'resume' && capabilities.loadSession) {
+            const replayRevisionBase = Math.max(revisionBase, Number(restoredCheckpointState?.revision || 0));
+            binding.sessionId = requestedSessionId;
+            binding.sessionState = new AcpSessionState({
+              provider,
+              sessionId: requestedSessionId,
+              cwd: binding.cwd,
+              maxUpdates: this.maxUpdates,
+              revisionBase: replayRevisionBase,
+              resetBeforeRevision: replayRevisionBase,
+            });
+            binding.historyReplayActive = true;
+            try {
+              sessionResponse = await withTimeout(
+                connection.loadSession(sessionRequest),
+                this.sessionSetupTimeoutMs,
+                'ACP session/load'
+              );
+              this.requireOpenBinding(binding);
+              if (providerAcpHistoryReplayPolicy(provider)?.waitForNotifications) {
+                await this.waitForHistoryReplay(binding);
+              }
+              this.requireOpenBinding(binding);
+            } finally {
+              binding.historyReplayActive = false;
+            }
+            binding.sessionState.finishHistoryReplay();
+            binding.sessionState.restoreHandoffContexts(savedHandoffCheckpoint);
+            binding.codexInlineVisualizationStreams.clear();
+            if (providerAcpHistoryReplayPolicy(provider)?.restoreMissingCheckpointMedia && restoredCheckpointState) {
+              restoreMissingHistoryMedia(binding.sessionState, restoredCheckpointState);
+            }
+            binding.sessionState.restoreForkOrigin(savedForkOrigin);
+            binding.sessionState.restoreModelChanges(savedModelChanges);
+            this.restorePatchDecisions(binding, restoredCheckpoint?.patchDecisions);
+            historyMode = 'load';
+            opened = true;
+          } else if (!opened && capabilities.sessionCapabilities?.resume) {
+            binding.sessionId = requestedSessionId;
+            binding.sessionState = new AcpSessionState({
+              provider,
+              sessionId: requestedSessionId,
+              cwd: binding.cwd,
+              maxUpdates: this.maxUpdates,
+              revisionBase,
+            });
+            sessionResponse = await withTimeout(
+              connection.resumeSession(sessionRequest),
+              this.sessionSetupTimeoutMs,
+              'ACP session/resume'
+            );
+            this.requireOpenBinding(binding);
+            binding.sessionState.restoreForkOrigin(savedForkOrigin);
+            binding.sessionState.restoreModelChanges(savedModelChanges);
+            historyMode = 'resume';
+            opened = true;
+          } else {
+            if (!opened) throw new Error(`${provider} ACP Agent cannot load or resume session ${requestedSessionId}`);
+          }
         } else {
-          if (!opened) throw new Error(`${provider} ACP Agent cannot load or resume session ${requestedSessionId}`);
+          sessionResponse = await this.openUnknownRuntimeSession(runtime, binding, () => withTimeout(
+            connection.newSession(binding.sessionRequestOptions),
+            this.sessionSetupTimeoutMs,
+            'ACP session/new'
+          ));
+          this.requireOpenBinding(binding);
+          const returnedSessionId = String(sessionResponse.sessionId || '').trim();
+          if (!isSafeProviderSessionId(returnedSessionId)) {
+            binding.untrustedSessionId = returnedSessionId;
+            throw new Error('ACP session/new returned an invalid resumable session id');
+          }
+          binding.sessionId = returnedSessionId;
+          this.claimRuntimeSession(binding, returnedSessionId);
+          binding.sessionState = new AcpSessionState({ provider, sessionId: binding.sessionId, cwd: binding.cwd, maxUpdates: this.maxUpdates });
         }
-      } else {
-        sessionResponse = await this.openUnknownRuntimeSession(runtime, binding, () => withTimeout(
-          connection.newSession(binding.sessionRequestOptions),
-          this.sessionSetupTimeoutMs,
-          'ACP session/new'
-        ));
         this.requireOpenBinding(binding);
-        const returnedSessionId = String(sessionResponse.sessionId || '').trim();
-        if (!isSafeProviderSessionId(returnedSessionId)) {
-          binding.untrustedSessionId = returnedSessionId;
-          throw new Error('ACP session/new returned an invalid resumable session id');
+        const normalizeModes = getProviderAdapter(provider)?.acp.normalizeModes;
+        binding.modes = (normalizeModes
+          ? normalizeModes(sessionResponse?.modes || null, recordValue(binding.initializeResponse.agentInfo))
+          : sessionResponse?.modes) as SessionResponse['modes'] || null;
+        binding.configOptions = sessionResponse?.configOptions || [];
+        const initializedSessionState = this.requireSessionState(binding);
+        if (options.forkOriginSessionId) {
+          initializedSessionState.captureForkOrigin(options.forkOriginSessionId);
+          // Publish a usable child only after its lineage boundary is durable.
+          await this.writeCheckpoint(binding);
         }
-        binding.sessionId = returnedSessionId;
-        this.claimRuntimeSession(binding, returnedSessionId);
-        binding.sessionState = new AcpSessionState({ provider, sessionId: binding.sessionId, cwd: binding.cwd, maxUpdates: this.maxUpdates });
-      }
-      this.requireOpenBinding(binding);
-      const normalizeModes = getProviderAdapter(provider)?.acp.normalizeModes;
-      binding.modes = (normalizeModes
-        ? normalizeModes(sessionResponse?.modes || null, recordValue(binding.initializeResponse.agentInfo))
-        : sessionResponse?.modes) as SessionResponse['modes'] || null;
-      binding.configOptions = sessionResponse?.configOptions || [];
-      const initializedSessionState = this.requireSessionState(binding);
-      if (options.forkOriginSessionId) {
-        initializedSessionState.captureForkOrigin(options.forkOriginSessionId);
-        // Publish a usable child only after its lineage boundary is durable.
-        await this.writeCheckpoint(binding);
-      }
-      initializedSessionState.currentModeId = String(binding.modes?.currentModeId || '');
-      initializedSessionState.configOptions = JSON.parse(JSON.stringify(binding.configOptions));
-      const configPolicy = providerAcpConfigPolicy(provider);
-      const launchConfigIds = new Set<string>();
-      if (configPolicy?.launchModelAndReasoning || options.model || options.reasoningEffort) {
-        const changes: SessionConfigChange[] = [];
-        if (options.model && options.model !== 'config') {
-          const modelOption = binding.configOptions.find(option => (
-            option.type === 'select'
-            && (
-              option.category === 'model'
-              || /(^|[\s_-])model([\s_-]|$)/i.test(`${option.id} ${option.name || ''}`)
-            )
-          ));
-          if (!modelOption) {
-            throw new Error(`${provider} ACP Agent did not advertise a Model configuration option`);
+        initializedSessionState.currentModeId = String(binding.modes?.currentModeId || '');
+        initializedSessionState.configOptions = JSON.parse(JSON.stringify(binding.configOptions));
+        const configPolicy = providerAcpConfigPolicy(provider);
+        const launchConfigIds = new Set<string>();
+        if (configPolicy?.launchModelAndReasoning || options.model || options.reasoningEffort) {
+          const changes: SessionConfigChange[] = [];
+          if (options.model && options.model !== 'config') {
+            const modelOption = binding.configOptions.find(option => (
+              option.type === 'select'
+              && (
+                option.category === 'model'
+                || /(^|[\s_-])model([\s_-]|$)/i.test(`${option.id} ${option.name || ''}`)
+              )
+            ));
+            if (!modelOption) {
+              throw new Error(`${provider} ACP Agent did not advertise a Model configuration option`);
+            }
+            changes.push({ configId: modelOption.id, value: options.model });
           }
-          changes.push({ configId: modelOption.id, value: options.model });
-        }
-        if (options.reasoningEffort && options.reasoningEffort !== 'config') {
-          const reasoningOption = binding.configOptions.find(option => (
-            option.type === 'select'
-            && (
-              option.category === 'thought_level'
-              || /(reasoning|thought|effort)/i.test(`${option.id} ${option.name || ''}`)
-            )
-          ));
-          if (!reasoningOption) {
-            throw new Error(`${provider} ACP Agent did not advertise a Reasoning configuration option`);
+          if (options.reasoningEffort && options.reasoningEffort !== 'config') {
+            const reasoningOption = binding.configOptions.find(option => (
+              option.type === 'select'
+              && (
+                option.category === 'thought_level'
+                || /(reasoning|thought|effort)/i.test(`${option.id} ${option.name || ''}`)
+              )
+            ));
+            if (!reasoningOption) {
+              throw new Error(`${provider} ACP Agent did not advertise a Reasoning configuration option`);
+            }
+            changes.push({ configId: reasoningOption.id, value: options.reasoningEffort });
           }
-          changes.push({ configId: reasoningOption.id, value: options.reasoningEffort });
+          if (changes.length > 0) {
+            await this.applySessionConfigOptionsNow(binding, changes);
+            for (const change of changes) launchConfigIds.add(change.configId);
+          }
         }
-        if (changes.length > 0) {
-          await this.applySessionConfigOptionsNow(binding, changes);
-          for (const change of changes) launchConfigIds.add(change.configId);
+        if (configPolicy?.approvalModes) {
+          const modeId = configPolicy.approvalModes[binding.approvalMode];
+          const availableModes = Array.isArray(binding.modes?.availableModes)
+            ? binding.modes.availableModes
+            : [];
+          if (
+            modeId
+            && String(binding.modes?.currentModeId || '') !== modeId
+            && availableModes.some(mode => String(recordValue(mode).id || '') === modeId)
+          ) {
+            await this.setSessionModeNow(binding, modeId);
+          }
         }
-      }
-      if (configPolicy?.approvalModes) {
-        const modeId = configPolicy.approvalModes[binding.approvalMode];
-        const availableModes = Array.isArray(binding.modes?.availableModes)
-          ? binding.modes.availableModes
-          : [];
-        if (
-          modeId
-          && String(binding.modes?.currentModeId || '') !== modeId
-          && availableModes.some(mode => String(recordValue(mode).id || '') === modeId)
-        ) {
-          await this.setSessionModeNow(binding, modeId);
+        if (options.serviceTier && options.serviceTier !== 'config') {
+          const fastOption = binding.configOptions.find(option => (
+            option.type === 'boolean'
+            && /(fast|speed)/i.test(`${option.id || ''} ${option.name || ''} ${option.category || ''}`)
+          ));
+          const fastEnabled = (configPolicy?.serviceTier?.enabledValues || ['priority', 'fast']).includes(options.serviceTier);
+          if (fastOption && fastOption.currentValue !== fastEnabled) {
+            await this.applySessionConfigOption(binding, fastOption.id, fastEnabled, { emit: false });
+          }
+          if (fastOption) launchConfigIds.add(fastOption.id);
         }
-      }
-      if (options.serviceTier && options.serviceTier !== 'config') {
-        const fastOption = binding.configOptions.find(option => (
-          option.type === 'boolean'
-          && /(fast|speed)/i.test(`${option.id || ''} ${option.name || ''} ${option.category || ''}`)
-        ));
-        const fastEnabled = (configPolicy?.serviceTier?.enabledValues || ['priority', 'fast']).includes(options.serviceTier);
-        if (fastOption && fastOption.currentValue !== fastEnabled) {
-          await this.applySessionConfigOption(binding, fastOption.id, fastEnabled, { emit: false });
+        if (configOverrides.length > 0) await this.restoreSessionConfigOverrides(binding, configOverrides);
+        if (historyMode === 'new' && launchConfigIds.size > 0) {
+          // Freeze inherited launch choices for this Session so process recovery
+          // does not depend on later Home defaults or provider persistence.
+          this.rememberSessionConfigOverrides(binding, binding.configOptions
+            .filter(option => launchConfigIds.has(option.id)
+              && !configOverrides.some(override => override.configId === option.id))
+            .flatMap(option => option.currentValue === undefined
+              ? [] : [{ configId: option.id, value: option.currentValue }]));
         }
-        if (fastOption) launchConfigIds.add(fastOption.id);
-      }
-      if (configOverrides.length > 0) await this.restoreSessionConfigOverrides(binding, configOverrides);
-      if (historyMode === 'new' && launchConfigIds.size > 0) {
-        // Freeze inherited launch choices for this Session so process recovery
-        // does not depend on later Home defaults or provider persistence.
-        this.rememberSessionConfigOverrides(binding, binding.configOptions
-          .filter(option => launchConfigIds.has(option.id)
-            && !configOverrides.some(override => override.configId === option.id))
-          .flatMap(option => option.currentValue === undefined
-            ? [] : [{ configId: option.id, value: option.currentValue }]));
-      }
-      this.requireOpenBinding(binding);
-      binding.state = 'idle';
-      const modelRecoveryError = this.savedSessionModelError(binding);
-      if (modelRecoveryError) {
-        binding.state = 'error';
-        binding.error = modelRecoveryError;
-        binding.stopReason = 'error';
-        binding.retryableReconnect = isSafeProviderSessionId(binding.sessionId);
-      }
-      binding.updatedAt = new Date().toISOString();
-      this.scheduleCheckpoint(binding, { exact: true });
-      this.emitRuntime(binding);
-      this.emitSession(binding);
-      void this.flushDeferredSessionChanges(binding);
-      // A successful prepare consumes any reconnect reservation it carried.
-      this.reconnectReservations.delete(agentId);
-      return {
-        sessionId: binding.sessionId,
-        historyMode,
-        protocolVersion: binding.initializeResponse.protocolVersion,
-        agentInfo: binding.initializeResponse.agentInfo || null,
-        capabilities: binding.initializeResponse.agentCapabilities || {},
-        adapter: launch,
-        configOverrides: normalizeSessionConfigChanges(binding.restartOptions.configOverrides),
+        this.requireOpenBinding(binding);
+        binding.state = 'idle';
+        const modelRecoveryError = this.savedSessionModelError(binding);
+        if (modelRecoveryError) {
+          binding.state = 'error';
+          binding.error = modelRecoveryError;
+          binding.stopReason = 'error';
+          binding.retryableReconnect = isSafeProviderSessionId(binding.sessionId);
+        }
+        binding.updatedAt = new Date().toISOString();
+        this.scheduleCheckpoint(binding, { exact: true });
+        this.emitRuntime(binding);
+        this.emitSession(binding);
+        void this.flushDeferredSessionChanges(binding);
+        // A successful prepare consumes any reconnect reservation it carried.
+        this.reconnectReservations.delete(agentId);
+        return {
+          sessionId: binding.sessionId,
+          historyMode,
+          protocolVersion: binding.initializeResponse.protocolVersion,
+          agentInfo: binding.initializeResponse.agentInfo || null,
+          capabilities: binding.initializeResponse.agentCapabilities || {},
+          adapter: launch,
+          configOverrides: normalizeSessionConfigChanges(binding.restartOptions.configOverrides),
+        };
       };
+      try {
+        return await completeSessionSetup();
+      } catch (error) {
+        // ACP -32000 rejects session creation before a session exists. Keep the
+        // initialized connection so its advertised authentication can complete.
+        if (options.identityOnly !== true && !requestedSessionId && !forkSourceSessionId
+          && !binding.sessionId && !binding.untrustedSessionId
+          && asErrorLike(error).code === -32000
+          && binding.initializeResponse.authMethods?.length && this.isOpenBinding(binding)) {
+          binding.pendingSessionSetup = async () => { await completeSessionSetup(); };
+          binding.state = 'error';
+          binding.error = acpErrorMessage(error);
+          binding.stopReason = 'error';
+          binding.updatedAt = new Date().toISOString();
+          this.emitRuntime(binding);
+          this.emitSession(binding);
+          return {
+            sessionId: '', historyMode: 'authentication',
+            protocolVersion: binding.initializeResponse.protocolVersion,
+            agentInfo: binding.initializeResponse.agentInfo || null,
+            capabilities: binding.initializeResponse.agentCapabilities || {},
+            adapter: launch, configOverrides,
+          };
+        }
+        throw error;
+      }
     } catch (error) {
       const runtimeError = new Error(acpErrorMessage(error), { cause: error });
       const startupCleanupError = asErrorLike(error).adapterCleanupError;
@@ -3443,7 +3472,9 @@ class AcpRuntime extends EventEmitter {
     this.admissionRemaining(options);
     const binding = this.requireBinding(agentId);
     if (
-      binding.exited
+      !binding.sessionId
+      || binding.pendingSessionSetup
+      || binding.exited
       || binding.sessionMutation
       || binding.activeTurn
       || !['idle', 'error'].includes(binding.state)
@@ -3898,6 +3929,26 @@ class AcpRuntime extends EventEmitter {
         'ACP authenticate'
       );
       this.requireOpenBinding(binding);
+      if (binding.pendingSessionSetup) {
+        try {
+          await binding.pendingSessionSetup();
+          this.requireOpenBinding(binding);
+          // Identity is now confirmed; publish the retained launch scope and
+          // overrides through the ordinary durable session-options owner.
+          this.rememberSessionConfigOverrides(binding, []);
+          delete binding.pendingSessionSetup;
+        } catch (error) {
+          if (this.isOpenBinding(binding)) {
+            binding.state = 'error';
+            binding.error = acpErrorMessage(error);
+            binding.stopReason = 'error';
+            if (binding.sessionId || asErrorLike(error).code !== -32000) delete binding.pendingSessionSetup;
+            this.emitRuntime(binding);
+            this.emitSession(binding);
+          }
+          throw error;
+        }
+      }
       binding.error = '';
       binding.stopReason = '';
       binding.state = interactiveRuntimeState(binding, 'idle');

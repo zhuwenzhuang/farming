@@ -124,3 +124,8 @@ Base Path 改变时必须重新读取入口文档。路由缺失或不一致时�
 验证必须覆盖：同 Config 并发启动、不同 Config 同时运行、软链接等价、失效与不确定 Owner、
 有无 Live Server 时的精确进程清理、Hard-stop Signal 语义、独立鉴权与 Runtime Namespace、
 Browser Base Path，以及 Project 与 Provider Home 的安全共享。
+
+CLI 将退出或僵尸态 Server 视为已停止，但仍须验证所有 Config 所属运行时进程组
+已停止。进程身份验证依赖 `ps`；缺少工具或身份不可读取时必须给出可操作错误。
+显式端口被占用时在启动前失败，自动换端口时给出提示。后台启动只输出本次启动
+的访问地址，不得输出追加日志中的旧地址。

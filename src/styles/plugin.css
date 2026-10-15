@@ -2037,11 +2037,6 @@
   opacity: 0.48;
 }
 
-.code-plugin-error {
-  color: var(--code-danger);
-  font-size: 13px;
-  line-height: 18px;
-}
 
 .code-plugin-extension p {
   color: var(--code-text-subtle);

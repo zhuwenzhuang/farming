@@ -102,7 +102,7 @@ async function run(): Promise<void> {
       ? { homeId: 'work', runtimeMode: 'chat' }
       : { homeId: 'default', runtimeMode: 'terminal' },
     getAgentHomes: (provider: string) => provider === 'codex' ? codexHomes : [],
-    getAvailableAgents: () => [
+    getAvailableAgents: async () => [
       { category: 'coding', command: 'codex', description: 'Codex CLI', name: 'codex' },
       { category: 'shell', command: 'gemini', description: 'Not a coding agent', name: 'gemini' },
     ],

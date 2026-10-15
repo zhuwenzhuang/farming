@@ -103,6 +103,11 @@ line format when Git explicitly rejects `-z`. Legacy quoted values are decoded;
 malformed output remains a failed lookup. Paths containing newlines require the
 NUL format. Timeouts and repository errors do not trigger format fallback.
 Common-directory paths are resolved without requiring `--path-format`.
+Project worktree inventory uses the Files service's command execution boundary,
+including its isolated command helper, just like other Git reads. Opening several
+Projects must not start a burst of Git processes directly on the Server event
+loop and starve unrelated discovery requests. Each explicit inventory read
+remains fresh; moving execution does not introduce a stale-result cache.
 
 Git owns repository and worktree identity. Farming presents each worktree as an
 ordinary Project and owns only its membership and order in the workspace.

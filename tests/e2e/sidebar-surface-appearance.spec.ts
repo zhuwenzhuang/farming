@@ -196,3 +196,26 @@ test.describe('shared sidebar surfaces', () => {
     })
   }
 })
+
+for (const appearance of ['light', 'dark', 'paper'] as const) {
+  test(`compact sidebar keeps auxiliary action geometry in ${appearance}`, async ({ page, workspaceRoot, isMobile }, testInfo) => {
+    test.skip(!isMobile, 'Compact touch acceptance uses the mobile project')
+    await page.request.post('/farming/api/settings', { data: { appearance } })
+    const created = await page.request.post('/farming/api/control/agents', { data: { command: 'bash', workspace: workspaceRoot, name: 'Example Agent' } })
+    expect(created.ok()).toBe(true)
+    await openFarming(page)
+    const sidebar = page.getByTestId('code-sidebar')
+    if (await sidebar.evaluate(element => element.classList.contains('collapsed'))) {
+      const back = page.getByTestId('code-mobile-back')
+      if (await back.isVisible()) await back.tap()
+      await page.getByTestId('code-mobile-menu').tap()
+    }
+    const collapse = page.getByTestId('code-sidebar-toggle')
+    await expect(collapse).toHaveCSS('border-radius', '7px')
+    await expect(collapse).toHaveCSS('border-top-width', '0px')
+    await expect(collapse).toHaveCSS('width', '44px')
+    await testInfo.attach(`compact-navigation-${appearance}`, { body: await sidebar.screenshot({ mask: [sidebar.locator('.code-sidebar-footer')] }), contentType: 'image/png' })
+    await collapse.tap()
+    await expect(sidebar).toHaveClass(/collapsed/)
+  })
+}

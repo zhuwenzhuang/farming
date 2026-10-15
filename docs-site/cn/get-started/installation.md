@@ -113,3 +113,15 @@ Provider 仍需登录，外部项目工具也有各自的系统要求。
 逐条执行命令，每步成功后再继续。`--dir` 的优先级高于 `FARMING_INSTALL_ROOT`。旧系统下载前需具备最新的 CA 信任库。
 若出现 `curl: (60)`，请通过可信系统软件源更新 CA 证书，或用 `CURL_CA_BUNDLE` 指定可信证书包，
 不要关闭 TLS 校验。安装脚本不会修改系统证书或安装系统软件包。
+
+## 主机工具与安装进度
+
+Farming 启停前通过 `/bin/ps` 验证进程归属。最小化 Linux 镜像需要安装
+`procps`（Debian/Ubuntu）或 `procps-ng`（RHEL/Rocky/CentOS）；目录安装器
+会在下载前检查。
+
+安装包包含 Agent 原生运行时，请为程序预留约 1–2 GB，另计包管理器缓存及
+安装暂存空间。慢速网络可能需要数分钟。目录安装器会在依赖安装阶段报告
+已用时间；npm 下载诊断可使用 `npm install --global farming-code@latest
+--loglevel=verbose`。运行 `farming --version` 查看当前选定版本，运行
+`farming url` 找回带认证信息的本地地址。请将该地址作为凭据保护。

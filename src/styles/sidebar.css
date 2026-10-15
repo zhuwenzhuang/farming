@@ -1385,7 +1385,6 @@
   body.code-mode.code-compact-layout .code-sidebar-toggle {
       width: 44px;
       height: 44px;
-      border-radius: 999px;
       background: transparent;
     }
 

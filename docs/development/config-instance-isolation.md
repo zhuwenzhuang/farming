@@ -168,3 +168,9 @@ running together, symlink equivalence, stale and uncertain ownership, exact
 process cleanup with and without a live Server, hard-stop signal semantics,
 independent authentication and runtime namespaces, browser base paths, and
 safe sharing of Projects and Provider Homes.
+
+The CLI treats an exited or zombie Server as stopped while still verifying all
+Config-owned runtime groups. Process identity requires `ps`; a missing tool or
+unreadable identity fails with an actionable error. Explicit occupied ports fail
+before launch, while automatic port changes are reported. Background startup
+prints access URLs only from its own launch, never earlier appended log records.

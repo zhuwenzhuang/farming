@@ -108,8 +108,7 @@
 .code-settings-choice-row,
 .code-agent-home-provider,
 .code-agent-home-form,
-.code-settings-update-card,
-.code-settings-error {
+.code-settings-update-card {
   border: 0;
   border-radius: 12px;
   background: var(--code-danger-soft);
@@ -176,14 +175,6 @@
   outline: none;
 }
 
-.code-settings-error {
-  border: 1px solid var(--code-border-danger);
-  padding: 9px 10px;
-  border-color: var(--code-border-danger);
-  background: var(--code-danger-soft);
-  color: var(--code-diff-removed);
-  font-size: 12px;
-}
 
 .code-agent-homes-list {
   display: grid;
@@ -532,8 +523,7 @@
 
 .code-agent-home-form p,
 .code-agent-home-empty,
-.code-settings-status,
-.code-settings-error {
+.code-settings-status {
   font-size: 11px;
 }
 
@@ -541,10 +531,6 @@
   padding: 9px 10px;
 }
 
-.code-settings-error {
-  padding: 7px 9px;
-  border-radius: 10px;
-}
 
 /* Agent Homes should read like compact metadata, not a heavy form. */
 

@@ -61,7 +61,7 @@ interface AgentExtensionRouterPort {
   configuredProviders(): readonly string[];
   getAgentLaunchProfile(provider: string): Record<string, unknown>;
   getAgentHomes(provider: string): readonly AgentHome[];
-  getAvailableAgents(): readonly AvailableAgent[];
+  getAvailableAgents(): readonly AvailableAgent[] | Promise<readonly AvailableAgent[]>;
   getMainAgentSkillsCatalog(): unknown;
   getProviderAcpExecutablePolicy(provider: string): string;
   providerSupportsChat(provider: string): boolean;
@@ -105,7 +105,7 @@ function createAgentExtensionRouter(service: AgentExtensionRouterPort): ExpressR
   router.get('/agent-extensions', async (_req, res) => {
     try {
       await service.refreshAgentHomes();
-      const availableAgents = service.getAvailableAgents()
+      const availableAgents = (await service.getAvailableAgents())
         .filter(agent => agent.category === 'coding');
       const availableByProvider = new Map(availableAgents.map(agent => [
         String(agent.name || agent.command || '').trim().toLowerCase(),

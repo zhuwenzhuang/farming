@@ -1,3 +1,4 @@
+import { runDiscoveryCommand } from './discovery-command.cjs';
 import { runtimeExecutableInvocation } from './runtime-executable-invocation.cjs';
 const os = require('os');
 const fs = require('fs');
@@ -37,6 +38,7 @@ interface AgentShellEnvResolverOptions {
   cacheMs?: unknown;
   now?: () => number;
   provider: (shell: string) => NodeJS.ProcessEnv | null;
+  asyncProvider?: (shell: string) => Promise<NodeJS.ProcessEnv | null>;
 }
 
 interface AgentShellEnvCacheEntry {
@@ -179,6 +181,20 @@ function resolveUserShellEnvSync(
   return parseShellEnvOutput(result.stdout);
 }
 
+/** Async counterpart for request inventory reads; uses the same shell protocol. */
+function resolveUserShellEnv(options: ResolveUserShellEnvOptions = {}): Promise<NodeJS.ProcessEnv | null> {
+  const processEnv = options.processEnv || process.env;
+  if (['0', 'false'].includes(String(processEnv.FARMING_AGENT_SHELL_ENV || '').toLowerCase())) return Promise.resolve(null);
+  const shell = options.shell || defaultShell(processEnv);
+  if (!shell) return Promise.resolve(null);
+  const command = options.command || buildShellEnvCommand(options.nodePath || processEnv.FARMING_NODE_BIN || process.execPath, processEnv);
+  return runDiscoveryCommand(shell, options.args || shellEnvArgs(shell, command), {
+    cwd: options.cwd || processEnv.HOME || os.homedir(),
+    env: { ...processEnv, FARMING_COLLECT_AGENT_SHELL_ENV: '1' },
+    timeoutMs: normalizeTimeoutMs(options.timeoutMs ?? processEnv.FARMING_AGENT_SHELL_ENV_TIMEOUT_MS),
+  }).then(output => parseShellEnvOutput(output));
+}
+
 const PROCESS_ENV_EXACT_KEYS = new Set([
   'ANTHROPIC_API_KEY',
   'ANTHROPIC_AUTH_TOKEN',
@@ -301,11 +317,14 @@ class AgentShellEnvResolver {
   readonly #cacheMs: number;
   readonly #now: () => number;
   readonly #provider: AgentShellEnvResolverOptions['provider'];
+  readonly #asyncProvider: AgentShellEnvResolverOptions['asyncProvider'];
+  readonly #pending = new Map<string, Promise<NodeJS.ProcessEnv | null>>();
 
-  constructor({ cacheMs, now = Date.now, provider }: AgentShellEnvResolverOptions) {
+  constructor({ cacheMs, now = Date.now, provider, asyncProvider }: AgentShellEnvResolverOptions) {
     this.#cacheMs = normalizeCacheMs(cacheMs);
     this.#now = now;
     this.#provider = provider;
+    this.#asyncProvider = asyncProvider;
   }
 
   resolve(shell: string = '', options: AgentShellEnvResolveOptions = {}): NodeJS.ProcessEnv | null {
@@ -333,8 +352,33 @@ class AgentShellEnvResolver {
     return shellEnv;
   }
 
+  resolveAsync(shell: string = '', options: AgentShellEnvResolveOptions = {}): Promise<NodeJS.ProcessEnv | null> {
+    const cacheKey = String(shell || '').trim() || '__default__';
+    const cached = this.#cache.get(cacheKey);
+    const hasMaxAgeOverride = typeof options.maxAgeMs === 'number' && Number.isFinite(options.maxAgeMs);
+    const maxAgeMs = hasMaxAgeOverride ? Math.max(0, options.maxAgeMs!) : this.#cacheMs;
+    if (options.force !== true && cached
+      && ((!hasMaxAgeOverride && maxAgeMs === 0) || this.#now() - cached.resolvedAt < maxAgeMs)) {
+      return Promise.resolve(cached.env);
+    }
+    let pending = this.#pending.get(cacheKey);
+    if (!pending) {
+      pending = Promise.resolve().then(() => this.#asyncProvider ? this.#asyncProvider(shell) : this.#provider(shell))
+        .then(env => {
+          const value = env || null;
+          if (this.#pending.get(cacheKey) === pending && this.#cache.get(cacheKey) === cached) {
+            this.#cache.set(cacheKey, { env: value, resolvedAt: this.#now() });
+          }
+          return value;
+        }).finally(() => { if (this.#pending.get(cacheKey) === pending) this.#pending.delete(cacheKey); });
+      this.#pending.set(cacheKey, pending);
+    }
+    return pending;
+  }
+
   dispose(): void {
     this.#cache.clear();
+    this.#pending.clear();
   }
 }
 
@@ -348,6 +392,7 @@ export {
   normalizeInteractiveTerminalEnv,
   parseShellEnvOutput,
   resolveUserShellEnvSync,
+  resolveUserShellEnv,
   scrubNonInteractivePagerEnv,
   shellEnvArgs,
   type AgentShellEnvResolveOptions,

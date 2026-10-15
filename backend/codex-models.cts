@@ -1,5 +1,5 @@
 const { execFile } = require('child_process');
-import { resolveTerminalCodexExecutable } from './executable-discovery.cjs';
+import { resolveTerminalExecutableAsync } from './executable-discovery.cjs';
 
 const DEFAULT_CODEX_MODELS_TIMEOUT_MS = 15_000;
 
@@ -188,11 +188,11 @@ function buildModelCatalog(models: unknown[], source = 'codex'): CodexModelCatal
   });
 }
 
-function listCodexModelOptions(
+async function listCodexModelOptions(
   options: ListCodexModelOptions = {},
 ): Promise<CodexModelListResult> {
   const codexBin = options.codexBin
-    || resolveTerminalCodexExecutable('', options.env?.PATH || process.env.PATH || '').path
+    || (await resolveTerminalExecutableAsync('codex', options.env?.PATH || process.env.PATH || '')).path
     || 'codex';
   const timeout = typeof options.timeout === 'number' && Number.isFinite(options.timeout)
     ? Math.max(1, options.timeout)

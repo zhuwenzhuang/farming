@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { resolveTerminalCodexExecutable } from './executable-discovery.cjs';
+import { resolveTerminalExecutableAsync } from './executable-discovery.cjs';
 
 type RecordValue = Record<string, unknown>;
 export interface AccountQuota {
@@ -40,11 +40,11 @@ export function normalizeAccountQuota(value: unknown, sampledAt: number, account
 }
 
 // A bounded read-only app-server session. Never create a thread or request a turn.
-export function readCodexAccountQuota(home: string, options: {
+export async function readCodexAccountQuota(home: string, options: {
   executable?: string; timeoutMs?: number; env?: NodeJS.ProcessEnv;
 } = {}): Promise<AccountQuota> {
   const env: NodeJS.ProcessEnv = { ...process.env, ...options.env, CODEX_HOME: home };
-  const executable = options.executable || resolveTerminalCodexExecutable('', env.PATH || '').path || 'codex';
+  const executable = options.executable || (await resolveTerminalExecutableAsync('codex', env.PATH || '')).path || 'codex';
   return new Promise(resolve => {
     const unavailable = (reasonCode: AccountQuota['reasonCode'], reason: string): AccountQuota => ({ available: false, source: SOURCE, sampledAt: Date.now(), reasonCode, reason });
     let result: AccountQuota | null = null;

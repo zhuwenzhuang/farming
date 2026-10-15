@@ -5,6 +5,46 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 const { WorkspaceFileService } = require('../workspace-file-service.cjs');
+const { executeWorkspaceFileRequest } = require('../workspace-file-router.cjs');
+
+test('Project worktree reads use the configured command runtime and remain fresh', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-worktree-command-'));
+  const workspace = fs.realpathSync(root);
+  let branch = 'main';
+  const service = new WorkspaceFileService({
+    rgPath: process.execPath,
+    gitPath: 'fixture-git',
+    commandRunner: {
+      dispose() {},
+      async run(command: string, args: string[], options: { timeout?: number }) {
+        assert.equal(command, 'fixture-git');
+        assert(options.timeout && options.timeout > 0);
+        if (args.includes('--git-common-dir') || args.includes('--show-toplevel')) {
+          return { stdout: workspace, stderr: '' };
+        }
+        assert(args.includes('worktree') && args.includes('-z'));
+        return { stdout: `worktree ${workspace}\0HEAD ${'a'.repeat(40)}\0branch refs/heads/${branch}\0\0`, stderr: '' };
+      },
+    },
+  });
+  const manager = {
+    configManager: { getSettings: () => ({ projectWorkspaces: [workspace] }) },
+    getAgentWorkspaceRoot: () => workspace,
+    getState: () => ({ agents: [{ id: 'agent-main', cwd: workspace, projectWorkspace: workspace }] }),
+  };
+  try {
+    const request = { operation: 'worktrees', rootId: 'agent-main' };
+    const first = await executeWorkspaceFileRequest(manager, service, request);
+    assert.equal(first.isGitRepo, true, 'the transport must use the service command runtime, not spawn its own Git');
+    assert.equal(first.items[0].branch, 'main');
+    branch = 'updated';
+    const second = await executeWorkspaceFileRequest(manager, service, request);
+    assert.equal(second.items[0].branch, 'updated', 'explicit worktree reads must not reuse stale inventory');
+  } finally {
+    await service.dispose();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
 
 for (const platform of ['linux', 'darwin']) {
   test(`Workspace helper inherits the private runtime invocation on ${platform}`, { timeout: 10000 }, async () => {
