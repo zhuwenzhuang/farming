@@ -397,6 +397,33 @@ async function run() {
     const resumed = await manager.request({ ...base, method: 'definition' });
     assert.strictEqual(resumed.supported, true, 're-enabling should restore on-demand startup');
 
+    let earlyExitStarts = 0;
+    let earlyExitDisposals = 0;
+    const earlyExitManager = new ManagedLanguageServerManager({
+      configDir: path.join(tempDir, 'early-exit-config'),
+      definitions: [{ id: 'early-exit', language: 'Fake', extensions: ['.fake'], command: [process.execPath] }],
+      clientFactory: async (value: { id: string; root: string; workspaceRoot: string; onExit?: () => void }) => {
+        earlyExitStarts += 1;
+        if (earlyExitStarts === 1) value.onExit?.();
+        return {
+          id: value.id, root: value.root, workspaceRoot: value.workspaceRoot,
+          execute: async () => ({ result: [], supported: true }),
+          ownsHierarchyHandle: () => false,
+          dispose: async () => { earlyExitDisposals += 1; },
+        };
+      },
+    });
+    try {
+      await assert.rejects(earlyExitManager.request({ ...base, method: 'definition' }),
+        (error: { code?: string }) => error.code === 'LANGUAGE_SERVER_PROCESS_EXITED');
+      assert.strictEqual(earlyExitDisposals, 1);
+      assert.deepStrictEqual((await earlyExitManager.capability()).connections, []);
+      await earlyExitManager.request({ ...base, method: 'definition' });
+      assert.strictEqual(earlyExitStarts, 2, 'a later request creates a fresh connection');
+    } finally {
+      await earlyExitManager.dispose();
+    }
+
     let gatedEnabled = true;
     let releaseClientFactory = () => {};
     let markClientFactoryStarted = () => {};

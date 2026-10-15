@@ -181,6 +181,7 @@ class ManagedLanguageServerClient {
   readonly workspaceRoot: string;
   private readonly process: ChildProcessWithoutNullStreams;
   private readonly connection: MessageConnection;
+  private readonly processClosed: Promise<void>;
   private readonly documents = new Map<string, OpenDocument>();
   private readonly diagnostics = new Map<string, DiagnosticSnapshot>();
   private readonly providerRefreshDocumentVersions = new Map<string, number>();
@@ -190,6 +191,7 @@ class ManagedLanguageServerClient {
   private readonly semanticLegendWaiters = new Set<() => void>();
   private serverCapabilities: JsonRecord = {};
   private disposed = false;
+  private documentSync: Promise<void> = Promise.resolve();
   private serviceReadyProviderRefreshSent = false;
   private diagnosticRevision = 0;
   private readonly onExit: () => void;
@@ -206,10 +208,18 @@ class ManagedLanguageServerClient {
       env: options.env || process.env,
       stdio: 'pipe',
     });
+    this.processClosed = new Promise(resolve => this.process.once('close', () => resolve()));
     this.connection = createMessageConnection(
       new StreamMessageReader(this.process.stdout),
       new StreamMessageWriter(this.process.stdin),
     );
+    this.process.on('error', () => this.terminate());
+    this.process.stdin.on('error', () => this.terminate());
+    this.process.stdout.on('error', () => this.terminate());
+    this.process.stderr.on('error', () => this.terminate());
+    this.process.stderr.resume();
+    this.connection.onError(() => this.terminate());
+    this.connection.onClose(() => this.terminate());
     this.connection.onRequest('workspace/configuration', (params: unknown) => {
       const items = recordValue(params).items;
       return Array.isArray(items) ? items.map(() => null) : [];
@@ -287,30 +297,23 @@ class ManagedLanguageServerClient {
         this.emitProviderRefresh('inlayHints');
       }
     });
-    this.process.once('exit', () => {
-      this.disposed = true;
-      this.connection.dispose();
-      this.onExit();
-      for (const waiters of this.diagnosticWaiters.values()) [...waiters].forEach(resolve => resolve());
-      this.diagnosticWaiters.clear();
-      for (const resolve of this.semanticLegendWaiters) resolve();
-      this.semanticLegendWaiters.clear();
-    });
+    this.process.once('exit', () => this.terminate());
     this.connection.listen();
   }
 
   static async create(options: ManagedLanguageServerClientOptions): Promise<ManagedLanguageServerClient> {
     const client = new ManagedLanguageServerClient(options);
-    await new Promise<void>((resolve, reject) => {
-      client.process.once('spawn', resolve);
-      client.process.once('error', reject);
-    }).catch(error => {
-      throw languageServerError(
-        `${options.id} failed to start: ${error instanceof Error ? error.message : String(error)}`,
-        'LANGUAGE_SERVER_START_FAILED',
-      );
-    });
     try {
+      await new Promise<void>((resolve, reject) => {
+        client.process.once('spawn', resolve);
+        client.process.once('error', reject);
+      }).catch(error => {
+        throw languageServerError(
+          `${options.id} failed to start: ${error instanceof Error ? error.message : String(error)}`,
+          'LANGUAGE_SERVER_START_FAILED',
+        );
+      });
+      client.ensureActive();
       const initializeResult = recordValue(await withTimeout(client.connection.sendRequest('initialize', {
         processId: process.pid,
         rootUri: pathToFileURL(options.root).toString(),
@@ -350,7 +353,8 @@ class ManagedLanguageServerClient {
         },
       }), INITIALIZE_TIMEOUT_MS, `${options.id} initialization timed out`));
       client.serverCapabilities = recordValue(initializeResult.capabilities);
-      client.connection.sendNotification('initialized', {});
+      await client.notify('initialized', {});
+      client.ensureActive();
       return client;
     } catch (error) {
       await client.dispose();
@@ -408,30 +412,54 @@ class ManagedLanguageServerClient {
       const timer = setTimeout(finish, SEMANTIC_TOKENS_LEGEND_WAIT_MS);
       this.semanticLegendWaiters.add(finish);
     });
+    this.ensureActive();
     return this.semanticTokensLegend();
   }
 
-  private async ensureDocument(filePath: string): Promise<string> {
+  private async notify(method: string, params: JsonRecord): Promise<void> {
+    this.ensureActive();
+    try {
+      await withTimeout(this.connection.sendNotification(method, params), REQUEST_TIMEOUT_MS, `${this.id} notification timed out`);
+      this.ensureActive();
+    } catch (error) {
+      this.terminate();
+      throw languageServerError(
+        `${this.id} transport failed: ${error instanceof Error ? error.message : String(error)}`,
+        'LANGUAGE_SERVER_PROCESS_EXITED', 503,
+      );
+    }
+  }
+
+  private ensureDocument(filePath: string): Promise<string> {
+    // A successful write owns the version transition; concurrent requests must
+    // not send duplicate opens or commit changes out of order.
+    const sync = this.documentSync.then(() => this.syncDocument(filePath));
+    this.documentSync = sync.then(() => undefined, () => undefined);
+    return sync;
+  }
+
+  private async syncDocument(filePath: string): Promise<string> {
     this.ensureActive();
     const [text, stat] = await Promise.all([
       fs.promises.readFile(filePath, 'utf8'),
       fs.promises.stat(filePath),
     ]);
+    this.ensureActive();
     const uri = pathToFileURL(filePath).toString();
     const signature = `${stat.mtimeMs}:${stat.size}`;
     const current = this.documents.get(uri);
     if (!current) {
-      this.documents.set(uri, { signature, version: 1 });
-      this.connection.sendNotification('textDocument/didOpen', {
+      await this.notify('textDocument/didOpen', {
         textDocument: { uri, languageId: languageId(filePath), version: 1, text },
       });
+      this.documents.set(uri, { signature, version: 1 });
     } else if (current.signature !== signature) {
       const version = current.version + 1;
-      this.documents.set(uri, { signature, version });
-      this.connection.sendNotification('textDocument/didChange', {
+      await this.notify('textDocument/didChange', {
         textDocument: { uri, version },
         contentChanges: [{ text }],
       });
+      this.documents.set(uri, { signature, version });
     }
     return uri;
   }
@@ -445,6 +473,7 @@ class ManagedLanguageServerClient {
         `${this.id} request timed out`,
       );
     } catch (error) {
+      this.ensureActive();
       const value = recordValue(error);
       if (Number(value.code) === -32601) {
         throw languageServerError(`${this.id} does not support ${method}`, 'LANGUAGE_SERVER_METHOD_UNSUPPORTED', 400);
@@ -474,6 +503,7 @@ class ManagedLanguageServerClient {
   }
 
   private async waitForDiagnostics(uri: string, afterRevision: number): Promise<unknown[]> {
+    this.ensureActive();
     const current = this.diagnostics.get(uri);
     if (current && current.revision > afterRevision) return current.items;
     await new Promise<void>(resolve => {
@@ -488,6 +518,7 @@ class ManagedLanguageServerClient {
       waiters.add(finish);
       this.diagnosticWaiters.set(uri, waiters);
     });
+    this.ensureActive();
     return this.diagnostics.get(uri)?.items || [];
   }
 
@@ -605,20 +636,23 @@ class ManagedLanguageServerClient {
     throw languageServerError('Unsupported Language Server method', 'LANGUAGE_SERVER_METHOD_UNSUPPORTED', 400);
   }
 
-  async dispose(): Promise<void> {
+  private terminate(): void {
     if (this.disposed) return;
     this.disposed = true;
-    await withTimeout(this.connection.sendRequest('shutdown'), 1_000, `${this.id} shutdown timed out`).catch(() => null);
-    const exited = new Promise<void>(resolve => this.process.once('exit', () => resolve()));
-    await this.connection.sendNotification('exit').catch(() => null);
-    await Promise.race([
-      exited,
-      new Promise<void>(resolve => setTimeout(resolve, 250)),
-    ]);
-    if (this.process.exitCode === null && !this.process.killed) this.process.kill('SIGTERM');
     this.connection.dispose();
+    if (this.process.pid && this.process.exitCode === null && this.process.signalCode === null) {
+      this.process.kill('SIGKILL');
+    }
+    this.onExit();
+    for (const waiters of this.diagnosticWaiters.values()) [...waiters].forEach(resolve => resolve());
+    this.diagnosticWaiters.clear();
     for (const resolve of this.semanticLegendWaiters) resolve();
     this.semanticLegendWaiters.clear();
+  }
+
+  async dispose(): Promise<void> {
+    this.terminate();
+    await withTimeout(this.processClosed, 1_000, `${this.id} process cleanup timed out`);
   }
 }
 

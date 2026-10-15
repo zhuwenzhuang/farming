@@ -578,6 +578,7 @@ class ManagedLanguageServerManager {
       const launch = await this.launchCommand(definition, root);
       this.assertLifecycleCurrent(lifecycleEpoch);
       let created: ManagedClient | null = null;
+      let exited = false;
       const client = await this.clientFactory({
         id: definition.id,
         command: launch.command,
@@ -586,11 +587,16 @@ class ManagedLanguageServerManager {
         workspaceRoot,
         env: this.env,
         onExit: () => {
+          exited = true;
           if (created && this.clients.get(key) === created) this.clients.delete(key);
         },
         onRefresh: kind => this.emitRefresh(kind, workspaceRoot),
       });
       created = client;
+      if (exited) {
+        await client.dispose();
+        throw languageServerError(`${definition.id} exited during startup`, 'LANGUAGE_SERVER_PROCESS_EXITED', 503);
+      }
       if (lifecycleEpoch !== this.lifecycleEpoch || !this.isEnabled()) {
         await Promise.allSettled([client.dispose()]);
         this.assertLifecycleCurrent(lifecycleEpoch);

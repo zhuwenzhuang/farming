@@ -145,6 +145,18 @@ semantic queue cannot prevent browsing files or returning to Chat. Errors remain
 scoped to the requesting semantic operation; late results cannot restore a closed
 editor's presentation.
 
+The managed client owns transport failure as a terminal connection transition.
+A child-process error or exit, closed or failed JSON-RPC stream, or failed
+notification write invalidates that connection, rejects its pending requests,
+releases local waiters, removes its active ownership, and kills its exact child
+process. This transition is idempotent across concurrent failure signals. Every
+notification write is awaited with a deadline; saved-document versions advance
+only after successful writes, serialized across concurrent requests. Failed
+initialization cannot publish an active connection. A later request may start a
+new connection; failed work is not automatically replayed. Regression coverage
+must exercise broken pipes under Node's strict unhandled-rejection behavior,
+including initialization, document open/change, and continued healthy requests.
+
 A persisted `languageServerEnabled` setting is the authoritative admission
 gate and defaults to enabled, including legacy settings that omit it. Disabling
 commits that gate before closing active connections and cancelling starts in
