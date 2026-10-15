@@ -272,6 +272,52 @@ async function run() {
     const eventsAfterRollback = fs.readFileSync(path.join(configDir, 'fixture-events.log'), 'utf8');
     assert(eventsAfterRollback.split('\n').filter(line => line.startsWith(`daemon:${firstImage}`)).length >= 2);
 
+    // A manual npm-managed launch can serve this Config from a newer package
+    // than the install selection. Rollback must restart that exact package
+    // rather than downgrading to the selected image.
+    const npmRoot = path.join(root, 'npm-live', 'lib', 'node_modules', 'farming-code');
+    fs.mkdirSync(path.join(npmRoot, 'bin'), { recursive: true });
+    fs.mkdirSync(path.join(npmRoot, 'backend'), { recursive: true });
+    fs.copyFileSync(path.join(firstImage, 'bin', 'farming'), path.join(npmRoot, 'bin', 'farming'));
+    fs.writeFileSync(path.join(npmRoot, 'backend', 'farming-app-cli.cjs'), 'setInterval(() => {}, 1000);\n');
+    const liveNpmServer = spawn(process.execPath, [path.join(npmRoot, 'backend', 'farming-app-cli.cjs')], { stdio: 'ignore' });
+    const unidentifiedServer = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+    const serverRecord = path.join(configDir, 'farming-server.json');
+    try {
+      await waitForFile(`/proc/${liveNpmServer.pid}/cmdline`);
+      fs.writeFileSync(serverRecord, JSON.stringify({ pid: liveNpmServer.pid, port: 16694, basePath: '/farming' }));
+      const eventsBeforeLiveRollback = fs.readFileSync(path.join(configDir, 'fixture-events.log'), 'utf8');
+      const liveSha = '6'.repeat(40);
+      const liveFailing = writeFixtureBundle(root, { gitSha: liveSha, smokeExitCode: 7 });
+      const liveResult = activate(liveFailing, liveSha, remoteDir, configDir);
+      assert.notStrictEqual(liveResult.status, 0);
+      assert.match(liveResult.stderr, /outside the install selection; rollback will restart that package/);
+      assert.match(liveResult.stderr, /previously running Farming package was restored/);
+      assert.strictEqual(fs.realpathSync(remoteDir), firstImage, 'rollback still restores the prior selection');
+      const liveRollbackEvents = fs.readFileSync(path.join(configDir, 'fixture-events.log'), 'utf8')
+        .slice(eventsBeforeLiveRollback.length).split('\n');
+      assert(liveRollbackEvents.includes(`daemon:${fs.realpathSync(npmRoot)}`), 'rollback restarts the live npm package');
+      assert(!liveRollbackEvents.some(line => line.startsWith(`daemon:${firstImage}`)),
+        'rollback must not downgrade the live Server to the selected image');
+
+      await waitForFile(`/proc/${unidentifiedServer.pid}/cmdline`);
+      fs.writeFileSync(serverRecord, JSON.stringify({ pid: unidentifiedServer.pid }));
+      const eventsBeforeUnidentified = fs.readFileSync(path.join(configDir, 'fixture-events.log'), 'utf8');
+      const unidentifiedSha = '7'.repeat(40);
+      const unidentified = writeFixtureBundle(root, { gitSha: unidentifiedSha });
+      const unidentifiedResult = activate(unidentified, unidentifiedSha, remoteDir, configDir);
+      assert.notStrictEqual(unidentifiedResult.status, 0);
+      assert.match(unidentifiedResult.stderr, /unidentified package; refusing to stop it/);
+      assert.strictEqual(fs.realpathSync(remoteDir), firstImage);
+      assert(!fs.readFileSync(path.join(configDir, 'fixture-events.log'), 'utf8')
+        .slice(eventsBeforeUnidentified.length).includes('stop:'), 'an unidentified live package must refuse before stop');
+      assert(!fs.readdirSync(`${remoteDir}.deploy/images`).some(name => name.startsWith(unidentifiedSha.slice(0, 12))));
+    } finally {
+      fs.rmSync(serverRecord, { force: true });
+      liveNpmServer.kill('SIGKILL');
+      unidentifiedServer.kill('SIGKILL');
+    }
+
     const eventsBeforePreflight = fs.readFileSync(path.join(configDir, 'fixture-events.log'), 'utf8');
     const fourthSha = '4'.repeat(40);
     const invalidNative = writeFixtureBundle(root, { gitSha: fourthSha, invalidNodePty: true });

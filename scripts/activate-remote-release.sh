@@ -327,6 +327,39 @@ stop_server() {
   run_cli "${runtime_root}" "${code_root}" stop --config-dir "${CONFIG_DIR}"
 }
 
+# Rollback restores the Server this Config was actually running, which a manual
+# or npm-managed launch can place outside the install selection. Prints nothing
+# when the Config records no live same-user Server; fails when a live Server's
+# package cannot be identified, so the caller refuses before stopping it.
+live_server_code_root() {
+  local pid argument
+  pid="$(node - "${CONFIG_DIR}" <<'NODE'
+const fs = require('fs');
+const path = require('path');
+const configDir = process.argv[2];
+let pid = '';
+try { pid = String(JSON.parse(fs.readFileSync(path.join(configDir, 'farming-server.json'), 'utf8')).pid || ''); } catch {}
+if (!pid) { try { pid = fs.readFileSync(path.join(configDir, 'farming-server.pid'), 'utf8').trim(); } catch {} }
+process.stdout.write(/^[1-9][0-9]*$/.test(pid) ? pid : '');
+NODE
+)"
+  [ -n "${pid}" ] && [ -r "/proc/${pid}/cmdline" ] || return 0
+  [ "$(stat -c %u "/proc/${pid}" 2>/dev/null)" = "$(id -u)" ] || return 0
+  while IFS= read -r -d '' argument; do
+    case "${argument}" in
+      /*/backend/farming-app-cli.cjs|/*/backend/server.cjs|/*/bin/farming)
+        readlink -f "$(dirname "$(dirname "${argument}")")"
+        return 0
+        ;;
+    esac
+  done < "/proc/${pid}/cmdline"
+  return 1
+}
+
+rollback_runtime() {
+  if [ -x "$1/.farming-glibc/lib/ld-2.28.so" ]; then printf '%s\n' "$1"; else printf '%s\n' "${IMAGE_ROOT}"; fi
+}
+
 switch_current() {
   local target="$1"
   local temporary_link="${REMOTE_DIR}.next-${IMAGE_ID}-$$"
@@ -639,6 +672,26 @@ elif [ -e "${REMOTE_DIR}" ]; then
   exit 1
 fi
 
+# The selection decides future launches; the live Server decides what rollback
+# must restore. Set only when they differ, so the ordinary path is unchanged.
+ROLLBACK_LIVE_ROOT=""
+if ! LIVE_ROOT="$(live_server_code_root)"; then
+  echo "The live Farming Server for this Config runs an unidentified package; refusing to stop it without an exact rollback target." >&2
+  exit 1
+fi
+if [ -n "${LIVE_ROOT}" ] && [ "${LIVE_ROOT}" != "$(readlink -f "${REMOTE_DIR}" 2>/dev/null || true)" ]; then
+  if [ "${LIVE_ROOT}" = "${IMAGE_ROOT}" ] || [ ! -f "${LIVE_ROOT}/bin/farming" ]; then
+    echo "The live Farming Server package ${LIVE_ROOT} cannot be restarted on rollback; refusing to stop it." >&2
+    exit 1
+  fi
+  ROLLBACK_LIVE_ROOT="${LIVE_ROOT}"
+  echo "The live Farming Server runs ${LIVE_ROOT}, outside the install selection; rollback will restart that package." >&2
+fi
+ROLLBACK_RESTORED_MESSAGE="The previous image was restored."
+if [ -n "${ROLLBACK_LIVE_ROOT}" ]; then
+  ROLLBACK_RESTORED_MESSAGE="The previously running Farming package was restored."
+fi
+
 if [ "${PREVIOUS_ROOT}" = "${IMAGE_ROOT}" ]; then
   start_server "${IMAGE_ROOT}" "${IMAGE_ROOT}"
 else
@@ -647,7 +700,8 @@ else
   stop_server "${IMAGE_ROOT}" "${IMAGE_ROOT}"
   if [ -n "${LEGACY_ROOT}" ]; then
     if ! mv "${REMOTE_DIR}" "${LEGACY_ROOT}"; then
-      start_server "${IMAGE_ROOT}" "${REMOTE_DIR}" || true
+      RESTART_ROOT="${ROLLBACK_LIVE_ROOT:-${REMOTE_DIR}}"
+      start_server "$(rollback_runtime "${RESTART_ROOT}")" "${RESTART_ROOT}" || true
       echo "Could not migrate the previous installation into the image store." >&2
       exit 1
     fi
@@ -663,18 +717,18 @@ fs.writeFileSync(file, `${JSON.stringify({
 NODE
   fi
   if ! stage_config_snapshot; then
-    if [ -n "${PREVIOUS_ROOT}" ]; then
-      PREVIOUS_RUNTIME="${PREVIOUS_ROOT}"
-      if [ ! -x "${PREVIOUS_RUNTIME}/.farming-glibc/lib/ld-2.28.so" ]; then PREVIOUS_RUNTIME="${IMAGE_ROOT}"; fi
-      if start_server "${PREVIOUS_RUNTIME}" "${PREVIOUS_ROOT}"; then RECOVERY_SAFE="1"; fi
+    RESTART_ROOT="${ROLLBACK_LIVE_ROOT:-${PREVIOUS_ROOT}}"
+    if [ -n "${RESTART_ROOT}" ]; then
+      if start_server "$(rollback_runtime "${RESTART_ROOT}")" "${RESTART_ROOT}"; then RECOVERY_SAFE="1"; fi
     fi
     exit 1
   fi
   if ! switch_current "${IMAGE_ROOT}"; then
     restore_config_snapshot || true
-    if [ -n "${PREVIOUS_ROOT}" ]; then
-      switch_current "${PREVIOUS_ROOT}" || true
-      start_server "${IMAGE_ROOT}" "${PREVIOUS_ROOT}" || true
+    if [ -n "${PREVIOUS_ROOT}" ]; then switch_current "${PREVIOUS_ROOT}" || true; fi
+    RESTART_ROOT="${ROLLBACK_LIVE_ROOT:-${PREVIOUS_ROOT}}"
+    if [ -n "${RESTART_ROOT}" ]; then
+      start_server "$(rollback_runtime "${RESTART_ROOT}")" "${RESTART_ROOT}" || true
     fi
     echo "Could not atomically select the new Farming image." >&2
     exit 1
@@ -709,16 +763,18 @@ if [ -n "${START_FAILURE:-}" ]; then
   if ! restore_config_snapshot; then CONFIG_RESTORED="false"; fi
   if [ -n "${PREVIOUS_ROOT}" ]; then
     switch_current "${PREVIOUS_ROOT}"
-    PREVIOUS_RUNTIME="${PREVIOUS_ROOT}"
-    if [ ! -x "${PREVIOUS_RUNTIME}/.farming-glibc/lib/ld-2.28.so" ]; then PREVIOUS_RUNTIME="${IMAGE_ROOT}"; fi
-    if [ "${CONFIG_RESTORED}" = "true" ] && start_server "${PREVIOUS_RUNTIME}" "${PREVIOUS_ROOT}"; then
+  else
+    rm -f "${REMOTE_DIR}"
+  fi
+  RESTART_ROOT="${ROLLBACK_LIVE_ROOT:-${PREVIOUS_ROOT}}"
+  if [ -n "${RESTART_ROOT}" ]; then
+    if [ "${CONFIG_RESTORED}" = "true" ] && start_server "$(rollback_runtime "${RESTART_ROOT}")" "${RESTART_ROOT}"; then
       RECOVERY_SAFE="1"
-      echo "${START_FAILURE} The previous image was restored." >&2
+      echo "${START_FAILURE} ${ROLLBACK_RESTORED_MESSAGE}" >&2
     else
       echo "${START_FAILURE} Rollback also failed; operator action is required." >&2
     fi
   else
-    rm -f "${REMOTE_DIR}"
     if [ "$CONFIG_RESTORED" = "true" ]; then RECOVERY_SAFE="1"; fi
     echo "${START_FAILURE} No previous image was available." >&2
   fi

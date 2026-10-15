@@ -55,10 +55,10 @@ Config 状态和部署 image 不共享所有权身份。更新一个安装路径
 | Building | 隔离 Linux builder 为一个已提交 SHA 打包。 | 构建失败不改变远端。 |
 | Staging | 持有部署锁时先清理过期且未被引用的 image、检查磁盘容量，再将 checksum 匹配的压缩包安全解压到唯一 staging 路径。 | 路径、元数据、平台或身份非法时只删除该 staging。 |
 | Prepared | 通过 artifact 自带兼容运行时加载原生模块，并用 `--no-activate` 准备固定 runtime。 | 失败时当前 Server 继续运行。 |
-| Activating | runtime 准备后再次检查容量，然后精确停止旧 Server，为其 Config 建立 checkpoint，在同一文件系统创建工作副本，原子切换 symlink，并让新 Server 使用工作副本启动。 | 停止或 checkpoint 失败不改变选择和持久 Config 状态；切换或启动失败进入回滚。 |
+| Activating | runtime 准备后再次检查容量并识别 Config 运行中 Server 的包，然后精确停止旧 Server，为其 Config 建立 checkpoint，在同一文件系统创建工作副本，原子切换 symlink，并让新 Server 使用工作副本启动。 | 无法识别运行中 Server 的包时在停止前拒绝；停止或 checkpoint 失败不改变选择和持久 Config 状态；切换或启动失败进入回滚。 |
 | Verifying | 通过不进入交互式浏览器 Agent 清单的内部 smoke Agent 验证认证 HTTP、版本化 WebSocket、PTY Host、ACP Host 和一个全新空 Chat，随后删除这些确切 Agent。 | 任一步失败都进入回滚，不重放结果不确定的 mutation。 |
 | Succeeded | 记录 current 与 rollback 选择，只清理保留策略外、且没有存活同用户进程引用的可证明安全旧 image。 | 清理失败不会否定运行中的 image，但必须可见；存活引用证据不确定时跳过全部清理。 |
-| Rolling back | 停止失败 image，隔离其 Config 工作副本，恢复 activation 前的 Config checkpoint，选择旧 image，并启动旧 Server。 | 成功则部署失败，但旧 image 与兼容的旧 Config 状态一同恢复；回滚失败时保留确切快照并要求人工处理。 |
+| Rolling back | 停止失败 image，隔离其 Config 工作副本，恢复 activation 前的 Config checkpoint，选择旧 image，并重新启动停止前正在运行的 Server 包。通常即旧 image；若 Config 的运行中 Server 来自其他包（例如手动 npm 安装），则使用停止前识别出的该包。 | 成功则部署失败，但旧 image 与兼容的旧 Config 状态一同恢复；回滚失败时保留确切快照并要求人工处理。 |
 
 CLI 启动就绪通过有界的认证状态响应验证配置的认证模式与 owner 权限，不触发可执行文件发现。
 后续 deployment smoke 负责运行时与业务就绪验证。
