@@ -120,7 +120,7 @@ async function run(): Promise<void> {
       customTitle: 'title',
       createRequestId: 'create-1',
       codexApprovalMode: 'full-auto',
-      agentRuntimeMode: 'terminal',
+      agentRuntimeMode: undefined,
       acpHistoryMode: 'resume',
       providerHomeId: 'home-1',
       additionalDirectories: ['/extra'],

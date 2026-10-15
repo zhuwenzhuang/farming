@@ -165,8 +165,9 @@ function createWebSocketAgentLifecycleHandlers<Client extends WebSocketAgentLife
           : undefined,
         agentRuntimeMode: message.agentRuntimeMode === 'acp'
           || message.agentRuntimeMode === 'chat'
+          || message.agentRuntimeMode === 'terminal'
           ? message.agentRuntimeMode
-          : 'terminal',
+          : undefined,
         acpHistoryMode: message.acpHistoryMode === 'resume' ? 'resume' : 'load',
         providerHomeId: typeof message.providerHomeId === 'string' ? message.providerHomeId : '',
         ...(revealChatAgentWhileConnecting ? {

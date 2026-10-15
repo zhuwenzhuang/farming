@@ -547,11 +547,21 @@ user-message prefix; prompt text alone is not provenance. A newly mounted view
 defaults to collapsed; runtime updates do not reset the current disclosure.
 Terminal retains its native display.
 
-Ordinary Create and Handoff share the browser's last explicit Chat/Terminal
-selection, scoped to this instance URL and retained across dialog dismissal and
-reload. It overrides the provider's launch default when both modes are supported;
-a Terminal-only target does not overwrite the remembered choice. Without a saved
-choice, the provider's launch default applies.
+Ordinary Create, Project quick launch, and Handoff use the backend-owned Provider
+launch default. Providers supporting Chat default to Chat; Terminal-only targets
+remain Terminal. An explicit mode applies to the current creation only; closing
+and reopening the dialog reads the Provider default again. Browser-local runtime
+preferences do not override configuration. Cached choices stay disabled until the
+fresh launch inventory is available; a failed read cannot authorize stale defaults.
+Existing saved Terminal defaults remain valid, including defaults written by earlier
+releases. Plugins changes the default for new Agents, not existing Sessions.
+
+Mode selectors list Chat before Terminal. Project quick launch identifies its
+primary action's default mode and offers the other mode as a secondary action.
+Existing live Sessions and restart recovery retain their runtime. History resume
+and Fork retain the saved source mode unless explicitly overridden; history with
+no saved mode uses Chat when supported. Ordinary live Fork inherits its source
+runtime. Chat startup failure stays explicit and never silently launches Terminal.
 
 The backend owns admission: validate the confirmed source and supported target,
 then use the existing identified Create operation and initial-input delivery.

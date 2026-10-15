@@ -241,7 +241,7 @@ const DEFAULT_CODEX_LAUNCH_PROFILE: CodexLaunchProfile = {
   homeId: 'default',
   model: 'config',
   reasoningEffort: 'config',
-  runtimeMode: 'terminal',
+  runtimeMode: 'chat',
   serviceTier: 'config',
   modelPreset: 'config',
 };
@@ -251,13 +251,13 @@ const DEFAULT_CLAUDE_LAUNCH_PROFILE: ClaudeLaunchProfile = {
   homeId: 'default',
   model: 'config',
   effort: 'config',
-  runtimeMode: 'terminal',
+  runtimeMode: 'chat',
 };
 
 const DEFAULT_AGENT_LAUNCH_PROFILES: AgentLaunchProfiles = Object.assign(
   Object.fromEntries(listProviderDescriptors().map(provider => [provider.id, {
     homeId: 'default',
-    runtimeMode: 'terminal',
+    runtimeMode: provider.supportedRuntimes.includes('acp') ? 'chat' : 'terminal',
   }])) as unknown as AgentLaunchProfiles,
   {
     codex: DEFAULT_CODEX_LAUNCH_PROFILE,
@@ -1121,7 +1121,7 @@ class ConfigManager {
       ? requestedHomeId
       : 'default';
     const descriptor = listProviderDescriptors().find(item => item.id === providerId);
-    const runtimeMode = next.runtimeMode === 'chat'
+    const runtimeMode = next.runtimeMode !== 'terminal'
       && descriptor?.supportedRuntimes.includes('acp')
       ? 'chat'
       : 'terminal';

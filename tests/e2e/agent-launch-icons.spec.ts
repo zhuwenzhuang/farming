@@ -13,6 +13,7 @@ test.describe('agent launch icons', () => {
         supported: true,
         interactive: true,
         capabilities: { supportsChat: true },
+        launchDefaults: { homeId: 'default', runtimeMode: 'terminal' },
       })
       payload.agents.splice(3, 0, {
         name: 'qwen',
@@ -21,6 +22,7 @@ test.describe('agent launch icons', () => {
         supported: true,
         interactive: true,
         capabilities: { supportsChat: true },
+        launchDefaults: { homeId: 'default', runtimeMode: 'terminal' },
       })
       payload.total = payload.agents.length
       await route.fulfill({ response, json: payload })
@@ -98,7 +100,7 @@ test.describe('agent launch icons', () => {
     }).toBe(true)
   })
 
-  test('keeps project Terminal and Chat shortcuts fixed when the saved default is Chat', async ({ page, workspaceRoot }) => {
+  test('uses Chat as the project primary action when the saved default is Chat', async ({ page, workspaceRoot }) => {
     const settingsResponse = await page.request.post('/farming/api/settings', {
       data: {
         agentLaunchProfiles: {
@@ -116,8 +118,8 @@ test.describe('agent launch icons', () => {
     await projectGroup.getByTestId('code-project-new-agent').click({ force: true })
     const menu = page.getByTestId('code-project-new-agent-menu')
     await expect(menu).toBeVisible()
-    await expect(page.getByTestId('code-project-agent-launch-chat-codex'))
-      .toHaveAttribute('aria-label', 'Codex · Chat')
+    await expect(page.getByTestId('code-project-agent-launch-terminal-codex'))
+      .toHaveAttribute('aria-label', 'Codex · Terminal')
 
     const beforeResponse = await page.request.get('/farming/api/control/agents')
     expect(beforeResponse.ok()).toBeTruthy()
@@ -133,7 +135,7 @@ test.describe('agent launch icons', () => {
       return (payload.agents ?? []).some(agent => (
         !beforeIds.has(agent.id)
         && agent.command === 'codex'
-        && agent.runtimeBinding?.kind === 'terminal'
+        && agent.runtimeBinding?.kind === 'acp'
       ))
     }).toBe(true)
   })

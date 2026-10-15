@@ -449,7 +449,10 @@ test('Agent Home and runtime launch defaults drive dialogs while project shortcu
   await expect(workHome.getByText('Launch default', { exact: true })).toBeVisible()
   const runtimeDefault = workHome.getByTestId('code-plugin-agent-runtime-default-codex')
   await expect(runtimeDefault).toHaveValue('terminal')
+  const savedRuntimeDefault = page.waitForResponse(response => response.url().endsWith('/api/settings') && response.request().method() === 'POST')
   await runtimeDefault.selectOption('chat')
+  expect((await savedRuntimeDefault).ok()).toBeTruthy()
+  await expect(runtimeDefault).toBeEnabled()
   await expect(runtimeDefault).toHaveValue('chat')
 
   await openNewAgentDialog(page)
@@ -465,8 +468,8 @@ test('Agent Home and runtime launch defaults drive dialogs while project shortcu
   await projectGroup.getByTestId('code-project-new-agent').click({ force: true })
   const projectLaunchMenu = page.getByTestId('code-project-new-agent-menu')
   await expect(projectLaunchMenu).toBeVisible()
-  await expect(page.getByTestId('code-project-agent-launch-chat-codex'))
-    .toHaveAttribute('aria-label', 'Codex · Chat')
+  await expect(page.getByTestId('code-project-agent-launch-terminal-codex'))
+    .toHaveAttribute('aria-label', 'Codex · Terminal')
   await page.keyboard.press('Escape')
 
   await page.getByTestId('code-nav-plugins').click()
@@ -543,8 +546,8 @@ test('project shortcuts ignore an older Agent launch-default response', async ({
   await expect(projectGroup).toBeVisible()
   await projectGroup.hover()
   await projectGroup.getByTestId('code-project-new-agent').click({ force: true })
-  await expect(page.getByTestId('code-project-agent-launch-chat-codex'))
-    .toHaveAttribute('aria-label', 'Codex · Chat')
+  await expect(page.getByTestId('code-project-agent-launch-terminal-codex'))
+    .toHaveAttribute('aria-label', 'Codex · Terminal')
 })
 
 test('Plugins keeps cached Agent Home configurations visible while refreshing', async ({ page }) => {

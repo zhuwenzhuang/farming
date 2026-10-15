@@ -94,10 +94,10 @@ test('mount failure and timeout cannot commit membership; timeout prevents mutat
   assert.deepEqual(subject.events, [])
 })
 
-test('preserves Chat history, exact Home and custom title at the mutation boundary', async () => {
+test('defers runtime choice to saved history while preserving exact Home and custom title', async () => {
   const subject = fixture({ request: async (url, init) => {
     assert.match(url, /codex\/session-1\/resume$/)
-    assert.deepEqual(JSON.parse(init.body), { unarchiveArchived: true, providerHomeId: 'work', agentRuntimeMode: 'chat', acpHistoryMode: 'load', customTitle: 'Keep title' })
+    assert.deepEqual(JSON.parse(init.body), { unarchiveArchived: true, providerHomeId: 'work', acpHistoryMode: 'load', customTitle: 'Keep title' })
     return response({ agentId: 'created' })
   } })
   await subject.controller.resume(identity)

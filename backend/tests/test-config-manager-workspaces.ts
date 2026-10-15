@@ -104,11 +104,11 @@ function run() {
     assert.strictEqual(settings.defaultLaunchAgent, 'codex');
     assert.strictEqual(settings.agentLaunchProfiles.codex.approvalMode, 'approve');
     assert.strictEqual(settings.agentLaunchProfiles.codex.homeId, 'default');
-    assert.strictEqual(settings.agentLaunchProfiles.codex.runtimeMode, 'terminal');
+    assert.strictEqual(settings.agentLaunchProfiles.codex.runtimeMode, 'chat');
     assert.strictEqual(settings.agentLaunchProfiles.codex.modelPreset, 'config');
     assert.strictEqual(settings.agentLaunchProfiles.claude.permissionMode, 'default');
     assert.strictEqual(settings.agentLaunchProfiles.claude.homeId, 'default');
-    assert.strictEqual(settings.agentLaunchProfiles.claude.runtimeMode, 'terminal');
+    assert.strictEqual(settings.agentLaunchProfiles.claude.runtimeMode, 'chat');
     assert.strictEqual(settings.agentLaunchProfiles.claude.model, 'config');
     assert.strictEqual(settings.agentLaunchProfiles.claude.effort, 'config');
     assert.strictEqual(settings.codexApprovalMode, 'approve');
@@ -166,8 +166,19 @@ function run() {
       assert.strictEqual(settings.agentHomes[provider.id][0].path, `~/${provider.defaultHomeDirectory}`);
       assert.strictEqual(settings.agentHomes[provider.id][0].order, order);
       assert.strictEqual(settings.agentLaunchProfiles[provider.id].homeId, 'default');
-      assert.strictEqual(settings.agentLaunchProfiles[provider.id].runtimeMode, 'terminal');
+      assert.strictEqual(settings.agentLaunchProfiles[provider.id].runtimeMode, provider.supportedRuntimes.includes('acp') ? 'chat' : 'terminal');
     });
+    for (const provider of providerDescriptors) {
+      assert.strictEqual(manager.normalizeAgentLaunchDefaults(provider.id, {}).runtimeMode,
+        provider.supportedRuntimes.includes('acp') ? 'chat' : 'terminal');
+      assert.strictEqual(manager.normalizeAgentLaunchDefaults(provider.id, { runtimeMode: 'terminal' }).runtimeMode, 'terminal');
+    }
+    assert.strictEqual(manager.normalizeAgentLaunchDefaults('bash', { runtimeMode: 'chat' }).runtimeMode, 'terminal');
+    manager.updateSettings({ agentLaunchProfiles: { codex: { runtimeMode: 'terminal' } } });
+    const reloaded = new ConfigManager();
+    reloaded.init();
+    assert.strictEqual(reloaded.getAgentLaunchProfile('codex').runtimeMode, 'terminal', 'a saved Terminal default survives reload');
+    manager.updateSettings({ agentLaunchProfiles: { codex: { runtimeMode: 'chat' } } });
     assert.strictEqual(settings.codexRuntimeMode, undefined);
     assert.strictEqual(settings.updateUrl, undefined);
     assert.strictEqual(DEFAULT_SEARCH_TIMEOUT_MS, 15000);
@@ -465,7 +476,7 @@ function run() {
       homeId: 'default',
       model: 'config',
       reasoningEffort: 'config',
-      runtimeMode: 'terminal',
+      runtimeMode: 'chat',
       serviceTier: 'config',
       modelPreset: 'config',
     });
@@ -474,7 +485,7 @@ function run() {
       homeId: 'default',
       model: 'gpt-5.6-sol',
       reasoningEffort: 'high',
-      runtimeMode: 'terminal',
+      runtimeMode: 'chat',
       serviceTier: 'priority',
       modelPreset: 'config',
     });
@@ -619,7 +630,7 @@ function run() {
       homeId: 'default',
       model: 'sonnet',
       effort: 'high',
-      runtimeMode: 'terminal',
+      runtimeMode: 'chat',
     });
     manager.updateSettings({
       agentLaunchProfiles: {
@@ -631,7 +642,7 @@ function run() {
       homeId: 'default',
       model: 'claude-opus-4-8[1m]',
       effort: 'high',
-      runtimeMode: 'terminal',
+      runtimeMode: 'chat',
     });
     assert.strictEqual(manager.getSettings().agentLaunchProfiles.codex.modelPreset, 'config');
     manager.updateSettings({
@@ -646,7 +657,7 @@ function run() {
       homeId: 'default',
       model: 'config',
       effort: 'config',
-      runtimeMode: 'terminal',
+      runtimeMode: 'chat',
     });
 
     fs.rmSync(farmingDir, { recursive: true, force: true });

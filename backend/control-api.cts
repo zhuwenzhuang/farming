@@ -115,7 +115,7 @@ interface CreateMetadata {
 
 interface StartAgentOptions extends Record<string, unknown> {
   acpHistoryMode: 'load' | 'resume';
-  agentRuntimeMode: 'acp' | 'chat' | 'terminal';
+  agentRuntimeMode?: 'acp' | 'chat' | 'terminal';
   createInitialInputSignature: string;
   createRequestId: string;
   dangerouslySkipPermissions: boolean;
@@ -228,8 +228,8 @@ function controlError(code: string, message: string): ControlError {
   return Object.assign(new Error(message), { code });
 }
 
-function isRequestedRuntimeMode(value: unknown): value is 'acp' | 'chat' {
-  return value === 'acp' || value === 'chat';
+function isRequestedRuntimeMode(value: unknown): value is 'acp' | 'chat' | 'terminal' {
+  return value === 'acp' || value === 'chat' || value === 'terminal';
 }
 
 function ensureTrailingNewline(value: unknown): string {
@@ -645,7 +645,7 @@ function createControlRouter(
       createInitialInputSignature: requestSignature(initialInput),
       agentRuntimeMode: isRequestedRuntimeMode(body.agentRuntimeMode)
         ? body.agentRuntimeMode
-        : 'terminal',
+        : undefined,
       acpHistoryMode: body.acpHistoryMode === 'resume' ? 'resume' : 'load',
       providerSessionTitle: typeof body.providerSessionTitle === 'string' ? body.providerSessionTitle : '',
       ...(Array.isArray(body.additionalDirectories) ? { additionalDirectories: body.additionalDirectories } : {}),

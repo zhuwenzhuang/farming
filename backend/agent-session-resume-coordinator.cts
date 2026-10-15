@@ -13,7 +13,7 @@ import {
   mainPageAgentSessionsToAutoResume,
   resumedAgentSource,
 } from './main-page-session.cjs';
-import { providerConversationForkCapability, providerSessionResumeOptions } from './provider-adapters.cjs';
+import { providerCapabilities, providerConversationForkCapability, providerSessionResumeOptions } from './provider-adapters.cjs';
 import { activeLifecycleOperation, latestLifecycleOperation } from './agent-lifecycle-journal.cjs';
 
 interface ResumeOptions {
@@ -242,12 +242,17 @@ type ResumeAdmissionTicket<Result> =
   | { conflict: true; joined?: undefined; promise?: undefined }
   | { conflict?: undefined; joined: boolean; promise: Promise<Result> };
 
+function requestedRuntimeMode(value: unknown): 'chat' | 'terminal' | undefined {
+  if (value === 'chat' || value === 'acp') return 'chat';
+  return value === 'terminal' ? 'terminal' : undefined;
+}
+
 function normalizedResumeOptions(options: ResumeOptions) {
   const shouldFork = options.fork === true;
   const requestedAsMain = options.asMain === true && !shouldFork;
   return {
     acpHistoryMode: options.acpHistoryMode === 'resume' ? 'resume' : 'load',
-    agentRuntimeMode: options.agentRuntimeMode === 'chat' || options.agentRuntimeMode === 'acp' ? 'chat' : 'terminal',
+    agentRuntimeMode: requestedRuntimeMode(options.agentRuntimeMode),
     allowUnarchiveArchived: options.allowUnarchiveArchived === true,
     autoReadInitialAttention: options.autoReadInitialAttention === true,
     customTitle: Object.prototype.hasOwnProperty.call(options, 'customTitle')
@@ -290,7 +295,7 @@ function httpResumeOptions(requestBody: ResumeHttpBody): ResumeOptions {
   const requestedAsMain = requestBody.asMain === true && !shouldFork;
   return {
     acpHistoryMode: requestBody.acpHistoryMode === 'resume' ? 'resume' : 'load',
-    agentRuntimeMode: requestBody.agentRuntimeMode === 'chat' || requestBody.agentRuntimeMode === 'acp' ? 'chat' : 'terminal',
+    agentRuntimeMode: requestedRuntimeMode(requestBody.agentRuntimeMode),
     allowUnarchiveArchived: requestBody.unarchiveArchived === true && !shouldFork && !requestedAsMain,
     asMain: requestedAsMain,
     fork: shouldFork,
@@ -470,9 +475,11 @@ class AgentSessionResumeCoordinator {
       return { error: 'session is not a Main Agent session', status: 400 };
     }
 
-    const savedSession = shouldFork
-      ? null
-      : this.ports.getSavedAgentSession(provider, sessionId, session?.providerHomeId || providerHomeId);
+    const sourceSession = this.ports.getSavedAgentSession(provider, sessionId, session?.providerHomeId || providerHomeId);
+    const savedSession = shouldFork ? null : sourceSession;
+    const resumeRuntime = requestedRuntimeMode(options.agentRuntimeMode)
+      || requestedRuntimeMode(sourceSession?.agentRuntimeMode)
+      || (providerCapabilities(provider).supportsChat ? 'chat' : 'terminal');
     const hasRequestedCustomTitle = Object.prototype.hasOwnProperty.call(options, 'customTitle');
     const savedAttentionSeq = Number(savedSession?.attentionSeq) || 0;
     const savedReadAttentionSeq = Number(savedSession?.readAttentionSeq) || 0;
@@ -501,7 +508,7 @@ class AgentSessionResumeCoordinator {
       customTitleExplicit: hasRequestedCustomTitle,
       projectWorkspace,
       source: shouldFork ? resumeSource.replace('-history:', '-history-fork:') : resumeSource,
-      agentRuntimeMode: options.agentRuntimeMode === 'chat' || options.agentRuntimeMode === 'acp' ? 'chat' : 'terminal',
+      agentRuntimeMode: resumeRuntime,
       acpHistoryMode: options.acpHistoryMode === 'resume' ? 'resume' : 'load',
       providerHomeId: resolvedProviderHomeId,
       providerHomePath: session?.providerHomePath || '',

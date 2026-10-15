@@ -149,12 +149,13 @@ Home 卡片复用 Project 和 Agent 的插入线样式：上半区／下半区�
 以及取消拖动，都会清除反馈而不保存。合法释放通过现有配置所有者保存一次；保存期间禁用
 调序，结果不确定时通过读取核对，不重放修改。方向键仍在组内移动一步。
 
-每个 Provider Launch Profile 拥有新 Agent 的默认 Home 与 Terminal/Chat Runtime。启动请求可以
+每个 Provider Launch Profile 拥有新 Agent 的默认 Home 与 Chat/Terminal Runtime。启动请求可以
 显式覆盖其中任一项而不修改已保存默认值。删除当前选中的默认 Home 时，必须在同一次配置提交中
 回落到该 Provider 的 `default` Home，同时保留 Runtime 默认值。Resume、Fork、Restart 与恢复
 继续使用 Existing Session 的精确 Home 和 Runtime，不读取新 Agent 默认值。
-Project 快速启动菜单仍是两个显式 Action：左侧 Provider 主行始终启动 Terminal，右侧快捷按钮
-始终启动 Chat；两者都覆盖已保存的 Runtime 默认值。
+支持 Chat 的 Provider 默认使用 Chat，已保存的 Terminal 偏好仍然有效。
+Project 快速启动菜单在 Provider 主入口标明默认模式，右侧快捷按钮提供另一模式。
+两个入口都明确提交所显示的模式，不修改已保存的默认值。
 
 同一 Identity 把新建 Chat Session 绑定到 Adapter 的 Farming-managed ACP Runtime；Plugins
 不提供 Custom Executable 选择。已有 Session 保留持久化 Launch Identity，包括精确恢复所需

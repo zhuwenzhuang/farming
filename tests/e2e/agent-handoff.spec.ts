@@ -35,7 +35,7 @@ test.afterEach(async ({ page, workspaceRoot }) => {
 })
 
 for (const appearance of ['light', 'dark', 'paper']) {
-  test(`submits a Terminal handoff and remembers runtime choices in ${appearance}`, async ({ page, workspaceRoot }, testInfo) => {
+  test(`submits a Terminal handoff without changing new Agent defaults in ${appearance}`, async ({ page, workspaceRoot }, testInfo) => {
     const workspace = path.join(workspaceRoot, 'terminal-handoff-demo')
     const home = path.join(workspaceRoot, `handoff-home-${appearance}`)
     // Persisted sessions retain the Home binding after Agent cleanup. A retry
@@ -48,6 +48,7 @@ for (const appearance of ['light', 'dark', 'paper']) {
     const settings = (await (await page.request.get('/farming/api/settings')).json()).settings
     const configured = await page.request.post('/farming/api/settings', { data: {
       appearance,
+      agentLaunchProfiles: { codex: { runtimeMode: 'chat' }, claude: { runtimeMode: 'chat' } },
       agentHomes: { ...settings.agentHomes, codex: [...settings.agentHomes.codex, { id: homeId, path: home }] },
     } })
     expect(configured.ok(), await configured.text()).toBeTruthy()
@@ -67,8 +68,8 @@ for (const appearance of ['light', 'dark', 'paper']) {
       await page.getByTestId('code-agent-context-menu').getByRole('menuitem', { name: 'Hand off to new Agent', exact: true }).click()
       await dialog.getByTestId('agent-option-codex').click()
     }
-    // An explicit choice survives dismissal, provider changes, and reload; a
-    // Terminal-only Shell must not erase the preferred Chat selection.
+    // A current-dialog choice survives provider changes, including a Shell;
+    // reopening reads the configured default, even after a Terminal handoff.
     await page.getByTestId('code-new-agent').click()
     await dialog.getByTestId('agent-option-codex').click()
     await dialog.getByRole('button', { name: 'Chat', exact: true }).click()
@@ -89,6 +90,8 @@ for (const appearance of ['light', 'dark', 'paper']) {
     await dialog.getByTestId('workspace-start').click()
     const response = await responsePromise
     expect(response.ok(), await response.text()).toBeTruthy()
+    expect(response.request().postDataJSON().agentRuntimeMode).toBe('terminal')
+    expect((await response.json()).inputMode).toBe('terminal')
     let targetId = (await response.json()).agentId as string
     const promptFile = path.join(workspace, 'handoff-prompts.jsonl')
     await expect.poll(() => fs.existsSync(promptFile) ? fs.readFileSync(promptFile, 'utf8').trim().split('\n') : []).toHaveLength(1)
@@ -113,7 +116,7 @@ for (const appearance of ['light', 'dark', 'paper']) {
     expect(fs.readFileSync(promptFile, 'utf8').trim().split('\n')).toHaveLength(1)
     await page.getByTestId('code-new-agent').click()
     await dialog.getByTestId('agent-option-codex').click()
-    await expect(dialog.getByRole('button', { name: 'Terminal', exact: true })).toHaveAttribute('aria-pressed', 'true')
+    await expect(dialog.getByRole('button', { name: 'Chat', exact: true })).toHaveAttribute('aria-pressed', 'true')
     await page.keyboard.press('Escape')
   })
 

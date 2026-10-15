@@ -15,6 +15,7 @@ import {
   BellGlyph,
   BrowserGlyph,
   ChatBubblesGlyph,
+  TerminalSquareGlyph,
   ChevronDownGlyph,
   ChevronLeftGlyph,
   ChevronRightGlyph,
@@ -2412,7 +2413,7 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
     setLaunchMenu(point)
   }
 
-  const startProjectAgent = (command: string, agentRuntimeMode?: 'chat') => {
+  const startProjectAgent = (command: string, agentRuntimeMode?: 'chat' | 'terminal') => {
     setLaunchMenu(null)
     onStartAgent(command, project.workspace, agentRuntimeMode ? { agentRuntimeMode } : undefined)
   }
@@ -2592,6 +2593,10 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
               const command = option.command || option.name
               const displayName = agentDisplayName(option.name)
               const supportsChat = option.capabilities?.supportsChat === true
+              const defaultMode = supportsChat ? option.launchDefaults?.runtimeMode || 'chat' : 'terminal'
+              const alternateMode = defaultMode === 'chat' ? 'terminal' : 'chat'
+              const modeLabel = defaultMode === 'chat' ? copy.transcriptView : copy.terminalView
+              const alternateLabel = alternateMode === 'chat' ? copy.transcriptView : copy.terminalView
               return (
                 <div
                   key={option.name}
@@ -2603,22 +2608,25 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
                     role="menuitem"
                     className="code-project-agent-launch"
                     data-testid={`code-project-agent-launch-${option.name}`}
-                    onClick={() => startProjectAgent(command)}
+                    aria-label={`${displayName} · ${modeLabel}`}
+                    title={`${displayName} · ${modeLabel}`}
+                    onClick={() => startProjectAgent(command, defaultMode)}
                   >
                     <AgentLaunchIcon name={option.name} />
                     <span>{displayName}</span>
+                    {supportsChat && (defaultMode === 'chat' ? <ChatBubblesGlyph /> : <TerminalSquareGlyph />)}
                   </button>
                   {supportsChat && (
                     <button
                       type="button"
                       role="menuitem"
-                      className="code-project-agent-launch-chat"
-                      data-testid={`code-project-agent-launch-chat-${option.name}`}
-                      aria-label={`${displayName} · ${copy.transcriptView}`}
-                      title={copy.transcriptView}
-                      onClick={() => startProjectAgent(command, 'chat')}
+                      className="code-project-agent-launch-alternate"
+                      data-testid={`code-project-agent-launch-${alternateMode}-${option.name}`}
+                      aria-label={`${displayName} · ${alternateLabel}`}
+                      title={alternateLabel}
+                      onClick={() => startProjectAgent(command, alternateMode)}
                     >
-                      <ChatBubblesGlyph />
+                      {alternateMode === 'chat' ? <ChatBubblesGlyph /> : <TerminalSquareGlyph />}
                     </button>
                   )}
                 </div>

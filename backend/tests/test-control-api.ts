@@ -251,6 +251,7 @@ async function run() {
     assert.strictEqual(calls[0].command, 'codex');
     assert.strictEqual(calls[0].workspace, '/repo');
     assert.strictEqual(calls[0].options.wantsMain, false);
+    assert.strictEqual(calls[0].options.agentRuntimeMode, undefined, 'an omitted API mode must reach backend default resolution');
     assert.strictEqual(calls[0].options.parentAgentId, 'agent-main');
     assert.strictEqual(calls[0].options.source, 'control-cli');
     assert.deepStrictEqual(calls[1], {
@@ -584,6 +585,13 @@ async function run() {
       assert.deepStrictEqual(replay.body, failed.body);
       assert.strictEqual(mountAttempts.length, attemptsBefore, 'deduplicated Create must not repeat the failed mount');
     }
+
+    projectMountFailure = '';
+    const explicitTerminal = await fetchJson(baseUrl, '/api/control/agents', {
+      method: 'POST', body: JSON.stringify({ command: 'codex', workspace: '/repo', agentRuntimeMode: 'terminal' }),
+    });
+    assert.strictEqual(explicitTerminal.response.status, 201);
+    assert.strictEqual(calls.findLast(call => call.type === 'startAgent').options.agentRuntimeMode, 'terminal');
 
     console.log('✓ Control API serializes exact-runtime Terminal mutations and readiness-bound startup input');
   } finally {

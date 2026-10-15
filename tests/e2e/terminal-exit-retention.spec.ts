@@ -142,7 +142,7 @@ test('Resume retries history reads and only resumes the explicitly selected exac
   await dialog.locator('[data-session-id="conversation-b"]').click()
   await expect(dialog).toBeHidden()
   await expect(page.getByTestId('code-agent-opening')).toHaveAttribute('data-phase', 'failed')
-  expect(resumes).toEqual([{ pathname: '/farming/api/agent-sessions/codex/conversation-b/resume', body: { providerHomeId: 'default', unarchiveArchived: true, agentRuntimeMode: 'chat', acpHistoryMode: 'load' } }])
+  expect(resumes).toEqual([{ pathname: '/farming/api/agent-sessions/codex/conversation-b/resume', body: { providerHomeId: 'default', unarchiveArchived: true, acpHistoryMode: 'load' } }])
   const original = await f.readAgent()
   expect(original?.archived).not.toBe(true)
   expect(['stopped', 'dead']).toContain(original?.status)

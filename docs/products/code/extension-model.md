@@ -189,15 +189,16 @@ clear feedback without saving. A valid drop saves once through the existing
 settings owner; saving disables reordering, and uncertain outcomes reconcile by
 read rather than replay. Arrow keys retain one-step movement within the group.
 
-Each Provider launch profile owns the default Home and Terminal-or-Chat runtime
+Each Provider launch profile owns the default Home and Chat-or-Terminal runtime
 for new Agents. A launch request may explicitly override either value without
 changing the saved defaults. Removing the selected default Home atomically
 falls back to that Provider's `default` Home while preserving its runtime
 default. Resume, Fork, Restart, and recovery continue from the existing
 Session's exact Home and runtime rather than consulting new-Agent defaults.
-The Project quick-launch menu remains an explicit two-action control: the main
-Provider row always starts Terminal, and its right-side shortcut always starts
-Chat. These actions override the saved runtime default.
+Chat-capable Providers default to Chat unless a Terminal preference is saved.
+The Project quick-launch menu labels the main Provider action with its default
+mode and offers the other mode in its right-side shortcut. Both actions submit
+the displayed mode explicitly; neither changes the saved default.
 
 The same identity binds new Chat Sessions to the adapter's Farming-managed ACP
 runtime. Plugins does not expose a custom executable selection. Existing

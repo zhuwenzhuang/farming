@@ -213,7 +213,6 @@ export class ResumeAgentSessionController {
           body: JSON.stringify({
             unarchiveArchived: true,
             providerHomeId: identity.providerHomeId,
-            agentRuntimeMode: 'chat',
             acpHistoryMode: 'load',
             ...(customTitle ? { customTitle } : {}),
           }),

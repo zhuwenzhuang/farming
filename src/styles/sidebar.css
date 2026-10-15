@@ -1070,12 +1070,12 @@
   text-overflow: ellipsis;
 }
 
-.code-project-launch-menu .code-project-agent-launch-chat {
+.code-project-launch-menu .code-project-agent-launch-alternate {
   justify-content: center;
   padding: 7px;
 }
 
-.code-project-agent-launch-chat svg {
+.code-project-agent-launch-alternate svg {
   width: 16px;
   height: 16px;
   display: block;

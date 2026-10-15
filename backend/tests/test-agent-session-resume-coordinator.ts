@@ -1267,7 +1267,7 @@ async function testStartOptionsFromSavedSession() {
   );
   assert.strictEqual(startOptions!.preserveProviderSessionProfile, true);
   assert.strictEqual(startOptions!.autoReadInitialAttention, false);
-  assert.strictEqual(startOptions!.agentRuntimeMode, 'terminal');
+  assert.strictEqual(startOptions!.agentRuntimeMode, 'chat');
   assert.strictEqual(startOptions!.acpHistoryMode, 'load');
 
   const unreadCoordinator = new AgentSessionResumeCoordinator(basePorts({
@@ -1652,6 +1652,27 @@ async function testReadOnlyResumeStatus() {
   assert.deepStrictEqual(pending.resumeStatus('codex', 'session-alpha', 'default').body, { state: 'failed', error: 'old failure' });
 }
 
+async function testResumeRuntimeChoice() {
+  for (const saved of [undefined, 'terminal', 'acp'] as const) {
+    for (const explicit of [undefined, 'terminal', 'chat'] as const) {
+      for (const fork of [false, true]) {
+        let selected: string | undefined;
+        const coordinator = new AgentSessionResumeCoordinator(basePorts({
+          getSavedAgentSession: () => saved ? { agentRuntimeMode: saved } : null,
+          startAgent: (_command, _workspace, callback, options) => {
+            selected = options.agentRuntimeMode;
+            callback('agent-runtime-choice');
+            return Promise.resolve('agent-runtime-choice');
+          },
+        }));
+        const result = await coordinator.resumeHttp('codex', 'session-alpha', { agentRuntimeMode: explicit, fork });
+        assert.strictEqual(result.status, 201);
+        assert.strictEqual(selected, explicit || (saved === 'terminal' ? 'terminal' : 'chat'));
+      }
+    }
+  }
+}
+
 async function run() {
   const unhandled: unknown[] = [];
   process.on('unhandledRejection', reason => { unhandled.push(reason); });
@@ -1664,6 +1685,7 @@ async function run() {
   assert.equal((await singleLookup.resumeHttp('codex', 'session-alpha', { unarchiveArchived: true })).status, 201);
   assert.equal(lookupCount, 1, 'an available history session is read once under resume admission');
 
+  await testResumeRuntimeChoice();
   await testReadOnlyResumeStatus();
   await testInvalidRequestBoundary();
   await testProviderHomeNormalization();

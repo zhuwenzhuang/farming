@@ -203,7 +203,7 @@ function pluginCopy(language: UiLanguage) {
     remove: zh ? '删除' : 'Remove',
     launchDefault: zh ? '启动默认' : 'Launch default',
     setLaunchDefault: zh ? '设为默认' : 'Set as default',
-    defaultRuntime: zh ? '默认 Runtime' : 'Default runtime',
+    defaultRuntime: zh ? '新建 Agent 默认模式' : 'Default mode for new Agents',
     save: zh ? '保存' : 'Save',
     cancel: zh ? '取消' : 'Cancel',
     dragToReorder: zh ? '拖动调整 Agent 顺序' : 'Drag to reorder Agents',
@@ -2232,8 +2232,8 @@ export function PluginsPanel({
                         event.target.value === 'chat' ? 'chat' : 'terminal',
                       )}
                     >
-                      <option value="terminal">Terminal</option>
                       <option value="chat">Chat</option>
+                      <option value="terminal">Terminal</option>
                     </select>
                   ) : !isLaunchDefault ? (
                     <button

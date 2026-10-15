@@ -29,21 +29,11 @@ function normalizeDefaultLaunchAgent(agentName: string | undefined) {
   return typeof agentName === 'string' && agentName.trim() ? agentName.trim() : 'codex'
 }
 
-const RUNTIME_CHOICE_STORAGE_KEY = `farming.code.newAgentRuntime.v1:${appPath('/')}`
 type RuntimeChoice = 'terminal' | 'chat'
-
-function readRuntimeChoice(): RuntimeChoice | null {
-  try {
-    const value = window.localStorage.getItem(RUNTIME_CHOICE_STORAGE_KEY)
-    return value === 'terminal' || value === 'chat' ? value : null
-  } catch {
-    return null
-  }
-}
 
 function runtimeChoiceForAgent(agent: CliAgent, preferred: RuntimeChoice | null): RuntimeChoice {
   return agent.capabilities?.supportsChat === true
-    ? preferred || agent.launchDefaults?.runtimeMode || 'terminal'
+    ? preferred || agent.launchDefaults?.runtimeMode || 'chat'
     : 'terminal'
 }
 
@@ -181,14 +171,11 @@ export function InputDialog({
   const [workspaceHistory, setWorkspaceHistory] = useState<string[]>([])
   const [agentHomes, setAgentHomes] = useState<Record<string, AgentHomeOption[]>>({})
   const [selectedHomeId, setSelectedHomeId] = useState('default')
-  const [agentRuntimeMode, setAgentRuntimeMode] = useState<'terminal' | 'chat'>('terminal')
+  const [agentRuntimeMode, setAgentRuntimeMode] = useState<'terminal' | 'chat'>('chat')
   const preferredRuntimeRef = useRef<RuntimeChoice | null>(null)
   const chooseRuntimeMode = (mode: RuntimeChoice) => {
     preferredRuntimeRef.current = mode
     setAgentRuntimeMode(mode)
-    try {
-      window.localStorage.setItem(RUNTIME_CHOICE_STORAGE_KEY, mode)
-    } catch { /* Keep the explicit choice in memory when browser storage is unavailable. */ }
   }
   const [homeMenuOpen, setHomeMenuOpen] = useState(false)
   const [discoveredWorkspaces, setDiscoveredWorkspaces] = useState<string[]>([])
@@ -257,15 +244,15 @@ export function InputDialog({
     setDefaultLaunchAgent('codex')
     setAgentHomes({})
     setSelectedHomeId('default')
-    preferredRuntimeRef.current = readRuntimeChoice() || preferredRuntimeRef.current
-    setAgentRuntimeMode(preferredRuntimeRef.current || 'terminal')
+    preferredRuntimeRef.current = null
+    setAgentRuntimeMode('chat')
     setHomeMenuOpen(false)
     setHistorySelection(-1)
     setAgentsLoaded(false)
     setAgentLoadFailed(false)
     setSettingsLoaded(false)
 
-    fetch(appPath('/api/executables'), { cache: 'no-store' })
+    fetch(appPath('/api/executables'), { cache: 'no-store', signal: AbortSignal.timeout(15_000) })
       .then(r => {
         if (!r.ok) throw new Error(`Failed to load executables: ${r.status}`)
         return r.json()
@@ -299,7 +286,7 @@ export function InputDialog({
         if (!cancelled) setAgentsLoaded(true)
       })
 
-    fetch(appPath('/api/settings'))
+    fetch(appPath('/api/settings'), { cache: 'no-store', signal: AbortSignal.timeout(15_000) })
       .then(r => r.json())
       .then((data: { settings?: { workspace?: string; lastMainWorkspace?: string; workspaceHistory?: string[]; defaultLaunchAgent?: string; agentHomes?: Record<string, AgentHomeOption[]> } }) => {
         if (cancelled) return
@@ -516,6 +503,7 @@ export function InputDialog({
   }, [mustStartMain, resumableMainAgentSession, resumeMainAgent])
 
   const selectAgent = useCallback((agent: CliAgent) => {
+    if (!agentsLoaded || agentLoadFailed || !settingsLoaded) return
     if (mustStartMain) {
       if (!settingsLoaded) return
       if (!lockStartClick()) return
@@ -524,7 +512,7 @@ export function InputDialog({
       if (resolvedWorkspace) onStart(agent.command || agent.name, resolvedWorkspace, {
         ...(resumeOptions || {}),
         providerHomeId: resumeOptions?.providerHomeId || agent.launchDefaults?.homeId || 'default',
-        ...(agent.capabilities?.supportsChat === true ? {
+        ...(!resumeOptions && agent.capabilities?.supportsChat === true ? {
           agentRuntimeMode: runtimeChoiceForAgent(agent, preferredRuntimeRef.current),
         } : {}),
       })
@@ -547,7 +535,7 @@ export function InputDialog({
     setDiscoveredWorkspaces([])
     setHistorySelection(-1)
     setStep('workspace')
-  }, [agentHomes, initialWorkspace, lockStartClick, mainWorkspaceDefault, mustStartMain, onStart, resumeStartOptions, settingsLoaded, workspace])
+  }, [agentHomes, agentsLoaded, agentLoadFailed, initialWorkspace, lockStartClick, mainWorkspaceDefault, mustStartMain, onStart, resumeStartOptions, settingsLoaded, workspace])
 
   const persistWorkspaceHistory = useCallback((nextWorkspace: string) => {
     const currentHistory = workspaceHistoryRef.current
@@ -743,6 +731,7 @@ export function InputDialog({
   )
 
   useEffect(() => {
+    if (!settingsLoaded) return
     const current = homesForSelectedAgent || []
     if (current.length === 0) {
       setSelectedHomeId('default')
@@ -751,7 +740,7 @@ export function InputDialog({
     if (!current.some(home => home.id === selectedHomeId)) {
       setSelectedHomeId(current[0]?.id || 'default')
     }
-  }, [homesForSelectedAgent, selectedHomeId])
+  }, [homesForSelectedAgent, selectedHomeId, settingsLoaded])
 
   useInteractionLayer({
     enabled: open && homeMenuOpen,
@@ -908,7 +897,6 @@ export function InputDialog({
 
   const codingAgents = agents.filter(a => a.category === 'coding')
   const otherAgents = agents.filter(a => a.category !== 'coding')
-  const hasCachedAgents = agents.length > 0
 
   return (
     <div className="dialog-overlay" data-testid="dialog-overlay">
@@ -971,13 +959,13 @@ export function InputDialog({
 
         {!workspaceDirectoryBrowserOpen && step === 'agent-list' && (
           <div className="agent-list">
-            {!agentsLoaded && !hasCachedAgents && (
+            {!agentsLoaded && (
               <div className="agent-list-status fx-crt-panel" data-testid="agent-list-status">
                 <span className="agent-list-spinner" aria-hidden="true" />
                 <span>{copy.loadingAgents}</span>
               </div>
             )}
-            {agentsLoaded && agentLoadFailed && !hasCachedAgents && (
+            {agentsLoaded && agentLoadFailed && (
               <div className="agent-list-status fx-crt-panel" data-testid="agent-list-status">
                 {copy.agentListUnavailable}
               </div>
@@ -1009,7 +997,7 @@ export function InputDialog({
                     key={agent.name}
                     className="agent-item fx-crt-panel"
                     data-testid={`agent-option-${agent.name}`}
-                    disabled={mustStartMain && (startClickLocked || !settingsLoaded)}
+                    disabled={!agentsLoaded || agentLoadFailed || !settingsLoaded || (mustStartMain && startClickLocked)}
                     onClick={() => selectAgent(agent)}
                   >
                     <AgentLaunchIcon name={agent.name} />
@@ -1032,7 +1020,7 @@ export function InputDialog({
                       key={agent.name}
                       className="agent-item fx-crt-panel"
                       data-testid={`agent-option-${agent.name}`}
-                      disabled={mustStartMain && (startClickLocked || !settingsLoaded)}
+                      disabled={!agentsLoaded || agentLoadFailed || !settingsLoaded || (mustStartMain && startClickLocked)}
                       onClick={() => selectAgent(agent)}
                     >
                       <AgentLaunchIcon name={agent.name} />
@@ -1121,8 +1109,8 @@ export function InputDialog({
               <div className="workspace-runtime-field" data-testid="agent-runtime-mode">
                 <p className="workspace-field-copy">{copy.agentRuntimeLabel(agentDisplayName(selectedAgent.name))}</p>
                 <div className="workspace-runtime-options" role="group" aria-label={copy.agentRuntimeLabel(agentDisplayName(selectedAgent.name))}>
-                  <button type="button" disabled={submitting} className={agentRuntimeMode === 'terminal' ? 'active' : ''} aria-pressed={agentRuntimeMode === 'terminal'} onClick={() => chooseRuntimeMode('terminal')}>Terminal</button>
                   <button type="button" disabled={submitting} className={agentRuntimeMode === 'chat' ? 'active' : ''} aria-pressed={agentRuntimeMode === 'chat'} onClick={() => chooseRuntimeMode('chat')}>Chat</button>
+                  <button type="button" disabled={submitting} className={agentRuntimeMode === 'terminal' ? 'active' : ''} aria-pressed={agentRuntimeMode === 'terminal'} onClick={() => chooseRuntimeMode('terminal')}>Terminal</button>
                 </div>
               </div>
             )}
