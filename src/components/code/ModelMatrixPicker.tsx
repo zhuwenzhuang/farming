@@ -34,6 +34,14 @@ interface MatrixPointerGesture {
 const MATRIX_DRAG_THRESHOLD = 4
 const MATRIX_STAGE_TRANSITION_MS = 240
 
+function compactMatrixModelLabel(label: string) {
+  return label
+    .trim()
+    .replace(/\s*\([^)]*\)$/, '')
+    .replace(/^(?:gpt|gemini|claude)[-\s]+/i, '')
+    .trim()
+}
+
 export function modelMatrixFamily(models: ModelMatrixModelOption[], currentModel: string) {
   // Inventory and ordering belong to the provider. Identity colors must never
   // become an allowlist or restrict the picker to the current model generation.
@@ -46,7 +54,7 @@ export function modelMatrixFamily(models: ModelMatrixModelOption[], currentModel
       return {
         ...model,
         variant,
-        shortLabel: model.label.replace(/^gpt[-\s]+(?=\d)/i, '') || model.value,
+        shortLabel: compactMatrixModelLabel(model.label) || model.value,
       }
     })
   return rows.length >= 2 && rows.some(model => model.value === currentModel) ? rows : null

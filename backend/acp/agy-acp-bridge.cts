@@ -245,11 +245,10 @@ function buildConfigOptions(session: AgyBridgeSessionState): SessionConfigOption
       type: 'select',
       currentValue: session.currentEffort,
       options: [
-        { value: 'high', name: 'High', description: 'Deep reasoning for complex tasks' },
-        { value: 'medium', name: 'Medium', description: 'Balanced speed and reasoning depth' },
         { value: 'low', name: 'Low', description: 'Fast responses for straightforward tasks' },
-        { value: 'xhigh', name: 'Extra High' },
-        { value: 'max', name: 'Max' }
+        { value: 'medium', name: 'Medium', description: 'Balanced speed and reasoning depth' },
+        { value: 'high', name: 'High', description: 'Deep reasoning for complex tasks' },
+        { value: 'max', name: 'Max', description: 'Maximum reasoning depth for the hardest problems' }
       ]
     }
   ];
