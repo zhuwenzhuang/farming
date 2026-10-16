@@ -126,6 +126,11 @@ Temporary。
 Idle Composer 检测同时支持 Provider 的模型显示名称与模型 ID。Session 身份查询不依赖把
 显示名称转换为模型 ID，也不得改动尚未提交的 Terminal 草稿。
 
+Farming 管理的 Codex app-server 不保留已取消订阅的空闲 Thread。共享 Session 关闭必须等待
+精确的 `thread/closed` 确认或明确的 `notLoaded` 响应，才能将所有权释放给另一个 Runtime。
+取消订阅的回执本身不足以证明释放；请求失败、连接丢失或有界释放截止时间到期都必须使变更
+显式失败，同时保持其他 Session 运行。
+
 配置遵循共享 ACP 规则：用户没有确认显式 Override 前，使用 Provider 与 Agent Home 默认值；
 已确认的 Model、Reasoning、Speed 与 Permission Choice 在受支持的 Runtime Replacement 后保留。
 已保存的模型未能恢复时，继续保留持久化选择，并显示警告、阻止 Prompt 和 Steer，直到重连

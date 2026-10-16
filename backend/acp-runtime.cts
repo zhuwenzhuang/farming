@@ -1403,11 +1403,11 @@ class AcpRuntime extends EventEmitter {
       });
       child.on('error', (error: unknown) => this.handleRuntimeExit(runtime, error));
       child.on('close', (code: number | null, signal: NodeJS.Signals | null) => {
-        if (!runtime.connection?.signal?.aborted) {
-          const detail = runtime.stderr.trim()
-            || `ACP adapter exited with code ${code}${signal ? ` (${signal})` : ''}`;
-          this.handleRuntimeExit(runtime, code === 0 ? null : new Error(detail));
-        }
+        // The SDK may abort its transport before this authoritative exit event.
+        // That does not prove the runtime's process state has been reconciled.
+        const detail = runtime.stderr.trim()
+          || `ACP adapter exited with code ${code}${signal ? ` (${signal})` : ''}`;
+        this.handleRuntimeExit(runtime, code === 0 ? null : new Error(detail));
       });
       if (runtime.ownsProcessGroup) {
         const processIdentity = await this.describeProcessGroup(child.pid);

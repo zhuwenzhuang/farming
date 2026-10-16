@@ -173,6 +173,12 @@ Idle-composer detection accepts the Provider's model display names as well as
 model ids. Session identity probing does not depend on converting a display name
 into a model id, and must leave an unsubmitted Terminal draft untouched.
 
+The Farming-owned Codex app-server unloads unsubscribed idle threads without
+retention. Shared Session close waits for the exact `thread/closed` acknowledgement
+or an explicit `notLoaded` response before releasing ownership to another runtime.
+An unsubscribe receipt alone is insufficient; request failure, connection loss,
+or the bounded release deadline fails the transition while unrelated Sessions stay live.
+
 Configuration follows the shared ACP rule: Provider and Agent Home defaults
 apply until the user confirms an explicit override. Confirmed model, reasoning,
 speed, and permission choices survive supported runtime replacement. An

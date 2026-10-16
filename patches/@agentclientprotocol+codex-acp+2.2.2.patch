@@ -1,7 +1,16 @@
 diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_modules/@agentclientprotocol/codex-acp/dist/index.js
 --- a/node_modules/@agentclientprotocol/codex-acp/dist/index.js
 +++ b/node_modules/@agentclientprotocol/codex-acp/dist/index.js
-@@ -29757,6 +29757,10 @@
+@@ -27851,6 +27851,8 @@
+ var DRAINED_MARKER_METHOD = "codex-acp/stdoutDrained";
+ function startCodexConnection(codexPath, env, appServerStartupArgs = ["app-server"], options = {}) {
+   const spawnEnv = env ?? process.env;
++  // A released shared Session must not retain its writer while a Terminal resumes it.
++  appServerStartupArgs = [...appServerStartupArgs, "-c", "thread_unload_delay_secs=0"];
+   let codex;
+   if (codexPath) {
+     codex = process.platform === "win32" ? (0, import_cross_spawn.default)(codexPath, appServerStartupArgs, { env: spawnEnv }) : spawn(codexPath, appServerStartupArgs, { env: spawnEnv });
+@@ -29757,6 +29759,10 @@
  var GOAL_CONTROL_METHOD = "_session/goal";
  var LEGACY_GOAL_CONTROL_METHOD = "_codex/session/goal_control";
  var GOAL_CONTROL_ACTIONS = ["set", "pause", "resume", "clear"];
@@ -12,7 +21,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
  
  // src/ThreadGoalSnapshot.ts
  function toGoalStatus(status) {
-@@ -29789,7 +29793,7 @@
+@@ -29789,7 +29795,7 @@
  function sameThreadGoalSnapshot(left, right) {
    if (left === void 0) return false;
    if (left === null || right === null) return left === right;
@@ -21,7 +30,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
  }
  function goalSessionInfoUpdate(goal, airClient) {
    if (!airClient) return null;
-@@ -29976,9 +29980,7 @@
+@@ -29976,9 +29982,7 @@
        const childTurn = this.isKnownChild(notification.params.threadId);
        const state = terminalStateFromTurn(notification.params.turn.status);
        if (!state) return childTurn;
@@ -32,7 +41,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
          if (this.pendingSpawns.has(notification.params.threadId)) {
            this.finishPending(notification.params.threadId);
          } else {
-@@ -31125,6 +31127,12 @@
+@@ -31125,6 +31129,12 @@
     * remains installed until the ACP session closes, so terminal errors need a durable session-level path
     * instead of entering a turn buffer that will never be flushed.
     */
@@ -45,7 +54,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
    async handleSessionScopedNotification(notification) {
      if (notification.method !== "error") {
        await this.handleNotification(notification);
-@@ -31343,13 +31351,15 @@
+@@ -31343,13 +31353,15 @@
        case "turn/started":
          this.sessionState.currentTurnId = notification.params.turn.id;
          await this.flushPendingErrors();
@@ -64,7 +73,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
        case "thread/tokenUsage/updated":
          return this.createUsageUpdate(notification.params);
        case "thread/name/updated":
-@@ -33057,7 +33067,7 @@
+@@ -33057,7 +33069,7 @@
      const properties = {};
      const required2 = [];
      const questionIds = new Set(params.questions.map((question) => question.id));
@@ -73,7 +82,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
      for (const question of params.questions) {
        const options = question.options ?? [];
        const hasOptions = options.length > 0;
-@@ -33161,7 +33171,7 @@
+@@ -33161,7 +33173,7 @@
      const answers = {};
      const content = contentRecord(response.content);
      const questionIds = new Set(params.questions.map((question) => question.id));
@@ -82,7 +91,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
      for (const question of params.questions) {
        const answerValues = [];
        const hasOtherAnswer = question.isOther && question.options != null && question.options.length > 0;
-@@ -34762,6 +34772,9 @@
+@@ -34762,6 +34774,9 @@
    sessionNotificationQueues = /* @__PURE__ */ new Map();
    subagents;
    skillExtraRoots = [];
@@ -92,7 +101,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
    configPath = null;
    constructor(codexClient, codexConfig, modelProvider) {
      this.codexClient = codexClient;
-@@ -34816,12 +34829,17 @@
+@@ -34816,12 +34831,17 @@
    getHomePath() {
      return this.configPath;
    }
@@ -110,7 +119,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
      switch (authRequest.methodId) {
        case "api-key":
          return await this.authenticateWithApiKey(authRequest);
-@@ -35009,6 +35027,7 @@
+@@ -35009,6 +35029,7 @@
      });
      await this.codexClient.accountLogout();
      await accountUpdatedPromise;
@@ -118,7 +127,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
    }
    /** Reads whether the agent needs a login, with the account read that gave the answer. */
    async readAuthRequirement() {
-@@ -35050,6 +35069,7 @@
+@@ -35050,6 +35071,7 @@
          wire_api: wireApi
        }
      };
@@ -126,7 +135,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
    }
    /**
     * `providers/list`: returns Codex's OpenAI slot. With no ACP override, the
-@@ -35122,6 +35142,7 @@
+@@ -35122,6 +35144,7 @@
      if (request.providerId === OPENAI_PROVIDER_ID) {
        this.gatewayConfig = null;
        this.gatewayConfigSource = null;
@@ -134,7 +143,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
      }
      const current = this.gatewayConfig ? {
        apiType: gatewayApiTypeFromConfig(this.gatewayConfig),
-@@ -35227,7 +35248,7 @@
+@@ -35227,7 +35250,7 @@
    async resumeSession(request, onSubscribed) {
      const additionalDirectories = readAdditionalDirectories(request.cwd, request.additionalDirectories, request._meta);
      await this.refreshSkills(request.cwd, additionalDirectories);
@@ -143,7 +152,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
      const response = await this.resumeThread({
        excludeTurns: true,
        config: sessionConfig.config,
-@@ -35255,7 +35276,7 @@
+@@ -35255,7 +35278,7 @@
      return await forkSession(request, additionalDirectories, {
        codexClient: this.codexClient,
        refreshSkills: (cwd, directories) => this.refreshSkills(cwd, directories),
@@ -152,7 +161,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
        getResumeModelProvider: () => this.getResumeModelProvider(),
        fetchAvailableModels: () => this.fetchAvailableModels(),
        createCurrentModelId: (models, model, reasoningEffort) => this.createModelId(models, model, reasoningEffort).toString(),
-@@ -35266,7 +35287,7 @@
+@@ -35266,7 +35289,7 @@
    async loadSession(request, onSubscribed) {
      const additionalDirectories = readAdditionalDirectories(request.cwd, request.additionalDirectories, request._meta);
      await this.refreshSkills(request.cwd, additionalDirectories);
@@ -161,7 +170,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
      const response = await this.resumeThread({
        excludeTurns: true,
        config: sessionConfig.config,
-@@ -35284,7 +35305,7 @@
+@@ -35284,7 +35307,7 @@
      } else if (response.materialized) {
        const legacy = (await this.codexClient.threadReadWithHistory(response.thread.id)).thread;
        thread = { ...legacy, turns: [] };
@@ -170,7 +179,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
      }
      const codexModels = await this.fetchAvailableModels();
      const currentModelId = this.createModelId(codexModels, response.model, response.reasoningEffort).toString();
-@@ -35302,7 +35323,24 @@
+@@ -35302,7 +35325,24 @@
        skippedMcpServers: sessionConfig.skippedMcpServers
      };
    }
@@ -196,7 +205,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
     * The items of the turn at `index` of a session, oldest first, in pages.
     * Returns null when the session has fewer turns.
     */
-@@ -35331,7 +35369,7 @@
+@@ -35331,7 +35371,7 @@
      const additionalDirectories = readAdditionalDirectories(request.cwd, request.additionalDirectories, request._meta);
      const developerInstructions = airCustomInstructions(request._meta);
      await this.refreshSkills(request.cwd, additionalDirectories);
@@ -205,7 +214,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
      const response = await this.codexClient.threadStart({
        config: sessionConfig.config,
        modelProvider: this.getModelProvider(),
-@@ -35364,13 +35402,11 @@
+@@ -35364,13 +35404,11 @@
    }
    async deleteSession(sessionId) {
      try {
@@ -224,7 +233,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
      }
    }
    async renameSession(sessionId, name) {
-@@ -35390,6 +35426,59 @@
+@@ -35390,6 +35428,59 @@
    async getGoal(sessionId) {
      const response = await this.codexClient.threadGoalGet({ threadId: sessionId });
      return response?.goal ?? null;
@@ -284,7 +293,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
    }
    async setGoal(sessionId, objective, onTurnStarted, onGoalSet) {
      const params = {
-@@ -35434,8 +35523,20 @@
+@@ -35434,8 +35525,20 @@
    getMcpServerStartupVersion() {
      return this.codexClient.mcpStartup.version();
    }
@@ -306,7 +315,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
      const activeProvider = this.gatewayConfig ? {
        apiType: gatewayApiTypeFromConfig(this.gatewayConfig),
        baseUrl: this.gatewayConfig.config.base_url
-@@ -35449,6 +35550,12 @@
+@@ -35449,6 +35552,12 @@
      });
      const mergedConfig = {
        ...forceGitRootTurnDiffPaths(mergeGatewayConfig(this.config, this.gatewayConfig)),
@@ -319,7 +328,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
        projects: Object.fromEntries(sessionRoots.map((root) => [root, {
          trust_level: "trusted"
        }]))
-@@ -35512,6 +35619,23 @@
+@@ -35512,6 +35621,23 @@
        await this.codexClient.skillsExtraRootsSet({ extraRoots: skillExtraRoots });
        this.skillExtraRoots = skillExtraRoots;
      }
@@ -343,7 +352,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
    }
    /**
     * Create a codex config entry for MCP server
-@@ -35572,11 +35696,9 @@
+@@ -35572,11 +35698,9 @@
      });
    }
    async waitForSessionNotifications(sessionId) {
@@ -358,7 +367,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
    }
    enqueueSessionNotification(sessionId, operation) {
      const run = async () => {
-@@ -35613,6 +35735,14 @@
+@@ -35613,6 +35737,14 @@
        model: modelId.model,
        serviceTier
      }, onTurnStarted);
@@ -373,7 +382,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
    }
    async setCollaborationMode(sessionId, mode, currentModelId) {
      await this.codexClient.threadSettingsUpdate({
-@@ -35741,13 +35871,36 @@
+@@ -35741,13 +35873,36 @@
      });
    }
    async fetchAvailableModels() {
@@ -417,7 +426,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
      return models;
    }
  };
-@@ -36630,7 +36783,7 @@
+@@ -36630,7 +36785,7 @@
        sortDirection: "asc"
      }), (page) => page.some((entry) => entry.item.id === lastItemId));
      for await (const page of pages) {
@@ -426,7 +435,35 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
        const lastIndex = items.findIndex((item) => item.id === lastItemId);
        if (lastIndex >= 0) {
          yield items.slice(0, lastIndex + 1);
-@@ -39758,7 +39911,7 @@
+@@ -36685,7 +36840,26 @@
+     return await this.sendRequest({ method: "thread/delete", params });
+   }
+   async threadUnsubscribe(params) {
+-    return await this.sendRequest({ method: "thread/unsubscribe", params });
++    let registration;
++    let timer;
++    const released = new Promise((resolve, reject) => {
++      let closed = false;
++      let response;
++      registration = this.connection.onUnhandledNotification((notification) => {
++        if (notification.method !== "thread/closed" || notification.params.threadId !== params.threadId) return;
++        closed = true;
++        if (response) resolve(response);
++      });
++      timer = setTimeout(() => reject(new Error(`Codex writer release timed out for thread ${params.threadId}`)), 20_000);
++      this.sendRequest({ method: "thread/unsubscribe", params }).then((result) => {
++        response = result;
++        if (result.status === "notLoaded" || closed) resolve(result);
++      }, reject);
++    });
++    return await this.waitWhileConnected("the thread writer release", released, () => {
++      registration?.dispose();
++      clearTimeout(timer);
++    });
+   }
+   async threadCompactStart(params) {
+     return await this.sendRequest({ method: "thread/compact/start", params });
+@@ -39758,7 +39932,7 @@
  var LEGACY_SET_SESSION_MODEL_METHOD = "session/set_model";
  var SESSION_STEERING_METHOD = "_session/steering";
  function isExtMethodRequest(request) {
@@ -435,7 +472,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
  }
  
  // src/tool-calls/ClientCapabilities.ts
-@@ -42306,6 +42459,53 @@
+@@ -42306,6 +42480,53 @@
  function isAuthRequiredError(error62) {
    return error62 instanceof RequestError && error62.code === RequestError.authRequired().code;
  }
@@ -489,7 +526,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
  var CodexAcpServer = class {
    codexAcpClient;
    connection;
-@@ -42342,6 +42542,13 @@
+@@ -42342,6 +42563,13 @@
    sessionGenerations;
    sessionOpenGenerations;
    goalControlGenerations;
@@ -503,7 +540,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
    permissionLifecycleContexts;
    codexProcessState;
    /** Brings the app-server back after a crash; `null` without a process state (tests). */
-@@ -42373,6 +42580,15 @@
+@@ -42373,6 +42601,15 @@
      this.sessionGenerations = /* @__PURE__ */ new Map();
      this.sessionOpenGenerations = /* @__PURE__ */ new Map();
      this.goalControlGenerations = /* @__PURE__ */ new Map();
@@ -519,7 +556,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
      this.permissionLifecycleContexts = /* @__PURE__ */ new WeakMap();
      this.reportingConnection = new ToolCallReportingConnection(connection);
      this.connection = this.reportingConnection.asClientConnection();
-@@ -42403,6 +42619,7 @@
+@@ -42403,6 +42640,7 @@
      this.currentAuthStatus = null;
      this.availableCommands = this.createAvailableCommands(codexAcpClient);
      this.recovery = this.createRecovery();
@@ -527,7 +564,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
    }
    createAvailableCommands(client) {
      return new CodexCommands(
-@@ -42412,6 +42629,11 @@
+@@ -42412,6 +42650,11 @@
        () => this.refreshAuthState(null),
        this.mcpServerSignIn
      );
@@ -539,7 +576,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
    }
    async initialize(_params) {
      logger.log("Initialize request received");
-@@ -42435,9 +42657,9 @@
+@@ -42435,9 +42678,9 @@
      const sessionCapabilities = {
        resume: {},
        list: {},
@@ -550,7 +587,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
        additionalDirectories: {},
        subagents: {}
      };
-@@ -42465,6 +42687,12 @@
+@@ -42465,6 +42708,12 @@
            sse: false
          },
          _meta: {
@@ -563,7 +600,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
            // Presence means "this agent pushes `_auth/status_update`". It
            // never carries a payload, and the client never asks for one.
            [AUTH_STATUS_META_KEY]: authStatusCapability()
-@@ -42511,6 +42739,77 @@
+@@ -42511,6 +42760,77 @@
      const appServer = this.ensureAppServer();
      if (appServer) await appServer;
      return { trusted: await this.runWithProcessCheck(() => trustCodexHooks(this.codexAcpClient.appServerClient, cwd, hooks)) };
@@ -641,7 +678,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
    }
    async extMethod(method, params) {
      const methodRequest = { method, params };
-@@ -42606,6 +42905,31 @@
+@@ -42606,6 +42926,31 @@
          }
          return {};
        }
@@ -673,7 +710,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
      }
    }
    /**
-@@ -42857,6 +43181,7 @@
+@@ -42857,6 +43202,7 @@
        cwd: request.cwd,
        additionalDirectories: sessionMetadata.additionalDirectories,
        mcpServers: requestedMcpServers,
@@ -681,7 +718,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
        fastModeEnabled: sessionMetadata.currentServiceTier === "fast",
        currentModelSupportsFast,
        sessionMcpServers,
-@@ -43077,6 +43402,7 @@
+@@ -43077,6 +43423,7 @@
      }
      await this.getSessionState(sessionId).asyncTasks.reconcile();
      await previousTitleGen?.waitForIdle(TITLE_GENERATION_SETTLE_TIMEOUT_MS);
@@ -689,7 +726,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
      logger.log("Session loaded", {
        sessionId,
        modelId: modelState.currentModelId,
-@@ -43088,6 +43414,27 @@
+@@ -43088,6 +43435,27 @@
        ...this.createSessionConfigOptionsResponse(this.getSessionState(sessionId))
      };
    }
@@ -717,7 +754,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
    async resumeSession(params) {
      return this.recovery === null ? await this.resumeSessionOnce(params) : await this.recovery.trackOpen(params.sessionId, () => this.resumeSessionOnce(params));
    }
-@@ -43104,6 +43451,7 @@
+@@ -43104,6 +43472,7 @@
        modelId: modelState.currentModelId,
        availableModelCount: modelState.availableModels.length
      });
@@ -725,7 +762,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
      return {
        models: modelState,
        modes: modeState,
-@@ -43154,6 +43502,70 @@
+@@ -43154,10 +43523,75 @@
        })
      };
    }
@@ -796,15 +833,25 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
    async closeSession(params) {
      logger.log("Closing session...", { sessionId: params.sessionId });
      const closeGeneration = this.bumpSessionGeneration(params.sessionId);
-@@ -43176,6 +43588,7 @@
+     const sessionState = this.sessions.get(params.sessionId);
++    let released = false;
+     this.beginSessionCloseFence(params.sessionId);
+     try {
+       if (sessionState) {
+@@ -43176,9 +43610,11 @@
        } else {
          logger.log("Session closed without an app-server call: its app-server is gone", { sessionId: params.sessionId });
        }
 +      this.clearSubagentSnapshot(params.sessionId);
++      released = true;
        logger.log("Session closed", { sessionId: params.sessionId });
      } finally {
-       if (this.getSessionGeneration(params.sessionId) === closeGeneration) {
-@@ -43191,7 +43604,257 @@
+-      if (this.getSessionGeneration(params.sessionId) === closeGeneration) {
++      if (released && this.getSessionGeneration(params.sessionId) === closeGeneration) {
+         this.sessions.delete(params.sessionId);
+         this.mcpSessionStartup.close(params.sessionId);
+         this.codexAcpClient.appServerClient.mcpStartup.forgetThread(params.sessionId);
+@@ -43191,7 +43627,257 @@
      }
      return {};
    }
@@ -1062,7 +1109,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
      const appServer = this.ensureAppServer();
      if (appServer) await appServer;
      logger.log("Deleting session...", { sessionId: params.sessionId });
-@@ -43320,6 +43983,7 @@
+@@ -43320,6 +44006,7 @@
        }
        await this.finishAllAsyncTasks("stopped", "before the provider restart");
        const replacement = await this.restartCodexClient();
@@ -1070,7 +1117,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
        apply2(replacement);
        if (this.initializeRequest === null) {
          throw new Error("Cannot restart Codex app-server before ACP initialization");
-@@ -43342,7 +44006,8 @@
+@@ -43342,7 +44029,8 @@
              sessionId: session.sessionId,
              cwd: session.cwd,
              additionalDirectories: session.additionalDirectories,
@@ -1080,7 +1127,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
            };
            const resume = (onSubscribed) => onSubscribed === void 0 ? replacement.resumeSession(request) : replacement.resumeSession(request, onSubscribed);
            await (this.recovery?.resumeForReplacement(session, replacementGeneration, replacement, resume) ?? resume());
-@@ -43455,7 +44120,8 @@
+@@ -43455,7 +44143,8 @@
            sessionId: session.sessionId,
            cwd: session.cwd,
            additionalDirectories: session.additionalDirectories,
@@ -1090,7 +1137,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
          }, onSubscribed);
          return { collaborationMode: metadata.collaborationMode };
        },
-@@ -43470,6 +44136,7 @@
+@@ -43470,6 +44159,7 @@
    /** Makes `client`, of a restarted app-server, the client of the agent and of every session. */
    installCodexClient(client) {
      client.adoptRoutingFrom(this.codexAcpClient);
@@ -1098,7 +1145,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
      this.codexAcpClient = client;
      this.sessionIndex.observe(client);
      this.availableCommands = this.createAvailableCommands(client);
-@@ -44179,6 +44846,7 @@
+@@ -44179,6 +44869,7 @@
        cwd: request.cwd,
        additionalDirectories: sessionMetadata.additionalDirectories,
        mcpServers: requestedMcpServers,
@@ -1106,7 +1153,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
        fastModeEnabled: sessionMetadata.currentServiceTier === "fast",
        currentModelSupportsFast,
        sessionMcpServers,
-@@ -44431,8 +45099,17 @@
+@@ -44431,8 +45122,17 @@
    async createHistoryUpdates(item, sessionState) {
      const renderer = new AcpToolCallRenderer(sessionState.clientCapabilities);
      switch (item.type) {
@@ -1126,7 +1173,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
        case "hookPrompt":
        case "functionCallOutput":
        case "sleep":
-@@ -44476,10 +45153,11 @@
+@@ -44476,10 +45176,11 @@
          return item.text.length > 0 ? [this.createPlanHistoryUpdate(item)] : [];
      }
    }
@@ -1140,7 +1187,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
      const attachmentUris = new Set(contentBlocks.flatMap((blocks, index) => item.content[index]?.type === "text" ? blocks.flatMap((block) => block.type === "resource_link" ? [block.uri] : []) : []));
      for (const [index, input2] of item.content.entries()) {
        const nativePath = input2.type === "localImage" || input2.type === "localAudio" || input2.type === "mention" ? input2.path : (input2.type === "image" || input2.type === "audio") && "url" in input2 ? input2.url : null;
-@@ -44522,16 +45200,26 @@
+@@ -44522,16 +45223,26 @@
        createMessagePhaseMeta("final_answer", this.capabilities.airClient)
      );
    }
@@ -1173,7 +1220,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
        case "localAudio":
        case "mention": {
          const uri = attachmentFileUri(input2.path);
-@@ -44901,6 +45589,9 @@
+@@ -44901,6 +45612,9 @@
          params.sessionId,
          async (event) => {
            await observeInteraction(event);
@@ -1183,7 +1230,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
            if (!promptNotificationsActive) {
              await promptEventHandler.handleSessionScopedNotification(event);
              return;
-@@ -45052,6 +45743,10 @@
+@@ -45052,6 +45766,10 @@
            logger.error(`Prompt for cancelled session ${params.sessionId} failed after prompt returned`, err);
          }
        });
@@ -1194,7 +1241,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
        let turnCompleted = await Promise.race([
          sendPromptPromise,
          activePrompt.closeSignal,
-@@ -45061,16 +45756,7 @@
+@@ -45061,16 +45779,7 @@
          return cancelledPromptResponse();
        }
        await promptClient.waitForSessionNotifications(params.sessionId);
@@ -1212,7 +1259,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
        await eventHandler.flushPendingErrors();
        await eventHandler.handleFailedTurn(turnCompleted.turn);
        promptNotificationsActive = false;
-@@ -45154,16 +45840,7 @@
+@@ -45154,16 +45863,7 @@
              return cancelledPromptResponse();
            }
            await promptClient.waitForSessionNotifications(params.sessionId);
@@ -1230,7 +1277,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
            await eventHandler.flushPendingErrors();
            await eventHandler.handleFailedTurn(turnCompleted.turn);
            promptNotificationsActive = false;
-@@ -45249,11 +45926,8 @@
+@@ -45249,11 +45949,8 @@
        promptNotificationsActive = false;
        try {
          await promptClient.waitForSessionNotifications(params.sessionId);
@@ -1243,7 +1290,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
        }
        if (agentFileChangeReportRequest !== null && agentFileChangeWorkspace !== null) {
          if (promptWasCancelled || activePrompt.signal.aborted || this.sessionIsClosing(params.sessionId)) {
-@@ -45276,7 +45950,9 @@
+@@ -45276,7 +45973,9 @@
        await eventHandler?.dispose();
        disposePromptRequestCancellation();
        removeAppServerLossListener();
@@ -1254,7 +1301,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
        const registeredPendingTurnStart = this.pendingTurnStarts.get(params.sessionId);
        if (registeredPendingTurnStart !== void 0) {
          this.pendingTurnStarts.delete(params.sessionId);
-@@ -45633,6 +46309,11 @@
+@@ -45633,6 +46332,11 @@
    cwd: external_exports.string().trim().min(1),
    hooks: external_exports.array(external_exports.object({ key: external_exports.string().min(1), currentHash: external_exports.string().min(1) })).min(1)
  });
@@ -1266,7 +1313,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
  if (process.argv.includes("--version")) {
    console.log(`${package_default.name} ${package_default.version}`);
    process.exit(0);
-@@ -45713,5 +46394,5 @@
+@@ -45713,5 +46417,5 @@
          codexAcpServer = null;
        }
      });

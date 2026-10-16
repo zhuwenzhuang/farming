@@ -12,6 +12,10 @@ const stallPrompt = process.env.FARMING_TEST_STALL_PROMPT === '1';
 const multiSession = process.env.FARMING_TEST_MULTI_SESSION === '1';
 const splitUtf8 = process.env.FARMING_TEST_SPLIT_UTF8 === '1';
 const requestLogFile = process.env.FARMING_TEST_REQUEST_LOG_FILE || '';
+const closeGatePrefix = process.env.FARMING_TEST_CLOSE_GATE_PREFIX || '';
+if (process.env.FARMING_TEST_STARTUP_ARGS_FILE) {
+  fs.writeFileSync(process.env.FARMING_TEST_STARTUP_ARGS_FILE, JSON.stringify(process.argv.slice(2)));
+}
 const providerResumeGatePrefix = process.env.FARMING_TEST_PROVIDER_RESUME_GATE_PREFIX || '';
 const emitSubagentAfterResume = process.env.FARMING_TEST_EMIT_SUBAGENT_AFTER_RESUME === '1';
 const backgroundChild = process.env.FARMING_TEST_BACKGROUND_CHILD === '1';
@@ -22,6 +26,7 @@ let nextThread = 1;
 const archivedThreads = new Set<string>();
 const loadedEnvironments = new Map<string, Record<string, string>>();
 const subscribedThreads = new Set<string>();
+const loadedThreads = new Set<string>();
 
 function loadEnvironment(id, params) {
   // A subscribed app-server thread keeps its running config on resume. An
@@ -30,6 +35,7 @@ function loadEnvironment(id, params) {
     loadedEnvironments.set(id, { ...params.config?.shell_environment_policy?.set });
   }
   subscribedThreads.add(id);
+  loadedThreads.add(id);
 }
 
 function thread(id = sessionId) {
@@ -260,8 +266,9 @@ async function resultFor(method, params) {
       && fs.existsSync(process.env.FARMING_TEST_UNSUBSCRIBE_FAILURE_FILE)) {
       throw new Error('Simulated fork ownership release failure');
     }
-    subscribedThreads.delete(params.threadId);
-    return {};
+    const subscribed = subscribedThreads.delete(params.threadId);
+    if (method === 'thread/delete') { loadedThreads.delete(params.threadId); return {}; }
+    return { status: !loadedThreads.has(params.threadId) ? 'notLoaded' : subscribed ? 'unsubscribed' : 'notSubscribed' };
   }
   if (method === 'thread/list') {
     // App-server's default source filter excludes native children even when
@@ -380,10 +387,30 @@ async function run() {
           params: { threadId: result.thread.id, environment: loadedEnvironments.get(result.thread.id) },
         })}\n`);
       }
+      const earlyClose = request.method === 'thread/unsubscribe' && result.status === 'unsubscribed'
+        && closeGatePrefix && fs.existsSync(`${closeGatePrefix}.${request.params.threadId}`)
+        && fs.readFileSync(`${closeGatePrefix}.${request.params.threadId}`, 'utf8') === 'early';
+      if (earlyClose) {
+        loadedThreads.delete(request.params.threadId);
+        await enqueueResponse({ method: 'thread/closed', params: { threadId: request.params.threadId } });
+      }
       await enqueueResponse({
         id: request.id,
         result,
       });
+      if (request.method === 'thread/unsubscribe' && result.status === 'unsubscribed' && !earlyClose) {
+        // Unsubscribe responds before the owning app-server releases its writer.
+        if (closeGatePrefix) {
+          await enqueueResponse({ method: 'thread/closed', params: { threadId: `${request.params.threadId}-unrelated` } });
+          const deadline = Date.now() + 10_000;
+          while (!fs.existsSync(`${closeGatePrefix}.${request.params.threadId}`) && Date.now() < deadline) {
+            await new Promise(resolve => setTimeout(resolve, 10));
+          }
+          if (!fs.existsSync(`${closeGatePrefix}.${request.params.threadId}`)) return;
+        }
+        loadedThreads.delete(request.params.threadId);
+        await enqueueResponse({ method: 'thread/closed', params: { threadId: request.params.threadId } });
+      }
       if ((backgroundChild || userInputResultFile || goalCompletionGate) && request.method === 'turn/start' && request.params.outputSchema) {
         await enqueueResponse({ method: 'turn/completed', params: { threadId: request.params.threadId,
           turn: { ...result.turn, status: 'completed' } } });
@@ -469,7 +496,7 @@ async function run() {
       continue;
     }
     if (request.id === undefined) continue;
-    if (!providerResumeGatePrefix) {
+    if (!providerResumeGatePrefix && !closeGatePrefix) {
       await handleRequest(request);
       continue;
     }
