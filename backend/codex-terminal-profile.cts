@@ -3,7 +3,7 @@
 import type { AgentRecord as TypedAgentRecord } from './agent-manager-record-types.js';
 import { runtimeKind } from './agent-runtime-binding.cjs';
 import { providerForProgram } from './provider-adapters.cjs';
-import { inferProviderTerminalActivity } from './provider-terminal-observers.cjs';
+import { inferProviderTerminalActivity, providerTerminalInputReady } from './provider-terminal-observers.cjs';
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_POLL_INTERVAL_MS = 100;
@@ -284,8 +284,10 @@ function isCodexTerminalComposerPreview(previewText: unknown): boolean {
   // An initial user task may start after a probe is queued. A retained model
   // footer alone does not prove that it is still safe to send local commands.
   const activity = inferProviderTerminalActivity('codex', 'codex', { previewText: preview, title: '' });
-  return activity?.activity !== 'busy'
-    && Boolean(codexTerminalProfileFromPreview(preview))
+  // A display name cannot be converted into a model id, and identity probing
+  // does not need that conversion. Use the shared composer readiness contract.
+  return activity?.activity === 'idle'
+    && providerTerminalInputReady('codex', preview) === true
     && !codexQuickModelMenuOptions(preview)
     && !codexModelMenuOptions(preview)
     && !codexReasoningMenuOptions(preview)

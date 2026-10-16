@@ -25,7 +25,7 @@ async function run() {
   );
   writeFakeExecutable(
     path.join(binDir, 'agy'),
-    'agy version 1.3.5\n',
+    'agy version 9.9.9\n',
     'Antigravity CLI - AI coding agent\n',
   );
 
@@ -190,6 +190,11 @@ async function run() {
       renderOutput: codexIdlePreview(),
       output: codexIdlePreview(),
     });
+    outputAgent.terminalDraftInputReceived = true;
+    assert.strictEqual(await manager.resolveCodexTerminalIdentityFromPreview(codexId, codexIdlePreview()), false,
+      'identity probing must preserve an unsubmitted Terminal draft');
+    assert.deepStrictEqual(terminalInputs.filter(entry => entry.agentId === codexId), []);
+    outputAgent.terminalDraftInputReceived = false;
     assert.strictEqual(
       await manager.resolveCodexTerminalIdentityFromPreview(codexId, codexIdlePreview()),
       true,
@@ -698,7 +703,7 @@ function codexIdlePreview() {
   return [
     '› Ask Codex',
     '',
-    '  gpt-5.6-sol high · /tmp/repo',
+    '  GPT 6.1 Sol high · /tmp/repo',
   ].join('\n');
 }
 

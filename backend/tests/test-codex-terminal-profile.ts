@@ -119,6 +119,14 @@ async function run() {
     'a UUID outside the structured /status block must not be accepted',
   );
   assert.strictEqual(isCodexTerminalComposerPreview(IDLE_55), true);
+  for (const label of ['GPT 6.1 Sol', 'GPT 6.0 Astra', 'Example Coding Model']) {
+    const preview = `› Ask Codex\n\n${label} high · /workspace`;
+    assert.strictEqual(codexTerminalProfileFromPreview(preview), null,
+      'a display name must not be guessed into a model identity');
+    assert.strictEqual(identityControl.canResolveFromPreview(preview), true,
+      'display names must not block the exact Session identity probe');
+    assert.strictEqual(identityControl.canResolveFromPreview(`${preview}\nWorking (2s • esc to interrupt)`), false);
+  }
   assert.strictEqual(isCodexTerminalComposerPreview(MODEL_MENU), false);
   assert.strictEqual(isCodexTerminalComposerPreview(QUICK_MODEL_MENU), false,
     'the quick-mode picker must not be mistaken for its unchanged composer footer');

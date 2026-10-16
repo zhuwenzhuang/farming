@@ -123,6 +123,9 @@ ID。精确 Runtime 进入 Idle 后，Codex Terminal Control 通过有序 Input 
 Epoch Fence 保护。在确认成功前，History Lookup、Recovery 与 Fork 都继续把该身份视为
 Temporary。
 
+Idle Composer 检测同时支持 Provider 的模型显示名称与模型 ID。Session 身份查询不依赖把
+显示名称转换为模型 ID，也不得改动尚未提交的 Terminal 草稿。
+
 配置遵循共享 ACP 规则：用户没有确认显式 Override 前，使用 Provider 与 Agent Home 默认值；
 已确认的 Model、Reasoning、Speed 与 Permission Choice 在受支持的 Runtime Replacement 后保留。
 已保存的模型未能恢复时，继续保留持久化选择，并显示警告、阻止 Prompt 和 Steer，直到重连

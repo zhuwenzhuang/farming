@@ -169,6 +169,10 @@ confirm the real Session id, and confirmation is fenced to the same Agent and
 runtime epoch. Until confirmation succeeds, History lookup, recovery, and Fork
 continue to treat the identity as temporary.
 
+Idle-composer detection accepts the Provider's model display names as well as
+model ids. Session identity probing does not depend on converting a display name
+into a model id, and must leave an unsubmitted Terminal draft untouched.
+
 Configuration follows the shared ACP rule: Provider and Agent Home defaults
 apply until the user confirms an explicit override. Confirmed model, reasoning,
 speed, and permission choices survive supported runtime replacement. An
