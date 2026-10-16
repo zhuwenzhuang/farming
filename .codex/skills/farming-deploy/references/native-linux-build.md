@@ -2,7 +2,7 @@
 
 Use this path when an authorized Linux x64 build environment is available and
 avoids a cold or emulated local Docker build. Build location and live activation
-are independent: `deploy.sh --artifact` still owns all live transitions.
+are independent: `deploy.sh` still owns all live transitions.
 
 ## Preflight And Ownership
 
@@ -21,10 +21,26 @@ are independent: `deploy.sh --artifact` still owns all live transitions.
   paths. Reuse npm and checksum-verified runtime download caches. Remove only
   temporary files and processes created by this build; retain verified outputs
   until deployment finishes.
+- Keep the prepared image, pinned tool installation and persistent cache root
+  across commits. Record their machine-specific paths in the private builder
+  profile referenced by the skill. Unavailable tools are an explicit preflight
+  failure, never a local Docker fallback.
 
 ## Build With The Repository Scripts
 
 Run from the clean checkout, with the selected compatible Node/npm on PATH.
+The prepared environment can execute the complete private build with:
+
+```bash
+FARMING_BUILD_CACHE_ROOT=/absolute/persistent/cache \
+  scripts/build-private-linux-native.sh /absolute/artifact/output
+```
+
+It revalidates an existing exact-SHA archive before reuse; otherwise it installs
+source dependencies from persistent caches, assembles the Browser component and
+runs the repository packager. The following steps describe the underlying
+repository interfaces for explicit build orchestration.
+
 Set `FARMING_SKIP_INSTALL_RUNTIME_PREPARE=1`,
 `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`, and `PUPPETEER_SKIP_DOWNLOAD=1` for dependency
 installation. Run `timeout 300 npm ci --prefer-offline --no-audit --no-fund`.
@@ -37,13 +53,15 @@ node scripts/build-agent-browser-runtime.mjs \
   --platform linux-x64-musl --output "$BUILD_BROWSER_OUTPUT"
 ```
 
-`BUILD_BROWSER_OUTPUT` must be an absolute, build-owned artifact root. Before
-rebuilding, check whether this exact SHA already has a verified runtime output.
-Reuse only when the binary checksum, source pin identity, target platform,
-version, and `farmingSha` all match. Use `verifyPackagedRuntimeIdentity` from the
-repository and the same expectations as `prepare-packaged-runtimes.ts`; do not
-rewrite identity metadata to make another SHA's binary pass. Current scripts
-do not provide automatic cross-SHA Browser build caching.
+`BUILD_BROWSER_OUTPUT` must be an absolute, build-owned artifact root. Set
+`FARMING_AGENT_BROWSER_BUILD_CACHE` to the persistent Browser build cache when
+calling the component builder directly. Its key covers the source pin and patch,
+both build-recipe files, pinned toolchains, compiler overrides, host and target.
+A hit verifies the receipt, regular files and full checksums before emitting a
+candidate-SHA assembly that preserves `compilationOrigin`. A corrupt entry fails
+explicitly and remains inspectable. Failed private staging is removed; concurrent
+publishers verify the atomically published winner. Packaging still requires the
+candidate's exact `farmingSha`; never rewrite identity metadata by hand.
 
 Package with `npm run release:app:legacy-linux`, setting:
 
@@ -58,12 +76,14 @@ Package with `npm run release:app:legacy-linux`, setting:
 
 Run `node --import tsx scripts/verify-release-bundle.ts "$BUILD_ARCHIVE"` and
 verify its checksum sidecar. Inspect the release metadata for the full SHA,
-Linux x64, `app-bundle`, `linux-x64-legacy-glibc228`, and bundled glibc. Prefer
-invoking the ordinary deployment command with `--artifact` directly from the
-builder when it already has authorized SSH access to the target. Otherwise
-transfer the archive and checksum using rsync over SSH and revalidate on the
-deployment client. Do not copy SSH credentials or invent an authentication path
-to avoid a transfer. Neither route changes the target activation protocol.
+Linux x64, `app-bundle`, `linux-x64-legacy-glibc228`, and bundled glibc. When the
+archive is already on the target, invoke the ordinary deployment command with
+`--remote-artifact /absolute/archive --git-sha FULL_SHA --artifact-sha256 DIGEST`.
+It sends only the verifier and activation code over the existing client SSH
+connection, preserving the original archive. Separate builders should transfer
+once to the target when already authorized. Client relay is needed only without
+an authorized direct route; do not copy SSH credentials. Every route uses the
+same target activation protocol.
 
 A build failure leaves live state untouched. Preserve the first failure, fix
 its cause, and resume at the failed build stage using still-valid outputs. Once

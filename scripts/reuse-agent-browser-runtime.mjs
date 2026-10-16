@@ -23,7 +23,7 @@ function matchingInputs(sha) {
   if (!/^[a-f0-9]{40}$/.test(sha)) return false;
   try {
     git(['merge-base', '--is-ancestor', sha, candidateSha]);
-    return [pinFile, pin.patch, recipe].every(file => hash(execFileSync('git', ['show', `${sha}:${file}`], {
+    return [pinFile, pin.patch, recipe, 'scripts/agent-browser-build-cache.mjs'].every(file => hash(execFileSync('git', ['show', `${sha}:${file}`], {
       cwd: root, stdio: ['ignore', 'pipe', 'pipe'], timeout: 10_000,
     })) === hash(fs.readFileSync(path.join(root, file))));
   } catch { return false; }

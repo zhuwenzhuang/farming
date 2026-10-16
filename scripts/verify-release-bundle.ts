@@ -8,6 +8,7 @@ interface TarOutputOptions {
 }
 
 interface ReleaseManifest {
+  gitSha?: string;
   type?: string;
   dirty?: boolean;
   releaseVersion?: string;

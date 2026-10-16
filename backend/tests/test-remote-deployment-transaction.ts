@@ -517,10 +517,20 @@ async function run() {
       await waitForFile(readyFile);
       const fifthSha = '5'.repeat(40);
       const blocked = writeFixtureBundle(root, { gitSha: fifthSha });
-      const blockedResult = activate(blocked, fifthSha, remoteDir, configDir);
+      const incoming = path.join(`${remoteDir}.deploy`, 'incoming', 'blocked-operation.tar.gz');
+      fs.mkdirSync(path.dirname(incoming), { recursive: true });
+      fs.copyFileSync(blocked.archive, incoming);
+      const otherStaging = path.join(`${remoteDir}.deploy`, 'staging', `${fifthSha}-${blocked.checksum.slice(0, 16)}`);
+      fs.mkdirSync(otherStaging);
+      fs.writeFileSync(path.join(otherStaging, 'owner-sentinel'), 'active operation');
+      const blockedResult = activate({ ...blocked, archive: incoming }, fifthSha, remoteDir, configDir);
       assert.notStrictEqual(blockedResult.status, 0);
       assert.match(blockedResult.stderr, /Another Farming deployment is active/);
       assert.strictEqual(fs.realpathSync(remoteDir), firstImage);
+      assert(!fs.existsSync(incoming), 'lock refusal must remove only its owned incoming copy');
+      assert(fs.existsSync(blocked.archive), 'the original builder package must survive refusal');
+      assert.strictEqual(fs.readFileSync(path.join(otherStaging, 'owner-sentinel'), 'utf8'), 'active operation');
+      fs.rmSync(otherStaging, { recursive: true });
     } finally {
       const stopped = new Promise<void>((resolve, reject) => {
         if (lockHolder.exitCode !== null || lockHolder.signalCode !== null) { resolve(); return; }

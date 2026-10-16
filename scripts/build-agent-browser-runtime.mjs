@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync, spawnSync } from 'node:child_process';
+import { browserBuildInputs, publishBrowserBuild, restoreBrowserBuild } from './agent-browser-build-cache.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const pin = JSON.parse(fs.readFileSync(path.join(root, 'backend/data/agent-browser-source.json'), 'utf8'));
@@ -28,6 +29,12 @@ const sha256 = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 const patch = path.join(root, pin.patch);
 if (sha256(fs.readFileSync(patch)) !== pin.patchSha256) throw new Error('Reviewed agent-browser patch digest mismatch');
 const farmingSha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
+const inputs = browserBuildInputs({ root, pin, platformKey, target: targets[platformKey] });
+const cacheRoot = path.resolve(process.env.FARMING_AGENT_BROWSER_BUILD_CACHE || path.join(root, '.tmp/agent-browser-build-cache'));
+if (restoreBrowserBuild({ cacheRoot, output, inputs, pin, farmingSha })) {
+  console.log(`Verified cached Browser runtime: ${output}`);
+  process.exit(0);
+}
 const work = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-agent-browser-build-'));
 let outputCreated = false;
 let complete = false;
@@ -86,6 +93,13 @@ try {
   // their expensive link. The artifact always retains production release flags.
   run('cargo', [`+${pin.rust}`, 'test', '--locked', 'native::cdp::chrome::tests', '--', '--nocapture'], cli);
   if (zig) {
+    // cargo-zigbuild also discovers the official ziglang Python distribution.
+    const directZig = spawnSync('zig', ['version'], { encoding: 'utf8', timeout: 10_000 });
+    const selectedZig = directZig.error?.code === 'ENOENT'
+      ? spawnSync('python', ['-m', 'ziglang', 'version'], { encoding: 'utf8', timeout: 10_000 }) : directZig;
+    if (selectedZig.error || selectedZig.status !== 0) throw new Error('Pinned Zig toolchain is unavailable');
+    const zigVersion = selectedZig.stdout.trim();
+    if (zigVersion !== pin.zig) throw new Error(`Zig ${pin.zig} is required, found ${zigVersion}`);
     // zigbuild's cargo subcommand does not implement --version. Cargo owns the
     // installed tool receipt; match its complete package header, not a substring.
     const installed = execFileSync('cargo', [`+${pin.rust}`, 'install', '--list'], { encoding: 'utf8' });
@@ -106,7 +120,8 @@ try {
       }
     }
   }
-  fs.mkdirSync(output, { recursive: true });
+  fs.mkdirSync(path.dirname(output), { recursive: true });
+  fs.mkdirSync(output);
   outputCreated = true;
   fs.copyFileSync(binary, path.join(output, binaryName));
   if (!platformKey.startsWith('win32-')) fs.chmodSync(path.join(output, binaryName), 0o755);
@@ -117,10 +132,16 @@ try {
   for (const name of ['LICENSE', 'NOTICE']) {
     if (fs.existsSync(path.join(work, name))) fs.copyFileSync(path.join(work, name), path.join(output, name));
   }
+  const binarySha256 = sha256(fs.readFileSync(binary));
+  const compilationOrigin = {
+    farmingSha, sourceId: inputs.sourceId, recipeSha256: inputs.recipeSha256, sha256: binarySha256,
+    ...(process.env.GITHUB_RUN_ID ? { runId: Number(process.env.GITHUB_RUN_ID) } : {}),
+  };
   fs.writeFileSync(path.join(output, 'identity.json'), `${JSON.stringify({
     version: pin.version, platformKey, sourceId: sha256(JSON.stringify(pin)),
-    sha256: sha256(fs.readFileSync(binary)), farmingSha,
+    sha256: binarySha256, farmingSha, compilationOrigin,
   }, null, 2)}\n`, { flag: 'wx' });
+  publishBrowserBuild({ cacheRoot, output, inputs, pin });
   complete = true;
   console.log(`Verified patched runtime: ${output}`);
 } finally {

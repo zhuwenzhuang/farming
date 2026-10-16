@@ -24,6 +24,13 @@ source dependencies in the live directory or reproduce activation by hand.
 4. Pin the requested full git SHA before building. Preserve the target's existing
    Server HOME and Agent Homes unless the user requests a change; a configuration
    change inside a Home is not a request to replace that Home.
+5. Read the private builder profile at
+   `${CODEX_HOME:-$HOME/.codex}/farming-deploy-builder.json` when present. Validate
+   its SSH host, prepared command, immutable image and persistent cache paths
+   before use. Keep this machine-specific profile outside the repository.
+   Honor its builder and local-Docker policy together with the user's explicit
+   choice. Reuse the prepared remote environment; a remote failure never implies
+   permission to start local Docker or silently select another builder.
 
 ## Choose The Build Path
 
@@ -33,17 +40,27 @@ Prefer the least expensive verified path, in this order:
    artifact outputs first, run `scripts/verify-release-bundle.ts`, and confirm
    `gitSha`, `linux`/`x64`, `app-bundle`, and the bundled legacy glibc profile.
    Match its checksum sidecar before use. A matching version or filename alone
-   is insufficient. Pass the verified bundle with `--artifact`.
+   is insufficient. For a bundle on the target, use `--remote-artifact` with
+   `--git-sha` and `--artifact-sha256`; the canonical verifier runs there. Use
+   `--artifact` only for an already-local bundle. These modes are exclusive.
 2. When a suitable, authorized Linux x64 builder is available, build there using
    [native Linux preparation](references/native-linux-build.md). Execute on that
    host with its own filesystem and toolchain; do not pass a remote Docker context
-   to the Mac's bind-mount-based build script. Deploy with `--artifact` from the
-   builder when it already has authorized SSH access to the target; otherwise
-   transfer the bundle and checksum to the deployment client with rsync over SSH.
-   Avoid sending a remote-built package through the Mac merely to send it back.
-3. Otherwise let the deployment command build using a local Linux Docker engine.
-   Confirm the engine and pinned toolchain are ready before expensive compilation.
-   Do not change another engine's lifecycle or silently select another host.
+   to the Mac's bind-mount-based build script. Reuse the fixed image, pinned tools
+   and persistent npm/pnpm/Cargo/Browser/download caches. Run
+   `scripts/build-private-linux-native.sh /absolute/output` inside that environment
+   with `FARMING_BUILD_CACHE_ROOT` set to its persistent cache root.
+3. When builder and target share a host, deploy directly with `--remote-artifact`;
+   no archive download, re-upload or self-SSH authentication is needed. For a
+   separate builder with existing authorized SSH access, transfer once to the
+   target and use the same mode. Do not copy SSH credentials. Client relay is
+   reserved for a separate builder without an authorized direct route.
+
+Before expensive packaging, exercise the changed interaction in an isolated
+environment, including related transitions and concurrent Sessions. Pin the final
+fix commit after these checks; repeat the selected journey after deployment.
+Browser cache hits reuse verified bytes across unrelated Farming commits while
+retaining compilation provenance. Never edit an old identity sidecar by hand.
 
 Keep successful build outputs available through activation and readiness. A
 failure in upload, activation, or smoke does not by itself invalidate the verified
@@ -61,14 +78,19 @@ npm run deploy:remote -- \
   --ssh-host HOST \
   --ssh-user USER \
   --ssh-port PORT \
-  --remote-dir /absolute/path/to/farming
+  --remote-dir /absolute/path/to/farming \
+  --remote-artifact /absolute/build/output/farming.tar.gz \
+  --git-sha FULL_COMMIT_SHA --artifact-sha256 VERIFIED_SHA256
 ```
 
 Add only required options such as `--config-dir`, `--server-home`,
-`--app-port`, `--base-path`, `--ssh-option`, `--docker-context`,
-`--npm-registry`, or `--smoke-agent`. Use
-`--artifact` for the already verified private app bundle selected above. Omit it
-only when deliberately selecting the local Docker build path.
+`--app-port`, `--base-path`, `--ssh-option`, or `--smoke-agent`.
+Always select an artifact explicitly. Use `--artifact /absolute/local/archive`
+instead of the three remote-artifact arguments only for an already-local bundle.
+
+The target creates and verifies a unique operation-owned copy; the builder's
+original package remains available for recovery or another deployment. This mode
+does not invoke local Docker or rsync and uses the existing activation transaction.
 
 The command owns preflight, checksum verification, upload, deployment locking,
 runtime preparation, exact Server stop, symlink activation, HTTP/WebSocket/PTY/

@@ -18,10 +18,15 @@ Release 准备所使用的 App Bundle 格式，但不会创建 GitHub Release，
 安装依赖、编译前端或 prune。
 
 构建前优先复用请求的确切 SHA 对应的已验证私有包。Artifact 可以在隔离的原生 Linux
-x64 builder 上通过仓库打包脚本准备，再以 `--artifact` 交给部署命令。源码和依赖留在
+x64 builder 上通过仓库打包脚本准备。目标机已有安装包使用 `--remote-artifact`，并明确
+指定完整 `--git-sha` 和预期 `--artifact-sha256`；本地已有包使用 `--artifact`，两种模式互斥。
+远端模式将普通源文件复制到本操作唯一拥有的 incoming 路径，执行同一套完整安装包验证与
+checksum 校验，并保留原包。SSH 只传验证与激活代码，无需压缩包中转、本机 Docker 或自 SSH。
+源码和依赖留在
 builder 专属目录，与线上安装和 Config 隔离，即使共用同一物理主机也如此。这不意味着
 本地 bind-mount builder 可以使用远端 Docker endpoint。传输后重新验证元数据与 checksum；
-不得把旧 artifact 或 runtime 的身份改写成新 SHA。上传或激活失败后保留已验证构建产物，
+不得把旧 artifact 冒充新 SHA。Browser 组件复用必须验证构建凭证，并在候选组装中保留原始
+编译来源。上传或激活失败后保留已验证构建产物，
 避免重新编译。
 
 Artifact 明确记录完整 Git SHA、平台、架构、兼容运行时、包内容和 checksum。认证
@@ -30,8 +35,12 @@ Artifact 明确记录完整 Git SHA、平台、架构、兼容运行时、包内
 ## 所有权与目录布局
 
 所选 builder 的 Node/npm 组合必须兼容发布流程固定的 npm 版本，依赖安装限时五分钟。
-宿主机还需安装固定版本的 Rust 和 Zig 工具链，在打包前为同一提交 SHA 编译带补丁的
-Linux musl Browser runtime。
+宿主机还需预先准备固定版本的 Rust、Zig 工具链及构建镜像，在缓存未命中时编译带补丁的
+Linux musl Browser runtime。原生私有构建入口要求持久化缓存根目录和干净的已提交源码。
+Browser 二进制缓存按审查过的源码与补丁、两份构建脚本、工具链 pin、编译覆盖配置、宿主和
+目标平台建键，不依赖应用提交。每次命中重新校验普通可执行文件、身份与许可证的完整摘要，
+再组装带有本候选确切 SHA 的身份，保留原始编译来源。只有原子发布的完整条目可复用；损坏
+条目明确失败，构建失败的 staging 不会成为缓存命中。
 
 - 所选 builder 拥有 artifact 构建与验证。操作者可以显式选择本地 Unix socket
   Docker context 和 npm registry；部署不会推断或改变其他容器引擎的生命周期。

@@ -12,6 +12,9 @@ REMOTE_SERVER_HOME=""
 APP_PORT="6694"
 BASE_PATH="/farming"
 ARTIFACT=""
+REMOTE_SOURCE_ARTIFACT=""
+REQUESTED_GIT_SHA=""
+EXPECTED_ARTIFACT_SHA256=""
 BUILDER_IMAGE="${FARMING_DEPLOY_BUILDER_IMAGE:-node:22.22.2-bookworm}"
 DOCKER_CONTEXT="${FARMING_DEPLOY_DOCKER_CONTEXT:-}"
 NPM_REGISTRY="${FARMING_DEPLOY_NPM_REGISTRY:-https://registry.npmjs.org/}"
@@ -26,7 +29,7 @@ Usage: scripts/deploy.sh deploy --ssh-host HOST --remote-dir PATH [options]
 
 Build the committed Farming SHA as a private Linux Release artifact, upload it
 through SSH, atomically activate it, run product readiness checks, and roll back
-on failure. The remote host never installs source dependencies or builds code.
+on failure. The live install never installs source dependencies or builds code.
 
 SSH options:
   --ssh-host HOST             Required SSH hostname or config alias
@@ -41,6 +44,9 @@ Deployment options:
   --app-port PORT             Farming HTTP port (default: 6694)
   --base-path PATH            Farming URL base path (default: /farming)
   --artifact PATH             Deploy an existing verified private app bundle
+  --remote-artifact PATH      Use a bundle already on the SSH target; preserve it
+  --git-sha SHA               Required full commit SHA for --remote-artifact
+  --artifact-sha256 SHA256    Required expected digest for --remote-artifact
   --builder-image IMAGE       Linux amd64 builder used when --artifact is omitted
   --docker-context NAME       Local Unix-socket Docker context used by the Linux builder
   --npm-registry URL          npm registry used inside the Linux builder
@@ -77,6 +83,9 @@ while [ "$#" -gt 0 ]; do
     --app-port) APP_PORT="$(read_value "$1" "${2:-}")"; shift 2 ;;
     --base-path) BASE_PATH="$(read_value "$1" "${2:-}")"; shift 2 ;;
     --artifact) ARTIFACT="$(read_value "$1" "${2:-}")"; shift 2 ;;
+    --remote-artifact) REMOTE_SOURCE_ARTIFACT="$(read_value "$1" "${2:-}")"; shift 2 ;;
+    --git-sha) REQUESTED_GIT_SHA="$(read_value "$1" "${2:-}")"; shift 2 ;;
+    --artifact-sha256) EXPECTED_ARTIFACT_SHA256="$(read_value "$1" "${2:-}")"; shift 2 ;;
     --builder-image) BUILDER_IMAGE="$(read_value "$1" "${2:-}")"; shift 2 ;;
     --docker-context) DOCKER_CONTEXT="$(read_value "$1" "${2:-}")"; shift 2 ;;
     --npm-registry) NPM_REGISTRY="$(read_value "$1" "${2:-}")"; shift 2 ;;
@@ -88,6 +97,20 @@ while [ "$#" -gt 0 ]; do
     *) echo "Unknown deploy option: $1" >&2; usage >&2; exit 2 ;;
   esac
 done
+
+if [ -n "${REMOTE_SOURCE_ARTIFACT}" ]; then
+  if [ -n "${ARTIFACT}" ]; then
+    echo "--artifact and --remote-artifact are mutually exclusive." >&2; exit 2
+  fi
+  if [[ "${REMOTE_SOURCE_ARTIFACT}" != /* ]] || [[ "${REMOTE_SOURCE_ARTIFACT}" == *$'\n'* ]]; then
+    echo "--remote-artifact must be an absolute target-host path without newlines." >&2; exit 2
+  fi
+  if [[ ! "${REQUESTED_GIT_SHA}" =~ ^[0-9a-f]{40}$ ]] || [[ ! "${EXPECTED_ARTIFACT_SHA256}" =~ ^[0-9a-f]{64}$ ]]; then
+    echo "--remote-artifact requires --git-sha (40 hex) and --artifact-sha256 (64 hex)." >&2; exit 2
+  fi
+elif [ -n "${REQUESTED_GIT_SHA}${EXPECTED_ARTIFACT_SHA256}" ]; then
+  echo "--git-sha and --artifact-sha256 require --remote-artifact." >&2; exit 2
+fi
 
 if [ -z "${SSH_HOST}" ] || [[ "${SSH_HOST}" == -* ]] || [[ "${SSH_HOST}" == *[[:space:]]* ]]; then
   echo "--ssh-host is required and must be one OpenSSH hostname or config alias." >&2
@@ -123,8 +146,10 @@ for ssh_option in ${SSH_OPTIONS[@]+"${SSH_OPTIONS[@]}"}; do
 done
 
 command -v ssh >/dev/null || { echo "ssh is required." >&2; exit 1; }
-command -v rsync >/dev/null || { echo "rsync is required." >&2; exit 1; }
-if [ -z "${ARTIFACT}" ]; then
+if [ -z "${REMOTE_SOURCE_ARTIFACT}" ]; then
+  command -v rsync >/dev/null || { echo "rsync is required." >&2; exit 1; }
+fi
+if [ -z "${ARTIFACT}${REMOTE_SOURCE_ARTIFACT}" ]; then
   "${PROJECT_ROOT}/scripts/assert-local-docker-context.sh" "${DOCKER_CONTEXT}"
 fi
 
@@ -184,7 +209,7 @@ case "${EXPECTED_SELECTION}" in
   *) echo "Remote install selection is invalid or cannot be verified." >&2; exit 1 ;;
 esac
 
-if [ -z "${ARTIFACT}" ]; then
+if [ -z "${ARTIFACT}${REMOTE_SOURCE_ARTIFACT}" ]; then
   BUILD_OUTPUT_DIR="${PROJECT_ROOT}/.tmp/private-releases/$(git -C "${PROJECT_ROOT}" rev-parse HEAD)"
   ARTIFACT="$(${PROJECT_ROOT}/scripts/build-private-linux-release.sh \
     --output-dir "${BUILD_OUTPUT_DIR}" \
@@ -192,6 +217,7 @@ if [ -z "${ARTIFACT}" ]; then
     --docker-context "${DOCKER_CONTEXT}" \
     --npm-registry "${NPM_REGISTRY}")"
 fi
+if [ -z "${REMOTE_SOURCE_ARTIFACT}" ]; then
 case "${ARTIFACT}" in /*) ;; *) ARTIFACT="${PROJECT_ROOT}/${ARTIFACT}" ;; esac
 if [ ! -f "${ARTIFACT}" ]; then
   echo "Deployment artifact does not exist: ${ARTIFACT}" >&2
@@ -226,9 +252,31 @@ if command -v sha256sum >/dev/null 2>&1; then
 else
   CHECKSUM="$(shasum -a 256 "${ARTIFACT}" | awk '{print $1}')"
 fi
+else
+  GIT_SHA="${REQUESTED_GIT_SHA}"
+  CHECKSUM="${EXPECTED_ARTIFACT_SHA256}"
+fi
 OPERATION_ID="${GIT_SHA:0:12}-$(node -e 'process.stdout.write(require("crypto").randomUUID())')"
 REMOTE_ARTIFACT="${REMOTE_DIR}.deploy/incoming/${OPERATION_ID}.tar.gz"
 
+if [ -n "${REMOTE_SOURCE_ARTIFACT}" ]; then
+  # Ship only the canonical verifier, never the archive, back through the client.
+  REMOTE_STAGER="$(cd "${PROJECT_ROOT}" && node - <<'NODE'
+const { buildSync } = require('esbuild');
+const result = buildSync({ stdin: { resolveDir: process.cwd(), contents: `
+import { stageRemoteDeploymentArtifact } from './scripts/stage-remote-deployment-artifact.ts';
+try { stageRemoteDeploymentArtifact(...process.argv.slice(2)); }
+catch (error) { console.error(error.message); process.exitCode = 1; }
+` },
+  bundle: true, platform: 'node', format: 'cjs', write: false });
+process.stdout.write(result.outputFiles[0].text);
+NODE
+)"
+  echo "==> Verifying and staging target-host Release artifact (no archive transfer)" >&2
+  ssh "${SSH_ARGS[@]}" "${DESTINATION}" \
+    "$(remote_command node - "${REMOTE_SOURCE_ARTIFACT}" "${REMOTE_ARTIFACT}" "${GIT_SHA}" "${CHECKSUM}")" \
+    <<< "${REMOTE_STAGER}"
+else
 ssh "${SSH_ARGS[@]}" "${DESTINATION}" "$(remote_command bash -s -- "${REMOTE_ARTIFACT}")" <<'REMOTE'
 set -euo pipefail
 artifact="$1"
@@ -248,6 +296,7 @@ done
 RSYNC_RSH+=" -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=2"
 echo "==> Uploading verified private Release artifact" >&2
 rsync -a --partial -e "${RSYNC_RSH}" "${ARTIFACT}" "${DESTINATION}:${REMOTE_ARTIFACT}"
+fi
 
 ACTIVATION_ARGS=(
   --artifact "${REMOTE_ARTIFACT}"

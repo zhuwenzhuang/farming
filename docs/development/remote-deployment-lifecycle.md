@@ -15,13 +15,20 @@ receives source for dependency installation, frontend compilation, or pruning.
 
 An existing verified private bundle for the requested exact SHA should be reused
 before building again. Artifact preparation may run on an isolated native Linux
-x64 builder, using the repository packaging scripts, and feed `--artifact` to
-the deployment command. Source and dependencies stay in the builder's dedicated
-root, outside the live installation and Config, even when they share a physical
+x64 builder, using the repository packaging scripts. A target-host package uses
+`--remote-artifact` with its expected full `--git-sha` and `--artifact-sha256`;
+an already-local package uses `--artifact`. These modes are exclusive. The remote
+mode copies the regular source file to a unique operation-owned incoming path,
+runs the same complete bundle verifier and checksum checks there, and preserves
+the original. Only verifier and activation code cross SSH; neither archive
+relay, local Docker nor self-SSH is needed. Source and dependencies stay in the
+builder's dedicated root, outside the live installation and Config, even when they share a physical
 host. This does not permit remote Docker endpoints for the local bind-mount
 builder. Verify metadata and checksums after transfer; never relabel an older
-artifact or runtime as a new SHA. Preserve verified build outputs across later
-upload or activation failures instead of compiling again.
+artifact as a new SHA. Browser component reuse instead verifies its build receipt
+and preserves the original compilation provenance in each candidate assembly.
+Preserve verified build outputs across later upload or activation failures
+instead of compiling again.
 
 The artifact identifies one full git SHA, platform, architecture, compatibility
 runtime, package contents, and checksum. Authentication continues through the
@@ -34,7 +41,14 @@ of the artifact or repository configuration.
   Its Node/npm pair must be compatible with the pinned release npm version.
   Dependency installation has a five-minute deadline. The host also uses the
   pinned Rust and Zig toolchain to build the patched Linux musl Browser runtime
-  for the same committed SHA before packaging; these tools must be installed.
+  on a cache miss; tools and the builder image are prepared separately and reused.
+  The native private-build entry point requires a persistent cache root and clean
+  committed source. Browser binary caching is keyed by reviewed source and patch,
+  both build recipes, toolchain pins, compiler overrides, host and target rather
+  than the application commit. Every hit rehashes regular executable, identity
+  and license files before assembling the candidate's exact-SHA identity with
+  unchanged compilation provenance. Atomic publication makes complete entries
+  reusable; corruption fails visibly, and failed staging never becomes a hit.
 - The operator may select an explicit local Unix-socket Docker context and npm
   registry for the local builder; deployment never infers or changes another
   engine's lifecycle. Remote, TCP, forwarded-socket, and Windows-pipe Docker

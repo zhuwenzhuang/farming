@@ -126,6 +126,14 @@ IMAGE_CLEANUP_READY="0"
 RECOVERY_SAFE="1"
 CLEANUP_WARNING="false"
 
+cleanup_incoming_artifact() {
+  if [[ "${ARTIFACT:-}" == "${STATE_ROOT}/incoming/"*.tar.gz ]]; then
+    rm -f "${ARTIFACT}" || echo "Warning: could not remove uploaded deployment artifact." >&2
+  fi
+}
+# Lock refusal or a stale selection still owns its unique incoming copy, but
+# must never remove the active lock owner's deterministic staging directory.
+trap cleanup_incoming_artifact EXIT
 mkdir -p "${IMAGES_DIR}" "${STATE_ROOT}/staging" "${STATE_ROOT}/smoke"
 exec 9>"${LOCK_FILE}"
 if ! flock -n 9; then
@@ -175,9 +183,7 @@ cleanup_staging() {
   if [ -n "${SMOKE_WORKSPACE:-}" ] && [[ "${SMOKE_WORKSPACE}" == "${STATE_ROOT}/smoke/"* ]]; then
     rm -rf "${SMOKE_WORKSPACE}" || echo "Warning: could not remove deployment smoke workspace ${SMOKE_WORKSPACE}." >&2
   fi
-  if [[ "${ARTIFACT:-}" == "${STATE_ROOT}/incoming/"*.tar.gz ]]; then
-    rm -f "${ARTIFACT}" || echo "Warning: could not remove uploaded deployment artifact." >&2
-  fi
+  cleanup_incoming_artifact
   return "$status"
 }
 trap cleanup_staging EXIT

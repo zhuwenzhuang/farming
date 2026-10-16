@@ -163,7 +163,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ runner.temp }}/farming-agent-browser-cargo-target
-          key: agent-browser-cargo-v2-${{ runner.os }}-${{ runner.arch }}-rust-1.96.1-${{ matrix.platform }}-source-${{ hashFiles('backend/data/agent-browser-source.json', 'patches/agent-browser/*.patch', 'scripts/build-agent-browser-runtime.mjs') }}
+          key: agent-browser-cargo-v2-${{ runner.os }}-${{ runner.arch }}-rust-1.96.1-${{ matrix.platform }}-source-${{ hashFiles('backend/data/agent-browser-source.json', 'patches/agent-browser/*.patch', 'scripts/build-agent-browser-runtime.mjs', 'scripts/agent-browser-build-cache.mjs') }}
           restore-keys: agent-browser-cargo-v2-${{ runner.os }}-${{ runner.arch }}-rust-1.96.1-${{ matrix.platform }}-source-
 
       - name: Build and verify patched agent-browser
@@ -246,7 +246,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ runner.temp }}/farming-agent-browser-cargo-target
-          key: agent-browser-cargo-v2-${{ runner.os }}-${{ runner.arch }}-rust-1.96.1-darwin-${{ matrix.arch }}-source-${{ hashFiles('backend/data/agent-browser-source.json', 'patches/agent-browser/*.patch', 'scripts/build-agent-browser-runtime.mjs') }}
+          key: agent-browser-cargo-v2-${{ runner.os }}-${{ runner.arch }}-rust-1.96.1-darwin-${{ matrix.arch }}-source-${{ hashFiles('backend/data/agent-browser-source.json', 'patches/agent-browser/*.patch', 'scripts/build-agent-browser-runtime.mjs', 'scripts/agent-browser-build-cache.mjs') }}
           restore-keys: |
             agent-browser-cargo-v2-${{ runner.os }}-${{ runner.arch }}-rust-1.96.1-darwin-${{ matrix.arch }}-source-
             agent-browser-cargo-v1-${{ runner.os }}-${{ runner.arch }}-rust-1.96.1-darwin-${{ matrix.arch }}-
