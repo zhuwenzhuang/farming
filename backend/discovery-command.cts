@@ -5,6 +5,7 @@ export function runDiscoveryCommand(command: string, args: string[], options: {
   timeoutMs: number;
   cwd?: string;
   env?: NodeJS.ProcessEnv;
+  includeStderr?: boolean;
 }): Promise<string | null> {
   return new Promise(resolve => {
     const child = spawn(command, args, {
@@ -24,7 +25,7 @@ export function runDiscoveryCommand(command: string, args: string[], options: {
     const consume = (chunk: string, stdout: boolean) => {
       bytes += Buffer.byteLength(chunk);
       if (bytes > 1024 * 1024) { failed = true; kill(); return; }
-      if (stdout) output += chunk;
+      if (stdout || options.includeStderr) output += chunk;
     };
     child.stdout.setEncoding('utf8');
     child.stderr.setEncoding('utf8');

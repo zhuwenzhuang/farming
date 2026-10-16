@@ -46,7 +46,7 @@ export function modelMatrixFamily(models: ModelMatrixModelOption[], currentModel
       return {
         ...model,
         variant,
-        shortLabel: model.label.replace(/^gpt[-\s]*/i, '') || model.value,
+        shortLabel: model.label.replace(/^gpt[-\s]+(?=\d)/i, '') || model.value,
       }
     })
   return rows.length >= 2 && rows.some(model => model.value === currentModel) ? rows : null

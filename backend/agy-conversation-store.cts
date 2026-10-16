@@ -117,13 +117,55 @@ export function ensureAgyConversationDatabase(
 
   const conversationsDir = path.join(normalizedHome, 'conversations');
   const dbPath = path.join(conversationsDir, `${normalizedId}.db`);
-  if (fs.existsSync(dbPath)) return hasAgyConversationDatabase(normalizedHome, normalizedId);
+  if (fs.existsSync(dbPath)) {
+    if (!hasAgyConversationDatabase(normalizedHome, normalizedId)) return false;
+    let existingDb: SqliteDatabaseSync | null = null;
+    try {
+      existingDb = new sqlite.DatabaseSync(dbPath, { timeout: 1000 });
+      existingDb.exec(
+        'PRAGMA journal_mode = WAL;' +
+        'PRAGMA user_version = 1;' +
+        'DELETE FROM trajectory_meta WHERE trajectory_type = 0 AND EXISTS (SELECT 1 FROM trajectory_meta WHERE cascade_id = ' +
+        `'${normalizedId.replace(/'/g, "''")}' AND trajectory_type != 0);`
+      );
+      const metaRow = existingDb
+        .prepare('SELECT trajectory_id FROM trajectory_meta WHERE cascade_id = ? AND trajectory_type != 0 LIMIT 1')
+        .get(normalizedId);
+      const trajectoryId =
+        typeof metaRow?.trajectory_id === 'string' && metaRow.trajectory_id.trim()
+          ? metaRow.trajectory_id.trim()
+          : crypto.randomUUID();
+      const blobRow = existingDb
+        .prepare("SELECT data FROM trajectory_metadata_blob WHERE id = 'main' LIMIT 1")
+        .get();
+      const existingBlob = blobRow?.data;
+      const hasNonEmptyBlob =
+        (existingBlob instanceof Uint8Array || Buffer.isBuffer(existingBlob)) &&
+        existingBlob.byteLength > 0;
+      if (!hasNonEmptyBlob) {
+        const metadataBlob = buildAgyTrajectoryMetadataBlob(normalizedId, trajectoryId, cwd);
+        existingDb
+          .prepare("INSERT OR REPLACE INTO trajectory_metadata_blob (id, data) VALUES ('main', ?)")
+          .run(metadataBlob);
+      }
+    } catch {
+      // Ignore best-effort repair failures on read-only or locked DBs.
+    } finally {
+      try {
+        existingDb?.close();
+      } catch {
+        // Ignore close errors.
+      }
+    }
+    return true;
+  }
 
   let db: SqliteDatabaseSync | null = null;
   try {
     fs.mkdirSync(conversationsDir, { recursive: true });
     db = new sqlite.DatabaseSync(dbPath);
     db.exec(
+      'PRAGMA user_version = 1;' +
       'CREATE TABLE IF NOT EXISTS `trajectory_meta` (`trajectory_id` text,`cascade_id` text,`trajectory_type` integer,`source` integer,PRIMARY KEY (`trajectory_id`));' +
       'CREATE TABLE IF NOT EXISTS `steps` (`idx` integer,`step_type` integer NOT NULL DEFAULT 0,`status` integer NOT NULL DEFAULT 0,`has_subtrajectory` numeric NOT NULL DEFAULT false,`metadata` blob,`error_details` blob,`permissions` blob,`task_details` blob,`render_info` blob,`step_payload` blob,`step_format` integer NOT NULL DEFAULT 0,PRIMARY KEY (`idx`));' +
       'CREATE INDEX IF NOT EXISTS `idx_steps_status` ON `steps`(`status`);' +
@@ -216,10 +258,12 @@ export function readAgyConversationSummaries(agyHomePath: string): Map<string, A
           typeof row.step_count === 'number' && Number.isFinite(row.step_count)
             ? row.step_count
             : 0;
-        const rawTitle = typeof row.title === 'string' ? row.title.trim() : '';
-        const rawPreview = typeof row.preview === 'string' ? row.preview.trim() : '';
-        const previewFirstLine = rawPreview ? rawPreview.split(/\r?\n/)[0]?.trim() || '' : '';
-        const title = rawTitle || previewFirstLine || null;
+        const cleanedTitle = cleanAgyUserInputText(row.title);
+        const cleanedPreview = cleanAgyUserInputText(row.preview);
+        const previewFirstLine = cleanedPreview
+          ? cleanedPreview.split(/\r?\n/).map(line => line.trim()).find(Boolean) || ''
+          : '';
+        const title = cleanedTitle || previewFirstLine || null;
         const parsedTime =
           typeof row.last_modified_time === 'string' ? Date.parse(row.last_modified_time) : NaN;
         const updatedAtMs = Number.isFinite(parsedTime) && parsedTime > 0 ? parsedTime : null;
@@ -429,6 +473,13 @@ export function cleanAgyUserInputText(raw: unknown): string {
     text = userReqMatch[1];
   }
   text = text.replace(/<farming-agent-context>[\s\S]*?<\/farming-agent-context>/gi, '');
+  text = text.replace(/<ADDITIONAL_METADATA>[\s\S]*?<\/ADDITIONAL_METADATA>/gi, '');
+  text = text.replace(/<USER_SETTINGS_CHANGE>[\s\S]*?<\/USER_SETTINGS_CHANGE>/gi, '');
+  text = text.replace(
+    /(?:^|\r?\n)*Attached (?:image|audio):[^\r\n]*(?:(?:\r?\n)+(?:Image|Audio) path:[^\r\n]*)?/gi,
+    ''
+  );
+  text = text.replace(/^(?:Image|Audio) path:[^\r\n]*$/gim, '');
   return text.trim();
 }
 

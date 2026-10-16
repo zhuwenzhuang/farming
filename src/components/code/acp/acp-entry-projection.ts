@@ -212,12 +212,21 @@ function stringValue(value: unknown): string {
 }
 
 function contentText(content: unknown) {
-  return list(content)
+  const parts = list(content)
     .map(record)
     .filter(block => block.type === 'text' && typeof block.text === 'string')
     .map(block => block.text as string)
-    .join('')
-    .trim()
+    .filter(text => text.length > 0)
+  let joined = ''
+  for (const part of parts) {
+    if (!joined) {
+      joined = part
+      continue
+    }
+    const separator = /\s$/.test(joined) || /^\s/.test(part) ? '' : '\n\n'
+    joined += `${separator}${part}`
+  }
+  return joined.trim()
 }
 
 function thoughtTitle(detail: string) {

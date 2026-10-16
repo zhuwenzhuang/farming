@@ -1569,7 +1569,9 @@ async function readAgySessionMetadata(
   };
 
   if (fs.existsSync(filePath)) {
-    const stream = fs.createReadStream(filePath, { encoding: 'utf8' });
+    const fullPath = path.join(path.dirname(filePath), 'transcript_full.jsonl');
+    const headPath = fs.existsSync(fullPath) ? fullPath : filePath;
+    const stream = fs.createReadStream(headPath, { encoding: 'utf8' });
     const reader = readline.createInterface({ input: stream, crlfDelay: Infinity });
     let lineCount = 0;
 

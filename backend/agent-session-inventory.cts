@@ -191,6 +191,7 @@ const INVENTORY_PROVIDER_POLICIES = {
     appendTolerantPaths: () => [],
     enrichWithAppendOnlyActivity: true,
     fingerprintDepth: 4,
+    sourceMayChangeDuringLoad: true,
     watchPaths: homePath => [
       path.join(homePath, 'conversation_summaries.db'),
       path.join(homePath, 'conversations'),

@@ -58,6 +58,25 @@ async function testConversationStore(tmpRoot: string) {
   assert(fs.existsSync(dbPath), 'pre-initialized conversation db should exist');
   assert.strictEqual(readAgyConversationStepCount(dbPath), 0);
 
+  const checkDb = new DatabaseSync(dbPath);
+  const userVersionRow = checkDb.prepare('PRAGMA user_version').get() as { user_version?: number } | undefined;
+  assert.strictEqual(userVersionRow?.user_version, 1, 'pre-initialized db must set PRAGMA user_version = 1 for agy 1.4.0+');
+  // Simulate legacy user_version = 0 corruption where agy inserted a duplicate trajectory_type = 0 row.
+  checkDb.exec('PRAGMA user_version = 0;');
+  checkDb
+    .prepare('INSERT INTO trajectory_meta (trajectory_id, cascade_id, trajectory_type, source) VALUES (?, ?, ?, ?)')
+    .run('duplicate-zero-row', sessionId, 0, 0);
+  checkDb.close();
+
+  assert.strictEqual(ensureAgyConversationDatabase(agyHome, sessionId, '/tmp/workspace'), true);
+  const healedDb = new DatabaseSync(dbPath, { readOnly: true });
+  const healedVersion = healedDb.prepare('PRAGMA user_version').get() as { user_version?: number } | undefined;
+  const metaRows = healedDb.prepare('SELECT trajectory_id, trajectory_type FROM trajectory_meta').all() as Array<{ trajectory_id: string; trajectory_type: number }>;
+  healedDb.close();
+  assert.strictEqual(healedVersion?.user_version, 1, 'ensureAgyConversationDatabase should heal user_version to 1');
+  assert.strictEqual(metaRows.length, 1, 'ensureAgyConversationDatabase should remove bogus trajectory_type=0 row');
+  assert.strictEqual(metaRows[0]?.trajectory_type, 4);
+
   const blob = buildAgyTrajectoryMetadataBlob(sessionId, 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee');
   assert.strictEqual(blob.length, 76);
   assert.strictEqual(blob[0], 0x1a);
@@ -69,7 +88,7 @@ async function testConversationStore(tmpRoot: string) {
   assert(buildAgyTrajectoryMetadataBlob(sessionId, 'trajectory', '/tmp/project#1?x').includes(Buffer.from('file:///tmp/project%231%3Fx')));
 
   const cleaned = cleanAgyUserInputText(
-    '<farming-agent-context>\nbootstrap\n</farming-agent-context>\n<USER_REQUEST>\nFix bug #42\n</USER_REQUEST>'
+    '<farming-agent-context>\nbootstrap\n</farming-agent-context>\n<USER_REQUEST>\nAttached image: pasted-1.webp\n\nImage path: /tmp/pasted-1.webp\n\nFix bug #42\n</USER_REQUEST>\n<ADDITIONAL_METADATA>\nmeta\n</ADDITIONAL_METADATA>'
   );
   assert.strictEqual(cleaned, 'Fix bug #42');
 
@@ -112,6 +131,15 @@ async function testCliSpecDiscoveryAndTerminalObserver(tmpRoot: string) {
   );
   assert.strictEqual(readExecutableCliVersion(fakeAgyBin), '1.3.5');
   assert.strictEqual(matchesExecutableIdentity('agy', fakeAgyBin), true);
+
+  const stderrAgyBin = path.join(tmpRoot, 'stderr-agy');
+  fs.writeFileSync(
+    stderrAgyBin,
+    '#!/usr/bin/env bash\nif [ "$1" = "--version" ]; then echo "1.3.6"; exit 0; fi\nif [ "$1" = "--help" ]; then echo "Usage of agy:" >&2; exit 0; fi\n',
+    { mode: 0o755 },
+  );
+  assert.strictEqual(readExecutableCliVersion(stderrAgyBin), '1.3.6');
+  assert.strictEqual(matchesExecutableIdentity('agy', stderrAgyBin), true);
 
   assert.strictEqual(providerTerminalKindForCommand('agy'), 'process');
   assert.strictEqual(nestedProviderTerminalCommand('Antigravity - Workspace'), 'agy');
@@ -551,9 +579,22 @@ console.log(JSON.stringify({
     for (const marker of ['FAIL_EXIT', 'FAIL_STATUS', 'MISSING_RESULT', 'WRONG_ID']) {
       await assert.rejects(runtime.prompt('agent-agy-test-1', [{ type: 'text', text: marker }]), /failure|ERROR|missing final result|different conversation identity/);
     }
+    await runtime.setSessionConfigOption('agent-agy-test-1', 'model', 'claude-opus-5-5');
     await runtime.setSessionConfigOption('agent-agy-test-1', 'effort', 'max');
-    await runtime.prompt('agent-agy-test-1', [{ type: 'text', text: 'CHECK_CONTEXT' }]);
-    assert(runtime.getSession('agent-agy-test-1').entries.map(entrySummary).some((line: string) => line.includes(workspaceDir) && line.includes('max')), 'later prompts retain the workspace and supported effort');
+    await runtime.prompt('agent-agy-test-1', [
+      { type: 'image', data: 'aW1hZ2U=', mimeType: 'image/png', path: '/tmp/screenshot-1.png', uri: 'file:///tmp/screenshot-1.png' },
+      { type: 'text', text: 'CHECK_CONTEXT' },
+    ]);
+    const afterContextSession = runtime.getSession('agent-agy-test-1');
+    assert(
+      afterContextSession.entries.map(entrySummary).some((line: string) => (
+        line.includes(workspaceDir)
+        && line.includes('claude-opus-5-5')
+        && line.includes('max')
+        && line.includes('Attached image: screenshot-1.png')
+      )),
+      'later prompts retain workspace, selected model, effort, and flattened image paths',
+    );
 
     const pendingTurn = runtime.prompt('agent-agy-test-1', [{ type: 'text', text: 'HANG_TOOLS' }]);
     const pidsFile = path.join(agyHome, 'turn-pids.json');

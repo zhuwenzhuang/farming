@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { execFileSync } = require('child_process');
+const { execFileSync, spawnSync } = require('child_process');
 import { runDiscoveryCommand } from './discovery-command.cjs';
 import { getUserLaunchAgents } from './cli-agents.cjs';
 import * as storageLayout from './storage-layout.cjs';
@@ -64,13 +64,26 @@ const executableVersionCache = new Map<string, string>();
 const executableIdentityCache = new Map<string, boolean>();
 const pendingExecutableProbes = new Map<string, Promise<string>>();
 
-async function probeExecutable(filePath: string, args: string[], key: string): Promise<string> {
+async function probeExecutable(
+  filePath: string,
+  args: string[],
+  key: string,
+  options: { includeStderr?: boolean } = {},
+): Promise<string> {
   let pending = pendingExecutableProbes.get(key);
   if (!pending) {
-    pending = runDiscoveryCommand(filePath, args, { timeoutMs: 2000 }).then(result => result || '', () => '').finally(() => { pendingExecutableProbes.delete(key); });
+    pending = runDiscoveryCommand(filePath, args, {
+      timeoutMs: 2000,
+      includeStderr: options.includeStderr,
+    }).then(result => result || '', () => '').finally(() => { pendingExecutableProbes.delete(key); });
     pendingExecutableProbes.set(key, pending);
   }
   return pending;
+}
+
+function probeOutputMatches(output: string, expected: string | string[]): boolean {
+  const needles = Array.isArray(expected) ? expected : [expected];
+  return needles.some(needle => Boolean(needle) && output.includes(needle));
 }
 
 async function readExecutableCliVersionAsync(filePath: string, cacheVersions = true): Promise<string> {
@@ -95,7 +108,10 @@ async function matchesExecutableIdentityAsync(agentName: string, filePath: strin
   const key = `${getExecutableVersionCacheKey(filePath)}:${agentName}:identity`;
   const cached = executableIdentityCache.get(key);
   if (cached !== undefined) return cached;
-  const matches = (await probeExecutable(filePath, probe.args, key)).includes(probe.outputIncludes);
+  const output = await probeExecutable(filePath, probe.args, key, {
+    includeStderr: probe.includeStderr,
+  });
+  const matches = probeOutputMatches(output, probe.outputIncludes);
   if (`${getExecutableVersionCacheKey(filePath)}:${agentName}:identity` === key) {
     const prefix = `${filePath}:`;
     for (const token of executableIdentityCache.keys()) {
@@ -108,7 +124,8 @@ async function matchesExecutableIdentityAsync(agentName: string, filePath: strin
 
 interface ExecutableIdentityProbe {
   args: string[];
-  outputIncludes: string;
+  includeStderr?: boolean;
+  outputIncludes: string | string[];
 }
 
 interface ExecutableDiscoveryDefinition {
@@ -163,7 +180,8 @@ const EXECUTABLE_DISCOVERY_DEFINITIONS: Record<string, ExecutableDiscoveryDefini
     preferredEnvironmentKeys: ['FARMING_AGY_BIN'],
     identityProbe: {
       args: ['--help'],
-      outputIncludes: 'Antigravity CLI',
+      includeStderr: true,
+      outputIncludes: ['Antigravity CLI', 'Usage of agy:'],
     },
   },
 };
@@ -252,10 +270,12 @@ function clearExecutableVersionCache(): void {
   executableIdentityCache.clear();
 }
 
+const defaultExecutableRunner = execFileSync as unknown as ExecutableRunner;
+
 function matchesExecutableIdentity(
   agentName: string,
   filePath: string,
-  runner: ExecutableRunner = execFileSync as unknown as ExecutableRunner,
+  runner: ExecutableRunner = defaultExecutableRunner,
 ): boolean {
   const probe = EXECUTABLE_DISCOVERY_DEFINITIONS[agentName]?.identityProbe;
   if (!probe) return true;
@@ -264,11 +284,24 @@ function matchesExecutableIdentity(
   if (cached !== undefined) return cached;
   let matches = false;
   try {
-    matches = String(runner(filePath, probe.args, {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-      timeout: 2000,
-    })).includes(probe.outputIncludes);
+    let output = '';
+    if (probe.includeStderr && runner === defaultExecutableRunner) {
+      const result = spawnSync(filePath, probe.args, {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+        timeout: 2000,
+      });
+      if (!result.error && result.status === 0) {
+        output = `${String(result.stdout || '')}${String(result.stderr || '')}`;
+      }
+    } else {
+      output = String(runner(filePath, probe.args, {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+        timeout: 2000,
+      }));
+    }
+    matches = probeOutputMatches(output, probe.outputIncludes);
   } catch {
     matches = false;
   }

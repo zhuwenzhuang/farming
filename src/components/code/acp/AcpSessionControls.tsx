@@ -38,7 +38,7 @@ function currentSelectOption(option: AcpSessionConfigSelect | undefined) {
 }
 
 function compactModelLabel(label: string) {
-  const compact = label.trim().replace(/^gpt[-\s]*/i, '')
+  const compact = label.trim().replace(/^gpt[-\s]+(?=\d)/i, '')
   return compact || label
 }
 
@@ -64,7 +64,7 @@ function ModeIcon({ modeId }: { modeId: string }) {
         </>
       ) : modeId === 'dontAsk' ? (
         <path d="M9.5 12h5" />
-      ) : ['agent', 'auto', 'acceptEdits', 'build'].includes(modeId) ? (
+      ) : ['agent', 'auto', 'acceptEdits', 'agent_decides', 'build'].includes(modeId) ? (
         <path d="m9.5 12.4 1.8 1.6 3.5-4" />
       ) : (
         <circle cx="12" cy="12" r="2.4" />
@@ -74,7 +74,7 @@ function ModeIcon({ modeId }: { modeId: string }) {
 }
 
 function modeColor(modeId: string) {
-  if (['agent', 'auto', 'acceptEdits', 'build'].includes(modeId)) return 'blue'
+  if (['agent', 'auto', 'acceptEdits', 'agent_decides', 'build'].includes(modeId)) return 'blue'
   if (['agent-full-access', 'bypassPermissions'].includes(modeId)) return 'orange'
   return 'muted'
 }

@@ -43,6 +43,7 @@ import {
   isSafeAgyConversationId,
   normalizeAgyToolArgs
 } from '../agy-conversation-store.cjs';
+import { fileURLToPath } from 'url';
 
 type AgyModeId = 'auto' | 'agent_decides' | 'plan';
 type AgyEffortLevel = 'high' | 'medium' | 'low' | 'xhigh' | 'max';
@@ -57,12 +58,76 @@ interface AgyBridgeSessionState {
   sessionId: string;
   cwd: string;
   currentModeId: AgyModeId;
+  currentModel: string;
   currentEffort: AgyEffortLevel;
   systemPromptInjected: boolean;
   activeChild: ChildProcess | null;
   cancelled: boolean;
   stopChild: (() => Promise<void>) | null;
   additionalDirectories: string[];
+}
+
+const DEFAULT_AGY_MODELS: Array<{ value: string; name: string; description?: string }> = [
+  {
+    value: 'gemini-4-argon',
+    name: 'Gemini 4 Argon',
+    description: 'Most capable Gemini model for complex reasoning and agentic coding'
+  },
+  {
+    value: 'gemini-3.8-flash',
+    name: 'Gemini 3.8 Flash',
+    description: 'Fast, lightweight Gemini model for everyday coding tasks'
+  },
+  {
+    value: 'claude-opus-5-5',
+    name: 'Claude Opus 5.5',
+    description: 'Anthropic flagship model for deep engineering tasks'
+  },
+  {
+    value: 'claude-sonnet-5-5',
+    name: 'Claude Sonnet 5.5',
+    description: 'Balanced Anthropic model for fast coding and analysis'
+  },
+  {
+    value: 'gpt-oss-120b-medium',
+    name: 'GPT-OSS 120B',
+    description: 'Open-weights reasoning model'
+  }
+];
+
+function isValidAgyModelSlug(value: unknown): value is string {
+  return typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value.trim());
+}
+
+function isValidAgyEffort(value: unknown): value is AgyEffortLevel {
+  return (
+    value === 'low' ||
+    value === 'medium' ||
+    value === 'high' ||
+    value === 'xhigh' ||
+    value === 'max'
+  );
+}
+
+function readDefaultAgySettings(agyHomePath: string): { model: string; effort: AgyEffortLevel } {
+  let model = 'gemini-4-argon';
+  let effort: AgyEffortLevel = 'high';
+  try {
+    const settingsPath = path.join(agyHomePath, 'settings.json');
+    if (fs.existsSync(settingsPath)) {
+      const parsed = JSON.parse(fs.readFileSync(settingsPath, 'utf8')) as Record<string, unknown>;
+      if (isValidAgyModelSlug(parsed?.model)) {
+        model = parsed.model.trim();
+      }
+      const rawEffort = typeof parsed?.effort === 'string' ? parsed.effort.trim().toLowerCase() : '';
+      if (isValidAgyEffort(rawEffort)) {
+        effort = rawEffort;
+      }
+    }
+  } catch {
+    // Ignore missing or malformed settings.json and use defaults.
+  }
+  return { model, effort };
 }
 
 const DEFAULT_AVAILABLE_COMMANDS: AvailableCommand[] = [
@@ -156,7 +221,22 @@ function buildModeState(session: AgyBridgeSessionState): SessionModeState {
 }
 
 function buildConfigOptions(session: AgyBridgeSessionState): SessionConfigOption[] {
+  const modelOptions = DEFAULT_AGY_MODELS.some(option => option.value === session.currentModel)
+    ? DEFAULT_AGY_MODELS
+    : [
+        { value: session.currentModel, name: session.currentModel },
+        ...DEFAULT_AGY_MODELS
+      ];
   return [
+    {
+      id: 'model',
+      name: 'Model',
+      description: 'Model for Antigravity',
+      category: 'model',
+      type: 'select',
+      currentValue: session.currentModel,
+      options: modelOptions
+    },
     {
       id: 'effort',
       name: 'Reasoning Effort',
@@ -222,12 +302,37 @@ function formatToolTitle(toolName: string, toolArgs: Record<string, unknown> | u
   return toolName || 'tool';
 }
 
+function resolveMediaBlockPath(block: Record<string, unknown>): string {
+  if (typeof block.path === 'string' && block.path.trim()) {
+    return path.resolve(block.path.trim());
+  }
+  if (typeof block.uri === 'string' && block.uri.trim().startsWith('file://')) {
+    try {
+      return path.resolve(fileURLToPath(block.uri.trim()));
+    } catch {
+      return '';
+    }
+  }
+  return '';
+}
+
 function flattenPromptBlocks(blocks: ContentBlock[]): string {
   const parts: string[] = [];
   for (const block of blocks || []) {
     if (!block || typeof block !== 'object') continue;
     if (block.type === 'text' && typeof block.text === 'string') {
-      parts.push(block.text);
+      const trimmed = block.text.trim();
+      if (trimmed) parts.push(trimmed);
+      continue;
+    }
+    if (block.type === 'image' || block.type === 'audio') {
+      const label = block.type === 'audio' ? 'audio' : 'image';
+      const attachmentPath = resolveMediaBlockPath(block as unknown as Record<string, unknown>);
+      const name = attachmentPath ? path.basename(attachmentPath) : `attached ${label}`;
+      const detail = attachmentPath
+        ? `${label.charAt(0).toUpperCase()}${label.slice(1)} path: ${attachmentPath}`
+        : `[Attached ${label}]`;
+      parts.push(`Attached ${label}: ${name}\n\n${detail}`);
       continue;
     }
     if (block.type === 'resource_link' && typeof block.uri === 'string') {
@@ -348,7 +453,7 @@ class AgyAcpAgent implements Agent {
       agentCapabilities: {
         loadSession: true,
         promptCapabilities: {
-          image: false,
+          image: true,
           audio: false,
           embeddedContext: true
         },
@@ -377,17 +482,21 @@ class AgyAcpAgent implements Agent {
       if (!ensureAgyConversationDatabase(this.options.agyHomePath, normalizedId, cwd)) throw new Error('Cannot initialize Antigravity conversation database');
     } else if (!hasAgyConversationDatabase(this.options.agyHomePath, normalizedId)) {
       throw new Error(`Antigravity conversation not found: ${normalizedId}`);
+    } else {
+      ensureAgyConversationDatabase(this.options.agyHomePath, normalizedId, cwd);
     }
     const existing = this.sessions.get(normalizedId);
     if (existing) {
       if (existing.cwd !== cwd) throw new Error('Antigravity Session workspace cannot change');
       return existing;
     }
+    const defaults = readDefaultAgySettings(this.options.agyHomePath);
     const created: AgyBridgeSessionState = {
       sessionId: normalizedId,
       cwd: cwd && path.isAbsolute(cwd) ? cwd : process.cwd(),
       currentModeId: 'auto',
-      currentEffort: 'high',
+      currentModel: defaults.model,
+      currentEffort: defaults.effort,
       systemPromptInjected: false,
       activeChild: null,
       stopChild: null,
@@ -494,12 +603,19 @@ class AgyAcpAgent implements Agent {
       throw new Error(`Session not found: ${params.sessionId}`);
     }
     if (session.activeChild) throw new Error('Cannot change configuration during an active turn');
-    if (params.configId !== 'effort' || !['low', 'medium', 'high', 'xhigh', 'max'].includes(String(params.value))) throw new Error('Unsupported Antigravity configuration');
-    if (params.configId === 'effort' && typeof params.value === 'string') {
-      const normalized = params.value.trim().toLowerCase();
-      if (normalized === 'high' || normalized === 'medium' || normalized === 'low' || normalized === 'xhigh' || normalized === 'max') {
-        session.currentEffort = normalized;
+    if (params.configId === 'model') {
+      if (!isValidAgyModelSlug(params.value)) {
+        throw new Error('Unsupported Antigravity configuration');
       }
+      session.currentModel = params.value.trim();
+    } else if (params.configId === 'effort') {
+      const normalized = typeof params.value === 'string' ? params.value.trim().toLowerCase() : '';
+      if (!isValidAgyEffort(normalized)) {
+        throw new Error('Unsupported Antigravity configuration');
+      }
+      session.currentEffort = normalized;
+    } else {
+      throw new Error('Unsupported Antigravity configuration');
     }
     return {
       configOptions: buildConfigOptions(session)
@@ -643,12 +759,13 @@ class AgyAcpAgent implements Agent {
     const isCliDirect = isCliDirectSlashCommand(userText);
     if (userText.trim().toLowerCase().startsWith('/effort ')) {
       const requestedEffort = userText.trim().slice('/effort '.length).trim().toLowerCase();
-      if (
-        requestedEffort === 'high' ||
-        requestedEffort === 'medium' ||
-        requestedEffort === 'low' || requestedEffort === 'xhigh' || requestedEffort === 'max'
-      ) {
+      if (isValidAgyEffort(requestedEffort)) {
         session.currentEffort = requestedEffort;
+      }
+    } else if (userText.trim().toLowerCase().startsWith('/model ')) {
+      const requestedModel = userText.trim().slice('/model '.length).trim();
+      if (isValidAgyModelSlug(requestedModel)) {
+        session.currentModel = requestedModel;
       }
     }
 
@@ -678,6 +795,7 @@ class AgyAcpAgent implements Agent {
           session.sessionId,
           '--output-format',
           'stream-json',
+          ...(session.currentModel ? ['--model', session.currentModel] : []),
           '--effort',
           session.currentEffort,
           ...homeArgs
@@ -693,7 +811,7 @@ class AgyAcpAgent implements Agent {
     }
 
     for (const directory of session.additionalDirectories) cliArgs.push('--add-dir', directory);
-    cliArgs.push('--print-timeout', '10m');
+    cliArgs.push('--print-timeout', '60m');
     const child = spawn(this.options.agyExecutable, cliArgs, {
       cwd: session.cwd,
       env: {
@@ -737,7 +855,7 @@ class AgyAcpAgent implements Agent {
     };
     let deadline: ReturnType<typeof setTimeout> | undefined;
     const turnDeadline = new Promise<never>((_, reject) => {
-      deadline = setTimeout(() => reject(new Error('Antigravity turn exceeded its deadline')), 610_000);
+      deadline = setTimeout(() => reject(new Error('Antigravity turn exceeded its deadline')), 3_660_000);
       deadline.unref();
     });
 
