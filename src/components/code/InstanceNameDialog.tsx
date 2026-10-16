@@ -65,7 +65,7 @@ export function InstanceNameDialog({
         {saveFailed && <p className="code-instance-name-error" role="alert">{copy.instanceNameSaveFailed}</p>}
         <div className="code-instance-name-actions">
           <button type="button" onClick={onClose} disabled={saving}>{copy.cancel}</button>
-          <button type="submit" className="primary" disabled={saving}>{copy.save}</button>
+          <button type="submit" className="primary" disabled={saving} aria-busy={saving}>{saving ? copy.saving : copy.save}</button>
         </div>
       </form>
     </div>,

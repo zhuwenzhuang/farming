@@ -1147,6 +1147,13 @@ This read-only pending state grants no mutation admission. Startup deadlines,
 actual failures, and missing bindings without an active start remain explicit
 errors rather than an indefinite pending response.
 
+Explicit reconnect and reconnecting mutations validate the retained ACP Agent
+record before trying Host initialization and persisted-session recovery. A
+missing live binding cannot reject that recovery attempt at admission. After
+recovery, the exact Agent record and live binding are revalidated; authoritative
+recovery failures and process-exit proof requirements remain enforced. Ordinary
+Session reads do not initiate recovery or start providers.
+
 A fresh Chat shows the stable empty-conversation state while its Session
 connects. Session startup is not an active Turn and must not enable Steer or
 replace the empty state with transient startup copy. A startup-time transcript

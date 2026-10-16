@@ -394,7 +394,12 @@ does not issue an RPC after cancellation. A sent RPC receives `$/cancelRequest`,
 but retains its execution slot until a response, connection failure, or request
 deadline settles it. Diagnostic and capability-legend waiters remove their
 listeners and timers on cancellation. No cancelled result is admitted and no
-failed request is automatically replayed.
+failed request is automatically replayed. The browser rejects a cancelled semantic
+request immediately but retains its sent admission until the backend returns a
+terminal `language-server-result` with `CANCELLED` or the connection closes.
+Queued cancellation acknowledges immediately; running cancellation acknowledges
+only after actual execution settles. Late results release admission without
+restoring cancelled presentation.
 
 Language Server refresh remains an ordered Project-scoped server event on the
 same WebSocket. It is not converted into polling.

@@ -126,6 +126,11 @@ Farming-owned Identity、Credential、Provider Home、Dynamic Loader 与 Node Ru
 Access。`.env` 中显式修改受保护变量会被拒绝；显式信任的 Shell 文件可以 Source 现有的完整
 Profile，其中的受保护变更会按名称和数量展示并过滤，其余普通 Environment 变更仍可使用。
 
+Environment 求值使用异步 I/O。Shell 求值拥有一个临时 Process Group，期限为 5 秒且输出
+有上限；完成或失败时清理该精确 Process Group。同一启动 Snapshot 的并发调用共享求值。
+保存完成验证后再次检查预期 Revision，仅在仍拥有该 Revision 时提交；不会为了构造保存
+响应再次执行 Shell Source。
+
 Provider 加 Agent Home ID 是一份 Configuration Identity。Global Settings 拥有可接收新 Agent
 的 Home 与展示顺序；Existing Agent Record 保留创建 Session 时使用的精确 Provider Home
 不可变绑定，移除或重排配置不能给已有 Session 改身份。

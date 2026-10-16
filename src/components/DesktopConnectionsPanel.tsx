@@ -249,16 +249,16 @@ export function DesktopConnectionsPanel({ language }: { language: UiLanguage }) 
             <h4>{draft.id ? (zh ? '编辑远程' : 'Edit remote') : (zh ? '添加远程' : 'Add remote')}</h4>
             <label>
               <span>{zh ? '名称' : 'Name'}</span>
-              <input required maxLength={80} value={draft.name} onChange={event => setDraft(current => current ? ({ ...current, name: event.target.value }) : current)} placeholder={zh ? '开发机' : 'Development host'} />
+              <input className="code-field" required maxLength={80} value={draft.name} onChange={event => setDraft(current => current ? ({ ...current, name: event.target.value }) : current)} placeholder={zh ? '开发机' : 'Development host'} />
             </label>
             <label>
               <span>{zh ? 'SSH 主机' : 'SSH host'}</span>
-              <input required value={draft.sshHost} onChange={event => setDraft(current => current ? ({ ...current, sshHost: event.target.value }) : current)} placeholder="my-dev-host" />
+              <input className="code-field" required value={draft.sshHost} onChange={event => setDraft(current => current ? ({ ...current, sshHost: event.target.value }) : current)} placeholder="my-dev-host" />
               <small>{zh ? '可填写 ~/.ssh/config 中的 Host，或 user@hostname；自定义端口、密钥和跳板机从 OpenSSH 配置读取。' : 'Use a Host from ~/.ssh/config or user@hostname; custom ports, keys, and jump hosts come from OpenSSH config.'}</small>
             </label>
             <label>
               <span>{zh ? 'Farming Home（可选）' : 'Farming Home (optional)'}</span>
-              <input value={draft.farmingHome} onChange={event => setDraft(current => current ? ({ ...current, farmingHome: event.target.value }) : current)} placeholder="~/.farming-desktop" />
+              <input className="code-field" value={draft.farmingHome} onChange={event => setDraft(current => current ? ({ ...current, farmingHome: event.target.value }) : current)} placeholder="~/.farming-desktop" />
             </label>
             {error && <div className="desktop-connections-error" role="alert">{error}</div>}
             <div className="desktop-connections-form-actions">

@@ -152,7 +152,7 @@ async function run() {
     assert.strictEqual(captured[1].env.FARMING_PROJECT_WORKSPACE, canonicalWorkspace);
     assert(captured[1].args.includes(farmingSystemPrompt), 'child Agents must receive the Farming bootstrap too');
 
-    const openCodeEnv = manager.buildAgentEnv('agent-opencode', {
+    const openCodeEnv = await manager.buildAgentEnv('agent-opencode', {
       wantsMain: false,
       category: 'coding',
       command: 'opencode',
@@ -211,7 +211,7 @@ async function run() {
         return { PATH: '/shell/bin' };
       },
     });
-    const disabledEnv = disabledAuthManager.buildAgentEnv('agent-disabled', { wantsMain: false });
+    const disabledEnv = await disabledAuthManager.buildAgentEnv('agent-disabled', { wantsMain: false });
     assert.strictEqual(disabledEnv.FARMING_DISABLE_AUTH, '1');
     assert.strictEqual(disabledEnv.FARMING_TOKEN_FILE, undefined);
     disabledAuthManager.heartbeatScheduler.stop();

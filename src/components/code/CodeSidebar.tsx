@@ -1,3 +1,4 @@
+import { useModalFocusScope } from '@/hooks/useModalFocusScope'
 import { CollaborationAgentIcon } from './CollaborationAgentIcon'
 import { pendingAgentQuestions, revealQuestions } from './acp/acp-elicitation-presentation'
 import { NativeRelatedRows } from './NativeRelatedRows'
@@ -298,34 +299,6 @@ interface CodeSidebarProps {
   onOpenOptionsMenu: (event: ReactMouseEvent<HTMLElement>) => void
   onRenameInstance: (name: string) => Promise<boolean>
   copy: CodeCopy
-}
-
-function trapFocusInContainer(event: ReactKeyboardEvent<HTMLElement>, container: HTMLElement) {
-  if (event.key !== 'Tab') return
-
-  const focusable = Array.from(container.querySelectorAll<HTMLElement>(
-    'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [href], [tabindex]:not([tabindex="-1"])'
-  )).filter(element => element.offsetParent !== null)
-  if (focusable.length === 0) {
-    event.preventDefault()
-    return
-  }
-
-  const first = focusable[0]
-  const last = focusable[focusable.length - 1]
-  const activeElement = document.activeElement
-  if (event.shiftKey) {
-    if (activeElement === first || !container.contains(activeElement)) {
-      event.preventDefault()
-      last?.focus()
-    }
-    return
-  }
-
-  if (activeElement === last || !container.contains(activeElement)) {
-    event.preventDefault()
-    first?.focus()
-  }
 }
 
 export function CodeSidebar({
@@ -752,6 +725,12 @@ export function CodeSidebar({
   // collapsed rail stays visible and interactive.
   const mobileDrawerClosed = navigationViewport && sidebarCollapsed
 
+  useModalFocusScope({
+    open: navigationModalOpen,
+    dialogRef: navigationDialogRef,
+    onEscape: onDismissNavigationModal,
+  })
+
   return (
     <RelatedSidebarRows.Provider value={{
       agents: displayedProjects.flatMap(project => project.agents),
@@ -778,16 +757,7 @@ export function CodeSidebar({
       onContextMenuCapture={event => {
         if ((!previewSurfaceRef.current || !event.nativeEvent.composedPath().includes(previewSurfaceRef.current))) hideAgentPreview()
       }}
-      onKeyDown={event => {
-        if (!navigationModalOpen || event.defaultPrevented) return
-        if (event.key === 'Escape') {
-          event.preventDefault()
-          event.stopPropagation()
-          onDismissNavigationModal()
-          return
-        }
-        trapFocusInContainer(event, event.currentTarget)
-      }}
+
     >
       <div className="code-nav">
         <div className="code-nav-top-row">

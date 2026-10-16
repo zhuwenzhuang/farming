@@ -416,18 +416,32 @@ function agentTranscriptUrlTransform(value: string, key: string) {
   return defaultUrlTransform(value)
 }
 
-const compactTranscriptMarkdownComponents: Components = {
-  a: ({ href, children, ...props }) => <a {...props} href={href} target="_blank" rel="noreferrer">{children}</a>,
+function useCompactTranscriptMarkdownComponents(copy: CodeCopy): Components {
+  const { workspaceRoot, onOpenFile } = useContext(TranscriptFileOpenContext)
+  return useMemo(() => ({
+    a: ({ href, children, onClick, ...props }) => {
+      const target = href ? transcriptFileTargetFromHref(href, workspaceRoot) : null
+      return <a {...props} href={target ? '#' : href} target={target ? undefined : '_blank'} rel="noreferrer" onClick={event => {
+        onClick?.(event)
+        if (!event.defaultPrevented && target && onOpenFile) {
+          event.preventDefault()
+          void onOpenFile(target.filePath, target.target)
+        }
+      }}>{children}</a>
+    },
+    pre: props => <MarkdownCodeBlock {...props} copy={copy} />,
+  }), [copy, onOpenFile, workspaceRoot])
 }
 
-function AgentTranscriptReasoningMarkdown({ text }: { text: string }) {
+function AgentTranscriptReasoningMarkdown({ text, copy }: { text: string; copy: CodeCopy }) {
+  const components = useCompactTranscriptMarkdownComponents(copy)
   return (
     <ReactMarkdown
       remarkPlugins={INLINE_REMARK_PLUGINS}
       disallowedElements={['img']}
       skipHtml
       unwrapDisallowed
-      components={compactTranscriptMarkdownComponents}
+      components={components}
       urlTransform={agentTranscriptUrlTransform}
     >
       {text}
@@ -1422,7 +1436,7 @@ function AgentTranscriptSteerItem({ item, copy }: { item: AgentTranscriptProcess
   return (
     <div className="code-agent-transcript-steer" data-testid="code-agent-transcript-steer">
       <div className="code-agent-transcript-user code-agent-transcript-steer-bubble">
-        {text ? <div className="code-agent-transcript-steer-content"><AgentTranscriptUserMarkdown text={text} /></div> : null}
+        {text ? <div className="code-agent-transcript-steer-content"><AgentTranscriptUserMarkdown text={text} copy={copy} /></div> : null}
         <AgentTranscriptUserImages images={images} />
         <AgentTranscriptAudios audios={audios} />
         <AgentTranscriptUserFiles files={files} />
@@ -1463,23 +1477,24 @@ function AgentTranscriptCommunicationRecipient({ peer, fallback, directed, copy 
   return directed ? copy.agentTranscriptCollaborationRecipient(name) : name
 }
 
-function AgentTranscriptUserMarkdown({ text }: { text: string }) {
+function AgentTranscriptUserMarkdown({ text, copy }: { text: string; copy: CodeCopy }) {
+  const components = useCompactTranscriptMarkdownComponents(copy)
   return <div className="code-markdown-preview code-agent-transcript-user-markdown">
     <ReactMarkdown
       remarkPlugins={TRANSCRIPT_REMARK_PLUGINS}
-      rehypePlugins={[rehypeKatex, rehypeHighlight]}
+      rehypePlugins={[rehypeGuardInvalidKatex, rehypeKatex, rehypeHighlight]}
       skipHtml
-      components={compactTranscriptMarkdownComponents}
+      components={components}
       urlTransform={agentTranscriptUrlTransform}
     >{text}</ReactMarkdown>
   </div>
 }
 
 function AgentTranscriptUserMessage({ turn, copy }: { turn: AgentTranscriptTurn; copy: CodeCopy }) {
-  if (!turn.handoffContext) return <AgentTranscriptUserMarkdown text={turn.userMessage} />
+  if (!turn.handoffContext) return <AgentTranscriptUserMarkdown text={turn.userMessage} copy={copy} />
   return <details className="code-agent-transcript-context" data-testid="code-agent-handoff-context">
     <summary><span>{copy.handoffContext}</span><ChevronRightGlyph /></summary>
-    <div className="detail"><AgentTranscriptUserMarkdown text={turn.userMessage} /></div>
+    <div className="detail"><AgentTranscriptUserMarkdown text={turn.userMessage} copy={copy} /></div>
   </details>
 }
 
@@ -1559,7 +1574,7 @@ function AgentTranscriptOutgoingMessage({ activity, recipient, open, onToggleDet
     <div className="code-agent-transcript-outgoing-bubble">
       <div className={`code-markdown-preview code-agent-transcript-message-body ${long && !expanded ? 'collapsed' : ''}`}
         data-testid="code-agent-outgoing-body">
-        <AgentTranscriptReasoningMarkdown text={text} />
+        <AgentTranscriptReasoningMarkdown text={text} copy={copy} />
       </div>
       {long ? <button type="button" className="code-agent-transcript-message-expand" disabled={loading}
         aria-expanded={expanded} onClick={event => { void toggleMessage(event.currentTarget) }}>
@@ -1792,7 +1807,7 @@ function AgentTranscriptProcessItemView({
       {!planItems && hasDetail && shouldRenderDetailAsProse(item) ? (
         <div className={`code-agent-transcript-process-detail ${markdownDetail ? 'code-markdown-preview' : ''}`}>
           {markdownDetail
-            ? <AgentTranscriptReasoningMarkdown text={visibleDetail} />
+            ? <AgentTranscriptReasoningMarkdown text={visibleDetail} copy={copy} />
             : plainTextBlock(visibleDetail)}
         </div>
       ) : !planItems && hasDetail ? <pre>{visibleDetail}</pre> : null}
@@ -3231,6 +3246,8 @@ export function AgentTranscriptPane({
   groupProcessActions = true,
   copy,
 }: AgentTranscriptPaneProps) {
+  const unavailableCopyRef = useRef(copy.agentTranscriptUnavailable)
+  unavailableCopyRef.current = copy.agentTranscriptUnavailable
   useAcpRevisionInterest(agentId, active && source === 'acp')
   const questionPresentation = useQuestionPresentation(agentId)
   const questionNavigation = useRef<{ reveal: number; requestId: string; done: boolean }>({ reveal: 0, requestId: '', done: true })
@@ -3626,7 +3643,7 @@ export function AgentTranscriptPane({
       setLoadingOlder(snapshot.loadingOlder)
       setTurnLimit(current => current === snapshot.turnLimit ? current : snapshot.turnLimit)
       const visibleError = snapshot.error && (expectHistoryRef.current || Boolean(snapshot.transcript?.turns.length))
-      setError(visibleError ? copy.agentTranscriptUnavailable : '')
+      setError(visibleError ? unavailableCopyRef.current : '')
       if (snapshot.loading) return
       const pooledTranscript = snapshot.transcript
       if (pooledTranscript?.envelopeVersion === 1 && pooledTranscript.settled) {
@@ -3646,7 +3663,7 @@ export function AgentTranscriptPane({
       unsubscribe()
       release()
     }
-  }, [agentId, copy.agentTranscriptUnavailable, revealInitialTranscript, scheduleInitialTranscriptReveal, source])
+  }, [agentId, revealInitialTranscript, scheduleInitialTranscriptReveal, source])
 
   useEffect(() => {
     if (source !== 'acp') return
@@ -3708,7 +3725,7 @@ export function AgentTranscriptPane({
       })
         .then(response => {
           responseReceived = true
-          if (!response.ok) throw new Error(copy.agentTranscriptUnavailable)
+          if (!response.ok) throw new Error(unavailableCopyRef.current)
           return response.json()
         })
         .then(payload => {
@@ -3754,7 +3771,7 @@ export function AgentTranscriptPane({
             if (hasAuthoritativeTurns) {
               setLoading(false)
             } else {
-              setError(copy.agentTranscriptUnavailable)
+              setError(unavailableCopyRef.current)
               revealInitialTranscript()
               setLoading(false)
             }
@@ -3793,7 +3810,7 @@ export function AgentTranscriptPane({
           setError(
             transcriptRef.current?.available || suppressFreshAcpResponseError
               ? ''
-              : copy.agentTranscriptUnavailable,
+              : unavailableCopyRef.current,
           )
           revealInitialTranscript()
           setLoading(false)
@@ -3873,7 +3890,7 @@ export function AgentTranscriptPane({
       if (refreshTimer !== null) window.clearTimeout(refreshTimer)
       if (pollTimer !== null) window.clearInterval(pollTimer)
     }
-  }, [agentId, copy.agentTranscriptUnavailable, revealInitialTranscript, scheduleInitialTranscriptReveal, source, turnLimit])
+  }, [agentId, revealInitialTranscript, scheduleInitialTranscriptReveal, source, turnLimit])
 
   useEffect(() => {
     if (handledRefreshSignalRef.current === refreshSignal) return
@@ -4094,8 +4111,9 @@ export function AgentTranscriptPane({
     if (active && isPageActive()) onReadLatest?.()
   }, [active, initialRevealReady, loading, loadingOlder, onReadLatest, openProcessTurnIds, readingAnchorAgentId, readingAnchorRestorePending, scheduleReadingAnchorSave, source, transcript, turnLimit, turns])
 
+  const hasObservedTurns = turns.length > 0
   useLayoutEffect(() => {
-    if (!active || !transcript?.available || turns.length === 0 || typeof ResizeObserver === 'undefined') {
+    if (!active || !transcript?.available || !hasObservedTurns || typeof ResizeObserver === 'undefined') {
       return undefined
     }
     const element = scrollRef.current
@@ -4111,9 +4129,18 @@ export function AgentTranscriptPane({
       clearReadingAnchor(readingAnchorAgentKey(readingAnchorAgentId, 'chat'))
       setShowJumpToBottom(false)
     })
-    element.querySelectorAll<HTMLElement>('.code-agent-transcript-turn').forEach(turn => observer.observe(turn))
-    return () => observer.disconnect()
-  }, [active, readingAnchorAgentId, transcript?.available, turns])
+    Array.from(element.children).forEach(child => observer.observe(child))
+    const mutations = new MutationObserver(records => {
+      for (const record of records) {
+        record.removedNodes.forEach(node => { if (node instanceof Element) observer.unobserve(node) })
+        record.addedNodes.forEach(node => { if (node instanceof Element) observer.observe(node) })
+      }
+    })
+    // Only direct child replacement changes observation ownership. Streaming
+    // text updates inside a Turn keep the same observer and observed elements.
+    mutations.observe(element, { childList: true })
+    return () => { mutations.disconnect(); observer.disconnect() }
+  }, [active, hasObservedTurns, initialRevealReady, loading, readingAnchorAgentId, transcript?.available])
 
   useEffect(() => {
     const element = scrollRef.current
@@ -4202,7 +4229,7 @@ export function AgentTranscriptPane({
       `/api/agents/${encodeURIComponent(agentId)}/acp-tool-details/${encodeURIComponent(itemId)}`,
     ), { signal: AbortSignal.timeout(15_000) })
     const payload = await response.json().catch(() => ({}))
-    if (!response.ok) throw new Error(payload.error || copy.agentTranscriptUnavailable)
+    if (!response.ok) throw new Error(payload.error || unavailableCopyRef.current)
     return {
       detail: String(payload.detail || ''),
       collaborationMessage: typeof payload.collaborationMessage === 'string' ? payload.collaborationMessage : undefined,
@@ -4211,7 +4238,7 @@ export function AgentTranscriptPane({
         ? projectAcpTranscript(payload.subagentSession, { maxTurns: 12 })
         : undefined,
     }
-  }, [agentId, copy.agentTranscriptUnavailable])
+  }, [agentId])
   const handleLoadPatchChanges = useCallback((itemIds: string[]) => (
     loadAcpReviewPreview(agentId, itemIds)
   ), [agentId])

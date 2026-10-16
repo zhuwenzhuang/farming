@@ -2162,9 +2162,9 @@ export function ReviewPage() {
           <span>{patchsetState.reviewedLoaded ? `${patchsetState.reviewedPaths.length}/${files.length} reviewed` : 'Reviewed status unavailable'} · {commentsLoadState === 'loaded' ? `${reviewState.comments.filter(comment => !comment.status || comment.status === 'open').length} unresolved` : commentsLoadState === 'loading' ? 'Comments loading…' : 'Comments unavailable'}</span>
           <button type="button" className="code-content-toolbar-text" disabled={!previousFile} onClick={() => navigateFile('previous')} title="Previous file ([)">PREVIOUS FILE</button>
           <button type="button" className="code-content-toolbar-text" disabled={!nextFile} onClick={() => navigateFile('next')} title="Next file (])">NEXT FILE</button>
-          <button type="button" className="code-content-toolbar-text" disabled={!nextUnreviewedFile} onClick={() => navigateFile('next', true)}>NEXT UNREVIEWED</button>
+          <button type="button" className="code-content-toolbar-text" disabled={!nextUnreviewedFile} onClick={() => navigateFile('next', true)} title={nextUnreviewedFile ? 'Next unreviewed file' : 'All files reviewed'}>NEXT UNREVIEWED</button>
           <button type="button" className="code-content-toolbar-text" onClick={() => navigateContent('hunk', 'next')} title="Next change (n), previous (p)">NEXT CHANGE</button>
-          <button type="button" className="code-content-toolbar-text" disabled={!reviewState.comments.length} onClick={() => navigateContent('comment', 'next')}>NEXT COMMENT</button>
+          <button type="button" className="code-content-toolbar-text" disabled={!reviewState.comments.length} onClick={() => navigateContent('comment', 'next')} title={reviewState.comments.length ? 'Next comment' : 'No comments'}>NEXT COMMENT</button>
           <CodeSelect className="review-navigation-select" density="toolbar" ariaLabel="Review navigation" value=""
             options={[
               { value: '', label: 'Navigate…', disabled: true },

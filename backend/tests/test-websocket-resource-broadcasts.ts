@@ -30,10 +30,29 @@ function deletion(id: string, collectionRevision: number): Record<string, unknow
 function run(): void {
   {
     const ws = client();
+    let flush: (() => void) | undefined;
+    const cleared: unknown[] = [];
+    const controller = createWebSocketResourceBroadcastController({
+      clients: () => [ws], intervalMs: 5, maxBufferedAmount: 100, openState: 1, protocolVersion: 1,
+      sendResourceSnapshots: () => {},
+      setTimer: callback => { flush = callback; return callback; },
+      clearTimer: timer => { cleared.push(timer); },
+    });
+    controller.scheduleUpdate('browser', resource('closing', 1));
+    controller.dispose();
+    controller.dispose();
+    assert.deepStrictEqual(cleared, [flush], 'disposal clears its exact pending timer once');
+    flush?.();
+    controller.scheduleUpdate('browser', resource('after-close', 2));
+    assert.deepStrictEqual(ws.sent, [], 'a disposed broadcaster cannot deliver queued or later events');
+  }
+  {
+    const ws = client();
     let flush: (() => void) | null = null;
     let timerCalls = 0;
     let timerDelay: number | null = null;
     const controller = createWebSocketResourceBroadcastController({
+      clearTimer: () => {},
       clients: () => [ws], intervalMs: 5, maxBufferedAmount: 100, openState: 1, protocolVersion: 1,
       sendResourceSnapshots: () => assert.fail('normal delta must not send a snapshot'),
       setTimer: (callback, delay) => {
@@ -61,6 +80,7 @@ function run(): void {
     const snapshots: TestClient[] = [];
     let flush: (() => void) | null = null;
     const controller = createWebSocketResourceBroadcastController({
+      clearTimer: () => {},
       clients: () => [slow], intervalMs: 5, maxBufferedAmount: 100, openState: 1, protocolVersion: 1,
       sendResourceSnapshots: client => { snapshots.push(client); client.resourceSnapshotPending = false; },
       setTimer: callback => { flush = callback; return callback; },
@@ -80,6 +100,7 @@ function run(): void {
     const snapshots: TestClient[] = [];
     let flush: (() => void) | null = null;
     const controller = createWebSocketResourceBroadcastController({
+      clearTimer: () => {},
       clients: () => [pending, closed, unnegotiated], intervalMs: 5, maxBufferedAmount: 100, openState: 1, protocolVersion: 1,
       sendResourceSnapshots: client => { snapshots.push(client); client.resourceSnapshotPending = false; },
       setTimer: callback => { flush = callback; return callback; },

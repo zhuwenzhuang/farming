@@ -269,13 +269,13 @@
   max-width: min(420px, calc(100% - 48px));
   min-height: 36px;
   padding: 6px 8px 6px 12px;
-  border: 1px solid var(--code-border);
+  border: 1px solid var(--code-workbench-divider);
   border-radius: 8px;
-  background: var(--code-bg-raised);
+  background: var(--code-bg-muted);
   color: var(--code-text-muted);
   box-shadow: 0 12px 32px var(--code-shadow-color);
   font-size: 12px;
-  border-color: var(--code-border);
+  border-color: var(--code-workbench-divider);
 }
 
 .code-terminal-status-card.stopped {
@@ -300,14 +300,14 @@
 .code-terminal-status-card button {
   flex: 0 0 auto;
   height: 26px;
-  border: 1px solid var(--code-border);
+  border: 1px solid var(--code-workbench-divider);
   border-radius: 6px;
-  background: var(--code-bg-raised);
+  background: var(--code-bg-muted);
   color: var(--code-text);
   font: inherit;
   padding: 0 9px;
   cursor: pointer;
-  border-color: var(--code-border);
+  border-color: var(--code-workbench-divider);
 }
 
 .code-terminal-status-card button:hover,
@@ -460,7 +460,7 @@
 
 .terminal-context-menu-item:hover:not(:disabled) {
   background: var(--code-bg-hover);
-  border-color: var(--theme-border-info);
+  border-color: var(--code-workbench-divider);
   color: var(--code-text);
 }
 
@@ -487,7 +487,6 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item {
   line-height: 1.2;
 }
 
-body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:hover:not(:disabled),
 body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-visible {
   outline: 2px solid var(--code-focus-ring);
   outline-offset: -2px;

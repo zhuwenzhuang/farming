@@ -118,7 +118,7 @@ export function FileOperationDialog({
             className={fileOperation.kind === 'delete' ? 'danger' : 'primary'}
             disabled={fileOperation.submitting || (fileOperation.kind !== 'delete' && !fileOperation.name.trim())}
           >
-            {fileOperation.kind === 'delete' ? copy.delete : copy.save}
+            {fileOperation.submitting ? fileOperation.kind === 'delete' ? copy.deleting : copy.saving : fileOperation.kind === 'delete' ? copy.delete : copy.save}
           </button>
         </div>
       </form>

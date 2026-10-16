@@ -2869,7 +2869,10 @@ const websocketResourceBroadcasts = createWebSocketResourceBroadcastController<W
   protocolVersion: PROTOCOL_VERSION,
   sendResourceSnapshots,
   setTimer: setTimeout,
+  clearTimer: timer => clearTimeout(timer as ReturnType<typeof setTimeout>),
 });
+
+server.on('close', () => websocketResourceBroadcasts.dispose());
 
 function recoverResourceSnapshotIfReady(client: WebSocketClient) {
   websocketResourceBroadcasts.recoverSnapshotIfReady(client);

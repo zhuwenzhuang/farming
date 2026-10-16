@@ -2612,6 +2612,16 @@ class WorkspaceFileService {
     }
   }
 
+  private pruneGitStatusCache(now = Date.now()): void {
+    const retained: string[] = [];
+    for (const [root, entry] of this.gitStatusCache) {
+      if (entry.promise) continue;
+      if (entry.expiresAt <= now) this.gitStatusCache.delete(root);
+      else retained.push(root);
+    }
+    while (retained.length > 64) this.gitStatusCache.delete(retained.shift()!);
+  }
+
   async getGitStatusByPath(root: string) {
     if (this.gitStatusCacheTtlMs > 0) {
       const now = Date.now();
@@ -2623,12 +2633,15 @@ class WorkspaceFileService {
         return cached.promise;
       }
 
+      this.pruneGitStatusCache(now);
+
       const promise = this.loadGitStatusByPath(root).then((value) => {
         if (this.gitStatusCache.get(root)?.promise === promise) {
           this.gitStatusCache.set(root, {
             value,
             expiresAt: Date.now() + this.gitStatusCacheTtlMs,
           });
+          this.pruneGitStatusCache();
         }
         return value;
       }, (error) => {

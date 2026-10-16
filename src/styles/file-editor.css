@@ -818,8 +818,8 @@ body.code-mode .code-file-editor-fallback-textarea {
   flex: 0 0 auto;
 }
 
-.code-spreadsheet-toolbar select,
-.code-spreadsheet-toolbar input,
+.code-spreadsheet-toolbar select:not(.code-field),
+.code-spreadsheet-toolbar input:not(.code-field),
 .code-spreadsheet-toolbar button {
   height: 28px;
   box-sizing: border-box;
@@ -830,8 +830,8 @@ body.code-mode .code-file-editor-fallback-textarea {
   font: inherit;
 }
 
-.code-spreadsheet-toolbar select,
-.code-spreadsheet-toolbar input {
+.code-spreadsheet-toolbar select:not(.code-field),
+.code-spreadsheet-toolbar input:not(.code-field) {
   padding: 0 8px;
 }
 
@@ -1180,7 +1180,8 @@ body.code-mode .code-file-editor-fallback-textarea {
 @media (max-width: 767px), (max-width: 980px) and (pointer: coarse) {
 
   .code-file-editor-source-region.markdown-split {
-    grid-template-columns: minmax(0, 1fr) minmax(280px, 1fr);
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(160px, 1fr) minmax(160px, 1fr);
   }
 }
 

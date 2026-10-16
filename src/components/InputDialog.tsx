@@ -1,4 +1,5 @@
 import { useInteractionLayer } from '@/hooks/useInteractionLayer'
+import { useModalFocusScope } from '@/hooks/useModalFocusScope'
 import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { useKeyboard } from '@/hooks/useKeyboard'
@@ -832,39 +833,7 @@ export function InputDialog({
   }, [])
 
   const handleDialogKeyDown = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
-    if (step === 'agent-list') {
-      moveAgentListFocus(event)
-      if (event.defaultPrevented) return
-    }
-
-    if (event.key !== 'Tab') return
-
-    const dialog = dialogRef.current
-    if (!dialog) return
-
-    const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(
-      'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [href], [tabindex]:not([tabindex="-1"])'
-    )).filter(element => element.offsetParent !== null)
-    if (focusable.length === 0) {
-      event.preventDefault()
-      return
-    }
-
-    const first = focusable[0]
-    const last = focusable[focusable.length - 1]
-    const activeElement = document.activeElement
-    if (event.shiftKey) {
-      if (activeElement === first || !dialog.contains(activeElement)) {
-        event.preventDefault()
-        last?.focus()
-      }
-      return
-    }
-
-    if (activeElement === last || !dialog.contains(activeElement)) {
-      event.preventDefault()
-      first?.focus()
-    }
+    if (step === 'agent-list') moveAgentListFocus(event)
   }, [moveAgentListFocus, step])
 
   // Keyboard shortcuts for agent list
@@ -879,13 +848,12 @@ export function InputDialog({
     open && step === 'agent-list'
   )
 
-  useInteractionLayer({
-    enabled: open,
-    modal: true,
-    elements: () => [dialogRef.current],
+  useModalFocusScope({
+    open,
+    dialogRef,
     dismissOnPointerOutside: false,
-    dismissOnEscape: step === 'agent-list' ? !mustStartMain : workspacePreparation?.kind !== 'creating',
-    onDismiss: () => {
+    escapeEnabled: step === 'agent-list' ? !mustStartMain : workspacePreparation?.kind !== 'creating',
+    onEscape: () => {
       if (step === 'agent-list') {
         onClose()
       } else if (workspaceDirectoryBrowserOpen) {

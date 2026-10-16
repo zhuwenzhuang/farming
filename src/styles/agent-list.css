@@ -319,6 +319,7 @@
   height: 28px;
   box-sizing: border-box;
   padding-left: 21px;
+  border-radius: 8px;
   background: linear-gradient(90deg, transparent 0, var(--code-agent-row-surface) 21px);
   opacity: 0;
   pointer-events: none;
@@ -333,26 +334,26 @@
 
 .code-agent-row:hover .code-agent-row-actions,
 .code-agent-row:focus-visible .code-agent-row-actions,
-.code-agent-row:has(.code-agent-row-actions :focus-visible) .code-agent-row-actions {
+.code-agent-row:focus-within .code-agent-row-actions {
   opacity: 1;
   pointer-events: none;
   z-index: 3;
 }
 
 /* The hover surface must not intercept navigation through its empty padding. */
-.code-agent-row:is(:hover, :focus-visible, :has(.code-agent-row-actions :focus-visible)) .code-agent-row-actions button {
+.code-agent-row:is(:hover, :focus-visible, :focus-within) .code-agent-row-actions button {
   pointer-events: auto;
 }
 
 body.code-mode:not(.code-compact-layout) .code-agent-row:hover:has(.code-agent-dot.turn-active) .code-agent-dot.turn-active,
 body.code-mode:not(.code-compact-layout) .code-agent-row:focus-visible:has(.code-agent-dot.turn-active) .code-agent-dot.turn-active,
-body.code-mode:not(.code-compact-layout) .code-agent-row:has(.code-agent-row-actions :focus-visible):has(.code-agent-dot.turn-active) .code-agent-dot.turn-active {
+body.code-mode:not(.code-compact-layout) .code-agent-row:focus-within:has(.code-agent-dot.turn-active) .code-agent-dot.turn-active {
   opacity: 0;
 }
 
 .code-agent-row:hover .code-agent-age,
 .code-agent-row:focus-visible .code-agent-age,
-.code-agent-row:has(.code-agent-row-actions :focus-visible) .code-agent-age {
+.code-agent-row:focus-within .code-agent-age {
   display: none;
 }
 
@@ -477,7 +478,7 @@ body.code-mode:not(.code-compact-layout) .code-agent-row:has(.code-agent-row-act
 
 .code-agent-row.force-age:hover .code-agent-age,
 .code-agent-row.force-age:focus-visible .code-agent-age,
-.code-agent-row.force-age:has(.code-agent-row-actions :focus-visible) .code-agent-age {
+.code-agent-row.force-age:focus-within .code-agent-age {
   display: none;
 }
 

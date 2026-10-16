@@ -1649,7 +1649,7 @@ body.code-mode .workspace-directory-browser-row {
 body.code-mode .workspace-directory-browser-row:hover,
 body.code-mode .workspace-directory-browser-row:focus-visible {
   outline: none;
-  background: var(--code-bg-hover);
+  background: var(--code-bg-selected);
 }
 
 body.code-mode .workspace-directory-browser-row.selected {
@@ -2460,7 +2460,7 @@ body.code-mode .workspace-directory-prompt-actions button:focus-visible {
 
 .workspace-directory-picker:hover:not(:disabled),
 .workspace-directory-picker:focus-visible {
-  border-color: var(--theme-border-info);
+  border-color: var(--code-workbench-divider);
   background: var(--code-bg-hover);
   color: var(--code-text);
 }
@@ -3681,11 +3681,11 @@ body.code-mode.code-compact-layout .code-options-menu button:focus-visible {
   color: var(--code-text);
 }
 .workspace-directory-browser-row:hover {
-  background: var(--code-bg-hover);
+  background: var(--code-bg-selected);
   color: var(--code-text);
 }
 .workspace-directory-browser-row:focus-visible {
-  background: var(--code-bg-hover);
+  background: var(--code-bg-selected);
   color: var(--code-text);
 }
 .workspace-directory-browser-actions button.secondary:hover {
@@ -4079,17 +4079,18 @@ body.code-mode.code-mobile-markdown-reading .code-mobile-topbar-button {
 .code-related-session-resizer { grid-column: 2; grid-row: 1 / -1; position: relative; cursor: col-resize; touch-action: none; z-index: 10; }
 .code-related-session-resizer::before { content: ''; position: absolute; inset: 0 -4px; }
 /* Workbench splitters share paint states; each layout owns its hit area. */
-:is(.code-sidebar-resizer, .code-resource-agent-resizer, .code-related-session-resizer) {
+:is(.code-sidebar-resizer, .code-resource-agent-resizer, .code-related-session-resizer, .code-language-server-resizer) {
   background: var(--code-workbench-divider);
 }
 
-:is(.code-sidebar-resizer, .code-resource-agent-resizer, .code-related-session-resizer):is(:hover, :active, :focus-visible),
+:is(.code-sidebar-resizer, .code-resource-agent-resizer, .code-related-session-resizer, .code-language-server-resizer):is(:hover, :active, :focus-visible),
 body.code-resizing-sidebar .code-sidebar-resizer,
-body.code-resizing-resource-agent .code-resource-agent-resizer {
+body.code-resizing-resource-agent .code-resource-agent-resizer,
+body.code-resizing-language-server-dock .code-language-server-resizer {
   background: var(--code-accent);
 }
 
-:is(.code-sidebar-resizer, .code-resource-agent-resizer, .code-related-session-resizer):focus-visible {
+:is(.code-sidebar-resizer, .code-resource-agent-resizer, .code-related-session-resizer, .code-language-server-resizer):focus-visible {
   outline: 2px solid var(--code-focus-ring);
   outline-offset: -1px;
 }

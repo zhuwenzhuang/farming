@@ -229,7 +229,7 @@ export function LanguageServerPanel({
       <button type="button" aria-pressed={state.direction === 'subtypes'} className={state.direction === 'subtypes' ? 'active' : ''} onClick={() => onDirection('subtypes')}>{copy.subtypes}</button>
     </div> : null}
     {state.mode === 'workspace' ? <form className="code-language-server-search" onSubmit={submit}>
-      <input
+      <input className="code-field"
         type="search"
         value={query}
         autoFocus

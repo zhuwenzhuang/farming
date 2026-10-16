@@ -25,6 +25,7 @@ const REQUEST_TIMEOUT_MS = 10_000;
 const DIAGNOSTICS_WAIT_MS = 2_000;
 const SEMANTIC_TOKENS_LEGEND_WAIT_MS = 500;
 const MAX_HIERARCHY_HANDLES = 2_048;
+const MAX_OPEN_DOCUMENTS = 128;
 const MAX_DOCUMENT_HIGHLIGHTS = 20_000;
 const MAX_INLAY_HINTS = 10_000;
 const MAX_SEMANTIC_TOKEN_INTEGERS = 1_000_000;
@@ -212,6 +213,7 @@ class ManagedLanguageServerClient {
   private readonly process: ChildProcessWithoutNullStreams;
   private readonly connection: MessageConnection;
   private readonly processClosed: Promise<void>;
+  private readonly activeDocuments = new Map<string, number>();
   private readonly documents = new Map<string, OpenDocument>();
   private readonly diagnostics = new Map<string, DiagnosticSnapshot>();
   private readonly providerRefreshDocumentVersions = new Map<string, number>();
@@ -310,7 +312,7 @@ class ManagedLanguageServerClient {
     this.connection.onNotification('textDocument/publishDiagnostics', (params: unknown) => {
       const record = recordValue(params);
       const uri = String(record.uri || '');
-      if (!uri) return;
+      if (!uri || (!this.documents.has(uri) && !this.activeDocuments.has(uri))) return;
       this.diagnostics.set(uri, {
         revision: this.diagnosticRevision += 1,
         items: Array.isArray(record.diagnostics) ? record.diagnostics : [],
@@ -474,6 +476,14 @@ class ManagedLanguageServerClient {
     const signature = `${stat.mtimeMs}:${stat.size}`;
     const current = this.documents.get(uri);
     if (!current) {
+      while (this.documents.size >= MAX_OPEN_DOCUMENTS) {
+        const oldest = [...this.documents.keys()].find(key => !this.activeDocuments.has(key));
+        if (!oldest) throw languageServerError('Language Server document capacity is busy', 'LANGUAGE_SERVER_BUSY', 503);
+        await this.notify('textDocument/didClose', { textDocument: { uri: oldest } });
+        this.documents.delete(oldest);
+        this.diagnostics.delete(oldest);
+        this.providerRefreshDocumentVersions.delete(oldest);
+      }
       await this.notify('textDocument/didOpen', {
         textDocument: { uri, languageId: languageId(filePath), version: 1, text },
       });
@@ -486,6 +496,9 @@ class ManagedLanguageServerClient {
       });
       this.documents.set(uri, { signature, version });
     }
+    const document = this.documents.get(uri)!;
+    this.documents.delete(uri);
+    this.documents.set(uri, document);
     return uri;
   }
 
@@ -554,6 +567,19 @@ class ManagedLanguageServerClient {
   }
 
   async execute(payload: JsonRecord, signal?: AbortSignal): Promise<{ result: unknown; supported: boolean }> {
+    const uri = typeof payload.filePath === 'string' && payload.filePath
+      ? pathToFileURL(payload.filePath).toString() : String(payload.uri || '');
+    if (uri) this.activeDocuments.set(uri, (this.activeDocuments.get(uri) || 0) + 1);
+    try {
+      return await this.executeRequest(payload, signal);
+    } finally {
+      const remaining = (this.activeDocuments.get(uri) || 1) - 1;
+      if (remaining > 0) this.activeDocuments.set(uri, remaining);
+      else this.activeDocuments.delete(uri);
+    }
+  }
+
+  private async executeRequest(payload: JsonRecord, signal?: AbortSignal): Promise<{ result: unknown; supported: boolean }> {
     signal?.throwIfAborted();
     const request = (method: string, params: unknown) => this.request(method, params, signal);
     const method = String(payload.method || '');
@@ -676,6 +702,9 @@ class ManagedLanguageServerClient {
     if (this.process.pid && this.process.exitCode === null && this.process.signalCode === null) {
       this.process.kill('SIGKILL');
     }
+    this.documents.clear();
+    this.diagnostics.clear();
+    this.providerRefreshDocumentVersions.clear();
     this.onExit();
     for (const waiters of this.diagnosticWaiters.values()) [...waiters].forEach(resolve => resolve());
     this.diagnosticWaiters.clear();

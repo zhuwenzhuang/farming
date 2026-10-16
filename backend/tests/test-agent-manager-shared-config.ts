@@ -13,7 +13,7 @@ async function run() {
   const envFile = path.join(temp, 'agent.env');
   fs.writeFileSync(envFile, 'SHARED_MANAGER_SENTINEL=manager-ready\nPATH=/shared/bin\n', { mode: 0o600 });
   const shared = new SharedConfigService({ configDir });
-  shared.save({
+  await shared.save({
     expectedRevision: 0,
     enabled: true,
     instructions: 'Include SHARED_PROMPT_SENTINEL in your operating context.',
@@ -35,7 +35,7 @@ async function run() {
     agentShellEnvProvider: () => ({ PATH: '/shell/bin', HOME: temp }),
   });
   try {
-    const env = manager.buildAgentEnv('shared-agent', {
+    const env = await manager.buildAgentEnv('shared-agent', {
       id: 'shared-agent',
       command: 'opencode',
       forkCommand: 'opencode',
@@ -57,16 +57,16 @@ async function run() {
     assert.match(prompt, /remain authoritative/);
 
     const retainedLaunch = shared.captureLaunchConfig();
-    const retainedBeforeEdit = manager.buildAgentEnv('retained-before-edit', {
+    const retainedBeforeEdit = await manager.buildAgentEnv('retained-before-edit', {
       id: 'retained-before-edit', command: 'bash', category: 'shell', wantsMain: false,
     }, retainedLaunch);
     assert.equal(retainedBeforeEdit.SHARED_MANAGER_SENTINEL, 'manager-ready');
     fs.writeFileSync(envFile, 'SHARED_MANAGER_SENTINEL=edited-directly\nPATH=/edited/bin\n', 'utf8');
-    const retainedAfterEdit = manager.buildAgentEnv('retained-after-edit', {
+    const retainedAfterEdit = await manager.buildAgentEnv('retained-after-edit', {
       id: 'retained-after-edit', command: 'bash', category: 'shell', wantsMain: false,
     }, retainedLaunch);
     assert.equal(retainedAfterEdit.SHARED_MANAGER_SENTINEL, 'manager-ready');
-    const nextLaunch = manager.buildAgentEnv('next-after-edit', {
+    const nextLaunch = await manager.buildAgentEnv('next-after-edit', {
       id: 'next-after-edit', command: 'bash', category: 'shell', wantsMain: false,
     });
     assert.equal(nextLaunch.SHARED_MANAGER_SENTINEL, 'edited-directly');
@@ -88,13 +88,13 @@ async function run() {
     assert.ok(startedId);
     assert.equal(captured[0]?.env.SHARED_MANAGER_SENTINEL, 'manager-ready');
 
-    shared.save({
+    await shared.save({
       expectedRevision: 1,
       enabled: true,
       instructions: 'Use the second prompt snapshot.',
       environment: { format: 'dotenv', path: envFile },
     }, { PATH: '/shell/bin', HOME: temp });
-    const nextEnv = manager.buildAgentEnv('next-agent', {
+    const nextEnv = await manager.buildAgentEnv('next-agent', {
       id: 'next-agent', command: 'opencode', category: 'coding', wantsMain: false,
     });
     assert.notEqual(nextEnv.FARMING_STARTUP_PROMPT_FILE, promptFile);
@@ -103,9 +103,9 @@ async function run() {
 
     const snapshot = shared.captureLaunchConfig();
     fs.writeFileSync(envFile, 'SHARED_MANAGER_SENTINEL=changed\n', 'utf8');
-    assert.equal(manager.buildAgentEnv('fresh-file-agent', {
+    assert.equal((await manager.buildAgentEnv('fresh-file-agent', {
       id: 'fresh-file-agent', command: 'claude', category: 'coding', wantsMain: false,
-    }, snapshot).SHARED_MANAGER_SENTINEL, 'changed');
+    }, snapshot)).SHARED_MANAGER_SENTINEL, 'changed');
   } finally {
     manager.heartbeatScheduler.stop();
     await manager.engineBridge.dispose();

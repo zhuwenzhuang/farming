@@ -14,7 +14,8 @@
     "backend/types/**/*.d.ts",
     "extensions/browser/backend/**/*.cts",
     "extensions/computer/backend/**/*.cts",
-    "extensions/language-server/backend/**/*.cts"
+    "extensions/language-server/backend/**/*.cts",
+    "extensions/shared-config/backend/**/*.cts"
   ],
   "exclude": [
     "backend/tests/**",

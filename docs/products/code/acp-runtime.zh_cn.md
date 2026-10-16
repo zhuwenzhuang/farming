@@ -792,6 +792,11 @@ Chat 可以在 ACP Host Binding 建立前发布。在有明确所有者、无错
 不授予 Mutation 准入。启动超时、真实失败，以及没有进行中启动操作的 Binding 丢失仍然
 显示明确错误，不能无限返回等待。
 
+显式 Reconnect 与需要重连的 Mutation 先校验保留的 ACP Agent Record，再尝试 Host 初始化
+和持久会话恢复；缺失 Live Binding 不能在准入时阻断恢复。恢复后重新校验精确 Agent
+Record 和 Live Binding，继续执行权威恢复错误及 Process Exit Proof 要求。
+普通 Session Read 不触发恢复或启动 Provider。
+
 新建 Chat 在 Session 连接期间持续显示稳定的空对话状态。Session 启动不属于 Active Turn，
 不得启用 Steer，也不应使用短暂的启动文案替换空状态。新 Session 启动期间的 Transcript
 读取失败不能替换该空状态；真实 Runtime Failure 仍通过权威 Runtime 与 Composer State 显示。

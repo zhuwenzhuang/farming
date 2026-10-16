@@ -4,7 +4,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { atomicWriteJson } from '../../../backend/atomic-json-store.cjs';
 
 const MAX_INSTRUCTIONS_BYTES = 32 * 1024;
@@ -42,6 +42,7 @@ interface SharedLaunchConfig {
   instructions: string;
   environment: StoredSharedConfig['environment'];
   environmentOverlay?: EnvironmentOverlay;
+  environmentOverlayPending?: Promise<EnvironmentOverlay>;
 }
 
 class SharedConfigError extends Error {
@@ -124,17 +125,17 @@ function parseDotenv(content: string): EnvironmentOverlay {
   return validateOverlay({ set, unset: [] });
 }
 
-function readEnvironmentFile(filePath: string): { canonicalPath: string; content: string } {
+async function readEnvironmentFile(filePath: string): Promise<{ canonicalPath: string; content: string }> {
   let canonicalPath = '';
   try {
-    canonicalPath = fs.realpathSync(filePath);
+    canonicalPath = await fs.promises.realpath(filePath);
   } catch {
     throw new SharedConfigError('Environment file was not found', 'SHARED_CONFIG_ENV_NOT_FOUND');
   }
-  const stat = fs.statSync(canonicalPath);
+  const stat = await fs.promises.stat(canonicalPath);
   if (!stat.isFile()) throw new SharedConfigError('Environment path must be a regular file');
   if (stat.size > MAX_ENV_FILE_BYTES) throw new SharedConfigError('Environment file is larger than 256 KiB');
-  const content = fs.readFileSync(canonicalPath, 'utf8');
+  const content = await fs.promises.readFile(canonicalPath, 'utf8');
   if (content.includes('\0')) throw new SharedConfigError('Environment file contains unsupported NUL bytes');
   return {
     canonicalPath,
@@ -142,10 +143,10 @@ function readEnvironmentFile(filePath: string): { canonicalPath: string; content
   };
 }
 
-function shellOverlay(
-  file: ReturnType<typeof readEnvironmentFile>,
+async function shellOverlay(
+  file: Awaited<ReturnType<typeof readEnvironmentFile>>,
   baseEnv: NodeJS.ProcessEnv,
-): EnvironmentOverlay {
+): Promise<EnvironmentOverlay> {
   const beforeMarker = `__FARMING_SHARED_ENV_BEFORE_${crypto.randomUUID()}__`;
   const afterMarker = `__FARMING_SHARED_ENV_AFTER_${crypto.randomUUID()}__`;
   const shell = String(baseEnv.SHELL || process.env.SHELL || '/bin/bash');
@@ -158,11 +159,9 @@ function shellOverlay(
     'printf "%s\\0" "$FARMING_SHARED_CONFIG_AFTER_MARKER"',
     'env -0',
   ].join(' && ');
-  let output = Buffer.alloc(0);
-  try {
-    output = execFileSync(shell, ['-lc', script], {
-      timeout: SHELL_TIMEOUT_MS,
-      maxBuffer: SHELL_MAX_BUFFER,
+  const output = await new Promise<Buffer>((resolve, reject) => {
+    const child = spawn(shell, ['-lc', script], {
+      detached: process.platform !== 'win32',
       stdio: ['ignore', 'pipe', 'pipe'],
       env: {
         ...baseEnv,
@@ -171,13 +170,36 @@ function shellOverlay(
         FARMING_SHARED_CONFIG_AFTER_MARKER: afterMarker,
       },
     });
-  } catch (caught) {
-    const error = caught as Error & { signal?: string };
-    const timedOut = error.signal === 'SIGTERM';
-    throw new SharedConfigError(timedOut
-      ? 'Shell environment file validation timed out'
-      : 'Shell environment file returned an error');
-  }
+    const chunks: Buffer[] = [];
+    let bytes = 0;
+    let failure: Error | null = null;
+    const kill = () => {
+      try {
+        if (child.pid && process.platform !== 'win32') process.kill(-child.pid, 'SIGKILL');
+        else child.kill('SIGKILL');
+      } catch { /* This exact evaluation group may already have exited. */ }
+    };
+    const timer = setTimeout(() => {
+      failure = new SharedConfigError('Shell environment file validation timed out');
+      kill();
+    }, SHELL_TIMEOUT_MS);
+    const consume = (chunk: Buffer, stdout: boolean) => {
+      bytes += chunk.length;
+      if (bytes > SHELL_MAX_BUFFER) {
+        failure = new SharedConfigError('Shell environment file output is too large');
+        kill();
+      } else if (stdout) chunks.push(chunk);
+    };
+    child.stdout.on('data', (chunk: Buffer) => consume(chunk, true));
+    child.stderr.on('data', (chunk: Buffer) => consume(chunk, false));
+    child.on('error', () => { failure = new SharedConfigError('Shell environment file returned an error'); });
+    child.on('close', code => {
+      clearTimeout(timer);
+      kill();
+      if (failure || code !== 0) reject(failure || new SharedConfigError('Shell environment file returned an error'));
+      else resolve(Buffer.concat(chunks));
+    });
+  });
   const fields = output.toString('utf8').split('\0');
   const beforeIndex = fields.indexOf(beforeMarker);
   const afterIndex = fields.indexOf(afterMarker);
@@ -255,13 +277,13 @@ class SharedConfigService {
     return item as StoredSharedConfig;
   }
 
-  private inspect(config: StoredSharedConfig, baseEnv: NodeJS.ProcessEnv = process.env) {
+  private async inspect(config: StoredSharedConfig, baseEnv: NodeJS.ProcessEnv = process.env) {
     const emptySummary = { names: [] as string[], setCount: 0, unsetCount: 0, ignoredNames: [] as string[] };
     if (!config.enabled) return { status: 'disabled' as const, detail: '', environmentSummary: emptySummary };
     if (!config.environment) return { status: 'ready' as const, detail: '', environmentSummary: emptySummary };
     try {
-      const file = readEnvironmentFile(resolveEnvironmentPath(config.environment.path));
-      const overlay = config.environment.format === 'shell' ? shellOverlay(file, baseEnv) : parseDotenv(file.content);
+      const file = await readEnvironmentFile(resolveEnvironmentPath(config.environment.path));
+      const overlay = config.environment.format === 'shell' ? await shellOverlay(file, baseEnv) : parseDotenv(file.content);
       return { status: 'ready' as const, detail: '', environmentSummary: summarizeOverlay(overlay) };
     } catch (caught) {
       return {
@@ -272,9 +294,12 @@ class SharedConfigService {
     }
   }
 
-  getState(baseEnv: NodeJS.ProcessEnv = process.env) {
+  async getState(baseEnv: NodeJS.ProcessEnv = process.env) {
     const config = this.readStored();
-    const inspection = this.inspect(config, baseEnv);
+    return this.projectState(config, await this.inspect(config, baseEnv));
+  }
+
+  private projectState(config: StoredSharedConfig, inspection: Awaited<ReturnType<SharedConfigService['inspect']>>) {
     return {
       revision: config.revision,
       enabled: config.enabled,
@@ -287,7 +312,7 @@ class SharedConfigService {
     };
   }
 
-  save(bodyValue: unknown, baseEnv: NodeJS.ProcessEnv = process.env) {
+  async save(bodyValue: unknown, baseEnv: NodeJS.ProcessEnv = process.env) {
     const body = bodyValue && typeof bodyValue === 'object' ? bodyValue as Record<string, unknown> : {};
     const current = this.readStored();
     if (body.expectedRevision !== current.revision) {
@@ -319,8 +344,8 @@ class SharedConfigService {
     if (requestedPath) {
       const resolved = resolveEnvironmentPath(requestedPath);
       if (enabled) {
-        const file = readEnvironmentFile(resolved);
-        const overlay = format === 'shell' ? shellOverlay(file, baseEnv) : parseDotenv(file.content);
+        const file = await readEnvironmentFile(resolved);
+        const overlay = format === 'shell' ? await shellOverlay(file, baseEnv) : parseDotenv(file.content);
         summary = summarizeOverlay(overlay);
         environment = { format, path: requestedPath };
       } else {
@@ -336,9 +361,12 @@ class SharedConfigService {
       environmentSummary: summary,
       updatedAt: Date.now(),
     };
+    if (this.readStored().revision !== current.revision) {
+      throw new SharedConfigError('Shared configuration changed; reload and try again', 'SHARED_CONFIG_REVISION_CONFLICT', 409);
+    }
     atomicWriteJson(this.file, next, { mode: 0o600, trailingNewline: true });
     try { fs.chmodSync(this.file, 0o600); } catch { /* The atomic create already requested owner-only mode. */ }
-    return this.getState(baseEnv);
+    return this.projectState(next, { status: enabled ? 'ready' : 'disabled', detail: '', environmentSummary: summary });
   }
 
   captureLaunchConfig(): SharedLaunchConfig {
@@ -350,13 +378,17 @@ class SharedConfigService {
     };
   }
 
-  applyEnvironment(baseEnv: NodeJS.ProcessEnv, launch: SharedLaunchConfig): NodeJS.ProcessEnv {
+  async applyEnvironment(baseEnv: NodeJS.ProcessEnv, launch: SharedLaunchConfig): Promise<NodeJS.ProcessEnv> {
     if (!launch.environment) return { ...baseEnv };
     if (launch.environmentOverlay === undefined) {
-      const file = readEnvironmentFile(resolveEnvironmentPath(launch.environment.path));
-      launch.environmentOverlay = launch.environment.format === 'shell'
-        ? shellOverlay(file, baseEnv)
-        : parseDotenv(file.content);
+      const environment = launch.environment;
+      const pending = launch.environmentOverlayPending ?? (async () => {
+        const file = await readEnvironmentFile(resolveEnvironmentPath(environment.path));
+        return environment.format === 'shell' ? shellOverlay(file, baseEnv) : parseDotenv(file.content);
+      })();
+      launch.environmentOverlayPending = pending;
+      try { launch.environmentOverlay = await pending; }
+      finally { if (launch.environmentOverlayPending === pending) delete launch.environmentOverlayPending; }
     }
     const overlay = launch.environmentOverlay;
     const next = { ...baseEnv };

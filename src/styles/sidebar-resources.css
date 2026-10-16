@@ -233,6 +233,7 @@
   align-items: center;
   justify-content: flex-end;
   padding-left: 21px;
+  border-radius: 8px;
   background:
     linear-gradient(var(--code-sidebar-resource-row-action-overlay), var(--code-sidebar-resource-row-action-overlay)),
     linear-gradient(var(--code-sidebar-resource-row-action-surface), var(--code-sidebar-resource-row-action-surface));

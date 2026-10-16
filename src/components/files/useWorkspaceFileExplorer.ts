@@ -282,9 +282,9 @@ export function useWorkspaceFileExplorer(agentId: string | null, workspaceKey = 
     const hydrationKey = `${normalizedWorkspaceKey}:${Array.from(openDirectoryPaths).join('\n')}`
     if (restoredDirectoryHydrationKeyRef.current === hydrationKey) return
     restoredDirectoryHydrationKeyRef.current = hydrationKey
-    void loadRootDirectory()
+    void ensureDirectoryLoaded('')
     void loadMissingDirectories(Array.from(openDirectoryPaths))
-  }, [loadMissingDirectories, loadRootDirectory, normalizedWorkspaceKey, openDirectoryPaths])
+  }, [ensureDirectoryLoaded, loadMissingDirectories, normalizedWorkspaceKey, openDirectoryPaths])
 
   return useMemo(() => ({
     decorations,

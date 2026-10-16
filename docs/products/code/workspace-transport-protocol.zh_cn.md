@@ -323,7 +323,10 @@ Backend 将取消信号经 Router、Service 和 Manager 传到 Managed Client。
 等待只释放当前调用者，Manager 仍为其他调用者持有初始化过程。尚未发送的语义工作在取消后
 不得继续发出 RPC。已发送的 RPC 收到 `$/cancelRequest`，但在响应、连接失败或请求期限
 到达前仍占用执行名额。诊断和 Capability Legend 的等待者在取消时移除监听与定时器。
-取消后的结果不再接纳，失败请求不自动重放。
+取消后的结果不再接纳，失败请求不自动重放。Browser 立即拒绝已取消的语义请求，但在
+Backend 返回终态 `language-server-result`（`CANCELLED`）或连接关闭前，保留已发送请求的
+准入名额。服务端排队请求立即确认取消；运行中请求只在真实执行结束后确认。
+迟到结果只能释放名额，不能恢复已取消的界面内容。
 
 ## Access 与安全
 

@@ -435,7 +435,10 @@ const MarkdownLink: Components['a'] = ({ href, children, onClick, ...props }) =>
     onClick?.(event)
     if (event.defaultPrevented || !workspacePath) return
     event.preventDefault()
+    const lineAnchor = href?.match(/#L(\d+)(?:C(\d+))?(?:-L(\d+)(?:C(\d+))?)?$/i)
     void onOpenFilePath(openFile.agentId, workspacePath, {
+      ...(lineAnchor ? { lineNumber: Number(lineAnchor[1]), column: Number(lineAnchor[2] || 1),
+        ...(lineAnchor[3] ? { endLineNumber: Number(lineAnchor[3]), endColumn: Number(lineAnchor[4] || 1) } : {}) } : {}),
       sourceAgentId: openFile.sourceAgentId,
     })
   }

@@ -53,6 +53,8 @@ let transportReady = false
 let requestSequence = 0
 let inlineMessageLimit = MAX_INLINE_WORKSPACE_MESSAGE_BYTES
 const pendingRequests = new Map<string, PendingRequest>()
+// Cancelled semantic work still owns server admission until its terminal result.
+const cancelledLanguageRequests = new Map<string, WorkspaceRequestLane>()
 const MAX_LANGUAGE_SERVER_PENDING_REQUESTS = 32
 const MAX_PENDING_REQUESTS = 512
 const MAX_BACKGROUND_PENDING_REQUESTS = MAX_PENDING_REQUESTS - 64
@@ -93,6 +95,7 @@ function sendPending(request: PendingRequest): boolean {
 function drainPending(): void {
   if (!transportReady || !transport) return
   const running = { interactive: 0, background: 0, languageServer: 0, languageServerBackground: 0 }
+  for (const lane of cancelledLanguageRequests.values()) running[lane] += 1
   for (const request of pendingRequests.values()) {
     if (request.sent) running[request.lane] += 1
   }
@@ -107,11 +110,18 @@ function cancelPending(request: PendingRequest): void {
   const uncertain = request.mutation && request.sent
   request.trace.end(uncertain ? 'uncertain' : 'cancelled')
   deletePending(request)
+  retainCancelledAdmission(request)
   if (request.sent && transportReady && transport) {
     transport({ type: 'workspace-cancel', requestId: request.requestId })
   }
   request.reject(abortError(request.signal, uncertain))
   drainPending()
+}
+
+function retainCancelledAdmission(request: PendingRequest): void {
+  if (request.sent && transportReady && request.domain === 'language-server') {
+    cancelledLanguageRequests.set(request.requestId, request.lane)
+  }
 }
 
 function createRequest<T>(
@@ -159,6 +169,7 @@ function createRequest<T>(
       const uncertain = request.mutation && request.sent
       request.trace.end(uncertain ? 'uncertain' : 'timeout')
       deletePending(request)
+      retainCancelledAdmission(request)
       if (request.sent && transportReady && transport) {
         transport({ type: 'workspace-cancel', requestId: request.requestId })
       }
@@ -181,6 +192,7 @@ export function setWorkspaceRequestTransportReady(
   transportReady = ready && transport !== null
   inlineMessageLimit = Math.max(1, Math.min(maxInlineBytes, MAX_INLINE_WORKSPACE_MESSAGE_BYTES))
   if (!transportReady) {
+    cancelledLanguageRequests.clear()
     for (const request of [...pendingRequests.values()]) {
       if (!request.sent) continue
       if (request.mutation) {
@@ -228,6 +240,10 @@ function settle(
   message: WorkspaceResultMessage | LanguageServerResultMessage,
   domain: RequestDomain,
 ): boolean {
+  if (domain === 'language-server' && cancelledLanguageRequests.delete(message.requestId)) {
+    drainPending()
+    return true
+  }
   const request = pendingRequests.get(message.requestId)
   if (!request || request.domain !== domain) return false
   deletePending(request)

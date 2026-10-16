@@ -76,6 +76,8 @@ const TEST_TIMEOUT_OVERRIDES_MS = new Map<string, number>([
   // adapter trees. Four-way Linux CI contention can exceed the unit-test
   // default even though each transition remains independently bounded.
   ['test-acp-runtime.ts', 90_000],
+  // The installer suite runs 49 platform, mirror and cancellation scenarios.
+  ['test-user-install.ts', 180_000],
   // This suite asserts the genuine 30s Host callback deadline over real Unix
   // sockets, so it needs ~31s by construction. Four-way CI contention must not
   // turn that bounded deadline into a runner timeout.
@@ -84,6 +86,9 @@ const TEST_TIMEOUT_OVERRIDES_MS = new Map<string, number>([
   ['test-multi-config-isolation.ts', 90_000],
   ['test-native-session-engine-shell-profiles.ts', 90_000],
   ['test-review-comparison-matrix.ts', 180_000],
+  // These snapshot real Git repositories, including 16 MiB boundary fixtures.
+  ['test-review-git-boundaries.ts', 180_000],
+  ['test-review-reopen.ts', 90_000],
   ['test-server-native-runtime-rotation.ts', 90_000],
   ['test-workspace-file-service.ts', 90_000],
 ]);

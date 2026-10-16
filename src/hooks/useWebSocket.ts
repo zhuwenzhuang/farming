@@ -83,6 +83,8 @@ const WEBSOCKET_CONNECT_DEADLINE_MS = 8_000
 const WEBSOCKET_CLOSE_DEADLINE_MS = 1_000
 const AGENT_STATE_SNAPSHOT_PAGE_DEADLINE_MS = 30_000
 
+const MAX_CACHED_COMPOSER_RECEIPTS = 256
+
 export interface WebSocketState {
   accessMode: WebSocketAccessMode
   agents: Agent[]
@@ -281,10 +283,22 @@ export function useWebSocket() {
   ) => {
     const pending = composerRequestResolversRef.current.get(requestId)
     const requestKey = composerRequestKeysRef.current.get(requestId)
-    composerOutcomeObserversRef.current.get(requestId)?.(accepted ? 'accepted' : definitive ? 'rejected' : 'unknown')
+    const observer = composerOutcomeObserversRef.current.get(requestId)
+    observer?.(accepted ? 'accepted' : definitive ? 'rejected' : 'unknown')
     if (definitive) composerOutcomeObserversRef.current.delete(requestId)
-    if (!pending && accepted && requestKey) {
+    if (!pending && accepted && requestKey && !observer) {
+      // Keep a bounded receipt for callers that reconcile without an observer.
+      // Forgetting it immediately could submit an already accepted message again.
       composerAcceptedRequestsRef.current.add(requestId)
+      while (composerAcceptedRequestsRef.current.size > MAX_CACHED_COMPOSER_RECEIPTS) {
+        const oldestId = composerAcceptedRequestsRef.current.values().next().value!
+        composerAcceptedRequestsRef.current.delete(oldestId)
+        const oldestKey = composerRequestKeysRef.current.get(oldestId)
+        if (oldestKey && composerRequestIdsRef.current.get(oldestKey) === oldestId) {
+          composerRequestIdsRef.current.delete(oldestKey)
+        }
+        composerRequestKeysRef.current.delete(oldestId)
+      }
       return
     }
     if (pending) updateComposerSubmission(pending.agentId, requestId, null)
@@ -1209,6 +1223,9 @@ export function useWebSocket() {
                 const nextProjectWorkspaces = Array.isArray(msg.state?.projectWorkspaces)
                   ? msg.state.projectWorkspaces
                   : prev.projectWorkspaces
+                const nextProjectAgentSummaries = Array.isArray(msg.state?.projectAgentSummaries)
+                  ? msg.state.projectAgentSummaries
+                  : prev.projectAgentSummaries
                 const nextPinnedProjectWorkspaces = Array.isArray(msg.state?.pinnedProjectWorkspaces)
                   ? msg.state.pinnedProjectWorkspaces
                   : prev.pinnedProjectWorkspaces
@@ -1218,6 +1235,8 @@ export function useWebSocket() {
                   && !sameStringArray(nextMainPageSessionKeys, prev.mainPageSessionKeys)
                 const projectWorkspacesChanged = nextProjectWorkspaces !== prev.projectWorkspaces
                   && (prev.projectWorkspaces === null || !sameStringArray(nextProjectWorkspaces ?? [], prev.projectWorkspaces))
+                const projectAgentSummariesChanged = nextProjectAgentSummaries !== prev.projectAgentSummaries
+                  && !sameJsonValue(nextProjectAgentSummaries, prev.projectAgentSummaries)
                 const pinnedProjectWorkspacesChanged = nextPinnedProjectWorkspaces !== prev.pinnedProjectWorkspaces
                   && (prev.pinnedProjectWorkspaces === null || !sameStringArray(nextPinnedProjectWorkspaces ?? [], prev.pinnedProjectWorkspaces))
 
@@ -1226,6 +1245,7 @@ export function useWebSocket() {
                   && !taskHistoryChanged
                   && !mainPageSessionKeysChanged
                   && !projectWorkspacesChanged
+                  && !projectAgentSummariesChanged
                   && !pinnedProjectWorkspacesChanged
                   && nextMainAgentId === prev.mainAgentId
                 ) {
@@ -1238,6 +1258,7 @@ export function useWebSocket() {
                   taskHistory: taskHistoryChanged ? nextTaskHistory : prev.taskHistory,
                   mainPageSessionKeys: mainPageSessionKeysChanged ? nextMainPageSessionKeys : prev.mainPageSessionKeys,
                   projectWorkspaces: projectWorkspacesChanged ? nextProjectWorkspaces : prev.projectWorkspaces,
+                  projectAgentSummaries: projectAgentSummariesChanged ? nextProjectAgentSummaries : prev.projectAgentSummaries,
                   pinnedProjectWorkspaces: pinnedProjectWorkspacesChanged
                     ? nextPinnedProjectWorkspaces
                     : prev.pinnedProjectWorkspaces,

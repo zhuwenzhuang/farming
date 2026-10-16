@@ -3839,3 +3839,12 @@ button.code-composer-attachment-preview {
   line-height: 1.4;
 }
 .code-composer-attachment.error.chip .code-composer-attachment-remove { position: absolute; right: 4px; top: 4px; }
+
+@media (hover: none), (pointer: coarse) {
+  .code-composer-collapse,
+  .code-composer-restore {
+    opacity: 1;
+    transform: none;
+    pointer-events: auto;
+  }
+}

@@ -104,7 +104,7 @@ async function run() {
       'Fix cross-runtime titles',
       'an acknowledged Agent-managed title must already be durable',
     );
-    const replacementEnv = manager.buildAgentEnv(agentId, manager.agents.get(agentId));
+    const replacementEnv = await manager.buildAgentEnv(agentId, manager.agents.get(agentId));
     assert.strictEqual(replacementEnv.FARMING_AGENT_ID, agentId);
     assert.strictEqual(replacementEnv.FARMING_AGENT_TITLE_TOKEN, undefined);
     const restoredTitleAgentId = await startAgent(manager, 'bash', tmpRoot, {

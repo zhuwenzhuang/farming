@@ -998,6 +998,7 @@ export function CodeWorkspace({
   const restoreProjectListFocusRef = useRef<'active' | 'active-force' | 'list' | null>(null)
   const pendingArchivedFocusAgentRef = useRef<Agent | null>(null)
   const pendingRestoredFocusAgentRef = useRef<string | null>(null)
+  const initialAgentInventoryObservedRef = useRef(false)
   const trackedMainPageAgentKeysRef = useRef<Set<string>>(new Set())
   const sidebarResizeGestureRef = useRef<{
     pointerId: number
@@ -2888,8 +2889,9 @@ export function CodeWorkspace({
       discoveredSession = true
     })
     if (discoveredSessionKeys.length > 0) observeMainPageSessionKeys(discoveredSessionKeys)
-    if (discoveredSession) scheduleAgentSessionsBackgroundLoad(true)
-  }, [activeAgents, observeMainPageSessionKeys, scheduleAgentSessionsBackgroundLoad])
+    if (discoveredSession) scheduleAgentSessionsBackgroundLoad(initialAgentInventoryObservedRef.current)
+    if (agentInventoryComplete) initialAgentInventoryObservedRef.current = true
+  }, [activeAgents, agentInventoryComplete, observeMainPageSessionKeys, scheduleAgentSessionsBackgroundLoad])
 
   const focusActiveProjectListTargetNow = useCallback(() => {
     const activeAgentId = activeTerminalIdRef.current

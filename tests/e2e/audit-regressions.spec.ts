@@ -1,3 +1,5 @@
+import fs from 'node:fs'
+import path from 'node:path'
 import { expect, openFarming, test } from './fixtures'
 
 for (const appearance of ['light', 'dark', 'paper'] as const) {
@@ -45,6 +47,19 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
     await inactive.hover()
     await expect(inactive).toHaveCSS('background-color', await selected.evaluate(element => getComputedStyle(element).backgroundColor))
     await tabs.screenshot({ path: testInfo.outputPath(`plugin-tabs-${appearance}.png`) })
+    await page.getByTestId('code-new-agent').click()
+    const dialog = page.getByTestId('input-dialog')
+    await expect(dialog).toBeVisible()
+    await expect(dialog.getByTestId('agent-option-codex')).toBeVisible()
+    await dialog.evaluate(element => { element.tabIndex = -1; element.focus() })
+    await page.keyboard.press('Shift+Tab')
+    expect(await dialog.evaluate(element => element.contains(document.activeElement))).toBe(true)
+    await page.keyboard.press('Tab')
+    expect(await dialog.evaluate(element => element.contains(document.activeElement))).toBe(true)
+    await dialog.screenshot({ path: testInfo.outputPath(`dialog-focus-${appearance}.png`) })
+    await page.keyboard.press('Escape')
+    await expect(dialog).toBeHidden()
+    expect(await page.getByTestId('code-nav-plugins').evaluate(element => Boolean(element.closest('[inert]')))).toBe(false)
   })
 }
 
@@ -114,4 +129,23 @@ test('New Agent waits for its own creation result despite unrelated socket error
     release()
     await expect(dialog).toBeHidden()
   } finally { release() }
+})
+
+
+test('Markdown file links retain their source line anchor', async ({ page, workspaceRoot }) => {
+  fs.mkdirSync(path.join(workspaceRoot, 'docs'), { recursive: true })
+  fs.writeFileSync(path.join(workspaceRoot, 'docs', 'guide.md'), '[Source line 23](../sample.ts#L23)\n')
+  fs.writeFileSync(path.join(workspaceRoot, 'sample.ts'), Array.from({ length: 40 }, (_, index) => `export const sample${index + 1} = ${index + 1}`).join('\n'))
+  const mounted = await page.request.post('/farming/api/projects/mount', { data: { workspace: workspaceRoot } })
+  expect(mounted.ok()).toBe(true)
+  await openFarming(page)
+  const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(workspaceRoot) })
+  const files = project.getByTestId('code-files-section')
+  const title = files.locator('.code-files-title')
+  if (await title.getAttribute('aria-expanded') !== 'true') await title.click()
+  await files.locator('[data-file-path="docs"]').click()
+  await files.locator('[data-file-path="docs/guide.md"]').dblclick()
+  await page.getByTestId('code-file-markdown-preview').getByRole('link', { name: 'Source line 23' }).click()
+  await expect(page.getByTestId('code-file-monaco')).toBeVisible()
+  await expect.poll(() => page.evaluate(() => window.__farmingFileEditorTest?.getPosition()?.lineNumber)).toBe(23)
 })

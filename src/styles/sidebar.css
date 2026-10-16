@@ -92,7 +92,7 @@
 .code-sidebar-search-toggle:hover,
 .code-sidebar-history-toggle:hover,
 .code-sidebar-plugins-toggle:hover {
-  background: var(--code-bg-hover);
+  background: var(--code-bg-selected);
   color: var(--code-text);
 }
 
@@ -241,7 +241,7 @@
 }
 
 .code-nav-item:hover {
-  background: var(--code-bg-hover);
+  background: var(--code-bg-selected);
   color: var(--code-text);
 }
 

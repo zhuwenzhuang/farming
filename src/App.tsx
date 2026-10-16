@@ -731,7 +731,6 @@ export function App() {
         nonce: (previous?.nonce ?? 0) + 1,
       }))
     }
-    setDialog('none')
   }, [])
 
   // Keep the user intent separate from the authoritative agent list. A lifecycle
@@ -835,8 +834,7 @@ export function App() {
   const openNewAgentDialog = useCallback((workspace?: string, command?: string, returnFocusTarget?: HTMLElement | null, customTitle?: string) => {
     setHandoffSource(null)
     inputDialogFocusRestoreCleanupRef.current?.()
-    const requestId = inputDialogOpenRequestRef.current + 1
-    inputDialogOpenRequestRef.current = requestId
+    inputDialogOpenRequestRef.current += 1
     inputDialogReturnFocusRef.current = returnFocusTarget ?? (document.activeElement instanceof HTMLElement
       ? document.activeElement
       : null)
@@ -846,14 +844,6 @@ export function App() {
     setInputStartError('')
     setActiveWorkspaceView('projects')
     setDialog('input')
-
-    const keepDialogOpen = () => {
-      if (inputDialogOpenRequestRef.current !== requestId) return
-      setDialog(current => current === 'input' ? current : 'input')
-    }
-    window.requestAnimationFrame(keepDialogOpen)
-    window.setTimeout(keepDialogOpen, 80)
-    window.setTimeout(keepDialogOpen, 180)
   }, [])
 
   const restoreInputDialogFocus = useCallback(() => {

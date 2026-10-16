@@ -6,30 +6,24 @@
     "noEmit": true,
     "strict": true,
     "skipLibCheck": true,
-    "types": ["node"]
+    "types": [
+      "node"
+    ]
   },
   "include": [
-    "scripts/assert-no-bundled-agent-clis.ts",
-    "scripts/build-backend-runtime.ts",
-    "scripts/build-classic-browser-runtime.ts",
-    "scripts/build-runtime-dependency-manifest.ts",
-    "scripts/build-usage-history-scanner.ts",
-    "scripts/check-source-inspection-contracts.ts",
-    "scripts/bundle-cli-runtime.ts",
-    "scripts/discover-unit-tests.ts",
-    "scripts/prepare-source-browser-runtime.ts",
-    "scripts/prepare-claude-acp-vendor.ts",
-    "scripts/prepare-codex-acp-vendor.ts",
-    "scripts/run-tests.ts",
-    "scripts/smoke-capability-cli-process.ts",
-    "scripts/smoke-claude-acp-process.ts",
-    "scripts/smoke-codex-acp-process.ts",
-    "scripts/smoke-remote-terminal.ts",
-    "scripts/start-playwright-server.ts",
-    "scripts/test-update-platforms.ts",
-    "scripts/typecheck-classic-runtime.ts",
-    "scripts/verify-linux-compat-release.ts",
-    "scripts/verify-linux-legacy-release.ts",
-    "scripts/verify-release-bundle.ts"
+    "scripts/**/*.ts",
+    "src/types/desktop.d.ts"
+  ],
+  "exclude": [
+    "scripts/capture-product-screenshots.ts",
+    "scripts/e2e-workspaces.ts",
+    "scripts/e2e.ts",
+    "scripts/evaluate-poetic-tokens.ts",
+    "scripts/generate-chinese-poetic-words.ts",
+    "scripts/generate-poem-wordlists.ts",
+    "scripts/repro-mobile-ime-layout.ts",
+    "scripts/smoke-desktop.ts",
+    "scripts/smoke-remote-terminal-chaos.ts",
+    "scripts/test-initial-main-agent-flow.ts"
   ]
 }

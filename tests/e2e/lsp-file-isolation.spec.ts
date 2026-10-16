@@ -22,7 +22,7 @@ for (const appearance of ['light', 'dark', 'paper']) {
       fromRevision: null, toRevision: 1000000, replace: true, settled: true, hasMoreBefore: false,
       transcript: { sessionId: identity.sessionId, revision: 1000000, state: 'idle', entries: [
         { id: 'prompt', type: 'message', role: 'user', content: [{ type: 'text', text: 'Inspect the example.' }] },
-        { id: 'answer', type: 'message', role: 'assistant', _meta: { codex: { phase: 'final_answer' } },
+        { id: 'answer', type: 'message', role: 'assistant',
           content: [{ type: 'text', text: `Open [Demo.java](${path.join(workspaceRoot, 'Demo.java')}) to inspect the example.` }] },
       ] },
     } }))

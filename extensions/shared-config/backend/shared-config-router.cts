@@ -35,13 +35,13 @@ function createSharedConfigRouter(
     });
   };
 
-  router.get('/', ownerOnly, (_req, res) => {
+  router.get('/', ownerOnly, async (_req, res) => {
     res.setHeader('Cache-Control', 'no-store');
-    try { res.json(service.getState()); } catch (caught) { respondError(res, caught); }
+    try { res.json(await service.getState()); } catch (caught) { respondError(res, caught); }
   });
-  router.put('/', ownerOnly, expressFactory.json({ limit: '64kb' }), (req: ExpressRequest, res: ExpressResponse) => {
+  router.put('/', ownerOnly, expressFactory.json({ limit: '64kb' }), async (req: ExpressRequest, res: ExpressResponse) => {
     res.setHeader('Cache-Control', 'no-store');
-    try { res.json(service.save(req.body)); } catch (caught) { respondError(res, caught); }
+    try { res.json(await service.save(req.body)); } catch (caught) { respondError(res, caught); }
   });
   return router;
 }

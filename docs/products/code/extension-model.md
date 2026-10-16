@@ -154,6 +154,13 @@ and reported by name and count while its ordinary environment changes remain
 usable. Configuration storage and API responses never contain environment
 values, and owner access is required for both reads and writes.
 
+Environment evaluation uses asynchronous I/O. Shell evaluation owns one temporary
+process group with a five-second deadline and bounded output; completion or
+failure cleans up that exact group. Concurrent consumers of one launch snapshot
+share its evaluation. A save checks its expected revision again after validation
+and commits only if it still owns that revision. Saving does not execute the
+Shell source again merely to construct its response.
+
 Provider plus Agent Home id is one configuration identity. Global settings own
 which Homes accept new Agents and their display order. Existing Agent records
 retain an immutable binding to the exact Provider Home used for their Session;

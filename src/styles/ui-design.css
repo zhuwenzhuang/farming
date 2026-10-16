@@ -183,7 +183,10 @@
 }
 
 
-.code-field {
+.code-field,
+input.code-field,
+textarea.code-field,
+select.code-field {
   box-sizing: border-box;
   width: 100%;
   min-width: 0;
@@ -199,12 +202,19 @@
   line-height: var(--code-field-line-height);
 }
 
-.code-field:is(input, textarea):focus {
+.code-field:is(input, textarea):is(:focus, :focus-visible) {
   outline: 0;
   box-shadow: none;
   caret-color: var(--code-text);
 }
 
+
+textarea.code-field {
+  height: auto;
+  min-height: var(--code-field-height);
+  padding-block: 8px;
+  resize: vertical;
+}
 
 .code-dialog-actions {
   display: flex;

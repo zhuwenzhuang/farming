@@ -318,6 +318,8 @@ export interface CodeCopy {
   retry: string
   reconnect: string
   save: string
+  saving: string
+  deleting: string
   acknowledgeUnprovenAcpExit: string
   acknowledgeUnprovenAcpExitDescription: (title: string) => string
   permissionModeLabel: (value: string, fallback: string) => string
@@ -1079,6 +1081,8 @@ const EN_COPY: CodeCopy = {
   retry: 'Retry',
   reconnect: 'Reconnect',
   save: 'Save',
+  saving: 'Saving…',
+  deleting: 'Deleting…',
   acknowledgeUnprovenAcpExit: 'Confirm Exit and Archive',
   acknowledgeUnprovenAcpExitDescription: title => `Farming cannot prove that ${title}'s legacy ACP process exited during the upgrade. Continue only after verifying it has exited at the operating-system level. This archives Farming metadata and does not stop an unknown process.`,
   permissionModeLabel: (_value, fallback) => fallback,
@@ -1865,6 +1869,8 @@ const ZH_COPY: CodeCopy = {
   retry: '重试',
   reconnect: '重新连接',
   save: '保存',
+  saving: '正在保存…',
+  deleting: '正在删除…',
   acknowledgeUnprovenAcpExit: '确认已退出并归档',
   acknowledgeUnprovenAcpExitDescription: title => `Farming 无法证明 ${title} 的旧版 ACP 进程在升级时已经退出。请先在操作系统层确认进程已退出；继续操作只会归档 Farming 元数据，不会停止未知进程。`,
   permissionModeLabel: (value, fallback) => ({

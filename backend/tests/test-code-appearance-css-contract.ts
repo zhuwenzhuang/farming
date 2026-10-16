@@ -436,8 +436,8 @@ const borderPurposeContracts = [
   ['src/styles/search.css', '.code-search-panel-input:focus-within', 'border-color', 'transparent'],
   ['src/styles/main.css', '.connection-status.lost,\n.connection-status.business-unavailable', 'border', '1px solid var(--code-border-danger)'],
   ['src/styles/transcript.css', '.code-agent-transcript-result-error', 'border', '1px solid var(--code-border-danger)'],
-  ['src/styles/main.css', ':is(.code-sidebar-resizer, .code-resource-agent-resizer, .code-related-session-resizer)', 'background', 'var(--code-workbench-divider)'],
-  ['src/styles/review.css', '.review-diff-columns span + span', 'border-left', '1px solid var(--code-border)'],
+  ['src/styles/main.css', ':is(.code-sidebar-resizer, .code-resource-agent-resizer, .code-related-session-resizer, .code-language-server-resizer)', 'background', 'var(--code-workbench-divider)'],
+  ['src/styles/review.css', '.review-diff-columns span + span', 'border-left', '1px solid var(--code-workbench-divider)'],
 ] as const
 for (const [sourcePath, selector, property, expectedValue] of borderPurposeContracts) {
   const root = postcss.parse(fs.readFileSync(path.join(projectRoot, sourcePath), 'utf8'), { from: sourcePath })
@@ -485,7 +485,7 @@ const structuralSurfaceContracts = [
   ['src/styles/files.css', '.code-files-header', 'margin-left', '-14px'],
   ['src/styles/files.css', '.code-files-header', 'padding-left', '14px'],
   ['src/styles/files.css', '.code-open-editor-main', 'border-radius', 'inherit'],
-  ['src/styles/files.css', '.code-open-editor-actions', 'border-radius', '0 8px 8px 0'],
+  ['src/styles/files.css', '.code-open-editor-actions', 'border-radius', '8px'],
   ['src/styles/files.css', '.code-file-tree-row-frame', 'border-radius', '8px'],
   ['src/styles/files.css', '.code-file-tree-row-frame', 'background', 'transparent'],
   ['src/styles/files.css', '.code-file-tree-row-frame', 'overflow', 'hidden'],

@@ -265,7 +265,7 @@
   font-weight: 600;
 }
 
-.code-agent-home-form input {
+.code-agent-home-form input:not(.code-field) {
   min-height: 34px;
   padding: 7px 9px;
   border: 1px solid var(--code-border);
@@ -278,7 +278,7 @@
   outline: none;
 }
 
-.code-agent-home-form input:disabled {
+.code-agent-home-form input:not(.code-field):disabled {
   color: var(--code-text-subtle);
   background: var(--code-code-bg);
 }
@@ -501,7 +501,7 @@
   font-size: 11px;
 }
 
-.code-agent-home-form input {
+.code-agent-home-form input:not(.code-field) {
   min-height: 30px;
   padding: 5px 8px;
   font-size: 12px;
@@ -1098,7 +1098,7 @@
   width: 10px;
   height: 10px;
   flex: 0 0 10px;
-  border: 1px solid var(--code-border-strong);
+  border: 1px solid var(--code-workbench-divider);
   border-radius: 50%;
 }
 
@@ -1185,7 +1185,7 @@
   color: var(--code-diff-removed);
 }
 
-.code-agent-home-form input {
+.code-agent-home-form input:not(.code-field) {
   min-height: 30px;
   padding: 4px 0;
   border: 0;
@@ -1551,11 +1551,11 @@ body.code-mode.code-compact-layout .code-settings-pet-rest-value {
   color: var(--code-accent);
 }
 
-.code-agent-home-form input {
+.code-agent-home-form input:not(.code-field) {
   border-color: var(--code-border);
 }
 
-.code-agent-home-form input::placeholder {
+.code-agent-home-form input:not(.code-field)::placeholder {
   color: var(--code-text-quiet);
 }
 
@@ -1704,7 +1704,7 @@ body.code-mode.code-compact-layout .code-settings-pet-rest-value {
   border-color: var(--code-border);
 }
 
-@media (max-width: 720px) {
+@media (max-width: 767px), (max-width: 980px) and (pointer: coarse) {
   .code-settings-panel {
     width: 100vw;
   }

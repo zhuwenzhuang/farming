@@ -122,7 +122,16 @@ function createWebSocketWorkspaceRequestHandlers<Client extends WorkspaceRequest
       if (schedule.requests.get(request.requestId) === request) schedule.requests.delete(request.requestId);
       schedule.running[request.lane] -= 1;
     }
+    if (request.cancelled && schedule) acknowledgeCancellation(client, request);
     drainAll();
+  }
+
+  function acknowledgeCancellation(client: Client, request: ScheduledRequest): void {
+    if (request.responseType !== 'language-server-result') return;
+    send(client, {
+      type: request.responseType, requestId: request.requestId, ok: false,
+      error: { code: 'CANCELLED', message: 'Workspace request was cancelled', status: 499 },
+    });
   }
 
   function start(client: Client, schedule: ClientSchedule, request: ScheduledRequest): void {
@@ -257,15 +266,16 @@ function createWebSocketWorkspaceRequestHandlers<Client extends WorkspaceRequest
   function cancel(client: Client, message: WorkspaceCancelMessage): void {
     const schedule = schedules.get(client);
     const request = schedule?.requests.get(message.requestId);
-    if (!schedule || !request) return;
+    if (!schedule || !request || request.cancelled) return;
     request.cancelled = true;
     request.trace?.end('cancelled');
     request.controller.abort();
-    schedule.requests.delete(message.requestId);
     if (!request.started) {
+      schedule.requests.delete(message.requestId);
       const queue = schedule[request.lane];
       const index = queue.indexOf(request);
       if (index !== -1) queue.splice(index, 1);
+      acknowledgeCancellation(client, request);
     }
   }
 

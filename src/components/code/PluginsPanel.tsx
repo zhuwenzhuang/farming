@@ -705,6 +705,8 @@ export function PluginsPanel({
   onRefreshCapability: () => void
 }) {
   const copy = useMemo(() => pluginCopy(language), [language])
+  const requestCopyRef = useRef(copy)
+  requestCopyRef.current = copy
   const isMacHost = typeof navigator !== 'undefined'
     && /Mac/.test(navigator.platform || navigator.userAgent)
   const dockerInstallUrl = isMacHost ? DOCKER_DESKTOP_MAC_INSTALL_URL : DOCKER_ENGINE_INSTALL_URL
@@ -820,11 +822,11 @@ export function PluginsPanel({
       setLanguageServerEnabled(nextCapability.enabled !== false)
     } catch (loadError) {
       setLanguageServerCapability(null)
-      setLanguageServerError(loadError instanceof Error ? loadError.message : copy.languageServerError)
+      setLanguageServerError(loadError instanceof Error ? loadError.message : requestCopyRef.current.languageServerError)
     } finally {
       setLanguageServerLoading(false)
     }
-  }, [copy.languageServerError])
+  }, [])
 
   const toggleLanguageServer = async () => {
     if (languageServerSaving) return
@@ -864,15 +866,15 @@ export function PluginsPanel({
         cache: 'no-store',
       })
       const data = await response.json().catch(() => ({})) as SharedConfigState & { error?: string }
-      if (!response.ok) throw new Error(data.error || copy.sharedConfigLoadFailed)
+      if (!response.ok) throw new Error(data.error || requestCopyRef.current.sharedConfigLoadFailed)
       setSharedConfig(data)
     } catch (caught) {
       setSharedConfig(null)
-      setSharedConfigError(caught instanceof Error ? caught.message : copy.sharedConfigLoadFailed)
+      setSharedConfigError(caught instanceof Error ? caught.message : requestCopyRef.current.sharedConfigLoadFailed)
     } finally {
       setSharedConfigLoading(false)
     }
-  }, [copy.sharedConfigLoadFailed])
+  }, [])
 
   useEffect(() => {
     if (activeTab !== 'farming') return
@@ -934,7 +936,7 @@ export function PluginsPanel({
       try {
         const response = await fetch(appPath('/api/browsers/extension'), { headers: { Accept: 'application/json' } })
         const data = await response.json().catch(() => ({})) as BrowserExtensionCapability & { error?: string }
-        if (!response.ok) throw new Error(data.error || copy.extensionStatusFailed)
+        if (!response.ok) throw new Error(data.error || requestCopyRef.current.extensionStatusFailed)
         if (!active) return
         setBrowserExtensionStatusError('')
         setBrowserExtensionInstalled(data.installed === true)
@@ -947,7 +949,7 @@ export function PluginsPanel({
         }
       } catch (caught) {
         if (active) setBrowserExtensionStatusError(
-          caught instanceof Error ? caught.message : copy.extensionStatusFailed,
+          caught instanceof Error ? caught.message : requestCopyRef.current.extensionStatusFailed,
         )
       } finally {
         schedule()
@@ -965,7 +967,7 @@ export function PluginsPanel({
       if (timer !== undefined) window.clearTimeout(timer)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
-  }, [activeTab, copy.extensionStatusFailed, onRefreshCapability])
+  }, [activeTab, onRefreshCapability])
 
   useEffect(() => {
     if (!computerCapability) return
@@ -989,7 +991,7 @@ export function PluginsPanel({
         error?: string
       }
       if (!response.ok) throw new Error(data.code === 'INVENTORY_CHANGED_DURING_READ'
-        ? copy.agentInventoryChanged : data.error || copy.agentExtensionsFailed)
+        ? requestCopyRef.current.agentInventoryChanged : data.error || requestCopyRef.current.agentExtensionsFailed)
       if (
         !lease.isCurrent()
         || agentSaveRequestRef.current
@@ -1006,15 +1008,15 @@ export function PluginsPanel({
       const disconnected = !getBackendConnectionSnapshot().connected
       retryOnReconnectRef.current = disconnected
       if (!options.quiet) setAgentGroupsError(disconnected
-        ? copy.agentExtensionsDisconnected
-        : loadError instanceof Error ? loadError.message : copy.agentExtensionsFailed)
+        ? requestCopyRef.current.agentExtensionsDisconnected
+        : loadError instanceof Error ? loadError.message : requestCopyRef.current.agentExtensionsFailed)
     } finally {
       if (
         lease.isCurrent()
         && !agentSaveRequestRef.current
       ) setAgentGroupsLoading(false)
     }
-  }, [copy.agentExtensionsDisconnected, copy.agentExtensionsFailed, copy.agentInventoryChanged])
+  }, [])
 
   useEffect(() => {
     const loadOwnership = agentLoadOwnershipRef.current
@@ -1690,7 +1692,7 @@ export function PluginsPanel({
               </label>
               <label className="code-plugin-shared-config-instructions">
                 <span>{copy.sharedConfigInstructions}</span>
-                <textarea
+                <textarea className="code-field"
                   value={sharedConfigDraft.instructions}
                   placeholder={copy.sharedConfigInstructionsPlaceholder}
                   disabled={sharedConfigSaving}
@@ -1718,7 +1720,7 @@ export function PluginsPanel({
                 />
                 <label>
                   <span>{copy.sharedConfigPath}</span>
-                  <input
+                  <input className="code-field"
                     type="text"
                     value={sharedConfigDraft.path}
                     placeholder={copy.sharedConfigPathPlaceholder}
@@ -2299,7 +2301,7 @@ export function PluginsPanel({
           <div className="code-plugin-extension-tools">
             <label className="code-plugin-extension-search">
               <span>{copy.searchExtensions}</span>
-              <input
+              <input className="code-field"
                 type="search"
                 value={extensionQuery}
                 placeholder={copy.searchExtensions}

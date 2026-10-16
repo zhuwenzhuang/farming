@@ -65,6 +65,12 @@ async function run() {
   release!();
   assert.equal((await afterArchive).agentId, 'child-3');
   assert.equal(records[0].archived, true, 'creation must leave archived history unchanged');
+  manager.configManager = null;
+  const memoryChild = openSubagent('parent');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.ok(release); release();
+  assert.ok((await memoryChild).providerSessionKey, 'an in-memory manager reconciles its exact child record');
+  manager.configManager = { listAgentSessionRecords: () => records };
   Object.assign(parent, { lifecycleJournal: { entries: [{ type: 'fork', state: 'blocked', requestKey: 'fork-request:uncertain', request: { purpose: 'subagent', expectedRevision: 3 } }] } });
   manager.forkAgent = async (_id: string, _mode: string, options: Record<string, unknown>) => {
     assert.equal(options.requestId, 'uncertain');

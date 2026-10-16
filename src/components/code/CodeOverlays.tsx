@@ -6,7 +6,7 @@ import type {
   RefObject,
 } from 'react'
 import { useMenuViewportBounds } from '@/hooks/useMenuViewportBounds'
-import { useInteractionLayer } from '@/hooks/useInteractionLayer'
+import { useModalFocusScope } from '@/hooks/useModalFocusScope'
 import type { Agent } from '@/types/agent'
 import {
   agentMenuAvailability,
@@ -237,27 +237,30 @@ export function CodeOverlays({
   const canRevealProject = revealCapability?.menu === projectMenu && revealCapability?.available === true
   const activeContextMenu = agentMenu || projectMenu || agentSessionMenu
   useMenuViewportBounds(Boolean(activeContextMenu), contextMenuRef, activeContextMenu)
-  useInteractionLayer({
-    enabled: Boolean(renameDialog), modal: true,
-    elements: () => [renameDialogRef.current],
-    onDismiss: reason => onCloseRenameDialog(reason === 'escape'),
+  useModalFocusScope({
+    open: Boolean(renameDialog),
+    dialogRef: renameDialogRef,
+    dismissOnPointerOutside: true,
+    onEscape: reason => onCloseRenameDialog(reason === 'escape'),
   })
-  useInteractionLayer({
-    enabled: Boolean(archiveExitDialog), modal: true,
-    elements: () => [archiveExitDialogRef.current],
-    onDismiss: reason => onCloseArchiveExitDialog(reason === 'escape'),
+  useModalFocusScope({
+    open: Boolean(archiveExitDialog),
+    dialogRef: archiveExitDialogRef,
+    dismissOnPointerOutside: true,
+    onEscape: reason => onCloseArchiveExitDialog(reason === 'escape'),
   })
-  useInteractionLayer({
-    enabled: Boolean(removeProjectDialog), modal: true,
-    elements: () => [removeProjectDialogRef.current],
+  useModalFocusScope({
+    open: Boolean(removeProjectDialog),
+    dialogRef: removeProjectDialogRef,
     dismissOnPointerOutside: !removeProjectDialog?.busy,
-    dismissOnEscape: !removeProjectDialog?.busy,
-    onDismiss: reason => onCloseRemoveProjectDialog(reason === 'escape'),
+    escapeEnabled: !removeProjectDialog?.busy,
+    onEscape: reason => onCloseRemoveProjectDialog(reason === 'escape'),
   })
-  useInteractionLayer({
-    enabled: Boolean(deleteWorktreeDialog), modal: true,
-    elements: () => [deleteWorktreeDialogRef.current],
-    onDismiss: reason => onCloseDeleteWorktreeDialog(reason === 'escape'),
+  useModalFocusScope({
+    open: Boolean(deleteWorktreeDialog),
+    dialogRef: deleteWorktreeDialogRef,
+    dismissOnPointerOutside: true,
+    onEscape: reason => onCloseDeleteWorktreeDialog(reason === 'escape'),
   })
   const agentMenuAvailabilityState = agentMenuAvailability(contextMenuAgent, {
     canCreateBrowser: canCreateAgentBrowser,
@@ -541,8 +544,6 @@ export function CodeOverlays({
             aria-modal="true"
             aria-labelledby="code-rename-title"
             ref={renameDialogRef}
-            onKeyDownCapture={event => trapFocusInContainer(event, renameDialogRef.current)}
-            onKeyDown={event => trapFocusInContainer(event, renameDialogRef.current)}
             onSubmit={event => {
               event.preventDefault()
               onSubmitRenameDialog()
@@ -586,8 +587,6 @@ export function CodeOverlays({
             aria-modal="true"
             aria-labelledby="code-archive-exit-title"
             ref={archiveExitDialogRef}
-            onKeyDownCapture={event => trapFocusInContainer(event, archiveExitDialogRef.current)}
-            onKeyDown={event => trapFocusInContainer(event, archiveExitDialogRef.current)}
           >
             <h2 id="code-archive-exit-title">{copy.archiveAgentQuestion}</h2>
             <p>{copy.acknowledgeUnprovenAcpExitDescription(archiveExitDialog.title)}</p>
@@ -614,8 +613,6 @@ export function CodeOverlays({
             aria-describedby="code-remove-project-description"
             aria-busy={removeProjectDialog.busy}
             ref={removeProjectDialogRef}
-            onKeyDownCapture={event => trapFocusInContainer(event, removeProjectDialogRef.current)}
-            onKeyDown={event => trapFocusInContainer(event, removeProjectDialogRef.current)}
           >
             <h2 id="code-remove-project-title">{copy.removeProjectQuestion(removeProjectDialog.name)}</h2>
             <p id="code-remove-project-description">{copy.removeProjectDescription}</p>
@@ -673,8 +670,6 @@ export function CodeOverlays({
             aria-modal="true"
             aria-labelledby="code-delete-worktree-title"
             ref={deleteWorktreeDialogRef}
-            onKeyDownCapture={event => trapFocusInContainer(event, deleteWorktreeDialogRef.current)}
-            onKeyDown={event => trapFocusInContainer(event, deleteWorktreeDialogRef.current)}
           >
             <h2 id="code-delete-worktree-title">{copy.deleteWorktreeQuestion}</h2>
             <p>{copy.deleteWorktreeDescription}</p>
@@ -902,28 +897,4 @@ export function ContextMenuIcon({ kind }: { kind: ContextMenuIconKind }) {
       <path fill="currentColor" d="M11.3536 1.64645C10.963 1.25592 10.3299 1.25592 9.93934 1.64645L3.14645 8.43934C3.05268 8.53311 2.99999 8.66029 2.99999 8.79289V11.5C2.99999 11.7761 3.22385 12 3.49999 12H6.2071C6.33971 12 6.46689 11.9473 6.56066 11.8536L13.3536 5.06066C13.7441 4.67014 13.7441 4.037 13.3536 3.64645L11.3536 1.64645ZM3.99999 9L8.99999 4L11 6L6 11H3.99999V9ZM9.7071 3.29289L10.6464 2.35355L12.6464 4.35355L11.7071 5.29289L9.7071 3.29289ZM2.5 14C2.22386 14 2 14.2239 2 14.5C2 14.7761 2.22386 15 2.5 15H13.5C13.7761 15 14 14.7761 14 14.5C14 14.2239 13.7761 14 13.5 14H2.5Z" />
     </svg>
   )
-}
-
-function trapFocusInContainer(event: ReactKeyboardEvent<HTMLElement>, container: HTMLElement | null) {
-  if (event.key !== 'Tab' || !container) return
-
-  const focusable = Array.from(container.querySelectorAll<HTMLElement>(
-    'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [href], [tabindex]:not([tabindex="-1"])'
-  )).filter(element => element.offsetParent !== null)
-  if (focusable.length === 0) {
-    event.preventDefault()
-    return
-  }
-
-  const first = focusable[0]
-  const last = focusable[focusable.length - 1]
-  if (!first || !last) return
-
-  if (event.shiftKey && document.activeElement === first) {
-    event.preventDefault()
-    last.focus()
-  } else if (!event.shiftKey && document.activeElement === last) {
-    event.preventDefault()
-    first.focus()
-  }
 }

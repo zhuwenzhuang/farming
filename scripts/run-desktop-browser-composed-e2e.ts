@@ -7,6 +7,7 @@ import { projectFilesWorkspaceId } from '../src/lib/project-workspaces'
 type JsonRecord = Record<string, unknown>
 
 type BrowserResource = {
+  error?: string
   browserKind?: string
   id: string
   controlEpoch: number
@@ -528,7 +529,7 @@ async function main() {
       await viewer.getByRole('button', { name: 'Take control' }).click()
       const userOwned = await poll(
         () => browserResources(page),
-        resources => resources.find(resource => (
+        resources => resources.some(resource => (
           resource.id === primary.id
           && resource.controlOwner === 'user'
           && resource.controlEpoch > beforeHandoff.controlEpoch
@@ -556,7 +557,7 @@ async function main() {
       await viewer.getByRole('button', { name: 'Return to Agent' }).click()
       const agentOwned = await poll(
         () => browserResources(page),
-        resources => resources.find(resource => (
+        resources => resources.some(resource => (
           resource.id === primary.id
           && resource.controlOwner === 'agent'
           && resource.controlEpoch > userResource.controlEpoch

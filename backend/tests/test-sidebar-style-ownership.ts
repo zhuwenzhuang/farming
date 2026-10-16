@@ -7,10 +7,10 @@ assertDomainStyleOwnership({
   excludePrefixes: ['code-sidebar-resource'],
   // Shared workbench splitter paint belongs to the cross-domain layout owner.
   mainIntegrationSelectors: [
-    ':is(.code-sidebar-resizer, .code-resource-agent-resizer, .code-related-session-resizer)',
-    ':is(.code-sidebar-resizer, .code-resource-agent-resizer, .code-related-session-resizer):is(:hover, :active, :focus-visible)',
+    ':is(.code-sidebar-resizer, .code-resource-agent-resizer, .code-related-session-resizer, .code-language-server-resizer)',
+    ':is(.code-sidebar-resizer, .code-resource-agent-resizer, .code-related-session-resizer, .code-language-server-resizer):is(:hover, :active, :focus-visible)',
     'body.code-resizing-sidebar .code-sidebar-resizer',
-    ':is(.code-sidebar-resizer, .code-resource-agent-resizer, .code-related-session-resizer):focus-visible',
+    ':is(.code-sidebar-resizer, .code-resource-agent-resizer, .code-related-session-resizer, .code-language-server-resizer):focus-visible',
   ],
   componentSources: [
     'src/components/code/CodeSidebar.tsx',

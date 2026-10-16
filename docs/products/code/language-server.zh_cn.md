@@ -34,6 +34,10 @@ Language Server 只允许 Owner 使用。只读分享不会绑定 Editor Provide
 但一次准入仍可能安装托管 Runtime、写入 Cache 并启动 Project-scoped Process，因此必须采用
 这一权限边界。
 
+每个连接最多保留 128 个已同步文档。按最近使用顺序淘汰空闲文档，发送
+`textDocument/didClose` 并释放其诊断和刷新元数据。运行中的请求保护对应文档；
+容量全被活动文档占用时明确拒绝新请求。已淘汰文件在下一次请求前重新读取并打开。
+
 ## 文件与结果权威
 
 Request 必须按精确 Project Root 授权；Symlink Escape 和 Project 外 Result Location 必须拒绝。

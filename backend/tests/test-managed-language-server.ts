@@ -377,6 +377,19 @@ async function run() {
     });
     assert.strictEqual((symbols.result as Array<{ name: string }>)[0].name, 'main');
 
+    for (let index = 0; index < 150; index++) {
+      const filePath = path.join(workspace, `bounded-${index}.fake`);
+      fs.writeFileSync(filePath, 'bounded document\n');
+      await manager.request({ ...base, uri: pathToFileURL(filePath).toString(), method: 'hover' });
+    }
+    const client = [...manager.clients.values()][0];
+    assert.strictEqual(client.documents.size, 128, 'idle documents must be closed at the retained-document limit');
+    assert(client.diagnostics.size <= 128, 'diagnostics must share the document lifetime');
+    assert(client.providerRefreshDocumentVersions.size <= 128);
+    const reopened = await manager.request({ ...base, uri: pathToFileURL(path.join(workspace, 'bounded-0.fake')).toString(), method: 'hover' });
+    assert.deepStrictEqual(reopened.result, [{ contents: ['**fake hover**'] }], 'an evicted document must reopen before its next semantic request');
+    assert.strictEqual(client.documents.size, 128);
+
     enabled = false;
     await manager.dispose();
     const disabledCapability = await manager.capability();

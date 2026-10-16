@@ -23,9 +23,11 @@ interface WebSocketResourceBroadcastPorts<Client extends WebSocketResourceBroadc
   protocolVersion: number;
   sendResourceSnapshots(client: Client): void;
   setTimer(callback: () => void, delay: number): unknown;
+  clearTimer(timer: unknown): void;
 }
 
 interface WebSocketResourceBroadcastController<Client extends WebSocketResourceBroadcastClient> {
+  dispose(): void;
   recoverSnapshotIfReady(client: Client): void;
   scheduleDeletion(domain: ResourceBroadcastDomain, deletion: unknown): void;
   scheduleUpdate(domain: ResourceBroadcastDomain, resource: unknown): void;
@@ -40,6 +42,7 @@ function createWebSocketResourceBroadcastController<Client extends WebSocketReso
 ): WebSocketResourceBroadcastController<Client> {
   const pendingBroadcasts = new Map<string, ResourceBroadcastEvent>();
   let broadcastTimer: unknown | null = null;
+  let disposed = false;
 
   function isReady(client: Client): boolean {
     return client.readyState === ports.openState && client.protocolVersion === ports.protocolVersion;
@@ -67,11 +70,13 @@ function createWebSocketResourceBroadcastController<Client extends WebSocketReso
   }
 
   function flush(): void {
+    if (disposed) return;
     broadcastTimer = null;
     drainResourceBroadcasts(pendingBroadcasts).forEach(broadcast);
   }
 
   function schedule(event: ResourceBroadcastEvent): void {
+    if (disposed) return;
     coalesceResourceBroadcast(pendingBroadcasts, event);
     if (broadcastTimer) return;
     broadcastTimer = ports.setTimer(flush, ports.intervalMs);
@@ -116,7 +121,14 @@ function createWebSocketResourceBroadcastController<Client extends WebSocketReso
     if (delivery === 'snapshot') ports.sendResourceSnapshots(client);
   }
 
-  return { recoverSnapshotIfReady, scheduleDeletion, scheduleUpdate };
+  function dispose(): void {
+    disposed = true;
+    if (broadcastTimer !== null) ports.clearTimer(broadcastTimer);
+    broadcastTimer = null;
+    pendingBroadcasts.clear();
+  }
+
+  return { dispose, recoverSnapshotIfReady, scheduleDeletion, scheduleUpdate };
 }
 
 export {

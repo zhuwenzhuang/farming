@@ -139,6 +139,7 @@ test('a stale reminder load cannot restore the value replaced by a newer write',
     resolveLoad = resolve
   })
   const writes: Array<number | null> = []
+  let reads = 0
 
   globalThis.window = {
     localStorage: storage,
@@ -147,7 +148,7 @@ test('a stale reminder load cannot restore the value replaced by a newer write',
     },
   } as unknown as Window & typeof globalThis
   globalThis.fetch = (async (_input, init) => {
-    if (!init?.method || init.method === 'GET') return pendingLoad
+    if (!init?.method || init.method === 'GET') { reads++; return pendingLoad }
     const body = JSON.parse(String(init.body)) as { restReminderIntervalSeconds: number | null }
     writes.push(body.restReminderIntervalSeconds)
     return new Response(JSON.stringify({
@@ -160,6 +161,7 @@ test('a stale reminder load cannot restore the value replaced by a newer write',
 
   try {
     const load = loadRestReminderIntervalSeconds()
+    const concurrent = loadRestReminderIntervalSeconds('black-hole')
     assert.equal(await persistRestReminderIntervalSeconds(null), true)
     resolveLoad(new Response(JSON.stringify({
       settings: { restReminderIntervalSeconds: null },
@@ -169,8 +171,10 @@ test('a stale reminder load cannot restore the value replaced by a newer write',
     }))
 
     assert.equal(await load, null)
+    assert.equal(await concurrent, null)
     assert.equal(readRestReminderIntervalSeconds(storage), null)
     assert.deepEqual(writes, [null])
+    assert.equal(reads, 1, 'concurrent appearance hydration must share the same in-flight settings read')
   } finally {
     globalThis.window = originalWindow
     globalThis.fetch = originalFetch

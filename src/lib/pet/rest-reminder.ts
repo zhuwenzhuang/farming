@@ -266,6 +266,22 @@ type RestReminderServerSettings = {
 
 let restReminderSettingWrite = Promise.resolve(true)
 let restReminderSettingWriteGeneration = 0
+let restReminderSettingsRead: { generation: number; promise: Promise<RestReminderServerSettings | undefined> } | null = null
+
+function readRestReminderServerSettings(generation: number) {
+  if (restReminderSettingsRead?.generation === generation) return restReminderSettingsRead.promise
+  const promise = (async () => {
+    const response = await fetch(appPath('/api/settings'), { signal: AbortSignal.timeout(15_000) })
+    if (!response.ok) throw new Error('Rest reminder settings are unavailable')
+    const data = await response.json() as { settings?: RestReminderServerSettings }
+    return data.settings
+  })()
+  restReminderSettingsRead = { generation, promise }
+  void promise.finally(() => {
+    if (restReminderSettingsRead?.promise === promise) restReminderSettingsRead = null
+  }).catch(() => {})
+  return promise
+}
 
 async function postRestReminderIntervalSeconds(seconds: number | null) {
   const response = await fetch(appPath('/api/settings'), {
@@ -314,14 +330,12 @@ export async function loadRestReminderIntervalSeconds(
   const writeGeneration = restReminderSettingWriteGeneration
   const localIntervalSeconds = readRestReminderIntervalSeconds()
   try {
-    const response = await fetch(appPath('/api/settings'))
-    if (!response.ok) return localIntervalSeconds
-    const data = await response.json() as { settings?: RestReminderServerSettings }
+    const settings = await readRestReminderServerSettings(writeGeneration)
     if (writeGeneration !== restReminderSettingWriteGeneration) {
       return readRestReminderIntervalSeconds()
     }
     const persistedIntervalSeconds = normalizeRestReminderIntervalSeconds(
-      data.settings?.restReminderIntervalSeconds,
+      settings?.restReminderIntervalSeconds,
     )
     if (persistedIntervalSeconds !== null) {
       saveRestReminderIntervalSeconds(

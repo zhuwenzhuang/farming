@@ -2,9 +2,48 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
   requestWorkspace, requestLanguageServerTransport, setWorkspaceRequestTransport,
-  setWorkspaceRequestTransportReady, settleWorkspaceRequest, WorkspaceTransportError,
+  setWorkspaceRequestTransportReady, settleWorkspaceRequest, settleLanguageServerRequest, WorkspaceTransportError,
 } from '../src/lib/workspace-request-client'
 import type { WorkspaceRequestMessage } from '../shared/browser-protocol'
+import { createWebSocketWorkspaceRequestHandlers } from '../backend/websocket-workspace-request-handlers.cjs'
+
+test('ignored LSP cancellation retains admission until completion without flooding the server', { timeout: 5_000 }, async t => {
+  const releases: Array<() => void> = []
+  const errors: string[] = []
+  const client = { readyState: 1, send: (raw: string) => {
+    const message = JSON.parse(raw)
+    if (message.error && message.error.code !== 'CANCELLED') errors.push(message.error.code)
+    queueMicrotask(() => settleLanguageServerRequest(message))
+  } }
+  const handlers = createWebSocketWorkspaceRequestHandlers({
+    openState: 1, maxMessageBytes: 1024 * 1024,
+    executeWorkspace: async () => ({}),
+    executeLanguageServer: async () => { await new Promise<void>(resolve => releases.push(resolve)); return { result: 'done' } },
+    error: () => ({ code: 'FAILED', message: 'failed' }),
+  })
+  t.after(() => { handlers.close(client); setWorkspaceRequestTransport(null); releases.forEach(resolve => resolve()) })
+  setWorkspaceRequestTransport(message => {
+    if (message.type === 'language-server-request') handlers.languageServerRequest(client, message)
+    else if (message.type === 'workspace-cancel') handlers.cancel(client, message)
+    return true
+  })
+  setWorkspaceRequestTransportReady(true)
+  for (let i = 0; i < 30; i++) {
+    const controller = new AbortController()
+    const request = requestLanguageServerTransport({ operation: 'capability', rootId: 'root' }, { signal: controller.signal })
+    controller.abort()
+    await assert.rejects(request, { name: 'AbortError' })
+  }
+  assert.equal(releases.length, 1, 'only the running request may reach a cancellation-ignoring server')
+  const last = requestLanguageServerTransport({ operation: 'capability', rootId: 'root' })
+  releases[0]()
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(releases.length, 2, 'completion must release admission for the next live request')
+  releases[1]()
+  assert.deepEqual(await last, { result: 'done', supported: true })
+  await new Promise(resolve => setImmediate(resolve))
+  assert.deepEqual(errors, [])
+})
 
 test('restored directory bursts stay bounded and background work cannot block navigation', { timeout: 5_000 }, async t => {
   const sent: WorkspaceRequestMessage[] = []

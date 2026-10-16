@@ -153,7 +153,7 @@
 .review-toolbar-separator {
   width: 1px;
   height: 20px;
-  background: var(--code-panel-divider);
+  background: var(--code-workbench-divider);
 }
 
 .review-files-actions .review-icon-action {
@@ -223,7 +223,7 @@
 .review-files-list { background: var(--code-bg-canvas); }
 
 .review-commit-message {
-  border-top: 1px solid var(--code-panel-divider);
+  border-top: 1px solid var(--code-workbench-divider);
   color: var(--code-text-muted);
   font-size: 12px;
 }
@@ -468,7 +468,7 @@
 }
 
 .review-diff-columns span { padding: 2px 12px; }
-.review-diff-columns span + span { border-left: 1px solid var(--code-border); }
+.review-diff-columns span + span { border-left: 1px solid var(--code-workbench-divider); }
 
 .review-diff-hunk {
   min-height: 23px;
@@ -536,7 +536,7 @@
 .review-diff-row > span,
 .review-line-number {
   padding: 2px 8px;
-  border-right: 1px solid var(--code-border);
+  border-right: 1px solid var(--code-workbench-divider);
   background: var(--code-bg-canvas);
   color: var(--code-text-quiet);
   text-align: right;
@@ -553,7 +553,7 @@
   min-width: 0;
   overflow: hidden;
   padding: 2px 8px;
-  border-right: 1px solid var(--code-border);
+  border-right: 1px solid var(--code-workbench-divider);
   color: var(--code-text);
   white-space: pre;
   -webkit-user-select: text;
@@ -685,7 +685,7 @@
   padding: 8px;
   border: 1px solid var(--code-border);
   border-radius: 2px;
-  background: var(--code-bg-raised);
+  background: var(--code-bg-inset);
   color: var(--code-text);
   font: inherit;
   line-height: 1.45;
@@ -712,7 +712,7 @@
 .review-comment-thread {
   margin: 0;
   border: 0;
-  border-left: 3px solid var(--code-border);
+  border-left: 3px solid var(--code-workbench-divider);
   border-radius: 0;
   border-top: 1px solid var(--code-border);
   background: var(--code-bg-raised);
@@ -928,13 +928,13 @@
   .review-patch-static { max-width: 25vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .review-files-actions { flex-wrap: wrap; }
   .review-file-change-header { grid-template-columns: minmax(0, 1fr) 28px; gap: 2px; }
-  .review-review-status { grid-column: 1; justify-content: flex-start; padding: 0 0 7px 28px; }
+  .review-review-status { grid-column: 1; grid-template-columns: minmax(0, 1fr); justify-content: flex-start; padding: 0 0 7px 28px; }
   .review-file-expand { grid-column: 2; grid-row: 1 / span 2; }
   .review-file-select { grid-template-columns: 18px minmax(0, 1fr) max-content; gap: 7px; }
   .review-change-bar { display: none; }
   .review-path-directory { max-width: 0; }
   .review-path-with-directory::before { content: '…'; flex: none; }
-  .review-review-status button { opacity: 1; }
+  .review-review-status button { grid-column: 1; opacity: 1; }
   .review-diff-row { grid-template-columns: 34px minmax(220px, 1fr) 34px minmax(220px, 1fr); }
   .review-diff-row.unified { grid-template-columns: 34px 34px 16px minmax(0, 1fr); }
   .review-preferences { max-height: calc(100vh - 48px); overflow: auto; }
@@ -945,6 +945,8 @@
   .review-preferences-form .checkbox-row { grid-template-columns: minmax(0, 1fr) 168px; column-gap: 14px; }
   .review-preferences-form { padding-inline: 20px; }
   .review-source-trigger { max-width: 66vw; }
+  .review-commit-message > div { padding-left: 28px; }
+  .review-preferences-select .code-select-menu { width: min(282px, calc(100vw - 48px)); min-width: 0; max-width: calc(100vw - 48px); }
 }
 
 .review-navigation {

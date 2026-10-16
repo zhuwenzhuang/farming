@@ -30,6 +30,12 @@ request deadlines, and result authorization. One compatible server may be
 reused within the same Config, language, and Project-root boundary. Different
 Config instances do not share mutable Language Server state.
 
+Each connection retains at most 128 synchronized documents. Inactive documents
+are evicted in least-recently-used order with `textDocument/didClose`, releasing
+their diagnostics and refresh metadata. Active requests protect their documents;
+a full active set rejects further admission explicitly. An evicted file reopens
+from disk before its next request.
+
 Language Server admission is owner-only. A read-only share does not bind the
 editor providers or send capability and semantic requests, and the backend
 rejects a forged request before it reaches the manager. This is required even

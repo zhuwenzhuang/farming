@@ -3612,7 +3612,7 @@ class AgentManager extends EventEmitter {
         continue;
       }
       try {
-        const recoveryEnv = this.buildAgentEnv(agentId, agent, null);
+        const recoveryEnv = await this.buildAgentEnv(agentId, agent, null);
         const snapshot = this.acpRuntime.getSession(agentId, { maxEntries: 0 });
         const hostSessionId = String(snapshot.sessionId || '');
         if (hostSessionId && hostSessionId !== sessionId) {
@@ -3777,7 +3777,7 @@ class AgentManager extends EventEmitter {
           || providerLaunchPermissionMode(provider, recoveryLaunchProfile)
           || 'approve';
         const sharedLaunchConfig = this.sharedConfigService?.captureLaunchConfig() || null;
-        const launchEnv = this.buildAgentEnv(agentId, agent, sharedLaunchConfig);
+        const launchEnv = await this.buildAgentEnv(agentId, agent, sharedLaunchConfig);
         const recoveryMcpSource = Array.isArray(record.acpMcpServers)
           ? record.acpMcpServers.filter(isRecord)
           : [];
@@ -4513,7 +4513,7 @@ class AgentManager extends EventEmitter {
     };
   }
 
-  buildAgentEnv(
+  async buildAgentEnv(
     agentId: AgentId,
     agent: TypedAgentRecord,
     sharedLaunchConfig?: SharedLaunchConfig | null,
@@ -4523,7 +4523,7 @@ class AgentManager extends EventEmitter {
       ? this.sharedConfigService?.captureLaunchConfig() || null
       : sharedLaunchConfig;
     const env = launchConfig && this.sharedConfigService
-      ? this.sharedConfigService.applyEnvironment(baseEnv, launchConfig)
+      ? await this.sharedConfigService.applyEnvironment(baseEnv, launchConfig)
       : baseEnv;
     for (const key of FARMING_LAUNCH_OWNED_ENV_KEYS) delete env[key];
     clearProviderHomeEnvironment(env);
@@ -4850,6 +4850,7 @@ class AgentManager extends EventEmitter {
       for (const operation of this.providerSessionMutationCoordinator.pendingOperations()) pending.add(operation);
       for (const operation of this.terminalProviderControlCoordinator.pendingOperations()) pending.add(operation);
       for (const operation of this.inputCoordinator.pendingOperations()) pending.add(operation);
+      for (const operation of this.subagentRequests.values()) pending.add(operation);
       for (const operation of this.terminalResizeCoordinator.pendingOperations()) pending.add(operation);
       const adaptiveTitleDrain = this.adaptiveTitlePersistence.activeDrain();
       if (adaptiveTitleDrain) pending.add(adaptiveTitleDrain);
@@ -4966,7 +4967,7 @@ class AgentManager extends EventEmitter {
       command: launch.command,
       args: launchArgs,
       cwd: launch.cwd,
-      env: this.buildAgentEnv(agent.id, agent, sharedLaunchConfig),
+      env: await this.buildAgentEnv(agent.id, agent, sharedLaunchConfig),
       category: launch.category,
       metadata: this.engineSessionMetadata(agent),
       reviveState: launch.reviveState || null,
@@ -5859,7 +5860,7 @@ class AgentManager extends EventEmitter {
         if (!identityWorkspaceExists) {
           throw new Error(`Workspace does not exist: ${identityWorkspace}`);
         }
-        const identityEnv = this.buildAgentEnv(agentId, agentRecord, sharedLaunchConfig);
+        const identityEnv = await this.buildAgentEnv(agentId, agentRecord, sharedLaunchConfig);
         const requestedAdditionalDirectories = Array.isArray(options.additionalDirectories)
           ? options.additionalDirectories
           : [];
@@ -6057,7 +6058,7 @@ class AgentManager extends EventEmitter {
           requestedMcpServers,
         );
         if (mcpServersError) throw new Error(mcpServersError);
-        const acpEnv = this.buildAgentEnv(agentId, agentRecord, sharedLaunchConfig);
+        const acpEnv = await this.buildAgentEnv(agentId, agentRecord, sharedLaunchConfig);
         const capabilityProjection = this.projectAcpMcpServersForRuntime(
           requestedMcpServers.filter(isRecord),
           acpEnv,
@@ -6901,7 +6902,7 @@ class AgentManager extends EventEmitter {
 
     if (isAcpAgent(agent)) {
       this.assertProjectInputAvailable(agentId);
-      this.requireLiveAcpAgent(agentId);
+      this.requireAcpAgentRecord(agentId);
       options.onPhase?.({ phase: 'preparing', updatedAt: Date.now() });
       await this.reconnectAcpAgent(agentId);
       options.assertDeliveryOwner?.();
@@ -7010,15 +7011,13 @@ class AgentManager extends EventEmitter {
   async reconnectAcpAgent(agentId: AgentId) {
     this.assertAgentOperationAdmission();
     this.assertSubagentParentAvailable(agentId);
-    const agent = this.requireLiveAcpAgent(agentId);
+    const agent = this.requireAcpAgentRecord(agentId);
     await this.acpRuntime.initialize?.();
     if (!this.acpRuntime.hasBinding(agentId)) {
       await this.recoverAcpSessions();
-      this.requireLiveAcpAgent(agentId);
-      if (!this.acpRuntime.hasBinding(agentId)) {
-        throw new Error('ACP runtime Host binding could not be recovered');
-      }
     }
+    this.assertAgentOperationAdmission();
+    if (this.requireLiveAcpAgent(agentId) !== agent) throw new Error('ACP Agent changed during recovery');
     const result = await this.acpRuntime.reconnectAgent(agentId, {
       onProcessStopped: () => {
         if (this.agents.get(agentId) !== agent) return;
@@ -7307,7 +7306,6 @@ class AgentManager extends EventEmitter {
 
   async decideAcpPatch(agentId: AgentId, toolCallId: string, requestedPath: string, decision: 'keep' | 'revert') {
     this.assertAgentOperationAdmission();
-    this.getAcpSession(agentId);
     await this.reconnectAcpAgent(agentId);
     return this.acpRuntime.decidePatch(agentId, toolCallId, requestedPath, decision);
   }
@@ -7393,7 +7391,6 @@ class AgentManager extends EventEmitter {
   }
 
   async listAcpSessions(agentId: AgentId, options: AcpSessionListOptions = {}) {
-    this.requireLiveAcpAgent(agentId);
     await this.reconnectAcpAgent(agentId);
     return this.acpRuntime.listSessions(agentId, options);
   }
@@ -7410,10 +7407,15 @@ class AgentManager extends EventEmitter {
     return this.acpRuntime.respondElicitation(agentId, requestId, action, content);
   }
 
-  requireLiveAcpAgent(agentId: AgentId) {
+  requireAcpAgentRecord(agentId: AgentId) {
     const agent = this.agents.get(agentId);
     if (!agent) throw new Error('Agent not found');
     if (!isAcpAgent(agent)) throw new Error('Agent is not using the ACP runtime');
+    return agent;
+  }
+
+  requireLiveAcpAgent(agentId: AgentId) {
+    const agent = this.requireAcpAgentRecord(agentId);
     if (typeof this.acpRuntime.hasBinding === 'function' && !this.acpRuntime.hasBinding(agentId)) {
       const runtime = runtimeBindingOf(agent, 'acp');
       const message = runtime?.error || (
@@ -7430,42 +7432,36 @@ class AgentManager extends EventEmitter {
 
   async authenticateAcpAgent(agentId: AgentId, methodId: string) {
     this.assertAgentOperationAdmission();
-    this.getAcpSession(agentId);
     await this.reconnectAcpAgent(agentId);
     return this.acpRuntime.authenticate(agentId, methodId);
   }
 
   async logoutAcpAgent(agentId: AgentId) {
     this.assertAgentOperationAdmission();
-    this.getAcpSession(agentId);
     await this.reconnectAcpAgent(agentId);
     return this.acpRuntime.logout(agentId);
   }
 
   async forkAcpSession(agentId: AgentId, options: AcpForkOptions = {}) {
     this.assertAgentOperationAdmission();
-    this.getAcpSession(agentId);
     await this.reconnectAcpAgent(agentId);
     return this.acpRuntime.forkSession(agentId, options);
   }
 
   async deleteAcpSession(agentId: AgentId, sessionId: string) {
     this.assertAgentOperationAdmission();
-    this.getAcpSession(agentId);
     await this.reconnectAcpAgent(agentId);
     return this.acpRuntime.deleteSession(agentId, sessionId);
   }
 
   async closeAcpSession(agentId: AgentId) {
     this.assertAgentOperationAdmission();
-    this.getAcpSession(agentId);
     await this.reconnectAcpAgent(agentId);
     return this.acpRuntime.closeSession(agentId);
   }
 
   async setAcpSessionMode(agentId: AgentId, modeId: string) {
     this.assertAgentOperationAdmission();
-    this.getAcpSession(agentId);
     await this.reconnectAcpAgent(agentId);
     return this.acpRuntime.setSessionMode(agentId, modeId);
   }
@@ -7487,7 +7483,6 @@ class AgentManager extends EventEmitter {
 
   async setAcpSessionConfigOption(agentId: AgentId, configId: string, value: AcpConfigValue) {
     this.assertAgentOperationAdmission();
-    this.getAcpSession(agentId);
     await this.reconnectAcpAgent(agentId);
     const agent = this.agents.get(agentId);
     if (!agent) throw new Error('Agent not found');
@@ -7498,7 +7493,6 @@ class AgentManager extends EventEmitter {
 
   async setAcpSessionConfigOptions(agentId: AgentId, changes: AcpConfigChange[]) {
     this.assertAgentOperationAdmission();
-    this.getAcpSession(agentId);
     await this.reconnectAcpAgent(agentId);
     const agent = this.agents.get(agentId);
     if (!agent) throw new Error('Agent not found');
@@ -9942,9 +9936,9 @@ class AgentManager extends EventEmitter {
         requestId: prior ? prior.requestKey.slice('fork-request:'.length) : `subagent-${crypto.randomUUID()}`,
       });
       if (result.error) return result;
-      const created = (this.configManager?.listAgentSessionRecords?.() || []).find(record => (
+      const created = (this.configManager?.listAgentSessionRecords?.() ?? [...this.agents.values()]).find(record => (
         canonicalProviderSessionKey(record.subagentParentSessionKey) === parentKey
-        && record.runtimeAgentId === result.agentId
+        && (record.runtimeAgentId ?? record.id) === result.agentId
       ));
       if (!created?.providerSessionKey) return { error: 'Subagent creation is not yet durably reconciled', uncertain: true };
       return { ...result, providerSessionKey: created.providerSessionKey };

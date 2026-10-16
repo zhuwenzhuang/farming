@@ -19,7 +19,6 @@
   min-width: 1px;
   position: relative;
   z-index: 4;
-  background: var(--code-border-strong);
   cursor: col-resize;
   touch-action: none;
 }
@@ -28,13 +27,6 @@
   content: '';
   position: absolute;
   inset: 0 -4px;
-}
-
-.code-language-server-resizer:hover,
-.code-language-server-resizer:focus-visible,
-body.code-resizing-language-server-dock .code-language-server-resizer {
-  background: var(--code-text-subtle);
-  outline: 0;
 }
 
 .code-language-server-panel > header {
@@ -117,7 +109,7 @@ body.code-resizing-language-server-dock .code-language-server-resizer {
   border-color: var(--code-border);
 }
 
-.code-language-server-search input {
+.code-language-server-search input:not(.code-field) {
   min-width: 0;
   padding: 5px 7px;
   border: 1px solid var(--code-border-strong);

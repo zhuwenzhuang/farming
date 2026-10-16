@@ -623,7 +623,7 @@
   grid-template-columns: repeat(24, minmax(2px, 1fr));
   align-items: end;
   gap: 4px;
-  border-bottom: 1px solid var(--code-border);
+  border-bottom: 1px solid var(--code-viz-border);
   background: var(--code-chart-grid-bg);
 }
 
@@ -757,7 +757,7 @@
   white-space: nowrap;
 }
 
-@media (max-width: 760px) {
+@media (max-width: 767px), (max-width: 980px) and (pointer: coarse) {
   .code-usage-detail-backdrop {
       padding: 12px;
     }
@@ -793,7 +793,8 @@
     }
 
   .code-usage-day-breakdown {
-      height: 200px;
+      min-height: 200px;
+      height: auto;
     }
 
   .code-usage-detail-analysis {
@@ -846,7 +847,7 @@
 
   .code-usage-day-histogram-bars {
       height: 80px;
-      border-bottom-color: var(--code-border);
+      border-bottom-color: var(--code-viz-border);
     }
 
   .code-usage-day-histogram-scale {
@@ -1126,7 +1127,7 @@
   display: grid;
   gap: 8px;
   padding: 14px;
-  border-bottom: 1px solid var(--code-border);
+  border-bottom: 1px solid var(--code-viz-border);
 }
 
 .code-usage-mobile-quota .code-usage-provider {

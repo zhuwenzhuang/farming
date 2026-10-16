@@ -672,7 +672,7 @@ body.code-mode .code-file-change-group-toggle {
   align-items: center;
   justify-content: flex-end;
   padding-left: 21px;
-  border-radius: 0 8px 8px 0;
+  border-radius: 8px;
   background: linear-gradient(90deg, transparent 0, var(--code-open-editor-row-action-surface) 21px, var(--code-open-editor-row-action-surface) 100%);
   overflow: hidden;
   opacity: 0;
@@ -682,7 +682,7 @@ body.code-mode .code-file-change-group-toggle {
 }
 
 .code-open-editor-row:hover .code-open-editor-actions,
-.code-open-editor-row:has(.code-open-editor-actions :focus-visible) .code-open-editor-actions {
+.code-open-editor-row:focus-within .code-open-editor-actions {
   opacity: 1;
   pointer-events: auto;
 }

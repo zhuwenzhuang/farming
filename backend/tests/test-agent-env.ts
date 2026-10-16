@@ -181,7 +181,7 @@ async function run() {
   process.env.FARMING_SHELL_CONTROLLED_PROMPT = '1';
   process.env.FARMING_ANONYMIZE_SHELL_PROMPT = '1';
   try {
-    const env = manager.buildAgentEnv('agent-env', { wantsMain: false, category: 'other', command: 'bash' });
+    const env = await manager.buildAgentEnv('agent-env', { wantsMain: false, category: 'other', command: 'bash' });
     assert.strictEqual(env.PATH.startsWith(`${manager.cliBinDir}${path.delimiter}`), true);
     assert.strictEqual(env.PAGER, undefined);
     assert.strictEqual(env.GIT_PAGER, undefined);
@@ -192,13 +192,13 @@ async function run() {
     assert.strictEqual(env.PS1, undefined, 'bash must source its own prompt instead of inheriting another shell prompt');
     assert.strictEqual(env.PROMPT_COMMAND, undefined, 'bash must source its own prompt hook instead of inheriting one');
 
-    const zshEnv = manager.buildAgentEnv('agent-zsh', { wantsMain: false, category: 'other', command: 'zsh' });
+    const zshEnv = await manager.buildAgentEnv('agent-zsh', { wantsMain: false, category: 'other', command: 'zsh' });
     assert.strictEqual(zshEnv.PATH.startsWith(`${manager.cliBinDir}${path.delimiter}/zsh/bin`), true);
     assert.strictEqual(zshEnv.PROMPT, undefined, 'zsh must source its own prompt instead of inheriting another shell prompt');
     assert.strictEqual(zshEnv.RPROMPT, undefined, 'zsh must source its own right prompt instead of inheriting one');
     assert(resolvedShells.some(shell => String(shell).endsWith('bash')) && resolvedShells.some(shell => String(shell).endsWith('zsh')), 'shell environment capture should be keyed by the target shell');
 
-    const codingEnv = manager.buildAgentEnv('agent-coding', { wantsMain: false, category: 'coding' });
+    const codingEnv = await manager.buildAgentEnv('agent-coding', { wantsMain: false, category: 'coding' });
     assert.strictEqual(codingEnv.FARMING_SHELL_CONTROLLED_PROMPT, undefined, 'coding CLIs should not inherit shell prompt policy');
     assert.strictEqual(codingEnv.FARMING_ANONYMIZE_SHELL_PROMPT, undefined, 'coding CLIs should not inherit shell anonymization policy');
 

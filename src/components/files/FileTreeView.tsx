@@ -414,14 +414,14 @@ const FileTreeViewContent = memo(function FileTreeViewContent({
       frameId = window.requestAnimationFrame(runScheduledSynchronize)
     }
     synchronize()
-    scroller.addEventListener('scroll', synchronize, { passive: true })
+    scroller.addEventListener('scroll', scheduleSynchronize, { passive: true })
     window.addEventListener('resize', scheduleSynchronize)
     const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(scheduleSynchronize)
     observer?.observe(viewport)
     return () => {
       if (frameId) window.cancelAnimationFrame(frameId)
       observer?.disconnect()
-      scroller.removeEventListener('scroll', synchronize)
+      scroller.removeEventListener('scroll', scheduleSynchronize)
       window.removeEventListener('resize', scheduleSynchronize)
     }
   }, [treeHeight, treeRef, treeViewportRef, treeWindowHeight])
