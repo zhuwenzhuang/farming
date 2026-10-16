@@ -256,6 +256,7 @@ export function App() {
     ),
   }))
   const pendingStartRef = useRef<string | null>(null)
+  const uncertainStartsRef = useRef(new Map<string, string>())
   const [startBusy, setStartBusy] = useState(false)
   const pendingMainRestartRef = useRef<{ beforeIds: Set<string> } | null>(null)
   const pendingForkAgentIdsRef = useRef(new Set<string>())
@@ -954,7 +955,13 @@ export function App() {
 
   const handleStartAgent = useCallback(async (command: string, workspace: string, extras?: StartAgentExtras) => {
     if (pendingStartRef.current) return
-    const requestId = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`
+    const payload = { ...extras, command, workspace }
+    const signature = JSON.stringify(payload)
+    const priorRequestId = uncertainStartsRef.current.get(signature)
+    const requestId = priorRequestId || globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`
+    // Keep the identity across dialog dismissal and explicit retries. Only the
+    // backend's create journal can decide whether an ambiguous start happened.
+    uncertainStartsRef.current.set(signature, requestId)
     const generation = ++inputDialogOpenRequestRef.current
     pendingStartRef.current = requestId
     setStartBusy(true)
@@ -964,10 +971,16 @@ export function App() {
       // Unrelated WebSocket errors or other clients' starts cannot settle it.
       const response = await fetch(appPath('/api/control/agents'), {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...extras, command, workspace, requestId }),
+        body: JSON.stringify({ ...payload, requestId }),
         signal: AbortSignal.timeout(60_000),
       })
-      const result = await response.json() as { agentId?: string; error?: string }
+      const result = await response.json() as { agentId?: string; error?: string; code?: string }
+      if (response.ok && result.agentId) {
+        uncertainStartsRef.current.delete(signature)
+      } else if (!priorRequestId && response.status >= 400 && response.status < 500
+        && response.status !== 409 && !result.agentId && result.code !== 'create-result-unknown') {
+        uncertainStartsRef.current.delete(signature)
+      }
       if (generation !== inputDialogOpenRequestRef.current) return
       if (!response.ok || !result.agentId) throw new Error(result.error || copy.updateFailed)
       setDialog('none')

@@ -227,6 +227,7 @@ async function run() {
         command: 'codex',
         workspace: '/repo',
         task: 'Inspect optimizer bugs',
+        customTitle: 'Optimizer investigation',
         parentAgentId: 'agent-main',
       }),
     });
@@ -253,6 +254,7 @@ async function run() {
     assert.strictEqual(calls[0].options.wantsMain, false);
     assert.strictEqual(calls[0].options.agentRuntimeMode, undefined, 'an omitted API mode must reach backend default resolution');
     assert.strictEqual(calls[0].options.parentAgentId, 'agent-main');
+    assert.strictEqual(calls[0].options.customTitle, 'Optimizer investigation', 'HTTP creation must preserve a historical custom title');
     assert.strictEqual(calls[0].options.source, 'control-cli');
     assert.deepStrictEqual(calls[1], {
       type: 'sendInput',

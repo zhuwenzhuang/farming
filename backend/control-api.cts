@@ -640,6 +640,7 @@ function createControlRouter(
       ...(handoff ? { projectWorkspace: handoff.projectWorkspace } : {}),
       ...(typeof body.providerHomeId === 'string' ? { providerHomeId: body.providerHomeId } : {}),
       task,
+      ...(typeof body.customTitle === 'string' ? { customTitle: body.customTitle } : {}),
       source: body.source === 'deployment-smoke' ? 'deployment-smoke' : 'control-cli',
       createRequestId,
       createInitialInputSignature: requestSignature(initialInput),

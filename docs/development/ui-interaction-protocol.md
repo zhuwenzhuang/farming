@@ -103,6 +103,15 @@ Verify composed rows/counts and all supported appearances.
 
 ## Opening An Agent
 
+New Agent creation retains its exact request identity and parameters after a
+transport failure, timeout, or uncertain server response, including when its
+dialog is dismissed and reopened. Explicit retry of the same intent reuses that
+identity through backend Create admission and the durable lifecycle journal;
+there is no automatic retry. Confirmed success settles the intent, while an
+initial definitive rejection permits a corrected attempt. A later rejection
+cannot erase an earlier uncertain outcome. HTTP creation preserves the custom
+title supplied by History just as the WebSocket creation path does.
+
 Search, History, and Project session activation share one navigation owner,
 regardless of pointer or keyboard input. The backend owns resume admission and
 the exact `(provider, providerHomeId, sessionId)` claim. The browser owns one
