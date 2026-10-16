@@ -14,7 +14,7 @@ test('host-profile regressions gate production release artifacts with fresh iden
     const bin = path.join(fixture, 'bin');
     for (const directory of ['scripts', 'backend/data', 'patches/agent-browser']) fs.mkdirSync(path.join(project, directory), { recursive: true });
     fs.mkdirSync(bin);
-    for (const file of ['scripts/build-agent-browser-runtime.mjs', 'backend/data/agent-browser-source.json', pin.patch]) {
+    for (const file of ['scripts/build-agent-browser-runtime.mjs', 'scripts/agent-browser-build-cache.mjs', 'backend/data/agent-browser-source.json', pin.patch]) {
       fs.copyFileSync(file, path.join(project, file));
     }
     const fake = `#!${process.execPath}
@@ -72,7 +72,7 @@ if(command==='git'){
     fs.writeFileSync(env.RECIPE_CALLS, '');
     const failedOutput = path.join(fixture, 'failed');
     const failed = spawnSync(process.execPath, [path.join(project, 'scripts/build-agent-browser-runtime.mjs'),
-      '--platform', 'darwin-arm64', '--output', failedOutput], { env: { ...env, RECIPE_FAIL_TEST: '1' }, encoding: 'utf8', timeout: 10_000 });
+      '--platform', 'darwin-arm64', '--output', failedOutput], { env: { ...env, RECIPE_FAIL_TEST: '1', FARMING_AGENT_BROWSER_BUILD_CACHE: path.join(fixture, 'failed-cache') }, encoding: 'utf8', timeout: 10_000 });
     assert.notEqual(failed.status, 0);
     assert.equal(fs.existsSync(failedOutput), false, 'a failed regression must not publish an artifact');
     const failedCalls = fs.readFileSync(env.RECIPE_CALLS, 'utf8').trim().split('\n').map(line => JSON.parse(line));

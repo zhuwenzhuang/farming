@@ -13,7 +13,7 @@ test('unchanged compiled Browser inputs preserve provenance while candidate asse
     const project = path.join(directory, 'project');
     const bin = path.join(directory, 'bin');
     fs.mkdirSync(bin, { recursive: true });
-    for (const file of ['scripts/reuse-agent-browser-runtime.mjs', 'scripts/observe-release-gh.mjs', 'scripts/build-agent-browser-runtime.mjs', 'backend/data/agent-browser-source.json', pin.patch]) {
+    for (const file of ['scripts/reuse-agent-browser-runtime.mjs', 'scripts/observe-release-gh.mjs', 'scripts/build-agent-browser-runtime.mjs', 'scripts/agent-browser-build-cache.mjs', 'backend/data/agent-browser-source.json', pin.patch]) {
       fs.mkdirSync(path.dirname(path.join(project, file)), { recursive: true });
       fs.copyFileSync(file, path.join(project, file));
     }

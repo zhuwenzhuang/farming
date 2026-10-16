@@ -34,6 +34,8 @@ assertDomainStyleOwnership({
     'src/components/files/ProjectFilesSection.tsx',
   ],
   unstyledClassNames: [
+    // Icon geometry is inherited from the shared symbolic-link SVG selector.
+    'code-file-symbolic-link-arrow',
     // Menu chrome belongs to the shared UI family recipe.
     'code-file-context-menu',
     'code-file-blame-state',
