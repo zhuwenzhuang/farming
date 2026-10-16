@@ -373,12 +373,21 @@ conversation identity and never manufactures missing history. The bridge uses
 native headless JSON output, forwards additional workspace directories, and
 preserves the Session working directory across turns. Full transcript logs take
 precedence over truncated display logs when replaying history.
+Load and resume recognize prior Farming instruction injection only when a user
+input contains the current instruction text; native history or an existing log
+alone is not evidence. A successful injected turn confirms delivery. After a
+failed turn, persisted input determines whether the next turn still needs the
+instructions. Resume inspects this evidence without replaying transcript updates.
 
 Each Session admits one turn at a time. A partial response is not success: the
 CLI must exit successfully and report a successful final result for the same
-conversation. Cancellation, disconnection, and turn deadlines hard-stop the
+conversation. The known stale stream-interruption result can be reconciled only
+when the database contains a new user-input boundary since this turn started,
+a completed planner response, and a completed final step without a current-turn
+error. Unchanged history, unavailable evidence, and other errors remain failures.
+Cancellation, disconnection, and turn deadlines hard-stop the
 owned CLI process group, including tools. Live turns reject configuration changes.
-The bridge exposes native Auto, Accept Edits, and Plan modes; Plan is not an
+The bridge exposes Bypass permissions, Accept edits, and Plan modes; Plan is not an
 interactive approval mode. ACP MCP injection is unsupported; integrations must
 be configured in the selected native Agent Home. Usage and model capabilities
 remain limited to what the CLI actually reports.

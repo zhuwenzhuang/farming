@@ -362,6 +362,81 @@ export function readAgyConversationStepCount(dbPath: string): number | null {
   }
 }
 
+// Capture the persisted boundary before admitting a turn. Missing evidence must
+// never allow a previous completed turn to override a new provider error.
+export function readAgyLatestUserStepIndex(agyHomePath: string, conversationId: string): number | null {
+  if (!agyHomePath.trim() || !isSafeAgyConversationId(conversationId)) return null;
+  const sqlite = loadNodeSqlite();
+  if (!sqlite) return null;
+  let db: SqliteDatabaseSync | null = null;
+  try {
+    db = new sqlite.DatabaseSync(path.join(agyHomePath, 'conversations', `${conversationId}.db`), { readOnly: true });
+    const row = db.prepare('SELECT MAX(idx) AS max_idx FROM steps WHERE step_type = 14').get();
+    return row?.max_idx === null ? -1 : typeof row?.max_idx === 'number' ? row.max_idx : null;
+  } catch {
+    return null;
+  } finally {
+    try { db?.close(); } catch { /* Ignore close errors. */ }
+  }
+}
+
+export function didAgyCurrentTurnCompleteCleanly(
+  agyHomePath: string,
+  conversationId: string,
+  previousUserStepIndex: number | null
+): boolean {
+  if (previousUserStepIndex === null) return false;
+  const normalizedHome = typeof agyHomePath === 'string' ? agyHomePath.trim() : '';
+  const normalizedId = typeof conversationId === 'string' ? conversationId.trim() : '';
+  if (!normalizedHome || !isSafeAgyConversationId(normalizedId)) return false;
+
+  const dbPath = path.join(normalizedHome, 'conversations', `${normalizedId}.db`);
+  if (!fs.existsSync(dbPath)) return false;
+
+  const sqlite = loadNodeSqlite();
+  if (!sqlite) return false;
+
+  let db: SqliteDatabaseSync | null = null;
+  try {
+    db = new sqlite.DatabaseSync(dbPath, { readOnly: true });
+    const latestUserRow = db
+      .prepare('SELECT MAX(idx) AS max_idx FROM steps WHERE step_type = 14')
+      .get() as { max_idx?: number | null } | undefined;
+    const latestUserIdx =
+      typeof latestUserRow?.max_idx === 'number' && Number.isFinite(latestUserRow.max_idx)
+        ? latestUserRow.max_idx
+        : -1;
+    if (latestUserIdx < 0 || latestUserIdx <= previousUserStepIndex) return false;
+
+    const turnSteps = db
+      .prepare('SELECT idx, step_type, status FROM steps WHERE idx > ? ORDER BY idx ASC')
+      .all(latestUserIdx) as Array<{ idx?: number; step_type?: number; status?: number }>;
+    if (!Array.isArray(turnSteps) || turnSteps.length === 0) return false;
+
+    let hasCompletedPlannerResponse = false;
+    for (const step of turnSteps) {
+      const stepType = typeof step.step_type === 'number' ? step.step_type : 0;
+      const status = typeof step.status === 'number' ? step.status : 0;
+      // step_type 17 is CORTEX_STEP_TYPE_ERROR_MESSAGE; status 7 is ERROR (except tool step 132 which model can recover from).
+      if (stepType === 17) return false;
+      if (status === 7 && stepType !== 132) return false;
+      if (stepType === 15 && status === 3) {
+        hasCompletedPlannerResponse = true;
+      }
+    }
+    const lastStep = turnSteps[turnSteps.length - 1];
+    return hasCompletedPlannerResponse && lastStep?.status === 3;
+  } catch {
+    return false;
+  } finally {
+    try {
+      db?.close();
+    } catch {
+      // Ignore close errors.
+    }
+  }
+}
+
 export function readAgyConversationWorkspace(
   agyHomePath: string,
   conversationId: string

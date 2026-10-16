@@ -38,6 +38,8 @@ import {
 import {
   agyExplicitHomeCliArgs,
   cleanAgyUserInputText,
+  didAgyCurrentTurnCompleteCleanly,
+  readAgyLatestUserStepIndex,
   ensureAgyConversationDatabase,
   hasAgyConversationDatabase,
   isSafeAgyConversationId,
@@ -45,7 +47,7 @@ import {
 } from '../agy-conversation-store.cjs';
 import { fileURLToPath } from 'url';
 
-type AgyModeId = 'auto' | 'agent_decides' | 'plan';
+type AgyModeId = 'bypassPermissions' | 'agent_decides' | 'plan';
 type AgyEffortLevel = 'high' | 'medium' | 'low' | 'xhigh' | 'max';
 
 interface AgyBridgeOptions {
@@ -202,19 +204,19 @@ function buildModeState(session: AgyBridgeSessionState): SessionModeState {
     currentModeId: session.currentModeId,
     availableModes: [
       {
-        id: 'auto',
-        name: 'Auto',
-        description: 'Execute tool calls automatically without interactive confirmation'
+        id: 'bypassPermissions',
+        name: 'Bypass permissions',
+        description: 'Bypass permission checks. Use only in a trusted environment.'
       },
       {
         id: 'agent_decides',
-        name: 'Accept Edits',
-        description: 'Native accept-edits mode; unavailable interactive approvals fail in Chat'
+        name: 'Accept edits',
+        description: 'Approve file edits automatically; interactive command approvals require Terminal.'
       },
       {
         id: 'plan',
         name: 'Plan',
-        description: 'Native planning mode; interactive permission prompts require Terminal'
+        description: 'Plan and inspect without modifying files.'
       }
     ]
   };
@@ -493,7 +495,7 @@ class AgyAcpAgent implements Agent {
     const created: AgyBridgeSessionState = {
       sessionId: normalizedId,
       cwd: cwd && path.isAbsolute(cwd) ? cwd : process.cwd(),
-      currentModeId: 'auto',
+      currentModeId: 'bypassPermissions',
       currentModel: defaults.model,
       currentEffort: defaults.effort,
       systemPromptInjected: false,
@@ -546,10 +548,7 @@ class AgyAcpAgent implements Agent {
   async resumeSession(params: ResumeSessionRequest): Promise<ResumeSessionResponse> {
     if (params.mcpServers?.length) throw new Error('Antigravity Chat does not support ACP MCP injection; configure integrations in its Agent Home');
     const session = this.ensureSession(params.sessionId, params.cwd);
-    const transcriptPath = this.resolveTranscriptPath(session.sessionId);
-    if (fs.existsSync(transcriptPath)) {
-      session.systemPromptInjected = true;
-    }
+    await this.replayTranscriptHistory(session, false);
     this.setAdditionalDirectories(session, params);
     this.scheduleAvailableCommandsUpdate(session.sessionId);
     return {
@@ -575,15 +574,19 @@ class AgyAcpAgent implements Agent {
     if (!session) {
       throw new Error(`Session not found: ${params.sessionId}`);
     }
-    if (
-      params.modeId !== 'auto' &&
-      params.modeId !== 'agent_decides' &&
-      params.modeId !== 'plan'
-    ) {
+    const normalizedMode: AgyModeId | null =
+      params.modeId === 'bypassPermissions' || params.modeId === 'auto'
+        ? 'bypassPermissions'
+        : params.modeId === 'agent_decides' || params.modeId === 'acceptEdits'
+          ? 'agent_decides'
+          : params.modeId === 'plan'
+            ? 'plan'
+            : null;
+    if (!normalizedMode) {
       throw new Error(`Unsupported Antigravity mode: ${params.modeId}`);
     }
     if (session.activeChild) throw new Error('Cannot change mode during an active turn');
-    session.currentModeId = params.modeId;
+    session.currentModeId = normalizedMode;
     await this.client.sessionUpdate({
       sessionId: session.sessionId,
       update: {
@@ -651,7 +654,7 @@ class AgyAcpAgent implements Agent {
     );
   }
 
-  private async replayTranscriptHistory(session: AgyBridgeSessionState): Promise<void> {
+  private async replayTranscriptHistory(session: AgyBridgeSessionState, replay = true): Promise<void> {
     const transcriptPath = this.resolveTranscriptPath(session.sessionId);
     if (!fs.existsSync(transcriptPath)) return;
 
@@ -677,7 +680,11 @@ class AgyAcpAgent implements Agent {
       const stepIndex = typeof entry.step_index === 'number' ? entry.step_index : 0;
 
       if (stepType === 'USER_INPUT') {
-        session.systemPromptInjected = true;
+        const prompt = this.options.appendSystemPrompt.trim();
+        if (prompt && typeof entry.content === 'string' && entry.content.includes(prompt)) {
+          session.systemPromptInjected = true;
+        }
+        if (!replay) continue;
         const cleaned = cleanAgyUserInputText(entry.content);
         if (cleaned) {
           await this.client.sessionUpdate({
@@ -691,7 +698,7 @@ class AgyAcpAgent implements Agent {
         continue;
       }
 
-      if (stepType === 'PLANNER_RESPONSE') {
+      if (replay && stepType === 'PLANNER_RESPONSE') {
         const thinking = typeof entry.thinking === 'string' ? entry.thinking.trim() : '';
         if (thinking) {
           await this.client.sessionUpdate({
@@ -769,13 +776,12 @@ class AgyAcpAgent implements Agent {
     }
 
     let outgoingText = userText;
-    if (!isSlashCommand && !session.systemPromptInjected && this.options.appendSystemPrompt.trim()) {
+    const injectSystemPrompt = !isSlashCommand && !session.systemPromptInjected && Boolean(this.options.appendSystemPrompt.trim());
+    if (injectSystemPrompt) {
       outgoingText = `${this.options.appendSystemPrompt.trim()}\n\n${userText}`;
-      session.systemPromptInjected = true;
-    } else if (!isSlashCommand) {
-      session.systemPromptInjected = true;
     }
 
+    const previousUserStepIndex = readAgyLatestUserStepIndex(this.options.agyHomePath, session.sessionId);
     const homeArgs = agyExplicitHomeCliArgs(this.options.agyHomePath);
     const cliArgs = isCliDirect
       ? [
@@ -800,7 +806,7 @@ class AgyAcpAgent implements Agent {
           ...homeArgs
         ];
     if (!isCliDirect) {
-      if (session.currentModeId === 'auto') {
+      if (session.currentModeId === 'bypassPermissions') {
         cliArgs.push('--dangerously-skip-permissions');
       } else if (session.currentModeId === 'agent_decides') {
         cliArgs.push('--mode', 'accept-edits');
@@ -1020,7 +1026,18 @@ class AgyAcpAgent implements Agent {
               : event;
           resultReceived = true;
           const resultStatus = String(resultObj.status || '').toUpperCase();
-          if (!['SUCCESS', 'OK', 'COMPLETED'].includes(resultStatus)) resultFailure = `Antigravity turn failed: ${resultStatus}`;
+          const topLevelError = typeof event.error === 'string' ? event.error.trim() : '';
+          const nestedError = typeof resultObj.error === 'string' ? resultObj.error.trim() : '';
+          if (!['SUCCESS', 'OK', 'COMPLETED'].includes(resultStatus)) {
+            const recoveredCleanTurn =
+              !topLevelError &&
+              resultStatus === 'ERROR' &&
+              nestedError === 'The stream was interrupted. Please continue the task you were working on.' &&
+              didAgyCurrentTurnCompleteCleanly(this.options.agyHomePath, session.sessionId, previousUserStepIndex);
+            if (!recoveredCleanTurn) {
+              resultFailure = topLevelError || nestedError || `Antigravity turn failed: ${resultStatus}`;
+            }
+          }
           const commandObj =
             resultObj.command && typeof resultObj.command === 'object'
               ? (resultObj.command as Record<string, unknown>)
@@ -1083,11 +1100,15 @@ class AgyAcpAgent implements Agent {
       if (code !== 0 || signal || resultFailure || !resultReceived) {
         throw new Error(resultFailure || stderrText.trim() || `Antigravity CLI did not complete successfully (${signal || code}); ${resultReceived ? 'result received' : 'missing final result'}`);
       }
+      if (injectSystemPrompt) session.systemPromptInjected = true;
       return { stopReason: 'end_turn' };
     } finally {
       clearTimeout(deadline);
       try {
         await session.stopChild?.();
+        // A failed turn may still have persisted its input. Reconcile that
+        // evidence before deciding whether the next turn needs the bootstrap.
+        if (injectSystemPrompt && !session.systemPromptInjected) await this.replayTranscriptHistory(session, false);
         if (identity && configDir) unregisterConfigProcessGroup(configDir, 'agy-turn', identity);
       } finally {
         session.activeChild = null;

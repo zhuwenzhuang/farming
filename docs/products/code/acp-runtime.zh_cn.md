@@ -249,10 +249,17 @@ Launch Working Directory 解释 `settings.json` 中的相对 `sessionDir`，因�
 中的会话身份准确匹配，不能通过新建数据库伪造历史恢复。Bridge 使用原生无头 JSON 输出，
 转发额外工作目录，并在轮次之间保留 Session 工作目录。历史回放优先读取完整 transcript，
 旧格式的截断日志仅用于兼容。
+load 和 resume 只有在用户输入中读到当前 Farming 指令全文时，才认定已注入；原生历史或
+日志存在本身不构成证据。注入轮次成功后确认送达；轮次失败则检查已持久化输入，决定下个
+轮次是否仍需注入。resume 只检查该证据，不重放 transcript 更新。
+
+已知的历史 stream-interruption 错误仅在数据库证明本轮开始后出现新的用户输入边界、
+已完成的 Planner 回复及最终步骤，且本轮没有错误时，才允许恢复为成功。历史未变化、
+证据不可用或其他错误仍判定为失败。
 
 每个 Session 同时只允许一个轮次。部分输出不代表成功：CLI 必须正常退出并报告同一会话
 的成功终态。取消、连接断开或轮次超时会强制终止所属 CLI 进程组及工具子进程；运行中的
-轮次不接受配置变更。Bridge 暴露原生 Auto、Accept Edits 和 Plan 模式，Plan 不代表交互式
+轮次不接受配置变更。Bridge 暴露 Bypass permissions、Accept edits 和 Plan 模式，Plan 不代表交互式
 逐次授权。暂不支持通过 ACP 注入 MCP，集成须在所选原生 Agent Home 中配置。用量和模型
 能力以 CLI 实际提供的信息为限。
 

@@ -9,6 +9,7 @@ const {
   agyHomeCliArgs,
   buildAgyTrajectoryMetadataBlob,
   cleanAgyUserInputText,
+  didAgyCurrentTurnCompleteCleanly,
   ensureAgyConversationDatabase,
   readAgyConversationStepCount,
   readAgyConversationSummaries,
@@ -355,6 +356,7 @@ async function testAcpBridgeEndToEnd(tmpRoot: string) {
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import { DatabaseSync } from 'node:sqlite';
 
 const args = process.argv.slice(2);
 if (args.includes('--version')) {
@@ -376,8 +378,24 @@ if (!fs.existsSync(dbPath)) {
 
 const text = args[args.indexOf('-p') + 1] || '';
 
+if (text.includes('FAIL_PERSISTED')) {
+  const logs = path.join(agyHome, 'brain', conversationId, '.system_generated', 'logs');
+  fs.mkdirSync(logs, { recursive: true });
+  fs.writeFileSync(path.join(logs, 'transcript_full.jsonl'), JSON.stringify({ type: 'USER_INPUT', content: text }) + '\\n');
+  process.exit(7);
+}
 if (text.includes('CHECK_CONTEXT')) {
   console.log(JSON.stringify({ event: 'result', conversation_id: conversationId, result: { status: 'SUCCESS', response: JSON.stringify({ cwd: process.cwd(), args }) } }));
+  process.exit(0);
+}
+if (text.includes('STALE_PRIOR_TURN_ERROR') || text.includes('UNCHANGED_PRIOR_TURN_ERROR')) {
+  if (text.includes('STALE_PRIOR_TURN_ERROR')) {
+    const db = new DatabaseSync(dbPath);
+    db.exec('INSERT INTO steps (idx, step_type, status) VALUES (5, 14, 3), (6, 15, 3)');
+    db.close();
+  }
+  console.log(JSON.stringify({ event: 'step_update', step_update: { conversation_id: conversationId, step_index: 5, step_type: 'agent_response', state: 'DONE', text_delta: 'recovered-from-stale-error' } }));
+  console.log(JSON.stringify({ event: 'result', conversation_id: conversationId, result: { status: 'ERROR', error: 'The stream was interrupted. Please continue the task you were working on.', response: 'recovered-from-stale-error' } }));
   process.exit(0);
 }
 if (text.includes('FAIL_EXIT') || text.includes('FAIL_STATUS') || text.includes('MISSING_RESULT')) {
@@ -515,6 +533,12 @@ console.log(JSON.stringify({
     assert(prepared.sessionId, 'ACP newSession should return a sessionId');
     const createdDbPath = path.join(agyHome, 'conversations', `${prepared.sessionId}.db`);
     assert(fs.existsSync(createdDbPath), 'ACP newSession should pre-initialize conversation db');
+    const initialSnapshot = runtime.getSession('agent-agy-test-1');
+    assert.strictEqual(initialSnapshot.currentModeId, 'bypassPermissions');
+    assert.deepStrictEqual(
+      initialSnapshot.modes.availableModes.map((m: { id: string }) => m.id),
+      ['bypassPermissions', 'agent_decides', 'plan'],
+    );
 
     const entrySummary = (entry: {
       type?: string;
@@ -545,7 +569,7 @@ console.log(JSON.stringify({
     );
     assert(
       transcriptTexts.some((line: string) => line.includes('Antigravity reply (bootstrap=true, skipPerms=true)')),
-      'first turn should include bootstrap and auto mode skip permissions',
+      'first turn should include bootstrap and bypassPermissions mode skip permissions',
     );
 
     // Switch to native planning mode and medium effort.
@@ -579,6 +603,32 @@ console.log(JSON.stringify({
     for (const marker of ['FAIL_EXIT', 'FAIL_STATUS', 'MISSING_RESULT', 'WRONG_ID']) {
       await assert.rejects(runtime.prompt('agent-agy-test-1', [{ type: 'text', text: marker }]), /failure|ERROR|missing final result|different conversation identity/);
     }
+
+    // Historical step_type=17 before the latest USER_INPUT (step_type=14) must not fail a clean current turn.
+    const staleDb = new DatabaseSync(createdDbPath);
+    staleDb.exec(
+      "INSERT INTO steps (idx, step_type, status) VALUES (1, 14, 3), (2, 17, 3), (3, 14, 3), (4, 15, 3);"
+    );
+    staleDb.close();
+    assert.strictEqual(didAgyCurrentTurnCompleteCleanly(agyHome, prepared.sessionId, 1), true);
+    assert.strictEqual(didAgyCurrentTurnCompleteCleanly(agyHome, prepared.sessionId, 3), false);
+    assert.strictEqual(didAgyCurrentTurnCompleteCleanly(agyHome, prepared.sessionId, null), false);
+    await assert.rejects(runtime.prompt('agent-agy-test-1', [
+      { type: 'text', text: 'UNCHANGED_PRIOR_TURN_ERROR' },
+    ]), /stream was interrupted/);
+    const recoveredTurn = await runtime.prompt('agent-agy-test-1', [
+      { type: 'text', text: 'STALE_PRIOR_TURN_ERROR' },
+    ]);
+    assert.strictEqual(recoveredTurn.stopReason, 'end_turn');
+    assert(
+      runtime.getSession('agent-agy-test-1').entries.map(entrySummary).some((line: string) => (
+        line.includes('recovered-from-stale-error')
+      )),
+      'clean current turn must succeed despite historical step_type=17 in conversation db',
+    );
+
+    await assert.rejects(runtime.prompt('agent-agy-test-1', [{ type: 'text', text: 'FAIL_STATUS' }]), /ERROR/);
+
     await runtime.setSessionConfigOption('agent-agy-test-1', 'model', 'claude-opus-5-5');
     await runtime.setSessionConfigOption('agent-agy-test-1', 'effort', 'max');
     await runtime.prompt('agent-agy-test-1', [
@@ -666,6 +716,7 @@ console.log(JSON.stringify({
       providerHomePath: agyHome,
       sessionId: replaySessionId,
       historyMode: 'load',
+      farmingSystemPrompt: 'FARMING_BOOTSTRAP_MARKER',
     });
     const replaySnapshot = runtime.getSession('agent-agy-test-replay');
     const replayLines = replaySnapshot.entries.map(entrySummary);
@@ -677,6 +728,49 @@ console.log(JSON.stringify({
       replayLines.some((line: string) => line.includes('Replayed assistant answer')),
       'loadSession should replay assistant message',
     );
+    await runtime.prompt('agent-agy-test-replay', [{ type: 'text', text: 'Continue imported history' }]);
+    assert(runtime.getSession('agent-agy-test-replay').entries.map(entrySummary)
+      .some((line: string) => line.includes('bootstrap=true')),
+    'native user history does not prove that Farming instructions were injected');
+    await runtime.unregisterAgentAndWait('agent-agy-test-replay');
+
+    for (const historyMode of ['load', 'resume'] as const) {
+      for (const priorPrompt of ['', 'Native user input', 'OLD_FARMING_BOOTSTRAP', 'FARMING_BOOTSTRAP_MARKER']) {
+        fs.writeFileSync(path.join(replayTranscriptDir, 'transcript_full.jsonl'), priorPrompt
+          ? JSON.stringify({ type: 'USER_INPUT', content: `<USER_REQUEST>\n${priorPrompt}\nQuestion\n</USER_REQUEST>` }) + '\n'
+          : '');
+        const agentId = 'agent-agy-bootstrap-recovery';
+        await runtime.prepareAgent({
+          agentId, provider: 'agy', executable: fakeAgyScript, configDir,
+          cwd: workspaceDir, projectWorkspace: workspaceDir,
+          providerHomeId: 'default', providerHomePath: agyHome,
+          sessionId: replaySessionId, historyMode,
+          farmingSystemPrompt: 'FARMING_BOOTSTRAP_MARKER',
+        });
+        await runtime.prompt(agentId, [{ type: 'text', text: 'Continue' }]);
+        const expected = priorPrompt !== 'FARMING_BOOTSTRAP_MARKER';
+        assert(runtime.getSession(agentId).entries.map(entrySummary)
+          .some((line: string) => line.includes(`bootstrap=${expected}`)),
+        `${historyMode} must use current instruction content as injection evidence (${priorPrompt || 'empty log'})`);
+        await runtime.unregisterAgentAndWait(agentId);
+      }
+    }
+
+    for (const failure of ['FAIL_EXIT', 'FAIL_PERSISTED']) {
+      fs.writeFileSync(path.join(replayTranscriptDir, 'transcript_full.jsonl'), '');
+      await runtime.prepareAgent({
+        agentId: 'agent-agy-bootstrap-failure', provider: 'agy', executable: fakeAgyScript, configDir,
+        cwd: workspaceDir, projectWorkspace: workspaceDir,
+        providerHomeId: 'default', providerHomePath: agyHome,
+        sessionId: replaySessionId, historyMode: 'load', farmingSystemPrompt: 'FARMING_BOOTSTRAP_MARKER',
+      });
+      await assert.rejects(runtime.prompt('agent-agy-bootstrap-failure', [{ type: 'text', text: failure }]));
+      await runtime.prompt('agent-agy-bootstrap-failure', [{ type: 'text', text: 'Retry after provider failure' }]);
+      assert(runtime.getSession('agent-agy-bootstrap-failure').entries.map(entrySummary)
+        .some((line: string) => line.includes(`bootstrap=${failure === 'FAIL_EXIT'}`)),
+      'a failed first turn must reconcile persisted input before consuming the bootstrap');
+      await runtime.unregisterAgentAndWait('agent-agy-bootstrap-failure');
+    }
   } finally {
     await runtime.dispose();
   }
