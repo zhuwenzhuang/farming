@@ -53,7 +53,26 @@ export function FileTreeRowStatus({
           </span>
         )}
         {item.symbolicLink && (
-          <span className="code-file-symbolic-link" aria-hidden="true">↷</span>
+          <span
+            className={`code-file-symbolic-link ${item.readOnly ? 'read-only' : ''}`.trim()}
+            aria-hidden="true"
+          >
+            <svg className="code-file-symbolic-link-arrow" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+              <path
+                d="M2.5 9.5V6.5a2 2 0 0 1 2-2h4.75M7.25 2.5l2.25 2-2.25 2"
+                stroke="currentColor"
+                strokeWidth="1.35"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+            {item.readOnly && (
+              <svg className="code-file-symbolic-link-lock" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                <rect x="2.5" y="5.5" width="7" height="5" rx="1.25" stroke="currentColor" strokeWidth="1.2" />
+                <path d="M4.25 5.5V4a1.75 1.75 0 0 1 3.5 0v1.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+              </svg>
+            )}
+          </span>
         )}
       </span>
       <span className="code-file-trailing">

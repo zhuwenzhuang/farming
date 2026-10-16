@@ -22,6 +22,35 @@ export function workspaceFileTreeStatusTitle(
   return copy.changedOnDisk
 }
 
+export interface WorkspaceFileTreeRowTitleCopy {
+  symbolicLink: string
+  symbolicLinkTarget: (target: string) => string
+  externalSymbolicLinkReadOnly: string
+  fileReadOnly: string
+}
+
+export function workspaceFileTreeRowTitle(
+  item: Pick<WorkspaceFileEntry, 'path' | 'symbolicLink' | 'linkTarget' | 'linkError' | 'external' | 'readOnly'>,
+  copy?: WorkspaceFileTreeRowTitleCopy
+) {
+  if (item.symbolicLink) {
+    const linkSummary = item.linkTarget
+      ? (copy ? copy.symbolicLinkTarget(item.linkTarget) : `${item.path} → ${item.linkTarget}`)
+      : (copy ? copy.symbolicLink : item.path)
+    const withError = item.linkError ? `${linkSummary} (${item.linkError})` : linkSummary
+    if (item.readOnly) {
+      const readOnlyLine = item.external
+        ? (copy?.externalSymbolicLinkReadOnly || 'Read-only: link target is outside the current project')
+        : (copy?.fileReadOnly || 'Read-only')
+      return `${withError}\n${readOnlyLine}`
+    }
+    return withError
+  }
+  if (item.linkTarget) return `${item.path} → ${item.linkTarget}`
+  if (item.linkError) return `${item.path} (${item.linkError})`
+  return undefined
+}
+
 export function workspaceFileTreeDepthStyle(depth: number) {
   return {
     '--file-indent': `${WORKSPACE_FILE_TREE_ROOT_INDENT + depth * WORKSPACE_FILE_TREE_INDENT}px`,
@@ -124,6 +153,7 @@ export function workspaceFileTreeRowViewState({
     item.ignored ? 'ignored' : '',
     item.symbolicLink ? 'symbolic-link' : '',
     item.external ? 'external-link' : '',
+    item.readOnly ? 'read-only' : '',
     item.linkError ? 'link-error' : '',
     hasGitStatus ? 'git-status' : '',
     visibleGitStatus ? `git-${visibleGitStatus}` : '',

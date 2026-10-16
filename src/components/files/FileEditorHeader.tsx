@@ -7,6 +7,8 @@ import type { ShareNoticeAnchor } from '../code/share-notice'
 interface FileEditorHeaderProps extends Omit<FileEditorTabsProps, 'actions'> {
   editorMode: WorkspaceEditorFileMode
   readOnly: boolean
+  readOnlyBadgeText?: string | null
+  readOnlyBadgeTitle?: string
   statusText: string | null
   onRevealInExplorer: (agentId: string, filePath: string, kind: 'directory' | 'file') => void
   onSave: (overwrite?: boolean) => void
@@ -36,6 +38,8 @@ export function FileEditorHeader({
   openFiles,
   editorMode,
   readOnly,
+  readOnlyBadgeText,
+  readOnlyBadgeTitle,
   copy,
   statusText,
   onBackToAgent,
@@ -124,13 +128,29 @@ export function FileEditorHeader({
           />
         )}
       />
-      {showBreadcrumbs && (
+      {(showBreadcrumbs || readOnlyBadgeText) && (
         <div className="code-file-editor-bar">
-          <FileEditorBreadcrumbs
-            openFile={openFile}
-            copy={copy}
-            onRevealInExplorer={onRevealInExplorer}
-          />
+          {showBreadcrumbs && (
+            <FileEditorBreadcrumbs
+              openFile={openFile}
+              copy={copy}
+              onRevealInExplorer={onRevealInExplorer}
+            />
+          )}
+          {readOnlyBadgeText && (
+            <span
+              className="code-file-editor-readonly-badge"
+              data-testid="code-file-editor-readonly-badge"
+              role="status"
+              title={readOnlyBadgeTitle || readOnlyBadgeText}
+            >
+              <svg className="code-file-editor-readonly-badge-icon" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                <rect x="2.5" y="5.5" width="7" height="5" rx="1.25" stroke="currentColor" strokeWidth="1.2" />
+                <path d="M4.25 5.5V4a1.75 1.75 0 0 1 3.5 0v1.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+              </svg>
+              <span>{readOnlyBadgeText}</span>
+            </span>
+          )}
         </div>
       )}
     </header>

@@ -59,6 +59,9 @@ export const TRANSCRIPT_FILE_EXTENSIONS = new Set([
   'jpeg',
   'gif',
   'webp',
+  'avif',
+  'bmp',
+  'ico',
 ])
 
 export const TRANSCRIPT_SPECIAL_FILENAMES = new Set([
@@ -161,7 +164,7 @@ export function transcriptFileTargetFromText(text: string, workspaceRoot?: strin
 }
 
 export function transcriptImageFilePath(filePath: string) {
-  return /\.(?:gif|jpe?g|png|webp)$/i.test(filePath)
+  return /\.(?:avif|bmp|gif|ico|jpe?g|png|svg|webp)$/i.test(filePath)
 }
 
 export function hasQualifiedTranscriptFileReference(text: string) {

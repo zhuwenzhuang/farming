@@ -1141,16 +1141,49 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
   outline: 0;
 }
 
+.code-file-row.symbolic-link::after {
+  content: '';
+  position: absolute;
+  left: calc(min(var(--file-indent), 25%) - 1px);
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  margin-top: 1px;
+  border-radius: 2px;
+  background-color: var(--code-bg-panel, var(--code-bg-surface));
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8' fill='none'%3E%3Cpath d='M1.5 6.5V4.5a1.5 1.5 0 0 1 1.5-1.5h3.25M4.75 1.5 6.5 3 4.75 4.5' stroke='%23687782' stroke-width='1.25' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 7px 7px;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--code-border) 70%, transparent);
+  pointer-events: none;
+  z-index: 2;
+}
+
 .code-file-symbolic-link {
   flex: 0 0 auto;
-  color: var(--code-text-quiet);
-  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--code-text-muted);
   line-height: 1;
-  margin-left: 2px;
+  margin-left: 4px;
+}
+
+.code-file-symbolic-link svg {
+  width: 11px;
+  height: 11px;
+  display: block;
+  flex-shrink: 0;
+}
+
+.code-file-symbolic-link-lock {
+  color: var(--code-text-subtle);
 }
 
 .code-file-row.link-error .code-file-name,
-.code-file-row.link-error .code-file-symbolic-link {
+.code-file-row.link-error .code-file-symbolic-link,
+.code-file-row.link-error::after {
   opacity: 0.55;
 }
 

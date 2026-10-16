@@ -255,8 +255,32 @@
   min-height: 26px;
   display: flex;
   align-items: center;
+  gap: 8px;
   padding: 3px 12px;
   background: var(--code-bg-surface);
+}
+
+.code-file-editor-readonly-badge {
+  margin-left: auto;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--code-border) 42%, transparent);
+  color: var(--code-text-muted);
+  font-size: 12px;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+
+.code-file-editor-readonly-badge-icon {
+  width: 11px;
+  height: 11px;
+  display: block;
+  flex-shrink: 0;
+  color: var(--code-text-subtle);
 }
 
 .code-file-editor-breadcrumbs {

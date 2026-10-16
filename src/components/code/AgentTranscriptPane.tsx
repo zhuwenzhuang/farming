@@ -417,8 +417,13 @@ function agentTranscriptUrlTransform(value: string, key: string) {
 }
 
 function useCompactTranscriptMarkdownComponents(copy: CodeCopy): Components {
-  const { workspaceRoot, onOpenFile } = useContext(TranscriptFileOpenContext)
+  const { agentId, workspaceRoot, onOpenFile } = useContext(TranscriptFileOpenContext)
   return useMemo(() => ({
+    img: ({ src, alt }) => {
+      const source = typeof src === 'string' ? src : ''
+      const url = transcriptLocalImageUrl(source, workspaceRoot, agentId) || source
+      return <AgentTranscriptMarkdownImage url={url} label={alt || 'Image'} />
+    },
     a: ({ href, children, onClick, ...props }) => {
       const target = href ? transcriptFileTargetFromHref(href, workspaceRoot) : null
       return <a {...props} href={target ? '#' : href} target={target ? undefined : '_blank'} rel="noreferrer" onClick={event => {
@@ -430,7 +435,7 @@ function useCompactTranscriptMarkdownComponents(copy: CodeCopy): Components {
       }}>{children}</a>
     },
     pre: props => <MarkdownCodeBlock {...props} copy={copy} />,
-  }), [copy, onOpenFile, workspaceRoot])
+  }), [agentId, copy, onOpenFile, workspaceRoot])
 }
 
 function AgentTranscriptReasoningMarkdown({ text, copy }: { text: string; copy: CodeCopy }) {
@@ -620,7 +625,7 @@ function AgentTranscriptUserImages({ images }: { images: AgentTranscriptUserImag
 
 function transcriptLocalImageUrl(href: string, workspaceRoot?: string, agentId?: string) {
   const target = transcriptFileTargetFromHref(href, workspaceRoot)
-  if (!target || !transcriptImageFilePath(target.filePath)) return ''
+  if (!target || target.target.lineNumber || !transcriptImageFilePath(target.filePath)) return ''
   const exactExternal = target.target.globalRoot === true
   const rootId = exactExternal ? GLOBAL_WORKSPACE_FILES_AGENT_ID : agentId
   if (!rootId) return ''

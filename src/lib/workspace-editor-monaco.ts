@@ -140,6 +140,8 @@ export interface WorkspaceEditorCreateOptions {
   language: string
   ariaLabel: string
   wordWrapEnabled?: boolean
+  readOnly?: boolean
+  readOnlyMessage?: string | null
 }
 
 function workspaceEditorWordWrapValue(wordWrapEnabled?: boolean) {
@@ -183,6 +185,8 @@ export function workspaceEditorCreateOptions({
   language,
   ariaLabel,
   wordWrapEnabled,
+  readOnly,
+  readOnlyMessage,
 }: WorkspaceEditorCreateOptions): monaco.editor.IStandaloneEditorConstructionOptions {
   return {
     value,
@@ -218,6 +222,13 @@ export function workspaceEditorCreateOptions({
     glyphMargin: true,
     lineNumbersMinChars: 4,
     ariaLabel,
+    ...(readOnly !== undefined
+      ? {
+          readOnly,
+          domReadOnly: readOnly,
+          readOnlyMessage: readOnly && readOnlyMessage ? { value: readOnlyMessage } : undefined,
+        }
+      : {}),
   }
 }
 

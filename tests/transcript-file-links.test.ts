@@ -254,12 +254,15 @@ test('file-line transcript hrefs require a recognized path with a line number', 
   assert.equal(isTranscriptFileLineHref('example.com/x:12'), false)
 })
 
-test('transcript image detection only covers rendered image formats', () => {
+test('transcript image detection covers rendered preview image formats including svg', () => {
   assert.equal(transcriptImageFilePath('a/b.png'), true)
   assert.equal(transcriptImageFilePath('x.JPG'), true)
   assert.equal(transcriptImageFilePath('y.jpeg'), true)
   assert.equal(transcriptImageFilePath('z.gif'), true)
   assert.equal(transcriptImageFilePath('w.webp'), true)
-  assert.equal(transcriptImageFilePath('v.svg'), false)
+  assert.equal(transcriptImageFilePath('v.svg'), true)
+  assert.equal(transcriptImageFilePath('icon.avif'), true)
+  assert.equal(transcriptImageFilePath('icon.bmp'), true)
+  assert.equal(transcriptImageFilePath('icon.ico'), true)
   assert.equal(transcriptImageFilePath('u.md'), false)
 })

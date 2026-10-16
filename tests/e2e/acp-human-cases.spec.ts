@@ -386,10 +386,13 @@ test.describe('ACP human-like browser matrix', () => {
   test('renders standard Markdown images through authorized paths and preserves remote sources', { tag: '@iphone-human' }, async ({ page, workspaceRoot }) => {
     const workspace = path.join(workspaceRoot, 'markdown-image-confirmation')
     const imagePath = path.join(workspace, '中文 截图.png')
+    const svgPath = path.join(workspace, '符号链接方案.svg')
     const externalPath = path.join(workspaceRoot, 'external markdown.png')
     fs.mkdirSync(workspace, { recursive: true })
     const image = fs.readFileSync(path.resolve('public/farming-2/github-social-preview.png'))
+    const svgContent = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="120" height="60" viewBox="0 0 120 60"><rect width="120" height="60" rx="8" fill="#f8f7f3"/><circle cx="30" cy="30" r="14" fill="#526976"/></svg>\n', 'utf8')
     fs.writeFileSync(imagePath, image)
+    fs.writeFileSync(svgPath, svgContent)
     fs.writeFileSync(externalPath, image)
     const remoteUrl = 'https://images.example.test/preview.png'
     await page.route(remoteUrl, route => route.fulfill({ contentType: 'image/png', body: image }))
@@ -408,18 +411,26 @@ test.describe('ACP human-like browser matrix', () => {
       `![绝对路径](<${imagePath}>)`,
       '![相对路径](<./中文 截图.png>)',
       `![文件 URL](<file://${imagePath}>)`,
+      `![SVG 示意图](<${svgPath}>)`,
       `![外部路径](<${externalPath}>)`,
       `![远程图片](${remoteUrl})`,
       `![缺失图片](<${path.join(workspace, 'missing.png')}>)`,
     ].join('\n\n')}`)
     const answer = page.locator('.code-agent-transcript-answer').last()
-    for (const label of ['绝对路径', '相对路径', '文件 URL', '外部路径', '远程图片']) {
+    for (const label of ['绝对路径', '相对路径', '文件 URL', 'SVG 示意图', '外部路径', '远程图片']) {
       const preview = answer.getByRole('img', { name: label, exact: true })
       await preview.scrollIntoViewIfNeeded()
       await expect.poll(() => preview.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 1)).toBe(true)
       const source = await preview.getAttribute('src')
       if (label === '远程图片') {
         expect(source).toBe(remoteUrl)
+      } else if (label === 'SVG 示意图') {
+        expect(source).toContain('/farming/api/files/raw?')
+        const response = await page.request.get(source!)
+        expect(response.status()).toBe(200)
+        expect(response.headers()['content-type']).toContain('image/svg+xml')
+        expect(response.headers()['content-security-policy']).toContain('sandbox')
+        expect(await response.body()).toEqual(svgContent)
       } else {
         expect(source).toContain('/farming/api/files/raw?')
         const response = await page.request.get(source!)

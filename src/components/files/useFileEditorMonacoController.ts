@@ -42,6 +42,7 @@ interface UseFileEditorMonacoControllerOptions {
   openFiles: OpenWorkspaceFile[]
   retainedFiles: OpenWorkspaceFile[]
   readOnly: boolean
+  readOnlyMessage?: string | null
   wordWrapEnabled: boolean
   editorLabel: string
   onChangeDraft: (draft: string) => void
@@ -75,6 +76,7 @@ export function useFileEditorMonacoController({
   openFiles,
   retainedFiles,
   readOnly,
+  readOnlyMessage,
   wordWrapEnabled,
   editorLabel,
   onChangeDraft,
@@ -102,6 +104,8 @@ export function useFileEditorMonacoController({
   const openFileDraftRef = useRef(openFile.draft)
   const openFilePathRef = useRef(openFile.file.path)
   const openFileWorkspaceRootRef = useRef(openFile.workspaceRoot)
+  const readOnlyRef = useRef(readOnly)
+  const readOnlyMessageRef = useRef(readOnlyMessage)
   const wordWrapEnabledRef = useRef(wordWrapEnabled)
   const editorLabelRef = useRef(editorLabel)
   const lastCursorRequestRef = useRef<number | null>(null)
@@ -127,6 +131,8 @@ export function useFileEditorMonacoController({
   openFileDraftRef.current = openFile.draft
   openFilePathRef.current = openFile.file.path
   openFileWorkspaceRootRef.current = openFile.workspaceRoot
+  readOnlyRef.current = readOnly
+  readOnlyMessageRef.current = readOnlyMessage
   wordWrapEnabledRef.current = wordWrapEnabled
   editorLabelRef.current = editorLabel
 
@@ -209,6 +215,8 @@ export function useFileEditorMonacoController({
       language: workspaceEditorLanguageForPath(openFilePathRef.current, openFileDraftRef.current),
       ariaLabel: editorLabelRef.current,
       wordWrapEnabled: wordWrapEnabledRef.current,
+      readOnly: readOnlyRef.current,
+      readOnlyMessage: readOnlyMessageRef.current,
     }))
     const documentHighlights = attachLanguageServerDocumentHighlights(editor)
     applyWorkspaceEditorMonacoTheme(editor)
@@ -456,8 +464,9 @@ export function useFileEditorMonacoController({
     editor.updateOptions({
       readOnly,
       domReadOnly: readOnly,
+      readOnlyMessage: readOnly && readOnlyMessage ? { value: readOnlyMessage } : undefined,
     })
-  }, [readOnly])
+  }, [readOnly, readOnlyMessage])
 
   useEffect(() => {
     editorRef.current?.updateOptions({ ariaLabel: editorLabel })

@@ -30,6 +30,7 @@ const {
   visibleWorkspaceFileTreeGitStatus,
   workspaceFileTreeDescendantGitStatusClassName,
   workspaceFileTreeDepthStyle,
+  workspaceFileTreeRowTitle,
   workspaceFileTreeRowViewState,
   workspaceFileTreeStatusTitle,
 } = require('../../src/lib/workspace-file-tree-row.ts');
@@ -83,6 +84,8 @@ const {
   workspaceEditorModelUriParts,
 	  workspaceEditorPathSegments,
 	  workspaceEditorPathToSegment,
+	  workspaceEditorReadOnlyMessage,
+	  workspaceEditorReadOnlyReason,
 	  workspaceEditorStatusKind,
 	  workspaceEditorSurfaceState,
 	  workspaceEditorTabDomId,
@@ -1143,6 +1146,61 @@ function run() {
   });
   assert(linkedDirectoryRowState.rowClasses.includes('symbolic-link'));
   assert(linkedDirectoryRowState.rowClasses.includes('external-link'));
+  assert(linkedDirectoryRowState.rowClasses.includes('read-only'));
+  const rowTitleCopy = {
+    symbolicLink: 'Symbolic link',
+    symbolicLinkTarget: (target: string) => `Symbolic link → ${target}`,
+    externalSymbolicLinkReadOnly: 'Read-only: link target is outside the current project',
+    fileReadOnly: 'Read-only',
+  };
+  assert.strictEqual(
+    workspaceFileTreeRowTitle(
+      workspaceFile('config.toml', { symbolicLink: true, linkTarget: '/shared/config.toml', external: true, readOnly: true }),
+      rowTitleCopy,
+    ),
+    'Symbolic link → /shared/config.toml\nRead-only: link target is outside the current project',
+  );
+  assert.strictEqual(
+    workspaceFileTreeRowTitle(
+      workspaceFile('linked.ts', { symbolicLink: true, linkTarget: '/repo/target.ts' }),
+      rowTitleCopy,
+    ),
+    'Symbolic link → /repo/target.ts',
+  );
+  assert.strictEqual(
+    workspaceFileTreeRowTitle(
+      workspaceFile('broken.ts', { symbolicLink: true, linkError: 'broken' }),
+      rowTitleCopy,
+    ),
+    'Symbolic link (broken)',
+  );
+  const readOnlyCopy = {
+    shareViewReadOnly: 'Read-only: opened in read-only share view',
+    largeFileTruncated: 'Only the beginning of this large file is shown. Editing is disabled.',
+    largeFileReadOnly: 'This large file is shown completely in read-only mode.',
+    externalSymbolicLinkReadOnly: 'Read-only: link target is outside the current project',
+    externalFileReadOnly: 'Read-only: file is outside the current project',
+    fileReadOnly: 'Read-only',
+  };
+  const externalSymlinkReason = workspaceEditorReadOnlyReason({
+    agentId: 'agent-1',
+    file: workspaceFile('config.toml', { symbolicLink: true, external: true, readOnly: true }),
+  });
+  assert.strictEqual(externalSymlinkReason, 'externalSymlink');
+  assert.strictEqual(
+    workspaceEditorReadOnlyMessage(externalSymlinkReason, readOnlyCopy),
+    'Read-only: link target is outside the current project',
+  );
+  const externalFileReason = workspaceEditorReadOnlyReason({
+    agentId: 'wroot_global',
+    exactExternal: true,
+    file: workspaceFile('outside.ts', { external: true, readOnly: true }),
+  }, { isGlobalRoot: true });
+  assert.strictEqual(externalFileReason, 'externalFile');
+  assert.strictEqual(
+    workspaceEditorReadOnlyMessage(externalFileReason, readOnlyCopy),
+    'Read-only: file is outside the current project',
+  );
   assert(fileRowState.rowClasses.includes('file'));
   assert(fileRowState.rowClasses.includes('active'));
   assert(fileRowState.rowClasses.includes('editor-dirty'));

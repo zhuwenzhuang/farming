@@ -9,6 +9,7 @@ import type { WorkspaceFileTreeNode as FileExplorerNode } from '@/lib/workspace-
 import type { WorkspaceFileDecoration } from '@/lib/workspace-file-decorations'
 import {
   workspaceFileTreeDepthStyle,
+  workspaceFileTreeRowTitle,
   workspaceFileTreeRowViewState,
 } from '@/lib/workspace-file-tree-row'
 import type { WorkspaceFileOpenTarget } from '@/lib/workspace-open-files'
@@ -135,7 +136,7 @@ export function FileTreeRow({
       data-file-type={item.type}
       data-tree-level={node.level}
       aria-label={directoryError ? `${item.path}: ${directoryError.message}` : item.path}
-      title={item.linkTarget ? `${item.path} ↷ ${item.linkTarget}` : item.linkError ? `${item.path} (${item.linkError})` : undefined}
+      title={workspaceFileTreeRowTitle(item, copy)}
       tabIndex={-1}
       aria-expanded={isDirectory ? node.isOpen : undefined}
       onContextMenu={handleRowContextMenu}

@@ -848,16 +848,20 @@ function createWorkspaceFileRouter(
           currentSha1: file.sha1,
         });
       }
+      const mediaType = transfer
+        ? (file as TransportFileResult).mediaType
+        : (file as PreviewFileResult).preview.mediaType;
       res
         .status(200)
-        .type(transfer
-          ? (file as TransportFileResult).mediaType
-          : (file as PreviewFileResult).preview.mediaType)
+        .type(mediaType)
         .set('Cache-Control', 'no-store')
         .set('X-Content-Type-Options', 'nosniff')
         .set('X-Workspace-File-Sha1', file.sha1)
-        .set('Content-Length', String(file.size))
-        .send(file.buffer);
+        .set('Content-Length', String(file.size));
+      if (mediaType === 'image/svg+xml') {
+        res.set('Content-Security-Policy', "default-src 'none'; img-src data:; style-src 'unsafe-inline'; sandbox");
+      }
+      res.send(file.buffer);
     } catch (error: unknown) {
       sendWorkspaceFileError(res, error);
     }

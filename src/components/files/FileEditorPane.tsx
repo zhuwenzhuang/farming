@@ -14,12 +14,15 @@ import {
   isWorkspaceSvgFile,
   workspaceEditorFileMode,
   workspaceEditorModelKey,
+  workspaceEditorReadOnlyMessage,
+  workspaceEditorReadOnlyReason,
   workspaceEditorStatusKind,
   workspaceEditorSurfaceState,
   workspaceBlameAuthorProfileUrl,
   workspaceBlameCommitUrl,
   workspaceEditorTabDomId as fileEditorTabDomId,
 } from '@/lib/workspace-editor-model'
+import { workspaceFileTreeRowTitle } from '@/lib/workspace-file-tree-row'
 import { isGlobalWorkspaceFilesAgentId } from '@/lib/global-workspace-files'
 import { projectFilesWorkspaceId } from '@/lib/project-workspaces'
 import type { ComposerContextReference } from '../code/composer-message'
@@ -229,7 +232,22 @@ export function FileEditorPane({
   const markdownPreviewOpen = markdownReadingOpen && !markdownSplitOpen
   const markdownWideLayout = markdownWideByFileKey[activeFileKey] === true
   const sourceVisualPreviewOpen = canPreviewSource && sourcePreviewOpen
-  const readOnly = globalReadOnly || !editorMode.canEditText || isGlobalWorkspaceFilesAgentId(openFile.agentId) || openFile.file.readOnly === true
+  const isGlobalRootFile = isGlobalWorkspaceFilesAgentId(openFile.agentId)
+  const readOnly = globalReadOnly || !editorMode.canEditText || isGlobalRootFile || openFile.file.readOnly === true
+  const readOnlyReason = readOnly
+    ? workspaceEditorReadOnlyReason(openFile, {
+        globalReadOnly,
+        canEditText: editorMode.canEditText,
+        isGlobalRoot: isGlobalRootFile,
+      })
+    : null
+  const readOnlyMessage = workspaceEditorReadOnlyMessage(readOnlyReason, copy)
+  const readOnlyBadgeText = readOnlyReason === 'externalSymlink' || readOnlyReason === 'externalFile'
+    ? readOnlyMessage
+    : null
+  const readOnlyBadgeTitle = openFile.file.symbolicLink
+    ? workspaceFileTreeRowTitle(openFile.file, copy)
+    : readOnlyBadgeText ?? undefined
   const largeTextPreview = openFile.file.preview?.kind === 'large-text'
     ? openFile.file.preview
     : null
@@ -301,6 +319,7 @@ export function FileEditorPane({
     openFiles,
     retainedFiles,
     readOnly,
+    readOnlyMessage,
     wordWrapEnabled,
     editorLabel: copy.editorFor(openFile.file.path),
     onChangeDraft,
@@ -666,6 +685,8 @@ export function FileEditorPane({
               openFiles={openFiles}
               editorMode={editorMode}
               readOnly={readOnly}
+              readOnlyBadgeText={!markdownPreviewVisible && !visualPreviewVisible ? readOnlyBadgeText : null}
+              readOnlyBadgeTitle={readOnlyBadgeTitle}
               copy={copy}
               statusText={statusText}
               onBackToAgent={onBackToAgent}

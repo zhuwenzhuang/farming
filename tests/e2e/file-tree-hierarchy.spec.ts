@@ -839,7 +839,10 @@ test('continues first expansion through a bounded compact directory chain', asyn
 
 test('keeps file row slots stable for rename, links, statuses, loading, and compact layout', async ({ page, workspaceRoot }) => {
   const workspace = path.join(workspaceRoot, 'stable-file-row-slots')
+  const externalSharedDir = path.join(workspaceRoot, 'shared-external-project')
   fs.mkdirSync(path.join(workspace, 'folder'), { recursive: true })
+  fs.mkdirSync(externalSharedDir, { recursive: true })
+  fs.writeFileSync(path.join(externalSharedDir, 'config.toml'), 'model = "gpt-5"\n')
   fs.writeFileSync(path.join(workspace, 'folder', 'child.ts'), 'export const child = true\n')
   fs.writeFileSync(path.join(workspace, 'regular.ts'), 'export const regular = true\n')
   fs.writeFileSync(path.join(workspace, 'target-a.ts'), 'export const target = "a"\n')
@@ -852,14 +855,18 @@ test('keeps file row slots stable for rename, links, statuses, loading, and comp
   execFileSync('git', ['commit', '-qm', 'fixture'], { cwd: workspace })
   fs.unlinkSync(path.join(workspace, 'linked.ts'))
   fs.symlinkSync('target-b.ts', path.join(workspace, 'linked.ts'))
+  fs.symlinkSync(path.join(externalSharedDir, 'config.toml'), path.join(workspace, 'external-config.toml'))
 
   const workspaceGate = await installWorkspaceRequestGate(page)
+  await page.request.post('/farming/api/control/agents', {
+    data: { command: 'bash', workspace: externalSharedDir },
+  })
 
   await openFarming(page)
   await openNewAgentDialog(page)
   await startAgentFromOpenDialog(page, 'bash', workspace)
 
-  const files = page.getByTestId('code-files-section')
+  const files = page.getByTestId('code-project-group').filter({ hasText: 'stable-file-row-slots' }).getByTestId('code-files-section')
   const filesTitle = files.getByRole('button', { name: 'Files', exact: true })
   if (await filesTitle.getAttribute('aria-expanded') !== 'true') await filesTitle.click()
 
@@ -881,6 +888,21 @@ test('keeps file row slots stable for rename, links, statuses, loading, and comp
 
   const linkedRow = files.locator('[data-testid="code-file-row"][data-file-path="linked.ts"]')
   await expect(linkedRow.locator('.code-file-git-status')).toHaveText('M')
+  await expect(linkedRow).toHaveAttribute('title', /Symbolic link → .*target-b\.ts$/)
+  await expect(linkedRow.locator('.code-file-symbolic-link-arrow')).toBeVisible()
+  await expect(linkedRow.locator('.code-file-symbolic-link-lock')).toHaveCount(0)
+
+  const externalLinkedRow = files.locator('[data-testid="code-file-row"][data-file-path="external-config.toml"]')
+  await expect(externalLinkedRow).toHaveClass(/symbolic-link/)
+  await expect(externalLinkedRow).toHaveClass(/external-link/)
+  await expect(externalLinkedRow).toHaveClass(/read-only/)
+  await expect(externalLinkedRow.locator('.code-file-symbolic-link-arrow')).toBeVisible()
+  await expect(externalLinkedRow.locator('.code-file-symbolic-link-lock')).toBeVisible()
+  await expect(externalLinkedRow).toHaveAttribute(
+    'title',
+    /Symbolic link → .*config\.toml\nRead-only: link target is outside the current project/,
+  )
+
   const assertStableSlots = async () => {
     const geometry = await linkedRow.evaluate(element => {
       const rowRect = element.getBoundingClientRect()
@@ -1068,6 +1090,12 @@ test('keeps file row slots stable for rename, links, statuses, loading, and comp
   await expect(linkedRow).toBeVisible()
   await assertStableSlots()
   await assertRenameKeepsLabelOrigin(regularRow)
+
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await externalLinkedRow.click()
+  await expect(page.getByTestId('code-file-editor-readonly-badge')).toHaveText(
+    'Read-only: link target is outside the current project',
+  )
 })
 
 test('keeps directory mutations and keyboard file operations authoritative', async ({ page, workspaceRoot }) => {

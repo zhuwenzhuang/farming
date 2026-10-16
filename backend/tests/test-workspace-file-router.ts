@@ -299,6 +299,12 @@ async function run() {
       const binary = await fetchJson(baseUrl, '/api/files/raw?agentId=agent-main&path=binary.bin');
       assert.strictEqual(binary.response.status, 415);
 
+      fs.writeFileSync(path.join(workspace, 'diagram.svg'), '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8"><circle cx="4" cy="4" r="3"/></svg>');
+      const svgRaw = await fetchRaw(baseUrl, '/api/files/raw?agentId=agent-main&path=diagram.svg');
+      assert.strictEqual(svgRaw.response.status, 200);
+      assert.match(String(svgRaw.response.headers.get('content-type') || ''), /image\/svg\+xml/);
+      assert.match(String(svgRaw.response.headers.get('content-security-policy') || ''), /sandbox/);
+
       const html = await fetchRaw(baseUrl, `/api/files/previews/${preview.id}/base/index.html`);
       assert.strictEqual(html.response.status, 200);
       assert.match(html.buffer.toString('utf8'), /Preview/);

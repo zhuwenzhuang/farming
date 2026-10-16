@@ -97,6 +97,74 @@ export interface WorkspaceEditorActionState {
 
 export type WorkspaceEditorStatusKind = 'changedOnDisk'
 
+export type WorkspaceEditorReadOnlyReason =
+  | 'share'
+  | 'largeFileTruncated'
+  | 'largeFile'
+  | 'externalSymlink'
+  | 'externalFile'
+  | 'readOnly'
+
+export interface WorkspaceEditorReadOnlyCopy {
+  shareViewReadOnly: string
+  largeFileTruncated: string
+  largeFileReadOnly: string
+  externalSymbolicLinkReadOnly: string
+  externalFileReadOnly: string
+  fileReadOnly: string
+}
+
+export interface WorkspaceEditorReadOnlyReference {
+  agentId: string
+  exactExternal?: boolean
+  file: Pick<WorkspaceFile, 'symbolicLink' | 'external' | 'readOnly' | 'preview'>
+}
+
+export function workspaceEditorReadOnlyReason(
+  file: WorkspaceEditorReadOnlyReference,
+  options: {
+    globalReadOnly?: boolean
+    canEditText?: boolean
+    isGlobalRoot?: boolean
+  } = {}
+): WorkspaceEditorReadOnlyReason | null {
+  if (options.globalReadOnly) return 'share'
+  if (file.file.preview?.kind === 'large-text') {
+    return file.file.preview.truncated ? 'largeFileTruncated' : 'largeFile'
+  }
+  if (file.file.symbolicLink && (file.file.external || file.file.readOnly)) {
+    return 'externalSymlink'
+  }
+  if (options.isGlobalRoot || file.exactExternal || file.file.external) {
+    return 'externalFile'
+  }
+  if (file.file.readOnly || options.canEditText === false) {
+    return 'readOnly'
+  }
+  return null
+}
+
+export function workspaceEditorReadOnlyMessage(
+  reason: WorkspaceEditorReadOnlyReason | null,
+  copy: WorkspaceEditorReadOnlyCopy
+): string | null {
+  if (!reason) return null
+  switch (reason) {
+    case 'share':
+      return copy.shareViewReadOnly
+    case 'largeFileTruncated':
+      return copy.largeFileTruncated
+    case 'largeFile':
+      return copy.largeFileReadOnly
+    case 'externalSymlink':
+      return copy.externalSymbolicLinkReadOnly
+    case 'externalFile':
+      return copy.externalFileReadOnly
+    case 'readOnly':
+      return copy.fileReadOnly
+  }
+}
+
 export interface WorkspaceEditorLineChangesState {
   mode: WorkspaceFileLineChanges['mode']
   lineNumber: number

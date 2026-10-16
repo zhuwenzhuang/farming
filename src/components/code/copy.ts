@@ -548,6 +548,12 @@ export interface CodeCopy {
   moreMatchesOmitted: string
   containsUncommittedChanges: string
   changedOnDisk: string
+  symbolicLink: string
+  symbolicLinkTarget: (target: string) => string
+  externalSymbolicLinkReadOnly: string
+  externalFileReadOnly: string
+  shareViewReadOnly: string
+  fileReadOnly: string
   largeFileReadOnly: string
   largeFileTruncated: string
   unsavedChanges: string
@@ -1339,6 +1345,12 @@ const EN_COPY: CodeCopy = {
   moreMatchesOmitted: 'More matches omitted',
   containsUncommittedChanges: 'Contains uncommitted changes',
   changedOnDisk: 'Changed on disk',
+  symbolicLink: 'Symbolic link',
+  symbolicLinkTarget: target => `Symbolic link → ${target}`,
+  externalSymbolicLinkReadOnly: 'Read-only: link target is outside the current project',
+  externalFileReadOnly: 'Read-only: file is outside the current project',
+  shareViewReadOnly: 'Read-only: opened in read-only share view',
+  fileReadOnly: 'Read-only',
   largeFileReadOnly: 'This large file is shown completely in read-only mode.',
   largeFileTruncated: 'Only the beginning of this large file is shown. Editing is disabled.',
   unsavedChanges: 'Unsaved changes',
@@ -2165,6 +2177,12 @@ const ZH_COPY: CodeCopy = {
   moreMatchesOmitted: '更多匹配已省略',
   containsUncommittedChanges: '包含未提交改动',
   changedOnDisk: '磁盘上已变更',
+  symbolicLink: '符号链接',
+  symbolicLinkTarget: target => `符号链接 → ${target}`,
+  externalSymbolicLinkReadOnly: '只读：链接目标位于当前项目之外',
+  externalFileReadOnly: '只读：文件位于当前项目之外',
+  shareViewReadOnly: '只读：当前为只读分享视图',
+  fileReadOnly: '只读',
   largeFileReadOnly: '该大文件已完整打开，当前为只读模式。',
   largeFileTruncated: '该大文件仅显示开头部分，内容不完整且不可编辑。',
   unsavedChanges: '未保存改动',
