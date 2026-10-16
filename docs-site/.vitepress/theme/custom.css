@@ -134,6 +134,27 @@
   letter-spacing: -0.02em;
 }
 
+@media (max-width: 767px) {
+  .VPNavBar .container > .title {
+    min-width: 0;
+    flex-shrink: 1;
+  }
+
+  .VPNavBar .container > .content {
+    flex: 0 0 auto;
+  }
+
+  .VPNavBarTitle .title > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .VPNavBarTitle .logo {
+    flex-shrink: 0;
+  }
+}
+
 :root:not(.dark) body {
   background-color: var(--vp-c-bg);
 }
@@ -260,6 +281,7 @@
 }
 
 .dark .VPHomeHero {
+  overflow: clip;
   background-color: #000d06;
   background-image:
     linear-gradient(to bottom, transparent 0 78%, var(--vp-c-bg) 100%),
@@ -1104,14 +1126,14 @@
   counter-reset: quickstart-step;
 }
 
-.quickstart-page .vp-doc h2:nth-of-type(-n + 5) {
+.quickstart-page .vp-doc h2:nth-of-type(-n + 6) {
   display: flex;
   align-items: center;
   gap: 12px;
   padding-top: 28px;
 }
 
-.quickstart-page .vp-doc h2:nth-of-type(-n + 5)::before {
+.quickstart-page .vp-doc h2:nth-of-type(-n + 6)::before {
   display: inline-grid;
   flex: 0 0 auto;
   width: 34px;
@@ -1129,7 +1151,7 @@
   counter-increment: quickstart-step;
 }
 
-.quickstart-page .vp-doc h2:nth-of-type(-n + 5) .header-anchor {
+.quickstart-page .vp-doc h2:nth-of-type(-n + 6) .header-anchor {
   top: 28px;
 }
 

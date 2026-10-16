@@ -40,6 +40,9 @@ sections, customer-proof patterns, or repeated feature inventories. Screenshots
 should explain a specific workflow or interface; they are evidence, not a
 substitute for documentation.
 
+On narrow screens, the navigation title truncates to keep search, appearance,
+and menu controls reachable in every locale.
+
 The installation command panel uses one theme surface for its method controls,
 copy action, and code. Its compact header contains the controls; commands use
 15px monospace text with 26px line height on desktop, and 14px text with 24px line

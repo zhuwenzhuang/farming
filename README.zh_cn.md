@@ -5,7 +5,11 @@
 <h1 align="center">Farming Code</h1>
 
 <p align="center">
-  Farming Code 是一个开源、自托管的浏览器工作区，用于启动和管理 Codex、Claude Code、Pi、OpenCode 及其他 AI Coding Agent。
+  在开发机上同时跑 Codex、Claude Code 等多个 Coding Agent。哪个需要你一眼可见，任何一个都能在浏览器里随时接管，手机也行。
+</p>
+
+<p align="center">
+  开源、自托管：Agent、终端和代码都留在你自己的机器上。
 </p>
 
 <p align="center">

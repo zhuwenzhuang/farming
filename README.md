@@ -5,7 +5,11 @@
 <h1 align="center">Farming Code</h1>
 
 <p align="center">
-  Farming Code is an open-source, self-hosted browser workspace for running and supervising Codex, Claude Code, Pi, OpenCode, and other AI coding agents.
+  Run Codex, Claude Code, and other coding agents side by side on your development machine. See which one needs you, and pick up any of them from a browser — even on your phone.
+</p>
+
+<p align="center">
+  Open source and self-hosted: agents, terminals, and code stay on your machine.
 </p>
 
 <p align="center">

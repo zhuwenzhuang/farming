@@ -2252,8 +2252,8 @@ async function main() {
             createdBrowser.id,
             documentationSite.title,
             screenshotLocale === 'en'
-              ? 'A browser workspace for AI coding agents'
-              : '浏览器中的 AI Coding Agent 工作区',
+              ? 'Run coding agents side by side on your dev machine'
+              : '在开发机上并行跑 Coding Agent',
           );
           await ensureApp(page);
           await openAgent(page, codexAgentId);

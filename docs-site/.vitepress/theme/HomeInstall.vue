@@ -53,7 +53,7 @@ onBeforeUnmount(() => clearTimeout(timer))
           </div>
           <div class="home-install-context">
             <span class="home-install-requirement">{{ method === 'npm'
-              ? (chinese ? 'Node.js 22.13+（22.x）或 24+' : 'Node.js 22.13+ (22.x) or 24+')
+              ? (chinese ? 'Node.js 22.13+（含 23.x）' : 'Node.js 22.13+ (including 23.x)')
               : (chinese ? '支持旧版 glibc Linux x64' : 'Supports older glibc Linux x64') }}</span>
             <div v-if="method === 'local'" class="home-install-links">
               <a :href="withBase('/farming_install.sh')" download="farming_install.sh">{{ chinese ? '下载脚本' : 'Download script' }}</a>

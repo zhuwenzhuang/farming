@@ -3,8 +3,8 @@ layout: home
 
 hero:
   name: Farming
-  text: A browser workspace for AI coding agents
-  tagline: Run coding agents on your machine. Open Farming in your browser.
+  text: Run coding agents side by side on your dev machine
+  tagline: See which agent needs you at a glance. Agents keep running while their host stays online. Pick them up from any browser, even your phone.
   image:
     src: /farming-hero.webp
     alt: Farming Code
@@ -13,9 +13,31 @@ hero:
       text: Quick start
       link: /en/get-started/quickstart
     - theme: alt
-      text: Explore the two interfaces
-      link: '#what-farming-includes'
+      text: Remote and phone use
+      link: /en/code/mobile-and-remote
 ---
+
+## What you can do with Farming
+
+<div class="docs-card-grid">
+  <a class="docs-card" href="./code/projects-and-agents">
+    <strong>Several tasks at once</strong>
+    <span>One agent per task. The sidebar shows which is running, done, or waiting for you.</span>
+  </a>
+  <a class="docs-card" href="./code/mobile-and-remote">
+    <strong>Keep going when you step away</strong>
+    <span>Agents run on the dev machine. Close the browser, read results and reply from your phone.</span>
+  </a>
+  <a class="docs-card" href="./code/terminal">
+    <strong>Read first, then take over</strong>
+    <span>Read the structured process in Chat; switch to Terminal on the same session when needed.</span>
+  </a>
+  <a class="docs-card" href="./customize/providers-and-permissions">
+    <strong>Many agents, one place</strong>
+    <span>Codex, Claude Code, Pi, OpenCode, Qoder, and Qwen Code in one workspace.</span>
+    <ProviderIcons />
+  </a>
+</div>
 
 ## What Farming includes
 
@@ -24,31 +46,30 @@ hero:
     <strong>Farming Code</strong>
     <span>A modern, lightweight Agent workspace for everyday work.</span>
   </a>
-  <a class="docs-card" href="./crt/overview">
-    <strong>Farming CRT</strong>
-    <span>A retro Agent workspace for keyboard control and Terminal enthusiasts.</span>
-  </a>
   <a class="docs-card" href="./get-started/quickstart">
     <strong>Remote web access</strong>
     <span>Run Farming on a Mac or Linux host and connect from a desktop or phone browser.</span>
-    <ProviderIcons />
   </a>
   <a class="docs-card" href="./code/files">
     <strong>Files</strong>
     <span>Browse, search, and lightly edit project files; inspect Git diffs, history, and blame.</span>
-  </a>
-  <a class="docs-card" href="./customize/settings#farming-pet">
-    <strong>Farming Pet and focus timer</strong>
-    <span>Gentle visual feedback and rest reminders for long sessions.</span>
   </a>
   <a class="docs-card" href="./plugins/overview">
     <strong>Plugins and experimental features</strong>
     <span>Browser, Agent Homes, and capabilities that are still being explored.</span>
     <IntegrationIcons />
   </a>
+  <a class="docs-card" href="./crt/overview">
+    <strong>Farming CRT</strong>
+    <span>A retro Agent workspace for keyboard control and Terminal enthusiasts.</span>
+  </a>
+  <a class="docs-card" href="./customize/settings#farming-pet">
+    <strong>Farming Pet and focus timer</strong>
+    <span>Gentle visual feedback and rest reminders for long sessions.</span>
+  </a>
 </div>
 
-## What you can do with Farming
+## Ways to work with agents
 
 <div class="docs-card-grid">
   <a class="docs-card" href="./workflows/understand-a-codebase"><strong>Understand a codebase</strong><span>Build a map, then verify the evidence.</span></a>
