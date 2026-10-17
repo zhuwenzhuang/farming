@@ -575,7 +575,25 @@ test('keeps the reconnect fence closed until the newest queued checkpoint commit
 
   await page.route(new RegExp(`/farming/api/agents/${agentId}/acp-transcript(?:\\?.*)?$`), async route => {
     const sinceRevision = new URL(route.request().url()).searchParams.get('sinceRevision')
-    expect(sinceRevision).toBeNull()
+    // Selecting a cached Agent may issue a normal delta before reconnect.
+    // It is not one of the full checkpoints whose ordering this test controls.
+    if (sinceRevision !== null) {
+      const revision = Number(sinceRevision)
+      expect(Number.isSafeInteger(revision)).toBe(true)
+      await route.fulfill({ json: {
+        version: 1,
+        agentId,
+        sessionId: identity.sessionId,
+        runtimeEpoch: identity.runtimeEpoch,
+        fromRevision: revision,
+        toRevision: revision,
+        replace: false,
+        settled: true,
+        hasMoreBefore: false,
+        transcript: { sessionId: identity.sessionId, state: 'idle', revision, delta: true, entries: [] },
+      } })
+      return
+    }
     const checkpointOrdinal = ++checkpointRequestCount
     const label = checkpointOrdinal === 2
       ? 'STALE'
@@ -648,7 +666,7 @@ test('keeps the reconnect fence closed until the newest queued checkpoint commit
           ? input.url
           : String(input)
       const url = new URL(rawUrl, window.location.href)
-      if (!url.pathname.endsWith('/acp-transcript')) {
+      if (!url.pathname.endsWith('/acp-transcript') || url.searchParams.has('sinceRevision')) {
         return originalFetch(input, init)
       }
       transcriptResponseCount += 1

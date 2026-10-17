@@ -99,6 +99,12 @@ for (const appearance of ['light', 'dark', 'paper']) {
     expect(prompt).toContain('Read the source conversation')
     expect(prompt).toContain('\n\n{\n')
     expect(prompt).toContain('wait for the user')
+    await expect.poll(async () => {
+      const state = await (await page.request.get('/farming/api/control/agents')).json()
+      const agent = state.agents.find((agent: { id: string }) => agent.id === targetId)
+      return agent?.terminalStatus?.activity
+    }).toBe('busy')
+    fs.writeFileSync(path.join(workspace, '.farming-handoff-turn-complete'), '')
     const toggle = () => page.locator(`[data-testid="code-agent-work-pane"][data-agent-id="${targetId}"]`).getByTestId('code-terminal-mode-toggle')
     await expect(toggle().getByRole('button', { name: 'Chat', exact: true })).toBeEnabled()
     await testInfo.attach(`terminal-handoff-${appearance}`, { body: await page.screenshot(), contentType: 'image/png' })

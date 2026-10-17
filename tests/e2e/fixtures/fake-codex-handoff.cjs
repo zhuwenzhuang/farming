@@ -18,13 +18,24 @@ function submit() {
   if (draft === '/status') {
     process.stdout.write(`OpenAI Codex (v0.142.3)\r\n  Model: gpt-5.6-terra (reasoning medium)\r\n  Directory: ~/workspace\r\n  Session: ${sessionId}\r\n`);
   } else if (draft && pasted) {
+    // Hold a real provider busy phase until the test observes it through inventory.
+    process.stdout.write('\x1b]0;⠙ Reading handoff\x07\r\nWorking · esc to interrupt\r\n');
+    const completion = '.farming-handoff-turn-complete';
+    const watcher = fs.watch('.', (_event, filename) => {
+      if (String(filename) !== completion || !fs.existsSync(completion)) return;
+      watcher.close();
+      process.stdout.write('\x1b]0;Handoff complete\x07Handoff prompt submitted once. Waiting for instructions.\r\n');
+      idle();
+    });
     fs.appendFileSync('handoff-prompts.jsonl', JSON.stringify(draft) + '\n');
     const sessions = path.join(process.env.CODEX_HOME, 'sessions');
     fs.mkdirSync(sessions, { recursive: true });
     fs.writeFileSync(path.join(sessions, `rollout-${sessionId}.jsonl`), JSON.stringify({
       type: 'session_meta', payload: { id: sessionId, cwd: process.cwd(), timestamp: new Date().toISOString() },
     }) + '\n');
-    process.stdout.write('Handoff prompt submitted once. Waiting for instructions.\r\n');
+    draft = '';
+    pasted = false;
+    return;
   }
   draft = '';
   pasted = false;

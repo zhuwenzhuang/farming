@@ -1976,7 +1976,9 @@ test.describe('ACP human-like browser matrix', () => {
         await page.keyboard.press('Escape')
         const backdrop = page.getByTestId('code-mobile-sidebar-backdrop')
         await expect(backdrop).toBeVisible()
-        await backdrop.tap({ position: { x: 380, y: 400 } })
+        const backdropBox = await backdrop.boundingBox()
+        expect(backdropBox).not.toBeNull()
+        await page.touchscreen.tap(backdropBox!.x + backdropBox!.width - 10, backdropBox!.y + 400)
         await expect(backdrop).toHaveCount(0)
       } else {
         await expect(modeToggle).toBeVisible()
@@ -2103,7 +2105,9 @@ test.describe('ACP human-like browser matrix', () => {
       if (compactLayout) {
         const backdrop = page.getByTestId('code-mobile-sidebar-backdrop')
         await expect(backdrop).toBeVisible()
-        await backdrop.tap({ position: { x: 380, y: 400 } })
+        const backdropBox = await backdrop.boundingBox()
+        expect(backdropBox).not.toBeNull()
+        await page.touchscreen.tap(backdropBox!.x + backdropBox!.width - 10, backdropBox!.y + 400)
         await expect(backdrop).toHaveCount(0)
       }
     })

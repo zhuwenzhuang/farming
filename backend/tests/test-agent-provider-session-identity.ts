@@ -156,6 +156,18 @@ async function run() {
   });
   manager.engineBridge.getEngine = () => engine;
 
+  async function submitCodexTurn(agentId) {
+    const agent = manager.agents.get(agentId);
+    await manager.sendInput(agentId, 'fixture task\r');
+    agent.previewText = codexIdlePreview();
+    manager.engineBridge.emit('session-title', {
+      sessionId: agentId, runtimeEpoch: agent.runtimeEpoch, title: '⠙ Fixture turn',
+    });
+    assert.strictEqual(agent.terminalIdentityProbe?.phase, 'working');
+    // The next explicit preview observation below represents completion.
+    agent.sessionTitle = 'Fixture turn';
+  }
+
   try {
     const codexId = await startAgent(manager, 'codex', workspace, {
       wantsMain: false,
@@ -190,17 +202,25 @@ async function run() {
       renderOutput: codexIdlePreview(),
       output: codexIdlePreview(),
     });
+    assert.strictEqual(await manager.resolveCodexTerminalIdentityFromPreview(codexId, codexIdlePreview()), false,
+      'the initial idle composer must not consume an identity probe before a submitted turn');
+    assert.deepStrictEqual(terminalInputs.filter(entry => entry.agentId === codexId), []);
+    await submitCodexTurn(codexId);
     outputAgent.terminalDraftInputReceived = true;
     assert.strictEqual(await manager.resolveCodexTerminalIdentityFromPreview(codexId, codexIdlePreview()), false,
       'identity probing must preserve an unsubmitted Terminal draft');
-    assert.deepStrictEqual(terminalInputs.filter(entry => entry.agentId === codexId), []);
+    assert.deepStrictEqual(terminalInputs.filter(entry => entry.agentId === codexId), [{
+      agentId: codexId, input: 'fixture task\r',
+    }]);
     outputAgent.terminalDraftInputReceived = false;
     assert.strictEqual(
       await manager.resolveCodexTerminalIdentityFromPreview(codexId, codexIdlePreview()),
       true,
-      'an idle Codex Terminal should resolve its exact identity through /status',
+      'an idle Codex Terminal after a submitted turn should resolve its exact identity through /status',
     );
     assert.deepStrictEqual(terminalInputs.filter(entry => entry.agentId === codexId), [{
+      agentId: codexId, input: 'fixture task\r',
+    }, {
       agentId: codexId,
       input: [{ type: 'paste', text: '/status' }, '\r'],
     }]);
@@ -244,6 +264,7 @@ async function run() {
       renderOutput: codexIdlePreview(),
       output: codexIdlePreview(),
     });
+    await submitCodexTurn(legacyCodexId);
     assert.strictEqual(await manager.resolveCodexTerminalIdentityFromPreview(
       legacyCodexId,
       codexIdlePreview(),
