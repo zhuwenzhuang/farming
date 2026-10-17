@@ -31,6 +31,7 @@ const CODEX_APP_SERVER_THREAD_ITEM_TYPES = [
   'fileChange',
   'mcpToolCall',
   'dynamicToolCall',
+  'functionCallOutput',
   'collabAgentToolCall',
   'subAgentActivity',
   'webSearch',
@@ -52,6 +53,7 @@ const FARMING_CODEX_TRANSCRIPT_COVERED_THREAD_ITEM_TYPES = [
   'fileChange',
   'mcpToolCall',
   'dynamicToolCall',
+  'functionCallOutput',
   'collabAgentToolCall',
   'subAgentActivity',
   'webSearch',
@@ -65,8 +67,8 @@ const FARMING_CODEX_TRANSCRIPT_COVERED_THREAD_ITEM_TYPES = [
 
 const CODEX_APP_SERVER_USER_INPUT_TYPES = ['text', 'image', 'localImage', 'audio', 'localAudio', 'skill', 'mention'];
 const FARMING_CODEX_TRANSCRIPT_COVERED_USER_INPUT_TYPES = ['text', 'image', 'localImage', 'audio', 'localAudio', 'skill', 'mention'];
-const CODEX_APP_SERVER_DYNAMIC_TOOL_OUTPUT_TYPES = ['inputText', 'inputImage'];
-const FARMING_CODEX_TRANSCRIPT_COVERED_DYNAMIC_TOOL_OUTPUT_TYPES = ['inputText', 'inputImage'];
+const CODEX_APP_SERVER_DYNAMIC_TOOL_OUTPUT_TYPES = ['inputText', 'inputImage', 'inputAudio'];
+const FARMING_CODEX_TRANSCRIPT_COVERED_DYNAMIC_TOOL_OUTPUT_TYPES = ['inputText', 'inputImage', 'inputAudio'];
 const CODEX_RESPONSE_ITEM_TYPES = [
   'message',
   'agent_message',
@@ -78,6 +80,8 @@ const CODEX_RESPONSE_ITEM_TYPES = [
   'custom_tool_call',
   'custom_tool_call_output',
   'tool_search_output',
+  'additional_tools',
+  'configuration_update',
   'web_search_call',
   'image_generation_call',
   'compaction',
@@ -96,6 +100,8 @@ const FARMING_CODEX_TRANSCRIPT_COVERED_RESPONSE_ITEM_TYPES = [
   'custom_tool_call',
   'custom_tool_call_output',
   'tool_search_output',
+  'additional_tools',
+  'configuration_update',
   'web_search_call',
   'image_generation_call',
   'compaction',
@@ -104,6 +110,22 @@ const FARMING_CODEX_TRANSCRIPT_COVERED_RESPONSE_ITEM_TYPES = [
   'other',
 ];
 const CODEX_APP_SERVER_SERVER_NOTIFICATION_TYPES = [
+  'autoApprovalReview/strictReviewRequired',
+  'modelProvider/authRecoveryStarted',
+  'modelProvider/authRecoveryCompleted',
+  'thread/realtime/item/started',
+  'thread/realtime/item/completed',
+  'thread/realtime/item/transcript/delta',
+  'account/gatewayOAuth/changed',
+  'mcpServer/event/stream/notification',
+  'project/changed',
+  'thread/attachment/updated',
+  'thread/prediction/updated',
+  'thread/project/updated',
+  'thread/queue/changed',
+  'thread/readState/changed',
+  'thread/reverted',
+
   'error',
   'thread/started',
   'thread/status/changed',
@@ -178,6 +200,13 @@ const CODEX_APP_SERVER_SERVER_NOTIFICATION_TYPES = [
   'account/login/completed',
 ];
 const CODEX_APP_SERVER_TRANSCRIPT_NOTIFICATION_TYPES = [
+  'autoApprovalReview/strictReviewRequired',
+  'modelProvider/authRecoveryStarted',
+  'modelProvider/authRecoveryCompleted',
+  'thread/realtime/item/started',
+  'thread/realtime/item/completed',
+  'thread/realtime/item/transcript/delta',
+
   'error',
   'turn/started',
   'hook/started',
@@ -217,6 +246,13 @@ const CODEX_APP_SERVER_TRANSCRIPT_NOTIFICATION_TYPES = [
   'windows/worldWritableWarning',
 ];
 const FARMING_CODEX_TRANSCRIPT_COVERED_NOTIFICATION_TYPES = [
+  'autoApprovalReview/strictReviewRequired',
+  'modelProvider/authRecoveryStarted',
+  'modelProvider/authRecoveryCompleted',
+  'thread/realtime/item/started',
+  'thread/realtime/item/completed',
+  'thread/realtime/item/transcript/delta',
+
   'error',
   'turn/started',
   'hook/started',
@@ -256,6 +292,16 @@ const FARMING_CODEX_TRANSCRIPT_COVERED_NOTIFICATION_TYPES = [
   'windows/worldWritableWarning',
 ];
 const FARMING_CODEX_TRANSCRIPT_IGNORED_NOTIFICATION_TYPES = [
+  'account/gatewayOAuth/changed',
+  'mcpServer/event/stream/notification',
+  'project/changed',
+  'thread/attachment/updated',
+  'thread/prediction/updated',
+  'thread/project/updated',
+  'thread/queue/changed',
+  'thread/readState/changed',
+  'thread/reverted',
+
   'thread/started',
   'thread/status/changed',
   'thread/archived',
@@ -2376,4 +2422,57 @@ function referenceServerNotificationMethods() {
   assert.strictEqual(turns[0].processItems.filter(item => item.title === '我会按 review 口径判断一下。').length, 1);
 }
 
+{
+  const turns = buildTranscriptFromLines([
+    event('user_message', { turn_id: 'runtime-context', message: 'Hello' }),
+    line('response_item', { type: 'additional_tools', role: 'system', tools: [{ name: 'internal_tool' }] }),
+    line('response_item', { type: 'configuration_update', reasoning: { effort: 'high' } }),
+  ]);
+  assert.strictEqual(turns[0].processItems.length, 1, 'Configuration must not add activity beyond the tool inventory update');
+  assert.strictEqual(turns[0].processItems[0].title, 'Added 1 tools');
+}
+
+// App-server emits function outputs separately from calls, including structured media.
+{
+  const turns = buildTranscriptFromLines([
+    event('user_message', { turn_id: 'function-output', message: 'Read tool results' }),
+    ...[
+      { type: 'functionCallOutput', id: 'output-text', namespace: null, name: 'lookup', output: 'Found the result' },
+      { type: 'functionCallOutput', id: 'output-media', namespace: 'tools', name: 'render', output: [
+        { type: 'input_text', text: 'Rendered chart' },
+        { type: 'input_image', image_url: 'data:image/png;base64,AAAA' },
+        { type: 'input_audio', audio_url: 'data:audio/wav;base64,AAAA' },
+      ] },
+      { type: 'dynamicToolCall', id: 'output-audio', namespace: null, tool: 'speak', contentItems: [
+        { type: 'inputAudio', audioUrl: 'data:audio/wav;base64,AAAA' },
+      ] },
+    ].map(item => event('item_completed', { turn_id: 'function-output', item })),
+  ]);
+  const items = turns[0].processItems;
+  assert.strictEqual(items.find(item => item.id === 'output-text').detail, 'Found the result');
+  const media = items.find(item => item.id === 'output-media');
+  assert.strictEqual(media.type, 'tool-output');
+  assert.strictEqual(media.title, 'Output from tools/render');
+  assert.strictEqual(media.status, 'completed');
+  assert(media.detail.includes('Rendered chart'));
+  assert.strictEqual(media.images[0].url, 'data:image/png;base64,AAAA');
+  assert.strictEqual(media.audios[0].url, 'data:audio/wav;base64,AAAA');
+  assert.strictEqual(items.find(item => item.id === 'output-audio').audios[0].url, 'data:audio/wav;base64,AAAA');
+}
+
+{
+  const turns = buildTranscriptFromLines([
+    notification('thread/realtime/item/started', { threadId: 'rt', item: { id: 'segment', type: 'transcriptSegment', role: 'user', text: '' } }),
+    notification('thread/realtime/item/transcript/delta', { threadId: 'rt', itemId: 'segment', delta: 'hello' }),
+    notification('thread/realtime/item/completed', { threadId: 'rt', item: { id: 'segment', type: 'transcriptSegment', role: 'user', text: 'hello world' } }),
+    notification('modelProvider/authRecoveryStarted', { turnId: 'auth', message: 'Retrying authentication' }),
+    notification('modelProvider/authRecoveryCompleted', { turnId: 'auth', message: 'Authentication restored' }),
+    notification('autoApprovalReview/strictReviewRequired', { turnId: 'auth' }),
+  ]);
+  const items = turns.flatMap(turn => turn.processItems);
+  assert.strictEqual(items.filter(item => item.id === 'segment').length, 1);
+  assert.strictEqual(items.find(item => item.id === 'segment').detail, 'hello world');
+  assert.strictEqual(items.find(item => item.id === 'auth-auth-recovery').status, 'completed');
+  assert.strictEqual(items.find(item => item.id === 'auth-strict-review').status, 'warning');
+}
 console.log('codex transcript tests passed');

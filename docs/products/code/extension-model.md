@@ -344,3 +344,28 @@ one CLI-backed capability implementation across Chat and Terminal.
 Before a third-party API is declared stable, Farming must also define package
 trust, UI isolation, capability-name collision handling, and the minimum
 lifecycle guarantees required from an external runtime.
+
+## External Agent Access (A2A)
+
+A2A is a built-in optional plugin for external ingress, not a separate process.
+The existing backend owns its authenticated transport; the extension owns the
+Config-private enablement and external grant administration. It is disabled by
+default, including for existing external grants. Local Agent communication remains
+available independently. Only the owner can read or change plugin configuration,
+issue credentials, inspect grants or revoke them. The established communication
+grant API remains compatible with CLI clients.
+
+Configuration writes compare the authoritative revision and persist before
+publication. Conflicts and ambiguous failures require a fresh read before another
+write. Corrupt configuration fails explicitly; restart retains the saved setting.
+External requests require both enabled access and a valid target-scoped credential.
+Disabling ends external observation, including streams spanning disable/reenable,
+without cancelling accepted work. Reenabling restores valid grants; it does not
+replay requests. Grant inspection and revocation remain available while disabled.
+
+The Plugins card reuses shared card, form, selector and action recipes. Connection
+configuration contains the endpoint and a one-time credential; ordinary Chat
+retains source attribution. Acceptance covers owner authorization, default-off,
+restart and Config isolation, revision conflicts, grant revocation, stream fencing,
+local communication while disabled, uncertain-write reconciliation, and compact
+and desktop layouts in Light, Dark and Paper.

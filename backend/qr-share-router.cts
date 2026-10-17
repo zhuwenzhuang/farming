@@ -1,3 +1,4 @@
+import type { RequestHandler } from 'express';
 import { normalizeReadOnlyShareHours } from '../shared/read-only-share-duration.js';
 import { normalizeBasePath, routePath } from './index-html.cjs';
 import { SHARE_TICKET_TTL_MS } from './qr-share-tickets.cjs';
@@ -38,7 +39,7 @@ type ExpressMiddleware = (
   next: () => void,
 ) => void;
 
-interface ExpressRouter {
+interface ExpressRouter extends RequestHandler {
   get(path: string, handler: ExpressHandler): ExpressRouter;
   delete(path: string, handler: ExpressHandler): ExpressRouter;
   post(path: string, middleware: unknown, handler: ExpressHandler): ExpressRouter;

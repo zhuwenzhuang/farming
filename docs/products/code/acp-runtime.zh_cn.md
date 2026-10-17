@@ -135,12 +135,24 @@ pending Fork，不猜测缺失所有权。
 | 契约 | 含义 |
 | --- | --- |
 | 传输 | 官方 A2A SDK 嵌入现有后端，在配置 base path 下的 `/api/a2a/agents/:agentId` 提供认证 JSON-RPC |
-| 能力 | 文本 SendMessage、GetTask 与受保护 Agent Card；不支持流式、订阅、取消和 Task continuation |
+| 能力 | 文本 SendMessage、GetTask、ListTasks、状态/结果流、重新订阅、精确运行中请求取消与受保护 Agent Card；不支持推送通知、任意媒体和 Task continuation |
 | 身份 | 本地 Agent 凭据；外部由 owner 签发指定接收方和有效期的授权，与 owner 凭据分离 |
 | 投递 | 新请求要求实时接收方 Chat，本地发送还要求实时来源；执行前核对确切接收 Session；默认排队 Prompt，不使用原始 Terminal 输入 |
 | 完成 | 关联轮次最终助手正文完成 Task，输入准入和通知摘要不代表完成 |
 | 恢复 | Config 内按调用者与消息 ID 持久去重，意图改变冲突；未知执行不自动重放 |
-| 跟进 | 新 Task 可引用同一接收 Session 中自己拥有的一条 `referenceTaskIds`；上下文归调用者所有，不重开已完成 Task |
+| 跟进 | 新 Task 可引用一条 `referenceTaskIds`；同向跟进或反向回复均要求原参与方及确切 Session，不重开已完成 Task |
+
+SendMessage 默认等待终态或中断结果，设置 `configuration.returnImmediately` 才立即返回。
+单次观察限 60 秒；超时或流断开不会取消执行，也不重放请求。流先给出权威 Task 快照，再发布
+状态变化与最终结果，不提供模型思考或逐 token 内容。断线后查询或重新订阅原 Task；观察期间
+持续核验凭据。
+
+ListTasks 只列出调用方发给所选接收方的请求，支持有界分页和上下文、状态、时间过滤。
+结果附件须显式请求，历史可裁剪。Task 是一次请求及其结果，不是 workspace 待办或调度条目。
+
+取消必须定位原 Host prompt 的 binding 和 turn handle。尚无 provider-owned turn 的排队请求、
+结果未知或已结束请求拒绝取消，不能因此中断后续 turn。取消确认本身不等于已取消，必须有原请求
+的 canceled 回执。已证明的执行失败标记 failed，不确定的投递保留 unknown。
 
 GetTask 只有在原 Host 已结算回执匹配 binding、Session 和请求哈希时才能消除未知状态。
 Host 证据丢失/替换则继续未知。已授权调用方可在接收方停止后读取保存结果。撤销阻止后续
@@ -148,15 +160,25 @@ Host 证据丢失/替换则继续未知。已授权调用方可在接收方停�
 
 启动凭据使用 `FARMING_COMMUNICATION_TOKEN`，不进入共享进程环境，30 天过期后重新启动
 Agent 获取新凭据。外部授权默认 24 小时，最长 30 天。Token 仅签发时返回，存储保留摘要。
-配置 `FARMING_PUBLIC_ORIGIN` 时，以其作为公布端点的 origin。
+配置 `FARMING_PUBLIC_ORIGIN` 时，以其作为公布端点的 origin（反向代理改变公开协议或主机名时必须配置）。
+否则 Agent Card 使用已认证请求的 origin，不公布回环地址。
 
 初始日志每 Config 最多 1,024 条请求 / 32 MiB，不静默淘汰去重证据，耗尽明确报错。
 输入/输出文本各限 64 KiB；每 Config 最多并发执行 32 条请求，每身份每分钟 120 次协议调用，
-包括结果轮询。
+包括结果轮询。单身份最多 8 个同时打开的协议请求，每 Config 最多 128 个。
 
 `farming message send` 必须带 `--id`；`get` 与有界 `watch` 读结果，`--reply-to` 关联新请求，
+`list` 查找自己的请求，`subscribe` 输出有界状态/结果事件，`cancel` 精确取消原运行中请求，
 `card` 读能力。Owner 使用 `message grant`、`grants`、`revoke` 管理外部访问。接收方最终
 回答自动返回；`farming send` 保留原始 Terminal 语义。
+
+外部 A2A 接入是默认关闭的内置可选插件。Owner 在 Plugins → Farming → 外部 Agent 接入 · A2A
+中开启，选择运行中的 Chat Agent 并创建限定范围、仅显示一次的凭据。CLI 签发外部凭据也要求
+先开启插件。来信复用已有 Chat 会话和外部来源署名，不增加独立「Agent 消息」面板或人工代发表单。
+
+关闭后拒绝外部请求并结束已有外部观察，但不取消已接受的工作。授权保留，重新开启后，
+未过期且未撤销的授权恢复可用。内部 Agent 通信独立于这个开关。
+所有权及恢复约定见[扩展模型](extension-model.zh_cn.md#外部-agent-接入a2a)。
 
 来信气泡保留接收时名称、记录时间和不同消息 ID，回放/改名不改写署名。原生导航要求确切
 Provider/Home/Session，本地 Farming 导航另要求确切发送 Agent ID 和 Session key。

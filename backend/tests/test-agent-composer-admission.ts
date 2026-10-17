@@ -597,3 +597,50 @@ test('async durable intent gates delivery and same-request reconciliation is rea
   assert.equal(harness.deliverCount, 1);
   assert.equal(coordinator.status(harness.agent, 'request-1').phase, 'submitted');
 });
+
+test('peer admission binds immutable source to request identity and queues as a prompt', async () => {
+  const harness = new ComposerAdmissionHarness();
+  const coordinator = harness.coordinator();
+  const source = { version: 1 as const, direction: 'incoming' as const, senderAddress: 'peer:builder', senderName: 'Builder' };
+  const request = { agent: harness.agent, message: 'Check the build', requestId: 'peer-request', peerMessage: source };
+  const pending = coordinator.request(request);
+  source.senderName = 'Changed after submission';
+  await pending;
+  assert.equal(harness.lastDelivery?.peerMessage?.senderName, 'Builder');
+  assert.equal(harness.lastDelivery?.delivery, 'prompt');
+  await assert.rejects(coordinator.request(request), /different content/);
+  // Also enforce the source binding after rebuilding the in-memory coordinator.
+  await assert.rejects(harness.coordinator().request({ ...request, peerMessage: { ...source, senderAddress: 'peer:other' } }), /different content/);
+  await coordinator.request({ ...request, peerMessage: { ...source, senderName: 'Builder' } });
+  assert.equal(harness.deliverCount, 1);
+});
+
+test('peer admission rejects raw Terminal delivery before persistence', async () => {
+  const harness = new ComposerAdmissionHarness();
+  harness.ports.runtimeKind = () => 'terminal';
+  await assert.rejects(harness.coordinator().request({
+    agent: harness.agent, message: 'hello', requestId: 'peer-terminal',
+    peerMessage: { version: 1, direction: 'incoming', senderAddress: 'peer:builder' },
+  }), /structured Chat/);
+  assert.equal(harness.persistCount, 0);
+  assert.equal(harness.deliverCount, 0);
+});
+
+test('peer result observer waits for execution and receives post-admission failures', async () => {
+  const harness = new ComposerAdmissionHarness();
+  const pending = deferred<unknown>();
+  const observations: unknown[] = [];
+  harness.delivery = async request => {
+    harness.deliverCount++;
+    request.onSubmitted({ kind: 'acp' });
+    return pending.promise;
+  };
+  const coordinator = harness.coordinator();
+  await coordinator.request({ agent: harness.agent, message: 'hello', requestId: 'peer-result',
+    onExecutionSettled: result => observations.push(result) });
+  assert.deepEqual(observations, [], 'input acknowledgement is not execution completion');
+  pending.reject(new Error('provider failed after admission'));
+  await coordinator.whenIdle(harness.agent.id);
+  assert.equal(observations.length, 1);
+  assert.match(String((observations[0] as { error: Error }).error), /provider failed/);
+});

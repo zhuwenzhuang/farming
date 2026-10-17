@@ -1,3 +1,4 @@
+import { normalizeAcpPeerMessage, type AcpPeerMessage } from '../shared/acp-peer-message.js';
 import type { ComposerSubmissionPhase, ComposerSubmissionStatus } from '../shared/composer-submission.js';
 import { CHAT_PROMPT_MAX_ENCODED_BYTES, COMPOSER_ADMISSION_TIMEOUT_MS } from '../shared/chat-capacity.js';
 import type {
@@ -23,6 +24,7 @@ interface ComposerSubmissionResult extends Record<string, unknown> {
 }
 
 interface ComposerDeliveryRequest {
+  peerMessage?: AcpPeerMessage;
   agent: AgentRecord;
   assertCurrentOwner(): void;
   delivery: ComposerDelivery;
@@ -63,7 +65,13 @@ export interface AgentComposerAdmissionPorts {
   runtimeKind(agent: AgentRecord): ComposerRuntimeKind;
 }
 
+export type ComposerExecutionOutcome = { result: unknown; error?: never } | { result?: never; error: unknown };
+
 export interface AgentComposerAdmissionRequest {
+  /** Observes exact execution settlement separately from durable input admission. */
+  onExecutionSettled?: (outcome: ComposerExecutionOutcome) => void;
+  /** Server-authenticated provenance, never copied from prompt metadata. */
+  peerMessage?: AcpPeerMessage;
   onPhase?: (status: ComposerSubmissionStatus) => void;
   agent: AgentRecord;
   delivery?: ComposerDelivery;
@@ -190,6 +198,8 @@ export class AgentComposerAdmissionCoordinator {
     requestId,
     terminalAdmission,
     onPhase,
+    peerMessage,
+    onExecutionSettled,
   }: AgentComposerAdmissionRequest): Promise<unknown> {
     if (!/^[A-Za-z0-9._:-]{1,160}$/.test(requestId)) {
       return Promise.reject(new Error('Composer requestId is invalid'));
@@ -200,8 +210,14 @@ export class AgentComposerAdmissionCoordinator {
     const prompt = immutableComposerPrompt(message);
     const delivery = requestedDelivery === 'prompt' || requestedDelivery === 'steer'
       ? requestedDelivery
-      : 'auto';
-    const contentHash = composerCommandHash({ prompt, delivery });
+      : peerMessage ? 'prompt' : 'auto';
+    const normalizedSource = peerMessage ? normalizeAcpPeerMessage(peerMessage) : null;
+    if (peerMessage && !normalizedSource) return Promise.reject(new Error('Invalid peer message source'));
+    if (peerMessage && this.#ports.runtimeKind(agent) !== 'acp') {
+      return Promise.reject(new Error('Peer messages require structured Chat input'));
+    }
+    const source = normalizedSource ? deepFreeze(normalizedSource) : undefined;
+    const contentHash = composerCommandHash({ prompt, delivery, ...(source ? { peerMessage: source } : {}) });
     const commands = normalizedComposerCommands(agent.composerCommands);
     const existing = commands
       .find(command => command.requestId === requestId);
@@ -336,6 +352,7 @@ export class AgentComposerAdmissionCoordinator {
         assertAdmission();
         this.phase(agent.id, requestId, 'queued');
         return this.#ports.deliver({
+          peerMessage: source,
           agent,
           assertCurrentOwner: assertAdmission,
           admissionDeadline,
@@ -351,8 +368,10 @@ export class AgentComposerAdmissionCoordinator {
       .then(async result => {
         if (outcome === 'pending') onSubmitted(result);
         await confirmation;
+        try { onExecutionSettled?.({ result }); } catch { /* Observers do not alter admission. */ }
       })
       .catch(async error => {
+        try { onExecutionSettled?.({ error }); } catch { /* Observers do not alter admission. */ }
         if (outcome !== 'pending') return;
         outcome = 'failed';
         const ownerFailure = this.#ownerFailure(owner);

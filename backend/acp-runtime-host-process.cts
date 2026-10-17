@@ -251,6 +251,7 @@ class AcpRuntimeHostProcess {
   boundSocketIdentity: SocketIdentity | null;
   idleExitTimer: NodeJS.Timeout | null;
   disposed: boolean;
+  private disposePromise: Promise<void> | null = null;
   activeControllerClient: HostClient | null;
   controllerCallbacks: Map<string, PendingControllerCallback>;
   forkReservations: Map<string, HostForkReservation>;
@@ -619,6 +620,8 @@ class AcpRuntimeHostProcess {
         return this.runtime.createSessionIdentity(params.options as UnknownRecord);
       case 'submitPrompt':
         return this.service.submitPrompt(controller, params as never);
+      case 'getPromptOperation':
+        return this.service.getPromptOperation(controller, String(params.agentId || ''), String(params.bindingEpoch || ''), String(params.clientPromptId || ''));
       case 'cancelTurn':
         return this.service.cancelTurn(controller, params as never);
       case 'getSession':
@@ -1007,7 +1010,12 @@ class AcpRuntimeHostProcess {
     this.send(client, { event, payload });
   }
 
-  async dispose(): Promise<void> {
+  dispose(): Promise<void> {
+    if (!this.disposePromise) this.disposePromise = this.performDispose();
+    return this.disposePromise;
+  }
+
+  private async performDispose(): Promise<void> {
     if (this.disposed) return;
     this.disposed = true;
     for (const id of this.readSnapshots.keys()) this.releaseReadSnapshot(id);

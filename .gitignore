@@ -31,6 +31,8 @@ extensions/language-server/backend/**/*.cjs
 extensions/language-server/backend/**/*.cjs.map
 extensions/shared-config/backend/**/*.cjs
 extensions/shared-config/backend/**/*.cjs.map
+extensions/a2a/backend/**/*.cjs
+extensions/a2a/backend/**/*.cjs.map
 extensions/language-server/vscode-bridge/*.vsix
 reference/
 docs/products/hive/

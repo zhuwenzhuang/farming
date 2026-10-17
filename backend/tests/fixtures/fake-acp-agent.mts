@@ -1,5 +1,6 @@
 import { Readable, Writable } from 'node:stream';
-import { spawn } from 'node:child_process';
+import { spawn, execFile } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -131,6 +132,7 @@ interface ActiveSteerTurn {
 
 let activeSteerTurn: ActiveSteerTurn | null = null;
 let liveProgressSequence = 0;
+let peerIntegrationSequence = 0;
 
 function sessionScenarioMarker(sessionId, scenario) {
   const configDir = String(
@@ -542,6 +544,56 @@ class FakeAgent implements Agent {
   async prompt(params: PromptRequest): Promise<PromptResponse> {
     const promptText = params.prompt?.map(block => block.type === 'text' ? block.text : '').join('') || '';
     const imageCount = params.prompt?.filter(block => block.type === 'image').length || 0;
+    const peerTarget = /^farming peer send ([A-Za-z0-9._:-]{1,160})$/.exec(promptText);
+    if (peerTarget) {
+      const environment = { ...process.env, ...sessionEnvironments.get(params.sessionId) };
+      const output = await new Promise<string>((resolve, reject) => {
+        execFile(process.execPath, [fileURLToPath(new URL('../../farming-cli.cjs', import.meta.url)),
+          'message', 'send', peerTarget[1], '--id', crypto.randomUUID(), '--',
+          'Please review the input validation and return your conclusion.'],
+        { env: environment, timeout: 15000, maxBuffer: 128 * 1024 }, (error, stdout) => error ? reject(error) : resolve(stdout));
+      });
+      const task = JSON.parse(output);
+      await client.sessionUpdate({ sessionId: params.sessionId, update: {
+        sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `Sent the review request. Task: ${String(task.id)}` },
+      } });
+      return { stopReason: 'end_turn' };
+    }
+    if (promptText.endsWith('Please review the input validation and return your conclusion.')) {
+      for (const content of params.prompt || []) await client.sessionUpdate({ sessionId: params.sessionId,
+        update: { sessionUpdate: 'user_message_chunk', messageId: `peer-appearance-${++peerIntegrationSequence}`, content } });
+      await client.sessionUpdate({ sessionId: params.sessionId, update: {
+        sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'The input validation is consistent with the API contract. Required fields and invalid values are handled explicitly.' },
+      } });
+      return { stopReason: 'end_turn' };
+    }
+    if (promptText.includes('farming peer integration')) {
+      const sequence = ++peerIntegrationSequence;
+      const request = params.prompt?.filter(block => block.type === 'text').at(-1);
+      const envelope = params.prompt?.find(block => block.type === 'text');
+      const environment = sessionEnvironments.get(params.sessionId) || process.env;
+      for (const content of params.prompt || []) await client.sessionUpdate({ sessionId: params.sessionId,
+        update: { sessionUpdate: 'user_message_chunk', messageId: `peer-integration-input-${sequence}`, content } });
+      if (promptText.includes('peer-cancel')) {
+        await new Promise<void>(resolve => cancelledSessions.set(params.sessionId, resolve));
+        cancelledSessions.delete(params.sessionId);
+        return { stopReason: 'cancelled' };
+      }
+      if (promptText.includes('peer-failure')) return { stopReason: 'max_tokens' };
+      if (promptText.includes('peer-delay=3000')) await new Promise(resolve => setTimeout(resolve, 3000));
+      await client.sessionUpdate({ sessionId: params.sessionId, update: {
+        sessionUpdate: 'agent_message_chunk', messageId: `peer-integration-reply-${sequence}`,
+        content: { type: 'text', text: JSON.stringify({
+          request: request?.type === 'text' ? request.text : '',
+          envelope: envelope?.type === 'text' ? envelope.text : '',
+          agentId: environment.FARMING_AGENT_ID,
+          hasCommunicationToken: Boolean(environment.FARMING_COMMUNICATION_TOKEN),
+          result: 'Full result '.repeat(100),
+        }) },
+      } });
+      return { stopReason: 'end_turn' };
+    }
+
     if (promptText.startsWith('Read the source conversation identified below')) {
       await client.sessionUpdate({ sessionId: params.sessionId, update: {
         sessionUpdate: 'agent_message_chunk',

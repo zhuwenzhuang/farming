@@ -2,9 +2,13 @@
 export interface AcpPeerMessage {
   version: 1
   direction: 'incoming'
+  initiatedBy?: 'user'
   senderAddress: string
+  senderAgentId?: string
+  senderSessionKey?: string
   senderSessionId?: string
   senderTaskId?: string
+  inReplyToTaskId?: string
   senderName?: string
   timestamp?: string
   bodyUnavailable?: 'encrypted'
@@ -19,7 +23,10 @@ export function normalizeAcpPeerMessage(value: unknown): AcpPeerMessage | null {
   if (source.version !== 1 || source.direction !== 'incoming' || !senderAddress) return null
   return {
     version: 1, direction: 'incoming', senderAddress,
+    ...(source.initiatedBy === 'user' ? { initiatedBy: 'user' as const } : {}),
+    ...(bounded('senderAgentId', 160) && bounded('senderSessionKey', 2048) ? { senderAgentId: bounded('senderAgentId', 160), senderSessionKey: bounded('senderSessionKey', 2048) } : {}),
     ...(bounded('senderSessionId') ? { senderSessionId: bounded('senderSessionId') } : {}),
+    ...(bounded('inReplyToTaskId', 160) ? { inReplyToTaskId: bounded('inReplyToTaskId', 160) } : {}),
     ...(bounded('senderTaskId') ? { senderTaskId: bounded('senderTaskId') } : {}),
     ...(bounded('senderName', 240) ? { senderName: bounded('senderName', 240) } : {}),
     ...(bounded('timestamp', 80) ? { timestamp: bounded('timestamp', 80) } : {}),

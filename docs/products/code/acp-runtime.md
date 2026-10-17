@@ -184,12 +184,30 @@ requires a trusted checkpoint and the complete verified input prefix.
 | Contract | Meaning |
 | --- | --- |
 | Transport | Official A2A SDK embedded in the existing backend; authenticated JSON-RPC at `/api/a2a/agents/:agentId` under the configured base path |
-| Capability | Text SendMessage, GetTask and protected Agent Card; streaming, subscriptions, cancellation and Task continuation are unsupported |
+| Capability | Text SendMessage, GetTask, ListTasks, status/result streaming, resubscription, exact running-request cancellation and protected Agent Card; push notifications, arbitrary media and Task continuation are unsupported |
 | Identity | Local Agent credentials; external owner-issued grants scoped to exact recipients and expiry, separate from owner credentials |
 | Delivery | New requests require a live recipient Chat and, for local sends, a live source; dispatch rechecks exact recipient Session; queued Prompt by default, never raw Terminal input |
 | Completion | The correlated final assistant text completes the Task, not input admission or a notification summary |
 | Recovery | Durable Config-local deduplication by caller and message ID; changed intent conflicts; unknown execution is never replayed |
-| Follow-up | New Task with one owned `referenceTaskIds` reference in the same recipient Session; caller-scoped context, no reopening completed Tasks |
+| Follow-up | New Task with one `referenceTaskIds` reference; same-direction follow-up or reverse reply requires the original participants and exact Sessions; no reopening completed Tasks |
+
+SendMessage waits for a terminal or interrupted outcome unless
+`configuration.returnImmediately` is true. Observation is bounded to 60 seconds;
+a timeout or disconnected stream does not cancel or replay execution. Streams
+start with the authoritative Task snapshot and publish status changes and final
+result artifacts, not provider thought/token deltas. Reconnect by querying or
+subscribing to the original Task. Credentials are revalidated during observation.
+
+ListTasks exposes only the caller's requests to the selected recipient, with
+bounded pagination and context/status/time filters. Artifacts require explicit
+inclusion; history can be trimmed. A Task represents one request and its result,
+not a workspace TODO or scheduler entry.
+
+Cancellation targets the original Host prompt's binding and turn handle. Queued
+requests without a provider-owned turn, unknown outcomes and settled work reject
+cancellation; they must never cancel a newer turn. An acknowledgement alone is
+insufficient: only the correlated canceled receipt establishes canceled status.
+Proven execution failure becomes failed; ambiguous dispatch remains unknown.
 
 GetTask may resolve unknown outcome only from the original settled Host receipt
 matching binding, Session and request hash. Lost/replaced Host evidence remains
@@ -201,17 +219,35 @@ Session launch credentials use `FARMING_COMMUNICATION_TOKEN`, excluded from
 shared process environments, and expire after 30 days; relaunch obtains a new one.
 External grants default to 24 hours and allow at most 30 days. Tokens are returned
 only at issuance; storage retains digests. `FARMING_PUBLIC_ORIGIN` supplies the
-advertised endpoint origin when configured.
+advertised endpoint origin when configured (required when a reverse proxy changes
+the public scheme or host). Otherwise Agent Cards use the authenticated request's
+origin rather than a loopback address.
 
 The initial journal retains at most 1,024 requests / 32 MiB per Config and does
 not silently evict deduplication evidence. Capacity exhaustion is explicit.
 Text input/output is bounded to 64 KiB; at most 32 requests execute concurrently
-per Config, and each principal has 120 protocol calls/minute including polling.
+per Config, and each principal has 120 protocol calls/minute including polling. At most eight protocol requests remain open per principal,
+with a Config-wide limit of 128.
 
 `farming message send` requires `--id`; `get` and bounded `watch` retrieve results,
-`--reply-to` links a new request, and `card` reads capability. Owners manage
+`list` finds caller-owned requests, `subscribe` emits bounded status/result events,
+`cancel` targets the original running request, `--reply-to` links a new request,
+and `card` reads capability. Owners manage
 external access with `message grant`, `grants` and `revoke`. The recipient's
 final answer returns automatically. `farming send` retains raw Terminal semantics.
+
+External A2A access is an optional built-in plugin, disabled by default. Owners
+open Plugins → Farming → External Agent access · A2A to enable it, select a live
+Chat Agent and create a scoped, one-time credential. CLI grant issuance also
+requires the plugin to be enabled. Incoming messages use the existing Chat
+transcript with external source attribution; there is no separate Agent messages
+dialog or human send-on-behalf form.
+
+Disabling blocks external requests and ends existing external observation without
+cancelling accepted work. Grants remain stored; reenabling restores unexpired,
+unrevoked grants. Internal Agent communication is independent of this switch.
+See the [extension model](extension-model.md#external-agent-access-a2a) for ownership
+and recovery contracts.
 
 Incoming bubbles retain receive-time sender names, recorded times and distinct
 message IDs across replay and renames. Native navigation requires exact

@@ -1,3 +1,9 @@
+import { A2aExtensionService } from '../extensions/a2a/backend/a2a-service.cjs';
+import { createA2aExtensionRouter } from '../extensions/a2a/backend/a2a-router.cjs';
+import { createAgentCommunicationExchangeRouter } from './agent-communication-exchanges.cjs';
+import { createAgentCommunicationAdminRouter } from '../extensions/a2a/backend/a2a-grants-router.cjs';
+import { AgentCommunicationRuntime } from './agent-communication-runtime.cjs';
+import { createAgentCommunicationA2aRouter } from './agent-communication-a2a.cjs';
 import type { AgentStateRecord, ClientMessage } from '../shared/browser-protocol.js';
 import type { AuthAccessMode } from './auth.cjs';
 import type { AgentSession } from './agent-session-history.cjs';
@@ -503,13 +509,17 @@ server.on('close', () => {
   void languageServerService.dispose();
 });
 
+const a2aExtension = new A2aExtensionService(configManager.farmingDir);
 const sharedConfigService = new SharedConfigService({ configDir: configManager.farmingDir });
+
+const agentCommunication: AgentCommunicationRuntime = new AgentCommunicationRuntime(configManager.farmingDir, () => agentManager);
 
 const agentManager = new AgentManager(
   configManager,
   {
   controlUrl: `http://127.0.0.1:${PORT}${BASE_PATH}`,
   tokenFile: tokenAuth.getTokenFile(),
+  communicationToken: agentId => agentCommunication.tokenForLaunch(agentId),
   authDisabled: !authEnabled,
   cliBinDir: resolveCliBinDir(),
   transcriptMediaPathPrefix: (agentId, sessionId) => routePath(
@@ -962,7 +972,32 @@ app.use(routePath(BASE_PATH, '/s'), createReadOnlyShareEntryRouter(readOnlyShare
 
 // Token authentication middleware (before static files)
 app.use(routePath(BASE_PATH, '/visualization-resources'), createVisualizationResourceRouter(workspaceFileService, workspacePreviewSessionManager));
+app.use(routePath(BASE_PATH, '/api/a2a'), createAgentCommunicationA2aRouter({
+  authorizeExternal: () => a2aExtension.authorize(),
+  credentials: agentCommunication.credentials,
+  service: agentCommunication.service,
+  resolveTarget: (grant, agentId) => agentCommunication.resolveTarget(grant, agentId),
+  endpointBaseUrl: `${(process.env.FARMING_PUBLIC_ORIGIN || '').replace(/\/$/, '')}${routePath(BASE_PATH, '/api/a2a')}`,
+}));
 app.use(tokenAuth.middleware());
+app.use(routePath(BASE_PATH, '/api/extensions/a2a'), createA2aExtensionRouter({
+  service: a2aExtension,
+  isOwner: request => !authEnabled || tokenAuth.accessForToken(tokenAuth.extractToken(request)) === 'owner',
+  endpointBaseUrl: `${(process.env.FARMING_PUBLIC_ORIGIN || '').replace(/\/$/, '')}${routePath(BASE_PATH, '/api/a2a')}`,
+  targets: () => agentManager.getState().agents.flatMap(agent => {
+    try { return [agentManager.resolveCommunicationAgent(agent.id)]; } catch { return []; }
+  }),
+}));
+app.use(routePath(BASE_PATH, '/api/communication'), createAgentCommunicationExchangeRouter({
+  runtime: agentCommunication,
+  isOwner: request => !authEnabled || tokenAuth.accessForToken(tokenAuth.extractToken(request)) === 'owner',
+}));
+app.use(routePath(BASE_PATH, '/api/communication/grants'), createAgentCommunicationAdminRouter({
+  authorizeIssuance: () => a2aExtension.authorize(),
+  credentials: agentCommunication.credentials,
+  isOwner: request => !authEnabled || tokenAuth.accessForToken(tokenAuth.extractToken(request)) === 'owner',
+  validateTarget: agentId => { agentManager.resolveCommunicationAgent(agentId); },
+}));
 app.use(routePath(BASE_PATH, '/api/diagnostics/performance'), createInteractionPerformanceRouter(interactionPerformance, authEnabled));
 
 // Auth status endpoint (allowed without authentication via middleware)

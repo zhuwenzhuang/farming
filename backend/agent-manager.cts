@@ -1,3 +1,7 @@
+import type { CommunicationResult } from './agent-communication-service.cjs';
+import { promptContentHash } from './acp-runtime-host-service.cjs';
+import type { ComposerExecutionOutcome } from './agent-composer-admission.cjs';
+import type { AcpPeerMessage } from '../shared/acp-peer-message.js';
 import type { ComposerSubmissionPhase, ComposerSubmissionStatus } from '../shared/composer-submission.js';
 import { EventEmitter } from 'events';
 import { interruptChatTurn, isChatTurnState } from '../shared/chat-turn-state.js';
@@ -374,6 +378,8 @@ interface TerminalInputAdmission {
 }
 
 interface ComposerMessageOptions extends UnknownRecord {
+  onExecutionSettled?: (outcome: ComposerExecutionOutcome) => void;
+  peerMessage?: AcpPeerMessage;
   admissionDeadline?: number;
   onPhase?: (status: ComposerSubmissionStatus) => void;
   delivery?: 'auto' | 'prompt' | 'steer';
@@ -532,6 +538,7 @@ interface AgentManagerOptions extends UnknownRecord {
   authDisabled?: boolean;
   cliBinDir?: string;
   controlUrl?: string;
+  communicationToken?: (agentId: string) => Promise<string>;
   createProviderSessionIdentity?: CreateProviderSessionIdentityContract;
   deleteProviderSessionIdentity?: DeleteProviderSessionIdentityContract;
   skipExecutablePreflight?: boolean;
@@ -636,6 +643,7 @@ const FARMING_LAUNCH_OWNED_ENV_KEYS: string[] = [
   'FARMING_CAPABILITY_RUNTIME_EPOCH',
   'FARMING_CLI_BIN_DIR',
   'FARMING_COMPUTER_TOKEN',
+  'FARMING_COMMUNICATION_TOKEN',
   'FARMING_CONFIG_DIR',
   'FARMING_CONTROL_URL',
   'FARMING_DISABLE_AUTH',
@@ -1356,6 +1364,7 @@ class AgentManager extends EventEmitter {
   declare engineBridge: SessionEngineBridgeContract;
   declare configManager: AgentManagerConfigContract | null | undefined;
   declare controlUrl: string;
+  private readonly communicationToken?: (agentId: string) => Promise<string>;
   declare tokenFile: string;
   declare authDisabled: boolean;
   declare skipExecutablePreflight: boolean;
@@ -1562,6 +1571,7 @@ class AgentManager extends EventEmitter {
     this.recoveryGate = new AgentRecoveryGate();
     this.shutdownState = new AgentShutdownState();
     this.controlUrl = options.controlUrl || '';
+    this.communicationToken = options.communicationToken;
     this.tokenFile = options.tokenFile || '';
     this.authDisabled = options.authDisabled === true;
     this.skipExecutablePreflight = options.skipExecutablePreflight === true;
@@ -1638,6 +1648,7 @@ class AgentManager extends EventEmitter {
         };
       },
       deliver: ({
+        peerMessage,
         agent,
         assertCurrentOwner,
         delivery,
@@ -1672,6 +1683,7 @@ class AgentManager extends EventEmitter {
         if (!persistentTerminalDelivery) {
           if (delivery === 'steer') {
             return this.sendComposerMessageNow(agent.id, prompt, {
+              peerMessage,
               assertDeliveryOwner: assertCurrentOwner,
               admissionDeadline,
               onPhase: status => onPhase(status.phase),
@@ -1684,6 +1696,7 @@ class AgentManager extends EventEmitter {
           return this.enqueueInputOperationUntilReleased(
             agent.id,
             (releaseInput: () => void) => this.sendComposerMessageNow(agent.id, prompt, {
+              peerMessage,
               assertDeliveryOwner: assertCurrentOwner,
               admissionDeadline,
               onPhase: status => onPhase(status.phase),
@@ -4548,6 +4561,7 @@ class AgentManager extends EventEmitter {
     });
     env.FARMING_CLI_BIN_DIR = this.cliBinDir;
     env.FARMING_AGENT_ID = agentId;
+    if (this.communicationToken) env.FARMING_COMMUNICATION_TOKEN = await this.communicationToken(agentId);
     env.FARMING_IS_MAIN_AGENT = agent.wantsMain ? '1' : '0';
     env.FARMING_SKILLS_COMMAND = 'farming skills';
     env.FARMING_CAPABILITIES_COMMAND = 'farming capabilities';
@@ -6502,8 +6516,10 @@ class AgentManager extends EventEmitter {
         agent,
         delivery: options.delivery,
         message,
+        peerMessage: options.peerMessage,
         requestId,
         onPhase: options.onPhase,
+        onExecutionSettled: options.onExecutionSettled,
       });
     }
     let terminalAdmission: TerminalInputAdmission | undefined;
@@ -6522,10 +6538,78 @@ class AgentManager extends EventEmitter {
       agent,
       delivery: options.delivery,
       message,
+      peerMessage: options.peerMessage,
       requestId,
       onPhase: options.onPhase,
+      onExecutionSettled: options.onExecutionSettled,
       ...(terminalAdmission ? { terminalAdmission } : {}),
     });
+  }
+
+  resolveCommunicationAgent(agentId: string) {
+    const agent = this.requireLiveAcpAgent(agentId);
+    if (agent.archived || agent.status !== 'running' || !agent.providerSessionKey) throw new Error('Communication requires a live Chat session');
+    return { agentId: agent.id, sessionKey: agent.providerSessionKey, name: this.agentTitleForFork(agent) };
+  }
+
+  async reconcilePeerMessage(request: {
+    agentId: string; sessionKey: string; requestId: string; text: string; source: AcpPeerMessage;
+  }): Promise<CommunicationResult | null> {
+    const agent = this.agents.get(request.agentId);
+    if (!agent || agent.providerSessionKey !== request.sessionKey || !this.acpRuntime.getPromptOperation
+      || !this.acpRuntime.hasBinding(request.agentId)) return null;
+    const receipt = await this.acpRuntime.getPromptOperation(request.agentId, request.requestId);
+    if (!receipt) return null;
+    const expected = promptContentHash([{ type: 'text', text: request.text }], 'prompt', request.source);
+    if (receipt.contentHash !== expected) throw new Error('Peer recovery receipt content does not match the original request');
+    if (receipt.status === 'failed' && isRecord(receipt.errorEvidence) && receipt.errorEvidence.uncertain !== true) {
+      return { text: String(receipt.error || 'Peer execution failed'), outcome: 'failed' };
+    }
+    if (receipt.status !== 'settled') return null;
+    const result = receipt.result;
+    if (!isRecord(result)) return null;
+    if (result.stopReason === 'cancelled' || result.stopReason === 'canceled') return { text: '', outcome: 'canceled' };
+    if (result.stopReason !== 'end_turn') return { text: `Peer execution ended with ${String(result.stopReason || 'unknown reason')}`, outcome: 'failed' };
+    if (typeof result.peerReplyText !== 'string') return null;
+    return { text: result.peerReplyText };
+  }
+
+  async cancelPeerMessage(request: { agentId: string; sessionKey: string; requestId: string }): Promise<void> {
+    const agent = this.agents.get(request.agentId);
+    if (!agent || agent.providerSessionKey !== request.sessionKey || !this.acpRuntime.cancelPrompt) {
+      throw new Error('The original peer runtime is unavailable for cancellation');
+    }
+    await this.acpRuntime.cancelPrompt(request.agentId, request.requestId);
+  }
+
+  async executePeerMessage(request: {
+    agentId: string; sessionKey: string; requestId: string; text: string; source: AcpPeerMessage;
+  }): Promise<CommunicationResult> {
+    const agent = this.agents.get(request.agentId);
+    if (!agent || !isAcpAgent(agent) || !request.sessionKey
+      || agent.providerSessionKey !== request.sessionKey) {
+      throw new Error('Peer recipient no longer matches the authorized Chat session');
+    }
+    this.requireLiveAcpAgent(request.agentId);
+    if (normalizedComposerCommands(agent.composerCommands).some(command => command.requestId === request.requestId)) {
+      throw Object.assign(new Error('Peer input already has admission evidence; reconcile it without replay'), { uncertain: true });
+    }
+    let resolveExecution!: (result: unknown) => void;
+    let rejectExecution!: (error: unknown) => void;
+    const execution = new Promise<unknown>((resolve, reject) => { resolveExecution = resolve; rejectExecution = reject; });
+    const admission = this.sendComposerMessage(request.agentId, request.text, {
+      requestId: request.requestId, delivery: 'prompt', peerMessage: request.source,
+      onExecutionSettled: outcome => {
+        if ('error' in outcome) rejectExecution(outcome.error);
+        else resolveExecution(outcome.result);
+      },
+    });
+    const [, result] = await Promise.all([admission, execution]);
+    if (!isRecord(result)) throw Object.assign(new Error('Peer execution completed without correlated result evidence'), { uncertain: true });
+    if (result.stopReason === 'cancelled' || result.stopReason === 'canceled') return { text: '', outcome: 'canceled' };
+    if (result.stopReason !== 'end_turn') return { text: `Peer execution ended with ${String(result.stopReason || 'unknown status')}`, outcome: 'failed' };
+    if (typeof result.peerReplyText !== 'string') throw Object.assign(new Error('Peer execution completed without correlated reply evidence'), { uncertain: true });
+    return { text: result.peerReplyText };
   }
 
   composerSubmissionStatus(agentId: string, requestId: string) {
@@ -6546,6 +6630,7 @@ class AgentManager extends EventEmitter {
       throw new Error(`Agent lifecycle change already in progress: ${lifecycleOperation.label}`);
     }
     const requestId = String(options.requestId || '').trim();
+    if (options.peerMessage && !requestId) throw new Error('Peer messages require a durable requestId');
     if (requestId) {
       if (!/^[A-Za-z0-9._:-]{1,160}$/.test(requestId)) throw new Error('Composer requestId is invalid');
       return this.sendPersistentComposerMessage(agentId, message, requestId, options);
@@ -6912,6 +6997,7 @@ class AgentManager extends EventEmitter {
       const result = await this.acpRuntime.submitMessage(agentId, prompt, {
         delivery: options.delivery,
         clientPromptId: options.requestId,
+        peerMessage: options.peerMessage,
         admissionDeadline: options.admissionDeadline,
         retryDefinitiveFailure: options.retryDefinitiveFailure,
         onSubmitted: () => {

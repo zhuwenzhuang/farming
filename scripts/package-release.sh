@@ -224,7 +224,8 @@ for runtime_root in \
   "${PROJECT_ROOT}/extensions/browser/backend" \
   "${PROJECT_ROOT}/extensions/computer/backend" \
   "${PROJECT_ROOT}/extensions/language-server/backend" \
-  "${PROJECT_ROOT}/extensions/shared-config/backend"; do
+  "${PROJECT_ROOT}/extensions/shared-config/backend" \
+  "${PROJECT_ROOT}/extensions/a2a/backend"; do
   while IFS= read -r source_path; do
     runtime_path="${source_path%.cts}.cjs"
     if [ ! -f "${runtime_path}" ]; then

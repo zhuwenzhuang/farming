@@ -53,7 +53,7 @@ const MAIN_AGENT_OPERATING_GUIDE: MainAgentOperatingGuideSection[] = [
   {
     title: 'Intervening',
     lines: [
-      'Use `farming send` to unblock or redirect a child agent with specific instructions.',
+      'Use `farming message send <agent-id> --id <unique-request-id> -- <text>` for attributed Chat peer requests. Use `farming message get <agent-id> <task-id>` to retrieve the final reply. `farming send` is raw Terminal input, not Agent messaging.',
       'Do not issue destructive commands, broad rewrites, permission changes, or high-risk cleanup without summarizing the risk and getting user confirmation.',
       'Kill agents only when they are clearly done, duplicated, stuck beyond recovery, or the user asks.',
     ],
@@ -114,7 +114,7 @@ const MAIN_AGENT_SKILLS: MainAgentSkill[] = [
       'farming spawn --workspace <repo> --task "模块：<name>。请深挖该模块潜在 bug，重点检查边界条件、错误处理、并发/状态一致性、协议违约和测试缺口；不要修改其他模块，先报告可验证发现。" -- <coding-agent-command>',
       'farming list --parent "$FARMING_AGENT_ID"',
       'farming output <agent-id> --tail 2000',
-      'farming send <agent-id> "请基于已确认的模块协议继续检查交互边界，并给出最小可验证修复建议"',
+      'farming message send <agent-id> --id <unique-request-id> -- "请基于已确认的模块协议继续检查交互边界，并给出最小可验证修复建议"',
       'farming kill <agent-id>',
     ],
   },
@@ -199,7 +199,7 @@ function renderCanonicalAgentsFile(): string {
     '- `farming spawn --workspace <repo> --task "<module bug hunt task>" -- <coding-agent-command>`',
     '- `farming list --parent "$FARMING_AGENT_ID"`',
     '- `farming output <agent-id> --tail 2000`',
-    '- `farming send <agent-id> "<follow-up instruction>"`',
+    '- `farming message send <agent-id> --id <unique-request-id> -- "<peer request>"`',
     '- `farming kill <agent-id>`',
     '',
     'Environment:',

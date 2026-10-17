@@ -41,6 +41,7 @@
     "extensions/language-server/backend/*.cjs",
     "extensions/language-server/backend/LICENSE.opencode",
     "extensions/shared-config/backend/*.cjs",
+    "extensions/a2a/backend/*.cjs",
     "shared/*.js",
     "shared/*.json",
     "LICENSE",
@@ -182,6 +183,7 @@
     "node": ">=22.13.0"
   },
   "dependencies": {
+    "@a2a-js/sdk": "1.3.0",
     "@agentclientprotocol/sdk": "1.8.0",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-serialize": "^0.14.0",
@@ -206,6 +208,7 @@
     "zod": "^3.25.76"
   },
   "bundledDependencies": [
+    "@a2a-js/sdk",
     "@agentclientprotocol/sdk",
     "@xterm/addon-fit",
     "@xterm/addon-serialize",
@@ -234,6 +237,7 @@
     "@agentclientprotocol/codex-acp": "2.2.2",
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.59.1",
+    "@types/express": "5.0.6",
     "@types/node": "^26.1.1",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
@@ -314,6 +318,7 @@
     "puppeteer": false
   },
   "bundleDependencies": [
+    "@a2a-js/sdk",
     "@agentclientprotocol/sdk",
     "@xterm/addon-fit",
     "@xterm/addon-serialize",

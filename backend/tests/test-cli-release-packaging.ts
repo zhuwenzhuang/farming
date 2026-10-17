@@ -282,7 +282,8 @@ function run() {
       && appPackageScript.includes('"${PROJECT_ROOT}/extensions/browser/backend"')
       && appPackageScript.includes('"${PROJECT_ROOT}/extensions/computer/backend"')
       && appPackageScript.includes('"${PROJECT_ROOT}/extensions/language-server/backend"')
-      && appPackageScript.includes('"${PROJECT_ROOT}/extensions/shared-config/backend"'),
+      && appPackageScript.includes('"${PROJECT_ROOT}/extensions/shared-config/backend"')
+      && appPackageScript.includes('"${PROJECT_ROOT}/extensions/a2a/backend"'),
     'standard App packaging must include every generated built-in extension runtime module',
   );
   assert(

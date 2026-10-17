@@ -1,5 +1,6 @@
+import { isAcpPeerPromptEcho, isAcpPeerPromptHistory } from './acp-peer-prompt.cjs';
 import { normalizeAgentGoal, sameAgentGoal, type AgentGoal } from '../shared/agent-goal.js';
-import { normalizeAcpPeerMessage } from '../shared/acp-peer-message.js';
+import { normalizeAcpPeerMessage, type AcpPeerMessage } from '../shared/acp-peer-message.js';
 import { normalizeAgentHandoffContext, type AgentHandoffContext } from '../shared/agent-handoff-context.js';
 const MAX_ACP_UPDATES = 2_000;
 const MAX_ACP_UPDATE_LOG_VALUE_CHARS = 32 * 1024;
@@ -116,6 +117,7 @@ interface AcpSessionStateOptions {
 }
 
 interface AcceptedSteerOptions {
+  peerMessage?: AcpPeerMessage;
   messageId?: unknown;
   turnId?: unknown;
   insertionIndex?: unknown;
@@ -457,20 +459,29 @@ class AcpSessionState {
     return createHash('sha256').update(JSON.stringify(turns.map(entry => entry.content || []))).digest('hex');
   }
 
-  restoreHandoffContexts(checkpoint: unknown): void {
+  restoreTrustedInputMetadata(checkpoint: unknown): void {
     const source = AcpSessionState.fromCheckpoint(checkpoint);
     if (!source || source.provider !== this.provider) return;
-    const saved = source.boundaryUserTurns();
-    const replayed = this.boundaryUserTurns();
+    // Provider presentation sanitizers may trim individual text blocks. Match
+    // their selected input identities against raw content to retain envelope bytes.
+    const inputs = (state: AcpSessionState) => {
+      const visibleIds = new Set(state.boundaryUserTurns().map(entry => entry.id));
+      return state.entries.filter(entry => visibleIds.has(entry.id));
+    };
+    const saved = inputs(source);
+    const replayed = inputs(this);
     const entries = new Map(this.entries.map(entry => [entry.id, entry]));
     // Native history omits Farming metadata and can regenerate message IDs.
     // Rebind only along the verified ordered user prefix, never by prompt text alone.
     for (let index = 0; index < Math.min(saved.length, replayed.length); index += 1) {
-      if (!isDeepStrictEqual(saved[index].content, replayed[index].content)) break;
+      const peer = normalizeAcpPeerMessage(saved[index]._meta?.peerMessage);
+      if (!isDeepStrictEqual(saved[index].content, replayed[index].content)
+        && !isAcpPeerPromptHistory(saved[index].content || [], peer, replayed[index].content || [])) break;
       const context = normalizeAgentHandoffContext(saved[index]._meta?.farmingHandoff);
       const entry = entries.get(replayed[index].id);
-      if (context && entry) {
-        entry._meta = { ...entry._meta, farmingHandoff: context };
+      if (entry && (context || peer)) {
+        entry._meta = { ...entry._meta, ...(context ? { farmingHandoff: context } : {}), ...(peer ? { peerMessage: peer } : {}) };
+        if (peer) entry.content = clone(saved[index].content);
         this.touchEntry(entry);
       }
     }
@@ -603,7 +614,7 @@ class AcpSessionState {
     return true;
   }
 
-  beginPrompt(prompt: unknown, handoffContext: AgentHandoffContext | null = null): AcpEntry {
+  beginPrompt(prompt: unknown, handoffContext: AgentHandoffContext | null = null, peerMessage?: AcpPeerMessage): AcpEntry {
     const content = Array.isArray(prompt)
       ? clone(prompt)
       : [{ type: 'text', text: String(prompt || '') }];
@@ -618,7 +629,10 @@ class AcpSessionState {
       messageId: '',
       optimistic: true,
       content,
-      ...(handoffContext ? { _meta: { farmingHandoff: handoffContext } } : {}),
+      ...((handoffContext || peerMessage) ? { _meta: {
+        ...(handoffContext ? { farmingHandoff: clone(handoffContext) } : {}),
+        ...(peerMessage ? { peerMessage: clone(peerMessage) } : {}),
+      } } : {}),
       turnStartedAt: startedAt,
       turnCompletedAt: null,
       turnDurationMs: null,
@@ -645,6 +659,7 @@ class AcpSessionState {
       content,
       createdAt: Date.now(),
       _meta: {
+        ...(options.peerMessage ? { peerMessage: clone(options.peerMessage) } : {}),
         farming: {
           steer: true,
           turnId: String(options.turnId || ''),
@@ -862,7 +877,8 @@ class AcpSessionState {
     );
     if (
       optimisticUser
-      && (optimisticUser.content || []).some(content => JSON.stringify(content) === JSON.stringify(update.content))
+      && ((optimisticUser.content || []).some(content => isDeepStrictEqual(content, update.content))
+        || isAcpPeerPromptEcho(optimisticUser.content || [], optimisticUser._meta?.peerMessage, update.content))
     ) {
       if (!optimisticUser.messageId) optimisticUser.messageId = messageId;
       this.touchEntry(optimisticUser);

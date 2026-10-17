@@ -346,8 +346,9 @@ class AcpRuntimeHostRuntime extends EventEmitter implements AcpRuntimeContract {
         agentId,
         bindingEpoch: this.bindingEpoch(agentId),
         clientPromptId,
-        contentHash: promptContentHash(prompt, options.delivery),
+        contentHash: promptContentHash(prompt, options.delivery, options.peerMessage),
         prompt,
+        peerMessage: options.peerMessage,
         delivery: options.delivery,
         admissionDeadline: options.admissionDeadline,
         retryDefinitiveFailure: options.retryDefinitiveFailure,
@@ -355,6 +356,22 @@ class AcpRuntimeHostRuntime extends EventEmitter implements AcpRuntimeContract {
     } finally {
       this.submissionCallbacks.delete(key);
     }
+  }
+
+  async cancelPrompt(agentId: string, clientPromptId: string): Promise<void> {
+    const operation = await this.getPromptOperation(agentId, clientPromptId);
+    if (!operation || operation.status !== 'provider-owned' || !operation.turnHandle) {
+      throw new Error('Only the original running prompt can be canceled; queued or settled requests are not cancelable');
+    }
+    await this.client.request('cancelTurn', { agentId, bindingEpoch: operation.bindingEpoch,
+      turnHandle: operation.turnHandle, operationId: `peer-cancel-${clientPromptId}` }, { timeoutMs: 15000 });
+  }
+
+  async getPromptOperation(agentId: string, clientPromptId: string): Promise<UnknownRecord | null> {
+    await this.initialize();
+    return this.client.request<UnknownRecord | null>('getPromptOperation', {
+      agentId, clientPromptId, bindingEpoch: this.bindingEpoch(agentId),
+    });
   }
 
   getSession(agentId: string, _options: UnknownRecord = {}): UnknownRecord {

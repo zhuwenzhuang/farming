@@ -14,10 +14,18 @@ export function communicationPeer(agents: Agent[], parentAgentId: string, sessio
   return peers.length === 1 ? peers[0] || null : null
 }
 
+/** Local Farming identity can cross providers only with the exact saved session key. */
+export function communicationAgentPeer(agents: Agent[], agentId: string, sessionKey: string): Agent | null {
+  if (!agentId || !decodeProviderSessionKey(sessionKey)) return null
+  const peers = agents.filter(agent => agent.id === agentId && agent.providerSessionKey === sessionKey)
+  return peers.length === 1 ? peers[0] || null : null
+}
+
 // Labels/navigation only; a peer reference does not establish child ownership
 // or replace the delivery outcome recorded by the provider.
 export const CommunicationPeerNavigation = createContext<{
   resolve: (parentAgentId: string, sessionId: string) => Agent | null
+  resolveAgent?: (agentId: string, sessionKey: string) => Agent | null
   open?: (agentId: string) => void
 } | null>(null)
 

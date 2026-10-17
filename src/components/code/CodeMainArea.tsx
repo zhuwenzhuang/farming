@@ -27,7 +27,7 @@ import type { ComputerResourcesController } from '../../../extensions/computer/f
 import { AgentWorkPane } from './AgentWorkPane'
 import { SubagentBody } from './SubagentBody'
 import { CloseGlyph } from '../IconGlyphs'
-import { CommunicationPeerNavigation, communicationPeer, RelatedSessionNavigation, SubagentNavigation, type RelatedSessionTarget } from './related-session-navigation'
+import { CommunicationPeerNavigation, communicationPeer, communicationAgentPeer, RelatedSessionNavigation, SubagentNavigation, type RelatedSessionTarget } from './related-session-navigation'
 import { RelatedSessionPanel } from './RelatedSessionPanel'
 import { AgentPlanActivityPreview, AgentGoalActivityPreview } from './AgentActivityDock'
 import type { AgentTranscriptProcessItem } from './acp/acp-entry-projection'
@@ -1148,7 +1148,8 @@ export function CodeMainArea({
     <CommunicationPeerNavigation.Provider value={{ resolve: (parentAgentId, sessionId) => {
       const peer = communicationPeer(relatedAgents, parentAgentId, sessionId)
       return peer
-    }, open: readOnly ? undefined : onOpenSearchAgent }}>
+    }, resolveAgent: (agentId, sessionKey) => communicationAgentPeer(relatedAgents, agentId, sessionKey),
+      open: readOnly ? undefined : onOpenSearchAgent }}>
     <main
       ref={mainAreaRef}
       className={`code-main ${resourceAgentPanelVisible ? 'resource-agent-side-open' : ''} ${relatedSessionVisible ? `related-session-open ${relatedSessionFits ? '' : `related-session-compact ${compactRelatedActive ? 'related-session-child-active' : ''}`}` : ''}`.trim()}

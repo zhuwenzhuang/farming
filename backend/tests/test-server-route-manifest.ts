@@ -209,17 +209,20 @@ function routerRegistrations(definition: RouterFactoryDefinition): RouteRegistra
       && node.arguments[0]
     ) {
       if (node.expression.name.text === 'use') {
+        const mountPaths = node.arguments.length === 2 ? literalPaths(node.arguments[0]) : ['/'];
         const detail = node.arguments.length === 1
           ? routerMiddlewareDetail(node.arguments[0])
-          : null;
+          : node.arguments.length === 2 && mountPaths.length > 0
+            ? routerMiddlewareDetail(node.arguments[1])
+            : null;
         assert(
           detail,
           `Unsupported router middleware in ${definition.filePath}:${node.getStart(parsed)}`,
         );
-        registrations.push({
+        for (const mountPath of mountPaths) registrations.push({
           detail,
           method: 'MIDDLEWARE',
-          path: '/',
+          path: mountPath,
           position: node.getStart(parsed),
         });
         return;
@@ -431,10 +434,19 @@ function serverApiRouteManifest(serverPath: string): string[] {
   const tokenAuthPosition = tokenAuthRegistrations[0].position;
   assert(
     registrations
-      .filter(registration => registration.path.startsWith('/api/'))
+      .filter(registration => registration.path.startsWith('/api/')
+        && registration.path !== '/api/a2a' && !registration.path.startsWith('/api/a2a/'))
       .every(registration => registration.position > tokenAuthPosition),
-    'Every API route must remain registered after tokenAuth.middleware()',
+    'Every owner API route must remain registered after tokenAuth.middleware()',
   );
+
+  const peerAuth = registrations.filter(registration => registration.detail === 'authenticateCommunicationPeer');
+  assert.strictEqual(peerAuth.length, 1, 'Expected exactly one peer authentication boundary');
+  assert.strictEqual(peerAuth[0].path, '/api/a2a');
+  assert(peerAuth[0].position < tokenAuthPosition);
+  assert(registrations.filter(registration => registration.path.startsWith('/api/a2a/'))
+    .every(registration => registration.position > peerAuth[0].position
+      && registration.position < tokenAuthPosition), 'Protocol routes require peer authentication before owner authentication');
 
   return registrations
     .sort((left, right) => left.position - right.position)
@@ -445,7 +457,26 @@ const EXPECTED_API_ROUTE_MANIFEST = [
   'GET /j/:code',
   'MIDDLEWARE /s [setNoStoreHeader]',
   'GET /s/:code',
+  'MIDDLEWARE /api/a2a [authenticateCommunicationPeer]',
+  'MIDDLEWARE /api/a2a [express.json(limit=128kb)]',
+  'GET /api/a2a/agents/:agentId/.well-known/agent-card.json',
+  'MIDDLEWARE /api/a2a/agents/:agentId [dispatchCommunicationProtocol]',
   'MIDDLEWARE * [tokenAuth.middleware]',
+  'MIDDLEWARE /api/extensions/a2a [requireA2aOwner]',
+  'MIDDLEWARE /api/extensions/a2a [express.json(limit=4kb)]',
+  'GET /api/extensions/a2a',
+  'PUT /api/extensions/a2a',
+  'MIDDLEWARE /api/communication [requireExchangeOwner]',
+  'MIDDLEWARE /api/communication [express.json(limit=128kb)]',
+  'GET /api/communication/exchanges',
+  'GET /api/communication/exchanges/:taskId',
+  'POST /api/communication/exchanges/:taskId/cancel',
+  'POST /api/communication/send',
+  'MIDDLEWARE /api/communication/grants [requireCommunicationOwner]',
+  'MIDDLEWARE /api/communication/grants [express.json(limit=16kb)]',
+  'GET /api/communication/grants',
+  'POST /api/communication/grants',
+  'DELETE /api/communication/grants/:id',
   'MIDDLEWARE /api/diagnostics/performance [requireDiagnosticOwner]',
   'GET /api/diagnostics/performance',
   'POST /api/diagnostics/performance',

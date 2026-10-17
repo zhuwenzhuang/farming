@@ -7,7 +7,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const runtimeRoots = ['backend', 'extensions/browser/backend', 'extensions/computer/backend',
-  'extensions/language-server/backend', 'extensions/shared-config/backend'];
+  'extensions/language-server/backend', 'extensions/shared-config/backend', 'extensions/a2a/backend'];
 const excluded = new Set(['tests', 'types', 'vendor']);
 function runtimeSources(directory) {
   return fs.readdirSync(directory, { withFileTypes: true }).flatMap(entry => {

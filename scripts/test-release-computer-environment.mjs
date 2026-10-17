@@ -17,9 +17,9 @@ function fixture() {
   write('package.json', '{"version":"1.0.0"}');
   write('package-lock.json', '{}');
   for (const directory of ['backend', 'extensions/browser/backend', 'extensions/computer/backend',
-    'extensions/language-server/backend', 'extensions/shared-config/backend']) write(`${directory}/owner.cts`, '// source');
+    'extensions/language-server/backend', 'extensions/shared-config/backend', 'extensions/a2a/backend']) write(`${directory}/owner.cts`, '// source');
   for (const directory of ['backend', 'extensions/browser/backend', 'extensions/computer/backend',
-    'extensions/language-server/backend', 'extensions/shared-config/backend']) {
+    'extensions/language-server/backend', 'extensions/shared-config/backend', 'extensions/a2a/backend']) {
     write(`${directory}/owner.cjs`, '// output');
     write(`${directory}/owner.cjs.map`, JSON.stringify({ sourcesContent: ['// source'] }));
   }

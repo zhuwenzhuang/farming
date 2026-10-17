@@ -77,7 +77,7 @@ test('Shared configuration follows an editable-file user story', async ({ page, 
   const panel = page.getByTestId('code-plugins-panel')
   const card = panel.getByTestId('code-plugin-shared-config')
   await expect(card).toBeVisible()
-  await expect(panel.getByTestId('code-plugin-tab-farming').locator('small')).toHaveText('4')
+  await expect(panel.getByTestId('code-plugin-tab-farming').locator('small')).toHaveText('5')
   await expect(card).toContainText('Disabled')
   await captureStory(card, testInfo, '01-disabled.png')
 

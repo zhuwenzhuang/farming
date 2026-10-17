@@ -1,3 +1,4 @@
+import type { AcpPeerMessage } from '../shared/acp-peer-message.js';
 import { EventEmitter } from 'events';
 import * as crypto from 'crypto';
 import { AcpRuntimeHostState, type ControllerIdentity } from './acp-runtime-host-state.cjs';
@@ -25,10 +26,11 @@ function canonicalJson(value: unknown): string {
   return JSON.stringify(value) ?? 'null';
 }
 
-function promptContentHash(prompt: UnknownRecord[], delivery?: string): string {
+function promptContentHash(prompt: UnknownRecord[], delivery?: string, peerMessage?: AcpPeerMessage): string {
   return crypto.createHash('sha256').update(canonicalJson({
     delivery: delivery === 'prompt' || delivery === 'steer' ? delivery : 'auto',
     prompt,
+    ...(peerMessage ? { peerMessage } : {}),
   })).digest('hex');
 }
 
@@ -38,6 +40,7 @@ interface RuntimeHostServiceOptions {
 }
 
 interface HostPromptRequest extends UnknownRecord {
+  peerMessage?: AcpPeerMessage;
   agentId: string;
   bindingEpoch: string;
   clientPromptId: string;
@@ -122,6 +125,14 @@ class AcpRuntimeHostService extends EventEmitter {
     return this.state.recover(afterEventSeq);
   }
 
+  getPromptOperation(controller: ControllerIdentity, agentId: string, bindingEpoch: string, clientPromptId: string): UnknownRecord | null {
+    this.state.assertController(controller);
+    this.state.requireBinding(agentId, bindingEpoch);
+    const operation = this.state.promptOperations.get(`${agentId}\0${clientPromptId}`);
+    if (!operation || operation.bindingEpoch !== bindingEpoch) return null;
+    return structuredClone(operation);
+  }
+
   async prepareAgent(controller: ControllerIdentity, options: UnknownRecord): Promise<UnknownRecord> {
     this.state.assertController(controller);
     const result = await this.runtime.prepareAgent(options);
@@ -148,7 +159,7 @@ class AcpRuntimeHostService extends EventEmitter {
   }
 
   submitPrompt(controller: ControllerIdentity, request: HostPromptRequest): Promise<unknown> {
-    const contentHash = promptContentHash(request.prompt, request.delivery);
+    const contentHash = promptContentHash(request.prompt, request.delivery, request.peerMessage);
     if (request.contentHash && request.contentHash !== contentHash) {
       return Promise.reject(new Error('ACP runtime host prompt content hash does not match content'));
     }
@@ -157,6 +168,7 @@ class AcpRuntimeHostService extends EventEmitter {
     const completion = this.state.submitPrompt(controller, { ...request, contentHash }, (onTurnAdmitted, onSubmitted) => (
       this.runtime.submitMessage(request.agentId, request.prompt, {
         delivery: request.delivery,
+        peerMessage: request.peerMessage,
         clientPromptId: request.clientPromptId,
         admissionDeadline: request.admissionDeadline,
         onTurnAdmitted,

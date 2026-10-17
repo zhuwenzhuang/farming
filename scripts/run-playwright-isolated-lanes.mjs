@@ -35,7 +35,7 @@ export const GENERATED_RUNTIME_OUTPUT_ROOTS = Object.freeze([
   'extensions/browser/backend',
   'extensions/computer/backend',
   'extensions/language-server/backend',
-  'extensions/shared-config/backend',
+  'extensions/shared-config/backend', 'extensions/a2a/backend',
 ]);
 
 const GENERATED_RUNTIME_SINGLETONS = Object.freeze([

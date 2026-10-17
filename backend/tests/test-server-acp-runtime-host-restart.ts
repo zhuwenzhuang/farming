@@ -1,3 +1,4 @@
+import { runCommunicationCommand } from '../agent-communication-cli.cts';
 const assert = require('assert');
 const fs = require('fs');
 const net = require('net');
@@ -322,6 +323,27 @@ async function run(): Promise<void> {
     });
     assert.strictEqual(browserBeforeRestart.response.status, 200, JSON.stringify(browserBeforeRestart.body));
 
+    const pluginState = await fetchJson(firstBaseUrl, '/api/extensions/a2a');
+    const enabledPlugin = await fetchJson(firstBaseUrl, '/api/extensions/a2a', {
+      method: 'PUT', body: JSON.stringify({ enabled: true, expectedRevision: pluginState.body.revision }),
+    });
+    assert.strictEqual(enabledPlugin.response.status, 200, JSON.stringify(enabledPlugin.body));
+    const peerGrant = await fetchJson(firstBaseUrl, '/api/communication/grants', {
+      method: 'POST', body: JSON.stringify({ peerId: 'restart-peer', name: 'Restart peer', targets: [agentId], expiresAt: Date.now() + 120000 }),
+    });
+    assert.strictEqual(peerGrant.response.status, 201, JSON.stringify(peerGrant.body));
+    let peerToken = String(peerGrant.body.token || '');
+    assert(peerToken);
+    const originalPeerToken = peerToken;
+    const peerRequest = { operation: 'send' as const, agentId, messageId: 'peer-server-restart', text: 'farming peer integration across Server restart peer-delay=3000' };
+    const peerCommand = async (baseUrl: string, command: Parameters<typeof runCommunicationCommand>[0], token = peerToken): Promise<UnknownRecord> => {
+      let output = '';
+      await runCommunicationCommand(command, { baseUrl, token, write: text => { output += text; } });
+      const result: unknown = JSON.parse(output);
+      assert(isRecord(result));
+      return result as UnknownRecord;
+    };
+
     currentPhase = 'submitting active Turn';
     const submitted = await fetchJson(firstBaseUrl, `/api/control/agents/${agentId}/messages`, {
       method: 'POST',
@@ -346,6 +368,15 @@ async function run(): Promise<void> {
     hostPid = Number(hostA.pid || 0);
     assert(processAlive(hostPid), 'the ACP Runtime Host must be alive before Server restart');
     assert(hostA.hostEpoch, 'the ACP Runtime Host must expose a hostEpoch');
+
+    const peerSent = await peerCommand(firstBaseUrl, peerRequest);
+    const peerTaskId = String(peerSent.id || '');
+    assert(peerTaskId, 'A2A must durably accept the queued request before Server loss');
+
+    await waitFor(async () => {
+      const result = await fetchJson(firstBaseUrl, `/api/agents/${agentId}/acp-transcript?maxTurns=20`);
+      return JSON.stringify(result.body).includes(peerRequest.text);
+    }, 'peer prompt dispatched to Host before Server loss');
 
     currentPhase = 'stopping Server A';
     await stopServerProcess(serverA);
@@ -440,6 +471,23 @@ async function run(): Promise<void> {
       'the recovered transcript must contain one exact user prompt',
     );
 
+    currentPhase = 'reconciling queued A2A message after Server loss';
+    const peerTask = await waitFor(async () => {
+      await delay(500);
+      const task = await peerCommand(secondBaseUrl, { operation: 'get', agentId, taskId: peerTaskId });
+      return isRecord(task.status) && task.status.state === 'TASK_STATE_COMPLETED' ? task : null;
+    }, 'original A2A result recovered from Host receipt', 15000);
+    assert(JSON.stringify(peerTask.artifacts).includes('Full result '));
+    const peerDuplicate = await peerCommand(secondBaseUrl, peerRequest);
+    assert.strictEqual(peerDuplicate.id, peerTaskId);
+    const peerTranscript = await fetchJson(secondBaseUrl, `/api/agents/${agentId}/acp-transcript?maxTurns=20`);
+    // The fake reply quotes its request; count only the authoritative user entry.
+    assert(isRecord(peerTranscript.body.transcript));
+    const peerEntries = recordArray((peerTranscript.body.transcript as UnknownRecord).entries);
+    assert.strictEqual(peerEntries.filter(entry => entry.role === 'user'
+      && recordArray(entry.content).some(part => part.text === peerRequest.text)).length, 1,
+      'A2A reconciliation must not re-execute the accepted peer request');
+
     const providerSessionId = String(recovered.providerSessionId || '');
     assert(providerSessionId, 'Server recovery must retain the exact provider Session id');
     currentPhase = 'switching recovered Chat to Terminal';
@@ -516,6 +564,18 @@ async function run(): Promise<void> {
     const persistedExecutable = String(
       persistedAgentRecord(configDir, agentId)?.acpRuntimeExecutable || '',
     );
+    const coldGrant = await fetchJson(secondBaseUrl, '/api/communication/grants', {
+      method: 'POST', body: JSON.stringify({ peerId: 'restart-peer', name: 'Restart peer', targets: [agentId], expiresAt: Date.now() + 120000 }),
+    });
+    assert.strictEqual(coldGrant.response.status, 201);
+    peerToken = String(coldGrant.body.token || '');
+    const coldPeerRequest = { ...peerRequest, agentId, messageId: 'peer-hard-loss', text: 'farming peer integration full hard loss peer-delay=3000' };
+    const coldSent = await peerCommand(secondBaseUrl, coldPeerRequest);
+    await waitFor(async () => {
+      const result = await fetchJson(secondBaseUrl, `/api/agents/${agentId}/acp-transcript?maxTurns=20`);
+      return JSON.stringify(result.body).includes(coldPeerRequest.text);
+    }, 'peer request started before complete hard stop');
+
     const preColdRestartHostPid = hostPid;
     const preColdRestartAdapterPid = adapterPid;
     currentPhase = 'hard-stopping complete Farming runtime';
@@ -570,6 +630,15 @@ async function run(): Promise<void> {
     assert(processAlive(hostPid));
     const finalHostEpoch = String(coldHost.hostEpoch || '');
     assert(finalHostEpoch);
+
+    const savedPeerTask = await peerCommand(thirdBaseUrl, { operation: 'get', agentId: peerRequest.agentId, taskId: peerTaskId }, originalPeerToken);
+    assert.deepStrictEqual(savedPeerTask.artifacts, peerTask.artifacts, 'Completed results survive loss of Server, Host and adapter');
+    const uncertainPeerTask = await peerCommand(thirdBaseUrl, { operation: 'get', agentId, taskId: String(coldSent.id) });
+    assert(isRecord(uncertainPeerTask.status));
+    assert.strictEqual((uncertainPeerTask.status as UnknownRecord).state, 'TASK_STATE_INPUT_REQUIRED');
+    const coldDuplicate = await peerCommand(thirdBaseUrl, coldPeerRequest);
+    assert.strictEqual(coldDuplicate.id, coldSent.id);
+    assert.deepStrictEqual(coldDuplicate.status, uncertainPeerTask.status, 'No automatic replay when original Host evidence was lost');
 
     currentPhase = 'deleting recovered Agent';
     const deleted = await fetchJson(thirdBaseUrl, `/api/control/agents/${agentId}?recordHistory=0`, {

@@ -1111,7 +1111,7 @@ export function AgentTranscriptSubagentPreview({
         <div className={`code-agent-transcript-subagent-turn ${continuesPeerMessageGroup(turn, transcript.turns[index + 1]) ? 'peer-group-open' : ''} ${continuesPeerMessageGroup(transcript.turns[index - 1], turn) ? 'peer-group-continuation' : ''}`} key={turn.id}>
           {turn.handoffContext ? <div className="code-agent-transcript-context-origin" role="note">
             <AgentTranscriptUserMessage turn={turn} copy={copy} />
-          </div> : turn.userSource || turn.userMessage ? <AgentTranscriptIncomingMessage turn={turn} continued={continuesPeerMessageGroup(transcript.turns[index - 1], turn)} hasNext={continuesPeerMessageGroup(turn, transcript.turns[index + 1])}><div className="user">{turn.userSource?.bodyUnavailable ? copy.agentTranscriptPeerBodyUnavailable : <AgentTranscriptUserMessage turn={turn} copy={copy} />}</div></AgentTranscriptIncomingMessage> : null}
+          </div> : turn.userSource || turn.userMessage ? <AgentTranscriptIncomingMessage copy={copy} turn={turn} continued={continuesPeerMessageGroup(transcript.turns[index - 1], turn)} hasNext={continuesPeerMessageGroup(turn, transcript.turns[index + 1])}><div className="user">{turn.userSource?.bodyUnavailable ? copy.agentTranscriptPeerBodyUnavailable : <AgentTranscriptUserMessage turn={turn} copy={copy} />}</div></AgentTranscriptIncomingMessage> : null}
           {turn.processItems.length > 0 ? (
             <><AgentTranscriptPeerReceipts items={turn.processItems.filter(item => item.type === 'peer-receipt')} copy={copy} /><div className="actions">{turn.processItems.filter(item => item.type !== 'peer-receipt').map(item => <AgentTranscriptSubagentAction item={item} key={item.id} />)}</div></>
           ) : null}
@@ -1517,17 +1517,19 @@ function AgentTranscriptPeerReceipts({ items, copy }: { items: AgentTranscriptPr
   </details>
 }
 
-function AgentTranscriptIncomingMessage({ turn, continued = false, hasNext = false, children }: {
-  turn: AgentTranscriptTurn; continued?: boolean; hasNext?: boolean; children: ReactNode
+function AgentTranscriptIncomingMessage({ copy, turn, continued = false, hasNext = false, children }: {
+  copy: CodeCopy; turn: AgentTranscriptTurn; continued?: boolean; hasNext?: boolean; children: ReactNode
 }) {
   const source = turn.userSource
   const navigation = useContext(CommunicationPeerNavigation)
   const { agentId } = useContext(TranscriptFileOpenContext)
   if (!source) return <>{children}</>
-  const peer = agentId && source.senderSessionId ? navigation?.resolve(agentId, source.senderSessionId) : null
+  const peer = source.senderAgentId && source.senderSessionKey
+    ? navigation?.resolveAgent?.(source.senderAgentId, source.senderSessionKey)
+    : agentId && source.senderSessionId ? navigation?.resolve(agentId, source.senderSessionId) : null
   // Names are the receive-time snapshot. Current inventory is used only for navigation.
-  const name = source.senderName || source.senderAddress
-  const identity = source.senderSessionId || `${agentId}:${source.senderAddress}`
+  const name = `${source.senderName || source.senderAddress}${source.initiatedBy === 'user' ? ` · ${copy.userInitiatedMessage}` : ''}`
+  const identity = source.senderSessionKey || source.senderSessionId || `${agentId}:${source.senderAddress}`
   const label = peer && navigation?.open
     ? <button type="button" className="code-agent-transcript-message-source" data-testid="code-agent-message-source"
         onClick={() => navigation.open?.(peer.id)}>{name}</button>
@@ -2883,7 +2885,7 @@ function AgentTranscriptTurnView({
       {turn.handoffContext ? <div className="code-agent-transcript-context-origin" role="note">
         <AgentTranscriptUserMessage turn={turn} copy={copy} />
       </div> : turn.userSource || turn.userMessage || userImages.length > 0 || userAudios.length > 0 || userFiles.length > 0 ? (
-        <AgentTranscriptIncomingMessage turn={turn} continued={peerContinued} hasNext={peerHasNext}>
+        <AgentTranscriptIncomingMessage copy={copy} turn={turn} continued={peerContinued} hasNext={peerHasNext}>
           <div className="code-agent-transcript-user" data-process-item-id={`${turn.id}-user`}>
             {turn.userSource?.bodyUnavailable ? <div className="code-agent-transcript-message-unavailable">{copy.agentTranscriptPeerBodyUnavailable}</div> : null}
             {turn.userMessage ? <div><AgentTranscriptUserMessage turn={turn} copy={copy} /></div> : null}

@@ -1,3 +1,4 @@
+import type { AcpPeerMessage } from '../shared/acp-peer-message.js';
 import type { ComposerSubmissionPhase } from '../shared/composer-submission.js';
 export type ProviderId = 'codex' | 'claude' | 'opencode' | 'qoder' | string;
 export type StructuredRuntimeKind = 'acp' | 'terminal';
@@ -324,6 +325,7 @@ export type DeleteProviderSessionIdentityContract = (
 ) => Promise<void>;
 
 export interface AcpSubmitOptions extends Record<string, unknown> {
+  peerMessage?: AcpPeerMessage;
   clientPromptId?: string;
   retryDefinitiveFailure?: boolean;
   delivery?: 'auto' | 'prompt' | 'steer';
@@ -501,6 +503,8 @@ export interface AcpRuntimeContract {
     options?: { onProcessStopped?: () => Promise<void> | void },
   ): Promise<Record<string, unknown>>;
   createSessionIdentity(options: ProviderSessionIdentityRequest): Promise<ProviderSessionIdentityResult>;
+  cancelPrompt?(agentId: string, clientPromptId: string): Promise<void>;
+  getPromptOperation?(agentId: string, clientPromptId: string): Promise<Record<string, unknown> | null>;
   submitMessage(agentId: string, prompt: AcpPromptBlock[], options?: AcpSubmitOptions): Promise<AcpSubmitResult>;
   getSession(agentId: string, options?: Record<string, unknown>): Record<string, unknown>;
   getSessionForRead(agentId: string, options?: Record<string, unknown>): Promise<Record<string, unknown>>;

@@ -2308,3 +2308,7 @@
     flex-wrap: wrap;
   }
 }
+
+.code-plugin-a2a-grant { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.code-plugin-a2a-grant > div { min-width: 0; overflow-wrap: anywhere; }
+.code-plugin-a2a-grant small { display: block; color: var(--code-text-subtle); }

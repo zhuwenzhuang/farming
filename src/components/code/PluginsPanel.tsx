@@ -1,3 +1,4 @@
+import { A2aPluginCard } from '../../../extensions/a2a/frontend/A2aPluginCard'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Dispatch, KeyboardEvent as ReactKeyboardEvent, SetStateAction } from 'react'
 import { createPortal } from 'react-dom'
@@ -494,6 +495,7 @@ const EXTENSION_KIND_GLYPHS = {
 const FARMING_BUILTIN_EXTENSIONS = [
   { id: 'desktop-connections', desktopOnly: true },
   { id: 'shared-config' },
+  { id: 'a2a' },
   { id: 'browser' },
   { id: 'computer' },
   { id: 'language-server' },
@@ -1653,6 +1655,7 @@ export function PluginsPanel({
           </div>
         </header>
         {window.farmingDesktop ? <DesktopConnectionsPanel language={language} /> : null}
+        <A2aPluginCard language={language} />
         <article className="code-plugin-card code-plugin-shared-config-card" data-testid="code-plugin-shared-config">
           <span className="code-plugin-card-icon" aria-hidden="true">
             <PuzzleGlyph />

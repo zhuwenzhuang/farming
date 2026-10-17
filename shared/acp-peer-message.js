@@ -14,7 +14,10 @@ function normalizeAcpPeerMessage(value) {
         return null;
     return {
         version: 1, direction: 'incoming', senderAddress,
+        ...(source.initiatedBy === 'user' ? { initiatedBy: 'user' } : {}),
+        ...(bounded('senderAgentId', 160) && bounded('senderSessionKey', 2048) ? { senderAgentId: bounded('senderAgentId', 160), senderSessionKey: bounded('senderSessionKey', 2048) } : {}),
         ...(bounded('senderSessionId') ? { senderSessionId: bounded('senderSessionId') } : {}),
+        ...(bounded('inReplyToTaskId', 160) ? { inReplyToTaskId: bounded('inReplyToTaskId', 160) } : {}),
         ...(bounded('senderTaskId') ? { senderTaskId: bounded('senderTaskId') } : {}),
         ...(bounded('senderName', 240) ? { senderName: bounded('senderName', 240) } : {}),
         ...(bounded('timestamp', 80) ? { timestamp: bounded('timestamp', 80) } : {}),

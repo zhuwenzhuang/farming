@@ -2,6 +2,7 @@ import type { ComposerSubmissionPhase } from '../../../shared/composer-submissio
 import type { UiLanguage } from '@/lib/ui-preferences'
 
 export interface CodeCopy {
+  userInitiatedMessage: string
   newAgent: string
   search: string
   history: string
@@ -762,6 +763,7 @@ export interface CodeCopy {
 }
 
 const EN_COPY: CodeCopy = {
+  userInitiatedMessage: 'User initiated',
   newAgent: 'New Agent',
   search: 'Search',
   history: 'History',
@@ -1559,6 +1561,7 @@ const EN_COPY: CodeCopy = {
 }
 
 const ZH_COPY: CodeCopy = {
+  userInitiatedMessage: '由用户发起',
   newAgent: '新建 Agent',
   search: '搜索',
   history: '历史',

@@ -72,6 +72,7 @@ assert(
   'npm package must include compiled Shared configuration runtime',
 );
 assert(!packageJson.files.includes('extensions/shared-config/'), 'npm package must not include Shared configuration TypeScript source');
+assert(packageJson.files.includes('extensions/a2a/backend/*.cjs'), 'npm package must include the A2A plugin runtime');
 assert(!packageJson.files.includes('backend/*.cts'), 'npm package must not execute or ship backend TypeScript source');
 assert(!packageJson.files.includes('backend/*.ts'), 'npm package must not execute or ship backend TypeScript source');
 

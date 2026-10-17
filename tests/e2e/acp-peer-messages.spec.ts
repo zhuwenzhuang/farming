@@ -1,4 +1,12 @@
+import type { Locator, TestInfo } from '@playwright/test'
 import { expect, openFarming, test } from './fixtures'
+
+async function captureCommunicationStep(surface: Locator, testInfo: TestInfo, name: string) {
+  await expect(surface).toBeVisible()
+  const image = await surface.screenshot({ path: testInfo.outputPath(name + '.png'), animations: 'disabled' })
+  expect(image.readUInt32BE(16)).toBeGreaterThan(300)
+  expect(image.readUInt32BE(20)).toBeGreaterThan(150)
+}
 
 test('incoming Agent messages use ordinary bubbles and stable attribution in every appearance', async ({ page, workspaceRoot }, testInfo) => {
   await page.setViewportSize({ width: 1440, height: 900 })
@@ -88,4 +96,66 @@ test('incoming Agent messages use ordinary bubbles and stable attribution in eve
   await expect(continuation.getByTestId('code-agent-message-source')).toHaveCount(0)
   await expect(page.getByTestId('code-agent-transcript-peer-time')).toHaveCount(3)
   await expect(page.getByTestId('code-agent-message-source').first()).toHaveText('Cleanroom HDFS TPCDS 单机验收与多机接线')
+})
+
+test('Farming A2A messages show trusted local sender and navigate across providers', async ({ page, workspaceRoot }, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.request.post('/farming/api/settings', { data: { language: 'en' } })
+  const create = async (command: string, customTitle: string) => {
+    const response = await page.request.post('/farming/api/control/agents', {
+      data: { command, customTitle, workspace: workspaceRoot, agentRuntimeMode: 'chat' },
+    })
+    expect(response.ok()).toBeTruthy()
+    return (await response.json() as { agentId: string }).agentId
+  }
+  const sender = await create('codex', 'API author')
+  const recipient = await create('claude', 'Input reviewer')
+  await openFarming(page)
+  await page.locator(`[data-testid="code-agent-row"][data-agent-id="${sender}"]`).click()
+  const input = page.getByTestId('code-acp-composer-input')
+  await expect(input).toBeEditable()
+  await input.fill(`farming peer send ${recipient}`)
+  await page.getByTestId('code-acp-composer-send').click()
+  await expect(page.getByTestId('code-agent-chat-view')).toContainText('Sent the review request.')
+  await page.locator(`[data-testid="code-agent-row"][data-agent-id="${recipient}"]`).click()
+  const peer = page.locator('.code-agent-transcript-peer-message').filter({ hasText: 'Please review the input validation' })
+  await expect(peer).toHaveCount(1)
+  const source = peer.getByTestId('code-agent-message-source')
+  await expect(source).toHaveText('API author')
+  await expect(source).toHaveJSProperty('tagName', 'BUTTON')
+  await expect(peer.locator('.code-collaboration-agent-icon')).toBeVisible()
+  await expect(page.getByTestId('code-agent-chat-view')).toContainText('The input validation is consistent')
+  await captureCommunicationStep(page.getByTestId('code-main'), testInfo, 'walkthrough-agent-received')
+  await expect(page.getByText('Farming delivered an Agent message', { exact: false })).toHaveCount(0)
+  await expect(page.locator('.code-agent-transcript-user').filter({ hasText: 'Please review the input validation' })).toHaveCount(1)
+  for (const appearance of ['light', 'dark', 'paper']) {
+    await page.locator('body').evaluate((body, value) => { body.dataset.appearance = value }, appearance)
+    await page.evaluate(() => document.fonts.ready)
+    await page.mouse.move(1400, 870)
+    await expect(source).toBeVisible()
+    expect(await peer.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
+    const image = await page.getByTestId('code-agent-chat-view').screenshot({ path: testInfo.outputPath(`a2a-${appearance}.png`), animations: 'disabled' })
+    expect(image.readUInt32BE(16)).toBeGreaterThan(500)
+    expect(image.readUInt32BE(20)).toBeGreaterThan(300)
+  }
+  const renamed = await page.request.patch(`/farming/api/agents/${sender}`, { data: { customTitle: 'API author renamed' } })
+  expect(renamed.ok()).toBeTruthy()
+  await expect(source).toHaveText('API author')
+  await source.click()
+  await expect(page.getByTestId('code-agent-chat-view')).toContainText('Sent the review request.')
+  await page.locator(`[data-testid="code-agent-row"][data-agent-id="${recipient}"]`).click()
+  await page.reload()
+  await expect(peer.getByTestId('code-agent-message-source')).toHaveText('API author')
+  await expect(peer.getByTestId('code-agent-message-source')).toHaveJSProperty('tagName', 'BUTTON')
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect(page.locator('body')).toHaveClass(/code-compact-layout/)
+  for (const appearance of ['light', 'dark', 'paper']) {
+    await page.locator('body').evaluate((body, value) => { body.dataset.appearance = value }, appearance)
+    await expect(source).toBeVisible()
+    const bounds = await peer.boundingBox()
+    expect(bounds!.x).toBeGreaterThanOrEqual(0)
+    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(390)
+    expect(await peer.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
+    await page.getByTestId('code-agent-chat-view').screenshot({ path: testInfo.outputPath(`a2a-compact-${appearance}.png`), animations: 'disabled' })
+  }
 })

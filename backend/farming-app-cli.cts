@@ -167,8 +167,8 @@ const DEFAULT_SERVER_LOG_MAX_BYTES = 256 * 1024 * 1024;
 const DEFAULT_SERVER_LOG_MAX_FILES = 20;
 const SERVER_STOP_POLL_MS = 100;
 const SERVER_COMMANDS = new Set(['start', 'serve', 'daemon', 'stop', 'status', 'logs', 'url', 'help']);
-const CONTROL_COMMANDS = new Set(['skills', 'capabilities', 'list', 'spawn', 'output', 'send', 'title', 'kill']);
-const SERVER_BACKED_CONTROL_COMMANDS = new Set(['capabilities', 'list', 'spawn', 'output', 'send', 'title', 'kill']);
+const CONTROL_COMMANDS = new Set(['skills', 'capabilities', 'list', 'spawn', 'output', 'send', 'message', 'title', 'kill']);
+const SERVER_BACKED_CONTROL_COMMANDS = new Set(['capabilities', 'list', 'spawn', 'output', 'send', 'message', 'title', 'kill']);
 const SERVER_PACKAGE_REQUIRED_FILES = [
   'backend/server.cjs',
   'dist/index.html',
@@ -1904,7 +1904,18 @@ Agent control commands are also available:
   farming list [--json] [--parent <agentId>]
   farming spawn --workspace <repo> -- <command...>
   farming output <agentId> [--tail <chars>]
-  farming send <agentId> <text...>
+  farming send <agentId> <text...>  (raw Terminal input)
+  farming message send <agentId> --id <requestId> -- <text...>
+  farming message get <agentId> <taskId>
+  farming message watch <agentId> <taskId>
+  farming message list <agentId> [--page <cursor>]
+  farming message subscribe <agentId> <taskId>  (status/result events, up to 60 seconds)
+  farming message cancel <agentId> <taskId>  (original running request only)
+  farming message card <agentId>
+  (External grants require Plugins → Farming → External Agent access · A2A enabled.)
+  farming message grant <peerId> --name <name> --target <agentId> [--hours <1-720>]
+  farming message grants
+  farming message revoke <grantId>
   farming title <concise-title...>
   farming kill <agentId>`;
 }

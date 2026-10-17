@@ -633,7 +633,7 @@ for (const provider of ['codex', 'claude', 'qwen', 'pi']) {
     }
   }
 }
-const { communicationPeer } = require('../../src/components/code/related-session-navigation.ts');
+const { communicationPeer, communicationAgentPeer } = require('../../src/components/code/related-session-navigation.ts');
 const { encodeProviderSessionKey } = require('../../shared/provider-session-identity.ts');
 const peers = [
   { id: 'sender', providerSessionKey: encodeProviderSessionKey('codex', 'sender-session', 'home-a') },
@@ -647,3 +647,9 @@ assert.strictEqual(communicationPeer(peers, 'missing', 'peer-session'), null);
 assert.strictEqual(communicationPeer([...peers, { ...peers[1], id: 'duplicate' }], 'sender', 'peer-session'), null);
 assert.strictEqual(communicationPeer(peers.filter(peer => peer.id !== 'peer'), 'sender', 'peer-session'), null);
 console.log('ACP collaboration projection tests passed');
+
+assert.strictEqual(communicationAgentPeer(peers, 'other-provider', peers[3].providerSessionKey)?.id, 'other-provider');
+assert.strictEqual(communicationAgentPeer(peers, 'other-provider', peers[1].providerSessionKey), null);
+assert.strictEqual(communicationAgentPeer(peers, 'missing', peers[1].providerSessionKey), null);
+assert.strictEqual(communicationAgentPeer(peers, 'peer', 'invalid'), null);
+assert.strictEqual(communicationAgentPeer([...peers, peers[1]], 'peer', peers[1].providerSessionKey), null);

@@ -1,3 +1,4 @@
+import { parseCommunicationCommand, parseCommunicationAdminCommand, runCommunicationCommand, type CommunicationCommand, type CommunicationAdminCommand } from './agent-communication-cli.cjs';
 import type { IncomingHttpHeaders, IncomingMessage, OutgoingHttpHeaders } from 'node:http';
 
 const fs = require('fs');
@@ -82,6 +83,8 @@ interface CliIo {
 }
 
 type ParsedArgs =
+  | { command: 'message'; options: CommunicationCommand }
+  | { command: 'message-admin'; options: CommunicationAdminCommand }
   | { command: 'help' | 'skills' }
   | { command: 'capabilities'; options: { json: boolean } }
   | { command: 'list'; options: { json: boolean; parent: string } }
@@ -102,6 +105,7 @@ type ParsedArgs =
   | { command: 'kill'; options: { agentId: string } };
 
 const CONTROL_COMMANDS = new Set([
+  'message',
   'skills',
   'capabilities',
   'list',
@@ -127,7 +131,18 @@ function usage(): string {
   farming list [--json] [--parent <agentId>]
   farming spawn [--workspace <path>] [--task <text>] [--parent <agentId>] [--json] -- <command...>
   farming output <agentId> [--tail <chars>]
-  farming send <agentId> <text...>
+  farming send <agentId> <text...>  (raw Terminal input)
+  farming message send <agentId> --id <requestId> [--context <contextId>] [--reply-to <taskId>] -- <text...>
+  farming message get <agentId> <taskId>
+  farming message watch <agentId> <taskId>  (wait up to 60 seconds)
+  farming message list <agentId> [--page <cursor>]
+  farming message subscribe <agentId> <taskId>  (status/result events, up to 60 seconds)
+  farming message cancel <agentId> <taskId>  (original running request only)
+  farming message card <agentId>
+  (External grants require Plugins → Farming → External Agent access · A2A enabled.)
+  farming message grant <peerId> --name <name> --target <agentId> [--hours <1-720>]
+  farming message grants
+  farming message revoke <grantId>
   farming title <concise-title...>
   farming kill <agentId>
 
@@ -191,6 +206,11 @@ function parseArgs(argv: string[]): ParsedArgs {
     if (optionArgs.includes('--help') || optionArgs.includes('-h')) {
       return { command: 'help' };
     }
+  }
+
+  if (command === 'message') {
+    if (['grant', 'grants', 'revoke'].includes(rest[0])) return { command: 'message-admin', options: parseCommunicationAdminCommand(rest) };
+    return { command, options: parseCommunicationCommand(rest) };
   }
 
   if (command === 'skills') {
@@ -466,6 +486,18 @@ function formatCapabilities(report: CapabilityReport): string {
 
 async function run(argv: string[] = process.argv.slice(2), io: CliIo = process): Promise<number> {
   const parsed = parseArgs(argv);
+
+  if (parsed.command === 'message-admin') {
+    const options = parsed.options;
+    const endpoint = '/api/communication/grants';
+    const result = options.operation === 'grants' ? await request(endpoint)
+      : options.operation === 'revoke' ? await request(`${endpoint}/${encodeURIComponent(options.grantId)}`, { method: 'DELETE' })
+      : await request(endpoint, { method: 'POST', body: { peerId: options.peerId, name: options.name, targets: options.targets, expiresAt: Date.now() + options.hours * 3600000 } });
+    io.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    return 0;
+  }
+
+  if (parsed.command === 'message') return runCommunicationCommand(parsed.options, { baseUrl: normalizeBaseUrl(), token: process.env.FARMING_COMMUNICATION_TOKEN || '', write: text => io.stdout.write(text) });
 
   if (parsed.command === 'help') {
     io.stdout.write(`${usage()}\n`);

@@ -1,3 +1,6 @@
+import { acpPeerPrompt } from './acp-peer-prompt.cjs';
+import { acpPeerReplyText } from './acp-peer-reply.cjs';
+import type { AcpPeerMessage } from '../shared/acp-peer-message.js';
 import { COMPOSER_ADMISSION_TIMEOUT_MS } from '../shared/chat-capacity.js';
 import { normalizeAgentHandoffContext } from '../shared/agent-handoff-context.js';
 import type { ComposerSubmissionPhase } from '../shared/composer-submission.js';
@@ -255,6 +258,7 @@ interface AcpRuntimeOptions extends PrepareAgentOptions {
   terminalSpawn?: typeof spawn;
 }
 interface PrepareAgentOptions extends UnknownRecord {
+  peerMessage?: AcpPeerMessage;
   retained?: boolean;
   nativeTurnSequence?: number;
   nativeTurnId?: string;
@@ -619,6 +623,7 @@ function clone<T>(value: T): T {
 
 const ACP_SESSION_ENV_KEYS = [
   'FARMING_AGENT_ID',
+  'FARMING_COMMUNICATION_TOKEN',
   'FARMING_CAPABILITIES_COMMAND',
   'FARMING_CLI_BIN_DIR',
   'FARMING_CONFIG_DIR',
@@ -636,6 +641,7 @@ const ACP_SESSION_ENV_KEYS = [
 
 const ACP_SHARED_PROCESS_EXCLUDED_ENV_KEYS = [
   'FARMING_AGENT_ID',
+  'FARMING_COMMUNICATION_TOKEN',
   'FARMING_AGENT_TITLE_TOKEN',
   'FARMING_BROWSER_TOKEN',
   'FARMING_CAPABILITY_RUNTIME_EPOCH',
@@ -1974,7 +1980,7 @@ class AcpRuntime extends EventEmitter {
           let saved = null;
           let savedForkOrigin: unknown = null;
           let savedModelChanges: unknown = null;
-          let savedHandoffCheckpoint: unknown = null;
+          let savedInputCheckpoint: unknown = null;
           if (this.checkpointStore) {
             saved = await this.checkpointStore.load(
               this.checkpointIdentity(binding, requestedSessionId),
@@ -1984,14 +1990,14 @@ class AcpRuntime extends EventEmitter {
             const checkpoint = recordValue(saved?.state);
             savedForkOrigin = recordValue(checkpoint.version === 2 ? checkpoint.sessionState : checkpoint).forkOrigin;
             savedModelChanges = recordValue(checkpoint.version === 2 ? checkpoint.sessionState : checkpoint).modelChanges;
-            savedHandoffCheckpoint = checkpoint.version === 2 ? checkpoint.sessionState : checkpoint;
+            savedInputCheckpoint = checkpoint.version === 2 ? checkpoint.sessionState : checkpoint;
             if (!saved && options.forkOriginSessionId) {
               const source = await this.checkpointStore.load(
                 this.checkpointIdentity(binding, options.forkOriginSessionId), { allowDirty: true },
               );
               this.requireOpenBinding(binding);
               const sourceCheckpoint = recordValue(source?.state);
-              savedHandoffCheckpoint = sourceCheckpoint.version === 2 ? sourceCheckpoint.sessionState : sourceCheckpoint;
+              savedInputCheckpoint = sourceCheckpoint.version === 2 ? sourceCheckpoint.sessionState : sourceCheckpoint;
             }
             if (options.historyMode === 'checkpoint') {
               restoredCheckpoint = this.restoreBindingCheckpoint(
@@ -2061,7 +2067,7 @@ class AcpRuntime extends EventEmitter {
               binding.historyReplayActive = false;
             }
             binding.sessionState.finishHistoryReplay();
-            binding.sessionState.restoreHandoffContexts(savedHandoffCheckpoint);
+            binding.sessionState.restoreTrustedInputMetadata(savedInputCheckpoint);
             binding.codexInlineVisualizationStreams.clear();
             if (providerAcpHistoryReplayPolicy(provider)?.restoreMissingCheckpointMedia && restoredCheckpointState) {
               restoreMissingHistoryMedia(binding.sessionState, restoredCheckpointState);
@@ -3530,7 +3536,7 @@ class AcpRuntime extends EventEmitter {
       if (Object.keys(metadata).length) content[0]._meta = metadata;
       else delete content[0]._meta;
     }
-    this.requireSessionState(binding).beginPrompt(content, handoffContext);
+    const inputEntry = this.requireSessionState(binding).beginPrompt(content, handoffContext, options.peerMessage);
     turn.phase = 'running';
     binding.chatTurn = {
       turnId: `${binding.capabilityRuntimeEpoch}:${turn.id}`,
@@ -3549,7 +3555,7 @@ class AcpRuntime extends EventEmitter {
       this.emitSession(binding);
       this.admissionRemaining(options);
       this.submissionPhase(binding, options, 'dispatching');
-      const responsePromise = binding.connection.prompt({ sessionId: binding.sessionId, prompt: content });
+      const responsePromise = binding.connection.prompt({ sessionId: binding.sessionId, prompt: acpPeerPrompt(content, options.peerMessage) });
       try {
         options.onSubmitted?.({ steered: false });
       } catch {
@@ -3612,6 +3618,9 @@ class AcpRuntime extends EventEmitter {
         };
       }
       this.requireSessionState(binding).completePrompt(binding.stopReason);
+      const peerReplyText = options.peerMessage
+        ? acpPeerReplyText(this.requireSessionState(binding).entries, String(inputEntry.id))
+        : undefined;
       binding.state = 'idle';
       binding.error = '';
       binding.updatedAt = new Date().toISOString();
@@ -3624,7 +3633,9 @@ class AcpRuntime extends EventEmitter {
       this.scheduleCheckpoint(binding, { exact: true });
       this.emitSession(binding);
       this.emitRuntime(binding);
-      return { sessionId: binding.sessionId, stopReason: binding.stopReason };
+      return { sessionId: binding.sessionId, stopReason: binding.stopReason,
+        ...(peerReplyText !== undefined ? { peerReplyText } : {}),
+      };
     });
   }
 
@@ -3665,7 +3676,7 @@ class AcpRuntime extends EventEmitter {
       const response = await withTimeout(
         binding.connection.request(method, {
           sessionId: binding.sessionId,
-          prompt: content,
+          prompt: acpPeerPrompt(content, options.peerMessage),
           clientMessageId,
           ...(method === SESSION_STEERING_METHOD
             ? { _meta: { steering: { idleBehavior: 'promptRequired' } } }
@@ -3678,6 +3689,7 @@ class AcpRuntime extends EventEmitter {
       const turnId = String((response as UnknownRecord | null)?.turnId || '');
       if (sessionState.recordAcceptedSteer(content, {
         messageId: clientMessageId,
+        peerMessage: options.peerMessage,
         turnId,
         insertionIndex,
       })) {

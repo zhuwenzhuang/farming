@@ -27,6 +27,7 @@ interface ProcessItem extends DataRecord {
   detail: string;
   images: TranscriptImage[];
   files: TranscriptFile[];
+  audios?: DataRecord[];
   status: string;
 }
 
@@ -576,8 +577,8 @@ function audiosFromContent(content: unknown) {
     let audio = null;
     if (part.type === 'localAudio') {
       audio = audioFromLocalPath(part.path, audios.length);
-    } else if (part.type === 'audio') {
-      const url = String(part.url || '');
+    } else if (['audio', 'inputAudio', 'input_audio'].includes(part.type)) {
+      const url = String(part.url || part.audioUrl || part.audio_url || '');
       if (
         url.length <= MAX_USER_AUDIO_URL_LENGTH
         && (/^data:audio\//i.test(url) || /^https?:\/\//i.test(url))
@@ -1317,6 +1318,19 @@ function appendTurnItem(turn: TranscriptTurn, item: DataRecord, status: string =
     });
     return true;
   }
+  if (type === 'functioncalloutput') {
+    const name = [item.namespace, item.name].filter(Boolean).join('/');
+    appendProcess(turn, {
+      id: item.id,
+      type: 'tool-output',
+      title: name ? `Output from ${name}` : 'Tool output',
+      detail: summarizeStructuredOutput(item.output),
+      images: imagesFromStructuredOutput(item.output),
+      audios: audiosFromContent(item.output),
+      status: status || 'completed',
+    });
+    return true;
+  }
   if (type === 'dynamictoolcall') {
     const name = [item.namespace, item.tool].filter(Boolean).join('/');
     appendProcess(turn, {
@@ -1325,6 +1339,7 @@ function appendTurnItem(turn: TranscriptTurn, item: DataRecord, status: string =
       title: name ? `Used ${name}` : 'Used tool',
       detail: summarizeOutput(JSON.stringify(item.arguments || item.content_items || item.contentItems || '', null, 2)),
       images: imagesFromStructuredOutput(item.content_items || item.contentItems),
+      audios: audiosFromContent(item.content_items || item.contentItems),
       status: status || itemStatus(item),
     });
     return true;
@@ -1506,6 +1521,9 @@ function appendResponseItem(
     });
     return true;
   }
+
+  // Model configuration is runtime context, not transcript activity.
+  if (payload.type === 'configuration_update') return true;
 
   if (payload.type === 'function_call' || payload.type === 'custom_tool_call') {
     const title = processTitleForFunctionCall(payload);
@@ -1760,6 +1778,7 @@ function appendProcess(turn: TranscriptTurn, item: DataRecord) {
     detail: detail.slice(0, 4000),
     images,
     files,
+    ...(Array.isArray(item.audios) && item.audios.length ? { audios: item.audios.filter(isDataRecord).slice(0, MAX_USER_AUDIOS_PER_TURN) } : {}),
     status: String(item.status || ''),
   };
   const existing = turn.processItems.find(entry => entry.id === id);
@@ -1785,6 +1804,7 @@ function appendProcess(turn: TranscriptTurn, item: DataRecord) {
         ...next.files.filter(file => !keys.has(`${file.name}\0${file.content}\0${file.error}`)),
       ].slice(0, MAX_USER_FILES_PER_TURN);
     }
+    if (next.audios?.length) existing.audios = next.audios;
     existing.status = next.status || existing.status;
     return;
   }
@@ -2204,6 +2224,32 @@ function buildTranscriptFromLines(lines: string[], options: TranscriptBuildOptio
         title: 'World-writable paths detected',
         detail: paths.concat(payload.extraCount ? [`... +${payload.extraCount} more`] : []).join('\n'),
         status: 'warning',
+      });
+      continue;
+    }
+
+    if (eventType === 'autoApprovalReview/strictReviewRequired' || eventType.startsWith('modelProvider/authRecovery')) {
+      appendProcess(ensureActive(payload.turnId), {
+        id: `${payload.turnId}-${eventType.startsWith('modelProvider/') ? 'auth-recovery' : 'strict-review'}`,
+        type: 'event',
+        title: eventType === 'autoApprovalReview/strictReviewRequired' ? 'Strict approval review required' : 'Provider authentication recovery',
+        detail: payload.message || '',
+        status: eventType.endsWith('Completed') ? 'completed' : 'warning',
+      });
+      continue;
+    }
+    if (eventType === 'thread/realtime/item/transcript/delta') {
+      appendProcessDelta(ensureActive(`${payload.threadId}-realtime`), {
+        id: payload.itemId, type: 'message', title: 'Realtime transcript', delta: payload.delta, status: 'running',
+      });
+      continue;
+    }
+    if (eventType === 'thread/realtime/item/started' || eventType === 'thread/realtime/item/completed') {
+      const item = dataRecord(payload.item);
+      appendProcess(ensureActive(`${payload.threadId}-realtime`), {
+        id: item.id, type: 'message',
+        title: item.type === 'transcriptSegment' ? `${item.role || 'Realtime'} transcript` : humanizeType(item.type, 'Realtime item'),
+        detail: item.text || '', status: eventType.endsWith('/completed') ? 'completed' : 'running',
       });
       continue;
     }
