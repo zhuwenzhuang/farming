@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { appPath } from '../../../src/lib/base-path'
+import { writeClipboardText } from '../../../src/lib/clipboard'
 import { CodeSelect } from '../../../src/components/CodeSelect'
 import { PuzzleGlyph } from '../../../src/components/IconGlyphs'
 
@@ -85,7 +86,7 @@ export function A2aPluginCard({ language }: { language: string }) {
     if (!state?.enabled || !target || !name.trim()) return
     void mutate(async () => {
       const result = await request<{ token: string }>('/api/communication/grants', { method: 'POST', body: JSON.stringify({
-        peerId: crypto.randomUUID(), name: name.trim(), targets: [target], expiresAt: Date.now() + 86400000,
+        peerId: Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join(''), name: name.trim(), targets: [target], expiresAt: Date.now() + 86400000,
       }) })
       if (alive.current) {
         setIssued({ token: result.token, endpoint: new URL(state.endpointBaseUrl + '/agents/' + encodeURIComponent(target), location.origin).href })
@@ -124,7 +125,10 @@ export function A2aPluginCard({ language }: { language: string }) {
           <label><span>{copy.token}</span><input className="code-field" aria-label={copy.token} readOnly value={issued.token} /></label>
           <div className="code-plugin-shared-config-actions">
             <button type="button" onClick={async () => {
-              try { await navigator.clipboard.writeText(JSON.stringify({ url: issued.endpoint, headers: { Authorization: 'Bearer ' + issued.token, 'A2A-Version': '1.0' } }, null, 2)); if (alive.current) setCopied(true) }
+              try {
+                const copied = await writeClipboardText(JSON.stringify({ url: issued.endpoint, headers: { Authorization: 'Bearer ' + issued.token, 'A2A-Version': '1.0' } }, null, 2))
+                if (alive.current) { setCopied(copied); if (!copied) setError(copy.copyFailed) }
+              }
               catch { if (alive.current) setError(copy.copyFailed) }
             }}>{copied ? copy.copied : copy.copy}</button>
             <button type="button" onClick={() => setIssued(null)}>{copy.hideToken}</button>

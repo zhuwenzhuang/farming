@@ -2,6 +2,8 @@ import { expect, openFarming, test } from './fixtures'
 
 test('external A2A is optional, configured in Plugins and reconciles uncertain writes', async ({ page, workspaceRoot }, testInfo) => {
   test.setTimeout(120000)
+  // Plain HTTP deployments expose getRandomValues but not secure-context randomUUID.
+  await page.addInitScript(() => Object.defineProperty(Crypto.prototype, 'randomUUID', { value: undefined }))
   await page.setViewportSize({ width: 1440, height: 1000 })
   await page.request.post('/farming/api/settings', { data: { language: 'en' } })
   const created = await page.request.post('/farming/api/control/agents', {
