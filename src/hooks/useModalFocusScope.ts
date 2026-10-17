@@ -90,7 +90,7 @@ export function useModalFocusScope<TDialog extends HTMLElement = HTMLElement>({
     }
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Tab' || !isTopModalInteractionLayer(dialogRef.current)) return
+      if (event.defaultPrevented || event.key !== 'Tab' || !isTopModalInteractionLayer(dialogRef.current)) return
       const focusable = Array.from(
         dialogRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR) ?? [],
       ).filter(element => element.getAttribute('aria-hidden') !== 'true' && element.getClientRects().length > 0 && !element.closest('[inert]'))
@@ -104,9 +104,9 @@ export function useModalFocusScope<TDialog extends HTMLElement = HTMLElement>({
       focusable[nextIndex]?.focus({ preventScroll: true })
     }
 
-    window.addEventListener('keydown', handleKeyDown, true)
+    window.addEventListener('keydown', handleKeyDown)
     return () => {
-      window.removeEventListener('keydown', handleKeyDown, true)
+      window.removeEventListener('keydown', handleKeyDown)
       releaseIsolation()
       if (!outsideDismissRef.current && returnFocusTarget?.isConnected && !returnFocusTarget.closest('[inert]')) {
         returnFocusTarget.focus({ preventScroll: true })

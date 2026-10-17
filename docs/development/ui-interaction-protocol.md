@@ -60,7 +60,8 @@ scroll ownership rather than adopting a modal focus trap. Text editors and
 Terminals retain their domain keyboard protocols. These are explicit roles,
 not separate implementations of outside-click detection.
 
-Only the top modal owns the Tab loop. Overlapping modals hold background
+Only the top modal owns the Tab loop. Control-specific Tab actions, such as
+path completion, run first; the modal moves focus only for unconsumed Tab events. Overlapping modals hold background
 isolation together; closing or unmounting one must not restore the background
 until the last owner releases it. Focus restoration must not target an inert
 background while another modal remains open.
@@ -113,7 +114,8 @@ identity through backend Create admission and the durable lifecycle journal;
 there is no automatic retry. Confirmed success settles the intent, while an
 initial definitive rejection permits a corrected attempt. A later rejection
 cannot erase an earlier uncertain outcome. HTTP creation preserves the custom
-title supplied by History just as the WebSocket creation path does.
+title supplied by History and the Project boundary supplied by file-menu creation,
+just as the WebSocket creation path does.
 
 Search, History, and Project session activation share one navigation owner,
 regardless of pointer or keyboard input. The backend owns resume admission and

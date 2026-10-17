@@ -86,7 +86,7 @@ async function run() {
         command,
         source: options.source,
         cwd: workspace,
-        projectWorkspace: startedProjectWorkspace,
+        projectWorkspace: startedProjectWorkspace || options.projectWorkspace,
         status: 'running',
         parentAgentId: options.parentAgentId,
         task: options.task,
@@ -473,6 +473,22 @@ async function run() {
 
     assert.strictEqual(mountedProjects.has('/retained-project/subdirectory'), false, 'mount the authoritative Project boundary');
     startedProjectWorkspace = '';
+    const grouped = await fetchJson(baseUrl, '/api/control/agents', {
+      method: 'POST', body: JSON.stringify({
+        command: 'bash', workspace: '/file-project/packages', projectWorkspace: '/file-project',
+      }),
+    });
+    assert.strictEqual(grouped.response.status, 201);
+    assert.strictEqual(calls.findLast(call => call.type === 'startAgent').options.projectWorkspace, '/file-project');
+    assert(mountedProjects.has('/file-project'));
+    assert(!mountedProjects.has('/file-project/packages'));
+    const startsBeforeInvalidProject = calls.filter(call => call.type === 'startAgent').length;
+    const invalidProject = await fetchJson(baseUrl, '/api/control/agents', {
+      method: 'POST', body: JSON.stringify({ command: 'bash', projectWorkspace: 42 }),
+    });
+    assert.strictEqual(invalidProject.response.status, 400);
+    assert.strictEqual(calls.filter(call => call.type === 'startAgent').length, startsBeforeInvalidProject);
+
     const sourceSessionKey = 'agent-session:codex:~2~work~source-session';
     agents.set('handoff-source', {
       id: 'handoff-source', command: 'codex', cwd: '/source/repo/subdir',

@@ -416,6 +416,11 @@ function createControlRouter(
       return;
     }
 
+    if (body.projectWorkspace !== undefined && typeof body.projectWorkspace !== 'string') {
+      res.status(400).json({ error: 'projectWorkspace must be a string' });
+      return;
+    }
+
     const pendingRequest = createRequestId
       ? createRequestAdmissions.get(createRequestId)
       : null;
@@ -637,7 +642,9 @@ function createControlRouter(
     }, {
       wantsMain: false,
       parentAgentId: handoff?.parentAgentId || (typeof body.parentAgentId === 'string' ? body.parentAgentId : ''),
-      ...(handoff ? { projectWorkspace: handoff.projectWorkspace } : {}),
+      ...(handoff
+        ? { projectWorkspace: handoff.projectWorkspace }
+        : typeof body.projectWorkspace === 'string' ? { projectWorkspace: body.projectWorkspace } : {}),
       ...(typeof body.providerHomeId === 'string' ? { providerHomeId: body.providerHomeId } : {}),
       task,
       ...(typeof body.customTitle === 'string' ? { customTitle: body.customTitle } : {}),
