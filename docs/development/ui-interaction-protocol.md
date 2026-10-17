@@ -64,6 +64,9 @@ Only the top modal owns the Tab loop. Overlapping modals hold background
 isolation together; closing or unmounting one must not restore the background
 until the last owner releases it. Focus restoration must not target an inert
 background while another modal remains open.
+The shared modal scope exclusively owns background `inert` and `aria-hidden`;
+components must not also toggle those attributes for the same open interval,
+or scope cleanup can restore a stale isolated state after dismissal.
 
 Settings follows the same modal focus and dismissal contract as other dialogs,
 including a visible initial focus target in compact layouts. File search and

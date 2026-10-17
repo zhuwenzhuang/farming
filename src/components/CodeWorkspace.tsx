@@ -6181,14 +6181,12 @@ export function CodeWorkspace({
           data-testid="code-mobile-sidebar-backdrop"
           role="presentation"
           aria-hidden="true"
-          onPointerDown={dismissMobileNavigation}
         />
       )}
 
       <div
         className="code-mobile-topbar"
         data-testid="code-mobile-topbar"
-        inert={mobileNavigationModalOpen ? true : undefined}
       >
         {showMobileBackButton ? (
           <button
@@ -6267,7 +6265,6 @@ export function CodeWorkspace({
         onBackFromAgentOpening={backFromAgentOpening}
         onRetryAgentOpening={() => agentOpeningController.retry()}
         onCheckAgentOpening={() => agentOpeningController.check()}
-        inert={mobileNavigationModalOpen}
         readOnly={readOnly}
         activeView={activeView}
         activeBrowserResource={mainPaneMode === 'browser' ? activeBrowserResource : null}

@@ -291,7 +291,6 @@ interface CodeMainAreaProps {
   onBackFromAgentOpening: () => void
   onRetryAgentOpening: () => void
   onCheckAgentOpening: () => void
-  inert?: boolean
   readOnly: boolean
   activeView: WorkspaceView
   activeBrowserResource: BrowserResource | null
@@ -610,7 +609,6 @@ export function CodeMainArea({
   onBackFromAgentOpening,
   onRetryAgentOpening,
   onCheckAgentOpening,
-  inert,
   readOnly,
   activeView,
   activeBrowserResource,
@@ -1157,7 +1155,6 @@ export function CodeMainArea({
       style={{ ...(resourceAgentPanelVisible ? { '--code-resource-agent-width': `${resourceAgentWidth}px` } : {}),
         '--code-related-parent-width': `${Math.min(Math.max(480, relatedWidth * relatedRatio), Math.max(480, relatedWidth - 361))}px`,
       } as CSSProperties}
-      inert={inert ? true : undefined}
       onPointerDownCapture={dismissComposerKeyboardOnMainPress}
       onTouchStartCapture={dismissComposerKeyboardOnMainPress}
     >

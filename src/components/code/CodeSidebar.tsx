@@ -728,6 +728,7 @@ export function CodeSidebar({
   useModalFocusScope({
     open: navigationModalOpen,
     dialogRef: navigationDialogRef,
+    dismissOnPointerOutside: true,
     onEscape: onDismissNavigationModal,
   })
 

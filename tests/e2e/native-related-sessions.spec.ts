@@ -29,6 +29,7 @@ for (const width of [1440, 390]) {
     await openFarming(page)
     if (width < 600) await page.getByTestId('code-mobile-menu').click()
     await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"] .code-agent-name`).click({ position: { x: 8, y: 8 } })
+    await expect(page.getByTestId('code-main')).not.toHaveAttribute('inert')
     const input = page.getByTestId('code-acp-composer-input')
     const send = async (text: string) => {
       const answers = page.getByTestId('code-agent-chat-view').locator('.code-agent-transcript-answer')

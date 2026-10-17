@@ -90,6 +90,7 @@ test('enforces Owner and read-only authority across real mobile authentication',
   const spentTicket = await mobileContext(browser, testInfo.project.name.endsWith('webkit') ? 'iphone' : 'android')
   const readOnly = await mobileContext(browser, testInfo.project.name.endsWith('webkit') ? 'iphone' : 'android')
   const tampered = await mobileContext(browser, testInfo.project.name.endsWith('webkit') ? 'iphone' : 'android')
+  let scenarioFailed = false
   try {
     const fullPage = await fullControl.newPage()
     const fullResponse = await fullPage.goto(ownerTicket.shortUrl, { waitUntil: 'domcontentloaded' })
@@ -246,9 +247,15 @@ test('enforces Owner and read-only authority across real mobile authentication',
     await expect(guestPage.getByTestId('code-read-only-share-banner')).toBeVisible()
     expect(await guestPage.locator('body').getAttribute('data-read-only-mutation-exposed')).toBe('false')
     await guestPage.keyboard.press('Escape')
+    // Close the nested search layer before dismissing its navigation modal.
+    await guestFiles.getByRole('button', { name: 'Close file search', exact: true }).click()
     const sidebarBackdrop = guestPage.getByTestId('code-mobile-sidebar-backdrop')
     if (await sidebarBackdrop.isVisible()) {
-      await sidebarBackdrop.tap({ position: { x: 360, y: 400 } })
+      // The modal scope isolates background siblings. A real outside touch
+      // targets their ancestor and is dismissed by the shared interaction layer.
+      const backdropBox = await sidebarBackdrop.boundingBox()
+      expect(backdropBox).not.toBeNull()
+      await guestPage.touchscreen.tap(backdropBox!.x + 360, backdropBox!.y + 400)
       await expect(sidebarBackdrop).toHaveCount(0)
     }
 
@@ -267,13 +274,23 @@ test('enforces Owner and read-only authority across real mobile authentication',
     const tamperedResponse = await tamperedPage.goto(tamperedUrl.toString(), { waitUntil: 'domcontentloaded' })
     expect(tamperedResponse?.status()).toBe(410)
     await expect(tamperedPage.getByText(/share link expired or unavailable/)).toBeVisible()
+  } catch (error) {
+    scenarioFailed = true
+    throw error
   } finally {
-    await Promise.all([
+    const cleanup = await Promise.allSettled([
       fullControl.close(),
       spentTicket.close(),
       readOnly.close(),
       tampered.close(),
     ])
     await page.keyboard.press('Escape').catch(() => {})
+    const failures = cleanup.flatMap(result => result.status === 'rejected' ? [result.reason] : [])
+    if (failures.length > 0) {
+      await testInfo.attach('Mobile browser context cleanup failure', {
+        body: failures.map(String).join('\n'), contentType: 'text/plain',
+      })
+      if (!scenarioFailed) throw new AggregateError(failures, 'Mobile browser context cleanup failed')
+    }
   }
 })
