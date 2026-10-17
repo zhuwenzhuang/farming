@@ -1,11 +1,11 @@
 ---
 pageClass: quickstart-page
-description: Install Farming, start a coding Agent, and complete a verifiable first task in six steps.
+description: Install Farming, start a coding Agent, and complete a verifiable first task in five steps.
 ---
 
 # Quick start
 
-Follow these six steps to install Farming, start a coding Agent, and complete a verifiable first task.
+Follow these five steps to install Farming, start a coding Agent, and complete a verifiable first task.
 
 ## Prepare the host
 
@@ -87,17 +87,6 @@ Then follow the work:
 The result includes file paths, test locations, and command output that you can verify independently.
 :::
 
-## Run two Agents side by side
-
-1. Choose **New Agent** again and create a second Agent in the same Workspace. It can use a different coding Agent.
-2. Give each Agent a read-only task—for example, reuse the prompt above for one and ask the other to summarize recent commits.
-3. Watch the sidebar: running, finished, and waiting-for-input states are shown separately, and finished work is marked unread.
-4. Optional: turn on completion notifications in [Settings](../customize/settings#agent).
-
-::: tip Checkpoint
-Without switching Agents, the sidebar tells you which one finished first and which one is waiting for you.
-:::
-
 ## Try a small change
 
 After a read-only task, try a narrowly scoped edit:
@@ -121,26 +110,17 @@ See [Verify and finish](../workflows/verify-and-finish) for the full workflow.
 You inspected the actual file changes and can distinguish what the Agent verified from what remains unverified.
 :::
 
-## Leave and come back
+## What happens when the browser closes?
 
-Closing the tab does not automatically stop running Agents. Try it:
+Closing the tab does not automatically stop running Agents. Reopen the same Farming address to continue.
 
-1. Close the browser tab. The Agents keep running.
-2. On the Farming host, print the current address and open it on a phone or another computer. That device must be able to reach the host; see [Use Farming from a phone or another computer](../code/mobile-and-remote).
+To print the address again:
 
-   ```bash
-   farming url
-   ```
-
-   You can also scan the QR code in the page's share panel. A QR code created by an Owner grants full control, so scan it only on a trusted device.
-3. On the other device, open the finished Agent, read the result, and send a short follow-up.
-4. Return to your original computer and continue.
+```bash
+farming url
+```
 
 If the service is not running, start it again with `farming daemon`.
-
-::: tip Checkpoint
-You saw the same Agent on another device and kept it working.
-:::
 
 ## Next
 

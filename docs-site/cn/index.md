@@ -3,8 +3,8 @@ layout: home
 
 hero:
   name: Farming
-  text: 在开发机上并行跑 Coding Agent
-  tagline: 哪个 Agent 需要你一眼可见。只要运行主机保持在线，关掉浏览器它们也继续跑；手机也能接管。
+  text: 浏览器中的 AI Coding Agent 工作区
+  tagline: 在开发机上运行 Coding Agent，通过浏览器开始使用。
   image:
     src: /farming-hero.webp
     alt: Farming Code
@@ -13,31 +13,9 @@ hero:
       text: 快速开始
       link: /cn/get-started/quickstart
     - theme: alt
-      text: 远程与手机使用
-      link: /cn/code/mobile-and-remote
+      text: 了解两种界面
+      link: '#farming-有什么'
 ---
-
-## 你可以用 Farming 做什么
-
-<div class="docs-card-grid">
-  <a class="docs-card" href="./code/projects-and-agents">
-    <strong>同时推进几件事</strong>
-    <span>每个任务一个 Agent，侧栏能看出哪个在跑、哪个完成了、哪个在等你。</span>
-  </a>
-  <a class="docs-card" href="./code/mobile-and-remote">
-    <strong>离开电脑也不中断</strong>
-    <span>Agent 跑在开发机上；关掉浏览器，用手机看结论、回一句话。</span>
-  </a>
-  <a class="docs-card" href="./code/terminal">
-    <strong>先读过程，再亲手接管</strong>
-    <span>用 Chat 读结构化过程；需要时切到 Terminal 操作同一个会话。</span>
-  </a>
-  <a class="docs-card" href="./customize/providers-and-permissions">
-    <strong>多家 Agent 一处管</strong>
-    <span>Codex、Claude Code、Pi、OpenCode、Qoder、Qwen Code 放在同一个工作区。</span>
-    <ProviderIcons />
-  </a>
-</div>
 
 ## Farming 有什么
 
@@ -46,30 +24,31 @@ hero:
     <strong>Farming Code</strong>
     <span>现代、轻量的 Agent 工作区，适合日常使用。</span>
   </a>
-  <a class="docs-card" href="./get-started/quickstart">
+  <a class="docs-card" href="./crt/overview">
+    <strong>Farming CRT</strong>
+    <span>复古的 Agent 工作区，适合纯键盘控制与 Terminal 爱好者。</span>
+  </a>
+  <a class="docs-card" href="./code/mobile-and-remote">
     <strong>Web 远程托管</strong>
     <span>运行在 Mac 或 Linux 主机上，通过桌面或手机浏览器访问。</span>
+    <ProviderIcons />
   </a>
   <a class="docs-card" href="./code/files">
     <strong>Files</strong>
     <span>浏览、搜索与轻量编辑项目文件；查看 Git Diff、提交历史与 Blame。</span>
+  </a>
+  <a class="docs-card" href="./customize/settings#farming-pet">
+    <strong>Farming Pet 与番茄钟</strong>
+    <span>用柔和的页面反馈与休息提醒陪伴长时间使用。</span>
   </a>
   <a class="docs-card" href="./plugins/overview">
     <strong>插件与实验性功能</strong>
     <span>Browser、Agent Homes，以及仍在尝试中的扩展能力。</span>
     <IntegrationIcons />
   </a>
-  <a class="docs-card" href="./crt/overview">
-    <strong>Farming CRT</strong>
-    <span>复古的 Agent 工作区，适合纯键盘控制与 Terminal 爱好者。</span>
-  </a>
-  <a class="docs-card" href="./customize/settings#farming-pet">
-    <strong>Farming Pet 与番茄钟</strong>
-    <span>用柔和的页面反馈与休息提醒陪伴长时间使用。</span>
-  </a>
 </div>
 
-## 和 Agent 一起工作的方法
+## 你可以用 Farming 做什么
 
 <div class="docs-card-grid">
   <a class="docs-card" href="./workflows/understand-a-codebase">

@@ -1126,14 +1126,14 @@
   counter-reset: quickstart-step;
 }
 
-.quickstart-page .vp-doc h2:nth-of-type(-n + 6) {
+.quickstart-page .vp-doc h2:nth-of-type(-n + 5) {
   display: flex;
   align-items: center;
   gap: 12px;
   padding-top: 28px;
 }
 
-.quickstart-page .vp-doc h2:nth-of-type(-n + 6)::before {
+.quickstart-page .vp-doc h2:nth-of-type(-n + 5)::before {
   display: inline-grid;
   flex: 0 0 auto;
   width: 34px;
@@ -1151,7 +1151,7 @@
   counter-increment: quickstart-step;
 }
 
-.quickstart-page .vp-doc h2:nth-of-type(-n + 6) .header-anchor {
+.quickstart-page .vp-doc h2:nth-of-type(-n + 5) .header-anchor {
   top: 28px;
 }
 

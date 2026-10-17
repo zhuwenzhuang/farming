@@ -107,24 +107,12 @@ After stopping every Config using this installation, remove the chosen program d
 
 ## Platforms
 
-The user-directory installer targets macOS x64/arm64 and glibc Linux x64/arm64. Linux requires glibc 2.28+, with a private compatibility runtime for x64 hosts on glibc 2.17–2.27. It still requires Bash, curl, tar, and a SHA-512 verifier: `sha512sum` or `shasum` with `base64` and `od`, or OpenSSL. It does not support musl Linux or older glibc, upgrade system libraries, modify shell startup files, or configure startup at boot. Provider login is still required; external project tools retain their own system requirements.
+The user-directory installer targets macOS x64/arm64 and glibc Linux x64/arm64. Linux requires glibc 2.28+, with a private compatibility runtime for x64 hosts on glibc 2.17–2.27. It still requires Bash, curl, tar, and a SHA-512 verifier: `sha512sum` or `shasum` with `base64` and `od`, or OpenSSL. It does not support musl Linux or older glibc. Farming uses `/bin/ps` to verify process ownership before starting or stopping; minimal Linux images need `procps` (Debian/Ubuntu) or `procps-ng` (RHEL/Rocky/CentOS), which the directory installer checks before downloading. The installer does not upgrade system libraries, modify shell startup files, or configure startup at boot. Provider login is still required; external project tools retain their own system requirements.
+
+The package includes native Agent runtimes; allow roughly 1–2 GB for the installation plus package-manager caches and staging. Slow networks can take several minutes; for npm download diagnostics, use `npm install --global farming-code@latest --loglevel=verbose`.
 
 Run each step separately and proceed only after it succeeds. `--dir` overrides `FARMING_INSTALL_ROOT`.
 Older systems must have an up-to-date CA trust store before downloading the installer.
 For `curl: (60)` errors, update the system CA certificates through your trusted OS source,
 or supply a trusted CA bundle with `CURL_CA_BUNDLE`. Do not disable TLS verification.
 The installer does not change system certificates or install system packages.
-
-## Host tools and installation progress
-
-Farming uses `/bin/ps` to verify process ownership before starting or stopping.
-Minimal Linux images need `procps` (Debian/Ubuntu) or `procps-ng`
-(RHEL/Rocky/CentOS). The directory installer checks this before downloading.
-
-The package includes native Agent runtimes; allow roughly 1–2 GB for the
-installation plus package-manager caches and staging. Slow networks can take
-several minutes. The directory installer reports elapsed time during dependency
-installation; for npm download diagnostics, use `npm install --global
-farming-code@latest --loglevel=verbose`. Run `farming --version` to inspect the
-selected package, and `farming url` to recover its authenticated local URL.
-Treat that URL as a credential.
