@@ -421,6 +421,9 @@ export async function openFarming(page: Page, options: { terminalComposerExpande
   // expanded preference; default-state scenarios opt out to test the product default.
   if (options.terminalComposerExpanded !== false) {
     await page.addInitScript(() => {
+      // This is a host UI preference; opaque-origin preview frames must not
+      // access storage or receive errors from the test harness.
+      if (window !== window.top) return
       const key = 'farming.code.terminalComposerCollapsed.v1'
       if (localStorage.getItem(key) === null) localStorage.setItem(key, 'false')
     })
