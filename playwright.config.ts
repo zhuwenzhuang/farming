@@ -1,5 +1,4 @@
 import { chromium, defineConfig, devices } from '@playwright/test'
-import { registry } from 'playwright-core/lib/server/registry/index'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -20,16 +19,12 @@ const htmlReportDir = process.env.FARMING_PLAYWRIGHT_HTML_REPORT_DIR
 // runs leave it unset and keep building their own bundle first.
 const skipPlaywrightBuild = process.env.FARMING_PLAYWRIGHT_SKIP_BUILD === '1'
 const startPlaywrightServer = 'exec tsx scripts/start-playwright-server.ts'
-const localChromePath = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+// Use Playwright's pinned browser by default. System Chrome may launch an
+// updater that inherits its pipes and prevents worker teardown after Chrome exits.
 const executablePath = process.env.FARMING_PLAYWRIGHT_CHROME_PATH
-  || (fs.existsSync(localChromePath) ? localChromePath : undefined)
-const headlessShellPath = registry
-  .findExecutable('chromium-headless-shell')
-  .executablePath()
+  || chromium.executablePath()
 const browserResourceExecutablePath = process.env.FARMING_BROWSER_EXECUTABLE
   || executablePath
-  || headlessShellPath
-  || chromium.executablePath()
 const managedAgentBrowserCandidates = [
   process.env.FARMING_AGENT_BROWSER_BIN,
   path.join(

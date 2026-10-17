@@ -375,6 +375,9 @@ Changed Files + Failure Signatures
 
 ### 浏览器构建依赖
 
+- 浏览器测试及其 Browser Resource 默认使用 Playwright 固定版本的 Chromium。
+  系统 Chrome 只能通过 `FARMING_PLAYWRIGHT_CHROME_PATH` 显式指定，不自动探测；
+  其更新进程可能在浏览器退出后继续持有测试进程的管道。
 - Frontend Artifact Production 独立于仓库 `Check` Job。
 - Frontend Production、`Check` 和 Node Compatibility 同时启动。
 - Browser 和 Mobile Job 只依赖 Frontend Artifact Job。

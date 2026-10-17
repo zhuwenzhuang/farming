@@ -487,6 +487,10 @@ SHA-256 sidecar or hash the same unchanged tarball again in that stage.
 
 ### Browser Build Dependency
 
+- Browser tests and their Browser Resource use the Playwright-pinned Chromium
+  executable by default. System Chrome is an explicit
+  `FARMING_PLAYWRIGHT_CHROME_PATH` override, not an automatic discovery path;
+  its updater can outlive the browser and retain test-process pipes.
 - Frontend artifact production is separate from the repository `Check` job.
 - Run frontend production, `Check`, and Node compatibility in parallel.
 - Browser and mobile jobs depend only on the frontend artifact job.
