@@ -13,6 +13,7 @@ const definitions = [
   ['interaction', 'release:fast-screen:interaction'],
   ['language-server', 'release:fast-screen:language-server'],
   ['sidebar', 'release:fast-screen:sidebar-mobile'],
+  ['communication', 'release:fast-screen:communication'],
 ];
 export function selectBrowserScreen(files) {
   const selected = new Set();
@@ -28,6 +29,7 @@ export function selectBrowserScreen(files) {
     if (/^src\/components\/code\/(acp\/|.*[Cc]hat|.*[Tt]ranscript)|^(backend|shared)\/acp|^backend\/control-api\.cts|^src\/components\/CodeWorkspace\.|^src\/styles\/(chat|transcript)|^tests\/e2e\/(acp-|chat-|agent-handoff|related-(session|history)|ui-interaction-layer)/.test(filename)) select(['interaction']);
     if (/^src\/.*(auth|sharing|access)|^backend\/.*(auth|sharing|access-control)|^tests\/e2e\/mobile-auth-readonly/.test(filename)) select(['mobile-auth']);
     if (/^src\/.*[Ss]idebar|^src\/styles\/sidebar|^tests\/e2e\/sidebar-/.test(filename)) select(['sidebar']);
+    if (/^extensions\/a2a\/|^shared\/agent-communication\.|^src\/components\/code\/(CodeMainArea|PluginsPanel|copy|related-session-navigation)\.|^src\/styles\/plugin\.css$|^tests\/e2e\/(a2a-plugin|acp-peer-messages|shared-config-plugin)\.spec\.ts$/.test(filename)) select(['communication']);
     if (!mapped && /^(src|frontend|extensions|shared)\/|^tests\/e2e\//.test(filename)) unmapped.push(filename);
   }
   return {

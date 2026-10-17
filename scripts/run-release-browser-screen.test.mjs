@@ -123,3 +123,14 @@ test('semantic transport changes select the actual LSP browser scenarios', () =>
   assert.deepEqual(plan.unmapped, []);
   assert.deepEqual(plan.lanes.map(lane => lane.script), ['release:fast-screen:language-server']);
 });
+
+test('A2A plugin and attributed messages select the complete communication story', () => {
+  const plan = selectBrowserScreen(['extensions/a2a/frontend/A2aPluginCard.tsx',
+    'extensions/a2a/backend/a2a-router.cts', 'shared/agent-communication.ts',
+    'src/components/code/PluginsPanel.tsx', 'src/components/code/CodeMainArea.tsx',
+    'src/components/code/copy.ts', 'src/components/code/related-session-navigation.ts',
+    'src/styles/plugin.css', 'tests/e2e/a2a-plugin.spec.ts',
+    'tests/e2e/acp-peer-messages.spec.ts', 'tests/e2e/shared-config-plugin.spec.ts']);
+  assert.deepEqual(plan.unmapped, []);
+  assert.deepEqual(plan.lanes.map(lane => lane.name), ['interaction', 'communication']);
+});
