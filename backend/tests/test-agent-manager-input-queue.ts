@@ -230,6 +230,10 @@ async function run() {
     assert.deepStrictEqual(identityCalls, [], 'startup selection pages must not receive /status');
 
     identityPreview = '› Ask Codex\n\n  gpt-5.6-sol high · /tmp';
+    assert.strictEqual(await manager.resolveCodexTerminalIdentityFromPreview(
+      'agent-status-identity', identityPreview,
+    ), false, 'the initial composer can render before Codex configures a Session');
+    assert.deepStrictEqual(identityCalls, [], 'startup idle must not consume the single status probe');
     await manager.sendInput('agent-status-identity', 'draft text');
     assert.strictEqual(await manager.resolveCodexTerminalIdentityFromPreview(
       'agent-status-identity',
@@ -249,8 +253,21 @@ async function run() {
     assert.deepStrictEqual(identityCalls.map(call => call.input), ['initial task\r'],
       'the deferred identity probe must not inject /status into an active turn');
     assert.strictEqual(manager.agents.get('agent-status-identity').providerSessionTemporary, true);
+    // A fast turn can expose its busy state only through the provider title;
+    // the ordinary idle composer footer remains visible throughout.
     identityPreview = '› Ask Codex\n\n  gpt-5.6-sol high · /tmp';
+    manager.agents.get('agent-status-identity').previewText = identityPreview;
+    manager.engineBridge.emit('session-title', {
+      sessionId: 'agent-status-identity', runtimeEpoch: 'epoch-identity', title: '⠙ Short turn',
+    });
+    assert.strictEqual(manager.agents.get('agent-status-identity').terminalIdentityProbe.phase, 'working');
+    await manager.resolveCodexTerminalIdentityFromPreview('agent-status-identity', identityPreview);
+    assert.strictEqual(manager.agents.get('agent-status-identity').terminalIdentityProbe.phase, 'working',
+      'an idle footer must not admit status while the current provider title is busy');
     identityCalls.length = 0;
+    manager.engineBridge.emit('session-title', {
+      sessionId: 'agent-status-identity', runtimeEpoch: 'epoch-identity', title: 'Short turn',
+    });
     await Promise.all([
       manager.resolveCodexTerminalIdentityFromPreview('agent-status-identity', identityPreview),
       manager.resolveCodexTerminalIdentityFromPreview('agent-status-identity', identityPreview),

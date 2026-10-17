@@ -18,9 +18,11 @@ Terminal coordinator 拥有队列、期限与清理，Adapter 只声明约束；
 ## Session 连续性
 
 新 Terminal 使用 Farming 临时身份。用户输入后，History、恢复、Fork 和 Runtime 切换
-要求已证明的可恢复 Provider Session。当确切 Runtime 空闲时，一次有界 `/status` 探测
-可从结构化已渲染面板确认身份；任意输出、模型名称和未确认写入都不是证明。探测保留未
-提交草稿，不自动重发不确定输入。
+要求已证明的可恢复 Provider Session。初始 Composer 可能先于 Codex Session 配置完成而
+显示，因此后端仅在观察到首次提交回合进入 busy、随后返回 idle Composer 后，允许一次
+有界 `/status` 探测。就绪与已尝试状态绑定 Runtime epoch，Server 重连保留状态，新
+Runtime epoch 从未就绪开始。结构化已渲染状态面板确认身份；任意输出、模型名称和
+未确认写入都不是证明。探测保留未提交草稿，不自动重发不确定输入。
 
 Chat/Terminal 通过真实 Runtime 替换保留已确认对话。身份未确认时切换控件仍可见但禁用；
 停止后的未确认 Agent 可检查，但不声称可恢复。保存配置的恢复和失败回退由共享 ACP 契约负责。

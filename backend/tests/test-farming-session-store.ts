@@ -102,6 +102,8 @@ function run() {
     providerSessionId: 'tmp_uuid_aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
     providerSessionTemporary: true,
     terminalInputReceived: true,
+    runtimeEpoch: 'identity-epoch',
+    terminalIdentityProbe: { runtimeEpoch: 'identity-epoch', phase: 'attempted' },
     wantsMain: true,
     engineName: 'native',
     projectOrder: 4096,
@@ -114,6 +116,8 @@ function run() {
   assert.strictEqual(temporaryRecord.pinnedOrder, 2048);
   assert.strictEqual(store.readRecord(tempRecordId).lastActivityAt, 1_700_000_000_000);
   assert.strictEqual(temporaryRecord.terminalInputReceived, true);
+  assert.deepStrictEqual(temporaryRecord.terminalIdentityProbe, { runtimeEpoch: 'identity-epoch', phase: 'attempted' },
+    'uncertain identity attempts must survive a fresh store read so Server recovery never replays them');
   assert.strictEqual(temporaryRecord.wantsMain, true);
   const resolvedRecordId = store.ensureRecordForAgent({
     id: 'agent-temp-codex',

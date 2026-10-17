@@ -110,6 +110,13 @@ function run() {
     );
     assert.strictEqual(parseCliVersion('codex-cli 0.142.3'), '0.142.3');
     assert(compareCliVersions('0.142.3', '0.133.0') > 0, 'newer codex should compare higher');
+    assert.strictEqual(parseCliVersion('codex-cli 0.163.0-alpha.10.2'), '0.163.0-alpha.10.2');
+    assert(compareCliVersions('0.163.0', '0.163.0-alpha.10.2') > 0);
+    assert(compareCliVersions('0.163.0-alpha.10', '0.163.0-alpha.2') > 0);
+    assert(compareCliVersions('0.163.0-alpha', '0.163.0-alpha.1') < 0);
+    assert(compareCliVersions('0.163.0-1', '0.163.0-alpha') < 0);
+    assert.strictEqual(compareCliVersions('0.163.0+build.1', '0.163.0+build.2'), 0);
+
     const oldCodex = writeExecutable(tempDir, 'old-codex');
     const newCodex = writeExecutable(tempDir, 'new-codex');
     const compatibleCodex = resolveCompatibleCodexExecutable('0.142.0', '', {
@@ -169,6 +176,17 @@ function run() {
 
     const systemCodex = writeExecutable(tempDir, 'system-codex');
     const farmingCodex = writeExecutable(tempDir, 'farming-codex');
+    const stableOverPrerelease = resolveTerminalCodexExecutable('', '', {
+      systemCandidates: [systemCodex],
+      farmingCandidates: [farmingCodex],
+      readVersion(filePath) {
+        return filePath === systemCodex ? '0.163.0-alpha.10.2' : '0.163.0';
+      },
+    });
+    assert.strictEqual(stableOverPrerelease.path, farmingCodex,
+      'managed stable must replace an older system prerelease of the same core version');
+    clearExecutableVersionCache();
+
     const sameVersion = resolveTerminalCodexExecutable('', '', {
       systemCandidates: [systemCodex],
       farmingCandidates: [farmingCodex],

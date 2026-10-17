@@ -383,6 +383,7 @@ async function systemControlTrafficDoesNotCrossTheFence() {
   const agent = {
     ...terminalAgent('agent-control', 'epoch-1'),
     providerSessionTemporary: true,
+    terminalIdentityProbe: { runtimeEpoch: 'epoch-1', phase: 'ready' },
   };
   manager.agents.set('agent-control', agent);
 

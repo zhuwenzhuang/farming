@@ -996,7 +996,7 @@ export function PluginsPanel({
         code?: string
         error?: string
       }
-      if (!response.ok) throw new Error(data.error || requestCopyRef.current.agentExtensionsFailed, { cause: data.code })
+      if (!response.ok) throw Object.assign(new Error(data.error || requestCopyRef.current.agentExtensionsFailed), { code: data.code })
       if (
         !lease.isCurrent()
         || agentSaveRequestRef.current
@@ -1014,7 +1014,7 @@ export function PluginsPanel({
       retryOnReconnectRef.current = disconnected
       if (!options.quiet) setAgentGroupsError(disconnected
         ? { copyKey: 'agentExtensionsDisconnected' }
-        : loadError instanceof Error && loadError.cause === 'INVENTORY_CHANGED_DURING_READ'
+        : loadError instanceof Error && 'code' in loadError && loadError.code === 'INVENTORY_CHANGED_DURING_READ'
           ? { copyKey: 'agentInventoryChanged' }
           : loadError instanceof Error ? loadError.message : { copyKey: 'agentExtensionsFailed' })
     } finally {

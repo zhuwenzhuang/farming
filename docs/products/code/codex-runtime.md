@@ -24,8 +24,11 @@ Homes remain independent.
 
 A fresh Terminal has a temporary Farming identity. After user input, History,
 recovery, Fork and runtime switching require a proven resumable Provider Session.
-When the exact runtime is idle, one bounded `/status` probe may establish identity
-from its structured rendered panel. Arbitrary output, model labels and an
+The initial composer can appear before Codex has configured its Session. The
+backend therefore admits one bounded `/status` probe only after observing the
+first submitted turn become busy and then return to the idle composer. Its
+epoch-bound readiness and attempted state survive Server reconnection; a new
+runtime epoch starts unready. The structured status panel establishes identity. Arbitrary output, model labels and an
 unconfirmed write cannot establish identity. Probing preserves unsubmitted drafts
 and never automatically repeats uncertain input.
 

@@ -1,3 +1,4 @@
+import type { TerminalIdentityProbeState } from './terminal-provider-control-coordinator.cjs';
 import type { LifecycleJournal } from './agent-manager-lifecycle-types.js';
 import type { AgentInputCoordinator } from './agent-input-coordinator.cjs';
 import type { TerminalStartupCoordinator } from './terminal-startup-coordinator.cjs';
@@ -65,6 +66,7 @@ interface RuntimeEngineMetadata extends Record<string, unknown> {
   startedAt?: number | null;
   task?: string;
   terminalInputReceived?: boolean;
+  terminalIdentityProbe?: TerminalIdentityProbeState | null;
   wantsMain?: boolean;
   workflowTemplate?: string;
 }

@@ -203,18 +203,37 @@ function isExecutable(filePath: string): boolean {
 }
 
 function parseCliVersion(value: unknown): string {
-  const match = String(value || '').match(/(\d+\.\d+\.\d+)/);
+  const match = String(value || '').match(/(\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?)/);
   return match ? match[1] : '';
 }
 
 function compareCliVersions(left: unknown, right: unknown): number {
-  const leftParts = parseCliVersion(left).split('.').map(part => Number(part));
-  const rightParts = parseCliVersion(right).split('.').map(part => Number(part));
-  if (leftParts.length !== 3 || rightParts.length !== 3) return 0;
-
+  const leftVersion = parseCliVersion(left).split('+')[0];
+  const rightVersion = parseCliVersion(right).split('+')[0];
+  if (!leftVersion || !rightVersion) return 0;
+  const [leftCore, ...leftSuffix] = leftVersion.split('-');
+  const [rightCore, ...rightSuffix] = rightVersion.split('-');
+  const leftParts = leftCore.split('.').map(Number);
+  const rightParts = rightCore.split('.').map(Number);
   for (let index = 0; index < 3; index += 1) {
     const delta = leftParts[index] - rightParts[index];
     if (delta !== 0) return delta;
+  }
+  // A stable release is newer than its prereleases. Build metadata does not
+  // affect precedence; numeric prerelease identifiers compare numerically.
+  if (!leftSuffix.length || !rightSuffix.length) return rightSuffix.length - leftSuffix.length;
+  const leftPre = leftSuffix.join('-').split('.');
+  const rightPre = rightSuffix.join('-').split('.');
+  for (let index = 0; index < Math.max(leftPre.length, rightPre.length); index += 1) {
+    const a = leftPre[index];
+    const b = rightPre[index];
+    if (a === undefined || b === undefined) return leftPre.length - rightPre.length;
+    if (a === b) continue;
+    const aNumeric = /^\d+$/.test(a);
+    const bNumeric = /^\d+$/.test(b);
+    if (aNumeric && bNumeric) return Number(a) - Number(b);
+    if (aNumeric !== bNumeric) return aNumeric ? -1 : 1;
+    return a < b ? -1 : 1;
   }
   return 0;
 }

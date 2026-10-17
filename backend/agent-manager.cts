@@ -234,7 +234,7 @@ import {
   providerSessionHistoryMutationSupported,
   runProviderSessionHistoryMutation,
 } from './provider-session-history-mutations.cjs';
-import { TerminalProviderControlCoordinator } from './terminal-provider-control-coordinator.cjs';
+import { TerminalProviderControlCoordinator, terminalIdentityProbeState, observeTerminalIdentityReadiness } from './terminal-provider-control-coordinator.cjs';
 import { AgentTerminalProjectionTracker } from './agent-terminal-projection-tracker.cjs';
 import {
   AcpSessionOptionsStore,
@@ -2429,6 +2429,7 @@ class AgentManager extends EventEmitter {
         if (!agent || !terminalRuntimeEventMatches(agent, runtimeEpoch)) return;
 
         if (this.updateAgentSessionTitle(agent, title)) {
+          void this.resolveProviderTerminalIdentityFromPreview(sessionId, agent.previewText || '');
           this.attentionTracker.observeAgentAttentionState(sessionId);
           this.emitStateChange({ agentIds: [sessionId] });
         }
@@ -2811,6 +2812,7 @@ class AgentManager extends EventEmitter {
         providerSessionResolvedAt: persisted.providerSessionResolvedAt || engineMetadata.providerSessionResolvedAt,
         providerSessionTitle: persisted.providerSessionTitle || engineMetadata.providerSessionTitle,
         providerSessionWorkspace: persisted.providerSessionWorkspace || engineMetadata.providerSessionWorkspace,
+        terminalIdentityProbe: terminalIdentityProbeState(persisted.terminalIdentityProbe, String(state.runtimeEpoch || '')),
         terminalInputReceived: Object.prototype.hasOwnProperty.call(persisted, 'terminalInputReceived')
           ? persisted.terminalInputReceived === true
           : engineMetadata.terminalInputReceived,
@@ -4241,6 +4243,7 @@ class AgentManager extends EventEmitter {
       providerSessionTitle: metadata.providerSessionTitle || '',
       providerSessionWorkspace: metadata.providerSessionWorkspace || '',
       terminalInputReceived: metadata.terminalInputReceived === true,
+      terminalIdentityProbe: terminalIdentityProbeState(metadata.terminalIdentityProbe, String(state.runtimeEpoch || '')),
       structuredRuntimeProcess,
       legacyAcpProcessExitAcknowledgedAt:
         typeof metadata.legacyAcpProcessExitAcknowledgedAt === 'number'
@@ -6699,7 +6702,6 @@ class AgentManager extends EventEmitter {
       || !control
       || runtimeKind(agent) !== 'terminal'
       || agent.providerSessionTemporary !== true
-      || agent.terminalDraftInputReceived === true
       || !isRunningAgentRuntimeStatus(agent.status)
     ) {
       return Promise.resolve(false);
@@ -6716,7 +6718,21 @@ class AgentManager extends EventEmitter {
         control,
       ));
     }
-    if (!control.canResolveFromPreview(previewText)) return Promise.resolve(false);
+    const working = agentAttentionTurnActive({ ...agent, previewText });
+    const idle = !working && control.canResolveFromPreview(previewText);
+    const readiness = observeTerminalIdentityReadiness(
+      agent.terminalIdentityProbe,
+      runtimeEpoch,
+      agent.terminalInputReceived === true && working,
+      idle,
+    );
+    if (readiness !== (agent.terminalIdentityProbe || null)) {
+      agent.terminalIdentityProbe = readiness;
+      this.sessionPersistence.persist(agent);
+    }
+    if (!idle || readiness?.phase !== 'ready' || agent.terminalDraftInputReceived === true) {
+      return Promise.resolve(false);
+    }
 
     const attemptKey = runtimeEpoch || `started:${Number(agent.startedAt) || 0}`;
     return this.terminalProviderControlCoordinator.resolveIdentityOnce(agentId, attemptKey, () => {
@@ -6752,11 +6768,16 @@ class AgentManager extends EventEmitter {
             control,
           );
         }
-        if (!control.canResolveFromPreview(currentPreview)) {
+        if (agentAttentionTurnActive({ ...current, previewText: currentPreview })
+          || !control.canResolveFromPreview(currentPreview)) {
           this.terminalProviderControlCoordinator.resetIdentityAttempt(agentId, attemptKey);
           return false;
         }
 
+        // Persist the attempt before the uncertain PTY write. Server recovery
+        // must not replay /status after losing its response.
+        current.terminalIdentityProbe = { runtimeEpoch, phase: 'attempted' };
+        this.sessionPersistence.persist(current);
         const resolvedSessionId = await control.resolve({
           timeoutMs: control.timeoutMs,
           readPreview: async () => {

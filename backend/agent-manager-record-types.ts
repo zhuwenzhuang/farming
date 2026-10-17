@@ -1,3 +1,4 @@
+import type { TerminalIdentityProbeState } from './terminal-provider-control-coordinator.cjs';
 import type { ChatTurnState } from '../shared/chat-turn-state.js';
 export type AgentId = string;
 export type AgentRecordId = `agent_${string}` | `fsess_${string}`;
@@ -213,6 +214,7 @@ export interface AgentRecord extends Record<string, unknown>, AgentDisplayState,
   status?: string;
   structuredRuntimeProcess?: StructuredRuntimeProcessIdentity | null;
   terminalInputReceived?: boolean;
+  terminalIdentityProbe?: TerminalIdentityProbeState | null;
   terminalDraftInputReceived?: boolean;
   attentionBaselineOutputAt?: number | null;
   attentionBaselineOutputSeq?: number | null;
@@ -274,6 +276,7 @@ export interface PersistedAgentPrivateMetadata extends Record<string, unknown>, 
   startedAt?: number | null;
   structuredRuntimeProcess?: StructuredRuntimeProcessIdentity | null;
   terminalInputReceived?: boolean;
+  terminalIdentityProbe?: TerminalIdentityProbeState | null;
   updatedAt?: number;
   wantsMain?: boolean;
 }

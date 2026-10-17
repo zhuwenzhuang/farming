@@ -1,5 +1,26 @@
 'use strict';
 
+interface TerminalIdentityProbeState {
+  runtimeEpoch: string;
+  phase: 'working' | 'ready' | 'attempted';
+}
+
+function terminalIdentityProbeState(value: unknown, runtimeEpoch: string): TerminalIdentityProbeState | null {
+  if (!value || typeof value !== 'object' || !runtimeEpoch) return null;
+  const state = value as Record<string, unknown>;
+  if (state.runtimeEpoch !== runtimeEpoch || !['working', 'ready', 'attempted'].includes(String(state.phase))) return null;
+  return value as TerminalIdentityProbeState;
+}
+
+function observeTerminalIdentityReadiness(
+  value: unknown, runtimeEpoch: string, working: boolean, idle: boolean,
+): TerminalIdentityProbeState | null {
+  const current = terminalIdentityProbeState(value, runtimeEpoch);
+  if (current?.phase === 'ready' || current?.phase === 'attempted') return current;
+  if (current?.phase === 'working') return idle ? { runtimeEpoch, phase: 'ready' } : current;
+  return runtimeEpoch && working ? { runtimeEpoch, phase: 'working' } : null;
+}
+
 class TerminalProviderControlCoordinator {
   private readonly identityAttempts = new Map<string, string>();
   private readonly identityPromises = new Map<string, Promise<boolean>>();
@@ -63,4 +84,5 @@ class TerminalProviderControlCoordinator {
   }
 }
 
-export { TerminalProviderControlCoordinator };
+export { TerminalProviderControlCoordinator, terminalIdentityProbeState, observeTerminalIdentityReadiness };
+export type { TerminalIdentityProbeState };

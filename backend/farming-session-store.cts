@@ -1,3 +1,4 @@
+import { terminalIdentityProbeState } from './terminal-provider-control-coordinator.cjs';
 import { isChatTurnState } from '../shared/chat-turn-state.js';
 const crypto = require('crypto');
 const fs = require('fs');
@@ -793,6 +794,7 @@ class FarmingSessionStore {
         ? agent.forkedFromProviderSessionId
         : '',
       terminalInputReceived: agent.terminalInputReceived === true,
+      terminalIdentityProbe: terminalIdentityProbeState(agent.terminalIdentityProbe, String(agent.runtimeEpoch || '')),
       structuredRuntimeProcess: agent.structuredRuntimeProcess
         && typeof agent.structuredRuntimeProcess === 'object'
         ? JSON.parse(JSON.stringify(agent.structuredRuntimeProcess))
