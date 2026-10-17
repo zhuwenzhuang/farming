@@ -37,7 +37,7 @@ test('peer messages stay readable with bounded expansion, unknown inputs, send o
   await expect(firstBody.locator('strong')).toHaveText('共享传输配置')
   await expect(firstBody.locator('pre code')).toHaveText('farming list --json\n')
   await expect(firstBody).toContainText('验收后同步结果。')
-  await expect(messages.nth(1).getByTestId('code-agent-outgoing-body')).toHaveText(await firstBody.innerText())
+  await expect(messages.nth(1).getByTestId('code-agent-outgoing-body')).toHaveText(await firstBody.innerText(), { useInnerText: true })
   await expect(messages.nth(2).getByRole('status')).toHaveText('失败')
   await expect(messages.nth(4).getByRole('status')).toHaveText('正在发送消息')
   await expect(page.getByTestId('code-agent-message-source')).toHaveCount(0)

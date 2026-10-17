@@ -740,7 +740,11 @@ export function PluginsPanel({
   const browserExtensionConnectedRef = useRef(capability?.extension?.connected === true)
   const [agentGroups, setAgentGroups] = useState<AgentExtensionGroup[]>([])
   const [agentGroupsLoading, setAgentGroupsLoading] = useState(true)
-  const [agentGroupsError, setAgentGroupsError] = useState('')
+  const [agentGroupsFailure, setAgentGroupsError] = useState<string | {
+    copyKey: 'agentInventoryChanged' | 'agentExtensionsDisconnected' | 'agentExtensionsFailed'
+  }>('')
+  const agentGroupsError = typeof agentGroupsFailure === 'string'
+    ? agentGroupsFailure : copy[agentGroupsFailure.copyKey]
   const [agentGroupsNotice, setAgentGroupsNotice] = useState('')
   const [agentSaving, setAgentSaving] = useState(false)
   const [agentDraft, setAgentDraft] = useState<AgentHomeDraft | null>(null)
@@ -992,8 +996,7 @@ export function PluginsPanel({
         code?: string
         error?: string
       }
-      if (!response.ok) throw new Error(data.code === 'INVENTORY_CHANGED_DURING_READ'
-        ? requestCopyRef.current.agentInventoryChanged : data.error || requestCopyRef.current.agentExtensionsFailed)
+      if (!response.ok) throw new Error(data.error || requestCopyRef.current.agentExtensionsFailed, { cause: data.code })
       if (
         !lease.isCurrent()
         || agentSaveRequestRef.current
@@ -1010,8 +1013,10 @@ export function PluginsPanel({
       const disconnected = !getBackendConnectionSnapshot().connected
       retryOnReconnectRef.current = disconnected
       if (!options.quiet) setAgentGroupsError(disconnected
-        ? requestCopyRef.current.agentExtensionsDisconnected
-        : loadError instanceof Error ? loadError.message : requestCopyRef.current.agentExtensionsFailed)
+        ? { copyKey: 'agentExtensionsDisconnected' }
+        : loadError instanceof Error && loadError.cause === 'INVENTORY_CHANGED_DURING_READ'
+          ? { copyKey: 'agentInventoryChanged' }
+          : loadError instanceof Error ? loadError.message : { copyKey: 'agentExtensionsFailed' })
     } finally {
       if (
         lease.isCurrent()

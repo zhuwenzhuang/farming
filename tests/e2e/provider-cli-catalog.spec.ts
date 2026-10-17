@@ -72,13 +72,24 @@ test('fake executable inventory preserves Provider and shell API rows', async ({
         capabilities: { supportsChat: true },
       },
       {
+        name: 'agy',
+        command: 'agy',
+        description: 'Antigravity CLI - Google coding assistant',
+        category: 'coding',
+        supported: true,
+        interactive: true,
+        launchOrder: 6,
+        launchDefaults: { homeId: 'default', runtimeMode: 'chat' },
+        capabilities: { supportsChat: true },
+      },
+      {
         name: 'bash',
         command: 'bash',
         description: 'Shell session',
         category: 'shell',
         supported: true,
         interactive: true,
-        launchOrder: 6,
+        launchOrder: 7,
         capabilities: { supportsChat: false },
       },
       {
@@ -88,10 +99,10 @@ test('fake executable inventory preserves Provider and shell API rows', async ({
         category: 'shell',
         supported: true,
         interactive: true,
-        launchOrder: 7,
+        launchOrder: 8,
         capabilities: { supportsChat: false },
       },
     ],
-    total: 8,
+    total: 9,
   })
 })

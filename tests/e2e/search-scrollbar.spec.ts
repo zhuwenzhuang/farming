@@ -120,12 +120,14 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
       await expect.poll(() => view.evaluate(element => element.scrollTop)).toBe(0)
     }
 
-    // The view's padding is also inside Search; the sidebar remains outside.
+    // Search remains open across pointer interactions until explicitly dismissed.
     await page.mouse.click(geometry.left + 12, geometry.top + 120)
     await expect(input).toHaveValue('sql-insight')
     await page.mouse.move(0, 0)
     await expect(page.getByTestId('code-main')).toHaveScreenshot(`search-scrollbar-${appearance}.png`)
     await page.getByTestId('code-sidebar').click({ position: { x: 2, y: 350 } })
+    await expect(page.getByTestId('code-search-panel')).toBeVisible()
+    await page.keyboard.press('Escape')
     await expect(page.getByTestId('code-search-panel')).toBeHidden()
   })
 }

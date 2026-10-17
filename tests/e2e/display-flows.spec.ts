@@ -589,9 +589,10 @@ test.describe('display-backed agent flows', () => {
     holdRefresh = true
     await openNewAgentDialog(page)
     await expect(page.getByTestId('agent-option-codex')).toBeVisible()
-    await expect(page.getByTestId('agent-list-status')).toBeHidden()
+    await expect(page.getByTestId('agent-list-status')).toBeVisible()
 
     releaseRefresh?.()
+    await expect(page.getByTestId('agent-list-status')).toBeHidden()
     await expect(page.getByTestId('agent-option-codex')).toBeFocused()
   })
 

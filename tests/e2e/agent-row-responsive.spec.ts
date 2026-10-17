@@ -781,7 +781,7 @@ test('closes the Archive notice and uses View to focus the archived History sess
   await expect(historyCard.getByTestId('code-session-history-primary')).toBeFocused()
 })
 
-test('hides Agent row actions after a clicked row loses hover', async ({ page, workspaceRoot }) => {
+test('hides Agent row actions after hover and focus leave, and reveals keyboard actions', async ({ page, workspaceRoot }) => {
   const projectDir = path.join(workspaceRoot, 'agent-row-actions')
   fs.mkdirSync(projectDir, { recursive: true })
 
@@ -806,9 +806,11 @@ test('hides Agent row actions after a clicked row loses hover', async ({ page, w
   expect(flagIconBox?.height).toBe(16)
 
   await page.mouse.move(1000, 100)
+  await row.evaluate(element => (element as HTMLElement).blur())
+  await expect(actions).toHaveCSS('opacity', '0')
   await row.evaluate(element => (element as HTMLElement).focus())
   await expect(row).toBeFocused()
-  await expect(actions).toHaveCSS('opacity', '0')
+  await expect(actions).toHaveCSS('opacity', '1')
 
   await page.keyboard.press('Tab')
   await expect(row.getByTestId('code-agent-row-follow-up')).toBeFocused()

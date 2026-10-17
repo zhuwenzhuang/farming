@@ -1584,7 +1584,7 @@ test.describe('ACP human-like browser matrix', () => {
     await test.step('11 hide completed intermediate work behind one folded entry', async () => {
       const processSummary = richTurn.getByTestId('code-agent-transcript-process-summary')
       await expect(processSummary).toHaveAttribute('aria-expanded', 'false')
-      await expect(richTurn.getByTestId('code-agent-transcript-process-compact-list')).toHaveCount(0)
+      await expect(richTurn.getByTestId('code-agent-transcript-process-compact-list')).toBeVisible()
       await expect(richTurn.getByTestId('code-agent-transcript-process-group')).toHaveCount(0)
       await processSummary.click()
       await expect(processSummary).toHaveAttribute('aria-expanded', 'true')
@@ -1883,7 +1883,8 @@ test.describe('ACP human-like browser matrix', () => {
       await expect(liveActivity).toHaveCount(0)
       await expect(liveSummary).toContainText(/Process|Worked for/)
       await expect(liveSummary).toHaveAttribute('aria-expanded', 'false')
-      await expect(liveTurn.getByTestId('code-agent-transcript-process-compact-list')).toHaveCount(0)
+      await expect(liveTurn.getByTestId('code-agent-transcript-process-compact-list')).toContainText('Inspecting files')
+      await expect(liveTurn.getByTestId('code-agent-transcript-process-group')).toHaveCount(0)
       await liveSummary.click()
       const liveGroup = liveTurn.getByTestId('code-agent-transcript-process-group')
       await liveGroup.getByTestId('code-agent-transcript-process-group-toggle').click()
@@ -2384,7 +2385,7 @@ test.describe('ACP human-like browser matrix', () => {
 
     await expect(page.getByText('Live progress complete.', { exact: true })).toBeVisible({ timeout: 15_000 })
     await expect(processSummary).toHaveAttribute('aria-expanded', 'false')
-    await expect(turn.getByTestId('code-agent-transcript-process-compact-list')).toHaveCount(0)
+    await expect(turn.getByTestId('code-agent-transcript-process-compact-list')).toContainText('Inspecting files')
     await expect(turn.getByTestId('code-agent-transcript-process-group')).toHaveCount(0)
 
     await processSummary.click()

@@ -131,12 +131,7 @@ async function hideMobileSidebar(page: import('@playwright/test').Page) {
   const backdrop = page.getByTestId('code-mobile-sidebar-backdrop')
   const backdropBox = await backdrop.boundingBox()
   if (!sidebarBox || !backdropBox) throw new Error('Mobile sidebar or backdrop is missing')
-  await backdrop.click({
-    position: {
-      x: backdropBox.width - 6,
-      y: 80,
-    },
-  })
+  await page.touchscreen.tap(backdropBox.x + backdropBox.width - 6, backdropBox.y + 80)
   await expect(workspace).toHaveClass(/sidebar-collapsed/)
 }
 
