@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync, execFileSync, type ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { once } from 'node:events';
 import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
@@ -424,6 +425,11 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
       });
       assert(cancelled, result.output);
       assert.equal(result.code, signal === 'SIGINT' ? 130 : 143, result.output);
+      // Child exit and the registry's socket-close notification are independent events.
+      // Wait for actual disconnect evidence; a leaked transfer still fails the deadline.
+      await Promise.all([...f.runtimeResponses].map(([name, response]) =>
+        f.abortedDownloads.includes(name) ? Promise.resolve()
+          : once(response, 'close', { signal: AbortSignal.timeout(5000) })));
       assert.deepEqual(f.abortedDownloads.sort(), ['node-bin-darwin-arm64', 'npm']);
       assert(!fs.existsSync(f.root));
       assert(!fs.existsSync(`${f.root}.install-lock`));
