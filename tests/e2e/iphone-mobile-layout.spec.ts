@@ -814,7 +814,9 @@ test.describe('iPhone mobile layout', () => {
       assertDrawerReady,
       'The open iPhone drawer includes two touch-switchable Agents and the loaded mobile Usage row',
     )
-    await page.getByTestId('code-mobile-sidebar-backdrop').tap({ position: { x: 380, y: 400 } })
+    const backdropBox = await page.getByTestId('code-mobile-sidebar-backdrop').boundingBox()
+    if (!backdropBox) throw new Error('Mobile sidebar backdrop is missing')
+    await page.touchscreen.tap(backdropBox.x + backdropBox.width - 6, backdropBox.y + 400)
     await expect(page.getByTestId('code-sidebar')).toHaveClass(/collapsed/)
   })
 
@@ -1552,6 +1554,13 @@ test.describe('iPhone mobile layout', () => {
         windowTopDrift: number
       }> = []
       for (let frame = 0; frame < 36; frame += 1) {
+        // Force three bounded long tasks while native smooth scrolling advances.
+        // This exposes stale mounted ranges that fast local frames hide within
+        // overscan, without making the regression depend on CI host load.
+        if (frame < 3) {
+          const busyUntil = performance.now() + 180
+          while (performance.now() < busyUntil) { /* Occupy this frame's main thread. */ }
+        }
         await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
         const scrollerRect = scroller.getBoundingClientRect()
         const viewportRect = viewport.getBoundingClientRect()
@@ -1596,6 +1605,10 @@ test.describe('iPhone mobile layout', () => {
         })
       }
       return frames
+    })
+    await testInfo.attach('continuous-files-scroll-samples', {
+      body: JSON.stringify(samples, null, 2),
+      contentType: 'application/json',
     })
     expect(samples.some(sample => sample.outerDelta > 400)).toBe(true)
     expect(samples.every((sample, index) => index === 0 || sample.outerScrollTop >= samples[index - 1]!.outerScrollTop)).toBe(true)

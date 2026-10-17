@@ -175,7 +175,9 @@ should encode the same state differently.
   Project/Agent navigation retains 44px rows. File icons and folder chevrons use
   the same leading slot; indentation leaves readable labels at every depth.
 - One Project scroller owns physical movement. Virtualization selects mounted
-  rows without a second scroller or scroll-linked translation. Project summary
+  rows without a second scroller or scroll-linked translation. Native scroll
+  updates the mounted range before yielding to another frame, including after
+  long main-thread tasks. Project summary
   layers release together at their trailing boundary. Density changes retain
   row-relative reading position.
 - Open Editors is a bounded list; appearance of its scrollbar cannot shift labels

@@ -414,14 +414,17 @@ const FileTreeViewContent = memo(function FileTreeViewContent({
       frameId = window.requestAnimationFrame(runScheduledSynchronize)
     }
     synchronize()
-    scroller.addEventListener('scroll', scheduleSynchronize, { passive: true })
+    // Native scroll has already moved every row. Update the mounted range in
+    // this event; an additional animation frame can expose the old range after
+    // a large scroll step on a busy main thread.
+    scroller.addEventListener('scroll', synchronize, { passive: true })
     window.addEventListener('resize', scheduleSynchronize)
     const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(scheduleSynchronize)
     observer?.observe(viewport)
     return () => {
       if (frameId) window.cancelAnimationFrame(frameId)
       observer?.disconnect()
-      scroller.removeEventListener('scroll', scheduleSynchronize)
+      scroller.removeEventListener('scroll', synchronize)
       window.removeEventListener('resize', scheduleSynchronize)
     }
   }, [treeHeight, treeRef, treeViewportRef, treeWindowHeight])
