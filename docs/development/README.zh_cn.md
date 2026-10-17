@@ -2,48 +2,24 @@
 
 > English version: [README.md](./README.md)
 
-本部分面向贡献者和维护者。普通产品用户请从[文档首页](../README.zh_cn.md)开始。
+先读[贡献指南](../../CONTRIBUTING.zh_cn.md)、[工程规则](../../AGENTS.zh_cn.md)和
+[安全策略](../../SECURITY.zh_cn.md)。普通使用说明在
+[文档站](https://zhuwenzhuang.github.io/farming/cn/)。
 
-## 参与贡献
+按问题找到唯一权威文档，不为同一行为维护多份说明。
 
-- [贡献指南](../../CONTRIBUTING.zh_cn.md)
-- [Agent 与工程说明](../../AGENTS.zh_cn.md)
-- [安全策略](../../SECURITY.zh_cn.md)
+| 问题 | 权威文档 |
+| --- | --- |
+| Chat 执行、消息、子会话与恢复 | [ACP Runtime](../products/code/acp-runtime.zh_cn.md)；[Codex 特有边界](../products/code/codex-runtime.zh_cn.md) |
+| 对话身份与 Agent 清单 | [Session 身份](../products/code/provider-session-identity.zh_cn.md)；[Agent 状态协议](../products/code/agent-list-state-protocol.zh_cn.md) |
+| 原生终端状态与重连 | [Terminal 协议](../products/code/terminal-state-protocol.zh_cn.md) |
+| Files 产品、一致性与传输 | [Files 设计](../products/code/project-files-section-design.zh_cn.md)；[文件状态](../products/code/workspace-file-state-model.zh_cn.md)；[传输协议](../products/code/workspace-transport-protocol.zh_cn.md) |
+| 共享视觉与交互语言 | [UI 设计](ui-design-protocol.zh_cn.md)；[UI 交互](ui-interaction-protocol.zh_cn.md) |
+| Config 与安装所有权 | [Config 隔离](config-instance-isolation.zh_cn.md)；[安装生命周期](package-installation-lifecycle.zh_cn.md) |
+| 部署与正式发布 | [远端部署](remote-deployment-lifecycle.zh_cn.md)；[发布契约](release-verification-and-publication.zh_cn.md) |
+| 验证与诊断 | [验收](../products/code/test/acceptance-dogfood-plan.zh_cn.md)；[交互性能](interaction-performance.zh_cn.md)；[真实 Codex 用例](../products/code/real-codex-release-case.zh_cn.md) |
+| 其他产品边界 | [Code](../products/code/README.zh_cn.md)；[产品索引](../products/README.zh_cn.md) |
+| 公开文档维护 | [文档站维护](documentation-site.zh_cn.md) |
 
-## Runtime 与 Session 架构
-
-- [Config 实例隔离](config-instance-isolation.zh_cn.md)
-- [Package 安装与更新生命周期](package-installation-lifecycle.zh_cn.md)
-- [远端部署生命周期](remote-deployment-lifecycle.zh_cn.md)
-- [ACP Runtime](../products/code/acp-runtime.zh_cn.md)
-- [Codex Runtime](../products/code/codex-runtime.zh_cn.md)
-- [Agent 列表状态协议](../products/code/agent-list-state-protocol.zh_cn.md)
-- [Provider Session 持久身份](../products/code/provider-session-identity.zh_cn.md)
-- [Terminal State Protocol](../products/code/terminal-state-protocol.zh_cn.md)
-
-## 产品架构
-
-- [UI 设计协议](ui-design-protocol.zh_cn.md)
-- [UI 交互协议](ui-interaction-protocol.zh_cn.md)
-- [Composer 输入](../products/code/composer-input.zh_cn.md)
-- [公开文档站](documentation-site.zh_cn.md)
-- [Farming Desktop MVP](../products/code/desktop-app.zh_cn.md)
-- [Chrome 扩展 Browser](../products/code/chrome-extension-browser.zh_cn.md)
-- [Language Server](../products/code/language-server.zh_cn.md)
-- [Desktop 原生 Browser 视图](../products/code/desktop-native-browser.zh_cn.md)
-- [Extension 与 Resource Model](../products/code/extension-model.zh_cn.md)
-- [Project Files Design](../products/code/project-files-section-design.zh_cn.md)
-- [休息提醒状态模型](../products/code/rest-reminder.zh_cn.md)
-- [Workspace File 状态模型](../products/code/workspace-file-state-model.zh_cn.md)
-- [Workspace 传输协议](../products/code/workspace-transport-protocol.zh_cn.md)
-- [Review Foundation](../products/code/review-foundation.zh_cn.md)
-- [Farming CRT Layout](../products/crt/base_layout.zh_cn.md)
-
-## 验证
-
-- [发布验证与正式发布](release-verification-and-publication.zh_cn.md)
-- [用户交互性能诊断](interaction-performance.zh_cn.md)
-- [验收与 Dogfood 计划](../products/code/test/acceptance-dogfood-plan.zh_cn.md)
-- [真实 Codex 跨界面用例](../products/code/real-codex-release-case.zh_cn.md)
-
-开发文档可以包含协议、状态机、不变量和测试证据；这些内容不应复制到仓库或产品入口页。
+设计文档聚焦目的、所有权、不变量、协议和失败恢复。字段清单、调用步骤和单个回归案例
+由代码与测试维护。研究、提案和执行复盘留在本地、不跟踪；已确定结论合入已有权威文档。

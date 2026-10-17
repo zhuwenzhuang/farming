@@ -2,1378 +2,292 @@
 
 > Chinese version: [acp-runtime.zh_cn.md](./acp-runtime.zh_cn.md)
 
-Farming uses Agent Client Protocol for structured Chat with supported coding
-agents. The backend owns runtime lifecycle, provider sessions, ordered Chat
-state, configuration, permissions, and recovery. Browser interfaces present
-that authoritative state and do not reconstruct it from prose or terminal
-output.
-
-## Related Sessions and Side Chat
-
-A durable parent Provider Session owns at most one retained Side Chat. Creation
-uses the existing owned Fork admission and journal at the provider's stable
-conversation boundary. It never cancels, reloads, or switches the parent to
-obtain context. Inherited messages are context, not permission to continue the
-parent's task; the child acts on new Side Chat messages. Providers without a
-verified Fork capability cannot create a Side Chat.
-
-Code places the parent on the left and the selected related conversation on the
-right, with independently owned drafts, permissions, and turn controls. Narrow
-windows switch between the two views. Collapsing changes presentation only.
-Every visible Chat transcript and control panel registers revision interest for
-its exact Agent, including side panes and Chat beside a Resource. Native child
-details register their parent Runtime, which owns their event stream. Multiple
-surfaces share one reference-counted subscription; hiding or switching a surface
-releases only its interest. Visible panels take priority over retained background
-views within the bounded subscription budget. Reconnect restores current interest
-and reads authoritative checkpoints without resending messages. Runtime supervision
-is independent: hiding a Side Chat does not cancel its work or release supervision.
-Side Chat and native subagent rows remain beneath their owning parent. Native
-opaque child identities are fenced by the exact parent runtime generation;
-missing transcript capability is reported explicitly.
-
-Idle Side Chats release their runtime after five minutes; loss of explicitly attached owner-client
-supervision makes an idle runtime eligible for release after one minute. Accepted
-turns, pending approvals/input and native child work continue while the browser is
-away; disconnect never forces cancellation. The runtime rechecks idleness at release.
-History remains checkpointed and cold recovery does not start a provider.
-A new explicit message resumes the same session without replaying a prior
-prompt. Stopping the parent releases its exact Side Chat and owned Browser and
-Computer resources; an unavailable parent rejects child messages. Uncertain
-creation or cleanup stays blocked for authoritative reconciliation.
-
-### Reading native related conversations
-
-Native children are observed through their existing parent runtime. The client
-negotiates native child events and normalizes their identities and state at the
-ACP boundary. Connection-local child IDs remain fenced by the parent runtime
-epoch; they are not independently resumable Session identities. Side Chat keeps
-its existing durable Fork identity and lifecycle.
-
-The negotiated child protocol accepts `subagent_update` associations and
-`session_message`/`session_message_chunk` traffic alongside legacy child events.
-An association is announced before child traffic; its immediate parent cannot
-change or cross runtime ownership. Omitted metadata persists, null clears it,
-and each supplied state replaces the whole snapshot. Idle children can work again;
-unset or unknown activity never proves completion. Inter-session messages upsert
-by their enclosing transcript's message identity, and chunks append in wire order.
-Child cancellation requires its explicit current capability and bounded confirmation
-of idle state. Restored evidence retains metadata and messages, but needs fresh
-activity and mutation grants from the current connection.
-
-Each parent Turn and native child owns its own completion. A parent Prompt
-settles after its provider Turn and the already-admitted notification prefix;
-background children do not extend that barrier. The session subscription stays
-alive across parent Turns. Parent completion or cancellation must not synthesize
-terminal child events; only authoritative child evidence settles a child.
-Child interruption remains distinct from successful completion in both inventory
-and transcript reads.
-Session close and process loss retain their existing recovery boundaries.
-
-Related inventory uses a negotiated fresh, bounded read when available, fenced
-by parent identity and runtime epoch. Codex explicitly includes subagent sources
-when listing descendants. Providers without that read expose only retained
-native events. Read failure is visible, never an authoritative empty inventory.
-
-Opening native details reads retained child events or a negotiated, bounded
-provider history snapshot through the existing connection. Codex history reads
-verify ancestry, page turns and items, and project a private snapshot without
-replacing the live reducer. Viewing never starts, loads, resumes, or cancels a
-Session. Native controls are unavailable unless separately supported; the parent
-continues to own execution. Providers without history-read capability expose
-only the child events actually received, with unavailable content reported
-explicitly.
-
-A child that declares the `history` capability uses the negotiated related-history
-reader even when live child events are retained. A first-turn cache must not hide
-later provider turns; connection-local children without this grant remain on their
-retained stream. Reads preserve bounded pagination and never mutate live state.
-For older checkpoints, fresh provider inventory may establish that the exact child
-ID is a provider history identity; spelling or UUID shape is never sufficient.
-Native child conversations keep one identity across completed and resumed turns.
-Adapters reopen forwarding on an authoritative new child turn, ignore duplicate
-starts and stale output/completion from the preceding turn, and publish running
-state before forwarding new progress. Public commentary and final replies remain
-readable independently of encrypted inter-agent traffic.
-Codex resume does not expose the raw-receipt opt-in used by new threads. Its
-adapter therefore also reads new records from the exact receiver-owned rollout
-at native item and turn boundaries, within fixed byte, record and time limits.
-Native message IDs deduplicate this stream with raw events and history replay.
-Partial records wait for completion; replacement or truncation fails explicitly.
-
-Parent Archive first archives all Farming-owned Side Chats, including retained
-records after restart, through their existing lifecycle journals. A child failure
-blocks parent completion. The Codex adapter fences the parent, freshly enumerates
-proven native descendants and archives deepest children first; incomplete inventory,
-changing descendants or an unconfirmed child archive cannot report parent success.
-Provider-native archive behavior belongs to the adapter; opaque event IDs are never
-passed to another provider's history mutation API.
-
-Sidebar child rows reuse the main Agent status indicator, position and appearance tokens.
-Native lists show running and attention states by default; finished work is behind
-a counted, paged disclosure. An open or selected child remains visible on completion.
-Unknown state is labeled explicitly. The shared status vocabulary applies to sidebar and details. Chat owns a chronological activity feed, not an Agent inventory:
-only events attributed to that Turn appear, with adjacent repeated progress updates
-coalesced and evidence available on demand. Later inventory/status snapshots never
-create historical feed entries or rewrite an earlier event's outcome. Started work
-and its subsequent completion/failure remain in their original Turn; later ordinary
-Turns do not inherit the child list. No finished group, hierarchy or inventory count
-is duplicated in Chat. Explicitly opened evidence stays open as new events arrive;
-older events remain reachable through a bounded disclosure. Execution and cancellation
-remain owned by the backend/provider; feed visibility has no lifecycle side effects.
-
-Outgoing peer operations use the same chronological activity feed. Provider adapters
-normalize structured collaboration input for both live updates and restored
-history before compact projection. Outgoing messages show readable Markdown bodies
-in ordinary message surfaces, with the recipient above and recorded time and
-send outcome below. Current inventory may resolve the recipient's title by exact
-session identity; this is not a historical title snapshot. Long bodies collapse
-in place; explicitly expanding a truncated preview loads the original body through
-the existing bounded tool-detail read, with loading, failure and user-initiated
-retry. Technical parameters remain behind a separate disclosure. No additional
-message or identity store is created. Pending and failed sends cannot appear
-as successful sends. Distinct sends remain distinct even when their text is
-identical. Success is evidence of the send operation, not a read receipt or proof
-that the recipient finished the requested work. Missing inbound provider events
-are not synthesized from assistant prose.
-Inputs without trusted source metadata keep ordinary input bubbles without
-invented names or avatars. Inputs explicitly marked as steer use the secondary
-"Steer" label in both English and Chinese, matching the Composer action. This
-label describes delivery into the active turn, not the sender.
-
-Readable incoming peer messages use ordinary input-message bubbles. The stable source
-avatar sits beside the bubble and the receive-time sender name appears above it,
-outside the message surface. Sender labels use the smaller, secondary metadata
-text role so message content remains primary. Long names wrap without hiding the source. Provider adapters emit `session_message`
-with the native message ID and versioned `_meta.peerMessage` provenance; the
-recipient's own stream or history is authoritative. Neither an outgoing tool's
-success nor quoted envelope text establishes receipt. Source metadata does not
-establish child ownership or grant navigation authority.
-
-Visual grouping is derived from adjacent messages within one recipient transcript;
-it never merges stored records or changes turn IDs. Consecutive peer-only turns
-share one source header when their stable session/task identity (or recorded
-address within this recipient) and receive-time label agree. A reply, tool or
-status output, human input, different identity, renamed source snapshot, or fork
-boundary closes the group. Loading older history, replay and new output recompute
-grouping from the visible authoritative order. The group tail shows its last
-message's recorded time outside the bubble, including on touch screens; missing
-times remain absent. There is no grouping mutation, retry or lifecycle transition.
-
-The reducer upserts by message ID within the recipient session. Replayed delivery
-cannot duplicate a message or rename its original source; different IDs remain
-distinct even with identical bodies. Receipt does not start, complete, cancel or
-restart work. Checkpoints retain attribution. A title absent from historical
-provider evidence remains the recorded address, not today's inferred title.
-Only exact provider/Home/session matches enable peer navigation.
-
-Claude projects structured SDK peer/coordinator user records before ordinary
-replay-echo and hidden-meta filtering. Codex opts into raw receive events; its
-typed history omits these records, so recovery merges bounded records from the
-recipient's own verified rollout into the typed history at native item anchors.
-History reads have byte, message and time limits and fail explicitly on an
-identity or path mismatch. They never inspect the sender's history. Where Codex
-exposes an encrypted body without readable content or attachments, Chat aggregates
-receipts in one collapsed disclosure per presentation segment. Expanding it shows
-an explicit notice that Codex sent an encrypted message, recorded senders and receipt times. These receipts
-do not split an execution into display Turns or consume the transcript Turn window; readable peer
-messages may create presentation segments but cannot settle the preceding execution.
-Chat shows receipt evidence,
-never ciphertext, fabricated text or a sender-side reconstruction. Legacy Codex
-`send_input` records without receive-side provenance remain ordinary input; they
-cannot safely acquire a guessed sender label.
-
-Acceptance covers live delivery, duplicate and distinct IDs, rename stability,
-checkpoint recovery, provider history reload, quoted-text rejection, and ordinary
-bubble layout in Light, Dark and Paper. Real-provider checks are isolated and
-low-volume; native parent/child messaging is not evidence that independently
-created sessions are mutually discoverable.
-
-Farming CLI queries such as `list` remain ordinary tool calls for all providers,
-including live updates and restored history. Their command, result and execution
-status remain inspectable through the shared tool disclosure. Only structured
-Agent collaboration operations and Agent activity events enter the activity feed;
-query commands, titles and assistant text do not establish collaboration. Peer
-labels and navigation resolve exact provider, Agent Home and Session identities. Only an
-explicit child association can open child details; a message to an existing
-Agent never establishes parent/child ownership.
-
-The related pane reads fixed-size pages using provider cursors (retained-event IDs
-for event-only providers). Older/newer navigation and Return to latest keep every
-available turn reachable without growing each response. Live updates refresh only
-the latest page. Missing cursors, unavailable history and stale epochs are explicit.
-Codex pages also bound item count and encoded byte size within a single long turn.
-The latest page starts at the newest items; continuation cursors retain the provider's
-older-item boundary and are scoped to the parent, child and runtime generation.
-The backend and UI preserve that complete bounded page: peer messages may create
-more display turns than provider turns, so display limits must not trim it again.
-A single oversized item fails with an actionable size explanation, not a generic
-internal error. Reading retained event-only child generations uses their exact
-local transcript identity, never a synthetic ID passed to provider history.
-Transcript read failures are labelled separately from Agent execution failures.
-Their retry feedback reuses the ordinary Chat read-error treatment; history
-navigation uses separated, wrapping controls with touch-sized targets in compact views.
-Quoting a child's result appends its source and selected text to the parent's draft,
-reveals that draft, and never sends it or overwrites existing text.
-
-While a turn is active without a current tool, plan or thought label, Chat shows
-the latest settled ordinary tool activity explicitly as **Last activity**.
-This is observed history, not a claim that the completed tool is still running;
-collaboration activity does not displace the parent's own activity evidence.
-
-The related pane serializes refreshes and rejects stale parent identities.
-Selecting the parent row collapses its related pane and selects the parent alone;
-selecting the child row reopens it without changing either Session's execution. The child row,
-activity, and pane header share the child's identity icon; activity summaries
-render inline Markdown without introducing interactive links or block layouts.
-Closing it cancels the browser read, not the Agent. Read timeout, missing history,
-identity change, and size limits terminate visibly. Acceptance covers concurrent
-readers, unrelated-thread rejection, live output while viewing, and desktop and
-compact layouts in all appearances.
-
-Native details reuse the ordinary Chat turn renderer: task messages, collapsible
-process activity, tool results, and Markdown answers retain their shared visual
-roles. The pane must not wrap a conversation in a muted summary card, repeat its
-title, or count progress messages as tool actions. Read-only presentation does
-not mean disabled-looking content; execution controls remain capability-bound.
-Sidebar child rows and collaboration cards share the same session-derived icon
-and theme color. Sidebar child labels use a fixed hierarchy inset; icons occupy
-the indentation gutter without moving labels or subsequent rows. Both remain
-inside the selection surface. Finished grouping does not change a child's
-hierarchy or label position. Child states appear on their own rows; the sidebar
-has no aggregate status row.
-
-## Provider Boundary
-
-Explicit session deletion used to roll back failed creation must delete only the
-owned session and propagate failure. Provider archive compatibility must not
-turn that cleanup into successful retention.
-
-Provider-specific executable discovery, environment, adapter patches, optional
-methods, and history behavior belong in Provider Adapters. Generic lifecycle and
-Chat code use negotiated ACP capabilities and must not infer support from a
-provider name.
-
-The stable provider catalog and adapters are also the source of truth for
-launch metadata, runtime switching, Terminal input behavior, and
-session/inventory policy. Browser and CRT surfaces consume projected
-capabilities from that boundary; they must not maintain provider-name
-allowlists or duplicate provider defaults.
-
-Provider launch and recovery profiles are projected through adapter policy.
-Permission keys, model and reasoning fields, resume-time inheritance, display
-names, and retired request aliases are Provider concerns; generic Agent
-lifecycle code consumes their normalized result and does not branch on a
-Provider name.
-
-Provider History mutations use the same boundary. Archive and pre-resume or
-pre-Fork unarchive support are declared and executed by the Provider History
-Mutation registry; generic resume, Fork, recovery, and archive flows pass the
-exact Provider identity and do not call a Provider-specific command directly.
-Archiving a detached History-backed row commits main-page membership removal
-only after the supported Provider mutation succeeds; failure leaves membership
-unchanged so the same row remains actionable.
-Archive and the complete non-Fork Resume admission serialize on the same exact
-Provider Session identity. Resume holds that admission from its authoritative
-lookup and optional unarchive until the new Agent establishes its claim; the
-unarchive step executes inside the owned admission rather than re-entering the
-same mutation coordinator.
-
-A live ACP Session may advertise the versioned `_session/archive` extension.
-Archive then cancels its active Turn and asks the owning Provider connection to
-archive before releasing the local binding. The first submitted prompt makes a
-Session eligible for this path even before its Turn completes; an empty,
-never-submitted Session needs no History mutation. Success closes that Session
-and skips the detached History mutation; failure or timeout keeps Archive blocked
-without replaying it through another process. The same exact Session admission
-excludes concurrent lifecycle mutations, and unrelated Sessions in a shared
-runtime remain live. Explicit retry and restart recovery read Provider History
-first so an already committed archive is not replayed. Providers without this
-capability retain their existing History mutation contract. In particular, Codex unsubscribe is not proof of
-writer release: its idle retention can outlive the close response.
-
-Performance, correctness, reliability, recovery, isolation, and observability
-are provider-neutral ACP requirements. A cross-cutting improvement is complete
-only when every supported provider satisfies the same adapter contract and
-equivalent acceptance criteria. Provider-specific integration may implement
-that contract differently, but must not bypass it or be presented as a general
-ACP optimization.
-
-ACP and native Terminal have independent executable policies. ACP uses
-Farming-owned, version-pinned runtime artifacts; Terminal follows the native
-Terminal policy. Updating an ACP pin requires protocol, integrity, recovery,
-and Chat/Terminal compatibility verification.
-
-A compatible adapter SDK patch upgrade shares Farming's exact SDK pin through a
-scoped dependency override, preserving the reviewed peer-dependency resolution.
-Adapters on another SDK compatibility line retain their own reviewed pin. Every
-resulting vendor bundle requires a reviewed digest and adapter acceptance.
-
-Preparation and package acceptance verify those digests. Agent launch selects
-only the prepared vendor entry and checks that it is a regular file, without
-rehashing the bundle. Missing prepared entries fail with a repair instruction;
-launch never selects an unprepared adapter from node_modules.
-
-
-Provider policies normalize negotiated AIR v1 goal and compaction metadata at the
-ACP boundary. Codex phase classification reads both AIR v1 metadata and historical
-Codex metadata; generic transcript and UI consumers keep the shared state contract.
-Unknown extension versions cannot overwrite authoritative session state.
-Declaring one AIR extension does not opt into every AIR interaction. Codex
-choice prompts retain explicit alternative-answer options unless the client
-negotiates custom-answer input; schema validation and UI remain generic.
-
-Native Terminal executable discovery returns one normalized compatibility
-result. Provider-specific resume-version requirements and trusted test
-overrides live in the executable discovery registry; Agent lifecycle code does
-not select a Provider-specific resolver.
-
-The default ACP launch is an immutable Farming-managed image that binds the
-adapter version, provider CLI version, protocol/build identity, patches, and
-the Node or compatibility-loader invocation. New Chat Sessions always use this
-managed runtime; Plugins does not expose a second executable-selection path.
-Existing Sessions retain the exact launch identity they were created with so
-legacy custom bindings can recover without being silently rebound. Environment
-variables are compatibility inputs, not the ordinary user configuration authority.
-Loading settings removes the retired Agent Home-level custom-runtime selection;
-it does not delete an executable still referenced by an existing Session's
-persisted launch identity.
-An existing Session without its exact recorded executable fails closed during
-recovery and is never rediscovered against the current machine.
-A Terminal Session has no ACP executable selection. Switching that same
-Provider Session into Chat selects the managed ACP runtime for its exact Agent
-Home and persists that launch identity before launch; later ACP recovery then
-uses only the persisted executable.
-
-Pi uses the ACP Registry-listed adapter as a Farming-owned, version- and
-integrity-pinned artifact. The adapter launches the exact discovered system Pi
-executable after verifying the adapter's Pi 0.80.4 minimum, and that absolute
-executable identity is persisted independently. Farming
-patches adapter state into the selected Agent Home under an exact Config and
-Agent namespace and injects the shared bootstrap explicitly; it never uses the
-adapter's upstream global state path.
-Each Pi Chat owns a private ACP adapter process because `pi-acp` supports only
-one live Pi subprocess per connection. Adapter version 0.0.33 does not forward
-ACP MCP servers or delegate client filesystem and terminal operations, and it
-does not advertise permission or fork capabilities. These omissions remain
-visible capability boundaries rather than inferred support. Farming maps Pi's
-authoritative session statistics to ACP usage updates after each settled turn,
-so Chat context usage and cost use the live Pi session values. Pi session history
-can index the default directory or an absolute configured directory. A relative
-`settings.json` `sessionDir` is interpreted by Pi against its launch working
-directory, so Farming does not guess that directory. Configure an absolute
-`sessionDir` in the selected Pi Agent Home when Farming must inventory it.
-
-`agy` (Antigravity CLI) uses Farming's built-in ACP bridge over the discovered
-system `agy` executable, persisting that absolute executable identity per
-Session. The bridge binds the selected Agent Home via explicit `--gemini_dir`
-and `--app_data_dir` flags. Only a fresh Session initializes its provider
-conversation database; load/resume requires an existing database with the exact
-conversation identity and never manufactures missing history. The bridge uses
-native headless JSON output, forwards additional workspace directories, and
-preserves the Session working directory across turns. Full transcript logs take
-precedence over truncated display logs when replaying history.
-Load and resume recognize prior Farming instruction injection only when a user
-input contains the current instruction text; native history or an existing log
-alone is not evidence. A successful injected turn confirms delivery. After a
-failed turn, persisted input determines whether the next turn still needs the
-instructions. Resume inspects this evidence without replaying transcript updates.
-
-Each Session admits one turn at a time. A partial response is not success: the
-CLI must exit successfully and report a successful final result for the same
-conversation. The known stale stream-interruption result can be reconciled only
-when the database contains a new user-input boundary since this turn started,
-a completed planner response, and a completed final step without a current-turn
-error. Unchanged history, unavailable evidence, and other errors remain failures.
-Cancellation, disconnection, and turn deadlines hard-stop the
-owned CLI process group, including tools. Live turns reject configuration changes.
-The bridge exposes Bypass permissions, Accept edits, and Plan modes; Plan is not an
-interactive approval mode. ACP MCP injection is unsupported; integrations must
-be configured in the selected native Agent Home. Usage and model capabilities
-remain limited to what the CLI actually reports.
-
-
-Farming may support standard ACP session, prompt, cancellation, configuration,
-authentication, elicitation, terminal, media, plan, and fork capabilities when
-the live Agent advertises them. Provider extensions must be versioned,
-negotiated, and confined to the adapter boundary.
-
-Capability declarations cover the complete negotiated contract. Farming supports
-the baseline single `plan` update; it does not advertise experimental multi-plan
-operations until ID-based state and presentation are supported together.
-Unnegotiated plan operations must not overwrite or remove the baseline plan.
-Tool names are informational metadata preserved across updates and checkpoints;
-they do not authorize operations or replace display titles.
-
-Request-level cancellation is distinct from Turn cancellation. The SDK request
-context owns cancellation of a pending permission or elicitation. Cancellation
-withdraws only that exact live request, removes its live controls and resolver, and rejects
-late answers without affecting other requests or the Turn. A submitted answer
-and cancellation settle once; settlement releases the cancellation listener.
-Connection loss and runtime replacement retain their existing ownership and
-recovery boundaries and never replay an answer.
-
-Pending questions and Turn execution are independent. Receiving an elicitation
-does not suspend a running Turn. The backend owns request validity and removes
-only answered, declined, cancelled, or invalidated requests. No browser timer
-answers or expires a question. Browser presentation, keyed by Agent and request
-identity, owns collapse and unsubmitted drafts; switching Agents preserves them,
-while runtime replacement cannot reuse them. New requests expand the question
-surface without taking focus. “Later” only collapses it; “Skip” sends `decline`.
-Submission is single-flight, retains the form until authoritative resolution,
-and shows bounded failures. An uncertain response is never automatically replayed.
-
-Questions are durable entries in the conversation at their original arrival position.
-Later output follows them; questions never occupy or displace the Composer. The
-shared grouped-form recipe supplies borders in Light/Dark and a neutral surface
-in Paper, with distinct input surfaces in every appearance. Simple questions remain
-compact; optional text details expand explicitly without hiding required fields.
-The browser preserves per-request disclosure and drafts; invalid hidden fields
-reveal for correction. “Later” collapses only that question, with no protocol reply.
-
-The backend stores question identity, message and settlement in the ordered Session
-entry stream. Answered, skipped and withdrawn questions remain as read-only history;
-a restored record without a live resolver is unavailable, never replayable. The
-live pending set alone authorizes answering. A provider may continue or finish a
-Turn while its request remains valid; Farming neither blocks that progress nor
-invents an answer or a provider default. Requests explicitly withdrawn by the
-provider cannot be answered later. The Agent row retains the authoritative pending
-count and reveals the question through normal navigation. Accepted URL interactions
-retain their separate completion state. Acceptance covers chronological placement,
-output and later Turns before answering, reload, per-request collapse, settlement,
-withdrawal, draft preservation and Light/Dark/Paper on desktop and compact layouts.
-
-Qwen Code's version 1 prompt-suggestion notification is normalized at that
-boundary into ephemeral, provider-neutral Composer state. It can replace the
-empty follow-up placeholder and be copied into the draft with Tab, but it is
-not a transcript entry or a durable checkpoint field. A new Prompt invalidates
-the previous suggestion, and providers that do not emit the extension retain
-the ordinary placeholder.
-
-## Runtime Ownership
-
-Each Config instance has one ACP Runtime Host. The Farming Server is a
-replaceable controller; the Host owns live provider connections, active
-operations, ordered reducers, and process identities. A compatible Server
-restart reconnects to the Host and restores its authoritative checkpoint and
-deltas instead of restarting healthy sessions.
-
-Host-to-Controller callbacks remain pending after their message is accepted by
-the transport, including when the socket reports backpressure. Only the matching
-Controller result completes the callback; disconnect or the bounded callback
-timeout ends it with an uncertain outcome. Queue and payload limits still reject
-messages that cannot be accepted, without replaying a possibly delivered callback.
-
-Serialization failures leave no pending request or deadline and do not invalidate
-a healthy connection. A Controller submits one handler outcome; a missing result
-acknowledgment neither retransmits that outcome nor poisons unrelated operations.
-A Controller identity or generation change, including on the same connection,
-invalidates its previous callbacks and fork reservations. A callback for the
-current Controller but a stale Agent binding fails explicitly with an uncertain
-outcome without invoking the handler.
-Connection replacement rejects the old connection's pending requests and resets
-framing. Data and terminal events from a detached socket cannot affect its
-replacement; invalid responses close the affected transport.
-
-That Server-only reconnection is failure-recovery behavior, not an intentional
-Farming stop mode. Farming has one intentional stop semantic: directly kill the
-complete selected set of Farming-owned processes, without graceful shutdown or
-drain, handoff, or process preservation and reuse. This single hard-stop
-contract deliberately simplifies state management and is required for
-state-machine correctness: a graceful path would add a second termination
-scenario and can hide failures exposed by abrupt loss. Recovery and cleanup
-must therefore be correct against hard stop. The repository's `npm restart`
-command performs a full Farming stop followed by a fresh start; its performance
-work must optimize cold inventory and Session recovery.
-On Linux, exit verification treats a process group containing only exited
-zombie entries as stopped, while any runnable, sleeping, or stopped descendant
-continues to block cleanup.
-
-A full restart must include the ACP Runtime Host and every Provider process in
-the selected process set. If a reachable Host remains despite that stop, the
-fresh Server replaces it even when its protocol and build identity are
-compatible; full restart must never attach an old Host generation. An ordinary
-Server-only restart continues to attach a compatible Host and preserve its live
-Sessions.
-
-ACP has no fixed Agent, Session, process, thread, or concurrency cap. Resource
-protection must come from bounded queues, payloads, caches, and backpressure,
-not from an arbitrary limit on how many Agents may exist.
-
-Provider runtimes may be shared only when the provider supports independent
-multi-Session operation. Following the External Agent connection boundary used
-by Zed, a shared pool is scoped to one canonical Project and keyed by Provider,
-canonical Agent Home, and adapter launch identity. Every Session still owns its
-own workspace, provider Session id, configuration, permissions, identity, MCP
-scope, active Turn, and recovery state. Within one Runtime Host, a Provider
-Session has at most one live owner across all Project pools. Closing or deleting
-one Session must not stop unrelated Sessions in the same pool. A pooled runtime
-failure reconciles every affected Session and never replays an uncertain Prompt.
-After the Session enters `connecting` and before Farming acquires a Provider
-process, it creates the selected Agent Home when missing and resolves its
-canonical identity. A Home preparation failure becomes an explicit Session
-failure and never falls back to another Home or executable.
-Codex, Claude, OpenCode, Qoder, Qwen, Pi, and agy use this connection boundary. As in
-Zed, Session release sends `session/close` only when the Provider advertises
-that capability; otherwise Farming releases its local Session reference and the
-Project connection reclaims the Provider process when its final Session ends.
-
-Browser and Computer capabilities use the instance-exact Farming CLI and
-shared backend services rather than one capability subprocess per Agent.
-Each ACP Session receives its Agent and Project identity through Session-scoped
-environment metadata. CLI calls carry that local identity, and the backend
-resolves the current Agent and Project workspace directly. Identity and other
-Farming operational context must never be appended to a user Prompt. The name
-is routing state, not a separate authorization credential. Farming-owned
-capability MCP entries are not injected into ACP Sessions; provider and user
-MCP configuration remains a private Session input.
-
-Farming's bootstrap contains provider-neutral operational instructions. It does
-not define the user's preferred response language, and punctuation-only or
-otherwise language-neutral input must not derive a language from bootstrap,
-UI locale, Agent identity, workspace metadata, or hidden operational context.
-
-## Handoff To A New Agent
-
-Code's Agent row menu offers **Hand off to new Agent** for a confirmed coding
-conversation. The user chooses a coding provider and Agent Home through the
-shared New Agent dialog; Shell is not a source or destination. The backend
-resolves the source's exact Provider/Home/Session identity and working directory.
-The destination is an independent conversation in that directory, using its own
-Home's configuration. The source remains available and is not stopped, archived,
-or relabelled. This action does not migrate native provider state.
-
-The first prompt asks the destination to locate and read the source's native
-conversation records, use read-only workspace inspection when needed, briefly
-state its understanding, and wait for the user. It preserves the user's stated
-language preference or primary conversation language, independently of UI locale.
-It must read before sending a reply or progress message so an English handoff
-prompt does not introduce an English preamble into another-language conversation.
-It assumes no reason for the handoff. Source records are background, not an
-instruction to continue execution. Unreadable records must be reported rather
-than replaced with guessed context. These are prompt instructions, not a new
-filesystem permission mode. The reference identifies native history, not an
-immutable snapshot; it can reflect subsequent source work and does not promise
-complete model context, attachments, or provider-internal state.
-
-The shared picker names the source using the same title rules as Agent rows.
-It keeps the ordinary Create header and fields, with source and read-first guidance
-as secondary body text. The inherited workspace is read-only and selectable,
-without a directory-picker action. Chat places handoff provenance outside the
-user-message bubble as a compact transcript disclosure. Its expansion affordance
-stays visible because the collapsed provenance line has no other content to
-distinguish it from a static status label.
-Its category and runtime labels follow the UI language in both ordinary Create
-and Handoff. Chat displays the initial prompt as a collapsed **Handoff context**
-disclosure. A backend-owned, versioned presentation marker is saved in the
-transcript checkpoint; it is removed from provider prompt content. The marker
-does not change access, session ownership, or the prompt text. Click or keyboard
-activation expands the complete prompt and source reference, and toggles it
-closed again without sending input. Ordinary messages and history without a valid
-marker remain fully visible. Native history replay and conversation forks preserve
-the marker from the instance's saved transcript only along a verified ordered
-user-message prefix; prompt text alone is not provenance. A newly mounted view
-defaults to collapsed; runtime updates do not reset the current disclosure.
-Terminal retains its native display.
-
-Ordinary Create, Project quick launch, and Handoff use the backend-owned Provider
-launch default. Providers supporting Chat default to Chat; Terminal-only targets
-remain Terminal. An explicit mode applies to the current creation only; closing
-and reopening the dialog reads the Provider default again. Browser-local runtime
-preferences do not override configuration. Cached choices stay disabled until the
-fresh launch inventory is available; a failed read cannot authorize stale defaults.
-Existing saved Terminal defaults remain valid, including defaults written by earlier
-releases. Plugins changes the default for new Agents, not existing Sessions.
-
-The New Agent dialog remains pending until its own creation request settles;
-unrelated runtime events cannot complete or fail it. Closing the dialog does not
-cancel a creation already admitted by the backend. An uncertain transport outcome
-is reported explicitly and must not trigger automatic resubmission.
-
-Mode selectors list Chat before Terminal. Project quick launch identifies its
-primary action's default mode and offers the other mode as a secondary action.
-Existing live Sessions and restart recovery retain their runtime. History resume
-and Fork retain the saved source mode unless explicitly overridden; history with
-no saved mode uses Chat when supported. Ordinary live Fork inherits its source
-runtime. Chat startup failure stays explicit and never silently launches Terminal.
-
-The backend owns admission: validate the confirmed source and supported target,
-then use the existing identified Create operation and initial-input delivery.
-Terminal initial tasks use the shared Composer paste-and-submit protocol: preserve
-the complete multiline prompt as paste content, then send Enter outside the paste.
-A raw text burst may leave Enter inside the CLI draft, preventing the first turn
-and the native history required for a later Chat switch from materializing.
-Concurrent identical requests join and completed requests return their recorded
-outcome. A changed request cannot reuse its identity. Request identity generation
-must also work on LAN HTTP origins without the secure-context UUID API.
-The same generated request identity is retained across uncertain retries.
-Creation or prompt-delivery failure is visible, including the created Agent when
-available. Uncertain input is never replayed, including after restart. Closing the picker before submission
-has no effect; closing it after submission does not cancel admitted creation.
-Chat creation returns once the reading prompt is admitted, so the destination
-can display permission requests without keeping the picker open for the whole
-turn. The destination's first turn is ordinary provider work, with existing bounded
-startup, delivery, cancellation, and recovery semantics.
-
-Acceptance covers cross-provider and cross-Home creation, Shell rejection,
-unconfirmed/missing sources, preserved workspace and language-neutral prompting,
-duplicate delivery and restart outcomes, and the shared picker and menu in Light,
-Dark, and Paper. Terminal acceptance also verifies one complete initial prompt and
-a subsequent Chat/Terminal round trip preserving the destination Session identity.
-An explicitly opted-in real-provider smoke must also prove native-history access
-using a conversation-only marker, preserve the user's language despite a different
-UI language, and end with an understanding statement that waits for instructions.
-Use isolated Homes and a sentinel workspace to verify that pending work is not
-executed; remove test Agents and temporary authentication copies after the run.
+ACP is Farming's structured Chat boundary. The backend owns execution, session
+identity, ordered conversation state and recovery. Browsers display that state;
+terminal text, assistant prose and cached UI state cannot establish runtime truth.
+
+## Ownership And Provider Boundary
+
+| Owner | Responsibility |
+| --- | --- |
+| Config-local Runtime Host | Provider connections, exact process ownership, active operations and ordered transcript state |
+| Farming Server | Authentication, lifecycle admission, durable requests and browser transport; replaceable controller of the Host |
+| Provider adapter | Executable and Home policy, negotiated capabilities, native history and provider-specific normalization |
+| Browser | Drafts, selection, disclosure and reading position; never execution or recovery authority |
+
+Provider extensions must be versioned and negotiated. A provider name is not a
+capability. Generic lifecycle and UI code consume normalized contracts, including
+configuration, archive, Fork, child control and transcript policy. Unsupported
+features fail explicitly. Cross-cutting improvements require equivalent acceptance
+across supported providers.
+
+ACP uses prepared, version- and integrity-pinned Farming-owned adapters. Existing
+Sessions retain their exact launch identity; missing executables fail recovery
+rather than selecting another one. Native Terminal has a separate executable
+policy. Provider-specific constraints belong in adapters and, for Codex, the
+[Codex runtime contract](codex-runtime.md).
+
+A shared provider connection is scoped to canonical Project, Provider, canonical
+Agent Home and launch identity, and requires independent multi-Session support.
+Each Session retains its own configuration, permissions, workspace, MCP inputs,
+Turn and recovery state. A Provider Session has at most one live owner within a
+Host. Releasing one Session cannot stop another. Sharing cannot leak session
+credentials or operational environment into the process-wide environment.
+
+Browser and Computer use the instance's shared capability services. Session
+identity routes requests but is not itself authorization. Operational context
+and bootstrap instructions do not establish the user's preferred language.
 
 ## Session Identity And Configuration
 
-The stable identity of an ACP conversation combines Provider, canonical Agent
-Home, provider Session id, and workspace scope. Additional directories and MCP
-definitions are private Session inputs and must survive reconnect, restart, and
-runtime replacement without being exposed as ordinary browser state.
+The [Provider Session identity contract](provider-session-identity.md) owns durable
+identity and scope. Temporary startup identities cannot authorize History,
+resume or Fork. Private workspace directories and MCP inputs survive recovery
+without becoming ordinary browser inventory.
 
-Provider adapters declare whether a Provider Session id is scoped to one Agent
-Home or globally within that Provider. For a global Provider identity, the
-persistence layer rejects binding the same Session id to a second Agent Home;
-generic storage does not identify such Providers by name.
+Provider Session and Agent Home defaults apply until the user confirms an
+explicit override. Persist overrides by stable option identity, never display
+label. Restore them after loading the Session. A missing saved model is not proof
+of removal: retain it, warn and block Prompt/Steer until restoration or explicit
+replacement. Other definitively unsupported options may drop only the incompatible
+override with a warning; transport failure is not compatibility evidence.
 
-A Session plan marked temporary is not a confirmed Provider identity and is
-never resolved through Provider History. This applies uniformly to every
-Provider until its adapter-specific identity evidence is confirmed.
+Accepted model, reasoning and Fast changes update only the requested new-Agent
+Home defaults in the same Config, after verifying exact Home identity. Restoration
+does not rewrite defaults. Session success with a failed default save is reported
+as partial success, without replaying the mutation. Queued configuration applies
+before subsequent input; only a confirmed applied model change creates a durable
+transcript boundary.
 
-Configuration has two authorities:
-
-- without an explicit user override, the loaded Provider Session and selected
-  Agent Home supply defaults;
-- after a user change is confirmed, Farming persists only that explicit
-  override and reapplies it after the Provider Session is loaded.
-
-Composer model, reasoning, and Fast choices also update the selected Agent Home's
-new-Agent defaults in the current Farming Config instance. The backend owns this
-transition: a confirmed configuration mutation, or a durably accepted change
-queued during a turn, saves only the requested fields (including Fast off). A
-confirmed model change also saves its effective reasoning level. Failed or
-uncertain mutations do not update defaults. Saving requires the same Provider,
-Home ID, and Home path; a removed or rebound Home is rejected. Configuration
-writes merge against the latest Home state; the last accepted write for each
-field wins. A save failure reports that the Session accepted the choice but its
-defaults were not saved, without replaying the Session mutation.
-
-Confirmed user model changes are durable transcript boundaries, displayed as
-“previous model → new model” using the same separator family as fork origins.
-The runtime records one boundary after the whole configuration mutation succeeds;
-initial defaults, restoration, no-op selections, failed or uncertain mutations do
-not create one. Queued changes create it only when applied after the active turn.
-The existing configuration queue orders these boundaries before subsequent input;
-the existing mutation timeout, failure, and cancellation rules remain authoritative.
-Checkpoints retain the model identities and display names with a verified user-turn
-prefix. Reload and replay rebind that prefix to the current entries; an unverifiable
-prefix reports an unavailable history boundary rather than guessing its location.
-
-Fresh Agents inherit these defaults through the Provider's advertised controls
-and checkpoint the effective choices as their own Session configuration.
-Existing Sessions, reconnect, resume, and fork retain their own configuration;
-restoration never writes Home defaults. Native Provider configuration remains
-unchanged. Saving or reordering Agent Homes preserves their new-Agent defaults.
-
-Overrides are matched by stable option identity, never by display labels. A
-model missing from the advertised catalog is not proof of removal: the Provider
-may have returned a fallback catalog after a failed refresh. Farming preserves
-the saved model and reports a recovery warning. Until restoration succeeds or
-the user explicitly selects another model, Prompt and Steer reject before
-Provider submission; history, configuration, and reconnect remain available.
-Reconnect reapplies the saved choice against the new catalog. A confirmed model
-change and clearing its recovery warning belong to the same ordered mutation,
-so a waiting Prompt sees the confirmed selection.
-During reconnect's process replacement gap, Controller callbacks remain fenced
-to the Host's last published binding until the replacement publishes its epoch.
-
-For other unsupported options or values, Farming keeps the Provider's current
-value, drops only the incompatible override, and reports a recovery warning.
-A transport failure is not proof that an override is permanently incompatible.
+Authentication required before the first Session keeps the initialized connection
+and visible Agent when sign-in methods exist. Prompts remain disabled until the
+provider confirms Session identity. Sign-in, failure and closing have bounded
+outcomes; a late authentication result cannot recreate a closed Agent.
 
 ## Turn And Mutation Semantics
 
-One Session admits conflicting Prompt, Steer, Cancel, configuration, and child
-control operations in a defined order. Each operation is fenced to the current
-binding and Turn. Late results from a replaced binding cannot change current
-state.
+Runtime state, Turn outcome and request admission are separate facts. One Session
+orders conflicting Prompt, Steer, Cancel, configuration and child operations,
+fenced by binding generation and exact Turn identity.
 
-Prompt submission has an explicit identity. Duplicate submission of the same
-request may join the existing result, but a request with different content is
-rejected. When transport failure leaves Provider ownership uncertain, Farming
-does not replay the Prompt or Steer automatically. Cancellation targets the
-exact active Turn and reaches a visible terminal result.
-Composer admission uses one deadline across control-queue waits, checkpoint
-writes, and the final Provider send. Expiry before that send rejects the message
-without dispatching it.
+| Transition | Required evidence |
+| --- | --- |
+| New request → admitted | Valid identity, capability, content hash and durable admission within one deadline |
+| Duplicate → existing operation | Same request ID and identical intent; changed content is a conflict |
+| Admitted → executing | Current ownership at the provider-send boundary |
+| Executing → settled | Provider outcome and the admitted notification prefix; input acceptance alone is insufficient |
+| Ambiguous delivery → unknown | Preserve original identity and evidence; reconcile without automatic replay |
+| Cancel → interrupted | Exact Turn settlement; stale completion cannot settle a newer Turn |
 
-The Composer's temporary Prompt-start guard ends when authoritative activity or
-a newer Session revision confirms the transition. Completion may arrive before
-the submission acknowledgement; a late acknowledgement must not restore a busy
-Composer after that completed Turn. Rendering observes this ordering directly,
-without waiting for local guard cleanup or another runtime event.
+Queued follow-ups remain editable/discardable until admission. Live Steering is
+available only when negotiated and the backend still owns a running, unsettled
+Turn. Native completion disables Steering even before the response settles.
+Uncertain writes never become automatic queue fallbacks. Late acknowledgements
+cannot restore busy state after completion. Provider-initiated continuation Turns
+use the same start/settlement rules as submitted Turns.
 
-Queued follow-ups remain editable and discardable until admission begins.
-Negotiated live Steer remains inside its owning Turn; providers without that
-capability use the visible queue.
+Permission and elicitation requests have independent identity and validity.
+Receiving a question does not suspend a Turn. Answer, decline, withdrawal and
+request cancellation settle once; only the live pending set authorizes responses.
+Questions remain in chronological history after settlement. Restored records
+without a live resolver are read-only. “Later” collapses a question; it does not
+answer or expire it. Unknown answer delivery is never replayed.
 
-Chat owns two viewing states: following the latest content and reading history.
-An accepted Composer Prompt or Steer for the visible Agent resumes following,
-clears pending reading-position restoration, and reveals the latest content as
-the transcript arrives. Rejected or uncertain submissions and queued messages
-awaiting admission do not change this state. Ordinary transcript updates preserve
-history reading; any user scroll away from the bottom pauses following, even
-within the near-bottom range. Following resumes when the user reaches the
-bottom or explicitly returns to latest. Hidden Agents do
-not replay a send's scroll request when reopened. This contract is shared by all
-ACP providers and does not retry or otherwise change message delivery.
-Activating a transcript disclosure by pointer or keyboard also enters reading
-history before its content changes. Expansion grows below the trigger without
-moving it in the viewport; collapse preserves that position within the available
-scroll range. This applies to process groups, tool details, and native context
-disclosures, including content loaded asynchronously. Layout changes and incoming
-updates must not resume following; the existing explicit return-to-latest actions
-still do. Disclosure activation alone never requests older history.
-Loading older messages does not by itself keep the return-to-latest control
-visible. If the loaded window still contains the latest Turn, reaching its
-bottom hides the control and resumes following without reloading history. If
-bounded history retention has evicted the latest Turn, the control remains
-available at the window's bottom and explicitly fetches the latest window.
-Returning to latest clears history navigation intent. Scroll events caused by
-that action or by viewport resizing cannot load an older page; history paging
-requires a user scroll gesture, including on a latest page shorter than the viewport.
-
-Farming negotiates standard Steering from the Agent's initialize response and
-uses `_session/steering` only while it owns an active Turn. The older Codex
-steer extension remains an adapter-boundary compatibility path for Agents that
-do not advertise the standard capability. Accepted Steering is recorded with
-provider-neutral Farming metadata so every supporting Agent has the same
-transcript and Composer behavior.
-
-Static `supportsSteer` advertises protocol support; dynamic `canSteer` reports
-whether the backend still owns a running, unsettled Turn. Native completion
-immediately disables steering while the ACP response settles. The Composer
-queues follow-ups during that interval and never replays an uncertain mutation.
-A definitive admission rejection includes its reason in the first terminal
-status, so a later result is not needed to explain a preserved draft.
-
-The Composer's Goal input is intentionally prompt content, not a persistent ACP
-Goal binding. Farming does not create cross-Turn Goal state from that input;
-the submitted text remains the complete source of truth.
+Goal metadata is provider-owned and read-only. Omission preserves it; explicit
+null clears it; invalid data cannot erase valid state. Completion retains one
+durable record with reported usage. Goal state is distinct from Turn activity,
+and Composer Goal text alone does not create a persistent Goal binding.
 
 ## Transcript Protocol
 
-### State and synchronization invariants
+The Host reduces typed provider history and live events into one ordered stream.
+Text, tools, patches, media, permissions and related-session evidence remain
+structured. Provider-specific text heuristics stay at the adapter boundary.
+Reducer entry IDs identify chronological segments; a provider message resumed
+after an intervening entry must not overwrite that earlier segment.
 
-Runtime state, Turn outcome, and request ownership are separate facts. The ACP
-Runtime owns execution and Turn transitions; Host operation records own request
-identity and settlement barriers. A pending request never overrides an observed
-permission wait or Runtime failure. Only proven binding loss interrupts a
-persisted active Turn; compatible reconnection preserves the live Turn. Failure
-is a structured outcome even when the Provider supplies no explanatory text.
+- Checkpoints identify Agent, Provider Session, runtime epoch and revision.
+  Deltas require that identity and the exact previous revision; gaps, resets and
+  identity changes require a new checkpoint. Stale results cannot publish.
+- Reads declare their covered range. Older pages do not advance the live-tail
+  revision, inherit current Turn status or become a live delta baseline. The
+  browser retains a bounded contiguous window; Return to latest reads a checkpoint
+  when the tail was evicted. Mixed-version historical pages are not an atomic snapshot.
+- The Host bounds projection before cross-process transfer. Large tool/media
+  content uses immutable, identity-bound paged reads; cursor offsets must be
+  contiguous. Expiry, capacity, disconnect and identity changes terminate reads
+  explicitly. Raw provider entries are not an unbounded browser payload.
+- Visible panels share reference-counted revision interest. Slow consumers retain
+  the latest checkpoint marker, not an unbounded event queue. Reads are single-flight
+  and coalesce newer revisions without waiting for the provider to become quiet.
+- Prepared projections and retained views are bounded and fenced by complete
+  identity, including projection revision. They accelerate the same authoritative
+  read path. Cached controls require a fresh read before becoming actionable.
+- Provider replay is authoritative. Checkpoints preserve presentation metadata
+  and recovery fences, but replace a full load only with proof of freshness.
+  Prompt admission requires a durable dirty fence; uncertain execution leaves it
+  dirty. Failed writes do not establish that proof.
 
-A transcript read names its Agent, Session, epoch, revision, and covered range.
-The latest revision belongs to the live tail. An older page cannot advance it
-or apply the Session's current activity or stop reason to a historical Turn.
-Entry patches describe a contiguous range plus an optional owning-prompt anchor;
-the anchor alone does not establish overlap. History and live reads share one
-serialized scheduler, but the pagination cursor belongs to the individual read.
-An identity change fences all older responses. A reset invalidates cached
-history; ordinary updates replace only the declared range.
+Read deadlines and finite retry budgets end in visible read errors with explicit
+Retry. Retry reads state; it never resends a Prompt. Identity changes quarantine
+old content immediately. Valid partial content remains readable while settlement
+continues, with a read error if it cannot finish.
 
-The browser retains one contiguous window with a 2,048 Entry budget (including
-an optional prompt anchor). Live reads
-evict from the oldest end; older-page reads evict from the newest end and retain
-an explicit historical window with Return to latest. Live notifications and
-reconnect do not move that historical reading position. A partial historical
-Turn does not imply a missing final reply. A gap cannot be silently joined. Runtime control state continues to update while history is being read.
-The trailing Turn in a historical window remains partial, including when it
-contains stage answers. Paging cannot promote a stage answer to the final result
-or change user-owned disclosure state. Returning to latest restores the live
-projection without opening previously closed tool details.
-A historical window is a frozen reading cache of pages from their respective
-read times, not one atomic snapshot. Its retained revision is only the last
-confirmed live revision and cannot serve as a delta baseline after the tail is
-evicted. Return to latest always reads a checkpoint.
-Queueing expires after 30 seconds and reads after 15 seconds; retries are finite and end in a visible read
-error. Only fresh evidence or explicit Retry starts another attempt.
+## Related Sessions And Fork
 
-Acceptance compares incremental state with an independent authoritative snapshot
-for the same identity, revision, and covered range after live reconciliation
-(or same-version historical reads). Mixed-version historical pages instead
-require identity, cursor continuity, preserved content, and no inferred live status. It also
-checks stale-response exclusion, historical-page isolation, bounded storage and
-bounded failure under completion, cancellation, reconnect, and restart ordering.
-Successful catch-up assumes available transport and scheduling; permanent failure
-must still terminate the read visibly instead of claiming synchronization.
+A durable parent Session owns at most one retained Side Chat, created through the
+existing Fork admission. It inherits context, not authorization to continue the
+parent's task. Parent and child own independent drafts, controls and Turns.
+Opening or closing a pane changes observation, not execution.
 
-The browser bounds a Chat history read to 15 seconds. One timed-out read may
-retry because it is read-only; a second timeout reaches a visible error and
-explicit Retry. Reconnect and fresh revision signals still trigger their own
-authoritative reads without replaying a mutation.
+Native child IDs and capabilities are fenced to their immediate parent runtime
+generation. Associations precede child traffic and cannot change ownership.
+Only authoritative child evidence settles a child: parent completion/cancellation
+and unknown activity cannot synthesize child outcomes. Fresh bounded inventory
+is used when negotiated; unavailable inventory is an error, not an empty list.
+History reads verify ancestry and do not start, load, resume or cancel Sessions.
 
-Transcript entry identity belongs to the reducer and is distinct from a provider
-message ID. A provider message can resume after an intervening Steer or tool
-entry; each noncontiguous segment keeps its position and a unique entry ID.
-Adjacent chunks retain their existing merge semantics. Checkpoint recovery
-repairs legacy duplicate message-segment IDs without dropping content, advances
-the revision, and requires a replacement checkpoint before further deltas.
+Related history is bounded by turns, items and bytes, with identity-bound cursors.
+Presentation segments must not trim an already bounded provider page again.
+Native children keep one identity across resumed Turns; stale output from an older
+Turn cannot change the new one. Quoting child content appends to the parent's
+draft and never sends it automatically.
 
+Fork requires a proven stable conversation boundary. During an active Turn it is
+allowed only when the adapter can fork before that Turn without interrupting it
+or copying partial output. The child must load in its own Agent environment;
+a distinct Session ID alone does not prove isolation. Definitive creation failure
+permits exact cleanup; uncertain launch retains the child for reconciliation.
+Restart does not replay a pending Fork or guess missing ownership.
 
-The backend reduces history replay and live ACP updates into one ordered,
-provider-neutral transcript. Typed text, reasoning, tools, patches, plans,
-terminals, media, resources, permissions, and child Sessions remain structured;
-the UI must not flatten them into prose and parse them back.
+The child owns a durable inherited-history boundary. Recovery verifies the ordered
+user-input prefix before rebinding it to replayed entries. Missing/compacted
+history exposes an unavailable boundary instead of moving it or guessing.
 
-Browser delivery uses a strict checkpoint-and-delta contract:
+Idle Side Chats may release their runtime after five minutes, or one minute
+without explicitly attached supervision; release rechecks idleness. Active work,
+pending input and native child activity prevent release. History remains retained;
+an explicit new message resumes the Session without replaying old input.
+Parent archive includes owned Side Chats and proven native descendants. Failure
+or incomplete inventory blocks success. Parent stop releases exact owned children
+and Resources; an unavailable parent rejects child input.
 
-- a checkpoint identifies the exact Agent, provider Session, runtime epoch, and
-  transcript revision;
-- a delta applies only to the same epoch and exact preceding revision;
-- any gap, identity change, or reset requires a replacement checkpoint;
-- a late response for another Agent or older revision cannot take over the
-  visible Chat.
+## Agent Communication And A2A
 
-The ACP Session read endpoint returns control metadata without transcript
-Entries by default. A caller that intentionally needs the raw, potentially
-large Entry collection must opt in with `includeEntries=1`; product interfaces
-use the bounded transcript APIs for conversation content.
+Source attribution is trusted protocol metadata, separate from message content.
+Composer and Host hashes bind it to the request. Text, outgoing-tool success and
+quoted envelopes cannot establish receipt, sender identity or child ownership.
+The runtime adds a model-visible peer envelope, preserving the human's existing
+authorization; known echoes do not create duplicate messages. History restoration
+requires a trusted checkpoint and the complete verified input prefix.
 
-Each browser connection explicitly identifies all visible Chat panels by exact
-Agent identity, then fills its bounded interest set with retained ACP Chats.
-ACP revision notifications are delivered only to connections with matching
-interest. Changing focus, adding retained interest, or reconnecting sends the
-current absolute cursor—Agent, provider Session, runtime epoch, and transcript
-revision—as an Agent-scoped checkpoint. A Session or epoch replacement is
-delivered even when its revision restarts at a lower number. A slow connection
-retains only one pending checkpoint marker per interested Agent and recovers
-the latest revision after its transport buffer drains; it never accumulates one
-queued notification per Provider update.
+| Contract | Meaning |
+| --- | --- |
+| Transport | Official A2A SDK embedded in the existing backend; authenticated JSON-RPC at `/api/a2a/agents/:agentId` under the configured base path |
+| Capability | Text SendMessage, GetTask and protected Agent Card; streaming, subscriptions, cancellation and Task continuation are unsupported |
+| Identity | Local Agent credentials; external owner-issued grants scoped to exact recipients and expiry, separate from owner credentials |
+| Delivery | New requests require a live recipient Chat and, for local sends, a live source; dispatch rechecks exact recipient Session; queued Prompt by default, never raw Terminal input |
+| Completion | The correlated final assistant text completes the Task, not input admission or a notification summary |
+| Recovery | Durable Config-local deduplication by caller and message ID; changed intent conflicts; unknown execution is never replayed |
+| Follow-up | New Task with one owned `referenceTaskIds` reference in the same recipient Session; caller-scoped context, no reopening completed Tasks |
 
-An HTTP transcript read samples the authoritative Session and runtime epoch
-before and after the cross-process read and rejects a response if that identity
-changed or the returned transcript names another Session. Transcript revision
-may advance during the read; continuously progressing Agents do not wait for a
-quiet revision before returning a self-consistent result.
+GetTask may resolve unknown outcome only from the original settled Host receipt
+matching binding, Session and request hash. Lost/replaced Host evidence remains
+unknown. Authorized callers can read saved results after a recipient stops.
+Revocation prevents future access, including result reads, without cancelling
+accepted work. A peer ID remains the same principal across grants.
 
-The Runtime Host projects transcript pages before they cross the Host response
-boundary. Large tool payloads become bounded summaries and inline media becomes
-an on-demand reference while the Host retains the exact entry. Response-size
-enforcement therefore applies to the browser-facing projection, not to an
-unprojected Provider payload that the Server has not yet had a chance to bound.
-The projection carries an explicit version and participates in the Runtime Host
-build identity, so a Server cannot silently attach to a Host with different
-projection semantics.
+Session launch credentials use `FARMING_COMMUNICATION_TOKEN`, excluded from
+shared process environments, and expire after 30 days; relaunch obtains a new one.
+External grants default to 24 hours and allow at most 30 days. Tokens are returned
+only at issuance; storage retains digests. `FARMING_PUBLIC_ORIGIN` supplies the
+advertised endpoint origin when configured.
 
-On-demand reads preserve the same boundary. Media is selected and validated in
-the Host, then transferred in bounded chunks; tool detail and review changes are
-derived in the Host and transferred in bounded pages. The Server fences every
-multi-page read by Session and Runtime epoch before assembling the existing HTTP
-response. Subagent media uses a Session-scoped route so an Entry identity cannot
-resolve against the wrong transcript. A raw transcript Entry is never the
-cross-process payload for these browser APIs.
+The initial journal retains at most 1,024 requests / 32 MiB per Config and does
+not silently evict deduplication evidence. Capacity exhaustion is explicit.
+Text input/output is bounded to 64 KiB; at most 32 requests execute concurrently
+per Config, and each principal has 120 protocol calls/minute including polling.
 
-Each media, tool-detail or review read projects one immutable Host-owned snapshot.
-Continuation pages carry its opaque read ID and exact next offset; they never
-rehash or reserialize the complete payload. The snapshot belongs to its client,
-request identity, Session and Runtime epoch. Concurrent reads are independent;
-live updates do not alter an admitted snapshot. The Server checks identity,
-length and contiguous offsets before returning the assembled response. Completion,
-disconnection, Host disposal or a 30-second deadline releases retained bytes.
-The Host admits at most 32 retained snapshots and 128 MiB in aggregate (strings
-count as two bytes per character); capacity, expiry and identity failures are
-explicit read errors. A new read starts at offset zero, never resumes a lost
-snapshot across reconnect. Content-addressed media URLs still identify the
-selected attachment; local paged transport does not add a second content digest.
+`farming message send` requires `--id`; `get` and bounded `watch` retrieve results,
+`--reply-to` links a new request, and `card` reads capability. Owners manage
+external access with `message grant`, `grants` and `revoke`. The recipient's
+final answer returns automatically. `farming send` retains raw Terminal semantics.
 
-Provider replay is authoritative. Local checkpoints accelerate projection and
-preserve reset fences, but cannot replace a full load unless the provider can
-prove freshness. An uncertain Prompt leaves the checkpoint dirty.
+Incoming bubbles retain receive-time sender names, recorded times and distinct
+message IDs across replay and renames. Native navigation requires exact
+Provider/Home/Session identity; local Farming navigation also requires the exact
+sender Agent ID and Session key. Missing, ambiguous and external identities remain
+plain labels. Clicking a source selects it without resuming execution.
+Native encrypted receipts show unavailable readable content, never ciphertext or
+sender-side reconstruction. Outgoing native collaboration is a chronological
+activity feed: send success is neither a read receipt nor task completion.
 
-The Host checkpoint store owns the durable dirty fence. Prompt admission waits
-for its first successful durable write, then reuses that proof across inexact
-snapshots. Scheduling an exact rewrite invalidates the proof before enqueueing;
-subsequent admissions establish a new fence after that rewrite. Failed fence
-writes never establish proof. Process restart discards all in-memory proofs.
-Background snapshots coalesce to one latest pending state per Session while a
-write is active; they must not form an unbounded queue ahead of Prompt admission.
-Explicit writes and flushes retain their ordered completion semantics.
+## Handoff To A New Agent
 
-The ordered Session reducer remains provider-neutral. Transcript details that
-are not part of standard ACP—such as internal-context scoping, compaction-text
-recognition, message-phase boundaries, and duplicate-message reconciliation—
-belong to a selected Provider transcript policy. A Provider must not inherit
-another Provider's text heuristics merely because its visible output happens to
-match the same prose.
+Handoff creates an independent coding conversation in the confirmed source's
+workspace using the chosen Provider and Home. It does not stop/archive the source
+or migrate native state. Shell is not a source or destination.
 
-Opening a Chat should show its shell immediately and obtain the first settled
-transcript in tens of milliseconds when a valid prepared checkpoint exists.
-Preparation happens in the backend only after an explicit interest signal and
-a quiet period. It is cancellable, revision-fenced, and bounded by entry count,
-response size, total cache size, and active work. Failure or eviction falls back
-to the same authoritative on-demand read.
+The initial prompt identifies native source records, asks the destination to read
+before responding, preserve the user's language, state its understanding and wait.
+Those records are background, not permission to continue work, and remain mutable
+native history rather than a promised full-context snapshot. Unreadable records
+must be reported. Trusted handoff presentation metadata survives replay only
+through the verified input-prefix rule; text alone never establishes provenance.
 
-Prepared and in-flight projections are fenced by the complete projection
-identity: Agent, provider Session, runtime epoch, Session revision, and
-projection revision. A runtime-only or replay correction invalidates older work
-even when the Transcript revision is unchanged. The browser may reuse a
-completed Turn object only when its complete structured projection is unchanged;
-an authoritative correction to any nested Tool, Media, Resource, or other field
-must replace the visible Turn.
-
-The first settled ACP transcript response contains only the five newest Turns.
-Older Turns load in bounded pages as the reader moves upward, so opening a long
-Chat does not make its full Markdown and tool history part of first paint.
-
-The browser keeps a bounded LRU of complete structured transcript records for
-recent Chats, including any older Turn range the reader loaded. Retained records
-continue to merge live revisions while inactive; revisions coalesce to one
-latest high-water per Agent, reads are single-flight per Agent, and background
-read cadence plus global read concurrency are bounded. Only the visible Chat
-owns the React, Markdown, and tool-card DOM. Reattaching a retained record whose
-observed Session and runtime epoch still match shows it immediately and
-continues from its revision without requesting a checkpoint solely because it
-became visible. An unfinished retained Turn is revalidated on reattachment so
-a missed completion notification cannot leave it appearing to run indefinitely.
-A cold or evicted Chat, reconnect, identity change, detected
-gap, reset, or pagination-range change still requires an authoritative
-checkpoint before replacement content becomes visible. Reading position is
-anchored to a stable Turn or process item rather than raw pixels, and transcript
-records share the same 20-view working-set boundary as pooled Terminals.
-Progress, stage answers, and final answers retain stable block identities and
-block-relative pixel offsets for reading anchors (older fractional anchors
-remain readable). Prepending within one Turn preserves the visible block's
-position even when the window also evicts its tail. On restoration, a missing
-block requests older pages through the existing bounded read path; the owning
-prompt alone is not a successful match. While locating the block, the view shows
-the existing synchronization state instead of intermediate pages.
-User navigation cancels restoration,
-and transport failures retain the existing explicit retry behavior.
-An older-history cursor belongs to one page read; after that read settles, live
-revision notifications must again fetch the newest Turn without a page cursor.
-An older page never advances the latest-Turn revision, even when the page
-response carries a newer Session revision.
-
-ACP Session controls use the same Agent-scoped working-set ownership. The
-browser retains each recent Agent's last confirmed mode, model, reasoning,
-permission, and account snapshot rather than clearing it when another Chat
-becomes visible. Reattaching shows that confirmed snapshot synchronously while
-a fresh authoritative Session read revalidates it. Retained controls remain
-visible but are not actionable until that read confirms the current Agent and
-runtime revision. A failed revalidation surfaces an error, preserves the last
-confirmed presentation, and keeps its controls disabled; a never-loaded or
-evicted Agent still waits for its first authoritative snapshot. Refresh and
-mutation responses remain fenced by exact Agent identity and request sequence,
-and archiving or working-set eviction discards only that Agent's retained
-snapshot.
-
-Provider-wide discovery belongs to the shared ACP runtime, not to an individual
-Session. Concurrent Session opens for the same provider Home and Project must
-coalesce Skills and model discovery. A completed discovery result is not an
-authoritative cache for a later Session open: later opens force a fresh Skills
-read and obtain a fresh model inventory. Authentication or provider-routing
-changes advance the discovery generation, so an older in-flight model result
-is re-read before use. Failed discovery is never cached. Session-owned history
-restore remains authoritative and may still take time, but concurrent opens
-must not serialize behind duplicate runtime-wide discovery work.
+Creation and initial input use existing identified admission. Duplicate intent
+joins the recorded result; changed intent conflicts; uncertainty never replays
+input. Closing the dialog does not cancel admitted creation. A delivery failure
+retains the created Agent identity when available. Terminal delivery follows the
+shared paste-and-submit contract. Launch defaults are backend-owned; unsupported
+Chat startup never silently becomes Terminal.
 
 ## Lifecycle And Recovery
 
-History transport must process fragmented messages in linear time, preserving
-UTF-8 across chunk boundaries and joining a complete JSON message only once.
-Turn-count pagination does not bound response bytes: one history page can contain
-tens of megabytes of tool output. Acceptance includes such a fragmented page
-within the existing Session setup deadline, without dropping history or raising
-that deadline to conceal transport overhead.
+| Event | Required outcome |
+| --- | --- |
+| Compatible Server connection loss | Reattach the existing Host and recover authoritative state; healthy Sessions and active Turns remain owned |
+| Host/adapter loss | Prove old-process ownership, restore exact Session/private scope and overrides, reload history; unresolved execution is failed or unknown, never replayed |
+| Full stop / `npm restart` | Hard-kill the complete selected Farming-owned process set, including Host and providers; start a fresh generation |
+| Chat/Terminal switch | Reject active Turns; prove resumable identity and release ownership before replacement; restore the original runtime if target startup fails |
+| Archive | Serialize with resume and other exact-Session lifecycle mutations; confirm provider archive before removing membership |
 
-The meaningful Session states are connecting, idle, working, waiting for user
-input, interrupting, recoverable error, and terminal failure. Idle is an
-ordinary live state. A Session remains live until the user archives it, the
-system replaces or cleans it up, or an exact runtime failure is proven.
+Server-only reconnection is failure recovery, not a second intentional stop mode.
+Ordinary startup must not replace an incompatible Host owning live Sessions.
+Missing bindings schedule exact cold recovery; one unavailable runtime family
+cannot block Server readiness or unrelated Terminal/Files functionality.
+Cold recovery materializes inventory first and prepares Sessions with bounded
+parallelism without changing membership order. Recovery itself is not Agent activity.
 
-Unexpected adapter or Host loss ends in explicit recovery or failure. Recovery
-must prove old-process ownership, restore the same Provider Session and private
-scope, reload authoritative history, and preserve explicit configuration
-overrides. A Turn active at disconnect ends as failed or uncertain and is never
-silently replayed.
-Recovery and reconnection are not Agent activity and must not advance the
-persisted last-activity time. That time advances only for real runtime work or
-human-attention events; a recovery failure timestamp is lifecycle evidence, not
-activity.
-If a reconnected or replacement Host no longer owns a previously observed
-binding, Farming marks that binding interrupted and immediately schedules cold
-recovery of the exact persisted Provider Session. The transient interruption
-must not become the Session's terminal state when cold recovery succeeds.
+Controller callbacks settle only on their matching result, disconnect or deadline.
+Transport acceptance/backpressure is not callback completion. Controller changes
+invalidate prior callbacks and reservations; detached sockets and stale bindings
+cannot publish. Uncertain results are never retransmitted through another connection.
 
-An ordinary startup does not replace an incompatible Host that owns live Chat
-Sessions. An explicit full restart may intentionally take over that Host,
-terminate its live Sessions, and start a new Host from the persisted Session
-records.
+Live archive uses the negotiated provider connection when supported, including
+submitted but unfinished Sessions. Failure cannot fall back to another mutation
+process. Explicit retry reads authoritative history before deciding what remains.
+Unsubscribe alone is not proof that a provider released its writer.
 
-Cold recovery materializes the complete recoverable Agent inventory before it
-loads Provider Sessions. Session preparation then runs with bounded parallelism
-in persisted priority order; one Session failure does not stop the remaining
-work. When multiple records refer to the same persisted process identity,
-Farming performs one exact hard-stop proof for that identity and shares its
-result across those records. Parallel completion must not reorder existing
-main-page membership.
+## Presentation And Acceptance
 
-Failure to start or reconnect the ACP Runtime Host marks affected Chat Sessions
-unavailable without blocking Server readiness, native Terminal recovery, Files,
-or Plugins. Recovery of one runtime family cannot become a global lifecycle
-barrier for unrelated runtime families.
+Chat shares [Composer](composer-input.md), [UI design](../../development/ui-design-protocol.md)
+and [interaction](../../development/ui-interaction-protocol.md) contracts. Keep
+conversation progress readable, detailed evidence reversible and live activity
+compact. User disclosure and history-reading intent survive updates and settlement.
+Accepted input may reveal latest content; background updates, pagination and
+layout changes must not force that navigation. Read failure and execution failure
+remain visibly distinct. Startup is not an active Turn.
 
-Chat/Terminal switching is a real runtime replacement that preserves the same
-provider conversation when resumability is proven. Switching is rejected while
-a Turn is active. If the target runtime fails to start, Farming restores the
-original runtime and reports the failed switch.
+Rich content uses safe Markdown and bounded media/render paths. Source is preserved;
+untrusted HTML does not execute. Streaming, settled and interrupted content have
+explicit states. Only the current render revision may publish; failure has a
+bounded render-only Retry. Viewers preserve reading/zoom intent and share focus,
+Escape and background-isolation rules. Render retries never replay Agent work.
 
-Conversation Fork is available only when the adapter contract and live
-capability both support it. The source revision, child identity, ownership, and
-cleanup responsibility must be exact. Failure before the child is durable is
-visible and must not silently create a different fork.
-
-An active Turn remains a Fork barrier unless the Provider's adapter contract
-explicitly declares active-Turn Fork support. Such a Fork must use a
-Provider-owned stable boundary before the active Turn, leave the source Turn
-running, and avoid copying partial assistant or tool state. A moving transcript
-revision does not invalidate that stable boundary; Providers without this
-declaration retain the ordinary idle-only rule.
-
-A fork must enter the child's Agent environment before it accepts input. When
-a shared provider creates the fork with the source environment, its adapter
-must release that exact fork's temporary runtime ownership before the child
-loads it with its own configuration. A distinct Provider Session id alone does
-not prove environment isolation: a loaded provider runtime may ignore resume
-overrides. The source and peer Sessions remain untouched. Release or load failure
-blocks child readiness; an uncertain outcome is retained for reconciliation,
-never silently retried. Acceptance covers effective Agent identity after a fork
-and a fork of that child, including self-title updates.
-
-Fork child launch has one settlement rule across runtime strategies: the first
-callback or Promise result is authoritative. A callback failure or resolved
-null is definitive and permits exact cleanup. A synchronous throw or rejected
-Promise is uncertain; Farming retains the exact forked Provider Session and
-does not delete or replay it before durable reconciliation.
-
-When Farming restarts while a Fork operation is still non-terminal, recovery
-converges it before any runtime starts. With an exact source runtime Agent
-identity the operation is transitioned to durable blocked; if that blocked
-transition cannot be persisted, the journal keeps the original pending truth
-and the source still recovers fail closed as lifecycle-blocked. Without an
-exact identity nothing is guessed or transitioned: the operation stays pending
-with an explicit warning. In every case the Fork is never replayed
-automatically, the same request may only reconcile against the durable
-outcome, and archive or delete supersedes it while the source is addressable.
-
-### Fork History Boundary
-
-A fork's origin is a durable conversation boundary owned by the child runtime,
-not a banner at the start or moving end of its transcript. After the provider
-has prepared the child history and before the child accepts input, capture its
-inherited user-turn prefix and persist the origin in its checkpoint. A fork of
-a fork captures a new boundary for its immediate source.
-
-The divider follows the last inherited visible Turn and precedes all child
-Turns. A newly opened fork reveals that boundary with the inherited tail; later
-messages, pagination, refresh and parent activity never move it. Empty inherited
-history places it before the first child Turn. It is presentation metadata,
-never a user/assistant message sent to the provider.
-
-Recovery loads history authoritatively and verifies the saved ordered user
-prefix before rebinding the boundary to replayed entry identities. Tool replay
-shape and regenerated IDs must not move it. Missing or incompatible history,
-including compaction that removes the prefix, exposes an unavailable boundary
-instead of guessing. Legacy forks without a saved boundary show origin-only
-information with that limitation; merely opening one must not mark its current
-tail as inherited. Paging past the boundary hides the divider until its Turn is
-loaded, rather than relocating it into the visible page.
-
-Acceptance covers initial tail visibility in every appearance, first child
-submission, checkpoint/replay recovery, pagination, repeated forks, empty
-history and unavailable boundaries across provider adapters.
-
-## Presentation Contract
-
-Chat infers file links from inline code only when it identifies a single file.
-Extension-pair shorthand such as `src/header.h/.cpp` stays intact as inline code;
-it must not become a link labeled `.cpp`. Explicit Markdown file links retain
-their literal destination.
-
-Compact Chat keeps the current Plan collapsed to one summary row above the
-Composer in normal layout flow. Expanded details scroll within a bounded height;
-neither state overlays the title, transcript, or input. Agent changes close the
-disclosure. Mobile titles retain the shared bounded row title and let available
-width determine visual truncation instead of applying a short character limit.
-
-Local image Resource links use the same bounded inline preview and accessible
-enlargement as both Markdown image syntax (`![alt](path)`) and image file links
-(`[label](path)`), including relative, absolute, and exact external paths. Local
-image sources resolve through the file endpoint, never as website routes. The existing
-authorized file endpoint owns access; a missing MIME type does not suppress a
-recognized image path. Failed image loads remain visible as unavailable evidence.
-Ordinary Resource labels truncate within their row without widening Chat or
-displacing subsequent image attachments and Steer messages.
-
-Main and child Chat keep readable progress messages directly visible during execution
-and after settlement or reload. Detailed reasoning and tool output remain collapsible.
-Chat shows the ordered conversation, one compact live activity signal for the
-current Turn, and reversible structured evidence. Completed reasoning and tool
-details do not remain as overlapping default summaries. Disclosure controls
-keep stable layout slots and become visually prominent on hover or keyboard
-focus. Intermediate Tool failures remain available within their action groups
-without replacing those groups' action-oriented summaries; authoritative Turn
-and Runtime failures remain visible at the higher level.
-While a Turn runs, its collapsed view shows one cumulative action group across
-ordinary progress updates. Expanding the process preserves the original order
-of progress messages and tool evidence.
-An explicit answer followed by further live commentary, tools, or Steer retains
-its own text, media, and chronological boundary above that continuation. Action
-groups cannot cross this answer boundary. Settlement keeps the newest answer in
-the direct result presentation; earlier answers remain available in the existing
-completed activity disclosure, including after checkpoint reload.
-Turn settlement preserves the user's current process and tool disclosure
-choices, so completion cannot close evidence the user is reading. A new view
-retains the existing compact defaults.
-When a non-active Turn has structured process evidence but neither a final
-assistant result nor a stronger explicit interrupted state, its process ends
-with one lightweight line stating that no final reply was produced. This state
-is projected from the transcript and survives reload; it adds no recovery
-action or separate notification surface.
-
-Historical patch cards retain their structured diff evidence after the files
-are committed. Their Commit follow-up is visible only while at least one path
-from that card still has a current staged, unstaged, or untracked Git change;
-unrelated working-copy changes do not keep the action visible.
-
-A published Chat can precede its ACP Host binding. During an owned, error-free
-start in `connecting`, the Session configuration read returns `202` with
-`pending: true` and `session: null`. The Composer retains its draft without an
-error or invented capabilities; Runtime revisions trigger the next fresh read.
-This read-only pending state grants no mutation admission. Startup deadlines,
-actual failures, and missing bindings without an active start remain explicit
-errors rather than an indefinite pending response.
-
-Explicit reconnect and reconnecting mutations validate the retained ACP Agent
-record before trying Host initialization and persisted-session recovery. A
-missing live binding cannot reject that recovery attempt at admission. After
-recovery, the exact Agent record and live binding are revalidated; authoritative
-recovery failures and process-exit proof requirements remain enforced. Ordinary
-Session reads do not initiate recovery or start providers.
-
-A fresh Chat shows the stable empty-conversation state while its Session
-connects. Session startup is not an active Turn and must not enable Steer or
-replace the empty state with transient startup copy. A startup-time transcript
-read failure for a fresh Session cannot replace that empty state; an actual
-Runtime failure remains visible through the authoritative Runtime and Composer
-state. Explicit history restores may show bounded synchronization feedback
-until their first authoritative transcript settles. When an expected history
-read exhausts its bounded retries, Chat shows an explicit read-only Retry
-action. Retry starts a fresh checkpoint read; it never replays a Prompt or any
-other mutation. Once the authoritative Session or Runtime epoch changes, a
-cached transcript from the previous identity is quarantined immediately and
-must never render under the replacement Agent identity. Empty `202` responses,
-identity-mismatched checkpoints, and delta gaps all use bounded checkpoint
-retries and converge to the same explicit Retry state instead of an unbounded
-loading or request loop.
-
-A live Chat Agent uses only an explicit user rename or an Agent-managed adaptive
-title above its stable provider name. Provider Session titles derived from the
-first Prompt are history metadata and do not rename a live Agent. A restored
-history Agent may use its durable Provider Session title when no stronger title
-exists.
-
-An unsettled authoritative transcript that already contains Turns is admitted
-immediately while bounded settlement retries continue in the background.
-Exhaustion exposes a read error while retaining that content; new evidence or
-explicit Retry can start another bounded attempt. Only an expected history response that is still empty blocks the
-transcript surface behind synchronization feedback. A delta's omitted prefix
-refers to its update window, not missing browser history. Once the beginning is
-loaded, subsequent deltas retain that fact unless loaded Turns are evicted;
-scrolling at the top must not restart history synchronization.
-
-Live transcript revisions coalesce behind an in-flight read instead of
-repeatedly cancelling it, so sustained update streams make visible progress
-without waiting for a quiet period. Rapid revision-only refreshes also share a
-short bounded cadence; the latest revision must still run, while reconnect and
-runtime-state transitions remain immediate. Completed Turns retain stable
-render identities across these reads, so unchanged Markdown is not parsed
-again. Only new intermediate messages received while the selected Chat is visible
-and following the latest content fade in once, for 180 ms. The pane consumes message
-identities when each snapshot arrives; mounting a message never triggers motion.
-Streaming extensions and final answers display directly. Initial history, Agent
-switching, expanded content, history loading, reconnect recovery, and background
-catch-up display without replay. Reading older content or selecting text suppresses
-arrival motion, as do reduced-motion preferences. Multiple arrivals fade in parallel.
-Expanded reasoning omits a leading line that already serves as its folded title and renders the remaining
-text as safe Markdown, so provider-authored emphasis is presented instead of
-exposing its source markers. Shell variable expansions in prose remain literal:
-paired dollar signs in quoted commands must not turn paths into inline math.
-Genuine inline/display formulas and code spans retain their normal rendering.
-
-The latest live answer mounts every authoritative snapshot that crosses the
-bounded revision-read cadence. Farming must not hold prefix-extending text until
-Turn completion: readers see ordered intermediate progress without per-token
-render churn. Navigation, recovery, and completion reconcile directly to the
-current authoritative result instead of replaying already received text.
-
-The bottom Live Activity uses one motion cue at a time: processing keeps its
-spinner without a sweep, while non-spinning activity uses a slower linear sweep.
-While a structured tool remains active, the same lightweight line shows the age
-of that tool's latest authoritative activity. The Runtime Host records that time
-only when it receives a real provider tool update; silence ages the displayed
-time and never creates a heartbeat. History replay does not restamp old updates,
-checkpoints preserve the recorded time, and completed, failed, cancelled, or
-interrupted work shows no live recency.
-
-The Composer preserves drafts, IME behavior, attachments, queue/steer controls,
-permissions, and negotiated configuration. Reload may restore an unresolved
-submission as a visible item requiring reconciliation, but never resubmits it
-automatically.
-Chat and Terminal share the [Composer input contract](composer-input.md),
-including bounded mobile growth and expanded editing of the same draft.
-
-## Acceptance Criteria
-
-Every supported provider must pass the same provider-neutral verification for
-the contracts it implements. Verification must cover provider capability
-negotiation, exact identity and Agent Home isolation, configuration fallback,
-ordered mutations, uncertain outcomes, Server and Host restart,
-checkpoint/delta gaps, reading-position restore, Chat/Terminal switching,
-Fork, media and tool evidence, and large multi-Agent workloads. Scale tests
-must measure process count, memory, wire volume, browser render work, and
-navigation latency without imposing a fixed concurrency ceiling.
-
-
-### Streaming rich content and inspection
-
-Submitted user messages, Steer messages, and expanded Handoff context render as
-safe Markdown using the shared content typography, including emphasis, lists,
-links, tables, and code. Rendering does not modify the submitted or persisted
-source; live messages and restored history use the same presentation. Raw HTML
-is not executed.
-
-Shared Markdown rendering in Code, CRT, and file previews accepts paired double
-asterisks next to Chinese punctuation without requiring spaces: for example,
-`**重点。**后文` and `前文**“重点”**后文`. Only exact double-asterisk runs
-relax the punctuation boundary; normal delimiter pairing, code, escapes, math,
-and source positions remain parser-owned. Each streaming snapshot is parsed
-independently; missing closing delimiters are never synthesized.
-
-Code and CRT omit unresolved provider-private citation markers from rendered prose,
-including partial markers during streaming. They do not invent source links;
-ordinary Markdown links and literal citation syntax inside code remain intact.
-The stored transcript is unchanged.
-
-Turn and message state own whether content is streaming, settled or interrupted.
-An unfinished Mermaid fence uses a stable neutral generating surface; a closed
-block renders immediately, without waiting for Turn completion. An interrupted
-unfinished block remains visibly incomplete. Settled content is validated even
-when Markdown omits a closing fence. Incomplete math remains readable without a
-transient parser error; settled invalid math retains its diagnostic. Ordinary
-prose, code and tables continue through the live snapshot cadence.
-
-A diagram block owns one running render and one latest desired revision. Only
-the current revision may publish; old queued work is skipped, the final revision
-must run, and asynchronous rendering has a bounded failure with a render-only
-Retry. Source and appearance updates retain the previous valid diagram while
-repainting. Unmount revokes publication and releases timers. Code and CRT share
-this content-state and scheduling contract while retaining their product skins.
-
-Chat distinguishes a failed diagram component download from a diagram render
-failure. A failed component import can remain cached after deployment replaces
-its asset, so this state offers an explicit page reload instead of a local
-render retry. It never reloads automatically or replays the Turn; ordinary
-render failures retain local Retry.
-
-Viewing intent is independent of render state. Updates and appearance changes
-preserve an open viewer, zoom and pan. Closing or removing its owning content
-releases the viewer without replaying Agent work. Image and diagram inspection
-use the shared full-viewport content shell, with an application-level portal,
-background isolation, top-layer Escape, a focus loop and focus return. The shell
-owns title, actions and viewport geometry; content owns fit, zoom and pan.
-Diagram labels use an 18px natural size. Initial inline rendering and each full
-viewer opening fit the complete diagram to the available viewport. Fit follows
-container resizing; zoom and pan remain explicit user adjustments. The zoom
-percentage restores actual size (100%), and Fit returns to the complete overview.
-Diagram answers use the available reading-column width. Controls occupy a separate
-row so they cannot obscure nodes. These rules also apply to file previews.
-Inline placeholders retain reading geometry while the viewer is open. File
-reading-width changes remain layout operations under their existing owner.
-
-Acceptance observes the entire update sequence, including unfinished and
-invalid syntax, completion, interruption, late results and unmount. Compose
-viewers with sidebar, Composer and nested interaction layers; verify real SVG
-bounds, hit testing, focus and preserved viewing intent in Light, Dark, Paper
-and initial narrow/touch layouts. Appearance changes must preserve identifiable
-diagram node shapes, not only readable text.
-
-Diagram gestures have one transform owner, shared by inline and fullscreen views.
-Wheel zoom requires Ctrl or Alt and keeps the point under the pointer fixed;
-ordinary wheel input remains available for reading. Two-finger pinch and double
-click/tap zoom operate around the gesture position. The pan control enables drag
-panning; disabling it permits ordinary one-finger page scrolling. Fit and actual
-size cancel the current transform and recenter. Fullscreen entry starts fitted,
-while closing restores the saved inline transform. Source/appearance updates do
-not recreate the gesture owner; removing content releases its listeners and work.
-The gesture library owns scale/translation and gesture cancellation, while Farming
-owns fit dimensions, toolbar state, render revisions and viewer lifetime.
-
-### Read-only Goal and interrupted Turns
-
-Goal is provider-owned session metadata, displayed beside Plan in the activity
-dock. A valid ACP `session_info_update._meta.goal` replaces the read-only
-objective, status, and optional reported usage; omission preserves it and
-explicit null clears it. Invalid payloads do not erase valid state. Revisioned
-snapshots and checkpoints preserve it across reconnects; switching Agents clears
-the previous preview. The dock does not create, pause, resume, complete, or clear
-Goals. Stop retains its current-Turn cancellation semantics.
-
-The activity dock retains active, paused, blocked, and usage- or budget-limited
-Goals. An observed transition of the same Goal to `complete` collapses its
-preview and shows completion for five seconds, then removes it from the dock.
-Opening or refreshing an already-complete Goal does not replay this notice.
-Switching Agents, clearing the Goal, or starting another Goal cancels the old
-notice timer; late usage updates do not extend it. This is presentation state
-only and never clears provider metadata.
-
-Completion is also a durable transcript record with the objective and reported
-usage, shown through the shared Goal disclosure below its Turn. The backend
-owns this record: repeated complete metadata updates its usage in place rather
-than duplicating or moving it. Identity uses the provider creation timestamp
-and objective (the objective alone when the timestamp is absent). A later Goal
-or explicit metadata clear preserves earlier completion records. Checkpoint
-recovery backfills a record for older complete metadata and remains idempotent.
-Acceptance covers live completion, late usage, repeated notifications, new Goals,
-clear, reconnect/reload, and completion disclosures across all appearances.
-
-
-An active Goal is distinct from an active Turn. Provider-initiated continuation
-Turns must publish the same ordered start and terminal lifecycle as submitted
-Turns, including completion, interruption, and failure. Settling an earlier
-Prompt cannot clear a newer Turn's identity or its controls. Codex refreshes
-Goal metadata after each root Turn ends; usage-only changes must reach the dock
-even when the objective and status are unchanged. Acceptance exercises the
-prepared adapter, not only synthetic runtime notifications.
-
-Cancellation remains owned by the runtime's exact Turn and response barrier.
-Only settlement cancels outstanding tools/compaction, preserves successful tool
-results, and records a terminal reason with the Turn. The collapsed process summary
-explicitly shows interruption. Late tool updates cannot
-reopen cancelled entries. A follow-up waits for the previous cancellation to
-settle; stale completions cannot settle a newer Turn. Timeout remains an explicit
-runtime failure. Historical interruption survives subsequent Turns and checkpoint
-recovery instead of depending on the session's latest stop reason.
-
-## Authentication Before The First Session
-
-An ACP `session/new` authentication rejection with advertised sign-in methods
-keeps the initialized connection and visible Agent. Until sign-in completes, the
-Agent has a temporary identity and cannot submit prompts. Agent-managed sign-in
-resumes bounded session creation on that same connection; terminal sign-in uses
-the existing reconnect path. Only a confirmed Session response publishes the
-Provider Session identity. Closing the Agent revokes pending authentication and
-late completions cannot recreate it. Other startup failures retain the ordinary
-cleanup contract; identity-only operations still fail and clean up.
+Acceptance covers identity/Home isolation, negotiated capability, ordering,
+deduplication, cancellation, late results, reconnect and hard loss; compares live
+projection with authoritative snapshots; and exercises pagination, large payloads,
+Fork/child isolation and source attribution. Verify composed desktop/compact
+interfaces in Light, Dark and Paper. Real-provider smokes are isolated and
+low-volume; deterministic fake providers cover routine failure sequences.

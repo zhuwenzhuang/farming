@@ -2,51 +2,27 @@
 
 > Chinese version: [README.zh_cn.md](./README.zh_cn.md)
 
-This section is for contributors and maintainers. Product users should begin at
-the [documentation home](../README.md).
+Start with [Contributing](../../CONTRIBUTING.md), [engineering rules](../../AGENTS.md)
+and [security policy](../../SECURITY.md). User instructions live on the
+[documentation site](https://zhuwenzhuang.github.io/farming/en/).
 
-## Contribute
+Use the document that owns the decision; do not maintain parallel descriptions
+of the same behavior.
 
-- [Contributing guide](../../CONTRIBUTING.md)
-- [Agent and engineering instructions](../../AGENTS.md)
-- [Security policy](../../SECURITY.md)
+| Question | Authoritative document |
+| --- | --- |
+| Chat execution, messages, child Sessions and recovery | [ACP runtime](../products/code/acp-runtime.md); [Codex-specific boundaries](../products/code/codex-runtime.md) |
+| Conversation identity and Agent inventory | [Session identity](../products/code/provider-session-identity.md); [Agent state protocol](../products/code/agent-list-state-protocol.md) |
+| Native terminal state and reconnection | [Terminal protocol](../products/code/terminal-state-protocol.md) |
+| Files product, consistency and transport | [Files design](../products/code/project-files-section-design.md); [file state](../products/code/workspace-file-state-model.md); [transport protocol](../products/code/workspace-transport-protocol.md) |
+| Shared visual and interaction language | [UI design](ui-design-protocol.md); [UI interaction](ui-interaction-protocol.md) |
+| Config and installation ownership | [Config isolation](config-instance-isolation.md); [installation lifecycle](package-installation-lifecycle.md) |
+| Deployment and publication | [Remote deployment](remote-deployment-lifecycle.md); [release contract](release-verification-and-publication.md) |
+| Verification and diagnostics | [Acceptance](../products/code/test/acceptance-dogfood-plan.md); [interaction performance](interaction-performance.md); [real Codex case](../products/code/real-codex-release-case.md) |
+| Other product boundaries | [Code](../products/code/README.md); [product index](../products/README.md) |
+| Public documentation maintenance | [Documentation site](documentation-site.md) |
 
-## Runtime And Session Architecture
-
-- [Config instance isolation](config-instance-isolation.md)
-- [Package installation and update lifecycle](package-installation-lifecycle.md)
-- [Remote deployment lifecycle](remote-deployment-lifecycle.md)
-- [ACP runtime](../products/code/acp-runtime.md)
-- [Codex runtime](../products/code/codex-runtime.md)
-- [Agent list state protocol](../products/code/agent-list-state-protocol.md)
-- [Provider Session durable identity](../products/code/provider-session-identity.md)
-- [Terminal state protocol](../products/code/terminal-state-protocol.md)
-
-## Product Architecture
-
-- [UI design protocol](ui-design-protocol.md)
-- [UI interaction protocol](ui-interaction-protocol.md)
-- [Composer input](../products/code/composer-input.md)
-- [Public documentation site](documentation-site.md)
-- [Farming Desktop MVP](../products/code/desktop-app.md)
-- [Desktop Native Browser View](../products/code/desktop-native-browser.md)
-- [Extension and Resource model](../products/code/extension-model.md)
-- [Chrome extension Browser](../products/code/chrome-extension-browser.md)
-- [Language Server](../products/code/language-server.md)
-- [Project Files design](../products/code/project-files-section-design.md)
-- [Rest reminder state model](../products/code/rest-reminder.md)
-- [Workspace file state model](../products/code/workspace-file-state-model.md)
-- [Workspace transport protocol](../products/code/workspace-transport-protocol.md)
-- [Review foundation](../products/code/review-foundation.md)
-- [Farming CRT layout](../products/crt/base_layout.md)
-
-## Verification
-
-- [Release verification and publication](release-verification-and-publication.md)
-- [Interaction performance diagnostics](interaction-performance.md)
-- [Acceptance and dogfood plan](../products/code/test/acceptance-dogfood-plan.md)
-- [Real Codex cross-interface case](../products/code/real-codex-release-case.md)
-
-Development documents may contain protocols, state machines, invariants, and
-test evidence. Those details should not be copied into repository or product
-landing pages.
+Keep design documents focused on purpose, ownership, invariants, protocol and
+failure/recovery. Code and tests own field inventories, call sequences and
+individual regression cases. Research, proposals and execution retrospectives
+stay local and untracked; merge established decisions into their existing owner.

@@ -2,954 +2,212 @@
 
 > English version: [acp-runtime.md](./acp-runtime.md)
 
-Farming 使用 Agent Client Protocol 为受支持的 Coding Agent 提供结构化 Chat。Backend
-拥有 Runtime 生命周期、Provider Session、有序 Chat 状态、配置、权限与恢复；Browser
-界面只展示权威状态，不从普通文字或 Terminal Output 中重新推断。
-
-## 关联会话与旁聊
-
-每个持久父 Provider Session 最多拥有一个保留的旁聊。创建复用现有 Fork 准入和
-持久日志，取 Provider 的稳定上下文边界，不取消、重新加载或切换父 Runtime。
-继承的消息仅作为上下文，不授权继续父任务；旁聊只执行新收到的旁聊消息。
-未验证 Fork 能力的 Provider 不能创建旁聊。
-
-Code 宽屏左侧显示父会话、右侧显示选中的关联会话，各自拥有草稿、权限和运行控制；
-窄屏在两个视图间切换。收起只影响展示。
-所有可见的 Chat 对话与控制面板按精确 Agent 身份注册版本订阅，包括侧栏会话和 Resource 旁的 Chat。
-原生子 Agent 详情订阅拥有其事件流的父 Runtime。同一会话的多个面板通过引用计数共享订阅；
-隐藏或切换面板只释放自己的订阅。可见面板在有界订阅预算内优先于保留的后台视图。
-重连恢复当前订阅并读取权威快照，不重发消息。Runtime 监督独立于面板订阅：收起旁聊不会取消任务或释放监督。
-旁聊和原生子 Agent 行位于其父会话下。
-原生不透明子项身份受精确父 Runtime Generation 约束；缺少内容读取能力时明确提示。
-
-旁聊空闲五分钟后释放 Runtime；所有显式关注该旁聊的 Owner 客户端失去连接一分钟后也会释放，
-但仅在空闲时执行回收。已接受的 Turn、待审批／输入及原生子任务在浏览器离开后继续执行，
-断线不会强制取消；释放时再次核对空闲状态。历史保留在 Checkpoint 中，冷恢复不会启动 Provider。
-新的显式消息恢复同一会话，不重放之前的请求。停止父会话时释放其精确旁聊及所属
-Browser、Computer 资源；父会话不可用时拒绝向旁聊发送消息。创建或清理结果不确定
-时保持阻塞，等待权威状态对账。
-
-### 读取原生关联会话
-
-原生子 Agent 通过既有父运行时接受查看。客户端协商原生子会话事件，在 ACP 边界统一身份与状态。
-连接内子 ID 受父运行时 Epoch 约束，不能当作可独立 Resume 的 Session 身份。Side Chat 继续沿用
-既有持久 Fork 身份和生命周期。
-
-父 Turn 和原生子 Agent 各自拥有完成状态。父 Prompt 在自身 Provider Turn 和已接收的通知前缀
-处理完成后结束；后台子 Agent 不延长此边界。会话订阅跨父 Turn 保持有效。父会话完成或取消
-不能合成子会话的终态，只有权威子会话事件才能结束子会话。关闭会话和进程丢失沿用既有恢复边界。
-子会话中断在清单和详情读取中始终区别于正常完成。
-
-支持清单读取能力时，关联列表使用新鲜、有界的权威查询，并核验父身份及运行时 Epoch。
-Codex 查询后代时显式包含子 Agent 来源类型。不支持该能力的 Provider 只展示已保留的原生事件。
-读取失败明确显示，不能当作权威空列表。
-
-协商后的子会话协议支持 `subagent_update` 关联与 `session_message`／`session_message_chunk` 消息，
-并兼容既有子会话事件。先声明关联，再接收子会话流量；直接父身份不能变化或跨越运行时归属。
-省略元数据字段保留原值，null 清除，明确状态整体替换旧快照。Idle 子会话可以再次工作；
-未设置或未知活动不能证明完成。会话间消息按所在记录中的消息身份更新，分片按协议顺序追加。
-取消子会话必须具备当前明确授权的能力，并在期限内确认 Idle 状态。恢复的证据保留元数据和消息，
-当前活动与变更权限必须由新连接重新确认。
-
-打开原生详情时，通过原连接读取已保留事件或经能力协商的有界历史快照。Codex 历史读取核验祖先关系，
-分页读取 Turn 和条目，使用私有快照投影且不覆盖实时 Reducer。查看不会 Start、Load、Resume 或
-Cancel Session。未经单独验证的原生控制不可用，执行仍由父 Agent 管理。不支持历史读取的 Provider
-只展示确实收到的子会话事件，内容不可用时明确报告。
-
-子会话声明 `history` 能力后，即使保留了实时事件，仍通过已协商的关联历史接口读取；
-不能让第一轮缓存遮住 Provider 的后续轮次。没有此能力的连接内子会话继续使用保留的事件流。
-旧 Checkpoint 也可通过新鲜的 Provider 清单确认精确子 ID 对应可读历史，不能根据名称或 UUID 格式推断。
-读取保持有界分页，不修改实时状态。原生子会话完成后再次工作时保持同一身份；Adapter 以权威
-新轮次事件恢复转发，忽略重复开始及上一轮迟到的输出和完成事件，并先发布运行状态，再转发
-新进展。公开进展和最终回复的可见性独立于 Agent 间消息正文是否加密。
-Codex Resume 不提供新建会话使用的原始来信事件开关，因此 Adapter 也在原生条目与轮次边界
-增量读取接收方自己的精确 Rollout，并限制字节、记录数量和耗时。原生消息 ID 用于与原始事件、
-历史回放去重。不完整记录等待写完；文件替换或截断明确失败。
-
-父会话 Archive 先通过既有生命周期日志归档所有 Farming 所有的旁聊，包括重启后保留的记录。
-子项失败会阻止父会话完成归档。Codex Adapter 对父会话建立操作边界，重新查询已证明归属的原生后代，
-从最深层开始归档；清单不完整、后代仍在变化或子归档未确认时，不能报告父归档成功。
-原生归档由 Provider Adapter 负责，不将不透明事件 ID 传给其他 Provider 的历史变更 API。
-
-左侧子 Agent 行复用主 Agent 的状态指示器、位置和外观令牌。原生列表默认显示执行中和需要关注的状态，已结束项放入带数量、可分页展开的历史区。
-正在展开或选中的子项完成后仍保留可见；未知状态明确标注。侧栏和详情使用同一状态词汇。
-
-Chat 只展示归属于本轮的子 Agent 动态，按事件顺序排列；完整清单、当前状态和已结束分组由左侧导航负责。
-相邻重复进展合并，执行证据按需展开；后续清单或状态快照不能凭空生成历史动态，也不能改写此前事件的结果。
-启动、完成和失败留在原轮次，后续普通对话不继承子 Agent 列表。Chat 不重复 Agent 树、已结束分组或清单数量。
-新动态到来时保留用户展开的证据，更早动态通过有界展开入口查看；动态显示不触发执行、取消或归档。
-
-发给同伴的操作复用同一条按时间排序的活动流。Provider Adapter 在精简投影前统一归一化实时更新和
-恢复历史中的结构化协作输入。发出消息使用普通消息区域直接展示可读的 Markdown 正文，
-接收者位于正文上方，记录时间和发送结果位于下方。可根据精确会话身份从当前清单解析接收者标题，
-但这不代表历史标题快照。长正文就地折叠；显式展开截断预览时，通过已有的有界工具详情读取原始正文，
-展示加载、失败和用户主动重试。技术参数单独折叠。不新增消息或身份存储。等待发送和失败
-不能显示为发送成功。正文相同的不同发送仍分别保留。成功只证明发送操作完成，不代表对方已读或
-完成任务；Provider 没有提供的入站事件不能从助手回复文字中补造。
-缺少可信来源信息的输入继续使用无署名、无虚构头像的普通输入气泡。明确标记为 Steer 的输入
-在中英文界面均使用次级文字“Steer”，与输入框操作名称一致，表示向当前运行轮次投递，
-不表示发送者身份。
-
-收到可读的同伴消息时，使用普通输入消息气泡。稳定来源头像位于气泡旁，接收时的发送者名称
-位于气泡上方，与正文区域分开；署名使用较小的次级信息文字，正文保持视觉优先。
-长名称换行显示，不隐藏来源。
-Provider Adapter 通过 `session_message`、原生消息 ID 与版本化的 `_meta.peerMessage`
-来源信息传递消息，以接收方自己的事件流或历史为准。发送工具成功或正文中引用的消息封套
-不能证明接收。来源信息不建立子会话归属，也不授予导航权限。
-
-视觉分组由同一接收会话中相邻消息推导，不合并存储记录、不改变回合 ID。连续且仅包含同伴
-来信的回合，在稳定 Session/Task 身份（缺失时使用本接收会话内记录的地址）和接收时署名一致时
-共用来源栏。回复、工具或状态输出、人工输入、不同身份、改名后的来源快照及 Fork 边界都会
-结束分组。加载更早历史、回放或新输出时，按可见的权威顺序重新计算。组尾在气泡外默认显示
-最后一条消息的记录时间，触屏同样可见；没有时间则不补造。分组不产生变更请求、重试或生命周期转换。
-
-Reducer 在接收会话内按消息 ID 更新；重复回放不生成重复消息，也不改写原来的署名。
-正文相同但 ID 不同的消息分别保留。收到消息不会启动、完成、取消或重启工作；Checkpoint
-保留来源快照。历史中没有名称时显示记录的地址，不使用当前标题补造旧署名。
-只有 Provider、Home、Session 精确匹配时才允许打开同伴。
-
-Claude 在普通回显与隐藏元消息过滤之前投影 SDK 的结构化 peer/coordinator 用户记录。
-Codex 订阅原始接收事件；其类型化历史遗漏这些记录，因此恢复时只读取经身份及路径核验的
-接收方自身 Rollout，按原生条目锚点合并有界消息。读取有字节、消息数量及时间上限，
-身份或路径不符时明确失败，不读取发送方历史。Codex 仅暴露加密正文时，界面明确说明
-Codex 发来加密消息，不展示密文、不编造正文，也不从发送方重建接收内容。旧版 Codex `send_input` 缺少接收侧
-来源的记录仍按普通输入展示，不能猜测发送者后补署名。
-
-验收覆盖实时投递、重复与不同 ID、改名稳定性、Checkpoint、Provider 历史恢复、引用文本
-拒绝识别，以及 Light、Dark、Paper 的普通气泡布局。真实 Provider 验证必须隔离且低流量；
-原生父子 Agent 互发通过不代表独立创建的会话能够互相发现。
-
-
-所有 Provider 中，Farming CLI `list` 等查询在实时更新和历史恢复时都保留为普通工具调用，
-原始命令、结果及执行状态可通过共享工具详情展开。只有结构化的 Agent 协作操作和 Agent 活动事件
-进入 Agent 动态；查询命令、标题和助手正文不构成协作。
-同伴名称和导航按 Provider、Agent Home、Session 的精确身份解析。只有明确关联的子会话可以打开
-子会话详情；向已有 Agent 发消息不会建立父子归属。
-
-关联详情按固定页大小和 Provider Cursor（仅事件型 Provider 使用保留条目 ID）读取历史。
-可向前、向后翻页并返回最新，不随历史总量扩大单次响应。实时更新只刷新最新页，Cursor 缺失、
-历史不可用和 Epoch 变化均明确提示。Codex 即使在单个长 Turn 内也按条目数量和编码后的字节数分页。
-最新页从最新条目开始，后续 Cursor 保留 Provider 的较早条目边界，并绑定父会话、子会话和运行代际。
-后端和 UI 必须保留该有界页面的全部内容：协作消息可能产生比 Provider Turn 更多的展示段，
-不能再按展示段数裁剪已读取的页面。
-单条记录超限时给出可操作的大小说明，而不是笼统的 Internal error。保留的事件型子会话代际使用
-其精确的本地记录身份读取，不能把合成 ID 传给 Provider 历史接口。记录读取失败与 Agent 执行失败
-分别标明。引用子会话结果会将来源及所选内容追加到父会话草稿并展示该草稿，
-不自动发送、不覆盖原有文字。
-读取失败的重试反馈复用普通 Chat 的读取错误样式；历史翻页控件保留间距并可换行，
-紧凑视图提供适合触摸的点击区域。
-
-Turn 仍在运行而没有当前工具、计划或思考标题时，Chat 用“最近活动”明确展示最近结束的普通工具活动。
-这表示已观察到的历史，不宣称已结束的工具仍在运行；协作动态不会取代父 Agent 自身的活动证据。
-
-关联面板串行刷新并拒绝过期父身份。选择父行收起关联面板并仅选中父会话；再次选择子行可重新打开，不改变双方会话的执行状态。子行、动态与详情标题
-共享子会话身份图标；动态摘要渲染行内 Markdown，不引入交互链接或块级布局。
-关闭面板只取消浏览器读取，不停止 Agent。读取超时、历史缺失、
-身份变化和大小超限均明确结束。验收覆盖并发查看、无关线程拒绝、查看期间实时输出，以及所有主题下
-的桌面与紧凑布局。
-
-原生详情复用普通 Chat 的 Turn 渲染：任务消息、可折叠过程、工具结果与 Markdown 回复沿用同一视觉
-规范。不能把整段对话放进弱化摘要卡片、重复标题，或将过程文字计作工具操作。只读内容保持正常可读的
-正文样式，执行控件仍由能力边界决定。侧栏子项与协作卡片按同一会话身份共享图标和主题颜色；
-侧栏子项文字使用固定层级缩进；图标占用缩进留白，不移动文字或后续行，且图标与文字均位于选中表面内。
-已结束分组不改变子项的层级或文字位置。
-子状态在各自行内展示，侧栏不增加状态统计行。
-
-## Provider 边界
-
-用于回滚创建失败的显式会话删除，只能删除归属明确的会话，并向上返回失败。
-提供方的归档兼容行为不能把清理变成保留会话却报告成功。
-
-Provider 特有的 Executable Discovery、Environment、Adapter Patch、可选方法和 History
-行为都属于 Provider Adapter。通用 Lifecycle 与 Chat 只使用实时协商的 ACP Capability，
-不得根据 Provider 名称猜测支持情况。
-
-稳定的 Provider Catalog 与 Adapter 也是 Launch Metadata、Runtime Switching、Terminal
-Input Behavior 及 Session/Inventory Policy 的唯一来源。Browser 与 CRT Surface 只消费
-该边界投影出的 Capability，不维护 Provider Name Allowlist，也不重复定义 Provider Default。
-
-Provider Launch 与 Recovery Profile 通过 Adapter Policy 投影。Permission Key、Model 与
-Reasoning Field、Resume 时的继承规则、Display Name 及已退役 Request Alias 都属于 Provider
-边界；通用 Agent Lifecycle 只消费归一化结果，不再根据 Provider Name 分支。
-
-Provider History Mutation 使用同一边界。Archive，以及 Resume 或 Fork 前的 Unarchive
-支持，由 Provider History Mutation Registry 声明并执行；通用 Resume、Fork、Recovery 与
-Archive Flow 只传递精确 Provider Identity，不直接调用 Provider-specific Command。
-归档 Detached History-backed Row 时，只有受支持的 Provider Mutation 成功后才提交 Main-page
-Membership Removal；失败时 Membership 保持不变，使同一 Row 仍可继续操作。
-Archive 与完整的 Non-Fork Resume Admission 按同一个精确 Provider Session Identity 串行。
-Resume 从权威 Lookup、可选 Unarchive 一直持有该 Admission，直到新 Agent 建立 Claim；
-Unarchive 在已持有的 Admission 内执行，不会再次进入同一个 Mutation Coordinator。
-
-Live ACP Session 可以声明带版本的 `_session/archive` 扩展。Archive 先取消进行中的
-Turn，再由持有该 Session 的 Provider Connection 完成归档，最后释放本地 Binding。
-首条 Prompt 提交后即可走此路径，不必等待 Turn 完成；从未提交 Prompt 的空 Session
-无需修改 History。
-成功后关闭该 Session 并跳过 Detached History Mutation；失败或超时保持 Archive
-Blocked，不通过另一进程重放。精确 Session Admission 排除并发 Lifecycle Mutation，
-共享 Runtime 中其他 Session 保持运行。显式重试与重启恢复先读取 Provider History，
-避免重放已提交的归档。未声明该能力的 Provider 保留原有 History
-Mutation Contract。Codex Unsubscribe 不等于 Writer 已释放：空闲保留期可能持续到
-Close Response 之后。
-
-性能、正确性、可靠性、恢复、隔离与可观测性都是 Provider-neutral 的 ACP 要求。
-横切改进只有在所有受支持 Provider 都满足同一 Adapter Contract 与等价验收标准后才算
-完成。Provider 集成可以用不同方式实现该 Contract，但不得绕过它，也不能把单一 Provider
-实现描述为通用 ACP 优化。
-
-ACP 与 Native Terminal 使用相互独立的 Executable Policy。ACP 使用 Farming 自有、版本
-锁定的 Runtime Artifact；Terminal 遵循 Native Terminal Policy。更新 ACP Pin 必须验证
-Protocol、Integrity、Recovery 与 Chat/Terminal Compatibility。
-
-兼容的 Adapter SDK Patch 升级通过限定在该 Adapter 的 Dependency Override 共享 Farming
-的精确 SDK Pin，并保持已审核的 Peer Dependency 解析。使用另一 SDK 兼容版本线的 Adapter
-保留自身已审核的 Pin。每个生成的 Vendor Bundle 都必须重新审核 Digest 并通过 Adapter 验收。
-
-ACP Adapter 的内容摘要由 Vendor Preparation 和 Package Acceptance 验证。Agent 启动只选择
-已准备的 Vendor Entry 并检查普通文件类型，不再全文哈希。缺失时明确要求修复，不能回退
-到 node_modules 中尚未准备的 Adapter。
-
-Provider Policy 在 ACP 边界归一化已协商的 AIR v1 Goal 与 Compaction Metadata。Codex
-Phase 分类同时读取 AIR v1 Metadata 与历史 Codex Metadata，通用 Transcript 和 UI 继续
-消费共享 State Contract。未知 Extension 版本不能覆盖权威 Session State。
-
-Native Terminal Executable Discovery 只返回一种归一化 Compatibility Result。Provider
-特有的 Resume Version 要求与受信 Test Override 留在 Executable Discovery Registry；Agent
-Lifecycle 不选择 Provider-specific Resolver。
-
-默认 ACP Launch 是不可变的 Farming-managed Image，统一绑定 Adapter 版本、Provider CLI
-版本、Protocol/Build Identity、Patch，以及 Node 或兼容 Loader 的启动方式。新建 Chat
-Session 始终使用这套 Managed Runtime；Plugins 不再提供第二条 Executable Selection Path。
-已有 Session 保留创建时的精确 Launch Identity，使旧 Custom Binding 能恢复且不会被静默
-重绑。环境变量只作为兼容输入，不是普通用户配置的 Authority。
-加载设置时会移除已退役的 Agent Home 级 Custom Runtime 选择；如果已有 Session 的持久
-Launch Identity 仍引用该 Executable，则不会删除它。
-已有 Session 如果缺少创建时记录的精确 Executable，恢复必须 Fail Closed，且不得按当前
-机器环境重新发现 Executable。
-Terminal Session 尚未选择 ACP Executable。把同一个 Provider Session 切换到 Chat 时，
-Farming 从其精确 Agent Home 选择 Managed ACP Runtime，并在启动前持久化该 Launch Identity；后续 ACP
-恢复只能使用这份持久化 Executable。
-
-Pi 使用 ACP 官方 Registry 收录的 Adapter，并由 Farming 作为 Version 与 Integrity 固定的 Artifact
-持有。Adapter 启动精确发现到的 System Pi Executable；启动前会验证 Adapter 要求的 Pi 0.80.4
-最低版本，并独立持久化 Absolute Executable Identity。
-Farming 把 Adapter State Patch 到所选 Agent Home 下精确的 Config 与 Agent Namespace，并显式
-注入共享 Bootstrap；绝不使用上游的 Global State Path。由于 `pi-acp` 每条 Connection 只支持一个 Live Pi Subprocess，每个 Pi Chat
-拥有私有 ACP Adapter Process。Adapter 0.0.33 不转发 ACP MCP Server，不委托 Client Filesystem
-或 Terminal Operation，也不声明 Permission 或 Fork Capability。这些缺口保持为可见 Capability
-边界，不能推测为已支持。每轮结束后，Farming 把 Pi 的权威 Session Statistics 映射为 ACP
-Usage Update，因此 Chat 的 Context Usage 与 Cost 使用 Live Pi Session 的真实值。Pi Session History
-可以索引默认目录或已配置的绝对目录。Pi 会相对
-Launch Working Directory 解释 `settings.json` 中的相对 `sessionDir`，因此 Farming 不猜测该目录；
-需要 Farming Inventory 时，应在所选 Pi Agent Home 的 `settings.json` 中配置绝对 `sessionDir`。
-
-`agy`（Antigravity CLI）通过 Farming 内置 ACP Bridge 驱动发现到的系统 `agy` 可执行文件，
-并按 Session 持久化其绝对路径身份。Bridge 通过显式 `--gemini_dir` 与 `--app_data_dir`
-绑定所选 Agent Home。只有新建 Session 才初始化会话数据库；load/resume 要求已有数据库
-中的会话身份准确匹配，不能通过新建数据库伪造历史恢复。Bridge 使用原生无头 JSON 输出，
-转发额外工作目录，并在轮次之间保留 Session 工作目录。历史回放优先读取完整 transcript，
-旧格式的截断日志仅用于兼容。
-load 和 resume 只有在用户输入中读到当前 Farming 指令全文时，才认定已注入；原生历史或
-日志存在本身不构成证据。注入轮次成功后确认送达；轮次失败则检查已持久化输入，决定下个
-轮次是否仍需注入。resume 只检查该证据，不重放 transcript 更新。
-
-已知的历史 stream-interruption 错误仅在数据库证明本轮开始后出现新的用户输入边界、
-已完成的 Planner 回复及最终步骤，且本轮没有错误时，才允许恢复为成功。历史未变化、
-证据不可用或其他错误仍判定为失败。
-
-每个 Session 同时只允许一个轮次。部分输出不代表成功：CLI 必须正常退出并报告同一会话
-的成功终态。取消、连接断开或轮次超时会强制终止所属 CLI 进程组及工具子进程；运行中的
-轮次不接受配置变更。Bridge 暴露 Bypass permissions、Accept edits 和 Plan 模式，Plan 不代表交互式
-逐次授权。暂不支持通过 ACP 注入 MCP，集成须在所选原生 Agent Home 中配置。用量和模型
-能力以 CLI 实际提供的信息为限。
-
-声明一种 AIR Extension 不等于支持全部 AIR 交互。只有客户端协商了自定义答案输入，
-Codex 才使用该交互；否则保留显式的其他答案选项，Schema 校验与 UI 继续采用共享契约。
-
-只有 Live Agent 明确声明时，Farming 才启用标准 ACP Session、Prompt、Cancel、Config、
-Authentication、Elicitation、Terminal、Media、Plan 与 Fork 能力。Provider Extension 必须
-带版本、可协商，并留在 Adapter 边界。
-
-能力声明必须覆盖协商契约的完整语义。Farming 支持基础的单个 `plan` 更新；在按 ID 管理
-状态和展示都得到支持前，不声明实验性多计划操作。未协商的计划操作不得覆盖或删除基础
-计划。工具名称是信息性元数据，在更新和 Checkpoint 中保留，不授权操作，也不替代展示标题。
-
-请求级取消与 Turn 取消相互独立。SDK 请求上下文拥有待处理 Permission 或 Elicitation 的
-取消权。取消只撤回该精确的活动请求，移除其 UI 与 Resolver，并拒绝迟到的回答，不影响
-其他请求或 Turn。提交答案与取消竞争时只结算一次，结算后释放取消监听器。连接丢失和
-Runtime 替换继续遵守已有的所有权与恢复边界，绝不重放答案。
-
-待回答问题与 Turn 执行相互独立，收到 Elicitation 不会暂停运行中的 Turn。后端拥有请求
-有效性，只移除已回答、拒绝、取消或失效的请求。浏览器定时器不得代答或使问题过期。
-浏览器按 Agent 和请求身份维护收起状态与未提交草稿，切换 Agent 时保留，Runtime 替换
-不得复用。新问题展开但不抢焦点；“稍后回答”只收起，“跳过”发送 `decline`。提交保持
-单飞，直到权威状态确认才将表单替换为处理结果，并展示有界失败；结果不确定时绝不自动重放。
-
-问题作为持久记录保留在聊天中原始到达的位置，后续输出继续排在其后，不再占据或挤压
-Composer。复用分组表单样式：Light/Dark 使用边框，Paper 使用中性色块，各主题输入区域
-保持可辨识。普通问题保持紧凑，可选文本补充项主动展开，必填项始终可见。浏览器按请求
-保留展开状态和草稿，隐藏字段校验失败时展开供修正。“稍后回答”只收起该问题，不发送协议响应。
-
-后端在 Session 有序记录中保存问题身份、内容及处理结果。回答、跳过和撤回后保留只读历史；
-恢复的历史记录没有实时 Resolver 时不可再答，也不得重放。只有实时待回答集合授权回答。
-Provider 可以在请求仍有效时继续或结束 Turn；Farming 不阻止进度，也不擅自代答或虚构默认选项。
-Provider 已撤回的问题不能再回答。AgentRow 保留权威待回答数量，通过正常导航定位问题。
-已接受的 URL 交互保留独立完成状态。验收覆盖时序位置、回答前继续输出和后续 Turn、刷新、
-单题收起、处理结果、撤回、草稿保留，以及桌面/窄屏的 Light、Dark、Paper 主题。
-
-Qwen Code 的 v1 Prompt Suggestion Notification 会在该边界归一化为临时、Provider-neutral
-的 Composer State。它可以替代空输入框的 Follow-up Placeholder，并通过 Tab 填入草稿，
-但不会成为 Transcript Entry，也不会写入持久 Checkpoint。新 Prompt 会使旧建议失效；没有
-发送该 Extension 的 Provider 继续显示普通 Placeholder。
-
-## Runtime 所有权
-
-每个 Config Instance 有一个 ACP Runtime Host。Farming Server 是可替换 Controller；Host
-拥有 Live Provider Connection、Active Operation、有序 Reducer 和进程身份。兼容 Server
-重启会重连 Host，并读取其权威 Checkpoint 与 Delta，而不是重启健康 Session。
-
-Host 发往 Controller 的回调在传输层接受消息后保持等待，包括 Socket 报告背压的情况。
-只有匹配的 Controller 结果才能完成回调；断连或有界回调超时会以结果不确定结束。
-队列与载荷限制仍拒绝无法接受的消息，不得重放可能已送达的回调。
-
-序列化失败不得遗留 Pending Request 或计时器，也不得使健康连接失效。Controller 只提交
-一次 Handler 结果；结果确认丢失不得重传该结果，也不得使无关操作失效。Controller 身份
-或 Generation 变化（包括在同一连接上变化）会使之前的回调和 Fork Reservation 失效。
-属于当前 Controller 但 Agent Binding 已过期的回调，必须明确返回结果不确定的失败，
-不得调用 Handler。
-连接替换会拒绝旧连接的等待请求并重置帧缓冲。已脱离的 Socket 所产生的数据、错误和关闭
-事件不得影响新连接；无效响应会关闭对应传输连接。
-
-上述 Server-only 重连属于故障恢复行为，不是 Farming 的主动 Stop Mode。Farming 只有一种
-主动 Stop 语义：直接杀掉选中的、由 Farming 拥有的全部进程，不做 Graceful Shutdown 或 Drain、
-Handoff，也不保留或复用进程。这个单一的 Hard-stop 契约用于刻意简化状态管理，也用于保证
-状态机正确性：Graceful 路径会增加第二种终止场景，并可能隐藏只有突然终止才会暴露的问题，
-因此 Recovery 与 Cleanup 必须以 Hard-stop 为准。仓库的 `npm restart` 命令会完整停止
-Farming 后全新启动；其性能优化必须改进冷启动 Inventory 与 Session 恢复。
-Linux 上的退出验证会把只剩已退出 Zombie Entry 的进程组视为已停止；只要仍有
-可运行、睡眠或暂停的后代进程，Cleanup 就必须继续失败关闭。
-
-ACP 不设置固定 Agent、Session、Process、Thread 或并发数量上限。资源保护来自有界 Queue、
-Payload、Cache 与 Backpressure，不能用任意 Live Agent 限制代替真实性能治理。
-
-只有 Provider 支持独立 Multi-Session 时才能共享 Provider Runtime。参考 Zed 的 External
-Agent 连接边界，共享 Pool 限定在一个 Canonical Project 内，并以 Provider、Canonical Agent
-Home 与 Adapter Launch Identity 为 Key。每个 Session 仍独立拥有 Workspace、Provider
-Session ID、配置、权限、身份、MCP Scope、Active Turn 与 Recovery State；在一个 Runtime
-Host 内，一个 Provider Session 在全部 Project Pool 中最多只有一个 Live Owner。关闭或删除
-一个 Session 不能停止同 Pool 的无关 Session。共享 Runtime 失败时必须对账全部受影响
-Session，且绝不重放结果不明确的 Prompt。
-Session 进入 `connecting` 后、Farming 获取 Provider Process 前，会在所选 Agent Home 不存在
-时创建它，并解析其 Canonical Identity。Home 准备失败会成为显式 Session Failure，绝不
-Fallback 到其它 Home 或 Executable。
-Codex、Claude、OpenCode、Qoder、Qwen、Pi 与 agy 都使用该 Connection 边界。与 Zed 一致，只有
-Provider 明确声明 `session/close` Capability 时才发送关闭请求；否则 Farming 只释放本地
-Session 引用，并在 Project Connection 的最后一个 Session 结束时回收 Provider Process。
-
-Browser 与 Computer 使用实例精确的 Farming CLI 和共享 Backend Service，不再为每个 Agent
-启动一份 Capability 子进程。每个 ACP Session 通过 Session-scoped Environment Metadata
-获得自己的 Agent 与 Project Identity；CLI 调用携带该本地身份，Backend 直接解析当前 Agent
-与 Project Workspace。Identity 与其它 Farming Operational Context 绝不能追加到用户 Prompt。
-Agent 名字只用于路由，不是单独的授权 Credential。Farming 不向 ACP Session 注入自有
-Capability MCP Entry；Provider 与用户 MCP 配置仍是私有 Session Input。
-
-Farming Bootstrap 只包含 Provider-neutral 的操作指令，不定义用户偏好的回复语言。对于只有
-标点或其它 Language-neutral 的输入，不得从 Bootstrap、UI Locale、Agent Identity、Workspace
-Metadata 或隐藏 Operational Context 推断回复语言。
-
-## 交接给新 Agent
-
-Code 的 Agent 行菜单为已确认身份的编程会话提供「交接给新 Agent」。用户通过共享的新建
-Agent 对话框选择编程 Agent 类型与 Home；Shell 不能作为来源或目标。后端解析来源的精确
-Provider/Home/Session 身份和工作目录。目标在该目录中创建独立会话，使用自己 Home 的配置。
-来源保持可用，不会被停止、归档或重新绑定；此操作不迁移 Provider 的原生状态。
-
-首次提示要求目标定位并阅读来源原生会话记录，必要时只读检查工作区，简述理解后等待用户
-指示。语言遵循原用户的明确偏好或主要交流语言，不由 UI 语言决定，也不假设交接原因。
-读取前不发送回复或进度说明，避免英文交接提示在其它语言的会话中引入英文开场白。
-来源记录是背景材料，不是立即执行的指令；无法读取时必须说明，不能猜测上下文。这些要求
-属于提示词，不是新的文件系统权限模式。来源引用不是不可变快照，可能反映后续来源活动，
-也不承诺恢复完整模型上下文、附件或 Provider 内部状态。
-
-共享选择器按侧栏 Agent 行的命名规则显示来源，保留普通新建的标题栏和字段布局，
-来源与先阅读要求作为正文次要说明。普通新建与交接中的分类、运行方式标签均遵循 UI 语言。
-沿用的工作区只读但可以选中复制，不显示目录选择操作。Chat 将交接来源放在用户消息气泡
-之外，使用紧凑的 Transcript 折叠行；展开指示始终可见，因为收起后没有其它内容能将它
-与静态状态文字区分。
-Chat 将首次提示默认折叠为「交接上下文」。后端写入带版本的展示标记，
-随 Transcript Checkpoint 保存，并从发给 Provider 的 Prompt Content 中移除；它不改变
-访问权限、会话归属或提示词正文。点击或键盘激活可以展开完整提示与来源引用，再次激活
-则折叠，不发送输入。普通消息和缺少有效标记的历史保持完整显示。原生历史回放和会话
-Fork 仅在用户消息的有序前缀得到验证时，从本实例保存的记录恢复标记；不能仅凭提示
-文本推断交接来源。视图重新挂载时默认
-折叠，运行时更新不重置当前展开状态。Terminal 保留原生显示。
-
-普通新建、Project 快捷创建和交接使用后端拥有的 Provider 启动默认值。支持 Chat 的
-Provider 默认 Chat；仅支持 Terminal 的目标仍使用 Terminal。本次明确选择只影响当前
-创建，关闭并重新打开对话框后重新读取 Provider 默认值；浏览器本地的模式偏好不再覆盖
-配置。缓存选项在最新启动清单读取完成前保持禁用；读取失败不允许使用过期默认值。
-已有保存的 Terminal 默认值继续有效，包括旧版本写入的默认值。Plugins 修改的是
-新建 Agent 的默认模式，不改变已有会话。
-
-New Agent 对话框保持等待，直到自己的创建请求结束；无关的运行时事件不能使其成功或
-失败。关闭对话框不会取消后端已经受理的创建。传输结果不确定时明确提示，不自动重发。
-
-模式选择器按 Chat、Terminal 排列。Project 快捷创建在主入口标明默认模式，并把另一
-模式作为次入口。已有运行会话和重启恢复保留原模式。历史继续和 Fork 在没有明确覆盖时
-沿用保存的来源模式；没有保存模式的历史在支持时使用 Chat。普通运行中 Fork 继承来源
-模式。Chat 启动失败明确显示错误，不静默启动 Terminal。
-
-后端拥有准入：校验已确认的来源与受支持的目标，再复用有请求身份的 Create 操作和首次
-输入投递。同一请求的并发调用合并，完成后返回已记录结果；不同参数不能复用请求身份。
-Terminal 初始任务使用共享 Composer 的粘贴后提交协议：完整多行提示作为粘贴内容，
-再在粘贴之外发送 Enter。直接发送原始文本可能使 Enter 被 CLI 吸收到草稿中，导致首轮
-没有提交，也无法生成后续切换 Chat 所需的原生历史。
-创建或投递失败明确显示，并在已创建时返回目标 Agent。结果不确定的输入不重放，重启后
-也一样。局域网 HTTP 缺少安全上下文 UUID API 时仍能创建请求身份，并在结果不确定的
-重试中保留同一身份。提交前关闭选择器没有副作用；提交后关闭不会取消已准入的创建。
-Chat 在阅读提示准入后即返回，目标可展示权限询问，不会因等待整轮回复而停留在选择器。
-目标首次阅读是普通 Provider Turn，沿用现有有界启动、投递、取消和恢复语义。
-
-验收覆盖跨 Provider、跨 Home、拒绝 Shell、未确认或缺失来源、工作目录与语言中立提示词、
-重复投递和重启结果，以及 Light、Dark、Paper 下的共享选择器和菜单。
-Terminal 验收还需确认首次提示完整且只投递一次，并在 Chat／Terminal 往返后保留目标 Session 身份。
-显式启用的真实 Provider 冒烟还必须用仅存在于会话中的标记证明读取了原生历史，
-在 UI 语言不同的情况下沿用用户语言，并在说明理解后等待指示。使用隔离 Home 和
-带哨兵文件的工作区验证没有执行待办；运行后清理测试 Agent 和临时认证副本。
+ACP 是 Farming 结构化 Chat 的协议边界。后端拥有执行、会话身份、有序对话状态和恢复；
+浏览器负责呈现。终端文本、助手正文和缓存 UI 状态不能建立运行时事实。
+
+## 所有权与 Provider 边界
+
+| 所有者 | 职责 |
+| --- | --- |
+| Config 内 Runtime Host | Provider 连接、确切进程所有权、活动操作和有序 Transcript 状态 |
+| Farming Server | 认证、生命周期准入、持久请求和浏览器传输；作为 Host 可替换的 Controller |
+| Provider Adapter | Executable 与 Home 策略、协商能力、原生历史和 Provider 特有信息归一化 |
+| 浏览器 | 草稿、选择、展开和阅读位置；不拥有执行或恢复事实 |
+
+Provider 扩展必须版本化并协商；Provider 名称不是能力证明。通用生命周期和 UI 使用归一化
+契约，包括配置、归档、Fork、子会话控制和 Transcript 策略。不支持的功能明确失败。
+跨 Provider 改进必须通过等价验收。
+
+ACP 使用 Farming 准备的版本与完整性固定的 Adapter。已有 Session 保留确切启动身份；
+Executable 缺失时恢复失败，不重新选择另一个。原生 Terminal 的 Executable 策略独立。
+Provider 差异留在 Adapter 内，Codex 另见 [Codex Runtime](codex-runtime.zh_cn.md)。
+
+共享连接必须支持独立多 Session，并绑定规范化 Project、Provider、Agent Home 与启动身份。
+每个 Session 独立拥有配置、权限、workspace、MCP 输入、Turn 和恢复状态。同一 Host 内，
+一个 Provider Session 最多一个实时所有者；释放一个不能停止其他 Session。共享进程环境
+不能泄露某个 Session 的凭据或操作环境。
+
+Browser 与 Computer 使用实例内共享能力服务。Session 身份用于路由，本身不是授权。
+操作上下文与 bootstrap 指令不能决定用户的回答语言。
 
 ## Session 身份与配置
 
-ACP Conversation 的稳定身份由 Provider、Canonical Agent Home、Provider Session ID 与
-Workspace Scope 共同组成。Additional Directory 与 MCP Definition 是私有 Session Input，
-必须在重连、重启和 Runtime Replacement 后保留，但不能作为普通 Browser State 暴露。
+[Provider Session 身份契约](provider-session-identity.zh_cn.md)负责持久身份与范围。
+临时启动身份不能授权 History、恢复或 Fork。私有附加目录和 MCP 输入随恢复保留，
+不成为普通浏览器清单。
 
-Provider Adapter 声明 Provider Session ID 是按单个 Agent Home 隔离，还是在该 Provider 内
-全局唯一。对于全局 Provider Identity，Persistence Layer 会拒绝把同一 Session ID 绑定到
-第二个 Agent Home；通用 Storage 不按 Provider 名称识别这类规则。
+用户确认显式覆盖前，以 Provider Session 和 Agent Home 默认值为准。覆盖按稳定选项身份
+保存，不按显示名称；加载 Session 后恢复。已保存模型不在当前清单中不代表已移除：保留
+选择、提示警告并阻止 Prompt/Steer，直到恢复成功或用户明确替换。其他确实不兼容的选项
+可只移除对应覆盖并警告；传输失败不是不兼容的证据。
 
-标记为 Temporary 的 Session Plan 不是已确认的 Provider Identity，不能通过 Provider
-History 解析；该规则对所有 Provider 一致生效，直到 Adapter 特有的 Identity Evidence 被确认。
+已接受的模型、推理和 Fast 变更，在核对同一 Config 内确切 Home 身份后，只更新请求涉及的
+新 Agent 默认字段；恢复不回写默认值。Session 变更成功而默认值保存失败时报告部分成功，
+不重放 Session 变更。排队配置先于后续输入应用；只有确认应用的模型变更才产生持久对话分界。
 
-配置有两类权威来源：
+首次 Session 创建需要认证且存在登录方式时，保留已初始化连接和可见 Agent，直到 Provider
+确认 Session 身份前禁用输入。登录、失败和关闭都有有界结果；迟到登录结果不能重建已关闭 Agent。
 
-- 没有用户显式 Override 时，由已加载的 Provider Session 与所选 Agent Home 提供默认值；
-- 用户修改得到确认后，Farming 只持久化这项显式 Override，并在加载 Provider Session 后
-  重新应用。
+## Turn 与变更语义
 
-Composer 的模型、推理强度和 Fast 选择还会更新当前 Farming Config 实例中所选 Agent Home
-的新 Agent 默认值。后端负责这一转换：配置切换确认成功，或运行中排队的变更已持久化接受后，
-只保存用户修改的字段（包括关闭 Fast）。模型切换确认后也保存实际生效的推理强度。失败或结果
-不确定的切换不更新默认值。保存时要求 Provider、Home ID 和 Home 路径仍然一致，已移除或
-重新绑定的 Home 会被拒绝。配置写入合并最新 Home 状态，每个字段以最后接受的写入为准。
-保存失败时明确提示 Session 已接受选择但默认值未保存，不重放 Session 修改。
+Runtime 状态、Turn 结果和请求准入是三个独立事实。一个 Session 对冲突的 Prompt、Steer、
+Cancel、配置和子会话操作排序，并以 binding 代际和确切 Turn 身份隔离结果。
 
-用户确认成功的模型切换是持久化的对话边界，以与 fork 来源相同的分隔行展示
-“原模型 → 新模型”。Runtime 只在整组配置变更成功后记录一次；初始默认值、配置恢复、
-重复选择、失败或结果不确定的操作都不新增记录。进行中的排队变更仅在当前轮结束后
-实际生效时记录。现有配置队列保证边界先于后续输入，超时、失败和取消继续遵循已有
-变更协议。Checkpoint 保存模型标识、显示名称及可验证的用户轮次前缀；刷新和历史重放
-通过该前缀重新定位，无法验证时明确显示历史边界不可用，不猜测位置。
+| 转换 | 必要证据 |
+| --- | --- |
+| 新请求 → 已准入 | 在统一期限内核对身份、能力、内容哈希并持久化准入 |
+| 重复请求 → 原操作 | 请求 ID 和完整意图一致；内容改变视为冲突 |
+| 已准入 → 执行 | Provider 发送边界再次验证当前所有权 |
+| 执行 → 结算 | Provider 结果及已准入通知前缀；接收输入不等于完成 |
+| 投递不明确 → 未知 | 保留原身份和证据，只核对，不自动重放 |
+| 取消 → 中断 | 确切 Turn 结算；迟到结果不能结算更新的 Turn |
 
-新 Agent 通过 Provider 发布的配置控件继承这些默认值，并把生效的选择保存为自己的 Session
-配置。已有 Session、重连、Resume 和 Fork
-保留自己的配置，恢复过程不写入 Home 默认值。Provider 原生配置文件保持不变。保存或排序
-Agent Homes 时保留它们的新 Agent 默认值。
+排队的后续消息在开始准入前可编辑或丢弃。Live Steering 同时要求已协商能力及后端仍拥有
+运行中、未结算的 Turn；原生完成立即禁用 Steering，即使响应尚未结算。不确定写入不能
+自动转为排队重试；迟到确认不能恢复已完成 Turn 的忙碌状态。Provider 自发续跑使用同样的
+Turn 开始与结算规则。
 
-Override 只能按稳定 Option Identity 匹配，不能按展示 Label 猜测。模型未出现在发布的目录中
-不能证明模型已下架：Provider 可能在刷新失败后返回了回退目录。Farming 保留已保存的模型，
-并显示恢复警告。在恢复成功或用户显式选择其他模型之前，Prompt 和 Steer 必须在提交给
-Provider 前拒绝；历史、配置和重连仍然可用。重连使用新目录重新应用已保存的选择。
-模型修改得到确认与清除恢复警告属于同一次有序 Mutation，保证等待中的 Prompt 看到已确认的选择。
-重连替换进程的空档期内，Controller Callback 继续使用 Host 最后发布的 Binding 作为隔离边界，
-直到替代 Runtime 发布新的 Epoch。
+权限与提问请求有独立身份和有效期。收到问题不暂停 Turn；回答、拒绝、撤回和请求取消只
+结算一次，只有实时 pending 集合授权回答。结算后问题留在原时间位置；恢复后没有实时
+resolver 的记录只读。“稍后”只折叠问题，不回答或过期它。不确定回答投递不能重放。
 
-其他 Option 或 Value 不再支持时，Farming 保留 Provider 当前值，只删除不兼容 Override，
-并显示恢复警告。Transport Failure 不能证明 Override 永久不兼容。
-
-## Turn 与 Mutation 语义
-
-同一 Session 中互相冲突的 Prompt、Steer、Cancel、Config 与 Child Control 必须按明确顺序
-准入。每个 Operation 都绑定当前 Binding 与 Turn；Replacement Binding 之前的迟到结果不能
-修改当前状态。
-
-Prompt Submission 有明确身份。相同请求的重复提交可以加入已有结果，内容不同的同 ID 请求
-必须拒绝。Transport Failure 导致 Provider Ownership 不确定时，Farming 不会自动重放 Prompt
-或 Steer。Cancel 精确指向当前 Active Turn，并到达可见终态。
-Composer 准入在控制队列等待、Checkpoint 写入和最终发送给 Provider 时共用同一个截止时间。
-如果在实际发送前超时，消息必须被拒绝，不能再发给 Provider。
-
-Composer 的临时 Prompt 启动保护在权威活动状态或更新的 Session Revision 确认转换后结束。
-完成状态可能先于提交确认到达；迟到的确认不得让已完成 Turn 的 Composer 重新显示忙碌。
-渲染必须直接遵守这一顺序，不能等待本地保护清理或另一次运行时事件。
-
-Queued Follow-up 在准入开始前保持可编辑、可丢弃。协商成功的 Live Steer 保留在所属 Turn
-内部；不支持 Steer 的 Provider 使用可见 Queue。
-
-Farming 从 Agent 的 Initialize Response 协商标准 Steering，并且只在拥有 Active Turn 时
-调用 `_session/steering`。旧 Codex Steer Extension 仅作为 Adapter Boundary 的兼容路径，
-用于尚未声明标准能力的 Agent。已接受的 Steering 使用 Provider-neutral Farming Metadata
-记录，从而让所有支持该能力的 Agent 具有一致的 Transcript 与 Composer 行为。
-
-静态 `supportsSteer` 表示协议能力；动态 `canSteer` 表示后端仍拥有正在运行且尚未结束的 Turn。
-原生完成事件立即关闭 Steering，随后等待 ACP 响应收尾。Composer 在此期间排队后续消息，
-不重放结果不确定的变更。明确的发送拒绝在首个终态通知中携带原因，无需依赖稍后的结果
-才能解释为何保留草稿。
-
-Composer 中的 Goal 输入被明确视为 Prompt Content，而不是持久 ACP Goal Binding。Farming
-不会根据该输入创建跨 Turn Goal 状态；提交的文字本身就是完整事实来源。
-
-通过鼠标或键盘操作 Transcript 折叠控件时，在内容变化前进入阅读历史状态。
-展开内容从触发标题下方延伸，标题保持原来的屏幕位置；收起时在可用滚动范围内
-保持该位置。过程分组、工具详情及原生上下文折叠区（包括异步加载内容）遵守同一
-规则。布局变化和新消息不恢复跟随，仍由现有的明确返回最新操作恢复。
-仅操作折叠控件不会加载更早历史。
-
-Chat 有“跟随最新内容”和“阅读历史”两种查看状态。当前可见 Agent 的 Composer
-Prompt 或 Steer 被接受后，恢复跟随、清除待恢复的阅读位置，并在 Transcript 到达时
-显示最新内容。被拒绝、结果不确定的发送以及尚未准入的排队消息不改变此状态。
-普通 Transcript 更新保持历史阅读位置；用户只要主动离开底部就暂停跟随，即使仍在
-接近底部的范围内。用户滚回底部或明确返回最新内容时恢复跟随。隐藏 Agent 再次
-打开时不重放旧发送的滚动请求。所有 ACP Provider 共用此契约，滚动行为不重试或
-改变消息投递。
-加载更早消息本身不会让“返回最新内容”按钮持续显示。已加载窗口仍包含最新 Turn 时，
-滚到底部会隐藏按钮并恢复跟随，无需重新加载历史；有界历史窗口已逐出最新 Turn 时，
-按钮在窗口底部仍然可用，点击后读取最新窗口。
-返回最新内容会清除历史翻阅意图。该操作或窗口尺寸变化产生的滚动事件不能加载旧页；
-加载更早历史需要用户主动滚动，即使最新页内容不足一屏也遵守此规则。
+Goal 是 Provider 拥有的只读元数据：省略保留、显式 null 清除、非法数据不覆盖有效状态。
+完成后保留一条带已报告用量的持久记录。Goal 状态与 Turn 活动不同，Composer 中的 Goal
+文本本身不创建跨 Turn 的持久 Goal。
 
 ## Transcript 协议
 
-### 状态与同步不变量
+Host 将类型化 Provider 历史与实时事件归约为一个有序流。文本、工具、补丁、媒体、权限及
+关联会话证据保持结构化。Provider 文本启发式留在 Adapter 边界。Reducer Entry ID 标识
+时间段；同一 Provider 消息在中间插入其他条目后继续输出，不能覆盖原位置。
 
-运行状态、Turn 结果与请求归属是独立事实。ACP Runtime 拥有执行和 Turn 转换，
-Host 操作记录拥有请求身份与结算屏障。未返回的请求不能覆盖已观察到的等待审批或
-Runtime 故障。只有确认运行绑定丢失才能中断持久化的活动 Turn；兼容重连保留
-运行中的 Turn。Provider 没有提供错误文案时，结构化失败结果仍然有效。
+- Checkpoint 标明 Agent、Provider Session、runtime epoch 和 revision。Delta 要求同一
+  身份及确切前序 revision；缺口、reset 或身份变化必须换 checkpoint，过期结果不能发布。
+- 读取声明覆盖范围。旧页不能推进实时尾部 revision、套用当前 Turn 状态或成为实时 delta
+  基线。浏览器保留有界连续窗口；尾部被淘汰后，返回最新需读 checkpoint。不同版本的历史页
+  不是同一原子快照。
+- Host 在跨进程传输前限制投影大小。大工具/媒体内容使用不可变、身份绑定的分页读取，offset
+  必须连续。过期、容量、断连和身份变化明确终止读取，不向浏览器传输无界原始 Entry。
+- 可见面板共享引用计数订阅；慢消费者只保留最新 checkpoint 标记，不累积事件队列。读取
+  single-flight，合并更新 revision，不等待 Provider 停止输出。
+- 预备投影和保留视图有界，并按包含 projection revision 的完整身份隔离，只加速同一权威
+  读取路径。缓存控件在最新读取确认前不能操作。
+- Provider 回放是权威来源。Checkpoint 保留展示元数据与恢复屏障，只有能证明新鲜度时才能
+  替代完整加载。Prompt 准入要求持久 dirty 屏障；不确定执行保留 dirty，失败写入不构成证明。
 
-每次读取标明 Agent、Session、epoch、revision 与覆盖范围。最新版本属于实时尾部；
-历史页不能推进它，也不能把 Session 当前的活动状态或停止原因应用到历史 Turn。
-Entry 增量声明连续范围和可选的所属 Prompt 锚点；仅有锚点不能证明范围重叠。
-历史和实时读取共用串行调度，但分页游标只属于单次读取。身份变化拒绝全部旧响应；
-reset 使历史缓存失效，普通更新只替换声明的范围。
+读取期限和有限重试最终进入可见错误与显式 Retry。Retry 只读状态，不重发 Prompt。身份
+改变立即隔离旧内容；已有有效部分内容在等待结算时保持可读，无法完成则显示读取错误。
 
-历史窗口末尾的 Turn 保持 partial，即使其中包含阶段答复。分页不能把阶段答复提升为最终结果，
-也不能改变用户选择的展开状态。返回最新内容恢复实时投影，但不展开此前关闭的工具详情。
-进度、阶段答复和最终答复使用稳定的内容块身份及块内 Pixel 偏移保存阅读位置，并兼容旧的比例锚点。同一 Turn 内向前补页时，
-即使窗口同时逐出尾部，也保持可见内容块的位置。恢复时若内容块尚未加载，沿用有界历史读取路径补页；
-仅找到所属 Prompt 不算恢复成功。定位期间显示现有同步状态，不展示中间页。
-用户导航取消恢复，传输失败沿用显式重试行为。
+## 关联会话与 Fork
 
-浏览器维护一个最多 2,048 条 Entry（含可选 Prompt 锚点）的连续窗口。实时读取从最旧端逐出内容；
-历史读取从最新端逐出并保留明确的历史窗口，可返回最新内容。实时通知和重连不改变历史阅读位置；
-历史 Turn 的尾部未加载不能推断为缺少最终回复。缺口不得静默拼接。
-查看历史时，Runtime 控制状态继续更新。历史窗口是各页在各自读取时刻的冻结阅读缓存，
-不承诺整窗属于同一原子快照。保留的 revision 只表示最后确认的实时版本，尾部逐出后不能
-用作实时增量基线；返回最新始终读取 Checkpoint。排队期限为 30 秒，读取期限为 15 秒；有限重试耗尽后显示
-明确的读取错误，只有新证据或显式重试才能开始另一轮尝试。
+一个持久父 Session 最多拥有一个保留的 Side Chat，通过现有 Fork 准入创建。它继承上下文，
+不继承继续父任务的授权。双方草稿、控件和 Turn 独立；打开或关闭面板只改变观察，不改变执行。
 
-验收在实时对账完成后（或历史页同版本时），对同一身份、版本和范围比较增量结果与独立权威快照。
-跨版本历史页验证身份、游标连续、内容保留与状态不误判。另验证
-完成、取消、重连、重启交错中的旧响应隔离、历史页隔离、存储上限和失败期限。
-成功追赶以传输和调度可用为前提；永久失败仍须明确结束读取，不能宣称已经同步。
+原生子会话 ID 和能力绑定直接父 Runtime 的代际。关联先于子会话消息，不能变更所有权。
+只有子会话权威证据能结算其状态；父完成/取消以及未知活动不能合成子结果。有协商能力时
+读取最新有界清单；不可用是错误，不是空列表。历史读取验证祖先关系，不启动、加载、恢复
+或取消 Session。
 
-浏览器把 Chat 历史读取限定在 15 秒内。读取是只读操作，因此超时后可自动重试一次；
-再次超时则显示错误和显式“重试”。重连与新 revision 仍触发各自的权威读取，不重放 mutation。
+关联历史同时限制 Turn、条目和字节量，cursor 绑定身份。展示分段不能再次裁剪已经有界的
+Provider 页面。原生子会话续跑保留身份，旧 Turn 输出不能改变新 Turn。引用子内容只追加
+到父草稿，不自动发送。
 
-历史条目身份由 reducer 管理，与提供方 message ID 分离。同一消息可能在
-Steer 或工具条目之后继续输出；每个不连续片段保留原顺序，并拥有唯一的
-条目 ID。连续分块沿用原合并语义。检查点恢复会修复旧数据中重复的消息片段
-ID，保留全部内容、推进版本，并要求先读取替换检查点再接收增量。
+Fork 要求已证实的稳定对话边界。活动 Turn 中只允许 Adapter 在该 Turn 之前 Fork，不中断
+源会话，也不复制未完成输出。子会话必须进入自己的 Agent 环境；新 Session ID 本身不证明
+环境隔离。确切创建失败可清理原对象；启动结果不确定时保留子会话等待核对。重启不重放
+pending Fork，不猜测缺失所有权。
 
+继承历史分界由子会话持久拥有。恢复时核对有序用户输入前缀，再绑定回放条目；历史缺失或
+压缩后无法核对时明确分界不可用，不能移动或猜测位置。
 
-Backend 把 History Replay 与 Live ACP Update 归约成一条有序、Provider-neutral Transcript。
-Text、Reasoning、Tool、Patch、Plan、Terminal、Media、Resource、Permission 与 Child Session
-保持结构化；UI 不得先压平成普通文字再反向解析。
+空闲 Side Chat 五分钟后可释放 Runtime；无显式挂接监督时为一分钟，释放前再次检查。
+活动任务、待处理输入与原生子会话活动阻止释放。历史仍保留，新显式消息恢复同一 Session，
+不重放旧输入。父归档包含其 Side Chat 和已证明的原生后代，失败或清单不完整阻止成功。
+父停止释放确切拥有的子会话与 Resource；父不可用时拒绝子输入。
 
-Browser Delivery 使用严格 Checkpoint + Delta 契约：
+## Agent 通信与 A2A
 
-- Checkpoint 标识精确 Agent、Provider Session、Runtime Epoch 与 Transcript Revision；
-- Delta 只能应用到相同 Epoch 和精确前序 Revision；
-- 发现缺口、Identity 变化或 Reset 时必须请求 Replacement Checkpoint；
-- 其它 Agent 或旧 Revision 的迟到响应不能抢回当前 Chat。
+来源是可信协议元数据，与消息正文分离，并进入 Composer 与 Host 的请求哈希。正文、
+发送工具成功和引用封套不能证明接收、发送者身份或父子关系。Runtime 生成模型可见的同伴
+来源提示，沿用用户既有授权；已知回显不产生重复消息。历史恢复必须有可信 checkpoint 和
+完整核对的输入前缀。
 
-ACP Session 读取接口默认只返回控制 Metadata，不包含 Transcript Entry。只有明确需要原始、
-可能很大的 Entry 集合时，调用方才使用 `includeEntries=1`；产品界面统一通过有界 Transcript
-接口取得会话正文。
+| 契约 | 含义 |
+| --- | --- |
+| 传输 | 官方 A2A SDK 嵌入现有后端，在配置 base path 下的 `/api/a2a/agents/:agentId` 提供认证 JSON-RPC |
+| 能力 | 文本 SendMessage、GetTask 与受保护 Agent Card；不支持流式、订阅、取消和 Task continuation |
+| 身份 | 本地 Agent 凭据；外部由 owner 签发指定接收方和有效期的授权，与 owner 凭据分离 |
+| 投递 | 新请求要求实时接收方 Chat，本地发送还要求实时来源；执行前核对确切接收 Session；默认排队 Prompt，不使用原始 Terminal 输入 |
+| 完成 | 关联轮次最终助手正文完成 Task，输入准入和通知摘要不代表完成 |
+| 恢复 | Config 内按调用者与消息 ID 持久去重，意图改变冲突；未知执行不自动重放 |
+| 跟进 | 新 Task 可引用同一接收 Session 中自己拥有的一条 `referenceTaskIds`；上下文归调用者所有，不重开已完成 Task |
 
-每个 Browser Connection 都会按精确 Agent 身份声明所有可见 Chat 面板，再用保留的 ACP Chat
-填充有界 Interest 集合。ACP Revision Notification 只投递给 Interest 匹配的 Connection。
-切换 Focus、新增 Retained Interest 或重连时，会把当前绝对 Cursor（Agent、Provider Session、
-Runtime Epoch 与 Transcript Revision）作为 Agent-scoped Checkpoint 发送。Session 或 Epoch
-被替换时，即使 Revision 从更小数字重新开始也必须投递。
-慢连接对每个 Interested Agent 只保留一个 Pending Checkpoint Marker，并在
-Transport Buffer 排空后恢复最新 Revision；不会按每次 Provider Update 累积一条待发送通知。
+GetTask 只有在原 Host 已结算回执匹配 binding、Session 和请求哈希时才能消除未知状态。
+Host 证据丢失/替换则继续未知。已授权调用方可在接收方停止后读取保存结果。撤销阻止后续
+访问（包括读结果），不取消已接受工作；同一 peer ID 在不同授权中仍是同一身份。
 
-HTTP Transcript Read 在跨进程读取前后分别采样权威 Session 与 Runtime Epoch；Identity 发生
-变化或返回 Transcript 指向其它 Session 时拒绝该响应。读取期间 Transcript Revision 可以继续
-前进；持续工作的 Agent 不需要等待 Revision 静止，仍可返回 Identity 自洽的结果。
+启动凭据使用 `FARMING_COMMUNICATION_TOKEN`，不进入共享进程环境，30 天过期后重新启动
+Agent 获取新凭据。外部授权默认 24 小时，最长 30 天。Token 仅签发时返回，存储保留摘要。
+配置 `FARMING_PUBLIC_ORIGIN` 时，以其作为公布端点的 origin。
 
-Runtime Host 会在 Transcript Page 跨越 Host Response Boundary 之前完成投影。大 Tool Payload
-会变成有界 Summary，Inline Media 会变成按需引用，精确 Entry 仍由 Host 保留。因此响应大小
-限制约束的是面向 Browser 的投影，而不是 Server 尚未来得及裁剪的原始 Provider Payload。
-投影携带显式 Version，并参与 Runtime Host Build Identity；Server 不会静默复用投影语义不同
-的旧 Host。
+初始日志每 Config 最多 1,024 条请求 / 32 MiB，不静默淘汰去重证据，耗尽明确报错。
+输入/输出文本各限 64 KiB；每 Config 最多并发执行 32 条请求，每身份每分钟 120 次协议调用，
+包括结果轮询。
 
-按需读取也遵守同一边界。Media 在 Host 内按 Entry 和 Hash 选择、校验，再分块传输；Tool
-Detail 和 Review Changes 在 Host 内派生，再分页传输。Server 组装现有 HTTP Response 前会用
-Session 和 Runtime Epoch 约束整个多页读取。Subagent Media 使用带 Session Scope 的独立路由，
-避免 Entry Identity 落到错误 Transcript；这些 Browser API 不再让原始 Transcript Entry 跨进程。
+`farming message send` 必须带 `--id`；`get` 与有界 `watch` 读结果，`--reply-to` 关联新请求，
+`card` 读能力。Owner 使用 `message grant`、`grants`、`revoke` 管理外部访问。接收方最终
+回答自动返回；`farming send` 保留原始 Terminal 语义。
 
-每次 Media、Tool Detail 或 Review 读取只在 Host 中投影一次不可变快照。后续页携带不透明
-Read ID 和精确的下一偏移，不再对完整载荷重复哈希或序列化。快照属于其 Client、请求身份、
-Session 和 Runtime Epoch；并发读取独立，Live Update 不改变已接纳的快照。Server 返回
-拼接结果前检查身份、长度和连续偏移。读取完成、连接断开、Host 释放或 30 秒期限到达时
-释放保留内容。Host 最多保留 32 份快照、总计 128 MiB（字符串按每字符两字节计）；容量、
-过期和身份错误均显式失败。新读取从偏移零开始，重连不能续读已丢失的快照。基于内容寻址的
-Media URL 仍标识所选附件，本地分页传输不再增加第二份内容摘要。
+来信气泡保留接收时名称、记录时间和不同消息 ID，回放/改名不改写署名。原生导航要求确切
+Provider/Home/Session，本地 Farming 导航另要求确切发送 Agent ID 和 Session key。
+缺失、歧义及外部身份保持纯文字；点击只选择来源，不恢复执行。原生加密收据显示正文不可读，
+不展示密文或从发送方重建。原生发信活动按时间呈现：发送成功不等于已读或任务完成。
 
-Provider Replay 是权威来源。Local Checkpoint 可以加速投影并保留 Reset Fence，但除非 Provider
-能证明 Freshness，否则不能替代完整 Load。结果不确定的 Prompt 会让 Checkpoint 保持 Dirty。
+## 交接到新 Agent
 
-Host 的 checkpoint store 负责持久化 dirty 标记。Prompt 首次提交必须等待标记可靠落盘，后续非精确快照不会使该证明失效。精确重写在入队前使旧证明失效，之后的提交必须在重写完成后重新持久化标记；写入失败不得留下有效证明，进程重启也不会保留内存证明。同一 Session 正在写快照时，后台更新只保留最新一份待写状态，不能无限排队阻塞消息提交。显式写入和 flush 仍按序完成。
+交接在已确认来源的 workspace 内，用选定 Provider 和 Home 创建独立编码对话，不停止/
+归档来源，也不迁移原生状态。Shell 不能作为来源或目标。
 
-有序 Session Reducer 保持 Provider-neutral。标准 ACP 之外的 Transcript 细节——例如内部上下文
-作用域、压缩文本识别、消息 Phase 边界与重复消息对账——归所选 Provider Transcript Policy
-所有。某个 Provider 的可见输出即使碰巧匹配另一 Provider 的文字，也不得继承后者的文本
-启发式规则。
+首条提示指明原生记录，要求先读再答、沿用用户语言、说明理解并等待。记录只作背景，不授权
+继续执行；它是可变化的原生历史，不是完整上下文快照。无法读取必须说明。可信交接展示
+元数据只通过核对输入前缀恢复，正文自身不构成来源证明。
 
-打开 Chat 时应立即显示 Shell；存在合法 Prepared Checkpoint 时，首份稳定 Transcript 应在
-数十毫秒内可见。Prepare 只在 Backend 中根据明确 Interest Signal、并等待系统稳定后执行。
-它可以取消，受 Revision Fence 保护，并对 Entry 数、单响应大小、总 Cache 与 Active Work
-分别设界。失败或淘汰时回退到同一条权威 On-demand Read。
-
-Prepared 与 In-flight Projection 必须由完整 Projection Identity 围栏：Agent、Provider Session、
-Runtime Epoch、Session Revision 与 Projection Revision。即使 Transcript Revision 未变化，
-Runtime-only 或 Replay Correction 也必须使旧工作失效。Browser 只有在 Completed Turn 的完整
-结构化投影未变化时才能复用其对象；任意嵌套 Tool、Media、Resource 或其它字段发生权威修订时，
-都必须替换当前可见 Turn。
-
-首份稳定 ACP Transcript 只包含最新 5 个 Turn。用户向上阅读时，再按有界批次加载更早的
-Turn，避免打开长 Chat 时把全部 Markdown 与工具历史放入首屏渲染路径。
-
-Browser 为最近 Chat 保留有界 LRU 的完整结构化 Transcript Record，其中包括用户已经向上加载的
-更早 Turn 范围。Retained Record 在 Inactive 时继续合并 Live Revision；每个 Agent 的 Revision
-只合并到一个最新 High-water，每个 Agent 只允许一个 Transcript Read in-flight，同时对后台读取
-Cadence 与全局读取并发设界。只有当前可见 Chat 持有 React、Markdown 与 Tool Card DOM。
-重新 Attach 的 Retained Record 如果已观察到的 Session 与 Runtime Epoch 仍匹配，就立即显示，
-并从现有 Revision 继续；不能只因为它重新可见就请求 Checkpoint。重新 Attach 时会重新校验尚未
-完成的 Turn，避免漏掉完成通知后一直显示运行中。冷启动或已淘汰的 Chat、重连、
-Identity 变化、检测到缺口、Reset 或分页范围变化，仍必须先取得权威 Checkpoint，才能显示替换
-内容。阅读位置绑定稳定 Turn 或 Process Item，而不只记录 Pixel；Transcript Record 与 Pooled
-Terminal 共用 20-view Working-set 边界。
-较早历史记录的游标只属于一次分页读取；该读取结束后，Live Revision 通知必须重新读取
-不带分页游标的最新 Turn。即使旧页响应带有较新的 Session Revision，也不能据此推进最新
-Turn 的 Revision。
-
-ACP Session 控件沿用同一套 Agent-scoped Working-set Ownership。Browser 会保留最近每个
-Agent 最后一次已确认的 Mode、Model、Reasoning、Permission 与 Account Snapshot，切换到
-其它 Chat 时不会清空。切回时同步显示该 Confirmed Snapshot，同时发起新的权威 Session Read
-做 Revalidation。在该读取确认当前 Agent 与 Runtime Revision 之前，保留控件保持可见但不可
-操作。Revalidation 失败会显示错误、保留最后确认的画面，并继续禁用控件；从未加载或已经淘汰
-的 Agent 仍需等待第一份权威 Snapshot。Refresh 与 Mutation Response 继续由精确 Agent
-Identity 和 Request Sequence 保护；归档或 Working-set Eviction 只销毁对应 Agent 的
-Retained Snapshot。
-
-Provider-wide Discovery 归 Shared ACP Runtime 所有，而不归单个 Session 所有。同一 Provider
-Home 与 Project 的并发 Session Open 必须合并 Skills 与 Model Discovery。一次已经完成的
-Discovery Result 不能作为后续 Session Open 的权威缓存：后续 Open 必须强制重新读取 Skills，
-并取得新的 Model Inventory。Authentication 或 Provider Routing 改变时必须推进 Discovery
-Generation；更早的 In-flight Model Result 在使用前必须重新读取。失败的 Discovery 不得缓存。
-Session 自己的 History Restore 仍保持权威并可能耗时，但并发 Open 不能串行等待重复的
-Runtime-wide Discovery 工作。
+创建与初始输入复用已有请求身份准入：相同意图加入原结果，改变意图冲突，不确定时不重放
+输入。关闭对话框不取消已准入创建；投递失败保留已创建 Agent 身份。Terminal 复用粘贴后
+提交协议。启动默认值由后端拥有，Chat 启动失败不能静默退回 Terminal。
 
 ## 生命周期与恢复
 
-历史传输必须以线性时间处理分块消息，保留跨分块的 UTF-8 字符，并仅在 JSON 消息完整时
-合并一次。按回合数分页不能限制响应字节数：单页历史可能包含数十 MB 的工具输出。
-验收必须覆盖这类分块响应，并在现有 Session 初始化期限内完成，不丢弃历史，也不通过
-延长期限掩盖传输开销。
+| 事件 | 必要结果 |
+| --- | --- |
+| 兼容 Server 连接丢失 | 重连原 Host、恢复权威状态，健康 Session 与活动 Turn 保持所有权 |
+| Host/Adapter 丢失 | 证明旧进程所有权，恢复确切 Session、私有范围与覆盖，重读历史；未决执行失败或未知，不重放 |
+| 完整停止 / `npm restart` | 硬终止所选 Farming 自有完整进程集合（含 Host 与 Provider），启动新代际 |
+| Chat/Terminal 切换 | 拒绝活动 Turn；证明可恢复身份并释放旧所有权后替换；目标启动失败时恢复原 Runtime |
+| 归档 | 与恢复及其他确切 Session 生命周期变更串行；Provider 确认归档后才移除 membership |
 
-有业务意义的 Session 状态包括 Connecting、Idle、Working、Waiting for User、Interrupting、
-Recoverable Error 与 Terminal Failure。Idle 是普通 Live State；Session 会一直保持 Live，
-直到用户归档、系统替换或清理它，或精确证明 Runtime 已失败。
+Server 单独重连是故障恢复，不是另一种主动停止模式。普通启动不能替换拥有实时 Session 的
+不兼容 Host。binding 缺失触发确切冷恢复；一种 Runtime 不可用不能阻塞 Server readiness
+或无关 Terminal/Files。冷恢复先呈现清单，再有界并行准备 Session，不改 membership 顺序。
+恢复本身不算 Agent 活动。
 
-Adapter 或 Host 异常退出必须进入明确恢复或失败。恢复需要证明旧进程 Ownership，恢复同一
-Provider Session 与私有 Scope，重新加载权威 History，并保留显式 Config Override。断线时
-正在执行的 Turn 结束为失败或不确定，绝不能静默重放。
-恢复与重连本身不属于 Agent 活跃，不能推进持久化 Last Activity；只有真实 Runtime 工作或
-用户注意力事件才推进该时间。恢复失败时间属于 Lifecycle Evidence，不属于活跃。
-重连或替换后的 Host 如果不再持有之前观察到的 Binding，Farming 会先把该 Binding 标记为
-Interrupted，并立即为精确的持久化 Provider Session 安排冷恢复；冷恢复成功时，这个短暂
-Interrupted 状态不能成为 Session 的最终状态。
+Controller 回调只由匹配结果、断连或期限结算；传输接收/背压不代表回调完成。Controller
+变更使旧回调和预留失效，脱离的 socket 和过期 binding 不能发布。不确定结果不跨连接重传。
 
-普通启动不会替换仍拥有 Live Chat Session 的不兼容 Host。显式全量重启可以主动接管该
-Host、终止其 Live Session，并从持久化 Session Record 启动新的 Host。
+支持时，实时归档通过已协商 Provider 连接执行，包括已提交但未完成的 Session；失败不能
+另起进程重试。显式重试先读权威历史确认剩余工作；unsubscribe 不证明 Provider writer 已释放。
 
-全量重启选中的进程集合必须包含 ACP Runtime Host 及其全部 Provider 进程。如果停止后
-仍能连接到旧 Host，新 Server 即使发现其协议与 Build 兼容也必须替换它；全量重启绝不能
-重新接管旧 Host 代际。只有普通的 Server-only 重启可以接管兼容 Host 并保留 Live Session。
+## 展示与验收
 
-冷恢复会先一次性物化全部可恢复 Agent Inventory，再按持久优先级以有界并发准备 Provider
-Session；单个 Session 失败不能阻断其余恢复。多个 Record 指向同一持久进程身份时，Farming
-只对该身份执行一次精确 Hard-stop 证明，并让这些 Record 共享结果。并发完成顺序不得改变
-既有 Main Page Membership 的顺序。
+Chat 复用 [Composer](composer-input.zh_cn.md)、[UI 设计](../../development/ui-design-protocol.zh_cn.md)
+与[交互](../../development/ui-interaction-protocol.zh_cn.md)契约。进度可读，详细证据可展开/
+收起，实时活动保持紧凑。用户展开和历史阅读意图跨更新/结算保留。已接受输入可跳到最新，
+后台更新、分页和布局不能强制导航。读取失败与执行失败分开；启动不是活动 Turn。
 
-ACP Runtime Host 无法启动或重连时，只把受影响 Chat Session 标记为不可用，不得阻塞
-Server Ready、Native Terminal Recovery、Files 或 Plugins。一个 Runtime Family 的恢复不能
-成为无关 Runtime Family 的全局 Lifecycle Barrier。
+富内容使用安全 Markdown 与有界媒体/渲染路径，保留源文，不执行不可信 HTML。流式、结算和
+中断状态明确；只有最新渲染 revision 能发布，失败提供有界的纯渲染 Retry。查看器保留阅读/
+缩放意图，复用焦点、Escape 和背景隔离规则；渲染重试不重放 Agent 工作。
 
-Chat/Terminal 切换是真实 Runtime Replacement；只有证明可恢复时才保留同一 Provider
-Conversation。Turn 活跃时拒绝切换。目标 Runtime 启动失败时，Farming 恢复原 Runtime 并
-报告切换失败。
-
-Conversation Fork 只有在 Adapter Contract 与 Live Capability 都支持时才可用。Source
-Revision、Child Identity、Ownership 与 Cleanup Responsibility 必须精确；Child Durable 前
-失败时必须显式报告，不能静默创建另一个 Fork。
-
-Active Turn 默认仍是 Fork Barrier；只有 Provider Adapter Contract 显式声明支持 Active-Turn
-Fork 时才可放行。该 Fork 必须使用 Active Turn 之前由 Provider 拥有的稳定 Boundary，保持
-Source Turn 继续运行，并且不能复制不完整的 Assistant 或 Tool State。持续变化的 Transcript
-Revision 不会让这个稳定 Boundary 失效；未声明该能力的 Provider 继续使用 Idle-only 规则。
-
-Fork 接收输入前必须进入子 Agent 自己的环境。共享 Provider 若使用来源环境创建 Fork，
-Adapter 必须先释放该精确 Fork 的临时 Runtime Ownership，再让子 Agent 用自己的配置
-加载。不同的 Provider Session ID 本身不能证明环境隔离：已加载的 Provider Runtime
-可能忽略 Resume 配置覆盖。来源和其他 Session 保持不变。释放或加载失败时不能将子
-Agent 标为就绪；不确定结果保留供 Reconcile，不能静默重试。验收覆盖 Fork 以及再次
-Fork 后实际生效的 Agent 身份，包括更新自身标题。
-
-不同 Runtime Strategy 共用一条 Fork Child Launch 落定规则：Callback 与 Promise
-结果中先到者为准。Callback 明确失败或 Promise resolve null 属于确定失败，可执行精确
-Cleanup；同步抛错或 Promise reject 属于不确定结果，Farming 必须保留精确的 Forked
-Provider Session，在 Durable Reconcile 前不得删除或重放。
-
-Farming 重启时若 Fork Operation 仍未终态，恢复会在任何 Runtime 启动前先对其收敛。
-存在精确 Source Runtime Agent Identity 时，该 Operation 被转换为持久 blocked；若
-blocked Transition 无法持久化，Journal 保留原 pending 事实，Source 仍以
-lifecycle-blocked 的 fail-closed 状态恢复。缺少精确 Identity 时不猜测、不做
-Transition：Operation 保持 pending 并给出显式告警。任何情况下 Fork 都绝不自动
-重放，同一请求只能对持久结果做 Reconcile；当 Source 可寻址时，Archive 或 Delete
-可以 Supersede 它。
-
-### Fork 历史边界
-
-Fork 来源是由子会话 Runtime 持久化管理的对话边界，不是对话开头或随末尾移动的横幅。
-Provider 准备完子会话历史后、允许子会话接收输入前，记录实际继承的用户 Turn 前缀，
-并将来源写入 Checkpoint。再次 Fork 时，以直接来源建立新的边界。
-
-分隔线位于最后一个继承的可见 Turn 之后、所有子会话新增 Turn 之前。首次打开 Fork
-时，应同时看到继承历史尾部与分隔线；新增消息、分页、刷新及原会话继续工作都不能移动
-该边界。空历史的分隔线位于首个子会话 Turn 之前。它是展示元数据，不作为用户或助手
-消息发送给 Provider。
-
-恢复时权威重放历史，校验已保存的有序用户前缀，再绑定重放后的消息标识。工具重放形态
-和重新生成的 ID 不得移动边界。历史缺失、不兼容或压缩移除了前缀时，明确提示边界
-不可用，不猜测位置。没有已保存边界的旧 Fork 只显示来源及此限制；打开旧会话不能把
-当前末尾当成继承截止点。分页范围不包含边界 Turn 时隐藏分隔线，加载该 Turn 后再显示，
-不能将其移动到当前可见页。
-
-验收覆盖所有外观下的首次尾部可见性、子会话首次提交、Checkpoint 和重放恢复、分页、
-再次 Fork、空历史与边界不可用，并通过 Provider 无关契约验证。
-
-## 展示契约
-
-Chat 仅在行内代码指向单个文件时自动生成文件链接。`src/header.h/.cpp` 这类扩展名
-组合简写必须完整保留为行内代码，不能变成仅显示 `.cpp` 的链接。显式 Markdown 文件
-链接仍使用其字面目标路径。
-
-增量消息中省略的前缀只描述本次更新范围，不代表浏览器缺少更早历史。一旦历史开头已加载，
-后续增量必须保留该事实，除非已加载的 Turn 被缓存淘汰；在顶部继续上滚不得重新进入历史同步。
-正文中的 Shell 变量展开保留原文，带引号命令中的成对美元符号不能把路径误渲染为行内公式。
-真正的行内／块级公式和代码片段保持正常渲染。
-
-紧凑 Chat 中，当前 Plan 默认收起为 Composer 上方正常布局流内的一行摘要。
-展开详情在限高区域内滚动；两种状态都不能覆盖标题、正文或输入区。切换 Agent 时
-关闭详情。手机标题复用共享的有界行标题，由可用宽度决定视觉省略，不预先按较短字数截断。
-
-本地图片 Resource Link、Markdown 图片语法（`![alt](path)`）和图片文件链接
-（`[label](path)`）共用有界内联预览和可访问的大图操作，包括相对、绝对和精确的外部路径。
-本地图片来源必须解析到文件接口，不能直接作为网站路由。访问由现有授权文件接口负责；缺少 MIME Type 不应隐藏已识别的
-图片路径。图片加载失败应明确显示为不可用的证据。普通 Resource 标签在行内省略，
-不能撑宽 Chat 或挤出后续图片附件及 Steer 消息。
-
-主、子 Agent 的可读进展在执行中、结束后和刷新后均直接可见，详细推理和工具输出仍可折叠。
-没有可读正文和附件的加密来信在同一展示段内合并成一处默认折叠的接收记录，展开后明确说明 Codex 发来加密消息，并显示
-发送者和记录时间。这类来信不切分当前执行，也不占用历史 Turn 窗口；可读来信可以分段，但不能将尚未结束的前段
-判为执行结束或缺少最终回复。
-Chat 展示有序对话、当前 Turn 的一条紧凑 Live Activity，以及可逆的结构化证据。已完成的
-Reasoning 与 Tool Detail 不应在默认阅读面上形成重叠摘要。Disclosure Control 保留稳定布局
-槽位，只在 Hover 或 Keyboard Focus 时视觉浮现。中间 Tool 失败保留在所属 Action Group
-内，但不替换该 Group 的行为摘要；权威 Turn 与 Runtime Failure 继续在更高层级显式展示。
-Turn 运行期间，收起视图跨普通 Progress Update 汇总为一个 Action Group；展开后仍按原始顺序展示进度消息和工具证据。
-显式 Answer 后继续出现实时 Commentary、Tool 或 Steer 时，该 Answer 的文字、媒体与时间顺序
-边界保留在后续内容上方，Action Group 不能跨过这一边界。Turn 结束后，最新 Answer 沿用直接
-结果展示，较早 Answer 保留在现有已完成活动 Disclosure 内，Checkpoint 重载后也不丢失。
-Turn 完成保留用户当前的过程与工具展开选择，不能关闭正在阅读的证据；新视图继续使用现有紧凑默认状态。
-当非 Active Turn 已有结构化执行过程证据，但既没有最终 Assistant Result、也没有更强的显式
-Interrupted 状态时，其执行过程末尾显示一行“本轮执行未产生最终回复”的轻量提示。该状态完全由
-Transcript 投影并可在刷新后重建，不增加恢复操作或独立通知界面。
-
-文件提交后，历史 Patch Card 仍保留其结构化 Diff 证据。只有该 Card 中至少一个路径仍存在
-当前 Staged、Unstaged 或 Untracked Git 改动时才显示 Commit Follow-up；无关的 Working Copy
-改动不能让该操作继续显示。
-
-Chat 可以在 ACP Host Binding 建立前发布。在有明确所有者、无错误且处于 `connecting` 的
-启动过程中，Session 配置读取返回 `202`、`pending: true` 与 `session: null`。Composer
-保留草稿，不显示错误或虚构能力；Runtime Revision 推动下一次新鲜读取。这个只读等待状态
-不授予 Mutation 准入。启动超时、真实失败，以及没有进行中启动操作的 Binding 丢失仍然
-显示明确错误，不能无限返回等待。
-
-显式 Reconnect 与需要重连的 Mutation 先校验保留的 ACP Agent Record，再尝试 Host 初始化
-和持久会话恢复；缺失 Live Binding 不能在准入时阻断恢复。恢复后重新校验精确 Agent
-Record 和 Live Binding，继续执行权威恢复错误及 Process Exit Proof 要求。
-普通 Session Read 不触发恢复或启动 Provider。
-
-新建 Chat 在 Session 连接期间持续显示稳定的空对话状态。Session 启动不属于 Active Turn，
-不得启用 Steer，也不应使用短暂的启动文案替换空状态。新 Session 启动期间的 Transcript
-读取失败不能替换该空状态；真实 Runtime Failure 仍通过权威 Runtime 与 Composer State 显示。
-显式 History Restore 可以在首份权威 Transcript 稳定前显示有界的同步反馈。当预期存在历史的
-读取耗尽有界重试后，Chat 显示显式的只读“重试”操作；重试会重新读取完整 Checkpoint，绝不
-重放 Prompt 或任何其他 Mutation。一旦权威 Session 或 Runtime Epoch 改变，旧身份的缓存
-Transcript 必须立即隔离，绝不能显示在替换后的 Agent 身份下。空 `202`、身份不匹配的
-Checkpoint 与 Delta Gap 都使用有界 Checkpoint 重试，最终进入同一个显式“重试”状态，不能
-永久 Loading 或形成无界请求循环。
-
-Live Chat Agent 只允许显式用户重命名或 Agent-managed Adaptive Title 覆盖稳定 Provider 名称。
-由第一条 Prompt 派生的 Provider Session Title 属于 History Metadata，不能重命名 Live Agent；
-恢复的 History Agent 在没有更强标题来源时可以使用其持久 Provider Session Title。
-
-尚未 Settled 但已包含 Turn 的权威 Transcript 必须立即进入显示，同时在后台执行有界的
-稳定重试。耗尽后保留已有内容并显示读取错误；新证据或显式重试可以开始下一轮有界读取。只有“预期存在历史
-但权威响应仍为空”时，Transcript 区域才继续显示同步反馈。
-
-Live Transcript Revision 在已有读取进行中时进入合并队列，而不是反复取消该读取，因此持续
-更新也能不断落屏，不必等待静默窗口。快速且仅推进 Revision 的刷新还会共享一段短促、有界的
-读取节奏；最新 Revision 必须最终执行，而重连与 Runtime State 转换仍立即处理。已完成 Turn
-在这些读取之间保持稳定渲染身份，不重新解析未变化的 Markdown。只有在选中 Chat 可见且
-跟随最新内容时收到的新中间消息，才播放一次 180ms 淡入。面板在快照到达时消耗消息身份，消息挂载本身不触发动效。
-流式追加和最终回答直接显示。首次历史、切换 Agent、展开内容、加载历史、重连恢复和
-后台补齐都不重播。阅读旧内容、选择文字以及 Reduced Motion 会关闭入场动画；多条新消息并行淡入。
-Reasoning 展开内容不再重复已经作为折叠标题的首行，并用安全 Markdown 渲染剩余正文，
-让 Provider 输出的强调样式正常呈现，而不是暴露其源标记。
-
-最新 Live Answer 会挂载每一份跨过有界 Revision 读取节奏的权威快照。Farming 不得把保持
-前缀关系的正文一直扣留到 Turn 完成；用户应持续看到有序的中间进展，同时避免逐 Token
-重绘。Navigation、Recovery 与 Turn 完成直接对齐当前权威结果，不重播已经收到的正文。
-
-底部 Live Activity 同一时刻只使用一种动态提示：Processing 保留旋转圆圈且不显示扫光，
-非旋转活动则使用速度较慢的匀速扫光。
-结构化工具仍在运行时，同一条轻量执行行还会显示该工具最近一次权威活动距今多久。
-Runtime Host 只在收到真实 Provider 工具更新时记录该时间；静默只会让显示的时间自然增长，
-不会生成心跳。History Replay 不会把旧更新重标为最新活动，Checkpoint 会保留已经记录的
-时间；完成、失败、取消或中断后不再显示运行态活动时间。
-
-Composer 保留 Draft、IME、Attachment、Queue/Steer、Permission 与协商配置。Reload 可以把
-未完成 Submission 恢复成需要对账的可见条目，但绝不能自动再次提交。
-
-## 验收标准
-
-所有受支持 Provider 都必须针对其实现的 Contract 通过同一套 Provider-neutral 验证。验证
-必须覆盖：Provider Capability Negotiation、精确 Identity 与 Agent Home 隔离、Config
-Fallback、有序 Mutation、结果不确定、Server/Host 重启、Checkpoint/Delta 缺口、阅读位置
-恢复、Chat/Terminal 切换、Fork、Media 与 Tool Evidence，以及大规模 Multi-Agent Workload。
-Scale Test 必须测量 Process 数、Memory、Wire Volume、Browser Render Work 与 Navigation
-Latency，不能设置固定并发上限。
-
-Chat 和 Terminal 共享 [Composer 输入约定](composer-input.zh_cn.md)，包括移动端有界增高
-以及对同一草稿的展开编辑。
-
-
-### 流式富内容与查看
-
-已发送的用户消息、Steer 消息和展开的 Handoff 上下文使用共享正文样式渲染为
-安全的 Markdown，支持强调、列表、链接、表格和代码。渲染不改变提交或持久化
-的原文；实时消息与恢复的历史使用相同展示方式，不执行原始 HTML。
-
-Code 和 CRT 在正文渲染时省略无法解析的供应商私有引用标记，包括流式输出中
-尚未完整的标记。不猜测来源链接；普通 Markdown 链接和代码中的引用标记原文
-保持不变，已保存的转录内容也不修改。
-
-Code、CRT 和文件预览的共享 Markdown 渲染允许双星号紧邻中文标点，
-无需额外空格，例如 `**重点。**后文` 和 `前文**“重点”**后文`。
-仅恰好两个星号的标记放宽标点边界；配对、代码、转义、公式及源码位置
-仍由解析器负责。每次流式快照独立解析，不补造缺失的闭合标记。
-
-Turn 和消息状态决定内容正在生成、已完成或已中断。未闭合的 Mermaid
-代码围栏使用稳定、中性的生成状态；闭合的块立即渲染，不等待整个 Turn
-结束。中断时未闭合的块明确显示尚未完成。已完成内容即使缺少 Markdown
-关闭围栏，也要执行验证。未完成公式保留可读内容，不显示暂态解析错误；
-完成后无效公式保留诊断。普通正文、代码和表格继续遵循实时快照节奏。
-
-每个图表块拥有一个执行中的渲染和一个最新待处理版本。仅当前版本可以
-发布结果；跳过过期排队任务，保证最终版本会执行，并为异步渲染设置有界
-失败及仅重试渲染的操作。源码或外观更新时保留上一份有效图，直至重绘
-完成。卸载撤销发布权并释放计时器。Code 和 CRT 共享内容状态与调度契约，
-保留各自的产品外观。
-
-Chat 区分图表组件下载失败与图表渲染失败。部署替换资源后，组件导入失败
-可能被缓存，因此该状态提供明确的重新加载页面操作，而不是局部重试渲染。
-不自动刷新页面或重放 Turn；普通渲染错误仍使用局部重试。
-
-查看意图独立于渲染状态。内容更新和外观变化保留已打开的查看器、缩放
-和平移。关闭或移除所属内容时释放查看器，不重放 Agent 工作。图片和图表
-使用共享的全视口查看外壳，包含应用级 Portal、背景隔离、最上层 Escape、
-焦点循环和返回。外壳拥有标题、操作与视口几何；内容拥有适配、缩放和平移。
-查看器打开时原位置保留阅读几何。文件阅读宽度调整仍由已有布局所有者管理。
-
-验收观察整个更新序列，包括未完成和无效语法、完成、中断、旧结果晚到及
-卸载。组合侧栏、Composer 和嵌套交互层，在 Light、Dark、Paper 以及首次
-窄屏／触摸布局下验证实际 SVG 边界、命中、焦点和查看意图保持。外观变化
-必须保留可辨识的图表节点形状，不能仅保留可读文字。
-
-图表标签采用 18px 的原始字号。首次内嵌展示和每次打开全屏时，默认按可用视口
-自适应，完整展示整张图。自适应随容器尺寸变化，缩放和平移保留用户的主动调整。
-缩放百分比按钮恢复 100% 原始尺寸，“适应窗口”返回完整总览。含图表的回答使用
-阅读栏的可用宽度。工具栏占独立行，避免遮挡节点。文件预览中的图表遵循相同规则。
-
-内嵌和全屏图表使用同一个手势变换所有者。Ctrl 或 Alt 加滚轮围绕指针位置缩放，
-普通滚轮保留页面阅读行为。双指缩放、双击／双击触摸围绕手势位置缩放；平移按钮
-启用拖动，关闭时保留单指页面滚动。“适应窗口”和原始尺寸操作取消当前变换并
-重新居中。全屏打开默认自适应，关闭恢复保存的内嵌变换。源码和主题更新不重建
-手势所有者；内容移除时释放监听和进行中的工作。手势库拥有缩放、位移和手势
-取消，Farming 拥有自适应尺寸、工具栏状态、渲染版本和查看器生命周期。
-
-### 只读 Goal 与中断轮次
-
-Goal 是提供方拥有的会话元数据，在活动区与 Plan 并列显示。有效的 ACP
-`session_info_update._meta.goal` 替换只读目标、状态和可选用量；省略字段保留
-现有值，显式 null 清除，无效数据不能抹去有效状态。带版本的快照和检查点
-支持重连恢复；切换 Agent 清除之前的预览。活动区不提供创建、暂停、恢复、
-完成或清除 Goal 的操作，Stop 保持取消当前轮次的语义。
-
-活动区保留 active、paused、blocked 以及用量或预算受限的 Goal。同一个 Goal
-在当前视图从未完成变为 `complete` 时，自动收起详情并提示五秒，随后从活动区移除。
-打开或刷新已完成 Goal 不重播提示。切换 Agent、清除 Goal 或开始新 Goal 会取消旧提示
-计时；迟到的用量更新不延长提示。这只是展示状态，不会清除提供方元数据。
-
-完成结果同时作为持久化聊天记录，使用共享 Goal 折叠组件在所属轮次下方展示目标和用量。
-后端拥有该记录；重复的完成元数据原位更新用量，不重复插入或移动记录。身份以提供方
-创建时间和目标内容确定；缺少创建时间时仅用目标内容。后续新 Goal 或显式清除当前元数据
-不会删除之前的完成记录。检查点恢复为旧版已完成元数据补齐记录，多次恢复不重复。
-验收覆盖实时完成、迟到用量、重复通知、新目标、清除、重连/刷新及所有主题的完成记录展示。
-
-
-活跃 Goal 与正在执行的轮次是两种状态。提供方自动续跑的轮次必须与提交的
-轮次一样，按序发布开始及终止事件，覆盖完成、中断和失败。旧 Prompt 结束
-不能清除新轮次的身份或控制能力。Codex 在每个根轮次结束后刷新 Goal 元数据；
-即使目标和状态不变，仅用量变化也必须传到活动区。验收必须经过准备好的
-适配器，不能只直接注入运行时通知。
-
-运行时通过精确轮次身份和响应屏障拥有取消状态。只有轮次结束才取消未完成
-工具及压缩，保留已成功结果，并将终止原因记录在轮次上。收起的过程摘要明确
-显示已中止。迟到的工具更新不能
-重新打开已取消条目。后续消息等待之前的取消结束，旧完成事件不能结束新轮次。
-超时仍是明确的运行时失败。历史中断状态经过后续轮次和检查点恢复后仍然保留，
-不依赖会话最近一次终止原因。
-
-## 首个会话创建前的认证
-
-ACP `session/new` 返回需要认证且提供登录方式时，保留已初始化的连接和可见 Agent。
-登录完成前 Agent 使用临时身份，不可发送 Prompt。Agent 管理的登录在同一连接上
-继续有时限的会话创建；终端登录沿用既有重连路径。只有确认的 Session 响应才能
-发布 Provider Session 身份。关闭 Agent 会撤销待处理认证，迟到结果不得重新创建
-Agent。其他启动失败沿用普通清理契约；仅用于创建身份的操作仍须失败并清理。
+验收覆盖身份/Home 隔离、协商能力、排序、去重、取消、迟到结果、重连和硬中断；比较增量
+投影与权威快照，并验证分页、大内容、Fork/子会话隔离与来源。组合界面覆盖桌面/窄屏的
+Light、Dark、Paper。真实 Provider 验证隔离且低流量，常规失败序列由确定性假 Provider 覆盖。

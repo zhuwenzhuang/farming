@@ -2,799 +2,196 @@
 
 > Chinese version: [project-files-section-design.zh_cn.md](./project-files-section-design.zh_cn.md)
 
-Project Files lets a user inspect and lightly edit a Project while supervising
-its Agents. It is not intended to replace a full IDE.
+Files supports inspection and light editing while supervising Agents. It is not
+a second IDE. This document owns product boundaries; the
+[Workspace File State Model](workspace-file-state-model.md) owns versions,
+working-copy consistency and mutation recovery, and the
+[Workspace Transport Protocol](workspace-transport-protocol.md) owns delivery,
+cancellation and large-content limits.
 
-The detailed correctness, resolve, retention, concurrency, and recovery
-contract is defined by the [Workspace File State Model](./workspace-file-state-model.md).
-Interactive request multiplexing and the large-content boundary are defined by
-the [Workspace Transport Protocol](./workspace-transport-protocol.md).
+## Ownership And Placement
 
-Project menus offer Copy path for the backend workspace path, including remote
-workspaces and the global root. Copy closes the menu and reports clipboard
-success or failure. Reveal in Finder is available only when the desktop
-connection owner confirms a ready local macOS backend; browser URLs and SSH
-tunnel hostnames do not establish locality. Unknown or failed capability reads
-keep the command hidden. Archive all chats applies to the Project section,
-preserving the existing protection for pinned rows and Main Agent.
+| Owner | Responsibility |
+| --- | --- |
+| Project composition | Persisted workspace membership, Agents, Open Editors, Files, Changes and History; one sidebar scroll surface |
+| Explorer | Expansion, focus, selection, keyboard navigation and bounded row projection |
+| Workspace backend | Authorized canonical paths, filesystem/Git truth, versions, bounded reads and mutation reconciliation |
+| Editor and viewers | Drafts, tabs, reading position, conflicts and bounded previews |
 
-## Product Placement
+A Project remains mounted when its last Agent/editor closes. Explicit removal
+reconciles dependants in order: archive Agents, remove main-page session
+memberships, close editors, then unmount. Failure stops subsequent stages and
+keeps membership; retry rereads current state, without undoing completed cleanup
+or blindly replaying an uncertain removal.
 
-Files belongs to a concrete Project, not Main Agent. An expanded Project shows:
+Agent creation and new workspace discovery establish membership before reporting
+success. Concurrent discovery of the same absent Project shares one mount;
+ordinary opens within a mounted Project do not remount it. An explicitly selected
+repository subdirectory remains the Project boundary, even when Git operations
+belong to its containing worktree. Git owns worktrees; Farming owns only their
+membership and display order.
 
-```text
-Project
-  Agents
-  Open Editors, when files are open
-  Files
-    Working-copy Changes
-    Git History
-    Directory tree
-```
+## Identity And Navigation
 
-The Project sidebar has one outer scroll surface. Files, Open Editors, Changes,
-History, and the directory tree must not create competing project-level
-scrollbars. Deep directory paths may scroll out of view without changing that
-ownership.
+Files are identified by canonical workspace and relative path, independently of
+Agent selection. A source-Agent association is navigation metadata, not file
+ownership. URI boundaries encode/decode once; free-form terminal text cannot
+reinterpret arbitrary whitespace as a path.
 
-While a Project owns the top of that scroll surface, its Project row, Agent
-rows, Open Editors, and Files header form one stacked sticky summary. Their
-measured heights determine the next layer's offset. When the Project reaches
-its trailing boundary, every visible layer releases with the same scroll
-delta; a later layer must never slide over the Project name or branch first.
-Directory rows scroll beneath this summary stack. Ancestor context is metadata
-inside the existing Files header, never an additional sticky directory row.
+Absolute-file entry points share backend worktree resolution. A proven containing
+worktree uses the normal Project file path; files outside repositories use bounded
+read-only global access. An external file has no invented Explorer target. Desktop
+Reveal requires authoritative local-backend capability, not a hostname guess.
 
-Open Editors is capped at seven responsive file rows. Its list always owns the
-same vertical overflow geometry, and any measured classic scrollbar width is
-placed in an external lane so row labels and actions keep the same x-position
-and width at seven and eight entries. Overlay scrollbars naturally measure as
-zero. The content edge remains aligned with sibling Project and Files actions.
+Every file-open entry point shares one navigation intent across Projects. Repeated
+opens of the same pending file share its read and merge current viewing intent;
+pinning is monotonic. A newer different-file intent invalidates the older one.
+Only the current intent may mount its view, change focus or commit the main pane.
+Late results may refresh data but cannot override newer navigation.
 
-Project Agent rows use progressive disclosure to keep large Agent groups
-scannable. A Project initially shows five Agents, the first Show more action
-reveals up to five more, later actions reveal up to ten more, and Show less
-returns to the initial five. Selection, search, and active-Agent changes may
-replace a row within the current capacity, but only Show more and Show less may
-change that capacity. When both live Agent rows and resumable session rows have
-more entries, the Project shows one Show more action at a time and reveals the
-remaining live Agents before additional sessions.
-Selecting an Agent row that is already visible keeps the Project scroll surface
-anchored. Navigation to an offscreen Agent may reveal it in that surface.
+Selection, keyboard focus and active editor identity are separate. The Explorer
+owns one selection surface; an active file cannot paint another selected row.
+Reveal changes navigation without reopening the file or changing its draft.
+A newer reveal or direct user interaction revokes earlier scroll work. Restored
+view memory follows authoritative Project/Agent recovery and ignores stale targets.
 
-## Project And Workspace Identity
-
-A Project is a persisted workspace mounted in Farming. Agent creation, file
-opening, restored Project sessions, and Git worktree selection all refer to that
-same workspace identity. Losing the last Agent or editor does not silently
-remove the Project; explicit removal is the unmount action. Browser and Control
-API Agent creation both persist this membership before reporting success or
-delivering an initial task. A mount failure archives the exact new Agent without
-provider-history mutation; cleanup failure remains explicit. Opening another file
-inside an already mounted Project reuses that membership and must not replay the
-Project-mount mutation on the file-open critical path. Concurrent opens that
-discover the same absent Project share one mount mutation. Cancelling an
-individual file-open waiter does not cancel or replay that mutation; its result
-still updates authoritative browser membership, while only the current file-open
-intent may commit the main pane.
-
-Explicit removal is immediate only when the Project has no dependent resources.
-When live Agents, main-page sessions, or open editor tabs remain, Remove opens a
-confirmation inventory. Confirmation archives Agents first, removes the Project's
-main-page session memberships second, closes its editor tabs third, and only then
-unmounts the Project membership. Cancellation has no effect. Each stage is owned
-by its existing lifecycle, session-membership, editor, or Project-membership
-controller; a failed stage stops all later stages and leaves the Project mounted.
-Completed cleanup is not rolled back, so retry rebuilds the inventory from current
-authoritative state. An uncertain Project-removal result is reconciled from
-authoritative membership and is never replayed blindly. While confirmation is in
-progress, duplicate confirmation and cancellation are disabled; completion,
-definitive failure, or bounded uncertain reconciliation terminates the attempt.
-
-When a user explicitly selects a repository subdirectory while creating an
-Agent, that directory is the Project boundary. The containing Git worktree
-remains authoritative for repository operations, but it must not promote the
-Agent into a broader mounted Project. Launching from an existing Project surface
-may instead pass that Project workspace explicitly while using a deeper working
-directory.
-
-Git discovery accepts both NUL-delimited worktree inventory and the legacy
-line format when Git explicitly rejects `-z`. Legacy quoted values are decoded;
-malformed output remains a failed lookup. Paths containing newlines require the
-NUL format. Timeouts and repository errors do not trigger format fallback.
-Common-directory paths are resolved without requiring `--path-format`.
-Project worktree inventory uses the Files service's command execution boundary,
-including its isolated command helper, just like other Git reads. Opening several
-Projects must not start a burst of Git processes directly on the Server event
-loop and starve unrelated discovery requests. Each explicit inventory read
-remains fresh; moving execution does not introduce a stale-result cache.
-
-Git owns repository and worktree identity. Farming presents each worktree as an
-ordinary Project and owns only its membership and order in the workspace.
-Every absolute-file open entry point, including Chat links, Terminal links, and
-shared URLs, first asks the backend for the nearest containing Git worktree through
-one shared resolution boundary. A successful authoritative lookup mounts
-that worktree and opens the repository-relative file through the normal Project
-path, including Git blame; when no repository exists, the bounded read-only
-global-file path remains the fallback. A global-file fallback opens the exact
-file without attempting to reveal it in a Project tree that cannot contain it.
-
-Filesystem paths are decoded internal identities. Structured URI boundaries such
-as Markdown links, preview resources, share URLs, and file APIs encode a path once
-and decode it once before workspace resolution. Free-form Terminal text remains a
-separate lexical boundary: whitespace is not globally reinterpreted as part of a
-path unless an explicit link or literal already establishes that identity.
-
-Files identity is derived from the canonical workspace, never from whichever
-Agent currently happens to reference it. An optional source-Agent association
-may cross Project boundaries to support returning from a file to its originating
-Agent, but it is not file ownership.
-
-Global Search queries the authoritative file indexes of the currently mounted,
-non-Main Projects with bounded concurrency, result counts, and cancellation.
-Global entry search returns typed directories and files, never file contents.
-A bare name matches entry names; a parent directory match does not implicitly
-return its descendants. A path query can match the directory or file at that
-path. Empty directories are searchable. Results retain Project-root and relative
-path identity, deduplicate within that root, and show directories before files.
-Each type has its own bounded result budget, so files cannot crowd out folders.
-Explicit global entry searches use the bounded interactive request lane: Project
-metadata refreshes must not consume their deadline before dispatch. Existing
-concurrency, overload, and cancellation limits still apply.
-All, Files and Folders, Current Agents, and History filters expose counts of
-returned objects. Loading, empty, incomplete, and failure states remain visible
-even when sessions match. History does not imply that its Project is mounted.
-Project groups show a disambiguating workspace path; history rows identify their
-type, update time, and working directory when it differs from the Project root.
-
-The workspace owns the query, result filter, and keyboard selection. Changing
-the filter retains the query and completed searches, cancels any pending file
-open, and resets selection to the first visible result. Changing the query or
-closing Search cancels obsolete work. Rendering and keyboard navigation derive
-from the same filtered order; Enter can only open a visible result. Filters do
-not mount Projects or resume sessions. Search failures retain the existing
-bounded retry and cancellation protocol below.
-
-File results expose the Project, a workspace label that expands to the shortest
-unique suffix for same-name collisions, and the complete workspace-relative
-path, so equal basenames and equal relative paths remain distinct. A workspace-relative path, or an absolute path that
-is contained by one of those mounted Projects, may include a line and column.
-Click or Enter on a file opens that exact identity through the ordinary Project file-open
-transaction, reveals it in the Explorer, and preserves the Agent that opened
-Search as the mobile Back target when it still exists. Search never broadens to
-the global filesystem or substitutes a fuzzy match after selection. If the file
-moves or becomes inaccessible between search and open, Search remains visible
-with an explicit failure and permits a fresh query. Changing or closing Search,
-starting an Agent, following a notification, or removing the target Project
-cancels an in-flight read. Per-Project and global deadlines converge to explicit
-failed or incomplete states with Retry; semantically unchanged Project refreshes
-must not restart those deadlines.
-
-Directory activation shares the query/open cancellation generation. The backend
-first reads the exact directory inside its still-mounted root. Only a successful,
-current read may switch to Projects, reveal and expand that directory through
-the existing Explorer controller. It never opens an arbitrary child, resumes an
-Agent, or mounts a Project. Missing directories, denied reads, or removed roots
-keep Search visible with an error. Query/filter changes, closing Search, or a
-new activation cancel older reads; the most recent intent owns navigation.
-A Project-root result expands that Project’s Files section.
-
-Search owns its entire main-pane scroll surface, including the scrollbar and
-padding around the result column. Pointer interaction within that surface keeps
-Search and its query open; the existing outside-click dismissal applies only
-outside that surface and the Search navigation controls.
-Dismissal arbitration follows the shared [UI interaction protocol](../../development/ui-interaction-protocol.md).
-
-## Directory And Navigation State
-
-Directory loading is absent, loading, loaded, or failed. A workspace identity
-change invalidates pending loads. A response from an older workspace generation
-cannot commit data or leave a loading state that blocks retry.
-
-Directory expansion is browser-local navigation state scoped to the workspace.
-Each accepted pointer or keyboard action changes the desired expansion state
-once; a later directory response cannot reopen a directory the user closed.
-Persisted expansion state does not start directory I/O while Files is collapsed.
-When Files becomes visible, missing restored directories hydrate with bounded
-concurrency; a workspace change or unmount aborts the obsolete loads.
-When the first expansion discovers a single-child directory chain, the Explorer
-may load and compact that chain, then transfers the same expansion intent to
-the final visible directory. This continuation is depth-bounded, detects
-repeated paths, never crosses a symbolic link automatically, and stops on a
-branch, file, empty directory, load failure, workspace change, or intervening
-user collapse.
-Direct pointer or keyboard expansion keeps the current row anchored in the
-single Project scroll surface. A toggle does not write Project scroll or start
-a reveal operation; explicit navigation or the editor's Reveal in Explorer
-action owns reveal.
-
-The editor header keeps Reveal in Explorer available in source and preview
-views. It expands the current file's Project, Files section, and parent
-directories, opens a closed compact sidebar, and locates the file through the
-existing reveal owner. Repeating the action repositions a file scrolled out of
-view without reopening it, reading it again, or changing its draft, editor
-model, or source/preview state. An exact external file has no Project-tree
-target and does not offer this action.
-
-The Explorer keeps active file, keyboard focus, and selection as distinct
-concepts. Opening a file from Chat, Terminal, search, History, Plugins, or a URL
-has one reveal owner so the tree and Project list do not compete for focus or
-scroll. A revealed file is anchored in the upper-middle of the visible file area
-rather than merely exposed at its lower edge. Returning from a file to its source
-Agent expands that Agent's Project and Agent group, then reveals the exact Agent
-row even when the file and source Agent belong to different Projects. While the
-file owns the main pane, that source association does not mark an Agent row as
-active. The Explorer selection is the sole owner of its row selection surface:
-an active editor path may keep navigation state, but it cannot paint a second row
-after the user selects a directory or another file. After the main pane returns to
-an Agent, the Explorer may retain its last selection for keyboard continuity, but
-it does not paint that file as selected or active until the tree or editor owns the
-interaction again. Workspace back/forward
-history treats a Plugins location as a first-class
-entry and restores
-its tab, Agent Home, extension kind, query, detail, and scroll position after
-opening a source file.
-
-A context menu opened on empty tree space inherits the current tree selection
-for create operations. It targets the Project root only when the tree has no
-current selection or focus.
-
-File context menus and submenus remain visible and hittable outside a compact
-sidebar's clipping boundary. Portalling their surface preserves the same shared
-dismissal owner and returns focus to the invoking tree target.
-
-Editor context menus belong to the file and source view that opened them. They
-open immediately; asynchronous Git capability checks may update actions but
-cannot reopen a dismissed menu or replace a newer one. File/view changes and
-unmount revoke the menu and any pending action. Clipboard completion must not
-edit a different model after navigation.
-
-Cut removes the selected text only after a confirmed clipboard write. A failed
-write preserves the document and shows the shared inline error feedback; a new
-action or file/view change clears that feedback.
-
-Git inspection resolves the selected worktree and literal repository-relative paths,
-including Projects rooted in an ordinary subdirectory. Display-only reads disable
-optional index writes and use bounded CLI deadlines; failures do not imply clean files.
-
-Blame captures one immutable full-file result and transfers byte-bounded pages over
-the Workspace WebSocket. Each page stores commit metadata once and coalesces
-consecutive line positions into ranges, retaining content for snapshot checks. The backend retains at most eight snapshots and 32 MiB
-for 60 seconds, validates the authorized file and revision on every continuation,
-and returns an explicit stale-snapshot error after expiry or eviction. The client
-assembles one complete snapshot before displaying annotations, cancels obsolete
-loads, and restarts the complete read once after a stale snapshot within its overall
-60-second deadline. Oversized individual lines or snapshots fail explicitly.
-
-Git blame puts the author before the date so narrow gutters prioritize who changed
-the line; commit details expose the author, commit identifier, message, and date.
-It uses the same gutter menu from both line numbers and author/date
-annotations, including Hide Blame while loading or after failure. Annotation
-availability checks keep a disabled checking action visible; failed checks show
-an explicit retry action instead of implying that the file cannot be blamed.
-Only an authoritative unsupported result removes the action. Annotation
-rows stay clipped to the editor viewport and below Monaco's sticky headers;
-they cannot cover breadcrumbs, preview panes, or blame details. Clipping follows
-actual sticky-header geometry even when it resolves after a scroll event. Details follow
-the shared outside-pointer and Escape dismissal protocol.
-
-File Diff navigation belongs to the displayed Monaco model pair. Opening a file
-waits for its diff computation, then reveals the first change once, with surrounding
-context. Pointer, wheel, or keyboard interaction with the content cancels a pending
-automatic reveal. Later layout, theme, or diff updates must not restart it.
-The fixed header keeps Previous/Next change and a current/total count available
-in regular and compact layouts. Navigation wraps within the file and follows
-cursor placement on either side, including insertion-only and deletion-only blocks.
-Controls stay disabled before computation or when no inline changes are available;
-existing loading/error and non-text states remain authoritative. Replacing or closing
-the model disposes navigation subscriptions and revokes pending reveal work.
-
-File Diff exposes the same Blame action from code, line numbers, and annotations
-on either side. Each side owns its annotation visibility and pending requests.
-The original side uses the exact commit and historical path returned with the
-diff, including renamed or deleted files; the modified side uses the saved
-working file. Before displaying annotations, their line contents must match that
-side's displayed snapshot. A mismatch asks the user to reopen File Diff rather
-than assigning authors to shifted lines. Closing the diff or navigating away
-revokes pending results. Escape dismisses a menu or commit detail before the diff.
-
-Blame is a projection of the saved working file. Unsaved edits pause annotations
-with an explicit save/undo prompt instead of assigning old line ownership to a
-changed draft. Save, undo, and file navigation refresh the current projection
-and clear old details. Hidden, superseded, or unmounted requests cannot publish
-results. Loading has a bounded success or failure outcome; errors remain visible
-with Retry and Hide Blame available. Acceptance covers these transitions, delayed
-capability/data responses, untracked files, scrolling, folding, sticky headers, resizing,
-and Light, Dark, and Paper.
-
-Every programmatic reveal on the shared Project scroll surface holds one
-generation lease. A newer file or Agent reveal, or direct pointer, wheel, or
-keyboard intent, revokes the older lease before it can write another scroll
-position. A reveal stops once its measured target position is satisfied; fixed
-delayed replays must not overwrite later navigation or user input.
-
-## Workspace View Memory
-
-Remember stable user choices that help a user continue where they left off.
-Do not remember transient interaction, loading, error, or responsive state.
-
-Authoritative Project and Agent state restores first. A valid active Agent or
-file owns the final reveal; stale remembered targets are ignored. Restoring that
-surface does not dismiss a compact sidebar the user has opened while loading.
-Explicit target activation and drawer dismissal still close it.
+Directory loads have absent/loading/loaded/failed states and are workspace-generation
+fenced. Expansion is user-owned browser state: late reads cannot reopen a collapsed
+directory. Restored expansion does not start I/O while Files is hidden. Compact
+single-child chains remain depth-bounded and do not automatically cross symlinks.
 
 ## Working Copies And Mutations
 
-The filesystem is authoritative. A browser working copy keeps a disk baseline,
-a draft, and a revision. Saving one revision must not mark a newer draft clean.
-Unsaved drafts may have bounded browser-local recovery, but they do not become a
-second filesystem authority.
+The filesystem is authoritative. A working copy holds baseline, draft and revision;
+saving one revision cannot mark a newer draft clean. Clean files adopt authoritative
+external changes; dirty files preserve their draft and expose a conflict. Exact
+open-file watches trigger bounded rereads, not a recursive Project watch.
 
-Open files watch only their exact workspace-relative paths and use filesystem
-events to trigger an authoritative re-read. Opening files must not introduce a
-recursive Project watcher. Exact paths share one incrementally updated watcher
-per workspace, while re-reads use bounded concurrency and timeouts. A clean
-working copy adopts the new disk content so source and every Viewer refresh
-together. A dirty working copy preserves its draft and becomes an explicit
-external-change conflict. Event bursts are coalesced, and a stale read cannot
-replace a newer accepted baseline. Resources referenced by Markdown, HTML, or
-SVG, as well as external or symbolic-link files, are not added to the watch
-set; the explicit reload action refreshes those files or preview dependencies.
+Save/create/rename/move/delete validate authorized identity and expected version.
+Conflicts require an explicit reload or overwrite choice. Uncertain mutations are
+reconciled from disk or directory state without automatic replay. Farming does not
+claim transactions over independent Agents, shells, editors or other instances.
+The detailed state machine belongs to the linked file-state contract.
 
-Save, create, rename, move, and delete validate the exact workspace and expected
-object or content version. Conflicts preserve the user's draft and present
-reload or overwrite choices rather than silently replacing external changes.
+Clipboard actions retain exact file/model ownership. Cut removes text only after
+confirmed clipboard success; a late completion cannot modify a replacement model.
+Menus, dialogs and asynchronous capability reads lose publication rights on
+navigation or dismissal.
 
-An ambiguous timeout or transport failure is an uncertain outcome. Farming
-re-reads the authoritative file or parent directory and converges only when the
-requested end state can be proven. It does not automatically replay a mutation.
+## Search And Tree Context
 
-Late browser responses may refresh authoritative data, but cannot close a newer
-dialog, move focus, open a replacement file, or overwrite a newer error.
+Project search is scoped to the Project unless the user explicitly chooses a
+directory. Global Search covers mounted non-Main Projects only. Results preserve
+root and relative path, distinguish directories/files and duplicate basenames,
+and expose bounded counts plus loading, incomplete and failure states. A name
+match does not implicitly include all descendants. Selection never broadens to
+an arbitrary filesystem or a fuzzy replacement.
 
-A file-open transaction moves through selected, reading, optional Project
-mounting, committed, cancelled, or failed. Project composition owns one
-browser-side open-intent generation across every Project Files section; a
-section-local request may own its loading feedback, but it cannot independently
-claim the main pane. Repeated opens of the same in-flight file share the read
-and transaction: the latest intent replaces view, cursor, focus, and reveal
-fields, while pinning is monotonic. A newer different-file intent revokes the
-older transaction even when it comes from another Project. Transport abort is
-best effort; the current intent lease is the final admission check before and
-after an optional mount and before committing the editor state.
+Changing query/filter, closing Search or navigating elsewhere invalidates pending
+opens. Only an exact, current successful read activates a file or directory;
+failure keeps Search visible. Directory activation expands the existing tree and
+never opens an arbitrary child, mounts a Project or resumes an Agent.
 
-Farming does not claim transactions with arbitrary external writers. Shells,
-Agents, Git, editors, and other Farming instances remain independent clients of
-the same filesystem.
+The Files header's ancestor context comes from visible tree position, not selection.
+It is metadata in a stable header slot, not a duplicate sticky directory row, and
+must not change geometry, expansion, search scope or scrolling. Search and context
+share that slot explicitly; hover does not switch modes. Escape first dismisses
+suggestions, then closes search; IME composition retains its Escape ownership.
 
-## Explorer And Editor Boundaries
+Search uses the Farming-owned pinned native ripgrep path with one absolute deadline
+across enumeration and matching. Cancellation reaches the subprocess. A missing or
+invalid artifact fails explicitly instead of selecting another search implementation.
+Directory structure loads independently of Git/ignore decoration, so decoration
+failure cannot block tree navigation.
 
-Four responsibilities remain separate:
+## Editor And Preview Boundaries
 
-- **Project composition** owns Files, Open Editors, Changes, History, and the
-  single sidebar scroll surface.
-- **Explorer behavior** owns rows, focus, selection, keyboard navigation,
-  virtualization, and projection of expansion state.
-- **Workspace access** owns authorization, bounded filesystem and Git reads,
-  version checks, mutation reconciliation, and refresh.
-- **Editor and Viewers** own working copies, tabs, editor state, conflicts, and
-  bounded previews.
+Every viewer shares authorized file identity, versioning and access. Source/preview
+switching preserves the same working copy and per-file reading state. Clean preview
+tabs are transient; pinned tabs remain pinned until explicit closure.
 
-The Explorer preserves one Project-sidebar scroll surface even when many
-directories remain expanded. Its complete row projection keeps keyboard
-navigation and persisted expansion stable, while only a bounded
-viewport neighborhood is mounted. The outer Project scroller owns the complete
-logical tree height and all physical row movement. The virtualizer uses that
-offset only to select mounted rows; its DOM must not create a second scrolling
-surface or compensate with a scroll-linked transform. Independently committed
-inner scrolling and transforms can otherwise move rows twice or leave them one
-frame behind a native touch gesture. The cost of a large restored tree is therefore
-bounded by the visible neighborhood rather than the complete projection.
-A scroll frame must not enumerate the complete expanded tree or read layout
-from every mounted file row.
+Text up to 2 MiB is fully editable; 2–10 MiB is fully read-only; larger text shows
+only its first 10 MiB with explicit truncation. Large trees and Markdown previews
+keep a bounded mounted viewport, not a full-document DOM. Width/theme changes
+preserve reading anchors.
 
-The directory tree renders no scroll-linked duplicate of an offscreen ancestor.
-Actual virtualized tree rows are the only directory and file rows. Logical depth
-still owns keyboard navigation, expansion, accessibility level, and full-path
-identity, but visual indentation is capped by the current row width. Indentation
-and guide rails may consume at most one quarter of the row, and the label column
-reserves at least 48 CSS pixels before trailing status. Deeper levels may share
-the capped inset and long names may ellipsize; the file name itself must retain
-visible space. The row's accessible label continues to expose the full path.
+Markdown supports safe GFM/math and bounded compatibility without rewriting source
+or executing arbitrary HTML. Static HTML uses the existing preview isolation.
+Images, PDFs and binary content remain read-only. Invalid or unsupported content
+stays explicit. Syntax diagnostics remain local; saved-file semantic analysis and
+navigation belong to the [Language Server](language-server.md). Dirty drafts do
+not present older disk-version semantic results as current.
 
-### Files Header Context And Search
-
-The Explorer owns a projection of the displayed tree rows and their real parent
-paths, including compact directory chains. Expansion and data changes rebuild
-that projection. Each mounted tree initializes its expansion from the same
-Explorer state, including reopening Files with unchanged cached data. The first row intersecting the uncovered viewport below the
-Files header determines the path: only its ancestors, already above that
-boundary, appear. Root rows, an offscreen tree and collapsed Files have no
-context. Selection and the active editor never determine this metadata.
-Scroll frames read bounded container geometry and index the projection; they
-must not scan or measure file rows. Context only changes text in a fixed-height,
-width-constrained slot. It never writes scroll position, tree transforms,
-indentation, expansion or selection, and its rendered text is not a geometry
-input to the viewport decision.
-
-A full project-relative path is preferred. When it cannot fit, remove complete
-leading segments, mark them with an ellipsis, and retain as many trailing
-segments as fit (preferably the last two). Only the final directory name may
-ellipsize when even one segment cannot fit. Hover, keyboard focus or touch
-activation exposes the complete path in a wrapping, viewport-bounded tooltip.
-The tooltip does not navigate; the shared interaction layer owns outside-pointer
-and Escape dismissal. Scroll, path change and unmount dismiss it.
-
-The search owner has closed, editing and suggestions-dismissed states. The
-search toggle, tree keyboard shortcut and explicit directory-search action open
-editing and focus the input without scrolling. Typing opens suggestions; the
-first Escape dismisses suggestions while retaining query and input focus, and
-the next Escape closes search, clears its query/scope and returns focus to the
-toggle. Close performs the latter transition directly. IME Escape belongs to
-composition. Enter only accepts a visible suggestion. Choosing a result clears
-search through its existing navigation owner. Network generation, cancellation, timeout and failure handling remain
-with search; closing aborts pending work and late results cannot reopen it.
-Collapsing Files closes search and clears its query and scope.
-All observers and scheduled frames are released on unmount. Search and tooltip
-output cannot cause a tree-layout feedback loop.
-
-Acceptance covers real scrollbar dragging, wheel/touch scrolling across parent
-boundaries, compact chains, long names, resize, preceding section disclosure,
-multiple Projects, search shortcuts/scope/IME/two-stage Escape, late search
-results and Light/Dark/Paper. Verify intermediate row geometry and bounded work,
-not merely final DOM presence.
-
-Text uses the lightweight editor. Markdown and static HTML may switch between
-source and bounded preview within the same file identity. Images, PDFs, binary
-files, and oversized text use read-only viewers. Every Viewer uses the same
-Project authorization; it must not create a separate file-access path.
-Markdown previews remember their per-file scroll position when switching source
-or files. PDF previews retain a bounded set of browser viewer contexts so the
-viewer page, zoom, and scroll state survive ordinary file switching.
-
-Single-column Markdown preview defaults to a centered 860px reading surface,
-including 36px horizontal padding. Wide layout expands that surface to the
-preview panel's available width while retaining the same padding. The browser
-remembers this choice by `workspaceEditorModelKey` for the current
-`FileEditorPane` lifetime. Source and split views, plus widths where both
-layouts are equivalent, hide the control without clearing the choice. Width
-reflow preserves the current reading anchor; large virtual previews keep
-separate measurements for each layout so bounded DOM and continuous scrolling
-remain intact.
-
-Markdown preview accepts GFM and math plus bounded compatibility for Pandoc
-empty anchors, fixed-width simple tables with their source-defined alignment
-and headerless closing-rule form, compact display-math fences, and Pandoc math
-spacing. Compatibility applies only to the rendered preview and never rewrites
-file source. Unsupported math remains visible as source instead of producing
-broken output, and arbitrary raw HTML remains disabled.
-
-Display equations retain their normal font size and scroll horizontally within
-the equation when wider than the reading column. Both ends and equation numbers
-remain reachable without widening the document; numbers reserve their own space
-instead of covering formula content. Inline math, aligned equations, and
-explicit math line breaks retain the renderer's layout in every appearance.
-
-Large Markdown preview is segmented at major headings and a bounded block
-count. It preserves ordinary continuous scrolling while mounting only the
-viewport-adjacent sections and representing distant sections with measured or
-estimated space. Syntax highlighting remains disabled so scrolling to a
-distant part of the document does not mount or highlight the complete
-document. Source view remains available.
-
-Keep Monaco syntax diagnostics but disable Monaco's isolated semantic and
-suggestion diagnostics. Project-level diagnostics appear through the managed
-Language Server path for saved files.
-
-Semantic code navigation is delegated to the managed Language Server for saved
-files. Dirty drafts do not receive cross-file results that describe an older
-disk version as current.
-
-The source editor status bar is absent until the active model has at least one
-published error or warning marker. When present, it reports the active Monaco
-language, the non-zero marker counts, and the source cursor position. Marker
-counts describe current editor evidence; an absent status bar is not proof that
-Project analysis completed without problems. Shared Language Server results use
-an adaptive dock that reduces the editor viewport instead of covering it: the
-dock is on the right when the editor is wide enough and below the editor in a
-narrow container.
+Spreadsheet previews are read-only, versioned workbook snapshots. Loading/refresh
+owns cancellable fetch and Worker parse with bounded bytes, ZIP expansion and cells.
+Replacement or close releases old work and rejects late results. Show formatted
+values and missing formula-cache warnings without recalculation, macros or external
+link refresh. Hidden sheets/rows/columns stay discoverable. Copy and Chat quotes
+use the displayed selection with original sheet, coordinates and file version.
 
 ## Git And Review
 
-Files traverses checked-out submodule directories normally. Changes discovers
-indexed submodules with bounded repository count and command output, and groups
-project-relative file paths by their owning repository. Staged, unstaged and
-untracked status belong to that repository; its Review action captures only its
-own working copy. Parent gitlink changes remain separate from child edits.
-Blame, line changes, file diffs and directory decorations resolve the nearest
-repository inside the authorized Project. Missing or uninitialized repositories
-remain visible failures, never empty successful change inventories. Refresh
-rebuilds discovery; no child operation changes the parent's index.
+Git reads resolve the nearest authorized initialized repository. Submodules own
+their changes, index and Review scope; parent gitlink changes remain separate.
+An unavailable repository or truncated/failed command never means a clean tree.
+Read-only inspection does not write the Git index.
 
-
-Working-copy Changes and committed Git History live inside Files. A single
-repository has no explicit Main repository wrapper. With submodules, Changes
-owns independently collapsible repository groups, followed by tracked and
-untracked lists. Repository-relative display paths retain Project-relative file
-identity. Repository Review captures tracked changes; the expanded untracked
-list offers an explicitly scoped Review without an implicit age filter.
-The directory tree remains one Project tree; submodule directories carry the
-same secondary repository-type label as their Changes group.
-
-History keeps its disclosure title, repository selector, branch scope, and
-refresh action in one header row. Long repository paths truncate within the
-shared Sidebar selector; the title and actions remain visible at narrow widths.
-The selector menu exposes the repository choices without adding a second toolbar.
-History selects one repository within the Project and loads bounded pages;
-expanding a commit reveals its changed files and parent comparison without
-implementing a second diff viewer. The backend validates the selected child as
-an initialized repository inside the authorized Project; it never substitutes
-the parent when a child disappears. Switching repository cancels old requests,
-clears their results and preserves the History disclosure state. Only the
-current repository may publish results. Failure terminates loading and requires
-explicit retry; refresh rediscovers repository inventory.
-History's backend owns a bounded snapshot for each page sequence: captured HEAD,
-branch, commit tips and reference labels. Pages walk immutable commit IDs, never
-live refs with a new offset. Concurrent commits, resets, branch switches and ref
-updates do not change an existing sequence; explicit refresh starts a new one.
-Continuation requires a cursor bound to that repository and scope. At most 16
-snapshots are retained, with five minutes of idle lifetime. Expiry, eviction,
-restart or unavailable Git objects end continuation explicitly, preserving
-already displayed entries and offering refresh instead of mixing histories.
-Reference capture and Git walks have output and time bounds; an observed HEAD
-or branch change during capture fails before publishing a mixed snapshot.
-Failed branch reads remain explicit Git read errors; a timeout or unavailable
-command cannot stand in for a detached branch or a changed snapshot.
-
-
-The backend owns repository inventory, exact per-category counts and errors.
-Inventory reads must finish within bounded Git time and output budgets; exceeding
-these budgets is an explicit failure, never a partial count presented as complete.
-The sidebar does not share a result quota between repositories or categories.
-Expanding a category reads its first page; Load more continues that category only.
-Counts describe the complete inventory, while the continuation action states the
-loaded count. A zero count never means an omitted, unqueried category.
-
-Pages carry a fingerprint of an immutable inventory and an offset. Continuation
-reads that captured inventory without another Git scan. Inventories expire after
-30 seconds; at most eight Projects are retained, each with a complete inventory
-of its discovered repositories and up to two direct category snapshots.
-Concurrent reads of the same Project and scope share one capture; starting a
-read does not invalidate another reader. Full inventories, direct Tracked reads,
-and direct Untracked reads retain independent cursors. A fresh capture replaces
-only its own scope. Known workspace writes or watch events invalidate all
-affected scopes, including captures still in flight; subsequent reads cannot
-join those invalidated captures. Success or failure releases shared read
-ownership, and a cancelled browser consumer cannot cancel another consumer's
-capture. Git deadlines still bound shared work. Expiry, eviction, and server
-restart also invalidate continuation and require refresh. External changes not yet observed
-by a watcher appear on the next fresh read, never halfway through a page sequence.
-Fresh Tracked reads exclude untracked enumeration before parsing and pagination. The browser fences reads by Project, repository,
-category and refresh generation; stale responses cannot replace or append to a
-new owner. An explicitly stale read gets one automatic fresh read. A stale page
-rebuilds the owning inventory and restarts at page one, never appending across
-snapshots. Each repository/category gets one recovery per continuous failure;
-a successful page releases that budget. Repeated failure remains visible with an
-explicit refresh action. Refresh cancels
-old reads and restarts pages without reopening collapsed groups. Review remains
-an independent scoped comparison action, not the only way to see omitted files.
-
-Submodule working-tree dirtiness is displayed only inside its own repository.
-The parent retains actual gitlink version, staging, removal and conflict changes,
-marked explicitly as submodule changes rather than duplicate folder contents.
-Repository errors appear on that repository; discovery/request errors appear once
-at the Changes boundary.
-
-Line changes explain a local hunk near the current line. Full Review uses the
-main comparison surface and stable Review identity. These are different
-interaction levels and should not be collapsed into one narrow sidebar panel.
-
-Git operations use deterministic, path-safe input and treat truncation or
-timeouts as visible partial results, never as proof of a clean workspace.
-
-Creating a permanent Worktree opens a naming dialog before any Git mutation.
-The default branch is `farming/worktree-YYYYMMDD`, using the user's local date;
-occupied branches, directories, and in-flight reservations add `-2`, `-3`, and
-so on. The user may edit the complete branch name. Custom names are exact:
-invalid or occupied names retain the draft and expose an actionable error.
-The target directory is derived safely beside the repository's main Worktree,
-without timestamps, random identifiers, or nested Worktree-name prefixes.
-
-After the first authoritative preview, editing updates the displayed directory
-synchronously using the confirmed parent and the shared branch-to-directory rule.
-Source details remain visible while debounced availability checks run; the checking
-status keeps its layout space. This local projection is not an availability claim:
-Create stays disabled until the current name has a successful fresh preview.
-Superseded responses cannot replace current validation, and closing cancels reads.
-
-
-The backend owns naming admission, operation identity, and completion. One
-request ID binds the source, naming policy, and starting commit; repeated
-delivery joins that operation. Preview is a fresh read, not a reservation, so
-creation rechecks availability. The browser generates and persists the request
-identity before submission in both trusted HTTP and HTTPS contexts.
-The dialog immediately shows checking, checkout,
-and registration stages with elapsed time. It may be minimized while the source
-Project retains a status control; minimizing does not cancel Git work.
-Unresolved persisted operations retain their target names even when no directory
-is visible, so a later creation cannot be mistaken for an earlier uncertain one.
-
-| State | Effect and exit |
+| Read | Consistency contract |
 | --- | --- |
-| Editing | Fresh preview validates the name and shows source and destination; Cancel has no filesystem effect. |
-| Creating | Disable duplicate submission; observe the persisted operation through bounded status reads. |
-| Succeeded | Publish the exact new Project; open it only while the dialog still owns viewing intent. |
-| Failed | Preserve the draft and concrete error; a deliberate retry gets a new request ID. |
-| Unknown or disconnected | Reconcile the original operation without replaying Git. An absent record does not prove failure; after two minutes stop automatic observation and expose an explicit status check. |
+| Changes | Complete per-repository/category counts and bounded pages from an immutable inventory; no shared quota hiding categories |
+| History | Captured HEAD, branch, tips and labels; continuation walks immutable commits rather than applying offsets to live refs |
+| Blame | Immutable saved-file snapshot; annotations must match displayed line content, including exact historical sides of a diff |
+| File Diff | Exact model pair; navigation follows computed changes and cannot override later user input |
+| Review | Scoped comparison with its own identity; see [Review foundation](review-foundation.md) |
 
-Reload restores pending viewing records and checks authoritative operation
-state. After backend interruption, a complete Git postcondition may settle the
-original operation; partial or unverifiable results remain uncertain. Custom
-name collisions, concurrent default allocation, duplicate delivery, slow Git,
-minimization, reload, and uncertain outcomes require acceptance in every theme.
+Cursors bind repository, scope and captured snapshot. Writes/watch events invalidate
+relevant inventories, including in-flight captures. Expiry, eviction or restart
+requires refresh, never mixed pages. Concurrent readers may share capture but
+cannot cancel one another's work. A stale read has bounded recovery, then explicit
+Retry. Dirty drafts suspend saved-file blame; superseded reads cannot publish.
 
-The existing Project worktree control keeps the Project row compact and owns
-two explicit operations inside its popover: opening an already registered
-worktree and switching the current repository main worktree to an existing
-local branch. Worktree rows never imply a branch switch. Branch switching
-requires a fresh server-side read that proves the exact main worktree is clean,
-the target branch is not checked out elsewhere, and no Agent is actively using
-that workspace. Idle Chat and Terminal Agents may remain open; active or
-unverifiable Agent activity blocks switching. The Server fences new Chat and
-Terminal input during the switch and drains already admitted input before the
-final Agent-state check. A switch that drains prior Terminal input fails so a
-new idle observation is required before retrying. It never fetches, creates a
-tracking branch, stashes, or forces through changes. The server serializes the
-mutation with other Project operations, fences it with the expected branch and
-HEAD, and reconciles the authoritative branch after a timeout or command
-failure without automatically replaying the switch. Blocked and uncertain
-outcomes remain visible in the
-popover; success refreshes the worktree, Files, Changes, and History views.
+Worktree creation starts with a fresh name/source preview and rechecks availability
+at admission. A durable request ID binds source, naming policy and starting commit.
+Duplicate delivery joins the original operation. Default names allocate collision
+suffixes; custom names are exact. Minimizing/closing observation does not cancel
+admitted Git work. Success publishes the exact Project; failure preserves the
+input; unknown outcome reconciles the original operation without replay.
 
-Blame annotations load bounded Git porcelain output and keep commit details
-interactive. Commit hashes link to the repository web view when the remote can
-be mapped safely. Handle-shaped GitLab authors link to their profile on the
-same remote host; ambiguous display names remain plain text. Commit-message
-issue references follow the workspace's IntelliJ
-`IssueNavigationConfiguration` from `.idea/vcs.xml`; unsupported, oversized,
-non-HTTP(S), or invalid rules remain plain text.
+Branch switching is separate from opening another worktree. It requires a fresh
+proof of a clean exact main worktree, an existing local branch unused elsewhere,
+and no active/unverifiable Agent work. The backend fences new input, settles prior
+admissions and rechecks ownership, expected branch and HEAD. It never fetches,
+stashes, creates a tracking branch or forces changes. A failed/uncertain switch
+rereads branch truth before any deliberate retry.
 
 ## Visual And Interaction Rules
 
-- Rows remain compact, stable, keyboard-accessible, and single-line.
-- File entries in Open Editors, Changes, and the directory tree share a 24px
-  desktop row and a 28px compact row, regardless of pointer type. Compact
-  Project and Agent navigation keeps its separate 44px row. File section
-  controls fit their row without overlapping neighboring targets; the shared
-  sidebar selector variant uses that same row height and label typography. Primary
-  navigation actions retain their larger targets and align to the row center.
-  Open Editors and Files headings share the same leading column. Both file
-  trees use an 8px depth step and one icon-or-chevron slot; deep indentation
-  is bounded by available label space, not a fixed two-level compact limit.
-- Responsive density is browser-owned presentation state. A width-breakpoint
-  change updates one CSS row metric consumed by file styles and virtual-list
-  geometry, without changing selection, expansion, or request ownership.
-  Resize, scroll, and directory expansion must retain aligned virtual rows
-  and the shared Project scroll surface. Density changes preserve the visible
-  row and fractional row offset instead of retaining an obsolete pixel offset.
-  Opening and closing row actions must not change row height.
-- Every tree row has three explicit layout slots: leading icon or chevron,
-  label and label decorations, and trailing state. Optional decorations never
-  create implicit grid rows, and inline rename occupies the label and state
-  slots without moving the label origin.
-- At every layout width and one tree depth, a file icon occupies the same
-  leading slot as a directory chevron; files do not reserve an additional empty
-  chevron column.
-- The Files header keeps its title, search toggle and refresh action in fixed
-  slots on pointer and touch layouts. Its middle slot shows viewport directory
-  context or an explicitly opened search input; hover never switches modes.
-  Search remains project-scoped unless the user explicitly chooses directory
-  search. Viewport context never changes the search scope.
-- Open Editors appears only when needed and stays separate from the tree.
-- At 393 CSS pixels and narrower, available Save, source/preview,
-  overwrite-conflict, and Agent-side controls remain direct primary actions.
-  Reveal, sharing, diff, split preview, Markdown width, word wrap, and reload
-  move into a named More menu rather than requiring horizontal toolbar
-  scrolling. The trigger and commands retain titles or visible labels, ARIA
-  roles and checked states, keyboard navigation, and shared outside-pointer /
-  Escape arbitration; the portalled menu is constrained to VisualViewport.
-- Single-child directory chains may compact into one stable row.
-- Dirty, external-change, and Git state remain visible without turning the tree
-  into a high-noise warning surface.
-- Preview and pinned tabs preserve per-file editor position and distinguish
-  transient inspection from intentional multi-file work. A single click may
-  create a clean preview, but selecting an existing pinned tab never demotes it
-  to preview; double click pins. Repeated opens of the same pending file share
-  one read and merge the latest intent, while a newer different-file intent
-  cancels the superseded open and keeps bounded loading feedback until settle.
-- Paper appearance keeps the tab strip, breadcrumbs, and editor on one
-  continuous paper surface. Only the active tab receives a local tonal fill;
-  selection does not add a full-width chrome band, border, shadow, or seam.
-- Narrow layouts prioritize viewing and short edits; long-form mobile coding is
-  not a goal.
-- Compact touch source views use native text selection and a visible Select All /
-  Copy toolbar. Copy takes the selection, or the displayed draft when no
-  text is selected, and reports success or failure. Native edits and selections
-  update the existing editor model; working-copy permissions and save/conflict
-  handling remain shared. File-link, search and history navigation project the
-  shared selection into the visible source and reveal its target; explicit editor
-  focus goes to that source. Primary coarse input selects this surface under the
-  shared compact viewport limit. The current-line toolbar opens the shared gutter
-  menu, including Blame and both line-change modes. When Blame is shown, the
-  selected line's author/date annotation opens the shared commit detail; dirty,
-  loading, failure and dismissal states keep their existing owners. Clipboard completion cannot update a replaced file;
-  an unresolved write reports an unconfirmed outcome after five seconds.
-  Text inputs stay at least 16px; file gestures allow pan and pinch without
-  double-tap zoom. Native context menus remain available for selection and copy.
+Use the shared [UI design](../../development/ui-design-protocol.md) and
+[interaction](../../development/ui-interaction-protocol.md) owners. Files, Open
+Editors and Changes share geometry and state treatment; no page-local variant
+should encode the same state differently.
 
-## Performance Boundary
-
-File reads, previews, searches, Git output, directory loads, History pages,
-editor models, and caches are bounded. Trees and expensive details load on
-demand. Background preparation may improve first open, but failure must fall
-back to the same authoritative path and must not reload the page or block Agent
-work.
-
-Project Files search has one production execution path: the Farming-owned,
-version-pinned native ripgrep artifact. Path enumeration, directory-name
-matching, and content matching share one absolute deadline instead of receiving
-independent timeout budgets. Browser or WebSocket cancellation propagates to
-the active search and terminates its ripgrep subprocess; a final browser
-watchdog guarantees that visible loading settles. A missing, corrupt, or
-unsupported managed artifact is an explicit bounded failure, not a trigger for
-system `rg`, WebAssembly, Git, or another automatic fallback.
-
-A directory `tree` request is the interactive structure path and does not wait
-for Git status, ignore checks, or descendant decoration. Git and ignored state
-load through the independent background `tree-decorations` operation and
-publish only changed paths; decoration arrival does not replace directory
-snapshots or rebuild an unchanged tree projection. An unchanged structural
-refresh reuses node identity, while a changed path replaces only that node and
-the ancestors needed to reach it. Large directories split decoration reads at
-both protocol-message and subprocess-argument boundaries; no directory size may
-turn background decoration into an invalid or indefinitely pending request.
-
-The automated large-workspace gate uses production-shaped trees rather than a
-single synthetic click. A 2,000-row projection must keep fewer than 100 file
-rows mounted and retain Home/End navigation. Cold expansion across multiple
-directories records both request and visible-paint p50/p95, bounds request p95
-below 750 ms and paint p95 below 1,000 ms, and also bounds mounted rows and row
-renders. These are regression ceilings, not promises that routine interaction
-should approach the limits.
-
-Subject to the existing workspace ownership and read-only constraints, text
-files up to 2 MiB open completely and remain editable. Text files between 2 MiB
-and 10 MiB open completely in a read-only viewer. Larger text files show only
-the first 10 MiB in that viewer. The interface must distinguish a complete
-read-only file from a truncated prefix; partial content is never presented as
-the complete file.
+- File rows are 24px desktop / 28px compact, with an 8px depth step. Compact
+  Project/Agent navigation retains 44px rows. File icons and folder chevrons use
+  the same leading slot; indentation leaves readable labels at every depth.
+- One Project scroller owns physical movement. Virtualization selects mounted
+  rows without a second scroller or scroll-linked translation. Project summary
+  layers release together at their trailing boundary. Density changes retain
+  row-relative reading position.
+- Open Editors is a bounded list; appearance of its scrollbar cannot shift labels
+  or actions. Files header actions retain stable slots; ancestor context cannot
+  create a geometry feedback loop.
+- Compact layouts keep primary save/source/conflict actions accessible and move
+  secondary actions into the shared menu. Touch source views preserve native
+  selection/copy and the same working-copy/conflict authority.
+- Paper keeps tabs, breadcrumbs and editor on one continuous surface. Selection,
+  menu focus and dirty/error states follow shared tokens in every appearance.
 
 ## Acceptance Criteria
 
-Verification must cover empty Projects, multiple Agents sharing a workspace,
-Git worktrees, deep trees, keyboard navigation, reload restoration, symlinks,
-search and location links, dirty and external changes, uncertain mutations,
-read-only viewers, Git History, Review, mobile viewing, and large workspaces.
-
-## Spreadsheet Preview
-
-XLSX, CSV and TSV use the existing authorized, versioned file-preview path.
-The browser owns a read-only workbook snapshot, sheet selection, cell address,
-search and selection copy; the backend continues to own file identity and access.
-Loading or refreshing creates one cancellable fetch and Worker parse. Closing,
-switching or refreshing invalidates the old result, terminates its Worker and
-releases the rendered table. Fetch and parse each have bounded failure states.
-
-Workbook size, ZIP expansion and preview cell budgets reject unsupported input
-explicitly. Display formatted workbook values and formula-cache warnings without
-recalculating formulas; delimited text preserves its original field text.
-Hidden sheets, rows and columns remain discoverable with explicit markers.
-The same preview supports Light, Dark and Paper; original-file download and the
-existing file refresh mechanism remain available.
-
-Copy and Chat quotes use the same displayed selection snapshot and preserve the
-file version, sheet and original cell coordinates. These controls become usable
-only after the renderer is ready. Missing formula caches are explicit, never
-invented zeroes or newly calculated results; macros and external-link refresh do
-not run. Switching sheets does not reread the file, and retained workbook state
-stays within the shared file-model cache budget.
+Verify empty/multiple Projects, exact paths and symlinks, cross-Project navigation,
+reload and cancelled/stale reads; dirty/external changes and uncertain writes;
+submodules, immutable Git pagination and worktree races; large trees, files and
+previews; keyboard and touch interaction. Production-shaped scenarios must bound
+request time, mounted rows and rendering work while preserving reachability of
+all content. Cover Light, Dark and Paper on desktop and narrow layouts.
