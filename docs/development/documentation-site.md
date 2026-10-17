@@ -43,13 +43,12 @@ substitute for documentation.
 On narrow screens, the navigation title truncates to keep search, appearance,
 and menu controls reachable in every locale.
 
-The installation command panel uses one theme surface for its method controls,
-copy action, and code. Its compact header contains the controls; commands use
-15px monospace text with 26px line height on desktop, and 14px text with 24px line
-height on smaller screens. Code has a transparent background and wraps on narrow
-screens. The header keeps installation methods on the left, environment requirements
-and the directory-install script download aligned to the right beside the copy action. The header remains a single row. On narrow screens, the options and context scroll
-horizontally while the copy action stays visible, keeping all information inside the panel.
+The homepage installation panel shows the npm install and start commands with
+one copy action. Keep prerequisites in the installation article, not in header
+badges. Use a single quiet surface, readable monospace text, and wrapping on
+narrow screens. Installation guidance contains the ordinary user steps and brief
+dependencies; package internals and compatibility procedures belong in the
+installation lifecycle and operations documents.
 
 Screenshots in documentation articles open in an enlarged viewer. The viewer
 must support pointer and keyboard activation, an explicit close control,
@@ -118,24 +117,13 @@ npm workspace, or make the Farming application build depend on this project.
 
 ## Publishing
 
-Below the quick-start actions, the home hero offers npm and user-directory
-installation. npm is selected initially for hosts with a supported Node.js;
-the user-directory option supplies a private runtime for missing Node.js or
-supported older Linux hosts. The npm selection exposes install and start commands. Directory installation exposes
-four separate commands in one copyable block: download `farming_install.sh`, install
-with `--dir`, enter the installation directory, and start with `./farming daemon`.
-Switching methods clears
-copy feedback; clipboard failures leave the selected commands available to copy
-manually. Neither method configures the user's shell environment.
+Below the quick-start actions, the home hero offers npm installation and startup.
+Clipboard failure keeps the commands available for manual copying.
 
 The documentation
 build copies `bin/install.sh` verbatim to the public `farming_install.sh` endpoint, retaining `install.sh` as an alias;
-the script has one source owner and is also included in npm packages. The
-directory-install panel and installation article also offer a browser download
-of that same script, with instructions to transfer and execute the file on the
-target host. Downloading through another machine does not disable package-registry
-TLS or integrity verification. The first
-publication of this entry requires an npm release carrying the private runtime
+the script has one source owner and is also included in npm packages. The first
+publication of this endpoint requires an npm release carrying the private runtime
 dependencies and Linux compatibility libraries. Deployment keeps the existing
 site until npm's latest version advertises installer support; a successful
 Publish Release workflow triggers the documentation workflow again.

@@ -23,6 +23,7 @@ hero:
   <a class="docs-card" href="./code/overview">
     <strong>Farming Code</strong>
     <span>现代、轻量的 Agent 工作区，适合日常使用。</span>
+    <ProviderIcons />
   </a>
   <a class="docs-card" href="./crt/overview">
     <strong>Farming CRT</strong>
@@ -31,7 +32,6 @@ hero:
   <a class="docs-card" href="./code/mobile-and-remote">
     <strong>Web 远程托管</strong>
     <span>运行在 Mac 或 Linux 主机上，通过桌面或手机浏览器访问。</span>
-    <ProviderIcons />
   </a>
   <a class="docs-card" href="./code/files">
     <strong>Files</strong>

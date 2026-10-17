@@ -23,6 +23,7 @@ hero:
   <a class="docs-card" href="./code/overview">
     <strong>Farming Code</strong>
     <span>A modern, lightweight Agent workspace for everyday work.</span>
+    <ProviderIcons />
   </a>
   <a class="docs-card" href="./crt/overview">
     <strong>Farming CRT</strong>
@@ -31,7 +32,6 @@ hero:
   <a class="docs-card" href="./code/mobile-and-remote">
     <strong>Remote web access</strong>
     <span>Run Farming on a Mac or Linux host and connect from a desktop or phone browser.</span>
-    <ProviderIcons />
   </a>
   <a class="docs-card" href="./code/files">
     <strong>Files</strong>

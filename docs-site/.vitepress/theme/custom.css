@@ -1224,15 +1224,12 @@
 }
 
 .docs-card-provider-icons {
-  position: absolute;
-  top: 18px;
-  right: 18px;
   display: flex !important;
   align-items: center;
-  justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 7px;
   min-height: 26px;
-  margin: 0;
+  margin: 10px 0 0;
 }
 
 .docs-card-provider-icons .provider-icon {

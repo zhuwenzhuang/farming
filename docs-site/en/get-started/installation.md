@@ -1,118 +1,39 @@
 # Installation and updates
 
-Choose one installation method. Both download from npm and start separately through the Farming CLI.
+## Install
 
-| Method | Use when | Runtime |
-| --- | --- | --- |
-| npm | Supported Node.js and npm are already available | Uses your Node.js and npm |
-| Directory installation | Node.js is missing or Linux needs compatibility libraries | Provides private Node.js, npm, and supported Linux compatibility libraries |
-
-## npm installation
-
-Requires Node.js 22.13+ (including 23.x), a writable npm global prefix, and npm's bin directory in PATH. On Linux, use a modern glibc host (2.28+); for older hosts, use the user-directory installer.
+Run these commands on the Mac or Linux host where your Agents will run:
 
 ```bash
 npm install --global farming-code@latest
 farming daemon
 ```
 
-This method uses your existing Node.js and npm configuration; it does not configure PATH or prepare an older host's system environment.
+Open the address printed in the terminal to create your first Agent.
 
-## Directory installation
+## Dependencies
 
-The installer provides private Node.js and npm. This is a separate application directory, not a project-local `npm install`. This example chooses `$HOME/farming`:
-
-```bash
-curl -fLO https://zhuwenzhuang.github.io/farming/farming_install.sh
-bash farming_install.sh --dir ~/farming
-```
-
-You can also <a href="../../farming_install.sh" download="farming_install.sh">download the installer</a>
-in a browser with a current CA trust store. If the browser is on another machine,
-transfer the file to the development machine over SSH, then run it from the download directory:
-
-```bash
-bash farming_install.sh --dir ~/farming
-```
-
-This avoids connecting to the documentation site from the development machine;
-HTTPS certificate verification for the npm registry is still required.
-
-No sudo or system Node.js is required. The installer installs or updates as needed; repeating it checks the target version and preserves configuration and history without starting or restarting Farming.
-
-The example's program and launcher are at `$HOME/farming` and `$HOME/farming/farming`. Without `--dir` or `FARMING_INSTALL_ROOT`, the default program directory is `~/.local/share/farming/app` (`XDG_DATA_HOME` is respected). The installer creates no command link outside that directory and does not change PATH.
-
-Use your preferred npm registry:
-
-```bash
-FARMING_NPM_REGISTRY=https://registry.npmjs.org bash farming_install.sh --dir ~/farming
-```
-
-Existing npm registry configuration is used when available. The selected registry is saved for later launches and updates. `FARMING_VERSION` selects an exact release; `FARMING_INSTALL_ROOT` selects an absolute installation directory when `--dir` is omitted.
-
-For downloads on networks in mainland China, explicitly enable the mirror:
-
-```bash
-bash farming_install.sh --dir ~/farming --mirror cn
-```
-
-This uses npmmirror for package downloads and npm dependencies, while official npm
-still supplies the Farming version and archive integrity digests. It overrides
-the configured registry for this installation without changing your npm settings.
-Missing or failed mirror archive downloads fall back to the same official
-artifact with a visible message; checksum failures stop installation. Official
-npm metadata must remain reachable. Updates retain official version checks and
-the preferred download mirror, so a stale mirror tag cannot select an old release.
-
-The installer reports download progress and each preparation stage. Once the
-Farming package is verified, its pinned Node.js and npm archives download in parallel.
-
-The npm download cache and retained update versions stay inside the installation directory. A custom directory on another disk does not require separate cache settings.
-
-## Start the background service
-
-```bash
-cd ~/farming
-./farming daemon
-```
-
-To run in the foreground instead, use `~/farming/farming start` and keep that terminal open. To stop Farming and its Agents, use `~/farming/farming stop`. The installer prints all three commands with the actual installation path. Repeating either start command stops the current Config and its Agents, then starts a fresh service in the chosen mode.
-
-Open an authenticated URL printed by the CLI. Farming normally uses its own configuration directory and port. Pass `--config-dir`, `--port`, or `--base-path` only when isolating instances or resolving a port conflict.
+- Node.js and npm. The current Node.js LTS release is recommended.
+- Linux needs `ps`, which most distributions include. On minimal systems, install `procps` or `procps-ng`.
+- Sign in to the relevant provider when prompted before using an Agent.
 
 ## Update
 
-Both methods support **Settings → Updates**. After preparation completes, restart the service when prompted. Re-running the same user-directory install command also checks and installs updates; an already selected version needs no download. Start Farming afterward to switch the running service to the selected version.
+Check **Settings → Updates** and restart when prompted. You can also update through npm:
 
-The updater uses npm in a private staging directory and retains the prior application and runtime for startup failure recovery. It does not replace the machine's Node.js or npm installation.
+```bash
+farming stop
+npm install --global farming-code@latest
+farming daemon
+```
 
-Before updating, check important running Agents and save any work you need. Do not repeatedly replay side-effecting operations after an ambiguous network failure.
+Save ongoing work before stopping Farming; its Agents will also stop.
 
 ## Uninstall
-
-For an npm global installation, stop its Config instances, then uninstall with the same npm:
 
 ```bash
 farming stop
 npm uninstall --global farming-code
 ```
 
-For a user-directory installation, stop the service first:
-
-```bash
-"$HOME/farming/farming" stop
-```
-
-After stopping every Config using this installation, remove the chosen program directory. This also removes its private npm cache and retained update versions. Configuration and history under `~/.farming` remain separate.
-
-## Platforms
-
-The user-directory installer targets macOS x64/arm64 and glibc Linux x64/arm64. Linux requires glibc 2.28+, with a private compatibility runtime for x64 hosts on glibc 2.17–2.27. It still requires Bash, curl, tar, and a SHA-512 verifier: `sha512sum` or `shasum` with `base64` and `od`, or OpenSSL. It does not support musl Linux or older glibc. Farming uses `/bin/ps` to verify process ownership before starting or stopping; minimal Linux images need `procps` (Debian/Ubuntu) or `procps-ng` (RHEL/Rocky/CentOS), which the directory installer checks before downloading. The installer does not upgrade system libraries, modify shell startup files, or configure startup at boot. Provider login is still required; external project tools retain their own system requirements.
-
-The package includes native Agent runtimes; allow roughly 1–2 GB for the installation plus package-manager caches and staging. Slow networks can take several minutes; for npm download diagnostics, use `npm install --global farming-code@latest --loglevel=verbose`.
-
-Run each step separately and proceed only after it succeeds. `--dir` overrides `FARMING_INSTALL_ROOT`.
-Older systems must have an up-to-date CA trust store before downloading the installer.
-For `curl: (60)` errors, update the system CA certificates through your trusted OS source,
-or supply a trusted CA bundle with `CURL_CA_BUNDLE`. Do not disable TLS verification.
-The installer does not change system certificates or install system packages.
+Configuration and history remain in `~/.farming`.
