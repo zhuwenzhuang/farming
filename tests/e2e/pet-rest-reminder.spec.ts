@@ -1022,7 +1022,7 @@ test('backend disconnect does not reset or duplicate an active black-hole break'
   await expect(scene).toHaveCount(0, { timeout: 7_000 })
 })
 
-test('an action attempted during reconnect uses a neutral recoverable notice', async ({ page, workspaceRoot }) => {
+test('Terminal input attempted during reconnect uses a neutral recoverable notice', async ({ page, workspaceRoot }) => {
   let outage = false
   let activeSocket: WebSocketRoute | null = null
   await page.routeWebSocket(/\/farming\/ws(?:\?|$)/, async socket => {
@@ -1035,15 +1035,20 @@ test('an action attempted during reconnect uses a neutral recoverable notice', a
   })
 
   await openFarming(page)
-  await openNewAgentDialog(page)
-  await selectAgent(page, 'bash')
-  await page.getByTestId('workspace-input').fill(workspaceRoot)
+  // Agent creation uses HTTP; exercise an action owned by the disconnected socket.
+  const created = await page.request.post('/farming/api/control/agents', {
+    data: { command: 'bash', workspace: workspaceRoot, agentRuntimeMode: 'terminal' },
+  })
+  expect(created.ok()).toBeTruthy()
+  const { agentId } = await created.json() as { agentId: string }
+  await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+  await page.getByTestId('code-composer-input').fill('printf reconnect-test')
   await expect.poll(() => Boolean(activeSocket)).toBe(true)
 
   outage = true
   await activeSocket?.close({ code: 1012, reason: 'Recoverable notice regression' })
   await expect(page.getByTestId('connection-status')).toHaveClass(/connecting/)
-  await page.getByTestId('workspace-start').click()
+  await page.getByTestId('code-composer-send').click()
 
   const notice = page.getByTestId('app-toast')
   await expect(notice).toHaveClass(/recovering/)

@@ -40,9 +40,10 @@ if(command==='git'){
     const name=target.includes('windows')?'agent-browser.exe':'agent-browser';
     fs.writeFileSync(path.join(destination,name),'#!/bin/sh\\necho "agent-browser '+pin.version+'"\\n',{mode:0o755});
   }
-} else if(command==='objdump') console.log('GLIBC_2.28');
+} else if(command==='zig') console.log(pin.zig);
+else if(command==='objdump') console.log('GLIBC_2.28');
 `;
-    for (const command of ['git', 'npx', 'cargo', 'objdump']) fs.writeFileSync(path.join(bin, command), fake, { mode: 0o755 });
+    for (const command of ['git', 'npx', 'cargo', 'zig', 'objdump']) fs.writeFileSync(path.join(bin, command), fake, { mode: 0o755 });
     const targets = {
       'darwin-arm64': 'aarch64-apple-darwin', 'darwin-x64': 'x86_64-apple-darwin',
       'linux-x64': 'x86_64-unknown-linux-gnu', 'linux-x64-musl': 'x86_64-unknown-linux-musl',

@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { Page } from '@playwright/test'
-import { expect, test } from './fixtures'
+import { expect, openFarming, test } from './fixtures'
 import type { Agent } from '../../src/types/agent'
 
 type SwitchState = {
@@ -185,8 +185,7 @@ function agentRow(page: Page, agentId: string) {
 }
 
 async function openPermissionTestApp(page: Page) {
-  await page.goto('/farming/', { waitUntil: 'domcontentloaded' })
-  await expect(page.getByTestId('app-shell')).toBeVisible()
+  await openFarming(page)
 }
 
 test.describe('permission switching', () => {

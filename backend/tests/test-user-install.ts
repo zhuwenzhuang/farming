@@ -366,7 +366,10 @@ for (const presentation of ['color', 'no-color', 'dumb', 'narrow'] as const) {
         if (presentation === 'color') assert.match(result.output, /\u001b\[36m/);
         const liveFrames = result.output.split('\u001b[?25l').slice(1);
         for (const frame of liveFrames) {
-          for (const line of frame.split('\r\n').slice(0, 4)) {
+          // Clearing the cursor-owned rows ends the live frame. Static completion
+          // messages may follow before the next frame and can wrap normally.
+          const liveRows = frame.split(/\u001b\[\d+A\r\u001b\[J/)[0];
+          for (const line of liveRows.split('\r\n').filter(Boolean)) {
             const plain = line.replace(/\u001b\[[0-9;?]*[A-Za-z]/g, '');
             assert([...plain].length < (presentation === 'narrow' ? 40 : 80), plain);
           }
