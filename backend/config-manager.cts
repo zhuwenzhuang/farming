@@ -119,6 +119,7 @@ export interface PublicSettings extends JsonRecord {
   restReminderIntervalSeconds: number | null;
   searchTimeoutMs: number;
   readOnlyShareHours: number;
+  stickyTurnPromptEnabled: boolean;
   theme: string;
   version: string;
   workspace: string;
@@ -614,6 +615,7 @@ class ConfigManager {
       languageServerEnabled: true,
       codeContentFontSize: DEFAULT_CODE_CONTENT_FONT_SIZE,
       composerFollowUpBehavior: 'queue',
+      stickyTurnPromptEnabled: true,
       crtContentFontSize: DEFAULT_CRT_CONTENT_FONT_SIZE,
       crtSkinEffectsEnabled: true,
       crtDynamicHeatEnabled: false,
@@ -682,6 +684,7 @@ class ConfigManager {
     settings.composerFollowUpBehavior = this.normalizeComposerFollowUpBehavior(
       settings.composerFollowUpBehavior,
     );
+    settings.stickyTurnPromptEnabled = settings.stickyTurnPromptEnabled !== false;
     const crtContentFontSize = Object.prototype.hasOwnProperty.call(rawSettings, 'crtContentFontSize')
       ? rawSettings.crtContentFontSize
       : Object.prototype.hasOwnProperty.call(rawSettings, 'crtTerminalFontSize')

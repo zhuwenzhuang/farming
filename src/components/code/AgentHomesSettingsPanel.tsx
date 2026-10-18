@@ -24,6 +24,7 @@ import {
 } from '@/lib/pet/rest-reminder'
 import {
   normalizeComposerFollowUpBehavior,
+  normalizeStickyTurnPromptEnabled,
   type ComposerFollowUpBehavior,
   type UiPreferences,
 } from '@/lib/ui-preferences'
@@ -138,6 +139,10 @@ function panelCopy(language: UiPreferences['language']) {
     interface: zh ? '界面' : 'Interface',
     interfaceSkin: zh ? '界面皮肤' : 'Interface skin',
     contentTextSize: zh ? '正文字号' : 'Content text size',
+    stickyTurnPrompt: zh ? '轮次吸顶' : 'Sticky turn prompt',
+    stickyTurnPromptHint: zh
+      ? '发送消息时将新轮次推至视口顶部，并在滚动时吸顶显示当前轮次的用户消息摘要。'
+      : 'Push new turns to the top of the viewport on send and pin a compact prompt summary while scrolling.',
     farmingCode: 'Farming Code',
     farmingCrt: 'Farming CRT',
     farmingPet: 'Farming Pet',
@@ -337,8 +342,14 @@ export function AgentHomesSettingsPanel({
         const nextFollowUpBehavior = normalizeComposerFollowUpBehavior(
           data.settings?.composerFollowUpBehavior,
         )
+        const nextStickyTurnPromptEnabled = normalizeStickyTurnPromptEnabled(
+          data.settings?.stickyTurnPromptEnabled,
+        )
         setComposerFollowUpBehavior(nextFollowUpBehavior)
-        onSyncUiPreferences({ composerFollowUpBehavior: nextFollowUpBehavior })
+        onSyncUiPreferences({
+          composerFollowUpBehavior: nextFollowUpBehavior,
+          stickyTurnPromptEnabled: nextStickyTurnPromptEnabled,
+        })
         setShareHours(Number(data.settings?.readOnlyShareHours ?? 24))
         confirmedSearchTimeoutRef.current = nearestSearchTimeoutSeconds(Number(data.settings?.searchTimeoutMs ?? 15000))
         setSearchTimeoutSeconds(confirmedSearchTimeoutRef.current)
@@ -907,6 +918,20 @@ export function AgentHomesSettingsPanel({
                   onBlur={commitContentFontSize}
                 />
                 <output>{contentFontSizeDraft ?? uiPreferences.codeContentFontSize} px</output>
+              </div>
+              <div className="code-settings-choice-row" data-testid="code-settings-sticky-turn-prompt">
+                <div className="code-settings-row-copy">
+                  <strong>{copy.stickyTurnPrompt}</strong>
+                  <small>{copy.stickyTurnPromptHint}</small>
+                </div>
+                <button
+                  type="button"
+                  className={`code-settings-permission-toggle ${uiPreferences.stickyTurnPromptEnabled ? 'active' : ''}`}
+                  role="switch"
+                  aria-label={copy.stickyTurnPrompt}
+                  aria-checked={uiPreferences.stickyTurnPromptEnabled}
+                  onClick={() => onUpdateUiPreferences({ stickyTurnPromptEnabled: !uiPreferences.stickyTurnPromptEnabled })}
+                ><CheckGlyph /></button>
               </div>
             </div>
           </section>

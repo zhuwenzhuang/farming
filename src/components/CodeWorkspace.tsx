@@ -6275,6 +6275,7 @@ export function CodeWorkspace({
         computerController={computerResources}
         onBackFromComputer={backFromComputer}
         language={uiPreferences.language}
+        stickyTurnPromptEnabled={uiPreferences.stickyTurnPromptEnabled}
         showFileEditor={showFileEditor}
         openWorkspaceFile={openWorkspaceFile}
         openWorkspaceFiles={openWorkspaceFiles}

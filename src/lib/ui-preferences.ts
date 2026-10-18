@@ -13,6 +13,7 @@ export interface UiPreferences {
   codeContentFontSize: number
   composerFollowUpBehavior: ComposerFollowUpBehavior
   language: UiLanguage
+  stickyTurnPromptEnabled: boolean
 }
 
 export const DEFAULT_UI_PREFERENCES: UiPreferences = {
@@ -20,6 +21,7 @@ export const DEFAULT_UI_PREFERENCES: UiPreferences = {
   codeContentFontSize: DEFAULT_CODE_CONTENT_FONT_SIZE,
   composerFollowUpBehavior: 'queue',
   language: 'en',
+  stickyTurnPromptEnabled: true,
 }
 
 export function normalizeUiAppearance(value: unknown): UiAppearance {
@@ -36,6 +38,10 @@ export function normalizeUiLanguage(value: unknown): UiLanguage {
 
 export function normalizeComposerFollowUpBehavior(value: unknown): ComposerFollowUpBehavior {
   return value === 'steer' ? 'steer' : 'queue'
+}
+
+export function normalizeStickyTurnPromptEnabled(value: unknown): boolean {
+  return value !== false
 }
 
 export { normalizeContentFontSize }

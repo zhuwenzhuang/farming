@@ -121,6 +121,12 @@ import {
   persistTranscriptReadingAnchor,
   restoreTranscriptReadingAnchor,
 } from '@/lib/transcript-reading-anchor'
+import {
+  resolveStickyTurnPrompt,
+  scrollTranscriptToTurnStart,
+  shouldApplyTurnFocusRunway,
+  type StickyTurnPromptState,
+} from '@/lib/transcript-sticky-turn'
 import type { WorkspaceFileOpenTarget } from '@/lib/workspace-open-files'
 import { codeCopyForLanguage, type CodeCopy } from './copy'
 import { planDetailItems } from './agent-plan'
@@ -227,6 +233,7 @@ export interface AgentTranscriptPaneProps {
   pendingElicitations?: AcpPendingElicitation[]
   refreshSignal?: number
   followLatestSignal?: number
+  stickyTurnPromptEnabled?: boolean
   runtimeState?: string
   expectHistory?: boolean
   forkedFromAgent?: boolean
@@ -2412,6 +2419,7 @@ function AgentTranscriptTurnView({
   turn,
   peerContinued = false,
   peerHasNext = false,
+  turnFocusRunway = false,
   copy,
   onOpenFile,
   onOpenUrlInFarming,
@@ -2440,6 +2448,7 @@ function AgentTranscriptTurnView({
   turn: AgentTranscriptTurn
   peerContinued?: boolean
   peerHasNext?: boolean
+  turnFocusRunway?: boolean
   copy: CodeCopy
   onOpenFile?: (filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void> | void
   onOpenUrlInFarming?: (url: string) => void
@@ -2881,7 +2890,7 @@ function AgentTranscriptTurnView({
   }), [agentId, copy, onOpenFile, turn.id, workspaceRoot])
 
   return (
-    <article ref={turnRef} className={`code-agent-transcript-turn ${turn.status === 'inProgress' ? 'running' : ''} ${peerHasNext ? 'peer-group-open' : ''}`} data-turn-id={turn.id}>
+    <article ref={turnRef} className={`code-agent-transcript-turn ${turn.status === 'inProgress' ? 'running' : ''} ${peerHasNext ? 'peer-group-open' : ''} ${turnFocusRunway ? 'turn-focus-runway' : ''}`} data-turn-id={turn.id}>
       {turn.handoffContext ? <div className="code-agent-transcript-context-origin" role="note">
         <AgentTranscriptUserMessage turn={turn} copy={copy} />
       </div> : turn.userSource || turn.userMessage || userImages.length > 0 || userAudios.length > 0 || userFiles.length > 0 ? (
@@ -3234,6 +3243,7 @@ export function AgentTranscriptPane({
   source,
   refreshSignal = 0,
   followLatestSignal = 0,
+  stickyTurnPromptEnabled = true,
   runtimeState = '',
   pendingElicitations,
   expectHistory = false,
@@ -3269,6 +3279,7 @@ export function AgentTranscriptPane({
   const [turnLimit, setTurnLimit] = useState(() => initialTranscriptTurnLimit(source))
   const [loadingOlder, setLoadingOlder] = useState(false)
   const [showJumpToBottom, setShowJumpToBottom] = useState(false)
+  const [stickyTurnPrompt, setStickyTurnPrompt] = useState<StickyTurnPromptState | null>(null)
   const [selectionAction, setSelectionAction] = useState<{
     text: string
   } | null>(null)
@@ -3410,6 +3421,27 @@ export function AgentTranscriptPane({
   const followBottomRef = useRef(true)
   const handledFollowLatestSignalRef = useRef(followLatestSignal)
   const stationaryScrollTopRef = useRef<number | null>(null)
+  const stickyJumpAnchorRef = useRef<{ turnId: string; expiresAt: number } | null>(null)
+  const scrollTopBeforeCommitRef = useRef<number | null>(null)
+  const runwayPushAnimationUntilRef = useRef(0)
+  const runwayPushAnimationsRef = useRef<Animation[]>([])
+  const turnRunwayArrivalRef = useRef({
+    sessionId: '',
+    latestTurnId: '',
+    ready: false,
+  })
+  const cancelRunwayPushAnimations = useCallback(() => {
+    runwayPushAnimationUntilRef.current = 0
+    if (runwayPushAnimationsRef.current.length === 0) return
+    for (const animation of runwayPushAnimationsRef.current) {
+      try {
+        animation.cancel()
+      } catch {
+        // Ignore already-finished animations.
+      }
+    }
+    runwayPushAnimationsRef.current = []
+  }, [])
   const previousViewportLayoutKeyRef = useRef(viewportLayoutKey)
   // Restore saved anchors on navigation; live updates retain the stationary
   // viewport while the user is reading away from the bottom.
@@ -3484,11 +3516,13 @@ export function AgentTranscriptPane({
   }, [flushPendingReadingAnchor])
   const markUserScrollGesture = useCallback(() => {
     userScrollGestureRef.current = true
+    stickyJumpAnchorRef.current = null
+    cancelRunwayPushAnimations()
     if (userScrollGestureTimerRef.current !== null) {
       window.clearTimeout(userScrollGestureTimerRef.current)
       userScrollGestureTimerRef.current = null
     }
-  }, [])
+  }, [cancelRunwayPushAnimations])
   const finishUserScrollGesture = useCallback(() => {
     if (userScrollGestureTimerRef.current !== null) {
       window.clearTimeout(userScrollGestureTimerRef.current)
@@ -3511,6 +3545,10 @@ export function AgentTranscriptPane({
       setShowJumpToBottom(false)
     }, 420)
   }, [readingAnchorAgentId])
+
+  useLayoutEffect(() => {
+    scrollTopBeforeCommitRef.current = scrollRef.current ? scrollRef.current.scrollTop : null
+  })
 
   useLayoutEffect(() => {
     openWorkspaceFilePathRef.current = onOpenWorkspaceFilePath
@@ -3539,6 +3577,7 @@ export function AgentTranscriptPane({
       window.clearTimeout(initialRevealTimerRef.current)
       initialRevealTimerRef.current = null
     }
+    cancelRunwayPushAnimations()
     setTranscript(null)
     transcriptRef.current = null
     setError('')
@@ -3546,6 +3585,7 @@ export function AgentTranscriptPane({
     initialRevealReadyRef.current = false
     initialRevealStartedAtRef.current = null
     progressArrivalRef.current = { transcript: null, ready: false, ids: new Set() }
+    turnRunwayArrivalRef.current = { sessionId: '', latestTurnId: '', ready: false }
     setInitialRevealReady(false)
     setLoadingOlder(false)
     setTurnLimit(initialTranscriptTurnLimit(source))
@@ -3560,7 +3600,7 @@ export function AgentTranscriptPane({
     textSelectionHadRangeRef.current = false
     pendingPrependAnchorRef.current = null
     handledRefreshSignalRef.current = latestRefreshSignalRef.current
-  }, [agentId, readingAnchorAgentId, source])
+  }, [agentId, cancelRunwayPushAnimations, readingAnchorAgentId, source])
 
   useEffect(() => () => {
     if (initialRevealTimerRef.current !== null) {
@@ -3944,7 +3984,10 @@ export function AgentTranscriptPane({
     && Boolean(transcript?.available)
     && turns.length > 0
   useEffect(() => {
-    const suppressCatchUpMotion = () => { progressArrivalRef.current.ready = false }
+    const suppressCatchUpMotion = () => {
+      progressArrivalRef.current.ready = false
+      turnRunwayArrivalRef.current.ready = false
+    }
     const handleDisconnected = () => {
       progressTransportConnectedRef.current = false
       suppressCatchUpMotion()
@@ -4027,10 +4070,78 @@ export function AgentTranscriptPane({
     }
   }, [active, onReadLatest])
 
+  const syncStickyTurnPrompt = useCallback((element: HTMLDivElement | null = scrollRef.current) => {
+    const suppressDuringRunwayPush = followBottomRef.current
+      && runwayPushAnimationUntilRef.current > performance.now()
+    const next = resolveStickyTurnPrompt(
+      element,
+      turns,
+      stickyTurnPromptEnabled
+        && !loading
+        && initialRevealReady
+        && !error
+        && !readingAnchorRestorePending
+        && !suppressDuringRunwayPush,
+    )
+    setStickyTurnPrompt(current => (
+      current?.turnId === next?.turnId
+      && current?.summary === next?.summary
+      && current?.text === next?.text
+      && (current?.images?.length ?? 0) === (next?.images?.length ?? 0)
+      && (current?.images?.every((img, idx) => img.url === next?.images?.[idx]?.url) ?? true)
+        ? current
+        : next
+    ))
+  }, [error, initialRevealReady, loading, readingAnchorRestorePending, stickyTurnPromptEnabled, turns])
+
   useLayoutEffect(() => {
     if (loading || !initialRevealReady || !transcript?.available || turns.length === 0) return
     const element = scrollRef.current
     if (!element) return
+    if (handledFollowLatestSignalRef.current !== followLatestSignal) {
+      handledFollowLatestSignalRef.current = followLatestSignal
+      if (followLatestSignal && active && isPageActive()) {
+        if (source === 'acp' && transcript?.includesLatest === false) returnToLatestAcpTranscript(agentId)
+        followBottomRef.current = true
+        stationaryScrollTopRef.current = null
+        stickyJumpAnchorRef.current = null
+        setReadingAnchorRestorePending(false)
+        pendingPrependAnchorRef.current = null
+        pendingReadingAnchorWriteRef.current = null
+        userScrollGestureRef.current = false
+        textSelectionGestureRef.current = false
+        textSelectionHadRangeRef.current = false
+      }
+    }
+    const previousRunway = turnRunwayArrivalRef.current
+    const sessionId = transcript?.sessionId || ''
+    const latestTurnIndex = turns.length - 1
+    const latestTurnId = latestTurn?.id || ''
+    const previousTurnId = latestTurnIndex > 0 ? (turns[latestTurnIndex - 1]?.id || '') : ''
+    const latestTurnNode = element.querySelector<HTMLElement>('.code-agent-transcript-turn:last-of-type')
+    const latestHasRunway = Boolean(latestTurnNode?.classList.contains('turn-focus-runway'))
+    const runwayReady = progressTransportConnectedRef.current
+      && active
+      && isPageActive()
+      && !loading
+      && !loadingOlder
+      && !error
+      && !awaitingInitialReveal
+      && !awaitingAcpHistory
+      && runtimeState !== 'connecting'
+      && Boolean(transcript?.available)
+    const isNewAppendedRunwayTurn = runwayReady
+      && previousRunway.ready
+      && previousRunway.sessionId === sessionId
+      && previousRunway.latestTurnId !== ''
+      && latestTurnId !== previousRunway.latestTurnId
+      && previousTurnId === previousRunway.latestTurnId
+      && latestHasRunway
+    turnRunwayArrivalRef.current = {
+      sessionId,
+      latestTurnId,
+      ready: runwayReady,
+    }
     const hasTextSelection = hasTextSelectionWithin(element)
     if (textSelectionGestureRef.current || hasTextSelection) {
       if (hasTextSelection) {
@@ -4049,16 +4160,62 @@ export function AgentTranscriptPane({
         }
         if (!followBottomRef.current) stationaryScrollTopRef.current = element.scrollTop
         scheduleReadingAnchorSave(readingAnchorAgentId, element)
+        syncStickyTurnPrompt(element)
         return
       }
     }
     if (userScrollGestureRef.current) return
     if (followBottomRef.current) {
+      const prevScrollTop = scrollTopBeforeCommitRef.current ?? element.scrollTop
       stationaryScrollTopRef.current = null
       setReadingAnchorRestorePending(false)
       element.scrollTop = element.scrollHeight
+      const deltaY = element.scrollTop - prevScrollTop
+      if (
+        isNewAppendedRunwayTurn
+        && deltaY > 24
+        && typeof element.animate === 'function'
+        && !window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      ) {
+        cancelRunwayPushAnimations()
+        const shiftPx = Math.min(deltaY, Math.max(120, element.clientHeight))
+        const durationMs = 260
+        runwayPushAnimationUntilRef.current = performance.now() + durationMs
+        const children = Array.from(element.children).filter(
+          (node): node is HTMLElement => node instanceof HTMLElement && typeof node.animate === 'function',
+        )
+        const animations = children.map(child => child.animate(
+          [
+            { transform: `translateY(${shiftPx}px)` },
+            { transform: 'translateY(0px)' },
+          ],
+          {
+            duration: durationMs,
+            easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+          },
+        ))
+        runwayPushAnimationsRef.current = animations
+        const lastAnimation = animations[animations.length - 1]
+        if (lastAnimation) {
+          const settleAnimation = () => {
+            if (runwayPushAnimationsRef.current === animations) {
+              runwayPushAnimationsRef.current = []
+              runwayPushAnimationUntilRef.current = 0
+              syncStickyTurnPrompt(scrollRef.current)
+            }
+          }
+          lastAnimation.onfinish = settleAnimation
+          lastAnimation.oncancel = () => {
+            if (runwayPushAnimationsRef.current === animations) {
+              runwayPushAnimationsRef.current = []
+              runwayPushAnimationUntilRef.current = 0
+            }
+          }
+        }
+      }
       clearReadingAnchor(readingAnchorAgentKey(readingAnchorAgentId, 'chat'))
       setShowJumpToBottom(false)
+      syncStickyTurnPrompt(element)
       window.requestAnimationFrame(() => {
         if (
           !followBottomRef.current
@@ -4069,6 +4226,7 @@ export function AgentTranscriptPane({
         element.scrollTop = element.scrollHeight
         clearReadingAnchor(readingAnchorAgentKey(readingAnchorAgentId, 'chat'))
         setShowJumpToBottom(false)
+        syncStickyTurnPrompt(element)
         if (active && isPageActive()) onReadLatest?.()
       })
       return
@@ -4077,6 +4235,7 @@ export function AgentTranscriptPane({
       if (stationaryScrollTopRef.current !== null) {
         element.scrollTop = stationaryScrollTopRef.current
       }
+      syncStickyTurnPrompt(element)
       return
     }
     const savedAnchor = readReadingAnchor(readingAnchorAgentKey(readingAnchorAgentId, 'chat'))
@@ -4094,6 +4253,7 @@ export function AgentTranscriptPane({
       setReadingAnchorRestorePending(false)
       stationaryScrollTopRef.current = element.scrollTop
       setShowJumpToBottom(true)
+      syncStickyTurnPrompt(element)
       return
     }
     if (
@@ -4115,8 +4275,13 @@ export function AgentTranscriptPane({
     followBottomRef.current = true
     element.scrollTop = element.scrollHeight
     setShowJumpToBottom(false)
+    syncStickyTurnPrompt(element)
     if (active && isPageActive()) onReadLatest?.()
-  }, [active, initialRevealReady, loading, loadingOlder, onReadLatest, openProcessTurnIds, readingAnchorAgentId, readingAnchorRestorePending, scheduleReadingAnchorSave, source, transcript, turnLimit, turns])
+  }, [active, agentId, awaitingAcpHistory, awaitingInitialReveal, cancelRunwayPushAnimations, error, followLatestSignal, initialRevealReady, latestTurn?.id, loading, loadingOlder, onReadLatest, openProcessTurnIds, readingAnchorAgentId, readingAnchorRestorePending, runtimeState, scheduleReadingAnchorSave, source, stickyTurnPromptEnabled, syncStickyTurnPrompt, transcript, turnLimit, turns])
+
+  useLayoutEffect(() => {
+    syncStickyTurnPrompt(scrollRef.current)
+  }, [active, openProcessTurnIds, syncStickyTurnPrompt, transcript, viewportLayoutKey])
 
   const hasObservedTurns = turns.length > 0
   useLayoutEffect(() => {
@@ -4127,14 +4292,26 @@ export function AgentTranscriptPane({
     if (!element) return undefined
     const observer = new ResizeObserver(() => {
       if (
-        !followBottomRef.current
-        || userScrollGestureRef.current
-        || textSelectionGestureRef.current
-        || hasTextSelectionWithin(element)
-      ) return
-      element.scrollTop = element.scrollHeight
-      clearReadingAnchor(readingAnchorAgentKey(readingAnchorAgentId, 'chat'))
-      setShowJumpToBottom(false)
+        followBottomRef.current
+        && !userScrollGestureRef.current
+        && !textSelectionGestureRef.current
+        && !hasTextSelectionWithin(element)
+      ) {
+        element.scrollTop = element.scrollHeight
+        clearReadingAnchor(readingAnchorAgentKey(readingAnchorAgentId, 'chat'))
+        setShowJumpToBottom(false)
+      } else if (
+        stickyJumpAnchorRef.current
+        && performance.now() <= stickyJumpAnchorRef.current.expiresAt
+        && !userScrollGestureRef.current
+        && !textSelectionGestureRef.current
+        && !hasTextSelectionWithin(element)
+      ) {
+        if (scrollTranscriptToTurnStart(element, stickyJumpAnchorRef.current.turnId, isCompactViewport())) {
+          stationaryScrollTopRef.current = element.scrollTop
+        }
+      }
+      syncStickyTurnPrompt(element)
     })
     Array.from(element.children).forEach(child => observer.observe(child))
     const mutations = new MutationObserver(records => {
@@ -4147,7 +4324,7 @@ export function AgentTranscriptPane({
     // text updates inside a Turn keep the same observer and observed elements.
     mutations.observe(element, { childList: true })
     return () => { mutations.disconnect(); observer.disconnect() }
-  }, [active, hasObservedTurns, initialRevealReady, loading, readingAnchorAgentId, transcript?.available])
+  }, [active, hasObservedTurns, initialRevealReady, loading, readingAnchorAgentId, syncStickyTurnPrompt, transcript?.available])
 
   useEffect(() => {
     const element = scrollRef.current
@@ -4366,6 +4543,7 @@ export function AgentTranscriptPane({
       followBottomRef.current = false
       textSelectionHadRangeRef.current = true
       scheduleReadingAnchorSave(readingAnchorAgentId, element)
+      syncStickyTurnPrompt(element)
       return
     }
     const nearBottom = isTranscriptNearBottom(element)
@@ -4382,11 +4560,12 @@ export function AgentTranscriptPane({
       !followBottomRef.current
       && element.scrollHeight > element.clientHeight + TRANSCRIPT_BOTTOM_FOLLOW_THRESHOLD,
     )
+    syncStickyTurnPrompt(element)
     if (active && nearBottom && isPageActive()) onReadLatest?.()
     // Returning to latest or resizing can put a short page near its top.
     // Only a user scroll may navigate back into history from that position.
     if (userScrollGestureRef.current && element.scrollTop <= TRANSCRIPT_LOAD_MORE_THRESHOLD) requestOlderTurns(element)
-  }, [active, onReadLatest, readingAnchorAgentId, readingAnchorRestorePending, requestOlderTurns, scheduleReadingAnchorSave])
+  }, [active, onReadLatest, readingAnchorAgentId, readingAnchorRestorePending, requestOlderTurns, scheduleReadingAnchorSave, syncStickyTurnPrompt])
   const handleWheel = useCallback((event: ReactWheelEvent<HTMLDivElement>) => {
     markUserScrollGesture()
     finishUserScrollGesture()
@@ -4459,6 +4638,7 @@ export function AgentTranscriptPane({
     const element = scrollRef.current
     followBottomRef.current = true
     stationaryScrollTopRef.current = null
+    stickyJumpAnchorRef.current = null
     setReadingAnchorRestorePending(false)
     pendingPrependAnchorRef.current = null
     pendingReadingAnchorWriteRef.current = null
@@ -4471,8 +4651,36 @@ export function AgentTranscriptPane({
     if (element) element.scrollTop = element.scrollHeight
     clearReadingAnchor(readingAnchorAgentKey(readingAnchorAgentId, 'chat'))
     setShowJumpToBottom(false)
+    syncStickyTurnPrompt(element)
     onReadLatest?.()
-  }, [agentId, source, transcript?.includesLatest, onReadLatest, readingAnchorAgentId])
+  }, [agentId, source, syncStickyTurnPrompt, transcript?.includesLatest, onReadLatest, readingAnchorAgentId])
+  const handleJumpToStickyTurnStart = useCallback(() => {
+    const element = scrollRef.current
+    if (!element || !stickyTurnPrompt) return
+    cancelRunwayPushAnimations()
+    const targetTurnId = stickyTurnPrompt.turnId
+    const compact = isCompactViewport()
+    stickyJumpAnchorRef.current = { turnId: targetTurnId, expiresAt: performance.now() + 250 }
+    if (!scrollTranscriptToTurnStart(element, targetTurnId, compact)) return
+    const syncAfterJump = () => {
+      const atBottom = isTranscriptAtBottom(element)
+      followBottomRef.current = atBottom
+      stationaryScrollTopRef.current = atBottom ? null : element.scrollTop
+      setReadingAnchorRestorePending(false)
+      pendingPrependAnchorRef.current = null
+      userScrollGestureRef.current = false
+      textSelectionGestureRef.current = false
+      textSelectionHadRangeRef.current = false
+      if (atBottom) clearReadingAnchor(readingAnchorAgentKey(readingAnchorAgentId, 'chat'))
+      else scheduleReadingAnchorSave(readingAnchorAgentId, element)
+      setShowJumpToBottom(
+        !atBottom
+        && element.scrollHeight > element.clientHeight + TRANSCRIPT_BOTTOM_FOLLOW_THRESHOLD,
+      )
+      syncStickyTurnPrompt(element)
+    }
+    syncAfterJump()
+  }, [cancelRunwayPushAnimations, readingAnchorAgentId, scheduleReadingAnchorSave, stickyTurnPrompt, syncStickyTurnPrompt])
   useLayoutEffect(() => {
     if (handledFollowLatestSignalRef.current === followLatestSignal) return
     handledFollowLatestSignalRef.current = followLatestSignal
@@ -4512,13 +4720,21 @@ export function AgentTranscriptPane({
         : copy.agentTranscriptForkBoundaryUnavailable}</span>
     </TranscriptBoundary>
   ) : null
+  const showStickyTurnPrompt = Boolean(
+    stickyTurnPrompt
+    && !error
+    && !loading
+    && !awaitingAcpHistory
+    && !awaitingInitialReveal
+    && !readingAnchorRestorePending,
+  )
 
   return (
     <TranscriptImagePreviewContext.Provider value={openImagePreview}>
       <TranscriptFileOpenContext.Provider value={transcriptFileOpenContext}>
       <AcpQuestionContext.Provider value={{ agentId, requests: pendingElicitations || [] }}>
       <div
-        className="code-agent-transcript"
+        className={`code-agent-transcript ${stickyTurnPromptEnabled ? 'sticky-turn-enabled' : ''} ${showStickyTurnPrompt ? 'has-sticky-turn' : ''}`}
         data-testid="code-agent-transcript"
       >
       {error ? (
@@ -4565,6 +4781,17 @@ export function AgentTranscriptPane({
           {modelChangeNotes('')}
           {turns.map((turn, index) => {
             const processOpen = openProcessTurnIds.has(turn.id)
+            const previousTurnId = turns[index - 1]?.id || ''
+            const hasBoundaryBefore = index > 0 && (
+              hasModelBoundaryAfter(previousTurnId)
+              || (transcript?.forkOrigin?.status === 'ready' && transcript.forkOrigin.afterTurnId === previousTurnId)
+            )
+            const turnFocusRunway = shouldApplyTurnFocusRunway(
+              turns,
+              index,
+              stickyTurnPromptEnabled,
+              hasBoundaryBefore,
+            )
             return (
               <Fragment key={turn.id}>
                 <LocalErrorBoundary
@@ -4585,6 +4812,7 @@ export function AgentTranscriptPane({
                       turn={turn}
                       peerContinued={!hasModelBoundaryAfter(turns[index - 1]?.id || '') && transcript?.forkOrigin?.afterTurnId !== turns[index - 1]?.id && continuesPeerMessageGroup(turns[index - 1], turn)}
                       peerHasNext={!hasModelBoundaryAfter(turn.id) && transcript?.forkOrigin?.afterTurnId !== turn.id && continuesPeerMessageGroup(turn, turns[index + 1])}
+                      turnFocusRunway={turnFocusRunway}
                       copy={copy}
                       onOpenFile={onOpenWorkspaceFilePath ? handleOpenFile : undefined}
                       onOpenUrlInFarming={onOpenUrlInFarming}
@@ -4628,6 +4856,40 @@ export function AgentTranscriptPane({
       {readingAnchorRestorePending && !loading && !awaitingInitialReveal && turns.length > 0 && !error ? (
         <div className="code-agent-transcript-state code-agent-transcript-restoring subtle" role="status">
           {copy.agentTranscriptSyncing}
+        </div>
+      ) : null}
+      {showStickyTurnPrompt && stickyTurnPrompt ? (
+        <div className="code-agent-transcript-sticky-turn-wrap">
+          <button
+            type="button"
+            className={`code-agent-transcript-sticky-turn ${(stickyTurnPrompt.images?.length ?? 0) > 0 ? 'has-images' : ''}`}
+            data-testid="code-agent-transcript-sticky-turn"
+            data-turn-id={stickyTurnPrompt.turnId}
+            aria-label={`${copy.agentTranscriptJumpToTurnStart}: ${stickyTurnPrompt.summary}`}
+            title={copy.agentTranscriptJumpToTurnStart}
+            onClick={handleJumpToStickyTurnStart}
+          >
+            {stickyTurnPrompt.images && stickyTurnPrompt.images.length > 0 ? (
+              <span
+                className="code-agent-transcript-sticky-turn-images"
+                data-testid="code-agent-transcript-sticky-turn-images"
+              >
+                {stickyTurnPrompt.images.map(image => (
+                  <img
+                    key={image.id}
+                    className="code-agent-transcript-sticky-turn-image"
+                    src={image.url}
+                    alt={image.alt || 'Image'}
+                  />
+                ))}
+              </span>
+            ) : null}
+            {(stickyTurnPrompt.text ?? stickyTurnPrompt.summary) ? (
+              <span className="code-agent-transcript-sticky-turn-text">
+                {stickyTurnPrompt.text ?? stickyTurnPrompt.summary}
+              </span>
+            ) : null}
+          </button>
         </div>
       ) : null}
       {showJumpToBottom || transcript?.includesLatest === false ? (

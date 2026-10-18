@@ -5,9 +5,10 @@ import { isAcpRuntime } from '@/lib/agent-runtime'
 import { AcpTranscriptPane } from './acp/AcpTranscriptPane'
 import type { CodeCopy } from './copy'
 
-export function SubagentBody({ agent: structuralAgent, active, renderComposer, onOpenFile, onReadLatest, onQuoteSelection, onQuoteInParent, copy }: {
+export function SubagentBody({ agent: structuralAgent, active, stickyTurnPromptEnabled = true, renderComposer, onOpenFile, onReadLatest, onQuoteSelection, onQuoteInParent, copy }: {
   agent: Agent
   active: boolean
+  stickyTurnPromptEnabled?: boolean
   renderComposer: (agent: Agent, active: boolean) => ReactNode
   onOpenFile: ComponentProps<typeof AcpTranscriptPane>['onOpenWorkspaceFilePath']
   onReadLatest: (agentId: string) => void
@@ -20,7 +21,7 @@ export function SubagentBody({ agent: structuralAgent, active, renderComposer, o
   const readLatest = useCallback(() => onReadLatest(agent.id), [agent.id, onReadLatest])
   const quoteSelection = useCallback((text: string) => onQuoteSelection(agent.id, text), [agent.id, onQuoteSelection])
   return <>
-    <AcpTranscriptPane pendingElicitations={runtime?.pendingElicitations} agentId={agent.id} readingIdentity={agent.providerSessionKey}
+    <AcpTranscriptPane pendingElicitations={runtime?.pendingElicitations} stickyTurnPromptEnabled={stickyTurnPromptEnabled} agentId={agent.id} readingIdentity={agent.providerSessionKey}
       workspaceRootId={agent.workspaceRootId} workspaceRoot={agent.projectWorkspace || agent.cwd}
       active={active} expectHistory forkedFromAgent copy={copy}
       refreshSignal={runtime?.sessionRevision || 0} runtimeState={runtime?.state || ''}

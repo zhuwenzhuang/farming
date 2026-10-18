@@ -154,6 +154,7 @@ export interface CodeCopy {
   agentTranscriptChangeKept: string
   agentTranscriptChangeReverted: string
   agentTranscriptShowMoreFiles: (count: number) => string
+  agentTranscriptJumpToTurnStart: string
   codexGoalTitle: string
   codexGoalEmpty: string
   codexGoalOpen: string
@@ -917,6 +918,7 @@ const EN_COPY: CodeCopy = {
   agentTranscriptChangeKept: 'Kept',
   agentTranscriptChangeReverted: 'Reverted',
   agentTranscriptShowMoreFiles: count => `Show ${count} more file${count === 1 ? '' : 's'}`,
+  agentTranscriptJumpToTurnStart: 'Jump to turn start',
   codexGoalTitle: 'Goal',
   codexGoalEmpty: 'No active goal',
   codexGoalOpen: 'Open goal controls',
@@ -1717,6 +1719,7 @@ const ZH_COPY: CodeCopy = {
   agentTranscriptChangeKept: '已保留',
   agentTranscriptChangeReverted: '已撤销',
   agentTranscriptShowMoreFiles: count => `显示另外 ${count} 个文件`,
+  agentTranscriptJumpToTurnStart: '定位到该轮起点',
   codexGoalTitle: '目标',
   codexGoalEmpty: '没有活动目标',
   codexGoalOpen: '打开目标控制',

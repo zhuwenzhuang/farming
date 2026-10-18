@@ -31,6 +31,7 @@ interface AgentWorkPaneProps {
   switchingKind: 'permission' | 'runtime' | null
   focusSignal: number
   followLatestSignal: number
+  stickyTurnPromptEnabled?: boolean
   onActivate: (agentId: string, options?: { focusTerminal?: boolean }) => void
   onSessionOutput: (agentId: string, handler: (data: string, replace?: boolean, outputSeq?: number | null, runtimeEpoch?: string, stateRevision?: number | null, cols?: number, rows?: number, kind?: 'output' | 'resize' | 'clear') => void) => () => void
   onOpenPath?: (agentId: string, target: TerminalPathOpenTarget) => void
@@ -71,6 +72,7 @@ export function AgentWorkPane({
   switchingKind,
   focusSignal,
   followLatestSignal,
+  stickyTurnPromptEnabled = true,
   onActivate,
   onSessionOutput,
   onOpenPath,
@@ -189,7 +191,7 @@ export function AgentWorkPane({
           aria-hidden={!active}
           onPointerDown={activateChatView}
         >
-          <AcpTranscriptPane pendingElicitations={acpRuntime?.pendingElicitations} followLatestSignal={followLatestSignal} agentId={agent.id} workspaceRootId={agent.workspaceRootId} readingIdentity={agentWorkPaneModeStorageIdentity(agent)} workspaceRoot={agent.projectWorkspace || agent.cwd} active={active} viewportLayoutKey={viewportLayoutKey} runtimeState={acpRuntime?.state || ''} expectHistory={Boolean(resumedAgentSessionSourceIdentity(agent.source)) || Number(acpRuntime?.sessionRevision || 0) > 0} forkedFromAgent={Boolean(agent.parentAgentId && agent.forkedFromProviderSessionId)} refreshSignal={acpRuntime?.sessionRevision || (acpRuntime?.sessionUpdatedAt ? Date.parse(acpRuntime.sessionUpdatedAt) : 0)} onOpenWorkspaceFilePath={onOpenWorkspaceFilePath} onCopyReadOnlyShareLink={onCopyReadOnlyShareLink} onOpenUrlInFarming={onOpenUrlInFarming ? openChatUrlInFarming : undefined} onReadLatest={readLatestChat} onForkLatest={canForkConversation ? forkLatestChat : undefined} onReviewAndCommit={onReviewAndCommit && !isAgentTurnActive(agent) ? reviewAndCommitChat : undefined} onGoalChange={publishGoal} onActivePlanChange={publishActivePlan} onQuoteSelection={onQuoteSelection ? quoteSelection : undefined} onQuoteSelectionInSubagent={onQuoteSelectionInSubagent && canForkConversation && !agent.subagentParentSessionKey ? quoteSelectionInSubagent : undefined} copy={copy} />
+          <AcpTranscriptPane pendingElicitations={acpRuntime?.pendingElicitations} followLatestSignal={followLatestSignal} stickyTurnPromptEnabled={stickyTurnPromptEnabled} agentId={agent.id} workspaceRootId={agent.workspaceRootId} readingIdentity={agentWorkPaneModeStorageIdentity(agent)} workspaceRoot={agent.projectWorkspace || agent.cwd} active={active} viewportLayoutKey={viewportLayoutKey} runtimeState={acpRuntime?.state || ''} expectHistory={Boolean(resumedAgentSessionSourceIdentity(agent.source)) || Number(acpRuntime?.sessionRevision || 0) > 0} forkedFromAgent={Boolean(agent.parentAgentId && agent.forkedFromProviderSessionId)} refreshSignal={acpRuntime?.sessionRevision || (acpRuntime?.sessionUpdatedAt ? Date.parse(acpRuntime.sessionUpdatedAt) : 0)} onOpenWorkspaceFilePath={onOpenWorkspaceFilePath} onCopyReadOnlyShareLink={onCopyReadOnlyShareLink} onOpenUrlInFarming={onOpenUrlInFarming ? openChatUrlInFarming : undefined} onReadLatest={readLatestChat} onForkLatest={canForkConversation ? forkLatestChat : undefined} onReviewAndCommit={onReviewAndCommit && !isAgentTurnActive(agent) ? reviewAndCommitChat : undefined} onGoalChange={publishGoal} onActivePlanChange={publishActivePlan} onQuoteSelection={onQuoteSelection ? quoteSelection : undefined} onQuoteSelectionInSubagent={onQuoteSelectionInSubagent && canForkConversation && !agent.subagentParentSessionKey ? quoteSelectionInSubagent : undefined} copy={copy} />
         </div>
       ) : null}
       {switching ? (

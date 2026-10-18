@@ -301,6 +301,7 @@ interface CodeMainAreaProps {
   computerController: ComputerResourcesController
   onBackFromComputer: () => void
   language: UiPreferences['language']
+  stickyTurnPromptEnabled: boolean
   showFileEditor: boolean
   openWorkspaceFile: OpenWorkspaceFile | null
   openWorkspaceFiles: OpenWorkspaceFile[]
@@ -619,6 +620,7 @@ export function CodeMainArea({
   computerController,
   onBackFromComputer,
   language,
+  stickyTurnPromptEnabled,
   showFileEditor,
   openWorkspaceFile,
   openWorkspaceFiles,
@@ -1424,6 +1426,7 @@ export function CodeMainArea({
             onSessionOutput={onSessionOutput}
             focusSignal={terminalFocusRequest?.agentId === agent.id ? terminalFocusRequest.nonce : 0}
             followLatestSignal={chatFollowLatestRequest?.agentId === agent.id ? chatFollowLatestRequest.nonce : 0}
+            stickyTurnPromptEnabled={stickyTurnPromptEnabled}
             copy={copy}
           />
         ))}
@@ -1547,6 +1550,7 @@ export function CodeMainArea({
           <button type="button" className="code-agent-transcript-subagent-control" onClick={closeRelatedSession} aria-label="Collapse related session"><CloseGlyph /></button>
         </header>
         {subagentAgent ? <SubagentBody agent={subagentAgent} active={relatedSessionFits || compactRelatedActive}
+          stickyTurnPromptEnabled={stickyTurnPromptEnabled}
           renderComposer={renderSubagentComposer} onReadLatest={onAgentReadLatest} onOpenFile={onOpenWorkspaceFilePath}
           onQuoteSelection={onQuoteSelection} onQuoteInParent={readOnly ? undefined : quoteRelatedSelectionInParent} copy={copy} /> : subagentLoadingExpired ? <div role="alert">{language === 'zh' ? '子 Agent 状态尚未同步。' : 'Subagent state has not synchronized.'} <button type="button" onClick={() => { requestSubagent(relatedSession.parentAgentId) }}>{language === 'zh' ? '重新核对' : 'Reconcile'}</button></div> : <div role="status">{language === 'zh' ? '正在加载子 Agent…' : 'Loading subagent…'}</div>}
       </aside> : relatedSessionVisible && relatedSession ? <RelatedSessionPanel

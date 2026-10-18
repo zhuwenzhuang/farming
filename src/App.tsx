@@ -19,6 +19,7 @@ import {
   DEFAULT_UI_PREFERENCES,
   normalizeComposerFollowUpBehavior,
   normalizeContentFontSize,
+  normalizeStickyTurnPromptEnabled,
   normalizeUiAppearance,
   normalizeUiLanguage,
   type UiPreferences,
@@ -524,6 +525,11 @@ export function App() {
         patch.composerFollowUpBehavior,
       )
     }
+    if (Object.prototype.hasOwnProperty.call(patch, 'stickyTurnPromptEnabled')) {
+      normalizedPatch.stickyTurnPromptEnabled = normalizeStickyTurnPromptEnabled(
+        patch.stickyTurnPromptEnabled,
+      )
+    }
     const nextPreferences = {
       ...uiPreferences,
       ...normalizedPatch,
@@ -559,6 +565,9 @@ export function App() {
             settings.composerFollowUpBehavior ?? nextPreferences.composerFollowUpBehavior,
           ),
           language: normalizeUiLanguage(settings.language ?? nextPreferences.language),
+          stickyTurnPromptEnabled: normalizeStickyTurnPromptEnabled(
+            settings.stickyTurnPromptEnabled ?? nextPreferences.stickyTurnPromptEnabled,
+          ),
         }
         confirmedUiPreferencesRef.current = confirmed
         if (uiPreferencesSaveRevisionRef.current === requestRevision) setUiPreferences(confirmed)
@@ -581,6 +590,7 @@ export function App() {
             codeContentFontSize: normalizeContentFontSize(data.settings.codeContentFontSize),
             composerFollowUpBehavior: normalizeComposerFollowUpBehavior(data.settings.composerFollowUpBehavior),
             language: normalizeUiLanguage(data.settings.language),
+            stickyTurnPromptEnabled: normalizeStickyTurnPromptEnabled(data.settings.stickyTurnPromptEnabled),
           }
           reconciled = true
         } catch { /* One bounded read; never replay the save. */ }
@@ -602,9 +612,13 @@ export function App() {
   const syncUiPreferences = useCallback((patch: Partial<UiPreferences>) => {
     // Do not hydrate an older server value while a preference write is pending.
     if (uiPreferencesPendingWritesRef.current !== 0) return
-    const synced = Object.prototype.hasOwnProperty.call(patch, 'composerFollowUpBehavior')
-      ? { composerFollowUpBehavior: normalizeComposerFollowUpBehavior(patch.composerFollowUpBehavior) }
-      : {}
+    const synced: Partial<UiPreferences> = {}
+    if (Object.prototype.hasOwnProperty.call(patch, 'composerFollowUpBehavior')) {
+      synced.composerFollowUpBehavior = normalizeComposerFollowUpBehavior(patch.composerFollowUpBehavior)
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, 'stickyTurnPromptEnabled')) {
+      synced.stickyTurnPromptEnabled = normalizeStickyTurnPromptEnabled(patch.stickyTurnPromptEnabled)
+    }
     confirmedUiPreferencesRef.current = { ...confirmedUiPreferencesRef.current, ...synced }
     setUiPreferences(current => ({ ...current, ...synced }))
   }, [])
@@ -1520,6 +1534,7 @@ export function App() {
           codeContentFontSize: normalizeContentFontSize(settings.codeContentFontSize),
           composerFollowUpBehavior: normalizeComposerFollowUpBehavior(settings.composerFollowUpBehavior),
           language: normalizeUiLanguage(settings.language),
+          stickyTurnPromptEnabled: normalizeStickyTurnPromptEnabled(settings.stickyTurnPromptEnabled),
         }
         confirmedUiPreferencesRef.current = confirmed
         setUiPreferences(confirmed)

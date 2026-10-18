@@ -327,8 +327,13 @@ and [interaction](../../development/ui-interaction-protocol.md) contracts. Keep
 conversation progress readable, detailed evidence reversible and live activity
 compact. User disclosure and history-reading intent survive updates and settlement.
 Accepted input may reveal latest content; background updates, pagination and
-layout changes must not force that navigation. Read failure and execution failure
-remain visibly distinct. Startup is not an active Turn.
+layout changes must not force that navigation. When Sticky turn prompt
+(`stickyTurnPromptEnabled`, enabled by default in Settings → Interface) is active,
+the latest human turn in a multi-turn conversation reserves a viewport-height
+runway so earlier turns scroll above the viewport on send, and scrolling past a
+turn's inline user prompt pins a compact summary of that turn's user message at
+the top of the viewport that jumps back to the turn start on click. Read failure
+and execution failure remain visibly distinct. Startup is not an active Turn.
 
 Rich content uses safe Markdown and bounded media/render paths. Source is preserved;
 untrusted HTML does not execute. Streaming, settled and interrupted content have

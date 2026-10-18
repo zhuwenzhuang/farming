@@ -97,6 +97,7 @@ function run() {
       true,
     );
     assert.strictEqual(settings.crtDynamicHeatEnabled, false);
+    assert.strictEqual(settings.stickyTurnPromptEnabled, true);
     assert.strictEqual(settings.codeContentFontSize, DEFAULT_CODE_CONTENT_FONT_SIZE);
     assert.strictEqual(settings.crtContentFontSize, DEFAULT_CRT_CONTENT_FONT_SIZE);
     assert.strictEqual(DEFAULT_CRT_TERMINAL_FONT_SIZE, 15);
@@ -200,6 +201,7 @@ function run() {
     manager.updateSettings({
       crtSkinEffectsEnabled: false,
       crtDynamicHeatEnabled: true,
+      stickyTurnPromptEnabled: false,
       crtTerminalFontSize: 16,
       removedSetting: 'legacy-value',
       workspaceHistory: [farmingDir, projectA, projectA, projectB, '/tmp', '/var/tmp/farming-e2e'],
@@ -217,10 +219,12 @@ function run() {
     settings = manager.getSettings();
     assert.strictEqual(settings.crtSkinEffectsEnabled, false);
     assert.strictEqual(settings.crtDynamicHeatEnabled, true);
+    assert.strictEqual(settings.stickyTurnPromptEnabled, false);
     assert.strictEqual(settings.crtContentFontSize, 15);
     assert.strictEqual(settings.crtTerminalFontSize, 16);
     assert.strictEqual(JSON.parse(fs.readFileSync(path.join(farmingDir, 'settings.json'), 'utf8')).crtSkinEffectsEnabled, false);
     assert.strictEqual(JSON.parse(fs.readFileSync(path.join(farmingDir, 'settings.json'), 'utf8')).crtDynamicHeatEnabled, true);
+    assert.strictEqual(JSON.parse(fs.readFileSync(path.join(farmingDir, 'settings.json'), 'utf8')).stickyTurnPromptEnabled, false);
     assert.strictEqual(JSON.parse(fs.readFileSync(path.join(farmingDir, 'settings.json'), 'utf8')).crtTerminalFontSize, 16);
     assert.deepStrictEqual(settings.workspaceHistory, [projectA, projectB]);
     assert.deepStrictEqual(manager.rememberWorkspace(projectB), [projectB, projectA]);

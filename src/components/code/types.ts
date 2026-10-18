@@ -66,6 +66,7 @@ export interface GlobalSettings extends WorkspaceHistorySettings {
   instanceName?: string
   appearance?: UiAppearance
   composerFollowUpBehavior?: 'queue' | 'steer'
+  stickyTurnPromptEnabled?: boolean
   language?: UiLanguage
   restReminderIntervalSeconds?: number | null
   dangerouslySkipAgentPermissionsByDefault?: boolean
