@@ -5,11 +5,17 @@ import os from 'node:os';
 import path from 'node:path';
 
 interface RpcMessage {
-  error?: unknown;
+  error?: { code?: number; message?: string; data?: unknown };
   id?: number;
   method?: string;
   params?: { update?: Record<string, unknown> };
-  result?: { sessionId?: string; sessions?: unknown[] };
+  result?: {
+    sessionId?: string;
+    sessions?: unknown[];
+    outcome?: string;
+    reason?: string;
+    _meta?: { steering?: { supported?: boolean } };
+  };
 }
 
 async function stopChild(child: ChildProcess): Promise<void> {
@@ -95,7 +101,58 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
   write(JSON.stringify({
     type: 'response', id: request.id, command: request.type, success: true, data,
   }) + '\\n');
-  if (request.type === 'prompt') {
+  if (request.type === 'prompt' && request.message === 'steer-turn') {
+    write(JSON.stringify({ type: 'agent_start' }) + '\\n');
+    write(JSON.stringify({
+      type: 'message_update',
+      assistantMessageEvent: { type: 'text_delta', delta: 'initial-chunk ' },
+    }) + '\\n');
+  } else if (request.type === 'steer') {
+    write(JSON.stringify({
+      type: 'message_update',
+      assistantMessageEvent: { type: 'text_delta', delta: 'steered:' + request.message },
+    }) + '\\n');
+    write(JSON.stringify({
+      type: 'message_end',
+      message: { role: 'assistant', stopReason: 'stop' },
+    }) + '\\n');
+    write(JSON.stringify({ type: 'agent_end', willRetry: false }) + '\\n');
+    write(JSON.stringify({ type: 'agent_settled' }) + '\\n');
+  } else if (request.type === 'prompt' && request.message === 'retry-recover') {
+    write(JSON.stringify({ type: 'agent_start' }) + '\\n');
+    write(JSON.stringify({
+      type: 'message_end',
+      message: { role: 'assistant', stopReason: 'error', errorMessage: 'transient stream disconnect' },
+    }) + '\\n');
+    write(JSON.stringify({ type: 'agent_end', willRetry: true }) + '\\n');
+    write(JSON.stringify({ type: 'auto_retry_start', attempt: 1, maxAttempts: 3, delayMs: 1000 }) + '\\n');
+    write(JSON.stringify({ type: 'agent_start' }) + '\\n');
+    write(JSON.stringify({ type: 'auto_retry_end', success: true, attempt: 1 }) + '\\n');
+    write(JSON.stringify({
+      type: 'message_update',
+      assistantMessageEvent: { type: 'text_delta', delta: 'recovered-after-retry' },
+    }) + '\\n');
+    write(JSON.stringify({
+      type: 'message_end',
+      message: { role: 'assistant', stopReason: 'stop' },
+    }) + '\\n');
+    write(JSON.stringify({ type: 'agent_end', willRetry: false }) + '\\n');
+    write(JSON.stringify({ type: 'agent_settled' }) + '\\n');
+  } else if (request.type === 'prompt' && request.message === 'retry-fail') {
+    write(JSON.stringify({ type: 'agent_start' }) + '\\n');
+    write(JSON.stringify({
+      type: 'message_end',
+      message: { role: 'assistant', stopReason: 'error', errorMessage: 'Stream terminated' },
+    }) + '\\n');
+    write(JSON.stringify({ type: 'agent_end', willRetry: false }) + '\\n');
+    write(JSON.stringify({
+      type: 'auto_retry_end',
+      success: false,
+      attempt: 3,
+      finalError: 'Stream terminated after 3 attempts',
+    }) + '\\n');
+    write(JSON.stringify({ type: 'agent_settled' }) + '\\n');
+  } else if (request.type === 'prompt') {
     write(JSON.stringify({ type: 'agent_start' }) + '\\n');
     const update = Buffer.from(JSON.stringify({
       type: 'message_update',
@@ -163,6 +220,11 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
       clientInfo: { name: 'farming-test', version: '1' },
     });
     assert.strictEqual(initialized.error, undefined);
+    assert.strictEqual(
+      initialized.result?._meta?.steering?.supported,
+      true,
+      'Pi ACP adapter must advertise _session/steering support in initialize',
+    );
     const listed = await request(2, 'session/list', {});
     assert.strictEqual(listed.error, undefined);
     assert.deepStrictEqual(
@@ -173,6 +235,66 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
     const opened = await request(3, 'session/new', { cwd: root, mcpServers: [] });
     assert.strictEqual(opened.error, undefined);
     assert.strictEqual(opened.result?.sessionId, 'pi-farming-smoke');
+
+    const idleSteer = await request(30, '_session/steering', {
+      sessionId: 'pi-farming-smoke',
+      prompt: [{ type: 'text', text: 'idle steer' }],
+      _meta: { steering: { idleBehavior: 'promptRequired' } },
+    });
+    assert.strictEqual(idleSteer.error, undefined);
+    assert.deepStrictEqual(idleSteer.result, {
+      outcome: 'promptRequired',
+      reason: 'noRunningTurn',
+    });
+
+    const steerTurnPromise = request(31, 'session/prompt', {
+      sessionId: 'pi-farming-smoke',
+      prompt: [{ type: 'text', text: 'steer-turn' }],
+    });
+    for (let i = 0; i < 100; i += 1) {
+      if (updates.some(u => (u.content as Record<string, unknown>)?.text === 'initial-chunk ')) break;
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    const activeSteer = await request(32, '_session/steering', {
+      sessionId: 'pi-farming-smoke',
+      prompt: [{ type: 'text', text: 'steer-follow-up' }],
+      _meta: { steering: { idleBehavior: 'promptRequired' } },
+    });
+    assert.strictEqual(activeSteer.error, undefined);
+    assert.deepStrictEqual(activeSteer.result, { outcome: 'injected' });
+    const steerTurnDone = await steerTurnPromise;
+    assert.strictEqual(steerTurnDone.error, undefined);
+    assert(
+      updates.some(u => (u.content as Record<string, unknown>)?.text === 'steered:steer-follow-up'),
+      'Pi ACP _session/steering must forward live steer to pi RPC within the active turn',
+    );
+
+    const retryRecovered = await request(33, 'session/prompt', {
+      sessionId: 'pi-farming-smoke',
+      prompt: [{ type: 'text', text: 'retry-recover' }],
+    });
+    assert.strictEqual(retryRecovered.error, undefined);
+    assert(
+      updates.some(u => (u.content as Record<string, unknown>)?.text === 'recovered-after-retry'),
+      'recovered mid-turn retry must complete the turn without error',
+    );
+
+    const updatesBeforeFailedRetry = updates.length;
+    const retryFailed = await request(34, 'session/prompt', {
+      sessionId: 'pi-farming-smoke',
+      prompt: [{ type: 'text', text: 'retry-fail' }],
+    });
+    assert(
+      String(retryFailed.error?.message || '').includes('Stream terminated after 3 attempts'),
+      `expected unrecovered retry failure to reject session/prompt, got ${JSON.stringify(retryFailed)}`,
+    );
+    assert(
+      !updates.slice(updatesBeforeFailedRetry).some(
+        u => (u.content as Record<string, unknown>)?.text === 'Retry finished, resuming.',
+      ),
+      'failed auto_retry_end must not emit "Retry finished, resuming."',
+    );
+
     const prompted = await request(4, 'session/prompt', {
       sessionId: 'pi-farming-smoke',
       prompt: [{ type: 'text', text: 'usage smoke' }],

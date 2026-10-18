@@ -979,8 +979,7 @@ function isSteerUnavailableError(error: unknown) {
     failure.cause?.message,
     failure.cause?.data?.details,
   ].filter(Boolean).join(' ').toLowerCase();
-  return text.includes('no active codex turn to steer')
-    || text.includes('no active turn to steer')
+  return /no active (?:[a-z0-9_-]+ )?turn to steer/.test(text)
     || /expected active turn id .* but found/.test(text)
     || text.includes('cannot steer a review turn')
     || text.includes('cannot steer a compact turn');
@@ -3685,6 +3684,9 @@ class AcpRuntime extends EventEmitter {
         this.requestTimeoutMs,
         'ACP steer',
       );
+      if ((response as UnknownRecord | null)?.outcome === 'promptRequired') {
+        throw new Error('No active ACP turn to steer');
+      }
       this.requireCurrentTurn(binding, turn, ['running']);
       const turnId = String((response as UnknownRecord | null)?.turnId || '');
       if (sessionState.recordAcceptedSteer(content, {

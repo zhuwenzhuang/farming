@@ -2636,6 +2636,61 @@ async function run() {
     resolveQueuedPrompt({ stopReason: 'end_turn' });
     assert.strictEqual((await queuedPrompt).stopReason, 'end_turn');
 
+    let resolvePromptRequiredTurn;
+    let promptCallsAfterSteerRace = 0;
+    steerCompletionBinding.connection.prompt = async () => {
+      promptCallsAfterSteerRace += 1;
+      if (promptCallsAfterSteerRace === 1) {
+        return new Promise(resolve => {
+          resolvePromptRequiredTurn = resolve;
+        });
+      }
+      return { stopReason: 'end_turn' };
+    };
+    const runningTurnForPromptRequired = runtime.prompt(
+      'agent-acp-steer-completion-race',
+      'turn settling on provider before steer arrives',
+    );
+    await waitForSteerTest(() => steerCompletionBinding.activeTurn?.phase === 'running', 'promptRequired steer turn');
+    steerCompletionBinding.connection.request = async () => {
+      setImmediate(() => resolvePromptRequiredTurn?.({ stopReason: 'end_turn' }));
+      return { outcome: 'promptRequired', reason: 'noRunningTurn' };
+    };
+    await assert.rejects(
+      runtime.submitMessage(
+        'agent-acp-steer-completion-race',
+        [{ type: 'text', text: 'explicit steer must reject on promptRequired' }],
+        { delivery: 'steer' },
+      ),
+      /No active ACP turn to steer/,
+    );
+    assert.strictEqual((await runningTurnForPromptRequired).stopReason, 'end_turn');
+
+    promptCallsAfterSteerRace = 0;
+    const runningTurnForAutoFallback = runtime.prompt(
+      'agent-acp-steer-completion-race',
+      'turn settling during auto submitMessage steer attempt',
+    );
+    await waitForSteerTest(() => steerCompletionBinding.activeTurn?.phase === 'running', 'auto fallback steer turn');
+    const autoFallbackSubmission = runtime.submitMessage(
+      'agent-acp-steer-completion-race',
+      [{ type: 'text', text: 'auto steer must fall back to prompt on promptRequired' }],
+      { delivery: 'auto' },
+    );
+    const autoFallbackResult = await autoFallbackSubmission;
+    assert.strictEqual((await runningTurnForAutoFallback).stopReason, 'end_turn');
+    assert.strictEqual(autoFallbackResult.stopReason, 'end_turn');
+    assert.strictEqual(
+      promptCallsAfterSteerRace,
+      2,
+      'auto submitMessage must fall back to a fresh prompt when provider steer returns promptRequired',
+    );
+    assert.strictEqual(
+      steerCompletionBinding.sessionState.entries.some(entry => entry._meta?.farming?.steer === true),
+      false,
+      'promptRequired steer outcome must not record a phantom accepted steer entry',
+    );
+
     await runtime.prepareAgent({
       agentId: 'agent-acp-steer-cancel-order',
       provider: 'codex',

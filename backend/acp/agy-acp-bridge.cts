@@ -669,6 +669,11 @@ class AgyAcpAgent implements Agent {
       throw new Error(`Session not found: ${sessionId}`);
     }
     if (!session.activeTurnId || session.cancelled) {
+      const meta = params._meta && typeof params._meta === 'object' ? (params._meta as Record<string, unknown>) : null;
+      const steering = meta?.steering && typeof meta.steering === 'object' ? (meta.steering as Record<string, unknown>) : null;
+      if (steering?.idleBehavior === 'promptRequired') {
+        return { outcome: 'promptRequired', reason: 'noRunningTurn' };
+      }
       const error = Object.assign(new Error('No active turn to steer'), {
         data: { details: 'no active turn to steer' }
       });
