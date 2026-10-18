@@ -107,3 +107,39 @@ for (const provider of ['codex', 'claude', 'opencode', 'pi', 'qoder', 'qwen', 'a
     assert.equal(restored.entries.filter(entry => entry.role === 'user').length, 3);
   });
 }
+
+// Model: admission, chunk echo and complete snapshot share one message identity.
+// Any order must converge to one trusted input; a different ID remains independent.
+for (const provider of ['codex', 'claude', 'opencode', 'pi', 'qoder', 'qwen', 'agy']) {
+  for (const order of ['ack-first', 'snapshot-first', 'chunk-first'] as const) {
+    test(`${provider} steer ${order} converges by identity across recovery`, () => {
+      const state = new AcpSessionState({ provider, sessionId: 'steer-echo' });
+      state.beginPrompt('Keep working');
+      const receive = () => state.applySessionMessage({
+        _meta: { farming: { messageRole: 'user' } }, messageId: 'steer-1', content: acpPeerPrompt(prompt, source),
+      }, false);
+      const ack = () => state.recordAcceptedSteer(prompt, { messageId: 'steer-1', turnId: 'turn-1', peerMessage: source });
+      const chunk = () => {
+        for (const content of acpPeerPrompt(prompt, source)) state.applyMessageChunk({
+          content, messageId: 'steer-1', _meta: { codex: { steer: true } },
+        }, 'user_message_chunk');
+      };
+      if (order === 'ack-first') { ack(); chunk(); receive(); }
+      if (order === 'snapshot-first') { receive(); chunk(); ack(); }
+      if (order === 'chunk-first') { chunk(); receive(); ack(); }
+      receive();
+      const inputs = state.entries.filter(entry => entry.role === 'user');
+      assert.equal(inputs.length, 2);
+      assert.deepEqual(inputs[1].content, prompt);
+      assert.deepEqual(inputs[1]._meta?.peerMessage, source);
+      assert.equal(inputs[1]._meta?.farming?.steer, true);
+      assert.ok(inputs[1].createdAt);
+      assert.equal(state.recordAcceptedSteer(prompt, { messageId: 'steer-1', peerMessage: source }), false);
+      const restored = AcpSessionState.fromCheckpoint(state.exportCheckpoint())!;
+      restored.applySessionMessage({ _meta: { farming: { messageRole: 'user' } }, messageId: 'steer-1', content: prompt }, false);
+      assert.equal(restored.entries.filter(entry => entry.role === 'user').length, 2);
+      restored.recordAcceptedSteer(prompt, { messageId: 'steer-2', peerMessage: source });
+      assert.equal(restored.entries.filter(entry => entry.role === 'user').length, 3, 'equal text with distinct identity is retained');
+    });
+  }
+}

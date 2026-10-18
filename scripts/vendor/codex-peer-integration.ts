@@ -5,6 +5,12 @@ export function integrateCodexPeerMessages(source: string): string {
     if (source.split(from).length !== 2) throw new Error(`Expected one Codex peer boundary: ${from.slice(0, 100)}`);
     source = source.replace(from, to);
   };
+  // The standard steering path must carry the same client identity as the
+  // legacy Codex extension, through parsing, queueing and the native request.
+  replace('      sessionId,\n      prompt\n    };', '      sessionId,\n      prompt,\n      clientMessageId: params["clientMessageId"]\n    };');
+  replace('        turnId,\n        prompt: params.prompt\n', '        turnId,\n        prompt: params.prompt,\n        clientMessageId: params.clientMessageId\n');
+  replace('      input: buildPromptItems(params.prompt)\n', '      input: buildPromptItems(params.prompt),\n      clientUserMessageId: params.clientMessageId ?? null\n');
+  replace('  async createUserMessageUpdates(item) {\n    const updates = [];\n    const messageId = item.id;', '  async createUserMessageUpdates(item) {\n    const updates = [];\n    const messageId = item.clientId || item.id;');
   // Reuse history's content conversion for live receiver-owned input. These
   // messages may have no sender metadata; visibility must not depend on it.
   replace('      await promptClient.subscribeToSessionEvents(', `      promptEventHandler.farmingUserMessageUpdates = item => this.createUserMessageUpdates(item);
@@ -13,7 +19,7 @@ export function integrateCodexPeerMessages(source: string): string {
     if (notification.method === "item/completed" && notification.params.item.type === "userMessage") {
       const item = notification.params.item;
       const chunks = await this.farmingUserMessageUpdates(item);
-      await this.session.update({ sessionUpdate: "session_message", _meta: { farming: { messageRole: "user" } }, messageId: item.id,
+      await this.session.update({ sessionUpdate: "session_message", _meta: { farming: { messageRole: "user" } }, messageId: item.clientId || item.id,
         content: chunks.map(chunk => chunk.content) }, this.subagents.notificationSessionId(notification));
       return;
     }`);

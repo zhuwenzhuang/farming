@@ -262,7 +262,11 @@ Receiver-owned input is visible even when the provider supplies no sender identi
 Adapters normalize complete native inputs into the shared session-message path with
 `_meta.farming.messageRole: "user"`; they reuse history content conversion for live
 input. Native message IDs upsert snapshots, while different IDs retain identical
-text as separate messages. An admitted local echo preserves its original body and
+text as separate messages. When a provider returns the submitted client message ID,
+the adapter uses it as the input identity so native snapshots and local Steer
+acknowledgements converge regardless of arrival order. Acknowledgement promotes
+an earlier echo in place, preserving its entry identity; retries do not resend
+the input. An admitted local echo preserves its original body and
 trusted attribution. Input during an active execution does not complete that
 execution. Missing attribution never authorizes dropping the body or inventing a
 sender. Live, replay and checkpoint recovery must preserve these properties for

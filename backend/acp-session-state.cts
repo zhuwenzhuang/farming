@@ -643,16 +643,17 @@ class AcpSessionState {
   recordAcceptedSteer(prompt: unknown, options: AcceptedSteerOptions = {}): boolean {
     const messageId = String(options.messageId || '');
     if (!messageId) return false;
-    if (this.entries.some(entry => (
+    const existing = this.entries.find(entry => (
       entry?.type === 'message'
       && entry.role === 'user'
       && entry.messageId === messageId
-    ))) return false;
+    ));
+    if (existing?.optimistic) return false;
     const content = Array.isArray(prompt)
       ? clone(prompt)
       : [{ type: 'text', text: String(prompt || '') }];
     const entry = {
-      id: messageId,
+      id: existing?.id || messageId,
       type: 'message',
       role: 'user',
       messageId,
@@ -667,11 +668,18 @@ class AcpSessionState {
         },
       },
     };
+    // A provider echo can precede acceptance. Promote that exact identity in
+    // place so the admitted body/source and timestamp have one durable owner.
+    if (existing) {
+      Object.assign(existing, entry);
+      this.touchEntry(existing);
+      return true;
+    }
     this.touchEntry(entry);
     const insertionIndex = Number.isFinite(Number(options.insertionIndex))
       ? Math.max(0, Math.min(this.entries.length, Math.floor(Number(options.insertionIndex))))
       : this.entries.length;
-    this.entryIds.add(entry.id);
+    this.entryIds.add(String(entry.id));
     this.entries.splice(insertionIndex, 0, entry);
     return true;
   }
@@ -854,6 +862,16 @@ class AcpSessionState {
 
     if (providerPolicy.isMirroredUserMessage(last, update, role, type)) {
       this.touchEntry(last);
+      return;
+    }
+
+    // A complete input snapshot may precede the adapter's chunk echo. It
+    // already owns the full body; appending those chunks would duplicate it.
+    const snapshot = role === 'user' && messageId && this.entries.find(entry =>
+      entry.type === 'message' && entry.role === 'user' && entry.sessionMessage === true
+      && entry.messageId === messageId);
+    if (snapshot && (snapshot.content || []).some(content => isDeepStrictEqual(content, update.content))) {
+      this.touchEntry(snapshot);
       return;
     }
 

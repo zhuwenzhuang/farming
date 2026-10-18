@@ -120,6 +120,7 @@ async function run() {
       },
     ]);
     assert.deepStrictEqual(contents[4], { type: 'text', text: '重点检查恢复后的图片' });
+    assert.strictEqual(userUpdates[4].messageId, 'client-history-steer', 'history must preserve the live input identity');
     assert(userUpdates.slice(0, 4).every(update => update._meta?.codex?.steer !== true));
     assert.deepStrictEqual(userUpdates[4]._meta, {
       codex: { steer: true, turnId: 'turn-history-image' },

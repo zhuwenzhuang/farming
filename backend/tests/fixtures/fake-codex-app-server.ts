@@ -75,6 +75,7 @@ function thread(id = sessionId) {
         ],
       }, {
         id: 'user-history-steer',
+        clientId: 'client-history-steer',
         type: 'userMessage',
         content: [
           { type: 'text', text: '重点检查恢复后的图片', text_elements: [] },
@@ -317,6 +318,7 @@ async function resultFor(method, params) {
     } };
     return { goal: null, revision: 0 };
   }
+  if (incomingInputs && method === 'turn/steer') return { turnId: params.expectedTurnId };
   if (goalCompletionGate && method === 'turn/steer') {
     if (params.expectedTurnId !== 'goal-continuation') throw new Error('Steer targeted the wrong turn');
     return { turnId: 'goal-continuation' };
@@ -395,10 +397,23 @@ async function run() {
         loadedThreads.delete(request.params.threadId);
         await enqueueResponse({ method: 'thread/closed', params: { threadId: request.params.threadId } });
       }
+      const steerEchoOrder = process.env.FARMING_TEST_STEER_ECHO_ORDER;
+      const emitSteerEcho = async () => {
+        const { threadId, expectedTurnId: turnId, clientUserMessageId: clientId, input: content } = request.params;
+        const item = { type: 'userMessage', id: `native:${clientId}`, clientId, content };
+        for (let repeat = 0; repeat < 2; repeat++) {
+          await enqueueResponse({ method: 'item/completed', params: { threadId, turnId, item } });
+        }
+        await enqueueResponse({ method: 'item/completed', params: { threadId, turnId,
+          item: { type: 'userMessage', id: `receipt:${clientId}`, clientId: null,
+            content: [{ type: 'text', text: 'Independent native input', text_elements: [] }] } } });
+      };
+      if (request.method === 'turn/steer' && steerEchoOrder === 'before') await emitSteerEcho();
       await enqueueResponse({
         id: request.id,
         result,
       });
+      if (request.method === 'turn/steer' && steerEchoOrder === 'after') await emitSteerEcho();
       if (request.method === 'thread/unsubscribe' && result.status === 'unsubscribed' && !earlyClose) {
         // Unsubscribe responds before the owning app-server releases its writer.
         if (closeGatePrefix) {
@@ -421,6 +436,14 @@ async function run() {
           { id: 'remote-input', type: 'userMessage', content: [{ type: 'text', text: 'Receiver-owned coordination message', text_elements: [] }] },
           { id: 'remote-input-two', type: 'userMessage', content: [{ type: 'text', text: 'Receiver-owned coordination message', text_elements: [] }] },
         ]) await enqueueResponse({ method: 'item/completed', params: { threadId, turnId, item } });
+        const inputGate = process.env.FARMING_TEST_INPUT_COMPLETION_GATE;
+        if (inputGate && !request.params.outputSchema) {
+          const deadline = Date.now() + 10000;
+          while (!fs.existsSync(inputGate)) {
+            if (Date.now() >= deadline) throw new Error('Input completion gate timed out');
+            await new Promise(resolve => setTimeout(resolve, 10));
+          }
+        }
         await enqueueResponse({ method: 'turn/completed', params: { threadId, turn: { ...result.turn, status: 'completed' } } });
       }
       if ((backgroundChild || userInputResultFile || goalCompletionGate) && request.method === 'turn/start' && request.params.outputSchema) {
@@ -508,7 +531,7 @@ async function run() {
       continue;
     }
     if (request.id === undefined) continue;
-    if (!providerResumeGatePrefix && !closeGatePrefix) {
+    if (!providerResumeGatePrefix && !closeGatePrefix && !process.env.FARMING_TEST_INPUT_COMPLETION_GATE) {
       await handleRequest(request);
       continue;
     }
