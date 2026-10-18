@@ -413,19 +413,27 @@ export function didAgyCurrentTurnCompleteCleanly(
       .all(latestUserIdx) as Array<{ idx?: number; step_type?: number; status?: number }>;
     if (!Array.isArray(turnSteps) || turnSteps.length === 0) return false;
 
-    let hasCompletedPlannerResponse = false;
-    for (const step of turnSteps) {
+    let lastCompletedPlannerResponseIndex = -1;
+    for (let index = 0; index < turnSteps.length; index += 1) {
+      const step = turnSteps[index];
+      const stepType = typeof step.step_type === 'number' ? step.step_type : 0;
+      const status = typeof step.status === 'number' ? step.status : 0;
+      if (stepType === 15 && status === 3) {
+        lastCompletedPlannerResponseIndex = index;
+      }
+    }
+    if (lastCompletedPlannerResponseIndex < 0) return false;
+
+    for (let index = lastCompletedPlannerResponseIndex + 1; index < turnSteps.length; index += 1) {
+      const step = turnSteps[index];
       const stepType = typeof step.step_type === 'number' ? step.step_type : 0;
       const status = typeof step.status === 'number' ? step.status : 0;
       // step_type 17 is CORTEX_STEP_TYPE_ERROR_MESSAGE; status 7 is ERROR (except tool step 132 which model can recover from).
       if (stepType === 17) return false;
       if (status === 7 && stepType !== 132) return false;
-      if (stepType === 15 && status === 3) {
-        hasCompletedPlannerResponse = true;
-      }
     }
     const lastStep = turnSteps[turnSteps.length - 1];
-    return hasCompletedPlannerResponse && lastStep?.status === 3;
+    return lastStep?.status === 3;
   } catch {
     return false;
   } finally {

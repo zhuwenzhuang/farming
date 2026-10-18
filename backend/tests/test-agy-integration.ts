@@ -388,14 +388,76 @@ if (text.includes('CHECK_CONTEXT')) {
   console.log(JSON.stringify({ event: 'result', conversation_id: conversationId, result: { status: 'SUCCESS', response: JSON.stringify({ cwd: process.cwd(), args }) } }));
   process.exit(0);
 }
-if (text.includes('STALE_PRIOR_TURN_ERROR') || text.includes('UNCHANGED_PRIOR_TURN_ERROR')) {
+if (text.includes('STALE_PRIOR_TURN_ERROR') || text.includes('UNCHANGED_PRIOR_TURN_ERROR') || text.includes('MID_TURN_RECOVERED_STREAM_ERROR')) {
   if (text.includes('STALE_PRIOR_TURN_ERROR')) {
     const db = new DatabaseSync(dbPath);
     db.exec('INSERT INTO steps (idx, step_type, status) VALUES (5, 14, 3), (6, 15, 3)');
     db.close();
+  } else if (text.includes('MID_TURN_RECOVERED_STREAM_ERROR')) {
+    const db = new DatabaseSync(dbPath);
+    db.exec('INSERT INTO steps (idx, step_type, status) VALUES (7, 14, 3), (8, 15, 3), (9, 17, 3), (10, 15, 3)');
+    db.close();
   }
   console.log(JSON.stringify({ event: 'step_update', step_update: { conversation_id: conversationId, step_index: 5, step_type: 'agent_response', state: 'DONE', text_delta: 'recovered-from-stale-error' } }));
   console.log(JSON.stringify({ event: 'result', conversation_id: conversationId, result: { status: 'ERROR', error: 'The stream was interrupted. Please continue the task you were working on.', response: 'recovered-from-stale-error' } }));
+  process.exit(0);
+}
+if (text.includes('STEERABLE_TURN')) {
+  const logs = path.join(agyHome, 'brain', conversationId, '.system_generated', 'logs');
+  fs.mkdirSync(logs, { recursive: true });
+  fs.appendFileSync(path.join(logs, 'transcript_full.jsonl'), JSON.stringify({ type: 'USER_INPUT', content: text }) + '\\n');
+  console.log(JSON.stringify({
+    event: 'step_update',
+    step_update: {
+      conversation_id: conversationId,
+      step_index: 1,
+      step_type: 'agent_response',
+      state: 'DONE',
+      text_delta: 'Initial steerable work started.',
+    },
+  }));
+  console.log(JSON.stringify({
+    event: 'step_update',
+    step_update: {
+      conversation_id: conversationId,
+      step_index: 2,
+      step_type: 'tool',
+      state: 'ACTIVE',
+      tool_name: 'run_command',
+      tool_info: {
+        name: 'run_command',
+        parameters: {
+          toolAction: 'Running long task before steer',
+          CommandLine: 'sleep 30',
+        },
+      },
+    },
+  }));
+  fs.writeFileSync(path.join(agyHome, 'steerable-ready.txt'), String(process.pid));
+  setInterval(() => {}, 1000);
+  await new Promise(() => {});
+}
+if (text.includes('STEER_FOLLOWUP_INSTRUCTION')) {
+  const hasBootstrap = text.includes('FARMING_BOOTSTRAP_MARKER');
+  console.log(JSON.stringify({
+    event: 'step_update',
+    step_update: {
+      conversation_id: conversationId,
+      step_index: 3,
+      step_type: 'agent_response',
+      state: 'DONE',
+      text_delta: 'Steered continuation completed (bootstrap=' + hasBootstrap + ', text=' + text.trim() + ')',
+    },
+  }));
+  console.log(JSON.stringify({
+    event: 'result',
+    conversation_id: conversationId,
+    result: {
+      status: 'SUCCESS',
+      response: 'Steered continuation completed (bootstrap=' + hasBootstrap + ', text=' + text.trim() + ')',
+      num_turns: 1,
+    },
+  }));
   process.exit(0);
 }
 if (text.includes('FAIL_EXIT') || text.includes('FAIL_STATUS') || text.includes('MISSING_RESULT')) {
@@ -627,7 +689,42 @@ console.log(JSON.stringify({
       'clean current turn must succeed despite historical step_type=17 in conversation db',
     );
 
+    const midTurnRecovered = await runtime.prompt('agent-agy-test-1', [
+      { type: 'text', text: 'MID_TURN_RECOVERED_STREAM_ERROR' },
+    ]);
+    assert.strictEqual(midTurnRecovered.stopReason, 'end_turn');
+    assert.strictEqual(didAgyCurrentTurnCompleteCleanly(agyHome, prepared.sessionId, 5), true);
+
     await assert.rejects(runtime.prompt('agent-agy-test-1', [{ type: 'text', text: 'FAIL_STATUS' }]), /ERROR/);
+
+    // Verify steering capability and live mid-turn steering.
+    assert.strictEqual(runtime.getSession('agent-agy-test-1').supportsSteer, true);
+    assert.strictEqual(runtime.canSteer('agent-agy-test-1'), false);
+    const steerableReadyFile = path.join(agyHome, 'steerable-ready.txt');
+    fs.rmSync(steerableReadyFile, { force: true });
+    const steerableTurn = runtime.prompt('agent-agy-test-1', [
+      { type: 'text', text: 'STEERABLE_TURN' },
+    ]);
+    for (let attempt = 0; !fs.existsSync(steerableReadyFile) && attempt < 100; attempt += 1) {
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+    assert(fs.existsSync(steerableReadyFile), 'steerable turn must start before steering');
+    assert.strictEqual(runtime.canSteer('agent-agy-test-1'), true);
+    const steerAck = await runtime.steer('agent-agy-test-1', [
+      { type: 'text', text: 'STEER_FOLLOWUP_INSTRUCTION' },
+    ]);
+    assert(steerAck.turnId, 'steer should return an active turnId');
+    const steerableOutcome = await steerableTurn;
+    assert.strictEqual(steerableOutcome.stopReason, 'end_turn');
+    const afterSteerEntries = runtime.getSession('agent-agy-test-1').entries.map(entrySummary);
+    assert(
+      afterSteerEntries.some((line: string) => line.includes('STEER_FOLLOWUP_INSTRUCTION')),
+      'transcript should record the steered user message',
+    );
+    assert(
+      afterSteerEntries.some((line: string) => line.includes('Steered continuation completed (bootstrap=false, text=STEER_FOLLOWUP_INSTRUCTION)')),
+      'steered continuation should complete inside the same ACP turn without re-injecting bootstrap',
+    );
 
     await runtime.setSessionConfigOption('agent-agy-test-1', 'model', 'claude-opus-5-5');
     await runtime.setSessionConfigOption('agent-agy-test-1', 'effort', 'max');

@@ -56,6 +56,11 @@ interface AgyBridgeOptions {
   appendSystemPrompt: string;
 }
 
+interface AgySteerInput {
+  prompt: ContentBlock[];
+  turnId: string;
+}
+
 interface AgyBridgeSessionState {
   sessionId: string;
   cwd: string;
@@ -64,6 +69,9 @@ interface AgyBridgeSessionState {
   currentEffort: AgyEffortLevel;
   systemPromptInjected: boolean;
   activeChild: ChildProcess | null;
+  activeTurnId: string | null;
+  pendingSteers: AgySteerInput[];
+  steeredCurrentCycle: boolean;
   cancelled: boolean;
   stopChild: (() => Promise<void>) | null;
   additionalDirectories: string[];
@@ -467,7 +475,12 @@ class AgyAcpAgent implements Agent {
           close: {}
         }
       },
-      authMethods: []
+      authMethods: [],
+      _meta: {
+        steering: {
+          supported: true
+        }
+      }
     };
   }
 
@@ -500,6 +513,9 @@ class AgyAcpAgent implements Agent {
       currentEffort: defaults.effort,
       systemPromptInjected: false,
       activeChild: null,
+      activeTurnId: null,
+      pendingSteers: [],
+      steeredCurrentCycle: false,
       stopChild: null,
       additionalDirectories: [],
       cancelled: false
@@ -585,7 +601,7 @@ class AgyAcpAgent implements Agent {
     if (!normalizedMode) {
       throw new Error(`Unsupported Antigravity mode: ${params.modeId}`);
     }
-    if (session.activeChild) throw new Error('Cannot change mode during an active turn');
+    if (session.activeTurnId) throw new Error('Cannot change mode during an active turn');
     session.currentModeId = normalizedMode;
     await this.client.sessionUpdate({
       sessionId: session.sessionId,
@@ -604,7 +620,7 @@ class AgyAcpAgent implements Agent {
     if (!session) {
       throw new Error(`Session not found: ${params.sessionId}`);
     }
-    if (session.activeChild) throw new Error('Cannot change configuration during an active turn');
+    if (session.activeTurnId) throw new Error('Cannot change configuration during an active turn');
     if (params.configId === 'model') {
       if (!isValidAgyModelSlug(params.value)) {
         throw new Error('Unsupported Antigravity configuration');
@@ -628,6 +644,7 @@ class AgyAcpAgent implements Agent {
     const session = this.sessions.get(params.sessionId);
     if (!session) return;
     session.cancelled = true;
+    session.pendingSteers = [];
     await session.stopChild?.();
   }
 
@@ -636,9 +653,45 @@ class AgyAcpAgent implements Agent {
     this.sessions.delete(params.sessionId);
     if (session) {
       session.cancelled = true;
+      session.pendingSteers = [];
       await session.stopChild?.();
     }
     return {};
+  }
+
+  async extMethod(method: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {
+    if (method !== '_session/steering') {
+      throw new Error(`Unsupported extension method: ${method}`);
+    }
+    const sessionId = typeof params?.sessionId === 'string' ? params.sessionId : '';
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      throw new Error(`Session not found: ${sessionId}`);
+    }
+    if (!session.activeTurnId || session.cancelled) {
+      const error = Object.assign(new Error('No active turn to steer'), {
+        data: { details: 'no active turn to steer' }
+      });
+      throw error;
+    }
+    const promptBlocks = Array.isArray(params.prompt) ? (params.prompt as ContentBlock[]) : [];
+    const steeredText = flattenPromptBlocks(promptBlocks);
+    if (!steeredText) {
+      throw new Error('Antigravity steer requires non-empty prompt content');
+    }
+    const turnId = session.activeTurnId;
+    session.pendingSteers.push({
+      prompt: promptBlocks,
+      turnId
+    });
+    if (session.stopChild && !session.steeredCurrentCycle) {
+      session.steeredCurrentCycle = true;
+      void session.stopChild().catch(() => {});
+    }
+    return {
+      outcome: 'injected',
+      turnId
+    };
   }
 
   private resolveTranscriptPath(sessionId: string): string {
@@ -750,15 +803,16 @@ class AgyAcpAgent implements Agent {
     }
   }
 
-  async prompt(params: PromptRequest): Promise<PromptResponse> {
-    const session = this.sessions.get(params.sessionId);
-    if (!session) throw new Error(`Session not found: ${params.sessionId}`);
-    if (session.activeChild) throw new Error('Antigravity Session already has an active turn');
-    session.cancelled = false;
-
-    const userText = flattenPromptBlocks(params.prompt);
+  private async runSinglePromptCycle(
+    session: AgyBridgeSessionState,
+    promptBlocks: ContentBlock[],
+    seenToolCalls: Set<string>,
+    inProgressToolCalls: Set<string>,
+    cycleNumber: number
+  ): Promise<'end_turn' | 'cancelled' | 'steered'> {
+    const userText = flattenPromptBlocks(promptBlocks);
     if (!userText) {
-      return { stopReason: 'end_turn' };
+      return 'end_turn';
     }
 
     const isSlashCommand = userText.startsWith('/');
@@ -817,6 +871,7 @@ class AgyAcpAgent implements Agent {
 
     for (const directory of session.additionalDirectories) cliArgs.push('--add-dir', directory);
     cliArgs.push('--print-timeout', '60m');
+    session.steeredCurrentCycle = false;
     const child = spawn(this.options.agyExecutable, cliArgs, {
       cwd: session.cwd,
       env: {
@@ -858,13 +913,16 @@ class AgyAcpAgent implements Agent {
         clearTimeout(timer);
       }
     };
+    if (!session.cancelled && session.pendingSteers.length > 0 && !session.steeredCurrentCycle) {
+      session.steeredCurrentCycle = true;
+      void session.stopChild().catch(() => {});
+    }
     let deadline: ReturnType<typeof setTimeout> | undefined;
     const turnDeadline = new Promise<never>((_, reject) => {
       deadline = setTimeout(() => reject(new Error('Antigravity turn exceeded its deadline')), 3_660_000);
       deadline.unref();
     });
 
-    const seenToolCalls = new Set<string>();
     let emittedAssistantText = false;
     let stderrText = '';
     let resultFailure = '';
@@ -961,7 +1019,7 @@ class AgyAcpAgent implements Agent {
             const rawToolCallId =
               typeof stepUpdate.tool_call_id === 'string' && stepUpdate.tool_call_id.trim()
                 ? stepUpdate.tool_call_id.trim()
-                : `agy-tool-${stepIndex}-${toolName}`;
+                : `agy-tool-${cycleNumber}-${stepIndex}-${toolName}`;
             const toolArgs =
               stepUpdate.tool_args && typeof stepUpdate.tool_args === 'object'
                 ? (stepUpdate.tool_args as Record<string, unknown>)
@@ -986,6 +1044,12 @@ class AgyAcpAgent implements Agent {
                 : rawStatus === 'ERROR'
                   ? 'failed'
                   : 'in_progress';
+
+            if (status === 'in_progress') {
+              inProgressToolCalls.add(rawToolCallId);
+            } else {
+              inProgressToolCalls.delete(rawToolCallId);
+            }
 
             if (!seenToolCalls.has(rawToolCallId)) {
               seenToolCalls.add(rawToolCallId);
@@ -1096,12 +1160,29 @@ class AgyAcpAgent implements Agent {
     try {
       if (identity && configDir) registerConfigProcessGroup(configDir, 'agy-turn', identity);
       const [{ code, signal }] = await Promise.race([Promise.all([exit, processStreamPromise]), turnDeadline]);
-      if (session.cancelled) return { stopReason: 'cancelled' };
+      if (session.cancelled) return 'cancelled';
+      if (session.steeredCurrentCycle || session.pendingSteers.length > 0) {
+        if (injectSystemPrompt && !session.systemPromptInjected) {
+          await this.replayTranscriptHistory(session, false);
+        }
+        for (const toolCallId of [...inProgressToolCalls]) {
+          inProgressToolCalls.delete(toolCallId);
+          await this.client.sessionUpdate({
+            sessionId: session.sessionId,
+            update: {
+              sessionUpdate: 'tool_call_update',
+              toolCallId,
+              status: 'completed'
+            }
+          });
+        }
+        return 'steered';
+      }
       if (code !== 0 || signal || resultFailure || !resultReceived) {
         throw new Error(resultFailure || stderrText.trim() || `Antigravity CLI did not complete successfully (${signal || code}); ${resultReceived ? 'result received' : 'missing final result'}`);
       }
       if (injectSystemPrompt) session.systemPromptInjected = true;
-      return { stopReason: 'end_turn' };
+      return 'end_turn';
     } finally {
       clearTimeout(deadline);
       try {
@@ -1113,8 +1194,55 @@ class AgyAcpAgent implements Agent {
       } finally {
         session.activeChild = null;
         session.stopChild = null;
+        session.steeredCurrentCycle = false;
         rl.close();
       }
+    }
+  }
+
+  async prompt(params: PromptRequest): Promise<PromptResponse> {
+    const session = this.sessions.get(params.sessionId);
+    if (!session) throw new Error(`Session not found: ${params.sessionId}`);
+    if (session.activeChild || session.activeTurnId) throw new Error('Antigravity Session already has an active turn');
+    session.cancelled = false;
+    session.pendingSteers = [];
+    session.steeredCurrentCycle = false;
+
+    const userText = flattenPromptBlocks(params.prompt);
+    if (!userText) {
+      return { stopReason: 'end_turn' };
+    }
+
+    session.activeTurnId = `agy-turn-${crypto.randomUUID()}`;
+    const seenToolCalls = new Set<string>();
+    const inProgressToolCalls = new Set<string>();
+    let currentPromptBlocks = params.prompt;
+    let cycleNumber = 1;
+
+    try {
+      while (true) {
+        const outcome = await this.runSinglePromptCycle(
+          session,
+          currentPromptBlocks,
+          seenToolCalls,
+          inProgressToolCalls,
+          cycleNumber
+        );
+        if (outcome === 'cancelled' || session.cancelled) {
+          return { stopReason: 'cancelled' };
+        }
+        if (session.pendingSteers.length > 0) {
+          const batchedSteers = session.pendingSteers.splice(0, session.pendingSteers.length);
+          currentPromptBlocks = batchedSteers.flatMap(steer => steer.prompt);
+          cycleNumber += 1;
+          continue;
+        }
+        return { stopReason: 'end_turn' };
+      }
+    } finally {
+      session.activeTurnId = null;
+      session.pendingSteers = [];
+      session.steeredCurrentCycle = false;
     }
   }
 }
