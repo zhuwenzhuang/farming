@@ -28,7 +28,7 @@ async function bounded<T>(operation: Promise<T>): Promise<T> {
 }
 
 
-for (const provider of ['claude', 'codex', 'qwen']) test(`${provider}: A2A CLI executes through manager, Host socket and ACP process with correlated full reply`, { timeout: 30000 }, async () => {
+for (const provider of ['claude', 'codex', 'opencode', 'pi', 'qoder', 'qwen', 'agy']) test(`${provider}: A2A CLI executes through manager, Host socket and ACP process with correlated full reply`, { timeout: 30000 }, async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'farming-peer-integration-'));
   const config = new ConfigManager({ configDir: root }); config.init();
   const socketPath = path.join(root, 'host.sock');

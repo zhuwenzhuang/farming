@@ -14,7 +14,7 @@ test('host deduplication distinguishes identical text from different senders', (
   assert.equal(promptContentHash(prompt, 'prompt', source), promptContentHash(prompt, 'prompt', { ...source }));
 });
 
-for (const provider of ['codex', 'claude', 'qwen']) {
+for (const provider of ['codex', 'claude', 'opencode', 'pi', 'qoder', 'qwen', 'agy']) {
   test(`${provider} prompt and steer preserve independent provenance snapshots`, () => {
     const state = new AcpSessionState({ provider, sessionId: 'peer-input' });
     const mutable = { ...source };
@@ -32,7 +32,7 @@ for (const provider of ['codex', 'claude', 'qwen']) {
   });
 }
 
-for (const provider of ['codex', 'claude', 'qwen']) {
+for (const provider of ['codex', 'claude', 'opencode', 'pi', 'qoder', 'qwen', 'agy']) {
   test(`${provider} peer envelope echoes do not duplicate or change trusted source`, () => {
     const state = new AcpSessionState({ provider, sessionId: 'peer-echo' });
     const entry = state.beginPrompt(prompt, null, source);
@@ -50,7 +50,7 @@ for (const provider of ['codex', 'claude', 'qwen']) {
   });
 }
 
-for (const provider of ['codex', 'claude', 'qwen']) {
+for (const provider of ['codex', 'claude', 'opencode', 'pi', 'qoder', 'qwen', 'agy']) {
   test(`${provider} native history restores peer identity only along the verified input prefix`, () => {
     const saved = new AcpSessionState({ provider, sessionId: 'original' });
     saved.beginPrompt('Earlier human request');
@@ -71,5 +71,39 @@ for (const provider of ['codex', 'claude', 'qwen']) {
       replay.restoreTrustedInputMetadata(saved.exportCheckpoint());
       assert.equal(peer._meta?.peerMessage, undefined, 'changed prefix or header-only content cannot establish identity');
     }
+  });
+}
+
+for (const provider of ['codex', 'claude', 'opencode', 'pi', 'qoder', 'qwen', 'agy']) {
+  test(`${provider} receiver input snapshots survive interleaved output, repeats and checkpoint recovery`, () => {
+    const state = new AcpSessionState({ provider, sessionId: 'receiver' });
+    const local = state.beginPrompt(prompt, null, source);
+    state.applyToolCall({ toolCallId: 'work', title: 'Work', status: 'in_progress' }, false, null);
+    const receive = (id: string, content = prompt) => state.applySessionMessage({
+      sessionUpdate: 'session_message', _meta: { farming: { messageRole: 'user' } }, messageId: id, content,
+    }, false);
+    receive('local', acpPeerPrompt(prompt, source));
+    assert.equal(state.entries.filter(entry => entry.role === 'user').length, 1, 'delayed local echo is not another input');
+    assert.deepEqual(local.content, prompt);
+    assert.deepEqual(local._meta?.peerMessage, source);
+    receive('remote-one');
+    receive('remote-one');
+    receive('remote-two');
+    const inputs = state.entries.filter(entry => entry.role === 'user');
+    assert.equal(inputs.length, 3, 'same ID upserts, equal text with a different ID remains visible');
+    assert.equal(inputs[1]._meta?.peerMessage, undefined, 'no invented sender identity');
+    assert.equal(inputs[1]._meta?.farming?.steer, true, 'incoming input does not settle the active execution');
+    state.completePrompt();
+    assert.ok(local.turnCompletedAt);
+    const earlier = new AcpSessionState({ provider, sessionId: 'earlier' });
+    earlier.beginPrompt(prompt);
+    earlier.completePrompt();
+    earlier.applySessionMessage({ _meta: { farming: { messageRole: 'user' } }, messageId: 'new-input', content: prompt }, false);
+    assert.equal(earlier.entries.filter(entry => entry.role === 'user').length, 2,
+      'a historical unbound prompt must not absorb a new identical input');
+    const restored = AcpSessionState.fromCheckpoint({ version: 1, provider, sessionId: 'receiver', entries: state.entries });
+    assert.ok(restored);
+    restored.applySessionMessage({ _meta: { farming: { messageRole: 'user' } }, messageId: 'remote-one', content: prompt }, false);
+    assert.equal(restored.entries.filter(entry => entry.role === 'user').length, 3);
   });
 }

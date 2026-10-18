@@ -159,3 +159,28 @@ test('Farming A2A messages show trusted local sender and navigate across provide
     await page.getByTestId('code-agent-chat-view').screenshot({ path: testInfo.outputPath(`a2a-compact-${appearance}.png`), animations: 'disabled' })
   }
 })
+
+
+test('receiver inputs without sender metadata stay visible once per message across appearances and reload', async ({ page, workspaceRoot }, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  const created = await page.request.post('/farming/api/control/agents', {
+    data: { command: 'codex', workspace: workspaceRoot, agentRuntimeMode: 'chat' },
+  })
+  expect(created.ok()).toBeTruthy()
+  const { agentId } = await created.json() as { agentId: string }
+  await openFarming(page)
+  await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+  await page.getByTestId('code-acp-composer-input').fill('receiver input without sender')
+  await page.getByTestId('code-acp-composer-send').click()
+  await expect(page.getByText('I received the coordination and continued.', { exact: true })).toBeVisible()
+  const receipts = page.getByText('Coordination received while working.', { exact: true })
+  await expect(receipts).toHaveCount(2)
+  await expect(page.getByTestId('code-agent-message-source')).toHaveCount(0)
+  for (const appearance of ['light', 'dark', 'paper']) {
+    await page.locator('body').evaluate((body, value) => { body.dataset.appearance = value }, appearance)
+    await expect(receipts.first()).toBeVisible()
+    await captureCommunicationStep(page.getByTestId('code-agent-chat-view'), testInfo, `unattributed-${appearance}`)
+  }
+  await page.reload()
+  await expect(receipts).toHaveCount(2)
+})

@@ -8,6 +8,7 @@ const sessionId = '019f0000-0000-7000-8000-000000000999';
 const imagePath = process.env.FARMING_TEST_HISTORY_IMAGE_PATH || '';
 const dataUrl = process.env.FARMING_TEST_HISTORY_IMAGE_DATA_URL || '';
 const userInputResultFile = process.env.FARMING_TEST_USER_INPUT_RESULT_FILE || '';
+const incomingInputs = process.env.FARMING_TEST_INCOMING_INPUTS === '1';
 const stallPrompt = process.env.FARMING_TEST_STALL_PROMPT === '1';
 const multiSession = process.env.FARMING_TEST_MULTI_SESSION === '1';
 const splitUtf8 = process.env.FARMING_TEST_SPLIT_UTF8 === '1';
@@ -154,7 +155,7 @@ async function resultFor(method, params) {
     loadEnvironment(id, params);
     return { thread: { ...thread(id), forkedFromId: params.threadId, turns: [] } };
   }
-  if (method === 'turn/start' && (stallPrompt || backgroundChild || userInputResultFile || goalCompletionGate)) {
+  if (method === 'turn/start' && (incomingInputs || stallPrompt || backgroundChild || userInputResultFile || goalCompletionGate)) {
     return {
       turn: {
         id: backgroundChild ? params.outputSchema ? 'turn-title' : `turn-parent-${nextTurn++}` : 'turn-stalled-title',
@@ -410,6 +411,17 @@ async function run() {
         }
         loadedThreads.delete(request.params.threadId);
         await enqueueResponse({ method: 'thread/closed', params: { threadId: request.params.threadId } });
+      }
+      if (incomingInputs && request.method === 'turn/start') {
+        const threadId = request.params.threadId, turnId = result.turn.id;
+        await enqueueResponse({ method: 'turn/started', params: { threadId, turn: result.turn } });
+        for (const item of [
+          { id: 'local-input', type: 'userMessage', content: request.params.input },
+          { id: 'remote-input', type: 'userMessage', content: [{ type: 'text', text: 'Receiver-owned coordination message', text_elements: [] }] },
+          { id: 'remote-input', type: 'userMessage', content: [{ type: 'text', text: 'Receiver-owned coordination message', text_elements: [] }] },
+          { id: 'remote-input-two', type: 'userMessage', content: [{ type: 'text', text: 'Receiver-owned coordination message', text_elements: [] }] },
+        ]) await enqueueResponse({ method: 'item/completed', params: { threadId, turnId, item } });
+        await enqueueResponse({ method: 'turn/completed', params: { threadId, turn: { ...result.turn, status: 'completed' } } });
       }
       if ((backgroundChild || userInputResultFile || goalCompletionGate) && request.method === 'turn/start' && request.params.outputSchema) {
         await enqueueResponse({ method: 'turn/completed', params: { threadId: request.params.threadId,

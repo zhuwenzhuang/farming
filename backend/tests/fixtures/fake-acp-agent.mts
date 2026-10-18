@@ -601,6 +601,19 @@ class FakeAgent implements Agent {
       } });
       return { stopReason: 'end_turn' };
     }
+    if (promptText === 'receiver input without sender') {
+      for (const messageId of ['received-one', 'received-one', 'received-two']) {
+        await client.sessionUpdate({ sessionId: params.sessionId, update: {
+          sessionUpdate: 'session_message', messageId,
+          content: [{ type: 'text', text: 'Coordination received while working.' }],
+          _meta: { farming: { messageRole: 'user' } },
+        } });
+      }
+      await client.sessionUpdate({ sessionId: params.sessionId, update: {
+        sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'I received the coordination and continued.' },
+      } });
+      return { stopReason: 'end_turn' };
+    }
     if (promptText === 'peer incoming appearance') {
       const source = { version: 1, direction: 'incoming', senderAddress: 'peer-storage', senderName: 'Cleanroom HDFS TPCDS 单机验收与多机接线', timestamp: '2026-01-01T10:30:00Z' };
       for (const update of [

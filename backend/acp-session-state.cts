@@ -25,6 +25,7 @@ interface AcpMeta extends DataRecord {
     steer?: unknown;
     turnId?: unknown;
     nativeSubagent?: boolean;
+    messageRole?: 'user';
     state?: string;
   };
   codex?: {
@@ -924,11 +925,29 @@ class AcpSessionState {
       throw new Error('Invalid inter-session message content');
     }
     const peer = normalizeAcpPeerMessage((update._meta as DataRecord | undefined)?.peerMessage);
+    const inputSnapshot = !chunk && (update._meta as AcpMeta | undefined)?.farming?.messageRole === 'user';
     let entry = this.entries.find(candidate => candidate.type === 'message'
-      && candidate.sessionMessage === true && candidate.messageId === messageId);
+      && (candidate.sessionMessage === true || (inputSnapshot && candidate.role === 'user'))
+      && candidate.messageId === messageId);
+    // A complete provider echo can arrive after tool output. Reconcile only an
+    // unbound optimistic input; equal text with another native ID is a new message.
+    if (!entry && inputSnapshot) entry = this.entries.find(candidate => candidate.type === 'message'
+      && candidate.role === 'user' && candidate.optimistic && !candidate.messageId
+      && candidate.turnCompletedAt == null
+      && (isDeepStrictEqual(candidate.content, update.content)
+        || isAcpPeerPromptHistory(candidate.content || [], normalizeAcpPeerMessage(candidate._meta?.peerMessage),
+          Array.isArray(update.content) ? update.content : [])));
+    if (entry && inputSnapshot) {
+      entry.messageId = messageId;
+      // Keep the admitted body and trusted source when the provider echoes its envelope.
+      if (entry.optimistic) { this.touchEntry(entry); return; }
+    }
+    const activeInput = inputSnapshot && this.entries.findLast(candidate => candidate.type === 'message'
+      && candidate.role === 'user' && candidate.turnStartedAt != null && candidate.turnCompletedAt == null);
     if (!entry) entry = this.pushEntry({
+      ...(activeInput ? { _meta: { farming: { steer: true } } } : {}),
       id: this.uniqueMessageEntryId(`session-message:${messageId}`, 'message'),
-      type: 'message', role: peer ? 'user' : 'assistant', messageId, sessionMessage: true, content: [],
+      type: 'message', role: peer || inputSnapshot ? 'user' : 'assistant', messageId, sessionMessage: true, content: [],
     });
     for (const key of ['senderSessionId', 'recipientSessionId']) {
       if (typeof update[key] === 'string') entry[key] = update[key];
@@ -947,7 +966,10 @@ class AcpSessionState {
         && existingSource.senderTaskId === peer.senderTaskId) {
         source = { ...existingSource, timestamp: peer.timestamp };
       }
-      entry._meta = clone(update._meta) as AcpMeta;
+      const metadata = clone(update._meta) as AcpMeta;
+      entry._meta = inputSnapshot
+        ? { ...metadata, farming: { ...entry._meta?.farming, ...metadata?.farming } }
+        : metadata;
       if (source) entry._meta = { ...entry._meta, peerMessage: source };
     }
     if (chunk) appendContent(entry.content as AcpContent[], clone(update.content) as AcpContent);

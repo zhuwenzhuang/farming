@@ -258,6 +258,17 @@ Native encrypted receipts show unavailable readable content, never ciphertext or
 sender-side reconstruction. Outgoing native collaboration is a chronological
 activity feed: send success is neither a read receipt nor task completion.
 
+Receiver-owned input is visible even when the provider supplies no sender identity.
+Adapters normalize complete native inputs into the shared session-message path with
+`_meta.farming.messageRole: "user"`; they reuse history content conversion for live
+input. Native message IDs upsert snapshots, while different IDs retain identical
+text as separate messages. An admitted local echo preserves its original body and
+trusted attribution. Input during an active execution does not complete that
+execution. Missing attribution never authorizes dropping the body or inventing a
+sender. Live, replay and checkpoint recovery must preserve these properties for
+every supported Chat provider; protocol fixtures do not replace real-provider
+acceptance.
+
 ## Handoff To A New Agent
 
 Handoff creates an independent coding conversation in the confirmed source's
