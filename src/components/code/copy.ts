@@ -453,8 +453,10 @@ export interface CodeCopy {
   partialChanges: string
   partialChangesDescription: string
   repositoryUnavailable: string
+  repositoryUninitialized: string
   historyRepository: string
   submodule: string
+  submoduleUninitialized: string
   stagedChanges: string
   unstagedChanges: string
   stagedAndUnstagedChanges: string
@@ -1251,8 +1253,10 @@ const EN_COPY: CodeCopy = {
   partialChanges: 'Partial',
   partialChangesDescription: 'The sidebar display limit was reached. Open Review to inspect this repository’s selected change category.',
   repositoryUnavailable: 'Unavailable',
+  repositoryUninitialized: 'Not initialized',
   historyRepository: 'History repository',
   submodule: 'Submodule',
+  submoduleUninitialized: 'Submodule · Not initialized',
   stagedChanges: 'Staged',
   unstagedChanges: 'Unstaged',
   stagedAndUnstagedChanges: 'Staged + unstaged',
@@ -2084,8 +2088,10 @@ const ZH_COPY: CodeCopy = {
   partialChanges: '部分结果',
   partialChangesDescription: '侧栏展示数量已达上限。可打开 Review 审阅此仓库的这类变更。',
   repositoryUnavailable: '不可用',
+  repositoryUninitialized: '未初始化',
   historyRepository: '历史仓库',
   submodule: '子模块',
+  submoduleUninitialized: '子模块 · 未初始化',
   stagedChanges: '已暂存',
   unstagedChanges: '未暂存',
   stagedAndUnstagedChanges: '已暂存 + 未暂存',

@@ -9,6 +9,7 @@ import type { CodeCopy } from '../code/copy'
 
 interface FileTreeRowStatusProps {
   isSubmodule?: boolean
+  isUninitializedSubmodule?: boolean
   copy: CodeCopy
   directoryError?: { path: string; message: string }
   item: FileExplorerNode
@@ -19,6 +20,7 @@ interface FileTreeRowStatusProps {
 export function FileTreeRowStatus({
   copy,
   isSubmodule,
+  isUninitializedSubmodule,
   directoryError,
   item,
   viewState,
@@ -41,7 +43,11 @@ export function FileTreeRowStatus({
     <>
       <span className="code-file-label">
         <span className="code-file-name">{item.displayName ?? item.name}</span>
-        {isDirectory && isSubmodule && <span className="code-file-repository-kind code-file-submodule-label">{copy.submodule}</span>}
+        {isDirectory && isSubmodule && (
+          <span className="code-file-repository-kind code-file-submodule-label">
+            {isUninitializedSubmodule ? copy.submoduleUninitialized : copy.submodule}
+          </span>
+        )}
         {directoryError && (
           <span
             className="code-file-directory-error"

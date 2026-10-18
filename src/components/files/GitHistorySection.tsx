@@ -71,10 +71,15 @@ export function GitHistorySection(props: GitHistorySectionProps) {
   const showSelector = (repositories?.length ?? 0) > 1 || Boolean(selectedPath)
   const options = (repositories ?? [{ path: '', truncated: false }]).map(repository => ({
     value: repository.path,
-    label: repository.path || props.copy.mainRepository,
+    label: repository.path
+      ? repository.uninitialized
+        ? `${repository.path} · ${props.copy.repositoryUninitialized}`
+        : repository.path
+      : props.copy.mainRepository,
+    disabled: Boolean(repository.uninitialized) && repository.path !== selectedPath,
   }))
   if (selectedPath && !options.some(option => option.value === selectedPath)) {
-    options.push({ value: selectedPath, label: selectedPath })
+    options.push({ value: selectedPath, label: selectedPath, disabled: false })
   }
   useEffect(() => {
     saveCodeProjectFilesViewState(props.projectId, { gitHistoryCollapsed: collapsed, gitHistoryRepositoryPath: selectedPath })

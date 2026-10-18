@@ -129,7 +129,7 @@ export interface WorkspaceChangesCompleteness {
 }
 
 export interface WorkspaceFileChanges extends WorkspaceChangesCompleteness {
-  repositories?: Array<WorkspaceChangesCompleteness & { path: string; error?: string; truncated: boolean }>
+  repositories?: Array<WorkspaceChangesCompleteness & { path: string; uninitialized?: boolean; error?: string; truncated: boolean }>
   items: WorkspaceFileChange[]
   truncated: boolean
 }

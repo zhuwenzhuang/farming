@@ -21,6 +21,7 @@ import { recordPerformanceTestRender } from '@/lib/performance-test-observer'
 
 interface FileTreeRowProps {
   isSubmodule?: boolean
+  isUninitializedSubmodule?: boolean
   activeFilePath?: string
   agentId: string
   copy: CodeCopy
@@ -51,6 +52,7 @@ interface FileTreeRowProps {
 export function FileTreeRow({
   activeFilePath,
   isSubmodule,
+  isUninitializedSubmodule,
   agentId,
   copy,
   decoration,
@@ -167,6 +169,7 @@ export function FileTreeRow({
         <FileTreeRowStatus
           copy={copy}
           isSubmodule={isSubmodule}
+          isUninitializedSubmodule={isUninitializedSubmodule}
           directoryError={directoryError}
           item={item}
           viewState={viewState}

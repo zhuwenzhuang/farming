@@ -100,10 +100,18 @@ async function run() {
     const missing = await reviews.getGitRange(undefined, { root, base, head: unavailableTree, metadataOnly: true });
     assert.match(missing.files[0].submoduleError || '', /missing commit/);
     fs.renameSync(child, path.join(temp, 'parked-child')); fs.mkdirSync(child);
-    const unavailable = await files.changes(root, { repositories: true });
-    assert.match(unavailable.repositories?.find(repo => repo.path === 'lib')?.error || '', /not initialized/);
+    const uninitialized = await files.changes(root, { repositories: true });
+    assert.equal(uninitialized.repositories?.find(repo => repo.path === 'lib')?.uninitialized, true);
+    assert.equal(uninitialized.repositories?.find(repo => repo.path === 'lib')?.error, undefined);
+    const uninitializedInventory = await files.changesInventory(root);
+    assert.equal(uninitializedInventory.repositories?.find(repo => repo.path === 'lib')?.uninitialized, true);
+    assert.equal(uninitializedInventory.repositories?.find(repo => repo.path === 'lib')?.error, undefined);
     await assert.rejects(files.gitHistory(root, { repositoryPath: 'lib' }), /not initialized/);
     await assert.rejects(files.gitHistoryChanges(root, childCommit, undefined, { repositoryPath: 'lib' }), /not initialized/);
+    fs.writeFileSync(path.join(child, '.git'), 'gitdir: /nonexistent/submodule\n');
+    const broken = await files.changes(root, { repositories: true });
+    assert.equal(broken.repositories?.find(repo => repo.path === 'lib')?.uninitialized, undefined);
+    assert.match(broken.repositories?.find(repo => repo.path === 'lib')?.error || '', /not a git repository/i);
     console.log('test-workspace-submodules passed');
   } finally {
     await files.dispose();

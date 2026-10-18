@@ -133,7 +133,9 @@ use the displayed selection with original sheet, coordinates and file version.
 
 Git reads resolve the nearest authorized initialized repository. Submodules own
 their changes, index and Review scope; parent gitlink changes remain separate.
-An unavailable repository or truncated/failed command never means a clean tree.
+Uninitialized submodules are labeled in the file tree and History repository
+selector rather than shown as error alerts in Changes; a broken or unavailable
+initialized repository or truncated/failed command never means a clean tree.
 Read-only inspection does not write the Git index.
 
 | Read | Consistency contract |

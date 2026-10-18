@@ -96,7 +96,8 @@ Markdown 使用安全 GFM/math 与有界兼容，不改写源文件或执行任�
 ## Git 与 Review
 
 Git 读取解析最近的已授权、已初始化仓库。Submodule 拥有自己的变更、index 和 Review
-范围，父 gitlink 变更独立。仓库不可用或命令截断/失败不能代表干净；只读检查不写 Git index。
+范围，父 gitlink 变更独立。未初始化的 submodule 在文件树与 History 仓库选择器中标注状态，
+不在 Changes 中作为错误展示；已初始化仓库不可用或命令截断/失败不能代表干净；只读检查不写 Git index。
 
 | 读取 | 一致性契约 |
 | --- | --- |

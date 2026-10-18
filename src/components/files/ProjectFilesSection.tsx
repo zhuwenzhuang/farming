@@ -294,6 +294,12 @@ export function ProjectFilesSection({
   const repositoryPathNames = fileChanges.repositories?.map(repository => repository.path).filter(Boolean) ?? []
   const repositoryPathsKey = repositoryPathNames.join('\0')
   const repositoryPaths = useMemo(() => new Set(repositoryPathsKey ? repositoryPathsKey.split('\0') : []), [repositoryPathsKey])
+  const uninitializedRepositoryPathNames = fileChanges.repositories?.filter(repository => repository.uninitialized).map(repository => repository.path).filter(Boolean) ?? []
+  const uninitializedRepositoryPathsKey = uninitializedRepositoryPathNames.join('\0')
+  const uninitializedRepositoryPaths = useMemo(
+    () => new Set(uninitializedRepositoryPathsKey ? uninitializedRepositoryPathsKey.split('\0') : []),
+    [uninitializedRepositoryPathsKey],
+  )
   // The hook returns a fresh object each render, so hold the stable callback itself
   // instead of depending on `fileChanges` and rebuilding callbacks every render.
   const refreshFileChanges = fileChanges.refreshChanges
@@ -739,7 +745,7 @@ export function ProjectFilesSection({
                 refreshToken={refreshToken}
               />
             )}
-            <FileSectionBody {...viewModel.sectionBody} tree={{ ...viewModel.sectionBody.tree, repositoryPaths }} />
+            <FileSectionBody {...viewModel.sectionBody} tree={{ ...viewModel.sectionBody.tree, repositoryPaths, uninitializedRepositoryPaths }} />
           </>
         )}
       </div>

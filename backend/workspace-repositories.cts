@@ -9,6 +9,7 @@ interface GitReader {
 export interface WorkspaceRepository {
   path: string;
   root: string;
+  uninitialized?: boolean;
   error?: string;
 }
 
@@ -30,7 +31,13 @@ export async function exactChildRepository(reader: GitReader, parent: string, ch
   if (!childPath || childPath.split('/').some(part => !part || part === '.' || part === '..') || path.isAbsolute(childPath)) {
     throw new Error('Invalid submodule path');
   }
-  const root = await fs.realpath(path.join(parent, childPath));
+  let root: string;
+  try {
+    root = await fs.realpath(path.join(parent, childPath));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new Error('Submodule is not initialized', { cause: error });
+    throw error;
+  }
   if (!isSameOrDescendantPath(parent, root) || root === parent) throw new Error('Submodule is outside the project');
   const top = (await git(reader, root, ['rev-parse', '--show-toplevel'])).trim();
   if (await fs.realpath(top) !== root) throw new Error('Submodule is not initialized');
@@ -43,7 +50,7 @@ export async function discoverWorkspaceRepositories(reader: GitReader, root: str
   const depths = new Map([[root, 0]]);
   for (let cursor = 0; cursor < repositories.length; cursor++) {
     const parent = repositories[cursor];
-    if (parent.error) continue;
+    if (parent.error || parent.uninitialized) continue;
     let output: string;
     try {
       const manifest = await git(reader, parent.root, ['ls-files', '--stage', '-z', '--', '.gitmodules']);
@@ -82,7 +89,12 @@ export async function discoverWorkspaceRepositories(reader: GitReader, root: str
         depths.set(childRoot, depth);
         repositories.push({ path: relativePath, root: childRoot });
       } catch (error) {
-        repositories.push({ path: relativePath, root: path.join(parent.root, childPath), error: error instanceof Error ? error.message : 'Submodule unavailable' });
+        const message = error instanceof Error ? error.message : 'Submodule unavailable';
+        repositories.push({
+          path: relativePath,
+          root: path.join(parent.root, childPath),
+          ...(message === 'Submodule is not initialized' ? { uninitialized: true } : { error: message }),
+        });
       }
     }
   }

@@ -45,7 +45,11 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
     git(source, 'add', '.'); git(source, 'commit', '-qm', 'Engine base')
     fs.writeFileSync(path.join(workspace, 'main.ts'), 'export const enabled = false\n')
     git(workspace, '-c', 'protocol.file.allow=always', 'submodule', 'add', source, 'engine-with-a-long-repository-name')
+    git(workspace, '-c', 'protocol.file.allow=always', 'submodule', 'add', source, 'vendor-uninitialized')
     git(workspace, 'add', '.'); git(workspace, 'commit', '-qm', 'Project base')
+    const uninitializedChild = path.join(workspace, 'vendor-uninitialized')
+    fs.rmSync(uninitializedChild, { recursive: true, force: true })
+    fs.mkdirSync(uninitializedChild)
     const child = path.join(workspace, 'engine-with-a-long-repository-name')
     fs.writeFileSync(path.join(child, 'engine.ts'), 'export const capacity = 2\n')
     git(child, 'add', 'engine.ts')
@@ -66,7 +70,9 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
       await expect(groups.locator('[data-repository-path=""]')).toContainText('Main repository')
       const childGroup = groups.locator('[data-repository-path="engine-with-a-long-repository-name"]')
       await expect(childGroup).toContainText('Submodule')
+      await expect(groups.locator('[data-repository-path="vendor-uninitialized"]')).toHaveCount(0)
       await expect(files.locator('[data-testid="code-file-row"][data-file-path="engine-with-a-long-repository-name"] .code-file-submodule-label')).toHaveText('Submodule')
+      await expect(files.locator('[data-testid="code-file-row"][data-file-path="vendor-uninitialized"] .code-file-submodule-label')).toHaveText('Submodule · Not initialized')
       const tracked = childGroup.getByTestId('code-file-change-tracked-group')
       if (await tracked.locator('.code-file-change-group-toggle').getAttribute('aria-expanded') === 'false') await tracked.locator('.code-file-change-group-toggle').click()
       await expect(tracked.getByTestId('code-file-change-directory-row')).toHaveCount(0)
@@ -225,10 +231,13 @@ test('fences old history reads and keeps missing child failures explicit', async
   git(workspace, '-c', 'protocol.file.allow=always', 'submodule', 'add', source, 'child')
   git(workspace, 'add', '.'); git(workspace, 'commit', '-qm', 'Parent head')
   let releaseParent: (() => void) | undefined
+  let holdParent = true
   let childReads = 0
   await interceptWorkspaceRequests(page, request => {
     if (request.operation !== 'history') return
     if (request.repositoryPath) { childReads++; return }
+    if (!holdParent) return
+    holdParent = false
     return { onResult: result => new Promise(resolve => { releaseParent = () => resolve(result) }) }
   })
   const response = await page.request.post('/farming/api/control/agents', { data: { command: 'bash', workspace } })
@@ -256,6 +265,14 @@ test('fences old history reads and keeps missing child failures explicit', async
     await history.getByRole('button', { name: 'Refresh', exact: true }).click()
     await expect.poll(() => childReads).toBe(failedCount + 1)
     await expect(history.locator('.code-git-history-status.error')).toContainText('not initialized')
+    await files.getByTestId('code-files-refresh').click()
+    await expect(files.locator('[data-testid="code-file-row"][data-file-path="child"] .code-file-submodule-label')).toHaveText('Submodule · Not initialized')
+    await expect(files.locator('[data-repository-path="child"]')).toHaveCount(0)
+    await history.getByRole('combobox', { name: 'History repository' }).click()
+    await history.getByRole('option', { name: 'Main repository', exact: true }).click()
+    await expect(history.getByTestId('code-git-history-entry').first()).toContainText('Parent head')
+    await history.getByRole('combobox', { name: 'History repository' }).click()
+    await expect(history.getByRole('option', { name: 'child · Not initialized', exact: true })).toBeDisabled()
   } finally {
     releaseParent?.()
     await page.request.delete(`/farming/api/control/agents/${agentId}?recordHistory=0`)

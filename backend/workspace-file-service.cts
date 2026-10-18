@@ -234,7 +234,7 @@ interface WorkspaceChangesCompleteness {
 interface WorkspaceChangesResult extends WorkspaceChangesCompleteness {
   items: WorkspaceChangeItem[];
   truncated: boolean;
-  repositories?: Array<WorkspaceChangesCompleteness & { path: string; error?: string; truncated: boolean }>;
+  repositories?: Array<WorkspaceChangesCompleteness & { path: string; uninitialized?: boolean; error?: string; truncated: boolean }>;
 }
 
 interface GitStatusEntry {
@@ -2998,6 +2998,9 @@ class WorkspaceFileService {
       const snapshots = new Map<string, { root: string; items: WorkspaceChangeItem[] }>();
       const inventory = await mapWithConcurrency(repositories, 4, async repository => {
         try {
+          if (repository.uninitialized) {
+            return { path: repository.path, uninitialized: true, trackedCount: 0, untrackedCount: 0, truncated: false };
+          }
           if (repository.error) throw new Error(repository.error);
           const snapshot = await this.changeSnapshot(repository.root);
           snapshots.set(snapshot.revision, { root: repository.root, items: snapshot.items });
@@ -3061,7 +3064,7 @@ class WorkspaceFileService {
     if (options.repositories === true) {
       const repositories = await discoverWorkspaceRepositories(this, root);
       const groups = await mapWithConcurrency(repositories, 4, async repository => {
-        if (repository.error) return { ...repository, items: [], truncated: false };
+        if (repository.uninitialized || repository.error) return { ...repository, items: [], truncated: false };
         try {
           const result = await this.changes(repository.root, { ...options, repositories: false, limit });
           return { ...repository, ...result };
@@ -3081,7 +3084,7 @@ class WorkspaceFileService {
         const missing = omitted.filter(item => item.repositoryPath === group.path);
         const trackedTruncated = Boolean(group.trackedTruncated) || missing.some(item => item.gitStatus !== 'untracked');
         const untrackedTruncated = Boolean(group.untrackedTruncated) || missing.some(item => item.gitStatus === 'untracked');
-        return { path: group.path, ...(group.error ? { error: group.error } : {}),
+        return { path: group.path, ...(group.uninitialized ? { uninitialized: true } : {}), ...(group.error ? { error: group.error } : {}),
           trackedTruncated, untrackedTruncated, truncated: trackedTruncated || untrackedTruncated };
       });
       return {
