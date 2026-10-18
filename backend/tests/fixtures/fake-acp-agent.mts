@@ -917,6 +917,34 @@ class FakeAgent implements Agent {
         cancelledSessions.delete(params.sessionId);
       }
     }
+    if (promptText === 'streaming table links') {
+      const gate = path.join(process.cwd(), '.table-link-stage');
+      let cancelled = false;
+      cancelledSessions.set(params.sessionId, () => { cancelled = true; });
+      const chunks = [
+        '| Table | Generate | Load | Validate |\n| --- | ---: | ---: | ---: |\n| store_sales | [438.85 s](https://example.com/one) | 712.35 s | 50.24 s |\n| customer_address | 16.52 s | [34.44 s](https://example.com/logview?query=',
+        'x'.repeat(240),
+        ') | 9.36 s |',
+      ];
+      try {
+        for (let stage = 0; stage < chunks.length; stage++) {
+          if (stage) {
+            const deadline = Date.now() + 60_000;
+            while (!cancelled && (!fs.existsSync(gate) || Number(fs.readFileSync(gate, 'utf8')) < stage)) {
+              if (Date.now() >= deadline) throw new Error('Table link fixture timed out');
+              await new Promise(resolve => setTimeout(resolve, 40));
+            }
+          }
+          if (cancelled) return { stopReason: 'cancelled' };
+          await client.sessionUpdate({ sessionId: params.sessionId, update: {
+            sessionUpdate: 'agent_message_chunk', messageId: 'table-links',
+            content: { type: 'text', text: chunks[stage]! }, _meta: { codex: { phase: 'final_answer' } },
+          } });
+          fs.writeFileSync(gate + '.ack', String(stage));
+        }
+        return { stopReason: 'end_turn' };
+      } finally { cancelledSessions.delete(params.sessionId); }
+    }
     if (promptText === 'streaming code copy') {
       const gate = path.join(process.cwd(), '.code-copy-finish');
       let cancelled = false;

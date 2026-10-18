@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { unified } from 'unified'
 import remarkParse from 'remark-parse'
 import remarkMath from 'remark-math'
+import remarkGfm from 'remark-gfm'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import ReactMarkdown from 'react-markdown'
@@ -29,6 +30,24 @@ async function main() {
       }
     }
   }
+  const renderLinks = (source: string, phase: 'streaming' | 'settled' | 'interrupted' = 'streaming') => renderToStaticMarkup(createElement(ReactMarkdown, {
+    children: source, remarkPlugins: [remarkGfm, [remarkStreamingContent, { phase }]],
+  }))
+  const table = '| Table | Time |\n| --- | --- |\n| sales | [12 s](https://example.com/done) |\n| customer | '
+  const link = '[34.44 s](https://example.com/logview?query=' + 'x'.repeat(180) + ')'
+  for (let length = link.indexOf('(') + 1; length < link.length; length++) {
+    assert.equal(renderLinks(table + link.slice(0, length)), renderLinks(table), `pending URL prefix ${length}`)
+  }
+  assert(renderLinks(table + link).includes('>34.44 s</a>'))
+  for (const phase of ['settled', 'interrupted'] as const) assert(renderLinks(table + link.slice(0, -1), phase).includes('query='))
+  for (const pending of ['[**label**](https://example.com/path', '[label](https://example.com/a(b)', '[label](<https://example.com/a)', '[label](https://example.com "title)', '![image](https://example.com/image']) {
+    assert.equal(renderLinks('prefix ' + pending), '<p>prefix </p>', pending)
+  }
+  for (const literal of ['`[label](https://example.com`', '**`[label](https://example.com`**', '\\[label](https://example.com', '[label](https://example.com/a(b))', '[label](https://example.com "title")', '[ordinary text]', 'https://example.com']) {
+    assert.equal(renderLinks(literal), renderLinks(literal, 'settled'), literal)
+  }
+  assert.equal(renderLinks('A &amp; B [a &amp; b](https://example.com'), '<p>A &amp; B </p>')
+  assert.equal(renderLinks('[done](https://example.com) then [pending](https://example.com'), '<p><a href="https://example.com">done</a> then </p>')
   const render = (source: string, pending: boolean) => renderToStaticMarkup(createElement(ReactMarkdown, {
     children: source, remarkPlugins: [remarkMath], rehypePlugins: [[rehypeGuardInvalidKatex, { pending }], rehypeKatex],
   }))

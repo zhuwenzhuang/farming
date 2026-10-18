@@ -317,7 +317,11 @@ remain visibly distinct. Startup is not an active Turn.
 
 Rich content uses safe Markdown and bounded media/render paths. Source is preserved;
 untrusted HTML does not execute. Streaming, settled and interrupted content have
-explicit states. Only the current render revision may publish; failure has a
+explicit states. During streaming, inline links and images with an opened destination
+remain hidden until the destination closes, including inside table cells; growing
+URLs must not affect table width. Settlement or interruption reveals any unfinished
+source. Code spans and completed links retain normal Markdown behavior.
+Only the current render revision may publish; failure has a
 bounded render-only Retry. Viewers preserve reading/zoom intent and share focus,
 Escape and background-isolation rules. Render retries never replay Agent work.
 
