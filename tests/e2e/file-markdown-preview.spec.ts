@@ -742,6 +742,16 @@ test('reuses the existing Agent Chat beside a file', async ({ page, workspaceRoo
   })
   expect(response.ok()).toBeTruthy()
   const { agentId } = await response.json() as { agentId: string }
+  // This case owns pane reuse, not startup: let the real runtime finish its
+  // initial revision changes before counting reads of the settled fixture.
+  await expect.poll(async () => {
+    const sessionResponse = await page.request.get(
+      `/farming/api/agents/${encodeURIComponent(agentId)}/acp-session?includeEntries=0`,
+    )
+    if (!sessionResponse.ok()) return null
+    const payload = await sessionResponse.json() as { session?: { state?: string } }
+    return payload.session?.state
+  }).toBe('idle')
   const identityResponse = await page.request.get(
     `/farming/api/agents/${encodeURIComponent(agentId)}/acp-transcript?maxTurns=5&media=external-v1`,
   )
@@ -795,8 +805,8 @@ test('reuses the existing Agent Chat beside a file', async ({ page, workspaceRoo
   await page.route(new RegExp(`/farming/api/agents/${agentId}/acp-session(?:\\?includeEntries=0)?$`), async route => {
     await route.fulfill({ json: { session: {
       provider: 'codex',
-      sessionId: 'file-agent-chat-side-panel-session',
-      state: 'ready',
+      sessionId: identity.sessionId,
+      state: 'idle',
       error: '',
       stopReason: '',
       availableCommands: [],
