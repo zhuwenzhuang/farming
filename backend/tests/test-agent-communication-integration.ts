@@ -197,7 +197,12 @@ for (const provider of ['claude', 'codex', 'opencode', 'pi', 'qoder', 'qwen', 'a
     finally {
       facade.disconnect();
       try { await host.dispose(); }
-      finally { await fs.rm(root, { recursive: true, force: true }); }
+      finally {
+        // The fixture owns this directory and the asynchronous metadata writer.
+        // Finish its writes before removing the Session files beneath it.
+        try { await manager.sessionPersistence.flushState(); }
+        finally { await fs.rm(root, { recursive: true, force: true }); }
+      }
     }
   }
 });
