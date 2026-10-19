@@ -310,6 +310,7 @@ interface ForkOrigin {
 
 interface ModelChange extends Omit<ForkOrigin, 'sourceSessionId'> {
   id: string;
+  phase: 'pending' | 'applied';
   from: { id: string; name: string };
   to: { id: string; name: string };
 }
@@ -528,7 +529,7 @@ class AcpSessionState {
     if (turns.length === 0) return false;
     const prefix = this.boundaryPrefixHash(turns);
     const pending = this.modelChanges.at(-1);
-    if (pending?.userTurnCount === turns.length && pending.userPrefixHash === prefix) {
+    if (pending?.phase === 'pending') {
       pending.to = clone(to);
       if (pending.from.id === to.id) {
         this.modelChanges.pop();
@@ -538,7 +539,7 @@ class AcpSessionState {
       return true;
     }
     const change: ModelChange = {
-      id: this.nextEntryId('model-change'), from: clone(from), to: clone(to),
+      id: this.nextEntryId('model-change'), phase: 'pending', from: clone(from), to: clone(to),
       userTurnCount: turns.length, userPrefixHash: prefix,
     };
     this.modelChanges.push(change);
@@ -560,19 +561,23 @@ class AcpSessionState {
         || !Number.isSafeInteger(change.userTurnCount) || Number(change.userTurnCount) < 0
         || typeof change.userPrefixHash !== 'string') continue;
       const restored = clone(change) as ModelChange;
+      const anchor = this.resolveHistoryAnchor(restored);
+      // Older checkpoints did not distinguish pending choices from history.
+      // Preserve their unavailable historical boundaries; infer pending only
+      // when the complete prefix proves that no subsequent input was admitted.
+      restored.phase = change.phase === 'pending' || change.phase === 'applied'
+        ? change.phase
+        : anchor.status === 'ready' && restored.userTurnCount === this.boundaryUserTurns().length
+          ? 'pending' : 'applied';
       this.modelChanges.push(restored);
-      this.modelChangeAnchors.set(restored.id, this.resolveHistoryAnchor(restored));
+      this.modelChangeAnchors.set(restored.id, anchor);
       this.entryIds.add(restored.id);
     }
   }
 
   private modelChangesSnapshot() {
     if (this.modelChanges.length === 0) return [];
-    const turnCount = this.boundaryUserTurns().length;
-    return this.modelChanges.filter(change => change.userTurnCount > 0 && (
-      this.modelChangeAnchors.get(change.id)?.status === 'unavailable'
-      || change.userTurnCount < turnCount
-    )).map(change => ({
+    return this.modelChanges.filter(change => change.userTurnCount > 0 && change.phase === 'applied').map(change => ({
       id: change.id, from: clone(change.from), to: clone(change.to),
       ...this.modelChangeAnchors.get(change.id),
     }));
@@ -600,10 +605,15 @@ class AcpSessionState {
   readonly pendingQuestionEntries = new Map<string, AcpEntry>();
 
   pushEntry(entry: AcpEntry): AcpEntry {
+    const pending = this.modelChanges.at(-1);
+    const previousTurnCount = pending?.phase === 'pending' ? this.boundaryUserTurns().length : -1;
     if (entry.type === 'question' && entry.status === 'pending') this.pendingQuestionEntries.set(String(entry.id), entry);
     this.entryIds.add(String(entry.id));
     this.touchEntry(entry);
     this.entries.push(entry);
+    if (pending?.phase === 'pending' && this.boundaryUserTurns().length > previousTurnCount) {
+      pending.phase = 'applied';
+    }
     return entry;
   }
 

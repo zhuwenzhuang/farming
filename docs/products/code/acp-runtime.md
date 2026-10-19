@@ -60,7 +60,8 @@ before subsequent input; only a confirmed applied model change creates a durable
 transcript boundary. Initial model selection before the first input creates no
 boundary. Later changes remain pending until the next input is sent; selections
 between inputs coalesce into one boundary, and reverting to the previous model
-removes it.
+removes it. Pending/applied state is checkpointed independently of history anchors;
+compaction or incomplete replay cannot turn an unused choice into applied history.
 
 Authentication required before the first Session keeps the initialized connection
 and visible Agent when sign-in methods exist. Prompts remain disabled until the
