@@ -8,9 +8,15 @@ import type {
 import type { AcpConfigChange } from './agent-manager-provider-types.js';
 import { agentAttentionUnread } from './agent-attention.cjs';
 import { finiteOrder } from './agent-order.cjs';
+import { legacyRuntimeMetadata } from './agent-runtime-binding.cjs';
 import type { AcpSessionOptionsStore } from './acp-session-options-store.cjs';
 
 type AgentSessionPersistenceConfig = {
+  persistAgentStatePatch?(
+    agent: AgentRecord,
+    patch: Record<string, unknown>,
+    options: { beforeCommit: () => boolean },
+  ): Promise<{ status: string }>;
   ensureAgentSessionRecord?(
     agent: AgentRecord,
     patch: Partial<PersistedAgentPrivateMetadata>,
@@ -54,6 +60,9 @@ function setAgentRecordId(agent: AgentRecord, recordId: unknown): void {
 
 class AgentSessionPersistenceService {
   private readonly options: AgentSessionPersistenceOptions;
+  private readonly pendingState = new Map<string, { agent: AgentRecord }>();
+  private stateTimer: ReturnType<typeof setTimeout> | null = null;
+  private stateDrain: Promise<void> | null = null;
 
   constructor(options: AgentSessionPersistenceOptions) {
     this.options = options;
@@ -61,6 +70,70 @@ class AgentSessionPersistenceService {
 
   isRequired(): boolean {
     return typeof this.options.config?.ensureAgentSessionRecord === 'function';
+  }
+
+  // One latest snapshot per Agent, one asynchronous writer. Runtime memory is
+  // authoritative; failures never roll back delivery or trigger a message replay.
+  scheduleState(agent: AgentRecord): void {
+    if (!this.options.config?.persistAgentStatePatch) return;
+    this.pendingState.set(agent.id, { agent });
+    if (this.stateTimer || this.stateDrain) return;
+    this.stateTimer = setTimeout(() => {
+      this.stateTimer = null;
+      void this.flushState();
+    }, 250);
+    this.stateTimer.unref?.();
+  }
+
+  async flushState(): Promise<void> {
+    if (this.stateTimer) clearTimeout(this.stateTimer);
+    this.stateTimer = null;
+    if (this.stateDrain) return this.stateDrain;
+    const drain = async () => {
+      for (const [id, entry] of this.pendingState) {
+        const { agent } = entry;
+        const current = () => this.options.getAgent(id) === agent && this.pendingState.get(id) === entry;
+        try {
+          if (current()) {
+            const result = await this.options.config!.persistAgentStatePatch!(agent, {
+              ...legacyRuntimeMetadata(agent),
+              attentionSeq: agent.attentionSeq,
+              readAttentionSeq: agent.readAttentionSeq,
+              attentionUpdatedAt: agent.attentionUpdatedAt,
+              readAttentionAt: agent.readAttentionAt,
+              attentionReason: agent.attentionReason,
+              attentionOutputEpoch: agent.attentionOutputEpoch,
+              attentionOutputSeq: agent.attentionOutputSeq,
+              readOutputEpoch: agent.readOutputEpoch,
+              readOutputSeq: agent.readOutputSeq,
+              unread: agentAttentionUnread(agent),
+              chatTurn: agent.chatTurn,
+              composerCommands: agent.composerCommands,
+              providerSessionMaterialized: agent.providerSessionMaterialized,
+              lastActivityAt: agent.lastActivityAt,
+              terminalInputReceived: agent.terminalInputReceived,
+              structuredRuntimeProcess: agent.structuredRuntimeProcess,
+              subagentRetained: agent.subagentRetained,
+              subagentSupervisionExpiresAt: agent.subagentSupervisionExpiresAt,
+            }, { beforeCommit: current });
+            if (result.status !== 'committed' && result.status !== 'fenced') {
+              console.warn(`Agent metadata snapshot rejected: ${result.status}`);
+            }
+          }
+        } catch (error) {
+          console.warn('Failed to save Agent metadata snapshot:', error instanceof Error ? error.message : String(error));
+        }
+        if (this.pendingState.get(id) === entry) this.pendingState.delete(id);
+      }
+    };
+    this.stateDrain = drain();
+    try { await this.stateDrain; }
+    finally {
+      this.stateDrain = null;
+      // A superseding entry for an already visited key needs another drain.
+      const next = this.pendingState.values().next().value;
+      if (next) this.scheduleState(next.agent);
+    }
   }
 
   persist(
@@ -82,6 +155,9 @@ class AgentSessionPersistenceService {
       } : {}),
       ...patch,
     });
+    // A durable structural commit supersedes any older background snapshot,
+    // including one already waiting on disk. Failed commits keep the queue.
+    this.pendingState.delete(agent.id);
     if (agentRecordId) setAgentRecordId(agent, agentRecordId);
     if (
       agentRecordId

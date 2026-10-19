@@ -1,3 +1,4 @@
+import { FarmingSessionStore } from '../farming-session-store.cjs';
 import { runCommunicationCommand } from '../agent-communication-cli.cts';
 const assert = require('assert');
 const fs = require('fs');
@@ -181,7 +182,7 @@ function persistedAgentRecord(configDir: string, agentId: string): UnknownRecord
   if (!fs.existsSync(sessionsDir)) return null;
   for (const entry of fs.readdirSync(sessionsDir, { withFileTypes: true })) {
     if (!entry.isFile() || !/^agent_[A-Za-z0-9_-]+\.json$/.test(entry.name)) continue;
-    const parsed: unknown = JSON.parse(fs.readFileSync(path.join(sessionsDir, entry.name), 'utf8'));
+    const parsed: unknown = new FarmingSessionStore(configDir).readRecord(entry.name.slice(0, -5));
     const record = isRecord(parsed) ? parsed : {};
     if (String(record.runtimeAgentId || '') === agentId) return record;
   }

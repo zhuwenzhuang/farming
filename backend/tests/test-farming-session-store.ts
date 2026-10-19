@@ -115,7 +115,9 @@ function run() {
   assert.strictEqual(temporaryRecord.projectOrder, 4096);
   assert.strictEqual(temporaryRecord.pinnedOrder, 2048);
   assert.strictEqual(store.readRecord(tempRecordId).lastActivityAt, 1_700_000_000_000);
-  assert.strictEqual(temporaryRecord.terminalInputReceived, true);
+  assert.strictEqual(temporaryRecord.terminalInputReceived, undefined);
+  assert.strictEqual(store.readRecord(tempRecordId).terminalInputReceived, true,
+    'runtime input markers recover from the asynchronous state record');
   assert.deepStrictEqual(temporaryRecord.terminalIdentityProbe, { runtimeEpoch: 'identity-epoch', phase: 'attempted' },
     'uncertain identity attempts must survive a fresh store read so Server recovery never replays them');
   assert.strictEqual(temporaryRecord.wantsMain, true);

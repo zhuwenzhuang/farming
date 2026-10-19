@@ -300,12 +300,6 @@ interface ProviderSessionIdentity extends UnknownRecord {
   provider?: string; executable?: string; env?: NodeJS.ProcessEnv; cwd?: string;
   sessionId?: string; producerStopped?: boolean;
 }
-interface SavedCheckpoint {
-  state?: unknown;
-  exact?: boolean;
-  savedAt?: number;
-  proof?: UnknownRecord & { token?: string; cwd?: string };
-}
 interface JsonSchemaProperty extends UnknownRecord {
   type?: string; minLength?: number; maxLength?: number; pattern?: string;
   minimum?: number; maximum?: number; minItems?: number; maxItems?: number;
@@ -1681,7 +1675,7 @@ class AcpRuntime extends EventEmitter {
 
   async prepareAgent(
     options: PrepareAgentOptions = {},
-    internal: { reconnectReservation?: number } = {},
+    internal: { reconnectReservation?: number; recoveryCheckpoint?: AcpCheckpoint } = {},
   ) {
     if (this.disposing || this.disposed) {
       throw new Error('ACP runtime is shutting down');
@@ -1856,7 +1850,7 @@ class AcpRuntime extends EventEmitter {
         const saved = await this.checkpointStore.load(this.checkpointIdentity(binding, requestedSessionId), { allowDirty: true });
         this.requireOpenBinding(binding);
         const restored = this.restoreBindingCheckpoint(binding, recordValue(saved?.state) as AcpCheckpoint, { sessionId: requestedSessionId });
-        if (!restored) throw new Error('Retained session checkpoint is unavailable');
+        if (!restored || recordValue(saved?.state).metadataOnly === true) throw new Error('Retained session checkpoint is unavailable');
         binding.sessionId = requestedSessionId;
         binding.sessionState = restored.sessionState;
         binding.subagentStates = restored.subagentStates;
@@ -1978,12 +1972,12 @@ class AcpRuntime extends EventEmitter {
           let opened = false;
           let restoredCheckpointState = null;
           let restoredCheckpoint = null;
-          let saved = null;
+          let saved: { state: unknown } | null = internal.recoveryCheckpoint ? { state: internal.recoveryCheckpoint } : null;
           let savedForkOrigin: unknown = null;
           let savedModelChanges: unknown = null;
           let savedInputCheckpoint: unknown = null;
-          if (this.checkpointStore) {
-            saved = await this.checkpointStore.load(
+          if (this.checkpointStore || saved) {
+            if (!saved && this.checkpointStore) saved = await this.checkpointStore.load(
               this.checkpointIdentity(binding, requestedSessionId),
               { allowDirty: true },
             );
@@ -1992,7 +1986,7 @@ class AcpRuntime extends EventEmitter {
             savedForkOrigin = recordValue(checkpoint.version === 2 ? checkpoint.sessionState : checkpoint).forkOrigin;
             savedModelChanges = recordValue(checkpoint.version === 2 ? checkpoint.sessionState : checkpoint).modelChanges;
             savedInputCheckpoint = checkpoint.version === 2 ? checkpoint.sessionState : checkpoint;
-            if (!saved && options.forkOriginSessionId) {
+            if (!saved && options.forkOriginSessionId && this.checkpointStore) {
               const source = await this.checkpointStore.load(
                 this.checkpointIdentity(binding, options.forkOriginSessionId), { allowDirty: true },
               );
@@ -2011,34 +2005,6 @@ class AcpRuntime extends EventEmitter {
                 binding.deferredConfigChanges = restoredCheckpoint.deferredConfigChanges;
               }
               binding.deferredModeId = String(restoredCheckpoint?.deferredModeId || '');
-            }
-          }
-          if (capabilities.sessionCapabilities?.resume && restoredCheckpoint) {
-            const providerStateMatches = restoredCheckpoint?.complete === true && saved?.exact === true
-              ? await this.checkpointMatchesProviderSession(connection, capabilities, sessionRequest, saved)
-              : false;
-            this.requireOpenBinding(binding);
-            if (providerStateMatches && restoredCheckpointState) {
-              binding.sessionId = requestedSessionId;
-              binding.sessionState = restoredCheckpointState;
-              binding.subagentStates = restoredCheckpoint.subagentStates;
-              this.resetSubagentControls(binding);
-              binding.patchDecisions = restoredCheckpoint.patchDecisions;
-              binding.checkpointProof = restoredCheckpoint.providerProof;
-              try {
-                sessionResponse = await withTimeout(
-                  connection.resumeSession(sessionRequest),
-                  this.sessionSetupTimeoutMs,
-                  'ACP session/resume'
-                );
-                this.requireOpenBinding(binding);
-                historyMode = 'checkpoint';
-                opened = true;
-              } catch (error) {
-                this.requireOpenBinding(binding);
-                if (!capabilities.loadSession) throw error;
-                console.warn(`ACP checkpoint resume failed for ${provider}; replaying history:`, asErrorLike(error).message || error);
-              }
             }
           }
           if (!opened && options.historyMode !== 'resume' && capabilities.loadSession) {
@@ -2840,23 +2806,30 @@ class AcpRuntime extends EventEmitter {
     // token. A timestamp/list check has a TOCTOU window, so runtime snapshots
     // remain dirty and are used only as revision/reset fences. Full history
     // load is the authoritative recovery path until such a proof is available.
-    this.checkpointStore.schedule(identity, this.bindingCheckpoint(binding), { exact: false });
-  }
-
-  async markCheckpointDirty(binding: AcpBinding) {
-    this.requireOpenBinding(binding);
-    const identity = this.checkpointIdentity(binding);
-    if (!this.checkpointStore || !identity) return;
-    await this.checkpointStore.markDirty(identity);
-    this.requireOpenBinding(binding);
+    this.checkpointStore.schedule(identity, this.recoveryCheckpoint(binding), { exact: false });
   }
 
   async writeCheckpoint(binding: AcpBinding, _options: PrepareAgentOptions = {}) {
     this.requireOpenBinding(binding);
     const identity = this.checkpointIdentity(binding);
     if (!this.checkpointStore || !identity || !binding.sessionState) return;
-    await this.checkpointStore.write(identity, this.bindingCheckpoint(binding), { exact: false });
+    await this.checkpointStore.write(identity, this.recoveryCheckpoint(binding), { exact: false });
     this.requireOpenBinding(binding);
+  }
+
+  recoveryCheckpoint(binding: AcpBinding) {
+    return {
+      exportCheckpoint: () => ({
+        version: 2, complete: false, metadataOnly: true,
+        sessionState: binding.sessionState?.exportRecoveryCheckpoint(
+          providerAcpHistoryReplayPolicy(binding.provider)?.restoreMissingCheckpointMedia === true,
+        ) || null,
+        subagentStates: [],
+        patchDecisions: [...binding.patchDecisions.entries()],
+        deferredConfigChanges: [...binding.deferredConfigChanges.entries()].map(([id, change]) => [id, clone(change.value)]),
+        deferredModeId: binding.deferredModeId,
+      }),
+    };
   }
 
   bindingCheckpoint(binding: AcpBinding) {
@@ -2979,38 +2952,6 @@ class AcpRuntime extends EventEmitter {
         [requestedPath]: decision,
       };
     }
-  }
-
-  async checkpointMatchesProviderSession(connection: AcpConnection, capabilities: InitializeResponse['agentCapabilities'] = {}, request: UnknownRecord, saved: SavedCheckpoint) {
-    const proof = recordValue(recordValue(saved?.state).providerProof);
-    if (
-      !capabilities?.sessionCapabilities?.list
-      || !proof
-      || typeof proof.token !== 'string'
-      || !proof.token
-    ) return false;
-    let cursor = '';
-    try {
-      for (let page = 0; page < 10; page += 1) {
-        const response = await withTimeout(connection.listSessions({
-          cwd: request.cwd,
-          ...(cursor ? { cursor } : {}),
-        }), this.requestTimeoutMs, 'ACP session/list checkpoint validation');
-        const session = (response?.sessions || []).find(item => item?.sessionId === request.sessionId);
-        if (session) {
-          const sessionCwd = path.resolve(String(session.cwd || ''));
-          const token = String(session?._meta?.checkpointRevision || session?.checkpointRevision || '');
-          return sessionCwd === path.resolve(request.cwd)
-            && token === proof.token
-            && path.resolve(String(proof.cwd || '')) === path.resolve(request.cwd);
-        }
-        cursor = String(response?.nextCursor || '');
-        if (!cursor) return false;
-      }
-    } catch (error) {
-      console.warn('Failed to validate ACP checkpoint against provider session metadata:', asErrorLike(error).message || error);
-    }
-    return false;
   }
 
   async officialConnection(handlers: AcpClientHandlers, child: import('child_process').ChildProcessWithoutNullStreams): Promise<AcpConnection> {
@@ -3515,7 +3456,6 @@ class AcpRuntime extends EventEmitter {
         throw new Error('ACP prompt was cancelled before submission');
       }
       this.requireSavedSessionModel(binding);
-      await withTimeout(this.markCheckpointDirty(binding), this.admissionRemaining(options), 'Chat durable admission fence');
       this.admissionRemaining(options);
       if (!this.isCurrentTurn(binding, turn) || turn.phase !== 'admitting') {
         throw new Error('ACP prompt was cancelled before submission');
@@ -3667,7 +3607,6 @@ class AcpRuntime extends EventEmitter {
       if (options.admissionDeadline !== undefined) this.admissionRemaining(options);
       this.requireCurrentTurn(binding, turn, ['running']);
       if (turn.providerSettled) throw new Error('No active ACP turn to steer');
-      await this.markCheckpointDirty(binding);
       this.requireCurrentTurn(binding, turn, ['running']);
       if (turn.providerSettled) throw new Error('No active ACP turn to steer');
       this.requireSavedSessionModel(binding);
@@ -4251,10 +4190,9 @@ class AcpRuntime extends EventEmitter {
     this.emitRuntime(binding);
     let oldProcessStopped = false;
     try {
-      const identity = this.checkpointIdentity(binding);
-      if (this.checkpointStore && identity && binding.sessionState) {
-        await this.checkpointStore.write(identity, this.bindingCheckpoint(binding), { exact: false });
-      }
+      // The exact old binding already owns the recovery metadata. Transfer it
+      // in memory instead of writing and reading it back on the next send.
+      const recoveryCheckpoint = this.recoveryCheckpoint(binding).exportCheckpoint();
       if (!this.isCurrentBinding(binding)) {
         throw new Error('ACP Agent binding changed before reconnect');
       }
@@ -4262,7 +4200,7 @@ class AcpRuntime extends EventEmitter {
       if (!oldProcessStopped) throw new Error('ACP Agent reconnect could not stop the previous process');
       if (typeof options.onProcessStopped === 'function') await options.onProcessStopped();
       restartOptions = await this.refreshRuntimeMcpServers(binding, restartOptions);
-      const prepared = await this.prepareAgent(restartOptions, { reconnectReservation });
+      const prepared = await this.prepareAgent(restartOptions, { reconnectReservation, recoveryCheckpoint });
       return { reconnected: true, ...prepared };
     } catch (error) {
       const failure = asErrorLike(error);
@@ -4451,20 +4389,9 @@ class AcpRuntime extends EventEmitter {
       throw new Error(`ACP Agent did not advertise mode ${normalizedModeId}`);
     }
     if (binding.activeTurn || binding.deferredConfigFlush) {
-      const previousModeId = binding.deferredModeId;
-      const previousGeneration = binding.deferredModeGeneration;
-      const generation = binding.deferredModeGeneration + 1;
-      binding.deferredModeGeneration = generation;
+      binding.deferredModeGeneration += 1;
       binding.deferredModeId = normalizedModeId;
-      try {
-        await this.writeCheckpoint(binding);
-      } catch (error) {
-        if (binding.deferredModeGeneration === generation) {
-          binding.deferredModeGeneration = previousGeneration;
-          binding.deferredModeId = previousModeId;
-        }
-        throw error;
-      }
+      this.scheduleCheckpoint(binding);
       binding.updatedAt = new Date().toISOString();
       this.emitRuntime(binding);
       return {
@@ -4723,22 +4650,8 @@ class AcpRuntime extends EventEmitter {
       this.requireSessionConfigOption(binding, change.configId, change.value);
     }
     const accepted = normalized.map(change => ({ configId: change.configId, value: change.value }));
-    const previous = new Map<string, SessionConfigChange | undefined>();
-    for (const change of accepted) {
-      if (!previous.has(change.configId)) previous.set(change.configId, binding.deferredConfigChanges.get(change.configId));
-      binding.deferredConfigChanges.set(change.configId, change);
-    }
-    try {
-      await this.writeCheckpoint(binding);
-    } catch (error) {
-      for (const change of accepted) {
-        if (binding.deferredConfigChanges.get(change.configId) !== change) continue;
-        const previousChange = previous.get(change.configId);
-        if (previousChange) binding.deferredConfigChanges.set(change.configId, previousChange);
-        else binding.deferredConfigChanges.delete(change.configId);
-      }
-      throw error;
-    }
+    for (const change of accepted) binding.deferredConfigChanges.set(change.configId, change);
+    this.scheduleCheckpoint(binding);
     binding.updatedAt = new Date().toISOString();
     this.emitRuntime(binding);
     return {
@@ -5122,7 +5035,7 @@ class AcpRuntime extends EventEmitter {
     if (committed) {
       if (committed !== expectedAction) throw new Error('ACP patch file already has a different decision');
       const operation = (async () => {
-        await this.writeCheckpoint(binding, { exact: true });
+        this.scheduleCheckpoint(binding);
         return {
           action: committed,
           path: String(requestedPath || ''),
@@ -5153,7 +5066,7 @@ class AcpRuntime extends EventEmitter {
       };
       binding.sessionState?.touchEntry(entry);
       binding.updatedAt = new Date().toISOString();
-      await this.writeCheckpoint(binding, { exact: true });
+      this.scheduleCheckpoint(binding);
       this.emitSession(binding);
       return { ...result, toolCallId: String(toolCallId || '') };
     })();

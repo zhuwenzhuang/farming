@@ -35,15 +35,20 @@ new editable copy that could accidentally be sent twice.
 
 Reloaded outbox items require explicit reconciliation, including items formerly
 shown as queued: a checkpoint may predate dispatch. Reconciliation only queries the
-original request ID. An accepted request returns its saved result; durable intent,
+original request ID. An accepted request returns its known result; recovered intent,
 unknown effects and missing records remain unresolved and are never replayed.
 Completed admission records have bounded retention, so absence is not proof of
 zero effect. Restored follow-up queues use the same conservative recovery rule. Late definitive acknowledgements reconcile the
 exact retained item without touching newer drafts. Runtime changes, shared
 panes and queue flushes cannot bypass the per-composer in-flight admission.
 
-The backend still persists intent before dispatch and the accepted result before
-acknowledgement. UI responsiveness does not weaken either durability fence.
+Message submission and acknowledgement never wait for persistence. Runtime memory
+owns request identity, ordering and admission outcomes; the provider submission
+callback confirms acceptance. Small recovery metadata snapshots are coalesced and
+written asynchronously, with no synchronous fallback on the send path. Snapshot
+failure cannot downgrade acceptance or permit a duplicate delivery. Abrupt process
+loss can leave an older or missing snapshot; reconciliation remains conservative
+and never treats missing evidence as permission to replay.
 
 An explicit Chat send follows the latest transcript immediately, including while acknowledgement is pending. The jump-to-latest control appears only after the reader scrolls away from the latest content and sits at the bottom of the transcript viewport on compact layouts.
 

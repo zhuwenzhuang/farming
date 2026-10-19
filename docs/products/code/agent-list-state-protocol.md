@@ -267,6 +267,16 @@ read cursors. The persisted `unread` projection must be rewritten from those
 cursors whenever Agent state is persisted; an older contradictory boolean must
 not reappear during startup or while a runtime is still pending.
 
+Read acknowledgements and attention events commit to the current runtime record
+and publish their existing narrow delta without waiting for disk. A coalesced
+background snapshot saves the complete attention/read cursor tuple, including
+output epochs; stale read requests retain the existing epoch and sequence guards.
+Snapshots are fenced by runtime ownership and newer transitions. A successful
+structural commit supersedes queued snapshots; a failed one preserves live state.
+An abrupt stop may lose unflushed attention changes, so recovery derives Unread
+from the last committed cursors. This does not weaken durable lifecycle intents,
+ordering, or structural flag updates.
+
 ## Shell activity and attention
 
 Code's shared row-status presentation delays the running indicator for an

@@ -59,16 +59,14 @@ export interface ComposerDeliveryOwner {
 export interface AgentComposerAdmissionPorts {
   captureDeliveryOwner(agent: AgentRecord): ComposerDeliveryOwner;
   deliver(request: ComposerDeliveryRequest): Promise<unknown>;
-  persistAgent(agent: AgentRecord): string;
-  persistCommands?(agent: AgentRecord, commands: ComposerCommandRecord[]): Promise<string>;
-  persistenceRequired(): boolean;
+  schedulePersistence(agent: AgentRecord): void;
   runtimeKind(agent: AgentRecord): ComposerRuntimeKind;
 }
 
 export type ComposerExecutionOutcome = { result: unknown; error?: never } | { result?: never; error: unknown };
 
 export interface AgentComposerAdmissionRequest {
-  /** Observes exact execution settlement separately from durable input admission. */
+  /** Observes exact execution settlement separately from input admission. */
   onExecutionSettled?: (outcome: ComposerExecutionOutcome) => void;
   /** Server-authenticated provenance, never copied from prompt metadata. */
   peerMessage?: AcpPeerMessage;
@@ -185,7 +183,6 @@ interface ComposerAdmissionEntry {
 export class AgentComposerAdmissionCoordinator {
   readonly #admissions = new Map<string, Map<string, ComposerAdmissionEntry>>();
   readonly #ports: AgentComposerAdmissionPorts;
-  readonly #commits = new Map<string, Promise<unknown>>();
 
   constructor(ports: AgentComposerAdmissionPorts) {
     this.#ports = ports;
@@ -245,7 +242,6 @@ export class AgentComposerAdmissionCoordinator {
           updatedAt: Date.now(),
         };
         this.#remember(agent, unknown);
-        void this.#commit(agent, unknown).catch(() => {});
       }
       return Promise.reject(composerAdmissionError(detail, true));
     }
@@ -293,7 +289,7 @@ export class AgentComposerAdmissionCoordinator {
       if (Date.now() >= admissionDeadline) throw Object.assign(new Error('Chat admission expired before dispatch; the message was not sent'), { composerZeroEffect: true });
     };
     let outcome: 'pending' | 'submitted' | 'failed' = 'pending';
-    let intentDurable = false;
+    this.#remember(agent, intent);
     const deadlineTimer = setTimeout(() => {
       if (outcome !== 'pending') return;
       this.phase(agent.id, requestId, 'unknown');
@@ -324,31 +320,14 @@ export class AgentComposerAdmissionCoordinator {
         result: submission,
         updatedAt: Date.now(),
       };
-      try {
-        await this.#commit(agent, accepted);
-        this.phase(agent.id, requestId, 'submitted');
-        resolveAdmission({ ...submission, accepted: true });
-      } catch (error) {
-        const unknown: ComposerCommandRecord = {
-          ...intent,
-          state: 'unknown',
-          error: `Provider accepted Composer request, but admission could not be saved: ${this.#errorMessage(error)}`,
-          updatedAt: Date.now(),
-        };
-        this.#remember(agent, unknown);
-        rejectAdmission(composerAdmissionError(unknown.error, true));
-      }
+      this.#remember(agent, accepted);
+      this.phase(agent.id, requestId, 'submitted');
+      resolveAdmission({ ...submission, accepted: true });
     };
 
     const onSubmitted = (result?: unknown) => { confirmation = confirmSubmitted(result); };
     void Promise.resolve()
       .then(async () => {
-        assertAdmission();
-        try { await this.#commit(agent, intent); }
-        catch (error) {
-          throw new Error(`Failed to persist Composer intent: ${this.#errorMessage(error)}`, { cause: error });
-        }
-        intentDurable = true;
         assertAdmission();
         this.phase(agent.id, requestId, 'queued');
         return this.#ports.deliver({
@@ -384,20 +363,10 @@ export class AgentComposerAdmissionCoordinator {
           error: this.#errorMessage(error),
           updatedAt: Date.now(),
         };
-        let outcomeUncertain = uncertain;
-        if (recordExact && intentDurable) {
-          try {
-            await this.#commit(agent, failed);
-          } catch (persistError) {
-            failed.state = 'unknown';
-            failed.error = `${failed.error}; failed to persist rejection: ${this.#errorMessage(persistError)}`;
-            this.#remember(agent, failed);
-            outcomeUncertain = true;
-          }
-        }
-        this.phase(agent.id, requestId, outcomeUncertain ? 'unknown' : 'failed', failed.error);
+        if (recordExact) this.#remember(agent, failed);
+        this.phase(agent.id, requestId, uncertain ? 'unknown' : 'failed', failed.error);
         if (agentAdmissions.get(requestId) === entry) agentAdmissions.delete(requestId);
-        rejectAdmission(composerAdmissionError(failed.error, outcomeUncertain));
+        rejectAdmission(composerAdmissionError(failed.error, uncertain));
       })
       .finally(() => { clearTimeout(deadlineTimer); settleCompletion(); });
     void completion.finally(() => {
@@ -438,38 +407,15 @@ export class AgentComposerAdmissionCoordinator {
     }
   }
 
-  #commit(agent: AgentRecord, command: ComposerCommandRecord): Promise<ComposerCommandRecord> {
-    const previous = this.#commits.get(agent.id) || Promise.resolve();
-    const write = previous.catch(() => {}).then(async () => {
-      const commands = normalizedComposerCommands([
-        ...normalizedComposerCommands(agent.composerCommands).filter(candidate => candidate.requestId !== command.requestId),
-        command,
-      ]);
-      const staged = { ...agent, composerCommands: commands };
-      const id = this.#ports.persistCommands
-        ? await this.#ports.persistCommands(agent, commands)
-        : this.#ports.persistAgent(staged);
-      if (this.#ports.persistenceRequired() && !id) throw new Error('Agent session store did not return a persistent id');
-      agent.composerCommands = commands;
-      if (staged.agentRecordId || staged.persistentSessionId || id) {
-        agent.agentRecordId = staged.agentRecordId || staged.persistentSessionId || id;
-        agent.persistentSessionId = agent.agentRecordId;
-      }
-      return command;
-    });
-    this.#commits.set(agent.id, write);
-    void write.finally(() => {
-      if (this.#commits.get(agent.id) === write) this.#commits.delete(agent.id);
-    }).catch(() => {});
-    return write;
-  }
-
   #remember(agent: AgentRecord, command: ComposerCommandRecord) {
     agent.composerCommands = normalizedComposerCommands([
       ...normalizedComposerCommands(agent.composerCommands)
         .filter(candidate => candidate.requestId !== command.requestId),
       command,
     ]);
+    // Disk snapshots are advisory; only provider evidence changes admission.
+    try { this.#ports.schedulePersistence(agent); }
+    catch (error) { console.warn('Failed to schedule Composer metadata:', this.#errorMessage(error)); }
   }
 
   #ownerFailure(owner: ComposerDeliveryOwner): unknown {

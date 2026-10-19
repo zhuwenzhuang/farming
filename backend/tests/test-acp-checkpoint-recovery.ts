@@ -8,12 +8,15 @@ const { AcpSessionState } = require('../acp-session-state.cjs');
 
 const fixture = path.join(__dirname, 'fixtures', 'fake-acp-agent.mts');
 
+const runtimes = [];
 function runtime(configDir) {
-  return new AcpRuntime({
+  const instance = new AcpRuntime({
     configDir,
     checkpointOptions: { writeDelayMs: 0 },
     resolveLaunch: () => ({ command: process.execPath, args: ['--import', require.resolve('tsx'), fixture], version: 'test' }),
   });
+  runtimes.push(instance);
+  return instance;
 }
 
 async function prepare(target, agentId, configDir, providerHomeId = 'default', provider = 'codex') {
@@ -127,19 +130,11 @@ async function run() {
     assert.strictEqual(restoredBinding.complete, false,
       'a snapshot without a provider conditional-resume proof must never be labeled exact');
 
-    const cwdMismatch = await warm.checkpointMatchesProviderSession({
-      async listSessions() {
-        return { sessions: [{
-          sessionId: binding.sessionId,
-          cwd: path.join(configDir, 'other-workspace'),
-          checkpointRevision: 'opaque-1',
-        }] };
-      },
-    }, { sessionCapabilities: { list: true } }, {
-      sessionId: binding.sessionId,
-      cwd: configDir,
-    }, { state: { providerProof: { token: 'opaque-1', cwd: configDir } } });
-    assert.strictEqual(cwdMismatch, false, 'provider workspace identity must match exactly');
+    const compact = warm.recoveryCheckpoint(binding).exportCheckpoint();
+    assert.deepStrictEqual(compact.sessionState.entries, [], 'ordinary native history must not be duplicated');
+    assert.deepStrictEqual(compact.subagentStates, [], 'native subagent output must not be duplicated');
+    assert.strictEqual(compact.metadataOnly, true);
+    assert.strictEqual(compact.patchDecisions.length, 1);
     await warm.dispose();
 
     const identity = {
@@ -195,6 +190,7 @@ async function run() {
     assert.strictEqual(isolated.historyMode, 'load', 'checkpoints must not cross Agent Home identities');
     await otherHome.dispose();
   } finally {
+    await Promise.allSettled(runtimes.map(instance => instance.dispose()));
     fs.rmSync(configDir, { recursive: true, force: true });
   }
   console.log('ACP checkpoint recovery tests passed');

@@ -112,11 +112,15 @@ async function run() {
     agent.agentRecordId = agent.persistentSessionId;
     manager.agents.set(agent.id, agent);
 
+    const ensureRecord = configManager.ensureAgentSessionRecord.bind(configManager);
+    configManager.ensureAgentSessionRecord = () => { throw new Error('send path attempted synchronous persistence'); };
     const accepted = await manager.sendComposerMessage(agent.id, 'persist this once', {
       requestId: 'composer-request-1',
     });
     assert.strictEqual(accepted.accepted, true);
     assert.strictEqual(submitCount, 1);
+    configManager.ensureAgentSessionRecord = ensureRecord;
+    await manager.sessionPersistence.flushState();
     const persistedAccepted = configManager.sessionStore.readRecord(agent.persistentSessionId)
       .composerCommands.find(command => command.requestId === 'composer-request-1');
     assert.strictEqual(persistedAccepted.state, 'accepted');
@@ -156,20 +160,14 @@ async function run() {
       }
       return persistAgentStatePatch(candidate, patch, options);
     };
-    await assert.rejects(
-      () => manager.sendComposerMessage(agent.id, 'uncertain admission', { requestId: 'composer-request-2' }),
-      error => error?.uncertain === true && /accepted admission write failure/.test(error.message),
-    );
+    const acceptedWithoutDisk = await manager.sendComposerMessage(agent.id, 'accepted admission', { requestId: 'composer-request-2' });
+    assert.strictEqual(acceptedWithoutDisk.accepted, true);
+    await manager.sessionPersistence.flushState();
     assert.strictEqual(submitCount, 3);
     configManager.persistAgentStatePatch = persistAgentStatePatch;
-    await assert.rejects(
-      () => manager.sendComposerMessage(agent.id, 'uncertain admission', { requestId: 'composer-request-2' }),
-      error => error?.uncertain === true && /admission could not be saved/.test(error.message),
-    );
-    assert.strictEqual(submitCount, 3, 'UNKNOWN admission must never replay automatically');
-    const persistedIntent = configManager.sessionStore.readRecord(agent.persistentSessionId)
-      .composerCommands.find(command => command.requestId === 'composer-request-2');
-    assert.strictEqual(persistedIntent.state, 'intent', 'the crash-safe disk state remains conservative when accepted persistence fails');
+    const replayWithoutDisk = await manager.sendComposerMessage(agent.id, 'accepted admission', { requestId: 'composer-request-2' });
+    assert.strictEqual(replayWithoutDisk.deduplicated, true);
+    assert.strictEqual(submitCount, 3, 'a failed snapshot cannot cause provider replay');
     releaseTurn();
 
     rejectUncertainBeforeSubmission = true;
@@ -180,6 +178,7 @@ async function run() {
       error => error?.uncertain === true,
     );
     assert.strictEqual(submittedPromptIds.at(-1), 'composer-request-host-crash');
+    await manager.sessionPersistence.flushState();
     const hostCrashUnknown = configManager.sessionStore.readRecord(agent.persistentSessionId)
       .composerCommands.find(command => command.requestId === 'composer-request-host-crash');
     assert.strictEqual(hostCrashUnknown.state, 'unknown');
@@ -200,6 +199,7 @@ async function run() {
       }),
       /connection closed before admission/,
     );
+    await manager.sessionPersistence.flushState();
     const persistedFailure = configManager.sessionStore.readRecord(agent.persistentSessionId)
       .composerCommands.find(command => command.requestId === 'composer-request-reconnect');
     assert.strictEqual(persistedFailure.state, 'failed');
@@ -225,6 +225,7 @@ async function run() {
       requestId: 'composer-request-host-recovery',
     });
     assert.strictEqual(acceptedAfterHostRecovery.accepted, true);
+    await manager.sessionPersistence.flushState();
     assert.strictEqual(
       configManager.sessionStore.readRecord(agent.persistentSessionId)
         .composerCommands.find(command => command.requestId === 'composer-request-host-recovery').state,
@@ -477,6 +478,7 @@ async function run() {
   } finally {
     releaseTurn();
     releaseSubmission();
+    await manager.sessionPersistence.flushState();
     await manager.dispose();
     fs.rmSync(root, { recursive: true, force: true });
   }

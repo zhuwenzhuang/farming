@@ -95,6 +95,13 @@ Farming 已绑定 Agent 的未读状态由单调 Attention Cursor 和 Read Curso
 Agent State 时，都必须从 Cursor 重新写入 `unread` Projection；旧版本留下的矛盾 Boolean
 不能在启动期间或 Runtime 尚未恢复时重新出现。
 
+Read 回执与 Attention 事件先提交到当前 Runtime 的内存记录，再发布原有的窄范围 Delta，
+不等待磁盘。后台合并快照保存完整的 Attention/Read Cursor 元组及 Output Epoch；旧回执
+继续受既有 Epoch 和 Sequence 校验约束。Runtime 所有权变化或更新的状态变更使旧快照失效。
+结构性操作成功提交后取代排队中的快照，失败则保留原有内存状态。强制停止可能丢失尚未
+刷盘的 Attention 变更，恢复时根据最近已提交的 Cursor 推导 Unread。这不改变生命周期
+意图、排序与结构性标记的持久化要求。
+
 ## Shell 活动与关注
 
 普通 Shell 的 Working 状态连续被观察到一秒后，Agent 行才显示运行指示器；完整行、窄栏

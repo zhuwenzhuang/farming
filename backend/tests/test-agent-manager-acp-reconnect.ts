@@ -8,7 +8,10 @@ async function run() {
     manager.agents = new Map([['agent', agent]]);
     manager.assertAgentOperationAdmission = () => {};
     manager.assertSubagentParentAvailable = () => {};
-    manager.sessionPersistence = { persist: () => {} };
+    manager.sessionPersistence = {
+      persist: () => { throw new Error('reconnect must not synchronously persist runtime state'); },
+      scheduleState: () => {},
+    };
     let bound = false;
     let recoveries = 0;
     manager.acpRuntime = {

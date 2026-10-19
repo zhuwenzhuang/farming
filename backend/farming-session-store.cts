@@ -107,6 +107,11 @@ const AGENT_STATE_FIELDS: string[] = [
   'readOutputSeq',
   'unread',
   'composerCommands',
+  'providerSessionMaterialized',
+  'terminalInputReceived',
+  'structuredRuntimeProcess',
+  'subagentRetained',
+  'subagentSupervisionExpiresAt',
   'lastActivityAt',
 ];
 const AGENT_STATE_FIELD_SET = new Set(AGENT_STATE_FIELDS);

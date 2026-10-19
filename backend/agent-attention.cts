@@ -5,8 +5,9 @@
  * Triggers are runtime observation, explicit attention events, and read/unread
  * cursor requests. Guards exclude the Main Agent and ephemeral shell
  * completions, require new output after recovery, and keep read cursors
- * monotonic. Successful transitions update the record, then persist and
- * publish through the narrow host port. Provider terminal observers own the
+ * monotonic except for explicit manual-unread requests. Successful transitions
+ * update the record, then schedule persistence and publish through the narrow
+ * host port. Provider terminal observers own the
  * evidence that a turn is busy or idle; this tracker consumes only their
  * resulting state transitions and never guesses completion from elapsed time.
  */

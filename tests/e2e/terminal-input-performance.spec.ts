@@ -157,6 +157,7 @@ test('foreground input remains measurable with eight background output producers
     !ids.includes(record.id) && record.operation === 'terminal.input' && record.outcome === 'observed'
   )), before)
   console.log(`terminal with 8 background producers: event-to-frame p95=${p95(records.map(record => record.durationMs))}ms n=${records.length}`)
+  await test.info().attach('terminal-background-interactions.json', { body: Buffer.from(JSON.stringify(records, null, 2)), contentType: 'application/json' })
   expect(p95(records.map(record => record.durationMs))).toBeLessThanOrEqual(250)
   await expect.poll(async () => {
     const response = await page.request.get('/farming/api/diagnostics/performance')
@@ -254,6 +255,7 @@ test('terminal typing stays small and direct after switching an existing agent',
   const serverDiagnostics = await diagnosticResponse.json() as { records: Array<{ source: string; id: string; operation: string; stages: Record<string, number> }> }
   expect(serverDiagnostics.records.some(record => record.source === 'server' && painted.some(client => client.id === record.id))).toBeTruthy()
   console.log(`terminal-input-performance event-to-frame p95=${p95(painted.map(record => record.durationMs))}ms n=${painted.length}`)
+  await test.info().attach('terminal-interactions.json', { body: Buffer.from(JSON.stringify({ interactions, keyToOutputSamplesMs: samples }, null, 2)), contentType: 'application/json' })
   await expect.poll(() => messages.slice(typingStart).filter(message => (
     message.direction === 'received'
     && message.type === 'session-preview'

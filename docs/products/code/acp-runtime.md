@@ -76,7 +76,7 @@ fenced by binding generation and exact Turn identity.
 
 | Transition | Required evidence |
 | --- | --- |
-| New request → admitted | Valid identity, capability, content hash and durable admission within one deadline |
+| New request → admitted | Valid identity, capability, content hash and in-memory admission within one deadline |
 | Duplicate → existing operation | Same request ID and identical intent; changed content is a conflict |
 | Admitted → executing | Current ownership at the provider-send boundary |
 | Executing → settled | Provider outcome and the admitted notification prefix; input acceptance alone is insufficient |
@@ -127,10 +127,19 @@ after an intervening entry must not overwrite that earlier segment.
 - Prepared projections and retained views are bounded and fenced by complete
   identity, including projection revision. They accelerate the same authoritative
   read path. Cached controls require a fresh read before becoming actionable.
-- Provider replay is authoritative. Checkpoints preserve presentation metadata
-  and recovery fences, but replace a full load only with proof of freshness.
-  Prompt admission requires a durable dirty fence; uncertain execution leaves it
-  dirty. Failed writes do not establish that proof.
+- Native Agent history, read through ACP, owns conversation content. Routine
+  checkpoints store Farming metadata (provenance evidence, Fork/model boundaries,
+  pending configuration and patch decisions), not a second full transcript.
+  Preserve input evidence only where provenance verification or native media
+  omissions require it. A full snapshot is reserved for an explicitly retained
+  offline side-chat view or an in-memory Fork transfer. Reconnection always uses
+  authoritative provider replay; a legacy checkpoint cannot authorize skipping it.
+- Prompt and Steer dispatch and acknowledgement never wait for checkpoint or
+  Agent-state persistence. In-memory state owns ordering and deduplication;
+  background snapshots coalesce updates and cannot roll back a newer live state.
+  Persistence failures are diagnostic, not provider delivery failures. After
+  abrupt process loss, missing or stale admission evidence remains unresolved
+  and must never cause automatic replay.
 
 Read deadlines and finite retry budgets end in visible read errors with explicit
 Retry. Retry reads state; it never resends a Prompt. Identity changes quarantine

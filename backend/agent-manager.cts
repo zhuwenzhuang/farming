@@ -1725,19 +1725,7 @@ class AgentManager extends EventEmitter {
           }),
         );
       },
-      persistAgent: agent => this.sessionPersistence.persist(agent),
-      persistCommands: async (agent, composerCommands) => {
-        if (!this.configManager?.persistAgentStatePatch) {
-          if (typeof this.configManager?.ensureAgentSessionRecord === 'function') throw new Error('Async Composer persistence is unavailable');
-          return '';
-        }
-        const result = await this.configManager.persistAgentStatePatch(agent, { composerCommands, providerSessionMaterialized: agent.providerSessionMaterialized }, {
-          beforeCommit: () => this.agents.get(agent.id) === agent,
-        });
-        if (result.status !== 'committed') throw new Error(`Composer persistence rejected: ${result.status}`);
-        return result.id;
-      },
-      persistenceRequired: () => typeof this.configManager?.ensureAgentSessionRecord === 'function',
+      schedulePersistence: agent => this.sessionPersistence.scheduleState(agent),
       runtimeKind: agent => runtimeKind(agent),
     });
     this.terminalProviderControlCoordinator = new TerminalProviderControlCoordinator();
@@ -1854,7 +1842,7 @@ class AgentManager extends EventEmitter {
         this.isMainAgentRecord(agentId, agent)
       ),
       persistAgent: (agent: TypedAgentRecord) => {
-        this.sessionPersistence.persist(agent);
+        this.sessionPersistence.scheduleState(agent);
       },
       publishReadState: payload => {
         this.emit('agent-read', payload);
@@ -2043,7 +2031,8 @@ class AgentManager extends EventEmitter {
         || (stopReason === 'interrupted' && previousState !== state)
         || (state === 'error' && !sessionId && (previousState !== state || previousError !== runtime.error))
       ) {
-        this.sessionPersistence.persist(agent);
+        if (sessionIdentityChanged) this.sessionPersistence.persist(agent);
+        else this.sessionPersistence.scheduleState(agent);
       }
       this.acpTranscriptService.refresh(agentId);
       const nextRuntime = publicRuntimeBinding(agent);
@@ -4500,14 +4489,14 @@ class AgentManager extends EventEmitter {
     return this.agentShellEnvResolver.resolveAsync(shell, options);
   }
 
-  buildAgentBaseEnv(agent: TypedAgentRecord) {
+  async buildAgentBaseEnv(agent: TypedAgentRecord) {
     const command = agent?.forkCommand || agent?.command || '';
     const shell = agent?.category === 'other' && isShellProgram(command)
       ? (resolveAgentExecutable(command) || command)
       : '';
     return buildInteractiveAgentBaseEnv({
       processEnv: process.env,
-      shellEnv: this.resolveAgentShellEnv(shell),
+      shellEnv: await this.resolveAgentShellEnvAsync(shell),
     });
   }
 
@@ -4534,7 +4523,7 @@ class AgentManager extends EventEmitter {
     agent: TypedAgentRecord,
     sharedLaunchConfig?: SharedLaunchConfig | null,
   ) {
-    const baseEnv = this.buildAgentBaseEnv(agent);
+    const baseEnv = await this.buildAgentBaseEnv(agent);
     const launchConfig = sharedLaunchConfig === undefined
       ? this.sharedConfigService?.captureLaunchConfig() || null
       : sharedLaunchConfig;
@@ -5509,7 +5498,7 @@ class AgentManager extends EventEmitter {
       && configuredAcpRuntime.mode === 'managed'
       && structuredRuntimeAdapter?.acp.executablePolicy === 'managed';
     if (!usesManagedAcpExecutable && configuredAcpRuntime.mode !== 'custom') {
-      const userShellEnv = this.resolveAgentShellEnv('', { maxAgeMs: AGENT_DISCOVERY_CACHE_MAX_AGE_MS });
+      const userShellEnv = await this.resolveAgentShellEnvAsync('', { maxAgeMs: AGENT_DISCOVERY_CACHE_MAX_AGE_MS });
       launchPathEnv = typeof userShellEnv?.PATH === 'string' && userShellEnv.PATH.trim()
         ? userShellEnv.PATH
         : launchPathEnv;
@@ -7027,7 +7016,7 @@ class AgentManager extends EventEmitter {
           // completion would let Archive detach the owning writer first.
           try {
             agent.providerSessionMaterialized = true;
-            if (!options.requestId) this.sessionPersistence.persist(agent);
+            this.sessionPersistence.scheduleState(agent);
           } finally {
             if (options.onSubmitted) options.onSubmitted({ kind: 'acp' });
             else options.releaseInput?.();
@@ -7129,14 +7118,14 @@ class AgentManager extends EventEmitter {
       onProcessStopped: () => {
         if (this.agents.get(agentId) !== agent) return;
         agent.structuredRuntimeProcess = null;
-        this.sessionPersistence.persist(agent);
+        this.sessionPersistence.scheduleState(agent);
       },
     });
     if (agent.subagentParentSessionKey && result.reconnected === true) {
       agent.subagentRetained = false;
       agent.subagentSupervisionExpiresAt = Date.now() + 60_000;
     }
-    this.sessionPersistence.persist(agent);
+    this.sessionPersistence.scheduleState(agent);
     return result;
   }
 
@@ -7775,7 +7764,7 @@ class AgentManager extends EventEmitter {
     }
     if (submittedUserInput && agent.terminalInputReceived !== true) {
       agent.terminalInputReceived = true;
-      this.sessionPersistence.persist(agent);
+      this.sessionPersistence.scheduleState(agent);
       this.updateEngineProviderSessionMetadata(agent);
       this.emit('agent-update', { agentId, patch: { terminalInputReceived: true } });
     }
@@ -8316,17 +8305,20 @@ class AgentManager extends EventEmitter {
         requiresState: false,
       };
     }
-    try {
-      this.sessionPersistence.persist(staged);
-    } catch (caughtError: unknown) {
-      const error = caughtError as ErrorRecord;
-      return {
-        error: `Failed to update Agent: ${error.message || error}`,
-        ...(admission ? { operationId: admission.operation.id } : {}),
-        retryable: true,
-      };
+    if (admission || structuralUpdateChanged) {
+      try {
+        this.sessionPersistence.persist(staged);
+      } catch (caughtError: unknown) {
+        const error = caughtError as ErrorRecord;
+        return {
+          error: `Failed to update Agent: ${error.message || error}`,
+          ...(admission ? { operationId: admission.operation.id } : {}),
+          retryable: true,
+        };
+      }
     }
     Object.assign(agent, staged);
+    if (!admission && !structuralUpdateChanged) this.sessionPersistence.scheduleState(agent);
     this.agentOrderAllocator.observe(agent);
     if (structuralUpdateChanged || readUpdateChanged) {
       this.updateEngineProviderSessionMetadata(agent);

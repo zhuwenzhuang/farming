@@ -214,6 +214,21 @@ test('dense Chat revisions preserve completed Turns and coalesce transcript work
   let gapInjected = false
   let checkpointRecoveries = 0
   let awaitingGapCheckpoint = false
+  let publishRevision: ((revision: number) => void) | undefined
+  await page.routeWebSocket(/\/farming\/ws(?:\?|$)/, socket => {
+    const server = socket.connectToServer()
+    socket.onMessage(raw => server.send(raw))
+    server.onMessage(raw => {
+      const message = JSON.parse(String(raw)) as { type?: string; session?: { agentId?: string } }
+      // This fixture owns the transcript identity and revision stream together.
+      if (message.type === 'acp-session-revision' && message.session?.agentId === agentId) return
+      socket.send(raw)
+    })
+    publishRevision = revision => socket.send(JSON.stringify({
+      type: 'acp-session-revision',
+      session: { agentId, sessionId, runtimeEpoch, revision, updatedAt: new Date().toISOString() },
+    }))
+  })
 
   const transcriptEntries = (revision: number) => [
     ...Array.from({ length: 4 }, (_, index) => ([
@@ -319,55 +334,17 @@ test('dense Chat revisions preserve completed Turns and coalesce transcript work
   await page.waitForFunction(() => Boolean(
     window.__farmingPerformanceTest && window.__farmingAgentActivityTest,
   ))
-  const controlResponse = await page.request.get('/farming/api/control/agents')
-  expect(controlResponse.ok()).toBeTruthy()
-  const controlBody = await controlResponse.json() as {
-    agents?: Array<{ id?: string; runtimeBinding?: Record<string, unknown> }>
-  }
-  const runtimeBinding = controlBody.agents?.find(agent => agent.id === agentId)?.runtimeBinding
-  expect(runtimeBinding?.kind).toBe('acp')
-
   transcriptRequests = 0
   checkpointRecoveries = 0
   await page.waitForTimeout(500)
   await page.evaluate(() => window.__farmingPerformanceTest?.reset())
   const metricsBefore = await readMetrics()
-  const sourceTimer = setInterval(() => {
-    sourceRevision = Math.min(31, sourceRevision + 1)
-  }, 33)
-  try {
-    await page.evaluate(async ({ id, binding }) => {
-      await new Promise<void>(resolve => {
-        let revision = 2
-        const timer = window.setInterval(() => {
-          window.__farmingAgentActivityTest?.update(id, {
-            runtimeBinding: {
-              ...binding,
-              sessionRevision: revision,
-              sessionUpdatedAt: new Date().toISOString(),
-            },
-          })
-          if (revision >= 31) {
-            window.clearInterval(timer)
-            resolve()
-          }
-          revision += 1
-        }, 33)
-      })
-    }, { id: agentId, binding: runtimeBinding })
-  } finally {
-    clearInterval(sourceTimer)
+  expect(publishRevision).toBeDefined()
+  for (let revision = 2; revision <= 32; revision += 1) {
+    sourceRevision = revision
+    publishRevision!(revision)
+    await page.waitForTimeout(33)
   }
-  sourceRevision = 32
-  await page.evaluate(({ id, binding }) => {
-    window.__farmingAgentActivityTest?.update(id, {
-      runtimeBinding: {
-        ...binding,
-        sessionRevision: 32,
-        sessionUpdatedAt: new Date().toISOString(),
-      },
-    })
-  }, { id: agentId, binding: runtimeBinding })
 
   await expect(page.getByRole('heading', { name: 'Live revision 32' })).toBeVisible()
   await expect.poll(() => checkpointRecoveries).toBe(1)
@@ -397,9 +374,17 @@ test('dense Chat revisions preserve completed Turns and coalesce transcript work
   expect(renders.liveTranscriptTurn).toBeLessThanOrEqual(40)
   expect(renders.liveTranscriptMarkdown).toBeLessThanOrEqual(40)
   expect(transcriptRequests).toBeLessThanOrEqual(16)
+  const forkRevisions: number[] = []
+  await page.route(`/farming/api/agents/${agentId}/fork`, async route => {
+    const request = route.request().postDataJSON() as { expectedRevision: number }
+    forkRevisions.push(request.expectedRevision)
+    await route.fulfill({ json: { agentId } })
+  })
+  await page.getByTestId('code-agent-transcript-fork').click()
+  await expect.poll(() => forkRevisions).toEqual([32])
 })
 
-test('routes ACP revisions only to focused browsers and restores focus after reconnect', async ({ page, browser, workspaceRoot }) => {
+test('routes ACP revisions to focused and retained views and restores focus after reconnect', async ({ page, browser, workspaceRoot }) => {
   const workspace = path.join(workspaceRoot, 'acp-revision-interest')
   fs.mkdirSync(workspace, { recursive: true })
   const createAgent = async (name: string) => {
@@ -488,8 +473,10 @@ test('routes ACP revisions only to focused browsers and restores focus after rec
     await expect.poll(() => firstFrames.slice(firstSecondPromptStart)
       .filter(frame => frame.agentId === firstAgentId).length).toBeGreaterThan(0)
     await secondPage.waitForTimeout(150)
+    // A visited Chat remains in the bounded retained-view cache on History.
+    // It still watches revisions; the never-visited case above must stay quiet.
     expect(secondFrames.slice(secondSecondPromptStart)
-      .filter(frame => frame.agentId === firstAgentId)).toHaveLength(0)
+      .filter(frame => frame.agentId === firstAgentId).length).toBeGreaterThan(0)
   } finally {
     await secondContext.close()
   }

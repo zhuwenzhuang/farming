@@ -32,6 +32,7 @@ test('editor typing and save retain content-free interaction diagnostics', async
   await page.evaluate(() => { setTimeout(() => { const until = performance.now() + 120; while (performance.now() < until) { /* controlled test workload */ } }, 0) })
   await expect.poll(() => page.evaluate(() => window.farmingPerformance?.snapshot().records.some(record => record.operation === 'browser.long-task' && record.metrics.longTaskMaxMs! >= 100))).toBe(true)
   const snapshot = await page.evaluate(() => window.farmingPerformance!.snapshot())
+  await test.info().attach('editor-interactions.json', { body: Buffer.from(JSON.stringify(snapshot, null, 2)), contentType: 'application/json' })
   expect(snapshot.records.filter(record => record.operation === 'file.open'), 'file-open observation must survive double-click pinning')
     .toEqual(expect.arrayContaining([expect.objectContaining({ outcome: 'observed' })]))
   expect(JSON.stringify(snapshot)).not.toMatch(/PRIVATE_TYPED_VALUE|large-example|Example row|interaction-editor/)

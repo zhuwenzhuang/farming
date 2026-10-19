@@ -67,7 +67,7 @@ class ComposerAdmissionHarness {
       this.lastDelivery = request;
       return this.delivery(request);
     },
-    persistAgent: staged => {
+    schedulePersistence: staged => {
       this.persistCount += 1;
       const command = staged.composerCommands?.at(-1);
       if (command?.state === this.failPersistState) {
@@ -81,7 +81,6 @@ class ComposerAdmissionHarness {
       }
       return 'record-composer';
     },
-    persistenceRequired: () => true,
     runtimeKind: () => 'acp',
   };
 
@@ -137,7 +136,7 @@ test('same Composer admission joins one delivery and conflicting content is reje
 
   delivery.resolve({ kind: 'acp' });
   assert.deepEqual(await first, { accepted: true, kind: 'acp' });
-  assert.equal(harness.persisted.get('request-1')?.state, 'accepted');
+  assert.equal(harness.agent.composerCommands?.find(command => command.requestId === 'request-1')?.state, 'accepted');
 });
 
 test('provider submission callback wins exactly once over a later delivery rejection', async () => {
@@ -157,35 +156,20 @@ test('provider submission callback wins exactly once over a later delivery rejec
     );
     await new Promise(resolve => setImmediate(resolve));
     assert.deepEqual(unhandled, []);
-    assert.equal(harness.persisted.get('request-1')?.state, 'accepted');
+    assert.equal(harness.agent.composerCommands?.find(command => command.requestId === 'request-1')?.state, 'accepted');
   } finally {
     process.off('unhandledRejection', onUnhandled);
   }
 });
 
-test('accepted persistence failure becomes unknown and is never replayed', async () => {
+test('snapshot failure cannot change an accepted result or cause replay', async () => {
   const harness = new ComposerAdmissionHarness();
   harness.failPersistState = 'accepted';
   const coordinator = harness.coordinator();
-
-  await assert.rejects(
-    harness.request(coordinator, 'uncertain accepted request'),
-    error => (
-      error instanceof Error
-      && (error as Error & { uncertain?: boolean }).uncertain === true
-      && /persist accepted failed/.test(error.message)
-    ),
-  );
+  assert.equal((await harness.request(coordinator, 'accepted request') as { accepted: boolean }).accepted, true);
+  assert.equal(harness.agent.composerCommands?.at(-1)?.state, 'accepted');
+  assert.equal((await harness.request(coordinator, 'accepted request') as { deduplicated: boolean }).deduplicated, true);
   assert.equal(harness.deliverCount, 1);
-  assert.equal(harness.persisted.get('request-1')?.state, 'intent');
-  assert.equal(harness.agent.composerCommands?.at(-1)?.state, 'unknown');
-
-  harness.failPersistState = '';
-  await assert.rejects(
-    harness.request(coordinator, 'uncertain accepted request'),
-    error => error instanceof Error && (error as Error & { uncertain?: boolean }).uncertain === true,
-  );
-  assert.equal(harness.deliverCount, 1, 'unknown provider ownership must not replay delivery');
 });
 
 test('definitive failure may retry while uncertain failure may not', async () => {
@@ -197,7 +181,7 @@ test('definitive failure may retry while uncertain failure may not', async () =>
   const coordinator = harness.coordinator();
 
   await assert.rejects(harness.request(coordinator, 'retryable request'), /definitive rejection/);
-  assert.equal(harness.persisted.get('request-1')?.state, 'failed');
+  assert.equal(harness.agent.composerCommands?.find(command => command.requestId === 'request-1')?.state, 'failed');
 
   harness.delivery = async request => {
     harness.deliverCount += 1;
@@ -218,7 +202,7 @@ test('definitive failure may retry while uncertain failure may not', async () =>
     harness.request(coordinator, 'uncertain request', 'request-unknown'),
     error => error instanceof Error && (error as Error & { uncertain?: boolean }).uncertain === true,
   );
-  assert.equal(harness.persisted.get('request-unknown')?.state, 'unknown');
+  assert.equal(harness.agent.composerCommands?.find(command => command.requestId === 'request-unknown')?.state, 'unknown');
   await assert.rejects(
     harness.request(coordinator, 'uncertain request', 'request-unknown'),
     /will not be replayed automatically|transport ownership unknown/,
@@ -247,7 +231,7 @@ test('a zero-effect runtime replacement on the exact record fails definitively',
       && /before Terminal message delivery/.test(error.message)
     ),
   );
-  assert.equal(harness.persisted.get('request-epoch')?.state, 'failed');
+  assert.equal(harness.agent.composerCommands?.find(command => command.requestId === 'request-epoch')?.state, 'failed');
 
   harness.ownerFailure = null;
   harness.delivery = async request => {
@@ -283,7 +267,7 @@ test('a replaced Agent record is never written and stays uncertain', async () =>
     harness.request(harness.coordinator(), 'replaced record', 'request-replaced'),
     error => error instanceof Error && (error as Error & { uncertain?: boolean }).uncertain === true,
   );
-  assert.equal(harness.persisted.get('request-replaced')?.state, 'intent');
+  assert.equal(harness.agent.composerCommands?.find(command => command.requestId === 'request-replaced')?.state, 'intent');
   assert.equal(harness.agent.composerCommands?.at(-1)?.state, 'intent');
 });
 
@@ -303,7 +287,7 @@ test('an unproven delivery error stays uncertain even when ownership proves zero
     harness.request(coordinator, 'unproven terminal failure', 'request-unproven'),
     error => error instanceof Error && (error as Error & { uncertain?: boolean }).uncertain === true,
   );
-  assert.equal(harness.persisted.get('request-unproven')?.state, 'unknown');
+  assert.equal(harness.agent.composerCommands?.find(command => command.requestId === 'request-unproven')?.state, 'unknown');
 
   harness.ownerFailure = null;
   await assert.rejects(
@@ -331,19 +315,15 @@ test('recovered intent becomes unknown before any delivery', async () => {
     error => error instanceof Error && (error as Error & { uncertain?: boolean }).uncertain === true,
   );
   assert.equal(harness.deliverCount, 0);
-  assert.equal(harness.persisted.get('request-recovered')?.state, 'unknown');
+  assert.equal(harness.agent.composerCommands?.find(command => command.requestId === 'request-recovered')?.state, 'unknown');
 });
 
-test('intent persistence failure prevents delivery', async () => {
+test('snapshot scheduling failure does not prevent delivery', async () => {
   const harness = new ComposerAdmissionHarness();
   harness.failPersistState = 'intent';
-
-  await assert.rejects(
-    harness.request(harness.coordinator(), 'must persist first'),
-    /Failed to persist Composer intent: persist intent failed/,
-  );
-  assert.equal(harness.deliverCount, 0);
-  assert.deepEqual(harness.agent.composerCommands, []);
+  await harness.request(harness.coordinator(), 'send immediately');
+  assert.equal(harness.deliverCount, 1);
+  assert.equal(harness.agent.composerCommands?.at(-1)?.state, 'accepted');
 });
 
 test('unknown and intent records survive more than 64 terminal outcomes without replay', async () => {
@@ -579,23 +559,16 @@ test('expired queued submissions cannot become ghost messages when the queue lat
   assert.equal(coordinator.status(harness.agent, 'request-1').phase, 'failed');
 });
 
-test('async durable intent gates delivery and same-request reconciliation is read-only', async () => {
+test('unavailable persistence does not delay delivery or same-request reconciliation', async () => {
   const harness = new ComposerAdmissionHarness();
-  const durable = deferred<void>();
-  harness.ports.persistCommands = async (agent, commands) => {
-    if (commands.at(-1)?.state === 'intent') await durable.promise;
-    return harness.ports.persistAgent({ ...agent, composerCommands: commands });
-  };
+  harness.ports.schedulePersistence = () => {};
   const coordinator = harness.coordinator();
-  const submission = harness.request(coordinator, 'durable first');
-  await new Promise(resolve => setImmediate(resolve));
-  for (let index = 0; index < 20; index += 1) assert.equal(coordinator.status(harness.agent, 'request-1').phase, 'received');
-  assert.equal(harness.deliverCount, 0);
-  await assert.rejects(harness.request(coordinator, 'conflicting'), /different content/);
-  durable.resolve();
-  await submission;
+  await harness.request(coordinator, 'immediate send');
+  for (let index = 0; index < 20; index += 1) assert.equal(coordinator.status(harness.agent, 'request-1').phase, 'submitted');
   assert.equal(harness.deliverCount, 1);
-  assert.equal(coordinator.status(harness.agent, 'request-1').phase, 'submitted');
+  await assert.rejects(harness.request(coordinator, 'conflicting'), /different content/);
+  await harness.request(coordinator, 'immediate send');
+  assert.equal(harness.deliverCount, 1);
 });
 
 test('peer admission binds immutable source to request identity and queues as a prompt', async () => {

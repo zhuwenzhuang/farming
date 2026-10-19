@@ -1329,6 +1329,28 @@ class AcpSessionState {
       truncated: this.truncated,
     };
   }
+
+  exportRecoveryCheckpoint(preserveMissingMedia = false) {
+    // Native history owns ordinary conversation content. Keep only evidence
+    // needed to reattach Farming provenance and media omitted by native replay.
+    const hasEvidence = this.entries.some(entry => entry.type === 'message' && entry.role === 'user' && (
+      entry._meta?.peerMessage || entry._meta?.farmingHandoff
+      || (preserveMissingMedia && entry.content?.some(block => block.type === 'image' || block.type === 'audio'))
+    ));
+    const visibleIds = new Set(hasEvidence ? this.boundaryUserTurns().map(entry => entry.id) : []);
+    const inputs = this.entries.filter(entry => visibleIds.has(entry.id));
+    const lastEvidence = inputs.findLastIndex(entry =>
+      normalizeAcpPeerMessage(entry._meta?.peerMessage)
+      || normalizeAgentHandoffContext(entry._meta?.farmingHandoff)
+      || (preserveMissingMedia && entry.content?.some(block => block.type === 'image' || block.type === 'audio')));
+    return {
+      version: 1, provider: this.provider, sessionId: this.sessionId, cwd: this.cwd,
+      sequence: this.sequence, revision: this.revision, resetBeforeRevision: this.resetBeforeRevision,
+      entries: clone(inputs.slice(0, lastEvidence + 1)),
+      ...(this.trustedInputPrefixes.length ? { trustedInputPrefixes: clone(this.trustedInputPrefixes) } : {}),
+      forkOrigin: clone(this.forkOrigin), modelChanges: clone(this.modelChanges),
+    };
+  }
 }
 
 export {

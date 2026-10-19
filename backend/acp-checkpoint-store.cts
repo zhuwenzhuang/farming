@@ -46,7 +46,7 @@ const CHECKPOINT_VERSION = 1;
 const DEFAULT_WRITE_DELAY_MS = 250;
 
 // Global capacity includes serialization, compression and durable publication.
-// Admission fences use their own tiny writes and never wait on this budget.
+// Message admission never waits on this background budget.
 let activeCheckpoints = 0;
 const checkpointWaiters: Array<() => void> = [];
 async function checkpointBudget<T>(operation: () => Promise<T>): Promise<T> {

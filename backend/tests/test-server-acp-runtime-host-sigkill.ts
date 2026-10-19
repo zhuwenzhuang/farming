@@ -1,3 +1,4 @@
+import { FarmingSessionStore } from '../farming-session-store.cjs';
 const assert = require('assert');
 const fs = require('fs');
 const net = require('net');
@@ -130,8 +131,8 @@ function persistedRuntimeProcess(configDir: string, agentId: string): UnknownRec
   if (!fs.existsSync(directory)) return null;
   for (const name of fs.readdirSync(directory)) {
     if (!/^agent_[A-Za-z0-9_-]+\.json$/.test(name)) continue;
-    const value = JSON.parse(fs.readFileSync(path.join(directory, name), 'utf8'));
-    if (String(value.runtimeAgentId || '') !== agentId) continue;
+    const value = new FarmingSessionStore(configDir).readRecord(name.slice(0, -5));
+    if (!value || String(value.runtimeAgentId || '') !== agentId) continue;
     return isRecord(value.structuredRuntimeProcess) ? value.structuredRuntimeProcess : null;
   }
   return null;

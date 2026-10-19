@@ -2150,67 +2150,12 @@ async function run() {
     closeDuringPromptBinding.sessionState.configOptions = JSON.parse(JSON.stringify(
       closeDuringPromptBinding.configOptions,
     ));
-    const writeCheckpoint = runtime.writeCheckpoint.bind(runtime);
-    let rejectFirstModeCheckpoint;
-    let modeCheckpointWrites = 0;
-    runtime.writeCheckpoint = async binding => {
-      if (binding !== closeDuringPromptBinding) return writeCheckpoint(binding);
-      modeCheckpointWrites += 1;
-      if (modeCheckpointWrites === 1) {
-        await new Promise((_, reject) => { rejectFirstModeCheckpoint = reject; });
-      }
-    };
-    const staleDeferredMode = runtime.setSessionMode('agent-acp-close-during-prompt', 'plan');
-    const staleDeferredModeRejected = assert.rejects(staleDeferredMode, /simulated stale mode checkpoint failure/);
-    for (let attempt = 0; attempt < 100 && !rejectFirstModeCheckpoint; attempt += 1) {
-      await new Promise(resolve => setTimeout(resolve, 10));
-    }
-    assert.strictEqual(typeof rejectFirstModeCheckpoint, 'function');
     const concurrentDeferredMode = await runtime.setSessionMode('agent-acp-close-during-prompt', 'plan');
-    rejectFirstModeCheckpoint(new Error('simulated stale mode checkpoint failure'));
-    await staleDeferredModeRejected;
     assert.strictEqual(concurrentDeferredMode.deferred, true);
-    assert.strictEqual(
-      runtime.getSession('agent-acp-close-during-prompt').deferredModeId,
-      'plan',
-      'a stale failed checkpoint must not erase a newer equal mode request',
-    );
-    let rejectFirstConfigCheckpoint;
-    let configCheckpointWrites = 0;
-    runtime.writeCheckpoint = async binding => {
-      if (binding !== closeDuringPromptBinding) return writeCheckpoint(binding);
-      configCheckpointWrites += 1;
-      if (configCheckpointWrites === 1) {
-        await new Promise((_, reject) => { rejectFirstConfigCheckpoint = reject; });
-      }
-    };
-    const staleDeferredConfig = runtime.setSessionConfigOption(
-      'agent-acp-close-during-prompt',
-      'toggle',
-      true,
-    );
-    const staleDeferredConfigRejected = assert.rejects(
-      staleDeferredConfig,
-      /simulated stale config checkpoint failure/,
-    );
-    for (let attempt = 0; attempt < 100 && !rejectFirstConfigCheckpoint; attempt += 1) {
-      await new Promise(resolve => setTimeout(resolve, 10));
-    }
-    assert.strictEqual(typeof rejectFirstConfigCheckpoint, 'function');
-    const concurrentDeferredConfig = await runtime.setSessionConfigOption(
-      'agent-acp-close-during-prompt',
-      'toggle',
-      true,
-    );
-    rejectFirstConfigCheckpoint(new Error('simulated stale config checkpoint failure'));
-    await staleDeferredConfigRejected;
+    assert.strictEqual(runtime.getSession('agent-acp-close-during-prompt').deferredModeId, 'plan');
+    const concurrentDeferredConfig = await runtime.setSessionConfigOption('agent-acp-close-during-prompt', 'toggle', true);
     assert.strictEqual(concurrentDeferredConfig.deferred, true);
-    assert.deepStrictEqual(
-      runtime.getSession('agent-acp-close-during-prompt').deferredConfigOptions,
-      [{ configId: 'toggle', value: true }],
-      'a stale failed checkpoint must not erase a newer equal config request',
-    );
-    runtime.writeCheckpoint = writeCheckpoint;
+    assert.deepStrictEqual(runtime.getSession('agent-acp-close-during-prompt').deferredConfigOptions, [{ configId: 'toggle', value: true }]);
     let deferredConfigCalls = 0;
     let releaseDeferredConfig;
     const applyDeferredConfig = closeDuringPromptBinding.connection.setSessionConfigOption;
@@ -2475,17 +2420,10 @@ async function run() {
       env: process.env,
       approvalMode: 'full',
     });
-    const markCheckpointDirty = runtime.markCheckpointDirty.bind(runtime);
     let releasePromptAdmission;
-    let blockFirstPromptAdmission = true;
-    runtime.markCheckpointDirty = async binding => {
-      if (binding.agentId !== 'agent-acp-prompt-cancel') return markCheckpointDirty(binding);
-      if (!blockFirstPromptAdmission) return markCheckpointDirty(binding);
-      blockFirstPromptAdmission = false;
-      await new Promise(resolve => {
-        releasePromptAdmission = resolve;
-      });
-    };
+    runtime.bindings.get('agent-acp-prompt-cancel').configMutationTail = new Promise(resolve => {
+      releasePromptAdmission = resolve;
+    });
     let cancelledTurnAdmissions = 0;
     let cancelledProviderSubmissions = 0;
     const cancelledAdmission = runtime.prompt(
@@ -2520,7 +2458,6 @@ async function run() {
       ['replacement after admission cancellation'],
       'a cancelled admission must not clear or commit over the replacement Turn',
     );
-    runtime.markCheckpointDirty = markCheckpointDirty;
 
     await runtime.prepareAgent({
       agentId: 'agent-acp-steer-completion-race',
@@ -2539,12 +2476,9 @@ async function run() {
       await new Promise(resolve => setImmediate(resolve));
     }
     let releaseSteerCheckpoint;
-    runtime.markCheckpointDirty = async binding => {
-      if (binding !== steerCompletionBinding) return markCheckpointDirty(binding);
-      await new Promise(resolve => {
-        releaseSteerCheckpoint = resolve;
-      });
-    };
+    const heldSteerControl = runtime.enqueueTurnControl(steerCompletionBinding.activeTurn, () => new Promise(resolve => {
+      releaseSteerCheckpoint = resolve;
+    }));
     let staleSteerRequests = 0;
     steerCompletionBinding.connection.request = async () => {
       staleSteerRequests += 1;
@@ -2555,10 +2489,10 @@ async function run() {
     resolveSteerCompletionPrompt({ stopReason: 'end_turn' });
     await new Promise(resolve => setImmediate(resolve));
     releaseSteerCheckpoint();
+    await heldSteerControl;
     await assert.rejects(staleSteer, /No active ACP turn to steer/);
-    assert.strictEqual(staleSteerRequests, 0, 'steer must revalidate the exact Turn after checkpoint IO');
+    assert.strictEqual(staleSteerRequests, 0, 'steer must revalidate the exact Turn after queued control');
     assert.strictEqual((await steerCompletionPrompt).stopReason, 'end_turn');
-    runtime.markCheckpointDirty = markCheckpointDirty;
 
     const waitForSteerTest = async (ready, label) => {
       for (let attempt = 0; attempt < 200; attempt += 1) {
@@ -2575,12 +2509,9 @@ async function run() {
       const activePrompt = runtime.prompt('agent-acp-steer-completion-race', `deadline ${delivery}`);
       await waitForSteerTest(() => steerCompletionBinding.activeTurn?.phase === 'running', 'active steer turn');
       let releaseDeadlineCheckpoint;
-      runtime.markCheckpointDirty = async binding => {
-        if (binding !== steerCompletionBinding) return markCheckpointDirty(binding);
-        await new Promise(resolve => {
-          releaseDeadlineCheckpoint = resolve;
-        });
-      };
+      const heldDeadlineControl = runtime.enqueueTurnControl(steerCompletionBinding.activeTurn, () => new Promise(resolve => {
+        releaseDeadlineCheckpoint = resolve;
+      }));
       let lateSteerRequests = 0;
       steerCompletionBinding.connection.request = async () => {
         lateSteerRequests += 1;
@@ -2593,11 +2524,12 @@ async function run() {
         { delivery, admissionDeadline },
       );
       void expiredSteer.catch(() => {});
-      await waitForSteerTest(() => Boolean(releaseDeadlineCheckpoint), 'steer checkpoint');
+      await waitForSteerTest(() => Boolean(releaseDeadlineCheckpoint), 'steer control queue');
       const actualNow = Date.now;
       try {
         Date.now = () => admissionDeadline + 1;
         releaseDeadlineCheckpoint();
+        await heldDeadlineControl;
         await assert.rejects(expiredSteer, /Chat admission expired before dispatch/);
       } finally {
         Date.now = actualNow;
@@ -2605,8 +2537,7 @@ async function run() {
       assert.strictEqual(lateSteerRequests, 0, `${delivery} must not dispatch after admission expiry`);
       resolveActivePrompt({ stopReason: 'end_turn' });
       assert.strictEqual((await activePrompt).stopReason, 'end_turn');
-      runtime.markCheckpointDirty = markCheckpointDirty;
-    }
+      }
 
     let resolveQueuedPrompt;
     steerCompletionBinding.connection.prompt = () => new Promise(resolve => {

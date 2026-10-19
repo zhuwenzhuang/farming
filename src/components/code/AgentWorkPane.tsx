@@ -95,6 +95,10 @@ export function AgentWorkPane({
   copy,
 }: AgentWorkPaneProps) {
   const acpRuntime = isAcpRuntime(agent) ? agent.runtimeBinding : null
+  const forkLatestRef = useRef({ onForkAgent, revision: acpRuntime?.sessionRevision || 0 })
+  useLayoutEffect(() => {
+    forkLatestRef.current = { onForkAgent, revision: acpRuntime?.sessionRevision || 0 }
+  }, [acpRuntime?.sessionRevision, onForkAgent])
   const reviewAndCommitRef = useRef(onReviewAndCommit)
   useLayoutEffect(() => {
     reviewAndCommitRef.current = onReviewAndCommit
@@ -116,11 +120,11 @@ export function AgentWorkPane({
     onOpenUrlInFarming?.(agent.id, url)
   }, [agent.id, onOpenUrlInFarming])
   const forkLatestChat = useCallback(() => {
-    return onForkAgent?.(agent.id, 'same-worktree', {
+    return forkLatestRef.current.onForkAgent?.(agent.id, 'same-worktree', {
       targetRuntime: 'chat',
-      expectedRevision: acpRuntime?.sessionRevision || 0,
+      expectedRevision: forkLatestRef.current.revision,
     })
-  }, [acpRuntime?.sessionRevision, agent.id, onForkAgent])
+  }, [agent.id])
   const reviewAndCommitChat = useCallback(() => {
     reviewAndCommitRef.current?.(agent.id)
   }, [agent.id])

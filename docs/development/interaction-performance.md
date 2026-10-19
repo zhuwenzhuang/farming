@@ -25,11 +25,21 @@ prevent claiming that the next bytes are the typed character. No output is
 GPU presentation acknowledgement. The first coverage is Farming Code Terminal
 input and Terminal-view Agent switching, Monaco text-file opening and editing,
 file saves, and shared workspace / Language Server requests (including tree and
-search requests). This does not claim CRT, Chat-message submission, binary
-previews, or exact pixel-presentation coverage. Editor observations distinguish model change,
+search requests). Chat admission records server receive, intent, preparation,
+dispatch and acceptance as `chat.submit`, correlated by `requestId`. Acceptance
+does not measure the provider's first token or completion. This does not claim
+CRT, binary previews, or exact pixel-presentation coverage. Editor observations distinguish model change,
 draft propagation, and frame opportunity; programmatic model replacement must
 not be counted as typing. File save records the captured revision's result,
 not whether a newer draft is clean.
+
+Agent startup must use bounded asynchronous shell environment discovery so a
+slow login script cannot block unrelated Chat, Terminal, or read acknowledgements.
+Concurrent requests share the per-shell probe and cache while retaining their
+existing create admission and lifecycle ownership across the wait. Environment
+filtering, provider-home isolation, probe failure, and timeout semantics are
+unchanged. Regression checks must stall discovery and storage independently while
+verifying responsiveness, request deduplication, and stale-state fencing.
 
 ## Cost, privacy, and investigation
 
@@ -87,6 +97,14 @@ latency percentiles and losses. Never point destructive isolated-test cleanup
 at a user's live Config. Enabling a new collector on a live instance requires
 the normal authorized deployment; a local build does not instrument a remote
 server or reconstruct incidents that predate logging.
+
+Benchmarks separate first use from repeated interactions and retain raw samples,
+sample counts and measurement boundaries. Deterministic ACP providers measure
+Farming admission overhead, not real model latency. Compare local supervisors at
+equivalent admission or output-observation boundaries; disclose HTTP, WebSocket,
+Unix-socket and rendering differences rather than reporting a single speed ratio.
+Run CPU profiling separately from latency baselines. A fast admission span does
+not exclude event-loop blocking before the request handler runs.
 
 Investigation compares frontend long tasks and frame wait with server queue,
 service, event-loop, socket backlog, and per-Agent output activity in the same

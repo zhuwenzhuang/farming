@@ -60,7 +60,7 @@ for (const provider of ['codex', 'claude', 'opencode', 'pi', 'qoder', 'qwen', 'a
       const replay = new AcpSessionState({ provider, sessionId: 'original' });
       replay.beginPrompt('Earlier human request');
       const peer = replay.beginPrompt(replayed);
-      replay.restoreTrustedInputMetadata(saved.exportCheckpoint());
+      replay.restoreTrustedInputMetadata(saved.exportRecoveryCheckpoint());
       assert.deepEqual(peer._meta?.peerMessage, source);
       assert.deepEqual(peer.content, prompt);
     }
@@ -68,7 +68,7 @@ for (const provider of ['codex', 'claude', 'opencode', 'pi', 'qoder', 'qwen', 'a
       const replay = new AcpSessionState({ provider, sessionId: 'original' });
       replay.beginPrompt(first);
       const peer = replay.beginPrompt(first.startsWith('Changed') ? wrapped : [wrapped[0]]);
-      replay.restoreTrustedInputMetadata(saved.exportCheckpoint());
+      replay.restoreTrustedInputMetadata(saved.exportRecoveryCheckpoint());
       assert.equal(peer._meta?.peerMessage, undefined, 'changed prefix or header-only content cannot establish identity');
     }
   });
@@ -240,7 +240,7 @@ for (const type of ['image', 'audio']) {
     assert.equal(peer.entries.filter(entry => entry.role === 'user').length, 1);
     const replay = new AcpSessionState({ provider: 'codex', sessionId: 'peer-media' });
     const replayed = replay.beginPrompt(acpPeerPrompt(echo, source));
-    replay.restoreTrustedInputMetadata(peer.exportCheckpoint());
+    replay.restoreTrustedInputMetadata(peer.exportRecoveryCheckpoint());
     assert.deepEqual(replayed._meta?.peerMessage, source);
     assert.deepEqual(replayed.content, content);
   });
@@ -255,20 +255,20 @@ for (const provider of ['codex', 'claude', 'opencode', 'pi', 'qoder', 'qwen', 'a
     const failed = new AcpSessionState({ provider, sessionId: 'durable-peer' });
     failed.beginPrompt('Provider changed prefix');
     const unresolved = failed.beginPrompt(wrapped);
-    failed.restoreTrustedInputMetadata(original.exportCheckpoint());
+    failed.restoreTrustedInputMetadata(original.exportRecoveryCheckpoint());
     assert.equal(unresolved._meta?.peerMessage, undefined);
-    const checkpoint = JSON.parse((await failed.exportCheckpointChunks()).join(''));
+    const checkpoint = JSON.parse(JSON.stringify(failed.exportRecoveryCheckpoint()));
     assert.equal(checkpoint.trustedInputPrefixes.length, 1);
     const restarted = AcpSessionState.fromCheckpoint(checkpoint)!;
     const failedAgain = new AcpSessionState({ provider, sessionId: 'durable-peer' });
     failedAgain.beginPrompt('Provider changed prefix');
     failedAgain.beginPrompt(wrapped);
-    failedAgain.restoreTrustedInputMetadata(restarted.exportCheckpoint());
+    failedAgain.restoreTrustedInputMetadata(restarted.exportRecoveryCheckpoint());
     assert.equal(failedAgain.exportCheckpoint().trustedInputPrefixes?.length, 1);
     const repaired = new AcpSessionState({ provider, sessionId: 'durable-peer' });
     repaired.beginPrompt('Original human prefix');
     const recovered = repaired.beginPrompt(wrapped);
-    repaired.restoreTrustedInputMetadata(failedAgain.exportCheckpoint());
+    repaired.restoreTrustedInputMetadata(failedAgain.exportRecoveryCheckpoint());
     assert.deepEqual(recovered._meta?.peerMessage, source);
     assert.deepEqual(recovered.content, prompt);
     assert.equal(repaired.exportCheckpoint().trustedInputPrefixes, undefined);
