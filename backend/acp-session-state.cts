@@ -319,6 +319,7 @@ type HistoryAnchor = { status: 'ready' | 'unavailable'; afterEntryId: string };
 
 class AcpSessionState {
   private entryIds = new Set<string>();
+  private trustedInputPrefixes: AcpEntry[][] = [];
   provider: string;
   sessionId: string;
   cwd: string;
@@ -442,6 +443,12 @@ class AcpSessionState {
     state.codexSubagents = clone(source.codexSubagents ?? null) as CodexSubagents | null;
     state.nativeSubagent = clone(source.nativeSubagent ?? null);
     state.truncated = source.truncated === true;
+    if (Array.isArray(source.trustedInputPrefixes)) {
+      state.trustedInputPrefixes = clone(source.trustedInputPrefixes.filter(prefix =>
+        Array.isArray(prefix) && prefix.every(entry => entry && entry.type === 'message'
+          && entry.role === 'user' && Array.isArray(entry.content)),
+      )) as AcpEntry[][];
+    }
     state.restoreForkOrigin(source.forkOrigin);
     state.restoreModelChanges(source.modelChanges);
     return state;
@@ -469,21 +476,50 @@ class AcpSessionState {
       const visibleIds = new Set(state.boundaryUserTurns().map(entry => entry.id));
       return state.entries.filter(entry => visibleIds.has(entry.id));
     };
-    const saved = inputs(source);
+    const prefixes = source.trustedInputPrefixes.slice();
+    const savedInputs = inputs(source);
+    if (savedInputs.some(entry => entry._meta?.peerMessage || entry._meta?.farmingHandoff)) {
+      prefixes.push(savedInputs);
+    }
     const replayed = inputs(this);
     const entries = new Map(this.entries.map(entry => [entry.id, entry]));
-    // Native history omits Farming metadata and can regenerate message IDs.
-    // Rebind only along the verified ordered user prefix, never by prompt text alone.
-    for (let index = 0; index < Math.min(saved.length, replayed.length); index += 1) {
-      const peer = normalizeAcpPeerMessage(saved[index]._meta?.peerMessage);
-      if (!sameAcpInputContent(saved[index].content || [], replayed[index].content || [])
-        && !isAcpPeerPromptHistory(saved[index].content || [], peer, replayed[index].content || [])) break;
-      const context = normalizeAgentHandoffContext(saved[index]._meta?.farmingHandoff);
-      const entry = entries.get(replayed[index].id);
-      if (entry && (context || peer)) {
-        entry._meta = { ...entry._meta, ...(context ? { farmingHandoff: context } : {}), ...(peer ? { peerMessage: peer } : {}) };
-        if (peer) entry.content = clone(saved[index].content);
-        this.touchEntry(entry);
+    this.trustedInputPrefixes = [];
+    // Keep unmatched authoritative prefixes independently of provider projection.
+    // A failed replay must not erase the only evidence needed by a later replay.
+    for (const prefix of prefixes) {
+      // Retain only the evidence prefix through its last trusted input. Replay
+      // IDs, revisions and later ordinary turns do not add provenance evidence.
+      const lastTrusted = prefix.findLastIndex(entry =>
+        normalizeAcpPeerMessage(entry._meta?.peerMessage)
+        || normalizeAgentHandoffContext(entry._meta?.farmingHandoff));
+      if (lastTrusted < 0) continue;
+      const saved: AcpEntry[] = prefix.slice(0, lastTrusted + 1).map(entry => {
+        const peer = normalizeAcpPeerMessage(entry._meta?.peerMessage);
+        const context = normalizeAgentHandoffContext(entry._meta?.farmingHandoff);
+        return {
+          type: 'message', role: 'user', content: clone(entry.content || []),
+          ...((peer || context) ? { _meta: {
+            ...(peer ? { peerMessage: peer } : {}),
+            ...(context ? { farmingHandoff: context } : {}),
+          } } : {}),
+        };
+      });
+      let matched = 0;
+      for (; matched < Math.min(saved.length, replayed.length); matched += 1) {
+        const peer = normalizeAcpPeerMessage(saved[matched]._meta?.peerMessage);
+        if (!sameAcpInputContent(saved[matched].content || [], replayed[matched].content || [])
+          && !isAcpPeerPromptHistory(saved[matched].content || [], peer, replayed[matched].content || [])) break;
+        const context = normalizeAgentHandoffContext(saved[matched]._meta?.farmingHandoff);
+        const entry = entries.get(replayed[matched].id);
+        if (entry && (context || peer)) {
+          entry._meta = { ...entry._meta, ...(context ? { farmingHandoff: context } : {}), ...(peer ? { peerMessage: peer } : {}) };
+          if (peer) entry.content = clone(saved[matched].content);
+          this.touchEntry(entry);
+        }
+      }
+      if (matched < saved.length && !this.trustedInputPrefixes.some(prefix =>
+        JSON.stringify(prefix) === JSON.stringify(saved))) {
+        this.trustedInputPrefixes.push(clone(saved));
       }
     }
   }
@@ -1276,6 +1312,7 @@ class AcpSessionState {
       revision: this.revision,
       resetBeforeRevision: this.resetBeforeRevision,
       ...(includeEntries ? { entries: clone(this.entries) } : {}),
+      ...(this.trustedInputPrefixes.length ? { trustedInputPrefixes: clone(this.trustedInputPrefixes) } : {}),
       forkOrigin: clone(this.forkOrigin),
       modelChanges: clone(this.modelChanges),
       activePlanEntryId: this.activePlanEntry?.id || '',

@@ -92,6 +92,9 @@ async function testConversationStore(tmpRoot: string) {
     '<farming-agent-context>\nbootstrap\n</farming-agent-context>\n<USER_REQUEST>\nAttached image: pasted-1.webp\n\nImage path: /tmp/pasted-1.webp\n\nFix bug #42\n</USER_REQUEST>\n<ADDITIONAL_METADATA>\nmeta\n</ADDITIONAL_METADATA>'
   );
   assert.strictEqual(cleaned, 'Fix bug #42');
+  assert.strictEqual(cleanAgyUserInputText('<USER_REQUEST>bootstrap\n\nQuestion</USER_REQUEST>', 'bootstrap'), 'Question');
+  assert.strictEqual(cleanAgyUserInputText('Quoted bootstrap\n\nQuestion', 'bootstrap'), 'Quoted bootstrap\n\nQuestion');
+  assert.strictEqual(cleanAgyUserInputText('<farming-agent-context>old bootstrap</farming-agent-context>\n\nQuestion', 'new bootstrap'), 'Question');
 
   const defaultHome = path.join(os.homedir(), '.gemini', 'antigravity');
   assert.deepStrictEqual(agyHomeCliArgs(defaultHome), []);
@@ -377,6 +380,11 @@ if (!fs.existsSync(dbPath)) {
 }
 
 const text = args[args.indexOf('-p') + 1] || '';
+if (text.includes('PEER_RECOVERY')) {
+  const logs = path.join(agyHome, 'brain', conversationId, '.system_generated', 'logs');
+  fs.mkdirSync(logs, { recursive: true });
+  fs.appendFileSync(path.join(logs, 'transcript_full.jsonl'), JSON.stringify({ type: 'USER_INPUT', content: text }) + '\\n');
+}
 
 if (text.includes('FAIL_PERSISTED')) {
   const logs = path.join(agyHome, 'brain', conversationId, '.system_generated', 'logs');
@@ -851,6 +859,28 @@ console.log(JSON.stringify({
         `${historyMode} must use current instruction content as injection evidence (${priorPrompt || 'empty log'})`);
         await runtime.unregisterAgentAndWait(agentId);
       }
+    }
+
+    const peerAgent = 'agent-agy-peer-recovery';
+    const peerOptions = { agentId: peerAgent, provider: 'agy', executable: fakeAgyScript, configDir,
+      cwd: workspaceDir, projectWorkspace: workspaceDir, providerHomeId: 'default', providerHomePath: agyHome,
+      farmingSystemPrompt: 'FARMING_BOOTSTRAP_MARKER' };
+    const peerSession = await runtime.prepareAgent(peerOptions);
+    await runtime.prompt(peerAgent, [{ type: 'text', text: 'PEER_RECOVERY human request' }]);
+    const peerSource = { version: 1, direction: 'incoming', senderAddress: 'peer:reviewer', senderName: 'Reviewer' };
+    await runtime.prompt(peerAgent, [{ type: 'text', text: 'PEER_RECOVERY review result' }], { peerMessage: peerSource });
+    await runtime.checkpointStore.flush();
+    await runtime.unregisterAgentAndWait(peerAgent);
+    for (let replay = 0; replay < 2; replay += 1) {
+      await runtime.prepareAgent({ ...peerOptions, sessionId: peerSession.sessionId, historyMode: 'load',
+        farmingSystemPrompt: 'UPDATED_FARMING_BOOTSTRAP_MARKER' });
+      const inputs = runtime.getSession(peerAgent).entries.filter((entry: { role?: string }) => entry.role === 'user');
+      assert.strictEqual(inputs.length, 2);
+      assert.deepStrictEqual(inputs[0].content, [{ type: 'text', text: 'PEER_RECOVERY human request' }]);
+      assert.deepStrictEqual(inputs[1].content, [{ type: 'text', text: 'PEER_RECOVERY review result' }]);
+      assert.deepStrictEqual(inputs[1]._meta.peerMessage, peerSource, 'peer provenance survives native replay and subsequent checkpoint');
+      await runtime.checkpointStore.flush();
+      await runtime.unregisterAgentAndWait(peerAgent);
     }
 
     for (const failure of ['FAIL_EXIT', 'FAIL_PERSISTED']) {

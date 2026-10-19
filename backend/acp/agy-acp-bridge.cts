@@ -743,7 +743,7 @@ class AgyAcpAgent implements Agent {
           session.systemPromptInjected = true;
         }
         if (!replay) continue;
-        const cleaned = cleanAgyUserInputText(entry.content);
+        const cleaned = cleanAgyUserInputText(entry.content, prompt);
         if (cleaned) {
           await this.client.sessionUpdate({
             sessionId: session.sessionId,
@@ -837,7 +837,7 @@ class AgyAcpAgent implements Agent {
     let outgoingText = userText;
     const injectSystemPrompt = !isSlashCommand && !session.systemPromptInjected && Boolean(this.options.appendSystemPrompt.trim());
     if (injectSystemPrompt) {
-      outgoingText = `${this.options.appendSystemPrompt.trim()}\n\n${userText}`;
+      outgoingText = `<farming-agent-context>\n${this.options.appendSystemPrompt.trim()}\n</farming-agent-context>\n\n${userText}`;
     }
 
     const previousUserStepIndex = readAgyLatestUserStepIndex(this.options.agyHomePath, session.sessionId);

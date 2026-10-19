@@ -245,3 +245,57 @@ for (const type of ['image', 'audio']) {
     assert.deepEqual(replayed.content, content);
   });
 }
+
+for (const provider of ['codex', 'claude', 'opencode', 'pi', 'qoder', 'qwen', 'agy']) {
+  test(`${provider} failed replay retains trusted provenance through checkpoint replacement`, async () => {
+    const original = new AcpSessionState({ provider, sessionId: 'durable-peer' });
+    original.beginPrompt('Original human prefix');
+    original.beginPrompt(prompt, null, source);
+    const wrapped = acpPeerPrompt(prompt, source);
+    const failed = new AcpSessionState({ provider, sessionId: 'durable-peer' });
+    failed.beginPrompt('Provider changed prefix');
+    const unresolved = failed.beginPrompt(wrapped);
+    failed.restoreTrustedInputMetadata(original.exportCheckpoint());
+    assert.equal(unresolved._meta?.peerMessage, undefined);
+    const checkpoint = JSON.parse((await failed.exportCheckpointChunks()).join(''));
+    assert.equal(checkpoint.trustedInputPrefixes.length, 1);
+    const restarted = AcpSessionState.fromCheckpoint(checkpoint)!;
+    const failedAgain = new AcpSessionState({ provider, sessionId: 'durable-peer' });
+    failedAgain.beginPrompt('Provider changed prefix');
+    failedAgain.beginPrompt(wrapped);
+    failedAgain.restoreTrustedInputMetadata(restarted.exportCheckpoint());
+    assert.equal(failedAgain.exportCheckpoint().trustedInputPrefixes?.length, 1);
+    const repaired = new AcpSessionState({ provider, sessionId: 'durable-peer' });
+    repaired.beginPrompt('Original human prefix');
+    const recovered = repaired.beginPrompt(wrapped);
+    repaired.restoreTrustedInputMetadata(failedAgain.exportCheckpoint());
+    assert.deepEqual(recovered._meta?.peerMessage, source);
+    assert.deepEqual(recovered.content, prompt);
+    assert.equal(repaired.exportCheckpoint().trustedInputPrefixes, undefined);
+  });
+}
+
+test('partial replay does not retain duplicate histories as provider entry identities change', () => {
+  const original = new AcpSessionState({ provider: 'agy', sessionId: 'partial-peer' });
+  original.beginPrompt('first human');
+  original.beginPrompt(prompt, null, source);
+  original.beginPrompt('second human');
+  original.beginPrompt([{ type: 'text', text: 'Second peer input' }], null, source);
+  let checkpoint = original.exportCheckpoint();
+  let retainedBytes = 0;
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const replay = new AcpSessionState({ provider: 'agy', sessionId: 'partial-peer' });
+    replay.beginPrompt('first human');
+    const firstPeer = replay.beginPrompt(acpPeerPrompt(prompt, source));
+    replay.beginPrompt('Changed second human');
+    replay.beginPrompt(acpPeerPrompt([{ type: 'text', text: 'Second peer input' }], source));
+    for (const entry of replay.entries) entry.id = `${attempt}-${entry.id}`;
+    replay.restoreTrustedInputMetadata(checkpoint);
+    assert.deepEqual(firstPeer._meta?.peerMessage, source);
+    checkpoint = replay.exportCheckpoint();
+    assert.equal(checkpoint.trustedInputPrefixes?.length, 1);
+    const bytes = JSON.stringify(checkpoint.trustedInputPrefixes).length;
+    if (attempt === 0) retainedBytes = bytes;
+    else assert.equal(bytes, retainedBytes, 'replay generations must not accumulate retained evidence');
+  }
+});

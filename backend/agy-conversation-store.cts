@@ -548,13 +548,17 @@ export function normalizeAgyToolArgs(
   return result;
 }
 
-export function cleanAgyUserInputText(raw: unknown): string {
+export function cleanAgyUserInputText(raw: unknown, injectedPrompt = ''): string {
   if (typeof raw !== 'string') return '';
   let text = raw;
   const userReqMatch = text.match(/<USER_REQUEST>\s*([\s\S]*?)\s*<\/USER_REQUEST>/i);
   if (userReqMatch) {
     text = userReqMatch[1];
   }
+  // Older adapters prepended the configured instructions without a delimiter.
+  // Remove only that exact leading payload, never a quoted occurrence in input.
+  const prefix = injectedPrompt.trim();
+  if (prefix && text.startsWith(`${prefix}\n\n`)) text = text.slice(prefix.length + 2);
   text = text.replace(/<farming-agent-context>[\s\S]*?<\/farming-agent-context>/gi, '');
   text = text.replace(/<ADDITIONAL_METADATA>[\s\S]*?<\/ADDITIONAL_METADATA>/gi, '');
   text = text.replace(/<USER_SETTINGS_CHANGE>[\s\S]*?<\/USER_SETTINGS_CHANGE>/gi, '');

@@ -184,6 +184,9 @@ quoted envelopes cannot establish receipt, sender identity or child ownership.
 The runtime adds a model-visible peer envelope, preserving the human's existing
 authorization; known echoes do not create duplicate messages. History restoration
 requires a trusted checkpoint and the complete verified input prefix.
+An unmatched trusted prefix survives subsequent checkpoints independently of the
+replayed transcript. Provider adapters must remove their injected instructions
+from replayed user input so recovery compares the original admitted content.
 
 | Contract | Meaning |
 | --- | --- |
