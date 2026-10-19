@@ -544,6 +544,21 @@ class FakeAgent implements Agent {
   async prompt(params: PromptRequest): Promise<PromptResponse> {
     const promptText = params.prompt?.map(block => block.type === 'text' ? block.text : '').join('') || '';
     const imageCount = params.prompt?.filter(block => block.type === 'image').length || 0;
+    if (promptText === 'inspect attachment echo') {
+      await client.sessionUpdate({ sessionId: params.sessionId, update: {
+        sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Inspecting attachments.' },
+      } });
+      const content = params.prompt.map(block => block.type === 'image'
+        ? { type: block.type, data: block.data, mimeType: block.mimeType } : block);
+      const messageId = crypto.randomUUID();
+      for (let replay = 0; replay < 2; replay += 1) await client.sessionUpdate({ sessionId: params.sessionId, update: {
+        sessionUpdate: 'session_message', messageId, content, _meta: { farming: { messageRole: 'user' } },
+      } });
+      await client.sessionUpdate({ sessionId: params.sessionId, update: {
+        sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Attachment inspection complete.' },
+      } });
+      return { stopReason: 'end_turn' };
+    }
     const peerTarget = /^farming peer send ([A-Za-z0-9._:-]{1,160})$/.exec(promptText);
     if (peerTarget) {
       const environment = { ...process.env, ...sessionEnvironments.get(params.sessionId) };

@@ -263,3 +263,31 @@ test('settles a fast image upload, enables Send, and delivers the first media Pr
     description: `upload-ready=${uploadReadyMs}ms input-cleared=${timings.inputClearedMs.toFixed(1)}ms user-visible=${timings.userMessageVisibleMs.toFixed(1)}ms agent-response-started=${timings.agentResponseStartedMs.toFixed(1)}ms`,
   })
 })
+
+test('reconciles two uploaded images with native echoes across reload and repeated sends', async ({ page, workspaceRoot }, testInfo) => {
+  const workspace = path.join(workspaceRoot, 'acp-attachment-echo')
+  const agentId = await createCodexChat(page, workspace)
+  const files = ['first.png', 'second.png'].map(name => path.join(workspace, name))
+  for (const file of files) fs.copyFileSync(path.resolve('public/farming-2/app-icon-v2-180.png'), file)
+  await openFarming(page)
+  await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+  for (let turn = 1; turn <= 2; turn += 1) {
+    await page.getByTestId('code-acp-composer-file-input').setInputFiles(files)
+    await expect(page.locator('[data-testid="code-composer-attachment"].ready')).toHaveCount(2)
+    await page.getByTestId('code-acp-composer-input').fill('inspect attachment echo')
+    await page.getByTestId('code-acp-composer-send').click()
+    await expect(page.locator('.code-agent-transcript-assistant').filter({ hasText: 'Attachment inspection complete.' })).toHaveCount(turn)
+    await expect(page.getByTestId('code-acp-composer-send')).toHaveAttribute('data-action', 'disabled')
+    await expect(page.locator('.code-agent-transcript-user').filter({ hasText: 'inspect attachment echo' })).toHaveCount(turn)
+    await expect(page.getByTestId('code-agent-transcript-user-images').locator('img')).toHaveCount(turn * 2)
+    await page.reload()
+    await expect(page.locator('.code-agent-transcript-user').filter({ hasText: 'inspect attachment echo' })).toHaveCount(turn)
+    await expect(page.getByTestId('code-agent-transcript-user-images').locator('img')).toHaveCount(turn * 2)
+  }
+  for (const appearance of ['light', 'dark', 'paper']) {
+    await page.locator('body').evaluate((body, value) => { body.dataset.appearance = value }, appearance)
+    const screenshot = await page.getByTestId('code-agent-chat-view').screenshot({ path: testInfo.outputPath(`attachments-${appearance}.png`), animations: 'disabled' })
+    expect(screenshot.readUInt32BE(16)).toBeGreaterThan(300)
+    expect(screenshot.readUInt32BE(20)).toBeGreaterThan(200)
+  }
+})

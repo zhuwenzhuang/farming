@@ -267,7 +267,11 @@ the adapter uses it as the input identity so native snapshots and local Steer
 acknowledgements converge regardless of arrival order. Acknowledgement promotes
 an earlier echo in place, preserving its entry identity; retries do not resend
 the input. An admitted local echo preserves its original body and
-trusted attribution. Input during an active execution does not complete that
+trusted attribution. Matching an unbound active input or a verified history prefix
+compares the complete ordered body; inline image/audio bytes and MIME type remain
+significant, while local attachment path/URI metadata does not. Locator-only
+attachments are not treated as equal without content evidence.
+Input during an active execution does not complete that
 execution. Missing attribution never authorizes dropping the body or inventing a
 sender. Live, replay and checkpoint recovery must preserve these properties for
 every supported Chat provider; protocol fixtures do not replace real-provider

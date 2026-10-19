@@ -172,3 +172,76 @@ for (const provider of ['codex', 'claude', 'opencode', 'pi', 'qoder', 'qwen', 'a
     });
   }
 }
+
+// Model: an active, unbound local admission may acquire its native identity
+// only after the entire ordered body matches. Inline media bytes own content;
+// local attachment locators are transport metadata. Bound IDs stay independent.
+for (const provider of ['codex', 'claude', 'opencode', 'pi', 'qoder', 'qwen', 'agy']) {
+  test(`${provider} image input snapshot reconciles local attachment locators`, () => {
+    const content = [
+      { type: 'text', text: 'Inspect the timing and icon.' },
+      { type: 'image', mimeType: 'image/webp', data: 'Zmlyc3Q=', path: '/example/first.webp', uri: 'file:///example/first.webp' },
+      { type: 'image', mimeType: 'image/webp', data: 'c2Vjb25k', path: '/example/second.webp', uri: 'file:///example/second.webp' },
+    ];
+    const echoed = content.map(({ path: _path, uri: _uri, ...block }) => block);
+    const state = new AcpSessionState({ provider, sessionId: 'attachment-echo' });
+    const local = state.beginPrompt(content);
+    state.applyToolCall({ toolCallId: 'work', title: 'Work', status: 'in_progress' }, false, null);
+    const restored = AcpSessionState.fromCheckpoint(state.exportCheckpoint())!;
+    const receive = (messageId: string, body = echoed) => restored.applySessionMessage({
+      messageId, content: body, _meta: { farming: { messageRole: 'user' } },
+    }, false);
+    receive('native-input');
+    receive('native-input');
+    const inputs = restored.entries.filter(entry => entry.role === 'user');
+    assert.equal(inputs.length, 1);
+    assert.equal(inputs[0].id, local.id);
+    assert.equal(inputs[0].messageId, 'native-input');
+    assert.deepEqual(inputs[0].content, content, 'retain local attachments and admitted body');
+    assert.equal(inputs[0]._meta?.farming?.steer, undefined);
+    receive('other-input');
+    assert.equal(restored.entries.filter(entry => entry.role === 'user').length, 2);
+  });
+}
+
+test('attachment reconciliation rejects different bytes, order, MIME, text and unverified locators', () => {
+  const original = [{ type: 'text', text: 'Inspect.' },
+    { type: 'image', mimeType: 'image/png', data: 'Zmlyc3Q=', path: '/example/a.png', uri: 'file:///example/a.png' }];
+  for (const content of [
+    [{ type: 'text', text: 'Changed.' }, { type: 'image', mimeType: 'image/png', data: 'Zmlyc3Q=' }],
+    [{ type: 'text', text: 'Inspect.' }, { type: 'image', mimeType: 'image/png', data: 'b3RoZXI=' }],
+    [{ type: 'text', text: 'Inspect.' }, { type: 'image', mimeType: 'image/jpeg', data: 'Zmlyc3Q=' }],
+    [{ type: 'image', mimeType: 'image/png', data: 'Zmlyc3Q=' }, { type: 'text', text: 'Inspect.' }],
+    [{ type: 'text', text: 'Inspect.' }, { type: 'image', mimeType: 'image/png', uri: 'file:///example/a.png' }],
+  ]) {
+    const state = new AcpSessionState({ provider: 'codex', sessionId: 'distinct-attachment' });
+    state.beginPrompt(original);
+    state.applySessionMessage({ messageId: 'different', content, _meta: { farming: { messageRole: 'user' } } }, false);
+    assert.equal(state.entries.filter(entry => entry.role === 'user').length, 2);
+  }
+});
+
+for (const type of ['image', 'audio']) {
+  test(`${type}-only echoes and peer history retain trusted input across transport conversion`, () => {
+    const content = [{ type, mimeType: type === 'image' ? 'image/png' : 'audio/wav', data: 'bWVkaWE=',
+      path: '/example/media', uri: 'file:///example/media' }];
+    const echo = [{ type, mimeType: content[0].mimeType, data: content[0].data }];
+    const state = new AcpSessionState({ provider: 'codex', sessionId: 'media-only' });
+    const local = state.beginPrompt(content);
+    state.applyMessageChunk({ messageId: 'native', content: echo[0] }, 'user_message_chunk');
+    state.applySessionMessage({ messageId: 'native', content: echo, _meta: { farming: { messageRole: 'user' } } }, false);
+    assert.equal(state.entries.length, 1);
+    assert.deepEqual(local.content, content);
+    const peer = new AcpSessionState({ provider: 'codex', sessionId: 'peer-media' });
+    peer.beginPrompt(content, null, source);
+    peer.applyToolCall({ toolCallId: 'work', title: 'Work', status: 'in_progress' }, false, null);
+    peer.applySessionMessage({ messageId: 'peer-native', content: acpPeerPrompt(echo, source),
+      _meta: { farming: { messageRole: 'user' } } }, false);
+    assert.equal(peer.entries.filter(entry => entry.role === 'user').length, 1);
+    const replay = new AcpSessionState({ provider: 'codex', sessionId: 'peer-media' });
+    const replayed = replay.beginPrompt(acpPeerPrompt(echo, source));
+    replay.restoreTrustedInputMetadata(peer.exportCheckpoint());
+    assert.deepEqual(replayed._meta?.peerMessage, source);
+    assert.deepEqual(replayed.content, content);
+  });
+}

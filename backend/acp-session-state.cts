@@ -1,4 +1,4 @@
-import { isAcpPeerPromptEcho, isAcpPeerPromptHistory } from './acp-peer-prompt.cjs';
+import { isAcpPeerPromptEcho, isAcpPeerPromptHistory, sameAcpInputContent } from './acp-peer-prompt.cjs';
 import { normalizeAgentGoal, sameAgentGoal, type AgentGoal } from '../shared/agent-goal.js';
 import { normalizeAcpPeerMessage, type AcpPeerMessage } from '../shared/acp-peer-message.js';
 import { normalizeAgentHandoffContext, type AgentHandoffContext } from '../shared/agent-handoff-context.js';
@@ -8,7 +8,6 @@ const MAX_CODEX_SUBAGENTS = 128;
 const MAX_CODEX_SUBAGENT_ID_CHARS = 160;
 const MAX_CODEX_SUBAGENT_NAME_CHARS = 120;
 import { createHash } from 'node:crypto';
-import { isDeepStrictEqual } from 'node:util';
 import { acpSessionProviderPolicy } from './acp-session-provider-policy.cjs';
 import type { NativeSubagentAssociation } from './acp-native-subagents.cjs';
 
@@ -476,7 +475,7 @@ class AcpSessionState {
     // Rebind only along the verified ordered user prefix, never by prompt text alone.
     for (let index = 0; index < Math.min(saved.length, replayed.length); index += 1) {
       const peer = normalizeAcpPeerMessage(saved[index]._meta?.peerMessage);
-      if (!isDeepStrictEqual(saved[index].content, replayed[index].content)
+      if (!sameAcpInputContent(saved[index].content || [], replayed[index].content || [])
         && !isAcpPeerPromptHistory(saved[index].content || [], peer, replayed[index].content || [])) break;
       const context = normalizeAgentHandoffContext(saved[index]._meta?.farmingHandoff);
       const entry = entries.get(replayed[index].id);
@@ -897,7 +896,7 @@ class AcpSessionState {
     );
     if (
       optimisticUser
-      && ((optimisticUser.content || []).some(content => isDeepStrictEqual(content, update.content))
+      && ((optimisticUser.content || []).some(content => sameAcpInputContent([content], update.content ? [update.content] : []))
         || isAcpPeerPromptEcho(optimisticUser.content || [], optimisticUser._meta?.peerMessage, update.content))
     ) {
       if (!optimisticUser.messageId) optimisticUser.messageId = messageId;
@@ -953,7 +952,7 @@ class AcpSessionState {
     if (!entry && inputSnapshot) entry = this.entries.find(candidate => candidate.type === 'message'
       && candidate.role === 'user' && candidate.optimistic && !candidate.messageId
       && candidate.turnCompletedAt == null
-      && (isDeepStrictEqual(candidate.content, update.content)
+      && (Array.isArray(update.content) && sameAcpInputContent(candidate.content || [], update.content)
         || isAcpPeerPromptHistory(candidate.content || [], normalizeAcpPeerMessage(candidate._meta?.peerMessage),
           Array.isArray(update.content) ? update.content : [])));
     if (entry && inputSnapshot) {
