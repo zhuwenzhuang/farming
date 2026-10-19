@@ -109,11 +109,20 @@ for (const appearance of ['light', 'dark', 'paper']) {
     await expect(toggle().getByRole('button', { name: 'Chat', exact: true })).toBeEnabled()
     await testInfo.attach(`terminal-handoff-${appearance}`, { body: await page.screenshot(), contentType: 'image/png' })
     for (const mode of ['Chat', 'Terminal']) {
-      const switched = page.waitForResponse(r => r.request().method() === 'PATCH' && r.url().endsWith(`/api/agents/${targetId}`))
+      // Read acknowledgements use the same endpoint while Terminal output settles.
+      // Only the runtime mutation owns the replacement Agent identity.
+      const switched = page.waitForResponse(r => (
+        r.request().method() === 'PATCH'
+        && r.url().endsWith(`/api/agents/${targetId}`)
+        && r.request().postDataJSON().agentRuntimeMode === mode.toLowerCase()
+      ))
       await toggle().getByRole('button', { name: mode, exact: true }).click()
       const result = await switched
       expect(result.ok(), await result.text()).toBeTruthy()
-      targetId = (await result.json()).restartedAgentId || targetId
+      const replacementId = (await result.json()).restartedAgentId
+      expect(replacementId).toEqual(expect.any(String))
+      expect(replacementId).not.toBe(targetId)
+      targetId = replacementId
       await expect(toggle().getByRole('button', { name: mode, exact: true })).toHaveAttribute('aria-pressed', 'true')
     }
     const inventory = (await (await page.request.get('/farming/api/control/agents')).json()).agents

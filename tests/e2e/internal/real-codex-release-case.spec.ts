@@ -571,6 +571,7 @@ async function switchCodeRuntime(page: Page, agentId: string, mode: 'terminal' |
   const responsePromise = page.waitForResponse(response => (
     response.request().method() === 'PATCH'
     && response.url().includes(`/api/agents/${agentId}`)
+    && response.request().postDataJSON().agentRuntimeMode === mode
   ))
   await page.getByTestId('code-terminal-mode-toggle')
     .getByRole('button', { name: mode === 'chat' ? 'Chat' : 'Terminal' })
@@ -592,6 +593,7 @@ async function switchCrtRuntime(page: Page, agentId: string) {
   const responsePromise = page.waitForResponse(response => (
     response.request().method() === 'PATCH'
     && response.url().includes(`/api/agents/${agentId}`)
+    && typeof response.request().postDataJSON().agentRuntimeMode === 'string'
   ))
   await page.keyboard.press('Alt+M')
   const response = await responsePromise
