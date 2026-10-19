@@ -435,7 +435,7 @@ for (const [sourcePath, selector, expectedShadow] of semanticShadowContracts) {
 const borderPurposeContracts = [
   ['src/styles/search.css', '.code-search-panel-input:focus-within', 'border-color', 'transparent'],
   ['src/styles/main.css', '.connection-status.lost,\n.connection-status.business-unavailable', 'border', '1px solid var(--code-border-danger)'],
-  ['src/styles/transcript.css', '.code-agent-transcript-result-error', 'border', '1px solid var(--code-border-danger)'],
+  ['src/styles/transcript.css', '.code-agent-transcript-result-error,\n.code-agent-transcript-error', 'border', '1px solid var(--code-border-danger)'],
   ['src/styles/main.css', ':is(.code-sidebar-resizer, .code-resource-agent-resizer, .code-related-session-resizer, .code-language-server-resizer)', 'background', 'var(--code-workbench-divider)'],
   ['src/styles/review.css', '.review-diff-columns span + span', 'border-left', '1px solid var(--code-workbench-divider)'],
 ] as const
