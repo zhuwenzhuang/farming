@@ -89,6 +89,8 @@ export interface CodeCopy {
   agentTranscriptWaiting: string
   agentTranscriptMissingFinalReply: string
   agentTranscriptInterrupted: string
+  agentTranscriptUsageLimit: string
+  agentTranscriptUsageLimitHelp: string
   agentTranscriptProcess: string
   agentTranscriptWorking: string
   agentTranscriptLastActivity: (title: string) => string
@@ -853,6 +855,8 @@ const EN_COPY: CodeCopy = {
   agentTranscriptWaiting: 'Agent is still working...',
   agentTranscriptMissingFinalReply: 'This turn did not produce a final reply',
   agentTranscriptInterrupted: 'Interrupted',
+  agentTranscriptUsageLimit: 'Usage limit reached',
+  agentTranscriptUsageLimitHelp: 'Check the account used by this Agent and its available usage or credits. Other Agents using the same account may also be affected. Follow the provider’s reset time or account instructions below before continuing.',
   agentTranscriptProcess: 'Process',
   agentTranscriptWorking: 'Processing',
   agentTranscriptLastActivity: title => `Last activity: ${title}`,
@@ -1654,6 +1658,8 @@ const ZH_COPY: CodeCopy = {
   agentTranscriptWaiting: 'Agent 仍在工作...',
   agentTranscriptMissingFinalReply: '本轮执行未产生最终回复',
   agentTranscriptInterrupted: '已中止',
+  agentTranscriptUsageLimit: '使用额度已用尽',
+  agentTranscriptUsageLimitHelp: '请检查此 Agent 实际使用的账号及其额度或余额。同一账号下的其他 Agent 也可能受影响。请按下方服务商提供的重置时间或账号说明处理后，再继续任务。',
   agentTranscriptProcess: '执行过程',
   agentTranscriptWorking: '处理中',
   agentTranscriptLastActivity: title => `最近活动：${title}`,

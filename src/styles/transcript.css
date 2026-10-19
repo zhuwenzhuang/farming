@@ -2420,7 +2420,8 @@ button.code-agent-transcript-result-summary:is(:hover, :focus-visible) .code-age
   border-color: var(--code-border-subtle);
 }
 
-.code-agent-transcript-result-error {
+.code-agent-transcript-result-error,
+.code-agent-transcript-error {
   display: grid;
   gap: 5px;
   margin: 10px 12px 12px;
@@ -2430,6 +2431,34 @@ button.code-agent-transcript-result-summary:is(:hover, :focus-visible) .code-age
   background: var(--code-danger-soft);
   color: var(--code-danger);
   border-color: var(--code-border-danger);
+}
+
+.code-agent-transcript-error {
+  margin: 12px 0;
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.code-agent-transcript-error > strong {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.code-agent-transcript-error > strong > svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.code-agent-transcript-error p {
+  margin: 0;
+}
+
+.code-agent-transcript-error-detail {
+  white-space: pre-wrap;
+  color: var(--code-text);
 }
 
 .code-agent-transcript-result-error > details {

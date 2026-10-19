@@ -16,6 +16,7 @@ import {
   BellGlyph,
   BrowserGlyph,
   ChatBubblesGlyph,
+  ChatFailureGlyph,
   TerminalSquareGlyph,
   ChevronDownGlyph,
   ChevronLeftGlyph,
@@ -136,6 +137,7 @@ function isStandaloneAppWindow() {
 }
 
 type AgentPreviewTarget = {
+  agent?: Agent
   key: string
   title: string
   project: string
@@ -2838,6 +2840,7 @@ function visibleAgentsWithForcedRows(
 
 function previewTargetForAgent(agent: Agent, rowState: ReturnType<typeof buildAgentRowDisplayState>, project?: string): AgentPreviewTarget {
   return {
+    agent,
     key: `agent:${agent.id}`,
     title: rowState.title,
     project: project || projectNameForWorkspace(agent.projectWorkspace || agent.cwd),
@@ -2900,10 +2903,15 @@ function AgentHoverPreview({ preview, now, ...interaction }: PreviewInteraction 
   preview: AgentPreviewTarget & { anchor: HTMLElement; branch: string }
   now: number
 }) {
+  const agent = useAgentWithLiveState(preview.agent)
+  const failureMessage = agent ? buildAgentRowDisplayState({ kind: 'agent', agent }, now).failureMessage : ''
   return (
     <InfoCard anchor={preview.anchor} testId="code-agent-hover-preview"
       icon={preview.provider ? <AgentLaunchIcon name={preview.provider} variant="color" /> : <ChatBubblesGlyph />}
       title={preview.title} meta={formatRelativeAge(preview.lastActive, now)} {...interaction}>
+      {failureMessage && <InfoCardRow icon={<ChatFailureGlyph />} testId="code-agent-hover-preview-failure">
+        {failureMessage}
+      </InfoCardRow>}
       <InfoCardRow icon={<AgentPreviewFolderIcon />}>{preview.project}</InfoCardRow>
       {preview.branch && (
         <InfoCardRow icon={<AgentPreviewBranchIcon />} testId="code-agent-hover-preview-branch">{preview.branch}</InfoCardRow>

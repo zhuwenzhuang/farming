@@ -62,6 +62,11 @@ async function run() {
 
       await runtime.cancel(provider);
       assert.deepEqual(current(provider), failed, 'late cancellation must not rewrite an existing failure');
+      await assert.rejects(prompt(provider, 'usage limit error'), /usage limit/);
+      assert.equal(current(provider).status, 'failed');
+      const quotaError = runtime.getTranscriptSession(provider).entries.find(entry => entry.type === 'error' && entry.kind === 'usage-limit');
+      assert(quotaError, `${provider} retains the normalized usage-limit category`);
+      assert.match(String(quotaError.message), /Oct 25th, 2026 4:47 AM/);
       await prompt(provider, 'failed tool');
       assert.equal(current(provider).status, 'completed', 'tool failure does not fail the Chat turn');
       assert.notEqual(current(provider).turnId, failed.turnId);

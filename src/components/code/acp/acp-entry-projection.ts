@@ -554,6 +554,7 @@ function planDetail(planValue: unknown) {
 }
 
 function errorTitle(kind: string) {
+  if (kind === 'usage-limit') return 'Usage limit reached'
   if (kind === 'authentication') return 'Authentication required'
   if (kind === 'payment') return 'Billing problem'
   if (kind === 'context') return 'Context limit reached'

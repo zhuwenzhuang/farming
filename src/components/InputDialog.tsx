@@ -32,6 +32,16 @@ function normalizeDefaultLaunchAgent(agentName: string | undefined) {
 
 type RuntimeChoice = 'terminal' | 'chat'
 
+const HANDOFF_RUNTIME_KEY = `farming.code.handoffRuntime.v1:${appPath('/')}`
+
+function loadHandoffRuntimeChoice(): RuntimeChoice {
+  try {
+    return window.localStorage.getItem(HANDOFF_RUNTIME_KEY) === 'terminal' ? 'terminal' : 'chat'
+  } catch {
+    return 'chat'
+  }
+}
+
 function runtimeChoiceForAgent(agent: CliAgent, preferred: RuntimeChoice | null): RuntimeChoice {
   return agent.capabilities?.supportsChat === true
     ? preferred || agent.launchDefaults?.runtimeMode || 'chat'
@@ -178,6 +188,13 @@ export function InputDialog({
   const chooseRuntimeMode = (mode: RuntimeChoice) => {
     preferredRuntimeRef.current = mode
     setAgentRuntimeMode(mode)
+    if (handoff) {
+      try {
+        window.localStorage.setItem(HANDOFF_RUNTIME_KEY, mode)
+      } catch {
+        // Storage restrictions must not prevent the current explicit choice.
+      }
+    }
   }
   const [homeMenuOpen, setHomeMenuOpen] = useState(false)
   const [discoveredWorkspaces, setDiscoveredWorkspaces] = useState<string[]>([])
@@ -247,7 +264,8 @@ export function InputDialog({
     setDefaultLaunchAgent('codex')
     setAgentHomes({})
     setSelectedHomeId('default')
-    preferredRuntimeRef.current = null
+    // Handoff remembers its own choice; ordinary creation uses Provider defaults.
+    preferredRuntimeRef.current = handoff ? loadHandoffRuntimeChoice() : null
     setAgentRuntimeMode('chat')
     setHomeMenuOpen(false)
     setHistorySelection(-1)

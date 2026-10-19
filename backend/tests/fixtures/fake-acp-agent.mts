@@ -2698,6 +2698,17 @@ class FakeAgent implements Agent {
       const error = Object.assign(new Error('401 Unauthorized: sign in required'), { code: 401 });
       throw error;
     }
+    if (promptText.includes('usage limit error')) {
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          content: { type: 'text', text: 'The build passed. Deployment has not started.' },
+          _meta: { codex: { phase: 'final_answer' } },
+        },
+      });
+      throw new Error("You've hit your usage limit. Visit https://chatgpt.com/settings/usage to purchase more credits or try again at Oct 25th, 2026 4:47 AM.");
+    }
     if (promptText.includes('duplicate provider error')) {
       const message = 'stream disconnected before completion: request to http://example.invalid/v1/responses failed';
       await client.sessionUpdate({

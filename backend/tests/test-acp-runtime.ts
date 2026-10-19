@@ -49,6 +49,15 @@ async function run() {
   assert.strictEqual(acpErrorKind(new Error('401 Unauthorized: sign in required')), 'authentication');
   assert.strictEqual(acpErrorKind(new Error('Input exceeds the context window')), 'context');
   assert.strictEqual(acpErrorKind(new Error('429 rate limit exceeded')), 'rate-limit');
+  const usageLimit = "You've hit your usage limit. Visit https://chatgpt.com/settings/usage to purchase more credits or try again at Oct 25th, 2026 4:47 AM.";
+  assert.strictEqual(acpErrorKind(new Error(usageLimit)), 'usage-limit');
+  assert.strictEqual(acpErrorKind({ message: 'Internal error', data: { details: usageLimit } }), 'usage-limit');
+  assert.strictEqual(acpErrorKind({ message: 'Request rejected', data: { code: 'usage_limit_reached' } }), 'usage-limit');
+  assert.strictEqual(acpErrorKind(new Error('Weekly usage limit exceeded')), 'usage-limit');
+  assert.strictEqual(acpErrorKind(new Error('Could not read usage limit')), 'unknown');
+  assert.strictEqual(acpErrorKind(new Error('402 Insufficient credits')), 'payment');
+  assert.strictEqual(acpErrorKind({ message: 'Internal error', data: { details: '401 Unauthorized' } }), 'authentication');
+  assert.strictEqual(acpErrorKind({ message: 'Internal error', data: { details: 'stream disconnected before completion' } }), 'network');
   assert.strictEqual(acpErrorKind(new Error('socket connection timed out')), 'network');
   assert.strictEqual(acpErrorKind(new Error('unexpected failure')), 'unknown');
   assert.strictEqual(classifyLinuxProcessGroupStats([

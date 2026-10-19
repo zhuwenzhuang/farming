@@ -151,6 +151,9 @@ for (const appearance of ['light', 'dark', 'paper']) {
     const settings = (await (await page.request.get('/farming/api/settings')).json()).settings
     const configured = await page.request.post('/farming/api/settings', { data: {
       appearance,
+      agentLaunchProfiles: {
+        codex: { runtimeMode: 'terminal' }, claude: { runtimeMode: 'terminal' }, qwen: { runtimeMode: 'terminal' },
+      },
       agentHomes: {
         ...settings.agentHomes,
         claude: [...settings.agentHomes.claude, { id: homeId, path: targetHome, order: 10 }],
@@ -169,16 +172,44 @@ for (const appearance of ['light', 'dark', 'paper']) {
     await openFarming(page)
     const sourceRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${sourceId}"]`)
     await expect(sourceRow).toBeVisible()
+    // Saved Terminal preferences still govern ordinary creation.
+    await page.getByTestId('code-new-agent').click()
+    const dialog = page.getByTestId('input-dialog')
+    await dialog.getByTestId('agent-option-claude').click()
+    await expect(dialog.getByRole('button', { name: 'Terminal', exact: true })).toHaveAttribute('aria-pressed', 'true')
+    await dialog.getByTestId('input-dialog-close').click()
     await sourceRow.click({ button: 'right' })
     const menu = page.getByTestId('code-agent-context-menu')
     const handoff = menu.getByRole('menuitem', { name: 'Hand off to new Agent', exact: true })
     await expect(handoff).toBeEnabled()
     await expect(menu).toHaveScreenshot(`handoff-menu-${appearance}.png`)
     await handoff.click()
-    const dialog = page.getByTestId('input-dialog')
     await expect(dialog.getByTestId('handoff-source-name')).toContainText('From:')
     await expect(dialog.getByTestId('agent-option-bash')).toHaveCount(0)
     await dialog.getByTestId('agent-option-qwen').click()
+    await expect(dialog.getByRole('button', { name: 'Chat', exact: true })).toHaveAttribute('aria-pressed', 'true')
+    // Remember both modes across destination changes, reopening and reload.
+    await dialog.getByRole('button', { name: 'Terminal', exact: true }).click()
+    await dialog.getByTestId('workspace-back').click()
+    await dialog.getByTestId('agent-option-claude').click()
+    await expect(dialog.getByRole('button', { name: 'Terminal', exact: true })).toHaveAttribute('aria-pressed', 'true')
+    await dialog.getByTestId('input-dialog-close').click()
+    await sourceRow.click({ button: 'right' })
+    await handoff.click()
+    await dialog.getByTestId('agent-option-qwen').click()
+    await expect(dialog.getByRole('button', { name: 'Terminal', exact: true })).toHaveAttribute('aria-pressed', 'true')
+    await dialog.getByRole('button', { name: 'Chat', exact: true }).click()
+    await dialog.getByTestId('input-dialog-close').click()
+    await page.getByTestId('code-new-agent').click()
+    await dialog.getByTestId('agent-option-claude').click()
+    await expect(dialog.getByRole('button', { name: 'Terminal', exact: true })).toHaveAttribute('aria-pressed', 'true')
+    await dialog.getByRole('button', { name: 'Terminal', exact: true }).click()
+    await dialog.getByTestId('input-dialog-close').click()
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    await sourceRow.click({ button: 'right' })
+    await handoff.click()
+    await dialog.getByTestId('agent-option-qwen').click()
+    await expect(dialog.getByRole('button', { name: 'Chat', exact: true })).toHaveAttribute('aria-pressed', 'true')
     await expect(dialog.getByTestId('agent-home-select')).toHaveCount(0)
     const bottomGap = await dialog.evaluate(element => {
       const actions = element.querySelector('.workspace-actions')!
@@ -199,7 +230,7 @@ for (const appearance of ['light', 'dark', 'paper']) {
     await dialog.getByTestId('agent-option-claude').click()
     await dialog.getByTestId('agent-home-select').click()
     await dialog.getByRole('option').filter({ hasText: homeId }).click()
-    await dialog.getByRole('button', { name: 'Chat', exact: true }).click()
+    await expect(dialog.getByRole('button', { name: 'Chat', exact: true })).toHaveAttribute('aria-pressed', 'true')
     await expect(dialog.locator('input[name="workspace-path"]')).toHaveAttribute('readonly', '')
     await expect(dialog.getByTestId('workspace-directory-picker')).toHaveCount(0)
     const homePathLabel = dialog.locator('.workspace-home-trigger-copy > span')
@@ -233,12 +264,14 @@ for (const appearance of ['light', 'dark', 'paper']) {
     const response = await responsePromise
     expect(response.ok(), await response.text()).toBeTruthy()
     const result = await response.json() as { agentId: string }
+    expect(response.request().postDataJSON().agentRuntimeMode).toBe('chat')
     if (uncertainAgentId) expect(result.agentId).toBe(uncertainAgentId)
     await expect(dialog).toBeHidden()
     const inventory = (await (await page.request.get('/farming/api/control/agents')).json()).agents
     const destination = inventory.find((agent: { id: string }) => agent.id === result.agentId)
     expect(destination).toMatchObject({
       providerSessionProvider: 'claude', providerHomeId: homeId, cwd: workspace, parentAgentId: sourceId,
+      runtimeBinding: { kind: 'acp' },
     })
     expect(inventory.some((agent: { id: string }) => agent.id === sourceId)).toBeTruthy()
     expect(inventory.filter((agent: { parentAgentId: string }) => agent.parentAgentId === sourceId)).toHaveLength(1)

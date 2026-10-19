@@ -290,6 +290,14 @@ Handoff creates an independent coding conversation in the confirmed source's
 workspace using the chosen Provider and Home. It does not stop/archive the source
 or migrate native state. Shell is not a source or destination.
 
+Handoff remembers the user's last explicit Chat-or-Terminal choice in the browser,
+scoped to the instance's origin and base path, across destination changes, dialog
+reopening and reload. With no valid saved choice or unavailable browser storage,
+Chat is the default for a destination that supports it. Terminal-only destinations
+retain Terminal without overwriting that preference. Handoff never rewrites the
+Provider's ordinary New Agent default, and ordinary creation does not overwrite
+the Handoff preference. This is selection intent, not proof of runtime capability.
+
 The initial prompt identifies native source records, asks the destination to read
 before responding, preserve the user's language, state its understanding and wait.
 Those records are background, not permission to continue work, and remain mutable
@@ -345,6 +353,15 @@ runway so earlier turns scroll above the viewport on send, and scrolling past a
 turn's inline user prompt pins a compact summary of that turn's user message at
 the top of the viewport that jumps back to the turn start on click. Read failure
 and execution failure remain visibly distinct. Startup is not an active Turn.
+
+Turn failures show their category and original provider reason outside the activity
+disclosure, alongside any partial answer. The backend classifies the complete
+provider error, including structured details; exhausted usage allowances remain
+distinct from short-term rate limits and billing failures. Usage-limit feedback
+identifies the Agent's account as the scope to check, retains provider reset-time
+instructions without inventing a timezone, and never automatically retries work.
+Unknown errors retain their original reason. Sidebar Agent previews expose the
+current authoritative Turn failure without requiring activation.
 
 Rich content uses safe Markdown and bounded media/render paths. Source is preserved;
 untrusted HTML does not execute. Streaming, settled and interrupted content have

@@ -498,15 +498,17 @@ function acpErrorMessage(error: unknown) {
 
 function acpErrorKind(error: unknown) {
   const failure = asErrorLike(error);
-  const message = (failure.message || String(error || '')).toLowerCase();
+  const message = acpErrorMessage(error).toLowerCase();
   const code = String(failure.code || failure.data?.code || '').toLowerCase();
   const text = `${code} ${message}`;
+  // Exhausted allowances require an account/reset action, not short rate-limit retries.
+  if (/\busage[_ -]limit[_ -](?:reached|exceeded)\b|\b(?:hit|reached|exceeded) (?:your |the )?usage limit\b|\b(?:weekly|daily|monthly) (?:usage )?limit (?:reached|exceeded)\b/.test(text)) return 'usage-limit';
   if (/\b(401|unauthorized|authentication|authenticate|login|sign[ -]?in|invalid api key)\b/.test(text)) return 'authentication';
   if (/\b(402|payment|billing|credit|insufficient quota)\b/.test(text)) return 'payment';
   if (/context (?:window|length|limit)|too many tokens|max(?:imum)? tokens/.test(text)) return 'context';
   if (/\b(model_not_found|unknown model|model unavailable|unsupported model)\b/.test(text)) return 'model';
   if (/\b(429|rate[ -]?limit|too many requests)\b/.test(text)) return 'rate-limit';
-  if (/\b(econn|enet|ehost|socket|network|connection|timed? out|timeout|dns)\b/.test(text)) return 'network';
+  if (/\b(econn|enet|ehost|socket|network|connection|timed? out|timeout|dns)\b|stream disconnected/.test(text)) return 'network';
   if (/\b(protocol|json-rpc|parse error|invalid request|method not found)\b/.test(text)) return 'protocol';
   return 'unknown';
 }

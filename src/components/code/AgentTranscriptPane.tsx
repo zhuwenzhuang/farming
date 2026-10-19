@@ -47,6 +47,7 @@ import {
   ArrowDownGlyph,
   BookGlyph,
   CheckGlyph,
+  ChatFailureGlyph,
   ChecklistGlyph,
   ChevronRightGlyph,
   CloseGlyph,
@@ -376,6 +377,7 @@ function turnProcessLabel(
   if (turn.status === 'partial') return copy.agentTranscriptProcess
   const duration = durationLabel(turn.durationMs)
   const errorItem = turn.processItems.find(item => item.type === 'error')
+  if (errorItem?.kind === 'usage-limit') return copy.agentTranscriptUsageLimit
   if (errorItem?.title) return errorItem.title
   if (turn.status === 'interrupted' || ['cancelled', 'canceled', 'stopped'].includes(turn.stopReason || '')) {
     return copy.agentTranscriptInterrupted
@@ -2539,12 +2541,15 @@ function AgentTranscriptTurnView({
     [mainProcessItems, turn],
   )
   const receipts = resolvedProcessItems.filter(item => item.type === 'peer-receipt')
-  const hasProcess = mainProcessItems.length > 0
-  const processEntries = useMemo(() => (
-    groupProcessActions
-      ? processEntriesForTurn(mainProcessItems, source)
-      : mainProcessItems.map(item => ({ kind: 'item' as const, item }))
-  ), [groupProcessActions, mainProcessItems, source])
+  const errors = resolvedProcessItems.filter(item => item.type === 'error')
+  const hasProcess = mainProcessItems.some(item => item.type !== 'error')
+  const processEntries = useMemo(() => {
+    // Turn failures stay visible outside activity disclosure, exactly once.
+    const items = mainProcessItems.filter(item => item.type !== 'error')
+    return groupProcessActions
+      ? processEntriesForTurn(items, source)
+      : items.map(item => ({ kind: 'item' as const, item }))
+  }, [groupProcessActions, mainProcessItems, source])
   const compactProcess = useMemo(
     () => compactProcessEntries(processEntries, turn.status, source),
     [processEntries, source, turn.status],
@@ -3161,6 +3166,14 @@ function AgentTranscriptTurnView({
       ) : shouldShowWaiting && !showLiveActivity ? (
         <div className="code-agent-transcript-placeholder">{copy.agentTranscriptWaiting}</div>
       ) : null}
+
+      {errors.map(item => (
+        <section key={item.id} className="code-agent-transcript-error" data-testid="code-agent-transcript-error" role="alert">
+          <strong><ChatFailureGlyph />{item.kind === 'usage-limit' ? copy.agentTranscriptUsageLimit : item.title}</strong>
+          {item.kind === 'usage-limit' ? <p>{copy.agentTranscriptUsageLimitHelp}</p> : null}
+          <p className="code-agent-transcript-error-detail">{item.detail}</p>
+        </section>
+      ))}
 
       {turn.completedGoals?.map(record => <AgentGoalCompletion key={record.id} goal={record.goal} />)}
 

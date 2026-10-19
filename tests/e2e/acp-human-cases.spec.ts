@@ -264,7 +264,8 @@ test.describe('ACP human-like browser matrix', () => {
 
     await expect(page.getByTestId('code-acp-authentication')).toBeVisible({ timeout: 15_000 })
     const turn = page.locator('.code-agent-transcript-turn').filter({ hasText: 'authentication error' })
-    await expect(turn.getByTestId('code-agent-transcript-process-summary')).toContainText('Authentication required')
+    await expect(turn.getByTestId('code-agent-transcript-error')).toContainText('Authentication required')
+    await expect(turn.getByTestId('code-agent-transcript-error')).toContainText('401 Unauthorized')
     await expect(page.getByTestId('code-acp-error')).toHaveCount(0)
 
     await page.unroute(sessionPath)
@@ -2000,14 +2001,10 @@ test.describe('ACP human-like browser matrix', () => {
     await test.step('43 classify a runtime failure without hiding the transcript', async () => {
       await sendAcpMessage(page, 'authentication error')
       const errorTurn = page.locator('.code-agent-transcript-turn').filter({ hasText: 'authentication error' })
-      const errorSummary = errorTurn.getByTestId('code-agent-transcript-process-summary')
-      await expect(errorSummary).toContainText('Authentication required', { timeout: 10_000 })
-      await expect(errorSummary).toHaveAttribute('aria-expanded', 'false')
+      const errorCard = errorTurn.getByTestId('code-agent-transcript-error')
+      await expect(errorCard).toContainText('Authentication required', { timeout: 10_000 })
+      await expect(errorCard).toContainText('401 Unauthorized')
       await expect(errorTurn.getByTestId('code-agent-transcript-process-item')).toHaveCount(0)
-      await errorSummary.click()
-      const errorItem = errorTurn.getByTestId('code-agent-transcript-process-item').filter({ hasText: 'Authentication required' })
-      await expect(errorItem.getByTestId('code-agent-transcript-process-item-toggle')).toHaveAttribute('aria-expanded', 'false')
-      await errorItem.getByTestId('code-agent-transcript-process-item-toggle').click()
       await expect(errorTurn).toContainText('401 Unauthorized')
       await expect(page.getByTestId('code-acp-error')).toHaveCount(0)
       await expect(page.getByText('Rich ACP timeline complete.', { exact: true })).toBeVisible()
@@ -2733,10 +2730,8 @@ test.describe('ACP human-like browser matrix', () => {
     await sendAcpMessage(page, 'duplicate provider error')
     const errorText = 'stream disconnected before completion: request to http://example.invalid/v1/responses failed'
     const errorTurn = page.locator('.code-agent-transcript-turn').filter({ hasText: 'duplicate provider error' })
-    const errorSummary = errorTurn.getByTestId('code-agent-transcript-process-summary')
-    await expect(errorSummary).toContainText('Agent error', { timeout: 10_000 })
-    await errorSummary.click()
-    await errorTurn.getByTestId('code-agent-transcript-process-item-toggle').click()
+    await expect(errorTurn.getByTestId('code-agent-transcript-error')).toContainText('Connection problem', { timeout: 10_000 })
+    await expect(errorTurn.getByTestId('code-agent-transcript-error')).toContainText(errorText)
     expect((await errorTurn.innerText()).split(errorText).length - 1).toBe(1)
     await expect(errorTurn.getByTestId('code-agent-transcript-copy-answer')).toHaveCount(0)
 
@@ -2750,7 +2745,7 @@ test.describe('ACP human-like browser matrix', () => {
       'Partial result before the connection failed.',
       { timeout: 10_000 },
     )
-    await expect(partialTurn.getByTestId('code-agent-transcript-process-summary')).toContainText('Agent error')
+    await expect(partialTurn.getByTestId('code-agent-transcript-error')).toContainText('Connection problem')
     await expect(partialTurn.getByTestId('code-agent-transcript-copy-answer')).toHaveCount(1)
   })
 
