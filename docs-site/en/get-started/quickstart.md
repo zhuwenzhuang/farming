@@ -25,7 +25,7 @@ On the same Mac or Linux host running Farming, the target coding Agent CLI start
 Run these commands on the host where your Agents will run:
 
 ```bash
-npm install --global farming-code@latest
+npm install --global farming-code@latest --registry=https://registry.npmjs.org
 farming daemon
 ```
 

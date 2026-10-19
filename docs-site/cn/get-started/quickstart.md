@@ -25,7 +25,7 @@ Farming 不代替 Provider 登录。请先在运行 Farming 的 Mac 或 Linux �
 在运行 Agent 的主机上执行：
 
 ```bash
-npm install --global farming-code@latest
+npm install --global farming-code@latest --registry=https://registry.npmjs.org
 farming daemon
 ```
 

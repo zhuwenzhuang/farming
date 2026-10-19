@@ -26,7 +26,7 @@
 在 Mac 或 Linux 上安装并启动：
 
 ```bash
-npm install --global farming-code@latest
+npm install --global farming-code@latest --registry=https://registry.npmjs.org
 farming daemon
 ```
 

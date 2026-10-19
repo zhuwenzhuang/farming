@@ -71,7 +71,7 @@ For a user-directory installation, inspect `~/farming/farming logs` and use **Se
 For an installation originally created with global npm:
 
 ```bash
-npm install --global farming-code@latest
+npm install --global farming-code@latest --registry=https://registry.npmjs.org
 ```
 
 Restart Farming and confirm the actual version in Settings.

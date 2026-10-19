@@ -86,7 +86,7 @@ farming browser capability
 如果原本是通过全局 npm 安装，可以在普通 Shell 中运行：
 
 ```bash
-npm install --global farming-code@latest
+npm install --global farming-code@latest --registry=https://registry.npmjs.org
 ```
 
 完成后重新启动 Farming，并在 Settings 中确认实际版本。

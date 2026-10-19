@@ -4,7 +4,7 @@ import { useData } from 'vitepress'
 
 const { lang } = useData()
 const chinese = computed(() => lang.value.startsWith('zh'))
-const command = 'npm install --global farming-code@latest\nfarming daemon'
+const command = 'npm install --global farming-code@latest --registry=https://registry.npmjs.org\nfarming daemon'
 const copied = ref(false)
 const failed = ref(false)
 let timer: ReturnType<typeof setTimeout> | undefined

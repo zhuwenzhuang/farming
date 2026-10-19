@@ -7,7 +7,7 @@ const base = process.argv[2] || 'http://127.0.0.1:5189/farming/';
 const output = path.resolve(process.argv[3] || '.tmp/installation-docs');
 fs.mkdirSync(output, { recursive: true });
 const browser = await chromium.launch({ headless: true, channel: 'chromium' });
-const expected = 'npm install --global farming-code@latest\nfarming daemon';
+const expected = 'npm install --global farming-code@latest --registry=https://registry.npmjs.org\nfarming daemon';
 try {
   for (const locale of ['cn', 'en']) {
     for (const theme of ['light', 'dark', 'paper']) {
@@ -53,7 +53,7 @@ try {
           await expect(page.locator('.home-install-feedback')).toHaveText(locale === 'cn'
             ? '请选中上方命令复制。' : 'Select the command above to copy it.');
           await page.goto(`${base}${locale}/get-started/installation?theme=${theme}`, { waitUntil: 'networkidle' });
-          await expect(page.locator('.vp-doc')).toContainText('npm install --global farming-code@latest');
+          await expect(page.locator('.vp-doc')).toContainText('npm install --global farming-code@latest --registry=https://registry.npmjs.org');
           await page.screenshot({ path: `${prefix}-installation.png`, fullPage: true, animations: 'disabled' });
           console.log(prefix);
         } finally { await context.close(); }

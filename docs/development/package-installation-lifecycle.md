@@ -57,6 +57,8 @@ containment and configured version probes. They do not compare full-file digests
 or detect every byte edit that leaves a runtime functional. Build, download,
 transfer and installation remain the content-integrity boundaries.
 
+Public npm installation and update commands explicitly select the official npm registry, so a stale third-party `latest` tag cannot silently select an older Farming version. This is a per-command registry selection; it does not rewrite user npm configuration.
+
 ### npm lifecycle-script constraint
 
 An npm installation must not depend on `preinstall`, `install`, `postinstall`,

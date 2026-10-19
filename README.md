@@ -26,7 +26,7 @@
 Install and start on macOS or Linux:
 
 ```bash
-npm install --global farming-code@latest
+npm install --global farming-code@latest --registry=https://registry.npmjs.org
 farming daemon
 ```
 

@@ -5,11 +5,13 @@
 Run these commands on the Mac or Linux host where your Agents will run:
 
 ```bash
-npm install --global farming-code@latest
+npm install --global farming-code@latest --registry=https://registry.npmjs.org
 farming daemon
 ```
 
 Open the address printed in the terminal to create your first Agent.
+
+The command selects the official npm registry for this installation without changing your npm configuration. Third-party mirrors may serve an older `latest`; rerun the command and confirm the version in Settings if your installation is out of date.
 
 ## Dependencies
 
@@ -23,7 +25,7 @@ Check **Settings → Updates** and restart when prompted. You can also update th
 
 ```bash
 farming stop
-npm install --global farming-code@latest
+npm install --global farming-code@latest --registry=https://registry.npmjs.org
 farming daemon
 ```
 
