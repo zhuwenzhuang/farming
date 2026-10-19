@@ -470,6 +470,17 @@ SHA-256 sidecar or hash the same unchanged tarball again in that stage.
   and digests make the publication status successful. A conflicting public
   identity fails; an ambiguous upload or failed observation remains uncertain.
   Never classify normal public-availability waiting as an upload failure.
+- After official npm source and digest verification, request only that release
+  and its declared exact Farming runtime carrier versions from the China mirror.
+  Never request full history, force a history reset, exempt obsolete large
+  packages, or forward npm credentials. The publication owner and its delayed
+  verification continuation share this replica step under per-version ownership.
+  Retain the returned task ID and resume it without replaying an uncertain
+  request. Bound observation to two minutes; task success alone is insufficient:
+  current full and npm-install metadata must select the release and match official
+  digests for every selected version. A newer official latest supersedes the
+  request. Report `farming/npm-mirror/<version>` independently, retain its journal,
+  and keep official publication truth intact when the replica is pending or fails.
 - A successful upload may not be immediately visible in the public registry.
   npm performs publish-time scanning, typically taking about five minutes and
   sometimes fifteen minutes or more; these times are not a service guarantee.

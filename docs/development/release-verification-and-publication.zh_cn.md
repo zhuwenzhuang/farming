@@ -361,6 +361,13 @@ Changed Files + Failure Signatures
   归类为上传失败。
 - 验证公开 Tag Target、资产清单、Manifest、Checksum，并至少下载一个公开资产。
 - 只有验证成功后才发布 npm，并核对 npm `gitHead`。
+- 官方 npm 源码与摘要验证成功后，只向国内镜像请求同步本次发布及其声明的精确 Farming
+  Runtime Carrier 版本。不请求完整历史、不强制重置历史、不放行过时大包，也不向镜像转发
+  npm 凭据。发布任务及延迟公开续查任务在按版本串行的所有权下共享此镜像步骤。
+  保留返回的 Task ID，恢复时继续观察原任务，不重播结果不明的请求。观察最长两分钟；
+  任务成功本身不足以验收，完整元数据与 npm-install 元数据必须选中当前版本，且所有选中
+  版本的摘要与官方一致。官方 latest 已切换时跳过旧请求。独立报告
+  `farming/npm-mirror/<version>` 并保留 Journal；镜像仍待同步或失败不改变官方已验证的发布状态。
 - 上传成功后，公共 Registry 可能暂时不可见。npm 在公开前执行扫描，通常约五分钟，
   有时十五分钟甚至更久，这些时间不是服务保证。参见
   [npm 发布时扫描说明](https://github.blog/changelog/2026-07-28-npm-publish-time-malware-scanning-and-dual-use-metadata/)。

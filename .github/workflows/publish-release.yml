@@ -701,6 +701,23 @@ jobs:
             -f description="${PUBLICATION_DESCRIPTION}" \
             -f target_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" >/dev/null
 
+      - name: Synchronize this release to China npm mirror
+        if: steps.npm-publication.outputs.commit_state == 'success'
+        continue-on-error: true
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        shell: bash
+        run: |
+          mirror_exit=0
+          rm -f npm-evidence/mirror-sync.json.github-status.json
+          node scripts/sync-npm-mirror.mjs npm-evidence/npm-smoke-receipt.json "${CANDIDATE_SHA}" \
+            npm-evidence/mirror-sync.json || mirror_exit=$?
+          if [[ -f npm-evidence/mirror-sync.json.github-status.json ]]; then
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/statuses/${CANDIDATE_SHA}" \
+              --input npm-evidence/mirror-sync.json.github-status.json >/dev/null
+          fi
+          exit "${mirror_exit}"
+
       - name: Upload npm publication evidence
         if: always()
         uses: actions/upload-artifact@v4
