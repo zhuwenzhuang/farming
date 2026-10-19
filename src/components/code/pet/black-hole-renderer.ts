@@ -129,6 +129,10 @@ uniform float uMass;
 uniform float uDiskFeed;
 uniform float uHawking;
 uniform float uFinalBurst;
+// Sub-pixel centre offset (uv) and size ratio of the body inside its box.
+uniform vec3 uPlacement;
+// 0 on dark pages, 1 on light pages (see the disk body branch).
+uniform float uPaper;
 out vec4 outColor;
 
 ${SHARED_SHADER}
@@ -208,9 +212,25 @@ vec4 evaporation(vec2 point, float baseHorizon, float horizon) {
   );
 }
 
+// The canvas is premultiplied: rgb is emitted light and alpha is how much of
+// the page behind is hidden. Coverage never drops below the brightest emitted
+// channel, so CSS filters see legal premultiplied pixels and dim gas reads as
+// light rather than as grey paint over a light page.
+vec4 premultipliedOutput(vec3 light, float coverage, vec4 evaporationColor) {
+  vec3 color = min(
+    light + evaporationColor.rgb * evaporationColor.a * (1.0 - coverage),
+    vec3(1.0)
+  );
+  float alpha = max(
+    max(coverage, evaporationColor.a),
+    max(color.r, max(color.g, color.b))
+  );
+  return vec4(color, clamp(alpha, 0.0, 1.0));
+}
+
 void main() {
   vec2 uv = vec2(gl_FragCoord.x, uResolution.y - gl_FragCoord.y) / uResolution;
-  vec2 point = uv - 0.5;
+  vec2 point = (uv - 0.5 - uPlacement.xy) / uPlacement.z;
   float pointLength = length(point);
   float baseHorizon = ${(SHADOW_PX / DISPLAY_SIZE).toFixed(8)};
   float horizon = baseHorizon * max(uMass, 0.015);
@@ -241,12 +261,8 @@ void main() {
 
   if (impact >= maxImpact) {
     vec3 direction = normalize(vec3(-(projected / impact) * (2.0 / impact), -1.0));
-    vec3 starColor = stars(direction) * window;
-    float starAlpha = max(max(starColor.r, starColor.g), starColor.b) * uOpacity;
-    outColor = vec4(
-      starColor + evaporationColor.rgb * (1.0 - starAlpha),
-      max(starAlpha, evaporationColor.a)
-    );
+    vec3 starColor = stars(direction) * window * uOpacity;
+    outColor = premultipliedOutput(starColor, 0.0, evaporationColor);
     return;
   }
 
@@ -257,6 +273,8 @@ void main() {
   vec3 diskAxis = vec3(0.0, cos(inclination), -sin(inclination));
   vec3 emission = vec3(0.0);
   float transmittance = 1.0;
+  float cavityBlock = 0.0;
+  float diskHit = 0.0;
   bool captured = false;
   float previousSide = dot(position, diskNormal);
   vec3 previousPosition = position;
@@ -290,6 +308,7 @@ void main() {
       if (diskRadius > innerRadius && diskRadius < outerRadius) {
         float band = smoothstep(innerRadius, innerRadius * 1.25, diskRadius)
           * (1.0 - smoothstep(outerRadius * 0.70, outerRadius, diskRadius));
+        diskHit = max(diskHit, band);
         float kepler = pow(innerRadius / diskRadius, 1.5);
         float gravity = sqrt(max(1.0 - 1.5 / diskRadius, 0.02));
         float swirl = diskRadius * wind * 0.12 - uTime * kepler * gravity * speed * 0.38;
@@ -318,7 +337,7 @@ void main() {
           0.05
         );
         frequencyShift = mix(1.0, frequencyShift, doppler);
-        float x = max(1.0 - sqrt(innerRadius / diskRadius), 0.0);
+        float x = max(1.0 - 0.82 * sqrt(innerRadius / diskRadius), 0.0);
         float temperatureProfile =
           pow(innerRadius / diskRadius, 0.75) * pow(x, 0.25) / 0.488;
         vec3 color = blackbody(uTemperature * temperatureProfile * frequencyShift);
@@ -328,6 +347,14 @@ void main() {
             * pow(frequencyShift, beam));
         transmittance *= 1.0 - clamp(diskOpacity * density, 0.0, 1.0);
       }
+      if (diskRadius < innerRadius * 1.40) {
+        cavityBlock = max(
+          cavityBlock,
+          transmittance * uDiskFeed * (1.0 - diskHit)
+            * smoothstep(0.18, 0.28, cos(inclination))
+            * (1.0 - smoothstep(innerRadius * 0.98, innerRadius * 1.38, diskRadius))
+        );
+      }
     }
     previousSide = side;
     previousPosition = position;
@@ -336,31 +363,82 @@ void main() {
   if (!captured && dot(position, position) < 4.0) captured = true;
   vec3 starColor = vec3(0.0);
   float shadowPixel = max(0.004, 1.25 * projection / uResolution.x);
+  // Capture is exact for impact < B_CRIT. Rays just outside it are either
+  // numerically captured or deflected past the page plane; both stay opaque.
+  // Taking the union avoids the transparent hairline that a blend between the
+  // analytic and traced edges leaves at B_CRIT.
   float shadowCoverage =
     1.0 - smoothstep(B_CRIT - shadowPixel, B_CRIT + shadowPixel, impact);
-  float tracedCapture = captured ? 1.0 : 0.0;
-  float analyticEdge = 1.0 - smoothstep(
-    shadowPixel,
-    shadowPixel * 3.0,
-    abs(impact - B_CRIT)
-  );
-  float skyBlock = mix(tracedCapture, shadowCoverage, analyticEdge);
+  float skyBlock = max(shadowCoverage, captured ? 1.0 : 0.0);
   if (!captured) {
     vec3 direction = normalize(velocity);
     starColor = stars(direction) * window;
+    float wellFade = 1.0 - smoothstep(0.48, 0.72, -direction.z);
     skyBlock = max(
       skyBlock,
-      1.0 - smoothstep(0.05, 0.35, -direction.z)
+      max(
+        (1.0 - smoothstep(0.05, 0.35, -direction.z)) * (1.0 - diskHit),
+        cavityBlock * wellFade
+      )
     );
   }
-  vec3 disk = vec3(1.0) - exp(-emission * exposure);
-  float alpha = clamp(skyBlock + (1.0 - transmittance), 0.0, 1.0) * uOpacity;
-  vec3 body = (starColor * transmittance + disk) * uOpacity;
-  outColor = vec4(
-    body + evaporationColor.rgb * (1.0 - alpha),
-    max(alpha, evaporationColor.a)
+
+  // Photon ring: light skimming the photon sphere piles up at B_CRIT and
+  // fades outward through the strongly deflected band. The approaching side
+  // (-x in disk coordinates, as for the disk gas) is hotter and brighter.
+  float ringDistance = impact - B_CRIT;
+  float ringCore = exp(-pow(ringDistance / max(shadowPixel * 1.4, 0.022), 2.0));
+  float ringTail = exp(-max(ringDistance, 0.0) / 0.16)
+    * smoothstep(-shadowPixel, shadowPixel, ringDistance);
+  float approach = 0.5 - 0.5 * projected.x / max(impact, 0.0001);
+  float ringBeam = mix(1.0, 0.30 + 1.40 * approach, doppler);
+  vec3 ringColor = blackbody(
+    uTemperature * mix(0.92, 1.0 + 0.25 * doppler, approach)
   );
-}`
+  emission += transmittance * ringColor * gain * uDiskFeed * ringBeam
+    * ringCore * 2.0;
+
+  vec3 disk = vec3(1.0) - exp(-emission * exposure * 0.75);
+  float band = max(skyBlock - shadowCoverage, 0.0);
+  vec3 ringHue = ringColor / max(max(ringColor.r, ringColor.g), max(ringColor.b, 0.001));
+  float halo = clamp(
+    ringBeam * uDiskFeed * mix(0.45, 0.80, clamp(gain / 2.0, 0.0, 1.0))
+      * (ringCore + ringTail * 0.85),
+    0.0,
+    0.85
+  );
+  vec3 sky = (starColor + ringHue * halo * band) * transmittance;
+  vec3 light = sky + disk;
+  float glow = max(disk.r, max(disk.g, disk.b));
+  float coverage = max(
+    skyBlock,
+    (1.0 - transmittance) * smoothstep(0.0, 0.55, glow)
+  );
+  if (uPaper > 0.0) {
+    vec3 hue = disk / max(glow, 0.0001);
+    vec3 filmHue = mix(
+      vec3(1.0),
+      hue,
+      mix(0.58, 0.92, smoothstep(0.06, 0.60, glow))
+    );
+    float diskCover = smoothstep(0.03, 0.34, glow)
+      * mix(0.84, 0.98, smoothstep(0.25, 0.88, glow));
+    float diskValue = mix(
+      0.52,
+      1.0,
+      pow(smoothstep(0.08, 0.88, glow), 0.85)
+    );
+    vec3 paperDisk = filmHue * (diskValue * diskCover);
+    vec3 paperLight = sky * (1.0 - diskCover) + paperDisk;
+    light = mix(light, paperLight, uPaper);
+    coverage = mix(coverage, max(skyBlock, diskCover), uPaper);
+  }
+  outColor = premultipliedOutput(
+    light * uOpacity,
+    clamp(coverage, 0.0, 1.0) * uOpacity,
+    evaporationColor
+  );
+}`;
 
 const MAP_SHADER = `#version 300 es
 precision highp float;
@@ -616,6 +694,8 @@ interface DisplayRenderer {
     evaporation: EvaporationState,
   ) => void
   resize: (cssSize: number) => void
+  setPlacement: (offsetX: number, offsetY: number, scale: number) => void
+  setPaper: (paper: number) => void
   destroy: () => void
 }
 
@@ -667,7 +747,7 @@ function createDisplayRenderer(canvas: HTMLCanvasElement): DisplayRenderer {
   const glContext = canvas.getContext('webgl2', {
     alpha: true,
     antialias: false,
-    premultipliedAlpha: false,
+    premultipliedAlpha: true,
     powerPreference: 'high-performance',
     preserveDrawingBuffer: preserveForVisualRegression,
   })
@@ -698,6 +778,10 @@ function createDisplayRenderer(canvas: HTMLCanvasElement): DisplayRenderer {
   const diskFeed = gl.getUniformLocation(program, 'uDiskFeed')
   const hawking = gl.getUniformLocation(program, 'uHawking')
   const finalBurst = gl.getUniformLocation(program, 'uFinalBurst')
+  const placementUniform = gl.getUniformLocation(program, 'uPlacement')
+  let placement = { x: 0, y: 0, scale: 1 }
+  const paperUniform = gl.getUniformLocation(program, 'uPaper')
+  let paper = 0
   let renderSize = 0
   let filamentDetail = 0.68
   let verificationPixels = new Uint8Array()
@@ -760,6 +844,12 @@ function createDisplayRenderer(canvas: HTMLCanvasElement): DisplayRenderer {
       canvas.width = nextSize
       canvas.height = nextSize
     },
+    setPlacement(offsetX, offsetY, scale) {
+      placement = { x: offsetX, y: offsetY, scale }
+    },
+    setPaper(nextPaper) {
+      paper = nextPaper
+    },
     draw(clock, alpha, look, evaporation) {
       resolveGpuQueries()
       gl.viewport(0, 0, canvas.width, canvas.height)
@@ -786,6 +876,8 @@ function createDisplayRenderer(canvas: HTMLCanvasElement): DisplayRenderer {
       gl.uniform1f(diskFeed, evaporation.diskFeed)
       gl.uniform1f(hawking, evaporation.hawking)
       gl.uniform1f(finalBurst, evaporation.burst)
+      gl.uniform3f(placementUniform, placement.x, placement.y, placement.scale)
+      gl.uniform1f(paperUniform, paper)
       gl.clearColor(0, 0, 0, 0)
       gl.clear(gl.COLOR_BUFFER_BIT)
       const gpuQuery = gpuTimer && pendingGpuQueries.length < 8
@@ -1227,6 +1319,28 @@ function clamp(value: number, min: number, max: number) {
 function smoother(value: number) {
   const t = clamp(value, 0, 1)
   return t * t * t * (t * (t * 6 - 15) + 10)
+}
+
+// Light pages use the high-key disk treatment, selected from the page tone
+// the user actually sees: the snapshot background after the compositor's own
+// CSS brightness filter.
+function displayedPaper(
+  background: string | undefined,
+  compositorFilter: string,
+) {
+  const match = background?.match(/^rgba?\(([^)]+)\)$/)
+  if (!match) return 0
+  const [red, green, blue] = match[1]!.split(/[\s,/]+/).map(Number)
+  if (![red, green, blue].every(Number.isFinite)) return 0
+  const brightness = Number(
+    compositorFilter.match(/brightness\(([\d.]+)\)/)?.[1] ?? 1,
+  )
+  const gain = Number.isFinite(brightness) ? brightness : 1
+  const rgb = [red!, green!, blue!].map(
+    channel => clamp(channel / 255 * gain, 0, 1),
+  ) as [number, number, number]
+  const luminance = 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]
+  return smoother((luminance - 0.35) / 0.4)
 }
 
 function homePoint(homeElement: () => Element | null) {
@@ -1682,6 +1796,12 @@ export function createBlackHolePetRenderer({
       .then(image => {
         if (destroyed || captureRevision !== sceneCaptureRevision) return
         compositor.setScene(image)
+        display.setPaper(
+          displayedPaper(
+            image.dataset.clonedBodyBackground,
+            getComputedStyle(compositorCanvas).filter,
+          ),
+        )
         sceneReady = true
         sceneCaptured = true
         sceneRefreshPending = false
@@ -1741,13 +1861,25 @@ export function createBlackHolePetRenderer({
   }
 
   const applyPose = (pose: Pose) => {
+    // The compositor snaps the canvas layer to device pixels, so a fractional
+    // CSS box still moves in whole-pixel steps. Keep the box on device pixels
+    // and draw the sub-pixel remainder in the shader, so the body follows the
+    // same continuous pose as the lens instead of stepping against it.
     const pixelRatio = Math.min(2, Math.max(1, window.devicePixelRatio || 1))
     const snap = (value: number) => Math.round(value * pixelRatio) / pixelRatio
-    const size = snap(DISPLAY_SIZE * pose.scale)
-    canvas.style.left = `${snap(pose.centerX - size / 2)}px`
-    canvas.style.top = `${snap(pose.centerY - size / 2)}px`
+    const size = DISPLAY_SIZE * pose.scale
+    const box = Math.max(1 / pixelRatio, snap(size))
+    const left = snap(pose.centerX - box / 2)
+    const top = snap(pose.centerY - box / 2)
+    canvas.style.left = `${left}px`
+    canvas.style.top = `${top}px`
     canvas.style.opacity = String(sceneReady ? pose.bodyOpacity : 0)
-    display.resize(size)
+    display.resize(box)
+    display.setPlacement(
+      (pose.centerX - (left + box / 2)) / box,
+      (pose.centerY - (top + box / 2)) / box,
+      size / box,
+    )
   }
 
   function frame(now: number) {
