@@ -132,6 +132,14 @@ test('usage-limit failures expose the cause and recovery without expanding activ
     await expect(card).toContainText('Usage limit reached')
     await expect(card).toBeVisible()
     await captureSurface(card, testInfo, `usage-limit-${appearance}.png`)
+    // The preceding mobile viewport can persist the collapsed desktop rail.
+    // Restore the full sidebar before asking for a row-only hover target.
+    await expect(page.locator('body')).not.toHaveClass(/code-compact-layout/)
+    const sidebar = page.getByTestId('code-sidebar')
+    if ((await sidebar.getAttribute('class'))?.includes('collapsed')) {
+      await page.getByTestId('code-sidebar-toggle').click()
+    }
+    await expect(row(page, id)).toBeVisible()
     await row(page, id).hover()
     const preview = page.getByTestId('code-agent-hover-preview')
     await expect(preview.getByTestId('code-agent-hover-preview-failure')).toContainText("You've hit your usage limit")
@@ -145,9 +153,7 @@ test('usage-limit failures expose the cause and recovery without expanding activ
     expect(await card.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
     await captureSurface(card, testInfo, `usage-limit-mobile-${appearance}.png`)
     await page.setViewportSize({ width: 1440, height: 900 })
-    if ((await page.getByTestId('code-sidebar').getAttribute('class'))?.includes('collapsed')) {
-      await page.getByTestId('code-sidebar-toggle').click()
-    }
+    await expect(page.locator('body')).not.toHaveClass(/code-compact-layout/)
   }
   expect((await page.request.post('/farming/api/settings', { data: { language: 'zh' } })).ok()).toBeTruthy()
   await page.reload({ waitUntil: 'domcontentloaded' })
