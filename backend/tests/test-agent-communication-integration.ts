@@ -30,6 +30,11 @@ async function bounded<T>(operation: Promise<T>): Promise<T> {
 
 for (const provider of ['claude', 'codex', 'opencode', 'pi', 'qoder', 'qwen', 'agy']) test(`${provider}: A2A CLI executes through manager, Host socket and ACP process with correlated full reply`, { timeout: 30000 }, async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'farming-peer-integration-'));
+  // Pi validates its system CLI identity before the injected ACP launcher runs.
+  // Own that prerequisite instead of depending on a developer's installed CLI.
+  const bin = path.join(root, 'bin');
+  await fs.mkdir(bin);
+  await fs.writeFile(path.join(bin, 'pi'), '#!/bin/sh\nif [ "$1" = "--version" ]; then echo "pi 0.84.1"; else echo "pi - AI coding assistant with read, bash, edit, write tools"; fi\n', { mode: 0o755 });
   const config = new ConfigManager({ configDir: root }); config.init();
   const socketPath = path.join(root, 'host.sock');
   const engine = new AcpRuntime({ configDir: root, resolveLaunch: () => ({
@@ -39,13 +44,15 @@ for (const provider of ['claude', 'codex', 'opencode', 'pi', 'qoder', 'qwen', 'a
   const facade = new AcpRuntimeHostRuntime({ configDir: root, socketPath, connectRetries: 5 });
   const communication: AgentCommunicationRuntime = new AgentCommunicationRuntime(root, () => manager);
   const manager = new AgentManager(config, { acpRuntime: facade, skipExecutablePreflight: true,
+    agentShellEnvProvider: () => ({ ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH || ''}` }),
     communicationToken: id => communication.tokenForLaunch(id),
   });
   const app = express(); const server = app.listen(0, '127.0.0.1');
   try {
     await host.start(); await manager.recoveryGate.wait();
-    const target = await manager.startAgent(provider, root, undefined, { agentRuntimeMode: 'chat', wantsMain: false });
-    assert.ok(target);
+    let startError = '';
+    const target = await manager.startAgent(provider, root, (_id, error) => { startError = error || ''; }, { agentRuntimeMode: 'chat', wantsMain: false });
+    assert.ok(target, startError);
     const live = manager.resolveCommunicationAgent(target);
     assert.ok(live.sessionKey);
     const grant = await communication.credentials.issue({ kind: 'external', peerId: 'test-peer', name: 'Peer reviewer' }, [target], Date.now() + 60000);
