@@ -764,9 +764,15 @@ test('reuses the existing Agent Chat beside a file', async ({ page, workspaceRoo
   expect(identity.sessionId).toBeTruthy()
   expect(identity.runtimeEpoch).toBeTruthy()
   const fixtureRevision = Math.max(11, Number(identity.toRevision) || 0) + 1_000_000
-  let transcriptRequests = 0
+  let transcriptCheckpointRequests = 0
   await page.route(new RegExp(`/farming/api/agents/${agentId}/acp-transcript(?:\\?.*)?$`), async route => {
-    transcriptRequests += 1
+    // Initial subscription may refresh the revision after the first read.
+    // Pane reuse must preserve the DOM and avoid another full checkpoint;
+    // a valid sinceRevision refresh is a different protocol operation.
+    const sinceRevision = new URL(route.request().url()).searchParams.get('sinceRevision')
+    const isDelta = sinceRevision !== null
+    if (isDelta) expect(Number(sinceRevision)).toBe(fixtureRevision)
+    else transcriptCheckpointRequests += 1
     await route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify({
@@ -774,16 +780,16 @@ test('reuses the existing Agent Chat beside a file', async ({ page, workspaceRoo
         agentId,
         sessionId: identity.sessionId,
         runtimeEpoch: identity.runtimeEpoch,
-        fromRevision: null,
+        fromRevision: isDelta ? fixtureRevision : null,
         toRevision: fixtureRevision,
-        replace: true,
+        replace: !isDelta,
         settled: true,
         hasMoreBefore: false,
         transcript: {
           sessionId: identity.sessionId,
           state: 'idle',
           revision: fixtureRevision,
-          entries: [
+          entries: isDelta ? [] : [
             {
               id: 'file-agent-chat-user',
               type: 'message',
@@ -827,7 +833,7 @@ test('reuses the existing Agent Chat beside a file', async ({ page, workspaceRoo
   await expect(page.getByTestId('code-agent-chat-view')).toBeVisible({ timeout: 30_000 })
   await expect(page.getByTestId('code-terminal-mode-toggle')).toBeVisible()
   await expect(page.getByText('The existing Chat is ready.', { exact: true })).toBeVisible()
-  await expect.poll(() => transcriptRequests).toBe(1)
+  await expect.poll(() => transcriptCheckpointRequests).toBe(1)
   await page.getByTestId('code-agent-chat-view').evaluate(element => {
     element.setAttribute('data-preserved-chat', 'true')
   })
@@ -842,7 +848,7 @@ test('reuses the existing Agent Chat beside a file', async ({ page, workspaceRoo
   await expect(page.getByTestId('code-agent-chat-view')).toHaveAttribute('data-preserved-chat', 'true')
   await expect(page.getByText('The existing Chat is ready.', { exact: true })).toBeVisible()
   await expect(page.locator('.code-agent-transcript-state.subtle')).toHaveCount(0)
-  expect(transcriptRequests).toBe(1)
+  expect(transcriptCheckpointRequests).toBe(1)
   await expect(editor).toBeVisible()
   await expect(page.getByTestId('code-acp-composer-input')).toBeVisible()
   const composerCollapseZone = page.locator('.code-composer-collapse-zone')
