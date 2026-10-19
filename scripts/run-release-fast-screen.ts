@@ -54,6 +54,10 @@ const tasks: FastScreenTask[] = [
     args: ['--import', 'tsx', 'backend/tests/test-release-component-transfer.ts'],
   },
   {
+    name: 'Agent attention background persistence and lifecycle recovery',
+    args: ['--import', 'tsx', '--test', 'backend/tests/test-acp-agent-scoped-scale.ts', 'backend/tests/test-agent-create-update-recovery-journal.ts'],
+  },
+  {
     name: 'provider-neutral ACP protocol compatibility',
     managedUpgrade: true,
     args: ['--import', 'tsx', 'backend/tests/test-acp-protocol-compatibility.ts'],

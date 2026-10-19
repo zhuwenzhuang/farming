@@ -37,6 +37,7 @@ function configForStore(store, workspace, ensureAgentSessionRecord?) {
     getAgentSessionRecordForProviderSessionKey: key => store.getRecordForProviderSessionKey(key),
     ensureAgentSessionRecord: ensureAgentSessionRecord
       || ((agent, patch) => store.ensureRecordForAgent(agent, patch)),
+    persistAgentStatePatch: (agent, patch, options) => store.persistAgentStatePatch(agent, patch, options),
     rememberAgentSessionRecord: agent => store.rememberAgent(agent),
     removeMainPageSessionKeys: keys => store.removeMainPageSessionKeys(keys),
   };
@@ -230,18 +231,30 @@ async function run() {
     assert.strictEqual(latestLifecycleOperation(recoveredUpdate).state, 'succeeded');
     assert.strictEqual(activeLifecycleOperation(recoveredUpdate), null);
     const originalEnsureAgentSessionRecord = recoveredManager.configManager.ensureAgentSessionRecord;
+    const originalStatePatch = recoveredManager.configManager.persistAgentStatePatch;
+    const persistedBeforeRead = store.readRecord(recoveredUpdate.agentRecordId).unread;
     recoveredManager.configManager.ensureAgentSessionRecord = () => {
+      throw new Error('read cursor must not use synchronous persistence');
+    };
+    let stateWrites = 0;
+    recoveredManager.configManager.persistAgentStatePatch = async () => {
+      stateWrites += 1;
       throw new Error('simulated read-cursor disk failure');
     };
-    const failedCursorUpdate = recoveredManager.updateAgentFlags(updateAgent.id, { unread: true });
-    assert.strictEqual(failedCursorUpdate.retryable, true);
-    assert.match(failedCursorUpdate.error, /read-cursor disk failure/);
-    assert.strictEqual(
-      Object.prototype.hasOwnProperty.call(failedCursorUpdate, 'operationId'),
-      false,
-      'non-journaled Update failures must not dereference a missing lifecycle admission',
-    );
+    const cursorUpdate = recoveredManager.updateAgentFlags(updateAgent.id, { unread: true });
+    assert.strictEqual(cursorUpdate.changed, true);
+    assert.strictEqual(cursorUpdate.error, undefined);
+    assert.strictEqual(cursorUpdate.operationId, undefined, 'read state does not create a lifecycle operation');
+    assert.strictEqual(stateWrites, 0, 'read acknowledgement must precede disk IO');
+    await recoveredManager.sessionPersistence.flushState();
+    assert.strictEqual(stateWrites, 1);
+    assert.strictEqual(recoveredUpdate.unread, true, 'background failure cannot roll back accepted state');
+    assert.strictEqual(store.readRecord(recoveredUpdate.agentRecordId).unread, persistedBeforeRead);
     recoveredManager.configManager.ensureAgentSessionRecord = originalEnsureAgentSessionRecord;
+    recoveredManager.configManager.persistAgentStatePatch = originalStatePatch;
+    recoveredManager.updateAgentFlags(updateAgent.id, { unread: false });
+    await recoveredManager.sessionPersistence.flushState();
+    assert.strictEqual(store.readRecord(recoveredUpdate.agentRecordId).unread, false);
 
     assert.strictEqual(recoveredManager.agents.has(createAgent.id), false);
     const recoveredCreateRecord = store.readRecord(createAgent.persistentSessionId);

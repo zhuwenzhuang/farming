@@ -52,6 +52,7 @@ function acpAgent(id) {
 
 async function run() {
   let persistenceCount = 0;
+  const stateSnapshots = new Map();
   let bindingEpoch = '';
   const runtime = Object.assign(new EventEmitter(), {
     bindings: new Map(),
@@ -67,6 +68,12 @@ async function run() {
     ensureAgentSessionRecord(agent) {
       persistenceCount += 1;
       return agent.agentRecordId || `record-${agent.id}`;
+    },
+    async persistAgentStatePatch(agent, patch, options) {
+      assert(options.beforeCommit());
+      assert(!stateSnapshots.has(agent.id), 'one coalesced snapshot per affected Agent');
+      stateSnapshots.set(agent.id, structuredClone(patch));
+      return { status: 'committed' };
     },
   }, {
     acpRuntime: runtime,
@@ -179,13 +186,22 @@ async function run() {
     );
     assert.strictEqual(
       persistenceCount - persistenceBeforeAttention,
-      count,
-      'attention durability should remain exactly once per affected Agent',
+      0,
+      'attention publication must not wait for synchronous persistence',
     );
+    assert.strictEqual(stateSnapshots.size, 0, 'snapshots must stay off the event publication stack');
+    await manager.sessionPersistence.flushState();
+    assert.strictEqual(stateSnapshots.size, count, 'background persistence coalesces once per affected Agent');
+    for (const snapshot of stateSnapshots.values()) {
+      assert.strictEqual(snapshot.attentionSeq, 1);
+      assert.strictEqual(snapshot.readAttentionSeq || 0, 0);
+      assert.strictEqual(snapshot.unread, true);
+    }
 
     console.log('✓ 120 fake ACP Agents keep runtime, revision, title, and attention events Agent-scoped');
   } finally {
     manager.heartbeatScheduler.stop();
+    await manager.sessionPersistence.flushState();
     await manager.drainAcceptedAgentOperations();
     await manager.engineBridge.dispose();
   }
