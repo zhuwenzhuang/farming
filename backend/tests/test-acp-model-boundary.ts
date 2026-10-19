@@ -19,6 +19,7 @@ for (const provider of ['codex', 'claude', 'gemini', 'qoder', 'pi', 'agy']) {
   assert.equal(state.recordModelChange(previous, next), true);
   assert.ok(state.revision > revision);
   assert.equal(state.recordModelChange(next, next), false);
+  assert.deepEqual(projectAcpTranscript(state.snapshot()).modelChanges, [], 'wait for the next admitted input');
   message(state, 'u2', 'next question');
   const boundary = projectAcpTranscript(state.snapshot()).modelChanges![0];
   assert.deepEqual(boundary, {
@@ -41,7 +42,17 @@ for (const provider of ['codex', 'claude', 'gemini', 'qoder', 'pi', 'agy']) {
   assert.equal(projectAcpTranscript(compacted.snapshot()).modelChanges![0].status, 'unavailable');
   const empty = new AcpSessionState({ provider, sessionId: 'empty' });
   empty.recordModelChange(previous, next);
-  assert.equal(projectAcpTranscript(empty.snapshot()).modelChanges![0].afterTurnId, '');
+  message(empty, 'first', 'first input');
+  assert.deepEqual(projectAcpTranscript(empty.snapshot()).modelChanges, [], 'initial choices are not history');
+  const pending = new AcpSessionState({ provider, sessionId: 'pending' });
+  message(pending, 'u1', 'first');
+  pending.recordModelChange(previous, next);
+  pending.recordModelChange(next, { id: 'third', name: 'Third' });
+  assert.equal(pending.modelChanges.length, 1);
+  assert.equal(pending.modelChanges[0].from.id, previous.id);
+  pending.recordModelChange({ id: 'third', name: 'Third' }, previous);
+  message(pending, 'u2', 'next');
+  assert.deepEqual(projectAcpTranscript(pending.snapshot()).modelChanges, [], 'unused round trip is not a model change');
 }
 
 async function testRuntime() {
@@ -72,12 +83,12 @@ async function testRuntime() {
       const changes = () => projectAcpTranscript(runtime.getTranscriptSession(provider)).modelChanges!;
       assert.equal(changes().length, 0, 'initial configuration must not create a boundary');
       await runtime.setSessionConfigOption(provider, 'model', 'gpt-5.6-luna');
-      assert.equal(changes().length, 1);
-      assert.equal(changes()[0].from.id, 'gpt-5.5');
-      assert.equal(changes()[0].to.id, 'gpt-5.6-luna');
+      assert.equal(changes().length, 0, 'confirmed choice stays hidden before the next input');
+      assert.equal(binding.sessionState.modelChanges[0].from.id, 'gpt-5.5');
+      assert.equal(binding.sessionState.modelChanges[0].to.id, 'gpt-5.6-luna');
       await runtime.setSessionConfigOption(provider, 'model', 'gpt-5.6-luna');
       await runtime.setSessionConfigOption(provider, 'reasoning', 'medium');
-      assert.equal(changes().length, 1, 'no-op and reasoning-only choices do not add model boundaries');
+      assert.equal(changes().length, 0, 'no-op and reasoning-only choices do not add model boundaries');
       const setConfig = binding.connection.setSessionConfigOption.bind(binding.connection);
       binding.connection.setSessionConfigOption = params => {
         if (params.configId === 'reasoning' && params.value === 'low') throw new Error('fixture config failure');
@@ -86,7 +97,7 @@ async function testRuntime() {
       await assert.rejects(runtime.setSessionConfigOptions(provider, [
         { configId: 'model', value: 'gpt-5.5' }, { configId: 'reasoning', value: 'low' },
       ]), /fixture config failure/);
-      assert.equal(changes().length, 1, 'failed batches and rollback must not create boundaries');
+      assert.equal(changes().length, 0, 'failed batches and rollback must not create boundaries');
       binding.connection.setSessionConfigOption = setConfig;
       await runtime.writeCheckpoint(binding);
       const expected = changes();
@@ -120,10 +131,14 @@ async function testRuntime() {
         await running;
       }
       await resumed.deferredConfigFlush;
+      const beforeNext = projectAcpTranscript(restarted.getTranscriptSession(provider));
+      assert.equal(beforeNext.modelChanges!.length, 1, 'deferred choice waits for its next input');
+      const precedingTurn = beforeNext.turns.at(-1)!.id;
+      await restarted.prompt(provider, [{ type: 'text', text: 'image attachment after deferred choice' }]);
       const afterDeferred = projectAcpTranscript(restarted.getTranscriptSession(provider));
       assert.equal(afterDeferred.modelChanges!.length, 2, 'coalesced changes create one confirmed boundary');
       assert.equal(afterDeferred.modelChanges![1].to.id, 'gpt-5.5');
-      assert.equal(afterDeferred.modelChanges![1].afterTurnId, afterDeferred.turns.at(-1)!.id);
+      assert.equal(afterDeferred.modelChanges![1].afterTurnId, precedingTurn);
       await restarted.dispose();
       runtimes.splice(runtimes.indexOf(restarted), 1);
     }

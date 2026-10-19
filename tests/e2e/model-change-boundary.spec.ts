@@ -20,16 +20,21 @@ test('keeps confirmed model changes between chat turns across reload and appeara
   await input.fill('phase-aware mermaid before changing model')
   await send.click()
   await expect(scroll.getByText('Phase-aware rich answer.', { exact: false })).toBeVisible()
+  await expect(boundary).toHaveCount(0)
   await page.getByTestId('code-acp-model-picker').click()
   await page.getByTestId('code-model-matrix-cell-luna-high').click()
+  await expect(page.getByTestId('code-acp-model-picker')).toHaveAttribute('data-agent-model-preset', 'gpt-5.6-luna:high')
+  await expect(boundary).toHaveCount(0)
+  await page.reload()
+  await expect(boundary).toHaveCount(0)
+  await input.fill('image attachment after changing model')
+  await send.click()
+  await expect(scroll.getByText('Received 0 image.', { exact: true })).toBeVisible()
   await expect(boundary).toHaveCount(1)
   await expect(boundary).toContainText('→ gpt-5.6-luna')
   const label = await boundary.innerText()
   const precedingTurn = await boundary.evaluate(element => element.previousElementSibling?.getAttribute('data-turn-id'))
   expect(precedingTurn).toMatch(/^acp-turn-/)
-  await input.fill('image attachment after changing model')
-  await send.click()
-  await expect(scroll.getByText('Received 0 image.', { exact: true })).toBeVisible()
   await expect.poll(() => boundary.evaluate(element => ({
     before: element.previousElementSibling?.getAttribute('data-turn-id'),
     after: element.nextElementSibling?.textContent,
@@ -50,4 +55,32 @@ test('keeps confirmed model changes between chat turns across reload and appeara
   await expect(boundary).toBeVisible()
   expect(await boundary.evaluate(element => element.scrollWidth <= element.clientWidth)).toBeTruthy()
   await expect(boundary).toHaveScreenshot('model-change-narrow.png')
+})
+
+
+test('does not record model selection before the first sent message', async ({ page, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'initial-model-choice')
+  fs.mkdirSync(workspace, { recursive: true })
+  fs.writeFileSync(path.join(workspace, '.fake-acp-model-matrix'), '')
+  const response = await page.request.post('/farming/api/control/agents', {
+    data: { command: 'codex', workspace, agentRuntimeMode: 'chat' },
+  })
+  expect(response.ok()).toBeTruthy()
+  const { agentId } = await response.json() as { agentId: string }
+  await openFarming(page)
+  await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+  const picker = page.getByTestId('code-acp-model-picker')
+  await picker.click()
+  for (const model of ['luna', 'sol']) {
+    await page.getByTestId(`code-model-matrix-cell-${model}-high`).click()
+    await expect(picker).toHaveAttribute('data-agent-model-preset', `gpt-5.6-${model}:high`)
+    await expect(page.getByTestId('code-agent-transcript-model-change')).toHaveCount(0)
+  }
+  await page.keyboard.press('Escape')
+  await page.getByTestId('code-acp-composer-input').fill('image attachment initial choice')
+  await page.getByTestId('code-acp-composer-send').click()
+  await expect(page.getByText('Received 0 image.', { exact: true })).toBeVisible()
+  await page.reload()
+  await expect(page.getByText('Received 0 image.', { exact: true })).toBeVisible()
+  await expect(page.getByTestId('code-agent-transcript-model-change')).toHaveCount(0)
 })

@@ -57,7 +57,10 @@ Home defaults in the same Config, after verifying exact Home identity. Restorati
 does not rewrite defaults. Session success with a failed default save is reported
 as partial success, without replaying the mutation. Queued configuration applies
 before subsequent input; only a confirmed applied model change creates a durable
-transcript boundary.
+transcript boundary. Initial model selection before the first input creates no
+boundary. Later changes remain pending until the next input is sent; selections
+between inputs coalesce into one boundary, and reverting to the previous model
+removes it.
 
 Authentication required before the first Session keeps the initialized connection
 and visible Agent when sign-in methods exist. Prompts remain disabled until the

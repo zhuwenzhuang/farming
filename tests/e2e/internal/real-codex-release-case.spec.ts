@@ -128,7 +128,8 @@ const CLI_PROMPT = oneLine(`
 const RUNNING_SWITCH_PROMPT = oneLine(`
   Use the terminal tool to run exactly this command and wait for it to finish:
   for i in $(seq 1 300); do echo REAL_CODEX_RUNNING_SWITCH_$i; sleep 0.1; done
-  After it finishes, reply with only ${RUNNING_SWITCH_END}. Do not do anything else.
+  After it finishes, reply with only the concatenation of RUNNING_SWITCH_END_ and
+  ${ANCHOR_SUFFIX}, with no separator. Do not do anything else.
 `)
 
 const COMPOSITE_PROMPT = `Do not use tools or inspect files. Return only the requested Markdown, with no introduction or conclusion. Do not wrap the whole response in one code fence.
@@ -788,7 +789,15 @@ async function waitForCrtSurfaceFitWhileCodexIsBusy(page: Page, agentId: string)
 }
 
 async function waitForCrtTerminalIdle(page: Page, agentId: string) {
-  await waitForAgent(page, agentId, current => current.terminalStatus?.activity === 'idle', 120_000)
+  await expect.poll(async () => {
+    const current = await agent(page, agentId)
+    return {
+      agentId: current?.id,
+      activity: current?.terminalStatus?.activity,
+      terminalBusy: current?.terminalBusy,
+      status: current?.status,
+    }
+  }, { timeout: 120_000 }).toMatchObject({ agentId, activity: 'idle' })
 }
 
 async function waitForCrtAnchor(page: Page, anchor: string, timeout = 120_000) {

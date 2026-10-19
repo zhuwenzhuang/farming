@@ -524,9 +524,22 @@ class AcpSessionState {
   recordModelChange(from: ModelChange['from'], to: ModelChange['to']): boolean {
     if (!from.id || !to.id || from.id === to.id) return false;
     const turns = this.boundaryUserTurns();
+    // Before the first input this is initial model selection, not history.
+    if (turns.length === 0) return false;
+    const prefix = this.boundaryPrefixHash(turns);
+    const pending = this.modelChanges.at(-1);
+    if (pending?.userTurnCount === turns.length && pending.userPrefixHash === prefix) {
+      pending.to = clone(to);
+      if (pending.from.id === to.id) {
+        this.modelChanges.pop();
+        this.modelChangeAnchors.delete(pending.id);
+      }
+      this.revision += 1;
+      return true;
+    }
     const change: ModelChange = {
       id: this.nextEntryId('model-change'), from: clone(from), to: clone(to),
-      userTurnCount: turns.length, userPrefixHash: this.boundaryPrefixHash(turns),
+      userTurnCount: turns.length, userPrefixHash: prefix,
     };
     this.modelChanges.push(change);
     this.modelChangeAnchors.set(change.id, this.resolveHistoryAnchor(change));
@@ -554,7 +567,12 @@ class AcpSessionState {
   }
 
   private modelChangesSnapshot() {
-    return this.modelChanges.map(change => ({
+    if (this.modelChanges.length === 0) return [];
+    const turnCount = this.boundaryUserTurns().length;
+    return this.modelChanges.filter(change => change.userTurnCount > 0 && (
+      this.modelChangeAnchors.get(change.id)?.status === 'unavailable'
+      || change.userTurnCount < turnCount
+    )).map(change => ({
       id: change.id, from: clone(change.from), to: clone(change.to),
       ...this.modelChangeAnchors.get(change.id),
     }));
