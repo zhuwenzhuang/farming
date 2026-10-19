@@ -1,6 +1,7 @@
 #!/usr/bin/env -S npx tsx
 import { spawn } from 'node:child_process';
 import path from 'node:path';
+import { agentCommunicationTestCases } from './agent-communication-test-cases';
 
 interface FastScreenTask {
   name: string;
@@ -12,6 +13,10 @@ interface FastScreenTask {
 const projectRoot = path.resolve(__dirname, '..');
 const packageVersion = require(path.join(projectRoot, 'package.json')).version;
 const tasks: FastScreenTask[] = [
+  ...agentCommunicationTestCases.map(({ domain, pattern }) => ({
+    name: `A2A process ownership and correlated reply: ${domain}`,
+    args: ['--import', 'tsx', '--test', '--test-name-pattern', pattern, 'backend/tests/test-agent-communication-integration.ts'],
+  })),
   {
     name: 'production dependency security advisories',
     command: 'npm',

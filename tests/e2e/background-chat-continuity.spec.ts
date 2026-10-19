@@ -1220,7 +1220,9 @@ test('forks the latest ACP answer into a new Chat Agent in the same workspace', 
     after: element.nextElementSibling?.textContent,
   }))).toEqual({ before: inheritedTurnId, after: expect.stringContaining('child branch continuation') })
 
-  await expect(forkedPane.getByText('phase-aware mermaid fork this conversation', { exact: true })).toBeVisible()
+  await expect(forkScroll.locator('.code-agent-transcript-user').getByText(
+    'phase-aware mermaid fork this conversation', { exact: true },
+  )).toBeVisible()
   await expect(forkedPane.getByText('Phase-aware rich answer.', { exact: false })).toBeVisible()
 })
 

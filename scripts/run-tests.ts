@@ -9,6 +9,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { discoverUnitTestFiles } from './discover-unit-tests';
+import { agentCommunicationTestCases } from './agent-communication-test-cases';
 
 /** Backend tests may dynamic-import TypeScript under src/; native node cannot load those without tsx. */
 const tsxCli = path.join(path.dirname(require.resolve('tsx/package.json')), 'dist', 'cli.mjs');
@@ -122,11 +123,23 @@ const testRuns: TestRun[] = [
     args: ['--import', 'tsx', '--test', filePath],
     label: path.relative(projectRoot, filePath),
   })),
-  ...testFiles.map(file => ({
-    args: [tsxCli, path.join(testsDir, file)],
-    label: file,
-    timeoutMs: TEST_TIMEOUT_OVERRIDES_MS.get(file),
-  })),
+  ...testFiles.flatMap(file => {
+    if (file === 'test-agent-communication-integration.ts') {
+      // Each provider owns a complete process/socket/recovery journey. Give
+      // those independent cases their own unchanged runner budget instead of
+      // summing seven bounded journeys inside one 45-second process deadline.
+      return agentCommunicationTestCases.map(({ domain, pattern }) => ({
+        args: ['--import', 'tsx', '--test', '--test-name-pattern',
+          pattern, path.join(testsDir, file)],
+        label: `${file}:${domain}`,
+      }));
+    }
+    return [{
+      args: [tsxCli, path.join(testsDir, file)],
+      label: file,
+      timeoutMs: TEST_TIMEOUT_OVERRIDES_MS.get(file),
+    }];
+  }),
 ];
 
 const requestedConcurrency = Number.parseInt(process.env.FARMING_TEST_CONCURRENCY || '', 10);
