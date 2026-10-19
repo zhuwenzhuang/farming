@@ -111,6 +111,35 @@ for (const provider of ['codex', 'claude', 'opencode', 'pi', 'qoder', 'qwen', 'a
 // Model: admission, chunk echo and complete snapshot share one message identity.
 // Any order must converge to one trusted input; a different ID remains independent.
 for (const provider of ['codex', 'claude', 'opencode', 'pi', 'qoder', 'qwen', 'agy']) {
+  for (const owner of ['snapshot', 'admission', 'chunk-then-snapshot'] as const) {
+    test(`${provider} ${owner} input owns its body over fragmented late echoes`, () => {
+      const state = new AcpSessionState({ provider, sessionId: 'fragmented-echo' });
+      const chunk = (text: string) => state.applyMessageChunk({
+        messageId: 'input-1', content: { type: 'text', text },
+      }, 'user_message_chunk');
+      if (owner === 'admission') state.recordAcceptedSteer(prompt, { messageId: 'input-1', peerMessage: source });
+      else {
+        if (owner === 'chunk-then-snapshot') chunk('Please');
+        state.applySessionMessage({
+          messageId: 'input-1', content: prompt, _meta: { farming: { messageRole: 'user' } },
+        }, false);
+      }
+      // Recovery and interleaved tool output must not affect identity matching.
+      const restored = AcpSessionState.fromCheckpoint(state.exportCheckpoint())!;
+      restored.applyToolCall({ toolCallId: 'work', title: 'Work', status: 'in_progress' }, false, null);
+      for (const text of ['Please ', 'verify the build.']) restored.applyMessageChunk({
+        messageId: 'input-1', content: { type: 'text', text },
+      }, 'user_message_chunk');
+      const inputs = restored.entries.filter(entry => entry.role === 'user');
+      assert.equal(inputs.length, 1);
+      assert.deepEqual(inputs[0].content, prompt);
+      restored.applyMessageChunk({ messageId: 'input-2', content: prompt[0] }, 'user_message_chunk');
+      assert.equal(restored.entries.filter(entry => entry.role === 'user').length, 2);
+    });
+  }
+}
+
+for (const provider of ['codex', 'claude', 'opencode', 'pi', 'qoder', 'qwen', 'agy']) {
   for (const order of ['ack-first', 'snapshot-first', 'chunk-first'] as const) {
     test(`${provider} steer ${order} converges by identity across recovery`, () => {
       const state = new AcpSessionState({ provider, sessionId: 'steer-echo' });

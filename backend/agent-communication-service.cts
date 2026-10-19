@@ -132,7 +132,9 @@ export class AgentCommunicationService {
 
   private async persist(records: Map<string, RecordEntry>): Promise<void> {
     const value = { version: 1, records: [...records.values()].map(r => ({ ...r, task: Task.toJSON(r.task) })) };
-    if (Buffer.byteLength(JSON.stringify(value)) > MAX_FILE_BYTES) throw new Error('Communication journal capacity reached');
+    // Match atomicWriteJsonAsync's on-disk encoding so every committed journal
+    // remains within the restart reader's byte limit.
+    if (Buffer.byteLength(JSON.stringify(value, null, 2)) > MAX_FILE_BYTES) throw new Error('Communication journal capacity reached');
     if (!await atomicWriteJsonAsync(this.file, value, { mode: 0o600 })) throw new Error('Communication journal was not persisted');
   }
 

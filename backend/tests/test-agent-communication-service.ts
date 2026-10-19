@@ -3,7 +3,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import test from 'node:test';
-import { TaskState, SendMessageRequest } from '@a2a-js/sdk';
+import { Task, TaskState, SendMessageRequest } from '@a2a-js/sdk';
 import { AgentCommunicationService, type CommunicationPorts } from '../agent-communication-service.cts';
 import type { CommunicationGrant } from '../agent-communication-credentials.cts';
 
@@ -13,6 +13,44 @@ const ports = (execute: CommunicationPorts['execute']): CommunicationPorts => ({
   resolveTarget: async () => ({ agentId: 'target', sessionKey: 'exact-session', name: 'Target' }),
   resolveSource: async () => ({ version: 1, direction: 'incoming', senderAddress: 'external:builder', senderName: 'Builder' }),
   execute,
+});
+
+test('journal capacity measures persisted bytes and preserves readable history on rejection', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'farming-journal-capacity-'));
+  let executions = 0;
+  const service = new AgentCommunicationService(root, ports(async () => { executions++; return { text: '' }; }));
+  const file = path.join(root, 'agent-communications.json');
+  const limit = 32 * 1024 * 1024;
+  try {
+    const records = Array.from({ length: 256 }, (_, index) => ({
+      version: 1, owner: 'external:builder', messageId: `saved-${index}`, hash: 'a'.repeat(64), delivery: 'completed',
+      execution: { requestId: `request-${index}`, taskId: `task-${index}`, contextId: `ctx-${index}`, text: '',
+        target: { agentId: 'target', sessionKey: 'exact-session', name: 'Target' },
+        source: { version: 1, direction: 'incoming', senderAddress: 'external:builder', senderName: 'Builder' } },
+      task: Task.toJSON(Task.fromJSON({ id: `task-${index}`, contextId: `ctx-${index}`,
+        status: { state: 'TASK_STATE_COMPLETED', timestamp: '2026-01-01T00:00:00.000Z' } })),
+    }));
+    // Production-shaped history: bounded input and result per record, with room
+    // for only 512 more serialized bytes. Each text stays below the 64 KiB limit.
+    const value = { version: 1, records };
+    for (const record of records) record.task = Task.toJSON(Task.fromJSON({ ...record.task as object,
+      artifacts: [{ artifactId: record.execution.taskId, parts: [{ text: '' }] }] }));
+    const remaining = limit - 512 - Buffer.byteLength(JSON.stringify(value, null, 2));
+    const perText = Math.floor(remaining / (records.length * 2));
+    assert.ok(perText < 65536);
+    for (const record of records) {
+      record.execution.text = 'x'.repeat(perText);
+      record.task = Task.toJSON(Task.fromJSON({ ...record.task as object,
+        artifacts: [{ artifactId: record.execution.taskId, parts: [{ text: 'x'.repeat(perText) }] }] }));
+    }
+    const serialized = JSON.stringify(value, null, 2);
+    await fs.writeFile(file, serialized);
+    await assert.rejects(service.send(grant, 'target', message('new request')), /capacity/);
+    assert.equal(executions, 0);
+    assert.equal(await fs.readFile(file, 'utf8'), serialized);
+    const restored = new AgentCommunicationService(root, ports(async () => { throw new Error('must not replay'); }));
+    assert.equal((await restored.get(grant, 'target', 'task-0')).status?.state, TaskState.TASK_STATE_COMPLETED);
+  } finally { await service.waitForSettledOperations(); await fs.rm(root, { recursive: true, force: true }); }
 });
 
 test('concurrent A2A retries execute once, bind content, retain results and isolate peers', async () => {

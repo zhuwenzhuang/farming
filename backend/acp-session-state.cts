@@ -865,12 +865,13 @@ class AcpSessionState {
       return;
     }
 
-    // A complete input snapshot may precede the adapter's chunk echo. It
-    // already owns the full body; appending those chunks would duplicate it.
+    // Admission and complete input snapshots own the entire body. Echoes can
+    // split it at arbitrary boundaries, including after intervening output.
+    // Match that authoritative identity rather than comparing chunk contents.
     const snapshot = role === 'user' && messageId && this.entries.find(entry =>
-      entry.type === 'message' && entry.role === 'user' && entry.sessionMessage === true
-      && entry.messageId === messageId);
-    if (snapshot && (snapshot.content || []).some(content => isDeepStrictEqual(content, update.content))) {
+      entry.type === 'message' && entry.role === 'user' && entry.messageId === messageId
+      && (entry.optimistic || entry._meta?.farming?.messageRole === 'user'));
+    if (snapshot) {
       this.touchEntry(snapshot);
       return;
     }

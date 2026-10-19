@@ -632,11 +632,11 @@ async function run() {
     );
     assert.strictEqual(codexAfterCompletedPrompts.attentionReason, 'turn-complete');
     const steeredEntries = codexManager.getAcpSession(codexAgentId).entries;
-    const steeredUser = steeredEntries.find(entry => entry.role === 'user' && entry._meta?.codex?.steer === true);
+    const steeredUser = steeredEntries.find(entry => entry.role === 'user' && entry._meta?.farming?.steer === true);
     assert(steeredUser, 'accepted steer should appear once in the ordered ACP transcript');
     assert.strictEqual(steeredUser.content[0].text, 'inspect the attached image instead');
     assert.strictEqual(steeredUser.content[1].type, 'image');
-    assert.strictEqual(steeredEntries.filter(entry => entry._meta?.codex?.steer === true).length, 1);
+    assert.strictEqual(steeredEntries.filter(entry => entry._meta?.farming?.steer === true).length, 1);
 
     const orderedTurn = codexManager.sendComposerMessage(codexAgentId, 'hold for two steers');
     while (!codexRuntime.canSteer(codexAgentId)) {
@@ -649,7 +649,7 @@ async function run() {
     assert(orderedSteers.every(result => result.steered === true));
     await orderedTurn;
     const orderedUserSteers = codexManager.getAcpSession(codexAgentId).entries
-      .filter(entry => entry.role === 'user' && entry._meta?.codex?.steer === true)
+      .filter(entry => entry.role === 'user' && entry._meta?.farming?.steer === true)
       .slice(-2)
       .map(entry => entry.content[0].text);
     assert.deepStrictEqual(orderedUserSteers, ['first rapid steer', 'second rapid steer']);
@@ -681,7 +681,7 @@ async function run() {
     await raceTurn;
     assert.deepStrictEqual(
       codexManager.getAcpSession(codexAgentId).entries
-        .filter(entry => entry.role === 'user' && entry._meta?.codex?.steer !== true)
+        .filter(entry => entry.role === 'user' && entry._meta?.farming?.steer !== true)
         .slice(-2)
         .map(entry => entry.content[0].text),
       ['phase-aware mermaid after steer race', 'phase-aware mermaid after ordered fallback'],
@@ -723,7 +723,7 @@ async function run() {
     assert.strictEqual((await queuedAfterInterrupt).stopReason, 'end_turn');
     assert.deepStrictEqual(
       codexManager.getAcpSession(codexAgentId).entries
-        .filter(entry => entry.role === 'user' && entry._meta?.codex?.steer !== true)
+        .filter(entry => entry.role === 'user' && entry._meta?.farming?.steer !== true)
         .slice(-2)
         .map(entry => entry.content[0].text),
       ['mobile interrupt', 'phase-aware mermaid after interrupt'],
