@@ -18,6 +18,9 @@ terminal or transcript text.
   the dismissed reminder.
 - An active rest ends from **End break** or its absolute `restUntil` deadline.
   Ending rest starts a fresh foreground work cycle.
+- Black-hole lensing shows only the refracted page where a ray reaches the
+  background. Captured or backward-deflected rays remain opaque even through
+  luminous disk gas; they must not expose undeformed page text.
 
 ## State Ownership And Transitions
 

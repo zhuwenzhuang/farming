@@ -377,7 +377,9 @@ void main() {
     skyBlock = max(
       skyBlock,
       max(
-        (1.0 - smoothstep(0.05, 0.35, -direction.z)) * (1.0 - diskHit),
+        // A ray turned away from the page has no background sample. Disk
+        // emission may add light, but cannot reveal the undeformed page.
+        1.0 - smoothstep(0.05, 0.35, -direction.z),
         cavityBlock * wellFade
       )
     );
