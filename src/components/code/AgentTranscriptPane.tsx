@@ -115,12 +115,13 @@ import {
   transcriptImageFilePath,
 } from '@/lib/transcript-file-links'
 import {
-  TRANSCRIPT_BOTTOM_FOLLOW_THRESHOLD,
   captureTranscriptReadingAnchor,
+  hasTranscriptContentBelow,
   isTranscriptAtBottom,
   isTranscriptNearBottom,
   persistTranscriptReadingAnchor,
   restoreTranscriptReadingAnchor,
+  shrinkTranscriptTurnRunway,
 } from '@/lib/transcript-reading-anchor'
 import {
   resolveStickyTurnPrompt,
@@ -3292,6 +3293,7 @@ export function AgentTranscriptPane({
   const [turnLimit, setTurnLimit] = useState(() => initialTranscriptTurnLimit(source))
   const [loadingOlder, setLoadingOlder] = useState(false)
   const [showJumpToBottom, setShowJumpToBottom] = useState(false)
+  const [focusRunwayTurnId, setFocusRunwayTurnId] = useState('')
   const [stickyTurnPrompt, setStickyTurnPrompt] = useState<StickyTurnPromptState | null>(null)
   const [selectionAction, setSelectionAction] = useState<{
     text: string
@@ -3455,6 +3457,11 @@ export function AgentTranscriptPane({
     }
     runwayPushAnimationsRef.current = []
   }, [])
+  useLayoutEffect(() => {
+    if (active) return
+    setFocusRunwayTurnId('')
+    scrollRef.current?.style.removeProperty('--code-transcript-runway-height')
+  }, [active])
   const previousViewportLayoutKeyRef = useRef(viewportLayoutKey)
   // Restore saved anchors on navigation; live updates retain the stationary
   // viewport while the user is reading away from the bottom.
@@ -3599,6 +3606,8 @@ export function AgentTranscriptPane({
     initialRevealStartedAtRef.current = null
     progressArrivalRef.current = { transcript: null, ready: false, ids: new Set() }
     turnRunwayArrivalRef.current = { sessionId: '', latestTurnId: '', ready: false }
+    setFocusRunwayTurnId('')
+    scrollRef.current?.style.removeProperty('--code-transcript-runway-height')
     setInitialRevealReady(false)
     setLoadingOlder(false)
     setTurnLimit(initialTranscriptTurnLimit(source))
@@ -3668,10 +3677,7 @@ export function AgentTranscriptPane({
       if (textSelectionGestureRef.current) return
       if (!textSelectionHadRangeRef.current) return
       textSelectionHadRangeRef.current = false
-      setShowJumpToBottom(
-        !isTranscriptNearBottom(element)
-        && element.scrollHeight > element.clientHeight + TRANSCRIPT_BOTTOM_FOLLOW_THRESHOLD,
-      )
+      setShowJumpToBottom(hasTranscriptContentBelow(element))
     }
     const finishSelectionGesture = () => {
       if (userScrollGestureRef.current) finishUserScrollGesture()
@@ -4143,19 +4149,30 @@ export function AgentTranscriptPane({
       && !awaitingAcpHistory
       && runtimeState !== 'connecting'
       && Boolean(transcript?.available)
-    const isNewAppendedRunwayTurn = runwayReady
+    const isNewAppendedTurn = runwayReady
       && previousRunway.ready
       && previousRunway.sessionId === sessionId
       && previousRunway.latestTurnId !== ''
       && latestTurnId !== previousRunway.latestTurnId
       && previousTurnId === previousRunway.latestTurnId
-      && latestHasRunway
+    const hasTextSelection = hasTextSelectionWithin(element)
+    if (isNewAppendedTurn && followBottomRef.current && !userScrollGestureRef.current
+      && !textSelectionGestureRef.current && !hasTextSelection
+      && !pendingPrependAnchorRef.current && !readingAnchorRestorePending
+      && shouldApplyTurnFocusRunway(turns, latestTurnIndex, stickyTurnPromptEnabled)
+      && focusRunwayTurnId !== latestTurnId) {
+      element.style.removeProperty('--code-transcript-runway-height')
+      setFocusRunwayTurnId(latestTurnId)
+      // Commit the temporary geometry before consuming the arrival. The next
+      // layout pass applies the existing send motion against its real height.
+      return
+    }
+    const isNewAppendedRunwayTurn = isNewAppendedTurn && latestHasRunway
     turnRunwayArrivalRef.current = {
       sessionId,
       latestTurnId,
       ready: runwayReady,
     }
-    const hasTextSelection = hasTextSelectionWithin(element)
     if (textSelectionGestureRef.current || hasTextSelection) {
       if (hasTextSelection) {
         followBottomRef.current = false
@@ -4173,6 +4190,7 @@ export function AgentTranscriptPane({
         }
         if (!followBottomRef.current) stationaryScrollTopRef.current = element.scrollTop
         scheduleReadingAnchorSave(readingAnchorAgentId, element)
+        setShowJumpToBottom(hasTranscriptContentBelow(element))
         syncStickyTurnPrompt(element)
         return
       }
@@ -4247,8 +4265,10 @@ export function AgentTranscriptPane({
     if (!readingAnchorRestorePending) {
       if (stationaryScrollTopRef.current !== null) {
         element.scrollTop = stationaryScrollTopRef.current
+        stationaryScrollTopRef.current = element.scrollTop
       }
       syncStickyTurnPrompt(element)
+      setShowJumpToBottom(hasTranscriptContentBelow(element))
       return
     }
     const savedAnchor = readReadingAnchor(readingAnchorAgentKey(readingAnchorAgentId, 'chat'))
@@ -4265,7 +4285,7 @@ export function AgentTranscriptPane({
     if (restored === 'restored') {
       setReadingAnchorRestorePending(false)
       stationaryScrollTopRef.current = element.scrollTop
-      setShowJumpToBottom(true)
+      setShowJumpToBottom(hasTranscriptContentBelow(element))
       syncStickyTurnPrompt(element)
       return
     }
@@ -4290,7 +4310,7 @@ export function AgentTranscriptPane({
     setShowJumpToBottom(false)
     syncStickyTurnPrompt(element)
     if (active && isPageActive()) onReadLatest?.()
-  }, [active, agentId, awaitingAcpHistory, awaitingInitialReveal, cancelRunwayPushAnimations, error, followLatestSignal, initialRevealReady, latestTurn?.id, loading, loadingOlder, onReadLatest, openProcessTurnIds, readingAnchorAgentId, readingAnchorRestorePending, runtimeState, scheduleReadingAnchorSave, source, stickyTurnPromptEnabled, syncStickyTurnPrompt, transcript, turnLimit, turns])
+  }, [active, agentId, awaitingAcpHistory, awaitingInitialReveal, cancelRunwayPushAnimations, error, focusRunwayTurnId, followLatestSignal, initialRevealReady, latestTurn?.id, loading, loadingOlder, onReadLatest, openProcessTurnIds, readingAnchorAgentId, readingAnchorRestorePending, runtimeState, scheduleReadingAnchorSave, source, stickyTurnPromptEnabled, syncStickyTurnPrompt, transcript, turnLimit, turns])
 
   useLayoutEffect(() => {
     syncStickyTurnPrompt(scrollRef.current)
@@ -4324,6 +4344,7 @@ export function AgentTranscriptPane({
           stationaryScrollTopRef.current = element.scrollTop
         }
       }
+      setShowJumpToBottom(hasTranscriptContentBelow(element))
       syncStickyTurnPrompt(element)
     })
     Array.from(element.children).forEach(child => observer.observe(child))
@@ -4518,7 +4539,7 @@ export function AgentTranscriptPane({
       pendingPrependAnchorRef.current = null
       target.scrollIntoView({ block: 'center' })
       stationaryScrollTopRef.current = element.scrollTop
-      setShowJumpToBottom(!isTranscriptNearBottom(element))
+      setShowJumpToBottom(hasTranscriptContentBelow(element))
       scheduleReadingAnchorSave(readingAnchorAgentId, element)
       target.querySelector<HTMLElement>('[data-testid="code-acp-questions"]')?.focus({ preventScroll: true })
       navigation.done = true
@@ -4562,6 +4583,7 @@ export function AgentTranscriptPane({
     const nearBottom = isTranscriptNearBottom(element)
     if (userScrollGestureRef.current) {
       followBottomRef.current = isTranscriptAtBottom(element)
+      shrinkTranscriptTurnRunway(element)
       stationaryScrollTopRef.current = followBottomRef.current ? null : element.scrollTop
     }
     if (followBottomRef.current) clearReadingAnchor(readingAnchorAgentKey(readingAnchorAgentId, 'chat'))
@@ -4569,10 +4591,7 @@ export function AgentTranscriptPane({
       stationaryScrollTopRef.current = element.scrollTop
       scheduleReadingAnchorSave(readingAnchorAgentId, element)
     }
-    setShowJumpToBottom(
-      !followBottomRef.current
-      && element.scrollHeight > element.clientHeight + TRANSCRIPT_BOTTOM_FOLLOW_THRESHOLD,
-    )
+    setShowJumpToBottom(hasTranscriptContentBelow(element))
     syncStickyTurnPrompt(element)
     if (active && nearBottom && isPageActive()) onReadLatest?.()
     // Returning to latest or resizing can put a short page near its top.
@@ -4603,7 +4622,7 @@ export function AgentTranscriptPane({
       if (scrollRef.current !== element || !element.isConnected || followBottomRef.current) return
       stationaryScrollTopRef.current = element.scrollTop
       scheduleReadingAnchorSave(readingAnchorAgentId, element)
-      setShowJumpToBottom(!isTranscriptAtBottom(element))
+      setShowJumpToBottom(hasTranscriptContentBelow(element))
     })
   }, [readingAnchorAgentId, scheduleReadingAnchorSave])
   const handleTranscriptPointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
@@ -4686,10 +4705,7 @@ export function AgentTranscriptPane({
       textSelectionHadRangeRef.current = false
       if (atBottom) clearReadingAnchor(readingAnchorAgentKey(readingAnchorAgentId, 'chat'))
       else scheduleReadingAnchorSave(readingAnchorAgentId, element)
-      setShowJumpToBottom(
-        !atBottom
-        && element.scrollHeight > element.clientHeight + TRANSCRIPT_BOTTOM_FOLLOW_THRESHOLD,
-      )
+      setShowJumpToBottom(hasTranscriptContentBelow(element))
       syncStickyTurnPrompt(element)
     }
     syncAfterJump()
@@ -4799,7 +4815,7 @@ export function AgentTranscriptPane({
               hasModelBoundaryAfter(previousTurnId)
               || (transcript?.forkOrigin?.status === 'ready' && transcript.forkOrigin.afterTurnId === previousTurnId)
             )
-            const turnFocusRunway = shouldApplyTurnFocusRunway(
+            const turnFocusRunway = focusRunwayTurnId === turn.id && shouldApplyTurnFocusRunway(
               turns,
               index,
               stickyTurnPromptEnabled,

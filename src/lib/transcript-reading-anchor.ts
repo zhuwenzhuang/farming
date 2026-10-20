@@ -25,6 +25,34 @@ export function isTranscriptAtBottom(element: HTMLElement) {
   return transcriptBottomDistance(element) <= TRANSCRIPT_BOTTOM_EPSILON
 }
 
+function lastRenderedChild(element: Element) {
+  let child = element.lastElementChild
+  while (child && child.getClientRects().length === 0) child = child.previousElementSibling
+  return child
+}
+
+export function hasTranscriptContentBelow(element: HTMLElement) {
+  const last = lastRenderedChild(element)
+  const content = last?.matches('[data-turn-id]') ? lastRenderedChild(last) || last : last
+  return Boolean(content && content.getBoundingClientRect().bottom
+    > element.getBoundingClientRect().bottom + TRANSCRIPT_BOTTOM_EPSILON)
+}
+
+export function shrinkTranscriptTurnRunway(element: HTMLElement) {
+  const turn = element.querySelector<HTMLElement>(':scope > .turn-focus-runway')
+  const content = turn && lastRenderedChild(turn)
+  if (!turn || !content) return
+  const rect = turn.getBoundingClientRect()
+  const blank = Math.max(0, rect.bottom - content.getBoundingClientRect().bottom)
+  // Keep a tiny scroll remainder so a geometry-only resize cannot masquerade
+  // as the user's explicit return to bottom and resume following live output.
+  const excess = transcriptBottomDistance(element) - TRANSCRIPT_BOTTOM_EPSILON * 2
+  const shrink = Math.min(blank, excess)
+  if (shrink > TRANSCRIPT_BOTTOM_EPSILON) {
+    element.style.setProperty('--code-transcript-runway-height', `${Math.max(0, rect.height - shrink)}px`)
+  }
+}
+
 export function captureTranscriptReadingAnchor(agentId: string, element: HTMLDivElement, skipPrompt = false): ReadingAnchor | null | undefined {
   if (isTranscriptAtBottom(element)) {
     return null

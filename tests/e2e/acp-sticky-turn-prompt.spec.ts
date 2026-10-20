@@ -3,7 +3,7 @@ import path from 'node:path'
 import { expect, openFarming, test } from './fixtures'
 
 for (const appearance of ['light', 'dark', 'paper'] as const) {
-  test(`pushes earlier turns above viewport on send, pins sticky turn prompt when scrolled past header, and toggles off in Settings (${appearance})`, async ({ page, workspaceRoot }, testInfo) => {
+  test(`keeps previous reply context on send, shrinks reading runway, and pins sticky turn prompt (${appearance})`, async ({ page, workspaceRoot }, testInfo) => {
     const workspace = path.join(workspaceRoot, `sticky-turn-${appearance}`)
     fs.mkdirSync(workspace, { recursive: true })
     const response = await page.request.post('/farming/api/control/agents', {
@@ -107,12 +107,14 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
     const stickyTurn = page.getByTestId('code-agent-transcript-sticky-turn')
     await expect(scroll.getByText('First turn paragraph 30.', { exact: true })).toBeVisible()
 
-    // 1. Sending a second turn in an active conversation smoothly pushes the first turn
-    //    above the viewport and glides the newly sent turn to the top of the viewport.
+    // A send gives the latest turn room while keeping the previous reply tail.
     stage = 'two-short-turns'
     await page.getByTestId('code-acp-composer-input').fill('Second turn prompt: summarize all verification gates and scroll behavior across long responses.')
     await page.getByTestId('code-acp-composer-send').click()
     await expect(scroll.getByText('Second turn short answer.', { exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Allow', exact: true })).toBeVisible()
+    await expect.poll(() => scroll.evaluate(element => Array.from(element.children)
+      .some(child => child.getAnimations().some(animation => animation.playState === 'running')))).toBe(false)
 
     await expect.poll(async () => scroll.evaluate(element => {
       const scrollerRect = element.getBoundingClientRect()
@@ -121,21 +123,85 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
       const firstRect = turns[0]!.getBoundingClientRect()
       const secondRect = turns[1]!.getBoundingClientRect()
       return {
-        firstAboveViewport: firstRect.bottom <= scrollerRect.top,
-        secondNearTop: secondRect.top >= scrollerRect.top && secondRect.top <= scrollerRect.top + 28,
+        previousTailVisible: firstRect.bottom > scrollerRect.top + 90 && firstRect.bottom < scrollerRect.top + 210,
+        secondNearTop: secondRect.top > scrollerRect.top + 120 && secondRect.top < scrollerRect.top + 240,
       }
     })).toEqual({
-      firstAboveViewport: true,
+      previousTailVisible: true,
       secondNearTop: true,
     })
-    // Since the second turn's inline user prompt is visible at the top, sticky bar is hidden.
-    await expect(stickyTurn).toHaveCount(0)
+    await expect(scroll.getByText('First turn paragraph 30.', { exact: true })).toBeInViewport()
+    // The previous reply tail still owns the sticky context until it leaves.
+    await expect(stickyTurn.getByTestId('code-agent-transcript-sticky-turn-images').locator('img')).toHaveCount(1)
+    const previousTailClearance = async () => {
+      const tailTop = await scroll.getByText('First turn paragraph 30.', { exact: true })
+        .evaluate(element => element.getBoundingClientRect().top)
+      const stickyBottom = await stickyTurn.evaluate(element => element.getBoundingClientRect().bottom)
+      return tailTop - stickyBottom
+    }
+    await expect.poll(previousTailClearance).toBeGreaterThan(2)
+    await page.screenshot({ path: testInfo.outputPath(`sent-runway-${appearance}.png`), animations: 'disabled', caret: 'hide' })
+    await page.setViewportSize({ width: 390, height: 844 })
+    await expect.poll(previousTailClearance).toBeGreaterThan(2)
+    await expect(scroll.getByText('Second turn short answer.', { exact: true })).toBeInViewport()
+    await page.screenshot({ path: testInfo.outputPath(`sent-runway-compact-${appearance}.png`), animations: 'disabled', caret: 'hide' })
+    await page.setViewportSize({ width: 1280, height: 760 })
+    await expect.poll(previousTailClearance).toBeGreaterThan(2)
 
-    // 2. When the latest turn becomes long and auto-scrolls to the bottom, its inline user prompt
-    //    scrolls above the viewport and the sticky turn prompt bar pins the summary at the top.
+    const latest = scroll.locator('.code-agent-transcript-turn').last()
+    const height = () => latest.evaluate(element => element.getBoundingClientRect().height)
+    const sentHeight = await height()
+    const jump = page.getByTestId('code-agent-transcript-jump-bottom')
+    const topBeforeScroll = await latest.evaluate(element => element.getBoundingClientRect().top)
+    await scroll.hover()
+    await page.mouse.wheel(0, -80)
+    await expect.poll(height).toBeLessThan(sentHeight - 50)
+    await expect.poll(() => latest.evaluate(element => element.getBoundingClientRect().top)).toBeGreaterThan(topBeforeScroll + 50)
+    await expect(jump).toHaveCount(0)
+    const readingTop = await latest.evaluate(element => element.getBoundingClientRect().top)
+    // Layout changes cannot restore the consumed empty space or move the reader.
+    await page.setViewportSize({ width: 1280, height: 740 })
+    await expect.poll(async () => Math.abs(await latest.evaluate(element => element.getBoundingClientRect().top) - readingTop)).toBeLessThan(3)
+    expect(await height()).toBeLessThan(sentHeight - 50)
+    await page.screenshot({ path: testInfo.outputPath(`reading-runway-${appearance}.png`), animations: 'disabled', caret: 'hide' })
+
+    const otherResponse = await page.request.post('/farming/api/control/agents', {
+      data: { command: 'codex', workspace: workspaceRoot, agentRuntimeMode: 'chat' },
+    })
+    expect(otherResponse.ok()).toBeTruthy()
+    const { agentId: otherAgentId } = await otherResponse.json() as { agentId: string }
+    await page.locator(`[data-testid="code-agent-row"][data-agent-id="${otherAgentId}"]`).click()
+    await expect(scroll).toHaveCount(0)
+    await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+    await expect(scroll.getByText('Second turn short answer.', { exact: true })).toBeInViewport()
+    await expect(scroll.locator('.turn-focus-runway')).toHaveCount(0)
+    expect(await height()).toBeLessThan(sentHeight - 100)
+    await expect(jump).toHaveCount(0)
+    await page.screenshot({ path: testInfo.outputPath(`reentered-chat-${appearance}.png`), animations: 'disabled', caret: 'hide' })
+    await page.reload()
+    await expect(scroll.getByText('Second turn short answer.', { exact: true })).toBeInViewport()
+    await expect(scroll.locator('.turn-focus-runway')).toHaveCount(0)
+    await expect(jump).toHaveCount(0)
+    await page.setViewportSize({ width: 390, height: 844 })
+    await expect(scroll.getByText('Second turn short answer.', { exact: true })).toBeInViewport()
+    await expect(scroll.locator('.turn-focus-runway')).toHaveCount(0)
+    await expect(jump).toHaveCount(0)
+    await page.screenshot({ path: testInfo.outputPath(`reentered-chat-compact-${appearance}.png`), animations: 'disabled', caret: 'hide' })
+    await page.setViewportSize({ width: 1280, height: 740 })
+    await scroll.hover()
+    await page.mouse.wheel(0, -160)
+    await expect(jump).toBeVisible()
+    const beforeGrowthTop = await latest.evaluate(element => element.getBoundingClientRect().top)
+
+    // Growth below a paused reader reveals the jump action. Explicit catch-up
+    // resumes following and pins the latest turn's context at the top.
     stage = 'long-latest-turn'
     await page.getByRole('button', { name: 'Allow', exact: true }).click()
-    await expect(scroll.getByText('Second turn detailed paragraph 42.', { exact: true })).toBeVisible()
+    await expect(scroll.getByText('Second turn detailed paragraph 42.', { exact: true })).toBeAttached()
+    await expect(jump).toBeVisible()
+    await expect.poll(async () => Math.abs(await latest.evaluate(element => element.getBoundingClientRect().top) - beforeGrowthTop)).toBeLessThan(3)
+    await jump.click()
+    await expect(scroll.getByText('Second turn detailed paragraph 42.', { exact: true })).toBeInViewport()
     await expect(stickyTurn).toBeVisible()
     await expect(stickyTurn).toContainText('Second turn prompt: summarize all verification gates and scroll behavior across long responses.')
 
