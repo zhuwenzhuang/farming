@@ -253,6 +253,8 @@ async function run() {
     assert.strictEqual(calls[0].workspace, '/repo');
     assert.strictEqual(calls[0].options.wantsMain, false);
     assert.strictEqual(calls[0].options.agentRuntimeMode, undefined, 'an omitted API mode must reach backend default resolution');
+    assert.strictEqual(calls[0].options.dangerouslySkipPermissions, undefined,
+      'an omitted permission choice must reach backend default resolution');
     assert.strictEqual(calls[0].options.parentAgentId, 'agent-main');
     assert.strictEqual(calls[0].options.customTitle, 'Optimizer investigation', 'HTTP creation must preserve a historical custom title');
     assert.strictEqual(calls[0].options.source, 'control-cli');
@@ -610,6 +612,24 @@ async function run() {
     });
     assert.strictEqual(explicitTerminal.response.status, 201);
     assert.strictEqual(calls.findLast(call => call.type === 'startAgent').options.agentRuntimeMode, 'terminal');
+
+    for (const dangerouslySkipPermissions of [false, true]) {
+      for (const [command, permissionKey, permissionMode] of [
+        ['codex', 'codexApprovalMode', 'approve'],
+        ['claude', 'claudePermissionMode', 'plan'],
+      ]) {
+        const explicitPermissions = await fetchJson(baseUrl, '/api/control/agents', {
+          method: 'POST', body: JSON.stringify({
+            command, workspace: '/repo', dangerouslySkipPermissions, [permissionKey]: permissionMode,
+          }),
+        });
+        assert.strictEqual(explicitPermissions.response.status, 201);
+        const options = calls.findLast(call => call.type === 'startAgent').options;
+        assert.strictEqual(options.dangerouslySkipPermissions, dangerouslySkipPermissions);
+        assert.strictEqual(options[permissionKey], permissionMode,
+          'HTTP creation must preserve explicit provider permission choices');
+      }
+    }
 
     console.log('✓ Control API serializes exact-runtime Terminal mutations and readiness-bound startup input');
   } finally {

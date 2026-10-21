@@ -117,6 +117,7 @@ import {
   type RemoveProjectDialogView,
 } from './code/CodeOverlays'
 import { CodeSidebar } from './code/CodeSidebar'
+import { BrowserTabStatus } from './code/BrowserTabStatus'
 import { WorktreeCreationDialog, useWorktreeCreation } from './code/WorktreeCreationDialog'
 import { LatestRequestFence } from './code/latest-request-fence'
 import type { RequestOwnershipLease } from '@/lib/request-ownership'
@@ -5777,10 +5778,6 @@ export function CodeWorkspace({
   useEffect(() => loadGlobalSettings(), [loadGlobalSettings])
 
   useEffect(() => {
-    document.title = `${instanceName} · Farming Code`
-  }, [instanceName])
-
-  useEffect(() => {
     const handleAgentHomesSaved = () => {
       loadGlobalSettings()
       loadAgentSessions()
@@ -5972,6 +5969,11 @@ export function CodeWorkspace({
       ref={workspaceRef}
       style={workspaceStyle}
     >
+      <BrowserTabStatus
+        projects={projectListProjects}
+        inventoryComplete={agentInventoryComplete}
+        instanceName={instanceName}
+      />
       {stoppedAgentResumeTarget ? (
         <ResumeStoppedAgentDialog
           key={stoppedAgentResumeTarget.id}

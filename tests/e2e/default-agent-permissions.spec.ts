@@ -1,0 +1,123 @@
+import fs from 'node:fs'
+import path from 'node:path'
+import { expect, openFarming, openNewAgentDialog, startAgentFromOpenDialog, test } from './fixtures'
+
+for (const appearance of ['light', 'dark', 'paper'] as const) {
+  test(`new Agents honor the current bypass default in ${appearance}`, async ({ page, workspaceRoot }, testInfo) => {
+    const seeded = await page.request.post('/farming/api/settings', { data: {
+      appearance,
+      dangerouslySkipAgentPermissionsByDefault: false,
+      agentLaunchProfiles: { codex: { approvalMode: 'approve' }, claude: { permissionMode: 'default' } },
+    } })
+    expect(seeded.ok()).toBe(true)
+    const modesFixture = path.join(workspaceRoot, '.fake-acp-permission-modes')
+    fs.writeFileSync(modesFixture, '')
+    try {
+      await openFarming(page)
+      await openNewAgentDialog(page)
+      await startAgentFromOpenDialog(page, 'bash', workspaceRoot)
+
+      const launchChat = async (provider: string) => {
+        const project = page.getByTestId('code-project-group').first()
+        await project.hover()
+        await project.getByTestId('code-project-new-agent').click({ force: true })
+        await page.getByTestId(`code-project-agent-launch-${provider}`).click()
+      }
+      await launchChat('codex')
+      const mode = page.getByTestId('code-acp-mode')
+      await expect(mode).toHaveAttribute('data-acp-value', 'agent')
+
+      await page.getByTestId('code-sidebar-options').click()
+      const settings = page.getByTestId('code-settings-panel')
+      const toggle = settings.getByRole('checkbox', { name: 'Skip all agent permission checks by default', exact: true })
+      await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+      const saved = page.waitForResponse(response => response.url().endsWith('/api/settings') && response.request().method() === 'POST')
+      await toggle.click()
+      expect((await saved).ok()).toBe(true)
+      await expect(toggle).toBeEnabled()
+      await expect(toggle).toHaveAttribute('aria-pressed', 'true')
+      await settings.getByRole('button', { name: 'Close', exact: true }).click()
+      await expect(settings).toBeHidden()
+      await expect(mode).toHaveAttribute('data-acp-value', 'agent')
+
+      await launchChat('codex')
+      await expect(mode).toHaveAttribute('data-acp-value', 'agent-full-access')
+      await testInfo.attach(`default-permissions-codex-${appearance}`, {
+        body: await mode.screenshot({ path: testInfo.outputPath(`default-permissions-codex-${appearance}.png`) }),
+        contentType: 'image/png',
+      })
+    } finally {
+      fs.rmSync(modesFixture, { force: true })
+      const reset = await page.request.post('/farming/api/settings', { data: { dangerouslySkipAgentPermissionsByDefault: false } })
+      expect(reset.ok()).toBe(true)
+    }
+  })
+}
+
+// The fake ACP server advertises Codex modes only. For Claude, verify the
+// authoritative launch contract without inventing provider mode capabilities.
+for (const provider of ['codex', 'claude'] as const) {
+  for (const runtime of ['acp', 'terminal'] as const) {
+    test(`${provider} ${runtime} resolves current permission defaults and explicit choices`, async ({ page, workspaceRoot }) => {
+      const permissionKey = provider === 'codex' ? 'codexApprovalMode' : 'claudePermissionMode'
+      const restrictedMode = provider === 'codex' ? 'approve' : 'plan'
+      const bypassMode = provider === 'codex' ? 'full' : 'bypassPermissions'
+      const ownedAgentIds = new Set<string>()
+      const readAgent = async (agentId: string) => {
+        const response = await page.request.get('/farming/api/control/agents')
+        expect(response.ok()).toBe(true)
+        const body = await response.json() as { agents: Array<{ id: string; launchPermissionMode: string }> }
+        return body.agents.find(agent => agent.id === agentId)
+      }
+      const setDefault = async (enabled: boolean) => {
+        const response = await page.request.post('/farming/api/settings', { data: {
+          dangerouslySkipAgentPermissionsByDefault: enabled,
+          agentLaunchProfiles: {
+            codex: { approvalMode: 'approve' },
+            claude: { permissionMode: 'plan' },
+          },
+        } })
+        expect(response.ok()).toBe(true)
+      }
+      const create = async (options: Record<string, string | boolean> = {}) => {
+        const response = await page.request.post('/farming/api/control/agents', { data: {
+          command: provider, workspace: workspaceRoot, agentRuntimeMode: runtime, ...options,
+        } })
+        const body = await response.json() as { agentId?: string }
+        if (body.agentId) ownedAgentIds.add(body.agentId)
+        expect(response.ok()).toBe(true)
+        expect(body.agentId).toBeTruthy()
+        return body.agentId!
+      }
+      try {
+        await setDefault(false)
+        const original = await create()
+        await expect.poll(async () => (await readAgent(original))?.launchPermissionMode).toBe(restrictedMode)
+
+        await setDefault(true)
+        expect((await readAgent(original))?.launchPermissionMode).toBe(restrictedMode)
+        const bypass = await create()
+        await expect.poll(async () => (await readAgent(bypass))?.launchPermissionMode).toBe(bypassMode)
+
+        const explicit = await create({ [permissionKey]: restrictedMode })
+        await expect.poll(async () => (await readAgent(explicit))?.launchPermissionMode).toBe(restrictedMode)
+
+        await setDefault(false)
+        expect((await readAgent(bypass))?.launchPermissionMode).toBe(bypassMode)
+        const restored = await create()
+        await expect.poll(async () => (await readAgent(restored))?.launchPermissionMode).toBe(restrictedMode)
+      } finally {
+        // Attempt every exact owned cleanup even when another deletion fails.
+        const cleanup = await Promise.allSettled([...ownedAgentIds].map(async agentId => {
+          const response = await page.request.delete(`/farming/api/control/agents/${encodeURIComponent(agentId)}?recordHistory=0`)
+          expect(response.ok()).toBe(true)
+          await expect.poll(async () => Boolean(await readAgent(agentId))).toBe(false)
+        }))
+        await setDefault(false)
+        for (const result of cleanup) {
+          if (result.status === 'rejected') throw result.reason
+        }
+      }
+    })
+  }
+}

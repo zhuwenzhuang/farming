@@ -108,7 +108,7 @@
   left: 5px;
   right: auto;
   top: 5px;
-  background: var(--code-accent);
+  background: var(--code-unread-dot);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -459,7 +459,7 @@ body.code-mode:not(.code-compact-layout) .code-agent-row:focus-within:has(.code-
   height: 8px;
   flex: 0 0 auto;
   border-radius: 999px;
-  background: var(--code-accent);
+  background: var(--code-unread-dot);
 }
 
 .code-agent-age {

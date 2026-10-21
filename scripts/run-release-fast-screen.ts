@@ -115,6 +115,10 @@ const tasks: FastScreenTask[] = [
     args: ['--import', 'tsx', 'backend/tests/test-native-pty-publication.ts'],
   },
   {
+    name: 'native PTY controller registration admission',
+    args: ['--import', 'tsx', 'backend/tests/test-native-pty-connection-admission.ts'],
+  },
+  {
     name: 'terminal checkpoint native and alternate buffer state',
     args: ['--import', 'tsx', 'backend/tests/test-terminal-screen-state.ts'],
   },

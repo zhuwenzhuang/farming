@@ -27,7 +27,7 @@ function run() {
     '<link rel="modulepreload" href="/assets/chunk.js">',
     '<link rel="stylesheet" href="/farming/assets/index.css">',
     '<link rel="manifest" href="/farming-2/site.webmanifest">',
-    '<link rel="icon" href="/farming-2/favicon-v2.ico">',
+    '<link rel="icon" href="/farming-2/favicon-v3.ico">',
     '<link rel="preconnect" href="https://example.invalid/assets/remote.js">',
     '</head>',
     '</html>',
@@ -42,7 +42,7 @@ function run() {
   assertAssetCarriesStartupToken(withToken, '/farming/assets/index.css', startupToken);
   assertAssetCarriesStartupToken(withToken, '/farming/farming-2/site.webmanifest', startupToken);
   assert(
-    withToken.includes('<link rel="icon" href="/farming/farming-2/favicon-v2.ico">'),
+    withToken.includes('<link rel="icon" href="/farming/farming-2/favicon-v3.ico">'),
     'public product icons should keep a stable token-free URL for installed web apps'
   );
   assert(
@@ -101,9 +101,9 @@ function run() {
   const serverSource = fs.readFileSync(path.join(repoRoot, 'backend/server.cts'), 'utf8');
   const manifest = JSON.parse(fs.readFileSync(path.join(repoRoot, 'public/farming-2/site.webmanifest'), 'utf8'));
   const personalizedManifest = appendWebAppManifestToken(manifest, startupToken);
-  const faviconHeader = fs.readFileSync(path.join(repoRoot, 'public/farming-2/favicon-v2.ico')).subarray(0, 4);
+  const faviconHeader = fs.readFileSync(path.join(repoRoot, 'public/farming-2/favicon-v3.ico')).subarray(0, 4);
   assert(productIndex.includes('app-icon-v2-180.png'), 'iOS should use the versioned high-resolution touch icon');
-  assert(productIndex.includes('favicon-v2-32.png'), 'browser tabs should use the versioned small-icon crop');
+  assert(productIndex.includes('favicon-v4.svg'), 'browser tabs should use the adaptive farmer/CRT favicon');
   assert(productIndex.includes('data-appearance-preference="system"'), 'the entry document should expose a server-rewritable appearance preference');
   assert(
     productIndex.includes(`background: ${appearanceThemes.paper.css['--code-bg-canvas']};`)
@@ -134,7 +134,7 @@ function run() {
   assert.strictEqual(new URL(manifest.start_url, customBaseManifestUrl).pathname, '/custom/base/', 'the installed app start URL should honor a custom Farming base path');
   assert.strictEqual(new URL(manifest.scope, customBaseManifestUrl).pathname, '/custom/base/', 'the installed app scope should honor a custom Farming base path');
   assert(manifest.icons.some(icon => icon.src === 'app-icon-v2-maskable-512.png' && icon.purpose === 'maskable'), 'the PWA manifest should provide a mask-safe Android icon');
-  assert.deepStrictEqual([...faviconHeader], [0, 0, 1, 0], 'the v2 favicon should be a binary ICO rather than base64 text');
+  assert.deepStrictEqual([...faviconHeader], [0, 0, 1, 0], 'the v3 favicon should be a binary ICO rather than base64 text');
   assert(
     serverSource.indexOf("app.use(routePath(BASE_PATH, '/farming-2'), express.static(publicProductAssetsDir")
       < serverSource.indexOf('app.use(tokenAuth.middleware())'),

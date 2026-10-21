@@ -290,7 +290,8 @@ export default defineConfig({
   head: [
     ['script', {}, themeFromUrlScript],
     ['meta', { name: 'theme-color', content: '#f7f4ec' }],
-    ['link', { rel: 'icon', href: `${base}farming-favicon.png` }],
+    ['link', { rel: 'icon', href: `${base}farming-favicon.png?v=3` }],
+    ['link', { rel: 'icon', type: 'image/svg+xml', sizes: 'any', href: `${base}farming-favicon-v4.svg` }],
   ],
   themeConfig: {
     ...zhTheme,

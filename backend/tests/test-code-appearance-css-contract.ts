@@ -117,8 +117,9 @@ assert.notEqual(
 assert.equal(registry.paper.css['--code-workbench-divider'], '#e8e6dc', 'Paper structural dividers stay visible independently of decorative borders')
 
 const lightRoles = Object.keys(registry.light.css).sort()
-// Chart colors and the structural workbench divider extend the shared palette.
-assert(lightRoles.length <= 144, 'the semantic palette must not grow back into a selector-level override matrix')
+// Chart colors, the workbench divider and shared unread attention extend the palette.
+assert(lightRoles.length <= 145, 'the semantic palette must not grow back into a selector-level override matrix')
+assert.equal(registry.paper.css['--code-unread-dot'], registry.light.css['--code-unread-dot'], 'Paper unread attention retains the same blue as Light')
 assert.equal(
   registry.light.css['--code-active-item-surface'],
   '#eeeeec',

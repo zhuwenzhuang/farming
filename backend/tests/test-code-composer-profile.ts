@@ -146,8 +146,23 @@ function run() {
   );
   assert.deepStrictEqual(
     composerAgentStartOptions('codex', profiles, { providerHomeId: 'work' }),
-    { providerHomeId: 'work', codexApprovalMode: 'full', dangerouslySkipPermissions: true },
-    'Codex launch flags should be emitted by its profile adapter'
+    { providerHomeId: 'work' },
+    'cached launch defaults must not become explicit overrides of current backend settings'
+  );
+  assert.deepStrictEqual(
+    composerAgentStartOptions('codex', defaultComposerProviderProfiles(), { providerHomeId: 'work' }),
+    { providerHomeId: 'work' },
+    'a cached workspace permission must not override the global bypass default'
+  );
+  assert.deepStrictEqual(
+    composerAgentStartOptions('codex', profiles, { codexApprovalMode: 'approve' }),
+    { codexApprovalMode: 'approve' },
+    'an explicit per-launch permission must retain precedence over defaults'
+  );
+  assert.deepStrictEqual(
+    composerAgentStartOptions('codex', profiles, { codexApprovalMode: 'full' }),
+    { codexApprovalMode: 'full', dangerouslySkipPermissions: true },
+    'explicit full access still emits its launch flags'
   );
   assert.deepStrictEqual(
     composerAgentStartOptions('claude', profiles, { providerHomeId: 'work' }),

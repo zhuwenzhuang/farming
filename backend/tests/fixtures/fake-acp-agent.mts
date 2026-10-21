@@ -292,6 +292,16 @@ class FakeAgent {
     return {
       sessionId,
       configOptions: sessionConfigOptions(sessionId),
+      ...(fs.existsSync(path.join(process.cwd(), '.fake-acp-permission-modes')) ? {
+        modes: {
+          currentModeId: 'agent',
+          availableModes: [
+            { id: 'read-only', name: 'Read only' },
+            { id: 'agent', name: 'Workspace' },
+            { id: 'agent-full-access', name: 'Full access' },
+          ],
+        },
+      } : {}),
     };
   }
 

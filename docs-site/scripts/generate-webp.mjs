@@ -1,4 +1,4 @@
-import { readdir, stat } from 'node:fs/promises'
+import { copyFile, readdir, stat } from 'node:fs/promises'
 import path from 'node:path'
 import sharp from 'sharp'
 
@@ -50,7 +50,13 @@ for (const source of sources) {
 }
 
 if (!readmeMode) {
-  const icon = path.join(publicRoot, 'farming-icon.png')
+  const adaptiveIcon = path.join(repositoryRoot, 'public/farming-2/favicon-v4.svg')
+  const adaptiveFavicon = path.join(publicRoot, 'farming-favicon-v4.svg')
+  if (!await isCurrent(adaptiveIcon, adaptiveFavicon)) {
+    await copyFile(adaptiveIcon, adaptiveFavicon)
+    generated++
+  }
+  const icon = path.join(repositoryRoot, 'public/farming-2/favicon-v3-48.png')
   const favicon = path.join(publicRoot, 'farming-favicon.png')
   if (!await isCurrent(icon, favicon)) {
     await sharp(icon).resize(48, 48).png({ compressionLevel: 9 }).toFile(favicon)

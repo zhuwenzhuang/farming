@@ -385,7 +385,7 @@
   width: 7px;
   height: 7px;
   border-radius: 999px;
-  background: var(--code-accent);
+  background: var(--code-unread-dot);
   box-shadow: 0 0 0 1.5px var(--code-navigation-surface);
 }
 
@@ -714,7 +714,7 @@
   z-index: 2;
   border: 1.5px solid var(--code-navigation-surface);
   border-radius: 999px;
-  background: var(--code-accent);
+  background: var(--code-unread-dot);
   border-color: var(--code-navigation-surface);
 }
 

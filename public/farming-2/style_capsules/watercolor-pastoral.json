@@ -59,6 +59,7 @@
       "composition_rules": [
         "face, eyes, smile, cheeks, and straw hat must be readable as simple shapes",
         "use a tighter crop for browser favicons and the complete garden composition for installed app icons",
+        "browser favicons have transparent exterior paper; preserve opaque highlights inside the artwork and keep installed app icons paper-backed",
         "keep the expression simple and cute",
         "favor broad color blocks over watercolor detail",
         "keep the bee and flower accents when the output size can render them clearly"

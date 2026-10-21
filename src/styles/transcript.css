@@ -3082,7 +3082,7 @@ button.code-agent-transcript-result-summary:is(:hover, :focus-visible) .code-age
   color: var(--code-text);
 }
 .code-agent-transcript-outgoing-preview-text {
-  color: var(--code-text-secondary);
+  color: var(--code-text-subtle);
 }
 /* Icons and the text line share the row's vertical center. */
 .code-agent-transcript-outgoing-preview > .code-collaboration-agent-icon,

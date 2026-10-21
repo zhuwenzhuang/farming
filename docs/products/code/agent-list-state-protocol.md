@@ -279,6 +279,22 @@ ordering, or structural flag updates.
 
 ## Browser message notifications
 
+Code's browser tab projects the same unread inventory without notification
+permission. Its title prefixes the existing instance name with the number of
+unread Agent/conversation rows, not the number of messages. Main and archived
+rows are excluded; claimed provider Sessions count only once. Search, collapsed
+groups, session pagination and dynamic pinning do not change that count. Partial
+Agent snapshots use the authoritative Project unread summaries until inventory
+is complete. Existing attention/read events update the tab even when inventory
+row objects have not changed; the tab never creates or acknowledges unread state.
+
+Any positive count adds one static blue dot to the favicon. Both the farmer and
+CRT artwork use the shared unread-dot palette; the browser color scheme selects
+the artwork. Returning to the page does not clear other Agents' unread state.
+Existing read acknowledgements, archive/removal and recovery update the
+projection; zero restores the ordinary title and icon. The tab adds no polling,
+blinking, permission request, persistence or replay of mutations.
+
 Browser permission and the browser-local notification preference are separate
 authorities. Enabling notifications explicitly requests permission in the user's
 click gesture when permission is undecided; loading Farming never requests it.

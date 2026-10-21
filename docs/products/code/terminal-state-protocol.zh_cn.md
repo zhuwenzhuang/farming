@@ -16,6 +16,9 @@ Identity 与 Restart Continuity。Farming Server 控制 Lifecycle 并发布状�
 节点属于明确冲突，绝不替换。因此，同一 Listener 的并发发布不会终止该 Host，也不会创建另一个
 Host。恢复仍须验证 Host Runtime 与 Controller，之后才能接收 Terminal Operation。
 
+Socket 已连接并不代表可以接收操作。并发请求必须等待同一次完整连接尝试，包括 Runtime
+验证和 Controller 注册；只有该尝试成功后才能使用连接，失败则共同收到该失败。
+
 一次 PTY Lifetime 对应一个 Runtime Epoch。Epoch 内的有序 Output 与 State Revision 标识一份
 权威 Cut；它们只是 Transport Cursor，不是第二套 Agent Lifecycle。
 

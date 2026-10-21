@@ -21,6 +21,10 @@ never replaced. Concurrent publication of the same listener therefore neither
 terminates that host nor creates another one. Recovery still validates the host
 runtime and controller before admitting terminal operations.
 
+Socket attachment alone does not admit operations. Concurrent requests share
+the complete connection attempt, including runtime validation and controller
+registration, and receive its success or failure before using that connection.
+
 One PTY lifetime has one runtime epoch. Within that epoch, ordered output and
 state revisions identify an authoritative cut. These values are transport
 cursors, not another Agent lifecycle.

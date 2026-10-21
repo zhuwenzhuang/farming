@@ -58,6 +58,12 @@ of removal: retain it, warn and block Prompt/Steer until restoration or explicit
 replacement. Other definitively unsupported options may drop only the incompatible
 override with a warning; transport failure is not compatibility evidence.
 
+New-Agent permission defaults are resolved by the backend at launch. The Config's
+skip-permission default takes precedence over saved launch-profile defaults;
+an explicit per-launch permission choice takes precedence over that default.
+Browsers must not submit cached defaults as explicit choices. Changing the global
+default does not change existing Sessions' permissions.
+
 Accepted model, reasoning and Fast changes update only the requested new-Agent
 Home defaults in the same Config, after verifying exact Home identity. Restoration
 does not rewrite defaults. Session success with a failed default save is reported

@@ -41,6 +41,7 @@ docs/products/hive/
 .tmp/
 docs-site/public/**/*.webp
 docs-site/public/farming-favicon.png
+docs-site/public/farming-favicon-v4.svg
 docs-site/public/install.sh
 docs-site/public/farming_install.sh
 tmp/

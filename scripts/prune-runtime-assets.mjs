@@ -5,7 +5,8 @@ import path from 'node:path';
 // source control, but only the product's icons belong in a runtime image.
 const root = path.resolve('dist/farming-2');
 const runtimeFiles = new Set([
-  'favicon-v2.ico', 'favicon-v2-16.png', 'favicon-v2-32.png', 'favicon-v2-48.png',
+  'favicon-v4.svg', 'favicon-v4-unread.svg',
+  'favicon-v3.ico', 'favicon-v3-16.png', 'favicon-v3-32.png', 'favicon-v3-48.png',
   'app-icon-v2-180.png', 'app-icon-v2-192.png', 'app-icon-v2-512.png',
   'app-icon-v2-maskable-512.png', 'site.webmanifest',
 ]);

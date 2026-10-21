@@ -478,10 +478,11 @@ const COMPOSER_PROVIDER_PROFILE_ADAPTERS: Record<ComposerProfileProvider, Compos
           : 'default',
       }
     },
-    startOptions: (profile, options) => {
-      const requestedMode = typeof options.codexApprovalMode === 'string'
-        ? options.codexApprovalMode
-        : profile.permissionMode
+    startOptions: (_profile, options) => {
+      // The backend resolves current Config/Home defaults at launch. A cached
+      // profile is not an explicit permission choice for this new Agent.
+      if (typeof options.codexApprovalMode !== 'string') return { ...options }
+      const requestedMode = options.codexApprovalMode
       const approvalMode = isCodexApprovalMode(requestedMode) ? requestedMode : 'approve'
       return {
         ...options,

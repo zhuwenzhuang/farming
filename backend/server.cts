@@ -936,7 +936,7 @@ const sendPublicProductAsset = (filename: string) => (_req: HttpRequest, res: Ht
   res.sendFile(path.join(publicProductAssetsDir, filename));
 };
 
-app.get(['/favicon.ico', routePath(BASE_PATH, '/favicon.ico')], sendPublicProductAsset('favicon-v2.ico'));
+app.get(['/favicon.ico', routePath(BASE_PATH, '/favicon.ico')], sendPublicProductAsset('favicon-v3.ico'));
 app.get([
   '/apple-touch-icon.png',
   '/apple-touch-icon-precomposed.png',

@@ -79,6 +79,7 @@
     },
     "css": {
       "--code-accent": "#0969da",
+      "--code-unread-dot": "#0969da",
       "--code-accent-hover": "#0757b6",
       "--code-accent-soft": "rgba(9, 105, 218, 0.1)",
       "--code-active-item-surface": "#eeeeec",
@@ -304,6 +305,7 @@
     },
     "css": {
       "--code-accent": "#339cff",
+      "--code-unread-dot": "#339cff",
       "--code-accent-hover": "#79c0ff",
       "--code-accent-soft": "rgba(51, 156, 255, 0.18)",
       "--code-active-item-surface": "#233648",
@@ -529,6 +531,7 @@
     },
     "css": {
       "--code-accent": "#282922",
+      "--code-unread-dot": "#0969da",
       "--code-accent-hover": "#10110e",
       "--code-accent-soft": "rgba(40, 41, 34, 0.07)",
       "--code-active-item-surface": "#e6e5e1",

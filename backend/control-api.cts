@@ -118,7 +118,7 @@ interface StartAgentOptions extends Record<string, unknown> {
   agentRuntimeMode?: 'acp' | 'chat' | 'terminal';
   createInitialInputSignature: string;
   createRequestId: string;
-  dangerouslySkipPermissions: boolean;
+  dangerouslySkipPermissions?: boolean;
   parentAgentId: string;
   providerSessionTitle: string;
   source: 'control-cli' | 'deployment-smoke';
@@ -658,7 +658,11 @@ function createControlRouter(
       providerSessionTitle: typeof body.providerSessionTitle === 'string' ? body.providerSessionTitle : '',
       ...(Array.isArray(body.additionalDirectories) ? { additionalDirectories: body.additionalDirectories } : {}),
       ...(Array.isArray(body.mcpServers) ? { mcpServers: body.mcpServers } : {}),
-      dangerouslySkipPermissions: body.dangerouslySkipPermissions === true,
+      ...(typeof body.dangerouslySkipPermissions === 'boolean'
+        ? { dangerouslySkipPermissions: body.dangerouslySkipPermissions }
+        : {}),
+      ...(typeof body.codexApprovalMode === 'string' ? { codexApprovalMode: body.codexApprovalMode } : {}),
+      ...(typeof body.claudePermissionMode === 'string' ? { claudePermissionMode: body.claudePermissionMode } : {}),
     });
   });
 

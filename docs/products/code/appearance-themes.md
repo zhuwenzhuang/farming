@@ -14,6 +14,14 @@ equivalence. This document owns their appearance roles and theme lifecycle.
 
 - Light is the neutral, high-clarity default.
 - Dark is the low-light appearance.
+- Browser favicons follow the browser color scheme: light uses the farmer artwork
+  with transparent exterior paper; dark reuses the existing CRT icon. This follows
+  browser chrome independently of the workbench's Light, Dark, or Paper setting.
+  Do not flatten the farmer favicon onto cream paper or add a tile. Installed-app
+  icons retain their complete paper-backed composition.
+- Unread dots share a dedicated blue semantic token across Agent rows, compact
+  navigation, menus and browser favicons. Paper retains blue for this attention
+  signal instead of inheriting its neutral general-purpose accent.
 - Paper is an explicit light color scheme for sustained reading. Its workbench
   canvas, chrome, reading surfaces, Composer, editor, and terminal share one
   warm paper base. Hierarchy comes primarily from spacing, fine borders, and

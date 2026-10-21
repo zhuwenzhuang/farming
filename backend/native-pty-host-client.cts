@@ -536,8 +536,10 @@ class NativePtyHostClient extends EventEmitter {
     if (this.disposed) {
       throw new Error('Native pty host client is disposed');
     }
-    if (this.socket && !this.socket.destroyed) return;
+    // Socket attachment precedes runtime validation and controller registration.
+    // Concurrent operations must share that entire admission barrier.
     if (this.connecting) return this.connecting;
+    if (this.socket && !this.socket.destroyed) return;
 
     this.connecting = this.connectWithRetries(options)
       .finally(() => {
