@@ -4,6 +4,7 @@ import path from 'node:path'
 import type { Page, TestInfo } from '@playwright/test'
 import type { SessionBootstrapState } from '../../../src/lib/terminal-bootstrap'
 import { expect, openFarming, test } from '../fixtures'
+import { freshCodexSessionConfigured } from './codex-startup-readiness'
 
 // This gate runs against a real Codex account, so every billed turn must stay
 // on one fixed low-cost model. LAUNCH_MODEL is only selected to prove a live
@@ -244,9 +245,7 @@ async function continueWithoutUntrustedHooks(page: Page, agentId: string) {
     await expect.poll(async () => {
       const rendered = (await codeRows(page, agentId)).join('\n')
       const current = await agent(page, agentId)
-      if (current?.terminalStatus?.activity === 'idle') {
-        startupState = 'ready'
-      } else if (!modelNoticeAccepted && rendered.includes('Meet GPT-6 Luna')
+      if (!modelNoticeAccepted && rendered.includes('Meet GPT-6 Luna')
         && rendered.includes('Use existing model')) {
         startupState = 'model-notice'
       } else if (!hooksAccepted && rendered.includes('Hooks need review')) {
@@ -256,6 +255,8 @@ async function continueWithoutUntrustedHooks(page: Page, agentId: string) {
         || rendered.includes('Trust this folder?')
       )) {
         startupState = 'directory-trust'
+      } else if (freshCodexSessionConfigured(rendered, current?.terminalStatus?.activity)) {
+        startupState = 'ready'
       } else {
         startupState = 'waiting'
       }
