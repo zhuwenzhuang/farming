@@ -55,6 +55,11 @@ test('peer messages stay readable with bounded expansion, unknown inputs, send o
       })
       expect(screenshot.readUInt32BE(16)).toBeGreaterThan(250)
       expect(screenshot.readUInt32BE(20)).toBeGreaterThan(300)
+      await summary.screenshot({
+        path: testInfo.outputPath(`worked-summary-detail-${width}-${appearance}.png`), animations: 'disabled',
+      })
+      const status = summary.locator('.code-agent-transcript-outgoing-summary-status').first()
+      expect(await status.evaluate(element => getComputedStyle(element).fontSize)).toBe('12px')
     }
   }
   await page.setViewportSize({ width: 1440, height: 1000 })

@@ -3087,3 +3087,8 @@ button.code-agent-transcript-result-summary:is(:hover, :focus-visible) .code-age
   font-size: 12px;
   color: var(--code-text-subtle);
 }
+
+.code-agent-transcript-outgoing-summary-status {
+  color: var(--code-text-subtle);
+  font-size: 12px;
+}

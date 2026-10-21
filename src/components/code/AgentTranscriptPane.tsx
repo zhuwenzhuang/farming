@@ -2970,7 +2970,7 @@ function AgentTranscriptTurnView({
                     <span className="code-agent-transcript-process-summary-label">{processSummaryLabel}</span>
                     {outgoingSummary.count > 0 ? <span>{copy.agentTranscriptCollaborationMessageCount(outgoingSummary.count)}</span> : null}
                     {outgoingSummary.states.map(state => <span key={state.action}
-                      className={`code-agent-transcript-collaboration-action ${state.action}`}>
+                      className="code-agent-transcript-outgoing-summary-status">
                       {state.action === 'recorded' ? copy.agentTranscriptCollaborationUnknown : collaborationActionLabel(state.action, copy)} · {state.count}
                     </span>)}
                   </span>
