@@ -5,6 +5,40 @@ import { expect, openFarming, test } from './fixtures'
 
 const source = 'Account: sample-user\nToken: example_only_123\n中文说明：仅用于测试。\n'
 
+test('phone source wraps long lines without changing desktop preference @iphone-human', async ({ page, workspaceRoot, isMobile }, testInfo) => {
+  test.skip(!isMobile, 'Native touch wrapping')
+  const text = '手机阅读长行，不需要左右拖动。Long source line with spaces. '.repeat(20)
+  const filePath = path.join(workspaceRoot, 'wrapping.txt')
+  fs.writeFileSync(filePath, text)
+  await page.addInitScript(() => localStorage.setItem('farming.code.fileEditor.wordWrap', '0'))
+  const response = await page.request.post('/farming/api/control/agents', { data: { command: 'bash', workspace: workspaceRoot } })
+  expect(response.ok()).toBeTruthy()
+  await page.goto(`/farming/?${new URLSearchParams({ ftarget: 'file', path: filePath })}`)
+  const input = page.getByTestId('code-file-touch-source').getByRole('textbox')
+  await expect(input).toHaveValue(text)
+  const compact = page.viewportSize()!
+  for (const appearance of ['light', 'dark', 'paper']) {
+    await page.evaluate(value => {
+      document.body.dataset.appearance = value
+      document.documentElement.dataset.appearance = value
+    }, appearance)
+    expect(await input.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true)
+    await page.getByTestId('code-file-editor-more').click()
+    await expect(page.getByTestId('code-file-editor-more-menu')).toBeVisible()
+    await expect(page.getByRole('menuitemcheckbox', { name: /word wrap/i })).toHaveCount(0)
+    await page.keyboard.press('Escape')
+    await page.screenshot({ path: testInfo.outputPath(`phone-wrap-${appearance}.png`), animations: 'disabled' })
+  }
+  await page.setViewportSize({ width: 1200, height: 900 })
+  await expect(input).toHaveCount(0)
+  await expect(page.getByTestId('code-file-monaco').locator('.view-lines .view-line')).toHaveCount(1)
+  await expect(page.getByTestId('code-file-editor').locator('.word-wrap')).toHaveAttribute('aria-pressed', 'false')
+  await page.setViewportSize(compact)
+  await expect(input).toHaveValue(text)
+  expect(await input.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true)
+  expect(await page.evaluate(() => localStorage.getItem('farming.code.fileEditor.wordWrap'))).toBe('0')
+})
+
 // Native Ubuntu and the Playwright image choose different generic sans/mono
 // fonts. Pin the common installed families only for Linux WebKit visual tests.
 test.beforeEach(async ({ page, browserName }) => {

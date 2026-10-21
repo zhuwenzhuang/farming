@@ -14,6 +14,7 @@ import {
 import type { CodeCopy } from '../code/copy'
 import { shareNoticeAnchor, type ShareNoticeAnchor } from '../code/share-notice'
 import { useWorkspaceMenuKeyboard } from './useWorkspaceMenuKeyboard'
+import { useTouchFileSource } from './FileEditorTouchSource'
 
 function MarkdownPreviewIcon({ previewOpen }: { previewOpen: boolean }) {
   if (previewOpen) {
@@ -152,6 +153,8 @@ export function FileEditorActions({
   onToggleAgentSidePanel,
   onRevealInExplorer,
 }: FileEditorActionsProps) {
+  const touchSource = useTouchFileSource()
+  const showWordWrap = actions.showWordWrap && !touchSource
   const [moreOpen, setMoreOpen] = useState(false)
   const [morePosition, setMorePosition] = useState({ left: 8, top: 40 })
   const moreTriggerRef = useRef<HTMLButtonElement | null>(null)
@@ -293,7 +296,7 @@ export function FileEditorActions({
           <ScreenFullGlyph className="code-file-editor-action-svg" />
         </button>
       )}
-      {actions.showWordWrap && (
+      {showWordWrap && (
         <button
           type="button"
           className={`code-file-editor-action narrow-overflow word-wrap ${wordWrapEnabled ? 'active' : ''}`}
@@ -436,7 +439,7 @@ export function FileEditorActions({
               <span>{wideLayoutLabel}</span>
             </button>
           )}
-          {actions.showWordWrap && (
+          {showWordWrap && (
             <button
               type="button"
               role="menuitemcheckbox"

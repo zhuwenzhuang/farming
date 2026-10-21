@@ -44,6 +44,26 @@ for (const runtime of ['chat', 'terminal'] as const) {
     }
     await input.fill('简短任务')
     const shortHeight = await input.evaluate(element => element.clientHeight)
+    const textGeometry = await input.evaluate(element => {
+      const style = getComputedStyle(element)
+      const inputBox = element.getBoundingClientRect()
+      const composerBox = element.closest('.code-composer')!.getBoundingClientRect()
+      const expandBox = element.closest('.code-composer')!.querySelector('[data-testid="code-composer-editor-toggle"]')!.getBoundingClientRect()
+      const lineHeight = Number.parseFloat(style.lineHeight)
+      const textTop = inputBox.top + Number.parseFloat(style.paddingTop)
+      return {
+        fontSize: Number.parseFloat(style.fontSize),
+        lineHeight,
+        leftInset: inputBox.left + Number.parseFloat(style.paddingLeft) - composerBox.left,
+        topInset: textTop - composerBox.top,
+        expandAlignment: Math.abs(textTop + lineHeight / 2 - (expandBox.top + expandBox.height / 2)),
+      }
+    })
+    expect(textGeometry.fontSize).toBeGreaterThanOrEqual(16)
+    expect(textGeometry.lineHeight / textGeometry.fontSize).toBeGreaterThanOrEqual(1.4)
+    expect(textGeometry.leftInset).toBeGreaterThanOrEqual(16)
+    expect(textGeometry.topInset).toBeGreaterThanOrEqual(8)
+    expect(textGeometry.expandAlignment).toBeLessThanOrEqual(4)
     await input.fill(longDraft)
     await expect.poll(() => input.evaluate(element => element.clientHeight)).toBeGreaterThan(shortHeight + 60)
     const workView = page.getByTestId(runtime === 'chat' ? 'code-agent-chat-view' : 'code-agent-terminal-view')
@@ -98,6 +118,10 @@ for (const runtime of ['chat', 'terminal'] as const) {
       await expect.poll(() => input.evaluate(element => element.clientHeight)).toBeLessThanOrEqual(shortHeight + 1)
       await expectUnfocusedComposerClearance()
       await page.screenshot({ path: testInfo.outputPath(`mobile-${runtime}-${appearance}-empty-blurred.png`), animations: 'disabled', caret: 'hide' })
+      await input.fill('简短任务')
+      await expectUnfocusedComposerClearance()
+      await page.screenshot({ path: testInfo.outputPath(`mobile-${runtime}-${appearance}-short.png`), animations: 'disabled', caret: 'hide' })
+      await composer.screenshot({ path: testInfo.outputPath(`mobile-${runtime}-${appearance}-input-row.png`), scale: 'css', animations: 'disabled', caret: 'hide' })
       await input.fill(longDraft)
       await expect.poll(() => input.evaluate(element => element.clientHeight)).toBeGreaterThan(shortHeight + 60)
       await input.press('Control+Home')

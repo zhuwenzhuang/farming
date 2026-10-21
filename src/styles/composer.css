@@ -3063,6 +3063,8 @@ body.code-mode.code-compact-layout .code-acp-composer-stack {
     /* Keep touch browsers at 16px so focusing the Composer does not trigger
        viewport zoom. Narrow desktop windows can use the denser 14px size. */
     font-size: max(16px, var(--code-content-font-size));
+    line-height: 1.5;
+    padding: 8px 46px 8px 12px;
   }
 
   body.code-mode.code-compact-layout .code-composer-toolbar {

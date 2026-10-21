@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type MouseEvent, type RefObject } from 'react'
 import * as monaco from 'monaco-editor'
 import { writeClipboardText } from '@/lib/clipboard'
+import { COMPACT_TOUCH_VIEWPORT_QUERY } from '@/lib/responsive-mode'
 import { workspaceBlameInlineLabel } from '@/lib/workspace-editor-model'
 import type { WorkspaceFileBlame } from '@/lib/workspace-files'
 import type { CodeCopy } from '../code/copy'
-
-const TOUCH_SOURCE_QUERY = '(max-width: 980px) and (pointer: coarse)'
 
 // Native textareas normalize CRLF to LF. Convert their offsets without changing
 // the file's line endings or selecting the wrong text after the first line.
@@ -15,9 +14,9 @@ function positionAt(text: string, offset: number) {
 }
 
 export function useTouchFileSource() {
-  const [enabled, setEnabled] = useState(() => window.matchMedia(TOUCH_SOURCE_QUERY).matches)
+  const [enabled, setEnabled] = useState(() => window.matchMedia(COMPACT_TOUCH_VIEWPORT_QUERY).matches)
   useEffect(() => {
-    const media = window.matchMedia(TOUCH_SOURCE_QUERY)
+    const media = window.matchMedia(COMPACT_TOUCH_VIEWPORT_QUERY)
     const update = () => setEnabled(media.matches)
     update()
     media.addEventListener('change', update)

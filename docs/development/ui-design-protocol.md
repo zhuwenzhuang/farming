@@ -212,6 +212,23 @@ On resize, preserve the active Agent and work; entering compact mode collapses
 navigation, and returning to a wide desktop restores an automatically collapsed
 sidebar. Drawer dismissal and focus isolation apply only while compact.
 
+Layout width does not select input semantics. Chat and Terminal composers use
+the primary coarse pointer for Enter-to-newline; desktop Enter submits and
+Shift+Enter inserts a newline at every width, including the expanded composer. The keyboard
+hint follows the same policy; additional touch capability on a mouse-driven
+desktop does not change it. Resizing preserves drafts, selection and IME
+guards, and never submits input. Capability changes update input behavior without
+replacing the editor. Mouse-driven file editors honor the user's word-wrap
+preference at every width. Compact touch source views always wrap for reading
+and native selection, and omit the inapplicable wrap toggle without changing
+the saved desktop preference.
+
+Touch Chat and Terminal composers share text insets and line spacing: the first
+line sits within the input row beside Expand, with breathing room from the top
+and leading edges. Placeholder and draft text use the same geometry. Keep the
+touch font floor, separate Expand and Send hit areas, bounded long-text scrolling
+and expanded-editor layout across appearances and keyboard viewport changes.
+
 Density is an explicit family variant selected by shared layout policy. The same
 viewport and role must not acquire unrelated geometry from independent pointer
 queries. Input capabilities may change how actions are revealed, not whether an

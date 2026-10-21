@@ -1,5 +1,6 @@
 import { MAX_COMPOSER_SUBMISSIONS, type AgentComposerSubmission } from '../composer-state'
 import { useComposerTransfer } from '../useComposerTransfer'
+import { useTouchPrimaryInput } from '@/hooks/useTouchPrimaryInput'
 import { useInteractionLayer } from '@/hooks/useInteractionLayer'
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type CSSProperties, type KeyboardEvent, type MouseEvent, type RefObject } from 'react'
 import { ArrowUpGlyph, LoadingGlyph, CloseGlyph, PencilGlyph, PlusGlyph, ReplyGlyph } from '@/components/IconGlyphs'
@@ -197,6 +198,7 @@ export function AcpComposer({
   const [modelPane, setModelPane] = useState<'model' | 'speed' | null>(null)
   const [dismissedPromptSuggestionId, setDismissedPromptSuggestionId] = useState('')
   const [compactComposerViewport, setCompactComposerViewport] = useState(isCompactViewport)
+  const touchPrimaryInput = useTouchPrimaryInput()
   const { session, error: sessionError, updatingId, authenticatingId, authoritative: sessionAuthoritative, configDeferred, configOptionsDeferred, modeDeferred, setMode, setConfigOption, setConfigOptions, authenticate } = useAcpSession(
     agentId,
     active,
@@ -457,7 +459,7 @@ export function AcpComposer({
         return
       }
     }
-    if (!shouldSubmitComposerEnter(event, compositionActiveRef.current, lastCompositionEndAtRef.current, Date.now(), !compactComposerViewport)) return
+    if (!shouldSubmitComposerEnter(event, compositionActiveRef.current, lastCompositionEndAtRef.current, Date.now(), !touchPrimaryInput)) return
     event.preventDefault()
     event.stopPropagation()
     if (queueFull) return
@@ -681,7 +683,7 @@ export function AcpComposer({
           data-testid="code-acp-composer-input"
           ref={textareaRef}
           rows={1}
-          enterKeyHint={compactComposerViewport ? 'enter' : 'send'}
+          enterKeyHint={touchPrimaryInput ? 'enter' : 'send'}
           name="farming-acp-chat-message"
           inputMode="text"
           autoComplete="off"

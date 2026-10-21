@@ -1,4 +1,5 @@
 import { useComposerTransfer } from './useComposerTransfer'
+import { useTouchPrimaryInput } from '@/hooks/useTouchPrimaryInput'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type {
   ChangeEvent,
@@ -291,6 +292,7 @@ export function CodeComposer({
   const hasModelMatrix = Boolean(modelMatrixFamily(matrixModels, agentModel))
   const [mobileComposerViewport, setMobileComposerViewport] = useState(isMobileComposerViewport)
   const [compactComposerViewport, setCompactComposerViewport] = useState(isCompactComposerViewport)
+  const touchPrimaryInput = useTouchPrimaryInput()
   const [recordingElapsedSeconds, setRecordingElapsedSeconds] = useState(0)
   const [textareaFocused, setTextareaFocused] = useState(false)
   const [textareaSelectionStart, setTextareaSelectionStart] = useState(draft.length)
@@ -675,7 +677,7 @@ export function CodeComposer({
           data-testid="code-composer-input"
           ref={textareaRef}
           rows={1}
-          enterKeyHint={compactComposerViewport ? 'enter' : 'send'}
+          enterKeyHint={touchPrimaryInput ? 'enter' : 'send'}
           name="farming-chat-message"
           inputMode="text"
           autoComplete="off"
@@ -836,7 +838,7 @@ export function CodeComposer({
               }
             }
 
-            if (!shouldSubmitComposerEnter(event, compositionActive, lastCompositionEndAtRef.current, Date.now(), !compactComposerViewport)) return
+            if (!shouldSubmitComposerEnter(event, compositionActive, lastCompositionEndAtRef.current, Date.now(), !touchPrimaryInput)) return
             event.preventDefault()
             event.stopPropagation()
             editor.submit(() => onSubmit(composerDraftForSubmit(event.currentTarget.value, latestDraftRef.current)))
