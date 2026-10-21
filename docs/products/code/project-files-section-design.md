@@ -122,6 +122,24 @@ stays explicit. Syntax diagnostics remain local; saved-file semantic analysis an
 navigation belong to the [Language Server](language-server.md). Dirty drafts do
 not present older disk-version semantic results as current.
 
+Chat Markdown file references, including `file:///` URLs with `#L23` or
+`#L23-L30` anchors, are candidates until the backend verifies an exact readable
+file within the same access boundary used for opening. Pending, missing,
+unauthorized and failed checks keep the authored text without link decoration
+or a click action. Verification never delays text rendering or Agent output.
+Successful references open through Farming's file viewer at the first cited
+line, with access checked again on open; they never request browser-local files.
+External URLs retain normal safe Markdown handling.
+
+The mounted active transcript owns asynchronous verification: deduplicate by
+root and path, not citation line; batch bounded metadata/access checks over the
+Workspace background lane without reading content or scanning the repository.
+Positive and negative results expire, and active references are rechecked.
+Inactive/unmounted transcripts release checks; replacement owners reject late
+results. Acceptance includes delayed responses during rendering, missing files,
+permission failures, external-file share restrictions, cancellation, expiry,
+and multiple citations of the same file in all appearances.
+
 Spreadsheet previews are read-only, versioned workbook snapshots. Loading/refresh
 owns cancellable fetch and Worker parse with bounded bytes, ZIP expansion and cells.
 Replacement or close releases old work and rejects late results. Show formatted

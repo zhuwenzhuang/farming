@@ -76,6 +76,9 @@ export function isExternalTranscriptHref(href: string) {
   const trimmed = href.trim()
   if (trimmed.startsWith('//')) return true
   if (/^[a-z]:[\\/]/i.test(trimmed) || /^file:\/\/\//i.test(trimmed)) return false
+  // A URI scheme must not become a local path merely because its payload
+  // ends in a source location (for example https://host/file.cpp#L2).
+  if (/^[a-z][a-z\d+.-]*:(?!\d)/i.test(trimmed)) return true
   if (isTranscriptFileLineHref(trimmed)) return false
   return /^[a-z][a-z\d+.-]*:/i.test(trimmed)
     || isBareDomainTranscriptHref(trimmed)
@@ -113,7 +116,12 @@ function exactTranscriptPathTarget(text: string, requireKnownFileType = true) {
   // Markdown hrefs encode spaces, while inline-code literals may keep them.
   // Preserve the whole structured value through lexical path parsing, then
   // decode exactly once before resolving it against the filesystem.
-  const encoded = text.trim().replace(/ /g, '%20')
+  // Markdown source anchors navigate to the start of the cited range. Extract
+  // them before file-URL normalization, which otherwise discards the fragment.
+  const encoded = text.trim().replace(/ /g, '%20').replace(
+    /#L([1-9]\d*)(?:C([1-9]\d*))?(?:-L?[1-9]\d*(?:C[1-9]\d*)?)?$/i,
+    (_match, line: string, column: string | undefined) => `:${line}${column ? `:${column}` : ''}`,
+  )
   const matches = collectTerminalPathLinkMatches(encoded)
   const exact = matches.find(match => (
     match.startIndex === 0
@@ -122,6 +130,7 @@ function exactTranscriptPathTarget(text: string, requireKnownFileType = true) {
   ))
   if (!exact?.pathTarget) return null
   const decodedPath = decodeFileUrlPath(exact.pathTarget.path)
+  if (/^[a-z][a-z\d+.-]*:/i.test(decodedPath) && !/^[a-z]:[\\/]/i.test(decodedPath)) return null
   if (requireKnownFileType && !transcriptFileBasenameLooksValid(decodedPath)) return null
   return { ...exact.pathTarget, path: decodedPath }
 }

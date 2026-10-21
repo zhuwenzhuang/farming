@@ -70,6 +70,7 @@ interface TransportFileResult extends ResourceFileResult {
 }
 
 interface WorkspaceFileServiceLike {
+  fileLinkAccess(root: string, paths: string[], options?: ReadOptions): Promise<unknown>;
   resolvePath(root: string, userPath: unknown): Promise<{ target: string }>;
   changesInventory(root: string): Promise<unknown>;
   changesPage(root: string, options: { repositoryPath?: string; scope: 'tracked' | 'untracked'; cursor?: string; limit?: number }): Promise<unknown>;
@@ -517,6 +518,14 @@ async function executeWorkspaceFileRequest(
   };
 
   switch (request.operation) {
+    case 'file-link-access': {
+      if (isGlobalWorkspaceFilesAgentId(request.rootId)) {
+        assertExactExternalFileAccess({ authAccessMode: options.accessMode } as HttpRequest);
+      }
+      return fileService.fileLinkAccess(resolveRequestRoot(request).root, request.paths, {
+        ...readOptionsForAgent(agentManager, request.rootId), signal: options.signal,
+      });
+    }
     case 'tree': {
       const pageOptions = { signal: options.signal, cursor: request.cursor, release: request.release, maxPageBytes: options.maxInlineResponseBytes };
       const tree = isGlobalWorkspaceFilesAgentId(request.rootId)

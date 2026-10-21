@@ -147,6 +147,7 @@ export interface WatchWorkspaceFilesMessage extends ExtensibleMessage {
 }
 
 export type WorkspaceRequest =
+  | { operation: 'file-link-access'; rootId: string; paths: string[] }
   | { operation: 'context-paths'; rootId: string; entries: Array<{ path: string; kind: 'file' | 'directory' }> }
   | { operation: 'tree'; rootId: string; path?: string; cursor?: string; release?: boolean }
   | { operation: 'tree-decorations'; rootId: string; path?: string; entryPaths: string[] }
@@ -666,6 +667,10 @@ function workspaceRequest(value: unknown): value is WorkspaceRequest {
     && boundedStringField(value, 'path', 4096)
   const expectedVersion = () => boundedStringField(value, 'expectedVersion', 256, true)
   switch (value.operation) {
+    case 'file-link-access':
+      return boundedStringField(value, 'rootId', 4096)
+        && Array.isArray(value.paths) && value.paths.length > 0 && value.paths.length <= 64
+        && value.paths.every(path => typeof path === 'string' && path.length > 0 && path.length <= 2048)
     case 'tree':
       return boundedStringField(value, 'rootId', 4096) && boundedStringField(value, 'path', 4096, true)
         && boundedStringField(value, 'cursor', 128, true) && optionalBooleanField(value, 'release')

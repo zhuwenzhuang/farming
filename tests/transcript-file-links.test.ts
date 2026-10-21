@@ -18,6 +18,24 @@ import {
 
 const WORKSPACE_ROOT = '/repo'
 
+test('Markdown file URLs preserve source anchors before URL normalization', () => {
+  for (const prefix of ['file:///repo/', '/repo/', '']) {
+    for (const suffix of ['#L371', '#L371-L372', '#L371-372']) {
+      assert.deepEqual(transcriptFileTargetFromHref(`${prefix}src/cache.cpp${suffix}`, WORKSPACE_ROOT), {
+        filePath: 'src/cache.cpp',
+        target: { lineNumber: 371, column: undefined, endColumn: undefined },
+      })
+    }
+  }
+  assert.deepEqual(transcriptFileTargetFromHref('file:///repo/src/cache.cpp#L2C3-L4C5', WORKSPACE_ROOT), {
+    filePath: 'src/cache.cpp',
+    target: { lineNumber: 2, column: 3, endColumn: undefined },
+  })
+  assert.equal(transcriptFileTargetFromHref('javascript:alert(1)', WORKSPACE_ROOT), null)
+  assert.equal(transcriptFileTargetFromHref('javascript:1.cpp:2', WORKSPACE_ROOT), null)
+  assert.equal(transcriptFileTargetFromHref('https://example.com/cache.cpp#L371', WORKSPACE_ROOT), null)
+})
+
 test('transcript file-link vocabulary keeps the pinned extension and filename sets', () => {
   for (const extension of ['ts', 'tsx', 'md', 'py', 'jsonl', 'csv', 'tsv', 'sql', 'webp']) {
     assert.equal(TRANSCRIPT_FILE_EXTENSIONS.has(extension), true)

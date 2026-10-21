@@ -11,6 +11,19 @@ const {
   validateServerMessage,
 } = importTsModule('shared/browser-protocol.ts');
 
+for (const [paths, expected] of [
+  [['src/file.ts'], true],
+  [[], false],
+  [Array(65).fill('src/file.ts'), false],
+  [['x'.repeat(2049)], false],
+  [[null], false],
+] as const) {
+  assert.strictEqual(validateClientMessage({
+    type: 'workspace-request', requestId: 'file-links',
+    request: { operation: 'file-link-access', rootId: 'root-1', paths },
+  }).ok, expected);
+}
+
 type ClientMessageByType = {
   [Type in ClientMessage['type']]: Extract<ClientMessage, { type: Type }>;
 };

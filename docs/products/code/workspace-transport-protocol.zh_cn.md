@@ -84,6 +84,7 @@ Canonical 且已授权的 Workspace；Persisted Client 升级期间，旧 Agent 
 | Workspace Root Inventory | 现有权威 State Snapshot/Delta | 不保留 Files Endpoint |
 | Directory Structure 与普通文件 Metadata/Read | Request/Result | 仅 Oversized 或 Binary Body |
 | Directory Git/Ignored Decoration | 有界 `tree-decorations` Request/Result | 无 |
+| Chat 文件链接验证 | 后台通道上的有界 `file-link-access` 元数据与权限批量检查 | 无 |
 | Save、Create、Rename、Move、Delete | Payload 可内联时使用 Request/Result | 仅 Oversized Upload Body |
 | Search | 有界 Match 的 Request/Result | 无 |
 | Changes、Branch Inventory、Worktrees、History、Blame、Line Changes | 分页或截断的 Request/Result | 无 |

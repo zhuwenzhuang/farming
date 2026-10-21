@@ -94,6 +94,31 @@ async function run() {
     };
     const requestOptions = { previewSessionManager: previewSessions, maxInlineResponseBytes: 32 };
 
+    const access = await executeWorkspaceFileRequest(agentManager, service, {
+      operation: 'file-link-access', rootId: 'agent-main',
+      paths: ['README.md', 'README.md', 'missing.ts', 'site', '../outside-allowed-search.txt', 'outside-search-link/secret.txt'],
+    });
+    assert.deepStrictEqual(access.items, [
+      { path: 'README.md', accessible: true },
+      { path: 'missing.ts', accessible: false },
+      { path: 'site', accessible: false },
+      { path: '../outside-allowed-search.txt', accessible: false },
+      { path: 'outside-search-link/secret.txt', accessible: false },
+    ]);
+    await assert.rejects(() => executeWorkspaceFileRequest(agentManager, service, {
+      operation: 'file-link-access', rootId: 'wroot_global', paths: [outsideAllowedSearchFile.slice(1)],
+    }, { accessMode: 'read-only' }), /read-only/);
+    const externalAccess = await executeWorkspaceFileRequest(agentManager, service, {
+      operation: 'file-link-access', rootId: 'wroot_global', paths: [outsideAllowedSearchFile.slice(1)],
+    });
+    assert.strictEqual(externalAccess.items[0].accessible, true);
+    await assert.rejects(() => service.fileLinkAccess(workspace, Array(65).fill('README.md')), /invalid file-link batch/);
+    const cancelled = new AbortController();
+    cancelled.abort();
+    assert.deepStrictEqual(await service.fileLinkAccess(workspace, ['README.md'], { signal: cancelled.signal }), {
+      items: [{ path: 'README.md', accessible: false }],
+    });
+
     const tree = await executeWorkspaceFileRequest(agentManager, service, {
       operation: 'tree', rootId: 'agent-main', path: '',
     }, { ...requestOptions, maxInlineResponseBytes: 32 * 1024 });

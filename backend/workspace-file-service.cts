@@ -2212,6 +2212,33 @@ class WorkspaceFileService {
     };
   }
 
+  async fileLinkAccess(workspaceRoot: unknown, paths: string[], options: ResolvePathOptions = {}) {
+    if (!Array.isArray(paths) || paths.length < 1 || paths.length > 64
+      || paths.some(value => typeof value !== 'string' || !value || value.length > 2048)) {
+      throw new WorkspaceFileError('invalid file-link batch', 400);
+    }
+    const root = await this.resolveRoot(workspaceRoot);
+    const uniquePaths = [...new Set(paths)];
+    const items = uniquePaths.map(path => ({ path, accessible: false }));
+    let next = 0;
+    const deadline = Date.now() + 2000;
+    await Promise.all(Array.from({ length: Math.min(8, items.length) }, async () => {
+      while (next < items.length && !options.signal?.aborted && Date.now() < deadline) {
+        const item = items[next++];
+        try {
+          const { target } = await this.resolvePath(root, item.path, options);
+          const stat = await fsp.stat(target);
+          if (!stat.isFile()) continue;
+          await fsp.access(target, fs.constants.R_OK);
+          item.accessible = !options.signal?.aborted && Date.now() < deadline;
+        } catch {
+          // Missing, unreadable and unauthorized references remain plain text.
+        }
+      }
+    }));
+    return { items };
+  }
+
   async resolveEntryPath(workspaceRoot: unknown, userPath: unknown): Promise<{
     root: string;
     target: string;

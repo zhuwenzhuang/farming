@@ -1,4 +1,6 @@
 import { continuesPeerMessageGroup, peerMessageTimestamp } from './acp/peer-message-layout'
+import { FileLinkAccess } from '@/lib/file-link-access'
+import { requestWorkspace } from '@/lib/workspace-request-client'
 import type { Agent } from '@/types/agent'
 import { useAgentWithLiveState } from '@/lib/agent-live-state'
 import { agentRowTitle } from '@/lib/format'
@@ -108,7 +110,6 @@ import {
   hasQualifiedTranscriptFileReference,
   isBareDomainTranscriptHref,
   isExternalTranscriptHref,
-  isTranscriptFileLineHref,
   normalizeTranscriptHref,
   transcriptFileTargetFromHref,
   transcriptFileTargetFromText,
@@ -204,12 +205,41 @@ interface AgentTranscriptProcessPresentation {
 }
 
 interface TranscriptFileOpenContextValue {
+  fileLinkAccess?: FileLinkAccess
+  workspaceRootId?: string
   agentId?: string
   workspaceRoot?: string
   onOpenFile?: (filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void> | void
 }
 
 const TranscriptFileOpenContext = createContext<TranscriptFileOpenContextValue>({})
+const TranscriptFileLinkLabelContext = createContext(false)
+
+function VerifiedTranscriptFileLink({ filePath, target, children, fallback }: {
+  filePath: string
+  target?: WorkspaceFileOpenTarget
+  children: ReactNode
+  fallback: ReactNode
+}) {
+  const { fileLinkAccess, workspaceRootId, onOpenFile } = useContext(TranscriptFileOpenContext)
+  const insideLinkLabel = useContext(TranscriptFileLinkLabelContext)
+  const rootId = target?.globalRoot ? GLOBAL_WORKSPACE_FILES_AGENT_ID : workspaceRootId
+  const key = JSON.stringify([rootId, filePath])
+  const [result, setResult] = useState<{ key: string; accessible: boolean; owner?: FileLinkAccess }>({ key: '', accessible: false })
+  useEffect(() => {
+    if (insideLinkLabel || !fileLinkAccess || !rootId || !onOpenFile) return
+    return fileLinkAccess.subscribe(rootId, filePath, accessible => setResult({ key, accessible, owner: fileLinkAccess }))
+  }, [fileLinkAccess, rootId, filePath, key, onOpenFile, insideLinkLabel])
+  if (insideLinkLabel || !fileLinkAccess || result.owner !== fileLinkAccess || result.key !== key || !result.accessible || !onOpenFile) {
+    return <TranscriptFileLinkLabelContext.Provider value>{fallback}</TranscriptFileLinkLabelContext.Provider>
+  }
+  return <a className="code-agent-transcript-markdown-file-link" href="#"
+    onPointerDown={event => event.stopPropagation()} onMouseDown={event => event.stopPropagation()}
+    onClick={event => {
+      event.preventDefault()
+      void onOpenFile(filePath, { ...target, ...(target?.globalRoot ? { exactExternal: true } : {}) })
+    }}><TranscriptFileLinkLabelContext.Provider value>{children}</TranscriptFileLinkLabelContext.Provider></a>
+}
 
 interface TranscriptImagePreview {
   label: string
@@ -417,7 +447,9 @@ function agentTranscriptUrlTransform(value: string, key: string) {
   // the authorized file endpoint; never use them as browser file:// requests.
   const localImage = key === 'src' ? transcriptFileTargetFromHref(value) : null
   if (localImage && transcriptImageFilePath(localImage.filePath)) return value
-  if (key === 'href' && isTranscriptFileLineHref(value)) {
+  // Local references are opened by the authorized Farming file viewer, never
+  // by browser file:// navigation. Preserve them even without a line suffix.
+  if (key === 'href' && transcriptFileTargetFromHref(value)) {
     return value
   }
   if (key === 'href' && isBareDomainTranscriptHref(value)) {
@@ -427,7 +459,7 @@ function agentTranscriptUrlTransform(value: string, key: string) {
 }
 
 function useCompactTranscriptMarkdownComponents(copy: CodeCopy): Components {
-  const { agentId, workspaceRoot, onOpenFile } = useContext(TranscriptFileOpenContext)
+  const { agentId, workspaceRoot } = useContext(TranscriptFileOpenContext)
   return useMemo(() => ({
     img: ({ src, alt }) => {
       const source = typeof src === 'string' ? src : ''
@@ -436,16 +468,12 @@ function useCompactTranscriptMarkdownComponents(copy: CodeCopy): Components {
     },
     a: ({ href, children, onClick, ...props }) => {
       const target = href ? transcriptFileTargetFromHref(href, workspaceRoot) : null
-      return <a {...props} href={target ? '#' : href} target={target ? undefined : '_blank'} rel="noreferrer" onClick={event => {
-        onClick?.(event)
-        if (!event.defaultPrevented && target && onOpenFile) {
-          event.preventDefault()
-          void onOpenFile(target.filePath, target.target)
-        }
-      }}>{children}</a>
+      if (target) return <VerifiedTranscriptFileLink {...target} fallback={children}>{children}</VerifiedTranscriptFileLink>
+      if (!href) return <>{children}</>
+      return <a {...props} href={href} target="_blank" rel="noreferrer" onClick={onClick}>{children}</a>
     },
     pre: props => <MarkdownCodeBlock {...props} copy={copy} />,
-  }), [agentId, copy, onOpenFile, workspaceRoot])
+  }), [agentId, copy, workspaceRoot])
 }
 
 function AgentTranscriptReasoningMarkdown({ text, copy }: { text: string; copy: CodeCopy }) {
@@ -2792,29 +2820,24 @@ function AgentTranscriptTurnView({
       const browserUrl = external && normalizedHref && /^https?:/i.test(normalizedHref)
         ? normalizedHref
         : ''
-      const handleClick = (event: ReactMouseEvent<HTMLAnchorElement>) => {
-        onClick?.(event)
-        if (event.defaultPrevented) return
-        if (target && onOpenFile) {
-          event.preventDefault()
-          onOpenFile(target.filePath, target.target)
-          return
-        }
-      }
       if (target && imageUrl) {
         const label = markdownTextContent(children).trim() || fileReferenceDisplayText(target.filePath)
         return <AgentTranscriptMarkdownImage url={imageUrl} label={label} />
       }
+      if (target) return <VerifiedTranscriptFileLink {...target} fallback={children}>
+        <TranscriptFileLinkLabel filePath={target.filePath} lineNumber={target.target?.lineNumber}>{children}</TranscriptFileLinkLabel>
+      </VerifiedTranscriptFileLink>
+      if (!href) return <>{children}</>
       return (
         <a
           {...props}
-          className={[props.className, target ? 'code-agent-transcript-markdown-file-link' : ''].filter(Boolean).join(' ') || undefined}
-          href={target ? '#' : normalizedHref}
+          className={props.className}
+          href={normalizedHref}
           target={external ? '_blank' : undefined}
           rel={external ? 'noreferrer' : undefined}
           onPointerDown={event => event.stopPropagation()}
           onMouseDown={event => event.stopPropagation()}
-          onClick={handleClick}
+          onClick={onClick}
           onContextMenu={event => {
             if (!browserUrl) return
             showUrlOpenMenu({
@@ -2826,11 +2849,7 @@ function AgentTranscriptTurnView({
             })
           }}
         >
-          {target ? (
-            <TranscriptFileLinkLabel filePath={target.filePath} lineNumber={target.target?.lineNumber}>
-              {children}
-            </TranscriptFileLinkLabel>
-          ) : children}
+          {children}
         </a>
       )
     },
@@ -2844,20 +2863,11 @@ function AgentTranscriptTurnView({
         return <code className={className} {...props}>{children}</code>
       }
       return (
-        <a
-          className="code-agent-transcript-markdown-file-link"
-          href="#"
-          onPointerDown={event => event.stopPropagation()}
-          onMouseDown={event => event.stopPropagation()}
-          onClick={event => {
-            event.preventDefault()
-            onOpenFile(target.filePath, target.target)
-          }}
-        >
+        <VerifiedTranscriptFileLink {...target} fallback={<code className={className} {...props}>{children}</code>}>
           <TranscriptFileLinkLabel filePath={target.filePath} lineNumber={target.target?.lineNumber}>
             {children}
           </TranscriptFileLinkLabel>
-        </a>
+        </VerifiedTranscriptFileLink>
       )
     },
     pre: ({ children, ...props }) => {
@@ -4400,11 +4410,21 @@ export function AgentTranscriptPane({
     if (!readingAnchor) return onCopyReadOnlyShareLink(null, anchor)
     return onCopyReadOnlyShareLink({ kind: 'agent', agentId, readingAnchor }, anchor)
   }, [agentId, onCopyReadOnlyShareLink, readingAnchorAgentId])
+  const fileLinkAccess = useMemo(() => {
+    const ownerRootId = workspaceRootId || agentId
+    return new FileLinkAccess((rootId, paths, signal) => {
+      if (rootId !== ownerRootId && rootId !== GLOBAL_WORKSPACE_FILES_AGENT_ID) return Promise.resolve({ items: [] })
+      return requestWorkspace({ operation: 'file-link-access', rootId, paths }, { signal, timeoutMs: 2500 })
+    })
+  }, [workspaceRootId, agentId])
+  useEffect(() => () => fileLinkAccess.clear(), [fileLinkAccess])
   const transcriptFileOpenContext = useMemo(() => ({
+    fileLinkAccess: active ? fileLinkAccess : undefined,
+    workspaceRootId: workspaceRootId || agentId,
     agentId,
     workspaceRoot,
     onOpenFile: onOpenWorkspaceFilePath ? handleOpenFile : undefined,
-  }), [agentId, handleOpenFile, onOpenWorkspaceFilePath, workspaceRoot])
+  }), [agentId, handleOpenFile, onOpenWorkspaceFilePath, workspaceRoot, workspaceRootId, fileLinkAccess, active])
   useEffect(() => {
     if (!active || !workspaceRoot) return undefined
     let cancelled = false

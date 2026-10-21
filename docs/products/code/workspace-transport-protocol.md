@@ -99,6 +99,7 @@ compatibility input only while persisted clients are upgraded.
 | Workspace root inventory | Existing authoritative state snapshot/delta | No Files endpoint |
 | Directory structure and ordinary file metadata/read | Request/result | Oversized or binary body only |
 | Directory Git/ignored decoration | Bounded `tree-decorations` request/result | None |
+| Chat file-link validation | Bounded `file-link-access` metadata/access batches on the background lane | None |
 | Save, create, rename, move, delete | Request/result when payload is inline | Oversized upload body only |
 | Search | Request/result with bounded matches | None |
 | Changes, branch inventory, worktrees, History, blame, line changes | Request/result with paging or truncation | None |
