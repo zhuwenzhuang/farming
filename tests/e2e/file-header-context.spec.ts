@@ -40,6 +40,10 @@ async function openHeaderWorkspace(page: Page, workspaceRoot: string, appearance
 async function scrollToHeaderRow(files: Locator, index: number) {
   await files.evaluate((section, index) => {
     const scroller = section.closest<HTMLElement>('.code-project-list')!
+    // Model the user's scroll intent before positioning the fixture. A bare
+    // scrollTop write does not revoke an earlier Agent-reveal scroll lease.
+    scroller.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch' }))
+    scroller.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerType: 'touch' }))
     const viewport = section.querySelector<HTMLElement>('.code-file-tree-viewport')!
     const heading = section.querySelector<HTMLElement>('.code-files-header')!
     const rowHeight = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--code-sidebar-file-row-height'))
