@@ -245,6 +245,9 @@ export interface CodeCopy {
   readOnlyShareExpires: (expiresAt: number) => string
   copiedReadOnlyShareLink: (expiresAt: number) => string
   scanToOpenOnPhone: string
+  readOnlyShareLinkReady: string
+  readOnlyShareCopyFailed: string
+  readOnlyShareCopyUncertain: string
   copiedShareLink: string
   shareLinkVisibility: string
   copyFullAccessShareLink: string
@@ -1024,6 +1027,9 @@ const EN_COPY: CodeCopy = {
   readOnlyShareExpires: expiresAt => `View only · Valid until ${new Date(expiresAt).toLocaleString('en-US')}`,
   copiedReadOnlyShareLink: expiresAt => `Read-only share link copied; view only, valid until ${new Date(expiresAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}`,
   scanToOpenOnPhone: 'Scan to open on phone',
+  readOnlyShareLinkReady: 'Current page read-only link',
+  readOnlyShareCopyFailed: 'Link ready. Copy failed; retry or select the link below to copy manually.',
+  readOnlyShareCopyUncertain: 'Link ready. Copy unconfirmed; select the link below to copy manually.',
   copiedShareLink: 'Current page read-only link copied',
   shareLinkVisibility: 'View only, no changes. It expires with the countdown.',
   copyFullAccessShareLink: 'Copy full-control passphrase link',
@@ -1830,6 +1836,9 @@ const ZH_COPY: CodeCopy = {
   readOnlyShareExpires: expiresAt => `只能查看 · 有效至 ${new Date(expiresAt).toLocaleString('zh-CN', { hour12: false })}`,
   copiedReadOnlyShareLink: expiresAt => `只读分享链接已复制；只能查看，有效至 ${new Date(expiresAt).toLocaleString('zh-CN', { dateStyle: 'medium', timeStyle: 'short', hour12: false })}`,
   scanToOpenOnPhone: '手机扫码打开',
+  readOnlyShareLinkReady: '当前页面只读链接',
+  readOnlyShareCopyFailed: '链接已生成，复制失败；可重试或选中下方链接手动复制。',
+  readOnlyShareCopyUncertain: '链接已生成，无法确认复制结果；可选中下方链接手动复制。',
   copiedShareLink: '当前页面只读链接已复制',
   shareLinkVisibility: '只能查看，不能修改；链接会随倒计时过期。',
   copyFullAccessShareLink: '复制完整控制口令链接',

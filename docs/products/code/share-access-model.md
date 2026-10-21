@@ -35,6 +35,29 @@ links from the direct request origin and does not trust forwarded origin headers
 An HTTPS reverse proxy or another deployment whose public origin differs from the
 request origin must set `FARMING_PUBLIC_ORIGIN` to its exact HTTP(S) origin.
 
+### Clipboard delivery
+
+The backend owns link creation and expiry; the share popover owns clipboard
+feedback independently. Once generated, the read-only URL and its exact expiry
+remain visible in a selectable, read-only field, with an explicit Copy action.
+This compact field and content-toolbar action reuse Code's shared control recipes.
+Automatic copying is best effort and never makes clipboard access a prerequisite
+for sharing. The full-control action is not a recovery path for read-only copying.
+
+| Trigger / state | Outcome and recovery |
+| --- | --- |
+| A current ticket becomes ready | Expose its URL and attempt automatic copy |
+| Copy activation | Write the existing URL directly during the gesture, without requesting a new ticket; permit one pending write per card |
+| Confirmed success / rejection | Show copied / copy failed separately from link creation; failure retains manual selection and explicit retry |
+| No result within five seconds | Show an unconfirmed outcome and permit manual copying or explicit retry; never retry automatically |
+| Close, ticket replacement, or unmount | Release the timer and invalidate clipboard feedback; obsolete completions cannot publish state or initiate a legacy copy fallback |
+
+A native clipboard write already submitted to the browser cannot be cancelled.
+An unconfirmed outcome therefore does not claim the clipboard was unchanged.
+Acceptance includes denied and unavailable Clipboard APIs, legacy-copy failure,
+delayed link generation, keyboard retry, manual selection, timeout, replacement
+and dismissal while copying, and Light, Dark and Paper visual coverage.
+
 ## Authoritative State
 
 The backend assigns every authenticated HTTP request and WebSocket connection one

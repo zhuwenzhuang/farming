@@ -71,6 +71,7 @@ test.describe('workspace sharing', () => {
         body: JSON.stringify({
           code: rotated ? 'SHARECODE2' : 'SHARECODE1',
           expiresAt: Date.now() + 5 * 60 * 1000,
+          readOnlyExpiresAt: Date.UTC(2030, 0, 1),
           ttlMs: 5 * 60 * 1000,
           shortPath: rotated ? '/j/SHARECODE2' : '/j/SHARECODE1',
           shortUrl: rotated ? 'https://share.example.test/j/SHARECODE2' : 'https://share.example.test/j/SHARECODE1',
@@ -120,6 +121,8 @@ test.describe('workspace sharing', () => {
     await expect(fullAccessButton).toContainText('秋水轻摇岸-远山静入薄云间-一鹤过长天')
     await expect.poll(() => page.evaluate(() => new URL(window.location.href).searchParams.get('token'))).toBe('秋水轻摇岸-远山静入薄云间-一鹤过长天')
     await expect.poll(() => popover.locator('svg[aria-label="QR code"]').innerHTML()).not.toBe(originalQr)
+    await expect(page.getByTestId('code-share-copy-status')).toHaveAttribute('data-copy-state', 'copied')
+    await expect(page.getByTestId('code-share-copy-status')).toContainText('2030')
 
     await page.addStyleTag({ content: '.code-share-countdown { visibility: hidden !important; }' })
     for (const appearance of ['light', 'dark', 'paper'] as const) {

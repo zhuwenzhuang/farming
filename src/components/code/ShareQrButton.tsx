@@ -3,7 +3,7 @@ import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useSta
 import type qrcode from 'qrcode-generator'
 import qrCodeModuleUrl from 'qrcode-generator?url'
 import { appPath } from '@/lib/base-path'
-import { CheckGlyph, RefreshGlyph, ShareGlyph } from '@/components/IconGlyphs'
+import { RefreshGlyph, ShareGlyph } from '@/components/IconGlyphs'
 import { writeClipboardText } from '@/lib/clipboard'
 import {
   requestQrShareTicket,
@@ -19,6 +19,7 @@ import {
   type WorkspaceShareTarget,
 } from '@/lib/workspace-share-target'
 import type { CodeCopy } from './copy'
+import { ReadOnlyShareLinkCard } from './ReadOnlyShareLinkCard'
 
 const CLOSE_DWELL_MS = 140
 const POPOVER_WIDTH = 264
@@ -215,12 +216,12 @@ export function ShareQrButton({
   const [loading, setLoading] = useState(false)
   const [rotating, setRotating] = useState(false)
   const [error, setError] = useState('')
-  const [copied, setCopied] = useState(false)
   const [fullAccessCopied, setFullAccessCopied] = useState(false)
   const [now, setNow] = useState(() => Date.now())
   const [placement, setPlacement] = useState({ x: 0, y: 0 })
   const rootRef = useRef<HTMLDivElement | null>(null)
   const buttonRef = useRef<HTMLButtonElement | null>(null)
+  const popoverRef = useRef<HTMLDivElement | null>(null)
   const tokenDisplayRef = useRef<HTMLSpanElement | null>(null)
   const tokenMeasureRef = useRef<HTMLSpanElement | null>(null)
   const closeTimerRef = useRef<number | null>(null)
@@ -251,7 +252,7 @@ export function ShareQrButton({
     const x = rightX + POPOVER_WIDTH + 10 <= window.innerWidth
       ? rightX
       : Math.max(8, leftX)
-    const y = Math.max(8, Math.min(rect.top - 4, window.innerHeight - POPOVER_HEIGHT - 8))
+    const y = Math.max(8, Math.min(rect.top - 4, window.innerHeight - (popoverRef.current?.getBoundingClientRect().height || POPOVER_HEIGHT) - 8))
     setPlacement({ x, y })
   }, [])
 
@@ -289,7 +290,6 @@ export function ShareQrButton({
       setTicket(body)
       setRotatedCredential(null)
       setNow(Date.now())
-      setCopied(false)
       setFullAccessCopied(false)
       return body
     } catch (caught) {
@@ -303,20 +303,6 @@ export function ShareQrButton({
       }
     }
   }, [copy.shareLinkFailed, shareTarget])
-
-  const copyShareTicket = useCallback(async (nextTicket: QrShareTicket) => {
-    const ok = await writeClipboardText(nextTicket.readOnlyUrl)
-    if (!ok) {
-      setError(copy.copyFailed)
-      return
-    }
-    setCopied(true)
-  }, [copy.copyFailed])
-
-  const createAndCopyTicket = useCallback(async (force = false) => {
-    const nextTicket = await createTicket(force)
-    if (nextTicket) await copyShareTicket(nextTicket)
-  }, [copyShareTicket, createTicket])
 
   const copyFullAccessLink = useCallback(async () => {
     const fullAccessUrl = rotatedCredential?.fullAccessUrl || ticketRef.current?.fullAccessUrl
@@ -338,7 +324,6 @@ export function ShareQrButton({
     setRotating(true)
     setLoading(false)
     setError('')
-    setCopied(false)
     setFullAccessCopied(false)
     const previousTicket = ticketRef.current
     try {
@@ -373,7 +358,6 @@ export function ShareQrButton({
     setOpen(false)
     setPinned(false)
     setError('')
-    setCopied(false)
     setFullAccessCopied(false)
     setLoading(false)
     setRotating(false)
@@ -391,8 +375,8 @@ export function ShareQrButton({
     setOpen(true)
     setPinned(nextPinned)
     preloadQrRenderer()
-    void createAndCopyTicket(force)
-  }, [clearCloseTimer, createAndCopyTicket, preloadQrRenderer, updatePlacement])
+    void createTicket(force)
+  }, [clearCloseTimer, createTicket, preloadQrRenderer, updatePlacement])
 
   useEffect(() => {
     if (!openRequest || handledOpenRequestRef.current === openRequest) return
@@ -420,8 +404,13 @@ export function ShareQrButton({
   useLayoutEffect(() => {
     if (!open) return undefined
     updatePlacement()
+    const observer = new ResizeObserver(updatePlacement)
+    if (popoverRef.current) observer.observe(popoverRef.current)
     window.addEventListener('resize', updatePlacement)
-    return () => window.removeEventListener('resize', updatePlacement)
+    return () => {
+      observer.disconnect()
+      window.removeEventListener('resize', updatePlacement)
+    }
   }, [open, updatePlacement])
 
   useEffect(() => {
@@ -437,7 +426,6 @@ export function ShareQrButton({
     if (!current) return
     ticketRef.current = null
     setTicket(null)
-    setCopied(false)
     setFullAccessCopied(false)
     void revokeQrShareTicket(current)
   }, [shareTargetSignature])
@@ -522,6 +510,7 @@ export function ShareQrButton({
       {open && (
         <div
           className="code-share-popover"
+          ref={popoverRef}
           data-testid="code-share-popover"
           role="dialog"
           aria-label={copy.scanToOpenOnPhone}
@@ -555,7 +544,7 @@ export function ShareQrButton({
               </div>
             )}
             {expired && (
-              <button type="button" className="code-share-refresh" onClick={() => void createAndCopyTicket(true)}>
+              <button type="button" className="code-share-refresh" onClick={() => void createTicket(true)}>
                 {copy.refreshShareLink}
               </button>
             )}
@@ -565,19 +554,13 @@ export function ShareQrButton({
               </button>
             )}
           </div>
-          {copied && (
-            <div
-              className="code-share-copy-status"
-              data-testid="code-share-copy-status"
-              role="status"
-              aria-live="polite"
-            >
-              <span className="code-share-copy-status-icon" aria-hidden="true"><CheckGlyph /></span>
-              <span className="code-share-copy-status-copy">
-                <strong>{copy.copiedShareLink}</strong>
-                <span>{ticket ? copy.readOnlyShareExpires(ticket.readOnlyExpiresAt ?? ticket.expiresAt) : copy.shareLinkVisibility}</span>
-              </span>
-            </div>
+          {ticket && !loading && (
+            <ReadOnlyShareLinkCard
+              key={ticket.code}
+              url={ticket.readOnlyUrl}
+              expiresAt={ticket.readOnlyExpiresAt ?? ticket.expiresAt}
+              copy={copy}
+            />
           )}
           {ownerCredential && (
             <div className="code-share-token-card">

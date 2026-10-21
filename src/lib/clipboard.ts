@@ -69,12 +69,13 @@ export function fallbackCopyText(text: string) {
   }
 }
 
-export async function writeClipboardText(text: string) {
-  if (!text) return false
+export async function writeClipboardText(text: string, signal?: AbortSignal) {
+  if (!text || signal?.aborted) return false
 
   try {
     if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
       await navigator.clipboard.writeText(text)
+      if (signal?.aborted) return false
       recentClipboardWrite = { text, writtenAt: Date.now() }
       return true
     }
@@ -82,6 +83,9 @@ export async function writeClipboardText(text: string) {
     // Fall through to the textarea copy path.
   }
 
+  // Native clipboard writes cannot be cancelled, but an obsolete operation
+  // must not initiate another write through the fallback after it settles.
+  if (signal?.aborted) return false
   const copied = fallbackCopyText(text)
   if (copied) recentClipboardWrite = { text, writtenAt: Date.now() }
   return copied
