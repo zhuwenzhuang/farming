@@ -3069,16 +3069,26 @@ button.code-agent-transcript-result-summary:is(:hover, :focus-visible) .code-age
   margin-top: 3px;
 }
 .code-agent-transcript-outgoing-preview {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  grid-template-columns: 16px minmax(0, 1fr) 14px;
+  max-width: 680px;
+}
+.code-agent-transcript-outgoing-preview-line {
   overflow: hidden;
-  overflow-wrap: anywhere;
-  margin-top: 6px;
-  font-size: 13px;
-  line-height: 20px;
-  color: var(--code-text-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .code-agent-transcript-outgoing-preview-recipient {
   color: var(--code-text);
+}
+.code-agent-transcript-outgoing-preview-text {
+  color: var(--code-text-secondary);
+}
+.code-agent-outgoing-preview-icon,
+.code-agent-outgoing-preview-icon svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+}
+.code-agent-transcript-outgoing-preview[aria-expanded="true"] .code-agent-transcript-chevron {
+  transform: rotate(90deg);
 }

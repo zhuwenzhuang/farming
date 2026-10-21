@@ -280,11 +280,13 @@ Native encrypted receipts show unavailable readable content, never ciphertext or
 sender-side reconstruction. Outgoing native collaboration is a chronological
 activity feed: send success is neither a read receipt nor task completion. Outgoing
 messages share the Turn's Worked disclosure. Its collapsed summary retains the
-message count and at most two recipient/content previews. Each preview uses one
-continuous text flow, limited to two visual lines; Markdown is parsed into readable
-text before clipping. Status counts are secondary tooltip details; expansion reveals
-the chronological messages and their outcomes. Summary rendering uses cached,
-bounded structured metadata without fetching message bodies.
+message count and compact message rows. Each row starts with the target Agent's
+sidebar icon, followed by its name and a single-line, ellipsized preview. Markdown
+is parsed into readable text before clipping. Rows toggle their own message detail
+without expanding the entire Worked group; keyboard activation follows the same
+path. Status counts are secondary tooltip details. Whole-group expansion reveals
+the chronological messages and their outcomes. Disclosure is local presentation
+state; no send is replayed and full message reads remain lazy and bounded.
 The transcript owns status transitions and replay; disclosure state is presentation
 only and never retries or cancels a send.
 

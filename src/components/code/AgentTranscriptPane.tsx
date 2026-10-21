@@ -34,6 +34,8 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import { CollaborationAgentIcon } from './CollaborationAgentIcon'
+import { AgentLaunchIcon } from './AgentLaunchIcon'
+import { agentIconName, agentIconNameFromCommand } from '@/lib/agent-presentation'
 import { CommunicationPeerNavigation, RelatedSessionNavigation } from './related-session-navigation'
 import ReactMarkdown, { defaultUrlTransform, type Components } from 'react-markdown'
 import { shareNoticeAnchor, type ShareNoticeAnchor } from './share-notice'
@@ -137,6 +139,7 @@ import { acpActivityKind, acpCompactPlanLabel, acpLiveToolActivity, acpRecentToo
 import {
   acpCollaborationEvents,
   acpOutgoingSummary,
+  outgoingMessagePreview,
   acpCollaborationActivityFeed,
   type AcpCollaborationAction,
 } from './acp/acp-collaboration'
@@ -1584,21 +1587,32 @@ function AgentTranscriptIncomingMessage({ copy, turn, continued = false, hasNext
   </div>
 }
 
-function AgentTranscriptOutgoingPreview({ event, states, copy }: {
-  event: ReturnType<typeof acpOutgoingSummary>['previews'][number]
-  states: AgentTranscriptSubagentState[]
-  copy: CodeCopy
+function AgentTranscriptOutgoingPreview({ activity, peer, name, open, onToggle }: {
+  activity: ReturnType<typeof acpCollaborationActivityFeed>[number]
+  peer: Agent | null
+  name: string
+  open: boolean
+  onToggle: () => void
 }) {
-  const navigation = useContext(CommunicationPeerNavigation)
-  const { agentId } = useContext(TranscriptFileOpenContext)
-  const peer = agentId ? navigation?.resolve(agentId, event.threadId) : null
-  const name = states.find(state => state.threadId === event.threadId)?.name || event.name
-  return <span className="code-agent-transcript-outgoing-preview" data-testid="code-agent-outgoing-preview">
-    <span className="code-agent-transcript-outgoing-preview-recipient">
-      <AgentTranscriptCommunicationRecipient peer={peer || null} fallback={name} directed copy={copy} />
-    </span>{': '}
-    <span className="code-agent-transcript-outgoing-preview-text">{event.preview}</span>
-  </span>
+  const currentPeer = useAgentWithLiveState(peer)
+  const recipient = currentPeer ? agentRowTitle(currentPeer) : name
+  const providerIcon = currentPeer && !currentPeer.subagentParentSessionKey
+    ? agentIconName(currentPeer.providerSessionProvider) || agentIconNameFromCommand(currentPeer.command) : undefined
+  const preview = outgoingMessagePreview(activity.message)
+  return <button type="button" className="code-agent-transcript-collaboration-event code-agent-transcript-outgoing-preview"
+    data-testid="code-agent-outgoing-preview" aria-expanded={open} title={`${recipient} · ${preview}`}
+    onClick={event => {
+      event.stopPropagation()
+      toggleTranscriptDisclosureWithStableAnchor(event.currentTarget, onToggle)
+    }}>
+    {providerIcon ? <span className="code-agent-outgoing-preview-icon" aria-hidden="true"><AgentLaunchIcon name={providerIcon} variant="color" /></span>
+      : <CollaborationAgentIcon sessionId={activity.threadId} />}
+    <span className="code-agent-transcript-outgoing-preview-line">
+      <span className="code-agent-transcript-outgoing-preview-recipient">{recipient}</span>
+      <span className="code-agent-transcript-outgoing-preview-text">{' · '}{preview}</span>
+    </span>
+    <ChevronRightGlyph className="code-agent-transcript-chevron" />
+  </button>
 }
 
 function AgentTranscriptOutgoingMessage({ activity, recipient, open, onToggleDetails, onLoadMessage, copy }: {
@@ -1657,8 +1671,9 @@ function AgentTranscriptOutgoingMessage({ activity, recipient, open, onToggleDet
 }
 
 function AgentTranscriptCollaborationTimeline({
-  processItems, subagentStates, renderProcessItem, onLoadMessage, copy, disclosureScope, openActivityIds, setOpenActivityIds,
+  processItems, subagentStates, renderProcessItem, onLoadMessage, copy, disclosureScope, openActivityIds, setOpenActivityIds, compact,
 }: {
+  compact: boolean
   processItems: AgentTranscriptProcessItem[]
   subagentStates: AgentTranscriptSubagentState[]
   renderProcessItem: (processItemId: string) => ReactNode
@@ -1671,6 +1686,7 @@ function AgentTranscriptCollaborationTimeline({
   const peerNavigation = useContext(CommunicationPeerNavigation)
   const openRelatedSession = useContext(RelatedSessionNavigation)
   const { agentId: parentAgentId } = useContext(TranscriptFileOpenContext)
+  const [openMessageIds, setOpenMessageIds] = useState<Set<string>>(() => new Set())
   const [visibleCount, setVisibleCount] = useState(8)
   const [visibleEvidenceCounts, setVisibleEvidenceCounts] = useState<Record<string, number>>({})
   const activities = useMemo(() => acpCollaborationActivityFeed(processItems), [processItems])
@@ -1689,6 +1705,7 @@ function AgentTranscriptCollaborationTimeline({
       const recipientName = subagentStates.find(state => state.threadId === activity.threadId)?.name || activity.name
       const disclosureId = `${disclosureScope}:${activity.id}`
       const open = openActivityIds.has(disclosureId)
+      const messageOpen = !compact || openMessageIds.has(disclosureId)
       const evidenceCount = visibleEvidenceCounts[activity.id] || 8
       const hiddenEvidence = Math.max(0, activity.processItemIds.length - evidenceCount)
       const toggleDetails = (event: ReactMouseEvent<HTMLButtonElement>) => {
@@ -1702,9 +1719,16 @@ function AgentTranscriptCollaborationTimeline({
       }
       return <div key={activity.id} className={`code-agent-transcript-collaboration-activity ${open ? 'expanded' : ''}`}
         data-testid="code-agent-transcript-collaboration-activity" data-agent-thread-id={activity.threadId}>
-        {activity.outgoingMessage ? <AgentTranscriptOutgoingMessage activity={activity} copy={copy}
+        {activity.outgoingMessage && compact ? <AgentTranscriptOutgoingPreview activity={activity} peer={peer || null}
+          name={recipientName} open={messageOpen} onToggle={() => setOpenMessageIds(current => {
+            const next = new Set(current)
+            if (next.has(disclosureId)) next.delete(disclosureId)
+            else next.add(disclosureId)
+            return next
+          })} /> : null}
+        {activity.outgoingMessage ? messageOpen ? <AgentTranscriptOutgoingMessage activity={activity} copy={copy}
           recipient={<AgentTranscriptCommunicationRecipient peer={peer || null} fallback={recipientName} directed copy={copy} />}
-          open={open} onToggleDetails={toggleDetails} onLoadMessage={onLoadMessage} /> :
+          open={open} onToggleDetails={toggleDetails} onLoadMessage={onLoadMessage} /> : null :
         <button type="button" className="code-agent-transcript-collaboration-event" data-testid="code-agent-transcript-collaboration-event"
           data-process-item-id={activity.processItemId} aria-expanded={open}
           onClick={toggleDetails}>
@@ -1720,7 +1744,7 @@ function AgentTranscriptCollaborationTimeline({
           {activity.count > 1 ? <span className="code-agent-transcript-collaboration-event-count">{copy.agentTranscriptProcessCount(activity.count)}</span> : <span />}
           <ChevronRightGlyph className="code-agent-transcript-chevron" />
         </button>}
-        {open ? <div className="code-agent-transcript-collaboration-evidence" data-testid="code-agent-transcript-collaboration-evidence">
+        {open && (!activity.outgoingMessage || messageOpen) ? <div className="code-agent-transcript-collaboration-evidence" data-testid="code-agent-transcript-collaboration-evidence">
           {peer && peerNavigation?.open ? <button type="button" className="code-agent-transcript-collaboration-earlier"
             data-testid="code-collaboration-open-peer" onClick={() => peerNavigation.open?.(peer.id)}>
             {copy.agentTranscriptCollaborationOpenPeer}
@@ -1969,6 +1993,7 @@ function SafeAgentTranscriptProcessItemView(
 }
 
 function AgentTranscriptCollaborationSpace({
+  compact,
   processItems,
   subagentStates,
   copy,
@@ -1981,6 +2006,7 @@ function AgentTranscriptCollaborationSpace({
   onResizeTerminal,
   onStopSubagent,
 }: {
+  compact: boolean
   processItems: AgentTranscriptProcessItem[]
   subagentStates: AgentTranscriptSubagentState[]
   copy: CodeCopy
@@ -2058,6 +2084,7 @@ function AgentTranscriptCollaborationSpace({
   }, [onResizeTerminal])
   return (
     <AgentTranscriptCollaborationTimeline
+      compact={compact}
       processItems={resolvedItems}
       subagentStates={subagentStates}
       disclosureScope={disclosureScope}
@@ -2972,8 +2999,6 @@ function AgentTranscriptTurnView({
                     <span className="code-agent-transcript-process-summary-label">{processSummaryLabel}</span>
                     {outgoingSummary.count > 0 ? <span className="code-agent-transcript-outgoing-count">{copy.agentTranscriptCollaborationMessageCount(outgoingSummary.count)}</span> : null}
                   </span>
-                  {!effectiveProcessOpen ? outgoingSummary.previews.map(event => <AgentTranscriptOutgoingPreview
-                    key={event.id} event={event} states={subagentStates} copy={copy} />) : null}
                 </span>
                 <ChevronRightGlyph className="code-agent-transcript-chevron" />
               </button>
@@ -3102,8 +3127,9 @@ function AgentTranscriptTurnView({
               })}
             </div>
               ) : null}
-            {source === 'acp' && collaborationEvents.length > 0 && (effectiveProcessOpen || !outgoingSummary.count) ? (
+            {source === 'acp' && collaborationEvents.length > 0 ? (
               <AgentTranscriptCollaborationSpace
+                compact={!effectiveProcessOpen}
                 processItems={resolvedProcessItems}
                 subagentStates={subagentStates}
                 copy={copy}

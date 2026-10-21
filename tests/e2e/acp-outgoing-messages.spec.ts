@@ -34,11 +34,19 @@ test('peer messages stay readable with bounded expansion, unknown inputs, send o
   await expect(summary).toContainText('5 条 Agent 消息')
   await expect(summary).toHaveAttribute('title', /失败 · 1/)
   await expect(summary).toHaveAttribute('title', /正在发送消息 · 1/)
-  await expect(summary.getByTestId('code-agent-outgoing-preview')).toHaveCount(2)
-  await expect(summary).toContainText('Cleanroom HDFS TPCDS 单机验收与多机接线')
-  await expect(summary.getByTestId('code-agent-outgoing-preview').first()).toHaveText('发给 Cleanroom HDFS TPCDS 单机验收与多机接线: 保持 共享传输配置 不变。')
-  await expect(summary).not.toContainText('**')
-  await expect(summary).not.toContainText('`')
+  const previews = page.getByTestId('code-agent-outgoing-preview')
+  await expect(previews).toHaveCount(5)
+  await expect(previews.first()).toContainText('Cleanroom HDFS TPCDS 单机验收与多机接线')
+  await expect(previews.first()).toHaveText('Cleanroom HDFS TPCDS 单机验收与多机接线 · 保持 共享传输配置 不变。')
+  const peerIcon = page.locator(`[data-testid="code-agent-row"][data-agent-id="${peerId}"] .code-agent-row-provider-icon svg`)
+  expect(await previews.first().locator('.code-agent-outgoing-preview-icon svg').innerHTML()).toBe(await peerIcon.innerHTML())
+  await previews.first().click()
+  await expect(page.getByTestId('code-agent-outgoing-message')).toHaveCount(1)
+  await expect(summary).toHaveAttribute('aria-expanded', 'false')
+  await previews.first().click()
+  await expect(page.getByTestId('code-agent-outgoing-message')).toHaveCount(0)
+  await expect(previews.first()).not.toContainText('**')
+  await expect(previews.first()).not.toContainText('`')
   await expect(page.getByTestId('code-agent-outgoing-message')).toHaveCount(0)
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: width === 1440 ? 1000 : 844 })
@@ -56,15 +64,33 @@ test('peer messages stay readable with bounded expansion, unknown inputs, send o
       })
       expect(screenshot.readUInt32BE(16)).toBeGreaterThan(250)
       expect(screenshot.readUInt32BE(20)).toBeGreaterThan(300)
-      await summary.screenshot({
+      await page.locator('.code-agent-transcript-process').last().screenshot({
         path: testInfo.outputPath(`worked-summary-detail-${width}-${appearance}.png`), animations: 'disabled',
       })
-      const preview = summary.getByTestId('code-agent-outgoing-preview').first()
+      const preview = previews.first()
       expect(await preview.evaluate(element => getComputedStyle(element).fontSize)).toBe('13px')
-      expect((await preview.boundingBox())!.height).toBeLessThanOrEqual(40)
+      expect((await preview.boundingBox())!.height).toBeLessThanOrEqual(32)
+      expect(await preview.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
     }
   }
   await page.setViewportSize({ width: 1440, height: 1000 })
+  expect((await page.request.post(`/farming/api/control/agents/${peerId}/title`, { data: { title: '配置对齐' } })).ok()).toBeTruthy()
+  await expect(previews.first()).toContainText('配置对齐')
+  for (const appearance of ['light', 'dark', 'paper']) {
+    await page.locator('body').evaluate((body, value) => { body.dataset.appearance = value }, appearance)
+    await page.mouse.move(0, 0)
+    await page.locator('.code-agent-transcript-process').last().screenshot({
+      path: testInfo.outputPath(`icon-message-preview-${appearance}.png`), animations: 'disabled',
+    })
+  }
+  await previews.first().focus()
+  await page.keyboard.press('Enter')
+  await expect(page.getByTestId('code-agent-outgoing-message')).toHaveCount(1)
+  await page.locator('.code-agent-transcript-process').last().screenshot({
+    path: testInfo.outputPath('icon-message-preview-expanded.png'), animations: 'disabled',
+  })
+  await previews.first().press('Space')
+  await expect(page.getByTestId('code-agent-outgoing-message')).toHaveCount(0)
   await summary.focus()
   await page.keyboard.press('Enter')
   await expect(summary).toHaveAttribute('aria-expanded', 'true')
@@ -72,7 +98,7 @@ test('peer messages stay readable with bounded expansion, unknown inputs, send o
   await expect(messages).toHaveCount(5)
   const first = messages.first()
   const firstBody = first.getByTestId('code-agent-outgoing-body')
-  await expect(first.getByTestId('code-agent-message-recipient')).toContainText('Cleanroom HDFS TPCDS 单机验收与多机接线')
+  await expect(first.getByTestId('code-agent-message-recipient')).toContainText('配置对齐')
   await expect(firstBody.locator('strong')).toHaveText('共享传输配置')
   await expect(firstBody.locator('pre code')).toHaveText('farming list --json\n')
   await expect(firstBody).toContainText('验收后同步结果。')
@@ -150,6 +176,27 @@ test('peer messages stay readable with bounded expansion, unknown inputs, send o
   await expect(evidence).toBeVisible()
   await expect(evidence.getByTestId('code-collaboration-open-details')).toHaveCount(0)
   await expect(page.getByTestId('code-native-related-row')).toHaveCount(0)
+  const demoAgentResponse = await page.request.post('/farming/api/control/agents', {
+    data: { command: 'codex', workspace: workspaceRoot, agentRuntimeMode: 'chat' },
+  })
+  expect(demoAgentResponse.ok()).toBeTruthy()
+  const { agentId: demoAgentId } = await demoAgentResponse.json() as { agentId: string }
+  await page.locator(`[data-testid="code-agent-row"][data-agent-id="${demoAgentId}"]`).click()
+  await page.getByTestId('code-acp-composer-input').fill(`native peer communication single peer-session=${peerSessionId}`)
+  await page.getByTestId('code-acp-composer-send').click()
+  await expect(page.getByText('Peer communication example complete.', { exact: true })).toHaveCount(1)
+  const demo = page.locator('.code-agent-transcript-turn').last().locator('.code-agent-transcript-process')
+  await expect(demo.getByTestId('code-agent-outgoing-preview')).toHaveCount(1)
+  for (const appearance of ['light', 'dark', 'paper']) {
+    await page.locator('body').evaluate((body, value) => { body.dataset.appearance = value }, appearance)
+    await demo.scrollIntoViewIfNeeded()
+    await page.mouse.move(0, 0)
+    await demo.screenshot({ path: testInfo.outputPath(`icon-message-single-${appearance}.png`), animations: 'disabled' })
+  }
+  await demo.getByTestId('code-agent-outgoing-preview').click()
+  await expect(demo.getByTestId('code-agent-outgoing-body')).toBeVisible()
+  await page.mouse.move(0, 0)
+  await demo.screenshot({ path: testInfo.outputPath('icon-message-single-expanded.png'), animations: 'disabled' })
 })
 
 for (const scenario of ['single', 'single pending']) {
@@ -167,8 +214,9 @@ for (const scenario of ['single', 'single pending']) {
     await expect(page.getByText('Peer communication example complete.', { exact: true })).toBeVisible()
     const summary = page.getByTestId('code-agent-transcript-process-summary')
     await expect(summary).toContainText('1 Agent message')
-    await expect(summary).toContainText('shared transport')
-    await expect(summary.getByTestId('code-agent-outgoing-preview')).toHaveCount(1)
+    const preview = page.getByTestId('code-agent-outgoing-preview')
+    await expect(preview).toContainText('shared transport')
+    await expect(preview).toHaveCount(1)
     if (scenario.includes('pending')) await expect(summary).toHaveAttribute('title', /Sending message · 1/)
     await expect(page.getByTestId('code-agent-outgoing-message')).toHaveCount(0)
     for (const width of [1440, 390]) {
