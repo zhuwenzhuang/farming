@@ -1687,6 +1687,22 @@ async function startForeground(parsed: ParsedServerOperation): Promise<void> {
   });
 }
 
+async function waitForStableServer(env: ServerEnv, childPid: number): Promise<void> {
+  const deadline = Date.now() + serverStartTimeoutMs(env);
+  const remaining = () => {
+    const duration = deadline - Date.now();
+    if (duration <= 0) throw new Error('server startup deadline elapsed before readiness was confirmed');
+    return duration;
+  };
+  await waitForServer(env, remaining(), childPid);
+  const stabilityMs = serverStartStabilityMs(env);
+  if (stabilityMs >= remaining()) {
+    throw new Error('server cannot complete its stability check within the startup deadline');
+  }
+  await waitForProcessStability(childPid, stabilityMs);
+  await waitForServer(env, remaining(), childPid);
+}
+
 async function startDaemon(parsed: ParsedServerOperation): Promise<number> {
   const env = canonicalizeServerConfigDir(buildServerEnv(parsed.env));
   readServerProcessIdentity(process.pid);
@@ -1730,9 +1746,7 @@ async function startDaemon(parsed: ParsedServerOperation): Promise<number> {
     await createCliOperationProgress({ env }).step('Starting Farming in the background', async () => {
       processIdentity = await readServerProcessIdentity(childPid);
       if (!processIdentity) throw new Error('server process identity could not be verified after launch');
-      await waitForServer(env, serverStartTimeoutMs(env), childPid);
-      await waitForProcessStability(childPid, serverStartStabilityMs(env));
-      await waitForServer(env, Math.min(serverStartTimeoutMs(env), 5_000), childPid);
+      await waitForStableServer(env, childPid);
       const stableIdentity = await readServerProcessIdentity(childPid);
       if (
         !stableIdentity
@@ -2084,4 +2098,5 @@ export {
   serverStateFile,
   waitForDaemonStop,
   waitForServer,
+  waitForStableServer,
 };

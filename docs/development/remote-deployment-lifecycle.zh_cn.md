@@ -70,6 +70,9 @@ Config 状态和部署 image 不共享所有权身份。更新一个安装路径
 | Rolling back | 停止失败 image，隔离其 Config 工作副本，恢复 activation 前的 Config checkpoint，选择旧 image，并重新启动停止前正在运行的 Server 包。通常即旧 image；若 Config 的运行中 Server 来自其他包（例如手动 npm 安装），则使用停止前识别出的该包。 | 成功则部署失败，但旧 image 与兼容的旧 Config 状态一同恢复；回滚失败时保留确切快照并要求人工处理。 |
 
 CLI 启动就绪通过有界的认证状态响应验证配置的认证模式与 owner 权限，不触发可执行文件发现。
+首次读取、必要的进程稳定性观察与最终认证读取共用配置的同一个启动截止时间；最终读取不
+另设更短的独立时限。提交启动成功前必须确认进程身份未变。超过截止时间仍执行精确进程
+清理与部署回滚。
 后续 deployment smoke 负责运行时与业务就绪验证。
 
 一个部署根目录同时只能有一个 activation。锁的 owner 存活时，另一个 activation 立即

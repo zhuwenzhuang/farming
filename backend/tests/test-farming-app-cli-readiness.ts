@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { Socket } from 'node:net';
 
-const { waitForServer } = require('../farming-app-cli.cjs');
+const { waitForServer, waitForStableServer } = require('../farming-app-cli.cjs');
 const { TokenAuth } = require('../auth.cjs');
 const { sessionTokenFile } = require('../storage-layout.cjs');
 
@@ -19,6 +19,8 @@ async function run() {
   let statusRequests = 0;
   let variant = 'normal';
   let authRequired = true;
+  let recoveryAt = 0;
+  let recoveryFirstRequest = 0;
   const server = http.createServer((req, res) => {
     const url = new URL(req.url || '/', 'http://localhost');
     if (url.pathname === '/farming/api/executables') {
@@ -28,6 +30,7 @@ async function run() {
     }
     assert.equal(url.pathname, '/farming/api/auth/status');
     statusRequests += 1;
+    if (variant === 'recovering' && statusRequests > recoveryFirstRequest && Date.now() < recoveryAt) return;
     res.writeHead(variant === 'redirect' ? 302 : 200, { 'Content-Type': 'application/json' });
     if (variant === 'stalled-body') { res.flushHeaders(); return; }
     if (variant === 'malformed') { res.end('{'); return; }
@@ -52,6 +55,17 @@ async function run() {
     await waitForServer(env, 1000);
     assert.equal(statusRequests, 1);
     assert.equal(inventoryRequests, 0);
+
+    // A responsive first read can be followed by temporary startup work. The
+    // final check must retain the configured budget rather than a hidden 5s cap.
+    variant = 'recovering';
+    recoveryFirstRequest = statusRequests + 1;
+    recoveryAt = Date.now() + 5400;
+    await waitForStableServer({ ...env, FARMING_START_TIMEOUT_MS: '8000', FARMING_START_STABILITY_MS: '0' }, process.pid);
+    variant = 'normal';
+    await assert.rejects(waitForStableServer({
+      ...env, FARMING_START_TIMEOUT_MS: '100', FARMING_START_STABILITY_MS: '200',
+    }, process.pid), /stability check within the startup deadline/);
 
     for (const token of ['wrong-token', auth.createReadOnlyToken({ expiresAt: Date.now() + 60_000 })]) {
       fs.writeFileSync(tokenFile, token);

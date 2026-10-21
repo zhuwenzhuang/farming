@@ -81,6 +81,11 @@ one install path may stop only the exact Server proven by the selected Config.
 
 CLI startup readiness uses the bounded authentication-status response to verify
 the configured authentication mode and owner access, without executable discovery.
+The initial read, required process-stability interval, and final authenticated
+read share one configured startup deadline; the final read does not impose a
+shorter independent deadline. The process identity must remain unchanged before
+startup is committed. Deadline exhaustion retains exact-process cleanup and
+deployment rollback.
 The subsequent deployment smoke owns runtime and business-readiness verification.
 
 Only one activation owns a deployment root. Another activation fails immediately
