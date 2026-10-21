@@ -179,9 +179,28 @@ function panelCopy(language: UiPreferences['language']) {
     agentCompletionNotificationsHint: zh
       ? 'ACP 回合完成或 Terminal Agent 主动请求通知时，在 Farming 不在前台的情况下显示系统通知。'
       : 'Show system notifications for ACP completion and Terminal Agent notification requests while Farming is not active.',
+    agentCompletionNotificationsRequest: zh
+      ? '开启后将申请浏览器通知权限，请在浏览器提示中选择允许。HTTPS 不会自动授予通知权限。'
+      : 'Enable to request browser notification permission, then choose Allow in the browser prompt. HTTPS does not grant permission automatically.',
     agentCompletionNotificationsBlocked: zh
-      ? '通知被浏览器阻止。请在站点设置中允许通知后重试。'
-      : 'Notifications are blocked. Allow them in the browser site settings, then try again.',
+      ? '浏览器阻止了通知，网页无法再次弹出授权提示。点击地址栏左侧的站点信息 → 站点设置／权限 → 通知 → 允许，然后返回此处开启。若浏览器全局禁止网站申请通知，需先在浏览器通知设置中恢复询问；受组织策略限制时请联系管理员。'
+      : 'The browser blocks notifications, so this page cannot show another permission prompt. Open site information beside the address bar → Site settings / Permissions → Notifications → Allow, then return here to enable. If requests are blocked globally, allow sites to ask in browser notification settings; contact your administrator if managed by policy.',
+    agentCompletionNotificationsRecheck: zh ? '重新检查权限' : 'Check permission again',
+    agentCompletionNotificationsPending: zh ? '请在浏览器提示中允许通知…' : 'Allow notifications in the browser prompt…',
+    agentCompletionNotificationsDismissed: zh
+      ? '尚未获得通知权限。可再次开启；若没有弹出提示，请检查地址栏的通知图标及浏览器通知设置。'
+      : 'Permission was not granted. Try enabling again; if no prompt appears, check the notification icon in the address bar and browser notification settings.',
+    agentCompletionNotificationsFailed: zh
+      ? '未能开启通知，请检查浏览器通知权限后重试。'
+      : 'Could not enable notifications. Check browser notification permission, then try again.',
+    agentCompletionNotificationsTest: zh ? '发送测试通知' : 'Send test notification',
+    agentCompletionNotificationsTestSent: zh
+      ? '已尝试发送测试通知。若未看到，请检查系统是否允许此浏览器发送通知，以及勿扰／专注模式。'
+      : 'Test notification requested. If it does not appear, check system notification permissions for this browser and Do Not Disturb / Focus mode.',
+    agentCompletionNotificationsTestFailed: zh
+      ? '测试通知发送失败，请重新检查浏览器与系统的通知权限。'
+      : 'The test notification failed. Check browser and system notification permissions.',
+    agentCompletionNotificationsTestBody: zh ? 'Farming 消息通知测试。' : 'Farming message notification test.',
     agentCompletionNotificationsUnsupported: zh
       ? '当前浏览器或 Farming URL 不支持系统通知；请使用支持通知的浏览器和 HTTPS 地址。'
       : 'System notifications require a supported browser and a secure HTTPS Farming URL.',
@@ -299,6 +318,10 @@ export function AgentHomesSettingsPanel({
   const [completionNotificationPermission, setCompletionNotificationPermission] = useState<AgentNotificationPermission>(
     agentNotificationPermission,
   )
+  const [completionNotificationPending, setCompletionNotificationPending] = useState(false)
+  const [completionNotificationFeedback, setCompletionNotificationFeedback] = useState<'dismissed' | 'failed' | 'test-sent' | 'test-failed' | null>(null)
+  const completionNotificationRequestRef = useRef(false)
+  const testNotificationRef = useRef<Notification | null>(null)
   const [restReminderIntervalSeconds, setRestReminderIntervalSecondsState] = useState<number | null>(
     readRestReminderIntervalSeconds,
   )
@@ -400,6 +423,40 @@ export function AgentHomesSettingsPanel({
     loadSettings()
   }, [defaultPetAppearance, loadSettings, open])
 
+  const refreshCompletionNotificationPermission = useCallback(() => {
+    const permission = agentNotificationPermission()
+    setCompletionNotificationPermission(permission)
+    setCompletionNotificationsEnabled(permission === 'granted' && readAgentCompletionNotificationsEnabled())
+  }, [])
+
+  useEffect(() => {
+    if (!open) return
+    let disposed = false
+    let permissionStatus: PermissionStatus | undefined
+    const refresh = () => refreshCompletionNotificationPermission()
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') refresh()
+    }
+    window.addEventListener('focus', refresh)
+    document.addEventListener('visibilitychange', onVisible)
+    // Some notification-capable browsers do not implement this Permissions query.
+    void navigator.permissions?.query({ name: 'notifications' }).then(status => {
+      if (disposed) return
+      permissionStatus = status
+      status.addEventListener('change', refresh)
+      refresh()
+    }).catch(() => {})
+    setCompletionNotificationFeedback(null)
+    return () => {
+      disposed = true
+      window.removeEventListener('focus', refresh)
+      document.removeEventListener('visibilitychange', onVisible)
+      permissionStatus?.removeEventListener('change', refresh)
+      testNotificationRef.current?.close()
+      testNotificationRef.current = null
+    }
+  }, [open, refreshCompletionNotificationPermission])
+
   useEffect(() => {
     setPetAppearanceState(readPetAppearance(undefined, defaultPetAppearance))
   }, [defaultPetAppearance, open])
@@ -453,6 +510,8 @@ export function AgentHomesSettingsPanel({
   }, [defaultPetAppearance])
 
   const toggleCompletionNotifications = useCallback(async () => {
+    if (completionNotificationRequestRef.current) return
+    setCompletionNotificationFeedback(null)
     if (completionNotificationsEnabled) {
       if (saveAgentCompletionNotificationsEnabled(false)) setCompletionNotificationsEnabled(false)
       return
@@ -460,20 +519,56 @@ export function AgentHomesSettingsPanel({
 
     let permission = agentNotificationPermission()
     if (permission === 'default') {
+      const generation = panelScopeRef.current.generation
+      completionNotificationRequestRef.current = true
+      setCompletionNotificationPending(true)
+      let timeout: number | undefined
       try {
-        permission = await window.Notification.requestPermission()
+        // Keep the request in the click's user activation, before any await.
+        permission = await Promise.race([
+          window.Notification.requestPermission(),
+          new Promise<AgentNotificationPermission>(resolve => {
+            timeout = window.setTimeout(() => resolve(agentNotificationPermission()), 30_000)
+          }),
+        ])
       } catch {
         permission = agentNotificationPermission()
+        if (panelScopeRef.current.open && panelScopeRef.current.generation === generation) {
+          setCompletionNotificationFeedback('failed')
+        }
+      } finally {
+        window.clearTimeout(timeout)
+        completionNotificationRequestRef.current = false
+        setCompletionNotificationPending(false)
       }
+      if (!panelScopeRef.current.open || panelScopeRef.current.generation !== generation) return
     }
     setCompletionNotificationPermission(permission)
     if (permission !== 'granted') {
       saveAgentCompletionNotificationsEnabled(false)
       setCompletionNotificationsEnabled(false)
+      if (permission === 'default') setCompletionNotificationFeedback(current => current ?? 'dismissed')
       return
     }
     if (saveAgentCompletionNotificationsEnabled(true)) setCompletionNotificationsEnabled(true)
+    else setCompletionNotificationFeedback('failed')
   }, [completionNotificationsEnabled])
+
+  const testCompletionNotification = useCallback(() => {
+    refreshCompletionNotificationPermission()
+    if (agentNotificationPermission() !== 'granted') return
+    try {
+      testNotificationRef.current?.close()
+      const notification = new Notification('Farming', { body: copy.agentCompletionNotificationsTestBody })
+      testNotificationRef.current = notification
+      notification.onerror = () => {
+        if (testNotificationRef.current === notification) setCompletionNotificationFeedback('test-failed')
+      }
+      setCompletionNotificationFeedback('test-sent')
+    } catch {
+      setCompletionNotificationFeedback('test-failed')
+    }
+  }, [copy.agentCompletionNotificationsTestBody, refreshCompletionNotificationPermission])
 
   const refreshUpdateStatus = useCallback((force = true, quiet = false) => {
     if (!quiet) {
@@ -964,13 +1059,32 @@ export function AgentHomesSettingsPanel({
                 </div>
               </div>
               <div className="code-settings-choice-row" data-testid="code-settings-agent-completion-notifications">
-                <div className="code-settings-row-copy">
+                <div className="code-settings-row-copy multiline">
                   <strong>{copy.agentCompletionNotifications}</strong>
                   <small>{completionNotificationPermission === 'unsupported'
                     ? copy.agentCompletionNotificationsUnsupported
                     : completionNotificationPermission === 'denied'
                       ? copy.agentCompletionNotificationsBlocked
-                      : copy.agentCompletionNotificationsHint}</small>
+                      : completionNotificationPermission === 'default'
+                        ? copy.agentCompletionNotificationsRequest
+                        : copy.agentCompletionNotificationsHint}</small>
+                  {completionNotificationPending && <small role="status">{copy.agentCompletionNotificationsPending}</small>}
+                  {completionNotificationFeedback && <small role="status">{{
+                    dismissed: copy.agentCompletionNotificationsDismissed,
+                    failed: copy.agentCompletionNotificationsFailed,
+                    'test-sent': copy.agentCompletionNotificationsTestSent,
+                    'test-failed': copy.agentCompletionNotificationsTestFailed,
+                  }[completionNotificationFeedback]}</small>}
+                  {completionNotificationPermission === 'denied' && (
+                    <div className="code-settings-update-actions">
+                      <button type="button" onClick={refreshCompletionNotificationPermission}>{copy.agentCompletionNotificationsRecheck}</button>
+                    </div>
+                  )}
+                  {completionNotificationsEnabled && !window.farmingDesktop && (
+                    <div className="code-settings-update-actions">
+                      <button type="button" onClick={testCompletionNotification}>{copy.agentCompletionNotificationsTest}</button>
+                    </div>
+                  )}
                 </div>
                 <button
                   type="button"
@@ -978,7 +1092,8 @@ export function AgentHomesSettingsPanel({
                   role="switch"
                   aria-label={copy.agentCompletionNotifications}
                   aria-checked={completionNotificationsEnabled}
-                  disabled={completionNotificationPermission === 'unsupported' || completionNotificationPermission === 'denied'}
+                  disabled={completionNotificationPending || completionNotificationPermission === 'unsupported' || completionNotificationPermission === 'denied'}
+                  aria-busy={completionNotificationPending}
                   onClick={() => void toggleCompletionNotifications()}
                 ><CheckGlyph /></button>
               </div>

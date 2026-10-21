@@ -886,6 +886,16 @@
   white-space: nowrap;
 }
 
+.code-settings-row-copy.multiline small {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.code-settings-row-copy > .code-settings-update-actions {
+  grid-column: 1 / -1;
+  justify-content: flex-start;
+}
+
 .code-settings-duration-row input[type='range'],
 .code-settings-content-font-size-row input[type='range'],
 .code-settings-pet-rest-row input[type='range'] {

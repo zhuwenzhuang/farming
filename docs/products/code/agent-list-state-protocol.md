@@ -277,6 +277,26 @@ An abrupt stop may lose unflushed attention changes, so recovery derives Unread
 from the last committed cursors. This does not weaken durable lifecycle intents,
 ordering, or structural flag updates.
 
+## Browser message notifications
+
+Browser permission and the browser-local notification preference are separate
+authorities. Enabling notifications explicitly requests permission in the user's
+click gesture when permission is undecided; loading Farming never requests it.
+Only a grant saves the opt-in. A dismissed prompt remains retryable, and a failed
+or timed-out request must not report success or let a late result enable a closed
+Settings panel. Concurrent permission requests are suppressed.
+
+HTTPS enables the API but does not grant permission. When the browser denies
+notifications, Settings explains site-permission recovery steps and global or
+managed restrictions. Opening Settings, returning to the page, permission changes
+where supported, and explicit recheck read the current browser permission.
+Recovery restores control availability without creating a new opt-in; revocation
+projects notifications off. A browser test action requests a notification even
+in the foreground and explains system permissions and Focus / Do Not Disturb,
+without claiming the operating system displayed it. Test notifications close
+when replaced or when Settings closes. Ordinary Agent notifications retain their
+background-only delivery and deduplication rules.
+
 ## Shell activity and attention
 
 Code's shared row-status presentation delays the running indicator for an

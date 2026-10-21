@@ -6,9 +6,9 @@ import { AGENT_COMPLETION_NOTIFICATIONS_STORAGE_KEY } from '../../src/lib/agent-
 
 async function installNotificationFixture(
   page: Page,
-  options: { permission: NotificationPermission; enabled?: boolean },
+  options: { permission: NotificationPermission; enabled?: boolean; requestResult?: NotificationPermission | 'error' | 'pending' },
 ) {
-  await page.addInitScript(({ storageKey, initialPermission, enabled }) => {
+  await page.addInitScript(({ storageKey, initialPermission, enabled, requestResult }) => {
     const permissionStorageKey = '__farmingNotificationPermissionFixture'
     let permission = (localStorage.getItem(permissionStorageKey) as NotificationPermission | null)
       ?? initialPermission
@@ -28,7 +28,13 @@ async function installNotificationFixture(
       static async requestPermission() {
         const state = window as Window & { __farmingNotificationPermissionRequests?: number }
         state.__farmingNotificationPermissionRequests = (state.__farmingNotificationPermissionRequests ?? 0) + 1
-        permission = 'granted'
+        if (requestResult === 'error') throw new Error('Permission request failed')
+        if (requestResult === 'pending') {
+          await new Promise<void>(resolve => {
+            Object.assign(window, { __farmingResolveNotificationPermission: resolve })
+          })
+        }
+        permission = requestResult === 'pending' ? 'granted' : requestResult
         localStorage.setItem(permissionStorageKey, permission)
         return permission
       }
@@ -60,11 +66,15 @@ async function installNotificationFixture(
     }
     state.__farmingNotifications = notifications
     state.__farmingNotificationPermissionRequests = 0
+    Object.assign(window, {
+      __farmingSetNotificationPermission: (value: NotificationPermission) => { permission = value },
+    })
     if (enabled) localStorage.setItem(storageKey, 'true')
   }, {
     storageKey: AGENT_COMPLETION_NOTIFICATIONS_STORAGE_KEY,
     initialPermission: options.permission,
     enabled: options.enabled === true,
+    requestResult: options.requestResult ?? 'granted',
   })
 }
 
@@ -160,6 +170,134 @@ test('requests notification permission only from the explicit Settings toggle', 
   expect(await page.evaluate(() => (
     window as Window & { __farmingNotificationPermissionRequests?: number }
   ).__farmingNotificationPermissionRequests)).toBe(0)
+})
+
+test('guides blocked permission recovery and reflects grants and revocations without reloading', async ({ page }, testInfo) => {
+  await installNotificationFixture(page, { permission: 'denied' })
+  await openFarming(page)
+  await page.getByTestId('code-sidebar-options').click()
+  const row = page.getByTestId('code-settings-agent-completion-notifications')
+  const toggle = row.getByRole('switch', { name: 'Allow message notifications' })
+  await expect(toggle).toBeDisabled()
+  await expect(row).toContainText('this page cannot show another permission prompt')
+  await expect(row).toContainText('Site settings / Permissions → Notifications → Allow')
+  await expect(row.locator('small').first()).toHaveCSS('white-space', 'normal')
+  for (const appearance of ['light', 'dark', 'paper']) {
+    await page.evaluate(value => {
+      document.documentElement.dataset.appearance = value
+      document.body.dataset.appearance = value
+    }, appearance)
+    await expect(row.getByRole('button', { name: 'Check permission again' })).toBeVisible()
+    await row.screenshot({ path: testInfo.outputPath(`notification-recovery-${appearance}.png`) })
+  }
+  await page.getByRole('button', { name: '中文', exact: true }).click()
+  await expect(row).toContainText('站点设置／权限 → 通知 → 允许')
+  await row.screenshot({ path: testInfo.outputPath('notification-recovery-zh-paper.png') })
+  await page.setViewportSize({ width: 390, height: 844 })
+  for (const appearance of ['light', 'dark', 'paper']) {
+    await page.evaluate(value => {
+      document.documentElement.dataset.appearance = value
+      document.body.dataset.appearance = value
+    }, appearance)
+    expect(await row.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
+    await row.screenshot({ path: testInfo.outputPath(`notification-recovery-zh-mobile-${appearance}.png`) })
+  }
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await page.getByRole('button', { name: 'English', exact: true }).click()
+  await page.evaluate(() => {
+    (window as Window & { __farmingSetNotificationPermission: (value: NotificationPermission) => void })
+      .__farmingSetNotificationPermission('granted')
+  })
+  await row.getByRole('button', { name: 'Check permission again' }).click()
+  await expect(toggle).toBeEnabled()
+  await expect(toggle).toHaveAttribute('aria-checked', 'false')
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-checked', 'true')
+  await row.getByRole('button', { name: 'Send test notification' }).click()
+  await expect(row).toContainText('Do Not Disturb / Focus mode')
+  expect(await page.evaluate(() => (window as Window & {
+    __farmingNotifications: Array<{ title: string; closed: boolean }>
+  }).__farmingNotifications.map(({ title, closed }) => ({ title, closed })))).toEqual([{ title: 'Farming', closed: false }])
+  for (const appearance of ['light', 'dark', 'paper']) {
+    await page.evaluate(value => {
+      document.documentElement.dataset.appearance = value
+      document.body.dataset.appearance = value
+    }, appearance)
+    await row.screenshot({ path: testInfo.outputPath(`notification-enabled-${appearance}.png`) })
+  }
+  await page.evaluate(() => (window as Window & {
+    __farmingNotifications: Array<{ onerror?: () => void }>
+  }).__farmingNotifications[0]?.onerror?.())
+  await expect(row).toContainText('The test notification failed')
+  await page.evaluate(() => {
+    (window as Window & { __farmingSetNotificationPermission: (value: NotificationPermission) => void })
+      .__farmingSetNotificationPermission('denied')
+    window.dispatchEvent(new Event('focus'))
+  })
+  await expect(toggle).toHaveAttribute('aria-checked', 'false')
+  await expect(toggle).toBeDisabled()
+  await page.getByRole('button', { name: 'Close', exact: true }).click()
+  expect(await page.evaluate(() => (window as Window & {
+    __farmingNotifications: Array<{ closed: boolean }>
+  }).__farmingNotifications[0]?.closed)).toBe(true)
+  expect(await page.evaluate(() => (window as Window & {
+    __farmingNotificationPermissionRequests: number
+  }).__farmingNotificationPermissionRequests)).toBe(0)
+})
+
+for (const result of ['denied', 'default', 'error'] as const) {
+  test(`notification permission ${result} leaves setup off with actionable feedback`, async ({ page }) => {
+    await installNotificationFixture(page, { permission: 'default', requestResult: result })
+    await openFarming(page)
+    await page.getByTestId('code-sidebar-options').click()
+    const row = page.getByTestId('code-settings-agent-completion-notifications')
+    const toggle = row.getByRole('switch', { name: 'Allow message notifications' })
+    await expect(row).toContainText('HTTPS does not grant permission automatically')
+    await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-checked', 'false')
+    await expect(row).toContainText(result === 'denied'
+      ? 'this page cannot show another permission prompt'
+      : result === 'default' ? 'Permission was not granted' : 'Could not enable notifications')
+    expect(await page.evaluate(key => localStorage.getItem(key), AGENT_COMPLETION_NOTIFICATIONS_STORAGE_KEY)).toBe('false')
+  })
+}
+
+test('suppresses concurrent permission requests and ignores a grant after Settings closes', async ({ page }) => {
+  await installNotificationFixture(page, { permission: 'default', requestResult: 'pending' })
+  await openFarming(page)
+  await page.getByTestId('code-sidebar-options').click()
+  const toggle = page.getByRole('switch', { name: 'Allow message notifications' })
+  await toggle.click()
+  await expect(toggle).toBeDisabled()
+  await expect(toggle).toHaveAttribute('aria-busy', 'true')
+  await page.getByRole('button', { name: 'Close', exact: true }).click()
+  await page.evaluate(() => (window as Window & {
+    __farmingResolveNotificationPermission: () => void
+  }).__farmingResolveNotificationPermission())
+  await page.getByTestId('code-sidebar-options').click()
+  await expect(toggle).toHaveAttribute('aria-checked', 'false')
+  expect(await page.evaluate(key => localStorage.getItem(key), AGENT_COMPLETION_NOTIFICATIONS_STORAGE_KEY)).not.toBe('true')
+  expect(await page.evaluate(() => (window as Window & {
+    __farmingNotificationPermissionRequests: number
+  }).__farmingNotificationPermissionRequests)).toBe(1)
+})
+
+test('bounds an unanswered browser prompt and ignores a grant after the deadline', async ({ page }) => {
+  await installNotificationFixture(page, { permission: 'default', requestResult: 'pending' })
+  await openFarming(page)
+  await page.getByTestId('code-sidebar-options').click()
+  await page.clock.install()
+  const toggle = page.getByRole('switch', { name: 'Allow message notifications' })
+  await toggle.click()
+  await expect(toggle).toBeDisabled()
+  await page.clock.fastForward(30_000)
+  await expect(toggle).toBeEnabled()
+  await expect(page.getByTestId('code-settings-agent-completion-notifications')).toContainText('Permission was not granted')
+  await page.evaluate(() => (window as Window & {
+    __farmingResolveNotificationPermission: () => void
+  }).__farmingResolveNotificationPermission())
+  await expect(toggle).toHaveAttribute('aria-checked', 'false')
+  expect(await page.evaluate(key => localStorage.getItem(key), AGENT_COMPLETION_NOTIFICATIONS_STORAGE_KEY)).toBe('false')
 })
 
 test('notifies once for a background Agent completion and opens that Agent on click', async ({ page, workspaceRoot }) => {
