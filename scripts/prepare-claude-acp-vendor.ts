@@ -7,9 +7,11 @@ import * as esbuild from 'esbuild';
 const projectRoot = path.join(__dirname, '..');
 const expectedVersion = '0.93.0';
 const expectedSdkVersion = '0.3.300';
-const expectedBundleSha256 = '59bf6961f798929d7f9674760f08da445bad823b1aa4f3a7806eba7acc4d55bc';
+const expectedBundleSha256 = 'fa2cdeca8e3225fe160e10defd3436f9c067a5426718e18c0142e4b3d7751a01';
 const packageRoot = path.dirname(require.resolve('@agentclientprotocol/claude-agent-acp/package.json'));
 const packageJsonPath = path.join(packageRoot, 'package.json');
+const protocolSdkDist = path.dirname(require.resolve('@agentclientprotocol/sdk', { paths: [packageRoot] }));
+const protocolZodPackageJsonPath = require.resolve('zod/package.json', { paths: [projectRoot] });
 const sdkEntry = require.resolve('@anthropic-ai/claude-agent-sdk', {
   paths: [packageRoot],
 });
@@ -44,6 +46,12 @@ function farmingClaudePlugin(): esbuild.Plugin {
   return {
     name: 'farming-claude-executable',
     setup(build) {
+      // Keep the reviewed SDK validator when npm nests the SDK under the adapter.
+      // The adapter's own newer Zod remains independent of its protocol runtime.
+      build.onResolve({ filter: /^zod(?:\/|$)/ }, args => {
+        if (!args.importer.startsWith(`${protocolSdkDist}${path.sep}`)) return;
+        return build.resolve(args.path, { kind: args.kind, resolveDir: projectRoot });
+      });
       build.onLoad({ filter: /.*/ }, args => {
         if (path.resolve(args.path) === path.resolve(acpAgentEntry)) {
           const source = fs.readFileSync(args.path, 'utf8');
@@ -116,6 +124,7 @@ function farmingClaudePlugin(): esbuild.Plugin {
 async function prepareClaudeAcpVendor({ copy = false } = {}): Promise<void> {
   assertPackageVersion(packageJsonPath, expectedVersion, '@agentclientprotocol/claude-agent-acp');
   assertPackageVersion(sdkPackageJsonPath, expectedSdkVersion, '@anthropic-ai/claude-agent-sdk');
+  assertPackageVersion(protocolZodPackageJsonPath, '3.25.76', 'Claude ACP protocol Zod');
   if (!copy) return;
 
   fs.mkdirSync(targetDirectory, { recursive: true });

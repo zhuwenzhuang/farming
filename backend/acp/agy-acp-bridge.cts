@@ -8,10 +8,12 @@ import { killOwnedProcessGroup, registerConfigProcessGroup, unregisterConfigProc
 import { readServerProcessIdentity } from '../server-process-identity.cjs';
 import { Readable, Writable } from 'stream';
 import {
-  AgentSideConnection,
+  agent,
+  RequestError,
+  type AgentConnection,
+  type AgentContext,
   ndJsonStream,
   PROTOCOL_VERSION,
-  type Agent,
   type AvailableCommand,
   type CancelNotification,
   type CloseSessionRequest,
@@ -34,7 +36,7 @@ import {
   type SetSessionModeRequest,
   type SetSessionModeResponse,
   type ToolKind
-} from '@agentclientprotocol/sdk';
+} from '@agentclientprotocol/sdk/unstable';
 import {
   agyExplicitHomeCliArgs,
   cleanAgyUserInputText,
@@ -438,16 +440,16 @@ function formatSlashResultData(
   return '```json\n' + JSON.stringify(data, null, 2) + '\n```';
 }
 
-class AgyAcpAgent implements Agent {
-  private readonly client: AgentSideConnection;
+class AgyAcpAgent {
+  private readonly client: AgentContext;
   private readonly options: AgyBridgeOptions;
   private readonly sessions = new Map<string, AgyBridgeSessionState>();
 
-  constructor(client: AgentSideConnection, options: AgyBridgeOptions) {
-    this.client = client;
+  constructor(connection: AgentConnection, options: AgyBridgeOptions) {
+    this.client = connection.client;
     this.options = options;
     queueMicrotask(() => {
-      void client.closed.then(() => Promise.allSettled([...this.sessions.keys()].map(sessionId => this.closeSession({ sessionId }))));
+      void connection.closed.then(() => Promise.allSettled([...this.sessions.keys()].map(sessionId => this.closeSession({ sessionId }))));
     });
   }
 
@@ -527,7 +529,7 @@ class AgyAcpAgent implements Agent {
   private scheduleAvailableCommandsUpdate(sessionId: string): void {
     setImmediate(() => {
       void this.client
-        .sessionUpdate({
+        .notify('session/update', {
           sessionId,
           update: {
             sessionUpdate: 'available_commands_update',
@@ -603,7 +605,7 @@ class AgyAcpAgent implements Agent {
     }
     if (session.activeTurnId) throw new Error('Cannot change mode during an active turn');
     session.currentModeId = normalizedMode;
-    await this.client.sessionUpdate({
+    await this.client.notify('session/update', {
       sessionId: session.sessionId,
       update: {
         sessionUpdate: 'current_mode_update',
@@ -745,7 +747,7 @@ class AgyAcpAgent implements Agent {
         if (!replay) continue;
         const cleaned = cleanAgyUserInputText(entry.content, prompt);
         if (cleaned) {
-          await this.client.sessionUpdate({
+          await this.client.notify('session/update', {
             sessionId: session.sessionId,
             update: {
               sessionUpdate: 'user_message_chunk',
@@ -759,7 +761,7 @@ class AgyAcpAgent implements Agent {
       if (replay && stepType === 'PLANNER_RESPONSE') {
         const thinking = typeof entry.thinking === 'string' ? entry.thinking.trim() : '';
         if (thinking) {
-          await this.client.sessionUpdate({
+          await this.client.notify('session/update', {
             sessionId: session.sessionId,
             update: {
               sessionUpdate: 'agent_thought_chunk',
@@ -782,7 +784,7 @@ class AgyAcpAgent implements Agent {
             typeof record.id === 'string' && record.id.trim()
               ? record.id.trim()
               : `agy-replay-${stepIndex}-${idx}`;
-          await this.client.sessionUpdate({
+          await this.client.notify('session/update', {
             sessionId: session.sessionId,
             update: {
               sessionUpdate: 'tool_call',
@@ -796,7 +798,7 @@ class AgyAcpAgent implements Agent {
         }
         const content = typeof entry.content === 'string' ? entry.content : '';
         if (content) {
-          await this.client.sessionUpdate({
+          await this.client.notify('session/update', {
             sessionId: session.sessionId,
             update: {
               sessionUpdate: 'agent_message_chunk',
@@ -981,7 +983,7 @@ class AgyAcpAgent implements Agent {
                   : '';
             const thinking = rawThinking.trim();
             if (thinking) {
-              await this.client.sessionUpdate({
+              await this.client.notify('session/update', {
                 sessionId: session.sessionId,
                 update: {
                   sessionUpdate: 'agent_thought_chunk',
@@ -997,7 +999,7 @@ class AgyAcpAgent implements Agent {
                   : '';
             if (text) {
               emittedAssistantText = true;
-              await this.client.sessionUpdate({
+              await this.client.notify('session/update', {
                 sessionId: session.sessionId,
                 update: {
                   sessionUpdate: 'agent_message_chunk',
@@ -1058,7 +1060,7 @@ class AgyAcpAgent implements Agent {
 
             if (!seenToolCalls.has(rawToolCallId)) {
               seenToolCalls.add(rawToolCallId);
-              await this.client.sessionUpdate({
+              await this.client.notify('session/update', {
                 sessionId: session.sessionId,
                 update: {
                   sessionUpdate: 'tool_call',
@@ -1071,7 +1073,7 @@ class AgyAcpAgent implements Agent {
                 }
               });
             } else {
-              await this.client.sessionUpdate({
+              await this.client.notify('session/update', {
                 sessionId: session.sessionId,
                 update: {
                   sessionUpdate: 'tool_call_update',
@@ -1140,7 +1142,7 @@ class AgyAcpAgent implements Agent {
           }
           if (!emittedAssistantText && data && Object.keys(data).length > 0) {
             emittedAssistantText = true;
-            await this.client.sessionUpdate({
+            await this.client.notify('session/update', {
               sessionId: session.sessionId,
               update: {
                 sessionUpdate: 'agent_message_chunk',
@@ -1149,7 +1151,7 @@ class AgyAcpAgent implements Agent {
             });
           } else if (!emittedAssistantText && responseText.trim()) {
             emittedAssistantText = true;
-            await this.client.sessionUpdate({
+            await this.client.notify('session/update', {
               sessionId: session.sessionId,
               update: {
                 sessionUpdate: 'agent_message_chunk',
@@ -1172,7 +1174,7 @@ class AgyAcpAgent implements Agent {
         }
         for (const toolCallId of [...inProgressToolCalls]) {
           inProgressToolCalls.delete(toolCallId);
-          await this.client.sessionUpdate({
+          await this.client.notify('session/update', {
             sessionId: session.sessionId,
             update: {
               sessionUpdate: 'tool_call_update',
@@ -1257,7 +1259,28 @@ export function runAgyAcpBridge(argv: string[] = process.argv.slice(2)): void {
   const input = Writable.toWeb(process.stdout);
   const output = Readable.toWeb(process.stdin) as ReadableStream<Uint8Array>;
   const stream = ndJsonStream(input, output);
-  new AgentSideConnection(client => new AgyAcpAgent(client, options), stream);
+  let bridge: AgyAcpAgent;
+  agent()
+    .onConnect(connection => { bridge = new AgyAcpAgent(connection, options); })
+    .onRequest('initialize', ({ params }) => bridge.initialize(params))
+    .onRequest('authenticate', () => bridge.authenticate())
+    .onRequest('session/new', ({ params }) => bridge.newSession(params))
+    .onRequest('session/load', ({ params }) => bridge.loadSession(params))
+    .onRequest('session/resume', ({ params }) => bridge.resumeSession(params))
+    .onRequest('session/close', ({ params }) => bridge.closeSession(params))
+    .onRequest('session/set_mode', ({ params }) => bridge.setSessionMode(params))
+    .onRequest('session/set_config_option', ({ params }) => bridge.setSessionConfigOption(params))
+    .onRequest('session/prompt', ({ params }) => bridge.prompt(params))
+    .onNotification('session/cancel', ({ params }) => bridge.cancel(params))
+    .onRequest('_session/steering', {
+      parse: value => {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) {
+          throw RequestError.invalidParams('Steering params must be an object');
+        }
+        return value as Record<string, unknown>;
+      },
+    }, ({ params }) => bridge.extMethod('_session/steering', params))
+    .connect(stream);
 }
 
 if (require.main === module) {

@@ -22,6 +22,11 @@ ACP 使用 Farming 准备的版本与完整性固定的 Adapter。已有 Session
 Executable 缺失时恢复失败，不重新选择另一个。原生 Terminal 的 Executable 策略独立。
 Provider 差异留在 Adapter 内，Codex 另见 [Codex Runtime](codex-runtime.zh_cn.md)。
 
+Host 与 Farming 自有 Bridge 使用 ACP v1 SDK 的 App API，并显式选择 unstable 入口，
+保留已协商的 Fork、Elicitation、System Prompt 与子会话字段。SDK 包升级不改变线上协议版本。
+准备好的第三方 Adapter 保留自身锁定的 SDK 依赖；Host 的 SDK 版本不能覆盖 Adapter
+独立审查的协议运行时。
+
 共享连接必须支持独立多 Session，并绑定规范化 Project、Provider、Agent Home 与启动身份。
 每个 Session 独立拥有配置、权限、workspace、MCP 输入、Turn 和恢复状态。同一 Host 内，
 一个 Provider Session 最多一个实时所有者；释放一个不能停止其他 Session。共享进程环境

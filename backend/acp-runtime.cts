@@ -64,22 +64,22 @@ interface ErrorLike {
   adapterCleanupError?: ErrorLike;
   runtimeCleanupVerified?: boolean;
 }
-type AcpSdk = typeof import('@agentclientprotocol/sdk');
-type PermissionResponse = import('@agentclientprotocol/sdk').RequestPermissionResponse;
-type ElicitationResponse = import('@agentclientprotocol/sdk').CreateElicitationResponse;
+type AcpSdk = typeof import('@agentclientprotocol/sdk/unstable');
+type PermissionResponse = import('@agentclientprotocol/sdk/unstable').RequestPermissionResponse;
+type ElicitationResponse = import('@agentclientprotocol/sdk/unstable').CreateElicitationResponse;
 type AcpSingleRequestHandler<T = unknown> = (request: UnknownRecord, signal?: AbortSignal) => T | Promise<T>;
 type AcpExtensionNotificationHandler = (method: string, params: UnknownRecord) => unknown;
 interface AcpClientHandlers {
   sessionUpdate: AcpSingleRequestHandler;
   extNotification: AcpExtensionNotificationHandler;
   requestPermission: AcpSingleRequestHandler<PermissionResponse>;
-  readTextFile: AcpSingleRequestHandler<import('@agentclientprotocol/sdk').ReadTextFileResponse>;
-  writeTextFile: AcpSingleRequestHandler<import('@agentclientprotocol/sdk').WriteTextFileResponse>;
-  createTerminal: AcpSingleRequestHandler<import('@agentclientprotocol/sdk').CreateTerminalResponse>;
-  terminalOutput: AcpSingleRequestHandler<import('@agentclientprotocol/sdk').TerminalOutputResponse>;
-  waitForTerminalExit: AcpSingleRequestHandler<import('@agentclientprotocol/sdk').WaitForTerminalExitResponse>;
-  killTerminal: AcpSingleRequestHandler<import('@agentclientprotocol/sdk').KillTerminalResponse>;
-  releaseTerminal: AcpSingleRequestHandler<import('@agentclientprotocol/sdk').ReleaseTerminalResponse>;
+  readTextFile: AcpSingleRequestHandler<import('@agentclientprotocol/sdk/unstable').ReadTextFileResponse>;
+  writeTextFile: AcpSingleRequestHandler<import('@agentclientprotocol/sdk/unstable').WriteTextFileResponse>;
+  createTerminal: AcpSingleRequestHandler<import('@agentclientprotocol/sdk/unstable').CreateTerminalResponse>;
+  terminalOutput: AcpSingleRequestHandler<import('@agentclientprotocol/sdk/unstable').TerminalOutputResponse>;
+  waitForTerminalExit: AcpSingleRequestHandler<import('@agentclientprotocol/sdk/unstable').WaitForTerminalExitResponse>;
+  killTerminal: AcpSingleRequestHandler<import('@agentclientprotocol/sdk/unstable').KillTerminalResponse>;
+  releaseTerminal: AcpSingleRequestHandler<import('@agentclientprotocol/sdk/unstable').ReleaseTerminalResponse>;
   createElicitation: AcpSingleRequestHandler<ElicitationResponse>;
   completeElicitation: AcpSingleRequestHandler;
 }
@@ -400,7 +400,7 @@ function sameSessionConfigChanges(left: SessionConfigChange[], right: SessionCon
 
 let sdkPromise: Promise<AcpSdk> | undefined;
 function loadAcpSdk() {
-  if (!sdkPromise) sdkPromise = import('@agentclientprotocol/sdk');
+  if (!sdkPromise) sdkPromise = import('@agentclientprotocol/sdk/unstable');
   return sdkPromise!;
 }
 

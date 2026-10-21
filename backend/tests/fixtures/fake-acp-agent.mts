@@ -5,11 +5,12 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
-  AgentSideConnection,
+  agent,
+  type AgentContext,
+  type InitializeResponse,
   RequestError,
   PROTOCOL_VERSION,
   ndJsonStream,
-  type Agent,
   type CreateElicitationResponse,
   type PromptRequest,
   type PromptResponse,
@@ -19,7 +20,7 @@ import {
   type SetSessionConfigOptionResponse,
   type ToolCallContent,
   type ToolCallStatus,
-} from '@agentclientprotocol/sdk';
+} from '@agentclientprotocol/sdk/unstable';
 
 function providerToolStatus(status: ToolCallStatus | 'cancelled'): ToolCallStatus {
   // Farming intentionally accepts the historical provider extension even
@@ -61,7 +62,7 @@ if (process.argv.includes('--fake-terminal-login')) {
   process.exit(0);
 }
 
-let client!: AgentSideConnection;
+let client!: AgentContext;
 function deterministicE2eSessionId(agentId: string | undefined): string {
   const hex = crypto.createHash('sha256').update(String(agentId || 'missing-agent-id')).digest('hex');
   return [
@@ -231,9 +232,9 @@ function validateRequestedSessionScope(params) {
   }
 }
 
-class FakeAgent implements Agent {
+class FakeAgent {
   authenticated = false;
-  async initialize(params) {
+  async initialize(params): Promise<InitializeResponse> {
     if (
       params.clientCapabilities?.fs?.readTextFile !== true
       || params.clientCapabilities?.fs?.writeTextFile !== true
@@ -264,7 +265,6 @@ class FakeAgent implements Agent {
         id: 'fake-login',
         name: 'Sign in to fake Agent',
         description: 'Exercises the ACP agent-managed authentication flow.',
-        type: 'agent',
       }, {
         id: 'fake-terminal-login',
         name: 'Sign in from terminal',
@@ -313,7 +313,7 @@ class FakeAgent implements Agent {
         ['agent_message_chunk', 'history-subagent-answer', 'Subagent inspection complete.'],
       ] as const;
       for (const [sessionUpdate, messageId, text] of replay) {
-        await client.sessionUpdate({
+        await client.notify('session/update', {
           sessionId,
           update: {
             sessionUpdate,
@@ -325,7 +325,7 @@ class FakeAgent implements Agent {
       return { configOptions: sessionConfigOptions(sessionId) };
     }
     if (sessionId === 'delayed-history-session') {
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId,
         update: {
           sessionUpdate: 'user_message_chunk',
@@ -334,7 +334,7 @@ class FakeAgent implements Agent {
         },
       });
       setTimeout(() => {
-        void client.sessionUpdate({
+        void client.notify('session/update', {
           sessionId,
           update: {
             sessionUpdate: 'agent_message_chunk',
@@ -345,7 +345,7 @@ class FakeAgent implements Agent {
       }, 120);
       return { configOptions: sessionConfigOptions(sessionId) };
     }
-    await client.sessionUpdate({
+    await client.notify('session/update', {
       sessionId,
       update: {
         sessionUpdate: 'user_message_chunk',
@@ -353,7 +353,7 @@ class FakeAgent implements Agent {
         content: { type: 'text', text: 'historical question' },
       },
     });
-    await client.sessionUpdate({
+    await client.notify('session/update', {
       sessionId,
       update: {
         sessionUpdate: 'agent_message_chunk',
@@ -387,7 +387,7 @@ class FakeAgent implements Agent {
   }
 
   async unstable_forkSession() {
-    await client.sessionUpdate({
+    await client.notify('session/update', {
       sessionId: 'acp-fork-session',
       update: {
         sessionUpdate: 'available_commands_update',
@@ -492,7 +492,7 @@ class FakeAgent implements Agent {
       }
       if (steerTurn.echoUserMessage !== false) {
         for (const content of params.prompt || []) {
-          await client.sessionUpdate({
+          await client.notify('session/update', {
             sessionId: params.sessionId,
             update: {
               sessionUpdate: 'user_message_chunk',
@@ -503,7 +503,7 @@ class FakeAgent implements Agent {
           });
         }
       }
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'agent_message_chunk',
@@ -545,16 +545,16 @@ class FakeAgent implements Agent {
     const promptText = params.prompt?.map(block => block.type === 'text' ? block.text : '').join('') || '';
     const imageCount = params.prompt?.filter(block => block.type === 'image').length || 0;
     if (promptText === 'inspect attachment echo') {
-      await client.sessionUpdate({ sessionId: params.sessionId, update: {
+      await client.notify('session/update', { sessionId: params.sessionId, update: {
         sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Inspecting attachments.' },
       } });
       const content = params.prompt.map(block => block.type === 'image'
         ? { type: block.type, data: block.data, mimeType: block.mimeType } : block);
       const messageId = crypto.randomUUID();
-      for (let replay = 0; replay < 2; replay += 1) await client.sessionUpdate({ sessionId: params.sessionId, update: {
+      for (let replay = 0; replay < 2; replay += 1) await client.notify('session/update', { sessionId: params.sessionId, update: {
         sessionUpdate: 'session_message', messageId, content, _meta: { farming: { messageRole: 'user' } },
       } });
-      await client.sessionUpdate({ sessionId: params.sessionId, update: {
+      await client.notify('session/update', { sessionId: params.sessionId, update: {
         sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Attachment inspection complete.' },
       } });
       return { stopReason: 'end_turn' };
@@ -569,15 +569,15 @@ class FakeAgent implements Agent {
         { env: environment, timeout: 15000, maxBuffer: 128 * 1024 }, (error, stdout) => error ? reject(error) : resolve(stdout));
       });
       const task = JSON.parse(output);
-      await client.sessionUpdate({ sessionId: params.sessionId, update: {
+      await client.notify('session/update', { sessionId: params.sessionId, update: {
         sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `Sent the review request. Task: ${String(task.id)}` },
       } });
       return { stopReason: 'end_turn' };
     }
     if (promptText.endsWith('Please review the input validation and return your conclusion.')) {
-      for (const content of params.prompt || []) await client.sessionUpdate({ sessionId: params.sessionId,
+      for (const content of params.prompt || []) await client.notify('session/update', { sessionId: params.sessionId,
         update: { sessionUpdate: 'user_message_chunk', messageId: `peer-appearance-${++peerIntegrationSequence}`, content } });
-      await client.sessionUpdate({ sessionId: params.sessionId, update: {
+      await client.notify('session/update', { sessionId: params.sessionId, update: {
         sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'The input validation is consistent with the API contract. Required fields and invalid values are handled explicitly.' },
       } });
       return { stopReason: 'end_turn' };
@@ -587,7 +587,7 @@ class FakeAgent implements Agent {
       const request = params.prompt?.filter(block => block.type === 'text').at(-1);
       const envelope = params.prompt?.find(block => block.type === 'text');
       const environment = sessionEnvironments.get(params.sessionId) || process.env;
-      for (const content of params.prompt || []) await client.sessionUpdate({ sessionId: params.sessionId,
+      for (const content of params.prompt || []) await client.notify('session/update', { sessionId: params.sessionId,
         update: { sessionUpdate: 'user_message_chunk', messageId: `peer-integration-input-${sequence}`, content } });
       if (promptText.includes('peer-cancel')) {
         await new Promise<void>(resolve => cancelledSessions.set(params.sessionId, resolve));
@@ -596,7 +596,7 @@ class FakeAgent implements Agent {
       }
       if (promptText.includes('peer-failure')) return { stopReason: 'max_tokens' };
       if (promptText.includes('peer-delay=3000')) await new Promise(resolve => setTimeout(resolve, 3000));
-      await client.sessionUpdate({ sessionId: params.sessionId, update: {
+      await client.notify('session/update', { sessionId: params.sessionId, update: {
         sessionUpdate: 'agent_message_chunk', messageId: `peer-integration-reply-${sequence}`,
         content: { type: 'text', text: JSON.stringify({
           request: request?.type === 'text' ? request.text : '',
@@ -610,7 +610,7 @@ class FakeAgent implements Agent {
     }
 
     if (promptText.startsWith('Read the source conversation identified below')) {
-      await client.sessionUpdate({ sessionId: params.sessionId, update: {
+      await client.notify('session/update', { sessionId: params.sessionId, update: {
         sessionUpdate: 'agent_message_chunk',
         content: { type: 'text', text: '这是界面演示响应：交接提示已送达。新 Agent 应先阅读原会话，说明理解，再等待你的指示。' },
       } });
@@ -618,13 +618,13 @@ class FakeAgent implements Agent {
     }
     if (promptText === 'receiver input without sender') {
       for (const messageId of ['received-one', 'received-one', 'received-two']) {
-        await client.sessionUpdate({ sessionId: params.sessionId, update: {
+        await client.notify('session/update', { sessionId: params.sessionId, update: {
           sessionUpdate: 'session_message', messageId,
           content: [{ type: 'text', text: 'Coordination received while working.' }],
           _meta: { farming: { messageRole: 'user' } },
         } });
       }
-      await client.sessionUpdate({ sessionId: params.sessionId, update: {
+      await client.notify('session/update', { sessionId: params.sessionId, update: {
         sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'I received the coordination and continued.' },
       } });
       return { stopReason: 'end_turn' };
@@ -638,11 +638,11 @@ class FakeAgent implements Agent {
         { sessionUpdate: 'agent_message_chunk', messageId: 'peer-reply', content: { type: 'text', text: '收到，我继续负责 Worker 和控制面。' } },
         { sessionUpdate: 'session_message', messageId: 'peer-receive-1c', content: [{ type: 'text', text: '验收结果会单独同步给你。' }], _meta: { peerMessage: { ...source, timestamp: '2026-01-01T10:33:00Z' } } },
         { sessionUpdate: 'session_message', messageId: 'peer-receive-2', content: [{ type: 'text', text: '' }], _meta: { peerMessage: { ...source, senderName: 'Cleanroom 多机 Worker 与构建窗口协调', senderAddress: 'peer-worker', timestamp: '2026-01-01T10:34:00Z', bodyUnavailable: 'encrypted' } } },
-      ] satisfies SessionUpdate[]) await client.sessionUpdate({ sessionId: params.sessionId, update });
+      ] satisfies SessionUpdate[]) await client.notify('session/update', { sessionId: params.sessionId, update });
       return { stopReason: 'end_turn' };
     }
     if (promptText === 'config recovery probe') {
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'agent_message_chunk',
@@ -652,7 +652,7 @@ class FakeAgent implements Agent {
       return { stopReason: 'end_turn' };
     }
     if (promptText.includes('prompt suggestion')) {
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'agent_message_chunk',
@@ -660,7 +660,7 @@ class FakeAgent implements Agent {
           content: { type: 'text', text: 'Prompt suggestion answer complete.' },
         },
       });
-      await client.extNotification('qwen/notify/session/prompt-suggestion', {
+      await client.notify('qwen/notify/session/prompt-suggestion', {
         v: 1,
         sessionId: params.sessionId,
         suggestion: 'Run the focused regression tests',
@@ -677,7 +677,7 @@ class FakeAgent implements Agent {
         fs.mkdirSync(path.dirname(marker), { recursive: true });
         fs.writeFileSync(marker, String(previous + 1), { mode: 0o600 });
       }
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'agent_message_chunk',
@@ -718,7 +718,7 @@ class FakeAgent implements Agent {
         ...(promptText.includes('wide') ? { mode: 'wide' } : {}),
       })}`;
       const referenceSplit = visualizationReference.indexOf('inline.html');
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'agent_message_chunk',
@@ -730,7 +730,7 @@ class FakeAgent implements Agent {
           _meta: { codex: { phase: 'final_answer' } },
         },
       });
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'agent_message_chunk',
@@ -749,7 +749,7 @@ class FakeAgent implements Agent {
       fs.writeFileSync(path.join(process.cwd(), '.adapter-disconnect-replayed'), '1');
     }
     if (promptText.includes('new explicit request after reconnect')) {
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'agent_message_chunk',
@@ -765,15 +765,15 @@ class FakeAgent implements Agent {
       cancelledSessions.set(params.sessionId, release);
       const deadline = setTimeout(release, 60_000);
       try {
-        await client.sessionUpdate({ sessionId: params.sessionId, update: {
+        await client.notify('session/update', { sessionId: params.sessionId, update: {
           sessionUpdate: 'session_info_update', _meta: { goal: {
             objective: 'Verify service recovery and stability', status: 'active', tokenBudget: 5000, tokensUsed: 120,
           } },
         } });
-        await client.sessionUpdate({ sessionId: params.sessionId, update: {
+        await client.notify('session/update', { sessionId: params.sessionId, update: {
           sessionUpdate: 'plan', entries: [{ content: 'Check service recovery', status: 'in_progress', priority: 'medium' }],
         } });
-        await client.sessionUpdate({ sessionId: params.sessionId, update: {
+        await client.notify('session/update', { sessionId: params.sessionId, update: {
           sessionUpdate: 'tool_call', toolCallId: 'goal-running-command', title: 'Check service recovery', kind: 'execute', status: 'in_progress',
         } });
         await cancellation;
@@ -785,22 +785,22 @@ class FakeAgent implements Agent {
     }
     if (promptText.startsWith('goal status fixture ')) {
       const [, , , status, createdAt = '1'] = promptText.split(' ');
-      await client.sessionUpdate({ sessionId: params.sessionId, update: {
+      await client.notify('session/update', { sessionId: params.sessionId, update: {
         sessionUpdate: 'session_info_update', _meta: { goal: {
           objective: 'Verify service recovery and stability', status, createdAt: Number(createdAt),
           tokenBudget: 5000, tokensUsed: 420, timeUsedSeconds: 12,
         } },
       } });
-      await client.sessionUpdate({ sessionId: params.sessionId, update: {
+      await client.notify('session/update', { sessionId: params.sessionId, update: {
         sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `Goal status is ${status}.` },
       } });
       return { stopReason: 'end_turn' };
     }
     if (promptText === 'clear goal fixture') {
-      await client.sessionUpdate({ sessionId: params.sessionId, update: {
+      await client.notify('session/update', { sessionId: params.sessionId, update: {
         sessionUpdate: 'session_info_update', _meta: { goal: null },
       } });
-      await client.sessionUpdate({ sessionId: params.sessionId, update: {
+      await client.notify('session/update', { sessionId: params.sessionId, update: {
         sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Follow-up received; goal cleared.' },
       } });
       return { stopReason: 'end_turn' };
@@ -817,7 +817,7 @@ class FakeAgent implements Agent {
         releaseCancellation = resolve;
       });
       cancelledSessions.set(params.sessionId, releaseCancellation);
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'agent_message_chunk',
@@ -827,7 +827,7 @@ class FakeAgent implements Agent {
       });
       await cancellation;
       cancelledSessions.delete(params.sessionId);
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'agent_message_chunk',
@@ -839,7 +839,7 @@ class FakeAgent implements Agent {
     }
     if (promptText.startsWith('local image resource ')) {
       const imagePath = promptText.slice('local image resource '.length).split('\n')[0].trim();
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'tool_call',
@@ -856,7 +856,7 @@ class FakeAgent implements Agent {
     }
     if (promptText.includes('hold for steer') || promptText.includes('hold for two steers')) {
       if (promptText.includes('with mobile plan')) {
-        await client.sessionUpdate({
+        await client.notify('session/update', {
           sessionId: params.sessionId,
           update: {
             sessionUpdate: 'plan',
@@ -880,7 +880,7 @@ class FakeAgent implements Agent {
         echoUserMessage: !promptText.includes('without user echo'),
         acceptedAsCommentary: promptText.includes('post-steer commentary'),
       };
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'agent_thought_chunk',
@@ -888,7 +888,7 @@ class FakeAgent implements Agent {
           content: { type: 'text', text: '**Planning secure session inspection**\n\nChecking the active turn before steering.' },
         },
       });
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'agent_message_chunk',
@@ -898,7 +898,7 @@ class FakeAgent implements Agent {
       });
       await steerTurnReleased;
       if (promptText.includes('reused thought identity')) {
-        await client.sessionUpdate({
+        await client.notify('session/update', {
           sessionId: params.sessionId,
           update: {
             sessionUpdate: 'agent_thought_chunk',
@@ -906,7 +906,7 @@ class FakeAgent implements Agent {
             content: { type: 'text', text: '**Continuing implementation after steering**' },
           },
         });
-        await client.sessionUpdate({
+        await client.notify('session/update', {
           sessionId: params.sessionId,
           update: { sessionUpdate: 'agent_message_chunk', messageId: 'steer-finished', content: { type: 'text', text: 'Implementation continued successfully.' } },
         });
@@ -928,7 +928,7 @@ class FakeAgent implements Agent {
             await new Promise(resolve => setTimeout(resolve, 40));
           }
           if (cancelled) return { stopReason: 'cancelled' };
-          await client.sessionUpdate({
+          await client.notify('session/update', {
             sessionId: params.sessionId,
             update: {
               sessionUpdate: 'agent_message_chunk',
@@ -964,7 +964,7 @@ class FakeAgent implements Agent {
             }
           }
           if (cancelled) return { stopReason: 'cancelled' };
-          await client.sessionUpdate({ sessionId: params.sessionId, update: {
+          await client.notify('session/update', { sessionId: params.sessionId, update: {
             sessionUpdate: 'agent_message_chunk', messageId: 'table-links',
             content: { type: 'text', text: chunks[stage]! }, _meta: { codex: { phase: 'final_answer' } },
           } });
@@ -977,7 +977,7 @@ class FakeAgent implements Agent {
       const gate = path.join(process.cwd(), '.code-copy-finish');
       let cancelled = false;
       cancelledSessions.set(params.sessionId, () => { cancelled = true; });
-      const send = async (text: string) => client.sessionUpdate({
+      const send = async (text: string) => client.notify('session/update', {
         sessionId: params.sessionId,
         update: { sessionUpdate: 'agent_message_chunk', messageId: 'code-copy-stream',
           content: { type: 'text', text }, _meta: { codex: { phase: 'final_answer' } } },
@@ -1000,7 +1000,7 @@ class FakeAgent implements Agent {
       const gate = path.join(process.cwd(), '.rich-content-stage');
       let cancelled = false;
       cancelledSessions.set(params.sessionId, () => { cancelled = true; });
-      const send = async (text: string) => client.sessionUpdate({
+      const send = async (text: string) => client.notify('session/update', {
         sessionId: params.sessionId,
         update: { sessionUpdate: 'agent_message_chunk', messageId: 'rich-content-final',
           content: { type: 'text', text }, _meta: { codex: { phase: 'final_answer' } } },
@@ -1029,7 +1029,7 @@ class FakeAgent implements Agent {
       }
     }
     if (promptText.includes('phase-aware mermaid')) {
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'agent_message_chunk',
@@ -1038,7 +1038,7 @@ class FakeAgent implements Agent {
           _meta: { codex: { phase: 'commentary' } },
         },
       });
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'agent_message_chunk',
@@ -1050,7 +1050,7 @@ class FakeAgent implements Agent {
           _meta: { codex: { phase: 'final_answer' } },
         },
       });
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'agent_thought_chunk',
@@ -1063,7 +1063,7 @@ class FakeAgent implements Agent {
     if (promptText.includes('image attachment')) {
       const answerSequence = (imageAttachmentAnswerSequences.get(params.sessionId) || 0) + 1;
       imageAttachmentAnswerSequences.set(params.sessionId, answerSequence);
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'agent_message_chunk',
@@ -1074,7 +1074,7 @@ class FakeAgent implements Agent {
       return { stopReason: 'end_turn' };
     }
     if (promptText.startsWith('markdown image response\n')) {
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'agent_message_chunk',
@@ -1088,7 +1088,7 @@ class FakeAgent implements Agent {
       const imagePath = promptText.slice('local image link '.length).trim();
       const answerSequence = (localImageLinkAnswerSequences.get(params.sessionId) || 0) + 1;
       localImageLinkAnswerSequences.set(params.sessionId, answerSequence);
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'agent_message_chunk',
@@ -1099,7 +1099,7 @@ class FakeAgent implements Agent {
       return { stopReason: 'end_turn' };
     }
     if (promptText.includes('live collaboration demo')) {
-      const activity = async (id, threadId, agentPath, activityKind = 'interacted') => client.sessionUpdate({
+      const activity = async (id, threadId, agentPath, activityKind = 'interacted') => client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'tool_call',
@@ -1118,7 +1118,7 @@ class FakeAgent implements Agent {
       await activity('live-review-started', 'thread-live-review', 'Live reviewer', 'started');
       await activity('live-tests-started', 'thread-live-tests', 'Test runner', 'started');
       await activity('live-docs-started', 'thread-live-docs', 'Documentation', 'started');
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'session_info_update',
@@ -1146,7 +1146,7 @@ class FakeAgent implements Agent {
           await activity(`live-tests-updated-${index}`, 'thread-live-tests', 'Test runner');
         }
       }
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'tool_call',
@@ -1172,7 +1172,7 @@ class FakeAgent implements Agent {
           },
         },
       });
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'session_info_update',
@@ -1191,7 +1191,7 @@ class FakeAgent implements Agent {
           },
         },
       });
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'agent_message_chunk',
@@ -1204,19 +1204,19 @@ class FakeAgent implements Agent {
     if (promptText.includes('native peer communication')) {
       const peerSessionId = promptText.match(/peer-session=([a-zA-Z0-9_-]+)/)?.[1] || 'session-storage-peer';
       const extended = promptText.includes('extended');
-      if (extended) await client.sessionUpdate({ sessionId: params.sessionId, update: {
+      if (extended) await client.notify('session/update', { sessionId: params.sessionId, update: {
         sessionUpdate: 'user_message_chunk', messageId: 'peer-unattributed',
         content: { type: 'text', text: '我负责存储适配，你继续处理控制面。来源未由 Provider 提供。' },
         _meta: { codex: { steer: true } },
       } });
-      await client.sessionUpdate({ sessionId: params.sessionId, update: {
+      await client.notify('session/update', { sessionId: params.sessionId, update: {
         sessionUpdate: 'tool_call', toolCallId: 'peer-discovery', kind: 'execute',
         title: '"$FARMING_CLI_BIN_DIR/farming" list --json', status: 'completed',
         rawInput: { command: '"$FARMING_CLI_BIN_DIR/farming" list --json' },
         content: [{ type: 'content', content: { type: 'text', text: '{"agents":[]}' } }],
       } });
       if (promptText.includes('lookup only')) {
-        await client.sessionUpdate({ sessionId: params.sessionId, update: {
+        await client.notify('session/update', { sessionId: params.sessionId, update: {
           sessionUpdate: 'agent_message_chunk', messageId: 'lookup-answer',
           content: { type: 'text', text: 'Agent list query complete.' },
         } });
@@ -1226,7 +1226,7 @@ class FakeAgent implements Agent {
         ? ['completed', 'completed', 'failed', 'completed', 'in_progress'] as const
         : ['completed', 'completed', 'failed'] as const;
       for (const [index, status] of statuses.entries()) {
-        await client.sessionUpdate({ sessionId: params.sessionId, update: {
+        await client.notify('session/update', { sessionId: params.sessionId, update: {
           sessionUpdate: 'tool_call', toolCallId: `peer-send-${index}`, title: 'sendInput', kind: 'other', status,
           rawInput: { senderThreadId: params.sessionId, receiverThreadIds: [peerSessionId],
             prompt: index === 2 ? 'Failed coordination message.'
@@ -1237,14 +1237,14 @@ class FakeAgent implements Agent {
             agentsStates: { [peerSessionId]: { status: 'running' } } },
         } });
       }
-      await client.sessionUpdate({ sessionId: params.sessionId, update: {
+      await client.notify('session/update', { sessionId: params.sessionId, update: {
         sessionUpdate: 'agent_message_chunk', messageId: 'peer-answer',
         content: { type: 'text', text: 'Peer communication example complete.' },
       } });
       return { stopReason: 'end_turn' };
     }
     if (promptText.includes('codex collaboration')) {
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'tool_call',
@@ -1256,7 +1256,7 @@ class FakeAgent implements Agent {
           content: [{ type: 'content', content: { type: 'text', text: 'Parent coordination state is ready.' } }],
         },
       });
-      const activity = async (id, threadId, agentPath, activityKind = 'interacted') => client.sessionUpdate({
+      const activity = async (id, threadId, agentPath, activityKind = 'interacted') => client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'tool_call',
@@ -1285,7 +1285,7 @@ class FakeAgent implements Agent {
         await activity(`collab-browser-updated-${index}`, 'thread-browser-guards', 'Browser guards');
       }
       for (let index = 1; index <= 2; index += 1) {
-        await client.sessionUpdate({
+        await client.notify('session/update', {
           sessionId: params.sessionId,
           update: {
             sessionUpdate: 'tool_call',
@@ -1312,7 +1312,7 @@ class FakeAgent implements Agent {
           },
         });
       }
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'tool_call',
@@ -1339,7 +1339,7 @@ class FakeAgent implements Agent {
         },
       });
       await activity('collab-crt-updated', 'thread-crt-races', 'Crt races');
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'session_info_update',
@@ -1375,7 +1375,7 @@ class FakeAgent implements Agent {
           },
         },
       });
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'agent_message_chunk',
@@ -1392,7 +1392,7 @@ class FakeAgent implements Agent {
         ['01a06578-645e-7ab1-8d44-5cdf556c0c7d', 'Inspect CI failures'],
       ];
       for (const [threadId, prompt] of agents) {
-        await client.sessionUpdate({
+        await client.notify('session/update', {
           sessionId: params.sessionId,
           update: {
             sessionUpdate: 'tool_call',
@@ -1416,7 +1416,7 @@ class FakeAgent implements Agent {
           },
         });
       }
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'agent_message_chunk',
@@ -1427,7 +1427,7 @@ class FakeAgent implements Agent {
       return { stopReason: 'end_turn' };
     }
     if (promptText.includes('collaboration follow up')) {
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'tool_call',
@@ -1451,7 +1451,7 @@ class FakeAgent implements Agent {
           },
         },
       });
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'session_info_update',
@@ -1493,7 +1493,7 @@ class FakeAgent implements Agent {
           },
         },
       });
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'agent_message_chunk',
@@ -1519,7 +1519,7 @@ class FakeAgent implements Agent {
         fs.writeFileSync(target, newText);
         return { type: 'diff', path: target, oldText, newText };
       });
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'tool_call',
@@ -1530,7 +1530,7 @@ class FakeAgent implements Agent {
           content,
         },
       });
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'agent_message_chunk',
@@ -1541,7 +1541,7 @@ class FakeAgent implements Agent {
       return { stopReason: 'end_turn' };
     }
     if (promptText.includes('markdown typography')) {
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'agent_message_chunk',
@@ -1576,7 +1576,7 @@ class FakeAgent implements Agent {
       return { stopReason: 'end_turn' };
     }
     if (promptText.includes('crt math mermaid')) {
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'agent_message_chunk',
@@ -1603,7 +1603,7 @@ class FakeAgent implements Agent {
       return { stopReason: 'end_turn' };
     }
     if (promptText.includes('crt invalid mermaid')) {
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'agent_message_chunk',
@@ -1624,18 +1624,18 @@ class FakeAgent implements Agent {
     }
     if (promptText.includes('rich timeline')) {
       const releaseStory = promptText.includes('release readiness story');
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: { sessionUpdate: 'usage_update', used: 53_000, size: 200_000, cost: { amount: 0.045, currency: 'USD' } },
       });
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'available_commands_update',
           availableCommands: [{ name: 'review', description: 'Review the current changes', input: { hint: 'optional focus' } }],
         },
       });
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'plan',
@@ -1654,7 +1654,7 @@ class FakeAgent implements Agent {
         resolve,
         promptText.includes('inspect active plan') ? 5_000 : 500,
       ));
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'agent_message_chunk',
@@ -1667,7 +1667,7 @@ class FakeAgent implements Agent {
           },
         },
       });
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'agent_thought_chunk',
@@ -1680,7 +1680,7 @@ class FakeAgent implements Agent {
           },
         },
       });
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'tool_call',
@@ -1699,7 +1699,7 @@ class FakeAgent implements Agent {
           ],
         },
       });
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'tool_call',
@@ -1722,7 +1722,7 @@ class FakeAgent implements Agent {
         cwd: process.cwd(),
       });
       await terminal.waitForExit();
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'tool_call',
@@ -1733,7 +1733,7 @@ class FakeAgent implements Agent {
           content: [{ type: 'terminal', terminalId: terminal.id }],
         },
       });
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'agent_message_chunk',
@@ -1770,7 +1770,7 @@ class FakeAgent implements Agent {
     if (promptText.includes('live progress')) {
       const liveProgressId = ++liveProgressSequence;
       const toolCallId = `live-command-${liveProgressId}`;
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'tool_call',
@@ -1782,7 +1782,7 @@ class FakeAgent implements Agent {
         },
       });
       for (const [index, text] of ['Inspecting files', 'Editing display data', 'Running checks'].entries()) {
-        await client.sessionUpdate({
+        await client.notify('session/update', {
           sessionId: params.sessionId,
           update: {
             sessionUpdate: 'agent_message_chunk',
@@ -1796,7 +1796,7 @@ class FakeAgent implements Agent {
         // transcript after missing every transient state.
         await new Promise(resolve => setTimeout(resolve, index === 0 ? 3_000 : 500));
       }
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'tool_call_update',
@@ -1805,7 +1805,7 @@ class FakeAgent implements Agent {
           rawOutput: { stdout: 'checks passed\n', stderr: '', exitCode: 0 },
         },
       });
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'agent_message_chunk',
@@ -1816,7 +1816,7 @@ class FakeAgent implements Agent {
       return { stopReason: 'end_turn' };
     }
     if (promptText.includes('grouped streaming tools')) {
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'tool_call',
@@ -1829,7 +1829,7 @@ class FakeAgent implements Agent {
         },
       });
       await new Promise(resolve => setTimeout(resolve, 2_000));
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'tool_call',
@@ -1841,7 +1841,7 @@ class FakeAgent implements Agent {
         },
       });
       await new Promise(resolve => setTimeout(resolve, 3_000));
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'tool_call_update',
@@ -1851,7 +1851,7 @@ class FakeAgent implements Agent {
         },
       });
       await new Promise(resolve => setTimeout(resolve, 250));
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'agent_message_chunk',
@@ -1863,7 +1863,7 @@ class FakeAgent implements Agent {
     }
     if (promptText.includes('dense multi-step progress')) {
       for (let index = 1; index <= 24; index += 1) {
-        await client.sessionUpdate({
+        await client.notify('session/update', {
           sessionId: params.sessionId,
           update: {
             sessionUpdate: 'agent_thought_chunk',
@@ -1874,7 +1874,7 @@ class FakeAgent implements Agent {
             },
           },
         });
-        await client.sessionUpdate({
+        await client.notify('session/update', {
           sessionId: params.sessionId,
           update: {
             sessionUpdate: 'tool_call',
@@ -1891,7 +1891,7 @@ class FakeAgent implements Agent {
           },
         });
         if (index === 8 || index === 16) {
-          await client.sessionUpdate({
+          await client.notify('session/update', {
             sessionId: params.sessionId,
             update: {
               sessionUpdate: 'agent_message_chunk',
@@ -1918,7 +1918,7 @@ class FakeAgent implements Agent {
         }
       }
       await new Promise(resolve => setTimeout(resolve, 5_000));
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'tool_call_update',
@@ -1927,7 +1927,7 @@ class FakeAgent implements Agent {
           rawOutput: { stdout: 'step 24 passed\n', stderr: '', exitCode: 0 },
         },
       });
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'agent_message_chunk',
@@ -1938,12 +1938,12 @@ class FakeAgent implements Agent {
       return { stopReason: 'end_turn' };
     }
     if (promptText.includes('streaming thought')) {
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: { sessionUpdate: 'agent_thought_chunk', messageId: 'streaming-thought-1', content: { type: 'text', text: '**Comparing the likely causes**\n\n' } },
       });
       await new Promise(resolve => setTimeout(resolve, 700));
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'agent_thought_chunk',
@@ -1952,7 +1952,7 @@ class FakeAgent implements Agent {
         },
       });
       await new Promise(resolve => setTimeout(resolve, 700));
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: { sessionUpdate: 'agent_message_chunk', messageId: 'streaming-thought-answer', content: { type: 'text', text: 'Streaming thought complete.' } },
       });
@@ -1960,7 +1960,7 @@ class FakeAgent implements Agent {
     }
     if (promptText.includes('live commentary stream')) {
       for (let index = 1; index <= 18; index += 1) {
-        await client.sessionUpdate({
+        await client.notify('session/update', {
           sessionId: params.sessionId,
           update: {
             sessionUpdate: 'agent_message_chunk',
@@ -1972,7 +1972,7 @@ class FakeAgent implements Agent {
         await new Promise(resolve => setTimeout(resolve, 50));
       }
       await new Promise(resolve => setTimeout(resolve, 600));
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'agent_message_chunk',
@@ -1988,7 +1988,7 @@ class FakeAgent implements Agent {
         { length: 10 },
         (_, index) => `Visible segment ${String(index + 1).padStart(2, '0')} stays continuous and preserves the exact final transcript.`,
       ).join(' ');
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'agent_message_chunk',
@@ -2005,7 +2005,7 @@ class FakeAgent implements Agent {
         { length: 10 },
         (_, index) => `Visible segment ${String(index + 1).padStart(2, '0')} stays continuous and preserves the exact final transcript.`,
       );
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'agent_message_chunk',
@@ -2016,7 +2016,7 @@ class FakeAgent implements Agent {
       });
       await new Promise(resolve => setTimeout(resolve, 800));
       for (const segment of segments.slice(2)) {
-        await client.sessionUpdate({
+        await client.notify('session/update', {
           sessionId: params.sessionId,
           update: {
             sessionUpdate: 'agent_message_chunk',
@@ -2035,7 +2035,7 @@ class FakeAgent implements Agent {
         { length: 48 },
         (_, index) => `Reading paragraph ${String(index + 1).padStart(2, '0')}: keep this viewport stable while the answer continues below.`,
       ).join('\n\n');
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'agent_message_chunk',
@@ -2045,7 +2045,7 @@ class FakeAgent implements Agent {
       });
       await new Promise(resolve => setTimeout(resolve, 900));
       for (let index = 1; index <= 6; index += 1) {
-        await client.sessionUpdate({
+        await client.notify('session/update', {
           sessionId: params.sessionId,
           update: {
             sessionUpdate: 'agent_message_chunk',
@@ -2062,7 +2062,7 @@ class FakeAgent implements Agent {
         { length: 36 },
         (_, index) => `Follow paragraph ${String(index + 1).padStart(2, '0')}: the latest answer should remain attached to the viewport bottom.`,
       ).join('\n\n');
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'agent_message_chunk',
@@ -2072,7 +2072,7 @@ class FakeAgent implements Agent {
       });
       await new Promise(resolve => setTimeout(resolve, 700));
       for (let index = 1; index <= 3; index += 1) {
-        await client.sessionUpdate({
+        await client.notify('session/update', {
           sessionId: params.sessionId,
           update: {
             sessionUpdate: 'agent_message_chunk',
@@ -2085,33 +2085,33 @@ class FakeAgent implements Agent {
       return { stopReason: 'end_turn' };
     }
     if (promptText.includes('usage warning')) {
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: { sessionUpdate: 'usage_update', used: 190_000, size: 200_000, cost: { amount: 0.125, currency: 'USD' } },
       });
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: { sessionUpdate: 'agent_message_chunk', messageId: 'usage-warning-answer', content: { type: 'text', text: 'Usage warning published.' } },
       });
       return { stopReason: 'end_turn' };
     }
     if (promptText.includes('failed tool')) {
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: { sessionUpdate: 'tool_call', toolCallId: 'failed-tool', title: 'Run failing check', kind: 'execute', status: 'in_progress' },
       });
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: { sessionUpdate: 'tool_call_update', toolCallId: 'failed-tool', status: 'failed', rawOutput: { exitCode: 1, stderr: 'fixture failed' } },
       });
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: { sessionUpdate: 'agent_message_chunk', messageId: 'failed-answer', content: { type: 'text', text: 'The check failed; no files were changed.' } },
       });
       return { stopReason: 'end_turn' };
     }
     if (promptText.includes('unicode permission')) {
-      const permission = await client.requestPermission({
+      const permission = await client.request('session/request_permission', {
         sessionId: params.sessionId,
         toolCall: {
           toolCallId: 'unicode-tool',
@@ -2132,7 +2132,7 @@ class FakeAgent implements Agent {
           { optionId: 'deny', name: 'Deny', kind: 'reject_once' },
         ],
       });
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: { sessionUpdate: 'agent_message_chunk', messageId: 'unicode-answer', content: { type: 'text', text: `Unicode permission: ${permission.outcome.outcome}` } },
       });
@@ -2140,7 +2140,7 @@ class FakeAgent implements Agent {
     }
     if (promptText.includes('subagent elicitation')) {
       const childSessionId = 'acp-input-child-session';
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'tool_call',
@@ -2151,11 +2151,11 @@ class FakeAgent implements Agent {
           _meta: { subagent_session_info: { session_id: childSessionId, message_start_index: 0 } },
         },
       });
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: childSessionId,
         update: { sessionUpdate: 'user_message_chunk', messageId: 'input-child-user', content: { type: 'text', text: 'Confirm the child scope' } },
       });
-      const elicitation = await client.createElicitation({
+      const elicitation = await client.request('elicitation/create', {
         sessionId: childSessionId,
         mode: 'form',
         message: 'Confirm the subagent scope',
@@ -2165,7 +2165,7 @@ class FakeAgent implements Agent {
           properties: { confirmed: { type: 'boolean', title: 'Confirmed for subagent' } },
         },
       });
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: childSessionId,
         update: {
           sessionUpdate: 'agent_message_chunk',
@@ -2176,7 +2176,7 @@ class FakeAgent implements Agent {
           },
         },
       });
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'tool_call_update',
@@ -2185,7 +2185,7 @@ class FakeAgent implements Agent {
           _meta: { subagent_session_info: { session_id: childSessionId, message_start_index: 0, message_end_index: 1 } },
         },
       });
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: { sessionUpdate: 'agent_message_chunk', messageId: 'input-subagent-answer', content: { type: 'text', text: 'Subagent input complete.' } },
       });
@@ -2207,12 +2207,12 @@ class FakeAgent implements Agent {
       for (const child of children) {
         const id = childId(child.key);
         notify({ sessionUpdate: 'subagent_spawned', subagentSessionId: id, name: child.name, task: child.task, capabilities: {} });
-        await client.sessionUpdate({ sessionId: id, update: { sessionUpdate: 'user_message_chunk', messageId: `${child.key}-task`, content: { type: 'text', text: child.task } } });
-        await client.sessionUpdate({ sessionId: id, update: { sessionUpdate: 'agent_message_chunk', messageId: `${child.key}-answer`, content: { type: 'text', text: child.text } } });
+        await client.notify('session/update', { sessionId: id, update: { sessionUpdate: 'user_message_chunk', messageId: `${child.key}-task`, content: { type: 'text', text: child.task } } });
+        await client.notify('session/update', { sessionId: id, update: { sessionUpdate: 'agent_message_chunk', messageId: `${child.key}-answer`, content: { type: 'text', text: child.text } } });
         if (['completed', 'failed', 'cancelled'].includes(child.state)) {
           notify({ sessionUpdate: 'subagent_state_update', subagentSessionId: id, state: child.state });
         }
-        await client.sessionUpdate({ sessionId: params.sessionId, update: {
+        await client.notify('session/update', { sessionId: params.sessionId, update: {
           sessionUpdate: 'tool_call', toolCallId: `gallery-${child.key}`, title: child.task, kind: 'other', status: 'completed',
           rawInput: { senderThreadId: params.sessionId, receiverThreadIds: [id],
             agentsStates: { [id]: { status: child.state === 'failed' ? 'errored' : child.state === 'cancelled' ? 'interrupted' : child.state === 'completed' ? 'completed' : 'running', message: child.text } } },
@@ -2221,14 +2221,14 @@ class FakeAgent implements Agent {
       }
       // Keep independent child requests pending until the isolated fixture is
       // cleaned up; captures wait on authoritative states, never timed sleeps.
-      void client.requestPermission({ sessionId: childId('security'),
+      void client.request('session/request_permission', { sessionId: childId('security'),
         toolCall: { toolCallId: 'gallery-security-command', title: '运行本地安全检查', kind: 'execute' },
         options: [{ optionId: 'allow', name: '允许一次', kind: 'allow_once' }, { optionId: 'reject', name: '拒绝', kind: 'reject_once' }],
       }).catch(() => {});
-      void client.createElicitation({ sessionId: childId('scope'), mode: 'form', message: '是否保留旧版接口兼容？',
+      void client.request('elicitation/create', { sessionId: childId('scope'), mode: 'form', message: '是否保留旧版接口兼容？',
         requestedSchema: { type: 'object', required: ['compatible'], properties: { compatible: { type: 'boolean', title: '保留兼容' } } },
       }).catch(() => {});
-      await client.sessionUpdate({ sessionId: params.sessionId, update: { sessionUpdate: 'agent_message_chunk',
+      await client.notify('session/update', { sessionId: params.sessionId, update: { sessionUpdate: 'agent_message_chunk',
         content: { type: 'text', text: '已分配六项并行检查。\n\n解析器审查已完成，实现检查继续运行。安全审查等待授权，需求澄清等待输入；集成测试遇到依赖错误，迁移检查已中断。\n\n可从左侧打开各个子 Agent，查看其任务、进展与结果。' } } });
       return { stopReason: 'end_turn' };
     }
@@ -2241,45 +2241,45 @@ class FakeAgent implements Agent {
         notify({ sessionUpdate: 'subagent_spawned', subagentSessionId: childId, name: `Review ${child}`, task: `Review task ${child}`, capabilities: {} });
         const turns = child === 0 ? 260 : 1;
         for (let turn = 0; turn < turns; turn++) {
-          await client.sessionUpdate({ sessionId: childId, update: { sessionUpdate: 'user_message_chunk', messageId: `q-${child}-${turn}`, content: { type: 'text', text: `Question ${turn}` } } });
-          await client.sessionUpdate({ sessionId: childId, update: { sessionUpdate: 'agent_message_chunk', messageId: `a-${child}-${turn}`, content: { type: 'text', text: `Answer ${turn}` } } });
+          await client.notify('session/update', { sessionId: childId, update: { sessionUpdate: 'user_message_chunk', messageId: `q-${child}-${turn}`, content: { type: 'text', text: `Question ${turn}` } } });
+          await client.notify('session/update', { sessionId: childId, update: { sessionUpdate: 'agent_message_chunk', messageId: `a-${child}-${turn}`, content: { type: 'text', text: `Answer ${turn}` } } });
         }
         if (child < 12) notify({ sessionUpdate: 'subagent_state_update', subagentSessionId: childId, state: 'completed' });
         if (child === 13) notify({ sessionUpdate: 'subagent_state_update', subagentSessionId: childId, state: 'failed' });
       }
-      await client.sessionUpdate({ sessionId: params.sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Review group ready.' } } });
+      await client.notify('session/update', { sessionId: params.sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Review group ready.' } } });
       return { stopReason: 'end_turn' };
     }
     if (promptText.includes('typed native child')) {
       const childSessionId = `${params.sessionId}-typed-child`;
       const reuse = promptText.includes('reuse typed native child');
-      await client.sessionUpdate({ sessionId: params.sessionId, update: {
+      await client.notify('session/update', { sessionId: params.sessionId, update: {
         sessionUpdate: 'subagent_update', sessionId: childSessionId,
         title: 'Native reviewer', description: 'Review the current patch', state: { state: 'running' },
       } });
-      await client.sessionUpdate({ sessionId: childSessionId, update: {
+      await client.notify('session/update', { sessionId: childSessionId, update: {
         sessionUpdate: 'user_message_chunk', content: { type: 'text', text: reuse ? 'Review the updated patch' : 'Review parser behavior' },
       } });
-      await client.sessionUpdate({ sessionId: childSessionId, update: {
+      await client.notify('session/update', { sessionId: childSessionId, update: {
         sessionUpdate: 'session_message', messageId: reuse ? 'review-2' : 'review-1',
         senderSessionId: childSessionId, recipientSessionId: params.sessionId,
         content: [{ type: 'text', text: reuse ? 'Updated patch ' : 'Parser review ' }],
       } });
-      await client.sessionUpdate({ sessionId: childSessionId, update: {
+      await client.notify('session/update', { sessionId: childSessionId, update: {
         sessionUpdate: 'session_message_chunk', messageId: reuse ? 'review-2' : 'review-1',
         content: { type: 'text', text: 'complete.' },
       } });
-      await client.sessionUpdate({ sessionId: params.sessionId, update: {
+      await client.notify('session/update', { sessionId: params.sessionId, update: {
         sessionUpdate: 'subagent_update', sessionId: childSessionId, state: { state: 'idle', stopReason: 'end_turn' },
       } });
-      await client.sessionUpdate({ sessionId: params.sessionId, update: {
+      await client.notify('session/update', { sessionId: params.sessionId, update: {
         sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Typed child completed without interrupting the parent.' },
       } });
       return { stopReason: 'end_turn' };
     }
     if (promptText.includes('Review parser edge cases (demo)')) {
       const childSessionId = `${params.sessionId}-native-child`;
-      await client.sessionUpdate({ sessionId: params.sessionId, update: {
+      await client.notify('session/update', { sessionId: params.sessionId, update: {
         sessionUpdate: 'tool_call', toolCallId: 'native-collaboration', title: 'Start parser reviewer', status: 'completed', kind: 'other',
         _meta: { codex: { subagent: { threadId: childSessionId, path: '/root/parser_reviewer', activity: 'spawned' } } },
       } });
@@ -2288,31 +2288,31 @@ class FakeAgent implements Agent {
       }) + '\n');
       notifyNative({ sessionUpdate: 'subagent_spawned', subagentSessionId: childSessionId,
         name: 'Parser reviewer (demo)', task: 'Review empty input and whitespace handling. Summarize findings without editing files.', capabilities: {} });
-      await client.sessionUpdate({ sessionId: childSessionId, update: { sessionUpdate: 'user_message_chunk',
+      await client.notify('session/update', { sessionId: childSessionId, update: { sessionUpdate: 'user_message_chunk',
         messageId: 'native-task', content: { type: 'text', text: 'Review empty input and whitespace handling. Summarize findings without editing files.' } } });
-      await client.sessionUpdate({ sessionId: childSessionId, update: { sessionUpdate: 'agent_message_chunk',
+      await client.notify('session/update', { sessionId: childSessionId, update: { sessionUpdate: 'agent_message_chunk',
         messageId: 'native-progress', content: { type: 'text', text: 'I’ll inspect the parser and its existing edge-case tests.' } } });
       await new Promise(resolve => setTimeout(resolve, 1500));
-      await client.sessionUpdate({ sessionId: childSessionId, update: { sessionUpdate: 'tool_call',
+      await client.notify('session/update', { sessionId: childSessionId, update: { sessionUpdate: 'tool_call',
         toolCallId: 'native-test-run', title: 'Run parser tests', kind: 'execute', status: 'completed',
         content: [{ type: 'content', content: { type: 'text', text: 'Demo test output: 8 tests passed.' } }] } });
       await new Promise(resolve => setTimeout(resolve, 1500));
-      await client.sessionUpdate({ sessionId: childSessionId, update: { sessionUpdate: 'agent_message_chunk',
+      await client.notify('session/update', { sessionId: childSessionId, update: { sessionUpdate: 'agent_message_chunk',
         messageId: 'native-result', content: { type: 'text', text: '**Review complete**\n\n- Empty input returns an empty result.\n- Surrounding whitespace is trimmed before parsing.\n- The existing tests cover both cases.\n\nNo files changed. This is a simulated review for UI verification.' } } });
       notifyNative({ sessionUpdate: 'subagent_state_update', subagentSessionId: childSessionId, state: 'completed' });
-      await client.sessionUpdate({ sessionId: params.sessionId, update: {
+      await client.notify('session/update', { sessionId: params.sessionId, update: {
         sessionUpdate: 'tool_call', toolCallId: 'native-review-finished', title: 'Wait for parser reviewer', kind: 'other', status: 'completed',
         rawInput: { senderThreadId: params.sessionId, receiverThreadIds: [childSessionId],
           agentsStates: { [childSessionId]: { status: 'completed', message: '**Review complete** — checked `parse()` and empty input.' } } },
         _meta: { codex: { collaboration: { tool: 'wait', senderThreadId: params.sessionId, receiverThreadIds: [childSessionId] } } },
       } });
-      await client.sessionUpdate({ sessionId: params.sessionId, update: { sessionUpdate: 'agent_message_chunk',
+      await client.notify('session/update', { sessionId: params.sessionId, update: { sessionUpdate: 'agent_message_chunk',
         content: { type: 'text', text: 'Parent completed without interruption.' } } });
       return { stopReason: 'end_turn' };
     }
     if (promptText.includes('subagent preview')) {
       const childSessionId = 'acp-child-session';
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'tool_call',
@@ -2323,15 +2323,15 @@ class FakeAgent implements Agent {
           _meta: { subagent_session_info: { session_id: childSessionId, message_start_index: 0 } },
         },
       });
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: childSessionId,
         update: { sessionUpdate: 'user_message_chunk', messageId: 'child-user', content: { type: 'text', text: 'Inspect the parser' } },
       });
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: childSessionId,
         update: { sessionUpdate: 'agent_thought_chunk', messageId: 'child-thought', content: { type: 'text', text: 'Reading parser files' } },
       });
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: childSessionId,
         update: {
           sessionUpdate: 'plan',
@@ -2341,7 +2341,7 @@ class FakeAgent implements Agent {
           ],
         },
       });
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: childSessionId,
         update: {
           sessionUpdate: 'tool_call',
@@ -2352,7 +2352,7 @@ class FakeAgent implements Agent {
           content: [{ type: 'content', content: { type: 'text', text: 'Parser state is valid.' } }],
         },
       });
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: childSessionId,
         update: {
           sessionUpdate: 'tool_call',
@@ -2363,11 +2363,11 @@ class FakeAgent implements Agent {
           content: [{ type: 'diff', path: 'parser-fixture.txt', oldText: 'old\n', newText: 'new\n' }],
         },
       });
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: childSessionId,
         update: { sessionUpdate: 'agent_message_chunk', messageId: 'child-answer', content: { type: 'text', text: 'The parser is consistent.' } },
       });
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'tool_call_update',
@@ -2376,7 +2376,7 @@ class FakeAgent implements Agent {
           _meta: { subagent_session_info: { session_id: childSessionId, message_start_index: 0, message_end_index: 2 } },
         },
       });
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: { sessionUpdate: 'agent_message_chunk', messageId: 'subagent-answer', content: { type: 'text', text: 'Subagent inspection complete.' } },
       });
@@ -2384,7 +2384,7 @@ class FakeAgent implements Agent {
     }
     if (promptText.includes('long subagent')) {
       const childSessionId = 'acp-long-child-session';
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'tool_call',
@@ -2395,17 +2395,17 @@ class FakeAgent implements Agent {
           _meta: { subagent_session_info: { session_id: childSessionId, message_start_index: 0 } },
         },
       });
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: childSessionId,
         update: { sessionUpdate: 'user_message_chunk', messageId: 'long-child-user', content: { type: 'text', text: 'Inspect the long-running task' } },
       });
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: childSessionId,
         update: { sessionUpdate: 'agent_thought_chunk', messageId: 'long-child-thought', content: { type: 'text', text: 'Checking the first candidate' } },
       });
       await new Promise<void>(resolve => cancelledSessions.set(childSessionId, resolve));
       cancelledSessions.delete(childSessionId);
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'tool_call_update',
@@ -2414,23 +2414,23 @@ class FakeAgent implements Agent {
           _meta: { subagent_session_info: { session_id: childSessionId, message_start_index: 0, message_end_index: 1 } },
         },
       });
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: { sessionUpdate: 'agent_message_chunk', messageId: 'long-subagent-answer', content: { type: 'text', text: 'Subagent stopped.' } },
       });
       return { stopReason: 'cancelled' };
     }
     if (promptText.startsWith('Continue independently') || promptText === '继续检查错误处理') {
-      await client.sessionUpdate({ sessionId: params.sessionId, update: {
+      await client.notify('session/update', { sessionId: params.sessionId, update: {
         sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `已继续检查：${promptText}` },
       } });
       return { stopReason: 'end_turn' };
     }
     if (promptText.includes('pending question design fixture') || promptText === '补充登录流程测试') {
-      await client.sessionUpdate({ sessionId: params.sessionId, update: {
+      await client.notify('session/update', { sessionId: params.sessionId, update: {
         sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '我会先检查现有测试结构，并补齐核心用例。\n\n' },
       } });
-      const answer = client.createElicitation({
+      const answer = client.request('elicitation/create', {
         sessionId: params.sessionId, mode: 'form',
         message: '这次测试需要覆盖哪些范围？',
         requestedSchema: { type: 'object', required: ['scope'], properties: {
@@ -2441,26 +2441,26 @@ class FakeAgent implements Agent {
           notes: { type: 'string', title: '其他要求', minLength: 2, description: '可以稍后回答；我会继续检查现有代码。' },
         } },
       });
-      await client.sessionUpdate({ sessionId: params.sessionId, update: {
+      await client.notify('session/update', { sessionId: params.sessionId, update: {
         sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '已读取 tests/auth.test.ts，找到 3 个需要补充的边界用例。' },
       } });
       if (promptText === '补充登录流程测试') {
-        await client.sessionUpdate({ sessionId: params.sessionId, update: {
+        await client.notify('session/update', { sessionId: params.sessionId, update: {
           sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '\n\n我先按核心登录流程补充了测试，接着核对了会话过期的处理。你可以随时回来补充测试范围。' },
         } });
-        void answer.then(response => client.sessionUpdate({ sessionId: params.sessionId, update: {
+        void answer.then(response => client.notify('session/update', { sessionId: params.sessionId, update: {
           sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `\n\nQuestion resolved: ${JSON.stringify(response)}` },
         } }));
         return { stopReason: 'end_turn' };
       }
       const response = await answer;
-      await client.sessionUpdate({ sessionId: params.sessionId, update: {
+      await client.notify('session/update', { sessionId: params.sessionId, update: {
         sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `\n\nQuestion resolved: ${JSON.stringify(response)}` },
       } });
       return { stopReason: 'end_turn' };
     }
     if (promptText.includes('request cancellation fixture')) {
-      await client.sessionUpdate({ sessionId: params.sessionId, update: {
+      await client.notify('session/update', { sessionId: params.sessionId, update: {
         sessionUpdate: 'plan', entries: [{ content: 'Verify request isolation', status: 'in_progress', priority: 'medium' }],
       } });
       const question = (message: string) => ({
@@ -2477,24 +2477,24 @@ class FakeAgent implements Agent {
         toolCall: { toolCallId: 'withdrawn-tool', title: 'Withdrawn permission', kind: 'execute', status: 'pending' },
         options: [{ optionId: 'allow', name: 'Allow once', kind: 'allow_once' }],
       }, { cancellationSignal: permissionAbort.signal }).catch(() => null);
-      const retained = client.createElicitation(question('Retained question'));
-      await client.createElicitation(question('Ready to withdraw'));
+      const retained = client.request('elicitation/create', question('Retained question'));
+      await client.request('elicitation/create', question('Ready to withdraw'));
       inputAbort.abort();
       permissionAbort.abort();
       await Promise.all([withdrawnInput, withdrawnPermission]);
-      await client.sessionUpdate({ sessionId: params.sessionId, update: {
+      await client.notify('session/update', { sessionId: params.sessionId, update: {
         sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Withdrawals sent; unrelated question remains.' },
       } });
       await retained;
-      await client.sessionUpdate({ sessionId: params.sessionId, update: {
+      await client.notify('session/update', { sessionId: params.sessionId, update: {
         sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Request cancellation verified.' },
       } });
       return { stopReason: 'end_turn' };
     }
     if (promptText.includes('client services')) {
       const filePath = path.join(process.cwd(), 'acp-client-roundtrip.txt');
-      await client.writeTextFile({ sessionId: params.sessionId, path: filePath, content: 'filesystem-ok' });
-      const file = await client.readTextFile({ sessionId: params.sessionId, path: filePath });
+      await client.request('fs/write_text_file', { sessionId: params.sessionId, path: filePath, content: 'filesystem-ok' });
+      const file = await client.request('fs/read_text_file', { sessionId: params.sessionId, path: filePath });
       const terminal = await client.createTerminal({
         sessionId: params.sessionId,
         command: process.execPath,
@@ -2503,7 +2503,7 @@ class FakeAgent implements Agent {
       });
       const exit = await terminal.waitForExit();
       const output = await terminal.currentOutput();
-      const elicitation = await client.createElicitation({
+      const elicitation = await client.request('elicitation/create', {
         sessionId: params.sessionId,
         mode: 'form',
         message: 'Confirm the protocol round trip',
@@ -2513,7 +2513,7 @@ class FakeAgent implements Agent {
           properties: { confirmed: { type: 'boolean', title: 'Confirmed' } },
         },
       });
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'tool_call',
@@ -2525,7 +2525,7 @@ class FakeAgent implements Agent {
         },
       });
       await terminal.release();
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'agent_message_chunk',
@@ -2539,7 +2539,7 @@ class FakeAgent implements Agent {
       return { stopReason: 'end_turn' };
     }
     if (promptText.includes('streaming command activity')) {
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'tool_call',
@@ -2552,7 +2552,7 @@ class FakeAgent implements Agent {
       });
       for (let index = 1; index <= 3; index += 1) {
         await new Promise(resolve => setTimeout(resolve, 700));
-        await client.sessionUpdate({
+        await client.notify('session/update', {
           sessionId: params.sessionId,
           update: {
             sessionUpdate: 'tool_call_update',
@@ -2562,7 +2562,7 @@ class FakeAgent implements Agent {
           },
         });
       }
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'tool_call_update',
@@ -2571,7 +2571,7 @@ class FakeAgent implements Agent {
           rawOutput: { stdout: 'stream-complete\n' },
         },
       });
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'agent_message_chunk',
@@ -2588,7 +2588,7 @@ class FakeAgent implements Agent {
         args: ['-e', "process.stdout.write('long-terminal-ready\\n'); setInterval(() => {}, 1000)"],
         cwd: process.cwd(),
       });
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'tool_call',
@@ -2600,7 +2600,7 @@ class FakeAgent implements Agent {
         },
       });
       const exit = await terminal.waitForExit();
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'tool_call_update',
@@ -2608,7 +2608,7 @@ class FakeAgent implements Agent {
           status: providerToolStatus(exit.signal ? 'cancelled' : 'completed'),
         },
       });
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'agent_message_chunk',
@@ -2625,7 +2625,7 @@ class FakeAgent implements Agent {
         args: ['-e', "process.stdout.write('failing-terminal-ready\\n'); setTimeout(() => process.exit(2), 3000)"],
         cwd: process.cwd(),
       });
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'tool_call',
@@ -2637,7 +2637,7 @@ class FakeAgent implements Agent {
         },
       });
       const exit = await terminal.waitForExit();
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'tool_call_update',
@@ -2646,7 +2646,7 @@ class FakeAgent implements Agent {
           rawOutput: { exitCode: exit.exitCode },
         },
       });
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'agent_message_chunk',
@@ -2663,7 +2663,7 @@ class FakeAgent implements Agent {
         args: ['-e', "process.stdin.setEncoding('utf8'); process.stdout.write('name> '); process.stdin.once('data', value => { process.stdout.write('hello ' + value.trim()); process.exit(0); })"],
         cwd: process.cwd(),
       });
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'tool_call',
@@ -2676,7 +2676,7 @@ class FakeAgent implements Agent {
       });
       const exit = await terminal.waitForExit();
       const output = await terminal.currentOutput();
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'tool_call_update',
@@ -2684,7 +2684,7 @@ class FakeAgent implements Agent {
           status: exit.exitCode === 0 ? 'completed' : 'failed',
         },
       });
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'agent_message_chunk',
@@ -2699,7 +2699,7 @@ class FakeAgent implements Agent {
       throw error;
     }
     if (promptText.includes('usage limit error')) {
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'agent_message_chunk',
@@ -2711,7 +2711,7 @@ class FakeAgent implements Agent {
     }
     if (promptText.includes('duplicate provider error')) {
       const message = 'stream disconnected before completion: request to http://example.invalid/v1/responses failed';
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'agent_message_chunk',
@@ -2723,7 +2723,7 @@ class FakeAgent implements Agent {
       throw new Error(message);
     }
     if (promptText.includes('partial provider error')) {
-      await client.sessionUpdate({
+      await client.notify('session/update', {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'agent_message_chunk',
@@ -2734,7 +2734,7 @@ class FakeAgent implements Agent {
       });
       throw new Error('stream disconnected before completion: request to http://example.invalid/v1/responses failed');
     }
-    const permission = await client.requestPermission({
+    const permission = await client.request('session/request_permission', {
       sessionId: params.sessionId,
       toolCall: { toolCallId: 'tool-1', title: 'Run fake command', kind: 'execute' },
       options: [
@@ -2742,7 +2742,7 @@ class FakeAgent implements Agent {
         { optionId: 'reject', name: 'Reject', kind: 'reject_once' },
       ],
     });
-    await client.sessionUpdate({
+    await client.notify('session/update', {
       sessionId: params.sessionId,
       update: {
         sessionUpdate: 'tool_call',
@@ -2752,7 +2752,7 @@ class FakeAgent implements Agent {
         status: 'in_progress',
       },
     });
-    await client.sessionUpdate({
+    await client.notify('session/update', {
       sessionId: params.sessionId,
       update: {
         sessionUpdate: 'tool_call_update',
@@ -2761,7 +2761,7 @@ class FakeAgent implements Agent {
         rawOutput: permission.outcome.outcome,
       },
     });
-    await client.sessionUpdate({
+    await client.notify('session/update', {
       sessionId: params.sessionId,
       update: {
         sessionUpdate: 'agent_message_chunk',
@@ -2777,13 +2777,30 @@ class FakeAgent implements Agent {
   }
 }
 
-new AgentSideConnection(
-  connection => {
-    client = connection;
-    return new FakeAgent();
-  },
-  ndJsonStream(
+const fake = new FakeAgent();
+agent()
+  .onConnect(connection => { client = connection.client; })
+  .onRequest('initialize', ({ params }) => fake.initialize(params))
+  .onRequest('authenticate', () => fake.authenticate())
+  .onRequest('logout', () => fake.logout())
+  .onRequest('session/new', ({ params }) => fake.newSession(params))
+  .onRequest('session/load', ({ params }) => fake.loadSession(params))
+  .onRequest('session/resume', ({ params }) => fake.resumeSession(params))
+  .onRequest('session/list', () => fake.listSessions())
+  .onRequest('session/fork', () => fake.unstable_forkSession())
+  .onRequest('session/delete', () => fake.deleteSession())
+  .onRequest('session/close', () => fake.closeSession())
+  .onRequest('session/set_mode', () => fake.setSessionMode())
+  .onRequest('session/set_config_option', ({ params }) => fake.setSessionConfigOption(params))
+  .onRequest('session/prompt', ({ params }) => fake.prompt(params))
+  .onNotification('session/cancel', ({ params }) => fake.cancel(params))
+  .onRequest('*', ({ method, params }) => {
+    if (!params || typeof params !== 'object' || Array.isArray(params)) {
+      throw RequestError.invalidParams('Extension params must be an object');
+    }
+    return fake.extMethod(method, params);
+  })
+  .connect(ndJsonStream(
     Writable.toWeb(process.stdout),
     Readable.toWeb(process.stdin) as ReadableStream<Uint8Array>,
-  )
-);
+  ));

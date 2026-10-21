@@ -27,6 +27,12 @@ rather than selecting another one. Native Terminal has a separate executable
 policy. Provider-specific constraints belong in adapters and, for Codex, the
 [Codex runtime contract](codex-runtime.md).
 
+The host and Farming-owned bridges use the ACP v1 SDK app API with its explicit
+unstable entrypoint, preserving negotiated Fork, elicitation, system-prompt and
+subagent fields. SDK package upgrades do not change the wire protocol version.
+Prepared third-party adapters retain their own locked SDK dependencies; the host's
+SDK pin must not override an adapter's independently reviewed protocol runtime.
+
 A shared provider connection is scoped to canonical Project, Provider, canonical
 Agent Home and launch identity, and requires independent multi-Session support.
 Each Session retains its own configuration, permissions, workspace, MCP inputs,
