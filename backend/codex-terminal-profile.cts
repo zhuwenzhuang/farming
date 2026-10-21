@@ -123,6 +123,8 @@ function codexTerminalProfileEqual(left: unknown, right: unknown): boolean {
 
 interface ApplyCodexTerminalProfileOptions {
   onInputSafe?: () => void;
+  /** Fresh provider catalog for this Agent Home; never client-supplied labels. */
+  readModelCatalog?: () => PromiseLike<readonly CodexTerminalModelIdentity[]>;
   pollIntervalMs?: number;
   profile: CodexTerminalProfileTarget | null | undefined;
   /** Authoritative rendered checkpoint text, never raw PTY cursor history. */
@@ -132,6 +134,11 @@ interface ApplyCodexTerminalProfileOptions {
   signal?: AbortSignal;
   sleep?: SleepFunction;
   timeoutMs?: number;
+}
+
+interface CodexTerminalModelIdentity {
+  value: string;
+  displayName: string;
 }
 
 interface ResolveCodexTerminalSessionOptions {
@@ -334,15 +341,28 @@ function codexAdvancedReasoningMenuOptions(previewText: unknown): NumberedMenuOp
   return numberedOptionsAfter(previewText, /Advanced Reasoning/gi);
 }
 
-function modelSelectionInput(previewText: unknown, model: unknown): string | null {
+function modelSelectionInput(
+  previewText: unknown,
+  model: unknown,
+  catalog: readonly CodexTerminalModelIdentity[] = [],
+): string | null {
   const target = normalizedValue(model);
   const options = codexModelMenuOptions(previewText);
   if (!options) return null;
-  const option = options.find(item => {
-    const firstToken = item.line.match(/^([A-Za-z0-9][A-Za-z0-9._:/-]*)\b/)?.[1];
-    return normalizedValue(firstToken) === target;
-  });
-  return option?.input || '';
+  const label = (item: NumberedMenuOption): string => item.label.replace(/\s+\(current\)$/, '').trim();
+  const exactIds = options.filter(item => normalizedValue(label(item)) === target);
+  if (exactIds.length > 1) throw new Error(`Codex model menu is ambiguous for ${target}`);
+  if (exactIds.length === 1) return exactIds[0].input;
+  const identities = catalog.filter(item => item.value === target);
+  if (identities.length > 1) throw new Error(`Codex model catalog is ambiguous for ${target}`);
+  const displayName = identities[0]?.displayName.trim();
+  if (!displayName) return '';
+  if (catalog.filter(item => item.displayName.trim() === displayName).length !== 1) {
+    throw new Error(`Codex model display name is ambiguous for ${target}`);
+  }
+  const matches = options.filter(item => label(item) === displayName);
+  if (matches.length > 1) throw new Error(`Codex model menu is ambiguous for ${target}`);
+  return matches[0]?.input || '';
 }
 
 function reasoningSelectionInput(previewText: unknown, effort: unknown): string | null {
@@ -468,6 +488,7 @@ async function applyCodexTerminalProfile({
   profile,
   readPreview,
   readOutput,
+  readModelCatalog,
   sendInput,
   onInputSafe,
   timeoutMs = DEFAULT_TIMEOUT_MS,
@@ -562,7 +583,12 @@ async function applyCodexTerminalProfile({
           { ...waitOptions, timeoutMessage: 'Codex did not open its full model menu' },
         );
       }
+      let modelCatalog: readonly CodexTerminalModelIdentity[] = [];
       let modelInput = modelSelectionInput(modelMenu.preview, target.model) || '';
+      if (!modelInput && readModelCatalog) {
+        modelCatalog = await runStep(readModelCatalog, 'Timed out reading the Codex model catalog');
+        modelInput = modelSelectionInput(modelMenu.preview, target.model, modelCatalog) || '';
+      }
       if (!modelInput || !/^[1-9]$/.test(modelInput)) {
         // A narrow TUI exposes only a window of the full list. Follow its
         // selected global index, observing each move before sending another;
@@ -571,7 +597,7 @@ async function applyCodexTerminalProfile({
         for (;;) {
           const selected = codexModelMenuOptions(modelMenu.preview)?.find(option => option.selected);
           if (!selected) throw new Error('Codex model menu did not identify its selected model');
-          if (modelSelectionInput(modelMenu.preview, target.model) === selected.input) {
+          if (modelSelectionInput(modelMenu.preview, target.model, modelCatalog) === selected.input) {
             modelInput = '\r';
             break;
           }

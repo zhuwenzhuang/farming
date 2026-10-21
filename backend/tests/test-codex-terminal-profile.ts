@@ -60,6 +60,21 @@ const ADVANCED_REASONING_MENU = [
   '  2. Ultra              For demanding multi-agent work',
 ].join('\n');
 
+// Codex 0.163's rendered menu and debug-model catalog expose different identities.
+const DISPLAY_MODEL_CATALOG = [
+  { value: 'gpt-6.1-sol', displayName: 'GPT 6.1 Sol' },
+  { value: 'gpt-6-astra', displayName: 'GPT 6.0 Astra' },
+  { value: 'gpt-6-sol', displayName: 'GPT 6.0 Sol' },
+  { value: 'gpt-6-luna', displayName: 'GPT 6.0 Luna' },
+];
+const DISPLAY_MODEL_MENU = [
+  'Select Model and Effort',
+  '  1. GPT 6.1 Sol  Latest workhorse model',
+  '› 2. GPT 6.0 Astra (current)  Most intelligent model',
+  '  3. GPT 6.0 Sol  GPT-6 Sol Codex model',
+  '  4. GPT 6.0 Luna  GPT-6 Luna Codex model',
+].join('\n');
+
 async function run() {
   const statusSessionId = '019fc332-185d-73f2-b1be-0054f2778cab';
   const statusPreview = [
@@ -262,6 +277,18 @@ async function run() {
     { serviceTier: 'priority', fast: true }
   );
   assert.strictEqual(modelSelectionInput(MODEL_MENU, 'gpt-5.6-sol'), '8');
+  assert.strictEqual(modelSelectionInput(DISPLAY_MODEL_MENU, 'gpt-6-sol'), '',
+    'a rendered display name without a provider catalog must never imply a model ID');
+  assert.strictEqual(modelSelectionInput(DISPLAY_MODEL_MENU, 'gpt-6-sol', DISPLAY_MODEL_CATALOG), '3');
+  assert.strictEqual(modelSelectionInput(DISPLAY_MODEL_MENU, 'gpt-6-astra', DISPLAY_MODEL_CATALOG), '2');
+  assert.strictEqual(modelSelectionInput(DISPLAY_MODEL_MENU.replace('GPT 6.0 Sol  ', 'GPT 6.0 Sol Compact  '), 'gpt-6-sol', DISPLAY_MODEL_CATALOG), '',
+    'display-name prefixes are not model identity');
+  assert.strictEqual(modelSelectionInput(MODEL_MENU.replace('gpt-5.6-sol', 'gpt-5.6-sol-openai-compact'), 'gpt-5.6-sol'), '',
+    'canonical model prefixes are not model identity');
+  assert.throws(() => modelSelectionInput(DISPLAY_MODEL_MENU, 'gpt-6-sol', [
+    ...DISPLAY_MODEL_CATALOG, { value: 'other-model', displayName: 'GPT 6.0 Sol' },
+  ]), /display name is ambiguous/);
+  assert.throws(() => modelSelectionInput(`${DISPLAY_MODEL_MENU}\n  5. GPT 6.0 Sol  Duplicate`, 'gpt-6-sol', DISPLAY_MODEL_CATALOG), /menu is ambiguous/);
   assert.strictEqual(reasoningSelectionInput(REASONING_MENU, 'xhigh'), '4');
   assert.strictEqual(reasoningSelectionInput(
     'Select Reasoning Level for gpt-5.6-sol\n  1. Low\n  5. Max',
@@ -325,6 +352,40 @@ async function run() {
     effort: 'ultra',
     serviceTier: 'priority',
   });
+
+  for (const ambiguous of [false, true]) {
+    let displayMenuPreview = '› Ask Codex\n\nGPT 6.0 Astra high · /workspace';
+    const displayMenuInputs = [];
+    let catalogReads = 0;
+    const applying = applyCodexTerminalProfile({
+      profile: { model: 'gpt-6-sol', effort: 'low', serviceTier: 'default' },
+      readPreview: async () => displayMenuPreview,
+      readModelCatalog: async () => {
+        catalogReads += 1;
+        return ambiguous
+          ? [...DISPLAY_MODEL_CATALOG, { value: 'other-model', displayName: 'GPT 6.0 Sol' }]
+          : DISPLAY_MODEL_CATALOG;
+      },
+      sendInput: async input => {
+        displayMenuInputs.push(input);
+        if (Array.isArray(input)) displayMenuPreview = DISPLAY_MODEL_MENU;
+        else if (input === '3') displayMenuPreview = 'Select Reasoning Level for GPT 6.0 Sol\n  1. Low  Fast responses';
+        else if (input === '1') displayMenuPreview = '• Model changed to gpt-6-sol low\n\n› Ask Codex\n\nGPT 6.0 Sol low · /workspace';
+        else if (input === '\x1b') displayMenuPreview = IDLE_55;
+        else assert.fail(`unexpected catalog model input: ${JSON.stringify(input)}`);
+      },
+      timeoutMs: 1000,
+    });
+    if (ambiguous) {
+      await assert.rejects(applying, /display name is ambiguous/);
+      assert.deepStrictEqual(displayMenuInputs, [[{ type: 'paste', text: '/model' }, '\r'], '\x1b'],
+        'an ambiguous catalog must close the picker without selecting any model');
+    } else {
+      assert.deepStrictEqual(await applying, { model: 'gpt-6-sol', effort: 'low', serviceTier: 'default' });
+      assert.deepStrictEqual(displayMenuInputs, [[{ type: 'paste', text: '/model' }, '\r'], '3', '1']);
+    }
+    assert.strictEqual(catalogReads, 1, 'one fresh catalog owns the whole picker transaction');
+  }
 
   for (const confirmation of ['exact-model', 'display-name-only']) {
     const displayComposer = '› Ask Codex\n\nGPT 6.0 Astra high · /workspace';
@@ -408,7 +469,7 @@ async function run() {
     'model-1', 'model-2', 'model-3', 'model-4', 'model-5', 'model-6', 'model-7',
     'gpt-5.6-terra', 'gpt-5.6-sol-openai-compact', 'gpt-5.6-sol', 'gpt-5.6-luna', 'model-12',
   ];
-  for (const scenario of ['hidden-target', 'visible-two-digit', 'three-digit', 'wrap-target', 'missing-target', 'missing-cursor', 'stalled-cursor', 'move-uncertain', 'move-canceled']) {
+  for (const scenario of ['hidden-target', 'display-labels', 'visible-two-digit', 'three-digit', 'wrap-target', 'missing-target', 'missing-cursor', 'stalled-cursor', 'move-uncertain', 'move-canceled']) {
     const pagedModels = scenario === 'three-digit'
       ? Array.from({ length: 102 }, (_, index) => index === 99 ? 'gpt-5.6-sol' : `model-${index + 1}`)
       : pagedCatalog;
@@ -422,7 +483,7 @@ async function run() {
       ...pagedModels.slice(firstVisible - 1, firstVisible + 7).map((model, offset) => {
         const index = firstVisible + offset;
         const marker = scenario !== 'missing-cursor' && index === selected ? '›' : ' ';
-        return `${marker} ${index}. ${model}  Available model`;
+        return `${marker} ${index}. ${scenario === 'display-labels' ? `Display ${model}` : model}  Available model`;
       }),
       'gpt-5.5 xhigh · /workspace',
     ].join('\r\n');
@@ -437,6 +498,9 @@ async function run() {
     try {
       const applying = applyCodexTerminalProfile({
         profile: { model: target, effort: 'low', serviceTier: 'default' },
+        readModelCatalog: scenario === 'display-labels'
+          ? async () => pagedModels.map(value => ({ value, displayName: `Display ${value}` }))
+          : undefined,
         readPreview: async () => {
           if (staleReads > 0 && --staleReads === 0) pagedPreview = pendingPreview;
           return pagedPreview;

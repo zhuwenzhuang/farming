@@ -7,7 +7,8 @@ import {
   resolveCodexTerminalSessionId,
 } from './codex-terminal-profile.cjs';
 import type { AgentRecord as TypedAgentRecord } from './agent-manager-record-types.js';
-import { providerForProgram } from './provider-adapters.cjs';
+import { applyProviderHomeEnvironment, providerForProgram } from './provider-adapters.cjs';
+import { listCodexModelOptions } from './codex-models.cjs';
 
 type ProviderTerminalControlInput = string | readonly unknown[];
 
@@ -29,6 +30,7 @@ interface ProviderTerminalIdentityControl {
 
 interface ApplyProviderTerminalProfileOptions {
   onInputSafe?: () => void;
+  providerHomePath?: string;
   profile: Record<string, unknown>;
   /** Authoritative rendered checkpoint text, never raw PTY cursor history. */
   readOutput: () => unknown | PromiseLike<unknown>;
@@ -76,6 +78,9 @@ const PROVIDER_TERMINAL_PROFILE_CONTROLS: readonly ProviderTerminalProfileContro
     active: activeCodexTerminalProfile,
     apply: options => applyCodexTerminalProfile({
       ...options,
+      readModelCatalog: async () => (await listCodexModelOptions({
+        env: applyProviderHomeEnvironment({ ...process.env }, 'codex', options.providerHomePath || ''),
+      })).catalog,
       sendInput: input => options.sendInput(input),
     }),
     displayName: 'Codex Terminal',

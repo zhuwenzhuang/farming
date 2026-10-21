@@ -6891,6 +6891,7 @@ class AgentManager extends EventEmitter {
     const admission = options.admission ?? this.captureTerminalInputAdmission(agentId);
     const applied = await profileControl.apply({
       profile,
+      providerHomePath: agent.providerHomePath,
       timeoutMs: options.timeoutMs,
       signal: options.signal,
       onInputSafe: options.onInputSafe,

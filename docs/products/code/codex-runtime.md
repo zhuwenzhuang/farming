@@ -60,6 +60,9 @@ The native profile transaction selects exact model, reasoning and speed identiti
 Admission requires an idle Composer, independently of whether its footer exposes
 a model ID. A display name is never guessed into an ID; unknown identity requires
 the explicit target picker and confirmation transaction.
+Display-name picker entries resolve only through a fresh catalog from the same
+Agent Home, with an exact, unique label-to-ID mapping. Ambiguous labels fail;
+successful selection still requires the canonical model ID in confirmation.
 It has one ordered-input fence and deadline, and succeeds only after the picker
 closes and the requested profile is confirmed in a fresh rendered screen. Open
 menus, stale footers and stripped ANSI text are not confirmation. Cancellation
