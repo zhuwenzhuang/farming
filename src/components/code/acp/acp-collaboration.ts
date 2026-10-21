@@ -314,3 +314,20 @@ export function acpCollaborationActivityFeed(items: AgentTranscriptProcessItem[]
   }
   return feed
 }
+
+/** Compact previews never fetch tool detail or infer delivery from message text. */
+export function acpOutgoingSummary(events: AcpCollaborationEvent[]) {
+  const messages = events.filter(event => event.outgoingMessage)
+  return {
+    count: messages.length,
+    previews: messages.slice(0, 2).map(event => {
+      const line = (event.message.trim().split(/\r?\n/, 1)[0] || '').replace(/\s+/g, ' ')
+      const preview = line.length > 140 ? `${line.slice(0, 140)}…` : line
+      return { ...event, preview }
+    }),
+    remaining: Math.max(0, messages.length - 2),
+    states: (['failed', 'cancelled', 'recorded', 'sending'] as const)
+      .map(action => ({ action, count: messages.filter(event => event.action === action).length }))
+      .filter(state => state.count > 0),
+  }
+}

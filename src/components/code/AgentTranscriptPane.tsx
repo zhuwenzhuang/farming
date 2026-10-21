@@ -136,6 +136,7 @@ import { planDetailItems } from './agent-plan'
 import { acpActivityKind, acpCompactPlanLabel, acpLiveToolActivity, acpRecentToolActivity, acpPlanProgress, acpThoughtActivityLabel, type AcpActivityKind } from './acp/acp-activity-label'
 import {
   acpCollaborationEvents,
+  acpOutgoingSummary,
   acpCollaborationActivityFeed,
   type AcpCollaborationAction,
 } from './acp/acp-collaboration'
@@ -1583,6 +1584,23 @@ function AgentTranscriptIncomingMessage({ copy, turn, continued = false, hasNext
   </div>
 }
 
+function AgentTranscriptOutgoingPreview({ event, states, copy }: {
+  event: ReturnType<typeof acpOutgoingSummary>['previews'][number]
+  states: AgentTranscriptSubagentState[]
+  copy: CodeCopy
+}) {
+  const navigation = useContext(CommunicationPeerNavigation)
+  const { agentId } = useContext(TranscriptFileOpenContext)
+  const peer = agentId ? navigation?.resolve(agentId, event.threadId) : null
+  const name = states.find(state => state.threadId === event.threadId)?.name || event.name
+  return <span className="code-agent-transcript-outgoing-preview" data-testid="code-agent-outgoing-preview">
+    <span className="code-agent-transcript-outgoing-preview-recipient">
+      <AgentTranscriptCommunicationRecipient peer={peer || null} fallback={name} directed copy={copy} />
+    </span>
+    <span className="code-agent-transcript-outgoing-preview-text">{event.preview}</span>
+  </span>
+}
+
 function AgentTranscriptOutgoingMessage({ activity, recipient, open, onToggleDetails, onLoadMessage, copy }: {
   activity: ReturnType<typeof acpCollaborationActivityFeed>[number]
   recipient: ReactNode
@@ -2556,6 +2574,7 @@ function AgentTranscriptTurnView({
     () => acpCollaborationEvents(resolvedProcessItems),
     [resolvedProcessItems],
   )
+  const outgoingSummary = useMemo(() => acpOutgoingSummary(collaborationEvents), [collaborationEvents])
   const collaborationProcessItemIds = useMemo(() => new Set(
     collaborationEvents.map(event => event.processItemId),
   ), [collaborationEvents])
@@ -2929,7 +2948,7 @@ function AgentTranscriptTurnView({
             <>
               <button
             type="button"
-            className="code-agent-transcript-process-summary"
+            className={`code-agent-transcript-process-summary ${outgoingSummary.count ? 'has-outgoing' : ''}`}
             data-testid="code-agent-transcript-process-summary"
             aria-expanded={effectiveProcessOpen}
             title={liveToolActivity?.label || turnProcessTitle(mainProcessTurn, copy)}
@@ -2946,8 +2965,20 @@ function AgentTranscriptTurnView({
               toggleTranscriptDisclosureWithStableAnchor(event.currentTarget, toggleProcessOpen)
             }}
               >
-                <span className="code-agent-transcript-process-summary-label">
-                  {processSummaryLabel}
+                <span className="code-agent-transcript-process-summary-content">
+                  <span className="code-agent-transcript-process-summary-heading">
+                    <span className="code-agent-transcript-process-summary-label">{processSummaryLabel}</span>
+                    {outgoingSummary.count > 0 ? <span>{copy.agentTranscriptCollaborationMessageCount(outgoingSummary.count)}</span> : null}
+                    {outgoingSummary.states.map(state => <span key={state.action}
+                      className={`code-agent-transcript-collaboration-action ${state.action}`}>
+                      {state.action === 'recorded' ? copy.agentTranscriptCollaborationUnknown : collaborationActionLabel(state.action, copy)} · {state.count}
+                    </span>)}
+                  </span>
+                  {!effectiveProcessOpen ? outgoingSummary.previews.map(event => <AgentTranscriptOutgoingPreview
+                    key={event.id} event={event} states={subagentStates} copy={copy} />) : null}
+                  {!effectiveProcessOpen && outgoingSummary.remaining > 0 ? <span className="code-agent-transcript-outgoing-remaining">
+                    {copy.agentTranscriptCollaborationMoreMessages(outgoingSummary.remaining)}
+                  </span> : null}
                 </span>
                 <ChevronRightGlyph className="code-agent-transcript-chevron" />
               </button>
@@ -3076,7 +3107,7 @@ function AgentTranscriptTurnView({
               })}
             </div>
               ) : null}
-            {source === 'acp' && collaborationEvents.length > 0 ? (
+            {source === 'acp' && collaborationEvents.length > 0 && (effectiveProcessOpen || !outgoingSummary.count) ? (
               <AgentTranscriptCollaborationSpace
                 processItems={resolvedProcessItems}
                 subagentStates={subagentStates}

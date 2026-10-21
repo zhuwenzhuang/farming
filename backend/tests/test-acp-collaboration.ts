@@ -6,6 +6,7 @@ const {
   acpCollaborationAgents,
   acpCollaborationAgentsForTurn,
   acpCollaborationEvents,
+  acpOutgoingSummary,
   acpCollaborationActivityFeed,
 } = require('../../src/components/code/acp/acp-collaboration.ts');
 
@@ -653,3 +654,24 @@ assert.strictEqual(communicationAgentPeer(peers, 'other-provider', peers[1].prov
 assert.strictEqual(communicationAgentPeer(peers, 'missing', peers[1].providerSessionKey), null);
 assert.strictEqual(communicationAgentPeer(peers, 'peer', 'invalid'), null);
 assert.strictEqual(communicationAgentPeer([...peers, peers[1]], 'peer', peers[1].providerSessionKey), null);
+
+const summaryEvents = acpCollaborationEvents(nativeItems);
+const summary = acpOutgoingSummary([
+  ...summaryEvents,
+  { ...summaryEvents[0], id: 'second', message: 'First line\nHidden body' },
+  { ...summaryEvents[0], id: 'failure', action: 'failed' },
+  { ...summaryEvents[0], id: 'unknown', action: 'recorded' },
+  { ...summaryEvents[0], id: 'pending', action: 'sending' },
+  { ...summaryEvents[0], id: 'cancelled', action: 'cancelled' },
+  { ...summaryEvents[0], id: 'result', outgoingMessage: false },
+]);
+assert.strictEqual(summary.count, 6);
+assert.strictEqual(summary.previews.length, 2);
+assert.strictEqual(summary.previews[1].preview, 'First line');
+assert.strictEqual(summary.remaining, 4);
+assert.deepStrictEqual(summary.states, [
+  { action: 'failed', count: 1 }, { action: 'cancelled', count: 1 },
+  { action: 'recorded', count: 1 }, { action: 'sending', count: 1 },
+]);
+assert.strictEqual(acpOutgoingSummary([]).count, 0);
+assert.strictEqual(acpOutgoingSummary([{ ...summaryEvents[0], message: 'x'.repeat(1000) }]).previews[0].preview.length, 141);

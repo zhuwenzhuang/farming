@@ -131,6 +131,9 @@ export interface CodeCopy {
   agentTranscriptCollaborationRecipient: (name: string) => string
   agentTranscriptCollaborationOpenPeer: string
   agentTranscriptCollaborationCancelled: string
+  agentTranscriptCollaborationMessageCount: (count: number) => string
+  agentTranscriptCollaborationMoreMessages: (count: number) => string
+  agentTranscriptCollaborationUnknown: string
   agentTranscriptCollaborationSending: string
   agentTranscriptMessageExpand: string
   agentTranscriptMessageLoadFailed: string
@@ -899,6 +902,9 @@ const EN_COPY: CodeCopy = {
   agentTranscriptCollaborationRecipient: name => `To ${name}`,
   agentTranscriptCollaborationOpenPeer: 'Open Agent',
   agentTranscriptCollaborationCancelled: 'Cancelled',
+  agentTranscriptCollaborationMessageCount: count => `${count} Agent message${count === 1 ? '' : 's'}`,
+  agentTranscriptCollaborationMoreMessages: count => `+${count} more`,
+  agentTranscriptCollaborationUnknown: 'Outcome unknown',
   agentTranscriptCollaborationSending: 'Sending message',
   agentTranscriptMessageExpand: 'Show full message',
   agentTranscriptMessageLoadFailed: 'Could not load the full message.',
@@ -1704,6 +1710,9 @@ const ZH_COPY: CodeCopy = {
   agentTranscriptCollaborationRecipient: name => `发给 ${name}`,
   agentTranscriptCollaborationOpenPeer: '打开 Agent',
   agentTranscriptCollaborationCancelled: '已取消',
+  agentTranscriptCollaborationMessageCount: count => `${count} 条 Agent 消息`,
+  agentTranscriptCollaborationMoreMessages: count => `另 ${count} 条`,
+  agentTranscriptCollaborationUnknown: '结果未知',
   agentTranscriptCollaborationSending: '正在发送消息',
   agentTranscriptMessageExpand: '展开全文',
   agentTranscriptMessageLoadFailed: '未能读取完整消息。',

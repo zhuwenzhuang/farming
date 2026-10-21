@@ -1222,7 +1222,9 @@ class FakeAgent {
         } });
         return { stopReason: 'end_turn' };
       }
-      const statuses = extended
+      const statuses = promptText.includes('single pending') ? ['pending'] as const
+        : promptText.includes('single') ? ['completed'] as const
+        : extended
         ? ['completed', 'completed', 'failed', 'completed', 'in_progress'] as const
         : ['completed', 'completed', 'failed'] as const;
       for (const [index, status] of statuses.entries()) {

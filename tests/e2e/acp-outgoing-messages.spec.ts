@@ -29,6 +29,38 @@ test('peer messages stay readable with bounded expansion, unknown inputs, send o
   await page.getByTestId('code-acp-composer-send').click()
   await expect(page.getByText('Peer communication example complete.', { exact: true })).toBeVisible()
 
+  const summary = page.getByTestId('code-agent-transcript-process-summary').last()
+  await expect(summary).toHaveAttribute('aria-expanded', 'false')
+  await expect(summary).toContainText('5 条 Agent 消息')
+  await expect(summary).toContainText('失败 · 1')
+  await expect(summary).toContainText('正在发送消息 · 1')
+  await expect(summary).toContainText('另 3 条')
+  await expect(summary.getByTestId('code-agent-outgoing-preview')).toHaveCount(2)
+  await expect(summary).toContainText('Cleanroom HDFS TPCDS 单机验收与多机接线')
+  await expect(summary).toContainText('共享传输配置')
+  await expect(page.getByTestId('code-agent-outgoing-message')).toHaveCount(0)
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: width === 1440 ? 1000 : 844 })
+    for (const appearance of ['light', 'dark', 'paper']) {
+      await page.locator('body').evaluate((body, value) => { body.dataset.appearance = value }, appearance)
+      await page.evaluate(() => document.fonts.ready)
+      await summary.scrollIntoViewIfNeeded()
+      await page.mouse.move(0, 0)
+      expect(await summary.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
+      const bounds = await summary.boundingBox()
+      expect(bounds!.x).toBeGreaterThanOrEqual(0)
+      expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width)
+      const screenshot = await page.getByTestId('code-agent-chat-view').screenshot({
+        path: testInfo.outputPath(`worked-messages-${width}-${appearance}.png`), animations: 'disabled',
+      })
+      expect(screenshot.readUInt32BE(16)).toBeGreaterThan(250)
+      expect(screenshot.readUInt32BE(20)).toBeGreaterThan(300)
+    }
+  }
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await summary.focus()
+  await page.keyboard.press('Enter')
+  await expect(summary).toHaveAttribute('aria-expanded', 'true')
   const messages = page.getByTestId('code-agent-outgoing-message')
   await expect(messages).toHaveCount(5)
   const first = messages.first()
@@ -97,6 +129,8 @@ test('peer messages stay readable with bounded expansion, unknown inputs, send o
   }
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.reload()
+  await expect(summary).toContainText('5 条 Agent 消息')
+  if (await summary.getAttribute('aria-expanded') !== 'true') await summary.click()
   await expect(messages).toHaveCount(5)
   await expect(messages.nth(2).getByRole('status')).toHaveText('失败')
   await expect(messages.nth(4).getByRole('status')).toHaveText('正在发送消息')
@@ -110,3 +144,45 @@ test('peer messages stay readable with bounded expansion, unknown inputs, send o
   await expect(evidence.getByTestId('code-collaboration-open-details')).toHaveCount(0)
   await expect(page.getByTestId('code-native-related-row')).toHaveCount(0)
 })
+
+for (const scenario of ['single', 'single pending']) {
+  test(`Worked keeps ${scenario} outgoing message visible without a separate card`, async ({ page, workspaceRoot }, testInfo) => {
+    await page.request.post('/farming/api/settings', { data: { language: 'en' } })
+    const created = await page.request.post('/farming/api/control/agents', {
+      data: { command: 'codex', workspace: workspaceRoot, agentRuntimeMode: 'chat' },
+    })
+    expect(created.ok()).toBeTruthy()
+    const { agentId } = await created.json() as { agentId: string }
+    await openFarming(page)
+    await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+    await page.getByTestId('code-acp-composer-input').fill(`native peer communication ${scenario}`)
+    await page.getByTestId('code-acp-composer-send').click()
+    await expect(page.getByText('Peer communication example complete.', { exact: true })).toBeVisible()
+    const summary = page.getByTestId('code-agent-transcript-process-summary')
+    await expect(summary).toContainText('1 Agent message')
+    await expect(summary).toContainText('shared transport')
+    await expect(summary.getByTestId('code-agent-outgoing-preview')).toHaveCount(1)
+    if (scenario.includes('pending')) await expect(summary).toContainText('Sending message · 1')
+    await expect(page.getByTestId('code-agent-outgoing-message')).toHaveCount(0)
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: 900 })
+      for (const appearance of ['light', 'dark', 'paper']) {
+        await page.locator('body').evaluate((body, value) => { body.dataset.appearance = value }, appearance)
+        await page.evaluate(() => document.fonts.ready)
+        await summary.scrollIntoViewIfNeeded()
+        expect(await summary.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
+        await page.getByTestId('code-agent-chat-view').screenshot({
+          path: testInfo.outputPath(`worked-${scenario.replace(' ', '-')}-${width}-${appearance}.png`), animations: 'disabled',
+        })
+      }
+    }
+    await summary.focus()
+    await page.keyboard.press('Space')
+    await expect(page.getByTestId('code-agent-outgoing-message')).toHaveCount(1)
+    await summary.click()
+    await expect(page.getByTestId('code-agent-outgoing-message')).toHaveCount(0)
+    await page.reload()
+    await expect(summary).toContainText('1 Agent message')
+    if (scenario.includes('pending')) await expect(summary).toContainText('Sending message · 1')
+  })
+}

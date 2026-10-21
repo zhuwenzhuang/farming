@@ -278,7 +278,14 @@ sender Agent ID and Session key. Missing, ambiguous and external identities rema
 plain labels. Clicking a source selects it without resuming execution.
 Native encrypted receipts show unavailable readable content, never ciphertext or
 sender-side reconstruction. Outgoing native collaboration is a chronological
-activity feed: send success is neither a read receipt nor task completion.
+activity feed: send success is neither a read receipt nor task completion. Outgoing
+messages share the Turn's Worked disclosure. Its collapsed summary retains the
+message count, at most two recipient/first-line previews and the remaining count.
+Failed, cancelled, pending and unknown outcomes remain visible even when their
+messages are outside the preview. Expansion reveals the chronological full detail;
+summary rendering uses existing structured metadata without fetching message bodies.
+The transcript owns status transitions and replay; disclosure state is presentation
+only and never retries or cancels a send.
 
 Receiver-owned input is visible even when the provider supplies no sender identity.
 Adapters normalize complete native inputs into the shared session-message path with
