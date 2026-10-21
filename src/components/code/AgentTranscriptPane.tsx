@@ -1596,7 +1596,7 @@ function AgentTranscriptOutgoingPreview({ event, states, copy }: {
   return <span className="code-agent-transcript-outgoing-preview" data-testid="code-agent-outgoing-preview">
     <span className="code-agent-transcript-outgoing-preview-recipient">
       <AgentTranscriptCommunicationRecipient peer={peer || null} fallback={name} directed copy={copy} />
-    </span>
+    </span>{': '}
     <span className="code-agent-transcript-outgoing-preview-text">{event.preview}</span>
   </span>
 }
@@ -2951,7 +2951,9 @@ function AgentTranscriptTurnView({
             className={`code-agent-transcript-process-summary ${outgoingSummary.count ? 'has-outgoing' : ''}`}
             data-testid="code-agent-transcript-process-summary"
             aria-expanded={effectiveProcessOpen}
-            title={liveToolActivity?.label || turnProcessTitle(mainProcessTurn, copy)}
+            title={[liveToolActivity?.label || turnProcessTitle(mainProcessTurn, copy), ...outgoingSummary.states.map(state =>
+              `${state.action === 'recorded' ? copy.agentTranscriptCollaborationUnknown : collaborationActionLabel(state.action, copy)} · ${state.count}`,
+            )].join(' · ')}
             onPointerDown={event => event.stopPropagation()}
             onMouseDown={event => event.stopPropagation()}
             onClick={event => {
@@ -2968,17 +2970,10 @@ function AgentTranscriptTurnView({
                 <span className="code-agent-transcript-process-summary-content">
                   <span className="code-agent-transcript-process-summary-heading">
                     <span className="code-agent-transcript-process-summary-label">{processSummaryLabel}</span>
-                    {outgoingSummary.count > 0 ? <span>{copy.agentTranscriptCollaborationMessageCount(outgoingSummary.count)}</span> : null}
-                    {outgoingSummary.states.map(state => <span key={state.action}
-                      className="code-agent-transcript-outgoing-summary-status">
-                      {state.action === 'recorded' ? copy.agentTranscriptCollaborationUnknown : collaborationActionLabel(state.action, copy)} · {state.count}
-                    </span>)}
+                    {outgoingSummary.count > 0 ? <span className="code-agent-transcript-outgoing-count">{copy.agentTranscriptCollaborationMessageCount(outgoingSummary.count)}</span> : null}
                   </span>
                   {!effectiveProcessOpen ? outgoingSummary.previews.map(event => <AgentTranscriptOutgoingPreview
                     key={event.id} event={event} states={subagentStates} copy={copy} />) : null}
-                  {!effectiveProcessOpen && outgoingSummary.remaining > 0 ? <span className="code-agent-transcript-outgoing-remaining">
-                    {copy.agentTranscriptCollaborationMoreMessages(outgoingSummary.remaining)}
-                  </span> : null}
                 </span>
                 <ChevronRightGlyph className="code-agent-transcript-chevron" />
               </button>

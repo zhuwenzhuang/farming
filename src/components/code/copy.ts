@@ -132,7 +132,6 @@ export interface CodeCopy {
   agentTranscriptCollaborationOpenPeer: string
   agentTranscriptCollaborationCancelled: string
   agentTranscriptCollaborationMessageCount: (count: number) => string
-  agentTranscriptCollaborationMoreMessages: (count: number) => string
   agentTranscriptCollaborationUnknown: string
   agentTranscriptCollaborationSending: string
   agentTranscriptMessageExpand: string
@@ -903,7 +902,6 @@ const EN_COPY: CodeCopy = {
   agentTranscriptCollaborationOpenPeer: 'Open Agent',
   agentTranscriptCollaborationCancelled: 'Cancelled',
   agentTranscriptCollaborationMessageCount: count => `${count} Agent message${count === 1 ? '' : 's'}`,
-  agentTranscriptCollaborationMoreMessages: count => `+${count} more`,
   agentTranscriptCollaborationUnknown: 'Outcome unknown',
   agentTranscriptCollaborationSending: 'Sending message',
   agentTranscriptMessageExpand: 'Show full message',
@@ -1711,7 +1709,6 @@ const ZH_COPY: CodeCopy = {
   agentTranscriptCollaborationOpenPeer: '打开 Agent',
   agentTranscriptCollaborationCancelled: '已取消',
   agentTranscriptCollaborationMessageCount: count => `${count} 条 Agent 消息`,
-  agentTranscriptCollaborationMoreMessages: count => `另 ${count} 条`,
   agentTranscriptCollaborationUnknown: '结果未知',
   agentTranscriptCollaborationSending: '正在发送消息',
   agentTranscriptMessageExpand: '展开全文',

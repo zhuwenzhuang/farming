@@ -1,3 +1,7 @@
+import { unified } from 'unified'
+import remarkParse from 'remark-parse'
+import remarkGfm from 'remark-gfm'
+import type { Root, RootContent } from 'mdast'
 import type {
   AgentTranscriptProcessItem,
   AgentTranscriptSubagentState,
@@ -315,15 +319,37 @@ export function acpCollaborationActivityFeed(items: AgentTranscriptProcessItem[]
   return feed
 }
 
+const previewParser = unified().use(remarkParse).use(remarkGfm)
+const previewCache = new Map<string, string>()
+
+function previewText(node: Root | RootContent): string {
+  if (node.type === 'html' || node.type === 'definition') return ''
+  if (node.type === 'image' || node.type === 'imageReference') return node.alt || ''
+  if ('value' in node) return node.value
+  if (node.type === 'break') return '\n'
+  if ('children' in node) return node.children.map(previewText).join(['root', 'list', 'listItem', 'blockquote', 'table', 'tableRow'].includes(node.type) ? '\n' : '')
+  return ''
+}
+
+/** Parse before clipping: markup is omitted, literal punctuation in code survives. */
+export function outgoingMessagePreview(message: string): string {
+  const source = message.slice(0, 4000)
+  const cached = previewCache.get(source)
+  if (cached !== undefined) return cached
+  const line = previewText(previewParser.parse(source)).split(/\r?\n/).find(line => line.trim())?.trim().replace(/\s+/g, ' ') || ''
+  const preview = line.length > 140 ? `${line.slice(0, 140)}…` : line
+  if (previewCache.size >= 128) previewCache.delete(previewCache.keys().next().value!)
+  previewCache.set(source, preview)
+  return preview
+}
+
 /** Compact previews never fetch tool detail or infer delivery from message text. */
 export function acpOutgoingSummary(events: AcpCollaborationEvent[]) {
   const messages = events.filter(event => event.outgoingMessage)
   return {
     count: messages.length,
     previews: messages.slice(0, 2).map(event => {
-      const line = (event.message.trim().split(/\r?\n/, 1)[0] || '').replace(/\s+/g, ' ')
-      const preview = line.length > 140 ? `${line.slice(0, 140)}…` : line
-      return { ...event, preview }
+      return { ...event, preview: outgoingMessagePreview(event.message) }
     }),
     remaining: Math.max(0, messages.length - 2),
     states: (['failed', 'cancelled', 'recorded', 'sending'] as const)

@@ -3051,44 +3051,34 @@ button.code-agent-transcript-result-summary:is(:hover, :focus-visible) .code-age
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 4px 10px;
+  gap: 4px 8px;
+}
+.code-agent-transcript-outgoing-count {
+  color: var(--code-text-subtle);
+}
+.code-agent-transcript-outgoing-count::before {
+  content: '·';
+  margin-right: 8px;
 }
 .code-agent-transcript-process-summary.has-outgoing {
   align-items: flex-start;
   padding-block: 4px;
+  max-width: min(100%, 680px);
 }
 .code-agent-transcript-process-summary.has-outgoing > .code-agent-transcript-chevron {
   margin-top: 3px;
 }
 .code-agent-transcript-outgoing-preview {
-  display: flex;
-  min-width: 0;
-  gap: 6px;
-  margin-top: 4px;
-  font-size: 12px;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  margin-top: 6px;
+  font-size: 13px;
+  line-height: 20px;
   color: var(--code-text-secondary);
 }
 .code-agent-transcript-outgoing-preview-recipient {
-  flex: 0 1 auto;
-  max-width: 48%;
-}
-.code-agent-transcript-outgoing-preview-text {
-  flex: 1 1 0;
-}
-.code-agent-transcript-outgoing-preview-recipient,
-.code-agent-transcript-outgoing-preview-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.code-agent-transcript-outgoing-remaining {
-  display: block;
-  margin-top: 4px;
-  font-size: 12px;
-  color: var(--code-text-subtle);
-}
-
-.code-agent-transcript-outgoing-summary-status {
-  color: var(--code-text-subtle);
-  font-size: 12px;
+  color: var(--code-text);
 }

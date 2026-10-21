@@ -7,6 +7,7 @@ const {
   acpCollaborationAgentsForTurn,
   acpCollaborationEvents,
   acpOutgoingSummary,
+  outgoingMessagePreview,
   acpCollaborationActivityFeed,
 } = require('../../src/components/code/acp/acp-collaboration.ts');
 
@@ -675,3 +676,17 @@ assert.deepStrictEqual(summary.states, [
 ]);
 assert.strictEqual(acpOutgoingSummary([]).count, 0);
 assert.strictEqual(acpOutgoingSummary([{ ...summaryEvents[0], message: 'x'.repeat(1000) }]).previews[0].preview.length, 141);
+
+for (const [source, expected] of [
+  ['保持 **共享传输配置** 不变。', '保持 共享传输配置 不变。'],
+  ['I own `storage_path` and **review**.', 'I own storage_path and review.'],
+  ['[Review](https://example.com) &amp; **verify**', 'Review & verify'],
+  ['# Heading\n\nBody', 'Heading'],
+  ['> - ~~old~~ **new**', 'old new'],
+  ['```sh\necho "**literal**"\n```', 'echo "**literal**"'],
+  ['![diagram](https://example.com/image.png)', 'diagram'],
+  ['[review][ref]\n\n[ref]: https://example.com', 'review'],
+  ['\\*literal\\* file_name', '*literal* file_name'],
+  ['---\n\nReadable body', 'Readable body'],
+  ['', ''],
+]) assert.strictEqual(outgoingMessagePreview(source), expected);

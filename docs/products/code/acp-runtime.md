@@ -280,10 +280,11 @@ Native encrypted receipts show unavailable readable content, never ciphertext or
 sender-side reconstruction. Outgoing native collaboration is a chronological
 activity feed: send success is neither a read receipt nor task completion. Outgoing
 messages share the Turn's Worked disclosure. Its collapsed summary retains the
-message count, at most two recipient/first-line previews and the remaining count.
-Failed, cancelled, pending and unknown outcomes remain visible even when their
-messages are outside the preview. Expansion reveals the chronological full detail;
-summary rendering uses existing structured metadata without fetching message bodies.
+message count and at most two recipient/content previews. Each preview uses one
+continuous text flow, limited to two visual lines; Markdown is parsed into readable
+text before clipping. Status counts are secondary tooltip details; expansion reveals
+the chronological messages and their outcomes. Summary rendering uses cached,
+bounded structured metadata without fetching message bodies.
 The transcript owns status transitions and replay; disclosure state is presentation
 only and never retries or cancels a send.
 

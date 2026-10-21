@@ -32,12 +32,13 @@ test('peer messages stay readable with bounded expansion, unknown inputs, send o
   const summary = page.getByTestId('code-agent-transcript-process-summary').last()
   await expect(summary).toHaveAttribute('aria-expanded', 'false')
   await expect(summary).toContainText('5 条 Agent 消息')
-  await expect(summary).toContainText('失败 · 1')
-  await expect(summary).toContainText('正在发送消息 · 1')
-  await expect(summary).toContainText('另 3 条')
+  await expect(summary).toHaveAttribute('title', /失败 · 1/)
+  await expect(summary).toHaveAttribute('title', /正在发送消息 · 1/)
   await expect(summary.getByTestId('code-agent-outgoing-preview')).toHaveCount(2)
   await expect(summary).toContainText('Cleanroom HDFS TPCDS 单机验收与多机接线')
-  await expect(summary).toContainText('共享传输配置')
+  await expect(summary.getByTestId('code-agent-outgoing-preview').first()).toHaveText('发给 Cleanroom HDFS TPCDS 单机验收与多机接线: 保持 共享传输配置 不变。')
+  await expect(summary).not.toContainText('**')
+  await expect(summary).not.toContainText('`')
   await expect(page.getByTestId('code-agent-outgoing-message')).toHaveCount(0)
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: width === 1440 ? 1000 : 844 })
@@ -58,8 +59,9 @@ test('peer messages stay readable with bounded expansion, unknown inputs, send o
       await summary.screenshot({
         path: testInfo.outputPath(`worked-summary-detail-${width}-${appearance}.png`), animations: 'disabled',
       })
-      const status = summary.locator('.code-agent-transcript-outgoing-summary-status').first()
-      expect(await status.evaluate(element => getComputedStyle(element).fontSize)).toBe('12px')
+      const preview = summary.getByTestId('code-agent-outgoing-preview').first()
+      expect(await preview.evaluate(element => getComputedStyle(element).fontSize)).toBe('13px')
+      expect((await preview.boundingBox())!.height).toBeLessThanOrEqual(40)
     }
   }
   await page.setViewportSize({ width: 1440, height: 1000 })
@@ -167,7 +169,7 @@ for (const scenario of ['single', 'single pending']) {
     await expect(summary).toContainText('1 Agent message')
     await expect(summary).toContainText('shared transport')
     await expect(summary.getByTestId('code-agent-outgoing-preview')).toHaveCount(1)
-    if (scenario.includes('pending')) await expect(summary).toContainText('Sending message · 1')
+    if (scenario.includes('pending')) await expect(summary).toHaveAttribute('title', /Sending message · 1/)
     await expect(page.getByTestId('code-agent-outgoing-message')).toHaveCount(0)
     for (const width of [1440, 390]) {
       await page.setViewportSize({ width, height: 900 })
@@ -188,6 +190,6 @@ for (const scenario of ['single', 'single pending']) {
     await expect(page.getByTestId('code-agent-outgoing-message')).toHaveCount(0)
     await page.reload()
     await expect(summary).toContainText('1 Agent message')
-    if (scenario.includes('pending')) await expect(summary).toContainText('Sending message · 1')
+    if (scenario.includes('pending')) await expect(summary).toHaveAttribute('title', /Sending message · 1/)
   })
 }
