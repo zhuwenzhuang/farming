@@ -5,6 +5,7 @@ import type { Page, TestInfo } from '@playwright/test'
 import type { SessionBootstrapState } from '../../../src/lib/terminal-bootstrap'
 import { expect, openFarming, test } from '../fixtures'
 import { freshCodexSessionConfigured } from './codex-startup-readiness'
+import { codexTerminalReportsModel } from './codex-model-status'
 
 // This gate runs against a real Codex account, so every billed turn must stay
 // on one fixed low-cost model. LAUNCH_MODEL is only selected to prove a live
@@ -898,18 +899,18 @@ async function sendCrtMessage(page: Page, message: string) {
   await expect(input).toHaveValue('')
 }
 
-const primaryModelStatus = new RegExp(`${PRIMARY_MODEL}\\s+${PRIMARY_EFFORT}`)
-
 // Provider truth, not composer state: refuse to prompt a real Codex Terminal
 // until its own status line reports the fixed low-cost model.
-async function expectTerminalRunsPrimaryModel(page: Page, agentId: string) {
-  await expect.poll(async () => (await codeRows(page, agentId)).join('\n').toLowerCase(), { timeout: 90_000 })
-    .toMatch(primaryModelStatus)
+async function expectTerminalRunsPrimaryModel(page: Page, agentId: string, catalog: CodexCatalogModel[]) {
+  await expect.poll(async () => codexTerminalReportsModel(
+    (await codeRows(page, agentId)).join('\n'), catalog, PRIMARY_MODEL, PRIMARY_EFFORT,
+  ), { timeout: 90_000 }).toBe(true)
 }
 
-async function expectCrtTerminalRunsPrimaryModel(page: Page) {
-  await expect.poll(async () => (await crtRows(page)).join('\n').toLowerCase(), { timeout: 90_000 })
-    .toMatch(primaryModelStatus)
+async function expectCrtTerminalRunsPrimaryModel(page: Page, catalog: CodexCatalogModel[]) {
+  await expect.poll(async () => codexTerminalReportsModel(
+    (await crtRows(page)).join('\n'), catalog, PRIMARY_MODEL, PRIMARY_EFFORT,
+  ), { timeout: 90_000 }).toBe(true)
 }
 
 function acpSessionOptionValue(options: AcpSessionConfigOption[], category: string, pattern: RegExp) {
@@ -981,7 +982,8 @@ test.describe('real Codex pre-release composite case', () => {
     const catalogResponse = await page.request.get('/farming/api/codex/models?homeId=default')
     expect(catalogResponse.ok()).toBeTruthy()
     const catalogBody = await catalogResponse.json() as { catalog?: CodexCatalogModel[] }
-    const primaryModel = (catalogBody.catalog ?? []).find(model => model.value === PRIMARY_MODEL)
+    const catalog = catalogBody.catalog ?? []
+    const primaryModel = catalog.find(model => model.value === PRIMARY_MODEL)
     expect(primaryModel, `${PRIMARY_MODEL} must be present in the live Codex catalog`).toBeTruthy()
     expect(primaryModel?.reasoningLevels?.some(level => level.value === PRIMARY_EFFORT)).toBe(true)
 
@@ -1018,6 +1020,7 @@ test.describe('real Codex pre-release composite case', () => {
     await row.click()
     await waitForCodeTerminal(page, agentId)
     await continueWithoutUntrustedHooks(page, agentId)
+    await expectTerminalRunsPrimaryModel(page, agentId, catalog)
     await sendCodeTerminalInput(
       page,
       agentId,
@@ -1141,8 +1144,9 @@ test.describe('real Codex pre-release composite case', () => {
       await page.waitForTimeout(250)
     } while (Date.now() < terminalProfileDeadline)
     expect(terminalProfileResponse.ok(), terminalProfileBody.error || 'Failed to set the real Codex Terminal profile').toBeTruthy()
-    await expect.poll(async () => (await codeRows(page, agentId)).join('\n').toLowerCase(), { timeout: 60_000 })
-      .toContain(`${launchModel?.value} ${PRIMARY_EFFORT}`)
+    await expect.poll(async () => codexTerminalReportsModel(
+      (await codeRows(page, agentId)).join('\n'), catalog, launchModel!.value, PRIMARY_EFFORT,
+    ), { timeout: 60_000 }).toBe(true)
     expect((await codeRows(page, agentId)).join('\n')).not.toContain('Do you trust the contents of this directory?')
 
     await test.step('Code Terminal switches to the fixed low-cost model', async () => {
@@ -1163,7 +1167,7 @@ test.describe('real Codex pre-release composite case', () => {
       await target.press('Enter')
       await expect(picker).toHaveAttribute('data-agent-model-preset', `${PRIMARY_MODEL}:${PRIMARY_EFFORT}`, { timeout: 60_000 })
       await page.keyboard.press('Escape')
-      await expectTerminalRunsPrimaryModel(page, agentId)
+      await expectTerminalRunsPrimaryModel(page, agentId, catalog)
     })
 
     await test.step('Multi-page Composer output stays at the visible bottom during a running Code to CRT switch', async () => {
@@ -1280,7 +1284,7 @@ test.describe('real Codex pre-release composite case', () => {
       // narrow reflow; assert the newest preserved turn stays continuously
       // visible instead of pinning the viewport to historical content.
       await resizeCrtTerminal(page, ACP_FOLLOW_UP_ACK)
-      await expectCrtTerminalRunsPrimaryModel(page)
+      await expectCrtTerminalRunsPrimaryModel(page, catalog)
       await sendCrtTerminalInput(page, oneLine(`Do not use tools. Reply with only the concatenation of CRT_TERMINAL_ACK_ and ${ANCHOR_SUFFIX}, with no separator.`))
       await waitForCrtAnchor(page, CRT_TERMINAL_ACK)
       await waitForCrtTerminalIdle(page, agentId)
@@ -1310,8 +1314,7 @@ test.describe('real Codex pre-release composite case', () => {
       await continueCrtWithoutUntrustedHooks(page, CRT_MSG_ACK)
       await waitForCrtAnchor(page, CRT_MSG_ACK, 180_000)
       await waitForCrtTerminalIdle(page, agentId)
-      await expect.poll(async () => (await crtRows(page)).join('\n').toLowerCase(), { timeout: 90_000 })
-        .toMatch(primaryModelStatus)
+      await expectCrtTerminalRunsPrimaryModel(page, catalog)
       await resizeCrtTerminal(page, CRT_MSG_ACK)
       await page.setViewportSize(NORMAL_VIEWPORT)
       await attachScreenshot(page, testInfo, '05-crt-terminal-final.png')

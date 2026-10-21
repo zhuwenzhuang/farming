@@ -47,7 +47,7 @@ const tasks: FastScreenTask[] = [
   },
   {
     name: 'fresh Codex startup precedes model-control acceptance',
-    args: ['--import', 'tsx', '--test', 'tests/codex-startup-readiness.test.ts'],
+    args: ['--import', 'tsx', '--test', 'tests/codex-startup-readiness.test.ts', 'tests/codex-model-status.test.ts'],
   },
   {
     name: 'Browser component provenance and candidate assembly fences',
