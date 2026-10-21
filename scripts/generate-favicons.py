@@ -70,7 +70,7 @@ def main():
     <circle cx="54" cy="10" r="10" fill="black"/></mask></defs>''' if unread else ""
         mask = ' mask="url(#badge-space)"' if unread else ""
         dot = '<circle class="unread" cx="54" cy="10" r="8"/>' if unread else ""
-        (ASSETS / f"favicon-v4{'-unread' if unread else ''}.svg").write_text(f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+        svg = f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
   <title>Farming</title>
   <style>
     .crt {{ display: none; }}
@@ -88,7 +88,10 @@ def main():
   </g>
   {dot}
 </svg>
-''', encoding="utf-8")
+'''
+        (ASSETS / f"favicon-v4{'-unread' if unread else ''}.svg").write_text(
+            "\n".join(line.rstrip() for line in svg.splitlines()) + "\n", encoding="utf-8"
+        )
     print("Generated transparent PNG/ICO and adaptive farmer/CRT SVGs with shared blue unread dots.")
 
 
