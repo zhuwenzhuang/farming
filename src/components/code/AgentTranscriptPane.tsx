@@ -4347,6 +4347,9 @@ export function AgentTranscriptPane({
       setShowJumpToBottom(hasTranscriptContentBelow(element))
       syncStickyTurnPrompt(element)
     })
+    // Composer growth changes the viewport without changing any Turn's size.
+    // Keep that geometry change under the same follow/reading intent guards.
+    observer.observe(element)
     Array.from(element.children).forEach(child => observer.observe(child))
     const mutations = new MutationObserver(records => {
       for (const record of records) {

@@ -474,6 +474,21 @@ test.describe('mobile Farming Code user story', () => {
     await composerInput.fill('follow up\nkeep compact')
     await expect(composerInput).toBeFocused()
 
+    const transcriptScroller = page.getByTestId('code-agent-transcript-scroll')
+    const jumpToLatest = page.getByTestId('code-agent-transcript-jump-bottom')
+    const expectFollowingLatest = async () => {
+      // Settle layout/ResizeObserver, but do not let a later transcript refresh
+      // conceal a missed viewport resize by eventually scrolling to the bottom.
+      await transcriptScroller.evaluate(() => new Promise<void>(resolve => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+      }))
+      expect(await transcriptScroller.evaluate(element => (
+        Math.abs(element.scrollHeight - element.clientHeight - element.scrollTop)
+      ))).toBeLessThanOrEqual(1)
+      await expect(jumpToLatest).toBeHidden()
+    }
+    await expectFollowingLatest()
+
     const metrics = await page.evaluate(() => {
       const composer = document.querySelector('[data-testid="code-acp-composer"]') as HTMLElement | null
       const input = document.querySelector('[data-testid="code-acp-composer-input"]') as HTMLElement | null
@@ -504,6 +519,7 @@ test.describe('mobile Farming Code user story', () => {
       }
       const runningPlaceholder = document.querySelector('.code-agent-transcript-turn.running:last-child .code-agent-transcript-placeholder') as HTMLElement | null
       const runningPlaceholderStyle = runningPlaceholder ? getComputedStyle(runningPlaceholder) : null
+      const inputStyle = input ? getComputedStyle(input) : null
       return {
         innerWidth: window.innerWidth,
         documentScrollWidth: document.documentElement.scrollWidth,
@@ -512,6 +528,11 @@ test.describe('mobile Farming Code user story', () => {
         transcriptPaddingRight: scroller ? Number.parseFloat(getComputedStyle(scroller).paddingRight) : 0,
         composerHeight: Math.round(composer?.getBoundingClientRect().height ?? 0),
         inputHeight: Math.round(input?.getBoundingClientRect().height ?? 0),
+        inputLineHeight: Number.parseFloat(inputStyle?.lineHeight ?? '0'),
+        inputVerticalInsets: inputStyle
+          ? Number.parseFloat(inputStyle.paddingTop) + Number.parseFloat(inputStyle.paddingBottom)
+            + Number.parseFloat(inputStyle.borderTopWidth) + Number.parseFloat(inputStyle.borderBottomWidth)
+          : 0,
         inputAutocomplete: input?.getAttribute('autocomplete'),
         inputMode: input?.getAttribute('inputmode'),
         inputName: input?.getAttribute('name'),
@@ -544,8 +565,10 @@ test.describe('mobile Farming Code user story', () => {
     expect(metrics.transcriptPaddingLeft).toBeGreaterThanOrEqual(10)
     expect(metrics.transcriptPaddingRight).toBeGreaterThanOrEqual(10)
     expect(metrics.composerHeight).toBeLessThanOrEqual(118)
-    expect(metrics.inputHeight).toBeGreaterThanOrEqual(34)
-    expect(metrics.inputHeight).toBeLessThanOrEqual(52)
+    // The two explicit lines must remain fully readable at the touch font size,
+    // without growing an extra blank row or relying on a desktop pixel bound.
+    expect(metrics.inputLineHeight).toBeGreaterThan(0)
+    expect(Math.abs(metrics.inputHeight - (2 * metrics.inputLineHeight + metrics.inputVerticalInsets))).toBeLessThanOrEqual(1)
     expect(metrics.inputAutocomplete).toBe('off')
     expect(metrics.inputMode).toBe('text')
     expect(metrics.inputName).toBe('farming-acp-chat-message')
@@ -571,6 +594,35 @@ test.describe('mobile Farming Code user story', () => {
         fullPage: false,
       })
     }
+
+    // A viewport-only resize must use the same follow intent as new content.
+    for (const draft of ['one\ntwo\nthree\nfour', 'short']) {
+      const previousHeight = await transcriptScroller.evaluate(element => element.clientHeight)
+      await composerInput.fill(draft)
+      await expect.poll(() => transcriptScroller.evaluate(element => element.clientHeight)).not.toBe(previousHeight)
+      await expectFollowingLatest()
+    }
+
+    // Enter reading mode through the existing touch gesture path. Wait out its
+    // 420ms momentum lock so a resize cannot pass merely because of that lock.
+    const readingTop = await transcriptScroller.evaluate(element => {
+      element.dispatchEvent(new Event('touchstart', { bubbles: true }))
+      element.scrollTop = Math.max(1, element.scrollTop - 240)
+      element.dispatchEvent(new Event('scroll', { bubbles: true }))
+      element.dispatchEvent(new Event('touchend', { bubbles: true }))
+      return element.scrollTop
+    })
+    await expect(jumpToLatest).toBeVisible()
+    await page.waitForTimeout(450)
+    for (const draft of ['one\ntwo\nthree\nfour', 'short']) {
+      const previousHeight = await transcriptScroller.evaluate(element => element.clientHeight)
+      await composerInput.fill(draft)
+      await expect.poll(() => transcriptScroller.evaluate(element => element.clientHeight)).not.toBe(previousHeight)
+      await expect.poll(() => transcriptScroller.evaluate(element => element.scrollTop)).toBeCloseTo(readingTop, 0)
+      await expect(jumpToLatest).toBeVisible()
+    }
+    await jumpToLatest.click()
+    await expectFollowingLatest()
   })
 
   test('returns to a remote shell, opens files, and uses touch-accessible blame', { tag: '@iphone-human' }, async ({ page, workspaceRoot, isMobile }) => {
@@ -667,8 +719,10 @@ test.describe('mobile Farming Code user story', () => {
     await page.keyboard.insertText(`echo ${marker}`)
     await expect(composerInput).toHaveValue(`echo ${marker}`)
     await page.keyboard.press('Enter')
-    await expect(composerInput).toHaveValue(`echo ${marker}\n`)
-    await page.getByTestId('code-composer-send').click()
+    if (isMobile) {
+      await expect(composerInput).toHaveValue(`echo ${marker}\n`)
+      await page.getByTestId('code-composer-send').click()
+    }
     await expect(composerInput).toHaveValue('')
     await expect.poll(async () => {
       return terminalCheckpointOutput(page, agentId)

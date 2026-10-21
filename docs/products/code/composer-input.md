@@ -52,6 +52,12 @@ and never treats missing evidence as permission to replay.
 
 An explicit Chat send follows the latest transcript immediately, including while acknowledgement is pending. The jump-to-latest control appears only after the reader scrolls away from the latest content and sits at the bottom of the transcript viewport on compact layouts.
 
+Transcript content and viewport resizing preserve the current reading intent.
+When following the latest content, growing or shrinking the Composer keeps the
+latest answer and its actions visible. When reading older content or selecting
+text, those geometry changes must not resume following or pull the reader to the
+bottom; only existing explicit catch-up actions restore following.
+
 ## Quoting Chat Text
 
 The selection toolbar uses a contrasting surface and follows the selected text
