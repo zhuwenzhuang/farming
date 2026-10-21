@@ -193,6 +193,26 @@ and Resources; an unavailable parent rejects child input.
 
 ## Agent Communication And A2A
 
+The shared Agent instructions default to independent work. Peer contact requires
+user-requested communication or a concrete current dependency, blocker, or verified
+concurrent conflict needing that recipient's action or answer. A shared repository,
+host, file, or past task does not establish that need. A live process (`status:
+running`) or Agent Card is not evidence of active work; inspect current `chatTurn`
+state and verify resource ownership when relevant. Idle, completed, stopped, and
+stale Agents should remain undisturbed without that specific need. Unknown activity
+does not justify a precautionary message. Independent work continues; an unresolved
+blocker is reported to the user.
+
+Necessary requests carry current evidence and a specific action or question.
+Informational messages and acknowledgements do not authorize new work or reciprocal
+requests. Follow-ups require a material change or an unresolved necessary question
+and a read of the original outcome. Main Agent monitoring follows the same policy
+and ends when the relevant dependency resolves. This is a model instruction policy,
+not a transport prohibition on authorized requests to idle live Chats. Acceptance
+must distinguish speculative disk warnings to completed Agents, independent edits
+to a shared file, and acknowledgement loops from genuine current resource conflicts
+or user-requested contact.
+
 Source attribution is trusted protocol metadata, separate from message content.
 Composer and Host hashes bind it to the request. Text, outgoing-tool success and
 quoted envelopes cannot establish receipt, sender identity or child ownership.
