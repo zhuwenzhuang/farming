@@ -572,19 +572,41 @@ test('keeps the Files header seam opaque over scrolled file rows', async ({ page
   })
   await settleLayout(page)
 
-  await expect.poll(() => project.evaluate(element => {
-    const filesHeader = element.querySelector<HTMLElement>('.code-files-header')
-    if (!filesHeader) return null
-    const headerBox = filesHeader.getBoundingClientRect()
-    const target = document.elementFromPoint(headerBox.left + 40, headerBox.top - 1)
-    return {
-      coveredFileRow: Boolean(target?.closest('[data-testid="code-file-row"]')),
-      seamOwner: Boolean(target?.closest('.code-files-header')),
-    }
-  })).toEqual({
-    coveredFileRow: false,
-    seamOwner: true,
-  })
+  // The opaque seam is decorative: it must not intercept drag/pointer targets
+  // below it. Prove paint coverage separately from hit testing by changing the
+  // underlying file row's paint while capturing the same seam pixels.
+  for (const appearance of ['light', 'dark', 'paper']) {
+    await page.evaluate(value => {
+      document.body.dataset.appearance = value
+      document.documentElement.dataset.appearance = value
+    }, appearance)
+    const seam = await project.evaluate(element => {
+      const filesHeader = element.querySelector<HTMLElement>('.code-files-header')!
+      const headerBox = filesHeader.getBoundingClientRect()
+      const underlay = document.elementFromPoint(headerBox.left + 40, headerBox.top - 1)
+        ?.closest<HTMLElement>('[data-testid="code-file-row"]')
+      if (!underlay) throw new Error('The seam fixture must have a file row directly underneath')
+      underlay.dataset.seamUnderlay = 'true'
+      underlay.style.backgroundColor = 'rgb(255, 0, 255)'
+      return {
+        pointerEvents: getComputedStyle(filesHeader, '::before').pointerEvents,
+        clip: { x: headerBox.left + 2, y: headerBox.top - 2, width: headerBox.width - 4, height: 2 },
+      }
+    })
+    expect(seam.pointerEvents).toBe('none')
+    await settleLayout(page)
+    const paintedUnderlay = await page.screenshot({ clip: seam.clip, animations: 'disabled' })
+    const underlay = project.locator('[data-seam-underlay="true"]')
+    await underlay.evaluate(element => { element.style.visibility = 'hidden' })
+    await settleLayout(page)
+    const hiddenUnderlay = await page.screenshot({ clip: seam.clip, animations: 'disabled' })
+    expect(paintedUnderlay.equals(hiddenUnderlay), `${appearance} seam must fully cover file-row paint`).toBe(true)
+    await underlay.evaluate(element => {
+      element.style.removeProperty('visibility')
+      element.style.removeProperty('background-color')
+      delete element.dataset.seamUnderlay
+    })
+  }
 })
 
 test('does not pin a collapsed root sibling above root files', async ({ page, workspaceRoot }) => {

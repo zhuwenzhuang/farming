@@ -2068,13 +2068,19 @@ test.describe('display-backed agent flows', () => {
     const openEditorsTitle = openEditors.locator('.code-open-editors-title')
     await expect(openEditorsTitle).toHaveAttribute('aria-expanded', 'false')
     await expect(openEditors.getByTestId('code-open-editor-row')).toHaveCount(0)
-    const openEditorsBox = await openEditors.boundingBox()
-    const filesTitleBoxAfterOpen = await filesTitle.boundingBox()
-    if (!openEditorsBox || !filesTitleBoxAfterOpen) {
-      throw new Error('Open Editors layout boxes are missing')
-    }
-    expect(openEditorsBox.y).toBeGreaterThan(agentRowBox.y)
-    expect(filesTitleBoxAfterOpen.y).toBeGreaterThan(openEditorsBox.y)
+    // Opening a file may reveal it by scrolling the shared Project list. Check
+    // section order at the top, using one current layout snapshot rather than
+    // comparing sticky summaries with an Agent position captured before opening.
+    await childProject.evaluate(element => {
+      const scroller = element.closest<HTMLElement>('.code-project-list')
+      if (scroller) scroller.scrollTop = 0
+    })
+    await expect.poll(() => childProject.evaluate(element => {
+      const agent = element.querySelector('[data-testid="code-agent-row"]')?.getBoundingClientRect()
+      const editors = element.querySelector('.code-open-editors-title')?.getBoundingClientRect()
+      const files = element.querySelector('.code-files-title')?.getBoundingClientRect()
+      return Boolean(agent && editors && files && editors.top >= agent.bottom && files.top >= editors.bottom)
+    })).toBe(true)
     await openEditorsTitle.click()
     await expect(openEditorsTitle).toHaveAttribute('aria-expanded', 'true')
     const readmeOpenEditorRow = openEditors.getByTestId('code-open-editor-row').filter({ hasText: 'README.md' })
@@ -4129,10 +4135,11 @@ test.describe('display-backed agent flows', () => {
     }
     const mobileMarker = `mobile-flow-${Date.now()}`
     const mobileComposerInput = page.getByTestId('code-composer-input')
+    // A narrow desktop viewport retains the primary mouse's Enter-to-submit policy.
+    expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(false)
+    await expect(mobileComposerInput).toHaveAttribute('enterkeyhint', 'send')
     await mobileComposerInput.fill(`echo ${mobileMarker}`)
     await mobileComposerInput.press('Enter')
-    await expect(mobileComposerInput).toHaveValue(`echo ${mobileMarker}\n`)
-    await page.getByTestId('code-composer-send').click()
     await expect(mobileComposerInput).toHaveValue('')
     await expect.poll(() => terminalCheckpointOutput(page, agentId)).toContain(mobileMarker)
 

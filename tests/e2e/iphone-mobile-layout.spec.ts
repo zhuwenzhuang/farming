@@ -918,7 +918,7 @@ test.describe('iPhone mobile layout', () => {
     await captureIphoneAudit(page, testInfo, 'iphone-webkit-landscape.png')
   })
 
-  test('uses the same compact structure at 390px for desktop and iPhone input modes', async ({ page, workspaceRoot }, testInfo) => {
+  test('uses the same compact structure at 390px for desktop and iPhone input modes', async ({ page, workspaceRoot, isMobile }, testInfo) => {
     const projectDir = path.join(workspaceRoot, `compact-parity-${testInfo.project.name}`)
     fs.mkdirSync(projectDir, { recursive: true })
     await page.setViewportSize({ width: 390, height: 844 })
@@ -986,10 +986,10 @@ test.describe('iPhone mobile layout', () => {
     await page.keyboard.insertText(`echo ${readyMarker}`)
     await expect(input).toHaveValue(`echo ${readyMarker}`)
     await page.keyboard.press('Enter')
-    await expect(input).toHaveValue(`echo ${readyMarker}\n`)
-    const sendButton = page.getByTestId('code-composer-send')
-    if (testInfo.project.name === 'iphone-webkit') await sendButton.tap()
-    else await sendButton.click()
+    if (isMobile) {
+      await expect(input).toHaveValue(`echo ${readyMarker}\n`)
+      await page.getByTestId('code-composer-send').tap()
+    }
     await expect(input).toHaveValue('')
     await expect.poll(async () => {
       return terminalCheckpointOutput(page, agentId)

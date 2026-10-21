@@ -23,10 +23,16 @@ test('phone source wraps long lines without changing desktop preference @iphone-
       document.documentElement.dataset.appearance = value
     }, appearance)
     expect(await input.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true)
-    await page.getByTestId('code-file-editor-more').click()
-    await expect(page.getByTestId('code-file-editor-more-menu')).toBeVisible()
-    await expect(page.getByRole('menuitemcheckbox', { name: /word wrap/i })).toHaveCount(0)
-    await page.keyboard.press('Escape')
+    // Wider phones keep actions inline; only the narrower action row uses More.
+    // Neither surface offers a wrap toggle for the native touch source.
+    await expect(page.getByTestId('code-file-editor').locator('.word-wrap')).toHaveCount(0)
+    const more = page.getByTestId('code-file-editor-more')
+    if (await more.isVisible()) {
+      await more.click()
+      await expect(page.getByTestId('code-file-editor-more-menu')).toBeVisible()
+      await expect(page.getByRole('menuitemcheckbox', { name: /word wrap/i })).toHaveCount(0)
+      await page.keyboard.press('Escape')
+    }
     await page.screenshot({ path: testInfo.outputPath(`phone-wrap-${appearance}.png`), animations: 'disabled' })
   }
   await page.setViewportSize({ width: 1200, height: 900 })
