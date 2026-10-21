@@ -9,6 +9,8 @@ export interface CodeCopy {
   codex: string
   expandSidebar: string
   collapseSidebar: string
+  pinSidebar: string
+  unpinSidebar: string
   enterFocusMode: string
   exitFocusMode: string
   appModeOpen: string
@@ -775,6 +777,8 @@ const EN_COPY: CodeCopy = {
   codex: 'Farming Code',
   expandSidebar: 'Expand sidebar',
   collapseSidebar: 'Collapse sidebar',
+  pinSidebar: 'Keep sidebar visible in narrow windows',
+  unpinSidebar: 'Allow sidebar to hide in narrow windows',
   enterFocusMode: 'Enter focus mode',
   exitFocusMode: 'Exit focus mode',
   appModeOpen: 'App mode and fullscreen',
@@ -1578,6 +1582,8 @@ const ZH_COPY: CodeCopy = {
   codex: 'Farming Code',
   expandSidebar: '展开侧边栏',
   collapseSidebar: '收起侧边栏',
+  pinSidebar: '窄窗口中保持侧边栏可见',
+  unpinSidebar: '允许侧边栏在窄窗口中隐藏',
   enterFocusMode: '进入沉浸模式',
   exitFocusMode: '退出沉浸模式',
   appModeOpen: '应用模式与全屏',

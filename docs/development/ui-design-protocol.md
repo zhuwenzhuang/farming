@@ -212,6 +212,14 @@ On resize, preserve the active Agent and work; entering compact mode collapses
 navigation, and returning to a wide desktop restores an automatically collapsed
 sidebar. Drawer dismissal and focus isolation apply only while compact.
 
+The pin above the Farming avatar is a browser-local navigation preference for
+mouse-driven windows. Pinning preserves the collapsed Agent rail when the window
+becomes compact; it does not disable the main surface’s compact layout. Expanding
+the rail opens the existing modal navigation drawer, and dismissal returns to the
+rail. Unpinning restores automatic hiding immediately. Reload restores the
+preference; a coarse primary pointer always retains the ordinary touch drawer
+without clearing the saved desktop preference.
+
 Layout width does not select input semantics. Chat and Terminal composers use
 the primary coarse pointer for Enter-to-newline; desktop Enter submits and
 Shift+Enter inserts a newline at every width, including the expanded composer. The keyboard

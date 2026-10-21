@@ -1524,3 +1524,70 @@
 @media (prefers-reduced-motion: reduce) {
   .code-worktree-create-spinner { animation: none; }
 }
+
+/* Footer actions share geometry and interaction colors with Settings. */
+.code-sidebar-pin-toggle {
+  align-self: flex-start;
+}
+
+.code-sidebar.collapsed .code-sidebar-pin-toggle {
+  align-self: center;
+}
+
+.code-sidebar-pin-toggle[aria-pressed='true'] {
+  background: var(--code-active-item-surface);
+  color: var(--code-text);
+}
+
+body.code-mode.code-compact-layout .pinned-sidebar-rail .code-sidebar.collapsed {
+  position: relative;
+  inset: auto;
+  z-index: auto;
+  width: 100%;
+  max-width: 100%;
+  height: 100%;
+  max-height: 100%;
+  padding: 8px 5px;
+  gap: 10px;
+  transform: none;
+  transition: none;
+  pointer-events: auto;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+body.code-mode.code-compact-layout .pinned-sidebar-rail .code-nav-top-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-auto-rows: 42px;
+  gap: 6px;
+}
+
+body.code-mode.code-compact-layout .pinned-sidebar-rail .code-nav-top-row > button {
+  width: 100%;
+  height: 42px;
+  min-height: 42px;
+  padding: 0;
+}
+
+body.code-mode.code-compact-layout .pinned-sidebar-rail .code-sidebar.collapsed .code-nav-item span:not(.code-nav-icon),
+body.code-mode.code-compact-layout .pinned-sidebar-rail .code-sidebar.collapsed .code-nav-item kbd {
+  display: none;
+}
+
+body.code-mode.code-compact-layout .pinned-sidebar-rail .code-sidebar.collapsed .code-agent-rail {
+  display: flex;
+}
+
+body.code-mode.code-compact-layout .pinned-sidebar-rail .code-sidebar-footer {
+  margin: auto 0 0;
+  padding-top: 0;
+  border-top: 0;
+  gap: 7px;
+}
+
+body.code-mode.code-compact-layout .pinned-sidebar-rail .code-sidebar-options {
+  width: 26px;
+  height: 26px;
+}

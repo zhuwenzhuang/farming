@@ -4130,3 +4130,15 @@ body.code-resizing-language-server-dock .code-language-server-resizer {
 .code-related-finished > summary::-webkit-details-marker { display: none; }
 .code-related-finished > summary > .code-related-disclosure-icon { width: 12px; height: 12px; flex: 0 0 12px; vertical-align: middle; }
 .code-related-finished[open] > summary > .code-related-disclosure-icon { transform: rotate(90deg); }
+
+/* A pinned mouse-driven rail remains a normal navigation column. The main
+   surface still uses compact layout, and expanding the rail opens its drawer. */
+body.code-mode.code-compact-layout .code-workspace.pinned-sidebar-rail {
+  grid-template-columns: var(--code-sidebar-width, 52px) minmax(0, 1fr);
+}
+
+body.code-mode.code-compact-layout .pinned-sidebar-rail .code-mobile-topbar {
+  grid-column: 2;
+  left: 0;
+  width: 100%;
+}

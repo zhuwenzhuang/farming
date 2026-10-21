@@ -2881,8 +2881,8 @@ body.code-mode .code-composer textarea:disabled {
     top: auto;
     bottom: var(--mobile-composer-viewport-gap, max(8px, env(safe-area-inset-bottom)));
     z-index: 56;
-    width: calc(var(--app-visual-width, 100vw) - 8px);
-    max-width: calc(var(--app-visual-width, 100vw) - 8px);
+    width: calc(100% - 8px);
+    max-width: calc(100% - 8px);
     height: auto;
     min-height: var(--mobile-composer-resting-height, 72px);
     max-height: none;
@@ -2909,8 +2909,8 @@ body.code-mode.code-compact-layout .code-acp-composer-stack {
     left: 4px;
     bottom: var(--mobile-composer-viewport-gap, max(8px, env(safe-area-inset-bottom)));
     z-index: 56;
-    width: calc(var(--app-visual-width, 100vw) - 8px);
-    max-width: calc(var(--app-visual-width, 100vw) - 8px);
+    width: calc(100% - 8px);
+    max-width: calc(100% - 8px);
     gap: 0;
     pointer-events: none;
   }

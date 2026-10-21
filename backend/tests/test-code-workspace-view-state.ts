@@ -11,6 +11,7 @@ function run() {
     openTerminalIds: ['agent-1', 'agent-2', 'agent-1'],
     activeView: 'projects',
     dynamicPinningEnabled: true,
+    sidebarPinned: true,
     surface: {
       kind: 'file',
       workspace: '/repo',
@@ -30,6 +31,9 @@ function run() {
 
   assert.deepStrictEqual(normalized.openTerminalIds, ['agent-1', 'agent-2']);
   assert.strictEqual(normalized.dynamicPinningEnabled, true);
+  assert.strictEqual(normalized.sidebarPinned, true);
+  assert.strictEqual(normalizeCodeWorkspaceViewState({ sidebarPinned: false }).sidebarPinned, false);
+  assert.strictEqual(normalizeCodeWorkspaceViewState({ sidebarPinned: "yes" }).sidebarPinned, undefined);
   assert.deepStrictEqual(normalized.surface, {
     kind: 'file',
     workspace: '/repo',

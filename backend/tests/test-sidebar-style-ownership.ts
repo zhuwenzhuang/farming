@@ -29,6 +29,8 @@ assertDomainStyleOwnership({
     'code-project-agent-visibility',
     'code-project-new-agent',
     'code-project-new-agent-menu',
+    // Portal mount boundary; Agent rows now use normal flow without a spacer.
+    'code-project-resource-slot',
     'code-project-worktree-menu',
     'code-session-show-less',
   ],

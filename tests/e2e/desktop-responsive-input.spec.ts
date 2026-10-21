@@ -51,6 +51,19 @@ for (const runtime of ['chat', 'terminal'] as const) {
         await expect(input).toHaveValue('')
         await expect.poll(() => sent.length).toBe(before + 1)
       }
+      await page.getByTestId('code-mobile-menu').click()
+      await page.getByTestId('code-sidebar-pin-toggle').click()
+      await page.keyboard.press('Escape')
+      await expect(page.getByTestId('code-workspace')).toHaveClass(/pinned-sidebar-rail/)
+      const expectComposerWithinMain = async () => {
+        await expect.poll(async () => page.getByTestId(`${prefix}-send`).evaluate(element => {
+          const send = element.getBoundingClientRect()
+          const composer = element.closest('.code-composer')!.getBoundingClientRect()
+          const main = element.closest('.code-main')!.getBoundingClientRect()
+          return composer.left >= main.left && composer.right <= main.right + 1
+            && send.left >= composer.left && send.right <= composer.right + 1
+        })).toBe(true)
+      }
       const toggle = page.getByTestId('code-composer-editor-toggle')
       for (const appearance of ['light', 'dark', 'paper']) {
         await page.evaluate(value => {
@@ -58,8 +71,10 @@ for (const runtime of ['chat', 'terminal'] as const) {
           document.documentElement.dataset.appearance = value
         }, appearance)
         await input.fill('Narrow desktop draft')
+        await expectComposerWithinMain()
         await toggle.click()
         await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+        await expectComposerWithinMain()
         await expect(input).toHaveAttribute('enterkeyhint', 'send')
         await page.screenshot({ path: testInfo.outputPath(`${runtime}-${appearance}-expanded.png`), animations: 'disabled' })
         await input.fill(runtime === 'chat' ? 'image attachment expanded desktop input' : "printf 'EXPANDED_DESKTOP\\n'")

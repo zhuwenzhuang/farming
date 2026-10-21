@@ -74,6 +74,7 @@ export interface CodeWorkspaceViewState {
   pluginsNavigationState?: WorkspacePluginsNavigationState
   projectListScrollTop?: number
   sidebarCollapsed?: boolean
+  sidebarPinned?: boolean
   sidebarWidth?: number
   surface?: CodeWorkspaceSurface
   projectFiles?: Record<string, CodeProjectFilesViewState>
@@ -270,6 +271,7 @@ export function normalizeCodeWorkspaceViewState(value: unknown): CodeWorkspaceVi
     pluginsNavigationState: normalizePluginsNavigationState(record.pluginsNavigationState),
     projectListScrollTop: normalizeScrollTop(record.projectListScrollTop),
     sidebarCollapsed: typeof record.sidebarCollapsed === 'boolean' ? record.sidebarCollapsed : undefined,
+    sidebarPinned: typeof record.sidebarPinned === 'boolean' ? record.sidebarPinned : undefined,
     sidebarWidth: normalizeBoundedInteger(record.sidebarWidth, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH),
     surface: normalizeWorkspaceSurface(record.surface),
     projectFiles: normalizeProjectFiles(record.projectFiles),

@@ -216,6 +216,10 @@ interface CodeSidebarProps {
   onOpenRelatedSession?: (target: RelatedSessionTarget) => void
   readOnly: boolean
   sidebarCollapsed: boolean
+  sidebarPinned: boolean
+  sidebarPinAvailable: boolean
+  pinnedSidebarRail: boolean
+  onToggleSidebarPinned: () => void
   navigationModalOpen: boolean
   navigationViewport: boolean
   navigationDialogRef: RefObject<HTMLElement | null>
@@ -309,6 +313,10 @@ export function CodeSidebar({
   onOpenRelatedSession,
   readOnly,
   sidebarCollapsed,
+  sidebarPinned,
+  sidebarPinAvailable,
+  pinnedSidebarRail,
+  onToggleSidebarPinned,
   navigationModalOpen,
   navigationViewport,
   navigationDialogRef,
@@ -725,7 +733,7 @@ export function CodeSidebar({
   // and the accessibility tree so its controls (New Agent, project rows,
   // rest reminder, footer) are not reachable while invisible. The desktop
   // collapsed rail stays visible and interactive.
-  const mobileDrawerClosed = navigationViewport && sidebarCollapsed
+  const mobileDrawerClosed = navigationViewport && sidebarCollapsed && !pinnedSidebarRail
 
   useModalFocusScope({
     open: navigationModalOpen,
@@ -1022,6 +1030,19 @@ export function CodeSidebar({
               || appModeDialogOpen
             }
           />
+          {sidebarPinAvailable && (
+            <button
+              type="button"
+              className="code-sidebar-options code-sidebar-pin-toggle"
+              data-testid="code-sidebar-pin-toggle"
+              aria-label={copy.pinSidebar}
+              aria-pressed={sidebarPinned}
+              title={sidebarPinned ? copy.unpinSidebar : copy.pinSidebar}
+              onClick={onToggleSidebarPinned}
+            >
+              {sidebarPinned ? <AgentUnpinIcon /> : <AgentPinIcon />}
+            </button>
+          )}
           <div className="code-product-row">
             <button
               ref={productMarkRef}

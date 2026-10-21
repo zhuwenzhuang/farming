@@ -10,6 +10,7 @@ import { canonicalProviderSessionKey, decodeProviderSessionKey } from '../../sha
 import type { MainPaneMode } from './code/types'
 import { interactionLayerOwnsEscape } from '@/lib/interaction-layer'
 import { useInteractionLayer } from '@/hooks/useInteractionLayer'
+import { useTouchPrimaryInput } from '@/hooks/useTouchPrimaryInput'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { beginNavigationPerformance, filePerformanceKey } from '@/lib/interaction-performance'
 import type {
@@ -880,6 +881,8 @@ export function CodeWorkspace({
   const [pluginsNavigationState, setPluginsNavigationState] = useState<PluginsNavigationState>(
     () => initialWorkspaceViewState.pluginsNavigationState ?? defaultPluginsNavigationState(),
   )
+  const touchPrimaryInput = useTouchPrimaryInput()
+  const [sidebarPinned, setSidebarPinned] = useState(initialWorkspaceViewState.sidebarPinned === true)
   const [sidebarWidth, setSidebarWidth] = useState(initialWorkspaceViewState.sidebarWidth ?? DEFAULT_SIDEBAR_WIDTH)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => (
     initialWorkspaceViewState.sidebarCollapsed === true || shouldCollapseSidebarInitially()
@@ -1022,6 +1025,16 @@ export function CodeWorkspace({
   const restoreMobileNavigationFocusRef = useRef(false)
   const mobileNavigationFocusRestoreFrameRef = useRef<number | null>(null)
   const mobileNavigationModalOpen = mobileNavigationViewport && !sidebarCollapsed
+  const pinnedSidebarRail = sidebarPinned && !touchPrimaryInput && mobileNavigationViewport && sidebarCollapsed
+  const toggleSidebarPinned = useCallback(() => {
+    if (pinnedSidebarRail) {
+      (mobileNavigationTriggerRef.current ?? mobileOptionsTriggerRef.current)?.focus({ preventScroll: true })
+    }
+    setSidebarPinned(pinned => {
+      saveCodeWorkspaceViewState({ sidebarPinned: !pinned })
+      return !pinned
+    })
+  }, [pinnedSidebarRail])
 
   const consumeFileRevealRequest = useCallback((requestId: number) => {
     if (requestId <= consumedWorkspaceFileRevealRequestRef.current) return false
@@ -5954,7 +5967,7 @@ export function CodeWorkspace({
 
   return (
     <div
-      className={`code-workspace ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}
+      className={`code-workspace ${sidebarCollapsed ? 'sidebar-collapsed' : ''} ${pinnedSidebarRail ? 'pinned-sidebar-rail' : ''}`}
       data-testid="code-workspace"
       ref={workspaceRef}
       style={workspaceStyle}
@@ -5985,6 +5998,10 @@ export function CodeWorkspace({
         onOpenRelatedSession={target => { setRelatedSession(target); openAgentTargetRef.current(target.parentAgentId, { focusTerminal: false }) }}
         readOnly={readOnly}
         sidebarCollapsed={sidebarCollapsed}
+        sidebarPinned={sidebarPinned}
+        sidebarPinAvailable={!touchPrimaryInput}
+        pinnedSidebarRail={pinnedSidebarRail}
+        onToggleSidebarPinned={toggleSidebarPinned}
         navigationModalOpen={mobileNavigationModalOpen}
         navigationViewport={mobileNavigationViewport}
         navigationDialogRef={mobileNavigationDialogRef}
