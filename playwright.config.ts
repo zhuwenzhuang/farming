@@ -132,7 +132,7 @@ export default defineConfig({
     },
     {
       name: 'mobile-auth-chromium',
-      testMatch: /(mobile-auth-readonly|share-short-link)\.spec\.ts/,
+      testMatch: /(mobile-auth-readonly|share-short-link|read-only-chat-rejection)\.spec\.ts/,
       use: {
         ...devices['Pixel 7'],
         browserName: 'chromium',
@@ -141,7 +141,7 @@ export default defineConfig({
     },
     {
       name: 'mobile-auth-webkit',
-      testMatch: /mobile-auth-readonly\.spec\.ts/,
+      testMatch: /(mobile-auth-readonly|read-only-chat-rejection)\.spec\.ts/,
       use: {
         ...devices['iPhone 14 Pro'],
         browserName: 'webkit',

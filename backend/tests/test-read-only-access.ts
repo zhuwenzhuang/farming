@@ -1,5 +1,5 @@
 const assert = require('assert');
-const { readOnlyClientMessageAllowed } = require('../read-only-access.cjs');
+const { readOnlyClientMessageAllowed, rejectReadOnlyClientMutation } = require('../read-only-access.cjs');
 
 async function run() {
   for (const type of [
@@ -31,6 +31,26 @@ async function run() {
   ]) {
     assert.strictEqual(readOnlyClientMessageAllowed(type), false, `${type} must be rejected`);
   }
+
+  const frames: Record<string, unknown>[] = [];
+  const viewer = { accessMode: 'read-only', send: (body: string) => frames.push(JSON.parse(body)) };
+  const input = { type: 'composer-input', agentId: 'agent-one', requestId: 'request-one' };
+  assert.strictEqual(rejectReadOnlyClientMutation(viewer, input), true);
+  assert.deepStrictEqual(frames.pop(), {
+    type: 'composer-input-result', agentId: 'agent-one', requestId: 'request-one',
+    accepted: false, message: 'This Farming share is read-only.',
+  }, 'denied input must settle the exact pending request as a definite zero-effect failure');
+  assert.strictEqual(rejectReadOnlyClientMutation(viewer, { ...input, type: 'composer-input-status-request' }), true);
+  assert.deepStrictEqual(frames.pop(), {
+    type: 'composer-input-result', agentId: 'agent-one', requestId: 'request-one',
+    accepted: false, uncertain: true,
+    message: 'This Farming share is read-only. Delivery status cannot be checked with this access.',
+  }, 'denied reconciliation must terminate without claiming a historical request had no effect');
+  assert.strictEqual(rejectReadOnlyClientMutation(viewer, { type: 'input' }), true);
+  assert.deepStrictEqual(frames.pop(), { type: 'error', message: 'This Farming share is read-only.' });
+  assert.strictEqual(rejectReadOnlyClientMutation(viewer, { type: 'focus-agent' }), false);
+  assert.strictEqual(rejectReadOnlyClientMutation({ ...viewer, accessMode: 'owner' }, input), false);
+  assert.strictEqual(frames.length, 0, 'allowed reads and Owner operations remain unchanged');
 
   const {
     outgoingWebSocketMessageDisposition,

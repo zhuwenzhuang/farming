@@ -242,7 +242,7 @@ import { createWebSocketAgentLifecycleHandlers } from './websocket-agent-lifecyc
 import { createWebSocketAcpHandlers } from './websocket-acp-handlers.cjs';
 import { createWebSocketWorkspaceRequestHandlers } from './websocket-workspace-request-handlers.cjs';
 import { TokenAuth, authenticatedAccessScopeId } from './auth.cjs';
-import { readOnlyClientMessageAllowed } from './read-only-access.cjs';
+import { rejectReadOnlyClientMutation } from './read-only-access.cjs';
 import { getLocalIPs, getPrimaryLocalIP } from './network.cjs';
 import { listAvailableAgentsAsync, resolveTerminalExecutableAsync } from './executable-discovery.cjs';
 import { getAgentLaunchMetadata } from './cli-agents.cjs';
@@ -2285,15 +2285,6 @@ wss.on('connection', (ws, req) => {
   }));
   queueInitialStateSnapshot(ws);
 });
-
-function rejectReadOnlyClientMutation(ws: WebSocketClient, data: ServerClientMessage) {
-  if (ws.accessMode !== 'read-only' || readOnlyClientMessageAllowed(data.type)) return false;
-  ws.send(JSON.stringify({
-    type: 'error',
-    message: 'This Farming share is read-only.',
-  }));
-  return true;
-}
 
 async function sendBusinessHealthResult(ws: WebSocketClient, requestId: string) {
   const health = await probeAgentManagerBusinessHealth(agentManager);

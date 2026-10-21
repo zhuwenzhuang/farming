@@ -13,6 +13,10 @@ interface FastScreenTask {
 const projectRoot = path.resolve(__dirname, '..');
 const packageVersion = require(path.join(projectRoot, 'package.json')).version;
 const tasks: FastScreenTask[] = [
+  {
+    name: 'read-only Composer denial settles correlated delivery',
+    args: ['--import', 'tsx', 'backend/tests/test-read-only-access.ts'],
+  },
   ...agentCommunicationTestCases.map(({ domain, pattern }) => ({
     name: `A2A process ownership and correlated reply: ${domain}`,
     args: ['--import', 'tsx', '--test', '--test-name-pattern', pattern, 'backend/tests/test-agent-communication-integration.ts'],

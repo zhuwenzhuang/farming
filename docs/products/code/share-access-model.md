@@ -193,7 +193,11 @@ The frontend queues ordinary client messages until the WebSocket handshake confi
 the access mode. It flushes them for an owner and only flushes view-safe messages for
 a read-only visitor. Automatic Terminal `resize-agent` messages are silently skipped
 on read-only pages so the initial layout does not surface a non-user permission error;
-the backend continues to reject that message as the security boundary.
+the backend continues to reject that message as the security boundary. Structured
+Chat input denied by this boundary receives a correlated, definite rejection so the
+composer preserves its draft without waiting for delivery. A denied delivery-status
+lookup also receives a correlated response, but must preserve uncertainty about any
+earlier submission; access denial alone never authorizes replay.
 
 Browser Viewer connections may receive frames but their input and resize messages
 are ignored. Computer Viewer connections are rejected because its bidirectional
