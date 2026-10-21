@@ -11,6 +11,146 @@ async function rect(locator: Locator) {
   })
 }
 
+test('scrolls Agent rows immediately and keeps long lists reachable before the file tree ends', async ({ page, workspaceRoot, isMobile }, testInfo) => {
+  testInfo.setTimeout(120_000)
+  await page.setViewportSize({ width: isMobile ? 393 : 1280, height: 400 })
+  const workspace = path.join(workspaceRoot, 'scrollable-sessions')
+  fs.mkdirSync(workspace, { recursive: true })
+  for (let index = 0; index < 100; index++) {
+    fs.writeFileSync(path.join(workspace, `sample-${String(index).padStart(3, '0')}.txt`), 'Sample content\n')
+  }
+  for (let index = 0; index < 10; index++) {
+    const response = await page.request.post('/farming/api/control/agents', { data: { command: 'bash', workspace } })
+    expect(response.ok()).toBeTruthy()
+  }
+  await openFarming(page)
+  const sidebar = page.getByTestId('code-sidebar')
+  const openDrawer = async () => {
+    if (await sidebar.evaluate(element => element.classList.contains('collapsed'))) {
+      const back = page.getByTestId('code-mobile-back')
+      if (await back.isVisible()) await back.click()
+      await page.getByTestId('code-mobile-menu').click()
+    }
+  }
+  await openDrawer()
+  const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(workspace) })
+  const files = project.getByTestId('code-files-section')
+  const title = files.locator('.code-files-title')
+  if (await title.getAttribute('aria-expanded') !== 'true') await title.click()
+  await files.locator('[data-file-path="sample-000.txt"]').click()
+  await expect(page.getByTestId('code-file-editor')).toBeVisible()
+  await openDrawer()
+  const editorsTitle = project.locator('.code-open-editors-title')
+  if (await editorsTitle.getAttribute('aria-expanded') !== 'true') await editorsTitle.click()
+  const scroller = page.getByTestId('code-project-list')
+  const agents = project.getByTestId('code-agent-row')
+  const scrollTo = async (offset: number) => {
+    await scroller.evaluate((element, value) => { element.scrollTop = value }, offset)
+    await expect.poll(() => scroller.evaluate(element => element.scrollTop)).toBe(offset)
+  }
+  const sample = () => project.evaluate(group => {
+    const owner = group.closest<HTMLElement>('.code-project-list')!
+    const rows = [...group.querySelectorAll<HTMLElement>('[data-testid="code-agent-row"]')]
+    const last = rows.at(-1)!.getBoundingClientRect()
+    return {
+      scrollTop: owner.scrollTop,
+      remaining: owner.scrollHeight - owner.clientHeight - owner.scrollTop,
+      firstTop: rows[0]!.getBoundingClientRect().top,
+      lastTop: last.top,
+      lastBottom: last.bottom,
+      bottom: owner.getBoundingClientRect().bottom,
+    }
+  })
+  for (const appearance of ['light', 'dark', 'paper'] as const) {
+    await page.evaluate(value => {
+      document.body.dataset.appearance = value
+      document.documentElement.dataset.appearance = value
+    }, appearance)
+    await scrollTo(0)
+    const before = await sample()
+    const first = await agents.first().boundingBox()
+    if (isMobile) {
+      // WebKit's automation has no native swipe API; exercise its shared
+      // scroll geometry and actual touch activation below.
+      await scrollTo(24)
+    } else {
+      await page.mouse.move(first!.x + 80, first!.y + first!.height / 2)
+      await page.mouse.wheel(0, 24)
+      await expect.poll(() => scroller.evaluate(element => element.scrollTop)).toBe(24)
+    }
+    const after = await sample()
+    expect(Math.abs(after.firstTop - before.firstTop + 24)).toBeLessThanOrEqual(1)
+    if (!isMobile) {
+      // The pointer remains over the next Agent; reverse input must also
+      // move the list without traversing Files first.
+      await page.mouse.wheel(0, -24)
+      await expect.poll(() => scroller.evaluate(element => element.scrollTop)).toBe(0)
+      expect(Math.abs((await sample()).firstTop - before.firstTop)).toBeLessThanOrEqual(1)
+    }
+  }
+  await scrollTo(0)
+  await project.getByTestId('code-agent-show-more').click()
+  await expect(agents).toHaveCount(10)
+  for (const appearance of ['light', 'dark', 'paper'] as const) {
+    await page.evaluate(value => {
+      document.body.dataset.appearance = value
+      document.documentElement.dataset.appearance = value
+    }, appearance)
+    await scrollTo(0)
+    const before = await sample()
+    expect(before.lastTop).toBeGreaterThan(before.bottom)
+    const delta = Math.ceil(before.lastBottom - before.bottom + 40)
+    const first = await agents.first().boundingBox()
+    if (isMobile) await scrollTo(delta)
+    else {
+      await page.mouse.move(first!.x + 80, first!.y + first!.height / 2)
+      await page.mouse.wheel(0, delta)
+      await expect.poll(() => scroller.evaluate(element => element.scrollTop)).toBe(delta)
+    }
+    const after = await sample()
+    expect(Math.abs(after.lastTop - before.lastTop + delta)).toBeLessThanOrEqual(1)
+    expect(after.lastBottom).toBeLessThan(after.bottom)
+    expect(after.remaining).toBeGreaterThan(1_000)
+    await scrollTo(1_200)
+    const readHeaders = () => project.evaluate(group => {
+      const projectRow = group.querySelector<HTMLElement>('.code-project-row')!
+      const editors = group.querySelector<HTMLElement>('.code-open-editors')!
+      const filesHeader = group.querySelector<HTMLElement>('.code-files-header')!
+      const visibleBottom = (element: HTMLElement) => element.getBoundingClientRect().bottom
+        - Number.parseFloat(getComputedStyle(element).paddingBottom || '0')
+      return {
+        projectBottom: visibleBottom(projectRow), editorsTop: editors.getBoundingClientRect().top,
+        editorsBottom: visibleBottom(editors), filesTop: filesHeader.getBoundingClientRect().top,
+        editorsMargin: Number.parseFloat(getComputedStyle(editors).marginTop)
+          + Number.parseFloat(getComputedStyle(editors).marginBottom),
+      }
+    })
+    await expect.poll(async () => {
+      const headers = await readHeaders()
+      return Math.max(
+        Math.abs(headers.editorsTop - headers.projectBottom),
+        Math.abs(headers.filesTop - headers.editorsBottom - headers.editorsMargin),
+      )
+    }).toBeLessThanOrEqual(1)
+    await page.mouse.move(0, 0)
+    const screenshotName = `${isMobile ? 'compact' : 'desktop'}-${appearance}-sessions-scrolled`
+    const screenshotPath = testInfo.outputPath(`${screenshotName}.png`)
+    await scroller.screenshot({ path: screenshotPath, animations: 'disabled' })
+    await testInfo.attach(screenshotName, {
+      path: screenshotPath, contentType: 'image/png',
+    })
+  }
+  await scrollTo(0)
+  const finalRows = await sample()
+  await scrollTo(Math.ceil(finalRows.lastBottom - finalRows.bottom + 40))
+  const last = await agents.last().boundingBox()
+  // Coordinates keep locator auto-scrolling from concealing unreachable rows.
+  if (isMobile) await page.touchscreen.tap(last!.x + 80, last!.y + last!.height / 2)
+  else await page.mouse.click(last!.x + 80, last!.y + last!.height / 2)
+  await openDrawer()
+  await expect(agents.last()).toHaveClass(/active/)
+})
+
 test('keeps composed sidebar density and alignment through resize, expansion, and row actions', async ({ page, workspaceRoot, isMobile }, testInfo) => {
   testInfo.setTimeout(120_000)
   const workspace = path.join(workspaceRoot, 'sidebar-spacing')

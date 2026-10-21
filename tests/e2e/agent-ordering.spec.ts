@@ -275,14 +275,16 @@ test('keeps the Project list anchored when selecting a visible Agent', async ({ 
   await activeRow.click()
   await expect(activeRow).toHaveClass(/active/)
   await project.locator('.code-files-title').click()
-  const lastFileRow = project.getByTestId('code-file-row').last()
-  await expect(lastFileRow).toBeVisible()
-  await lastFileRow.evaluate(element => element.scrollIntoView({ block: 'end' }))
-  await expect(targetRow).toBeVisible()
+  await expect(project.getByTestId('code-file-row').first()).toBeVisible()
+  // Keep the target in the viewport while exercising a nonzero scroll offset.
+  // Agent rows now scroll normally instead of sticking over the file tree.
+  await projectList.evaluate(element => { element.scrollTop = 12 })
+  await expect(targetRow).toBeInViewport()
 
   const beforeScrollTop = await projectList.evaluate(element => element.scrollTop)
   expect(beforeScrollTop).toBeGreaterThan(0)
-  await targetRow.click()
+  const targetBox = await targetRow.boundingBox()
+  await page.mouse.click(targetBox!.x + 80, targetBox!.y + targetBox!.height / 2)
   await expect(targetRow).toHaveClass(/active/)
   await expect.poll(() => projectList.evaluate(element => element.scrollTop)).toBe(beforeScrollTop)
 })
@@ -330,7 +332,7 @@ test('restores Project disclosure without letting late sidebar content hide the 
   await expect(activeRow).toBeInViewport()
 })
 
-test('keeps the Files header below a resized sticky Agent section without ResizeObserver', async ({ page, workspaceRoot }, testInfo) => {
+test('keeps file summary headers below the Project after Agent changes without ResizeObserver', async ({ page, workspaceRoot }, testInfo) => {
   const projectDir = path.join(workspaceRoot, 'agent-sticky-height-sync')
   fs.mkdirSync(projectDir, { recursive: true })
   for (let index = 0; index < 40; index += 1) {
@@ -387,12 +389,13 @@ test('keeps the Files header below a resized sticky Agent section without Resize
       agentsHeight: visibleAgentsHeight,
       agentsBottom: agentsRect.top + visibleAgentsHeight,
       filesTop: filesRect.top,
-      stickyHeight: Number.parseFloat(getComputedStyle(element).getPropertyValue('--code-agents-sticky-height')),
+      projectBottom: element.closest('.code-project-list')!.getBoundingClientRect().top
+        + Number.parseFloat(getComputedStyle(element).getPropertyValue('--code-project-sticky-height')),
     }
   })
   expect(layout).not.toBeNull()
-  expect(layout!.stickyHeight).toBeGreaterThanOrEqual(layout!.agentsHeight - 1)
-  expect(layout!.filesTop).toBeGreaterThanOrEqual(layout!.agentsBottom - 1)
+  expect(layout!.agentsBottom).toBeLessThanOrEqual(layout!.projectBottom + 1)
+  expect(Math.abs(layout!.filesTop - layout!.projectBottom)).toBeLessThanOrEqual(1)
 
   for (const appearance of ['light', 'dark', 'paper'] as const) {
     await page.locator('body').evaluate((body, value) => {
@@ -404,7 +407,6 @@ test('keeps the Files header below a resized sticky Agent section without Resize
       if (!scroller || !files) return
       const style = getComputedStyle(element)
       const stickyStackHeight = Number.parseFloat(style.getPropertyValue('--code-project-sticky-height'))
-        + Number.parseFloat(style.getPropertyValue('--code-agents-sticky-height'))
         + files.getBoundingClientRect().height
       const desiredGroupBottom = scroller.getBoundingClientRect().top + stickyStackHeight - 8
       scroller.scrollTop += element.getBoundingClientRect().bottom - desiredGroupBottom
@@ -443,10 +445,7 @@ test('keeps the Files header below a resized sticky Agent section without Resize
     const projectHeight = Number.parseFloat(
       getComputedStyle(element).getPropertyValue('--code-project-sticky-height')
     )
-    const agentsHeight = Number.parseFloat(
-      getComputedStyle(element).getPropertyValue('--code-agents-sticky-height')
-    )
-    const stickyStackHeight = projectHeight + agentsHeight + files.getBoundingClientRect().height
+    const stickyStackHeight = projectHeight + files.getBoundingClientRect().height
     const desiredGroupBottom = scroller.getBoundingClientRect().top + stickyStackHeight - 8
     scroller.scrollTop += element.getBoundingClientRect().bottom - desiredGroupBottom
     await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))

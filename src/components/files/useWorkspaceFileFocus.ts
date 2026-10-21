@@ -53,7 +53,6 @@ function visibleFileTreeRectForReveal(scroller: HTMLElement, row: HTMLElement) {
   const filesSection = row.closest<HTMLElement>('.code-files-section')
   const stickyElements = [
     projectGroup?.querySelector<HTMLElement>('.code-project-row'),
-    projectGroup?.querySelector<HTMLElement>('.code-agents-section'),
     projectGroup?.querySelector<HTMLElement>('[data-testid="code-open-editors"]'),
     filesSection?.querySelector<HTMLElement>('.code-files-header'),
   ]

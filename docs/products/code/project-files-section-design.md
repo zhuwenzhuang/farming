@@ -179,8 +179,8 @@ should encode the same state differently.
 - One Project scroller owns physical movement. Virtualization selects mounted
   rows without a second scroller or scroll-linked translation. Native scroll
   updates the mounted range before yielding to another frame, including after
-  long main-thread tasks. Project summary
-  layers release together at their trailing boundary. Density changes retain
+  long main-thread tasks. Agent rows remain in normal flow. Project, Open Editors,
+  and Files summary layers release together at their trailing boundary. Density changes retain
   row-relative reading position.
 - Open Editors is a bounded list; appearance of its scrollbar cannot shift labels
   or actions. Files header actions retain stable slots; ancestor context cannot

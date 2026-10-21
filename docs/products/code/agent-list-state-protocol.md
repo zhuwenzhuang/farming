@@ -388,6 +388,12 @@ visibility control return when expanded. Disclosure remains browser-owned and
 does not mutate Agent membership, activity, or backend order. Sticky measurements
 follow visible content and must shrink as well as grow across disclosure changes.
 
+Agent and session rows stay in normal flow inside the single Project scroller.
+Wheel, touch, and scrollbar input over those rows must move them immediately,
+including after Show more makes the list taller than the viewport. They do not
+reserve sticky height above Files or Open Editors; reaching another Agent must
+not require scrolling through the file tree first.
+
 Project and Agent dragging share insertion-line styling. The upper/lower half of
 the visible target row selects before/after; invisible sticky-stack reservations
 are excluded from hit testing and indicator placement. Starting a drag clears

@@ -2117,7 +2117,6 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
   recordPerformanceTestRender('projectSectionContent')
   const projectDraggedRef = useRef(false)
   const projectRowRef = useRef<HTMLDivElement | null>(null)
-  const agentsSectionRef = useRef<HTMLDivElement | null>(null)
   const launchButtonRef = useRef<HTMLButtonElement | null>(null)
   const launchMenuRef = useRef<HTMLDivElement | null>(null)
   const worktreeButtonRef = useRef<HTMLButtonElement | null>(null)
@@ -2331,24 +2330,15 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
         '--code-project-sticky-height',
         projectRow ? `${Math.ceil(visibleStickyHeight(projectRow))}px` : '',
       )
-      const agentsSection = agentsSectionRef.current
-      projectGroup.style.setProperty(
-        '--code-agents-sticky-height',
-        agentsSection ? `${Math.ceil(visibleStickyHeight(agentsSection))}px` : '0px',
-      )
     }
 
     setStickyMetrics()
     const projectRow = projectRowRef.current
-    const agentsSection = agentsSectionRef.current
     const observer = typeof ResizeObserver !== 'undefined'
       ? new ResizeObserver(setStickyMetrics)
       : null
     if (projectRow) {
       observer?.observe(projectRow)
-    }
-    if (agentsSection) {
-      observer?.observe(agentsSection)
     }
     window.addEventListener('resize', setStickyMetrics)
 
@@ -2636,7 +2626,7 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
       {!collapsed && (
         <div className="code-project-expanded">
           {showAgentsSection && (
-            <div ref={agentsSectionRef} className="code-agents-section" data-testid="code-agents-section" data-project-id={project.id}>
+            <div className="code-agents-section" data-testid="code-agents-section" data-project-id={project.id}>
               <div className="code-agent-list">
                 {!agentListCollapsed && (
                   <>

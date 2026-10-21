@@ -414,14 +414,12 @@
 }
 
 .code-project-group {
-  --code-agents-sticky-height: 0px;
-  --code-agents-sticky-tail-height: calc(var(--code-open-editors-sticky-height, 0px) + var(--code-files-header-height, 25px));
   --code-open-editors-header-height: 25px;
   --code-open-editors-sticky-tail-height: var(--code-files-header-height, 25px);
   --code-files-header-height: 25px;
   --code-open-editor-row-height: var(--code-sidebar-file-row-height);
   --code-open-editors-sticky-height: 0px;
-  --code-project-sticky-tail-height: calc(var(--code-agents-sticky-height, 0px) + var(--code-open-editors-sticky-height, 0px) + var(--code-files-header-height, 25px));
+  --code-project-sticky-tail-height: calc(var(--code-open-editors-sticky-height, 0px) + var(--code-files-header-height, 25px));
   display: flex;
   flex-direction: column;
   gap: 3px;
@@ -728,10 +726,6 @@
 
 .code-project-row + .code-project-expanded {
   margin-top: calc(0px - var(--code-project-sticky-tail-height));
-}
-
-.code-agents-section + .code-project-resource-slot {
-  margin-top: calc(0px - var(--code-agents-sticky-tail-height));
 }
 
 .code-session-show-more {

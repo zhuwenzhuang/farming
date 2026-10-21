@@ -131,7 +131,6 @@ test('promotes an external terminal file link to its nearest Git Project', async
     const scrollerRect = scroller.getBoundingClientRect()
     const visibleTop = [
       projectGroup.querySelector<HTMLElement>('.code-project-row'),
-      projectGroup.querySelector<HTMLElement>('.code-agents-section'),
       projectGroup.querySelector<HTMLElement>('[data-testid="code-open-editors"]'),
       filesSection.querySelector<HTMLElement>('.code-files-header'),
     ].reduce((top, sticky) => {

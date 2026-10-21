@@ -416,7 +416,7 @@ test.describe('Farming Code appearance skins', () => {
     await expectProjectRowSurface(page, 'rgb(32, 32, 32)')
     await expect(page.getByTestId('code-sidebar-resizer')).toHaveCSS('background-color', 'rgb(42, 42, 42)')
     await expectReadableMutedDarkText(page.getByTestId('code-new-agent'), 'new Agent action')
-    await expectStickySurface(page.getByTestId('code-agents-section').first(), 'Agent section', 'rgb(32, 32, 32)')
+    await expect(page.getByTestId('code-agents-section').first()).toHaveCSS('background-color', 'rgb(32, 32, 32)')
     const projectList = page.getByTestId('code-project-list')
     await expect.poll(() => projectList.evaluate(element => (
       getComputedStyle(element, '::-webkit-scrollbar-thumb').backgroundColor
