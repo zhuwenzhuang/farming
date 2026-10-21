@@ -34,8 +34,6 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import { CollaborationAgentIcon } from './CollaborationAgentIcon'
-import { AgentLaunchIcon } from './AgentLaunchIcon'
-import { agentIconName, agentIconNameFromCommand } from '@/lib/agent-presentation'
 import { CommunicationPeerNavigation, RelatedSessionNavigation } from './related-session-navigation'
 import ReactMarkdown, { defaultUrlTransform, type Components } from 'react-markdown'
 import { shareNoticeAnchor, type ShareNoticeAnchor } from './share-notice'
@@ -1596,8 +1594,6 @@ function AgentTranscriptOutgoingPreview({ activity, peer, name, open, onToggle }
 }) {
   const currentPeer = useAgentWithLiveState(peer)
   const recipient = currentPeer ? agentRowTitle(currentPeer) : name
-  const providerIcon = currentPeer && !currentPeer.subagentParentSessionKey
-    ? agentIconName(currentPeer.providerSessionProvider) || agentIconNameFromCommand(currentPeer.command) : undefined
   const preview = outgoingMessagePreview(activity.message)
   return <button type="button" className="code-agent-transcript-collaboration-event code-agent-transcript-outgoing-preview"
     data-testid="code-agent-outgoing-preview" aria-expanded={open} title={`${recipient} · ${preview}`}
@@ -1605,8 +1601,7 @@ function AgentTranscriptOutgoingPreview({ activity, peer, name, open, onToggle }
       event.stopPropagation()
       toggleTranscriptDisclosureWithStableAnchor(event.currentTarget, onToggle)
     }}>
-    {providerIcon ? <span className="code-agent-outgoing-preview-icon" aria-hidden="true"><AgentLaunchIcon name={providerIcon} variant="color" /></span>
-      : <CollaborationAgentIcon sessionId={activity.threadId} />}
+    <CollaborationAgentIcon sessionId={activity.threadId} />
     <span className="code-agent-transcript-outgoing-preview-line">
       <span className="code-agent-transcript-outgoing-preview-recipient">{recipient}</span>
       <span className="code-agent-transcript-outgoing-preview-text">{' · '}{preview}</span>

@@ -38,8 +38,13 @@ test('peer messages stay readable with bounded expansion, unknown inputs, send o
   await expect(previews).toHaveCount(5)
   await expect(previews.first()).toContainText('Cleanroom HDFS TPCDS 单机验收与多机接线')
   await expect(previews.first()).toHaveText('Cleanroom HDFS TPCDS 单机验收与多机接线 · 保持 共享传输配置 不变。')
-  const peerIcon = page.locator(`[data-testid="code-agent-row"][data-agent-id="${peerId}"] .code-agent-row-provider-icon svg`)
-  expect(await previews.first().locator('.code-agent-outgoing-preview-icon svg').innerHTML()).toBe(await peerIcon.innerHTML())
+  const assignedIcon = previews.first().locator('.code-collaboration-agent-icon')
+  await expect(assignedIcon).toHaveCount(1)
+  await expect(previews.first().locator('.agent-launch-icon')).toHaveCount(0)
+  const firstIconMarkup = await assignedIcon.innerHTML()
+  for (const row of await previews.all()) {
+    expect(await row.locator('.code-collaboration-agent-icon').innerHTML()).toBe(firstIconMarkup)
+  }
   await previews.first().click()
   await expect(page.getByTestId('code-agent-outgoing-message')).toHaveCount(1)
   await expect(summary).toHaveAttribute('aria-expanded', 'false')
@@ -69,6 +74,13 @@ test('peer messages stay readable with bounded expansion, unknown inputs, send o
       })
       const preview = previews.first()
       expect(await preview.evaluate(element => getComputedStyle(element).fontSize)).toBe('13px')
+      const iconBounds = await preview.locator('.code-collaboration-agent-icon svg').boundingBox()
+      const textBounds = await preview.locator('.code-agent-transcript-outgoing-preview-line').boundingBox()
+      expect(iconBounds!.width).toBe(14)
+      expect(iconBounds!.height).toBe(14)
+      expect(Math.abs(iconBounds!.y + iconBounds!.height / 2 - textBounds!.y - textBounds!.height / 2)).toBeLessThanOrEqual(0.5)
+      const rowIcons = await previews.locator('.code-collaboration-agent-icon').all()
+      for (const icon of rowIcons) expect((await icon.boundingBox())!.x).toBe(iconBounds!.x)
       expect((await preview.boundingBox())!.height).toBeLessThanOrEqual(32)
       expect(await preview.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
     }
@@ -76,6 +88,7 @@ test('peer messages stay readable with bounded expansion, unknown inputs, send o
   await page.setViewportSize({ width: 1440, height: 1000 })
   expect((await page.request.post(`/farming/api/control/agents/${peerId}/title`, { data: { title: '配置对齐' } })).ok()).toBeTruthy()
   await expect(previews.first()).toContainText('配置对齐')
+  expect(await previews.first().locator('.code-collaboration-agent-icon').innerHTML()).toBe(firstIconMarkup)
   for (const appearance of ['light', 'dark', 'paper']) {
     await page.locator('body').evaluate((body, value) => { body.dataset.appearance = value }, appearance)
     await page.mouse.move(0, 0)

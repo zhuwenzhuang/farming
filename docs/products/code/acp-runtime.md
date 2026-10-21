@@ -281,7 +281,7 @@ sender-side reconstruction. Outgoing native collaboration is a chronological
 activity feed: send success is neither a read receipt nor task completion. Outgoing
 messages share the Turn's Worked disclosure. Its collapsed summary retains the
 message count and compact message rows. Each row starts with the target Agent's
-sidebar icon, followed by its name and a single-line, ellipsized preview. Markdown
+assigned collaboration icon (stable by Session identity), followed by its name and a single-line, ellipsized preview. Markdown
 is parsed into readable text before clipping. Rows toggle their own message detail
 without expanding the entire Worked group; keyboard activation follows the same
 path. Status counts are secondary tooltip details. Whole-group expansion reveals

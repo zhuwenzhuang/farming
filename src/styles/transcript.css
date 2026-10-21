@@ -3069,8 +3069,9 @@ button.code-agent-transcript-result-summary:is(:hover, :focus-visible) .code-age
   margin-top: 3px;
 }
 .code-agent-transcript-outgoing-preview {
-  grid-template-columns: 16px minmax(0, 1fr) 14px;
+  grid-template-columns: 14px minmax(0, 1fr) 14px;
   max-width: 680px;
+  line-height: 20px;
 }
 .code-agent-transcript-outgoing-preview-line {
   overflow: hidden;
@@ -3083,11 +3084,13 @@ button.code-agent-transcript-result-summary:is(:hover, :focus-visible) .code-age
 .code-agent-transcript-outgoing-preview-text {
   color: var(--code-text-secondary);
 }
-.code-agent-outgoing-preview-icon,
-.code-agent-outgoing-preview-icon svg {
+/* Icons and the text line share the row's vertical center. */
+.code-agent-transcript-outgoing-preview > .code-collaboration-agent-icon,
+.code-agent-transcript-outgoing-preview > .code-agent-transcript-chevron {
+  align-self: center;
+}
+.code-agent-transcript-outgoing-preview > .code-collaboration-agent-icon > svg {
   display: block;
-  width: 16px;
-  height: 16px;
 }
 .code-agent-transcript-outgoing-preview[aria-expanded="true"] .code-agent-transcript-chevron {
   transform: rotate(90deg);
