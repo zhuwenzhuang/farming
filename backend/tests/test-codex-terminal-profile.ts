@@ -138,6 +138,14 @@ async function run() {
     'an older model footer must not admit a status probe while the current turn is working');
   assert.strictEqual(identityControl.canResolveFromPreview(`${workingPreview}\n${IDLE_55}`), true,
     'the subsequent idle composer may admit the deferred identity probe');
+  for (const busyPreview of [workingPreview, '› Ask Codex\n\nGPT 6.0 Astra high · /workspace\nWorking (2s • esc to interrupt)']) {
+    await assert.rejects(applyCodexTerminalProfile({
+      profile: { model: 'gpt-5.6-sol', effort: 'xhigh', serviceTier: 'default' },
+      readPreview: async () => busyPreview,
+      sendInput: async () => assert.fail('a retained footer must not admit a profile transaction during a turn'),
+      timeoutMs: 1000,
+    }), /not idle/);
+  }
   await assert.rejects(resolveCodexTerminalSessionId({
     readPreview: async () => workingPreview,
     sendInput: async () => assert.fail('active turns must not receive an identity probe'),
@@ -317,6 +325,45 @@ async function run() {
     effort: 'ultra',
     serviceTier: 'priority',
   });
+
+  for (const confirmation of ['exact-model', 'display-name-only']) {
+    const displayComposer = '› Ask Codex\n\nGPT 6.0 Astra high · /workspace';
+    let displayPreview = displayComposer;
+    const displayInputs = [];
+    const originalNow = Date.now;
+    let controlledNow = originalNow();
+    if (confirmation === 'display-name-only') Date.now = () => controlledNow;
+    try {
+      const applying = applyCodexTerminalProfile({
+        profile: { model: 'gpt-5.6-sol', effort: 'xhigh', serviceTier: 'default' },
+        readPreview: async () => displayPreview,
+        sendInput: async input => {
+          displayInputs.push(input);
+          if (Array.isArray(input)) displayPreview = MODEL_MENU;
+          else if (input === '8') displayPreview = REASONING_MENU;
+          else if (input === '4') {
+            displayPreview = `${confirmation === 'exact-model' ? '• Model changed to gpt-5.6-sol xhigh\n\n' : ''}› Ask Codex\n\nGPT 5.6 Sol xhigh · /workspace`;
+          } else if (input === '\x1b') displayPreview = displayComposer;
+          else assert.fail(`unexpected display-name transaction input: ${JSON.stringify(input)}`);
+        },
+        sleep: async () => { controlledNow += 72; },
+        pollIntervalMs: 0,
+        timeoutMs: confirmation === 'display-name-only' ? 80 : 1000,
+      });
+      if (confirmation === 'exact-model') {
+        assert.deepStrictEqual(await applying, {
+          model: 'gpt-5.6-sol', effort: 'xhigh', serviceTier: 'default',
+        }, 'idle display names admit the picker, but its exact rendered confirmation owns the resulting identity');
+        assert.deepStrictEqual(displayInputs, [[{ type: 'paste', text: '/model' }, '\r'], '8', '4']);
+      } else {
+        await assert.rejects(applying, /Codex did not confirm gpt-5.6-sol xhigh/);
+        assert.deepStrictEqual(displayInputs, [[{ type: 'paste', text: '/model' }, '\r'], '8', '4', '\x1b', '\x1b'],
+          'display names alone must fail within the existing deadline and clean up anticipated picker levels');
+      }
+    } finally {
+      Date.now = originalNow;
+    }
+  }
 
   for (const effort of ['low', 'ultra']) {
     let quickPreview = IDLE_55;

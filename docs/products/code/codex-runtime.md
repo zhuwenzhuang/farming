@@ -57,6 +57,9 @@ identity; authentication recovery and strict-review notices remain visible.
 Account/project/queue inventories and model configuration are not Agent activity.
 
 The native profile transaction selects exact model, reasoning and speed identities.
+Admission requires an idle Composer, independently of whether its footer exposes
+a model ID. A display name is never guessed into an ID; unknown identity requires
+the explicit target picker and confirmation transaction.
 It has one ordered-input fence and deadline, and succeeds only after the picker
 closes and the requested profile is confirmed in a fresh rendered screen. Open
 menus, stale footers and stripped ANSI text are not confirmation. Cancellation

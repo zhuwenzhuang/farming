@@ -505,9 +505,6 @@ async function applyCodexTerminalProfile({
   };
   let preview = String(await runStep(readPreview, 'Timed out reading the Codex Terminal') || '');
   let current = codexTerminalProfileFromPreview(preview);
-  if (!current) {
-    throw new Error('Codex Terminal is not idle; wait for its composer before changing the model');
-  }
   if (
     codexQuickModelMenuOptions(preview)
     || codexModelMenuOptions(preview)
@@ -515,6 +512,12 @@ async function applyCodexTerminalProfile({
     || codexAdvancedReasoningMenuOptions(preview)
   ) {
     throw new Error('Close the active Codex Terminal menu before changing the model');
+  }
+  // Composer readiness is independent of model identity: a catalog display
+  // name may be idle without exposing a slug, while a busy turn retains one.
+  // Unknown identity must take the explicit picker/confirmation transaction.
+  if (!isCodexTerminalComposerPreview(preview)) {
+    throw new Error('Codex Terminal is not idle; wait for its composer before changing the model');
   }
 
   let pickerDepth = 0;
