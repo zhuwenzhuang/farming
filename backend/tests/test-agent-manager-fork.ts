@@ -82,6 +82,39 @@ async function run() {
     const expectedCodexCommand = resolveAgentExecutable('codex') || 'codex';
     const expectedBashCommand = resolveAgentExecutable('bash') || '/bin/bash';
 
+    const alias = path.join(tmpRoot, 'repo-alias');
+    fs.symlinkSync(repo, alias, 'junction');
+    const nested = path.join(repo, 'nested');
+    fs.mkdirSync(nested);
+    const realRepo = fs.realpathSync(repo);
+    for (const [cwd, project] of [
+      [alias, realRepo],
+      [repo, alias],
+      [path.join(alias, 'nested'), realRepo],
+    ]) {
+      const id = await startAgent(manager, 'codex', cwd, { wantsMain: false, projectWorkspace: project });
+      assert.strictEqual(manager.agents.get(id).projectWorkspace, realRepo,
+        'symlink aliases and their descendants must retain the canonical Project');
+      assert.strictEqual(manager.agents.get(id).cwd, cwd, 'launch cwd must be preserved');
+      assert.strictEqual(manager.getAgentState(id).projectWorkspace, realRepo);
+    }
+    const recoveredAlias = manager.recoveredAgentRecord('legacy-alias', 'local', {
+      id: 'agent_old_alias', command: 'codex', cwd: alias, projectWorkspace: alias,
+      provider: 'codex', providerHomeId: 'default', providerSessionId: 'old-conversation',
+      pinned: true, projectOrder: 7,
+    }, { status: 'running' });
+    assert.strictEqual(recoveredAlias.projectWorkspace, realRepo);
+    assert.strictEqual(recoveredAlias.cwd, alias);
+    assert.strictEqual(recoveredAlias.providerSessionId, 'old-conversation');
+    assert.strictEqual(recoveredAlias.pinned, true);
+    assert.strictEqual(recoveredAlias.projectOrder, 7);
+
+    const escape = path.join(repo, 'external');
+    fs.symlinkSync(nonGit, escape, 'junction');
+    const escapedId = await startAgent(manager, 'codex', escape, { wantsMain: false, projectWorkspace: realRepo });
+    assert.strictEqual(manager.agents.get(escapedId).projectWorkspace, fs.realpathSync(nonGit),
+      'a lexical child symlink pointing outside the Project must not claim its parent');
+
     const temporaryCodexId = await startAgent(manager, 'codex', repo, { wantsMain: false });
     const startsBeforeTemporaryFork = captured.length;
     const temporaryCodexFork = await manager.forkAgent(temporaryCodexId, 'same-worktree');

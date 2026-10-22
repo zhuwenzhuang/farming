@@ -26,6 +26,22 @@ against the shared codec rather than trusting the copy.
 No other module may build or parse these strings by concatenating or splitting
 on `:`.
 
+## Project Paths
+
+The backend resolves existing Project paths through filesystem symlinks. Creation,
+recovery, persisted Farming records, run history and Provider history use that
+same canonical path for Project membership; distinct directories with the same
+basename remain distinct Projects. Containment checks compare resolved paths on
+both sides, including links that point outside a lexical parent.
+
+Original launch directories and Provider Session identities stay unchanged.
+Legacy Farming records expose canonical membership on read and persist it on the
+next normal metadata write. Run history is normalized by its existing startup
+migration. Provider history resolves membership after its cache is read, so a
+changed symlink target does not require rescanning conversations. Unavailable
+paths retain their existing membership, and projectless conversations remain
+projectless.
+
 ## History Convergence
 
 Provider history governs removal. After lifecycle recovery completes,

@@ -1,3 +1,4 @@
+import { canonicalWorkspacePath } from './project-workspace-canonicalizer.cjs';
 import { terminalIdentityProbeState } from './terminal-provider-control-coordinator.cjs';
 import { isChatTurnState } from '../shared/chat-turn-state.js';
 const crypto = require('crypto');
@@ -452,22 +453,24 @@ class FarmingSessionStore {
   readRecord(id: string): AgentRecord | null {
     const metadata = this.readMetadataRecord(id);
     if (!metadata) return null;
-    if (!isAgentRecordId(id)) return this.withCanonicalProviderSessionKey(metadata);
+    if (!isAgentRecordId(id)) return this.withCanonicalIdentity(metadata);
     const state = this.readAgentState(id);
-    if (!state) return this.withCanonicalProviderSessionKey({ ...metadata, agentRecordId: id });
+    if (!state) return this.withCanonicalIdentity({ ...metadata, agentRecordId: id });
     const merged: AgentRecord = { ...metadata, agentRecordId: id };
     AGENT_STATE_FIELDS.forEach(field => {
       if (Object.prototype.hasOwnProperty.call(state, field)) merged[field] = cloneJson(state[field]);
     });
-    return this.withCanonicalProviderSessionKey(merged);
+    return this.withCanonicalIdentity(merged);
   }
 
-  withCanonicalProviderSessionKey(record: AgentRecord): AgentRecord {
+  withCanonicalIdentity(record: AgentRecord): AgentRecord {
     const persisted = typeof record.providerSessionKey === 'string' ? record.providerSessionKey : '';
-    if (!persisted) return record;
     const canonical = canonicalProviderSessionKey(persisted);
-    if (!canonical || canonical === persisted) return record;
-    return { ...record, providerSessionKey: canonical };
+    return {
+      ...record,
+      ...(canonical ? { providerSessionKey: canonical } : {}),
+      ...(record.projectWorkspace ? { projectWorkspace: canonicalWorkspacePath(record.projectWorkspace) } : {}),
+    };
   }
 
   splitAgentRecord(record: JsonRecord, id: string): {
@@ -505,7 +508,7 @@ class FarmingSessionStore {
     if (!isAgentRecordId(id)) return '';
     const promoted = id !== previousId;
     const nextRecord = {
-      ...record,
+      ...this.withCanonicalIdentity(record),
       id,
       agentRecordId: id,
       ...(promoted ? { legacyRecordId: previousId } : {}),
@@ -685,12 +688,12 @@ class FarmingSessionStore {
       const currentOwner = String(existing.runtimeAgentId || '').trim();
       const requestedOwner = String(agent.id || '').trim();
       if (currentOwner && currentOwner !== requestedOwner) return '';
-      const record: AgentRecord = {
+      const record: AgentRecord = this.withCanonicalIdentity({
         ...existing,
         id,
         adaptiveTitle,
         updatedAt: now(),
-      };
+      });
       normalizeTitleMetadata(record);
       if (
         (this.metadataWriteGenerations.get(id) || 0) !== generation

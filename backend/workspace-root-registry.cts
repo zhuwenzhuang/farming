@@ -1,6 +1,4 @@
-const fs = require('fs');
-const os = require('os');
-const path = require('path');
+import { canonicalWorkspacePath, normalizeWorkspacePath } from './project-workspace-canonicalizer.cjs';
 import { WorkspaceFileError } from './workspace-file-service.cjs';
 
 const GLOBAL_WORKSPACE_FILES_AGENT_ID = '__farming_global_files__';
@@ -47,22 +45,6 @@ function recordValue(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object'
     ? value as Record<string, unknown>
     : {};
-}
-
-function normalizeWorkspacePath(value: unknown): string {
-  const raw = String(value || '').trim();
-  if (!raw) return '';
-  return path.resolve(raw.replace(/^~(?=$|[\\/])/, os.homedir()));
-}
-
-function canonicalWorkspacePath(value: unknown): string {
-  const normalized = normalizeWorkspacePath(value);
-  if (!normalized) return '';
-  try {
-    return fs.realpathSync(normalized);
-  } catch {
-    return normalized;
-  }
 }
 
 function rootIdForPath(value: unknown): string {

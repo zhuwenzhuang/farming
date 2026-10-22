@@ -1,3 +1,4 @@
+import { canonicalWorkspacePath } from './project-workspace-canonicalizer.cjs';
 import { normalizeReadOnlyShareHours } from '../shared/read-only-share-duration.js';
 const fs = require('fs');
 const path = require('path');
@@ -572,7 +573,7 @@ class ConfigManager {
         agentId: record.agentId,
         command: typeof record.command === 'string' ? record.command : '',
         cwd: typeof record.cwd === 'string' ? record.cwd : '',
-        projectWorkspace: typeof record.projectWorkspace === 'string' ? record.projectWorkspace : '',
+        projectWorkspace: canonicalWorkspacePath(record.projectWorkspace || record.cwd),
         title: typeof record.title === 'string' ? record.title : '',
         customTitle: typeof record.customTitle === 'string' ? record.customTitle.trim().slice(0, 80) : '',
         task: typeof record.task === 'string' ? record.task : '',

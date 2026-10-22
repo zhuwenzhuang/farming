@@ -1,3 +1,23 @@
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+
+function normalizeWorkspacePath(value: unknown): string {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  return path.resolve(raw.replace(/^~(?=$|[\\/])/, os.homedir()));
+}
+
+function canonicalWorkspacePath(value: unknown): string {
+  const normalized = normalizeWorkspacePath(value);
+  if (!normalized) return '';
+  try {
+    return fs.realpathSync(normalized);
+  } catch {
+    return normalized;
+  }
+}
+
 interface ProjectWorkspaceCanonicalizerPorts {
   inspectWorkspace(candidate: string): Promise<string>;
   realpath(candidate: string): Promise<string>;
@@ -34,4 +54,4 @@ function createProjectWorkspaceCanonicalizer(ports: ProjectWorkspaceCanonicalize
   };
 }
 
-export { createProjectWorkspaceCanonicalizer };
+export { canonicalWorkspacePath, normalizeWorkspacePath, createProjectWorkspaceCanonicalizer };

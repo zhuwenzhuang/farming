@@ -47,6 +47,26 @@ interface ResolvedProviderHome {
 
 const INVENTORY_LIMIT = 5000;
 
+async function canonicalSessionWorkspaces(sessions: AgentSession[]): Promise<AgentSession[]> {
+  // Resolve after the provider cache: moving a directory behind a symlink does
+  // not change the provider's history files or their cache fingerprint.
+  const paths = [...new Set(sessions.filter(session => !session.projectless)
+    .map(session => session.workspace || session.cwd || '').filter(Boolean))];
+  const canonical = new Map<string, string>();
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(16, paths.length) }, async () => {
+    while (next < paths.length) {
+      const candidate = paths[next++];
+      try { canonical.set(candidate, await fsp.realpath(candidate)); }
+      catch { canonical.set(candidate, candidate); }
+    }
+  }));
+  return sessions.map(session => session.projectless ? session : {
+    ...session,
+    workspace: canonical.get(session.workspace || session.cwd || '') || session.workspace || session.cwd || '',
+  });
+}
+
 function openCodeDataRoots(): string[] {
   return [...new Set([
     String(process.env.XDG_DATA_HOME || '').trim()
@@ -627,7 +647,8 @@ class AgentSessionInventory {
       for (const key of this.activitySnapshots.keys()) {
         if (!activeKeys.has(key)) this.activitySnapshots.delete(key);
       }
-      const sessions = mergeSessions(groups.map(group => group.sessions));
+      const sessions = await canonicalSessionWorkspaces(mergeSessions(groups.map(group => group.sessions)));
+      if (revision !== this.revision) continue;
       return {
         authoritativeHomes: sessions.length < INVENTORY_LIMIT
           ? groups.flatMap(group => group.authoritative ? [{

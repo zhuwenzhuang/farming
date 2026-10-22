@@ -2786,7 +2786,7 @@ class AgentManager extends EventEmitter {
           ? persisted.forkRequestSignature
           : engineMetadata.forkRequestSignature,
         persistentSessionId: persisted.id || persisted.persistentSessionId || engineMetadata.persistentSessionId,
-        projectWorkspace: persisted.projectWorkspace || engineMetadata.projectWorkspace,
+        projectWorkspace: canonicalWorkspacePath(persisted.projectWorkspace || engineMetadata.projectWorkspace),
         provider: persistedProvider || engineMetadata.provider,
         providerSessionProvider: persistedProvider || engineMetadata.providerSessionProvider,
         providerHomeId: persisted.providerHomeId || engineMetadata.providerHomeId,
@@ -3362,7 +3362,7 @@ class AgentManager extends EventEmitter {
         skipRecoveryWait: true,
         task: record.task || record.providerSessionTitle || '',
         workflowTemplate: record.workflowTemplate || '',
-        projectWorkspace: record.projectWorkspace || record.cwd || '',
+        projectWorkspace: canonicalWorkspacePath(record.projectWorkspace || record.cwd),
         source: canResumeProvider
           ? resumedAgentSource(provider, sessionId, record.providerHomeId || 'default')
           : (record.source || 'terminal-revive'),
@@ -4199,7 +4199,7 @@ class AgentManager extends EventEmitter {
       engineName,
       wantsMain,
       mainWorkspace: metadata.mainWorkspace || '',
-      projectWorkspace: metadata.projectWorkspace || metadata.cwd || '',
+      projectWorkspace: canonicalWorkspacePath(metadata.projectWorkspace || metadata.cwd),
       category: metadata.category || 'coding',
       launchPermissionMode: metadata.launchPermissionMode || '',
       parentAgentId: metadata.parentAgentId || '',
@@ -4885,7 +4885,7 @@ class AgentManager extends EventEmitter {
       command: agent.command || '',
       forkCommand: agent.forkCommand,
       cwd: agent.cwd || '',
-      projectWorkspace: agent.projectWorkspace || '',
+      projectWorkspace: canonicalWorkspacePath(agent.projectWorkspace),
       gitWorktree: publicAgentGitWorktree(agent),
       mainWorkspace: agent.mainWorkspace || '',
       wantsMain: agent.wantsMain === true,
@@ -5324,11 +5324,11 @@ class AgentManager extends EventEmitter {
     } else {
       projectWorkspace = workspace;
       if (explicitProjectWorkspace) {
-        const resolvedProjectWorkspace = path.resolve(explicitProjectWorkspace);
-        const resolvedWorkspace = path.resolve(workspace);
+        const resolvedProjectWorkspace = canonicalWorkspacePath(explicitProjectWorkspace);
+        const resolvedWorkspace = canonicalWorkspacePath(workspace);
         try {
           if (fs.statSync(resolvedProjectWorkspace).isDirectory() && isSameOrDescendantPath(resolvedProjectWorkspace, resolvedWorkspace)) {
-            projectWorkspace = explicitProjectWorkspace;
+            projectWorkspace = resolvedProjectWorkspace;
           }
         } catch {
           projectWorkspace = workspace;
@@ -5336,7 +5336,8 @@ class AgentManager extends EventEmitter {
       }
     }
 
-    const projectWorkspaceKey = canonicalWorkspacePath(projectWorkspace);
+    projectWorkspace = canonicalWorkspacePath(projectWorkspace);
+    const projectWorkspaceKey = projectWorkspace;
     this.startAdmissionCoordinator.setWorkspace(options.startAdmissionToken, projectWorkspaceKey);
     const unavailableProjectWorkspace = this.projectAdmissionCoordinator.findExclusiveKey(
       projectWorkspaceKey,
@@ -11829,7 +11830,7 @@ class AgentManager extends EventEmitter {
       command: agent.command,
       engineName: agent.engineName || '',
       cwd: agent.cwd,
-      projectWorkspace: agent.projectWorkspace || '',
+      projectWorkspace: canonicalWorkspacePath(agent.projectWorkspace),
       gitWorktree: publicAgentGitWorktree(agent),
       status: sessionState && sessionState.status === 'exited'
         ? agent.status

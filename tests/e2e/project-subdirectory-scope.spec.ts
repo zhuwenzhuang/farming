@@ -52,3 +52,35 @@ test('keeps an explicitly selected repository subdirectory as its own Project', 
     return data.settings?.projectWorkspaces ?? []
   }).toEqual(expect.arrayContaining([repository, selectedModule]))
 })
+
+for (const appearance of ['light', 'dark', 'paper'] as const) {
+  test(`groups symlink and real directory Agents in one Project (${appearance})`, async ({ page, workspaceRoot }, testInfo) => {
+    const project = path.join(workspaceRoot, 'internal', 'sql-insight')
+    const alias = path.join(workspaceRoot, 'public', 'sql-insight')
+    fs.mkdirSync(project, { recursive: true })
+    fs.mkdirSync(path.dirname(alias), { recursive: true })
+    fs.symlinkSync(project, alias, 'junction')
+    const settings = await page.request.post('/farming/api/settings', { data: { appearance } })
+    expect(settings.ok()).toBeTruthy()
+    await openFarming(page)
+    await openNewAgentDialog(page)
+    const aliasAgent = await startAgentFromOpenDialog(page, 'bash', alias)
+    await openNewAgentDialog(page)
+    const realAgent = await startAgentFromOpenDialog(page, 'bash', project)
+    const group = page.getByTestId('code-project-group').filter({
+      has: page.getByTestId('code-project-title').filter({ hasText: 'sql-insight' }),
+    })
+    await expect(group).toHaveCount(1)
+    for (const id of [aliasAgent, realAgent]) {
+      await expect(group.locator(`[data-testid="code-agent-row"][data-agent-id="${id}"]`)).toHaveCount(1)
+    }
+    await expect.poll(async () => {
+      const response = await page.request.get('/farming/api/settings')
+      const data = await response.json() as { settings?: { projectWorkspaces?: string[] } }
+      return (data.settings?.projectWorkspaces ?? []).filter(value => value.endsWith('/sql-insight'))
+    }).toEqual([fs.realpathSync(project)])
+    const screenshot = testInfo.outputPath(`project-symlink-${appearance}.png`)
+    await page.getByTestId('code-sidebar').screenshot({ path: screenshot, animations: 'disabled' })
+    await testInfo.attach(`project-symlink-${appearance}`, { path: screenshot, contentType: 'image/png' })
+  })
+}
