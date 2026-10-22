@@ -111,6 +111,12 @@ does not end execution, and a provider timeout must not be reported as completio
 Provider service limits and explicitly requested tool or goal budgets remain
 independent of Farming's Turn lifetime.
 
+Antigravity implements Steering by hard-stopping the current CLI cycle and
+continuing the same native conversation. Interrupted tools retain an explicit
+failure with unconfirmed completion; continuation cannot turn them into success.
+Model and effort slash changes become active only after a successful native result
+and clean process exit, then publish the confirmed configuration to the UI.
+
 Permission and elicitation requests have independent identity and validity.
 Receiving a question does not suspend a Turn. Answer, decline, withdrawal and
 request cancellation settle once; only the live pending set authorizes responses.
@@ -130,6 +136,14 @@ Text, tools, patches, media, permissions and related-session evidence remain
 structured. Provider-specific text heuristics stay at the adapter boundary.
 Reducer entry IDs identify chronological segments; a provider message resumed
 after an intervening entry must not overwrite that earlier segment.
+
+Adapters distinguish message deltas from cumulative snapshots and preserve native
+message boundaries. Final results reconcile with streamed text: an echo is not
+repeated, an extension contributes its suffix, and a distinct final answer remains
+visible after progress. Contradictory snapshots fail explicitly. Antigravity
+history restores tool outputs from native result steps; a planner tool declaration
+alone cannot prove completion. Missing or interrupted results remain visibly
+unconfirmed, and unreadable or malformed transcripts fail the history read.
 
 - Checkpoints identify Agent, Provider Session, runtime epoch and revision.
   Deltas require that identity and the exact previous revision; gaps, resets and

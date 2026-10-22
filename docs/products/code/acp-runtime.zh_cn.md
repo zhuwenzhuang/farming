@@ -85,6 +85,10 @@ Provider 以及主、子 Session。长时间工具执行保持运行，直到 Pr
 仍有等待期限；观察超时不结束执行，Provider 超时也不能报告为完成。Provider 服务自身的
 限制，以及显式指定的工具或 Goal 预算，与 Farming 的 Turn 生命周期独立。
 
+Antigravity 的 Steering 会硬停止当前 CLI 执行周期，再继续同一个原生会话。被中断工具保留
+明确的失败状态及完成情况未确认说明，续跑不能把它们改成成功。模型和 effort 的斜杠命令
+只有在原生结果成功且进程正常退出后才生效，随后向 UI 发布确认后的配置。
+
 权限与提问请求有独立身份和有效期。收到问题不暂停 Turn；回答、拒绝、撤回和请求取消只
 结算一次，只有实时 pending 集合授权回答。结算后问题留在原时间位置；恢复后没有实时
 resolver 的记录只读。“稍后”只折叠问题，不回答或过期它。不确定回答投递不能重放。
@@ -98,6 +102,11 @@ Goal 是 Provider 拥有的只读元数据：省略保留、显式 null 清除�
 Host 将类型化 Provider 历史与实时事件归约为一个有序流。文本、工具、补丁、媒体、权限及
 关联会话证据保持结构化。Provider 文本启发式留在 Adapter 边界。Reducer Entry ID 标识
 时间段；同一 Provider 消息在中间插入其他条目后继续输出，不能覆盖原位置。
+
+Adapter 区分消息增量与累积快照，并保留原生消息边界。最终结果与流式文本核对：相同回显
+不重复，补全文本只追加后缀，独立最终回复在进度消息之后仍然可见。矛盾快照明确失败。
+Antigravity 历史从原生结果步骤恢复工具输出；Planner 声明调用工具本身不能证明工具完成。
+缺失或中断的结果明确标为未确认，无法读取或格式损坏的 transcript 使历史读取明确失败。
 
 - Checkpoint 标明 Agent、Provider Session、runtime epoch 和 revision。Delta 要求同一
   身份及确切前序 revision；缺口、reset 或身份变化必须换 checkpoint，过期结果不能发布。

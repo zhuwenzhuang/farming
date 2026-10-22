@@ -396,6 +396,36 @@ if (text.includes('CHECK_CONTEXT')) {
   console.log(JSON.stringify({ event: 'result', conversation_id: conversationId, result: { status: 'SUCCESS', response: JSON.stringify({ cwd: process.cwd(), args }) } }));
   process.exit(0);
 }
+if (text.includes('STREAM_RECONCILE')) {
+  const events = [
+    { step_index: 1, thinking_delta: 'Considering' },
+    { step_index: 1, thinking: 'Considering options' },
+    { step_index: 1, text_delta: 'Progress' },
+    { step_index: 1, text: 'Progress update' },
+    { step_index: 1, text: 'Progress update' },
+    { step_index: 2, text: 'Final' },
+    { step_index: 2, text: 'Final answer' },
+  ];
+  for (const update of events) console.log(JSON.stringify({ event: 'step_update', step_update: { step_type: 'agent_response', ...update } }));
+  console.log(JSON.stringify({ event: 'result', result: { status: 'SUCCESS', response: 'Final answer complete' } }));
+  process.exit(0);
+}
+if (text.includes('RESULT_AFTER_PROGRESS')) {
+  console.log(JSON.stringify({ event: 'step_update', step_update: { step_type: 'agent_response', step_index: 1, text_delta: 'Working on it' } }));
+  console.log(JSON.stringify({ event: 'result', result: { status: 'SUCCESS', response: 'Result-only final answer' } }));
+  process.exit(0);
+}
+if (text.includes('CONFLICTING_SNAPSHOT')) {
+  for (const value of ['Original', 'Replacement']) console.log(JSON.stringify({ event: 'step_update', step_update: { step_type: 'agent_response', step_index: 1, text: value } }));
+  console.log(JSON.stringify({ event: 'result', result: { status: 'SUCCESS' } }));
+  process.exit(0);
+}
+if (text.startsWith('/model ') || text.startsWith('/effort ')) {
+  const [command, value] = text.trim().split(/\\s+/);
+  console.log(JSON.stringify({ status: value === 'rejected-model' || value === 'low' ? 'ERROR' : 'SUCCESS',
+    data: { [command.slice(1)]: value }, response: 'configuration result' }));
+  process.exit(value === 'exit-failure-model' ? 7 : 0);
+}
 if (text.includes('LONG_RUNNING_TURN')) {
   // Compress the CLI's positive print deadline so a regression cannot wait an hour.
   const timeout = args[args.indexOf('--print-timeout') + 1];
@@ -674,6 +704,44 @@ console.log(JSON.stringify({
       'first turn should include bootstrap and bypassPermissions mode skip permissions',
     );
 
+    const assistantMessagesSince = (start: number) => runtime.getSession('agent-agy-test-1').entries.slice(start)
+      .filter((entry: { type: string; role?: string }) => entry.type === 'message' && entry.role === 'assistant')
+      .map((entry: { content: Array<{ text?: string }> }) => entry.content.map(block => block.text || '').join(''));
+    let start = runtime.getSession('agent-agy-test-1').entries.length;
+    await runtime.prompt('agent-agy-test-1', [{ type: 'text', text: 'STREAM_RECONCILE' }]);
+    assert.deepStrictEqual(assistantMessagesSince(start), ['Progress update', 'Final answer complete'],
+      'snapshots, deltas and final suffix must appear once, with distinct messages for distinct steps');
+    const thoughts = runtime.getSession('agent-agy-test-1').entries.slice(start)
+      .filter((entry: { type: string }) => entry.type === 'thought').map(entrySummary);
+    assert.strictEqual(thoughts.length, 1);
+    assert(thoughts[0].endsWith('Considering options'), 'cumulative thinking must not duplicate prior deltas');
+    start = runtime.getSession('agent-agy-test-1').entries.length;
+    await runtime.prompt('agent-agy-test-1', [{ type: 'text', text: 'RESULT_AFTER_PROGRESS' }]);
+    assert.deepStrictEqual(assistantMessagesSince(start), ['Working on it', 'Result-only final answer']);
+    await assert.rejects(runtime.prompt('agent-agy-test-1', [{ type: 'text', text: 'CONFLICTING_SNAPSHOT' }]), /snapshot/);
+
+    const configValue = (id: string) => runtime.getSession('agent-agy-test-1').configOptions
+      .find((option: { id: string }) => option.id === id)?.currentValue;
+    const initialModel = configValue('model');
+    const initialEffort = configValue('effort');
+    for (const command of ['/model rejected-model', '/model exit-failure-model', '/effort low']) {
+      await assert.rejects(runtime.prompt('agent-agy-test-1', [{ type: 'text', text: command }]));
+      assert.strictEqual(configValue('model'), initialModel);
+      assert.strictEqual(configValue('effort'), initialEffort);
+    }
+    start = runtime.getSession('agent-agy-test-1').entries.length;
+    await runtime.prompt('agent-agy-test-1', [{ type: 'text', text: 'CHECK_CONTEXT' }]);
+    const retainedArgs = JSON.parse(assistantMessagesSince(start)[0]).args as string[];
+    assert.strictEqual(retainedArgs[retainedArgs.indexOf('--model') + 1], initialModel,
+      'failed slash command must not poison subsequent CLI arguments');
+    assert.strictEqual(retainedArgs[retainedArgs.indexOf('--effort') + 1], initialEffort);
+    await runtime.prompt('agent-agy-test-1', [{ type: 'text', text: '/model test-confirmed-model' }]);
+    await runtime.prompt('agent-agy-test-1', [{ type: 'text', text: '/effort xhigh' }]);
+    assert.strictEqual(configValue('model'), 'test-confirmed-model');
+    assert.strictEqual(configValue('effort'), 'xhigh');
+    assert(runtime.getSession('agent-agy-test-1').configOptions.find((option: { id: string }) => option.id === 'effort')
+      .options.some((option: { value: string }) => option.value === 'xhigh'));
+
     // Switch to native planning mode and medium effort.
     await runtime.setSessionMode('agent-agy-test-1', 'plan');
     await runtime.setSessionConfigOption('agent-agy-test-1', 'effort', 'medium');
@@ -772,6 +840,11 @@ console.log(JSON.stringify({
       afterSteerEntries.some((line: string) => line.includes('Steered continuation completed (bootstrap=false, text=STEER_FOLLOWUP_INSTRUCTION)')),
       'steered continuation should complete inside the same ACP turn without re-injecting bootstrap',
     );
+
+    const interruptedTool = runtime.getSession('agent-agy-test-1').entries.find((entry: { title?: string }) =>
+      entry.title?.includes('Running long task before steer'));
+    assert.strictEqual(interruptedTool?.status, 'failed', 'steering cannot claim an interrupted tool succeeded');
+    assert(JSON.stringify(interruptedTool).includes('interrupted by steering'));
 
     await runtime.setSessionConfigOption('agent-agy-test-1', 'model', 'claude-opus-5-5');
     await runtime.setSessionConfigOption('agent-agy-test-1', 'effort', 'max');
@@ -888,6 +961,16 @@ if (process.argv.some(arg => arg.endsWith('/agy-acp-bridge.cjs'))) {
             },
           ],
         }),
+        JSON.stringify({ step_index: 3, type: 'GENERIC', status: 'DONE', content: 'Replayed file contents' }),
+        JSON.stringify({ step_index: 4, type: 'PLANNER_RESPONSE', status: 'DONE', tool_calls: [
+          { name: 'run_command', args: { CommandLine: 'failed command' } },
+          { name: 'run_command', args: { CommandLine: 'interrupted command' } },
+        ] }),
+        JSON.stringify({ step_index: 5, type: 'GENERIC', status: 'ERROR', content: 'Replayed command error' }),
+        JSON.stringify({ step_index: 6, type: 'GENERIC', status: 'RUNNING', content: 'Partial command output' }),
+        JSON.stringify({ step_index: 7, type: 'PLANNER_RESPONSE', status: 'DONE', tool_calls: [
+          { name: 'run_command', args: { CommandLine: 'no result command' } },
+        ] }),
       ].join('\n') + '\n',
     );
 
@@ -906,6 +989,13 @@ if (process.argv.some(arg => arg.endsWith('/agy-acp-bridge.cjs'))) {
     });
     const replaySnapshot = runtime.getSession('agent-agy-test-replay');
     const replayLines = replaySnapshot.entries.map(entrySummary);
+    const replayTools = replaySnapshot.entries.filter((entry: { type: string }) => entry.type === 'tool');
+    assert.deepStrictEqual(replayTools.map((entry: { status: string }) => entry.status),
+      ['completed', 'failed', 'failed', 'failed'], 'only native DONE results prove historical tool completion');
+    assert(JSON.stringify(replayTools[0]).includes('Replayed file contents'));
+    assert(JSON.stringify(replayTools[1]).includes('Replayed command error'));
+    assert(JSON.stringify(replayTools[2]).includes('Partial command output'));
+
     assert(
       replayLines.some((line: string) => line.includes('Replayed user question')),
       'loadSession should replay cleaned user input',
@@ -919,6 +1009,22 @@ if (process.argv.some(arg => arg.endsWith('/agy-acp-bridge.cjs'))) {
       .some((line: string) => line.includes('bootstrap=true')),
     'native user history does not prove that Farming instructions were injected');
     await runtime.unregisterAgentAndWait('agent-agy-test-replay');
+
+    const fullTranscriptPath = path.join(replayTranscriptDir, 'transcript_full.jsonl');
+    fs.writeFileSync(fullTranscriptPath, '{broken transcript');
+    await assert.rejects(runtime.prepareAgent({
+      agentId: 'agent-agy-invalid-history', provider: 'agy', executable: fakeAgyScript, configDir,
+      cwd: workspaceDir, projectWorkspace: workspaceDir, providerHomeId: 'default', providerHomePath: agyHome,
+      sessionId: replaySessionId, historyMode: 'load',
+    }), /malformed Antigravity transcript/);
+    fs.rmSync(fullTranscriptPath);
+    fs.mkdirSync(fullTranscriptPath);
+    await assert.rejects(runtime.prepareAgent({
+      agentId: 'agent-agy-unreadable-history', provider: 'agy', executable: fakeAgyScript, configDir,
+      cwd: workspaceDir, projectWorkspace: workspaceDir, providerHomeId: 'default', providerHomePath: agyHome,
+      sessionId: replaySessionId, historyMode: 'load',
+    }), /EISDIR|directory/i);
+    fs.rmdirSync(fullTranscriptPath);
 
     for (const historyMode of ['load', 'resume'] as const) {
       for (const priorPrompt of ['', 'Native user input', 'OLD_FARMING_BOOTSTRAP', 'FARMING_BOOTSTRAP_MARKER']) {

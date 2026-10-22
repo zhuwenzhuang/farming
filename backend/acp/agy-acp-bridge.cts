@@ -260,6 +260,7 @@ function buildConfigOptions(session: AgyBridgeSessionState): SessionConfigOption
         { value: 'low', name: 'Low', description: 'Fast responses for straightforward tasks' },
         { value: 'medium', name: 'Medium', description: 'Balanced speed and reasoning depth' },
         { value: 'high', name: 'High', description: 'Deep reasoning for complex tasks' },
+        { value: 'xhigh', name: 'Extra high', description: 'Extra reasoning depth' },
         { value: 'max', name: 'Max', description: 'Maximum reasoning depth for the hardest problems' }
       ]
     }
@@ -718,26 +719,47 @@ class AgyAcpAgent {
     const transcriptPath = this.resolveTranscriptPath(session.sessionId);
     if (!fs.existsSync(transcriptPath)) return;
 
-    let raw = '';
-    try {
-      raw = await fs.promises.readFile(transcriptPath, 'utf8');
-    } catch {
-      return;
-    }
+    const raw = await fs.promises.readFile(transcriptPath, 'utf8');
 
+    const pendingResults = new Map<number, string>();
     const lines = raw.split(/\r?\n/);
-    for (const line of lines) {
+    for (const [lineIndex, line] of lines.entries()) {
       const trimmed = line.trim();
       if (!trimmed) continue;
       let entry: Record<string, unknown>;
       try {
         entry = JSON.parse(trimmed) as Record<string, unknown>;
       } catch {
-        continue;
+        throw new Error('Cannot replay malformed Antigravity transcript');
       }
 
       const stepType = typeof entry.type === 'string' ? entry.type : '';
-      const stepIndex = typeof entry.step_index === 'number' ? entry.step_index : 0;
+      const stepIndex = typeof entry.step_index === 'number' ? entry.step_index : lineIndex;
+
+      if (stepType === 'USER_INPUT' || stepType === 'PLANNER_RESPONSE') pendingResults.clear();
+      if (replay && stepType === 'GENERIC') {
+        // Native transcripts place one result step per call immediately after
+        // the planner declaration, in call order. Do not cross message boundaries.
+        const toolCallId = pendingResults.get(stepIndex);
+        if (toolCallId) {
+          pendingResults.delete(stepIndex);
+          const completed = entry.status === 'DONE';
+          await this.client.notify('session/update', {
+            sessionId: session.sessionId,
+            update: {
+              sessionUpdate: 'tool_call_update',
+              toolCallId,
+              status: completed ? 'completed' : 'failed',
+              rawOutput: {
+                output: typeof entry.content === 'string' ? entry.content : '',
+                ...(!completed ? { error: entry.status === 'ERROR'
+                  ? 'Antigravity tool failed' : 'Antigravity tool completion is unconfirmed' } : {})
+              }
+            }
+          });
+        }
+        continue;
+      }
 
       if (stepType === 'USER_INPUT') {
         const prompt = this.options.appendSystemPrompt.trim();
@@ -751,6 +773,7 @@ class AgyAcpAgent {
             sessionId: session.sessionId,
             update: {
               sessionUpdate: 'user_message_chunk',
+              messageId: `agy-replay-${stepIndex}-user`,
               content: { type: 'text', text: cleaned }
             }
           });
@@ -765,6 +788,7 @@ class AgyAcpAgent {
             sessionId: session.sessionId,
             update: {
               sessionUpdate: 'agent_thought_chunk',
+              messageId: `agy-replay-${stepIndex}-thinking`,
               content: { type: 'text', text: thinking }
             }
           });
@@ -784,6 +808,7 @@ class AgyAcpAgent {
             typeof record.id === 'string' && record.id.trim()
               ? record.id.trim()
               : `agy-replay-${stepIndex}-${idx}`;
+          pendingResults.set(stepIndex + idx + 1, toolCallId);
           await this.client.notify('session/update', {
             sessionId: session.sessionId,
             update: {
@@ -791,8 +816,9 @@ class AgyAcpAgent {
               toolCallId,
               title: formatToolTitle(toolName, normalizedArgs),
               kind: inferToolKind(toolName),
-              status: 'completed',
-              rawInput: normalizedArgs || {}
+              status: 'failed',
+              rawInput: normalizedArgs || {},
+              rawOutput: { error: 'Antigravity tool has no recorded completion' }
             }
           });
         }
@@ -802,6 +828,7 @@ class AgyAcpAgent {
             sessionId: session.sessionId,
             update: {
               sessionUpdate: 'agent_message_chunk',
+              messageId: `agy-replay-${stepIndex}-text`,
               content: { type: 'text', text: content }
             }
           });
@@ -824,17 +851,10 @@ class AgyAcpAgent {
 
     const isSlashCommand = userText.startsWith('/');
     const isCliDirect = isCliDirectSlashCommand(userText);
-    if (userText.trim().toLowerCase().startsWith('/effort ')) {
-      const requestedEffort = userText.trim().slice('/effort '.length).trim().toLowerCase();
-      if (isValidAgyEffort(requestedEffort)) {
-        session.currentEffort = requestedEffort;
-      }
-    } else if (userText.trim().toLowerCase().startsWith('/model ')) {
-      const requestedModel = userText.trim().slice('/model '.length).trim();
-      if (isValidAgyModelSlug(requestedModel)) {
-        session.currentModel = requestedModel;
-      }
-    }
+    // Slash intent is tentative until both the native result and exit succeed.
+    const [slashCommand, requestedValue] = userText.trim().split(/\s+/);
+    let confirmedModel: string | undefined;
+    let confirmedEffort: AgyEffortLevel | undefined;
 
     let outgoingText = userText;
     const injectSystemPrompt = !isSlashCommand && !session.systemPromptInjected && Boolean(this.options.appendSystemPrompt.trim());
@@ -926,7 +946,34 @@ class AgyAcpAgent {
       session.steeredCurrentCycle = true;
       void session.stopChild().catch(() => {});
     }
-    let emittedAssistantText = false;
+    const responseSteps = new Map<string, { text: string; thinking: string }>();
+    const messagePrefix = `${session.activeTurnId}-${cycleNumber}`;
+    let lastTextStep = '';
+    let unindexedSegment = 0;
+    let emittedText = '';
+    const emitResponse = async (key: string, field: 'text' | 'thinking', value: string, delta: boolean) => {
+      const state = responseSteps.get(key) || { text: '', thinking: '' };
+      const previous = state[field];
+      if (!delta && !value.startsWith(previous)) {
+        throw new Error(`Antigravity returned a conflicting ${field} snapshot`);
+      }
+      const suffix = delta ? value : value.slice(previous.length);
+      state[field] = delta ? previous + value : value;
+      responseSteps.set(key, state);
+      if (!suffix) return;
+      if (field === 'text') {
+        lastTextStep = key;
+        emittedText += suffix;
+      }
+      await this.client.notify('session/update', {
+        sessionId: session.sessionId,
+        update: {
+          sessionUpdate: field === 'text' ? 'agent_message_chunk' : 'agent_thought_chunk',
+          messageId: `${messagePrefix}-${key}-${field}`,
+          content: { type: 'text', text: suffix }
+        }
+      });
+    };
     let stderrText = '';
     let resultFailure = '';
     let resultReceived = false;
@@ -971,42 +1018,19 @@ class AgyAcpAgent {
           if (typeof stepUpdate.conversation_id === 'string' && stepUpdate.conversation_id !== session.sessionId) throw new Error('Antigravity returned a different conversation identity');
           const stepType = typeof stepUpdate.step_type === 'string' ? stepUpdate.step_type : '';
           if (stepType === 'agent_response') {
-            const rawThinking =
-              typeof stepUpdate.thinking_delta === 'string'
-                ? stepUpdate.thinking_delta
-                : typeof stepUpdate.thinking === 'string'
-                  ? stepUpdate.thinking
-                  : '';
-            const thinking = rawThinking.trim();
-            if (thinking) {
-              await this.client.notify('session/update', {
-                sessionId: session.sessionId,
-                update: {
-                  sessionUpdate: 'agent_thought_chunk',
-                  content: { type: 'text', text: rawThinking }
-                }
-              });
-            }
-            const text =
-              typeof stepUpdate.text_delta === 'string'
-                ? stepUpdate.text_delta
-                : typeof stepUpdate.text === 'string'
-                  ? stepUpdate.text
-                  : '';
-            if (text) {
-              emittedAssistantText = true;
-              await this.client.notify('session/update', {
-                sessionId: session.sessionId,
-                update: {
-                  sessionUpdate: 'agent_message_chunk',
-                  content: { type: 'text', text }
-                }
-              });
+            const key = typeof stepUpdate.step_index === 'number'
+              ? `step-${stepUpdate.step_index}` : `unindexed-${unindexedSegment}`;
+            for (const field of ['thinking', 'text'] as const) {
+              const delta = stepUpdate[`${field}_delta`];
+              const snapshot = stepUpdate[field];
+              if (typeof delta === 'string') await emitResponse(key, field, delta, true);
+              else if (typeof snapshot === 'string') await emitResponse(key, field, snapshot, false);
             }
             continue;
           }
 
           if (stepType === 'tool') {
+            unindexedSegment += 1;
             const toolInfo =
               stepUpdate.tool_info && typeof stepUpdate.tool_info === 'object'
                 ? (stepUpdate.tool_info as Record<string, unknown>)
@@ -1126,34 +1150,26 @@ class AgyAcpAgent {
                   ? event.response
                   : '';
 
-          if (data && typeof data.effort === 'string') {
-            const normalizedEffort = data.effort.trim().toLowerCase();
-            if (
-              normalizedEffort === 'high' ||
-              normalizedEffort === 'medium' ||
-              normalizedEffort === 'low' || normalizedEffort === 'xhigh' || normalizedEffort === 'max'
-            ) {
-              session.currentEffort = normalizedEffort;
+          if (!resultFailure && isCliDirect) {
+            if (slashCommand.toLowerCase() === '/effort') {
+              const effort = typeof data?.effort === 'string' ? data.effort.trim().toLowerCase() : requestedValue?.toLowerCase();
+              if (isValidAgyEffort(effort)) confirmedEffort = effort;
+            } else if (slashCommand.toLowerCase() === '/model') {
+              const model = typeof data?.model === 'string' ? data.model.trim() : requestedValue;
+              if (isValidAgyModelSlug(model)) confirmedModel = model;
             }
           }
-          if (!emittedAssistantText && data && Object.keys(data).length > 0) {
-            emittedAssistantText = true;
-            await this.client.notify('session/update', {
-              sessionId: session.sessionId,
-              update: {
-                sessionUpdate: 'agent_message_chunk',
-                content: { type: 'text', text: formatSlashResultData(data, responseText) }
-              }
-            });
-          } else if (!emittedAssistantText && responseText.trim()) {
-            emittedAssistantText = true;
-            await this.client.notify('session/update', {
-              sessionId: session.sessionId,
-              update: {
-                sessionUpdate: 'agent_message_chunk',
-                content: { type: 'text', text: responseText }
-              }
-            });
+          const finalText = data && Object.keys(data).length > 0 && !emittedText
+            ? formatSlashResultData(data, responseText) : responseText;
+          const lastText = responseSteps.get(lastTextStep)?.text || '';
+          if (finalText && finalText !== emittedText && finalText !== lastText) {
+            // A result can echo the last message, extend it, or carry a distinct
+            // final answer after progress. Never suppress it merely due to progress.
+            if (lastText && finalText.startsWith(lastText)) {
+              await emitResponse(lastTextStep, 'text', finalText, false);
+            } else {
+              await emitResponse('result', 'text', finalText, false);
+            }
           }
         }
       }
@@ -1175,7 +1191,8 @@ class AgyAcpAgent {
             update: {
               sessionUpdate: 'tool_call_update',
               toolCallId,
-              status: 'completed'
+              status: 'failed',
+              rawOutput: { error: 'Antigravity tool interrupted by steering; completion is unconfirmed' }
             }
           });
         }
@@ -1183,6 +1200,14 @@ class AgyAcpAgent {
       }
       if (code !== 0 || signal || resultFailure || !resultReceived) {
         throw new Error(resultFailure || stderrText.trim() || `Antigravity CLI did not complete successfully (${signal || code}); ${resultReceived ? 'result received' : 'missing final result'}`);
+      }
+      if (confirmedModel || confirmedEffort) {
+        if (confirmedModel) session.currentModel = confirmedModel;
+        if (confirmedEffort) session.currentEffort = confirmedEffort;
+        await this.client.notify('session/update', {
+          sessionId: session.sessionId,
+          update: { sessionUpdate: 'config_option_update', configOptions: buildConfigOptions(session) }
+        });
       }
       if (injectSystemPrompt) session.systemPromptInjected = true;
       return 'end_turn';
