@@ -102,6 +102,15 @@ Uncertain writes never become automatic queue fallbacks. Late acknowledgements
 cannot restore busy state after completion. Provider-initiated continuation Turns
 use the same start/settlement rules as submitted Turns.
 
+Provider-owned Turns have no Farming-imposed elapsed-time or output-silence
+limit, across providers and root or child Sessions. Long tool execution remains
+running until a provider outcome, explicit cancellation, or authoritative failure.
+Adapters disable optional CLI turn time limits. Initialization, admission, control,
+read and cancellation-cleanup deadlines remain bounded; an observation deadline
+does not end execution, and a provider timeout must not be reported as completion.
+Provider service limits and explicitly requested tool or goal budgets remain
+independent of Farming's Turn lifetime.
+
 Permission and elicitation requests have independent identity and validity.
 Receiving a question does not suspend a Turn. Answer, decline, withdrawal and
 request cancellation settle once; only the live pending set authorizes responses.

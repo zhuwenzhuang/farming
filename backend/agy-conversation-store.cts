@@ -433,7 +433,9 @@ export function didAgyCurrentTurnCompleteCleanly(
       if (status === 7 && stepType !== 132) return false;
     }
     const lastStep = turnSteps[turnSteps.length - 1];
-    return lastStep?.status === 3;
+    // A completed tool can still be awaiting the model's next response. It is
+    // not evidence that an interrupted provider turn finished successfully.
+    return lastStep?.step_type === 15 && lastStep.status === 3;
   } catch {
     return false;
   } finally {

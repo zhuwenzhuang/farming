@@ -877,7 +877,9 @@ class AgyAcpAgent {
     }
 
     for (const directory of session.additionalDirectories) cliArgs.push('--add-dir', directory);
-    cliArgs.push('--print-timeout', '60m');
+    // A turn may legitimately run for hours, including silent tool execution.
+    // Completion, explicit cancellation and provider failure own its lifetime.
+    cliArgs.push('--print-timeout', '0');
     session.steeredCurrentCycle = false;
     const child = spawn(this.options.agyExecutable, cliArgs, {
       cwd: session.cwd,
@@ -924,12 +926,6 @@ class AgyAcpAgent {
       session.steeredCurrentCycle = true;
       void session.stopChild().catch(() => {});
     }
-    let deadline: ReturnType<typeof setTimeout> | undefined;
-    const turnDeadline = new Promise<never>((_, reject) => {
-      deadline = setTimeout(() => reject(new Error('Antigravity turn exceeded its deadline')), 3_660_000);
-      deadline.unref();
-    });
-
     let emittedAssistantText = false;
     let stderrText = '';
     let resultFailure = '';
@@ -1166,7 +1162,7 @@ class AgyAcpAgent {
     void processStreamPromise.catch(() => { void session.stopChild?.().catch(() => {}); });
     try {
       if (identity && configDir) registerConfigProcessGroup(configDir, 'agy-turn', identity);
-      const [{ code, signal }] = await Promise.race([Promise.all([exit, processStreamPromise]), turnDeadline]);
+      const [{ code, signal }] = await Promise.all([exit, processStreamPromise]);
       if (session.cancelled) return 'cancelled';
       if (session.steeredCurrentCycle || session.pendingSteers.length > 0) {
         if (injectSystemPrompt && !session.systemPromptInjected) {
@@ -1191,7 +1187,6 @@ class AgyAcpAgent {
       if (injectSystemPrompt) session.systemPromptInjected = true;
       return 'end_turn';
     } finally {
-      clearTimeout(deadline);
       try {
         await session.stopChild?.();
         // A failed turn may still have persisted its input. Reconcile that

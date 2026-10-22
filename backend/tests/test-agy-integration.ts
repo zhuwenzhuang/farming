@@ -396,7 +396,35 @@ if (text.includes('CHECK_CONTEXT')) {
   console.log(JSON.stringify({ event: 'result', conversation_id: conversationId, result: { status: 'SUCCESS', response: JSON.stringify({ cwd: process.cwd(), args }) } }));
   process.exit(0);
 }
-if (text.includes('STALE_PRIOR_TURN_ERROR') || text.includes('UNCHANGED_PRIOR_TURN_ERROR') || text.includes('MID_TURN_RECOVERED_STREAM_ERROR')) {
+if (text.includes('LONG_RUNNING_TURN')) {
+  // Compress the CLI's positive print deadline so a regression cannot wait an hour.
+  const timeout = args[args.indexOf('--print-timeout') + 1];
+  const deadline = timeout && timeout !== '0'
+    ? setTimeout(() => {
+        console.log(JSON.stringify({ event: 'result', result: { status: 'SUCCESS', response: 'partial work only' } }));
+        process.exit(0);
+      }, 20)
+    : null;
+  console.log(JSON.stringify({ event: 'step_update', step_update: {
+    conversation_id: conversationId, step_index: 1, step_type: 'tool',
+    tool_name: 'run_command', state: 'ACTIVE',
+  } }));
+  // The quiet tool interval exceeds both compressed former turn limits and the
+  // runtime's control-request deadline. Only provider completion ends the turn.
+  await new Promise(resolve => setTimeout(resolve, 200));
+  console.log(JSON.stringify({ event: 'step_update', step_update: {
+    conversation_id: conversationId, step_index: 1, step_type: 'tool',
+    tool_name: 'run_command', state: 'DONE',
+  } }));
+  console.log(JSON.stringify({ event: 'step_update', step_update: {
+    conversation_id: conversationId, step_index: 2, step_type: 'agent_response',
+    state: 'DONE', text_delta: 'Final answer after long execution',
+  } }));
+  console.log(JSON.stringify({ event: 'result', result: { status: 'SUCCESS' } }));
+  if (deadline) clearTimeout(deadline);
+  process.exit(0);
+}
+if (text.includes('STALE_PRIOR_TURN_ERROR') || text.includes('UNCHANGED_PRIOR_TURN_ERROR') || text.includes('MID_TURN_RECOVERED_STREAM_ERROR') || text.includes('INTERRUPTED_AFTER_TOOL')) {
   if (text.includes('STALE_PRIOR_TURN_ERROR')) {
     const db = new DatabaseSync(dbPath);
     db.exec('INSERT INTO steps (idx, step_type, status) VALUES (5, 14, 3), (6, 15, 3)');
@@ -404,6 +432,10 @@ if (text.includes('STALE_PRIOR_TURN_ERROR') || text.includes('UNCHANGED_PRIOR_TU
   } else if (text.includes('MID_TURN_RECOVERED_STREAM_ERROR')) {
     const db = new DatabaseSync(dbPath);
     db.exec('INSERT INTO steps (idx, step_type, status) VALUES (7, 14, 3), (8, 15, 3), (9, 17, 3), (10, 15, 3)');
+    db.close();
+  } else if (text.includes('INTERRUPTED_AFTER_TOOL')) {
+    const db = new DatabaseSync(dbPath);
+    db.exec('INSERT INTO steps (idx, step_type, status) VALUES (11, 14, 3), (12, 15, 3), (13, 132, 3)');
     db.close();
   }
   console.log(JSON.stringify({ event: 'step_update', step_update: { conversation_id: conversationId, step_index: 5, step_type: 'agent_response', state: 'DONE', text_delta: 'recovered-from-stale-error' } }));
@@ -703,6 +735,13 @@ console.log(JSON.stringify({
     assert.strictEqual(midTurnRecovered.stopReason, 'end_turn');
     assert.strictEqual(didAgyCurrentTurnCompleteCleanly(agyHome, prepared.sessionId, 5), true);
 
+    await assert.rejects(runtime.prompt('agent-agy-test-1', [
+      { type: 'text', text: 'INTERRUPTED_AFTER_TOOL' },
+    ]), /stream was interrupted/);
+    assert.strictEqual(didAgyCurrentTurnCompleteCleanly(agyHome, prepared.sessionId, 7), false);
+    assert.strictEqual(runtime.getSession('agent-agy-test-1').chatTurn.status, 'failed',
+      'a completed tool followed by provider interruption must not be reported as a completed turn');
+
     await assert.rejects(runtime.prompt('agent-agy-test-1', [{ type: 'text', text: 'FAIL_STATUS' }]), /ERROR/);
 
     // Verify steering capability and live mid-turn steering.
@@ -750,6 +789,48 @@ console.log(JSON.stringify({
       )),
       'later prompts retain workspace, selected model, effort, and flattened image paths',
     );
+
+    const longTurnClock = path.join(tmpRoot, 'long-turn-clock.cjs');
+    fs.writeFileSync(longTurnClock, `
+if (process.argv.some(arg => arg.endsWith('/agy-acp-bridge.cjs'))) {
+  require('node:fs').writeFileSync(__filename + '.ready', 'ready');
+  const schedule = globalThis.setTimeout;
+  globalThis.setTimeout = (callback, ms, ...args) =>
+    schedule(callback, ms >= 60 * 60 * 1000 ? 20 : ms, ...args);
+}
+`);
+    const longHome = path.join(tmpRoot, 'long-turn-home');
+    fs.mkdirSync(longHome);
+    const longRuntime = new AcpRuntime({ configDir, requestTimeoutMs: 50 });
+    try {
+      await longRuntime.prepareAgent({
+        agentId: 'agent-agy-long', provider: 'agy', executable: fakeAgyScript,
+        configDir, cwd: workspaceDir, providerHomePath: longHome,
+        env: { ...process.env, NODE_OPTIONS: `--require ${JSON.stringify(longTurnClock)}` },
+      });
+      assert(fs.existsSync(longTurnClock + '.ready'), 'the adapter must run under the accelerated turn clock');
+      const outcome = await longRuntime.prompt('agent-agy-long', [{ type: 'text', text: 'LONG_RUNNING_TURN' }]);
+      assert.strictEqual(outcome.stopReason, 'end_turn');
+      assert(longRuntime.getSession('agent-agy-long').entries.map(entrySummary)
+        .some((line: string) => line.includes('Final answer after long execution')),
+      'a silent long-running tool must finish and deliver its final answer past both former turn deadlines');
+
+      const longPending = longRuntime.prompt('agent-agy-long', [{ type: 'text', text: 'HANG_TOOLS' }]);
+      const longPids = path.join(longHome, 'turn-pids.json');
+      for (let attempt = 0; !fs.existsSync(longPids) && attempt < 100; attempt += 1) {
+        await new Promise(resolve => setTimeout(resolve, 20));
+      }
+      assert(fs.existsSync(longPids), 'long turn must start its tool before cancellation');
+      await new Promise(resolve => setTimeout(resolve, 100));
+      assert.strictEqual(longRuntime.getSession('agent-agy-long').state, 'working');
+      await longRuntime.cancel('agent-agy-long');
+      assert.strictEqual((await longPending).stopReason, 'cancelled');
+      for (const pid of JSON.parse(fs.readFileSync(longPids, 'utf8')) as number[]) {
+        assert.throws(() => process.kill(pid, 0), /ESRCH/, 'long-turn cancellation must kill provider and tool descendants');
+      }
+    } finally {
+      await longRuntime.dispose();
+    }
 
     const pendingTurn = runtime.prompt('agent-agy-test-1', [{ type: 'text', text: 'HANG_TOOLS' }]);
     const pidsFile = path.join(agyHome, 'turn-pids.json');
