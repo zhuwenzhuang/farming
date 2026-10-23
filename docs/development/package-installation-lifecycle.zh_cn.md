@@ -106,7 +106,8 @@ Managed Runtime 缓存按每个依赖的版本、平台、制品完整性、入�
 Prepare 与 Publication 是独立转换。基于旧 Selection 准备的目标不能覆盖更新部署；Detached
 工作只有在仍拥有同一个 Update Operation 时，才能提交状态或跨越 Publication、Stop、Activation、
 Start 边界。所有权敏感 Effect 必须在 Update State Claim 下重新校验，并在 Effect 全程保留该
-Claim，使超时 Fence 无法在校验后插入。所有权提交、Server 的权威持久化
+Claim，使超时 Fence 无法在校验后插入。回滚遵守同一规则：一旦失去 Operation 所有权，
+即使旧 Server 已退出，也不能恢复 Package Selection 或启动旧 Server。所有权提交、Server 的权威持久化
 与状态删除都通过一个携带持有者精确进程身份的排他 Update State 锁串行化；只有当该身份被
 证明已死亡时才会破除其声明，绕过该锁的写入不在此保证范围内。若状态变更已经完成但无法
 证明其 Claim 已释放，本次操作会可见失败；同一进程会保留该精确 Claim，并在下一次状态变更

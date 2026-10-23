@@ -661,30 +661,32 @@ async function applyNpmUpdate(payload: NpmUpdatePayload): Promise<void> {
         if (!runningImage || runningImage.imageId !== payload.runningImageId) {
           throw new Error('Farming rollback package image is unavailable', { cause: error });
         }
-        writeOperationStateIfOwned(payload, 'rolling-back', {
+        writeOperationState(payload, 'rolling-back', {
           preparedAt: payload.preparedAt,
           error: message,
         });
         let selectionRollbackError = '';
-        if (transition.activation?.changed && transition.activation.previous) {
-          try {
-            const previousImage = packageImageForPointer(context, transition.activation.previous);
-            if (!previousImage) throw new Error('Previous Farming package selection is unavailable', { cause: error });
-            activatePackageImage(context, previousImage, String(payload.targetImageId));
-          } catch (selectionError: unknown) {
-            const selected = readCurrentPackagePointer(context);
-            if (selected?.imageId === payload.targetImageId || !selected) {
-              selectionRollbackError = errorMessage(selectionError);
-            } else {
-              appendLog(
-                payload.logPath,
-                `Package selection moved independently to ${selected.imageId}; leaving it unchanged`,
-              );
+        await runWhileOperationOwned(payload, 'rolling-back', async () => {
+          if (transition.activation?.changed && transition.activation.previous) {
+            try {
+              const previousImage = packageImageForPointer(context, transition.activation.previous);
+              if (!previousImage) throw new Error('Previous Farming package selection is unavailable', { cause: error });
+              activatePackageImage(context, previousImage, String(payload.targetImageId));
+            } catch (selectionError: unknown) {
+              const selected = readCurrentPackagePointer(context);
+              if (selected?.imageId === payload.targetImageId || !selected) {
+                selectionRollbackError = errorMessage(selectionError);
+              } else {
+                appendLog(
+                  payload.logPath,
+                  `Package selection moved independently to ${selected.imageId}; leaving it unchanged`,
+                );
+              }
             }
           }
-        }
-        verifyInstalledVersion(payload, payload.previousVersion, runningImage.packageRoot);
-        await startServer(payload, runningImage.packageRoot, payload.previousVersion);
+          verifyInstalledVersion(payload, payload.previousVersion, runningImage.packageRoot);
+          await startServer(payload, runningImage.packageRoot, payload.previousVersion);
+        });
         if (selectionRollbackError) {
           writeOperationStateIfOwned(payload, 'failed', {
             version: payload.previousVersion,

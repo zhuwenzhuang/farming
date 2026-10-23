@@ -177,7 +177,88 @@ function applyPayloadFor(prepared, overrides = {}) {
   };
 }
 
+async function testSupersededApplyCannotRestartStoppedServer() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-update-stale-rollback-'));
+  try {
+    const prepared = await prepareFixture(root);
+    const payload = applyPayloadFor(prepared);
+    const takeover = {
+      ...prepared.state,
+      operationId: '00000000-0000-4000-8000-000000000099',
+      phase: 'failed', error: 'The previous update timed out',
+    };
+    assert.strictEqual(commitUpdateOperationState(payload.stateFile, {
+      format: 'farming-update-operation-v1', operationId: payload.operationId,
+    }, takeover), true);
+    await runNpmUpdate(payload);
+    assert.deepStrictEqual(JSON.parse(fs.readFileSync(payload.stateFile, 'utf8')), takeover);
+    assert.strictEqual(fs.existsSync(`${prepared.callsFile}.starts`), false,
+      'an expired apply helper must not launch rollback after its Server has exited');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
+async function testRollbackRevalidatesAfterTransition() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-update-rollback-fence-'));
+  const rename = fs.renameSync;
+  try {
+    const prepared = await prepareFixture(root, { startExitCode: 1 });
+    const payload = applyPayloadFor(prepared);
+    let fenced = false;
+    fs.renameSync = (...args) => {
+      const result = rename(...args);
+      if (!fenced && String(args[0]) === updateStateLockDir(payload.stateFile)) {
+        const state = JSON.parse(fs.readFileSync(payload.stateFile, 'utf8'));
+        if (state.phase === 'rolling-back') {
+          fenced = true;
+          assert.strictEqual(commitUpdateOperationState(payload.stateFile, {
+            format: state.format, operationId: payload.operationId, phase: 'rolling-back',
+          }, { ...state, operationId: '00000000-0000-4000-8000-000000000099', phase: 'failed' }), true);
+        }
+      }
+      return result;
+    };
+    await runNpmUpdate(payload);
+    assert.strictEqual(fenced, true);
+    const starts = fs.readFileSync(`${prepared.callsFile}.starts`, 'utf8').trim().split('\n').map(line => JSON.parse(line).version);
+    assert.deepStrictEqual(starts, ['2.3.0'], 'takeover after the rollback transition must prevent rollback startup');
+    const context = resolvePackageInstallationContext(payload.targetPackageRoot);
+    assert.strictEqual(readCurrentPackagePointer(context).imageId, payload.targetImageId,
+      'a superseded rollback must not change the selected image');
+  } finally {
+    fs.renameSync = rename;
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
+async function testRollbackStartRetainsOwnershipClaim() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-update-rollback-claim-'));
+  try {
+    const prepared = await prepareFixture(root, { startExitCode: 1 });
+    const payload = applyPayloadFor(prepared);
+    const evidence = path.join(root, 'rollback-claim.json');
+    fs.writeFileSync(path.join(payload.runningPackageRoot, 'bin', 'farming'), [
+      `const fs = require('fs');`,
+      `const { commitUpdateOperationState } = require(${JSON.stringify(path.resolve(__dirname, '..', 'update-operation-state.cjs'))});`,
+      `let outcome = '';`,
+      `try { outcome = String(commitUpdateOperationState(${JSON.stringify(payload.stateFile)}, null, { operationId: 'interloper' }, { lockTimeoutMs: 0 })); } catch (error) { outcome = error.code; }`,
+      `fs.writeFileSync(${JSON.stringify(evidence)}, JSON.stringify({ outcome }));`,
+    ].join('\n'));
+    await runNpmUpdate(payload);
+    assert(fs.existsSync(evidence), fs.readFileSync(payload.logPath, 'utf8'));
+    assert.strictEqual(JSON.parse(fs.readFileSync(evidence, 'utf8')).outcome, 'FARMING_UPDATE_STATE_LOCK',
+      'rollback startup must retain the claim against an authoritative competing writer');
+    assert.strictEqual(JSON.parse(fs.readFileSync(payload.stateFile, 'utf8')).phase, 'rolled-back');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
 async function run() {
+  await testRollbackRevalidatesAfterTransition();
+  await testRollbackStartRetainsOwnershipClaim();
+  await testSupersededApplyCannotRestartStoppedServer();
   const validationRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-npm-helper-validation.'));
   assert.throws(() => validatePayload({}), /Invalid npm update action/);
   assert.throws(() => validatePayload(payloadFor(validationRoot, { installationRoot: 'relative' })), /Invalid npm update installationRoot/);

@@ -146,7 +146,9 @@ stale selection must not overwrite a newer deployment. Detached work may commit
 state or cross a publication, stop, activation, or start boundary only while it
 still owns the same update operation. Ownership-sensitive effects revalidate
 under the update-state claim and retain that claim through the effect, so a
-timeout fence cannot interleave after validation. Ownership commits,
+timeout fence cannot interleave after validation. Rollback follows the same
+rule: losing the operation blocks both restoring the package selection and
+starting the previous Server, even when the old Server is already absent. Ownership commits,
 authoritative Server persists, and state removal serialize through an
 exclusive update-state lock carrying the holder's exact process identity; a
 claim is broken only when that identity is proven dead, and writers that
