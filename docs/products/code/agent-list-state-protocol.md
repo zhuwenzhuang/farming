@@ -306,15 +306,17 @@ and Paper, including a native browser touch stream.
 ## Browser message notifications
 
 Code's browser tab projects the same unread inventory without notification
-permission. Its title prefixes the existing instance name with the number of
-unread Agent/conversation rows, not the number of messages. Main and archived
+permission. Its title keeps the instance name first, followed by a localized
+unread status and the product name (for example, `Example · 2 unread · Farming Code`).
+The count represents unread Agent/conversation rows, not the number of messages. Main and archived
 rows are excluded; claimed provider Sessions count only once. Search, collapsed
 groups, session pagination and dynamic pinning do not change that count. Partial
 Agent snapshots use the authoritative Project unread summaries until inventory
 is complete. Existing attention/read events update the tab even when inventory
 row objects have not changed; the tab never creates or acknowledges unread state.
 
-Any positive count adds one static blue dot to the favicon. Both the farmer and
+The page declares one authoritative dynamic favicon; a competing static icon
+must not override its state. Any positive count adds one static blue dot to it. Both the farmer and
 CRT artwork use the shared unread-dot palette; the browser color scheme selects
 the artwork. Returning to the page does not clear other Agents' unread state.
 Existing read acknowledgements, archive/removal and recovery update the

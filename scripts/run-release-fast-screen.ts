@@ -194,6 +194,18 @@ const tasks: FastScreenTask[] = [
     args: ['--import', 'tsx', 'backend/tests/test-browser-extension.ts'],
   },
   {
+    name: 'Computer Browser lease admission during stop and delete',
+    args: ['--import', 'tsx', 'backend/tests/test-computer-extension.ts'],
+  },
+  {
+    name: 'Agent update protocol field ownership',
+    args: ['--import', 'tsx', 'backend/tests/test-browser-protocol.ts'],
+  },
+  {
+    name: 'Agent broadcast rejects inherited protocol fields',
+    args: ['--import', 'tsx', 'backend/tests/test-websocket-agent-change-broadcasts.ts'],
+  },
+  {
     name: 'Computer Browser relay concurrent clients',
     args: ['--import', 'tsx', 'backend/tests/test-computer-browser-relay.ts'],
   },
@@ -262,7 +274,13 @@ async function main(): Promise<void> {
   const selected = args.length === 0 ? tasks : tasks.filter(task => task.managedUpgrade);
   const label = args.length === 0 ? 'Release fast screen' : 'Managed upgrade screen';
   const startedAt = Date.now();
-  const results = await Promise.all(selected.map(runTask));
+  // Bound process startup pressure just like the full repository test runner.
+  // Each task keeps its own deadline; a failed task does not cancel its peers.
+  const pending = selected.values();
+  const results: Awaited<ReturnType<typeof runTask>>[] = [];
+  await Promise.all(Array.from({ length: Math.min(4, selected.length) }, async () => {
+    for (const task of pending) results.push(await runTask(task));
+  }));
   const failures = results.filter(result => result.code !== 0);
   const elapsedSeconds = ((Date.now() - startedAt) / 1000).toFixed(2);
   if (failures.length > 0) {

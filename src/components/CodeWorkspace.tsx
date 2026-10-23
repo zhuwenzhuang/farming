@@ -5977,6 +5977,7 @@ export function CodeWorkspace({
         projects={projectListProjects}
         inventoryComplete={agentInventoryComplete}
         instanceName={instanceName}
+        copy={copy}
       />
       {stoppedAgentResumeTarget ? (
         <ResumeStoppedAgentDialog

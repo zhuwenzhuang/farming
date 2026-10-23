@@ -2,12 +2,14 @@ import { useEffect, useMemo } from 'react'
 import { agentWithCurrentLiveState, useDynamicPinProjectionRevision } from '@/lib/agent-live-state'
 import { appPath } from '@/lib/base-path'
 import type { ProjectGroup } from './types'
+import type { CodeCopy } from './copy'
 import { browserTabTitle, browserTabUnreadCount } from './browser-tab-status'
 
-export function BrowserTabStatus({ projects, inventoryComplete, instanceName }: {
+export function BrowserTabStatus({ projects, inventoryComplete, instanceName, copy }: {
   projects: ProjectGroup[]
   inventoryComplete: boolean
   instanceName: string
+  copy: Pick<CodeCopy, 'browserTabUnread'>
 }) {
   // This existing bounded attention revision includes unread/read changes even
   // when inventory row objects stay unchanged. Do not subscribe to output text.
@@ -31,8 +33,8 @@ export function BrowserTabStatus({ projects, inventoryComplete, instanceName }: 
   }, [])
 
   useEffect(() => {
-    document.title = browserTabTitle(instanceName, unreadCount)
-  }, [instanceName, unreadCount])
+    document.title = browserTabTitle(instanceName, unreadCount, copy.browserTabUnread)
+  }, [instanceName, unreadCount, copy.browserTabUnread])
 
   const hasUnread = unreadCount > 0
   useEffect(() => {

@@ -25,6 +25,20 @@ async function scenario(kind: 'writer' | 'air' | 'air-native' | 'standard' | 're
   let nextId = 1;
   const pending = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void; timer: NodeJS.Timeout }>();
   let schema: Record<string, { oneOf?: { const: string }[]; _meta?: Record<string, unknown> }> | undefined;
+  child.once('exit', (code, signal) => {
+    for (const [id, item] of pending) {
+      clearTimeout(item.timer);
+      item.reject(new Error(`${kind}: adapter exited while request ${id} was pending (code=${code}, signal=${signal}): ${stderr}`));
+    }
+    pending.clear();
+  });
+  child.once('error', error => {
+    for (const item of pending.values()) {
+      clearTimeout(item.timer);
+      item.reject(error);
+    }
+    pending.clear();
+  });
   const lines = readline.createInterface({ input: child.stdout });
   lines.on('line', line => {
     const message = JSON.parse(line);
@@ -47,7 +61,11 @@ async function scenario(kind: 'writer' | 'air' | 'air-native' | 'standard' | 're
   });
   const request = (method: string, params: unknown): Promise<unknown> => new Promise((resolve, reject) => {
     const id = nextId++;
-    const timer = setTimeout(() => { pending.delete(id); reject(new Error(`${method} timed out: ${stderr}`)); }, 10000);
+    const startedAt = Date.now();
+    const timer = setTimeout(() => {
+      pending.delete(id);
+      reject(new Error(`${kind}: ${method} timed out after ${Date.now() - startedAt}ms (pid=${child.pid}, exitCode=${child.exitCode}, signal=${child.signalCode}): ${stderr}`));
+    }, 10000);
     pending.set(id, { resolve, reject, timer });
     child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n');
   });

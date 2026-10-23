@@ -1,6 +1,6 @@
 {
   "name": "farming-code",
-  "version": "2.2.91",
+  "version": "2.2.92",
   "farmingUserInstall": 1,
   "description": "Farming Code is a self-hosted browser workspace for running and supervising AI coding agents",
   "main": "backend/server.cjs",
@@ -103,7 +103,7 @@
     "release:upgrade:screen": "npm run build:usage-history && npm run build:backend-runtime && npm run prepare:acp-vendor && npm run prepare:runtime-manifest && tsx scripts/run-release-fast-screen.ts --managed-upgrade",
     "release:fast-screen:workspace": "playwright test tests/e2e/file-auto-refresh.spec.ts tests/e2e/mobile-visual-acceptance.spec.ts tests/e2e/file-header-context.spec.ts tests/e2e/chat-ui-regressions.spec.ts --project=chromium --workers=1 --retries=0 --grep 'one hundred expanded|menu stays open when remembered|Files header context and explicit search|file refresh feedback'",
     "release:fast-screen:language-server": "playwright test tests/e2e/lsp-file-isolation.spec.ts tests/e2e/file-editor-diagnostics.spec.ts --project=chromium --workers=1 --retries=0",
-    "release:fast-screen:interaction": "playwright test tests/e2e/file-markdown-preview.spec.ts tests/e2e/related-history-recovery.spec.ts tests/e2e/agent-handoff.spec.ts tests/e2e/acp-human-cases.spec.ts tests/e2e/ui-interaction-layer.spec.ts tests/e2e/related-session-workflows.spec.ts --project=chromium --workers=1 --retries=0 --grep 'reuses the existing Agent Chat beside a file|keeps parent activity visible|submits a Terminal handoff|handles ACP elicitation and authentication without losing history|nested menu consumes Escape without closing its dialog|streams a side-chat reply while the parent stays selected|creates a fresh side chat from current context after archiving a child|manually closed terminal detail|outcome recovery when no terminal snapshot|compact action group across live commentary|structured ACP history through terminal runtime switching'",
+    "release:fast-screen:interaction": "playwright test tests/e2e/file-markdown-preview.spec.ts tests/e2e/related-history-recovery.spec.ts tests/e2e/agent-handoff.spec.ts tests/e2e/acp-human-cases.spec.ts tests/e2e/ui-interaction-layer.spec.ts tests/e2e/related-session-workflows.spec.ts --project=chromium --workers=1 --retries=0 --grep 'reuses the existing Agent Chat beside a file|keeps parent activity visible|submits a Terminal handoff|handles ACP elicitation and authentication without losing history|nested menu consumes Escape without closing its dialog|streams a side-chat reply while the parent stays selected|creates a fresh side chat from current context after archiving a child|manually closed terminal detail|outcome recovery when no terminal snapshot|compact action group across live commentary|structured ACP history through terminal runtime switching|renders a Codex host visualization from workspace directly inside the Chat result'",
     "release:fast-screen:workspace-oracles": "playwright test tests/e2e/file-tree-hierarchy.spec.ts tests/e2e/appearance-color-regression.spec.ts tests/e2e/dark-mode-skin.spec.ts tests/e2e/file-markdown-preview.spec.ts tests/e2e/file-editor-actions-responsive.spec.ts tests/e2e/multi-agent-state-gallery.spec.ts tests/e2e/sidebar-spacing.spec.ts tests/e2e/terminal-resize-coordination.spec.ts tests/e2e/human-story.spec.ts tests/e2e/display-flows.spec.ts --project=chromium --workers=1 --retries=0 --grep 'applies Paper across|renders Markdown files by default|file actions use a keyboard-accessible|captures multiple native Agents|keeps composed sidebar density|coalesces a sustained diagonal|inserts Codex slash commands from the composer|opens project changes into the editor diff|keeps project files as a collapsible|keeps the Files header seam opaque over scrolled file rows|Light, Dark, and Paper Archive notices|adapts rendered Agent and terminal controls'",
     "release:fast-screen:sidebar-mobile": "playwright test tests/e2e/sidebar-spacing.spec.ts tests/e2e/sidebar-surface-appearance.spec.ts tests/e2e/file-header-context.spec.ts --project=iphone-webkit --workers=1 --retries=0 --grep 'keeps composed sidebar density and alignment|sidebar surfaces stay unified|touch path, search and disclosure'",
     "release:fast-screen:changed-contracts": "playwright test tests/e2e/worktree-creation.spec.ts tests/e2e/acp-steer.spec.ts tests/e2e/display-flows.spec.ts tests/e2e/additional-user-scenarios.spec.ts tests/e2e/model-matrix.spec.ts tests/e2e/rich-content-viewer.spec.ts --project=chromium --workers=1 --retries=0 --grep 'names, tracks, minimizes|blocks ACP submission when an image upload fails|persists every Project until Remove|keeps desktop Composer menus|covers 31 additional|model matrix follows the advertised|unifies streaming rich content and fullscreen inspection in dark'",
@@ -152,7 +152,12 @@
     "check": "npm run test:behavior:contracts && npm run typecheck && npm run lint && npm test",
     "test:e2e:playwright:isolated:matrix": "node scripts/run-playwright-full-matrix.mjs",
     "release:fast-screen:touch-files": "playwright test tests/e2e/file-touch-selection.spec.ts tests/e2e/mobile-files-human-story.spec.ts tests/e2e/mobile-human-story.spec.ts --project=iphone-webkit --project=iphone-human-webkit --project=android-human-chromium --workers=1 --retries=0 --grep 'shared context Paste|native line actions preserve Git inspection|uses touch to inspect Git History|touch-accessible blame|phone source wraps long lines'",
-    "release:fast-screen:communication": "playwright test tests/e2e/a2a-plugin.spec.ts tests/e2e/acp-peer-messages.spec.ts tests/e2e/shared-config-plugin.spec.ts --project=chromium --workers=1 --retries=0"
+    "release:fast-screen:communication": "playwright test tests/e2e/a2a-plugin.spec.ts tests/e2e/acp-peer-messages.spec.ts tests/e2e/shared-config-plugin.spec.ts --project=chromium --workers=1 --retries=0",
+    "release:fast-screen:ui-boundaries": "playwright test tests/e2e/mobile-navigation-modal.spec.ts tests/e2e/sidebar-focus-appearance.spec.ts tests/e2e/browser-tab-status.spec.ts --project=chromium --grep 'mobile share owns focus and Escape without closing the underlying view|uses one surface-based sidebar focus language across Light, Dark, and Paper|browser tab follows unread inventory|Chrome selects the actual dynamic favicon'",
+    "release:fast-screen:mobile-viewport": "playwright test tests/e2e/mobile-unread-navigation.spec.ts tests/e2e/iphone-mobile-layout.spec.ts --project=iphone-webkit --grep 'mobile unread navigation previews, cancels and preserves drafts across appearances|settles the standalone composer at its product-defined viewport gap'",
+    "release:fast-screen:identity-files": "playwright test tests/e2e/project-subdirectory-scope.spec.ts tests/e2e/transcript-file-links.spec.ts --project=chromium --grep 'groups symlink and real directory Agents in one Project|keeps explicit and inferred file references stable'",
+    "release:fast-screen:wire-state": "playwright test tests/e2e/crt-agent-state-protocol.spec.ts --project=chromium --grep 'CRT keeps a focused Pi session title and read state synchronized|Code consumes the same paged Agent state and delta sequence contract'",
+    "release:fast-screen:computer-resource": "playwright test tests/e2e/computer-resources.spec.ts --project=chromium --grep 'shows an Agent-owned Desktop only when present and switches Viewer control epochs'"
   },
   "keywords": [
     "coding-agent-workspace",
@@ -185,7 +190,7 @@
   },
   "dependencies": {
     "@a2a-js/sdk": "1.3.0",
-    "@agentclientprotocol/sdk": "2.0.0",
+    "@agentclientprotocol/sdk": "2.0.1",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-serialize": "^0.14.0",
     "@xterm/addon-webgl": "^0.19.0",
@@ -234,7 +239,7 @@
     "saxes"
   ],
   "devDependencies": {
-    "@agentclientprotocol/claude-agent-acp": "0.93.0",
+    "@agentclientprotocol/claude-agent-acp": "0.94.0",
     "@agentclientprotocol/codex-acp": "2.2.2",
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.59.1",
@@ -286,26 +291,26 @@
   "overrides": {
     "@hono/node-server": "2.0.11",
     "dompurify": "3.4.13",
-    "@openai/codex": "0.163.0",
+    "@openai/codex": "0.164.0",
     "lodash": "4.18.1",
     "minimist": "1.2.8",
     "katex": "$katex"
   },
   "optionalDependencies": {
-    "@anthropic-ai/claude-agent-sdk-darwin-arm64": "0.3.300",
-    "@anthropic-ai/claude-agent-sdk-darwin-x64": "0.3.300",
-    "@anthropic-ai/claude-agent-sdk-linux-arm64": "0.3.300",
-    "@anthropic-ai/claude-agent-sdk-linux-arm64-musl": "0.3.300",
-    "@anthropic-ai/claude-agent-sdk-linux-x64": "0.3.300",
-    "@anthropic-ai/claude-agent-sdk-linux-x64-musl": "0.3.300",
-    "@anthropic-ai/claude-agent-sdk-win32-arm64": "0.3.300",
-    "@anthropic-ai/claude-agent-sdk-win32-x64": "0.3.300",
-    "@openai/codex-darwin-arm64": "npm:@openai/codex@0.163.0-darwin-arm64",
-    "@openai/codex-darwin-x64": "npm:@openai/codex@0.163.0-darwin-x64",
-    "@openai/codex-linux-arm64": "npm:@openai/codex@0.163.0-linux-arm64",
-    "@openai/codex-linux-x64": "npm:@openai/codex@0.163.0-linux-x64",
-    "@openai/codex-win32-arm64": "npm:@openai/codex@0.163.0-win32-arm64",
-    "@openai/codex-win32-x64": "npm:@openai/codex@0.163.0-win32-x64"
+    "@anthropic-ai/claude-agent-sdk-darwin-arm64": "0.3.303",
+    "@anthropic-ai/claude-agent-sdk-darwin-x64": "0.3.303",
+    "@anthropic-ai/claude-agent-sdk-linux-arm64": "0.3.303",
+    "@anthropic-ai/claude-agent-sdk-linux-arm64-musl": "0.3.303",
+    "@anthropic-ai/claude-agent-sdk-linux-x64": "0.3.303",
+    "@anthropic-ai/claude-agent-sdk-linux-x64-musl": "0.3.303",
+    "@anthropic-ai/claude-agent-sdk-win32-arm64": "0.3.303",
+    "@anthropic-ai/claude-agent-sdk-win32-x64": "0.3.303",
+    "@openai/codex-darwin-arm64": "npm:@openai/codex@0.164.0-darwin-arm64",
+    "@openai/codex-darwin-x64": "npm:@openai/codex@0.164.0-darwin-x64",
+    "@openai/codex-linux-arm64": "npm:@openai/codex@0.164.0-linux-arm64",
+    "@openai/codex-linux-x64": "npm:@openai/codex@0.164.0-linux-x64",
+    "@openai/codex-win32-arm64": "npm:@openai/codex@0.164.0-win32-arm64",
+    "@openai/codex-win32-x64": "npm:@openai/codex@0.164.0-win32-x64"
   },
   "allowScripts": {
     "esbuild@0.27.7": true,

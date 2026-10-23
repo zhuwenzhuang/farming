@@ -29,6 +29,18 @@ async function expectBaseSurface(locator: Locator, expected: string) {
 }
 
 test.describe('shared sidebar surfaces', () => {
+  test.beforeEach(async ({ page }) => {
+    // The sidebar crop owns a fixed empty-usage state. Host account/history
+    // discovery must not asynchronously add the compact Usage row mid-capture.
+    await page.route(/\/api\/usage(?:\?|$)/, route => route.fulfill({ json: { usage: {
+      sampledAt: 0, windowMs: 300_000, providers: [], agentUsage: null, systemStats: null,
+      daily: null,
+      timeline: { source: 'sidebar-surface-fixture', sampledAt: 0, startAt: 0, endAt: 0,
+        windowMs: 300_000, bucketMs: 60_000, bucketCount: 0, totalTokens: 0,
+        averageTokensPerMinute: 0, peakTokensPerMinute: 0, activeBucketCount: 0, points: [] },
+    } } }))
+  })
+
   for (const appearance of ['light', 'dark', 'paper'] as const) {
     test(`sidebar surfaces stay unified through history states in ${appearance}`, async ({ page, workspaceRoot, isMobile }) => {
       const layout = isMobile ? 'iphone' : 'desktop'
@@ -179,6 +191,7 @@ test.describe('shared sidebar surfaces', () => {
         await expect(list).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
         await expect(files.locator('.code-files-header')).toHaveCSS('background-color', colors.base)
         await page.mouse.move(0, 0)
+        if (isMobile) await expect(page.getByTestId('code-mobile-usage-open')).toHaveCount(0)
         await expect(list).toHaveScreenshot(`${layout}-${appearance}-sidebar-scrolled.png`)
         await filesTitle.click()
         await expect(filesTitle).toHaveAttribute('aria-expanded', 'false')

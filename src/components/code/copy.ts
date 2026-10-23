@@ -428,6 +428,7 @@ export interface CodeCopy {
   archived: string
   pinned: string
   unread: string
+  browserTabUnread: (count: number) => string
   showMore: string
   showMoreAgents: (count: number) => string
   showMoreAgentSessions: (count: number) => string
@@ -1238,6 +1239,7 @@ const EN_COPY: CodeCopy = {
   archived: 'Archived',
   pinned: 'Pinned',
   unread: 'Unread',
+  browserTabUnread: count => `${count} unread`,
   showMore: 'Show more',
   showMoreAgents: count => `Show ${count} more Agent${count === 1 ? '' : 's'}`,
   showMoreAgentSessions: count => `Show ${count} more Agent session${count === 1 ? '' : 's'}`,
@@ -2083,6 +2085,7 @@ const ZH_COPY: CodeCopy = {
   archived: '已归档',
   pinned: '已置顶',
   unread: '未读',
+  browserTabUnread: count => `${count} 条未读`,
   showMore: '显示更多',
   showMoreAgents: count => `再显示 ${count} 个 Agent`,
   showMoreAgentSessions: count => `再显示 ${count} 个 Agent 会话`,

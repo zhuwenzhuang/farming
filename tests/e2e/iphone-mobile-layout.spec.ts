@@ -1042,11 +1042,25 @@ test.describe('iPhone mobile layout', () => {
 
     expect(restingGap).toBeGreaterThanOrEqual(4)
     expect(restingGap).toBeLessThanOrEqual(32)
-    // Standalone WebKit already excludes the system gesture region from its
-    // paint viewport. The Composer must settle flush with that boundary
-    // instead of subtracting the safe area a second time; see the viewport
-    // contract in docs/products/code/test/ios-simulator-pwa-acceptance.md.
-    expect(Math.abs(standaloneGap)).toBeLessThanOrEqual(2)
+    // Browser tabs and standalone apps reserve the same resting gap inside
+    // the visual viewport, including the reported bottom safe area once.
+    // This emulated mode change leaves that viewport and safe area unchanged;
+    // it must neither remove the gap nor add a second inset. Native nonzero
+    // safe-area coverage belongs to the iOS Simulator acceptance harness.
+    expect(standaloneGap).toBeGreaterThanOrEqual(4)
+    expect(standaloneGap).toBeLessThanOrEqual(32)
+    expect(Math.abs(standaloneGap - restingGap)).toBeLessThanOrEqual(2)
+    const standaloneViewport = await composer.evaluate(element => {
+      const main = element.closest('.code-main') as HTMLElement | null
+      if (!main || !window.visualViewport) throw new Error('Mobile visual viewport is missing')
+      return {
+        mainBottom: main.getBoundingClientRect().bottom,
+        composerBottom: element.getBoundingClientRect().bottom,
+        visualBottom: window.visualViewport.offsetTop + window.visualViewport.height,
+      }
+    })
+    expect(Math.abs(standaloneViewport.mainBottom - standaloneViewport.visualBottom)).toBeLessThanOrEqual(2)
+    expect(standaloneViewport.composerBottom).toBeLessThanOrEqual(standaloneViewport.visualBottom)
   })
 
   test('opens the mobile share sheet from a successful authenticated ticket response', async ({ page }, testInfo) => {

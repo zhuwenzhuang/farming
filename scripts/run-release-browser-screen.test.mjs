@@ -134,3 +134,16 @@ test('A2A plugin and attributed messages select the complete communication story
   assert.deepEqual(plan.unmapped, []);
   assert.deepEqual(plan.lanes.map(lane => lane.name), ['interaction', 'communication']);
 });
+
+
+test('convergence changes select focused UI, wire and Computer owners without ignoring generated inputs', () => {
+  const plan = selectBrowserScreen(['src/components/code/MobileShareSheet.tsx',
+    'src/components/code/MobileUnreadNavigation.tsx', 'src/styles/main.css',
+    'tests/e2e/project-subdirectory-scope.spec.ts', 'tests/e2e/transcript-file-links.spec.ts',
+    'shared/browser-protocol.ts', 'shared/browser-protocol.js', 'frontend/agent-state-bridge.js',
+    'extensions/computer/backend/computer-resource-manager.cts']);
+  assert.deepEqual(plan.unmapped, []);
+  assert.deepEqual(plan.lanes.map(lane => lane.name),
+    ['ui-boundaries', 'mobile-viewport', 'identity-files', 'wire-state', 'computer-resource']);
+  assert.equal(plan.maxParallel, 4);
+});

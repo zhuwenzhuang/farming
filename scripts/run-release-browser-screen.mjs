@@ -14,6 +14,11 @@ const definitions = [
   ['language-server', 'release:fast-screen:language-server'],
   ['sidebar', 'release:fast-screen:sidebar-mobile'],
   ['communication', 'release:fast-screen:communication'],
+  ['ui-boundaries', 'release:fast-screen:ui-boundaries'],
+  ['mobile-viewport', 'release:fast-screen:mobile-viewport'],
+  ['identity-files', 'release:fast-screen:identity-files'],
+  ['wire-state', 'release:fast-screen:wire-state'],
+  ['computer-resource', 'release:fast-screen:computer-resource'],
 ];
 export function selectBrowserScreen(files) {
   const selected = new Set();
@@ -30,6 +35,17 @@ export function selectBrowserScreen(files) {
     if (/^src\/.*(auth|sharing|access)|^backend\/.*(auth|sharing|access-control|read-only-access)|^tests\/e2e\/(mobile-auth-readonly|read-only-chat-rejection)/.test(filename)) select(['mobile-auth']);
     if (/^src\/.*[Ss]idebar|^src\/styles\/sidebar|^tests\/e2e\/sidebar-/.test(filename)) select(['sidebar']);
     if (/^extensions\/a2a\/|^shared\/agent-communication\.|^src\/components\/code\/(CodeMainArea|PluginsPanel|copy|related-session-navigation)\.|^src\/styles\/plugin\.css$|^tests\/e2e\/(a2a-plugin|acp-peer-messages|shared-config-plugin)\.spec\.ts$/.test(filename)) select(['communication']);
+    if (['src/components/code/MobileShareSheet.tsx', 'tests/e2e/mobile-navigation-modal.spec.ts',
+      'tests/e2e/sidebar-focus-appearance.spec.ts', 'src/styles/sidebar.css'].includes(filename)) select(['ui-boundaries']);
+    if (['src/components/code/MobileUnreadNavigation.tsx', 'src/components/code/mobile-unread-navigation.ts',
+      'src/styles/agent-list.css', 'src/styles/terminal.css', 'src/styles/main.css',
+      'tests/e2e/mobile-unread-navigation.spec.ts'].includes(filename)) select(['mobile-viewport']);
+    if (['tests/e2e/project-subdirectory-scope.spec.ts', 'tests/e2e/transcript-file-links.spec.ts'].includes(filename)) select(['identity-files']);
+    if (['shared/browser-protocol.ts', 'shared/browser-protocol.js', 'frontend/agent-state-bridge.js',
+      'tests/e2e/crt-agent-state-protocol.spec.ts'].includes(filename)) select(['wire-state']);
+    if (['extensions/computer/backend/computer-resource-manager.cts', 'tests/e2e/computer-resources.spec.ts'].includes(filename)) select(['computer-resource']);
+    if (['src/components/code/BrowserTabStatus.tsx', 'src/components/code/browser-tab-status.ts',
+      'tests/e2e/browser-tab-status.spec.ts', 'index.html'].includes(filename)) select(['ui-boundaries']);
     if (!mapped && /^(src|frontend|extensions|shared)\/|^tests\/e2e\//.test(filename)) unmapped.push(filename);
   }
   return {

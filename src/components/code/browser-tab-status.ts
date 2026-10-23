@@ -16,6 +16,6 @@ export function browserTabUnreadCount(projects: readonly UnreadProject[], invent
     + project.agentSessions.filter(unread).length, 0)
 }
 
-export function browserTabTitle(instanceName: string, unreadCount: number): string {
-  return `${unreadCount > 0 ? `(${unreadCount}) ` : ''}${instanceName} · Farming Code`
+export function browserTabTitle(instanceName: string, unreadCount: number, formatUnread: (count: number) => string): string {
+  return [instanceName, ...(unreadCount > 0 ? [formatUnread(unreadCount)] : []), 'Farming Code'].join(' · ')
 }

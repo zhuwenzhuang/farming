@@ -15,6 +15,19 @@ const test = baseTest.extend<{ workspaceRoot: string }>({
   },
 })
 
+test.beforeEach(async ({ page }) => {
+  // Handoff owns these temporary Homes. Unrelated account polling would launch
+  // real provider readers whose filesystem writes can outlive the closed page.
+  // Usage and account readers have their own acceptance scenarios.
+  await page.route(/\/api\/usage(?:\?|$)/, route => route.fulfill({ json: { usage: {
+    sampledAt: 0, windowMs: 300_000, providers: [], agentUsage: null, systemStats: null,
+    daily: null,
+    timeline: { source: 'handoff-fixture', sampledAt: 0, startAt: 0, endAt: 0,
+      windowMs: 300_000, bucketMs: 60_000, bucketCount: 0, totalTokens: 0,
+      averageTokensPerMinute: 0, peakTokensPerMinute: 0, activeBucketCount: 0, points: [] },
+  } } }))
+})
+
 // Each case owns these temporary Homes; remove their registrations even when an
 // assertion fails so a retry cannot inherit duplicate IDs from a previous worker.
 test.afterEach(async ({ page, workspaceRoot }) => {

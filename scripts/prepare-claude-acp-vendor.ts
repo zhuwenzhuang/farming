@@ -5,12 +5,14 @@ import path from 'node:path';
 import * as esbuild from 'esbuild';
 
 const projectRoot = path.join(__dirname, '..');
-const expectedVersion = '0.93.0';
-const expectedSdkVersion = '0.3.300';
-const expectedBundleSha256 = 'fa2cdeca8e3225fe160e10defd3436f9c067a5426718e18c0142e4b3d7751a01';
+const expectedVersion = '0.94.0';
+const expectedSdkVersion = '0.3.303';
+const expectedBundleSha256 = '4c43bae326d4381d7d5cb1c8db9af20cb3c35f1b6ed8566c61879e5addcb308d';
 const packageRoot = path.dirname(require.resolve('@agentclientprotocol/claude-agent-acp/package.json'));
 const packageJsonPath = path.join(packageRoot, 'package.json');
-const protocolSdkDist = path.dirname(require.resolve('@agentclientprotocol/sdk', { paths: [packageRoot] }));
+// Pinned ACP SDK 2 resolves its stable entry under dist/v1/stable.
+// Its unstable and shared schemas must use the same reviewed validator.
+const protocolSdkDist = path.resolve(path.dirname(require.resolve('@agentclientprotocol/sdk', { paths: [packageRoot] })), '../..');
 const protocolZodPackageJsonPath = require.resolve('zod/package.json', { paths: [projectRoot] });
 const sdkEntry = require.resolve('@anthropic-ai/claude-agent-sdk', {
   paths: [packageRoot],
