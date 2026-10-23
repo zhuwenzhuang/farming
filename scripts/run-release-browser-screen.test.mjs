@@ -147,3 +147,10 @@ test('convergence changes select focused UI, wire and Computer owners without ig
     ['ui-boundaries', 'mobile-viewport', 'identity-files', 'wire-state', 'computer-resource']);
   assert.equal(plan.maxParallel, 4);
 });
+
+// Switching back to a scrolled Terminal must not acknowledge unseen output.
+test('Terminal read-cut regression is owned by the early interaction screen', () => {
+  const plan = selectBrowserScreen(['src/components/CodeWorkspace.tsx', 'tests/e2e/terminal-state-protocol.spec.ts']);
+  assert.deepEqual(plan.unmapped, []);
+  assert.deepEqual(plan.lanes.map(lane => lane.name), ['interaction']);
+});

@@ -281,8 +281,8 @@ test('does not repeat Chat read receipts when only live runtime state changes', 
   await page.route(new RegExp(`/farming/api/agents/${agentId}$`), async route => {
     const request = route.request()
     if (request.method() === 'PATCH') {
-      const body = request.postDataJSON() as { unread?: unknown }
-      if (body.unread === false) readReceiptRequests += 1
+      const body = request.postDataJSON() as { readAttentionSeq?: unknown }
+      if (typeof body.readAttentionSeq === 'number') readReceiptRequests += 1
     }
     await route.continue()
   })

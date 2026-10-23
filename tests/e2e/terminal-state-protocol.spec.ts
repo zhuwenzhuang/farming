@@ -534,6 +534,12 @@ test.describe('terminal state protocol', () => {
       data: { unread: true },
     })
     expect(unread.ok()).toBeTruthy()
+    const readAcknowledgements: Array<{ readOutputEpoch?: string; readOutputSeq?: number }> = []
+    page.on('request', request => {
+      if (request.method() !== 'PATCH' || new URL(request.url()).pathname !== `/farming/api/agents/${agentId}`) return
+      const patch = request.postDataJSON() as { readAttentionSeq?: number; readOutputEpoch?: string; readOutputSeq?: number }
+      if (typeof patch.readAttentionSeq === 'number') readAcknowledgements.push(patch)
+    })
     const row = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
     await expect(row).toHaveClass(/unread/)
     await selectControlAgent(page, otherAgentId)
@@ -541,10 +547,18 @@ test.describe('terminal state protocol', () => {
     await selectControlAgent(page, agentId)
     await expect(row).toHaveClass(/unread/)
     await expect.poll(() => terminalRows(page, agentId, 4)).toEqual(readingRowsBeforeSwitch)
+    expect(readAcknowledgements).toEqual([])
     await expect(page.getByTestId('code-terminal-jump-bottom')).toBeVisible()
     await page.getByTestId('code-terminal-jump-bottom').click()
     await expect.poll(async () => (await terminalViewport(page, agentId)).following).toBe(true)
     await expect(row).not.toHaveClass(/unread/)
+    await expect.poll(() => readAcknowledgements.length).toBeGreaterThan(0)
+    const latestState = await terminalState(page, agentId)
+    for (const acknowledgement of readAcknowledgements) {
+      expect(acknowledgement.readOutputEpoch).toBe(latestState.runtimeEpoch)
+      expect(acknowledgement.readOutputSeq).toBeGreaterThan(0)
+      expect(acknowledgement.readOutputSeq).toBeLessThanOrEqual(latestState.outputSeq)
+    }
   })
 
   test('duplicate, stale, output-gap and revision-gap transitions are distinguished', async ({ page, workspaceRoot }) => {

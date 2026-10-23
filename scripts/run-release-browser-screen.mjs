@@ -31,7 +31,7 @@ export function selectBrowserScreen(files) {
     }
     if (/^extensions\/language-server\/|^shared\/workspace-request-scheduling\.|^tests\/e2e\/(lsp-|file-editor-diagnostics)/.test(filename)) select(['language-server']);
     if (/^src\/components\/code\/.*[Cc]omposer|^src\/lib\/composer-|^src\/styles\/composer|^tests\/e2e\/(composer-|mobile-composer)/.test(filename)) select(['composer']);
-    if (/^src\/components\/code\/(acp\/|.*[Cc]hat|.*[Tt]ranscript)|^(backend|shared)\/acp|^backend\/control-api\.cts|^src\/components\/CodeWorkspace\.|^src\/styles\/(chat|transcript)|^tests\/e2e\/(acp-|chat-|agent-handoff|related-(session|history)|ui-interaction-layer)/.test(filename)) select(['interaction']);
+    if (/^src\/components\/code\/(acp\/|.*[Cc]hat|.*[Tt]ranscript)|^(backend|shared)\/acp|^backend\/control-api\.cts|^src\/components\/CodeWorkspace\.|^src\/styles\/(chat|transcript)|^tests\/e2e\/(acp-|chat-|agent-handoff|terminal-state-protocol|related-(session|history)|ui-interaction-layer)/.test(filename)) select(['interaction']);
     if (/^src\/.*(auth|sharing|access)|^backend\/.*(auth|sharing|access-control|read-only-access)|^tests\/e2e\/(mobile-auth-readonly|read-only-chat-rejection)/.test(filename)) select(['mobile-auth']);
     if (/^src\/.*[Ss]idebar|^src\/styles\/sidebar|^tests\/e2e\/sidebar-/.test(filename)) select(['sidebar']);
     if (/^extensions\/a2a\/|^shared\/agent-communication\.|^src\/components\/code\/(CodeMainArea|PluginsPanel|copy|related-session-navigation)\.|^src\/styles\/plugin\.css$|^tests\/e2e\/(a2a-plugin|acp-peer-messages|shared-config-plugin)\.spec\.ts$/.test(filename)) select(['communication']);

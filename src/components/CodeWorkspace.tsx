@@ -2284,13 +2284,6 @@ export function CodeWorkspace({
     markAgentReadIfNeeded(agentId, false, readCut)
   }, [markAgentReadIfNeeded])
 
-  useEffect(() => {
-    if (agentOpeningBusy || !activeTerminalId || activeView !== 'projects' || mainPaneMode !== 'terminal') return
-    const activeAgent = activeAgents.find(agent => agent.id === activeTerminalId)
-    if (!activeAgent || !agentWithCurrentLiveState(activeAgent).unread || manuallyUnreadActiveAgentIdRef.current === activeTerminalId) return
-    markAgentReadIfNeeded(activeTerminalId, true)
-  }, [activeAgents, activeTerminalId, activeView, agentOpeningBusy, mainPaneMode, markAgentReadIfNeeded])
-
   const handleDraftChange = useCallback((value: string) => {
     updateActiveComposerState(state => ({
       ...state,
