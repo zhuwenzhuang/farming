@@ -308,12 +308,20 @@ test.describe('ACP human-like browser matrix', () => {
 
   for (const location of ['session', 'workspace', 'document', 'wide']) {
     test(`renders a Codex host visualization from ${location} directly inside the Chat result`, async ({ page, workspaceRoot }) => {
+      if (location === 'workspace') {
+        // HTTP IP deployments expose getRandomValues but not the secure-context-only UUID API.
+        await page.addInitScript(() => Reflect.deleteProperty(Crypto.prototype, 'randomUUID'))
+      }
       await page.setViewportSize({ width: 1440, height: 1200 })
       const workspace = path.join(workspaceRoot, 'acp-inline-visualization')
       fs.mkdirSync(workspace, { recursive: true })
 
       const agentId = await createCodexAcpAgent(page, workspace)
       await openFarming(page)
+      if (location === 'workspace') {
+        expect(await page.evaluate(() => typeof crypto.randomUUID)).toBe('undefined')
+        expect(await page.evaluate(() => typeof crypto.getRandomValues)).toBe('function')
+      }
       await agentRow(page, agentId).click()
       await expect(page.getByTestId('code-acp-composer-input')).toBeEditable({ timeout: 20_000 })
       await sendAcpMessage(page, location === 'workspace' ? 'workspace inline visualization' : location === 'document' ? 'inline visualization complete document' : location === 'wide' ? 'wide inline visualization' : 'inline visualization')

@@ -87,7 +87,9 @@ The resource GET capability works without ambient login credentials and exposes
 only that lease's directory. The iframe allows scripts but not same-origin,
 forms or top navigation; CSP limits resources to the lease and supported
 visualization CDNs, excluding Farming APIs. Direct resource navigation is
-script-disabled and sandboxed. Frame messages are source-checked and bounded.
+script-disabled and sandboxed. Frame messages are source-checked and bounded,
+with a fresh cryptographically random channel per view, including on HTTP IP
+deployments where secure-context-only browser APIs are unavailable.
 
 The backend owns lease lifetime; the renderer owns cancellable loading/renewal.
 Expiry, restart and failed loads end explicitly. Late results release their lease;

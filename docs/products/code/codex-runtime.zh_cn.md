@@ -63,7 +63,8 @@ preview lease。显式 resource root 必须包含 HTML，不能是文件系统�
 
 Resource GET capability 不依赖环境登录凭据，只暴露该 lease 的目录。Iframe 允许脚本，
 不允许 same-origin、表单和顶层导航；CSP 只允许 lease 与受支持可视化 CDN 资源，不开放
-Farming API。直接导航资源时禁用脚本并 sandbox。Frame 消息核对来源且有界。
+Farming API。直接导航资源时禁用脚本并 sandbox。Frame 消息核对来源且有界，每个视图
+使用独立的密码学随机通道；通过 HTTP IP 访问、无法使用仅安全上下文开放的浏览器 API 时也应支持。
 
 后端拥有 lease 生命周期，renderer 拥有可取消加载/续期。过期、重启和加载失败明确终止；
 迟到结果释放 lease，卸载删除 lease，不同视图独立。Retry 不重放 Agent 工作。资源/脚本

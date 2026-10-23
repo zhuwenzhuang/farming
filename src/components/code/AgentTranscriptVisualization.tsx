@@ -40,7 +40,8 @@ export function AgentTranscriptVisualization({ rootId, exactExternal, file, file
     let ownedId = ''
     let timer = 0
     let readyTimer = 0
-    const key = crypto.randomUUID()
+    // HTTP IP deployments lack randomUUID; getRandomValues preserves channel entropy there.
+    const key = Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join('')
     channel.current = key
     setSource(''); setFailure(''); setWarning(''); setReady(false); setHeight(120)
     const renew = (expiresAt: number) => {
