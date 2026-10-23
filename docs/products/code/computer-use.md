@@ -30,6 +30,8 @@ endpoint.
 - Stopping or archiving the Agent stops the runtime but retains the Resource.
 - Deleting the Agent removes the exact Desktop it owns.
 - A Browser using the Desktop must release its lease before the Desktop stops.
+  If stop or delete begins during Browser startup, the pending acquisition fails
+  before granting a lease; it cannot return a connection the queued stop will invalidate.
 
 An isolated Browser's private CDP relay serves a bounded number of independent
 concurrent connections, so an existing automation connection cannot block

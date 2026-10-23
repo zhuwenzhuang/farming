@@ -25,6 +25,8 @@ Session、Credential、Profile 或 Private Endpoint。
 - 停止或归档 Agent 会停止 Runtime，但保留 Resource。
 - 删除 Agent 会删除它精确拥有的 Desktop。
 - Browser 正在使用 Desktop 时，必须先释放 Lease 才能停止 Desktop。
+  如果 Browser 启动期间发起停止或删除，尚未完成的获取请求必须在发放 Lease 前失败，
+  不能返回即将被排队停止操作失效的连接。
 
 隔离 Browser 的私有 CDP Relay 支持有界数量的独立并发连接，已有的自动化连接不能阻塞
 Viewer 输入。连接断开或上游失败时，只关闭该客户端对应的一对 Socket；停止所属 Desktop

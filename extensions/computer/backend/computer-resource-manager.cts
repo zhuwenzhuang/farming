@@ -600,6 +600,7 @@ class ComputerResourceManager extends EventEmitter {
     await this.ensureBrowserCacheMount(resource.id);
     await this.start(resource.id);
     const result = await this.enqueue(resource.id, async () => {
+      this.assertTransitionAdmissionOpen(resource.id);
       const current = this.privateResource(resource.id);
       if (current.status !== 'running' || !current.containerId) {
         throw computerError(
@@ -666,6 +667,9 @@ class ComputerResourceManager extends EventEmitter {
         ], { timeoutMs: 10_000 });
         await waitForCdp(cdpPort);
       }
+      // Stop/delete can close admission while the readiness probes are in
+      // flight. Do not grant a lease that the queued stop would invalidate.
+      this.assertTransitionAdmissionOpen(resource.id);
       this.browserLeases.set(
         resource.id,
         (this.browserLeases.get(resource.id) || 0) + 1,

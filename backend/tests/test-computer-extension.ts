@@ -1026,7 +1026,63 @@ async function testIsolatedBrowserCapabilityFollowsComputerState() {
   }
 }
 
+async function testBrowserLeaseCannotOutlivePendingStop() {
+  for (const operation of ['stop', 'delete'] as const) {
+    let releaseProbe!: () => void;
+    let markProbeStarted!: () => void;
+    const probeGate = new Promise<void>(resolve => { releaseProbe = resolve; });
+    const probeStarted = new Promise<void>(resolve => { markProbeStarted = resolve; });
+    const viewer = http.createServer((request, response) => {
+      if (request.url === '/json/version') {
+        markProbeStarted();
+        void probeGate.then(() => response.end('ready'));
+      } else response.end('viewer');
+    });
+    const viewerPort = await listen(viewer);
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-computer-lease-race-'));
+    const fake = new FakeDocker(viewerPort);
+    const manager = new ComputerResourceManager({
+      configDir: tempDir, isEnabled: () => true,
+      getSettings: () => ({ computerImage: COMPUTER_IMAGE, computerCompatibilityMode: false }),
+      dockerRunner: fake.run,
+    });
+    manager.store.init();
+    const pending: Promise<unknown>[] = [];
+    try {
+      const workspace = path.join(tempDir, 'workspace');
+      fs.mkdirSync(workspace);
+      const resource = manager.create({ ownerAgentId: 'lease-owner', projectRootId: 'lease-root', workspace });
+      await manager.start(resource.id);
+      const executablePath = path.join(storageLayout.managedChromiumRootDir(manager.configDir), 'fixture', 'chrome');
+      fs.mkdirSync(path.dirname(executablePath), { recursive: true });
+      fs.writeFileSync(executablePath, '#!/bin/sh\n', { mode: 0o700 });
+      const acquired = manager.acquireBrowser({
+        ownerAgentId: 'lease-owner', projectRootId: 'lease-root', workspace, executablePath,
+      });
+      pending.push(acquired);
+      // Attach rejection handling before the probe is released.
+      const rejected = assert.rejects(acquired, error => error.code === 'COMPUTER_STOPPING');
+      pending.push(rejected);
+      await Promise.race([probeStarted, rejected]);
+      const stopped = manager[operation](resource.id);
+      pending.push(stopped);
+      releaseProbe();
+      await rejected;
+      await stopped;
+      assert.strictEqual(manager.browserLeases.has(resource.id), false, 'a stopped Desktop must not grant a live Browser lease');
+      assert.strictEqual(fake.running, false);
+      assert.strictEqual(fake.removed, operation === 'delete');
+    } finally {
+      releaseProbe();
+      await Promise.allSettled(pending);
+      await close(viewer);
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  }
+}
+
 async function run() {
+  await testBrowserLeaseCannotOutlivePendingStop();
   testComputerResourceRevisionOrdering();
   await testComputerViewerProxyPaths();
   await testComputerUncertainTransitionReconciliation();
