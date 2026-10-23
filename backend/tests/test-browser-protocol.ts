@@ -7,9 +7,18 @@ const {
   claimProtocolUpgradeReload,
   PROTOCOL_VERSION,
   protocolCompatible,
+  sanitizeAgentUpdatePatch,
   validateClientMessage,
   validateServerMessage,
 } = importTsModule('shared/browser-protocol.ts');
+
+for (const field of ['toString', 'constructor', 'valueOf', 'hasOwnProperty', '__proto__']) {
+  const patch = JSON.parse(`{"${field}":123,"adaptiveTitle":"Valid sibling"}`);
+  assert.strictEqual(sanitizeAgentUpdatePatch(patch), null, `Reject inherited validator ${field}`);
+  assert.strictEqual(validateServerMessage({
+    type: 'agent-update', update: { agentId: 'a', patch },
+  }).ok, false);
+}
 
 for (const [paths, expected] of [
   [['src/file.ts'], true],

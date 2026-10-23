@@ -41,6 +41,21 @@ function client(fields: Partial<TestClient> = {}): TestClient {
 {
   const first = client();
   const test = setup([first]);
+  for (const name of ['toString', 'constructor', 'valueOf', 'hasOwnProperty', '__proto__']) {
+    test.broadcasts.scheduleAgentUpdate({
+      agentId: 'a', patch: JSON.parse(`{"${name}":123,"adaptiveTitle":"Rejected sibling"}`),
+    });
+  }
+  assert.strictEqual(test.timers.length, 0);
+  assert.deepStrictEqual(first.sent, []);
+  test.broadcasts.scheduleAgentUpdate({ agentId: 'a', patch: { adaptiveTitle: 'Valid update' } });
+  test.timers.shift()!();
+  assert.deepStrictEqual(first.sent, [{ type: 'agent-update', update: { agentId: 'a', patch: { adaptiveTitle: 'Valid update' } } }]);
+}
+
+{
+  const first = client();
+  const test = setup([first]);
   test.broadcasts.scheduleAgentUpdate({ agentId: 'a', patch: { adaptiveTitle: 'first' } });
   test.broadcasts.scheduleAgentUpdate({ agentId: 'a', patch: { sessionTitle: 'second' } });
   assert.strictEqual(test.timers.length, 1);

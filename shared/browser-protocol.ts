@@ -963,6 +963,7 @@ export function sanitizeAgentUpdatePatch(value: unknown): AgentUpdatePatch | nul
   if (!objectMessage(value)) return null
   const entries = Object.entries(value)
   if (entries.length === 0 || entries.some(([name, field]) => {
+    if (!Object.prototype.hasOwnProperty.call(AGENT_UPDATE_PATCH_VALIDATORS, name)) return true
     const validator = AGENT_UPDATE_PATCH_VALIDATORS[name as keyof AgentUpdatePatch]
     return !validator || !validator(field)
   })) return null
