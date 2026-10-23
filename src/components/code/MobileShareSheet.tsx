@@ -83,7 +83,7 @@ export function MobileShareSheet({
 }) {
   const standalone = isStandaloneWebApp()
   const [copied, setCopied] = useState<'read-only' | 'full-control' | null>(null)
-  const [copyFailed, setCopyFailed] = useState(false)
+  const [copyFailed, setCopyFailed] = useState<'read-only' | 'full-control' | null>(null)
   const [now, setNow] = useState(() => Date.now())
   const [qrCodeFactory, setQrCodeFactory] = useState<Awaited<ReturnType<typeof preloadQrCodeFactory>> | null>(null)
   const [qrCodeFailed, setQrCodeFailed] = useState(false)
@@ -130,7 +130,7 @@ export function MobileShareSheet({
     if (!copied && !copyFailed) return undefined
     const timer = window.setTimeout(() => {
       setCopied(null)
-      setCopyFailed(false)
+      setCopyFailed(null)
     }, 1800)
     return () => window.clearTimeout(timer)
   }, [copied, copyFailed])
@@ -138,7 +138,7 @@ export function MobileShareSheet({
   const copyLink = useCallback(async (url: string, mode: 'read-only' | 'full-control') => {
     const success = await writeClipboardText(url)
     setCopied(success ? mode : null)
-    setCopyFailed(!success)
+    setCopyFailed(success ? null : mode)
   }, [])
 
   const expired = ticket.expiresAt <= now
@@ -170,7 +170,7 @@ export function MobileShareSheet({
               <span>{copied === 'read-only' ? copy.mobileShareCopied : copy.mobileShareCopyAction}</span>
             </button>
           </div>
-          {copyFailed && <span className="code-mobile-share-status" role="status">{copy.copyFailed}</span>}
+          {copyFailed === 'read-only' && <span className="code-mobile-share-status" role="status">{copy.copyFailed}</span>}
         </section>
         <section className="code-mobile-share-choice code-mobile-share-qr-choice">
           <div className="code-mobile-share-choice-copy">
@@ -210,6 +210,7 @@ export function MobileShareSheet({
                 <span>{copied === 'full-control' ? copy.mobileShareCopied : copy.mobileShareCopyAction}</span>
               </button>
             </div>
+            {copyFailed === 'full-control' && <span className="code-mobile-share-status" role="status">{copy.copyFailed}</span>}
           </section>
         )}
         <section className="code-mobile-share-choice code-mobile-share-install-guide">

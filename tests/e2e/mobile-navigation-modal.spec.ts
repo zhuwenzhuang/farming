@@ -274,6 +274,23 @@ test('mobile share owns focus and Escape without closing the underlying view', a
   await page.keyboard.press('Shift+Tab')
   await expect(focusable.last()).toBeFocused()
 
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: {
+      writeText: async () => { throw new Error('Clipboard denied') },
+    } })
+    document.execCommand = () => false
+  })
+  for (const appearance of ['light', 'dark', 'paper'] as const) {
+    await setAppearance(page, appearance)
+    await sheet.getByTestId('code-mobile-share-full-control-action').click()
+    await expect(sheet.locator('.code-mobile-share-full-control [role=status]')).toHaveText('Copy failed')
+    await expect(sheet.locator('.code-mobile-share-forward [role=status]')).toHaveCount(0)
+    await sheet.screenshot({ path: test.info().outputPath(`share-owner-copy-error-${appearance}.png`) })
+    await sheet.getByTestId('code-mobile-share-copy-action').click()
+    await expect(sheet.locator('.code-mobile-share-forward [role=status]')).toHaveText('Copy failed')
+    await expect(sheet.locator('.code-mobile-share-full-control [role=status]')).toHaveCount(0)
+  }
+
   await page.keyboard.press('Escape')
   await expect(sheet).toHaveCount(0)
   await expect(history).toBeVisible()

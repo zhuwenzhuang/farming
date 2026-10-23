@@ -150,8 +150,20 @@ test('mobile unread navigation previews, cancels and preserves drafts across app
     await touch(prose, 'touchend', 150)
   }
   await expect(page.locator(`[data-testid="code-agent-work-pane"][data-agent-id="${second}"]`)).toBeVisible()
+  await page.clock.install()
+  await page.clock.runFor(6000)
+  await select(source)
+  await page.clock.runFor(1000)
+  await expect(next).toHaveAccessibleName(/Mobile Agent 1/)
+  await next.click()
+  await expect(page.locator(`[data-testid="code-agent-work-pane"][data-agent-id="${third}"]`)).toBeVisible()
+  // Returning via the sidebar does not consume Back. A new jump from the same
+  // source must replace its lifetime, even when the previous source ID matches.
+  await page.clock.runFor(2500)
+  await expect(page.getByRole('button', { name: 'Go back', exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Go back', exact: true }).click()
   await expect(input).toHaveValue('Keep this unsent draft')
+  await markUnread(third)
   await expect(next).toHaveAccessibleName(/Mobile Agent 1/)
   await next.click()
   await expect(page.locator(`[data-testid="code-agent-work-pane"][data-agent-id="${third}"]`)).toBeVisible()

@@ -25,7 +25,8 @@ export function MobileUnreadNavigation({ projects, activeAgentId, enabled, surfa
     })), activeAgentId)
   }, [projects, activeAgentId, revision])
   const [preview, setPreview] = useState<{ target: UnreadAgentTarget; ready: boolean } | null>(null)
-  const [previousId, setPreviousId] = useState('')
+  const [previous, setPrevious] = useState<{ agentId: string } | null>(null)
+  const previousId = previous?.agentId || ''
   const latest = useRef({ targets, onOpen, activeAgentId, enabled })
   latest.current = { targets, onOpen, activeAgentId, enabled }
   const open = (target: UnreadAgentTarget) => {
@@ -36,17 +37,17 @@ export function MobileUnreadNavigation({ projects, activeAgentId, enabled, surfa
       const agent = agentWithCurrentLiveState(fresh.agent)
       if (!agent.unread || agent.archived) return
     }
-    setPreviousId(current.activeAgentId)
+    setPrevious({ agentId: current.activeAgentId })
     current.onOpen(fresh)
   }
   const openRef = useRef(open)
   openRef.current = open
 
   useEffect(() => {
-    if (!previousId) return
-    const timer = window.setTimeout(() => setPreviousId(''), 8000)
+    if (!previous) return
+    const timer = window.setTimeout(() => setPrevious(null), 8000)
     return () => window.clearTimeout(timer)
-  }, [previousId])
+  }, [previous])
 
   useEffect(() => {
     const surface = surfaceRef.current
@@ -120,7 +121,7 @@ export function MobileUnreadNavigation({ projects, activeAgentId, enabled, surfa
     <nav className="code-mobile-unread-nav code-content-toolbar" data-testid="code-mobile-unread-nav"
       aria-label={zh ? '未读 Agent 导航' : 'Unread Agent navigation'}>
       {showBack && <button type="button" className="code-content-toolbar-text code-mobile-unread-back"
-        onClick={() => { onBack(previousId); setPreviousId('') }}>
+        onClick={() => { onBack(previousId); setPrevious(null) }}>
         <BackToAgentGlyph /><span>{zh ? '返回上一个' : 'Go back'}</span>
       </button>}
       {next && <button type="button" className="code-content-toolbar-text" data-testid="code-mobile-next-unread"
