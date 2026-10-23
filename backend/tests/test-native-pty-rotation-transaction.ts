@@ -69,6 +69,7 @@ function hostHarness() {
   host.activeControllerClient = null;
   host.activeControllerIdentity = null;
   host.rotationPreparation = null;
+  host.scheduleIdleExitIfUnused = () => {};
   host.getSessionState = async (sessionId) => {
     const current = host.sessions.get(sessionId);
     if (!current) return null;
@@ -395,7 +396,90 @@ async function testWrongPreparationTokenCannotShutdown() {
   assert.strictEqual(host.rotationPreparation.phase, 'prepared');
 }
 
+async function testControllerLossReleasesPreparedRotation() {
+  for (const disconnect of [true, false]) {
+    const host = hostHarness();
+    const original = await registerController(host, 'rotation-owner', 11);
+    const current = session('abandoned-rotation');
+    host.sessions.set(current.id, current);
+    await host.dispatch('serializeTerminalState', {}, original);
+    assert.strictEqual(current.rotationFrozen, true);
+    if (disconnect) await host.removeClient(original);
+    const replacement = await registerController(host, 'replacement-owner', 12);
+    assert.strictEqual(host.rotationPreparation, null, 'controller loss must release its uncommitted rotation');
+    assert.strictEqual(current.rotationFrozen, false);
+    assert.strictEqual(current.process.resumeCalls, 1);
+    await host.dispatch('updateSessionMetadata', { sessionId: current.id, patch: { recovered: true } }, replacement);
+    assert.strictEqual(current.metadata.recovered, true);
+    const fresh = await host.dispatch('serializeTerminalState', {}, replacement);
+    host.resumeTerminalState(replacement, fresh.preparationToken);
+  }
+}
+
+async function testControllerReplacementWaitsForPendingCheckpoint() {
+  for (const disconnect of [true, false]) {
+    const host = hostHarness();
+    const original = await registerController(host, 'pending-owner', 20);
+    const current = session('pending-checkpoint');
+    host.sessions.set(current.id, current);
+    const checkpointStarted = deferred();
+    const checkpointGate = deferred();
+    const readState = host.getSessionState;
+    host.getSessionState = async id => {
+      checkpointStarted.resolve();
+      await checkpointGate.promise;
+      return readState(id);
+    };
+    const preparation = host.serializeTerminalState(original);
+    await checkpointStarted.promise;
+    const retirement = disconnect ? host.removeClient(original) : Promise.resolve();
+    let registered = false;
+    const replacement = registerController(host, 'pending-replacement', 21).then(client => {
+      registered = true;
+      return client;
+    });
+    try {
+      await new Promise(resolve => setImmediate(resolve));
+      assert.strictEqual(registered, false, 'replacement cannot overtake the old checkpoint');
+      assert.strictEqual(current.rotationFrozen, true);
+      checkpointGate.resolve();
+      await preparation;
+      await retirement;
+      const next = await replacement;
+      assert.strictEqual(host.rotationPreparation, null);
+      assert.strictEqual(current.rotationFrozen, false);
+      assert.strictEqual(current.process.resumeCalls, 1);
+      await host.dispatch('updateSessionMetadata', { sessionId: current.id, patch: { ready: true } }, next);
+      assert.strictEqual(current.metadata.ready, true);
+    } finally {
+      checkpointGate.resolve();
+      await Promise.allSettled([preparation, retirement, replacement]);
+    }
+  }
+}
+
+async function testCommittingRotationStaysFrozenAfterDisconnect() {
+  const host = hostHarness();
+  const owner = await registerController(host, 'committing-owner', 30);
+  const current = session('committing-checkpoint');
+  host.sessions.set(current.id, current);
+  let disposed = false;
+  host.dispose = async () => { disposed = true; };
+  const preparation = await host.serializeTerminalState(owner);
+  host.shutdownHost(owner, {}, preparation.preparationToken);
+  await host.removeClient(owner);
+  await registerController(host, 'committing-replacement', 31);
+  assert.strictEqual(host.rotationPreparation.phase, 'committing');
+  assert.strictEqual(current.rotationFrozen, true);
+  assert.strictEqual(current.process.resumeCalls, 0);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.strictEqual(disposed, true, 'committed shutdown still runs');
+}
+
 async function run() {
+  await testControllerReplacementWaitsForPendingCheckpoint();
+  await testCommittingRotationStaysFrozenAfterDisconnect();
+  await testControllerLossReleasesPreparedRotation();
   await testSerializeFailureFailsClosedAndResumesOldHost();
   await testConcurrentCreateIsIncludedOrRejectedByBarrier();
   await testTemporaryCodexInputAbortsRotation();

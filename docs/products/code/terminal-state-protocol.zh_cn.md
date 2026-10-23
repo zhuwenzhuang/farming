@@ -199,6 +199,10 @@ Test 验证。
 兼容 Server Restart 会重连 Live PTY Host。不兼容 Host Replacement 在可能时先保留 Final
 Checkpoint。PTY Host 意外丢失属于 Process Loss，不能伪装成成功 Replay。
 
+Rotation 准备归创建它的 Controller 连接所有。该 Controller 断连或被替换时，Host 先等待其
+正在执行的 Checkpoint 结束，再释放仍属于该连接且尚未提交的准备，恢复 PTY 流控后才准入
+新 Controller。已提交 Host 关闭的准备保持冻结，直到 Host 终止。
+
 Transport Failure 使用有界 Backoff；连续三次 Checkpoint Request 失败后进入可见 Terminal
 Error。连续违反 Checkpoint Invariant 时同样进入可见 Terminal Error，不能永久循环。用户点击
 Retry 会启动新一代 Recovery，并重新读取权威 Checkpoint。结果不确定的 Input 或 Lifecycle

@@ -262,6 +262,12 @@ host replacement preserves a final checkpoint before rotation when possible.
 Unexpected PTY-host loss is reported as process loss and is never presented as
 successful replay.
 
+Rotation preparation belongs to the controller connection that created it. If that
+controller disconnects or is replaced, the Host settles its in-flight checkpoint
+and releases that exact uncommitted preparation before admitting the replacement
+controller. PTY flow resumes; a preparation already committing Host shutdown
+remains frozen until termination.
+
 Transport failures retry with bounded backoff and reach a visible terminal
 error after three consecutive failed checkpoint requests. Repeated checkpoint
 invariant failure also reaches a visible terminal error instead of looping

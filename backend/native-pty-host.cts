@@ -526,9 +526,21 @@ class NativePtyHost {
       // Retire the server client only after that exact set has drained.
       await Promise.allSettled([...this.activeControllerMutations]);
       if (this.activeControllerClient !== client) return;
+      await this.releaseControllerRotation(client);
       this.activeControllerClient = null;
     } finally {
       if (this.controllerHandoff === handoff) this.controllerHandoff = null;
+    }
+  }
+
+  async releaseControllerRotation(client: HostClient | null): Promise<void> {
+    const preparation = this.rotationPreparation;
+    if (!preparation || preparation.controllerClient !== client) return;
+    // Let the exact checkpoint operation settle before resuming its PTYs, so
+    // its late continuation cannot freeze them again after ownership changes.
+    await preparation.promise?.catch(() => {});
+    if (this.rotationPreparation === preparation && preparation.phase !== 'committing') {
+      this.resumePreparedTerminalState(preparation.token);
     }
   }
 
@@ -828,6 +840,7 @@ class NativePtyHost {
             // Drain the exact set admitted before that cut before publishing
             // the new generation as active.
             await Promise.allSettled([...this.activeControllerMutations]);
+            await this.releaseControllerRotation(handoff.fromClient);
           } finally {
             if (this.controllerHandoff === handoff) this.controllerHandoff = null;
           }
