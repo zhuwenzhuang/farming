@@ -5,10 +5,16 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import * as storageLayout from './storage-layout.cjs';
+import {
+  acquireProcessFileLock,
+  releaseProcessFileLock,
+  recoverPendingLockRelease,
+  UPDATE_STATE_LOCK_ERROR_CODE,
+  type ProcessFileLockClaim,
+} from './process-owned-file-lock.cjs';
 
 const LOCK_RETRY_MS = 10;
 const LOCK_TIMEOUT_MS = 5000;
-const STALE_LOCK_MS = 30000;
 
 function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -23,25 +29,25 @@ function fileSystemError(error: unknown): error is { code?: unknown } {
   return typeof error === 'object' && error !== null;
 }
 
-async function acquireGenerationLock(lockDir: string): Promise<void> {
+async function acquireGenerationLock(claimKey: string, lockDir: string): Promise<ProcessFileLockClaim> {
   const deadline = Date.now() + LOCK_TIMEOUT_MS;
   while (Date.now() < deadline) {
+    // Legacy allocators published empty directories. They have no process proof
+    // and cannot safely be overwritten by atomic publication of a new claim.
     try {
-      await fs.promises.mkdir(lockDir);
-      return;
-    } catch (error) {
-      if (!fileSystemError(error) || error.code !== 'EEXIST') throw error;
-      try {
-        const stat = await fs.promises.stat(lockDir);
-        if (Date.now() - stat.mtimeMs > STALE_LOCK_MS) {
-          await fs.promises.rm(lockDir, { recursive: true, force: true });
-          continue;
-        }
-      } catch (statError) {
-        if (!fileSystemError(statError) || statError.code !== 'ENOENT') throw statError;
+      if ((await fs.promises.readdir(lockDir)).length === 0) {
+        throw new Error(`Unverifiable legacy native PTY generation lock: ${lockDir}`);
       }
-      await delay(LOCK_RETRY_MS);
+    } catch (error) {
+      if (!fileSystemError(error) || error.code !== 'ENOENT') throw error;
     }
+    try {
+      recoverPendingLockRelease(claimKey, { lockTimeoutMs: 0 });
+      return acquireProcessFileLock(claimKey, { lockTimeoutMs: 0 });
+    } catch (error) {
+      if (!fileSystemError(error) || error.code !== UPDATE_STATE_LOCK_ERROR_CODE) throw error;
+    }
+    await delay(LOCK_RETRY_MS);
   }
   throw new Error('Timed out allocating native PTY controller generation');
 }
@@ -49,7 +55,12 @@ async function acquireGenerationLock(lockDir: string): Promise<void> {
 async function allocateGeneration(generationFile: string, lockDir: string): Promise<number> {
   const root = path.dirname(generationFile);
   await fs.promises.mkdir(root, { recursive: true });
-  await acquireGenerationLock(lockDir);
+  // The shared claim primitive appends .lock; retain the established lock path.
+  const claimKey = lockDir.slice(0, -'.lock'.length);
+  const claim = await acquireGenerationLock(claimKey, lockDir);
+  const temporary = `${generationFile}.${process.pid}.${crypto.randomUUID()}.tmp`;
+  let generation = 0;
+  const failures: unknown[] = [];
   try {
     let current = 0;
     try {
@@ -57,14 +68,20 @@ async function allocateGeneration(generationFile: string, lockDir: string): Prom
     } catch (error) {
       if (!fileSystemError(error) || error.code !== 'ENOENT') throw error;
     }
-    const generation = current + 1;
-    const temporary = `${generationFile}.${process.pid}.${crypto.randomUUID()}.tmp`;
+    generation = current + 1;
     await fs.promises.writeFile(temporary, `${generation}\n`, { mode: 0o600 });
     await fs.promises.rename(temporary, generationFile);
-    return generation;
-  } finally {
-    await fs.promises.rm(lockDir, { recursive: true, force: true });
+  } catch (error) {
+    failures.push(error);
   }
+  try { await fs.promises.rm(temporary, { force: true }); }
+  catch (error) { failures.push(error); }
+  if (!releaseProcessFileLock(claimKey, claim, { lockTimeoutMs: 0 })) {
+    failures.push(new Error('Native PTY generation allocation outcome is uncertain: lock release could not be proven'));
+  }
+  if (failures.length === 1) throw failures[0];
+  if (failures.length > 1) throw new AggregateError(failures, 'Native PTY generation allocation failed');
+  return generation;
 }
 
 async function allocateNativePtyControllerGeneration(configDir: string): Promise<number> {

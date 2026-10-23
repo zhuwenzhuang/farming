@@ -29,6 +29,14 @@ One PTY lifetime has one runtime epoch. Within that epoch, ordered output and
 state revisions identify an authoritative cut. These values are transport
 cursors, not another Agent lifecycle.
 
+Controller and runtime generation counters serialize under exact-process file
+claims. A paused live owner cannot lose its claim because of elapsed time; only
+a proven-dead identity permits recovery. Allocation waits asynchronously within
+a bounded deadline and releases only its exact claim. Unverifiable legacy locks
+fail visibly without deletion; mixed old allocators are outside this claim
+protocol and must be stopped before migration. An uncertain release never reports
+a successful allocation.
+
 Exit finalization owns one promise, including process-group cleanup, before
 awaiting asynchronous work. A signal permission error is not proof of exit.
 On macOS, a bounded process-table read may establish that the group is missing
