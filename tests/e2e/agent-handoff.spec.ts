@@ -158,7 +158,10 @@ for (const appearance of ['light', 'dark', 'paper']) {
     }
     const workspace = path.join(workspaceRoot, 'handoff-demo')
     const targetHome = path.join(workspaceRoot, `handoff-home-${appearance}`)
-    const homeId = `handoff-${appearance}`
+    // Persisted session ownership survives removing the Home registration.
+    // Every attempt owns a new path, so it must also own a new Home identity.
+    const homeLabel = `handoff-${appearance}`
+    const homeId = `${homeLabel}-${path.basename(workspaceRoot)}`
     fs.mkdirSync(workspace, { recursive: true })
     fs.mkdirSync(targetHome, { recursive: true })
     const settings = (await (await page.request.get('/farming/api/settings')).json()).settings
@@ -247,10 +250,14 @@ for (const appearance of ['light', 'dark', 'paper']) {
     await expect(dialog.locator('input[name="workspace-path"]')).toHaveAttribute('readonly', '')
     await expect(dialog.getByTestId('workspace-directory-picker')).toHaveCount(0)
     const homePathLabel = dialog.locator('.workspace-home-trigger-copy > span')
+    const homeIdentityLabel = dialog.locator('.workspace-home-trigger-copy > strong')
+    await expect(homeIdentityLabel).toHaveText(homeId)
+    const originalHomeIdentity = await homeIdentityLabel.textContent()
     const originalHomePath = await homePathLabel.textContent()
-    // Host paths and the Linux default monospace font differ between CI and
-    // the Playwright image. Normalize only the screenshot's display content.
+    // Per-attempt Home identities, host paths and Linux fonts differ between
+    // runs. Normalize only their screenshot display, not the selected identity.
     await homePathLabel.evaluate(element => { element.textContent = '/workspace/agent-home' })
+    await homeIdentityLabel.evaluate((element, label) => { element.textContent = label }, homeLabel)
     try {
       await expect(dialog).toHaveScreenshot(`handoff-picker-${appearance}.png`, {
         mask: [dialog.locator('input[name="workspace-path"]')],
@@ -260,6 +267,7 @@ for (const appearance of ['light', 'dark', 'paper']) {
       })
     } finally {
       await homePathLabel.evaluate((element, value) => { element.textContent = value }, originalHomePath)
+      await homeIdentityLabel.evaluate((element, value) => { element.textContent = value }, originalHomeIdentity)
     }
     let uncertainAgentId: string | undefined
     if (appearance === 'light') {
@@ -326,6 +334,8 @@ test('captures Chinese handoff walkthrough', async ({ page, workspaceRoot }, tes
   const workspace = path.join(workspaceRoot, 'demo-project')
   const sourceHome = path.join(workspaceRoot, 'demo-source-home')
   const targetHome = path.join(workspaceRoot, 'demo-agent-home')
+  const sourceHomeId = `demo-source-${path.basename(workspaceRoot)}`
+  const targetHomeId = `demo-home-${path.basename(workspaceRoot)}`
   fs.mkdirSync(workspace, { recursive: true })
   fs.mkdirSync(sourceHome, { recursive: true })
   fs.mkdirSync(targetHome, { recursive: true })
@@ -334,13 +344,13 @@ test('captures Chinese handoff walkthrough', async ({ page, workspaceRoot }, tes
     appearance: 'paper', language: 'zh',
     agentHomes: {
       ...settings.agentHomes,
-      codex: [...settings.agentHomes.codex, { id: 'demo-source', path: sourceHome, order: 10 }],
-      claude: [...settings.agentHomes.claude, { id: 'demo-home', path: targetHome, order: 10 }],
+      codex: [...settings.agentHomes.codex, { id: sourceHomeId, path: sourceHome, order: 10 }],
+      claude: [...settings.agentHomes.claude, { id: targetHomeId, path: targetHome, order: 10 }],
     },
   } })
   expect(configured.ok(), await configured.text()).toBeTruthy()
   const created = await page.request.post('/farming/api/control/agents', { data: {
-    command: 'codex', workspace, providerHomeId: 'demo-source', agentRuntimeMode: 'chat', initialInput: '继续检查错误处理',
+    command: 'codex', workspace, providerHomeId: sourceHomeId, agentRuntimeMode: 'chat', initialInput: '继续检查错误处理',
   } })
   expect(created.ok(), await created.text()).toBeTruthy()
   const sourceId = (await created.json()).agentId as string
@@ -363,7 +373,7 @@ test('captures Chinese handoff walkthrough', async ({ page, workspaceRoot }, tes
   await dialog.screenshot({ path: testInfo.outputPath('02-agent-type.png'), animations: 'disabled' })
   await dialog.getByTestId('agent-option-claude').click()
   await dialog.getByTestId('agent-home-select').click()
-  const home = dialog.getByRole('option').filter({ hasText: 'demo-home' })
+  const home = dialog.getByRole('option').filter({ hasText: targetHomeId })
   await expect(home).toBeVisible()
   await dialog.screenshot({ path: testInfo.outputPath('03-agent-home.png'), animations: 'disabled' })
   await home.click()
