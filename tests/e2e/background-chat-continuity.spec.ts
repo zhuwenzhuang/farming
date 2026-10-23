@@ -271,6 +271,71 @@ test('keeps ACP Chat live while the browser page is hidden', { tag: '@iphone-hum
   expect(backendSocketClosed).toBe(0)
 })
 
+for (const historyState of ['failed', 'unsettled'] as const) {
+  test(`acknowledges empty Chat only after ${historyState} history becomes authoritative and visible @iphone-human`, async ({ page, workspaceRoot }) => {
+    const workspace = path.join(workspaceRoot, `empty-chat-${historyState}`)
+    fs.mkdirSync(workspace, { recursive: true })
+    const agentId = await createAcpAgent(page, workspace)
+    const identity = await acpTranscriptFixtureIdentity(page, agentId)
+    let ready = false
+    let historyRequests = 0
+    let readReceipts = 0
+    await page.route(new RegExp(`/farming/api/agents/${agentId}$`), async route => {
+      if (route.request().method() === 'PATCH'
+        && typeof route.request().postDataJSON().readAttentionSeq === 'number') readReceipts += 1
+      await route.continue()
+    })
+    await page.route(new RegExp(`/farming/api/agents/${agentId}/acp-transcript(?:\\?.*)?$`), async route => {
+      historyRequests += 1
+      if (!ready && historyState === 'failed') {
+        await route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'History unavailable' }) })
+        return
+      }
+      await route.fulfill({ contentType: 'application/json', body: JSON.stringify({
+        version: 1, agentId, sessionId: identity.sessionId, runtimeEpoch: identity.runtimeEpoch,
+        fromRevision: null, toRevision: identity.fixtureRevision, replace: true,
+        settled: ready, hasMoreBefore: false,
+        transcript: { sessionId: identity.sessionId, state: 'idle', revision: identity.fixtureRevision, entries: [] },
+      }) })
+    })
+    expect((await page.request.patch(`/farming/api/agents/${agentId}`, { data: { unread: true } })).ok()).toBeTruthy()
+    await openFarming(page)
+    await selectAgentOnCompactLayout(page, agentId)
+    await expect.poll(() => historyRequests).toBeGreaterThan(0)
+    await setPageVisibility(page, 'hidden')
+    await setPageVisibility(page, 'visible')
+    // Drain the actual metadata write debounce; no unresolved history may acknowledge.
+    await page.waitForTimeout(300)
+    expect(readReceipts).toBe(0)
+
+    ready = true
+    await page.addInitScript(() => {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' })
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => true })
+    })
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    await expect(page.getByTestId('code-agent-chat-view')).toBeVisible()
+    await expect(page.getByText('No conversation yet.', { exact: true })).toBeVisible()
+    await page.waitForTimeout(300)
+    expect(readReceipts).toBe(0)
+    await setPageVisibility(page, 'visible')
+    await expect.poll(() => readReceipts).toBeGreaterThan(0)
+
+    const row = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
+    if (!await row.isVisible()) await page.getByTestId('code-mobile-menu').click()
+    await expect(row).not.toHaveClass(/unread/)
+    await row.click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Mark as unread', exact: true }).click()
+    await expect(row).toHaveClass(/unread/)
+    const receiptsBeforeFocus = readReceipts
+    await setPageVisibility(page, 'hidden')
+    await setPageVisibility(page, 'visible')
+    await page.waitForTimeout(300)
+    expect(readReceipts).toBe(receiptsBeforeFocus)
+    await expect(row).toHaveClass(/unread/)
+  })
+}
+
 test('does not repeat Chat read receipts when only live runtime state changes', async ({ page, workspaceRoot }) => {
   const workspace = path.join(workspaceRoot, 'chat-read-receipt-stability')
   fs.mkdirSync(workspace, { recursive: true })

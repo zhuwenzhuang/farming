@@ -987,19 +987,28 @@ test.describe('real Codex pre-release composite case', () => {
     expect(primaryModel, `${PRIMARY_MODEL} must be present in the live Codex catalog`).toBeTruthy()
     expect(primaryModel?.reasoningLevels?.some(level => level.value === PRIMARY_EFFORT)).toBe(true)
 
+    // The per-test fixture resets Home defaults to inherit. New native Sessions
+    // use that exact Home, not the legacy global Composer model preference.
+    const currentSettingsResponse = await page.request.get('/farming/api/settings')
+    expect(currentSettingsResponse.ok()).toBeTruthy()
+    const currentSettings = await currentSettingsResponse.json() as {
+      settings: { agentHomes: Record<string, Array<{ id: string; [key: string]: unknown }>> }
+    }
+    const agentHomes = currentSettings.settings.agentHomes
+    expect(agentHomes.codex.filter(home => home.id === 'default')).toHaveLength(1)
     const settingsResponse = await page.request.post('/farming/api/settings', {
       data: {
-        codexModel: PRIMARY_MODEL,
-        codexReasoningEffort: PRIMARY_EFFORT,
-        codexServiceTier: 'default',
-        codexModelPreset: `${PRIMARY_MODEL}:${PRIMARY_EFFORT}`,
+        agentHomes: {
+          ...agentHomes,
+          codex: agentHomes.codex.map(home => home.id === 'default' ? {
+            ...home,
+            newAgentDefaults: { model: PRIMARY_MODEL, reasoning: PRIMARY_EFFORT, fast: 'off' },
+          } : home),
+        },
         agentLaunchProfiles: {
           codex: {
             approvalMode: 'approve',
-            model: PRIMARY_MODEL,
-            reasoningEffort: PRIMARY_EFFORT,
-            serviceTier: 'default',
-            modelPreset: `${PRIMARY_MODEL}:${PRIMARY_EFFORT}`,
+            homeId: 'default',
           },
         },
       },
@@ -1008,7 +1017,7 @@ test.describe('real Codex pre-release composite case', () => {
 
     await openFarming(page)
     const createResponse = await page.request.post('/farming/api/control/agents', {
-      data: { command: 'codex', workspace: REAL_CODEX_WORKSPACE, agentRuntimeMode: 'terminal' },
+      data: { command: 'codex', workspace: REAL_CODEX_WORKSPACE, agentRuntimeMode: 'terminal', providerHomeId: 'default' },
     })
     const createBody = await createResponse.json() as { agentId?: string, error?: string }
     expect(createResponse.ok(), createBody.error || 'Failed to create real Codex Agent').toBeTruthy()

@@ -277,6 +277,8 @@ An abrupt stop may lose unflushed attention changes, so recovery derives Unread
 from the last committed cursors. This does not weaken durable lifecycle intents,
 ordering, or structural flag updates.
 
+An active, visible Chat acknowledges an empty history only after its authoritative complete snapshot has settled. Loading, failed, partial or hidden history does not count as read. Explicitly marking the current Agent unread remains protected until the user leaves it; merely focusing the page cannot undo that choice.
+
 ## Mobile unread navigation
 
 Compact Code exposes an auxiliary text action above Composer when another

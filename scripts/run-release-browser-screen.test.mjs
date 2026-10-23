@@ -148,9 +148,10 @@ test('convergence changes select focused UI, wire and Computer owners without ig
   assert.equal(plan.maxParallel, 4);
 });
 
-// Switching back to a scrolled Terminal must not acknowledge unseen output.
-test('Terminal read-cut regression is owned by the early interaction screen', () => {
-  const plan = selectBrowserScreen(['src/components/CodeWorkspace.tsx', 'tests/e2e/terminal-state-protocol.spec.ts']);
+// Shared reading owners affect both parked Terminals and mobile unread Chat.
+test('read acknowledgement owners select interaction and mobile unread screens', () => {
+  const plan = selectBrowserScreen(['src/components/CodeWorkspace.tsx',
+    'src/components/code/AgentTranscriptPane.tsx', 'tests/e2e/terminal-state-protocol.spec.ts']);
   assert.deepEqual(plan.unmapped, []);
-  assert.deepEqual(plan.lanes.map(lane => lane.name), ['interaction']);
+  assert.deepEqual(plan.lanes.map(lane => lane.name), ['interaction', 'mobile-viewport']);
 });

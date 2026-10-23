@@ -150,6 +150,11 @@ test('mobile unread navigation previews, cancels and preserves drafts across app
     await touch(prose, 'touchend', 150)
   }
   await expect(page.locator(`[data-testid="code-agent-work-pane"][data-agent-id="${second}"]`)).toBeVisible()
+  // Even a manually unread empty Chat is consumed only by its settled visible owner.
+  await expect.poll(async () => {
+    const inventory = await (await page.request.get('/farming/api/control/agents')).json() as { agents: Array<{ id: string; unread: boolean }> }
+    return inventory.agents.find(agent => agent.id === second)?.unread
+  }).toBe(false)
   await page.clock.install()
   await page.clock.runFor(6000)
   await select(source)

@@ -4125,18 +4125,33 @@ export function AgentTranscriptPane({
     }
   }, [active, awaitingAcpHistory, awaitingInitialReveal, error, latestTurn, loading, loadingOlder,
     runtimeState, showFreshAcpEmpty, source, transcript, turns])
+  const emptyAcpReadReady = source === 'acp' && turns.length === 0
+    && !loading && !error && runtimeState !== 'connecting'
+    && transcript?.envelopeVersion === 1 && transcript.settled === true
+    && !transcript.hasMoreBefore && transcript.includesLatest !== false
   useEffect(() => {
-    if (!active || !isPageActive() || !transcript?.available || turns.length === 0) return
+    if (!active || !isPageActive()) return
+    if (turns.length === 0) {
+      // A settled, complete empty Chat is also a visible latest snapshot.
+      // Loading or unavailable history must never stand in for that proof.
+      if (emptyAcpReadReady) onReadLatest?.()
+      return
+    }
+    if (!transcript?.available) return
     const element = scrollRef.current
     const nearBottom = element ? isTranscriptNearBottom(element) : followBottomRef.current
     if (element && (textSelectionGestureRef.current || hasTextSelectionWithin(element))) return
     if (nearBottom) onReadLatest?.()
-  }, [active, onReadLatest, transcript?.available, transcript?.updatedAt, turns.length])
+  }, [active, emptyAcpReadReady, onReadLatest, transcript?.available, transcript?.updatedAt, turns.length])
 
   useEffect(() => {
     if (!active) return undefined
     const readVisibleLatest = () => {
       if (!isPageActive()) return
+      if (emptyAcpReadReady) {
+        onReadLatest?.()
+        return
+      }
       const element = scrollRef.current
       if (!element || textSelectionGestureRef.current || hasTextSelectionWithin(element)) return
       if (isTranscriptNearBottom(element)) onReadLatest?.()
@@ -4147,7 +4162,7 @@ export function AgentTranscriptPane({
       document.removeEventListener('visibilitychange', readVisibleLatest)
       window.removeEventListener('focus', readVisibleLatest)
     }
-  }, [active, onReadLatest])
+  }, [active, emptyAcpReadReady, onReadLatest])
 
   const syncStickyTurnPrompt = useCallback((element: HTMLDivElement | null = scrollRef.current) => {
     const suppressDuringRunwayPush = followBottomRef.current

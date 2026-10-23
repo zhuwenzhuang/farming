@@ -38,6 +38,7 @@ export function selectBrowserScreen(files) {
     if (['src/components/code/MobileShareSheet.tsx', 'tests/e2e/mobile-navigation-modal.spec.ts',
       'tests/e2e/sidebar-focus-appearance.spec.ts', 'src/styles/sidebar.css'].includes(filename)) select(['ui-boundaries']);
     if (['src/components/code/MobileUnreadNavigation.tsx', 'src/components/code/mobile-unread-navigation.ts',
+      'src/components/CodeWorkspace.tsx', 'src/components/code/AgentTranscriptPane.tsx',
       'src/styles/agent-list.css', 'src/styles/terminal.css', 'src/styles/main.css',
       'tests/e2e/mobile-unread-navigation.spec.ts'].includes(filename)) select(['mobile-viewport']);
     if (['tests/e2e/project-subdirectory-scope.spec.ts', 'tests/e2e/transcript-file-links.spec.ts'].includes(filename)) select(['identity-files']);
