@@ -27,7 +27,7 @@ Agents do not share the desktop Session, credentials, profile, or private
 endpoint.
 
 - Chat/Terminal and permission replacement retain the Desktop.
-- Stopping or archiving the Agent stops the runtime but retains the Resource.
+- Stopping or archiving the Agent deletes its exactly owned Resource and container.
 - Deleting the Agent removes the exact Desktop it owns.
 - A Browser using the Desktop must release its lease before the Desktop stops.
   If stop or delete begins during Browser startup, the pending acquisition fails

@@ -381,6 +381,8 @@ function sanitizeAgentUpdatePatch(value) {
         return null;
     const entries = Object.entries(value);
     if (entries.length === 0 || entries.some(([name, field]) => {
+        if (!Object.prototype.hasOwnProperty.call(AGENT_UPDATE_PATCH_VALIDATORS, name))
+            return true;
         const validator = AGENT_UPDATE_PATCH_VALIDATORS[name];
         return !validator || !validator(field);
     }))

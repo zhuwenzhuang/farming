@@ -600,7 +600,8 @@
   transition: opacity 120ms ease;
 }
 
-.code-project-row:hover {
+.code-project-row:hover,
+.code-project-row:has(.code-project-title:focus-visible) {
   --code-project-row-action-overlay: var(--code-active-item-surface);
 }
 

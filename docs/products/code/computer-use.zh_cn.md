@@ -22,7 +22,7 @@ Farming 只展示拥有真实、已验证 Runtime 的 Target。前置条件缺�
 Session、Credential、Profile 或 Private Endpoint。
 
 - Chat/Terminal 与 Permission Replacement 保留 Desktop。
-- 停止或归档 Agent 会停止 Runtime，但保留 Resource。
+- 停止或归档 Agent 会删除其精确拥有的 Resource 和 Container。
 - 删除 Agent 会删除它精确拥有的 Desktop。
 - Browser 正在使用 Desktop 时，必须先释放 Lease 才能停止 Desktop。
   如果 Browser 启动期间发起停止或删除，尚未完成的获取请求必须在发放 Lease 前失败，

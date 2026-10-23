@@ -225,6 +225,11 @@ test('uses one surface-based sidebar focus language across Light, Dark, and Pape
     await projectRenameInput.press('Escape')
     await page.mouse.move(1200, 100)
     await expectFocusedSurface(page, projectTitle, '--code-active-item-surface')
+    const projectActions = project.locator('.code-project-title-actions')
+    await expect(projectActions).toHaveCSS('opacity', '1')
+    await expect.poll(() => projectActions.evaluate(element => getComputedStyle(element).backgroundImage))
+      .toContain(`linear-gradient(${await resolvedColor(page, '--code-active-item-surface')},`)
+    await project.screenshot({ path: testInfo.outputPath(`project-keyboard-focus-${appearance}.png`) })
 
     const instanceName = page.getByTestId('code-instance-name-edit')
     await instanceName.click()
