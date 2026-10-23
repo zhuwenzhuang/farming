@@ -409,8 +409,8 @@ async function testControllerLossReleasesPreparedRotation() {
     assert.strictEqual(host.rotationPreparation, null, 'controller loss must release its uncommitted rotation');
     assert.strictEqual(current.rotationFrozen, false);
     assert.strictEqual(current.process.resumeCalls, 1);
-    await host.dispatch('updateSessionMetadata', { sessionId: current.id, patch: { recovered: true } }, replacement);
-    assert.strictEqual(current.metadata.recovered, true);
+    await host.dispatch('updateSessionMetadata', { sessionId: current.id, patch: { category: 'recovered' } }, replacement);
+    assert.strictEqual(current.metadata.category, 'recovered');
     const fresh = await host.dispatch('serializeTerminalState', {}, replacement);
     host.resumeTerminalState(replacement, fresh.preparationToken);
   }
@@ -449,8 +449,8 @@ async function testControllerReplacementWaitsForPendingCheckpoint() {
       assert.strictEqual(host.rotationPreparation, null);
       assert.strictEqual(current.rotationFrozen, false);
       assert.strictEqual(current.process.resumeCalls, 1);
-      await host.dispatch('updateSessionMetadata', { sessionId: current.id, patch: { ready: true } }, next);
-      assert.strictEqual(current.metadata.ready, true);
+      await host.dispatch('updateSessionMetadata', { sessionId: current.id, patch: { category: 'ready' } }, next);
+      assert.strictEqual(current.metadata.category, 'ready');
     } finally {
       checkpointGate.resolve();
       await Promise.allSettled([preparation, retirement, replacement]);
