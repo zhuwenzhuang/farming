@@ -20,6 +20,15 @@ function rejectReadOnlyClientMutation(
   data: { type: string; requestId?: string; agentId?: string | null },
 ): boolean {
   if (ws.accessMode !== 'read-only' || readOnlyClientMessageAllowed(data.type)) return false;
+  if (data.type === 'language-server-request' && data.requestId) {
+    ws.send(JSON.stringify({
+      type: 'language-server-result',
+      requestId: data.requestId,
+      ok: false,
+      error: { code: 'FORBIDDEN', status: 403, message: 'This Farming share is read-only.' },
+    }));
+    return true;
+  }
   if ((data.type === 'composer-input' || data.type === 'composer-input-status-request')
     && data.requestId && data.agentId) {
     const statusLookup = data.type === 'composer-input-status-request';

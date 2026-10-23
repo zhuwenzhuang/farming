@@ -19,15 +19,25 @@ test('runtime preflight drains independent sockets and fails on transport errors
   assert(start >= 0 && end > start);
   const connections: string[] = [];
   let completedBodies = 0;
+  let deadline: AbortController;
   const transport = { get: (url: string, options: http.RequestOptions, respond: (response: http.IncomingMessage) => void) => {
     assert.equal(options.agent, false);
     return http.get(url, options, response => {
       connections.push(String(response.headers['x-connection']));
       response.once('end', () => { completedBodies += 1; });
+      // Expire the owned deadline only after the stalled body is in flight.
+      // Waiting ten wall-clock seconds consumes most of this case's budget
+      // before accounting for concurrent release-screen process startup.
+      if (url.endsWith('/stall')) response.once('data', () => deadline.abort());
       respond(response);
     });
   } };
-  const readStatus = new Function('https', `${source.slice(start, end)}; return readRegistryStatus;`)(transport) as (url: string) => Promise<number>;
+  const deadlineSignal = { timeout(milliseconds: number) {
+    assert.equal(milliseconds, 10_000, 'the production request deadline remains bounded');
+    deadline = new AbortController();
+    return deadline.signal;
+  } };
+  const readStatus = new Function('https', 'AbortSignal', `${source.slice(start, end)}; return readRegistryStatus;`)(transport, deadlineSignal) as (url: string) => Promise<number>;
   const child = spawn(process.execPath, ['--input-type=module', '-e', `
     import http from 'node:http';
     let nextConnection = 0;

@@ -1,5 +1,53 @@
 import { expect, test } from './fixtures'
 
+test('read-only language requests receive correlated permission failures after reconnect', async ({ page, browser }) => {
+  test.skip(process.env.FARMING_PLAYWRIGHT_AUTH !== '1', 'Requires isolated token authentication')
+  await page.goto('/farming/?token=mobile-auth-owner-fixture-token')
+  await expect(page.getByTestId('app-shell')).toBeVisible()
+  const share = await page.request.post('/farming/api/share/qr-ticket', { data: {} })
+  expect(share.ok()).toBe(true)
+  const { readOnlyUrl } = await share.json() as { readOnlyUrl: string }
+  const recipient = await browser.newContext()
+  try {
+    const guest = await recipient.newPage()
+    await guest.goto(readOnlyUrl)
+    await expect(guest.getByTestId('code-read-only-share-banner')).toBeVisible()
+    for (let round = 0; round < 2; round++) {
+      const responses = await guest.evaluate(async iteration => {
+        const url = new URL('/farming/ws', location.href)
+        url.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
+        const socket = new WebSocket(url)
+        let timer: ReturnType<typeof setTimeout> | undefined
+        try {
+          return await new Promise<Array<{ requestId: string; ok: boolean; error: { code: string; status: number } }>>((resolve, reject) => {
+            const received: Array<{ requestId: string; ok: boolean; error: { code: string; status: number } }> = []
+            timer = setTimeout(() => reject(new Error('Read-only language denial did not settle')), 5000)
+            socket.onerror = () => reject(new Error('Read-only WebSocket failed'))
+            socket.onmessage = event => {
+              const message = JSON.parse(String(event.data))
+              if (message.type === 'protocol-hello') {
+                if (message.accessMode !== 'read-only') { reject(new Error('Expected read-only admission')); return }
+                for (let index = 0; index < 3; index++) socket.send(JSON.stringify({
+                  type: 'language-server-request', requestId: `denied-${iteration}-${index}`,
+                  request: { operation: 'capability', rootId: 'unresolved-root' },
+                }))
+              } else if (message.type === 'language-server-result') {
+                received.push(message)
+                if (received.length === 3) resolve(received)
+              } else if (message.type === 'error' || message.type === 'protocol-error') {
+                reject(new Error(`Uncorrelated rejection: ${message.message}`))
+              }
+            }
+          })
+        } finally { clearTimeout(timer); socket.close() }
+      }, round)
+      expect(responses).toMatchObject(Array.from({ length: 3 }, (_, index) => ({
+        requestId: `denied-${round}-${index}`, ok: false, error: { code: 'FORBIDDEN', status: 403 },
+      })))
+    }
+  } finally { await recipient.close() }
+})
+
 test('read-only Chat rejection settles delivery and preserves the draft across reload', async ({ page, browser, workspaceRoot }) => {
   test.skip(process.env.FARMING_PLAYWRIGHT_AUTH !== '1', 'Requires isolated token authentication')
   await page.goto('/farming/?token=mobile-auth-owner-fixture-token')
@@ -28,7 +76,10 @@ test('read-only Chat rejection settles delivery and preserves the draft across r
     }
     await guest.goto(readOnlyUrl)
     await expect(guest.getByTestId('code-read-only-share-banner')).toBeVisible()
-    await selectAgent()
+    // The shared Agent target opens asynchronously and closes the mobile sidebar.
+    // Wait for that navigation instead of racing it with a second selection.
+    const workPane = guest.locator(`[data-testid="code-agent-work-pane"][data-agent-id="${agentId}"]`)
+    await expect(workPane).toBeVisible()
     const input = guest.getByTestId('code-acp-composer-input')
     const marker = 'READ_ONLY_CHAT_MUST_NOT_RUN'
     await expect(input).toBeEnabled()

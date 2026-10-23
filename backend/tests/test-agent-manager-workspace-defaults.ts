@@ -6,7 +6,10 @@ const { AgentManager } = require('../agent-manager.cjs');
 const { createTestAgentManager } = require('./helpers/test-acp-runtime.ts');
 
 async function run() {
-  const farmingWorkspace = path.join(os.tmpdir(), 'farming-main-workspace');
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-workspace-defaults-'));
+  const managers: Array<{ dispose(): Promise<void> }> = [];
+  const releasePending: Array<() => void> = [];
+  const farmingWorkspace = path.join(fixture, 'main-workspace');
   const resolvedMainWorkspace = path.join(farmingWorkspace, '.farming');
   const captured = [];
   fs.mkdirSync(farmingWorkspace, { recursive: true });
@@ -29,6 +32,7 @@ async function run() {
     }
   }, { skipExecutablePreflight: true });
 
+  managers.push(manager);
   manager.engineBridge.resolve = (command) => ({
     engineName: 'local',
     engine: {
@@ -44,7 +48,7 @@ async function run() {
     assert.strictEqual(captured[0].cwd, resolvedMainWorkspace);
     assert(fs.existsSync(path.join(resolvedMainWorkspace, 'AGENTS.md')));
     assert(!fs.existsSync(path.join(resolvedMainWorkspace, 'skills', 'memory-report.md')));
-    assert.strictEqual(manager.getAgentWorkspaceRoot(mainAgentId), farmingWorkspace);
+    assert.strictEqual(manager.getAgentWorkspaceRoot(mainAgentId), fs.realpathSync(farmingWorkspace));
     assert.strictEqual(manager.agents.get(mainAgentId).status, 'running');
     assert.strictEqual(manager.agents.get(mainAgentId).validated, true);
     assert.strictEqual(manager.mainAgentIdentity.currentId(), mainAgentId);
@@ -77,7 +81,7 @@ async function run() {
     );
     assert.strictEqual(captured.length, 1);
 
-    const recoveryRaceWorkspace = path.join(os.tmpdir(), 'farming-recovery-race-workspace');
+    const recoveryRaceWorkspace = path.join(fixture, 'farming-recovery-race-workspace');
     fs.mkdirSync(recoveryRaceWorkspace, { recursive: true });
     const recoveryRaceCaptured = [];
     const recoveryRaceManager = createTestAgentManager(AgentManager, {
@@ -91,6 +95,7 @@ async function run() {
         return false;
       },
     });
+    managers.push(recoveryRaceManager);
     recoveryRaceManager.engineBridge.resolve = (command) => ({
       engineName: 'local',
       engine: {
@@ -101,6 +106,7 @@ async function run() {
       spec: { category: 'other' }
     });
     let releaseRecovery = () => {};
+    releasePending.push(() => releaseRecovery());
     recoveryRaceManager.recoveryGate.start(() => new Promise<void>(resolve => {
       releaseRecovery = resolve;
     }));
@@ -120,14 +126,13 @@ async function run() {
     releaseRecovery();
     assert.strictEqual(await pendingMainStart, recoveredMainAgentId);
     assert.strictEqual(recoveryRaceCaptured.length, 0, 'recovered Main Agent should prevent duplicate bash start');
-    recoveryRaceManager.heartbeatScheduler.stop();
-    recoveryRaceManager.engineBridge.dispose();
 
-    const concurrentMainWorkspace = path.join(os.tmpdir(), 'farming-concurrent-main-workspace');
+    const concurrentMainWorkspace = path.join(fixture, 'farming-concurrent-main-workspace');
     fs.mkdirSync(concurrentMainWorkspace, { recursive: true });
     let concurrentMainCreates = 0;
     let concurrentIdentityCreates = 0;
     let releaseConcurrentMainCreate = () => {};
+    releasePending.push(() => releaseConcurrentMainCreate());
     const concurrentMainCreateGate = new Promise<void>(resolve => {
       releaseConcurrentMainCreate = resolve;
     });
@@ -148,6 +153,7 @@ async function run() {
         throw new Error('fresh Codex must not pre-create a provider identity');
       },
     });
+    managers.push(concurrentMainManager);
     concurrentMainManager.engineBridge.resolve = () => ({
       engineName: 'local',
       engine: {
@@ -179,12 +185,10 @@ async function run() {
     assert.strictEqual(secondConcurrentMainId, firstConcurrentMainId);
     assert.strictEqual(concurrentIdentityCreates, 0, 'concurrent Codex Main starts must not pre-create a provider identity');
     assert.strictEqual(concurrentMainCreates, 1, 'concurrent Main starts must share one reserved launch');
-    concurrentMainManager.heartbeatScheduler.stop();
-    concurrentMainManager.engineBridge.dispose();
 
     manager.agents.get(mainAgentId).status = 'dead';
 
-    const internalConfigWorkspace = path.join(os.tmpdir(), 'farming-internal-main-workspace', '.farming');
+    const internalConfigWorkspace = path.join(fixture, 'farming-internal-main-workspace', '.farming');
     const internalCaptured = [];
     fs.mkdirSync(internalConfigWorkspace, { recursive: true });
     const internalManager = createTestAgentManager(AgentManager, {
@@ -204,6 +208,7 @@ async function run() {
         return false;
       }
     });
+    managers.push(internalManager);
     internalManager.engineBridge.resolve = (command) => ({
       engineName: 'local',
       engine: {
@@ -215,16 +220,14 @@ async function run() {
     });
     const internalMainAgentId = await startAgent(internalManager, 'bash', null, { wantsMain: true });
     assert.strictEqual(internalCaptured[0].cwd, internalConfigWorkspace);
-    assert.strictEqual(internalManager.getAgentWorkspaceRoot(internalMainAgentId), internalConfigWorkspace);
+    assert.strictEqual(internalManager.getAgentWorkspaceRoot(internalMainAgentId), fs.realpathSync(internalConfigWorkspace));
     assert.strictEqual(
       internalManager.getState().agents.find(agent => agent.id === internalMainAgentId).projectWorkspace,
       fs.realpathSync(internalConfigWorkspace)
     );
-    internalManager.heartbeatScheduler.stop();
-    internalManager.engineBridge.dispose();
 
     await assert.rejects(
-      () => startAgent(manager, 'bash', path.join(os.tmpdir(), 'farming-missing-main-workspace'), { wantsMain: true }),
+      () => startAgent(manager, 'bash', path.join(fixture, 'farming-missing-main-workspace'), { wantsMain: true }),
       /Workspace does not exist/
     );
 
@@ -238,7 +241,7 @@ async function run() {
     await startAgent(manager, 'zsh', null, { wantsMain: false });
     assert.strictEqual(captured[1].cwd, process.env.PWD || process.cwd() || process.env.HOME);
 
-    const restoredProjectWorkspace = path.join(os.tmpdir(), 'farming-restored-project-root');
+    const restoredProjectWorkspace = path.join(fixture, 'farming-restored-project-root');
     const restoredWorkingDirectory = path.join(restoredProjectWorkspace, 'packages', 'api');
     fs.mkdirSync(restoredWorkingDirectory, { recursive: true });
     const restoredAgentId = await startAgent(manager, 'claude --resume session-123', restoredWorkingDirectory, {
@@ -281,7 +284,7 @@ async function run() {
       'a descendant whose basename starts with two dots must retain its Project owner',
     );
 
-    const aliasedWorkspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-aliased-project-'));
+    const aliasedWorkspaceRoot = fs.mkdtempSync(path.join(fixture, 'aliased-project-'));
     const canonicalAliasedWorkspace = path.join(aliasedWorkspaceRoot, 'project');
     const aliasedWorkspace = path.join(aliasedWorkspaceRoot, 'project-link');
     fs.mkdirSync(canonicalAliasedWorkspace);
@@ -302,7 +305,7 @@ async function run() {
       'browser-facing Project identity should resolve filesystem aliases'
     );
 
-    const outsideProjectWorkspace = path.join(os.tmpdir(), 'farming-outside-project-root');
+    const outsideProjectWorkspace = path.join(fixture, 'farming-outside-project-root');
     fs.mkdirSync(outsideProjectWorkspace, { recursive: true });
     const outsideAgentId = await startAgent(manager, 'claude --resume session-456', restoredWorkingDirectory, {
       wantsMain: false,
@@ -311,7 +314,7 @@ async function run() {
     });
     const outsideAgent = manager.agents.get(outsideAgentId);
     assert.strictEqual(outsideAgent.cwd, restoredWorkingDirectory);
-    assert.strictEqual(outsideAgent.projectWorkspace, restoredWorkingDirectory);
+    assert.strictEqual(outsideAgent.projectWorkspace, fs.realpathSync(restoredWorkingDirectory));
 
     const homeLaunches = [];
     let defaultRuntimeMode = 'terminal';
@@ -345,6 +348,7 @@ async function run() {
         };
       },
     }, { skipExecutablePreflight: true });
+    managers.push(homeProfileManager);
     homeProfileManager.engineBridge.resolve = () => ({
       engineName: 'local',
       engine: {
@@ -363,8 +367,7 @@ async function run() {
       assert(homeLaunches[0].args.includes('model_reasoning_effort="high"'));
       assert(homeLaunches[0].args.includes('service_tier="priority"'));
     } finally {
-      homeProfileManager.heartbeatScheduler.stop();
-      homeProfileManager.engineBridge.dispose();
+      await homeProfileManager.dispose();
     }
 
     defaultRuntimeMode = 'chat';
@@ -412,6 +415,7 @@ async function run() {
         };
       },
     }, { skipExecutablePreflight: true });
+    managers.push(claudeHomeProfileManager);
     claudeHomeProfileManager.engineBridge.resolve = () => ({
       engineName: 'local',
       engine: {
@@ -438,14 +442,17 @@ async function run() {
       assert(!claudeHomeLaunches[1].args.includes('--model'));
       assert(!claudeHomeLaunches[1].args.includes('--effort'));
     } finally {
-      claudeHomeProfileManager.heartbeatScheduler.stop();
-      claudeHomeProfileManager.engineBridge.dispose();
+      await claudeHomeProfileManager.dispose();
     }
 
     console.log('✓ AgentManager uses .farming identity workspace for main agent and project cwd for sub agents by default');
   } finally {
-    manager.heartbeatScheduler.stop();
-    manager.engineBridge.dispose();
+    releasePending.forEach(release => release());
+    try {
+      await Promise.all(managers.map(instance => instance.dispose()));
+    } finally {
+      fs.rmSync(fixture, { recursive: true, force: true });
+    }
   }
 }
 

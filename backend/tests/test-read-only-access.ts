@@ -34,6 +34,13 @@ async function run() {
 
   const frames: Record<string, unknown>[] = [];
   const viewer = { accessMode: 'read-only', send: (body: string) => frames.push(JSON.parse(body)) };
+  assert.strictEqual(rejectReadOnlyClientMutation(viewer, {
+    type: 'language-server-request', requestId: 'language-one',
+  }), true);
+  assert.deepStrictEqual(frames.pop(), {
+    type: 'language-server-result', requestId: 'language-one', ok: false,
+    error: { code: 'FORBIDDEN', status: 403, message: 'This Farming share is read-only.' },
+  }, 'denied language work must settle its own request without waiting for a timeout');
   const input = { type: 'composer-input', agentId: 'agent-one', requestId: 'request-one' };
   assert.strictEqual(rejectReadOnlyClientMutation(viewer, input), true);
   assert.deepStrictEqual(frames.pop(), {

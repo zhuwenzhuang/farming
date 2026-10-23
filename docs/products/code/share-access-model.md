@@ -183,6 +183,8 @@ must not trigger a Project-mount mutation.
 Language Server requests are also withheld and rejected: even a semantic read
 may install a managed runtime, create caches, or start a backend process, which
 would violate the read-only capability's no-side-effect boundary.
+Rejection returns a correlated `language-server-result` with a 403 permission error
+so pending semantic work releases its admission without waiting for a timeout.
 Read-only Browser capability probes do not persist a discovered default, and
 read-only update checks ignore forced refresh while projecting recovery state
 without committing it or preparing installation directories. Static preview

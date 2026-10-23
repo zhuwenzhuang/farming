@@ -139,6 +139,8 @@ Code 使用 128 位随机数（22 个 base64url 字符），存储键使用其 S
 Agent 的文件也不得触发 Project 挂载修改。
 Language Server Request 同样不会发送且会被后端拒绝：即使是语义读取，也可能安装托管
 Runtime、创建 Cache 或启动后端 Process，这会违反只读能力的无副作用边界。
+拒绝时返回关联原请求的 `language-server-result` 和 403 权限错误，使等待中的语义请求立即
+释放准入名额，而不是等待超时。
 Read-only Browser Capability Probe 不会持久化探测到的默认值；Read-only Update Check
 忽略强制刷新，只投影 Recovery State 而不提交状态或准备 Installation Directory。
 Static Preview Capacity 与删除按 Authority 和 Read-only Credential 隔离，因此 Viewer

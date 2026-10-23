@@ -6,6 +6,33 @@ import {
 } from '../src/lib/workspace-request-client'
 import type { WorkspaceRequestMessage } from '../shared/browser-protocol'
 import { createWebSocketWorkspaceRequestHandlers } from '../backend/websocket-workspace-request-handlers.cjs'
+import { rejectReadOnlyClientMutation } from '../backend/read-only-access.cjs'
+
+test('read-only LSP rejection settles pending requests and releases their admission', { timeout: 5_000 }, async t => {
+  const frames: string[] = []
+  let dispatched = 0
+  const controller = new AbortController()
+  const viewer = { accessMode: 'read-only', send(body: string) {
+    const message = JSON.parse(body)
+    frames.push(message.type)
+    if (message.type === 'language-server-result') queueMicrotask(() => settleLanguageServerRequest(message))
+  } }
+  t.after(() => { controller.abort(); setWorkspaceRequestTransport(null) })
+  setWorkspaceRequestTransport(message => {
+    if (!rejectReadOnlyClientMutation(viewer, message)) dispatched++
+    return true
+  })
+  setWorkspaceRequestTransportReady(true)
+  const requests = Array.from({ length: 6 }, () => assert.rejects(
+    requestLanguageServerTransport({ operation: 'capability', rootId: 'root' }, {
+      signal: controller.signal, timeoutMs: 1000,
+    }),
+    (error: unknown) => error instanceof WorkspaceTransportError && error.code === 'FORBIDDEN' && error.status === 403,
+  ))
+  await Promise.all(requests)
+  assert.equal(dispatched, 0, 'denial must precede every language-server side effect')
+  assert.deepEqual(frames, Array(6).fill('language-server-result'), 'no unrelated global error or timeout')
+})
 
 test('ignored LSP cancellation retains admission until completion without flooding the server', { timeout: 5_000 }, async t => {
   const releases: Array<() => void> = []

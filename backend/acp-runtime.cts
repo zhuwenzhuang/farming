@@ -4282,38 +4282,45 @@ class AcpRuntime extends EventEmitter {
     options: PrepareAgentOptions,
     operation: (binding: AcpBinding) => Promise<T> | T,
   ): Promise<T> {
-    const binding = this.requireBinding(agentId);
-    const supportsActiveTurn = providerConversationForkCapability(
-      binding.provider,
-      'acp',
-    ).supportsActiveTurn;
-    const mutation = this.beginSessionMutation(binding, 'fork', {
-      allowActiveTurn: supportsActiveTurn,
-    });
+    let binding: AcpBinding | undefined;
+    let mutation: SessionMutation | undefined;
     try {
-      const capabilities = binding.initializeResponse?.agentCapabilities?.sessionCapabilities;
-      if (!capabilities?.fork) throw new Error(`${binding.provider} ACP Agent does not support session/fork`);
-      if (options.requireLoad === true && !binding.initializeResponse?.agentCapabilities?.loadSession) {
-        throw new Error(`${binding.provider} ACP Agent cannot load a forked conversation`);
+      try {
+        binding = this.requireBinding(agentId);
+        const supportsActiveTurn = providerConversationForkCapability(
+          binding.provider,
+          'acp',
+        ).supportsActiveTurn;
+        mutation = this.beginSessionMutation(binding, 'fork', {
+          allowActiveTurn: supportsActiveTurn,
+        });
+        const capabilities = binding.initializeResponse?.agentCapabilities?.sessionCapabilities;
+        if (!capabilities?.fork) throw new Error(`${binding.provider} ACP Agent does not support session/fork`);
+        if (options.requireLoad === true && !binding.initializeResponse?.agentCapabilities?.loadSession) {
+          throw new Error(`${binding.provider} ACP Agent cannot load a forked conversation`);
+        }
+        const activeTurnFork = supportsActiveTurn
+          && binding.activeTurn?.phase === 'running'
+          && binding.state === 'working';
+        if (
+          !activeTurnFork
+          && typeof options.expectedRevision === 'number'
+          && Number.isFinite(options.expectedRevision)
+          && Number(binding.sessionState?.revision || 0) !== Math.floor(options.expectedRevision)
+        ) {
+          throw new Error('ACP conversation changed before it could be forked. Try again from the latest answer.');
+        }
+        if (typeof operation !== 'function') throw new Error('ACP fork operation is required');
+      } catch (error) {
+        // Only this runtime can prove that admission failed before the child
+        // operation began. Preserve that proof across Host RPC for every guard.
+        throw Object.assign(error instanceof Error ? error : new Error(String(error)), {
+          code: 'ACP_FORK_NOT_STARTED',
+        });
       }
-      const activeTurnFork = supportsActiveTurn
-        && binding.activeTurn?.phase === 'running'
-        && binding.state === 'working';
-      if (
-        !activeTurnFork
-        && typeof options.expectedRevision === 'number'
-        && Number.isFinite(options.expectedRevision)
-        && Number(binding.sessionState?.revision || 0) !== Math.floor(options.expectedRevision)
-      ) {
-        throw Object.assign(
-          new Error('ACP conversation changed before it could be forked. Try again from the latest answer.'),
-          { code: 'ACP_FORK_NOT_STARTED' },
-        );
-      }
-      if (typeof operation !== 'function') throw new Error('ACP fork operation is required');
       return await operation(binding);
     } finally {
-      this.endSessionMutation(binding, mutation);
+      if (binding && mutation) this.endSessionMutation(binding, mutation);
     }
   }
 

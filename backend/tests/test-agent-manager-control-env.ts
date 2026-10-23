@@ -9,8 +9,10 @@ const {
 } = require('../farming-agent-bootstrap.cjs');
 
 async function run() {
-  const farmingDir = path.join(os.tmpdir(), 'farming-control-env');
-  const workspace = path.join(os.tmpdir(), 'farming-control-workspace');
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-control-env-'));
+  const farmingDir = path.join(fixture, 'config');
+  const workspace = path.join(fixture, 'workspace');
+  const managers: Array<{ dispose(): Promise<void> }> = [];
   const mainWorkspace = path.join(workspace, '.farming');
   fs.mkdirSync(farmingDir, { recursive: true });
   fs.mkdirSync(workspace, { recursive: true });
@@ -64,6 +66,7 @@ async function run() {
     skipExecutablePreflight: true,
   });
 
+  managers.push(manager);
   manager.engineBridge.resolve = () => ({
     engineName: 'local',
     engine: {
@@ -124,7 +127,7 @@ async function run() {
       'Main Agents must receive the Farming bootstrap alongside their Main Agent context',
     );
 
-    assert.strictEqual(captured[1].cwd, workspace, 'child should inherit parent project workspace by default');
+    assert.strictEqual(captured[1].cwd, canonicalWorkspace, 'child should inherit canonical parent project workspace by default');
     assert.strictEqual(captured[1].env.FARMING_AGENT_ID, childId);
     assert.strictEqual(captured[1].env.FARMING_AGENT_TITLE_TOKEN, undefined);
     assert.strictEqual(captured[1].env.FARMING_BROWSER_TOKEN, undefined);
@@ -211,16 +214,18 @@ async function run() {
         return { PATH: '/shell/bin' };
       },
     });
+    managers.push(disabledAuthManager);
     const disabledEnv = await disabledAuthManager.buildAgentEnv('agent-disabled', { wantsMain: false });
     assert.strictEqual(disabledEnv.FARMING_DISABLE_AUTH, '1');
     assert.strictEqual(disabledEnv.FARMING_TOKEN_FILE, undefined);
-    disabledAuthManager.heartbeatScheduler.stop();
-    await disabledAuthManager.engineBridge.dispose();
 
     console.log('✓ AgentManager injects Farming CLI control env and child metadata');
   } finally {
-    manager.heartbeatScheduler.stop();
-    await manager.engineBridge.dispose();
+    try {
+      await Promise.all(managers.map(instance => instance.dispose()));
+    } finally {
+      fs.rmSync(fixture, { recursive: true, force: true });
+    }
     if (previousLdLibraryPath === undefined) {
       delete process.env.LD_LIBRARY_PATH;
     } else {

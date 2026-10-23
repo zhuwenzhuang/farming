@@ -403,9 +403,10 @@ cannot block Server readiness or unrelated Terminal/Files functionality.
 Cold recovery materializes inventory first and prepares Sessions with bounded
 parallelism without changing membership order. Recovery itself is not Agent activity.
 
-Fork revision rejection before any child effect is a terminal failure, including
-across Host RPC; it releases the source lifecycle admission. Repeating that request
-returns its saved failure, while a fresh request can use the latest revision.
+Fork admission rejection before any child effect is a terminal failure, including
+missing bindings, concurrent mutations, unavailable capabilities and stale revisions.
+This proof survives Host RPC and releases the source lifecycle admission. Repeating
+that request returns its saved failure; a fresh request may attempt admission again.
 Recovery settles the exact legacy revision-rejection record only when no result,
 worktree checkpoint or matching child exists. Interrupted or uncertain Forks retain
 their reconciliation requirement and are never automatically replayed.

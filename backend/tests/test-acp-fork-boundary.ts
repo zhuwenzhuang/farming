@@ -82,6 +82,36 @@ async function testRecovery() {
       { code: 'ACP_FORK_NOT_STARTED' },
     );
     assert.equal(admitted, false, 'a stale revision must reject before any child effect');
+    const configMutation = first.beginSessionMutation(binding, 'configuration');
+    try {
+      await assert.rejects(
+        first.runWithForkReservation('child', {}, () => { admitted = true; }),
+        { code: 'ACP_FORK_NOT_STARTED' },
+        'a concurrent configuration mutation rejects Fork before creating a child',
+      );
+      assert.equal(admitted, false);
+      assert.equal(binding.sessionMutation, configMutation, 'rejection must preserve the existing owner');
+    } finally {
+      first.endSessionMutation(binding, configMutation);
+    }
+    await assert.rejects(
+      first.runWithForkReservation('missing', {}, () => { admitted = true; }),
+      { code: 'ACP_FORK_NOT_STARTED' },
+      'a removed binding cannot have started a child operation',
+    );
+    const capabilities = binding.initializeResponse!.agentCapabilities!;
+    const forkCapability = capabilities.sessionCapabilities!.fork;
+    capabilities.sessionCapabilities!.fork = undefined;
+    try {
+      await assert.rejects(
+        first.runWithForkReservation('child', {}, () => { admitted = true; }),
+        { code: 'ACP_FORK_NOT_STARTED' },
+      );
+      assert.equal(binding.sessionMutation, null, 'capability rejection releases its own reservation');
+      assert.equal(admitted, false);
+    } finally {
+      capabilities.sessionCapabilities!.fork = forkCapability;
+    }
     await assert.rejects(
       first.runWithForkReservation('child', {}, () => { throw new Error('uncertain provider outcome'); }),
       error => error instanceof Error && !('code' in error),
