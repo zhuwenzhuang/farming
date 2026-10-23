@@ -7,7 +7,10 @@ const net = require('node:net');
 const os = require('node:os');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
-const { chromium } = require('@playwright/test');
+const { chromium, request } = require('@playwright/test');
+const { cleanupAgents } = require('../tests/e2e/agent-cleanup');
+const { prepareSourceBrowserRuntime } = require('./prepare-source-browser-runtime');
+const runtimeManifest = require('../backend/data/runtime-dependency-manifest.json');
 const tsxCliPath = require.resolve('tsx/cli');
 
 const repoRoot = path.resolve(__dirname, '..');
@@ -16,7 +19,7 @@ const packageVersion = require(path.join(repoRoot, 'package.json')).version;
 const configuredScreenshotTmpRoot = process.env.FARMING_SCREENSHOT_TMP_ROOT
   || (process.platform === 'win32' ? os.tmpdir() : '/tmp');
 const screenshotTmpRoot = fs.realpathSync(configuredScreenshotTmpRoot);
-const demoRoot = path.join(screenshotTmpRoot, 'farming-product-demo');
+const demoRoot = fs.mkdtempSync(path.join(screenshotTmpRoot, 'farming-product-demo-'));
 const configDir = path.join(demoRoot, 'config');
 const homeDir = path.join(demoRoot, 'home');
 const agentBrowserSocketDir = path.join(screenshotTmpRoot, `fb${process.pid}`);
@@ -57,7 +60,7 @@ const publicCodeScreenshotSpecs = new Map<string, PublicScreenshotSpec>([
   ['17-code-pet-black-hole.png', { fileName: 'pet-black-hole.png' }],
   ['18-code-desktop-connections.png', { fileName: 'desktop-connections.png' }],
   ['19-code-agent-homes.png', { fileName: 'agent-homes.png' }],
-  ['20-code-share-chat.png', { fileName: 'share-chat.png', clip: { x: 300, y: 0, width: 1140, height: 810 } }],
+  ['20-code-share-chat.png', { fileName: 'share-chat.png' }],
   ['21-code-share-file.png', { fileName: 'share-file.png', clip: { x: 300, y: 0, width: 1140, height: 810 } }],
   ['22-code-share-qr.png', { fileName: 'share-qr.png', clip: { x: 0, y: 0, width: 650, height: 620 } }],
   ['23-code-files-html-chat.png', { fileName: 'files-html-preview-chat.png', publicOnly: true }],
@@ -114,15 +117,7 @@ const executablePath = process.env.FARMING_PLAYWRIGHT_CHROME_PATH
   || (fs.existsSync(localChromePath) ? localChromePath : undefined);
 const agentBrowserPlatformKey = `${process.platform}-${process.arch === 'x64' ? 'x64' : 'arm64'}`;
 const localAgentBrowserPath = process.env.FARMING_AGENT_BROWSER_BIN
-  || path.join(
-    repoRoot,
-    '.farming-runtime-seed',
-    'runtimes',
-    'agentBrowser',
-    '0.32.3',
-    agentBrowserPlatformKey,
-    process.platform === 'win32' ? 'agent-browser.exe' : 'agent-browser',
-  );
+  || path.join(repoRoot, runtimeManifest.dependencies.agentBrowser.artifacts[agentBrowserPlatformKey].packagedEntry);
 const matrixReasoning = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'];
 const matrixCatalog = ['sol', 'terra', 'luna'].map(variant => ({
   value: `gpt-5.6-${variant}`,
@@ -217,26 +212,44 @@ function getFreePort() {
   });
 }
 
+function stopCaptureProcess(child: { pid?: number } | null | undefined) {
+  if (!child?.pid) return;
+  if (process.platform === 'win32') {
+    execFileSync('taskkill', ['/PID', String(child.pid), '/T', '/F']);
+    return;
+  }
+  try { process.kill(-child.pid, 'SIGKILL'); } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
+  }
+}
+
 async function startDocumentationSite() {
   run('npm', ['run', 'build'], {
     cwd: path.join(repoRoot, 'docs-site'),
     env: processEnvWithoutColor(),
     stdio: 'inherit',
   });
+
   const port = await getFreePort();
   const origin = `http://127.0.0.1:${port}`;
   const url = `${origin}/farming/${screenshotLocale}/?theme=${screenshotAppearance}`;
-  const process = spawn('npm', ['run', 'preview', '--', '--host', '127.0.0.1', '--port', String(port)], {
+  const previewProcess = spawn('npm', ['run', 'preview', '--', '--host', '127.0.0.1', '--port', String(port)], {
     cwd: path.join(repoRoot, 'docs-site'),
     env: processEnvWithoutColor(),
+    detached: true,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
-  process.stdout.on('data', chunk => process.stdout.write(chunk));
-  process.stderr.on('data', chunk => process.stderr.write(chunk));
-  await waitForServer(url);
+  previewProcess.stdout.on('data', chunk => process.stdout.write(chunk));
+  previewProcess.stderr.on('data', chunk => process.stderr.write(chunk));
+  try {
+    await waitForServer(url);
+  } catch (error) {
+    stopCaptureProcess(previewProcess);
+    throw error;
+  }
   return {
     origin,
-    process,
+    process: previewProcess,
     title: documentationSiteTitle(),
     url,
     publicUrl: `https://zhuwenzhuang.github.io/farming/${screenshotLocale}/?theme=${screenshotAppearance}`,
@@ -304,8 +317,6 @@ async function waitForServer(url: string, timeoutMs = 45_000): Promise<void> {
 }
 
 function prepareRuntimeDirectories() {
-  fs.rmSync(demoRoot, { recursive: true, force: true });
-  fs.rmSync(agentBrowserSocketDir, { recursive: true, force: true });
   fs.mkdirSync(configDir, { recursive: true });
   fs.mkdirSync(homeDir, { recursive: true });
   fs.mkdirSync(screenshotDir, { recursive: true });
@@ -526,23 +537,6 @@ function prepareRuntimeDirectories() {
       env: { ...process.env, GIT_COMMITTER_DATE: '2026-07-18T16:40:00Z' },
     });
   }
-  for (const directory of [screenshotDir, crtScreenshotDir]) {
-    for (const entry of fs.readdirSync(directory)) {
-      const appearanceSuffix = screenshotAppearance === 'light' ? null : screenshotAppearance;
-      const requestedEntry = appearanceSuffix && directory === screenshotDir
-        ? entry.replace(new RegExp(`-${appearanceSuffix}(?=\\.(?:png|jpg|jpeg)$)`, 'i'), '')
-        : entry;
-      const themedSuffix = /-(?:dark|paper)\.(?:png|jpg|jpeg)$/i;
-      const isSelectedAppearance = appearanceSuffix
-        ? directory !== screenshotDir || new RegExp(`-${appearanceSuffix}\\.(?:png|jpg|jpeg)$`, 'i').test(entry) || nativeDarkCodeScreenshots.has(entry)
-        : !themedSuffix.test(entry);
-      if (/^\d{2}-.*\.(?:png|jpg|jpeg)$/i.test(entry)
-        && isSelectedAppearance
-        && (requestedScreenshotFiles.size === 0 || requestedScreenshotFiles.has(requestedEntry))) {
-        fs.rmSync(path.join(directory, entry), { force: true });
-      }
-    }
-  }
 }
 
 function themedScreenshotFileName(fileName: string, directory: string) {
@@ -692,52 +686,6 @@ async function waitForTerminalRowsAndInk(page, agentId, expectedText) {
     { id: agentId, expected: expectedText },
     { timeout: 20_000 },
   );
-}
-
-async function switchCodeAgentRuntime(page, agentId, mode) {
-  const responsePromise = page.waitForResponse(response => (
-    response.request().method() === 'PATCH'
-    && response.url().includes(`/api/agents/${encodeURIComponent(agentId)}`)
-  ));
-  const pane = page.locator(`[data-testid="code-agent-work-pane"][data-agent-id="${agentId}"]`);
-  await pane.getByTestId('code-terminal-mode-toggle')
-    .getByRole('button', { name: mode === 'chat' ? 'Chat' : 'Terminal' })
-    .click();
-  const response = await responsePromise;
-  const data = await response.json();
-  if (!response.ok() || data.switchFailed) {
-    throw new Error(data.error || `failed to switch Agent ${agentId} to ${mode}`);
-  }
-  const restartedAgentId = data.restartedAgentId || agentId;
-  const restartedPane = page.locator(`[data-testid="code-agent-work-pane"][data-agent-id="${restartedAgentId}"]`);
-  await restartedPane.waitFor({ state: 'visible', timeout: 30_000 });
-  await restartedPane.getByTestId('code-permission-switching').waitFor({ state: 'hidden', timeout: 30_000 });
-  if (mode === 'terminal') {
-    await page.waitForFunction(id => {
-      const diagnostics = (window as unknown as {
-        __farmingTerminalTest?: {
-          getBufferDiagnostics: (agentId: string) => {
-            currentAttachment: boolean;
-            attachedMount: boolean;
-            replayInProgress: boolean;
-            bootstrappingSnapshot: boolean;
-            pendingSnapshotReplay: boolean;
-            queuedTransitions: number;
-          } | null;
-        };
-      }).__farmingTerminalTest?.getBufferDiagnostics(id);
-      return diagnostics?.currentAttachment === true
-        && diagnostics.attachedMount === true
-        && diagnostics.replayInProgress === false
-        && diagnostics.bootstrappingSnapshot === false
-        && diagnostics.pendingSnapshotReplay === false
-        && diagnostics.queuedTransitions === 0;
-    }, restartedAgentId, { timeout: 30_000 });
-  }
-  const restartingToast = page.getByText('Restarting Agent...', { exact: true });
-  await restartingToast.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
-  await restartingToast.waitFor({ state: 'hidden', timeout: 30_000 });
-  return restartedAgentId;
 }
 
 async function switchCrtAgentToTerminal(page, agentId) {
@@ -1037,21 +985,30 @@ async function screenshot(page, fileName, directory = screenshotDir) {
   if (fileName === '12-code-terminal-session.png' || fileName === '03-crt-terminal.png') {
     await page.bringToFront();
   }
+  if (!['20-code-share-chat.png', '21-code-share-file.png'].includes(fileName)) {
+    await page.getByTestId('code-copy-toast').waitFor({ state: 'hidden', timeout: 10_000 });
+  }
   await waitForStableUi(page, 250);
-  await page.evaluate(({ linuxPath, macPath }) => {
+  const acpError = page.getByTestId('code-acp-error');
+  if (await acpError.isVisible()) {
+    throw new Error(`Cannot capture ${fileName}: ${await acpError.innerText()}`);
+  }
+  await page.evaluate(({ linuxPath, macPath, homePath }) => {
     const walker = document.createTreeWalker(document.body, window.NodeFilter.SHOW_TEXT);
     let node = walker.nextNode();
     while (node) {
       if (node.nodeValue) {
         node.nodeValue = node.nodeValue
           .replaceAll(macPath, '~/Projects/atlas-control-plane')
-          .replaceAll(linuxPath, '~/Projects/atlas-control-plane');
+          .replaceAll(linuxPath, '~/Projects/atlas-control-plane')
+          .replaceAll(homePath, '~');
       }
       node = walker.nextNode();
     }
   }, {
-    linuxPath: `/tmp/farming-product-demo/home/Projects/atlas-control-plane`,
-    macPath: `/private/tmp/farming-product-demo/home/Projects/atlas-control-plane`,
+    linuxPath: workspaceDir,
+    macPath: fs.realpathSync(workspaceDir),
+    homePath: homeDir,
   });
   if (directory === crtScreenshotDir) {
     await page.evaluate(() => {
@@ -1112,6 +1069,7 @@ async function screenshot(page, fileName, directory = screenshotDir) {
     }
   }
   capturedScreenshotFiles.add(fileName);
+  console.log(`Captured ${screenshotLocale}/${screenshotAppearance}/${fileName}`);
 }
 
 async function waitForBrowserPage(page, baseUrl, browserId, expectedTitle, expectedContent) {
@@ -1390,6 +1348,7 @@ async function writeExistingChromeScreenshot(page, fileName: string): Promise<vo
     type: 'png',
   });
   capturedScreenshotFiles.add(fileName);
+  console.log(`Captured ${screenshotLocale}/${screenshotAppearance}/${fileName}`);
 }
 
 async function captureExistingChromeDocumentationScreenshots(browser, baseUrl) {
@@ -1458,7 +1417,10 @@ async function captureExistingChromeDocumentationScreenshots(browser, baseUrl) {
       }).waitFor({ state: 'visible', timeout: 20_000 });
       await browserPlugin.getByText(en ? 'Available' : '可用', { exact: true })
         .first()
-        .waitFor({ state: 'visible', timeout: 20_000 });
+        .waitFor({ state: 'visible', timeout: 20_000 }).catch(async error => {
+          console.error(await browserPlugin.innerText());
+          throw error;
+        });
       const prepareConnector = browserPlugin.getByRole('button', {
         name: en ? 'Prepare Chrome extension folder' : '准备 Chrome 扩展目录',
       });
@@ -1482,6 +1444,7 @@ async function captureExistingChromeDocumentationScreenshots(browser, baseUrl) {
         type: 'png',
       });
       capturedScreenshotFiles.add('26-existing-chrome-install.png');
+      console.log(`Captured ${screenshotLocale}/${screenshotAppearance}/26-existing-chrome-install.png`);
     }
 
     await page.setContent(existingChromeFixtureDocument(`
@@ -1787,6 +1750,11 @@ async function main() {
     stdio: 'inherit',
   });
 
+  if (!process.env.FARMING_AGENT_BROWSER_BIN && (requestedScreenshotFiles.size === 0
+    || Array.from(browserDocumentationScreenshots).some(fileName => requestedScreenshotFiles.has(fileName)))) {
+    await prepareSourceBrowserRuntime();
+  }
+
   const port = await getFreePort();
   const baseUrl = `http://127.0.0.1:${port}`;
   const serverProcess = spawn(process.execPath, [tsxCliPath, path.join(repoRoot, 'scripts', 'start-playwright-server.ts')], {
@@ -1797,6 +1765,7 @@ async function main() {
       FARMING_PLAYWRIGHT_PORT: String(port),
       FARMING_BASE_PATH: basePath,
       FARMING_CONFIG_DIR: configDir,
+      FARMING_PLAYWRIGHT_CONFIG_DIR: configDir,
       FARMING_DISABLE_AUTH: '1',
       FARMING_E2E_FAKE_EXECUTABLES: '1',
       FARMING_E2E_FAKE_ACP_AGENT: '1',
@@ -1815,6 +1784,7 @@ async function main() {
       NODE_ENV: 'test',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
+    detached: true,
   });
 
   serverProcess.stdout.on('data', chunk => process.stdout.write(chunk));
@@ -1956,6 +1926,7 @@ async function main() {
       command: 'claude',
       workspace: workspaceDir,
       task: '',
+      agentRuntimeMode: 'terminal',
     });
     const shellAgentId = await startDemoAgent(page, baseUrl);
     await updateAgent(page, baseUrl, codexAgentId, { customTitle: 'Fix duplicate page items' });
@@ -2252,8 +2223,8 @@ async function main() {
             createdBrowser.id,
             documentationSite.title,
             screenshotLocale === 'en'
-              ? 'Run coding agents side by side on your dev machine'
-              : '在开发机上并行跑 Coding Agent',
+              ? 'A browser workspace for AI coding agents'
+              : '浏览器中的 AI Coding Agent 工作区',
           );
           await ensureApp(page);
           await openAgent(page, codexAgentId);
@@ -2273,6 +2244,7 @@ async function main() {
           const addressInput = viewer.getByRole('textbox', { name: 'Browser address' });
           await addressInput.waitFor({ state: 'visible', timeout: 20_000 });
           const publicDisplayUrl = documentationSite.publicUrl;
+          await page.bringToFront();
           await addressInput.fill(publicDisplayUrl);
           await browserRow.evaluate((element, value) => {
             const subtitle = element.querySelector('.farming-browser-row-detail');
@@ -2290,6 +2262,8 @@ async function main() {
       await openAgent(page, terminalAgentId);
       await writeTerminalFixture(page, terminalAgentId, `\u001b[2J\u001b[H${createCodingAgentTerminalTranscript()}`);
       await waitForTerminalVisualContent(page, terminalAgentId, 'Ask Codex to do anything');
+      const restoreComposer = page.getByTestId('code-composer-restore');
+      if (await restoreComposer.isVisible()) await restoreComposer.click();
       await page.getByTestId('code-composer-model-picker').click();
       await page.getByTestId('code-model-matrix-picker').waitFor({ state: 'visible', timeout: 20_000 });
       await screenshot(page, '07-live-model-controls.png');
@@ -2302,18 +2276,17 @@ async function main() {
       if (requestedScreenshotsComplete()) return;
     }
     if (requestedScreenshotFiles.size === 0 || requestedScreenshotFiles.has('12-code-terminal-session.png')) {
-      await openAgent(page, codexAgentId);
-      codexAgentId = await switchCodeAgentRuntime(page, codexAgentId, 'terminal');
-      await openAgent(page, codexAgentId);
-      await writeTerminalFixture(page, codexAgentId, `\u001b[2J\u001b[H${createCodingAgentTerminalTranscript()}`);
-      await waitForTerminalVisualContent(page, codexAgentId, 'Ask Codex to do anything');
-      const codexComposerCollapse = page.getByTestId('code-composer-collapse');
-      if (await codexComposerCollapse.isVisible()) await codexComposerCollapse.evaluate(element => element.click());
+      await openAgent(page, terminalAgentId);
+      await writeTerminalFixture(page, terminalAgentId, `\u001b[2J\u001b[H${createCodingAgentTerminalTranscript()}`);
+      await waitForTerminalVisualContent(page, terminalAgentId, 'Ask Codex to do anything');
+      const composerCollapse = page.getByTestId('code-composer-collapse');
+      if (await composerCollapse.isVisible()) await composerCollapse.click();
       await page.getByTestId('code-composer-restore-bar').waitFor({ state: 'visible', timeout: 20_000 });
       await screenshot(page, '12-code-terminal-session.png');
-      codexAgentId = await switchCodeAgentRuntime(page, codexAgentId, 'chat');
       if (requestedScreenshotsComplete()) return;
     }
+    await openAgent(page, codexAgentId);
+    await projectNorthstarChat(page);
 
     await page.getByTestId('code-nav-search').click();
     await page.getByTestId('code-search-panel').waitFor({ state: 'visible', timeout: 20_000 });
@@ -2342,6 +2315,7 @@ async function main() {
       command: 'claude',
       workspace: workspaceDir,
       task: '',
+      agentRuntimeMode: 'terminal',
     });
     await updateAgent(page, baseUrl, notesHistoryAgentId, { customTitle: 'Release notes verification' });
     await updateAgent(page, baseUrl, notesHistoryAgentId, { archived: true });
@@ -2415,6 +2389,9 @@ async function main() {
         await page.getByTestId('code-settings-panel').waitFor({ state: 'visible', timeout: 20_000 });
       }
       if (requestedScreenshotFiles.size === 0 || requestedScreenshotFiles.has('17-code-pet-black-hole.png')) {
+        await page.getByTestId('code-settings-panel').getByRole('group', { name: 'Appearance' })
+          .getByRole('button', { name: 'Dark', exact: true }).click();
+        await page.locator('body[data-appearance="dark"]').waitFor({ state: 'visible', timeout: 20_000 });
         await page.evaluate(() => {
           const testWindow = window as Window & {
             __farmingBlackHoleEvolutionSeed?: number;
@@ -2450,6 +2427,7 @@ async function main() {
     await page.request.post(`${baseUrl}${basePath}/api/settings`, { data: { appearance: 'dark' } });
     await ensureApp(page);
     await openAgent(page, codexAgentId);
+    await projectNorthstarChat(page);
     await screenshot(page, '09-dark-workspace.png');
 
     const shouldCaptureUsage = requestedScreenshotFiles.size === 0
@@ -2554,6 +2532,29 @@ async function main() {
     codexAgentId = await switchCrtAgentToTerminal(page, codexAgentId);
     await page.locator('#session-modal.active').waitFor({ state: 'visible', timeout: 30_000 });
     await page.locator('#terminal-output .xterm').waitFor({ state: 'visible', timeout: 30_000 });
+    await page.waitForFunction(() => {
+      const api = (window as unknown as {
+        __farmingCrtTerminalTest?: {
+          getRows: () => string[];
+          getState: () => {
+            runtimeEpoch: string;
+            replaying: boolean;
+            checkpointHalted: boolean;
+            writeInProgress: boolean;
+            checkpointInFlight: boolean;
+            checkpointInstallInProgress: boolean;
+            queuedTransitionCount: number;
+            pendingFitResize: unknown;
+            fitResizeTimerPending: boolean;
+          } | null;
+        };
+      }).__farmingCrtTerminalTest;
+      const state = api?.getState();
+      return Boolean(state?.runtimeEpoch && !state.replaying && !state.checkpointHalted
+        && !state.writeInProgress && !state.checkpointInFlight && !state.checkpointInstallInProgress
+        && state.queuedTransitionCount === 0 && !state.pendingFitResize && !state.fitResizeTimerPending
+        && api?.getRows().join('\n').includes('Codex · ~/workspace'));
+    }, null, { timeout: 20_000 });
     const crtFixtureAccepted = await page.evaluate(fixture => {
       const api = (window as unknown as {
         __farmingCrtTerminalTest?: {
@@ -2617,6 +2618,10 @@ async function main() {
     await page.locator('#settings-modal.active').waitFor({ state: 'visible', timeout: 20_000 });
     await screenshot(page, '08-crt-settings.png', crtScreenshotDir);
 
+    if (requestedScreenshotFiles.size > 0 && !requestedScreenshotsComplete()) {
+      const missing = Array.from(requestedScreenshotFiles).filter(fileName => !capturedScreenshotFiles.has(fileName));
+      throw new Error(`Requested screenshots were not captured: ${missing.join(', ')}`);
+    }
     console.log(`Farming Code screenshots written to ${screenshotDir}`);
     console.log(`Farming CRT screenshots written to ${crtScreenshotDir}`);
   } finally {
@@ -2632,14 +2637,26 @@ async function main() {
         console.warn(`Failed to delete screenshot Browser ${browserId}:`, error);
       }
     }
-    if (browser) await browser.close();
-    serverProcess.kill('SIGTERM');
-    documentationSite?.process.kill('SIGTERM');
-    fs.rmSync(agentBrowserSocketDir, { recursive: true, force: true });
+    try {
+      const cleanupRequest = await request.newContext({ baseURL: baseUrl });
+      try {
+        await cleanupAgents(cleanupRequest, { timeoutMs: 30_000 });
+      } finally {
+        await cleanupRequest.dispose();
+      }
+    } finally {
+      if (browser) await browser.close();
+      for (const child of [serverProcess, documentationSite?.process]) {
+        stopCaptureProcess(child);
+      }
+      fs.rmSync(agentBrowserSocketDir, { recursive: true, force: true });
+      fs.rmSync(demoRoot, { recursive: true, force: true });
+    }
   }
 }
 
 main().catch(error => {
+  fs.rmSync(demoRoot, { recursive: true, force: true });
   console.error(error);
   process.exit(1);
 });

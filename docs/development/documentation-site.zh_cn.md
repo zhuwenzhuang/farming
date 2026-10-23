@@ -78,12 +78,18 @@ npm run docs:product:screenshots
 该命令使用匿名、确定性的工作区和 Agent Fixture，对构建后的真实 Farming UI 进行
 截图；它会更新产品文档的权威截图，并把公开站所需图片同步到
 `docs-site/public/cn/assets/`。不要用手工拼接的效果图替代这些真实截图。
-深色截图使用 `-dark` 文件名后缀；Usage activity、Farming CRT 等原生深色界面继续使用
-权威文件名，不生成无意义的重复副本。
+设置 `FARMING_SCREENSHOT_APPEARANCE` 为 `light`、`dark` 或 `paper`，
+设置 `FARMING_SCREENSHOT_LOCALE=en` 可生成英文专用图片。深色和 Paper 截图分别
+使用 `-dark`、`-paper` 后缀；Farming CRT 等原生深色界面继续使用权威文件名。
 
-Farming Browser 的插件与 Viewer 截图由 Browser 专项 E2E 场景生成，仍然来自真实
-界面，但暂不由上述主截图命令同步。修改 Browser 截图时，应运行对应的 Browser E2E
-截图流程并同时检查公开站引用。
+同一命令也会截取 Farming Browser 的插件与 Viewer 界面；未显式指定可执行文件时，
+会准备源码锁定的 Browser 运行时。每次运行使用隔离的临时 Config，并在截图结束后
+清理自己的 Agent、Browser 资源、进程和临时工作区，包括失败路径。新截图生成前
+保留已有图片。
+
+更新 PNG 原图后，在 `docs-site/` 中运行 `npm run images:readme`、`npm run build`
+和 `npm run verify:images`，重新生成 README 和公开站的 WebP 衍生图，并校验图片
+引用与尺寸。
 
 不要把文档站依赖加入根 `package.json`，不要使用 npm workspace，也不要让 Farming
 应用构建依赖这个项目。
