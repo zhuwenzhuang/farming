@@ -332,6 +332,11 @@ async function main(): Promise<void> {
   }
   commandOutput('xcodebuild', ['-version'])
 
+  const appearance = process.env.FARMING_IOS_PWA_APPEARANCE || 'light'
+  if (!['light', 'dark', 'paper'].includes(appearance)) {
+    throw new Error('FARMING_IOS_PWA_APPEARANCE must be light, dark, or paper')
+  }
+
   const token = runToken()
   const outputDir = path.resolve(
     process.env.FARMING_IOS_PWA_OUTPUT_DIR
@@ -391,7 +396,7 @@ async function main(): Promise<void> {
     await requestJSON(`${baseURL}/api/settings`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ language: 'en', composerFollowUpBehavior: 'queue' }),
+      body: JSON.stringify({ language: 'en', appearance, composerFollowUpBehavior: 'queue' }),
     })
     const created = await requestJSON<{ agentId?: string }>(`${baseURL}/api/control/agents`, {
       method: 'POST',
@@ -418,6 +423,7 @@ async function main(): Promise<void> {
       simulator: device,
       xcode: commandOutput('xcodebuild', ['-version']).trim().split('\n'),
       node: process.version,
+      appearance,
       baseURL,
       appName,
       agentId,

@@ -33,6 +33,8 @@ npm run test:e2e:ios-pwa
 Set `FARMING_IOS_SIMULATOR_UDID` to select a specific Simulator. Otherwise the
 runner uses a booted iPhone, or boots an available iPhone 16 Pro. Set
 `FARMING_IOS_PWA_OUTPUT_DIR` to choose a new, non-existing artifact directory.
+Set `FARMING_IOS_PWA_APPEARANCE` to `light` (default), `dark`, or `paper`; visible
+layout changes require a separate run in every appearance.
 
 The command succeeds only when all four product assertions pass. A non-zero
 exit after an `IOS_PWA_EVIDENCE` line is a product regression; a failure before
@@ -60,7 +62,8 @@ host/runner apps.
 
 The four scenarios cover:
 
-- excessive blank space below the resting standalone Composer;
+- excessive blank space below the resting standalone Composer, after native
+  keyboard dismissal, and after landscape/portrait rotation, with draft preservation;
 - the Start New Agent dialog entering the iOS status/Dynamic Island region or
   clipping its heading and first provider row;
 - a focused, busy ACP Composer with a queued message whose Add, model, and
@@ -70,9 +73,13 @@ The four scenarios cover:
 
 The compact layout has one viewport owner: browser tabs and installed standalone
 apps use the visual viewport exactly, including heights below 240 points while
-the keyboard is open. Standalone mode relies on the system region already
-excluded by that viewport; it does not create a second root-viewport coordinate
-system or subtract the safe area again.
+the keyboard is open. The iOS status bar uses `default`: `black-translucent`
+can leave a status-bar-height strip outside the native painting viewport
+([WebKit issue](https://bugs.webkit.org/show_bug.cgi?id=236445#c9)). Do not extend
+the root to the physical screen height to compensate. Reserve the reported
+bottom safe area once inside the resting viewport; while the keyboard is open,
+use the compact keyboard gap. Native acceptance allows at most 40 points below
+the resting Composer, not the former 64-point allowance that admitted the defect.
 
 ## Artifacts And Failure Classification
 
@@ -94,7 +101,7 @@ and screenshot for diagnosis, but do not commit generated artifacts.
 ## Known Limits
 
 - The checked-in selectors cover the English iOS 18 Safari and Farming labels.
-- This is a portrait iPhone Simulator gate; physical-device signing and iPad
+- This is an iPhone Simulator gate with portrait and landscape coverage; physical-device signing and iPad
   behavior are outside its scope.
 - A pristine Simulator may require a one-time manual dismissal of Apple's
   first-launch Safari screens before unattended runs are possible.

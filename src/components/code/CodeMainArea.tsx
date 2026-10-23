@@ -1,4 +1,6 @@
 import { CollaborationAgentIcon } from './CollaborationAgentIcon'
+import { MobileUnreadNavigation } from './MobileUnreadNavigation'
+import type { UnreadAgentTarget } from './mobile-unread-navigation'
 import { sameAgentGoal, type AgentGoal } from '../../../shared/agent-goal'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type ComponentProps, type CSSProperties, type Dispatch, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type RefObject, type SetStateAction, type SyntheticEvent as ReactSyntheticEvent } from 'react'
 import type { Agent, TaskHistoryEntry } from '@/types/agent'
@@ -278,6 +280,11 @@ function FileEditorFallback({
 }
 
 interface CodeMainAreaProps {
+  unreadProjects: ProjectGroup[]
+  unreadNavigationViewport: boolean
+  unreadNavigationEnabled: boolean
+  onOpenUnreadTarget: (target: UnreadAgentTarget) => void
+  onUnreadBack: (agentId: string) => void
   relatedSession: RelatedSessionTarget | null
   onRelatedSessionChange: (target: RelatedSessionTarget | null) => void
   onOpenSubagent: (parentAgentId: string) => void
@@ -606,6 +613,11 @@ function EmptyWorkspaceGuide({
 }
 
 export function CodeMainArea({
+  unreadProjects,
+  unreadNavigationViewport,
+  unreadNavigationEnabled,
+  onOpenUnreadTarget,
+  onUnreadBack,
   agentOpening,
   onBackFromAgentOpening,
   onRetryAgentOpening,
@@ -729,6 +741,7 @@ export function CodeMainArea({
   renderSubagentComposer,
 }: CodeMainAreaProps) {
   const [compactRelatedActive, setCompactRelatedActive] = useState(true)
+  const unreadSurfaceRef = useRef<HTMLDivElement | null>(null)
   const [relatedRatio, setRelatedRatio] = useState(() => {
     try { const value = Number(localStorage.getItem('farming.code.relatedRatio.v1')); return value > 0 && value < 1 ? value : 0.5 }
     catch { return 0.5 }
@@ -1335,6 +1348,7 @@ export function CodeMainArea({
       ) : null}
 
       <div
+        ref={unreadSurfaceRef}
         className="code-terminal-grid panes-1"
         data-testid="code-terminal-grid"
         hidden={!agentSurfaceVisible}
@@ -1431,6 +1445,10 @@ export function CodeMainArea({
           />
         ))}
       </div>
+
+      {unreadNavigationViewport && <MobileUnreadNavigation projects={unreadProjects} activeAgentId={activeTerminalId || ''}
+        enabled={unreadNavigationEnabled && agentWorkspaceVisible && Boolean(activeAgent) && !relatedSessionVisible}
+        surfaceRef={unreadSurfaceRef} onOpen={onOpenUnreadTarget} onBack={onUnreadBack} language={language} />}
 
       {agentSurfaceVisible && (visibleGoal || visibleActivePlan || activeBrowserPreviews.length > 0) ? (
         <section

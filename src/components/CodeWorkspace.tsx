@@ -2287,7 +2287,7 @@ export function CodeWorkspace({
   useEffect(() => {
     if (agentOpeningBusy || !activeTerminalId || activeView !== 'projects' || mainPaneMode !== 'terminal') return
     const activeAgent = activeAgents.find(agent => agent.id === activeTerminalId)
-    if (!activeAgent?.unread || manuallyUnreadActiveAgentIdRef.current === activeTerminalId) return
+    if (!activeAgent || !agentWithCurrentLiveState(activeAgent).unread || manuallyUnreadActiveAgentIdRef.current === activeTerminalId) return
     markAgentReadIfNeeded(activeTerminalId, true)
   }, [activeAgents, activeTerminalId, activeView, agentOpeningBusy, mainPaneMode, markAgentReadIfNeeded])
 
@@ -6271,6 +6271,17 @@ export function CodeWorkspace({
       )}
 
       <CodeMainArea
+        unreadProjects={projectListProjects}
+        unreadNavigationViewport={mobileNavigationViewport}
+        unreadNavigationEnabled={!readOnly && agentInventoryComplete && sidebarCollapsed}
+        onOpenUnreadTarget={target => {
+          if (target.kind === 'agent') openTerminalFromSidebar(target.agent.id)
+          else {
+            const session = target.session
+            resumeAgentSession(session.provider, session.id, session.providerHomeId || 'default', '', session)
+          }
+        }}
+        onUnreadBack={openTerminalFromSidebar}
         relatedSession={relatedSession}
         onRelatedSessionChange={setRelatedSession}
         onOpenSubagent={openSubagent}

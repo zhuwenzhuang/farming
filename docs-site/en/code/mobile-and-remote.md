@@ -10,6 +10,14 @@ Phones are useful for checking whether an Agent finished or needs input, reading
 
 Complex terminal shortcuts, broad file edits, and long debugging sessions are better on a larger screen.
 
+When other Agents have unread results, **Next unread** appears above the Composer.
+Tap it, or swipe left on ordinary Chat text to preview the next Agent and release
+after the switch prompt appears. Sliding back cancels. Navigation follows Project
+list order across projects and preserves drafts. The entry disappears when there
+are no unread Agents; new unread activity brings it back. A brief **Go back**
+action lets you undo a switch. Code blocks, tables, editors, and Terminals keep
+their own gestures; use the button from Terminal.
+
 ## Connect from another device
 
 1. Run `farming daemon` on the development machine.

@@ -277,6 +277,32 @@ An abrupt stop may lose unflushed attention changes, so recovery derives Unread
 from the last committed cursors. This does not weaken durable lifecycle intents,
 ordering, or structural flag updates.
 
+## Mobile unread navigation
+
+Compact Code exposes an auxiliary text action above Composer when another
+openable Agent or main-page Session is unread. It follows the unfiltered Project
+order after the current Agent, wrapping once; collapsed groups, search and pinning
+do not change that traversal. Backend unread projections own eligibility. An
+incomplete Agent inventory cannot enable the action. Zero eligible targets removes
+the action and its space rather than leaving a disabled control.
+
+In Chat, a left swipe previews the exact target captured at gesture start.
+Horizontal intent must dominate vertical movement; release beyond a bounded
+quarter-width threshold commits through the existing Agent open/Session resume
+path, which retains drafts and reading state and owns read acknowledgement.
+Preview never acknowledges a target. Returning below the threshold, cancellation,
+multiple touches, text selection, resize, a changed active surface or an ineligible
+target cancels without navigation. New arrivals cannot replace the captured target;
+commit revalidates its eligibility. Controls, code, tables, horizontal scrollers,
+screen edges, Terminal and editors retain their existing gestures.
+
+The button uses the same target and open operation. After opening, an eight-second
+Go back action can return to the previous existing Agent without restoring unread
+state. Opening failures and uncertain resume outcomes use the existing bounded
+opening/error/reconciliation flow, with no automatic replay. Verify cancellation,
+concurrent unread changes, draft retention and empty-state removal in Light, Dark
+and Paper, including a native browser touch stream.
+
 ## Browser message notifications
 
 Code's browser tab projects the same unread inventory without notification

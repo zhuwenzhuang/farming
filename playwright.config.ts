@@ -105,7 +105,7 @@ export default defineConfig({
     },
     {
       name: 'iphone-webkit',
-      testMatch: /(file-touch-selection|iphone-mobile-layout|mobile-composer|composer-formatting|global-file-search|sidebar-surface-appearance|sidebar-spacing|ui-design-protocol|file-tree-scroll|file-header-context|file-editor-reveal|markdown-math-layout|markdown-code-copy|rich-content-viewer|review-responsive|acp-peer-messages|acp-citations)\.spec\.ts/,
+      testMatch: /(file-touch-selection|iphone-mobile-layout|mobile-composer|mobile-unread-navigation|composer-formatting|global-file-search|sidebar-surface-appearance|sidebar-spacing|ui-design-protocol|file-tree-scroll|file-header-context|file-editor-reveal|markdown-math-layout|markdown-code-copy|rich-content-viewer|review-responsive|acp-peer-messages|acp-citations)\.spec\.ts/,
       use: {
         ...devices['iPhone 14 Pro'],
         browserName: 'webkit',

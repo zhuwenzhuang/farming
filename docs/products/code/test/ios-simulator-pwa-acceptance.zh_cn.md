@@ -64,8 +64,14 @@ host/runner app。
 
 compact 布局只有一个 viewport owner：普通浏览器标签页和已安装的 standalone app
 都严格使用 visual viewport，包括键盘打开后低于 240 点的剩余高度。standalone
-模式直接依赖该 viewport 已排除的系统区域，不再创建第二套根视口坐标系，也不重复
-扣减 safe area。
+模式使用 `default` 状态栏：`black-translucent` 可能在原生绘制视口之外留下一个
+状态栏高度的空白带（[WebKit 问题](https://bugs.webkit.org/show_bug.cgi?id=236445#c9)）。
+不要通过把根节点扩展到物理屏幕高度来补偿。静止时只预留一次底部 safe area，
+键盘打开时使用 compact 键盘间距。原生验收要求静止 Composer 下方最多 40 点，
+不再使用会放过该缺陷的 64 点上限。验收还覆盖真实键盘收起、横竖屏恢复和草稿保留。
+
+`FARMING_IOS_PWA_APPEARANCE` 可选 `light`（默认）、`dark` 或 `paper`；可见布局
+变更必须分别运行三种外观。
 
 ## 产物和失败分类
 
@@ -85,6 +91,6 @@ compact 布局只有一个 viewport owner：普通浏览器标签页和已安装
 ## 已知限制
 
 - 当前 checked-in selector 覆盖英文 iOS 18 Safari 和 Farming 文案。
-- 这是竖屏 iPhone Simulator gate；真机签名和 iPad 行为不在范围内。
+- 这是覆盖横竖屏的 iPhone Simulator gate；真机签名和 iPad 行为不在范围内。
 - 全新 Simulator 可能需要先人工关闭一次 Apple 的 Safari 首次启动页面，
   之后才能无人值守重复运行。

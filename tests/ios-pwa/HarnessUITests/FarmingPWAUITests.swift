@@ -72,9 +72,37 @@ final class FarmingPWAUITests: XCTestCase {
         )
         XCTAssertLessThanOrEqual(
             bottomGap,
-            64,
+            40,
             "Standalone Composer leaves an abnormal \(format(bottomGap))pt blank region below it; screen=\(screen), footer=\(footerFrame)"
         )
+
+        // Exercise the native keyboard, then verify that its old viewport does
+        // not leave a second blank strip after dismissal or rotation.
+        let input = app.textViews.firstMatch
+        input.tap()
+        input.typeText("viewport recovery draft")
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
+        app.staticTexts["No conversation yet."].firstMatch.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 10))
+        for (name, orientation) in [
+            ("keyboard-closed", UIDeviceOrientation.portrait),
+            ("landscape", UIDeviceOrientation.landscapeLeft),
+            ("portrait-restored", UIDeviceOrientation.portrait),
+        ] {
+            XCUIDevice.shared.orientation = orientation
+            let settled = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                let gap = app.windows.firstMatch.frame.maxY - footer.frame.maxY
+                return gap >= 0 && gap <= 40 && send.isHittable
+            }, object: nil)
+            XCTAssertEqual(XCTWaiter.wait(for: [settled], timeout: 10), .completed)
+            XCTAssertEqual(input.value as? String, "viewport recovery draft")
+            attachScreenshot(named: "01-standalone-\(name)")
+            printEvidence(name, ["screen": app.windows.firstMatch.frame, "footer": footer.frame,
+                "bottomGap": app.windows.firstMatch.frame.maxY - footer.frame.maxY])
+        }
+        input.tap()
+        input.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: "viewport recovery draft".count))
+        app.staticTexts["No conversation yet."].firstMatch.tap()
     }
 
     func test02NewAgentDialogRespectsSafeViewport() throws {
