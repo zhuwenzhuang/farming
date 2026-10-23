@@ -50,9 +50,10 @@ async function run() {
     farmingCandidates: getFarmingOwnedExecutableCandidates('codex', {}),
   });
   assert(path.isAbsolute(persistedCodexExecutable), 'Codex recovery fixture requires a Farming-owned executable');
+  const claudeSessionId = '11111111-2222-4333-8444-555555555555';
   const runtime = new AcpRuntime({
     ...TEST_PROCESS_IDENTITY,
-    resolveLaunch: () => ({ command: process.execPath, args: ['--import', require.resolve('tsx'), fixture], version: 'test' }),
+    resolveLaunch: () => ({ command: process.execPath, args: ['--import', require.resolve('tsx'), fixture, '--test-session-id', claudeSessionId], version: 'test' }),
   });
   const manager = new AgentManager(config(), {
     acpRuntime: runtime,
@@ -86,7 +87,7 @@ async function run() {
     const live = manager.agents.get(agentId);
     assert.strictEqual(live.runtimeBinding.kind, 'acp');
     assert.strictEqual(live.engineStarted, false);
-    assert.strictEqual(live.providerSessionId, 'acp-new-session');
+    assert.strictEqual(live.providerSessionId, claudeSessionId);
     assert.strictEqual(live.providerSessionSource, 'acp-new');
     assert.strictEqual(live.providerSessionMaterialized, false);
     let genericUpdateCount = 0;
@@ -225,7 +226,7 @@ async function run() {
     });
     manager.providerSessionService.findAgentSession = async (provider, sessionId) => {
       assert.strictEqual(provider, 'claude');
-      assert.strictEqual(sessionId, 'acp-new-session');
+      assert.strictEqual(sessionId, claudeSessionId);
       return { title: 'Review phase-aware Mermaid rendering' };
     };
     manager.once('provider-session-updated', resolveProviderTitle);
@@ -291,12 +292,12 @@ async function run() {
     assert.strictEqual(imagePrompt.content[0].text, 'phase-aware mermaid image');
     assert.strictEqual(imagePrompt.content[1].type, 'image');
     const listed = await manager.listAcpSessions(agentId);
-    assert(listed.sessions.some(item => item.sessionId === 'acp-new-session'));
+    assert(listed.sessions.some(item => item.sessionId === claudeSessionId));
     const rawTranscript = await manager.getAcpTranscript(agentId);
     assert.strictEqual('turns' in rawTranscript, false, 'ACP Turn/Item projection belongs to the frontend');
     assert.strictEqual(rawTranscript.version, 1);
     assert.strictEqual(rawTranscript.agentId, agentId);
-    assert.strictEqual(rawTranscript.sessionId, 'acp-new-session');
+    assert.strictEqual(rawTranscript.sessionId, claudeSessionId);
     assert.strictEqual(rawTranscript.runtimeEpoch, binding.capabilityRuntimeEpoch);
     assert.strictEqual(rawTranscript.replace, true);
     assert.strictEqual(rawTranscript.fromRevision, null);
@@ -349,7 +350,7 @@ async function run() {
     runtime.unregisterAgent(agentId);
     manager.agents.delete(agentId);
     const resumedAgentId = await new Promise(resolve => {
-      manager.startAgent('claude --resume acp-new-session', process.cwd(), (id, error) => {
+      manager.startAgent(`claude --resume ${claudeSessionId}`, process.cwd(), (id, error) => {
         assert.ifError(error);
         resolve(id);
       }, {
@@ -526,7 +527,7 @@ async function run() {
     );
 
     const resumedAgentId = await new Promise(resolve => {
-      claudeProfileManager.startAgent('claude --resume existing-session', process.cwd(), (id, error) => {
+      claudeProfileManager.startAgent('claude --resume 22222222-3333-4444-8555-666666666666', process.cwd(), (id, error) => {
         assert.ifError(error);
         resolve(id);
       }, { agentRuntimeMode: 'chat', wantsMain: false, providerHomeId: 'work' });
@@ -1334,7 +1335,7 @@ async function run() {
     };
     try {
       const faultedRegistrationAgentId = await registrationManager.startAgent(
-        'claude --resume registration-observer-failure-session',
+        'claude --resume 33333333-4444-4555-8666-777777777777',
         process.cwd(),
         (agentId, error) => assert.ifError(error),
         {

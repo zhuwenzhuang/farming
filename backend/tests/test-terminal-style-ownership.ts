@@ -4,6 +4,8 @@ assertDomainStyleOwnership({
   domain: 'terminal',
   prefixes: ['code-terminal', 'terminal-session', 'terminal-context'],
   mainIntegrationSelectors: [
+    // Main composes the unread navigation and Terminal grid reservation.
+    'body.code-mode.code-compact-layout .code-main:has(> .code-mobile-unread-nav) > .code-terminal-grid',
     '.code-main.resource-agent-side-open > .code-terminal-grid',
     '.code-main.related-session-open > .code-terminal-grid',
     '.code-main.related-session-child-active > .code-terminal-grid',

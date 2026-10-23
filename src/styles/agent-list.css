@@ -930,3 +930,12 @@ body.code-mode.code-compact-layout .code-agent-row.related-child {
 @media (max-width: 767px), (max-width: 980px) and (pointer: coarse) {
   body.code-mode.code-compact-layout .code-agent-row-question { min-height: 32px; }
 }
+
+@media (max-width: 767px), (max-width: 980px) and (pointer: coarse) {
+  .code-terminal-grid[data-unread-swipe] > .code-agent-work-pane.active {
+    transform: translateX(var(--unread-swipe-offset, 0px));
+    z-index: 2;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+}

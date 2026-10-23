@@ -88,9 +88,10 @@ function codexVisualizationDirectory(codexHome: string, threadId: string) {
   );
 }
 
-const initialSessionId = process.env.FARMING_E2E_FAKE_EXECUTABLES === '1'
+const sessionIdArgument = process.argv.indexOf('--test-session-id');
+const initialSessionId = (sessionIdArgument >= 0 ? process.argv[sessionIdArgument + 1] : '') || (process.env.FARMING_E2E_FAKE_EXECUTABLES === '1'
   ? deterministicE2eSessionId(process.env.FARMING_AGENT_ID)
-  : 'acp-new-session';
+  : 'acp-new-session');
 let sessionId = initialSessionId;
 interface SessionConfigState {
   refreshedModelId: string;

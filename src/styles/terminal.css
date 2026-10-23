@@ -695,3 +695,7 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
 .code-terminal-toolbar button:hover {
   color: var(--code-text);
 }
+
+@media (max-width: 767px), (max-width: 980px) and (pointer: coarse) {
+  .code-terminal-grid:has(> .code-mobile-unread-preview) { position: relative; }
+}

@@ -116,15 +116,6 @@ body.code-mode::after {
 
   .code-mobile-unread-back { margin-right: auto; }
 
-  .code-terminal-grid:has(> .code-mobile-unread-preview) { position: relative; }
-
-  .code-terminal-grid[data-unread-swipe] > .code-agent-work-pane.active {
-    transform: translateX(var(--unread-swipe-offset, 0px));
-    z-index: 2;
-    user-select: none;
-    -webkit-user-select: none;
-  }
-
   .code-mobile-unread-preview {
     position: absolute;
     right: 0;
