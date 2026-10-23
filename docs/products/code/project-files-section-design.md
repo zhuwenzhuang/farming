@@ -122,23 +122,31 @@ stays explicit. Syntax diagnostics remain local; saved-file semantic analysis an
 navigation belong to the [Language Server](language-server.md). Dirty drafts do
 not present older disk-version semantic results as current.
 
-Chat Markdown file references, including `file:///` URLs with `#L23` or
-`#L23-L30` anchors, are candidates until the backend verifies an exact readable
-file within the same access boundary used for opening. Pending, missing,
-unauthorized and failed checks keep the authored text without link decoration
-or a click action. Verification never delays text rendering or Agent output.
-Successful references open through Farming's file viewer at the first cited
-line, with access checked again on open; they never request browser-local files.
+Chat file references describe navigation targets, not current filesystem health.
+Explicit Markdown file links (including `file:///` with `#L23` or `#L23-L30`)
+and structured file references retain their link presentation once their target
+is parsed. Opening uses Farming's authorized file viewer at the first cited line;
+it never requests browser-local files. Missing or inaccessible targets produce
+visible failure without repository search or substitution of a same-named file.
 External URLs retain normal safe Markdown handling.
 
-The mounted active transcript owns asynchronous verification: deduplicate by
-root and path, not citation line; batch bounded metadata/access checks over the
-Workspace background lane without reading content or scanning the repository.
-Positive and negative results expire, and active references are rechecked.
-Inactive/unmounted transcripts release checks; replacement owners reject late
-results. Acceptance includes delayed responses during rendering, missing files,
-permission failures, external-file share restrictions, cancellation, expiry,
-and multiple citations of the same file in all appearances.
+Inferred inline-code paths remain authored code until a bounded backend check
+confirms the exact file is readable. The transcript owner deduplicates by root
+and path, batches checks on the Workspace background lane, and retains bounded
+confirmation evidence for its lifetime, including while inactive. Confirmation
+only establishes a reference; it does not grant access or cache file contents.
+There is no periodic refresh or demotion of confirmed references. Initial missing,
+unauthorized, failed or incomplete checks leave the candidate unconfirmed; failure
+is not evidence of absence. Re-entering the view may retry unconfirmed candidates.
+Verification never delays text rendering or Agent output and never scans the repo.
+
+Candidate transitions are queued → checking → confirmed or unconfirmed. Each
+check has a timeout; cancellation releases work when the view becomes inactive.
+A new Agent/workspace owner clears the cache and rejects late results. Opening
+retains the backend access boundary regardless of reference state. Acceptance
+covers slow/failed checks, no periodic flicker, returning to a confirmed reference,
+missing files, permission failures, external-file share restrictions, cancellation,
+owner replacement, and repeated citations in every appearance.
 
 Spreadsheet previews are read-only, versioned workbook snapshots. Loading/refresh
 owns cancellable fetch and Worker parse with bounded bytes, ZIP expansion and cells.

@@ -4063,6 +4063,10 @@ export function CodeWorkspace({
       await openResolvedFile(resolvedFilePath, resolvedTarget)
     } catch {
       if (!intentLease.isCurrent()) return
+      if (resolvedTarget?.suppressSearchOnMiss) {
+        setCopyNotice({ id: Date.now(), kind: 'error', message: copy.searchFileOpenFailed(resolvedFilePath) })
+        return
+      }
       try {
         await fetchWorkspaceTree(filesId, resolvedFilePath)
         if (!intentLease.isCurrent()) return
@@ -4106,7 +4110,7 @@ export function CodeWorkspace({
         }
       }
     }
-  }, [focusWorkspaceFilesSearch, openProjectFile, resolveAbsoluteWorkspaceFileTarget, resolveWorkspaceFile, resolveWorkspaceFileIdentity, revealWorkspaceFileInExplorer, selectOpenWorkspaceFile])
+  }, [copy, setCopyNotice, focusWorkspaceFilesSearch, openProjectFile, resolveAbsoluteWorkspaceFileTarget, resolveWorkspaceFile, resolveWorkspaceFileIdentity, revealWorkspaceFileInExplorer, selectOpenWorkspaceFile])
 
   const openGlobalSearchFile = useCallback(async (match: GlobalWorkspaceFileSearchMatch) => {
     if (globalFileOpenMatchRef.current?.key === match.key) return

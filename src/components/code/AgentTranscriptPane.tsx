@@ -25,6 +25,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type Dispatch,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
@@ -208,6 +209,7 @@ interface AgentTranscriptProcessPresentation {
 
 interface TranscriptFileOpenContextValue {
   fileLinkAccess?: FileLinkAccess
+  active?: boolean
   workspaceRootId?: string
   agentId?: string
   workspaceRoot?: string
@@ -217,22 +219,23 @@ interface TranscriptFileOpenContextValue {
 const TranscriptFileOpenContext = createContext<TranscriptFileOpenContextValue>({})
 const TranscriptFileLinkLabelContext = createContext(false)
 
-function VerifiedTranscriptFileLink({ filePath, target, children, fallback }: {
+function TranscriptFileLink({ filePath, target, children, fallback, inferred = false }: {
   filePath: string
   target?: WorkspaceFileOpenTarget
   children: ReactNode
   fallback: ReactNode
+  inferred?: boolean
 }) {
-  const { fileLinkAccess, workspaceRootId, onOpenFile } = useContext(TranscriptFileOpenContext)
+  const { fileLinkAccess, active, workspaceRootId, onOpenFile } = useContext(TranscriptFileOpenContext)
   const insideLinkLabel = useContext(TranscriptFileLinkLabelContext)
   const rootId = target?.globalRoot ? GLOBAL_WORKSPACE_FILES_AGENT_ID : workspaceRootId
-  const key = JSON.stringify([rootId, filePath])
-  const [result, setResult] = useState<{ key: string; accessible: boolean; owner?: FileLinkAccess }>({ key: '', accessible: false })
-  useEffect(() => {
-    if (insideLinkLabel || !fileLinkAccess || !rootId || !onOpenFile) return
-    return fileLinkAccess.subscribe(rootId, filePath, accessible => setResult({ key, accessible, owner: fileLinkAccess }))
-  }, [fileLinkAccess, rootId, filePath, key, onOpenFile, insideLinkLabel])
-  if (insideLinkLabel || !fileLinkAccess || result.owner !== fileLinkAccess || result.key !== key || !result.accessible || !onOpenFile) {
+  const subscribe = useCallback((listener: () => void) => {
+    if (!inferred || !active || insideLinkLabel || !fileLinkAccess || !rootId || !onOpenFile) return () => {}
+    return fileLinkAccess.subscribe(rootId, filePath, listener)
+  }, [inferred, active, insideLinkLabel, fileLinkAccess, rootId, filePath, onOpenFile])
+  const getSnapshot = useCallback(() => Boolean(rootId && fileLinkAccess?.isConfirmed(rootId, filePath)), [fileLinkAccess, rootId, filePath])
+  const confirmed = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
+  if (insideLinkLabel || !rootId || !onOpenFile || (inferred && !confirmed)) {
     return <TranscriptFileLinkLabelContext.Provider value>{fallback}</TranscriptFileLinkLabelContext.Provider>
   }
   return <a className="code-agent-transcript-markdown-file-link" href="#"
@@ -470,7 +473,7 @@ function useCompactTranscriptMarkdownComponents(copy: CodeCopy): Components {
     },
     a: ({ href, children, onClick, ...props }) => {
       const target = href ? transcriptFileTargetFromHref(href, workspaceRoot) : null
-      if (target) return <VerifiedTranscriptFileLink {...target} fallback={children}>{children}</VerifiedTranscriptFileLink>
+      if (target) return <TranscriptFileLink {...target} fallback={children}>{children}</TranscriptFileLink>
       if (!href) return <>{children}</>
       return <a {...props} href={href} target="_blank" rel="noreferrer" onClick={onClick}>{children}</a>
     },
@@ -2865,9 +2868,9 @@ function AgentTranscriptTurnView({
         const label = markdownTextContent(children).trim() || fileReferenceDisplayText(target.filePath)
         return <AgentTranscriptMarkdownImage url={imageUrl} label={label} />
       }
-      if (target) return <VerifiedTranscriptFileLink {...target} fallback={children}>
+      if (target) return <TranscriptFileLink {...target} fallback={children}>
         <TranscriptFileLinkLabel filePath={target.filePath} lineNumber={target.target?.lineNumber}>{children}</TranscriptFileLinkLabel>
-      </VerifiedTranscriptFileLink>
+      </TranscriptFileLink>
       if (!href) return <>{children}</>
       return (
         <a
@@ -2904,11 +2907,11 @@ function AgentTranscriptTurnView({
         return <code className={className} {...props}>{children}</code>
       }
       return (
-        <VerifiedTranscriptFileLink {...target} fallback={<code className={className} {...props}>{children}</code>}>
+        <TranscriptFileLink {...target} inferred fallback={<code className={className} {...props}>{children}</code>}>
           <TranscriptFileLinkLabel filePath={target.filePath} lineNumber={target.target?.lineNumber}>
             {children}
           </TranscriptFileLinkLabel>
-        </VerifiedTranscriptFileLink>
+        </TranscriptFileLink>
       )
     },
     pre: ({ children, ...props }) => {
@@ -4466,7 +4469,8 @@ export function AgentTranscriptPane({
   }, [workspaceRootId, agentId])
   useEffect(() => () => fileLinkAccess.clear(), [fileLinkAccess])
   const transcriptFileOpenContext = useMemo(() => ({
-    fileLinkAccess: active ? fileLinkAccess : undefined,
+    fileLinkAccess,
+    active,
     workspaceRootId: workspaceRootId || agentId,
     agentId,
     workspaceRoot,

@@ -3,12 +3,14 @@ import path from 'node:path'
 import { expect, openFarming, test } from './fixtures'
 
 for (const appearance of ['light', 'dark', 'paper'] as const) {
-  test(`preserves C++ extension shorthand alongside working file links in ${appearance}`, async ({ page, workspaceRoot }, testInfo) => {
+  test(`keeps explicit and inferred file references stable in ${appearance}`, async ({ page, workspaceRoot }, testInfo) => {
+    await page.clock.install()
     await page.setViewportSize({ width: 1280, height: 900 })
     const settings = await page.request.post('/farming/api/settings', { data: { appearance } })
     expect(settings.ok()).toBeTruthy()
     const workspace = path.join(workspaceRoot, 'file-link-reader')
     fs.mkdirSync(path.join(workspace, 'src'), { recursive: true })
+    fs.writeFileSync(path.join(workspace, 'missing.cpp'), '// A same-named file must never substitute for src/missing.cpp\n')
     fs.writeFileSync(path.join(workspace, 'src', 'store.cpp'), '// Store implementation\nint value = 1;\n')
     const created = await page.request.post('/farming/api/control/agents', {
       data: { command: 'codex', workspace, agentRuntimeMode: 'chat' },
@@ -47,6 +49,7 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
       },
     }))
     const batches: string[][] = []
+    const searches: string[] = []
     const held: Array<() => void> = []
     let holdChecks = true
     await page.routeWebSocket(/\/farming\/ws(?:\?|$)/, socket => {
@@ -57,6 +60,7 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
           batches.push(payload.request.paths || [])
           if (holdChecks) { held.push(() => server.send(message)); return }
         }
+        if (payload.type === 'workspace-request' && payload.request?.operation === 'search') searches.push(String(message))
         server.send(message)
       })
     })
@@ -64,16 +68,19 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
     await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
     const answer = page.locator('.code-agent-transcript-answer')
     await expect(answer).toContainText('These file pairs still need their extension points.')
-    await expect(answer.getByRole('link', { name: 'store.cpp:2', exact: true })).toHaveCount(0)
+    await expect(answer.getByRole('link', { name: 'store.cpp:2', exact: true })).toHaveCount(2)
     await expect.poll(() => batches.length).toBeGreaterThan(0)
     expect(batches.flat().filter(path => path === 'src/store.cpp')).toHaveLength(1)
+    expect(batches.flat()).not.toContain('src/missing.cpp')
+    expect(batches.flat()).not.toContain('src/also-missing.cpp')
+    await expect(answer.getByRole('link', { name: 'missing.cpp:5', exact: true })).toBeVisible()
     holdChecks = false
     held.splice(0).forEach(send => send())
     await expect(answer.locator('table code')).toHaveText([...shorthands, 'src/Store.java'])
     await expect(answer.getByRole('link', { name: '.cpp', exact: true })).toHaveCount(0)
     await expect(answer.getByRole('link', { name: 'Store.java', exact: true })).toHaveCount(0)
-    await expect(answer).toContainText('Missing reference')
-    await expect(answer.getByRole('link', { name: 'Missing reference', exact: true })).toHaveCount(0)
+    await expect(answer.getByRole('link', { name: 'missing.cpp:5', exact: true })).toBeVisible()
+    await expect(answer.getByRole('link', { name: 'also-missing.cpp', exact: true })).toHaveCount(1)
     await expect(answer.getByRole('link', { name: 'store.cpp', exact: true })).toHaveCount(2)
     await expect(answer.getByRole('link', { name: 'store.cpp:2', exact: true })).toHaveCount(3)
     const sourceLink = answer.getByRole('link', { name: 'store.cpp:2', exact: true }).first()
@@ -88,6 +95,24 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
     }
     await expect(answer.getByRole('link', { name: 'External source', exact: true })).toHaveAttribute('href', 'https://example.com/store.cpp#L2')
     await expect(answer.getByRole('link', { name: 'Unsafe', exact: true })).toHaveCount(0)
+    // Observe the actual nodes: a final screenshot alone would miss a brief demotion.
+    const linksBefore = await answer.getByRole('link').all()
+    const linkHandles = await Promise.all(linksBefore.map(link => link.elementHandle()))
+    const requestsBefore = batches.length
+    await sourceLink.focus()
+    await page.clock.runFor(10_500)
+    expect(batches.length).toBe(requestsBefore)
+    await expect(sourceLink).toBeFocused()
+    for (const handle of linkHandles) {
+      expect(await handle?.evaluate(node => node.isConnected)).toBe(true)
+      await handle?.dispose()
+    }
+    const searchesBefore = searches.length
+    await answer.getByRole('link', { name: 'missing.cpp:5', exact: true }).click()
+    await expect(page.locator('.code-copy-toast.error')).toContainText('src/missing.cpp')
+    expect(searches.length).toBe(searchesBefore)
+    await expect(page.getByTestId('code-file-editor')).toHaveCount(0)
+    await expect(answer.getByRole('link', { name: 'missing.cpp:5', exact: true })).toBeVisible()
     await page.evaluate(() => document.fonts.ready)
     await answer.screenshot({ path: testInfo.outputPath(`file-links-${appearance}.png`), animations: 'disabled' })
     await sourceLink.click()
