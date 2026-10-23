@@ -76,6 +76,17 @@ async function testRecovery() {
     assert.equal(origin?.status, 'ready');
     assert.ok(origin?.afterEntryId);
     const binding = first.requireBinding('child');
+    let admitted = false;
+    await assert.rejects(
+      first.runWithForkReservation('child', { expectedRevision: -1 }, () => { admitted = true; }),
+      { code: 'ACP_FORK_NOT_STARTED' },
+    );
+    assert.equal(admitted, false, 'a stale revision must reject before any child effect');
+    await assert.rejects(
+      first.runWithForkReservation('child', {}, () => { throw new Error('uncertain provider outcome'); }),
+      error => error instanceof Error && !('code' in error),
+      'exceptions after admission must not carry proof that Fork never started',
+    );
     const handoffContext = { version: 1, sourceSessionKey: encodeProviderSessionKey('codex', 'original', 'default') };
     binding.sessionState.entries[0]._meta = { farmingHandoff: handoffContext };
     binding.sessionState.touchEntry(binding.sessionState.entries[0]);

@@ -2979,7 +2979,19 @@ class AgentManager extends EventEmitter {
     let changed = false;
     for (const record of Array.isArray(records) ? records : []) {
       const operation = activeLifecycleOperation(record);
-      if (operation?.type !== 'fork' || operation.state === 'blocked') continue;
+      if (operation?.type !== 'fork') continue;
+      // Older images classified this pre-effect revision rejection as unknown.
+      // Migrate only that exact diagnostic with no evidence of a child effect;
+      // a generic interrupted/blocked Fork must still be reconciled, never replayed.
+      const rejectedBeforeFork = operation.state === 'blocked'
+        && operation.error === 'ACP conversation changed before it could be forked. Try again from the latest answer.'
+        && !operation.result
+        && !operation.request?.forkWorktreeIdentity
+        && !records.some(child => (
+          child.parentAgentId === record.runtimeAgentId
+          && `fork-request:${child.forkRequestId}` === operation.requestKey
+        ));
+      if (operation.state === 'blocked' && !rejectedBeforeFork) continue;
       const agentId = String(record.runtimeAgentId || '').trim();
       if (!agentId) {
         // Without an exact runtime Agent identity there is no staged record to
@@ -3001,9 +3013,10 @@ class AgentManager extends EventEmitter {
         this.lifecycleJournalService.transition(
           staged,
           operation.id,
-          'blocked',
-          `Fork operation ${operation.id} was interrupted by a restart before its outcome was recorded; `
-          + 'retry the same Fork request to reconcile it, or archive or delete this Agent',
+          rejectedBeforeFork ? 'failed' : 'blocked',
+          rejectedBeforeFork ? operation.error
+            : `Fork operation ${operation.id} was interrupted by a restart before its outcome was recorded; `
+              + 'retry the same Fork request to reconcile it, or archive or delete this Agent',
         );
         changed = true;
       } catch (caughtError: unknown) {
@@ -10351,7 +10364,10 @@ class AgentManager extends EventEmitter {
       forkedSessionId = String(forked?.sessionId || '').trim();
     } catch (caughtError: unknown) {
       const error = caughtError as ErrorRecord;
-      return { error: error.message || 'Failed to fork ACP conversation', uncertain: true };
+      return {
+        error: error.message || 'Failed to fork ACP conversation',
+        uncertain: error.code !== 'ACP_FORK_NOT_STARTED',
+      };
     }
     if (!isSafeProviderSessionId(forkedSessionId) || forkedSessionId === sourceSessionId) {
       return { error: 'ACP Conversation Fork did not return a distinct resumable session', uncertain: true };
@@ -10543,7 +10559,10 @@ class AgentManager extends EventEmitter {
       );
     } catch (caughtError: unknown) {
       const error = caughtError as ErrorRecord;
-      return { error: error.message || 'Failed to fork ACP conversation', uncertain: true };
+      return {
+        error: error.message || 'Failed to fork ACP conversation',
+        uncertain: error.code !== 'ACP_FORK_NOT_STARTED',
+      };
     }
     if (
       result?.error

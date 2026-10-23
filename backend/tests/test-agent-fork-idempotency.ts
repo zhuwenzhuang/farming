@@ -486,6 +486,54 @@ async function run() {
     assert.strictEqual(latestLifecycleOperation(checkpointSource).state, 'failed');
     assert.strictEqual(fs.existsSync(checkpointIdentity.workspace), false);
 
+    const originalSessionOptions = manager.acpRuntime.getSessionRequestOptions;
+    const originalFork = manager.acpRuntime.forkSession;
+    const originalReservation = manager.acpRuntime.runWithForkReservation;
+    try {
+      for (const provider of ['codex', 'claude']) {
+        const acpSource = registerSource(`agent-rejected-fork-${provider}`);
+        Object.assign(acpSource, {
+          command: provider,
+          forkCommand: provider,
+          providerSessionProvider: provider,
+          providerSessionId: '11111111-2222-4333-8444-555555555555',
+          providerSessionTemporary: false,
+          runtimeBinding: { kind: 'acp', state: 'idle', supportsFork: true, sessionRevision: 1 },
+        });
+        let attempts = 0;
+        let rejectionCode = 'ACP_FORK_NOT_STARTED';
+        const rejectFork = async () => {
+          attempts += 1;
+          throw Object.assign(new Error('fork rejected'), { code: rejectionCode });
+        };
+        manager.acpRuntime.getSessionRequestOptions = () => ({ additionalDirectories: [], mcpServers: [] });
+        manager.acpRuntime.forkSession = rejectFork;
+        manager.acpRuntime.runWithForkReservation = rejectFork;
+        const options = { requestId: `rejected-${provider}`, expectedRevision: 1, targetRuntime: 'chat' };
+        const rejected = await manager.forkAgent(acpSource.id, 'same-worktree', options);
+        assert.match(rejected.error, /fork rejected/);
+        assert.strictEqual(rejected.uncertain, false);
+        assert.strictEqual(latestLifecycleOperation(acpSource).state, 'failed');
+        assert.ok(latestLifecycleOperation(acpSource).finishedAt);
+        await manager.forkAgent(acpSource.id, 'same-worktree', options);
+        assert.strictEqual(attempts, 1, 'a rejected request replays its saved failure');
+        const update = manager.lifecycleJournalService.begin(acpSource, 'update', 'rename');
+        assert.strictEqual(update.error, undefined, 'rejected Fork must release source lifecycle admission');
+        manager.lifecycleJournalService.complete(acpSource, update.operation.id, {});
+        rejectionCode = 'ACP_RUNTIME_HOST_REQUEST_TIMEOUT';
+        const uncertain = await manager.forkAgent(acpSource.id, 'same-worktree', {
+          ...options, requestId: `uncertain-${provider}`,
+        });
+        assert.strictEqual(uncertain.uncertain, true);
+        assert.strictEqual(latestLifecycleOperation(acpSource).state, 'blocked');
+        manager.agents.delete(acpSource.id);
+      }
+    } finally {
+      manager.acpRuntime.getSessionRequestOptions = originalSessionOptions;
+      manager.acpRuntime.forkSession = originalFork;
+      manager.acpRuntime.runWithForkReservation = originalReservation;
+    }
+
     console.log('test-agent-fork-idempotency passed');
   } finally {
     await manager.dispose();

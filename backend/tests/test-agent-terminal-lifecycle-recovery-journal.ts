@@ -527,9 +527,51 @@ async function runHiddenForkPersistFailure() {
 
 async function main() {
   await run();
+  await runLegacyRejectedForkRecovery();
   await runMissingCreatePersistFailure();
   await runHiddenForkRecovery();
   await runHiddenForkPersistFailure();
+}
+
+async function runLegacyRejectedForkRecovery() {
+  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-legacy-rejected-fork-'));
+  const store = new FarmingSessionStore(configDir);
+  store.init();
+  const diagnostic = 'ACP conversation changed before it could be forked. Try again from the latest answer.';
+  const fixtures = ['rejected', 'unknown', 'checkpoint', 'child'].map((kind, index) => {
+    const agent = forkPendingFixture(`legacy-${kind}`, configDir, store, kind, `session-${index}`);
+    const operation = latestLifecycleOperation(agent);
+    transitionLifecycleOperation(agent, operation.id, 'blocked', kind === 'unknown' ? 'transport lost' : diagnostic);
+    if (kind === 'checkpoint') {
+      agent.lifecycleJournal!.entries[0].request.forkWorktreeIdentity = { sourceWorkspace: configDir, workspace: '/retained' };
+    }
+    store.ensureRecordForAgent(agent, {});
+    return agent;
+  });
+  store.ensureRecordForAgent({
+    id: 'retained-child', command: 'bash', cwd: configDir, status: 'stopped',
+    parentAgentId: 'legacy-child', forkRequestId: 'child',
+  }, { archived: true, visibleOnMainPage: false });
+  store.rememberAgent(fixtures[0]);
+  const manager = createTestAgentManager(AgentManager, configForStore(store, configDir), {});
+  await manager.engineBridge.dispose();
+  manager.engineBridge = engineBridgeForFixture(fixtures, new Set(fixtures.map(agent => agent.id)));
+  try {
+    await manager.recoverEngineSessions();
+    const settled = latestLifecycleOperation(store.readRecord(fixtures[0].persistentSessionId));
+    assert.strictEqual(settled.state, 'failed');
+    assert.strictEqual(settled.error, diagnostic);
+    assert.ok(settled.finishedAt);
+    for (const fixture of fixtures.slice(1)) assertHiddenForkRecord(store, fixture, 'blocked');
+    const recovered = manager.agents.get(fixtures[0].id);
+    assert.ok(recovered);
+    const admitted = manager.lifecycleJournalService.begin(recovered, 'update', 'rename-after-recovery');
+    assert.strictEqual(admitted.error, undefined, 'legacy rejection must no longer lock the source');
+    manager.lifecycleJournalService.complete(recovered, admitted.operation.id, {});
+  } finally {
+    await manager.dispose();
+    fs.rmSync(configDir, { recursive: true, force: true });
+  }
 }
 
 main().catch(error => {

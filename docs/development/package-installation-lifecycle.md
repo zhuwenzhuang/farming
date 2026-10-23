@@ -72,6 +72,13 @@ package image (or declaratively selected platform packages). Server startup
 checks artifact identity and executability and gives an actionable repair error
 when those checks fail; it never compensates by downloading or preparing them.
 
+Native PTY loading distinguishes a missing addon from an existing addon that
+cannot load. An existing artifact's loader failure (including libc or C++ ABI
+incompatibility) retains its path and original diagnostic; later missing search
+paths must not mask it. Legacy Linux global npm installations using a custom Node
+build still require compatible native libraries; the user-directory installer
+supplies the managed compatibility runtime instead of rebuilding installed addons.
+
 The npm image declares the exact Codex and Claude native carrier packages as
 platform-constrained optional dependencies, so npm selects the matching OS,
 architecture, and libc artifact without executing lifecycle code. The release

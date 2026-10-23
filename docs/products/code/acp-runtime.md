@@ -403,6 +403,13 @@ cannot block Server readiness or unrelated Terminal/Files functionality.
 Cold recovery materializes inventory first and prepares Sessions with bounded
 parallelism without changing membership order. Recovery itself is not Agent activity.
 
+Fork revision rejection before any child effect is a terminal failure, including
+across Host RPC; it releases the source lifecycle admission. Repeating that request
+returns its saved failure, while a fresh request can use the latest revision.
+Recovery settles the exact legacy revision-rejection record only when no result,
+worktree checkpoint or matching child exists. Interrupted or uncertain Forks retain
+their reconciliation requirement and are never automatically replayed.
+
 Controller callbacks settle only on their matching result, disconnect or deadline.
 Transport acceptance/backpressure is not callback completion. Controller changes
 invalidate prior callbacks and reservations; detached sockets and stale bindings

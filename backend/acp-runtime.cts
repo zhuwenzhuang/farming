@@ -4305,7 +4305,10 @@ class AcpRuntime extends EventEmitter {
         && Number.isFinite(options.expectedRevision)
         && Number(binding.sessionState?.revision || 0) !== Math.floor(options.expectedRevision)
       ) {
-        throw new Error('ACP conversation changed before it could be forked. Try again from the latest answer.');
+        throw Object.assign(
+          new Error('ACP conversation changed before it could be forked. Try again from the latest answer.'),
+          { code: 'ACP_FORK_NOT_STARTED' },
+        );
       }
       if (typeof operation !== 'function') throw new Error('ACP fork operation is required');
       return await operation(binding);

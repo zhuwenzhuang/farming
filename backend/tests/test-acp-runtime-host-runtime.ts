@@ -125,6 +125,9 @@ class FakeRuntime extends EventEmitter {
   }
 
   runWithForkReservation(agentId, _options, operation) {
+    if (_options.expectedRevision === -1) {
+      throw Object.assign(new Error('stale fork revision'), { code: 'ACP_FORK_NOT_STARTED' });
+    }
     return operation({
       agentId,
       provider: 'codex',
@@ -348,6 +351,13 @@ async function main() {
     );
     assert.strictEqual(forkResult.sessionId, 'session-1');
     assert.strictEqual(forkResult.checkpoint.sessionState.revision, 1);
+    await assert.rejects(
+      third.runWithForkReservation('agent-1', { expectedRevision: -1 }, () => {
+        assert.fail('rejected Host admission must not execute the Controller effect');
+      }),
+      { code: 'ACP_FORK_NOT_STARTED' },
+      'Host RPC must preserve pre-effect rejection proof',
+    );
 
     const previousHostEpoch = third.client.hostEpoch;
     await assert.rejects(

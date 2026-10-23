@@ -55,6 +55,11 @@ Release Pipeline，而不是用户的 npm Client，拥有 Runtime Prepare 与 Pl
 它必须随 Package Image 发布所需的预构建 Artifact（或由 Package Manager 声明式选择的平台包）。
 Server 启动检查 Artifact 身份与可执行性，失败时给出修复错误，绝不通过下载或准备来补偿。
 
+原生 PTY 加载区分扩展文件缺失与已有扩展无法加载。已有制品的加载失败（包括 libc 或 C++ ABI
+不兼容）必须保留路径和原始诊断，不能被后续搜索路径的文件缺失掩盖。旧 Linux 即使使用定制
+Node 进行 npm 全局安装，仍需兼容的原生库；用户目录安装器提供受管理的兼容运行时，
+不通过重编或替换已安装扩展来补偿。
+
 npm Image 将精确版本的 Codex 与 Claude Native Carrier 声明为受平台约束的 Optional Dependency，
 由 npm 在不执行生命周期代码的前提下按 OS、Architecture 与 libc 选择；Release Pipeline 则把经过
 审查的 agent-browser、ripgrep、node-pty 和旧 Linux 兼容库发布为六个 OS/CPU 平台包，并通过 npm Alias

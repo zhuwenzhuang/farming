@@ -62,6 +62,33 @@ function loadNativeModule(modulePath: string): unknown {
   return runtimeRequire(modulePath);
 }
 
+function loadNodePtyNativeModule(packageRoot: string, name: string): { dir: string; module: unknown } {
+  const libraryDir = path.join(packageRoot, 'lib');
+  const dirs = ['build/Release', 'build/Debug', `prebuilds/${process.platform}-${process.arch}`];
+  for (const dir of dirs) {
+    for (const relative of ['..', '.']) {
+      const nativeDir = path.resolve(libraryDir, relative, dir);
+      const nativePath = path.join(nativeDir, `${name}.node`);
+      if (!fs.existsSync(nativePath)) continue;
+      // An existing image artifact that cannot dlopen is a real load failure.
+      // Do not mask it with MODULE_NOT_FOUND from a later search candidate.
+      try {
+        return { dir: nativeDir, module: loadNativeModule(nativePath) };
+      } catch (cause) {
+        const detail = cause instanceof Error ? cause.message : String(cause);
+        throw new Error(`Failed to load node-pty native module ${nativePath}: ${detail}`, { cause });
+      }
+    }
+  }
+  throw new Error(`Missing node-pty native module ${name}.node in ${packageRoot}; checked: ${dirs.join(', ')}`);
+}
+
+function loadNodePtyPackage(packageRoot: string): typeof import('node-pty') {
+  const utils = loadNativeModule(path.join(packageRoot, 'lib/utils.js')) as NodePtyUtils;
+  utils.loadNativeModule = name => loadNodePtyNativeModule(packageRoot, name);
+  return loadNativeModule(packageRoot) as typeof import('node-pty');
+}
+
 function preparePackagedNodePtyRuntime(nativeName = 'pty'): string {
   if (!isPackagedRuntime()) return '';
   const packageRoot = nodePtyPackageRoot();
@@ -89,8 +116,9 @@ function loadNodePty(): typeof import('node-pty') {
     const applicationRoot = path.resolve(__dirname, '..');
     const runtimeRoot = npmRuntimePackageRoot(applicationRoot, `${process.platform}-${process.arch}`);
     if (runtimeRoot !== applicationRoot) {
-      return loadNativeModule(path.join(runtimeRoot, 'dist/runtime/node-pty')) as typeof import('node-pty');
+      return loadNodePtyPackage(path.join(runtimeRoot, 'dist/runtime/node-pty'));
     }
+    return loadNodePtyPackage(nodePtyPackageRoot());
   }
   if (isPackagedRuntime()) {
     const utils = require('node-pty/lib/utils') as NodePtyUtils;
@@ -115,6 +143,7 @@ export {
   copyIfExists,
   copyPackagedSpawnHelper,
   isPackagedRuntime,
+  loadNodePtyNativeModule,
   nodePty,
   preparePackagedNodePtyRuntime,
 };
