@@ -166,6 +166,16 @@ function run() {
   assert.strictEqual(providerArgsContinueSession('codex', ['--model', 'gpt-5.5']), false);
   assert.strictEqual(providerArgsContinueSession('claude', ['--resume=session-1']), true);
   assert.strictEqual(providerArgsContinueSession('claude', ['--continue']), true);
+  assert.strictEqual(providerArgsContinueSession('claude', ['-r']), true);
+  assert.strictEqual(providerArgsContinueSession('claude', ['--', '--resume']), false);
+  for (const args of [['--resume'], ['-r'], ['--resume', 'release-review'], ['-r', 'release review']]) {
+    assert.strictEqual(getProviderAdapter('claude').planSession(args, args), null,
+      'Claude picker/search resume must not inject a fresh session identity');
+  }
+  const claudeResumeId = '11111111-1111-4111-8111-111111111111';
+  assert.deepStrictEqual(getProviderAdapter('claude').planSession(['-r', claudeResumeId], ['-r', claudeResumeId]), {
+    id: claudeResumeId, temporary: false, source: 'resume',
+  });
   assert.strictEqual(providerArgsContinueSession('opencode', ['--continue']), false);
   assert.deepStrictEqual(
     providerSessionIdentityRollbackArgs('codex', 'codex-session-1'),

@@ -26,6 +26,12 @@ against the shared codec rather than trusting the copy.
 No other module may build or parse these strings by concatenating or splitting
 on `:`.
 
+Provider adapters distinguish an exact resume identity from a picker or search
+request. Claude's `--resume` / `-r` without a UUID keeps identity unresolved until
+the provider selects a Session; it must not receive a new `--session-id` merely
+because the resume argument is absent or is a title query. An explicit UUID
+resume binds that Session, while Fork retains its separate child identity.
+
 ## Project Paths
 
 The backend resolves existing Project paths through filesystem symlinks. Creation,

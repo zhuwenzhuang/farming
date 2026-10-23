@@ -21,6 +21,10 @@ Code 与 Farming CRT 都通过它解析身份，因此同一个三元组在任�
 
 其他模块不得通过拼接或按 `:` 切分来构造或解析这些字符串。
 
+Provider Adapter 必须区分精确恢复身份与选择器、搜索请求。Claude 的 `--resume` / `-r`
+未指定 UUID 时，在 Provider 选定 Session 前保持身份未确认；不能因为恢复参数缺失或是
+标题搜索词而注入新的 `--session-id`。显式 UUID 恢复绑定该 Session，Fork 仍使用独立子身份。
+
 ## 项目路径
 
 后端解析现有项目路径的软链接。创建、恢复、Farming 持久化记录、运行历史和

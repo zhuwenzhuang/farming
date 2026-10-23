@@ -316,6 +316,7 @@ const PI_SUBCOMMANDS = new Set([
   'install', 'remove', 'uninstall', 'update', 'list', 'config', 'auth',
 ]);
 const CODEX_SESSION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const CLAUDE_SESSION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PI_SESSION_ID_RE = /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/;
 const NO_CONVERSATION_FORK: ProviderConversationForkCapability = Object.freeze({
   supported: false,
@@ -453,7 +454,9 @@ function explicitSessionPlan(
   launchArgs: string[],
 ): ProviderSessionPlan | null {
   const explicitSessionId = argValue(rawArgs, ['--session-id']);
-  const resumeSessionId = argValue(rawArgs, ['--resume']);
+  const resumeOptions = provider === 'claude' ? ['--resume', '-r'] : ['--resume'];
+  const resumeValue = argValue(rawArgs, resumeOptions);
+  const resumeSessionId = provider === 'claude' && !CLAUDE_SESSION_ID_RE.test(resumeValue) ? '' : resumeValue;
   const isFork = hasArg(rawArgs, ['--fork-session']);
   const isContinue = hasArg(rawArgs, provider === 'claude' ? ['--continue', '-c'] : ['--continue']);
   if (explicitSessionId && isSafeProviderSessionId(explicitSessionId)) {
@@ -467,6 +470,9 @@ function explicitSessionPlan(
   if (resumeSessionId && isSafeProviderSessionId(resumeSessionId) && !isFork) {
     return { id: resumeSessionId, temporary: false, source: 'resume' };
   }
+  // Claude's optional resume value can open a picker or search by title. Its
+  // chosen identity is learned later; injecting --session-id rejects resume.
+  if (provider === 'claude' && hasArg(rawArgs, resumeOptions) && !isFork) return null;
   if (isContinue) return null;
   const id = createProviderSessionId();
   return {
@@ -750,13 +756,7 @@ const PROVIDER_ADAPTERS = Object.freeze<ProviderAdapter[]>([
     freshAcpSessionSources: ['claude-session-id'],
     commands: ['claude'],
     supportedRuntimes: ['terminal', 'acp'],
-    continuesSession: args => args.some(arg => (
-      arg === '--resume'
-      || arg.startsWith('--resume=')
-      || arg === '--continue'
-      || arg === '-c'
-      || arg === '--fork-session'
-    )),
+    continuesSession: args => hasArg(args, ['--resume', '-r', '--continue', '-c', '--fork-session']),
     planSession: (rawArgs, launchArgs) => explicitSessionPlan('claude', rawArgs, launchArgs),
     sessionPolicy: {
       launchProfilePermissionKey: 'permissionMode',
