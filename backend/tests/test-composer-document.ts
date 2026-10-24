@@ -71,3 +71,15 @@ let latest = { ...createDefaultAgentComposerState(), draft: 'Same words', draftD
 submitAcpDraft({ agent, composerKey: 'acp:test', draft: 'Same words', draftDocument: oldDocument, attachments: [], composerMode: 'default', turnActive: false, updateComposerState: (_, update) => { latest = update(latest) as typeof latest } })
 assert.deepEqual(latest.draftDocument, newerDocument, 'staging an earlier snapshot must preserve a newer format-only edit')
 assert.equal(latest.draft, 'Same words')
+
+const cryptoDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'crypto')
+try {
+  Object.defineProperty(globalThis, 'crypto', { configurable: true, value: {} })
+  state = { ...createDefaultAgentComposerState(), draft: composerDocumentText(document), draftDocument: document }
+  assert.ok(stage(), 'structured Chat must submit on non-secure HTTP origins without randomUUID')
+  assert.deepEqual(state.submissions![0]!.document, document)
+  assert.equal(state.draft, '')
+} finally {
+  if (cryptoDescriptor) Object.defineProperty(globalThis, 'crypto', cryptoDescriptor)
+  else Reflect.deleteProperty(globalThis, 'crypto')
+}

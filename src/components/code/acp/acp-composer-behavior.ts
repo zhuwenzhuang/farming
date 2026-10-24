@@ -82,7 +82,7 @@ export function submitAcpDraft({
     draftDocument ? draft : composerMessageForNativeAttachments(draft, attachments), contextReferences,
   ))
   const editableDocument = draftDocument && composerDocumentText(draftDocument) === draft ? draftDocument : undefined
-  const marker = '\u0000' + globalThis.crypto.randomUUID()
+  const marker = '\u0000' + (globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`)
   const envelope = formatComposerMessage(composerMode, composerMessageWithContext(marker, contextReferences))
   const offset = envelope.indexOf(marker)
   const document: ComposerDocument | undefined = editableDocument && offset >= 0 ? {

@@ -6,7 +6,9 @@ for (const appearance of ['light', 'dark', 'paper']) {
     await page.request.post('/farming/api/settings', { data: { appearance, language: 'en' } })
     const response = await page.request.post('/farming/api/control/agents', { data: { command: 'codex', workspace: workspaceRoot, agentRuntimeMode: 'chat' } })
     const { agentId } = await response.json() as { agentId: string }
+    await page.addInitScript(() => Reflect.deleteProperty(Crypto.prototype, 'randomUUID'))
     await openFarming(page)
+    expect(await page.evaluate(() => typeof crypto.randomUUID)).toBe('undefined')
     await page.locator(`[data-agent-id="${agentId}"][data-testid="code-agent-row"]`).click()
     const input = page.getByTestId('code-acp-composer-input')
     const source = '# deployment comment\n\techo "<tag> & ```"\n\n# hold for steer without user echo\n'
