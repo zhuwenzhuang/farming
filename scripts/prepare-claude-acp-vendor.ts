@@ -7,7 +7,7 @@ import * as esbuild from 'esbuild';
 const projectRoot = path.join(__dirname, '..');
 const expectedVersion = '0.94.0';
 const expectedSdkVersion = '0.3.303';
-const expectedBundleSha256 = '4c43bae326d4381d7d5cb1c8db9af20cb3c35f1b6ed8566c61879e5addcb308d';
+const expectedBundleSha256 = '9e5244bc490db9f28084030b1da7012064549e69a41bb3fe854831cd44680f56';
 const packageRoot = path.dirname(require.resolve('@agentclientprotocol/claude-agent-acp/package.json'));
 const packageJsonPath = path.join(packageRoot, 'package.json');
 // Pinned ACP SDK 2 resolves its stable entry under dist/v1/stable.
@@ -126,7 +126,7 @@ function farmingClaudePlugin(): esbuild.Plugin {
 async function prepareClaudeAcpVendor({ copy = false } = {}): Promise<void> {
   assertPackageVersion(packageJsonPath, expectedVersion, '@agentclientprotocol/claude-agent-acp');
   assertPackageVersion(sdkPackageJsonPath, expectedSdkVersion, '@anthropic-ai/claude-agent-sdk');
-  assertPackageVersion(protocolZodPackageJsonPath, '3.25.76', 'Claude ACP protocol Zod');
+  assertPackageVersion(protocolZodPackageJsonPath, '4.6.7', 'Claude ACP protocol Zod');
   if (!copy) return;
 
   fs.mkdirSync(targetDirectory, { recursive: true });

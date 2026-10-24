@@ -113,6 +113,24 @@ declare global {
   }
 }
 
+async function selectConfiguredCodexHome(page: Page) {
+  const configuredHome = process.env.CODEX_HOME
+  if (!configuredHome) return 'default'
+  const response = await page.request.get('/farming/api/settings')
+  expect(response.ok()).toBeTruthy()
+  const body = await response.json() as {
+    settings: { agentHomes: { codex: Array<{ id: string; path: string }> } }
+  }
+  const canonical = fs.realpathSync(configuredHome)
+  const home = body.settings.agentHomes.codex.find(candidate => {
+    const expanded = candidate.path.startsWith('~/')
+      ? path.join(os.homedir(), candidate.path.slice(2)) : candidate.path
+    return fs.existsSync(expanded) && fs.realpathSync(expanded) === canonical
+  })
+  expect(home, 'The configured Codex Home must be discovered before the real-provider gate').toBeTruthy()
+  return home!.id
+}
+
 function oneLine(value: string) {
   return value.replace(/\s+/g, ' ').trim()
 }
@@ -558,12 +576,12 @@ async function sendCodeAcpPromptAndSteer(page: Page) {
   await expect(input).toBeEnabled()
   await input.fill(ACP_LONG_PROMPT)
   await send.click()
-  await expect(input).toHaveValue('')
+  await expect(input).toHaveText('')
   await expect(send).toHaveAttribute('data-action', 'interrupt', { timeout: 60_000 })
   await input.fill(`Reply with only ${ACP_FOLLOW_UP_ACK}.`)
   await expect(send).toHaveAttribute('data-action', 'send')
   await send.click()
-  await expect(input).toHaveValue('')
+  await expect(input).toHaveText('')
   const queuedFollowUp = page.getByTestId('code-acp-pending-followup-row')
     .filter({ hasText: ACP_FOLLOW_UP_ACK }).last()
   await expect(queuedFollowUp).toBeVisible()
@@ -979,7 +997,8 @@ test.describe('real Codex pre-release composite case', () => {
     test.setTimeout(2 * 60_000)
     await page.setViewportSize(NORMAL_VIEWPORT)
 
-    const catalogResponse = await page.request.get('/farming/api/codex/models?homeId=default')
+    const homeId = await selectConfiguredCodexHome(page)
+    const catalogResponse = await page.request.get(`/farming/api/codex/models?homeId=${encodeURIComponent(homeId)}`)
     expect(catalogResponse.ok()).toBeTruthy()
     const catalogBody = await catalogResponse.json() as { catalog?: CodexCatalogModel[] }
     const catalog = catalogBody.catalog ?? []
@@ -995,12 +1014,12 @@ test.describe('real Codex pre-release composite case', () => {
       settings: { agentHomes: Record<string, Array<{ id: string; [key: string]: unknown }>> }
     }
     const agentHomes = currentSettings.settings.agentHomes
-    expect(agentHomes.codex.filter(home => home.id === 'default')).toHaveLength(1)
+    expect(agentHomes.codex.filter(home => home.id === homeId)).toHaveLength(1)
     const settingsResponse = await page.request.post('/farming/api/settings', {
       data: {
         agentHomes: {
           ...agentHomes,
-          codex: agentHomes.codex.map(home => home.id === 'default' ? {
+          codex: agentHomes.codex.map(home => home.id === homeId ? {
             ...home,
             newAgentDefaults: { model: PRIMARY_MODEL, reasoning: PRIMARY_EFFORT, fast: 'off' },
           } : home),
@@ -1008,7 +1027,7 @@ test.describe('real Codex pre-release composite case', () => {
         agentLaunchProfiles: {
           codex: {
             approvalMode: 'approve',
-            homeId: 'default',
+            homeId,
           },
         },
       },
@@ -1072,7 +1091,8 @@ test.describe('real Codex pre-release composite case', () => {
       }
     })
 
-    const catalogResponse = await page.request.get('/farming/api/codex/models?homeId=default')
+    const homeId = await selectConfiguredCodexHome(page)
+    const catalogResponse = await page.request.get(`/farming/api/codex/models?homeId=${encodeURIComponent(homeId)}`)
     expect(catalogResponse.ok()).toBeTruthy()
     const catalogBody = await catalogResponse.json() as { catalog?: CodexCatalogModel[] }
     const catalog = catalogBody.catalog ?? []
@@ -1106,6 +1126,7 @@ test.describe('real Codex pre-release composite case', () => {
         agentLaunchProfiles: {
           codex: {
             approvalMode: 'approve',
+            homeId,
             model: launchModel?.value,
             reasoningEffort: PRIMARY_EFFORT,
             serviceTier: 'default',

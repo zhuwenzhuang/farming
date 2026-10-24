@@ -155,3 +155,14 @@ test('read acknowledgement owners select interaction and mobile unread screens',
   assert.deepEqual(plan.unmapped, []);
   assert.deepEqual(plan.lanes.map(lane => lane.name), ['interaction', 'mobile-viewport']);
 });
+
+ test('structured documents, quoted child preparation and attention pinning retain owning scenarios', () => {
+  const plan = selectBrowserScreen(['shared/composer-document.ts', 'shared/composer-document.js',
+    'src/components/code/QuotedContextCard.tsx', 'src/components/code/SubagentBody.tsx',
+    'src/components/code/SubagentPreparation.tsx', 'src/components/code/useSubagentOpening.ts',
+    'src/hooks/useWebSocket.ts', 'src/types/messages.ts', 'src/lib/dynamic-pinning.ts',
+    'tests/e2e/dynamic-pinning.spec.ts', 'tests/e2e/quoted-side-flow.spec.ts']);
+  assert.deepEqual(plan.unmapped, []);
+  assert.deepEqual(plan.lanes.map(lane => lane.name),
+    ['interaction', 'wire-state', 'structured-composer', 'quoted-side', 'dynamic-pinning']);
+});

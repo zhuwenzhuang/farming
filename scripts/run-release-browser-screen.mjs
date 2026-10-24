@@ -19,6 +19,9 @@ const definitions = [
   ['identity-files', 'release:fast-screen:identity-files'],
   ['wire-state', 'release:fast-screen:wire-state'],
   ['computer-resource', 'release:fast-screen:computer-resource'],
+  ['structured-composer', 'release:fast-screen:structured-composer'],
+  ['quoted-side', 'release:fast-screen:quoted-side'],
+  ['dynamic-pinning', 'release:fast-screen:dynamic-pinning'],
 ];
 export function selectBrowserScreen(files) {
   const selected = new Set();
@@ -47,6 +50,15 @@ export function selectBrowserScreen(files) {
     if (['extensions/computer/backend/computer-resource-manager.cts', 'tests/e2e/computer-resources.spec.ts'].includes(filename)) select(['computer-resource']);
     if (['src/components/code/BrowserTabStatus.tsx', 'src/components/code/browser-tab-status.ts',
       'tests/e2e/browser-tab-status.spec.ts', 'index.html'].includes(filename)) select(['ui-boundaries']);
+    if (/^shared\/composer-document\.|^src\/components\/code\/(ComposerRichInput|ComposerDocumentContent|composer-document-editor|composer-input-element)\.|^tests\/e2e\/(composer-rich-document|acp-goal)\.spec\.ts$/.test(filename)) select(['structured-composer']);
+    if (/^src\/components\/code\/(QuotedContextCard|SubagentBody|SubagentPreparation|useSubagentOpening)\.|^tests\/e2e\/quoted-side-flow\.spec\.ts$/.test(filename)) select(['quoted-side']);
+    if (['src/hooks/useWebSocket.ts', 'src/types/messages.ts'].includes(filename)) select(['interaction', 'wire-state', 'quoted-side']);
+    if (['src/lib/dynamic-pinning.ts', 'tests/e2e/dynamic-pinning.spec.ts'].includes(filename)) select(['dynamic-pinning']);
+    // The separate live-provider composite remains mandatory for this case;
+    // the early deterministic screen exercises its shared interaction owners.
+    if (filename === 'tests/e2e/internal/real-codex-release-case.spec.ts') select(['interaction', 'wire-state']);
+    if (/^tests\/e2e\/(backend-connection-status|mermaid-module-recovery|background-chat-continuity)\.spec\.ts$/.test(filename)) select(['interaction']);
+    if (filename === 'tests/e2e/quote-selection.spec.ts') select(['quoted-side', 'interaction']);
     if (!mapped && /^(src|frontend|extensions|shared)\/|^tests\/e2e\//.test(filename)) unmapped.push(filename);
   }
   return {

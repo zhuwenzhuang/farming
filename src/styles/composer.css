@@ -3002,7 +3002,8 @@ body.code-mode.code-compact-layout .code-acp-composer-stack {
     overflow-y: hidden;
   }
 
-  body.code-mode.code-compact-layout .code-composer.has-attachments textarea {
+  body.code-mode.code-compact-layout .code-composer.has-attachments textarea,
+  body.code-mode.code-compact-layout .code-composer.has-attachments .code-rich-input {
     max-height: min(66px, calc(var(--app-visual-height, 100dvh) * 0.2));
   }
 
@@ -3465,7 +3466,8 @@ body.code-mode.code-compact-layout .code-composer .code-rich-input::placeholder 
 }
 
 /* The expand hit area must stay entirely in the input row, above Send/Stop. */
-body.code-mode.code-compact-layout .code-composer:has(> .code-composer-editor-header):not(.editor-expanded) textarea {
+body.code-mode.code-compact-layout .code-composer:has(> .code-composer-editor-header):not(.editor-expanded) textarea,
+body.code-mode.code-compact-layout .code-composer:has(> .code-composer-editor-header):not(.editor-expanded) .code-rich-input {
   min-height: 44px;
 }
 
@@ -3559,7 +3561,8 @@ body.code-mode.code-compact-layout .code-composer:has(> .code-composer-editor-he
     color: var(--code-text);
   }
 
-  body.code-mode.code-compact-layout .code-composer.editor-expanded textarea {
+  body.code-mode.code-compact-layout .code-composer.editor-expanded textarea,
+  body.code-mode.code-compact-layout .code-composer.editor-expanded .code-rich-input {
     flex: 1 1 0;
     min-height: 0;
     max-height: none;

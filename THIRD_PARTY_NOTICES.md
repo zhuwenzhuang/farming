@@ -18,7 +18,7 @@ are preserved in `dist/frontend-licenses.txt` during the frontend build.
 | Package | Version | License | Purpose |
 | --- | --- | --- | --- |
 | `@a2a-js/sdk` | 1.3.0 | Apache-2.0 | A2A Agent communication protocol client and server |
-| `@agentclientprotocol/sdk` | 2.0.1 | Apache-2.0 | ACP JSON-RPC client and protocol types |
+| `@agentclientprotocol/sdk` | 2.0.2 | Apache-2.0 | ACP JSON-RPC client and protocol types |
 | `@visactor/vtable` | 1.26.8 | MIT | Virtualized read-only spreadsheet rendering |
 | `@xterm/addon-clipboard` | 0.2.0 | MIT | Browser terminal clipboard integration |
 | `@xterm/addon-fit` | 0.11.0 | MIT | Browser terminal sizing |
@@ -63,7 +63,7 @@ are preserved in `dist/frontend-licenses.txt` during the frontend build.
 | `xlsx` | 0.20.3 | Apache-2.0 | XLSX and delimited-text workbook parsing |
 | `yaml` | 2.9.0 | ISC | YAML parsing |
 | `yauzl` | 3.4.0 | MIT | Validated managed ZIP archive parsing |
-| `zod` | 3.25.76 | MIT | MCP tool input schema validation |
+| `zod` | 4.6.7 | MIT | MCP tool input schema validation |
 
 ## Vendored Assets
 
@@ -92,7 +92,7 @@ files under `dist/acp/`:
 | `@anthropic-ai/claude-agent-sdk` | 0.3.303 | Anthropic commercial terms | Claude Agent SDK bridge; platform CLI binaries are excluded |
 | `pi-acp` | 0.0.34 | MIT | Pi ACP adapter, with Farming Agent Home isolation and bootstrap patches |
 | `@agentclientprotocol/sdk` | 0.26.0 | Apache-2.0 | Protocol runtime bundled inside the Pi ACP adapter |
-| `zod` | 3.25.76 | MIT | Schema validation bundled inside the Pi ACP adapter |
+| `zod` | 4.6.7 | MIT | Schema validation bundled inside the Pi ACP adapter |
 
 Farming also embeds the pinned native ripgrep 15.2.0 executable for Project
 Files search. ripgrep is dual-licensed under MIT or the Unlicense; Farming uses

@@ -123,7 +123,7 @@ test('shows authoritative live ACP snapshots without delaying send confirmation 
   await input.fill(prompt)
   const submittedAt = Date.now()
   await page.getByTestId('code-acp-composer-send').click()
-  await expect(input).toHaveValue('', { timeout: 15_000 })
+  await expect(input).toHaveText('', { timeout: 15_000 })
   const inputClearMs = Date.now() - submittedAt
   const userMessage = page.locator('.code-agent-transcript-user').filter({ hasText: prompt })
   await expect(userMessage).toBeVisible({ timeout: 15_000 })

@@ -39,7 +39,7 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
       }).progressArrivalCalls)
       await page.getByTestId('code-acp-composer-input').fill('progress arrival motion')
       await page.getByTestId('code-acp-composer-send').click()
-      await expect(page.getByTestId('code-acp-composer-input')).toHaveValue('')
+      await expect(page.getByTestId('code-acp-composer-input')).toHaveText('')
       await expect(page.getByTestId('code-agent-transcript-live-activity')).toBeVisible()
       fs.writeFileSync(gate, '1')
       const progress = page.getByTestId('code-acp-progress-update')

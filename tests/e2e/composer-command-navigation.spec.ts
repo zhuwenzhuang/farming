@@ -64,6 +64,6 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
     await selected.hover()
     await expect(selected).toHaveCSS('background-color', expectedFill)
     await input.press('Tab')
-    await expect(input).toHaveValue('/command-1 ')
+    await expect(input).toHaveText('/command-1 ')
   })
 }

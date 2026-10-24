@@ -131,15 +131,15 @@ test('side chat owns its pasted document separately from the parent draft', asyn
   await expect(card).toHaveCount(1)
   await expect(page.locator('.code-composer-shell').getByTestId('code-composer-pasted-text')).toHaveCount(0)
   await card.getByRole('button', { name: 'Show in text field' }).click()
-  await expect(child).toHaveValue('Review child document\n\n' + documentText)
+  await expect(child).toHaveText('Review child document\n\n' + documentText)
   await expect(pane.getByTestId('code-composer-draft-highlight')).toHaveCount(0)
-  await expect(parent).toHaveValue('Keep parent draft')
+  await expect(parent).toHaveText('Keep parent draft')
   await child.fill('Review child document')
   await paste(child, documentText, `<pre><b>${documentText}</b></pre>`)
   await pane.getByTestId('code-acp-composer-send').click()
   await expect(card).toHaveCount(0)
   await expect(pane.locator('.code-agent-transcript-user').last()).toContainText('END_OF_PASTED_DOCUMENT')
-  await expect(parent).toHaveValue('Keep parent draft')
+  await expect(parent).toHaveText('Keep parent draft')
 })
 
 for (const mode of ['chat', 'terminal'] as const) {

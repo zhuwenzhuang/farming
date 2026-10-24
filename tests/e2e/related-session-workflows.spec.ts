@@ -48,7 +48,7 @@ test('retains an unfinished Composer outbox submission and a newer draft across 
   await expect(outbox).toHaveCount(1)
   await expect(outbox).toContainText('PERSIST_SUBMISSION_OWNER')
   await expect(outbox).toHaveAttribute('data-status', 'submitting')
-  await expect(input).toHaveValue('')
+  await expect(input).toHaveText('')
   await input.fill('NEWER_DRAFT_MUST_SURVIVE')
 
   const project = page.getByTestId('code-project-group').filter({ hasText: 'submission-owner' })
@@ -62,12 +62,12 @@ test('retains an unfinished Composer outbox submission and a newer draft across 
   await expect(outbox).toContainText('PERSIST_SUBMISSION_OWNER')
   await expect(outbox).toHaveAttribute('data-status', 'submitting')
   await expect(input).toBeEditable()
-  await expect(input).toHaveValue('NEWER_DRAFT_MUST_SURVIVE')
+  await expect(input).toHaveText('NEWER_DRAFT_MUST_SURVIVE')
   expect(submittedMessages).toBe(1)
   expect(releaseSubmission).not.toBeNull()
   releaseSubmission?.()
   await expect(outbox).toHaveCount(0)
-  await expect(input).toHaveValue('NEWER_DRAFT_MUST_SURVIVE')
+  await expect(input).toHaveText('NEWER_DRAFT_MUST_SURVIVE')
   expect(submittedMessages).toBe(1)
 })
 
@@ -114,7 +114,7 @@ test('quotes spreadsheet and side-chat results without losing drafts or sending 
   }
   await spreadsheet.getByRole('button', { name: 'Quote in chat', exact: true }).click()
   await expect(parentInput).toBeVisible()
-  await expect(parentInput).toHaveValue(/Keep my parent draft/)
+  await expect(parentInput).toHaveText(/Keep my parent draft/)
   const sheetQuote = page.locator('.code-composer-shell').getByTestId('code-composer-quote')
   await expect(sheetQuote).toContainText(/Sheet:.*Sheet1/)
   await expect(sheetQuote).toContainText(/Range: A2:A2/)
@@ -122,7 +122,7 @@ test('quotes spreadsheet and side-chat results without losing drafts or sending 
   await expect(sheetQuote).toContainText(/00123/)
   await expect(parentInput).toBeFocused()
   await sheetQuote.getByRole('button', { name: 'Remove Quoted text' }).click()
-  const preserved = await parentInput.inputValue()
+  const preserved = await parentInput.innerText()
   await parentInput.fill('/side')
   const opened = page.waitForResponse(res => res.url().endsWith(`/agents/${agentId}/subagent`))
   await page.getByTestId('code-acp-composer-send').click()
@@ -160,7 +160,7 @@ test('quotes spreadsheet and side-chat results without losing drafts or sending 
   })
   await page.getByTestId('code-agent-transcript-selection-actions').getByRole('button', { name: 'Quote in parent chat' }).click()
   await expect(parentInput).toBeVisible()
-  await expect(parentInput).toHaveValue(/Keep my parent draft/)
+  await expect(parentInput).toHaveText(/Keep my parent draft/)
   const parentQuote = page.locator('.code-composer-shell').getByTestId('code-composer-quote')
   await expect(parentQuote).toContainText('Source: Subagent')
   await expect(parentQuote).toContainText('Received 0 image')
@@ -169,7 +169,7 @@ test('quotes spreadsheet and side-chat results without losing drafts or sending 
     await page.screenshot({ path: testInfo.outputPath(`parent-quote-${appearance}.png`), animations: 'disabled' })
   }
   if (isMobile) await page.getByRole('navigation', { name: 'Related sessions' }).getByRole('button', { name: 'Subagent', exact: true }).click()
-  await expect(childInput).toHaveValue('Keep my child draft')
+  await expect(childInput).toHaveText('Keep my child draft')
 })
 
 test('keeps active children visible and pages past 200 historical turns', { tag: ['@critical-behavior', '@behavior-CODE-RELATED-WORKFLOWS', '@iphone-human'] }, async ({ page, workspaceRoot, isMobile }, testInfo) => {
@@ -301,13 +301,13 @@ test('streams a side-chat reply while the parent stays selected', async ({ page,
     await expect(pane).toHaveCount(0)
     await expect.poll(() => watchedAgentIds).not.toContain(child!.id)
     await expect(parentRow).toHaveClass(/\bactive\b/)
-    await expect(parentInput).toHaveValue('Retain the parent draft')
+    await expect(parentInput).toHaveText('Retain the parent draft')
     await expect(page.locator('.code-related-session-resizer')).toHaveCount(0)
     await page.screenshot({ path: testInfo.outputPath(`parent-only-${appearance}.png`), animations: 'disabled' })
     await childRow.click()
     await expect(pane).toContainText('Visible segment 10 stays continuous')
     await expect(childRow).toHaveClass(/\bactive\b/)
-    await expect(childInput).toHaveValue('Retain the child draft')
+    await expect(childInput).toHaveText('Retain the child draft')
     await expect.poll(() => watchedAgentIds).toContain(child!.id)
   }
   for (const appearance of ['light', 'dark', 'paper']) {
@@ -320,7 +320,7 @@ test('streams a side-chat reply while the parent stays selected', async ({ page,
   await expect.poll(() => watchMessages).toBeGreaterThan(previousWatchMessages)
   await expect.poll(() => watchedAgentIds).toContain(child!.id)
   await expect(pane.locator('.code-agent-transcript-user').filter({ hasText: 'progressive answer stream' })).toHaveCount(1)
-  await expect(childInput).toHaveValue('Retain the child draft')
+  await expect(childInput).toHaveText('Retain the child draft')
 })
 
 test('creates a fresh side chat from current context after archiving a child', async ({ page, workspaceRoot }, testInfo) => {

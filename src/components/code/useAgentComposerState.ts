@@ -50,7 +50,15 @@ export function useAgentComposerState({
   const composerStateUpdatedAtRef = useRef(initialCheckpointRef.current.updatedAtByKey)
   const composerStateDeletedAtRef = useRef(new Map<string, number>())
   const composerByAgentKeyRef = useRef(composerByAgentKey)
-  composerByAgentKeyRef.current = composerByAgentKey
+  // Input transactions own the current draft immediately. React rendering may
+  // lag behind pagehide, so persistence must not depend on the last render.
+  const commitComposerState = useCallback((update: (current: Record<string, AgentComposerState>) => Record<string, AgentComposerState>) => {
+    const current = composerByAgentKeyRef.current
+    const next = update(current)
+    if (next === current) return
+    composerByAgentKeyRef.current = next
+    setComposerByAgentKey(next)
+  }, [])
 
   const nextCheckpointTimestamp = useCallback((composerKey: string) => (
     nextAgentComposerCheckpointTimestamp(
@@ -89,7 +97,7 @@ export function useAgentComposerState({
       retainedComposerKeys.add(permissionSwitchingAgentId)
       retainedComposerKeys.add(`acp:${permissionSwitchingAgentId}`)
     }
-    setComposerByAgentKey(current => {
+    commitComposerState(current => {
       let next = current
       let changed = false
       const mutable = () => {
@@ -207,7 +215,7 @@ export function useAgentComposerState({
       })
       return changed ? next : current
     })
-  }, [agents, nextCheckpointTimestamp, onDiscardAttachment, permissionSwitchingAgentId, permissionSwitchReplacement])
+  }, [agents, commitComposerState, nextCheckpointTimestamp, onDiscardAttachment, permissionSwitchingAgentId, permissionSwitchReplacement])
 
   const resolveComposerStateKey = useCallback((composerKey: string) => {
     if (!composerKey) return ''
@@ -228,7 +236,7 @@ export function useAgentComposerState({
   }, [agents])
 
   const updateComposerStateForKey = useCallback((composerKey: string, updater: (state: AgentComposerState) => AgentComposerState) => {
-    setComposerByAgentKey(current => {
+    commitComposerState(current => {
       const canonicalKey = resolveComposerStateKey(composerKey)
       if (!canonicalKey) return current
       const previous = current[canonicalKey] ?? createDefaultAgentComposerState()
@@ -241,10 +249,10 @@ export function useAgentComposerState({
       composerStateDeletedAtRef.current.delete(canonicalKey)
       return { ...current, [canonicalKey]: nextState }
     })
-  }, [nextCheckpointTimestamp, resolveComposerStateKey])
+  }, [commitComposerState, nextCheckpointTimestamp, resolveComposerStateKey])
 
   const updateExistingComposerStateForKey = useCallback((composerKey: string, updater: (state: AgentComposerState) => AgentComposerState) => {
-    setComposerByAgentKey(current => {
+    commitComposerState(current => {
       const canonicalKey = resolveComposerStateKey(composerKey)
       if (!canonicalKey) return current
       const updateKey = existingComposerStateUpdateKey(current, canonicalKey, composerKey)
@@ -259,14 +267,14 @@ export function useAgentComposerState({
       composerStateDeletedAtRef.current.delete(updateKey)
       return { ...current, [updateKey]: nextState }
     })
-  }, [nextCheckpointTimestamp, resolveComposerStateKey])
+  }, [commitComposerState, nextCheckpointTimestamp, resolveComposerStateKey])
 
   return {
     composerByAgentKey,
     updateComposerStateForKey,
     updateExistingComposerStateForKey,
     moveComposerState: useCallback((sourceKey: string, targetKey: string) => {
-      setComposerByAgentKey(current => {
+      commitComposerState(current => {
         const source = current[sourceKey]
         if (!source || sourceKey === targetKey) return current
         const target = current[targetKey]
@@ -285,6 +293,6 @@ export function useAgentComposerState({
         composerStateUpdatedAtRef.current.delete(sourceKey)
         return next
       })
-    }, [nextCheckpointTimestamp]),
+    }, [commitComposerState, nextCheckpointTimestamp]),
   }
 }

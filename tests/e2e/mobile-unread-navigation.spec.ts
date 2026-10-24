@@ -79,7 +79,7 @@ test('mobile unread navigation previews, cancels and preserves drafts across app
     await touch(prose, 'touchmove', 280)
     await touch(prose, 'touchend', 280)
     await expect(preview).toHaveCount(0)
-    await expect(input).toHaveValue('Keep this unsent draft')
+    await expect(input).toHaveText('Keep this unsent draft')
   }
 
   // Capture a target once: new arrivals must not change the meaning of release.
@@ -101,7 +101,7 @@ test('mobile unread navigation previews, cancels and preserves drafts across app
   await expect(next).toHaveAccessibleName(/Mobile Agent 1/)
   await touch(prose, 'touchend', 150)
   await expect(page.getByTestId('code-mobile-unread-preview')).toHaveCount(0)
-  await expect(input).toHaveValue('Keep this unsent draft')
+  await expect(input).toHaveText('Keep this unsent draft')
   await markUnread(second)
   await expect(next).toHaveAccessibleName(/Mobile Agent 2/)
 
@@ -167,7 +167,7 @@ test('mobile unread navigation previews, cancels and preserves drafts across app
   await page.clock.runFor(2500)
   await expect(page.getByRole('button', { name: 'Go back', exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Go back', exact: true }).click()
-  await expect(input).toHaveValue('Keep this unsent draft')
+  await expect(input).toHaveText('Keep this unsent draft')
   await markUnread(third)
   await expect(next).toHaveAccessibleName(/Mobile Agent 1/)
   await next.click()

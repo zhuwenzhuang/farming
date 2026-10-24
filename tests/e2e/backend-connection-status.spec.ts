@@ -308,7 +308,7 @@ test('mobile resume probes before replacing a zombie and never replays uncertain
   await expect.poll(() => healthProbeCount).toBeGreaterThan(healthyProbeBaseline)
   await page.waitForTimeout(2_800)
   expect(socketCount).toBe(1)
-  await expect(composer).toHaveValue('MOBILE_RECOVERY_SEND_ONCE')
+  await expect(composer).toHaveText('MOBILE_RECOVERY_SEND_ONCE')
 
   staleHealthSocket = 1
   await page.evaluate(() => {
@@ -325,7 +325,7 @@ test('mobile resume probes before replacing a zombie and never replays uncertain
   })
   await expect.poll(() => socketCount, { timeout: 6_000 }).toBe(2)
   await expect(page.getByTestId('connection-status')).toHaveCount(0, { timeout: 8_000 })
-  await expect(composer).toHaveValue('MOBILE_RECOVERY_SEND_ONCE')
+  await expect(composer).toHaveText('MOBILE_RECOVERY_SEND_ONCE')
 
   staleHealthSocket = 2
   await page.evaluate(() => {
@@ -335,7 +335,7 @@ test('mobile resume probes before replacing a zombie and never replays uncertain
   })
   await expect.poll(() => socketCount, { timeout: 6_000 }).toBe(3)
   await expect(page.getByTestId('connection-status')).toHaveCount(0, { timeout: 8_000 })
-  await expect(composer).toHaveValue('MOBILE_RECOVERY_SEND_ONCE')
+  await expect(composer).toHaveText('MOBILE_RECOVERY_SEND_ONCE')
   expect(composerInputCount).toBe(0)
 
   interruptNextComposerInput = true
@@ -347,7 +347,7 @@ test('mobile resume probes before replacing a zombie and never replays uncertain
   await expect(outbox).toHaveCount(1)
   await expect(outbox).toContainText('MOBILE_RECOVERY_SEND_ONCE')
   await expect(outbox).toHaveAttribute('data-status', 'unknown')
-  await expect(composer).toHaveValue('')
+  await expect(composer).toHaveText('')
   await composer.fill('NEW_DRAFT_AFTER_RECONNECT')
   await expect.poll(() => composerStatusRequestCount, { timeout: 8_000 }).toBeGreaterThan(0)
   expect(composerInputCount).toBe(1)
@@ -358,7 +358,7 @@ test('mobile resume probes before replacing a zombie and never replays uncertain
   expect(composerInputCount).toBe(1)
   await expect(outbox).toHaveAttribute('data-status', 'unknown')
   await expect(outbox).toContainText('MOBILE_RECOVERY_SEND_ONCE')
-  await expect(composer).toHaveValue('NEW_DRAFT_AFTER_RECONNECT')
+  await expect(composer).toHaveText('NEW_DRAFT_AFTER_RECONNECT')
 })
 
 test('a real mobile offline transition retains draft input and requires an explicit send after recovery', {
@@ -437,5 +437,5 @@ test('periodic health timeout replaces an unresponsive socket without foreground
   dropHealth = true
   await expect.poll(() => socketCount, { timeout: 25_000 }).toBe(2)
   await expect(page.getByTestId('connection-status')).toHaveCount(0)
-  await expect(composer).toHaveValue('PRESERVE_DRAFT_AFTER_HEALTH_TIMEOUT')
+  await expect(composer).toHaveText('PRESERVE_DRAFT_AFTER_HEALTH_TIMEOUT')
 })

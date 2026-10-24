@@ -53,12 +53,12 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
     await agentRow(shellId).click()
     await agentRow(agentId).click()
     await expect(page.getByTestId('code-acp-error')).toContainText('ACP initialization failed')
-    await expect(input).toHaveValue('Keep my draft while Chat connects')
+    await expect(input).toHaveText('Keep my draft while Chat connects')
 
     phase = 'ready'
     await agentRow(shellId).click()
     await agentRow(agentId).click()
     await expect(page.getByTestId('code-acp-error')).toHaveCount(0)
-    await expect(input).toHaveValue('Keep my draft while Chat connects')
+    await expect(input).toHaveText('Keep my draft while Chat connects')
   })
 }

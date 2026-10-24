@@ -18,7 +18,7 @@ async function send(page: Page, text: string) {
   const input = page.getByTestId('code-acp-composer-input')
   await input.fill(text)
   await page.getByTestId('code-acp-composer-send').click()
-  await expect(input).toHaveValue('')
+  await expect(input).toHaveText('')
 }
 
 async function expectSeparate(first: Locator, second: Locator) {

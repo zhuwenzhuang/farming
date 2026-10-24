@@ -1,3 +1,5 @@
+import type { ComposerInputElement } from '../../src/components/code/composer-input-element'
+import { expectValue, selectText, selection } from './composer-test-input'
 import fs from 'node:fs'
 import path from 'node:path'
 import { expect, openFarming, test } from './fixtures'
@@ -26,6 +28,7 @@ for (const runtime of ['chat', 'terminal'] as const) {
     const prefix = runtime === 'chat' ? 'code-acp-composer' : 'code-composer'
     const input = page.getByTestId(`${prefix}-input`)
     const composer = page.getByTestId(prefix)
+    const scrollInput = runtime === 'chat' ? composer.locator('.code-rich-input') : input
     const toggle = page.getByTestId('code-composer-editor-toggle')
     await expect(input).toBeEditable()
     if (runtime === 'terminal') {
@@ -40,10 +43,10 @@ for (const runtime of ['chat', 'terminal'] as const) {
       await input.fill('workspace inline visualization')
       await page.getByTestId(`${prefix}-send`).click()
       await expect(page.getByTestId('code-agent-transcript-inline-visualization')).toBeVisible()
-      await expect(input).toHaveValue('')
+      await expectValue(input, '')
     }
     await input.fill('简短任务')
-    const shortHeight = await input.evaluate(element => element.clientHeight)
+    const shortHeight = await scrollInput.evaluate(element => element.clientHeight)
     const textGeometry = await input.evaluate(element => {
       const style = getComputedStyle(element)
       const inputBox = element.getBoundingClientRect()
@@ -65,7 +68,7 @@ for (const runtime of ['chat', 'terminal'] as const) {
     expect(textGeometry.topInset).toBeGreaterThanOrEqual(8)
     expect(textGeometry.expandAlignment).toBeLessThanOrEqual(4)
     await input.fill(longDraft)
-    await expect.poll(() => input.evaluate(element => element.clientHeight)).toBeGreaterThan(shortHeight + 60)
+    await expect.poll(() => scrollInput.evaluate(element => element.clientHeight)).toBeGreaterThan(shortHeight + 60)
     const workView = page.getByTestId(runtime === 'chat' ? 'code-agent-chat-view' : 'code-agent-terminal-view')
     const expectUnfocusedComposerClearance = async () => {
       await input.evaluate(element => element.blur())
@@ -78,8 +81,8 @@ for (const runtime of ['chat', 'terminal'] as const) {
     }
     await expect(input).toHaveAttribute('enterkeyhint', 'enter')
     await expect(toggle).toHaveAttribute('aria-expanded', 'false')
-    await input.evaluate(element => { element.scrollTop = 0 })
-    const box = await input.boundingBox()
+    await scrollInput.evaluate(element => { element.scrollTop = 0 })
+    const box = await scrollInput.boundingBox()
     if (!box) throw new Error('Composer has no visible bounds')
     if (browserName === 'chromium') {
       const cdp = await page.context().newCDPSession(page)
@@ -96,26 +99,27 @@ for (const runtime of ['chat', 'terminal'] as const) {
           await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: box.y + box.height - 10 - step * 16 }] })
         }
         await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
-        await expect.poll(() => input.evaluate(element => element.scrollTop)).toBeGreaterThan(0)
+        await expect.poll(() => scrollInput.evaluate(element => element.scrollTop)).toBeGreaterThan(0)
         // Stop native fling before preparing a deterministic screenshot position.
         await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y: box.y + 20 }] })
         await cdp.send('Input.dispatchTouchEvent', { type: 'touchCancel', touchPoints: [] })
       } finally { await cdp.detach() }
     } else {
-      await input.evaluate(element => { element.scrollTop = 100 })
-      await expect.poll(() => input.evaluate(element => element.scrollTop)).toBeGreaterThan(0)
+      await scrollInput.evaluate(element => { element.scrollTop = 100 })
+      await expect.poll(() => scrollInput.evaluate(element => element.scrollTop)).toBeGreaterThan(0)
     }
-    // Keep selection in the same DOM textarea through presentation changes.
+    // Keep selection in the same mounted editor through presentation changes.
     const original = await input.elementHandle()
-    await input.evaluate(element => { element.setSelectionRange(25, 38); element.scrollTop = 0 })
+    await selectText(input, 25, 38)
+    await scrollInput.evaluate(element => { element.scrollTop = 0 })
     for (const appearance of ['light', 'dark', 'paper'] as const) {
       await page.locator('body').evaluate((body, value) => { body.dataset.appearance = value }, appearance)
-      await expect(input).toHaveValue(longDraft)
+      await expectValue(input, longDraft)
       await page.evaluate(() => document.fonts.ready)
       await expectUnfocusedComposerClearance()
       await page.screenshot({ path: testInfo.outputPath(`mobile-${runtime}-${appearance}-long-blurred.png`), animations: 'disabled', caret: 'hide' })
       await input.fill('')
-      await expect.poll(() => input.evaluate(element => element.clientHeight)).toBeLessThanOrEqual(shortHeight + 1)
+      await expect.poll(() => scrollInput.evaluate(element => element.clientHeight)).toBeLessThanOrEqual(shortHeight + 1)
       await expectUnfocusedComposerClearance()
       await page.screenshot({ path: testInfo.outputPath(`mobile-${runtime}-${appearance}-empty-blurred.png`), animations: 'disabled', caret: 'hide' })
       await input.fill('简短任务')
@@ -123,19 +127,21 @@ for (const runtime of ['chat', 'terminal'] as const) {
       await page.screenshot({ path: testInfo.outputPath(`mobile-${runtime}-${appearance}-short.png`), animations: 'disabled', caret: 'hide' })
       await composer.screenshot({ path: testInfo.outputPath(`mobile-${runtime}-${appearance}-input-row.png`), scale: 'css', animations: 'disabled', caret: 'hide' })
       await input.fill(longDraft)
-      await expect.poll(() => input.evaluate(element => element.clientHeight)).toBeGreaterThan(shortHeight + 60)
+      await expect.poll(() => scrollInput.evaluate(element => element.clientHeight)).toBeGreaterThan(shortHeight + 60)
       await input.press('Control+Home')
-      await input.evaluate(element => { element.setSelectionRange(0, 0); element.scrollTop = 0 })
-      await expect.poll(() => input.evaluate(element => element.scrollTop)).toBe(0)
+      await selectText(input, 0, 0)
+      await scrollInput.evaluate(element => { element.scrollTop = 0 })
+      await expect.poll(() => scrollInput.evaluate(element => element.scrollTop)).toBe(0)
       await page.screenshot({ path: testInfo.outputPath(`mobile-${runtime}-${appearance}-compact.png`), animations: 'disabled', caret: 'hide' })
-      await input.evaluate(element => { element.setSelectionRange(25, 38) })
+      await selectText(input, 25, 38)
       await toggle.click()
       await expect(toggle).toHaveAttribute('aria-expanded', 'true')
       await expect(composer).toHaveClass(/editor-expanded/)
       expect(await original?.evaluate(element => element === document.querySelector(`[data-testid="${element.dataset.testid}"]`))).toBe(true)
-      expect(await input.evaluate(element => [element.selectionStart, element.selectionEnd])).toEqual([25, 38])
-      await expect.poll(() => input.evaluate(element => element.clientHeight)).toBeGreaterThan(500)
-      await input.evaluate(element => { element.setSelectionRange(0, 0); element.scrollTop = 0 })
+      expect(await selection(input)).toEqual([25, 38])
+      await expect.poll(() => scrollInput.evaluate(element => element.clientHeight)).toBeGreaterThan(500)
+      await selectText(input, 0, 0)
+      await scrollInput.evaluate(element => { element.scrollTop = 0 })
       await page.screenshot({ path: testInfo.outputPath(`mobile-${runtime}-${appearance}-expanded.png`), animations: 'disabled', caret: 'hide' })
       // Reduced visible height models keyboard space without drawing a fake keyboard.
       await page.setViewportSize({ width: 390, height: 480 })
@@ -147,7 +153,7 @@ for (const runtime of ['chat', 'terminal'] as const) {
       await page.setViewportSize({ width: 390, height: 844 })
       await toggle.click()
       await expect(toggle).toHaveAttribute('aria-expanded', 'false')
-      await expect(input).toHaveValue(longDraft)
+      await expectValue(input, longDraft)
     }
     await original?.dispose()
     await toggle.click()
@@ -164,16 +170,16 @@ for (const runtime of ['chat', 'terminal'] as const) {
       await toggle.click()
       await expect(attachment).toBeInViewport()
       await expect(page.getByTestId(`${prefix}-send`)).toBeInViewport()
-      expect(await input.evaluate(element => element.clientHeight)).toBeLessThanOrEqual(66)
+      expect(await scrollInput.evaluate(element => element.clientHeight)).toBeLessThanOrEqual(66)
       await attachment.getByRole('button', { name: /^Remove app-icon-v2-180\.(png|webp)$/ }).click()
       await expect(attachment).toHaveCount(0)
-      await expect(input).toHaveValue(longDraft)
+      await expectValue(input, longDraft)
       await toggle.click()
     }
     await input.fill('可继续编辑')
     await input.press('End')
     await input.press('Enter')
-    await expect(input).toHaveValue('可继续编辑\n')
+    await expectValue(input, '可继续编辑\n')
     await input.dispatchEvent('keydown', { key: 'Escape', isComposing: true })
     await expect(toggle).toHaveAttribute('aria-expanded', 'true')
     await input.press('Escape')
@@ -182,7 +188,7 @@ for (const runtime of ['chat', 'terminal'] as const) {
     await page.setViewportSize({ width: 1280, height: 844 })
     await expect(composer).not.toHaveClass(/editor-expanded/)
     await expect(toggle).toHaveCount(0)
-    await expect(input).toHaveValue('可继续编辑\n')
+    await expectValue(input, '可继续编辑\n')
     if (runtime === 'chat') {
       // Expansion must yield to an authoritative permission request.
       await page.setViewportSize({ width: 390, height: 844 })
@@ -255,15 +261,15 @@ for (const runtime of ['chat', 'terminal'] as const) {
     await toggle.click()
     await expect(toggle).toHaveAttribute('aria-expanded', 'true')
     if (runtime === 'chat') {
-      const draft = await input.inputValue()
+      const draft = 'hold for steer without user echo'
       await send.click()
       await expect.poll(() => rejected).toBe(1)
-      await expect(input).toHaveValue(draft)
+      await expectValue(input, draft)
       await expect(toggle).toHaveAttribute('aria-expanded', 'false')
     }
     await send.click()
     await expect(toggle).toHaveAttribute('aria-expanded', 'false')
-    await expect(input).toHaveValue('')
+    await expectValue(input, '')
     await assertSeparate()
     if (runtime === 'chat') {
       await expect(send).toHaveAttribute('data-action', 'interrupt')
@@ -276,7 +282,7 @@ for (const runtime of ['chat', 'terminal'] as const) {
       await input.fill('Queued follow-up')
       await send.click()
       await expect(toggle).toHaveAttribute('aria-expanded', 'false')
-      await expect(input).toHaveValue('')
+      await expectValue(input, '')
       await assertSeparate()
       await send.click()
     }
@@ -284,7 +290,7 @@ for (const runtime of ['chat', 'terminal'] as const) {
 }
 
 for (const runtime of ['chat', 'terminal'] as const) {
-  test(`mobile ${runtime} formatted clipboard leaves plain text to native editing`, async ({ page, workspaceRoot }, testInfo) => {
+  test(`mobile ${runtime} formatted clipboard preserves the runtime input contract`, async ({ page, workspaceRoot }, testInfo) => {
     const workspace = path.join(workspaceRoot, `plain-editor-${runtime}`)
     fs.mkdirSync(workspace, { recursive: true })
     const response = await page.request.post('/farming/api/control/agents', { data: { command: runtime === 'chat' ? 'codex' : 'bash', workspace, agentRuntimeMode: runtime } })
@@ -296,16 +302,17 @@ for (const runtime of ['chat', 'terminal'] as const) {
     await expect(input).toBeEditable()
     await input.focus()
     const source = 'public class Example {\n  String greeting = "你好";\n}\n'
-    // Synthetic paste has no browser default; verify that intake leaves it
-    // uncancelled, then use native insertion. Desktop covers real clipboard I/O.
+    // Chat owns structured paste; Terminal leaves plain text to native insertion.
+    // Desktop covers real clipboard I/O for both paths.
     expect(await input.evaluate((element, text) => {
       const data = new DataTransfer()
       data.setData('text/plain', text)
       data.setData('text/html', `<pre data-language="java">${text}</pre>`)
       return element.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }))
-    }, source)).toBe(true)
-    await page.keyboard.insertText(source)
-    await expect(input).toHaveValue(source)
+    }, source)).toBe(runtime === 'terminal')
+    if (runtime === 'terminal') await page.keyboard.insertText(source)
+    else await expect(input.locator('pre')).toHaveText(source)
+    await expectValue(input, source)
     const original = await input.elementHandle()
     for (const appearance of ['light', 'dark', 'paper']) {
       await page.evaluate(value => { document.body.dataset.appearance = value; document.documentElement.dataset.appearance = value }, appearance)
@@ -320,12 +327,15 @@ for (const runtime of ['chat', 'terminal'] as const) {
     }
     await original?.dispose()
     await input.focus()
-    await input.evaluate(element => { const start = element.value.indexOf('greeting'); element.setSelectionRange(start, start + 8) })
+    await input.evaluate(element => {
+      const owner = element instanceof HTMLTextAreaElement ? element : element.parentElement as ComposerInputElement
+      const start = owner.value.indexOf('greeting'); owner.setSelectionRange(start, start + 8)
+    })
     await page.keyboard.insertText('message')
-    await expect(input).toHaveValue(source.replace('greeting', 'message'))
+    await expectValue(input, source.replace('greeting', 'message'))
     await input.dispatchEvent('compositionstart')
     await input.press('Enter')
     await input.dispatchEvent('compositionend')
-    await expect(input).not.toHaveValue('')
+    expect(await input.evaluate(element => element instanceof HTMLTextAreaElement ? element.value : element.textContent)).not.toBe('')
   })
 }

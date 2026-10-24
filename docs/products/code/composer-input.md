@@ -58,6 +58,8 @@ latest answer and its actions visible. When reading older content or selecting
 text, those geometry changes must not resume following or pull the reader to the
 bottom; only existing explicit catch-up actions restore following.
 
+Draft mutations update the authoritative in-memory checkpoint synchronously before scheduling React rendering. An immediate page hide therefore persists the latest input, including a child preparation draft.
+
 ## Quoting Chat Text
 
 The selection toolbar uses a contrasting surface and follows the selected text

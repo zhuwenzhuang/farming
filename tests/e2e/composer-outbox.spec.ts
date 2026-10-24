@@ -33,7 +33,7 @@ for (const appearance of ['light', 'dark', 'paper']) {
       for (let i = 1; i <= 3; i++) {
         await input.fill(`image attachment outbox message ${i}`)
         await page.getByTestId('code-acp-composer-send').click()
-        await expect(input).toHaveValue('', { timeout: 1000 })
+        await expect(input).toHaveText('', { timeout: 1000 })
         await expect(rows).toHaveCount(i)
       }
       await expect(rows.nth(0)).toHaveAttribute('data-status', 'submitting')
@@ -46,7 +46,7 @@ for (const appearance of ['light', 'dark', 'paper']) {
         expect(sends[i].message).toBe(`image attachment outbox message ${i + 1}`)
         forwards[i]()
         await expect(rows).toHaveCount(2 - i)
-        await expect(input).toHaveValue('newer draft must survive all acknowledgements')
+        await expect(input).toHaveText('newer draft must survive all acknowledgements')
       }
       expect(new Set(sends.map(item => item.requestId)).size).toBe(3)
     } finally {
@@ -95,7 +95,7 @@ test(`uncertain delivery pauses later messages and recovers through ${reload ? '
     const input = page.getByTestId('code-acp-composer-input')
     await input.fill('image attachment uncertain original message')
     await page.getByTestId('code-acp-composer-send').click()
-    await expect(input).toHaveValue('')
+    await expect(input).toHaveText('')
     await expect.poll(async () => (await (await page.request.get(`/farming/api/agents/${agentId}/acp-session`)).json()).session?.chatTurn?.status).toBe('completed')
     sendUnknown!()
     await expect(page.getByTestId('code-acp-submission').first()).toHaveAttribute('data-status', 'unknown')
@@ -110,7 +110,7 @@ test(`uncertain delivery pauses later messages and recovers through ${reload ? '
       deliverLateAcknowledgement!()
       await expect(page.getByTestId('code-acp-submission')).toHaveCount(0)
       expect(sends).toHaveLength(2)
-      await expect(input).toHaveValue('new draft after uncertain delivery')
+      await expect(input).toHaveText('new draft after uncertain delivery')
       await expect(page.locator('.code-agent-transcript-turn').filter({ hasText: 'image attachment uncertain original message' })).toHaveCount(1)
       return
     }
@@ -161,26 +161,26 @@ test('only definite failure returns the submitted snapshot to an empty editor', 
     const input = page.getByTestId('code-acp-composer-input')
     await input.fill('return this message')
     await page.getByTestId('code-acp-composer-send').click()
-    await expect(input).toHaveValue('')
+    await expect(input).toHaveText('')
     await expect.poll(() => Boolean(reject)).toBe(true)
     reject!()
-    await expect(input).toHaveValue('return this message')
+    await expect(input).toHaveText('return this message')
     await expect(page.getByTestId('code-acp-submission')).toHaveCount(0)
     reject = undefined
     await page.getByTestId('code-acp-composer-send').click()
-    await expect(input).toHaveValue('')
+    await expect(input).toHaveText('')
     await input.fill('keep the new draft')
     await expect.poll(() => Boolean(reject)).toBe(true)
     reject!()
     await expect(page.getByTestId('code-acp-submission')).toHaveAttribute('data-status', 'failed')
-    await expect(input).toHaveValue('keep the new draft')
+    await expect(input).toHaveText('keep the new draft')
     const staleRejection = reject!
     await page.getByTestId('code-acp-submission-retry').click()
     await expect.poll(() => requestIds.length).toBe(3)
     expect(requestIds[2]).not.toBe(requestIds[1])
     staleRejection()
     await expect(page.getByTestId('code-acp-submission')).toHaveAttribute('data-status', 'submitting')
-    await expect(input).toHaveValue('keep the new draft')
+    await expect(input).toHaveText('keep the new draft')
   } finally {
     await page.request.delete(`/farming/api/control/agents/${agentId}?recordHistory=0`)
   }
@@ -211,13 +211,13 @@ test('bounds a burst of unconfirmed messages without dispatching or losing the o
     for (let i = 0; i < 32; i++) {
       await input.fill(`burst ${i}`)
       await input.press('Enter')
-      await expect(input).toHaveValue('', { timeout: 1000 })
+      await expect(input).toHaveText('', { timeout: 1000 })
     }
     await expect(page.getByTestId('code-acp-submission')).toHaveCount(32)
     await input.fill('overflow stays editable')
     await expect(page.getByTestId('code-acp-composer-send')).toBeDisabled()
     await input.press('Enter')
-    await expect(input).toHaveValue('overflow stays editable')
+    await expect(input).toHaveText('overflow stays editable')
     expect(sends).toHaveLength(1)
     await page.screenshot({ path: testInfo.outputPath('bounded-outbox.png'), animations: 'disabled' })
   } finally {

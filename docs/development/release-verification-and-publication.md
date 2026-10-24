@@ -102,6 +102,11 @@ owning check rather than silently receiving no coverage. Repair failures locally
 and repeat only affected checks before freezing the candidate. These early checks
 do not replace final exact-SHA CI or artifact acceptance.
 
+In a shared source checkout, finish the browser screen build before starting
+checks that read generated runtime artifacts. Vite replaces `dist/`, including
+prepared ACP adapters; independent checks may run concurrently only after that
+build has completed or when they own separate generated output roots.
+
 The middle fan-out has a seven-minute wall-time target. GitHub publication and
 public verification precede npm; runtime versions can publish in parallel, but
 the main package waits for every runtime's public source and digest verification.

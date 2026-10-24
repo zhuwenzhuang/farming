@@ -10,6 +10,7 @@ import {
   terminalCheckpointOutput,
   test,
 } from './fixtures'
+import { expectValue, selectText } from './composer-test-input'
 import type { Agent } from '../../src/types/agent'
 
 type FarmingState = {
@@ -533,9 +534,9 @@ test.describe('mobile Farming Code user story', () => {
           ? Number.parseFloat(inputStyle.paddingTop) + Number.parseFloat(inputStyle.paddingBottom)
             + Number.parseFloat(inputStyle.borderTopWidth) + Number.parseFloat(inputStyle.borderBottomWidth)
           : 0,
-        inputAutocomplete: input?.getAttribute('autocomplete'),
+        inputEditable: input?.getAttribute('contenteditable'),
         inputMode: input?.getAttribute('inputmode'),
-        inputName: input?.getAttribute('name'),
+        inputMultiline: input?.getAttribute('aria-multiline'),
         inputRole: input?.getAttribute('role'),
         placeholderVisible: Boolean(
           runningPlaceholderStyle
@@ -569,10 +570,10 @@ test.describe('mobile Farming Code user story', () => {
     // without growing an extra blank row or relying on a desktop pixel bound.
     expect(metrics.inputLineHeight).toBeGreaterThan(0)
     expect(Math.abs(metrics.inputHeight - (2 * metrics.inputLineHeight + metrics.inputVerticalInsets))).toBeLessThanOrEqual(1)
-    expect(metrics.inputAutocomplete).toBe('off')
+    expect(metrics.inputEditable).toBe('true')
     expect(metrics.inputMode).toBe('text')
-    expect(metrics.inputName).toBe('farming-acp-chat-message')
-    expect(metrics.inputRole).toBeNull()
+    expect(metrics.inputMultiline).toBe('true')
+    expect(metrics.inputRole).toBe('textbox')
     expect(metrics.placeholderVisible).toBe(false)
     expect(metrics.progressRowCount).toBe(0)
     expect(metrics.runningStatusPosition).not.toBe('fixed')
@@ -598,7 +599,13 @@ test.describe('mobile Farming Code user story', () => {
     // A viewport-only resize must use the same follow intent as new content.
     for (const draft of ['one\ntwo\nthree\nfour', 'short']) {
       const previousHeight = await transcriptScroller.evaluate(element => element.clientHeight)
-      await composerInput.fill(draft)
+      await selectText(composerInput, 0)
+      await composerInput.evaluate((element, text) => {
+        const clipboardData = new DataTransfer()
+        clipboardData.setData('text/plain', text)
+        element.dispatchEvent(new ClipboardEvent('paste', { clipboardData, bubbles: true, cancelable: true }))
+      }, draft)
+      await expectValue(composerInput, draft)
       await expect.poll(() => transcriptScroller.evaluate(element => element.clientHeight)).not.toBe(previousHeight)
       await expectFollowingLatest()
     }
@@ -616,7 +623,13 @@ test.describe('mobile Farming Code user story', () => {
     await page.waitForTimeout(450)
     for (const draft of ['one\ntwo\nthree\nfour', 'short']) {
       const previousHeight = await transcriptScroller.evaluate(element => element.clientHeight)
-      await composerInput.fill(draft)
+      await selectText(composerInput, 0)
+      await composerInput.evaluate((element, text) => {
+        const clipboardData = new DataTransfer()
+        clipboardData.setData('text/plain', text)
+        element.dispatchEvent(new ClipboardEvent('paste', { clipboardData, bubbles: true, cancelable: true }))
+      }, draft)
+      await expectValue(composerInput, draft)
       await expect.poll(() => transcriptScroller.evaluate(element => element.clientHeight)).not.toBe(previousHeight)
       await expect.poll(() => transcriptScroller.evaluate(element => element.scrollTop)).toBeCloseTo(readingTop, 0)
       await expect(jumpToLatest).toBeVisible()

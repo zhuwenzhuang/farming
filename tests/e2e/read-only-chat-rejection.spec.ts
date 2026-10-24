@@ -89,13 +89,13 @@ test('read-only Chat rejection settles delivery and preserves the draft across r
     await expect.poll(() => responses.find(frame => frame.type === 'composer-input-result')).toMatchObject({
       agentId, accepted: false, message: 'This Farming share is read-only.',
     })
-    await expect(input).toHaveValue(marker)
+    await expect(input).toHaveText(marker)
     await expect(guest.getByText('Delivery outcome unknown', { exact: true })).toHaveCount(0)
     await expect(guest.getByText('Waiting for Agent', { exact: true })).toHaveCount(0)
     await guest.reload()
     await expect(guest.getByTestId('code-read-only-share-banner')).toBeVisible()
     await selectAgent()
-    await expect(input).toHaveValue(marker)
+    await expect(input).toHaveText(marker)
     await expect(guest.getByText('Delivery outcome unknown', { exact: true })).toHaveCount(0)
     const transcript = await page.request.get(`/farming/api/agents/${encodeURIComponent(agentId)}/acp-transcript?maxTurns=5&media=external-v1`)
     expect(transcript.ok()).toBe(true)

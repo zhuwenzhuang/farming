@@ -238,7 +238,7 @@ test('keeps ACP Chat live while the browser page is hidden', { tag: '@iphone-hum
   } else {
     await expect(page.getByTestId('code-acp-composer')).toBeVisible()
   }
-  await expect(composerInput).toHaveValue('draft survives composer collapse')
+  await expect(composerInput).toHaveText('draft survives composer collapse')
   await composerInput.fill('')
 
   await composerInput.fill('streaming thought')
@@ -1361,7 +1361,7 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
 
     await input.fill('Message sent while reading history')
     await send.click()
-    await expect(input).toHaveValue('')
+    await expect(input).toHaveText('')
     const sentMessage = transcript.getByText('Message sent while reading history', { exact: true })
     // Geometry assertions must precede any locator action that might scroll it into view.
     await expect(sentMessage).toBeInViewport()

@@ -527,7 +527,7 @@ test.describe('iPhone mobile layout', () => {
     await captureIphoneAudit(page, testInfo, 'iphone-webkit-long-model-label.png')
     await page.keyboard.press('Escape')
     await send.click()
-    await expect(input).toHaveValue('')
+    await expect(input).toHaveText('')
   })
 
   test('keeps a real image attachment and its remove control inside the iPhone composer', async ({ page, workspaceRoot }, testInfo) => {
@@ -605,7 +605,7 @@ test.describe('iPhone mobile layout', () => {
     await input.tap()
     await input.fill('rich timeline')
     await page.keyboard.press('Enter')
-    await expect(input).toHaveValue('rich timeline\n')
+    await expect(input).toHaveText('rich timeline\n')
     await page.getByTestId('code-acp-composer-send').tap()
     await expect(page.getByText('Rich ACP timeline complete.', { exact: true })).toBeVisible({ timeout: 30_000 })
     await input.tap()
@@ -624,7 +624,7 @@ test.describe('iPhone mobile layout', () => {
       Object.defineProperty(composingEnter, 'keyCode', { value: 229 })
       element.dispatchEvent(composingEnter)
     })
-    await expect(input).toHaveValue('/')
+    await expect(input).toHaveText('/')
     await expect(page.getByTestId('code-acp-command-review')).toBeVisible()
     await captureIphoneAudit(page, testInfo, 'iphone-webkit-ime-slash-menu.png')
 
@@ -637,7 +637,7 @@ test.describe('iPhone mobile layout', () => {
         code: 'Enter',
       }))
     })
-    await expect(input).toHaveValue('/')
+    await expect(input).toHaveText('/')
     await expect(page.getByTestId('code-acp-command-review')).toBeVisible()
   })
 

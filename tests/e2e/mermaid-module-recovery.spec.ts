@@ -37,7 +37,7 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
       await failure.getByRole('button', { name: 'Reload page', exact: true }).click()
       const restored = page.locator(`[data-turn-id="${turnId}"]`)
       await expect(restored.locator('.code-markdown-mermaid-canvas > svg')).toBeVisible()
-      await expect(input).toHaveValue('Unsent draft must survive diagram recovery')
+      await expect(input).toHaveText('Unsent draft must survive diagram recovery')
       await expect(page.locator('.code-agent-transcript-turn').filter({ hasText: 'phase-aware mermaid' })).toHaveCount(1)
       await page.evaluate(value => { document.body.dataset.appearance = value }, appearance)
       await restored.locator('.code-markdown-mermaid').scrollIntoViewIfNeeded()

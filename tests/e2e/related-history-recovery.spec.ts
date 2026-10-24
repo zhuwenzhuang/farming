@@ -184,7 +184,7 @@ for (const language of ['en', 'zh']) {
       await expect(panel.locator('.code-related-session-header')).toContainText('Review 13')
       await expect(panel).not.toContainText('OBSOLETE CHILD RESPONSE')
       await expect(panel.getByRole('alert')).toHaveCount(0)
-      await expect(input).toHaveValue('Keep the parent draft unchanged.')
+      await expect(input).toHaveText('Keep the parent draft unchanged.')
       for (const appearance of ['light', 'dark', 'paper']) {
         await page.evaluate(value => {
           document.body.dataset.appearance = value
@@ -239,10 +239,10 @@ for (const language of ['en', 'zh']) {
       await rows.filter({ hasText: 'Review 13' }).click()
       await expect(panel).toContainText(text.failed)
       expect(reads.filter(read => read.sessionId.endsWith('-review-13')).every(read => !read.cursor)).toBe(true)
-      await expect(input).toHaveValue('Keep the parent draft unchanged.')
+      await expect(input).toHaveText('Keep the parent draft unchanged.')
       await parent.press('Enter')
       await expect(panel).toHaveCount(0)
-      await expect(input).toHaveValue('Keep the parent draft unchanged.')
+      await expect(input).toHaveText('Keep the parent draft unchanged.')
     } finally {
       // A failed assertion must not leave a paused route alive in the browser.
       if (held && !released) await held.abort()

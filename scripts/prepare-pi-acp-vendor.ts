@@ -7,16 +7,16 @@ import * as esbuild from 'esbuild';
 const projectRoot = path.join(__dirname, '..');
 const expectedVersion = '0.0.34';
 const expectedSdkVersion = '0.26.0';
-const expectedZodVersion = '3.25.76';
+const expectedZodVersion = '4.6.7';
 const expectedUpstreamSha256 = '324aeb8bba1228937e16b1326fb3e014e2a625b2dea549dbcd49b006cd5df6a2';
-const expectedBundleSha256 = '6918a59057450cbb937964ff81882312cc5974de5738ff947f359a32ad5a208b';
+const expectedBundleSha256 = '7b56b4820d7739e877b8ad96b2a045e2b57ddaf45ec6c637412d37c43b3abd10';
 const packageRoot = path.dirname(require.resolve('pi-acp/package.json'));
 const packageJsonPath = path.join(packageRoot, 'package.json');
 const sourceEntry = path.join(packageRoot, 'dist', 'index.js');
 const sourceLicense = path.join(packageRoot, 'LICENSE');
 const sdkPackageJsonPath = require.resolve('@agentclientprotocol/sdk/package.json', { paths: [packageRoot] });
 const sdkLicense = path.join(path.dirname(sdkPackageJsonPath), 'LICENSE');
-const zodPackageJsonPath = require.resolve('zod/package.json', { paths: [packageRoot] });
+const zodPackageJsonPath = require.resolve('zod/package.json', { paths: [projectRoot] });
 const zodLicense = path.join(path.dirname(zodPackageJsonPath), 'LICENSE');
 const targetDirectory = path.join(projectRoot, 'dist', 'acp');
 const targetEntry = path.join(targetDirectory, `pi-acp-${expectedVersion}.mjs`);
@@ -63,6 +63,12 @@ function farmingPiPlugin(): esbuild.Plugin {
   return {
     name: 'farming-pi-acp-isolation',
     setup(build) {
+      // The protocol imports Zod v4; bind its reviewed validator independently
+      // of the adapter package's legacy dependency range.
+      build.onResolve({ filter: /^zod(?:\/|$)/ }, args => {
+        if (!args.importer.startsWith(`${packageRoot}${path.sep}`)) return;
+        return build.resolve(args.path, { kind: args.kind, resolveDir: projectRoot });
+      });
       build.onLoad({ filter: /.*/ }, args => {
         if (path.resolve(args.path) !== path.resolve(sourceEntry)) return null;
         let source = fs.readFileSync(args.path, 'utf8');

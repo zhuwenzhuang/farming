@@ -1,6 +1,6 @@
 {
   "name": "farming-code",
-  "version": "2.2.92",
+  "version": "2.2.93",
   "farmingUserInstall": 1,
   "description": "Farming Code is a self-hosted browser workspace for running and supervising AI coding agents",
   "main": "backend/server.cjs",
@@ -107,7 +107,7 @@
     "release:fast-screen:workspace-oracles": "playwright test tests/e2e/file-tree-hierarchy.spec.ts tests/e2e/appearance-color-regression.spec.ts tests/e2e/dark-mode-skin.spec.ts tests/e2e/file-markdown-preview.spec.ts tests/e2e/file-editor-actions-responsive.spec.ts tests/e2e/multi-agent-state-gallery.spec.ts tests/e2e/sidebar-spacing.spec.ts tests/e2e/terminal-resize-coordination.spec.ts tests/e2e/human-story.spec.ts tests/e2e/display-flows.spec.ts --project=chromium --workers=1 --retries=0 --grep 'applies Paper across|renders Markdown files by default|file actions use a keyboard-accessible|captures multiple native Agents|keeps composed sidebar density|coalesces a sustained diagonal|inserts Codex slash commands from the composer|opens project changes into the editor diff|keeps project files as a collapsible|keeps the Files header seam opaque over scrolled file rows|Light, Dark, and Paper Archive notices|adapts rendered Agent and terminal controls'",
     "release:fast-screen:sidebar-mobile": "playwright test tests/e2e/sidebar-spacing.spec.ts tests/e2e/sidebar-surface-appearance.spec.ts tests/e2e/file-header-context.spec.ts --project=iphone-webkit --workers=1 --retries=0 --grep 'keeps composed sidebar density and alignment|sidebar surfaces stay unified|touch path, search and disclosure'",
     "release:fast-screen:changed-contracts": "playwright test tests/e2e/worktree-creation.spec.ts tests/e2e/acp-steer.spec.ts tests/e2e/display-flows.spec.ts tests/e2e/additional-user-scenarios.spec.ts tests/e2e/model-matrix.spec.ts tests/e2e/rich-content-viewer.spec.ts --project=chromium --workers=1 --retries=0 --grep 'names, tracks, minimizes|blocks ACP submission when an image upload fails|persists every Project until Remove|keeps desktop Composer menus|covers 31 additional|model matrix follows the advertised|unifies streaming rich content and fullscreen inspection in dark'",
-    "release:fast-screen:mobile": "playwright test tests/e2e/mobile-human-story.spec.ts tests/e2e/background-chat-continuity.spec.ts tests/e2e/mobile-composer.spec.ts tests/e2e/acp-human-cases.spec.ts tests/e2e/iphone-mobile-layout.spec.ts tests/e2e/global-file-search.spec.ts --project=chromium --project=iphone-webkit --project=iphone-human-webkit --project=android-human-chromium --grep 'forks the latest ACP answer|mobile (chat|terminal) long input|opens native ACP image attachments|keeps a real image attachment|opens and toggles a sandboxed HTML preview|preserves a mobile editor draft|opens a long path from a touch-sized result|keeps long Chat lines and the running answer fully visible|returns to a remote shell|uses the same compact structure' --retries=0",
+    "release:fast-screen:mobile": "playwright test tests/e2e/mobile-human-story.spec.ts tests/e2e/background-chat-continuity.spec.ts tests/e2e/mobile-composer.spec.ts tests/e2e/acp-human-cases.spec.ts tests/e2e/iphone-mobile-layout.spec.ts tests/e2e/global-file-search.spec.ts --project=chromium --project=iphone-webkit --project=iphone-human-webkit --project=android-human-chromium --grep 'forks the latest ACP answer|mobile (chat|terminal) (long input|send and stop)|opens native ACP image attachments|keeps a real image attachment|opens and toggles a sandboxed HTML preview|preserves a mobile editor draft|opens a long path from a touch-sized result|keeps long Chat lines and the running answer fully visible|returns to a remote shell|uses the same compact structure' --retries=0",
     "release:fast-screen:mobile-auth": "FARMING_PLAYWRIGHT_AUTH=1 FARMING_PLAYWRIGHT_PORT=${FARMING_PLAYWRIGHT_PORT:-4174} playwright test tests/e2e/mobile-auth-readonly.spec.ts tests/e2e/read-only-chat-rejection.spec.ts --project=mobile-auth-webkit --workers=1 --retries=0 --trace=retain-on-failure",
     "release:fast-screen:shell": "playwright test tests/e2e/shell-status-indicator.spec.ts tests/e2e/agent-completion-notifications.spec.ts --project=chromium --grep 'shell .* activity|uses Terminal-native notification' --retries=0",
     "sync:openclaw-browser-extension": "node scripts/sync-openclaw-browser-extension.mjs",
@@ -157,7 +157,10 @@
     "release:fast-screen:mobile-viewport": "playwright test tests/e2e/mobile-unread-navigation.spec.ts tests/e2e/iphone-mobile-layout.spec.ts --project=iphone-webkit --grep 'mobile unread navigation previews, cancels and preserves drafts across appearances|settles the standalone composer at its product-defined viewport gap'",
     "release:fast-screen:identity-files": "playwright test tests/e2e/project-subdirectory-scope.spec.ts tests/e2e/transcript-file-links.spec.ts --project=chromium --grep 'groups symlink and real directory Agents in one Project|keeps explicit and inferred file references stable'",
     "release:fast-screen:wire-state": "playwright test tests/e2e/crt-agent-state-protocol.spec.ts --project=chromium --grep 'CRT keeps a focused Pi session title and read state synchronized|Code consumes the same paged Agent state and delta sequence contract'",
-    "release:fast-screen:computer-resource": "playwright test tests/e2e/computer-resources.spec.ts --project=chromium --grep 'shows an Agent-owned Desktop only when present and switches Viewer control epochs'"
+    "release:fast-screen:computer-resource": "playwright test tests/e2e/computer-resources.spec.ts --project=chromium --grep 'shows an Agent-owned Desktop only when present and switches Viewer control epochs'",
+    "release:fast-screen:structured-composer": "playwright test tests/e2e/composer-rich-document.spec.ts tests/e2e/acp-goal.spec.ts --project=chromium --workers=1 --retries=0",
+    "release:fast-screen:quoted-side": "playwright test tests/e2e/quoted-side-flow.spec.ts --project=chromium --project=iphone-webkit --workers=1 --retries=0",
+    "release:fast-screen:dynamic-pinning": "playwright test tests/e2e/dynamic-pinning.spec.ts --project=chromium --workers=1 --retries=0"
   },
   "keywords": [
     "coding-agent-workspace",
@@ -190,7 +193,7 @@
   },
   "dependencies": {
     "@a2a-js/sdk": "1.3.0",
-    "@agentclientprotocol/sdk": "2.0.1",
+    "@agentclientprotocol/sdk": "2.0.2",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-serialize": "^0.14.0",
     "@xterm/addon-webgl": "^0.19.0",
@@ -211,7 +214,7 @@
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
     "yaml": "^2.9.0",
     "yauzl": "3.4.0",
-    "zod": "^3.25.76"
+    "zod": "4.6.7"
   },
   "bundledDependencies": [
     "@a2a-js/sdk",
