@@ -31,6 +31,7 @@ function fixture() {
   write('dist/runtime/ripgrep/linux-x64/rg', 'binary');
   fs.chmodSync(path.join(root, 'dist/runtime/ripgrep/linux-x64/rg'), 0o700);
   write('backend/packaged-node-pty.cjs', 'exports.nodePty={spawn(){}};');
+  write('backend/runtime-executable-invocation.cjs', `exports.runtimeExecutableInvocation=(executablePath,args=[],env=process.env,platform=process.platform)=>platform==='linux'&&env.FARMING_NODE_LD&&env.FARMING_NODE_LIBRARY_PATH?{command:env.FARMING_NODE_LD,args:['--library-path',env.FARMING_NODE_LIBRARY_PATH,executablePath,...args]}:{command:executablePath,args};`);
   const calls = [];
   const execute = (command, args, options) => {
     calls.push({ command, args, options });
@@ -128,4 +129,24 @@ test('actual child Node load fails closed when the native boundary cannot initia
     else process.env.FARMING_CONFIG_DIR = originalConfig;
     f.dispose();
   }
+});
+
+test('legacy Linux child probe uses the production runtime invocation owner', () => {
+  const f = fixture();
+  const env = { ...process.env, FARMING_NODE_BIN: '/managed/node', FARMING_NODE_LD: '/private/ld-2.28.so',
+    FARMING_NODE_LIBRARY_PATH: '/private/lib' };
+  const calls = [];
+  try {
+    const result = checkComputerEnvironment({ root: f.root, candidateSha: sha, image }, {
+      platform: 'linux', arch: 'x64', env, execute: (command, args, options) => {
+        calls.push({ command, args });
+        if (command.endsWith('ld-2.28.so')) return '22.18.0';
+        return f.execute(command, args, options);
+      },
+    });
+    assert.equal(result.status, 'ready');
+    const child = calls.find(call => call.command === '/private/ld-2.28.so');
+    assert.deepEqual(child.args.slice(0, 4), ['--library-path', '/private/lib', '/managed/node', '-e']);
+    assert.equal(result.facts.childNodeVersion, '22.18.0');
+  } finally { f.dispose(); }
 });

@@ -147,7 +147,9 @@ Workspace/Fixture 和 Evidence Directory。同一 Lane 内的操作串行，不�
 Lane 环境运行 `node scripts/check-release-computer-environment.mjs ROOT FULL_SHA PINNED_IMAGE`。
 只读 Receipt 绑定 Candidate、Generated Runtime 输入、Managed Ripgrep、Child Node/Native PTY
 加载及已缓存 Docker 镜像。Private Loader 下父 Node 可运行，不等于子进程可启动。该 Receipt
-不证明 Resource/Profile 就绪；有界场景开始前，必须通过真实 Computer 路径核对所属 Resource、
+使用生产 `runtimeExecutableInvocation` Owner 及 `FARMING_NODE_BIN`、`FARMING_NODE_LD`、
+`FARMING_NODE_LIBRARY_PATH` 环境值验证子进程，包括 legacy glibc Loader。该 Receipt 不证明
+Resource/Profile 就绪；有界场景开始前，必须通过真实 Computer 路径核对所属 Resource、
 前台浏览器和初始 Screenshot。每个已完成转换都保留进度 Receipt，预留最终报告时间；即使独立
 证据后来接受场景，也不能把 Watchdog 原始结果从 Incomplete 重标为成功。
 

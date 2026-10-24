@@ -201,7 +201,10 @@ app bundle. Before launching an operator, run
 in the Linux lane environment. Its read-only receipt binds the candidate,
 generated runtime inputs, managed ripgrep, child Node/native PTY loading, and
 already-present Docker image. A working parent Node does not prove child launch
-under a private loader. This receipt does not prove Resource/profile readiness:
+under a private loader. The child probe uses the same
+`runtimeExecutableInvocation` owner and `FARMING_NODE_BIN`, `FARMING_NODE_LD`,
+and `FARMING_NODE_LIBRARY_PATH` values as production Linux child processes,
+including the legacy glibc loader. This receipt does not prove Resource/profile readiness:
 verify the owned Resource, foreground browser and initial screenshot through the
 real Computer path before starting the bounded story. Retain progress receipts
 at each completed transition and reserve time for the final report; a watchdog

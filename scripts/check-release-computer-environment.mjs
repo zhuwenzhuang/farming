@@ -22,6 +22,7 @@ const digest = filename => crypto.createHash('sha256').update(fs.readFileSync(fi
 // Resource, Desktop, PTY session, browser, image pull, or private config is created.
 export function checkComputerEnvironment({ root, candidateSha, image }, {
   platform = process.platform, arch = process.arch,
+  env = process.env,
   execute = (command, args, options) => execFileSync(command, args, {
     encoding: 'utf8', timeout: 2_000, maxBuffer: 128 * 1024,
     stdio: ['ignore', 'pipe', 'pipe'], ...options,
@@ -90,10 +91,14 @@ export function checkComputerEnvironment({ root, candidateSha, image }, {
         + 'if(!((a===22&&b>=13)||a>=23))process.exit(2);'
         + 'if(typeof require(process.argv[1]).nodePty?.spawn!=="function")process.exit(3);'
         + 'process.stdout.write(process.versions.node);';
-      const childEnv = { ...process.env, FARMING_PACKAGED_RUNTIME: '0' };
+      const childEnv = { ...env, FARMING_PACKAGED_RUNTIME: '0' };
       delete childEnv.FARMING_CONFIG_DIR;
-      const version = execute(process.execPath,
-        ['-e', probe, path.join(path.resolve(root), 'backend/packaged-node-pty.cjs')], { cwd: root, env: childEnv }).trim();
+      const runtimeRequire = createRequire(path.join(path.resolve(root), 'package.json'));
+      const { runtimeExecutableInvocation } = runtimeRequire('./backend/runtime-executable-invocation.cjs');
+      const nodePath = childEnv.FARMING_NODE_BIN || process.execPath;
+      const invocation = runtimeExecutableInvocation(nodePath,
+        ['-e', probe, path.join(path.resolve(root), 'backend/packaged-node-pty.cjs')], childEnv, platform);
+      const version = execute(invocation.command, invocation.args, { cwd: root, env: childEnv }).trim();
       if (!/^\d+\.\d+\.\d+$/.test(version)) throw Error();
       facts.childNodeVersion = version;
     });
